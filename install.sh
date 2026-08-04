@@ -2,7 +2,7 @@
 # install.sh — установка torrcast на стенд/LXC. Идемпотентен: повторный запуск
 # ничего не ломает и не пересоздаёт то, что уже на месте (§6 ТЗ).
 #
-# Фазы: зависимости → пакет → TorrServer → Prowlarr → индексеры → конфиг → юниты.
+# Фазы: зависимости → пакет → TorrServer → Prowlarr → индексеры → конфиг → https.
 # Ноль регистраций и внешних ключей: apikey Prowlarr генерит сам себе, мы его
 # вычитываем из его же config.xml и кладём в конфиг torrcast.
 #
@@ -32,7 +32,14 @@ TS_CACHE="${TORRCAST_TS_CACHE:-4294967296}"
 # агрегирует RuTracker/TPB/Nyaa/1337x и отдаёт infoHash; RuTor — прямой.
 INDEXERS=("Knaben|https://knaben.org/" "rutor|https://rutor.info/")
 
-PHASES="${TORRCAST_PHASES:-packages torrcast torrserver prowlarr indexers config units}"
+PHASES="${TORRCAST_PHASES:-packages torrcast torrserver prowlarr indexers config https}"
+
+# https-раздача HLS: сегменты в tmpfs (фильм на диск не пишем), серт и ключ — файлы,
+# путь к которым знает конфиг. На стенде сюда встают файлы LE, код тот же самый.
+HLS_DIR="${TORRCAST_HLS_DIR:-/dev/shm/torrcast}"
+HLS_PORT="${TORRCAST_HLS_PORT:-8443}"
+HLS_HOST="${TORRCAST_HLS_HOSTNAME:-torrcast.anysda.space}"
+TLS_DIR="$CONFIG_DIR/tls"
 
 log()  { printf '\033[1m==>\033[0m %s\n' "$*"; }
 skip() { printf '    уже на месте: %s\n' "$*"; }
@@ -67,7 +74,7 @@ wait_http() {  # $1 url, $2 секунд
 }
 
 # --- 1. Зависимости ---------------------------------------------------------
-APT_PACKAGES=(ffmpeg curl ca-certificates jq tar)
+APT_PACKAGES=(ffmpeg curl ca-certificates jq tar openssl)
 
 install_packages() {
     log "зависимости"
@@ -250,7 +257,13 @@ setup_config() {
   "torrserver_url": "$TS_URL",
   "prowlarr_url": "$PL_URL",
   "prowlarr_apikey": "$key",
-  "hls_base_url": "https://torrcast.anysda.space",
+  "hls_base_url": "https://$HLS_HOST:$HLS_PORT",
+  "hls_port": $HLS_PORT,
+  "hls_cert": "$TLS_DIR/torrcast.crt",
+  "hls_key": "$TLS_DIR/torrcast.key",
+  "hls_dir": "$HLS_DIR",
+  "hls_window": 45,
+  "hls_readrate": 1.0,
   "bitrate_warn_mbit": 20.0
 }
 JSON
@@ -285,13 +298,29 @@ UNIT
     systemctl daemon-reload
 }
 
-setup_units() {
-    log "юниты и https"
-    # TODO(этап 2): раздача HLS (caddy/nginx) с CORS '*' и LE-сертом по DNS-01,
-    # split-DNS torrcast.anysda.space → адрес стенда в AdGuard.
-    # Постоянных своих демонов нет: воспроизведение поднимает transient-юнит
-    # torrcast-play через systemd-run, гасит его `cast stop`.
-    info "TODO(этап 2): https-раздача HLS ещё не настроена"
+# Своего демона раздачи нет: https-сервер живёт внутри процесса `cast` ровно на время
+# показа — отдельного caddy/nginx с их конфигами не заводим (§6, бюджет кода).
+# Здесь только то, что должно существовать до первого запуска: каталог и серт.
+setup_https() {
+    log "https-раздача HLS ($HLS_HOST:$HLS_PORT, сегменты в $HLS_DIR)"
+    install -d -m 0755 "$HLS_DIR"
+    install -d -m 0700 "$TLS_DIR"
+
+    if [ -s "$TLS_DIR/torrcast.crt" ] && [ -s "$TLS_DIR/torrcast.key" ]; then
+        skip "серт $TLS_DIR/torrcast.crt (до $(openssl x509 -noout -enddate \
+            -in "$TLS_DIR/torrcast.crt" | cut -d= -f2))"
+        return
+    fi
+
+    # Self-signed = рабочий дефолт для mock-приёмки. Chromecast его молча не примет:
+    # на стенде сюда кладутся файлы LE (или правится путь в config.json) — и всё.
+    openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
+        -keyout "$TLS_DIR/torrcast.key" -out "$TLS_DIR/torrcast.crt" \
+        -subj "/CN=$HLS_HOST" -addext "basicConstraints=critical,CA:TRUE" \
+        -addext "subjectAltName=DNS:$HLS_HOST,DNS:localhost,IP:127.0.0.1" 2>/dev/null
+    chmod 600 "$TLS_DIR/torrcast.key"
+    info "выпущен self-signed на $HLS_HOST — mock-приёмке этого достаточно"
+    info "⚠ живому ТВ нужен серт LE: Chromecast self-signed молча не играет"
 }
 
 main() {
@@ -302,7 +331,7 @@ main() {
     has prowlarr   && install_prowlarr
     has indexers   && install_indexers
     has config     && setup_config
-    has units      && setup_units
+    has https      && setup_https
     log "готово. Осталось: cast --tv <ip-телевизора>"
 }
 

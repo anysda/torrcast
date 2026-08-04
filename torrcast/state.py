@@ -49,6 +49,15 @@ class Config:
     prowlarr_apikey: str = ""
     #: Базовый https-URL, под которым ТВ забирает HLS (§3).
     hls_base_url: str = "https://torrcast.anysda.space"
+    hls_port: int = 8443
+    #: Серт и ключ: на стенде тут окажутся файлы LE — подмена сводится к правке пути (§9).
+    hls_cert: str = "/etc/torrcast/tls/torrcast.crt"
+    hls_key: str = "/etc/torrcast/tls/torrcast.key"
+    #: Сегменты живут в tmpfs — фильм на диск не пишем (§3); окно в сегментах по 4 с.
+    hls_dir: str = "/dev/shm/torrcast"
+    hls_window: int = 45
+    #: Темп упаковки: 1.0 = реальное время (так живёт ТВ), 0 = без ограничения (приёмка).
+    hls_readrate: float = 1.0
     #: Практический потолок битрейта приёмника, Мбит/с (урок Q70D, §3).
     bitrate_warn_mbit: float = 20.0
 

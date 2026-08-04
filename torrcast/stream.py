@@ -7,12 +7,17 @@ TorrServer (кэш в RAM, на диск не пишем), пакует ffmpeg (
 from __future__ import annotations
 
 import contextlib
+import http.server
 import json
 import re
+import signal
+import ssl
 import subprocess
+import tempfile
 import threading
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final
 from urllib.parse import quote
 
@@ -25,12 +30,15 @@ __all__ = [
     "HLS_SEGMENT_SECONDS",
     "RUNTIME_GUESS",
     "AudioTrack",
+    "HlsServer",
     "Media",
+    "Packer",
     "TorrFile",
     "TorrServer",
     "Warmup",
     "bitrate_mbit",
     "ffmpeg_hls_command",
+    "hls_dir",
     "pick_video_file",
     "probe",
 ]
@@ -259,36 +267,119 @@ def pick_video_file(files: list[TorrFile]) -> TorrFile:
 
 
 def ffmpeg_hls_command(
-    source_url: str, audio_index: int, out_dir: str, start_pos: float = 0.0
+    source_url: str, audio_index: int, out_dir: str, start_pos: float = 0.0, readrate: float = 1.0
 ) -> list[str]:
-    """Команда ffmpeg для HLS: перемотка и resume = рестарт с ``-ss``, манифест с нуля (§3)."""
+    """Команда ffmpeg для HLS (§3). Перемотка и resume = рестарт с ``-ss``, манифест с нуля.
+
+    ``EXT-X-PLAYLIST-TYPE:EVENT`` обязателен: без него растущий манифест выглядит как
+    live, и приёмник по стандарту стартует за три сегмента до конца — то есть с середины
+    фильма. С EVENT и ТВ, и ffmpeg начинают с первого сегмента (проверено).
+    ``temp_file`` — чтобы наружу не попал недописанный сегмент или манифест.
+    """
     command = ["ffmpeg", "-hide_banner", "-loglevel", "warning"]
+    if readrate > 0:
+        # Темп реального времени: упаковка не должна убегать от приёмника дальше окна
+        # сегментов в tmpfs. Первый сегмент при этом готов через ~4 с — это и есть
+        # строка «HLS + запуск приёмника 3–5 с» из бюджета §3.1.
+        command += ["-readrate", f"{readrate:g}"]
     if start_pos > 0:
         command += ["-ss", f"{start_pos:.3f}"]
     command += ["-i", source_url, "-map", "0:v:0", "-map", f"0:a:{audio_index}"]
     command += (
         f"-c:v copy -c:a {AUDIO_CODEC} -ac {AUDIO_CHANNELS} -b:a {AUDIO_BITRATE} "
-        f"-f hls -hls_time {HLS_SEGMENT_SECONDS} -hls_list_size 0 "
-        "-hls_segment_type mpegts -hls_flags independent_segments"
+        f"-f hls -hls_time {HLS_SEGMENT_SECONDS} -hls_list_size 0 -hls_playlist_type event "
+        "-hls_segment_type mpegts -hls_flags independent_segments+temp_file"
     ).split()
     command.append(f"{out_dir.rstrip('/')}/index.m3u8")
     return command
 
 
-def start_play_unit(command: list[str], unit: str = _UNIT_NAME) -> str:
-    """Упаковка transient-юнитом ``systemd-run``: своих демонов нет, юнит живёт ровно на
-    время показа, логи в journald, гасит ``cast stop`` (§3).
+def hls_dir(path: str) -> Path:
+    """Чистый каталог сегментов. Это tmpfs: фильм на диск не пишем (§3, §1)."""
+    directory = Path(path)
+    directory.mkdir(parents=True, exist_ok=True)
+    for junk in directory.glob("index*"):
+        junk.unlink(missing_ok=True)
+    return directory
 
-    TODO(этап 3): сторож позиции раз в 10 с и автопереход серий.
-    """
-    full = ["systemd-run", "--user", f"--unit={unit}", "--collect", *command]
-    try:
-        subprocess.run(full, capture_output=True, text=True, check=True)
-    except FileNotFoundError as exc:
-        raise InfraError("systemd-run недоступен") from exc
-    except subprocess.CalledProcessError as exc:
-        raise InfraError(f"не смог запустить упаковку: {exc.stderr.strip()[:120]}") from exc
-    return unit
+
+@dataclass(slots=True)
+class Packer:
+    """Живая упаковка потока в HLS: процесс ffmpeg + окно сегментов в tmpfs."""
+
+    proc: subprocess.Popen[bytes]
+    out: Path
+    #: Сколько сегментов держим; старые удаляются, фильм целиком в RAM не влезет.
+    window: int = 45
+    log: Any = None
+    _running: bool = True
+
+    @classmethod
+    def start(cls, command: list[str], out: Path, window: int = 45) -> Packer:
+        log = tempfile.TemporaryFile()  # noqa: SIM115 — живёт всё воспроизведение
+        try:
+            proc = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=log)
+        except FileNotFoundError as exc:
+            raise InfraError("ffmpeg не установлен") from exc
+        return cls(proc=proc, out=out, window=window, log=log)
+
+    def manifest(self, timeout: float = 30.0) -> Path:
+        """Дождаться первого манифеста; смерть ffmpeg по дороге — честная ошибка (§5)."""
+        path = self.out / "index.m3u8"
+        deadline = time.monotonic() + timeout
+        while not path.exists():
+            code = self.proc.poll()
+            if code is not None:
+                raise InfraError(f"упаковка не запустилась: {self.why()}")
+            if time.monotonic() >= deadline:
+                raise InfraError(f"ffmpeg не отдал манифест за {timeout:.0f} с")
+            time.sleep(0.2)
+        return path
+
+    def prune(self) -> None:
+        """Удалить всё, что старше окна: сегменты живут в RAM, а её мало."""
+        if self.window <= 0:
+            return
+        for old in sorted(self.out.glob("*.ts"), key=_segment_number)[: -self.window]:
+            old.unlink(missing_ok=True)
+
+    def pace(self, lead: float) -> None:
+        """Придержать упаковку, если она ушла от приёмника дальше половины окна: иначе
+        сегменты вычищаются у него из-под носа. Пауза сигналом, ffmpeg её переживает.
+        """
+        limit = self.window * HLS_SEGMENT_SECONDS
+        want = self.window <= 0 or lead < limit / 2
+        if want is not self._running and self.proc.poll() is None:
+            self.proc.send_signal(signal.SIGCONT if want else signal.SIGSTOP)
+            self._running = want
+
+    def poll(self) -> int | None:
+        return self.proc.poll()
+
+    def why(self) -> str:
+        """Последняя внятная строка от ffmpeg — наружу без трейсбеков (§6)."""
+        if self.log is None:
+            return "нет вывода"
+        self.log.seek(0)
+        lines = [ln for ln in self.log.read().decode("utf-8", "replace").splitlines() if ln.strip()]
+        return lines[-1][:120] if lines else "нет вывода"
+
+    def stop(self) -> None:
+        if self.proc.poll() is None:
+            if not self._running:
+                self.proc.send_signal(signal.SIGCONT)
+            self.proc.terminate()
+            with contextlib.suppress(subprocess.TimeoutExpired):
+                self.proc.wait(timeout=5)
+            if self.proc.poll() is None:
+                self.proc.kill()
+        for junk in self.out.glob("index*"):
+            junk.unlink(missing_ok=True)
+
+
+def _segment_number(path: Path) -> int:
+    found = re.search(r"(\d+)\.ts$", path.name)
+    return int(found.group(1)) if found else 0
 
 
 def stop_play_unit(unit: str = _UNIT_NAME) -> None:
@@ -300,3 +391,133 @@ def stop_play_unit(unit: str = _UNIT_NAME) -> None:
 
 def _opt_str(value: Any) -> str | None:
     return str(value) if value not in (None, "") else None
+
+
+#: Отдаём ровно то, что производит ffmpeg, и ничего больше: каталог наружу не открыт.
+_ASSET_RE: Final = re.compile(r"^index(?:\d+\.ts|\.m3u8)$")
+_TYPES: Final = {".m3u8": "application/vnd.apple.mpegurl", ".ts": "video/mp2t"}
+_RANGE_RE: Final = re.compile(r"bytes=(\d*)-(\d*)")
+
+
+class _Handler(http.server.BaseHTTPRequestHandler):
+    """Манифест и сегменты: CORS на всех ответах, Range на сегментах, ноль лишних путей.
+
+    Range обязателен: ресивер Q70D переспрашивает куски диапазонами (грабли kinocast),
+    а без ``Access-Control-Allow-Origin: *`` Chromecast молча не играет (§3, §9).
+    """
+
+    protocol_version = "HTTP/1.1"
+    server_version = "torrcast"
+    root: Path = Path()
+
+    def do_GET(self) -> None:
+        self._serve(body=True)
+
+    def do_HEAD(self) -> None:
+        self._serve(body=False)
+
+    def do_OPTIONS(self) -> None:
+        self._head(204, 0, "text/plain")
+
+    def _serve(self, body: bool) -> None:
+        name = self.path.split("?")[0].lstrip("/")
+        path = self.root / name
+        if not _ASSET_RE.fullmatch(name) or not path.is_file():
+            self._head(404, 0, "text/plain")
+            return
+        try:
+            data = path.read_bytes()
+        except OSError:  # сегмент вычистило окно ровно между проверкой и чтением
+            self._head(404, 0, "text/plain")
+            return
+        ctype, total = _TYPES.get(path.suffix, "application/octet-stream"), len(data)
+        span = self._range(total)
+        if span is None:
+            self._head(200, total, ctype)
+        elif not span:
+            self._head(416, 0, ctype, (("Content-Range", f"bytes */{total}"),))
+            return
+        else:
+            first, last = span
+            data = data[first : last + 1]
+            self._head(206, len(data), ctype, (("Content-Range", f"bytes {first}-{last}/{total}"),))
+        if body:
+            self.wfile.write(data)
+
+    def _range(self, size: int) -> tuple[int, int] | tuple[()] | None:
+        found = _RANGE_RE.fullmatch(self.headers.get("Range", "").strip())
+        if not found:
+            return None
+        head, tail = found.group(1), found.group(2)
+        if not head:
+            first, last = max(0, size - int(tail or 0)), size - 1
+        else:
+            first, last = int(head), min(int(tail) if tail else size - 1, size - 1)
+        return (first, last) if first <= last < size else ()
+
+    def _head(self, code: int, length: int, ctype: str, extra: tuple[Any, ...] = ()) -> None:
+        self.send_response(code)
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Headers", "*")
+        self.send_header("Accept-Ranges", "bytes")
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(length))
+        # Манифест дописывается на ходу — кэшировать его приёмнику нельзя.
+        self.send_header("Cache-Control", "no-store" if ctype.endswith("mpegurl") else "max-age=60")
+        for key, value in extra:
+            self.send_header(key, value)
+        self.end_headers()
+
+    def log_message(self, fmt: str, *args: Any) -> None:
+        pass
+
+
+class _TlsServer(http.server.ThreadingHTTPServer):
+    daemon_threads = True
+    ctx: ssl.SSLContext
+
+    def get_request(self) -> tuple[Any, Any]:
+        # Слушающий сокет остаётся обычным TCP, рукопожатие уходит в рабочий поток:
+        # иначе один полуоткрытый коннект вешает весь accept (грабли kinocast).
+        sock, addr = super().get_request()
+        sock.settimeout(60)
+        return self.ctx.wrap_socket(sock, server_side=True, do_handshake_on_connect=False), addr
+
+    def handle_error(self, request: Any, client_address: Any) -> None:
+        pass  # битое рукопожатие или оборванный приёмник — не наша авария
+
+
+class HlsServer:
+    """https-раздача HLS с самого стенда (§3): в облако поток не уходит.
+
+    Серт и ключ — пути из конфига: на dev это self-signed, на стенде — LE-файлы,
+    и подмена сводится к правке пути. Chromecast self-signed молча не принимает,
+    поэтому mock проверяет TLS по тому же файлу (§9).
+    """
+
+    def __init__(self, root: Path, cert: str, key: str, host: str = "0.0.0.0", port: int = 8443):
+        self.root, self.cert, self.key, self.host, self.port = root, cert, key, host, port
+        self._server: _TlsServer | None = None
+
+    def start(self) -> None:
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        try:
+            ctx.load_cert_chain(self.cert, self.key)
+        except (OSError, ssl.SSLError) as exc:
+            raise InfraError(f"не читается серт {self.cert}: {why(exc)}") from exc
+        handler = type("_Bound", (_Handler,), {"root": self.root})
+        try:
+            server = _TlsServer((self.host, self.port), handler)
+        except OSError as exc:
+            raise InfraError(f"порт {self.port} занят или недоступен: {why(exc)}") from exc
+        server.ctx = ctx
+        self._server = server
+        threading.Thread(
+            target=server.serve_forever, kwargs={"poll_interval": 0.2}, daemon=True
+        ).start()
+
+    def stop(self) -> None:
+        if self._server is not None:
+            self._server.shutdown()
+            self._server.server_close()
+            self._server = None
