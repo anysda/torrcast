@@ -1,0 +1,48 @@
+# Выверенная таблица ожиданий парсера (§7, этап 1). Имена взяты из корпуса дословно,
+# значения проверены глазами по самому имени раздачи. TSV, 12 колонок:
+# raw_name	title	original	year	quality	codec	source	hdr	voices	season	episode	kind
+Трансформеры: Месть падших / Transformers: Revenge of the Fallen / 2009 / ДБ, АП (Гаврилов), СТ / 4K, HEVC, HDR10+, DV P7 / Blu-Ray Remux (2160p)	Трансформеры: Месть падших	Transformers: Revenge of the Fallen	2009	2160p	HEVC	BDRemux	да	Дубляж|Авторский|Субтитры			movie
+Чёрное зеркало (5 сезон: 1-3 серии из 3) / Black Mirror / 2019 / ДБ (Пифагор), СТ / 4K, HEVC, HDR / WEB-DL (2160p)	Чёрное зеркало	Black Mirror	2019	2160p	HEVC	WEB-DL	да	Дубляж|Субтитры	5		tv
+Киберпанк: Бегущие по краю (1 сезон: 1-10 серии из 10) / Cyberpunk: Edgerunners / 2022 / 3 x ПМ, 5 x ЛМ, СТ / HEVC, HDR / WEB-DL (1080p)	Киберпанк: Бегущие по краю	Cyberpunk: Edgerunners	2022	1080p	HEVC	WEB-DL	да	Многоголосый|Субтитры	1		tv
+Интерстеллар / Interstellar (IMAX Edition) / 2014 / ДБ / BDRip	Интерстеллар	Interstellar	2014			BDRip		Дубляж			movie
+Назад в будущее 3 / Back to the Future 3 / 1990 / АП (Гаврилов, Горчаков, Михалёв, Санаев, Сербин) / BDRip	Назад в будущее 3	Back to the Future 3	1990			BDRip		Авторский			movie
+Чужой: Ромул / Alien: Romulus / 2024 / ПМ / BDRip (AVC)	Чужой: Ромул	Alien: Romulus	2024		H.264	BDRip		Многоголосый			movie
+Дюна / Dune: Part One / 2021 / ДБ, СТ / BDRip (1080p)	Дюна	Dune: Part One	2021	1080p		BDRip		Дубляж|Субтитры			movie
+Клан Сопрано (5 сезон: 1-13 серии из 13) / The Sopranos / 2004 / АП (Пучков) / WEB-DL (720p)	Клан Сопрано	The Sopranos	2004	720p		WEB-DL		Гоблин|Авторский	5		tv
+Балерина (Вселенная Джона Уика: Балерина) / Ballerina / 2025 / 2 x ПМ, АП (Есарев), ЛМ, ЛО, СТ / 4K, HEVC, SDR / WEB-DL (2160p)	Балерина	Ballerina	2025	2160p	HEVC	WEB-DL		Многоголосый|Авторский|Одноголосый|Субтитры			movie
+Безумный Макс (Коллекция) / Mad Max (Collection) / 1979-2024 / ДБ / BDRip	Безумный Макс	Mad Max	1979			BDRip		Дубляж			movie
+Терминатор 2: Судный день / Terminator 2: Judgment Day [1991, США, Франция, Фантастика, боевик, BDRemux 1080p] [StudioCanal Remastered] [Театральная версия / Theatrical Cut] 2x MVO + 2x AVO + Sub Eng + Original Eng	Терминатор 2: Судный день	Terminator 2: Judgment Day	1991	1080p		BDRemux		Многоголосый|Авторский|Субтитры|Original			movie
+Назад в будущее 2 / Back to the Future Part II [1989, США, Фантастика, приключения, боевик, комедия, семейный, BDRip] AVO (Goblin) + Original Eng + Sub Rus, Eng	Назад в будущее 2	Back to the Future Part II	1989			BDRip		Гоблин|Авторский|Субтитры|Original			movie
+Джон Уик 3 / John Wick: Chapter 3 - Parabellum [2019, США, Боевик, триллер, криминал, BDRip-AVC] Dub + Original Eng + Sub (rus, eng)	Джон Уик 3	John Wick: Chapter 3 - Parabellum	2019		H.264	BDRip		Дубляж|Субтитры|Original			movie
+Безумный Макс: Дорога ярости / Mad Max: Fury Road [2015, Австралия, Боевик, фантастика, приключения, BDRip-AVC] Dub + Original (Eng) + Sub (Rus, Eng)	Безумный Макс: Дорога ярости	Mad Max: Fury Road	2015		H.264	BDRip		Дубляж|Субтитры|Original			movie
+Пираты Карибского моря: На странных берегах / Pirates of the Caribbean: On Stranger Tides [2011, США, приключения, фэнтези, комедия, DVD9] Dub + Sub Rus + Original Eng	Пираты Карибского моря: На странных берегах	Pirates of the Caribbean: On Stranger Tides	2011			DVDRip		Дубляж|Субтитры|Original			movie
+Крепкий орешек 4.0 / Live Free or Die Hard [2007, США, Великобритания, боевик, WEB-DL 1080p] [Open Matte] Dub (Rus, Ukr) + MVO + 2х AVO + Original Eng + Sub Rus, Eng	Крепкий орешек 4.0	Live Free or Die Hard	2007	1080p		WEB-DL		Дубляж|Многоголосый|Авторский|Субтитры|Original			movie
+Форсаж 6 / Fast & Furious 6 [2013, США, Япония, Испания, Великобритания, боевик, триллер, драма, криминал, WEB-DL 1080p] [Open Matte] Dub	Форсаж 6	Fast & Furious 6	2013	1080p		WEB-DL		Дубляж			movie
+Лило и Стич / Lilo & Stitch [2002, США, Анимация, DVDRip] Dub + MVO + AVO + Eng + rus,eng Sub	Лило и Стич	Lilo & Stitch	2002			DVDRip		Дубляж|Многоголосый|Авторский|Субтитры			movie
+Тройной форсаж: Токийский Дрифт / The Fast and the Furious: Tokyo Drift [2006, Боевик, триллер, драма, криминал, BDRip 1080p] [Расширенная версия / Extended Edition]	Тройной форсаж: Токийский Дрифт	The Fast and the Furious: Tokyo Drift	2006	1080p		BDRip					movie
+Джон Уик 4 / John Wick: Chapter 4 (2023) UHD BDRemux 2160p от селезень | 4K | HDR | D, P, A	Джон Уик 4	John Wick: Chapter 4	2023	2160p		BDRemux	да	Дубляж|Многоголосый|Авторский			movie
+Назад в будущее / Back to the Future (1985) BDRip 720p | Goblin	Назад в будущее	Back to the Future	1985	720p		BDRip		Гоблин			movie
+Человек-паук: Нет пути домой / Spider-Man: No Way Home (2021) BDRip-AVC | Лицензия	Человек-паук: Нет пути домой	Spider-Man: No Way Home	2021		H.264	BDRip					movie
+Игра престолов / Game of Thrones [S08] (2019) WEB-DL 720p | AlexFilm, LostFilm	Игра престолов	Game of Thrones	2019	720p		WEB-DL			8		tv
+Очень странные дела / Stranger Things [S02] (2017) WEB-DLRip-AVC | Пифагор	Очень странные дела	Stranger Things	2017		H.264	WEB-DLRip			2		tv
+Безумный Макс: Дорога ярости / Mad Max: Fury Road (2015) BDRip-HEVC 1080p | D, P, A	Безумный Макс: Дорога ярости	Mad Max: Fury Road	2015	1080p	HEVC	BDRip		Дубляж|Многоголосый|Авторский			movie
+Дюна: Часть вторая / Dune: Part Two (2024) BDRip-HEVC 1080p | D	Дюна: Часть вторая	Dune: Part Two	2024	1080p	HEVC	BDRip		Дубляж			movie
+Аватар / Avatar (2009) BDRip-HEVC 1080p | Extended Collector's Edition | D, P2, A	Аватар	Avatar	2009	1080p	HEVC	BDRip		Дубляж|Двухголосый|Авторский			movie
+Веном: Последний танец / Venom: The Last Dance (2024) WEB-DLRip 1080p от селезень | D, P	Веном: Последний танец	Venom: The Last Dance	2024	1080p		WEB-DLRip		Дубляж|Многоголосый			movie
+Холоп (2019) WEB-DLRip-AVC | iTunes	Холоп		2019		H.264	WEB-DLRip					movie
+Мыс страха / Cape Fear [1 сезон] (2026) WEB-DL-HEVC 2160p | 4K | HDR10+ | Dolby Vision P8 | D, P, P2	Мыс страха	Cape Fear	2026	2160p	HEVC	WEB-DL	да	Дубляж|Многоголосый|Двухголосый	1		tv
+Аватар: Легенда о Корре / The Legend of Korra [02х01-13 из 14] (2013) WEB-DL 720p | LE-Production	Аватар: Легенда о Корре	The Legend of Korra	2013	720p		WEB-DL			2		tv
+Тау / Tau (2018) WEB-DL 1080p | HDRezka Studio	Тау	Tau	2018	1080p		WEB-DL					movie
+Stranger.Things.S03E07.Chapter.Seven.The.Bite.720p.HEVC.x265-MeGusta	Stranger Things			720p	HEVC				3	7	tv
+The.Martian.2015.EXTENDED.1080p.BluRay.REMUX.AVC.DTS-HD.MA.TrueHD.7.1.Atmos-FGT	The Martian		2015	1080p	H.264	Remux					movie
+Moana.2016.720p.BluRay.x264-NeZu	Moana		2016	720p	H.264	BDRip					movie
+Severance S02E08 Sweet Vitriol 720p HEVC x265-MeGusta	Severance			720p	HEVC				2	8	tv
+Fallout 2024 S02E01 1080p WEB h264-ETHEL	Fallout		2024	1080p	H.264	WEBRip			2	1	tv
+House.of.the.Dragon.S03E03.2160p.HMAX.WEB-DL.DDP5.1.Atmos.DV.HDR.H.265-N1H4L	House of the Dragon			2160p	HEVC	WEB-DL	да		3	3	tv
+Oppenheimer.2023.IMAX.4K.HDR.DV.2160p BDRemux Ita Eng x265-NAHOM	Oppenheimer		2023	2160p	HEVC	BDRemux	да				movie
+[Trix] Cyberpunk: Edgerunners (2022) [Optional Dual Audio] [Multi Subs] (720p AV1)	Cyberpunk: Edgerunners		2022	720p	AV1			Субтитры			movie
+[Yameii] Attack on Titan - S04E30 [English Dub] [AS WEB-DL 1080p] [19ED00C6] (Shingeki no Kyojin: The Final Season - The Final Chapters Special 2)	Attack on Titan			1080p		WEB-DL		Дубляж	4	30	tv
+Магическая битва 0 Фильм / Jujutsu Kaisen 0 Movie (2021) [BDRip 1080p][HEVC]	Магическая битва 0 Фильм	Jujutsu Kaisen 0 Movie	2021	1080p	HEVC	BDRip					movie
+Семья шпиона / SPY x FAMILY (2022) [WEBRip 1080p][AVC]	Семья шпиона	SPY x FAMILY	2022	1080p	H.264	WEBRip					movie
+(Symphonic Black Metal) [CD] Perversus Stigmata - Interstellar Hatred Void - 2009, FLAC (image+.cue), lossless	Perversus Stigmata - Interstellar Hatred Void - 2009, FLAC  , lossless										other
+Сергей Александровский - Моя мадам (2026) MP3	Сергей Александровский - Моя мадам		2026								other
