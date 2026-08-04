@@ -1,13 +1,9 @@
 """torrcast — поиск торрент-релиза и каст его на ТВ без скачивания.
 
-Пакет из шести модулей (§6 ТЗ):
-
-* :mod:`torrcast.cli`    — разбор аргументов, меню, коды выхода;
-* :mod:`torrcast.parse`  — парсер имён раздач, кластеризация франшиз, sNeM;
-* :mod:`torrcast.search` — Prowlarr/Torznab;
-* :mod:`torrcast.stream` — TorrServer, ffprobe, упаковка в HLS;
-* :mod:`torrcast.cast`   — приёмники: Chromecast и mock;
-* :mod:`torrcast.state`  — конфиг и состояние просмотра.
+Шесть модулей (§6 ТЗ): :mod:`torrcast.cli` — аргументы, меню, коды выхода;
+:mod:`torrcast.parse` — имена раздач, франшизы, sNeM; :mod:`torrcast.search` —
+Prowlarr/Torznab; :mod:`torrcast.stream` — TorrServer, ffprobe, HLS;
+:mod:`torrcast.cast` — приёмники; :mod:`torrcast.state` — конфиг и состояние.
 """
 
 from __future__ import annotations
@@ -18,11 +14,7 @@ __version__ = "0.1.0"
 
 
 class TorrcastError(Exception):
-    """Базовая ошибка torrcast.
-
-    Наружу печатается только ``str(exc)`` — одна короткая строка по-русски,
-    без трейсбека (§6 ТЗ).
-    """
+    """Базовая ошибка: наружу печатается только ``str(exc)``, без трейсбека (§6 ТЗ)."""
 
 
 class NotFoundError(TorrcastError):

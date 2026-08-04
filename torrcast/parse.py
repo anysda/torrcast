@@ -1,12 +1,10 @@
 """Парсер имён раздач и кластеризация франшиз.
 
 Метаданных извне нет: всё, что мы знаем о картине, добывается из имени раздачи
-(§3 ТЗ). Модуль решает три задачи:
-
-1. имя раздачи → :class:`Release` (название, оригинал, год, качество, кодек, озвучки);
-2. набор релизов → :class:`Picture`-кластеры (франшиза = общее каноническое
-   название, сортировка по году даёт нумерацию, §2.2);
-3. разбор эпизодов ``s01e05`` / ``2x5`` / «2 сезон 5 серия» (§2.4).
+(§3 ТЗ). Три задачи: имя раздачи → :class:`Release` (название, оригинал, год,
+качество, кодек, озвучки); релизы → :class:`Picture`-кластеры (франшиза = общее
+каноническое название, сортировка по году даёт нумерацию, §2.2); разбор эпизодов
+``s01e05`` / ``2x5`` / «2 сезон 5 серия» (§2.4).
 
 Разбор свой, не guessit (обоснование — ``docs/parser.md``). Форматы, которые
 модуль обязан понимать (проверено на корпусе из 21 540 реальных имён):
@@ -80,8 +78,11 @@ _VOICES: Final[tuple[tuple[str, str], ...]] = (
 )
 #: Односимвольные коды rutor/megapeer в хвосте ``| D, P, A``.
 _TAG_VOICES: Final[dict[str, str]] = {
-    "D": "Дубляж", "P": "Многоголосый", "P2": "Двухголосый",
-    "A": "Авторский", "L": "Одноголосый",
+    "D": "Дубляж",
+    "P": "Многоголосый",
+    "P2": "Двухголосый",
+    "A": "Авторский",
+    "L": "Одноголосый",
 }
 _TAG_ONLY_RE: Final = re.compile(
     r"^\s*(?:\d+\s*[xх]\s*)?[DPAL]2?(?:\s*,\s*(?:\d+\s*[xх]\s*)?[DPAL]2?)*\s*$"
@@ -118,8 +119,18 @@ _BRACKETS_RE: Final = re.compile(r"[\[(][^\[\]()]*[\])]")
 _OPEN_BRACKET_RE: Final = re.compile(r"[\[(]")
 #: Явный номер части в самом названии: «Тачки 3», «Форсаж - 8», «Терминатор II: …».
 _PART_NUMBER_RE: Final = re.compile(r"^.+?[\s,-]+(\d{1,2}|[ivx]{1,4})(?=\s*[:.]|\s*$)", re.I)
-_ROMAN: Final[dict[str, int]] = {"i": 1, "ii": 2, "iii": 3, "iv": 4, "v": 5,
-                                "vi": 6, "vii": 7, "viii": 8, "ix": 9, "x": 10}
+_ROMAN: Final[dict[str, int]] = {
+    "i": 1,
+    "ii": 2,
+    "iii": 3,
+    "iv": 4,
+    "v": 5,
+    "vi": 6,
+    "vii": 7,
+    "viii": 8,
+    "ix": 9,
+    "x": 10,
+}
 _YEAR_PATTERNS: Final[tuple[re.Pattern[str], ...]] = (
     re.compile(r"[(\[]\s*((?:19|20)\d{2})(?:\s*-\s*(?:19|20)\d{2})?\s*[,)\]]"),
     re.compile(r"(?:^|[/|,]\s*)((?:19|20)\d{2})(?:\s*-\s*(?:19|20)\d{2})?\s*(?=[/|,]|$)"),
@@ -216,8 +227,6 @@ class Picture:
 
 @dataclass(frozen=True, slots=True)
 class Episode:
-    """Сезон и серия."""
-
     season: int
     episode: int
 
@@ -226,9 +235,8 @@ class Episode:
 
 
 def slugify(text: str) -> str:
-    """Привести название к ключу состояния: нижний регистр, дефисы, без мусора.
-
-    Кириллица сохраняется — ключи из §4 ТЗ русские (``movie:матрица:1999``).
+    """Название → ключ состояния: нижний регистр, дефисы, без мусора; кириллица
+    сохраняется, ключи из §4 ТЗ русские (``movie:матрица:1999``).
     """
     normalized = unicodedata.normalize("NFKC", text).casefold().replace("ё", "е")
     return re.sub(r"[^0-9a-zа-я]+", "-", normalized).strip("-")
@@ -236,8 +244,7 @@ def slugify(text: str) -> str:
 
 def franchise_key(title: str) -> str:
     """Каноническое имя франшизы: «Матрица: Перезагрузка» и «Тачки 3» → одна серия.
-
-    Отрезаем подзаголовок после двоеточия и хвостовой номер части — именно они
+    Режем подзаголовок после двоеточия и хвостовой номер части — именно они
     отличают фильмы внутри франшизы (§2.2).
     """
     base = re.split(r"\s*:\s*|\.\s+", title.strip(), maxsplit=1)[0]
@@ -260,10 +267,9 @@ def part_number(title: str) -> int | None:
 
 
 def split_franchise_index(query: str) -> tuple[str, int | None]:
-    """Отделить хвостовой номер франшизы: ``«матрица 2»`` → ``("матрица", 2)``.
-
-    Номер — позиция в отсортированной по году франшизе, а не часть названия
-    (§2.2). Год (четыре цифры) номером не считается.
+    """Отделить хвостовой номер франшизы: ``«матрица 2»`` → ``("матрица", 2)``. Номер —
+    позиция в отсортированной по году франшизе, а не часть названия (§2.2);
+    год (четыре цифры) номером не считается.
     """
     match = re.search(r"^(?P<name>.+?)\s+(?P<index>\d{1,2})$", query.strip())
     if not match:
@@ -310,7 +316,6 @@ def parse_release_name(name: str) -> Release:
 
 def cluster(releases: list[Release]) -> list[Picture]:
     """Сгруппировать релизы в картины; порядок = хронология франшизы (§2.2).
-
     Кросс-язычность: если хоть где-то встретилось ``Тачки 3 / Cars 3``, то чисто
     латинский релиз ``Cars 3`` попадёт в тот же кластер, что и русский.
     """
@@ -339,23 +344,24 @@ def cluster(releases: list[Release]) -> list[Picture]:
         # Номер части часто есть лишь в части переводов («Матрица 2: Перезагрузка»)
         # — забираем его на всю картину, он точнее года при двух фильмах за год.
         parts = Counter(n for r in group if (n := part_number(r.title)) is not None)
-        pictures.append(Picture(
-            title=title,
-            year=year,
-            kind=kind,
-            original=originals.most_common(1)[0][0] if originals else None,
-            part=parts.most_common(1)[0][0] if parts else None,
-            releases=group,
-        ))
+        pictures.append(
+            Picture(
+                title=title,
+                year=year,
+                kind=kind,
+                original=originals.most_common(1)[0][0] if originals else None,
+                part=parts.most_common(1)[0][0] if parts else None,
+                releases=group,
+            )
+        )
     return sorted(pictures, key=lambda p: (p.year is None, p.year or 0, p.title))
 
 
 def franchises(pictures: list[Picture]) -> dict[str, list[Picture]]:
     """Картины → франшизы: общий канонический ключ, значение отсортировано по году.
-
-    Два фильма за один год («Перезагрузка» и «Революция», обе 2003) разводит
-    явный номер части; при его отсутствии вперёд идёт картина с бо́льшим числом
-    раздач — основной фильм, а не спин-офф или «киноляпы».
+    Два фильма за один год («Перезагрузка» и «Революция», обе 2003) разводит явный
+    номер части; без него вперёд идёт картина с бо́льшим числом раздач — основной
+    фильм, а не спин-офф или «киноляпы».
     """
     grouped: dict[str, list[Picture]] = {}
     for picture in pictures:
@@ -366,17 +372,13 @@ def franchises(pictures: list[Picture]) -> dict[str, list[Picture]]:
 
 
 def pick_franchise(query: str, pictures: list[Picture]) -> list[Picture]:
-    """``«матрица 2»`` → [«Матрица: Перезагрузка»]; без номера — вся франшиза.
-
-    Ищем по каноническому ключу (русскому или оригинальному), затем по вхождению
-    подстроки. Номер — индекс в хронологии, а не часть названия (§2.2).
+    """``«матрица 2»`` → [«Матрица: Перезагрузка»]; без номера — вся франшиза. Ищем по
+    каноническому ключу (русскому или оригинальному), затем по вхождению подстроки;
+    номер — индекс в хронологии, а не часть названия (§2.2).
     """
     groups = franchises(pictures)
     aliases = {
-        franchise_key(p.original): key
-        for key, items in groups.items()
-        for p in items
-        if p.original
+        franchise_key(p.original): key for key, items in groups.items() for p in items if p.original
     }
 
     def lookup(name: str) -> str | None:

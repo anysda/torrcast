@@ -1,11 +1,7 @@
-"""Конфиг и состояние просмотра.
-
-Состояние — ``/var/lib/torrcast/state.json``, запись атомарная (tmp + rename),
-структура записи описана в §4 ТЗ. Конфиг — ``/etc/torrcast/config.json``,
-единственное обязательное поле — адрес ТВ.
-
-Обе точки переопределяются переменными окружения ``TORRCAST_STATE`` и
-``TORRCAST_CONFIG`` — это нужно тестам и стенду.
+"""Конфиг и состояние просмотра: ``/etc/torrcast/config.json`` (обязателен только
+адрес ТВ) и ``/var/lib/torrcast/state.json`` (структура записи — §4 ТЗ, запись
+атомарная: tmp + rename). Обе точки переопределяются переменными окружения
+``TORRCAST_STATE`` и ``TORRCAST_CONFIG`` — это нужно тестам и стенду.
 """
 
 from __future__ import annotations
@@ -21,15 +17,7 @@ from typing import Any, Literal
 
 from torrcast import TorrcastError
 
-__all__ = [
-    "Config",
-    "Entry",
-    "State",
-    "config_path",
-    "load_config",
-    "save_config",
-    "state_path",
-]
+__all__ = ["Config", "Entry", "State", "config_path", "load_config", "save_config", "state_path"]
 
 Kind = Literal["movie", "tv"]
 
@@ -67,8 +55,7 @@ class Config:
     @classmethod
     def from_json(cls, data: dict[str, Any]) -> Config:
         """Собрать конфиг из словаря, молча игнорируя незнакомые ключи."""
-        known = set(cls.__dataclass_fields__)
-        return cls(**{k: v for k, v in data.items() if k in known})
+        return cls(**{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
 
 
 def load_config() -> Config:
@@ -116,8 +103,7 @@ class Entry:
 
     @classmethod
     def from_json(cls, data: dict[str, Any]) -> Entry:
-        known = set(cls.__dataclass_fields__)
-        return cls(**{k: v for k, v in data.items() if k in known})
+        return cls(**{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
 
 
 @dataclass(slots=True)
@@ -129,23 +115,15 @@ class State:
     @classmethod
     def load(cls) -> State:
         """Прочитать состояние; отсутствующий или битый файл — пустое состояние."""
-        path = state_path()
-        if not path.exists():
-            return cls()
         try:
-            raw: Any = json.loads(path.read_text(encoding="utf-8"))
+            raw: Any = json.loads(state_path().read_text(encoding="utf-8"))
         except (OSError, ValueError):
             return cls()
         if not isinstance(raw, dict):
             return cls()
-        entries: dict[str, Entry] = {}
-        for key, value in raw.items():
-            if isinstance(value, dict):
-                entries[str(key)] = Entry.from_json(value)
-        return cls(entries)
+        return cls({str(k): Entry.from_json(v) for k, v in raw.items() if isinstance(v, dict)})
 
     def save(self) -> None:
-        """Атомарно записать состояние на диск."""
         _write_atomic(state_path(), {k: asdict(v) for k, v in self.entries.items()})
 
     def get(self, key: str) -> Entry | None:
@@ -166,12 +144,11 @@ class State:
 def _write_atomic(path: Path, payload: dict[str, Any]) -> None:
     """Записать JSON во временный файл рядом и переименовать поверх цели."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    text = json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True)
     fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
     tmp = Path(tmp_name)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write(text + "\n")
+            handle.write(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
             handle.flush()
             os.fsync(handle.fileno())
         tmp.replace(path)

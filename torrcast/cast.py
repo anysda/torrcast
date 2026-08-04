@@ -1,12 +1,8 @@
-"""Приёмники: реальный Chromecast и mock.
+"""Приёмники: реальный Chromecast и mock — интерфейс с двумя реализациями (§3 ТЗ).
 
-Приёмник — интерфейс с двумя реализациями (§3 ТЗ). ``mock`` не заглушка
-«для галочки»: это headless-клиент, который тянет HLS как ТВ, декодирует и
-отдаёт позицию — на нём проходит вся автономная приёмка (§7), включая resume,
-порог 95 % и автопереход серий.
-
-Никакой Samsung-специфики здесь нет и быть не должно (§1): ни PowerState,
-ни анти-wakeup, ни nudge-сторожей.
+``mock`` не заглушка «для галочки»: это headless-клиент, который тянет HLS как ТВ,
+декодирует и отдаёт позицию — на нём проходит вся автономная приёмка (§7).
+Samsung-специфики здесь нет и быть не должно (§1): ни PowerState, ни nudge-сторожей.
 """
 
 from __future__ import annotations
@@ -24,8 +20,6 @@ ReceiverKind = Literal["chromecast", "mock"]
 
 @dataclass(frozen=True, slots=True)
 class Position:
-    """Снимок позиции воспроизведения."""
-
     pos: float
     dur: float
     playing: bool = False
@@ -41,15 +35,12 @@ class Receiver(Protocol):
 
     def play(self, url: str, title: str = "") -> None:
         """Начать воспроизведение HLS-манифеста."""
-        ...
 
     def stop(self) -> None:
         """Снять каст."""
-        ...
 
     def position(self) -> Position:
         """Текущая позиция и длительность."""
-        ...
 
 
 class ChromecastReceiver:
@@ -77,10 +68,7 @@ class ChromecastReceiver:
     def _catt(self, *args: str) -> None:
         try:
             subprocess.run(
-                ["catt", "-d", self.address, *args],
-                capture_output=True,
-                text=True,
-                check=True,
+                ["catt", "-d", self.address, *args], capture_output=True, text=True, check=True
             )
         except FileNotFoundError as exc:
             raise InfraError("catt не установлен") from exc
@@ -89,10 +77,8 @@ class ChromecastReceiver:
 
 
 class MockReceiver:
-    """Headless-приёмник для автономной приёмки.
-
-    Тянет HLS по https ровно как ТВ (включая проверку CORS-заголовков),
-    декодирует ffmpeg'ом в ``/dev/null`` и по ходу отдаёт позицию.
+    """Headless-приёмник для автономной приёмки: тянет HLS по https ровно как ТВ
+    (включая проверку CORS-заголовков) и декодирует ffmpeg'ом в ``/dev/null``.
 
     TODO(этап 2): запуск ffmpeg-декодера и парсинг ``-progress`` в позицию.
     """
@@ -113,7 +99,6 @@ class MockReceiver:
 
 
 def make_receiver(kind: ReceiverKind, address: str = "") -> Receiver:
-    """Собрать приёмник по типу из конфига."""
     if kind == "mock":
         return MockReceiver()
     return ChromecastReceiver(address)
