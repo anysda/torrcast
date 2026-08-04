@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Any, Final
 from urllib.parse import quote
 from xml.etree import ElementTree
 
-from torrcast import InfraError, NotFoundError
+from torrcast import InfraError, NotFoundError, why
 from torrcast.parse import Release, parse_release_name
 
 if TYPE_CHECKING:
@@ -147,7 +147,7 @@ class Prowlarr:
             response.raise_for_status()
             return response.json()
         except requests.RequestException as exc:
-            raise InfraError(f"Prowlarr не отвечает ({self.base_url}): {_short(exc)}") from exc
+            raise InfraError(f"Prowlarr не отвечает ({self.base_url}): {why(exc)}") from exc
         except ValueError as exc:
             raise InfraError("Prowlarr вернул не JSON") from exc
 
@@ -171,7 +171,3 @@ def _int(value: Any) -> int:
         return max(0, int(value))
     except (TypeError, ValueError):
         return 0
-
-
-def _short(exc: object) -> str:
-    return str(exc).split("\n")[0][:120]

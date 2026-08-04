@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Final
 from urllib.parse import quote
 
-from torrcast import InfraError
+from torrcast import InfraError, why
 
 if TYPE_CHECKING:
     import requests
@@ -201,7 +201,7 @@ class TorrServer:
             response.raise_for_status()
             return response.json()
         except requests.RequestException as exc:
-            raise InfraError(f"TorrServer не отвечает ({self.base_url}): {exc}") from exc
+            raise InfraError(f"TorrServer не отвечает ({self.base_url}): {why(exc)}") from exc
         except ValueError as exc:
             raise InfraError("TorrServer вернул не JSON") from exc
 

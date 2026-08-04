@@ -8,7 +8,7 @@ Prowlarr/Torznab; :mod:`torrcast.stream` — TorrServer, ffprobe, HLS;
 
 from __future__ import annotations
 
-__all__ = ["InfraError", "NotFoundError", "TorrcastError", "__version__"]
+__all__ = ["InfraError", "NotFoundError", "TorrcastError", "__version__", "why"]
 
 __version__ = "0.1.0"
 
@@ -23,3 +23,21 @@ class NotFoundError(TorrcastError):
 
 class InfraError(TorrcastError):
     """Легла инфраструктура: Prowlarr / TorrServer / приёмник. Код выхода 2."""
+
+
+#: Сетевые сбои по-русски: наружу не носим ни трейсбек, ни внутренности urllib3 (§6).
+_REASONS = {
+    "ConnectionError": "порт закрыт или служба не запущена",
+    "ConnectTimeout": "нет ответа на подключение",
+    "ReadTimeout": "не дождался ответа",
+    "Timeout": "не дождался ответа",
+}
+
+
+def why(exc: BaseException) -> str:
+    """Короткая причина сетевой ошибки для сообщения пользователю."""
+    for cls in type(exc).__mro__:
+        if cls.__name__ in _REASONS:
+            return _REASONS[cls.__name__]
+    text = str(exc).split("\n")[0].split(" for url")[0]
+    return text[:100] or type(exc).__name__
