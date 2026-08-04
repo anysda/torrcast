@@ -13,15 +13,16 @@ import contextlib
 import io
 import re
 import sys
+import time
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from torrcast import InfraError, NotFoundError, TorrcastError, __version__
-from torrcast.cast import make_receiver
+from torrcast.cast import Receiver, make_receiver
 from torrcast.parse import Episode, Picture, Release, parse_episode, split_franchise_index
 from torrcast.search import Prowlarr, to_releases
-from torrcast.state import State, load_config, save_config
-from torrcast.stream import Media, bitrate_mbit, stop_play_unit
+from torrcast.state import Config, State, load_config, save_config
+from torrcast.stream import Media, Packer, bitrate_mbit, stop_play_unit
 
 __all__ = ["Args", "bitrate_of", "main", "parse_args", "rank_releases", "render_table"]
 
@@ -137,14 +138,29 @@ def _cmd_status() -> int:
     return EXIT_OK
 
 
-def _cmd_play(args: Args) -> int:
-    """Основной сценарий §2.1: запрос → франшиза → релиз → дорожка → каст.
+@dataclass(slots=True)
+class _Clock:
+    """Фазы старта: §3.1 обещает холодные 15–30 с, и цифры должны быть видны глазами."""
 
-    TODO(этап 2): упаковка в HLS и передача манифеста приёмнику.
-    """
+    start: float = field(default_factory=time.monotonic)
+    last: float = field(default_factory=time.monotonic)
+
+    def lap(self) -> str:
+        now = time.monotonic()
+        gap, self.last = now - self.last, now
+        return f"{gap:.1f} с"
+
+    @property
+    def total(self) -> float:
+        return time.monotonic() - self.start
+
+
+def _cmd_play(args: Args) -> int:
+    """Основной сценарий §2.1: запрос → франшиза → релиз → дорожка → каст."""
     from torrcast.parse import cluster, pick_franchise
     from torrcast.stream import RUNTIME_GUESS, TorrServer, pick_video_file, probe
 
+    clock = _Clock()
     config = load_config()
     if not config.prowlarr_apikey:  # без Prowlarr искать нечем — это инфра-ошибка
         raise InfraError("не настроен Prowlarr: apikey пуст, перезапусти ./install.sh")
@@ -162,11 +178,14 @@ def _cmd_play(args: Args) -> int:
     found = pick_franchise(query, pictures)
     if not found:
         raise NotFoundError(f"«{query}» — такой картины во франшизе нет")
-    print(f"найдено раздач: {len(raw)} → картин: {len(pictures)}, во франшизе: {len(found)}")
+    print(
+        f"найдено раздач: {len(raw)} → картин: {len(pictures)}, "
+        f"во франшизе: {len(found)} (поиск {clock.lap()})"
+    )
 
     picture = _pick_picture(found)
     runtime = RUNTIME_GUESS.get(picture.kind, 7200.0)
-    ranked = rank_releases(picture.releases, runtime, config.bitrate_warn_mbit)
+    ranked = rank_releases(picture.releases)
 
     print()
     print(render_table(ranked, runtime, config.bitrate_warn_mbit))
@@ -181,18 +200,74 @@ def _cmd_play(args: Args) -> int:
     torrent_hash = warm.result()
     files = torrserver.wait_files(torrent_hash)
     video = pick_video_file(files)
-    media = probe(torrserver.stream_url(torrent_hash, video.index))
+    source = torrserver.stream_url(torrent_hash, video.index)
+    metadata = clock.lap()
+    media = probe(source)
     audio = _ask_audio(media, args)
 
     peak = bitrate_of(release, media.duration or runtime)
+    label = media.tracks[audio].label if audio < len(media.tracks) else "—"
+    about = f"«{picture.title}» ({picture.year or '?'}) · {release.quality or '?'} · {label}"
     print()
     print(f"Файл: {video.name} · {_gb(video.size)} · {_hms(media.duration)} · ~{peak:.1f} Мбит/с")
+    print(f"(метаданные {metadata}, ffprobe {clock.lap()})")
     if args.dry:
-        label = media.tracks[audio].label if audio < len(media.tracks) else "—"
-        about = f"«{picture.title}» ({picture.year or '?'}) · {release.quality or '?'}"
-        print(f"▶ (--dry) {about} · {label} — каста нет")
+        print(f"▶ (--dry) {about} — каста нет")
         return EXIT_OK
-    raise InfraError("каст ещё не реализован — пока доступен только --dry")
+    return _play(config, source, audio, about, clock)
+
+
+def _play(config: Config, source: str, audio: int, about: str, clock: _Clock) -> int:
+    """Упаковка → https-раздача → приёмник (§3). Своих демонов нет: и ffmpeg, и раздача
+    живут ровно на время показа и гасятся вместе с ним, что бы ни случилось.
+    """
+    from torrcast.stream import HlsServer, ffmpeg_hls_command, hls_dir
+
+    out = hls_dir(config.hls_dir)
+    command = ffmpeg_hls_command(source, audio, str(out), readrate=config.hls_readrate)
+    server = HlsServer(out, config.hls_cert, config.hls_key, port=config.hls_port)
+    receiver = make_receiver(config.receiver, config.tv or "", config.hls_cert)
+    packer = Packer.start(command, out, config.hls_window)
+    try:
+        server.start()
+        packer.manifest()
+        receiver.play(f"{config.hls_base_url.rstrip('/')}/index.m3u8", about)
+        print(f"▶ {about} → ТВ   (старт {clock.total:.0f} с)")
+        _hold(receiver, packer)
+    finally:
+        with contextlib.suppress(TorrcastError):
+            receiver.stop()
+        packer.stop()
+        server.stop()
+
+    report = getattr(receiver, "report", None)
+    if report is None:
+        return EXIT_OK
+    print(report.line())
+    if not report.ok:
+        raise InfraError("приёмник не досмотрел поток — цифры выше")
+    return EXIT_OK
+
+
+def _hold(receiver: Receiver, packer: Packer) -> None:
+    """Держим показ: упаковка должна быть жива, и она не должна убегать от приёмника
+    дальше окна сегментов — иначе куски вычищаются у него из-под носа.
+    """
+    while True:
+        code = packer.poll()
+        if code not in (None, 0):
+            raise InfraError(f"упаковка оборвалась (ffmpeg {code}): {packer.why()}")
+        try:
+            position = receiver.position()
+        except InfraError:  # приёмник позицию не отдаёт — ведём показ по упаковке
+            if code == 0:
+                return
+        else:
+            if not position.playing:
+                return
+            packer.pace(position.dur - position.pos)
+        packer.prune()
+        time.sleep(2.0)
 
 
 def _pick_picture(pictures: list[Picture]) -> Picture:
@@ -218,12 +293,12 @@ def is_disc(release: Release) -> bool:
     return bool(_DISC_RE.search(release.raw_name))
 
 
-def rank_releases(releases: list[Release], runtime: float, warn_mbit: float) -> list[Release]:
-    """Порядок меню (§2.1, §3): обсиженные играбельные вверх, образы дисков и ⚠ — вниз."""
-    return sorted(
-        releases,
-        key=lambda r: (is_disc(r), bool(warned(r, runtime, warn_mbit)), -r.seeders, -r.size),
-    )
+def rank_releases(releases: list[Release]) -> list[Release]:
+    """Порядок меню (§2.1, §3). Дефолт — самый обсиженный релиз первого сорта (H.264,
+    известное качество ≥720p); таких нет — просто самый обсиженный. Образы дисков вниз
+    всегда: цельного файла внутри нет, стримить нечего.
+    """
+    return sorted(releases, key=lambda r: (is_disc(r), not r.prime, -r.seeders, -r.size))
 
 
 def bitrate_of(release: Release, duration: float) -> float:

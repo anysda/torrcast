@@ -184,6 +184,19 @@ class Release:
         return self.codec == "HEVC"
 
     @property
+    def height(self) -> int:
+        """Высота кадра из качества; 0 — качество в имени не указано."""
+        digits = (self.quality or "").rstrip("p")
+        return int(digits) if digits.isdigit() else 0
+
+    @property
+    def prime(self) -> bool:
+        """Релиз первого сорта: H.264 и известное качество ≥720p — только из таких
+        выбирается дефолт, иначе обсиженный DVDRip обгоняет живой 1080p (§2.1, §3).
+        """
+        return self.codec == "H.264" and self.height >= 720
+
+    @property
     def slug(self) -> str:
         return slugify(self.title)
 
@@ -219,10 +232,12 @@ class Picture:
 
     @property
     def best_release(self) -> Release | None:
-        """Дефолт меню: самый обсиженный H.264-релиз, HEVC — в конце (§2.1, §3)."""
+        """Дефолт меню: самый обсиженный среди релизов первого сорта (H.264, ≥720p);
+        нет таких — просто самый обсиженный (§2.1, §3).
+        """
         if not self.releases:
             return None
-        return sorted(self.releases, key=lambda r: (r.is_hevc, -r.seeders, -r.size))[0]
+        return sorted(self.releases, key=lambda r: (not r.prime, -r.seeders, -r.size))[0]
 
 
 @dataclass(frozen=True, slots=True)
