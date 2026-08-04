@@ -44,18 +44,26 @@ def test_fat_bitrate_is_marked_even_for_h264() -> None:
     assert warned(rel(codec="HEVC", size_gb=28), RUNTIME, 20.0) == "⚠⚠"
 
 
-def test_default_is_the_most_seeded_unmarked_release() -> None:
-    """Enter = самый обсиженный H.264 в пределах битрейта (§2.1)."""
-    fat = rel(name="fat", size_gb=40, seeders=900)
-    hevc = rel(name="hevc", codec="HEVC", size_gb=6, seeders=800)
+def test_default_is_the_most_seeded_release_of_the_first_grade() -> None:
+    """Enter = самый обсиженный среди H.264 с качеством ≥720p; HEVC ниже них (§2.1, §3)."""
+    top = rel(name="top", seeders=900)
+    hevc = rel(name="hevc", codec="HEVC", seeders=800)
     good = rel(name="good", seeders=200)
     meh = rel(name="meh", seeders=10)
-    assert [r.raw_name for r in rank_releases([fat, hevc, good, meh], RUNTIME, 20.0)] == [
-        "good",
-        "meh",
-        "fat",
-        "hevc",
-    ]
+    order = [r.raw_name for r in rank_releases([hevc, meh, top, good])]
+    assert order == ["top", "good", "meh", "hevc"]
+
+
+def test_seeded_dvdrip_does_not_beat_a_live_1080p() -> None:
+    """Кейс, ради которого правило и переписано: качество без цифры в имени —
+    это не «известное ≥720p», и толпа сидов на DVDRip дефолта не даёт.
+    """
+    dvd = rel(name="DVDRip", quality=None, size_gb=1.4, seeders=800)
+    hd = rel(name="1080p", seeders=40)
+    assert rank_releases([dvd, hd])[0].raw_name == "1080p"
+    # Живого 1080p нет вовсе — берём просто самый обсиженный, DVDRip годится.
+    sd = rel(name="ещё DVDRip", quality=None, size_gb=1.4, seeders=5)
+    assert rank_releases([sd, dvd])[0].raw_name == "DVDRip"
 
 
 def test_disc_images_never_become_the_default() -> None:
@@ -63,7 +71,7 @@ def test_disc_images_never_become_the_default() -> None:
     disc = rel(name="Тачки / Cars (2006) DVD-Video", seeders=500)
     plain = rel(name="Тачки / Cars (2006) BDRip 1080p", seeders=5)
     assert is_disc(disc) and not is_disc(plain)
-    assert rank_releases([disc, plain], RUNTIME, 20.0)[0].raw_name.endswith("BDRip 1080p")
+    assert rank_releases([disc, plain])[0].raw_name.endswith("BDRip 1080p")
 
 
 def test_ordinary_release_is_not_mistaken_for_a_disc() -> None:
