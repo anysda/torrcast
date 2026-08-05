@@ -388,3 +388,52 @@ def test_moana_franchise_is_shown_in_both_languages() -> None:
     for query in ("moana", "моана"):
         found = pick_franchise(query, pictures)
         assert [p.year for p in found] == [2016, 2024], query
+
+
+#: Имена, у которых старьё написано на лбу: кодек MPEG-4, контейнер или SD-источник.
+DATED_NAMES = (
+    "Матрица / The Matrix (1999) DVDRip XviD AC3 Дубляж",
+    "Терминатор 2 / Terminator 2 (1991) DivX 700MB",
+    "Moana.2.2024.WEB-DLRip.ELEKTRI4KA.avi",
+    "Кино / Movie (2003) SATRip",
+    "Кино / Movie (2003) VHSRip -> DVD",
+    "Кино / Movie (2003) TVRip",
+    "Кино / Movie (2003) DVDScr",
+)
+#: А это не старьё, хотя рядом стоят похожие буквы.
+FRESH_NAMES = (
+    "Моана 2 / Moana 2 [2024, WEB-DL 1080p] Dub",
+    "Матрица / The Matrix [1999, BDRip-AVC] MVO",
+    "Интерстеллар / Interstellar [2014, MPEG-4 AVC, BDRemux 1080p]",
+    "Аватар / Avatar [2009, США, HDTVRip 720p][AVC]",
+)
+
+
+@pytest.mark.parametrize("name", DATED_NAMES)
+def test_obvious_old_junk_is_marked_dated(name: str) -> None:
+    """Явные признаки старья читаются из имени и до всякого ffprobe (§7.1 SPEC-v2)."""
+    assert parse_release_name(name).dated, name
+
+
+@pytest.mark.parametrize("name", FRESH_NAMES)
+def test_a_fresh_release_is_not_marked_dated(name: str) -> None:
+    """Свежая раздача старьём не объявляется — иначе меню перевернётся с ног на голову."""
+    assert not parse_release_name(name).dated, name
+
+
+def test_mpeg4_avc_is_h264_and_not_mpeg4() -> None:
+    """⚠️ «MPEG-4 AVC» на rutracker означает H.264: порядок проверок в разборе кодека
+    держит именно этот случай, иначе годный BDRemux уехал бы в старьё.
+    """
+    assert parse_release_name("Кино [2014, MPEG-4 AVC, BDRemux 1080p]").codec == "H.264"
+    assert parse_release_name("Кино [2003, DVDRip, MPEG-4]").codec == "MPEG-4"
+
+
+def test_xvid_is_never_a_prime_release() -> None:
+    """XviD/DivX — тот же MPEG-4: ресивер его не играет, и первым сортом он не бывает.
+
+    Раньше кодек не читался вовсе, и «XviD HDRip» проходил в кандидаты по источнику:
+    HDRip есть в списке HD-мастеров, а кодек молчал.
+    """
+    xvid = parse_release_name("Кино / Movie [2003, HDRip] XviD MVO")
+    assert xvid.codec == "MPEG-4" and not xvid.prime

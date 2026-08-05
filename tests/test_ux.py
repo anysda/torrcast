@@ -130,11 +130,17 @@ def test_a_single_choice_is_not_a_question(
 def test_a_bare_enter_is_enough_for_everything(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Любой вопрос принимает пустой Enter: русский ввод допустим, но не обязателен."""
+    """Любой вопрос принимает пустой Enter: русский ввод допустим, но не обязателен.
+
+    Enter приводит в самую живую картину, а не в первую по хронологии (§7.1 SPEC-v2):
+    у «Моаны 2» верх отбора собрал 140 сидов, у «Moana» 2016 — 22.
+    """
     _answers(monkeypatch, "", "")
 
     assert cli.main(["моана"]) == 0
-    assert "играю «Moana» (2016)" in capsys.readouterr().out
+    printed = capsys.readouterr().out
+    assert "  1. Moana (2016)\n  2. Моана 2 (2024)" in printed, "список остался хронологией"
+    assert "играю «Моана 2» (2024)" in printed
 
 
 def test_the_film_with_a_number_in_the_title_is_a_film(

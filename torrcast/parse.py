@@ -54,8 +54,17 @@ _LATIN: Final = re.compile(r"[a-z]", re.IGNORECASE)
 _QUALITY_RE: Final = re.compile(r"\b(2160p|1080p|720p|576p|480p|360p|4k|uhd)\b", re.IGNORECASE)
 _HEVC_RE: Final = re.compile(r"\b(hevc|h\.?\s?265|x265)\b", re.IGNORECASE)
 _H264_RE: Final = re.compile(r"\b(avc|h\.?\s?264|x264)\b", re.IGNORECASE)
+#: MPEG-4 Part 2 (XviD/DivX и родня). Читается ПОСЛЕ H.264: «MPEG-4 AVC» — это H.264,
+#: и порядок в :func:`_parse_codec` разводит их сам, без хитрых заглядываний вперёд.
+_MPEG4_RE: Final = re.compile(
+    r"\b(xvid|divx|dx50|div3|3ivx|ms-?mpeg-?4|mpeg-?4|mp4v)\b", re.IGNORECASE
+)
 _AV1_RE: Final = re.compile(r"\bav1\b", re.IGNORECASE)
 _HDR_RE: Final = re.compile(r"\b(hdr10\+?|hdr|dolby\s*vision|dv)\b", re.IGNORECASE)
+#: Контейнер .avi в имени. Внутри .avi H.264 бывает, но на живой выдаче (36 раздач,
+#: у которых удалось достать .torrent и заглянуть в имена файлов) все восемь .avi
+#: оказались SD-рипами MPEG-4 — ни одного исключения.
+_AVI_RE: Final = re.compile(r"\.avi\b", re.IGNORECASE)
 
 #: Источник картинки. Порядок важен: первый сработавший и есть ответ.
 _SOURCES: Final[tuple[tuple[str, str], ...]] = (
@@ -67,6 +76,12 @@ _SOURCES: Final[tuple[tuple[str, str], ...]] = (
     (r"web-?rip|\bweb\b", "WEBRip"),
     (r"hd-?tv-?rip|hdtvrip|\bhdtv\b", "HDTV"),
     (r"\bhdrip\b", "HDRip"),
+    # Плёночное и эфирное старьё. Стоит выше DVDRip намеренно: «VHSRip -> DVD» это
+    # всё-таки VHS, а не DVD, и в отчёте владельцу честнее показать источник похуже.
+    (r"\bvhs-?rip\b|\bvhs\b", "VHSRip"),
+    (r"\bsat-?rip\b", "SATRip"),
+    (r"\btv-?rip\b", "TVRip"),
+    (r"dvd-?scr\w*|\bscreener\b", "DVDScr"),
     (r"dvd-?rip|\bdvd\d?\b", "DVDRip"),
     (r"\bts\b|\bcam\b|hdcam|telesync", "CAM"),
 )
@@ -75,6 +90,11 @@ _SOURCES: Final[tuple[tuple[str, str], ...]] = (
 #: достаточно, чтобы релиз считался кандидатом в дефолт (:attr:`Release.prime`).
 _HD_SOURCES: Final = frozenset({"BDRemux", "Remux", "BDRip", "WEB-DL", "WEB-DLRip", "WEBRip",
                                 "HDTV", "HDRip"})  # fmt: skip
+
+#: Источники, за которыми стоит мастер 720×576 и ниже. Такое почти всегда MPEG-4 в
+#: .avi, но «почти» здесь принципиально: запрещать нельзя, можно только понижать
+#: (:attr:`Release.dated`).
+_SD_SOURCES: Final = frozenset({"DVDRip", "DVDScr", "VHSRip", "TVRip", "SATRip", "CAM"})
 
 #: Маркеры озвучки: regex по всему имени → нормальная форма. Порядок = приоритет.
 _VOICES: Final[tuple[tuple[str, str], ...]] = (
@@ -248,6 +268,34 @@ class Release:
         if self.codec:
             return self.codec == "H.264"
         return self.height >= 720 or self.source in _HD_SOURCES
+
+    @property
+    def dated(self) -> bool:
+        """Имя прямо признаётся, что раздача — старьё: MPEG-4, .avi или SD-источник.
+
+        Зачем отдельно от :attr:`prime`. ``prime`` — это ВОРОТА: не первый сорт — не
+        кандидат в дефолт вовсе. ``dated`` — это только ПОРЯДОК: релиз остаётся годным
+        и играется, если ничего лучше нет. Разница не косметическая: у картины может
+        не быть ни одного релиза с маркером качества в имени (у «Моаны» 2016 кодек
+        назван в 5 именах из 16), и запрет по эвристике оставил бы нас вообще без
+        кандидатов — а показывать что-то надо.
+
+        Почему признак живёт здесь, а не в ключе сортировки :func:`~torrcast.cli.rank_releases`:
+        всё перечисленное читается ИЗ ИМЕНИ и больше ниоткуда, то есть это свойство
+        разобранного релиза, ровно как ``prime``, ``height`` и ``is_hevc`` рядом. А то,
+        для чего нужна длительность картины (мизерный битрейт при неназванном
+        качестве), длительности здесь взять неоткуда — и живёт в cli, рядом с
+        ``bitrate_of``, у которого та же зависимость.
+
+        ⚠️ Признак срабатывает и на именах вроде «HDDVDRip»: ``_SOURCES`` читает в нём
+        DVDRip. Специально не чиним — HD-DVD-рип 2007 года и правда не то, что стоит
+        ставить первым, когда рядом лежит WEB-DL.
+        """
+        return (
+            self.codec == "MPEG-4"
+            or self.source in _SD_SOURCES
+            or bool(_AVI_RE.search(self.raw_name))
+        )
 
     def covers(self, season: int) -> bool:
         """Есть ли в раздаче нужный сезон — по её имени (§2.4). Имя молчит о сезоне —
@@ -714,10 +762,16 @@ def _split_titles(zone: str) -> tuple[str, str | None]:
 
 
 def _parse_codec(text: str) -> str | None:
+    """Кодек из имени. ⚠️ H.264 проверяется раньше MPEG-4: «MPEG-4 AVC» — это H.264,
+    так пишут на rutracker про BDRip-AVC, и без этого порядка годный релиз уехал бы
+    в старьё.
+    """
     if _HEVC_RE.search(text):
         return "HEVC"
     if _H264_RE.search(text):
         return "H.264"
+    if _MPEG4_RE.search(text):
+        return "MPEG-4"
     return "AV1" if _AV1_RE.search(text) else None
 
 

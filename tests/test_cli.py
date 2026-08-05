@@ -311,3 +311,136 @@ def test_warmup_leaves_in_torrserver_only_what_we_play(monkeypatch: pytest.Monke
     assert len(bench.preps) > 1, "запасной релиз греется заранее"
     assert len(torrserver.dropped) == len(bench.preps) - 1
     assert prep.torrent_hash not in torrserver.dropped
+
+
+def test_a_seeded_avi_no_longer_wins_the_top() -> None:
+    """Живая «Моана 2» (выдача 06-08-2026): 221 сид против 140 — и всё равно не дефолт.
+
+    Первым стоял ``Моана 2 … WEB-DL] Dub (MovieDalen)``, 1.46 ГБ: в заголовке ни кодека,
+    ни разрешения, а внутри ``Moana.2.2024.WEB-DLRip.ELEKTRI4KA.avi`` — mpeg4, который
+    ffprobe закономерно отбраковывал, потратив 2–5 с живого старта.
+    """
+    avi = rel(
+        name="Моана 2 / Moana 2 [2024, США, Канада, мультфильм, приключения,WEB-DL] Dub",
+        codec=None,
+        quality=None,
+        size_gb=1.46,
+        seeders=221,
+    )
+    avc = rel(
+        name="Моана 2 / Moana 2 [2024, США, Канада, мультфильм, WEB-DL-AVC] 2x Dub",
+        size_gb=3.14,
+        seeders=140,
+    )
+    ranked = rank_releases([avi, avc], RUNTIME, 20.0)
+    assert ranked[0] is avc, "верх — годный WEB-DL-AVC"
+    assert ranked[1] is avi, "и всё же не выкинут: судья по-прежнему ffprobe"
+    assert cli.is_dated(avi, RUNTIME) and not cli.is_dated(avc, RUNTIME)
+
+
+def test_a_small_release_that_names_its_codec_is_not_old_junk() -> None:
+    """1.46 ГБ — ещё не приговор: у rutracker такой же бюджет у AVC-раздач.
+
+    «Моана» 2016 ``BDRip-AVC`` весит те же 1.46 ГБ и те же 1.7 Мбит/с, что и .avi
+    рядом. Разделяет их одно: назван кодек или нет.
+    """
+    named = rel(name="BDRip-AVC", quality=None, size_gb=1.46, seeders=131)
+    assert not cli.is_dated(named, RUNTIME)
+
+
+def test_a_series_pack_is_never_judged_by_its_bitrate() -> None:
+    """У сериала в раздаче лежит сезон целиком — «мало мегабит» про него ничего не значит."""
+    pack = Release(
+        raw_name="Сериал / Series [S01E1-8 of 8, WEB-DL]",
+        title="Сериал",
+        source="WEB-DL",
+        kind="tv",
+        size=int(6 * GB),
+        seeders=110,
+    )
+    assert not cli.is_dated(pack, RUNTIME)
+
+
+def test_dated_sinks_below_candidates_but_above_hevc() -> None:
+    """Ступень «старьё» вклинена МЕЖДУ годностью и сидами, группы местами не меняются.
+
+    Случай живой: «Матрица: Перезагрузка» 06-08-2026 — ``DVDRip-AVC`` на 47 сидов
+    стоял первым и обгонял HDTV-мастер на 30. Кодек назван, значит релиз годный и из
+    очереди не выпадает; но верхом ему быть больше не с чего.
+    """
+    dated = Release(
+        raw_name="DVDRip-AVC", title="Кино", codec="H.264", source="DVDRip",
+        size=3 * GB, seeders=900,
+    )  # fmt: skip
+    good = rel(name="web-dl", seeders=10)
+    hevc = rel(name="hevc", codec="HEVC", seeders=800)
+    disc = rel(name="Кино (1999) DVD-Video", seeders=999)
+    order = [r.raw_name for r in rank_releases([disc, dated, hevc, good], RUNTIME, 20.0)]
+    assert order == ["web-dl", "DVDRip-AVC", "hevc", "Кино (1999) DVD-Video"]
+    assert is_candidate(dated, RUNTIME, 20.0), "старьё остаётся годным — судит ffprobe"
+
+
+def _franchise_plan(title: str, year: int, releases: list[Release]) -> Any:
+    from torrcast.parse import Picture
+
+    return cli._Plan(
+        picture=Picture(title=title, year=year, releases=releases),
+        ranked=rank_releases(releases, RUNTIME, 20.0),
+        runtime=RUNTIME,
+        warn_mbit=20.0,
+    )
+
+
+def _moana_franchise() -> list[Any]:
+    """Франшиза «моана» из живой выдачи 06-08-2026, сведённая к верху отбора каждой картины."""
+    return [
+        _franchise_plan(
+            "Моана: романтика золотого века",
+            1926,
+            [rel(name="vhs", codec=None, quality=None, size_gb=0.71, seeders=5)],
+        ),
+        _franchise_plan("Моана", 2016, [rel(name="web-dl 1080p", size_gb=4.17, seeders=222)]),
+        _franchise_plan(
+            "Моана 2", 2024, [rel(name="web-dl-avc", quality=None, size_gb=3.14, seeders=140)]
+        ),
+    ]
+
+
+def test_menu_default_points_at_the_liveliest_picture() -> None:
+    """Живая «моана» 06-08-2026: список хронологический, а дефолт — вторым пунктом.
+
+    Первым в хронологии стоит «Моана: романтика золотого века» (1926) — немое
+    документальное кино, один VHS-рип на 5 сидов. Enter на ней не давал ничего.
+    """
+    plans = _moana_franchise()
+    assert [cli.liveliness(p) for p in plans] == [0, 222, 140]
+    assert cli.liveliest(plans) == 2
+
+
+def test_a_picture_with_nothing_playable_weighs_nothing() -> None:
+    """«Тачки» 2006 в живой выдаче — 41 ГБ 4K-ремукса (49.9 Мбит/с) и образы DVD.
+
+    Играть нечего, сколько бы сидов ни было: дефолт обязан уйти на картину, которая
+    реально запустится.
+    """
+    fat = _franchise_plan("Тачки", 2006, [rel(name="uhd bdremux", size_gb=41.8, seeders=106)])
+    live = _franchise_plan("Тачки 3", 2017, [rel(name="web-dl 1080p", size_gb=4.59, seeders=121)])
+    assert cli.liveliness(fat) == 0
+    assert cli.liveliest([fat, live]) == 2
+
+
+def test_an_equal_race_is_won_by_chronology() -> None:
+    """Ничья по сидам — берём раннюю картину: список и так хронологический."""
+    first = _franchise_plan("Кино", 2001, [rel(name="a", seeders=100)])
+    second = _franchise_plan("Кино 2", 2005, [rel(name="b", seeders=100)])
+    assert cli.liveliest([first, second]) == 1
+
+
+def test_prewarm_starts_with_the_default_not_with_the_earliest() -> None:
+    """Греем то, во что попадёт Enter: иначе прогрев под меню греет чужую картину.
+
+    У «моаны» дефолт — вторая картина из четырёх, у «аватара» — девятая из десяти,
+    а под меню греются только первые :data:`~torrcast.cli.PREWARM`.
+    """
+    plans = _moana_franchise()
+    assert [p.picture.year for p in cli.warm_order(plans)] == [2016, 1926, 2024]
