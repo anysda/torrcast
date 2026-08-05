@@ -157,6 +157,14 @@ class Media:
     #: Настоящий кодек видео. Имя раздачи врёт или молчит (у «Моаны 2» кодек назван
     #: в 2 именах из 8), а видео мы отдаём ``copy`` — значит ресивер получит ровно его.
     video: str | None = None
+    #: Высота кадра из потока. Имя раздачи о качестве тоже молчит через раз, а сказать
+    #: человеку «1080p» вместо «?» мы обязаны из того же ffprobe, что уже прочитан.
+    height: int = 0
+
+    @property
+    def quality(self) -> str:
+        """Качество словами: ``1080p``; ноль высоты — честный ``?``."""
+        return f"{self.height}p" if self.height else "?"
 
     @property
     def video_warning(self) -> str:
@@ -259,7 +267,8 @@ def probe(url: str, timeout: float = 90.0) -> Media:
     запросами Range — это и есть цена меню озвучек (§3).
     """
     entries = (
-        "format=duration:stream=index,codec_name,codec_type,channels:stream_tags=language,title"
+        "format=duration:"
+        "stream=index,codec_name,codec_type,channels,height:stream_tags=language,title"
     )
     flags = ["-v", "error", "-show_entries", entries, "-of", "json"]
     command = ["ffprobe", *flags, url]
@@ -283,11 +292,12 @@ def probe(url: str, timeout: float = 90.0) -> Media:
     raw = payload.get("streams")
     streams = [s for s in raw if isinstance(s, dict)] if isinstance(raw, list) else []
     audio = [s for s in streams if s.get("codec_type") == "audio"]
-    video = [_opt_str(s.get("codec_name")) for s in streams if s.get("codec_type") == "video"]
+    video = [s for s in streams if s.get("codec_type") == "video"]
     return Media(
         duration=duration,
         tracks=tuple(_track(i, s) for i, s in enumerate(audio)),
-        video=video[0] if video else None,
+        video=_opt_str(video[0].get("codec_name")) if video else None,
+        height=int(video[0].get("height") or 0) if video else 0,
     )
 
 

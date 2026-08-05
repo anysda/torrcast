@@ -170,7 +170,7 @@ class Progress:
             keep, since = self._text, self._since
             self._erase()
             self._text = ""
-            print(text, flush=True)
+            self._say(text)
             if keep:
                 self._text, self._since = keep, since
                 if self.live:
@@ -218,7 +218,11 @@ class Progress:
             return
         spent = time.monotonic() - self._since
         self._erase()
-        print(f"{self._text}… {spent:.1f} с", flush=True)
+        self._say(f"{self._text}… {spent:.1f} с")
+
+    def _say(self, text: str) -> None:
+        self.out.write(text + "\n")
+        self.out.flush()
 
     def _isatty(self) -> bool:
         try:

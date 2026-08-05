@@ -341,3 +341,50 @@ def _release(
         codec=codec,
         seeders=seeders,
     )
+
+
+#: Дословные имена с живой выдачи Knaben 05-08-2026 — на них владелец и обжёгся.
+MOANA_2 = (
+    "Moana 2 (2024) 1080p BRRip 5.1 x264 -YTS",
+    "Moana 2 2024 1080p BluRay DD  7 1 X265-Ralphy",
+    "Moana Sing-Along 2017 MULTI 1080p DSNP WEB-DL DDP5 1 x264-AndreMor",
+    "Моана 2 / Moana 2 (2024) WEB-DL 1080p от селезень | D, P | Пифагор",
+)
+#: А это настоящие сериалы: их сериальность обязана пережить ту же правку.
+SERIES = (
+    "Te Ao With Moana S07E18 720p WEB-DL AAC2 0 H 264-NTb",
+    "Hawaii Five-0 2010 S03E03 Lana I Ka Moana 1080p AMZN WEB-DL DD 5 1 H 264-pl",
+    "Киберпанк: Бегущие по краю (1 сезон: 1-10 серии из 10) 2022 WEB-DL 1080p x264",
+    "The Last of Us S01-S02 1080p WEB-DL x265",
+)
+
+
+@pytest.mark.parametrize("name", MOANA_2)
+def test_a_codec_token_never_turns_a_film_into_a_series(name: str) -> None:
+    """Дефект №3 владельца (§1 SPEC-v2): «Moana 2 (2024)» определялась сериалом.
+
+    Виноват был не номер в названии, а ``x264`` рядом с любой цифрой: «DDP5 1 x264»
+    читалось как ``s1e264``. Кодек о сериях не говорит ничего — и в разборе
+    сериальности его больше нет.
+    """
+    release = parse_release_name(name)
+    assert release.kind == "movie", name
+    assert (release.season, release.episode) == (None, None)
+
+
+@pytest.mark.parametrize("name", SERIES)
+def test_real_series_stay_series(name: str) -> None:
+    """Точечная починка не должна ослепить разбор настоящих сериалов (§8)."""
+    assert parse_release_name(name).kind == "tv", name
+
+
+def test_moana_franchise_is_shown_in_both_languages() -> None:
+    """«Moana» и «Моана 2» — одна франшиза, как бы её ни спросили (живая выдача 05-08)."""
+    releases = [
+        _release("Moana", 2016, seeders=22),
+        _release("Моана 2", 2024, seeders=140, original="Moana 2"),
+    ]
+    pictures = cluster(releases)
+    for query in ("moana", "моана"):
+        found = pick_franchise(query, pictures)
+        assert [p.year for p in found] == [2016, 2024], query

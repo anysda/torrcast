@@ -107,9 +107,7 @@ def _prowlarr(config: Config) -> Line:
     payload = _json(f"{config.prowlarr_url}/api/v1/health", {"X-Api-Key": config.prowlarr_apikey})
     if payload is None:
         return _bad(f"Prowlarr не отвечает ({config.prowlarr_url}) — поиска не будет")
-    indexers = _json(
-        f"{config.prowlarr_url}/api/v1/indexer", {"X-Api-Key": config.prowlarr_apikey}
-    )
+    indexers = _json(f"{config.prowlarr_url}/api/v1/indexer", {"X-Api-Key": config.prowlarr_apikey})
     count = len(indexers) if isinstance(indexers, list) else 0
     if not count:
         return _bad(f"Prowlarr отвечает, но индексеров ноль ({config.prowlarr_url})")

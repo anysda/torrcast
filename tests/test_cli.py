@@ -2,16 +2,16 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 import io
+from pathlib import Path
 from threading import Lock
 from typing import Any, cast
 
 import pytest
 
 from torrcast import InfraError, NotFoundError, cli
-from torrcast.console import Progress
 from torrcast.cli import TABLE_LIMIT, is_candidate, is_disc, rank_releases, render_table, warned
+from torrcast.console import Progress
 from torrcast.parse import Release
 from torrcast.state import load_config
 from torrcast.stream import RUNTIME_GUESS, Media, TorrFile
@@ -222,7 +222,7 @@ def test_a_dead_swarm_is_not_a_hang_but_the_next_release(
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
     _probes(monkeypatch, "h264")
     torrserver = _FakeTorrServer(dead={"hash-magnet-r0"})
-    monkeypatch.setattr(cli.Release, "magnet", property(lambda self: f"magnet-{self.raw_name}"))
+    monkeypatch.setattr(Release, "magnet", property(lambda self: f"magnet-{self.raw_name}"))
 
     prep = _resolve(cli._Bench(cast(Any, torrserver)), ranked)
 

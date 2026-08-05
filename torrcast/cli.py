@@ -72,7 +72,7 @@ MAX_TRIES = 3
 PREWARM = 3
 #: Бюджет одной раздачи на метаданные по DHT, секунды. Не уложилась — не «зависли
 #: насмерть», а честная строка и следующий релиз (дефект №1 владельца, §1 SPEC-v2).
-META_BUDGET = 30.0
+META_BUDGET = 20.0
 #: Бюджет на чтение дорожек (ffprobe) той же раздачи, секунды.
 PROBE_BUDGET = 40.0
 #: Как часто сторож кладёт позицию в state, секунды (§3).
@@ -432,7 +432,7 @@ def _cmd_play(args: Args) -> int:
     what = f"«{plan.picture.title}»" + (
         f" {series.want}" if series else f" ({plan.picture.year or '?'})"
     )
-    about = f"{what} · {release.quality or '?'} · {label}"
+    about = f"{what} · {release.quality or media.quality} · {label}"
     # Настоящий битрейт: размер файла серии/фильма на его же длительность, а не оценка.
     peak = bitrate_mbit(video.size, media.duration or plan.runtime)
     if peak > config.bitrate_warn_mbit:

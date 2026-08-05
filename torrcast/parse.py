@@ -652,11 +652,16 @@ def _both_languages(
     чтобы показать человеку всю франшизу, не трогая саму кластеризацию (§8 SPEC-v2).
     """
     items = list(groups[key])
-    twin = aliases.get(key)
-    if twin and twin != key:
-        seen = {id(p) for p in items}
+    # Псевдоним считается от оригинального названия к русскому, а спросить могут любым:
+    # ``cast moana`` и ``cast моана`` обязаны показать одну и ту же франшизу.
+    twins = {aliases.get(key, "")} | {a for a, target in aliases.items() if target == key}
+    seen = {id(p) for p in items}
+    for twin in twins:
+        if not twin or twin == key:
+            continue
         items += [p for p in groups.get(twin, []) if id(p) not in seen]
-        items.sort(key=lambda p: (p.year is None, p.year or 0, p.part or 99, -len(p.releases)))
+        seen |= {id(p) for p in items}
+    items.sort(key=lambda p: (p.year is None, p.year or 0, p.part or 99, -len(p.releases)))
     return items
 
 
