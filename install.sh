@@ -35,7 +35,16 @@ TS_CACHE="${TORRCAST_TS_CACHE:-4294967296}"
 # агрегирует RuTracker/TPB/Nyaa/1337x и отдаёт infoHash; RuTor — прямой.
 INDEXERS=("Knaben|https://knaben.org/" "rutor|https://rutor.info/")
 
-PHASES="${TORRCAST_PHASES:-packages torrcast torrserver prowlarr indexers config https}"
+PHASES="${TORRCAST_PHASES:-packages torrcast torrserver sources prowlarr indexers config https}"
+
+# Источники, которые домашний канал может резать (см. фазу `sources`).
+PL_DEFS_URL="${TORRCAST_PL_DEFS_URL:-https://indexers.prowlarr.com/master/11}"
+DEFS_TARBALL="${TORRCAST_DEFS_TARBALL:-https://codeload.github.com/Prowlarr/Indexers/tar.gz/refs/heads/master}"
+KNABEN_API_HOST="${TORRCAST_KNABEN_API_HOST:-api.knaben.org}"
+KNABEN_FRONT="${TORRCAST_KNABEN_FRONT:-https://knaben.eu}"
+SHIM_DIR="${TORRCAST_SHIM_DIR:-/etc/knaben-shim}"
+#: Нужно ли засеивать определения индексеров руками — решает фаза `sources`.
+SEED_DEFS=0
 
 # https-раздача HLS: сегменты в tmpfs (фильм на диск не пишем), серт и ключ — файлы,
 # путь к которым знает конфиг. На стенде сюда встают файлы LE, код тот же самый.
@@ -167,6 +176,96 @@ install_torrserver() {
     info "кэш $((TS_CACHE / 1024 / 1024)) МиБ в RAM, ретрекеры включены"
 }
 
+# --- 3.5. Источники: проверяем, что доступно, и обходим только то, что бито ----
+#
+# Домашний канал и канал через VPN — разные интернеты, и это выяснилось на стенде
+# (docs/stage5.md). Поэтому ничего не обходится «на всякий случай»: сначала замер,
+# обход ставится только если источник реально не отвечает.
+
+hosts_pin() {  # $1 имя — прибить к 127.0.0.1, идемпотентно
+    if grep -qE "^127\.0\.0\.1[[:space:]]+$1(\$|[[:space:]])" /etc/hosts; then
+        skip "/etc/hosts: $1"
+    else
+        printf '127.0.0.1 %s\n' "$1" >>/etc/hosts
+        info "/etc/hosts: $1 → 127.0.0.1"
+    fi
+}
+
+# Отвечает ли API Knaben ЦЕЛИКОМ. Мелкий ответ проходит и через троттлинг, поэтому
+# просим полсотни результатов: обрыв тела ловится только на объёме.
+knaben_whole() {
+    curl -fsS -m 25 -X POST "https://$KNABEN_API_HOST/v1" -H 'Content-Type: application/json' \
+        -d '{"query":"матрица","search_type":"score","size":50}' -o /dev/null 2>/dev/null
+}
+
+setup_shim() {
+    install -d -m 0755 "$SHIM_DIR"
+    install -m 0755 "$REPO_DIR/scripts/knaben-shim.py" "$SHIM_DIR/knaben-shim.py"
+    if [ -s "$SHIM_DIR/knaben.crt" ] && [ -s "$SHIM_DIR/knaben.key" ]; then
+        skip "серт шима $SHIM_DIR/knaben.crt"
+    else
+        openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
+            -keyout "$SHIM_DIR/knaben.key" -out "$SHIM_DIR/knaben.crt" \
+            -subj "/CN=$KNABEN_API_HOST" -addext "subjectAltName=DNS:$KNABEN_API_HOST" 2>/dev/null
+        chmod 600 "$SHIM_DIR/knaben.key"
+    fi
+    # Prowlarr — .NET, и доверяет он системному хранилищу; своего для процесса ему не
+    # задать (SSL_CERT_FILE он игнорирует — проверено). Ключ лежит root-only на стенде.
+    install -m 0644 "$SHIM_DIR/knaben.crt" /usr/local/share/ca-certificates/knaben-shim.crt
+    update-ca-certificates >/dev/null 2>&1
+    hosts_pin "$KNABEN_API_HOST"
+    run_service knaben-shim "TLS-шим для $KNABEN_API_HOST (обход DPI по SNI)" \
+        "$PYTHON $SHIM_DIR/knaben-shim.py $KNABEN_FRONT $KNABEN_API_HOST $SHIM_DIR/knaben.crt $SHIM_DIR/knaben.key"
+    if knaben_whole; then
+        info "через шим API отвечает целиком"
+    else
+        info "⚠ шим поднят, но API так и не отвечает"
+    fi
+}
+
+check_sources() {
+    log "источники: что доступно из этой сети"
+
+    if curl -fsS -m 15 -o /dev/null "$PL_DEFS_URL" 2>/dev/null; then
+        info "каталог индексеров Prowlarr доступен — он возьмёт определения сам"
+    else
+        # Без этой строки КАЖДЫЙ запрос схемы ждёт таймаута .NET — 100 секунд.
+        info "⚠ каталог индексеров Prowlarr недоступен — определения возьмём с GitHub"
+        hosts_pin indexers.prowlarr.com
+        SEED_DEFS=1
+    fi
+
+    if knaben_whole; then
+        info "$KNABEN_API_HOST отвечает целиком — обход не нужен"
+    else
+        info "⚠ $KNABEN_API_HOST обрывает ответ на первых килобайтах (DPI по SNI)"
+        setup_shim
+    fi
+}
+
+# Определения индексеров (Cardigann) — из репы Prowlarr/Indexers на GitHub.
+# ⚠️ Класть ПЛОСКО в корень `Definitions/`: листинг Prowlarr читает только верхний
+# уровень (SearchOption.TopDirectoryOnly), и `Definitions/v11/rutor.yml` не виден.
+# Рестарт не нужен — схема пересобирается на каждый запрос.
+seed_definitions() {
+    local dir="$PREFIX/prowlarr-data/Definitions"
+    if [ "$(find "$dir" -maxdepth 1 -name '*.yml' 2>/dev/null | wc -l)" -gt 100 ]; then
+        skip "определения индексеров ($(find "$dir" -maxdepth 1 -name '*.yml' | wc -l) шт.)"
+        return
+    fi
+    log "определения индексеров с GitHub"
+    install -d -m 0755 "$dir"
+    local tmp; tmp="$(mktemp -d)"
+    if curl -fsSL -o "$tmp/defs.tar.gz" "$DEFS_TARBALL" \
+       && tar -xzf "$tmp/defs.tar.gz" -C "$tmp" --wildcards '*/definitions/v11/*.yml'; then
+        find "$tmp" -path '*/definitions/v11/*.yml' -exec install -m 0644 {} "$dir/" \;
+        info "разложено $(find "$dir" -maxdepth 1 -name '*.yml' | wc -l) определений"
+    else
+        info "⚠ определения не скачались — останутся только встроенные индексеры"
+    fi
+    rm -rf "$tmp"
+}
+
 # --- 4. Prowlarr ------------------------------------------------------------
 # Качаем с GitHub, как и TorrServer. Родной prowlarr.servarr.com отдаёт домашнему
 # адресу 403 (с egress через VPN — 200): зависеть от того, чей IP спрашивает, установка
@@ -229,6 +328,7 @@ prowlarr_apikey() {
 
 # --- 5. Индексеры через API (ноль ручных шагов в вебе) ----------------------
 install_indexers() {
+    [ "$SEED_DEFS" = 1 ] && seed_definitions
     log "индексеры Prowlarr"
     local key schema existing
     key="$(prowlarr_apikey)"
@@ -263,6 +363,18 @@ install_indexers() {
         fi
     done
     info "индексеров сейчас: $(curl -fsS "$PL_URL/api/v1/indexer?apikey=$key" | jq 'length')"
+
+    # Живая проверка: «индексер заведён» и «поиск что-то находит» — разные утверждения.
+    # На стенде первое было правдой, а второе нет (docs/stage5.md).
+    local found
+    found="$(curl -fsS -m 90 -G "$PL_URL/api/v1/search" \
+        --data-urlencode "apikey=$key" --data-urlencode "query=матрица" \
+        --data-urlencode "type=search" --data-urlencode "limit=100" 2>/dev/null | jq 'length' 2>/dev/null)"
+    if [ -n "$found" ] && [ "$found" -gt 0 ] 2>/dev/null; then
+        info "проверочный поиск «матрица»: $found раздач"
+    else
+        info "⚠ проверочный поиск НИЧЕГО не нашёл — индексеры недоступны из этой сети"
+    fi
 }
 
 # --- 6. Конфиг, ключи, состояние --------------------------------------------
@@ -359,6 +471,7 @@ main() {
     has packages   && install_packages
     has torrcast    && install_torrcast
     has torrserver && install_torrserver
+    has sources    && check_sources
     has prowlarr   && install_prowlarr
     has indexers   && install_indexers
     has config     && setup_config
