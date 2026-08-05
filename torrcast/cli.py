@@ -428,6 +428,7 @@ def _cmd_play(args: Args) -> int:
             bench.start(plan, plan.first)
         plan = _pick_plan(plans)
         prep = bench.resolve(plan, args, progress)
+        bench.keep_only(prep)  # прогрев греет лишнее — до показа лишнее убираем
 
     release, video, media = prep.release, prep.want, prep.found
     audio = _ask_audio(media, args)
@@ -621,6 +622,10 @@ class _Prep:
     number: int
     release: Release
     torrent_hash: str = ""
+    #: Прогрев оказался ненужным: показ ушёл на другую картину или другой релиз. Такая
+    #: раздача убирается из TorrServer сразу — иначе два лишних торрента тянули бы кэш
+    #: и полосу у самого показа.
+    dropped: bool = False
     video: TorrFile | None = None
     media: Media | None = None
     error: str = ""
@@ -725,8 +730,21 @@ class _Bench:
         return "" if pinned or codec == "h264" else codec
 
     def _forget(self, prep: _Prep) -> None:
+        """Убрать раздачу из TorrServer: она либо не подошла, либо больше не нужна."""
+        prep.dropped = True
         if prep.torrent_hash:
             self.torrserver.drop(prep.torrent_hash)
+
+    def keep_only(self, chosen: _Prep) -> None:
+        """Оставить в TorrServer одну раздачу — ту, которую показываем.
+
+        Прогрев по определению греет лишнее: топ-3 картины франшизы и запасной релиз.
+        Всё лишнее обязано исчезнуть до старта показа, иначе оно доедает и кэш в RAM,
+        и полосу роя, а показ идёт ровно на них (§6 SPEC-v2: tmpfs не растёт без предела).
+        """
+        for prep in self.preps.values():
+            if prep is not chosen:
+                self._forget(prep)
 
     def _work(self, plan: _Plan, prep: _Prep) -> None:
         """Фоновая подготовка: раздача в TorrServer, метаданные по DHT, ffprobe."""
@@ -747,6 +765,8 @@ class _Bench:
             prep.phase = "сбой"
         finally:
             prep.ready.set()
+            if prep.dropped:  # пока грелись, показ ушёл к другому релизу
+                self._forget(prep)
 
 
 def _default_file(plan: _Plan, release: Release, files: list[TorrFile]) -> TorrFile:

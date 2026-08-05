@@ -282,3 +282,22 @@ def test_tv_mock_switches_the_receiver_and_leaves_no_tv_address(
 
     assert cli.main(["--tv", "192.168.100.102"]) == 0
     assert (load_config().tv, load_config().receiver) == ("192.168.100.102", "chromecast")
+
+
+def test_warmup_leaves_in_torrserver_only_what_we_play(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Прогрев греет лишнее по определению — лишнее убирается до старта показа (§4).
+
+    Иначе две-три чужие раздачи продолжали бы качаться в RAM-кэш TorrServer рядом с
+    показом и отъедать у него полосу.
+    """
+    ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
+    _probes(monkeypatch, "h264")
+    torrserver = _FakeTorrServer()
+    bench = cli._Bench(cast(Any, torrserver))
+
+    prep = _resolve(bench, ranked)
+    bench.keep_only(prep)
+
+    assert len(bench.preps) > 1, "запасной релиз греется заранее"
+    assert len(torrserver.dropped) == len(bench.preps) - 1
+    assert prep.torrent_hash not in torrserver.dropped
