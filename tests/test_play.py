@@ -37,7 +37,6 @@ def config_for(tmp_path: Path, tls: tuple[str, str], port: int) -> Config:
         hls_key=tls[1],
         hls_port=port,
         hls_readrate=0.0,  # приёмка идёт быстрее реального времени
-        hls_window=0,
     )
 
 
