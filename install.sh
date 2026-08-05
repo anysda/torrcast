@@ -133,8 +133,9 @@ install_ffmpeg() {
     [ "$(uname -m)" = "x86_64" ] || die "статической сборки ffmpeg под $(uname -m) нет — \
 поставь ffmpeg ≥ $FFMPEG_MIN сам"
     info "ffmpeg ${have:-нет} — беру статическую сборку: $FFMPEG_URL"
+    # Каталог убираем сами: `trap ... RETURN` без `set -T` цепляется ко ВСЕМ функциям
+    # сразу и падает на первом же чужом return («work: unbound variable»).
     local work; work="$(mktemp -d)"
-    trap 'rm -rf "$work"' RETURN
     curl -fsSL -o "$work/ffmpeg.tar.xz" "$FFMPEG_URL" || die "не скачался ffmpeg: $FFMPEG_URL"
     tar -xf "$work/ffmpeg.tar.xz" -C "$work"
     local bin; bin="$(find "$work" -type f -name ffmpeg -perm -u+x | head -1)"
@@ -142,6 +143,7 @@ install_ffmpeg() {
     install -d -m 0755 /usr/local/bin
     install -m 0755 "$bin" /usr/local/bin/ffmpeg
     install -m 0755 "$(dirname "$bin")/ffprobe" /usr/local/bin/ffprobe
+    rm -rf "$work"
     hash -r
     local now; now="$(ffmpeg_version /usr/local/bin/ffmpeg)"
     dpkg --compare-versions "$now" ge "$FFMPEG_MIN" 2>/dev/null \
