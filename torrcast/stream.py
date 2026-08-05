@@ -129,6 +129,10 @@ PACK_DIR: Final = "pack"
 #: кусок. Приёмнику он не отдаётся — по нему показ сверяет, что нарезал ровно то, что
 #: обещал в манифесте (:meth:`Packer.drift`).
 PACK_LIST: Final = "pack.csv"
+#: Сколько ждём чужого снятия карты опорных кадров, прежде чем снимать самим.
+KEYS_WAIT: Final = 40.0
+#: Замок снятия карты считается живым столько секунд: дальше это брошенный хвост.
+KEYS_LOCK: Final = 60.0
 #: Допуск при сравнении времени границы с меткой кадра: границы сетки стоят на опорных
 #: кадрах, но метки одного и того же кадра при упаковке от нуля и из середины файла
 #: отличаются на кадр (ffmpeg не пускает dts ниже нуля). Полкадра 24 к/с — 0.02 с.
@@ -532,15 +536,45 @@ def _keys_cache(source_url: str) -> Path:
     )
 
 
-def film_keys(source_url: str) -> tuple[float, list[float]]:
-    """Длительность и времена опорных кадров видео: из кэша или из индекса mkv."""
-    from torrcast.mkv import keyframes, video_track
-
-    cache = _keys_cache(source_url)
+def _read_keys(cache: Path) -> tuple[float, list[float]] | None:
     with contextlib.suppress(OSError, ValueError, KeyError, TypeError):
         saved = json.loads(cache.read_text("utf-8"))
         return float(saved["duration"]), [float(x) for x in saved["keys"]]
-    found = keyframes(source_url)
+    return None
+
+
+def _fetching(lock: Path) -> bool:
+    """Карту прямо сейчас снимает кто-то другой (прогрев под меню — соседний процесс)."""
+    with contextlib.suppress(OSError):
+        return time.time() - lock.stat().st_mtime < KEYS_LOCK
+    return False
+
+
+def film_keys(source_url: str) -> tuple[float, list[float]]:
+    """Длительность и времена опорных кадров видео: из кэша или из индекса mkv.
+
+    Если карту уже снимает прогрев (:func:`warm_keys`), ждём его, а не читаем хвост
+    файла вторым потоком: рой от этого быстрее не станет, а старт показа удвоится.
+    """
+    from torrcast.mkv import keyframes, video_track
+
+    cache = _keys_cache(source_url)
+    if (ready := _read_keys(cache)) is not None:
+        return ready
+    lock = cache.with_suffix(".lock")
+    deadline = time.monotonic() + KEYS_WAIT
+    while _fetching(lock) and time.monotonic() < deadline:
+        time.sleep(0.5)
+        if (ready := _read_keys(cache)) is not None:
+            return ready
+    with contextlib.suppress(OSError):
+        lock.parent.mkdir(parents=True, exist_ok=True)
+        lock.touch()
+    try:
+        found = keyframes(source_url)
+    finally:
+        with contextlib.suppress(OSError):
+            lock.unlink(missing_ok=True)
     keys = [p.at for p in found.points if p.track == video_track(found.points)]
     with contextlib.suppress(OSError):
         cache.parent.mkdir(parents=True, exist_ok=True)

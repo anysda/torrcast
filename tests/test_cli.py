@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import io
 from pathlib import Path
-from threading import Lock
 from typing import Any, cast
 
 import pytest
@@ -38,6 +37,9 @@ def rel(
         voices=voices,
         size=int(size_gb * GB),
         seeders=seeders,
+        # Свой magnet на релиз: без него раздачи неразличимы, а подготовка их греет
+        # параллельно — и тест не может сказать, про какую именно раздача ffprobe.
+        magnet=f"magnet:?xt=urn:btih:{abs(hash(name)):x}",
     )
 
 
@@ -169,14 +171,21 @@ class _FakeTorrServer:
         self.dropped.append(torrent_hash)
 
 
-def _probes(monkeypatch: pytest.MonkeyPatch, *codecs: str) -> None:
-    """Подсунуть ffprobe: по кодеку на попытку. Порядок попыток у нас детерминирован."""
-    queue = list(codecs)
-    lock = Lock()
+def _probes(monkeypatch: pytest.MonkeyPatch, releases: list[Release], *codecs: str) -> None:
+    """Подсунуть ffprobe: по кодеку на релиз, считая от лучшего.
+
+    ⚠️ Раздавать кодеки по порядку ВЫЗОВОВ нельзя: прогрев греет запасной релиз
+    параллельно с основным, и кто из потоков дошёл до ffprobe первым — дело случая.
+    Поймано 06-08-2026: тест «три негодных подряд» развалился от того, что в подготовке
+    появился лишний вызов перед probe. Поэтому кодек привязан к самой раздаче: её magnet
+    виден в адресе потока, а место в очереди известно заранее.
+    """
 
     def read(url: str, timeout: float = 90.0) -> Media:
-        with lock:
-            return Media(3600.0, (), queue.pop(0) if queue else "h264")
+        for number, release in enumerate(releases):
+            if f"hash-{release.magnet}/" in url and number < len(codecs):
+                return Media(3600.0, (), codecs[number])
+        return Media(3600.0, (), "h264")
 
     monkeypatch.setattr(cli, "probe", read)
 
@@ -201,7 +210,7 @@ def test_a_release_that_turns_out_not_to_be_h264_is_swapped_out_loudly(
     Не h264 — честная строка и следующий кандидат, молчаливых подмен не бывает (§1).
     """
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
-    _probes(monkeypatch, "hevc", "h264")
+    _probes(monkeypatch, ranked, "hevc", "h264")
     torrserver = _FakeTorrServer()
     prep = _resolve(cli._Bench(cast(Any, torrserver)), ranked)
 
@@ -220,7 +229,7 @@ def test_a_dead_swarm_is_not_a_hang_but_the_next_release(
     а не молчаливого зависания без прогресса и без таймаута.
     """
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
-    _probes(monkeypatch, "h264")
+    _probes(monkeypatch, ranked, "h264")
     torrserver = _FakeTorrServer(dead={"hash-magnet-r0"})
     monkeypatch.setattr(Release, "magnet", property(lambda self: f"magnet-{self.raw_name}"))
 
@@ -239,7 +248,7 @@ def test_an_explicitly_named_release_is_played_as_asked_with_a_loud_warning(
     предупреждение и показ того, что просили (решение оркестратора, stage3 вопрос 1).
     """
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
-    _probes(monkeypatch, "hevc")
+    _probes(monkeypatch, ranked, "hevc")
     torrserver = _FakeTorrServer()
 
     prep = _resolve(cli._Bench(cast(Any, torrserver)), ranked, release=1)
@@ -255,7 +264,7 @@ def test_three_failed_probes_end_with_an_honest_exit(
 ) -> None:
     """Три попытки подряд не дали H.264 — код 1 с объяснением, а не четвёртая попытка."""
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(5)]
-    _probes(monkeypatch, "hevc", "av1", "vc1")
+    _probes(monkeypatch, ranked, "hevc", "av1", "vc1")
     with pytest.raises(NotFoundError) as caught:
         _resolve(cli._Bench(cast(Any, _FakeTorrServer())), ranked)
     assert "годного релиза нет" in str(caught.value)
@@ -291,7 +300,7 @@ def test_warmup_leaves_in_torrserver_only_what_we_play(monkeypatch: pytest.Monke
     показом и отъедать у него полосу.
     """
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
-    _probes(monkeypatch, "h264")
+    _probes(monkeypatch, ranked, "h264")
     monkeypatch.setattr(Release, "magnet", property(lambda self: f"magnet-{self.raw_name}"))
     torrserver = _FakeTorrServer()
     bench = cli._Bench(cast(Any, torrserver))

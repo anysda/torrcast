@@ -789,12 +789,15 @@ class _Bench:
             prep.phase = "дорожки"
             mark = time.monotonic()
             source = self.torrserver.stream_url(prep.torrent_hash, prep.want.index)
+            # Карта опорных кадров нужна показу, а не подготовке, но снимать её там — это
+            # 14–24 с ожидания роя на старте (замерено 06-08-2026): Cues лежат в хвосте
+            # файла, и рой отдаёт это место впервые. Поэтому она греется фоном с самой
+            # ранней секунды, когда известен файл, — параллельно с ffprobe и вопросами
+            # человека (§4 SPEC-v2). Показ потом либо берёт её из кэша, либо дожидается
+            # этого же чтения, а не начинает своё.
+            warm_keys(source)
             prep.media = probe(source, timeout=self.probe_budget)
             prep.read = time.monotonic() - mark
-            # Карта опорных кадров нужна показу, а не подготовке, но снимать её там — это
-            # 14–24 с ожидания роя на старте (замерено 06-08-2026). Поэтому она греется
-            # здесь, фоном, пока человек отвечает на вопросы (§4 SPEC-v2).
-            warm_keys(source)
             prep.phase = "готово"
         except TorrcastError as exc:
             prep.error = str(exc)
