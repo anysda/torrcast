@@ -1,0 +1,148 @@
+"""Короткий смок на живом ТВ: одно место фильма, одна сетка, честная лента состояний.
+
+Инструмент для §6 SPEC-v2 — «какая именно граница убивает показ». Работает **тем же
+кодом**, что и показ (:class:`torrcast.stream.Feed`, :class:`torrcast.cast.ChromecastReceiver`),
+меняется ровно одно: сетка сегментов, которую задают снаружи. Поэтому разница в поведении
+ТВ — это разница в нарезке, а не в обвязке.
+
+    python3 scripts/tvprobe.py <url> --at 76 --watch 25 --step 4 --uniform
+    python3 scripts/tvprobe.py <url> --at 76 --watch 25 --bounds 60,70,80,84,90,100
+
+Печатает ленту «секунда показа → позиция → состояние» и вердикт: где встал, насколько,
+был ли запас упаковки в этот момент (то есть ждал ли приёмник нас или завис сам).
+
+⚠️ Состояние показа (``state.json``) не трогает вовсе, чужой показ не перебивает: если на
+ТВ уже что-то играет, смок отказывается стартовать.
+"""
+
+from __future__ import annotations
+
+import argparse
+import contextlib
+import sys
+import time
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from torrcast.cast import ChromecastReceiver
+from torrcast.state import load_config
+from torrcast.stream import Feed, Grid, HlsServer, grid_for, hls_base, hls_dir
+
+#: Позиция не двигается дольше этого при живом запасе упаковки — это подвис.
+STALL = 3.0
+
+
+def make_grid(args: argparse.Namespace) -> Grid:
+    """Сетка смока: явный список границ, ровная или по опорным кадрам.
+
+    ``--drop``/``--add`` двигают отдельные границы, не трогая остальную сетку, — это и
+    есть бисект: между прогонами меняется ровно одна граница.
+    """
+    if args.bounds:
+        given = tuple(float(x) for x in args.bounds.split(","))
+        base = Grid((0.0, *given) if given[0] > 0 else given, args.duration, False)
+    else:
+        base = grid_for(args.url, args.duration, args.step, not args.uniform, say=print)
+    drop = {float(x) for x in args.drop.split(",") if x}
+    extra = {float(x) for x in args.add.split(",") if x}
+    if not drop and not extra:
+        return base
+    bounds = sorted({b for b in base.bounds if not any(abs(b - d) < 0.001 for d in drop)} | extra)
+    print(f"правка сетки: убрано {sorted(drop)}, добавлено {sorted(extra)}")
+    return Grid(tuple(bounds), base.duration, base.on_keys)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("url", help="поток TorrServer")
+    parser.add_argument("--at", type=float, required=True, help="с какой секунды грузить показ")
+    parser.add_argument("--watch", type=float, default=25.0, help="сколько секунд смотреть")
+    parser.add_argument("--step", type=float, default=10.0)
+    parser.add_argument("--uniform", action="store_true", help="ровная сетка, не по кадрам")
+    parser.add_argument("--bounds", default="", help="явные границы через запятую")
+    parser.add_argument("--drop", default="", help="убрать эти границы из сетки")
+    parser.add_argument("--add", default="", help="добавить эти границы в сетку")
+    parser.add_argument(
+        "--seek", default="", help="перемотки: «секунда_смока:место_фильма» через запятую"
+    )
+    parser.add_argument("--duration", type=float, default=6500.285, help="длина фильма")
+    parser.add_argument("--audio", type=int, default=0)
+    parser.add_argument("--title", default="проверка нарезки")
+    args = parser.parse_args()
+
+    config = load_config()
+    out = hls_dir(config.hls_dir)
+    grid = make_grid(args)
+    slot = grid.slot_at(args.at)
+    print(
+        f"сетка: {grid.count} сегментов; место {args.at:.1f} с — это v{slot} "
+        f"[{grid.start(slot):.3f}..{grid.end(slot):.3f}), соседи: "
+        + ", ".join(
+            f"{grid.start(k):.3f}" for k in range(max(0, slot - 1), min(grid.count, slot + 4))
+        )
+    )
+
+    feed = Feed(
+        source=args.url,
+        audio=args.audio,
+        out=out,
+        grid=grid,
+        readrate=config.hls_readrate,
+        burst=config.hls_burst,
+        keep=config.hls_keep,
+        log=lambda text: print(f"  упаковка: {text}", flush=True),
+    )
+    server = HlsServer(out, port=config.hls_port, feed=feed)
+    receiver = ChromecastReceiver(config.tv or "")
+    url = f"{hls_base(config)}/index.m3u8"
+
+    lowest, stalls = args.at, []
+    try:
+        server.start()
+        feed.restart(slot)
+        began = time.monotonic()
+        receiver.play(url, args.title, at=args.at)
+        print(f"картинка через {time.monotonic() - began:.1f} с, смотрю {args.watch:.0f} с")
+        watch_from = time.monotonic()
+        seen, since, worst = -1.0, 0.0, 0.0
+        jumps = [(float(a), float(b)) for a, b in (p.split(":") for p in args.seek.split(",") if p)]
+        while time.monotonic() - watch_from < args.watch:
+            if jumps and time.monotonic() - watch_from >= jumps[0][0]:
+                where = jumps.pop(0)[1]
+                print(f"  перемотка на {where:.1f} с", flush=True)
+                receiver._device().media_controller.seek(where)  # щуп лезет напрямую
+            position = receiver.position(feed.front())
+            now = time.monotonic() - watch_from
+            front = feed.front()
+            print(
+                f"  {now:5.1f} с · позиция {position.pos:8.3f} · упаковано {front:8.3f} "
+                f"· запас {front - position.pos:6.1f} · {position.state}",
+                flush=True,
+            )
+            if abs(position.pos - seen) < 0.05:
+                if now - since > STALL and front - position.pos > 1.0:
+                    worst = max(worst, now - since)
+                    stalls.append((position.pos, now - since))
+            else:
+                seen, since = position.pos, now
+            lowest = max(lowest, position.pos)
+            time.sleep(0.5)
+    finally:
+        with contextlib.suppress(Exception):
+            receiver.stop()
+        feed.stop()
+        server.stop()
+
+    if stalls:
+        where = max(stalls, key=lambda s: s[1])
+        print(
+            f"ВЕРДИКТ: встал на {where[0]:.3f} с (сегмент v{grid.slot_at(where[0])}), "
+            f"держался {where[1]:.1f} с при живом запасе"
+        )
+    else:
+        print(f"ВЕРДИКТ: чисто, дошёл до {lowest:.3f} с без подвисов")
+
+
+if __name__ == "__main__":
+    main()
