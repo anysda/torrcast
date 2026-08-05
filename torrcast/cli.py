@@ -578,7 +578,7 @@ def _continue(config: Config, key: str, entry: Entry, args: Args, clock: _Clock)
     Сериал вопросов не задаёт вовсе: релиз, дорожка и список серий уже выбраны, а
     какую серию и с какого места играть — записано. Фильм спрашивает ровно одно (§2.3).
     """
-    if entry.kind != "tv" or not entry.episodes:
+    if not entry.serial:  # фильм (в том числе ошибочно записанный сериалом) — один вопрос
         return _resume(config, key, entry, clock=clock, dry=args.dry) if entry.resumable else None
     if args.episode is not None:  # `cast киберпанк s2e5` — прыжок по кэшу раздачи
         jumped = entry.jump(args.episode.season, args.episode.episode)
@@ -930,7 +930,7 @@ def _hold(receiver: Receiver, feed: Feed, watch: Watch | None = None) -> None:
             )
         if watch is not None:
             watch.see(position.pos)
-            if watch.done and watch.entry.kind == "tv":
+            if watch.done and watch.entry.serial:
                 return  # серия досмотрена — освобождаем показ под следующую
         if position.state == "PAUSED":
             paused = paused or time.monotonic()

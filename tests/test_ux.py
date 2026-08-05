@@ -214,3 +214,37 @@ def test_resume_keeps_asking_the_only_question_that_is_about_intent(
 
     assert len(asked) == 1 and "Продолжить? [Да/сначала]" in asked[0]
     assert "ищу" not in capsys.readouterr().out
+
+
+def test_a_legacy_record_of_a_film_written_as_a_series_behaves_as_a_film(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Дефект №3 остался в состоянии владельца: «Moana 2» записана как ``tv`` с s1e1.
+
+    Парсер починен, но запись живёт и позиция в ней настоящая — терять её нельзя.
+    Одна серия в списке сериалом не считается: вопрос «Продолжить?» и ни слова про серии.
+    """
+    state = State()
+    state.put(
+        "tv:moana-2:2024",
+        Entry(
+            title="Moana 2",
+            magnet="magnet:?xt=1",
+            kind="tv",
+            pos=2566.0,
+            dur=5982.0,
+            query="моана-2",
+            season=1,
+            episode=1,
+            episodes=[[1, 1, 1]],
+        ),
+    )
+    state.save()
+    asked = _answers(monkeypatch, "")
+
+    assert cli.main(["моана", "2"]) == 0
+
+    printed = capsys.readouterr().out
+    assert len(asked) == 1 and "Продолжить? [Да/сначала]" in asked[0]
+    assert "s1e1" not in printed and "Серии" not in printed
+    assert State.load().entries["tv:moana-2:2024"].pos == 2566.0, "позиция владельца цела"

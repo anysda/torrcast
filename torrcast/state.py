@@ -140,9 +140,21 @@ class Entry:
         return self.pos > 0 and not self.done
 
     @property
+    def serial(self) -> bool:
+        """Правда ли это сериал: тип ``tv`` и в раздаче **несколько** серий.
+
+        Одна серия в списке — это не сериал, а осечка разбора: так в состоянии осталась
+        «Moana 2», которую ``x264`` в имени сделал s1e1 (дефект №3 владельца, §1
+        SPEC-v2). Парсер починен, но записи-то остались, и строки «Серии: серий 1:
+        s1e1…s1e1» в выводе фильма быть не должно ни у кого. Настоящей раздаче с одной
+        серией это ничего не стоит: переходить всё равно некуда.
+        """
+        return self.kind == "tv" and len(self.episodes) > 1
+
+    @property
     def label(self) -> str:
         """Подпись серии ``s1e2``; у фильма — пусто (§2.4)."""
-        if self.kind != "tv" or self.season is None or self.episode is None:
+        if not self.serial or self.season is None or self.episode is None:
             return ""
         return f"s{self.season}e{self.episode}"
 
