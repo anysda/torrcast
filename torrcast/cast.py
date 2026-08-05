@@ -120,6 +120,10 @@ class ChromecastReceiver:
     LOAD_RETRIES = 2
     #: app_id Default Media Receiver: чужой app = каст сняли пультом, показ окончен.
     MEDIA_APP = "CC1AD845"
+    #: Неподвижный BUFFERING дольше этого — приёмник завис (см. :meth:`_nudge`).
+    STALL_SECONDS = 8.0
+    #: На повторных нуджах перепрыгиваем вперёд, если кусок действительно битый.
+    STALL_SKIP = 8.0
 
     def __init__(self, address: str) -> None:
         if not address:
@@ -128,6 +132,9 @@ class ChromecastReceiver:
         self._cast: Any = None
         self._url = ""
         self._title = ""
+        self._stall_pos = -1.0
+        self._stall_since = 0.0
+        self._stall_hits = 0
 
     def play(self, url: str, title: str = "") -> None:
         """Начать показ и **дождаться картинки**, а не просто отправить LOAD.
@@ -148,7 +155,34 @@ class ChromecastReceiver:
 
     def position(self) -> Position:
         st = self._status()
-        return Position(st.current_time or 0.0, st.duration or 0.0, st.player_is_playing)
+        pos = st.current_time or 0.0
+        if st.player_state == "BUFFERING":
+            self._nudge(pos)
+        else:
+            self._stall_pos, self._stall_since, self._stall_hits = -1.0, 0.0, 0
+        return Position(pos, st.duration or 0.0, st.player_is_playing)
+
+    def _nudge(self, pos: float) -> None:
+        """Расшевелить приёмник, зависший в BUFFERING на одной и той же секунде.
+
+        Замерено на живом Q70D 05-08-2026: на 273-й секунде показа ресивер перестал
+        запрашивать сегменты и встал в BUFFERING **навсегда** — при том что следующий
+        кусок лежал в tmpfs и отдавался curl'ом за миллисекунды, а живого соединения от ТВ
+        в conntrack не было вовсе. То есть подвисает сам приёмник, и лечится это одним
+        ``seek`` на текущую позицию: показ продолжился сразу. Ровно этот сторож годами
+        держит kinocast на этом же телевизоре — без него зависание не отличить от конца.
+        """
+        now = time.monotonic()
+        if pos != self._stall_pos:
+            self._stall_pos, self._stall_since, self._stall_hits = pos, now, 0
+            return
+        if self._stall_since and now - self._stall_since < self.STALL_SECONDS:
+            return
+        target = pos + self._stall_hits * self.STALL_SKIP
+        self._stall_hits += 1
+        self._stall_since = now
+        with contextlib.suppress(Exception):
+            self._device().media_controller.seek(target)
 
     def _load(self) -> None:
         controller = self._device().media_controller
