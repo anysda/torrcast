@@ -20,7 +20,16 @@ from torrcast import InfraError
 from torrcast.cli import Watch as _Watch
 from torrcast.cli import _Clock, _play
 from torrcast.state import Config, Entry, State
-from torrcast.stream import HLS_SEGMENT_SECONDS, Feed, Packer, ffmpeg_hls_command, hls_base, hls_dir
+from torrcast.stream import (
+    HLS_SEGMENT_SECONDS,
+    Feed,
+    Packer,
+    ffmpeg_hls_command,
+    hls_base,
+    hls_dir,
+    slot_at,
+    slot_time,
+)
 
 
 def config_for(tmp_path: Path, tls: tuple[str, str], port: int) -> Config:
@@ -197,7 +206,7 @@ def test_the_show_sweeps_ram_behind_the_receiver_while_it_plays(
     cli._hold(receiver, feed)
 
     left = sorted(int(path.name[1:-3]) for path in feed.out.glob("v*.ts"))
-    assert left == list(range(40, 60)), "позади показа держим окно, остальное — из RAM"
+    assert left == list(range(slot_at(160.0), 60)), "позади показа держим окно, остальное — из RAM"
 
 
 def test_a_pause_on_the_remote_stops_packing(
@@ -256,10 +265,14 @@ def test_resume_starts_from_the_offset_and_ends_as_watched(
     сторож кладёт в state абсолютную позицию, а на 95 % пишет «досмотрено» (§2.3, §2.4).
     """
     monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
-    key, offset = "movie:ролик:2026", 8.0
+    # Позиция берётся на границе сетки: с середины сегмента упаковка законно начнётся
+    # с его начала, и проверять было бы нечего.
+    key, offset = "movie:ролик:2026", slot_time(1)
     # Длительность занижена на сегмент — по той же причине, что и допуск выше: хвост HLS
     # у клиента может отвалиться, а проверяем мы тут переход «досмотрено», а не хвост.
-    entry = Entry(title="ролик", magnet="magnet:?xt=1", pos=offset, dur=CLIP_SECONDS - 4.0)
+    entry = Entry(
+        title="ролик", magnet="magnet:?xt=1", pos=offset, dur=CLIP_SECONDS - HLS_SEGMENT_SECONDS
+    )
     state = State()
     state.put(key, entry)
     state.save()

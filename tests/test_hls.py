@@ -18,11 +18,14 @@ import requests
 
 from torrcast.cast import Report
 from torrcast.stream import (
+    HLS_SEGMENT_SECONDS,
     Feed,
     HlsServer,
     ffmpeg_hls_command,
     hls_dir,
     parse_manifest,
+    slot_at,
+    slot_time,
     vod_manifest,
 )
 
@@ -118,7 +121,7 @@ def test_stream_format_is_the_one_fixed_by_the_spec() -> None:
     assert "-c:v copy" in text, "видео только copy — перекодировать 1080p нам нечем"
     assert "-c:a aac -ac 2 -b:a 192k" in text, "AC3/DTS passthrough запрещён (§3)"
     assert "-map 0:v:0 -map 0:a:1" in text, "один вариант и выбранная дорожка по индексу"
-    assert "-hls_time 4" in text and "-hls_segment_type mpegts" in text
+    assert f"-hls_time {HLS_SEGMENT_SECONDS}" in text and "-hls_segment_type mpegts" in text
     assert "-hls_segment_filename /dev/shm/torrcast/v%d.ts" in text, "имя = место в фильме"
 
 
@@ -147,7 +150,7 @@ def test_packing_starts_at_the_requested_slot_and_names_files_by_place() -> None
     читаться по имени файла — а именно на этом держится манифест на всю длительность.
     """
     command = ffmpeg_hls_command("http://ts/stream", 0, "/tmp/x", start_slot=300)
-    assert command[command.index("-ss") + 1] == "1200.000", "сегмент 300 = 1200-я секунда"
+    assert command[command.index("-ss") + 1] == f"{slot_time(300):.3f}", "сегмент 300 = своё место"
     assert command.index("-ss") < command.index("-i")
     assert command[command.index("-start_number") + 1] == "300"
     assert "-ss" not in ffmpeg_hls_command("http://ts/stream", 0, "/tmp/x")
@@ -166,9 +169,11 @@ def test_the_manifest_promises_the_whole_film_so_the_tv_has_a_timeline() -> None
     assert ended, "без ENDLIST для приёмника это эфир: ни шкалы, ни перемотки"
     assert "#EXT-X-PLAYLIST-TYPE:VOD" in text
     assert abs(sum(seconds for _, seconds in segments) - 5978.5) < 0.001
-    assert len(segments) == 1495  # 1494 целых сегмента и хвост 2.5 с
-    assert segments[0][0] == "v0.ts" and segments[-1][0] == "v1494.ts"
-    assert parse_manifest(vod_manifest(20.0))[0] == [(f"v{n}.ts", 4.0) for n in range(5)]
+    whole = int(5978.5 // HLS_SEGMENT_SECONDS)
+    assert len(segments) == whole + 1, "целые сегменты и хвост короче сегмента"
+    assert segments[0][0] == "v0.ts" and segments[-1][0] == f"v{whole}.ts"
+    grid = float(HLS_SEGMENT_SECONDS)
+    assert parse_manifest(vod_manifest(grid * 5))[0] == [(f"v{n}.ts", grid) for n in range(5)]
 
 
 def test_readrate_paces_packing_and_can_be_switched_off() -> None:
@@ -319,7 +324,8 @@ def test_only_what_the_receiver_has_passed_is_swept_out_of_ram(tmp_path: Path) -
 
     Считать окно в штуках было ловушкой «Моаны 2»: длину сегмента задавал ключевой кадр,
     и «45 штук» оказывались то четырьмя минутами, то сорока секундами. Теперь сегмент
-    ровно 4 с и его номер — это его место в фильме, так что окно считается арифметикой.
+    ровно :data:`HLS_SEGMENT_SECONDS`, а его номер — это его место в фильме, так что окно
+    считается арифметикой и от размера сетки не зависит.
     """
     from torrcast.stream import Feed
 
@@ -329,11 +335,12 @@ def test_only_what_the_receiver_has_passed_is_swept_out_of_ram(tmp_path: Path) -
     feed = Feed(source="", audio=0, out=out, duration=7200.0, keep=40.0)
 
     feed.prune(played=200.0)  # показ на 200-й секунде, окно 40 с — всё до 160-й не нужно
+    edge = slot_at(160.0)
     left = sorted(int(p.name[1:-3]) for p in out.glob("v*.ts"))
-    assert left == list(range(40, 60)), "сегменты позади окна убраны, окно и запас целы"
+    assert left == list(range(edge, 60)), "сегменты позади окна убраны, окно и запас целы"
 
     feed.prune(played=10.0)
-    assert len(list(out.glob("v*.ts"))) == 20, "в начале показа не удаляется ничего"
+    assert len(list(out.glob("v*.ts"))) == 60 - edge, "в начале показа не удаляется ничего"
 
 
 def test_the_lead_over_the_receiver_is_measurable(tmp_path: Path) -> None:
@@ -352,7 +359,7 @@ def test_the_lead_over_the_receiver_is_measurable(tmp_path: Path) -> None:
         (out / f"v{slot}.ts").write_bytes(b"x" * 1000)
     feed.packer = Packer(proc=None, out=out, first=30)  # type: ignore[arg-type]
 
-    assert feed.front() == 144.0, "готовы сегменты 30…35, то есть упаковано до 144-й секунды"
+    assert feed.front() == slot_time(36), "готовы сегменты 30…35 — упаковано до конца 35-го"
     assert feed.weight() == 6000
 
 
