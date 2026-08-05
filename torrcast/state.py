@@ -99,6 +99,9 @@ class Entry:
     dur: float = 0.0
     season: int | None = None
     episode: int | None = None
+    #: Серии раздачи по порядку: ``[сезон, серия, номер файла]`` (§2.4). Это и есть кэш
+    #: выбора: стык серий и прыжок на s2e5 обходятся без Prowlarr и без вопросов.
+    episodes: list[list[int]] = field(default_factory=list)
     #: Slug исходного запроса: по нему resume находит запись, не ходя в Prowlarr (§2.3).
     query: str = ""
     #: Досмотрено (§2.4). У фильма это конец истории, у сериала — повод взять следующую.
@@ -115,14 +118,46 @@ class Entry:
         """Есть ли что продолжать: недосмотренный прогресс (§2.3)."""
         return self.pos > 0 and not self.done
 
+    @property
+    def label(self) -> str:
+        """Подпись серии ``s1e2``; у фильма — пусто (§2.4)."""
+        if self.kind != "tv" or self.season is None or self.episode is None:
+            return ""
+        return f"s{self.season}e{self.episode}"
+
+    def where(self, season: int, episode: int) -> int:
+        """Место серии в списке серий раздачи; ``-1`` — такой серии в раздаче нет."""
+        for at, item in enumerate(self.episodes):
+            if len(item) >= 2 and item[0] == season and item[1] == episode:
+                return at
+        return -1
+
+    def jump(self, season: int, episode: int) -> Entry | None:
+        """Прыжок на серию в пределах уже выбранной раздачи (§2.4): ни поиска, ни вопросов.
+        Серии в раздаче нет — ``None``, и цепочка честно идёт искать релиз нужного сезона.
+        """
+        at = self.where(season, episode)
+        if at < 0:
+            return None
+        return self._go(at)
+
     def advance(self) -> Entry:
         """Что записать по достижении порога 95 % (§2.4): фильму — пометка «досмотрено» и
-        сброс позиции (следующий ``cast`` начнёт сначала), сериалу — следующая серия с
-        нуля, выбор релиза и дорожки при этом сохраняется (этап 4).
+        сброс позиции (следующий ``cast`` начнёт сначала), сериалу — следующая серия
+        раздачи с нуля, выбор релиза и дорожки при этом сохраняется. Серия была
+        последней — «досмотрено» и для сериала: конец сезона или конец раздачи.
         """
-        if self.kind == "tv" and self.episode is not None:
-            return replace(self, episode=self.episode + 1, pos=0.0, dur=0.0, done=False)
+        at = self.where(self.season or 0, self.episode or 0)
+        if self.kind == "tv" and 0 <= at < len(self.episodes) - 1:
+            return self._go(at + 1)
         return replace(self, pos=0.0, done=True)
+
+    def _go(self, at: int) -> Entry:
+        """Встать на серию номер ``at`` списка: новый файл, позиция и длительность с нуля."""
+        season, episode, file_idx = self.episodes[at][:3]
+        return replace(
+            self, season=season, episode=episode, file_idx=file_idx, pos=0.0, dur=0.0, done=False
+        )
 
     def touch(self) -> Entry:
         """Копия записи со свежей меткой времени."""
@@ -130,7 +165,15 @@ class Entry:
 
     @classmethod
     def from_json(cls, data: dict[str, Any]) -> Entry:
-        return cls(**{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
+        fields = {k: v for k, v in data.items() if k in cls.__dataclass_fields__}
+        raw = fields.get("episodes")
+        if isinstance(raw, list):  # битую строку списка серий лучше потерять, чем упасть
+            fields["episodes"] = [
+                [int(n) for n in item[:3]]
+                for item in raw
+                if isinstance(item, list) and len(item) >= 3
+            ]
+        return cls(**fields)
 
 
 @dataclass(slots=True)
@@ -163,10 +206,13 @@ class State:
         from torrcast.parse import slugify
 
         want = slugify(query)
-        hits = [
-            (key, entry)
-            for key, entry in self.entries.items()
-            if want and want in {entry.query, key.split(":")[1] if ":" in key else ""}
+        if not want:
+            return None
+        hits = [(k, e) for k, e in self.entries.items() if want in {e.query, _slug(k)}]
+        # Сериал зовут коротко: «киберпанк» вместо «киберпанк бегущие по краю» (§2.4).
+        # Фильму так нельзя: «матрица» — это запрос франшизы, а не «Матрица: Перезагрузка».
+        hits = hits or [
+            (k, e) for k, e in self.entries.items() if e.kind == "tv" and _slug(k).startswith(want)
         ]
         return max(hits, key=lambda item: item[1].updated) if hits else None
 
@@ -184,6 +230,11 @@ class State:
 
     def __iter__(self) -> Iterator[tuple[str, Entry]]:
         return iter(self.entries.items())
+
+
+def _slug(key: str) -> str:
+    """Slug канонического названия из ключа ``<тип>:<slug>:<год>``."""
+    return key.split(":")[1] if ":" in key else ""
 
 
 def _write_atomic(path: Path, payload: dict[str, Any]) -> None:

@@ -96,17 +96,71 @@ def test_watched_movie_is_marked_and_rewound() -> None:
     assert done.magnet == "m" and done.audio == entry.audio  # выбор релиза сохраняется
 
 
-def test_watched_episode_moves_to_the_next_one() -> None:
-    """Серия досмотрена: следующая серия с нуля, релиз и дорожка те же (§2.4, этап 4)."""
-    entry = Entry(
-        title="Киберпанк", magnet="m", kind="tv", audio=1, season=1, episode=3, pos=1400, dur=1440
+def series(episode: int = 3, **fields: object) -> Entry:
+    """Сериал с выбранной раздачей: три серии, у каждой свой файл (§2.4)."""
+    return Entry(
+        title="Киберпанк",
+        magnet="m",
+        kind="tv",
+        audio=1,
+        season=1,
+        episode=episode,
+        episodes=[[1, 2, 5], [1, 3, 6], [1, 4, 7]],
+        **fields,  # type: ignore[arg-type]
     )
+
+
+def test_watched_episode_moves_to_the_next_file_of_the_release() -> None:
+    """Серия досмотрена: следующая серия раздачи с нуля, релиз и дорожка те же (§2.4).
+    Следующая — это следующий ФАЙЛ раздачи, а не «номер + 1»: в раздаче может не быть
+    ни первой серии, ни сплошной нумерации.
+    """
+    entry = series(episode=3, pos=1400, dur=1440)
+    assert entry.watched and entry.label == "s1e3"
 
     following = entry.advance()
 
     assert (following.season, following.episode) == (1, 4)
+    assert following.file_idx == 7, "играем файл этой серии, а не тот же самый"
     assert following.pos == 0 and following.dur == 0 and not following.done
-    assert following.audio == 1
+    assert following.magnet == "m" and following.audio == 1  # выбор релиза не переспрашивается
+
+
+def test_last_episode_of_the_release_ends_the_run() -> None:
+    """Конец раздачи (или сезона): «досмотрено», и юнит гаснет — выдумывать несуществующую
+    следующую серию мы не будем (§2.4).
+    """
+    ended = series(episode=4, pos=1400, dur=1440).advance()
+
+    assert ended.done and ended.pos == 0
+    assert (ended.season, ended.episode) == (1, 4), "остаёмся на последней сыгранной"
+
+
+def test_jump_lands_on_the_cached_episode_or_honestly_refuses() -> None:
+    """`cast киберпанк s1e2` при готовом кэше раздачи: файл и позиция с нуля, без вопросов.
+    Серии в раздаче нет — ``None``, и цепочка идёт искать релиз нужного сезона (§2.4).
+    """
+    entry = series(episode=3, pos=900.0)
+
+    jumped = entry.jump(1, 2)
+
+    assert jumped is not None
+    assert (jumped.season, jumped.episode, jumped.file_idx) == (1, 2, 5)
+    assert jumped.pos == 0.0 and jumped.label == "s1e2"
+    assert entry.jump(2, 5) is None
+
+
+def test_broken_episode_table_does_not_break_reading(tmp_path: Path) -> None:
+    """Битую строку списка серий лучше потерять, чем упасть на чтении состояния."""
+    path = tmp_path / "state.json"
+    path.write_text(
+        json.dumps({"tv:x:0": {"title": "X", "magnet": "m", "episodes": [[1, 1, 0], [2], "х"]}}),
+        encoding="utf-8",
+    )
+
+    entry = State.load().get("tv:x:0")
+
+    assert entry is not None and entry.episodes == [[1, 1, 0]]
 
 
 def test_unfinished_entry_is_resumable_and_finished_is_not() -> None:
@@ -128,6 +182,24 @@ def test_find_takes_the_entry_by_the_users_query() -> None:
     assert state.find("тачки")[1].title == "Тачки"  # type: ignore[index]
     assert state.find("матрица") is None
     assert state.find("") is None
+
+
+def test_find_lets_a_series_be_called_by_a_short_name() -> None:
+    """Сериал ищут коротко: «киберпанк» вместо «киберпанк бегущие по краю» (§2.4).
+    Фильму такое нельзя: «матрица» — запрос франшизы, а не «Матрица: Перезагрузка» (§2.2).
+    """
+    state = State()
+    state.put(
+        "tv:киберпанк-бегущие-по-краю:2022",
+        Entry(title="Киберпанк", magnet="m", kind="tv", query="киберпанк-бегущие-по-краю"),
+    )
+    state.put(
+        "movie:матрица-перезагрузка:2003",
+        Entry(title="Матрица: Перезагрузка", magnet="m", query="матрица-перезагрузка", pos=10),
+    )
+
+    assert state.find("киберпанк") is not None
+    assert state.find("матрица") is None
 
 
 def test_latest_is_the_freshest_record() -> None:

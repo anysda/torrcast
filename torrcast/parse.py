@@ -19,23 +19,29 @@
 from __future__ import annotations
 
 import re
+import statistics
 import unicodedata
 from collections import Counter
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
-from typing import Final, Literal
+from typing import Final, Literal, Protocol
 
 __all__ = [
+    "VIDEO_EXT",
     "Episode",
+    "EpisodeFile",
     "Picture",
     "Release",
     "cluster",
     "franchise_key",
     "franchises",
+    "map_episodes",
     "parse_episode",
     "parse_release_name",
     "part_number",
     "pick_franchise",
     "slugify",
+    "split_episode",
     "split_franchise_index",
 ]
 
@@ -145,14 +151,43 @@ _YEAR_PATTERNS: Final[tuple[re.Pattern[str], ...]] = (
 _SEASON_EPISODE_RES: Final[tuple[re.Pattern[str], ...]] = (
     re.compile(r"\bs\s*(?P<season>\d{1,2})\s*[.\-_ ]?\s*e\s*(?P<episode>\d{1,3})\b", re.IGNORECASE),
     re.compile(r"\b(?P<season>\d{1,2})\s*[xх]\s*(?P<episode>\d{1,3})\b", re.IGNORECASE),
-    re.compile(r"(?P<season>\d{1,2})\s*сезон\D{0,14}?(?P<episode>\d{1,3})\s*сери", re.IGNORECASE),
-    re.compile(r"(?P<episode>\d{1,3})\s*сери\D{0,14}?(?P<season>\d{1,2})\s*сезон", re.IGNORECASE),
+    # Хвост слова забираем целиком: «5 серия» вырезается из запроса без остатка «…я».
+    re.compile(r"(?P<season>\d{1,2})\s*сезон\D{0,14}?(?P<episode>\d{1,3})\s*сери\w*", re.I),
+    re.compile(r"(?P<episode>\d{1,3})\s*сери\D{0,14}?(?P<season>\d{1,2})\s*сезон\w*", re.I),
 )
 _SEASON_ONLY_RES: Final[tuple[re.Pattern[str], ...]] = (
     re.compile(r"\bs\s?(?P<season>\d{1,2})\b(?!\s?e)", re.IGNORECASE),
     re.compile(r"(?P<season>\d{1,2})[-\s]*(?:й\s*)?сезон", re.IGNORECASE),
     re.compile(r"season\s*(?P<season>\d{1,2})", re.IGNORECASE),
 )
+#: Диапазон сезонов в имени раздачи: ``[S01-06]``, ``S01-S06``, «1-6 сезоны».
+_SEASON_SPAN_RES: Final[tuple[re.Pattern[str], ...]] = (
+    re.compile(r"\bs\s?(\d{1,2})\s*-\s*s?\s?(\d{1,2})\b", re.IGNORECASE),
+    re.compile(r"\b(\d{1,2})\s*-\s*(\d{1,2})\s*(?:сезон\w*|seasons?)\b", re.IGNORECASE),
+)
+#: Серия без номера сезона в имени файла: ``E05``, «05 из 24», «5 серия».
+_EPISODE_ONLY_RES: Final[tuple[re.Pattern[str], ...]] = (
+    re.compile(r"\bep?\.?\s?(?P<episode>\d{1,3})\b(?!\s*(?:сезон|мин))", re.IGNORECASE),
+    re.compile(r"\b(?P<episode>\d{1,3})\s*(?:из|of)\s*\d{1,3}\b", re.IGNORECASE),
+    re.compile(r"\b(?P<episode>\d{1,3})\s*-?\s*(?:я|ая)?\s*сери", re.IGNORECASE),
+)
+#: Расширения видео: всё прочее в раздаче — субтитры, обложки и мусор.
+VIDEO_EXT: Final = (".mkv", ".mp4", ".avi", ".ts", ".m2ts", ".mov", ".webm", ".m4v", ".mpg")
+#: Файлы, которые серией не являются, даже если номер в имени есть: сэмплы, трейлеры,
+#: опенинги/эндинги без титров (аниме-раздачи держат их отдельной папкой), бонусы.
+_JUNK_RE: Final = re.compile(
+    r"\b(?:samples?|trailers?|трейлер\w*|teasers?|creditless|nc-?(?:op|ed)|extras?|"
+    r"bonus\w*|бонус\w*|specials?|скриншот\w*|screens?|proof|обложк\w*)\b|"
+    r"\bop\s*-\s*ed\b|[/\\](?:openings?|endings?|op|ed)[/\\]",
+    re.IGNORECASE,
+)
+#: Технический мусор в именах аниме: то, что похоже на номер серии, но им не является.
+_TECH_TOKEN_RE: Final = re.compile(
+    r"^(?:\d{3,4}[xх]\d{3,4}|(?:19|20)\d{2}|\d+bit|\d+fps|\d+кбит|\d+kbps|v\d)$", re.IGNORECASE
+)
+#: Доля от медианного размера, ниже которой файл раздачи серией не считается.
+_SMALL_RATIO: Final = 0.35
+
 #: Сериальность без номера сезона: «12 из 24», «E12 of 12», «[ТВ-2]».
 #: Голое ``episode``/``tv`` сюда не годится — «Star Wars Episode I» это фильм.
 _SERIES_HINT_RE: Final = re.compile(
@@ -177,6 +212,8 @@ class Release:
     voices: tuple[str, ...] = ()
     season: int | None = None
     episode: int | None = None
+    #: Сезоны пака целиком: ``[S01-06]`` → (1…6). Пусто — сезон один или не назван.
+    seasons: tuple[int, ...] = ()
     size: int = 0
     seeders: int = 0
     magnet: str = ""
@@ -204,6 +241,14 @@ class Release:
         if self.codec:
             return self.codec == "H.264"
         return self.height >= 720 or self.source in _HD_SOURCES
+
+    def covers(self, season: int) -> bool:
+        """Есть ли в раздаче нужный сезон — по её имени (§2.4). Имя молчит о сезоне —
+        считаем, что может быть: окончательный ответ дают файлы, а не название.
+        """
+        if self.seasons:
+            return season in self.seasons
+        return self.season in (None, season)
 
     @property
     def slug(self) -> str:
@@ -316,6 +361,150 @@ def parse_episode(text: str) -> Episode | None:
     return None
 
 
+def split_episode(text: str) -> tuple[str, Episode | None]:
+    """Отделить от запроса указание серии: ``«киберпанк 2x5»`` → ``("киберпанк", s2e5)``.
+    Хвост вырезается целиком — «2 сезон 5 серия» тоже, иначе в поиск уедет «киберпанк 2».
+    """
+    for pattern in _SEASON_EPISODE_RES:
+        match = pattern.search(text)
+        if match:
+            rest = f"{text[: match.start()]} {text[match.end() :]}"
+            title = re.sub(r"\s+", " ", rest).strip(" .,-—:")
+            return title, Episode(int(match.group("season")), int(match.group("episode")))
+    return text.strip(), None
+
+
+class FileLike(Protocol):
+    """Файл раздачи глазами парсера — ровно то, что отдаёт TorrServer."""
+
+    @property
+    def index(self) -> int: ...
+    @property
+    def name(self) -> str: ...
+    @property
+    def size(self) -> int: ...
+
+
+@dataclass(frozen=True, slots=True)
+class EpisodeFile:
+    """Файл раздачи, опознанный как серия (§2.4): список серий = файлы раздачи."""
+
+    index: int
+    season: int
+    episode: int
+    name: str
+    size: int = 0
+
+    @property
+    def at(self) -> Episode:
+        return Episode(self.season, self.episode)
+
+
+def map_episodes(files: Sequence[FileLike], season_hint: int | None = None) -> list[EpisodeFile]:
+    """Файлы раздачи → серии (§2.4). Пак это или один сезон — решают ФАЙЛЫ, а не имя
+    раздачи: сколько сезонов нашлось в путях, столько в ответе и будет.
+
+    Читаем весь список одним способом и проверяем его на связность: сколько файлов
+    разобрано, столько и должно выйти разных ``sNeM``. Иначе ``Naruto.Shippuuden.001.
+    IPTVRip.2x2.XviD.avi`` (2x2 — телеканал-рипер, а не «2 сезон 2 серия») дал бы всем
+    318 файлам один и тот же номер. Не сошлось — пробуем следующий способ:
+    полный ``sNeM`` → номер серии без сезона → голый номер (аниме) → порядок файлов.
+    """
+    videos = [f for f in files if f.name.lower().endswith(VIDEO_EXT)]
+    videos = [f for f in videos if not _JUNK_RE.search(f.name)]
+    videos = _drop_small(videos)
+    for read in (_read_sne, _read_episode_only, _read_bare):
+        found = _collect(videos, read, season_hint)
+        if found:
+            return found
+    return _collect(videos, _read_order, season_hint, strict=False)
+
+
+def _collect(
+    videos: Sequence[FileLike],
+    read: Callable[[str, int], tuple[int | None, int] | None],
+    hint: int | None,
+    strict: bool = True,
+) -> list[EpisodeFile]:
+    """Применить способ чтения ко всем файлам и проверить результат на связность."""
+    picked: dict[tuple[int, int], FileLike] = {}
+    matched = 0
+    for order, item in enumerate(videos, start=1):
+        found = read(_base(item.name), order)
+        if found is None:
+            continue
+        matched += 1
+        season, episode = found
+        if season is None:
+            season = _season_of(item.name, hint)
+        was = picked.get((season, episode))
+        if was is None or item.size > was.size:  # тот же номер дважды — берём файл крупнее
+            picked[(season, episode)] = item
+    # Разнобой: номера повторяются (значит, читали не то) или разобралась горстка файлов.
+    if strict and (not picked or len(picked) * 10 < matched * 9 or matched * 2 < len(videos)):
+        return []
+    return sorted(
+        (EpisodeFile(f.index, s, e, _base(f.name), f.size) for (s, e), f in picked.items()),
+        key=lambda f: (f.season, f.episode),
+    )
+
+
+def _read_sne(name: str, _order: int) -> tuple[int | None, int] | None:
+    """Полный ``sNeM``: ``S01E01``, ``S01.E01``, ``01x01``, «2 сезон 5 серия»."""
+    found = parse_episode(name)
+    return (found.season, found.episode) if found else None
+
+
+def _read_episode_only(name: str, _order: int) -> tuple[int | None, int] | None:
+    """Номер серии есть, сезона в имени файла нет: ``E05``, «05 из 24», «5 серия»."""
+    for pattern in _EPISODE_ONLY_RES:
+        match = pattern.search(name)
+        if match:
+            return None, int(match.group("episode"))
+    return None
+
+
+def _read_bare(name: str, _order: int) -> tuple[int | None, int] | None:
+    """Голый номер серии — норма для аниме: ``[Group] Title 05 [BDRip]``, ``Naruto - 216``.
+    Скобки и технические токены (``1920x1080``, ``10bit``, год) выбрасываются, из
+    оставшихся чисто числовых токенов берётся последний.
+    """
+    bare = _BRACKETS_RE.sub(" ", name)
+    tokens = [t for t in re.split(r"[\s._\-]+", bare) if t and not _TECH_TOKEN_RE.match(t)]
+    numbers = [int(t) for t in tokens if t.isdigit() and len(t) <= 3]
+    return (None, numbers[-1]) if numbers else None
+
+
+def _read_order(_name: str, order: int) -> tuple[int | None, int] | None:
+    """Последняя надежда: в именах номеров нет вовсе — нумеруем по порядку файлов."""
+    return None, order
+
+
+def _season_of(path: str, hint: int | None) -> int:
+    """Сезон файла: из каталога (``Season 3/``, ``S03/``, «3 сезон»), иначе из имени
+    раздачи, иначе первый — односезонные аниме-раздачи о сезоне молчат вовсе.
+    """
+    folder = path.rsplit("/", 1)[0] if "/" in path else ""
+    for pattern in _SEASON_ONLY_RES:
+        match = pattern.search(folder)
+        if match:
+            return int(match.group("season"))
+    return hint or 1
+
+
+def _drop_small(videos: list[FileLike]) -> list[FileLike]:
+    """Выбросить огрызки: сэмпл рядом с сериями весит проценты от их размера."""
+    sizes = [f.size for f in videos if f.size > 0]
+    if len(sizes) < 3:
+        return videos
+    edge = statistics.median(sizes) * _SMALL_RATIO
+    return [f for f in videos if f.size >= edge or f.size == 0]
+
+
+def _base(path: str) -> str:
+    return path.replace("\\", "/").rsplit("/", 1)[-1]
+
+
 def parse_release_name(name: str) -> Release:
     """Разобрать имя раздачи в структуру (форматы — в докстринге модуля)."""
     text = _normalize(name)
@@ -325,7 +514,7 @@ def parse_release_name(name: str) -> Release:
     quality_match = _QUALITY_RE.search(text)
     quality = _normalize_quality(quality_match.group(1)) if quality_match else None
 
-    season, episode, series = _parse_series(text)
+    season, episode, seasons, series = _parse_series(text)
     kind: Kind = "other" if _is_non_video(text) else ("tv" if series else "movie")
 
     return Release(
@@ -340,6 +529,7 @@ def parse_release_name(name: str) -> Release:
         voices=_parse_voices(text),
         season=season,
         episode=episode,
+        seasons=seasons,
         kind=kind,
     )
 
@@ -419,8 +609,12 @@ def pick_franchise(query: str, pictures: list[Picture]) -> list[Picture]:
             return wanted
         if wanted in aliases:
             return aliases[wanted]
-        hits = [k for k in groups if wanted in k]
-        return min(hits, key=len) if hits else None
+        if hits := [k for k in groups if wanted in k]:
+            return min(hits, key=len)
+        # Запрос длиннее канона: «киберпанк бегущие по краю» — это франшиза «киберпанк»
+        # (подзаголовок после двоеточия в ключ не входит). Берём самое длинное совпадение.
+        hits = [k for k in groups if k and k in wanted]
+        return max(hits, key=len) if hits else None
 
     name, index = split_franchise_index(query)
     key = lookup(name)
@@ -519,18 +713,32 @@ def _parse_voices(text: str) -> tuple[str, ...]:
     return tuple(sorted(found, key=lambda v: order.get(v, 99)))
 
 
-def _parse_series(text: str) -> tuple[int | None, int | None, bool]:
-    """Сезон, серия и признак сериальности."""
+def _parse_series(text: str) -> tuple[int | None, int | None, tuple[int, ...], bool]:
+    """Сезон, серия, сезоны пака и признак сериальности."""
+    seasons = _season_span(text)
+    if seasons:
+        return seasons[0], None, seasons, True
     found = parse_episode(text)
     if found is not None:
         # «S2E1-8 of 8» — это пак сезона, а не первая серия.
         pack = re.search(r"[eхx]\s*\d{1,3}\s*-\s*\d{1,3}", text, re.IGNORECASE)
-        return found.season, None if pack else found.episode, True
+        return found.season, None if pack else found.episode, (), True
     for pattern in _SEASON_ONLY_RES:
         match = pattern.search(text)
         if match:
-            return int(match.group("season")), None, True
-    return None, None, bool(_SERIES_HINT_RE.search(text))
+            return int(match.group("season")), None, (), True
+    return None, None, (), bool(_SERIES_HINT_RE.search(text))
+
+
+def _season_span(text: str) -> tuple[int, ...]:
+    """Диапазон сезонов из имени раздачи: ``[S01-06]``, «1-6 сезоны» → (1…6)."""
+    for pattern in _SEASON_SPAN_RES:
+        match = pattern.search(text)
+        if match:
+            first, last = int(match.group(1)), int(match.group(2))
+            if 0 < first < last <= 40:
+                return tuple(range(first, last + 1))
+    return ()
 
 
 def _is_non_video(text: str) -> bool:

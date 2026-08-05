@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING, Any, Final
 from urllib.parse import quote
 
 from torrcast import InfraError, why
+from torrcast.parse import VIDEO_EXT
 
 if TYPE_CHECKING:
     import requests
@@ -66,7 +67,6 @@ _UNIT_NAME: Final = "torrcast-play"
 _UNIT_TAG: Final = "torrcast: "
 #: Что пробрасывается в юнит: без этого показ уедет на прод-пути вместо dev-овских.
 _PASS_ENV: Final = ("TORRCAST_CONFIG", "TORRCAST_STATE")
-_VIDEO_EXT: Final = (".mkv", ".mp4", ".avi", ".ts", ".m2ts", ".mov", ".webm")
 
 
 def bitrate_mbit(size: int, duration: float) -> float:
@@ -81,12 +81,9 @@ class TorrFile:
     size: int = 0
 
     @property
-    def season_episode(self) -> tuple[int, int] | None:
-        """Сезон/серия из имени файла — список серий строится из раздачи (§2.4)."""
-        from torrcast.parse import parse_episode
-
-        found = parse_episode(self.name)
-        return (found.season, found.episode) if found else None
+    def base(self) -> str:
+        """Имя без пути: сезон живёт в каталоге, номер серии — в имени файла (§2.4)."""
+        return self.name.replace("\\", "/").rsplit("/", 1)[-1]
 
 
 @dataclass(frozen=True, slots=True)
@@ -287,7 +284,7 @@ def _track(index: int, stream: dict[str, Any]) -> AudioTrack:
 
 def pick_video_file(files: list[TorrFile]) -> TorrFile:
     """Самый крупный видеофайл раздачи, он же фильм (§2.4); образ диска — :class:`InfraError`."""
-    videos = [f for f in files if f.name.lower().endswith(_VIDEO_EXT)]
+    videos = [f for f in files if f.name.lower().endswith(VIDEO_EXT)]
     if not videos:
         raise InfraError(
             "в раздаче нет отдельного видеофайла (похоже на образ диска) — "
