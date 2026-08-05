@@ -1,4 +1,4 @@
-"""Цепочка показа целиком на синтетическом ролике: упаковка → https → mock-приёмник.
+"""Цепочка показа целиком на синтетическом ролике: упаковка → раздача → mock-приёмник.
 
 Живая приёмка §7.2 идёт на «Моане 2» (docs/stage2.md), а регрессию ловит этот тест:
 он гоняет тот же код без торрента и укладывается в секунды.
@@ -20,27 +20,43 @@ from torrcast import InfraError
 from torrcast.cli import Watch as _Watch
 from torrcast.cli import _Clock, _play
 from torrcast.state import Config, Entry, State
-from torrcast.stream import HLS_SEGMENT_SECONDS, Packer, ffmpeg_hls_command, hls_dir
+from torrcast.stream import HLS_SEGMENT_SECONDS, Packer, ffmpeg_hls_command, hls_base, hls_dir
 
 
 def config_for(tmp_path: Path, tls: tuple[str, str], port: int) -> Config:
+    """Конфиг показа как на стенде: http по голому IP (§5 SPEC-v2), приёмник — mock.
+
+    ``tls`` тут остаётся ради второго прогона той же цепочки по https: транспорт —
+    выключенная опция, но она обязана работать, и проверяется тем же тестом.
+    """
     return Config(
         receiver="mock",
+        tv="127.0.0.1",
         hls_dir=str(tmp_path / "hls"),
         hls_cert=tls[0],
         hls_key=tls[1],
         hls_port=port,
-        hls_base_url=f"https://127.0.0.1:{port}",
         hls_readrate=0.0,  # приёмка идёт быстрее реального времени
         hls_window=0,
     )
 
 
+@pytest.mark.parametrize(("transport", "port"), [("http", 18461), ("https", 18462)])
 def test_mock_decodes_the_whole_stream_without_gaps(
-    clip: str, tls: tuple[str, str], tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    transport: str,
+    port: int,
+    clip: str,
+    tls: tuple[str, str],
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """Приёмка §7.2 в миниатюре: от начала до конца, без дыр, CORS на месте."""
-    config = config_for(tmp_path, tls, 18461)
+    """Приёмка §7.2 в миниатюре: от начала до конца, без дыр, CORS на месте.
+
+    Оба транспорта гоняются одной и той же цепочкой: http — рабочий дефолт (§5 SPEC-v2),
+    https — выключенная опция, которая обязана оставаться живой.
+    """
+    config = config_for(tmp_path, tls, port)
+    config.transport = transport  # type: ignore[assignment]
     assert _play(config, clip, audio=0, about="тест", clock=_Clock()) == 0
     printed = capsys.readouterr().out
     assert "→ ТВ" in printed
@@ -86,7 +102,7 @@ def test_torn_off_packing_is_an_honest_infra_error(
         killer.join(timeout=30)
     assert "упаковка оборвалась: убит сигналом 9" in str(caught.value)
     assert not list(Path(config.hls_dir).glob("*.ts")), "сегменты убраны даже после аварии"
-    assert not _alive(str(tmp_path)) and not _alive(config.hls_base_url), "процессы не текут"
+    assert not _alive(str(tmp_path)) and not _alive(hls_base(config)), "процессы не текут"
 
 
 def _probe(path: Path) -> list[dict[str, Any]]:
@@ -167,7 +183,7 @@ def test_a_rewind_deeper_than_the_window_repacks_instead_of_404(tmp_path: Path) 
     from torrcast.stream import HlsServer
 
     packer = _packer_with_manifest(tmp_path)
-    server = HlsServer(packer.out, "нет", "нет", port=0)
+    server = HlsServer(packer.out, port=0)
     server._misses.append("index3.ts")  # раздача уже ответила приёмнику 404
     receiver = _FakeReceiver([(45.0, "PLAYING")])
     assert _hold(receiver, packer, server) == 30.0, "перепаковка ровно с начала сегмента"
@@ -185,7 +201,7 @@ def test_a_pause_on_the_remote_stops_packing_and_resumes_where_it_stood(
     monkeypatch.setattr(cli, "PAUSE_SECONDS", 0.0)
     monkeypatch.setattr(time, "sleep", lambda seconds: None)
     packer = _packer_with_manifest(tmp_path)
-    server = HlsServer(packer.out, "нет", "нет", port=0)
+    server = HlsServer(packer.out, port=0)
     receiver = _FakeReceiver([(42.0, "PAUSED"), (42.0, "PAUSED"), (42.0, "PLAYING")])
 
     assert cli._hold(receiver, packer, server) == 42.0

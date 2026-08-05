@@ -1,8 +1,11 @@
-"""Формат потока §3 и https-раздача: то, на чём ресивер молча ломается.
+"""Формат потока §3 и раздача HLS: то, на чём ресивер молча ломается.
 
 Проверяется ровно то, что зафиксировано ТЗ и реестром ТВ-рисков §9: TS-сегменты по 4 с,
 один вариант, видео copy, аудио всегда AAC stereo 192k, EVENT-манифест, CORS на всех
 ответах (включая 404 и preflight) и Range на сегментах.
+
+Раздача идёт по http на голом IP (§5 SPEC-v2) — так же, как её видит телевизор.
+https проверяется отдельно: это выключенная опция, но она обязана оставаться рабочей.
 """
 
 from __future__ import annotations
@@ -18,19 +21,82 @@ from torrcast.stream import HlsServer, ffmpeg_hls_command, hls_dir, parse_manife
 
 
 @pytest.fixture
-def served(tls: tuple[str, str], tmp_path: Path) -> Any:
-    """Живой https-сервер с одним сегментом и манифестом."""
+def served(tmp_path: Path) -> Any:
+    """Живая раздача с одним сегментом и манифестом — по http, как её берёт ТВ."""
+    root = _stub(tmp_path)
+    server = HlsServer(root, host="127.0.0.1", port=18453)
+    server.start()
+    try:
+        yield requests.Session(), "http://127.0.0.1:18453"
+    finally:
+        server.stop()
+
+
+def _stub(tmp_path: Path) -> Path:
     root = hls_dir(str(tmp_path / "hls"))
     (root / "index0.ts").write_bytes(bytes(range(256)) * 4)
     (root / "index.m3u8").write_text("#EXTM3U\n#EXTINF:4.000000,\nindex0.ts\n")
-    server = HlsServer(root, tls[0], tls[1], host="127.0.0.1", port=18453)
+    return root
+
+
+def test_the_default_transport_is_plain_http_by_ip(tmp_path: Path) -> None:
+    """§5 SPEC-v2: раздача по умолчанию — http, и ни серта, ни имени ей не нужно.
+
+    Сервер поднимается **без единого пути к серту** — то есть выключенный https не
+    оставляет по себе обязательного файла, который некому положить.
+    """
+    from torrcast.state import Config
+
+    assert Config().transport == "http"
+    assert Config().hls_base_url == "", "имя в базе URL = DNS в пути показа (§5)"
+    assert Config().hls_port == 8080
+
+    server = HlsServer(_stub(tmp_path), host="127.0.0.1", port=18457)
+    server.start()
+    try:
+        answer = requests.get("http://127.0.0.1:18457/index.m3u8", timeout=10)
+        assert answer.status_code == 200
+        assert answer.headers["Access-Control-Allow-Origin"] == "*"
+        assert answer.headers["Content-Type"] == "application/vnd.apple.mpegurl"
+    finally:
+        server.stop()
+
+
+def test_https_stays_a_working_but_switched_off_option(
+    tls: tuple[str, str], tmp_path: Path
+) -> None:
+    """Код https никуда не делся (§5): включается флагом и играет как раньше."""
+    server = HlsServer(_stub(tmp_path), tls[0], tls[1], host="127.0.0.1", port=18458, tls=True)
     server.start()
     session = requests.Session()
     session.verify = tls[0]  # серт = собственный корень: TLS проверяется по-настоящему
     try:
-        yield session, "https://127.0.0.1:18453"
+        answer = session.get("https://127.0.0.1:18458/index.m3u8", timeout=10)
+        assert answer.status_code == 200
+        assert answer.headers["Access-Control-Allow-Origin"] == "*"
     finally:
         server.stop()
+
+
+def test_the_playback_address_is_our_own_leg_toward_the_tv(tmp_path: Path) -> None:
+    """§5 SPEC-v2: URL собирается из транспорта, нашего адреса со стороны ТВ и порта.
+
+    Имени в нём нет вовсе — упавший DNS показ не трогает. Ручной ``hls_base_url``
+    остаётся запасным выходом и перебивает вычисленный адрес.
+    """
+    from torrcast import InfraError
+    from torrcast.state import Config
+    from torrcast.stream import hls_base, our_address
+
+    assert our_address("127.0.0.1") == "127.0.0.1", "адрес берём у ядра, по маршруту"
+    assert our_address("") == ""
+
+    assert hls_base(Config(tv="127.0.0.1")) == "http://127.0.0.1:8080"
+    assert hls_base(Config(tv="127.0.0.1", transport="https")) == "https://127.0.0.1:8080"
+    manual = Config(tv="127.0.0.1", hls_base_url="http://192.168.1.62:8080/")
+    assert hls_base(manual) == "http://192.168.1.62:8080"
+    with pytest.raises(InfraError):
+        hls_base(Config())  # адрес ТВ не задан — маршрута нет, и молчать об этом нельзя
 
 
 def test_stream_format_is_the_one_fixed_by_the_spec() -> None:
@@ -79,9 +145,7 @@ def test_the_initial_burst_replaces_pausing_the_packer(tmp_path: Path) -> None:
         assert "send_signal" not in source, f"{module.__name__}: показ шлёт сигналы упаковке"
 
 
-def test_a_swept_out_segment_is_remembered_not_just_404ed(
-    tls: tuple[str, str], tmp_path: Path
-) -> None:
+def test_a_swept_out_segment_is_remembered_not_just_404ed(tmp_path: Path) -> None:
     """Перемотка назад глубже окна (§6 SPEC-v2): приёмник просит вычищенный сегмент.
 
     404 сам по себе — потерянный показ. Поэтому раздача запоминает, чего у неё попросили:
@@ -94,12 +158,11 @@ def test_a_swept_out_segment_is_remembered_not_just_404ed(
     (root / "index.m3u8").write_text(
         "#EXTM3U\n#EXTINF:10.000000,\nindex0.ts\n#EXTINF:4.000000,\nindex1.ts\n"
     )
-    server = HlsServer(root, tls[0], tls[1], host="127.0.0.1", port=18455)
+    server = HlsServer(root, host="127.0.0.1", port=18455)
     server.start()
     session = requests.Session()
-    session.verify = tls[0]
     try:
-        assert session.get("https://127.0.0.1:18455/index1.ts", timeout=10).status_code == 404
+        assert session.get("http://127.0.0.1:18455/index1.ts", timeout=10).status_code == 404
         assert server.missed() == "index1.ts"
         assert server.missed() == "", "прочитали — список чист, второй раз не перепакуем"
     finally:

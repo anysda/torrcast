@@ -40,6 +40,7 @@ from torrcast.stream import (
     TorrFile,
     TorrServer,
     bitrate_mbit,
+    hls_base,
     pick_video_file,
     probe,
     segment_start,
@@ -200,9 +201,12 @@ def _cmd_status() -> int:
     key, entry = found
     what = f"«{entry.title}»" + (f" {entry.label}" if entry.label else "")
     print(f"▶ {what} — {_hms(entry.pos)} / {_hms(entry.dur)}")
+    where = "адрес раздачи не определён"
+    with contextlib.suppress(TorrcastError):  # адреса нет — статус показа это не отменяет
+        where = hls_base(config)
     print(
         f"   {key} · файл #{entry.file_idx} · дорожка {entry.audio + 1} · "
-        f"{config.hls_base_url} → {config.receiver}"
+        f"{where} → {config.receiver}"
     )
     return EXIT_OK
 
@@ -588,20 +592,24 @@ def _play(
     clock: _Clock,
     watch: Watch | None = None,
 ) -> int:
-    """Упаковка → https-раздача → приёмник (§3). Своих демонов нет: и ffmpeg, и раздача
-    живут ровно на время показа и гасятся вместе с ним, что бы ни случилось.
+    """Упаковка → раздача по http на голом IP (§5 SPEC-v2) → приёмник. Своих демонов
+    нет: и ffmpeg, и раздача живут ровно на время показа и гасятся вместе с ним, что бы
+    ни случилось.
 
     Упаковок за показ может быть несколько (§6 SPEC-v2): перемотка назад глубже окна и
     возврат с длинной паузы перепаковывают поток с нужной секунды и грузят его в приёмник
     заново. Раздача та же, приёмник тот же — заменяется только ffmpeg.
     """
-    from torrcast.stream import ffmpeg_hls_command, hls_dir
+    from torrcast.stream import ffmpeg_hls_command, hls_base, hls_dir
 
     out = hls_dir(config.hls_dir)
     start = watch.offset if watch else 0.0
-    server = HlsServer(out, config.hls_cert, config.hls_key, port=config.hls_port)
-    receiver = make_receiver(config.receiver, config.tv or "", config.hls_cert)
-    base = f"{config.hls_base_url.rstrip('/')}/index.m3u8"
+    tls = config.transport == "https"
+    server = HlsServer(out, config.hls_cert, config.hls_key, port=config.hls_port, tls=tls)
+    # Серт приёмнику нужен только затем, чтобы проверить нашу раздачу: по http проверять
+    # нечего, и mock не должен делать вид, что что-то проверил.
+    receiver = make_receiver(config.receiver, config.tv or "", config.hls_cert if tls else "")
+    base = f"{hls_base(config)}/index.m3u8"
     url, generation = base, 0
     packer: Packer | None = None
     try:

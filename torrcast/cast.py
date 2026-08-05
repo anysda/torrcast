@@ -1,8 +1,8 @@
 """Приёмники: реальный Chromecast и mock — интерфейс с двумя реализациями (§3 ТЗ).
 
-``mock`` не заглушка «для галочки»: headless-клиент тянет манифест и сегменты по https
-ровно как ТВ, проверяет CORS и непрерывность нумерации, декодирует ffmpeg'ом и отдаёт
-позицию — на нём проходит вся автономная приёмка (§7, реестр ТВ-рисков §9).
+``mock`` не заглушка «для галочки»: headless-клиент тянет манифест и сегменты тем же
+транспортом, что и ТВ, проверяет CORS и непрерывность нумерации, декодирует ffmpeg'ом
+и отдаёт позицию — на нём проходит вся автономная приёмка (§7, реестр ТВ-рисков §9).
 Samsung-специфики здесь нет и быть не должно (§1): ни PowerState, ни nudge-сторожей.
 """
 
@@ -354,11 +354,12 @@ class ChromecastReceiver:
 
 
 class MockReceiver:
-    """Headless-приёмник: тянет HLS по https как ТВ и декодирует ffmpeg'ом в ``/dev/null``.
+    """Headless-приёмник: тянет HLS ровно как ТВ и декодирует ffmpeg'ом в ``/dev/null``.
 
-    TLS проверяется по-настоящему, а не ``verify=False``: чему доверять, решает
-    :func:`trust_anchor` — системному хранилищу для настоящего LE-серта (ровно как ТВ)
-    или самому файлу для self-signed. Пустой ``ca`` = системное хранилище (§9).
+    Адрес приходит готовым, и по нему же выбирается строгость: на https TLS проверяется
+    по-настоящему, а не ``verify=False`` — чему доверять, решает :func:`trust_anchor`
+    (системное хранилище для настоящего LE-серта, ровно как у ТВ, или сам файл для
+    self-signed; пустой ``ca`` = хранилище, §9). На http проверять нечего.
     """
 
     def __init__(self, ca: str = "") -> None:
@@ -374,10 +375,14 @@ class MockReceiver:
     def play(self, url: str, title: str = "") -> None:
         self._probe(url)  # первый ответ проверяем сами: TLS, доступность, CORS
         self._err = tempfile.TemporaryFile()  # noqa: SIM115 — живёт всё воспроизведение
-        ca = ["-ca_file", self.ca] if self.ca else []
+        # ⚠️ Опции TLS ставятся только под https-адрес: на http ffmpeg не «игнорирует
+        # лишнее», а падает с «Option tls_verify not found» ещё до открытия входа —
+        # то есть на дефолтном транспорте (§5 SPEC-v2) mock не декодировал бы ничего.
+        tls = ["-tls_verify", "1", *(["-ca_file", self.ca] if self.ca else [])]
         command = [
             "ffmpeg", "-hide_banner", "-nostats", "-loglevel", "warning",
-            "-tls_verify", "1", *ca, "-i", url, "-progress", "pipe:1", "-f", "null", "-",
+            *(tls if url.startswith("https://") else []),
+            "-i", url, "-progress", "pipe:1", "-f", "null", "-",
         ]  # fmt: skip
         try:
             self._proc = subprocess.Popen(

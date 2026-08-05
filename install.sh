@@ -2,7 +2,7 @@
 # install.sh — установка torrcast на стенд/LXC. Идемпотентен: повторный запуск
 # ничего не ломает и не пересоздаёт то, что уже на месте (§6 ТЗ).
 #
-# Фазы: зависимости → пакет → TorrServer → Prowlarr → индексеры → конфиг → https.
+# Фазы: зависимости → пакет → TorrServer → Prowlarr → индексеры → конфиг → раздача.
 # Ноль регистраций и внешних ключей: apikey Prowlarr генерит сам себе, мы его
 # вычитываем из его же config.xml и кладём в конфиг torrcast.
 #
@@ -35,7 +35,7 @@ TS_CACHE="${TORRCAST_TS_CACHE:-4294967296}"
 # агрегирует RuTracker/TPB/Nyaa/1337x и отдаёт infoHash; RuTor — прямой.
 INDEXERS=("Knaben|https://knaben.org/" "rutor|https://rutor.info/")
 
-PHASES="${TORRCAST_PHASES:-packages torrcast torrserver sources prowlarr indexers config https}"
+PHASES="${TORRCAST_PHASES:-packages torrcast torrserver sources prowlarr indexers config hls}"
 
 # Источники, которые домашний канал может резать (см. фазу `sources`).
 PL_DEFS_URL="${TORRCAST_PL_DEFS_URL:-https://indexers.prowlarr.com/master/11}"
@@ -46,10 +46,14 @@ SHIM_DIR="${TORRCAST_SHIM_DIR:-/etc/knaben-shim}"
 #: Нужно ли засеивать определения индексеров руками — решает фаза `sources`.
 SEED_DEFS=0
 
-# https-раздача HLS: сегменты в tmpfs (фильм на диск не пишем), серт и ключ — файлы,
-# путь к которым знает конфиг. На стенде сюда встают файлы LE, код тот же самый.
+# Раздача HLS: сегменты в tmpfs (фильм на диск не пишем). Транспорт по умолчанию —
+# голый http на IP (§5 SPEC-v2): ни серта, ни имени, ни DNS в пути показа. Адрес
+# раздачи не настраивается: код сам берёт ту ногу, с которой стенд виден телевизору.
+# TORRCAST_HLS_BASE_URL — запасной выход, если прямой путь не заработает.
 HLS_DIR="${TORRCAST_HLS_DIR:-/dev/shm/torrcast}"
-HLS_PORT="${TORRCAST_HLS_PORT:-8443}"
+HLS_PORT="${TORRCAST_HLS_PORT:-8080}"
+HLS_TRANSPORT="${TORRCAST_TRANSPORT:-http}"
+HLS_BASE_URL="${TORRCAST_HLS_BASE_URL:-}"
 HLS_HOST="${TORRCAST_HLS_HOSTNAME:-torrcast.anysda.space}"
 TLS_DIR="$CONFIG_DIR/tls"
 
@@ -470,13 +474,17 @@ setup_config() {
     # Темп упаковки и окно сегментов — дефолты КОДА (torrcast/state.py), а не настройка
     # стенда: иначе выкатка нового поведения молча упирается в старые числа из конфига
     # (ровно это и случилось с hls_readrate=1.5, §7 A SPEC-v2). Вычищаем их отовсюду.
+    # Туда же транспорт: раздача по http на IP — не вкус владельца, а устройство системы
+    # (§5 SPEC-v2), и старое `https://torrcast.anysda.space:8443` из конфига обязано уйти.
     local tuned='del(.hls_readrate, .hls_window, .hls_burst, .hls_keep)'
+    tuned="$tuned | .transport=\$t | .hls_port=(\$p|tonumber) | .hls_base_url=\$b"
 
     if [ -f "$CONFIG_DIR/config.json" ]; then
         # Адрес ТВ и прочий выбор владельца не трогаем — обновляем только ключ.
-        skip "$CONFIG_DIR/config.json (обновляю apikey, темп упаковки беру из кода)"
+        skip "$CONFIG_DIR/config.json (обновляю apikey, транспорт и темп беру из кода)"
         local tmp; tmp="$(mktemp "$CONFIG_DIR/.config.json.XXXX")"
-        jq --arg k "$key" "$tuned | .prowlarr_apikey=\$k" "$CONFIG_DIR/config.json" >"$tmp"
+        jq --arg k "$key" --arg t "$HLS_TRANSPORT" --arg p "$HLS_PORT" --arg b "$HLS_BASE_URL" \
+            "$tuned | .prowlarr_apikey=\$k" "$CONFIG_DIR/config.json" >"$tmp"
         mv "$tmp" "$CONFIG_DIR/config.json"
         return
     fi
@@ -489,7 +497,8 @@ setup_config() {
   "torrserver_url": "$TS_URL",
   "prowlarr_url": "$PL_URL",
   "prowlarr_apikey": "$key",
-  "hls_base_url": "https://$HLS_HOST:$HLS_PORT",
+  "transport": "$HLS_TRANSPORT",
+  "hls_base_url": "$HLS_BASE_URL",
   "hls_port": $HLS_PORT,
   "hls_cert": "$TLS_DIR/torrcast.crt",
   "hls_key": "$TLS_DIR/torrcast.key",
@@ -528,12 +537,17 @@ UNIT
     systemctl daemon-reload
 }
 
-# Своего демона раздачи нет: https-сервер живёт внутри процесса `cast` ровно на время
+# Своего демона раздачи нет: сервер живёт внутри процесса `cast` ровно на время
 # показа — отдельного caddy/nginx с их конфигами не заводим (§6, бюджет кода).
-# Здесь только то, что должно существовать до первого запуска: каталог и серт.
-setup_https() {
-    log "https-раздача HLS ($HLS_HOST:$HLS_PORT, сегменты в $HLS_DIR)"
+# Здесь только то, что должно существовать до первого запуска: каталог сегментов, а при
+# выключенной по умолчанию опции `transport: https` — ещё и серт.
+setup_hls() {
+    log "раздача HLS ($HLS_TRANSPORT, порт $HLS_PORT, сегменты в $HLS_DIR)"
     install -d -m 0755 "$HLS_DIR"
+    if [ "$HLS_TRANSPORT" != "https" ]; then
+        info "адрес раздачи собирается по маршруту до ТВ — ни серта, ни имени, ни DNS"
+        return
+    fi
     install -d -m 0700 "$TLS_DIR"
 
     if [ -s "$TLS_DIR/torrcast.crt" ] && [ -s "$TLS_DIR/torrcast.key" ]; then
@@ -562,7 +576,7 @@ main() {
     has prowlarr   && install_prowlarr
     has indexers   && install_indexers
     has config     && setup_config
-    has https      && setup_https
+    has hls        && setup_hls
     log "готово. Осталось: cast --tv <ip-телевизора>"
 }
 

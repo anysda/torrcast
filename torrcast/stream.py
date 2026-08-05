@@ -11,6 +11,7 @@ import http.server
 import json
 import os
 import re
+import socket
 import ssl
 import subprocess
 import sys
@@ -28,6 +29,8 @@ from torrcast.parse import VIDEO_EXT
 if TYPE_CHECKING:
     import requests
 
+    from torrcast.state import Config
+
 __all__ = [
     "HLS_SEGMENT_SECONDS",
     "RUNTIME_GUESS",
@@ -40,7 +43,9 @@ __all__ = [
     "Warmup",
     "bitrate_mbit",
     "ffmpeg_hls_command",
+    "hls_base",
     "hls_dir",
+    "our_address",
     "parse_manifest",
     "pick_video_file",
     "probe",
@@ -639,15 +644,18 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         pass
 
 
-class _TlsServer(http.server.ThreadingHTTPServer):
+class _Server(http.server.ThreadingHTTPServer):
     daemon_threads = True
-    ctx: ssl.SSLContext
+    #: Контекст TLS или ``None`` — тогда раздача идёт голым http (дефолт, §5 SPEC-v2).
+    ctx: ssl.SSLContext | None = None
 
     def get_request(self) -> tuple[Any, Any]:
         # Слушающий сокет остаётся обычным TCP, рукопожатие уходит в рабочий поток:
         # иначе один полуоткрытый коннект вешает весь accept (грабли kinocast).
         sock, addr = super().get_request()
         sock.settimeout(60)
+        if self.ctx is None:
+            return sock, addr
         return self.ctx.wrap_socket(sock, server_side=True, do_handshake_on_connect=False), addr
 
     def handle_error(self, request: Any, client_address: Any) -> None:
@@ -655,16 +663,25 @@ class _TlsServer(http.server.ThreadingHTTPServer):
 
 
 class HlsServer:
-    """https-раздача HLS с самого стенда (§3): в облако поток не уходит.
+    """Раздача HLS с самого стенда (§3): в облако поток не уходит.
 
-    Серт и ключ — пути из конфига: на dev это self-signed, на стенде — LE-файлы,
-    и подмена сводится к правке пути. Chromecast self-signed молча не принимает,
-    поэтому mock проверяет TLS по тому же файлу (§9).
+    Дефолт — голый http (§5 SPEC-v2): ТВ ходит по IP, ни серта, ни имени, ни DNS в пути
+    показа нет. ``tls=True`` включает прежнюю https-раздачу — код жив и работает, но
+    требует серта, которому доверяет ТВ (Chromecast self-signed молча не принимает, §9).
     """
 
-    def __init__(self, root: Path, cert: str, key: str, host: str = "0.0.0.0", port: int = 8443):
+    def __init__(
+        self,
+        root: Path,
+        cert: str = "",
+        key: str = "",
+        host: str = "0.0.0.0",
+        port: int = 8080,
+        tls: bool = False,
+    ):
         self.root, self.cert, self.key, self.host, self.port = root, cert, key, host, port
-        self._server: _TlsServer | None = None
+        self.tls = tls
+        self._server: _Server | None = None
         self._misses: list[str] = []
 
     def missed(self) -> str:
@@ -675,14 +692,16 @@ class HlsServer:
         return names[0] if names else ""
 
     def start(self) -> None:
-        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-        try:
-            ctx.load_cert_chain(self.cert, self.key)
-        except (OSError, ssl.SSLError) as exc:
-            raise InfraError(f"не читается серт {self.cert}: {why(exc)}") from exc
+        ctx = None
+        if self.tls:
+            ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            try:
+                ctx.load_cert_chain(self.cert, self.key)
+            except (OSError, ssl.SSLError) as exc:
+                raise InfraError(f"не читается серт {self.cert}: {why(exc)}") from exc
         handler = type("_Bound", (_Handler,), {"root": self.root, "misses": self._misses})
         try:
-            server = _TlsServer((self.host, self.port), handler)
+            server = _Server((self.host, self.port), handler)
         except OSError as exc:
             raise InfraError(f"порт {self.port} занят или недоступен: {why(exc)}") from exc
         server.ctx = ctx
@@ -696,3 +715,40 @@ class HlsServer:
             self._server.shutdown()
             self._server.server_close()
             self._server = None
+
+
+def our_address(tv: str) -> str:
+    """Наш адрес **с той стороны, с которой нас видит ТВ**, или пусто, если маршрута нет.
+
+    У стенда две ноги: ``192.168.1.62`` в домашней сети и ``192.168.100.62`` в сегменте
+    телевизора. Ядро выбирает исходящий адрес по маршруту, поэтому спрашиваем его же:
+    сокет никуда не подключается по-настоящему (UDP, ни одного пакета), но имя ему
+    присваивается ровно то, которое ТВ увидит источником. Так поток идёт в одном L2, а
+    не лишним хопом через SNAT маршрутизатора.
+    """
+    if not tv:
+        return ""
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        sock.connect((tv, 8009))
+        return str(sock.getsockname()[0])
+    except OSError:
+        return ""
+    finally:
+        sock.close()
+
+
+def hls_base(config: Config) -> str:
+    """База URL, под которой ТВ забирает манифест и сегменты (§5 SPEC-v2).
+
+    Имени здесь нет и быть не должно: адрес собирается из транспорта, нашей ноги со
+    стороны ТВ и порта — DNS в пути показа не участвует. ``hls_base_url`` в конфиге,
+    если он задан, перебивает всё: это запасной выход на случай, когда прямой путь
+    почему-то не работает.
+    """
+    if config.hls_base_url:
+        return config.hls_base_url.rstrip("/")
+    host = our_address(config.tv or "")
+    if not host:
+        raise InfraError(f"не вижу маршрута до ТВ {config.tv or '(адрес не задан)'}")
+    return f"{config.transport}://{host}:{config.hls_port}"
