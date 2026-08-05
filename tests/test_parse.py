@@ -14,6 +14,7 @@ from typing import NamedTuple
 import pytest
 
 from torrcast.parse import (
+    Picture,
     Release,
     cluster,
     franchise_key,
@@ -249,6 +250,19 @@ def test_cluster_orders_franchise_by_year() -> None:
     assert pictures[0].key == "movie:тачки:2006"
 
 
+def test_key_of_a_picture_without_a_year_keeps_the_original_title() -> None:
+    """Года в раздачах может не быть вовсе: тогда две разные картины с одинаковым русским
+    названием разводит оригинал, иначе прогресс у них был бы общий (stage3 вопрос 2).
+    """
+    invasion = Picture(title="Вторжение", year=None, original="Invasion")
+    intruder = Picture(title="Вторжение", year=None, original="The Intruder")
+
+    assert invasion.key == "movie:вторжение-invasion:0"
+    assert intruder.key == "movie:вторжение-the-intruder:0"
+    # Год известен — ключ ровно тот, что в §4 ТЗ, без довесков.
+    assert cluster([_release("Тачки", 2006, original="Cars")])[0].key == "movie:тачки:2006"
+
+
 def test_matrix_two_is_reloaded() -> None:
     """§2.2 и чек-лист §7.5: «матрица 2» → «Перезагрузка», хотя двойки в названии нет.
 
@@ -313,7 +327,7 @@ def test_slugify_is_stable_for_state_keys() -> None:
 
 def _release(
     title: str,
-    year: int,
+    year: int | None,
     seeders: int = 0,
     codec: str = "H.264",
     original: str | None = None,

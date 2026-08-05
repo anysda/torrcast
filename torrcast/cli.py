@@ -42,6 +42,7 @@ from torrcast.stream import (
     start_play_unit,
     stop_play_unit,
     unit_active,
+    unit_key,
     unit_why,
 )
 
@@ -152,8 +153,9 @@ def _cmd_stop() -> int:
     юнит: ``systemctl stop`` шлёт ему SIGTERM и ждёт, сторож на выходе дописывает state.
     """
     played = unit_active()
+    key = unit_key()  # спрашиваем, пока юнит жив: у мёртвого описания уже не узнать
     stop_play_unit()
-    found = State.load().latest()
+    found = _shown(State.load(), key)
     if not played or found is None:
         print("ничего не играет")
         return EXIT_OK
@@ -162,13 +164,22 @@ def _cmd_stop() -> int:
     return EXIT_OK
 
 
+def _shown(state: State, key: str) -> tuple[str, Entry] | None:
+    """Запись играющего показа: ключ берём из ``--description`` юнита, а не «самую свежую».
+    Рядом мог писать другой ход — тогда свежайшая запись не та, что играет (§2.5).
+    """
+    entry = state.get(key) if key else None
+    return (key, entry) if entry is not None else state.latest()
+
+
 def _cmd_status() -> int:
     """``cast status`` — что играет, позиция/длительность, источник (§2.5). Живой юнит —
     источник правды о факте показа, позиция — из state, куда её кладёт сторож.
     """
     config = load_config()
-    found = State.load().latest()
-    if not unit_active() or found is None:
+    playing = unit_active()
+    found = _shown(State.load(), unit_key() if playing else "")
+    if not playing or found is None:
         print("ничего не играет")
         if found is not None and found[1].resumable:
             print(f"последнее: «{found[1].title}» на {_hms(found[1].pos)} / {_hms(found[1].dur)}")
@@ -305,8 +316,9 @@ def _cmd_play(args: Args) -> int:
 
     torrserver = TorrServer(config.torrserver_url)
     number, video, media = _open_release(
-        torrserver, ranked, number, runtime, config.bitrate_warn_mbit, clock
-    )
+        torrserver, ranked, number, runtime, config.bitrate_warn_mbit, clock,
+        pinned=args.release is not None,
+    )  # fmt: skip
     release = ranked[number - 1]
     audio = _ask_audio(media, args)
 
@@ -340,15 +352,22 @@ def _open_release(
     runtime: float,
     warn_mbit: float,
     clock: _Clock,
+    pinned: bool = False,
 ) -> tuple[int, TorrFile, Media]:
     """Прогреть релиз, прочитать поток и убедиться, что видео действительно H.264.
 
     Имя раздачи о кодеке чаще молчит, а видео мы отдаём ``copy`` — ресивер получит ровно
     то, что лежит внутри. Оказалось не h264 — честная строка и следующий кандидат, не
     больше :data:`MAX_TRIES` попыток (§1: молчаливых подмен не бывает).
+
+    ``pinned`` — релиз назван явно (``--release N``): такой неприкосновенен. Кодек всё
+    равно проверяется, но вместо подмены выходит громкое предупреждение и показ идёт,
+    как просили — иначе флаг для скриптов ничего не гарантирует.
     """
     others = enumerate(ranked, start=1)
-    queue = [number] + [n for n, r in others if n != number and is_candidate(r, runtime, warn_mbit)]
+    queue = [number]
+    if not pinned:
+        queue += [n for n, r in others if n != number and is_candidate(r, runtime, warn_mbit)]
     tried: list[str] = []
     for attempt, current in enumerate(queue[:MAX_TRIES], start=1):
         print()
@@ -359,7 +378,9 @@ def _open_release(
         video = pick_video_file(torrserver.wait_files(torrent_hash))
         source = torrserver.stream_url(torrent_hash, video.index)
         media = probe(source)
-        if (media.video or "h264") == "h264":
+        if (media.video or "h264") == "h264" or pinned:
+            if warning := media.video_warning:  # явный релиз играем, но молча — не смеем
+                print(warning)
             print(f"(метаданные {metadata}, ffprobe {clock.lap()})")
             return current, video, media
         tried.append(f"№{current} — {media.video}")

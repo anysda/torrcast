@@ -177,6 +177,46 @@ def test_status_shows_what_is_playing_and_from_where(
     assert KEY in printed and "файл #2" in printed and "дорожка 2" in printed
 
 
+def test_status_names_the_unit_key_not_the_freshest_record(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Играющее определяется по ``--description`` юнита: рядом мог писать другой ход, и
+    «самая свежая запись» назвала бы чужую картину (решение оркестратора, stage3 вопрос 3).
+    """
+    remember(pos=660.0, dur=5978.0)
+    state = State.load()  # запись свежее, но она НЕ играет
+    state.put("movie:чужое-кино:2020", Entry(title="Чужое кино", magnet="magnet:?xt=2", pos=10.0))
+    state.save()
+    monkeypatch.setattr(cli, "unit_active", lambda: True)
+    monkeypatch.setattr(cli, "unit_key", lambda: KEY)
+
+    assert cli.main(["status"]) == 0
+
+    printed = capsys.readouterr().out
+    assert "«Моана 2»" in printed and "Чужое кино" not in printed
+
+
+def test_stop_reports_the_playing_record_and_asks_the_unit_before_killing_it(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """У мёртвого юнита описания уже не спросишь — ключ снимается до `systemctl stop`."""
+    remember(pos=660.0, dur=5978.0)
+    order: list[str] = []
+
+    def ask_the_unit() -> str:
+        order.append("key")
+        return KEY
+
+    monkeypatch.setattr(cli, "unit_active", lambda: True)
+    monkeypatch.setattr(cli, "unit_key", ask_the_unit)
+    monkeypatch.setattr(cli, "stop_play_unit", lambda: order.append("stop"))
+
+    assert cli.main(["stop"]) == 0
+
+    assert order == ["key", "stop"]
+    assert "«Моана 2»" in capsys.readouterr().out
+
+
 def test_stop_kills_the_unit_and_reports_the_fixed_position(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

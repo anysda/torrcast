@@ -47,6 +47,7 @@ __all__ = [
     "start_play_unit",
     "stop_play_unit",
     "unit_active",
+    "unit_key",
     "unit_why",
 ]
 
@@ -61,6 +62,8 @@ RUNTIME_GUESS: Final = {"movie": 7200.0, "tv": 2700.0, "other": 7200.0}
 
 _TIMEOUT: Final = 30.0
 _UNIT_NAME: Final = "torrcast-play"
+#: Описание юнита несёт ключ показа — по нему ``status`` знает, что играет (§2.5).
+_UNIT_TAG: Final = "torrcast: "
 #: Что пробрасывается в юнит: без этого показ уедет на прод-пути вместо dev-овских.
 _PASS_ENV: Final = ("TORRCAST_CONFIG", "TORRCAST_STATE")
 _VIDEO_EXT: Final = (".mkv", ".mp4", ".avi", ".ts", ".m2ts", ".mov", ".webm")
@@ -467,7 +470,7 @@ def start_play_unit(key: str, unit: str = _UNIT_NAME) -> None:
     env = [f"--setenv={n}={os.environ[n]}" for n in _PASS_ENV if n in os.environ]
     done = _systemd(
         "systemd-run", f"--unit={unit}", "--collect", "--quiet",
-        f"--description=torrcast: {key}", *env,
+        f"--description={_UNIT_TAG}{key}", *env,
         sys.executable, "-m", "torrcast.cli", "--play-key", key,
     )  # fmt: skip
     if done.returncode != 0:
@@ -484,6 +487,14 @@ def stop_play_unit(unit: str = _UNIT_NAME) -> None:
 def unit_active(unit: str = _UNIT_NAME) -> bool:
     """Идёт ли показ прямо сейчас."""
     return _systemd("systemctl", "is-active", unit).stdout.strip() == "active"
+
+
+def unit_key(unit: str = _UNIT_NAME) -> str:
+    """Ключ состояния играющего показа — из ``--description`` юнита. Свежайшая запись в
+    state для этого не годится: рядом мог писать другой ход, и ``status`` соврал бы.
+    """
+    found = _systemd("systemctl", "show", unit, "-p", "Description", "--value").stdout.strip()
+    return found[len(_UNIT_TAG) :].strip() if found.startswith(_UNIT_TAG) else ""
 
 
 def unit_why(unit: str = _UNIT_NAME) -> str:

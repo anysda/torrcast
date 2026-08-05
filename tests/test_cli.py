@@ -192,6 +192,26 @@ def test_a_release_that_turns_out_not_to_be_h264_is_swapped_out_loudly(
     assert torrserver.dropped, "неподошедшая раздача из TorrServer убирается"
 
 
+def test_an_explicitly_named_release_is_played_as_asked_with_a_loud_warning(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`--release N` неприкосновенен: проверка кодека его не подменяет. Не h264 — громкое
+    предупреждение и показ того, что просили (решение оркестратора, stage3 вопрос 1).
+    """
+    ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
+    _probes(monkeypatch, "hevc")
+    torrserver = _FakeTorrServer()
+
+    number, _video, media = cli._open_release(
+        cast(Any, torrserver), ranked, 1, RUNTIME, 20.0, cli._Clock(), pinned=True
+    )
+
+    printed = capsys.readouterr().out
+    assert (number, media.video) == (1, "hevc"), "названный релиз не подменяется"
+    assert "⚠ видео hevc" in printed and "беру №" not in printed
+    assert not torrserver.dropped, "раздача остаётся: её и просили"
+
+
 def test_three_failed_probes_end_with_an_honest_exit(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

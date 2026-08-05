@@ -228,8 +228,14 @@ class Picture:
 
     @property
     def key(self) -> str:
-        """Ключ состояния: ``<тип>:<slug>:<год>`` (§4 ТЗ)."""
-        return f"{self.kind}:{slugify(self.title)}:{self.year if self.year else '0'}"
+        """Ключ состояния: ``<тип>:<slug>:<год>`` (§4 ТЗ). Года в раздачах может не быть
+        вовсе — тогда в slug добавляется оригинальное название, иначе два разных
+        «Вторжения» без года слились бы в одну запись прогресса.
+        """
+        slug = slugify(self.title)
+        if not self.year and self.original:
+            slug = f"{slug}-{slugify(self.original)}"
+        return f"{self.kind}:{slug}:{self.year if self.year else '0'}"
 
     @property
     def franchise(self) -> str:
