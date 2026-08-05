@@ -17,7 +17,10 @@ PREFIX="${TORRCAST_PREFIX:-/opt/torrcast}"
 CONFIG_DIR="${TORRCAST_CONFIG_DIR:-/etc/torrcast}"
 STATE_DIR="${TORRCAST_STATE_DIR:-/var/lib/torrcast}"
 BIN_DIR="${TORRCAST_BIN_DIR:-/usr/local/bin}"
-PYTHON="${TORRCAST_PYTHON:-python3.12}"
+#: Интерпретатор ищем, а не прибиваем: на Debian 12 (стенд по §8) есть только
+#: python3.11, python3.12 в её репозиториях нет вовсе. Нижняя граница — 3.11
+#: (requires-python), на ней зелены тесты и mypy --strict.
+PYTHON="${TORRCAST_PYTHON:-}"
 
 TS_HOST="${TORRCAST_TS_HOST:-127.0.0.1}"
 TS_PORT="${TORRCAST_TS_PORT:-8090}"
@@ -74,7 +77,22 @@ wait_http() {  # $1 url, $2 секунд
 }
 
 # --- 1. Зависимости ---------------------------------------------------------
-APT_PACKAGES=(ffmpeg curl ca-certificates jq tar openssl)
+#: python3-venv обязателен: на голом Debian `python3 -m venv` без него не работает.
+APT_PACKAGES=(ffmpeg curl ca-certificates jq tar openssl python3-venv)
+
+# Самый свежий интерпретатор не ниже 3.11. Явный TORRCAST_PYTHON уважаем как есть.
+pick_python() {
+    [ -n "$PYTHON" ] && return 0
+    local candidate
+    for candidate in python3.13 python3.12 python3.11 python3; do
+        command -v "$candidate" >/dev/null 2>&1 || continue
+        if "$candidate" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)'; then
+            PYTHON="$candidate"
+            return 0
+        fi
+    done
+    die "нужен python 3.11 или новее (см. requires-python в pyproject.toml)"
+}
 
 install_packages() {
     log "зависимости"
@@ -88,12 +106,14 @@ install_packages() {
         apt-get update -qq
         DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${missing[@]}"
     fi
-    command -v "$PYTHON" >/dev/null 2>&1 || die "нужен $PYTHON (см. requires-python)"
+    pick_python
+    info "интерпретатор $PYTHON ($("$PYTHON" -c 'import sys; print(sys.version.split()[0])'))"
 }
 
 # --- 2. Пакет torrcast в собственный venv ------------------------------------
 install_torrcast() {
     log "пакет torrcast → $PREFIX"
+    pick_python  # фаза может гоняться и в одиночку, без `packages`
     if [ ! -x "$PREFIX/venv/bin/python" ]; then
         install -d -m 0755 "$PREFIX"
         "$PYTHON" -m venv "$PREFIX/venv"

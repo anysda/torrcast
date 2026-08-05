@@ -7,7 +7,10 @@ name = "torrcast"
 version = "0.1.0"
 description = "Поиск торрент-релиза и каст его на ТВ без скачивания и без облака"
 readme = "README.md"
-requires-python = ">=3.12,<3.13"
+# Debian 12 (стенд по §8 ТЗ) везёт python3.11 и никакого python3.12 в репозиториях
+# у неё нет. Нижняя граница снижена до 3.11, чтобы установка на стенде оставалась
+# тремя командами; на 3.11 зелены и тесты, и mypy --strict (см. docs/stage5.md).
+requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [{ name = "anysda", email = "anysdaw@gmail.com" }]
 dependencies = [
@@ -33,7 +36,7 @@ packages = ["torrcast"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py312"
+target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "N", "UP", "B", "C4", "SIM", "RUF"]
@@ -44,7 +47,7 @@ ignore = ["RUF001", "RUF002", "RUF003"]
 known-first-party = ["torrcast"]
 
 [tool.mypy]
-python_version = "3.12"
+python_version = "3.11"
 strict = true
 files = ["torrcast", "tests"]
 warn_unreachable = true
