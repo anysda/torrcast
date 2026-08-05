@@ -81,3 +81,64 @@ def test_unknown_keys_in_state_are_ignored(tmp_path: Path) -> None:
 
     assert entry is not None
     assert entry.title == "X"
+
+
+def test_watched_movie_is_marked_and_rewound() -> None:
+    """Фильм досмотрен: пометка «досмотрено» и сброс позиции — следующий cast начнёт
+    с начала и вопроса «продолжить?» не задаст (§2.3, §2.4).
+    """
+    entry = Entry(title="Моана 2", magnet="m", pos=5700, dur=5978)
+    assert entry.watched and entry.resumable
+
+    done = entry.advance()
+
+    assert done.done and done.pos == 0 and not done.resumable
+    assert done.magnet == "m" and done.audio == entry.audio  # выбор релиза сохраняется
+
+
+def test_watched_episode_moves_to_the_next_one() -> None:
+    """Серия досмотрена: следующая серия с нуля, релиз и дорожка те же (§2.4, этап 4)."""
+    entry = Entry(
+        title="Киберпанк", magnet="m", kind="tv", audio=1, season=1, episode=3, pos=1400, dur=1440
+    )
+
+    following = entry.advance()
+
+    assert (following.season, following.episode) == (1, 4)
+    assert following.pos == 0 and following.dur == 0 and not following.done
+    assert following.audio == 1
+
+
+def test_unfinished_entry_is_resumable_and_finished_is_not() -> None:
+    assert not Entry(title="x", magnet="m", pos=0, dur=1000).resumable
+    assert Entry(title="x", magnet="m", pos=10, dur=1000).resumable
+    assert not Entry(title="x", magnet="m", pos=10, dur=1000, done=True).resumable
+
+
+def test_find_takes_the_entry_by_the_users_query() -> None:
+    """Resume ищет запись по запросу, не ходя в Prowlarr (§2.3): годятся и сохранённый
+    запрос, и slug из ключа; чужая картина не подхватывается.
+    """
+    state = State()
+    state.put("movie:моана-2:2024", Entry(title="Моана 2", magnet="m", query="моана-2", pos=100))
+    state.put("movie:тачки:2006", Entry(title="Тачки", magnet="m", query="тачки", pos=50))
+
+    assert state.find("Моана 2") is not None
+    assert state.find("моана-2")[1].title == "Моана 2"  # type: ignore[index]
+    assert state.find("тачки")[1].title == "Тачки"  # type: ignore[index]
+    assert state.find("матрица") is None
+    assert state.find("") is None
+
+
+def test_latest_is_the_freshest_record() -> None:
+    """`cast status` показывает последнее, что игралось."""
+    state = State()
+    state.put("movie:a:2000", Entry(title="A", magnet="m"))
+    state.entries["movie:a:2000"].updated = "2026-08-05T01:00:00+03:00"
+    state.put("movie:b:2001", Entry(title="B", magnet="m"))
+    state.entries["movie:b:2001"].updated = "2026-08-05T02:00:00+03:00"
+
+    found = state.latest()
+
+    assert found is not None and found[1].title == "B"
+    assert State().latest() is None

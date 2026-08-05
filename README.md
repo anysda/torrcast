@@ -39,6 +39,12 @@ cast status    # что играет, позиция/длительность, �
 Шесть модулей пакета `torrcast`: `cli` · `parse` · `search` · `stream` · `cast` ·
 `state`. Полное ТЗ — [SPEC.md](SPEC.md).
 
+Постоянных демонов своих нет: на время показа `cast` поднимает transient-юнит
+`torrcast-play` (ffmpeg + https-раздача + сторож позиции). Команда завершилась —
+показ продолжается, логи в journald (`journalctl -u torrcast-play`), `cast stop`
+гасит юнит и фиксирует позицию. Прогресс живёт в `/var/lib/torrcast/state.json`:
+позиция ≥ 95 % длительности = досмотрено.
+
 ## Разработка
 
 ```sh

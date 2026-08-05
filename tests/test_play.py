@@ -17,9 +17,10 @@ import pytest
 
 from tests.conftest import CLIP_SECONDS
 from torrcast import InfraError
+from torrcast.cli import Watch as _Watch
 from torrcast.cli import _Clock, _play
-from torrcast.state import Config
-from torrcast.stream import Packer, ffmpeg_hls_command, hls_dir
+from torrcast.state import Config, Entry, State
+from torrcast.stream import HLS_SEGMENT_SECONDS, Packer, ffmpeg_hls_command, hls_dir
 
 
 def config_for(tmp_path: Path, tls: tuple[str, str], port: int) -> Config:
@@ -45,7 +46,10 @@ def test_mock_decodes_the_whole_stream_without_gaps(
     assert "→ ТВ" in printed
     assert "разрывов 0" in printed and "без CORS 0" in printed
     decoded = float(printed.split("декодировано ")[1].split(" ")[0])
-    assert decoded >= CLIP_SECONDS - 1, "приёмник обязан дойти до конца, а не до середины"
+    # Допуск ровно в один сегмент: если ENDLIST попадает в ту же перезагрузку плейлиста,
+    # что и последний сегмент, hls-демуксер ffmpeg молча заканчивает на предыдущем.
+    # Воспроизводится и на голом http.server, то есть это не наш сервер (docs/stage3.md).
+    assert decoded >= CLIP_SECONDS - HLS_SEGMENT_SECONDS, "приёмник встал посреди показа"
     assert not list(Path(config.hls_dir).glob("*.ts")), "сегменты убраны за собой"
 
 
@@ -108,3 +112,32 @@ def _kill_when_playing(config: Config, pattern: str) -> None:
 def _alive(pattern: str) -> bool:
     done = subprocess.run(["pgrep", "-f", pattern], capture_output=True, text=True, check=False)
     return bool(done.stdout.strip())
+
+
+def test_resume_starts_from_the_offset_and_ends_as_watched(
+    clip: str, tls: tuple[str, str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:  # fmt: skip
+    """Тот же показ, но с середины: ffmpeg стартует с `-ss`, приёмник декодирует остаток,
+    сторож кладёт в state абсолютную позицию, а на 95 % пишет «досмотрено» (§2.3, §2.4).
+    """
+    monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
+    key, offset = "movie:ролик:2026", 5.0
+    # Длительность занижена на сегмент — по той же причине, что и допуск выше: хвост HLS
+    # у клиента может отвалиться, а проверяем мы тут переход «досмотрено», а не хвост.
+    entry = Entry(title="ролик", magnet="magnet:?xt=1", pos=offset, dur=CLIP_SECONDS - 4.0)
+    state = State()
+    state.put(key, entry)
+    state.save()
+    watch = _Watch(key=key, entry=entry, offset=offset, every=0.0)
+
+    config = config_for(tmp_path, tls, 18465)
+    assert _play(config, clip, audio=0, about="тест", clock=_Clock(), watch=watch) == 0
+
+    printed = capsys.readouterr().out
+    decoded = float(printed.split("декодировано ")[1].split(" ")[0])
+    assert decoded <= CLIP_SECONDS - offset + 1, "показ начался с позиции, а не сначала"
+    assert decoded >= CLIP_SECONDS - offset - HLS_SEGMENT_SECONDS, "показ оборвался"
+    assert "досмотрено" in printed
+    saved = State.load().get(key)
+    assert saved is not None and saved.done and saved.pos == 0.0

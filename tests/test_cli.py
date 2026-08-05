@@ -183,7 +183,7 @@ def test_a_release_that_turns_out_not_to_be_h264_is_swapped_out_loudly(
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
     _probes(monkeypatch, "hevc", "h264")
     torrserver = _FakeTorrServer()
-    number, video, _source, media = cli._open_release(
+    number, video, media = cli._open_release(
         cast(Any, torrserver), ranked, 1, RUNTIME, 20.0, cli._Clock()
     )
     assert (number, media.video) == (2, "h264")

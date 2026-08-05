@@ -12,16 +12,25 @@ import argparse
 import contextlib
 import io
 import re
+import signal
 import sys
 import time
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from torrcast import InfraError, NotFoundError, TorrcastError, __version__
 from torrcast.cast import Receiver, make_receiver
-from torrcast.parse import Episode, Picture, Release, parse_episode, split_franchise_index
+from torrcast.parse import (
+    Episode,
+    Picture,
+    Release,
+    parse_episode,
+    slugify,
+    split_franchise_index,
+)
 from torrcast.search import Prowlarr, to_releases
-from torrcast.state import Config, State, load_config, save_config
+from torrcast.state import Config, Entry, State, load_config, save_config
 from torrcast.stream import (
     Media,
     Packer,
@@ -30,7 +39,10 @@ from torrcast.stream import (
     bitrate_mbit,
     pick_video_file,
     probe,
+    start_play_unit,
     stop_play_unit,
+    unit_active,
+    unit_why,
 )
 
 __all__ = ["Args", "bitrate_of", "main", "parse_args", "rank_releases", "render_table"]
@@ -40,6 +52,8 @@ EXIT_OK, EXIT_NOT_FOUND, EXIT_INFRA = 0, 1, 2
 TABLE_LIMIT = 12
 #: Сколько релизов подряд проверяем ffprobe, прежде чем сдаться (§1: подмены не молчат).
 MAX_TRIES = 3
+#: Как часто сторож кладёт позицию в state, секунды (§3).
+WATCH_SECONDS = 10.0
 #: Признаки образа диска в имени раздачи — внутри VOB/BDMV, а не один файл.
 _DISC_RE = re.compile(
     r"\b(?:video_?ts|bdmv|dvd[- ]?video|dvd[59]|iso|blu-?ray\s*(?:disc|cee)|avc\+?\s*iso)\b",
@@ -55,10 +69,14 @@ class Args:
     audio: int | None = None
     new: bool = False
     dry: bool = False
+    #: Внутреннее: показ внутри transient-юнита, руками не зовётся.
+    play_key: str | None = None
 
     @property
     def command(self) -> str:
-        """``stop`` / ``status`` / ``play`` / ``configure``."""
+        """``stop`` / ``status`` / ``play`` / ``configure`` / ``worker``."""
+        if self.play_key:
+            return "worker"
         if self.query and self.query[0] in {"stop", "status"}:
             return self.query[0]
         if not self.query:
@@ -88,6 +106,7 @@ def parse_args(argv: Sequence[str] | None = None) -> Args:
     parser.add_argument("--audio", type=int, metavar="N", help="взять дорожку N без меню")
     parser.add_argument("--new", action="store_true", help="забыть прогресс и выбрать заново")
     parser.add_argument("--dry", action="store_true", help="весь резолв без каста")
+    parser.add_argument("--play-key", metavar="KEY", help=argparse.SUPPRESS)
     parser.add_argument("--version", action="version", version=f"torrcast {__version__}")
     return Args(**vars(parser.parse_args(argv)))
 
@@ -106,6 +125,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _cmd_stop()
         if command == "status":
             return _cmd_status()
+        if command == "worker":
+            return _cmd_worker(str(args.play_key))
         return _cmd_play(args)
     except NotFoundError as exc:
         print(str(exc), file=sys.stderr)
@@ -127,26 +148,98 @@ def _cmd_configure(args: Args) -> int:
 
 
 def _cmd_stop() -> int:
-    """``cast stop`` — снять каст и зафиксировать позицию (§2.5)."""
-    config = load_config()
-    receiver = make_receiver(config.receiver, config.tv or "")
-    with contextlib.suppress(TorrcastError):  # TODO(этап 3): записать позицию в state
-        _ = receiver.position()
-    receiver.stop()
+    """``cast stop`` — снять каст и зафиксировать позицию (§2.5). Позицию пишет сам
+    юнит: ``systemctl stop`` шлёт ему SIGTERM и ждёт, сторож на выходе дописывает state.
+    """
+    played = unit_active()
     stop_play_unit()
-    print("остановлено")
+    found = State.load().latest()
+    if not played or found is None:
+        print("ничего не играет")
+        return EXIT_OK
+    _, entry = found
+    print(f"остановлено: «{entry.title}» на {_hms(entry.pos)} / {_hms(entry.dur)}")
     return EXIT_OK
 
 
 def _cmd_status() -> int:
-    """``cast status`` — что играет, позиция/длительность, источник (§2.5)."""
-    active = [(key, entry) for key, entry in State.load() if entry.pos > 0]
-    if not active:
+    """``cast status`` — что играет, позиция/длительность, источник (§2.5). Живой юнит —
+    источник правды о факте показа, позиция — из state, куда её кладёт сторож.
+    """
+    config = load_config()
+    found = State.load().latest()
+    if not unit_active() or found is None:
         print("ничего не играет")
+        if found is not None and found[1].resumable:
+            print(f"последнее: «{found[1].title}» на {_hms(found[1].pos)} / {_hms(found[1].dur)}")
         return EXIT_OK
-    key, entry = max(active, key=lambda item: item[1].updated)  # самая свежая запись
-    print(f"{entry.title} — {_hms(entry.pos)} / {_hms(entry.dur)} · {key}")
+    key, entry = found
+    print(f"▶ «{entry.title}» — {_hms(entry.pos)} / {_hms(entry.dur)}")
+    print(
+        f"   {key} · файл #{entry.file_idx} · дорожка {entry.audio + 1} · "
+        f"{config.hls_base_url} → {config.receiver}"
+    )
     return EXIT_OK
+
+
+def _cmd_worker(key: str) -> int:
+    """Показ внутри transient-юнита (§3): своей раздачей, своей упаковкой и своим сторожем.
+
+    Руками не зовётся — это ``ExecStart`` юнита ``torrcast-play``. Всё, что нужно знать о
+    показе, лежит в записи состояния: magnet, файл, дорожка и позиция (§4).
+    """
+    config = load_config()
+    entry = State.load().get(key)
+    if entry is None:
+        raise InfraError(f"в состоянии нет записи {key}")
+    # SIGTERM от `cast stop` обязан пройти через finally: иначе позиция не запишется.
+    signal.signal(signal.SIGTERM, _on_term)
+    torrserver = TorrServer(config.torrserver_url)
+    torrent_hash = torrserver.add(entry.magnet)
+    torrserver.wait_files(torrent_hash)
+    source = torrserver.stream_url(torrent_hash, entry.file_idx)
+    watch = Watch(key=key, entry=entry, offset=entry.pos)
+    print(f"показ «{entry.title}» с {_hms(entry.pos)}", flush=True)
+    return _play(config, source, entry.audio, entry.title, _Clock(), watch)
+
+
+def _on_term(_signal: int, _frame: object) -> None:
+    raise KeyboardInterrupt
+
+
+@dataclass(slots=True)
+class Watch:
+    """Сторож: раз в :data:`WATCH_SECONDS` кладёт позицию приёмника в state (§3, §4).
+
+    Приёмник считает время от начала своего потока, а после resume поток начинается с
+    ``-ss offset`` — поэтому в состояние идёт ``offset + pos``, абсолютная позиция в фильме.
+    Порог 95 % — «досмотрено» (§2.4): фильму сброс с пометкой, сериалу следующая серия.
+    """
+
+    key: str
+    entry: Entry
+    offset: float = 0.0
+    every: float = WATCH_SECONDS
+    done: bool = False
+    last: float = field(default_factory=time.monotonic)
+
+    def see(self, pos: float) -> None:
+        """Позиция от приёмника; на диск — не чаще раза в ``every`` секунд."""
+        self.entry.pos = self.offset + pos
+        if time.monotonic() - self.last >= self.every:
+            self.flush()
+
+    def flush(self) -> None:
+        """Записать состояние атомарно (tmp + rename в :mod:`torrcast.state`)."""
+        if self.done:  # досмотренную запись повторными тиками не портим
+            return
+        self.last = time.monotonic()
+        state = State.load()  # перечитываем: рядом мог писать другой ход
+        self.done = self.entry.watched
+        state.put(self.key, self.entry.advance() if self.done else self.entry)
+        state.save()
+        if self.done:
+            print(f"досмотрено: {_hms(self.entry.pos)} из {_hms(self.entry.dur)}", flush=True)
 
 
 @dataclass(slots=True)
@@ -173,6 +266,14 @@ def _cmd_play(args: Args) -> int:
 
     clock = _Clock()
     config = load_config()
+    state = State.load()
+    found_entry = state.find(args.title_query)
+    if found_entry is not None and args.new:  # --new: забыть прогресс и выбрать заново (§4)
+        state.drop(found_entry[0])
+        state.save()
+    elif found_entry is not None and found_entry[1].resumable:
+        return _resume(config, *found_entry, clock=clock, dry=args.dry)
+
     if not config.prowlarr_apikey:  # без Prowlarr искать нечем — это инфра-ошибка
         raise InfraError("не настроен Prowlarr: apikey пуст, перезапусти ./install.sh")
 
@@ -203,7 +304,7 @@ def _cmd_play(args: Args) -> int:
     number = _ask_release(ranked, args)
 
     torrserver = TorrServer(config.torrserver_url)
-    number, video, source, media = _open_release(
+    number, video, media = _open_release(
         torrserver, ranked, number, runtime, config.bitrate_warn_mbit, clock
     )
     release = ranked[number - 1]
@@ -220,7 +321,16 @@ def _cmd_play(args: Args) -> int:
     if args.dry:
         print(f"▶ (--dry) {about} — каста нет")
         return EXIT_OK
-    return _play(config, source, audio, about, clock)
+    entry = Entry(
+        title=picture.title,
+        magnet=release.magnet,
+        kind="tv" if picture.kind == "tv" else "movie",
+        file_idx=video.index,
+        audio=audio,
+        dur=media.duration,
+        query=slugify(args.title_query),
+    )
+    return _launch(config, picture.key, entry, about, clock)
 
 
 def _open_release(
@@ -230,7 +340,7 @@ def _open_release(
     runtime: float,
     warn_mbit: float,
     clock: _Clock,
-) -> tuple[int, TorrFile, str, Media]:
+) -> tuple[int, TorrFile, Media]:
     """Прогреть релиз, прочитать поток и убедиться, что видео действительно H.264.
 
     Имя раздачи о кодеке чаще молчит, а видео мы отдаём ``copy`` — ресивер получит ровно
@@ -251,7 +361,7 @@ def _open_release(
         media = probe(source)
         if (media.video or "h264") == "h264":
             print(f"(метаданные {metadata}, ffprobe {clock.lap()})")
-            return current, video, source, media
+            return current, video, media
         tried.append(f"№{current} — {media.video}")
         torrserver.drop(torrent_hash)
         following = queue[attempt] if attempt < min(len(queue), MAX_TRIES) else None
@@ -264,14 +374,66 @@ def _open_release(
     )
 
 
-def _play(config: Config, source: str, audio: int, about: str, clock: _Clock) -> int:
+def _resume(config: Config, key: str, entry: Entry, clock: _Clock, dry: bool = False) -> int:
+    """Возобновление §2.3: один вопрос и сразу показ. Релиз, файл и дорожка берутся из
+    состояния — ни поиска, ни меню, поэтому старт укладывается в 5–15 с (§3.1).
+    """
+    question = f"«{entry.title}» остановились на {_hms(entry.pos)}. Продолжить? [Да/сначала]"
+    answer = _ask_line(question)
+    if answer[:1] in {"с", "s", "н", "n"}:  # «сначала» / «с начала» / «нет»
+        entry.pos = 0.0
+    about = f"«{entry.title}» · дорожка {entry.audio + 1} · с {_hms(entry.pos)}"
+    if dry:
+        print(f"▶ (--dry) {about} — каста нет")
+        return EXIT_OK
+    return _launch(config, key, entry, about, clock)
+
+
+def _launch(config: Config, key: str, entry: Entry, about: str, clock: _Clock) -> int:
+    """Показ уезжает в transient-юнит: ``cast`` завершился — показ продолжается (§3)."""
+    state = State.load()
+    state.put(key, entry)
+    state.save()
+    start_play_unit(key)
+    _await_playing(config)
+    print()
+    print(f"▶ {about} → ТВ   (старт {clock.total:.0f} с)")
+    return EXIT_OK
+
+
+def _await_playing(config: Config, timeout: float = 120.0) -> None:
+    """Дождаться живой картинки: юнит поднялся и в манифесте есть сегменты. Юнит умер по
+    дороге — честная строка из journald, а не «запустил и ушёл» (§1, §5).
+    """
+    manifest = Path(config.hls_dir) / "index.m3u8"
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        with contextlib.suppress(OSError):
+            if ".ts" in manifest.read_text(encoding="utf-8"):
+                return
+        if not unit_active():
+            raise InfraError(f"показ не запустился: {unit_why()}")
+        time.sleep(0.5)
+    stop_play_unit()
+    raise InfraError(f"показ не начался за {timeout:.0f} с — {unit_why()}")
+
+
+def _play(
+    config: Config,
+    source: str,
+    audio: int,
+    about: str,
+    clock: _Clock,
+    watch: Watch | None = None,
+) -> int:
     """Упаковка → https-раздача → приёмник (§3). Своих демонов нет: и ffmpeg, и раздача
     живут ровно на время показа и гасятся вместе с ним, что бы ни случилось.
     """
     from torrcast.stream import HlsServer, ffmpeg_hls_command, hls_dir
 
     out = hls_dir(config.hls_dir)
-    command = ffmpeg_hls_command(source, audio, str(out), readrate=config.hls_readrate)
+    start = watch.offset if watch else 0.0
+    command = ffmpeg_hls_command(source, audio, str(out), start, config.hls_readrate)
     server = HlsServer(out, config.hls_cert, config.hls_key, port=config.hls_port)
     receiver = make_receiver(config.receiver, config.tv or "", config.hls_cert)
     packer = Packer.start(command, out, config.hls_window)
@@ -279,13 +441,15 @@ def _play(config: Config, source: str, audio: int, about: str, clock: _Clock) ->
         server.start()
         packer.manifest()
         receiver.play(f"{config.hls_base_url.rstrip('/')}/index.m3u8", about)
-        print(f"▶ {about} → ТВ   (старт {clock.total:.0f} с)")
-        _hold(receiver, packer)
+        print(f"▶ {about} → ТВ   (старт {clock.total:.0f} с)", flush=True)
+        _hold(receiver, packer, watch)
     finally:
         with contextlib.suppress(TorrcastError):
             receiver.stop()
         packer.stop()
         server.stop()
+        if watch is not None:  # позиция фиксируется при любом исходе, включая SIGTERM
+            watch.flush()
 
     report = getattr(receiver, "report", None)
     if report is None:
@@ -296,9 +460,9 @@ def _play(config: Config, source: str, audio: int, about: str, clock: _Clock) ->
     return EXIT_OK
 
 
-def _hold(receiver: Receiver, packer: Packer) -> None:
+def _hold(receiver: Receiver, packer: Packer, watch: Watch | None = None) -> None:
     """Держим показ: упаковка должна быть жива, не должна убегать от приёмника дальше
-    половины окна, а из RAM уходит только то, что приёмник уже прошёл.
+    половины окна, из RAM уходит только пройденное, а сторож раз в 10 с пишет позицию.
     """
     while True:
         code = packer.poll()
@@ -313,6 +477,8 @@ def _hold(receiver: Receiver, packer: Packer) -> None:
                 return
             packer.prune()  # без позиции остаётся запасное окно в штуках
         else:
+            if watch is not None:
+                watch.see(position.pos)
             if not position.playing:
                 return
             packer.pace(position.dur - position.pos)
@@ -420,13 +586,18 @@ def _ask_audio(media: Media, args: Args) -> int:
     return _ask("Озвучка?", len(media.tracks), default=media.default_track() + 1) - 1
 
 
+def _ask_line(question: str) -> str:
+    """Свободный ответ; Enter и отсутствие терминала — пустая строка, то есть дефолт."""
+    try:
+        return input(f"{question}: ").strip().casefold()
+    except EOFError:
+        return ""
+
+
 def _ask(question: str, count: int, default: int = 1) -> int:
     """Вопрос с дефолтом в скобках: Enter = разумный выбор (§2.1)."""
     while True:
-        try:
-            answer = input(f"{question} [{default}]: ").strip()
-        except EOFError:
-            answer = ""
+        answer = _ask_line(f"{question} [{default}]")
         if not answer:
             return default
         if answer.isdigit() and 1 <= int(answer) <= count:

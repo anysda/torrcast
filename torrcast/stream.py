@@ -9,10 +9,12 @@ from __future__ import annotations
 import contextlib
 import http.server
 import json
+import os
 import re
 import signal
 import ssl
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -42,6 +44,10 @@ __all__ = [
     "parse_manifest",
     "pick_video_file",
     "probe",
+    "start_play_unit",
+    "stop_play_unit",
+    "unit_active",
+    "unit_why",
 ]
 
 #: Длительность сегмента HLS, секунды (§3 — зафиксировано, не настраивается).
@@ -55,6 +61,8 @@ RUNTIME_GUESS: Final = {"movie": 7200.0, "tv": 2700.0, "other": 7200.0}
 
 _TIMEOUT: Final = 30.0
 _UNIT_NAME: Final = "torrcast-play"
+#: Что пробрасывается в юнит: без этого показ уедет на прод-пути вместо dev-овских.
+_PASS_ENV: Final = ("TORRCAST_CONFIG", "TORRCAST_STATE")
 _VIDEO_EXT: Final = (".mkv", ".mp4", ".avi", ".ts", ".m2ts", ".mov", ".webm")
 
 
@@ -436,11 +444,53 @@ def _segment_number(path: Path) -> int:
     return int(found.group(1)) if found else 0
 
 
-def stop_play_unit(unit: str = _UNIT_NAME) -> None:
-    """Погасить transient-юнит; отсутствие юнита ошибкой не считается."""
-    subprocess.run(
-        ["systemctl", "--user", "stop", unit], capture_output=True, text=True, check=False
+def _scope() -> list[str]:
+    """Юнит системный, когда мы root (так на стенде из ``install.sh``), иначе
+    пользовательский (так на dev). Постоянных юнитов у нас нет ни там, ни там — только
+    transient на время показа (§3).
+    """
+    return [] if os.geteuid() == 0 else ["--user"]
+
+
+def _systemd(tool: str, *args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [tool, *_scope(), *args], capture_output=True, text=True, check=False, timeout=60
     )
+
+
+def start_play_unit(key: str, unit: str = _UNIT_NAME) -> None:
+    """Запустить показ в transient-юните: ``cast`` завершился — показ продолжается,
+    логи бесплатно в journald (§3). Переменные окружения проброшены, иначе юнит возьмёт
+    прод-пути конфига и состояния вместо dev-овских.
+    """
+    stop_play_unit(unit)
+    env = [f"--setenv={n}={os.environ[n]}" for n in _PASS_ENV if n in os.environ]
+    done = _systemd(
+        "systemd-run", f"--unit={unit}", "--collect", "--quiet",
+        f"--description=torrcast: {key}", *env,
+        sys.executable, "-m", "torrcast.cli", "--play-key", key,
+    )  # fmt: skip
+    if done.returncode != 0:
+        raise InfraError(f"не запустился юнит {unit}: {done.stderr.strip()[:120] or 'systemd-run'}")
+
+
+def stop_play_unit(unit: str = _UNIT_NAME) -> None:
+    """Погасить transient-юнит и дождаться его смерти: по SIGTERM сторож дописывает
+    позицию в state. Отсутствие юнита ошибкой не считается.
+    """
+    _systemd("systemctl", "stop", unit)
+
+
+def unit_active(unit: str = _UNIT_NAME) -> bool:
+    """Идёт ли показ прямо сейчас."""
+    return _systemd("systemctl", "is-active", unit).stdout.strip() == "active"
+
+
+def unit_why(unit: str = _UNIT_NAME) -> str:
+    """Последняя внятная строка юнита из journald — наружу без трейсбеков (§6)."""
+    out = _systemd("journalctl", "-u", unit, "-n", "10", "--no-pager", "-o", "cat").stdout
+    lines = [ln for ln in out.splitlines() if ln.strip()]
+    return lines[-1][:160] if lines else "в журнале пусто"
 
 
 def _opt_str(value: Any) -> str | None:

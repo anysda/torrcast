@@ -99,12 +99,30 @@ class Entry:
     dur: float = 0.0
     season: int | None = None
     episode: int | None = None
+    #: Slug исходного запроса: по нему resume находит запись, не ходя в Prowlarr (§2.3).
+    query: str = ""
+    #: Досмотрено (§2.4). У фильма это конец истории, у сериала — повод взять следующую.
+    done: bool = False
     updated: str = ""
 
     @property
     def watched(self) -> bool:
         """Досмотрено ли: позиция ≥ 95 % длительности (§2.4)."""
         return self.dur > 0 and self.pos >= self.dur * WATCHED_RATIO
+
+    @property
+    def resumable(self) -> bool:
+        """Есть ли что продолжать: недосмотренный прогресс (§2.3)."""
+        return self.pos > 0 and not self.done
+
+    def advance(self) -> Entry:
+        """Что записать по достижении порога 95 % (§2.4): фильму — пометка «досмотрено» и
+        сброс позиции (следующий ``cast`` начнёт сначала), сериалу — следующая серия с
+        нуля, выбор релиза и дорожки при этом сохраняется (этап 4).
+        """
+        if self.kind == "tv" and self.episode is not None:
+            return replace(self, episode=self.episode + 1, pos=0.0, dur=0.0, done=False)
+        return replace(self, pos=0.0, done=True)
 
     def touch(self) -> Entry:
         """Копия записи со свежей меткой времени."""
@@ -137,6 +155,24 @@ class State:
 
     def get(self, key: str) -> Entry | None:
         return self.entries.get(key)
+
+    def find(self, query: str) -> tuple[str, Entry] | None:
+        """Запись по запросу пользователя, без похода в Prowlarr (§2.3): сравниваем slug
+        запроса с сохранённым запросом и со slug'ом в ключе; несколько — берём свежайшую.
+        """
+        from torrcast.parse import slugify
+
+        want = slugify(query)
+        hits = [
+            (key, entry)
+            for key, entry in self.entries.items()
+            if want and want in {entry.query, key.split(":")[1] if ":" in key else ""}
+        ]
+        return max(hits, key=lambda item: item[1].updated) if hits else None
+
+    def latest(self) -> tuple[str, Entry] | None:
+        """Самая свежая запись — то, что показывает ``cast status`` (§2.5)."""
+        return max(self.entries.items(), key=lambda item: item[1].updated, default=None)
 
     def put(self, key: str, entry: Entry) -> None:
         """Положить запись, обновив метку времени."""
