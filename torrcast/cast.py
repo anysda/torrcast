@@ -73,8 +73,8 @@ class Receiver(Protocol):
     def stop(self) -> None:
         """Снять каст."""
 
-    def position(self) -> Position:
-        """Текущая позиция и длительность."""
+    def position(self, front: float = 0.0) -> Position:
+        """Текущая позиция и длительность; ``front`` — докуда упаковано (§6 SPEC-v2)."""
 
 
 @dataclass(slots=True)
@@ -152,13 +152,17 @@ class ChromecastReceiver:
     #: app_id Default Media Receiver: чужой app = каст сняли пультом, показ окончен.
     MEDIA_APP = "CC1AD845"
     #: Неподвижный BUFFERING дольше этого — приёмник завис (см. :meth:`_nudge`).
-    #: ⚠️ Порог намеренно велик: штатный ребуфер на живом Q70D укладывается в 1–3 с, а
-    #: настоящее зависание длится бесконечно (замерено: 60+ с без единого запроса).
-    #: Мелкий порог превращает обычный ребуфер в нудж, а каждый нудж стоит перемотки.
-    #: С упаковкой по требованию (§2.1 SPEC-v2) порог обязан быть ещё и больше того, что
-    #: раздача держит запрос сегмента (``Feed.wait``): перемотка в неупакованное место —
-    #: это законный BUFFERING на секунды, и лечить его нуджем значило бы мешать самим себе.
-    STALL_SECONDS = 45.0
+    #: Штатный ребуфер на живом Q70D укладывается в 1–3 с, так что 8 с — это уже не он.
+    #: ⚠️ Мелкий порог был бы опасен, пока «завис» и «ждёт упаковку» не различались: с
+    #: упаковкой по требованию (§2.1 SPEC-v2) законный BUFFERING в неупакованном месте
+    #: длится секунды, и нудж на нём мешал бы нам самим. Теперь их различает ``front``
+    #: (см. :attr:`READY_AHEAD`), и терпеть зависание сорок пять секунд больше незачем:
+    #: замерено 05-08-2026 — приёмник встал на 1:24 «Моаны» при 60 с готового запаса и
+    #: сам не ожил ни разу, а весь провал показа был ровно порогом этого сторожа.
+    STALL_SECONDS = 8.0
+    #: Столько секунд упаковки впереди позиции считаем доказательством «еда на столе».
+    #: Меньше — приёмник ждёт нас, и лечится это упаковкой, а не перемоткой.
+    READY_AHEAD = 8.0
     #: Шаг прыжка вперёд на каждом нудже: мимо куска, на котором приёмник споткнулся.
     STALL_SKIP = 8.0
 
@@ -206,14 +210,14 @@ class ChromecastReceiver:
             with contextlib.suppress(Exception):
                 self._cast.media_controller.stop()
 
-    def position(self) -> Position:
+    def position(self, front: float = 0.0) -> Position:
         st = self._status()
         state = str(st.player_state or "")
         pos = st.current_time or 0.0
         if pos > self._peak:  # реальный прогресс — прошлые нуджи больше не в счёт
             self._peak, self._stall_hits = pos, 0
         if state == "BUFFERING":
-            self._nudge(pos)
+            self._nudge(pos, front)
         else:
             self._stall_at, self._stall_since = -1.0, 0.0
         if state == "IDLE" and st.idle_reason == "ERROR" and self._reload():
@@ -238,8 +242,13 @@ class ChromecastReceiver:
             return False
         return True
 
-    def _nudge(self, pos: float) -> None:
+    def _nudge(self, pos: float, front: float = 0.0) -> None:
         """Расшевелить приёмник, зависший в BUFFERING на одной и той же секунде.
+
+        Расшевеливать имеет смысл, только когда еда на столе: ``front`` — докуда упаковано,
+        и пока запас впереди позиции меньше :attr:`READY_AHEAD`, приёмник ждёт **нас**, а
+        не завис. Такой BUFFERING лечится упаковкой, и прыгать по нему нельзя: прыгнешь —
+        уедешь в неупакованное место и заставишь раздачу паковать заново.
 
         Замерено на живом Q70D 05-08-2026: на 273-й секунде показа ресивер перестал
         запрашивать сегменты и встал в BUFFERING **навсегда** — при том что следующий
@@ -262,6 +271,8 @@ class ChromecastReceiver:
             return
         if now - self._stall_since < self.STALL_SECONDS:
             return
+        if front - pos < self.READY_AHEAD:
+            return  # приёмник ждёт упаковку — это наша забота, а не его зависание
         self._stall_hits += 1
         self._stall_since = now
         with contextlib.suppress(Exception):
@@ -426,9 +437,9 @@ class MockReceiver:
                 self._proc.wait(timeout=5)
         self._pos = Position(self._pos.pos, self._pos.dur, False)
 
-    def position(self) -> Position:
+    def position(self, front: float = 0.0) -> Position:
         # dur — то, что уже упаковано и лежит в манифесте: показ по нему видит, насколько
-        # упаковка ушла вперёд от приёмника.
+        # упаковка ушла вперёд от приёмника. Запас mock'у ни к чему: он не зависает.
         playing = self._pos.playing
         return Position(self._pos.pos, self.report.duration, playing, "PLAYING" if playing else "")
 

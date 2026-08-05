@@ -941,7 +941,9 @@ def _hold(receiver: Receiver, feed: Feed, watch: Watch | None = None) -> None:
             # Убитый сигналом ffmpeg ничего сказать не успевает — не выдумываем за него.
             raise InfraError(f"упаковка оборвалась: {trouble}")
         try:
-            position = receiver.position()
+            # Запас упаковки идёт приёмнику: неподвижный BUFFERING при готовых сегментах
+            # впереди — это зависание, а при пустых — законное ожидание нас (§6 SPEC-v2).
+            position = receiver.position(feed.front())
         except InfraError:  # приёмник позицию не отдаёт — показу остаётся только ждать
             time.sleep(2.0)
             continue

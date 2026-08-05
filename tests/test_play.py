@@ -163,7 +163,7 @@ class _FakeReceiver:
     def stop(self) -> None:
         pass
 
-    def position(self) -> Any:
+    def position(self, front: float = 0.0) -> Any:
         from torrcast.cast import Position
 
         pos, state = self.script.pop(0) if self.script else (0.0, "IDLE")
@@ -275,3 +275,44 @@ def test_resume_starts_from_the_offset_and_ends_as_watched(
     assert "досмотрено" in printed
     saved = State.load().get(key)
     assert saved is not None and saved.done and saved.pos == 0.0
+
+
+class _FakeController:
+    def __init__(self, jumps: list[float]) -> None:
+        self.jumps = jumps
+
+    def seek(self, pos: float) -> None:
+        self.jumps.append(pos)
+
+
+class _FakeDevice:
+    def __init__(self, jumps: list[float]) -> None:
+        self.media_controller = _FakeController(jumps)
+
+
+def test_a_stuck_receiver_is_nudged_only_when_the_packing_is_ahead(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """§6 SPEC-v2: неподвижный BUFFERING — это две разные беды, и лечатся они по-разному.
+
+    Замерено на живом Q70D 05-08-2026: на 1:24 «Моаны» приёмник встал намертво при 60 с
+    готовой упаковки впереди, сам не ожил ни разу и оживал только от нашего ``seek``. А
+    ровно так же выглядит приёмник, который честно ждёт упаковку, — и вот его трогать
+    нельзя: прыжок уведёт показ в неупакованное место и заставит паковать заново.
+    """
+    from torrcast.cast import ChromecastReceiver
+
+    jumps: list[float] = []
+    monkeypatch.setattr(ChromecastReceiver, "_device", lambda self: _FakeDevice(jumps))
+    receiver = ChromecastReceiver("192.168.100.102")
+    receiver._peak = 84.0
+
+    receiver._nudge(84.0, front=144.0)
+    assert jumps == [], "первый неподвижный тик — ещё не зависание"
+
+    receiver._stall_since -= ChromecastReceiver.STALL_SECONDS
+    receiver._nudge(84.0, front=88.0)
+    assert jumps == [], "запаса впереди нет — приёмник ждёт нас, а не завис"
+
+    receiver._nudge(84.0, front=144.0)
+    assert jumps == [84.0 + ChromecastReceiver.STALL_SKIP], "еда на столе — расшевелить"
