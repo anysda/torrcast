@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+from typing import Any, cast
+
 import pytest
 
-from torrcast.cli import TABLE_LIMIT, is_disc, rank_releases, render_table, warned
+from torrcast import NotFoundError, cli
+from torrcast.cli import TABLE_LIMIT, is_candidate, is_disc, rank_releases, render_table, warned
 from torrcast.parse import Release
-from torrcast.stream import RUNTIME_GUESS
+from torrcast.stream import RUNTIME_GUESS, Media, TorrFile
 
 RUNTIME = RUNTIME_GUESS["movie"]
 GB = 1024**3
@@ -44,26 +47,45 @@ def test_fat_bitrate_is_marked_even_for_h264() -> None:
     assert warned(rel(codec="HEVC", size_gb=28), RUNTIME, 20.0) == "⚠⚠"
 
 
-def test_default_is_the_most_seeded_release_of_the_first_grade() -> None:
-    """Enter = самый обсиженный среди H.264 с качеством ≥720p; HEVC ниже них (§2.1, §3)."""
+def test_default_is_the_most_seeded_candidate() -> None:
+    """Enter = самый обсиженный кандидат; HEVC кандидатом не бывает никогда (§2.1, §3)."""
     top = rel(name="top", seeders=900)
     hevc = rel(name="hevc", codec="HEVC", seeders=800)
     good = rel(name="good", seeders=200)
     meh = rel(name="meh", seeders=10)
-    order = [r.raw_name for r in rank_releases([hevc, meh, top, good])]
+    order = [r.raw_name for r in rank_releases([hevc, meh, top, good], RUNTIME, 20.0)]
     assert order == ["top", "good", "meh", "hevc"]
 
 
-def test_seeded_dvdrip_does_not_beat_a_live_1080p() -> None:
-    """Кейс, ради которого правило и переписано: качество без цифры в имени —
-    это не «известное ≥720p», и толпа сидов на DVDRip дефолта не даёт.
+def test_hd_source_without_codec_is_a_candidate() -> None:
+    """Кодек в имени раздачи чаще молчит: WEB-DL и BDRip засчитываются кандидатами,
+    DVDRip и CAM — нет (правка дефолта, docs/stage2.md §открытые вопросы 2).
     """
-    dvd = rel(name="DVDRip", quality=None, size_gb=1.4, seeders=800)
+    web = Release(raw_name="WEB-DL", title="Кино", source="WEB-DL", size=4 * GB, seeders=10)
+    dvd = Release(raw_name="DVDRip", title="Кино", source="DVDRip", size=1 * GB, seeders=900)
+    assert is_candidate(web, RUNTIME, 20.0) and not is_candidate(dvd, RUNTIME, 20.0)
+    assert rank_releases([dvd, web], RUNTIME, 20.0)[0].raw_name == "WEB-DL"
+
+
+def test_seeded_dvdrip_does_not_beat_a_live_1080p() -> None:
+    """Ни кодека, ни качества в имени — не кандидат, и толпа сидов дефолта не даёт."""
+    dvd = rel(name="DVDRip", codec=None, quality=None, size_gb=1.4, seeders=800)
     hd = rel(name="1080p", seeders=40)
-    assert rank_releases([dvd, hd])[0].raw_name == "1080p"
+    assert rank_releases([dvd, hd], RUNTIME, 20.0)[0].raw_name == "1080p"
     # Живого 1080p нет вовсе — берём просто самый обсиженный, DVDRip годится.
-    sd = rel(name="ещё DVDRip", quality=None, size_gb=1.4, seeders=5)
-    assert rank_releases([sd, dvd])[0].raw_name == "DVDRip"
+    sd = rel(name="ещё DVDRip", codec=None, quality=None, size_gb=1.4, seeders=5)
+    assert rank_releases([sd, dvd], RUNTIME, 20.0)[0].raw_name == "DVDRip"
+
+
+def test_fat_release_stays_in_the_table_but_never_becomes_the_default() -> None:
+    """Больше ~20 Мбит/с ресивер не тянет: такой релиз в таблице есть, но с ⚠ и не дефолтом."""
+    fat = rel(name="remux", size_gb=28, seeders=900)
+    thin = rel(name="1080p", size_gb=8, seeders=30)
+    assert not is_candidate(fat, RUNTIME, 20.0) and is_candidate(thin, RUNTIME, 20.0)
+    ranked = rank_releases([fat, thin], RUNTIME, 20.0)
+    assert ranked[0].raw_name == "1080p"
+    assert "remux" in [r.raw_name for r in ranked]
+    assert warned(fat, RUNTIME, 20.0) == "⚠"
 
 
 def test_disc_images_never_become_the_default() -> None:
@@ -71,7 +93,7 @@ def test_disc_images_never_become_the_default() -> None:
     disc = rel(name="Тачки / Cars (2006) DVD-Video", seeders=500)
     plain = rel(name="Тачки / Cars (2006) BDRip 1080p", seeders=5)
     assert is_disc(disc) and not is_disc(plain)
-    assert rank_releases([disc, plain])[0].raw_name.endswith("BDRip 1080p")
+    assert rank_releases([disc, plain], RUNTIME, 20.0)[0].raw_name.endswith("BDRip 1080p")
 
 
 def test_ordinary_release_is_not_mistaken_for_a_disc() -> None:
@@ -117,3 +139,67 @@ def test_missing_values_are_shown_as_dashes() -> None:
 @pytest.mark.parametrize("size_gb,expected", [(4.0, ""), (28.0, "⚠")])
 def test_bitrate_threshold_is_configurable(size_gb: float, expected: str) -> None:
     assert warned(rel(size_gb=size_gb), RUNTIME, 20.0) == expected
+
+
+class _FakeWarm:
+    def __init__(self, torrent_hash: str) -> None:
+        self.torrent_hash = torrent_hash
+
+    def result(self, timeout: float = 30.0) -> str:
+        return self.torrent_hash
+
+
+class _FakeTorrServer:
+    """TorrServer ровно в том объёме, в каком его дёргает выбор релиза."""
+
+    def __init__(self) -> None:
+        self.dropped: list[str] = []
+
+    def warm(self, magnet: str) -> _FakeWarm:
+        return _FakeWarm(f"hash-{magnet}")
+
+    def wait_files(self, torrent_hash: str, timeout: float = 60.0) -> list[TorrFile]:
+        return [TorrFile(0, "movie.mkv", 4 * GB)]
+
+    def stream_url(self, torrent_hash: str, index: int) -> str:
+        return f"http://ts/{torrent_hash}/{index}"
+
+    def drop(self, torrent_hash: str) -> None:
+        self.dropped.append(torrent_hash)
+
+
+def _probes(monkeypatch: pytest.MonkeyPatch, *codecs: str) -> None:
+    """Подсунуть ffprobe: по кодеку на попытку."""
+    queue = list(codecs)
+    monkeypatch.setattr(cli, "probe", lambda url, timeout=90.0: Media(3600.0, (), queue.pop(0)))
+
+
+def test_a_release_that_turns_out_not_to_be_h264_is_swapped_out_loudly(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Имя раздачи о кодеке молчит, а видео мы отдаём copy: настоящий кодек решает.
+    Не h264 — честная строка и следующий кандидат, молчаливых подмен не бывает (§1).
+    """
+    ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
+    _probes(monkeypatch, "hevc", "h264")
+    torrserver = _FakeTorrServer()
+    number, video, _source, media = cli._open_release(
+        cast(Any, torrserver), ranked, 1, RUNTIME, 20.0, cli._Clock()
+    )
+    assert (number, media.video) == (2, "h264")
+    assert video.name == "movie.mkv"
+    assert "релиз №1 оказался hevc — беру №2" in capsys.readouterr().out
+    assert torrserver.dropped, "неподошедшая раздача из TorrServer убирается"
+
+
+def test_three_failed_probes_end_with_an_honest_exit(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Три попытки подряд не дали H.264 — код 1 с объяснением, а не четвёртая попытка."""
+    ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(5)]
+    _probes(monkeypatch, "hevc", "av1", "vc1")
+    with pytest.raises(NotFoundError) as caught:
+        cli._open_release(cast(Any, _FakeTorrServer()), ranked, 1, RUNTIME, 20.0, cli._Clock())
+    assert "H.264 не нашёлся" in str(caught.value)
+    assert "№1 — hevc" in str(caught.value) and "№3 — vc1" in str(caught.value)
+    assert capsys.readouterr().out.count("беру №") == 2  # не больше MAX_TRIES попыток

@@ -22,13 +22,24 @@ from torrcast.cast import Receiver, make_receiver
 from torrcast.parse import Episode, Picture, Release, parse_episode, split_franchise_index
 from torrcast.search import Prowlarr, to_releases
 from torrcast.state import Config, State, load_config, save_config
-from torrcast.stream import Media, Packer, bitrate_mbit, stop_play_unit
+from torrcast.stream import (
+    Media,
+    Packer,
+    TorrFile,
+    TorrServer,
+    bitrate_mbit,
+    pick_video_file,
+    probe,
+    stop_play_unit,
+)
 
 __all__ = ["Args", "bitrate_of", "main", "parse_args", "rank_releases", "render_table"]
 
 EXIT_OK, EXIT_NOT_FOUND, EXIT_INFRA = 0, 1, 2
 #: Сколько строк таблицы релизов показываем: ниже начинаются раздачи без сидов.
 TABLE_LIMIT = 12
+#: Сколько релизов подряд проверяем ffprobe, прежде чем сдаться (§1: подмены не молчат).
+MAX_TRIES = 3
 #: Признаки образа диска в имени раздачи — внутри VOB/BDMV, а не один файл.
 _DISC_RE = re.compile(
     r"\b(?:video_?ts|bdmv|dvd[- ]?video|dvd[59]|iso|blu-?ray\s*(?:disc|cee)|avc\+?\s*iso)\b",
@@ -158,7 +169,7 @@ class _Clock:
 def _cmd_play(args: Args) -> int:
     """Основной сценарий §2.1: запрос → франшиза → релиз → дорожка → каст."""
     from torrcast.parse import cluster, pick_franchise
-    from torrcast.stream import RUNTIME_GUESS, TorrServer, pick_video_file, probe
+    from torrcast.stream import RUNTIME_GUESS
 
     clock = _Clock()
     config = load_config()
@@ -185,42 +196,72 @@ def _cmd_play(args: Args) -> int:
 
     picture = _pick_picture(found)
     runtime = RUNTIME_GUESS.get(picture.kind, 7200.0)
-    ranked = rank_releases(picture.releases)
+    ranked = rank_releases(picture.releases, runtime, config.bitrate_warn_mbit)
 
     print()
     print(render_table(ranked, runtime, config.bitrate_warn_mbit))
-    release = _ask_release(ranked, args)
+    number = _ask_release(ranked, args)
 
-    # §3.1: топ-релиз уходит в TorrServer прямо сейчас, меню отвечает поверх прогрева.
     torrserver = TorrServer(config.torrserver_url)
-    warm = torrserver.warm(release.magnet)
-
-    print()
-    print("Дорожки: читаю поток…")
-    torrent_hash = warm.result()
-    files = torrserver.wait_files(torrent_hash)
-    video = pick_video_file(files)
-    source = torrserver.stream_url(torrent_hash, video.index)
-    metadata = clock.lap()
-    media = probe(source)
+    number, video, source, media = _open_release(
+        torrserver, ranked, number, runtime, config.bitrate_warn_mbit, clock
+    )
+    release = ranked[number - 1]
     audio = _ask_audio(media, args)
 
     peak = bitrate_of(release, media.duration or runtime)
     label = media.tracks[audio].label if audio < len(media.tracks) else "—"
     about = f"«{picture.title}» ({picture.year or '?'}) · {release.quality or '?'} · {label}"
     print()
-    codec = media.video or "?"
     print(
         f"Файл: {video.name} · {_gb(video.size)} · {_hms(media.duration)} · "
-        f"{codec} · ~{peak:.1f} Мбит/с"
+        f"{media.video or '?'} · ~{peak:.1f} Мбит/с"
     )
-    print(f"(метаданные {metadata}, ffprobe {clock.lap()})")
-    if media.video_warning:  # молча кастить то, что ресивер не переварит, мы не будем (§1)
-        print(media.video_warning)
     if args.dry:
         print(f"▶ (--dry) {about} — каста нет")
         return EXIT_OK
     return _play(config, source, audio, about, clock)
+
+
+def _open_release(
+    torrserver: TorrServer,
+    ranked: list[Release],
+    number: int,
+    runtime: float,
+    warn_mbit: float,
+    clock: _Clock,
+) -> tuple[int, TorrFile, str, Media]:
+    """Прогреть релиз, прочитать поток и убедиться, что видео действительно H.264.
+
+    Имя раздачи о кодеке чаще молчит, а видео мы отдаём ``copy`` — ресивер получит ровно
+    то, что лежит внутри. Оказалось не h264 — честная строка и следующий кандидат, не
+    больше :data:`MAX_TRIES` попыток (§1: молчаливых подмен не бывает).
+    """
+    others = enumerate(ranked, start=1)
+    queue = [number] + [n for n, r in others if n != number and is_candidate(r, runtime, warn_mbit)]
+    tried: list[str] = []
+    for attempt, current in enumerate(queue[:MAX_TRIES], start=1):
+        print()
+        print("Дорожки: читаю поток…" if attempt == 1 else f"релиз №{current}: читаю поток…")
+        # §3.1: magnet уходит в TorrServer и набирает пиров, пока читаются метаданные.
+        torrent_hash = torrserver.warm(ranked[current - 1].magnet).result()
+        metadata = clock.lap()
+        video = pick_video_file(torrserver.wait_files(torrent_hash))
+        source = torrserver.stream_url(torrent_hash, video.index)
+        media = probe(source)
+        if (media.video or "h264") == "h264":
+            print(f"(метаданные {metadata}, ffprobe {clock.lap()})")
+            return current, video, source, media
+        tried.append(f"№{current} — {media.video}")
+        torrserver.drop(torrent_hash)
+        following = queue[attempt] if attempt < min(len(queue), MAX_TRIES) else None
+        if following is None:
+            break
+        print(f"релиз №{current} оказался {media.video} — беру №{following}")
+    raise NotFoundError(
+        f"H.264 не нашёлся ({'; '.join(tried)}): ресивер такое видео может не взять, "
+        "а перекодировать мы его не будем — выбери релиз руками: cast <запрос> --release N"
+    )
 
 
 def _play(config: Config, source: str, audio: int, about: str, clock: _Clock) -> int:
@@ -302,12 +343,22 @@ def is_disc(release: Release) -> bool:
     return bool(_DISC_RE.search(release.raw_name))
 
 
-def rank_releases(releases: list[Release]) -> list[Release]:
-    """Порядок меню (§2.1, §3). Дефолт — самый обсиженный релиз первого сорта (H.264,
-    известное качество ≥720p); таких нет — просто самый обсиженный. Образы дисков вниз
-    всегда: цельного файла внутри нет, стримить нечего.
+def is_candidate(release: Release, runtime: float, warn_mbit: float) -> bool:
+    """Кандидат в дефолт (§2.1): первый сорт (:attr:`Release.prime`), не образ диска и в
+    пределах потолка декодера. Жирнее потолка — в таблице остаётся с ⚠, но Enter его не
+    возьмёт: ресивер на таком битрейте встаёт (§3, §9).
     """
-    return sorted(releases, key=lambda r: (is_disc(r), not r.prime, -r.seeders, -r.size))
+    return release.prime and not is_disc(release) and bitrate_of(release, runtime) <= warn_mbit
+
+
+def rank_releases(releases: list[Release], runtime: float, warn_mbit: float) -> list[Release]:
+    """Порядок меню (§2.1, §3): сверху самый обсиженный кандидат, потом всё остальное по
+    сидам, образы дисков всегда внизу — цельного файла внутри нет, стримить нечего.
+    """
+    return sorted(
+        releases,
+        key=lambda r: (is_disc(r), not is_candidate(r, runtime, warn_mbit), -r.seeders, -r.size),
+    )
 
 
 def bitrate_of(release: Release, duration: float) -> float:
@@ -345,13 +396,13 @@ def render_table(
     return "\n".join(out)
 
 
-def _ask_release(ranked: list[Release], args: Args) -> Release:
-    """Выбор релиза: ``--release N`` в обход меню, один вариант — без вопроса."""
+def _ask_release(ranked: list[Release], args: Args) -> int:
+    """Номер релиза: ``--release N`` в обход меню, один вариант — без вопроса."""
     if args.release is not None:
         if not 1 <= args.release <= len(ranked):
             raise NotFoundError(f"релизов {len(ranked)}, номера {args.release} нет")
-        return ranked[args.release - 1]
-    return ranked[0] if len(ranked) == 1 else ranked[_ask("Какой берём?", len(ranked)) - 1]
+        return args.release
+    return 1 if len(ranked) == 1 else _ask("Какой берём?", len(ranked))
 
 
 def _ask_audio(media: Media, args: Args) -> int:

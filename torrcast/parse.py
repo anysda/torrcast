@@ -65,6 +65,11 @@ _SOURCES: Final[tuple[tuple[str, str], ...]] = (
     (r"\bts\b|\bcam\b|hdcam|telesync", "CAM"),
 )
 
+#: Источники, которые сами по себе означают HD-мастер: при неназванном кодеке этого
+#: достаточно, чтобы релиз считался кандидатом в дефолт (:attr:`Release.prime`).
+_HD_SOURCES: Final = frozenset({"BDRemux", "Remux", "BDRip", "WEB-DL", "WEB-DLRip", "WEBRip",
+                                "HDTV", "HDRip"})  # fmt: skip
+
 #: Маркеры озвучки: regex по всему имени → нормальная форма. Порядок = приоритет.
 _VOICES: Final[tuple[tuple[str, str], ...]] = (
     (r"гоблин\b|пучков|goblin\b", "Гоблин"),
@@ -191,10 +196,14 @@ class Release:
 
     @property
     def prime(self) -> bool:
-        """Релиз первого сорта: H.264 и известное качество ≥720p — только из таких
-        выбирается дефолт, иначе обсиженный DVDRip обгоняет живой 1080p (§2.1, §3).
+        """Релиз первого сорта — из таких выбирается дефолт (§2.1, §3). Кодек назван —
+        годится только H.264. Кодек не назван (а это норма: у «Моаны 2» он есть в 2 именах
+        из 8) — верим источнику и качеству: HD-мастер или ≥720p. DVDRip и CAM не годятся,
+        иначе обсиженный DVDRip обгоняет живой 1080p.
         """
-        return self.codec == "H.264" and self.height >= 720
+        if self.codec:
+            return self.codec == "H.264"
+        return self.height >= 720 or self.source in _HD_SOURCES
 
     @property
     def slug(self) -> str:
