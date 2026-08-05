@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import io
+import os
 import re
 import signal
 import sys
@@ -18,6 +19,7 @@ import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import NoReturn
 
 from torrcast import InfraError, NotFoundError, TorrcastError, __version__
 from torrcast.cast import Receiver, make_receiver
@@ -235,7 +237,11 @@ def _cmd_worker(key: str) -> int:
         watch = Watch(key=key, entry=entry, offset=entry.pos)
         title = " ".join(filter(None, (entry.title, entry.label)))
         print(f"показ «{title}» с {_hms(entry.pos)}", flush=True)
-        code = _play(config, source, entry.audio, title, _Clock(), watch)
+        try:
+            code = _play(config, source, entry.audio, title, _Clock(), watch)
+        except _Repack as repack:
+            print(f"перепаковка с {_hms(repack.at)} — показ начинаю заново", flush=True)
+            _reexec(key)
         following = State.load().get(key)
         if not watch.done or following is None or following.done or not following.label:
             return code
@@ -257,6 +263,28 @@ def _duration(key: str, entry: Entry, source: str) -> Entry:
 
 def _on_term(_signal: int, _frame: object) -> None:
     raise KeyboardInterrupt
+
+
+class _Repack(Exception):  # noqa: N818 — это не ошибка, а внутренний сигнал показа
+    """Показ надо начать заново с секунды :attr:`at` (§6 SPEC-v2)."""
+
+    def __init__(self, at: float) -> None:
+        super().__init__(at)
+        self.at = at
+
+
+def _reexec(key: str) -> NoReturn:
+    """Перезапустить показ, заменив собственный процесс новым (в том же юните).
+
+    ⚠️ Не роскошь и не лень: приёмник после неудачного куска принимает LOAD **только от
+    свежего процесса**. Замерено 05-08-2026 четырьмя способами — повторный LOAD, LOAD
+    после `quit_app`, LOAD после `quit_app` с пересозданием соединения — во всех случаях
+    приложение приёмника поднимается, а показ стоит в IDLE до самой смерти юнита; при
+    этом новый процесс на том же ТВ и том же URL даёт картинку за 3 с. Позиция к этому
+    моменту уже записана в состояние, так что новый процесс просто продолжает с неё.
+    """
+    sys.stdout.flush()
+    os.execv(sys.executable, [sys.executable, "-m", "torrcast.cli", "--play-key", key])
 
 
 @dataclass(slots=True)
@@ -591,9 +619,9 @@ def _play(
     """Упаковка → https-раздача → приёмник (§3). Своих демонов нет: и ffmpeg, и раздача
     живут ровно на время показа и гасятся вместе с ним, что бы ни случилось.
 
-    Упаковок за показ может быть несколько (§6 SPEC-v2): перемотка назад глубже окна и
-    возврат с длинной паузы перепаковывают поток с нужной секунды и грузят его в приёмник
-    заново. Раздача и приёмник при этом те же — переживает только ffmpeg.
+    Перемотка назад глубже окна и возврат с длинной паузы поднимают :class:`_Repack` —
+    показ надо начать заново с другой секунды (§6 SPEC-v2). Делать это прямо здесь, не
+    выходя из процесса, оказалось нельзя: см. :func:`_reexec`.
     """
     from torrcast.stream import ffmpeg_hls_command, hls_dir
 
@@ -603,30 +631,21 @@ def _play(
     receiver = make_receiver(config.receiver, config.tv or "", config.hls_cert)
     url = f"{config.hls_base_url.rstrip('/')}/index.m3u8"
     packer: Packer | None = None
-    shown = False
     try:
         server.start()
-        while True:
-            command = ffmpeg_hls_command(
-                source, audio, str(out), start, config.hls_readrate, config.hls_burst
-            )
-            packer = Packer.start(command, out, config.hls_window)
-            packer.manifest()
-            receiver.play(url, about)
-            # Приёмник мог до LOAD дотянуться за сегментами прошлого манифеста: эти 404
-            # к перемотке отношения не имеют, иначе показ перепаковывался бы по кругу.
-            server.missed()
-            if not shown:  # «старт NN с» — про появление картинки, и он бывает один раз
-                print(f"▶ {about} → ТВ   (старт {clock.total:.0f} с)", flush=True)
-                shown = True
-            again = _hold(receiver, packer, server, watch, config.hls_keep)
-            if again is None:
-                break
-            packer.stop()  # чистит и манифест: под теми же именами будет другое место
-            start += again
-            if watch is not None:
-                watch.offset = start
-            print(f"перепаковка с {_hms(start)}", flush=True)
+        command = ffmpeg_hls_command(
+            source, audio, str(out), start, config.hls_readrate, config.hls_burst
+        )
+        packer = Packer.start(command, out, config.hls_window)
+        packer.manifest()
+        receiver.play(url, about)
+        print(f"▶ {about} → ТВ   (старт {clock.total:.0f} с)", flush=True)
+        again = _hold(receiver, packer, server, watch, config.hls_keep)
+        if again is not None:
+            at = start + again
+            if watch is not None:  # позиция перепаковки уезжает в state этим же finally
+                watch.offset, watch.entry.pos = at, at
+            raise _Repack(at)
     finally:
         with contextlib.suppress(TorrcastError):
             receiver.stop()
