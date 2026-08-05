@@ -28,6 +28,7 @@ __all__ = [
     "Receiver",
     "Report",
     "make_receiver",
+    "trust_anchor",
 ]
 
 ReceiverKind = Literal["chromecast", "mock"]
@@ -153,9 +154,9 @@ class ChromecastReceiver:
 class MockReceiver:
     """Headless-приёмник: тянет HLS по https как ТВ и декодирует ffmpeg'ом в ``/dev/null``.
 
-    TLS проверяется по-настоящему: тот же файл серта отдаётся ffmpeg'у как ``-ca_file``
-    и requests как CA-bundle, так что self-signed на стенде и LE в проде проходят одну
-    и ту же проверку — меняется только путь в конфиге (§9: доверенный HTTPS).
+    TLS проверяется по-настоящему, а не ``verify=False``: чему доверять, решает
+    :func:`trust_anchor` — системному хранилищу для настоящего LE-серта (ровно как ТВ)
+    или самому файлу для self-signed. Пустой ``ca`` = системное хранилище (§9).
     """
 
     def __init__(self, ca: str = "") -> None:
@@ -279,5 +280,32 @@ class MockReceiver:
             self.report.no_cors += 1
 
 
+def trust_anchor(cert: str) -> str:
+    """Чему приёмник должен доверять, проверяя нашу раздачу.
+
+    Серт выпущен настоящим CA (LE на стенде) — доверяем **системному хранилищу**: ровно
+    так его проверит ТВ, и только такая проверка закрывает риск §9 «Chromecast требует
+    доверенный HTTPS». Серт self-signed (дефолт `install.sh` до доставки LE) — доверяем
+    ему самому: иначе проверять нечем.
+
+    Различаем по файлу: OpenSSL берёт в доверенные только CA-сертификаты, поэтому у
+    self-signed остаётся он сам (subject == issuer), а у цепочки LE — промежуточный
+    (subject != issuer), листа в списке нет вовсе.
+    """
+    import ssl
+
+    try:
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        context.load_verify_locations(cafile=cert)
+        anchors = context.get_ca_certs()
+    except (OSError, ssl.SSLError):
+        return cert  # нечитаемый серт — пусть падает там, где это видно
+    if len(anchors) == 1 and anchors[0].get("subject") == anchors[0].get("issuer"):
+        return cert
+    return ""
+
+
 def make_receiver(kind: ReceiverKind, address: str = "", ca: str = "") -> Receiver:
-    return MockReceiver(ca) if kind == "mock" else ChromecastReceiver(address)
+    if kind == "mock":
+        return MockReceiver(trust_anchor(ca) if ca else "")
+    return ChromecastReceiver(address)

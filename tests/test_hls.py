@@ -144,3 +144,63 @@ def test_only_what_the_receiver_has_passed_is_swept_out_of_ram(tmp_path: Path) -
     # который приёмник в этот момент читает.
     packer.prune(played=0.0, keep=60.0)
     assert len(left) == 4, "в начале показа не удаляется ничего"
+
+
+def test_a_real_ca_signed_cert_is_verified_against_the_system_store(
+    tls: tuple[str, str], tmp_path: Path
+) -> None:
+    """Чему доверяет mock: §9 «Chromecast требует доверенный HTTPS».
+
+    Self-signed проверять нечем, кроме него самого. А настоящую цепочку LE обязано
+    принимать системное хранилище — иначе «проверка» вырождается в пиннинг к
+    промежуточному серту из того же файла, и подмена self-signed'ом прошла бы незаметно.
+    """
+    from torrcast.cast import MockReceiver, make_receiver, trust_anchor
+
+    assert trust_anchor(tls[0]) == tls[0], "self-signed: доверяем ему самому"
+
+    root, intermediate, leaf = _le_shaped_chain(tmp_path)
+    chain = tmp_path / "fullchain.pem"
+    chain.write_text(leaf + intermediate)  # ровно то, что лежит в acme.json: лист + промежуточный
+    assert trust_anchor(str(chain)) == "", "цепочка CA: доверяем системному хранилищу"
+
+    receiver = make_receiver("mock", "", str(chain))
+    assert isinstance(receiver, MockReceiver) and receiver.ca == ""
+
+    # Корень, приложенный к файлу явно, остаётся доверенным: так гоняется dev-контур.
+    own = tmp_path / "own.pem"
+    own.write_text(leaf + root)
+    assert trust_anchor(str(own)) == str(own)
+    assert trust_anchor(str(tmp_path / "нет-такого.pem")) == str(tmp_path / "нет-такого.pem")
+
+
+def _le_shaped_chain(tmp_path: Path) -> tuple[str, str, str]:
+    """Корень → промежуточный → лист: форма цепочки Let's Encrypt.
+
+    Важна именно она: в `fullchain.pem` от Traefik корня нет, и «доверенным» из файла
+    оказался бы промежуточный — то есть проверка выродилась бы в пиннинг к нему.
+    """
+    import subprocess
+
+    def run(*args: str) -> None:
+        subprocess.run(["openssl", *args], check=True, capture_output=True)
+
+    ext = tmp_path / "ca.ext"
+    ext.write_text("basicConstraints=critical,CA:TRUE\nkeyUsage=critical,keyCertSign\n")
+    names = ("root", "inter", "leaf")
+    key = {n: tmp_path / f"{n}.key" for n in names}
+    crt = {n: tmp_path / f"{n}.crt" for n in names}
+    csr = {n: tmp_path / f"{n}.csr" for n in names}
+
+    run("req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "5",
+        "-keyout", str(key["root"]), "-out", str(crt["root"]), "-subj", "/CN=torrcast test root",
+        "-addext", "basicConstraints=critical,CA:TRUE")  # fmt: skip
+    for name, subject, issuer, extra in (
+        ("inter", "/CN=torrcast test intermediate", "root", ["-extfile", str(ext)]),
+        ("leaf", "/CN=torrcast.anysda.space", "inter", []),
+    ):
+        run("req", "-new", "-newkey", "rsa:2048", "-nodes", "-keyout", str(key[name]),
+            "-out", str(csr[name]), "-subj", subject)  # fmt: skip
+        run("x509", "-req", "-in", str(csr[name]), "-CA", str(crt[issuer]),
+            "-CAkey", str(key[issuer]), "-days", "5", "-out", str(crt[name]), *extra)  # fmt: skip
+    return crt["root"].read_text(), crt["inter"].read_text(), crt["leaf"].read_text()
