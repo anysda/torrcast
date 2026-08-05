@@ -136,6 +136,27 @@ def test_last_episode_of_the_release_ends_the_run() -> None:
     assert (ended.season, ended.episode) == (1, 4), "остаёмся на последней сыгранной"
 
 
+def test_a_season_pack_rolls_over_into_the_next_season() -> None:
+    """Пак сезонов: после последней серии сезона идёт первая следующего — переход тот же,
+    что и внутри сезона, потому что список серий раздачи один и упорядочен (§2.4).
+    """
+    pack = Entry(
+        title="Во все тяжкие",
+        magnet="m",
+        kind="tv",
+        season=1,
+        episode=7,
+        episodes=[[1, 6, 5], [1, 7, 6], [2, 1, 7], [2, 2, 8]],
+        pos=1400,
+        dur=1440,
+    )
+
+    following = pack.advance()
+
+    assert following.label == "s2e1" and following.file_idx == 7
+    assert not following.done and following.pos == 0
+
+
 def test_jump_lands_on_the_cached_episode_or_honestly_refuses() -> None:
     """`cast киберпанк s1e2` при готовом кэше раздачи: файл и позиция с нуля, без вопросов.
     Серии в раздаче нет — ``None``, и цепочка идёт искать релиз нужного сезона (§2.4).
