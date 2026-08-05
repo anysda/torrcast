@@ -110,3 +110,13 @@ def test_acceptance_verdict_needs_no_gaps_no_missing_cors_and_a_full_decode() ->
     assert not Report(segments=1800, duration=7200.0, decoded=7199.0, no_cors=1).ok
     assert not Report(segments=1800, duration=7200.0, decoded=3000.0).ok, "оборвался посередине"
     assert not Report().ok, "приёмник вообще ничего не увидел"
+
+
+def test_the_real_video_codec_comes_from_the_stream_not_the_name() -> None:
+    """Имя раздачи о кодеке чаще молчит, а видео уходит на ТВ как есть (§9)."""
+    from torrcast.stream import Media
+
+    assert Media(video="h264").video_warning == ""
+    assert "hevc" in Media(video="hevc").video_warning
+    assert "mpeg4" in Media(video="mpeg4").video_warning, "XviD/DivX ресивер не возьмёт"
+    assert Media().video_warning == ""

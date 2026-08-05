@@ -209,8 +209,14 @@ def _cmd_play(args: Args) -> int:
     label = media.tracks[audio].label if audio < len(media.tracks) else "—"
     about = f"«{picture.title}» ({picture.year or '?'}) · {release.quality or '?'} · {label}"
     print()
-    print(f"Файл: {video.name} · {_gb(video.size)} · {_hms(media.duration)} · ~{peak:.1f} Мбит/с")
+    codec = media.video or "?"
+    print(
+        f"Файл: {video.name} · {_gb(video.size)} · {_hms(media.duration)} · "
+        f"{codec} · ~{peak:.1f} Мбит/с"
+    )
     print(f"(метаданные {metadata}, ffprobe {clock.lap()})")
+    if media.video_warning:  # молча кастить то, что ресивер не переварит, мы не будем (§1)
+        print(media.video_warning)
     if args.dry:
         print(f"▶ (--dry) {about} — каста нет")
         return EXIT_OK

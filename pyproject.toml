@@ -12,7 +12,9 @@ license = { text = "MIT" }
 authors = [{ name = "anysda", email = "anysdaw@gmail.com" }]
 dependencies = [
     "requests>=2.32",
-    "catt>=0.12",
+    # Не catt: он гонит любой URL через yt-dlp и не умеет подсказки формата HLS,
+    # без которых Default Media Receiver отвечает LOAD ERROR (см. docs/stage2.md).
+    "PyChromecast>=14",
 ]
 
 [project.scripts]

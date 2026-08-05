@@ -120,10 +120,20 @@ class Warmup:
 
 @dataclass(frozen=True, slots=True)
 class Media:
-    """Что ffprobe вычитал из потока: длительность и звуковые дорожки."""
+    """Что ffprobe вычитал из потока: длительность, звуковые дорожки и кодек видео."""
 
     duration: float = 0.0
     tracks: tuple[AudioTrack, ...] = ()
+    #: Настоящий кодек видео. Имя раздачи врёт или молчит (у «Моаны 2» кодек назван
+    #: в 2 именах из 8), а видео мы отдаём ``copy`` — значит ресивер получит ровно его.
+    video: str | None = None
+
+    @property
+    def video_warning(self) -> str:
+        """Пустая строка, если ресиверу это точно по зубам (§9: HEVC и экзотика)."""
+        if self.video in (None, "h264"):
+            return ""
+        return f"⚠ видео {self.video}: ресивер может не взять — мы его не перекодируем"
 
     def default_track(self) -> int:
         """Дефолт меню озвучек — первая русская, иначе первая (§2.1)."""
@@ -218,8 +228,10 @@ def probe(url: str, timeout: float = 90.0) -> Media:
     """Дорожки и длительность из HTTP-потока, не качая файл: ffprobe берёт заголовок mkv
     запросами Range — это и есть цена меню озвучек (§3).
     """
-    entries = "format=duration:stream=index,codec_name,channels:stream_tags=language,title"
-    flags = ["-v", "error", "-select_streams", "a", "-show_entries", entries, "-of", "json"]
+    entries = (
+        "format=duration:stream=index,codec_name,codec_type,channels:stream_tags=language,title"
+    )
+    flags = ["-v", "error", "-show_entries", entries, "-of", "json"]
     command = ["ffprobe", *flags, url]
     try:
         done = subprocess.run(command, capture_output=True, text=True, timeout=timeout, check=True)
@@ -238,9 +250,15 @@ def probe(url: str, timeout: float = 90.0) -> Media:
 
     fmt = payload.get("format")
     duration = float((fmt or {}).get("duration") or 0.0) if isinstance(fmt, dict) else 0.0
-    streams = payload.get("streams")
-    audio = [s for s in streams if isinstance(s, dict)] if isinstance(streams, list) else []
-    return Media(duration=duration, tracks=tuple(_track(i, s) for i, s in enumerate(audio)))
+    raw = payload.get("streams")
+    streams = [s for s in raw if isinstance(s, dict)] if isinstance(raw, list) else []
+    audio = [s for s in streams if s.get("codec_type") == "audio"]
+    video = [_opt_str(s.get("codec_name")) for s in streams if s.get("codec_type") == "video"]
+    return Media(
+        duration=duration,
+        tracks=tuple(_track(i, s) for i, s in enumerate(audio)),
+        video=video[0] if video else None,
+    )
 
 
 def _track(index: int, stream: dict[str, Any]) -> AudioTrack:
