@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, cast
 
 import pytest
@@ -9,6 +10,7 @@ import pytest
 from torrcast import NotFoundError, cli
 from torrcast.cli import TABLE_LIMIT, is_candidate, is_disc, rank_releases, render_table, warned
 from torrcast.parse import Release
+from torrcast.state import load_config
 from torrcast.stream import RUNTIME_GUESS, Media, TorrFile
 
 RUNTIME = RUNTIME_GUESS["movie"]
@@ -223,3 +225,24 @@ def test_three_failed_probes_end_with_an_honest_exit(
     assert "H.264 не нашёлся" in str(caught.value)
     assert "№1 — hevc" in str(caught.value) and "№3 — vc1" in str(caught.value)
     assert capsys.readouterr().out.count("беру №") == 2  # не больше MAX_TRIES попыток
+
+
+def test_tv_mock_switches_the_receiver_and_leaves_no_tv_address(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`cast --tv mock` — третья команда установки на стенде (§7.5).
+
+    Она обязана переключить приёмник, иначе стенд полез бы кастить на Chromecast.
+    И обратно тоже: адрес ТВ возвращает штатный приёмник (§9 — до этапа 6 адреса в
+    конфиге нет физически).
+    """
+    monkeypatch.setenv("TORRCAST_CONFIG", str(tmp_path / "config.json"))
+
+    assert cli.main(["--tv", "mock"]) == 0
+    config = load_config()
+    assert (config.tv, config.receiver) == ("mock", "mock")
+    assert "192.168.100" not in (tmp_path / "config.json").read_text()
+    assert "headless" in capsys.readouterr().out
+
+    assert cli.main(["--tv", "192.168.100.102"]) == 0
+    assert (load_config().tv, load_config().receiver) == ("192.168.100.102", "chromecast")

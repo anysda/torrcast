@@ -102,7 +102,7 @@ def parse_args(argv: Sequence[str] | None = None) -> Args:
     about = "torrcast — найти релиз и кастить его на ТВ без скачивания"
     parser = argparse.ArgumentParser(prog="cast", description=about, allow_abbrev=False)
     parser.add_argument("query", nargs="*", help="название, либо stop / status")
-    parser.add_argument("--tv", metavar="IP", help="разовая настройка адреса ТВ")
+    parser.add_argument("--tv", metavar="IP", help="разовая настройка адреса ТВ (или mock)")
     parser.add_argument("--release", type=int, metavar="N", help="взять релиз N без меню")
     parser.add_argument("--audio", type=int, metavar="N", help="взять дорожку N без меню")
     parser.add_argument("--new", action="store_true", help="забыть прогресс и выбрать заново")
@@ -140,11 +140,17 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 def _cmd_configure(args: Args) -> int:
-    """``cast --tv <ip>`` — единственная настройка (§5)."""
+    """``cast --tv <ip>`` — единственная настройка (§5).
+
+    Отдельное значение ``mock`` включает headless-приёмник: так стенд принимается без
+    телевизора (§7.5), и адрес ТВ в конфиге при этом отсутствует физически (§9).
+    """
     config = load_config()
     config.tv = args.tv
+    config.receiver = "mock" if args.tv == "mock" else "chromecast"
     save_config(config)
-    print(f"ТВ: {config.tv}")
+    note = " (headless-приёмник, каста наружу нет)" if args.tv == "mock" else ""
+    print(f"ТВ: {config.tv}{note}")
     return EXIT_OK
 
 
