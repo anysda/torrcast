@@ -121,8 +121,11 @@ class ChromecastReceiver:
     #: app_id Default Media Receiver: чужой app = каст сняли пультом, показ окончен.
     MEDIA_APP = "CC1AD845"
     #: Неподвижный BUFFERING дольше этого — приёмник завис (см. :meth:`_nudge`).
-    STALL_SECONDS = 8.0
-    #: На повторных нуджах перепрыгиваем вперёд, если кусок действительно битый.
+    #: ⚠️ Порог намеренно велик: штатный ребуфер на живом Q70D укладывается в 1–3 с, а
+    #: настоящее зависание длится бесконечно (замерено: 60+ с без единого запроса).
+    #: Мелкий порог превращает обычный ребуфер в нудж, а каждый нудж стоит перемотки.
+    STALL_SECONDS = 20.0
+    #: Шаг прыжка вперёд на каждом нудже: мимо куска, на котором приёмник споткнулся.
     STALL_SKIP = 8.0
 
     def __init__(self, address: str) -> None:
@@ -132,7 +135,8 @@ class ChromecastReceiver:
         self._cast: Any = None
         self._url = ""
         self._title = ""
-        self._stall_pos = -1.0
+        self._peak = 0.0
+        self._stall_at = -1.0
         self._stall_since = 0.0
         self._stall_hits = 0
 
@@ -156,10 +160,12 @@ class ChromecastReceiver:
     def position(self) -> Position:
         st = self._status()
         pos = st.current_time or 0.0
+        if pos > self._peak:  # реальный прогресс — прошлые нуджи больше не в счёт
+            self._peak, self._stall_hits = pos, 0
         if st.player_state == "BUFFERING":
             self._nudge(pos)
         else:
-            self._stall_pos, self._stall_since, self._stall_hits = -1.0, 0.0, 0
+            self._stall_at, self._stall_since = -1.0, 0.0
         return Position(pos, st.duration or 0.0, st.player_is_playing)
 
     def _nudge(self, pos: float) -> None:
@@ -168,21 +174,25 @@ class ChromecastReceiver:
         Замерено на живом Q70D 05-08-2026: на 273-й секунде показа ресивер перестал
         запрашивать сегменты и встал в BUFFERING **навсегда** — при том что следующий
         кусок лежал в tmpfs и отдавался curl'ом за миллисекунды, а живого соединения от ТВ
-        в conntrack не было вовсе. То есть подвисает сам приёмник, и лечится это одним
-        ``seek`` на текущую позицию: показ продолжился сразу. Ровно этот сторож годами
-        держит kinocast на этом же телевизоре — без него зависание не отличить от конца.
+        в conntrack не было вовсе. То есть подвисает сам приёмник, и лечится это ``seek``:
+        показ возобновляется немедленно. Тот же сторож годами держит kinocast на этом ТВ.
+
+        ⚠️ Прыгать можно **только вперёд**. На растущем манифесте ресивер отрабатывает
+        ``seek`` не точно, а с начала подходящего сегмента, и «нудж на месте» откатывал
+        показ на ~35 с назад. Позиция после отката меньше пройденного максимума, счётчик
+        не сбрасывался бы — и получалась бесконечная лесенка назад (наблюдалась живьём:
+        2:12 → 1:58 → 1:44). Поэтому целимся от максимума и всегда с шагом вперёд.
         """
         now = time.monotonic()
-        if pos != self._stall_pos:
-            self._stall_pos, self._stall_since, self._stall_hits = pos, now, 0
+        if pos != self._stall_at:
+            self._stall_at, self._stall_since = pos, now
             return
-        if self._stall_since and now - self._stall_since < self.STALL_SECONDS:
+        if now - self._stall_since < self.STALL_SECONDS:
             return
-        target = pos + self._stall_hits * self.STALL_SKIP
         self._stall_hits += 1
         self._stall_since = now
         with contextlib.suppress(Exception):
-            self._device().media_controller.seek(target)
+            self._device().media_controller.seek(self._peak + self.STALL_SKIP * self._stall_hits)
 
     def _load(self) -> None:
         controller = self._device().media_controller
