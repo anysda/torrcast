@@ -601,7 +601,8 @@ def _play(
     start = watch.offset if watch else 0.0
     server = HlsServer(out, config.hls_cert, config.hls_key, port=config.hls_port)
     receiver = make_receiver(config.receiver, config.tv or "", config.hls_cert)
-    url = f"{config.hls_base_url.rstrip('/')}/index.m3u8"
+    base = f"{config.hls_base_url.rstrip('/')}/index.m3u8"
+    url, generation = base, 0
     packer: Packer | None = None
     try:
         server.start()
@@ -627,17 +628,13 @@ def _play(
             if watch is not None:
                 watch.offset, watch.entry.pos = start, start
             print(f"перепаковка с {_hms(start)}", flush=True)
-            # ⚠️ Раздачу поднимаем ЗАНОВО, на новом сокете. Приёмник, поймавший 404,
-            # держится за свои соединения к тому же порту и в них уже не ходит: LOAD за
-            # LOAD'ом он принимает и молчит (замерено 05-08-2026: десять попыток за пять
-            # минут, с закрытием приложения и пересозданием сессии — без толку). Стоит
-            # поднять слушающий сокет заново — и тот же поток с того же URL играет с
-            # первой попытки, даже начатый с -ss.
-            with contextlib.suppress(TorrcastError):
-                receiver.stop()
-            server.stop()
-            server = HlsServer(out, config.hls_cert, config.hls_key, port=config.hls_port)
-            server.start()
+            # ⚠️ Новый URL на ту же раздачу: под старым приёмник помнит прежний плейлист и
+            # лезет за сегментами, которых уже нет, — снова 404 и снова отказ. Запрос
+            # раздача отбрасывает, так что сегменты те же самые. Больше на перепаковке НЕ
+            # делаем ничего: ни STOP приёмнику, ни пересоздания раздачи — с ними показ как
+            # раз и не поднимался (замерено 05-08-2026, десять попыток за пять минут).
+            generation += 1
+            url = f"{base}?g={generation}"
     finally:
         with contextlib.suppress(TorrcastError):
             receiver.stop()
