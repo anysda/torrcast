@@ -57,6 +57,65 @@ def test_readrate_paces_packing_and_can_be_switched_off() -> None:
     assert "-readrate" not in ffmpeg_hls_command("u", 0, "/tmp/x", readrate=0.0)
 
 
+def test_the_initial_burst_replaces_pausing_the_packer(tmp_path: Path) -> None:
+    """§6 SPEC-v2: запас впереди приёмника даёт burst, а не пауза процесса.
+
+    Проверяем и то, и другое: флаг ``-readrate_initial_burst`` (ffmpeg ≥ 6.1) на месте и
+    стоит до ``-i``, а сигналов остановки в коде показа не осталось вовсе — именно под
+    SIGSTOP'ом приёмник намертво вис в BUFFERING при живых сегментах на диске.
+    """
+    from torrcast import cast as cast_module
+    from torrcast import cli as cli_module
+    from torrcast import stream as stream_module
+
+    command = ffmpeg_hls_command("u", 0, "/tmp/x", readrate=1.0, burst=60.0)
+    assert "-readrate 1 -readrate_initial_burst 60" in " ".join(command)
+    assert command.index("-readrate_initial_burst") < command.index("-i")
+    assert "-readrate_initial_burst" not in ffmpeg_hls_command("u", 0, "/tmp/x", readrate=0.0)
+
+    # В доках про SIGSTOP написано — важно, чтобы его не осталось в КОДЕ показа.
+    for module in (stream_module, cli_module, cast_module):
+        source = Path(str(module.__file__)).read_text(encoding="utf-8")
+        assert "send_signal" not in source, f"{module.__name__}: показ шлёт сигналы упаковке"
+
+
+def test_a_swept_out_segment_is_remembered_not_just_404ed(
+    tls: tuple[str, str], tmp_path: Path
+) -> None:
+    """Перемотка назад глубже окна (§6 SPEC-v2): приёмник просит вычищенный сегмент.
+
+    404 сам по себе — потерянный показ. Поэтому раздача запоминает, чего у неё попросили:
+    по имени сегмента показ узнаёт секунду, с которой человек хочет смотреть, и
+    перепаковывает поток оттуда.
+    """
+    from torrcast.stream import segment_start
+
+    root = hls_dir(str(tmp_path / "hls"))
+    (root / "index.m3u8").write_text(
+        "#EXTM3U\n#EXTINF:10.000000,\nindex0.ts\n#EXTINF:4.000000,\nindex1.ts\n"
+    )
+    server = HlsServer(root, tls[0], tls[1], host="127.0.0.1", port=18455)
+    server.start()
+    session = requests.Session()
+    session.verify = tls[0]
+    try:
+        assert session.get("https://127.0.0.1:18455/index1.ts", timeout=10).status_code == 404
+        assert server.missed() == "index1.ts"
+        assert server.missed() == "", "прочитали — список чист, второй раз не перепакуем"
+    finally:
+        server.stop()
+    segments, _ = parse_manifest((root / "index.m3u8").read_text(encoding="utf-8"))
+    assert segment_start(segments, "index1.ts") == 10.0
+    assert segment_start(segments, "index9.ts") == -1.0, "чужого имени в манифесте нет"
+
+
+def test_segments_are_never_cached_by_the_receiver(served: Any) -> None:
+    """После перепаковки под теми же именами лежит другое место фильма — кэш соврал бы."""
+    session, base = served
+    for name in ("index.m3u8", "index0.ts"):
+        assert session.get(f"{base}/{name}", timeout=10).headers["Cache-Control"] == "no-store"
+
+
 def test_cors_is_on_every_answer_including_404_and_preflight(served: Any) -> None:
     """Chromecast без ``Access-Control-Allow-Origin`` молча не играет (§9)."""
     session, base = served

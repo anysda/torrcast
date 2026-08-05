@@ -51,6 +51,10 @@ class Position:
     pos: float
     dur: float
     playing: bool = False
+    #: Состояние приёмника как есть (``PLAYING``/``BUFFERING``/``PAUSED``/``IDLE``).
+    #: Показу нужно отличать паузу на пульте от конца фильма: на паузе упаковка гасится,
+    #: но показ жив и продолжится с того же места (§6 SPEC-v2).
+    state: str = ""
 
     @property
     def ratio(self) -> float:
@@ -139,14 +143,20 @@ class ChromecastReceiver:
         self._stall_at = -1.0
         self._stall_since = 0.0
         self._stall_hits = 0
+        self._reloads = 0
 
     def play(self, url: str, title: str = "") -> None:
         """Начать показ и **дождаться картинки**, а не просто отправить LOAD.
 
         Без ожидания показ гаснет через секунду после команды: сторож снимает позицию
         сразу после ``play_media``, видит закономерный IDLE и считает, что играть нечего.
+
+        Зовётся не только в начале: после перепаковки потока (перемотка назад глубже окна,
+        возврат с паузы) поток начинается заново — и счётчики сторожа тоже.
         """
         self._url, self._title = url, title or "torrcast"
+        self._peak, self._reloads, self._stall_hits = 0.0, 0, 0
+        self._stall_at, self._stall_since = -1.0, 0.0
         self._load()
         if self._settle():
             return
@@ -159,14 +169,33 @@ class ChromecastReceiver:
 
     def position(self) -> Position:
         st = self._status()
+        state = str(st.player_state or "")
         pos = st.current_time or 0.0
         if pos > self._peak:  # реальный прогресс — прошлые нуджи больше не в счёт
             self._peak, self._stall_hits = pos, 0
-        if st.player_state == "BUFFERING":
+        if state == "BUFFERING":
             self._nudge(pos)
         else:
             self._stall_at, self._stall_since = -1.0, 0.0
-        return Position(pos, st.duration or 0.0, st.player_is_playing)
+        if state == "IDLE" and st.idle_reason == "ERROR" and self._reload():
+            return Position(self._peak, st.duration or 0.0, True, "BUFFERING")
+        return Position(pos, st.duration or 0.0, st.player_is_playing, state)
+
+    def _reload(self) -> bool:
+        """Повтор LOAD посреди показа: приёмник отвалился с ``IDLE/ERROR``.
+
+        Рецептура kinocast на этом же ТВ: ровно две попытки, дальше это не наша авария.
+        Грузим с ``current_time``, иначе LOAD на EVENT-манифесте начал бы показ сначала —
+        а мы всего лишь поднимаем приёмник на том месте, где он споткнулся.
+        """
+        if self._reloads >= self.LOAD_RETRIES:
+            return False
+        self._reloads += 1
+        try:
+            self._load(self._peak)
+        except Exception:  # приёмник мог просто уйти — решает следующий тик
+            return False
+        return True
 
     def _nudge(self, pos: float) -> None:
         """Расшевелить приёмник, зависший в BUFFERING на одной и той же секунде.
@@ -194,12 +223,17 @@ class ChromecastReceiver:
         with contextlib.suppress(Exception):
             self._device().media_controller.seek(self._peak + self.STALL_SKIP * self._stall_hits)
 
-    def _load(self) -> None:
+    def _load(self, at: float = 0.0) -> None:
         controller = self._device().media_controller
         # BUFFERED, а не LIVE: манифест типа EVENT только дописывается, и ресивер
         # показывает шкалу — перемотка пультом остаётся рабочей (§2.5).
         controller.play_media(
-            self._url, HLS_TYPE, title=self._title, stream_type="BUFFERED", media_info=HLS_HINTS
+            self._url,
+            HLS_TYPE,
+            title=self._title,
+            stream_type="BUFFERED",
+            media_info=HLS_HINTS,
+            current_time=at,
         )
         controller.block_until_active(timeout=30)
 
@@ -301,9 +335,10 @@ class MockReceiver:
         self._pos = Position(self._pos.pos, self._pos.dur, False)
 
     def position(self) -> Position:
-        # dur — то, что уже упаковано и лежит в манифесте: по разнице с позицией
-        # показ придерживает упаковку, чтобы окно сегментов не убежало вперёд.
-        return Position(self._pos.pos, self.report.duration, self._pos.playing)
+        # dur — то, что уже упаковано и лежит в манифесте: показ по нему видит, насколько
+        # упаковка ушла вперёд от приёмника.
+        playing = self._pos.playing
+        return Position(self._pos.pos, self.report.duration, playing, "PLAYING" if playing else "")
 
     def _session(self) -> Any:
         import requests

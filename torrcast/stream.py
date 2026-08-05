@@ -11,7 +11,6 @@ import http.server
 import json
 import os
 import re
-import signal
 import ssl
 import subprocess
 import sys
@@ -20,7 +19,7 @@ import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Final
+from typing import TYPE_CHECKING, Any, ClassVar, Final
 from urllib.parse import quote
 
 from torrcast import InfraError, why
@@ -45,6 +44,7 @@ __all__ = [
     "parse_manifest",
     "pick_video_file",
     "probe",
+    "segment_start",
     "start_play_unit",
     "stop_play_unit",
     "unit_active",
@@ -294,7 +294,12 @@ def pick_video_file(files: list[TorrFile]) -> TorrFile:
 
 
 def ffmpeg_hls_command(
-    source_url: str, audio_index: int, out_dir: str, start_pos: float = 0.0, readrate: float = 1.0
+    source_url: str,
+    audio_index: int,
+    out_dir: str,
+    start_pos: float = 0.0,
+    readrate: float = 1.0,
+    burst: float = 0.0,
 ) -> list[str]:
     """Команда ffmpeg для HLS (§3). Перемотка и resume = рестарт с ``-ss``, манифест с нуля.
 
@@ -302,13 +307,26 @@ def ffmpeg_hls_command(
     live, и приёмник по стандарту стартует за три сегмента до конца — то есть с середины
     фильма. С EVENT и ТВ, и ffmpeg начинают с первого сегмента (проверено).
     ``temp_file`` — чтобы наружу не попал недописанный сегмент или манифест.
+
+    Темп упаковки (§6 SPEC-v2) держится **одним ffmpeg'ом и без пауз процесса**:
+
+    * ``-readrate 1`` — читать вход со скоростью реального времени. Придержать упаковку
+      сигналом (SIGSTOP) больше не нужно: она сама не убегает дальше ``burst``.
+    * ``-readrate_initial_burst`` (ffmpeg ≥ 6.1) — первые ``burst`` секунд читаются на
+      полной скорости. Без него ``readrate 1`` дважды вреден: первый сегмент готов не
+      раньше своей же длительности (на «Моане 2» ключевые кадры дают до 12 с сегменты),
+      а дальше приёмник идёт вровень с упаковкой и буферится на каждом стыке.
+
+    Отставание ffmpeg наверстывает сам: его планка — ``wallclock * readrate + burst``, и
+    пока текущий dts ниже планки, он читает на полной скорости (``readrate_sleep`` в
+    fftools). То есть просадка роя лечится без нашего участия, а запас впереди приёмника
+    остаётся ограниченным ``burst`` — ровно поэтому tmpfs не растёт без предела.
     """
     command = ["ffmpeg", "-hide_banner", "-loglevel", "warning"]
     if readrate > 0:
-        # Темп реального времени: упаковка не должна убегать от приёмника дальше окна
-        # сегментов в tmpfs. Первый сегмент при этом готов через ~4 с — это и есть
-        # строка «HLS + запуск приёмника 3–5 с» из бюджета §3.1.
         command += ["-readrate", f"{readrate:g}"]
+        if burst > 0:
+            command += ["-readrate_initial_burst", f"{burst:g}"]
     if start_pos > 0:
         command += ["-ss", f"{start_pos:.3f}"]
     command += ["-i", source_url, "-map", "0:v:0", "-map", f"0:a:{audio_index}"]
@@ -335,6 +353,21 @@ def parse_manifest(text: str) -> tuple[list[tuple[str, float]], bool]:
     return segments, "#EXT-X-ENDLIST" in text
 
 
+def segment_start(segments: list[tuple[str, float]], name: str) -> float:
+    """С какой секунды потока начинается сегмент ``name``; ``-1`` — такого в манифесте нет.
+
+    Нужно ровно для одного: приёмник попросил сегмент, который окно уже вычистило
+    (перемотка назад глубже окна) — и по имени сегмента мы узнаём, с какой секунды
+    человек хочет смотреть, чтобы перепаковать поток именно оттуда (§6 SPEC-v2).
+    """
+    total = 0.0
+    for item, seconds in segments:
+        if item == name:
+            return total
+        total += seconds
+    return -1.0
+
+
 def hls_dir(path: str) -> Path:
     """Чистый каталог сегментов. Это tmpfs: фильм на диск не пишем (§3, §1)."""
     directory = Path(path)
@@ -353,7 +386,8 @@ class Packer:
     #: Сколько сегментов держим; старые удаляются, фильм целиком в RAM не влезет.
     window: int = 45
     log: Any = None
-    _running: bool = True
+    #: Упаковку погасили намеренно (:meth:`halt`) — смерть процесса не авария.
+    halted: bool = False
 
     @classmethod
     def start(cls, command: list[str], out: Path, window: int = 45) -> Packer:
@@ -377,7 +411,7 @@ class Packer:
             time.sleep(0.2)
         return path
 
-    def prune(self, played: float = -1.0, keep: float = 60.0) -> None:
+    def prune(self, played: float = -1.0, keep: float = 120.0) -> None:
         """Удалить куски, которые приёмник уже прошёл (с запасом ``keep`` секунд).
 
         ⚠️ Окно в штуках — ловушка: длину сегмента задаёт ключевой кадр источника, и на
@@ -398,15 +432,23 @@ class Packer:
                 return
             (self.out / name).unlink(missing_ok=True)
 
-    def pace(self, lead: float) -> None:
-        """Придержать упаковку, если она ушла от приёмника дальше половины окна: иначе
-        сегменты вычищаются у него из-под носа. Пауза сигналом, ffmpeg её переживает.
+    def halt(self) -> None:
+        """Погасить упаковку, **не трогая уже упакованное**: приёмник на паузе, и копить
+        сегменты в tmpfs незачем. Возобновление — новый ffmpeg с ``-ss`` (см. ``_hold``).
+
+        Раньше на этом месте стояла пауза сигналом (SIGSTOP). Она и оказалась классом
+        проблемы §6 SPEC-v2: манифест замирает, а приёмник намертво виснет в BUFFERING —
+        держит коннект и не запрашивает ничего. Поэтому процесс именно завершается.
         """
-        limit = self.window * HLS_SEGMENT_SECONDS
-        want = self.window <= 0 or lead < limit / 2
-        if want is not self._running and self.proc.poll() is None:
-            self.proc.send_signal(signal.SIGCONT if want else signal.SIGSTOP)
-            self._running = want
+        self.halted = True
+        if self.proc.poll() is None:
+            self.proc.terminate()
+            with contextlib.suppress(subprocess.TimeoutExpired):
+                self.proc.wait(timeout=5)
+
+    def packed(self) -> float:
+        """Сколько секунд потока уже упаковано: длина манифеста, а не позиция приёмника."""
+        return sum(seconds for _, seconds in self.segments())
 
     def segments(self) -> list[tuple[str, float]]:
         """Что сейчас в манифесте: пары (сегмент, длительность)."""
@@ -428,8 +470,6 @@ class Packer:
 
     def stop(self) -> None:
         if self.proc.poll() is None:
-            if not self._running:
-                self.proc.send_signal(signal.SIGCONT)
             self.proc.terminate()
             with contextlib.suppress(subprocess.TimeoutExpired):
                 self.proc.wait(timeout=5)
@@ -521,6 +561,10 @@ class _Handler(http.server.BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     server_version = "torrcast"
     root: Path = Path()
+    #: Сегменты, которых у нас уже нет, а приёмник их просил (перемотка назад глубже
+    #: окна). Список общий с :class:`HlsServer` — по нему показ решает, откуда
+    #: перепаковать поток, вместо того чтобы отдать 404 и потерять показ (§6 SPEC-v2).
+    misses: ClassVar[list[str]] = []
 
     def do_GET(self) -> None:
         self._serve(body=True)
@@ -534,12 +578,14 @@ class _Handler(http.server.BaseHTTPRequestHandler):
     def _serve(self, body: bool) -> None:
         name = self.path.split("?")[0].lstrip("/")
         path = self.root / name
-        if not _ASSET_RE.fullmatch(name) or not path.is_file():
+        if not _ASSET_RE.fullmatch(name):
             self._head(404, 0, "text/plain")
             return
         try:
             data = path.read_bytes()
-        except OSError:  # сегмент вычистило окно ровно между проверкой и чтением
+        except OSError:  # нет вовсе или вычистило окном ровно между проверкой и чтением
+            if name.endswith(".ts"):
+                self.misses.append(name)
             self._head(404, 0, "text/plain")
             return
         ctype, total = _TYPES.get(path.suffix, "application/octet-stream"), len(data)
@@ -574,8 +620,10 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         self.send_header("Accept-Ranges", "bytes")
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(length))
-        # Манифест дописывается на ходу — кэшировать его приёмнику нельзя.
-        self.send_header("Cache-Control", "no-store" if ctype.endswith("mpegurl") else "max-age=60")
+        # Кэшировать нельзя ничего: манифест дописывается на ходу, а после перепаковки
+        # (перемотка назад глубже окна, §6 SPEC-v2) под теми же именами сегментов лежит
+        # уже другое место фильма — кэш приёмника показал бы старое.
+        self.send_header("Cache-Control", "no-store")
         for key, value in extra:
             self.send_header(key, value)
         self.end_headers()
@@ -610,6 +658,14 @@ class HlsServer:
     def __init__(self, root: Path, cert: str, key: str, host: str = "0.0.0.0", port: int = 8443):
         self.root, self.cert, self.key, self.host, self.port = root, cert, key, host, port
         self._server: _TlsServer | None = None
+        self._misses: list[str] = []
+
+    def missed(self) -> str:
+        """Первый сегмент, которого приёмник просил, а у нас его уже нет; пусто — таких
+        запросов не было. Читается один раз: список при чтении очищается.
+        """
+        names, self._misses[:] = list(self._misses), []
+        return names[0] if names else ""
 
     def start(self) -> None:
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
@@ -617,7 +673,7 @@ class HlsServer:
             ctx.load_cert_chain(self.cert, self.key)
         except (OSError, ssl.SSLError) as exc:
             raise InfraError(f"не читается серт {self.cert}: {why(exc)}") from exc
-        handler = type("_Bound", (_Handler,), {"root": self.root})
+        handler = type("_Bound", (_Handler,), {"root": self.root, "misses": self._misses})
         try:
             server = _TlsServer((self.host, self.port), handler)
         except OSError as exc:

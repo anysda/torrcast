@@ -114,6 +114,85 @@ def _alive(pattern: str) -> bool:
     return bool(done.stdout.strip())
 
 
+class _FakeProc:
+    """Процесс упаковки: умеет ровно то, что от него нужно показу. Сигналов остановки у
+    него нет вовсе — попытка придержать упаковку SIGSTOP'ом развалила бы тест.
+    """
+
+    def __init__(self) -> None:
+        self.code: int | None = None
+
+    def poll(self) -> int | None:
+        return self.code
+
+    def terminate(self) -> None:
+        self.code = -15
+
+    def wait(self, timeout: float | None = None) -> int:
+        return -15
+
+
+class _FakeReceiver:
+    """Приёмник по сценарию: очередь состояний, как их отдаёт живой Q70D."""
+
+    def __init__(self, script: list[tuple[float, str]]) -> None:
+        self.script = script
+
+    def play(self, url: str, title: str = "") -> None:
+        pass
+
+    def stop(self) -> None:
+        pass
+
+    def position(self) -> Any:
+        from torrcast.cast import Position
+
+        pos, state = self.script.pop(0) if self.script else (0.0, "IDLE")
+        return Position(pos, 0.0, state in {"PLAYING", "BUFFERING"}, state)
+
+
+def _packer_with_manifest(tmp_path: Path) -> Any:
+    """Упаковка с готовым манифестом на 6 сегментов по 10 с; файлов на диске нет."""
+    out = hls_dir(str(tmp_path / "hls"))
+    lines = ["#EXTM3U"]
+    for number in range(6):
+        lines += ["#EXTINF:10.000000,", f"index{number}.ts"]
+    (out / "index.m3u8").write_text("\n".join(lines) + "\n")
+    return Packer(proc=_FakeProc(), out=out, window=0)  # type: ignore[arg-type]
+
+
+def test_a_rewind_deeper_than_the_window_repacks_instead_of_404(tmp_path: Path) -> None:
+    """§6 SPEC-v2: назад за окно показ не падает, а возвращает секунду для перепаковки."""
+    from torrcast.cli import _hold
+    from torrcast.stream import HlsServer
+
+    packer = _packer_with_manifest(tmp_path)
+    server = HlsServer(packer.out, "нет", "нет", port=0)
+    server._misses.append("index3.ts")  # раздача уже ответила приёмнику 404
+    receiver = _FakeReceiver([(45.0, "PLAYING")])
+    assert _hold(receiver, packer, server) == 30.0, "перепаковка ровно с начала сегмента"
+
+
+def test_a_pause_on_the_remote_stops_packing_and_resumes_where_it_stood(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Пауза пультом: упаковку гасим (иначе tmpfs набивается впрок), показ остаётся жив,
+    а возврат к показу перепаковывает поток с той же секунды.
+    """
+    from torrcast import cli
+    from torrcast.stream import HlsServer
+
+    monkeypatch.setattr(cli, "PAUSE_SECONDS", 0.0)
+    monkeypatch.setattr(time, "sleep", lambda seconds: None)
+    packer = _packer_with_manifest(tmp_path)
+    server = HlsServer(packer.out, "нет", "нет", port=0)
+    receiver = _FakeReceiver([(42.0, "PAUSED"), (42.0, "PAUSED"), (42.0, "PLAYING")])
+
+    assert cli._hold(receiver, packer, server) == 42.0
+    assert packer.halted and packer.poll() == -15, "ffmpeg завершён, а не остановлен сигналом"
+    assert "пауза на пульте" in capsys.readouterr().out
+
+
 def test_resume_starts_from_the_offset_and_ends_as_watched(
     clip: str, tls: tuple[str, str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
