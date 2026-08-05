@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from typing import IO, Any, Literal, Protocol, runtime_checkable
 
 from torrcast import InfraError, why
+from torrcast.stream import parse_manifest
 
 __all__ = [
     "HLS_HINTS",
@@ -27,7 +28,6 @@ __all__ = [
     "Receiver",
     "Report",
     "make_receiver",
-    "parse_manifest",
 ]
 
 ReceiverKind = Literal["chromecast", "mock"]
@@ -67,20 +67,6 @@ class Receiver(Protocol):
 
     def position(self) -> Position:
         """Текущая позиция и длительность."""
-
-
-def parse_manifest(text: str) -> tuple[list[tuple[str, float]], bool]:
-    """Манифест → пары (сегмент, длительность) и признак конца (``#EXT-X-ENDLIST``)."""
-    segments: list[tuple[str, float]] = []
-    seconds = 0.0
-    for raw in text.splitlines():
-        line = raw.strip()
-        if line.startswith("#EXTINF:"):
-            with contextlib.suppress(ValueError):
-                seconds = float(line[8:].split(",")[0])
-        elif line and not line.startswith("#"):
-            segments.append((line, seconds))
-    return segments, "#EXT-X-ENDLIST" in text
 
 
 @dataclass(slots=True)
@@ -187,7 +173,7 @@ class MockReceiver:
         self._err = tempfile.TemporaryFile()  # noqa: SIM115 — живёт всё воспроизведение
         ca = ["-ca_file", self.ca] if self.ca else []
         command = [
-            "ffmpeg", "-hide_banner", "-nostats", "-loglevel", "error",
+            "ffmpeg", "-hide_banner", "-nostats", "-loglevel", "warning",
             "-tls_verify", "1", *ca, "-i", url, "-progress", "pipe:1", "-f", "null", "-",
         ]  # fmt: skip
         try:

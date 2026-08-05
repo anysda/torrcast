@@ -13,8 +13,8 @@ from typing import Any
 import pytest
 import requests
 
-from torrcast.cast import Report, parse_manifest
-from torrcast.stream import HlsServer, ffmpeg_hls_command, hls_dir
+from torrcast.cast import Report
+from torrcast.stream import HlsServer, ffmpeg_hls_command, hls_dir, parse_manifest
 
 
 @pytest.fixture
@@ -120,3 +120,27 @@ def test_the_real_video_codec_comes_from_the_stream_not_the_name() -> None:
     assert "hevc" in Media(video="hevc").video_warning
     assert "mpeg4" in Media(video="mpeg4").video_warning, "XviD/DivX ресивер не возьмёт"
     assert Media().video_warning == ""
+
+
+def test_only_what_the_receiver_has_passed_is_swept_out_of_ram(tmp_path: Path) -> None:
+    """Ловушка «Моаны 2»: окно в штуках при сегментах от 1 до 11 с выметало куски
+    из-под носа приёмника, а ffmpeg пропускал их молча. Режем строго позади позиции.
+    """
+    from torrcast.stream import Packer
+
+    out = hls_dir(str(tmp_path / "hls"))
+    lines = ["#EXTM3U"]
+    for number, seconds in enumerate([10.0, 1.0, 1.0, 1.0, 10.0, 10.0]):
+        (out / f"index{number}.ts").write_bytes(b"x")
+        lines += [f"#EXTINF:{seconds:.6f},", f"index{number}.ts"]
+    (out / "index.m3u8").write_text("\n".join(lines) + "\n")
+
+    packer = Packer(proc=None, out=out, window=2)  # type: ignore[arg-type]
+    # Приёмник на 13-й секунде, запас 1 с: всё, что кончилось раньше 12-й, ему уже не нужно.
+    packer.prune(played=13.0, keep=1.0)
+    left = sorted(path.name for path in out.glob("*.ts"))
+    assert left == ["index2.ts", "index3.ts", "index4.ts", "index5.ts"]
+    # Окно в штуках (window=2) снесло бы четыре сегмента из шести, включая тот,
+    # который приёмник в этот момент читает.
+    packer.prune(played=0.0, keep=60.0)
+    assert len(left) == 4, "в начале показа не удаляется ничего"

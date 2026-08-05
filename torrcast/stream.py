@@ -39,6 +39,7 @@ __all__ = [
     "bitrate_mbit",
     "ffmpeg_hls_command",
     "hls_dir",
+    "parse_manifest",
     "pick_video_file",
     "probe",
 ]
@@ -312,6 +313,20 @@ def ffmpeg_hls_command(
     return command
 
 
+def parse_manifest(text: str) -> tuple[list[tuple[str, float]], bool]:
+    """Манифест → пары (сегмент, длительность) и признак конца (``#EXT-X-ENDLIST``)."""
+    segments: list[tuple[str, float]] = []
+    seconds = 0.0
+    for raw in text.splitlines():
+        line = raw.strip()
+        if line.startswith("#EXTINF:"):
+            with contextlib.suppress(ValueError):
+                seconds = float(line[8:].split(",")[0])
+        elif line and not line.startswith("#"):
+            segments.append((line, seconds))
+    return segments, "#EXT-X-ENDLIST" in text
+
+
 def hls_dir(path: str) -> Path:
     """Чистый каталог сегментов. Это tmpfs: фильм на диск не пишем (§3, §1)."""
     directory = Path(path)
@@ -354,12 +369,26 @@ class Packer:
             time.sleep(0.2)
         return path
 
-    def prune(self) -> None:
-        """Удалить всё, что старше окна: сегменты живут в RAM, а её мало."""
-        if self.window <= 0:
+    def prune(self, played: float = -1.0, keep: float = 60.0) -> None:
+        """Удалить куски, которые приёмник уже прошёл (с запасом ``keep`` секунд).
+
+        ⚠️ Окно в штуках — ловушка: длину сегмента задаёт ключевой кадр источника, и на
+        «Моане 2» она гуляла от 1.0 до 11.5 с. «45 штук» оказывались то четырьмя минутами,
+        то сорока пятью секундами — и куски исчезали у приёмника из-под носа, а ffmpeg
+        молча их пропускал. Поэтому режем по времени и только позади приёмника; счёт в
+        штуках остаётся запасным вариантом на приёмник, который позицию не отдаёт.
+        """
+        if played < 0:
+            if self.window > 0:
+                for old in sorted(self.out.glob("*.ts"), key=_segment_number)[: -self.window]:
+                    old.unlink(missing_ok=True)
             return
-        for old in sorted(self.out.glob("*.ts"), key=_segment_number)[: -self.window]:
-            old.unlink(missing_ok=True)
+        edge, end = played - keep, 0.0
+        for name, seconds in self.segments():
+            end += seconds
+            if end >= edge:
+                return
+            (self.out / name).unlink(missing_ok=True)
 
     def pace(self, lead: float) -> None:
         """Придержать упаковку, если она ушла от приёмника дальше половины окна: иначе
@@ -370,6 +399,13 @@ class Packer:
         if want is not self._running and self.proc.poll() is None:
             self.proc.send_signal(signal.SIGCONT if want else signal.SIGSTOP)
             self._running = want
+
+    def segments(self) -> list[tuple[str, float]]:
+        """Что сейчас в манифесте: пары (сегмент, длительность)."""
+        try:
+            return parse_manifest((self.out / "index.m3u8").read_text(encoding="utf-8"))[0]
+        except OSError:
+            return []
 
     def poll(self) -> int | None:
         return self.proc.poll()

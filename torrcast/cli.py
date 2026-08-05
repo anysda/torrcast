@@ -256,8 +256,8 @@ def _play(config: Config, source: str, audio: int, about: str, clock: _Clock) ->
 
 
 def _hold(receiver: Receiver, packer: Packer) -> None:
-    """Держим показ: упаковка должна быть жива, и она не должна убегать от приёмника
-    дальше окна сегментов — иначе куски вычищаются у него из-под носа.
+    """Держим показ: упаковка должна быть жива, не должна убегать от приёмника дальше
+    половины окна, а из RAM уходит только то, что приёмник уже прошёл.
     """
     while True:
         code = packer.poll()
@@ -268,11 +268,12 @@ def _hold(receiver: Receiver, packer: Packer) -> None:
         except InfraError:  # приёмник позицию не отдаёт — ведём показ по упаковке
             if code == 0:
                 return
+            packer.prune()  # без позиции остаётся запасное окно в штуках
         else:
             if not position.playing:
                 return
             packer.pace(position.dur - position.pos)
-        packer.prune()
+            packer.prune(position.pos)
         time.sleep(2.0)
 
 
