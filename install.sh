@@ -113,6 +113,42 @@ pick_python() {
     die "нужен python 3.11 или новее (см. requires-python в pyproject.toml)"
 }
 
+#: ffmpeg не ниже 6.1 — из-за -readrate_initial_burst (§6 SPEC-v2). В Debian 12 живёт
+#: 5.1, а без burst темп упаковки лечится только паузой процесса — той самой, под которой
+#: приёмник намертво виснет в BUFFERING. Статическая сборка кладётся в /usr/local/bin и
+#: перебивает пакетную по PATH; пакет ffmpeg остаётся на месте как запасной вариант.
+FFMPEG_MIN="${TORRCAST_FFMPEG_MIN:-6.1}"
+FFMPEG_URL="${TORRCAST_FFMPEG_URL:-https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz}"
+
+ffmpeg_version() {  # $1 — путь/имя бинаря; печатает голую версию либо ничего
+    "$1" -version 2>/dev/null | head -1 | awk '{print $3}' | sed 's/^[^0-9]*//'
+}
+
+install_ffmpeg() {
+    local have; have="$(ffmpeg_version ffmpeg)"
+    if [ -n "$have" ] && dpkg --compare-versions "$have" ge "$FFMPEG_MIN" 2>/dev/null; then
+        skip "ffmpeg $have (нужно ≥ $FFMPEG_MIN: -readrate_initial_burst)"
+        return
+    fi
+    [ "$(uname -m)" = "x86_64" ] || die "статической сборки ffmpeg под $(uname -m) нет — \
+поставь ffmpeg ≥ $FFMPEG_MIN сам"
+    info "ffmpeg ${have:-нет} — беру статическую сборку: $FFMPEG_URL"
+    local work; work="$(mktemp -d)"
+    trap 'rm -rf "$work"' RETURN
+    curl -fsSL -o "$work/ffmpeg.tar.xz" "$FFMPEG_URL" || die "не скачался ffmpeg: $FFMPEG_URL"
+    tar -xf "$work/ffmpeg.tar.xz" -C "$work"
+    local bin; bin="$(find "$work" -type f -name ffmpeg -perm -u+x | head -1)"
+    [ -n "$bin" ] || die "в архиве ffmpeg нет бинаря ffmpeg"
+    install -d -m 0755 /usr/local/bin
+    install -m 0755 "$bin" /usr/local/bin/ffmpeg
+    install -m 0755 "$(dirname "$bin")/ffprobe" /usr/local/bin/ffprobe
+    hash -r
+    local now; now="$(ffmpeg_version /usr/local/bin/ffmpeg)"
+    dpkg --compare-versions "$now" ge "$FFMPEG_MIN" 2>/dev/null \
+        || die "поставился ffmpeg $now — это всё ещё ниже $FFMPEG_MIN"
+    info "ffmpeg $now → /usr/local/bin (пакетная $(ffmpeg_version /usr/bin/ffmpeg) осталась)"
+}
+
 install_packages() {
     log "зависимости"
     local missing=()
@@ -125,6 +161,7 @@ install_packages() {
         apt-get update -qq
         DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${missing[@]}"
     fi
+    install_ffmpeg
     pick_python
     info "интерпретатор $PYTHON ($("$PYTHON" -c 'import sys; print(sys.version.split()[0])'))"
 }
@@ -413,11 +450,16 @@ setup_config() {
     install -d -m 0755 "$CONFIG_DIR" "$STATE_DIR"
     local key; key="$(prowlarr_apikey)"
 
+    # Темп упаковки и окно сегментов — дефолты КОДА (torrcast/state.py), а не настройка
+    # стенда: иначе выкатка нового поведения молча упирается в старые числа из конфига
+    # (ровно это и случилось с hls_readrate=1.5, §7 A SPEC-v2). Вычищаем их отовсюду.
+    local tuned='del(.hls_readrate, .hls_window, .hls_burst, .hls_keep)'
+
     if [ -f "$CONFIG_DIR/config.json" ]; then
         # Адрес ТВ и прочий выбор владельца не трогаем — обновляем только ключ.
-        skip "$CONFIG_DIR/config.json (обновляю только apikey)"
+        skip "$CONFIG_DIR/config.json (обновляю apikey, темп упаковки беру из кода)"
         local tmp; tmp="$(mktemp "$CONFIG_DIR/.config.json.XXXX")"
-        jq --arg k "$key" '.prowlarr_apikey=$k' "$CONFIG_DIR/config.json" >"$tmp"
+        jq --arg k "$key" "$tuned | .prowlarr_apikey=\$k" "$CONFIG_DIR/config.json" >"$tmp"
         mv "$tmp" "$CONFIG_DIR/config.json"
         return
     fi
@@ -435,8 +477,6 @@ setup_config() {
   "hls_cert": "$TLS_DIR/torrcast.crt",
   "hls_key": "$TLS_DIR/torrcast.key",
   "hls_dir": "$HLS_DIR",
-  "hls_window": 300,
-  "hls_readrate": 1.5,
   "bitrate_warn_mbit": 20.0
 }
 JSON
