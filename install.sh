@@ -78,6 +78,16 @@ run_service() {  # $1 имя, $2 описание, $3 команда
     systemctl enable --now "$1.service"
 }
 
+# Погасить службу, чтобы следующий run_service поднял её заново: `enable --now` и
+# pgrep в песочнице живой процесс не трогают, а после обновления кода это и нужно.
+stop_service() {  # $1 имя, $2 маска процесса для песочницы
+    if [ -n "${TORRCAST_NO_SYSTEMD:-}" ]; then
+        pkill -f -- "$2" >/dev/null 2>&1 || true
+    else
+        systemctl stop "$1.service" >/dev/null 2>&1 || true
+    fi
+}
+
 wait_http() {  # $1 url, $2 секунд
     local i=0
     until curl -fsS -o /dev/null "$1" 2>/dev/null; do
@@ -200,7 +210,16 @@ knaben_whole() {
 
 setup_shim() {
     install -d -m 0755 "$SHIM_DIR"
-    install -m 0755 "$REPO_DIR/scripts/knaben-shim.py" "$SHIM_DIR/knaben-shim.py"
+    pick_python  # фаза может гоняться и в одиночку, без `packages`
+    # Код шима приезжает из репы на КАЖДОМ заходе (деплой только репа→прод). Изменился —
+    # службу гасим: юнит-то прежний, и сама по себе она осталась бы на старом коде.
+    if cmp -s "$REPO_DIR/scripts/knaben-shim.py" "$SHIM_DIR/knaben-shim.py"; then
+        skip "код шима $SHIM_DIR/knaben-shim.py"
+    else
+        install -m 0755 "$REPO_DIR/scripts/knaben-shim.py" "$SHIM_DIR/knaben-shim.py"
+        info "код шима обновлён из репы"
+        stop_service knaben-shim "$SHIM_DIR/knaben-shim.py"
+    fi
     if [ -s "$SHIM_DIR/knaben.crt" ] && [ -s "$SHIM_DIR/knaben.key" ]; then
         skip "серт шима $SHIM_DIR/knaben.crt"
     else
@@ -241,7 +260,12 @@ check_sources() {
         SEED_DEFS=1
     fi
 
-    if knaben_whole; then
+    if [ -e "$SHIM_DIR/knaben-shim.py" ]; then
+        # Замер пошёл бы через уже стоящий шим и всегда отвечал бы «всё хорошо» — а код
+        # из репы так бы и не доехал. Стоит шим — идём в setup_shim, он и обновит.
+        info "шим для $KNABEN_API_HOST уже стоит — обновляю из репы"
+        setup_shim
+    elif knaben_whole; then
         info "$KNABEN_API_HOST отвечает целиком — обход не нужен"
     else
         info "⚠ $KNABEN_API_HOST обрывает ответ на первых килобайтах (DPI по SNI)"
