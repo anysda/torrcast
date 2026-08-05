@@ -168,7 +168,11 @@ install_torrserver() {
 }
 
 # --- 4. Prowlarr ------------------------------------------------------------
-PL_RELEASE="${TORRCAST_PL_RELEASE:-https://prowlarr.servarr.com/v1/update/master/updatefile?os=linux&runtime=netcore&arch=x64}"
+# Качаем с GitHub, как и TorrServer. Родной prowlarr.servarr.com отдаёт домашнему
+# адресу 403 (с egress через VPN — 200): зависеть от того, чей IP спрашивает, установка
+# не должна. Сборка та же самая, версия совпадает. Запасной путь остался вторым.
+PL_RELEASE="${TORRCAST_PL_RELEASE:-https://api.github.com/repos/Prowlarr/Prowlarr/releases/latest}"
+PL_FALLBACK="${TORRCAST_PL_FALLBACK:-https://prowlarr.servarr.com/v1/update/master/updatefile?os=linux&runtime=netcore&arch=x64}"
 
 install_prowlarr() {
     log "Prowlarr ($PL_URL, публичные индексеры)"
@@ -177,9 +181,16 @@ install_prowlarr() {
     if [ -x "$PREFIX/prowlarr/Prowlarr" ]; then
         skip "бинарь Prowlarr"
     else
-        info "качаю Prowlarr"
+        local url
+        url="$(curl -fsSL "$PL_RELEASE" 2>/dev/null \
+            | jq -r '[.assets[]?|select(.name|test("linux-core-x64\\.tar\\.gz$"))][0].browser_download_url // empty')"
+        if [ -z "$url" ]; then
+            info "GitHub сборку не отдал — иду на $PL_FALLBACK"
+            url="$PL_FALLBACK"
+        fi
+        info "качаю $url"
         install -d -m 0755 "$PREFIX/prowlarr"
-        curl -fsSL -o "$PREFIX/prowlarr.tar.gz" "$PL_RELEASE"
+        curl -fsSL -o "$PREFIX/prowlarr.tar.gz" "$url"
         # В архиве верхний каталог `Prowlarr/` — срезаем, чтобы путь был предсказуем.
         tar -xzf "$PREFIX/prowlarr.tar.gz" -C "$PREFIX/prowlarr" --strip-components=1
         rm -f "$PREFIX/prowlarr.tar.gz"
