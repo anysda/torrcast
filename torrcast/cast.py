@@ -44,8 +44,6 @@ _NUM_RE = re.compile(r"(\d+)\.ts$")
 #: Строки ffmpeg, означающие, что кусок не доехал: для приёмки это разрыв.
 _LOST_RE = re.compile(r"Failed to open segment|Error opening|Cannot reload|skipping", re.I)
 _CORS_HEADER = "Access-Control-Allow-Origin"
-#: Причины IDLE, при которых LOAD надо повторить, а не ждать погоды (см. ``_settle``).
-_LOAD_AGAIN = frozenset({"ERROR", "INTERRUPTED"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -125,7 +123,11 @@ class ChromecastReceiver:
     #: LOAD ERROR лечится повтором LOAD (рецепт kinocast на этом же ТВ: ровно 2 попытки).
     LOAD_RETRIES = 2
     #: Пауза между повторами LOAD: ресиверу нужно время закрыть прошлую сессию.
-    LOAD_PAUSE = 5.0
+    LOAD_PAUSE = 3.0
+    #: Столько терпим молчаливый IDLE после LOAD, прежде чем считать, что его не взяли.
+    #: ⚠️ Это не противоречит «IDLE до первого показа — это загрузка»: живой Q70D отвечает
+    #: PLAYING за 0.7–1.5 с, а 30 с молчания означают, что грузить он не начинал.
+    STUCK_SECONDS = 30.0
     #: app_id Default Media Receiver: чужой app = каст сняли пультом, показ окончен.
     MEDIA_APP = "CC1AD845"
     #: Неподвижный BUFFERING дольше этого — приёмник завис (см. :meth:`_nudge`).
@@ -148,6 +150,7 @@ class ChromecastReceiver:
         self._stall_since = 0.0
         self._stall_hits = 0
         self._reloads = 0
+        self._started = False
 
     def play(self, url: str, title: str = "") -> None:
         """Начать показ и **дождаться картинки**, а не просто отправить LOAD.
@@ -157,10 +160,18 @@ class ChromecastReceiver:
 
         Зовётся не только в начале: после перепаковки потока (перемотка назад глубже окна,
         возврат с паузы) поток начинается заново — и счётчики сторожа тоже.
+
+        ⚠️ Второй и следующий LOAD за показ идут только в **свежее приложение** приёмника.
+        Замерено 05-08-2026 дважды: приёмник, поймавший 404 на перемотке назад, встаёт в
+        IDLE и на любой следующий LOAD в то же приложение отвечает молчанием (90 с и смерть
+        показа), а `quit_app` + LOAD поднимает картинку за те же 6 с, что и холодный старт.
         """
         self._url, self._title = url, title or "torrcast"
         self._peak, self._reloads, self._stall_hits = 0.0, 0, 0
         self._stall_at, self._stall_since = -1.0, 0.0
+        if self._started:
+            self._restart_app()
+        self._started = True
         self._load()
         if self._settle():
             return
@@ -197,8 +208,7 @@ class ChromecastReceiver:
         self._reloads += 1
         print(f"приёмник отвалился на {self._peak:.0f} с — повтор LOAD", flush=True)
         try:
-            if self._reloads > 1:  # первый повтор не взяли — приёмник залип
-                self._restart_app()
+            self._restart_app()  # чистое приложение: залипший молчит на любой LOAD
             self._load(self._peak)
         except Exception:  # приёмник мог просто уйти — решает следующий тик
             return False
@@ -250,15 +260,16 @@ class ChromecastReceiver:
         ``IDLE`` без причины — это «ещё грузится», его терпим до :data:`START_TIMEOUT`.
         А вот причина говорит, что LOAD не взяли, и ждать бессмысленно:
 
-        * ``ERROR`` — ресивер не смог начать (рецепт kinocast, ровно 2 попытки);
-        * ``INTERRUPTED`` — LOAD перебили чужой командой на этот же ресивер. Замерено
-          05-08-2026: при перепаковке после перемотки за окно приёмник простоял так все
-          90 с и показ погиб, хотя сегменты лежали на месте.
+        * ``ERROR`` — ресивер не смог начать (рецепт kinocast: ровно 2 попытки);
+        * ``IDLE`` дольше :data:`STUCK_SECONDS` — LOAD не взяли молча. Такое поймано
+          05-08-2026 после перепаковки: приёмник стоял в IDLE все 90 с при живых сегментах.
 
-        Повторяем не чаще :data:`LOAD_PAUSE` — иначе две попытки сгорают за две секунды.
-        Вторая попытка идёт уже в **чистое приложение**: залипший Default Media Receiver
-        отвечает ``IDLE/ERROR`` на любой следующий LOAD, сколько его ни повторяй (замерено
-        05-08-2026: шесть LOAD подряд из трёх разных запусков), а `quit_app` лечит сразу.
+        ⚠️ ``INTERRUPTED`` поводом для повтора НЕ является: так ресивер отчитывается о
+        КОНЦЕ ПРЕЖНЕЙ сессии, которую оборвал наш же новый LOAD. Повтор на него сбивает
+        только что принятый LOAD — проверено живьём, показ на этом и умер.
+
+        Любая повторная попытка идёт в чистое приложение: залипший Default Media Receiver
+        молчит на все LOAD подряд, а `quit_app` лечит сразу.
         """
         deadline = time.monotonic() + self.START_TIMEOUT
         tried = time.monotonic()
@@ -267,14 +278,15 @@ class ChromecastReceiver:
             status = self._status()
             if status.player_state in ("PLAYING", "BUFFERING"):
                 return True
-            if status.idle_reason in _LOAD_AGAIN and time.monotonic() - tried >= self.LOAD_PAUSE:
+            waited = time.monotonic() - tried
+            refused = status.idle_reason == "ERROR" and waited >= self.LOAD_PAUSE
+            if refused or waited >= self.STUCK_SECONDS:
                 if self._reloads >= self.LOAD_RETRIES:
                     return False
                 self._reloads += 1
                 tried = time.monotonic()
-                print(f"приёмник ответил {status.idle_reason} — повтор LOAD", flush=True)
-                if self._reloads > 1:
-                    self._restart_app()
+                print(f"LOAD не взяли ({self._why()}) — гружу заново", flush=True)
+                self._restart_app()
                 self._load()
         return False
 
