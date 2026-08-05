@@ -291,10 +291,22 @@ class ChromecastReceiver:
         return False
 
     def _restart_app(self) -> None:
-        """Закрыть приложение приёмника, чтобы следующий LOAD пришёл в чистое."""
-        print("приёмник залип — закрываю приложение и гружу заново", flush=True)
-        with contextlib.suppress(Exception):
-            self._device().quit_app()
+        """Закрыть приложение приёмника **и своё соединение** — следующий LOAD уходит в
+        чистое с обеих сторон.
+
+        ⚠️ Одного `quit_app` мало, замерено 05-08-2026 трижды подряд: приложение честно
+        закрывается (``app_id`` становится ``None``), следующий LOAD по ТОМУ ЖЕ сокету
+        поднимает его обратно — и показ не начинается, приёмник стоит в IDLE до самой
+        смерти юнита. При этом новый процесс с новым соединением на том же ТВ поднимает
+        картинку за 3 с. Значит, чинить надо не только приёмник, но и свою сессию.
+        """
+        print("приёмник залип — закрываю приложение и соединение, гружу заново", flush=True)
+        if self._cast is not None:
+            with contextlib.suppress(Exception):
+                self._cast.quit_app()
+            with contextlib.suppress(Exception):
+                self._cast.disconnect()
+        self._cast = None  # следующий _device() поднимет соединение заново
         time.sleep(self.LOAD_PAUSE)
 
     def _status(self) -> Any:
