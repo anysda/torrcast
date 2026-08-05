@@ -181,6 +181,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         return EXIT_INFRA
     except KeyboardInterrupt:
         return EXIT_INFRA
+    except BrokenPipeError:  # `cast status | head` — не повод показывать трейсбек (§6)
+        with contextlib.suppress(OSError):
+            sys.stdout.close()
+        return EXIT_OK
 
 
 def _cmd_configure(args: Args) -> int:
