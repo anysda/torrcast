@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 from pathlib import Path
+import io
+from threading import Lock
 from typing import Any, cast
 
 import pytest
 
-from torrcast import NotFoundError, cli
+from torrcast import InfraError, NotFoundError, cli
+from torrcast.console import Progress
 from torrcast.cli import TABLE_LIMIT, is_candidate, is_disc, rank_releases, render_table, warned
 from torrcast.parse import Release
 from torrcast.state import load_config
@@ -39,14 +42,14 @@ def rel(
 
 
 def test_hevc_is_marked_and_h264_is_not() -> None:
-    assert warned(rel(codec="HEVC", size_gb=4), RUNTIME, 20.0) == "⚠"
+    assert warned(rel(codec="HEVC", size_gb=4), RUNTIME, 20.0) == "не берём"
     assert warned(rel(codec="H.264", size_gb=4), RUNTIME, 20.0) == ""
 
 
 def test_fat_bitrate_is_marked_even_for_h264() -> None:
     """~28 ГБ на два часа — это 33 Мбит/с, потолок декодера Q70D ~20 (§3)."""
-    assert warned(rel(size_gb=28), RUNTIME, 20.0) == "⚠"
-    assert warned(rel(codec="HEVC", size_gb=28), RUNTIME, 20.0) == "⚠⚠"
+    assert warned(rel(size_gb=28), RUNTIME, 20.0) == "тяжёлый"
+    assert warned(rel(codec="HEVC", size_gb=28), RUNTIME, 20.0) == "не берём, тяжёлый"
 
 
 def test_default_is_the_most_seeded_candidate() -> None:
@@ -80,14 +83,14 @@ def test_seeded_dvdrip_does_not_beat_a_live_1080p() -> None:
 
 
 def test_fat_release_stays_in_the_table_but_never_becomes_the_default() -> None:
-    """Больше ~20 Мбит/с ресивер не тянет: такой релиз в таблице есть, но с ⚠ и не дефолтом."""
+    """Больше ~20 Мбит/с ресивер не тянет: релиз в таблице есть, но помечен и не дефолт."""
     fat = rel(name="remux", size_gb=28, seeders=900)
     thin = rel(name="1080p", size_gb=8, seeders=30)
     assert not is_candidate(fat, RUNTIME, 20.0) and is_candidate(thin, RUNTIME, 20.0)
     ranked = rank_releases([fat, thin], RUNTIME, 20.0)
     assert ranked[0].raw_name == "1080p"
     assert "remux" in [r.raw_name for r in ranked]
-    assert warned(fat, RUNTIME, 20.0) == "⚠"
+    assert warned(fat, RUNTIME, 20.0) == "тяжёлый"
 
 
 def test_disc_images_never_become_the_default() -> None:
@@ -113,7 +116,7 @@ def test_table_has_all_columns_of_the_spec() -> None:
 
 def test_table_marks_hevc_row() -> None:
     text = render_table([rel(codec="HEVC", size_gb=28, seeders=45)], RUNTIME, 20.0)
-    assert text.splitlines()[2].endswith("HEVC ⚠⚠")
+    assert text.splitlines()[2].endswith("HEVC не берём, тяжёлый")
 
 
 def test_table_columns_line_up() -> None:
@@ -138,30 +141,26 @@ def test_missing_values_are_shown_as_dashes() -> None:
     assert "—" in row and "?" in row
 
 
-@pytest.mark.parametrize("size_gb,expected", [(4.0, ""), (28.0, "⚠")])
+@pytest.mark.parametrize("size_gb,expected", [(4.0, ""), (28.0, "тяжёлый")])
 def test_bitrate_threshold_is_configurable(size_gb: float, expected: str) -> None:
     assert warned(rel(size_gb=size_gb), RUNTIME, 20.0) == expected
 
 
-class _FakeWarm:
-    def __init__(self, torrent_hash: str) -> None:
-        self.torrent_hash = torrent_hash
-
-    def result(self, timeout: float = 30.0) -> str:
-        return self.torrent_hash
-
-
 class _FakeTorrServer:
-    """TorrServer ровно в том объёме, в каком его дёргает выбор релиза."""
+    """TorrServer ровно в том объёме, в каком его дёргает подготовка релиза."""
 
-    def __init__(self) -> None:
+    def __init__(self, files: list[TorrFile] | None = None, dead: set[str] | None = None) -> None:
         self.dropped: list[str] = []
+        self.files = files if files is not None else [TorrFile(0, "movie.mkv", 4 * GB)]
+        self.dead = dead or set()
 
-    def warm(self, magnet: str) -> _FakeWarm:
-        return _FakeWarm(f"hash-{magnet}")
+    def add(self, magnet: str) -> str:
+        return f"hash-{magnet}"
 
     def wait_files(self, torrent_hash: str, timeout: float = 60.0) -> list[TorrFile]:
-        return [TorrFile(0, "movie.mkv", 4 * GB)]
+        if torrent_hash in self.dead:  # раздача с мёртвым роем: пиров нет и не будет
+            raise InfraError(f"раздача не отдала метаданные за {timeout:.0f} с — нет пиров")
+        return self.files
 
     def stream_url(self, torrent_hash: str, index: int) -> str:
         return f"http://ts/{torrent_hash}/{index}"
@@ -171,9 +170,28 @@ class _FakeTorrServer:
 
 
 def _probes(monkeypatch: pytest.MonkeyPatch, *codecs: str) -> None:
-    """Подсунуть ffprobe: по кодеку на попытку."""
+    """Подсунуть ffprobe: по кодеку на попытку. Порядок попыток у нас детерминирован."""
     queue = list(codecs)
-    monkeypatch.setattr(cli, "probe", lambda url, timeout=90.0: Media(3600.0, (), queue.pop(0)))
+    lock = Lock()
+
+    def read(url: str, timeout: float = 90.0) -> Media:
+        with lock:
+            return Media(3600.0, (), queue.pop(0) if queue else "h264")
+
+    monkeypatch.setattr(cli, "probe", read)
+
+
+def _plan(ranked: list[Release]) -> Any:
+    from torrcast.parse import Picture
+
+    picture = Picture(title="Кино", year=1999, releases=ranked)
+    return cli._Plan(picture=picture, ranked=ranked, runtime=RUNTIME, warn_mbit=20.0)
+
+
+def _resolve(bench: Any, ranked: list[Release], **flags: Any) -> Any:
+    args = cli.Args(query=["кино"], **flags)
+    with Progress(out=io.StringIO()) as progress:
+        return bench.resolve(_plan(ranked), args, progress)
 
 
 def test_a_release_that_turns_out_not_to_be_h264_is_swapped_out_loudly(
@@ -185,13 +203,33 @@ def test_a_release_that_turns_out_not_to_be_h264_is_swapped_out_loudly(
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
     _probes(monkeypatch, "hevc", "h264")
     torrserver = _FakeTorrServer()
-    number, video, media = cli._open_release(
-        cast(Any, torrserver), ranked, 1, RUNTIME, 20.0, cli._Clock()
-    )
-    assert (number, media.video) == (2, "h264")
-    assert video.name == "movie.mkv"
-    assert "релиз №1 оказался hevc — беру №2" in capsys.readouterr().out
+    prep = _resolve(cli._Bench(cast(Any, torrserver)), ranked)
+
+    assert (prep.number, prep.found.video) == (2, "h264")
+    assert prep.want.name == "movie.mkv"
+    assert "релиз №1 не годится (hevc) — беру №2" in capsys.readouterr().out
     assert torrserver.dropped, "неподошедшая раздача из TorrServer убирается"
+
+
+def test_a_dead_swarm_is_not_a_hang_but_the_next_release(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Дефект №1 владельца (§1 SPEC-v2): «Дорожки: читаю поток…» и тишина навсегда.
+
+    Раздача с мёртвым роем обязана стоить одной строки и перехода к следующему релизу,
+    а не молчаливого зависания без прогресса и без таймаута.
+    """
+    ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
+    _probes(monkeypatch, "h264")
+    torrserver = _FakeTorrServer(dead={"hash-magnet-r0"})
+    monkeypatch.setattr(cli.Release, "magnet", property(lambda self: f"magnet-{self.raw_name}"))
+
+    prep = _resolve(cli._Bench(cast(Any, torrserver)), ranked)
+
+    printed = capsys.readouterr().out
+    assert prep.number == 2, "мёртвая раздача не останавливает показ"
+    assert "релиз №1 не годится (раздача не отдала метаданные" in printed
+    assert "беру №2" in printed
 
 
 def test_an_explicitly_named_release_is_played_as_asked_with_a_loud_warning(
@@ -204,13 +242,11 @@ def test_an_explicitly_named_release_is_played_as_asked_with_a_loud_warning(
     _probes(monkeypatch, "hevc")
     torrserver = _FakeTorrServer()
 
-    number, _video, media = cli._open_release(
-        cast(Any, torrserver), ranked, 1, RUNTIME, 20.0, cli._Clock(), pinned=True
-    )
+    prep = _resolve(cli._Bench(cast(Any, torrserver)), ranked, release=1)
 
     printed = capsys.readouterr().out
-    assert (number, media.video) == (1, "hevc"), "названный релиз не подменяется"
-    assert "⚠ видео hevc" in printed and "беру №" not in printed
+    assert (prep.number, prep.found.video) == (1, "hevc"), "названный релиз не подменяется"
+    assert "внимание: видео hevc" in printed and "беру №" not in printed
     assert not torrserver.dropped, "раздача остаётся: её и просили"
 
 
@@ -221,8 +257,8 @@ def test_three_failed_probes_end_with_an_honest_exit(
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(5)]
     _probes(monkeypatch, "hevc", "av1", "vc1")
     with pytest.raises(NotFoundError) as caught:
-        cli._open_release(cast(Any, _FakeTorrServer()), ranked, 1, RUNTIME, 20.0, cli._Clock())
-    assert "H.264 не нашёлся" in str(caught.value)
+        _resolve(cli._Bench(cast(Any, _FakeTorrServer())), ranked)
+    assert "годного релиза нет" in str(caught.value)
     assert "№1 — hevc" in str(caught.value) and "№3 — vc1" in str(caught.value)
     assert capsys.readouterr().out.count("беру №") == 2  # не больше MAX_TRIES попыток
 

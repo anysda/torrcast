@@ -188,6 +188,13 @@ _TECH_TOKEN_RE: Final = re.compile(
 #: Доля от медианного размера, ниже которой файл раздачи серией не считается.
 _SMALL_RATIO: Final = 0.35
 
+#: Токены кодека: цифры в них к сериям отношения не имеют. Вырезаются только в разборе
+#: сериальности (:func:`_parse_series`) — сам кодек читается отдельно и раньше.
+_CODEC_TOKEN_RE: Final = re.compile(
+    r"\b[xх]\s?26[456]\b|\bh\.?\s?26[456]\b|\bavc\b|\bhevc\b|\bav1\b|\bvp9\b|\bdiv[x]\b",
+    re.IGNORECASE,
+)
+
 #: Сериальность без номера сезона: «12 из 24», «E12 of 12», «[ТВ-2]».
 #: Голое ``episode``/``tv`` сюда не годится — «Star Wars Episode I» это фильм.
 _SERIES_HINT_RE: Final = re.compile(
@@ -623,7 +630,7 @@ def pick_franchise(query: str, pictures: list[Picture]) -> list[Picture]:
     if key is None:
         return []
 
-    items = groups[key]
+    items = _both_languages(groups, aliases, key)
     if index is None:
         return items
     # Явный номер части сильнее позиции: «тачки 2» → «Тачки 2», а не спин-офф.
@@ -631,6 +638,26 @@ def pick_franchise(query: str, pictures: list[Picture]) -> list[Picture]:
     if explicit:
         return [max(explicit, key=lambda p: len(p.releases))]
     return [items[index - 1]] if 1 <= index <= len(items) else []
+
+
+def _both_languages(
+    groups: dict[str, list[Picture]], aliases: dict[str, str], key: str
+) -> list[Picture]:
+    """Франшиза целиком, когда её половина названа по-русски, а половина — латиницей.
+
+    «Моана» на Knaben живёт двумя кучками: первая часть подписана только ``Moana``,
+    вторая — ``Моана 2 / Moana 2``. Ключи франшиз у них разные (``moana`` и ``моана``),
+    и запрос ``cast moana`` показывал бы только первую часть, а ``cast моана`` — только
+    вторую. Псевдоним по оригинальному названию у нас уже посчитан — этого хватает,
+    чтобы показать человеку всю франшизу, не трогая саму кластеризацию (§8 SPEC-v2).
+    """
+    items = list(groups[key])
+    twin = aliases.get(key)
+    if twin and twin != key:
+        seen = {id(p) for p in items}
+        items += [p for p in groups.get(twin, []) if id(p) not in seen]
+        items.sort(key=lambda p: (p.year is None, p.year or 0, p.part or 99, -len(p.releases)))
+    return items
 
 
 def _normalize(name: str) -> str:
@@ -714,7 +741,15 @@ def _parse_voices(text: str) -> tuple[str, ...]:
 
 
 def _parse_series(text: str) -> tuple[int | None, int | None, tuple[int, ...], bool]:
-    """Сезон, серия, сезоны пака и признак сериальности."""
+    """Сезон, серия, сезоны пака и признак сериальности.
+
+    ⚠️ Перед разбором из имени вырезаются токены кодека (:data:`_CODEC_TOKEN_RE`). Иначе
+    ``x264`` рядом с любой цифрой читается как ``NxM``: «Moana 2 2024 … DDP5 1 x264» —
+    это «5.1» плюс кодек, а разбор видел «1 x264» и объявлял полнометражку сериалом
+    s1e264 (дефект владельца 05-08-2026, §1 SPEC-v2). Кодек о сериях не говорит ничего,
+    поэтому вырезать его здесь безопасно — а весь остальной парсер остаётся как был (§8).
+    """
+    text = _CODEC_TOKEN_RE.sub(" ", text)
     seasons = _season_span(text)
     if seasons:
         return seasons[0], None, seasons, True

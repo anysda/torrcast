@@ -44,11 +44,14 @@ __all__ = [
     "Warmup",
     "bitrate_mbit",
     "ffmpeg_hls_command",
+    "forget_playing",
     "hls_base",
     "hls_dir",
+    "mark_playing",
     "our_address",
     "parse_manifest",
     "pick_video_file",
+    "playing_flag",
     "probe",
     "segment_name",
     "segment_slot",
@@ -68,6 +71,10 @@ HLS_SEGMENT_SECONDS: Final = 4
 #: фильм (:func:`vod_manifest`), а этот нужен только ffmpeg'у как выходной файл.
 PACK_PLAYLIST: Final = "pack.m3u8"
 _SEGMENT_RE: Final = re.compile(r"v(\d+)\.ts")
+#: Флажок «на экране картинка»: его кладёт показ, когда приёмник впервые ответил
+#: ``PLAYING``, и ждёт CLI. Спросить приёмник из CLI нельзя — сендер к нему ровно один
+#: (:mod:`torrcast.cast`), поэтому доказательство картинки передаётся файлом (§4 SPEC-v2).
+PLAYING_FLAG: Final = "playing.flag"
 #: Аудио всегда перекодируется: passthrough AC3/DTS запрещён (§3).
 AUDIO_CODEC: Final = "aac"
 AUDIO_BITRATE: Final = "192k"
@@ -156,7 +163,7 @@ class Media:
         """Пустая строка, если ресиверу это точно по зубам (§9: HEVC и экзотика)."""
         if self.video in (None, "h264"):
             return ""
-        return f"⚠ видео {self.video}: ресивер может не взять — мы его не перекодируем"
+        return f"внимание: видео {self.video} — ресивер может не взять, а мы не перекодируем"
 
     def default_track(self) -> int:
         """Дефолт меню озвучек — первая русская, иначе первая (§2.1)."""
@@ -443,7 +450,25 @@ def hls_dir(path: str) -> Path:
     directory.mkdir(parents=True, exist_ok=True)
     for junk in (*directory.glob("v*.ts"), *directory.glob("*.m3u8")):
         junk.unlink(missing_ok=True)
+    forget_playing(directory)  # флажок прошлого показа картинку нового не доказывает
     return directory
+
+
+def playing_flag(out: Path) -> Path:
+    """Путь флажка «картинка на экране» (:data:`PLAYING_FLAG`)."""
+    return out / PLAYING_FLAG
+
+
+def mark_playing(out: Path) -> None:
+    """Показ увидел ``PLAYING``: с этой секунды на экране есть изображение (§4 SPEC-v2)."""
+    with contextlib.suppress(OSError):
+        playing_flag(out).touch()
+
+
+def forget_playing(out: Path) -> None:
+    """Убрать флажок: следующий показ обязан доказать картинку заново."""
+    with contextlib.suppress(OSError):
+        playing_flag(out).unlink(missing_ok=True)
 
 
 @dataclass(slots=True)

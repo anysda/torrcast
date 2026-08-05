@@ -101,14 +101,14 @@ def test_resume_asks_once_and_starts_from_the_saved_position(
         return ""
 
     monkeypatch.setattr(cli, "start_play_unit", lambda key: started.append(key))
-    monkeypatch.setattr(cli, "_await_playing", lambda config, timeout=120.0: None)
+    monkeypatch.setattr(cli, "_await_playing", lambda config, progress, timeout=120.0: None)
     monkeypatch.setattr("builtins.input", ask)
 
     assert cli.main(["моана", "2"]) == 0
 
     printed = capsys.readouterr().out
     assert asked == ["«Моана 2» остановились на 0:41:07. Продолжить? [Да/сначала]: "]
-    assert "→ ТВ" in printed
+    assert "— на ТВ" in printed
     assert "ищу" not in printed, "resume не ходит в Prowlarr (§3.1)"
     assert started == [KEY]
     assert saved().pos == 2467.0 and saved().audio == 1
@@ -120,7 +120,7 @@ def test_resume_from_the_beginning_keeps_the_release_but_drops_the_position(
     """«сначала» — та же раздача и дорожка, позиция ноль (§2.3)."""
     remember(pos=2467.0, dur=5978.0, audio=1)
     monkeypatch.setattr(cli, "start_play_unit", lambda key: None)
-    monkeypatch.setattr(cli, "_await_playing", lambda config, timeout=120.0: None)
+    monkeypatch.setattr(cli, "_await_playing", lambda config, progress, timeout=120.0: None)
     monkeypatch.setattr("builtins.input", lambda prompt="": "сначала")
 
     assert cli.main(["моана", "2"]) == 0
@@ -179,7 +179,7 @@ def test_status_shows_what_is_playing_and_from_where(
     assert cli.main(["status"]) == 0
 
     printed = capsys.readouterr().out
-    assert "▶ «Моана 2» — 0:41:07 / 1:39:38" in printed
+    assert "играю «Моана 2» — 0:41:07 / 1:39:38" in printed
     assert KEY in printed and "файл #2" in printed and "дорожка 2" in printed
 
 

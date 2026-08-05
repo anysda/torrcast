@@ -58,7 +58,7 @@ def test_mock_decodes_the_whole_stream_without_gaps(
     config.transport = transport  # type: ignore[assignment]
     assert _play(config, clip, 0, "тест", _Clock(), duration=float(CLIP_SECONDS)) == 0
     printed = capsys.readouterr().out
-    assert "→ ТВ" in printed
+    assert "— на ТВ" in printed
     assert "разрывов 0" in printed and "без CORS 0" in printed
     decoded = float(printed.split("декодировано ")[1].split(" ")[0])
     # Допуск ровно в один сегмент: если ENDLIST попадает в ту же перезагрузку плейлиста,

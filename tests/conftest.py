@@ -6,7 +6,21 @@ import subprocess
 
 import pytest
 
+from torrcast import console
+
 CLIP_SECONDS = 20
+
+
+@pytest.fixture(autouse=True)
+def _pretend_tty(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Под pytest терминала нет, а вопросы проверять надо (§3 SPEC-v2).
+
+    Без терминала ``ask_line`` штатно берёт дефолт и не спрашивает — это отдельное
+    требование, и у него есть свои тесты. Всем остальным нужен «как у владельца» pty,
+    поэтому по умолчанию притворяемся терминалом, а ``builtins.input`` тесты подменяют
+    сами.
+    """
+    monkeypatch.setattr(console, "stdin_is_tty", lambda: True)
 
 
 @pytest.fixture(scope="session")

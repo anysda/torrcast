@@ -1,9 +1,13 @@
 """CLI — единственный наш процесс (§3 ТЗ).
 
-Контракт (§5): ``cast <запрос> [sNeM] [--new] [--release N] [--audio N] [--dry]``,
-``cast stop``, ``cast status``, ``cast --tv <ip>``. Коды выхода: ``0`` ок ·
-``1`` не нашли · ``2`` инфра-ошибка; наружу — короткие русские строки без
-трейсбеков (§6).
+Контракт (§5 v1 + §2 SPEC-v2): ``cast <запрос> [sNeM] [--new] [--dry]``, отладочные
+ручки ``--release N`` / ``--file N`` / ``cast releases <запрос>``, а также ``cast stop``,
+``cast status``, ``cast doctor``, ``cast --tv <ip>``. Коды выхода: ``0`` ок · ``1`` не
+нашли · ``2`` инфра-ошибка; наружу — короткие русские строки без трейсбеков (§6).
+
+Счастливый путь §2 SPEC-v2 — два вопроса и ни одного упоминания файлов: «какой фильм
+франшизы?» и «какая озвучка?», оба пропускаются при единственном варианте. Релиз
+выбирается сам, а таблица релизов и список файлов уезжают в отладочные ручки.
 """
 
 from __future__ import annotations
@@ -14,6 +18,7 @@ import io
 import re
 import signal
 import sys
+import threading
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
@@ -21,7 +26,9 @@ from pathlib import Path
 
 from torrcast import InfraError, NotFoundError, TorrcastError, __version__
 from torrcast.cast import Receiver, make_receiver
+from torrcast.console import Progress, ask, ask_line, terminal
 from torrcast.parse import (
+    VIDEO_EXT,
     Episode,
     EpisodeFile,
     Picture,
@@ -40,8 +47,11 @@ from torrcast.stream import (
     TorrFile,
     TorrServer,
     bitrate_mbit,
+    forget_playing,
     hls_base,
+    mark_playing,
     pick_video_file,
+    playing_flag,
     probe,
     start_play_unit,
     stop_play_unit,
@@ -57,6 +67,14 @@ EXIT_OK, EXIT_NOT_FOUND, EXIT_INFRA = 0, 1, 2
 TABLE_LIMIT = 12
 #: Сколько релизов подряд проверяем ffprobe, прежде чем сдаться (§1: подмены не молчат).
 MAX_TRIES = 3
+#: Сколько картин франшизы греем под меню: топ-2–3 релиза уходят в TorrServer фоном,
+#: пока человек отвечает на вопросы (§4 SPEC-v2).
+PREWARM = 3
+#: Бюджет одной раздачи на метаданные по DHT, секунды. Не уложилась — не «зависли
+#: насмерть», а честная строка и следующий релиз (дефект №1 владельца, §1 SPEC-v2).
+META_BUDGET = 30.0
+#: Бюджет на чтение дорожек (ffprobe) той же раздачи, секунды.
+PROBE_BUDGET = 40.0
 #: Как часто сторож кладёт позицию в state, секунды (§3).
 WATCH_SECONDS = 10.0
 #: Как часто показ пишет в журнал, что видит приёмник (§2.1 SPEC-v2): позиция и общее
@@ -79,6 +97,7 @@ class Args:
     query: list[str]
     tv: str | None = None
     release: int | None = None
+    file: int | None = None
     audio: int | None = None
     new: bool = False
     dry: bool = False
@@ -87,10 +106,12 @@ class Args:
 
     @property
     def command(self) -> str:
-        """``stop`` / ``status`` / ``play`` / ``configure`` / ``worker``."""
+        """``stop`` / ``status`` / ``doctor`` / ``releases`` / ``play`` / ``configure`` /
+        ``worker``.
+        """
         if self.play_key:
             return "worker"
-        if self.query and self.query[0] in {"stop", "status"}:
+        if self.query and self.query[0] in {"stop", "status", "doctor", "releases"}:
             return self.query[0]
         if not self.query:
             return "configure" if self.tv else "status"
@@ -106,6 +127,11 @@ class Args:
         """Запрос без указания серии: искать надо «киберпанк», а не «киберпанк 2x5»."""
         return split_episode(" ".join(self.query))[0]
 
+    @property
+    def pinned(self) -> bool:
+        """Релиз или файл названы руками — отладочный путь, подмен в нём не бывает."""
+        return self.release is not None or self.file is not None
+
 
 def parse_args(argv: Sequence[str] | None = None) -> Args:
     """Разобрать argv по контракту §5."""
@@ -113,7 +139,8 @@ def parse_args(argv: Sequence[str] | None = None) -> Args:
     parser = argparse.ArgumentParser(prog="cast", description=about, allow_abbrev=False)
     parser.add_argument("query", nargs="*", help="название, либо stop / status")
     parser.add_argument("--tv", metavar="IP", help="разовая настройка адреса ТВ (или mock)")
-    parser.add_argument("--release", type=int, metavar="N", help="взять релиз N без меню")
+    parser.add_argument("--release", type=int, metavar="N", help="отладка: взять релиз N")
+    parser.add_argument("--file", type=int, metavar="N", help="отладка: взять файл N раздачи")
     parser.add_argument("--audio", type=int, metavar="N", help="взять дорожку N без меню")
     parser.add_argument("--new", action="store_true", help="забыть прогресс и выбрать заново")
     parser.add_argument("--dry", action="store_true", help="весь резолв без каста")
@@ -130,15 +157,22 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         args = parse_args(argv)
         command = args.command
-        if command == "configure":
-            return _cmd_configure(args)
-        if command == "stop":
-            return _cmd_stop()
-        if command == "status":
-            return _cmd_status()
-        if command == "worker":
-            return _cmd_worker(str(args.play_key))
-        return _cmd_play(args)
+        # IUTF8 на stdin включаем на всё время команды и возвращаем режим как было (§3
+        # SPEC-v2): без него ssh-сессия владельца ломает кириллицу в вопросах.
+        with terminal():
+            if command == "configure":
+                return _cmd_configure(args)
+            if command == "stop":
+                return _cmd_stop()
+            if command == "status":
+                return _cmd_status()
+            if command == "doctor":
+                return _cmd_doctor()
+            if command == "releases":
+                return _cmd_releases(args)
+            if command == "worker":
+                return _cmd_worker(str(args.play_key))
+            return _cmd_play(args)
     except NotFoundError as exc:
         print(str(exc), file=sys.stderr)
         return EXIT_NOT_FOUND
@@ -202,15 +236,54 @@ def _cmd_status() -> int:
         return EXIT_OK
     key, entry = found
     what = f"«{entry.title}»" + (f" {entry.label}" if entry.label else "")
-    print(f"▶ {what} — {_hms(entry.pos)} / {_hms(entry.dur)}")
+    print(f"играю {what} — {_hms(entry.pos)} / {_hms(entry.dur)}")
     where = "адрес раздачи не определён"
     with contextlib.suppress(TorrcastError):  # адреса нет — статус показа это не отменяет
         where = hls_base(config)
     print(
         f"   {key} · файл #{entry.file_idx} · дорожка {entry.audio + 1} · "
-        f"{where} → {config.receiver}"
+        f"раздача {where}, приёмник {config.receiver}"
     )
     return EXIT_OK
+
+
+def _cmd_releases(args: Args) -> int:
+    """``cast releases <запрос>`` — отладочная ручка §2 SPEC-v2: старая таблица и выход.
+
+    На счастливом пути таблицы нет вовсе: релиз выбирается сам. Но посмотреть, из чего
+    он выбирал, иногда надо — и тогда рядом лежит ``cast <запрос> --release N``.
+    """
+    config = load_config()
+    inner = Args(query=list(args.query[1:]))
+    if not inner.query:
+        raise NotFoundError("что искать? cast releases <запрос>")
+    with Progress() as progress:
+        plans = _search(config, inner, progress)
+    for plan in plans:
+        print()
+        print(f"{_named(plan.picture)} — раздач {len(plan.ranked)}")
+        print(render_table(plan.ranked, plan.runtime, plan.warn_mbit))
+    print()
+    print("играть конкретный: cast <запрос> --release N [--file N]")
+    return EXIT_OK
+
+
+def _cmd_doctor() -> int:
+    """``cast doctor`` — самопроверка окружения по-русски (§3 SPEC-v2).
+
+    Один вызов отвечает на все вопросы, которые иначе задаются владельцу: терминал и
+    локаль (кириллица в вопросах), Prowlarr и TorrServer (есть чем искать и чем
+    раздавать), адрес ТВ и его порт 8009 (есть кому играть), ffmpeg с ``readrate``.
+    """
+    from torrcast.doctor import checkup
+
+    bad = 0
+    for line, ok in checkup(load_config()):
+        print(line)
+        bad += 0 if ok else 1
+    print()
+    print("всё в порядке" if not bad else f"проблем: {bad} — смотри строки «плохо» выше")
+    return EXIT_OK if not bad else EXIT_INFRA
 
 
 def _cmd_worker(key: str) -> int:
@@ -324,10 +397,12 @@ class _Clock:
 
 
 def _cmd_play(args: Args) -> int:
-    """Основной сценарий §2.1: запрос → франшиза → релиз → дорожка → каст."""
-    from torrcast.parse import cluster, pick_franchise
-    from torrcast.stream import RUNTIME_GUESS
+    """Счастливый путь §2 SPEC-v2: запрос → «какой фильм?» → «какая озвучка?» → показ.
 
+    Релиз и файл выбираются сами, таблиц и списков файлов на этом пути нет. Пока человек
+    отвечает на вопрос про франшизу, топ-3 кандидата уже греются в TorrServer и читаются
+    ffprobe (§4): к моменту ответа критический путь чаще всего пуст.
+    """
     clock = _Clock()
     config = load_config()
     state = State.load()
@@ -340,71 +415,37 @@ def _cmd_play(args: Args) -> int:
         if code is not None:
             return code
 
-    if not config.prowlarr_apikey:  # без Prowlarr искать нечем — это инфра-ошибка
-        raise InfraError("не настроен Prowlarr: apikey пуст, перезапусти ./install.sh")
+    with Progress() as progress:
+        plans = _search(config, args, progress)
+        torrserver = TorrServer(config.torrserver_url)
+        bench = _Bench(torrserver, choose=_file_picker(args))
+        # Прогрев под меню (§4 SPEC-v2): пока идёт вопрос, раздачи уже качают метаданные.
+        for plan in plans[:PREWARM]:
+            bench.start(plan, plan.first)
+        plan = _pick_plan(plans)
+        prep = bench.resolve(plan, args, progress)
 
-    query = args.title_query
-    name, _ = split_franchise_index(query)
-    print(f"«{name}» — ищу…")
-    prowlarr = Prowlarr(config.prowlarr_url, config.prowlarr_apikey)
-    raw = prowlarr.search(name)
-    releases = to_releases(raw)
-    pictures = cluster(releases)
-    if not pictures:
-        raise NotFoundError(f"по запросу «{name}» ничего не разобралось")
-    # Номер в запросе — позиция во франшизе, а не в общей выдаче (§2.2).
-    found = pick_franchise(query, pictures)
-    if not found:
-        raise NotFoundError(f"«{query}» — такой картины во франшизе нет")
-    print(
-        f"найдено раздач: {len(raw)} → картин: {len(pictures)}, "
-        f"во франшизе: {len(found)} (поиск {clock.lap()})"
-    )
-
-    picture = _pick_picture(found)
-    # Сериалу выбор релиза и дорожки делается один раз на раздачу (§2.4); цель по
-    # умолчанию — s1e1, явное указание `cast киберпанк s2e5` меняет и цель, и отбор.
-    series = _Series(want=args.episode or Episode(1, 1)) if picture.kind == "tv" else None
-    runtime = RUNTIME_GUESS.get(picture.kind, 7200.0)
-    pool = picture.releases
-    if series is not None:
-        pool = [r for r in pool if r.covers(series.want.season)]
-        if not pool:
-            raise NotFoundError(f"«{picture.title}»: раздач с сезоном {series.want.season} нет")
-    ranked = rank_releases(pool, runtime, config.bitrate_warn_mbit)
-
-    print()
-    print(render_table(ranked, runtime, config.bitrate_warn_mbit))
-    number = _ask_release(ranked, args)
-
-    torrserver = TorrServer(config.torrserver_url)
-    number, video, media = _open_release(
-        torrserver, ranked, number, runtime, config.bitrate_warn_mbit, clock,
-        pinned=args.release is not None, choose=series.choose if series else _largest,
-    )  # fmt: skip
-    release = ranked[number - 1]
+    release, video, media = prep.release, prep.want, prep.found
     audio = _ask_audio(media, args)
-
-    # Настоящий битрейт: размер файла серии/фильма на его же длительность, а не оценка.
-    peak = bitrate_mbit(video.size, media.duration or runtime)
-    heavy = " ⚠" if peak > config.bitrate_warn_mbit else ""
     label = media.tracks[audio].label if audio < len(media.tracks) else "—"
-    what = f"«{picture.title}»" + (f" {series.want}" if series else f" ({picture.year or '?'})")
-    about = f"{what} · {release.quality or '?'} · {label}"
-    print()
-    if series is not None:
-        print(f"Серии: {series.summary()}")
-    print(
-        f"Файл: {video.base} · {_gb(video.size)} · {_hms(media.duration)} · "
-        f"{media.video or '?'} · ~{peak:.1f} Мбит/с{heavy}"
+    series = plan.series
+    what = f"«{plan.picture.title}»" + (
+        f" {series.want}" if series else f" ({plan.picture.year or '?'})"
     )
+    about = f"{what} · {release.quality or '?'} · {label}"
+    # Настоящий битрейт: размер файла серии/фильма на его же длительность, а не оценка.
+    peak = bitrate_mbit(video.size, media.duration or plan.runtime)
+    if peak > config.bitrate_warn_mbit:
+        print(f"внимание: ~{peak:.0f} Мбит/с — ресивер на таком битрейте может встать")
+    if args.pinned:  # отладочный путь: тут внутренности показывать и надо
+        print(f"файл: {video.base} · {_gb(video.size)} · {_hms(media.duration)} · {media.video}")
     if args.dry:
-        print(f"▶ (--dry) {about} — каста нет")
+        print(f"(--dry) {about} — каста нет")
         return EXIT_OK
     entry = Entry(
-        title=picture.title,
+        title=plan.picture.title,
         magnet=release.magnet,
-        kind="tv" if picture.kind == "tv" else "movie",
+        kind="tv" if plan.picture.kind == "tv" else "movie",
         file_idx=video.index,
         audio=audio,
         dur=media.duration,
@@ -413,7 +454,85 @@ def _cmd_play(args: Args) -> int:
         episode=series.want.episode if series else None,
         episodes=series.table if series else [],
     )
-    return _launch(config, picture.key, entry, about, clock)
+    return _launch(config, plan.picture.key, entry, about, clock)
+
+
+def _search(config: Config, args: Args, progress: Progress) -> list[_Plan]:
+    """Поиск и разбор выдачи: запрос → картины франшизы, каждая со своим пулом релизов."""
+    from torrcast.parse import cluster, pick_franchise
+
+    if not config.prowlarr_apikey:  # без Prowlarr искать нечем — это инфра-ошибка
+        raise InfraError("не настроен Prowlarr: apikey пуст, перезапусти ./install.sh")
+    query = args.title_query
+    name, _ = split_franchise_index(query)
+    progress.phase(f"поиск «{name}»")
+    raw = Prowlarr(config.prowlarr_url, config.prowlarr_apikey).search(name)
+    pictures = cluster(to_releases(raw))
+    if not pictures:
+        raise NotFoundError(f"по запросу «{name}» ничего не разобралось")
+    # Номер в запросе — позиция во франшизе, а не в общей выдаче (§2.2).
+    found = pick_franchise(query, pictures)
+    if not found:
+        raise NotFoundError(f"«{query}» — такой картины во франшизе нет")
+    progress.phase("")
+    plans = [plan for plan in (_plan_for(p, args, config) for p in found) if plan.ranked]
+    if not plans:  # картина есть, а раздач нужного сезона в ней нет (§2.4)
+        want = args.episode or Episode(1, 1)
+        raise NotFoundError(f"«{found[0].title}»: раздач с сезоном {want.season} нет")
+    return plans
+
+
+def _plan_for(picture: Picture, args: Args, config: Config) -> _Plan:
+    """План по одной картине: пул релизов в порядке отбора и цель для сериала (§2.4)."""
+    from torrcast.stream import RUNTIME_GUESS
+
+    series = _Series(want=args.episode or Episode(1, 1)) if picture.kind == "tv" else None
+    runtime = RUNTIME_GUESS.get(picture.kind, 7200.0)
+    pool = picture.releases
+    if series is not None:
+        pool = [r for r in pool if r.covers(series.want.season)]
+    ranked = rank_releases(pool, runtime, config.bitrate_warn_mbit)
+    return _Plan(
+        picture=picture,
+        ranked=ranked,
+        runtime=runtime,
+        warn_mbit=config.bitrate_warn_mbit,
+        series=series,
+    )
+
+
+@dataclass(slots=True)
+class _Plan:
+    """Что покажем по одной картине: пул релизов и, для сериала, нужная серия.
+
+    План строится на **все** картины франшизы ещё до вопроса — иначе прогрев под меню
+    невозможен: греть надо то, что человек, скорее всего, выберет (§4 SPEC-v2).
+    """
+
+    picture: Picture
+    ranked: list[Release]
+    runtime: float
+    warn_mbit: float
+    series: _Series | None = None
+
+    @property
+    def first(self) -> int:
+        """Номер релиза, который берём по умолчанию: он же верх :func:`rank_releases`."""
+        return 1
+
+    def candidates(self, args: Args) -> list[int]:
+        """Очередь релизов: сначала дефолт, потом годные запасные (§2 SPEC-v2)."""
+        if args.release is not None:
+            if not 1 <= args.release <= len(self.ranked):
+                raise NotFoundError(f"релизов {len(self.ranked)}, номера {args.release} нет")
+            return [args.release]
+        queue = [self.first]
+        queue += [
+            n
+            for n, r in enumerate(self.ranked, start=1)
+            if n != self.first and is_candidate(r, self.runtime, self.warn_mbit)
+        ]
+        return queue[:MAX_TRIES]
 
 
 @dataclass(slots=True)
@@ -452,11 +571,6 @@ class _Series:
         return f"{span}серий {len(self.files)}: {self.files[0].at}…{self.files[-1].at}"
 
 
-def _largest(_release: Release, files: list[TorrFile]) -> TorrFile:
-    """Выбор файла для фильма: самый крупный видеофайл раздачи."""
-    return pick_video_file(files)
-
-
 def _continue(config: Config, key: str, entry: Entry, args: Args, clock: _Clock) -> int | None:
     """Продолжение по сохранённому выбору (§2.3, §2.4). ``None`` — состоянием не обойтись,
     дальше идёт обычный путь с поиском и меню.
@@ -473,7 +587,7 @@ def _continue(config: Config, key: str, entry: Entry, args: Args, clock: _Clock)
         return _launch(config, key, jumped, _about(jumped), clock, args.dry)
     if entry.done:  # конец раздачи: сама собой следующая серия не появится
         print(f"«{entry.title}» — {entry.label} была последней в раздаче")
-        if _ask_line("Смотреть сначала? [Да/нет]")[:1] in {"н", "n"}:
+        if ask_line("Смотреть сначала? [Да/нет]")[:1] in {"н", "n"}:
             return EXIT_OK
         first = entry.episodes[0]
         entry = entry.jump(first[0], first[1]) or entry
@@ -488,57 +602,167 @@ def _about(entry: Entry) -> str:
     return " · ".join(filter(None, parts))
 
 
-def _open_release(
-    torrserver: TorrServer,
-    ranked: list[Release],
-    number: int,
-    runtime: float,
-    warn_mbit: float,
-    clock: _Clock,
-    pinned: bool = False,
-    choose: Callable[[Release, list[TorrFile]], TorrFile] = _largest,
-) -> tuple[int, TorrFile, Media]:
-    """Прогреть релиз, прочитать поток и убедиться, что видео действительно H.264.
+@dataclass(slots=True)
+class _Prep:
+    """Подготовка одного релиза целиком в фоне: раздача, файл, дорожки (§4 SPEC-v2).
 
-    Имя раздачи о кодеке чаще молчит, а видео мы отдаём ``copy`` — ресивер получит ровно
-    то, что лежит внутри. Оказалось не h264 — честная строка и следующий кандидат, не
-    больше :data:`MAX_TRIES` попыток (§1: молчаливых подмен не бывает).
+    Это и есть обещанный, но так и не написанный прогрев под меню. Фазы идут своим
+    ходом в отдельном потоке, а показ спрашивает только результат — поэтому 17 секунд
+    ffprobe на «Моане 2» уходят из критического пути в паузу между вопросами.
 
-    ``pinned`` — релиз назван явно (``--release N``): такой неприкосновенен. Кодек всё
-    равно проверяется, но вместо подмены выходит громкое предупреждение и показ идёт,
-    как просили — иначе флаг для скриптов ничего не гарантирует.
+    Каждая фаза имеет **бюджет**: не уложилась — это не «зависло насмерть» без единого
+    слова (дефект №1 владельца), а :attr:`error` и следующий релиз в очереди.
     """
-    others = enumerate(ranked, start=1)
-    queue = [number]
-    if not pinned:
-        queue += [n for n, r in others if n != number and is_candidate(r, runtime, warn_mbit)]
-    tried: list[str] = []
-    for attempt, current in enumerate(queue[:MAX_TRIES], start=1):
-        print()
-        print("Дорожки: читаю поток…" if attempt == 1 else f"релиз №{current}: читаю поток…")
-        # §3.1: magnet уходит в TorrServer и набирает пиров, пока читаются метаданные.
-        release = ranked[current - 1]
-        torrent_hash = torrserver.warm(release.magnet).result()
-        metadata = clock.lap()
-        # Фильму — самый крупный файл, сериалу — файл нужной серии (§2.4).
-        video = choose(release, torrserver.wait_files(torrent_hash))
-        source = torrserver.stream_url(torrent_hash, video.index)
-        media = probe(source)
-        if (media.video or "h264") == "h264" or pinned:
-            if warning := media.video_warning:  # явный релиз играем, но молча — не смеем
-                print(warning)
-            print(f"(метаданные {metadata}, ffprobe {clock.lap()})")
-            return current, video, media
-        tried.append(f"№{current} — {media.video}")
-        torrserver.drop(torrent_hash)
-        following = queue[attempt] if attempt < min(len(queue), MAX_TRIES) else None
-        if following is None:
-            break
-        print(f"релиз №{current} оказался {media.video} — беру №{following}")
-    raise NotFoundError(
-        f"H.264 не нашёлся ({'; '.join(tried)}): ресивер такое видео может не взять, "
-        "а перекодировать мы его не будем — выбери релиз руками: cast <запрос> --release N"
-    )
+
+    number: int
+    release: Release
+    torrent_hash: str = ""
+    video: TorrFile | None = None
+    media: Media | None = None
+    error: str = ""
+    phase: str = "очередь"
+    started: float = field(default_factory=time.monotonic)
+    meta: float = 0.0
+    read: float = 0.0
+    ready: threading.Event = field(default_factory=threading.Event)
+
+    @property
+    def want(self) -> TorrFile:
+        if self.video is None:
+            raise InfraError("файл раздачи не выбран")
+        return self.video
+
+    @property
+    def found(self) -> Media:
+        if self.media is None:
+            raise InfraError("поток не прочитан")
+        return self.media
+
+    @property
+    def timing(self) -> str:
+        return f"метаданные {self.meta:.1f} с, дорожки {self.read:.1f} с"
+
+
+class _Bench:
+    """Прогрев релизов: несколько раздач готовятся разом, показ берёт первую годную.
+
+    Держит по потоку на релиз и умеет ждать нужный с живым прогрессом. Любая осечка
+    (нет пиров, не читается поток, оказался HEVC) стоит одной строки и перехода к
+    следующему кандидату — молчаливых подмен и молчаливых зависаний не бывает (§1 v1,
+    §1 SPEC-v2).
+    """
+
+    def __init__(
+        self,
+        torrserver: TorrServer,
+        choose: Callable[[_Plan, Release, list[TorrFile]], TorrFile] | None = None,
+        meta_budget: float = META_BUDGET,
+        probe_budget: float = PROBE_BUDGET,
+    ) -> None:
+        self.torrserver = torrserver
+        self.choose = choose or _default_file
+        self.meta_budget = meta_budget
+        self.probe_budget = probe_budget
+        self.preps: dict[tuple[str, int], _Prep] = {}
+
+    def start(self, plan: _Plan, number: int) -> _Prep:
+        """Начать (или вернуть уже начатую) подготовку релиза ``number`` этого плана."""
+        key = (plan.picture.key, number)
+        found = self.preps.get(key)
+        if found is not None:
+            return found
+        prep = _Prep(number=number, release=plan.ranked[number - 1])
+        self.preps[key] = prep
+        threading.Thread(target=self._work, args=(plan, prep), daemon=True).start()
+        return prep
+
+    def resolve(self, plan: _Plan, args: Args, progress: Progress) -> _Prep:
+        """Годный релиз плана: ждём подготовку с прогрессом, негодный — следующий (§2)."""
+        queue = plan.candidates(args)
+        tried: list[str] = []
+        for attempt, number in enumerate(queue, start=1):
+            prep = self.start(plan, number)
+            following = queue[attempt] if attempt < len(queue) else None
+            if following is not None:  # запасной греется, пока ждём этот
+                self.start(plan, following)
+            self._wait(prep, progress)
+            trouble = self._trouble(prep, pinned=args.pinned)
+            if not trouble:
+                progress.phase("")
+                if warning := prep.found.video_warning:  # названный релиз играем, но не молча
+                    print(warning)
+                return prep
+            tried.append(f"№{number} — {trouble}")
+            self._forget(prep)
+            progress.phase("")
+            tail = f" — беру №{following}" if following else ""
+            print(f"релиз №{number} не годится ({trouble}){tail}")
+        raise NotFoundError(
+            f"годного релиза нет ({'; '.join(tried)}): выбери руками — "
+            "cast releases <запрос>, потом cast <запрос> --release N"
+        )
+
+    def _wait(self, prep: _Prep, progress: Progress) -> None:
+        """Дождаться подготовки, показывая фазу и бегущее время (§4 SPEC-v2)."""
+        deadline = prep.started + self.meta_budget + self.probe_budget + 5.0
+        while not prep.ready.wait(0.2):
+            progress.phase(prep.phase)
+            if time.monotonic() > deadline:  # поток сам не уложился — не ждём вечно
+                prep.error = prep.error or f"фаза «{prep.phase}» не уложилась в бюджет"
+                return
+
+    def _trouble(self, prep: _Prep, pinned: bool) -> str:
+        """Почему релиз не годится; пусто — годится. Названный руками не подменяется."""
+        if prep.error:
+            return prep.error
+        if prep.media is None or prep.video is None:
+            return "поток не прочитан"
+        codec = prep.media.video or "h264"
+        return "" if pinned or codec == "h264" else codec
+
+    def _forget(self, prep: _Prep) -> None:
+        if prep.torrent_hash:
+            self.torrserver.drop(prep.torrent_hash)
+
+    def _work(self, plan: _Plan, prep: _Prep) -> None:
+        """Фоновая подготовка: раздача в TorrServer, метаданные по DHT, ffprobe."""
+        try:
+            prep.phase = "метаданные (DHT)"
+            prep.torrent_hash = self.torrserver.add(prep.release.magnet)
+            files = self.torrserver.wait_files(prep.torrent_hash, timeout=self.meta_budget)
+            prep.meta = time.monotonic() - prep.started
+            prep.video = self.choose(plan, prep.release, files)
+            prep.phase = "дорожки"
+            mark = time.monotonic()
+            source = self.torrserver.stream_url(prep.torrent_hash, prep.want.index)
+            prep.media = probe(source, timeout=self.probe_budget)
+            prep.read = time.monotonic() - mark
+            prep.phase = "готово"
+        except TorrcastError as exc:
+            prep.error = str(exc)
+            prep.phase = "сбой"
+        finally:
+            prep.ready.set()
+
+
+def _default_file(plan: _Plan, release: Release, files: list[TorrFile]) -> TorrFile:
+    """Фильму — самый крупный видеофайл, сериалу — файл нужной серии (§2.4)."""
+    return plan.series.choose(release, files) if plan.series else pick_video_file(files)
+
+
+def _file_picker(args: Args) -> Callable[[_Plan, Release, list[TorrFile]], TorrFile]:
+    """``--file N`` — отладочная ручка §2 SPEC-v2: взять N-й видеофайл раздачи."""
+    if args.file is None:
+        return _default_file
+
+    def chosen(plan: _Plan, release: Release, files: list[TorrFile]) -> TorrFile:
+        ordered = sorted(files, key=lambda f: f.index)
+        videos = [f for f in ordered if f.name.lower().endswith(VIDEO_EXT)]
+        if not 1 <= (args.file or 0) <= len(videos):
+            raise NotFoundError(f"видеофайлов в раздаче {len(videos)}, номера {args.file} нет")
+        return videos[(args.file or 1) - 1]
+
+    return chosen
 
 
 def _resume(config: Config, key: str, entry: Entry, clock: _Clock, dry: bool = False) -> int:
@@ -546,7 +770,7 @@ def _resume(config: Config, key: str, entry: Entry, clock: _Clock, dry: bool = F
     состояния — ни поиска, ни меню, поэтому старт укладывается в 5–15 с (§3.1).
     """
     question = f"«{entry.title}» остановились на {_hms(entry.pos)}. Продолжить? [Да/сначала]"
-    answer = _ask_line(question)
+    answer = ask_line(question)
     if answer[:1] in {"с", "s", "н", "n"}:  # «сначала» / «с начала» / «нет»
         entry.pos = 0.0
     return _launch(config, key, entry, _about(entry), clock, dry)
@@ -557,7 +781,7 @@ def _launch(
 ) -> int:
     """Показ уезжает в transient-юнит: ``cast`` завершился — показ продолжается (§3)."""
     if dry:
-        print(f"▶ (--dry) {about} — каста нет")
+        print(f"(--dry) {about} — каста нет")
         return EXIT_OK
     # Сначала гасим прошлый показ и только потом пишем свою запись: умирающий юнит по
     # SIGTERM дописывает СВОЮ позицию, и записанный раньше прыжок на s1e5 он бы затёр.
@@ -565,26 +789,40 @@ def _launch(
     state = State.load()
     state.put(key, entry)
     state.save()
+    forget_playing(Path(config.hls_dir))  # флажок прошлого показа нам не доказательство
     start_play_unit(key)
-    _await_playing(config)
-    print()
-    print(f"▶ {about} → ТВ   (старт {clock.total:.0f} с)")
+    with Progress() as progress:
+        _await_playing(config, progress)
+    print(f"играю {about} — на ТВ   (старт {clock.total:.0f} с)")
     return EXIT_OK
 
 
-def _await_playing(config: Config, timeout: float = 120.0) -> None:
-    """Дождаться живой картинки: юнит поднялся и упаковал первый сегмент. Юнит умер по
-    дороге — честная строка из journald, а не «запустил и ушёл» (§1, §5).
+def _await_playing(config: Config, progress: Progress, timeout: float = 120.0) -> None:
+    """Дождаться **картинки на экране**, а не «упаковка пошла» (§4 SPEC-v2).
+
+    Две разные вещи, которые в v1 были одной: первый сегмент в tmpfs — это упаковка, а
+    картинка — это приёмник, ответивший ``PLAYING``. Спросить приёмник отсюда нельзя:
+    сендер к нему должен быть ровно один, и он живёт в юните (см. :mod:`torrcast.cast`).
+    Поэтому юнит кладёт флажок (:func:`mark_playing`), а CLI его ждёт — и печатает
+    «старт NN с» ровно в тот момент, когда на экране появилось изображение.
     """
     out = Path(config.hls_dir)
+    flag = playing_flag(out)
     deadline = time.monotonic() + timeout
+    packed = False
     while time.monotonic() < deadline:
-        with contextlib.suppress(OSError):
-            if any(out.glob("v*.ts")):
-                return
+        if flag.exists():
+            progress.phase("")
+            return
+        if not packed:
+            with contextlib.suppress(OSError):
+                packed = any(out.glob("v*.ts"))
+        progress.phase("жду телевизор" if packed else "упаковка")
         if not unit_active():
+            progress.phase("")
             raise InfraError(f"показ не запустился: {unit_why()}")
         time.sleep(0.5)
+    progress.phase("")
     stop_play_unit()
     raise InfraError(f"показ не начался за {timeout:.0f} с — {unit_why()}")
 
@@ -635,7 +873,7 @@ def _play(
         # кусок сразу, иначе LOAD упирается в ожидание ffmpeg и старт растёт на глазах.
         feed.restart(slot_at(start))
         receiver.play(url, about, at=start)
-        print(f"▶ {about} → ТВ   (старт {clock.total:.0f} с)", flush=True)
+        print(f"играю {about} — на ТВ   (старт {clock.total:.0f} с)", flush=True)
         _hold(receiver, feed, watch)
     finally:
         with contextlib.suppress(TorrcastError):
@@ -667,7 +905,7 @@ def _hold(receiver: Receiver, feed: Feed, watch: Watch | None = None) -> None:
     сам ffmpeg (``-readrate`` + ``-readrate_initial_burst``), а под паузой процесс
     именно завершается — под SIGSTOP'ом приёмник намертво вис в BUFFERING.
     """
-    paused, said = 0.0, 0.0
+    paused, said, seen = 0.0, 0.0, False
     while True:
         if trouble := feed.trouble():
             # Убитый сигналом ffmpeg ничего сказать не успевает — не выдумываем за него.
@@ -677,6 +915,10 @@ def _hold(receiver: Receiver, feed: Feed, watch: Watch | None = None) -> None:
         except InfraError:  # приёмник позицию не отдаёт — показу остаётся только ждать
             time.sleep(2.0)
             continue
+        if not seen and position.state == "PLAYING":
+            # Картинка на экране — теперь CLI имеет право сказать «старт NN с» (§4).
+            seen = True
+            mark_playing(feed.out)
         if time.monotonic() - said >= SAY_SECONDS:
             # Что видит приёмник, тем и отчитываемся: длительность и позиция — это ровно
             # ``duration`` и ``current_time`` из MEDIA_STATUS, снятые владеющим сендером.
@@ -705,22 +947,30 @@ def _hold(receiver: Receiver, feed: Feed, watch: Watch | None = None) -> None:
         time.sleep(2.0)
 
 
-def _pick_picture(pictures: list[Picture]) -> Picture:
-    """Меню франшизы §2.1; один вариант (в том числе после номера) — без вопроса."""
-    if len(pictures) == 1:
-        print(f"  1. {pictures[0].title} ({pictures[0].year or '?'})")
-        return pictures[0]
-    print()
-    for number, item in enumerate(pictures, start=1):
-        kind = ", сериал" if item.kind == "tv" else ""
-        print(f"  {number}. {item.title} ({item.year or '?'}{kind})")
-    return pictures[_ask("Что смотрим?", len(pictures)) - 1]
+def _pick_plan(plans: list[_Plan]) -> _Plan:
+    """Вопрос «какой фильм франшизы?» (§2 SPEC-v2); один вариант — без вопроса."""
+    if len(plans) == 1:
+        print(f"  1. {_named(plans[0].picture)}")
+        return plans[0]
+    for number, plan in enumerate(plans, start=1):
+        print(f"  {number}. {_named(plan.picture)}")
+    return plans[ask("Что смотрим?", len(plans)) - 1]
+
+
+def _named(picture: Picture) -> str:
+    kind = ", сериал" if picture.kind == "tv" else ""
+    return f"{picture.title} ({picture.year or '?'}{kind})"
 
 
 def warned(release: Release, runtime: float, warn_mbit: float) -> str:
-    """Пометки релиза: HEVC ресивер может не потянуть, жирный битрейт — тоже (§3)."""
-    marks = "⚠" if release.is_hevc else ""
-    return marks + ("⚠" if bitrate_of(release, runtime) > warn_mbit else "")
+    """Почему релиз не дефолт: HEVC ресивер может не потянуть, жирный битрейт — тоже (§3).
+
+    Словами, а не значками: ``⚠`` из вывода убран целиком (§3 SPEC-v2) — в терминале
+    владельца он не нёс смысла и разъезжался по ширине.
+    """
+    marks = ["не берём"] if release.is_hevc else []
+    marks += ["тяжёлый"] if bitrate_of(release, runtime) > warn_mbit else []
+    return ", ".join(marks)
 
 
 def is_disc(release: Release) -> bool:
@@ -758,7 +1008,7 @@ def bitrate_of(release: Release, duration: float) -> float:
 def render_table(
     releases: list[Release], runtime: float, warn_mbit: float, limit: int = TABLE_LIMIT
 ) -> str:
-    """Таблица релизов §2.1: № · качество · размер · сиды · озвучка · кодек. Битрейт для ⚠
+    """Таблица релизов §2.1: № · качество · размер · сиды · озвучка · кодек. Битрейт для пометки
     прикидывается по размеру и типовой длительности, пока настоящая не прочитана ffprobe
     (§3, реестр ТВ-рисков §9); ниже ``limit`` — раздачи без сидов, выбирать там нечего.
     """
@@ -786,47 +1036,18 @@ def render_table(
     return "\n".join(out)
 
 
-def _ask_release(ranked: list[Release], args: Args) -> int:
-    """Номер релиза: ``--release N`` в обход меню, один вариант — без вопроса."""
-    if args.release is not None:
-        if not 1 <= args.release <= len(ranked):
-            raise NotFoundError(f"релизов {len(ranked)}, номера {args.release} нет")
-        return args.release
-    return 1 if len(ranked) == 1 else _ask("Какой берём?", len(ranked))
-
-
 def _ask_audio(media: Media, args: Args) -> int:
     """Выбор дорожки: одна дорожка — вопроса нет, дефолт — русская (§2.1)."""
     if not media.tracks:
         raise InfraError("в файле нет звуковых дорожек")
-    labels = "  ".join(f"{t.index + 1}. {t.label}" for t in media.tracks)
-    print(f"Дорожки: {labels}")
     if args.audio is not None:
         if not 1 <= args.audio <= len(media.tracks):
             raise NotFoundError(f"дорожек {len(media.tracks)}, номера {args.audio} нет")
         return args.audio - 1
-    if len(media.tracks) == 1:
+    if len(media.tracks) == 1:  # выбора нет — вопроса тоже (§2 SPEC-v2)
         return 0
-    return _ask("Озвучка?", len(media.tracks), default=media.default_track() + 1) - 1
-
-
-def _ask_line(question: str) -> str:
-    """Свободный ответ; Enter и отсутствие терминала — пустая строка, то есть дефолт."""
-    try:
-        return input(f"{question}: ").strip().casefold()
-    except EOFError:
-        return ""
-
-
-def _ask(question: str, count: int, default: int = 1) -> int:
-    """Вопрос с дефолтом в скобках: Enter = разумный выбор (§2.1)."""
-    while True:
-        answer = _ask_line(f"{question} [{default}]")
-        if not answer:
-            return default
-        if answer.isdigit() and 1 <= int(answer) <= count:
-            return int(answer)
-        print(f"нужен номер от 1 до {count}")
+    print("Озвучка: " + "  ".join(f"{t.index + 1}. {t.label}" for t in media.tracks))
+    return ask("Озвучка?", len(media.tracks), default=media.default_track() + 1) - 1
 
 
 def _gb(size: int) -> str:
@@ -838,7 +1059,6 @@ def _cut(text: str, limit: int) -> str:
 
 
 def _pad(text: str, width: int) -> str:
-    # Ширина колонки считается в знакоместах: ⚠ и подобные занимают ровно одно.
     return text + " " * (width - len(text))
 
 

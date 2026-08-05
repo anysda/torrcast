@@ -82,7 +82,7 @@ def _no_questions(monkeypatch: pytest.MonkeyPatch) -> None:
 def _no_unit(monkeypatch: pytest.MonkeyPatch, order: list[str] | None = None) -> list[str]:
     started: list[str] = []
     monkeypatch.setattr(cli, "start_play_unit", lambda key: started.append(key))
-    monkeypatch.setattr(cli, "_await_playing", lambda config, timeout=120.0: None)
+    monkeypatch.setattr(cli, "_await_playing", lambda config, progress, timeout=120.0: None)
     if order is not None:
         monkeypatch.setattr(cli, "stop_play_unit", lambda: order.append("stop"))
     return started
@@ -259,4 +259,4 @@ def test_status_names_the_episode(
 
     assert cli.main(["status"]) == 0
 
-    assert "▶ «Киберпанк: Бегущие по краю» s1e2 — 0:05:10 / 0:24:00" in capsys.readouterr().out
+    assert "играю «Киберпанк: Бегущие по краю» s1e2 — 0:05:10 / 0:24:00" in capsys.readouterr().out
