@@ -216,11 +216,17 @@ setup_shim() {
     hosts_pin "$KNABEN_API_HOST"
     run_service knaben-shim "TLS-шим для $KNABEN_API_HOST (обход DPI по SNI)" \
         "$PYTHON $SHIM_DIR/knaben-shim.py $KNABEN_FRONT $KNABEN_API_HOST $SHIM_DIR/knaben.crt $SHIM_DIR/knaben.key"
-    if knaben_whole; then
-        info "через шим API отвечает целиком"
-    else
-        info "⚠ шим поднят, но API так и не отвечает"
-    fi
+    # Юнит только что запущен — сокета может ещё не быть, поэтому спрашиваем не один раз.
+    local i=0
+    while [ "$i" -lt 15 ]; do
+        if knaben_whole; then
+            info "через шим API отвечает целиком"
+            return
+        fi
+        i=$((i + 1))
+        sleep 1
+    done
+    info "⚠ шим поднят, но API так и не отвечает"
 }
 
 check_sources() {
