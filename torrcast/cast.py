@@ -195,7 +195,10 @@ class ChromecastReceiver:
         if self._reloads >= self.LOAD_RETRIES:
             return False
         self._reloads += 1
+        print(f"приёмник отвалился на {self._peak:.0f} с — повтор LOAD", flush=True)
         try:
+            if self._reloads > 1:  # первый повтор не взяли — приёмник залип
+                self._restart_app()
             self._load(self._peak)
         except Exception:  # приёмник мог просто уйти — решает следующий тик
             return False
@@ -253,6 +256,9 @@ class ChromecastReceiver:
           90 с и показ погиб, хотя сегменты лежали на месте.
 
         Повторяем не чаще :data:`LOAD_PAUSE` — иначе две попытки сгорают за две секунды.
+        Вторая попытка идёт уже в **чистое приложение**: залипший Default Media Receiver
+        отвечает ``IDLE/ERROR`` на любой следующий LOAD, сколько его ни повторяй (замерено
+        05-08-2026: шесть LOAD подряд из трёх разных запусков), а `quit_app` лечит сразу.
         """
         deadline = time.monotonic() + self.START_TIMEOUT
         tried = time.monotonic()
@@ -266,8 +272,18 @@ class ChromecastReceiver:
                     return False
                 self._reloads += 1
                 tried = time.monotonic()
+                print(f"приёмник ответил {status.idle_reason} — повтор LOAD", flush=True)
+                if self._reloads > 1:
+                    self._restart_app()
                 self._load()
         return False
+
+    def _restart_app(self) -> None:
+        """Закрыть приложение приёмника, чтобы следующий LOAD пришёл в чистое."""
+        print("приёмник залип — закрываю приложение и гружу заново", flush=True)
+        with contextlib.suppress(Exception):
+            self._device().quit_app()
+        time.sleep(self.LOAD_PAUSE)
 
     def _status(self) -> Any:
         """Свежий статус приёмника. ``update_status`` обязателен: без него pychromecast
