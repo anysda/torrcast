@@ -247,7 +247,7 @@ class _FakeReceiver:
     def play(self, url: str, title: str = "", at: float = 0.0) -> None:
         pass
 
-    def stop(self) -> None:
+    def stop(self, quit_app: bool = False) -> None:
         pass
 
     def position(self, front: float = 0.0) -> Any:
@@ -444,3 +444,145 @@ def test_a_stuck_receiver_is_nudged_only_when_the_packing_is_ahead(
 
     receiver._nudge(84.0, front=144.0)
     assert jumps == [84.0 + ChromecastReceiver.STALL_SKIP], "еда на столе — расшевелить"
+
+
+class _FakeStatus:
+    """Статус приёмника, как его отдаёт кэш pychromecast: приложение и его сессия."""
+
+    def __init__(self, app_id: str | None, session_id: str = "наша", content: str = "") -> None:
+        self.app_id = app_id
+        self.session_id = session_id
+        self.content_id = content
+
+
+class _FakeCast:
+    """Приёмник, записывающий, что с ним сделали: показ, приложение, соединение."""
+
+    def __init__(
+        self, app_id: str | None = "CC1AD845", session: str = "наша", content: str = ""
+    ) -> None:
+        self.status = _FakeStatus(app_id, session, content)
+        self.media_controller = _FakeMedia(self)
+        self.log: list[str] = []
+
+    def quit_app(self, timeout: float = 10.0) -> None:
+        self.log.append("quit")
+
+    def disconnect(self) -> None:
+        self.log.append("disconnect")
+
+
+class _FakeMedia:
+    def __init__(self, cast: _FakeCast) -> None:
+        self.status = cast.status
+        self._cast = cast
+
+    def stop(self) -> None:
+        self._cast.log.append("stop")
+
+
+def _receiver_on(cast: _FakeCast, url: str = "http://192.168.1.62:8443/index.m3u8") -> Any:
+    from torrcast.cast import ChromecastReceiver
+
+    receiver = ChromecastReceiver("192.168.100.102")
+    receiver._cast, receiver._url, receiver._session = cast, url, "наша"
+    return receiver
+
+
+def test_the_receiver_app_is_closed_only_on_our_own_session() -> None:
+    """Иконку Default Media Receiver после показа снимаем — но только свою.
+
+    Владелец жаловался, что после `cast stop` и после титров приёмник висит на экране до
+    своего таймаута простоя и мешает ТВ уснуть. Лечится это ``quit_app``. Опасность
+    ровно одна: на этом же Q70D кастят kinocast и castbot, и приложение у них то же
+    самое (``CC1AD845``) — чужой показ снимать нельзя ни при каких обстоятельствах.
+    """
+    ours = _FakeCast(content="http://192.168.1.62:8443/index.m3u8")
+    _receiver_on(ours).stop(quit_app=True)
+    assert ours.log == ["stop", "quit", "disconnect"], (
+        "своя сессия: гасим показ, закрываем приложение, отпускаем сокет"
+    )
+
+    between = _FakeCast(content="http://192.168.1.62:8443/index.m3u8")
+    _receiver_on(between).stop()
+    assert between.log == ["stop"], "стык серий: приложение остаётся под следующую серию"
+
+    alien_app = _FakeCast(app_id="Netflix")
+    _receiver_on(alien_app).stop(quit_app=True)
+    assert alien_app.log == [], "на ТВ чужое приложение — не наше дело"
+
+    closed = _FakeCast(app_id=None)
+    _receiver_on(closed).stop(quit_app=True)
+    assert closed.log == [], "приёмник уже закрыт — закрывать нечего"
+
+    alien_session = _FakeCast(session="чужая")
+    _receiver_on(alien_session).stop(quit_app=True)
+    assert alien_session.log == [], "то же приложение, но сессию поднял не мы"
+
+    alien_media = _FakeCast(content="http://192.168.1.60:8010/cast.m3u8")
+    _receiver_on(alien_media).stop(quit_app=True)
+    assert alien_media.log == [], "в наше приложение загрузился чужой сендер (kinocast)"
+
+
+def test_the_show_end_closes_the_app_and_the_episode_seam_does_not(
+    clip: str, tls: tuple[str, str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Стык серий и конец показа — для приёмника разные события (§2.5 SPEC-v2).
+
+    Проверяется вся проводка целиком, от состояния до приёмника: сторож дошёл до порога
+    95 %, показ кончился — и только запись состояния решает, закрывать ли приложение.
+    Серия не последняя — оно достаётся следующей; последняя — гаснет, как у фильма.
+    """
+    from torrcast import cli
+    from torrcast.cast import MockReceiver
+
+    monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
+    quits: list[bool] = []
+
+    class _Recorder(MockReceiver):
+        def stop(self, quit_app: bool = False) -> None:
+            quits.append(quit_app)
+            super().stop()
+
+    monkeypatch.setattr(cli, "make_receiver", lambda kind, address="", ca="": _Recorder())
+    config = config_for(tmp_path, tls, 18471)
+    key = "tv:сериал:2026"
+    length = float(CLIP_SECONDS)
+
+    def run(episode: int) -> None:
+        entry = Entry(
+            title="сериал", magnet="magnet:?xt=1", kind="tv", season=1, episode=episode,
+            episodes=[[1, 1, 0], [1, 2, 1]], pos=length, dur=length,
+        )  # fmt: skip
+        state = State()
+        state.put(key, entry)
+        state.save()
+        _play(config, clip, 0, "тест", _Clock(), watch=_Watch(key=key, entry=entry, every=0.0))
+
+    run(episode=1)
+    assert quits == [False], "серия досмотрена, впереди s1e2 — приложение не трогаем"
+
+    run(episode=2)
+    assert quits == [False, True], "последняя серия — показ окончен, приложение закрываем"
+
+
+def test_a_finished_movie_hands_nothing_over(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Конец фильма (титры) и `cast stop` посреди — оба раза передавать показ некому,
+    значит приложение приёмника закрывается.
+    """
+    from torrcast import cli
+
+    monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
+    key = "movie:ролик:2026"
+    entry = Entry(title="ролик", magnet="magnet:?xt=1", pos=95.0, dur=100.0)
+    state = State()
+    state.put(key, entry)
+    state.save()
+    watch = _Watch(key=key, entry=entry, every=0.0)
+
+    assert not cli._handover(watch), "`cast stop`: сторож не досматривал — передавать нечего"
+
+    watch.flush()  # порог 95 %: фильму это «досмотрено», а не следующая серия
+    assert watch.done and not cli._handover(watch), "титры кончились — закрываем приложение"

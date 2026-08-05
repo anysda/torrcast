@@ -70,8 +70,12 @@ class Receiver(Protocol):
     def play(self, url: str, title: str = "", at: float = 0.0) -> None:
         """Начать воспроизведение HLS-манифеста с секунды ``at``."""
 
-    def stop(self) -> None:
-        """Снять каст."""
+    def stop(self, quit_app: bool = False) -> None:
+        """Снять каст; ``quit_app`` — ещё и закрыть приложение приёмника (§2.5 SPEC-v2).
+
+        ``quit_app=False`` — показ передают дальше (стык серий): приложение остаётся
+        открытым, следующая серия грузится в него же.
+        """
 
     def position(self, front: float = 0.0) -> Position:
         """Текущая позиция и длительность; ``front`` — докуда упаковано (§6 SPEC-v2)."""
@@ -181,6 +185,8 @@ class ChromecastReceiver:
         self._started = False
         #: С какой секунды фильма грузили показ: повтор LOAD должен попадать туда же.
         self._at = 0.0
+        #: Сессия приложения приёмника, которую подняли мы (см. :meth:`_ours`).
+        self._session = ""
 
     def play(self, url: str, title: str = "", at: float = 0.0) -> None:
         """Начать показ с секунды ``at`` и **дождаться картинки**, а не просто отправить LOAD.
@@ -205,10 +211,57 @@ class ChromecastReceiver:
             return
         raise InfraError(f"ТВ {self.address} не начал показ: {self._why()}")
 
-    def stop(self) -> None:
-        if self._cast is not None:
-            with contextlib.suppress(Exception):
-                self._cast.media_controller.stop()
+    def stop(self, quit_app: bool = False) -> None:
+        """Снять каст, а по ``quit_app`` — ещё и закрыть приложение приёмника.
+
+        Зачем закрывать: ``media_controller.stop()`` гасит только показ, а Default Media
+        Receiver остаётся на экране иконкой и висит там до собственного таймаута простоя —
+        владелец видит её после `cast stop` и после титров, и она же оттягивает
+        автовыключение ТВ. ``quit_app`` возвращает телевизор в исходное состояние
+        (``app_id`` пустеет либо становится Backdrop) сразу.
+
+        ⚠️ Закрываем **только свою** сессию (:meth:`_ours`): на этом же ТВ живут kinocast
+        и castbot, и они кастят через тот же Default Media Receiver. Чужой показ снимать
+        нельзя — ни ``stop``, ни тем более ``quit_app``.
+
+        Соединение после закрытия рвём сами: сендер, переживший своё приложение, для
+        следующего показа — тот самый «второй pychromecast», из-за которого приёмник
+        отдаёт пустой MEDIA_STATUS (см. предупреждение в докстринге класса).
+        """
+        if self._cast is None or not self._ours():
+            return
+        with contextlib.suppress(Exception):
+            self._cast.media_controller.stop()
+        if not quit_app:
+            return  # показ передают следующей серии — приложение ей и достанется
+        with contextlib.suppress(Exception):
+            self._cast.quit_app()
+        with contextlib.suppress(Exception):
+            self._cast.disconnect()
+        self._cast, self._session = None, ""
+
+    def _ours(self) -> bool:
+        """Наша ли сессия сейчас на приёмнике — по трём признакам подряд.
+
+        ⚠️ Статус берётся **кэшированный**: ``update_status`` на закрытом приёмнике
+        поднимает пустой Default Media Receiver обратно (грабли kinocast, см.
+        :meth:`_status`), а нам здесь именно закрывать. Кэш держится свежим сам:
+        приёмник шлёт ``RECEIVER_STATUS`` в наш живой сокет на каждое изменение.
+
+        * приложение не наше (``app_id`` пустой или чужой) — трогать нечего;
+        * приложение то же, но сессию поднял кто-то другой — это чужой показ;
+        * сессия та же, но играет не наш URL — значит, в наше приложение загрузился
+          другой сендер (kinocast/castbot делают ровно это, ``session_id`` при этом
+          не меняется).
+        """
+        status = getattr(self._cast, "status", None)
+        if getattr(status, "app_id", None) != self.MEDIA_APP:
+            return False
+        session = getattr(status, "session_id", "") or ""
+        if self._session and session and session != self._session:
+            return False
+        playing = getattr(self._cast.media_controller.status, "content_id", "") or ""
+        return not playing or not self._url or playing == self._url
 
     def position(self, front: float = 0.0) -> Position:
         st = self._status()
@@ -291,6 +344,9 @@ class ChromecastReceiver:
             current_time=at,
         )
         controller.block_until_active(timeout=30)
+        # Чья сессия на приёмнике — запоминаем здесь: по ней :meth:`_ours` отличит наш
+        # показ от чужого, когда придёт пора закрывать приложение.
+        self._session = getattr(self._cast.status, "session_id", "") or ""
 
     def _settle(self, budget: float) -> bool:
         """Дождаться, пока приёмник действительно заиграет; отказ LOAD — повторить LOAD.
@@ -429,7 +485,10 @@ class MockReceiver:
         for target in (self._follow, self._audit):
             threading.Thread(target=target, args=(url,), daemon=True).start()
 
-    def stop(self) -> None:
+    def stop(self, quit_app: bool = False) -> None:
+        """Снять каст. Приложения у mock нет, поэтому ``quit_app`` ему нечего закрывать —
+        аргумент есть только затем, чтобы mock оставался приёмником (:class:`Receiver`).
+        """
         self._done.set()
         if self._proc is not None and self._proc.poll() is None:
             self._proc.terminate()

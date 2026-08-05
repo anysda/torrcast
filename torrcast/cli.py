@@ -331,10 +331,23 @@ def _cmd_worker(key: str) -> int:
         title = " ".join(filter(None, (entry.title, entry.label)))
         print(f"показ «{title}» с {_hms(entry.pos)}", flush=True)
         code = _play(config, source, entry.audio, title, _Clock(), watch)
-        following = State.load().get(key)
-        if not watch.done or following is None or following.done or not following.label:
+        following = _following(key) if watch.done else None
+        if following is None:
             return code
         print(f"следующая серия: {following.label}", flush=True)
+
+
+def _following(key: str) -> Entry | None:
+    """Серия, которую юнит доиграет следом за только что досмотренной (§2.4).
+
+    ``None`` — показ на этом кончается: фильм, последняя серия сезона или запись, которую
+    сериалом и не считали. Отсюда же знают, закрывать ли приложение приёмника: между
+    сериями оно живёт дальше, а на конце показа — гаснет (см. :func:`_play`).
+    """
+    entry = State.load().get(key)
+    if entry is None or entry.done or not entry.label:
+        return None
+    return entry
 
 
 def _duration(key: str, entry: Entry, source: str) -> Entry:
@@ -948,12 +961,21 @@ def _play(
         print(f"играю {about} — на ТВ   (старт {clock.total:.0f} с)", flush=True)
         _hold(receiver, feed, watch)
     finally:
+        # Позиция фиксируется при любом исходе, включая SIGTERM, и делается это ПЕРВЫМ
+        # делом: показ, доигранный до конца файла, отмечает «досмотрено» ровно здесь, а
+        # приёмнику ниже нужно уже готовое состояние — по нему он и узнаёт, конец это
+        # показа или стык серий.
+        if watch is not None:
+            watch.flush()
         with contextlib.suppress(TorrcastError):
-            receiver.stop()
+            # Показ кончился — приложение приёмника закрываем, чтобы ТВ вернулся в
+            # исходное состояние: иконка Default Media Receiver иначе висит до своего
+            # таймаута простоя и оттягивает автовыключение (дефект владельца 05-08).
+            # Исключение ровно одно — стык серий: следующая серия грузится в то же
+            # приложение, и гасить его между ними значит моргать экраном на каждой.
+            receiver.stop(quit_app=not _handover(watch))
         feed.stop()
         server.stop()
-        if watch is not None:  # позиция фиксируется при любом исходе, включая SIGTERM
-            watch.flush()
 
     report = getattr(receiver, "report", None)
     if report is None:
@@ -963,6 +985,16 @@ def _play(
     if not report.ok and not (watch is not None and watch.done):
         raise InfraError("приёмник не досмотрел поток — цифры выше")
     return EXIT_OK
+
+
+def _handover(watch: Watch | None) -> bool:
+    """Правда ли показ передают следующей серии, а не заканчивают.
+
+    Порог 95 % уже записал в состояние следующую серию (:meth:`Watch.flush`), поэтому
+    ответ лежит там же, где его читает :func:`_cmd_worker`, — двух разных мнений о конце
+    показа быть не должно.
+    """
+    return watch is not None and watch.done and _following(watch.key) is not None
 
 
 def _hold(receiver: Receiver, feed: Feed, watch: Watch | None = None) -> None:
