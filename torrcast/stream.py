@@ -241,10 +241,31 @@ class Media:
     #: Высота кадра из потока. Имя раздачи о качестве тоже молчит через раз, а сказать
     #: человеку «1080p» вместо «?» мы обязаны из того же ffprobe, что уже прочитан.
     height: int = 0
+    #: Ширина кадра. Нужна не ради красоты: у широкоформатного фильма чёрные поля
+    #: обрезаны, и 1920×800 — это честный 1080p, а не «800p» (:attr:`frame`).
+    width: int = 0
+
+    @property
+    def frame(self) -> int:
+        """Ступень лестницы качества, к которой относится кадр.
+
+        По одной высоте судить нельзя: 1920×800 (обрезанный скоуп) и 1150×574 дают 800 и
+        574 — числа соседние, а это 1080p и SD. Ширина отвечает на это однозначно, потому
+        что кадрируют по вертикали: считаем, во что кадр развернулся бы в 16:9, и берём
+        большее из двух.
+        """
+        return max(self.height, self.width * 9 // 16)
 
     @property
     def quality(self) -> str:
-        """Качество словами: ``1080p``; ноль высоты — честный ``?``."""
+        """Качество словами: ``1080p``; ноль высоты — честный ``?``.
+
+        Ступени лестницы называются как принято (2160p/1080p/720p), всё, что ниже, —
+        своей высотой: «574p» у «Моаны 2» и есть ответ на вопрос «что уехало на ТВ».
+        """
+        for step in (2160, 1080, 720):
+            if self.frame >= step * 0.95:
+                return f"{step}p"
         return f"{self.height}p" if self.height else "?"
 
     @property
@@ -349,7 +370,7 @@ def probe(url: str, timeout: float = 90.0) -> Media:
     """
     entries = (
         "format=duration:"
-        "stream=index,codec_name,codec_type,channels,height:stream_tags=language,title"
+        "stream=index,codec_name,codec_type,channels,width,height:stream_tags=language,title"
     )
     flags = ["-v", "error", "-show_entries", entries, "-of", "json"]
     command = ["ffprobe", *flags, url]
@@ -379,6 +400,7 @@ def probe(url: str, timeout: float = 90.0) -> Media:
         tracks=tuple(_track(i, s) for i, s in enumerate(audio)),
         video=_opt_str(video[0].get("codec_name")) if video else None,
         height=int(video[0].get("height") or 0) if video else 0,
+        width=int(video[0].get("width") or 0) if video else 0,
     )
 
 

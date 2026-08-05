@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import threading
 from pathlib import Path
 from typing import Any, cast
 
@@ -444,3 +445,171 @@ def test_prewarm_starts_with_the_default_not_with_the_earliest() -> None:
     """
     plans = _moana_franchise()
     assert [p.picture.year for p in cli.warm_order(plans)] == [2016, 1926, 2024]
+
+
+# --- Честное качество: заявка имени против того, что прочитал ffprobe (§1 v1) ----------
+
+
+def _reads(monkeypatch: pytest.MonkeyPatch, releases: list[Release], *media: Media) -> None:
+    """Подсунуть ffprobe: по :class:`Media` на релиз, считая от лучшего.
+
+    То же, что :func:`_probes`, только с высотой кадра: тут проверяется не кодек, а
+    разрыв между тем, что раздача обещает именем, и тем, что лежит внутри.
+    """
+
+    def read(url: str, timeout: float = 90.0) -> Media:
+        for number, release in enumerate(releases):
+            if f"hash-{release.magnet}/" in url and number < len(media):
+                return media[number]
+        return Media(3600.0, (), "h264", 1080, 1920)
+
+    monkeypatch.setattr(cli, "probe", read)
+
+
+def test_launch_line_shows_the_confirmed_resolution_not_the_claim() -> None:
+    """«Моана 2»: имя обещает 1080p, ffprobe читает 1150×574 — печатаем факт (§1 v1)."""
+    assert cli.quality_text(rel(quality="1080p"), Media(5977.0, (), "h264", 574, 1150)) == "574p"
+    assert cli.quality_text(rel(quality="1080p"), Media(5977.0, (), "h264", 1080, 1920)) == "1080p"
+    # ffprobe высоту не отдал — врать нечем, остаётся заявка имени и честный «?».
+    assert cli.quality_text(rel(quality="720p"), Media(5977.0, (), "h264", 0)) == "720p"
+    assert cli.quality_text(rel(quality=None), Media(5977.0, (), "h264", 0)) == "?"
+
+
+def test_cropped_widescreen_is_not_a_liar() -> None:
+    """1080p с обрезанными чёрными полями — это 800 строк при 1920 в ширину, и релиз
+    честен: судить по одной высоте нельзя, иначе каждый скоуп-фильм объявляется враньём.
+    """
+    scope = Media(5977.0, (), "h264", 800, 1920)
+    assert scope.quality == "1080p" and cli.understated(rel(quality="1080p"), scope) == ""
+    liar = Media(5977.0, (), "h264", 574, 1150)  # живая «Моана 2», верх выдачи
+    assert liar.quality == "574p" and cli.understated(rel(quality="1080p"), liar) != ""
+    # Имя не назвало ничего, а внутри HD — придираться не к чему.
+    assert cli.understated(rel(quality=None), Media(5977.0, (), "h264", 720, 1280)) == ""
+    assert cli.understated(rel(quality=None), liar) != ""
+
+
+def test_a_top_that_turns_out_to_be_sd_gives_way_to_a_confirmed_1080p(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Живая «Моана 2» 06-08-2026: верх ``WEB-DL-AVC`` 3.14 ГБ / 140 сидов — 1150×574,
+    а вторым лежит настоящий 1080p 13.3 ГБ со 121 сидом. Играть обязан второй, и вслух.
+    """
+    ranked = [
+        rel(name="Моана 2 [WEB-DL-AVC] 2x Dub", quality=None, size_gb=3.14, seeders=140),
+        rel(name="Моана 2 [WEB-DL 1080p] Dub", codec=None, size_gb=13.33, seeders=121),
+    ]
+    _reads(
+        monkeypatch,
+        ranked,
+        Media(5977.0, (), "h264", 574, 1150),
+        Media(5977.0, (), "h264", 1080, 1920),
+    )
+    torrserver = _FakeTorrServer()
+
+    prep = _resolve(cli._Bench(cast(Any, torrserver)), ranked)
+
+    printed = capsys.readouterr().out
+    assert prep.number == 2, "среди честных обсиженность решает, но 574p — не честный 1080p"
+    assert "релиз №1 на деле 574p — беру №2 (настоящий 1080p)" in printed
+    assert torrserver.dropped, "отвергнутый верх не доедает полосу роя"
+
+
+def test_an_honest_top_is_played_without_a_word(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Верх подтвердил своё имя — никаких проверок соседей и никаких лишних строк.
+
+    Обсиженность остаётся главным критерием среди честных (§2.1 v1): 1080p со 140
+    сидами не уступает 1080p со 121, сколько бы тот ни весил.
+    """
+    ranked = [
+        rel(name="Кино [WEB-DL 1080p] a", size_gb=3.14, seeders=140),
+        rel(name="Кино [BDRemux 1080p] b", size_gb=13.33, seeders=121),
+    ]
+    _reads(
+        monkeypatch,
+        ranked,
+        Media(5977.0, (), "h264", 1080, 1920),
+        Media(5977.0, (), "h264", 1080, 1920),
+    )
+
+    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer())), ranked)
+
+    assert prep.number == 1
+    assert "беру №" not in capsys.readouterr().out
+
+
+def test_when_the_neighbour_lies_too_we_play_the_truth_out_loud(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Сосед обещал 1080p, а внутри такой же SD: подмены нет — но и молчания тоже нет."""
+    ranked = [
+        rel(name="Кино [WEB-DL] a", quality=None, size_gb=3.14, seeders=140),
+        rel(name="Кино [WEB-DL 1080p] b", codec=None, size_gb=3.20, seeders=121),
+    ]
+    _reads(
+        monkeypatch,
+        ranked,
+        Media(5977.0, (), "h264", 574, 1150),
+        Media(5977.0, (), "h264", 576, 1024),
+    )
+
+    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer())), ranked)
+
+    printed = capsys.readouterr().out
+    assert prep.number == 1, "лучше 574p рядом нет — играем то, что есть"
+    assert "релиз №2 не лучше (576p)" in printed
+    assert "релиз №1 на деле 574p — честнее рядом нет, играю его" in printed
+
+
+def test_a_named_release_is_never_second_guessed_for_quality(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """``--release N`` неприкосновенен и здесь: человек выбрал сам (§2 SPEC-v2)."""
+    ranked = [
+        rel(name="Кино [WEB-DL] a", quality=None, size_gb=3.14, seeders=140),
+        rel(name="Кино [WEB-DL 1080p] b", codec=None, size_gb=13.33, seeders=121),
+    ]
+    _reads(
+        monkeypatch,
+        ranked,
+        Media(5977.0, (), "h264", 574, 1150),
+        Media(5977.0, (), "h264", 1080, 1920),
+    )
+
+    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer())), ranked, release=1)
+
+    assert prep.number == 1
+    assert "беру №" not in capsys.readouterr().out
+
+
+def test_a_slow_neighbour_does_not_hold_up_the_show(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Честный сосед не ответил за бюджет — играем то, что готово, и говорим об этом.
+
+    Лишние секунды старта хуже, чем 574p (§4 SPEC-v2), а молчаливо ждать «а вдруг» —
+    это ровно тот дефект №1 владельца, из-за которого показ вставал насмерть.
+    """
+    ranked = [
+        rel(name="Кино [WEB-DL] a", quality=None, size_gb=3.14, seeders=140),
+        rel(name="Кино [WEB-DL 1080p] b", codec=None, size_gb=13.33, seeders=121),
+    ]
+    slow = threading.Event()
+
+    def read(url: str, timeout: float = 90.0) -> Media:
+        if f"hash-{ranked[1].magnet}/" in url:  # честный сосед на холодном рое
+            slow.wait(5.0)
+            return Media(5977.0, (), "h264", 1080, 1920)
+        return Media(5977.0, (), "h264", 574, 1150)
+
+    monkeypatch.setattr(cli, "probe", read)
+    monkeypatch.setattr(cli, "HONEST_BUDGET", 0.3)
+
+    try:
+        prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer())), ranked)
+    finally:
+        slow.set()  # поток прогрева отпускаем, чтобы не висел до конца прогона
+
+    assert prep.number == 1
+    assert "релиз №2 не успел ответить" in capsys.readouterr().out

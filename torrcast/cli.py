@@ -72,13 +72,17 @@ from torrcast.timing import mark
 __all__ = [
     "Args",
     "bitrate_of",
+    "honest_shot",
     "is_dated",
     "liveliest",
     "liveliness",
     "main",
     "parse_args",
+    "promises_more",
+    "quality_text",
     "rank_releases",
     "render_table",
+    "understated",
     "warm_order",
 ]
 
@@ -95,6 +99,19 @@ PREWARM = 3
 META_BUDGET = 20.0
 #: Бюджет на чтение дорожек (ffprobe) той же раздачи, секунды.
 PROBE_BUDGET = 40.0
+#: Сколько ждём ответа от честного запасного, если верх оказался хуже, чем обещал. Запасной
+#: к этой секунде уже греется (:meth:`_Bench.resolve` поднимает следующего сразу), так что
+#: платим не за прогрев, а за разницу между двумя ffprobe. Не уложился — играем то, что
+#: есть, и говорим об этом вслух: лишние секунды старта хуже, чем 574p (§4 SPEC-v2).
+HONEST_BUDGET = 12.0
+#: Ниже этой высоты кадра HD уже не назовёшь. Имя раздачи о разрешении молчит чаще, чем
+#: врёт (у «Моаны 2» — в 5 именах из 11), поэтому «имя молчало, а внутри SD» — такой же
+#: повод посмотреть на соседа, как и прямое враньё в имени.
+HD_HEIGHT = 720
+#: Насколько подтверждённая высота вправе отставать от заявленной. 0.9 — это про обрезку
+#: чёрных полей: у 1080p-широкоформатника реальная высота 800–816, и релиз честен. А
+#: 574 против 1080 — это уже другая ступень лестницы, а не кадрирование.
+HONEST_RATIO = 0.9
 #: Как часто сторож кладёт позицию в state, секунды (§3).
 WATCH_SECONDS = 10.0
 #: Как часто показ пишет в журнал, что видит приёмник (§2.1 SPEC-v2): позиция и общее
@@ -272,6 +289,8 @@ def _cmd_status() -> int:
         return EXIT_OK
     key, entry = found
     what = f"«{entry.title}»" + (f" {entry.label}" if entry.label else "")
+    # Разрешение — подтверждённое ffprobe у играющего файла, а не заявка имени (§1 v1).
+    what += f" · {entry.quality}" if entry.quality else ""
     print(f"играю {what} — {_hms(entry.pos)} / {_hms(entry.dur)}")
     where = "адрес раздачи не определён"
     with contextlib.suppress(TorrcastError):  # адреса нет — статус показа это не отменяет
@@ -487,7 +506,7 @@ def _cmd_play(args: Args) -> int:
     what = f"«{plan.picture.title}»" + (
         f" {series.want}" if series else f" ({plan.picture.year or '?'})"
     )
-    about = f"{what} · {release.quality or media.quality} · {label}"
+    about = f"{what} · {quality_text(release, media)} · {label}"
     # Настоящий битрейт: размер файла серии/фильма на его же длительность, а не оценка.
     peak = bitrate_mbit(video.size, media.duration or plan.runtime)
     if peak > config.bitrate_warn_mbit:
@@ -504,6 +523,8 @@ def _cmd_play(args: Args) -> int:
         file_idx=video.index,
         audio=audio,
         dur=media.duration,
+        # То, что уехало на ТВ: `cast status` покажет факт, а не заявку имени (§1 v1).
+        quality=media.quality if media.height else "",
         query=slugify(args.title_query),
         season=series.want.season if series else None,
         episode=series.want.episode if series else None,
@@ -670,7 +691,7 @@ def _continue(config: Config, key: str, entry: Entry, args: Args, clock: _Clock)
 
 def _about(entry: Entry) -> str:
     """Строка показа по записи состояния: «Киберпанк» · s1e2 · дорожка 1 · с 0:03:20."""
-    parts = [f"«{entry.title}»", entry.label, f"дорожка {entry.audio + 1}"]
+    parts = [f"«{entry.title}»", entry.label, entry.quality, f"дорожка {entry.audio + 1}"]
     if entry.pos > 0:
         parts.append(f"с {_hms(entry.pos)}")
     return " · ".join(filter(None, parts))
@@ -767,6 +788,7 @@ class _Bench:
             trouble = self._trouble(prep, pinned=args.pinned)
             if not trouble:
                 progress.phase("")
+                prep = self._honest(plan, prep, queue, args, progress)
                 if warning := prep.found.video_warning:  # названный релиз играем, но не молча
                     print(warning)
                 return prep
@@ -788,6 +810,72 @@ class _Bench:
             if time.monotonic() > deadline:  # поток сам не уложился — не ждём вечно
                 prep.error = prep.error or f"фаза «{prep.phase}» не уложилась в бюджет"
                 return
+
+    def _peek(self, prep: _Prep, progress: Progress, deadline: float, phase: str) -> bool:
+        """Заглянуть в подготовку с коротким сроком: успела — ``True``, нет — ``False``.
+
+        Отличие от :meth:`_wait` не в сроке, а в последствиях: этот срок наш, а не
+        релиза, и просроченному прогреву :attr:`_Prep.error` не ставится. Иначе
+        подглядывание за соседом молча делало бы его негодным.
+        """
+        while not prep.ready.wait(0.2):
+            progress.phase(phase)
+            if time.monotonic() > deadline:
+                return False
+        return True
+
+    def _honest(
+        self, plan: _Plan, chosen: _Prep, queue: list[int], args: Args, progress: Progress
+    ) -> _Prep:
+        """Подтверждённое разрешение против обещанного: 574p вместо 1080p — не мелочь.
+
+        Верх отбора — самый обсиженный годный кандидат, и это правило остаётся (§2.1 v1).
+        Но обсиженность считается **среди честных**: если ffprobe уже прочитан и говорит,
+        что внутри верха не HD, а рядом в очереди стоит живой релиз, который обещает
+        1080p, — стоит спросить у ffprobe и его. Живой случай, ради которого это
+        написано: «Моана 2», верх ``WEB-DL-AVC`` 3.14 ГБ / 140 сидов оказался 1150×574,
+        а вторым лежит настоящий 1080p 13.3 ГБ со 121 сидом.
+
+        Платим за проверку немного: запасной греется с той же секунды, что и верх
+        (:meth:`resolve` поднимает следующего сразу), поэтому ждём не прогрев, а разницу
+        двух ffprobe, и не дольше :data:`HONEST_BUDGET`.
+
+        Молчаливых подмен нет в обе стороны: и подмена, и отказ от неё печатают строку.
+        ``--release N`` и ``--file N`` не трогаем вовсе — там человек выбрал сам.
+        """
+        if args.release is not None or args.pinned:
+            return chosen
+        short = understated(chosen.release, chosen.found)
+        if not short:
+            return chosen
+        rest = [
+            n
+            for n in queue
+            if n != chosen.number and promises_more(plan.ranked[n - 1], chosen.found)
+        ]
+        deadline = time.monotonic() + HONEST_BUDGET
+        for number in rest:
+            alt = self.start(plan, number)
+            phase = f"№{chosen.number} {short} — смотрю №{number}"
+            if not self._peek(alt, progress, deadline, phase):
+                progress.phase("")
+                print(f"релиз №{number} не успел ответить — играю №{chosen.number} ({short})")
+                return chosen
+            progress.phase("")
+            why = self._trouble(alt, pinned=False)
+            if why:
+                print(f"релиз №{number} не годится ({why})")
+                continue
+            if not honest_shot(alt.release, alt.found) or alt.found.frame <= chosen.found.frame:
+                print(f"релиз №{number} не лучше ({quality_text(alt.release, alt.found)})")
+                continue
+            print(
+                f"релиз №{chosen.number} {short} — беру №{number} (настоящий {alt.found.quality})"
+            )
+            self._forget(chosen)  # верх больше не нужен: полосу роя доедать ему незачем
+            return alt
+        print(f"релиз №{chosen.number} {short} — честнее рядом нет, играю его")
+        return chosen
 
     def _trouble(self, prep: _Prep, pinned: bool) -> str:
         """Почему релиз не годится; пусто — годится. Названный руками не подменяется."""
@@ -1244,6 +1332,55 @@ def warned(release: Release, runtime: float, warn_mbit: float) -> str:
     marks = ["не берём"] if release.is_hevc else []
     marks += ["тяжёлый"] if bitrate_of(release, runtime) > warn_mbit else []
     return ", ".join(marks)
+
+
+def quality_text(release: Release, media: Media) -> str:
+    """Разрешение, которое реально поедет на ТВ. ffprobe уже прочитан — врать нечем.
+
+    Порядок именно такой: сначала подтверждённая высота кадра, и только если ffprobe её
+    не отдал (экзотика, битый заголовок) — заявка из имени. До 06-08-2026 было наоборот,
+    и «Моана 2» печаталась 1080p при 1150×574 внутри: заявка выигрывала у факта, то есть
+    ровно та молчаливая подмена, которую запрещает §1 v1.
+    """
+    return media.quality if media.height else (release.quality or "?")
+
+
+def understated(release: Release, media: Media) -> str:
+    """Чем подтверждённое разрешение хуже обещанного; пусто — релиз честен.
+
+    Две половины, и обе взяты с живой выдачи «моаны 2» (06-08-2026):
+
+    1. имя называет разрешение, а внутри заметно меньше (:data:`HONEST_RATIO`);
+    2. имя не называет ничего, а внутри не HD вовсе (:data:`HD_HEIGHT`) — это и есть
+       верхний кандидат «Моаны 2»: ``WEB-DL-AVC`` без единой цифры в заголовке, 3.14 ГБ,
+       140 сидов, а на деле 1150×574.
+
+    Возвращает кусок фразы, а не флаг: строка про подмену обязана назвать обе цифры,
+    иначе она ничего не объясняет.
+    """
+    if not media.height:  # ffprobe высоту не отдал — сравнивать не с чем, молчим
+        return ""
+    if release.height:
+        if media.frame < release.height * HONEST_RATIO:
+            return f"назван {release.quality}, на деле {media.quality}"
+        return ""
+    return f"на деле {media.quality}" if media.frame < HD_HEIGHT else ""
+
+
+def promises_more(release: Release, media: Media) -> bool:
+    """Стоит ли вообще смотреть на этот запасной: обещает HD и больше, чем дал верх."""
+    return release.height >= HD_HEIGHT and release.height > media.frame
+
+
+def honest_shot(release: Release, media: Media) -> bool:
+    """Запасной подтвердил своё имя: кадр из ffprobe не ниже заявленной ступени. Имя
+    молчало — тогда достаточно, чтобы внутри оказался HD.
+    """
+    if not media.height:
+        return False
+    if release.height:
+        return media.frame >= release.height * HONEST_RATIO
+    return media.frame >= HD_HEIGHT
 
 
 def is_disc(release: Release) -> bool:
