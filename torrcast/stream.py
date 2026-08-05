@@ -22,6 +22,7 @@ import sys
 import tempfile
 import threading
 import time
+import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Final
@@ -29,6 +30,7 @@ from urllib.parse import quote
 
 from torrcast import InfraError, why
 from torrcast.parse import VIDEO_EXT
+from torrcast.timing import TIMELINE_ENV, mark
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -70,7 +72,7 @@ __all__ = [
     "unit_active",
     "unit_key",
     "unit_why",
-    "warm_keys",
+    "warm_file",
 ]
 
 #: Шаг сетки сегментов, секунды. Было 4 — стало 10, и это не вкусовщина, а
@@ -129,6 +131,11 @@ PACK_DIR: Final = "pack"
 #: кусок. Приёмнику он не отдаётся — по нему показ сверяет, что нарезал ровно то, что
 #: обещал в манифесте (:meth:`Packer.drift`).
 PACK_LIST: Final = "pack.csv"
+#: Сколько байт начала файла тянем под меню (:func:`pull_head`): первый сегмент — это
+#: 10–20 с видео со звуком, то есть десятки мегабайт.
+HEAD_WARM: Final = 32 << 20
+#: Потолок ожидания прогрева: дальше это уже не прогрев, а висящий поток.
+WARM_TIMEOUT: Final = 120.0
 #: Сколько ждём чужого снятия карты опорных кадров, прежде чем снимать самим.
 KEYS_WAIT: Final = 40.0
 #: Замок снятия карты считается живым столько секунд: дальше это брошенный хвост.
@@ -154,7 +161,7 @@ _UNIT_NAME: Final = "torrcast-play"
 #: Описание юнита несёт ключ показа — по нему ``status`` знает, что играет (§2.5).
 _UNIT_TAG: Final = "torrcast: "
 #: Что пробрасывается в юнит: без этого показ уедет на прод-пути вместо dev-овских.
-_PASS_ENV: Final = ("TORRCAST_CONFIG", "TORRCAST_STATE", "TORRCAST_TRACE")
+_PASS_ENV: Final = ("TORRCAST_CONFIG", "TORRCAST_STATE", "TORRCAST_TRACE", TIMELINE_ENV)
 
 
 def bitrate_mbit(size: int, duration: float) -> float:
@@ -553,48 +560,91 @@ def _fetching(lock: Path) -> bool:
 def film_keys(source_url: str) -> tuple[float, list[float]]:
     """Длительность и времена опорных кадров видео: из кэша или из индекса mkv.
 
-    Если карту уже снимает прогрев (:func:`warm_keys`), ждём его, а не читаем хвост
+    Если карту уже снимает прогрев (:func:`warm_file`), ждём его, а не читаем хвост
     файла вторым потоком: рой от этого быстрее не станет, а старт показа удвоится.
     """
     from torrcast.mkv import keyframes, video_track
 
     cache = _keys_cache(source_url)
     if (ready := _read_keys(cache)) is not None:
+        mark("карта: из кэша")
         return ready
     lock = cache.with_suffix(".lock")
     deadline = time.monotonic() + KEYS_WAIT
+    waited = time.monotonic()
     while _fetching(lock) and time.monotonic() < deadline:
-        time.sleep(0.5)
+        time.sleep(0.2)
         if (ready := _read_keys(cache)) is not None:
+            mark("карта: дождались прогрева", ждали=round(time.monotonic() - waited, 2))
             return ready
     with contextlib.suppress(OSError):
         lock.parent.mkdir(parents=True, exist_ok=True)
         lock.touch()
+    mark("карта: чтение")
+    # ⚠️ Замок снимается не после чтения, а после **записи кэша**: между ними лежит разбор
+    # карты, и сосед, отпущенный раньше времени, кэша ещё не увидит и полезет читать хвост
+    # сам. Ровно так холодный старт платил разбор дважды (замер 06-08-2026: CLI и юнит
+    # разбирали одну и ту же карту параллельно).
     try:
         found = keyframes(source_url)
+        mark("карта: снята", кадров=len(found.points), байт=found.taken)
+        # ⚠️ Дорожку видео выбираем ОДИН раз. Пока этот вызов стоял внутри списка, он
+        # считался на каждую точку Cues, а сам он линейный по всем точкам — то есть карта
+        # разбиралась квадратично. Цена замерена 06-08-2026 на стенде: «Моана 2», 7274
+        # точки — 18.5 с чистого процессора после того, как рой всё отдал. Ровно это и
+        # принимали за «первое чтение хвоста у холодного роя» (§7.1 SPEC-v2): рой отдаёт
+        # Cues за 2–6 с, остальное было наше.
+        track = video_track(found.points)
+        keys = [p.at for p in found.points if p.track == track]
+        with contextlib.suppress(OSError):
+            cache.parent.mkdir(parents=True, exist_ok=True)
+            tmp = cache.with_suffix(".tmp")
+            tmp.write_text(json.dumps({"duration": found.duration, "keys": keys}), "utf-8")
+            tmp.replace(cache)
     finally:
         with contextlib.suppress(OSError):
             lock.unlink(missing_ok=True)
-    keys = [p.at for p in found.points if p.track == video_track(found.points)]
-    with contextlib.suppress(OSError):
-        cache.parent.mkdir(parents=True, exist_ok=True)
-        tmp = cache.with_suffix(".tmp")
-        tmp.write_text(json.dumps({"duration": found.duration, "keys": keys}), "utf-8")
-        tmp.replace(cache)
     return found.duration, keys
 
 
-def warm_keys(source_url: str) -> None:
-    """Снять карту опорных кадров заранее, фоном, и молча положить в кэш (§4 SPEC-v2).
+def pull_head(source_url: str, upto: int = HEAD_WARM, alive: Any = None) -> int:
+    """Протянуть через рой начало файла и выбросить: нужен не байт, а прогретый кэш.
 
-    Зовётся под меню — пока человек отвечает на вопросы. К моменту, когда показу
-    понадобится сетка, карта либо уже в кэше, либо хотя бы прогрета в TorrServer, и
-    старт не ждёт рой лишние 15 секунд. Не вышло — не беда: показ снимет её сам.
+    Первый сегмент — это 10–20 с видео со звуком, десятки мегабайт, и пока их нет в кэше
+    TorrServer, ffmpeg ждёт рой, а показ ждёт ffmpeg. Под меню эти байты берутся бесплатно
+    по времени: человек в этот момент отвечает на вопросы. Лишнего трафика тут нет — ровно
+    эти байты показ прочитает следующим действием.
+
+    ``alive`` — жив ли ещё смысл греть: релиз, от которого показ отказался, дотягивать
+    нельзя, он отъедает полосу у выбранного (:meth:`torrcast.cli._Bench.keep_only`).
+    """
+    began = time.monotonic()
+    taken = 0
+    request = urllib.request.Request(source_url, headers={"Range": f"bytes=0-{upto - 1}"})
+    with urllib.request.urlopen(request, timeout=WARM_TIMEOUT) as answer:
+        while chunk := answer.read(1 << 20):
+            taken += len(chunk)
+            if alive is not None and not alive():
+                break
+    mark("начало прогрето", байт=taken, за=round(time.monotonic() - began, 2))
+    return taken
+
+
+def warm_file(source_url: str, alive: Any = None) -> None:
+    """Прогреть файл под меню, фоном: сначала карта опорных кадров, потом начало потока.
+
+    Зовётся с самой ранней секунды, когда известен файл, — пока человек отвечает на
+    вопросы (§4 SPEC-v2). Порядок именно такой: без карты показ не построит сетку и не
+    запустит ffmpeg вовсе, а начало потока нужно уже запущенному ffmpeg. Не вышло — не
+    беда: показ сделает то же самое сам, просто на своём времени.
     """
 
     def work() -> None:
         with contextlib.suppress(Exception):
             film_keys(source_url)
+        with contextlib.suppress(Exception):
+            if alive is None or alive():
+                pull_head(source_url, alive=alive)
 
     threading.Thread(target=work, daemon=True).start()
 
@@ -1053,6 +1103,7 @@ class Feed:
         if self.packer is not None:
             self.packer.stop(keep_files=True)
         at = pack_start(self.source, self.grid.start(slot))
+        mark("пробный прогон", слот=slot, встали=round(at, 3))
         command = ffmpeg_pack_command(
             self.source,
             self.audio,

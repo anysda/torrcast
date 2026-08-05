@@ -243,10 +243,15 @@ install_torrserver() {
     wait_http "$TS_URL/echo" 60 || die "TorrServer не поднялся на $TS_URL"
 
     # Кэш в RAM, публичные ретрекеры в magnet'ы, DHT и PEX включены (§3).
+    # ConnectionsLimit: дефолтные 25 соединений — это потолок скорости на ПЕРВЫХ секундах,
+    # когда пиры ещё разбираются, кто что отдаёт, а нам нужны и хвост файла (Cues), и
+    # начало (первый сегмент) прямо сейчас. Холодный старт §7.1 SPEC-v2 упирается ровно
+    # в это место, поэтому потолок поднят.
     local sets
     sets="$(curl -fsS -X POST "$TS_URL/settings" -d '{"action":"get"}' \
         | jq -c --argjson c "$TS_CACHE" '.CacheSize=$c|.UseDisk=false|.RetrackersMode=1
-                                        |.DisableDHT=false|.DisablePEX=false|.EnableDLNA=false')"
+                                        |.DisableDHT=false|.DisablePEX=false|.EnableDLNA=false
+                                        |.ConnectionsLimit=100')"
     curl -fsS -X POST "$TS_URL/settings" -H 'Content-Type: application/json' \
         -d "{\"action\":\"set\",\"sets\":$sets}" >/dev/null
     info "кэш $((TS_CACHE / 1024 / 1024)) МиБ в RAM, ретрекеры включены"

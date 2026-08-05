@@ -65,8 +65,9 @@ from torrcast.stream import (
     unit_active,
     unit_key,
     unit_why,
-    warm_keys,
+    warm_file,
 )
+from torrcast.timing import mark
 
 __all__ = ["Args", "bitrate_of", "main", "parse_args", "rank_releases", "render_table"]
 
@@ -312,6 +313,7 @@ def _cmd_worker(key: str) -> int:
     состояние следующую, и цикл берёт её же раздачу и следующий файл, не спрашивая CLI.
     Серия была последней — состояние отмечает конец, цикл выходит, юнит гаснет чисто.
     """
+    mark("процесс показа")
     config = load_config()
     # SIGTERM от `cast stop` обязан пройти через finally: иначе позиция не запишется.
     signal.signal(signal.SIGTERM, _on_term)
@@ -435,6 +437,7 @@ def _cmd_play(args: Args) -> int:
     ``--new`` здесь ничего не стирает: сохранённая позиция уходит в расход только тогда,
     когда показ уже точно начинается (:func:`_forget_progress`). Почему так — там же.
     """
+    mark("команда")
     clock = _Clock()
     config = load_config()
     state = State.load()
@@ -459,6 +462,7 @@ def _cmd_play(args: Args) -> int:
 
     release, video, media = prep.release, prep.want, prep.found
     audio = _ask_audio(media, args)
+    mark("ответы")  # ноль секундомера §7.1: Enter после последнего вопроса
     label = media.tracks[audio].label if audio < len(media.tracks) else "—"
     series = plan.series
     what = f"«{plan.picture.title}»" + (
@@ -517,6 +521,7 @@ def _search(config: Config, args: Args, progress: Progress) -> list[_Plan]:
     name, _ = split_franchise_index(query)
     progress.phase(f"поиск «{name}»")
     raw = Prowlarr(config.prowlarr_url, config.prowlarr_apikey).search(name)
+    mark("поиск", найдено=len(raw))
     pictures = cluster(to_releases(raw))
     if not pictures:
         raise NotFoundError(f"по запросу «{name}» ничего не разобралось")
@@ -798,19 +803,20 @@ class _Bench:
             prep.torrent_hash = self.torrserver.add(prep.release.magnet)
             files = self.torrserver.wait_files(prep.torrent_hash, timeout=self.meta_budget)
             prep.meta = time.monotonic() - prep.started
+            mark("метаданные", релиз=prep.number, картина=plan.picture.key)
             prep.video = self.choose(plan, prep.release, files)
             prep.phase = "дорожки"
-            mark = time.monotonic()
+            began = time.monotonic()
             source = self.torrserver.stream_url(prep.torrent_hash, prep.want.index)
-            # Карта опорных кадров нужна показу, а не подготовке, но снимать её там — это
-            # 14–24 с ожидания роя на старте (замерено 06-08-2026): Cues лежат в хвосте
-            # файла, и рой отдаёт это место впервые. Поэтому она греется фоном с самой
-            # ранней секунды, когда известен файл, — параллельно с ffprobe и вопросами
-            # человека (§4 SPEC-v2). Показ потом либо берёт её из кэша, либо дожидается
-            # этого же чтения, а не начинает своё.
-            warm_keys(source)
+            # Всё, что показ прочитает из роя первым, читается здесь и сейчас: карта
+            # опорных кадров (без неё нет сетки) и начало файла (его читает ffmpeg). Это
+            # самая ранняя секунда, когда известен файл, — то есть параллельно и ffprobe,
+            # и вопросам человека (§4 SPEC-v2). Показ потом либо берёт готовое, либо
+            # дожидается этого же чтения, а не начинает своё вторым потоком.
+            warm_file(source, alive=lambda: not prep.dropped)
             prep.media = probe(source, timeout=self.probe_budget)
-            prep.read = time.monotonic() - mark
+            prep.read = time.monotonic() - began
+            mark("ffprobe", релиз=prep.number, картина=plan.picture.key)
             prep.phase = "готово"
         except TorrcastError as exc:
             prep.error = str(exc)
@@ -867,6 +873,7 @@ def _launch(
     state.save()
     forget_playing(Path(config.hls_dir))  # флажок прошлого показа нам не доказательство
     start_play_unit(key)
+    mark("юнит")
     with Progress() as progress:
         _await_playing(config, progress)
     print(f"играю {about} — на ТВ   (старт {clock.total:.0f} с)")
@@ -888,16 +895,19 @@ def _await_playing(config: Config, progress: Progress, timeout: float = 120.0) -
     packed = False
     while time.monotonic() < deadline:
         if flag.exists():
+            mark("картинка")
             progress.phase("")
             return
         if not packed:
             with contextlib.suppress(OSError):
                 packed = any(out.glob("v*.ts"))
+            if packed:
+                mark("первый сегмент")
         progress.phase("жду телевизор" if packed else "упаковка")
         if not unit_active():
             progress.phase("")
             raise InfraError(f"показ не запустился: {unit_why()}")
-        time.sleep(0.5)
+        time.sleep(0.2)
     progress.phase("")
     stop_play_unit()
     raise InfraError(f"показ не начался за {timeout:.0f} с — {unit_why()}")
@@ -935,6 +945,7 @@ def _play(
         config.hls_keyframes,
         say=lambda text: print(text, flush=True),
     )
+    mark("сетка", сегментов=grid.count, покадрам=grid.on_keys)
     feed = Feed(
         source=source,
         audio=audio,
@@ -954,10 +965,13 @@ def _play(
     url = f"{hls_base(config)}/index.m3u8"
     try:
         server.start()
+        mark("раздача")
         # Упаковку начинаем сами, не дожидаясь первого запроса: ресиверу нужен готовый
         # кусок сразу, иначе LOAD упирается в ожидание ffmpeg и старт растёт на глазах.
         feed.restart(grid.slot_at(start))
+        mark("упаковка пошла")
         receiver.play(url, about, at=start)
+        mark("LOAD взят")
         print(f"играю {about} — на ТВ   (старт {clock.total:.0f} с)", flush=True)
         _hold(receiver, feed, watch)
     finally:

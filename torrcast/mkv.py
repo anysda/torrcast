@@ -51,8 +51,17 @@ CUE_TRACK_POSITIONS: Final = 0xB7
 CUE_TRACK: Final = 0xF7
 CUE_CLUSTER_POSITION: Final = 0xF1
 
-#: Сколько головы читаем: SeekHead и Info лежат в самом начале Segment.
+#: Сколько головы читаем сначала. SeekHead и Info лежат в первых килобайтах Segment, и
+#: у роя это не вопрос байтов, а вопрос **очереди**: пока не приехала голова, запрос к
+#: хвосту даже не отправлен. Замер 06-08-2026 на стенде: 4 МиБ головы стоят 1.5–5.2 с,
+#: сам хвост — 0.5–0.7 с. Поэтому сначала заглядываем маленьким куском и идём к Cues.
+HEAD_PEEK: Final = 256 << 10
+#: Запасной размер головы: маленького куска не хватило (длинный SeekHead, толстые теги).
 HEAD_BYTES: Final = 4 << 20
+#: Сколько берём с места Cues одним куском. Тело Cues — сотни килобайт (замерено: 163,
+#: 189 и 456 КБ), поэтому оно влезает целиком, и хвост стоит **одного** запроса вместо
+#: двух: заголовок и тело раньше читались порознь, а холодный рой платит за каждый заход.
+CUES_CHUNK: Final = 1 << 20
 
 
 class Point(NamedTuple):
@@ -143,14 +152,11 @@ def _float(buf: bytes, data: int, size: int) -> float:
     return float(struct.unpack(">f" if size == 4 else ">d", raw)[0])
 
 
-def keyframes(url: str) -> KeyMap:
-    """Длительность и опорные кадры файла. Не mkv или нет Cues — :class:`InfraError`."""
-    reader = Reader(url)
-    head = reader.read(0, HEAD_BYTES)
+def _head_facts(head: bytes) -> tuple[int | None, int, float]:
+    """Что нужно от головы mkv: позиция Cues, масштаб времени и длительность."""
     segment = next((data for ident, _, data in _walk(head, 0, len(head)) if ident == SEGMENT), None)
     if segment is None:
-        raise InfraError("это не mkv: элемента Segment в голове файла нет")
-
+        return None, 1_000_000, 0.0
     cues_at, scale, duration = None, 1_000_000, 0.0
     for ident, size, data in _walk(head, segment, len(head)):
         end = min(len(head), data + size)
@@ -172,13 +178,37 @@ def keyframes(url: str) -> KeyMap:
                     duration = _float(head, sub_data, sub_size)
         elif ident == CLUSTER:
             break  # пошли данные фильма — служебного дальше в голове нет
+    return cues_at, scale, duration
+
+
+def keyframes(url: str) -> KeyMap:
+    """Длительность и опорные кадры файла. Не mkv или нет Cues — :class:`InfraError`.
+
+    Заходов к рою ровно два (:data:`HEAD_PEEK` и :data:`CUES_CHUNK`), и оба — минимально
+    возможного размера: у холодной раздачи цена карты — это не байты, а сколько раз мы
+    заставили рой отдать новое место и сколько ждали перед следующим запросом.
+    """
+    reader = Reader(url)
+    head = reader.read(0, HEAD_PEEK)
+    cues_at, scale, duration = _head_facts(head)
+    if cues_at is None or duration <= 0:  # маленького куска не хватило — берём полный
+        head = reader.read(0, HEAD_BYTES)
+        cues_at, scale, duration = _head_facts(head)
+    if not any(ident == SEGMENT for ident, _, _ in _walk(head, 0, len(head))):
+        raise InfraError("это не mkv: элемента Segment в голове файла нет")
     if cues_at is None:
         raise InfraError("в файле нет индекса Cues — карту опорных кадров взять неоткуда")
 
-    ident, size, data = _walk(reader.read(cues_at, 32), 0, 32)[0]
+    chunk = reader.read(cues_at, CUES_CHUNK)
+    found = _walk(chunk, 0, min(32, len(chunk)))
+    if not found:
+        raise InfraError("по позиции из SeekHead читается не элемент EBML")
+    ident, size, data = found[0]
     if ident != CUES:
         raise InfraError(f"по позиции из SeekHead лежит не Cues, а {ident:#x}")
-    body = reader.read(cues_at + data, size)
+    body = chunk[data : data + size]
+    if len(body) < size:  # редкий толстый индекс — добираем остаток
+        body += reader.read(cues_at + len(chunk), size - len(body))
 
     points: list[Point] = []
     for _, point_size, point in [e for e in _walk(body, 0, len(body)) if e[0] == CUE_POINT]:
