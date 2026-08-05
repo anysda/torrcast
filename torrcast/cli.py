@@ -847,14 +847,66 @@ def _file_picker(args: Args) -> Callable[[_Plan, Release, list[TorrFile]], TorrF
     return chosen
 
 
+@dataclass(slots=True)
+class _Resume:
+    """Прогрев под вопросом «Продолжить?» — то же, что прогрев под меню, но для позиции.
+
+    Продолжение с середины упирается не в поиск (его тут нет вовсе), а в рой: показу
+    нужны заголовок файла и то место, где лежит сохранённая позиция, а холодная раздача
+    отдаёт новое место секундами. Единственная свободная секунда на этом пути — та, пока
+    человек читает вопрос, и она тут и тратится (§7.2 SPEC-v2).
+
+    Смещение позиции в байтах берётся из карты опорных кадров
+    (:meth:`torrcast.stream.FilmKeys.byte_at`) — той же самой, по которой строится сетка.
+    Пропорция «доля фильма от размера файла» сюда не годится: битрейт по фильму гуляет
+    вдвое, и промах в проценте — это десятки мегабайт, то есть прогрев не того места.
+    """
+
+    torrserver: TorrServer
+    entry: Entry
+    source: str = ""
+    cancelled: bool = False
+
+    def start(self) -> None:
+        threading.Thread(target=self._work, daemon=True).start()
+
+    def _work(self) -> None:
+        with contextlib.suppress(TorrcastError):
+            torrent_hash = self.torrserver.add(self.entry.magnet)
+            self.torrserver.wait_files(torrent_hash)
+            self.source = self.torrserver.stream_url(torrent_hash, self.entry.file_idx)
+            warm_file(self.source, at=self.entry.pos, alive=lambda: not self.cancelled)
+
+    def enough(self) -> None:
+        """Ответ получен — прогрев прекращается, дальше те же байты читает сам показ.
+
+        ⚠️ Это не мелочь и не гигиена, а замер. Прогрев, доигрывающий после Enter'а, —
+        это **второй** читатель того же места через TorrServer, и он отбирает у показа
+        ровно то, ради чего затевался: на стенде 06-08-2026 пробный прогон вырос с 0.56
+        до 1.92 с, а готовность LOAD — с 3.5 до 4.8 с. Смысл прогрева весь в секундах
+        ДО ответа; после ответа лучший потребитель полосы — ffmpeg.
+
+        «Сначала» отменяет прогрев по той же причине, только резче: середина фильма
+        больше не нужна вовсе.
+        """
+        self.cancelled = True
+
+
 def _resume(config: Config, key: str, entry: Entry, clock: _Clock, dry: bool = False) -> int:
     """Возобновление §2.3: один вопрос и сразу показ. Релиз, файл и дорожка берутся из
     состояния — ни поиска, ни меню, поэтому старт укладывается в 5–15 с (§3.1).
+
+    Пока задаётся вопрос, раздача уже поднята в TorrServer, а рой прогрет по месту
+    сохранённой позиции (:class:`_Resume`): к Enter'у критический путь чаще всего пуст.
     """
+    warm = _Resume(TorrServer(config.torrserver_url), entry)
+    warm.start()
     question = f"«{entry.title}» остановились на {_hms(entry.pos)}. Продолжить? [Да/сначала]"
     answer = ask_line(question)
+    warm.enough()
     if answer[:1] in {"с", "s", "н", "n"}:  # «сначала» / «с начала» / «нет»
         entry.pos = 0.0
+    mark("ответы")  # ноль секундомера §7.2: Enter после последнего вопроса
     return _launch(config, key, entry, _about(entry), clock, dry)
 
 

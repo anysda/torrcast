@@ -6,6 +6,7 @@
 
     python3 scripts/startbench.py "моана 2" --cold
     python3 scripts/startbench.py "моана 2"          # прогретый кэш карт
+    python3 scripts/startbench.py --resume 776 --from-key movie:моана-2:2024 --cold-swarm
 
 ``--cold`` — честный холодный старт: раздачи из TorrServer снесены, кэш карт очищен.
 Ответы на вопросы подаются мгновенно (``--think 0``), то есть меряется худший случай:
@@ -19,6 +20,7 @@ import argparse
 import contextlib
 import json
 import os
+import pty
 import shutil
 import subprocess
 import sys
@@ -50,8 +52,13 @@ def config(prod: Path, port: int) -> Path:
     return path
 
 
-def cold(url: str, state: Path) -> None:
-    """Сбросить всё, что делает старт тёплым: раздачи TorrServer и кэш карт."""
+def cold(url: str, state: Path, keys: bool = True) -> None:
+    """Сбросить то, что делает старт тёплым: раздачи TorrServer и кэш карт.
+
+    ``keys=False`` — сбросить только рой. Это и есть честное «продолжение с середины»:
+    файл уже играли, карта опорных кадров лежит в кэше, а вот раздачу TorrServer после
+    перезагрузки (или после ``cast stop`` и суток простоя) греть надо заново.
+    """
     import requests
 
     with contextlib.suppress(Exception):
@@ -60,23 +67,54 @@ def cold(url: str, state: Path) -> None:
             requests.post(
                 f"{url}/torrents", json={"action": "rem", "hash": item.get("hash")}, timeout=20
             )
-    shutil.rmtree(state.parent / "keys", ignore_errors=True)
+    if keys:
+        shutil.rmtree(state.parent / "keys", ignore_errors=True)
+
+
+def resume_state(state: Path, source: Path, key: str, position: float) -> str:
+    """Положить в состояние замера копию боевой записи с нужной позицией.
+
+    ⚠️ Боевое состояние владельца читается и НЕ трогается: замер живёт в своём каталоге и
+    со своим файлом. Запись нужна ровно затем, чтобы `cast` пошёл коротким путём §2.3
+    («Продолжить? [Да/сначала]»), а не через поиск и меню.
+    """
+    entries = json.loads(source.read_text("utf-8"))
+    if key not in entries:
+        raise SystemExit(f"в {source} нет записи {key}; есть: {', '.join(entries)}")
+    entry = dict(entries[key])
+    entry["pos"] = position
+    entry["done"] = False
+    state.write_text(json.dumps({key: entry}, ensure_ascii=False), "utf-8")
+    return str(entry.get("query") or key.split(":")[1])
 
 
 def watch_segment(
-    stop: threading.Event, seen: threading.Event, out: str = "/dev/shm/torrcast-bench"
+    stop: threading.Event,
+    seen: threading.Event,
+    line: Path,
+    out: str = "/dev/shm/torrcast-bench",
 ) -> None:
-    """Отметить момент, когда первый сегмент **дописан**, с точностью до 50 мс.
+    """Отметить момент, когда первый нужный сегмент **дописан**, с точностью до 50 мс.
 
-    Дописан он тогда, когда ffmpeg открыл следующий: ``pack/v1.ts`` появился — значит
-    ``v0.ts`` целый (:meth:`torrcast.stream.Packer.publish`). Это и есть «готовность LOAD»
-    по метрике §7.1: манифест статичен и готов вместе с сеткой, ждать остаётся только кусок.
+    Дописан он тогда, когда ffmpeg открыл следующий и показ выложил его наружу
+    (:meth:`torrcast.stream.Packer.publish`). Это и есть «готовность LOAD» по метрике §7.2:
+    манифест статичен и готов вместе с сеткой, ждать остаётся только кусок.
+
+    ⚠️ «Нужный» — это сегмент **того места, откуда играем**, а не ``v0``. На продолжении с
+    середины путать их нельзя: mock открывает поток через ``ffmpeg -ss``, а тот сначала
+    дёргает начало плейлиста, показ честно допаковывает ещё и ``v0``, и по нему замер
+    показал бы совсем не то, что увидит телевизор. Номер слота берётся из ленты меток —
+    его печатает пробный прогон (:func:`torrcast.stream.pack_start`).
     """
-    pack = Path(out) / "pack"
+    slot = 0
     while not stop.is_set():
+        with contextlib.suppress(OSError, ValueError, KeyError):
+            found = next((m for m in read(line) if m.get("name") == "пробный прогон"), None)
+            if found is not None:
+                slot = int(found["слот"])
         with contextlib.suppress(OSError):
-            if (pack / "v1.ts").exists() or (Path(out) / "v0.ts").exists():
-                mark("первый сегмент дописан")
+            if (Path(out) / f"v{slot}.ts").exists():
+                mark("первый сегмент дописан", слот=slot)
                 seen.set()
                 return
         stop.wait(0.05)
@@ -84,8 +122,12 @@ def watch_segment(
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("query")
+    ap.add_argument("query", nargs="?", default="")
     ap.add_argument("--cold", action="store_true")
+    ap.add_argument("--cold-swarm", action="store_true", help="сбросить рой, кэш карт оставить")
+    ap.add_argument("--resume", type=float, help="продолжение с этой секунды фильма")
+    ap.add_argument("--from-key", default="", help="какую запись боевого состояния копировать")
+    ap.add_argument("--live-state", default="/var/lib/torrcast/state.json")
     ap.add_argument("--think", type=float, default=0.0, help="пауза перед каждым ответом, с")
     ap.add_argument("--answers", default="\n\n\n\n\n")
     ap.add_argument("--prod-config", default="/etc/torrcast/config.json")
@@ -101,8 +143,12 @@ def main() -> int:
     state.unlink(missing_ok=True)  # старт без сохранённой позиции — это и есть холодный
     shutil.rmtree("/dev/shm/torrcast-bench", ignore_errors=True)
     torrserver = json.loads(cfg.read_text("utf-8"))["torrserver_url"]
-    if args.cold:
-        cold(torrserver, state)
+    query = args.query
+    if args.resume is not None:
+        saved = resume_state(state, Path(args.live_state), args.from_key, args.resume)
+        query = args.query or saved
+    if args.cold or args.cold_swarm:
+        cold(torrserver, state, keys=args.cold)
 
     env = {
         **os.environ,
@@ -112,31 +158,39 @@ def main() -> int:
     }
     os.environ["TORRCAST_TIMELINE"] = str(line)  # метки пишет и сам замер
     stop, seen = threading.Event(), threading.Event()
-    threading.Thread(target=watch_segment, args=(stop, seen), daemon=True).start()
+    threading.Thread(target=watch_segment, args=(stop, seen, line), daemon=True).start()
     began = time.monotonic()
-    feed = args.answers if args.think <= 0 else None
-    proc = subprocess.Popen(
-        [CAST, args.query],
-        env=env,
-        stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-    )
-    assert proc.stdin is not None
-    if feed is not None:
-        proc.stdin.write(feed)
-        proc.stdin.flush()
-    else:  # человек думает: ответы уходят с задержкой, прогрев успевает поработать
+    # ⚠️ ``--think`` работает только через pty, и это не прихоть. Без терминала ask_line
+    # штатно **не спрашивает вовсе** (§3 SPEC-v2: не висеть на пайпе), поэтому ответы
+    # уходили мгновенно, сколько ни задерживай запись в stdin, — то есть «человек думает»
+    # на пайпе не воспроизводится в принципе, и прогреву под вопросом не достаётся ни
+    # секунды. С pty `cast` видит терминал, ждёт Enter'а, и пауза становится настоящей.
+    master = -1
+    if args.think > 0:
+        master, slave = pty.openpty()
+        proc = subprocess.Popen(
+            [CAST, query], env=env, stdin=slave, stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT, text=True,
+        )  # fmt: skip
+        os.close(slave)
 
         def think() -> None:
             for _ in range(5):
                 time.sleep(args.think)
+                if proc.poll() is not None:
+                    return
                 with contextlib.suppress(OSError):
-                    proc.stdin.write("\n")  # type: ignore[union-attr]
-                    proc.stdin.flush()  # type: ignore[union-attr]
+                    os.write(master, b"\n")
 
         threading.Thread(target=think, daemon=True).start()
+    else:
+        proc = subprocess.Popen(
+            [CAST, query], env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT, text=True,
+        )  # fmt: skip
+        assert proc.stdin is not None
+        proc.stdin.write(args.answers)
+        proc.stdin.flush()
     try:
         out, _ = proc.communicate(timeout=args.timeout)
     except subprocess.TimeoutExpired:
@@ -147,16 +201,23 @@ def main() -> int:
     # ещё пакуется. Метрика §7.1 — именно он, поэтому ждём его и только потом гасим показ.
     seen.wait(args.segment_wait)
     stop.set()
+    if master >= 0:
+        with contextlib.suppress(OSError):
+            os.close(master)
     subprocess.run([CAST, "stop"], env=env, capture_output=True, timeout=60, check=False)
 
     print(out.rstrip())
-    print(f"\n--- лента фаз (ноль = Enter после последнего вопроса), всего {total:.1f} с ---")
-    print(report(line, zero="ответы"))
     marks = {str(m["name"]): float(m["at"]) for m in read(line)}
-    if "ответы" in marks and "упаковка пошла" in marks:
-        print(f"\nМАНИФЕСТ ГОТОВ: {marks['упаковка пошла'] - marks['ответы']:.2f} с")
-    if "ответы" in marks and "первый сегмент дописан" in marks:
-        готово = marks["первый сегмент дописан"] - marks["ответы"]
+    # ⚠️ Ноль — Enter после последнего вопроса. Код до 06-08-2026 такой метки на пути
+    # продолжения не ставил вовсе, поэтому для сравнения «до/после» нулём становится
+    # запуск юнита: он идёт сразу за ответом (замерено: 0.05 с) и есть у обеих версий.
+    zero = "ответы" if "ответы" in marks else "юнит"
+    print(f"\n--- лента фаз (ноль = «{zero}»), всего {total:.1f} с ---")
+    print(report(line, zero=zero))
+    if zero in marks and "упаковка пошла" in marks:
+        print(f"\nМАНИФЕСТ ГОТОВ: {marks['упаковка пошла'] - marks[zero]:.2f} с")
+    if zero in marks and "первый сегмент дописан" in marks:
+        готово = marks["первый сегмент дописан"] - marks[zero]
         print(f"ГОТОВНОСТЬ LOAD (манифест + первый сегмент): {готово:.2f} с")
     return 0
 

@@ -17,6 +17,7 @@ https проверяется отдельно: это выключенная о�
 from __future__ import annotations
 
 import math
+import time
 from pathlib import Path
 from typing import Any
 
@@ -706,3 +707,66 @@ def _le_shaped_chain(tmp_path: Path) -> tuple[str, str, str]:
         run("x509", "-req", "-in", str(csr[name]), "-CA", str(crt[issuer]),
             "-CAkey", str(key[issuer]), "-days", "5", "-out", str(crt[name]), *extra)  # fmt: skip
     return crt["root"].read_text(), crt["inter"].read_text(), crt["leaf"].read_text()
+
+
+def test_the_position_is_warmed_by_its_byte_offset_not_by_a_proportion(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Продолжение с середины греет ровно то место файла, где лежит позиция (§7.2 SPEC-v2).
+
+    Смещение берётся из карты опорных кадров — той же, по которой строится сетка. Долей
+    «позиция от длительности, умноженная на размер файла» тут обойтись нельзя: битрейт по
+    фильму гуляет вдвое, и промах в один процент двухгигабайтного файла — это 20 МБ, то
+    есть прогрев чужого места и отобранная у показа полоса.
+    """
+    from torrcast import stream as stream_module
+    from torrcast.stream import HEAD_OPEN, FilmKeys, warm_file
+
+    keys = FilmKeys(600.0, [0.0, 100.0, 200.0, 300.0], [0, 90 << 20, 500 << 20, 505 << 20])
+    # 200-я секунда — ровно половина фильма, а лежит она на 500 МБ из 505: пропорция
+    # показала бы 250 МБ, то есть промахнулась бы на четверть фильма.
+    assert keys.byte_at(240.0) == 500 << 20
+    assert keys.byte_at(0.0) == 0 and keys.byte_at(-5.0) == 0
+
+    asked: list[tuple[int, int]] = []
+    monkeypatch.setattr(stream_module, "film_keys", lambda url: keys)
+
+    def note(url: str, offset: int, upto: int = 0, alive: Any = None) -> int:
+        asked.append((offset, upto))
+        return 0
+
+    monkeypatch.setattr(stream_module, "warm_at", note)
+    warm_file("http://127.0.0.1:1/film.mp4", at=240.0)
+    for _ in range(200):
+        if len(asked) >= 2:
+            break
+        time.sleep(0.01)
+    assert asked == [(0, HEAD_OPEN), (500 << 20, stream_module.HEAD_WARM)], (
+        "с середины греется заголовок файла и место позиции, а не 32 МБ чужого начала"
+    )
+
+    asked.clear()
+    warm_file("http://127.0.0.1:1/film.mp4")
+    for _ in range(200):
+        if asked:
+            break
+        time.sleep(0.01)
+    assert asked == [(0, stream_module.HEAD_WARM)], "с нуля греется начало, и только оно"
+
+
+def test_an_old_key_cache_without_offsets_still_builds_the_grid(tmp_path: Path) -> None:
+    """Кэш карты прошлой версии смещений не знает — сетка из него всё равно строится.
+
+    Выбросить такой кэш значило бы заставить первый же показ после обновления заново
+    читать индекс у холодного роя. Грелка позиции без смещений просто не работает — это
+    дешевле.
+    """
+    import json
+
+    from torrcast.stream import _read_keys
+
+    cache = tmp_path / "keys.json"
+    cache.write_text(json.dumps({"duration": 600.0, "keys": [0.0, 10.0, 20.0]}), "utf-8")
+    found = _read_keys(cache)
+    assert found is not None and found.at == [0.0, 10.0, 20.0]
+    assert found.offset == [] and found.byte_at(15.0) == 0
