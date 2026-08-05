@@ -117,11 +117,25 @@ pick_python() {
 #: 5.1, а без burst темп упаковки лечится только паузой процесса — той самой, под которой
 #: приёмник намертво виснет в BUFFERING. Статическая сборка кладётся в /usr/local/bin и
 #: перебивает пакетную по PATH; пакет ffmpeg остаётся на месте как запасной вариант.
+#: ⚠️ Сборка именно BtbN. Статик johnvansickle 7.0.2 на Xeon E5-2696 v4 ставится и версию
+#: печатает, а на первом же MPEG-TS падает в segfault (замерено 05-08-2026, дважды, с
+#: записями в dmesg хоста) — то есть ломается ровно на том формате, в котором мы пакуем.
 FFMPEG_MIN="${TORRCAST_FFMPEG_MIN:-6.1}"
-FFMPEG_URL="${TORRCAST_FFMPEG_URL:-https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz}"
+FFMPEG_URL="${TORRCAST_FFMPEG_URL:-https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n7.1-latest-linux64-gpl-7.1.tar.xz}"
 
 ffmpeg_version() {  # $1 — путь/имя бинаря; печатает голую версию либо ничего
     "$1" -version 2>/dev/null | head -1 | awk '{print $3}' | sed 's/^[^0-9]*//'
+}
+
+# Проверка сборки в деле, а не по строчке версии: пакуем секунду MPEG-TS (наш формат)
+# и читаем её обратно. Segfault ловится здесь, а не на живом показе.
+ffmpeg_smoke() {  # $1 — каталог для временного файла
+    local clip="$1/smoke.ts"
+    /usr/local/bin/ffmpeg -hide_banner -loglevel error -y \
+        -f lavfi -i "testsrc=size=320x240:rate=25:duration=1" -f lavfi -i "sine=duration=1" \
+        -c:v libx264 -pix_fmt yuv420p -preset ultrafast -c:a aac -f mpegts "$clip" || return 1
+    /usr/local/bin/ffprobe -v error -show_entries stream=codec_name -of csv "$clip" >/dev/null || return 1
+    info "сборка проверена: MPEG-TS пакуется и читается"
 }
 
 install_ffmpeg() {
@@ -143,11 +157,12 @@ install_ffmpeg() {
     install -d -m 0755 /usr/local/bin
     install -m 0755 "$bin" /usr/local/bin/ffmpeg
     install -m 0755 "$(dirname "$bin")/ffprobe" /usr/local/bin/ffprobe
-    rm -rf "$work"
     hash -r
     local now; now="$(ffmpeg_version /usr/local/bin/ffmpeg)"
     dpkg --compare-versions "$now" ge "$FFMPEG_MIN" 2>/dev/null \
         || die "поставился ffmpeg $now — это всё ещё ниже $FFMPEG_MIN"
+    ffmpeg_smoke "$work" || die "сборка ffmpeg $now не пережила MPEG-TS — другой URL"
+    rm -rf "$work"
     info "ffmpeg $now → /usr/local/bin (пакетная $(ffmpeg_version /usr/bin/ffmpeg) осталась)"
 }
 
