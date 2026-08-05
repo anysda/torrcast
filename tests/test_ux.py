@@ -22,6 +22,8 @@ from torrcast.stream import AudioTrack, Media, TorrFile
 AWAIT_PLAYING = cli._await_playing
 
 GB = 1024**3
+#: Ключ сохранённой «Moana (2016)» — записи, которую находит запрос «моана».
+OLD_KEY = "movie:moana:2016"
 #: Выдача «моаны», сведённая к сути: две картины франшизы, у каждой по два релиза.
 FOUND = [
     RawResult("Moana 2016 1080p DSNP WEB-DL DDP5 1 Atmos H 264-BLOOM", "a" * 40, 5 * GB, 22),
@@ -147,6 +149,59 @@ def test_the_film_with_a_number_in_the_title_is_a_film(
     assert "сериал" not in printed and "s1e1" not in printed
     key, entry = next(iter(State.load()))
     assert (key, entry.kind, entry.episodes) == ("movie:моана-2:2024", "movie", [])
+
+
+def test_without_a_terminal_an_ambiguous_franchise_is_refused_not_guessed(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Без терминала «дефолт» на вопросе про франшизу — это чужой фильм, пущенный молча.
+
+    Ровно так и вышло на прогоне без tty: вопрос взял первый пункт вслепую, а `--new` к
+    тому времени уже снёс сохранённую запись. Теперь ни того, ни другого: §3 SPEC-v2
+    требует не висеть — мы и не висим, но отказываемся вслух и подсказываем, как назвать
+    картину точно. Сохранённое место при этом цело.
+    """
+    from torrcast import console
+
+    monkeypatch.setattr(console, "stdin_is_tty", lambda: False)
+    monkeypatch.setattr(cli, "start_play_unit", lambda key: pytest.fail("вслепую не кастим"))
+    _remember_moana()
+
+    assert cli.main(["моана", "--new"]) == 1
+
+    printed = capsys.readouterr()
+    assert "1. Moana (2016)" in printed.out and "2. Моана 2 (2024)" in printed.out
+    assert "вслепую не выбираю" in printed.err and "Моана 2" in printed.err
+    kept = State.load().get(OLD_KEY)
+    assert kept is not None and kept.pos == 2467.0, "сохранённую позицию не трогаем никогда"
+
+
+def test_new_forgets_the_old_record_only_when_the_show_really_starts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Обещание `--new` («забыть прогресс») в силе — но платим по нему в момент старта.
+
+    До старта стирать нечего и незачем: свежую запись всё равно кладёт запуск показа, а
+    любой обрыв раньше него оставил бы владельца без позиции.
+    """
+    _answers(monkeypatch, "2", "")
+    _remember_moana()
+
+    assert cli.main(["моана", "--new"]) == 0
+
+    left = State.load()
+    assert left.get(OLD_KEY) is None, "показ пошёл — прежний прогресс забыт, как и просили"
+    assert left.entries["movie:моана-2:2024"].pos == 0.0
+
+
+def _remember_moana() -> None:
+    """Недосмотренная «Moana» в состоянии: её и находит запрос «моана»."""
+    state = State()
+    state.put(
+        OLD_KEY,
+        Entry(title="Moana", magnet="magnet:?xt=1", query="моана", pos=2467.0, dur=5978.0),
+    )
+    state.save()
 
 
 def test_release_and_file_are_debug_handles_and_show_the_insides(

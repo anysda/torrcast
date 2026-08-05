@@ -25,7 +25,13 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from torrcast import InfraError, NotFoundError, TorrcastError, __version__
+from torrcast import (
+    InfraError,
+    NotFoundError,
+    TorrcastError,
+    __version__,
+    console,  # через модуль: терминал спрашиваем там же, где и сами вопросы
+)
 from torrcast.cast import Receiver, make_receiver
 from torrcast.console import Progress, ask, ask_line, terminal
 from torrcast.parse import (
@@ -411,15 +417,17 @@ def _cmd_play(args: Args) -> int:
     Релиз и файл выбираются сами, таблиц и списков файлов на этом пути нет. Пока человек
     отвечает на вопрос про франшизу, топ-3 кандидата уже греются в TorrServer и читаются
     ffprobe (§4): к моменту ответа критический путь чаще всего пуст.
+
+    ``--new`` здесь ничего не стирает: сохранённая позиция уходит в расход только тогда,
+    когда показ уже точно начинается (:func:`_forget_progress`). Почему так — там же.
     """
     clock = _Clock()
     config = load_config()
     state = State.load()
     found_entry = state.find(args.title_query)
-    if found_entry is not None and args.new:  # --new: забыть прогресс и выбрать заново (§4)
-        state.drop(found_entry[0])
-        state.save()
-    elif found_entry is not None:
+    # --new: прежний прогресс не продолжаем и выбираем заново (§4), но запись пока цела.
+    stale = found_entry[0] if found_entry is not None and args.new else None
+    if found_entry is not None and not args.new:
         code = _continue(config, *found_entry, args=args, clock=clock)
         if code is not None:
             return code
@@ -464,7 +472,25 @@ def _cmd_play(args: Args) -> int:
         episode=series.want.episode if series else None,
         episodes=series.table if series else [],
     )
+    if stale is not None:  # точка невозврата пройдена — вот теперь --new вправе забывать
+        _forget_progress(stale)
     return _launch(config, plan.picture.key, entry, about, clock)
+
+
+def _forget_progress(key: str) -> None:
+    """Забыть прежний прогресс по ``--new`` — в момент, когда показ уже точно начинается.
+
+    Раньше запись стиралась первым же действием команды, до единого вопроса. Любой обрыв
+    после этого — «ничего не разобралось», Ctrl-C, упавший ffprobe, а на прогоне без
+    терминала ещё и выбор вслепую — оставлял владельца без сохранённого места, и взять
+    его было неоткуда: state уже перезаписан (ровно так и потерялась запись фильма).
+
+    Раннее стирание при этом ничего не давало: свежую запись с нулевой позицией всё равно
+    кладёт :func:`_launch`. То есть у него была одна цена и ни одной пользы.
+    """
+    state = State.load()  # перечитываем: рядом мог писать другой ход
+    state.drop(key)
+    state.save()
 
 
 def _search(config: Config, args: Args, progress: Progress) -> list[_Plan]:
@@ -988,12 +1014,27 @@ def _hold(receiver: Receiver, feed: Feed, watch: Watch | None = None) -> None:
 
 
 def _pick_plan(plans: list[_Plan]) -> _Plan:
-    """Вопрос «какой фильм франшизы?» (§2 SPEC-v2); один вариант — без вопроса."""
+    """Вопрос «какой фильм франшизы?» (§2 SPEC-v2); один вариант — без вопроса.
+
+    Без терминала (ssh без pty, cron, чужой скрипт) спрашивать некого, и §3 SPEC-v2 велит
+    не висеть, а брать дефолт. Но дефолт бывает разумным, а бывает выдуманным: у озвучки
+    он считается правилами, у «Продолжить?» — это «продолжить», а вот здесь «дефолт»
+    означал бы первый пункт списка, то есть **другой фильм**, запущенный молча. Разумного
+    дефолта у этого вопроса нет, поэтому не висим и не угадываем, а отказываемся вслух и
+    говорим, как назвать картину точно. Кандидаты при этом уже напечатаны — выбирать есть
+    из чего.
+    """
     if len(plans) == 1:
         print(f"  1. {_named(plans[0].picture)}")
         return plans[0]
     for number, plan in enumerate(plans, start=1):
         print(f"  {number}. {_named(plan.picture)}")
+    if not console.stdin_is_tty():
+        raise NotFoundError(
+            f"подходит картин: {len(plans)}, а терминала нет — вслепую не выбираю; "
+            f"назови картину точно (например «{plans[1].picture.title}») "
+            "или запусти cast в терминале"
+        )
     return plans[ask("Что смотрим?", len(plans)) - 1]
 
 

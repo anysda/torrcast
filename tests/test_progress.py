@@ -127,18 +127,23 @@ def test_resume_from_the_beginning_keeps_the_release_but_drops_the_position(
     assert saved().pos == 0.0 and saved().audio == 1
 
 
-def test_new_forgets_the_progress_and_goes_through_the_search(
+def test_new_goes_through_the_search_and_keeps_the_position_of_a_run_that_never_started(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """`--new` сбрасывает запись и проходит выбор заново (§4): вопроса «продолжить?» нет,
-    а дальше начинается обычный путь с поиском (тут он упирается в ненастроенный Prowlarr).
+    """`--new` проходит выбор заново (§4): вопроса «продолжить?» нет, дальше обычный путь
+    с поиском (тут он упирается в ненастроенный Prowlarr).
+
+    А вот стирать сохранённое место наперёд ему нечем: показ не начался — позиция цела.
+    Раньше запись сносилась первой же строкой команды, и любой обрыв после этого уносил
+    её насовсем.
     """
     remember(pos=2467.0, dur=5978.0)
     monkeypatch.setattr("builtins.input", lambda prompt="": "")
 
     assert cli.main(["моана", "2", "--new"]) == 2
 
-    assert State.load().get(KEY) is None
+    kept = State.load().get(KEY)
+    assert kept is not None and kept.pos == 2467.0, "показ не начался — позиция на месте"
     assert "остановились" not in capsys.readouterr().out
 
 
