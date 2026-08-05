@@ -336,6 +336,26 @@ def test_only_what_the_receiver_has_passed_is_swept_out_of_ram(tmp_path: Path) -
     assert len(list(out.glob("v*.ts"))) == 20, "в начале показа не удаляется ничего"
 
 
+def test_the_lead_over_the_receiver_is_measurable(tmp_path: Path) -> None:
+    """§6 SPEC-v2: запас показа — измеряемая величина, а не ощущение.
+
+    Край упаковки в секундах фильма и вес tmpfs — единственное, чем провал устойчивости
+    отличается от «показалось»: приёмник встаёт ровно тогда, когда запас сходит в ноль.
+    """
+    from torrcast.stream import Feed, Packer
+
+    out = hls_dir(str(tmp_path / "hls"))
+    feed = Feed(source="", audio=0, out=out, duration=7200.0)
+    assert feed.front() == 0.0 and feed.weight() == 0, "упаковки нет — и запаса нет"
+
+    for slot in range(30, 36):
+        (out / f"v{slot}.ts").write_bytes(b"x" * 1000)
+    feed.packer = Packer(proc=None, out=out, first=30)  # type: ignore[arg-type]
+
+    assert feed.front() == 144.0, "готовы сегменты 30…35, то есть упаковано до 144-й секунды"
+    assert feed.weight() == 6000
+
+
 def test_a_real_ca_signed_cert_is_verified_against_the_system_store(
     tls: tuple[str, str], tmp_path: Path
 ) -> None:

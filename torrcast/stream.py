@@ -87,7 +87,7 @@ _UNIT_NAME: Final = "torrcast-play"
 #: Описание юнита несёт ключ показа — по нему ``status`` знает, что играет (§2.5).
 _UNIT_TAG: Final = "torrcast: "
 #: Что пробрасывается в юнит: без этого показ уедет на прод-пути вместо dev-овских.
-_PASS_ENV: Final = ("TORRCAST_CONFIG", "TORRCAST_STATE")
+_PASS_ENV: Final = ("TORRCAST_CONFIG", "TORRCAST_STATE", "TORRCAST_TRACE")
 
 
 def bitrate_mbit(size: int, duration: float) -> float:
@@ -680,6 +680,25 @@ class Feed:
         for path in _paths(self.out):
             if 0 <= segment_slot(path.name) < edge:
                 path.unlink(missing_ok=True)
+
+    def front(self) -> float:
+        """Докуда упаковано, секунды от начала фильма: конец последнего готового сегмента.
+
+        Разница между этим числом и позицией приёмника — весь запас показа. Он и есть
+        предмет §6 SPEC-v2: пока запас положителен, приёмнику всегда есть что взять, а
+        как только он сходит в ноль — приёмник встаёт в BUFFERING.
+        """
+        packer = self.packer
+        return 0.0 if packer is None else slot_time(packer.frontier() + 1)
+
+    def weight(self) -> int:
+        """Сколько байт сегментов лежит в tmpfs прямо сейчас (§6: рост без предела —
+        недопустим, а это единственный способ увидеть пик своими глазами)."""
+        total = 0
+        for path in _paths(self.out):
+            with contextlib.suppress(OSError):  # вычистило окном прямо сейчас
+                total += path.stat().st_size
+        return total
 
     def trouble(self) -> str:
         """Почему показ дальше не идёт, если не идёт; пусто — всё в порядке.

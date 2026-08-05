@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import io
+import os
 import re
 import signal
 import sys
@@ -80,6 +81,10 @@ WATCH_SECONDS = 10.0
 #: Как часто показ пишет в журнал, что видит приёмник (§2.1 SPEC-v2): позиция и общее
 #: время — единственное доказательство того, что на экране есть таймлайн (§9).
 SAY_SECONDS = 30.0
+#: ``TORRCAST_TRACE=1`` — писать в журнал запас показа на каждом опросе (раз в 2 с):
+#: позиция приёмника, край упаковки, разница между ними и вес tmpfs. Это инструмент §6
+#: SPEC-v2: провал устойчивости видно только в динамике запаса, а раз в 30 с он теряется.
+TRACE_ENV = "TORRCAST_TRACE"
 #: Сколько терпим паузу на пульте, прежде чем погасить упаковку (§6 SPEC-v2): дальше
 #: сегменты копились бы в tmpfs впустую — приёмник их не забирает.
 PAUSE_SECONDS = 60.0
@@ -930,6 +935,7 @@ def _hold(receiver: Receiver, feed: Feed, watch: Watch | None = None) -> None:
     именно завершается — под SIGSTOP'ом приёмник намертво вис в BUFFERING.
     """
     paused, said, seen = 0.0, 0.0, False
+    trace = bool(os.environ.get(TRACE_ENV))
     while True:
         if trouble := feed.trouble():
             # Убитый сигналом ffmpeg ничего сказать не успевает — не выдумываем за него.
@@ -943,6 +949,14 @@ def _hold(receiver: Receiver, feed: Feed, watch: Watch | None = None) -> None:
             # Картинка на экране — теперь CLI имеет право сказать «старт NN с» (§4).
             seen = True
             mark_playing(feed.out)
+        if trace:
+            front = feed.front()
+            print(
+                f"запас: показ {position.pos:.0f} · упаковано {front:.0f} · "
+                f"впереди {front - position.pos:.0f} с · {feed.weight() / 1e6:.0f} МБ · "
+                f"{position.state}",
+                flush=True,
+            )
         if time.monotonic() - said >= SAY_SECONDS:
             # Что видит приёмник, тем и отчитываемся: длительность и позиция — это ровно
             # ``duration`` и ``current_time`` из MEDIA_STATUS, снятые владеющим сендером.
