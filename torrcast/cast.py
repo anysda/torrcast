@@ -44,6 +44,8 @@ _NUM_RE = re.compile(r"(\d+)\.ts$")
 #: Строки ffmpeg, означающие, что кусок не доехал: для приёмки это разрыв.
 _LOST_RE = re.compile(r"Failed to open segment|Error opening|Cannot reload|skipping", re.I)
 _CORS_HEADER = "Access-Control-Allow-Origin"
+#: Причины IDLE, при которых LOAD надо повторить, а не ждать погоды (см. ``_settle``).
+_LOAD_AGAIN = frozenset({"ERROR", "INTERRUPTED"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -122,6 +124,8 @@ class ChromecastReceiver:
     START_TIMEOUT = 90.0
     #: LOAD ERROR лечится повтором LOAD (рецепт kinocast на этом же ТВ: ровно 2 попытки).
     LOAD_RETRIES = 2
+    #: Пауза между повторами LOAD: ресиверу нужно время закрыть прошлую сессию.
+    LOAD_PAUSE = 5.0
     #: app_id Default Media Receiver: чужой app = каст сняли пультом, показ окончен.
     MEDIA_APP = "CC1AD845"
     #: Неподвижный BUFFERING дольше этого — приёмник завис (см. :meth:`_nudge`).
@@ -238,18 +242,30 @@ class ChromecastReceiver:
         controller.block_until_active(timeout=30)
 
     def _settle(self) -> bool:
-        """Дождаться, пока приёмник действительно заиграет; LOAD ERROR — повторить LOAD."""
+        """Дождаться, пока приёмник действительно заиграет; отказ LOAD — повторить LOAD.
+
+        ``IDLE`` без причины — это «ещё грузится», его терпим до :data:`START_TIMEOUT`.
+        А вот причина говорит, что LOAD не взяли, и ждать бессмысленно:
+
+        * ``ERROR`` — ресивер не смог начать (рецепт kinocast, ровно 2 попытки);
+        * ``INTERRUPTED`` — LOAD перебили чужой командой на этот же ресивер. Замерено
+          05-08-2026: при перепаковке после перемотки за окно приёмник простоял так все
+          90 с и показ погиб, хотя сегменты лежали на месте.
+
+        Повторяем не чаще :data:`LOAD_PAUSE` — иначе две попытки сгорают за две секунды.
+        """
         deadline = time.monotonic() + self.START_TIMEOUT
-        retries = 0
+        tried = time.monotonic()
         while time.monotonic() < deadline:
             time.sleep(1.0)
             status = self._status()
             if status.player_state in ("PLAYING", "BUFFERING"):
                 return True
-            if status.idle_reason == "ERROR":
-                if retries >= self.LOAD_RETRIES:
+            if status.idle_reason in _LOAD_AGAIN and time.monotonic() - tried >= self.LOAD_PAUSE:
+                if self._reloads >= self.LOAD_RETRIES:
                     return False
-                retries += 1
+                self._reloads += 1
+                tried = time.monotonic()
                 self._load()
         return False
 

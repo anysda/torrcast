@@ -399,17 +399,24 @@ class Packer:
         return cls(proc=proc, out=out, window=window, log=log)
 
     def manifest(self, timeout: float = 30.0) -> Path:
-        """Дождаться первого манифеста; смерть ffmpeg по дороге — честная ошибка (§5)."""
+        """Дождаться манифеста **с первым сегментом**; смерть ffmpeg по дороге — честная
+        ошибка (§5). Пустой манифест приёмнику отдавать нельзя: LOAD на плейлист без
+        сегментов ресивер закрывает, и показ гибнет там, где ждать оставалось секунду.
+        """
         path = self.out / "index.m3u8"
         deadline = time.monotonic() + timeout
-        while not path.exists():
+        while True:
+            try:
+                if ".ts" in path.read_text(encoding="utf-8"):
+                    return path
+            except OSError:
+                pass
             code = self.proc.poll()
             if code is not None:
                 raise InfraError(f"упаковка не запустилась: {self.why()}")
             if time.monotonic() >= deadline:
                 raise InfraError(f"ffmpeg не отдал манифест за {timeout:.0f} с")
             time.sleep(0.2)
-        return path
 
     def prune(self, played: float = -1.0, keep: float = 120.0) -> None:
         """Удалить куски, которые приёмник уже прошёл (с запасом ``keep`` секунд).
