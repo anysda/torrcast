@@ -22,11 +22,14 @@ from torrcast.cli import _Clock, _play
 from torrcast.state import Config, Entry, State
 from torrcast.stream import (
     HLS_SEGMENT_SECONDS,
+    PACK_PLAYLIST,
     Feed,
     Packer,
     ffmpeg_hls_command,
     hls_base,
     hls_dir,
+    mark_playing,
+    playing_flag,
     slot_at,
     slot_time,
 )
@@ -230,6 +233,37 @@ def test_a_pause_on_the_remote_stops_packing(
         "ffmpeg завершён, а не остановлен сигналом"
     )
     assert "пауза на пульте" in capsys.readouterr().out
+
+
+def test_the_show_directory_is_left_clean_after_the_stop(tmp_path: Path) -> None:
+    """После остановки в каталоге показа не остаётся ничего — включая флажок картинки.
+
+    `cast stop` оставлял в /dev/shm/torrcast пустой playing.flag: сегменты и плейлист
+    убирались, а доказательство прошлой картинки — нет.
+    """
+    feed = _feed_with_segments(tmp_path)
+    (feed.out / PACK_PLAYLIST).write_text("#EXTM3U\n")
+    mark_playing(feed.out)
+
+    feed.stop()
+
+    assert list(feed.out.iterdir()) == [], "каталог показа пуст, мусора не осталось"
+
+
+def test_a_repack_in_the_middle_keeps_the_proof_of_the_picture(tmp_path: Path) -> None:
+    """Флажок снимается в конце показа, а не в середине.
+
+    Перемотка и обрыв упаковки перезапускают ffmpeg (:meth:`Feed.restart`), но показ при
+    этом тот же самый и картинка на экране никуда не делась — CLI своё «старт NN с» уже
+    сказал (§4 SPEC-v2). Снимать доказательство на каждом перезапуске значило бы врать.
+    """
+    feed = _feed_with_segments(tmp_path)
+    mark_playing(feed.out)
+    assert feed.packer is not None
+
+    feed.packer.stop(keep_files=True)  # так гаснет упаковка между кусками фильма
+
+    assert playing_flag(feed.out).exists(), "показ идёт — флажок на месте"
 
 
 def test_a_finished_packer_is_not_a_crash_but_a_serial_one_gives_up(

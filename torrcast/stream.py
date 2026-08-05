@@ -741,10 +741,18 @@ class Feed:
             self.packer.halt()
 
     def stop(self) -> None:
+        """Показ окончен: упаковка гаснет, каталог показа пустеет.
+
+        Флажок «картинка на экране» снимается ровно здесь и больше нигде: пока показ идёт,
+        он и есть доказательство картинки для CLI (§4 SPEC-v2), поэтому перезапуски
+        упаковки (:meth:`restart`, перемотка) его не трогают. А после остановки это уже
+        не доказательство, а пустой файл, который переживал `cast stop` в tmpfs.
+        """
         if self.packer is not None:
             self.packer.stop()
         for junk in (*_paths(self.out), self.out / PACK_PLAYLIST):
             junk.unlink(missing_ok=True)
+        forget_playing(self.out)
 
     def _say(self, text: str) -> None:
         if self.log is not None:
