@@ -44,6 +44,8 @@ _NUM_RE = re.compile(r"(\d+)\.ts$")
 #: Строки ffmpeg, означающие, что кусок не доехал: для приёмки это разрыв.
 _LOST_RE = re.compile(r"Failed to open segment|Error opening|Cannot reload|skipping", re.I)
 _CORS_HEADER = "Access-Control-Allow-Origin"
+#: На сколько секунд вперёд декодера mock позволяет себе спрашивать сегменты.
+_AUDIT_AHEAD = 8.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,8 +67,8 @@ class Position:
 class Receiver(Protocol):
     """Что нам нужно от приёмника — и ничего сверх того."""
 
-    def play(self, url: str, title: str = "") -> None:
-        """Начать воспроизведение HLS-манифеста."""
+    def play(self, url: str, title: str = "", at: float = 0.0) -> None:
+        """Начать воспроизведение HLS-манифеста с секунды ``at``."""
 
     def stop(self) -> None:
         """Снять каст."""
@@ -153,7 +155,10 @@ class ChromecastReceiver:
     #: ⚠️ Порог намеренно велик: штатный ребуфер на живом Q70D укладывается в 1–3 с, а
     #: настоящее зависание длится бесконечно (замерено: 60+ с без единого запроса).
     #: Мелкий порог превращает обычный ребуфер в нудж, а каждый нудж стоит перемотки.
-    STALL_SECONDS = 20.0
+    #: С упаковкой по требованию (§2.1 SPEC-v2) порог обязан быть ещё и больше того, что
+    #: раздача держит запрос сегмента (``Feed.wait``): перемотка в неупакованное место —
+    #: это законный BUFFERING на секунды, и лечить его нуджем значило бы мешать самим себе.
+    STALL_SECONDS = 45.0
     #: Шаг прыжка вперёд на каждом нудже: мимо куска, на котором приёмник споткнулся.
     STALL_SKIP = 8.0
 
@@ -170,26 +175,28 @@ class ChromecastReceiver:
         self._stall_hits = 0
         self._reloads = 0
         self._started = False
+        #: С какой секунды фильма грузили показ: повтор LOAD должен попадать туда же.
+        self._at = 0.0
 
-    def play(self, url: str, title: str = "") -> None:
-        """Начать показ и **дождаться картинки**, а не просто отправить LOAD.
+    def play(self, url: str, title: str = "", at: float = 0.0) -> None:
+        """Начать показ с секунды ``at`` и **дождаться картинки**, а не просто отправить LOAD.
 
         Без ожидания показ гаснет через секунду после команды: сторож снимает позицию
         сразу после ``play_media``, видит закономерный IDLE и считает, что играть нечего.
 
-        Зовётся не только в начале: после перепаковки потока (перемотка назад глубже окна,
-        возврат с паузы) поток начинается заново — и счётчики сторожа тоже.
+        ``at`` — это resume (§2.3): манифест описывает весь фильм, поэтому продолжение с
+        середины делается не перепаковкой «с нуля потока», а обычным LOAD с позицией.
 
-        Повторный LOAD (перепаковка) ждёт дольше первого: :data:`REVIVE_TIMEOUT` против
-        :data:`START_TIMEOUT`. Приёмник после 404 капризен, и лишняя минута терпения стоит
-        дешевле погасшего показа.
+        Зовётся один раз за показ. Перемотка сюда больше не приходит: приёмник видит весь
+        фильм и мотает сам, а упаковка идёт следом за его запросами (§2.1 SPEC-v2).
         """
         self._url, self._title = url, title or "torrcast"
-        self._peak, self._reloads, self._stall_hits = 0.0, 0, 0
+        self._peak, self._reloads, self._stall_hits = at, 0, 0
         self._stall_at, self._stall_since = -1.0, 0.0
         budget = self.REVIVE_TIMEOUT if self._started else self.START_TIMEOUT
         self._started = True
-        self._load()
+        self._at = at
+        self._load(at)
         if self._settle(budget):
             return
         raise InfraError(f"ТВ {self.address} не начал показ: {self._why()}")
@@ -306,7 +313,7 @@ class ChromecastReceiver:
                 left = deadline - time.monotonic()
                 print(f"LOAD не взяли ({self._why()}) — гружу заново, ещё {left:.0f} с", flush=True)
                 self._restart_app()
-                self._load()
+                self._load(self._at)
         return False
 
     def _restart_app(self) -> None:
@@ -381,12 +388,13 @@ class MockReceiver:
         self._err: IO[bytes] | None = None
         self._pos = Position(0.0, 0.0, False)
         self._done = threading.Event()
-        self._seen: set[str] = set()
+        self._start = 0.0
         self._last = -1
 
-    def play(self, url: str, title: str = "") -> None:
+    def play(self, url: str, title: str = "", at: float = 0.0) -> None:
         self._probe(url)  # первый ответ проверяем сами: TLS, доступность, CORS
         self._err = tempfile.TemporaryFile()  # noqa: SIM115 — живёт всё воспроизведение
+        self._start = at
         # ⚠️ Опции TLS ставятся только под https-адрес: на http ffmpeg не «игнорирует
         # лишнее», а падает с «Option tls_verify not found» ещё до открытия входа —
         # то есть на дефолтном транспорте (§5 SPEC-v2) mock не декодировал бы ничего.
@@ -394,6 +402,7 @@ class MockReceiver:
         command = [
             "ffmpeg", "-hide_banner", "-nostats", "-loglevel", "warning",
             *(tls if url.startswith("https://") else []),
+            *(["-ss", f"{at:.3f}"] if at > 0 else []),
             "-i", url, "-progress", "pipe:1", "-f", "null", "-",
         ]  # fmt: skip
         try:
@@ -446,7 +455,9 @@ class MockReceiver:
         for line in proc.stdout:
             if line.startswith("out_time_us="):
                 with contextlib.suppress(ValueError):
-                    self._pos = Position(int(line[12:]) / 1e6, self._pos.dur, True)
+                    # Позиция абсолютная, как у живого приёмника: показ мог начаться
+                    # с середины фильма (resume), а декодер считает время от своего старта.
+                    self._pos = Position(self._start + int(line[12:]) / 1e6, self._pos.dur, True)
         proc.wait()
         self._done.set()
         self.report.decoded = self._pos.pos
@@ -457,31 +468,38 @@ class MockReceiver:
         self._pos = Position(self._pos.pos, self._pos.dur, False)
 
     def _audit(self, url: str) -> None:
-        """Сегменты забираются по сети, как ТВ: HEAD на каждый новый — CORS, размер, нумерация."""
+        """Сегменты забираются по сети, как ТВ: HEAD на каждый — CORS, размер, нумерация.
+
+        ⚠️ Идти по манифесту подряд и сразу нельзя: он описывает **весь фильм**, а файлы
+        появляются там, где показ идёт прямо сейчас (§2.1 SPEC-v2). Спросить всё разом —
+        значит потребовать упаковать фильм целиком, чего tmpfs и не выдержит. Поэтому
+        mock, как и живой приёмник, спрашивает только то, до чего дошёл декодер.
+        """
         session, base = self._session(), url.rsplit("/", 1)[0]
-        while True:
-            # Последний проход делаем уже после конца показа: хвост манифеста тоже наш.
-            finished = self._done.wait(2.0)
-            try:
-                body = session.get(url, timeout=30)
-                self._check(body)
-                segments, _ = parse_manifest(body.text)
-            except Exception:  # пока идёт показ, манифест обязан отдаваться
-                segments = []
-                self.report.gaps += 0 if finished else 1
-            self.report.duration = max(self.report.duration, sum(s for _, s in segments))
-            for name, seconds in segments:
-                if name in self._seen:
-                    continue
-                self._seen.add(name)
-                self.report.segments += 1
-                number = _NUM_RE.search(name)
-                if number and self._last >= 0 and int(number.group(1)) != self._last + 1:
-                    self.report.gaps += 1
-                self._last = int(number.group(1)) if number else self._last
-                self._measure(session, f"{base}/{name}", seconds)
-            if finished:
+        try:
+            body = session.get(url, timeout=30)
+            self._check(body)
+            segments, _ = parse_manifest(body.text)
+        except Exception:  # без манифеста показа нет вовсе — это уже поймал _probe
+            self._done.set()
+            return
+        self.report.duration = sum(seconds for _, seconds in segments)
+        at = 0.0
+        for name, seconds in segments:
+            end = at + seconds
+            at = end
+            if end < self._start:  # до этого места показ и не доходил
+                continue
+            while not self._done.is_set() and self._pos.pos + _AUDIT_AHEAD < end:
+                self._done.wait(0.5)
+            if self._done.is_set():
                 return
+            self.report.segments += 1
+            number = _NUM_RE.search(name)
+            if number and self._last >= 0 and int(number.group(1)) != self._last + 1:
+                self.report.gaps += 1
+            self._last = int(number.group(1)) if number else self._last
+            self._measure(session, f"{base}/{name}", seconds)
 
     def _measure(self, session: Any, url: str, seconds: float) -> None:
         try:

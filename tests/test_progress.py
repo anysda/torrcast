@@ -53,16 +53,22 @@ def test_watchdog_writes_position_not_more_often_than_the_interval() -> None:
     assert saved().updated, "метка времени обязательна (§4)"
 
 
-def test_watchdog_counts_position_from_the_resume_offset() -> None:
-    """Приёмник считает время от начала своего потока, а после resume поток начинается
-    с ``-ss offset`` — в состояние обязана лечь абсолютная позиция в фильме.
+def test_watchdog_takes_the_position_as_absolute_film_time() -> None:
+    """§2.1 SPEC-v2: позиция приёмника — абсолютное время фильма, пересчитывать нечего.
+
+    Манифест описывает весь фильм, а ``-copyts`` оставляет в сегментах исходные метки,
+    поэтому приёмник считает от начала фильма, с какого бы места ни шла упаковка. Ноль —
+    единственное, что игнорируется: так приёмник отвечает, пока ещё не начал считать, и
+    затирать им честную позицию нельзя.
     """
     entry = remember(pos=2400.0, dur=5978.0)
-    watch = cli.Watch(key=KEY, entry=entry, offset=2400.0, every=0.0)
+    watch = cli.Watch(key=KEY, entry=entry, every=0.0)
 
-    watch.see(65.0)
-
+    watch.see(2465.0)
     assert saved().pos == 2465.0
+
+    watch.see(0.0)
+    assert saved().pos == 2465.0, "нулём с непрогретого приёмника позицию не теряем"
 
 
 def test_watchdog_marks_the_movie_watched_at_95_percent() -> None:

@@ -18,7 +18,7 @@ import sys
 import tempfile
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Final
 from urllib.parse import quote
@@ -35,6 +35,7 @@ __all__ = [
     "HLS_SEGMENT_SECONDS",
     "RUNTIME_GUESS",
     "AudioTrack",
+    "Feed",
     "HlsServer",
     "Media",
     "Packer",
@@ -49,16 +50,24 @@ __all__ = [
     "parse_manifest",
     "pick_video_file",
     "probe",
-    "segment_start",
+    "segment_name",
+    "segment_slot",
+    "slot_at",
+    "slot_time",
     "start_play_unit",
     "stop_play_unit",
     "unit_active",
     "unit_key",
     "unit_why",
+    "vod_manifest",
 ]
 
 #: Длительность сегмента HLS, секунды (§3 — зафиксировано, не настраивается).
 HLS_SEGMENT_SECONDS: Final = 4
+#: Плейлист самой упаковки. Приёмнику он не отдаётся: тот получает манифест на весь
+#: фильм (:func:`vod_manifest`), а этот нужен только ffmpeg'у как выходной файл.
+PACK_PLAYLIST: Final = "pack.m3u8"
+_SEGMENT_RE: Final = re.compile(r"v(\d+)\.ts")
 #: Аудио всегда перекодируется: passthrough AC3/DTS запрещён (§3).
 AUDIO_CODEC: Final = "aac"
 AUDIO_BITRATE: Final = "192k"
@@ -298,29 +307,97 @@ def pick_video_file(files: list[TorrFile]) -> TorrFile:
     return max(videos, key=lambda f: f.size)
 
 
+def slot_at(seconds: float) -> int:
+    """Номер сегмента сетки, в который попадает секунда фильма."""
+    return max(0, int(seconds // HLS_SEGMENT_SECONDS))
+
+
+def slot_time(slot: int) -> float:
+    """Секунда фильма, с которой начинается сегмент сетки."""
+    return slot * float(HLS_SEGMENT_SECONDS)
+
+
+def segment_name(slot: int) -> str:
+    """Имя файла сегмента. Имя = место в фильме, а не номер по порядку упаковки — это и
+    делает возможным манифест на весь фильм при упаковке по требованию (§2.1 SPEC-v2).
+    """
+    return f"v{slot}.ts"
+
+
+def segment_slot(name: str) -> int:
+    """Слот по имени файла; ``-1`` — имя не наше."""
+    found = _SEGMENT_RE.fullmatch(name)
+    return int(found.group(1)) if found else -1
+
+
+def vod_manifest(duration: float) -> str:
+    """Манифест VOD на **весь фильм**: сетка по :data:`HLS_SEGMENT_SECONDS` и ``ENDLIST``.
+
+    Это и есть ответ на §2.1 SPEC-v2. Приёмнику неоткуда узнать длительность, кроме
+    манифеста: у скользящего live-плейлиста её нет вовсе, поэтому ТВ считал показ эфиром
+    и не давал ни таймлайна, ни перемотки. Здесь длительность — сумма ``EXTINF``, то есть
+    ровно длина фильма, и перемотка пультом разрешена в любую его точку.
+
+    Манифест **статический**: он не зависит от того, что упаковано прямо сейчас, и
+    перечисляет сегменты, которых на диске ещё нет. Целый фильм в tmpfs не влезает — но
+    приёмнику и не нужен файл раньше, чем он его попросит: за это отвечает :class:`Feed`,
+    которая на запрос неупакованного места перезапускает упаковку оттуда.
+
+    Проверено на живом Q70D 05-08-2026: ``duration`` в MEDIA_STATUS = длине манифеста,
+    ``seek`` в произвольную точку отрабатывает за доли секунды и показ продолжается.
+    """
+    whole = int(duration // HLS_SEGMENT_SECONDS)
+    rest = duration - whole * HLS_SEGMENT_SECONDS
+    lines = [
+        "#EXTM3U",
+        "#EXT-X-VERSION:3",
+        f"#EXT-X-TARGETDURATION:{HLS_SEGMENT_SECONDS}",
+        "#EXT-X-MEDIA-SEQUENCE:0",
+        "#EXT-X-PLAYLIST-TYPE:VOD",
+    ]
+    for slot in range(whole):
+        lines += [f"#EXTINF:{float(HLS_SEGMENT_SECONDS):.6f},", segment_name(slot)]
+    if rest >= 0.05:  # хвост короче сегмента: без него длительность врала бы на эти секунды
+        lines += [f"#EXTINF:{rest:.6f},", segment_name(whole)]
+    lines.append("#EXT-X-ENDLIST")
+    return "\n".join(lines) + "\n"
+
+
 def ffmpeg_hls_command(
     source_url: str,
     audio_index: int,
     out_dir: str,
-    start_pos: float = 0.0,
+    start_slot: int = 0,
     readrate: float = 1.0,
     burst: float = 0.0,
 ) -> list[str]:
-    """Команда ffmpeg для HLS (§3). Перемотка и resume = рестарт с ``-ss``, манифест с нуля.
+    """Команда ffmpeg для HLS (§3). Пакует с сегмента ``start_slot`` и кладёт куски под
+    именами их мест в фильме — так упакованное ложится в статический манифест (§2.1).
 
-    ``EXT-X-PLAYLIST-TYPE:EVENT`` обязателен: без него растущий манифест выглядит как
-    live, и приёмник по стандарту стартует за три сегмента до конца — то есть с середины
-    фильма. С EVENT и ТВ, и ffmpeg начинают с первого сегмента (проверено).
-    ``temp_file`` — чтобы наружу не попал недописанный сегмент или манифест.
+    Два флага держат сетку:
+
+    * ``-copyts`` — временные метки остаются исходными, то есть абсолютным временем
+      фильма. Без него ffmpeg сбрасывает их в ноль на каждом ``-ss``, и приёмник после
+      перепаковки показывал бы позицию от начала куска, а не от начала фильма.
+    * ``split_by_time`` — резать строго по 4 с, а не по ключевым кадрам. Ключевые кадры
+      источника ложатся как попало (на «Моане 2» от 1.0 до 11.5 с), и сегменты
+      «сколько дал GOP» разъезжаются с сеткой манифеста тем сильнее, чем дальше от
+      начала. С ним длительность сегмента ровно 4.000 с, и место сегмента в фильме
+      считается арифметикой, а не гаданием. Плата — сегмент начинается не с ключевого
+      кадра, поэтому ``independent_segments`` больше не ставится: это было бы враньё.
+
+    ⚠️ ``-ss`` перед ``-i`` уводит ffmpeg на ключевой кадр **не позже** запрошенного
+    места, поэтому упаковка начинается на ``δ`` секунд раньше сетки (δ ≤ длины GOP).
+    Ошибка постоянная: она не копится, потому что дальше режет таймер, а не GOP.
 
     Темп упаковки (§6 SPEC-v2) держится **одним ffmpeg'ом и без пауз процесса**:
 
     * ``-readrate 1`` — читать вход со скоростью реального времени. Придержать упаковку
       сигналом (SIGSTOP) больше не нужно: она сама не убегает дальше ``burst``.
     * ``-readrate_initial_burst`` (ffmpeg ≥ 6.1) — первые ``burst`` секунд читаются на
-      полной скорости. Без него ``readrate 1`` дважды вреден: первый сегмент готов не
-      раньше своей же длительности (на «Моане 2» ключевые кадры дают до 12 с сегменты),
-      а дальше приёмник идёт вровень с упаковкой и буферится на каждом стыке.
+      полной скорости. Без него ``readrate 1`` дважды вреден: приёмник идёт вровень с
+      упаковкой и буферится на каждом стыке, а после перемотки ему разом нужны шесть
+      сегментов (замерено на Q70D: v50…v55 за одну секунду).
 
     Отставание ffmpeg наверстывает сам: его планка — ``wallclock * readrate + burst``, и
     пока текущий dts ниже планки, он читает на полной скорости (``readrate_sleep`` в
@@ -332,15 +409,17 @@ def ffmpeg_hls_command(
         command += ["-readrate", f"{readrate:g}"]
         if burst > 0:
             command += ["-readrate_initial_burst", f"{burst:g}"]
-    if start_pos > 0:
-        command += ["-ss", f"{start_pos:.3f}"]
+    command += ["-copyts"]
+    if start_slot > 0:
+        command += ["-ss", f"{slot_time(start_slot):.3f}"]
     command += ["-i", source_url, "-map", "0:v:0", "-map", f"0:a:{audio_index}"]
     command += (
         f"-c:v copy -c:a {AUDIO_CODEC} -ac {AUDIO_CHANNELS} -b:a {AUDIO_BITRATE} "
-        f"-f hls -hls_time {HLS_SEGMENT_SECONDS} -hls_list_size 0 -hls_playlist_type event "
-        "-hls_segment_type mpegts -hls_flags independent_segments+temp_file"
+        f"-f hls -hls_time {HLS_SEGMENT_SECONDS} -hls_list_size 0 "
+        "-hls_segment_type mpegts -hls_flags split_by_time+temp_file "
+        f"-start_number {start_slot} -hls_segment_filename {out_dir.rstrip('/')}/v%d.ts"
     ).split()
-    command.append(f"{out_dir.rstrip('/')}/index.m3u8")
+    command.append(f"{out_dir.rstrip('/')}/{PACK_PLAYLIST}")
     return command
 
 
@@ -358,116 +437,55 @@ def parse_manifest(text: str) -> tuple[list[tuple[str, float]], bool]:
     return segments, "#EXT-X-ENDLIST" in text
 
 
-def segment_start(segments: list[tuple[str, float]], name: str) -> float:
-    """С какой секунды потока начинается сегмент ``name``; ``-1`` — такого в манифесте нет.
-
-    Нужно ровно для одного: приёмник попросил сегмент, который окно уже вычистило
-    (перемотка назад глубже окна) — и по имени сегмента мы узнаём, с какой секунды
-    человек хочет смотреть, чтобы перепаковать поток именно оттуда (§6 SPEC-v2).
-    """
-    total = 0.0
-    for item, seconds in segments:
-        if item == name:
-            return total
-        total += seconds
-    return -1.0
-
-
 def hls_dir(path: str) -> Path:
     """Чистый каталог сегментов. Это tmpfs: фильм на диск не пишем (§3, §1)."""
     directory = Path(path)
     directory.mkdir(parents=True, exist_ok=True)
-    for junk in directory.glob("index*"):
+    for junk in (*directory.glob("v*.ts"), *directory.glob("*.m3u8")):
         junk.unlink(missing_ok=True)
     return directory
 
 
 @dataclass(slots=True)
 class Packer:
-    """Живая упаковка потока в HLS: процесс ffmpeg + окно сегментов в tmpfs."""
+    """Один прогон упаковки: процесс ffmpeg, который пакует фильм с сегмента ``first``."""
 
     proc: subprocess.Popen[bytes]
     out: Path
-    #: Сколько сегментов держим; старые удаляются, фильм целиком в RAM не влезет.
-    window: int = 45
+    #: С какого сегмента сетки начат этот прогон: всё, что раньше, паковал не он.
+    first: int = 0
     log: Any = None
-    #: Упаковку погасили намеренно (:meth:`halt`) — смерть процесса не авария.
+    #: Упаковку погасили намеренно (пауза на пульте) — смерть процесса не авария.
     halted: bool = False
 
     @classmethod
-    def start(cls, command: list[str], out: Path, window: int = 45) -> Packer:
+    def start(cls, command: list[str], out: Path, first: int = 0) -> Packer:
         log = tempfile.TemporaryFile()  # noqa: SIM115 — живёт всё воспроизведение
         try:
             proc = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=log)
         except FileNotFoundError as exc:
             raise InfraError("ffmpeg не установлен") from exc
-        return cls(proc=proc, out=out, window=window, log=log)
+        return cls(proc=proc, out=out, first=first, log=log)
 
-    def manifest(self, timeout: float = 30.0) -> Path:
-        """Дождаться манифеста **с первым сегментом**; смерть ffmpeg по дороге — честная
-        ошибка (§5). Пустой манифест приёмнику отдавать нельзя: LOAD на плейлист без
-        сегментов ресивер закрывает, и показ гибнет там, где ждать оставалось секунду.
+    def frontier(self) -> int:
+        """Последний готовый сегмент этого прогона; ``first - 1`` — ещё ничего не готово.
+
+        Считается по файлам, а не по плейлисту ffmpeg: файл появляется атомарно
+        (``temp_file`` пишет рядом и переименовывает), значит существование = готовность.
         """
-        path = self.out / "index.m3u8"
-        deadline = time.monotonic() + timeout
-        while True:
-            try:
-                if ".ts" in path.read_text(encoding="utf-8"):
-                    return path
-            except OSError:
-                pass
-            code = self.proc.poll()
-            if code is not None:
-                raise InfraError(f"упаковка не запустилась: {self.why()}")
-            if time.monotonic() >= deadline:
-                raise InfraError(f"ffmpeg не отдал манифест за {timeout:.0f} с")
-            time.sleep(0.2)
-
-    def prune(self, played: float = -1.0, keep: float = 120.0) -> None:
-        """Удалить куски, которые приёмник уже прошёл (с запасом ``keep`` секунд).
-
-        ⚠️ Окно в штуках — ловушка: длину сегмента задаёт ключевой кадр источника, и на
-        «Моане 2» она гуляла от 1.0 до 11.5 с. «45 штук» оказывались то четырьмя минутами,
-        то сорока пятью секундами — и куски исчезали у приёмника из-под носа, а ffmpeg
-        молча их пропускал. Поэтому режем по времени и только позади приёмника; счёт в
-        штуках остаётся запасным вариантом на приёмник, который позицию не отдаёт.
-        """
-        if played < 0:
-            if self.window > 0:
-                for old in sorted(self.out.glob("*.ts"), key=_segment_number)[: -self.window]:
-                    old.unlink(missing_ok=True)
-            return
-        edge, end = played - keep, 0.0
-        for name, seconds in self.segments():
-            end += seconds
-            if end >= edge:
-                return
-            (self.out / name).unlink(missing_ok=True)
+        slots = [s for s in map(segment_slot, _names(self.out)) if s >= self.first]
+        return max(slots, default=self.first - 1)
 
     def halt(self) -> None:
         """Погасить упаковку, **не трогая уже упакованное**: приёмник на паузе, и копить
-        сегменты в tmpfs незачем. Возобновление — новый ffmpeg с ``-ss`` (см. ``_hold``).
+        сегменты в tmpfs незачем. Возобновление — новый прогон (:meth:`Feed.segment`).
 
         Раньше на этом месте стояла пауза сигналом (SIGSTOP). Она и оказалась классом
         проблемы §6 SPEC-v2: манифест замирает, а приёмник намертво виснет в BUFFERING —
         держит коннект и не запрашивает ничего. Поэтому процесс именно завершается.
         """
         self.halted = True
-        if self.proc.poll() is None:
-            self.proc.terminate()
-            with contextlib.suppress(subprocess.TimeoutExpired):
-                self.proc.wait(timeout=5)
-
-    def packed(self) -> float:
-        """Сколько секунд потока уже упаковано: длина манифеста, а не позиция приёмника."""
-        return sum(seconds for _, seconds in self.segments())
-
-    def segments(self) -> list[tuple[str, float]]:
-        """Что сейчас в манифесте: пары (сегмент, длительность)."""
-        try:
-            return parse_manifest((self.out / "index.m3u8").read_text(encoding="utf-8"))[0]
-        except OSError:
-            return []
+        self.stop(keep_files=True)
 
     def poll(self) -> int | None:
         return self.proc.poll()
@@ -480,20 +498,179 @@ class Packer:
         lines = [ln for ln in self.log.read().decode("utf-8", "replace").splitlines() if ln.strip()]
         return lines[-1][:120] if lines else "нет вывода"
 
-    def stop(self) -> None:
+    def stop(self, keep_files: bool = False) -> None:
         if self.proc.poll() is None:
             self.proc.terminate()
             with contextlib.suppress(subprocess.TimeoutExpired):
                 self.proc.wait(timeout=5)
             if self.proc.poll() is None:
                 self.proc.kill()
-        for junk in self.out.glob("index*"):
+        if not keep_files:
+            for junk in (*_paths(self.out), self.out / PACK_PLAYLIST):
+                junk.unlink(missing_ok=True)
+
+
+def _names(out: Path) -> list[str]:
+    return [path.name for path in out.glob("v*.ts")]
+
+
+def _paths(out: Path) -> list[Path]:
+    return list(out.glob("v*.ts"))
+
+
+@dataclass(slots=True)
+class Feed:
+    """Упаковка по требованию: манифест обещает весь фильм, в tmpfs лежит окно (§2.1).
+
+    Это ответ на железное ограничение: приёмнику нужен манифест на всю длительность,
+    иначе у показа нет ни таймлайна, ни перемотки, — а целый фильм ни в RAM, ни на диск
+    стенда не влезает. Развязка в том, что манифест и файлы живут порознь:
+
+    * :func:`vod_manifest` перечисляет **все** сегменты фильма и не меняется никогда;
+    * файлы под этими именами появляются только там, где приёмник смотрит прямо сейчас;
+    * запрос сегмента, которого нет, — это и есть перемотка. Показ не отвечает 404
+      (после него ресивер капризничает минутами), а перезапускает упаковку с нужного
+      места и отдаёт кусок, как только он готов.
+
+    Отсюда же берётся честная позиция: имя сегмента = его место в фильме, ``-copyts``
+    держит исходные метки времени, и приёмник считает время от начала фильма, а не от
+    начала куска. Никаких смещений показу пересчитывать не нужно.
+    """
+
+    source: str
+    audio: int
+    out: Path
+    duration: float
+    readrate: float = 1.0
+    burst: float = 60.0
+    #: Сколько секунд позади показа держим сегменты — глубина «бесплатной» перемотки назад.
+    keep: float = 120.0
+    #: Запрос дальше упакованного края больше чем на столько секунд — это перемотка, а не
+    #: обычный ход показа. Меньше 30 с брать нельзя: после ``seek`` живой Q70D просит
+    #: шесть сегментов разом (замерено), и каждый из них не должен считаться перемоткой.
+    ahead: float = 40.0
+    #: Сколько держим запрос приёмника, пока упаковка догоняет. Это лучше 404: ресивер,
+    #: поймавший 404, отказывается брать LOAD ещё пару минут (замерено 05-08-2026).
+    wait: float = 30.0
+    #: Сколько раз упаковка успела оборваться сама. Пережить обрыв она обязана: TorrServer
+    #: под просевшим роем закрывает вход, и ffmpeg честно умирает — а показу это уже не
+    #: авария, потому что паковать заново он умеет с любого места. Но молча повторять до
+    #: бесконечности нельзя: битый источник крутил бы этот круг вечно.
+    limit: int = 3
+    packer: Packer | None = None
+    lock: Any = field(default_factory=threading.Lock)
+    #: Когда последний раз перезапускали упаковку: защита от лавины на префетче.
+    restarted: float = 0.0
+    crashes: int = 0
+    fatal: str = ""
+    log: Any = None
+
+    def manifest(self) -> bytes:
+        return vod_manifest(self.duration).encode("utf-8")
+
+    def segment(self, slot: int) -> Path | None:
+        """Файл сегмента ``slot``; ``None`` — его не будет (за концом фильма или не успели).
+
+        Зовётся из потоков раздачи, поэтому решение о перезапуске упаковки принимается
+        под замком: после перемотки приёмник просит несколько сегментов одновременно, и
+        перезапустить упаковку должен ровно первый из них.
+        """
+        path = self.out / segment_name(slot)
+        deadline = time.monotonic() + self.wait
+        while True:
+            if path.exists():
+                return path
+            with self.lock:
+                self._steer(slot)
+            if path.exists():
+                return path
+            if time.monotonic() >= deadline:
+                return None
+            time.sleep(0.2)
+
+    def _steer(self, slot: int) -> None:
+        """Решить, что делать с упаковкой ради сегмента ``slot``: ждать или начать заново."""
+        packer = self.packer
+        if packer is not None and not packer.halted:
+            code, frontier = packer.poll(), packer.frontier()
+            if code == 0 and slot > frontier:
+                return  # упаковка честно дошла до конца входа — файла не будет
+            if code is None and packer.first <= slot <= frontier + slot_at(self.ahead) + 1:
+                return  # обычный ход показа: кусок вот-вот допакуется
+            if code not in (None, 0) and not self._survive(packer):
+                return
+        if self.fatal or time.monotonic() - self.restarted < 2.0:
+            return  # либо уже сдались, либо соседний запрос перезапустил — не толкаемся
+        self.restarted = time.monotonic()
+        self.restart(slot)
+
+    def _survive(self, packer: Packer) -> bool:
+        """Упаковка оборвалась сама: пробуем ещё или сдаёмся честной ошибкой."""
+        self.crashes += 1
+        # Убитый сигналом ffmpeg сказать ничего не успевает — не выдумываем за него.
+        code = packer.poll() or 0
+        why = f"убит сигналом {-code}" if code < 0 else packer.why()
+        if self.crashes > self.limit:
+            self.fatal = why
+            return False
+        self._say(f"упаковка оборвалась ({why}) — начинаю заново, попытка {self.crashes}")
+        return True
+
+    def restart(self, slot: int) -> None:
+        """Начать упаковку с сегмента ``slot``: перемотка, возврат с паузы или старт показа.
+
+        Всё, что лежит от этого места и дальше, — от прошлого прогона и о новом месте
+        ничего не знает, поэтому убирается. Позади оставляем: там окно перемотки назад.
+        """
+        if self.packer is not None:
+            self.packer.stop(keep_files=True)
+        for path in _paths(self.out):
+            if segment_slot(path.name) >= slot:
+                path.unlink(missing_ok=True)
+        (self.out / PACK_PLAYLIST).unlink(missing_ok=True)
+        command = ffmpeg_hls_command(
+            self.source, self.audio, str(self.out), slot, self.readrate, self.burst
+        )
+        self.restarted = time.monotonic()
+        self.packer = Packer.start(command, self.out, slot)
+        self._say(f"упаковка с {slot_time(slot):.0f} с")
+
+    def prune(self, played: float) -> None:
+        """Убрать из tmpfs то, что приёмник давно прошёл. Окно = ``keep`` секунд позади
+        показа: глубже — уже перемотка, и она честно перепакует поток.
+        """
+        edge = slot_at(played - self.keep)
+        if edge <= 0:
+            return
+        for path in _paths(self.out):
+            if 0 <= segment_slot(path.name) < edge:
+                path.unlink(missing_ok=True)
+
+    def trouble(self) -> str:
+        """Почему показ дальше не идёт, если не идёт; пусто — всё в порядке.
+
+        Мёртвый ffmpeg сам по себе поводом остановить показ не является: код 0 — это
+        конец входа (остаток фильма уже в tmpfs), а обрыв лечится следующей упаковкой.
+        Ошибкой это становится, только когда обрывы пошли подряд (:attr:`limit`).
+        """
+        return self.fatal
+
+    def halted(self) -> bool:
+        return self.packer is not None and self.packer.halted
+
+    def halt(self) -> None:
+        if self.packer is not None:
+            self.packer.halt()
+
+    def stop(self) -> None:
+        if self.packer is not None:
+            self.packer.stop()
+        for junk in (*_paths(self.out), self.out / PACK_PLAYLIST):
             junk.unlink(missing_ok=True)
 
-
-def _segment_number(path: Path) -> int:
-    found = re.search(r"(\d+)\.ts$", path.name)
-    return int(found.group(1)) if found else 0
+    def _say(self, text: str) -> None:
+        if self.log is not None:
+            self.log(text)
 
 
 def _scope() -> list[str]:
@@ -557,8 +734,8 @@ def _opt_str(value: Any) -> str | None:
     return str(value) if value not in (None, "") else None
 
 
-#: Отдаём ровно то, что производит ffmpeg, и ничего больше: каталог наружу не открыт.
-_ASSET_RE: Final = re.compile(r"^index(?:\d+\.ts|\.m3u8)$")
+#: Отдаём ровно манифест и сегменты сетки, и ничего больше: каталог наружу не открыт.
+_ASSET_RE: Final = re.compile(r"^(?:v\d+\.ts|index\.m3u8)$")
 _TYPES: Final = {".m3u8": "application/vnd.apple.mpegurl", ".ts": "video/mp2t"}
 _RANGE_RE: Final = re.compile(r"bytes=(\d*)-(\d*)")
 
@@ -568,15 +745,16 @@ class _Handler(http.server.BaseHTTPRequestHandler):
 
     Range обязателен: ресивер Q70D переспрашивает куски диапазонами (грабли kinocast),
     а без ``Access-Control-Allow-Origin: *`` Chromecast молча не играет (§3, §9).
+
+    Манифест берётся не с диска, а у :class:`Feed`: он описывает весь фильм, а не то,
+    что успело упаковаться (§2.1 SPEC-v2). Запрос сегмента тоже уходит в ``Feed`` —
+    именно там запрос неупакованного места превращается в перемотку.
     """
 
     protocol_version = "HTTP/1.1"
     server_version = "torrcast"
     root: Path = Path()
-    #: Сегменты, которых у нас уже нет, а приёмник их просил (перемотка назад глубже
-    #: окна). Список общий с :class:`HlsServer` — по нему показ решает, откуда
-    #: перепаковать поток, вместо того чтобы отдать 404 и потерять показ (§6 SPEC-v2).
-    misses: ClassVar[list[str]] = []
+    feed: ClassVar[Feed | None] = None
 
     def do_GET(self) -> None:
         self._serve(body=True)
@@ -589,18 +767,15 @@ class _Handler(http.server.BaseHTTPRequestHandler):
 
     def _serve(self, body: bool) -> None:
         name = self.path.split("?")[0].lstrip("/")
-        path = self.root / name
         if not _ASSET_RE.fullmatch(name):
             self._head(404, 0, "text/plain")
             return
-        try:
-            data = path.read_bytes()
-        except OSError:  # нет вовсе или вычистило окном ровно между проверкой и чтением
-            if name.endswith(".ts"):
-                self.misses.append(name)
+        data = self._read(name)
+        if data is None:
             self._head(404, 0, "text/plain")
             return
-        ctype, total = _TYPES.get(path.suffix, "application/octet-stream"), len(data)
+        suffix = ".m3u8" if name.endswith(".m3u8") else ".ts"
+        ctype, total = _TYPES[suffix], len(data)
         span = self._range(total)
         if span is None:
             self._head(200, total, ctype)
@@ -613,6 +788,21 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             self._head(206, len(data), ctype, (("Content-Range", f"bytes {first}-{last}/{total}"),))
         if body:
             self.wfile.write(data)
+
+    def _read(self, name: str) -> bytes | None:
+        """Тело ответа: манифест на весь фильм или сегмент, дождавшись упаковки."""
+        if name.endswith(".m3u8"):
+            return self.feed.manifest() if self.feed is not None else None
+        path = self.root / name
+        if self.feed is not None:
+            found = self.feed.segment(segment_slot(name))
+            if found is None:
+                return None
+            path = found
+        try:
+            return path.read_bytes()
+        except OSError:  # вычистило окном ровно между проверкой и чтением
+            return None
 
     def _range(self, size: int) -> tuple[int, int] | tuple[()] | None:
         found = _RANGE_RE.fullmatch(self.headers.get("Range", "").strip())
@@ -678,18 +868,12 @@ class HlsServer:
         host: str = "0.0.0.0",
         port: int = 8080,
         tls: bool = False,
+        feed: Feed | None = None,
     ):
         self.root, self.cert, self.key, self.host, self.port = root, cert, key, host, port
         self.tls = tls
+        self.feed = feed
         self._server: _Server | None = None
-        self._misses: list[str] = []
-
-    def missed(self) -> str:
-        """Первый сегмент, которого приёмник просил, а у нас его уже нет; пусто — таких
-        запросов не было. Читается один раз: список при чтении очищается.
-        """
-        names, self._misses[:] = list(self._misses), []
-        return names[0] if names else ""
 
     def start(self) -> None:
         ctx = None
@@ -699,7 +883,7 @@ class HlsServer:
                 ctx.load_cert_chain(self.cert, self.key)
             except (OSError, ssl.SSLError) as exc:
                 raise InfraError(f"не читается серт {self.cert}: {why(exc)}") from exc
-        handler = type("_Bound", (_Handler,), {"root": self.root, "misses": self._misses})
+        handler = type("_Bound", (_Handler,), {"root": self.root, "feed": self.feed})
         try:
             server = _Server((self.host, self.port), handler)
         except OSError as exc:

@@ -20,7 +20,7 @@ from torrcast import InfraError
 from torrcast.cli import Watch as _Watch
 from torrcast.cli import _Clock, _play
 from torrcast.state import Config, Entry, State
-from torrcast.stream import HLS_SEGMENT_SECONDS, Packer, ffmpeg_hls_command, hls_base, hls_dir
+from torrcast.stream import HLS_SEGMENT_SECONDS, Feed, Packer, ffmpeg_hls_command, hls_base, hls_dir
 
 
 def config_for(tmp_path: Path, tls: tuple[str, str], port: int) -> Config:
@@ -57,7 +57,7 @@ def test_mock_decodes_the_whole_stream_without_gaps(
     """
     config = config_for(tmp_path, tls, port)
     config.transport = transport  # type: ignore[assignment]
-    assert _play(config, clip, audio=0, about="тест", clock=_Clock()) == 0
+    assert _play(config, clip, 0, "тест", _Clock(), duration=float(CLIP_SECONDS)) == 0
     printed = capsys.readouterr().out
     assert "→ ТВ" in printed
     assert "разрывов 0" in printed and "без CORS 0" in printed
@@ -72,14 +72,13 @@ def test_mock_decodes_the_whole_stream_without_gaps(
 def test_audio_is_always_reencoded_to_aac_stereo(clip: str, tmp_path: Path) -> None:
     """Источник — AC3 5.1; на выходе обязан быть AAC stereo, видео — тот же H.264 (§3, §9)."""
     out = hls_dir(str(tmp_path / "hls"))
-    packer = Packer.start(ffmpeg_hls_command(clip, 0, str(out), readrate=0.0), out, window=0)
-    packer.manifest()
+    packer = Packer.start(ffmpeg_hls_command(clip, 0, str(out), readrate=0.0), out)
     deadline = time.monotonic() + 60
     while packer.poll() is None and time.monotonic() < deadline:
         time.sleep(0.2)
     assert packer.poll() == 0, packer.why()
 
-    segment = sorted(out.glob("*.ts"))[0]
+    segment = sorted(out.glob("v*.ts"))[0]
     streams = {s["codec_type"]: s for s in _probe(segment)}
     assert streams["video"]["codec_name"] == "h264"
     assert streams["audio"]["codec_name"] == "aac"
@@ -87,20 +86,26 @@ def test_audio_is_always_reencoded_to_aac_stereo(clip: str, tmp_path: Path) -> N
     packer.stop()
 
 
-def test_torn_off_packing_is_an_honest_infra_error(
-    clip: str, tls: tuple[str, str], tmp_path: Path
+def test_packing_torn_off_again_and_again_is_an_honest_infra_error(
+    clip: str, tls: tuple[str, str], tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Обрыв ffmpeg посреди показа = наша ошибка кодом 2, и ничего не течёт (§5)."""
+    """Обрыв упаковки показ переживает, но не бесконечно (§5).
+
+    Один обрыв — не авария: TorrServer под просевшим роем закрывает вход, ffmpeg честно
+    умирает, и показ пакует заново с того места, где стоит приёмник. А вот источник,
+    который рвётся раз за разом, обязан кончиться ошибкой кодом 2, а не вечным кругом.
+    """
     config = config_for(tmp_path, tls, 18463)
     config.hls_readrate = 1.0  # реальное время: есть куда вклиниться посреди показа
     killer = threading.Thread(target=_kill_when_playing, args=(config, str(tmp_path)), daemon=True)
     killer.start()
     try:
         with pytest.raises(InfraError) as caught:
-            _play(config, clip, audio=0, about="тест", clock=_Clock())
+            _play(config, clip, 0, "тест", _Clock(), duration=float(CLIP_SECONDS))
     finally:
         killer.join(timeout=30)
     assert "упаковка оборвалась: убит сигналом 9" in str(caught.value)
+    assert "начинаю заново" in capsys.readouterr().out, "обрыв показ переживает молча"
     assert not list(Path(config.hls_dir).glob("*.ts")), "сегменты убраны даже после аварии"
     assert not _alive(str(tmp_path)) and not _alive(hls_base(config)), "процессы не текут"
 
@@ -115,14 +120,13 @@ def _probe(path: Path) -> list[dict[str, Any]]:
 
 
 def _kill_when_playing(config: Config, pattern: str) -> None:
-    """Дождаться, что показ реально идёт (два сегмента в манифесте), и снести ffmpeg."""
-    manifest = Path(config.hls_dir) / "index.m3u8"
-    deadline = time.monotonic() + 30
+    """Сносить упаковку, как только она поднимется, — и так пока показ не сдастся."""
+    out = Path(config.hls_dir)
+    deadline = time.monotonic() + 60
     while time.monotonic() < deadline:
-        if manifest.exists() and manifest.read_text().count(".ts") >= 2:
-            break
-        time.sleep(0.2)
-    subprocess.run(["pkill", "-9", "-f", pattern], check=False)
+        if list(out.glob("v*.ts")):
+            subprocess.run(["pkill", "-9", "-f", pattern], check=False)
+        time.sleep(0.3)
 
 
 def _alive(pattern: str) -> bool:
@@ -154,7 +158,7 @@ class _FakeReceiver:
     def __init__(self, script: list[tuple[float, str]]) -> None:
         self.script = script
 
-    def play(self, url: str, title: str = "") -> None:
+    def play(self, url: str, title: str = "", at: float = 0.0) -> None:
         pass
 
     def stop(self) -> None:
@@ -167,46 +171,82 @@ class _FakeReceiver:
         return Position(pos, 0.0, state in {"PLAYING", "BUFFERING"}, state)
 
 
-def _packer_with_manifest(tmp_path: Path) -> Any:
-    """Упаковка с готовым манифестом на 6 сегментов по 10 с; файлов на диске нет."""
+def _feed_with_segments(tmp_path: Path) -> Feed:
+    """Упаковка на 60 готовых сегментов сетки; ffmpeg за ней настоящий не стоит."""
     out = hls_dir(str(tmp_path / "hls"))
-    lines = ["#EXTM3U"]
-    for number in range(6):
-        lines += ["#EXTINF:10.000000,", f"index{number}.ts"]
-    (out / "index.m3u8").write_text("\n".join(lines) + "\n")
-    return Packer(proc=_FakeProc(), out=out, window=0)  # type: ignore[arg-type]
+    for slot in range(60):
+        (out / f"v{slot}.ts").write_bytes(b"x")
+    feed = Feed(source="", audio=0, out=out, duration=7200.0, keep=40.0, wait=0.0)
+    feed.packer = Packer(proc=_FakeProc(), out=out, first=0)  # type: ignore[arg-type]
+    return feed
 
 
-def test_a_rewind_deeper_than_the_window_repacks_instead_of_404(tmp_path: Path) -> None:
-    """§6 SPEC-v2: назад за окно показ не падает, а возвращает секунду для перепаковки."""
-    from torrcast.cli import _hold
-    from torrcast.stream import HlsServer
-
-    packer = _packer_with_manifest(tmp_path)
-    server = HlsServer(packer.out, port=0)
-    server._misses.append("index3.ts")  # раздача уже ответила приёмнику 404
-    receiver = _FakeReceiver([(45.0, "PLAYING")])
-    assert _hold(receiver, packer, server) == 30.0, "перепаковка ровно с начала сегмента"
-
-
-def test_a_pause_on_the_remote_stops_packing_and_resumes_where_it_stood(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+def test_the_show_sweeps_ram_behind_the_receiver_while_it_plays(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Пауза пультом: упаковку гасим (иначе tmpfs набивается впрок), показ остаётся жив,
-    а возврат к показу перепаковывает поток с той же секунды.
+    """Показ следит ровно за двумя вещами: жива ли упаковка и что убрать из tmpfs.
+
+    Перемотку он больше не ловит вовсе — приёмник видит весь фильм и мотает сам (§2.1
+    SPEC-v2), а раздача пакует то место, которое он попросил.
     """
     from torrcast import cli
-    from torrcast.stream import HlsServer
+
+    monkeypatch.setattr(time, "sleep", lambda seconds: None)
+    feed = _feed_with_segments(tmp_path)
+    receiver = _FakeReceiver([(200.0, "PLAYING"), (0.0, "IDLE")])
+
+    cli._hold(receiver, feed)
+
+    left = sorted(int(path.name[1:-3]) for path in feed.out.glob("v*.ts"))
+    assert left == list(range(40, 60)), "позади показа держим окно, остальное — из RAM"
+
+
+def test_a_pause_on_the_remote_stops_packing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Пауза пультом: упаковку гасим (иначе tmpfs набивается впрок), показ остаётся жив.
+
+    Возобновлять её показу не нужно: человек снимет паузу, приёмник попросит следующий
+    сегмент, и раздача начнёт паковать с этого самого места сама.
+    """
+    from torrcast import cli
 
     monkeypatch.setattr(cli, "PAUSE_SECONDS", 0.0)
     monkeypatch.setattr(time, "sleep", lambda seconds: None)
-    packer = _packer_with_manifest(tmp_path)
-    server = HlsServer(packer.out, port=0)
-    receiver = _FakeReceiver([(42.0, "PAUSED"), (42.0, "PAUSED"), (42.0, "PLAYING")])
+    feed = _feed_with_segments(tmp_path)
+    receiver = _FakeReceiver([(42.0, "PAUSED"), (42.0, "PAUSED"), (0.0, "IDLE")])
 
-    assert cli._hold(receiver, packer, server) == 42.0
-    assert packer.halted and packer.poll() == -15, "ffmpeg завершён, а не остановлен сигналом"
+    cli._hold(receiver, feed)
+
+    assert feed.halted() and feed.packer is not None and feed.packer.poll() == -15, (
+        "ffmpeg завершён, а не остановлен сигналом"
+    )
     assert "пауза на пульте" in capsys.readouterr().out
+
+
+def test_a_finished_packer_is_not_a_crash_but_a_serial_one_gives_up(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Конец входа и обрыв — разные вещи, и показ обязан их различать.
+
+    Код 0 — фильм упакован до конца, падать не с чего. Обрыв — повод начать заново с того
+    места, где стоит приёмник; но если рвётся раз за разом, показ сдаётся честной строкой,
+    а не крутит круг вечно.
+    """
+    feed = _feed_with_segments(tmp_path)
+    assert feed.packer is not None
+    monkeypatch.setattr(Feed, "restart", lambda self, slot: None)
+
+    feed.packer.proc.code = 0  # type: ignore[attr-defined]
+    assert feed.segment(70) is None and feed.trouble() == "", "дошли до конца фильма"
+
+    feed.packer.proc.code = -9  # type: ignore[attr-defined]
+    for _ in range(feed.limit):
+        feed.segment(70)
+    assert feed.trouble() == "", "обрыв переживаем молча, пока попытки не кончились"
+
+    feed.segment(70)
+    assert feed.trouble() == "убит сигналом 9"
 
 
 def test_resume_starts_from_the_offset_and_ends_as_watched(
@@ -217,22 +257,22 @@ def test_resume_starts_from_the_offset_and_ends_as_watched(
     сторож кладёт в state абсолютную позицию, а на 95 % пишет «досмотрено» (§2.3, §2.4).
     """
     monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
-    key, offset = "movie:ролик:2026", 5.0
+    key, offset = "movie:ролик:2026", 8.0
     # Длительность занижена на сегмент — по той же причине, что и допуск выше: хвост HLS
     # у клиента может отвалиться, а проверяем мы тут переход «досмотрено», а не хвост.
     entry = Entry(title="ролик", magnet="magnet:?xt=1", pos=offset, dur=CLIP_SECONDS - 4.0)
     state = State()
     state.put(key, entry)
     state.save()
-    watch = _Watch(key=key, entry=entry, offset=offset, every=0.0)
+    watch = _Watch(key=key, entry=entry, every=0.0)
 
     config = config_for(tmp_path, tls, 18465)
-    assert _play(config, clip, audio=0, about="тест", clock=_Clock(), watch=watch) == 0
+    assert _play(config, clip, 0, "тест", _Clock(), watch=watch) == 0
 
     printed = capsys.readouterr().out
     decoded = float(printed.split("декодировано ")[1].split(" ")[0])
-    assert decoded <= CLIP_SECONDS - offset + 1, "показ начался с позиции, а не сначала"
-    assert decoded >= CLIP_SECONDS - offset - HLS_SEGMENT_SECONDS, "показ оборвался"
+    assert decoded >= CLIP_SECONDS - HLS_SEGMENT_SECONDS, "показ оборвался"
+    assert f"упаковка с {offset:.0f} с" in printed, "показ начался с позиции, а не сначала"
     assert "досмотрено" in printed
     saved = State.load().get(key)
     assert saved is not None and saved.done and saved.pos == 0.0

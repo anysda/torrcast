@@ -34,16 +34,15 @@ from torrcast.parse import (
 from torrcast.search import Prowlarr, to_releases
 from torrcast.state import Config, Entry, State, load_config, save_config
 from torrcast.stream import (
+    Feed,
     HlsServer,
     Media,
-    Packer,
     TorrFile,
     TorrServer,
     bitrate_mbit,
     hls_base,
     pick_video_file,
     probe,
-    segment_start,
     start_play_unit,
     stop_play_unit,
     unit_active,
@@ -60,6 +59,9 @@ TABLE_LIMIT = 12
 MAX_TRIES = 3
 #: Как часто сторож кладёт позицию в state, секунды (§3).
 WATCH_SECONDS = 10.0
+#: Как часто показ пишет в журнал, что видит приёмник (§2.1 SPEC-v2): позиция и общее
+#: время — единственное доказательство того, что на экране есть таймлайн (§9).
+SAY_SECONDS = 30.0
 #: Сколько терпим паузу на пульте, прежде чем погасить упаковку (§6 SPEC-v2): дальше
 #: сегменты копились бы в tmpfs впустую — приёмник их не забирает.
 PAUSE_SECONDS = 60.0
@@ -236,7 +238,7 @@ def _cmd_worker(key: str) -> int:
             torrserver.wait_files(torrent_hash)
         source = torrserver.stream_url(torrent_hash, entry.file_idx)
         entry = _duration(key, entry, source)
-        watch = Watch(key=key, entry=entry, offset=entry.pos)
+        watch = Watch(key=key, entry=entry)
         title = " ".join(filter(None, (entry.title, entry.label)))
         print(f"показ «{title}» с {_hms(entry.pos)}", flush=True)
         code = _play(config, source, entry.audio, title, _Clock(), watch)
@@ -267,14 +269,15 @@ def _on_term(_signal: int, _frame: object) -> None:
 class Watch:
     """Сторож: раз в :data:`WATCH_SECONDS` кладёт позицию приёмника в state (§3, §4).
 
-    Приёмник считает время от начала своего потока, а после resume поток начинается с
-    ``-ss offset`` — поэтому в состояние идёт ``offset + pos``, абсолютная позиция в фильме.
+    Позиция приходит абсолютной: манифест описывает весь фильм, а ``-copyts`` оставляет
+    в сегментах исходные метки времени, поэтому приёмник считает время от начала фильма
+    независимо от того, с какого места идёт упаковка (§2.1 SPEC-v2). Пересчитывать
+    смещение показу больше не нужно — раньше это была отдельная строчка возможной лжи.
     Порог 95 % — «досмотрено» (§2.4): фильму сброс с пометкой, сериалу следующая серия.
     """
 
     key: str
     entry: Entry
-    offset: float = 0.0
     every: float = WATCH_SECONDS
     done: bool = False
     last: float = field(default_factory=time.monotonic)
@@ -283,7 +286,9 @@ class Watch:
         """Позиция от приёмника; на диск — не чаще раза в ``every`` секунд. Порог 95 %
         записывается сразу: на нём держится стык серий, ждать тика ещё 10 с незачем.
         """
-        self.entry.pos = self.offset + pos
+        if pos <= 0:  # приёмник ещё не начал считать — нулём позицию не затираем
+            return
+        self.entry.pos = pos
         if self.entry.watched or time.monotonic() - self.last >= self.every:
             self.flush()
 
@@ -568,14 +573,14 @@ def _launch(
 
 
 def _await_playing(config: Config, timeout: float = 120.0) -> None:
-    """Дождаться живой картинки: юнит поднялся и в манифесте есть сегменты. Юнит умер по
+    """Дождаться живой картинки: юнит поднялся и упаковал первый сегмент. Юнит умер по
     дороге — честная строка из journald, а не «запустил и ушёл» (§1, §5).
     """
-    manifest = Path(config.hls_dir) / "index.m3u8"
+    out = Path(config.hls_dir)
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         with contextlib.suppress(OSError):
-            if ".ts" in manifest.read_text(encoding="utf-8"):
+            if any(out.glob("v*.ts")):
                 return
         if not unit_active():
             raise InfraError(f"показ не запустился: {unit_why()}")
@@ -591,63 +596,51 @@ def _play(
     about: str,
     clock: _Clock,
     watch: Watch | None = None,
+    duration: float = 0.0,
 ) -> int:
     """Упаковка → раздача по http на голом IP (§5 SPEC-v2) → приёмник. Своих демонов
     нет: и ffmpeg, и раздача живут ровно на время показа и гасятся вместе с ним, что бы
     ни случилось.
 
-    Упаковок за показ может быть несколько (§6 SPEC-v2): перемотка назад глубже окна и
-    возврат с длинной паузы перепаковывают поток с нужной секунды и грузят его в приёмник
-    заново. Раздача та же, приёмник тот же — заменяется только ffmpeg.
+    Упаковка за показ перезапускается столько раз, сколько человек перемотал (§2.1
+    SPEC-v2): манифест обещает приёмнику весь фильм, а :class:`Feed` пакует то место,
+    которое он попросил. Раздача, приёмник и LOAD при этом одни на весь показ.
     """
-    from torrcast.stream import ffmpeg_hls_command, hls_base, hls_dir
+    from torrcast.stream import hls_base, hls_dir, slot_at
 
     out = hls_dir(config.hls_dir)
-    start = watch.offset if watch else 0.0
+    start = watch.entry.pos if watch else 0.0
+    length = watch.entry.dur if watch else duration
     tls = config.transport == "https"
-    server = HlsServer(out, config.hls_cert, config.hls_key, port=config.hls_port, tls=tls)
+    feed = Feed(
+        source=source,
+        audio=audio,
+        out=out,
+        duration=length,
+        readrate=config.hls_readrate,
+        burst=config.hls_burst,
+        keep=config.hls_keep,
+        log=lambda text: print(text, flush=True),
+    )
+    server = HlsServer(
+        out, config.hls_cert, config.hls_key, port=config.hls_port, tls=tls, feed=feed
+    )
     # Серт приёмнику нужен только затем, чтобы проверить нашу раздачу: по http проверять
     # нечего, и mock не должен делать вид, что что-то проверил.
     receiver = make_receiver(config.receiver, config.tv or "", config.hls_cert if tls else "")
-    base = f"{hls_base(config)}/index.m3u8"
-    url, generation = base, 0
-    packer: Packer | None = None
+    url = f"{hls_base(config)}/index.m3u8"
     try:
         server.start()
-        shown = False
-        while True:
-            command = ffmpeg_hls_command(
-                source, audio, str(out), start, config.hls_readrate, config.hls_burst
-            )
-            packer = Packer.start(command, out, config.hls_window)
-            packer.manifest()
-            receiver.play(url, about)
-            # Приёмник мог до LOAD дотянуться за сегментами прошлого манифеста: эти 404
-            # к перемотке отношения не имеют, иначе показ перепаковывался бы по кругу.
-            server.missed()
-            if not shown:  # «старт NN с» — про появление картинки, и он бывает один раз
-                print(f"▶ {about} → ТВ   (старт {clock.total:.0f} с)", flush=True)
-                shown = True
-            again = _hold(receiver, packer, server, watch, config.hls_keep)
-            if again is None:
-                break
-            packer.stop()  # чистит и манифест: под теми же именами будет другое место
-            start += again
-            if watch is not None:
-                watch.offset, watch.entry.pos = start, start
-            print(f"перепаковка с {_hms(start)}", flush=True)
-            # ⚠️ Новый URL на ту же раздачу: под старым приёмник помнит прежний плейлист и
-            # лезет за сегментами, которых уже нет, — снова 404 и снова отказ. Запрос
-            # раздача отбрасывает, так что сегменты те же самые. Больше на перепаковке НЕ
-            # делаем ничего: ни STOP приёмнику, ни пересоздания раздачи — с ними показ как
-            # раз и не поднимался (замерено 05-08-2026, десять попыток за пять минут).
-            generation += 1
-            url = f"{base}?g={generation}"
+        # Упаковку начинаем сами, не дожидаясь первого запроса: ресиверу нужен готовый
+        # кусок сразу, иначе LOAD упирается в ожидание ffmpeg и старт растёт на глазах.
+        feed.restart(slot_at(start))
+        receiver.play(url, about, at=start)
+        print(f"▶ {about} → ТВ   (старт {clock.total:.0f} с)", flush=True)
+        _hold(receiver, feed, watch)
     finally:
         with contextlib.suppress(TorrcastError):
             receiver.stop()
-        if packer is not None:
-            packer.stop()
+        feed.stop()
         server.stop()
         if watch is not None:  # позиция фиксируется при любом исходе, включая SIGTERM
             watch.flush()
@@ -662,65 +655,53 @@ def _play(
     return EXIT_OK
 
 
-def _hold(
-    receiver: Receiver,
-    packer: Packer,
-    server: HlsServer,
-    watch: Watch | None = None,
-    keep: float = 120.0,
-) -> float | None:
+def _hold(receiver: Receiver, feed: Feed, watch: Watch | None = None) -> None:
     """Держим показ: опрос приёмника раз в 2 с, упаковка должна быть жива, из RAM уходит
     только пройденное, сторож раз в 10 с пишет позицию.
 
-    Возвращает ``None`` — показ окончен, или число — с какой секунды **этого** потока его
-    надо перепаковать. Перепаковка нужна в двух случаях (§6 SPEC-v2):
-
-    * приёмник попросил сегмент, который окно уже вычистило (перемотка назад глубже
-      окна) — раньше это был 404 и потерянный показ;
-    * человек вернулся с длинной паузы, под которую упаковку погасили, чтобы tmpfs не
-      набивался впрок.
+    Перемотку здесь ловить больше нечем и незачем: приёмник видит весь фильм и на seek
+    просто просит сегмент нужного места, а :class:`Feed` пакует оттуда (§2.1 SPEC-v2).
+    Показу остаётся то, о чём раздача не знает: пауза на пульте и конец показа.
 
     Придерживать ffmpeg сигналом (SIGSTOP) здесь больше нечем и незачем: темп держит
     сам ffmpeg (``-readrate`` + ``-readrate_initial_burst``), а под паузой процесс
     именно завершается — под SIGSTOP'ом приёмник намертво вис в BUFFERING.
     """
-    paused = 0.0
+    paused, said = 0.0, 0.0
     while True:
-        code = packer.poll()
-        if code not in (None, 0) and not packer.halted:
+        if trouble := feed.trouble():
             # Убитый сигналом ffmpeg ничего сказать не успевает — не выдумываем за него.
-            why = f"убит сигналом {-code}" if code < 0 else packer.why()
-            raise InfraError(f"упаковка оборвалась: {why}")
-        if missing := server.missed():
-            at = segment_start(packer.segments(), missing)
-            if at >= 0:
-                print(f"перемотка назад за окно ({missing}) — перепаковываю", flush=True)
-                return at
+            raise InfraError(f"упаковка оборвалась: {trouble}")
         try:
             position = receiver.position()
-        except InfraError:  # приёмник позицию не отдаёт — ведём показ по упаковке
-            if code == 0:
-                return None
-            packer.prune()  # без позиции остаётся запасное окно в штуках
+        except InfraError:  # приёмник позицию не отдаёт — показу остаётся только ждать
+            time.sleep(2.0)
+            continue
+        if time.monotonic() - said >= SAY_SECONDS:
+            # Что видит приёмник, тем и отчитываемся: длительность и позиция — это ровно
+            # ``duration`` и ``current_time`` из MEDIA_STATUS, снятые владеющим сендером.
+            # Другого доказательства «на ТВ есть таймлайн» у нас нет (§9).
+            said = time.monotonic()
+            print(
+                f"экран: {_hms(position.pos)} из {_hms(position.dur)} · {position.state}",
+                flush=True,
+            )
+        if watch is not None:
+            watch.see(position.pos)
+            if watch.done and watch.entry.kind == "tv":
+                return  # серия досмотрена — освобождаем показ под следующую
+        if position.state == "PAUSED":
+            paused = paused or time.monotonic()
+            if time.monotonic() - paused > PAUSE_LIMIT:
+                return  # пауза длиной с вечер — показ окончен, юнит гасим
+            if time.monotonic() - paused > PAUSE_SECONDS and not feed.halted():
+                print("пауза на пульте — упаковку гашу", flush=True)
+                feed.halt()  # вернутся к показу — раздача сама начнёт паковать заново
+        elif not position.playing:
+            return
         else:
-            if watch is not None:
-                watch.see(position.pos)
-                if watch.done and watch.entry.kind == "tv":
-                    return None  # серия досмотрена — освобождаем показ под следующую
-            if position.state == "PAUSED":
-                paused = paused or time.monotonic()
-                if time.monotonic() - paused > PAUSE_LIMIT:
-                    return None  # пауза длиной с вечер — показ окончен, юнит гасим
-                if time.monotonic() - paused > PAUSE_SECONDS and packer.poll() is None:
-                    print("пауза на пульте — упаковку гашу", flush=True)
-                    packer.halt()
-            elif not position.playing:
-                return None
-            elif paused and packer.halted:
-                return position.pos  # вернулись с паузы: пакуем ровно с этого места
-            else:
-                paused = 0.0
-                packer.prune(position.pos, keep)
+            paused = 0.0
+            feed.prune(position.pos)
         time.sleep(2.0)
 
 
