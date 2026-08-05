@@ -639,7 +639,13 @@ def _hold(receiver: Receiver, packer: Packer, watch: Watch | None = None) -> Non
                     return  # серия досмотрена — освобождаем показ под следующую (§2.4)
             if not position.playing:
                 return
-            packer.pace(position.dur - position.pos)
+            # Насколько упаковка убежала от приёмника, считаем по УПАКОВАННОМУ, а не по
+            # ``position.dur``: у Chromecast это длительность медиа, и на растущем
+            # манифесте она равна −1 (ресивер не знает конца). Тогда lead выходит
+            # отрицательным всегда, упаковка не тормозится ни разу и tmpfs забивается
+            # целым фильмом. У mock оба числа совпадают, поведение не меняется.
+            packed = sum(seconds for _, seconds in packer.segments())
+            packer.pace(packed - position.pos)
             packer.prune(position.pos)
         time.sleep(2.0)
 

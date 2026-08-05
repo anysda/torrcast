@@ -436,7 +436,7 @@ setup_config() {
   "hls_key": "$TLS_DIR/torrcast.key",
   "hls_dir": "$HLS_DIR",
   "hls_window": 45,
-  "hls_readrate": 1.0,
+  "hls_readrate": 0.0,
   "bitrate_warn_mbit": 20.0
 }
 JSON

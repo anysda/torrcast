@@ -13,6 +13,7 @@ import re
 import subprocess
 import tempfile
 import threading
+import time
 from dataclasses import dataclass
 from typing import IO, Any, Literal, Protocol, runtime_checkable
 
@@ -110,20 +111,35 @@ class ChromecastReceiver:
     адрес ТВ в конфиге отсутствует физически.
     """
 
+    #: Пока показ ни разу не начался, ``IDLE`` — это «ещё грузится», а не отказ: ресивер
+    #: сначала тянет манифест и первый сегмент, и до этого статус остаётся IDLE. Замерено
+    #: на живом Q70D 05-08-2026: ``play_media`` возвращается через 0.03 с, а PLAYING
+    #: приходит через 0.7–1.5 с — то есть «сразу после LOAD» приёмник всегда не играет.
+    START_TIMEOUT = 90.0
+    #: LOAD ERROR лечится повтором LOAD (рецепт kinocast на этом же ТВ: ровно 2 попытки).
+    LOAD_RETRIES = 2
+    #: app_id Default Media Receiver: чужой app = каст сняли пультом, показ окончен.
+    MEDIA_APP = "CC1AD845"
+
     def __init__(self, address: str) -> None:
         if not address:
             raise InfraError("адрес ТВ не задан: cast --tv <ip>")
         self.address = address
         self._cast: Any = None
+        self._url = ""
+        self._title = ""
 
     def play(self, url: str, title: str = "") -> None:
-        controller = self._device().media_controller
-        # BUFFERED, а не LIVE: манифест типа EVENT только дописывается, и ресивер
-        # показывает шкалу — перемотка пультом остаётся рабочей (§2.5).
-        controller.play_media(
-            url, HLS_TYPE, title=title or "torrcast", stream_type="BUFFERED", media_info=HLS_HINTS
-        )
-        controller.block_until_active(timeout=30)
+        """Начать показ и **дождаться картинки**, а не просто отправить LOAD.
+
+        Без ожидания показ гаснет через секунду после команды: сторож снимает позицию
+        сразу после ``play_media``, видит закономерный IDLE и считает, что играть нечего.
+        """
+        self._url, self._title = url, title or "torrcast"
+        self._load()
+        if self._settle():
+            return
+        raise InfraError(f"ТВ {self.address} не начал показ: {self._why()}")
 
     def stop(self) -> None:
         if self._cast is not None:
@@ -131,8 +147,53 @@ class ChromecastReceiver:
                 self._cast.media_controller.stop()
 
     def position(self) -> Position:
-        st = self._device().media_controller.status
+        st = self._status()
         return Position(st.current_time or 0.0, st.duration or 0.0, st.player_is_playing)
+
+    def _load(self) -> None:
+        controller = self._device().media_controller
+        # BUFFERED, а не LIVE: манифест типа EVENT только дописывается, и ресивер
+        # показывает шкалу — перемотка пультом остаётся рабочей (§2.5).
+        controller.play_media(
+            self._url, HLS_TYPE, title=self._title, stream_type="BUFFERED", media_info=HLS_HINTS
+        )
+        controller.block_until_active(timeout=30)
+
+    def _settle(self) -> bool:
+        """Дождаться, пока приёмник действительно заиграет; LOAD ERROR — повторить LOAD."""
+        deadline = time.monotonic() + self.START_TIMEOUT
+        retries = 0
+        while time.monotonic() < deadline:
+            time.sleep(1.0)
+            status = self._status()
+            if status.player_state in ("PLAYING", "BUFFERING"):
+                return True
+            if status.idle_reason == "ERROR":
+                if retries >= self.LOAD_RETRIES:
+                    return False
+                retries += 1
+                self._load()
+        return False
+
+    def _status(self) -> Any:
+        """Свежий статус приёмника. ``update_status`` обязателен: без него pychromecast
+        отдаёт последний присланный статус, и позиция замирает навсегда — сторож считает,
+        что показ стоит, окно сегментов не чистится и tmpfs растёт до конца фильма.
+        """
+        controller = self._device().media_controller
+        # ⚠️ На закрытом ресивере update_status ПЕРЕЗАПУСКАЕТ пустой Default Media
+        # Receiver — «вышел в Home, а каст открылся снова» (грабли kinocast). Поэтому
+        # чужой app_id проверяем раньше и статус не трогаем.
+        if getattr(self._cast.status, "app_id", None) != self.MEDIA_APP:
+            return controller.status
+        with contextlib.suppress(Exception):
+            controller.update_status()
+        return controller.status
+
+    def _why(self) -> str:
+        status = self._status()
+        state = status.player_state or "нет статуса"
+        return f"{state}/{status.idle_reason}" if status.idle_reason else str(state)
 
     def _device(self) -> Any:
         if self._cast is None:
