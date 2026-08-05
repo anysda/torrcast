@@ -25,7 +25,7 @@ import time
 import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar, Final
+from typing import TYPE_CHECKING, Any, ClassVar, Final, NamedTuple
 from urllib.parse import quote
 
 from torrcast import InfraError, why
@@ -44,6 +44,7 @@ __all__ = [
     "RUNTIME_GUESS",
     "AudioTrack",
     "Feed",
+    "FilmKeys",
     "Grid",
     "HlsServer",
     "Media",
@@ -72,6 +73,7 @@ __all__ = [
     "unit_active",
     "unit_key",
     "unit_why",
+    "warm_at",
     "warm_file",
 ]
 
@@ -131,9 +133,14 @@ PACK_DIR: Final = "pack"
 #: кусок. Приёмнику он не отдаётся — по нему показ сверяет, что нарезал ровно то, что
 #: обещал в манифесте (:meth:`Packer.drift`).
 PACK_LIST: Final = "pack.csv"
-#: Сколько байт начала файла тянем под меню (:func:`pull_head`): первый сегмент — это
+#: Сколько байт тянем под меню одним местом (:func:`warm_at`): первый сегмент — это
 #: 10–20 с видео со звуком, то есть десятки мегабайт.
 HEAD_WARM: Final = 32 << 20
+#: Сколько головы хватает, чтобы ffmpeg открыл вход, когда играть будем из середины:
+#: заголовок контейнера и индекс, но не картинка. У mp4 сюда попадает весь ``moov``
+#: (у «Моаны 2» от YTS — 5.3 МБ), у mkv — Tracks и SeekHead. Тянуть все 32 МБ начала при
+#: продолжении с середины вредно: это чужие байты, и они отбирают полосу у нужного места.
+HEAD_OPEN: Final = 8 << 20
 #: Потолок ожидания прогрева: дальше это уже не прогрев, а висящий поток.
 WARM_TIMEOUT: Final = 120.0
 #: Сколько ждём чужого снятия карты опорных кадров, прежде чем снимать самим.
@@ -427,7 +434,7 @@ class Grid:
     Ровно этот список идёт и в манифест (``EXTINF`` = фактическая длина куска), и в
     команду ffmpeg (:func:`ffmpeg_pack_command`), так что манифест и нарезка — одно и то же.
 
-    Границы стоят на **опорных кадрах**, когда карта их известна (:mod:`torrcast.mkv`):
+    Границы стоят на **опорных кадрах**, когда карта их известна (:mod:`torrcast.keymap`):
     тогда каждый сегмент декодируется сам по себе, и перемотка в любую точку показывает
     картинку сразу, а не с ближайшего опорного кадра где-то в середине куска. Нет карты —
     ровная сетка по :data:`HLS_SEGMENT_SECONDS`, как было.
@@ -543,10 +550,38 @@ def _keys_cache(source_url: str) -> Path:
     )
 
 
-def _read_keys(cache: Path) -> tuple[float, list[float]] | None:
+class FilmKeys(NamedTuple):
+    """Карта опорных кадров файла в том виде, в каком ей пользуется показ.
+
+    ``at`` — времена от начала фильма, по ним строится сетка (:class:`Grid`).
+    ``offset`` — где эти кадры лежат в файле; по ним греется рой под перемотку и под
+    продолжение с середины (:func:`warm_at`, §7.2 SPEC-v2). Списки одной длины, и порядок
+    у них общий: ``at[k]`` лежит на ``offset[k]``.
+    """
+
+    duration: float
+    at: list[float]
+    offset: list[int]
+
+    def byte_at(self, seconds: float) -> int:
+        """Смещение опорного кадра не позже ``seconds``; карта без смещений — ``0``.
+
+        Не позже, а не «ближайший»: показ с этого места и начнёт читать, потому что
+        ffmpeg с ``-ss`` встаёт на опорный кадр не позже запрошенного (§6.0 SPEC-v2).
+        """
+        if not self.offset:
+            return 0
+        found = bisect.bisect_right(self.at, max(seconds, 0.0)) - 1
+        return self.offset[min(max(found, 0), len(self.offset) - 1)]
+
+
+def _read_keys(cache: Path) -> FilmKeys | None:
     with contextlib.suppress(OSError, ValueError, KeyError, TypeError):
         saved = json.loads(cache.read_text("utf-8"))
-        return float(saved["duration"]), [float(x) for x in saved["keys"]]
+        at = [float(x) for x in saved["keys"]]
+        # Кэш прошлой версии смещений не знал: он всё ещё годен для сетки, а грелка
+        # позиции без смещений просто не работает — это лучше, чем выбросить карту.
+        return FilmKeys(float(saved["duration"]), at, [int(x) for x in saved.get("bytes", ())])
     return None
 
 
@@ -557,13 +592,13 @@ def _fetching(lock: Path) -> bool:
     return False
 
 
-def film_keys(source_url: str) -> tuple[float, list[float]]:
-    """Длительность и времена опорных кадров видео: из кэша или из индекса mkv.
+def film_keys(source_url: str) -> FilmKeys:
+    """Карта опорных кадров видео: из кэша или из индекса контейнера (:mod:`torrcast.keymap`).
 
-    Если карту уже снимает прогрев (:func:`warm_file`), ждём его, а не читаем хвост
+    Если карту уже снимает прогрев (:func:`warm_file`), ждём его, а не читаем индекс
     файла вторым потоком: рой от этого быстрее не станет, а старт показа удвоится.
     """
-    from torrcast.mkv import keyframes, video_track
+    from torrcast.keymap import keyframes, video_track
 
     cache = _keys_cache(source_url)
     if (ready := _read_keys(cache)) is not None:
@@ -595,56 +630,78 @@ def film_keys(source_url: str) -> tuple[float, list[float]]:
         # принимали за «первое чтение хвоста у холодного роя» (§7.1 SPEC-v2): рой отдаёт
         # Cues за 2–6 с, остальное было наше.
         track = video_track(found.points)
-        keys = [p.at for p in found.points if p.track == track]
+        video = [p for p in found.points if p.track == track]
+        ready = FilmKeys(found.duration, [p.at for p in video], [p.offset for p in video])
         with contextlib.suppress(OSError):
             cache.parent.mkdir(parents=True, exist_ok=True)
             tmp = cache.with_suffix(".tmp")
-            tmp.write_text(json.dumps({"duration": found.duration, "keys": keys}), "utf-8")
+            body = {"duration": ready.duration, "keys": ready.at, "bytes": ready.offset}
+            tmp.write_text(json.dumps(body), "utf-8")
             tmp.replace(cache)
     finally:
         with contextlib.suppress(OSError):
             lock.unlink(missing_ok=True)
-    return found.duration, keys
+    return ready
 
 
-def pull_head(source_url: str, upto: int = HEAD_WARM, alive: Any = None) -> int:
-    """Протянуть через рой начало файла и выбросить: нужен не байт, а прогретый кэш.
+def warm_at(source_url: str, offset: int, upto: int = HEAD_WARM, alive: Any = None) -> int:
+    """Протянуть через рой кусок файла с ``offset`` и выбросить: нужен прогретый кэш.
 
-    Первый сегмент — это 10–20 с видео со звуком, десятки мегабайт, и пока их нет в кэше
-    TorrServer, ffmpeg ждёт рой, а показ ждёт ffmpeg. Под меню эти байты берутся бесплатно
-    по времени: человек в этот момент отвечает на вопросы. Лишнего трафика тут нет — ровно
-    эти байты показ прочитает следующим действием.
+    Показ читает файл ровно двумя местами: начало (заголовок контейнера, а с ним и
+    ``moov`` у mp4) и то место, откуда пойдёт картинка. Пока этих байт нет в кэше
+    TorrServer, ffmpeg ждёт рой, а показ ждёт ffmpeg. Под меню и под вопросом
+    «Продолжить?» они берутся бесплатно по времени: человек в этот момент отвечает.
+    Лишнего трафика тут нет — ровно эти байты показ прочитает следующим действием.
 
     ``alive`` — жив ли ещё смысл греть: релиз, от которого показ отказался, дотягивать
     нельзя, он отъедает полосу у выбранного (:meth:`torrcast.cli._Bench.keep_only`).
     """
     began = time.monotonic()
     taken = 0
-    request = urllib.request.Request(source_url, headers={"Range": f"bytes=0-{upto - 1}"})
+    where = f"bytes={offset}-{offset + upto - 1}"
+    request = urllib.request.Request(source_url, headers={"Range": where})
     with urllib.request.urlopen(request, timeout=WARM_TIMEOUT) as answer:
         while chunk := answer.read(1 << 20):
             taken += len(chunk)
             if alive is not None and not alive():
                 break
-    mark("начало прогрето", байт=taken, за=round(time.monotonic() - began, 2))
+    mark("прогрето", смещение=offset, байт=taken, за=round(time.monotonic() - began, 2))
     return taken
 
 
-def warm_file(source_url: str, alive: Any = None) -> None:
-    """Прогреть файл под меню, фоном: сначала карта опорных кадров, потом начало потока.
+def pull_head(source_url: str, upto: int = HEAD_WARM, alive: Any = None) -> int:
+    """Прогреть начало файла — частный случай :func:`warm_at` со смещением ноль."""
+    return warm_at(source_url, 0, upto, alive)
+
+
+def warm_file(source_url: str, at: float = 0.0, alive: Any = None) -> None:
+    """Прогреть файл фоном: карта опорных кадров, начало потока и место, откуда играем.
 
     Зовётся с самой ранней секунды, когда известен файл, — пока человек отвечает на
     вопросы (§4 SPEC-v2). Порядок именно такой: без карты показ не построит сетку и не
-    запустит ffmpeg вовсе, а начало потока нужно уже запущенному ffmpeg. Не вышло — не
-    беда: показ сделает то же самое сам, просто на своём времени.
+    запустит ffmpeg вовсе; начало файла нужно ffmpeg, чтобы вообще открыть вход; а место
+    ``at`` — это то, что он прочитает третьим. Не вышло — не беда: показ сделает то же
+    самое сам, просто на своём времени.
+
+    ``at > 0`` — продолжение с середины (§7.2 SPEC-v2). Там начало файла нужно только на
+    заголовок, поэтому его берём куском поменьше (:data:`HEAD_OPEN`), а основной прогрев
+    уходит туда, где лежит позиция: байтовое смещение известно из той же карты.
     """
 
     def work() -> None:
+        keys: FilmKeys | None = None
         with contextlib.suppress(Exception):
-            film_keys(source_url)
+            keys = film_keys(source_url)
+        if alive is not None and not alive():
+            return
+        offset = keys.byte_at(at) if keys is not None and at > 0 else 0
+        with contextlib.suppress(Exception):
+            pull_head(source_url, HEAD_OPEN if offset else HEAD_WARM, alive)
+        if not offset:
+            return
         with contextlib.suppress(Exception):
             if alive is None or alive():
-                pull_head(source_url, alive=alive)
+                warm_at(source_url, offset, HEAD_WARM, alive)
 
     threading.Thread(target=work, daemon=True).start()
 
@@ -658,10 +715,10 @@ def grid_for(
 ) -> Grid:
     """Сетка для конкретного файла: по опорным кадрам, если карту удалось снять.
 
-    Карта берётся тремя Range-запросами из индекса mkv (:func:`torrcast.mkv.keyframes`) и
-    стоит около секунды. Не mkv, нет Cues, карта не похожа на видео — берём ровную сетку
-    и говорим об этом вслух: молчаливая подмена нарезки — ровно то, из-за чего §6 SPEC-v2
-    расследовали двое суток.
+    Карта берётся двумя-тремя Range-запросами из индекса контейнера
+    (:func:`torrcast.keymap.keyframes`) и стоит около секунды. Контейнер незнакомый, индекса
+    в нём нет, карта не похожа на видео — берём ровную сетку и говорим об этом вслух:
+    молчаливая подмена нарезки — ровно то, из-за чего §6 SPEC-v2 расследовали двое суток.
     """
     began = time.monotonic()
     if not on_keys:
@@ -669,17 +726,17 @@ def grid_for(
             say(f"сетка ровно по {step:g} с — так велено настройкой")
         return Grid.uniform(duration, step)
     try:
-        found, keys = film_keys(source_url)
+        found = film_keys(source_url)
     except InfraError as exc:
         if say:
             say(f"сетка ровно по {step:g} с: {exc}")
         return Grid.uniform(duration, step)
-    length = duration or found
-    if len(keys) < 3 or keys[-1] < length * 0.5:
+    length = duration or found.duration
+    if len(found.at) < 3 or found.at[-1] < length * 0.5:
         if say:
             say(f"сетка ровно по {step:g} с: карта опорных кадров не похожа на видео")
         return Grid.uniform(length, step)
-    grid = Grid.on_keyframes(keys, length, step)
+    grid = Grid.on_keyframes(found.at, length, step)
     if say:
         spans = [grid.span(k) for k in range(grid.count)]
         say(

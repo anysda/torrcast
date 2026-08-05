@@ -1,6 +1,6 @@
-"""Карта опорных кадров mkv по HTTP — отчёт по файлу перед нарезкой.
+"""Карта опорных кадров по HTTP — отчёт по файлу перед нарезкой.
 
-Разбор Cues живёт в пакете (:mod:`torrcast.mkv`): по этой же карте показ строит сетку
+Разбор индексов живёт в пакете (:mod:`torrcast.keymap`): по этой же карте показ строит сетку
 сегментов, и двух реализаций у неё быть не должно. Здесь остаётся то, ради чего скрипт
 запускают руками, — человеческий отчёт: длина и вес GOP, что с ними делает сетка.
 
@@ -18,7 +18,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from torrcast import TorrcastError
-from torrcast.mkv import Point, keyframes, video_track
+from torrcast.keymap import Point, keyframes, video_track
 
 
 def report(duration: float, points: tuple[Point, ...], grid: int) -> None:

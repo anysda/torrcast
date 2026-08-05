@@ -64,6 +64,60 @@ def clip(tmp_path_factory: pytest.TempPathFactory) -> str:
     return str(path)
 
 
+@pytest.fixture(scope="session")
+def clip_mp4(clip: str, tmp_path_factory: pytest.TempPathFactory) -> str:
+    """Тот же ролик в mp4 с ``moov`` в голове — так его пишут релизы для сети (YTS).
+
+    Пересобирается из mkv-ролика копией битстрима: карта опорных кадров обязана получиться
+    той же самой, из какого бы контейнера её ни доставали, и тест это проверяет.
+    ``-bf 2`` в исходном ролике нет, поэтому ``ctts`` в файле может и не быть — специально
+    ради него ниже собирается :func:`clip_mp4_bframes`.
+    """
+    path = tmp_path_factory.mktemp("src-mp4") / "clip.mp4"
+    subprocess.run(
+        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-i", clip,
+         "-c", "copy", "-movflags", "+faststart", "-y", str(path)],
+        check=True, capture_output=True,
+    )  # fmt: skip
+    return str(path)
+
+
+@pytest.fixture(scope="session")
+def clip_mp4_tail(clip: str, tmp_path_factory: pytest.TempPathFactory) -> str:
+    """Тот же ролик, но ``moov`` в хвосте: так пишет ffmpeg без ``faststart``.
+
+    Такой файл встречается в раздачах, собранных «как получилось», и карта из него обязана
+    сниматься тоже — не вычитывая при этом ``mdat`` целиком.
+    """
+    path = tmp_path_factory.mktemp("src-mp4-tail") / "clip.mp4"
+    subprocess.run(
+        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-i", clip,
+         "-c", "copy", "-y", str(path)],
+        check=True, capture_output=True,
+    )  # fmt: skip
+    return str(path)
+
+
+@pytest.fixture(scope="session")
+def clip_mp4_bframes(tmp_path_factory: pytest.TempPathFactory) -> str:
+    """mp4 с B-кадрами и списком правок: ``ctts`` и ``elst`` не пустые.
+
+    Ровно на этой паре ломаются самодельные разборы: без ``ctts`` время опорного кадра
+    получается временем ДЕКОДИРОВАНИЯ, а не тем, что показывает ffprobe и по чему режет
+    сегментный муксер; без ``elst`` вся карта уезжает на пару кадров.
+    """
+    path = tmp_path_factory.mktemp("src-mp4-bf") / "clip.mp4"
+    subprocess.run(
+        ["ffmpeg", "-hide_banner", "-loglevel", "error",
+         "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=25",
+         "-f", "lavfi", "-i", "sine=frequency=440", "-t", str(CLIP_SECONDS),
+         "-c:v", "libx264", "-preset", "ultrafast", "-g", "50", "-bf", "3",
+         "-c:a", "aac", "-movflags", "+faststart", "-y", str(path)],
+        check=True, capture_output=True,
+    )  # fmt: skip
+    return str(path)
+
+
 class FakeProc:
     """Процесс упаковки: умеет ровно то, что от него нужно показу.
 

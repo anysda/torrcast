@@ -1,6 +1,6 @@
 """Секундомер снятия карты опорных кадров: где именно уходят 13–24 с холодного роя.
 
-Не часть продукта — измерительный щуп (§7.1 SPEC-v2). Раскладывает :func:`torrcast.mkv.keyframes`
+Не часть продукта — измерительный щуп (§7.1 SPEC-v2). Раскладывает :func:`torrcast.keymap.keyframes`
 на отдельные Range-запросы и печатает цену каждого: сколько байт и сколько секунд.
 
     python3 scripts/cuesprobe.py --magnet 'magnet:?...' [--head 262144]
@@ -15,6 +15,7 @@ import time
 
 sys.path.insert(0, "/root/torrcast")
 
+from torrcast.keymap import Reader
 from torrcast.mkv import (
     CLUSTER,
     CUES,
@@ -26,7 +27,6 @@ from torrcast.mkv import (
     SEEK_POSITION,
     SEGMENT,
     TIMESTAMP_SCALE,
-    Reader,
     _uint,
     _walk,
 )
