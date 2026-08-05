@@ -65,6 +65,7 @@ from torrcast.stream import (
     unit_active,
     unit_key,
     unit_why,
+    warm_keys,
 )
 
 __all__ = ["Args", "bitrate_of", "main", "parse_args", "rank_releases", "render_table"]
@@ -790,6 +791,10 @@ class _Bench:
             source = self.torrserver.stream_url(prep.torrent_hash, prep.want.index)
             prep.media = probe(source, timeout=self.probe_budget)
             prep.read = time.monotonic() - mark
+            # Карта опорных кадров нужна показу, а не подготовке, но снимать её там — это
+            # 14–24 с ожидания роя на старте (замерено 06-08-2026). Поэтому она греется
+            # здесь, фоном, пока человек отвечает на вопросы (§4 SPEC-v2).
+            warm_keys(source)
             prep.phase = "готово"
         except TorrcastError as exc:
             prep.error = str(exc)
@@ -899,17 +904,26 @@ def _play(
     SPEC-v2): манифест обещает приёмнику весь фильм, а :class:`Feed` пакует то место,
     которое он попросил. Раздача, приёмник и LOAD при этом одни на весь показ.
     """
-    from torrcast.stream import hls_base, hls_dir, slot_at
+    from torrcast.stream import grid_for, hls_base, hls_dir
 
     out = hls_dir(config.hls_dir)
     start = watch.entry.pos if watch else 0.0
     length = watch.entry.dur if watch else duration
     tls = config.transport == "https"
+    # Сетка сегментов снимается с самого файла и дальше не меняется: она же в манифесте,
+    # она же в команде ffmpeg. Всё, что показ говорит о времени, считается по ней.
+    grid = grid_for(
+        source,
+        length,
+        config.hls_segment,
+        config.hls_keyframes,
+        say=lambda text: print(text, flush=True),
+    )
     feed = Feed(
         source=source,
         audio=audio,
         out=out,
-        duration=length,
+        grid=grid,
         readrate=config.hls_readrate,
         burst=config.hls_burst,
         keep=config.hls_keep,
@@ -926,7 +940,7 @@ def _play(
         server.start()
         # Упаковку начинаем сами, не дожидаясь первого запроса: ресиверу нужен готовый
         # кусок сразу, иначе LOAD упирается в ожидание ffmpeg и старт растёт на глазах.
-        feed.restart(slot_at(start))
+        feed.restart(grid.slot_at(start))
         receiver.play(url, about, at=start)
         print(f"играю {about} — на ТВ   (старт {clock.total:.0f} с)", flush=True)
         _hold(receiver, feed, watch)
@@ -982,7 +996,7 @@ def _hold(receiver: Receiver, feed: Feed, watch: Watch | None = None) -> None:
             print(
                 f"запас: показ {position.pos:.0f} · упаковано {front:.0f} · "
                 f"впереди {front - position.pos:.0f} с · {feed.weight() / 1e6:.0f} МБ · "
-                f"{position.state}",
+                f"расхождение с манифестом {feed.drift():.3f} с · {position.state}",
                 flush=True,
             )
         if time.monotonic() - said >= SAY_SECONDS:

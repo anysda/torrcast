@@ -1,12 +1,20 @@
-"""Общее для тестов потока: self-signed серт и синтетический ролик-источник."""
+"""Общее для тестов потока: self-signed серт, синтетический ролик-источник и заглушки
+упаковки, которые нужны сразу двум наборам тестов.
+"""
 
 from __future__ import annotations
 
 import subprocess
+from typing import TYPE_CHECKING
 
 import pytest
 
 from torrcast import console
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from torrcast.stream import Packer
 
 #: Длина синтетического ролика. Держим её кратной сетке HLS и с запасом в несколько
 #: сегментов: на сетке 10 с (§6 SPEC-v2) двадцатисекундный ролик — это два сегмента,
@@ -54,3 +62,34 @@ def clip(tmp_path_factory: pytest.TempPathFactory) -> str:
         check=True, capture_output=True,
     )  # fmt: skip
     return str(path)
+
+
+class FakeProc:
+    """Процесс упаковки: умеет ровно то, что от него нужно показу.
+
+    Сигналов остановки у него нет вовсе — попытка придержать упаковку SIGSTOP'ом
+    развалила бы тест, а показ таких сигналов больше не шлёт (§6 SPEC-v2).
+    """
+
+    def __init__(self, code: int | None = None) -> None:
+        self.code = code
+
+    def poll(self) -> int | None:
+        return self.code
+
+    def terminate(self) -> None:
+        self.code = -15
+
+    def wait(self, timeout: float | None = None) -> int:
+        return -15
+
+
+def fake_packer(out: Path, first: int = 0, code: int | None = None) -> Packer:
+    """Прогон упаковки без ffmpeg: сегменты в ``out`` кладёт сам тест.
+
+    Каталог прогона (``out/pack``) не создаётся: значит :meth:`Packer.publish` выкладывать
+    нечего, и наружу остаётся ровно то, что тест положил своими руками.
+    """
+    from torrcast.stream import PACK_DIR, Packer
+
+    return Packer(proc=FakeProc(code), out=out, run=out / PACK_DIR, first=first)  # type: ignore[arg-type]

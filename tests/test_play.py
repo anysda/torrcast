@@ -2,10 +2,16 @@
 
 Живая приёмка §7.2 идёт на «Моане 2» (docs/stage2.md), а регрессию ловит этот тест:
 он гоняет тот же код без торрента и укладывается в секунды.
+
+Здесь же живёт единственная проверка §6.1 SPEC-v2, которую нельзя сделать на бумаге:
+кусок под именем ``vN`` обязан быть одним и тем же местом фильма, с какого бы места ни
+начали паковать. Проверяется это настоящим ffmpeg на настоящем ролике — арифметикой
+границ (tests/test_hls.py) доказывается только то, что мы его об этом попросили.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import subprocess
 import threading
@@ -15,23 +21,24 @@ from typing import Any
 
 import pytest
 
-from tests.conftest import CLIP_SECONDS
+from tests.conftest import CLIP_SECONDS, fake_packer
 from torrcast import InfraError
 from torrcast.cli import Watch as _Watch
 from torrcast.cli import _Clock, _play
 from torrcast.state import Config, Entry, State
 from torrcast.stream import (
     HLS_SEGMENT_SECONDS,
-    PACK_PLAYLIST,
+    PACK_DIR,
     Feed,
+    Grid,
     Packer,
-    ffmpeg_hls_command,
+    ffmpeg_pack_command,
     hls_base,
     hls_dir,
     mark_playing,
+    pack_start,
     playing_flag,
-    slot_at,
-    slot_time,
+    segment_name,
 )
 
 
@@ -40,6 +47,11 @@ def config_for(tmp_path: Path, tls: tuple[str, str], port: int) -> Config:
 
     ``tls`` тут остаётся ради второго прогона той же цепочки по https: транспорт —
     выключенная опция, но она обязана работать, и проверяется тем же тестом.
+
+    ``hls_keyframes=False``: карта опорных кадров снимается Range-запросами по HTTP
+    (:mod:`torrcast.mkv`), а источник у этих тестов — файл на диске, читать который тем же
+    способом неоткуда. Сетка по кадрам проверяется отдельно, ffmpeg'ом, в
+    :func:`test_the_same_name_holds_the_same_piece_wherever_packing_started`.
     """
     return Config(
         receiver="mock",
@@ -49,7 +61,54 @@ def config_for(tmp_path: Path, tls: tuple[str, str], port: int) -> Config:
         hls_key=tls[1],
         hls_port=port,
         hls_readrate=0.0,  # приёмка идёт быстрее реального времени
+        hls_keyframes=False,
     )
+
+
+def _keys_of(clip: str) -> list[float]:
+    """Опорные кадры ролика — то же, что показ берёт из индекса mkv (:mod:`torrcast.mkv`).
+
+    Здесь их можно взять честным перебором пакетов: ролик короткий и лежит на диске. На
+    фильме через рой так делать нельзя — ради этого и написан разбор Cues.
+    """
+    done = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "v", "-skip_frame", "nokey",
+         "-show_entries", "frame=pts_time", "-of", "csv=p=0", clip],
+        capture_output=True, text=True, check=True,
+    )  # fmt: skip
+    return [float(line.rstrip(",")) for line in done.stdout.split() if line.strip(",")]
+
+
+def _pack(clip: str, grid: Grid, slot: int, out: Path) -> Packer:
+    """Один живой прогон упаковки с сегмента ``slot`` до конца входа.
+
+    Место старта не угадывается, а меряется (:func:`pack_start`) — ровно как в показе:
+    ``-ss`` уводит ffmpeg на опорный кадр не позже запрошенного, и без этого числа
+    границы сегментов уехали бы относительно фильма.
+    """
+    run = out / PACK_DIR
+    at = pack_start(clip, grid.start(slot))
+    command = ffmpeg_pack_command(clip, 0, str(run), grid, slot, at, readrate=0.0)
+    packer = Packer.start(command, out, run, slot)
+    deadline = time.monotonic() + 120
+    while packer.poll() is None and time.monotonic() < deadline:
+        time.sleep(0.2)
+    assert packer.poll() == 0, packer.why()
+    packer.publish()
+    return packer
+
+
+def _video(path: Path) -> str:
+    """md5 битстрима видео куска — **без** меток времени.
+
+    Сравнивать метки нельзя, и это не придирка: при упаковке от нуля ffmpeg не пускает dts
+    ниже нуля и сдвигает весь фильм на кадр вперёд, а при упаковке из середины метки
+    остаются исходными. Кадры при этом те же самые — что и требуется доказать.
+    """
+    command = ["ffmpeg", "-v", "error", "-i", str(path),
+               "-map", "0:v", "-c", "copy", "-f", "h264", "-"]  # fmt: skip
+    done = subprocess.run(command, capture_output=True, check=True)
+    return hashlib.md5(done.stdout).hexdigest()
 
 
 @pytest.mark.parametrize(("transport", "port"), [("http", 18461), ("https", 18462)])
@@ -80,14 +139,44 @@ def test_mock_decodes_the_whole_stream_without_gaps(
     assert not list(Path(config.hls_dir).glob("*.ts")), "сегменты убраны за собой"
 
 
+def test_the_same_name_holds_the_same_piece_wherever_packing_started(
+    clip: str, tmp_path: Path
+) -> None:
+    """§6.1 SPEC-v2 живьём: имя сегмента — это место в фильме, а не порядковый номер.
+
+    Ровно это ломалось до 06-08-2026: сегментный муксер отсчитывал границы от первого
+    пакета прогона, поэтому после каждой перемотки под тем же именем лежало другое место,
+    манифест врал, а уже упакованное приходилось выбрасывать. Теперь границы абсолютные —
+    и два прогона, начатые в разных местах, обязаны дать под одним именем один и тот же
+    кусок фильма.
+
+    Побайтно сравнивается **видео**: метки времени у прогона от нуля на кадр больше
+    (ffmpeg не пускает dts ниже нуля), и сравнивать контейнер целиком было бы враньём.
+    """
+    grid = Grid.on_keyframes(_keys_of(clip), float(CLIP_SECONDS), float(HLS_SEGMENT_SECONDS))
+    assert grid.on_keys and grid.count > 4, "сетка вышла слишком мелкой, сравнивать нечего"
+    slot = 3
+
+    head = _pack(clip, grid, 0, hls_dir(str(tmp_path / "head")))
+    tail = _pack(clip, grid, slot, hls_dir(str(tmp_path / "tail")))
+    try:
+        assert head.drift(grid) < 0.05, "прогон от нуля нарезал не то, что обещал манифест"
+        assert tail.drift(grid) < 0.05, "прогон с середины нарезал не то, что обещал манифест"
+        assert not (tail.out / segment_name(slot - 1)).exists(), "докатка вышла наружу"
+
+        for number in range(slot, grid.count):
+            name = segment_name(number)
+            assert (tail.out / name).exists(), f"{name}: прогон с середины его не выложил"
+            assert _video(head.out / name) == _video(tail.out / name), f"{name}: разные куски"
+    finally:
+        head.stop()
+        tail.stop()
+
+
 def test_audio_is_always_reencoded_to_aac_stereo(clip: str, tmp_path: Path) -> None:
     """Источник — AC3 5.1; на выходе обязан быть AAC stereo, видео — тот же H.264 (§3, §9)."""
     out = hls_dir(str(tmp_path / "hls"))
-    packer = Packer.start(ffmpeg_hls_command(clip, 0, str(out), readrate=0.0), out)
-    deadline = time.monotonic() + 60
-    while packer.poll() is None and time.monotonic() < deadline:
-        time.sleep(0.2)
-    assert packer.poll() == 0, packer.why()
+    packer = _pack(clip, Grid.uniform(float(CLIP_SECONDS)), 0, out)
 
     segment = sorted(out.glob("v*.ts"))[0]
     streams = {s["codec_type"]: s for s in _probe(segment)}
@@ -131,11 +220,15 @@ def _probe(path: Path) -> list[dict[str, Any]]:
 
 
 def _kill_when_playing(config: Config, pattern: str) -> None:
-    """Сносить упаковку, как только она поднимется, — и так пока показ не сдастся."""
+    """Сносить упаковку, как только она поднимется, — и так пока показ не сдастся.
+
+    Ждём кусок в каталоге прогона, а не снаружи: наружу он попадёт только после
+    :meth:`Packer.publish`, и к тому времени можно не успеть вклиниться.
+    """
     out = Path(config.hls_dir)
     deadline = time.monotonic() + 60
     while time.monotonic() < deadline:
-        if list(out.glob("v*.ts")):
+        if list(out.glob("**/v*.ts")):
             subprocess.run(["pkill", "-9", "-f", pattern], check=False)
         time.sleep(0.3)
 
@@ -143,24 +236,6 @@ def _kill_when_playing(config: Config, pattern: str) -> None:
 def _alive(pattern: str) -> bool:
     done = subprocess.run(["pgrep", "-f", pattern], capture_output=True, text=True, check=False)
     return bool(done.stdout.strip())
-
-
-class _FakeProc:
-    """Процесс упаковки: умеет ровно то, что от него нужно показу. Сигналов остановки у
-    него нет вовсе — попытка придержать упаковку SIGSTOP'ом развалила бы тест.
-    """
-
-    def __init__(self) -> None:
-        self.code: int | None = None
-
-    def poll(self) -> int | None:
-        return self.code
-
-    def terminate(self) -> None:
-        self.code = -15
-
-    def wait(self, timeout: float | None = None) -> int:
-        return -15
 
 
 class _FakeReceiver:
@@ -183,12 +258,12 @@ class _FakeReceiver:
 
 
 def _feed_with_segments(tmp_path: Path) -> Feed:
-    """Упаковка на 60 готовых сегментов сетки; ffmpeg за ней настоящий не стоит."""
+    """Упаковка на 60 готовых сегментов ровной сетки; ffmpeg за ней настоящий не стоит."""
     out = hls_dir(str(tmp_path / "hls"))
     for slot in range(60):
         (out / f"v{slot}.ts").write_bytes(b"x")
-    feed = Feed(source="", audio=0, out=out, duration=7200.0, keep=40.0, wait=0.0)
-    feed.packer = Packer(proc=_FakeProc(), out=out, first=0)  # type: ignore[arg-type]
+    feed = Feed(source="", audio=0, out=out, grid=Grid.uniform(7200.0), keep=40.0, wait=0.0)
+    feed.packer = fake_packer(out, first=0)
     return feed
 
 
@@ -208,8 +283,9 @@ def test_the_show_sweeps_ram_behind_the_receiver_while_it_plays(
 
     cli._hold(receiver, feed)
 
+    edge = feed.grid.slot_at(160.0)
     left = sorted(int(path.name[1:-3]) for path in feed.out.glob("v*.ts"))
-    assert left == list(range(slot_at(160.0), 60)), "позади показа держим окно, остальное — из RAM"
+    assert left == list(range(edge, 60)), "позади показа держим окно, остальное — из RAM"
 
 
 def test_a_pause_on_the_remote_stops_packing(
@@ -236,13 +312,17 @@ def test_a_pause_on_the_remote_stops_packing(
 
 
 def test_the_show_directory_is_left_clean_after_the_stop(tmp_path: Path) -> None:
-    """После остановки в каталоге показа не остаётся ничего — включая флажок картинки.
+    """После остановки в каталоге показа не остаётся ничего — включая флажок картинки
+    и каталог прогона упаковки.
 
     `cast stop` оставлял в /dev/shm/torrcast пустой playing.flag: сегменты и плейлист
-    убирались, а доказательство прошлой картинки — нет.
+    убирались, а доказательство прошлой картинки — нет. Каталог прогона (:data:`PACK_DIR`)
+    сюда добавился вместе с публикацией через переименование: в нём остаётся недописанный
+    кусок и список нарезанного, и в tmpfs им после показа делать нечего.
     """
     feed = _feed_with_segments(tmp_path)
-    (feed.out / PACK_PLAYLIST).write_text("#EXTM3U\n")
+    (feed.out / PACK_DIR).mkdir(exist_ok=True)
+    (feed.out / PACK_DIR / "v61.ts").write_text("недописанный кусок")
     mark_playing(feed.out)
 
     feed.stop()
@@ -264,6 +344,7 @@ def test_a_repack_in_the_middle_keeps_the_proof_of_the_picture(tmp_path: Path) -
     feed.packer.stop(keep_files=True)  # так гаснет упаковка между кусками фильма
 
     assert playing_flag(feed.out).exists(), "показ идёт — флажок на месте"
+    assert sorted(feed.out.glob("v*.ts")), "упакованное перезапуск не выбрасывает"
 
 
 def test_a_finished_packer_is_not_a_crash_but_a_serial_one_gives_up(
@@ -299,14 +380,14 @@ def test_resume_starts_from_the_offset_and_ends_as_watched(
     сторож кладёт в state абсолютную позицию, а на 95 % пишет «досмотрено» (§2.3, §2.4).
     """
     monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
-    # Позиция берётся на границе сетки: с середины сегмента упаковка законно начнётся
-    # с его начала, и проверять было бы нечего.
-    key, offset = "movie:ролик:2026", slot_time(1)
-    # Длительность занижена на сегмент — по той же причине, что и допуск выше: хвост HLS
-    # у клиента может отвалиться, а проверяем мы тут переход «досмотрено», а не хвост.
-    entry = Entry(
-        title="ролик", magnet="magnet:?xt=1", pos=offset, dur=CLIP_SECONDS - HLS_SEGMENT_SECONDS
-    )
+    # Длительность занижена на сегмент — хвост HLS у клиента может отвалиться, а проверяем
+    # мы тут переход «досмотрено», а не хвост. Сетку показа считаем той же арифметикой,
+    # что и он сам: позиция берётся на границе, иначе упаковка законно начнётся с начала
+    # сегмента и проверять было бы нечего.
+    length = float(CLIP_SECONDS - HLS_SEGMENT_SECONDS)
+    offset = Grid.uniform(length).start(1)
+    key = "movie:ролик:2026"
+    entry = Entry(title="ролик", magnet="magnet:?xt=1", pos=offset, dur=length)
     state = State()
     state.put(key, entry)
     state.save()
@@ -318,7 +399,7 @@ def test_resume_starts_from_the_offset_and_ends_as_watched(
     printed = capsys.readouterr().out
     decoded = float(printed.split("декодировано ")[1].split(" ")[0])
     assert decoded >= CLIP_SECONDS - HLS_SEGMENT_SECONDS, "показ оборвался"
-    assert f"упаковка с {offset:.0f} с" in printed, "показ начался с позиции, а не сначала"
+    assert f"упаковка с {offset:.1f} с" in printed, "показ начался с позиции, а не сначала"
     assert "досмотрено" in printed
     saved = State.load().get(key)
     assert saved is not None and saved.done and saved.pos == 0.0

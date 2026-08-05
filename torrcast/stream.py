@@ -6,11 +6,15 @@ TorrServer (кэш в RAM, на диск не пишем), пакует ffmpeg (
 
 from __future__ import annotations
 
+import bisect
 import contextlib
+import hashlib
 import http.server
 import json
+import math
 import os
 import re
+import shutil
 import socket
 import ssl
 import subprocess
@@ -27,6 +31,8 @@ from torrcast import InfraError, why
 from torrcast.parse import VIDEO_EXT
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     import requests
 
     from torrcast.state import Config
@@ -36,6 +42,7 @@ __all__ = [
     "RUNTIME_GUESS",
     "AudioTrack",
     "Feed",
+    "Grid",
     "HlsServer",
     "Media",
     "Packer",
@@ -43,29 +50,30 @@ __all__ = [
     "TorrServer",
     "Warmup",
     "bitrate_mbit",
-    "ffmpeg_hls_command",
+    "ffmpeg_pack_command",
+    "film_keys",
     "forget_playing",
+    "grid_for",
     "hls_base",
     "hls_dir",
     "mark_playing",
     "our_address",
+    "pack_start",
     "parse_manifest",
     "pick_video_file",
     "playing_flag",
     "probe",
     "segment_name",
     "segment_slot",
-    "slot_at",
-    "slot_time",
     "start_play_unit",
     "stop_play_unit",
     "unit_active",
     "unit_key",
     "unit_why",
-    "vod_manifest",
+    "warm_keys",
 ]
 
-#: Длительность сегмента HLS, секунды. Было 4 — стало 10, и это не вкусовщина, а
+#: Шаг сетки сегментов, секунды. Было 4 — стало 10, и это не вкусовщина, а
 #: измерение (§6 SPEC-v2, живой Q70D 05-08-2026, «Моана» 2016, место 1:24).
 #:
 #: Спотыкач на 1:24 оказался **нашей нарезкой, а не фильмом и не роем**. Доказано так:
@@ -101,16 +109,30 @@ __all__ = [
 #: обоих фильмов эта сетка проходит. Класс НЕ закрыт: правило, по которому можно было бы
 #: заранее сказать, какая именно граница убьёт показ, не найдено (см. отчёт по §6).
 #:
-#: ⚠️ Ещё одно измеренное свойство этой нарезки: имя сегмента врёт о его содержимом после
-#: любого перезапуска упаковки. ``split_by_time`` отсчитывает границы от ПЕРВОГО пакета
+#: ⚠️ Это был шаг сетки, а не её место в фильме: **фаза** сетки до 06-08-2026 зависела от
+#: того, откуда начата упаковка. ``split_by_time`` отсчитывает границы от ПЕРВОГО пакета
 #: прогона, а ``-ss`` уводит ffmpeg на опорный кадр не позже запрошенного места, поэтому
-#: после рестарта с 70 с сегмент с именем ``v17`` (сетка 4 с, то есть «68.0 с») начинается
-#: на 67.55 с. На файле с GOP 10.4 с расхождение может дойти до тех же 10 с — и оно же
-#: делает фазу сетки после каждой перемотки другой.
+#: после рестарта с 70 с сегмент с именем ``v17`` (сетка 4 с, то есть «68.0 с») начинался
+#: на 67.55 с. Теперь границы абсолютные: см. :class:`Grid` и :func:`pack_start`.
 HLS_SEGMENT_SECONDS: Final = 10
-#: Плейлист самой упаковки. Приёмнику он не отдаётся: тот получает манифест на весь
-#: фильм (:func:`vod_manifest`), а этот нужен только ffmpeg'у как выходной файл.
-PACK_PLAYLIST: Final = "pack.m3u8"
+#: Каталог одного прогона упаковки внутри каталога показа. ffmpeg пишет сегменты сюда, а
+#: наружу они попадают переименованием (:meth:`Packer.publish`) — по двум причинам:
+#:
+#: * готовность. Сегментный муксер, в отличие от hls, не пишет через временный файл:
+#:   файл появляется пустым и наполняется. «Есть файл» перестало значить «кусок готов»,
+#:   а вот «появился следующий» — значит, и это видно только внутри прогона;
+#: * докатка. Прогон почти всегда начинается раньше своей границы (``-ss`` уводит на
+#:   опорный кадр), и этот огрызок ffmpeg кладёт под именем предыдущего сегмента. Отдать
+#:   его наружу нельзя: под этим именем уже может лежать честный сегмент прошлого прогона.
+PACK_DIR: Final = "pack"
+#: Список сегментов, который ведёт сам ffmpeg: ``имя,начало,конец`` на каждый закрытый
+#: кусок. Приёмнику он не отдаётся — по нему показ сверяет, что нарезал ровно то, что
+#: обещал в манифесте (:meth:`Packer.drift`).
+PACK_LIST: Final = "pack.csv"
+#: Допуск при сравнении времени границы с меткой кадра: границы сетки стоят на опорных
+#: кадрах, но метки одного и того же кадра при упаковке от нуля и из середины файла
+#: отличаются на кадр (ffmpeg не пускает dts ниже нуля). Полкадра 24 к/с — 0.02 с.
+SPLIT_SLACK: Final = 0.02
 _SEGMENT_RE: Final = re.compile(r"v(\d+)\.ts")
 #: Флажок «на экране картинка»: его кладёт показ, когда приёмник впервые ответил
 #: ``PLAYING``, и ждёт CLI. Спросить приёмник из CLI нельзя — сендер к нему ровно один
@@ -365,16 +387,6 @@ def pick_video_file(files: list[TorrFile]) -> TorrFile:
     return max(videos, key=lambda f: f.size)
 
 
-def slot_at(seconds: float) -> int:
-    """Номер сегмента сетки, в который попадает секунда фильма."""
-    return max(0, int(seconds // HLS_SEGMENT_SECONDS))
-
-
-def slot_time(slot: int) -> float:
-    """Секунда фильма, с которой начинается сегмент сетки."""
-    return slot * float(HLS_SEGMENT_SECONDS)
-
-
 def segment_name(slot: int) -> str:
     """Имя файла сегмента. Имя = место в фильме, а не номер по порядку упаковки — это и
     делает возможным манифест на весь фильм при упаковке по требованию (§2.1 SPEC-v2).
@@ -388,65 +400,279 @@ def segment_slot(name: str) -> int:
     return int(found.group(1)) if found else -1
 
 
-def vod_manifest(duration: float) -> str:
-    """Манифест VOD на **весь фильм**: сетка по :data:`HLS_SEGMENT_SECONDS` и ``ENDLIST``.
+@dataclass(frozen=True, slots=True)
+class Grid:
+    """Сетка сегментов: **абсолютные** границы, отсчитанные от нуля фильма.
 
-    Это и есть ответ на §2.1 SPEC-v2. Приёмнику неоткуда узнать длительность, кроме
-    манифеста: у скользящего live-плейлиста её нет вовсе, поэтому ТВ считал показ эфиром
-    и не давал ни таймлайна, ни перемотки. Здесь длительность — сумма ``EXTINF``, то есть
-    ровно длина фильма, и перемотка пультом разрешена в любую его точку.
+    Это ответ на главную грабельку §6.1 SPEC-v2. Раньше сетка была не сеткой, а шагом:
+    ffmpeg резал каждые N секунд от первого пакета своего прогона, а прогон начинался там,
+    куда увёл ``-ss``, — то есть на опорном кадре не позже нужного места. Поэтому имя
+    сегмента врало о содержимом до длины GOP, а **фаза** сетки после каждой перемотки
+    становилась другой. Место фильма при одной фазе игралось чисто, при другой — вешало
+    приёмник, и воспроизвести это можно было только случайно.
 
-    Манифест **статический**: он не зависит от того, что упаковано прямо сейчас, и
-    перечисляет сегменты, которых на диске ещё нет. Целый фильм в tmpfs не влезает — но
-    приёмнику и не нужен файл раньше, чем он его попросит: за это отвечает :class:`Feed`,
-    которая на запрос неупакованного места перезапускает упаковку оттуда.
+    Здесь граница — это число, а не «сколько прошло от старта упаковки»: сегмент ``k``
+    занимает ``[bounds[k], bounds[k+1])`` всегда, с какого бы места ни начали паковать.
+    Ровно этот список идёт и в манифест (``EXTINF`` = фактическая длина куска), и в
+    команду ffmpeg (:func:`ffmpeg_pack_command`), так что манифест и нарезка — одно и то же.
 
-    Проверено на живом Q70D 05-08-2026: ``duration`` в MEDIA_STATUS = длине манифеста,
-    ``seek`` в произвольную точку отрабатывает за доли секунды и показ продолжается.
+    Границы стоят на **опорных кадрах**, когда карта их известна (:mod:`torrcast.mkv`):
+    тогда каждый сегмент декодируется сам по себе, и перемотка в любую точку показывает
+    картинку сразу, а не с ближайшего опорного кадра где-то в середине куска. Нет карты —
+    ровная сетка по :data:`HLS_SEGMENT_SECONDS`, как было.
     """
-    whole = int(duration // HLS_SEGMENT_SECONDS)
-    rest = duration - whole * HLS_SEGMENT_SECONDS
-    lines = [
-        "#EXTM3U",
-        "#EXT-X-VERSION:3",
-        f"#EXT-X-TARGETDURATION:{HLS_SEGMENT_SECONDS}",
-        "#EXT-X-MEDIA-SEQUENCE:0",
-        "#EXT-X-PLAYLIST-TYPE:VOD",
-    ]
-    for slot in range(whole):
-        lines += [f"#EXTINF:{float(HLS_SEGMENT_SECONDS):.6f},", segment_name(slot)]
-    if rest >= 0.05:  # хвост короче сегмента: без него длительность врала бы на эти секунды
-        lines += [f"#EXTINF:{rest:.6f},", segment_name(whole)]
-    lines.append("#EXT-X-ENDLIST")
-    return "\n".join(lines) + "\n"
+
+    #: Начала сегментов, секунды от начала фильма; ``bounds[0]`` всегда 0.
+    bounds: tuple[float, ...]
+    duration: float
+    #: Границы стоят на опорных кадрах — сегменты самостоятельны.
+    on_keys: bool = False
+
+    @classmethod
+    def uniform(cls, duration: float, step: float = HLS_SEGMENT_SECONDS) -> Grid:
+        """Ровная сетка: каждые ``step`` секунд от нуля фильма.
+
+        Хвост короче половины шага отдельным сегментом не делается — он прилипает к
+        последнему: пара секунд в манифесте лишним куском не стоит. Кино короче шага —
+        один сегмент на всё, и длительность остаётся честной: приписать ему лишние
+        секунды значило бы пообещать приёмнику то, чего в файле нет.
+        """
+        length = max(duration, 0.0)
+        count = max(1, math.ceil((length - step / 2) / step))
+        return cls(tuple(step * k for k in range(count)), length, False)
+
+    @classmethod
+    def on_keyframes(
+        cls, keys: Sequence[float], duration: float, step: float = HLS_SEGMENT_SECONDS
+    ) -> Grid:
+        """Сетка по опорным кадрам: следующая граница — первый опорный кадр не раньше,
+        чем через ``step`` секунд после предыдущей.
+
+        Длина сегмента получается от ``step`` до ``step + GOP``: на «Моане» 2016
+        (GOP до 4.96 с) это 10.0–14.9 с, на «Моане 2» (GOP до 11.5 с) — до 21.5 с.
+        Короче ``step`` в середине фильма сегментов не бывает — иначе на сценах-вспышках
+        (24 опорных кадра за полсекунды) манифест распух бы на пустом месте. Хвост —
+        исключение: он такой, какой остался, но не короче половины шага.
+        """
+        bounds = [0.0]
+        for key in keys:
+            if key >= bounds[-1] + step and key < duration - step / 2:
+                bounds.append(key)
+        return cls(tuple(bounds), duration, True)
+
+    @property
+    def count(self) -> int:
+        return len(self.bounds)
+
+    def start(self, slot: int) -> float:
+        """Начало сегмента, секунды от начала фильма."""
+        return self.bounds[min(max(slot, 0), self.count - 1)]
+
+    def end(self, slot: int) -> float:
+        """Конец сегмента: начало следующего, а у последнего — конец фильма."""
+        return self.bounds[slot + 1] if 0 <= slot + 1 < self.count else self.duration
+
+    def span(self, slot: int) -> float:
+        return self.end(slot) - self.start(slot)
+
+    def slot_at(self, seconds: float) -> int:
+        """Номер сегмента, в который попадает секунда фильма."""
+        return max(0, bisect.bisect_right(self.bounds, max(seconds, 0.0)) - 1)
+
+    def target(self) -> int:
+        """``EXT-X-TARGETDURATION``: округлённая вверх длина самого длинного сегмента."""
+        return max(1, math.ceil(max(self.span(k) for k in range(self.count))))
+
+    def manifest(self) -> str:
+        """Манифест VOD на **весь фильм**: все сегменты сетки и ``ENDLIST``.
+
+        Это и есть ответ на §2.1 SPEC-v2. Приёмнику неоткуда узнать длительность, кроме
+        манифеста: у скользящего live-плейлиста её нет вовсе, поэтому ТВ считал показ
+        эфиром и не давал ни таймлайна, ни перемотки. Здесь длительность — сумма
+        ``EXTINF``, то есть ровно длина фильма, и перемотка разрешена в любую его точку.
+
+        Манифест **статический**: он не зависит от того, что упаковано прямо сейчас, и
+        перечисляет сегменты, которых на диске ещё нет. Целый фильм в tmpfs не влезает —
+        но приёмнику и не нужен файл раньше, чем он его попросит: за это отвечает
+        :class:`Feed`, которая на запрос неупакованного места пакует оттуда.
+
+        Проверено на живом Q70D 05-08-2026: ``duration`` в MEDIA_STATUS = длине манифеста,
+        ``seek`` в произвольную точку отрабатывает за доли секунды и показ продолжается.
+        """
+        lines = [
+            "#EXTM3U",
+            "#EXT-X-VERSION:3",
+            f"#EXT-X-TARGETDURATION:{self.target()}",
+            "#EXT-X-MEDIA-SEQUENCE:0",
+            "#EXT-X-PLAYLIST-TYPE:VOD",
+        ]
+        if self.on_keys:
+            # Не украшение: каждый сегмент начинается с опорного кадра, и приёмнику
+            # разрешено начать показ с любого — на этом и держится перемотка (§2.1).
+            lines.append("#EXT-X-INDEPENDENT-SEGMENTS")
+        for slot in range(self.count):
+            lines += [f"#EXTINF:{self.span(slot):.6f},", segment_name(slot)]
+        lines.append("#EXT-X-ENDLIST")
+        return "\n".join(lines) + "\n"
 
 
-def ffmpeg_hls_command(
+def _keys_cache(source_url: str) -> Path:
+    """Где лежит снятая карта опорных кадров этого файла.
+
+    Ключ — сам URL потока: в нём hash раздачи и номер файла, то есть ровно то, что
+    определяет содержимое. Кэш нужен не ради экономии трафика (4 МБ), а ради времени:
+    Cues лежат в хвосте файла, и **первое** чтение этого места стоит роя — замерено
+    06-08-2026 на стенде, 13.8 с на «Моане» 2016 и 24.4 с на «Моане 2». Второй показ
+    того же файла (продолжение с середины — обычное дело) платить это не должен.
+    """
+    from torrcast.state import state_path
+
+    return (
+        state_path().parent / "keys" / f"{hashlib.sha1(source_url.encode()).hexdigest()[:16]}.json"
+    )
+
+
+def film_keys(source_url: str) -> tuple[float, list[float]]:
+    """Длительность и времена опорных кадров видео: из кэша или из индекса mkv."""
+    from torrcast.mkv import keyframes, video_track
+
+    cache = _keys_cache(source_url)
+    with contextlib.suppress(OSError, ValueError, KeyError, TypeError):
+        saved = json.loads(cache.read_text("utf-8"))
+        return float(saved["duration"]), [float(x) for x in saved["keys"]]
+    found = keyframes(source_url)
+    keys = [p.at for p in found.points if p.track == video_track(found.points)]
+    with contextlib.suppress(OSError):
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        tmp = cache.with_suffix(".tmp")
+        tmp.write_text(json.dumps({"duration": found.duration, "keys": keys}), "utf-8")
+        tmp.replace(cache)
+    return found.duration, keys
+
+
+def warm_keys(source_url: str) -> None:
+    """Снять карту опорных кадров заранее, фоном, и молча положить в кэш (§4 SPEC-v2).
+
+    Зовётся под меню — пока человек отвечает на вопросы. К моменту, когда показу
+    понадобится сетка, карта либо уже в кэше, либо хотя бы прогрета в TorrServer, и
+    старт не ждёт рой лишние 15 секунд. Не вышло — не беда: показ снимет её сам.
+    """
+
+    def work() -> None:
+        with contextlib.suppress(Exception):
+            film_keys(source_url)
+
+    threading.Thread(target=work, daemon=True).start()
+
+
+def grid_for(
+    source_url: str,
+    duration: float,
+    step: float = HLS_SEGMENT_SECONDS,
+    on_keys: bool = True,
+    say: Any = None,
+) -> Grid:
+    """Сетка для конкретного файла: по опорным кадрам, если карту удалось снять.
+
+    Карта берётся тремя Range-запросами из индекса mkv (:func:`torrcast.mkv.keyframes`) и
+    стоит около секунды. Не mkv, нет Cues, карта не похожа на видео — берём ровную сетку
+    и говорим об этом вслух: молчаливая подмена нарезки — ровно то, из-за чего §6 SPEC-v2
+    расследовали двое суток.
+    """
+    began = time.monotonic()
+    if not on_keys:
+        if say:
+            say(f"сетка ровно по {step:g} с — так велено настройкой")
+        return Grid.uniform(duration, step)
+    try:
+        found, keys = film_keys(source_url)
+    except InfraError as exc:
+        if say:
+            say(f"сетка ровно по {step:g} с: {exc}")
+        return Grid.uniform(duration, step)
+    length = duration or found
+    if len(keys) < 3 or keys[-1] < length * 0.5:
+        if say:
+            say(f"сетка ровно по {step:g} с: карта опорных кадров не похожа на видео")
+        return Grid.uniform(length, step)
+    grid = Grid.on_keyframes(keys, length, step)
+    if say:
+        spans = [grid.span(k) for k in range(grid.count)]
+        say(
+            f"сетка по опорным кадрам: {grid.count} сегментов по {min(spans):.1f}–"
+            f"{max(spans):.1f} с (карта за {time.monotonic() - began:.1f} с)"
+        )
+    return grid
+
+
+def pack_start(source_url: str, at: float, timeout: float = 60.0) -> float:
+    """Куда на самом деле встанет ffmpeg после ``-ss at``: пробный прогон в один кадр.
+
+    Знать это обязательно, и вычислить нельзя. Сетка сегментного муксера отсчитывается от
+    **первого пакета прогона**, а ``-ss`` уводит ffmpeg на опорный кадр не позже
+    запрошенного места — причём не обязательно на ближайший: замерено 05-08-2026 на
+    «Моане» 2016, ``-ss 66.150`` (сама граница — опорный кадр) даёт первый кадр 62.688, то
+    есть **через один**. Поэтому место старта не угадывают, а измеряют: тот же ffmpeg, тот
+    же ``-ss``, один кадр на выход. Цена — 0.5–1.7 с и пара мегабайт (замер на стенде).
+
+    ``-muxdelay 0 -muxpreload 0`` обязательны: без них мультиплексор mpegts добавляет
+    к меткам свои 1.4 с, и «первый кадр» оказался бы не там, где он есть на самом деле.
+    """
+    if at <= 0:
+        return 0.0
+    with tempfile.TemporaryDirectory(prefix="torrcast-pilot-") as tmp:
+        probe_path = f"{tmp}/first.ts"
+        command = [
+            "ffmpeg", "-hide_banner", "-loglevel", "error", "-copyts", "-ss", f"{at:.3f}",
+            "-i", source_url, "-map", "0:v:0", "-c", "copy", "-frames:v", "1",
+            "-muxdelay", "0", "-muxpreload", "0", "-f", "mpegts", "-y", probe_path,
+        ]  # fmt: skip
+        try:
+            subprocess.run(command, capture_output=True, timeout=timeout, check=True)
+            found = subprocess.run(
+                ["ffprobe", "-v", "error", "-select_streams", "v", "-show_entries",
+                 "packet=pts_time", "-of", "csv=p=0", "-read_intervals", "%+#1", probe_path],
+                capture_output=True, text=True, timeout=timeout, check=True,
+            )  # fmt: skip
+        except (OSError, subprocess.SubprocessError):
+            return at  # не вышло — считаем, что встали ровно на границе, и скажем об этом
+        head = found.stdout.strip().splitlines()
+        try:
+            return float(head[0].split(",")[0])
+        except (IndexError, ValueError):
+            return at
+
+
+def ffmpeg_pack_command(
     source_url: str,
     audio_index: int,
-    out_dir: str,
-    start_slot: int = 0,
+    run_dir: str,
+    grid: Grid,
+    slot: int,
+    at: float,
     readrate: float = 1.0,
     burst: float = 0.0,
 ) -> list[str]:
-    """Команда ffmpeg для HLS (§3). Пакует с сегмента ``start_slot`` и кладёт куски под
-    именами их мест в фильме — так упакованное ложится в статический манифест (§2.1).
+    """Команда ffmpeg: паковать фильм по сетке ``grid``, начиная с сегмента ``slot``.
 
-    Два флага держат сетку:
+    ``at`` — где прогон встанет на самом деле (:func:`pack_start`). Всё держится на трёх
+    вещах:
 
-    * ``-copyts`` — временные метки остаются исходными, то есть абсолютным временем
-      фильма. Без него ffmpeg сбрасывает их в ноль на каждом ``-ss``, и приёмник после
-      перепаковки показывал бы позицию от начала куска, а не от начала фильма.
-    * ``split_by_time`` — резать строго по 4 с, а не по ключевым кадрам. Ключевые кадры
-      источника ложатся как попало (на «Моане 2» от 1.0 до 11.5 с), и сегменты
-      «сколько дал GOP» разъезжаются с сеткой манифеста тем сильнее, чем дальше от
-      начала. С ним длительность сегмента ровно 4.000 с, и место сегмента в фильме
-      считается арифметикой, а не гаданием. Плата — сегмент начинается не с ключевого
-      кадра, поэтому ``independent_segments`` больше не ставится: это было бы враньё.
+    * ``-f segment -segment_times`` вместо ``-f hls -hls_time``. Сегментный муксер умеет
+      получить **список** мест реза, а не один шаг, — и это единственный способ положить
+      границы туда, где они стоят в манифесте. Список считается от ``at``, потому что
+      муксер сравнивает метки с начала прогона, а не с начала фильма.
+    * ``-copyts`` — метки времени остаются исходными, то есть абсолютным временем фильма.
+      Без него ffmpeg сбрасывает их в ноль на каждом ``-ss``, и приёмник после перепаковки
+      показывал бы позицию от начала куска, а не от начала фильма.
+    * ``-break_non_keyframes`` — резать ли посреди GOP. На сетке по опорным кадрам этого
+      не нужно и нельзя: муксер сам дождётся опорного кадра, и граница встанет ровно туда,
+      куда обещал манифест. На ровной сетке — наоборот, иначе куски разъедутся с сеткой.
 
-    ⚠️ ``-ss`` перед ``-i`` уводит ffmpeg на ключевой кадр **не позже** запрошенного
-    места, поэтому упаковка начинается на ``δ`` секунд раньше сетки (δ ≤ длины GOP).
-    Ошибка постоянная: она не копится, потому что дальше режет таймер, а не GOP.
+    Прогон почти всегда начинается раньше своей границы: ``-ss`` уводит на опорный кадр
+    раньше. Эта докатка уходит в отдельный сегмент с номером ``slot - 1``, который
+    :meth:`Packer.publish` выбрасывает, — так наружу попадает только то, что совпадает
+    с манифестом, и чужой сегмент не затирается.
 
     Темп упаковки (§6 SPEC-v2) держится **одним ffmpeg'ом и без пауз процесса**:
 
@@ -462,22 +688,29 @@ def ffmpeg_hls_command(
     fftools). То есть просадка роя лечится без нашего участия, а запас впереди приёмника
     остаётся ограниченным ``burst`` — ровно поэтому tmpfs не растёт без предела.
     """
+    run = run_dir.rstrip("/")
+    behind = at < grid.start(slot) - SPLIT_SLACK  # прогон начался раньше своей границы
+    first = slot if behind else slot + 1
+    times = ",".join(f"{grid.start(k) - at:.3f}" for k in range(first, grid.count))
     command = ["ffmpeg", "-hide_banner", "-loglevel", "warning"]
     if readrate > 0:
         command += ["-readrate", f"{readrate:g}"]
         if burst > 0:
             command += ["-readrate_initial_burst", f"{burst:g}"]
     command += ["-copyts"]
-    if start_slot > 0:
-        command += ["-ss", f"{slot_time(start_slot):.3f}"]
+    if slot > 0:
+        command += ["-ss", f"{grid.start(slot):.3f}"]
     command += ["-i", source_url, "-map", "0:v:0", "-map", f"0:a:{audio_index}"]
     command += (
         f"-c:v copy -c:a {AUDIO_CODEC} -ac {AUDIO_CHANNELS} -b:a {AUDIO_BITRATE} "
-        f"-f hls -hls_time {HLS_SEGMENT_SECONDS} -hls_list_size 0 "
-        "-hls_segment_type mpegts -hls_flags split_by_time+temp_file "
-        f"-start_number {start_slot} -hls_segment_filename {out_dir.rstrip('/')}/v%d.ts"
+        f"-f segment -segment_format mpegts -segment_time_delta {SPLIT_SLACK:g} "
+        f"-break_non_keyframes {0 if grid.on_keys else 1} "
+        f"-segment_start_number {slot - 1 if behind else slot} "
+        f"-segment_list {run}/{PACK_LIST} -segment_list_type csv -segment_list_flags +live"
     ).split()
-    command.append(f"{out_dir.rstrip('/')}/{PACK_PLAYLIST}")
+    if times:
+        command += ["-segment_times", times]
+    command.append(f"{run}/v%d.ts")
     return command
 
 
@@ -524,10 +757,17 @@ def forget_playing(out: Path) -> None:
 
 @dataclass(slots=True)
 class Packer:
-    """Один прогон упаковки: процесс ffmpeg, который пакует фильм с сегмента ``first``."""
+    """Один прогон упаковки: процесс ffmpeg, который пакует фильм с сегмента ``first``.
+
+    ffmpeg пишет в свой каталог (:data:`PACK_DIR`), наружу сегменты выкладывает
+    :meth:`publish` переименованием. Так решаются сразу две вещи: наружу не попадает
+    недописанный кусок и не затирается чужой (см. :data:`PACK_DIR`).
+    """
 
     proc: subprocess.Popen[bytes]
     out: Path
+    #: Каталог этого прогона: сюда ffmpeg кладёт куски, включая мусорную докатку.
+    run: Path
     #: С какого сегмента сетки начат этот прогон: всё, что раньше, паковал не он.
     first: int = 0
     log: Any = None
@@ -535,20 +775,74 @@ class Packer:
     halted: bool = False
 
     @classmethod
-    def start(cls, command: list[str], out: Path, first: int = 0) -> Packer:
+    def start(cls, command: list[str], out: Path, run: Path, first: int = 0) -> Packer:
         log = tempfile.TemporaryFile()  # noqa: SIM115 — живёт всё воспроизведение
+        shutil.rmtree(run, ignore_errors=True)
+        run.mkdir(parents=True, exist_ok=True)
         try:
             proc = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=log)
         except FileNotFoundError as exc:
             raise InfraError("ffmpeg не установлен") from exc
-        return cls(proc=proc, out=out, first=first, log=log)
+        return cls(proc=proc, out=out, run=run, first=first, log=log)
+
+    def publish(self) -> None:
+        """Выложить наружу куски, которые ffmpeg уже дописал.
+
+        Дописан тот, за которым появился следующий: сегментный муксер открывает новый
+        файл ровно тогда, когда закрыл прошлый. Мёртвый ffmpeg дописал всё, что успел.
+        Докатка (номер меньше ``first``) не выкладывается никогда — она короче своего
+        места в манифесте и под её именем может лежать честный сегмент прошлого прогона.
+        """
+        slots = sorted(s for s in map(segment_slot, _names(self.run)) if s >= 0)
+        if not slots:
+            return
+        # Код 0 — ffmpeg дошёл до конца входа сам, дописан и последний кусок. Любой
+        # другой исход (жив, убит, оборвался) последний кусок дописанным не делает.
+        done = slots if self.proc.poll() == 0 else slots[:-1]
+        for slot in done:
+            path = self.run / segment_name(slot)
+            if slot < self.first:
+                path.unlink(missing_ok=True)
+                continue
+            with contextlib.suppress(OSError):
+                os.replace(path, self.out / segment_name(slot))
+
+    def cuts(self) -> list[tuple[int, float, float]]:
+        """Что ffmpeg нарезал на самом деле: ``(сегмент, начало, конец)`` по его же списку.
+
+        Нужно ровно для одного: сверить факт с манифестом (:meth:`drift`). Первую строку
+        списка приходится пропускать — в ней ffmpeg пишет начало прогона нулём.
+        """
+        found: list[tuple[int, float, float]] = []
+        try:
+            text = (self.run / PACK_LIST).read_text("utf-8", "replace")
+        except OSError:
+            return found
+        for line in text.splitlines():
+            parts = line.strip().rstrip(",").split(",")
+            if len(parts) < 3:
+                continue
+            slot = segment_slot(parts[0].rsplit("/", 1)[-1])
+            with contextlib.suppress(ValueError):
+                found.append((slot, float(parts[1]), float(parts[2])))
+        return found
+
+    def drift(self, grid: Grid) -> float:
+        """Насколько нарезанное разошлось с обещанным в манифесте, секунды.
+
+        Ноль (точнее, доли кадра) — манифест не врёт: ``EXTINF`` совпадает с фактом.
+        Больше кадра — повод не верить нарезке и сказать об этом в журнал: значит, карта
+        опорных кадров разошлась с потоком.
+        """
+        worst = 0.0
+        for slot, began, _ in self.cuts()[1:]:
+            if slot >= self.first:
+                worst = max(worst, abs(began - grid.start(slot)))
+        return worst
 
     def frontier(self) -> int:
-        """Последний готовый сегмент этого прогона; ``first - 1`` — ещё ничего не готово.
-
-        Считается по файлам, а не по плейлисту ffmpeg: файл появляется атомарно
-        (``temp_file`` пишет рядом и переименовывает), значит существование = готовность.
-        """
+        """Последний готовый сегмент этого прогона; ``first - 1`` — ещё ничего не готово."""
+        self.publish()
         slots = [s for s in map(segment_slot, _names(self.out)) if s >= self.first]
         return max(slots, default=self.first - 1)
 
@@ -581,8 +875,10 @@ class Packer:
                 self.proc.wait(timeout=5)
             if self.proc.poll() is None:
                 self.proc.kill()
+        self.publish()  # дописанное этим прогоном остаётся показу: оно уже верное
+        shutil.rmtree(self.run, ignore_errors=True)
         if not keep_files:
-            for junk in (*_paths(self.out), self.out / PACK_PLAYLIST):
+            for junk in _paths(self.out):
                 junk.unlink(missing_ok=True)
 
 
@@ -602,7 +898,7 @@ class Feed:
     иначе у показа нет ни таймлайна, ни перемотки, — а целый фильм ни в RAM, ни на диск
     стенда не влезает. Развязка в том, что манифест и файлы живут порознь:
 
-    * :func:`vod_manifest` перечисляет **все** сегменты фильма и не меняется никогда;
+    * :meth:`Grid.manifest` перечисляет **все** сегменты фильма и не меняется никогда;
     * файлы под этими именами появляются только там, где приёмник смотрит прямо сейчас;
     * запрос сегмента, которого нет, — это и есть перемотка. Показ не отвечает 404
       (после него ресивер капризничает минутами), а перезапускает упаковку с нужного
@@ -616,20 +912,24 @@ class Feed:
     source: str
     audio: int
     out: Path
-    duration: float
+    grid: Grid
     readrate: float = 1.0
     burst: float = 60.0
     #: Сколько секунд позади показа держим сегменты — глубина «бесплатной» перемотки назад.
     keep: float = 120.0
-    #: Запрос дальше упакованного края больше чем на столько секунд — это перемотка, а не
-    #: обычный ход показа. Порог считается не от балды: после ``seek`` живой Q70D просит
-    #: **шесть сегментов разом** (замерено), и ни один из них не должен считаться новой
-    #: перемоткой. Шесть сегментов сетки — это ``6 * HLS_SEGMENT_SECONDS``; на сетке 4 с
-    #: тут стояло 40 с, на сетке 10 с то же самое правило даёт 60, и берём с запасом.
-    ahead: float = 70.0
+    #: Запрос дальше упакованного края больше чем на столько **сегментов** — это перемотка,
+    #: а не обычный ход показа. Порог считается не от балды: после ``seek`` живой Q70D
+    #: просит шесть сегментов разом (замерено), и ни один из них не должен считаться новой
+    #: перемоткой. Раньше тут стояли секунды — с сеткой по опорным кадрам сегменты разной
+    #: длины, и считать их надо штуками.
+    ahead: int = 7
     #: Сколько держим запрос приёмника, пока упаковка догоняет. Это лучше 404: ресивер,
     #: поймавший 404, отказывается брать LOAD ещё пару минут (замерено 05-08-2026).
-    wait: float = 30.0
+    #: ⚠️ Было 30 с — и этого мало: замерено 06-08-2026, когда TorrServer посреди показа
+    #: выронил раздачу, упаковка встала, и через 30 с приёмник получил ровно тот 404,
+    #: которого мы избегаем. Ждать почти бесплатно (это один поток раздачи), а зря
+    #: ждать не придётся: безнадёжные случаи :meth:`_steer` отличает и говорит об этом.
+    wait: float = 120.0
     #: Сколько раз упаковка успела оборваться сама. Пережить обрыв она обязана: TorrServer
     #: под просевшим роем закрывает вход, и ffmpeg честно умирает — а показу это уже не
     #: авария, потому что паковать заново он умеет с любого места. Но молча повторять до
@@ -643,8 +943,12 @@ class Feed:
     fatal: str = ""
     log: Any = None
 
+    @property
+    def duration(self) -> float:
+        return self.grid.duration
+
     def manifest(self) -> bytes:
-        return vod_manifest(self.duration).encode("utf-8")
+        return self.grid.manifest().encode("utf-8")
 
     def segment(self, slot: int) -> Path | None:
         """Файл сегмента ``slot``; ``None`` — его не будет (за концом фильма или не успели).
@@ -659,28 +963,38 @@ class Feed:
             if path.exists():
                 return path
             with self.lock:
-                self._steer(slot)
+                hope = self._steer(slot)
             if path.exists():
                 return path
-            if time.monotonic() >= deadline:
+            if not hope or time.monotonic() >= deadline:
                 return None
             time.sleep(0.2)
 
-    def _steer(self, slot: int) -> None:
-        """Решить, что делать с упаковкой ради сегмента ``slot``: ждать или начать заново."""
+    def _steer(self, slot: int) -> bool:
+        """Что делать с упаковкой ради сегмента ``slot``; ``False`` — файла не будет.
+
+        Разница между «подожди» и «не будет» — это разница между медленным ответом и 404.
+        Держать приёмник в ожидании можно долго и почти безнаказанно, а вот 404 он
+        запоминает: замерено 05-08-2026 — поймав его, ресивер не берёт LOAD ещё пару
+        минут. Поэтому 404 отдаётся только там, где ждать нечего: конец входа или
+        упаковка, которая сдалась насовсем.
+        """
         packer = self.packer
         if packer is not None and not packer.halted:
             code, frontier = packer.poll(), packer.frontier()
             if code == 0 and slot > frontier:
-                return  # упаковка честно дошла до конца входа — файла не будет
-            if code is None and packer.first <= slot <= frontier + slot_at(self.ahead) + 1:
-                return  # обычный ход показа: кусок вот-вот допакуется
+                return False  # упаковка честно дошла до конца входа — файла не будет
+            if code is None and packer.first <= slot <= frontier + self.ahead:
+                return True  # обычный ход показа: кусок вот-вот допакуется
             if code not in (None, 0) and not self._survive(packer):
-                return
-        if self.fatal or time.monotonic() - self.restarted < 2.0:
-            return  # либо уже сдались, либо соседний запрос перезапустил — не толкаемся
+                return False
+        if self.fatal:
+            return False
+        if time.monotonic() - self.restarted < 2.0:
+            return True  # соседний запрос уже перезапустил упаковку — не толкаемся
         self.restarted = time.monotonic()
         self.restart(slot)
+        return True
 
     def _survive(self, packer: Packer) -> bool:
         """Упаковка оборвалась сама: пробуем ещё или сдаёмся честной ошибкой."""
@@ -697,28 +1011,38 @@ class Feed:
     def restart(self, slot: int) -> None:
         """Начать упаковку с сегмента ``slot``: перемотка, возврат с паузы или старт показа.
 
-        Всё, что лежит от этого места и дальше, — от прошлого прогона и о новом месте
-        ничего не знает, поэтому убирается. Позади оставляем: там окно перемотки назад.
+        Границы сегментов от места старта не зависят (:class:`Grid`), поэтому уже
+        упакованное не выбрасывается: под именем ``vN`` и до, и после перезапуска лежит
+        ровно одно и то же место фильма. Убирать приходится только то, что прошлый прогон
+        не успел дописать, — а этого наружу и не попадало.
         """
         if self.packer is not None:
             self.packer.stop(keep_files=True)
-        for path in _paths(self.out):
-            if segment_slot(path.name) >= slot:
-                path.unlink(missing_ok=True)
-        (self.out / PACK_PLAYLIST).unlink(missing_ok=True)
-        command = ffmpeg_hls_command(
-            self.source, self.audio, str(self.out), slot, self.readrate, self.burst
+        at = pack_start(self.source, self.grid.start(slot))
+        command = ffmpeg_pack_command(
+            self.source,
+            self.audio,
+            str(self.out / PACK_DIR),
+            self.grid,
+            slot,
+            at,
+            self.readrate,
+            self.burst,
         )
         self.restarted = time.monotonic()
-        self.packer = Packer.start(command, self.out, slot)
-        self._say(f"упаковка с {slot_time(slot):.0f} с")
+        self.packer = Packer.start(command, self.out, self.out / PACK_DIR, slot)
+        drop = self.grid.start(slot) - at
+        self._say(
+            f"упаковка с {self.grid.start(slot):.1f} с"
+            + (f" (докатка {drop:.1f} с)" if drop > SPLIT_SLACK else "")
+        )
 
     def prune(self, played: float) -> None:
         """Убрать из tmpfs то, что приёмник давно прошёл. Окно = ``keep`` секунд позади
         показа: глубже — уже перемотка, и она честно перепакует поток.
         """
-        edge = slot_at(played - self.keep)
-        if edge <= 0:
+        edge = self.grid.slot_at(played - self.keep)
+        if edge <= 0 or played - self.keep <= 0:
             return
         for path in _paths(self.out):
             if 0 <= segment_slot(path.name) < edge:
@@ -732,7 +1056,11 @@ class Feed:
         как только он сходит в ноль — приёмник встаёт в BUFFERING.
         """
         packer = self.packer
-        return 0.0 if packer is None else slot_time(packer.frontier() + 1)
+        return 0.0 if packer is None else self.grid.end(packer.frontier())
+
+    def drift(self) -> float:
+        """Насколько нарезанное разошлось с манифестом, секунды (:meth:`Packer.drift`)."""
+        return 0.0 if self.packer is None else self.packer.drift(self.grid)
 
     def weight(self) -> int:
         """Сколько байт сегментов лежит в tmpfs прямо сейчас (§6: рост без предела —
@@ -769,8 +1097,9 @@ class Feed:
         """
         if self.packer is not None:
             self.packer.stop()
-        for junk in (*_paths(self.out), self.out / PACK_PLAYLIST):
+        for junk in _paths(self.out):
             junk.unlink(missing_ok=True)
+        shutil.rmtree(self.out / PACK_DIR, ignore_errors=True)
         forget_playing(self.out)
 
     def _say(self, text: str) -> None:
@@ -897,7 +1226,9 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             data = data[first : last + 1]
             self._head(206, len(data), ctype, (("Content-Range", f"bytes {first}-{last}/{total}"),))
         if body:
+            sent = time.monotonic()
             self.wfile.write(data)
+            self._sent(name, len(data), time.monotonic() - sent)
 
     def _read(self, name: str) -> bytes | None:
         """Тело ответа: манифест на весь фильм или сегмент, дождавшись упаковки."""
@@ -952,6 +1283,22 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         print(
             f"запрос {name}{' ' + span if span else ''} · ждал {time.monotonic() - began:.1f} с"
             f" · {got}",
+            flush=True,
+        )
+
+    def _sent(self, name: str, size: int, seconds: float) -> None:
+        """Сколько времени кусок **уезжал в телевизор** (``TORRCAST_TRACE=1``).
+
+        Не то же самое, что :meth:`_trace`: тот меряет, сколько мы искали кусок, а этот —
+        сколько заняла отдача по сети. Без этого числа не отличить «показ споткнулся о
+        нарезку» от «канал до ТВ не тянет этот кусок»: с диска всё отдаётся мгновенно, а
+        уезжает ровно столько, сколько позволяет линк.
+        """
+        if not TRACE or seconds <= 0:
+            return
+        print(
+            f"отдал {name} · {size / 1e6:.1f} МБ за {seconds:.1f} с"
+            f" · {size * 8 / seconds / 1e6:.1f} Мбит/с",
             flush=True,
         )
 

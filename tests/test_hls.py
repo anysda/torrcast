@@ -1,8 +1,14 @@
-"""Формат потока §3 и раздача HLS: то, на чём ресивер молча ломается.
+"""Формат потока §3, сетка сегментов §6.1 и раздача HLS: то, на чём ресивер молча ломается.
 
-Проверяется ровно то, что зафиксировано ТЗ и реестром ТВ-рисков §9: TS-сегменты по 4 с,
-один вариант, видео copy, аудио всегда AAC stereo 192k, EVENT-манифест, CORS на всех
-ответах (включая 404 и preflight) и Range на сегментах.
+Проверяется ровно то, что зафиксировано ТЗ и реестром ТВ-рисков §9: TS-сегменты по сетке
+:class:`~torrcast.stream.Grid`, один вариант, видео copy, аудио всегда AAC stereo 192k,
+VOD-манифест на весь фильм, CORS на всех ответах (включая 404 и preflight) и Range на
+сегментах.
+
+Отдельная тема здесь — **абсолютность** сетки. Раньше ffmpeg резал каждые N секунд от
+первого пакета своего прогона, то есть имя сегмента значило разное место фильма в
+зависимости от того, откуда начали паковать. Теперь граница — это число от нуля фильма, и
+почти все тесты ниже про то, что это число одно и то же в манифесте и в команде ffmpeg.
 
 Раздача идёт по http на голом IP (§5 SPEC-v2) — так же, как её видит телевизор.
 https проверяется отдельно: это выключенная опция, но она обязана оставаться рабочей.
@@ -10,24 +16,62 @@ https проверяется отдельно: это выключенная о�
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 from typing import Any
 
 import pytest
 import requests
 
+from tests.conftest import fake_packer
 from torrcast.cast import Report
 from torrcast.stream import (
     HLS_SEGMENT_SECONDS,
+    PACK_DIR,
+    PACK_LIST,
+    SPLIT_SLACK,
     Feed,
+    Grid,
     HlsServer,
-    ffmpeg_hls_command,
+    ffmpeg_pack_command,
     hls_dir,
     parse_manifest,
-    slot_at,
-    slot_time,
-    vod_manifest,
 )
+
+#: Ровная сетка на два часа: столько же, сколько играет фильм на стенде.
+FILM = 7200.0
+
+
+def _keyframes(duration: float = 600.0, gop: float = 2.08) -> list[float]:
+    """Карта опорных кадров «как в жизни»: GOP около двух секунд и сцена-вспышка.
+
+    Вспышка (два десятка опорных кадров за полсекунды) тут не для красоты: именно на ней
+    видно, что сетка не рассыпается на огрызки, — :meth:`Grid.on_keyframes` обязана взять
+    из этой пачки ровно один кадр.
+    """
+    keys = [round(k * gop, 3) for k in range(int(duration / gop) + 1)]
+    keys += [300.0 + n * 0.02 for n in range(24)]
+    return sorted(k for k in keys if k < duration)
+
+
+def _flag(command: list[str], name: str) -> str:
+    """Значение ключа командной строки ffmpeg."""
+    return command[command.index(name) + 1]
+
+
+def _boundaries(command: list[str], at: float) -> dict[int, float]:
+    """Что команда обещает нарезать: ``{номер файла: секунда фильма}``.
+
+    Сегментный муксер сравнивает метки с началом своего прогона, поэтому границы лежат в
+    команде смещёнными на ``at``; здесь они возвращаются в абсолютное время фильма. Первый
+    файл прогона начинается на ``at``, каждый следующий — на своей границе из
+    ``-segment_times``.
+    """
+    first = int(_flag(command, "-segment_start_number"))
+    found = {first: at}
+    for step, raw in enumerate(_flag(command, "-segment_times").split(",")):
+        found[first + step + 1] = at + float(raw)
+    return found
 
 
 @pytest.fixture
@@ -50,7 +94,7 @@ def _stub(tmp_path: Path) -> tuple[Path, Feed]:
     """
     root = hls_dir(str(tmp_path / "hls"))
     (root / "v0.ts").write_bytes(bytes(range(256)) * 4)
-    return root, Feed(source="", audio=0, out=root, duration=8.0)
+    return root, Feed(source="", audio=0, out=root, grid=Grid.uniform(20.0), wait=0.0)
 
 
 def test_the_default_transport_is_plain_http_by_ip(tmp_path: Path) -> None:
@@ -115,73 +159,186 @@ def test_the_playback_address_is_our_own_leg_toward_the_tv(tmp_path: Path) -> No
         hls_base(Config())  # адрес ТВ не задан — маршрута нет, и молчать об этом нельзя
 
 
-def test_stream_format_is_the_one_fixed_by_the_spec() -> None:
-    command = ffmpeg_hls_command("http://ts/stream", audio_index=1, out_dir="/dev/shm/torrcast")
-    text = " ".join(command)
-    assert "-c:v copy" in text, "видео только copy — перекодировать 1080p нам нечем"
-    assert "-c:a aac -ac 2 -b:a 192k" in text, "AC3/DTS passthrough запрещён (§3)"
-    assert "-map 0:v:0 -map 0:a:1" in text, "один вариант и выбранная дорожка по индексу"
-    assert f"-hls_time {HLS_SEGMENT_SECONDS}" in text and "-hls_segment_type mpegts" in text
-    assert "-hls_segment_filename /dev/shm/torrcast/v%d.ts" in text, "имя = место в фильме"
+def test_a_segment_name_always_means_the_same_place_of_the_film() -> None:
+    """§6.1 SPEC-v2: ``slot_at`` обратна ``start`` — на обеих сетках и в любой точке.
 
-
-def test_segments_are_cut_by_the_clock_and_keep_the_original_timestamps() -> None:
-    """§2.1 SPEC-v2: сетка манифеста держится на двух флагах, и оба обязательны.
-
-    ``split_by_time`` — резать ровно по 4 с, а не по ключевым кадрам: иначе сегменты
-    «сколько дал GOP» (на «Моане 2» от 1.0 до 11.5 с) разъезжаются с манифестом тем
-    сильнее, чем дальше от начала, и seek попадает мимо. ``-copyts`` — оставить исходные
-    метки времени: без него ffmpeg сбрасывает их в ноль на каждом ``-ss``, и приёмник
-    считал бы позицию от начала куска, а не от начала фильма.
-
-    ``independent_segments`` при этом стоять НЕ должен: сегмент больше не начинается с
-    ключевого кадра, и обещать приёмнику обратное — врать.
+    Это и есть смысл абсолютной сетки: показ переводит секунду в номер, раздача переводит
+    номер обратно в секунду, и оба получают одно и то же независимо от того, откуда начата
+    упаковка. Раньше номер значил «сколько сегментов прошло с начала прогона», и после
+    каждой перемотки одно и то же имя означало другое место фильма.
     """
-    text = " ".join(ffmpeg_hls_command("http://ts/stream", 0, "/tmp/x"))
-    assert "split_by_time" in text and "temp_file" in text
-    assert "independent_segments" not in text
-    assert "-copyts" in text
-
-
-def test_packing_starts_at_the_requested_slot_and_names_files_by_place() -> None:
-    """Упаковка с середины (перемотка, resume): ``-ss`` на входе, номера файлов — с места.
-
-    Без ``-start_number`` ffmpeg считал бы сегменты с нуля, и место в фильме перестало бы
-    читаться по имени файла — а именно на этом держится манифест на всю длительность.
-    """
-    command = ffmpeg_hls_command("http://ts/stream", 0, "/tmp/x", start_slot=300)
-    assert command[command.index("-ss") + 1] == f"{slot_time(300):.3f}", "сегмент 300 = своё место"
-    assert command.index("-ss") < command.index("-i")
-    assert command[command.index("-start_number") + 1] == "300"
-    assert "-ss" not in ffmpeg_hls_command("http://ts/stream", 0, "/tmp/x")
+    for grid in (Grid.uniform(FILM), Grid.on_keyframes(_keyframes(), 600.0)):
+        for slot in range(grid.count):
+            assert grid.slot_at(grid.start(slot)) == slot, f"начало {slot}"
+            assert grid.slot_at(grid.start(slot) + grid.span(slot) / 2) == slot, f"середина {slot}"
+            assert grid.start(slot) < grid.end(slot), f"пустой сегмент {slot}"
+        assert grid.slot_at(-10.0) == 0, "до начала фильма — первый сегмент, а не отрицательный"
+        assert grid.slot_at(grid.duration * 2) == grid.count - 1, "за концом — последний"
+        assert grid.end(grid.count - 1) == grid.duration, "последний сегмент кончается фильмом"
 
 
 def test_the_manifest_promises_the_whole_film_so_the_tv_has_a_timeline() -> None:
     """§2.1 SPEC-v2: длительность в MEDIA_STATUS = сумме ``EXTINF``, значит она обязана
     быть длиной фильма, а не длиной упакованного.
 
-    Хвост короче сегмента идёт отдельной строкой: без него манифест врал бы о конце
-    фильма на эти секунды, а с ``ENDLIST`` приёмник считает манифест VOD — со шкалой,
-    общим временем и перемоткой в любую точку (проверено на живом Q70D).
+    Сумма сходится на обеих сетках: и на ровной, где хвост прилипает к последнему куску, и
+    на сетке по опорным кадрам, где сегменты разной длины. С ``ENDLIST`` приёмник считает
+    манифест VOD — со шкалой, общим временем и перемоткой в любую точку (проверено на
+    живом Q70D).
     """
-    text = vod_manifest(5978.5)
-    segments, ended = parse_manifest(text)
-    assert ended, "без ENDLIST для приёмника это эфир: ни шкалы, ни перемотки"
-    assert "#EXT-X-PLAYLIST-TYPE:VOD" in text
-    assert abs(sum(seconds for _, seconds in segments) - 5978.5) < 0.001
-    whole = int(5978.5 // HLS_SEGMENT_SECONDS)
-    assert len(segments) == whole + 1, "целые сегменты и хвост короче сегмента"
-    assert segments[0][0] == "v0.ts" and segments[-1][0] == f"v{whole}.ts"
-    grid = float(HLS_SEGMENT_SECONDS)
-    assert parse_manifest(vod_manifest(grid * 5))[0] == [(f"v{n}.ts", grid) for n in range(5)]
+    for grid in (Grid.uniform(5978.5), Grid.on_keyframes(_keyframes(), 600.0)):
+        text = grid.manifest()
+        segments, ended = parse_manifest(text)
+        assert ended, "без ENDLIST для приёмника это эфир: ни шкалы, ни перемотки"
+        assert "#EXT-X-PLAYLIST-TYPE:VOD" in text
+        assert abs(sum(seconds for _, seconds in segments) - grid.duration) < 0.001
+        assert len(segments) == grid.count
+        assert segments[0][0] == "v0.ts" and segments[-1][0] == f"v{grid.count - 1}.ts"
+
+    # Ровная сетка на целое число шагов — это ровно столько же сегментов, без хвоста.
+    step = float(HLS_SEGMENT_SECONDS)
+    whole = Grid.uniform(step * 5)
+    assert parse_manifest(whole.manifest())[0] == [(f"v{n}.ts", step) for n in range(5)]
+    assert Grid.uniform(5978.5).count == int(5978.5 // step) + 1, "целые куски и хвост"
+
+
+def test_a_keyframe_grid_never_cuts_a_segment_shorter_than_the_step() -> None:
+    """§6.1 SPEC-v2: следующая граница — первый опорный кадр не раньше, чем через шаг.
+
+    Иначе на сцене-вспышке (два десятка опорных кадров за полсекунды) манифест распух бы
+    на пустом месте, а приёмник получил бы очередь огрызков вместо сегментов. Хвост —
+    единственное исключение: он прилипает к последнему куску, пока короче половины шага,
+    поэтому последний сегмент бывает короче остальных, но не короче половины шага.
+    """
+    step = 10.0
+    grid = Grid.on_keyframes(_keyframes(), 600.0, step)
+
+    spans = [grid.span(k) for k in range(grid.count)]
+    assert min(spans[:-1]) >= step, "сегмент короче шага — сетка рассыпалась на огрызки"
+    assert spans[-1] >= step / 2, "хвост прилипает к последнему куску, а не висит огрызком"
+    assert max(spans) < step + 3.0, "GOP около 2 с — длиннее шага плюс GOP сегмента не бывает"
+
+    flash = [b for b in grid.bounds if 300.0 <= b < 300.5]
+    assert len(flash) <= 1, "из пачки опорных кадров вспышки в сетку идёт не больше одного"
+
+
+def test_the_target_duration_covers_the_longest_segment() -> None:
+    """``EXT-X-TARGETDURATION`` меньше самого длинного сегмента = битый манифест.
+
+    На ровной сетке это тавтология, а вот на сетке по опорным кадрам сегмент длиннее шага
+    на остаток GOP (на «Моане 2» — до 21.5 с при шаге 10), и посчитать цель по шагу было
+    бы враньём приёмнику.
+    """
+    for grid in (Grid.uniform(5978.5), Grid.on_keyframes(_keyframes(), 600.0), Grid.uniform(3.0)):
+        longest = max(grid.span(k) for k in range(grid.count))
+        assert grid.target() >= longest, "цель короче куска — приёмник вправе не успеть"
+        assert grid.target() == max(1, math.ceil(longest)), "цель округляется вверх, и не в ноль"
+        assert f"#EXT-X-TARGETDURATION:{grid.target()}" in grid.manifest()
+
+
+def test_only_a_keyframe_grid_promises_independent_segments() -> None:
+    """``EXT-X-INDEPENDENT-SEGMENTS`` — не украшение, а обещание, которое надо держать.
+
+    На сетке по опорным кадрам каждый кусок начинается с ключевого кадра и декодируется
+    сам по себе — на этом держится перемотка. На ровной сетке это неправда, и обещать
+    приёмнику обратное значило бы врать.
+    """
+    keyed = Grid.on_keyframes(_keyframes(), 600.0)
+    assert keyed.on_keys and "#EXT-X-INDEPENDENT-SEGMENTS" in keyed.manifest()
+    flat = Grid.uniform(600.0)
+    assert not flat.on_keys and "#EXT-X-INDEPENDENT-SEGMENTS" not in flat.manifest()
+
+
+def test_stream_format_is_the_one_fixed_by_the_spec() -> None:
+    """§3: один вариант, видео copy, звук всегда AAC stereo 192k, куски — MPEG-TS.
+
+    Пишет ffmpeg в каталог прогона (:data:`PACK_DIR`), а не сразу наружу: «файл появился»
+    у сегментного муксера не значит «кусок дописан» (:meth:`Packer.publish`).
+    """
+    grid = Grid.uniform(100.0)
+    command = ffmpeg_pack_command("http://ts/stream", 1, "/dev/shm/torrcast/pack", grid, 0, 0.0)
+    text = " ".join(command)
+    assert "-c:v copy" in text, "видео только copy — перекодировать 1080p нам нечем"
+    assert "-c:a aac -ac 2 -b:a 192k" in text, "AC3/DTS passthrough запрещён (§3)"
+    assert "-map 0:v:0 -map 0:a:1" in text, "один вариант и выбранная дорожка по индексу"
+    assert "-f segment -segment_format mpegts" in text, "сетку задаёт список, а не один шаг"
+    assert command[-1] == "/dev/shm/torrcast/pack/v%d.ts", "имя = место в фильме"
+    assert f"-segment_list /dev/shm/torrcast/pack/{PACK_LIST}" in text, "чем сверять факт"
+    assert "-copyts" in text, "метки времени — абсолютные, иначе позиция считается от куска"
+
+
+def test_segment_numbers_mean_the_same_place_wherever_the_run_started() -> None:
+    """§6.1 SPEC-v2: границы в ``-segment_times`` абсолютные — вот главная проверка.
+
+    Один и тот же кусок фильма обязан получить один и тот же номер и при упаковке с нуля,
+    и при упаковке с середины: именно на этом стоит манифест на весь фильм, перемотка и
+    то, что уже упакованное после перезапуска не выбрасывается. Сравниваем не строки
+    команды (они разные — муксер считает от начала прогона), а то, что из них следует:
+    место каждого номера в фильме.
+    """
+    for grid in (Grid.uniform(100.0), Grid.on_keyframes(_keyframes(), 600.0)):
+        middle = grid.count // 2
+        # Прогон от нуля и прогон с середины, начавшийся раньше своей границы (докатка).
+        head = _boundaries(ffmpeg_pack_command("u", 0, "/run", grid, 0, 0.0), 0.0)
+        late = grid.start(middle) - 1.3
+        tail = _boundaries(ffmpeg_pack_command("u", 0, "/run", grid, middle, late), late)
+
+        for slot, second in head.items():
+            assert abs(second - grid.start(slot)) < 0.001, f"прогон с нуля: {slot}"
+        # Общие номера, кроме докатки: она под чужим номером и наружу не выйдет.
+        for slot in (tail.keys() & head.keys()) - {middle - 1}:
+            assert abs(tail[slot] - head[slot]) < 0.001, f"место {slot} разъехалось между прогонами"
+        assert tail[middle - 1] == pytest.approx(late), "докатка стоит не на границе сетки"
+        assert min(tail) == middle - 1, "докатка обязана быть ровно одна и до своего слота"
+        assert max(head) == max(tail) == grid.count - 1, "оба прогона знают конец фильма"
+
+
+def test_the_run_in_is_numbered_below_the_slot_and_only_when_it_is_one() -> None:
+    """Номер первого файла прогона: слот минус один, если прогон начался раньше границы.
+
+    ``-ss`` уводит ffmpeg на опорный кадр не позже запрошенного места (замерено: бывает и
+    «через один»), и этот огрызок обязан лечь под чужим номером — чтобы
+    :meth:`Packer.publish` его выбросил, а не отдал приёмнику как честный сегмент. Когда
+    прогон встал ровно на границу, выбрасывать нечего и номер равен слоту.
+    """
+    grid = Grid.uniform(100.0)
+
+    exact = ffmpeg_pack_command("u", 0, "/run", grid, 5, grid.start(5))
+    assert _flag(exact, "-segment_start_number") == "5", "встали на границу — докатки нет"
+    assert _flag(exact, "-ss") == "50.000" and exact.index("-ss") < exact.index("-i")
+
+    near = ffmpeg_pack_command("u", 0, "/run", grid, 5, grid.start(5) - SPLIT_SLACK / 2)
+    assert _flag(near, "-segment_start_number") == "5", "полкадра — это та же граница"
+
+    behind = ffmpeg_pack_command("u", 0, "/run", grid, 5, 48.7)
+    assert _flag(behind, "-segment_start_number") == "4", "докатка ложится под чужой номер"
+    assert _flag(behind, "-ss") == "50.000", "просим всё равно своё место, а не место старта"
+
+    head = ffmpeg_pack_command("u", 0, "/run", grid, 0, 0.0)
+    assert _flag(head, "-segment_start_number") == "0"
+    assert "-ss" not in head, "с начала фильма перематывать нечего"
+
+
+def test_cutting_inside_a_gop_is_allowed_only_on_a_flat_grid() -> None:
+    """``-break_non_keyframes`` — резать ли посреди GOP, и это решает сетка.
+
+    На сетке по опорным кадрам резать посреди GOP не нужно и нельзя: муксер сам дождётся
+    опорного кадра и встанет ровно туда, куда обещал манифест. На ровной сетке — наоборот,
+    иначе куски разъедутся с манифестом тем сильнее, чем дальше от начала.
+    """
+    keyed = Grid.on_keyframes(_keyframes(), 600.0)
+    assert _flag(ffmpeg_pack_command("u", 0, "/run", keyed, 0, 0.0), "-break_non_keyframes") == "0"
+    flat = Grid.uniform(600.0)
+    assert _flag(ffmpeg_pack_command("u", 0, "/run", flat, 0, 0.0), "-break_non_keyframes") == "1"
 
 
 def test_readrate_paces_packing_and_can_be_switched_off() -> None:
-    assert "-readrate" in ffmpeg_hls_command("u", 0, "/tmp/x", readrate=1.0)
-    assert "-readrate" not in ffmpeg_hls_command("u", 0, "/tmp/x", readrate=0.0)
+    grid = Grid.uniform(100.0)
+    assert "-readrate" in ffmpeg_pack_command("u", 0, "/run", grid, 0, 0.0, readrate=1.0)
+    assert "-readrate" not in ffmpeg_pack_command("u", 0, "/run", grid, 0, 0.0, readrate=0.0)
 
 
-def test_the_initial_burst_replaces_pausing_the_packer(tmp_path: Path) -> None:
+def test_the_initial_burst_replaces_pausing_the_packer() -> None:
     """§6 SPEC-v2: запас впереди приёмника даёт burst, а не пауза процесса.
 
     Проверяем и то, и другое: флаг ``-readrate_initial_burst`` (ffmpeg ≥ 6.1) на месте и
@@ -192,15 +349,119 @@ def test_the_initial_burst_replaces_pausing_the_packer(tmp_path: Path) -> None:
     from torrcast import cli as cli_module
     from torrcast import stream as stream_module
 
-    command = ffmpeg_hls_command("u", 0, "/tmp/x", readrate=1.0, burst=60.0)
+    grid = Grid.uniform(100.0)
+    command = ffmpeg_pack_command("u", 0, "/run", grid, 0, 0.0, readrate=1.0, burst=60.0)
     assert "-readrate 1 -readrate_initial_burst 60" in " ".join(command)
     assert command.index("-readrate_initial_burst") < command.index("-i")
-    assert "-readrate_initial_burst" not in ffmpeg_hls_command("u", 0, "/tmp/x", readrate=0.0)
+    quiet = ffmpeg_pack_command("u", 0, "/run", grid, 0, 0.0, readrate=0.0, burst=60.0)
+    assert "-readrate_initial_burst" not in quiet
 
     # В доках про SIGSTOP написано — важно, чтобы его не осталось в КОДЕ показа.
     for module in (stream_module, cli_module, cast_module):
         source = Path(str(module.__file__)).read_text(encoding="utf-8")
         assert "send_signal" not in source, f"{module.__name__}: показ шлёт сигналы упаковке"
+
+
+def test_an_unreadable_keyframe_map_falls_back_to_a_flat_grid_out_loud() -> None:
+    """Карту опорных кадров снять не вышло — берём ровную сетку и говорим об этом.
+
+    Молчаливая подмена нарезки — ровно то, из-за чего §6 SPEC-v2 расследовали двое суток:
+    снаружи «сетка по кадрам» и «ровная сетка» выглядят одинаково, а ведут себя по-разному.
+    Настройка ``hls_keyframes=false`` — тот же путь, но по своей воле.
+    """
+    from torrcast.state import Config
+    from torrcast.stream import grid_for
+
+    assert Config().hls_segment == 10.0 and Config().hls_keyframes is True
+
+    said: list[str] = []
+    # Порт 1 никем не слушается: карта не читается, и это не авария показа.
+    grid = grid_for("http://127.0.0.1:1/film.mkv", 600.0, 10.0, True, say=said.append)
+    assert grid == Grid.uniform(600.0, 10.0) and not grid.on_keys
+    assert said and "ровно по 10 с" in said[0], "о подмене нарезки показ обязан сказать вслух"
+
+    said.clear()
+    told = grid_for("http://127.0.0.1:1/film.mkv", 600.0, 10.0, False, say=said.append)
+    assert told == Grid.uniform(600.0, 10.0)
+    assert said and "так велено настройкой" in said[0]
+
+
+def test_a_half_written_segment_never_leaves_the_run_directory(tmp_path: Path) -> None:
+    """Наружу выкладывается только дописанный кусок, и «файл есть» этого не значит.
+
+    Сегментный муксер, в отличие от hls, не пишет через временный файл: файл появляется
+    пустым и наполняется. Дописан тот, за которым муксер открыл следующий, — а последний
+    становится дописанным только когда ffmpeg сам дошёл до конца входа (код 0).
+    """
+    out = hls_dir(str(tmp_path / "hls"))
+    packer = fake_packer(out)
+    packer.run.mkdir(parents=True)
+    for slot in range(3):
+        (packer.run / f"v{slot}.ts").write_bytes(f"кусок {slot}".encode())
+
+    packer.publish()
+
+    assert sorted(p.name for p in out.glob("v*.ts")) == ["v0.ts", "v1.ts"]
+    assert (packer.run / "v2.ts").exists(), "последний кусок ещё пишется — наружу ему рано"
+
+    # Код 0: ffmpeg дошёл до конца входа сам — значит дописан и последний кусок.
+    packer.proc.code = 0  # type: ignore[attr-defined]
+    packer.publish()
+    assert sorted(p.name for p in out.glob("v*.ts")) == ["v0.ts", "v1.ts", "v2.ts"]
+    assert not list(packer.run.glob("v*.ts")), "в каталоге прогона ничего не осталось"
+
+
+def test_a_run_in_is_thrown_away_and_never_overwrites_an_honest_segment(
+    tmp_path: Path,
+) -> None:
+    """Регресс §6.1: докатка не имеет права затереть готовый сегмент прошлого прогона.
+
+    Прогон почти всегда начинается раньше своей границы, и этот огрызок ffmpeg кладёт под
+    именем предыдущего сегмента. Под тем же именем снаружи уже может лежать честный кусок,
+    упакованный раньше, — и приёмник, попросив его после перемотки назад, получил бы
+    вместо десяти секунд фильма полторы.
+    """
+    out = hls_dir(str(tmp_path / "hls"))
+    (out / "v4.ts").write_bytes(b"honest v4 from the previous run")
+    packer = fake_packer(out, first=5)
+    packer.run.mkdir(parents=True)
+    (packer.run / "v4.ts").write_bytes(b"run-in")  # докатка: 1.3 с вместо десяти
+    (packer.run / "v5.ts").write_bytes(b"honest v5")
+    (packer.run / "v6.ts").write_bytes(b"half-written")
+
+    packer.publish()
+
+    assert (out / "v4.ts").read_bytes() == b"honest v4 from the previous run", "докатка затёрла"
+    assert not (packer.run / "v4.ts").exists(), "докатка не выброшена — прогон копит мусор"
+    assert (out / "v5.ts").read_bytes() == b"honest v5"
+    assert not (out / "v6.ts").exists(), "последний кусок ещё пишется"
+
+
+def test_what_was_actually_cut_is_checked_against_the_manifest(tmp_path: Path) -> None:
+    """``drift`` — единственный способ поймать враньё манифеста, не глядя на ТВ.
+
+    ffmpeg сам ведёт список нарезанного; если он разошёлся с сеткой больше чем на кадр,
+    значит карта опорных кадров разъехалась с потоком, и ``EXTINF`` в манифесте — вымысел.
+    Первая строка списка не в счёт: в ней муксер пишет начало прогона нулём.
+    """
+    out = hls_dir(str(tmp_path / "hls"))
+    grid = Grid.uniform(100.0)
+    packer = fake_packer(out, first=3)
+    packer.run.mkdir(parents=True)
+    (packer.run / PACK_LIST).write_text(
+        "v2.ts,0.000000,30.000000\nv3.ts,30.000000,40.000000\nv4.ts,40.000000,50.000000\n"
+    )
+
+    assert packer.cuts() == [(2, 0.0, 30.0), (3, 30.0, 40.0), (4, 40.0, 50.0)]
+    assert packer.drift(grid) == 0.0, "нарезано ровно то, что обещано"
+
+    (packer.run / PACK_LIST).write_text(
+        "v2.ts,0.000000,30.000000\nv3.ts,30.000000,40.000000\nv4.ts,41.500000,50.000000\n"
+    )
+    assert packer.drift(grid) == pytest.approx(1.5), "кусок уехал на 1.5 с — так и скажем"
+
+    fresh = fake_packer(hls_dir(str(tmp_path / "fresh")))
+    assert fresh.cuts() == [] and fresh.drift(grid) == 0.0, "списка нет — не выдумываем"
 
 
 def test_a_request_for_an_unpacked_place_repacks_instead_of_404(
@@ -212,15 +473,13 @@ def test_a_request_for_an_unpacked_place_repacks_instead_of_404(
     ответ на неё — начать паковать оттуда. 404 тут запрещён: ресивер, поймавший его,
     отказывается брать LOAD ещё пару минут (замерено 05-08-2026).
     """
-    from torrcast.stream import Feed
-
     root = hls_dir(str(tmp_path / "hls"))
     started: list[int] = []
     monkeypatch.setattr(Feed, "restart", lambda self, slot: started.append(slot))
-    feed = Feed(source="", audio=0, out=root, duration=7200.0, wait=0.0)
+    feed = Feed(source="", audio=0, out=root, grid=Grid.uniform(FILM), wait=0.0)
 
     assert feed.segment(900) is None, "файла нет и упаковка мгновенной не бывает"
-    assert started == [900], "перемотка на 3600-ю секунду = упаковка с сегмента 900"
+    assert started == [900], "перемотка на 9000-ю секунду = упаковка с сегмента 900"
 
     (root / "v900.ts").write_bytes(b"x")
     assert feed.segment(900) == root / "v900.ts", "готовый кусок отдаём не думая"
@@ -234,17 +493,41 @@ def test_a_burst_of_requests_after_a_seek_restarts_packing_only_once(
     Перезапустить упаковку обязан ровно первый из них: шесть ffmpeg'ов подряд на одном
     месте — это шесть заходов в рой и потерянные секунды на каждом.
     """
-    from torrcast.stream import Feed
-
     root = hls_dir(str(tmp_path / "hls"))
     started: list[int] = []
     monkeypatch.setattr(Feed, "restart", lambda self, slot: started.append(slot))
-    feed = Feed(source="", audio=0, out=root, duration=7200.0, wait=0.0)
+    feed = Feed(source="", audio=0, out=root, grid=Grid.uniform(FILM), wait=0.0)
 
     for slot in range(50, 56):
         feed.segment(slot)
 
     assert started == [50], "остальные пять — префетч того же места, а не пять перемоток"
+
+
+def test_the_seek_threshold_is_counted_in_segments_not_in_seconds(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Порог «это перемотка, а не обычный ход показа» — ``ahead`` **штук** сегментов.
+
+    В секундах его считать больше нельзя: на сетке по опорным кадрам сегменты разной
+    длины, и одно и то же число секунд оказывается то шестью кусками, то тремя. А порог
+    нужен ровно затем, чтобы пачка префетча после ``seek`` (шесть штук у живого Q70D) не
+    сошла за шесть новых перемоток.
+    """
+    grid = Grid.on_keyframes(_keyframes(), 600.0)
+    out = hls_dir(str(tmp_path / "hls"))
+    for slot in range(5):
+        (out / f"v{slot}.ts").write_bytes(b"x")
+    started: list[int] = []
+    monkeypatch.setattr(Feed, "restart", lambda self, slot: started.append(slot))
+    feed = Feed(source="", audio=0, out=out, grid=grid, wait=0.0, ahead=7)
+    feed.packer = fake_packer(out)
+
+    feed.segment(4 + feed.ahead)
+    assert started == [], "семь сегментов впереди края — обычный ход показа, ждём упаковку"
+
+    feed.segment(4 + feed.ahead + 1)
+    assert started == [12], "восьмой — уже перемотка, и паковать надо оттуда"
 
 
 def test_segments_are_never_cached_by_the_receiver(served: Any) -> None:
@@ -288,7 +571,7 @@ def test_segments_answer_range_requests(served: Any) -> None:
 def test_nothing_but_the_stream_is_reachable(served: Any) -> None:
     """Наружу открыт не каталог, а ровно манифест и сегменты."""
     session, base = served
-    for path in ("/", "/../../etc/passwd", "/index.m3u8.tmp", "/config.json"):
+    for path in ("/", "/../../etc/passwd", "/index.m3u8.tmp", "/config.json", f"/{PACK_DIR}"):
         assert session.get(f"{base}{path}", timeout=10).status_code == 404, path
 
 
@@ -323,24 +606,24 @@ def test_only_what_the_receiver_has_passed_is_swept_out_of_ram(tmp_path: Path) -
     """Фильм целиком в tmpfs не влезает, поэтому позади показа держим окно ``keep``.
 
     Считать окно в штуках было ловушкой «Моаны 2»: длину сегмента задавал ключевой кадр,
-    и «45 штук» оказывались то четырьмя минутами, то сорока секундами. Теперь сегмент
-    ровно :data:`HLS_SEGMENT_SECONDS`, а его номер — это его место в фильме, так что окно
-    считается арифметикой и от размера сетки не зависит.
+    и «45 штук» оказывались то четырьмя минутами, то сорока секундами. Окно и теперь
+    считается секундами, а номер границы берётся у сетки (:meth:`Grid.slot_at`) — то есть
+    правило одно и то же и на ровной сетке, и на сетке по опорным кадрам.
     """
-    from torrcast.stream import Feed
+    for grid in (Grid.uniform(FILM), Grid.on_keyframes(_keyframes(), 600.0)):
+        out = hls_dir(str(tmp_path / "hls"))
+        for slot in range(grid.count):
+            (out / f"v{slot}.ts").write_bytes(b"x")
+        feed = Feed(source="", audio=0, out=out, grid=grid, keep=40.0)
 
-    out = hls_dir(str(tmp_path / "hls"))
-    for slot in range(0, 60):
-        (out / f"v{slot}.ts").write_bytes(b"x")
-    feed = Feed(source="", audio=0, out=out, duration=7200.0, keep=40.0)
+        feed.prune(played=200.0)  # показ на 200-й секунде, окно 40 с — всё до 160-й не нужно
+        edge = grid.slot_at(160.0)
+        assert edge > 0, "тест бессмыслен, если окно не отрезает ничего"
+        left = sorted(int(p.name[1:-3]) for p in out.glob("v*.ts"))
+        assert left == list(range(edge, grid.count)), "позади окна убрано, окно и запас целы"
 
-    feed.prune(played=200.0)  # показ на 200-й секунде, окно 40 с — всё до 160-й не нужно
-    edge = slot_at(160.0)
-    left = sorted(int(p.name[1:-3]) for p in out.glob("v*.ts"))
-    assert left == list(range(edge, 60)), "сегменты позади окна убраны, окно и запас целы"
-
-    feed.prune(played=10.0)
-    assert len(list(out.glob("v*.ts"))) == 60 - edge, "в начале показа не удаляется ничего"
+        feed.prune(played=10.0)
+        assert len(list(out.glob("v*.ts"))) == grid.count - edge, "в начале ничего не удаляется"
 
 
 def test_the_lead_over_the_receiver_is_measurable(tmp_path: Path) -> None:
@@ -348,18 +631,20 @@ def test_the_lead_over_the_receiver_is_measurable(tmp_path: Path) -> None:
 
     Край упаковки в секундах фильма и вес tmpfs — единственное, чем провал устойчивости
     отличается от «показалось»: приёмник встаёт ровно тогда, когда запас сходит в ноль.
+    Край считается по сетке, то есть это конец последнего готового сегмента в секундах
+    фильма, а не «столько-то кусков по столько-то секунд».
     """
-    from torrcast.stream import Feed, Packer
-
     out = hls_dir(str(tmp_path / "hls"))
-    feed = Feed(source="", audio=0, out=out, duration=7200.0)
+    grid = Grid.on_keyframes(_keyframes(), 600.0)
+    feed = Feed(source="", audio=0, out=out, grid=grid)
     assert feed.front() == 0.0 and feed.weight() == 0, "упаковки нет — и запаса нет"
+    assert feed.drift() == 0.0, "упаковки нет — и расхождению с манифестом взяться неоткуда"
 
     for slot in range(30, 36):
         (out / f"v{slot}.ts").write_bytes(b"x" * 1000)
-    feed.packer = Packer(proc=None, out=out, first=30)  # type: ignore[arg-type]
+    feed.packer = fake_packer(out, first=30)
 
-    assert feed.front() == slot_time(36), "готовы сегменты 30…35 — упаковано до конца 35-го"
+    assert feed.front() == grid.end(35), "готовы сегменты 30…35 — упаковано до конца 35-го"
     assert feed.weight() == 6000
 
 
