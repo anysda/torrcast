@@ -792,6 +792,8 @@ def _opt_str(value: Any) -> str | None:
 _ASSET_RE: Final = re.compile(r"^(?:v\d+\.ts|index\.m3u8)$")
 _TYPES: Final = {".m3u8": "application/vnd.apple.mpegurl", ".ts": "video/mp2t"}
 _RANGE_RE: Final = re.compile(r"bytes=(\d*)-(\d*)")
+#: ``TORRCAST_TRACE=1`` — раздача пишет в журнал каждый запрос приёмника (:meth:`_Handler._trace`).
+TRACE: Final = bool(os.environ.get("TORRCAST_TRACE"))
 
 
 class _Handler(http.server.BaseHTTPRequestHandler):
@@ -820,6 +822,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         self._head(204, 0, "text/plain")
 
     def _serve(self, body: bool) -> None:
+        began = time.monotonic()
         name = self.path.split("?")[0].lstrip("/")
         if not _ASSET_RE.fullmatch(name):
             self._head(404, 0, "text/plain")
@@ -827,7 +830,9 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         data = self._read(name)
         if data is None:
             self._head(404, 0, "text/plain")
+            self._trace(name, began, "404")
             return
+        self._trace(name, began, f"{len(data) / 1e6:.1f} МБ")
         suffix = ".m3u8" if name.endswith(".m3u8") else ".ts"
         ctype, total = _TYPES[suffix], len(data)
         span = self._range(total)
@@ -883,6 +888,21 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         for key, value in extra:
             self.send_header(key, value)
         self.end_headers()
+
+    def _trace(self, name: str, began: float, got: str) -> None:
+        """Что попросил приёмник, сколько ждал ответа и что получил (``TORRCAST_TRACE=1``).
+
+        Без этого §6 SPEC-v2 не измерить: подвис приёмника снаружи выглядит одинаково и
+        когда он ждёт нас, и когда он перестал спрашивать вовсе, — а лечится это по-разному.
+        """
+        if not TRACE:
+            return
+        span = self.headers.get("Range", "")
+        print(
+            f"запрос {name}{' ' + span if span else ''} · ждал {time.monotonic() - began:.1f} с"
+            f" · {got}",
+            flush=True,
+        )
 
     def log_message(self, fmt: str, *args: Any) -> None:
         pass
