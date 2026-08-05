@@ -309,3 +309,35 @@ def test_a_legacy_record_of_a_film_written_as_a_series_behaves_as_a_film(
     assert len(asked) == 1 and "Продолжить? [Да/сначала]" in asked[0]
     assert "s1e1" not in printed and "Серии" not in printed
     assert State.load().entries["tv:moana-2:2024"].pos == 2566.0, "позиция владельца цела"
+
+
+def test_prewarmed_torrents_are_dropped_when_the_show_never_starts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Обрыв до показа не оставляет прогретые раздачи в TorrServer (ревью 06-08-2026).
+
+    Прогрев под меню поднимает до :data:`~torrcast.cli.PREWARM` раздач ещё до первого
+    вопроса. Любой выход мимо ``keep_only`` — Ctrl-C на «Что смотрим?», запуск без
+    терминала, «годного релиза нет» — оставлял их жить в TorrServer: наш процесс умирает,
+    а раздачи качаются в чужой RAM до перезапуска сервера.
+    """
+    dropped: list[str] = []
+    added: list[str] = []
+
+    class _Counting(_FakeTorrServer):
+        def add(self, magnet: str) -> str:
+            added.append(magnet)
+            return f"hash-{magnet[:30]}"
+
+        def drop(self, torrent_hash: str) -> None:
+            dropped.append(torrent_hash)
+
+    monkeypatch.setattr(cli, "TorrServer", _Counting)
+    monkeypatch.setattr(
+        "builtins.input", lambda prompt="": (_ for _ in ()).throw(KeyboardInterrupt)
+    )
+
+    assert cli.main(["моана"]) != 0, "Ctrl-C на вопросе — не показ"
+
+    assert added, "прогрев под меню раздачи поднимает"
+    assert len(dropped) == len(set(added)), "и все они убраны, раз показа не будет"

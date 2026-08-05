@@ -355,21 +355,52 @@ def test_a_finished_packer_is_not_a_crash_but_a_serial_one_gives_up(
     Код 0 — фильм упакован до конца, падать не с чего. Обрыв — повод начать заново с того
     места, где стоит приёмник; но если рвётся раз за разом, показ сдаётся честной строкой,
     а не крутит круг вечно.
+
+    ⚠️ «Раз за разом» — это про ПРОГОНЫ, а не про опросы: каждый перезапуск даёт новый
+    процесс, и наказывать за обрыв надо его, а не считать заново тот же труп на каждом
+    запросе сегмента (их приходит по пять в секунду).
     """
     feed = _feed_with_segments(tmp_path)
     assert feed.packer is not None
-    monkeypatch.setattr(Feed, "restart", lambda self, slot: None)
+
+    def again(self: Feed, slot: int) -> None:  # перезапуск = новый процесс упаковки
+        self.packer = fake_packer(self.out, first=0, code=-9)
 
     feed.packer.proc.code = 0  # type: ignore[attr-defined]
     assert feed.segment(70) is None and feed.trouble() == "", "дошли до конца фильма"
 
     feed.packer.proc.code = -9  # type: ignore[attr-defined]
+    monkeypatch.setattr(Feed, "restart", again)
     for _ in range(feed.limit):
+        feed.restarted = 0.0  # прогоны идут не подряд: защита «не толкаемся» тут не при чём
         feed.segment(70)
     assert feed.trouble() == "", "обрыв переживаем молча, пока попытки не кончились"
 
+    feed.restarted = 0.0
     feed.segment(70)
     assert feed.trouble() == "убит сигналом 9"
+
+
+def test_one_dead_run_is_blamed_once_and_not_on_every_request(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Один труп упаковки не съедает все попытки за полсекунды (ревью 06-08-2026).
+
+    Живой сценарий: TorrServer выронил раздачу посреди показа, вход мёртв, ffmpeg умирает
+    сразу после старта — то есть внутри двух секунд, пока держит защита «не толкаемся».
+    Пока обрыв считался на каждый запрос сегмента, три попытки сгорали за 0.8 с и показ
+    умирал, ни разу по-настоящему не перезапустив упаковку.
+    """
+    feed = _feed_with_segments(tmp_path)
+    assert feed.packer is not None
+    monkeypatch.setattr(Feed, "restart", lambda self, slot: None)
+
+    feed.packer.proc.code = -9  # type: ignore[attr-defined]
+    feed.restarted = time.monotonic()  # перезапуск только что был — второй не нужен
+    for _ in range(10):
+        feed.segment(70)
+
+    assert (feed.crashes, feed.trouble()) == (1, ""), "труп наказан один раз, показ жив"
 
 
 def test_resume_starts_from_the_offset_and_ends_as_watched(
@@ -586,3 +617,42 @@ def test_a_finished_movie_hands_nothing_over(
 
     watch.flush()  # порог 95 %: фильму это «досмотрено», а не следующая серия
     assert watch.done and not cli._handover(watch), "титры кончились — закрываем приложение"
+
+
+def test_a_seek_behind_the_packing_edge_repacks_instead_of_waiting_for_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Перемотка назад глубже окна: сегмент вычистили — упаковка обязана начаться оттуда.
+
+    Ждать сегмент НИЖЕ края упаковки бессмысленно: этот прогон его уже отдал и второй раз
+    не отдаст, а раз файла нет — его убрало окном (:meth:`Feed.prune`), то есть это и есть
+    перемотка назад. До 06-08-2026 показ на таком запросе висел две минуты и отвечал 404,
+    после которого приёмник не берёт LOAD ещё пару минут (§6 SPEC-v2).
+    """
+    asked: list[int] = []
+    feed = _feed_with_segments(tmp_path)
+    monkeypatch.setattr(Feed, "restart", lambda self, slot: asked.append(slot))
+    (feed.out / "v5.ts").unlink()  # окно ушло вперёд, пятый сегмент вычищен
+
+    assert feed.segment(5) is None and asked == [5], "назад за край — перепаковка"
+
+    asked.clear()
+    feed.restarted = 0.0
+    assert feed.segment(60) is None and asked == [], "впереди края — ждём, а не пакуем заново"
+
+
+def test_a_closed_show_never_starts_ffmpeg_again(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Показ окончен — поток раздачи, проснувшийся в segment(), не поднимает упаковку.
+
+    На стыке серий следующая серия уже чистит каталог и пакует своё; осиротевший ffmpeg
+    прошлой серии выкладывал бы туда её сегменты под теми же именами.
+    """
+    asked: list[int] = []
+    feed = _feed_with_segments(tmp_path)
+    monkeypatch.setattr(Feed, "restart", lambda self, slot: asked.append(slot))
+
+    feed.stop()
+
+    assert feed.segment(70) is None and asked == [], "после stop упаковку не поднимаем"

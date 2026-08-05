@@ -494,8 +494,12 @@ def _cmd_play(args: Args) -> int:
         # Прогрев под меню (§4 SPEC-v2): пока идёт вопрос, раздачи уже качают метаданные.
         for plan in warm_order(plans)[:PREWARM]:
             bench.start(plan, plan.first)
-        plan = _pick_plan(plans)
-        prep = bench.resolve(plan, args, progress)
+        try:
+            plan = _pick_plan(plans)
+            prep = bench.resolve(plan, args, progress)
+        except BaseException:  # Ctrl-C, «картин много, а терминала нет», «годного нет»
+            bench.drop_all()  # прогретое без показа — мусор в рое и кэш в чужой RAM
+            raise
         bench.keep_only(prep)  # прогрев греет лишнее — до показа лишнее убираем
 
     release, video, media = prep.release, prep.want, prep.found
@@ -892,6 +896,17 @@ class _Bench:
         if prep.torrent_hash:
             self.torrserver.drop(prep.torrent_hash)
 
+    def drop_all(self) -> None:
+        """Показа не будет: всё прогретое убирается из TorrServer.
+
+        Выходов мимо :meth:`keep_only` хватает — Ctrl-C на вопросе «Что смотрим?», запуск
+        без терминала, «годного релиза нет». Раздачи при этом уже добавлены и тянут кэш в
+        RAM до перезапуска TorrServer: ``save_to_db`` у них выключен, но живут они не в
+        нашем процессе, и умирают не вместе с ним.
+        """
+        for prep in self.preps.values():
+            self._forget(prep)
+
     def keep_only(self, chosen: _Prep) -> None:
         """Оставить в TorrServer одну раздачу — ту, которую показываем.
 
@@ -1140,7 +1155,10 @@ def _play(
         # показа или стык серий.
         if watch is not None:
             watch.flush()
-        with contextlib.suppress(TorrcastError):
+        # ⚠️ suppress(Exception), а не TorrcastError: pychromecast на полуживом соединении
+        # роняет что угодно, а ffmpeg и раздача обязаны погаснуть в любом случае — иначе
+        # процесс уходит, а они остаются.
+        with contextlib.suppress(Exception):
             # Показ кончился — приложение приёмника закрываем, чтобы ТВ вернулся в
             # исходное состояние: иконка Default Media Receiver иначе висит до своего
             # таймаута простоя и оттягивает автовыключение (дефект владельца 05-08).

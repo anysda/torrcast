@@ -137,10 +137,20 @@ PACK_LIST: Final = "pack.csv"
 #: 10–20 с видео со звуком, то есть десятки мегабайт.
 HEAD_WARM: Final = 32 << 20
 #: Сколько головы хватает, чтобы ffmpeg открыл вход, когда играть будем из середины:
-#: заголовок контейнера и индекс, но не картинка. У mp4 сюда попадает весь ``moov``
-#: (у «Моаны 2» от YTS — 5.3 МБ), у mkv — Tracks и SeekHead. Тянуть все 32 МБ начала при
-#: продолжении с середины вредно: это чужие байты, и они отбирают полосу у нужного места.
-HEAD_OPEN: Final = 8 << 20
+#: заголовок контейнера и индекс, но не картинка. Тянуть все 32 МБ начала при продолжении
+#: с середины вредно: это чужие байты, и они отбирают полосу у нужного места.
+#:
+#: Число одно на все контейнеры быть не может, и в этом была ошибка первой версии (§7.3
+#: SPEC-v2, «голова съедает весь бюджет»): 8 МБ выбраны с запасом под ``moov`` mp4, а
+#: у mkv в голове лежат только EBML-заголовок, SeekHead, Info и Tracks — килобайты. На
+#: холодном рое эта разница и есть весь бюджет раздумья: пока качается лишнее начало,
+#: до места позиции дело не доходит.
+#: У mp4 запас остаётся: ``moov`` бывает и на мегабайты (у «Моаны 2» от YTS — 5.3 МБ), а
+#: без него ffmpeg вход не откроет вовсе.
+HEAD_OPEN: Final = {"mkv": 1 << 20, "mp4": 8 << 20}
+#: Контейнер неизвестен (карта из кэша прошлой версии, чужой файл) — берём больший кусок:
+#: лишние мегабайты дешевле, чем ffmpeg, который не смог открыть вход.
+HEAD_OPEN_DEFAULT: Final = 8 << 20
 #: Потолок ожидания прогрева: дальше это уже не прогрев, а висящий поток.
 WARM_TIMEOUT: Final = 120.0
 #: Сколько ждём чужого снятия карты опорных кадров, прежде чем снимать самим.
@@ -584,6 +594,8 @@ class FilmKeys(NamedTuple):
     duration: float
     at: list[float]
     offset: list[int]
+    #: Контейнер файла, ``mkv`` или ``mp4``. Пусто — карта из кэша прошлой версии.
+    kind: str = ""
 
     def byte_at(self, seconds: float) -> int:
         """Смещение опорного кадра не позже ``seconds``; карта без смещений — ``0``.
@@ -603,7 +615,12 @@ def _read_keys(cache: Path) -> FilmKeys | None:
         at = [float(x) for x in saved["keys"]]
         # Кэш прошлой версии смещений не знал: он всё ещё годен для сетки, а грелка
         # позиции без смещений просто не работает — это лучше, чем выбросить карту.
-        return FilmKeys(float(saved["duration"]), at, [int(x) for x in saved.get("bytes", ())])
+        return FilmKeys(
+            float(saved["duration"]),
+            at,
+            [int(x) for x in saved.get("bytes", ())],
+            str(saved.get("kind", "")),
+        )
     return None
 
 
@@ -653,11 +670,18 @@ def film_keys(source_url: str) -> FilmKeys:
         # Cues за 2–6 с, остальное было наше.
         track = video_track(found.points)
         video = [p for p in found.points if p.track == track]
-        ready = FilmKeys(found.duration, [p.at for p in video], [p.offset for p in video])
+        ready = FilmKeys(
+            found.duration, [p.at for p in video], [p.offset for p in video], found.kind
+        )
         with contextlib.suppress(OSError):
             cache.parent.mkdir(parents=True, exist_ok=True)
             tmp = cache.with_suffix(".tmp")
-            body = {"duration": ready.duration, "keys": ready.at, "bytes": ready.offset}
+            body = {
+                "duration": ready.duration,
+                "keys": ready.at,
+                "bytes": ready.offset,
+                "kind": ready.kind,
+            }
             tmp.write_text(json.dumps(body), "utf-8")
             tmp.replace(cache)
     finally:
@@ -696,6 +720,11 @@ def pull_head(source_url: str, upto: int = HEAD_WARM, alive: Any = None) -> int:
     return warm_at(source_url, 0, upto, alive)
 
 
+def head_open(kind: str) -> int:
+    """Сколько головы греть под продолжение с середины: у mkv её мало, у mp4 там ``moov``."""
+    return HEAD_OPEN.get(kind, HEAD_OPEN_DEFAULT)
+
+
 def warm_file(source_url: str, at: float = 0.0, alive: Any = None) -> None:
     """Прогреть файл фоном: карта опорных кадров, начало потока и место, откуда играем.
 
@@ -706,8 +735,9 @@ def warm_file(source_url: str, at: float = 0.0, alive: Any = None) -> None:
     самое сам, просто на своём времени.
 
     ``at > 0`` — продолжение с середины (§7.2 SPEC-v2). Там начало файла нужно только на
-    заголовок, поэтому его берём куском поменьше (:data:`HEAD_OPEN`), а основной прогрев
-    уходит туда, где лежит позиция: байтовое смещение известно из той же карты.
+    заголовок, поэтому его берём куском поменьше (:data:`HEAD_OPEN`, размер зависит от
+    контейнера), а основной прогрев уходит туда, где лежит позиция: байтовое смещение
+    известно из той же карты.
     """
 
     def work() -> None:
@@ -717,8 +747,9 @@ def warm_file(source_url: str, at: float = 0.0, alive: Any = None) -> None:
         if alive is not None and not alive():
             return
         offset = keys.byte_at(at) if keys is not None and at > 0 else 0
+        head = head_open(keys.kind if keys is not None else "")
         with contextlib.suppress(Exception):
-            pull_head(source_url, HEAD_OPEN if offset else HEAD_WARM, alive)
+            pull_head(source_url, head if offset else HEAD_WARM, alive)
         if not offset:
             return
         with contextlib.suppress(Exception):
@@ -936,6 +967,8 @@ class Packer:
     log: Any = None
     #: Упаковку погасили намеренно (пауза на пульте) — смерть процесса не авария.
     halted: bool = False
+    #: Обрыв ЭТОГО прогона уже посчитан (:meth:`Feed._survive`).
+    blamed: bool = False
 
     @classmethod
     def start(cls, command: list[str], out: Path, run: Path, first: int = 0) -> Packer:
@@ -1147,7 +1180,7 @@ class Feed:
             code, frontier = packer.poll(), packer.frontier()
             if code == 0 and slot > frontier:
                 return False  # упаковка честно дошла до конца входа — файла не будет
-            if code is None and packer.first <= slot <= frontier + self.ahead:
+            if code is None and frontier < slot <= frontier + self.ahead:
                 return True  # обычный ход показа: кусок вот-вот допакуется
             if code not in (None, 0) and not self._survive(packer):
                 return False
@@ -1160,7 +1193,17 @@ class Feed:
         return True
 
     def _survive(self, packer: Packer) -> bool:
-        """Упаковка оборвалась сама: пробуем ещё или сдаёмся честной ошибкой."""
+        """Упаковка оборвалась сама: пробуем ещё или сдаёмся честной ошибкой.
+
+        ⚠️ Считаются ПРОГОНЫ, а не опросы. Пока держит защита «не толкаемся» (2 с),
+        перезапуска не происходит, а потоки раздачи приходят сюда каждые 0.2 с — и один
+        и тот же труп съедал все попытки меньше чем за секунду, не дав показу ни одного
+        настоящего перезапуска. Ровно так выглядел бы обрыв входа сразу после старта:
+        TorrServer выронил раздачу — ffmpeg умирает мгновенно, то есть внутри этих 2 с.
+        """
+        if packer.blamed:
+            return True
+        packer.blamed = True
         self.crashes += 1
         # Убитый сигналом ffmpeg сказать ничего не успевает — не выдумываем за него.
         code = packer.poll() or 0
@@ -1259,6 +1302,9 @@ class Feed:
         упаковки (:meth:`restart`, перемотка) его не трогают. А после остановки это уже
         не доказательство, а пустой файл, который переживал `cast stop` в tmpfs.
         """
+        # Закрыто насовсем: поток раздачи, спящий в segment() до двух минут, не должен
+        # проснуться и поднять новый ffmpeg в каталог, который уже отдан следующей серии.
+        self.fatal = self.fatal or "показ окончен"
         if self.packer is not None:
             self.packer.stop()
         for junk in _paths(self.out):

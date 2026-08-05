@@ -722,7 +722,7 @@ def test_the_position_is_warmed_by_its_byte_offset_not_by_a_proportion(
     from torrcast import stream as stream_module
     from torrcast.stream import HEAD_OPEN, FilmKeys, warm_file
 
-    keys = FilmKeys(600.0, [0.0, 100.0, 200.0, 300.0], [0, 90 << 20, 500 << 20, 505 << 20])
+    keys = FilmKeys(600.0, [0.0, 100.0, 200.0, 300.0], [0, 90 << 20, 500 << 20, 505 << 20], "mp4")
     # 200-я секунда — ровно половина фильма, а лежит она на 500 МБ из 505: пропорция
     # показала бы 250 МБ, то есть промахнулась бы на четверть фильма.
     assert keys.byte_at(240.0) == 500 << 20
@@ -741,7 +741,7 @@ def test_the_position_is_warmed_by_its_byte_offset_not_by_a_proportion(
         if len(asked) >= 2:
             break
         time.sleep(0.01)
-    assert asked == [(0, HEAD_OPEN), (500 << 20, stream_module.HEAD_WARM)], (
+    assert asked == [(0, HEAD_OPEN["mp4"]), (500 << 20, stream_module.HEAD_WARM)], (
         "с середины греется заголовок файла и место позиции, а не 32 МБ чужого начала"
     )
 
@@ -770,3 +770,38 @@ def test_an_old_key_cache_without_offsets_still_builds_the_grid(tmp_path: Path) 
     found = _read_keys(cache)
     assert found is not None and found.at == [0.0, 10.0, 20.0]
     assert found.offset == [] and found.byte_at(15.0) == 0
+
+
+def test_the_head_warmed_under_the_question_is_sized_by_the_container(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Голова под «Продолжить?» меряется контейнером, а не запасом под ``moov`` (§7.3).
+
+    У mp4 в голове лежит ``moov`` (у «Моаны 2» от YTS — 5.3 МБ), и без него ffmpeg вход
+    не откроет. У mkv там EBML-заголовок, SeekHead, Info и Tracks — килобайты, а восемь
+    мегабайт чужого начала на холодном рое съедали весь бюджет раздумья: до места позиции
+    дело не доходило вовсе.
+    """
+    from torrcast import stream as stream_module
+    from torrcast.stream import HEAD_OPEN, FilmKeys, head_open, warm_file
+
+    assert head_open("mkv") < head_open("mp4"), "у mkv голова меньше — это и есть правка"
+    assert head_open("") == stream_module.HEAD_OPEN_DEFAULT, "контейнер не известен — с запасом"
+
+    asked: list[tuple[int, int]] = []
+
+    def note(url: str, offset: int, upto: int = 0, alive: Any = None) -> int:
+        asked.append((offset, upto))
+        return 0
+
+    monkeypatch.setattr(stream_module, "warm_at", note)
+    for kind in ("mkv", "mp4"):
+        asked.clear()
+        keys = FilmKeys(600.0, [0.0, 200.0], [0, 500 << 20], kind)
+        monkeypatch.setattr(stream_module, "film_keys", lambda url, k=keys: k)
+        warm_file(f"http://127.0.0.1:1/film.{kind}", at=240.0)
+        for _ in range(200):
+            if len(asked) >= 2:
+                break
+            time.sleep(0.01)
+        assert asked[0] == (0, HEAD_OPEN[kind]), f"{kind}: голова не по контейнеру"

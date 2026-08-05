@@ -381,7 +381,7 @@ def keys(reader: Reader, head: bytes) -> KeyMap:
         raise InfraError("таблицы mp4 есть, но карта из них не собралась")
     if length <= 0:
         length = points[-1].at
-    return KeyMap(length, tuple(sorted(points)), reader.taken, reader.requests)
+    return KeyMap(length, tuple(sorted(points)), reader.taken, reader.requests, "mp4")
 
 
 def _composition(window: _Window, stbl: tuple[int, int], wanted: list[int]) -> dict[int, int]:

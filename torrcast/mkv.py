@@ -165,7 +165,7 @@ def keys(reader: Reader, head: bytes) -> KeyMap:
     if not points:
         raise InfraError("Cues в файле есть, но точек в нём нет")
     duration = facts.duration * facts.scale / 1e9
-    return KeyMap(duration, tuple(sorted(points)), reader.taken, reader.requests)
+    return KeyMap(duration, tuple(sorted(points)), reader.taken, reader.requests, "mkv")
 
 
 def _points(body: bytes, facts: _Head) -> list[Point]:

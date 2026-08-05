@@ -103,3 +103,28 @@ def test_progress_names_every_phase_and_its_time() -> None:
 def _said(out: io.StringIO) -> str:
     """Что напечатал прогресс: он пишет в свой поток, а по умолчанию это stdout."""
     return out.getvalue()
+
+
+def test_the_running_clock_survives_an_empty_phase() -> None:
+    """Пустая фаза между фазами не должна уносить с собой бегущее время (ревью 06-08-2026).
+
+    `cli._search` закрывает фазу поиска пустой строкой, а следом идут «метаданные (DHT)»
+    и «дорожки» — те самые 4–17 секунд, ради которых §4 SPEC-v2 и написан. Поток тика
+    заводится только пока его нет вовсе, поэтому, уходя на первом же `phase("")`, он
+    оставлял владельца смотреть на замершее «метаданные (DHT)… 0 с».
+    """
+
+    class Tty(io.StringIO):
+        def isatty(self) -> bool:
+            return True
+
+    out = Tty()
+    progress = console.Progress(out=out, tick=0.01)
+    assert progress.live, "терминал: строка перерисовывается на месте"
+    progress.phase("поиск")
+    progress.phase("")
+    progress.phase("метаданные (DHT)")
+    time.sleep(0.15)
+    progress.stop()
+
+    assert out.getvalue().count("метаданные (DHT)") > 2, "время второй фазы обязано бежать"

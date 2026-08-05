@@ -196,9 +196,13 @@ class Progress:
     def _run(self) -> None:
         while not self._wake.wait(self.tick):
             with self._lock:
-                if not self._text:
-                    return
-                self._draw()
+                # ⚠️ Не выходим из потока на пустой фазе: между фазами `_text` пуст, а
+                # `phase()` заводит поток только пока его нет вовсе. Поток, ушедший на
+                # первом же `phase("")`, уносил с собой бегущее время всех следующих фаз —
+                # и владелец видел замершее «метаданные (DHT)… 0 с» ровно там, где §4
+                # SPEC-v2 обещает живой прогресс.
+                if self._text:
+                    self._draw()
 
     def _draw(self) -> None:
         line = f"{self._text}… {time.monotonic() - self._since:.0f} с"
