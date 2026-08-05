@@ -292,6 +292,7 @@ def test_warmup_leaves_in_torrserver_only_what_we_play(monkeypatch: pytest.Monke
     """
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
     _probes(monkeypatch, "h264")
+    monkeypatch.setattr(Release, "magnet", property(lambda self: f"magnet-{self.raw_name}"))
     torrserver = _FakeTorrServer()
     bench = cli._Bench(cast(Any, torrserver))
 
