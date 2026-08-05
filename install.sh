@@ -198,7 +198,15 @@ install_torrcast() {
         skip "venv $PREFIX/venv"
     fi
     "$PREFIX/venv/bin/pip" install --quiet --upgrade pip
+    # Первый вызов ставит зависимости, второй — САМ пакет, всегда заново.
+    # ⚠️ Оба флага второго вызова нужны, и оба поймано 05-08-2026 на живом стенде:
+    # без --force-reinstall pip видит ту же версию из pyproject.toml (от правок кода она
+    # не меняется), говорит «Requirement already satisfied» и уходит; а с ним, но без
+    # --no-cache-dir, он ставит СВОЁ прежнее колесо из кэша — то есть опять не наш код.
+    # Оба раза ./install.sh рапортовал «готово», а в venv оставалась прежняя нарезка HLS,
+    # и замеры шли по коду, которого в репе уже не было.
     "$PREFIX/venv/bin/pip" install --quiet "$REPO_DIR"
+    "$PREFIX/venv/bin/pip" install --quiet --force-reinstall --no-deps --no-cache-dir "$REPO_DIR"
     install -d -m 0755 "$BIN_DIR"
     # Симлинк перезаписываем всегда: это дёшево и чинит битую ссылку.
     ln -sfn "$PREFIX/venv/bin/cast" "$BIN_DIR/cast"
