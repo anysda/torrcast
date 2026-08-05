@@ -168,17 +168,14 @@ class ChromecastReceiver:
         Зовётся не только в начале: после перепаковки потока (перемотка назад глубже окна,
         возврат с паузы) поток начинается заново — и счётчики сторожа тоже.
 
-        ⚠️ Второй и следующий LOAD за показ идут только в **свежее приложение** приёмника.
-        Замерено 05-08-2026 дважды: приёмник, поймавший 404 на перемотке назад, встаёт в
-        IDLE и на любой следующий LOAD в то же приложение отвечает молчанием (90 с и смерть
-        показа), а `quit_app` + LOAD поднимает картинку за те же 6 с, что и холодный старт.
+        Повторный LOAD (перепаковка) ждёт дольше первого: :data:`REVIVE_TIMEOUT` против
+        :data:`START_TIMEOUT`. Приёмник после 404 капризен, и лишняя минута терпения стоит
+        дешевле погасшего показа.
         """
         self._url, self._title = url, title or "torrcast"
         self._peak, self._reloads, self._stall_hits = 0.0, 0, 0
         self._stall_at, self._stall_since = -1.0, 0.0
         budget = self.REVIVE_TIMEOUT if self._started else self.START_TIMEOUT
-        if self._started:
-            self._restart_app()
         self._started = True
         self._load()
         if self._settle(budget):

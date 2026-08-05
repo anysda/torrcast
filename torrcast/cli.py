@@ -627,6 +627,17 @@ def _play(
             if watch is not None:
                 watch.offset, watch.entry.pos = start, start
             print(f"перепаковка с {_hms(start)}", flush=True)
+            # ⚠️ Раздачу поднимаем ЗАНОВО, на новом сокете. Приёмник, поймавший 404,
+            # держится за свои соединения к тому же порту и в них уже не ходит: LOAD за
+            # LOAD'ом он принимает и молчит (замерено 05-08-2026: десять попыток за пять
+            # минут, с закрытием приложения и пересозданием сессии — без толку). Стоит
+            # поднять слушающий сокет заново — и тот же поток с того же URL играет с
+            # первой попытки, даже начатый с -ss.
+            with contextlib.suppress(TorrcastError):
+                receiver.stop()
+            server.stop()
+            server = HlsServer(out, config.hls_cert, config.hls_key, port=config.hls_port)
+            server.start()
     finally:
         with contextlib.suppress(TorrcastError):
             receiver.stop()
