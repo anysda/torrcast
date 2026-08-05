@@ -262,7 +262,9 @@ def _hold(receiver: Receiver, packer: Packer) -> None:
     while True:
         code = packer.poll()
         if code not in (None, 0):
-            raise InfraError(f"упаковка оборвалась (ffmpeg {code}): {packer.why()}")
+            # Убитый сигналом ffmpeg ничего сказать не успевает — не выдумываем за него.
+            why = f"убит сигналом {-code}" if code < 0 else packer.why()
+            raise InfraError(f"упаковка оборвалась: {why}")
         try:
             position = receiver.position()
         except InfraError:  # приёмник позицию не отдаёт — ведём показ по упаковке

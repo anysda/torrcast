@@ -80,7 +80,7 @@ def test_torn_off_packing_is_an_honest_infra_error(
             _play(config, clip, audio=0, about="тест", clock=_Clock())
     finally:
         killer.join(timeout=30)
-    assert "упаковка оборвалась" in str(caught.value)
+    assert "упаковка оборвалась: убит сигналом 9" in str(caught.value)
     assert not list(Path(config.hls_dir).glob("*.ts")), "сегменты убраны даже после аварии"
     assert not _alive(str(tmp_path)) and not _alive(config.hls_base_url), "процессы не текут"
 
