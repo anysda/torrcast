@@ -46,33 +46,43 @@ def report(rows: list[dict[str, object]], top_fails: int) -> None:
         groups[bucket].append((source, rel))
 
     print("=" * 88)
-    print(f"{'группа':<16}{'имён':>8}{'название':>11}{'год':>9}{'назв+год':>11}"
-          f"{'качество':>11}{'кодек':>9}{'год есть*':>12}")
+    print(
+        f"{'группа':<16}{'имён':>8}{'название':>11}{'год':>9}{'назв+год':>11}"
+        f"{'качество':>11}{'кодек':>9}{'год есть*':>12}"
+    )
     print("-" * 88)
     for label, items in groups.items():
         video = [r for _, r in items if r.kind != "other"]
         n = len(video) or 1
         has_year = [r for r in video if _YEAR_IN_TEXT.search(r.raw_name)]
         m = len(has_year) or 1
-        print(f"{label:<16}{len(video):>8}"
-              f"{sum(title_ok(r) for r in video) / n:>10.1%}"
-              f"{sum(r.year is not None for r in video) / n:>9.1%}"
-              f"{sum(title_ok(r) and r.year is not None for r in video) / n:>11.1%}"
-              f"{sum(r.quality is not None for r in video) / n:>11.1%}"
-              f"{sum(r.codec is not None for r in video) / n:>9.1%}"
-              f"{sum(title_ok(r) and r.year is not None for r in has_year) / m:>12.1%}")
+        print(
+            f"{label:<16}{len(video):>8}"
+            f"{sum(title_ok(r) for r in video) / n:>10.1%}"
+            f"{sum(r.year is not None for r in video) / n:>9.1%}"
+            f"{sum(title_ok(r) and r.year is not None for r in video) / n:>11.1%}"
+            f"{sum(r.quality is not None for r in video) / n:>11.1%}"
+            f"{sum(r.codec is not None for r in video) / n:>9.1%}"
+            f"{sum(title_ok(r) and r.year is not None for r in has_year) / m:>12.1%}"
+        )
     print("=" * 88)
-    print("* «год есть» — доля назв+год среди имён, где четырёхзначный год вообще "
-          "присутствует в строке:\n  остальное парсеру взять неоткуда (scene-сериалы, "
-          "аниме-равки, паки без года).")
+    print(
+        "* «год есть» — доля назв+год среди имён, где четырёхзначный год вообще "
+        "присутствует в строке:\n  остальное парсеру взять неоткуда (scene-сериалы, "
+        "аниме-равки, паки без года)."
+    )
 
     all_rel = [r for _, r in groups["ВСЕ"]]
-    print(f"\nотсеяно как не-видео (музыка/книги/игры): "
-          f"{sum(r.kind == 'other' for r in all_rel)} из {len(all_rel)}")
+    print(
+        f"\nотсеяно как не-видео (музыка/книги/игры): "
+        f"{sum(r.kind == 'other' for r in all_rel)} из {len(all_rel)}"
+    )
     video = [r for r in all_rel if r.kind != "other"]
-    print(f"сериалов (kind=tv): {sum(r.kind == 'tv' for r in video)}   "
-          f"с озвучкой: {sum(bool(r.voices) for r in video)}   "
-          f"с русским названием: {sum(bool(_CYRILLIC.search(r.title)) for r in video)}")
+    print(
+        f"сериалов (kind=tv): {sum(r.kind == 'tv' for r in video)}   "
+        f"с озвучкой: {sum(bool(r.voices) for r in video)}   "
+        f"с русским названием: {sum(bool(_CYRILLIC.search(r.title)) for r in video)}"
+    )
 
     by_source: Counter[str] = Counter()
     ok_source: Counter[str] = Counter()
@@ -86,8 +96,11 @@ def report(rows: list[dict[str, object]], top_fails: int) -> None:
     for source, total in by_source.most_common():
         print(f"  {source:<26}{ok_source[source] / total:>7.1%}  ({total})")
 
-    fails = [(s, r) for s, r in groups["ВСЕ"]
-             if r.kind != "other" and not (title_ok(r) and r.year is not None)]
+    fails = [
+        (s, r)
+        for s, r in groups["ВСЕ"]
+        if r.kind != "other" and not (title_ok(r) and r.year is not None)
+    ]
     print(f"\nтоп-{top_fails} непарсящихся (нет названия и/или года), всего {len(fails)}:")
     shapes: Counter[str] = Counter()
     examples: dict[str, str] = {}

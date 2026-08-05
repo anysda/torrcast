@@ -287,9 +287,7 @@ class Watch:
         state.save()
         if self.done:
             what = f" {self.entry.label}" if self.entry.label else ""
-            print(
-                f"досмотрено{what}: {_hms(self.entry.pos)} из {_hms(self.entry.dur)}", flush=True
-            )
+            print(f"досмотрено{what}: {_hms(self.entry.pos)} из {_hms(self.entry.dur)}", flush=True)
 
 
 @dataclass(slots=True)
