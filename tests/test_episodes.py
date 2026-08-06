@@ -113,20 +113,34 @@ def test_the_unit_plays_the_whole_release_by_itself(monkeypatch: pytest.MonkeyPa
     remember(dur=MINUTES_24)
     _FakeTorrServer.added = []
     played: list[tuple[str, int]] = []
+    receivers: list[Any] = []
+    tv = object()
 
     def play(
-        config: Any, source: str, audio: int, about: str, clock: Any, watch: Any = None
+        config: Any,
+        source: str,
+        audio: int,
+        about: str,
+        clock: Any,
+        watch: Any = None,
+        duration: float = 0.0,
+        receiver: Any = None,
     ) -> int:
         played.append((about, int(source.rsplit("/", 1)[-1])))
+        receivers.append(receiver)
         watch.see(watch.entry.dur)  # серия доиграна до конца
         return 0
 
     monkeypatch.setattr(cli, "TorrServer", _FakeTorrServer)
     monkeypatch.setattr(cli, "probe", lambda url, timeout=90.0: Media(MINUTES_24, (), "h264"))
+    monkeypatch.setattr(cli, "make_receiver", lambda kind, address, cert: tv)
     monkeypatch.setattr(cli, "_play", play)
 
     assert cli._cmd_worker(KEY) == 0
 
+    assert receivers == [tv, tv, tv], (
+        "§7.4-3: приёмник один на весь юнит — второй сендер гасит показ на стыке серий"
+    )
     assert [about for about, _ in played] == [
         "Киберпанк: Бегущие по краю s1e1",
         "Киберпанк: Бегущие по краю s1e2",
@@ -150,10 +164,14 @@ def test_the_next_episode_learns_its_own_duration(monkeypatch: pytest.MonkeyPatc
 
     monkeypatch.setattr(cli, "TorrServer", _FakeTorrServer)
     monkeypatch.setattr(cli, "probe", probe)
+    monkeypatch.setattr(cli, "make_receiver", lambda kind, address, cert: None)
     monkeypatch.setattr(
         cli,
         "_play",
-        lambda config, source, audio, about, clock, watch=None: (watch.see(watch.entry.dur), 0)[1],
+        lambda config, source, audio, about, clock, watch=None, **rest: (
+            watch.see(watch.entry.dur),
+            0,
+        )[1],
     )
 
     assert cli._cmd_worker(KEY) == 0

@@ -392,12 +392,24 @@ def _cmd_worker(key: str) -> int:
     Сериал юнит доигрывает сам (§2.4): серия дошла до порога 95 % — сторож записал в
     состояние следующую, и цикл берёт её же раздачу и следующий файл, не спрашивая CLI.
     Серия была последней — состояние отмечает конец, цикл выходит, юнит гаснет чисто.
+
+    ⚠️ **Приёмник один на весь юнит, а не на серию.** Соединение с ТВ живёт здесь и
+    достаётся каждой серии готовым. Иначе получалось два сендера сразу: на стыке серий
+    приложение приёмника намеренно не закрывается (:func:`_handover`), поэтому и сокет
+    прошлой серии оставался жив, а следующая поднимала себе новый. Для приёмника оба —
+    один и тот же ``sender-0`` (докстринг :class:`torrcast.cast.ChromecastReceiver`), и он
+    отвечает новому пустым статусом. Замер на живом Q70D 06-08-2026, стык s1e5→s1e6: два
+    соединения в ``ss``, «LOAD не взяли (IDLE/ERROR)», «приёмник залип — закрываю
+    приложение и соединение», экран пустой **15.3 с**.
     """
     mark("процесс показа")
     config = load_config()
     # SIGTERM от `cast stop` обязан пройти через finally: иначе позиция не запишется.
     signal.signal(signal.SIGTERM, _on_term)
     torrserver = TorrServer(config.torrserver_url)
+    receiver = make_receiver(
+        config.receiver, config.tv or "", config.hls_cert if config.transport == "https" else ""
+    )
     magnet, torrent_hash = "", ""
     while True:
         entry = State.load().get(key)
@@ -412,7 +424,7 @@ def _cmd_worker(key: str) -> int:
         watch = Watch(key=key, entry=entry)
         title = " ".join(filter(None, (entry.title, entry.label)))
         print(f"показ «{title}» с {_hms(entry.pos)}", flush=True)
-        code = _play(config, source, entry.audio, title, _Clock(), watch)
+        code = _play(config, source, entry.audio, title, _Clock(), watch, receiver=receiver)
         following = _following(key) if watch.done else None
         if following is None:
             return code
@@ -1151,6 +1163,7 @@ def _play(
     clock: _Clock,
     watch: Watch | None = None,
     duration: float = 0.0,
+    receiver: Receiver | None = None,
 ) -> int:
     """Упаковка → раздача по http на голом IP (§5 SPEC-v2) → приёмник. Своих демонов
     нет: и ffmpeg, и раздача живут ровно на время показа и гасятся вместе с ним, что бы
@@ -1190,8 +1203,10 @@ def _play(
         out, config.hls_cert, config.hls_key, port=config.hls_port, tls=tls, feed=feed
     )
     # Серт приёмнику нужен только затем, чтобы проверить нашу раздачу: по http проверять
-    # нечего, и mock не должен делать вид, что что-то проверил.
-    receiver = make_receiver(config.receiver, config.tv or "", config.hls_cert if tls else "")
+    # нечего, и mock не должен делать вид, что что-то проверил. Готовый приёмник приходит
+    # с сериалом: он один на весь юнит (см. :func:`_cmd_worker`).
+    if receiver is None:
+        receiver = make_receiver(config.receiver, config.tv or "", config.hls_cert if tls else "")
     url = f"{hls_base(config)}/index.m3u8"
     try:
         server.start()
