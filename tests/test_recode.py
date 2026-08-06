@@ -812,3 +812,22 @@ def test_between_runs_the_copy_still_waits(tmp_path) -> None:  # type: ignore[no
     assert recoder.job is None
     assert recoder.holding(6)  # до него полтора десятка секунд — следующий заход успеет
     assert not recoder.holding(5)  # а этот уже под носом: ждать значит подгружаться
+
+
+def test_a_heavy_copy_behind_the_playhead_is_not_counted_as_late(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """После перемотки прошлый прогон дописывает то, чего никто не увидит.
+
+    Живой прогон: перемотка с 4900 на 5904 — и `v362`/`v363` доехали копией в журнал как
+    опоздание, хотя показ ушёл оттуда за секунду до этого.
+    """
+    grid = _grid()
+    weights = Weights.of(_keys(rate=2.0e6), grid)
+    assert weights is not None
+    recoder = Recoder(
+        source="src", audio=0, grid=grid, spare=tmp_path, weights=weights, threshold=15.0
+    )
+    recoder.opening(20)
+    recoder.note(3, recoded=False)  # кусок далеко позади показа
+    assert recoder.late == 0
+    recoder.note(21, recoded=False)
+    assert recoder.late == 1

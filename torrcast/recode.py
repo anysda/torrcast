@@ -420,7 +420,9 @@ class Recoder:
         with contextlib.suppress(OSError):
             size = (self.spare.parent / f"v{slot}.ts").stat().st_size
             self.weights.calibrate(slot, size, self.grid.span(slot))
-        if slot in set(self.targets):
+        # Куски позади показа не в счёт: после перемотки прошлый прогон дописывает то,
+        # что уже никто не увидит, и считать это опозданием — врать себе в отчёте.
+        if slot in set(self.targets) and self.grid.end(slot) >= self.played:
             self.late += 1
             # Тяжёлый кусок, ушедший копией, — это будущий BUFFERING, и разбирать его
             # задним числом по размеру файла в журнале раздачи слишком дорого: пишем
