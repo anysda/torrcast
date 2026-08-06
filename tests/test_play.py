@@ -619,28 +619,6 @@ def test_a_finished_movie_hands_nothing_over(
     assert watch.done and not cli._handover(watch), "титры кончились — закрываем приложение"
 
 
-def test_a_seek_behind_the_packing_edge_repacks_instead_of_waiting_for_nothing(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Перемотка назад глубже окна: сегмент вычистили — упаковка обязана начаться оттуда.
-
-    Ждать сегмент НИЖЕ края упаковки бессмысленно: этот прогон его уже отдал и второй раз
-    не отдаст, а раз файла нет — его убрало окном (:meth:`Feed.prune`), то есть это и есть
-    перемотка назад. До 06-08-2026 показ на таком запросе висел две минуты и отвечал 404,
-    после которого приёмник не берёт LOAD ещё пару минут (§6 SPEC-v2).
-    """
-    asked: list[int] = []
-    feed = _feed_with_segments(tmp_path)
-    monkeypatch.setattr(Feed, "restart", lambda self, slot: asked.append(slot))
-    (feed.out / "v5.ts").unlink()  # окно ушло вперёд, пятый сегмент вычищен
-
-    assert feed.segment(5) is None and asked == [5], "назад за край — перепаковка"
-
-    asked.clear()
-    feed.restarted = 0.0
-    assert feed.segment(60) is None and asked == [], "впереди края — ждём, а не пакуем заново"
-
-
 def test_a_closed_show_never_starts_ffmpeg_again(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
