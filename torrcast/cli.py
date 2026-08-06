@@ -1394,20 +1394,28 @@ def _play(
     которое он попросил. Раздача, приёмник и LOAD при этом одни на весь показ.
     """
     from torrcast.recode import RECODE_DIR
-    from torrcast.stream import grid_for, hls_base, hls_dir
+    from torrcast.stream import AUDIO_MBIT, TS_OVERHEAD, grid_for, hls_base, hls_dir
 
     out = hls_dir(config.hls_dir)
     start = watch.entry.pos if watch else 0.0
     length = watch.entry.dur if watch else duration
     tls = config.transport == "https"
+    video_mbit = max(0.0, watch.entry.vbps) if watch else 0.0
     # Сетка сегментов снимается с самого файла и дальше не меняется: она же в манифесте,
     # она же в команде ffmpeg. Всё, что показ говорит о времени, считается по ней.
+    #
+    # §6.2.4: сетке нужен не только шаг, но и вес. Сегмент тяжелее ~19 МБ приёмник не
+    # доигрывает, а выбрасывает буфер и качает его заново, поэтому граница ставится с
+    # оглядкой на предсказанный вес куска — а он зависит и от паспорта (что уедет на ТВ),
+    # и от того, перекодируем ли мы тяжёлое (тогда кусок не тяжелее ``recode_mbit``).
     grid = grid_for(
         source,
         length,
         config.hls_segment,
         config.hls_keyframes,
         say=lambda text: print(text, flush=True),
+        delivered_mbit=(video_mbit + AUDIO_MBIT) * TS_OVERHEAD if video_mbit > 0 else 0.0,
+        ceiling_mbit=config.recode_mbit if config.recode else 0.0,
     )
     mark("сетка", сегментов=grid.count, покадрам=grid.on_keys)
     # §6.2: профиль тяжести всего фильма известен со старта — он считается из уже снятой
@@ -1419,7 +1427,7 @@ def _play(
         grid,
         out / RECODE_DIR,
         config,
-        video_mbit=max(0.0, watch.entry.vbps) if watch else 0.0,
+        video_mbit=video_mbit,
     )
     feed = Feed(
         source=source,

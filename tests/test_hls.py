@@ -28,6 +28,7 @@ from tests.conftest import fake_packer
 from torrcast.cast import Report
 from torrcast.stream import (
     HLS_SEGMENT_SECONDS,
+    MAX_SEGMENT_BYTES,
     MPEGTS_MUX_DELAY,
     PACK_DIR,
     PACK_LIST,
@@ -1070,3 +1071,90 @@ def test_an_old_key_cache_takes_the_container_from_the_file_name(
             break
         time.sleep(0.01)
     assert asked[0] == (0, HEAD_OPEN["mkv"]), "имя файла назвало контейнер — греем по нему"
+
+
+def _desert(mbit: float = 10.0) -> tuple[list[float], list[int], float]:
+    """Карта «как у «Тачек 3»»: ровный GOP 10.427 с и одна пустыня без опорных кадров.
+
+    В пустыне (место 3965.670 живого файла) первый опорный кадр не раньше шага лежит через
+    18.435 с, а внутри есть кадр на 8.008 с. Прежнее правило берёт первый — и отдаёт
+    приёмнику 23 МБ одним куском; ровно этот кусок ловился на живом ТВ (§6.2.4 SPEC-v2).
+    Байты кладутся ровным битрейтом: столько же, сколько уезжает на ТВ после перекода.
+    """
+    gop = 10.427
+    keys = [round(k * gop, 3) for k in range(40)]
+    desert = keys[20]
+    keys = (
+        keys[:21]
+        + [round(desert + 8.008, 3)]
+        + [round(desert + 18.435 + k * gop, 3) for k in range(19)]
+    )
+    duration = keys[-1]  # хвост прилипает к последнему куску, и на него правило не влияет
+    return keys, [int(k * mbit * 1e6 / 8) for k in keys], duration
+
+
+def test_the_grid_never_hands_the_receiver_a_segment_heavier_than_the_cap() -> None:
+    """Потолок веса сегмента — механизм §6-подвиса, а не украшение сетки.
+
+    Приёмник Q70D срывается в BUFFERING на 4–8 с ровно на границе, за которой лежит
+    кусок тяжелее ~19 МБ, и снимается сам, повторно скачав уже полученные сегменты.
+    Замерено в обе стороны на живом ТВ: 20.0 с и 14.3 МБ — чисто, 19.9 с и 24.2 МБ —
+    потеря сессии; 16.934 с / 18.7 МБ — чисто, 16.892 с / 20.3 МБ — стоп 8 с. Значит
+    сетка обязана считать байты, а не только секунды.
+    """
+    mbit = 10.0
+    keys, sizes, duration = _desert(mbit)
+    heavy = Grid.on_keyframes(keys, duration, 10.0)
+    capped = Grid.on_keyframes(keys, duration, 10.0, sizes=sizes)
+
+    def weigh(grid: Grid, slot: int) -> float:
+        return grid.span(slot) * mbit * 1e6 / 8
+
+    assert max(weigh(heavy, k) for k in range(heavy.count)) > MAX_SEGMENT_BYTES, (
+        "карта подобрана неверно: прежнее правило обязано давать кусок тяжелее потолка"
+    )
+    assert all(weigh(capped, k) <= MAX_SEGMENT_BYTES for k in range(capped.count)), (
+        "сегмент тяжелее потолка — это и есть подвис приёмника"
+    )
+    assert capped.bounds != heavy.bounds, "сетка обязана была измениться"
+    assert all(b in keys or b == 0.0 for b in capped.bounds), "границы остались на опорных кадрах"
+    assert capped.count == heavy.count + 1, "лишний рез ровно один — в пустыне, а не по всему кино"
+
+
+def test_the_cap_counts_what_leaves_for_the_tv_not_what_lies_in_the_container() -> None:
+    """Считать вес по контейнеру — значит считать чужое: у «Моаны 2» десять озвучек.
+
+    На ТВ уезжает видео плюс наш AAC, и тяжёлый кусок ещё и перекодируется (§6.2), поэтому
+    потолок обязан знать поправку «контейнер → ТВ» и потолок перекодирования. Слепое
+    правило на том же файле решает, что резать бесполезно (по контейнеру не влезает ни
+    один вариант), и отдаёт кусок как есть — то есть ровно тот подвис, ради которого всё
+    и делалось.
+    """
+    keys, sizes, duration = _desert(20.0)  # контейнер: кино плюс восемь озвучек рядом
+    plain = Grid.on_keyframes(keys, duration, 10.0)
+    blind = Grid.on_keyframes(keys, duration, 10.0, sizes=sizes)
+    aware = Grid.on_keyframes(keys, duration, 10.0, sizes=sizes, extra_mbit=12.0)
+    recoded = Grid.on_keyframes(keys, duration, 10.0, sizes=sizes, ceiling_mbit=8.0)
+
+    assert blind.bounds == plain.bounds, "по контейнеру не влезает ничего — правило сдаётся"
+    assert aware.count == plain.count + 1, "поправка известна — рез ровно один, в пустыне"
+    assert recoded.count == plain.count + 1, "перекод сделает кусок легче, и сетка это знает"
+    for grid in (aware, recoded):
+        heaviest = max(grid.span(k) * 8e6 / 8 for k in range(grid.count))
+        assert heaviest <= MAX_SEGMENT_BYTES, "на ТВ всё равно уехал кусок тяжелее потолка"
+
+
+def test_a_grid_without_a_byte_map_stays_exactly_as_it_was() -> None:
+    """Карта прошлой версии смещений не несёт — правило потолка обязано просто молчать.
+
+    Иначе выкатка сломала бы показ по кэшу, снятому вчера: границы уехали бы, а имя
+    сегмента у нас значит место в фильме (§6.0).
+    """
+    keys, sizes, duration = _desert()
+    plain = Grid.on_keyframes(keys, duration, 10.0).bounds
+    assert Grid.on_keyframes(keys, duration, 10.0, sizes=()).bounds == plain, (
+        "без карты байт сетка обязана остаться прежней"
+    )
+    assert Grid.on_keyframes(keys, duration, 10.0, sizes=sizes[:-3]).bounds == plain, (
+        "карта не той длины — не повод менять нарезку молча"
+    )

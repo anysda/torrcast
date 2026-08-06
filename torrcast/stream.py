@@ -33,7 +33,7 @@ from torrcast.parse import VIDEO_EXT
 from torrcast.timing import TIMELINE_ENV, mark
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Callable, Sequence
 
     import requests
 
@@ -42,6 +42,7 @@ if TYPE_CHECKING:
 __all__ = [
     "HLS_SEGMENT_SECONDS",
     "KEYS_WAIT",
+    "MAX_SEGMENT_BYTES",
     "PILOT_TIMEOUT",
     "RUNTIME_GUESS",
     "AudioTrack",
@@ -204,6 +205,25 @@ AUDIO_MBIT: Final = 0.192
 #: «Моаны 2» подряд: поправка «контейнер → ТВ» сходилась к 4.10…4.26 Мбит/с при
 #: контейнере 19.16 и видеодорожке 14.33 — то есть уезжало (14.33 + 0.19) × 1.03.
 TS_OVERHEAD: Final = 1.03
+#: Потолок веса ОДНОГО сегмента: сколько байт разрешено уехать на ТВ одним куском.
+#:
+#: 🔴 Это и есть механизм §6-подвиса, найденный замером 07-08-2026 (§6.2.4 SPEC-v2).
+#: Приёмник Q70D срывается в BUFFERING на 4–8 с ровно на границе, за которой лежит
+#: сегмент тяжелее ~19 МБ, и снимается сам, **повторно скачав** уже полученные куски —
+#: то есть выбрасывает буфер и набирает его заново. Секунды тут ни при чём, и это
+#: доказано в обе стороны на живом ТВ:
+#:
+#: * 20.0 с и 14.3 МБ («Моана 2», два лёгких куска слиты в один) — прошло чисто;
+#: * 19.9 с и 24.2 МБ (та же «Моана 2», тяжёлый кусок) — приёмник не подвис, а **потерял
+#:   сессию** целиком;
+#: * 16.934 с / 18.7 МБ — чисто, 16.892 с / 20.3 МБ («Тачки 3») — стоп 8 с: одна и та же
+#:   длина, разный вес, разный исход;
+#: * тот же тяжёлый кусок, разрезанный пополам (12.0 и 9.0 МБ), — чисто.
+#:
+#: Граница отбраковки лежит между 18.7 МБ (чисто) и 19.4 МБ (стоп), поэтому потолок
+#: поставлен на 16 МБ — запас 15 % и ни одного лишнего сегмента в манифесте на лёгком
+#: кино (там 10 с весят 6–8 МБ и правило не срабатывает вовсе).
+MAX_SEGMENT_BYTES: Final = 16_000_000
 #: Типовая длительность до ffprobe (фильм 2 ч, серия 45 мин): только для прикидки битрейта.
 RUNTIME_GUESS: Final = {"movie": 7200.0, "tv": 2700.0, "other": 7200.0}
 
@@ -722,21 +742,60 @@ class Grid:
 
     @classmethod
     def on_keyframes(
-        cls, keys: Sequence[float], duration: float, step: float = HLS_SEGMENT_SECONDS
+        cls,
+        keys: Sequence[float],
+        duration: float,
+        step: float = HLS_SEGMENT_SECONDS,
+        sizes: Sequence[int] = (),
+        extra_mbit: float = 0.0,
+        ceiling_mbit: float = 0.0,
+        cap: float = MAX_SEGMENT_BYTES,
     ) -> Grid:
         """Сетка по опорным кадрам: следующая граница — первый опорный кадр не раньше,
-        чем через ``step`` секунд после предыдущей.
+        чем через ``step`` секунд после предыдущей, **и не тяжелее** :data:`MAX_SEGMENT_BYTES`.
 
         Длина сегмента получается от ``step`` до ``step + GOP``: на «Моане» 2016
         (GOP до 4.96 с) это 10.0–14.9 с, на «Моане 2» (GOP до 11.5 с) — до 21.5 с.
         Короче ``step`` в середине фильма сегментов не бывает — иначе на сценах-вспышках
         (24 опорных кадра за полсекунды) манифест распух бы на пустом месте. Хвост —
         исключение: он такой, какой остался, но не короче половины шага.
+
+        **Потолок байт** (§6.2.4 SPEC-v2) — вторая половина правила, и она главная:
+        приёмник Q70D срывается в BUFFERING на сегменте тяжелее ~19 МБ, сколько бы секунд
+        в нём ни было. Поэтому граница берётся так: первый опорный кадр не раньше ``step``,
+        **если** предсказанный вес куска влезает в ``cap``; не влезает — последний кадр,
+        который влезает (кусок получается короче ``step``, и это дешевле подвиса); не влезает
+        ни один — первый кадр, что есть (резать GOP нельзя, и врать об этом не будем).
+
+        Вес предсказывается из той же карты, из которой строится профиль тяжести
+        (:class:`torrcast.recode.Weights`): ``sizes`` — смещения опорных кадров в файле,
+        ``extra_mbit`` — что в контейнере есть, а на ТВ не уезжает (лишние дорожки и
+        субтитры), ``ceiling_mbit`` — потолок перекодирования (§6.2): тяжёлый кусок уедет
+        не тяжелее него. Карты смещений нет (кэш прошлой версии, чужой контейнер) — правило
+        вырождается в прежнее «первый кадр не раньше ``step``».
         """
+        weigh = _weigher(keys, sizes, extra_mbit, ceiling_mbit)
         bounds = [0.0]
-        for key in keys:
-            if key >= bounds[-1] + step and key < duration - step / 2:
-                bounds.append(key)
+        limit = duration - step / 2
+        index = 0
+        while True:
+            prev = bounds[-1]
+            index = bisect.bisect_right(keys, prev, lo=index)
+            fits = first = None
+            for key in keys[index:]:
+                if key >= limit:
+                    break
+                if weigh(prev, key) <= cap:
+                    fits = key
+                if key >= prev + step:
+                    first = key
+                    break
+            if first is None:
+                break  # дальше только хвост короче половины шага — он прилипает к последнему
+            if weigh(prev, first) <= cap or fits is None:
+                bounds.append(first)  # влез — или один GOP тяжелее потолка, резать нечем
+            else:
+                bounds.append(fits)
         return cls(tuple(bounds), duration, True)
 
     @property
@@ -793,6 +852,38 @@ class Grid:
             lines += [f"#EXTINF:{self.span(slot):.6f},", segment_name(slot)]
         lines.append("#EXT-X-ENDLIST")
         return "\n".join(lines) + "\n"
+
+
+def _weigher(
+    keys: Sequence[float], sizes: Sequence[int], extra_mbit: float, ceiling_mbit: float
+) -> Callable[[float, float], float]:
+    """Предсказатель веса куска ``[a, b)`` в байтах — тот же расчёт, что у профиля тяжести.
+
+    Карта даёт байты **контейнера**: у «Моаны 2» это десять озвучек и восемь субтитров
+    сверх картинки. На ТВ уезжает видео плюс наш AAC, поэтому из битрейта вычитается
+    ``extra_mbit`` (:class:`torrcast.recode.Weights` считает ту же поправку), а тяжёлый
+    кусок ещё и перекодируется — выше ``ceiling_mbit`` он не уедет при всём желании.
+
+    Карты смещений нет — вес неизвестен, и предсказатель честно отдаёт ноль: правило
+    потолка тогда не срабатывает ни разу, а сетка остаётся прежней.
+    """
+    if len(sizes) != len(keys) or len(keys) < 2:
+        return lambda a, b: 0.0
+
+    def weigh(a: float, b: float) -> float:
+        span = b - a
+        if span <= 0:
+            return 0.0
+        head = bisect.bisect_right(keys, a + SPLIT_SLACK) - 1
+        tail = bisect.bisect_right(keys, b + SPLIT_SLACK) - 1
+        head = min(max(head, 0), len(sizes) - 1)
+        tail = min(max(tail, 0), len(sizes) - 1)
+        mbit = max(0.0, (sizes[tail] - sizes[head]) * 8 / span / 1e6 - extra_mbit)
+        if ceiling_mbit > 0:
+            mbit = min(mbit, ceiling_mbit)
+        return mbit * span * 1e6 / 8
+
+    return weigh
 
 
 def _keys_cache(source_url: str) -> Path:
@@ -1010,6 +1101,8 @@ def grid_for(
     step: float = HLS_SEGMENT_SECONDS,
     on_keys: bool = True,
     say: Any = None,
+    delivered_mbit: float = 0.0,
+    ceiling_mbit: float = 0.0,
 ) -> Grid:
     """Сетка для конкретного файла: по опорным кадрам, если карту удалось снять.
 
@@ -1017,6 +1110,12 @@ def grid_for(
     (:func:`torrcast.keymap.keyframes`) и стоит около секунды. Контейнер незнакомый, индекса
     в нём нет, карта не похожа на видео — берём ровную сетку и говорим об этом вслух:
     молчаливая подмена нарезки — ровно то, из-за чего §6 SPEC-v2 расследовали двое суток.
+
+    ``delivered_mbit`` — сколько Мбит/с уедет на ТВ в среднем по фильму (паспорт ffprobe,
+    :attr:`Media.delivered_mbit`), ``ceiling_mbit`` — потолок перекодирования
+    (:attr:`torrcast.state.Config.recode_mbit`, ноль — перекодирование выключено). Из них
+    считается поправка «контейнер → ТВ» и работает потолок веса сегмента
+    (:data:`MAX_SEGMENT_BYTES`) — без них правило потолка вырождается в прежнее.
     """
     began = time.monotonic()
     if not on_keys:
@@ -1034,14 +1133,38 @@ def grid_for(
         if say:
             say(f"сетка ровно по {step:g} с: карта опорных кадров не похожа на видео")
         return Grid.uniform(length, step)
-    grid = Grid.on_keyframes(found.at, length, step)
+    grid = Grid.on_keyframes(
+        found.at,
+        length,
+        step,
+        sizes=found.offset,
+        extra_mbit=_extra_mbit(found, delivered_mbit),
+        ceiling_mbit=ceiling_mbit,
+    )
     if say:
         spans = [grid.span(k) for k in range(grid.count)]
         say(
             f"сетка по опорным кадрам: {grid.count} сегментов по {min(spans):.1f}–"
-            f"{max(spans):.1f} с (карта за {time.monotonic() - began:.1f} с)"
+            f"{max(spans):.1f} с, не тяжелее {MAX_SEGMENT_BYTES / 1e6:.0f} МБ "
+            f"(карта за {time.monotonic() - began:.1f} с)"
         )
     return grid
+
+
+def _extra_mbit(keys: FilmKeys, delivered_mbit: float) -> float:
+    """Что в контейнере есть, а на ТВ не уезжает, Мбит/с — по карте и паспорту.
+
+    Ровно то же число, что набирает :meth:`torrcast.recode.Weights.calibrate` по факту, но
+    известное до первого куска. Паспорт молчит (mp4 без тегов) — ноль: тогда потолок веса
+    считает по контейнеру целиком, то есть режет с запасом. Запас безопасен, недооценка нет.
+    """
+    if delivered_mbit <= 0 or len(keys.offset) != len(keys.at) or len(keys.at) < 3:
+        return 0.0
+    span = keys.at[-1] - keys.at[0]
+    if span <= 0:
+        return 0.0
+    container = (keys.offset[-1] - keys.offset[0]) * 8 / span / 1e6
+    return max(0.0, container - delivered_mbit)
 
 
 def pack_start(source_url: str, at: float, timeout: float = PILOT_TIMEOUT) -> float:

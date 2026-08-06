@@ -34,17 +34,29 @@ from torrcast.stream import Feed, Grid, HlsServer, film_keys, grid_for, hls_base
 STALL = 3.0
 
 
-def make_grid(args: argparse.Namespace) -> Grid:
+def make_grid(args: argparse.Namespace, delivered: float = 0.0) -> Grid:
     """Сетка смока: явный список границ, ровная или по опорным кадрам.
 
     ``--drop``/``--add`` двигают отдельные границы, не трогая остальную сетку, — это и
     есть бисект: между прогонами меняется ровно одна граница.
+
+    ``delivered`` и потолок перекодирования идут в сетку ровно так же, как в показе
+    (:func:`torrcast.cli._play`): от них зависит потолок веса сегмента (§6.2.4), а смок
+    обязан резать так же, как настоящий показ, иначе он меряет не то.
     """
     if args.bounds:
         given = tuple(float(x) for x in args.bounds.split(","))
         base = Grid((0.0, *given) if given[0] > 0 else given, args.duration, False)
     else:
-        base = grid_for(args.url, args.duration, args.step, not args.uniform, say=print)
+        base = grid_for(
+            args.url,
+            args.duration,
+            args.step,
+            not args.uniform,
+            say=print,
+            delivered_mbit=delivered,
+            ceiling_mbit=args.mbit if args.recode else 0.0,
+        )
     drop = {float(x) for x in args.drop.split(",") if x}
     extra = {float(x) for x in args.add.split(",") if x}
     if not drop and not extra:
@@ -85,7 +97,15 @@ def main() -> None:
 
     config = load_config()
     out = hls_dir(config.hls_dir)
-    grid = make_grid(args)
+    media = None if (args.uniform or args.bounds) else probe(args.url)
+    delivered = media.delivered_mbit if media else 0.0
+    if media is not None:
+        print(
+            f"паспорт: видео {media.video_bps / 1e6:.2f} Мбит/с, на ТВ уедет {delivered:.2f} Мбит/с"
+            if delivered > 0
+            else "паспорт веса видеодорожки не несёт — поправка наберётся по факту"
+        )
+    grid = make_grid(args, delivered)
     slot = grid.slot_at(args.at)
     print(
         f"сетка: {grid.count} сегментов; место {args.at:.1f} с — это v{slot} "
@@ -100,17 +120,9 @@ def main() -> None:
         keys = film_keys(args.url)
         # Профиль как в показе: вес видеодорожки из паспорта ffprobe (§6.2). ``--extra``
         # оставлен ручным перебивом — им же меряется цена ошибки в поправке.
-        delivered = 0.0
-        if not args.extra:
-            media = probe(args.url)
-            delivered = media.delivered_mbit
-            print(
-                f"паспорт: видео {media.video_bps / 1e6:.2f} Мбит/с, "
-                f"на ТВ уедет {delivered:.2f} Мбит/с"
-                if delivered > 0
-                else "паспорт веса видеодорожки не несёт — поправка наберётся по факту"
-            )
-        weights = Weights.of(keys, grid, extra=args.extra, delivered=delivered)
+        weights = Weights.of(
+            keys, grid, extra=args.extra, delivered=0.0 if args.extra else delivered
+        )
         if weights is None:
             print("карта без смещений — профиля тяжести нет")
         else:
