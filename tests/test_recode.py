@@ -672,7 +672,12 @@ def test_the_packer_tells_the_encoder_where_the_run_begins(monkeypatch, tmp_path
             return False
 
     recoder = _Stub()
-    monkeypatch.setattr(stream, "pack_start", lambda *a, **k: (seen.append(("проба", 0)), 0.0)[1])
+
+    def _probe(*a: object, **k: object) -> float:
+        seen.append(("проба", 0))
+        return 0.0
+
+    monkeypatch.setattr(stream, "pack_start", _probe)
     monkeypatch.setattr(
         stream.Packer, "start", classmethod(lambda cls, *a, **k: fake_packer(tmp_path))
     )
@@ -696,11 +701,12 @@ def test_the_head_run_is_not_niced_behind_the_packer(tmp_path, monkeypatch) -> N
         source="src", audio=0, grid=grid, spare=tmp_path, weights=weights, threshold=15.0
     )
     seen: list[list[str]] = []
-    monkeypatch.setattr(
-        stream.Packer,
-        "start",
-        classmethod(lambda cls, command, *a, **k: (seen.append(command), fake_packer(tmp_path))[1]),
-    )
+
+    def _remember(cls: object, command: list[str], /, *a: object, **k: object) -> Packer:
+        seen.append(command)
+        return fake_packer(tmp_path)
+
+    monkeypatch.setattr(stream.Packer, "start", classmethod(_remember))
     recoder.opening(3)
     recoder.stopped = True  # один круг: ждать реального ffmpeg тут нечего
     recoder._run(3, 3)

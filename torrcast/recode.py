@@ -44,6 +44,8 @@ import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Final
 
+from torrcast.timing import mark
+
 if TYPE_CHECKING:
     from pathlib import Path
 
@@ -452,15 +454,36 @@ class Recoder:
         по ней и правится поправка :attr:`Weights.extra`, из-за которой байты карты
         (контейнер целиком) не равны байтам сегмента (видео и одна дорожка).
         """
+        from torrcast.stream import TRACE
+
         # Не максимум, а именно последний: перемотка назад начинает упаковку заново, и
         # край обязан уехать назад вместе с ней — иначе кодировщик решит, что всё позади
         # уже выложено, и до конца показа не возьмётся ни за один кусок.
         self.edge = slot
-        if recoded:
-            return
+        # Сколько ушло на ТВ на самом деле. Это единственный честный замер профиля, и
+        # стоит он один `stat`: без него «почему приёмник встал» разбирается по размерам
+        # файлов в чужом журнале, а предсказание профиля не с чем сверить (§6.2.1).
+        span, went = self.grid.span(slot), 0.0
+        size = 0
         with contextlib.suppress(OSError):
             size = (self.spare.parent / f"v{slot}.ts").stat().st_size
-            self.weights.calibrate(slot, size, self.grid.span(slot))
+            went = size * 8 / span / 1e6 if span > 0 else 0.0
+        mark(
+            "сегмент",
+            слот=slot,
+            перекод=recoded,
+            мбит=round(went, 2),
+            профиль=round(self.weights.at(slot), 2),
+        )
+        if TRACE:
+            self._say(
+                f"выложен v{slot}: {'перекод' if recoded else 'копия'} "
+                f"{went:.1f} Мбит/с (профиль {self.weights.at(slot):.1f})"
+            )
+        if recoded:
+            return
+        if size:
+            self.weights.calibrate(slot, size, span)
         # Куски позади показа не в счёт: после перемотки прошлый прогон дописывает то,
         # что уже никто не увидит, и считать это опозданием — врать себе в отчёте.
         if slot in set(self.targets) and self.grid.end(slot) >= self.played:
@@ -587,6 +610,14 @@ class Recoder:
         # Срок — у ПОСЛЕДНЕГО куска захода: до него кодировщик доберётся позже всех, и
         # именно он решает, каким пресетом идти всему заходу.
         preset = preset_for(seconds, self.slack(last))
+        mark(
+            "заход",
+            первый=first,
+            последний=last,
+            пресет=preset,
+            срок=round(self.slack(last), 1),
+            срочный=round(self.slack(first), 1),
+        )
         encode = Encode(preset=preset, mbit=self.encode.mbit)
         # ⚠️ Пробного прогона тут нет и быть не должно: перекодирующий ffmpeg встаёт по
         # ``-ss`` точно, докатки не делает, и ``at`` равен границе сетки ровно.
