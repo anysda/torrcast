@@ -379,7 +379,7 @@ def test_the_deadline_is_the_packer_not_the_playhead(tmp_path) -> None:  # type:
     )
     recoder.played = 0.0
     assert recoder.slack(5) == pytest.approx(grid.start(5), abs=0.1)
-    recoder.note(4, recoded=False)  # упаковщик выложил уже пять сегментов
+    recoder.note(4, "копия")  # упаковщик выложил уже пять сегментов
     assert recoder.slack(5) == pytest.approx(grid.start(5) - grid.end(4), abs=0.1)
 
 
@@ -392,7 +392,7 @@ def test_what_the_packer_already_published_is_never_re_encoded(tmp_path) -> None
         source="src", audio=0, grid=grid, spare=tmp_path, weights=weights, threshold=15.0
     )
     recoder.played = 0.0
-    recoder.note(3, recoded=False)  # упаковщик выложил v0…v3
+    recoder.note(3, "копия")  # упаковщик выложил v0…v3
     job = recoder._pick()
     assert job is not None
     assert job[0] == 4
@@ -416,7 +416,7 @@ def test_a_run_never_promises_more_than_it_can_deliver_in_time(  # type: ignore[
         source="src", audio=0, grid=grid, spare=tmp_path, weights=weights, threshold=15.0
     )
     recoder.played = 0.0
-    recoder.note(3, recoded=False)
+    recoder.note(3, "копия")
     job = recoder._pick()
     assert job is not None
     assert job[0] == 4
@@ -643,7 +643,7 @@ def test_a_seek_makes_the_new_place_the_head_and_rewinds_the_edge(tmp_path) -> N
     )
     recoder.opening(0)
     for slot in range(12):
-        recoder.note(slot, recoded=False)
+        recoder.note(slot, "копия")
     recoder.opening(3)  # перемотали назад
     assert recoder.edge == 2
     assert recoder.played == grid.start(3)
@@ -833,9 +833,9 @@ def test_a_heavy_copy_behind_the_playhead_is_not_counted_as_late(tmp_path) -> No
         source="src", audio=0, grid=grid, spare=tmp_path, weights=weights, threshold=15.0
     )
     recoder.opening(20)
-    recoder.note(3, recoded=False)  # кусок далеко позади показа
+    recoder.note(3, "копия")  # кусок далеко позади показа
     assert recoder.late == 0
-    recoder.note(21, recoded=False)
+    recoder.note(21, "копия")
     assert recoder.late == 1
 
 
@@ -1066,7 +1066,7 @@ def test_the_recoded_piece_goes_out_with_the_copy_s_sound(tmp_path, monkeypatch)
     (spare / segment_name(0)).write_bytes(b"recode")
     seen: list[tuple[str, str]] = []
 
-    def merge(video, audio, dst, timeout=30.0):  # type: ignore[no-untyped-def]
+    def merge(video, audio, dst, timeout=30.0, shift=0.0):  # type: ignore[no-untyped-def]
         seen.append((video.name, audio.name))
         dst.write_bytes(b"mixed")
         return True
@@ -1081,8 +1081,8 @@ def test_the_recoded_piece_goes_out_with_the_copy_s_sound(tmp_path, monkeypatch)
 
 
 def test_a_failed_merge_still_sends_the_recoded_piece(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
-    """Склейка не вышла — наружу перекод как есть: это сегодняшнее поведение, а тяжёлая
-    копия из-под приёмника хуже вернувшейся заминки."""
+    """Склейку не сверили с лентой прогона (сдвиг неизвестен) — наружу перекод как есть:
+    это ровно сегодняшнее поведение, а тяжёлая копия из-под приёмника хуже стыка."""
     out = tmp_path / "out"
     spare = out / "recode"
     spare.mkdir(parents=True)
@@ -1093,9 +1093,99 @@ def test_a_failed_merge_still_sends_the_recoded_piece(tmp_path, monkeypatch) -> 
     (packer.run / segment_name(1)).write_bytes(b"next")
     (spare / segment_name(0)).write_bytes(b"recode")
     monkeypatch.setattr("torrcast.stream.merge_tracks", lambda *a, **k: False)
+    monkeypatch.setattr("torrcast.stream.timeline_shift", lambda *a, **k: None)
     packer.publish()
     assert (out / segment_name(0)).read_bytes() == b"recode"
     assert packer.edge == 0
+
+
+def test_the_recoded_picture_lies_on_the_run_s_own_timeline(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """Склейке передаётся сдвиг ленты прогона (§6.2.8): прогон с нуля пишет метки на кадр
+    вперёд времени фильма, и картинка перекода обязана лечь на его ленту, а не на свою."""
+    out = tmp_path / "out"
+    spare = out / "recode"
+    spare.mkdir(parents=True)
+    packer = fake_packer(out, first=0)
+    packer.spare = spare
+    packer.run.mkdir(parents=True, exist_ok=True)
+    (packer.run / segment_name(0)).write_bytes(b"copy")
+    (packer.run / segment_name(1)).write_bytes(b"next")
+    (spare / segment_name(0)).write_bytes(b"recode")
+    told: list[tuple[int, str]] = []
+    packer.told = lambda slot, how: told.append((slot, how))
+    seen: list[float] = []
+
+    def merge(video, audio, dst, timeout=30.0, shift=0.0):  # type: ignore[no-untyped-def]
+        seen.append(shift)
+        dst.write_bytes(b"mixed")
+        return True
+
+    monkeypatch.setattr("torrcast.stream.merge_tracks", merge)
+    monkeypatch.setattr("torrcast.stream.timeline_shift", lambda *a, **k: 0.0417)
+    packer.publish()
+    assert seen == [0.0417]
+    assert (out / segment_name(0)).read_bytes() == b"mixed"
+    assert told == [(0, "склейка")]  # журнал различает склейку и голый перекод
+
+
+def test_a_failed_merge_on_a_shifted_run_sends_the_copy(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """Лента прогона сдвинута, а склейка не вышла — наружу КОПИЯ своего же прогона.
+
+    Перекод как есть тут не «сегодняшнее поведение», а гарантированный разрыв: на голове
+    захода приёмник получил бы кадр с меткой назад, на хвосте — дыру в кадр (§6.2.8).
+    Копия своего прогона стыкуется с соседями точно, и пока она не тяжелее потолка
+    (:data:`torrcast.stream.MAX_SEGMENT_BYTES`), она меньшее зло.
+    """
+    out = tmp_path / "out"
+    spare = out / "recode"
+    spare.mkdir(parents=True)
+    packer = fake_packer(out, first=0)
+    packer.spare = spare
+    packer.run.mkdir(parents=True, exist_ok=True)
+    (packer.run / segment_name(0)).write_bytes(b"copy")
+    (packer.run / segment_name(1)).write_bytes(b"next")
+    (spare / segment_name(0)).write_bytes(b"recode")
+    told: list[tuple[int, str]] = []
+    packer.told = lambda slot, how: told.append((slot, how))
+    monkeypatch.setattr("torrcast.stream.merge_tracks", lambda *a, **k: False)
+    monkeypatch.setattr("torrcast.stream.timeline_shift", lambda *a, **k: 0.0417)
+    packer.publish()
+    assert (out / segment_name(0)).read_bytes() == b"copy"
+    assert not (spare / segment_name(0)).exists()  # перекод этому месту больше не нужен
+    assert told == [(0, "копия")]
+
+
+def test_a_too_heavy_copy_loses_even_to_a_broken_seam(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """Копия тяжелее потолка не выходит наружу даже ради стыка: кусок, который приёмник
+    не доигрывает вовсе (§6.2.4 — 19.4 МБ дают стоп 8 с), хуже разрыва в один кадр."""
+    from torrcast.stream import MAX_SEGMENT_BYTES
+
+    out = tmp_path / "out"
+    spare = out / "recode"
+    spare.mkdir(parents=True)
+    packer = fake_packer(out, first=0)
+    packer.spare = spare
+    packer.run.mkdir(parents=True, exist_ok=True)
+    (packer.run / segment_name(0)).write_bytes(b"x" * (MAX_SEGMENT_BYTES + 1))
+    (packer.run / segment_name(1)).write_bytes(b"next")
+    (spare / segment_name(0)).write_bytes(b"recode")
+    told: list[tuple[int, str]] = []
+    packer.told = lambda slot, how: told.append((slot, how))
+    monkeypatch.setattr("torrcast.stream.merge_tracks", lambda *a, **k: False)
+    monkeypatch.setattr("torrcast.stream.timeline_shift", lambda *a, **k: 0.0417)
+    packer.publish()
+    assert (out / segment_name(0)).read_bytes() == b"recode"
+    assert told == [(0, "перекод")]
+
+
+def test_the_timeline_shift_of_garbage_is_unknown(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """Сверить ленту не по чему — так и говорим: ``None``, а не «сдвига нет»."""
+    from torrcast.stream import timeline_shift
+
+    copy, recode = tmp_path / "c.ts", tmp_path / "r.ts"
+    copy.write_bytes(b"not a stream")
+    recode.write_bytes(b"also not a stream")
+    assert timeline_shift(copy, recode) is None
 
 
 def test_the_merged_piece_is_not_mistaken_for_a_packed_segment(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
@@ -1111,7 +1201,7 @@ def test_the_merged_piece_is_not_mistaken_for_a_packed_segment(tmp_path, monkeyp
         (packer.run / segment_name(slot)).write_bytes(b"copy")
     (spare / segment_name(0)).write_bytes(b"recode")
 
-    def merge(video, audio, dst, timeout=30.0):  # type: ignore[no-untyped-def]
+    def merge(video, audio, dst, timeout=30.0, shift=0.0):  # type: ignore[no-untyped-def]
         dst.write_bytes(b"mixed")
         return True
 

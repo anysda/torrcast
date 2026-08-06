@@ -75,6 +75,7 @@ __all__ = [
     "segment_slot",
     "start_play_unit",
     "stop_play_unit",
+    "timeline_shift",
     "unit_active",
     "unit_key",
     "unit_why",
@@ -1400,7 +1401,12 @@ class Packer:
     #: иначе инвариант «край двигает только состоявшееся переименование» (:attr:`edge`,
     #: §7.4 SPEC-v2) пришлось бы держать в двух местах.
     spare: Path | None = None
-    #: Кого позвать, когда сегмент ушёл наружу: ``(слот, перекодирован ли)``.
+    #: Кого позвать, когда сегмент ушёл наружу: ``(слот, чем он ушёл)``.
+    #:
+    #: «Чем» — это ``копия``, ``склейка`` (картинка перекода со звуком копии, §6.2.5) или
+    #: ``перекод`` (склейка не вышла). Различать их обязательно: до §6.2.8 в журнал шло
+    #: одно слово «перекод» на два разных исхода, и «склейка молча не вышла» нельзя было
+    #: ни увидеть, ни опровергнуть — три подвиса на сериале разбирались вслепую.
     told: Any = None
     #: Последний сегмент, который этому прогону разрешено выложить; ``-1`` — без предела.
     #:
@@ -1536,16 +1542,23 @@ class Packer:
             # Перекодированный кусок этого же места лучше копии: то же разрешение и те же
             # метки, но битрейт, который приёмник тянет (§6.2). Копия при этом выбрасывается.
             better = self.spare / segment_name(slot) if self.spare is not None else None
-            source = path
+            source, how = path, "копия"
             if better is not None and better.exists():
                 # Наружу идёт картинка перекода со звуком копии (:func:`merge_tracks`):
-                # звук показа обязан остаться одним непрерывным потоком (§6.2.5).
+                # звук показа обязан остаться одним непрерывным потоком (§6.2.5), а сама
+                # картинка — лечь на ленту ЭТОГО прогона (:func:`timeline_shift`, §6.2.8).
                 mixed = self.run / f"{MIXED_PREFIX}{slot}.ts"
-                if merge_tracks(better, path, mixed):
-                    source = mixed
-                    better.unlink(missing_ok=True)
+                shift = timeline_shift(path, better)
+                if merge_tracks(better, path, mixed, shift=shift or 0.0):
+                    source, how = mixed, "склейка"
+                elif shift and size and size <= MAX_SEGMENT_BYTES:
+                    # Лента прогона сдвинута, а склейки нет: перекод как есть — это
+                    # гарантированный разрыв на кадр (§6.2.8), и копия своего же прогона
+                    # тут меньшее зло. Но только пока она не тяжелее потолка: кусок,
+                    # который приёмник не доигрывает вовсе, хуже любого стыка (§6.2.4).
+                    source, how = path, "копия"
                 else:
-                    source = better
+                    source, how = better, "перекод"
             moved = False
             with contextlib.suppress(OSError):
                 os.replace(source, self.out / segment_name(slot))
@@ -1553,11 +1566,16 @@ class Packer:
                 # этой строки, а не наличие файла в каталоге (:attr:`edge`).
                 self.edge = max(self.edge, slot)
                 moved = True
+            # Выложили одно из трёх — остальные две копии этого места больше не нужны
+            # никому: tmpfs не резиновая, а лишний файл в каталоге перекода ещё и выглядел
+            # бы для кодировщика готовым куском (:meth:`torrcast.recode.Recoder.ready`).
             if moved and source is not path:
                 path.unlink(missing_ok=True)
+            if moved and better is not None and source is not better:
+                better.unlink(missing_ok=True)
             if moved and self.told is not None:
                 with contextlib.suppress(Exception):
-                    self.told(slot, source is not path)
+                    self.told(slot, how)
 
     def cuts(self) -> list[tuple[int, float, float]]:
         """Что ffmpeg нарезал на самом деле: ``(сегмент, начало, конец)`` по его же списку.
@@ -1655,7 +1673,48 @@ class Packer:
                 junk.unlink(missing_ok=True)
 
 
-def merge_tracks(video: Path, audio: Path, dst: Path, timeout: float = _TIMEOUT) -> bool:
+def timeline_shift(copy: Path, recode: Path, timeout: float = _TIMEOUT) -> float | None:
+    """На сколько лента прогона опережает время фильма, секунды; ``None`` — не сверили.
+
+    Прогон упаковки и заход перекода — два разных ffmpeg, и время фильма они пишут
+    одинаково **не всегда** (§6.2.8 SPEC-v2). Когда прогон начинается с ``-ss``, метки
+    выходят ровно те же, что в карте опорных кадров. Но у прогона **с нуля** (первый
+    сегмент серии) отрицательного dts быть не может: у релиза с B-кадрами первый пакет
+    идёт с ``dts = pts − кадр``, и mpegts-муксер двигает ВЕСЬ прогон вперёд на этот кадр
+    (``avoid_negative_ts``). Замер на «Киберпанке» s1e6: копия отдаёт границу 30.072,
+    перекод того же места — 30.030, разница ровно 41.7 мс = один кадр 23.976p.
+
+    Считается по первым пакетам обоих кусков: у обоих это один и тот же опорный кадр
+    фильма, поэтому разница их меток — и есть сдвиг ленты. Дороже одного ``ffprobe`` на
+    файл (первые четыре пакета) это не стоит.
+
+    ``None`` — сверить не вышло (нет ffprobe, битый кусок) или разница вышла больше
+    секунды: столько между двумя кусками ОДНОГО места быть не может, значит мерили не то.
+    """
+    marks: list[float] = []
+    for path in (copy, recode):
+        command = [
+            "ffprobe", "-v", "error", "-select_streams", "v", "-read_intervals", "%+#4",
+            "-show_entries", "packet=pts_time", "-of", "csv=p=0", str(path),
+        ]  # fmt: skip
+        try:
+            done = subprocess.run(command, capture_output=True, timeout=timeout, check=False)
+        except (OSError, subprocess.SubprocessError):
+            return None
+        found = []
+        for line in done.stdout.decode("utf-8", "replace").splitlines():
+            with contextlib.suppress(ValueError):
+                found.append(float(line.strip().rstrip(",")))
+        if not found:
+            return None
+        marks.append(min(found))
+    shift = marks[0] - marks[1]
+    return None if abs(shift) > 1.0 else shift
+
+
+def merge_tracks(
+    video: Path, audio: Path, dst: Path, timeout: float = _TIMEOUT, shift: float = 0.0
+) -> bool:
     """Собрать сегмент из картинки ``video`` и звука ``audio``; ``False`` — не вышло.
 
     Ради этого и написано (§6.2.5 SPEC-v2): **звук показа должен быть одним непрерывным
@@ -1675,12 +1734,20 @@ def merge_tracks(video: Path, audio: Path, dst: Path, timeout: float = _TIMEOUT)
     так что склейка — это переупаковка без единого перекодирования: 0.09–0.11 с на кусок
     12 МБ, замер на стенде.
 
-    ⚠️ Не вышло — врать нельзя: возвращаем ``False``, и :meth:`Packer.publish` выложит
-    перекод как есть. Это ровно сегодняшнее поведение, то есть худшее, что даёт отказ, —
-    вернувшаяся заминка на одном куске, а не тишина и не тяжёлая копия.
+    ``shift`` (:func:`timeline_shift`) кладёт картинку перекода на ленту **этого прогона**:
+    у прогона с нуля метки сдвинуты на кадр вперёд относительно времени фильма, и без
+    поправки на голове захода приёмник получает кадр с меткой НАЗАД, а на хвосте — дыру
+    в кадр (§6.2.8). Стоит поправка одного ``-itsoffset``: переупаковка та же.
+
+    ⚠️ Не вышло — врать нельзя: возвращаем ``False``, и :meth:`Packer.publish` решает,
+    что выкладывать вместо склейки — копию своего прогона (если она не тяжелее потолка)
+    или перекод как есть.
     """
-    command = [
-        "ffmpeg", "-hide_banner", "-loglevel", "error", "-copyts",
+    command = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-copyts"]
+    # Полкадра — порог осмысленности: ниже него сдвига нет, а не «есть, но крошечный».
+    if abs(shift) >= 0.001:
+        command += ["-itsoffset", f"{shift:.6f}"]
+    command += [
         "-i", str(video), "-i", str(audio),
         "-map", "0:v:0", "-map", "1:a:0", "-c", "copy",
         "-muxdelay", "0", "-muxpreload", "0", "-f", "mpegts", "-y", str(dst),
