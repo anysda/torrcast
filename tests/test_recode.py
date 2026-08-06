@@ -440,7 +440,7 @@ def test_a_copy_waits_while_its_piece_is_being_recoded(tmp_path) -> None:  # typ
     )
     recoder.played = 0.0
     recoder.began = clock.monotonic() - 100.0  # фора на подъём давно вышла
-    assert not recoder.holding(5)  # никто ничего не кодирует
+    assert recoder.holding(5)  # заход не идёт, но следующим возьмут ровно этот кусок
     recoder.job = (4, 8, clock.monotonic() + 60.0, clock.monotonic(), 4.0)
     assert recoder.holding(5)
     assert recoder.holding(9)  # следующий заход возьмёт и его — успевается
@@ -533,8 +533,8 @@ def test_while_the_encoder_is_still_starting_the_copy_still_waits(tmp_path) -> N
     assert recoder.job is None
     assert recoder.holding(5)  # тяжёлый и далеко — подождём подъёма
     assert not recoder.holding(0)  # упаковку с него не начинали — это не голова прогона
-    recoder.began = clock.monotonic() - recoder.grace - 1.0
-    assert not recoder.holding(5)  # фора вышла — копия уходит как есть
+    recoder.played = grid.start(5) - 3.0  # показ почти дошёл — подъём уже не успеет
+    assert not recoder.holding(5)
 
 
 # ------------------------------------------------------- первый сегмент показа (голова)
@@ -791,3 +791,24 @@ def test_a_piece_after_the_run_is_not_held_if_the_playhead_is_closer(tmp_path) -
     recoder.played = grid.start(4)
     recoder.job = (4, 4, clock.monotonic() + 600.0, clock.monotonic(), 0.05)  # еле ползёт
     assert not recoder.holding(5)
+
+
+def test_between_runs_the_copy_still_waits(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """Дыра между заходами — это секунды, и в них уходило самое тяжёлое.
+
+    Живой Q70D 06-08 вечером: заход за головой шёл 8 с при форе 6 с, и ровно в этот
+    зазор ушёл копией `v359` на 26 Мбит/с («заход не идёт» в журнале).
+    """
+    import time as clock
+
+    grid = _grid()
+    weights = Weights.of(_keys(rate=2.0e6), grid)
+    assert weights is not None
+    recoder = Recoder(
+        source="src", audio=0, grid=grid, spare=tmp_path, weights=weights, threshold=15.0
+    )
+    recoder.began = clock.monotonic() - 100.0  # фора на подъём давно вышла
+    recoder.played = grid.start(5) - 5.0
+    assert recoder.job is None
+    assert recoder.holding(6)  # до него полтора десятка секунд — следующий заход успеет
+    assert not recoder.holding(5)  # а этот уже под носом: ждать значит подгружаться

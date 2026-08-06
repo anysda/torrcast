@@ -237,6 +237,9 @@ class Recoder:
     #: упаковщик уже выкладывает ``burst`` — и без этой форы первые тяжёлые куски успевали
     #: уйти копией просто потому, что ffmpeg ещё не стартовал.
     grace: float = 6.0
+    #: Во сколько секунд обходится подъём одного захода: ffmpeg открывает вход, TorrServer
+    #: доезжает до нужного места. Замер на стенде — 1–3 с, берём верх.
+    startup: float = 3.0
     #: Потолок ожидания перекода ПЕРВОГО сегмента прогона (:meth:`opening`), секунды.
     #: Умолчание и его замер — :attr:`torrcast.state.Config.recode_head_wait`.
     head_wait: float = 12.0
@@ -370,12 +373,18 @@ class Recoder:
             return False
         job = self.job
         if job is None:
-            # Кодировщик ещё поднимается, а упаковщик уже выкладывает burst. Подержать
-            # можно, но недолго и только то, что заведомо успеется самым быстрым пресетом.
-            if now - self.began > self.grace or slot not in set(self.targets):
+            # Заход не идёт: кодировщик либо ещё поднимается (первый раз), либо стоит
+            # МЕЖДУ заходами — и то и другое секунды, а не минуты.
+            #
+            # ⚠️ Раньше тут стоял отказ по истечении :attr:`grace`, и он стоил живого
+            # прогона: заход за головой длился 8 с при форе 6 с, а очередь идёт от места
+            # показа вперёд — то есть следующим кодировщик взялся бы ровно за этот кусок.
+            # В журнале это выглядело как «тяжёлый v359 (26 Мбит/с) ушёл копией: заход
+            # не идёт», а на экране — как 16 опросов BUFFERING из 34.
+            if slot not in set(self.targets):
                 return False
-            need = self.grid.span(slot) / PRESETS[-1][1] + self.grace - (now - self.began)
-            return need + self.hold_guard <= left
+            warm = max(self.startup, self.grace - (now - self.began))
+            return self.grid.span(slot) / PRESETS[-1][1] + warm + self.hold_guard <= left
         first, last, until, since, speed = job
         if slot < first or now >= until:
             return False
@@ -413,6 +422,15 @@ class Recoder:
             self.weights.calibrate(slot, size, self.grid.span(slot))
         if slot in set(self.targets):
             self.late += 1
+            # Тяжёлый кусок, ушедший копией, — это будущий BUFFERING, и разбирать его
+            # задним числом по размеру файла в журнале раздачи слишком дорого: пишем
+            # сразу, чем в этот момент был занят кодировщик и куда смотрел показ.
+            job = self.job
+            self._say(
+                f"тяжёлый v{slot} ({self.weights.at(slot):.0f} Мбит/с) ушёл копией: "
+                f"показ {self.played:.0f} с, край {self.edge}, "
+                + (f"заход v{job[0]}…v{job[1]}" if job else "заход не идёт")
+            )
 
     def report(self) -> str:
         """Одна строка итога: сколько успели, сколько тяжёлых ушло как есть."""
