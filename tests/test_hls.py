@@ -28,6 +28,7 @@ from tests.conftest import fake_packer
 from torrcast.cast import Report
 from torrcast.stream import (
     HLS_SEGMENT_SECONDS,
+    MPEGTS_MUX_DELAY,
     PACK_DIR,
     PACK_LIST,
     SPLIT_SLACK,
@@ -266,6 +267,22 @@ def test_stream_format_is_the_one_fixed_by_the_spec() -> None:
     assert command[-1] == "/dev/shm/torrcast/pack/v%d.ts", "имя = место в фильме"
     assert f"-segment_list /dev/shm/torrcast/pack/{PACK_LIST}" in text, "чем сверять факт"
     assert "-copyts" in text, "метки времени — абсолютные, иначе позиция считается от куска"
+
+
+def test_mpegts_muxer_does_not_shove_its_own_delay_into_the_timestamps() -> None:
+    """§6.2.2 SPEC-v2: ``-copyts`` без глушения муксера — время фильма плюс 1.4 с.
+
+    Мультиплексор mpegts по умолчанию сдвигает ВСЕ метки на ``muxdelay + muxpreload``
+    (:data:`MPEGTS_MUX_DELAY`). :func:`pack_start` эти флаги ставил всегда, упаковка — нет,
+    и на живых «Тачках 3» граница 3965.670 приезжала на ТВ кадром 3967.070. Ровно эти
+    +1.400 с двое суток считали доказательством, что карта опорных кадров врёт о релизе.
+    Замер после правки: первый кадр сегмента 3965.670, точно в карту.
+    """
+    grid = Grid.uniform(100.0)
+    for at in (0.0, 48.7):
+        text = " ".join(ffmpeg_pack_command("u", 0, "/run", grid, 5, at))
+        assert "-muxdelay 0" in text and "-muxpreload 0" in text, "иначе метки уедут на 1.4 с"
+    assert MPEGTS_MUX_DELAY == 1.4, "замерено на живом файле, а не взято из головы"
 
 
 def test_segment_numbers_mean_the_same_place_wherever_the_run_started() -> None:
