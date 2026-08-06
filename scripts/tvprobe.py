@@ -28,7 +28,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from torrcast.cast import ChromecastReceiver
 from torrcast.recode import RECODE_DIR, Encode, Recoder, Weights
 from torrcast.state import load_config
-from torrcast.stream import Feed, Grid, HlsServer, film_keys, grid_for, hls_base, hls_dir
+from torrcast.stream import Feed, Grid, HlsServer, film_keys, grid_for, hls_base, hls_dir, probe
 
 #: Позиция не двигается дольше этого при живом запасе упаковки — это подвис.
 STALL = 3.0
@@ -98,10 +98,26 @@ def main() -> None:
     recoder = None
     if args.recode:
         keys = film_keys(args.url)
-        weights = Weights.of(keys, grid, extra=args.extra)
+        # Профиль как в показе: вес видеодорожки из паспорта ffprobe (§6.2). ``--extra``
+        # оставлен ручным перебивом — им же меряется цена ошибки в поправке.
+        delivered = 0.0
+        if not args.extra:
+            media = probe(args.url)
+            delivered = media.delivered_mbit
+            print(
+                f"паспорт: видео {media.video_bps / 1e6:.2f} Мбит/с, "
+                f"на ТВ уедет {delivered:.2f} Мбит/с"
+                if delivered > 0
+                else "паспорт веса видеодорожки не несёт — поправка наберётся по факту"
+            )
+        weights = Weights.of(keys, grid, extra=args.extra, delivered=delivered)
         if weights is None:
             print("карта без смещений — профиля тяжести нет")
         else:
+            print(
+                f"поправка «контейнер → ТВ»: {weights.extra:.2f} Мбит/с "
+                f"(контейнер {weights.container:.2f})"
+            )
             heavy = weights.heavy(args.threshold)
             near = [s for s in heavy if slot <= s < slot + 20]
             print(f"тяжёлых в фильме {len(heavy)} из {grid.count}; впереди по ходу: {near}")

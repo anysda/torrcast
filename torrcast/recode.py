@@ -171,10 +171,21 @@ class Weights:
     extra: float = 0.0
     #: Сколько замеров легло в :attr:`extra` (0 — только оценка по ffprobe).
     measured: int = 0
+    #: Средний битрейт контейнера по карте, Мбит/с — тот же, что у файла целиком.
+    container: float = 0.0
 
     @classmethod
-    def of(cls, keys: FilmKeys, grid: Grid, extra: float = 0.0) -> Weights | None:
-        """Профиль по карте и сетке. Карта без смещений (кэш прошлой версии) — ``None``."""
+    def of(
+        cls, keys: FilmKeys, grid: Grid, extra: float = 0.0, delivered: float = 0.0
+    ) -> Weights | None:
+        """Профиль по карте и сетке. Карта без смещений (кэш прошлой версии) — ``None``.
+
+        ``delivered`` — сколько Мбит/с уедет на ТВ в среднем по фильму, по паспорту
+        ffprobe (:attr:`torrcast.stream.Media.delivered_mbit`). Дан — поправка «контейнер
+        → ТВ» известна сразу и точно: это разница между средним по карте и им. Не дан
+        (mp4 без тегов, паспорт молчит) — поправка набирается вслепую по первым
+        выложенным копиям, как было до 07-08 (:meth:`calibrate`).
+        """
         if not keys.offset or len(keys.offset) != len(keys.at) or len(keys.at) < 3:
             return None
         raw: list[float] = []
@@ -188,7 +199,13 @@ class Weights:
                 raw.append(raw[-1] if raw else 0.0)
                 continue
             raw.append((tail - head) * 8 / span / 1e6 if span > 0 else 0.0)
-        return cls(raw=tuple(raw), extra=extra)
+        total = sum(grid.span(s) for s in range(grid.count))
+        container = sum(w * grid.span(s) for s, w in enumerate(raw)) / total if total > 0 else 0.0
+        found = cls(raw=tuple(raw), extra=extra, container=container)
+        if delivered > 0 and container > 0:
+            found.extra = max(0.0, container - delivered)
+            found.measured = PASSPORT_WEIGHT
+        return found
 
     def at(self, slot: int) -> float:
         """Сколько Мбит/с уедет на ТВ в сегменте ``slot``."""

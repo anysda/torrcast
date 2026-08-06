@@ -506,10 +506,22 @@ def _following(key: str) -> Entry | None:
 def _duration(key: str, entry: Entry, source: str) -> Entry:
     """Длительность серии для порога 95 % (§2.4): следующая серия своей ещё не знает —
     её длительность лежит в её же файле, и читается она из потока, как дорожки (§3).
+
+    Тем же ffprobe берётся и вес видеодорожки (:attr:`Entry.vbps`): у следующей серии
+    он свой, а профиль тяжести показа считается по нему (§6.2).
+
+    ⚠️ Ради одного только веса дорожки ffprobe тут не зовётся. Записи прежних версий его
+    не несут, и спрашивать за них при каждом запуске значило бы платить секундами старта
+    (§7.2: у «Моаны 2» ffprobe стоит до 17 с) за то, что показ и так доберёт по факту
+    (:meth:`torrcast.recode.Weights.calibrate`). Своё число такая запись получит на первом
+    же обычном запуске через выбор релиза.
     """
     if entry.dur > 0:
         return entry
-    entry.dur = probe(source, timeout=WORKER_DUR).duration
+    media = probe(source, timeout=WORKER_DUR)
+    entry.dur = media.duration
+    # Ноль — «ещё не спрашивали», минус — «спросили, паспорт промолчал» (mp4 без тегов).
+    entry.vbps = media.video_bps / 1e6 or -1.0
     state = State.load()
     state.put(key, entry)
     state.save()
@@ -656,6 +668,9 @@ def _cmd_play(args: Args) -> int:
         audio=audio,
         voice=voice,
         dur=media.duration,
+        # Вес видеодорожки из паспорта: по нему показ строит профиль тяжести с первой
+        # секунды, не набирая поправку «контейнер → ТВ» вслепую (§6.2).
+        vbps=media.video_bps / 1e6 or -1.0,
         # То, что уехало на ТВ: `cast status` покажет факт, а не заявку имени (§1 v1).
         quality=media.quality if media.height else "",
         query=slugify(args.title_query),
@@ -1296,7 +1311,14 @@ def _await_playing(config: Config, progress: Progress, timeout: float = START_BU
     raise InfraError(f"показ не начался за {timeout:.0f} с — {unit_why()}")
 
 
-def _recoder(source: str, audio: int, grid: Grid, spare: Path, config: Config) -> Recoder | None:
+def _recoder(
+    source: str,
+    audio: int,
+    grid: Grid,
+    spare: Path,
+    config: Config,
+    video_mbit: float = 0.0,
+) -> Recoder | None:
     """Кодировщик тяжёлых кусков или ``None``, если он не нужен и не может помочь (§6.2).
 
     Профиль тяжести считается из уже снятой карты опорных кадров: байты и секунды каждого
@@ -1305,7 +1327,7 @@ def _recoder(source: str, audio: int, grid: Grid, spare: Path, config: Config) -
     снята прошлой версией и смещений не несёт, — и о нём говорится вслух.
     """
     from torrcast.recode import Encode, Recoder, Weights
-    from torrcast.stream import film_keys
+    from torrcast.stream import AUDIO_MBIT, TS_OVERHEAD, film_keys
 
     if not config.recode:
         return None
@@ -1317,10 +1339,22 @@ def _recoder(source: str, audio: int, grid: Grid, spare: Path, config: Config) -
     except InfraError as exc:
         print(f"профиль тяжести не снят ({why(exc)}) — играю как есть", flush=True)
         return None
-    weights = Weights.of(keys, grid)
+    # Сколько уедет на ТВ: видеодорожка идёт копией, звук всегда AAC, сверху оверхед
+    # mpegts. Паспорт молчит (mp4 без тегов) — поправка наберётся по факту, как раньше.
+    delivered = (video_mbit + AUDIO_MBIT) * TS_OVERHEAD if video_mbit > 0 else 0.0
+    weights = Weights.of(keys, grid, delivered=delivered)
     if weights is None:
         print("карта без смещений — профиль тяжести не построить, играю как есть", flush=True)
         return None
+    print(
+        f"профиль тяжести: контейнер {weights.container:.1f} Мбит/с, "
+        + (
+            f"на ТВ уедет {delivered:.1f} (видео {video_mbit:.1f} по паспорту)"
+            if delivered > 0
+            else "веса видеодорожки в паспорте нет — поправку наберу по факту"
+        ),
+        flush=True,
+    )
     return Recoder(
         source=source,
         audio=audio,
@@ -1374,7 +1408,14 @@ def _play(
     # §6.2: профиль тяжести всего фильма известен со старта — он считается из уже снятой
     # карты опорных кадров и не стоит ни одного запроса к рою. Тяжёлые куски кодировщик
     # начнёт перекодировать сразу, пока играет остальное.
-    recoder = _recoder(source, audio, grid, out / RECODE_DIR, config)
+    recoder = _recoder(
+        source,
+        audio,
+        grid,
+        out / RECODE_DIR,
+        config,
+        video_mbit=max(0.0, watch.entry.vbps) if watch else 0.0,
+    )
     feed = Feed(
         source=source,
         audio=audio,

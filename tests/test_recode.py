@@ -839,27 +839,6 @@ def test_a_heavy_copy_behind_the_playhead_is_not_counted_as_late(tmp_path) -> No
     assert recoder.late == 1
 
 
-def test_the_tail_of_a_run_is_dropped_and_never_published(tmp_path) -> None:  # type: ignore[no-untyped-def]
-    """Огрызок за ``-to`` наружу не уезжает — ни от кодировщика, ни от упаковщика.
-
-    Заход кодировщика ограничен ``-to`` с запасом в секунду, и муксер успевает открыть
-    следующий файл: в нём секунда фильма вместо десяти. Живой Q70D 06-08-2026, «Тачки 3»:
-    такой `v311` (1.3 МБ вместо 11) уехал на ТВ как готовый кусок — приёмник встал на
-    14 с и потерял 16 секунд фильма.
-    """
-    run, out = tmp_path / "run", tmp_path / "out"
-    run.mkdir()
-    out.mkdir()
-    for slot in (4, 5, 6, 7):
-        (run / segment_name(slot)).write_bytes(b"x" * 100)
-    packer = fake_packer(out=out, run=run, first=5, last=6, code=0)
-    packer.publish()
-    assert sorted(p.name for p in out.glob("v*.ts")) == ["v5.ts", "v6.ts"]
-    assert packer.edge == 6
-    assert not (run / segment_name(7)).exists()  # огрызок убран, а не оставлен на потом
-    assert not (run / segment_name(4)).exists()  # докатка — как и была
-
-
 def test_the_head_is_waited_for_while_the_encoder_is_still_on_it(tmp_path) -> None:  # type: ignore[no-untyped-def]
     """Потолок ожидания головы считается по РАБОТЕ кодировщика, а не по секундомеру.
 
@@ -903,3 +882,56 @@ def test_the_head_wait_has_a_hard_ceiling_even_while_encoding(tmp_path) -> None:
     recoder.head_at = now - recoder.head_wait * HEAD_LIMIT - 0.1
     recoder.job = (7, 7, now + 60.0, now - 30.0, PRESETS[-1][1])
     assert not recoder.holding(7)
+
+
+def test_the_tail_of_a_run_is_dropped_and_never_published(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """Огрызок за ``-to`` наружу не уезжает — ни от кодировщика, ни от упаковщика.
+
+    Заход кодировщика ограничен ``-to`` с запасом в секунду, и муксер успевает открыть
+    следующий файл: в нём секунда фильма вместо десяти. Живой Q70D 06-08-2026, «Тачки 3»:
+    такой `v311` (1.3 МБ вместо 11) уехал на ТВ как готовый кусок — приёмник встал на
+    14 с и потерял 16 секунд фильма.
+    """
+    run, out = tmp_path / "run", tmp_path / "out"
+    run.mkdir()
+    out.mkdir()
+    for slot in (4, 5, 6, 7):
+        (run / segment_name(slot)).write_bytes(b"x" * 100)
+    packer = fake_packer(out=out, run=run, first=5, last=6, code=0)
+    packer.publish()
+    assert sorted(p.name for p in out.glob("v*.ts")) == ["v5.ts", "v6.ts"]
+    assert packer.edge == 6
+    assert not (run / segment_name(7)).exists()  # огрызок убран, а не оставлен на потом
+    assert not (run / segment_name(4)).exists()  # докатка — как и была
+
+
+def test_the_correction_comes_from_the_passport_not_from_guesswork() -> None:
+    """Разрыв «контейнер → ТВ» известен из ffprobe до первого же сегмента (§6.2.1).
+
+    И он не константа: замер 06-08-2026 — у «Моаны 2» (10 озвучек, 12 субтитров)
+    4.4 Мбит/с, у «Тачек 3» 2.2, у «Моаны» 2016 — 0.6. Слепая калибровка сходилась к
+    этому числу за 8–10 выложенных сегментов, то есть первую минуту показа профиль врал.
+    """
+    grid = _grid()
+    weights = Weights.of(_keys(rate=2.5e6), grid, delivered=16.0)  # контейнер 20 Мбит/с
+    assert weights is not None
+    assert weights.container == pytest.approx(20.0, abs=0.1)
+    assert weights.extra == pytest.approx(4.0, abs=0.1)
+    assert weights.at(0) == pytest.approx(16.0, abs=0.1)
+
+
+def test_a_silent_passport_falls_back_to_blind_calibration() -> None:
+    """mp4 без тегов mkvmerge веса дорожки не несёт — поправка набирается по факту."""
+    weights = Weights.of(_keys(rate=2.5e6), _grid(), delivered=0.0)
+    assert weights is not None
+    assert weights.extra == 0.0
+    assert weights.measured == 0
+
+
+def test_the_passport_is_not_thrown_away_by_the_first_noisy_segment() -> None:
+    """Паспорт — среднее по всему фильму, один сегмент — шум: пусть правит, но не рушит."""
+    grid = _grid()
+    weights = Weights.of(_keys(rate=2.5e6), grid, delivered=16.0)
+    assert weights is not None
+    weights.calibrate(0, int(20.0e6 / 8 * grid.span(0)), grid.span(0))  # «поправки нет»
+    assert weights.extra == pytest.approx(3.4, abs=0.2)  # сдвинулся, но не обнулился

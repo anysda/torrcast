@@ -183,6 +183,18 @@ PLAYING_FLAG: Final = "playing.flag"
 AUDIO_CODEC: Final = "aac"
 AUDIO_BITRATE: Final = "192k"
 AUDIO_CHANNELS: Final = 2
+#: Сколько Мбит/с занимает наша звуковая дорожка в том, что уезжает на ТВ.
+#:
+#: ⚠️ Дорожка ИСХОДНИКА тут ни при чём, сколько бы она ни весила: показ всегда
+#: перекодирует звук в AAC (см. :func:`ffmpeg_pack_command`), поэтому в сегмент уезжает
+#: ровно :data:`AUDIO_BITRATE`, а не 1.5 Мбит/с DTS «Тачек 3». Считать «видео + выбранная
+#: дорожка» было бы враньём в полтора мегабита.
+AUDIO_MBIT: Final = 0.192
+#: Во сколько раз mpegts тяжелее того, что в него упаковано: заголовки 4 байта на 188,
+#: PAT/PMT/PCR и набивка на границах PES. Замер 06-08-2026 на восьми сегментах-копиях
+#: «Моаны 2» подряд: поправка «контейнер → ТВ» сходилась к 4.10…4.26 Мбит/с при
+#: контейнере 19.16 и видеодорожке 14.33 — то есть уезжало (14.33 + 0.19) × 1.03.
+TS_OVERHEAD: Final = 1.03
 #: Типовая длительность до ffprobe (фильм 2 ч, серия 45 мин): только для прикидки битрейта.
 RUNTIME_GUESS: Final = {"movie": 7200.0, "tv": 2700.0, "other": 7200.0}
 
@@ -370,6 +382,26 @@ class Media:
     #: Ширина кадра. Нужна не ради красоты: у широкоформатного фильма чёрные поля
     #: обрезаны, и 1920×800 — это честный 1080p, а не «800p» (:attr:`frame`).
     width: int = 0
+    #: Битрейт ВИДЕОДОРОЖКИ, бит/с; ``0`` — паспорт его не несёт (:func:`_video_bps`).
+    #:
+    #: Это единственное честное «сколько уедет на ТВ»: контейнер тяжелее видео на все
+    #: свои дорожки и субтитры, и разрыв не константа — у «Моаны 2» (10 озвучек, 12
+    #: субтитров) 4.8 Мбит/с, у «Тачек 3» 2.9, у «Моаны» 2016 — 0.6. Пока этого числа не
+    #: было, разрыв набирался вслепую по первым выложенным сегментам
+    #: (:meth:`torrcast.recode.Weights.calibrate`) — 8–10 сегментов показа мимо профиля.
+    video_bps: float = 0.0
+
+    @property
+    def delivered_mbit(self) -> float:
+        """Сколько Мбит/с уедет на ТВ в среднем по фильму; ``0`` — паспорт не сказал.
+
+        Видеодорожка идёт копией, звук — всегда AAC (:data:`AUDIO_MBIT`), сверху
+        оверхед mpegts (:data:`TS_OVERHEAD`). Отсюда же считается и профиль тяжести
+        каждого куска: тот же множитель, только байты берутся из карты опорных кадров.
+        """
+        if self.video_bps <= 0:
+            return 0.0
+        return (self.video_bps / 1e6 + AUDIO_MBIT) * TS_OVERHEAD
 
     @property
     def frame(self) -> int:
@@ -511,7 +543,10 @@ def probe(url: str, timeout: float = 90.0) -> Media:
     """
     entries = (
         "format=duration:"
-        "stream=index,codec_name,codec_type,channels,width,height:stream_tags=language,title"
+        "stream=index,codec_name,codec_type,channels,width,height,bit_rate:"
+        # Теги дорожки берутся ЦЕЛИКОМ, а не списком: mkvmerge пишет вес дорожки то как
+        # ``BPS``, то как ``BPS-eng``/``BPS-rus`` — суффикс языковой и заранее неизвестен.
+        "stream_tags"
     )
     flags = ["-v", "error", "-show_entries", entries, "-of", "json"]
     command = ["ffprobe", *flags, url]
@@ -542,7 +577,45 @@ def probe(url: str, timeout: float = 90.0) -> Media:
         video=_opt_str(video[0].get("codec_name")) if video else None,
         height=int(video[0].get("height") or 0) if video else 0,
         width=int(video[0].get("width") or 0) if video else 0,
+        video_bps=_video_bps(video[0], duration) if video else 0.0,
     )
+
+
+def _video_bps(stream: dict[str, Any], duration: float) -> float:
+    """Битрейт видеодорожки, бит/с; ``0.0`` — в паспорте его нет.
+
+    Три источника по убыванию надёжности, и все три уже читаются тем же ffprobe:
+
+    * тег ``BPS`` (с языковым суффиксом или без) — его пишет mkvmerge в голову mkv, то
+      есть у всех релизов, собранных обычным путём («Моана 2» 14 333 020, «Тачки 3»
+      14 096 894);
+    * поле ``bit_rate`` потока — его отдаёт mp4/WEB-DL, где тегов mkvmerge нет вовсе;
+    * ``NUMBER_OF_BYTES`` на длительность — на случай, когда mkvmerge написал вес
+      дорожки, но не её битрейт.
+
+    Не нашлось ничего — ноль, и профиль тяжести честно возвращается к слепой калибровке
+    по первым выложенным сегментам (:meth:`torrcast.recode.Weights.calibrate`).
+    """
+    raw = stream.get("tags")
+    tags: dict[str, Any] = raw if isinstance(raw, dict) else {}
+    named = {str(k).upper(): v for k, v in tags.items()}
+    for key, value in named.items():
+        if key == "BPS" or key.startswith("BPS-"):
+            with contextlib.suppress(TypeError, ValueError):
+                found = float(value)
+                if found > 0:
+                    return found
+    with contextlib.suppress(TypeError, ValueError):
+        found = float(stream.get("bit_rate") or 0)
+        if found > 0:
+            return found
+    for key, value in named.items():
+        if (key == "NUMBER_OF_BYTES" or key.startswith("NUMBER_OF_BYTES-")) and duration > 0:
+            with contextlib.suppress(TypeError, ValueError):
+                found = float(value) * 8 / duration
+                if found > 0:
+                    return found
+    return 0.0
 
 
 def _track(index: int, stream: dict[str, Any]) -> AudioTrack:
