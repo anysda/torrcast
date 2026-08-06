@@ -149,6 +149,23 @@ def test_bitrate_threshold_is_configurable(size_gb: float, expected: str) -> Non
     assert warned(rel(size_gb=size_gb), RUNTIME, 20.0) == expected
 
 
+def test_the_ceiling_is_sixteen_because_the_tv_rebuffers_at_eighteen() -> None:
+    """Потолок §7.5 SPEC-v2: решение владельца после живого замера на Q70D.
+
+    17.8 Мбит/с «Моаны 2» телевизор играет с ребуфером раз в 30–60 с, и каждый подвис
+    стоит 8 с пропущенного фильма. Поэтому дефолт опущен 20 → 16: смотрибельность важнее
+    пиковой чёткости. Руками (``--release N``) тяжёлый релиз берётся по-прежнему, и
+    молчком это не делается — в таблице он помечен «тяжёлый».
+    """
+    from torrcast.state import Config
+
+    assert Config().bitrate_warn_mbit == 16.0
+    fat = rel(size_gb=17.8 * RUNTIME / 8 / 1024**3 * 1e6)  # ровно 17.8 Мбит/с
+    assert not is_candidate(fat, RUNTIME, Config().bitrate_warn_mbit), "Enter его не возьмёт"
+    assert warned(fat, RUNTIME, Config().bitrate_warn_mbit) == "тяжёлый", "но и не спрячет"
+    assert is_candidate(rel(size_gb=13.0), RUNTIME, Config().bitrate_warn_mbit), "15.5 Мбит/с ок"
+
+
 class _FakeTorrServer:
     """TorrServer ровно в том объёме, в каком его дёргает подготовка релиза."""
 
