@@ -433,10 +433,10 @@ def test_a_copy_waits_while_its_piece_is_being_recoded(tmp_path) -> None:  # typ
     import time as clock
 
     grid = _grid()
-    weights = Weights.of(_keys(rate=2.0e6), grid)
+    weights = Weights.of(_keys(rate=1.5e6), grid)
     assert weights is not None
     recoder = Recoder(
-        source="src", audio=0, grid=grid, spare=tmp_path, weights=weights, threshold=15.0
+        source="src", audio=0, grid=grid, spare=tmp_path, weights=weights, threshold=10.0
     )
     recoder.played = 0.0
     recoder.began = clock.monotonic() - 100.0  # фора на подъём давно вышла
@@ -452,10 +452,10 @@ def test_a_piece_right_under_the_playhead_is_never_held_back(tmp_path) -> None: 
     import time as clock
 
     grid = _grid()
-    weights = Weights.of(_keys(rate=2.0e6), grid)
+    weights = Weights.of(_keys(rate=1.5e6), grid)
     assert weights is not None
     recoder = Recoder(
-        source="src", audio=0, grid=grid, spare=tmp_path, weights=weights, threshold=15.0
+        source="src", audio=0, grid=grid, spare=tmp_path, weights=weights, threshold=10.0
     )
     recoder.began = clock.monotonic() - 100.0
     recoder.job = (4, 8, clock.monotonic() + 60.0, clock.monotonic(), 4.0)
@@ -469,10 +469,10 @@ def test_an_overdue_recode_stops_holding_the_copy(tmp_path) -> None:  # type: ig
     import time as clock
 
     grid = _grid()
-    weights = Weights.of(_keys(rate=2.0e6), grid)
+    weights = Weights.of(_keys(rate=1.5e6), grid)
     assert weights is not None
     recoder = Recoder(
-        source="src", audio=0, grid=grid, spare=tmp_path, weights=weights, threshold=15.0
+        source="src", audio=0, grid=grid, spare=tmp_path, weights=weights, threshold=10.0
     )
     recoder.played = 0.0
     recoder.began = clock.monotonic() - 100.0
@@ -489,7 +489,7 @@ def test_publishing_stops_at_a_held_piece_and_leaves_no_hole(tmp_path) -> None: 
     packer.run.mkdir(parents=True, exist_ok=True)
     for slot in range(4):
         (packer.run / segment_name(slot)).write_bytes(b"x")
-    packer.hold = lambda slot: slot == 1
+    packer.hold = lambda slot, size=0: slot == 1
     packer.publish()
     assert (out / segment_name(0)).exists()
     assert not (out / segment_name(1)).exists()
@@ -503,10 +503,10 @@ def test_a_slow_recode_is_not_worth_waiting_for(tmp_path) -> None:  # type: igno
     import time as clock
 
     grid = _grid()
-    weights = Weights.of(_keys(rate=2.0e6), grid)
+    weights = Weights.of(_keys(rate=1.5e6), grid)
     assert weights is not None
     recoder = Recoder(
-        source="src", audio=0, grid=grid, spare=tmp_path, weights=weights, threshold=15.0
+        source="src", audio=0, grid=grid, spare=tmp_path, weights=weights, threshold=10.0
     )
     recoder.began = clock.monotonic() - 100.0
     recoder.played = grid.start(4)  # до v5 остались секунды одного сегмента
@@ -523,10 +523,10 @@ def test_while_the_encoder_is_still_starting_the_copy_still_waits(tmp_path) -> N
     import time as clock
 
     grid = _grid()
-    weights = Weights.of(_keys(rate=2.0e6), grid)
+    weights = Weights.of(_keys(rate=1.5e6), grid)
     assert weights is not None
     recoder = Recoder(
-        source="src", audio=0, grid=grid, spare=tmp_path, weights=weights, threshold=15.0
+        source="src", audio=0, grid=grid, spare=tmp_path, weights=weights, threshold=10.0
     )
     recoder.played = 0.0
     recoder.began = clock.monotonic()
@@ -574,10 +574,10 @@ def test_waiting_for_the_head_has_a_ceiling(tmp_path) -> None:  # type: ignore[n
     import time as clock
 
     grid = _grid()
-    weights = Weights.of(_keys(rate=2.0e6), grid)
+    weights = Weights.of(_keys(rate=1.5e6), grid)
     assert weights is not None
     recoder = Recoder(
-        source="src", audio=0, grid=grid, spare=tmp_path, weights=weights, threshold=15.0
+        source="src", audio=0, grid=grid, spare=tmp_path, weights=weights, threshold=10.0
     )
     recoder.opening(7)
     recoder.head_at = clock.monotonic() - recoder.head_wait - 0.1
@@ -587,7 +587,7 @@ def test_waiting_for_the_head_has_a_ceiling(tmp_path) -> None:  # type: ignore[n
 def test_waiting_for_the_head_can_be_switched_off(tmp_path) -> None:  # type: ignore[no-untyped-def]
     """``recode_head_wait = 0`` возвращает поведение до 06-08 вечера — на случай отката."""
     grid = _grid()
-    weights = Weights.of(_keys(rate=2.0e6), grid)
+    weights = Weights.of(_keys(rate=1.5e6), grid)
     assert weights is not None
     recoder = Recoder(
         source="src",
@@ -595,7 +595,7 @@ def test_waiting_for_the_head_can_be_switched_off(tmp_path) -> None:  # type: ig
         grid=grid,
         spare=tmp_path,
         weights=weights,
-        threshold=15.0,
+        threshold=10.0,
         head_wait=0.0,
     )
     recoder.opening(7)
@@ -772,10 +772,10 @@ def test_the_pieces_right_after_the_current_run_are_held_too(tmp_path) -> None: 
     import time as clock
 
     grid = _grid()
-    weights = Weights.of(_keys(rate=2.0e6), grid)
+    weights = Weights.of(_keys(rate=1.5e6), grid)
     assert weights is not None
     recoder = Recoder(
-        source="src", audio=0, grid=grid, spare=tmp_path, weights=weights, threshold=15.0
+        source="src", audio=0, grid=grid, spare=tmp_path, weights=weights, threshold=10.0
     )
     recoder.opening(4)
     recoder.job = (4, 4, clock.monotonic() + 60.0, clock.monotonic(), PRESETS[-1][1])
@@ -789,10 +789,10 @@ def test_a_piece_after_the_run_is_not_held_if_the_playhead_is_closer(tmp_path) -
     import time as clock
 
     grid = _grid()
-    weights = Weights.of(_keys(rate=2.0e6), grid)
+    weights = Weights.of(_keys(rate=1.5e6), grid)
     assert weights is not None
     recoder = Recoder(
-        source="src", audio=0, grid=grid, spare=tmp_path, weights=weights, threshold=15.0
+        source="src", audio=0, grid=grid, spare=tmp_path, weights=weights, threshold=10.0
     )
     recoder.played = grid.start(4)
     recoder.job = (4, 4, clock.monotonic() + 600.0, clock.monotonic(), 0.05)  # еле ползёт
@@ -808,10 +808,10 @@ def test_between_runs_the_copy_still_waits(tmp_path) -> None:  # type: ignore[no
     import time as clock
 
     grid = _grid()
-    weights = Weights.of(_keys(rate=2.0e6), grid)
+    weights = Weights.of(_keys(rate=1.5e6), grid)
     assert weights is not None
     recoder = Recoder(
-        source="src", audio=0, grid=grid, spare=tmp_path, weights=weights, threshold=15.0
+        source="src", audio=0, grid=grid, spare=tmp_path, weights=weights, threshold=10.0
     )
     recoder.began = clock.monotonic() - 100.0  # фора на подъём давно вышла
     recoder.played = grid.start(5) - 5.0
@@ -851,10 +851,10 @@ def test_the_head_is_waited_for_while_the_encoder_is_still_on_it(tmp_path) -> No
     import time as clock
 
     grid = _grid()
-    weights = Weights.of(_keys(rate=2.0e6), grid)
+    weights = Weights.of(_keys(rate=1.5e6), grid)
     assert weights is not None
     recoder = Recoder(
-        source="src", audio=0, grid=grid, spare=tmp_path, weights=weights, threshold=15.0
+        source="src", audio=0, grid=grid, spare=tmp_path, weights=weights, threshold=10.0
     )
     now = clock.monotonic()
     recoder.opening(7)
@@ -872,16 +872,124 @@ def test_the_head_wait_has_a_hard_ceiling_even_while_encoding(tmp_path) -> None:
     from torrcast.recode import HEAD_LIMIT
 
     grid = _grid()
-    weights = Weights.of(_keys(rate=2.0e6), grid)
+    weights = Weights.of(_keys(rate=1.5e6), grid)
     assert weights is not None
     recoder = Recoder(
-        source="src", audio=0, grid=grid, spare=tmp_path, weights=weights, threshold=15.0
+        source="src", audio=0, grid=grid, spare=tmp_path, weights=weights, threshold=10.0
     )
     now = clock.monotonic()
     recoder.opening(7)
     recoder.head_at = now - recoder.head_wait * HEAD_LIMIT - 0.1
     recoder.job = (7, 7, now + 60.0, now - 30.0, PRESETS[-1][1])
     assert not recoder.holding(7)
+
+
+def test_a_copy_heavier_than_the_cap_is_never_released_on_a_deadline(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """🔴 §6.2.6: копию тяжелее :data:`MAX_SEGMENT_BYTES` не отпускают по сроку вовсе.
+
+    Замер, ради которого правило написано («Тачки 3», старт 3880, §7.9 смок 28): сетка
+    предсказала вес ``v364`` по ``ceiling_mbit`` («тяжёлое перекодируют») в 11.7 МБ,
+    кодировщик к сроку не успел, срок вышел — и на ТВ уехала копия на **51.4 МБ**.
+    Двадцать опросов ``BUFFERING`` за 46 с. Срок тут ни при чём: такой кусок приёмник не
+    доигрывает ни при каких обстоятельствах (§6.2.4), значит отпускать его некуда.
+    """
+    import time as clock
+
+    grid = _grid()
+    weights = Weights.of(_keys(rate=4.0e6), grid)  # 32 Мбит/с: 10 с весят 40 МБ
+    assert weights is not None
+    recoder = Recoder(
+        source="src", audio=0, grid=grid, spare=tmp_path, weights=weights, threshold=10.0
+    )
+    recoder.played = 0.0
+    recoder.began = clock.monotonic() - 100.0
+    # Срок захода вышел двести секунд назад — по прежнему правилу копия ушла бы наружу.
+    recoder.job = (4, 8, clock.monotonic() - 1.0, clock.monotonic() - 200.0, 4.0)
+    assert recoder.holding(5), "просроченный перекод тяжёлую копию не освобождает"
+    assert recoder.blocked == 5, "кодировщик обязан узнать, что выкладка встала на v5"
+    # И даже под самым носом у показа: подгруз в 2 с дешевле срыва приёмника на 8.
+    recoder.played = grid.start(5)
+    assert recoder.holding(5)
+
+
+def test_the_weight_of_a_copy_is_taken_from_the_file_when_it_exists(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """Вес копии берётся у самого файла, а предсказание — только пока файла нет.
+
+    Предсказание по карте зажато потолком перекодирования и на «Тачках 3» промахнулось
+    вчетверо (11.7 МБ против 51.4). Честный ``stat`` не промахивается никогда.
+    """
+    grid = _grid()
+    weights = Weights.of(_keys(rate=1.5e6), grid)  # по карте кусок лёгкий: 15 МБ
+    assert weights is not None
+    recoder = Recoder(
+        source="src", audio=0, grid=grid, spare=tmp_path, weights=weights, threshold=10.0
+    )
+    assert not recoder.oversize(5), "по карте — влезает"
+    assert recoder.oversize(5, size=51_400_000), "а по факту приехало вчетверо больше"
+
+
+def test_a_long_light_piece_is_recoded_too_because_it_is_too_heavy(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """Кодировщик отвечает за два класса кусков, и они не совпадают (§6.2.6).
+
+    Замер по картам трёх релизов при пороге 10 Мбит/с: «Моана» 2016 — лёгкое кино, где
+    тяжёлых кусков почти нет, а увесистых семь, самый большой 18.3 МБ при замеренной
+    границе срыва приёмника 19.4 МБ. Такой кусок раньше не брал никто: битрейт ниже
+    порога, а вес выше потолка.
+    """
+    grid = _grid(gop=20.0, step=10.0)  # опорные кадры редкие: сегмент = 20 с фильма
+    weights = Weights.of(_keys(gop=20.0, rate=1.1e6), grid)  # 8.8 Мбит/с — не тяжёлый
+    assert weights is not None
+    recoder = Recoder(
+        source="src", audio=0, grid=grid, spare=tmp_path, weights=weights, threshold=10.0
+    )
+    assert weights.at(3) < recoder.threshold, "по битрейту приёмник его тянет"
+    assert 3 in recoder.targets, "но 22 МБ одним куском он не доигрывает (§6.2.4)"
+
+
+def test_the_bulky_copy_is_released_when_the_encoder_has_given_up(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """Ждать мертвеца нельзя и тут: сдавшийся кодировщик держать показ не имеет права.
+
+    Худшее, что даёт отказ, — сегодняшнее поведение (тяжёлая копия и возможный подвис),
+    а не чёрный экран до 404.
+    """
+    import time as clock
+
+    grid = _grid()
+    weights = Weights.of(_keys(rate=4.0e6), grid)
+    assert weights is not None
+    recoder = Recoder(
+        source="src", audio=0, grid=grid, spare=tmp_path, weights=weights, threshold=10.0
+    )
+    recoder.played = 0.0
+    recoder.began = clock.monotonic() - 100.0
+
+    recoder.done.add(5)  # заход над этим куском ничего не дал и повторять его нечем
+    assert not recoder.holding(5)
+
+    recoder.done.discard(5)
+    assert recoder.holding(5)
+    recoder.stuck[5] = clock.monotonic() - recoder.over_wait - 0.1  # предохранитель
+    assert not recoder.holding(5), "кодировщика нет вовсе — копия уходит, но с руганью"
+
+
+def test_a_held_piece_stops_holding_once_its_recode_is_ready(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """Перекод лёг в каталог — выкладка идёт дальше, и кодировщик про затор забывает."""
+    import time as clock
+
+    grid = _grid()
+    weights = Weights.of(_keys(rate=4.0e6), grid)
+    assert weights is not None
+    recoder = Recoder(
+        source="src", audio=0, grid=grid, spare=tmp_path, weights=weights, threshold=10.0
+    )
+    recoder.played = 0.0
+    recoder.began = clock.monotonic() - 100.0
+    assert recoder.holding(5)
+    assert recoder.blocked == 5
+
+    (tmp_path / segment_name(5)).write_bytes(b"x")
+    assert not recoder.holding(5)
+    assert recoder.blocked == -1, "затор рассосался, и чужие заходы бросать больше незачем"
 
 
 def test_the_tail_of_a_run_is_dropped_and_never_published(tmp_path) -> None:  # type: ignore[no-untyped-def]
