@@ -568,7 +568,12 @@ class Recoder:
         # как есть, потому что подгруз хуже тяжёлого куска.
         speed = dict(PRESETS).get(preset, PRESETS[-1][1])
         with self.lock:
-            self.packer = packer = Packer.start(command, self.spare, self.spare / "run", first)
+            # ``last`` тут не украшение: без него огрызок за ``-to`` (секунда фильма
+            # вместо десяти) лёг бы в каталог перекода как готовый кусок и уехал бы на ТВ
+            # вместо честной копии (:attr:`torrcast.stream.Packer.last`).
+            self.packer = packer = Packer.start(
+                command, self.spare, self.spare / "run", first, last=last
+            )
             self.job = (first, last, began + seconds / speed * 2.0 + 10.0, began, speed)
         try:
             while not self.stopped:

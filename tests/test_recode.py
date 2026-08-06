@@ -831,3 +831,24 @@ def test_a_heavy_copy_behind_the_playhead_is_not_counted_as_late(tmp_path) -> No
     assert recoder.late == 0
     recoder.note(21, recoded=False)
     assert recoder.late == 1
+
+
+def test_the_tail_of_a_run_is_dropped_and_never_published(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """Огрызок за ``-to`` наружу не уезжает — ни от кодировщика, ни от упаковщика.
+
+    Заход кодировщика ограничен ``-to`` с запасом в секунду, и муксер успевает открыть
+    следующий файл: в нём секунда фильма вместо десяти. Живой Q70D 06-08-2026, «Тачки 3»:
+    такой `v311` (1.3 МБ вместо 11) уехал на ТВ как готовый кусок — приёмник встал на
+    14 с и потерял 16 секунд фильма.
+    """
+    run, out = tmp_path / "run", tmp_path / "out"
+    run.mkdir()
+    out.mkdir()
+    for slot in (4, 5, 6, 7):
+        (run / segment_name(slot)).write_bytes(b"x" * 100)
+    packer = fake_packer(out=out, run=run, first=5, last=6, code=0)
+    packer.publish()
+    assert sorted(p.name for p in out.glob("v*.ts")) == ["v5.ts", "v6.ts"]
+    assert packer.edge == 6
+    assert not (run / segment_name(7)).exists()  # огрызок убран, а не оставлен на потом
+    assert not (run / segment_name(4)).exists()  # докатка — как и была

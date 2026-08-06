@@ -1166,6 +1166,17 @@ class Packer:
     spare: Path | None = None
     #: Кого позвать, когда сегмент ушёл наружу: ``(слот, перекодирован ли)``.
     told: Any = None
+    #: Последний сегмент, который этому прогону разрешено выложить; ``-1`` — без предела.
+    #:
+    #: ⚠️ Нужно ровно кодировщику и ровно против ОБРЕЗКА. Заход кодировщика ограничен
+    #: ``-to`` с запасом в секунду (:func:`ffmpeg_pack_command`), и на этот запас муксер
+    #: успевает открыть СЛЕДУЮЩИЙ файл — в нём остаётся секунда фильма вместо десяти.
+    #: Дальше этот огрызок лежал в :data:`torrcast.recode.RECODE_DIR` как готовый кусок и
+    #: выкладывался наружу вместо честной копии: живой Q70D 06-08-2026 на «Тачках 3» —
+    #: ``v311`` 1.3 МБ вместо 11 МБ, приёмник встал на 8 с и потерял 8 секунд фильма.
+    #: У «Моаны 2» это не всплывало: там тяжелы почти все куски подряд, и огрызок всегда
+    #: успевал смениться настоящим перекодом следующего захода.
+    last: int = -1
     #: Кого спросить «этот кусок сейчас перекодируют, подожди»: ``(слот) -> bool``.
     #:
     #: Нужно ровно против одной гонки, найденной живым прогоном (§6.2): упаковщик на
@@ -1192,6 +1203,7 @@ class Packer:
         spare: Path | None = None,
         told: Any = None,
         hold: Any = None,
+        last: int = -1,
     ) -> Packer:
         log = tempfile.TemporaryFile()  # noqa: SIM115 — живёт всё воспроизведение
         shutil.rmtree(run, ignore_errors=True)
@@ -1201,7 +1213,15 @@ class Packer:
         except FileNotFoundError as exc:
             raise InfraError("ffmpeg не установлен") from exc
         return cls(
-            proc=proc, out=out, run=run, first=first, log=log, spare=spare, told=told, hold=hold
+            proc=proc,
+            out=out,
+            run=run,
+            first=first,
+            log=log,
+            spare=spare,
+            told=told,
+            hold=hold,
+            last=last,
         )
 
     def publish(self) -> None:
@@ -1220,7 +1240,10 @@ class Packer:
         done = slots if self.proc.poll() == 0 else slots[:-1]
         for slot in done:
             path = self.run / segment_name(slot)
-            if slot < self.first:
+            # Ниже своего первого — докатка, выше последнего — обрезок за ``-to``
+            # (:attr:`last`). И то и другое короче своего места в манифесте, и наружу
+            # такое отдавать нельзя ни при каких обстоятельствах.
+            if slot < self.first or 0 <= self.last < slot:
                 path.unlink(missing_ok=True)
                 continue
             # Кусок сейчас перекодируют — подождём его (:attr:`hold`). Дальше по списку не

@@ -139,7 +139,12 @@ class FakeProc:
 
 
 def fake_packer(
-    out: Path, first: int = 0, code: int | None = None, edge: int | None = None
+    out: Path,
+    first: int = 0,
+    code: int | None = None,
+    edge: int | None = None,
+    run: Path | None = None,
+    last: int = -1,
 ) -> Packer:
     """Прогон упаковки без ffmpeg: сегменты в ``out`` кладёт сам тест.
 
@@ -152,10 +157,20 @@ def fake_packer(
     так читается обычный случай «тест положил куски руками, они и есть работа прогона».
     Куски, положенные ПОСЛЕ создания, краем уже не считаются — ровно этим отличается
     честный край от глоба каталога, и на этом стоит §7.4 SPEC-v2.
+
+    ``run`` и ``last`` нужны там, где проверяется сама выкладка: каталог прогона со
+    своими кусками и предел захода кодировщика (:attr:`torrcast.stream.Packer.last`).
     """
     from torrcast.stream import PACK_DIR, Packer, segment_slot
 
     if edge is None:
         made = [s for s in (segment_slot(p.name) for p in out.glob("v*.ts")) if s >= first]
         edge = max(made, default=first - 1)
-    return Packer(proc=FakeProc(code), out=out, run=out / PACK_DIR, first=first, edge=edge)  # type: ignore[arg-type]
+    return Packer(
+        proc=FakeProc(code),  # type: ignore[arg-type]
+        out=out,
+        run=out / PACK_DIR if run is None else run,
+        first=first,
+        edge=edge,
+        last=last,
+    )
