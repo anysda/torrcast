@@ -32,7 +32,7 @@ from torrcast import (
     __version__,
     console,  # через модуль: терминал спрашиваем там же, где и сами вопросы
 )
-from torrcast.cast import Receiver, make_receiver
+from torrcast.cast import ChromecastReceiver, Receiver, make_receiver
 from torrcast.console import Progress, ask, ask_line, terminal
 from torrcast.parse import (
     VIDEO_EXT,
@@ -48,6 +48,8 @@ from torrcast.parse import (
 from torrcast.search import Prowlarr, to_releases
 from torrcast.state import Config, Entry, State, load_config, save_config
 from torrcast.stream import (
+    KEYS_WAIT,
+    PILOT_TIMEOUT,
     Feed,
     HlsServer,
     Media,
@@ -112,6 +114,35 @@ HD_HEIGHT = 720
 #: чёрных полей: у 1080p-широкоформатника реальная высота 800–816, и релиз честен. А
 #: 574 против 1080 — это уже другая ступень лестницы, а не кадрирование.
 HONEST_RATIO = 0.9
+#: Потолок ожидания метаданных раздачи **в юните**, секунды. Здесь это не «бюджет фазы
+#: под меню» (:data:`META_BUDGET`), а последний рубеж: магнит юниту уже дали, и если
+#: метаданные не приехали, показывать нечего.
+WORKER_META = 60.0
+#: Потолок ffprobe длительности в юните: своей длительности следующая серия не знает, и
+#: читается она из потока (:func:`_duration`).
+WORKER_DUR = 90.0
+#: Прочее на пути юнита до картинки, у чего своего потолка нет: запуск transient-юнита,
+#: чтение состояния, подъём раздачи. Секунды, но считать их нулём — врать себе.
+START_SLACK = 10.0
+#: **Бюджет старта показа: столько CLI ждёт картинку на экране** (:func:`_await_playing`).
+#:
+#: Число не выбирается на глаз и не «берётся с запасом»: это сумма потолков всех фаз,
+#: которые юнит проходит от запуска до первого ``PLAYING``, — метаданные раздачи, ffprobe
+#: длительности, ожидание чужой карты опорных кадров, пробный прогон упаковки и терпение
+#: приёмника к молчаливому ``IDLE``. Пока CLI ждал меньше суммы (120 с против 60 + 90 +
+#: 60), он гасил `stop_play_unit`'ом показ, который вот-вот начался бы, — §7.4 SPEC-v2.
+#:
+#: Ждать так долго не страшно и не молчаливо: :class:`~torrcast.console.Progress` всё это
+#: время показывает живую фазу, а любая честная неудача убивает юнит раньше — CLI видит
+#: это по :func:`unit_active` и печатает причину из журнала, не досиживая до конца.
+START_BUDGET = (
+    WORKER_META
+    + WORKER_DUR
+    + KEYS_WAIT
+    + PILOT_TIMEOUT
+    + START_SLACK
+    + ChromecastReceiver.START_TIMEOUT
+)
 #: Как часто сторож кладёт позицию в state, секунды (§3).
 WATCH_SECONDS = 10.0
 #: Как часто показ пишет в журнал, что видит приёмник (§2.1 SPEC-v2): позиция и общее
@@ -228,6 +259,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     except TorrcastError as exc:  # InfraError и всё прочее наше
         print(str(exc), file=sys.stderr)
         return EXIT_INFRA
+    except _Stopped:  # `cast stop` — штатный конец показа, а не отказ (§7.4 SPEC-v2)
+        return EXIT_OK
     except KeyboardInterrupt:
         return EXIT_INFRA
     except BrokenPipeError:  # `cast status | head` — не повод показывать трейсбек (§6)
@@ -364,7 +397,7 @@ def _cmd_worker(key: str) -> int:
         if entry.magnet != magnet:  # раздача та же — метаданные второй раз не ждём
             magnet = entry.magnet
             torrent_hash = torrserver.add(magnet)
-            torrserver.wait_files(torrent_hash)
+            torrserver.wait_files(torrent_hash, timeout=WORKER_META)
         source = torrserver.stream_url(torrent_hash, entry.file_idx)
         entry = _duration(key, entry, source)
         watch = Watch(key=key, entry=entry)
@@ -396,15 +429,26 @@ def _duration(key: str, entry: Entry, source: str) -> Entry:
     """
     if entry.dur > 0:
         return entry
-    entry.dur = probe(source).duration
+    entry.dur = probe(source, timeout=WORKER_DUR).duration
     state = State.load()
     state.put(key, entry)
     state.save()
     return entry
 
 
+class _Stopped(KeyboardInterrupt):
+    """``cast stop``: SIGTERM пришёл, показ окончен штатно — это не авария.
+
+    Наследуемся от ``KeyboardInterrupt`` намеренно: раскрутка обязана пройти ровно так
+    же, как проходила, — через ``finally`` в :func:`_play`, где пишется позиция, гаснет
+    упаковка и снимается каст. Меняется только вывеска на выходе: ``cast stop`` — это
+    успех, и юнит обязан умереть кодом 0, иначе systemd помечает его ``failed``, а
+    владелец видит красное `● torrcast-play … failed` после каждой штатной остановки.
+    """
+
+
 def _on_term(_signal: int, _frame: object) -> None:
-    raise KeyboardInterrupt
+    raise _Stopped
 
 
 @dataclass(slots=True)
@@ -1057,7 +1101,7 @@ def _launch(
     return EXIT_OK
 
 
-def _await_playing(config: Config, progress: Progress, timeout: float = 120.0) -> None:
+def _await_playing(config: Config, progress: Progress, timeout: float = START_BUDGET) -> None:
     """Дождаться **картинки на экране**, а не «упаковка пошла» (§4 SPEC-v2).
 
     Две разные вещи, которые в v1 были одной: первый сегмент в tmpfs — это упаковка, а

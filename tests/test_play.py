@@ -634,3 +634,73 @@ def test_a_closed_show_never_starts_ffmpeg_again(
     feed.stop()
 
     assert feed.segment(70) is None and asked == [], "после stop упаковку не поднимаем"
+
+
+def test_a_planned_stop_of_the_show_is_a_success_not_a_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """🟡 §7.4 SPEC-v2: `cast stop` обязан оставлять юнит кодом 0.
+
+    SIGTERM от `cast stop` поднимает исключение — иначе показ не пройдёт через ``finally``
+    и не запишет позицию. Но исключение это штатное, и выходить на нём кодом 2 нельзя:
+    systemd помечает юнит ``failed``, и владелец после каждой нормальной остановки видит
+    красную строку в статусе. Ctrl-C на вопросе отказом при этом быть не перестаёт.
+    """
+    from torrcast import cli
+
+    caught: list[BaseException] = []
+
+    def terminated() -> int:
+        try:
+            cli._on_term(15, None)
+        except BaseException as exc:  # ловим ровно затем, чтобы посмотреть на него
+            caught.append(exc)
+            raise
+        return cli.EXIT_OK
+
+    monkeypatch.setattr(cli, "_cmd_status", terminated)
+    assert cli.main(["status"]) == cli.EXIT_OK, "`cast stop` — это успех показа, а не отказ"
+    assert isinstance(caught[0], KeyboardInterrupt), "раскрутка обязана идти как прежде"
+
+    monkeypatch.setattr(cli, "_cmd_status", lambda: (_ for _ in ()).throw(KeyboardInterrupt()))
+    assert cli.main(["status"]) == cli.EXIT_INFRA, "Ctrl-C остаётся отказом"
+
+
+def test_the_cli_never_kills_a_show_that_is_still_inside_the_units_budget(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """🟡 §7.4 SPEC-v2: ожидание картинки согласовано с бюджетами юнита, а не «побольше».
+
+    CLI ждёт картинку и по своему таймауту гасит показ. Пока он ждал 120 с, а юнит имел
+    право потратить на метаданные, ffprobe, карту, пробный прогон и терпение к молчащему
+    приёмнику куда больше, `cast` убивал показ, который вот-вот начался бы. Согласие
+    здесь одно: ждать не меньше суммы потолков всех фаз, которые юнит проходит до
+    первого ``PLAYING``.
+    """
+    from torrcast import cli
+    from torrcast.cast import ChromecastReceiver
+    from torrcast.stream import KEYS_WAIT, PILOT_TIMEOUT
+
+    phases = (
+        cli.WORKER_META  # метаданные раздачи по DHT
+        + cli.WORKER_DUR  # ffprobe длительности серии
+        + KEYS_WAIT  # чужая карта опорных кадров снимается прямо сейчас
+        + PILOT_TIMEOUT  # пробный прогон упаковки в один кадр
+        + ChromecastReceiver.START_TIMEOUT  # молчаливый IDLE после LOAD
+    )
+    assert phases <= cli.START_BUDGET, "CLI сдаётся раньше, чем юнит исчерпал своё право"
+
+    now, stopped = [0.0], []
+    monkeypatch.setattr(time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(time, "sleep", lambda seconds: now.__setitem__(0, now[0] + seconds))
+    monkeypatch.setattr(cli, "unit_active", lambda: True)
+    monkeypatch.setattr(cli, "unit_why", lambda: "юнит ещё идёт к картинке")
+    monkeypatch.setattr(cli, "stop_play_unit", lambda: stopped.append(now[0]))
+
+    class _Mute:
+        def phase(self, text: str) -> None: ...
+
+    with pytest.raises(InfraError):
+        cli._await_playing(Config(hls_dir=str(tmp_path)), _Mute())  # type: ignore[arg-type]
+
+    assert stopped and stopped[0] >= phases, "показ погашен внутри бюджета юнита"
