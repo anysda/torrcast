@@ -491,8 +491,13 @@ setup_config() {
     # (§5 SPEC-v2), и старое `https://torrcast.anysda.space:8443` из конфига обязано уйти.
     # Потолок битрейта — из того же класса: это замеренное свойство приёмника (Q70D
     # ребуферит уже на 17.8 Мбит/с, §7.5 SPEC-v2), а не вкус владельца. Оставь его в
-    # конфиге — и опущенный до 16 дефолт молча упрётся в старые 20.
-    local tuned='del(.hls_readrate, .hls_window, .hls_burst, .hls_keep, .bitrate_warn_mbit)'
+    # конфиге — и опущенный до 16 дефолт молча упрётся в старые 20. Настройки
+    # перекодирования (§6.2) из того же класса: это замеры процессора стенда и приёмника,
+    # а не вкус владельца.
+    local tuned='del(.hls_readrate, .hls_window, .hls_burst, .hls_keep, .bitrate_warn_mbit,'
+    tuned="$tuned .bitrate_hard_mbit, .recode, .recode_mbit, .recode_at_mbit, .recode_preset,"
+    tuned="$tuned .recode_ahead,"
+    tuned="$tuned .recode_cache_mb)"
     tuned="$tuned | .transport=\$t | .hls_port=(\$p|tonumber) | .hls_base_url=\$b"
 
     if [ -f "$CONFIG_DIR/config.json" ]; then
@@ -518,8 +523,7 @@ setup_config() {
   "hls_port": $HLS_PORT,
   "hls_cert": "$TLS_DIR/torrcast.crt",
   "hls_key": "$TLS_DIR/torrcast.key",
-  "hls_dir": "$HLS_DIR",
-  "bitrate_warn_mbit": 16.0
+  "hls_dir": "$HLS_DIR"
 }
 JSON
     info "apikey Prowlarr перенесён в $CONFIG_DIR/config.json"

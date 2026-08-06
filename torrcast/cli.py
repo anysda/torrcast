@@ -35,6 +35,7 @@ from torrcast import (
     TorrcastError,
     __version__,
     console,  # через модуль: терминал спрашиваем там же, где и сами вопросы
+    why,
 )
 from torrcast.cast import ChromecastReceiver, Receiver, make_receiver
 from torrcast.console import Progress, ask, ask_line, terminal
@@ -49,12 +50,14 @@ from torrcast.parse import (
     split_episode,
     split_franchise_index,
 )
+from torrcast.recode import Recoder
 from torrcast.search import Prowlarr, to_releases
 from torrcast.state import Config, Entry, State, load_config, save_config
 from torrcast.stream import (
     KEYS_WAIT,
     PILOT_TIMEOUT,
     Feed,
+    Grid,
     HlsServer,
     Media,
     TorrFile,
@@ -383,7 +386,7 @@ def _cmd_releases(args: Args) -> int:
     for plan in plans:
         print()
         print(f"{_named(plan.picture)} — раздач {len(plan.ranked)}")
-        print(render_table(plan.ranked, plan.runtime, plan.warn_mbit))
+        print(render_table(plan.ranked, plan.runtime, plan.warn_mbit, recode_at=plan.recode_at))
     print()
     print("играть конкретный: cast <запрос> --release N [--file N]")
     return EXIT_OK
@@ -635,7 +638,11 @@ def _cmd_play(args: Args) -> int:
     # Настоящий битрейт: размер файла серии/фильма на его же длительность, а не оценка.
     peak = bitrate_mbit(video.size, media.duration or plan.runtime)
     if peak > config.bitrate_warn_mbit:
-        print(f"внимание: ~{peak:.0f} Мбит/с — ресивер на таком битрейте может встать")
+        print(
+            f"внимание: ~{peak:.0f} Мбит/с — тяжёлые куски перекодирую на ходу"
+            if config.recode
+            else f"внимание: ~{peak:.0f} Мбит/с — ресивер на таком битрейте может встать"
+        )
     if args.pinned:  # отладочный путь: тут внутренности показывать и надо
         print(f"файл: {video.base} · {_gb(video.size)} · {_hms(media.duration)} · {media.video}")
     if args.dry:
@@ -712,13 +719,19 @@ def _plan_for(picture: Picture, args: Args, config: Config) -> _Plan:
     pool = picture.releases
     if series is not None:
         pool = [r for r in pool if r.covers(series.want.season)]
-    ranked = rank_releases(pool, runtime, config.bitrate_warn_mbit)
+    # §6.2: потолок отбора перестал быть потолком декодера. Тяжёлые куски перекодируются
+    # (:mod:`torrcast.recode`), поэтому честный тяжёлый 1080p теперь берётся, а отбраковывает
+    # только то, что перекодированием не спасти, — ``bitrate_hard_mbit``. Перекодирование
+    # выключено — потолком снова становится прежний ``bitrate_warn_mbit``.
+    ceiling = config.bitrate_hard_mbit if config.recode else config.bitrate_warn_mbit
+    ranked = rank_releases(pool, runtime, ceiling)
     return _Plan(
         picture=picture,
         ranked=ranked,
         runtime=runtime,
-        warn_mbit=config.bitrate_warn_mbit,
+        warn_mbit=ceiling,
         series=series,
+        recode_at=config.recode_at_mbit if config.recode else 0.0,
     )
 
 
@@ -733,8 +746,12 @@ class _Plan:
     picture: Picture
     ranked: list[Release]
     runtime: float
+    #: Потолок ОТБРАКОВКИ, Мбит/с: выше него релиз не берём вовсе (см. :func:`_plan_for`).
     warn_mbit: float
     series: _Series | None = None
+    #: Порог ПЕРЕКОДИРОВАНИЯ, Мбит/с: выше него куски перекодируются, а релиз годен.
+    #: Ноль — перекодирование выключено, и тогда отбраковка и порог это одно число.
+    recode_at: float = 0.0
 
     @property
     def first(self) -> int:
@@ -1063,6 +1080,10 @@ class _Bench:
         Прикидка потолка при выборе дефолта такой релиз пропускала и пропускать будет:
         до ffprobe длительности картины не знает никто. Поэтому потолок проверяется ещё
         раз — тем же числом, которое показ печатает владельцу.
+
+        ⚠️ С 06-08 вечера (§6.2) ``warn_mbit`` здесь — это ``bitrate_hard_mbit``, а не
+        потолок декодера: тяжёлые куски перекодируются, и «Моана 2» на 19 Мбит/с теперь
+        годится. Отбраковывается только то, что перекодированием не спасти.
         """
         if prep.error:
             return prep.error
@@ -1275,6 +1296,45 @@ def _await_playing(config: Config, progress: Progress, timeout: float = START_BU
     raise InfraError(f"показ не начался за {timeout:.0f} с — {unit_why()}")
 
 
+def _recoder(source: str, audio: int, grid: Grid, spare: Path, config: Config) -> Recoder | None:
+    """Кодировщик тяжёлых кусков или ``None``, если он не нужен и не может помочь (§6.2).
+
+    Профиль тяжести считается из уже снятой карты опорных кадров: байты и секунды каждого
+    сегмента известны до упаковки, и это ноль запросов к рою. Отказ бывает честный —
+    выключено настройкой, сетка не по кадрам (тогда границы не совпадут с картой), карта
+    снята прошлой версией и смещений не несёт, — и о нём говорится вслух.
+    """
+    from torrcast.recode import Encode, Recoder, Weights
+    from torrcast.stream import film_keys
+
+    if not config.recode:
+        return None
+    if not grid.on_keys:
+        print("сетка не по опорным кадрам — тяжёлые куски перекодировать не берусь", flush=True)
+        return None
+    try:
+        keys = film_keys(source)
+    except InfraError as exc:
+        print(f"профиль тяжести не снят ({why(exc)}) — играю как есть", flush=True)
+        return None
+    weights = Weights.of(keys, grid)
+    if weights is None:
+        print("карта без смещений — профиль тяжести не построить, играю как есть", flush=True)
+        return None
+    return Recoder(
+        source=source,
+        audio=audio,
+        grid=grid,
+        spare=spare,
+        weights=weights,
+        threshold=config.recode_at_mbit,
+        encode=Encode(preset=config.recode_preset, mbit=config.recode_mbit),
+        ahead=config.recode_ahead,
+        cache_mb=config.recode_cache_mb,
+        log=lambda text: print(text, flush=True),
+    )
+
+
 def _play(
     config: Config,
     source: str,
@@ -1293,6 +1353,7 @@ def _play(
     SPEC-v2): манифест обещает приёмнику весь фильм, а :class:`Feed` пакует то место,
     которое он попросил. Раздача, приёмник и LOAD при этом одни на весь показ.
     """
+    from torrcast.recode import RECODE_DIR
     from torrcast.stream import grid_for, hls_base, hls_dir
 
     out = hls_dir(config.hls_dir)
@@ -1309,6 +1370,10 @@ def _play(
         say=lambda text: print(text, flush=True),
     )
     mark("сетка", сегментов=grid.count, покадрам=grid.on_keys)
+    # §6.2: профиль тяжести всего фильма известен со старта — он считается из уже снятой
+    # карты опорных кадров и не стоит ни одного запроса к рою. Тяжёлые куски кодировщик
+    # начнёт перекодировать сразу, пока играет остальное.
+    recoder = _recoder(source, audio, grid, out / RECODE_DIR, config)
     feed = Feed(
         source=source,
         audio=audio,
@@ -1318,6 +1383,7 @@ def _play(
         burst=config.hls_burst,
         keep=config.hls_keep,
         log=lambda text: print(text, flush=True),
+        recoder=recoder,
     )
     server = HlsServer(
         out, config.hls_cert, config.hls_key, port=config.hls_port, tls=tls, feed=feed
@@ -1333,6 +1399,9 @@ def _play(
         mark("раздача")
         # Упаковку начинаем сами, не дожидаясь первого запроса: ресиверу нужен готовый
         # кусок сразу, иначе LOAD упирается в ожидание ffmpeg и старт растёт на глазах.
+        if recoder is not None:
+            recoder.played = start
+            recoder.start()
         feed.restart(grid.slot_at(start))
         mark("упаковка пошла")
         receiver.play(url, about, at=start)
@@ -1449,6 +1518,8 @@ def _hold(receiver: Receiver, feed: Feed, watch: Watch | None = None) -> None:
             return
         else:
             paused = 0.0
+            if feed.recoder is not None:
+                feed.recoder.played = position.pos
             feed.prune(position.pos)
         time.sleep(2.0)
 
@@ -1580,14 +1651,19 @@ def _named(picture: Picture) -> str:
     return f"{picture.title} ({picture.year or '?'}{kind})"
 
 
-def warned(release: Release, runtime: float, warn_mbit: float) -> str:
+def warned(release: Release, runtime: float, warn_mbit: float, recode_at: float = 0.0) -> str:
     """Почему релиз не дефолт: HEVC ресивер может не потянуть, жирный битрейт — тоже (§3).
 
     Словами, а не значками: ``⚠`` из вывода убран целиком (§3 SPEC-v2) — в терминале
     владельца он не нёс смысла и разъезжался по ширине.
     """
+    peak = bitrate_of(release, runtime)
     marks = ["не берём"] if release.is_hevc else []
-    marks += ["тяжёлый"] if bitrate_of(release, runtime) > warn_mbit else []
+    if peak > warn_mbit:
+        marks += ["тяжёлый"]
+    elif recode_at > 0 and peak > recode_at:
+        # §6.2: не брак, а честное предупреждение — тяжёлые куски поедут перекодированными.
+        marks += ["перекодируем"]
     return ", ".join(marks)
 
 
@@ -1723,7 +1799,11 @@ def bitrate_of(release: Release, duration: float) -> float:
 
 
 def render_table(
-    releases: list[Release], runtime: float, warn_mbit: float, limit: int = TABLE_LIMIT
+    releases: list[Release],
+    runtime: float,
+    warn_mbit: float,
+    limit: int = TABLE_LIMIT,
+    recode_at: float = 0.0,
 ) -> str:
     """Таблица релизов §2.1: № · качество · размер · сиды · озвучка · кодек. Битрейт для пометки
     прикидывается по размеру и типовой длительности, пока настоящая не прочитана ffprobe
@@ -1737,7 +1817,7 @@ def render_table(
             _gb(r.size),
             str(r.seeders),
             _cut(", ".join(r.voices) or "—", 34),
-            ((r.codec or "?") + " " + warned(r, runtime, warn_mbit)).strip(),
+            ((r.codec or "?") + " " + warned(r, runtime, warn_mbit, recode_at)).strip(),
         )
         for number, r in enumerate(shown, start=1)
     ]

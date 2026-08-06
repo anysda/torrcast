@@ -26,8 +26,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from torrcast.cast import ChromecastReceiver
+from torrcast.recode import RECODE_DIR, Encode, Recoder, Weights
 from torrcast.state import load_config
-from torrcast.stream import Feed, Grid, HlsServer, grid_for, hls_base, hls_dir
+from torrcast.stream import Feed, Grid, HlsServer, film_keys, grid_for, hls_base, hls_dir
 
 #: Позиция не двигается дольше этого при живом запасе упаковки — это подвис.
 STALL = 3.0
@@ -69,6 +70,14 @@ def main() -> None:
     parser.add_argument("--duration", type=float, default=6500.285, help="длина фильма")
     parser.add_argument("--audio", type=int, default=0)
     parser.add_argument("--title", default="проверка нарезки")
+    parser.add_argument("--recode", action="store_true", help="перекодировать тяжёлые куски (§6.2)")
+    parser.add_argument("--threshold", type=float, default=15.0, help="порог тяжести, Мбит/с")
+    parser.add_argument("--preset", default="veryfast")
+    parser.add_argument("--mbit", type=float, default=12.0, help="во сколько перекодировать")
+    parser.add_argument("--extra", type=float, default=0.0, help="поправка «контейнер → ТВ»")
+    parser.add_argument(
+        "--poll", type=float, default=0.5, help="как часто опрашивать приёмник, с (показ — 2.0)"
+    )
     args = parser.parse_args()
 
     config = load_config()
@@ -83,6 +92,26 @@ def main() -> None:
         )
     )
 
+    recoder = None
+    if args.recode:
+        keys = film_keys(args.url)
+        weights = Weights.of(keys, grid, extra=args.extra)
+        if weights is None:
+            print("карта без смещений — профиля тяжести нет")
+        else:
+            heavy = weights.heavy(args.threshold)
+            near = [s for s in heavy if slot <= s < slot + 20]
+            print(f"тяжёлых в фильме {len(heavy)} из {grid.count}; впереди по ходу: {near}")
+            recoder = Recoder(
+                source=args.url,
+                audio=args.audio,
+                grid=grid,
+                spare=out / RECODE_DIR,
+                weights=weights,
+                threshold=args.threshold,
+                encode=Encode(preset=args.preset, mbit=args.mbit),
+                log=lambda text: print(f"  кодировщик: {text}", flush=True),
+            )
     feed = Feed(
         source=args.url,
         audio=args.audio,
@@ -92,14 +121,18 @@ def main() -> None:
         burst=config.hls_burst,
         keep=config.hls_keep,
         log=lambda text: print(f"  упаковка: {text}", flush=True),
+        recoder=recoder,
     )
     server = HlsServer(out, port=config.hls_port, feed=feed)
     receiver = ChromecastReceiver(config.tv or "")
     url = f"{hls_base(config)}/index.m3u8"
 
-    lowest, stalls = args.at, []
+    lowest, stalls, buffering = args.at, [], 0
     try:
         server.start()
+        if recoder is not None:
+            recoder.played = args.at
+            recoder.start()
         feed.restart(slot)
         began = time.monotonic()
         receiver.play(url, args.title, at=args.at)
@@ -120,6 +153,10 @@ def main() -> None:
                 f"· запас {front - position.pos:6.1f} · {position.state}",
                 flush=True,
             )
+            if position.state == "BUFFERING":
+                buffering += 1
+            if recoder is not None:
+                recoder.played = position.pos
             if abs(position.pos - seen) < 0.05:
                 if now - since > STALL and front - position.pos > 1.0:
                     worst = max(worst, now - since)
@@ -127,13 +164,16 @@ def main() -> None:
             else:
                 seen, since = position.pos, now
             lowest = max(lowest, position.pos)
-            time.sleep(0.5)
+            time.sleep(args.poll)
     finally:
         with contextlib.suppress(Exception):
             receiver.stop()
         feed.stop()
         server.stop()
 
+    print(f"опросов в BUFFERING за прогон: {buffering}")
+    if recoder is not None:
+        print(f"кодировщик: {recoder.report()}")
     if stalls:
         where = max(stalls, key=lambda s: s[1])
         print(

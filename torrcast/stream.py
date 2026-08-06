@@ -132,6 +132,11 @@ HLS_SEGMENT_SECONDS: Final = 10
 #:   опорный кадр), и этот огрызок ffmpeg кладёт под именем предыдущего сегмента. Отдать
 #:   его наружу нельзя: под этим именем уже может лежать честный сегмент прошлого прогона.
 PACK_DIR: Final = "pack"
+
+#: Каталог перекодированных кусков (§6.2, :mod:`torrcast.recode`). Лежит рядом с
+#: :data:`PACK_DIR` внутри каталога показа, поэтому уборка сегментов (`v*.ts` верхнего
+#: уровня) его не задевает, а :meth:`Feed.stop` сносит целиком.
+RECODE_DIR: Final = "recode"
 #: Список сегментов, который ведёт сам ffmpeg: ``имя,начало,конец`` на каждый закрытый
 #: кусок. Приёмнику он не отдаётся — по нему показ сверяет, что нарезал ровно то, что
 #: обещал в манифесте (:meth:`Packer.drift`).
@@ -988,6 +993,8 @@ def ffmpeg_pack_command(
     at: float,
     readrate: float = 1.0,
     burst: float = 0.0,
+    encode: Any = None,
+    until: int = -1,
 ) -> list[str]:
     """Команда ffmpeg: паковать фильм по сетке ``grid``, начиная с сегмента ``slot``.
 
@@ -1023,11 +1030,24 @@ def ffmpeg_pack_command(
     пока текущий dts ниже планки, он читает на полной скорости (``readrate_sleep`` в
     fftools). То есть просадка роя лечится без нашего участия, а запас впереди приёмника
     остаётся ограниченным ``burst`` — ровно поэтому tmpfs не растёт без предела.
+
+    ``encode`` (:class:`torrcast.recode.Encode`) заменяет ``-c:v copy`` перекодированием
+    тяжёлого куска (§6.2). Всё остальное — сетка, метки, границы, звук — остаётся тем же,
+    иначе стык копии с перекодом приёмник бы заметил.
+
+    ⚠️ У перекодирующего прогона **докатки нет**: ``-ss`` при перекодировании точен, лишние
+    кадры декодируются и выбрасываются, так что первый пакет стоит ровно на границе. Звать
+    для него :func:`pack_start` не надо (и вредно: измеренный ``at`` уведёт весь прогон на
+    сегмент назад).
+
+    ``until`` ограничивает прогон сегментом с этим номером — кодировщик работает заходами
+    по несколько кусков, чтобы перемотка успевала переприоритезировать очередь.
     """
     run = run_dir.rstrip("/")
-    behind = at < grid.start(slot) - SPLIT_SLACK  # прогон начался раньше своей границы
+    behind = encode is None and at < grid.start(slot) - SPLIT_SLACK  # прогон начался раньше границы
     first = slot if behind else slot + 1
-    times = ",".join(f"{grid.start(k) - at:.3f}" for k in range(first, grid.count))
+    upto = grid.count if until < 0 else min(until + 2, grid.count)
+    times = ",".join(f"{grid.start(k) - at:.3f}" for k in range(first, upto))
     command = ["ffmpeg", "-hide_banner", "-loglevel", "warning"]
     if readrate > 0:
         command += ["-readrate", f"{readrate:g}"]
@@ -1037,8 +1057,13 @@ def ffmpeg_pack_command(
     if slot > 0:
         command += ["-ss", f"{grid.start(slot):.3f}"]
     command += ["-i", source_url, "-map", "0:v:0", "-map", f"0:a:{audio_index}"]
+    command += ["-c:v", "copy"] if encode is None else encode.args(grid, slot, upto - 2)
+    if until >= 0:
+        # ``-to`` при ``-copyts`` считается в абсолютном времени фильма — том же, что в
+        # сетке. Без ограничения заход кодировщика доехал бы до конца фильма.
+        command += ["-to", f"{grid.end(until) + 1.0:.3f}"]
     command += (
-        f"-c:v copy -c:a {AUDIO_CODEC} -ac {AUDIO_CHANNELS} -b:a {AUDIO_BITRATE} "
+        f"-c:a {AUDIO_CODEC} -ac {AUDIO_CHANNELS} -b:a {AUDIO_BITRATE} "
         f"-f segment -segment_format mpegts -segment_time_delta {SPLIT_SLACK:g} "
         f"-break_non_keyframes {0 if grid.on_keys else 1} "
         f"-segment_start_number {slot - 1 if behind else slot} "
@@ -1131,6 +1156,26 @@ class Packer:
     stopped: str = ""
     #: Обрыв ЭТОГО прогона уже посчитан (:meth:`Feed._survive`).
     blamed: bool = False
+    #: Каталог перекодированных кусков (§6.2). Если для слота там лежит готовый кусок,
+    #: наружу идёт он, а копия выбрасывается: место в фильме и метки те же, а битрейт
+    #: такой, который приёмник гарантированно тянет.
+    #:
+    #: Выкладка остаётся ровно здесь, вторым выкладывающим кодировщик не становится —
+    #: иначе инвариант «край двигает только состоявшееся переименование» (:attr:`edge`,
+    #: §7.4 SPEC-v2) пришлось бы держать в двух местах.
+    spare: Path | None = None
+    #: Кого позвать, когда сегмент ушёл наружу: ``(слот, перекодирован ли)``.
+    told: Any = None
+    #: Кого спросить «этот кусок сейчас перекодируют, подожди»: ``(слот) -> bool``.
+    #:
+    #: Нужно ровно против одной гонки, найденной живым прогоном (§6.2): упаковщик на
+    #: старте прогона выкладывает ``burst`` (60 с) разом, а кодировщику на эти же 60 с
+    #: нужно вдвое меньше, но не мгновение, — и тяжёлые куски уходили копией просто
+    #: потому, что упаковщик их обогнал. Придержанный кусок никуда не девается: он лежит
+    #: в каталоге прогона и выложится либо перекодированным, либо как есть по истечении
+    #: срока. Ждать при этом безопасно только там, докуда показу ещё далеко, — за этим
+    #: следит спрашиваемый (:meth:`torrcast.recode.Recoder.holding`).
+    hold: Any = None
 
     def __post_init__(self) -> None:
         # Прогон, который ещё ничего не выложил, стоит ровно перед своим первым сегментом:
@@ -1138,7 +1183,16 @@ class Packer:
         self.edge = max(self.edge, self.first - 1)
 
     @classmethod
-    def start(cls, command: list[str], out: Path, run: Path, first: int = 0) -> Packer:
+    def start(
+        cls,
+        command: list[str],
+        out: Path,
+        run: Path,
+        first: int = 0,
+        spare: Path | None = None,
+        told: Any = None,
+        hold: Any = None,
+    ) -> Packer:
         log = tempfile.TemporaryFile()  # noqa: SIM115 — живёт всё воспроизведение
         shutil.rmtree(run, ignore_errors=True)
         run.mkdir(parents=True, exist_ok=True)
@@ -1146,7 +1200,9 @@ class Packer:
             proc = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=log)
         except FileNotFoundError as exc:
             raise InfraError("ffmpeg не установлен") from exc
-        return cls(proc=proc, out=out, run=run, first=first, log=log)
+        return cls(
+            proc=proc, out=out, run=run, first=first, log=log, spare=spare, told=told, hold=hold
+        )
 
     def publish(self) -> None:
         """Выложить наружу куски, которые ffmpeg уже дописал.
@@ -1167,11 +1223,27 @@ class Packer:
             if slot < self.first:
                 path.unlink(missing_ok=True)
                 continue
+            # Кусок сейчас перекодируют — подождём его (:attr:`hold`). Дальше по списку не
+            # идём: выложить следующий, оставив дыру, значит увести край за неё, и запрос
+            # придержанного места выглядел бы для :meth:`Feed._steer` перемоткой назад.
+            if self.hold is not None and self.hold(slot):
+                break
+            # Перекодированный кусок этого же места лучше копии: то же разрешение и те же
+            # метки, но битрейт, который приёмник тянет (§6.2). Копия при этом выбрасывается.
+            better = self.spare / segment_name(slot) if self.spare is not None else None
+            source = better if better is not None and better.exists() else path
+            moved = False
             with contextlib.suppress(OSError):
-                os.replace(path, self.out / segment_name(slot))
+                os.replace(source, self.out / segment_name(slot))
                 # Край двигает только состоявшееся переименование: «выложил» — это факт
                 # этой строки, а не наличие файла в каталоге (:attr:`edge`).
                 self.edge = max(self.edge, slot)
+                moved = True
+            if moved and source is not path:
+                path.unlink(missing_ok=True)
+            if moved and self.told is not None:
+                with contextlib.suppress(Exception):
+                    self.told(slot, source is not path)
 
     def cuts(self) -> list[tuple[int, float, float]]:
         """Что ffmpeg нарезал на самом деле: ``(сегмент, начало, конец)`` по его же списку.
@@ -1329,6 +1401,9 @@ class Feed:
     crashes: int = 0
     fatal: str = ""
     log: Any = None
+    #: Кодировщик тяжёлых кусков (:class:`torrcast.recode.Recoder`) или ``None``, если
+    #: динамический битрейт выключен либо тяжёлых кусков в фильме нет (§6.2).
+    recoder: Any = None
 
     @property
     def duration(self) -> float:
@@ -1450,7 +1525,15 @@ class Feed:
             self.burst,
         )
         self.restarted = time.monotonic()
-        self.packer = Packer.start(command, self.out, self.out / PACK_DIR, slot)
+        self.packer = Packer.start(
+            command,
+            self.out,
+            self.out / PACK_DIR,
+            slot,
+            spare=None if self.recoder is None else self.recoder.spare,
+            told=None if self.recoder is None else self.recoder.note,
+            hold=None if self.recoder is None else self.recoder.holding,
+        )
         drop = self.grid.start(slot) - at
         self._say(
             f"упаковка с {self.grid.start(slot):.1f} с"
@@ -1554,11 +1637,14 @@ class Feed:
         # Закрыто насовсем: поток раздачи, спящий в segment() до двух минут, не должен
         # проснуться и поднять новый ffmpeg в каталог, который уже отдан следующей серии.
         self.fatal = self.fatal or "показ окончен"
+        if self.recoder is not None:
+            self.recoder.stop()
         if self.packer is not None:
             self.packer.stop()
         for junk in _paths(self.out):
             junk.unlink(missing_ok=True)
         shutil.rmtree(self.out / PACK_DIR, ignore_errors=True)
+        shutil.rmtree(self.out / RECODE_DIR, ignore_errors=True)
         forget_playing(self.out)
 
     def _say(self, text: str) -> None:
