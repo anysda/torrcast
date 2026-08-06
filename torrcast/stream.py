@@ -75,6 +75,7 @@ __all__ = [
     "unit_active",
     "unit_key",
     "unit_why",
+    "voice_order",
     "warm_at",
     "warm_file",
 ]
@@ -211,6 +212,55 @@ class TorrFile:
         return self.name.replace("\\", "/").rsplit("/", 1)[-1]
 
 
+#: Языковые коды, которые ffprobe отдаёт для русской дорожки.
+_RU_LANG: Final = frozenset({"rus", "ru", "russian", "рус"})
+#: Коды, которые языка не называют: дорожка без тега или тег-заглушка. Тогда язык
+#: приходится читать из заголовка — у половины живых раздач он там и написан.
+_VAGUE_LANG: Final = frozenset({"", "und", "unk", "unknown", "mul", "mis", "zxx", "qaa"})
+#: Заголовок называет НЕ русскую озвучку. Нужен ровно потому, что «Дубляж» пишут
+#: кириллицей и для казахской, и для украинской дорожки («Тачки 3»: rus/ukr/kaz — у
+#: всех трёх заголовок «Дубляж», и различает их только тег языка).
+_FOREIGN_TITLE_RE: Final = re.compile(
+    r"укр|ukr|каз|kaz|қаз|беларус|bel\b|eng\b|англ|original|ориг", re.IGNORECASE
+)
+#: Заголовок называет русскую озвучку: либо прямо, либо маркером перевода.
+_RU_TITLE_RE: Final = re.compile(
+    r"\brus?\b|русск|дубляж|дублир|многоголос|закадр|двухголос|одноголос|перевод|авторск",
+    re.IGNORECASE,
+)
+#: Служебные дорожки: тифлокомментарий и комментарии съёмочной группы. Русские,
+#: осмысленные и совершенно не то, что человек хочет услышать. Живой случай —
+#: «Тачки 3»: дорожка №2 «Дубляж для слабовидящих» стоит сразу за нормальным дубляжом.
+_SERVICE_RE: Final = re.compile(
+    r"слабовидящ|тифлокоммент|коммент|commentary|audio\s*descr|described",
+    re.IGNORECASE,
+)
+#: Оригинальная дорожка — последняя ступень лестницы, но выше чужого дубляжа.
+_ORIGINAL_RE: Final = re.compile(r"original|\borig\b|ориг", re.IGNORECASE)
+#: Вид перевода по заголовку → ступень. Порядок здравого смысла (правка владельца
+#: 06-08 к §2 SPEC-v2): дубляж → многоголосый/закадровый → прочий русский → оригинал.
+#: Регексы писаны по живой выдаче: «Дубляж. (MovieDalen)», «MVO (LostFilm)»,
+#: «[TVShows][MVO]», «DUB-Blu-ray CEE», «MVO-студия «Омикрон»», «AVO-Сербин», «VO-Есарев».
+_VOICE_STEPS: Final[tuple[tuple[str, re.Pattern[str]], ...]] = (
+    ("дубляж", re.compile(r"дубляж|дублир|\bdub\b|\bдб\b", re.IGNORECASE)),
+    ("многоголосый", re.compile(r"многоголос|закадр|\bmvo\b|\bпм\b|\bлм\b", re.IGNORECASE)),
+    ("двухголосый", re.compile(r"двухголос|\bdvo\b|\bдвг\b", re.IGNORECASE)),
+    ("одноголосый", re.compile(r"одноголос|авторск|\bavo\b|\bvo\b|\bло\b|\bап\b", re.IGNORECASE)),
+)
+#: Ступени, на которые встаёт нерусская дорожка и служебная.
+STEP_RU_PLAIN: Final = len(_VOICE_STEPS)  #: русская без маркера перевода
+STEP_ORIGINAL: Final = STEP_RU_PLAIN + 1  #: оригинал
+STEP_FOREIGN: Final = STEP_RU_PLAIN + 2  #: чужой дубляж: украинский, казахский
+STEP_SERVICE: Final = STEP_RU_PLAIN + 3  #: тифлокомментарий и комментарии
+#: Технический хвост заголовка: «DUB (Rus) / AC3 / 6 ch / 384 kbps / 48 kHz». Человеку
+#: в строке запуска он не нужен, а подписью озвучки (она же ключ памяти) быть мешает.
+_TECH_RE: Final = re.compile(
+    r"^(?:ac3|eac3|dts(?:-hd)?(?:\s*ma)?|aac|mp3|flac|opus|truehd|pcm|lpcm|dd\+?|ddp"
+    r"|\d+\s*ch|\d+\s*kbps|\d+(?:[.,]\d+)?\s*k?hz|\d+\s*bit|\d\.\d)\b",
+    re.IGNORECASE,
+)
+
+
 @dataclass(frozen=True, slots=True)
 class AudioTrack:
     index: int
@@ -221,15 +271,63 @@ class AudioTrack:
 
     @property
     def label(self) -> str:
-        """Человеческая подпись для меню озвучек."""
-        parts = [p for p in (self.language, self.title) if p]
-        return " · ".join(parts) if parts else f"дорожка {self.index}"
+        """Человеческая подпись озвучки: «rus · Дубляж (MovieDalen)».
+
+        Она же ключ памяти (:attr:`torrcast.state.Entry.voice`), поэтому технический
+        хвост из неё убран: «DUB (Rus) / AC3 / 6 ch / 384 kbps / 48 kHz» — это одна и та
+        же озвучка что с битрейтом в имени, что без.
+        """
+        parts = [p for p in (self.language, self.clean_title) if p]
+        return " · ".join(parts) if parts else f"дорожка {self.index + 1}"
+
+    @property
+    def clean_title(self) -> str:
+        """Заголовок без технического хвоста (кодек, каналы, битрейт, частота)."""
+        kept: list[str] = []
+        for chunk in (self.title or "").split("/"):
+            if _TECH_RE.match(chunk.strip()):
+                break
+            kept.append(chunk.strip())
+        return " / ".join(p for p in kept if p).strip(" .")
 
     @property
     def is_russian(self) -> bool:
-        """Русская дорожка — дефолт меню (§2.1)."""
-        haystack = f"{self.language or ''} {self.title or ''}".casefold()
-        return bool(re.search(r"\brus?\b|русск|дубляж", haystack))
+        """Русская ли дорожка. Тег языка сильнее заголовка: «Дубляж» с тегом ``kaz`` —
+        казахский дубляж, и слышать его никто не хотел (живой случай «Тачки 3»).
+        """
+        lang = (self.language or "").strip().casefold()
+        if lang in _RU_LANG:
+            return True
+        if lang not in _VAGUE_LANG:  # язык назван, и он не русский — заголовок не спорит
+            return False
+        title = self.title or ""
+        return bool(_RU_TITLE_RE.search(title)) and not _FOREIGN_TITLE_RE.search(title)
+
+    @property
+    def kind(self) -> str:
+        """Вид перевода словами: ``дубляж``, ``многоголосый``…; пусто — маркера нет."""
+        title = self.title or ""
+        return next((name for name, rx in _VOICE_STEPS if rx.search(title)), "")
+
+    @property
+    def step(self) -> int:
+        """Ступень лестницы «самой нормальной» озвучки; меньше — ближе к дефолту."""
+        title = self.title or ""
+        if _SERVICE_RE.search(title):
+            return STEP_SERVICE
+        if not self.is_russian:
+            return STEP_ORIGINAL if _ORIGINAL_RE.search(title) else STEP_FOREIGN
+        steps = (i for i, (name, _) in enumerate(_VOICE_STEPS) if name == self.kind)
+        return next(steps, STEP_RU_PLAIN)
+
+
+def voice_order(track: AudioTrack) -> tuple[int, int]:
+    """Место дорожки в очереди на дефолт: ступень, а при равной ступени — порядок в файле.
+
+    Порядок внутри ступени берём авторский: сборщик раздачи кладёт первой ту озвучку,
+    которую сам считает основной («Моана 2»: три дубляжа подряд, первым MovieDalen).
+    """
+    return (track.step, track.index)
 
 
 @dataclass(slots=True)
@@ -299,11 +397,26 @@ class Media:
         return f"внимание: видео {self.video} — ресивер может не взять, а мы не перекодируем"
 
     def default_track(self) -> int:
-        """Дефолт меню озвучек — первая русская, иначе первая (§2.1)."""
-        for track in self.tracks:
-            if track.is_russian:
-                return track.index
-        return self.tracks[0].index if self.tracks else 0
+        """«Самая нормальная» озвучка — та, что играет без вопросов (правка владельца
+        06-08 к §2 SPEC-v2): русский дубляж → русский многоголосый → прочий русский →
+        оригинал → чужой дубляж; служебные дорожки (тифлокомментарий, комментарии) — в
+        самый низ. Выбор не молчаливый: подпись дорожки печатается в строке запуска.
+        """
+        if not self.tracks:
+            return 0
+        return min(self.tracks, key=voice_order).index
+
+    def find_voice(self, label: str) -> int | None:
+        """Дорожка с такой подписью (память озвучки, §2 SPEC-v2); ``None`` — такой нет.
+
+        Сравниваем подписи, а не номера: релиз мог смениться, и «дорожка 4» в новом
+        релизе — это другая студия. Подпись же (`rus · MVO (LostFilm)`) переживает смену
+        релиза ровно тогда, когда та же озвучка в нём есть.
+        """
+        want = label.casefold().strip()
+        if not want:
+            return None
+        return next((t.index for t in self.tracks if t.label.casefold().strip() == want), None)
 
 
 class TorrServer:

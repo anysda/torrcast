@@ -95,16 +95,21 @@ def _answers(monkeypatch: pytest.MonkeyPatch, *replies: str) -> list[str]:
     return asked
 
 
-def test_the_happy_path_asks_about_the_film_and_the_voice_and_nothing_else(
+def test_the_happy_path_asks_about_the_film_and_nothing_else(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """§2 SPEC-v2 дословно: «какой фильм франшизы?» и «какая озвучка?» — и всё."""
+    """§2 SPEC-v2 с правкой владельца 06-08: вопрос ровно один — «какой фильм франшизы?».
+
+    Меню озвучки из счастливого пути убрано: дорожка выбирается сама, а её подпись
+    печатается в строке запуска — молчаливой подмены тут нет, есть названный выбор.
+    """
     asked = _answers(monkeypatch, "2", "")
 
     assert cli.main(["моана"]) == 0
 
     printed = capsys.readouterr().out
-    assert [q.split("[")[0].strip() for q in asked] == ["Что смотрим?", "Озвучка?"]
+    assert [q.split("[")[0].strip() for q in asked] == ["Что смотрим?"]
+    assert "Озвучка:" not in printed, "меню озвучки на счастливом пути больше нет"
     assert "  1. Moana (2016)" in printed and "  2. Моана 2 (2024)" in printed
     assert "играю «Моана 2» (2024) · 1080p · rus · Дубляж — на ТВ" in printed
     # Ни таблицы релизов, ни файлов, ни серий — это и была претензия №2 владельца.
@@ -117,7 +122,7 @@ def test_the_happy_path_asks_about_the_film_and_the_voice_and_nothing_else(
 def test_a_single_choice_is_not_a_question(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Меню франшизы и озвучки пропускаются, когда выбор единственный (§2 SPEC-v2)."""
+    """Меню франшизы пропускается, когда картина одна; озвучки нет вовсе (§2 SPEC-v2)."""
     monkeypatch.setattr(cli, "probe", lambda url, timeout=90.0: Media(5978.0, TRACKS[:1], "h264"))
     asked = _answers(monkeypatch)
 

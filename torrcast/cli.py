@@ -1,13 +1,16 @@
 """CLI — единственный наш процесс (§3 ТЗ).
 
 Контракт (§5 v1 + §2 SPEC-v2): ``cast <запрос> [sNeM] [--new] [--dry]``, отладочные
-ручки ``--release N`` / ``--file N`` / ``cast releases <запрос>``, а также ``cast stop``,
-``cast status``, ``cast doctor``, ``cast --tv <ip>``. Коды выхода: ``0`` ок · ``1`` не
-нашли · ``2`` инфра-ошибка; наружу — короткие русские строки без трейсбеков (§6).
+ручки ``--release N`` / ``--file N`` / ``--voice N`` / ``cast releases <запрос>`` /
+``cast voices <запрос>``, а также ``cast stop``, ``cast status``, ``cast doctor``,
+``cast --tv <ip>``. Коды выхода: ``0`` ок · ``1`` не нашли · ``2`` инфра-ошибка;
+наружу — короткие русские строки без трейсбеков (§6).
 
-Счастливый путь §2 SPEC-v2 — два вопроса и ни одного упоминания файлов: «какой фильм
-франшизы?» и «какая озвучка?», оба пропускаются при единственном варианте. Релиз
-выбирается сам, а таблица релизов и список файлов уезжают в отладочные ручки.
+Счастливый путь §2 SPEC-v2 (с правкой владельца 06-08) — **один вопрос** и ни одного
+упоминания файлов: «какой фильм франшизы?», и тот пропускается, когда картина одна.
+Релиз и озвучка выбираются сами, о выборе говорится вслух, а таблица релизов, список
+файлов и меню озвучек уезжают в отладочные ручки. Второй вопрос бывает ровно один —
+«Продолжить?» у начатой картины (§2.3 v1): он про намерение, а не про технику.
 """
 
 from __future__ import annotations
@@ -81,11 +84,13 @@ __all__ = [
     "liveliness",
     "main",
     "parse_args",
+    "pick_voice",
     "promises_more",
     "quality_text",
     "rank_releases",
     "render_table",
     "understated",
+    "voices_table",
     "warm_order",
 ]
 
@@ -94,6 +99,9 @@ EXIT_OK, EXIT_NOT_FOUND, EXIT_INFRA = 0, 1, 2
 TABLE_LIMIT = 12
 #: Сколько релизов подряд проверяем ffprobe, прежде чем сдаться (§1: подмены не молчат).
 MAX_TRIES = 3
+#: ``--voice`` без номера: показать меню озвучек. Ноль тут свободен — дорожки для
+#: человека нумеруются с единицы.
+VOICE_MENU = 0
 #: Сколько картин франшизы греем под меню: топ-2–3 релиза уходят в TorrServer фоном,
 #: пока человек отвечает на вопросы (§4 SPEC-v2).
 PREWARM = 3
@@ -187,7 +195,10 @@ class Args:
     tv: str | None = None
     release: int | None = None
     file: int | None = None
-    audio: int | None = None
+    #: ``--voice N`` — играть дорожку N; ``--voice`` без номера (:data:`VOICE_MENU`) —
+    #: показать меню озвучек и спросить. На счастливом пути обоих нет: озвучка
+    #: выбирается сама (правка владельца 06-08 к §2 SPEC-v2).
+    voice: int | None = None
     new: bool = False
     dry: bool = False
     #: Внутреннее: показ внутри transient-юнита, руками не зовётся.
@@ -195,12 +206,12 @@ class Args:
 
     @property
     def command(self) -> str:
-        """``stop`` / ``status`` / ``doctor`` / ``releases`` / ``play`` / ``configure`` /
-        ``worker``.
+        """``stop`` / ``status`` / ``doctor`` / ``releases`` / ``voices`` / ``play`` /
+        ``configure`` / ``worker``.
         """
         if self.play_key:
             return "worker"
-        if self.query and self.query[0] in {"stop", "status", "doctor", "releases"}:
+        if self.query and self.query[0] in {"stop", "status", "doctor", "releases", "voices"}:
             return self.query[0]
         if not self.query:
             return "configure" if self.tv else "status"
@@ -230,7 +241,18 @@ def parse_args(argv: Sequence[str] | None = None) -> Args:
     parser.add_argument("--tv", metavar="IP", help="разовая настройка адреса ТВ (или mock)")
     parser.add_argument("--release", type=int, metavar="N", help="отладка: взять релиз N")
     parser.add_argument("--file", type=int, metavar="N", help="отладка: взять файл N раздачи")
-    parser.add_argument("--audio", type=int, metavar="N", help="взять дорожку N без меню")
+    parser.add_argument(
+        "--voice",
+        type=int,
+        nargs="?",
+        const=VOICE_MENU,
+        metavar="N",
+        help="озвучка: N — взять дорожку N и запомнить, без номера — меню",
+    )
+    # Прежнее имя того же флага: ломать чужие пальцы и историю оболочки незачем.
+    parser.add_argument(
+        "--audio", type=int, nargs="?", const=VOICE_MENU, dest="voice", help=argparse.SUPPRESS
+    )
     parser.add_argument("--new", action="store_true", help="забыть прогресс и выбрать заново")
     parser.add_argument("--dry", action="store_true", help="весь резолв без каста")
     parser.add_argument("--play-key", metavar="KEY", help=argparse.SUPPRESS)
@@ -259,6 +281,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 return _cmd_doctor()
             if command == "releases":
                 return _cmd_releases(args)
+            if command == "voices":
+                return _cmd_voices(args)
             if command == "worker":
                 return _cmd_worker(str(args.play_key))
             return _cmd_play(args)
@@ -362,6 +386,38 @@ def _cmd_releases(args: Args) -> int:
         print(render_table(plan.ranked, plan.runtime, plan.warn_mbit))
     print()
     print("играть конкретный: cast <запрос> --release N [--file N]")
+    return EXIT_OK
+
+
+def _cmd_voices(args: Args) -> int:
+    """``cast voices <запрос>`` — какие озвучки есть у релиза, который поедет на ТВ.
+
+    Отладочная ручка того же рода, что ``cast releases``: на счастливом пути озвучка
+    выбирается сама (правка владельца 06-08 к §2 SPEC-v2), а посмотреть, из чего она
+    выбрана, — сюда. Играть конкретную: ``cast <запрос> --voice N``.
+
+    Показ отсюда не начинается и состояние не пишется; прогретые раздачи убираются из
+    TorrServer, как и на всяком пути мимо показа (:meth:`_Bench.drop_all`).
+    """
+    config = load_config()
+    inner = Args(query=list(args.query[1:]), release=args.release, file=args.file)
+    if not inner.query:
+        raise NotFoundError("что искать? cast voices <запрос>")
+    with Progress() as progress:
+        plans = _search(config, inner, progress)
+        bench = _Bench(TorrServer(config.torrserver_url), choose=_file_picker(inner))
+        try:
+            plan = _pick_plan(plans)
+            prep = bench.resolve(plan, inner, progress)
+        finally:
+            bench.drop_all()
+    media = prep.found
+    remembered = _remembered(State.load(), plan.picture.key, None)
+    print()
+    print(f"{_named(plan.picture)} — релиз №{prep.number}: {_cut(prep.release.title, 60)}")
+    print(voices_table(media, media.default_track(), remembered))
+    print()
+    print("играть конкретную: cast <запрос> --voice N   (выбор запомнится на эту картину)")
     return EXIT_OK
 
 
@@ -568,7 +624,7 @@ def _cmd_play(args: Args) -> int:
         bench.keep_only(prep)  # прогрев греет лишнее — до показа лишнее убираем
 
     release, video, media = prep.release, prep.want, prep.found
-    audio = _ask_audio(media, args)
+    audio, voice = pick_voice(media, args, _remembered(state, plan.picture.key, found_entry))
     mark("ответы")  # ноль секундомера §7.1: Enter после последнего вопроса
     label = media.tracks[audio].label if audio < len(media.tracks) else "—"
     series = plan.series
@@ -591,6 +647,7 @@ def _cmd_play(args: Args) -> int:
         kind="tv" if plan.picture.kind == "tv" else "movie",
         file_idx=video.index,
         audio=audio,
+        voice=voice,
         dur=media.duration,
         # То, что уехало на ТВ: `cast status` покажет факт, а не заявку имени (§1 v1).
         quality=media.quality if media.height else "",
@@ -742,6 +799,8 @@ def _continue(config: Config, key: str, entry: Entry, args: Args, clock: _Clock)
     Сериал вопросов не задаёт вовсе: релиз, дорожка и список серий уже выбраны, а
     какую серию и с какого места играть — записано. Фильм спрашивает ровно одно (§2.3).
     """
+    if args.voice is not None:  # явный выбор озвучки поверх памяти (§2 SPEC-v2)
+        entry = _revoice(config, entry, args)
     if not entry.serial:  # фильм (в том числе ошибочно записанный сериалом) — один вопрос
         return _resume(config, key, entry, clock=clock, dry=args.dry) if entry.resumable else None
     if args.episode is not None:  # `cast киберпанк s2e5` — прыжок по кэшу раздачи
@@ -758,9 +817,45 @@ def _continue(config: Config, key: str, entry: Entry, args: Args, clock: _Clock)
     return _launch(config, key, entry, _about(entry), clock, args.dry)
 
 
+def _remembered(state: State, key: str, found: tuple[str, Entry] | None) -> str:
+    """Озвучка, которую владелец выбирал для этой картины (§2 SPEC-v2, правка 06-08).
+
+    Смотрим по каноническому ключу картины — под ним показ и пишет запись. Запись,
+    найденную по тексту запроса (:meth:`State.find`), берём запасным вариантом: у
+    одной картины в состоянии могут лежать записи разных запросов («moana» и «моана»),
+    и память озвучки не должна зависеть от того, как её позвали в прошлый раз.
+    """
+    entry = state.get(key) or (found[1] if found is not None else None)
+    return entry.voice if entry is not None else ""
+
+
+def _revoice(config: Config, entry: Entry, args: Args) -> Entry:
+    """``--voice`` поверх сохранённого выбора: перечитать дорожки раздачи и взять нужную.
+
+    Нужно ровно для сериала и продолжения: там показ идёт по записи состояния и потока
+    никто не читает — ни номеров дорожек, ни подписей взять неоткуда. Платим за это
+    метаданными раздачи и одним ffprobe (секунды, с живым прогрессом), и платим только
+    когда флаг назван: счастливый путь этой цены не видит.
+
+    Состояние отсюда не пишется: выбор уезжает в запись показа (:func:`_launch`) вместе
+    с позицией и серией. Так у ``--dry`` не остаётся следов, а память не переписывается
+    показом, который не начался.
+    """
+    torrserver = TorrServer(config.torrserver_url)
+    with Progress() as progress:
+        progress.phase("дорожки")
+        torrent_hash = torrserver.add(entry.magnet)
+        torrserver.wait_files(torrent_hash, timeout=META_BUDGET)
+        media = probe(torrserver.stream_url(torrent_hash, entry.file_idx), timeout=PROBE_BUDGET)
+        progress.phase("")
+    entry.audio, entry.voice = pick_voice(media, args, entry.voice)
+    return entry
+
+
 def _about(entry: Entry) -> str:
     """Строка показа по записи состояния: «Киберпанк» · s1e2 · дорожка 1 · с 0:03:20."""
-    parts = [f"«{entry.title}»", entry.label, entry.quality, f"дорожка {entry.audio + 1}"]
+    voice = entry.voice or f"дорожка {entry.audio + 1}"
+    parts = [f"«{entry.title}»", entry.label, entry.quality, voice]
     if entry.pos > 0:
         parts.append(f"с {_hms(entry.pos)}")
     return " · ".join(filter(None, parts))
@@ -1646,18 +1741,63 @@ def render_table(
     return "\n".join(out)
 
 
-def _ask_audio(media: Media, args: Args) -> int:
-    """Выбор дорожки: одна дорожка — вопроса нет, дефолт — русская (§2.1)."""
+def pick_voice(media: Media, args: Args, remembered: str = "") -> tuple[int, str]:
+    """Какую дорожку играем и что после этого лежит в памяти картины.
+
+    Правка владельца 06-08 к §2 SPEC-v2: **на счастливом пути вопроса про озвучку нет**.
+    Дорожка выбирается сама (:meth:`Media.default_track`), и её подпись печатается в
+    строке запуска — молчаливых подмен не бывает (§1 v1).
+
+    Спросить можно только явно: ``--voice N`` берёт дорожку N, ``--voice`` без номера
+    показывает меню. Оба — явный выбор, и только он пишется в память картины
+    (:attr:`torrcast.state.Entry.voice`). Автовыбор память не трогает: иначе первый же
+    запуск с другим релизом переписал бы то, что владелец выбрал руками.
+
+    Возвращает пару «номер дорожки в этом релизе, память картины».
+    """
     if not media.tracks:
         raise InfraError("в файле нет звуковых дорожек")
-    if args.audio is not None:
-        if not 1 <= args.audio <= len(media.tracks):
-            raise NotFoundError(f"дорожек {len(media.tracks)}, номера {args.audio} нет")
-        return args.audio - 1
-    if len(media.tracks) == 1:  # выбора нет — вопроса тоже (§2 SPEC-v2)
-        return 0
-    print("Озвучка: " + "  ".join(f"{t.index + 1}. {t.label}" for t in media.tracks))
-    return ask("Озвучка?", len(media.tracks), default=media.default_track() + 1) - 1
+    if args.voice is not None:
+        index = _ask_voice(media) if args.voice == VOICE_MENU else _voice_number(media, args.voice)
+        return index, media.tracks[index].label
+    if remembered:
+        found = media.find_voice(remembered)
+        if found is not None:
+            return found, remembered
+        # Память живёт на картину, а релиз временный: озвучки в нём нет — говорим и
+        # играем обычную, но выбор владельца не забываем (:attr:`Entry.voice`).
+        print(f"озвучки «{remembered}» в этом релизе нет — беру обычную")
+    return media.default_track(), remembered
+
+
+def _voice_number(media: Media, number: int) -> int:
+    """Номер дорожки от человека → индекс; чужого номера нет — честная строка (§1)."""
+    if not 1 <= number <= len(media.tracks):
+        raise NotFoundError(
+            f"дорожек {len(media.tracks)}, номера {number} нет — посмотри: cast voices <запрос>"
+        )
+    return number - 1
+
+
+def _ask_voice(media: Media) -> int:
+    """Меню озвучек — только по ``--voice`` без номера. Дефолт тот же, что и без флага."""
+    default = media.default_track()
+    if len(media.tracks) == 1:  # выбора нет — вопроса тоже
+        return default
+    print(voices_table(media, default))
+    return ask("Озвучка?", len(media.tracks), default=default + 1) - 1
+
+
+def voices_table(media: Media, default: int, remembered: str = "") -> str:
+    """Список озвучек с пометками «дефолт» и «запомнено» — для меню и ``cast voices``."""
+    found = media.find_voice(remembered) if remembered else None
+    rows = []
+    for track in media.tracks:
+        marks = (("дефолт", track.index == default), ("запомнено", track.index == found))
+        note = [word for word, on in marks if on]
+        tail = f"   [{', '.join(note)}]" if note else ""
+        rows.append(f"  {track.index + 1}. {track.label}{tail}")
+    return "\n".join(["Озвучка:", *rows])
 
 
 def _gb(size: int) -> str:
