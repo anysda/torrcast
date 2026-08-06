@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import subprocess
+import time
 from typing import TYPE_CHECKING
 
 import pytest
@@ -145,6 +146,10 @@ def fake_packer(
     edge: int | None = None,
     run: Path | None = None,
     last: int = -1,
+    at: float = 0.0,
+    rate: float = 0.0,
+    burst: float = 0.0,
+    began: float = 0.0,
 ) -> Packer:
     """Прогон упаковки без ffmpeg: сегменты в ``out`` кладёт сам тест.
 
@@ -157,6 +162,11 @@ def fake_packer(
     так читается обычный случай «тест положил куски руками, они и есть работа прогона».
     Куски, положенные ПОСЛЕ создания, краем уже не считаются — ровно этим отличается
     честный край от глоба каталога, и на этом стоит §7.4 SPEC-v2.
+
+    ``at``/``rate``/``burst``/``began`` — планка чтения ffmpeg (:meth:`Packer.eta`): с
+    какой секунды фильма прогон читает вход, в каком темпе, сколько секунд читал на полной
+    скорости и когда начался. Умолчание — темпа нет, то есть ждать упаковку не надо
+    никогда: так читаются все тесты, где вопрос не про темп.
 
     ``run`` и ``last`` нужны там, где проверяется сама выкладка: каталог прогона со
     своими кусками и предел захода кодировщика (:attr:`torrcast.stream.Packer.last`).
@@ -173,4 +183,8 @@ def fake_packer(
         first=first,
         edge=edge,
         last=last,
+        at=at,
+        rate=rate,
+        burst=burst,
+        began=began or time.monotonic(),
     )

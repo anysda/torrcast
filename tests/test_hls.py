@@ -523,6 +523,45 @@ def test_a_burst_of_requests_after_a_seek_restarts_packing_only_once(
     assert started == [50], "остальные пять — префетч того же места, а не пять перемоток"
 
 
+def test_a_forward_seek_inside_the_run_does_not_wait_out_the_readrate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """🟠 §6.2.7 SPEC-v2: 28 с чёрного экрана на перемотке вперёд внутри прогона.
+
+    Замер на живом Q70D (§7.9, смок 27): перемотка 3984 → 4100 (+116 с) — «запрос v385.ts
+    · ждал 57.8 с». Место лежало **внутри** прогона и в семи сегментах за краем, то есть
+    по счёту штук это был обычный ход показа. А по времени — нет: упаковка идёт
+    ``readrate 1``, и семьдесят секунд фильма впереди края она будет читать семьдесят
+    секунд. Ждать столько — это и есть подгруз, только называется иначе.
+    """
+    grid = Grid.uniform(FILM)
+    out = hls_dir(str(tmp_path / "hls"))
+    for slot in range(5):
+        (out / f"v{slot}.ts").write_bytes(b"x")
+    started: list[int] = []
+    monkeypatch.setattr(Feed, "restart", lambda self, slot: started.append(slot))
+    feed = Feed(source="", audio=0, out=out, grid=grid, wait=0.0, ahead=7, jump=15.0)
+
+    # Прогон только что начался с нуля: первые 60 с фильма он читает на полной скорости,
+    # и всё, что попадает в burst, честно «вот-вот допакуется».
+    feed.packer = fake_packer(out, edge=4, at=0.0, rate=1.0, burst=60.0)
+    feed.segment(5)
+    assert started == [], "кусок внутри burst — упаковка достанет его за мгновение"
+
+    # Тот же запрос в семи сегментах за краем: 110-я секунда фильма при планке чтения на
+    # 60-й — это 50 секунд ожидания. Перезапуск с этого места стоит 3–4.
+    feed.segment(11)
+    assert started == [11], "ждать 50 с вместо перезапуска — это и есть чёрный экран"
+
+    # А тот же прогон, проживший сто секунд, дочитал до 160-й: ждать нечего.
+    started.clear()
+    feed.packer = fake_packer(
+        out, edge=4, at=0.0, rate=1.0, burst=60.0, began=time.monotonic() - 100.0
+    )
+    feed.segment(11)
+    assert started == [], "упаковка это место уже прошла — перезапуск был бы вредительством"
+
+
 def test_the_seek_threshold_is_counted_in_segments_not_in_seconds(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
