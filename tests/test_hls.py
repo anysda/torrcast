@@ -715,7 +715,63 @@ def test_nothing_but_the_stream_is_reachable(served: Any) -> None:
         assert session.get(f"{base}{path}", timeout=10).status_code == 404, path
 
 
-def test_manifest_is_parsed_into_segments_and_the_end_marker() -> None:
+def test_a_stopped_show_stops_answering_even_on_a_live_connection(tmp_path: Path) -> None:
+    """🔴 §7.4 SPEC-v2, стык серий: остановленная раздача обязана ЗАМОЛЧАТЬ.
+
+    Приёмник ходит по HTTP/1.1 и держит одно соединение на весь показ, а потоки-обработчики
+    демонические — ``server_close`` закрывает слушающий сокет и не трогает их. Пока это было
+    так, LOAD следующей серии уходил в keep-alive прошлой, и отвечал на него уже
+    остановленный :class:`Feed`: манифест прошлой серии и мгновенный 404 на ``v0.ts``.
+    Приёмник на это отвечает ``IDLE/ERROR`` — те самые 15 с пустого экрана на живом Q70D.
+
+    Проверяется ровно это: то же самое соединение, тот же порт, следующая серия — и ни
+    одного ответа от прошлой.
+    """
+    import http.client
+
+    port = 18461
+    old_root, old_feed = _stub(tmp_path / "s1e5")
+    old = HlsServer(old_root, host="127.0.0.1", port=port, feed=old_feed)
+    old.start()
+    live = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+    live.request("GET", "/index.m3u8")
+    assert live.getresponse().read().startswith(b"#EXTM3U"), "показ идёт, соединение живое"
+
+    old_feed.stop()  # ровно то, что делает _play в finally на стыке серий
+    old.stop()
+    new_root, new_feed = _stub(tmp_path / "s1e6")
+    new = HlsServer(new_root, host="127.0.0.1", port=port, feed=new_feed)
+    new.start()
+    try:
+        with pytest.raises((http.client.HTTPException, OSError)):
+            live.request("GET", "/index.m3u8")  # приёмник обязан узнать, что соединения нет
+            live.getresponse().read()
+        fresh = requests.get(f"http://127.0.0.1:{port}/v0.ts", timeout=10)
+        assert fresh.status_code == 200, "новое соединение отвечает уже следующая серия"
+    finally:
+        live.close()
+        new.stop()
+
+
+def test_a_run_we_stopped_ourselves_is_never_reported_as_a_crash(tmp_path: Path) -> None:
+    """🔴 §7.4 SPEC-v2: собственный ``terminate`` — не авария и не «нет вывода».
+
+    ffmpeg по SIGTERM выходит **кодом 255** (положительным, то есть на «убит сигналом» не
+    похоже), а прощаться он умеет только уровнем ``info`` — при ``-loglevel warning``
+    stderr остаётся пустым. Ровно так показ и ругался на труп, который сам же и снял.
+    """
+    out = hls_dir(str(tmp_path / "hls"))
+    feed = Feed(source="", audio=0, out=out, grid=Grid.uniform(20.0), wait=0.0)
+    packer = fake_packer(out, code=255)
+    packer.stopped = "показ окончен"
+    feed.packer = packer
+
+    assert packer.why() == "сняли сами: показ окончен"
+    assert feed._survive(packer), "снятый нами прогон попытку не тратит"
+    assert feed.crashes == 0 and not feed.fatal
+
+    other = fake_packer(out, code=255)
+    assert other.why() == "молча, код 255", "чужое молчание врать про себя не даёт"
     text = "#EXTM3U\n#EXTINF:4.000000,\nindex0.ts\n#EXTINF:2.500000,\nindex1.ts\n#EXT-X-ENDLIST\n"
     segments, ended = parse_manifest(text)
     assert segments == [("index0.ts", 4.0), ("index1.ts", 2.5)]

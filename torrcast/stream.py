@@ -1008,6 +1008,14 @@ class Packer:
     log: Any = None
     #: Упаковку погасили намеренно (пауза на пульте) — смерть процесса не авария.
     halted: bool = False
+    #: Зачем мы сами сняли этот прогон (:meth:`stop`); пусто — мы его не трогали.
+    #:
+    #: ⚠️ Без этой строки собственный ``terminate`` неотличим от аварии: ffmpeg по SIGTERM
+    #: выходит **кодом 255** (положительным!), а «Exiting normally, received signal 15» он
+    #: пишет уровнем ``info``, то есть при нашем ``-loglevel warning`` не пишет ничего.
+    #: Ровно так и родился 🔴 «первый прогон следующей серии умирает молча» (§7.4
+    #: SPEC-v2): показ ругался на труп, который сам же и снял.
+    stopped: str = ""
     #: Обрыв ЭТОГО прогона уже посчитан (:meth:`Feed._survive`).
     blamed: bool = False
 
@@ -1107,20 +1115,34 @@ class Packer:
         держит коннект и не запрашивает ничего. Поэтому процесс именно завершается.
         """
         self.halted = True
-        self.stop(keep_files=True)
+        self.stop(keep_files=True, reason="пауза на пульте")
 
     def poll(self) -> int | None:
         return self.proc.poll()
 
     def why(self) -> str:
-        """Последняя внятная строка от ffmpeg — наружу без трейсбеков (§6)."""
-        if self.log is None:
-            return "нет вывода"
-        self.log.seek(0)
-        lines = [ln for ln in self.log.read().decode("utf-8", "replace").splitlines() if ln.strip()]
-        return lines[-1][:120] if lines else "нет вывода"
+        """Почему прогон кончился — наружу без трейсбеков (§6).
 
-    def stop(self, keep_files: bool = False) -> None:
+        Порядок ответов честный: сначала «мы сами» (:attr:`stopped`), потом слово ffmpeg,
+        и только если он промолчал — код возврата. Молчание при коде 255 не загадка, а
+        подпись нашего же SIGTERM (см. :attr:`stopped`), и выдавать её за аварию нельзя.
+        """
+        if self.stopped:
+            return f"сняли сами: {self.stopped}"
+        code = self.proc.poll()
+        if code is not None and code < 0:
+            return f"убит сигналом {-code}"  # сказать он не успел — не выдумываем за него
+        lines: list[str] = []
+        if self.log is not None:
+            self.log.seek(0)
+            text = self.log.read().decode("utf-8", "replace")
+            lines = [ln for ln in text.splitlines() if ln.strip()]
+        if lines:
+            return lines[-1][:120]
+        return "нет вывода" if code is None else f"молча, код {code}"
+
+    def stop(self, keep_files: bool = False, reason: str = "") -> None:
+        self.stopped = self.stopped or reason
         if self.proc.poll() is None:
             self.proc.terminate()
             with contextlib.suppress(subprocess.TimeoutExpired):
@@ -1231,6 +1253,13 @@ class Feed:
         минут. Поэтому 404 отдаётся только там, где ждать нечего: конец входа или
         упаковка, которая сдалась насовсем.
         """
+        if self.fatal:
+            # Показ этой раздачи кончился (:meth:`stop`) или упаковка сдалась насовсем:
+            # диагностировать тут больше нечего, а труп прогона — не новость. ⚠️ Проверка
+            # стоит ПЕРВОЙ намеренно: на стыке серий сюда приходит приёмник, оставшийся
+            # на живом keep-alive прошлой серии, и раньше он получал в журнал «упаковка
+            # оборвалась» про наш же намеренно снятый ffmpeg (§7.4 SPEC-v2).
+            return False
         packer = self.packer
         if packer is not None and not packer.halted:
             # Край берём честный — тот, что выложил ЭТОТ прогон (:attr:`Packer.edge`).
@@ -1257,8 +1286,6 @@ class Feed:
             # его не этот прогон) лечатся одинаково: перепаковкой с этого места.
             if code not in (None, 0) and not self._survive(packer):
                 return False
-        if self.fatal:
-            return False
         if time.monotonic() - self.restarted < 2.0:
             return True  # соседний запрос уже перезапустил упаковку — не толкаемся
         self.restarted = time.monotonic()
@@ -1277,10 +1304,10 @@ class Feed:
         if packer.blamed:
             return True
         packer.blamed = True
+        if packer.stopped:
+            return True  # прогон сняли мы сами — это не обрыв, и попытку он не тратит
         self.crashes += 1
-        # Убитый сигналом ffmpeg сказать ничего не успевает — не выдумываем за него.
-        code = packer.poll() or 0
-        why = f"убит сигналом {-code}" if code < 0 else packer.why()
+        why = packer.why()  # там же и код возврата, если ffmpeg смолчал
         if self.crashes > self.limit:
             self.fatal = why
             return False
@@ -1630,14 +1657,43 @@ class _Server(http.server.ThreadingHTTPServer):
     #: Контекст TLS или ``None`` — тогда раздача идёт голым http (дефолт, §5 SPEC-v2).
     ctx: ssl.SSLContext | None = None
 
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        #: Живые соединения приёмника. Нужны ровно затем, чтобы их можно было закрыть
+        #: (:meth:`drop_live`): раздача HTTP/1.1, приёмник держит один keep-alive на весь
+        #: показ, а ``server_close`` закрывает только слушающий сокет.
+        self._live: set[Any] = set()
+        super().__init__(*args, **kwargs)
+
     def get_request(self) -> tuple[Any, Any]:
         # Слушающий сокет остаётся обычным TCP, рукопожатие уходит в рабочий поток:
         # иначе один полуоткрытый коннект вешает весь accept (грабли kinocast).
         sock, addr = super().get_request()
         sock.settimeout(60)
-        if self.ctx is None:
-            return sock, addr
-        return self.ctx.wrap_socket(sock, server_side=True, do_handshake_on_connect=False), addr
+        if self.ctx is not None:
+            sock = self.ctx.wrap_socket(sock, server_side=True, do_handshake_on_connect=False)
+        self._live.add(sock)
+        return sock, addr
+
+    def shutdown_request(self, request: Any) -> None:
+        self._live.discard(request)
+        super().shutdown_request(request)
+
+    def drop_live(self) -> None:
+        """Закрыть соединения приёмника — раздача кончилась вместе с этим показом.
+
+        ⚠️ Без этого «раздача остановлена» не значит «раздача молчит». Потоки-обработчики
+        демонические и ``server_close`` их не ждёт (``block_on_close`` при
+        ``daemon_threads``), а приёмник ходит по HTTP/1.1 и держит **одно** соединение на
+        весь показ. На стыке серий оно переживало и упаковку, и раздачу прошлой серии: LOAD
+        следующей уходил в тот же сокет, и отвечал на него уже остановленный
+        :class:`Feed` — манифест прошлой серии и мгновенный 404 на ``v0.ts``. Дальше
+        приёмник отвечал ``IDLE/ERROR``, и владелец видел 15 с чёрного экрана (§7.4
+        SPEC-v2, замер живого Q70D 06-08-2026).
+        """
+        for sock in list(self._live):
+            self._live.discard(sock)
+            with contextlib.suppress(OSError):
+                sock.shutdown(socket.SHUT_RDWR)
 
     def handle_error(self, request: Any, client_address: Any) -> None:
         pass  # битое рукопожатие или оборванный приёмник — не наша авария
@@ -1686,9 +1742,15 @@ class HlsServer:
         ).start()
 
     def stop(self) -> None:
+        """Погасить раздачу целиком: и слушающий сокет, и живые соединения приёмника.
+
+        Второе так же обязательно, как первое (:meth:`_Server.drop_live`): показ, который
+        остановлен, обязан замолчать, а не досказывать прошлую серию в keep-alive.
+        """
         if self._server is not None:
             self._server.shutdown()
             self._server.server_close()
+            self._server.drop_live()
             self._server = None
 
 
