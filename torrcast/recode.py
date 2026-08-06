@@ -377,10 +377,23 @@ class Recoder:
             need = self.grid.span(slot) / PRESETS[-1][1] + self.grace - (now - self.began)
             return need + self.hold_guard <= left
         first, last, until, since, speed = job
-        if not first <= slot <= last or now >= until:
+        if slot < first or now >= until:
             return False
-        todo = sum(self.grid.span(k) for k in range(first, slot + 1)) / speed - (now - since)
-        return max(0.0, todo) + self.hold_guard <= left
+        if slot <= last:
+            todo = sum(self.grid.span(k) for k in range(first, slot + 1)) / speed - (now - since)
+            return max(0.0, todo) + self.hold_guard <= left
+        # Кусок ЗА текущим заходом. Раньше тут стоял отказ — и он честно стоил живого
+        # прогона: заход за головой берёт один кусок (:meth:`_pick`), а упаковщик за эти
+        # пять секунд успевал выложить копией три следующих тяжёлых. Считаем так же, как
+        # внутри захода: кодировщику остаётся доделать этот заход, а дальше он пойдёт
+        # самым быстрым пресетом — до срока ему деваться некуда.
+        # Дальше следующего захода (:data:`RUN_MAX`) планов у кодировщика нет, и гадать
+        # за него нельзя: там всё решит перемотка, потолок кэша и срок соседей.
+        if slot > last + self.run_max or slot not in set(self.targets):
+            return False
+        rest = sum(self.grid.span(k) for k in range(first, last + 1)) / speed - (now - since)
+        rest += sum(self.grid.span(k) for k in range(last + 1, slot + 1)) / PRESETS[-1][1]
+        return max(0.0, rest) + self.hold_guard <= left
 
     def note(self, slot: int, recoded: bool) -> None:
         """Сегмент ушёл наружу: уточнить профиль по факту и посчитать опоздания.

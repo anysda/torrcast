@@ -443,7 +443,8 @@ def test_a_copy_waits_while_its_piece_is_being_recoded(tmp_path) -> None:  # typ
     assert not recoder.holding(5)  # никто ничего не кодирует
     recoder.job = (4, 8, clock.monotonic() + 60.0, clock.monotonic(), 4.0)
     assert recoder.holding(5)
-    assert not recoder.holding(9)  # не наш заход
+    assert recoder.holding(9)  # следующий заход возьмёт и его — успевается
+    assert not recoder.holding(20)  # а так далеко у кодировщика планов ещё нет
 
 
 def test_a_piece_right_under_the_playhead_is_never_held_back(tmp_path) -> None:  # type: ignore[no-untyped-def]
@@ -753,3 +754,40 @@ def test_the_head_preempts_a_run_that_works_ahead(tmp_path, monkeypatch) -> None
     recoder.opening(3)  # перемотали НАЗАД — голова теперь позади захода
     recoder._run(12, 14)
     assert packer.stopped == "голова прогона важнее"
+
+
+def test_the_pieces_right_after_the_current_run_are_held_too(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """Заход за головой берёт ОДИН кусок — а упаковщик за эти секунды выкладывает три.
+
+    Найдено живым Q70D 06-08 вечером: голова `v358` ушла перекодом, а `v359`…`v361`
+    (21–26 Мбит/с) — копией, потому что «не наш заход» означало «не держим». Показ упал
+    в BUFFERING на 27 опросах из 43.
+    """
+    import time as clock
+
+    grid = _grid()
+    weights = Weights.of(_keys(rate=2.0e6), grid)
+    assert weights is not None
+    recoder = Recoder(
+        source="src", audio=0, grid=grid, spare=tmp_path, weights=weights, threshold=15.0
+    )
+    recoder.opening(4)
+    recoder.job = (4, 4, clock.monotonic() + 60.0, clock.monotonic(), PRESETS[-1][1])
+    assert recoder.holding(5)  # следующий за головой — успеется, держим
+    assert recoder.holding(6)
+    assert not recoder.holding(25)  # а так далеко у кодировщика планов ещё нет
+
+
+def test_a_piece_after_the_run_is_not_held_if_the_playhead_is_closer(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """Считаем по сроку и за пределами захода: не успеть — значит не держать."""
+    import time as clock
+
+    grid = _grid()
+    weights = Weights.of(_keys(rate=2.0e6), grid)
+    assert weights is not None
+    recoder = Recoder(
+        source="src", audio=0, grid=grid, spare=tmp_path, weights=weights, threshold=15.0
+    )
+    recoder.played = grid.start(4)
+    recoder.job = (4, 4, clock.monotonic() + 600.0, clock.monotonic(), 0.05)  # еле ползёт
+    assert not recoder.holding(5)
