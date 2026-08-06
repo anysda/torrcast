@@ -799,10 +799,11 @@ def _continue(config: Config, key: str, entry: Entry, args: Args, clock: _Clock)
     Сериал вопросов не задаёт вовсе: релиз, дорожка и список серий уже выбраны, а
     какую серию и с какого места играть — записано. Фильм спрашивает ровно одно (§2.3).
     """
-    if args.voice is not None:  # явный выбор озвучки поверх памяти (§2 SPEC-v2)
-        entry = _revoice(config, entry, args)
     if not entry.serial:  # фильм (в том числе ошибочно записанный сериалом) — один вопрос
-        return _resume(config, key, entry, clock=clock, dry=args.dry) if entry.resumable else None
+        if not entry.resumable:
+            return None  # продолжать нечего — озвучку выберет обычный путь, по дорожкам
+        return _resume(config, key, _voiced(config, entry, args), clock=clock, dry=args.dry)
+    entry = _voiced(config, entry, args)
     if args.episode is not None:  # `cast киберпанк s2e5` — прыжок по кэшу раздачи
         jumped = entry.jump(args.episode.season, args.episode.episode)
         if jumped is None:
@@ -827,6 +828,17 @@ def _remembered(state: State, key: str, found: tuple[str, Entry] | None) -> str:
     """
     entry = state.get(key) or (found[1] if found is not None else None)
     return entry.voice if entry is not None else ""
+
+
+def _voiced(config: Config, entry: Entry, args: Args) -> Entry:
+    """Запись с учётом ``--voice``; без флага — она же, не тронутая и без похода в рой.
+
+    Флага нет — не читаем ничего: этот путь тем и хорош, что обходится состоянием.
+    ⚠️ Звать только тогда, когда запись действительно пойдёт в показ. Живая грабля
+    06-08: вызов до проверки «есть ли что продолжать» лез в TorrServer за раздачей,
+    которую никто играть не собирался, и падал на её магните.
+    """
+    return entry if args.voice is None else _revoice(config, entry, args)
 
 
 def _revoice(config: Config, entry: Entry, args: Args) -> Entry:

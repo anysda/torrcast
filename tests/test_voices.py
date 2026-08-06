@@ -296,6 +296,33 @@ def test_the_voices_command_lists_and_exits(
     assert "играю" not in printed
 
 
+def test_a_record_with_nothing_to_continue_does_not_wake_the_swarm(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``--voice`` у записи, которую продолжать нечем, идёт обычным путём (грабля 06-08).
+
+    Перечитывать дорожки по записи состояния имеет смысл только там, где по ней и пойдёт
+    показ. Иначе флаг поднимал в TorrServer раздачу, которую никто играть не собирался,
+    и падал на её магните — поймано живым прогоном на стенде.
+    """
+    state = State()
+    state.put(KEY, Entry(title="Моана 2", magnet="мёртвый магнит", query="моана-2"))
+    state.save()
+
+    class _Strict(_FakeTorrServer):
+        def add(self, magnet: str) -> str:
+            if magnet == "мёртвый магнит":
+                pytest.fail("раздачу, которую никто не играет, поднимать незачем")
+            return super().add(magnet)
+
+    monkeypatch.setattr(cli, "TorrServer", _Strict)
+    _answers(monkeypatch)
+
+    assert cli.main(["моана", "2", "--voice", "6"]) == 0
+
+    assert State.load().entries[KEY].voice == "rus · MVO (LostFilm)"
+
+
 def test_a_series_remembers_the_voice_for_the_whole_show(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
