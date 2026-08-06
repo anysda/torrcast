@@ -1099,13 +1099,18 @@ class _Bench:
         ⚠️ С 06-08 вечера (§6.2) ``warn_mbit`` здесь — это ``bitrate_hard_mbit``, а не
         потолок декодера: тяжёлые куски перекодируются, и «Моана 2» на 19 Мбит/с теперь
         годится. Отбраковывается только то, что перекодированием не спасти.
+
+        ⚠️ С 07-08 (§7.6) само число берётся из **паспорта** — веса видеодорожки, — а не
+        из размера файла (:meth:`torrcast.stream.Media.weight_mbit`). Отбраковка спрашивает
+        «сколько придётся перекодировать», а десять озвучек и двенадцать субтитров
+        перекодировать не придётся: они на ТВ не уезжают вовсе.
         """
         if prep.error:
             return prep.error
         if prep.media is None or prep.video is None:
             return "поток не прочитан"
         if not pinned and warn_mbit > 0:
-            peak = bitrate_mbit(prep.video.size, prep.media.duration)
+            peak = prep.media.weight_mbit(prep.video.size)
             if peak > warn_mbit:
                 return f"тяжёлый, ~{peak:.0f} Мбит/с"
         codec = prep.media.video or "h264"
