@@ -531,6 +531,150 @@ def test_while_the_encoder_is_still_starting_the_copy_still_waits(tmp_path) -> N
     recoder.began = clock.monotonic()
     assert recoder.job is None
     assert recoder.holding(5)  # тяжёлый и далеко — подождём подъёма
-    assert not recoder.holding(0)  # с него грузится показ, держать нельзя
+    assert not recoder.holding(0)  # упаковку с него не начинали — это не голова прогона
     recoder.began = clock.monotonic() - recoder.grace - 1.0
     assert not recoder.holding(5)  # фора вышла — копия уходит как есть
+
+
+# ------------------------------------------------------- первый сегмент показа (голова)
+
+
+def test_the_very_first_segment_of_a_run_is_waited_for(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """Голова прогона — единственный кусок, который держат прямо под носом у показа.
+
+    Картинки в этот момент нет ни одного кадра, ждать тут значит стартовать, а не
+    подгружаться. Уйди голова копией — приёмник встаёт на первой же секунде показа в
+    тяжёлом месте (§6.2, 🔴 «первый сегмент уходит как есть»).
+    """
+    grid = _grid()
+    weights = Weights.of(_keys(rate=2.0e6), grid)
+    assert weights is not None
+    recoder = Recoder(
+        source="src", audio=0, grid=grid, spare=tmp_path, weights=weights, threshold=15.0
+    )
+    recoder.opening(7)
+    assert recoder.holding(7)
+
+
+def test_a_light_first_segment_is_never_waited_for(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """Лёгкому фильму перекодирование не мешает: голову держать не за чем и не за кого."""
+    grid = _grid()
+    weights = Weights.of(_keys(rate=0.5e6), grid)  # 4 Мбит/с — тяжёлого нет вовсе
+    assert weights is not None
+    recoder = Recoder(
+        source="src", audio=0, grid=grid, spare=tmp_path, weights=weights, threshold=15.0
+    )
+    recoder.opening(7)
+    assert not recoder.holding(7)
+
+
+def test_waiting_for_the_head_has_a_ceiling(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """Кодировщик не поднялся — копия уходит как есть: тяжёлый кусок лучше чёрного экрана."""
+    import time as clock
+
+    grid = _grid()
+    weights = Weights.of(_keys(rate=2.0e6), grid)
+    assert weights is not None
+    recoder = Recoder(
+        source="src", audio=0, grid=grid, spare=tmp_path, weights=weights, threshold=15.0
+    )
+    recoder.opening(7)
+    recoder.head_at = clock.monotonic() - recoder.head_wait - 0.1
+    assert not recoder.holding(7)
+
+
+def test_waiting_for_the_head_can_be_switched_off(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """``recode_head_wait = 0`` возвращает поведение до 06-08 вечера — на случай отката."""
+    grid = _grid()
+    weights = Weights.of(_keys(rate=2.0e6), grid)
+    assert weights is not None
+    recoder = Recoder(
+        source="src",
+        audio=0,
+        grid=grid,
+        spare=tmp_path,
+        weights=weights,
+        threshold=15.0,
+        head_wait=0.0,
+    )
+    recoder.opening(7)
+    assert not recoder.holding(7)
+
+
+def test_a_ready_head_is_not_waited_for_a_second_longer(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """Перекод лёг в каталог — держать нечего, :meth:`Packer.publish` возьмёт его сам."""
+    grid = _grid()
+    weights = Weights.of(_keys(rate=2.0e6), grid)
+    assert weights is not None
+    recoder = Recoder(
+        source="src", audio=0, grid=grid, spare=tmp_path, weights=weights, threshold=15.0
+    )
+    recoder.opening(7)
+    (tmp_path / segment_name(7)).write_bytes(b"x")
+    assert not recoder.holding(7)
+
+
+def test_the_head_is_encoded_alone_and_therefore_fastest(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """Голову берём заходом в один кусок: в общем заходе срок считался бы по последнему,
+    вышел бы superfast, и первый сегмент был бы готов к пятой секунде вместо третьей."""
+    grid = _grid()
+    weights = Weights.of(_keys(rate=2.0e6), grid)
+    assert weights is not None
+    recoder = Recoder(
+        source="src", audio=0, grid=grid, spare=tmp_path, weights=weights, threshold=15.0
+    )
+    recoder.opening(7)
+    assert recoder._pick() == (7, 7)
+    assert preset_for(grid.span(7), recoder.slack(7)) == PRESETS[-1][0]
+
+
+def test_a_seek_makes_the_new_place_the_head_and_rewinds_the_edge(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """Перемотка назад: край упаковки обязан уехать назад вместе с ней.
+
+    Иначе :meth:`_pick` считает всё позади уже выложенным и до конца показа не берётся
+    ни за один кусок — включая тот, с которого перемотка и начинается.
+    """
+    grid = _grid()
+    weights = Weights.of(_keys(rate=2.0e6), grid)
+    assert weights is not None
+    recoder = Recoder(
+        source="src", audio=0, grid=grid, spare=tmp_path, weights=weights, threshold=15.0
+    )
+    recoder.opening(0)
+    for slot in range(12):
+        recoder.note(slot, recoded=False)
+    recoder.opening(3)  # перемотали назад
+    assert recoder.edge == 2
+    assert recoder.played == grid.start(3)
+    assert recoder._pick() == (3, 3)
+
+
+def test_the_packer_tells_the_encoder_where_the_run_begins(monkeypatch, tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """Кодировщик узнаёт о новом месте показа раньше пробного прогона (0.5–1.7 с).
+
+    Иначе он начинает голову позже упаковщика, и придерживать её копию нечем.
+    """
+    from torrcast import stream
+
+    grid = _grid()
+    seen: list[tuple[str, int]] = []
+
+    class _Stub:
+        spare = tmp_path / "recode"
+
+        def opening(self, slot: int) -> None:
+            seen.append(("голова", slot))
+
+        def note(self, slot: int, recoded: bool) -> None: ...
+
+        def holding(self, slot: int) -> bool:
+            return False
+
+    recoder = _Stub()
+    monkeypatch.setattr(stream, "pack_start", lambda *a, **k: (seen.append(("проба", 0)), 0.0)[1])
+    monkeypatch.setattr(
+        stream.Packer, "start", classmethod(lambda cls, *a, **k: fake_packer(tmp_path))
+    )
+    feed = stream.Feed(source="src", audio=0, out=tmp_path, grid=grid, recoder=recoder)
+    feed.restart(5)
+    assert seen == [("голова", 5), ("проба", 0)]

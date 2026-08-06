@@ -1331,6 +1331,7 @@ def _recoder(source: str, audio: int, grid: Grid, spare: Path, config: Config) -
         encode=Encode(preset=config.recode_preset, mbit=config.recode_mbit),
         ahead=config.recode_ahead,
         cache_mb=config.recode_cache_mb,
+        head_wait=config.recode_head_wait,
         log=lambda text: print(text, flush=True),
     )
 

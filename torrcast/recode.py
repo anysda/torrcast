@@ -231,6 +231,9 @@ class Recoder:
     #: упаковщик уже выкладывает ``burst`` — и без этой форы первые тяжёлые куски успевали
     #: уйти копией просто потому, что ffmpeg ещё не стартовал.
     grace: float = 6.0
+    #: Потолок ожидания перекода ПЕРВОГО сегмента прогона (:meth:`opening`), секунды.
+    #: Умолчание и его замер — :attr:`torrcast.state.Config.recode_head_wait`.
+    head_wait: float = 6.0
     log: Any = None
 
     #: Где сейчас показ; обновляет :func:`torrcast.cli._hold`.
@@ -244,6 +247,11 @@ class Recoder:
     #: Ровно это и было видно в первом прогоне: v361 и v362 (26 и 28 Мбит/с) ушли копией,
     #: потому что кодировщик считал, что до них ещё полторы минуты.
     edge: int = -1
+    #: Первый сегмент текущего прогона упаковки — тот, с которого пойдёт картинка
+    #: (:meth:`opening`). ``-1`` — упаковка ещё не начиналась.
+    head: int = -1
+    #: Когда этот прогон начался (``time.monotonic``): от неё считается :attr:`head_wait`.
+    head_at: float = 0.0
     done: set[int] = field(default_factory=set)
     late: int = 0
     made: int = 0
@@ -295,6 +303,26 @@ class Recoder:
         path = self.spare / segment_name(slot)
         return path if path.exists() else None
 
+    def opening(self, slot: int) -> None:
+        """Упаковка начинается заново с сегмента ``slot`` (:meth:`torrcast.stream.Feed.restart`).
+
+        Зовётся на старте показа, на возврате с паузы и на каждой перемотке. Делает три
+        вещи, и все три нужны ровно ради первого сегмента (§6.2):
+
+        * помечает ``slot`` головой прогона — только его копию можно придержать, пока
+          картинки ещё нет (:meth:`holding`);
+        * отматывает :attr:`edge` назад: наружу этот прогон не выложил ещё ничего, а
+          старое значение осталось от прошлого места показа и заставило бы :meth:`_pick`
+          пропустить саму голову (после перемотки назад — весь остаток фильма);
+        * ставит :attr:`played` на начало этого сегмента. Место показа приходит в
+          кодировщик раз в две секунды (:func:`torrcast.cli._hold`), и на перемотке оно
+          столько же врёт — а очередь кодировщика решается прямо сейчас.
+        """
+        self.head = slot
+        self.head_at = time.monotonic()
+        self.edge = slot - 1
+        self.played = self.grid.start(slot)
+
     def holding(self, slot: int) -> bool:
         """Придержать ли копию этого куска ради перекода, который вот-вот будет готов.
 
@@ -306,9 +334,22 @@ class Recoder:
         него, — и оба ушли копией, и оба уронили показ в BUFFERING.
 
         Кусок, до которого показ уже дошёл, не держим никогда: ожидание под носом у
-        показа — это и есть подгруз.
+        показа — это и есть подгруз. **Кроме одного** — головы прогона (:meth:`opening`):
+        показ стоит ровно на ней, картинки ещё нет ни одного кадра, и ждать тут значит
+        не подгружаться, а стартовать. Уйди голова копией — приёмник встаёт на первой же
+        секунде показа в тяжёлом месте (старт, «Продолжить?», перемотка). Ожидание
+        ограничено :attr:`head_wait` и стоит ровно один ultrafast-сегмент (2.3–3.6 с).
         """
         now = time.monotonic()
+        # Перекод уже лежит — держать нечего, :meth:`Packer.publish` возьмёт его сам.
+        if self.ready(slot) is not None:
+            return False
+        if slot == self.head:
+            return (
+                self.head_wait > 0
+                and now - self.head_at < self.head_wait
+                and slot in set(self.targets)
+            )
         left = self.grid.start(slot) - self.played
         if left <= 0:
             return False
@@ -410,6 +451,12 @@ class Recoder:
             break
         if first is None:
             return None
+        # Голова прогона идёт заходом в один кусок — и потому самым быстрым пресетом
+        # (:func:`preset_for` от нулевого срока). Возьми её в общий заход — срок считался
+        # бы по последнему куску, вышел бы superfast, и голова была бы готова к 4-5-й
+        # секунде вместо 2-3-й. Остальное подхватит следующий заход.
+        if first == self.head:
+            return first, first
         last = first
         spent = self.grid.span(first) / quickest
         while (
@@ -428,12 +475,14 @@ class Recoder:
         while not self.stopped:
             try:
                 self._sweep()
-                if self._weight() >= self.cache_mb:
-                    time.sleep(2.0)
-                    continue
                 job = self._pick()
                 if job is None:
                     time.sleep(1.0)
+                    continue
+                # Потолок кэша голову прогона не касается: её ждёт показ, а не запас
+                # впрок, и уснуть тут значит отдать первый сегмент копией.
+                if job[0] != self.head and self._weight() >= self.cache_mb:
+                    time.sleep(2.0)
                     continue
                 self._run(*job)
             # Кодировщик не имеет права ронять показ: он работает впрок, и его беда —

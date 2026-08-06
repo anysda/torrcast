@@ -1512,6 +1512,11 @@ class Feed:
         """
         if self.packer is not None:
             self.packer.stop(keep_files=True)
+        # ⚠️ Кодировщик узнаёт о новом месте показа ПЕРВЫМ делом, до пробного прогона
+        # (0.5–1.7 с): голову прогона он обязан начать не позже упаковщика, иначе
+        # придерживать её копию будет нечего и первый сегмент уйдёт тяжёлым (§6.2).
+        if self.recoder is not None:
+            self.recoder.opening(slot)
         at = pack_start(self.source, self.grid.start(slot))
         mark("пробный прогон", слот=slot, встали=round(at, 3))
         command = ffmpeg_pack_command(

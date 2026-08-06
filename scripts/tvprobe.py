@@ -76,6 +76,9 @@ def main() -> None:
     parser.add_argument("--mbit", type=float, default=12.0, help="во сколько перекодировать")
     parser.add_argument("--extra", type=float, default=0.0, help="поправка «контейнер → ТВ»")
     parser.add_argument(
+        "--head-wait", type=float, default=6.0, help="ждать перекод первого сегмента, с (§6.2)"
+    )
+    parser.add_argument(
         "--poll", type=float, default=0.5, help="как часто опрашивать приёмник, с (показ — 2.0)"
     )
     args = parser.parse_args()
@@ -110,6 +113,7 @@ def main() -> None:
                 weights=weights,
                 threshold=args.threshold,
                 encode=Encode(preset=args.preset, mbit=args.mbit),
+                head_wait=args.head_wait,
                 log=lambda text: print(f"  кодировщик: {text}", flush=True),
             )
     feed = Feed(
