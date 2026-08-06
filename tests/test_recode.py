@@ -935,3 +935,93 @@ def test_the_passport_is_not_thrown_away_by_the_first_noisy_segment() -> None:
     assert weights is not None
     weights.calibrate(0, int(20.0e6 / 8 * grid.span(0)), grid.span(0))  # «поправки нет»
     assert weights.extra == pytest.approx(3.4, abs=0.2)  # сдвинулся, но не обнулился
+
+
+# ------------------------------------------------------------ звук на стыке с перекодом
+
+
+def test_the_recoded_piece_goes_out_with_the_copy_s_sound(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """Наружу — картинка перекода и звук копии: у звука показа один прогон на всё (§6.2.5).
+
+    Кадровая сетка AAC отсчитывается от ``-ss`` прогона, поэтому на первом куске каждого
+    захода перекода звук копии обрывался, а звук перекода начинался позже: замер на
+    «Тачках 3» — дыра 40.7 мс, и Q70D платил за неё 2–5 секундами пересборки.
+    """
+    out = tmp_path / "out"
+    spare = out / "recode"
+    spare.mkdir(parents=True)
+    packer = fake_packer(out, first=0)
+    packer.spare = spare
+    packer.run.mkdir(parents=True, exist_ok=True)
+    (packer.run / segment_name(0)).write_bytes(b"copy")
+    (packer.run / segment_name(1)).write_bytes(b"next")
+    (spare / segment_name(0)).write_bytes(b"recode")
+    seen: list[tuple[str, str]] = []
+
+    def merge(video, audio, dst, timeout=30.0):  # type: ignore[no-untyped-def]
+        seen.append((video.name, audio.name))
+        dst.write_bytes(b"mixed")
+        return True
+
+    monkeypatch.setattr("torrcast.stream.merge_tracks", merge)
+    packer.publish()
+    assert seen == [(segment_name(0), segment_name(0))]  # картинка из перекода, звук из копии
+    assert (out / segment_name(0)).read_bytes() == b"mixed"
+    assert not (spare / segment_name(0)).exists()  # перекод забрали
+    assert not (packer.run / segment_name(0)).exists()  # копию выбросили
+    assert packer.edge == 0
+
+
+def test_a_failed_merge_still_sends_the_recoded_piece(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """Склейка не вышла — наружу перекод как есть: это сегодняшнее поведение, а тяжёлая
+    копия из-под приёмника хуже вернувшейся заминки."""
+    out = tmp_path / "out"
+    spare = out / "recode"
+    spare.mkdir(parents=True)
+    packer = fake_packer(out, first=0)
+    packer.spare = spare
+    packer.run.mkdir(parents=True, exist_ok=True)
+    (packer.run / segment_name(0)).write_bytes(b"heavy copy")
+    (packer.run / segment_name(1)).write_bytes(b"next")
+    (spare / segment_name(0)).write_bytes(b"recode")
+    monkeypatch.setattr("torrcast.stream.merge_tracks", lambda *a, **k: False)
+    packer.publish()
+    assert (out / segment_name(0)).read_bytes() == b"recode"
+    assert packer.edge == 0
+
+
+def test_the_merged_piece_is_not_mistaken_for_a_packed_segment(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """Склейка лежит в каталоге прогона, но сегментом не считается: «кусок дописан» —
+    это появление СЛЕДУЮЩЕГО ``v*.ts``, и посторонний файл не имеет права на это влиять."""
+    out = tmp_path / "out"
+    spare = out / "recode"
+    spare.mkdir(parents=True)
+    packer = fake_packer(out, first=0)
+    packer.spare = spare
+    packer.run.mkdir(parents=True, exist_ok=True)
+    for slot in (0, 1, 2):
+        (packer.run / segment_name(slot)).write_bytes(b"copy")
+    (spare / segment_name(0)).write_bytes(b"recode")
+
+    def merge(video, audio, dst, timeout=30.0):  # type: ignore[no-untyped-def]
+        dst.write_bytes(b"mixed")
+        return True
+
+    monkeypatch.setattr("torrcast.stream.merge_tracks", merge)
+    packer.publish()
+    assert (out / segment_name(0)).read_bytes() == b"mixed"
+    # Кусок v2 не дописан (следующего за ним нет) и наружу не ушёл — а ушёл бы, если бы
+    # склейка попала в перебор каталога прогона и сдвинула «последний» на единицу.
+    assert not (out / segment_name(2)).exists()
+    assert sorted(p.name for p in packer.run.glob("v*.ts")) == [segment_name(2)]
+
+
+def test_merge_of_garbage_leaves_no_file_and_says_so(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """Не вышло — значит не вышло: ни файла-огрызка, ни ``True``."""
+    from torrcast.stream import merge_tracks
+
+    video, audio, dst = tmp_path / "v.ts", tmp_path / "a.ts", tmp_path / "mix.ts"
+    video.write_bytes(b"not a stream")
+    audio.write_bytes(b"also not a stream")
+    assert merge_tracks(video, audio, dst) is False
+    assert not dst.exists()

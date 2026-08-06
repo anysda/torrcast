@@ -43,6 +43,7 @@ __all__ = [
     "HLS_SEGMENT_SECONDS",
     "KEYS_WAIT",
     "MAX_SEGMENT_BYTES",
+    "MIXED_PREFIX",
     "PILOT_TIMEOUT",
     "RUNTIME_GUESS",
     "AudioTrack",
@@ -63,6 +64,7 @@ __all__ = [
     "hls_base",
     "hls_dir",
     "mark_playing",
+    "merge_tracks",
     "our_address",
     "pack_start",
     "parse_manifest",
@@ -138,6 +140,10 @@ PACK_DIR: Final = "pack"
 #: :data:`PACK_DIR` внутри каталога показа, поэтому уборка сегментов (`v*.ts` верхнего
 #: уровня) его не задевает, а :meth:`Feed.stop` сносит целиком.
 RECODE_DIR: Final = "recode"
+#: Имя склеенного куска (:func:`merge_tracks`) внутри каталога прогона. Начинается **не**
+#: с ``v``: каталог прогона перебирается глобом ``v*.ts``, и склейка не должна попасть в
+#: него ни как готовый сегмент, ни как признак «следующий открыт, прошлый дописан».
+MIXED_PREFIX: Final = "mix"
 #: Список сегментов, который ведёт сам ffmpeg: ``имя,начало,конец`` на каждый закрытый
 #: кусок. Приёмнику он не отдаётся — по нему показ сверяет, что нарезал ровно то, что
 #: обещал в манифесте (:meth:`Packer.drift`).
@@ -1484,7 +1490,16 @@ class Packer:
             # Перекодированный кусок этого же места лучше копии: то же разрешение и те же
             # метки, но битрейт, который приёмник тянет (§6.2). Копия при этом выбрасывается.
             better = self.spare / segment_name(slot) if self.spare is not None else None
-            source = better if better is not None and better.exists() else path
+            source = path
+            if better is not None and better.exists():
+                # Наружу идёт картинка перекода со звуком копии (:func:`merge_tracks`):
+                # звук показа обязан остаться одним непрерывным потоком (§6.2.5).
+                mixed = self.run / f"{MIXED_PREFIX}{slot}.ts"
+                if merge_tracks(better, path, mixed):
+                    source = mixed
+                    better.unlink(missing_ok=True)
+                else:
+                    source = better
             moved = False
             with contextlib.suppress(OSError):
                 os.replace(source, self.out / segment_name(slot))
@@ -1592,6 +1607,47 @@ class Packer:
         if not keep_files:
             for junk in _paths(self.out):
                 junk.unlink(missing_ok=True)
+
+
+def merge_tracks(video: Path, audio: Path, dst: Path, timeout: float = _TIMEOUT) -> bool:
+    """Собрать сегмент из картинки ``video`` и звука ``audio``; ``False`` — не вышло.
+
+    Ради этого и написано (§6.2.5 SPEC-v2): **звук показа должен быть одним непрерывным
+    потоком одного кодировщика**, а перекодированный кусок приносит свой.
+
+    Кадровая сетка AAC отсчитывается от начала прогона ffmpeg: первый кадр встаёт на
+    ``-ss`` этого прогона, дальше через 1024 сэмпла (21.33 мс). Упаковщик и кодировщик —
+    разные прогоны с разными ``-ss``, поэтому их сетки сдвинуты друг относительно друга на
+    произвольную долю кадра. Пока куски берутся из одного прогона, стык звука точен до
+    микросекунды; на **первом** куске каждого захода перекода звук копии обрывается, а
+    звук перекода начинается позже — замер на «Тачках 3» 07-08-2026: дыра **40.7 мс** на
+    3973.678 при нуле на всех соседних стыках. Приёмник Q70D платит за эту дыру не сорока
+    миллисекундами, а 2–5 секундами: он пересобирает синхронизацию.
+
+    Поэтому наружу идёт картинка перекода со звуком копии — того самого прогона, что
+    выложил соседние куски. Границы у них одни (сетка одна), метки абсолютные (``-copyts``),
+    так что склейка — это переупаковка без единого перекодирования: 0.09–0.11 с на кусок
+    12 МБ, замер на стенде.
+
+    ⚠️ Не вышло — врать нельзя: возвращаем ``False``, и :meth:`Packer.publish` выложит
+    перекод как есть. Это ровно сегодняшнее поведение, то есть худшее, что даёт отказ, —
+    вернувшаяся заминка на одном куске, а не тишина и не тяжёлая копия.
+    """
+    command = [
+        "ffmpeg", "-hide_banner", "-loglevel", "error", "-copyts",
+        "-i", str(video), "-i", str(audio),
+        "-map", "0:v:0", "-map", "1:a:0", "-c", "copy",
+        "-muxdelay", "0", "-muxpreload", "0", "-f", "mpegts", "-y", str(dst),
+    ]  # fmt: skip
+    try:
+        done = subprocess.run(command, capture_output=True, timeout=timeout, check=False)
+    except (OSError, subprocess.SubprocessError):
+        dst.unlink(missing_ok=True)
+        return False
+    if done.returncode != 0 or not dst.exists() or dst.stat().st_size <= 0:
+        dst.unlink(missing_ok=True)
+        return False
+    return True
 
 
 def _names(out: Path) -> list[str]:
