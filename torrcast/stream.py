@@ -185,7 +185,13 @@ _UNIT_NAME: Final = "torrcast-play"
 #: Описание юнита несёт ключ показа — по нему ``status`` знает, что играет (§2.5).
 _UNIT_TAG: Final = "torrcast: "
 #: Что пробрасывается в юнит: без этого показ уедет на прод-пути вместо dev-овских.
-_PASS_ENV: Final = ("TORRCAST_CONFIG", "TORRCAST_STATE", "TORRCAST_TRACE", TIMELINE_ENV)
+_PASS_ENV: Final = (
+    "TORRCAST_CONFIG",
+    "TORRCAST_STATE",
+    "TORRCAST_TRACE",
+    "TORRCAST_CTL",
+    TIMELINE_ENV,
+)
 
 
 def bitrate_mbit(size: int, duration: float) -> float:

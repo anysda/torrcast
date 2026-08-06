@@ -331,6 +331,23 @@ class ChromecastReceiver:
         with contextlib.suppress(Exception):
             self._device().media_controller.seek(self._peak + self.STALL_SKIP * self._stall_hits)
 
+    def seek(self, pos: float) -> None:
+        """Перемотка от владеющего сендера — ровно та же MEDIA-команда, что с пульта.
+
+        Существует ради диагностики (:data:`torrcast.cli.CTL_ENV`): агент кнопку нажать не
+        может, а вторым pychromecast её не подать вовсе — приёмник считает второе
+        соединение тем же сендером (докстринг класса). Состояние сторожа (``_peak``,
+        счётчики подвиса) здесь намеренно не трогается: перемотка проверяется вместе со
+        сторожем, и подчищать за собой его вход значило бы проверять не то.
+        """
+        self._device().media_controller.seek(pos)
+
+    def pause(self) -> None:
+        self._device().media_controller.pause()
+
+    def resume(self) -> None:
+        self._device().media_controller.play()
+
     def _load(self, at: float = 0.0) -> None:
         controller = self._device().media_controller
         # BUFFERED, а не LIVE: манифест VOD знает длительность целиком, и ресивер

@@ -24,6 +24,7 @@ import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Protocol, runtime_checkable
 
 from torrcast import (
     InfraError,
@@ -152,6 +153,14 @@ SAY_SECONDS = 30.0
 #: позиция приёмника, край упаковки, разница между ними и вес tmpfs. Это инструмент §6
 #: SPEC-v2: провал устойчивости видно только в динамике запаса, а раз в 30 с он теряется.
 TRACE_ENV = "TORRCAST_TRACE"
+#: ``TORRCAST_CTL=<файл>`` — диагностический пульт показа: строка в файле («``seek 1200``»,
+#: «``pause``», «``play``») исполняется владеющим сендером на ближайшем опросе, файл
+#: съедается. Нужен ровно затем, что кнопку на пульте может нажать только человек, а
+#: вторым pychromecast команду не подать вовсе: приёмник считает второе соединение тем же
+#: сендером и отвечает пустым MEDIA_STATUS (докстринг :class:`ChromecastReceiver`).
+#: Приёмнику это приходит той же MEDIA-командой, что и с пульта, поэтому проверка честная.
+#: На счастливом пути не участвует: переменной нет — кода нет.
+CTL_ENV = "TORRCAST_CTL"
 #: Сколько терпим паузу на пульте, прежде чем погасить упаковку (§6 SPEC-v2): дальше
 #: сегменты копились бы в tmpfs впустую — приёмник их не забирает.
 PAUSE_SECONDS = 60.0
@@ -1250,6 +1259,7 @@ def _hold(receiver: Receiver, feed: Feed, watch: Watch | None = None) -> None:
     paused, said, seen = 0.0, 0.0, False
     trace = bool(os.environ.get(TRACE_ENV))
     while True:
+        _ctl(receiver)
         if trouble := feed.trouble():
             # Убитый сигналом ffmpeg ничего сказать не успевает — не выдумываем за него.
             raise InfraError(f"упаковка оборвалась: {trouble}")
@@ -1298,6 +1308,45 @@ def _hold(receiver: Receiver, feed: Feed, watch: Watch | None = None) -> None:
             paused = 0.0
             feed.prune(position.pos)
         time.sleep(2.0)
+
+
+@runtime_checkable
+class _Steerable(Protocol):
+    """Приёмник, которым можно управлять как с пульта (:data:`CTL_ENV`)."""
+
+    def seek(self, pos: float) -> None: ...
+
+    def pause(self) -> None: ...
+
+    def resume(self) -> None: ...
+
+
+def _ctl(receiver: Receiver) -> None:
+    """Исполнить команду диагностического пульта, если она положена (:data:`CTL_ENV`).
+
+    Файл съедается до исполнения: команда одноразовая, и повторить её на следующем опросе
+    нельзя даже при осечке приёмника — иначе одна опечатка мотала бы фильм вечно.
+    """
+    name = os.environ.get(CTL_ENV)
+    if not name or not isinstance(receiver, _Steerable):
+        return
+    path = Path(name)
+    try:
+        line = path.read_text("utf-8").strip()
+    except OSError:
+        return
+    path.unlink(missing_ok=True)
+    if not line:
+        return
+    word, _, rest = line.partition(" ")
+    print(f"пульт: {line}", flush=True)
+    with contextlib.suppress(Exception):
+        if word == "seek":
+            receiver.seek(float(rest))
+        elif word == "pause":
+            receiver.pause()
+        elif word == "play":
+            receiver.resume()
 
 
 def liveliness(plan: _Plan) -> int:

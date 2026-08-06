@@ -311,6 +311,59 @@ def test_a_pause_on_the_remote_stops_packing(
     assert "пауза на пульте" in capsys.readouterr().out
 
 
+def test_the_diagnostic_remote_reaches_the_receiver_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Диагностический пульт (``TORRCAST_CTL``): команда доезжает до приёмника ровно раз.
+
+    Проверяется то, ради чего он написан: seek идёт **владеющим сендером** (тот же объект,
+    что держит показ), файл съедается, и повторно та же команда не исполняется — иначе
+    одна опечатка мотала бы фильм на каждом опросе.
+    """
+    from torrcast import cli
+
+    monkeypatch.setattr(time, "sleep", lambda seconds: None)
+    seen: list[tuple[str, float]] = []
+
+    class _Remote(_FakeReceiver):
+        def seek(self, pos: float) -> None:
+            seen.append(("seek", pos))
+
+        def pause(self) -> None:
+            seen.append(("pause", 0.0))
+
+        def resume(self) -> None:
+            seen.append(("play", 0.0))
+
+    ctl = tmp_path / "ctl"
+    ctl.write_text("seek 1200.5", "utf-8")
+    monkeypatch.setenv(cli.CTL_ENV, str(ctl))
+    feed = _feed_with_segments(tmp_path)
+    receiver = _Remote([(200.0, "PLAYING"), (210.0, "PLAYING"), (0.0, "IDLE")])
+
+    cli._hold(receiver, feed)
+
+    assert seen == [("seek", 1200.5)], "команда исполнена один раз и владеющим сендером"
+    assert not ctl.exists(), "команда одноразовая — файл съеден"
+
+
+def test_the_diagnostic_remote_is_absent_without_the_variable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Без ``TORRCAST_CTL`` пульта нет вовсе: на счастливом пути этот код не работает."""
+    from torrcast import cli
+
+    monkeypatch.delenv(cli.CTL_ENV, raising=False)
+    monkeypatch.setattr(time, "sleep", lambda seconds: None)
+    ctl = tmp_path / "ctl"
+    ctl.write_text("seek 1200.5", "utf-8")
+    feed = _feed_with_segments(tmp_path)
+
+    cli._hold(_FakeReceiver([(200.0, "PLAYING"), (0.0, "IDLE")]), feed)
+
+    assert ctl.read_text("utf-8") == "seek 1200.5", "файл не читается и не съедается"
+
+
 def test_the_show_directory_is_left_clean_after_the_stop(tmp_path: Path) -> None:
     """После остановки в каталоге показа не остаётся ничего — включая флажок картинки
     и каталог прогона упаковки.
