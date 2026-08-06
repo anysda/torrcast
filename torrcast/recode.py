@@ -239,7 +239,7 @@ class Recoder:
     grace: float = 6.0
     #: Потолок ожидания перекода ПЕРВОГО сегмента прогона (:meth:`opening`), секунды.
     #: Умолчание и его замер — :attr:`torrcast.state.Config.recode_head_wait`.
-    head_wait: float = 6.0
+    head_wait: float = 12.0
     log: Any = None
 
     #: Где сейчас показ; обновляет :func:`torrcast.cli._hold`.
@@ -328,6 +328,15 @@ class Recoder:
         self.head_at = time.monotonic()
         self.edge = slot - 1
         self.played = self.grid.start(slot)
+
+    def _head_pending(self) -> bool:
+        """Голова прогона тяжёлая, ещё не готова и её ещё ждут (:attr:`head_wait`)."""
+        head = self.head
+        if head < 0 or head in self.done or self.ready(head) is not None:
+            return False
+        if time.monotonic() - self.head_at >= self.head_wait:
+            return False
+        return head in set(self.targets)
 
     def holding(self, slot: int) -> bool:
         """Придержать ли копию этого куска ради перекода, который вот-вот будет готов.
@@ -538,6 +547,13 @@ class Recoder:
                 far = self.played < self.grid.start(first) - self.ahead
                 if gone or far:
                     packer.stop(keep_files=True, reason="перемотка")
+                    return
+                # Голова нового прогона важнее любого запаса впрок: её ждёт чёрный экран,
+                # а всё остальное — только tmpfs. Доработать заход и потом взяться за
+                # голову значит проесть её ожидание чужой работой: замер на стенде —
+                # заход за `v0` (7 с) съедал ровно столько же от ожидания `v358`.
+                if self._head_pending() and not first <= self.head <= last:
+                    packer.stop(keep_files=True, reason="голова прогона важнее")
                     return
                 time.sleep(0.3)
         finally:

@@ -730,3 +730,26 @@ def test_a_run_is_counted_by_what_it_published_not_by_what_is_left(tmp_path, mon
     recoder._run(3, 4)  # каталог пуст: показ уже забрал оба куска наружу
     assert recoder.made == 2
     assert recoder.done == {3, 4}
+
+
+def test_the_head_preempts_a_run_that_works_ahead(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """Заход впрок бросается ради головы: её ждёт чёрный экран, а его — только tmpfs.
+
+    Замер на стенде: заход за ``v0`` (7 с) съедал ровно столько же от ожидания ``v358``,
+    и голова не успевала к сроку, хотя сама кодируется 9 с.
+    """
+    from torrcast import stream
+
+    grid = _grid()
+    weights = Weights.of(_keys(rate=2.0e6), grid)
+    assert weights is not None
+    recoder = Recoder(
+        source="src", audio=0, grid=grid, spare=tmp_path, weights=weights, threshold=15.0
+    )
+    packer = fake_packer(tmp_path, first=0, edge=-1)
+    monkeypatch.setattr(stream.Packer, "start", classmethod(lambda cls, *a, **k: packer))
+    recoder.opening(0)
+    recoder.played = grid.start(12)  # показ ушёл вперёд, кодировщик работает впрок за ним
+    recoder.opening(3)  # перемотали НАЗАД — голова теперь позади захода
+    recoder._run(12, 14)
+    assert packer.stopped == "голова прогона важнее"
