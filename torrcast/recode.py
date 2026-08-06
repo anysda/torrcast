@@ -84,6 +84,12 @@ RUN_MAX: Final = 6
 #: впрок и опоздание на секунду ему ничего не стоит.
 NICE: Final = 15
 
+#: Приоритет захода за ГОЛОВОЙ прогона (:meth:`Recoder.opening`). Голова — исключение из
+#: правила выше: её ждёт не запас впрок, а сам старт показа, и каждая её секунда — это
+#: секунда чёрного экрана. Замер на стенде («Моана 2» 13.3 ГБ, v0 длиной 19.96 с,
+#: ultrafast): под ``nice 15`` — 8.05 с, под ``nice 0`` — 5.84 с.
+HEAD_NICE: Final = 0
+
 
 @dataclass(frozen=True, slots=True)
 class Encode:
@@ -513,7 +519,7 @@ class Recoder:
             encode=encode,
             until=last,
         )
-        command = ["nice", "-n", str(NICE), *command]
+        command = ["nice", "-n", str(HEAD_NICE if first == self.head else NICE), *command]
         began = time.monotonic()
         # Срок, до которого упаковщику имеет смысл придерживать копии этого захода:
         # вдвое больше ожидаемого да ещё десять секунд сверху. Просрочен — копия уходит
@@ -539,7 +545,11 @@ class Recoder:
                 self.packer = None
                 self.job = None
             packer.stop(keep_files=True, reason="заход окончен")
-        got = [s for s in range(first, last + 1) if self.ready(s) is not None]
+        # ⚠️ Считаем по краю СВОЕГО упаковщика, а не по тому, что осталось в каталоге:
+        # готовый кусок оттуда уже мог забрать показ (:meth:`Packer.publish`), и глоб
+        # каталога честный заход объявлял бы провалившимся. Ровно так «перекодировал v0»
+        # печаталось как «не дало ни куска за 7 с» — и стоило часа отладки не там.
+        got = list(range(first, min(last, packer.edge) + 1))
         self.done.update(got)
         self.made += len(got)
         self.seconds += sum(self.grid.span(s) for s in got)

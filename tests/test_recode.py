@@ -678,3 +678,55 @@ def test_the_packer_tells_the_encoder_where_the_run_begins(monkeypatch, tmp_path
     feed = stream.Feed(source="src", audio=0, out=tmp_path, grid=grid, recoder=recoder)
     feed.restart(5)
     assert seen == [("голова", 5), ("проба", 0)]
+
+
+def test_the_head_run_is_not_niced_behind_the_packer(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """Голову ждёт старт показа, а не запас впрок: каждая её секунда — чёрный экран.
+
+    Замер («Моана 2» 13.3 ГБ, v0 длиной 19.96 с, ultrafast): ``nice 15`` — 8.05 с,
+    ``nice 0`` — 5.84 с.
+    """
+    from torrcast import stream
+
+    grid = _grid()
+    weights = Weights.of(_keys(rate=2.0e6), grid)
+    assert weights is not None
+    recoder = Recoder(
+        source="src", audio=0, grid=grid, spare=tmp_path, weights=weights, threshold=15.0
+    )
+    seen: list[list[str]] = []
+    monkeypatch.setattr(
+        stream.Packer,
+        "start",
+        classmethod(lambda cls, command, *a, **k: (seen.append(command), fake_packer(tmp_path))[1]),
+    )
+    recoder.opening(3)
+    recoder.stopped = True  # один круг: ждать реального ffmpeg тут нечего
+    recoder._run(3, 3)
+    recoder._run(9, 11)
+    assert seen[0][:3] == ["nice", "-n", "0"]
+    assert seen[1][:3] == ["nice", "-n", "15"]
+
+
+def test_a_run_is_counted_by_what_it_published_not_by_what_is_left(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """Готовый кусок из каталога уже мог забрать показ — глоб объявлял бы заход провальным.
+
+    Ровно так «перекодировал v0» печаталось как «не дало ни куска за 7 с» (§6.2, 🟡).
+    """
+    from torrcast import stream
+
+    grid = _grid()
+    weights = Weights.of(_keys(rate=2.0e6), grid)
+    assert weights is not None
+    recoder = Recoder(
+        source="src", audio=0, grid=grid, spare=tmp_path, weights=weights, threshold=15.0
+    )
+    monkeypatch.setattr(
+        stream.Packer,
+        "start",
+        classmethod(lambda cls, *a, **k: fake_packer(tmp_path, first=3, code=0, edge=4)),
+    )
+    recoder.stopped = True
+    recoder._run(3, 4)  # каталог пуст: показ уже забрал оба куска наружу
+    assert recoder.made == 2
+    assert recoder.done == {3, 4}
