@@ -852,3 +852,48 @@ def test_the_tail_of_a_run_is_dropped_and_never_published(tmp_path) -> None:  # 
     assert packer.edge == 6
     assert not (run / segment_name(7)).exists()  # огрызок убран, а не оставлен на потом
     assert not (run / segment_name(4)).exists()  # докатка — как и была
+
+
+def test_the_head_is_waited_for_while_the_encoder_is_still_on_it(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """Потолок ожидания головы считается по РАБОТЕ кодировщика, а не по секундомеру.
+
+    Живой Q70D 06-08-2026, «Тачки 3»: голова (17.4 с фильма, 28.9 Мбит/с) кодировалась
+    16 с, потому что те же 58 МБ в это время тянул из холодного роя упаковщик. Ожидание
+    сдавалось на 12-й секунде, копия уезжала на ТВ — и приёмник вставал на её стыке со
+    следующим куском на 10 с. Лишние 4 с ожидания были бесплатны: картинка всё равно
+    появлялась на 16-й секунде.
+    """
+    import time as clock
+
+    grid = _grid()
+    weights = Weights.of(_keys(rate=2.0e6), grid)
+    assert weights is not None
+    recoder = Recoder(
+        source="src", audio=0, grid=grid, spare=tmp_path, weights=weights, threshold=15.0
+    )
+    now = clock.monotonic()
+    recoder.opening(7)
+    recoder.head_at = now - recoder.head_wait - 1.0  # потолок по секундомеру вышел
+    recoder.job = (7, 7, now + 5.0, now - 13.0, PRESETS[-1][1])  # заход за головой идёт
+    assert recoder.holding(7)
+    recoder.job = (9, 12, now + 5.0, now - 13.0, PRESETS[-1][1])  # заход чужой — не ждём
+    assert not recoder.holding(7)
+
+
+def test_the_head_wait_has_a_hard_ceiling_even_while_encoding(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """Кодировщик, который не кончает, не имеет права держать чёрный экран без предела."""
+    import time as clock
+
+    from torrcast.recode import HEAD_LIMIT
+
+    grid = _grid()
+    weights = Weights.of(_keys(rate=2.0e6), grid)
+    assert weights is not None
+    recoder = Recoder(
+        source="src", audio=0, grid=grid, spare=tmp_path, weights=weights, threshold=15.0
+    )
+    now = clock.monotonic()
+    recoder.opening(7)
+    recoder.head_at = now - recoder.head_wait * HEAD_LIMIT - 0.1
+    recoder.job = (7, 7, now + 60.0, now - 30.0, PRESETS[-1][1])
+    assert not recoder.holding(7)

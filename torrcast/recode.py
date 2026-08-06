@@ -90,6 +90,18 @@ NICE: Final = 15
 #: ultrafast): под ``nice 15`` — 8.05 с, под ``nice 0`` — 5.84 с.
 HEAD_NICE: Final = 0
 
+#: Во сколько раз дольше :attr:`Recoder.head_wait` можно ждать голову, пока кодировщик
+#: над ней РАБОТАЕТ (:meth:`Recoder._hold_head`). Замер на «Тачках 3» 06-08-2026: голова
+#: 17.4 с фильма кодировалась 16 с при потолке 12 — упираться в потолок ровно тогда,
+#: когда до готового перекода осталось четыре секунды, значит выбросить всю работу и
+#: отдать на ТВ копию втрое тяжелее.
+HEAD_LIMIT: Final = 2.0
+
+#: Вес паспорта ffprobe в скользящем среднем :meth:`Weights.calibrate`. Паспорт — это
+#: среднее по ВСЕМУ фильму, а один выложенный сегмент — шумный замер: пусть факт правит
+#: паспорт, но не с первого же куска.
+PASSPORT_WEIGHT: Final = 6
+
 
 @dataclass(frozen=True, slots=True)
 class Encode:
@@ -337,9 +349,7 @@ class Recoder:
         head = self.head
         if head < 0 or head in self.done or self.ready(head) is not None:
             return False
-        if time.monotonic() - self.head_at >= self.head_wait:
-            return False
-        return head in set(self.targets)
+        return self._hold_head(time.monotonic())
 
     def holding(self, slot: int) -> bool:
         """Придержать ли копию этого куска ради перекода, который вот-вот будет готов.
@@ -363,11 +373,7 @@ class Recoder:
         if self.ready(slot) is not None:
             return False
         if slot == self.head:
-            return (
-                self.head_wait > 0
-                and now - self.head_at < self.head_wait
-                and slot in set(self.targets)
-            )
+            return self._hold_head(now)
         left = self.grid.start(slot) - self.played
         if left <= 0:
             return False
@@ -403,6 +409,41 @@ class Recoder:
         rest = sum(self.grid.span(k) for k in range(first, last + 1)) / speed - (now - since)
         rest += sum(self.grid.span(k) for k in range(last + 1, slot + 1)) / PRESETS[-1][1]
         return max(0.0, rest) + self.hold_guard <= left
+
+    def _hold_head(self, now: float) -> bool:
+        """Ждать ли перекод головы прогона. Отдельно от :meth:`holding` — правило другое.
+
+        Голову ждёт чёрный экран, а не запас впрок, поэтому решает не «успеет ли раньше
+        показа» (показ стоит ровно на ней), а «работает ли кодировщик над ней прямо
+        сейчас». Пока заход за головой идёт и не выдохся — ждём: секунда чёрного экрана
+        дешевле, чем встающий приёмник, и дешевле, чем бросить перекод, готовый на три
+        четверти, ради копии втрое тяжелее.
+
+        ⚠️ Плоские 12 с от начала прогона стоили живого прогона на «Тачках 3»: там голова
+        (17.4 с фильма, 28.9 Мбит/с по контейнеру) кодировалась 16 с — не потому, что
+        кодировщик медленный, а потому, что те же 58 МБ в это же время тянул из холодного
+        роя упаковщик. Ожидание сдавалось на 12-й секунде, копия уезжала на ТВ как есть —
+        и приёмник вставал ровно на её стыке со следующим куском на 10 с. Ждать эти
+        лишние 4 с было БЕСПЛАТНО: картинка всё равно появлялась на 16-й секунде, только
+        уже испорченная.
+
+        Потолок остаётся: :data:`HEAD_LIMIT` от :attr:`head_wait`. Кодировщик, который не
+        взялся за голову вовсе (нет процессора, сорвался ffmpeg), не имеет права держать
+        показ дольше отпущенного — просроченная копия хуже тяжёлой, но лучше чёрного
+        экрана без конца.
+
+        ⚠️ Собственный срок захода (:attr:`job`) головы НЕ касается: он посчитан по
+        :data:`PRESETS`, а те сняты на разогретом файле без соседей. На холодном рое голова
+        «Тачек 3» шла 26 с при обещанных четырёх — по сроку захода ожидание сдавалось на
+        20-й секунде, ровно за шесть секунд до готового перекода.
+        """
+        waited = now - self.head_at
+        if self.head_wait <= 0 or self.head not in set(self.targets):
+            return False
+        job = self.job
+        if job is not None and job[0] == self.head:
+            return waited < self.head_wait * HEAD_LIMIT
+        return waited < self.head_wait
 
     def note(self, slot: int, recoded: bool) -> None:
         """Сегмент ушёл наружу: уточнить профиль по факту и посчитать опоздания.
