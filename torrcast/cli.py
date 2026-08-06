@@ -1257,6 +1257,13 @@ def _hold(receiver: Receiver, feed: Feed, watch: Watch | None = None) -> None:
     именно завершается — под SIGSTOP'ом приёмник намертво вис в BUFFERING.
     """
     paused, said, seen = 0.0, 0.0, False
+    #: Позиция приёмника с прошлого опроса — от неё считается запас показа. Прошлая, а не
+    #: сегодняшняя, потому что запас нужен раньше, чем приходит ответ приёмника, и взять
+    #: его больше неоткуда. На решение сторожа это не влияет: нудж срабатывает только
+    #: после :attr:`STALL_SECONDS` неподвижности, то есть когда прошлая позиция и есть
+    #: сегодняшняя. А сразу после перемотки, где число ещё старое, позиция изменилась —
+    #: и счётчик подвиса обнулён.
+    last = 0.0
     trace = bool(os.environ.get(TRACE_ENV))
     while True:
         _ctl(receiver)
@@ -1266,16 +1273,17 @@ def _hold(receiver: Receiver, feed: Feed, watch: Watch | None = None) -> None:
         try:
             # Запас упаковки идёт приёмнику: неподвижный BUFFERING при готовых сегментах
             # впереди — это зависание, а при пустых — законное ожидание нас (§6 SPEC-v2).
-            position = receiver.position(feed.front())
+            position = receiver.position(feed.front(last))
         except InfraError:  # приёмник позицию не отдаёт — показу остаётся только ждать
             time.sleep(2.0)
             continue
+        last = position.pos
         if not seen and position.state == "PLAYING":
             # Картинка на экране — теперь CLI имеет право сказать «старт NN с» (§4).
             seen = True
             mark_playing(feed.out)
         if trace:
-            front = feed.front()
+            front = feed.front(position.pos)
             print(
                 f"запас: показ {position.pos:.0f} · упаковано {front:.0f} · "
                 f"впереди {front - position.pos:.0f} с · {feed.weight() / 1e6:.0f} МБ · "

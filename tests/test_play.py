@@ -530,6 +530,48 @@ def test_a_stuck_receiver_is_nudged_only_when_the_packing_is_ahead(
     assert jumps == [84.0 + ChromecastReceiver.STALL_SKIP], "еда на столе — расшевелить"
 
 
+class _Reported:
+    """MEDIA_STATUS, как его отдаёт живой приёмник: позиция, состояние, длительность."""
+
+    def __init__(self, pos: float, state: str = "PLAYING") -> None:
+        self.current_time = pos
+        self.player_state = state
+        self.idle_reason = None
+        self.duration = 5977.0
+        self.player_is_playing = state in {"PLAYING", "BUFFERING"}
+
+
+def test_the_peak_follows_the_viewer_back_after_a_rewind(monkeypatch: pytest.MonkeyPatch) -> None:
+    """§7.4-2: после перемотки назад нудж обязан целиться туда, где человек СЕЙЧАС.
+
+    Замерено на живом Q70D 06-08-2026 дважды подряд: откат с 31:31 на 10:00, показ шёл
+    чисто 18 с, потом ребуфер — и сторож выкинул фильм обратно на 31:31, в место, откуда
+    владелец только что ушёл. Причина — пройденный максимум ``_peak``, который никогда не
+    опускался: прыгаем мы только вперёд, поэтому уехавшая назад позиция может значить
+    ровно одно — перемотку человека, и максимум обязан пойти за ним.
+    """
+    from torrcast.cast import ChromecastReceiver
+
+    jumps: list[float] = []
+    monkeypatch.setattr(ChromecastReceiver, "_device", lambda self: _FakeDevice(jumps))
+    receiver = ChromecastReceiver("192.168.100.102")
+    monkeypatch.setattr(ChromecastReceiver, "_status", lambda self: self.script.pop(0))
+    stall = [_Reported(619.0, "BUFFERING")] * 2
+    receiver.script = [_Reported(1891.0), _Reported(600.0), *stall]  # type: ignore[attr-defined]
+
+    receiver.position(front=1951.0)  # шли на 31:31
+    receiver.position(front=600.0)  # пульт: откат на 10:00
+    assert receiver._peak == 600.0, "максимум пошёл за человеком, а не остался на 31:31"
+
+    receiver.position(front=688.0)  # встали на 10:19 при готовой упаковке впереди
+    receiver._stall_since -= ChromecastReceiver.STALL_SECONDS
+    receiver.position(front=688.0)
+
+    assert jumps == [619.0 + ChromecastReceiver.STALL_SKIP], (
+        "нудж целится на кусок вперёд от текущего места, а не назад в покинутое"
+    )
+
+
 class _FakeStatus:
     """Статус приёмника, как его отдаёт кэш pychromecast: приложение и его сессия."""
 

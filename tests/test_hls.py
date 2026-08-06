@@ -769,10 +769,10 @@ def test_only_what_the_receiver_has_passed_is_swept_out_of_ram(tmp_path: Path) -
 def test_the_lead_over_the_receiver_is_measurable(tmp_path: Path) -> None:
     """§6 SPEC-v2: запас показа — измеряемая величина, а не ощущение.
 
-    Край упаковки в секундах фильма и вес tmpfs — единственное, чем провал устойчивости
+    Запас показа в секундах фильма и вес tmpfs — единственное, чем провал устойчивости
     отличается от «показалось»: приёмник встаёт ровно тогда, когда запас сходит в ноль.
-    Край считается по сетке, то есть это конец последнего готового сегмента в секундах
-    фильма, а не «столько-то кусков по столько-то секунд».
+    Считается он по сетке и **от позиции приёмника**, то есть это конец непрерывной
+    цепочки готовых кусков перед ним, а не «столько-то кусков по столько-то секунд».
     """
     out = hls_dir(str(tmp_path / "hls"))
     grid = Grid.on_keyframes(_keyframes(), 600.0)
@@ -784,8 +784,30 @@ def test_the_lead_over_the_receiver_is_measurable(tmp_path: Path) -> None:
         (out / f"v{slot}.ts").write_bytes(b"x" * 1000)
     feed.packer = fake_packer(out, first=30)
 
-    assert feed.front() == grid.end(35), "готовы сегменты 30…35 — упаковано до конца 35-го"
+    where = grid.start(30)
+    assert feed.front(where) == grid.end(35), "готовы сегменты 30…35 — запас до конца 35-го"
     assert feed.weight() == 6000
+
+
+def test_the_lead_is_counted_from_the_receiver_and_breaks_on_a_hole(tmp_path: Path) -> None:
+    """§7.4-2: запас — это то, что лежит ПОДРЯД перед приёмником, а не глоб каталога.
+
+    Ровно на этом числе стоит сторож приёмника, и врало оно после каждой перемотки назад:
+    в каталоге показа лежат честные куски прошлых прогонов (сетка детерминирована, §6.0),
+    и «докуда упаковано» считалось по ним. Замер на живом Q70D 06-08-2026: откат с 31-й
+    минуты на 10-ю дал «показ 600 · упаковано 2010 · впереди 1410 с» при пустом месте
+    перед приёмником — то есть разрешение сторожу дёргать показ ровно тогда, когда нельзя.
+    """
+    out = hls_dir(str(tmp_path / "hls"))
+    grid = Grid.uniform(600.0, 10.0)
+    feed = Feed(source="", audio=0, out=out, grid=grid)
+    for slot in (*range(30, 36), 40, 41):  # куски прошлого прогона и дырка перед ними
+        (out / f"v{slot}.ts").write_bytes(b"x")
+    feed.packer = fake_packer(out, first=30)
+
+    assert feed.front(5.0) == 5.0, "перед приёмником пусто — запаса нет, что бы ни лежало дальше"
+    assert feed.front(grid.start(30)) == grid.end(35), "цепочка обрывается на дырке, а не на 41"
+    assert feed.front(grid.start(40)) == grid.end(41), "считаем от приёмника, а не от начала"
 
 
 def test_a_real_ca_signed_cert_is_verified_against_the_system_store(

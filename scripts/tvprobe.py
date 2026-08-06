@@ -112,9 +112,9 @@ def main() -> None:
                 where = jumps.pop(0)[1]
                 print(f"  перемотка на {where:.1f} с", flush=True)
                 receiver._device().media_controller.seek(where)  # щуп лезет напрямую
-            position = receiver.position(feed.front())
+            position = receiver.position(feed.front(seen if seen > 0 else args.at))
             now = time.monotonic() - watch_from
-            front = feed.front()
+            front = feed.front(position.pos)
             print(
                 f"  {now:5.1f} с · позиция {position.pos:8.3f} · упаковано {front:8.3f} "
                 f"· запас {front - position.pos:6.1f} · {position.state}",
