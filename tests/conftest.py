@@ -138,12 +138,24 @@ class FakeProc:
         return -15
 
 
-def fake_packer(out: Path, first: int = 0, code: int | None = None) -> Packer:
+def fake_packer(
+    out: Path, first: int = 0, code: int | None = None, edge: int | None = None
+) -> Packer:
     """Прогон упаковки без ffmpeg: сегменты в ``out`` кладёт сам тест.
 
     Каталог прогона (``out/pack``) не создаётся: значит :meth:`Packer.publish` выкладывать
     нечего, и наружу остаётся ровно то, что тест положил своими руками.
-    """
-    from torrcast.stream import PACK_DIR, Packer
 
-    return Packer(proc=FakeProc(code), out=out, run=out / PACK_DIR, first=first)  # type: ignore[arg-type]
+    ``edge`` — честный край прогона (:attr:`torrcast.stream.Packer.edge`), то есть докуда
+    **этот** прогон выложил. Без ffmpeg двигать его некому, поэтому фикстура спрашивает
+    об этом тест. Умолчание — «выложил всё, что лежит в каталоге на момент создания»:
+    так читается обычный случай «тест положил куски руками, они и есть работа прогона».
+    Куски, положенные ПОСЛЕ создания, краем уже не считаются — ровно этим отличается
+    честный край от глоба каталога, и на этом стоит §7.4 SPEC-v2.
+    """
+    from torrcast.stream import PACK_DIR, Packer, segment_slot
+
+    if edge is None:
+        made = [s for s in (segment_slot(p.name) for p in out.glob("v*.ts")) if s >= first]
+        edge = max(made, default=first - 1)
+    return Packer(proc=FakeProc(code), out=out, run=out / PACK_DIR, first=first, edge=edge)  # type: ignore[arg-type]

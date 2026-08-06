@@ -531,6 +531,145 @@ def test_the_seek_threshold_is_counted_in_segments_not_in_seconds(
     assert started == [12], "восьмой — уже перемотка, и паковать надо оттуда"
 
 
+def test_a_seek_back_behind_the_run_repacks_instead_of_waiting_out_the_clock(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """🔴 §7.4 SPEC-v2: перемотка назад глубже окна при упаковке ОТ НУЛЯ.
+
+    Так это выглядело: упаковка идёт с сегмента 0, показ ушёл на 6-ю минуту, окно
+    вымело начало фильма из tmpfs — и владелец мотает в самое начало. Сегмента нет,
+    но ``packer.first`` (ноль!) ниже запрошенного, и показ решал, что кусок «вот-вот
+    допакуется». Ждал он его все ``wait`` секунд — две минуты тишины на экране, — а
+    потом всё равно отвечал 404, после которого приёмник не берёт LOAD ещё пару минут.
+
+    Теперь низ границы — честный край прогона: сегмент ниже края, которого нет на
+    диске, паковать некому, и это ровно та же перемотка, что и вперёд.
+    """
+    grid = Grid.uniform(FILM)
+    out = hls_dir(str(tmp_path / "hls"))
+    for slot in range(30, 37):  # окно позади показа, начало фильма уже выметено
+        (out / f"v{slot}.ts").write_bytes(b"x")
+    started: list[int] = []
+
+    def repack(self: Feed, slot: int) -> None:  # упаковка с места и доходит до него
+        started.append(slot)
+        (out / f"v{slot}.ts").write_bytes(b"x")
+
+    monkeypatch.setattr(Feed, "restart", repack)
+    feed = Feed(source="", audio=0, out=out, grid=grid, wait=120.0)
+    feed.packer = fake_packer(out, first=0, edge=36)
+
+    began = time.monotonic()
+    answer = feed.segment(1)
+
+    assert started == [1], "перемотка назад лечится тем же, чем вперёд: упаковкой с места"
+    assert answer == out / "v1.ts", "None здесь — это 404, после которого ТВ молчит минутами"
+    assert time.monotonic() - began < 2.0, "две минуты тишины до 404 — тот самый 🔴"
+
+
+def test_pieces_of_past_runs_never_move_the_edge_of_the_current_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Край упаковки — то, что выложил ЭТОТ прогон, а не то, что лежит в каталоге.
+
+    Каталог показа общий на весь фильм, и в нём честно живут куски прошлых прогонов:
+    сетка одна и детерминированная, под именем ``vN`` и до, и после перезапуска лежит
+    одно и то же место фильма — такой кусок и отдаётся приёмнику без разговоров. Но к
+    вопросу «докуда дошла упаковка» он отношения не имеет, и обе наивные починки §7.4
+    ломались ровно об это: глоб уводил край то вперёд (запрос назад висел до 404), то
+    назад (20 ложных перезапусков за 100 с показа).
+    """
+    grid = Grid.uniform(FILM)
+    out = hls_dir(str(tmp_path / "hls"))
+    started: list[int] = []
+    monkeypatch.setattr(Feed, "restart", lambda self, slot: started.append(slot))
+    feed = Feed(source="", audio=0, out=out, grid=grid, wait=0.0, ahead=7)
+    feed.packer = fake_packer(out, first=0, edge=3)
+    (out / "v900.ts").write_bytes(b"x")  # кусок прошлого прогона: показ там уже был
+
+    feed.segment(9)
+    assert started == [], "девятый — в семи сегментах за краем, это обычный ход показа"
+
+    feed.segment(11)
+    assert started == [11], "одиннадцатый — за краем дальше `ahead`, и чужой v900 тут не судья"
+
+    started.clear()
+    assert feed.segment(900) == out / "v900.ts", "кусок прошлого прогона честен: сетка одна"
+    assert started == [], "и перепаковывать место, которое уже лежит в tmpfs, незачем"
+
+
+def test_a_piece_finished_by_this_very_poll_is_not_mistaken_for_a_seek_back(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Приёмник, идущий вплотную за упаковкой, просит кусок за мгновение до его закрытия.
+
+    Показ выкладывает готовое (:meth:`Packer.publish`) ровно там же, где решает, что
+    делать с упаковкой, — и кусок, которого секунду назад не было, появляется прямо
+    внутри этого решения. Считать его «ниже края, а файла нет», то есть перемоткой
+    назад, нельзя: замер на стенде 06-08-2026 давал перезапуск упаковки на каждом
+    четвёртом сегменте ровного показа.
+    """
+    out = hls_dir(str(tmp_path / "hls"))
+    started: list[int] = []
+    monkeypatch.setattr(Feed, "restart", lambda self, slot: started.append(slot))
+    feed = Feed(source="", audio=0, out=out, grid=Grid.uniform(FILM), wait=0.0)
+    feed.packer = fake_packer(out, first=0, edge=4)
+    feed.packer.run.mkdir(parents=True)
+    (feed.packer.run / "v5.ts").write_bytes(b"done")  # закрыт: за ним открыт следующий
+    (feed.packer.run / "v6.ts").write_bytes(b"half")  # ещё пишется
+
+    assert feed.segment(5) == out / "v5.ts", "кусок допакован — его и отдаём"
+    assert started == [], "и это ровный ход показа, а не перемотка назад"
+    assert feed.packer.edge == 5, "край прогона подвинулся ровно на выложенное"
+
+
+def test_segments_left_ahead_after_a_rollback_do_not_pile_up_in_tmpfs(tmp_path: Path) -> None:
+    """🟡 §7.4 SPEC-v2: уборка смотрела только назад, и откаты копили tmpfs.
+
+    После перемотки назад глубже окна упаковка идёт с нового места, а сегменты той
+    минуты, откуда владелец ушёл, остаются в памяти навсегда: окно позади до них не
+    достаёт, а вперёд уборка не смотрела вовсе. Десяток откатов подряд — и в tmpfs
+    лежат места фильма, которых на экране уже не будет.
+
+    Убирается при этом только заведомо чужое: запас текущего прогона и префетч впереди
+    позиции целы — иначе уборка отнимала бы у показа ровно то, ради чего он пакует.
+    """
+    grid = Grid.uniform(FILM)
+    out = hls_dir(str(tmp_path / "hls"))
+    for slot in (*range(30, 37), *range(1, 6)):
+        (out / f"v{slot}.ts").write_bytes(b"x")
+    feed = Feed(source="", audio=0, out=out, grid=grid, keep=120.0, ahead=7)
+    feed.packer = fake_packer(out, first=1, edge=5)  # откатились в начало и пакуем оттуда
+
+    feed.prune(played=20.0)  # показ на 20-й секунде — это второй сегмент
+
+    left = sorted(int(p.name[1:-3]) for p in out.glob("v*.ts"))
+    assert left == [1, 2, 3, 4, 5], "место, откуда ушли, вымыто; запас текущего прогона цел"
+
+    for slot in range(6, 13):  # упаковка ушла вперёд, приёмник за ней
+        (out / f"v{slot}.ts").write_bytes(b"x")
+    feed.packer.edge = 12
+    feed.prune(played=60.0)
+    left = sorted(int(p.name[1:-3]) for p in out.glob("v*.ts"))
+    assert left == list(range(1, 13)), "обычный ход показа уборка вперёд не трогает"
+
+
+def test_without_packing_nothing_is_swept_from_ahead_of_the_receiver(tmp_path: Path) -> None:
+    """Упаковки нет — края нет, и гадать о нём уборка не имеет права.
+
+    Такое бывает ровно на стыке: прогон погашен, новый ещё не поднят. Выбросить в этот
+    момент запас впереди позиции значило бы заставить показ паковать его заново.
+    """
+    out = hls_dir(str(tmp_path / "hls"))
+    for slot in range(0, 40):
+        (out / f"v{slot}.ts").write_bytes(b"x")
+    feed = Feed(source="", audio=0, out=out, grid=Grid.uniform(FILM), keep=120.0)
+
+    feed.prune(played=20.0)
+
+    assert len(list(out.glob("v*.ts"))) == 40, "без упаковки впереди не трогаем ничего"
+
+
 def test_segments_are_never_cached_by_the_receiver(served: Any) -> None:
     """После перепаковки под теми же именами лежит другое место фильма — кэш соврал бы."""
     session, base = served
