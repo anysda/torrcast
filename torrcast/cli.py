@@ -854,7 +854,7 @@ class _Bench:
             if following is not None:  # запасной греется, пока ждём этот
                 self.start(plan, following)
             self._wait(prep, progress)
-            trouble = self._trouble(prep, pinned=args.pinned)
+            trouble = self._trouble(prep, pinned=args.pinned, warn_mbit=plan.warn_mbit)
             if not trouble:
                 progress.phase("")
                 prep = self._honest(plan, prep, queue, args, progress)
@@ -931,7 +931,7 @@ class _Bench:
                 print(f"релиз №{number} не успел ответить — играю №{chosen.number} ({short})")
                 return chosen
             progress.phase("")
-            why = self._trouble(alt, pinned=False)
+            why = self._trouble(alt, pinned=False, warn_mbit=plan.warn_mbit)
             if why:
                 print(f"релиз №{number} не годится ({why})")
                 continue
@@ -946,12 +946,25 @@ class _Bench:
         print(f"релиз №{chosen.number} {short} — честнее рядом нет, играю его")
         return chosen
 
-    def _trouble(self, prep: _Prep, pinned: bool) -> str:
-        """Почему релиз не годится; пусто — годится. Названный руками не подменяется."""
+    def _trouble(self, prep: _Prep, pinned: bool, warn_mbit: float = 0.0) -> str:
+        """Почему релиз не годится; пусто — годится. Названный руками не подменяется.
+
+        Битрейт здесь считается **по прочитанному файлу**, а не по размеру раздачи, и это
+        разные числа: у «Моаны 2» прикидка (:func:`bitrate_of`) делит 13.3 ГБ на типовые
+        два часа и даёт 14.8 Мбит/с, а внутри — фильм на 1:39:37, то есть честные
+        17.8 Мбит/с, на которых Q70D встаёт в ребуфер раз в 30–60 с (§7.5 SPEC-v2).
+        Прикидка потолка при выборе дефолта такой релиз пропускала и пропускать будет:
+        до ffprobe длительности картины не знает никто. Поэтому потолок проверяется ещё
+        раз — тем же числом, которое показ печатает владельцу.
+        """
         if prep.error:
             return prep.error
         if prep.media is None or prep.video is None:
             return "поток не прочитан"
+        if not pinned and warn_mbit > 0:
+            peak = bitrate_mbit(prep.video.size, prep.media.duration)
+            if peak > warn_mbit:
+                return f"тяжёлый, ~{peak:.0f} Мбит/с"
         codec = prep.media.video or "h264"
         return "" if pinned or codec == "h264" else codec
 

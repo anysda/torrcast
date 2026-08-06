@@ -398,6 +398,29 @@ def test_dated_sinks_below_candidates_but_above_hevc() -> None:
     assert is_candidate(dated, RUNTIME, 20.0), "старьё остаётся годным — судит ffprobe"
 
 
+def test_the_ceiling_is_checked_again_by_the_file_not_by_the_torrent_size() -> None:
+    """Потолок 16 Мбит/с ловит «Моану 2» только после ffprobe — до него ловить нечем.
+
+    Прикидка при выборе дефолта делит 13.3 ГБ на типовые два часа и даёт 14.8 Мбит/с,
+    то есть релиз проходит как кандидат. А внутри фильм на 1:39:37 — честные
+    17.8 Мбит/с, на которых Q70D встаёт в ребуфер (§7.5 SPEC-v2). Названный руками
+    (``--release N``) берётся по-прежнему: там человек выбрал сам.
+    """
+    from torrcast.stream import Media, TorrFile
+
+    heavy = rel(size_gb=13.3 * 1e9 / GB)  # 13.3 ГБ по-магазинному, как их считает трекер
+    assert is_candidate(heavy, RUNTIME, 16.0), "прикидка по раздаче потолок не превышает"
+
+    bench = cli._Bench(cast(Any, _FakeTorrServer()))
+    prep = cli._Prep(number=1, release=heavy)
+    prep.video = TorrFile(0, "moana2.mkv", 13_300_000_000)
+    prep.media = Media(duration=5977.0, video="h264")
+
+    assert bench._trouble(prep, pinned=False, warn_mbit=16.0) == "тяжёлый, ~18 Мбит/с"
+    assert bench._trouble(prep, pinned=True, warn_mbit=16.0) == "", "руками — берём"
+    assert bench._trouble(prep, pinned=False, warn_mbit=20.0) == "", "прежний потолок брал"
+
+
 def _franchise_plan(title: str, year: int, releases: list[Release]) -> Any:
     from torrcast.parse import Picture
 
