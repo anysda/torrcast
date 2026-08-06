@@ -935,7 +935,7 @@ class _Bench:
             # самая ранняя секунда, когда известен файл, — то есть параллельно и ffprobe,
             # и вопросам человека (§4 SPEC-v2). Показ потом либо берёт готовое, либо
             # дожидается этого же чтения, а не начинает своё вторым потоком.
-            warm_file(source, alive=lambda: not prep.dropped)
+            warm_file(source, alive=lambda: not prep.dropped, name=prep.want.name)
             prep.media = probe(source, timeout=self.probe_budget)
             prep.read = time.monotonic() - began
             mark("ffprobe", релиз=prep.number, картина=plan.picture.key)
@@ -995,9 +995,12 @@ class _Resume:
     def _work(self) -> None:
         with contextlib.suppress(TorrcastError):
             torrent_hash = self.torrserver.add(self.entry.magnet)
-            self.torrserver.wait_files(torrent_hash)
+            files = self.torrserver.wait_files(torrent_hash)
             self.source = self.torrserver.stream_url(torrent_hash, self.entry.file_idx)
-            warm_file(self.source, at=self.entry.pos, alive=lambda: not self.cancelled)
+            # Имя файла — подсказка о контейнере для грелки головы: карта, снятая прошлой
+            # версией, лежит в кэше без него (:func:`torrcast.stream.container_of`).
+            name = next((f.name for f in files if f.index == self.entry.file_idx), "")
+            warm_file(self.source, at=self.entry.pos, alive=lambda: not self.cancelled, name=name)
 
     def enough(self) -> None:
         """Ответ получен — прогрев прекращается, дальше те же байты читает сам показ.

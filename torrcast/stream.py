@@ -725,7 +725,21 @@ def head_open(kind: str) -> int:
     return HEAD_OPEN.get(kind, HEAD_OPEN_DEFAULT)
 
 
-def warm_file(source_url: str, at: float = 0.0, alive: Any = None) -> None:
+def container_of(name: str) -> str:
+    """Контейнер по имени файла раздачи; чужое расширение — пустая строка.
+
+    Нужно ровно для одного: карта, снятая прошлой версией, лежит в кэше без контейнера, и
+    без этой подсказки продолжение по такому фильму грело бы восемь мегабайт головы до
+    конца времён. Имя файла у показа под рукой всегда — оно приезжает вместе со списком
+    раздачи, — а сам URL потока имени не несёт (в нём hash и номер файла).
+    """
+    tail = name.rsplit(".", 1)[-1].lower() if "." in name else ""
+    if tail in {"mkv", "webm"}:
+        return "mkv"
+    return "mp4" if tail in {"mp4", "m4v", "mov"} else ""
+
+
+def warm_file(source_url: str, at: float = 0.0, alive: Any = None, name: str = "") -> None:
     """Прогреть файл фоном: карта опорных кадров, начало потока и место, откуда играем.
 
     Зовётся с самой ранней секунды, когда известен файл, — пока человек отвечает на
@@ -747,7 +761,9 @@ def warm_file(source_url: str, at: float = 0.0, alive: Any = None) -> None:
         if alive is not None and not alive():
             return
         offset = keys.byte_at(at) if keys is not None and at > 0 else 0
-        head = head_open(keys.kind if keys is not None else "")
+        # Контейнер знает карта; у карты из кэша прошлой версии его нет — тогда спрашиваем
+        # имя файла раздачи, оно у показа всегда под рукой.
+        head = head_open((keys.kind if keys is not None else "") or container_of(name))
         with contextlib.suppress(Exception):
             pull_head(source_url, head if offset else HEAD_WARM, alive)
         if not offset:

@@ -805,3 +805,34 @@ def test_the_head_warmed_under_the_question_is_sized_by_the_container(
                 break
             time.sleep(0.01)
         assert asked[0] == (0, HEAD_OPEN[kind]), f"{kind}: голова не по контейнеру"
+
+
+def test_an_old_key_cache_takes_the_container_from_the_file_name(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Карта из кэша прошлой версии контейнера не знает — его называет имя файла.
+
+    Без этой подсказки продолжение по уже игранному фильму грело бы восемь мегабайт
+    головы вечно: кэш карт живёт долго, а переснимать его ради одного поля незачем.
+    """
+    from torrcast import stream as stream_module
+    from torrcast.stream import HEAD_OPEN, FilmKeys, container_of, warm_file
+
+    assert (container_of("Moana.2.2024.mkv"), container_of("Moana.mp4")) == ("mkv", "mp4")
+    assert container_of("Moana.avi") == "" and container_of("Moana") == ""
+
+    asked: list[tuple[int, int]] = []
+
+    def note(url: str, offset: int, upto: int = 0, alive: Any = None) -> int:
+        asked.append((offset, upto))
+        return 0
+
+    keys = FilmKeys(600.0, [0.0, 200.0], [0, 500 << 20], "")  # кэш прошлой версии
+    monkeypatch.setattr(stream_module, "warm_at", note)
+    monkeypatch.setattr(stream_module, "film_keys", lambda url: keys)
+    warm_file("http://127.0.0.1:1/stream?link=hash&index=1", at=240.0, name="Moana.2.2024.mkv")
+    for _ in range(200):
+        if len(asked) >= 2:
+            break
+        time.sleep(0.01)
+    assert asked[0] == (0, HEAD_OPEN["mkv"]), "имя файла назвало контейнер — греем по нему"
