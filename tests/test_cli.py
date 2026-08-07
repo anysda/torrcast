@@ -637,7 +637,50 @@ def _moana_franchise() -> list[Any]:
     ]
 
 
-def test_menu_default_points_at_the_liveliest_picture() -> None:
+def _cars_franchise() -> list[Any]:
+    """Франшиза «тачки» из живой выдачи: у каждой картины верх её отбора.
+
+    «Тачки 2» стоят тут четырьмя релизами не для красоты: обсиженный BD-ремукс на
+    38.4 ГБ выше потолка отбора, и годным верхом у картины остаётся 0.4-гигабайтный
+    HDRip «фильм о фильме» с одним сидом. Ровно этот случай порог живости и обязан
+    отбросить, хотя формально «кандидат есть».
+    """
+    return [
+        _franchise_plan(
+            "Тачки", 2006, [rel(name="Cars 2006 BluRay 1080p x264", size_gb=7.06, seeders=66)]
+        ),
+        _franchise_plan(
+            "Тачки: Мультачки. Байки Мэтра",
+            2008,
+            [rel(name="Cars Toon [DVD9]", codec=None, quality=None, size_gb=5.41, seeders=5)],
+        ),
+        _franchise_plan(
+            "Тачки 2",
+            2011,
+            [
+                rel(name="Cars 2 [HDRip] фильм о фильме", quality=None, size_gb=0.40, seeders=1),
+                rel(name="Cars 2 [BDRemux 2160p]", quality="2160p", size_gb=38.4, seeders=126),
+            ],
+        ),
+        _franchise_plan(
+            "Тачки 3", 2017, [rel(name="Cars 3 WEB-DL 1080p", size_gb=4.59, seeders=121)]
+        ),
+    ]
+
+
+def test_menu_default_is_the_first_living_picture_of_the_franchise() -> None:
+    """Живая выдача по «тачкам»: смотреть начинают с первой части, и она жива.
+
+    Прежний дефолт «самая живая» печатал `[4]` — «Тачки 3» с 121 сидом. Первая часть
+    при этом вполне играбельна: 1080p BluRay на 66 сидов, 0.55 от лидера франшизы.
+    """
+    plans = _cars_franchise()
+    assert [cli.liveliness(p) for p in plans] == [66, 0, 1, 121]
+    assert cli.liveliest(plans) == 4, "прежнее правило и правда уводило на третью часть"
+    assert cli.first_alive(plans) == 1
+
+
+def test_menu_default_steps_over_a_dead_first_picture() -> None:
     """Живая выдача по «моане»: список хронологический, а дефолт — вторым пунктом.
 
     Первым в хронологии стоит «Моана: романтика золотого века» (1926) — немое
@@ -646,6 +689,27 @@ def test_menu_default_points_at_the_liveliest_picture() -> None:
     plans = _moana_franchise()
     assert [cli.liveliness(p) for p in plans] == [0, 222, 140]
     assert cli.liveliest(plans) == 2
+    assert cli.first_alive(plans) == 2
+
+
+def test_a_faint_swarm_does_not_count_as_alive() -> None:
+    """Один сид против сотни — это не «живая часть», а её отсутствие.
+
+    Порог общий с отбором HD: 0.25 от самой живой картины франшизы. Без него дефолт
+    уходил бы на первую попавшуюся картину с хоть каким-то кандидатом.
+    """
+    plans = _cars_franchise()
+    assert cli.first_alive(plans[1:]) == 3, "«Мультачки» и «Тачки 2» мертвы, жива третья"
+
+
+def test_a_franchise_with_no_life_still_points_somewhere() -> None:
+    """Живого нет вовсе — цифра в скобках всё равно обязана на что-то указывать."""
+    dead = [
+        _franchise_plan("Кино", 2001, [rel(name="dvd9 [DVD9]", quality=None, seeders=2)]),
+        _franchise_plan("Кино 2", 2005, [rel(name="dvd5 [DVD5]", quality=None, seeders=1)]),
+    ]
+    assert [cli.liveliness(p) for p in dead] == [0, 0]
+    assert cli.first_alive(dead) == 1
 
 
 def test_a_picture_with_nothing_playable_weighs_nothing() -> None:
@@ -670,8 +734,8 @@ def test_an_equal_race_is_won_by_chronology() -> None:
 def test_prewarm_starts_with_the_default_not_with_the_earliest() -> None:
     """Греем то, во что попадёт Enter: иначе прогрев под меню греет чужую картину.
 
-    У «моаны» дефолт — вторая картина из четырёх, у «аватара» — девятая из десяти,
-    а под меню греются только первые :data:`~torrcast.cli.PREWARM`.
+    У «моаны» дефолт — вторая картина, а под меню греются только первые
+    :data:`~torrcast.cli.PREWARM`.
     """
     plans = _moana_franchise()
     assert [p.picture.year for p in cli.warm_order(plans)] == [2016, 1926, 2024]

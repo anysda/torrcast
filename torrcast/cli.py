@@ -20,6 +20,7 @@ import contextlib
 import io
 import os
 import re
+import shutil
 import signal
 import sys
 import threading
@@ -39,6 +40,7 @@ from torrcast import (
 )
 from torrcast.cast import ChromecastReceiver, Receiver, make_receiver
 from torrcast.console import Progress, ask, ask_line, terminal
+from torrcast.facts import Fact, Facts, shorten
 from torrcast.parse import (
     VIDEO_EXT,
     Episode,
@@ -665,13 +667,17 @@ def _cmd_play(args: Args) -> int:
 
     with Progress() as progress:
         plans = _search(config, args, progress)
+        # Справка к меню (рейтинг, хронометраж, о чём кино) едет фоном — ровно в те
+        # секунды, что уходят на подъём прогрева. Меню её не ждёт: см. torrcast.facts.
+        facts = Facts([(p.picture.title, p.picture.year) for p in plans])
+        facts.start()
         torrserver = TorrServer(config.torrserver_url)
         bench = _Bench(torrserver, choose=_file_picker(args))
         # Прогрев под меню: пока идёт вопрос, раздачи уже качают метаданные.
         for plan in warm_order(plans)[:PREWARM]:
             bench.start(plan, plan.first)
         try:
-            plan = _pick_plan(plans)
+            plan = _pick_plan(plans, facts)
             prep = bench.resolve(plan, args, progress)
         except BaseException:  # Ctrl-C, «картин много, а терминала нет», «годного нет»
             bench.drop_all()  # прогретое без показа — мусор в рое и кэш в чужой RAM
@@ -1927,30 +1933,66 @@ def liveliest(plans: list[_Plan]) -> int:
     return max(range(1, len(plans) + 1), key=lambda n: (liveliness(plans[n - 1]), -n))
 
 
+def first_alive(plans: list[_Plan]) -> int:
+    """Номер (с единицы) картины по умолчанию: **первая по хронологии, чей рой жив**.
+
+    Смотреть франшизу начинают с начала, а не с самой обсиженной части: «тачки» — это
+    просьба про «Тачки» 2006, даже когда сидов больше у «Тачек 3». Прежний дефолт
+    (:func:`liveliest`) на этом и ошибался — печатал `[4]`.
+
+    Мёртвые части при этом пропускаются, иначе Enter снова упирался бы в пустой рой:
+    у «моаны» первой в хронологии стоит «Моана: романтика золотого века» 1926 года,
+    немая документалка одним VHS-рипом на 5 сидов.
+
+    Живость — доля от самой живой картины франшизы, порог общий с отбором HD
+    (:data:`FULL_HD_LIVENESS`). Абсолютное число тут не годится ровно по той же причине,
+    что и там: у свежей части лидер набирает сотни сидов, у части 2006 года — десятки,
+    и «30 сидов» значило бы в этих двух пулах разное. Замер по живой выдаче:
+
+    * «тачки» — 66 / 0 / 1 / 121 сид; порог 30, первая часть держит 0.55 от лидера и
+      обязана выиграть, а мимо проходят «Мультачки» (одни DVD-образы) и «Тачки 2»,
+      у которых годным верхом остался 0.4-гигабайтный HDRip «фильм о фильме» на 1 сид;
+    * «моана» — 0 / 222 / 121 / 34; порог 55, документалка 1926 года пропускается,
+      дефолтом становится «Моана» 2016.
+
+    Живого нет вовсе — отдаём :func:`liveliest`: выбирать всё равно не из чего, но
+    цифра в скобках обязана на что-то указывать, а на пустой франшизе это первый пункт.
+    """
+    best = max((liveliness(plan) for plan in plans), default=0)
+    floor = best * FULL_HD_LIVENESS
+    alive = [n for n, plan in enumerate(plans, start=1) if liveliness(plan) >= floor]
+    return alive[0] if best > 0 and alive else liveliest(plans)
+
+
 def warm_order(plans: list[_Plan]) -> list[_Plan]:
     """Кого греть под меню и в каком порядке: сначала дефолт, дальше по хронологии.
 
     Раньше грелись ``plans[:PREWARM]`` — первые ПО ХРОНОЛОГИИ, потому что дефолтом был
-    первый пункт. С живым дефолтом это разъехалось бы ровно там, где больнее всего: у
-    «моаны» дефолт — вторая картина, у «аватара» — девятая из десяти, а прогрето было
-    бы 1–3. Enter попадал бы в непрогретую картину, а готовность LOAD за 0.6–2.7 с
-    держится как раз на том, что карта опорных кадров и голова файла легли в кэш
-    ещё под вопросом; без прогрева это снова 3–6 с одного только роя.
+    первый пункт. С дефолтом по :func:`first_alive` это разъезжается ровно там, где
+    больнее всего: у «моаны» дефолт — вторая картина, а прогрето было бы 1–3. Enter
+    попадал бы в непрогретую картину, а готовность LOAD за 0.6–2.7 с держится как раз
+    на том, что карта опорных кадров и голова файла легли в кэш ещё под вопросом; без
+    прогрева это снова 3–6 с одного только роя.
 
     Остальные картины греются по хронологии не от лени: список на экране хронологический,
     и человек, который не соглашается с дефолтом, чаще всего тычет в соседний номер.
     """
-    default = liveliest(plans)
+    default = first_alive(plans)
     return [plans[default - 1]] + [p for n, p in enumerate(plans, start=1) if n != default]
 
 
-def _pick_plan(plans: list[_Plan]) -> _Plan:
+def _pick_plan(plans: list[_Plan], facts: Facts | None = None) -> _Plan:
     """Вопрос «какой фильм франшизы?»; один вариант — без вопроса.
 
-    Дефолт — самая живая картина (:func:`liveliest`), а не первая по хронологии. До
-    этого Enter на «моане» запускал «Моану: романтику золотого века» 1926 года: немое
-    документальное кино, один VHS-рип, 5 сидов — то есть человек, ответивший так, как
-    приглашает строка `[1]`, гарантированно не получал ничего.
+    Дефолт — первая живая картина франшизы (:func:`first_alive`): смотреть начинают
+    с начала, а мёртвые части пропускаются. До этого Enter на «моане» запускал «Моану:
+    романтику золотого века» 1926 года — немое документальное кино, один VHS-рип, 5
+    сидов, — то есть человек, ответивший так, как приглашает строка `[1]`, гарантированно
+    не получал ничего.
+
+    К каждой картине печатается справка (:mod:`torrcast.facts`) — рейтинг, хронометраж и
+    фраза о том, что это за кино. Её тут не ждут: что успело приехать фоном, то и
+    печатается, остальное просто не печатается.
 
     Без терминала (ssh без pty, cron, чужой скрипт) спрашивать некого, и общее правило —
     не висеть, а брать дефолт. Здесь мы по-прежнему отказываемся — и «дефолт стал умнее»
@@ -1962,11 +2004,10 @@ def _pick_plan(plans: list[_Plan]) -> _Plan:
     назвать картину точно.
     """
     if len(plans) == 1:
-        print(f"  1. {_named(plans[0].picture)}")
+        print(menu_lines(plans, facts))
         return plans[0]
-    for number, plan in enumerate(plans, start=1):
-        print(f"  {number}. {_named(plan.picture)}")
-    default = liveliest(plans)
+    print(menu_lines(plans, facts))
+    default = first_alive(plans)
     if not console.stdin_is_tty():
         raise NotFoundError(
             f"подходит картин: {len(plans)}, а терминала нет — вслепую не выбираю; "
@@ -1979,6 +2020,30 @@ def _pick_plan(plans: list[_Plan]) -> _Plan:
 def _named(picture: Picture) -> str:
     kind = ", сериал" if picture.kind == "tv" else ""
     return f"{picture.title} ({picture.year or '?'}{kind})"
+
+
+def menu_lines(plans: list[_Plan], facts: Facts | None = None, width: int = 0) -> str:
+    """Список картин со справкой: номер, название с годом, рейтинг и хронометраж — в одну
+    строку, описание — во вторую, с отступом под номер.
+
+    Формат такой, а не таблицей, ровно из-за узкого терминала: название бывает длинным
+    («Тачки: Мультачки. Байки Мэтра»), а описание — тем более, и колонки разъехались бы
+    на первой же франшизе. Отдельная строка вместо колонки ещё и читается сверху вниз:
+    глаз идёт по номерам, а подробности — под ними.
+
+    Справки нет (не приехала, сети нет, картины нет в Википедии) — печатается ровно та
+    строка, что печаталась раньше, без пустых разделителей и без «не нашёл».
+    """
+    columns = width or shutil.get_terminal_size((80, 24)).columns
+    rows: list[str] = []
+    for number, plan in enumerate(plans, start=1):
+        picture = plan.picture
+        fact = facts.get(picture.title, picture.year) if facts else Fact()
+        head = " · ".join(x for x in (_named(picture), fact.rating, fact.runtime) if x)
+        rows.append(f"  {number}. {head}")
+        if fact.about:
+            rows.append(f"     {shorten(fact.about, max(40, columns - 6))}")
+    return "\n".join(rows)
 
 
 def warned(release: Release, runtime: float, warn_mbit: float, recode_at: float = 0.0) -> str:
