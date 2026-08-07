@@ -122,6 +122,54 @@ _TAG_VOICES: Final[dict[str, str]] = {
 _TAG_ONLY_RE: Final = re.compile(
     r"^\s*(?:\d+\s*[xх]\s*)?[DPAL]2?(?:\s*,\s*(?:\d+\s*[xх]\s*)?[DPAL]2?)*\s*$"
 )
+#: Виды перевода из :data:`_VOICES`, наличие которых в имени и есть обещание русской
+#: ЗВУКОВОЙ дорожки. «Субтитры» и «Original» сюда не входят намеренно: читать титры
+#: вместо озвучки решено не предлагать, а «оригинал» — это как раз то, чего не понять.
+_DUBBED: Final = frozenset(
+    {"Гоблин", "Дубляж", "Многоголосый", "Двухголосый", "Авторский", "Одноголосый"}
+)
+
+#: Упоминания субтитров: вычитаются из имени ДО поиска русской дорожки, иначе
+#: «[JAP+Rus Sub]» и «Sub (Rus, Eng)» читались бы как русская озвучка. Языковая метка
+#: СВОЕЙ дорожки при этом уцелеет: в «JAP+Sub» стирается только «Sub», а «JAP+» остаётся
+#: и честно говорит, что звук японский.
+_SUB_MENTION_RE: Final = re.compile(
+    r"multi\s*\d*\s*-?\s*subs?\b"
+    r"|\bsubs?(?:titles?)?\s*(?:\([^)]*\)|\[[^\]]*\])"
+    r"|\b(?:rus|ru|рус\w*|eng|ukr|укр)[\s._+-]*subs?\b"
+    r"|\bsubs?(?:titles?)?\b|субтитр\w*",
+    re.IGNORECASE,
+)
+
+#: Русская дорожка названа языковой меткой. Живая выдача аниме держится ровно на них:
+#: «[RUS(int)]» (дорожка внутри контейнера), «[RUS(ext), ENG, JAP+Sub]» (отдельным
+#: файлом), «[RUS + JAP]». Голое ``ru`` сюда не годится — его дают адреса трекеров
+#: («kinozal.ru») в хвосте имени.
+_RU_AUDIO_RE: Final = re.compile(r"\brus\b|\brussian\b|\bрус\b|русск\w*", re.IGNORECASE)
+
+#: Студии русской озвучки аниме: у них имя студии — единственный маркер дорожки во всём
+#: имени («… BDRip-HEVC 1080p | Shiza Project», «Naruto- Shippuuden - AniLiberty.TOP»).
+#: Список нарочно короткий и из различимых имён: английские фан-саб-группы Nyaa
+#: (SubsPlease, Judas, MTBB, Trix, Arid, QM) сюда попасть не должны ни при каких
+#: обстоятельствах — у них японский звук и английские титры.
+_RU_STUDIO_RE: Final = re.compile(
+    r"anilib(?:ria|erty)|ani-?dub|shiza|animevost|ani-?media|anistar|anifilm|"
+    r"animaunt|anirise|aniplague|aniomnia|persona\s*99|kansai|ancord|jaskier|"
+    r"студийн\w*\s+банд\w*|studio\s*band|дядюшк\w*\s+шурик|кубик\s+в\s+кубе|"
+    r"lostfilm|newstudio|alexfilm|hdrezka|amazing\s*dubbing",
+    re.IGNORECASE,
+)
+
+#: Дубляж, про который прямо сказано, что он ЧУЖОЙ: «[English Dub]», «[Multi-Dub]»,
+#: «Dub (Ita)». Вычитается из имени вместе с субтитрами, иначе английский дубляж Nyaa
+#: читался бы как русский: маркер ``dub`` в :data:`_VOICES` про язык не спрашивает,
+#: потому что писан по русским трекерам, где чужого дубляжа в имени не бывает.
+_FOREIGN_DUB_RE: Final = re.compile(
+    r"\b(?:eng|english|англ\w*|ita|ital\w*|spa|esp|lat|pt-?br|por|fre|fra|fren\w*|"
+    r"ger|deu|jap|jpn|kor|chi|zho|ukr|укр|kaz|каз|multi\d*|dual)"
+    r"[\s._+-]*(?:audio|dubs?|dubbed|voice)\b",
+    re.IGNORECASE,
+)
 
 #: Не-видео: музыка, книги, игры. Срабатывает только при отсутствии видео-маркеров.
 _NON_VIDEO_RE: Final = re.compile(
@@ -296,6 +344,52 @@ class Release:
         if self.codec:
             return self.codec == "H.264"
         return self.height >= 720 or self.source in _HD_SOURCES
+
+    @property
+    def quiet(self) -> bool:
+        """Имя о качестве МОЛЧИТ: ни разрешения, ни кодека — спорить с ним нечем.
+
+        Отличается от «не первого сорта» (:attr:`prime`) тем, чего в имени нет, а не
+        тем, что в нём плохого. HEVC, MPEG-4, «480p» — это имя, сказавшее о себе правду,
+        и ворота отбора держат такое снаружи по делу. А «Наруто (S1) / Naruto [TV]
+        [E220 of 220] [RUS(ext), ENG, JAP+Sub] [2002 … DVDRip]» — 157 ГБ, 91 сид, полный
+        сериал — не говорит о качестве ничего, и у аниме такие имена сплошь: у той же
+        картины единственные «именные» кандидаты имеют 3 и 1 сид.
+
+        Молчание — не оценка, а отсутствие оценки, поэтому судить такую раздачу
+        должен ffprobe после выбора, а не ворота до него
+        (:func:`~torrcast.cli.gate_open`).
+        """
+        return not self.codec and not self.height
+
+    @property
+    def dubbed(self) -> bool:
+        """Имя обещает РУССКУЮ звуковую дорожку.
+
+        Три независимых сигнала, и все три взяты с живой выдачи:
+
+        1. вид перевода из имени (:data:`_DUBBED`) — «Дубляж», «MVO», хвост rutor ``| D``;
+        2. языковая метка ``RUS`` — «[RUS(int)]», «[RUS(ext), ENG, JAP+Sub]», «[RUS + JAP]»;
+        3. имя студии озвучки (:data:`_RU_STUDIO_RE`) — «| Shiza Project», «AniLiberty.TOP»:
+           у аниме это сплошь и рядом единственный маркер дорожки во всём имени.
+
+        Из имени заранее вычитаются две вещи, каждая — по живому промаху:
+
+        * субтитры (:data:`_SUB_MENTION_RE`): «Sub (Rus, Eng)» и «JAP+Rus Sub» — это
+          титры, а не озвучка, и обещанием русского звука они не являются;
+        * чужой дубляж (:data:`_FOREIGN_DUB_RE`): «[Yameii] Chainsaw Man … [English Dub]»
+          и «[Funimation] Steins Gate 0 [Multi-Dub][ESP-LAT][PT-BR]» — дубляж там есть,
+          только не тот.
+
+        ⚠️ Это ОБЕЩАНИЕ имени, а не факт: ``RUS(ext)`` значит, что дорожка лежит
+        отдельным файлом, и в самом видео её может не оказаться. Факт читает ffprobe
+        уже после выбора, и если русского звука в файле нет — показ говорит об этом
+        вслух (:func:`~torrcast.cli.sound_note`).
+        """
+        text = _FOREIGN_DUB_RE.sub(" ", _SUB_MENTION_RE.sub(" ", self.raw_name))
+        if any(v in _DUBBED for v in _parse_voices(text)):
+            return True
+        return bool(_RU_AUDIO_RE.search(text) or _RU_STUDIO_RE.search(text))
 
     @property
     def dated(self) -> bool:
