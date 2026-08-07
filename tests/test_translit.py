@@ -19,7 +19,7 @@ import pytest
 from torrcast import NotFoundError, cli
 from torrcast.console import Progress
 from torrcast.facts import Origin
-from torrcast.parse import THIN_POOL, Release, alt_query, parse_release_name, transliterate
+from torrcast.parse import THIN_POOL, Picture, Release, alt_query, parse_release_name, transliterate
 from torrcast.search import RawResult, merge
 from torrcast.state import Config
 
@@ -295,7 +295,7 @@ def test_an_unproven_original_is_not_trusted_on_an_empty_result() -> None:
     Транслит - это сами слова запроса, ему веры хватает. А вот оригиналу, вычитанному у
     чужой раздачи, - нет: «не нашлось» честнее наугад взятого однофамильца.
     """
-    came = cli.Picture(title="Незнакомцы", year=2008, releases=[])
+    came = Picture(title="Незнакомцы", year=2008, releases=[])
 
     assert cli.same_picture(None, came, Origin(), proven=True)
     assert not cli.same_picture(None, came, Origin(), proven=False)
@@ -303,8 +303,8 @@ def test_an_unproven_original_is_not_trusted_on_an_empty_result() -> None:
 
 def test_the_reference_year_decides_who_is_who() -> None:
     """Год справки сильнее всего: и подтверждает картину, и отвергает однофамильца."""
-    ours = cli.Picture(title="Восхождение", year=1977, releases=[])
-    theirs = cli.Picture(title="Восхождение", year=2019, releases=[])
+    ours = Picture(title="Восхождение", year=1977, releases=[])
+    theirs = Picture(title="Восхождение", year=2019, releases=[])
 
     assert cli.same_picture(ours, theirs, Origin(year=2019), proven=False)
     assert not cli.same_picture(ours, theirs, Origin(year=1976), proven=True)
