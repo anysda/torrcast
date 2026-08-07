@@ -7,16 +7,16 @@ name = "torrcast"
 version = "0.1.0"
 description = "Поиск торрент-релиза и каст его на ТВ без скачивания и без облака"
 readme = "README.md"
-# Debian 12 (стенд по §8 ТЗ) везёт python3.11 и никакого python3.12 в репозиториях
-# у неё нет. Нижняя граница снижена до 3.11, чтобы установка на стенде оставалась
-# тремя командами; на 3.11 зелены и тесты, и mypy --strict (см. docs/stage5.md).
+# Debian 12 везёт python3.11 и никакого python3.12 в репозиториях у неё нет. Нижняя
+# граница снижена до 3.11, чтобы установка оставалась двумя командами; на 3.11 зелены
+# и тесты, и mypy --strict.
 requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [{ name = "anysda", email = "anysdaw@gmail.com" }]
 dependencies = [
     "requests>=2.32",
     # Не catt: он гонит любой URL через yt-dlp и не умеет подсказки формата HLS,
-    # без которых Default Media Receiver отвечает LOAD ERROR (см. docs/stage2.md).
+    # без которых Default Media Receiver отвечает LOAD ERROR.
     "PyChromecast>=14",
 ]
 

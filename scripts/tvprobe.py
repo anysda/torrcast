@@ -1,7 +1,7 @@
 """Короткий смок на живом ТВ: одно место фильма, одна сетка, честная лента состояний.
 
-Инструмент для §6 SPEC-v2 — «какая именно граница убивает показ». Работает **тем же
-кодом**, что и показ (:class:`torrcast.stream.Feed`, :class:`torrcast.cast.ChromecastReceiver`),
+Отвечает на вопрос «какая именно граница убивает показ». Работает **тем же кодом**,
+что и показ (:class:`torrcast.stream.Feed`, :class:`torrcast.cast.ChromecastReceiver`),
 меняется ровно одно: сетка сегментов, которую задают снаружи. Поэтому разница в поведении
 ТВ — это разница в нарезке, а не в обвязке.
 
@@ -41,8 +41,8 @@ def make_grid(args: argparse.Namespace, delivered: float = 0.0) -> Grid:
     есть бисект: между прогонами меняется ровно одна граница.
 
     ``delivered`` и потолок перекодирования идут в сетку ровно так же, как в показе
-    (:func:`torrcast.cli._play`): от них зависит потолок веса сегмента (§6.2.4), а смок
-    обязан резать так же, как настоящий показ, иначе он меряет не то.
+    (:func:`torrcast.cli._play`): от них зависит потолок веса сегмента, а смок обязан
+    резать так же, как настоящий показ, иначе он меряет не то.
     """
     if args.bounds:
         given = tuple(float(x) for x in args.bounds.split(","))
@@ -82,13 +82,13 @@ def main() -> None:
     parser.add_argument("--duration", type=float, default=6500.285, help="длина фильма")
     parser.add_argument("--audio", type=int, default=0)
     parser.add_argument("--title", default="проверка нарезки")
-    parser.add_argument("--recode", action="store_true", help="перекодировать тяжёлые куски (§6.2)")
+    parser.add_argument("--recode", action="store_true", help="перекодировать тяжёлые куски")
     parser.add_argument("--threshold", type=float, default=15.0, help="порог тяжести, Мбит/с")
     parser.add_argument("--preset", default="veryfast")
     parser.add_argument("--mbit", type=float, default=12.0, help="во сколько перекодировать")
     parser.add_argument("--extra", type=float, default=0.0, help="поправка «контейнер → ТВ»")
     parser.add_argument(
-        "--head-wait", type=float, default=12.0, help="ждать перекод первого сегмента, с (§6.2)"
+        "--head-wait", type=float, default=12.0, help="ждать перекод первого сегмента, с"
     )
     parser.add_argument(
         "--poll", type=float, default=0.5, help="как часто опрашивать приёмник, с (показ — 2.0)"
@@ -118,7 +118,7 @@ def main() -> None:
     recoder = None
     if args.recode:
         keys = film_keys(args.url)
-        # Профиль как в показе: вес видеодорожки из паспорта ffprobe (§6.2). ``--extra``
+        # Профиль как в показе: вес видеодорожки из паспорта ffprobe. ``--extra``
         # оставлен ручным перебивом — им же меряется цена ошибки в поправке.
         weights = Weights.of(
             keys, grid, extra=args.extra, delivered=0.0 if args.extra else delivered

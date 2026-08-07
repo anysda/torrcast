@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# install.sh — установка torrcast на стенд/LXC. Идемпотентен: повторный запуск
-# ничего не ломает и не пересоздаёт то, что уже на месте (§6 ТЗ).
+# install.sh — установка torrcast на Debian/Ubuntu (в том числе в LXC). Идемпотентен:
+# повторный запуск ничего не ломает и не пересоздаёт то, что уже на месте.
 #
 # Фазы: зависимости → пакет → TorrServer → Prowlarr → индексеры → конфиг → раздача.
 # Ноль регистраций и внешних ключей: apikey Prowlarr генерит сам себе, мы его
@@ -17,8 +17,8 @@ PREFIX="${TORRCAST_PREFIX:-/opt/torrcast}"
 CONFIG_DIR="${TORRCAST_CONFIG_DIR:-/etc/torrcast}"
 STATE_DIR="${TORRCAST_STATE_DIR:-/var/lib/torrcast}"
 BIN_DIR="${TORRCAST_BIN_DIR:-/usr/local/bin}"
-#: Интерпретатор ищем, а не прибиваем: на Debian 12 (стенд по §8) есть только
-#: python3.11, python3.12 в её репозиториях нет вовсе. Нижняя граница — 3.11
+#: Интерпретатор ищем, а не прибиваем: на Debian 12 есть только python3.11,
+#: python3.12 в её репозиториях нет вовсе. Нижняя граница — 3.11
 #: (requires-python), на ней зелены тесты и mypy --strict.
 PYTHON="${TORRCAST_PYTHON:-}"
 
@@ -28,7 +28,8 @@ PL_HOST="${TORRCAST_PL_HOST:-127.0.0.1}"
 PL_PORT="${TORRCAST_PL_PORT:-9696}"
 TS_URL="http://$TS_HOST:$TS_PORT"
 PL_URL="http://$PL_HOST:$PL_PORT"
-#: Кэш TorrServer держим в RAM, на диск не пишем (§3). 4 ГиБ — из 8 ГиБ стенда.
+#: Кэш TorrServer держим в RAM, на диск не пишем. 4 ГиБ — половина от 8 ГиБ памяти:
+#: если её меньше, задай свой размер через TORRCAST_TS_CACHE.
 TS_CACHE="${TORRCAST_TS_CACHE:-4294967296}"
 
 # Индексеры: definitionName в схеме Prowlarr + базовый URL. Knaben — метапоиск,
@@ -47,14 +48,14 @@ SHIM_DIR="${TORRCAST_SHIM_DIR:-/etc/knaben-shim}"
 SEED_DEFS=0
 
 # Раздача HLS: сегменты в tmpfs (фильм на диск не пишем). Транспорт по умолчанию —
-# голый http на IP (§5 SPEC-v2): ни серта, ни имени, ни DNS в пути показа. Адрес
-# раздачи не настраивается: код сам берёт ту ногу, с которой стенд виден телевизору.
+# голый http на IP: ни серта, ни имени, ни DNS в пути показа. Адрес раздачи не
+# настраивается — код сам берёт тот интерфейс, с которого хост виден телевизору.
 # TORRCAST_HLS_BASE_URL — запасной выход, если прямой путь не заработает.
 HLS_DIR="${TORRCAST_HLS_DIR:-/dev/shm/torrcast}"
 HLS_PORT="${TORRCAST_HLS_PORT:-8080}"
 HLS_TRANSPORT="${TORRCAST_TRANSPORT:-http}"
 HLS_BASE_URL="${TORRCAST_HLS_BASE_URL:-}"
-HLS_HOST="${TORRCAST_HLS_HOSTNAME:-torrcast.anysda.space}"
+HLS_HOST="${TORRCAST_HLS_HOSTNAME:-torrcast.local}"
 TLS_DIR="$CONFIG_DIR/tls"
 
 log()  { printf '\033[1m==>\033[0m %s\n' "$*"; }
@@ -68,7 +69,7 @@ need_root() {
     [ "$(id -u)" -eq 0 ] || die "запускать от root: sudo ./install.sh"
 }
 
-# Служба: на стенде — юнит systemd, в песочнице — просто фоновый процесс,
+# Служба: в системе — юнит systemd, в песочнице — просто фоновый процесс,
 # чтобы фазы проверялись живьём, а не «как будто».
 run_service() {  # $1 имя, $2 описание, $3 команда
     if [ -n "${TORRCAST_NO_SYSTEMD:-}" ]; then
@@ -117,13 +118,13 @@ pick_python() {
     die "нужен python 3.11 или новее (см. requires-python в pyproject.toml)"
 }
 
-#: ffmpeg не ниже 6.1 — из-за -readrate_initial_burst (§6 SPEC-v2). В Debian 12 живёт
-#: 5.1, а без burst темп упаковки лечится только паузой процесса — той самой, под которой
-#: приёмник намертво виснет в BUFFERING. Статическая сборка кладётся в /usr/local/bin и
-#: перебивает пакетную по PATH; пакет ffmpeg остаётся на месте как запасной вариант.
+#: ffmpeg не ниже 6.1 — из-за -readrate_initial_burst. В Debian 12 живёт 5.1, а без burst
+#: темп упаковки лечится только паузой процесса — той самой, под которой приёмник намертво
+#: виснет в BUFFERING. Статическая сборка кладётся в /usr/local/bin и перебивает пакетную
+#: по PATH; пакет ffmpeg остаётся на месте как запасной вариант.
 #: ⚠️ Сборка именно BtbN. Статик johnvansickle 7.0.2 на Xeon E5-2696 v4 ставится и версию
-#: печатает, а на первом же MPEG-TS падает в segfault (замерено 05-08-2026, дважды, с
-#: записями в dmesg хоста) — то есть ломается ровно на том формате, в котором мы пакуем.
+#: печатает, а на первом же MPEG-TS падает в segfault (проверено дважды, с записями в
+#: dmesg) — то есть ломается ровно на том формате, в котором мы пакуем.
 FFMPEG_MIN="${TORRCAST_FFMPEG_MIN:-6.1}"
 FFMPEG_URL="${TORRCAST_FFMPEG_URL:-https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n7.1-latest-linux64-gpl-7.1.tar.xz}"
 
@@ -199,7 +200,7 @@ install_torrcast() {
     fi
     "$PREFIX/venv/bin/pip" install --quiet --upgrade pip
     # Первый вызов ставит зависимости, второй — САМ пакет, всегда заново.
-    # ⚠️ Оба флага второго вызова нужны, и оба поймано 05-08-2026 на живом стенде:
+    # ⚠️ Оба флага второго вызова нужны, и оба пойманы живой выкаткой:
     # без --force-reinstall pip видит ту же версию из pyproject.toml (от правок кода она
     # не меняется), говорит «Requirement already satisfied» и уходит; а с ним, но без
     # --no-cache-dir, он ставит СВОЁ прежнее колесо из кэша — то есть опять не наш код.
@@ -242,11 +243,11 @@ install_torrserver() {
         "$PREFIX/bin/TorrServer --port $TS_PORT --ip $TS_HOST --path $PREFIX/torrserver"
     wait_http "$TS_URL/echo" 60 || die "TorrServer не поднялся на $TS_URL"
 
-    # Кэш в RAM, публичные ретрекеры в magnet'ы, DHT и PEX включены (§3).
+    # Кэш в RAM, публичные ретрекеры в magnet'ы, DHT и PEX включены.
     # ConnectionsLimit: дефолтные 25 соединений — это потолок скорости на ПЕРВЫХ секундах,
     # когда пиры ещё разбираются, кто что отдаёт, а нам нужны и хвост файла (Cues), и
-    # начало (первый сегмент) прямо сейчас. Холодный старт §7.1 SPEC-v2 упирается ровно
-    # в это место, поэтому потолок поднят.
+    # начало (первый сегмент) прямо сейчас. Холодный старт упирается ровно в это место,
+    # поэтому потолок поднят.
     local sets
     sets="$(curl -fsS -X POST "$TS_URL/settings" -d '{"action":"get"}' \
         | jq -c --argjson c "$TS_CACHE" '.CacheSize=$c|.UseDisk=false|.RetrackersMode=1
@@ -259,9 +260,9 @@ install_torrserver() {
 
 # --- 3.5. Источники: проверяем, что доступно, и обходим только то, что бито ----
 #
-# Домашний канал и канал через VPN — разные интернеты, и это выяснилось на стенде
-# (docs/stage5.md). Поэтому ничего не обходится «на всякий случай»: сначала замер,
-# обход ставится только если источник реально не отвечает.
+# В разных сетях доступно разное: то, что у одного провайдера открыто, у другого режется
+# по SNI. Поэтому ничего не обходится «на всякий случай»: сначала замер, обход ставится
+# только если источник реально не отвечает.
 
 hosts_pin() {  # $1 имя — прибить к 127.0.0.1, идемпотентно
     if grep -qE "^127\.0\.0\.1[[:space:]]+$1(\$|[[:space:]])" /etc/hosts; then
@@ -300,7 +301,7 @@ setup_shim() {
         chmod 600 "$SHIM_DIR/knaben.key"
     fi
     # Prowlarr — .NET, и доверяет он системному хранилищу; своего для процесса ему не
-    # задать (SSL_CERT_FILE он игнорирует — проверено). Ключ лежит root-only на стенде.
+    # задать (SSL_CERT_FILE он игнорирует — проверено). Ключ остаётся доступным только root.
     install -m 0644 "$SHIM_DIR/knaben.crt" /usr/local/share/ca-certificates/knaben-shim.crt
     update-ca-certificates >/dev/null 2>&1
     hosts_pin "$KNABEN_API_HOST"
@@ -368,9 +369,9 @@ seed_definitions() {
 }
 
 # --- 4. Prowlarr ------------------------------------------------------------
-# Качаем с GitHub, как и TorrServer. Родной prowlarr.servarr.com отдаёт домашнему
-# адресу 403 (с egress через VPN — 200): зависеть от того, чей IP спрашивает, установка
-# не должна. Сборка та же самая, версия совпадает. Запасной путь остался вторым.
+# Качаем с GitHub, как и TorrServer. Родной prowlarr.servarr.com части адресов отдаёт
+# 403: зависеть от того, чей IP спрашивает, установка не должна. Сборка та же самая,
+# версия совпадает. Запасной путь остался вторым.
 PL_RELEASE="${TORRCAST_PL_RELEASE:-https://api.github.com/repos/Prowlarr/Prowlarr/releases/latest}"
 PL_FALLBACK="${TORRCAST_PL_FALLBACK:-https://prowlarr.servarr.com/v1/update/master/updatefile?os=linux&runtime=netcore&arch=x64}"
 
@@ -466,7 +467,7 @@ install_indexers() {
     info "индексеров сейчас: $(curl -fsS "$PL_URL/api/v1/indexer?apikey=$key" | jq 'length')"
 
     # Живая проверка: «индексер заведён» и «поиск что-то находит» — разные утверждения.
-    # На стенде первое было правдой, а второе нет (docs/stage5.md).
+    # Первое бывает правдой при неправде второго — например когда сеть режет индексер.
     local found
     found="$(curl -fsS -m 90 -G "$PL_URL/api/v1/search" \
         --data-urlencode "apikey=$key" --data-urlencode "query=матрица" \
@@ -484,16 +485,14 @@ setup_config() {
     install -d -m 0755 "$CONFIG_DIR" "$STATE_DIR"
     local key; key="$(prowlarr_apikey)"
 
-    # Темп упаковки и окно сегментов — дефолты КОДА (torrcast/state.py), а не настройка
-    # стенда: иначе выкатка нового поведения молча упирается в старые числа из конфига
-    # (ровно это и случилось с hls_readrate=1.5, §7 A SPEC-v2). Вычищаем их отовсюду.
-    # Туда же транспорт: раздача по http на IP — не вкус владельца, а устройство системы
-    # (§5 SPEC-v2), и старое `https://torrcast.anysda.space:8443` из конфига обязано уйти.
-    # Потолок битрейта — из того же класса: это замеренное свойство приёмника (Q70D
-    # ребуферит уже на 17.8 Мбит/с, §7.5 SPEC-v2), а не вкус владельца. Оставь его в
-    # конфиге — и опущенный до 16 дефолт молча упрётся в старые 20. Настройки
-    # перекодирования (§6.2) из того же класса: это замеры процессора стенда и приёмника,
-    # а не вкус владельца.
+    # Темп упаковки и окно сегментов — дефолты КОДА (torrcast/state.py), а не пользовательская
+    # настройка: иначе обновление молча упирается в старые числа из конфига (ровно это и
+    # случилось с hls_readrate=1.5). Вычищаем их отовсюду. Туда же транспорт: раздача по
+    # http на IP — устройство системы, а не вкус, и старый https-адрес из конфига обязан
+    # уйти. Потолок битрейта из того же класса: это замеренное свойство приёмника (Q70D
+    # ребуферит уже на 17.8 Мбит/с). Оставь его в конфиге — и опущенный до 16 дефолт молча
+    # упрётся в старые 20. Настройки перекодирования — тоже замеры процессора и приёмника,
+    # а не вкус.
     local tuned='del(.hls_readrate, .hls_window, .hls_burst, .hls_keep, .bitrate_warn_mbit,'
     tuned="$tuned .bitrate_hard_mbit, .recode, .recode_mbit, .recode_at_mbit, .recode_preset,"
     tuned="$tuned .recode_ahead,"
@@ -501,7 +500,7 @@ setup_config() {
     tuned="$tuned | .transport=\$t | .hls_port=(\$p|tonumber) | .hls_base_url=\$b"
 
     if [ -f "$CONFIG_DIR/config.json" ]; then
-        # Адрес ТВ и прочий выбор владельца не трогаем — обновляем только ключ.
+        # Адрес ТВ и прочий выбор пользователя не трогаем — обновляем только ключ.
         skip "$CONFIG_DIR/config.json (обновляю apikey, транспорт и темп беру из кода)"
         local tmp; tmp="$(mktemp "$CONFIG_DIR/.config.json.XXXX")"
         jq --arg k "$key" --arg t "$HLS_TRANSPORT" --arg p "$HLS_PORT" --arg b "$HLS_BASE_URL" \
@@ -558,7 +557,7 @@ UNIT
 }
 
 # Своего демона раздачи нет: сервер живёт внутри процесса `cast` ровно на время
-# показа — отдельного caddy/nginx с их конфигами не заводим (§6, бюджет кода).
+# показа — отдельного caddy/nginx с их конфигами не заводим.
 # Здесь только то, что должно существовать до первого запуска: каталог сегментов, а при
 # выключенной по умолчанию опции `transport: https` — ещё и серт.
 setup_hls() {
@@ -576,8 +575,8 @@ setup_hls() {
         return
     fi
 
-    # Self-signed = рабочий дефолт для mock-приёмки. Chromecast его молча не примет:
-    # на стенде сюда кладутся файлы LE (или правится путь в config.json) — и всё.
+    # Self-signed = рабочий дефолт для mock-приёмника. Chromecast его молча не примет:
+    # сюда кладутся файлы настоящего серта (или правится путь в config.json) — и всё.
     openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
         -keyout "$TLS_DIR/torrcast.key" -out "$TLS_DIR/torrcast.crt" \
         -subj "/CN=$HLS_HOST" -addext "basicConstraints=critical,CA:TRUE" \

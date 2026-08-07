@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Прогон парсера по корпусу реальных имён раздач: метрики + топ непарсящихся.
 
-В пакет не входит (§6, бюджет ≤1200 строк) — инструмент разработчика.
+Инструмент разработчика: в устанавливаемый пакет не входит.
 
-    python scripts/corpus_report.py /path/to/corpus/releases.jsonl
-    python scripts/corpus_report.py --fails 30 --source rutor …
+    python scripts/corpus_report.py path/to/corpus/releases.jsonl
+    python scripts/corpus_report.py <корпус>/releases.jsonl --fails 30 --dump-fails fails.txt
 
 Корпус (61 МБ) в репе не лежит: снимается отдельно, путь передаётся аргументом.
 Курируемая выборка из него — в ``tests/fixtures/names.txt``.
@@ -23,7 +23,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from torrcast.parse import Release, parse_release_name
 
-#: Источники, по которым спрашивают кино и сериалы — на них и целевые ≥95 % (§7).
+#: Источники, по которым спрашивают кино и сериалы, — на них и держим целевые ≥95 %.
 CINEMA_SOURCES = frozenset({"rutor", "kinozal", "knaben:RuTracker.org", "megapeer"})
 _CYRILLIC = re.compile(r"[а-яё]", re.IGNORECASE)
 _YEAR_IN_TEXT = re.compile(r"(?:19|20)\d{2}")
