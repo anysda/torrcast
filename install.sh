@@ -211,6 +211,54 @@ install_torrcast() {
     install -d -m 0755 "$BIN_DIR"
     # Симлинк перезаписываем всегда: это дёшево и чинит битую ссылку.
     ln -sfn "$PREFIX/venv/bin/cast" "$BIN_DIR/cast"
+    verify_torrcast
+}
+
+# Слепок дерева исходников: «sha256 + относительный путь» на каждый .py, порядок
+# фиксирован сортировкой, поэтому два каталога сравниваются построчно.
+py_manifest() {  # $1 — каталог пакета torrcast
+    (
+        cd "$1" || return 1
+        LC_ALL=C find . -name __pycache__ -prune -o -name '*.py' -print0 |
+            LC_ALL=C sort -z | xargs -0r sha256sum
+    )
+}
+
+# Сверка «что реально лежит в venv» ↔ «что лежит в репе». Без неё установка врёт:
+# pip умеет отрапортовать успех, не тронув ни одного файла (см. комментарий выше),
+# и это ловилось только сверкой хэшей руками после каждой выкатки. Расхождение —
+# это провал установки, а не повод для предупреждения: дальше по скрипту нет ничего,
+# что чинило бы venv, а показ пойдёт по чужому коду.
+verify_torrcast() {
+    local installed repo_side venv_side changed count sum
+    # -P убирает текущий каталог из sys.path: без него `import torrcast`, запущенный
+    # из каталога репы, нашёл бы исходники репы и сверка сравнивала бы их сами с собой.
+    installed="$("$PREFIX/venv/bin/python" -P -c \
+        'import pathlib, torrcast; print(pathlib.Path(torrcast.__file__).resolve().parent)')" ||
+        die "пакет torrcast не импортируется из $PREFIX/venv — установка не состоялась"
+    [ -d "$REPO_DIR/torrcast" ] || die "рядом с install.sh нет каталога torrcast/ — нечего сверять"
+    [ -d "$installed" ] || die "torrcast импортируется, но каталога $installed нет"
+
+    repo_side="$(py_manifest "$REPO_DIR/torrcast")"
+    venv_side="$(py_manifest "$installed")"
+    [ -n "$repo_side" ] || die "в $REPO_DIR/torrcast нет ни одного .py — сверять нечего"
+    if [ "$repo_side" != "$venv_side" ]; then
+        # Имена расходящихся файлов: строки, встречающиеся только с одной стороны.
+        changed="$(comm -3 \
+            <(printf '%s\n' "$repo_side" | LC_ALL=C sort) \
+            <(printf '%s\n' "$venv_side" | LC_ALL=C sort) |
+            awk '{print $NF}' | LC_ALL=C sort -u)"
+        printf '%s\n' "$changed" | while read -r f; do
+            [ -n "$f" ] && info "расходится: ${f#./}"
+        done
+        info "в репе:  $REPO_DIR/torrcast"
+        info "в venv:  $installed"
+        die "venv не совпадает с исходниками: pip отрапортовал успех, но код не обновился"
+    fi
+
+    count="$(printf '%s\n' "$repo_side" | grep -c .)"
+    sum="$(printf '%s\n' "$repo_side" | sha256sum | cut -c1-12)"
+    info "сверка venv ↔ репа: $count файлов .py совпадают (sha256 $sum)"
 }
 
 # --- 3. TorrServer ----------------------------------------------------------
