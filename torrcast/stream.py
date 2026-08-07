@@ -1713,7 +1713,7 @@ class Packer:
         slots = [s for s in map(segment_slot, _names(self.out)) if s >= self.first]
         return max(slots, default=self.first - 1)
 
-    def halt(self) -> None:
+    def halt(self, reason: str = "пауза на пульте") -> None:
         """Погасить упаковку, **не трогая уже упакованное**: приёмник на паузе, и копить
         сегменты в tmpfs незачем. Возобновление — новый прогон (:meth:`Feed.segment`).
 
@@ -1722,7 +1722,7 @@ class Packer:
         держит коннект и не запрашивает ничего. Поэтому процесс именно завершается.
         """
         self.halted = True
-        self.stop(keep_files=True, reason="пауза на пульте")
+        self.stop(keep_files=True, reason=reason)
 
     def poll(self) -> int | None:
         return self.proc.poll()
@@ -1940,6 +1940,17 @@ class Feed:
     #: признак живёт на :class:`Feed`, а не на сегменте: он один на весь файл и не зависит
     #: ни от места показа, ни от перемотки.
     encode: Any = None
+    #: Хранилище прогретого на диске (:class:`torrcast.warm.Vault`) или ``None``.
+    #:
+    #: Сетка детерминирована, поэтому прогретый кусок и живой — одно и то же место фильма
+    #: под одним и тем же именем. Отсюда всё остальное: показ берёт прогретое напрямую с
+    #: диска (:meth:`segment`), считает его своим запасом (:meth:`front`) и переживает на
+    #: нём обрыв сети (:meth:`_survive`).
+    vault: Any = None
+    #: Источник не читается (сеть пропала), а прогретое ещё есть: показ идёт с диска и
+    #: ждёт возврата сети. Пусто — всё в порядке. Это НЕ :attr:`fatal`: умирать, пока на
+    #: диске лежит фильм, нельзя, а молчать об этом — тем более.
+    offline: str = ""
 
     @property
     def duration(self) -> float:
@@ -1966,6 +1977,13 @@ class Feed:
         while True:
             if path.exists():
                 return path
+            # Прогретое на диске равноценно живому куску: то же место фильма, то же имя,
+            # та же сетка (:attr:`vault`). Проверка стоит ЗДЕСЬ, до всякого разбирательства
+            # с упаковкой, и в этом весь смысл прогрева: перемотка в прогретую зону
+            # отвечает файлом сразу, не поднимая ffmpeg и не спрашивая сеть.
+            warm = self._warm(slot)
+            if warm is not None:
+                return warm
             if self.lock.acquire(blocking=False):
                 try:
                     hope = self._steer(slot)
@@ -1978,6 +1996,17 @@ class Feed:
             if time.monotonic() >= deadline:
                 return None
             time.sleep(0.2)
+
+    def _warm(self, slot: int) -> Path | None:
+        """Прогретый на диске кусок этого места или ``None``."""
+        if self.vault is None:
+            return None
+        path: Path = self.vault.path(slot)
+        return path if path.exists() else None
+
+    def have(self, slot: int) -> bool:
+        """Есть ли кусок этого места — всё равно, в окне показа или в прогретом."""
+        return (self.out / segment_name(slot)).exists() or self._warm(slot) is not None
 
     def _steer(self, slot: int) -> bool:
         """Что делать с упаковкой ради сегмента ``slot``; ``False`` — файла не будет.
@@ -2004,6 +2033,8 @@ class Feed:
             # наивная починка («ждать только впереди глоба») давала 20 перезапусков за
             # 100 с. Работает только честный край: он растёт ровно на publish.
             packer.publish()
+            if packer.edge >= packer.first:
+                self.offline = ""  # прогон что-то выложил — значит источник снова читается
             if (self.out / segment_name(slot)).exists():
                 # ⚠️ Кусок допаковался ровно этим `publish` — и это не редкость, а
                 # обычный ход показа: приёмник идёт вплотную за упаковкой и просит
@@ -2035,7 +2066,9 @@ class Feed:
             # его не этот прогон) лечатся одинаково: перепаковкой с этого места.
             if code not in (None, 0) and not self._survive(packer):
                 return False
-        if time.monotonic() - self.restarted < 2.0:
+        # Пока источник не читается, толкаться незачем: подъём ffmpeg на мёртвую сеть
+        # стоит секунды и не даёт ничего, а показ в это время идёт с диска.
+        if time.monotonic() - self.restarted < (5.0 if self.offline else 2.0):
             return True  # соседний запрос уже перезапустил упаковку — не толкаемся
         self.restarted = time.monotonic()
         self.restart(slot)
@@ -2058,8 +2091,18 @@ class Feed:
         self.crashes += 1
         why = packer.why()  # там же и код возврата, если ffmpeg смолчал
         if self.crashes > self.limit:
-            self.fatal = why
-            return False
+            if self.vault is None:
+                self.fatal = why
+                return False
+            # ⚠️ Прогретое на диске меняет смысл обрыва: раньше три подряд оборванных
+            # прогона означали «источника нет, показывать нечего», теперь — «сети нет, а
+            # фильм есть». Умирать тут нельзя, но и молчать нельзя: показ говорит, докуда
+            # он обеспечен, и продолжает пробовать. Вернулась сеть — прогон выложит кусок,
+            # и признак снимется сам (:meth:`_steer`).
+            self.crashes = 0
+            self.offline = why
+            self._say(f"источник не читается ({why}) — иду с прогретого, жду возврата сети")
+            return True
         self._say(f"упаковка оборвалась ({why}) — начинаю заново, попытка {self.crashes}")
         return True
 
@@ -2167,9 +2210,9 @@ class Feed:
         дырку приёмник всё равно не сможет. Куска под позицией нет вовсе — запаса ноль.
         """
         slot = self.grid.slot_at(played)
-        if not (self.out / segment_name(slot)).exists():
+        if not self.have(slot):
             return played
-        while slot + 1 < self.grid.count and (self.out / segment_name(slot + 1)).exists():
+        while slot + 1 < self.grid.count and self.have(slot + 1):
             slot += 1
         return self.grid.end(slot)
 
@@ -2197,6 +2240,18 @@ class Feed:
 
     def halted(self) -> bool:
         return self.packer is not None and self.packer.halted
+
+    def rest(self) -> bool:
+        """Остаток фильма прогрет целиком — живую упаковку гасим; ``True`` — погасили.
+
+        Держать её дальше значит тянуть из раздачи байты, которые уже лежат на диске, и
+        отбирать полосу у прогрева головы. Это не конец показа: запрос куска, которого в
+        прогретом нет, поднимет упаковку заново (:meth:`_steer`), как после паузы.
+        """
+        if self.vault is None or self.packer is None or self.packer.halted:
+            return False
+        self.packer.halt(reason="весь остаток прогрет")
+        return True
 
     def halt(self) -> None:
         if self.packer is not None:

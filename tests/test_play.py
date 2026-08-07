@@ -63,6 +63,9 @@ def config_for(tmp_path: Path, tls: tuple[str, str], port: int) -> Config:
         hls_port=port,
         hls_readrate=0.0,  # приёмка идёт быстрее реального времени
         hls_keyframes=False,
+        # Прогрев на диск — отдельный тракт со своими тестами (`test_warm.py`). Здесь
+        # проверяется живая упаковка, и второй ffmpeg рядом с ней только мешал бы мерить.
+        warm=False,
     )
 
 

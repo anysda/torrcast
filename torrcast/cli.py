@@ -27,7 +27,7 @@ import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from torrcast import (
     InfraError,
@@ -79,6 +79,7 @@ from torrcast.stream import (
     warm_file,
 )
 from torrcast.timing import mark
+from torrcast.warm import Vault, Warmer, warm_key, warm_root
 
 __all__ = [
     "Args",
@@ -172,6 +173,10 @@ START_BUDGET = (
 )
 #: Как часто сторож кладёт позицию в state, секунды.
 WATCH_SECONDS = 10.0
+#: Доля фильма, с которой прогрев считается полным в статусе. Не единица: хвост сетки
+#: короче шага, и последний кусок доезжает позже всех — а «интернет не нужен» верно уже
+#: тогда, когда впереди лежит всё, что зритель успеет посмотреть.
+WARMED_RATIO = 0.99
 #: Как часто показ пишет в журнал, что видит приёмник: позиция и общее время —
 #: единственное доказательство того, что на экране есть таймлайн.
 SAY_SECONDS = 30.0
@@ -376,6 +381,14 @@ def _cmd_status() -> int:
     # Разрешение — подтверждённое ffprobe у играющего файла, а не заявка имени.
     what += f" · {entry.quality}" if entry.quality else ""
     print(f"играю {what} — {_hms(entry.pos)} / {_hms(entry.dur)}")
+    if entry.warm > 0:
+        # Прогрев — это и есть ответ на вопрос «переживёт ли показ обрыв связи», поэтому
+        # он стоит в статусе, а не в отладочной ручке.
+        whole = entry.dur > 0 and entry.warm >= entry.dur * WARMED_RATIO
+        print(
+            f"   прогрето {_hms(entry.warm)} из {_hms(entry.dur)}"
+            + (" — весь фильм на диске, интернет не нужен" if whole else "")
+        )
     where = "адрес раздачи не определён"
     with contextlib.suppress(TorrcastError):  # адреса нет — статус показа это не отменяет
         where = hls_base(config)
@@ -1537,6 +1550,52 @@ def _encode_all(config: Config, codec: str, video_mbit: float = 0.0) -> Encode |
     return Encode(preset=FULL_PRESET, mbit=want)
 
 
+def _warmer(
+    config: Config,
+    source: str,
+    audio: int,
+    grid: Grid,
+    start: float,
+    title: str,
+    whole: Any = None,
+    recoder: Any = None,
+) -> Warmer | None:
+    """Фоновый прогрев всего фильма на диск или ``None``, если он выключен.
+
+    Чем кодировать прогретое — решается здесь и один раз на показ, потому что стык двух
+    прогонов ffmpeg стоит показу дыры в звуке (докстринг :mod:`torrcast.warm`):
+
+    * кодек, который приёмник не декодирует, — тем же сплошным перекодом, что и живая
+      упаковка (``whole``): иначе на диске лежал бы HEVC, который ТВ не возьмёт;
+    * фильм с тяжёлыми кусками (жив кодировщик) — целиком в потолок ``recode_mbit``.
+      Наружу такой фильм и так уезжает перекодированным в тяжёлых местах, а держать
+      прогрев «копия там, перекод тут» нельзя: каждый переход между режимами — это
+      новый прогон, то есть стык звука посреди фильма;
+    * всё остальное — копией, как играет живая упаковка.
+    """
+    if not config.warm:
+        return None
+    encode = whole
+    if encode is None and recoder is not None and recoder.targets:
+        encode = Encode(preset=FULL_PRESET, mbit=config.recode_mbit)
+    vault = Vault(
+        root=warm_root(config.warm_dir),
+        key=warm_key(source, audio, grid, encode),
+        budget=int(config.warm_budget_gb * 1e9),
+        title=title,
+    )
+    return Warmer(
+        source=source,
+        audio=audio,
+        grid=grid,
+        vault=vault,
+        encode=encode,
+        began_at=grid.slot_at(start),
+        rate=config.warm_rate,
+        log=lambda text: print(text, flush=True),
+    )
+
+
 def _play(
     config: Config,
     source: str,
@@ -1605,6 +1664,9 @@ def _play(
             video_mbit=video_mbit,
         )
     )
+    # Прогрев поднимается ПОСЛЕ старта показа (ниже), а собирается здесь: ему нужны и
+    # сетка, и решение о перекодировании — те же, что у живой упаковки.
+    warmer = _warmer(config, source, audio, grid, start, about, whole=whole, recoder=recoder)
     feed = Feed(
         source=source,
         audio=audio,
@@ -1616,6 +1678,7 @@ def _play(
         log=lambda text: print(text, flush=True),
         recoder=recoder,
         encode=whole,
+        vault=None if warmer is None else warmer.vault,
     )
     server = HlsServer(
         out, config.hls_cert, config.hls_key, port=config.hls_port, tls=tls, feed=feed
@@ -1639,7 +1702,12 @@ def _play(
         receiver.play(url, about, at=start)
         mark("LOAD взят")
         print(f"играю {about} — на ТВ   (старт {clock.total:.0f} с)", flush=True)
-        _hold(receiver, feed, watch)
+        # ⚠️ Прогрев стартует ровно ЗДЕСЬ и ни строкой выше: путь до картинки он не
+        # удлиняет ни на секунду — ни своим ffmpeg, ни чтением каталога. Всё, что он
+        # делает, происходит уже при играющем показе и на остатке процессора.
+        if warmer is not None:
+            warmer.start()
+        _hold(receiver, feed, watch, warmer)
     finally:
         # Позиция фиксируется при любом исходе, включая SIGTERM, и делается это ПЕРВЫМ
         # делом: показ, доигранный до конца файла, отмечает «досмотрено» ровно здесь, а
@@ -1647,6 +1715,14 @@ def _play(
         # показа или стык серий.
         if watch is not None:
             watch.flush()
+        if warmer is not None:
+            warmer.stop()
+            # Досмотрено (порог 95 %) — прогретое стирается: держать на диске фильм,
+            # который уже посмотрели, незачем. Прерванный показ прогретое сохраняет:
+            # `cast` завтра продолжит с диска и без сети.
+            if watch is not None and watch.done:
+                warmer.vault.clear()
+                print("досмотрено — прогретое с диска убрал", flush=True)
         # ⚠️ suppress(Exception), а не TorrcastError: pychromecast на полуживом соединении
         # роняет что угодно, а ffmpeg и раздача обязаны погаснуть в любом случае — иначе
         # процесс уходит, а они остаются.
@@ -1680,7 +1756,9 @@ def _handover(watch: Watch | None) -> bool:
     return watch is not None and watch.done and _following(watch.key) is not None
 
 
-def _hold(receiver: Receiver, feed: Feed, watch: Watch | None = None) -> None:
+def _hold(
+    receiver: Receiver, feed: Feed, watch: Watch | None = None, warmer: Warmer | None = None
+) -> None:
     """Держим показ: опрос приёмника раз в 2 с, упаковка должна быть жива, из RAM уходит
     только пройденное, сторож раз в 10 с пишет позицию.
 
@@ -1726,6 +1804,12 @@ def _hold(receiver: Receiver, feed: Feed, watch: Watch | None = None) -> None:
                 f"расхождение с манифестом {feed.drift():.3f} с · {position.state}",
                 flush=True,
             )
+        if warmer is not None:
+            # Приоритет живого окна держится ровно здесь: прогрев видит тот же запас, что
+            # и сторож приёмника, и на просевшем замирает (:meth:`torrcast.warm.Warmer._throttle`).
+            warmer.slack = feed.front(position.pos) - position.pos
+            if warmer.done and feed.rest():
+                print("прогрето целиком — живую упаковку гашу, показ идёт с диска", flush=True)
         if time.monotonic() - said >= SAY_SECONDS:
             # Что видит приёмник, тем и отчитываемся: длительность и позиция — это ровно
             # ``duration`` и ``current_time`` из MEDIA_STATUS, снятые владеющим сендером.
@@ -1735,7 +1819,21 @@ def _hold(receiver: Receiver, feed: Feed, watch: Watch | None = None) -> None:
                 f"экран: {_hms(position.pos)} из {_hms(position.dur)} · {position.state}",
                 flush=True,
             )
+            if warmer is not None:
+                print(warmer.line(), flush=True)
+            if feed.offline:
+                # Обрыв длиннее прогретого не имеет права быть молчаливой смертью: показ
+                # говорит, докуда он обеспечен, и продолжает пробовать сеть.
+                print(
+                    f"сети нет ({feed.offline}) — показ обеспечен до "
+                    f"{_hms(feed.front(position.pos))}",
+                    flush=True,
+                )
         if watch is not None:
+            # Прогрев виден снаружи только через состояние: живой показ из другого
+            # процесса не спросишь (:attr:`torrcast.state.Entry.warm`).
+            if warmer is not None:
+                watch.entry.warm = warmer.warmed
             watch.see(position.pos)
             if watch.done and watch.entry.serial:
                 return  # серия досмотрена — освобождаем показ под следующую
