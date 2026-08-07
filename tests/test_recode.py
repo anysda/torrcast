@@ -1,4 +1,4 @@
-"""Динамический битрейт (§6.2): профиль тяжести, выбор пресета, стык копии с перекодом."""
+"""Динамический битрейт: профиль тяжести, выбор пресета, стык копии с перекодом."""
 
 from __future__ import annotations
 
@@ -93,7 +93,7 @@ def test_a_distant_piece_is_encoded_at_the_best_quality_that_fits() -> None:
 
 
 def test_a_piece_that_is_almost_here_gets_the_fastest_preset() -> None:
-    """Кратковременное снижение качества владелец разрешил, подгруз — нет (§6.2)."""
+    """Кратковременное снижение качества допустимо, а подгруз — нет."""
     assert preset_for(seconds=60.0, slack=20.0) == PRESETS[-1][0]
     assert preset_for(seconds=60.0, slack=0.0) == PRESETS[-1][0]
 
@@ -134,7 +134,7 @@ def test_an_encoding_run_stops_at_the_slot_it_was_asked_for() -> None:
 
 
 def test_the_copy_path_is_untouched_by_the_encoder() -> None:
-    """Без ``encode`` команда та же, что была до §6.2, — регресса нарезки быть не может."""
+    """Без ``encode`` команда та же, что и до перекода, — регресса нарезки быть не может."""
     grid = _grid()
     command = ffmpeg_pack_command("src", 0, "/run", grid, 5, grid.start(5) - 3.0)
     assert command[command.index("-c:v") + 1] == "copy"
@@ -154,7 +154,7 @@ def test_forced_keyframes_stand_on_the_grid_and_a_touch_earlier() -> None:
 
 
 def test_the_encoder_keeps_the_codec_and_caps_the_bitrate() -> None:
-    """Тот же кодек и то же разрешение — иначе приёмник заметит стык (§6.2)."""
+    """Тот же кодек и то же разрешение — иначе приёмник заметит стык."""
     args = Encode(preset="superfast", mbit=12.0).args(_grid(), 0, 1)
     assert args[args.index("-c:v") + 1] == "libx264"
     assert args[args.index("-preset") + 1] == "superfast"
@@ -327,7 +327,7 @@ def test_a_recoded_piece_lands_on_the_same_place_with_the_same_stamps(clip, tmp_
         where = tmp_path / ("enc" if encode else "copy")
         (where / "run").mkdir(parents=True)
         # У копии место старта измеряется пробным прогоном (``-ss`` уводит на опорный
-        # кадр раньше, §6.0), у перекода — не измеряется вовсе: там ``-ss`` точен.
+        # кадр раньше), у перекода — не измеряется вовсе: там ``-ss`` точен.
         at = grid.start(slot) if encode else pack_start(str(clip), grid.start(slot))
         command = ffmpeg_pack_command(
             str(clip), 0, str(where / "run"), grid, slot, at,
@@ -369,7 +369,7 @@ def test_the_deadline_is_the_packer_not_the_playhead(tmp_path) -> None:  # type:
 
     Считай кодировщик срок по месту показа — и на старте, пока упаковщик разом выложил
     минуту вперёд, тяжёлые куски уходили бы копией. Ровно это и было в первом живом
-    прогоне (§6.2): v361 и v362 на 26 и 28 Мбит/с.
+    прогоне: v361 и v362 на 26 и 28 Мбит/с.
     """
     grid = _grid()
     weights = Weights.of(_keys(rate=2.0e6), grid)
@@ -403,8 +403,8 @@ def test_a_run_never_promises_more_than_it_can_deliver_in_time(  # type: ignore[
 ) -> None:
     """Длинный заход сам себе создаёт опоздание — он обрывается на первом несрочном куске.
 
-    На стенде эта защита почти не срабатывает (даже ``ultrafast`` идёт вчетверо быстрее
-    реального времени), поэтому здесь кодировщику назначается медленная машина.
+    На обычной машине эта защита почти не срабатывает (даже ``ultrafast`` идёт вчетверо
+    быстрее реального времени), поэтому здесь кодировщику назначается медленная машина.
     """
     import torrcast.recode as module
 
@@ -426,7 +426,7 @@ def test_a_run_never_promises_more_than_it_can_deliver_in_time(  # type: ignore[
 def test_a_copy_waits_while_its_piece_is_being_recoded(tmp_path) -> None:  # type: ignore[no-untyped-def]
     """Упаковщик на старте прогона выкладывает минуту разом и обгонял кодировщик.
 
-    Найдено живым прогоном (§6.2): v361 и v362 «Моаны 2» (26 и 28 Мбит/с) уходили копией
+    Найдено живым прогоном: v361 и v362 «Моаны 2» (26 и 28 Мбит/с) уходили копией
     просто потому, что упаковщик успел раньше. Копия теперь ждёт — но только там, докуда
     показу далеко.
     """
@@ -448,7 +448,7 @@ def test_a_copy_waits_while_its_piece_is_being_recoded(tmp_path) -> None:  # typ
 
 
 def test_a_piece_right_under_the_playhead_is_never_held_back(tmp_path) -> None:  # type: ignore[no-untyped-def]
-    """Ожидание под носом у показа — это и есть подгруз, а он запрещён (§6.2)."""
+    """Ожидание под носом у показа — это и есть подгруз, а он запрещён."""
     import time as clock
 
     grid = _grid()
@@ -545,7 +545,7 @@ def test_the_very_first_segment_of_a_run_is_waited_for(tmp_path) -> None:  # typ
 
     Картинки в этот момент нет ни одного кадра, ждать тут значит стартовать, а не
     подгружаться. Уйди голова копией — приёмник встаёт на первой же секунде показа в
-    тяжёлом месте (§6.2, 🔴 «первый сегмент уходит как есть»).
+    тяжёлом месте — это и был случай «первый сегмент уходит как есть».
     """
     grid = _grid()
     weights = Weights.of(_keys(rate=2.0e6), grid)
@@ -585,7 +585,7 @@ def test_waiting_for_the_head_has_a_ceiling(tmp_path) -> None:  # type: ignore[n
 
 
 def test_waiting_for_the_head_can_be_switched_off(tmp_path) -> None:  # type: ignore[no-untyped-def]
-    """``recode_head_wait = 0`` возвращает поведение до 06-08 вечера — на случай отката."""
+    """``recode_head_wait = 0`` возвращает прежнее поведение — на случай отката."""
     grid = _grid()
     weights = Weights.of(_keys(rate=1.5e6), grid)
     assert weights is not None
@@ -718,7 +718,7 @@ def test_the_head_run_is_not_niced_behind_the_packer(tmp_path, monkeypatch) -> N
 def test_a_run_is_counted_by_what_it_published_not_by_what_is_left(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
     """Готовый кусок из каталога уже мог забрать показ — глоб объявлял бы заход провальным.
 
-    Ровно так «перекодировал v0» печаталось как «не дало ни куска за 7 с» (§6.2, 🟡).
+    Ровно так «перекодировал v0» печаталось как «не дало ни куска за 7 с».
     """
     from torrcast import stream
 
@@ -742,7 +742,7 @@ def test_a_run_is_counted_by_what_it_published_not_by_what_is_left(tmp_path, mon
 def test_the_head_preempts_a_run_that_works_ahead(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
     """Заход впрок бросается ради головы: её ждёт чёрный экран, а его — только tmpfs.
 
-    Замер на стенде: заход за ``v0`` (7 с) съедал ровно столько же от ожидания ``v358``,
+    Живой замер: заход за ``v0`` (7 с) съедал ровно столько же от ожидания ``v358``,
     и голова не успевала к сроку, хотя сама кодируется 9 с.
     """
     from torrcast import stream
@@ -765,7 +765,7 @@ def test_the_head_preempts_a_run_that_works_ahead(tmp_path, monkeypatch) -> None
 def test_the_pieces_right_after_the_current_run_are_held_too(tmp_path) -> None:  # type: ignore[no-untyped-def]
     """Заход за головой берёт ОДИН кусок — а упаковщик за эти секунды выкладывает три.
 
-    Найдено живым Q70D 06-08 вечером: голова `v358` ушла перекодом, а `v359`…`v361`
+    Найдено на живом Q70D: голова `v358` ушла перекодом, а `v359`…`v361`
     (21–26 Мбит/с) — копией, потому что «не наш заход» означало «не держим». Показ упал
     в BUFFERING на 27 опросах из 43.
     """
@@ -802,7 +802,7 @@ def test_a_piece_after_the_run_is_not_held_if_the_playhead_is_closer(tmp_path) -
 def test_between_runs_the_copy_still_waits(tmp_path) -> None:  # type: ignore[no-untyped-def]
     """Дыра между заходами — это секунды, и в них уходило самое тяжёлое.
 
-    Живой Q70D 06-08 вечером: заход за головой шёл 8 с при форе 6 с, и ровно в этот
+    Живой Q70D: заход за головой шёл 8 с при форе 6 с, и ровно в этот
     зазор ушёл копией `v359` на 26 Мбит/с («заход не идёт» в журнале).
     """
     import time as clock
@@ -842,7 +842,7 @@ def test_a_heavy_copy_behind_the_playhead_is_not_counted_as_late(tmp_path) -> No
 def test_the_head_is_waited_for_while_the_encoder_is_still_on_it(tmp_path) -> None:  # type: ignore[no-untyped-def]
     """Потолок ожидания головы считается по РАБОТЕ кодировщика, а не по секундомеру.
 
-    Живой Q70D 06-08-2026, «Тачки 3»: голова (17.4 с фильма, 28.9 Мбит/с) кодировалась
+    Живой Q70D, «Тачки 3»: голова (17.4 с фильма, 28.9 Мбит/с) кодировалась
     16 с, потому что те же 58 МБ в это время тянул из холодного роя упаковщик. Ожидание
     сдавалось на 12-й секунде, копия уезжала на ТВ — и приёмник вставал на её стыке со
     следующим куском на 10 с. Лишние 4 с ожидания были бесплатны: картинка всё равно
@@ -885,13 +885,13 @@ def test_the_head_wait_has_a_hard_ceiling_even_while_encoding(tmp_path) -> None:
 
 
 def test_a_copy_heavier_than_the_cap_is_never_released_on_a_deadline(tmp_path) -> None:  # type: ignore[no-untyped-def]
-    """🔴 §6.2.6: копию тяжелее :data:`MAX_SEGMENT_BYTES` не отпускают по сроку вовсе.
+    """Копию тяжелее :data:`MAX_SEGMENT_BYTES` не отпускают по сроку вовсе.
 
-    Замер, ради которого правило написано («Тачки 3», старт 3880, §7.9 смок 28): сетка
+    Замер, ради которого правило написано («Тачки 3», старт 3880): сетка
     предсказала вес ``v364`` по ``ceiling_mbit`` («тяжёлое перекодируют») в 11.7 МБ,
     кодировщик к сроку не успел, срок вышел — и на ТВ уехала копия на **51.4 МБ**.
     Двадцать опросов ``BUFFERING`` за 46 с. Срок тут ни при чём: такой кусок приёмник не
-    доигрывает ни при каких обстоятельствах (§6.2.4), значит отпускать его некуда.
+    доигрывает ни при каких обстоятельствах, значит отпускать его некуда.
     """
     import time as clock
 
@@ -929,7 +929,7 @@ def test_the_weight_of_a_copy_is_taken_from_the_file_when_it_exists(tmp_path) ->
 
 
 def test_a_long_light_piece_is_recoded_too_because_it_is_too_heavy(tmp_path) -> None:  # type: ignore[no-untyped-def]
-    """Кодировщик отвечает за два класса кусков, и они не совпадают (§6.2.6).
+    """Кодировщик отвечает за два класса кусков, и они не совпадают.
 
     Замер по картам трёх релизов при пороге 10 Мбит/с: «Моана» 2016 — лёгкое кино, где
     тяжёлых кусков почти нет, а увесистых семь, самый большой 18.3 МБ при замеренной
@@ -943,7 +943,7 @@ def test_a_long_light_piece_is_recoded_too_because_it_is_too_heavy(tmp_path) -> 
         source="src", audio=0, grid=grid, spare=tmp_path, weights=weights, threshold=10.0
     )
     assert weights.at(3) < recoder.threshold, "по битрейту приёмник его тянет"
-    assert 3 in recoder.targets, "но 22 МБ одним куском он не доигрывает (§6.2.4)"
+    assert 3 in recoder.targets, "но 22 МБ одним куском он не доигрывает"
 
 
 def test_the_bulky_copy_is_released_when_the_encoder_has_given_up(tmp_path) -> None:  # type: ignore[no-untyped-def]
@@ -996,7 +996,7 @@ def test_the_tail_of_a_run_is_dropped_and_never_published(tmp_path) -> None:  # 
     """Огрызок за ``-to`` наружу не уезжает — ни от кодировщика, ни от упаковщика.
 
     Заход кодировщика ограничен ``-to`` с запасом в секунду, и муксер успевает открыть
-    следующий файл: в нём секунда фильма вместо десяти. Живой Q70D 06-08-2026, «Тачки 3»:
+    следующий файл: в нём секунда фильма вместо десяти. Живой Q70D, «Тачки 3»:
     такой `v311` (1.3 МБ вместо 11) уехал на ТВ как готовый кусок — приёмник встал на
     14 с и потерял 16 секунд фильма.
     """
@@ -1014,9 +1014,9 @@ def test_the_tail_of_a_run_is_dropped_and_never_published(tmp_path) -> None:  # 
 
 
 def test_the_correction_comes_from_the_passport_not_from_guesswork() -> None:
-    """Разрыв «контейнер → ТВ» известен из ffprobe до первого же сегмента (§6.2.1).
+    """Разрыв «контейнер → ТВ» известен из ffprobe до первого же сегмента.
 
-    И он не константа: замер 06-08-2026 — у «Моаны 2» (10 озвучек, 12 субтитров)
+    И он не константа: по замерам у «Моаны 2» (10 озвучек, 12 субтитров)
     4.4 Мбит/с, у «Тачек 3» 2.2, у «Моаны» 2016 — 0.6. Слепая калибровка сходилась к
     этому числу за 8–10 выложенных сегментов, то есть первую минуту показа профиль врал.
     """
@@ -1049,7 +1049,7 @@ def test_the_passport_is_not_thrown_away_by_the_first_noisy_segment() -> None:
 
 
 def test_the_recoded_piece_goes_out_with_the_copy_s_sound(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
-    """Наружу — картинка перекода и звук копии: у звука показа один прогон на всё (§6.2.5).
+    """Наружу — картинка перекода и звук копии: у звука показа один прогон на всё.
 
     Кадровая сетка AAC отсчитывается от ``-ss`` прогона, поэтому на первом куске каждого
     захода перекода звук копии обрывался, а звук перекода начинался позже: замер на
@@ -1100,7 +1100,7 @@ def test_a_failed_merge_still_sends_the_recoded_piece(tmp_path, monkeypatch) -> 
 
 
 def test_the_recoded_picture_lies_on_the_run_s_own_timeline(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
-    """Склейке передаётся сдвиг ленты прогона (§6.2.8): прогон с нуля пишет метки на кадр
+    """Склейке передаётся сдвиг ленты прогона: прогон с нуля пишет метки на кадр
     вперёд времени фильма, и картинка перекода обязана лечь на его ленту, а не на свою."""
     out = tmp_path / "out"
     spare = out / "recode"
@@ -1132,7 +1132,7 @@ def test_a_failed_merge_on_a_shifted_run_sends_the_copy(tmp_path, monkeypatch) -
     """Лента прогона сдвинута, а склейка не вышла — наружу КОПИЯ своего же прогона.
 
     Перекод как есть тут не «сегодняшнее поведение», а гарантированный разрыв: на голове
-    захода приёмник получил бы кадр с меткой назад, на хвосте — дыру в кадр (§6.2.8).
+    захода приёмник получил бы кадр с меткой назад, а на хвосте — дыру в кадр.
     Копия своего прогона стыкуется с соседями точно, и пока она не тяжелее потолка
     (:data:`torrcast.stream.MAX_SEGMENT_BYTES`), она меньшее зло.
     """
@@ -1157,7 +1157,7 @@ def test_a_failed_merge_on_a_shifted_run_sends_the_copy(tmp_path, monkeypatch) -
 
 def test_a_too_heavy_copy_loses_even_to_a_broken_seam(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
     """Копия тяжелее потолка не выходит наружу даже ради стыка: кусок, который приёмник
-    не доигрывает вовсе (§6.2.4 — 19.4 МБ дают стоп 8 с), хуже разрыва в один кадр."""
+    не доигрывает вовсе (19.4 МБ дают стоп 8 с), хуже разрыва в один кадр."""
     from torrcast.stream import MAX_SEGMENT_BYTES
 
     out = tmp_path / "out"

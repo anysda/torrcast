@@ -1,6 +1,6 @@
-"""``cast doctor`` — самопроверка окружения одной командой (§3 SPEC-v2).
+"""``cast doctor`` — самопроверка окружения одной командой.
 
-Проверяется ровно то, обо что владелец уже спотыкался: терминал и локаль (кириллица в
+Проверяется ровно то, обо что уже спотыкались: терминал и локаль (кириллица в
 вопросах), Prowlarr и TorrServer (есть чем искать и что раздавать), адрес ТВ и его порт
 8009 (есть кому играть), путь до ТВ и адрес раздачи, ffmpeg с ``-readrate_initial_burst``
 и серт, если кто-то включил https. Вердикт по-русски, без трейсбеков и без ``⚠``.
@@ -27,7 +27,7 @@ from torrcast.state import Config
 __all__ = ["checkup"]
 
 Line = tuple[str, bool]
-#: Порт управления Chromecast: открыт даже в standby, коннект будит ТВ (§8 v1).
+#: Порт управления Chromecast: открыт даже в standby, коннект будит ТВ.
 CAST_PORT = 8009
 _TIMEOUT = 5.0
 
@@ -56,7 +56,7 @@ def _bad(text: str) -> Line:
 
 
 def _terminal() -> Line:
-    """Терминал и режим ``IUTF8``: без него ssh ломает забой на кириллице (§3 SPEC-v2)."""
+    """Терминал и режим ``IUTF8``: без него ssh ломает забой на кириллице."""
     if not stdin_is_tty():
         return _warn("терминала нет (запуск не интерактивный) — вопросы возьмут дефолты")
     import termios
@@ -81,7 +81,7 @@ def _locale() -> Line:
 
 
 def _tools() -> Line:
-    """ffmpeg/ffprobe и поддержка ``-readrate_initial_burst`` (нужен ffmpeg ≥ 6.1, §6)."""
+    """ffmpeg/ffprobe и поддержка ``-readrate_initial_burst`` (нужен ffmpeg ≥ 6.1)."""
     try:
         done = subprocess.run(
             ["ffmpeg", "-hide_banner", "-h", "full"],
@@ -97,7 +97,7 @@ def _tools() -> Line:
     ).stdout.splitlines()
     head = version[0][:60] if version else "ffmpeg"
     if "readrate_initial_burst" not in done.stdout:
-        return _bad(f"{head}: нет -readrate_initial_burst — старт будет медленным (§6)")
+        return _bad(f"{head}: нет -readrate_initial_burst — старт будет медленным")
     return _ok(f"{head}, -readrate_initial_burst есть")
 
 
@@ -133,7 +133,7 @@ def _tv(config: Config) -> Iterator[Line]:
         yield _bad("адрес ТВ не задан: cast --tv <ip>")
         return
     if config.receiver == "mock":
-        yield _warn(f"приёмник mock ({config.tv}) — каста наружу нет, это стендовый режим")
+        yield _warn(f"приёмник mock ({config.tv}) — каста наружу нет, это режим проверки")
         return
     ours = our_address(config.tv)
     if not ours:
@@ -161,7 +161,7 @@ def _hls(config: Config) -> Line:
     except TorrcastError as exc:
         return _bad(f"адрес раздачи не собирается: {exc}")
     if config.transport != "https":
-        return _ok(f"раздача {base} — ни серта, ни DNS в пути показа (§5 SPEC-v2)")
+        return _ok(f"раздача {base} — ни серта, ни DNS в пути показа")
     left = _cert_days(config.hls_cert)
     if left is None:
         return _bad(f"раздача {base}, но серт {config.hls_cert} не читается")

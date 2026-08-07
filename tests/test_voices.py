@@ -1,9 +1,9 @@
 """Озвучка: дефолт без вопроса, флаг ``--voice`` и память на картину.
 
-Правка владельца 06-08 к §2 SPEC-v2: меню озвучки из счастливого пути убрано, «самая
-нормальная» дорожка выбирается сама, выбор флагом запоминается за фильмом или сериалом.
+Меню озвучки со счастливого пути убрано: «самая нормальная» дорожка выбирается сама,
+а выбор флагом запоминается за фильмом или сериалом.
 
-⚠️ Дорожки в тестах — **живые**, снятые с раздач стенда 06-08-2026 (`scripts/voicedump.py`).
+⚠️ Дорожки в тестах — **живые**, снятые с настоящих раздач (`scripts/voicedump.py`).
 Выдумывать их нельзя: вся эвристика держится на том, как студии на самом деле подписывают
 дорожки, а подписывают они их куда причудливее, чем кажется из головы («Дубляж для
 слабовидящих» сразу за нормальным дубляжом, украинский и казахский дубляж с тем же
@@ -126,8 +126,8 @@ FOUND = [
 
 
 @pytest.fixture(autouse=True)
-def _stand(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Стенд без Prowlarr, TorrServer и systemd — но с настоящим выбором озвучки."""
+def _env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Окружение без Prowlarr, TorrServer и systemd — но с настоящим выбором озвучки."""
     monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
     monkeypatch.setenv("TORRCAST_CONFIG", str(tmp_path / "config.json"))
     save_config(Config(tv="mock", prowlarr_apikey="ключ", hls_dir=str(tmp_path / "hls")))
@@ -222,7 +222,7 @@ def test_the_next_run_takes_the_remembered_voice_without_a_question(
 def test_a_new_flag_overwrites_the_memory(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Явный флаг сильнее памяти и переписывает её (правка владельца 06-08)."""
+    """Явный флаг сильнее памяти и переписывает её."""
     _answers(monkeypatch)
     assert cli.main(["моана", "2", "--voice", "6"]) == 0
     assert cli.main(["моана", "2", "--new", "--voice", "3"]) == 0
@@ -238,8 +238,8 @@ def test_a_remembered_voice_missing_from_the_release_is_said_out_loud(
     """Озвучки нет в этом релизе — говорим и играем обычную, но выбор не забываем.
 
     Память живёт на картину, а релиз временный: сегодня верх отбора один, завтра другой.
-    Стирать выбор владельца из-за раздачи, которая до него не доехала, — молчаливая
-    подмена наоборот (§1 v1).
+    Стирать выбор пользователя из-за раздачи, которая до него не доехала, — та же
+    молчаливая подмена, только наоборот.
     """
     state = State()
     state.put(KEY, Entry(title="Моана 2", magnet="m", query="моана-2", voice="rus · Кубик в кубе"))
@@ -299,11 +299,11 @@ def test_the_voices_command_lists_and_exits(
 def test_a_record_with_nothing_to_continue_does_not_wake_the_swarm(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """``--voice`` у записи, которую продолжать нечем, идёт обычным путём (грабля 06-08).
+    """``--voice`` у записи, которую продолжать нечем, идёт обычным путём.
 
     Перечитывать дорожки по записи состояния имеет смысл только там, где по ней и пойдёт
     показ. Иначе флаг поднимал в TorrServer раздачу, которую никто играть не собирался,
-    и падал на её магните — поймано живым прогоном на стенде.
+    и падал на её магните — ловилось живым прогоном.
     """
     state = State()
     state.put(KEY, Entry(title="Моана 2", magnet="мёртвый магнит", query="моана-2"))
@@ -326,7 +326,7 @@ def test_a_record_with_nothing_to_continue_does_not_wake_the_swarm(
 def test_a_series_remembers_the_voice_for_the_whole_show(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """У сериала память общая на сериал, а не на серию (правка владельца 06-08).
+    """У сериала память общая на сериал, а не на серию.
 
     Она и лежит в одной записи на всю раздачу: выбор переезжает на следующую серию сам,
     вместе с релизом и списком серий. ``--voice`` тут перечитывает дорожки раздачи —

@@ -1,7 +1,7 @@
 """Тесты парсера имён раздач и нумерации франшиз.
 
-Фикстуры — реальные имена раздач, отобранные из корпуса в 21 540 уникальных имён
-(§7, этап 1): ``tests/fixtures/names.txt`` (650 имён, все шаблоны) и
+Фикстуры — реальные имена раздач, отобранные из корпуса в 21 540 уникальных имён:
+``tests/fixtures/names.txt`` (650 имён, все шаблоны) и
 ``tests/fixtures/expected.tsv`` (выверенная глазами таблица ожиданий).
 """
 
@@ -178,7 +178,7 @@ def test_season_pack_is_not_first_episode() -> None:
 
 
 def test_hevc_is_flagged() -> None:
-    """HEVC помечается — по умолчанию его никогда не берём (§3 ТЗ)."""
+    """HEVC помечается — по умолчанию его никогда не берём."""
     release = parse_release_name("Дюна / Dune (2021) UHD BDRemux 2160p HEVC Дубляж")
 
     assert release.quality == "2160p"
@@ -197,7 +197,7 @@ def test_hevc_is_flagged() -> None:
     ],
 )
 def test_parses_season_episode(text: str, expected: tuple[int, int]) -> None:
-    """sNeM понимается во всех записях из §2.4 ТЗ."""
+    """sNeM понимается во всех ходовых записях: и латиницей, и словами по-русски."""
     episode = parse_episode(text)
 
     assert episode is not None
@@ -210,7 +210,7 @@ def test_plain_name_has_no_episode() -> None:
 
 
 def test_franchise_index_is_split_off_but_year_is_not() -> None:
-    """«матрица 2» — номер во франшизе, «матрица 1999» — не номер (§2.2 ТЗ)."""
+    """«матрица 2» — номер во франшизе, «матрица 1999» — не номер, а год."""
     assert split_franchise_index("матрица 2") == ("матрица", 2)
     assert split_franchise_index("тачки") == ("тачки", None)
     assert split_franchise_index("матрица 1999") == ("матрица 1999", None)
@@ -252,19 +252,19 @@ def test_cluster_orders_franchise_by_year() -> None:
 
 def test_key_of_a_picture_without_a_year_keeps_the_original_title() -> None:
     """Года в раздачах может не быть вовсе: тогда две разные картины с одинаковым русским
-    названием разводит оригинал, иначе прогресс у них был бы общий (stage3 вопрос 2).
+    названием разводит оригинал, иначе прогресс у них был бы общий.
     """
     invasion = Picture(title="Вторжение", year=None, original="Invasion")
     intruder = Picture(title="Вторжение", year=None, original="The Intruder")
 
     assert invasion.key == "movie:вторжение-invasion:0"
     assert intruder.key == "movie:вторжение-the-intruder:0"
-    # Год известен — ключ ровно тот, что в §4 ТЗ, без довесков.
+    # Год известен — ключ ровно канонический, без довесков.
     assert cluster([_release("Тачки", 2006, original="Cars")])[0].key == "movie:тачки:2006"
 
 
 def test_matrix_two_is_reloaded() -> None:
-    """§2.2 и чек-лист §7.5: «матрица 2» → «Перезагрузка», хотя двойки в названии нет.
+    """«матрица 2» → «Перезагрузка», хотя двойки в названии нет.
 
     Оба фильма 2003 года — порядок задаёт номер части, подсмотренный в альтернативном
     переводе названия («Матрица 2: Перезагрузка» реально встречается в выдаче).
@@ -286,7 +286,7 @@ def test_matrix_two_is_reloaded() -> None:
 
 
 def test_cars_franchise_is_cross_language() -> None:
-    """«Тачки»/«Cars» склеиваются, если оба варианта есть в имени раздачи (§2.2)."""
+    """«Тачки»/«Cars» склеиваются, если оба варианта есть в имени раздачи."""
     releases = [
         _release("Тачки", 2006, original="Cars", seeders=15),
         _release("Тачки 2", 2011, original="Cars 2", seeders=9),
@@ -303,7 +303,7 @@ def test_cars_franchise_is_cross_language() -> None:
 
 
 def test_best_release_prefers_seeders_and_avoids_hevc() -> None:
-    """Дефолт — самый обсиженный H.264; HEVC уступает даже с бо́льшими сидами (§2.1)."""
+    """Дефолт — самый обсиженный H.264; HEVC уступает даже с бо́льшими сидами."""
     picture = cluster(
         [
             _release("Тачки", 2006, seeders=500, codec="HEVC"),
@@ -320,7 +320,7 @@ def test_best_release_prefers_seeders_and_avoids_hevc() -> None:
 
 
 def test_slugify_is_stable_for_state_keys() -> None:
-    """Ключ состояния не зависит от регистра, ё и пунктуации (§4 ТЗ)."""
+    """Ключ состояния не зависит от регистра, ё и пунктуации."""
     assert slugify("Киберпанк: Бегущие по краю") == "киберпанк-бегущие-по-краю"
     assert slugify("Ёлки  2") == slugify("елки 2")
 
@@ -343,7 +343,7 @@ def _release(
     )
 
 
-#: Дословные имена с живой выдачи Knaben 05-08-2026 — на них владелец и обжёгся.
+#: Дословные имена с живой выдачи Knaben — именно на них разбор и спотыкался.
 MOANA_2 = (
     "Moana 2 (2024) 1080p BRRip 5.1 x264 -YTS",
     "Moana 2 2024 1080p BluRay DD  7 1 X265-Ralphy",
@@ -361,7 +361,7 @@ SERIES = (
 
 @pytest.mark.parametrize("name", MOANA_2)
 def test_a_codec_token_never_turns_a_film_into_a_series(name: str) -> None:
-    """Дефект №3 владельца (§1 SPEC-v2): «Moana 2 (2024)» определялась сериалом.
+    """«Moana 2 (2024)» определялась сериалом — и это ловилось на живых раздачах.
 
     Виноват был не номер в названии, а ``x264`` рядом с любой цифрой: «DDP5 1 x264»
     читалось как ``s1e264``. Кодек о сериях не говорит ничего — и в разборе
@@ -374,12 +374,12 @@ def test_a_codec_token_never_turns_a_film_into_a_series(name: str) -> None:
 
 @pytest.mark.parametrize("name", SERIES)
 def test_real_series_stay_series(name: str) -> None:
-    """Точечная починка не должна ослепить разбор настоящих сериалов (§8)."""
+    """Точечная починка не должна ослепить разбор настоящих сериалов."""
     assert parse_release_name(name).kind == "tv", name
 
 
 def test_moana_franchise_is_shown_in_both_languages() -> None:
-    """«Moana» и «Моана 2» — одна франшиза, как бы её ни спросили (живая выдача 05-08)."""
+    """«Moana» и «Моана 2» — одна франшиза, как бы её ни спросили."""
     releases = [
         _release("Moana", 2016, seeders=22),
         _release("Моана 2", 2024, seeders=140, original="Moana 2"),
@@ -411,7 +411,7 @@ FRESH_NAMES = (
 
 @pytest.mark.parametrize("name", DATED_NAMES)
 def test_obvious_old_junk_is_marked_dated(name: str) -> None:
-    """Явные признаки старья читаются из имени и до всякого ffprobe (§7.1 SPEC-v2)."""
+    """Явные признаки старья читаются из имени и до всякого ffprobe."""
     assert parse_release_name(name).dated, name
 
 

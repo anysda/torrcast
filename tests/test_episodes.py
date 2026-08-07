@@ -1,6 +1,6 @@
-"""Сценарий §2.4 без торрента и без systemd: продолжение серии, прыжок, автопереход.
+"""Сериалы без торрента и без systemd: продолжение серии, прыжок, автопереход.
 
-Живая приёмка идёт на «Киберпанке» в transient-юните (docs/stage4.md), а здесь —
+Живьём это проверяется настоящим показом сериала в transient-юните, а здесь —
 то же поведение на подставном TorrServer: что юнит доигрывает сериал сам, что CLI
 вопросов не задаёт и что конец раздачи именно кончается.
 """
@@ -107,7 +107,7 @@ def test_the_previous_show_is_stopped_before_the_new_record_is_written(
 
 
 def test_the_unit_plays_the_whole_release_by_itself(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Автопереход (§2.4): серия дошла до порога 95 % — юнит сам берёт следующий файл
+    """Автопереход: серия дошла до порога 95 % — юнит сам берёт следующий файл
     раздачи, без участия CLI. Раздача кончилась — цикл выходит, юнит гаснет чисто.
     """
     remember(dur=MINUTES_24)
@@ -139,7 +139,7 @@ def test_the_unit_plays_the_whole_release_by_itself(monkeypatch: pytest.MonkeyPa
     assert cli._cmd_worker(KEY) == 0
 
     assert receivers == [tv, tv, tv], (
-        "§7.4-3: приёмник один на весь юнит — второй сендер гасит показ на стыке серий"
+        "приёмник один на весь юнит — второй сендер гасит показ на стыке серий"
     )
     assert [about for about, _ in played] == [
         "Киберпанк: Бегущие по краю s1e1",
@@ -182,7 +182,7 @@ def test_the_next_episode_learns_its_own_duration(monkeypatch: pytest.MonkeyPatc
 def test_a_series_continues_the_right_episode_from_the_right_place(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """`cast киберпанк` без аргументов (§2.4): продолжает недосмотренную серию с позиции,
+    """`cast киберпанк` без аргументов: продолжает недосмотренную серию с позиции,
     вопросов не задаёт вовсе — релиз, дорожка и список серий уже выбраны.
     """
     remember(episode=2, file_idx=1, pos=300.0, dur=MINUTES_24)
@@ -201,7 +201,7 @@ def test_a_series_continues_the_right_episode_from_the_right_place(
 def test_a_watched_episode_is_followed_by_the_next_one_without_questions(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Серия досмотрена до порога — `cast киберпанк` играет следующую с нуля (§2.4)."""
+    """Серия досмотрена до порога — `cast киберпанк` играет следующую с нуля."""
     remember(episode=3, file_idx=2, pos=0.0, dur=0.0)  # так выглядит запись после стыка
     _no_questions(monkeypatch)
     _no_unit(monkeypatch)
@@ -214,7 +214,7 @@ def test_a_watched_episode_is_followed_by_the_next_one_without_questions(
 def test_an_explicit_episode_jumps_inside_the_cached_release(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """`cast киберпанк s1e3` (§2.4): прыжок по кэшу раздачи — ни поиска, ни вопросов."""
+    """`cast киберпанк s1e3`: прыжок по кэшу раздачи — ни поиска, ни вопросов."""
     remember(episode=1, pos=600.0, dur=MINUTES_24)
     _no_questions(monkeypatch)
     _no_unit(monkeypatch)
@@ -270,7 +270,7 @@ def test_the_finished_release_can_be_started_over(
 def test_status_names_the_episode(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """`cast status` о сериале говорит серией, а не только названием (§2.5)."""
+    """`cast status` о сериале говорит серией, а не только названием."""
     remember(episode=2, file_idx=1, pos=310.0, dur=MINUTES_24)
     monkeypatch.setattr(cli, "unit_active", lambda: True)
     monkeypatch.setattr(cli, "unit_key", lambda: KEY)

@@ -1,4 +1,4 @@
-"""Меню §2.1: порядок релизов, дефолт по Enter и рендер таблицы."""
+"""Меню релизов: порядок кандидатов, дефолт по Enter и рендер таблицы."""
 
 from __future__ import annotations
 
@@ -50,13 +50,13 @@ def test_hevc_is_marked_and_h264_is_not() -> None:
 
 
 def test_fat_bitrate_is_marked_even_for_h264() -> None:
-    """~28 ГБ на два часа — это 33 Мбит/с, потолок декодера Q70D ~20 (§3)."""
+    """~28 ГБ на два часа — это 33 Мбит/с, а потолок декодера Q70D около 20."""
     assert warned(rel(size_gb=28), RUNTIME, 20.0) == "тяжёлый"
     assert warned(rel(codec="HEVC", size_gb=28), RUNTIME, 20.0) == "не берём, тяжёлый"
 
 
 def test_default_is_the_most_seeded_candidate() -> None:
-    """Enter = самый обсиженный кандидат; HEVC кандидатом не бывает никогда (§2.1, §3)."""
+    """Enter = самый обсиженный кандидат; HEVC кандидатом не бывает никогда."""
     top = rel(name="top", seeders=900)
     hevc = rel(name="hevc", codec="HEVC", seeders=800)
     good = rel(name="good", seeders=200)
@@ -67,7 +67,7 @@ def test_default_is_the_most_seeded_candidate() -> None:
 
 def test_hd_source_without_codec_is_a_candidate() -> None:
     """Кодек в имени раздачи чаще молчит: WEB-DL и BDRip засчитываются кандидатами,
-    DVDRip и CAM — нет (правка дефолта, docs/stage2.md §открытые вопросы 2).
+    DVDRip и CAM — нет.
     """
     web = Release(raw_name="WEB-DL", title="Кино", source="WEB-DL", size=4 * GB, seeders=10)
     dvd = Release(raw_name="DVDRip", title="Кино", source="DVDRip", size=1 * GB, seeders=900)
@@ -109,7 +109,7 @@ def test_ordinary_release_is_not_mistaken_for_a_disc() -> None:
     assert is_disc(rel(name="Кино (1999) Blu-Ray Disc 1080p"))
 
 
-def test_table_has_all_columns_of_the_spec() -> None:
+def test_table_has_all_the_columns() -> None:
     text = render_table([rel(seeders=214, voices=("Дубляж",))], RUNTIME, 20.0)
     lines = text.splitlines()
     assert lines[0] == "Релизы:"
@@ -150,9 +150,9 @@ def test_bitrate_threshold_is_configurable(size_gb: float, expected: str) -> Non
 
 
 def test_the_ceiling_is_sixteen_because_the_tv_rebuffers_at_eighteen() -> None:
-    """Потолок §7.5 SPEC-v2: решение владельца после живого замера на Q70D.
+    """Потолок битрейта опущен по живому замеру на Q70D.
 
-    17.8 Мбит/с «Моаны 2» телевизор играет с ребуфером раз в 30–60 с, и каждый подвис
+    17.8 Мбит/с телевизор играет с ребуфером раз в 30–60 с, и каждый подвис
     стоит 8 с пропущенного фильма. Поэтому дефолт опущен 20 → 16: смотрибельность важнее
     пиковой чёткости. Руками (``--release N``) тяжёлый релиз берётся по-прежнему, и
     молчком это не делается — в таблице он помечен «тяжёлый».
@@ -194,7 +194,7 @@ def _probes(monkeypatch: pytest.MonkeyPatch, releases: list[Release], *codecs: s
 
     ⚠️ Раздавать кодеки по порядку ВЫЗОВОВ нельзя: прогрев греет запасной релиз
     параллельно с основным, и кто из потоков дошёл до ffprobe первым — дело случая.
-    Поймано 06-08-2026: тест «три негодных подряд» развалился от того, что в подготовке
+    Так уже ловилось: тест «три негодных подряд» развалился от того, что в подготовке
     появился лишний вызов перед probe. Поэтому кодек привязан к самой раздаче: её magnet
     виден в адресе потока, а место в очереди известно заранее.
     """
@@ -225,7 +225,7 @@ def test_a_release_that_turns_out_not_to_be_h264_is_swapped_out_loudly(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Имя раздачи о кодеке молчит, а видео мы отдаём copy: настоящий кодек решает.
-    Не h264 — честная строка и следующий кандидат, молчаливых подмен не бывает (§1).
+    Не h264 — честная строка и следующий кандидат, молчаливых подмен не бывает.
     """
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
     _probes(monkeypatch, ranked, "hevc", "h264")
@@ -241,7 +241,7 @@ def test_a_release_that_turns_out_not_to_be_h264_is_swapped_out_loudly(
 def test_a_dead_swarm_is_not_a_hang_but_the_next_release(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Дефект №1 владельца (§1 SPEC-v2): «Дорожки: читаю поток…» и тишина навсегда.
+    """Так выглядел худший из багов: «Дорожки: читаю поток…» и тишина навсегда.
 
     Раздача с мёртвым роем обязана стоить одной строки и перехода к следующему релизу,
     а не молчаливого зависания без прогресса и без таймаута.
@@ -263,7 +263,7 @@ def test_an_explicitly_named_release_is_played_as_asked_with_a_loud_warning(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """`--release N` неприкосновенен: проверка кодека его не подменяет. Не h264 — громкое
-    предупреждение и показ того, что просили (решение оркестратора, stage3 вопрос 1).
+    предупреждение и показ того, что просили.
     """
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
     _probes(monkeypatch, ranked, "hevc")
@@ -293,26 +293,26 @@ def test_three_failed_probes_end_with_an_honest_exit(
 def test_tv_mock_switches_the_receiver_and_leaves_no_tv_address(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """`cast --tv mock` — третья команда установки на стенде (§7.5).
+    """`cast --tv mock` — команда установки на машине без телевизора.
 
-    Она обязана переключить приёмник, иначе стенд полез бы кастить на Chromecast.
-    И обратно тоже: адрес ТВ возвращает штатный приёмник (§9 — до этапа 6 адреса в
-    конфиге нет физически).
+    Она обязана переключить приёмник, иначе такая машина полезла бы кастить на Chromecast.
+    И обратно тоже: адрес ТВ возвращает штатный приёмник, а от прежнего значения в
+    конфиге не остаётся и следа.
     """
     monkeypatch.setenv("TORRCAST_CONFIG", str(tmp_path / "config.json"))
 
     assert cli.main(["--tv", "mock"]) == 0
     config = load_config()
     assert (config.tv, config.receiver) == ("mock", "mock")
-    assert "192.168.100" not in (tmp_path / "config.json").read_text()
+    assert "10.0.0." not in (tmp_path / "config.json").read_text()
     assert "headless" in capsys.readouterr().out
 
-    assert cli.main(["--tv", "192.168.100.102"]) == 0
-    assert (load_config().tv, load_config().receiver) == ("192.168.100.102", "chromecast")
+    assert cli.main(["--tv", "10.0.0.50"]) == 0
+    assert (load_config().tv, load_config().receiver) == ("10.0.0.50", "chromecast")
 
 
 def test_warmup_leaves_in_torrserver_only_what_we_play(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Прогрев греет лишнее по определению — лишнее убирается до старта показа (§4).
+    """Прогрев греет лишнее по определению — лишнее убирается до старта показа.
 
     Иначе две-три чужие раздачи продолжали бы качаться в RAM-кэш TorrServer рядом с
     показом и отъедать у него полосу.
@@ -332,7 +332,7 @@ def test_warmup_leaves_in_torrserver_only_what_we_play(monkeypatch: pytest.Monke
 
 
 def test_a_seeded_avi_no_longer_wins_the_top() -> None:
-    """Живая «Моана 2» (выдача 06-08-2026): 221 сид против 140 — и всё равно не дефолт.
+    """Живая выдача по «Моане 2»: 221 сид против 140 — и всё равно не дефолт.
 
     Первым стоял ``Моана 2 … WEB-DL] Dub (MovieDalen)``, 1.46 ГБ: в заголовке ни кодека,
     ни разрешения, а внутри ``Moana.2.2024.WEB-DLRip.ELEKTRI4KA.avi`` — mpeg4, который
@@ -382,7 +382,7 @@ def test_a_series_pack_is_never_judged_by_its_bitrate() -> None:
 def test_dated_sinks_below_candidates_but_above_hevc() -> None:
     """Ступень «старьё» вклинена МЕЖДУ годностью и сидами, группы местами не меняются.
 
-    Случай живой: «Матрица: Перезагрузка» 06-08-2026 — ``DVDRip-AVC`` на 47 сидов
+    Случай живой: у «Матрицы: Перезагрузка» ``DVDRip-AVC`` на 47 сидов
     стоял первым и обгонял HDTV-мастер на 30. Кодек назван, значит релиз годный и из
     очереди не выпадает; но верхом ему быть больше не с чего.
     """
@@ -403,7 +403,7 @@ def test_the_ceiling_is_checked_again_by_the_file_not_by_the_torrent_size() -> N
 
     Прикидка при выборе дефолта делит 13.3 ГБ на типовые два часа и даёт 14.8 Мбит/с,
     то есть релиз проходит как кандидат. А внутри фильм на 1:39:37 — честные
-    17.8 Мбит/с, на которых Q70D встаёт в ребуфер (§7.5 SPEC-v2). Названный руками
+    17.8 Мбит/с, на которых Q70D встаёт в ребуфер. Названный руками
     (``--release N``) берётся по-прежнему: там человек выбрал сам.
     """
     from torrcast.stream import Media, TorrFile
@@ -422,11 +422,11 @@ def test_the_ceiling_is_checked_again_by_the_file_not_by_the_torrent_size() -> N
 
 
 def test_the_ceiling_weighs_the_video_track_not_the_ten_dubs_around_it() -> None:
-    """§7.6 SPEC-v2: отбраковка считает от паспорта (``Entry.vbps``), а не от размера файла.
+    """Отбраковка считает от паспорта (``Entry.vbps``), а не от размера файла.
 
     Потолок спрашивает «сколько придётся перекодировать непрерывно», а перекодировать
     придётся картинку: десять озвучек и двенадцать субтитров на ТВ не уезжают вовсе.
-    Числа живые (замер 07-08-2026): «Моана 2» — контейнер 19.2 Мбит/с, видеодорожка 14.3.
+    Числа живые: у «Моаны 2» контейнер 19.2 Мбит/с, а видеодорожка — 14.3.
     Паспорт молчит — считаем по размеру, как раньше, иначе 4K-ремукс проедет насквозь.
     """
     from torrcast.stream import Media, TorrFile
@@ -456,7 +456,7 @@ def _franchise_plan(title: str, year: int, releases: list[Release]) -> Any:
 
 
 def _moana_franchise() -> list[Any]:
-    """Франшиза «моана» из живой выдачи 06-08-2026, сведённая к верху отбора каждой картины."""
+    """Франшиза «моана» из живой выдачи, сведённая к верху отбора каждой картины."""
     return [
         _franchise_plan(
             "Моана: романтика золотого века",
@@ -471,7 +471,7 @@ def _moana_franchise() -> list[Any]:
 
 
 def test_menu_default_points_at_the_liveliest_picture() -> None:
-    """Живая «моана» 06-08-2026: список хронологический, а дефолт — вторым пунктом.
+    """Живая выдача по «моане»: список хронологический, а дефолт — вторым пунктом.
 
     Первым в хронологии стоит «Моана: романтика золотого века» (1926) — немое
     документальное кино, один VHS-рип на 5 сидов. Enter на ней не давал ничего.
@@ -510,7 +510,7 @@ def test_prewarm_starts_with_the_default_not_with_the_earliest() -> None:
     assert [p.picture.year for p in cli.warm_order(plans)] == [2016, 1926, 2024]
 
 
-# --- Честное качество: заявка имени против того, что прочитал ffprobe (§1 v1) ----------
+# --- Честное качество: заявка имени против того, что прочитал ffprobe -----------------
 
 
 def _reads(monkeypatch: pytest.MonkeyPatch, releases: list[Release], *media: Media) -> None:
@@ -530,7 +530,7 @@ def _reads(monkeypatch: pytest.MonkeyPatch, releases: list[Release], *media: Med
 
 
 def test_launch_line_shows_the_confirmed_resolution_not_the_claim() -> None:
-    """«Моана 2»: имя обещает 1080p, ffprobe читает 1150×574 — печатаем факт (§1 v1)."""
+    """«Моана 2»: имя обещает 1080p, ffprobe читает 1150×574 — печатаем факт."""
     assert cli.quality_text(rel(quality="1080p"), Media(5977.0, (), "h264", 574, 1150)) == "574p"
     assert cli.quality_text(rel(quality="1080p"), Media(5977.0, (), "h264", 1080, 1920)) == "1080p"
     # ffprobe высоту не отдал — врать нечем, остаётся заявка имени и честный «?».
@@ -554,7 +554,7 @@ def test_cropped_widescreen_is_not_a_liar() -> None:
 def test_a_top_that_turns_out_to_be_sd_gives_way_to_a_confirmed_1080p(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Живая «Моана 2» 06-08-2026: верх ``WEB-DL-AVC`` 3.14 ГБ / 140 сидов — 1150×574,
+    """Живая выдача по «Моане 2»: верх ``WEB-DL-AVC`` 3.14 ГБ / 140 сидов — 1150×574,
     а вторым лежит настоящий 1080p 13.3 ГБ со 121 сидом. Играть обязан второй, и вслух.
     """
     ranked = [
@@ -582,7 +582,7 @@ def test_an_honest_top_is_played_without_a_word(
 ) -> None:
     """Верх подтвердил своё имя — никаких проверок соседей и никаких лишних строк.
 
-    Обсиженность остаётся главным критерием среди честных (§2.1 v1): 1080p со 140
+    Обсиженность остаётся главным критерием среди честных: 1080p со 140
     сидами не уступает 1080p со 121, сколько бы тот ни весил.
     """
     ranked = [
@@ -628,7 +628,7 @@ def test_when_the_neighbour_lies_too_we_play_the_truth_out_loud(
 def test_a_named_release_is_never_second_guessed_for_quality(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """``--release N`` неприкосновенен и здесь: человек выбрал сам (§2 SPEC-v2)."""
+    """``--release N`` неприкосновенен и здесь: человек выбрал сам."""
     ranked = [
         rel(name="Кино [WEB-DL] a", quality=None, size_gb=3.14, seeders=140),
         rel(name="Кино [WEB-DL 1080p] b", codec=None, size_gb=13.33, seeders=121),
@@ -651,8 +651,8 @@ def test_a_slow_neighbour_does_not_hold_up_the_show(
 ) -> None:
     """Честный сосед не ответил за бюджет — играем то, что готово, и говорим об этом.
 
-    Лишние секунды старта хуже, чем 574p (§4 SPEC-v2), а молчаливо ждать «а вдруг» —
-    это ровно тот дефект №1 владельца, из-за которого показ вставал насмерть.
+    Лишние секунды старта хуже, чем 574p, а молчаливо ждать «а вдруг» — это ровно тот
+    случай, из-за которого показ когда-то вставал насмерть.
     """
     ranked = [
         rel(name="Кино [WEB-DL] a", quality=None, size_gb=3.14, seeders=140),

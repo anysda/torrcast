@@ -114,7 +114,7 @@ def _client(payload: object) -> Prowlarr:
 
 
 def test_search_builds_expected_url() -> None:
-    """§8 ТЗ называет эндпоинт Jackett; у Prowlarr работает /api/v1/search."""
+    """Эндпоинт у Jackett и Prowlarr разный; наш клиент ходит в /api/v1/search."""
     client = _client(json.loads((FIXTURES / "prowlarr_search.json").read_text(encoding="utf-8")))
     client.search("матрица")
     url = client._session.url  # type: ignore[union-attr]

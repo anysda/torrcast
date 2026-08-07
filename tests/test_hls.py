@@ -1,6 +1,6 @@
-"""Формат потока §3, сетка сегментов §6.1 и раздача HLS: то, на чём ресивер молча ломается.
+"""Формат потока, сетка сегментов и раздача HLS: то, на чём ресивер молча ломается.
 
-Проверяется ровно то, что зафиксировано ТЗ и реестром ТВ-рисков §9: TS-сегменты по сетке
+Проверяется ровно то, что телевизоры прощать отказываются: TS-сегменты по сетке
 :class:`~torrcast.stream.Grid`, один вариант, видео copy, аудио всегда AAC stereo 192k,
 VOD-манифест на весь фильм, CORS на всех ответах (включая 404 и preflight) и Range на
 сегментах.
@@ -10,7 +10,7 @@ VOD-манифест на весь фильм, CORS на всех ответах
 зависимости от того, откуда начали паковать. Теперь граница — это число от нуля фильма, и
 почти все тесты ниже про то, что это число одно и то же в манифесте и в команде ffmpeg.
 
-Раздача идёт по http на голом IP (§5 SPEC-v2) — так же, как её видит телевизор.
+Раздача идёт по http на голом IP — так же, как её видит телевизор.
 https проверяется отдельно: это выключенная опция, но она обязана оставаться рабочей.
 """
 
@@ -41,7 +41,7 @@ from torrcast.stream import (
     parse_manifest,
 )
 
-#: Ровная сетка на два часа: столько же, сколько играет фильм на стенде.
+#: Ровная сетка на два часа: примерно столько и играет полнометражный фильм.
 FILM = 7200.0
 
 
@@ -101,7 +101,7 @@ def _stub(tmp_path: Path) -> tuple[Path, Feed]:
 
 
 def test_the_default_transport_is_plain_http_by_ip(tmp_path: Path) -> None:
-    """§5 SPEC-v2: раздача по умолчанию — http, и ни серта, ни имени ей не нужно.
+    """Раздача по умолчанию — http, и ни серта, ни имени ей не нужно.
 
     Сервер поднимается **без единого пути к серту** — то есть выключенный https не
     оставляет по себе обязательного файла, который некому положить.
@@ -109,7 +109,7 @@ def test_the_default_transport_is_plain_http_by_ip(tmp_path: Path) -> None:
     from torrcast.state import Config
 
     assert Config().transport == "http"
-    assert Config().hls_base_url == "", "имя в базе URL = DNS в пути показа (§5)"
+    assert Config().hls_base_url == "", "имя в базе URL = DNS в пути показа"
     assert Config().hls_port == 8080
 
     root, feed = _stub(tmp_path)
@@ -127,7 +127,7 @@ def test_the_default_transport_is_plain_http_by_ip(tmp_path: Path) -> None:
 def test_https_stays_a_working_but_switched_off_option(
     tls: tuple[str, str], tmp_path: Path
 ) -> None:
-    """Код https никуда не делся (§5): включается флагом и играет как раньше."""
+    """Код https никуда не делся: включается флагом и играет как раньше."""
     root, feed = _stub(tmp_path)
     server = HlsServer(root, tls[0], tls[1], host="127.0.0.1", port=18458, tls=True, feed=feed)
     server.start()
@@ -142,7 +142,7 @@ def test_https_stays_a_working_but_switched_off_option(
 
 
 def test_the_playback_address_is_our_own_leg_toward_the_tv(tmp_path: Path) -> None:
-    """§5 SPEC-v2: URL собирается из транспорта, нашего адреса со стороны ТВ и порта.
+    """URL собирается из транспорта, нашего адреса со стороны ТВ и порта.
 
     Имени в нём нет вовсе — упавший DNS показ не трогает. Ручной ``hls_base_url``
     остаётся запасным выходом и перебивает вычисленный адрес.
@@ -156,14 +156,14 @@ def test_the_playback_address_is_our_own_leg_toward_the_tv(tmp_path: Path) -> No
 
     assert hls_base(Config(tv="127.0.0.1")) == "http://127.0.0.1:8080"
     assert hls_base(Config(tv="127.0.0.1", transport="https")) == "https://127.0.0.1:8080"
-    manual = Config(tv="127.0.0.1", hls_base_url="http://192.168.1.62:8080/")
-    assert hls_base(manual) == "http://192.168.1.62:8080"
+    manual = Config(tv="127.0.0.1", hls_base_url="http://10.0.0.10:8080/")
+    assert hls_base(manual) == "http://10.0.0.10:8080"
     with pytest.raises(InfraError):
         hls_base(Config())  # адрес ТВ не задан — маршрута нет, и молчать об этом нельзя
 
 
 def test_a_segment_name_always_means_the_same_place_of_the_film() -> None:
-    """§6.1 SPEC-v2: ``slot_at`` обратна ``start`` — на обеих сетках и в любой точке.
+    """``slot_at`` обратна ``start`` — на обеих сетках и в любой точке.
 
     Это и есть смысл абсолютной сетки: показ переводит секунду в номер, раздача переводит
     номер обратно в секунду, и оба получают одно и то же независимо от того, откуда начата
@@ -181,7 +181,7 @@ def test_a_segment_name_always_means_the_same_place_of_the_film() -> None:
 
 
 def test_the_manifest_promises_the_whole_film_so_the_tv_has_a_timeline() -> None:
-    """§2.1 SPEC-v2: длительность в MEDIA_STATUS = сумме ``EXTINF``, значит она обязана
+    """Длительность в MEDIA_STATUS = сумме ``EXTINF``, значит она обязана
     быть длиной фильма, а не длиной упакованного.
 
     Сумма сходится на обеих сетках: и на ровной, где хвост прилипает к последнему куску, и
@@ -206,7 +206,7 @@ def test_the_manifest_promises_the_whole_film_so_the_tv_has_a_timeline() -> None
 
 
 def test_a_keyframe_grid_never_cuts_a_segment_shorter_than_the_step() -> None:
-    """§6.1 SPEC-v2: следующая граница — первый опорный кадр не раньше, чем через шаг.
+    """Следующая граница — первый опорный кадр не раньше, чем через шаг.
 
     Иначе на сцене-вспышке (два десятка опорных кадров за полсекунды) манифест распух бы
     на пустом месте, а приёмник получил бы очередь огрызков вместо сегментов. Хвост —
@@ -252,8 +252,8 @@ def test_only_a_keyframe_grid_promises_independent_segments() -> None:
     assert not flat.on_keys and "#EXT-X-INDEPENDENT-SEGMENTS" not in flat.manifest()
 
 
-def test_stream_format_is_the_one_fixed_by_the_spec() -> None:
-    """§3: один вариант, видео copy, звук всегда AAC stereo 192k, куски — MPEG-TS.
+def test_stream_format_is_fixed_and_not_negotiable() -> None:
+    """Один вариант, видео copy, звук всегда AAC stereo 192k, куски — MPEG-TS.
 
     Пишет ffmpeg в каталог прогона (:data:`PACK_DIR`), а не сразу наружу: «файл появился»
     у сегментного муксера не значит «кусок дописан» (:meth:`Packer.publish`).
@@ -262,7 +262,7 @@ def test_stream_format_is_the_one_fixed_by_the_spec() -> None:
     command = ffmpeg_pack_command("http://ts/stream", 1, "/dev/shm/torrcast/pack", grid, 0, 0.0)
     text = " ".join(command)
     assert "-c:v copy" in text, "видео только copy — перекодировать 1080p нам нечем"
-    assert "-c:a aac -ac 2 -b:a 192k" in text, "AC3/DTS passthrough запрещён (§3)"
+    assert "-c:a aac -ac 2 -b:a 192k" in text, "AC3/DTS passthrough запрещён"
     assert "-map 0:v:0 -map 0:a:1" in text, "один вариант и выбранная дорожка по индексу"
     assert "-f segment -segment_format mpegts" in text, "сетку задаёт список, а не один шаг"
     assert command[-1] == "/dev/shm/torrcast/pack/v%d.ts", "имя = место в фильме"
@@ -271,7 +271,7 @@ def test_stream_format_is_the_one_fixed_by_the_spec() -> None:
 
 
 def test_mpegts_muxer_does_not_shove_its_own_delay_into_the_timestamps() -> None:
-    """§6.2.2 SPEC-v2: ``-copyts`` без глушения муксера — время фильма плюс 1.4 с.
+    """``-copyts`` без глушения муксера — это время фильма плюс 1.4 с.
 
     Мультиплексор mpegts по умолчанию сдвигает ВСЕ метки на ``muxdelay + muxpreload``
     (:data:`MPEGTS_MUX_DELAY`). :func:`pack_start` эти флаги ставил всегда, упаковка — нет,
@@ -287,7 +287,7 @@ def test_mpegts_muxer_does_not_shove_its_own_delay_into_the_timestamps() -> None
 
 
 def test_segment_numbers_mean_the_same_place_wherever_the_run_started() -> None:
-    """§6.1 SPEC-v2: границы в ``-segment_times`` абсолютные — вот главная проверка.
+    """Границы в ``-segment_times`` абсолютные — вот главная проверка.
 
     Один и тот же кусок фильма обязан получить один и тот же номер и при упаковке с нуля,
     и при упаковке с середины: именно на этом стоит манифест на весь фильм, перемотка и
@@ -358,7 +358,7 @@ def test_readrate_paces_packing_and_can_be_switched_off() -> None:
 
 
 def test_the_initial_burst_replaces_pausing_the_packer() -> None:
-    """§6 SPEC-v2: запас впереди приёмника даёт burst, а не пауза процесса.
+    """Запас впереди приёмника даёт burst, а не пауза процесса.
 
     Проверяем и то, и другое: флаг ``-readrate_initial_burst`` (ffmpeg ≥ 6.1) на месте и
     стоит до ``-i``, а сигналов остановки в коде показа не осталось вовсе — именно под
@@ -384,7 +384,7 @@ def test_the_initial_burst_replaces_pausing_the_packer() -> None:
 def test_an_unreadable_keyframe_map_falls_back_to_a_flat_grid_out_loud() -> None:
     """Карту опорных кадров снять не вышло — берём ровную сетку и говорим об этом.
 
-    Молчаливая подмена нарезки — ровно то, из-за чего §6 SPEC-v2 расследовали двое суток:
+    Молчаливая подмена нарезки — ровно то, из-за чего подвисы расследовали двое суток:
     снаружи «сетка по кадрам» и «ровная сетка» выглядят одинаково, а ведут себя по-разному.
     Настройка ``hls_keyframes=false`` — тот же путь, но по своей воле.
     """
@@ -433,7 +433,7 @@ def test_a_half_written_segment_never_leaves_the_run_directory(tmp_path: Path) -
 def test_a_run_in_is_thrown_away_and_never_overwrites_an_honest_segment(
     tmp_path: Path,
 ) -> None:
-    """Регресс §6.1: докатка не имеет права затереть готовый сегмент прошлого прогона.
+    """Регресс сетки: докатка не имеет права затереть готовый сегмент прошлого прогона.
 
     Прогон почти всегда начинается раньше своей границы, и этот огрызок ffmpeg кладёт под
     именем предыдущего сегмента. Под тем же именем снаружи уже может лежать честный кусок,
@@ -486,11 +486,11 @@ def test_what_was_actually_cut_is_checked_against_the_manifest(tmp_path: Path) -
 def test_a_request_for_an_unpacked_place_repacks_instead_of_404(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """§2.1 SPEC-v2: приёмник мотает сам, а упаковка идёт за ним.
+    """Приёмник мотает сам, а упаковка идёт за ним.
 
     Запрос сегмента, которого нет, — это и есть перемотка, и единственный правильный
     ответ на неё — начать паковать оттуда. 404 тут запрещён: ресивер, поймавший его,
-    отказывается брать LOAD ещё пару минут (замерено 05-08-2026).
+    отказывается брать LOAD ещё пару минут (замерено на живом ТВ).
     """
     root = hls_dir(str(tmp_path / "hls"))
     started: list[int] = []
@@ -526,9 +526,9 @@ def test_a_burst_of_requests_after_a_seek_restarts_packing_only_once(
 def test_a_forward_seek_inside_the_run_does_not_wait_out_the_readrate(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """🟠 §6.2.7 SPEC-v2: 28 с чёрного экрана на перемотке вперёд внутри прогона.
+    """28 с чёрного экрана на перемотке вперёд внутри прогона.
 
-    Замер на живом Q70D (§7.9, смок 27): перемотка 3984 → 4100 (+116 с) — «запрос v385.ts
+    Замер на живом Q70D: перемотка 3984 → 4100 (+116 с) — «запрос v385.ts
     · ждал 57.8 с». Место лежало **внутри** прогона и в семи сегментах за краем, то есть
     по счёту штук это был обычный ход показа. А по времени — нет: упаковка идёт
     ``readrate 1``, и семьдесят секунд фильма впереди края она будет читать семьдесят
@@ -591,10 +591,10 @@ def test_the_seek_threshold_is_counted_in_segments_not_in_seconds(
 def test_a_seek_back_behind_the_run_repacks_instead_of_waiting_out_the_clock(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """🔴 §7.4 SPEC-v2: перемотка назад глубже окна при упаковке ОТ НУЛЯ.
+    """Перемотка назад глубже окна при упаковке ОТ НУЛЯ.
 
     Так это выглядело: упаковка идёт с сегмента 0, показ ушёл на 6-ю минуту, окно
-    вымело начало фильма из tmpfs — и владелец мотает в самое начало. Сегмента нет,
+    вымело начало фильма из tmpfs — и зритель мотает в самое начало. Сегмента нет,
     но ``packer.first`` (ноль!) ниже запрошенного, и показ решал, что кусок «вот-вот
     допакуется». Ждал он его все ``wait`` секунд — две минуты тишины на экране, — а
     потом всё равно отвечал 404, после которого приёмник не берёт LOAD ещё пару минут.
@@ -621,7 +621,7 @@ def test_a_seek_back_behind_the_run_repacks_instead_of_waiting_out_the_clock(
 
     assert started == [1], "перемотка назад лечится тем же, чем вперёд: упаковкой с места"
     assert answer == out / "v1.ts", "None здесь — это 404, после которого ТВ молчит минутами"
-    assert time.monotonic() - began < 2.0, "две минуты тишины до 404 — тот самый 🔴"
+    assert time.monotonic() - began < 2.0, "две минуты тишины до 404 — та самая беда"
 
 
 def test_pieces_of_past_runs_never_move_the_edge_of_the_current_run(
@@ -632,7 +632,7 @@ def test_pieces_of_past_runs_never_move_the_edge_of_the_current_run(
     Каталог показа общий на весь фильм, и в нём честно живут куски прошлых прогонов:
     сетка одна и детерминированная, под именем ``vN`` и до, и после перезапуска лежит
     одно и то же место фильма — такой кусок и отдаётся приёмнику без разговоров. Но к
-    вопросу «докуда дошла упаковка» он отношения не имеет, и обе наивные починки §7.4
+    вопросу «докуда дошла упаковка» он отношения не имеет, и обе наивные починки
     ломались ровно об это: глоб уводил край то вперёд (запрос назад висел до 404), то
     назад (20 ложных перезапусков за 100 с показа).
     """
@@ -663,8 +663,8 @@ def test_a_piece_finished_by_this_very_poll_is_not_mistaken_for_a_seek_back(
     Показ выкладывает готовое (:meth:`Packer.publish`) ровно там же, где решает, что
     делать с упаковкой, — и кусок, которого секунду назад не было, появляется прямо
     внутри этого решения. Считать его «ниже края, а файла нет», то есть перемоткой
-    назад, нельзя: замер на стенде 06-08-2026 давал перезапуск упаковки на каждом
-    четвёртом сегменте ровного показа.
+    назад, нельзя: живой замер давал перезапуск упаковки на каждом четвёртом сегменте
+    ровного показа.
     """
     out = hls_dir(str(tmp_path / "hls"))
     started: list[int] = []
@@ -681,10 +681,10 @@ def test_a_piece_finished_by_this_very_poll_is_not_mistaken_for_a_seek_back(
 
 
 def test_segments_left_ahead_after_a_rollback_do_not_pile_up_in_tmpfs(tmp_path: Path) -> None:
-    """🟡 §7.4 SPEC-v2: уборка смотрела только назад, и откаты копили tmpfs.
+    """Уборка смотрела только назад, и откаты копили tmpfs.
 
     После перемотки назад глубже окна упаковка идёт с нового места, а сегменты той
-    минуты, откуда владелец ушёл, остаются в памяти навсегда: окно позади до них не
+    минуты, откуда зритель ушёл, остаются в памяти навсегда: окно позади до них не
     достаёт, а вперёд уборка не смотрела вовсе. Десяток откатов подряд — и в tmpfs
     лежат места фильма, которых на экране уже не будет.
 
@@ -735,7 +735,7 @@ def test_segments_are_never_cached_by_the_receiver(served: Any) -> None:
 
 
 def test_cors_is_on_every_answer_including_404_and_preflight(served: Any) -> None:
-    """Chromecast без ``Access-Control-Allow-Origin`` молча не играет (§9)."""
+    """Chromecast без ``Access-Control-Allow-Origin`` молча не играет."""
     session, base = served
     for method, path in (("get", "/index.m3u8"), ("head", "/v0.ts"), ("get", "/нет.ts")):
         response = getattr(session, method)(f"{base}{path}", timeout=10)
@@ -753,7 +753,7 @@ def test_content_types_are_what_the_receiver_expects(served: Any) -> None:
 
 
 def test_segments_answer_range_requests(served: Any) -> None:
-    """Q70D переспрашивает куски диапазонами — без 206 он встаёт (грабли kinocast)."""
+    """Q70D переспрашивает куски диапазонами — без 206 он встаёт."""
     session, base = served
     response = session.get(f"{base}/v0.ts", headers={"Range": "bytes=10-19"}, timeout=10)
     assert response.status_code == 206
@@ -773,7 +773,7 @@ def test_nothing_but_the_stream_is_reachable(served: Any) -> None:
 
 
 def test_a_stopped_show_stops_answering_even_on_a_live_connection(tmp_path: Path) -> None:
-    """🔴 §7.4 SPEC-v2, стык серий: остановленная раздача обязана ЗАМОЛЧАТЬ.
+    """Стык серий: остановленная раздача обязана ЗАМОЛЧАТЬ.
 
     Приёмник ходит по HTTP/1.1 и держит одно соединение на весь показ, а потоки-обработчики
     демонические — ``server_close`` закрывает слушающий сокет и не трогает их. Пока это было
@@ -811,7 +811,7 @@ def test_a_stopped_show_stops_answering_even_on_a_live_connection(tmp_path: Path
 
 
 def test_a_run_we_stopped_ourselves_is_never_reported_as_a_crash(tmp_path: Path) -> None:
-    """🔴 §7.4 SPEC-v2: собственный ``terminate`` — не авария и не «нет вывода».
+    """Собственный ``terminate`` — не авария и не «нет вывода».
 
     ffmpeg по SIGTERM выходит **кодом 255** (положительным, то есть на «убит сигналом» не
     похоже), а прощаться он умеет только уровнем ``info`` — при ``-loglevel warning``
@@ -846,7 +846,7 @@ def test_acceptance_verdict_needs_no_gaps_no_missing_cors_and_a_full_decode() ->
 
 
 def test_the_real_video_codec_comes_from_the_stream_not_the_name() -> None:
-    """Имя раздачи о кодеке чаще молчит, а видео уходит на ТВ как есть (§9)."""
+    """Имя раздачи о кодеке чаще молчит, а видео уходит на ТВ как есть."""
     from torrcast.stream import Media
 
     assert Media(video="h264").video_warning == ""
@@ -880,7 +880,7 @@ def test_only_what_the_receiver_has_passed_is_swept_out_of_ram(tmp_path: Path) -
 
 
 def test_the_lead_over_the_receiver_is_measurable(tmp_path: Path) -> None:
-    """§6 SPEC-v2: запас показа — измеряемая величина, а не ощущение.
+    """Запас показа — измеряемая величина, а не ощущение.
 
     Запас показа в секундах фильма и вес tmpfs — единственное, чем провал устойчивости
     отличается от «показалось»: приёмник встаёт ровно тогда, когда запас сходит в ноль.
@@ -903,11 +903,11 @@ def test_the_lead_over_the_receiver_is_measurable(tmp_path: Path) -> None:
 
 
 def test_the_lead_is_counted_from_the_receiver_and_breaks_on_a_hole(tmp_path: Path) -> None:
-    """§7.4-2: запас — это то, что лежит ПОДРЯД перед приёмником, а не глоб каталога.
+    """Запас — это то, что лежит ПОДРЯД перед приёмником, а не глоб каталога.
 
     Ровно на этом числе стоит сторож приёмника, и врало оно после каждой перемотки назад:
-    в каталоге показа лежат честные куски прошлых прогонов (сетка детерминирована, §6.0),
-    и «докуда упаковано» считалось по ним. Замер на живом Q70D 06-08-2026: откат с 31-й
+    в каталоге показа лежат честные куски прошлых прогонов (сетка детерминирована),
+    и «докуда упаковано» считалось по ним. Замер на живом Q70D: откат с 31-й
     минуты на 10-ю дал «показ 600 · упаковано 2010 · впереди 1410 с» при пустом месте
     перед приёмником — то есть разрешение сторожу дёргать показ ровно тогда, когда нельзя.
     """
@@ -926,7 +926,7 @@ def test_the_lead_is_counted_from_the_receiver_and_breaks_on_a_hole(tmp_path: Pa
 def test_a_real_ca_signed_cert_is_verified_against_the_system_store(
     tls: tuple[str, str], tmp_path: Path
 ) -> None:
-    """Чему доверяет mock: §9 «Chromecast требует доверенный HTTPS».
+    """Чему доверяет mock: Chromecast требует доверенный HTTPS.
 
     Self-signed проверять нечем, кроме него самого. А настоящую цепочку LE обязано
     принимать системное хранилище — иначе «проверка» вырождается в пиннинг к
@@ -974,7 +974,7 @@ def _le_shaped_chain(tmp_path: Path) -> tuple[str, str, str]:
         "-addext", "basicConstraints=critical,CA:TRUE")  # fmt: skip
     for name, subject, issuer, extra in (
         ("inter", "/CN=torrcast test intermediate", "root", ["-extfile", str(ext)]),
-        ("leaf", "/CN=torrcast.anysda.space", "inter", []),
+        ("leaf", "/CN=torrcast.example.com", "inter", []),
     ):
         run("req", "-new", "-newkey", "rsa:2048", "-nodes", "-keyout", str(key[name]),
             "-out", str(csr[name]), "-subj", subject)  # fmt: skip
@@ -986,7 +986,7 @@ def _le_shaped_chain(tmp_path: Path) -> tuple[str, str, str]:
 def test_the_position_is_warmed_by_its_byte_offset_not_by_a_proportion(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Продолжение с середины греет ровно то место файла, где лежит позиция (§7.2 SPEC-v2).
+    """Продолжение с середины греет ровно то место файла, где лежит позиция.
 
     Смещение берётся из карты опорных кадров — той же, по которой строится сетка. Долей
     «позиция от длительности, умноженная на размер файла» тут обойтись нельзя: битрейт по
@@ -1049,7 +1049,7 @@ def test_an_old_key_cache_without_offsets_still_builds_the_grid(tmp_path: Path) 
 def test_the_head_warmed_under_the_question_is_sized_by_the_container(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Голова под «Продолжить?» меряется контейнером, а не запасом под ``moov`` (§7.3).
+    """Голова под «Продолжить?» меряется контейнером, а не запасом под ``moov``.
 
     У mp4 в голове лежит ``moov`` (у «Моаны 2» от YTS — 5.3 МБ), и без него ffmpeg вход
     не откроет. У mkv там EBML-заголовок, SeekHead, Info и Tracks — килобайты, а восемь
@@ -1117,7 +1117,7 @@ def _desert(mbit: float = 10.0) -> tuple[list[float], list[int], float]:
 
     В пустыне (место 3965.670 живого файла) первый опорный кадр не раньше шага лежит через
     18.435 с, а внутри есть кадр на 8.008 с. Прежнее правило берёт первый — и отдаёт
-    приёмнику 23 МБ одним куском; ровно этот кусок ловился на живом ТВ (§6.2.4 SPEC-v2).
+    приёмнику 23 МБ одним куском; ровно этот кусок ловился на живом ТВ.
     Байты кладутся ровным битрейтом: столько же, сколько уезжает на ТВ после перекода.
     """
     gop = 10.427
@@ -1133,7 +1133,7 @@ def _desert(mbit: float = 10.0) -> tuple[list[float], list[int], float]:
 
 
 def test_the_grid_never_hands_the_receiver_a_segment_heavier_than_the_cap() -> None:
-    """Потолок веса сегмента — механизм §6-подвиса, а не украшение сетки.
+    """Потолок веса сегмента — механизм подвиса приёмника, а не украшение сетки.
 
     Приёмник Q70D срывается в BUFFERING на 4–8 с ровно на границе, за которой лежит
     кусок тяжелее ~19 МБ, и снимается сам, повторно скачав уже полученные сегменты.
@@ -1163,7 +1163,7 @@ def test_the_grid_never_hands_the_receiver_a_segment_heavier_than_the_cap() -> N
 def test_the_cap_counts_what_leaves_for_the_tv_not_what_lies_in_the_container() -> None:
     """Считать вес по контейнеру — значит считать чужое: у «Моаны 2» десять озвучек.
 
-    На ТВ уезжает видео плюс наш AAC, и тяжёлый кусок ещё и перекодируется (§6.2), поэтому
+    На ТВ уезжает видео плюс наш AAC, и тяжёлый кусок ещё и перекодируется, поэтому
     потолок обязан знать поправку «контейнер → ТВ» и потолок перекодирования. Слепое
     правило на том же файле решает, что резать бесполезно (по контейнеру не влезает ни
     один вариант), и отдаёт кусок как есть — то есть ровно тот подвис, ради которого всё
@@ -1187,7 +1187,7 @@ def test_a_grid_without_a_byte_map_stays_exactly_as_it_was() -> None:
     """Карта прошлой версии смещений не несёт — правило потолка обязано просто молчать.
 
     Иначе выкатка сломала бы показ по кэшу, снятому вчера: границы уехали бы, а имя
-    сегмента у нас значит место в фильме (§6.0).
+    сегмента у нас значит место в фильме.
     """
     keys, sizes, duration = _desert()
     plain = Grid.on_keyframes(keys, duration, 10.0).bounds

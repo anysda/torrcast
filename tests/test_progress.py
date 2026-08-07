@@ -1,6 +1,6 @@
-"""Этап 3: сторож, порог «досмотрено», resume и управление показом (§2.3, §2.5, §4).
+"""Сторож, порог «досмотрено», resume и управление показом.
 
-Живая приёмка идёт на «Моане 2» в transient-юните (docs/stage3.md), а здесь — то же
+Живьём это проверяется настоящим показом в transient-юните, а здесь — то же
 поведение без торрента и без systemd: переходы состояния и ветки CLI.
 """
 
@@ -40,7 +40,7 @@ def remember(**fields: object) -> Entry:
 
 
 def test_watchdog_writes_position_not_more_often_than_the_interval() -> None:
-    """Раз в 10 с (§3): между тиками состояние не переписывается на каждый опрос."""
+    """Раз в 10 с: между тиками состояние не переписывается на каждый опрос."""
     entry = remember(pos=0.0, dur=5978.0)
     watch = cli.Watch(key=KEY, entry=entry, every=3600.0)
 
@@ -50,11 +50,11 @@ def test_watchdog_writes_position_not_more_often_than_the_interval() -> None:
     watch.every = 0.0
     watch.see(130.0)
     assert saved().pos == 130.0
-    assert saved().updated, "метка времени обязательна (§4)"
+    assert saved().updated, "метка времени обязательна"
 
 
 def test_watchdog_takes_the_position_as_absolute_film_time() -> None:
-    """§2.1 SPEC-v2: позиция приёмника — абсолютное время фильма, пересчитывать нечего.
+    """Позиция приёмника — абсолютное время фильма, пересчитывать нечего.
 
     Манифест описывает весь фильм, а ``-copyts`` оставляет в сегментах исходные метки,
     поэтому приёмник считает от начала фильма, с какого бы места ни шла упаковка. Ноль —
@@ -72,7 +72,7 @@ def test_watchdog_takes_the_position_as_absolute_film_time() -> None:
 
 
 def test_watchdog_marks_the_movie_watched_at_95_percent() -> None:
-    """Порог 95 % (§2.4): запись «досмотрено», позиция сброшена, повторные тики её не
+    """Порог 95 %: запись «досмотрено», позиция сброшена, повторные тики её не
     воскрешают — иначе следующий `cast` спросил бы «продолжить?» о досмотренном фильме.
     """
     entry = remember(pos=0.0, dur=1000.0)
@@ -91,7 +91,7 @@ def test_watchdog_marks_the_movie_watched_at_95_percent() -> None:
 def test_resume_asks_once_and_starts_from_the_saved_position(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """§2.3: один вопрос, Enter — продолжаем; релиз и дорожка из состояния, поиска нет."""
+    """Один вопрос, Enter — продолжаем; релиз и дорожка из состояния, поиска нет."""
     remember(pos=2467.0, dur=5978.0, audio=1)
     started: list[str] = []
     asked: list[str] = []
@@ -109,7 +109,7 @@ def test_resume_asks_once_and_starts_from_the_saved_position(
     printed = capsys.readouterr().out
     assert asked == ["«Моана 2» остановились на 0:41:07. Продолжить? [Да/сначала]: "]
     assert "— на ТВ" in printed
-    assert "ищу" not in printed, "resume не ходит в Prowlarr (§3.1)"
+    assert "ищу" not in printed, "resume не ходит в Prowlarr"
     assert started == [KEY]
     assert saved().pos == 2467.0 and saved().audio == 1
 
@@ -117,7 +117,7 @@ def test_resume_asks_once_and_starts_from_the_saved_position(
 def test_resume_from_the_beginning_keeps_the_release_but_drops_the_position(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """«сначала» — та же раздача и дорожка, позиция ноль (§2.3)."""
+    """«сначала» — та же раздача и дорожка, позиция ноль."""
     remember(pos=2467.0, dur=5978.0, audio=1)
     monkeypatch.setattr(cli, "start_play_unit", lambda key: None)
     monkeypatch.setattr(cli, "_await_playing", lambda config, progress, timeout=120.0: None)
@@ -130,7 +130,7 @@ def test_resume_from_the_beginning_keeps_the_release_but_drops_the_position(
 def test_new_goes_through_the_search_and_keeps_the_position_of_a_run_that_never_started(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """`--new` проходит выбор заново (§4): вопроса «продолжить?» нет, дальше обычный путь
+    """`--new` проходит выбор заново: вопроса «продолжить?» нет, дальше обычный путь
     с поиском (тут он упирается в ненастроенный Prowlarr).
 
     А вот стирать сохранённое место наперёд ему нечем: показ не начался — позиция цела.
@@ -163,7 +163,7 @@ def test_dry_resume_does_not_touch_the_unit(
 def test_status_is_honest_when_nothing_plays(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Юнита нет — «ничего не играет», но недосмотренное кино назвать не грех (§2.5)."""
+    """Юнита нет — «ничего не играет», но недосмотренное кино назвать не грех."""
     remember(pos=2467.0, dur=5978.0)
     monkeypatch.setattr(cli, "unit_active", lambda: False)
 
@@ -177,7 +177,7 @@ def test_status_is_honest_when_nothing_plays(
 def test_status_shows_what_is_playing_and_from_where(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Живой юнит: что играет, позиция/длительность, источник (§2.5)."""
+    """Живой юнит: что играет, позиция/длительность, источник."""
     remember(pos=2467.0, dur=5978.0, audio=1, file_idx=2)
     monkeypatch.setattr(cli, "unit_active", lambda: True)
 
@@ -191,8 +191,8 @@ def test_status_shows_what_is_playing_and_from_where(
 def test_status_names_the_unit_key_not_the_freshest_record(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Играющее определяется по ``--description`` юнита: рядом мог писать другой ход, и
-    «самая свежая запись» назвала бы чужую картину (решение оркестратора, stage3 вопрос 3).
+    """Играющее определяется по ``--description`` юнита: рядом мог писать другой запуск,
+    и «самая свежая запись» назвала бы чужую картину.
     """
     remember(pos=660.0, dur=5978.0)
     state = State.load()  # запись свежее, но она НЕ играет
@@ -231,7 +231,7 @@ def test_stop_reports_the_playing_record_and_asks_the_unit_before_killing_it(
 def test_stop_kills_the_unit_and_reports_the_fixed_position(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """`cast stop`: юнит гасится, позицию в state дописывает сам юнит по SIGTERM (§2.5)."""
+    """`cast stop`: юнит гасится, позицию в state дописывает сам юнит по SIGTERM."""
     remember(pos=660.0, dur=5978.0)
     stopped: list[bool] = []
     monkeypatch.setattr(cli, "unit_active", lambda: True)

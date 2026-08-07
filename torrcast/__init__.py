@@ -1,6 +1,6 @@
 """torrcast — поиск торрент-релиза и каст его на ТВ без скачивания.
 
-Шесть модулей (§6 ТЗ): :mod:`torrcast.cli` — аргументы, меню, коды выхода;
+Шесть модулей: :mod:`torrcast.cli` — аргументы, меню, коды выхода;
 :mod:`torrcast.parse` — имена раздач, франшизы, sNeM; :mod:`torrcast.search` —
 Prowlarr/Torznab; :mod:`torrcast.stream` — TorrServer, ffprobe, HLS;
 :mod:`torrcast.cast` — приёмники; :mod:`torrcast.state` — конфиг и состояние.
@@ -14,7 +14,7 @@ __version__ = "0.1.0"
 
 
 class TorrcastError(Exception):
-    """Базовая ошибка: наружу печатается только ``str(exc)``, без трейсбека (§6 ТЗ)."""
+    """Базовая ошибка: наружу печатается только ``str(exc)``, без трейсбека."""
 
 
 class NotFoundError(TorrcastError):
@@ -25,7 +25,7 @@ class InfraError(TorrcastError):
     """Легла инфраструктура: Prowlarr / TorrServer / приёмник. Код выхода 2."""
 
 
-#: Сетевые сбои по-русски: наружу не носим ни трейсбек, ни внутренности urllib3 (§6).
+#: Сетевые сбои по-русски: наружу не носим ни трейсбек, ни внутренности urllib3.
 _REASONS = {
     "ConnectionError": "порт закрыт или служба не запущена",
     "ConnectTimeout": "нет ответа на подключение",

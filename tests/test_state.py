@@ -37,13 +37,13 @@ def test_roundtrip_creates_parent_dirs_and_keeps_utf8(
 
 
 def test_watched_threshold_is_95_percent() -> None:
-    """Позиция ≥ 95 % длительности = досмотрено → следующая серия (§2.4 ТЗ)."""
+    """Позиция ≥ 95 % длительности = досмотрено → следующая серия."""
     assert not Entry(title="x", magnet="m", pos=940, dur=1000).watched
     assert Entry(title="x", magnet="m", pos=950, dur=1000).watched
 
 
 def test_drop_forgets_entry() -> None:
-    """`--new` сбрасывает запись и проходит выбор с нуля (§4 ТЗ)."""
+    """`--new` сбрасывает запись и проходит выбор с нуля."""
     state = State()
     state.put("movie:тачки:2006", Entry(title="Тачки", magnet="m"))
     state.drop("movie:тачки:2006")
@@ -57,15 +57,15 @@ def test_missing_state_file_is_empty_not_error() -> None:
 
 
 def test_config_requires_only_tv() -> None:
-    """Конфиг переживает roundtrip; остальные поля имеют рабочие дефолты (§5 ТЗ)."""
+    """Конфиг переживает roundtrip; остальные поля имеют рабочие дефолты."""
     config = load_config()
     assert config.tv is None
 
-    config.tv = "192.168.100.102"
+    config.tv = "10.0.0.50"
     save_config(config)
 
     reloaded = load_config()
-    assert reloaded.tv == "192.168.100.102"
+    assert reloaded.tv == "10.0.0.50"
     assert reloaded.torrserver_url.endswith(":8090")
 
 
@@ -85,7 +85,7 @@ def test_unknown_keys_in_state_are_ignored(tmp_path: Path) -> None:
 
 def test_watched_movie_is_marked_and_rewound() -> None:
     """Фильм досмотрен: пометка «досмотрено» и сброс позиции — следующий cast начнёт
-    с начала и вопроса «продолжить?» не задаст (§2.3, §2.4).
+    с начала и вопроса «продолжить?» не задаст.
     """
     entry = Entry(title="Моана 2", magnet="m", pos=5700, dur=5978)
     assert entry.watched and entry.resumable
@@ -97,7 +97,7 @@ def test_watched_movie_is_marked_and_rewound() -> None:
 
 
 def series(episode: int = 3, **fields: object) -> Entry:
-    """Сериал с выбранной раздачей: три серии, у каждой свой файл (§2.4)."""
+    """Сериал с выбранной раздачей: три серии, у каждой свой файл."""
     return Entry(
         title="Киберпанк",
         magnet="m",
@@ -111,7 +111,7 @@ def series(episode: int = 3, **fields: object) -> Entry:
 
 
 def test_watched_episode_moves_to_the_next_file_of_the_release() -> None:
-    """Серия досмотрена: следующая серия раздачи с нуля, релиз и дорожка те же (§2.4).
+    """Серия досмотрена: следующая серия раздачи с нуля, релиз и дорожка те же.
     Следующая — это следующий ФАЙЛ раздачи, а не «номер + 1»: в раздаче может не быть
     ни первой серии, ни сплошной нумерации.
     """
@@ -128,7 +128,7 @@ def test_watched_episode_moves_to_the_next_file_of_the_release() -> None:
 
 def test_last_episode_of_the_release_ends_the_run() -> None:
     """Конец раздачи (или сезона): «досмотрено», и юнит гаснет — выдумывать несуществующую
-    следующую серию мы не будем (§2.4).
+    следующую серию мы не будем.
     """
     ended = series(episode=4, pos=1400, dur=1440).advance()
 
@@ -138,7 +138,7 @@ def test_last_episode_of_the_release_ends_the_run() -> None:
 
 def test_a_season_pack_rolls_over_into_the_next_season() -> None:
     """Пак сезонов: после последней серии сезона идёт первая следующего — переход тот же,
-    что и внутри сезона, потому что список серий раздачи один и упорядочен (§2.4).
+    что и внутри сезона, потому что список серий раздачи один и упорядочен.
     """
     pack = Entry(
         title="Во все тяжкие",
@@ -159,7 +159,7 @@ def test_a_season_pack_rolls_over_into_the_next_season() -> None:
 
 def test_jump_lands_on_the_cached_episode_or_honestly_refuses() -> None:
     """`cast киберпанк s1e2` при готовом кэше раздачи: файл и позиция с нуля, без вопросов.
-    Серии в раздаче нет — ``None``, и цепочка идёт искать релиз нужного сезона (§2.4).
+    Серии в раздаче нет — ``None``, и цепочка идёт искать релиз нужного сезона.
     """
     entry = series(episode=3, pos=900.0)
 
@@ -191,7 +191,7 @@ def test_unfinished_entry_is_resumable_and_finished_is_not() -> None:
 
 
 def test_find_takes_the_entry_by_the_users_query() -> None:
-    """Resume ищет запись по запросу, не ходя в Prowlarr (§2.3): годятся и сохранённый
+    """Resume ищет запись по запросу, не ходя в Prowlarr: годятся и сохранённый
     запрос, и slug из ключа; чужая картина не подхватывается.
     """
     state = State()
@@ -206,8 +206,8 @@ def test_find_takes_the_entry_by_the_users_query() -> None:
 
 
 def test_find_lets_a_series_be_called_by_a_short_name() -> None:
-    """Сериал ищут коротко: «киберпанк» вместо «киберпанк бегущие по краю» (§2.4).
-    Фильму такое нельзя: «матрица» — запрос франшизы, а не «Матрица: Перезагрузка» (§2.2).
+    """Сериал ищут коротко: «киберпанк» вместо «киберпанк бегущие по краю».
+    Фильму такое нельзя: «матрица» — запрос франшизы, а не «Матрица: Перезагрузка».
     """
     state = State()
     state.put(

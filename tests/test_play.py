@@ -1,9 +1,9 @@
 """Цепочка показа целиком на синтетическом ролике: упаковка → раздача → mock-приёмник.
 
-Живая приёмка §7.2 идёт на «Моане 2» (docs/stage2.md), а регрессию ловит этот тест:
+Живьём это проверяется настоящим фильмом на телевизоре, а регрессию ловит этот тест:
 он гоняет тот же код без торрента и укладывается в секунды.
 
-Здесь же живёт единственная проверка §6.1 SPEC-v2, которую нельзя сделать на бумаге:
+Здесь же живёт единственная проверка сетки сегментов, которую нельзя сделать на бумаге:
 кусок под именем ``vN`` обязан быть одним и тем же местом фильма, с какого бы места ни
 начали паковать. Проверяется это настоящим ffmpeg на настоящем ролике — арифметикой
 границ (tests/test_hls.py) доказывается только то, что мы его об этом попросили.
@@ -43,7 +43,7 @@ from torrcast.stream import (
 
 
 def config_for(tmp_path: Path, tls: tuple[str, str], port: int) -> Config:
-    """Конфиг показа как на стенде: http по голому IP (§5 SPEC-v2), приёмник — mock.
+    """Конфиг показа как в бою: http по голому IP, приёмник — mock.
 
     ``tls`` тут остаётся ради второго прогона той же цепочки по https: транспорт —
     выключенная опция, но она обязана работать, и проверяется тем же тестом.
@@ -120,9 +120,9 @@ def test_mock_decodes_the_whole_stream_without_gaps(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """Приёмка §7.2 в миниатюре: от начала до конца, без дыр, CORS на месте.
+    """Показ в миниатюре: от начала до конца, без дыр, CORS на месте.
 
-    Оба транспорта гоняются одной и той же цепочкой: http — рабочий дефолт (§5 SPEC-v2),
+    Оба транспорта гоняются одной и той же цепочкой: http — рабочий дефолт,
     https — выключенная опция, которая обязана оставаться живой.
     """
     config = config_for(tmp_path, tls, port)
@@ -134,7 +134,7 @@ def test_mock_decodes_the_whole_stream_without_gaps(
     decoded = float(printed.split("декодировано ")[1].split(" ")[0])
     # Допуск ровно в один сегмент: если ENDLIST попадает в ту же перезагрузку плейлиста,
     # что и последний сегмент, hls-демуксер ffmpeg молча заканчивает на предыдущем.
-    # Воспроизводится и на голом http.server, то есть это не наш сервер (docs/stage3.md).
+    # Воспроизводится и на голом http.server, то есть дело не в нашем сервере.
     assert decoded >= CLIP_SECONDS - HLS_SEGMENT_SECONDS, "приёмник встал посреди показа"
     assert not list(Path(config.hls_dir).glob("*.ts")), "сегменты убраны за собой"
 
@@ -142,9 +142,9 @@ def test_mock_decodes_the_whole_stream_without_gaps(
 def test_the_same_name_holds_the_same_piece_wherever_packing_started(
     clip: str, tmp_path: Path
 ) -> None:
-    """§6.1 SPEC-v2 живьём: имя сегмента — это место в фильме, а не порядковый номер.
+    """Живьём: имя сегмента — это место в фильме, а не порядковый номер.
 
-    Ровно это ломалось до 06-08-2026: сегментный муксер отсчитывал границы от первого
+    Ровно это и ломалось раньше: сегментный муксер отсчитывал границы от первого
     пакета прогона, поэтому после каждой перемотки под тем же именем лежало другое место,
     манифест врал, а уже упакованное приходилось выбрасывать. Теперь границы абсолютные —
     и два прогона, начатые в разных местах, обязаны дать под одним именем один и тот же
@@ -174,7 +174,7 @@ def test_the_same_name_holds_the_same_piece_wherever_packing_started(
 
 
 def test_audio_is_always_reencoded_to_aac_stereo(clip: str, tmp_path: Path) -> None:
-    """Источник — AC3 5.1; на выходе обязан быть AAC stereo, видео — тот же H.264 (§3, §9)."""
+    """Источник — AC3 5.1; на выходе обязан быть AAC stereo, видео — тот же H.264."""
     out = hls_dir(str(tmp_path / "hls"))
     packer = _pack(clip, Grid.uniform(float(CLIP_SECONDS)), 0, out)
 
@@ -189,7 +189,7 @@ def test_audio_is_always_reencoded_to_aac_stereo(clip: str, tmp_path: Path) -> N
 def test_packing_torn_off_again_and_again_is_an_honest_infra_error(
     clip: str, tls: tuple[str, str], tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Обрыв упаковки показ переживает, но не бесконечно (§5).
+    """Обрыв упаковки показ переживает, но не бесконечно.
 
     Один обрыв — не авария: TorrServer под просевшим роем закрывает вход, ffmpeg честно
     умирает, и показ пакует заново с того места, где стоит приёмник. А вот источник,
@@ -272,8 +272,8 @@ def test_the_show_sweeps_ram_behind_the_receiver_while_it_plays(
 ) -> None:
     """Показ следит ровно за двумя вещами: жива ли упаковка и что убрать из tmpfs.
 
-    Перемотку он больше не ловит вовсе — приёмник видит весь фильм и мотает сам (§2.1
-    SPEC-v2), а раздача пакует то место, которое он попросил.
+    Перемотку он больше не ловит вовсе — приёмник видит весь фильм и мотает сам,
+    а раздача пакует то место, которое он попросил.
     """
     from torrcast import cli
 
@@ -388,7 +388,7 @@ def test_a_repack_in_the_middle_keeps_the_proof_of_the_picture(tmp_path: Path) -
 
     Перемотка и обрыв упаковки перезапускают ffmpeg (:meth:`Feed.restart`), но показ при
     этом тот же самый и картинка на экране никуда не делась — CLI своё «старт NN с» уже
-    сказал (§4 SPEC-v2). Снимать доказательство на каждом перезапуске значило бы врать.
+    сказал. Снимать доказательство на каждом перезапуске значило бы врать.
     """
     feed = _feed_with_segments(tmp_path)
     mark_playing(feed.out)
@@ -437,7 +437,7 @@ def test_a_finished_packer_is_not_a_crash_but_a_serial_one_gives_up(
 def test_one_dead_run_is_blamed_once_and_not_on_every_request(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Один труп упаковки не съедает все попытки за полсекунды (ревью 06-08-2026).
+    """Один труп упаковки не съедает все попытки за полсекунды.
 
     Живой сценарий: TorrServer выронил раздачу посреди показа, вход мёртв, ffmpeg умирает
     сразу после старта — то есть внутри двух секунд, пока держит защита «не толкаемся».
@@ -461,7 +461,7 @@ def test_resume_starts_from_the_offset_and_ends_as_watched(
     capsys: pytest.CaptureFixture[str],
 ) -> None:  # fmt: skip
     """Тот же показ, но с середины: ffmpeg стартует с `-ss`, приёмник декодирует остаток,
-    сторож кладёт в state абсолютную позицию, а на 95 % пишет «досмотрено» (§2.3, §2.4).
+    сторож кладёт в state абсолютную позицию, а на 95 % пишет «досмотрено».
     """
     monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
     # Длительность занижена на сегмент — хвост HLS у клиента может отвалиться, а проверяем
@@ -505,9 +505,9 @@ class _FakeDevice:
 def test_a_stuck_receiver_is_nudged_only_when_the_packing_is_ahead(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """§6 SPEC-v2: неподвижный BUFFERING — это две разные беды, и лечатся они по-разному.
+    """Неподвижный BUFFERING — это две разные беды, и лечатся они по-разному.
 
-    Замерено на живом Q70D 05-08-2026: на 1:24 «Моаны» приёмник встал намертво при 60 с
+    Замерено на живом Q70D: на 1:24 фильма приёмник встал намертво при 60 с
     готовой упаковки впереди, сам не ожил ни разу и оживал только от нашего ``seek``. А
     ровно так же выглядит приёмник, который честно ждёт упаковку, — и вот его трогать
     нельзя: прыжок уведёт показ в неупакованное место и заставит паковать заново.
@@ -516,7 +516,7 @@ def test_a_stuck_receiver_is_nudged_only_when_the_packing_is_ahead(
 
     jumps: list[float] = []
     monkeypatch.setattr(ChromecastReceiver, "_device", lambda self: _FakeDevice(jumps))
-    receiver = ChromecastReceiver("192.168.100.102")
+    receiver = ChromecastReceiver("10.0.0.50")
     receiver._peak = 84.0
 
     receiver._nudge(84.0, front=144.0)
@@ -542,11 +542,11 @@ class _Reported:
 
 
 def test_the_peak_follows_the_viewer_back_after_a_rewind(monkeypatch: pytest.MonkeyPatch) -> None:
-    """§7.4-2: после перемотки назад нудж обязан целиться туда, где человек СЕЙЧАС.
+    """После перемотки назад нудж обязан целиться туда, где человек СЕЙЧАС.
 
-    Замерено на живом Q70D 06-08-2026 дважды подряд: откат с 31:31 на 10:00, показ шёл
+    Замерено на живом Q70D дважды подряд: откат с 31:31 на 10:00, показ шёл
     чисто 18 с, потом ребуфер — и сторож выкинул фильм обратно на 31:31, в место, откуда
-    владелец только что ушёл. Причина — пройденный максимум ``_peak``, который никогда не
+    зритель только что ушёл. Причина — пройденный максимум ``_peak``, который никогда не
     опускался: прыгаем мы только вперёд, поэтому уехавшая назад позиция может значить
     ровно одно — перемотку человека, и максимум обязан пойти за ним.
     """
@@ -554,7 +554,7 @@ def test_the_peak_follows_the_viewer_back_after_a_rewind(monkeypatch: pytest.Mon
 
     jumps: list[float] = []
     monkeypatch.setattr(ChromecastReceiver, "_device", lambda self: _FakeDevice(jumps))
-    receiver = ChromecastReceiver("192.168.100.102")
+    receiver = ChromecastReceiver("10.0.0.50")
     monkeypatch.setattr(ChromecastReceiver, "_status", lambda self: self.script.pop(0))
     stall = [_Reported(619.0, "BUFFERING")] * 2
     receiver.script = [_Reported(1891.0), _Reported(600.0), *stall]  # type: ignore[attr-defined]
@@ -607,10 +607,10 @@ class _FakeMedia:
         self._cast.log.append("stop")
 
 
-def _receiver_on(cast: _FakeCast, url: str = "http://192.168.1.62:8443/index.m3u8") -> Any:
+def _receiver_on(cast: _FakeCast, url: str = "http://10.0.0.10:8443/index.m3u8") -> Any:
     from torrcast.cast import ChromecastReceiver
 
-    receiver = ChromecastReceiver("192.168.100.102")
+    receiver = ChromecastReceiver("10.0.0.50")
     receiver._cast, receiver._url, receiver._session = cast, url, "наша"
     return receiver
 
@@ -618,18 +618,18 @@ def _receiver_on(cast: _FakeCast, url: str = "http://192.168.1.62:8443/index.m3u
 def test_the_receiver_app_is_closed_only_on_our_own_session() -> None:
     """Иконку Default Media Receiver после показа снимаем — но только свою.
 
-    Владелец жаловался, что после `cast stop` и после титров приёмник висит на экране до
-    своего таймаута простоя и мешает ТВ уснуть. Лечится это ``quit_app``. Опасность
-    ровно одна: на этом же Q70D кастят kinocast и castbot, и приложение у них то же
-    самое (``CC1AD845``) — чужой показ снимать нельзя ни при каких обстоятельствах.
+    Иначе после `cast stop` и после титров приёмник висит на экране до своего таймаута
+    простоя и мешает ТВ уснуть. Лечится это ``quit_app``. Опасность ровно одна: на том же
+    Q70D кастят и другие приложения, а приложение-приёмник у них то же самое
+    (``CC1AD845``) — чужой показ снимать нельзя ни при каких обстоятельствах.
     """
-    ours = _FakeCast(content="http://192.168.1.62:8443/index.m3u8")
+    ours = _FakeCast(content="http://10.0.0.10:8443/index.m3u8")
     _receiver_on(ours).stop(quit_app=True)
     assert ours.log == ["stop", "quit", "disconnect"], (
         "своя сессия: гасим показ, закрываем приложение, отпускаем сокет"
     )
 
-    between = _FakeCast(content="http://192.168.1.62:8443/index.m3u8")
+    between = _FakeCast(content="http://10.0.0.10:8443/index.m3u8")
     _receiver_on(between).stop()
     assert between.log == ["stop"], "стык серий: приложение остаётся под следующую серию"
 
@@ -645,15 +645,15 @@ def test_the_receiver_app_is_closed_only_on_our_own_session() -> None:
     _receiver_on(alien_session).stop(quit_app=True)
     assert alien_session.log == [], "то же приложение, но сессию поднял не мы"
 
-    alien_media = _FakeCast(content="http://192.168.1.60:8010/cast.m3u8")
+    alien_media = _FakeCast(content="http://10.0.0.20:8010/cast.m3u8")
     _receiver_on(alien_media).stop(quit_app=True)
-    assert alien_media.log == [], "в наше приложение загрузился чужой сендер (kinocast)"
+    assert alien_media.log == [], "в то же приложение загрузился чужой сендер"
 
 
 def test_the_show_end_closes_the_app_and_the_episode_seam_does_not(
     clip: str, tls: tuple[str, str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Стык серий и конец показа — для приёмника разные события (§2.5 SPEC-v2).
+    """Стык серий и конец показа — для приёмника разные события.
 
     Проверяется вся проводка целиком, от состояния до приёмника: сторож дошёл до порога
     95 %, показ кончился — и только запись состояния решает, закрывать ли приложение.
@@ -734,11 +734,11 @@ def test_a_closed_show_never_starts_ffmpeg_again(
 def test_a_planned_stop_of_the_show_is_a_success_not_a_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """🟡 §7.4 SPEC-v2: `cast stop` обязан оставлять юнит кодом 0.
+    """`cast stop` обязан оставлять юнит кодом 0.
 
     SIGTERM от `cast stop` поднимает исключение — иначе показ не пройдёт через ``finally``
     и не запишет позицию. Но исключение это штатное, и выходить на нём кодом 2 нельзя:
-    systemd помечает юнит ``failed``, и владелец после каждой нормальной остановки видит
+    systemd помечает юнит ``failed``, и после каждой нормальной остановки пользователь видит
     красную строку в статусе. Ctrl-C на вопросе отказом при этом быть не перестаёт.
     """
     from torrcast import cli
@@ -764,7 +764,7 @@ def test_a_planned_stop_of_the_show_is_a_success_not_a_failure(
 def test_the_cli_never_kills_a_show_that_is_still_inside_the_units_budget(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """🟡 §7.4 SPEC-v2: ожидание картинки согласовано с бюджетами юнита, а не «побольше».
+    """Ожидание картинки согласовано с бюджетами юнита, а не взято «побольше».
 
     CLI ждёт картинку и по своему таймауту гасит показ. Пока он ждал 120 с, а юнит имел
     право потратить на метаданные, ffprobe, карту, пробный прогон и терпение к молчащему
