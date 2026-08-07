@@ -6,7 +6,7 @@ import subprocess
 
 import pytest
 
-from torrcast.recode import PRESETS, Encode, Recoder, Weights, preset_for
+from torrcast.recode import FULL_PRESET, PRESETS, Encode, Recoder, Weights, preset_for
 from torrcast.stream import (
     FilmKeys,
     Grid,
@@ -1223,3 +1223,77 @@ def test_merge_of_garbage_leaves_no_file_and_says_so(tmp_path) -> None:  # type:
     audio.write_bytes(b"also not a stream")
     assert merge_tracks(video, audio, dst) is False
     assert not dst.exists()
+
+
+# ------------------------------------------------------------------ сплошной перекод
+
+
+def test_a_codec_the_receiver_cannot_decode_is_a_decision_about_the_file() -> None:
+    """Кодек решается один раз и на весь файл, а не на кусок.
+
+    Посегментное решение (тяжёлый — перекодируем, лёгкий — копией) на HEVC-релизе даёт
+    смешанный поток H.264 и HEVC, а его приёмник не доигрывает: замер на живом Q70D —
+    24 с картинки и вечная петля «залип → перезагрузка» ровно на границе первого
+    HEVC-куска. Поэтому признак файла — паспорт ffprobe, и ничего больше.
+    """
+    from torrcast.cli import _encode_all
+    from torrcast.state import Config
+
+    config = Config(recode=True, recode_mbit=9.0)
+    whole = _encode_all(config, "hevc")
+    assert whole is not None, "HEVC обязан перекодироваться целиком"
+    assert (whole.preset, whole.mbit) == (FULL_PRESET, 9.0), "пресет замерен, потолок прежний"
+    assert _encode_all(config, "h264") is None, "H.264 уезжает копией, как и раньше"
+    assert _encode_all(config, "") is None, "паспорт молчит — прежнее поведение"
+    assert _encode_all(Config(recode=False), "hevc") is None, "перекодирование выключено"
+
+
+def test_the_whole_file_run_encodes_every_segment_to_the_end_of_the_film() -> None:
+    """Прогон сплошного перекода не ограничен ни куском, ни заходом.
+
+    Отличие от захода кодировщика ровно в этом: ``-to`` нет вовсе, а принудительные
+    опорные кадры стоят на КАЖДОЙ границе сетки до конца фильма — иначе сегментный муксер
+    с ``-break_non_keyframes 0`` ждал бы кадр кодировщика и резал бы куда попало.
+    """
+    grid = _grid()
+    command = ffmpeg_pack_command(
+        "src", 0, "/run", grid, 0, 0.0, encode=Encode(preset=FULL_PRESET)
+    )
+    assert command[command.index("-c:v") + 1] == "libx264"
+    assert command[command.index("-preset") + 1] == FULL_PRESET
+    assert "-to" not in command, "сплошной перекод идёт до конца входа"
+    forced = [float(x) for x in command[command.index("-force_key_frames") + 1].split(",")]
+    assert len(forced) == grid.count, "опорный кадр обязан стоять на каждой границе"
+    assert forced[-1] == pytest.approx(grid.start(grid.count - 1) - 0.02, abs=0.001)
+
+
+def test_full_recode_packing_skips_the_pilot_run(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """У перекодирующего прогона докатки нет: ``-ss`` точен, пробный прогон вреден.
+
+    Вреден дважды: измеренное место старта увело бы весь прогон на сегмент назад (эта
+    грабля стоила отладки ещё кодировщику), а сам он стоит 0.5-1.7 с пути старта — тех
+    самых, которыми сплошной перекод оплачивает свою голову.
+    """
+    from torrcast import stream
+
+    grid = _grid()
+    seen: list[list[str]] = []
+
+    def _pilot(*a: object, **k: object) -> float:
+        raise AssertionError("пробный прогон при сплошном перекоде звать нельзя")
+
+    def _remember(cls: object, command: list[str], /, *a: object, **k: object) -> Packer:
+        seen.append(command)
+        return fake_packer(tmp_path)
+
+    monkeypatch.setattr(stream, "pack_start", _pilot)
+    monkeypatch.setattr(stream.Packer, "start", classmethod(_remember))
+    feed = stream.Feed(
+        source="src", audio=0, out=tmp_path, grid=grid, encode=Encode(preset=FULL_PRESET)
+    )
+    feed.restart(5)
+
+    command = seen[0]
+    assert command[command.index("-c:v") + 1] == "libx264"
+    assert command[command.index("-segment_start_number") + 1] == "5", "докатки нет"
+    assert command[command.index("-ss") + 1] == f"{grid.start(5):.3f}"

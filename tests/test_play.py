@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import subprocess
@@ -137,6 +138,71 @@ def test_mock_decodes_the_whole_stream_without_gaps(
     # Воспроизводится и на голом http.server, то есть дело не в нашем сервере.
     assert decoded >= CLIP_SECONDS - HLS_SEGMENT_SECONDS, "приёмник встал посреди показа"
     assert not list(Path(config.hls_dir).glob("*.ts")), "сегменты убраны за собой"
+
+
+def test_a_source_the_receiver_cannot_decode_is_recoded_from_the_first_segment(
+    clip_hevc: str,
+    tls: tuple[str, str],
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """HEVC-файл уезжает на приёмник H.264 целиком — и с первого же куска.
+
+    Ровно тут и была латентная петля: решение о перекоде принималось посегментно, по весу
+    и битрейту, поэтому лёгкие куски уходили HEVC как есть. На живом Q70D это 24 с
+    картинки и вечный BUFFERING на границе первого такого куска (замер 07-08, §3 спеки).
+    Проверяем не намерение, а факт: ffprobe каждого выложенного сегмента.
+    """
+    assert _probe(Path(clip_hevc))[0]["codec_name"] == "hevc", "источник обязан быть HEVC"
+    config = config_for(tmp_path, tls, 18464)
+    kept: list[Path] = []
+    where = tmp_path / "kept"
+    where.mkdir()
+    stop = threading.Event()
+    watcher = threading.Thread(target=_grab_segments, args=(config, where, kept, stop), daemon=True)
+    watcher.start()
+    try:
+        played = _play(
+            config, clip_hevc, 0, "тест", _Clock(), duration=float(CLIP_SECONDS), codec="hevc"
+        )
+    finally:
+        stop.set()
+        watcher.join(timeout=10)
+
+    printed = capsys.readouterr().out
+    assert played == 0
+    assert "видео hevc - перекодирую на ходу целиком" in printed, "решение говорится вслух"
+    assert "тяжёлых кусков" not in printed, "посегментный кодировщик тут не поднимается"
+    assert "разрывов 0" in printed
+    decoded = float(printed.split("декодировано ")[1].split(" ")[0])
+    assert decoded >= CLIP_SECONDS - HLS_SEGMENT_SECONDS, "приёмник встал посреди показа"
+    assert kept, "ни одного выложенного сегмента поймать не удалось"
+    for path in kept:
+        codecs = {s["codec_type"]: s["codec_name"] for s in _probe(path)}
+        assert codecs["video"] == "h264", f"{path.name}: на ТВ уехал {codecs['video']}"
+        assert codecs["audio"] == "aac", f"{path.name}: звук всегда AAC"
+
+
+def _grab_segments(
+    config: Config, where: Path, kept: list[Path], stop: threading.Event, limit: int = 3
+) -> None:
+    """Складывать копии выложенных сегментов, пока показ идёт: после него их не будет.
+
+    Показ убирает за собой tmpfs (это отдельное требование и отдельный тест), поэтому
+    спросить готовый кусок задним числом нельзя — только на ходу.
+    """
+    import shutil
+
+    out = Path(config.hls_dir)
+    while not stop.is_set() and len(kept) < limit:
+        for path in sorted(out.glob("v*.ts")):
+            dst = where / path.name
+            if dst.exists() or len(kept) >= limit:
+                continue
+            with contextlib.suppress(OSError):
+                shutil.copy2(path, dst)
+                kept.append(dst)
+        stop.wait(0.2)
 
 
 def test_the_same_name_holds_the_same_piece_wherever_packing_started(

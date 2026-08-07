@@ -209,17 +209,22 @@ def _probes(monkeypatch: pytest.MonkeyPatch, releases: list[Release], *codecs: s
     monkeypatch.setattr(cli, "probe", read)
 
 
-def _plan(ranked: list[Release]) -> Any:
+def _plan(ranked: list[Release], recode_at: float = 10.0) -> Any:
     from torrcast.parse import Picture
 
     picture = Picture(title="Кино", year=1999, releases=ranked)
-    return cli._Plan(picture=picture, ranked=ranked, runtime=RUNTIME, warn_mbit=20.0)
+    # ``recode_at`` не украшение: в бою перекодирование включено (:class:`Config`), и
+    # именно от него зависит, отказ HEVC или сплошной перекод. Ноль — «перекодирование
+    # выключено», и тогда поведение обязано остаться прежним.
+    return cli._Plan(
+        picture=picture, ranked=ranked, runtime=RUNTIME, warn_mbit=20.0, recode_at=recode_at
+    )
 
 
-def _resolve(bench: Any, ranked: list[Release], **flags: Any) -> Any:
+def _resolve(bench: Any, ranked: list[Release], recode_at: float = 10.0, **flags: Any) -> Any:
     args = cli.Args(query=["кино"], **flags)
     with Progress(out=io.StringIO()) as progress:
-        return bench.resolve(_plan(ranked), args, progress)
+        return bench.resolve(_plan(ranked, recode_at), args, progress)
 
 
 def test_a_release_that_turns_out_not_to_be_h264_is_swapped_out_loudly(
@@ -229,14 +234,52 @@ def test_a_release_that_turns_out_not_to_be_h264_is_swapped_out_loudly(
     Не h264 — честная строка и следующий кандидат, молчаливых подмен не бывает.
     """
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
-    _probes(monkeypatch, ranked, "hevc", "h264")
+    _probes(monkeypatch, ranked, "av1", "h264")
     torrserver = _FakeTorrServer()
     prep = _resolve(cli._Bench(cast(Any, torrserver)), ranked)
 
     assert (prep.number, prep.found.video) == (2, "h264")
     assert prep.want.name == "movie.mkv"
-    assert "релиз №1 не годится (hevc) — беру №2" in capsys.readouterr().out
+    assert "релиз №1 не годится (av1) — беру №2" in capsys.readouterr().out
     assert torrserver.dropped, "неподошедшая раздача из TorrServer убирается"
+
+
+def test_hevc_release_plays_and_says_so_instead_of_being_refused(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """HEVC — не отказ, а сплошной перекод: аниме иначе не играет вовсе.
+
+    До этого верх отбора с HEVC внутри стоил строки «релиз №1 не годится (hevc)», и на
+    Nyaa, где HEVC бывает всем, что нашлось, показ кончался «годного релиза нет».
+    Теперь такой релиз играет, перекодированный целиком, и об этом говорится вслух.
+    """
+    ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
+    _probes(monkeypatch, ranked, "hevc", "h264")
+    torrserver = _FakeTorrServer()
+
+    prep = _resolve(cli._Bench(cast(Any, torrserver)), ranked)
+
+    printed = capsys.readouterr().out
+    assert (prep.number, prep.found.video) == (1, "hevc"), "HEVC-релиз играет, а не отказывает"
+    assert "видео hevc - перекодирую на ходу целиком" in printed
+    assert "не годится" not in printed and "беру №" not in printed
+
+
+def test_hevc_is_still_refused_when_recoding_is_switched_off(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Перекодирование выключено — играть HEVC нечем, и отказ остаётся честным.
+
+    Обратная сторона того же решения: сплошной перекод и есть единственный способ
+    показать HEVC на этом приёмнике, поэтому без него релиз годным не становится.
+    """
+    ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
+    _probes(monkeypatch, ranked, "hevc", "h264")
+
+    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer())), ranked, recode_at=0.0)
+
+    assert prep.number == 2, "без перекодирования HEVC остаётся отказом"
+    assert "релиз №1 не годится (hevc) — беру №2" in capsys.readouterr().out
 
 
 def test_a_dead_swarm_is_not_a_hang_but_the_next_release(
@@ -267,27 +310,51 @@ def test_an_explicitly_named_release_is_played_as_asked_with_a_loud_warning(
     предупреждение и показ того, что просили.
     """
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
-    _probes(monkeypatch, ranked, "hevc")
+    _probes(monkeypatch, ranked, "av1")
     torrserver = _FakeTorrServer()
 
     prep = _resolve(cli._Bench(cast(Any, torrserver)), ranked, release=1)
 
     printed = capsys.readouterr().out
-    assert (prep.number, prep.found.video) == (1, "hevc"), "названный релиз не подменяется"
-    assert "внимание: видео hevc" in printed and "беру №" not in printed
+    assert (prep.number, prep.found.video) == (1, "av1"), "названный релиз не подменяется"
+    assert "внимание: видео av1" in printed and "беру №" not in printed
     assert not torrserver.dropped, "раздача остаётся: её и просили"
+
+
+def test_a_named_hevc_release_is_not_a_warning_but_a_promise_to_recode(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`--release N` с HEVC внутри: обещание перекода, а не «мы не перекодируем».
+
+    Ровно тут и жила латентная петля: строка про «не перекодируем» врала наполовину —
+    показ шёл, тяжёлые куски перекодировались, лёгкие уезжали HEVC как есть, и приёмник
+    вставал намертво на границе первого такого куска.
+    """
+    ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
+    _probes(monkeypatch, ranked, "hevc")
+
+    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer())), ranked, release=1)
+
+    printed = capsys.readouterr().out
+    assert prep.number == 1
+    assert "видео hevc - перекодирую на ходу целиком" in printed
+    assert "не перекодируем" not in printed
 
 
 def test_three_failed_probes_end_with_an_honest_exit(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Три попытки подряд не дали H.264 — код 1 с объяснением, а не четвёртая попытка."""
+    """Три попытки подряд не дали играбельного видео — код 1 с объяснением.
+
+    Кодеки тут те, которых мы не берём на себя: перекод целиком замерен для HEVC
+    (:data:`torrcast.stream.RECODE_CODECS`), а av1/vc1 остаются честным отказом.
+    """
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(5)]
-    _probes(monkeypatch, ranked, "hevc", "av1", "vc1")
+    _probes(monkeypatch, ranked, "av1", "mpeg2video", "vc1")
     with pytest.raises(NotFoundError) as caught:
         _resolve(cli._Bench(cast(Any, _FakeTorrServer())), ranked)
     assert "годного релиза нет" in str(caught.value)
-    assert "№1 — hevc" in str(caught.value) and "№3 — vc1" in str(caught.value)
+    assert "№1 — av1" in str(caught.value) and "№3 — vc1" in str(caught.value)
     assert capsys.readouterr().out.count("беру №") == 2  # не больше MAX_TRIES попыток
 
 

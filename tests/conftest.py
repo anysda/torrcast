@@ -66,6 +66,26 @@ def clip(tmp_path_factory: pytest.TempPathFactory) -> str:
 
 
 @pytest.fixture(scope="session")
+def clip_hevc(tmp_path_factory: pytest.TempPathFactory) -> str:
+    """Ролик-источник в HEVC — то, чего приёмник не декодирует вовсе.
+
+    Такой файл показ обязан перекодировать ЦЕЛИКОМ (:data:`torrcast.stream.RECODE_CODECS`),
+    а не посегментно по весу: смешанный поток H.264 и HEVC живой Q70D не доигрывает.
+    Кадр мелкий и ``ultrafast`` — ролик собирается за секунды.
+    """
+    path = tmp_path_factory.mktemp("src-hevc") / "clip.mkv"
+    subprocess.run(
+        ["ffmpeg", "-hide_banner", "-loglevel", "error",
+         "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=25",
+         "-f", "lavfi", "-i", "sine=frequency=440", "-t", str(CLIP_SECONDS),
+         "-c:v", "libx265", "-preset", "ultrafast", "-x265-params", "log-level=none:keyint=50",
+         "-c:a", "ac3", "-ac", "6", "-y", str(path)],
+        check=True, capture_output=True,
+    )  # fmt: skip
+    return str(path)
+
+
+@pytest.fixture(scope="session")
 def clip_mp4(clip: str, tmp_path_factory: pytest.TempPathFactory) -> str:
     """Тот же ролик в mp4 с ``moov`` в голове — так его пишут релизы для сети (YTS).
 

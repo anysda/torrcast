@@ -50,12 +50,13 @@ from torrcast.parse import (
     split_episode,
     split_franchise_index,
 )
-from torrcast.recode import Recoder
+from torrcast.recode import FULL_PRESET, Encode, Recoder
 from torrcast.search import Prowlarr, RawResult, merge, to_releases
 from torrcast.state import Config, Entry, State, load_config, save_config
 from torrcast.stream import (
     KEYS_WAIT,
     PILOT_TIMEOUT,
+    RECODE_CODECS,
     Feed,
     Grid,
     HlsServer,
@@ -69,6 +70,7 @@ from torrcast.stream import (
     pick_video_file,
     playing_flag,
     probe,
+    recode_note,
     start_play_unit,
     stop_play_unit,
     unit_active,
@@ -496,7 +498,16 @@ def _cmd_worker(key: str) -> int:
         watch = Watch(key=key, entry=entry)
         title = " ".join(filter(None, (entry.title, entry.label)))
         print(f"показ «{title}» с {_hms(entry.pos)}", flush=True)
-        code = _play(config, source, entry.audio, title, _Clock(), watch, receiver=receiver)
+        code = _play(
+            config,
+            source,
+            entry.audio,
+            title,
+            _Clock(),
+            watch,
+            receiver=receiver,
+            codec=entry.codec,
+        )
         following = _following(key) if watch.done else None
         if following is None:
             return code
@@ -535,6 +546,9 @@ def _duration(key: str, entry: Entry, source: str) -> Entry:
     entry.dur = media.duration
     # Ноль — «ещё не спрашивали», минус — «спросили, паспорт промолчал» (mp4 без тегов).
     entry.vbps = media.video_bps / 1e6 or -1.0
+    # Кодек следующей серии тоже свой: в раздаче аниме нередко лежат и HEVC, и H.264,
+    # а решение «перекодировать целиком» принимается по файлу, который играем сейчас.
+    entry.codec = media.video or ""
     state = State.load()
     state.put(key, entry)
     state.save()
@@ -684,6 +698,9 @@ def _cmd_play(args: Args) -> int:
         # Вес видеодорожки из паспорта: по нему показ строит профиль тяжести с первой
         # секунды, не набирая поправку «контейнер → ТВ» вслепую.
         vbps=media.video_bps / 1e6 or -1.0,
+        # Кодек оттуда же: по нему показ решает, играть копией или перекодировать файл
+        # целиком, и решает это один раз — до первого сегмента (:func:`_encode_all`).
+        codec=media.video or "",
         # То, что уехало на ТВ: `cast status` покажет факт, а не заявку имени.
         quality=media.quality if media.height else "",
         query=slugify(args.title_query),
@@ -1095,11 +1112,17 @@ class _Bench:
             if following is not None:  # запасной греется, пока ждём этот
                 self.start(plan, following)
             self._wait(prep, progress)
-            trouble = self._trouble(prep, pinned=args.pinned, warn_mbit=plan.warn_mbit)
+            trouble = self._trouble(
+                prep, pinned=args.pinned, warn_mbit=plan.warn_mbit, recode=plan.recode_at > 0
+            )
             if not trouble:
                 progress.phase("")
                 prep = self._honest(plan, prep, queue, args, progress)
-                if warning := prep.found.video_warning:  # названный релиз играем, но не молча
+                # Молчаливых подмен нет ни в одну сторону: и «ресивер может не взять», и
+                # «перекодирую целиком» — это решение показа, и человек его слышит.
+                if prep.found.recoded_whole and plan.recode_at > 0:
+                    print(recode_note(prep.found.video or ""))
+                elif warning := prep.found.video_warning:
                     print(warning)
                 return prep
             tried.append(f"№{number} — {trouble}")
@@ -1172,7 +1195,9 @@ class _Bench:
                 print(f"релиз №{number} не успел ответить — играю №{chosen.number} ({short})")
                 return chosen
             progress.phase("")
-            why = self._trouble(alt, pinned=False, warn_mbit=plan.warn_mbit)
+            why = self._trouble(
+                alt, pinned=False, warn_mbit=plan.warn_mbit, recode=plan.recode_at > 0
+            )
             if why:
                 print(f"релиз №{number} не годится ({why})")
                 continue
@@ -1187,7 +1212,9 @@ class _Bench:
         print(f"релиз №{chosen.number} {short} — честнее рядом нет, играю его")
         return chosen
 
-    def _trouble(self, prep: _Prep, pinned: bool, warn_mbit: float = 0.0) -> str:
+    def _trouble(
+        self, prep: _Prep, pinned: bool, warn_mbit: float = 0.0, recode: bool = False
+    ) -> str:
         """Почему релиз не годится; пусто — годится. Названный руками не подменяется.
 
         Битрейт здесь считается **по прочитанному файлу**, а не по размеру раздачи, и это
@@ -1206,6 +1233,12 @@ class _Bench:
         файла (:meth:`torrcast.stream.Media.weight_mbit`). Отбраковка спрашивает
         «сколько придётся перекодировать», а десять озвучек и двенадцать субтитров
         перекодировать не придётся: они на ТВ не уезжают вовсе.
+
+        ⚠️ **HEVC больше не отказ** (``recode``): такой файл перекодируется целиком
+        (:data:`torrcast.stream.RECODE_CODECS`), и аниме — жанр, где HEVC бывает вообще
+        всем, что нашлось, — теперь играет. Предпочтение H.264 при прочих равных живёт
+        не здесь, а в ранжире (:func:`rank_releases` топит hevc ниже всех), то есть
+        сплошной перекод достаётся ровно тем релизам, у которых альтернативы нет.
         """
         if prep.error:
             return prep.error
@@ -1216,7 +1249,9 @@ class _Bench:
             if peak > warn_mbit:
                 return f"тяжёлый, ~{peak:.0f} Мбит/с"
         codec = prep.media.video or "h264"
-        return "" if pinned or codec == "h264" else codec
+        if pinned or codec == "h264" or (recode and prep.media.recoded_whole):
+            return ""
+        return codec
 
     def _forget(self, prep: _Prep) -> None:
         """Убрать раздачу из TorrServer: она либо не подошла, либо больше не нужна."""
@@ -1477,6 +1512,24 @@ def _recoder(
     )
 
 
+def _encode_all(config: Config, codec: str) -> Encode | None:
+    """Чем перекодировать ВЕСЬ файл или ``None`` — если видео уезжает копией, как всегда.
+
+    Решение файл-уровневое и принимается один раз, по паспорту ffprobe: приёмник либо
+    декодирует кодек, либо нет (:data:`torrcast.stream.RECODE_CODECS`), и середины тут не
+    бывает. Посегментное решение по весу и битрейту на таком файле давало **смешанный**
+    поток H.264 и HEVC — на живом Q70D это 24 с картинки и вечная петля «залип →
+    перезагрузка»: ровно на границе первого не перекодированного куска.
+
+    Потолки при этом остаются прежними и общими: битрейт ``recode_mbit``, вес сегмента
+    :data:`torrcast.stream.MAX_SEGMENT_BYTES` (его держит сетка тем же ``ceiling_mbit``).
+    Меняется только пресет — сплошному перекоду торговаться нечем (:data:`FULL_PRESET`).
+    """
+    if not config.recode or (codec or "") not in RECODE_CODECS:
+        return None
+    return Encode(preset=FULL_PRESET, mbit=config.recode_mbit)
+
+
 def _play(
     config: Config,
     source: str,
@@ -1486,6 +1539,7 @@ def _play(
     watch: Watch | None = None,
     duration: float = 0.0,
     receiver: Receiver | None = None,
+    codec: str = "",
 ) -> int:
     """Упаковка → раздача по http на голом IP → приёмник. Своих демонов нет: и ffmpeg,
     и раздача живут ровно на время показа и гасятся вместе с ним, что бы ни случилось.
@@ -1519,16 +1573,27 @@ def _play(
         ceiling_mbit=config.recode_mbit if config.recode else 0.0,
     )
     mark("сетка", сегментов=grid.count, покадрам=grid.on_keys)
+    # Кодек, который приёмник не декодирует, — это решение на весь показ, а не на кусок:
+    # перекодирует сама упаковка, одним прогоном, и кодировщик тяжёлых кусков не нужен —
+    # перекодировать поверх перекода нечего, битрейт и так зажат ``recode_mbit``.
+    whole = _encode_all(config, codec)
+    if whole is not None:
+        print(recode_note(codec), flush=True)
+        mark("сплошной перекод", кодек=codec, пресет=whole.preset, мбит=whole.mbit)
     # Профиль тяжести всего фильма известен со старта — он считается из уже снятой
     # карты опорных кадров и не стоит ни одного запроса к рою. Тяжёлые куски кодировщик
     # начнёт перекодировать сразу, пока играет остальное.
-    recoder = _recoder(
-        source,
-        audio,
-        grid,
-        out / RECODE_DIR,
-        config,
-        video_mbit=video_mbit,
+    recoder = (
+        None
+        if whole is not None
+        else _recoder(
+            source,
+            audio,
+            grid,
+            out / RECODE_DIR,
+            config,
+            video_mbit=video_mbit,
+        )
     )
     feed = Feed(
         source=source,
@@ -1540,6 +1605,7 @@ def _play(
         keep=config.hls_keep,
         log=lambda text: print(text, flush=True),
         recoder=recoder,
+        encode=whole,
     )
     server = HlsServer(
         out, config.hls_cert, config.hls_key, port=config.hls_port, tls=tls, feed=feed
