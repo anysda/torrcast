@@ -51,7 +51,7 @@ from torrcast.parse import (
     split_franchise_index,
 )
 from torrcast.recode import Recoder
-from torrcast.search import Prowlarr, to_releases
+from torrcast.search import Prowlarr, RawResult, merge, to_releases
 from torrcast.state import Config, Entry, State, load_config, save_config
 from torrcast.stream import (
     KEYS_WAIT,
@@ -714,20 +714,25 @@ def _forget_progress(key: str) -> None:
 
 def _search(config: Config, args: Args, progress: Progress) -> list[_Plan]:
     """Поиск и разбор выдачи: запрос → картины франшизы, каждая со своим пулом релизов."""
-    from torrcast.parse import cluster, pick_franchise
+    from torrcast.parse import THIN_POOL, cluster, pick_franchise
 
     if not config.prowlarr_apikey:  # без Prowlarr искать нечем — это инфра-ошибка
         raise InfraError("не настроен Prowlarr: apikey пуст, перезапусти ./install.sh")
     query = args.title_query
     name, _ = split_franchise_index(query)
+    client = Prowlarr(config.prowlarr_url, config.prowlarr_apikey)
     progress.phase(f"поиск «{name}»")
-    raw = Prowlarr(config.prowlarr_url, config.prowlarr_apikey).search(name)
-    mark("поиск", найдено=len(raw))
+    raw = _ask(client, name)
     pictures = cluster(to_releases(raw))
-    if not pictures:
-        raise NotFoundError(f"по запросу «{name}» ничего не разобралось")
     # Номер в запросе — позиция во франшизе, а не в общей выдаче.
     found = pick_franchise(query, pictures)
+    if max((len(p.releases) for p in found), default=0) < THIN_POOL:
+        raw, pictures, found = _second_language(client, query, raw, found, progress)
+    mark("поиск", найдено=len(raw))
+    if not raw:
+        raise NotFoundError(f"по запросу «{name}» ничего не нашлось")
+    if not pictures:
+        raise NotFoundError(f"по запросу «{name}» ничего не разобралось")
     if not found:
         raise NotFoundError(f"«{query}» — такой картины во франшизе нет")
     progress.phase("")
@@ -736,6 +741,67 @@ def _search(config: Config, args: Args, progress: Progress) -> list[_Plan]:
         want = args.episode or Episode(1, 1)
         raise NotFoundError(f"«{found[0].title}»: раздач с сезоном {want.season} нет")
     return plans
+
+
+def _ask(client: Prowlarr, query: str) -> list[RawResult]:
+    """Один запрос к индексерам; пусто - это не ошибка, а повод переспросить иначе."""
+    try:
+        return client.search(query)
+    except NotFoundError:
+        return []
+
+
+def _second_language(
+    client: Prowlarr,
+    query: str,
+    raw: list[RawResult],
+    found: list[Picture],
+    progress: Progress,
+) -> tuple[list[RawResult], list[Picture], list[Picture]]:
+    """Русский запрос дал пусто или тощий пул - переспросить тем же названием на латинице.
+
+    Индексер ищет по имени раздачи, поэтому «Психо» приносит десяток русских имён, а
+    сорок раздач ``Psycho.1960.*`` остаются за бортом - и человек либо смотрит 576p, либо
+    (как на «Птицах») не получает ни одного годного релиза. Догадываться, что надо
+    набрать латиницей, он не обязан: название на латинице лежит в первой же выдаче,
+    :func:`~torrcast.parse.alt_query` его оттуда и достаёт.
+
+    Второй заход стоит ещё одного круга по индексерам (~1-3 с), поэтому он не всегда, а
+    только на тощем пуле: на полной выдаче (порог :data:`~torrcast.parse.THIN_POOL`) поиск
+    остаётся ровно таким, каким был. Запросы идут последовательно, а не парой: Prowlarr
+    отвечает, только когда опрошены все индексеры, и два круга разом - это не «вдвое
+    быстрее», а вдвое больше работы на тех же индексерах.
+
+    Выдачи склеиваются, а не заменяются: русские имена несут озвучки и оригинал, по
+    которому кластер и сшивает оба языка в одну картину. Если добор ничего не дал или
+    картину после него не нашли, остаётся прежний результат - хуже стать не может.
+    """
+    from torrcast.parse import alt_query, cluster, pick_franchise
+
+    name, index = split_franchise_index(query)
+    pool = [r for p in found for r in p.releases] or to_releases(raw)
+    alt = alt_query(name, pool)
+    if not alt:
+        return raw, cluster(to_releases(raw)), found
+    progress.phase(f"поиск «{alt}»")
+    merged = merge(raw, _ask(client, alt))
+    if len(merged) == len(raw):
+        return raw, cluster(to_releases(raw)), found
+    pictures = cluster(to_releases(merged))
+    # Спрашивали по-русски - им и выбираем; кластер сшил оба языка, так что название
+    # на латинице нужно лишь там, где русских имён в выдаче не оказалось вовсе.
+    wider = pick_franchise(query, pictures) or pick_franchise(
+        f"{alt} {index}" if index else alt, pictures
+    )
+    was = sum(len(p.releases) for p in found)
+    now = sum(len(p.releases) for p in wider)
+    if now <= was:
+        # Прибавка не в раздачах картины, а в чужих строках выдачи: широкий пул сдвинул бы
+        # нумерацию франшизы («дилижанс 1» уехал бы с 1939 года на 1936) и ничего не дал
+        # взамен. Тогда второго захода как будто и не было.
+        return raw, cluster(to_releases(raw)), found
+    progress.note(f"по-русски раздач {was} - добрал по «{alt}»: стало {now}")
+    return merged, pictures, wider
 
 
 def _plan_for(picture: Picture, args: Args, config: Config) -> _Plan:

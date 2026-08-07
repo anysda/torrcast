@@ -22,16 +22,18 @@ import re
 import statistics
 import unicodedata
 from collections import Counter
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
 from typing import Final, Literal, Protocol
 
 __all__ = [
+    "THIN_POOL",
     "VIDEO_EXT",
     "Episode",
     "EpisodeFile",
     "Picture",
     "Release",
+    "alt_query",
     "cluster",
     "franchise_key",
     "franchises",
@@ -43,6 +45,7 @@ __all__ = [
     "slugify",
     "split_episode",
     "split_franchise_index",
+    "transliterate",
 ]
 
 Kind = Literal["movie", "tv", "other"]
@@ -449,6 +452,65 @@ def part_number(title: str) -> int | None:
         return None  # «Форсаж 1-4», «Матрица 1,2,3» — это диапазон, а не номер части
     token = match.group(1).lower()
     return int(token) if token.isdigit() else _ROMAN.get(token)
+
+
+#: Ниже этого числа раздач пул картины считается тощим. Число не с потолка: на живом
+#: каталоге у картины, найденной целиком, раздач десятки («Матрица» 59, «Бешеные псы» 69,
+#: «Клан Сопрано» 35), а у картины, до которой русский запрос дотянулся лишь краем, -
+#: единицы («Птицы» 1, «Дилижанс» 1, «Дедвуд» 4, «Психо» 10). Между этими кучами широкий
+#: провал, и порог стоит в нём: на полной выдаче второй заход не случается вовсе.
+THIN_POOL: Final = 15
+
+#: Кириллица → латиница. Не ГОСТ, а то, как русские названия пишут в именах раздач:
+#: «Брат» → ``brat``, «Ёлки» → ``elki``, «Щи» → ``shchi``.
+_TRANSLIT: Final[dict[str, str]] = {
+    "а": "a", "б": "b", "в": "v", "г": "g", "д": "d", "е": "e", "ё": "e", "ж": "zh",
+    "з": "z", "и": "i", "й": "y", "к": "k", "л": "l", "м": "m", "н": "n", "о": "o",
+    "п": "p", "р": "r", "с": "s", "т": "t", "у": "u", "ф": "f", "х": "kh", "ц": "ts",
+    "ч": "ch", "ш": "sh", "щ": "shch", "ъ": "", "ы": "y", "ь": "", "э": "e", "ю": "yu",
+    "я": "ya",
+}  # fmt: skip
+
+
+def transliterate(text: str) -> str:
+    """Русское название латиницей; латинские куски и цифры остаются как есть."""
+    lowered = unicodedata.normalize("NFKC", text).casefold()
+    return re.sub(r"\s+", " ", "".join(_TRANSLIT.get(ch, ch) for ch in lowered)).strip()
+
+
+def alt_query(query: str, releases: Iterable[Release]) -> str:
+    """Чем ещё называется то, что спросили по-русски: запрос для второго захода.
+
+    Зачем он вообще. Индексеры ищут по ИМЕНИ раздачи, а не по картине: половина
+    каталога подписана только латиницей («Psycho.1960.1080p»), и русский запрос до неё
+    не достаёт - человеку пришлось бы догадаться набрать «Psycho». Само название при
+    этом лежит в той же выдаче: раздачи вида «Психо / Psycho (1960)» её и приносят,
+    надо лишь прочитать у них оригинал и переспросить им.
+
+    Оригинал из выдачи точнее транслита («Психо» → ``Psycho``, а не ``psikho``), поэтому
+    он первый. Транслит - запасной путь для случая, когда выдачи нет вовсе и читать
+    нечего; он выручает русское кино, которое за рубежом так и подписывают (``Brat``).
+    Пустая строка - добирать нечем: запрос и так на латинице.
+    """
+    if not _CYRILLIC.search(query):
+        return ""
+    wanted = slugify(query)
+    names = Counter(
+        original.strip()
+        for release in releases
+        if (original := release.original) and _akin(wanted, slugify(release.title))
+    )
+    for name, _count in names.most_common():
+        if name and not _CYRILLIC.search(name) and slugify(name) != wanted:
+            return name
+    return transliterate(query)
+
+
+def _akin(wanted: str, slug: str) -> bool:
+    """Один ли это фильм по slug: точное совпадение или вхождение в любую сторону
+    («психо» ↔ «психо-2», «сияние» ↔ «сияние»).
+    """
+    return bool(wanted) and bool(slug) and (wanted in slug or slug in wanted)
 
 
 def split_franchise_index(query: str) -> tuple[str, int | None]:

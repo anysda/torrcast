@@ -25,7 +25,15 @@ from torrcast.parse import Release, parse_release_name
 if TYPE_CHECKING:
     import requests
 
-__all__ = ["PUBLIC_TRACKERS", "Prowlarr", "RawResult", "from_torznab", "magnet_for", "to_releases"]
+__all__ = [
+    "PUBLIC_TRACKERS",
+    "Prowlarr",
+    "RawResult",
+    "from_torznab",
+    "magnet_for",
+    "merge",
+    "to_releases",
+]
 
 _SEARCH_PATH: Final = "/api/v1/search"
 #: Потолок ожидания выдачи. Prowlarr отдаёт её, только когда опрошены ВСЕ индексеры,
@@ -156,6 +164,20 @@ class Prowlarr:
             raise InfraError(f"Prowlarr не отвечает ({self.base_url}): {why(exc)}") from exc
         except ValueError as exc:
             raise InfraError("Prowlarr вернул не JSON") from exc
+
+
+def merge(*batches: list[RawResult]) -> list[RawResult]:
+    """Склеить выдачи нескольких запросов, оставив каждую раздачу один раз.
+
+    Один и тот же торрент приходит и по русскому названию, и по латинскому, а
+    ещё и из разных индексеров - тождество тут ровно одно, ``infoHash``. Порядок
+    сохраняем: раздачи первого запроса идут первыми.
+    """
+    seen: dict[str, RawResult] = {}
+    for batch in batches:
+        for item in batch:
+            seen.setdefault(item.info_hash.lower(), item)
+    return list(seen.values())
 
 
 def to_releases(results: list[RawResult]) -> list[Release]:
