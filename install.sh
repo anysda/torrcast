@@ -145,6 +145,22 @@ wait_http() {  # $1 url, $2 секунд
     done
 }
 
+# Скачивание из сети - с повторами. Канал моргает: одна и та же ссылка отдаёт то
+# файл, то отказ на рукопожатии TLS («self-signed certificate» на github.com -
+# поймано на чистой машине, следующая же попытка прошла). Установка обязана
+# переживать такое сама: без этого один моргнувший байт роняет весь заход.
+DL_TRIES="${TORRCAST_DL_TRIES:-4}"
+fetch() {  # $@ - аргументы curl; возвращает код последней попытки
+    local i=1
+    while :; do
+        curl -fsSL --retry 2 --retry-connrefused --connect-timeout 20 "$@" && return 0
+        [ "$i" -ge "$DL_TRIES" ] && return 1
+        info "не скачалось (попытка $i из $DL_TRIES) - пробую снова"
+        sleep $((i * 3))
+        i=$((i + 1))
+    done
+}
+
 # --- 1. Зависимости ---------------------------------------------------------
 #: python3-venv обязателен: на голом Debian `python3 -m venv` без него не работает.
 APT_PACKAGES=(ffmpeg curl ca-certificates jq tar openssl python3-venv)
@@ -200,7 +216,7 @@ install_ffmpeg() {
     # Каталог убираем сами: `trap ... RETURN` без `set -T` цепляется ко ВСЕМ функциям
     # сразу и падает на первом же чужом return («work: unbound variable»).
     local work; work="$(mktemp -d)"
-    curl -fsSL -o "$work/ffmpeg.tar.xz" "$FFMPEG_URL" || die "не скачался ffmpeg: $FFMPEG_URL"
+    fetch -o "$work/ffmpeg.tar.xz" "$FFMPEG_URL" || die "не скачался ffmpeg: $FFMPEG_URL"
     tar -xf "$work/ffmpeg.tar.xz" -C "$work"
     local bin; bin="$(find "$work" -type f -name ffmpeg -perm -u+x | head -1)"
     [ -n "$bin" ] || die "в архиве ffmpeg нет бинаря ffmpeg"
@@ -350,11 +366,11 @@ install_torrserver() {
             armv7l)  arch=arm7 ;;
             *) die "нет сборки TorrServer под $(uname -m)" ;;
         esac
-        url="$(curl -fsSL "$TS_RELEASE" \
+        url="$(fetch "$TS_RELEASE" \
             | jq -r --arg n "TorrServer-linux-$arch" '.assets[]|select(.name==$n)|.browser_download_url')"
         [ -n "$url" ] && [ "$url" != null ] || die "не нашёл сборку TorrServer-linux-$arch"
         info "качаю $url"
-        curl -fsSL -o "$PREFIX/bin/TorrServer.new" "$url"
+        fetch -o "$PREFIX/bin/TorrServer.new" "$url" || die "не скачался TorrServer: $url"
         chmod +x "$PREFIX/bin/TorrServer.new"
         mv "$PREFIX/bin/TorrServer.new" "$PREFIX/bin/TorrServer"
     fi
@@ -530,7 +546,7 @@ seed_definitions() {
     log "определения индексеров с GitHub"
     install -d -m 0755 "$dir"
     local tmp; tmp="$(mktemp -d)"
-    if curl -fsSL -o "$tmp/defs.tar.gz" "$DEFS_TARBALL" \
+    if fetch -o "$tmp/defs.tar.gz" "$DEFS_TARBALL" \
        && tar -xzf "$tmp/defs.tar.gz" -C "$tmp" --wildcards '*/definitions/v11/*.yml'; then
         find "$tmp" -path '*/definitions/v11/*.yml' -exec install -m 0644 {} "$dir/" \;
         info "разложено $(find "$dir" -maxdepth 1 -name '*.yml' | wc -l) определений"
@@ -555,7 +571,7 @@ install_prowlarr() {
         skip "бинарь Prowlarr"
     else
         local url
-        url="$(curl -fsSL "$PL_RELEASE" 2>/dev/null \
+        url="$(fetch "$PL_RELEASE" 2>/dev/null \
             | jq -r '[.assets[]?|select(.name|test("linux-core-x64\\.tar\\.gz$"))][0].browser_download_url // empty')"
         if [ -z "$url" ]; then
             info "GitHub сборку не отдал — иду на $PL_FALLBACK"
@@ -563,7 +579,7 @@ install_prowlarr() {
         fi
         info "качаю $url"
         install -d -m 0755 "$PREFIX/prowlarr"
-        curl -fsSL -o "$PREFIX/prowlarr.tar.gz" "$url"
+        fetch -o "$PREFIX/prowlarr.tar.gz" "$url" || die "не скачался Prowlarr: $url"
         # В архиве верхний каталог `Prowlarr/` — срезаем, чтобы путь был предсказуем.
         tar -xzf "$PREFIX/prowlarr.tar.gz" -C "$PREFIX/prowlarr" --strip-components=1
         rm -f "$PREFIX/prowlarr.tar.gz"
@@ -778,7 +794,7 @@ setup_facts() {
     local tmp="$IMDB_RATINGS_PATH.part"
     # Справка - украшение, а не механизм показа: не скачалось, режется по имени, нет
     # сети - установка идёт дальше, а меню просто печатается без рейтинга.
-    if ! curl -fsSL --max-time 120 "$IMDB_RATINGS_URL" -o "$tmp.gz"; then
+    if ! fetch --max-time 120 "$IMDB_RATINGS_URL" -o "$tmp.gz"; then
         rm -f "$tmp.gz"
         info "выгрузка IMDb не скачалась - меню будет без рейтинга, на показ не влияет"
         return
