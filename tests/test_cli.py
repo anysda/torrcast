@@ -357,13 +357,24 @@ def test_a_seeded_avi_no_longer_wins_the_top() -> None:
     assert cli.is_dated(avi, RUNTIME) and not cli.is_dated(avc, RUNTIME)
 
 
-def test_a_small_release_that_names_its_codec_is_not_old_junk() -> None:
-    """1.46 ГБ — ещё не приговор: у rutracker такой же бюджет у AVC-раздач.
+def test_a_named_codec_no_longer_hides_an_sd_rip() -> None:
+    """``BDRip-AVC`` на 1.46 ГБ — это 720×304, и названный кодек его больше не выгораживает.
 
-    «Моана» 2016 ``BDRip-AVC`` весит те же 1.46 ГБ и те же 1.7 Мбит/с, что и .avi
-    рядом. Разделяет их одно: назван кодек или нет.
+    Замер по живой выдаче: ровно такие раздачи стояли верхом у «Тёмного рыцаря:
+    Возрождение легенды» (58 сидов), «Форреста Гампа» (105) и «Зелёной мили» (64) —
+    и у каждой рядом лежал названный 1080p. Про разрешение кодек не говорит ничего.
     """
     named = rel(name="BDRip-AVC", quality=None, size_gb=1.46, seeders=131)
+    assert cli.is_dated(named, RUNTIME)
+
+
+def test_a_named_resolution_is_never_argued_with_by_size() -> None:
+    """Разрешение в имени эвристику отключает: спорить с ним — работа ffprobe, не размера.
+
+    Скромный битрейт при названном 720p — это законный компактный рип, а не старьё;
+    а если имя всё-таки соврало, подмену сделает :func:`understated` по факту кадра.
+    """
+    named = rel(name="BDRip-AVC 720p", quality="720p", size_gb=1.46, seeders=131)
     assert not cli.is_dated(named, RUNTIME)
 
 
@@ -421,6 +432,59 @@ def test_dated_sinks_below_candidates_but_above_hevc() -> None:
     order = [r.raw_name for r in rank_releases([disc, dated, hevc, good], RUNTIME, 20.0)]
     assert order == ["web-dl", "DVDRip-AVC", "hevc", "Кино (1999) DVD-Video"]
     assert is_candidate(dated, RUNTIME, 20.0), "старьё остаётся годным — судит ffprobe"
+
+
+def test_a_name_that_admits_sd_sinks_below_any_hd() -> None:
+    """«480p» в имени — не повод для спора: раздача сама сказала, что она не HD.
+
+    SD играется, только если HD в каталоге нет вовсе; сиды этого не отменяют.
+    """
+    sd = rel(name="WEB-DL 480p", codec=None, quality="480p", size_gb=1.2, seeders=400)
+    hd = rel(name="WEB-DL 720p", codec=None, quality="720p", size_gb=4.0, seeders=12)
+    assert cli.is_dated(sd, RUNTIME) and not cli.is_dated(hd, RUNTIME)
+    assert rank_releases([sd, hd], RUNTIME, 25.0)[0] is hd
+    assert rank_releases([sd], RUNTIME, 25.0)[0] is sd, "другого нет — играем что есть"
+
+
+def test_an_sd_rip_no_longer_outseeds_the_honest_1080p() -> None:
+    """Живая выдача «Тёмного рыцаря»: 58 сидов на 1.47 ГБ против 14 на честном 1080p.
+
+    Ровно этот случай и давал SD-фолбэк: в порядке участвовали одни сиды, а про
+    разрешение никто не спрашивал.
+    """
+    sd = rel(name="BDRip-AVC", quality=None, size_gb=1.47, seeders=58)
+    full = rel(name="BDRip 1080p", codec=None, size_gb=7.76, seeders=14)
+    assert [r.raw_name for r in rank_releases([sd, full], RUNTIME, 25.0)] == [
+        "BDRip 1080p",
+        "BDRip-AVC",
+    ]
+
+
+def test_a_live_1080p_beats_a_more_seeded_720p() -> None:
+    """«Мастер и Маргарита»: ``WEB-DL 720p`` со 146 сидами уступает ``WEB-DL 1080p`` с 59."""
+    hd = rel(name="WEB-DL 720p", codec=None, quality="720p", size_gb=3.43, seeders=146)
+    full = rel(name="WEB-DL 1080p", codec=None, size_gb=7.14, seeders=59)
+    assert rank_releases([hd, full], RUNTIME, 25.0)[0] is full
+    assert cli.is_full_hd(full, alive=146) and not cli.is_full_hd(hd, alive=146)
+
+
+def test_a_dead_1080p_does_not_buy_a_step_with_rebuffering() -> None:
+    """«Форрест Гамп»: 15 ГБ на двух сидах против 720p на сорока одном — ступень не стоит того.
+
+    Плавность выше пиковой чёткости: поднять такой 1080p значило бы поменять
+    разрешение на подгрузы.
+    """
+    hd = rel(name="BDRip 720p", codec=None, quality="720p", size_gb=14.88, seeders=41)
+    full = rel(name="BDRip 1080p", codec=None, size_gb=15.18, seeders=2)
+    assert rank_releases([hd, full], RUNTIME, 25.0)[0] is hd
+    assert not cli.is_full_hd(full, alive=41)
+
+
+def test_a_lying_1080p_is_still_swapped_by_ffprobe() -> None:
+    """Ступень поднимает ОБЕЩАНИЕ, а судит по-прежнему кадр: 1080p в имени, 574p внутри."""
+    liar = rel(name="BDRip 1080p", codec=None, size_gb=7.0, seeders=100)
+    assert cli.is_full_hd(liar, alive=100)
+    assert cli.understated(liar, Media(height=574, width=1150)) == "назван 1080p, на деле 574p"
 
 
 def test_the_ceiling_is_checked_again_by_the_file_not_by_the_torrent_size() -> None:
