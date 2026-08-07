@@ -314,6 +314,55 @@ def test_a_dead_swarm_is_not_a_hang_but_the_next_release(
     assert "беру №2" in printed
 
 
+def test_silent_swarms_do_not_burn_the_tries_meant_for_verdicts(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """«Нет пиров» четыре раза подряд — это не повод сдаться: живые ждут ниже в очереди.
+
+    Главная причина 🟡 в замере на тысяче запросов: отбор пробовал ровно три раздачи и
+    заканчивал словами «годного релиза нет», хотя рядом в очереди стояли играбельные.
+    Перепроверка тех же картин в один поток оживляла шесть из восьми («Кавказская
+    пленница», «Зона интересов», «Бесконечная история»).
+
+    Разница между двумя осечками принципиальная: приговор ffprobe («это av1») про релиз
+    рассказал всё, а молчание роя — ничего, кроме того, что раздача не отозвалась.
+    Попытку жжёт только первое.
+    """
+    ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(6)]
+    _probes(monkeypatch, ranked, "h264")
+    monkeypatch.setattr(Release, "magnet", property(lambda self: f"magnet-{self.raw_name}"))
+    torrserver = _FakeTorrServer(dead={f"hash-magnet-r{i}" for i in range(4)})
+
+    prep = _resolve(cli._Bench(cast(Any, torrserver)), ranked)
+
+    printed = capsys.readouterr().out
+    assert prep.number == 5, "четыре молчаливых роя подряд — и всё же дошли до живого"
+    assert printed.count("нет пиров") == 4, "каждая осечка стоит строки, молчаливых нет"
+    assert "беру №5" in printed
+
+
+def test_the_walk_down_the_queue_stops_when_the_start_budget_is_out(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Упорство упорством, а человек сидит у консоли: бюджет фазы отбора конечен.
+
+    Потолок тот же, что был у трёх попыток по полному бюджету раздачи
+    (:data:`~torrcast.cli.PICK_BUDGET`), и кончиться он обязан честной строкой, а не
+    новым походом в рой.
+    """
+    ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(6)]
+    _probes(monkeypatch, ranked, "h264")
+    monkeypatch.setattr(Release, "magnet", property(lambda self: f"magnet-{self.raw_name}"))
+    monkeypatch.setattr(cli, "PICK_BUDGET", 0.0)
+    torrserver = _FakeTorrServer(dead={f"hash-magnet-r{i}" for i in range(4)})
+
+    with pytest.raises(NotFoundError) as caught:
+        _resolve(cli._Bench(cast(Any, torrserver)), ranked)
+
+    assert "годного релиза нет" in str(caught.value) and "нет пиров" in str(caught.value)
+    assert capsys.readouterr().out.count("нет пиров") == 1, "бюджет вышел — второго похода нет"
+
+
 def test_an_explicitly_named_release_is_played_as_asked_with_a_loud_warning(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

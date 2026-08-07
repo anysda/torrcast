@@ -16,7 +16,18 @@ from dataclasses import replace
 
 import pytest
 
-from torrcast.cli import Args, _plan_for, gate_open, is_candidate, rank_releases, sound_note
+from torrcast.cli import (
+    SD_BITRATE,
+    Args,
+    _plan_for,
+    bitrate_of,
+    gate_open,
+    is_candidate,
+    is_dated,
+    is_dead,
+    rank_releases,
+    sound_note,
+)
 from torrcast.parse import Picture, Release, parse_release_name
 from torrcast.state import Config
 from torrcast.stream import RUNTIME_GUESS, AudioTrack, Media
@@ -161,6 +172,101 @@ def test_a_dead_russian_release_does_not_beat_a_live_one() -> None:
     )
 
     assert rank_releases([alive, dead], RUNTIME, 25.0)[0] is alive
+
+
+def test_a_zero_seeded_release_never_stands_above_a_live_one() -> None:
+    """Ноль сидов — это не «качество получше», а отсутствие показа: такая раздача вниз.
+
+    Живая выдача «наруто». Верхом отбора стоял ``WEBRip 720p | Akari Group`` на 46 ГБ с
+    НУЛЁМ сидов: имя у него чистое, ступень старья он проходит, — а раздача с тремя
+    живыми сидами лежала ниже, потому что призналась в ``DVDRip``. Enter в такой верх
+    стоит двадцати секунд молчания DHT и перехода к следующему, то есть ровно столько
+    же, сколько стоит пустой старт.
+    """
+    tv = RUNTIME_GUESS["tv"]
+    dead = named(
+        "Наруто: Ураганные хроники / Naruto Shippuuden [S01E01-18 of 45] (2007-2017) "
+        "WEBRip 720p | Akari Group",
+        size_gb=46.2,
+        seeders=0,
+    )
+    alive = named(
+        "Наруто / Naruto [TV] [1-5 из 220] [RUS(int)] "
+        "[2002, приключения, боевые искусства, сёнэн, DVDRip] [1080p]",
+        size_gb=6.8,
+        seeders=3,
+    )
+
+    assert is_dead(dead, alive=3) and not is_dead(alive, alive=3)
+    assert is_dated(alive, tv) and not is_dated(dead, tv), (
+        "по ступени старья мёртвый выигрывает — и до правки этого хватало, чтобы встать верхом"
+    )
+    assert rank_releases([dead, alive], tv, 25.0)[0] is alive
+
+
+def test_a_pool_where_nobody_is_seeded_keeps_its_order() -> None:
+    """Мёртвые ВСЕ — понижать некого и не в пользу кого: ступень живости молчит."""
+    first = named(
+        "Аниме / Anime [TV] [12 of 12] [RUS(int)] [2020, WEB-DL] [1080p]", size_gb=8.0, seeders=0
+    )
+    second = named(
+        "Аниме / Anime [TV] [12 of 12] [JAP+Sub] [2020, WEB-DL] [1080p]", size_gb=8.0, seeders=0
+    )
+
+    assert not is_dead(first, alive=0) and not is_dead(second, alive=0)
+    assert rank_releases([second, first], RUNTIME, 25.0)[0] is first
+
+
+def test_an_anime_pack_is_not_called_dated_for_its_genre_bitrate() -> None:
+    """Серия аниме идёт 24 минуты и жмётся в разы лучше живой съёмки — это не старьё.
+
+    Живая выдача «наруто ураганные хроники»: пак «[TV] [500 из 500] [RUS(MVO)]» на 9.7 ГБ
+    держит семь сидов и русскую многоголоску. Пятьсот серий в такой раздаче — это
+    прикидка в 0.06 Мбит/с на серию, то есть глубоко ниже порога SD; метку «старьё» пак
+    получал за неё и проваливался под соседа с ОДНИМ сидом. Сосед, к слову, ничем не
+    лучше по имени: тот же 2007 год, тот же WEB-рип, — он просто НЕ СЧИТАЕТ свои серии
+    («[243-405 из XXX]»), а значит и прикидывать у него нечего.
+
+    Ворота отбора у такой картины открыты (:func:`gate_open`): именных кандидатов, кроме
+    умирающего соседа, у неё нет.
+    """
+    pack = named(
+        "Наруто Ураганные хроники / Naruto Shippuden [TV] [500 из 500] [RUS(MVO)] [2007, AAC]",
+        size_gb=9.7,
+        seeders=7,
+    )
+    rival = named(
+        "Наруто: Ураганные хроники / Naruto: Shippuuden [TV] [243-405 из XXX] [RUS(int), JAP+Sub] "
+        "[2007, приключения, боевые искусства, сёнэн, WEBRip] [1080p]",
+        size_gb=90.4,
+        seeders=1,
+    )
+    tv = RUNTIME_GUESS["tv"]
+
+    assert pack.anime and pack.quiet, "имя аниме о качестве молчит — тем и жив признак"
+    assert 0.0 < bitrate_of(pack, tv) < SD_BITRATE, (
+        "битрейт по прикидке и правда ниже порога SD — спор именно о том, что это значит"
+    )
+    assert not is_dated(pack, tv), "жанровый битрейт старьём не делает"
+    assert gate_open([pack, rival], tv, 25.0)
+    assert rank_releases([rival, pack], tv, 25.0, loose=True)[0] is pack
+
+
+def test_a_named_sd_anime_is_still_dated_for_all_its_genre() -> None:
+    """Признак жанра выключает ОДНУ прикидку по размеру, а не весь порядок.
+
+    Аниме, которое призналось именем — ``DVDRip``, ``XviD``, «480p», — старьём быть не
+    перестало: там имя сказало о себе правду, а спорить с правдой признак не нанимался.
+    """
+    rip = named(
+        "Аниме / Anime [TV] [12 of 12] (2002) DVDRip XviD | Дубляж", size_gb=4.0, seeders=100
+    )
+    sd = named("Аниме / Anime [TV] [12 of 12] [2002, WEB-DL] [480p]", size_gb=4.0, seeders=100)
+    good = named("Аниме / Anime [TV] [12 of 12] [2020, WEB-DL] [1080p]", size_gb=8.0, seeders=100)
+
+    assert rip.anime and sd.anime
+    assert is_dated(rip, RUNTIME) and is_dated(sd, RUNTIME)
+    assert rank_releases([rip, sd, good], RUNTIME, 25.0)[0] is good
 
 
 def test_the_sound_step_never_outranks_honest_quality() -> None:
