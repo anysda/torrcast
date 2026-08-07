@@ -36,6 +36,7 @@ __all__ = [
     "alt_query",
     "cluster",
     "franchise_key",
+    "franchise_name",
     "franchises",
     "map_episodes",
     "parse_episode",
@@ -435,12 +436,17 @@ def franchise_key(title: str) -> str:
     Режем подзаголовок после двоеточия и хвостовой номер части — именно они
     отличают фильмы внутри франшизы.
     """
+    return slugify(franchise_name(title)) or slugify(title)
+
+
+def franchise_name(title: str) -> str:
+    """То же, что :func:`franchise_key`, но читаемым текстом: «Cars 3» → ``Cars``."""
     base = re.split(r"\s*:\s*|\.\s+", title.strip(), maxsplit=1)[0]
     # Хвост «3», «- 8», «II», а также диапазон «1-4» у сборников.
     base = re.sub(
         r"[\s,-]+(?:\d{1,2}(?:\s*[-,]\s*\d{1,2})*|[ivx]{1,4})\s*$", "", base, flags=re.IGNORECASE
     )
-    return slugify(base.rstrip(" -")) or slugify(title)
+    return base.rstrip(" -")
 
 
 def part_number(title: str) -> int | None:
@@ -491,12 +497,19 @@ def alt_query(query: str, releases: Iterable[Release]) -> str:
     он первый. Транслит - запасной путь для случая, когда выдачи нет вовсе и читать
     нечего; он выручает русское кино, которое за рубежом так и подписывают (``Brat``).
     Пустая строка - добирать нечем: запрос и так на латинице.
+
+    ⚠️ Добирается ФРАНШИЗА, поэтому номер части у оригинала отрезается
+    (:func:`franchise_name`). Без этого побеждало имя самой многолюдной части, и на
+    «тачках» второй заход уходил в «Cars 3»: раздач у третьей части больше всех. Добор
+    приносил ещё сорок «Тачек 3» и ни одной «Тачки» 2006 года - а у той в русской выдаче
+    только образы DVD, и в меню первая часть выглядела мёртвой при живом 1080p BluRay
+    на 66 сидов, который лежал под именем ``Cars 2006``.
     """
     if not _CYRILLIC.search(query):
         return ""
     wanted = slugify(query)
     names = Counter(
-        original.strip()
+        franchise_name(original)
         for release in releases
         if (original := release.original) and _akin(wanted, slugify(release.title))
     )
