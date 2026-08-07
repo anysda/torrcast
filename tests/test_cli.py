@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import threading
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, cast
 
@@ -12,7 +13,7 @@ import pytest
 from torrcast import InfraError, NotFoundError, cli
 from torrcast.cli import TABLE_LIMIT, is_candidate, is_disc, rank_releases, render_table, warned
 from torrcast.console import Progress
-from torrcast.parse import Release
+from torrcast.parse import Release, parse_release_name
 from torrcast.state import load_config
 from torrcast.stream import RUNTIME_GUESS, Media, TorrFile
 
@@ -366,17 +367,41 @@ def test_a_small_release_that_names_its_codec_is_not_old_junk() -> None:
     assert not cli.is_dated(named, RUNTIME)
 
 
-def test_a_series_pack_is_never_judged_by_its_bitrate() -> None:
-    """У сериала в раздаче лежит сезон целиком — «мало мегабит» про него ничего не значит."""
-    pack = Release(
-        raw_name="Сериал / Series [S01E1-8 of 8, WEB-DL]",
-        title="Сериал",
-        source="WEB-DL",
-        kind="tv",
-        size=int(6 * GB),
-        seeders=110,
+def test_a_series_pack_is_judged_by_the_size_of_one_episode() -> None:
+    """У сериала в раздаче лежит сезон целиком — делить надо на серии, а не на фильм.
+
+    Пока делили целиком, .avi-эвристика для сериалов не работала вовсе: «6 ГБ» на восемь
+    серий это 1.7 Мбит/с на серию, а как один фильм — 6.6, то есть выше порога SD, и
+    старьё спокойно стояло верхом отбора. Счёт серий берётся из имени раздачи.
+    """
+    runtime = RUNTIME_GUESS["tv"]
+    old = parse_release_name("Сериал / Series [01-08 of 8] (2001) SATRip")
+    good = parse_release_name("Сериал / Series [01-08 of 8] (2001) WEB-DL")
+    fat = parse_release_name("Сериал / Series [01-08 of 8] (2001) WEB-DL")
+    fat = replace(fat, size=int(80 * GB), seeders=5)
+    old, good = replace(old, size=int(2 * GB), seeders=900), replace(good, size=int(60 * GB))
+
+    assert old.episode_count == 8 and good.episode_count == 8
+    assert cli.bitrate_of(good, runtime) == pytest.approx(
+        cli.bitrate_of(fat, runtime) * 0.75, rel=0.01
+    ), "битрейт считается на серию: 60 ГБ на восьмерых против 80 ГБ на восьмерых"
+    assert cli.is_dated(old, runtime), "0.25 ГБ на серию — это SD, сколько бы сидов ни было"
+    assert not cli.is_dated(good, runtime)
+    assert rank_releases([old, good], runtime, 40.0)[0] is good
+
+
+def test_a_series_pack_that_does_not_count_its_episodes_is_left_to_ffprobe() -> None:
+    """Имя не считает серии — делить не на что, и оценки не будет: врать себе хуже.
+
+    Такую раздачу («Локи [S01] WEB-DL», сколько внутри серий — знают только файлы)
+    по-прежнему судит ffprobe уже после выбора, с отбраковкой и переходом к следующей.
+    """
+    silent = replace(
+        parse_release_name("Локи / Loki [S01] (2021) WEB-DL"), size=int(8 * GB), seeders=24
     )
-    assert not cli.is_dated(pack, RUNTIME)
+    assert silent.kind == "tv" and silent.episode_count == 0
+    assert cli.bitrate_of(silent, RUNTIME_GUESS["tv"]) == 0.0
+    assert not cli.is_dated(silent, RUNTIME_GUESS["tv"])
 
 
 def test_dated_sinks_below_candidates_but_above_hevc() -> None:

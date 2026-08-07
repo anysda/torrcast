@@ -86,6 +86,7 @@ __all__ = [
     "liveliest",
     "liveliness",
     "main",
+    "misses_episode",
     "parse_args",
     "pick_voice",
     "promises_more",
@@ -739,7 +740,7 @@ def _plan_for(picture: Picture, args: Args, config: Config) -> _Plan:
     # только то, что перекодированием не спасти, — ``bitrate_hard_mbit``. Перекодирование
     # выключено — потолком снова становится прежний ``bitrate_warn_mbit``.
     ceiling = config.bitrate_hard_mbit if config.recode else config.bitrate_warn_mbit
-    ranked = rank_releases(pool, runtime, ceiling)
+    ranked = rank_releases(pool, runtime, ceiling, want=series.want if series else None)
     return _Plan(
         picture=picture,
         ranked=ranked,
@@ -774,7 +775,13 @@ class _Plan:
         return 1
 
     def candidates(self, args: Args) -> list[int]:
-        """Очередь релизов: сначала дефолт, потом годные запасные."""
+        """Очередь релизов: сначала дефолт, потом годные запасные.
+
+        Огрызков в очереди нет вовсе (:func:`misses_episode`): попыток всего
+        :data:`MAX_TRIES`, и тратить их на раздачи, которые уже своим именем сказали
+        «нужной серии тут нет», — это 5-40 с метаданных по DHT за заранее известный
+        отказ. Отбраковка не молчаливая: кого выкинули, печатает :attr:`skipped`.
+        """
         if args.release is not None:
             if not 1 <= args.release <= len(self.ranked):
                 raise NotFoundError(f"релизов {len(self.ranked)}, номера {args.release} нет")
@@ -783,9 +790,21 @@ class _Plan:
         queue += [
             n
             for n, r in enumerate(self.ranked, start=1)
-            if n != self.first and is_candidate(r, self.runtime, self.warn_mbit)
+            if n != self.first
+            and is_candidate(r, self.runtime, self.warn_mbit)
+            and not misses_episode(r, self.want)
         ]
         return queue[:MAX_TRIES]
+
+    @property
+    def want(self) -> Episode | None:
+        """Нужная серия, если картина — сериал; у фильма серии нет."""
+        return self.series.want if self.series else None
+
+    @property
+    def skipped(self) -> list[Release]:
+        """Раздачи, отбракованные до каста: нужной серии в них нет по их же именам."""
+        return [r for r in self.ranked if misses_episode(r, self.want)]
 
 
 @dataclass(slots=True)
@@ -985,6 +1004,12 @@ class _Bench:
     def resolve(self, plan: _Plan, args: Args, progress: Progress) -> _Prep:
         """Годный релиз плана: ждём подготовку с прогрессом, негодный — следующий."""
         queue = plan.candidates(args)
+        if args.release is None and (skipped := plan.skipped):
+            # Молчать тут нельзя: человек попросил серию, а половину выдачи мы не взяли.
+            print(
+                f"серии {plan.want} нет в раздачах: {len(skipped)} "
+                f"(«{_cut(skipped[0].raw_name, 60)}»…) — беру ту, где она есть"
+            )
         tried: list[str] = []
         for attempt, number in enumerate(queue, start=1):
             prep = self.start(plan, number)
@@ -1816,9 +1841,29 @@ def is_dated(release: Release, runtime: float) -> bool:
     return 0.0 < bitrate_of(release, runtime) < SD_BITRATE
 
 
-def rank_releases(releases: list[Release], runtime: float, warn_mbit: float) -> list[Release]:
+def misses_episode(release: Release, want: Episode | None) -> bool:
+    """Раздача сама, своим именем, признаётся, что нужной серии в ней нет.
+
+    Первая ступень порядка и единственная, которая стоит выше образов дисков: релиз без
+    нужной серии не «хуже качеством», а бесполезен — играть в нём нечего. Молчаливое
+    имя сюда не попадает никогда (:meth:`Release.covers_episode`), поэтому у сериала,
+    где серии не перечисляет ни одно имя, порядок остаётся прежним.
+    """
+    return want is not None and not release.covers_episode(want)
+
+
+def rank_releases(
+    releases: list[Release], runtime: float, warn_mbit: float, want: Episode | None = None
+) -> list[Release]:
     """Порядок меню: сверху самый обсиженный кандидат, потом всё остальное по
     сидам, образы дисков всегда внизу — цельного файла внутри нет, стримить нечего.
+
+    Первой ступенью для сериала идёт :func:`misses_episode`: раздача, которая своим
+    именем говорит «нужной серии тут нет», уходит под всех, кто может её содержать, —
+    даже под мёртвые и под образы дисков. Живой случай, ради которого ступень
+    появилась: у «Наруто» верхом стоял ``[S01E01-08 of 220]``, у «Локи» и
+    «Сверхъестественного» — такие же огрызки, а полный сезон лежал строкой ниже, и
+    авто-выбор упирался в «серии s1e1 в этой раздаче нет» уже после похода в рой.
 
     Между «кандидат» и «сиды» вклинена ступень :func:`is_dated`: обсиженное
     старьё уступает место годному даже при кратной разнице в сидах. Цена вопроса
@@ -1833,6 +1878,7 @@ def rank_releases(releases: list[Release], runtime: float, warn_mbit: float) -> 
     return sorted(
         releases,
         key=lambda r: (
+            misses_episode(r, want),
             is_disc(r),
             not is_candidate(r, runtime, warn_mbit),
             is_dated(r, runtime),

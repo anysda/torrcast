@@ -185,6 +185,27 @@ _SEASON_SPAN_RES: Final[tuple[re.Pattern[str], ...]] = (
     re.compile(r"\bs\s?(\d{1,2})\s*-\s*s?\s?(\d{1,2})\b", re.IGNORECASE),
     re.compile(r"\b(\d{1,2})\s*-\s*(\d{1,2})\s*(?:сезон\w*|seasons?)\b", re.IGNORECASE),
 )
+#: Серии, лежащие ВНУТРИ раздачи, по её имени. Порядок обязателен: сначала диапазон
+#: («1-5 из 220» = серии 1…5), потом счёт («220 of 220» = все 220, то есть 1…220).
+#: Прочитай их наоборот - и полный сезон превратился бы в одну серию, а огрызок в пак.
+#: Числа ограничены тремя цифрами и обрамлены стражами ``(?<!\d)/(?!\d)``: без них
+#: «(2005-2020)» в имени читалось бы как диапазон серий.
+_EPISODE_SPAN_RES: Final[tuple[re.Pattern[str], ...]] = (
+    re.compile(
+        r"(?<!\d)(?P<start>\d{1,3})\s*-\s*[eеэ]?\s*(?P<end>\d{1,3})(?!\d)\s*(?:из|of)\s*\d{1,3}",
+        re.IGNORECASE,
+    ),
+    re.compile(r"(?<!\d)(?P<start>\d{1,3})\s*-\s*(?P<end>\d{1,3})(?!\d)\s*сери", re.IGNORECASE),
+    re.compile(r"сери[ияй]\s*(?P<start>\d{1,3})\s*-\s*(?P<end>\d{1,3})(?!\d)", re.IGNORECASE),
+    # Без «из/of»: ``S01E01-08``, ``E12-24``. Буква ``e`` обязательна - голое «1-8»
+    # в имени раздачи чаще про части названия, чем про серии.
+    re.compile(r"[eеэ]\s*(?P<start>\d{1,3})\s*-\s*[eеэ]?\s*(?P<end>\d{1,3})(?!\d)", re.IGNORECASE),
+)
+#: Счёт серий без диапазона: «220 of 220», «12 из 24» - в раздаче серии с первой по N.
+_EPISODE_COUNT_RE: Final = re.compile(
+    r"(?<!\d)(?P<count>\d{1,3})\s*(?:из|of)\s*(?P<total>\d{1,3})(?!\d)", re.IGNORECASE
+)
+
 #: Серия без номера сезона в имени файла: ``E05``, «05 из 24», «5 серия».
 _EPISODE_ONLY_RES: Final[tuple[re.Pattern[str], ...]] = (
     re.compile(r"\bep?\.?\s?(?P<episode>\d{1,3})\b(?!\s*(?:сезон|мин))", re.IGNORECASE),
@@ -241,6 +262,9 @@ class Release:
     episode: int | None = None
     #: Сезоны пака целиком: ``[S01-06]`` → (1…6). Пусто — сезон один или не назван.
     seasons: tuple[int, ...] = ()
+    #: Серии, которые лежат ВНУТРИ раздачи, по её имени: ``[S01E01-08 of 220]`` → (1…8),
+    #: ``[E220 of 220]`` → (1…220). Пусто — имя о серияx молчит, и решат файлы.
+    episodes: tuple[int, ...] = ()
     size: int = 0
     seeders: int = 0
     magnet: str = ""
@@ -304,6 +328,37 @@ class Release:
         if self.seasons:
             return season in self.seasons
         return self.season in (None, season)
+
+    def covers_episode(self, want: Episode) -> bool:
+        """Есть ли в раздаче нужная СЕРИЯ — по её имени, до похода в рой.
+
+        Ровно тот вопрос, на котором авто-выбор ловился: у «Наруто», «Локи» и
+        «Сверхъестественного» верхом отбора стоял огрызок («8 серий из 220», одна серия
+        аниме), а полный сезон лежал рядом строкой ниже. Огрызок отличается от пака
+        своим же именем: ``[S01E01-08 of 220]`` честно говорит, что дальше восьмой в нём
+        ничего нет. Прочитать это стоит ноль секунд, а узнать то же самое от файлов —
+        метаданные по DHT, то есть 5-40 с и потраченная попытка из трёх.
+
+        Имя молчит — отвечаем «может быть»: окончательный ответ дают файлы
+        (:func:`map_episodes`), и понижать молчаливых нельзя, иначе у сериала,
+        где ни одно имя не перечисляет серии, не осталось бы кандидатов вовсе.
+        """
+        if not self.covers(want.season):
+            return False
+        if self.episodes:
+            return want.episode in self.episodes
+        return self.episode in (None, want.episode)
+
+    @property
+    def episode_count(self) -> int:
+        """Сколько серий в раздаче по её имени; 0 — имя не говорит.
+
+        Нужен затем, что у сериала размер раздачи — это НЕ размер серии, и любая оценка
+        битрейта по нему врёт кратно числу серий (:func:`~torrcast.cli.bitrate_of`).
+        """
+        if self.episodes:
+            return len(self.episodes)
+        return 1 if self.episode is not None else 0
 
     @property
     def slug(self) -> str:
@@ -569,7 +624,7 @@ def parse_release_name(name: str) -> Release:
     quality_match = _QUALITY_RE.search(text)
     quality = _normalize_quality(quality_match.group(1)) if quality_match else None
 
-    season, episode, seasons, series = _parse_series(text)
+    season, episode, seasons, episodes, series = _parse_series(text)
     kind: Kind = "other" if _is_non_video(text) else ("tv" if series else "movie")
 
     return Release(
@@ -585,6 +640,7 @@ def parse_release_name(name: str) -> Release:
         season=season,
         episode=episode,
         seasons=seasons,
+        episodes=episodes,
         kind=kind,
     )
 
@@ -802,8 +858,10 @@ def _parse_voices(text: str) -> tuple[str, ...]:
     return tuple(sorted(found, key=lambda v: order.get(v, 99)))
 
 
-def _parse_series(text: str) -> tuple[int | None, int | None, tuple[int, ...], bool]:
-    """Сезон, серия, сезоны пака и признак сериальности.
+def _parse_series(
+    text: str,
+) -> tuple[int | None, int | None, tuple[int, ...], tuple[int, ...], bool]:
+    """Сезон, серия, сезоны пака, серии пака и признак сериальности.
 
     ⚠️ Перед разбором из имени вырезаются токены кодека (:data:`_CODEC_TOKEN_RE`). Иначе
     ``x264`` рядом с любой цифрой читается как ``NxM``: «Moana 2 2024 … DDP5 1 x264» —
@@ -813,18 +871,43 @@ def _parse_series(text: str) -> tuple[int | None, int | None, tuple[int, ...], b
     """
     text = _CODEC_TOKEN_RE.sub(" ", text)
     seasons = _season_span(text)
+    episodes = _episode_span(text)
     if seasons:
-        return seasons[0], None, seasons, True
+        # Пак сезонов: серии внутри него нумеруются по-своему в каждом сезоне, и
+        # диапазон из имени («S01-15 + Special») к ним отношения не имеет.
+        return seasons[0], None, seasons, (), True
     found = parse_episode(text)
     if found is not None:
         # «S2E1-8 of 8» — это пак сезона, а не первая серия.
         pack = re.search(r"[eхx]\s*\d{1,3}\s*-\s*\d{1,3}", text, re.IGNORECASE)
-        return found.season, None if pack else found.episode, (), True
+        return found.season, None if pack else found.episode, (), episodes, True
     for pattern in _SEASON_ONLY_RES:
         match = pattern.search(text)
         if match:
-            return int(match.group("season")), None, (), True
-    return None, None, (), bool(_SERIES_HINT_RE.search(text))
+            return int(match.group("season")), None, (), episodes, True
+    return None, None, (), episodes, bool(_SERIES_HINT_RE.search(text))
+
+
+def _episode_span(text: str) -> tuple[int, ...]:
+    """Серии внутри раздачи по имени: «1-5 из 220» → (1…5), «220 of 220» → (1…220).
+
+    Пусто — имя о серияx молчит. Диапазон читается раньше счёта (:data:`_EPISODE_SPAN_RES`
+    против :data:`_EPISODE_COUNT_RE`), иначе «1-5 из 220» дало бы «серии 1…1»: «5 из 220»
+    прочиталось бы как счёт. Вывернутые и бессмысленные границы («8-1», «0-500»)
+    отбрасываются молча — врать в обе стороны хуже, чем промолчать.
+    """
+    for pattern in _EPISODE_SPAN_RES:
+        match = pattern.search(text)
+        if match:
+            start, end = int(match.group("start")), int(match.group("end"))
+            if 1 <= start <= end:
+                return tuple(range(start, end + 1))
+    match = _EPISODE_COUNT_RE.search(text)
+    if match:
+        count, total = int(match.group("count")), int(match.group("total"))
+        if 1 <= count <= total:
+            return tuple(range(1, count + 1))
+    return ()
 
 
 def _season_span(text: str) -> tuple[int, ...]:

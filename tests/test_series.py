@@ -7,10 +7,21 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
-from torrcast.parse import EpisodeFile, map_episodes, parse_release_name, split_episode
-from torrcast.stream import TorrFile
+from torrcast.cli import Args, _plan_for, rank_releases
+from torrcast.parse import (
+    Episode,
+    EpisodeFile,
+    Picture,
+    map_episodes,
+    parse_release_name,
+    split_episode,
+)
+from torrcast.state import Config
+from torrcast.stream import RUNTIME_GUESS, TorrFile
 
 GB = 1024**3
 
@@ -223,6 +234,93 @@ def test_release_name_tells_which_seasons_it_covers() -> None:
     assert pack.seasons == (1, 2, 3, 4, 5, 6) and pack.covers(6) and not pack.covers(7)
     assert single.season == 2 and single.covers(2) and not single.covers(3)
     assert silent.covers(1) and silent.covers(9), "имя молчит — решат файлы"
+
+
+@pytest.mark.parametrize(
+    "name,inside,outside",
+    [
+        # Живая выдача «Наруто»: огрызок на восемь серий и полный пак на 220.
+        ("Наруто / Naruto [S01E01-08 of 220] (2002-2007) BDRip", (1, 8), (9, 220)),
+        ("Наруто / Naruto [TV] [1-5 из 220] [2002, DVDRip] [1080p]", (1, 5), (6, 220)),
+        ("Наруто (S1) / Naruto [TV] [E220 of 220] [RUS(ext), JAP+Sub] [2002]", (1, 220), ()),
+        # Одна серия целым релизом: аниме-раздачи так лежат сплошь и рядом.
+        ("Локи / Loki S01E03 (2021) WEB-DL 1080p", (3,), (1, 2, 4)),
+        ("Киберпанк / Cyberpunk Edgerunners [01-10 of 10] (2022) WEB-DL 1080p", (1, 10), (11,)),
+    ],
+)
+def test_release_name_tells_which_episodes_are_inside(
+    name: str, inside: tuple[int, ...], outside: tuple[int, ...]
+) -> None:
+    """Огрызок отличается от сезон-пака своим же именем — и это стоит ноль секунд.
+
+    Ровно тот вопрос, на котором авто-выбор ловился у «Наруто», «Локи» и
+    «Сверхъестественного»: верхом отбора стоял огрызок, а полный сезон лежал строкой
+    ниже, и «серии s1e1 в этой раздаче нет» выяснялось уже после похода в рой.
+    """
+    release = parse_release_name(name)
+
+    assert all(release.covers_episode(Episode(1, n)) for n in inside), "названные серии внутри"
+    assert not any(release.covers_episode(Episode(1, n)) for n in outside), "остальных нет"
+
+
+def test_a_season_pack_and_a_silent_name_are_never_accused_of_missing_an_episode() -> None:
+    """Пак сезонов и молчаливое имя под подозрение не попадают: решат файлы.
+
+    Иначе у сериала, где серии не перечисляет ни одно имя (а это норма), не осталось бы
+    ни одного кандидата — и починка сезон-паков сломала бы обычный сериал.
+    """
+    pack = parse_release_name("Сверхъестественное / Supernatural [S01-15] (2005-2020) WEB-DL")
+    silent = parse_release_name("Локи / Loki [S01] (2021) WEB-DL 1080p-LostFilm")
+
+    assert pack.episodes == () and silent.episodes == ()
+    assert pack.covers_episode(Episode(1, 1)) and pack.covers_episode(Episode(15, 20))
+    assert silent.covers_episode(Episode(1, 1)) and silent.covers_episode(Episode(1, 6))
+    assert not pack.covers_episode(Episode(16, 1)), "сезона нет — и серии нет"
+
+
+def test_the_selector_prefers_the_pack_that_has_the_wanted_episode() -> None:
+    """Огрызок уходит под всех, кто может содержать серию, даже с кратной разницей в сидах.
+
+    Живой замер «Наруто»: верхом стоял ``[S01E01-08 of 220]`` на 1 сиде, а полный пак
+    на 220 серий и 91 сид лежал третьим. Просьба про двадцатую серию гарантированно
+    упиралась в «серии s1e20 в этой раздаче нет» — при том, что серия была рядом.
+    """
+    stub = parse_release_name("Наруто / Naruto [S01E01-08 of 220] (2002) BDRip 1080p")
+    full = parse_release_name("Наруто / Naruto [S01] [E220 of 220] (2002) BDRip 1080p")
+    stub = replace(stub, size=8 * GB, seeders=900)
+    full = replace(full, size=160 * GB, seeders=1)
+    runtime = RUNTIME_GUESS["tv"]
+
+    assert rank_releases([stub, full], runtime, 40.0)[0] is stub, "без серии решают сиды"
+    assert rank_releases([stub, full], runtime, 40.0, want=Episode(1, 1))[0] is stub
+    order = rank_releases([stub, full], runtime, 40.0, want=Episode(1, 20))
+    assert order[0] is full, "нужна двадцатая — верх тот, у кого она есть"
+    assert order[1] is stub, "и всё же не выкинут: руками --release N его возьмут"
+
+
+def test_a_stub_release_is_thrown_out_before_the_swarm_not_after() -> None:
+    """Огрызок не попадает в очередь попыток вовсе — и отбраковка не молчаливая.
+
+    Попыток всего три, и каждая стоит 5-40 с метаданных по DHT. Тратить их на раздачи,
+    которые уже своим именем сказали «нужной серии тут нет», незачем.
+    """
+    stub = replace(
+        parse_release_name("Наруто / Naruto [S01E01-08 of 220] (2002) BDRip 1080p"),
+        size=8 * GB,
+        seeders=900,
+    )
+    full = replace(
+        parse_release_name("Наруто / Naruto [S01] [E220 of 220] (2002) BDRip 1080p"),
+        size=160 * GB,
+        seeders=1,
+    )
+    picture = Picture(title="Наруто", year=2002, kind="tv", releases=[stub, full])
+    args = Args(query=["наруто s1e20"])
+
+    plan = _plan_for(picture, args, Config())
+
+    assert plan.candidates(args) == [1], "в очереди только пак с двадцатой серией"
+    assert plan.skipped == [stub], "а огрызок назван вслух, а не выкинут молча"
 
 
 @pytest.mark.parametrize(
