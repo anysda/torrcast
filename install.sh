@@ -40,7 +40,22 @@ TS_CACHE="${TORRCAST_TS_CACHE:-4294967296}"
 # регистрации, ни капчи, ни ключа - трекеры с логином здесь не появятся принципиально.
 # Knaben - метапоиск (агрегирует чужие каталоги и отдаёт infoHash), остальные прямые.
 # Недоступный из этой сети индексер просто не добавится и работать не помешает.
-INDEXERS=("Knaben|https://knaben.org/" "rutor|https://rutor.info/")
+INDEXERS=(
+    "Knaben|https://knaben.org/"       # метапоиск: широкий хвост каталога
+    "rutor|https://rutor.info/"        # русские раздачи и озвучки
+    "nyaasi|https://nyaa.si/"          # аниме
+    "acgrip|https://acg.rip/"          # аниме, второй источник
+    # У YTS адрес API отдельной настройкой, и её умолчание из этой сети не отвечает.
+    "yts|https://yts.gg/|apiurl=yts.gg"
+)
+# Проверено и НЕ взято (пусть не соблазняет): 1337x, EZTV, LimeTorrents,
+# TorrentDownload, KickassTorrents - за CDN с JS-проверкой браузера, скрейпить их без
+# отдельного headless-браузера нечем; The Pirate Bay - его API режется по имени, а
+# обхода нет: CDN без SNI не отвечает, а под чужим именем даёт отказ; TorrentProject2 и
+# Catorrent отвечают, но на любой запрос отдают пусто; TorrentsCSV отвечает за долю
+# секунды из консоли, но в Prowlarr примерно каждый десятый поиск висит до таймаута -
+# а один такой индексер задерживает весь поиск. Трекеры с логином, капчей или ключом
+# сюда не попадают ни при каких условиях.
 
 PHASES="${TORRCAST_PHASES:-packages torrcast torrserver sources prowlarr indexers config hls}"
 
@@ -59,9 +74,10 @@ SHIM_PORT="${TORRCAST_SHIM_PORT:-443}"
 # Новый такой трекер заводится одной строкой здесь и строкой в INDEXERS.
 SHIMS=(
     'api.knaben.org|/v1|{"query":"матрица","search_type":"score","size":50}|direct,https://knaben.eu'
+    'nyaa.si|/?f=0&c=0_0&q=naruto||direct'
     'rutor.info|/search/matrix||direct'
 )
-#: Нужно ли засеивать определения индексеров руками — решает фаза `sources`.
+#: Нужно ли засеивать определения индексеров руками - решает фаза `sources`.
 SEED_DEFS=0
 #: Браузерная подпись: без неё часть трекеров отвечает отказом ещё на пробе.
 UA="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122 Safari/537.36"
@@ -441,10 +457,10 @@ check_sources() {
     log "источники: что доступно из этой сети"
 
     if curl -fsS -m 15 -o /dev/null "$PL_DEFS_URL" 2>/dev/null; then
-        info "каталог индексеров Prowlarr доступен — он возьмёт определения сам"
+        info "каталог индексеров Prowlarr доступен - он возьмёт определения сам"
     else
         # Без этой строки КАЖДЫЙ запрос схемы ждёт таймаута .NET — 100 секунд.
-        info "⚠ каталог индексеров Prowlarr недоступен — определения возьмём с GitHub"
+        info "⚠ каталог индексеров Prowlarr недоступен - определения возьмём с GitHub"
         hosts_pin indexers.prowlarr.com
         SEED_DEFS=1
     fi
@@ -491,7 +507,7 @@ check_sources() {
     done
 }
 
-# Определения индексеров (Cardigann) — из репы Prowlarr/Indexers на GitHub.
+# Определения индексеров (Cardigann) - из репы Prowlarr/Indexers на GitHub.
 # ⚠️ Класть ПЛОСКО в корень `Definitions/`: листинг Prowlarr читает только верхний
 # уровень (SearchOption.TopDirectoryOnly), и `Definitions/v11/rutor.yml` не виден.
 # Рестарт не нужен — схема пересобирается на каждый запрос.
@@ -509,7 +525,7 @@ seed_definitions() {
         find "$tmp" -path '*/definitions/v11/*.yml' -exec install -m 0644 {} "$dir/" \;
         info "разложено $(find "$dir" -maxdepth 1 -name '*.yml' | wc -l) определений"
     else
-        info "⚠ определения не скачались — останутся только встроенные индексеры"
+        info "⚠ определения не скачались - останутся только встроенные индексеры"
     fi
     rm -rf "$tmp"
 }
@@ -585,23 +601,28 @@ install_indexers() {
     schema="$(curl -fsS "$PL_URL/api/v1/indexer/schema?apikey=$key")"
     existing="$(curl -fsS "$PL_URL/api/v1/indexer?apikey=$key")"
 
-    local spec def url body name
+    local spec def url extra over body name
     for spec in "${INDEXERS[@]}"; do
-        def="${spec%%|*}"; url="${spec##*|}"
+        IFS='|' read -r def url extra <<<"$spec"
         name="$(jq -r --arg d "$def" '.[]|select(.definitionName==$d)|.name' <<<"$schema")"
         if [ -z "$name" ] || [ "$name" = null ]; then
-            info "⚠ $def нет в схеме этой версии Prowlarr — пропускаю"
+            info "⚠ $def нет в схеме этой версии Prowlarr - пропускаю"
             continue
         fi
         if jq -e --arg n "$name" 'any(.[]; .name==$n)' <<<"$existing" >/dev/null; then
             skip "индексер $name"
             continue
         fi
-        body="$(jq -c --arg d "$def" --arg u "$url" '
+        # Поля определения, которые перебиваем: базовый URL плюс то, что задано третьим
+        # полем строки (`поле=значение`, через пробел). Остальные берутся из схемы как есть.
+        over="$(jq -cn --arg u "$url" --arg e "${extra:-}" '
+            ($e|split(" ")|map(select(length>0)|split("=")|{key:.[0],value:(.[1:]|join("="))})
+             |from_entries) + {baseUrl:$u}')"
+        body="$(jq -c --arg d "$def" --argjson o "$over" '
             .[]|select(.definitionName==$d)
             |{name,implementation,configContract,definitionName,priority,protocol,
               enable:true, appProfileId:1, tags:[], added:"0001-01-01T00:00:00Z",
-              fields:[.fields[]|{name,value:(if .name=="baseUrl" then $u else .value end)}]}
+              fields:[.fields[]|{name, value:(if $o[.name] != null then $o[.name] else .value end)}]}
         ' <<<"$schema")"
         if curl -fsS -X POST "$PL_URL/api/v1/indexer?apikey=$key" \
              -H 'Content-Type: application/json' -d "$body" >/dev/null; then
@@ -612,8 +633,8 @@ install_indexers() {
     done
     info "индексеров сейчас: $(curl -fsS "$PL_URL/api/v1/indexer?apikey=$key" | jq 'length')"
 
-    # Живая проверка: «индексер заведён» и «поиск что-то находит» — разные утверждения.
-    # Первое бывает правдой при неправде второго — например когда сеть режет индексер.
+    # Живая проверка: «индексер заведён» и «поиск что-то находит» - разные утверждения.
+    # Первое бывает правдой при неправде второго - например когда сеть режет индексер.
     # Отказ самой проверки установку не роняет: это отчёт, а не условие.
     local out found
     out="$(curl -fsS -m 120 -G "$PL_URL/api/v1/search" \
@@ -624,7 +645,7 @@ install_indexers() {
         info "проверочный поиск «матрица»: $found раздач"
         jq -r 'group_by(.indexer)[]|"    \(.[0].indexer): \(length)"' <<<"$out" 2>/dev/null || true
     else
-        info "⚠ проверочный поиск НИЧЕГО не нашёл — индексеры недоступны из этой сети"
+        info "⚠ проверочный поиск НИЧЕГО не нашёл - индексеры недоступны из этой сети"
     fi
 }
 
