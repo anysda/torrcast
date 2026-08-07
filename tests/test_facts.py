@@ -12,12 +12,14 @@ from typing import Any
 from torrcast import cli
 from torrcast import facts as facts_mod
 from torrcast.facts import (
+    BLURB_CAP,
     Fact,
     Facts,
     confirms,
     hms,
     ratings,
     read_sparql,
+    sentence,
     shorten,
     titles_for,
     wiki_extracts,
@@ -142,12 +144,48 @@ def test_running_time_reads_as_a_human_would_say_it() -> None:
     assert hms(0) == ""
 
 
-def test_the_description_is_one_sentence_cut_to_the_terminal() -> None:
-    """Длинную статью режем по границе фразы, а совсем узкий терминал — по слову."""
-    assert shorten(CARS, 200).endswith("Walt Disney Pictures.")
-    assert "Режиссёром" not in shorten(CARS, 200), "вторая фраза в меню не нужна"
-    narrow = shorten(CARS, 40)
-    assert len(narrow) <= 41 and narrow.endswith("…")
+def test_the_description_is_the_whole_first_sentence() -> None:
+    """Описание — первая фраза целиком: с жанром и годом, а не огрызок до многоточия."""
+    assert shorten(CARS).endswith("Walt Disney Pictures.")
+    assert "Режиссёром" not in shorten(CARS), "вторая фраза в меню не нужна"
+    assert "…" not in shorten(CARS), "фраза влезла в потолок — резать нечего"
+
+
+def test_only_a_sentence_past_the_cap_gets_an_ellipsis() -> None:
+    """Многоточие остаётся ровно для фраз длиннее всякого разумного потолка."""
+    long_one = "«Оппенгеймер» (англ. Oppenheimer) — " + "очень длинное описание, " * 20
+    cut = shorten(long_one)
+    assert len(cut) <= BLURB_CAP + 1 and cut.endswith("…")
+    assert not cut.endswith(",…"), "хвост запятой перед многоточием не нужен"
+    assert shorten("«Тачки» — мультфильм. Вторая фраза.", 10) == "«Тачки»…"
+
+
+def test_a_dot_inside_a_bracket_or_a_quote_is_not_the_end_of_the_phrase() -> None:
+    """Скобка с языком оригинала и точка внутри «ёлочек» фразу не кончают.
+
+    Обе строки — живые: «(англ. Cars)» стоит в каждой второй статье о зарубежном кино,
+    а название книги с точкой посередине приехало из статьи об «Оппенгеймере».
+    """
+    assert sentence(CARS).startswith("«Та́чки» (англ. Cars) — американский")
+    book = (
+        "«О́ппенгеймер» (англ. Oppenheimer) — триллер 2023 года, основанный на книге "
+        "«Оппенгеймер. Триумф и трагедия Американского Прометея» (2004). Снят Syncopy."
+    )
+    assert sentence(book).endswith("(2004).")
+    dune = (
+        "«Дю́на» (англ. Dune), в титрах «Дюна: Часть первая» (англ. Dune: Part One) — "
+        "американский фильм 2021 года режиссёра Дени Вильнёва. Это первая лента серии."
+    )
+    assert sentence(dune).endswith("Дени Вильнёва.")
+
+
+def test_abbreviations_and_initials_do_not_break_the_phrase() -> None:
+    """«т. е.», «реж.» и инициалы — сокращения, а не конец фразы."""
+    initials = "«Сталкер» — фильм реж. А. А. Тарковского по повести Стругацких. Снят в Эстонии."
+    assert sentence(initials).endswith("Стругацких.")
+    same = "«Психо» — фильм ужасов, т. е. хоррор, 1960 года. Снят Альфредом Хичкоком."
+    assert sentence(same).endswith("1960 года.")
+    assert sentence("«2001» (англ. 2001: A Space Odyssey) — фильм 1968 года.").endswith("года.")
 
 
 def test_ratings_come_from_the_offline_dump(tmp_path: Any) -> None:
@@ -214,7 +252,22 @@ def test_menu_puts_rating_and_time_in_the_head_and_the_plot_below() -> None:
     assert printed[0] == "  1. Моана: романтика золотого века (1926)"
     assert printed[1] == "  2. Моана (2016) · IMDb 7.6 · 1 ч 47 мин"
     assert printed[2].startswith("     «Моа́на» (англ. Moana) — американский")
-    assert printed[3] == "  3. Моана 2 (2024)", "у остальных справки нет — и лишних строк нет"
+    assert printed[-1] == "  3. Моана 2 (2024)", "у остальных справки нет — и лишних строк нет"
+
+
+def test_the_description_wraps_by_words_under_the_terminal() -> None:
+    """Описание переносится по словам, каждая строка — с тем же отступом и в ширину."""
+    from tests.test_cli import _moana_franchise
+
+    facts = Facts([])
+    facts.start()
+    facts.found = {("Моана", 2016): Fact(about=MOANA)}
+    printed = cli.menu_lines(_moana_franchise(), facts, width=60).splitlines()
+    blurb = [line for line in printed if line.startswith("     ")]
+    assert len(blurb) > 1, "фраза не влезла в одну строку — значит, перенеслась"
+    assert all(len(line) < 60 for line in blurb), "строка не должна вылезать за терминал"
+    assert not any(line.endswith("-") for line in blurb), "перенос по словам, не по дефису"
+    assert " ".join(line.strip() for line in blurb) == MOANA, "фраза цела и ничем не обрезана"
 
 
 def test_one_request_carries_the_whole_franchise(monkeypatch: Any) -> None:

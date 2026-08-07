@@ -23,6 +23,7 @@ import re
 import shutil
 import signal
 import sys
+import textwrap
 import threading
 import time
 from collections.abc import Callable, Sequence
@@ -2329,6 +2330,10 @@ def _pick_plan(plans: list[_Plan], facts: Facts | None = None) -> _Plan:
     return plans[ask("Что смотрим?", len(plans), default=default) - 1]
 
 
+#: Отступ описания в меню: ровно под название, за номером с точкой.
+_BLURB_INDENT = " " * 5
+
+
 def _named(picture: Picture) -> str:
     kind = ", сериал" if picture.kind == "tv" else ""
     return f"{picture.title} ({picture.year or '?'}{kind})"
@@ -2336,12 +2341,17 @@ def _named(picture: Picture) -> str:
 
 def menu_lines(plans: list[_Plan], facts: Facts | None = None, width: int = 0) -> str:
     """Список картин со справкой: номер, название с годом, рейтинг и хронометраж — в одну
-    строку, описание — во вторую, с отступом под номер.
+    строку, описание — под ней, с отступом под номер.
 
     Формат такой, а не таблицей, ровно из-за узкого терминала: название бывает длинным
     («Тачки: Мультачки. Байки Мэтра»), а описание — тем более, и колонки разъехались бы
     на первой же франшизе. Отдельная строка вместо колонки ещё и читается сверху вниз:
     глаз идёт по номерам, а подробности — под ними.
+
+    Описание переносится по словам и занимает столько строк, сколько нужно фразе (в
+    восьмидесяти колонках это две-три). Раньше оно резалось по ширине терминала, и в
+    меню оставался огрызок «американский компьютерно-анимационный…»: ни жанра, ни года,
+    ни возможности дочитать. Место экономить тут не на чем — вопрос задаётся один раз.
 
     Справки нет (не приехала, сети нет, картины нет в Википедии) — печатается ровно та
     строка, что печаталась раньше, без пустых разделителей и без «не нашёл».
@@ -2354,7 +2364,14 @@ def menu_lines(plans: list[_Plan], facts: Facts | None = None, width: int = 0) -
         head = " · ".join(x for x in (_named(picture), fact.rating, fact.runtime) if x)
         rows.append(f"  {number}. {head}")
         if fact.about:
-            rows.append(f"     {shorten(fact.about, max(40, columns - 6))}")
+            rows += textwrap.wrap(
+                shorten(fact.about),
+                width=max(40, columns - 1),
+                initial_indent=_BLURB_INDENT,
+                subsequent_indent=_BLURB_INDENT,
+                # Дефис — часть слова: «компьютерно-анимационный» рвать по нему незачем.
+                break_on_hyphens=False,
+            )
     return "\n".join(rows)
 
 
