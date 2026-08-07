@@ -36,8 +36,10 @@ PL_URL="http://$PL_HOST:$PL_PORT"
 #: если её меньше, задай свой размер через TORRCAST_TS_CACHE.
 TS_CACHE="${TORRCAST_TS_CACHE:-4294967296}"
 
-# Индексеры: definitionName в схеме Prowlarr + базовый URL. Knaben — метапоиск,
-# агрегирует RuTracker/TPB/Nyaa/1337x и отдаёт infoHash; RuTor — прямой.
+# Индексеры: definitionName в схеме Prowlarr + базовый URL. Только открытые: ни
+# регистрации, ни капчи, ни ключа - трекеры с логином здесь не появятся принципиально.
+# Knaben - метапоиск (агрегирует чужие каталоги и отдаёт infoHash), остальные прямые.
+# Недоступный из этой сети индексер просто не добавится и работать не помешает.
 INDEXERS=("Knaben|https://knaben.org/" "rutor|https://rutor.info/")
 
 PHASES="${TORRCAST_PHASES:-packages torrcast torrserver sources prowlarr indexers config hls}"
@@ -45,11 +47,24 @@ PHASES="${TORRCAST_PHASES:-packages torrcast torrserver sources prowlarr indexer
 # Источники, которые домашний канал может резать (см. фазу `sources`).
 PL_DEFS_URL="${TORRCAST_PL_DEFS_URL:-https://indexers.prowlarr.com/master/11}"
 DEFS_TARBALL="${TORRCAST_DEFS_TARBALL:-https://codeload.github.com/Prowlarr/Indexers/tar.gz/refs/heads/master}"
-KNABEN_API_HOST="${TORRCAST_KNABEN_API_HOST:-api.knaben.org}"
-KNABEN_FRONT="${TORRCAST_KNABEN_FRONT:-https://knaben.eu}"
-SHIM_DIR="${TORRCAST_SHIM_DIR:-/etc/knaben-shim}"
+SHIM_DIR="${TORRCAST_SHIM_DIR:-/etc/torrcast-shim}"
+SHIM_PORT="${TORRCAST_SHIM_PORT:-443}"
+
+# Трекеры, чьё имя может не пройти по TLS. Поля:
+#   имя | путь пробы | тело POST (пусто - GET) | кандидаты обхода через запятую.
+# Проба обязана просить ЗАМЕТНОЕ тело (десятки КБ): мелкий ответ проходит и через
+# троттлинг, обрыв ловится только на объёме. Кандидаты - то, что умеет sni-shim.py:
+# `direct` (стучаться на IP origin'а: для IP-адреса SNI не отправляется вовсе) и
+# запасное имя, ведущее в тот же origin, - для тех, кто без SNI не отвечает.
+# Новый такой трекер заводится одной строкой здесь и строкой в INDEXERS.
+SHIMS=(
+    'api.knaben.org|/v1|{"query":"матрица","search_type":"score","size":50}|direct,https://knaben.eu'
+    'rutor.info|/search/matrix||direct'
+)
 #: Нужно ли засеивать определения индексеров руками — решает фаза `sources`.
 SEED_DEFS=0
+#: Браузерная подпись: без неё часть трекеров отвечает отказом ещё на пробе.
+UA="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122 Safari/537.36"
 
 # Раздача HLS: сегменты в tmpfs (фильм на диск не пишем). Транспорт по умолчанию —
 # голый http на IP: ни серта, ни имени, ни DNS в пути показа. Адрес раздачи не
@@ -343,8 +358,12 @@ install_torrserver() {
 # по SNI. Поэтому ничего не обходится «на всякий случай»: сначала замер, обход ставится
 # только если источник реально не отвечает.
 
+pinned() {  # $1 имя - прибито ли уже к 127.0.0.1
+    grep -qE "^127\.0\.0\.1[[:space:]]+$1(\$|[[:space:]])" /etc/hosts
+}
+
 hosts_pin() {  # $1 имя — прибить к 127.0.0.1, идемпотентно
-    if grep -qE "^127\.0\.0\.1[[:space:]]+$1(\$|[[:space:]])" /etc/hosts; then
+    if pinned "$1"; then
         skip "/etc/hosts: $1"
     else
         printf '127.0.0.1 %s\n' "$1" >>/etc/hosts
@@ -352,51 +371,70 @@ hosts_pin() {  # $1 имя — прибить к 127.0.0.1, идемпотент
     fi
 }
 
-# Отвечает ли API Knaben ЦЕЛИКОМ. Мелкий ответ проходит и через троттлинг, поэтому
-# просим полсотни результатов: обрыв тела ловится только на объёме.
-knaben_whole() {
-    curl -fsS -m 25 -X POST "https://$KNABEN_API_HOST/v1" -H 'Content-Type: application/json' \
-        -d '{"query":"матрица","search_type":"score","size":50}' -o /dev/null 2>/dev/null
+# Отвечает ли имя ЦЕЛИКОМ. Успех - curl дочитал ответ до конца: обрыв посреди тела он
+# считает ошибкой, даже если заголовки были 200. Ровно так троттлинг и выглядит.
+probe_whole() {  # $1 имя, $2 путь, $3 тело POST (пусто - GET)
+    if [ -n "$3" ]; then
+        curl -fsS -m 25 -o /dev/null -A "$UA" -H 'Content-Type: application/json' \
+            -X POST -d "$3" "https://$1$2" 2>/dev/null
+    else
+        curl -fsS -m 25 -o /dev/null -A "$UA" "https://$1$2" 2>/dev/null
+    fi
 }
 
-setup_shim() {
+# Прежний шим умел ровно один трекер и звался по нему. Общий садится на тот же порт,
+# так что старую службу гасим - иначе он просто не встанет.
+retire_old_shim() {
+    [ -e /etc/systemd/system/knaben-shim.service ] || [ -d /etc/knaben-shim ] || return 0
+    systemctl disable --now knaben-shim.service >/dev/null 2>&1 || true
+    rm -f /etc/systemd/system/knaben-shim.service /usr/local/share/ca-certificates/knaben-shim.crt
+    rm -rf /etc/knaben-shim
+    systemctl daemon-reload >/dev/null 2>&1 || true
+    update-ca-certificates --fresh >/dev/null 2>&1 || true
+    info "прежний одиночный шим убран - его место занимает общий"
+}
+
+setup_shim() {  # $@ - маршруты вида имя=кандидат[,кандидат…]
+    local routes=("$@") spec sans="" changed=0
     install -d -m 0755 "$SHIM_DIR"
     pick_python  # фаза может гоняться и в одиночку, без `packages`
-    # Код шима приезжает из репы на КАЖДОМ заходе (деплой только репа→прод). Изменился —
-    # службу гасим: юнит-то прежний, и сама по себе она осталась бы на старом коде.
-    if cmp -s "$REPO_DIR/scripts/knaben-shim.py" "$SHIM_DIR/knaben-shim.py"; then
-        skip "код шима $SHIM_DIR/knaben-shim.py"
+    [ -n "${TORRCAST_NO_SYSTEMD:-}" ] || retire_old_shim
+
+    # Код шима приезжает из репы на КАЖДОМ заходе (деплой только репа→прод). Изменился
+    # он, набор имён или маршруты - службу гасим: юнит-то прежний, и сама по себе она
+    # осталась бы на старом.
+    if cmp -s "$REPO_DIR/scripts/sni-shim.py" "$SHIM_DIR/sni-shim.py"; then
+        skip "код шима $SHIM_DIR/sni-shim.py"
     else
-        install -m 0755 "$REPO_DIR/scripts/knaben-shim.py" "$SHIM_DIR/knaben-shim.py"
+        install -m 0755 "$REPO_DIR/scripts/sni-shim.py" "$SHIM_DIR/sni-shim.py"
         info "код шима обновлён из репы"
-        stop_service knaben-shim "$SHIM_DIR/knaben-shim.py"
+        changed=1
     fi
-    if [ -s "$SHIM_DIR/knaben.crt" ] && [ -s "$SHIM_DIR/knaben.key" ]; then
-        skip "серт шима $SHIM_DIR/knaben.crt"
+
+    # Серт один на все имена сразу: перевыпускаем, когда набор имён изменился.
+    for spec in "${routes[@]}"; do sans="$sans${sans:+,}DNS:${spec%%=*}"; done
+    if [ -s "$SHIM_DIR/shim.crt" ] && [ "$sans" = "$(cat "$SHIM_DIR/names" 2>/dev/null)" ]; then
+        skip "серт шима на ${#routes[@]} имён"
     else
         openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
-            -keyout "$SHIM_DIR/knaben.key" -out "$SHIM_DIR/knaben.crt" \
-            -subj "/CN=$KNABEN_API_HOST" -addext "subjectAltName=DNS:$KNABEN_API_HOST" 2>/dev/null
-        chmod 600 "$SHIM_DIR/knaben.key"
+            -keyout "$SHIM_DIR/shim.key" -out "$SHIM_DIR/shim.crt" \
+            -subj "/CN=${routes[0]%%=*}" -addext "subjectAltName=$sans" 2>/dev/null
+        chmod 600 "$SHIM_DIR/shim.key"
+        printf '%s\n' "$sans" >"$SHIM_DIR/names"
+        info "серт шима выпущен на: ${routes[*]%%=*}"
+        changed=1
     fi
     # Prowlarr — .NET, и доверяет он системному хранилищу; своего для процесса ему не
     # задать (SSL_CERT_FILE он игнорирует — проверено). Ключ остаётся доступным только root.
-    install -m 0644 "$SHIM_DIR/knaben.crt" /usr/local/share/ca-certificates/knaben-shim.crt
+    install -m 0644 "$SHIM_DIR/shim.crt" /usr/local/share/ca-certificates/torrcast-shim.crt
     update-ca-certificates >/dev/null 2>&1
-    hosts_pin "$KNABEN_API_HOST"
-    run_service knaben-shim "TLS-шим для $KNABEN_API_HOST (обход DPI по SNI)" \
-        "$PYTHON $SHIM_DIR/knaben-shim.py $KNABEN_FRONT $KNABEN_API_HOST $SHIM_DIR/knaben.crt $SHIM_DIR/knaben.key"
-    # Юнит только что запущен — сокета может ещё не быть, поэтому спрашиваем не один раз.
-    local i=0
-    while [ "$i" -lt 15 ]; do
-        if knaben_whole; then
-            info "через шим API отвечает целиком"
-            return
-        fi
-        i=$((i + 1))
-        sleep 1
-    done
-    info "⚠ шим поднят, но API так и не отвечает"
+
+    [ "$(cat "$SHIM_DIR/routes" 2>/dev/null)" = "$(printf '%s\n' "${routes[@]}")" ] || changed=1
+    printf '%s\n' "${routes[@]}" >"$SHIM_DIR/routes"
+    for spec in "${routes[@]}"; do hosts_pin "${spec%%=*}"; done
+    [ "$changed" = 1 ] && stop_service torrcast-shim "$SHIM_DIR/sni-shim.py"
+    run_service torrcast-shim "TLS-шим для трекеров, чьё имя не проходит по SNI" \
+        "$PYTHON $SHIM_DIR/sni-shim.py $SHIM_DIR/shim.crt $SHIM_DIR/shim.key $SHIM_PORT ${routes[*]}"
 }
 
 check_sources() {
@@ -411,17 +449,46 @@ check_sources() {
         SEED_DEFS=1
     fi
 
-    if [ -e "$SHIM_DIR/knaben-shim.py" ]; then
-        # Замер пошёл бы через уже стоящий шим и всегда отвечал бы «всё хорошо» — а код
-        # из репы так бы и не доехал. Стоит шим — идём в setup_shim, он и обновит.
-        info "шим для $KNABEN_API_HOST уже стоит — обновляю из репы"
-        setup_shim
-    elif knaben_whole; then
-        info "$KNABEN_API_HOST отвечает целиком — обход не нужен"
-    else
-        info "⚠ $KNABEN_API_HOST обрывает ответ на первых килобайтах (DPI по SNI)"
-        setup_shim
+    local spec host path body ups routes=()
+    for spec in "${SHIMS[@]}"; do
+        IFS='|' read -r host path body ups <<<"$spec"
+        if pinned "$host"; then
+            # Замер пошёл бы через уже стоящий шим и всегда отвечал бы «всё хорошо» - а
+            # код из репы так бы и не доехал. Прибито - значит ведём через шим и дальше.
+            info "$host уже за шимом - маршрут остаётся"
+            routes+=("$host=$ups")
+        elif probe_whole "$host" "$path" "$body"; then
+            info "$host отвечает целиком - обход не нужен"
+        else
+            info "⚠ $host отдаёт ответ не целиком (режется по имени в SNI) - веду через шим"
+            routes+=("$host=$ups")
+        fi
+    done
+    if [ "${#routes[@]}" -eq 0 ]; then
+        info "все трекеры доступны по имени - шим не нужен"
+        return
     fi
+    setup_shim "${routes[@]}"
+
+    # «Шим поднят» и «через него отвечает» - разные утверждения. Проверяем вторым
+    # заходом: имя уже прибито к шиму, поэтому та же проба идёт сквозь него. Служба
+    # только что запущена, сокета может ещё не быть - спрашиваем не один раз.
+    local i
+    for spec in "${SHIMS[@]}"; do
+        IFS='|' read -r host path body ups <<<"$spec"
+        printf '%s\n' "${routes[@]}" | grep -qx "$host=$ups" || continue
+        i=0
+        until probe_whole "$host" "$path" "$body"; do
+            i=$((i + 1))
+            [ "$i" -ge 12 ] && break
+            sleep 1
+        done
+        if [ "$i" -lt 12 ]; then
+            info "через шим $host отвечает целиком"
+        else
+            info "⚠ $host не отвечает и через шим - его индексер останется пустым"
+        fi
+    done
 }
 
 # Определения индексеров (Cardigann) — из репы Prowlarr/Indexers на GitHub.
@@ -547,12 +614,15 @@ install_indexers() {
 
     # Живая проверка: «индексер заведён» и «поиск что-то находит» — разные утверждения.
     # Первое бывает правдой при неправде второго — например когда сеть режет индексер.
-    local found
-    found="$(curl -fsS -m 90 -G "$PL_URL/api/v1/search" \
+    # Отказ самой проверки установку не роняет: это отчёт, а не условие.
+    local out found
+    out="$(curl -fsS -m 120 -G "$PL_URL/api/v1/search" \
         --data-urlencode "apikey=$key" --data-urlencode "query=матрица" \
-        --data-urlencode "type=search" --data-urlencode "limit=100" 2>/dev/null | jq 'length' 2>/dev/null)"
-    if [ -n "$found" ] && [ "$found" -gt 0 ] 2>/dev/null; then
+        --data-urlencode "type=search" --data-urlencode "limit=100" 2>/dev/null)" || out=""
+    found="$(jq 'length' <<<"${out:-[]}" 2>/dev/null)" || found=0
+    if [ "${found:-0}" -gt 0 ] 2>/dev/null; then
         info "проверочный поиск «матрица»: $found раздач"
+        jq -r 'group_by(.indexer)[]|"    \(.[0].indexer): \(length)"' <<<"$out" 2>/dev/null || true
     else
         info "⚠ проверочный поиск НИЧЕГО не нашёл — индексеры недоступны из этой сети"
     fi
