@@ -200,3 +200,78 @@ def test_the_show_end_takes_the_warmed_film_off_the_disk(
     assert not any(warm.rglob("v*.ts")), "прогретое пережило досмотренный показ"
     saved = State.load().get(key)
     assert saved is not None and saved.warm >= 0.0, "прогрев не виден состоянию"
+
+
+def test_the_next_episode_starts_warming_only_when_this_one_is_on_disk(tmp_path: Path) -> None:
+    """Серия прогрета целиком - прогрев берётся за следующую, и ровно за одну.
+
+    Раньше этого момента следующая серия не имеет права ни на байт раздачи: обрыв бьёт по
+    тому, что смотрят прямо сейчас. А после - обязана, иначе автопереход на стыке серий
+    упрётся в мёртвую раздачу при полном диске кино рядом.
+    """
+    grid = _grid()
+    mine = _vault(tmp_path, key="эта")
+    for slot in range(grid.count):
+        _lay(mine, slot)
+    calls: list[int] = []
+    nxt = Warmer(source="s2", audio=0, grid=grid, vault=_vault(tmp_path, key="следующая"))
+
+    def follow() -> Warmer:
+        calls.append(1)
+        return nxt
+
+    warmer = Warmer(source="s1", audio=0, grid=grid, vault=mine, follow=follow, slack=999.0)
+    warmer._work()
+
+    assert warmer.done and warmer.after is nxt, "следующая серия не взята в работу"
+    assert nxt.thread is not None and calls == [1], "фабрика зовётся не один раз"
+    assert mine.key in nxt.vault.keep, "текущая серия не защищена от бюджета следующей"
+    warmer.stop()
+    assert nxt.stopped, "снятие показа обязано снимать и прогрев следующей серии"
+
+
+def test_the_next_episode_is_not_warmed_while_this_one_is_not_done(tmp_path: Path) -> None:
+    """Недогретая серия ни при каких условиях не уступает место следующей."""
+    grid = _grid()
+    warmer = Warmer(
+        source="s1",
+        audio=0,
+        grid=grid,
+        vault=_vault(tmp_path, key="эта", budget=1),
+        follow=lambda: pytest.fail("прогрев следующей серии полез раньше времени"),
+        slack=999.0,
+    )
+    warmer._work()
+    assert warmer.trouble and warmer.after is None, "следующая серия взята при недогретой текущей"
+
+
+def test_the_budget_never_evicts_the_episode_being_watched(tmp_path: Path) -> None:
+    """Прогрев следующей серии не имеет права выесть ту, которую смотрят.
+
+    Соседняя серия - формально чужой каталог, и он же самый давний: без защиты бюджет
+    сносил бы именно её, то есть ровно то, ради чего прогрев и заведён.
+    """
+    root = tmp_path / "warm"
+    for name, age in (("текущая", 3000.0), ("чужая", 2000.0)):
+        other = Vault(root=root, key=name, floor=0)
+        other.open()
+        _lay(other, 0, size=400)
+        os.utime(other.dir / META, (time.time() - age, time.time() - age))
+    nxt = Vault(root=root, key="следующая", budget=1000, floor=0, keep=frozenset({"текущая"}))
+    nxt.open()
+
+    assert nxt.fit(300) == "", "место обязано найтись за счёт по-настоящему чужого"
+    assert (root / "текущая").exists(), "выедена серия, которую смотрят прямо сейчас"
+    assert not (root / "чужая").exists(), "давний чужой каталог не вытеснен"
+
+
+def test_the_show_reserve_reaches_both_warmers(tmp_path: Path) -> None:
+    """Просевший запас показа обязан ронять всю цепочку прогрева, а не только голову:
+    и та и другая серия тянут из одной раздачи и жгут один процессор."""
+    grid = _grid()
+    nxt = Warmer(source="s2", audio=0, grid=grid, vault=_vault(tmp_path, key="следующая"))
+    warmer = Warmer(source="s1", audio=0, grid=grid, vault=_vault(tmp_path, key="эта"), after=nxt)
+
+    warmer.feed(12.0)
+    assert (warmer.slack, nxt.slack) == (12.0, 12.0), "запас показа не дошёл до следующей серии"
+    assert "следующая" in warmer.line() or not warmer.done, "строка прогрева врёт о цепочке"

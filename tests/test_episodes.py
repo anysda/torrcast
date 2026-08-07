@@ -126,6 +126,7 @@ def test_the_unit_plays_the_whole_release_by_itself(monkeypatch: pytest.MonkeyPa
         duration: float = 0.0,
         receiver: Any = None,
         codec: str = "",
+        follow: Any = None,
     ) -> int:
         played.append((about, int(source.rsplit("/", 1)[-1])))
         receivers.append(receiver)

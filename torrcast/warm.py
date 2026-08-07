@@ -122,6 +122,11 @@ class Vault:
     #: Сколько байт раздела не трогаем ни при каких обстоятельствах (:data:`FREE_FLOOR`).
     floor: int = FREE_FLOOR
     title: str = ""
+    #: Чужие ключи, которые бюджет вытеснять не имеет права: серия, которую смотрят
+    #: прямо сейчас, для прогрева следующей - чужой каталог (:meth:`fit`). Без этого
+    #: прогрев следующей серии выедал бы текущую и обрыв связи убивал бы показ ровно
+    #: там, где его и должно было спасти прогретое.
+    keep: frozenset[str] = frozenset()
 
     @property
     def dir(self) -> Path:
@@ -180,14 +185,16 @@ class Vault:
 
         Бюджет один на всё прогретое, а не на показ: два фильма подряд не должны
         сложиться в сорок гигабайт. Вытесняются **чужие** каталоги, начиная с самого
-        давнего, — свой не трогаем никогда, иначе прогрев съедал бы сам себя.
+        давнего, - свой не трогаем никогда, иначе прогрев съедал бы сам себя. Не свой,
+        но и не чужой - :attr:`keep`: соседняя серия того же показа.
 
         Причин отказа две, и путать их нельзя: наш бюджет и чужое место на разделе.
         Рядом живут и состояние, и раздача, и система — упереть раздел в ноль прогревом
         не имеет права ни один бюджет.
         """
+        mine = {self.key, *self.keep}
         others = sorted(
-            (path for path in _dirs(self.root) if path.name != self.key),
+            (path for path in _dirs(self.root) if path.name not in mine),
             key=_touched,
         )
         while others and _weigh(self.root) + need > self.budget:
@@ -254,6 +261,15 @@ class Warmer:
     lock: Any = field(default_factory=threading.Lock)
     #: Сколько прогонов оборвалось само (сеть). Считается ради честной строки, не ради лимита.
     breaks: int = 0
+    #: Чем продолжить, когда эта серия ляжет на диск целиком: фабрика прогрева следующей
+    #: серии (``() -> Warmer | None``) или ``None`` - продолжать нечем.
+    #:
+    #: Фабрика, а не готовый прогрев: следующей серии нужны и паспорт, и карта опорных
+    #: кадров, а это запросы к рою, которые не имеют права идти, пока грузится текущая.
+    #: Зовётся ровно один раз и ровно тогда, когда текущая серия уже не нуждается в сети.
+    follow: Any = None
+    #: Прогрев следующей серии, поднятый :meth:`_chain`; ``None`` - ещё не поднимали.
+    after: Warmer | None = None
 
     def start(self) -> None:
         self.vault.open()
@@ -267,6 +283,18 @@ class Warmer:
             packer, self.packer = self.packer, None
         if packer is not None:
             packer.stop(keep_files=True, reason="показ окончен")
+        if self.after is not None:
+            self.after.stop()
+
+    def feed(self, slack: float) -> None:
+        """Запас живого показа - прогреву и его продолжению (:meth:`_throttle`).
+
+        Число одно на всю цепочку: и прогрев этой серии, и прогрев следующей тянут из той
+        же раздачи и жгут тот же процессор, поэтому проседание показа обязано ронять оба.
+        """
+        self.slack = slack
+        if self.after is not None:
+            self.after.feed(slack)
 
     @property
     def warmed(self) -> float:
@@ -284,7 +312,8 @@ class Warmer:
 
         head = f"прогрето {_hms(self.warmed)} из {_hms(self.grid.duration)}"
         if self.done:
-            return f"{head} — фильм целиком на диске, интернет больше не нужен"
+            done = f"{head} - фильм целиком на диске, интернет больше не нужен"
+            return done if self.after is None else f"{done}; следующая: {self.after.line()}"
         if self.trouble:
             return f"{head} — прогрев встал: {self.trouble}"
         return f"{head} — грею дальше" + (" (жду запаса показа)" if self.idle else "")
@@ -328,6 +357,7 @@ class Warmer:
                     if not self.trouble:
                         self._say(self.line())
                         mark("прогрев готов", секунд=round(self.warmed))
+                        self._chain()
                     return
                 tight = self.vault.fit(int(self._forecast(*job)))
                 if tight:
@@ -337,6 +367,35 @@ class Warmer:
             except Exception as exc:  # прогрев не имеет права ронять показ
                 self._say(f"прогрев сорвался ({exc}) — показ идёт как обычно")
                 time.sleep(5.0)
+
+    def _chain(self) -> None:
+        """Серия легла на диск целиком - взяться за следующую (:attr:`follow`).
+
+        Ровно за одну, и ни серией дальше. Причина не в бюджете, а в том, ради чего
+        прогрев вообще есть: обрыв связи убивает показ на **стыке** серий - досмотрели
+        текущую, а следующей нет ни куска, и автопереход упирается в мёртвую раздачу.
+        Закрывает эту дыру одна серия вперёд; сезон-пак впрок - это уже не страховка
+        показа, а выкачивание раздачи на диск, чего мы не делаем нигде.
+
+        Поднимается ровно здесь и ни секундой раньше: пока текущая серия не на диске,
+        каждый байт раздачи нужен ей, а не следующей.
+        """
+        if self.stopped or self.follow is None or self.after is not None or not self.done:
+            return
+        try:
+            following = self.follow()
+        except Exception as exc:  # прогрев не имеет права ронять показ
+            self._say(f"прогрев следующей серии не собрался ({exc}) - показ идёт как обычно")
+            return
+        if following is None:
+            return
+        # Текущая серия для соседнего прогрева - чужой каталог, и бюджет вытеснил бы её
+        # первой: она и старше, и досматривать её ещё полчаса (:attr:`Vault.keep`).
+        following.vault.keep = following.vault.keep | {self.vault.key}
+        self.after = following
+        following.slack = self.slack
+        following.start()
+        mark("прогрев следующей серии")
 
     def _forecast(self, first: int, last: int) -> float:
         """Во сколько байт обойдётся этот участок. Считаем по нашему же битрейту, когда

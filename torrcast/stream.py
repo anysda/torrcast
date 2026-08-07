@@ -23,7 +23,7 @@ import tempfile
 import threading
 import time
 import urllib.request
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Final, NamedTuple
 from urllib.parse import quote
@@ -247,6 +247,13 @@ MAX_SEGMENT_BYTES: Final = 16_000_000
 RECODE_CODECS: Final = frozenset({"hevc"})
 #: Типовая длительность до ffprobe (фильм 2 ч, серия 45 мин): только для прикидки битрейта.
 RUNTIME_GUESS: Final = {"movie": 7200.0, "tv": 2700.0, "other": 7200.0}
+#: Сколько упаковка имеет право не выложить ни куска, прежде чем это признают обрывом
+#: связи (:meth:`Feed._mute`), секунды.
+#:
+#: Не «сколько поднимается ffmpeg»: подъём стоит 1–3 с, а первый кусок сетки - это ещё
+#: 10–20 с фильма, которые ``readrate 1`` честно читает столько же. 45 с - вдвое сверх
+#: самого длинного куска сетки плюс подъём: это уже не «медленно», это «никак».
+MUTE_SECONDS: Final = 45.0
 
 _TIMEOUT: Final = 30.0
 _UNIT_NAME: Final = "torrcast-play"
@@ -256,6 +263,10 @@ _UNIT_TAG: Final = "torrcast: "
 _PASS_ENV: Final = (
     "TORRCAST_CONFIG",
     "TORRCAST_STATE",
+    # Каталог прогретого - такое же переопределение путей, как состояние и конфиг
+    # (:data:`torrcast.warm.WARM_ENV`). Без него юнит грел бы в боевое хранилище и
+    # вытеснял из него чужое по бюджету, пока снаружи шёл заведомо тестовый показ.
+    "TORRCAST_WARM",
     "TORRCAST_TRACE",
     "TORRCAST_CTL",
     TIMELINE_ENV,
@@ -627,10 +638,74 @@ class TorrServer:
             raise InfraError("TorrServer вернул не JSON") from exc
 
 
+def _media_cache(source_url: str) -> Path:
+    """Где лежит снятый паспорт этого файла (:func:`probe`).
+
+    Ключ тот же, что у карты опорных кадров (:func:`_keys_cache`), и по той же причине:
+    в URL потока лежат hash раздачи и номер файла, то есть ровно то, что определяет
+    содержимое. Меняться паспорту негде: длительность, дорожки и кодек - это сам файл.
+    """
+    from torrcast.state import state_path
+
+    return (
+        state_path().parent / "probe" / f"{hashlib.sha1(source_url.encode()).hexdigest()[:16]}.json"
+    )
+
+
+def _read_media(cache: Path) -> Media | None:
+    with contextlib.suppress(OSError, ValueError, KeyError, TypeError):
+        saved = json.loads(cache.read_text("utf-8"))
+        return Media(
+            duration=float(saved["duration"]),
+            tracks=tuple(AudioTrack(**track) for track in saved["tracks"]),
+            video=_opt_str(saved.get("video")),
+            height=int(saved.get("height") or 0),
+            width=int(saved.get("width") or 0),
+            video_bps=float(saved.get("video_bps") or 0.0),
+        )
+    return None
+
+
+def _keep_media(cache: Path, media: Media) -> None:
+    """Положить паспорт в кэш. Осечка записи молча игнорируется: кэш - ускорение, а не
+    источник правды, и показ обязан идти и без него."""
+    if media.duration <= 0 or not media.tracks:
+        # Паспорт без длительности и дорожек - это не паспорт, а недочитанный заголовок:
+        # такой в кэш класть нельзя, иначе осечка одного запуска станет вечной.
+        return
+    with contextlib.suppress(OSError, TypeError, ValueError):
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        tmp = cache.with_suffix(f".{os.getpid()}-{threading.get_ident()}.tmp")
+        tmp.write_text(
+            json.dumps(
+                {
+                    "duration": media.duration,
+                    "tracks": [asdict(track) for track in media.tracks],
+                    "video": media.video,
+                    "height": media.height,
+                    "width": media.width,
+                    "video_bps": media.video_bps,
+                }
+            ),
+            encoding="utf-8",
+        )
+        tmp.replace(cache)
+
+
 def probe(url: str, timeout: float = 90.0) -> Media:
     """Дорожки и длительность из HTTP-потока, не качая файл: ffprobe берёт заголовок mkv
     запросами Range — это и есть цена меню озвучек.
+
+    Паспорт кэшируется на диск (:func:`_media_cache`) по тем же причинам, что и карта
+    опорных кадров: содержимое файла задано раздачей и номером файла, а первое чтение
+    стоит роя - до 17 с на «Моане 2». Но время тут даже не главное. Следующая серия
+    узнаёт свою длительность именно отсюда (:func:`torrcast.cli._duration`), а узнать её
+    она обязана и тогда, когда сети уже нет: без длительности нет ни порога 95 %, ни
+    сетки, ни манифеста - то есть нет и автоперехода на прогретую серию посреди обрыва.
     """
+    cache = _media_cache(url)
+    if (ready := _read_media(cache)) is not None:
+        return ready
     entries = (
         "format=duration:"
         "stream=index,codec_name,codec_type,channels,width,height,bit_rate:"
@@ -661,7 +736,7 @@ def probe(url: str, timeout: float = 90.0) -> Media:
     streams = [s for s in raw if isinstance(s, dict)] if isinstance(raw, list) else []
     audio = [s for s in streams if s.get("codec_type") == "audio"]
     video = [s for s in streams if s.get("codec_type") == "video"]
-    return Media(
+    media = Media(
         duration=duration,
         tracks=tuple(_track(i, s) for i, s in enumerate(audio)),
         video=_opt_str(video[0].get("codec_name")) if video else None,
@@ -669,6 +744,8 @@ def probe(url: str, timeout: float = 90.0) -> Media:
         width=int(video[0].get("width") or 0) if video else 0,
         video_bps=_video_bps(video[0], duration) if video else 0.0,
     )
+    _keep_media(cache, media)
+    return media
 
 
 def _video_bps(stream: dict[str, Any], duration: float) -> float:
@@ -1947,6 +2024,12 @@ class Feed:
     #: диска (:meth:`segment`), считает его своим запасом (:meth:`front`) и переживает на
     #: нём обрыв сети (:meth:`_survive`).
     vault: Any = None
+    #: Когда упаковка в последний раз что-то выложила (:data:`MUTE_SECONDS`).
+    #:
+    #: Часы принадлежат ПОКАЗУ, а не прогону, и это существенно: на молчащем источнике
+    #: прогон перезапускается каждые пару секунд, и часы, привязанные к прогону,
+    #: обнулялись бы вечно - ровно так молчание и оставалось незамеченным.
+    moved: float = field(default_factory=time.monotonic)
     #: Источник не читается (сеть пропала), а прогретое ещё есть: показ идёт с диска и
     #: ждёт возврата сети. Пусто — всё в порядке. Это НЕ :attr:`fatal`: умирать, пока на
     #: диске лежит фильм, нельзя, а молчать об этом — тем более.
@@ -2034,7 +2117,10 @@ class Feed:
             # 100 с. Работает только честный край: он растёт ровно на publish.
             packer.publish()
             if packer.edge >= packer.first:
+                self.moved = time.monotonic()
                 self.offline = ""  # прогон что-то выложил — значит источник снова читается
+            else:
+                self._mute()
             if (self.out / segment_name(slot)).exists():
                 # ⚠️ Кусок допаковался ровно этим `publish` — и это не редкость, а
                 # обычный ход показа: приёмник идёт вплотную за упаковкой и просит
@@ -2073,6 +2159,30 @@ class Feed:
         self.restarted = time.monotonic()
         self.restart(slot)
         return True
+
+    def _mute(self) -> None:
+        """Источник молчит: прогон жив, а не выложил ни куска дольше :data:`MUTE_SECONDS`.
+
+        🔴 Обрыв связи бывает двух видов, и показ знал только один. Оборванный **вход**
+        убивает ffmpeg, и это ловит :meth:`_survive`. А пропавший интернет при живом
+        TorrServer вход не рвёт вовсе: раздача просто перестаёт отдавать байты, ffmpeg
+        висит на чтении, `poll()` возвращает ``None``, и с точки зрения :meth:`_steer` всё
+        в порядке - просто «кусок вот-вот допакуется», раз за разом, вечно.
+
+        Замер на живом Q70D («Тачки 3», интернет в drop): показ доел прогретое на 1:12:35,
+        встал в BUFFERING и **2.5 минуты не сказал ни слова** - ни строки о сети, ни о
+        прогретом, - после чего приёмник сам перегрузил фильм с нуля. Молчаливая смерть с
+        полным диском кино рядом. Отсюда эти часы: молчание дольше срока - такой же обрыв,
+        как и мёртвый ffmpeg, и говорится о нём теми же словами.
+        """
+        if self.vault is None or self.offline:
+            # Без прогретого «молчит» неотличимо от «медленный рой на старте», а идти
+            # показу всё равно некуда: тут работает прежний счёт обрывов, а не часы.
+            return
+        if time.monotonic() - self.moved <= MUTE_SECONDS:
+            return
+        self.offline = f"источник молчит дольше {MUTE_SECONDS:.0f} с"
+        self._say(f"источник не читается ({self.offline}) - иду с прогретого, жду возврата сети")
 
     def _survive(self, packer: Packer) -> bool:
         """Упаковка оборвалась сама: пробуем ещё или сдаёмся честной ошибкой.

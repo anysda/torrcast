@@ -27,6 +27,7 @@ import threading
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
+from functools import partial
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
@@ -548,6 +549,9 @@ def _cmd_worker(key: str) -> int:
             watch,
             receiver=receiver,
             codec=entry.codec,
+            # Прогрев следующей серии впрок: собирается лениво, когда текущая уже на
+            # диске (:meth:`torrcast.warm.Warmer._chain`). Раздача та же, файл - соседний.
+            follow=partial(_next_warmer, config, torrserver, torrent_hash, entry),
         )
         following = _following(key) if watch.done else None
         if following is None:
@@ -1692,6 +1696,88 @@ def _encode_all(config: Config, codec: str, video_mbit: float = 0.0) -> Encode |
     return Encode(preset=FULL_PRESET, mbit=want)
 
 
+def _layout(
+    config: Config, source: str, length: float, codec: str, video_mbit: float, say: Any = None
+) -> tuple[Grid, Encode | None]:
+    """Сетка сегментов и решение «перекодировать файл целиком» - одной парой.
+
+    Отдельной функцией потому, что считать это приходится дважды и обязательно
+    одинаково: один раз показу (:func:`_play`), другой - прогреву следующей серии впрок
+    (:func:`_next_warmer`). Разойдись они хоть в одном знаке после запятой - прогретое
+    легло бы под другим ключом (:func:`torrcast.warm.warm_key`), и показ, ради которого
+    всё грелось, своего же прогретого не нашёл бы.
+
+    Порядок внутри тоже не случаен: сплошной перекод решается ДО сетки, потому что от
+    битрейта перекода зависит вес каждого куска, а значит и то, где сетка ставит границы.
+    """
+    from torrcast.stream import AUDIO_MBIT, TS_OVERHEAD, grid_for
+
+    whole = _encode_all(config, codec, video_mbit)
+    grid = grid_for(
+        source,
+        length,
+        config.hls_segment,
+        config.hls_keyframes,
+        say=say,
+        delivered_mbit=(video_mbit + AUDIO_MBIT) * TS_OVERHEAD if video_mbit > 0 else 0.0,
+        ceiling_mbit=config.recode_mbit if config.recode else 0.0,
+        # Сплошной перекод: вес куска задаём мы сами, карта источника тут не судья.
+        fixed_mbit=(whole.mbit + AUDIO_MBIT) * TS_OVERHEAD if whole is not None else 0.0,
+    )
+    return grid, whole
+
+
+def _next_warmer(config: Config, torrserver: Any, torrent_hash: str, entry: Entry) -> Warmer | None:
+    """Прогрев СЛЕДУЮЩЕЙ серии - тем же механизмом, каким грелась текущая.
+
+    Зовётся лениво и ровно один раз: когда текущая серия уже лежит на диске целиком и
+    больше не нуждается ни в одном байте раздачи (:meth:`torrcast.warm.Warmer._chain`).
+    Раньше этого момента следующая серия не имеет права ни на полосу, ни на процессор.
+
+    ⚠️ Побочный смысл этой сборки не меньше самого прогрева. Автопереход на следующую
+    серию (:func:`_cmd_worker`) начинается с двух вопросов к раздаче: паспорт файла
+    (:func:`probe` - длительность для порога 95 %) и карта опорных кадров
+    (:func:`torrcast.stream.film_keys` - сетка и манифест). Посреди обрыва связи спросить
+    их не у кого, и показ, у которого следующая серия ЛЕЖИТ на диске, всё равно уткнулся
+    бы в мёртвую раздачу. Здесь оба вопроса задаются заранее и оба ложатся в кэш на диск.
+
+    ``None`` - греть нечего: фильм, последняя серия раздачи или запись без списка серий.
+    """
+    from torrcast.recode import RECODE_DIR
+    from torrcast.stream import hls_dir, probe
+
+    following = entry.advance()
+    if following.done or not following.label:
+        return None
+    source = torrserver.stream_url(torrent_hash, following.file_idx)
+    media = probe(source, timeout=WORKER_DUR)
+    video_mbit = max(0.0, media.video_bps / 1e6)
+    grid, whole = _layout(config, source, media.duration, media.video or "", video_mbit)
+    recoder = (
+        None
+        if whole is not None
+        else _recoder(
+            source,
+            following.audio,
+            grid,
+            hls_dir(config.hls_dir) / RECODE_DIR,
+            config,
+            video_mbit=video_mbit,
+        )
+    )
+    title = " ".join(filter(None, (following.title, following.label)))
+    return _warmer(
+        config,
+        source,
+        following.audio,
+        grid,
+        0.0,
+        title,
+        whole=whole,
+        recoder=recoder,
+    )
+
+
 def _warmer(
     config: Config,
     source: str,
@@ -1701,6 +1787,7 @@ def _warmer(
     title: str,
     whole: Any = None,
     recoder: Any = None,
+    follow: Any = None,
 ) -> Warmer | None:
     """Фоновый прогрев всего фильма на диск или ``None``, если он выключен.
 
@@ -1734,6 +1821,7 @@ def _warmer(
         encode=encode,
         began_at=grid.slot_at(start),
         rate=config.warm_rate,
+        follow=follow,
         log=lambda text: print(text, flush=True),
     )
 
@@ -1748,6 +1836,7 @@ def _play(
     duration: float = 0.0,
     receiver: Receiver | None = None,
     codec: str = "",
+    follow: Any = None,
 ) -> int:
     """Упаковка → раздача по http на голом IP → приёмник. Своих демонов нет: и ffmpeg,
     и раздача живут ровно на время показа и гасятся вместе с ним, что бы ни случилось.
@@ -1755,9 +1844,12 @@ def _play(
     Упаковка за показ перезапускается столько раз, сколько человек перемотал: манифест
     обещает приёмнику весь фильм, а :class:`Feed` пакует то место, которое он попросил.
     Раздача, приёмник и LOAD при этом одни на весь показ.
+
+    ``follow`` - чем прогреву заняться, когда эта серия ляжет на диск целиком
+    (:attr:`torrcast.warm.Warmer.follow`); у фильма его нет и быть не может.
     """
     from torrcast.recode import RECODE_DIR
-    from torrcast.stream import AUDIO_MBIT, TS_OVERHEAD, grid_for, hls_base, hls_dir
+    from torrcast.stream import hls_base, hls_dir
 
     out = hls_dir(config.hls_dir)
     start = watch.entry.pos if watch else 0.0
@@ -1775,17 +1867,8 @@ def _play(
     # перекодирует сама упаковка, одним прогоном, и кодировщик тяжёлых кусков не нужен —
     # перекодировать поверх перекода нечего. Решается это ДО сетки: от битрейта перекода
     # зависит вес каждого куска, а значит и то, где сетка поставит границы.
-    whole = _encode_all(config, codec, video_mbit)
-    grid = grid_for(
-        source,
-        length,
-        config.hls_segment,
-        config.hls_keyframes,
-        say=lambda text: print(text, flush=True),
-        delivered_mbit=(video_mbit + AUDIO_MBIT) * TS_OVERHEAD if video_mbit > 0 else 0.0,
-        ceiling_mbit=config.recode_mbit if config.recode else 0.0,
-        # Сплошной перекод: вес куска задаём мы сами, карта источника тут не судья.
-        fixed_mbit=(whole.mbit + AUDIO_MBIT) * TS_OVERHEAD if whole is not None else 0.0,
+    grid, whole = _layout(
+        config, source, length, codec, video_mbit, say=lambda text: print(text, flush=True)
     )
     mark("сетка", сегментов=grid.count, покадрам=grid.on_keys)
     if whole is not None:
@@ -1808,7 +1891,9 @@ def _play(
     )
     # Прогрев поднимается ПОСЛЕ старта показа (ниже), а собирается здесь: ему нужны и
     # сетка, и решение о перекодировании — те же, что у живой упаковки.
-    warmer = _warmer(config, source, audio, grid, start, about, whole=whole, recoder=recoder)
+    warmer = _warmer(
+        config, source, audio, grid, start, about, whole=whole, recoder=recoder, follow=follow
+    )
     feed = Feed(
         source=source,
         audio=audio,
@@ -1949,7 +2034,7 @@ def _hold(
         if warmer is not None:
             # Приоритет живого окна держится ровно здесь: прогрев видит тот же запас, что
             # и сторож приёмника, и на просевшем замирает (:meth:`torrcast.warm.Warmer._throttle`).
-            warmer.slack = feed.front(position.pos) - position.pos
+            warmer.feed(feed.front(position.pos) - position.pos)
             if warmer.done and feed.rest():
                 print("прогрето целиком — живую упаковку гашу, показ идёт с диска", flush=True)
         if time.monotonic() - said >= SAY_SECONDS:
