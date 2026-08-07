@@ -490,9 +490,11 @@ class MockReceiver:
         self._done = threading.Event()
         self._start = 0.0
         self._last = -1
+        self._follower: threading.Thread | None = None
 
     def play(self, url: str, title: str = "", at: float = 0.0) -> None:
         self._probe(url)  # первый ответ проверяем сами: TLS, доступность, CORS
+        self._close_log()  # серия за серией играет один и тот же приёмник: прошлый журнал закрыт
         self._err = tempfile.TemporaryFile()  # noqa: SIM115 — живёт всё воспроизведение
         self._start = at
         # ⚠️ Опции TLS ставятся только под https-адрес: на http ffmpeg не «игнорирует
@@ -510,10 +512,21 @@ class MockReceiver:
                 command, stdout=subprocess.PIPE, stderr=self._err, text=True
             )
         except FileNotFoundError as exc:
+            self._close_log()
             raise InfraError("ffmpeg не установлен") from exc
         self._pos = Position(0.0, 0.0, True)
+        self._follower = None
         for target in (self._follow, self._audit):
-            threading.Thread(target=target, args=(url,), daemon=True).start()
+            thread = threading.Thread(target=target, args=(url,), daemon=True)
+            thread.start()
+            if target is self._follow:
+                self._follower = thread
+
+    def _close_log(self) -> None:
+        """Закрыть журнал ffmpeg. Зовётся с двух сторон, поэтому забирает файл себе."""
+        err, self._err = self._err, None
+        if err is not None:
+            err.close()
 
     def stop(self, quit_app: bool = False) -> None:
         """Снять каст. Приложения у mock нет, поэтому ``quit_app`` ему нечего закрывать —
@@ -524,6 +537,11 @@ class MockReceiver:
             self._proc.terminate()
             with contextlib.suppress(subprocess.TimeoutExpired):
                 self._proc.wait(timeout=5)
+        # Журнал ffmpeg дочитывает :meth:`_follow` - он же его и закроет; ждём его, чтобы
+        # не отнять счёт разрывов, и закрываем сами, если он не дошёл или не заводился.
+        if self._follower is not None:
+            self._follower.join(timeout=5)
+        self._close_log()
         self._pos = Position(self._pos.pos, self._pos.dur, False)
 
     def position(self, front: float = 0.0) -> Position:
@@ -564,9 +582,11 @@ class MockReceiver:
         proc.wait()
         self._done.set()
         self.report.decoded = self._pos.pos
-        if self._err is not None:
-            self._err.seek(0)
-            text = self._err.read().decode("utf-8", "replace")
+        err, self._err = self._err, None
+        if err is not None:
+            with err:
+                err.seek(0)
+                text = err.read().decode("utf-8", "replace")
             self.report.gaps += len(_LOST_RE.findall(text))
         self._pos = Position(self._pos.pos, self._pos.dur, False)
 

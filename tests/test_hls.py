@@ -879,6 +879,43 @@ def test_only_what_the_receiver_has_passed_is_swept_out_of_ram(tmp_path: Path) -
         assert len(list(out.glob("v*.ts"))) == grid.count - edge, "в начале ничего не удаляется"
 
 
+def test_a_long_decision_does_not_hold_up_a_neighbours_ready_segment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Пока один поток раздачи решает, второй ждёт свой файл, а не замок.
+
+    Решение о перезапуске упаковки берёт замок и держит его вместе с пробным прогоном -
+    до минуты по потолку. Сосед, вставший в очередь за замком, всё это время не смотрел
+    бы даже на свой файл: тот появляется, а ответ уходит на минуту позже.
+    """
+    import threading
+
+    out = hls_dir(str(tmp_path / "hls"))
+    grid = Grid.uniform(FILM)
+    feed = Feed(source="", audio=0, out=out, grid=grid, wait=10.0)
+    holding = threading.Event()
+
+    def slow_steer(self: Feed, slot: int) -> bool:
+        holding.set()
+        time.sleep(1.0)  # пробный прогон: 0.5-1.7 с обычно, до 60 с по потолку
+        return True
+
+    monkeypatch.setattr(Feed, "_steer", slow_steer)
+    decider = threading.Thread(target=lambda: feed.segment(0), daemon=True)
+    decider.start()
+    assert holding.wait(timeout=5), "решение так и не началось - тест бессмыслен"
+
+    ready = out / "v7.ts"
+    threading.Timer(0.2, lambda: ready.write_bytes(b"x")).start()
+    began = time.monotonic()
+    found = feed.segment(7)
+    took = time.monotonic() - began
+    decider.join(timeout=5)
+
+    assert found == ready, "готовый сегмент обязан вернуться"
+    assert took < 0.8, f"сосед ждал замок, а не файл: {took:.2f} с при решении на 1.0 с"
+
+
 def test_the_lead_over_the_receiver_is_measurable(tmp_path: Path) -> None:
     """Запас показа — измеряемая величина, а не ощущение.
 
@@ -921,6 +958,37 @@ def test_the_lead_is_counted_from_the_receiver_and_breaks_on_a_hole(tmp_path: Pa
     assert feed.front(5.0) == 5.0, "перед приёмником пусто — запаса нет, что бы ни лежало дальше"
     assert feed.front(grid.start(30)) == grid.end(35), "цепочка обрывается на дырке, а не на 41"
     assert feed.front(grid.start(40)) == grid.end(41), "считаем от приёмника, а не от начала"
+
+
+def test_mock_receiver_closes_its_ffmpeg_log(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Журнал ffmpeg - открытый временный файл, и закрывать его обязан сам приёмник.
+
+    Приёмник живёт весь юнит, а сериал зовёт ``play`` на каждую серию: журнал прошлой
+    оставался открытым до сборки мусора, и ``stop`` его не закрывал вовсе.
+    """
+    import subprocess
+    import tempfile
+
+    from torrcast import InfraError
+    from torrcast.cast import MockReceiver
+
+    receiver = MockReceiver()
+    first = tempfile.TemporaryFile()  # noqa: SIM115 - закрыть его и есть предмет проверки
+    receiver._err = first
+    receiver.stop()
+    assert first.closed and receiver._err is None, "stop не закрыл журнал"
+
+    receiver._err = second = tempfile.TemporaryFile()  # noqa: SIM115 - то же самое
+    monkeypatch.setattr(MockReceiver, "_probe", lambda self, url: None)
+    monkeypatch.setattr(subprocess, "Popen", _no_ffmpeg)
+    with pytest.raises(InfraError):
+        receiver.play("http://127.0.0.1/index.m3u8")
+    assert second.closed, "новый показ бросил журнал прошлого открытым"
+    assert receiver._err is None, "ffmpeg не запустился - журнал не за кем держать"
+
+
+def _no_ffmpeg(*args: Any, **kwargs: Any) -> Any:
+    raise FileNotFoundError("ffmpeg")
 
 
 def test_a_real_ca_signed_cert_is_verified_against_the_system_store(
@@ -1044,6 +1112,71 @@ def test_an_old_key_cache_without_offsets_still_builds_the_grid(tmp_path: Path) 
     found = _read_keys(cache)
     assert found is not None and found.at == [0.0, 10.0, 20.0]
     assert found.offset == [] and found.byte_at(15.0) == 0
+
+
+def test_the_key_lock_stays_alive_while_its_holder_works(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Замок карты живёт по mtime - значит, пока его держат, mtime обязан идти вперёд.
+
+    Иначе сосед, заглянувший на середине долгого разбора, увидит протухший замок и полезет
+    читать тот же хвост вторым потоком: ровно то, ради чего замок и заведён.
+    """
+    import torrcast.keymap as keymap_module
+    from torrcast import stream as stream_module
+    from torrcast.stream import _fetching, _keys_cache, film_keys
+
+    monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
+    monkeypatch.setattr(stream_module, "KEYS_LOCK", 0.3)  # 60 с в проде: столько не ждём
+    url = "http://127.0.0.1:8090/stream?link=hash&index=1"
+    lock = _keys_cache(url).with_suffix(".lock")
+    alive: list[bool] = []
+
+    def slow_keyframes(_: str) -> Any:
+        for _tick in range(6):  # 0.6 с работы против 0.3 с жизни замка
+            time.sleep(0.1)
+            alive.append(_fetching(lock))
+        return keymap_module.KeyMap(60.0, (keymap_module.Point(0.0, 0, 0),), 0, 0, "mkv")
+
+    monkeypatch.setattr(keymap_module, "keyframes", slow_keyframes)
+    film_keys(url)
+    assert all(alive), f"замок протух под работающим читателем: {alive}"
+    assert not lock.exists(), "замок обязан сниматься после записи кэша"
+
+
+def test_two_writers_of_one_key_map_do_not_share_a_draft(tmp_path: Path) -> None:
+    """Черновик кэша карты - файл на писателя, а не на URL.
+
+    Замок на карту берётся не всегда (протух, каталог только для чтения), и два писателя
+    на одно имя пишут вперемешку: наружу уехала бы склейка двух половин.
+    """
+    import threading
+
+    from torrcast.stream import _keys_draft
+
+    cache = tmp_path / "abcdef0123456789.json"
+    drafts: list[Path] = []
+    # ⚠️ Писатели обязаны быть живы ОДНОВРЕМЕННО: разойдись они по времени - и номер
+    # потока переиспользуется, а вместе с ним и имя. Развести надо ровно тех, кто пишет
+    # вперемешку, и барьер держит в тесте именно этот случай.
+    gate = threading.Barrier(2)
+
+    def draft() -> None:
+        gate.wait(timeout=5)
+        drafts.append(_keys_draft(cache))
+        gate.wait(timeout=5)
+
+    writers = [threading.Thread(target=draft) for _ in range(2)]
+    for writer in writers:
+        writer.start()
+    for writer in writers:
+        writer.join(timeout=10)
+
+    assert len(set(drafts)) == 2, f"два писателя взяли одно имя: {drafts}"
+    for draft in [*drafts, _keys_draft(cache)]:
+        assert draft != cache and draft.name.endswith(".tmp")
+        assert draft.parent == cache.parent, "черновик кладётся рядом: replace атомарен в одной fs"
+
 
 
 def test_the_head_warmed_under_the_question_is_sized_by_the_container(

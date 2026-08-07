@@ -707,8 +707,11 @@ def _both_languages(
     for twin in twins:
         if not twin or twin == key:
             continue
-        items += [p for p in groups.get(twin, []) if id(p) not in seen]
-        seen |= {id(p) for p in items}
+        # ⚠️ В `seen` уходят только новички: пересчёт по всему списку стоил бы прохода на
+        # каждого близнеца, то есть квадрата по числу картин на ровном месте.
+        fresh = [p for p in groups.get(twin, []) if id(p) not in seen]
+        items += fresh
+        seen |= {id(p) for p in fresh}
     items.sort(key=lambda p: (p.year is None, p.year or 0, p.part or 99, -len(p.releases)))
     return items
 

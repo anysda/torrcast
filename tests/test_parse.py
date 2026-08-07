@@ -390,6 +390,46 @@ def test_moana_franchise_is_shown_in_both_languages() -> None:
         assert [p.year for p in found] == [2016, 2024], query
 
 
+def test_a_franchise_of_twins_costs_one_pass_not_a_square(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Сборка франшизы из двух языков линейна по числу картин, а не квадратична.
+
+    Каждая картина с оригинальным названием даёт свой ключ-близнец, и пересчёт «кого уже
+    взяли» по всему списку на каждого из них стоил прохода на близнеца. Живая выдача
+    Knaben - сотни релизов, и платить за это квадратом не за что.
+    """
+    import builtins
+
+    from torrcast.parse import _both_languages
+
+    size = 200
+    groups = {"дюна": [_picture("Дюна", 2021)]}
+    aliases = {}
+    for number in range(size):  # каждая часть подписана своей латиницей: свой ключ-близнец
+        twin = f"dune-{number}"
+        groups[twin] = [_picture(f"Дюна {number}", 1900 + number, original=f"Dune {number}")]
+        aliases[twin] = "дюна"
+
+    counted = 0
+    real_id = builtins.id
+
+    def counting_id(obj: object) -> int:
+        nonlocal counted
+        counted += 1
+        return real_id(obj)
+
+    monkeypatch.setattr(builtins, "id", counting_id)
+    found = _both_languages(groups, aliases, "дюна")
+    monkeypatch.undo()
+
+    assert len(found) == size + 1, "все близнецы обязаны попасть во франшизу"
+    assert [p.year for p in found][:2] == [1900, 1901], "порядок франшизы прежний - по годам"
+    assert counted < 6 * size, f"проход по списку на каждого близнеца: {counted} на {size} картин"
+
+
+def _picture(title: str, year: int, original: str | None = None) -> Picture:
+    return Picture(title=title, year=year, original=original, releases=[])
+
+
 #: Имена, у которых старьё написано на лбу: кодек MPEG-4, контейнер или SD-источник.
 DATED_NAMES = (
     "Матрица / The Matrix (1999) DVDRip XviD AC3 Дубляж",

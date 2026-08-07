@@ -958,6 +958,22 @@ def _fetching(lock: Path) -> bool:
     return False
 
 
+def _keys_draft(cache: Path) -> Path:
+    """Черновик кэша карты - свой у каждого писателя.
+
+    Замок на карту берётся не всегда (протух, каталог только для чтения), а на одно имя
+    два писателя пишут вперемешку - и ``replace`` выложил бы наружу склейку двух половин.
+    """
+    return cache.with_suffix(f".{os.getpid()}-{threading.get_ident()}.tmp")
+
+
+def _hold_keys_lock(lock: Path, done: threading.Event) -> None:
+    """Держать замок карты живым, пока его хозяин работает: трогать mtime до ``done``."""
+    while not done.wait(KEYS_LOCK / 3):
+        with contextlib.suppress(OSError):
+            lock.touch()
+
+
 def film_keys(source_url: str) -> FilmKeys:
     """Карта опорных кадров видео: из кэша или из индекса контейнера (:mod:`torrcast.keymap`).
 
@@ -982,6 +998,13 @@ def film_keys(source_url: str) -> FilmKeys:
         lock.parent.mkdir(parents=True, exist_ok=True)
         lock.touch()
     mark("карта: чтение")
+    # Замок живёт по mtime (:func:`_fetching`), поэтому его надо освежать, пока держим:
+    # чтение хвоста у холодного роя стоит 2-6 с, но разбор карты добавляет к ним секунды,
+    # и на длинном фильме замок протух бы прямо под работающим читателем - а сосед,
+    # увидевший протухший замок, полез бы читать тот же хвост вторым потоком.
+    holding = threading.Event()
+    keeper = threading.Thread(target=_hold_keys_lock, args=(lock, holding), daemon=True)
+    keeper.start()
     # ⚠️ Замок снимается не после чтения, а после **записи кэша**: между ними лежит разбор
     # карты, и сосед, отпущенный раньше времени, кэша ещё не увидит и полезет читать хвост
     # сам. Ровно так холодный старт платил разбор дважды (замер: CLI и юнит
@@ -1002,16 +1025,20 @@ def film_keys(source_url: str) -> FilmKeys:
         )
         with contextlib.suppress(OSError):
             cache.parent.mkdir(parents=True, exist_ok=True)
-            tmp = cache.with_suffix(".tmp")
+            tmp = _keys_draft(cache)
             body = {
                 "duration": ready.duration,
                 "keys": ready.at,
                 "bytes": ready.offset,
                 "kind": ready.kind,
             }
-            tmp.write_text(json.dumps(body), "utf-8")
-            tmp.replace(cache)
+            try:
+                tmp.write_text(json.dumps(body), "utf-8")
+                tmp.replace(cache)
+            finally:  # своё имя не должно превратиться в свой же мусор на полке
+                tmp.unlink(missing_ok=True)
     finally:
+        holding.set()
         with contextlib.suppress(OSError):
             lock.unlink(missing_ok=True)
     return ready
@@ -1852,17 +1879,28 @@ class Feed:
         Зовётся из потоков раздачи, поэтому решение о перезапуске упаковки принимается
         под замком: после перемотки приёмник просит несколько сегментов одновременно, и
         перезапустить упаковку должен ровно первый из них.
+
+        ⚠️ Замок берётся без ожидания. Внутри решения лежит пробный прогон
+        (:func:`pack_start`), до минуты по потолку, и сосед, вставший в очередь за
+        замком, всё это время не смотрел бы даже на свой файл: тот успевает появиться,
+        а ответ уходит на минуту позже. Занятый замок значит ровно «решение уже
+        принимают», и правильный ход тут - ждать файл, а не очередь.
         """
         path = self.out / segment_name(slot)
         deadline = time.monotonic() + self.wait
         while True:
             if path.exists():
                 return path
-            with self.lock:
-                hope = self._steer(slot)
-            if path.exists():
-                return path
-            if not hope or time.monotonic() >= deadline:
+            if self.lock.acquire(blocking=False):
+                try:
+                    hope = self._steer(slot)
+                finally:
+                    self.lock.release()
+                if path.exists():
+                    return path
+                if not hope:
+                    return None
+            if time.monotonic() >= deadline:
                 return None
             time.sleep(0.2)
 
