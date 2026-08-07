@@ -147,7 +147,11 @@ def test_warming_lays_the_whole_clip_on_disk_and_reports_it(clip: str, tmp_path:
     grid = _grid()
     vault = _vault(tmp_path)
     said: list[str] = []
-    warmer = Warmer(source=clip, audio=0, grid=grid, vault=vault, rate=0.0, log=said.append)
+    # Запас показа тут никто не меряет: прогрев проверяется сам по себе, без живой
+    # упаковки рядом, — поэтому сразу отдаём ему «запас есть» (:meth:`Warmer._wait_for_picture`).
+    warmer = Warmer(
+        source=clip, audio=0, grid=grid, vault=vault, rate=0.0, slack=1e6, log=said.append
+    )
     warmer.start()
     deadline = time.monotonic() + 120
     while not warmer.done and time.monotonic() < deadline:
