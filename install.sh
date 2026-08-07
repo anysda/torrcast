@@ -57,7 +57,16 @@ INDEXERS=(
 # а один такой индексер задерживает весь поиск. Трекеры с логином, капчей или ключом
 # сюда не попадают ни при каких условиях.
 
-PHASES="${TORRCAST_PHASES:-packages torrcast torrserver sources prowlarr indexers config hls}"
+PHASES="${TORRCAST_PHASES:-packages torrcast torrserver sources prowlarr indexers config hls facts}"
+
+# Выгрузка оценок IMDb под справку в меню франшизы (torrcast/facts.py). Открытая,
+# без ключа и регистрации, обновляется у них ежедневно; 8.6 МБ в архиве.
+IMDB_RATINGS_URL="${TORRCAST_IMDB_RATINGS_URL:-https://datasets.imdbws.com/title.ratings.tsv.gz}"
+IMDB_RATINGS_PATH="${TORRCAST_IMDB_RATINGS_PATH:-/var/lib/torrcast/imdb-ratings.tsv}"
+# Ниже скольких голосов оценку не берём. Не вкусовщина, а размер: с порогом файл
+# худеет с 30 МБ до 2 (106 тысяч строк вместо полутора миллионов), а всё, что человек
+# станет искать в торрентах, набирает тысячи голосов с запасом.
+IMDB_MIN_VOTES="${TORRCAST_IMDB_MIN_VOTES:-1000}"
 
 # Источники, которые домашний канал может резать (см. фазу `sources`).
 PL_DEFS_URL="${TORRCAST_PL_DEFS_URL:-https://indexers.prowlarr.com/master/11}"
@@ -756,6 +765,34 @@ setup_hls() {
     info "⚠ живому ТВ нужен серт LE: Chromecast self-signed молча не играет"
 }
 
+setup_facts() {
+    log "справка к меню: оценки IMDb ($IMDB_RATINGS_PATH)"
+    install -d -m 0755 "$(dirname "$IMDB_RATINGS_PATH")"
+    # Свежее суток не перекачиваем: выгрузка обновляется раз в день, а качать 8.6 МБ
+    # на каждый прогон установщика незачем.
+    if [ -s "$IMDB_RATINGS_PATH" ] && [ -z "$(find "$IMDB_RATINGS_PATH" -mtime +0)" ]; then
+        skip "$IMDB_RATINGS_PATH ($(wc -l < "$IMDB_RATINGS_PATH") оценок)"
+        return
+    fi
+    local tmp="$IMDB_RATINGS_PATH.part"
+    # Справка - украшение, а не механизм показа: не скачалось, режется по имени, нет
+    # сети - установка идёт дальше, а меню просто печатается без рейтинга.
+    if ! curl -fsSL --max-time 120 "$IMDB_RATINGS_URL" -o "$tmp.gz"; then
+        rm -f "$tmp.gz"
+        info "выгрузка IMDb не скачалась - меню будет без рейтинга, на показ не влияет"
+        return
+    fi
+    if ! gzip -dc "$tmp.gz" | awk -F'\t' -v min="$IMDB_MIN_VOTES" \
+        'NR==1 || $3+0 >= min { print $1 "\t" $2 "\t" $3 }' > "$tmp"; then
+        rm -f "$tmp" "$tmp.gz"
+        info "выгрузка IMDb битая - меню будет без рейтинга, на показ не влияет"
+        return
+    fi
+    mv "$tmp" "$IMDB_RATINGS_PATH"
+    rm -f "$tmp.gz"
+    info "оценок: $(wc -l < "$IMDB_RATINGS_PATH") (от $IMDB_MIN_VOTES голосов)"
+}
+
 main() {
     need_root
     has packages   && install_packages
@@ -766,6 +803,7 @@ main() {
     has indexers   && install_indexers
     has config     && setup_config
     has hls        && setup_hls
+    has facts      && setup_facts
     log "готово. Осталось: cast --tv <ip-телевизора>"
 }
 
