@@ -10,7 +10,8 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from torrcast import console
+from torrcast import cli, console
+from torrcast.facts import Origin
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -21,6 +22,16 @@ if TYPE_CHECKING:
 #: сегментов: на сетке 10 с двадцатисекундный ролик — это всего два сегмента,
 #: и «продолжить с середины» на нём проверять уже нечего.
 CLIP_SECONDS = 60
+
+
+@pytest.fixture(autouse=True)
+def _silent_facts(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Справка молчит, пока тест не попросит обратного.
+
+    Тесты в сеть не ходят - ни за справкой, ни за чем-либо ещё. Заодно это и есть штатный
+    случай «сети нет»: путь добора обязан работать и без справки.
+    """
+    monkeypatch.setattr(cli, "origin", lambda title, series=False: Origin())
 
 
 @pytest.fixture(autouse=True)

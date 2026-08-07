@@ -27,6 +27,13 @@
   сматчить картину и взять хронометраж совсем без сети, но 745 МБ на установку ради
   двух строк в меню несоразмерны. ``title.ratings`` — 8.6 МБ, и это уже терпимо.
 
+**Второй потребитель — поиск.** :func:`origin` спрашивает у той же статьи паспорт
+картины: оригинальное название латиницей и год выпуска. Это чинит сразу две беды добора
+(:func:`~torrcast.parse.alt_query`): оригинал перестаёт зависеть от того, попал ли он в
+первую выдачу («Кингсман: Секретная служба» → ``Kingsman: The Secret Service`` вместо
+транслита в никуда), а год становится опорой гейта, который не даёт добору молча
+подменить картину чужой одноимённой. Сеть молчит — паспорт пуст, и поиск идёт как шёл.
+
 **Меню справку не ждёт.** Всё это тянется фоном (:meth:`Facts.start`), пока
 прогреваются раздачи, а :meth:`Facts.get` отдаёт то, что успело приехать к
 :data:`FACTS_BUDGET`. Не успело, сеть отрезана, Википедия легла — меню печатается ровно
@@ -36,6 +43,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import http.client
 import json
 import re
@@ -48,10 +56,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final
 from urllib.parse import urlencode
 
+from torrcast.parse import slugify, transliterate
+
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
-__all__ = ["CACHE_PATH", "RATINGS_PATH", "Fact", "Facts", "titles_for"]
+__all__ = ["CACHE_PATH", "RATINGS_PATH", "Fact", "Facts", "Origin", "origin", "titles_for"]
 
 #: Выгрузка IMDb ``title.ratings.tsv``: ``tconst<TAB>рейтинг<TAB>голоса``. Кладёт и
 #: обновляет `install.sh`; нет файла — просто не будет рейтинга.
@@ -74,7 +84,29 @@ _WIKIDATA_PATH: Final = "/sparql"
 _EXLIMIT: Final = 20
 #: Уточнения в скобках, которыми русская Википедия разводит одноимённые статьи.
 #: «Моана» — это страница значений, а мультфильм лежит под «Моана (мультфильм)».
-_QUALIFIERS: Final = ("", " (мультфильм)", " (фильм)", " (мультфильм, {year})", " (фильм, {year})")
+_QUALIFIERS: Final = (
+    "",
+    " (мультфильм)",
+    " (фильм)",
+    " (телесериал)",
+    " (мультфильм, {year})",
+    " (фильм, {year})",
+)
+#: Как русская Википедия подписывает оригинальное название: «(англ. Kingsman: The Secret
+#: Service)». Язык любой — важно, что перед названием стоит его сокращение с точкой.
+_ORIGINAL_RE: Final = re.compile(r"\(\s*(?:[а-яё]{2,12}\.\s*)+([^)]+)\)")
+#: Год выпуска из паспортной фразы статьи: «…комедийный боевик 2014 года». Именно «года»,
+#: а не первое попавшееся число: у фильма «1917» первым в тексте стоит его название.
+_YEAR_RE: Final = re.compile(r"\b(1[89]\d{2}|20\d{2})\s+года")
+#: Про кино ли статья вообще. «Восхождение» — это ещё и альпинизм, а «Матрица» — таблица.
+#: Франшиза сюда входит намеренно: у «Кингсмана» отдельной статьи о первой части нет,
+#: а имя франшизы — ровно то, которым её подписывают индексеры.
+_CINEMA_RE: Final = re.compile(r"фильм|сериал|кинокартин|аниме|франшиз", re.IGNORECASE)
+#: Кириллица в заголовке: по ней видно, годится ли он сам как оригинальное название.
+_CYRILLIC: Final = re.compile(r"[а-яё]", re.IGNORECASE)
+#: Сколько статей смотрим в выдаче поиска Википедии. Нужная лежит в первых строках;
+#: глубже идут актёры и саундтреки, и они только тянут ответ.
+_SEARCH_HITS: Final = 6
 
 
 class _IPv4Connection(http.client.HTTPSConnection):
@@ -176,6 +208,139 @@ def confirms(extract: str, year: int | None) -> bool:
     строка честнее чужого фильма.
     """
     return year is not None and bool(re.search(rf"\b{year}\b", extract))
+
+
+@dataclass(frozen=True, slots=True)
+class Origin:
+    """Паспорт картины по справке: как она называется в оригинале и какого она года.
+
+    Оба поля необязательны и означают ровно то, что сказано. Пустой ``title`` — у картины
+    нет названия латиницей (советское и российское кино), а не «мы не нашли»: добирать
+    латиницей такую картину нечем и не нужно. Пустой ``year`` — статью опознать не
+    удалось; тогда гейт добора сверяет годы по самой выдаче, как умеет.
+    """
+
+    title: str = ""
+    year: int | None = None
+
+    def __bool__(self) -> bool:
+        return bool(self.title or self.year)
+
+
+def origin(title: str, series: bool = False, budget: float = FACTS_BUDGET) -> Origin:
+    """Паспорт картины из Википедии. Жёсткий потолок по времени и кэш на диске.
+
+    Зовётся только на тощей выдаче, то есть там, где поиск и так собирается идти на
+    второй круг по индексерам (1-3 с). Полторы секунды потолка на его фоне не видны, а
+    счастливый путь сюда не заходит вовсе.
+
+    ⚠️ Год выдачи сюда НЕ передаётся, и это принципиально: паспорт нужен гейту как
+    независимое мнение. Подсказали бы год - справка послушно нашла бы статью под него, и
+    сверять после этого было бы нечего: на «Восхождении» с подсказкой ``2019`` она
+    уверенно приносила «Hannibal Rising», а без подсказки честно отвечает «1976».
+
+    Молчание сети стоит ровно :attr:`budget`: запрос живёт в отдельном потоке, и залипший
+    сокет держит не поиск, а демона, который умрёт вместе с процессом. Любая ошибка -
+    пустой паспорт: справка не вправе ни ронять поиск, ни задерживать его сверх обещанного.
+    """
+    stored = _cached_origin(title, series)
+    if stored is not None:
+        return stored
+    box: list[Origin] = []
+
+    def work() -> None:
+        with contextlib.suppress(Exception):
+            box.append(origin_now(title, series, min(HTTP_TIMEOUT, budget)))
+
+    thread = threading.Thread(target=work, daemon=True)
+    thread.start()
+    thread.join(budget)
+    found = box[0] if box else Origin()
+    if found:
+        _remember_origin(title, series, found)
+    return found
+
+
+def origin_now(title: str, series: bool = False, timeout: float = HTTP_TIMEOUT) -> Origin:
+    """Синхронный поход за паспортом. Неудача — исключение, его ловит :func:`origin`.
+
+    Два шага, и второй — только если первый промахнулся. Прямая выборка по именам
+    (:func:`titles_for`) дешевле и точнее, ею и закрывается большинство: «Психо», «Печать
+    зла», «Дедвуд (телесериал)» лежат ровно там, где их и ждёшь. Но не все: «Восхождение»
+    голым именем — страница значений, а «Кингсман: Секретная служба» на ru.wikipedia
+    подписана латиницей («Kingsman: Секретная служба»), и никаким перебором уточнений в
+    неё не попасть. Тогда спрашиваем поиском самой Википедии — он эти случаи и разводит.
+    """
+    kind = "сериал" if series else "фильм"
+    names = titles_for(title, None)
+    if series:  # у сериала своя статья, и лежит она под своим уточнением
+        names.sort(key=lambda name: "сериал" not in name)
+    hops, pages = _pages(get_json(_WIKI_HOST, _WIKI_PATH, _extract_params(names), {}, timeout))
+    found = read_origin([_article(name, hops, pages) for name in names], title)
+    if found:
+        return found
+    payload = get_json(_WIKI_HOST, _WIKI_PATH, _search_params(f"{title} {kind}"), {}, timeout)
+    return read_origin(_ranked(payload), title)
+
+
+def read_origin(pages: list[Any], title: str) -> Origin:
+    """Статьи-кандидаты → паспорт. Побеждает первая, которая про кино и про то самое.
+
+    Два условия, и оба нужны. Статья про кино — «Восхождение» это ещё и альпинизм, а
+    «Матрица» — таблица. Заголовок про то же, что спросили (:func:`akin`) — поиск честно
+    приносит и однофамильцев, и актёров той же картины.
+
+    Название латиницей берётся из скобки в первой фразе, а если её нет — из самого
+    заголовка статьи: франшиза «Kingsman» так и подписана, и это ровно то имя, которым
+    её ищут индексеры.
+    """
+    for page in pages:
+        if page is None:
+            continue
+        heading = str(page.get("title") or "")
+        extract = str(page.get("extract") or "")
+        if not _CINEMA_RE.search(f"{heading} {extract}") or not akin(title, heading):
+            continue
+        seen = _YEAR_RE.search(extract)
+        latin = latin_title(extract) or ("" if _CYRILLIC.search(heading) else heading)
+        found = Origin(title=latin, year=int(seen.group(1)) if seen else None)
+        if found:
+            return found
+    return Origin()
+
+
+def akin(title: str, heading: str) -> bool:
+    """Про то же ли это, что спросили: заголовок статьи против запроса.
+
+    Уточнение в скобках отбрасывается («Восхождение (фильм, 1976)» → «Восхождение»), а
+    запрос сверяется и как есть, и латиницей: статья про «Кингсман» называется
+    ``Kingsman``, и по-русски её заголовок не узнать.
+
+    ⚠️ Сверяется НАЧАЛО имени, а не вхождение куда попало. «Ганнибал: Восхождение» тоже
+    содержит слово «восхождение», и на вхождении справка уверенно выдавала его паспорт за
+    паспорт фильма Шепитько - то есть ровно ту подмену, которую и должна ловить.
+    """
+    base = slugify(heading.split(" (")[0])
+    return bool(base) and any(
+        want and (want == base or want.startswith(f"{base}-") or base.startswith(f"{want}-"))
+        for want in (slugify(title), slugify(transliterate(title)))
+    )
+
+
+def latin_title(extract: str) -> str:
+    """Оригинальное название из первой фразы статьи; нет латиницы — пустая строка.
+
+    Русская Википедия открывает статью о зарубежном кино скобкой с языком оригинала:
+    «Кингсман: Секретная служба» (англ. Kingsman: The Secret Service). Скобок в фразе
+    бывает несколько, и не все они про название — «(род. 1950)» у режиссёра тоже скобка
+    с сокращением, поэтому годится лишь та, внутри которой латиница и нет кириллицы.
+    Хвост после запятой отрезается: там лежит дословный перевод, а не имя раздачи.
+    """
+    for match in _ORIGINAL_RE.finditer(extract):
+        name = re.split(r"[,;]", match.group(1))[0].strip(" «»\"'")
+        if re.search(r"[A-Za-z]", name) and not re.search(r"[А-Яа-яЁё]", name):
+            return name
+    return ""
 
 
 def shorten(extract: str, limit: int) -> str:
@@ -306,9 +471,16 @@ def wiki_extracts(
         for key in wanted:
             if depth < len(candidates[key]) and len(names) < _EXLIMIT:
                 names.append(candidates[key][depth])
-    params = {
+    return _read_pages(
+        get_json(_WIKI_HOST, _WIKI_PATH, _extract_params(names), {}, timeout), candidates
+    )
+
+
+def _extract_params(names: list[str]) -> dict[str, str]:
+    """Один запрос за первыми фразами сразу нескольких статей и их Q-идентификаторами."""
+    return {
         "action": "query",
-        "titles": "|".join(names),
+        "titles": "|".join(names[:_EXLIMIT]),
         "redirects": "1",
         "prop": "extracts|pageprops",
         "ppprop": "disambiguation|wikibase_item",
@@ -319,7 +491,6 @@ def wiki_extracts(
         "format": "json",
         "formatversion": "2",
     }
-    return _read_pages(get_json(_WIKI_HOST, _WIKI_PATH, params, {}, timeout), candidates)
 
 
 def _read_pages(
@@ -331,31 +502,63 @@ def _read_pages(
     по перенаправлениям, и «Моана (мультфильм)» вполне может ответить статьёй с другим
     заголовком. Обратный путь API отдаёт сам, списками ``normalized`` и ``redirects``.
     """
+    hops, pages = _pages(payload)
+    about: dict[tuple[str, int | None], str] = {}
+    entities: dict[tuple[str, int | None], str] = {}
+    for key, names in candidates.items():
+        for name in names:
+            page = _article(name, hops, pages)
+            if page is None:
+                continue
+            extract = page.get("extract") or ""
+            if not confirms(extract, key[1]):
+                continue
+            about[key] = extract
+            props = page.get("pageprops") or {}
+            if props.get("wikibase_item"):
+                entities[key] = props["wikibase_item"]
+            break
+    return about, entities
+
+
+def _search_params(query: str) -> dict[str, str]:
+    """Тот же запрос, но статьи выбирает поиск Википедии, а не мы перебором имён."""
+    return {
+        **_extract_params([]),
+        "titles": "",
+        "generator": "search",
+        "gsrsearch": query,
+        "gsrlimit": str(_SEARCH_HITS),
+        "gsrnamespace": "0",
+    }
+
+
+def _ranked(payload: Any) -> list[Any]:
+    """Найденные статьи в порядке выдачи поиска; страницы значений сюда не попадают."""
+    _hops, pages = _pages(payload)
+    out = [page for page in pages.values() if "disambiguation" not in (page.get("pageprops") or {})]
+    return sorted(out, key=lambda page: int(page.get("index") or _SEARCH_HITS))
+
+
+def _pages(payload: Any) -> tuple[dict[str, str], dict[str, Any]]:
+    """Ответ Википедии → (обратный путь имён, статьи по заголовку)."""
     query = payload.get("query", {}) if isinstance(payload, dict) else {}
     hops: dict[str, str] = {}
     for kind in ("normalized", "redirects"):
         for hop in query.get(kind, []) or []:
             hops[hop.get("from", "")] = hop.get("to", "")
-    pages = {page.get("title", ""): page for page in query.get("pages", []) or []}
-    about: dict[tuple[str, int | None], str] = {}
-    entities: dict[tuple[str, int | None], str] = {}
-    for key, names in candidates.items():
-        for name in names:
-            seen = name
-            for _ in range(3):  # нормализация, затем перенаправление; больше не бывает
-                seen = hops.get(seen, seen)
-            page = pages.get(seen)
-            props = (page or {}).get("pageprops") or {}
-            extract = (page or {}).get("extract") or ""
-            if not page or page.get("missing") or "disambiguation" in props:
-                continue
-            if not confirms(extract, key[1]):
-                continue
-            about[key] = extract
-            if props.get("wikibase_item"):
-                entities[key] = props["wikibase_item"]
-            break
-    return about, entities
+    return hops, {page.get("title", ""): page for page in query.get("pages", []) or []}
+
+
+def _article(name: str, hops: dict[str, str], pages: dict[str, Any]) -> Any:
+    """Статья по запрошенному имени; страница значений и пустышка статьёй не считаются."""
+    seen = name
+    for _ in range(3):  # нормализация, затем перенаправление; больше не бывает
+        seen = hops.get(seen, seen)
+    page = pages.get(seen)
+    if not page or page.get("missing") or "disambiguation" in (page.get("pageprops") or {}):
+        return None
+    return page
 
 
 def wikidata_ids(items: list[str], timeout: float) -> dict[str, tuple[str, int]]:
@@ -395,14 +598,49 @@ def _key(title: str, year: int | None) -> str:
     return f"{title}|{year if year is not None else ''}"
 
 
-def _cached(wanted: list[tuple[str, int | None]]) -> dict[tuple[str, int | None], Fact]:
-    """Что уже лежит на диске. Битый кэш — как пустой: перечитаем из сети."""
+def _origin_key(title: str, series: bool) -> str:
+    """Паспорта лежат в том же файле, что и справка, но в своём ряду ключей."""
+    return f"origin|{'tv' if series else 'movie'}|{title}"
+
+
+def _read_cache() -> dict[str, Any]:
+    """Кэш с диска. Битый или отсутствующий — пустой: перечитаем из сети."""
     try:
         raw = json.loads(CACHE_PATH.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {}
-    if not isinstance(raw, dict):
-        return {}
+    return raw if isinstance(raw, dict) else {}
+
+
+def _write_cache(raw: dict[str, Any]) -> None:
+    """Дописать кэш. Не вышло записать — молчим: это не путь показа."""
+    try:
+        CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        tmp = CACHE_PATH.with_suffix(".tmp")
+        tmp.write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
+        tmp.replace(CACHE_PATH)
+    except OSError:
+        pass
+
+
+def _cached_origin(title: str, series: bool) -> Origin | None:
+    """Что лежит в кэше. ``None`` — не спрашивали; пустой паспорт — спрашивали, нет его."""
+    row = _read_cache().get(_origin_key(title, series))
+    if not isinstance(row, dict):
+        return None
+    shown = row.get("year")
+    return Origin(title=str(row.get("title", "")), year=shown if isinstance(shown, int) else None)
+
+
+def _remember_origin(title: str, series: bool, found: Origin) -> None:
+    raw = _read_cache()
+    raw[_origin_key(title, series)] = {"title": found.title, "year": found.year}
+    _write_cache(raw)
+
+
+def _cached(wanted: list[tuple[str, int | None]]) -> dict[tuple[str, int | None], Fact]:
+    """Что уже лежит на диске. Битый кэш — как пустой: перечитаем из сети."""
+    raw = _read_cache()
     out: dict[tuple[str, int | None], Fact] = {}
     for key in wanted:
         row = raw.get(_key(*key))
@@ -419,18 +657,7 @@ def _remember(found: dict[tuple[str, int | None], Fact]) -> None:
     """Дописать найденное в кэш. Не вышло записать — молчим: это не путь показа."""
     if not found:
         return
-    try:
-        raw = json.loads(CACHE_PATH.read_text(encoding="utf-8"))
-        if not isinstance(raw, dict):
-            raw = {}
-    except (OSError, ValueError):
-        raw = {}
+    raw = _read_cache()
     for key, fact in found.items():
         raw[_key(*key)] = {"about": fact.about, "rating": fact.rating, "runtime": fact.runtime}
-    try:
-        CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
-        tmp = CACHE_PATH.with_suffix(".tmp")
-        tmp.write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
-        tmp.replace(CACHE_PATH)
-    except OSError:
-        pass
+    _write_cache(raw)

@@ -40,17 +40,19 @@ from torrcast import (
 )
 from torrcast.cast import ChromecastReceiver, Receiver, make_receiver
 from torrcast.console import Progress, ask, ask_line, terminal
-from torrcast.facts import Fact, Facts, shorten
+from torrcast.facts import Fact, Facts, Origin, origin, shorten
 from torrcast.parse import (
     VIDEO_EXT,
     Episode,
     EpisodeFile,
     Picture,
     Release,
+    franchise_key,
     map_episodes,
     slugify,
     split_episode,
     split_franchise_index,
+    transliterate,
 )
 from torrcast.recode import FULL_FLOOR, FULL_GAIN, FULL_PRESET, Encode, Recoder
 from torrcast.search import Prowlarr, RawResult, merge, to_releases
@@ -811,18 +813,39 @@ def _second_language(
     Выдачи склеиваются, а не заменяются: русские имена несут озвучки и оригинал, по
     которому кластер и сшивает оба языка в одну картину. Если добор ничего не дал или
     картину после него не нашли, остаётся прежний результат - хуже стать не может.
+
+    🔴 **Гейт: добор не вправе подменить картину.** Русское имя картину не определяет.
+    «Восхождение» - это и фильм Шепитько 1977 года, и китайский 2019-го, подписанный
+    тем же словом; оригинал ``The Climbers`` лежал прямо в русской выдаче, добор
+    переспрашивал им и приносил два десятка раздач чужого кино с дорожкой ``und``.
+    Раздач становилось больше, прежней проверке этого хватало, и человек молча получал
+    не тот фильм. Поэтому мало «стало больше» - сверяется САМА КАРТИНА:
+
+    * год у справки (:func:`~torrcast.facts.origin`) - она отвечает про ту картину, что
+      спросили, и её слово сильнее выдачи;
+    * год картины, за которой шли ДО добора, - если справки нет, годится и он;
+    * франшиза - когда года не назвал никто.
+
+    Расхождение или сомнение - добора не было. Честное «не нашлось» лучше чужого фильма,
+    и это не перестраховка: подмену видно только по году, потому что кластер сшивает
+    одноимённые картины в одну франшизу и «стало больше» у неё выходит честным.
     """
     from torrcast.parse import alt_query, cluster, pick_franchise
 
     name, index = split_franchise_index(query)
     pool = [r for p in found for r in p.releases] or to_releases(raw)
-    alt = alt_query(name, pool)
+    lead = _leading(found)
+    # Справку спрашиваем вслепую: год выдачи ей не сообщаем, иначе она подстроится под него
+    # и сверять станет нечего. Тип картины - другое дело, у сериала и фильма разные статьи.
+    # Сети нет - паспорт пуст, и всё дальше работает ровно так, как работало.
+    about = origin(name, series=bool(lead and lead.kind == "tv"))
+    alt = alt_query(name, pool, about.title)
     if not alt:
-        return raw, cluster(to_releases(raw)), found
+        return _as_is(raw, found, about, progress)
     progress.phase(f"поиск «{alt}»")
     merged = merge(raw, _ask(client, alt))
     if len(merged) == len(raw):
-        return raw, cluster(to_releases(raw)), found
+        return _as_is(raw, found, about, progress)
     pictures = cluster(to_releases(merged))
     # Спрашивали по-русски - им и выбираем; кластер сшил оба языка, так что название
     # на латинице нужно лишь там, где русских имён в выдаче не оказалось вовсе.
@@ -835,9 +858,84 @@ def _second_language(
         # Прибавка не в раздачах картины, а в чужих строках выдачи: широкий пул сдвинул бы
         # нумерацию франшизы («дилижанс 1» уехал бы с 1939 года на 1936) и ничего не дал
         # взамен. Тогда второго захода как будто и не было.
-        return raw, cluster(to_releases(raw)), found
+        return _as_is(raw, found, about, progress)
+    # Транслит - это сами слова запроса, чужого фильма он принести не может; оригинал из
+    # справки отвечает про ту самую картину. А вот оригинал из выдачи ничем не подтверждён.
+    proven = bool(about.title) or alt == transliterate(name)
+    if not same_picture(lead, _leading(wider), about, proven):
+        progress.note(f"по «{alt}» приехала другая картина - не беру")
+        return _as_is(raw, found, about, progress)
     progress.note(f"по-русски раздач {was} - добрал по «{alt}»: стало {now}")
     return merged, pictures, wider
+
+
+def _as_is(
+    raw: list[RawResult], found: list[Picture], about: Origin, progress: Progress
+) -> tuple[list[RawResult], list[Picture], list[Picture]]:
+    """Добора не было - остаётся то, что нашёл русский запрос. Если это вообще та картина.
+
+    Отменить один добор мало: под именем «Восхождение» в каталоге лежит только китайская
+    картина 2019 года, и без второго захода она всё равно осталась бы ответом - просто в
+    трёх раздачах вместо десяти. Поэтому здесь работает то же слово справки: она знает,
+    что «Восхождение» - это 1976 год, а раз под этим именем в выдаче другое кино, то
+    нашей картины в каталоге нет. Так и говорим.
+
+    ⚠️ Условия узкие нарочно. Отбирается ОДНА картина - та, что нашлась под этим именем в
+    единственном числе. Во франшизе справка отвечает про первую часть, а в каталоге может
+    лежать вторая: на «моане 2» широкий вариант этой проверки честную выдачу и выкидывал.
+    Не знает года справка, картин несколько, годы сходятся - никого не трогаем.
+    """
+    from torrcast.parse import cluster
+
+    stays = (raw, cluster(to_releases(raw)), found)
+    if about.year is None or len(found) != 1 or found[0].year is None:
+        return stays
+    if abs(found[0].year - about.year) <= 1:
+        return stays
+    progress.note(
+        f"под этим именем в каталоге лежит картина {found[0].year} года, а не {about.year}"
+    )
+    return raw, cluster(to_releases(raw)), []
+
+
+def _leading(pictures: list[Picture]) -> Picture | None:
+    """Картина, за которой идут: самая полная из найденных.
+
+    Именно она - дефолт меню и она же играет, когда терминала нет. Гейт добора смотрит на
+    неё, а не на список целиком: список одноимённых картин от добора и должен пополняться,
+    а вот вожак меняться не должен.
+    """
+    return max(pictures, key=lambda p: len(p.releases), default=None)
+
+
+def same_picture(
+    before: Picture | None, after: Picture | None, about: Origin, proven: bool
+) -> bool:
+    """Та же ли картина возглавляет выдачу после добора.
+
+    Год из справки - последнее слово: она отвечает про картину, которую спросили, и если
+    вожак после добора другого года, значит приехал однофамилец. Справки нет - сверяем с
+    годом того, за кем шли. Годов не назвал никто (сериалы часто без года) - остаётся
+    франшиза: подмену она не ловит, но и врать не будет, а без года подменять по сути
+    нечего - раздачи неотличимы, и кластер всё равно свёл бы их в одну картину.
+
+    Год ± 1 - это не послабление, а разница между годом производства и годом проката:
+    её раздачи путают постоянно, и на ней гейт спотыкался бы о честный добор.
+
+    Отдельный случай - ``before is None``: русский запрос не нашёл ни одной картины, и
+    сверять добор не с чем. Тогда решает происхождение названия (``proven``): справка и
+    транслит говорят о том, что спросили, а вот непроверенному оригиналу из выдачи в
+    пустоту веры нет - «не нашлось» честнее наугад взятого однофамильца.
+    """
+    if after is None:
+        return False
+    if about.year is not None and after.year is not None:
+        return abs(after.year - about.year) <= 1
+    if before is None:
+        return proven
+    if before.year is not None and after.year is not None:
+        return abs(after.year - before.year) <= 1
+    return franchise_key(before.title) == franchise_key(after.title)
 
 
 def _plan_for(picture: Picture, args: Args, config: Config) -> _Plan:

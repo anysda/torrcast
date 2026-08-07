@@ -2,8 +2,11 @@
 
 Половина каталога подписана только на латинице («Psycho.1960.1080p»), и русский
 запрос до неё не достаёт: индексер ищет по имени раздачи. Здесь проверяется, что
-torrcast сам догадывается переспросить, что берёт название из первой же выдачи и
+torrcast сам догадывается переспросить, откуда он берёт оригинальное название и
 что на полной выдаче второго запроса не случается вовсе.
+
+Отдельный набор - гейт добора: чужая картина под тем же русским именем не должна
+проехать молча, даже если раздач от неё стало заметно больше.
 """
 
 from __future__ import annotations
@@ -15,11 +18,24 @@ import pytest
 
 from torrcast import NotFoundError, cli
 from torrcast.console import Progress
+from torrcast.facts import Origin
 from torrcast.parse import THIN_POOL, Release, alt_query, parse_release_name, transliterate
 from torrcast.search import RawResult, merge
 from torrcast.state import Config
 
 GB = 1024**3
+
+
+def _knows(monkeypatch: pytest.MonkeyPatch, passports: dict[str, Origin]) -> list[str]:
+    """Подложить справке готовые паспорта и записывать, о чём её спрашивали."""
+    asked: list[str] = []
+
+    def about(title: str, series: bool = False) -> Origin:
+        asked.append(title)
+        return passports.get(title, Origin())
+
+    monkeypatch.setattr(cli, "origin", about)
+    return asked
 
 
 def raw(name: str, number: int, seeders: int = 100) -> RawResult:
@@ -108,16 +124,12 @@ def _catalog(russian: int, latin: int) -> _FakeProwlarr:
     return _FakeProwlarr(
         {
             "психо": [raw(f"Психо / Psycho (1960) DVDRip {i}", i) for i in range(russian)],
-            "psycho": [
-                raw(f"Psycho.1960.1080p.BluRay.x264-GRP{i}", 100 + i) for i in range(latin)
-            ],
+            "psycho": [raw(f"Psycho.1960.1080p.BluRay.x264-GRP{i}", 100 + i) for i in range(latin)],
         }
     )
 
 
-def _search(
-    client: _FakeProwlarr, query: str, monkeypatch: pytest.MonkeyPatch
-) -> tuple[Any, str]:
+def _search(client: _FakeProwlarr, query: str, monkeypatch: pytest.MonkeyPatch) -> tuple[Any, str]:
     """План поиска и всё, что он сказал вслух."""
     monkeypatch.setattr(cli, "Prowlarr", client)
     config = Config(tv="127.0.0.1", prowlarr_apikey="KEY")
@@ -175,3 +187,143 @@ def test_nothing_anywhere_is_still_an_honest_not_found(monkeypatch: pytest.Monke
     client = _FakeProwlarr({})
     with pytest.raises(NotFoundError, match="ничего не нашлось"):
         _search(client, "нетакогофильма", monkeypatch)
+
+
+def _namesakes() -> _FakeProwlarr:
+    """«Восхождение»: фильм Шепитько 1977 года и китайский 2019-го под тем же именем.
+
+    Оригинал ``The Climbers`` лежит прямо в русской выдаче - именно им добор и уезжал
+    в чужое кино, принося два десятка раздач с дорожкой ``und``.
+    """
+    return _FakeProwlarr(
+        {
+            "восхождение": [raw(f"Восхождение (1977) DVDRip {i}", i) for i in range(4)]
+            + [raw(f"Восхождение / The Climbers (2019) WEB-DL {i}", 50 + i) for i in range(2)],
+            "the climbers": [
+                raw(f"The.Climbers.2019.1080p.WEB-DL.x264-{i}", 100 + i) for i in range(20)
+            ],
+        }
+    )
+
+
+def test_top_up_that_brings_a_namesake_picture_is_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """🔴 Раздач стало больше - но это раздачи другого фильма. Добор отменяется."""
+    client = _namesakes()
+    plans, said = _search(client, "восхождение", monkeypatch)
+
+    assert client.asked == ["восхождение", "The Climbers"]
+    assert [p.picture.year for p in plans] == [1977, 2019]
+    assert max(len(p.picture.releases) for p in plans) == 4
+    assert "добрал" not in said
+    assert "приехала другая картина" in said
+
+
+def test_the_reference_year_outweighs_the_pool_in_the_gate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Справка знает год картины - и он же отвергает однофамильца, кто бы ни был крупнее."""
+    client = _namesakes()
+    asked = _knows(monkeypatch, {"восхождение": Origin(year=1977)})
+    plans, said = _search(client, "восхождение", monkeypatch)
+
+    assert asked == ["восхождение"]
+    assert max(len(p.picture.releases) for p in plans) == 4
+    assert "добрал" not in said
+
+
+def test_original_title_comes_from_the_reference_when_the_pool_has_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Оригинала в выдаче нет, транслит уходит в пустоту - выручает справка.
+
+    ``кингсман секретная служба`` → ``kingsman sekretnaya sluzhba`` не находит ничего, и
+    прежний добор на этом заканчивался. Справка знает имя картины - по нему и находится.
+    """
+    client = _FakeProwlarr(
+        {
+            "кингсман секретная служба": [
+                raw(f"Кингсман Секретная служба (2014) TS {i}", i) for i in range(2)
+            ],
+            "kingsman": [
+                raw(
+                    f"Кингсман: Секретная служба / Kingsman: The Secret Service (2014) BDRip {i}",
+                    100 + i,
+                )
+                for i in range(30)
+            ],
+        }
+    )
+    asked = _knows(monkeypatch, {"кингсман секретная служба": Origin(title="Kingsman", year=2014)})
+    plans, said = _search(client, "кингсман секретная служба", monkeypatch)
+
+    assert asked == ["кингсман секретная служба"]
+    assert client.asked == ["кингсман секретная служба", "Kingsman"]
+    assert max(len(p.picture.releases) for p in plans) == 32
+    assert "добрал по «Kingsman»" in said
+
+
+def test_a_silent_reference_leaves_the_old_path_alone(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Сети нет - справка пуста, и добор идёт прежним путём: оригинал из выдачи."""
+    client = _catalog(russian=2, latin=40)
+    asked = _knows(monkeypatch, {})
+    plans, said = _search(client, "психо", monkeypatch)
+
+    assert asked == ["психо"]
+    assert client.asked == ["психо", "Psycho"]
+    assert len(plans[0].picture.releases) == 42
+    assert "добрал по «Psycho»" in said
+
+
+def test_the_full_pool_asks_neither_the_indexers_nor_the_reference(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Счастливый путь не платит ни за второй круг по индексерам, ни за справку."""
+    client = _catalog(russian=THIN_POOL, latin=40)
+    asked = _knows(monkeypatch, {"психо": Origin(title="Psycho", year=1960)})
+    plans, _said = _search(client, "психо", monkeypatch)
+
+    assert client.asked == ["психо"]
+    assert asked == []
+    assert len(plans[0].picture.releases) == THIN_POOL
+
+
+def test_an_unproven_original_is_not_trusted_on_an_empty_result() -> None:
+    """Сверять не с чем: до добора картины не было, справка молчит.
+
+    Транслит - это сами слова запроса, ему веры хватает. А вот оригиналу, вычитанному у
+    чужой раздачи, - нет: «не нашлось» честнее наугад взятого однофамильца.
+    """
+    came = cli.Picture(title="Незнакомцы", year=2008, releases=[])
+
+    assert cli.same_picture(None, came, Origin(), proven=True)
+    assert not cli.same_picture(None, came, Origin(), proven=False)
+
+
+def test_the_reference_year_decides_who_is_who() -> None:
+    """Год справки сильнее всего: и подтверждает картину, и отвергает однофамильца."""
+    ours = cli.Picture(title="Восхождение", year=1977, releases=[])
+    theirs = cli.Picture(title="Восхождение", year=2019, releases=[])
+
+    assert cli.same_picture(ours, theirs, Origin(year=2019), proven=False)
+    assert not cli.same_picture(ours, theirs, Origin(year=1976), proven=True)
+    # Производство и прокат расходятся на год - это не подмена.
+    assert cli.same_picture(ours, ours, Origin(year=1976), proven=False)
+
+
+def test_the_gate_keeps_a_series_without_a_year(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Годов не назвал никто (обычное дело у сериалов) - гейт сверяет франшизу и пропускает."""
+    client = _FakeProwlarr(
+        {
+            "дедвуд": [raw(f"Дедвуд / Deadwood S01E0{i} WEB-DL", i) for i in range(1, 5)],
+            "deadwood": [
+                raw(f"Deadwood.S01E{i:02d}.1080p.WEB-DL.x264", 100 + i) for i in range(1, 16)
+            ],
+        }
+    )
+    plans, said = _search(client, "дедвуд", monkeypatch)
+
+    assert client.asked == ["дедвуд", "Deadwood"]
+    assert len(plans[0].picture.releases) == 19
+    assert "добрал по «Deadwood»: стало 19" in said
