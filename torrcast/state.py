@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from torrcast import TorrcastError
+from torrcast.warm import WARM_DIR
 
 __all__ = ["Config", "Entry", "State", "config_path", "load_config", "save_config", "state_path"]
 
@@ -149,6 +150,15 @@ class Config:
     #: кодированию добавляются подъём ffmpeg и чтение 50–80 МБ из роя.
     #: Просрочен — копия уходит как есть: тяжёлый кусок хуже, чем чёрный экран.
     recode_head_wait: float = 12.0
+    #: Прогревать весь фильм на диск фоном (:mod:`torrcast.warm`), чтобы показ переживал
+    #: обрыв связи. ``false`` — показ живёт только окном в tmpfs, как раньше.
+    warm: bool = True
+    #: Где лежит прогретое. **Диск, не tmpfs**: целый фильм в память не влезает.
+    warm_dir: str = WARM_DIR
+    #: Бюджет диска под всё прогретое, ГБ (:data:`torrcast.warm.WARM_BUDGET`).
+    warm_budget_gb: float = 20.0
+    #: Во сколько раз быстрее реального времени идёт прогрев (:data:`torrcast.warm.WARM_RATE`).
+    warm_rate: float = 4.0
 
     @classmethod
     def from_json(cls, data: dict[str, Any]) -> Config:
@@ -221,6 +231,10 @@ class Entry:
     #: Пусто - записи прежних версий и те, где паспорт не спрашивали: такие играются
     #: копией, как и раньше, а своё имя кодека получат на первом же обычном запуске.
     codec: str = ""
+    #: Сколько секунд фильма прогрето на диск (:mod:`torrcast.warm`). Пишет сторож показа,
+    #: читает ``cast status`` — только затем и хранится: спросить живой показ из CLI
+    #: нельзя, состояние тут единственный канал.
+    warm: float = 0.0
     season: int | None = None
     episode: int | None = None
     #: Серии раздачи по порядку: ``[сезон, серия, номер файла]``. Это и есть кэш
