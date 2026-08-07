@@ -50,6 +50,7 @@ from torrcast.parse import (
     Release,
     franchise_key,
     map_episodes,
+    other_words,
     slugify,
     split_episode,
     split_franchise_index,
@@ -800,7 +801,7 @@ def _search(config: Config, args: Args, progress: Progress) -> list[_Plan]:
     if not config.prowlarr_apikey:  # без Prowlarr искать нечем — это инфра-ошибка
         raise InfraError("не настроен Prowlarr: apikey пуст, перезапусти ./install.sh")
     query = args.title_query
-    name, _ = split_franchise_index(query)
+    name, index = split_franchise_index(query)
     client = Prowlarr(config.prowlarr_url, config.prowlarr_apikey)
     progress.phase(f"поиск «{name}»")
     raw = _ask(client, name)
@@ -815,13 +816,37 @@ def _search(config: Config, args: Args, progress: Progress) -> list[_Plan]:
     if not pictures:
         raise NotFoundError(f"по запросу «{name}» ничего не разобралось")
     if not found:
-        raise NotFoundError(f"«{query}» — такой картины во франшизе нет")
+        raise NotFoundError(_nothing(name, index, pictures))
+    if other := other_words(name, _leading(found)):
+        progress.note(f"«{name}» - в каталоге это «{other}»")
     progress.phase("")
     plans = [plan for plan in (_plan_for(p, args, config) for p in found) if plan.ranked]
     if not plans:  # картина есть, а раздач нужного сезона в ней нет
         want = args.episode or Episode(1, 1)
         raise NotFoundError(f"«{found[0].title}»: раздач с сезоном {want.season} нет")
     return plans
+
+
+def _nothing(name: str, index: int | None, pictures: list[Picture]) -> str:
+    """Почему ответа нет. Причины две, и человеку с ними делать разное.
+
+    Прежде обе накрывались одной строкой - «такой картины во франшизе нет». Она честна
+    ровно в одном случае из двух: когда франшизу нашли, а нужной части в ней не оказалось.
+    В остальных выдача не содержала вообще ничего похожего на запрос («дети мужчин» - это
+    ``Children of Men``, в каталоге такого имени нет вовсе), и строка про франшизу
+    отправляла человека проверять номер части там, где не нашлось и самого фильма.
+
+    Разводим по факту: спрашивали ли номер и стоит ли за ним живая франшиза.
+
+    * франшиза есть, номера в ней нет → сколько в ней картин и что номера столько нет;
+    * во всём остальном → честное «ничего не нашлось», то есть «назови другими словами».
+    """
+    from torrcast.parse import pick_franchise
+
+    whole = pick_franchise(name, pictures) if index is not None else []
+    if whole:
+        return f"«{name}»: картин во франшизе {len(whole)}, номера {index} нет"
+    return f"по запросу «{name}» ничего не нашлось"
 
 
 def _ask(client: Prowlarr, query: str) -> list[RawResult]:
@@ -869,6 +894,9 @@ def _second_language(
     * год картины, за которой шли ДО добора, - если справки нет, годится и он;
     * франшиза - когда года не назвал никто.
 
+    ⚠️ Год справки не в счёт, когда в запросе назван номер части: справку зовут по имени
+    франшизы, и год она называет первой картины, а спрашивали другую.
+
     Расхождение или сомнение - добора не было. Честное «не нашлось» лучше чужого фильма,
     и это не перестраховка: подмену видно только по году, потому что кластер сшивает
     одноимённые картины в одну франшизу и «стало больше» у неё выходит честным.
@@ -882,6 +910,13 @@ def _second_language(
     # и сверять станет нечего. Тип картины - другое дело, у сериала и фильма разные статьи.
     # Сети нет - паспорт пуст, и всё дальше работает ровно так, как работало.
     about = origin(name, series=bool(lead and lead.kind == "tv"))
+    if index is not None:
+        # 🔴 Спросили номер части - год справки к делу не относится. Справку зовут по имени
+        # франшизы, и отвечает она про её ПЕРВУЮ картину: у «тачек» это 2006 год, а человек
+        # просил «тачки 2» - картину 2011-го. Гейт читал это расхождение как подмену и
+        # выбрасывал честную выдачу; на живом стенде «тачки 2» так и не находились вовсе.
+        # Название латиницей остаётся: номер части у него всё равно отрезан, и оно верное.
+        about = Origin(title=about.title)
     alt = alt_query(name, pool, about.title)
     if not alt:
         return _as_is(raw, found, about, progress)

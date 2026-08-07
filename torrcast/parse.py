@@ -39,6 +39,7 @@ __all__ = [
     "franchise_name",
     "franchises",
     "map_episodes",
+    "other_words",
     "parse_episode",
     "parse_release_name",
     "part_number",
@@ -920,10 +921,59 @@ def franchises(pictures: list[Picture]) -> dict[str, list[Picture]]:
     return grouped
 
 
+def _by_words(wanted: str, keys: Iterable[str]) -> str | None:
+    """Ключ франшизы, в словах которого есть ВСЕ слова запроса - в любом порядке.
+
+    Человек называет картину своими словами, а не так, как её подписал каталог:
+    «бульвар сансет» вместо «Сансет бульвар», «гарри поттер дары смерти» вместо «Гарри
+    Поттер И Дары Смерти». Подстрокой такое не ловится ни в одну сторону, и запрос
+    падает в пустоту при живых раздачах прямо в той же выдаче.
+
+    Сверяются слова, а не буквы, и целиком: «дети мужчин» не станет «Мужчины, женщины и
+    дети» - слова «мужчин» там нет, есть «мужчины». Именно это и держит проверку узкой.
+
+    Однобуквенные слова из запроса выбрасываются: союзы («и», «в») ставят и не ставят как
+    попало, а решают совпадение всё равно не они. Слов должно остаться хотя бы два -
+    одно слово, если оно в каталоге есть, находится обычной подстрокой.
+
+    Из подошедших берётся самый тесный ключ: у «гарри поттер дары смерти» это
+    ``гарри-поттер-и-дары-смерти``, а не ``гарри-поттер-и-дары-смерти-в-3д``.
+    """
+    asked = _words(wanted)
+    if len(asked) < 2:
+        return None
+    hits = [key for key in keys if asked <= _words(key)]
+    return min(hits, key=lambda key: (len(_words(key)), len(key))) if hits else None
+
+
+def _words(slug: str) -> set[str]:
+    return {word for word in slug.split("-") if len(word) > 1}
+
+
+def other_words(query: str, picture: Picture | None) -> str:
+    """Название картины, в которое запрос попал ТОЛЬКО другими словами - иначе пусто.
+
+    Нужна одной честной строке: человек набрал «бульвар сансет», а играет «Сансет
+    бульвар» - об этом надо сказать. Совпадение подстрокой (в любую сторону) и попадание
+    по оригинальному названию молчаливы: там человек назвал картину ровно так, как её
+    зовут, и объяснять нечего.
+    """
+    if picture is None:
+        return ""
+    wanted = slugify(query)
+    keys = [picture.franchise]
+    if picture.original:
+        keys.append(franchise_key(picture.original))
+    if any(wanted in key or key in wanted for key in keys):
+        return ""
+    return franchise_name(picture.title)
+
+
 def pick_franchise(query: str, pictures: list[Picture]) -> list[Picture]:
     """``«матрица 2»`` → [«Матрица: Перезагрузка»]; без номера — вся франшиза. Ищем по
-    каноническому ключу (русскому или оригинальному), затем по вхождению подстроки;
-    номер — индекс в хронологии, а не часть названия.
+    каноническому ключу (русскому или оригинальному), затем по вхождению подстроки, а
+    в последнюю очередь по словам (:func:`_by_words`); номер — индекс в хронологии, а не
+    часть названия.
     """
     groups = franchises(pictures)
     aliases = {
@@ -940,6 +990,11 @@ def pick_franchise(query: str, pictures: list[Picture]) -> list[Picture]:
             return aliases[wanted]
         if hits := [k for k in groups if wanted in k]:
             return min(hits, key=len)
+        # Порядок слов и союзы - на совести человека, а не каталога (:func:`_by_words`).
+        # Стоит выше грубого «ключ входит в запрос»: у «гарри поттер дары смерти» тот
+        # находил франшизу «гарри поттер» и отсчитывал номер части по ней.
+        if loose := _by_words(wanted, groups):
+            return loose
         # Запрос длиннее канона: «киберпанк бегущие по краю» — это франшиза «киберпанк»
         # (подзаголовок после двоеточия в ключ не входит). Берём самое длинное совпадение.
         hits = [k for k in groups if k and k in wanted]

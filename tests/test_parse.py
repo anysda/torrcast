@@ -18,6 +18,7 @@ from torrcast.parse import (
     Release,
     cluster,
     franchise_key,
+    other_words,
     parse_episode,
     parse_release_name,
     part_number,
@@ -300,6 +301,83 @@ def test_cars_franchise_is_cross_language() -> None:
     # латинский релиз попал в русский кластер, а не завёл свою картину
     assert len(pictures) == 3
     assert len(pictures[2].releases) == 2
+
+
+#: Живая выдача по «гарри поттер дары смерти»: 139 раздач, и нужная часть среди них есть.
+#: Ключ франшизы у каталога с союзом («гарри-поттер-и-дары-смерти»), а человек союз не
+#: набирает - подстрокой такое не совпадает ни в одну сторону.
+HARRY = (
+    ("Гарри Поттер и Дары смерти: Часть 1", 2010, "Harry Potter and the Deathly Hallows Part 1"),
+    ("Гарри Поттер и Дары Смерти: Часть II", 2011, "Harry Potter and the Deathly Hallows Part 2"),
+    ("Гарри Поттер и Дары смерти в 3Д", 2010, None),
+    ("Гарри Поттер. Полная коллекция", 2001, None),
+)
+
+
+def _harry() -> list[Picture]:
+    return cluster(
+        [
+            _release(title, year, seeders=10, original=original)
+            for title, year, original in HARRY
+        ]
+    )
+
+
+def test_part_number_selects_inside_the_franchise_not_the_anthology() -> None:
+    """«гарри поттер дары смерти 2» → часть 2011 года, а не сборник франшизы.
+
+    Номер - это выбор картины внутри франшизы, и франшиза берётся та, которую назвали.
+    Раньше запрос без союза «и» не совпадал с ключом каталога, падал на грубое «ключ
+    входит в запрос», ловил там всю «гарри поттер» и отсчитывал номер по ней - то есть
+    приносил антологию.
+    """
+    pictures = _harry()
+
+    assert [p.year for p in pick_franchise("гарри поттер дары смерти 2", pictures)] == [2011]
+    assert [p.year for p in pick_franchise("гарри поттер дары смерти 1", pictures)] == [2010]
+
+
+def test_word_order_in_the_query_is_not_the_users_problem() -> None:
+    """«бульвар сансет» находит «Сансет бульвар»: те же слова, другой порядок."""
+    pictures = cluster([_release("Сансет бульвар", 1950, seeders=4, original="Sunset Blvd")])
+
+    assert [p.title for p in pick_franchise("бульвар сансет", pictures)] == ["Сансет бульвар"]
+
+
+def test_other_words_speaks_up_only_when_the_words_were_other() -> None:
+    """Честная строка печатается на перестановке и молчит на прямом попадании."""
+    picture = cluster([_release("Сансет бульвар", 1950, original="Sunset Blvd")])[0]
+
+    assert other_words("бульвар сансет", picture) == "Сансет бульвар"
+    assert other_words("сансет бульвар", picture) == ""
+    assert other_words("sunset blvd", picture) == ""
+    assert other_words("бульвар сансет", None) == ""
+
+
+def test_matching_by_words_stays_narrow() -> None:
+    """Слова сверяются целиком, поэтому чужое кино по ним не приезжает.
+
+    «дети мужчин» - это ``Children of Men``, и в каталоге под таким именем не лежит
+    ничего. Рядом лежат «Мужчины, женщины и дети», и на нестрогом сравнении запрос уехал
+    бы туда: слово «мужчин» похоже на «мужчины» ровно настолько, чтобы обмануть.
+    """
+    pictures = cluster(
+        [
+            _release("Мужчины, женщины и дети", 2014, seeders=19),
+            _release("Наследственный признак", 1975, seeders=3),
+        ]
+    )
+
+    assert pick_franchise("дети мужчин", pictures) == []
+    assert pick_franchise("наследственное", pictures) == []
+
+
+def test_a_single_word_never_goes_through_the_word_match() -> None:
+    """Одного слова для перестановки мало: оно и так ищется подстрокой."""
+    pictures = cluster([_release("Психо", 1960, original="Psycho")])
+
+    assert [p.title for p in pick_franchise("психо", pictures)] == ["Психо"]
+    assert pick_franchise("сансет", pictures) == []
 
 
 def test_best_release_prefers_seeders_and_avoids_hevc() -> None:

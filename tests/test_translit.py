@@ -189,6 +189,116 @@ def test_nothing_anywhere_is_still_an_honest_not_found(monkeypatch: pytest.Monke
         _search(client, "нетакогофильма", monkeypatch)
 
 
+def test_results_full_of_strangers_are_reported_as_nothing_found(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Выдача есть, а картины в ней нет - это «не нашлось», а не разговор про франшизу.
+
+    «Дети мужчин» в каталоге зовутся «Дитя человеческое», и по набранному имени приезжают
+    только однофамильцы. Прежде такому человеку отвечали «такой картины во франшизе нет»,
+    и он шёл проверять номер части у фильма, которого поиск вообще не видел.
+    """
+    client = _FakeProwlarr(
+        {"дети мужчин": [raw(f"Мужчины, женщины и дети (2014) BDRip {i}", i) for i in range(20)]}
+    )
+
+    with pytest.raises(NotFoundError) as caught:
+        _search(client, "дети мужчин", monkeypatch)
+
+    assert "ничего не нашлось" in str(caught.value)
+    assert "франшиз" not in str(caught.value)
+
+
+def test_a_part_that_the_franchise_does_not_have_is_named_as_such(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """А вот когда франшиза нашлась, а части в ней нет - так и говорим, с числом частей."""
+    client = _FakeProwlarr(
+        {"матрица": [raw(f"Матрица / The Matrix (1999) BDRip {i}", i) for i in range(20)]}
+    )
+
+    with pytest.raises(NotFoundError) as caught:
+        _search(client, "матрица 5", monkeypatch)
+
+    assert "картин во франшизе 1, номера 5 нет" in str(caught.value)
+
+
+def test_the_part_number_picks_inside_the_named_franchise(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """«гарри поттер дары смерти 2» - это часть 2011 года, и добора ей не нужно.
+
+    Номер уходит из строки поиска (спрашиваем «гарри поттер дары смерти») и работает
+    выбором картины. Пока запрос без союза «и» не совпадал с каталогом, пул выходил
+    пустым, поиск шёл на второй круг по франшизе целиком и привозил антологию.
+    """
+    client = _FakeProwlarr(
+        {
+            "гарри поттер дары смерти": [
+                raw(f"Гарри Поттер и Дары смерти: Часть 1 (2010) BDRip {i}", i) for i in range(20)
+            ]
+            + [
+                raw(f"Гарри Поттер и Дары Смерти: Часть II (2011) BDRip {i}", 100 + i)
+                for i in range(20)
+            ]
+        }
+    )
+
+    plans, _said = _search(client, "гарри поттер дары смерти 2", monkeypatch)
+
+    assert client.asked == ["гарри поттер дары смерти"]
+    assert [p.picture.year for p in plans] == [2011]
+
+
+def test_a_named_part_is_not_thrown_away_by_the_year_of_the_first_one(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """«тачки 2» - это 2011 год, и справка про «Тачки» 2006-го его не отменяет.
+
+    Справку зовут по имени франшизы, и год она называет первой картины. Гейт добора читал
+    это расхождение как подмену и выбрасывал честную выдачу: на живом каталоге «тачки 2»
+    не находились вовсе.
+    """
+    client = _FakeProwlarr(
+        {"тачки": [raw(f"Тачки 2 / Cars 2 (2011) BDRip {i}", i) for i in range(3)]}
+    )
+    _knows(monkeypatch, {"тачки": Origin(title="Cars", year=2006)})
+
+    plans, said = _search(client, "тачки 2", monkeypatch)
+
+    assert [p.picture.year for p in plans] == [2011]
+    assert "в каталоге лежит картина" not in said
+
+
+def test_a_namesake_without_a_part_number_is_still_stopped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Послабление касается ТОЛЬКО запроса с номером: без номера год справки решает."""
+    client = _FakeProwlarr(
+        {"тачки": [raw(f"Тачки 2 / Cars 2 (2011) BDRip {i}", i) for i in range(3)]}
+    )
+    _knows(monkeypatch, {"тачки": Origin(title="Cars", year=2006)})
+
+    with pytest.raises(NotFoundError):
+        _search(client, "тачки", monkeypatch)
+
+
+def test_other_word_order_is_found_and_said_out_loud(monkeypatch: pytest.MonkeyPatch) -> None:
+    """«бульвар сансет» играет «Сансет бульвар» - и об этом сказано вслух."""
+    client = _FakeProwlarr(
+        {
+            "бульвар сансет": [
+                raw(f"Сансет бульвар / Sunset Blvd (1950) BDRip {i}", i) for i in range(20)
+            ]
+        }
+    )
+
+    plans, said = _search(client, "бульвар сансет", monkeypatch)
+
+    assert [p.picture.title for p in plans] == ["Сансет бульвар"]
+    assert "«бульвар сансет» - в каталоге это «Сансет бульвар»" in said
+
+
 def _namesakes() -> _FakeProwlarr:
     """«Восхождение»: фильм Шепитько 1977 года и китайский 2019-го под тем же именем.
 
