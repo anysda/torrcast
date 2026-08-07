@@ -50,7 +50,7 @@ from torrcast.parse import (
     split_episode,
     split_franchise_index,
 )
-from torrcast.recode import FULL_PRESET, Encode, Recoder
+from torrcast.recode import FULL_FLOOR, FULL_GAIN, FULL_PRESET, Encode, Recoder
 from torrcast.search import Prowlarr, RawResult, merge, to_releases
 from torrcast.state import Config, Entry, State, load_config, save_config
 from torrcast.stream import (
@@ -1512,7 +1512,7 @@ def _recoder(
     )
 
 
-def _encode_all(config: Config, codec: str) -> Encode | None:
+def _encode_all(config: Config, codec: str, video_mbit: float = 0.0) -> Encode | None:
     """Чем перекодировать ВЕСЬ файл или ``None`` — если видео уезжает копией, как всегда.
 
     Решение файл-уровневое и принимается один раз, по паспорту ffprobe: приёмник либо
@@ -1521,13 +1521,20 @@ def _encode_all(config: Config, codec: str) -> Encode | None:
     поток H.264 и HEVC — на живом Q70D это 24 с картинки и вечная петля «залип →
     перезагрузка»: ровно на границе первого не перекодированного куска.
 
-    Потолки при этом остаются прежними и общими: битрейт ``recode_mbit``, вес сегмента
-    :data:`torrcast.stream.MAX_SEGMENT_BYTES` (его держит сетка тем же ``ceiling_mbit``).
-    Меняется только пресет — сплошному перекоду торговаться нечем (:data:`FULL_PRESET`).
+    Битрейт — не потолок, а **цель**, и она считается от источника. ``recode_mbit``
+    остаётся потолком, но брать его всегда нельзя: 🔴 замер на живом Q70D (TC-29,
+    «Bocchi the Rock» — 1.3 Мбит/с HEVC) показал, что перекод «в 9 Мбит/с» раздувает
+    лёгкое аниме в семь раз, кладёт в сегменты 18.3 и 21.4 МБ при потолке 16 и тратит
+    процессор на биты, которых в источнике нет. Отсюда :data:`FULL_GAIN` — во сколько
+    раз H.264 тем же ``ultrafast`` (без CABAC и почти без анализа) дороже HEVC при
+    сравнимой картинке, — и :data:`FULL_FLOOR`, ниже которого 1080p разваливается.
     """
     if not config.recode or (codec or "") not in RECODE_CODECS:
         return None
-    return Encode(preset=FULL_PRESET, mbit=config.recode_mbit)
+    want = config.recode_mbit
+    if video_mbit > 0:
+        want = min(want, max(FULL_FLOOR, video_mbit * FULL_GAIN))
+    return Encode(preset=FULL_PRESET, mbit=want)
 
 
 def _play(
@@ -1563,6 +1570,11 @@ def _play(
     # доигрывает, а выбрасывает буфер и качает его заново, поэтому граница ставится с
     # оглядкой на предсказанный вес куска — а он зависит и от паспорта (что уедет на ТВ),
     # и от того, перекодируем ли мы тяжёлое (тогда кусок не тяжелее ``recode_mbit``).
+    # Кодек, который приёмник не декодирует, — это решение на весь показ, а не на кусок:
+    # перекодирует сама упаковка, одним прогоном, и кодировщик тяжёлых кусков не нужен —
+    # перекодировать поверх перекода нечего. Решается это ДО сетки: от битрейта перекода
+    # зависит вес каждого куска, а значит и то, где сетка поставит границы.
+    whole = _encode_all(config, codec, video_mbit)
     grid = grid_for(
         source,
         length,
@@ -1571,15 +1583,13 @@ def _play(
         say=lambda text: print(text, flush=True),
         delivered_mbit=(video_mbit + AUDIO_MBIT) * TS_OVERHEAD if video_mbit > 0 else 0.0,
         ceiling_mbit=config.recode_mbit if config.recode else 0.0,
+        # Сплошной перекод: вес куска задаём мы сами, карта источника тут не судья.
+        fixed_mbit=(whole.mbit + AUDIO_MBIT) * TS_OVERHEAD if whole is not None else 0.0,
     )
     mark("сетка", сегментов=grid.count, покадрам=grid.on_keys)
-    # Кодек, который приёмник не декодирует, — это решение на весь показ, а не на кусок:
-    # перекодирует сама упаковка, одним прогоном, и кодировщик тяжёлых кусков не нужен —
-    # перекодировать поверх перекода нечего, битрейт и так зажат ``recode_mbit``.
-    whole = _encode_all(config, codec)
     if whole is not None:
         print(recode_note(codec), flush=True)
-        mark("сплошной перекод", кодек=codec, пресет=whole.preset, мбит=whole.mbit)
+        mark("сплошной перекод", кодек=codec, пресет=whole.preset, мбит=round(whole.mbit, 2))
     # Профиль тяжести всего фильма известен со старта — он считается из уже снятой
     # карты опорных кадров и не стоит ни одного запроса к рою. Тяжёлые куски кодировщик
     # начнёт перекодировать сразу, пока играет остальное.
@@ -1878,9 +1888,15 @@ def warned(release: Release, runtime: float, warn_mbit: float, recode_at: float 
 
     Словами, а не значками: ``⚠`` из вывода убран целиком — в терминале он не нёс
     смысла и разъезжался по ширине.
+
+    ⚠️ «Не берём» про HEVC осталось правдой ровно там, где перекодирование выключено:
+    иначе такой релиз играет, перекодированный целиком, и таблица обязана говорить то же,
+    что и показ (:func:`_encode_all`).
     """
     peak = bitrate_of(release, runtime)
-    marks = ["не берём"] if release.is_hevc else []
+    marks: list[str] = []
+    if release.is_hevc:
+        marks += ["перекодирую целиком" if recode_at > 0 else "не берём"]
     if peak > warn_mbit:
         marks += ["тяжёлый"]
     elif recode_at > 0 and peak > recode_at:

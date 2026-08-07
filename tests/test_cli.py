@@ -50,6 +50,17 @@ def test_hevc_is_marked_and_h264_is_not() -> None:
     assert warned(rel(codec="H.264", size_gb=4), RUNTIME, 20.0) == ""
 
 
+def test_the_table_promises_to_recode_hevc_instead_of_refusing_it() -> None:
+    """Перекодирование включено — HEVC играет, и таблица обязана говорить то же самое.
+
+    «Не берём» рядом с релизом, который на самом деле возьмётся и поедет на ТВ, — это
+    та же молчаливая подмена, только наоборот: человек выберет другой релиз зря.
+    """
+    hevc = rel(codec="HEVC", size_gb=4)
+    assert warned(hevc, RUNTIME, 20.0, recode_at=10.0) == "перекодирую целиком"
+    assert warned(hevc, RUNTIME, 20.0) == "не берём", "без перекодирования отказ честен"
+
+
 def test_fat_bitrate_is_marked_even_for_h264() -> None:
     """~28 ГБ на два часа — это 33 Мбит/с, а потолок декодера Q70D около 20."""
     assert warned(rel(size_gb=28), RUNTIME, 20.0) == "тяжёлый"

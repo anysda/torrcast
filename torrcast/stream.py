@@ -795,6 +795,7 @@ class Grid:
         extra_mbit: float = 0.0,
         ceiling_mbit: float = 0.0,
         cap: float = MAX_SEGMENT_BYTES,
+        fixed_mbit: float = 0.0,
     ) -> Grid:
         """Сетка по опорным кадрам: следующая граница — первый опорный кадр не раньше,
         чем через ``step`` секунд после предыдущей, **и не тяжелее** :data:`MAX_SEGMENT_BYTES`.
@@ -818,8 +819,11 @@ class Grid:
         субтитры), ``ceiling_mbit`` — потолок перекодирования: тяжёлый кусок уедет
         не тяжелее него. Карты смещений нет (кэш прошлой версии, чужой контейнер) — правило
         вырождается в прежнее «первый кадр не раньше ``step``».
+
+        ``fixed_mbit`` — вес считается не по карте, а по нашему же битрейту: так весит
+        кусок файла, который перекодируется целиком (:data:`RECODE_CODECS`).
         """
-        weigh = _weigher(keys, sizes, extra_mbit, ceiling_mbit)
+        weigh = _weigher(keys, sizes, extra_mbit, ceiling_mbit, fixed_mbit)
         bounds = [0.0]
         limit = duration - step / 2
         index = 0
@@ -900,7 +904,11 @@ class Grid:
 
 
 def _weigher(
-    keys: Sequence[float], sizes: Sequence[int], extra_mbit: float, ceiling_mbit: float
+    keys: Sequence[float],
+    sizes: Sequence[int],
+    extra_mbit: float,
+    ceiling_mbit: float,
+    fixed_mbit: float = 0.0,
 ) -> Callable[[float, float], float]:
     """Предсказатель веса куска ``[a, b)`` в байтах — тот же расчёт, что у профиля тяжести.
 
@@ -911,7 +919,15 @@ def _weigher(
 
     Карты смещений нет — вес неизвестен, и предсказатель честно отдаёт ноль: правило
     потолка тогда не срабатывает ни разу, а сетка остаётся прежней.
+
+    ``fixed_mbit`` карту не спрашивает вообще: при сплошном перекоде вес куска задаём
+    мы сами, и вес источника к нему отношения не имеет. 🔴 Замер на живом Q70D
+    (TC-29, «Bocchi the Rock» 1.3 Мбит/с HEVC): сетка поверила карте, поставила куски
+    по 15-20 с, а перекод положил в них 18.3 и 21.4 МБ — при потолке 16 и замеренной
+    границе срыва 19.4.
     """
+    if fixed_mbit > 0:
+        return lambda a, b: max(0.0, b - a) * fixed_mbit * 1e6 / 8
     if len(sizes) != len(keys) or len(keys) < 2:
         return lambda a, b: 0.0
 
@@ -1175,6 +1191,7 @@ def grid_for(
     say: Any = None,
     delivered_mbit: float = 0.0,
     ceiling_mbit: float = 0.0,
+    fixed_mbit: float = 0.0,
 ) -> Grid:
     """Сетка для конкретного файла: по опорным кадрам, если карту удалось снять.
 
@@ -1189,6 +1206,12 @@ def grid_for(
     (:attr:`torrcast.state.Config.recode_mbit`, ноль — перекодирование выключено). Из них
     считается поправка «контейнер → ТВ» и работает потолок веса сегмента
     (:data:`MAX_SEGMENT_BYTES`) — без них правило потолка вырождается в прежнее.
+
+    ``fixed_mbit`` — сплошной перекод (:data:`RECODE_CODECS`): вес сегмента больше не
+    зависит от карты вовсе, потому что на ТВ уезжает не файл, а наш поток с известным
+    битрейтом. Карта тут не просто лишняя, а вредная: лёгкий HEVC (1.3 Мбит/с) она
+    объявляет лёгким и разрешает 20-секундные куски, а после перекода тот же кусок
+    весит столько, сколько мы в него положили.
     """
     began = time.monotonic()
     if not on_keys:
@@ -1213,6 +1236,7 @@ def grid_for(
         sizes=found.offset,
         extra_mbit=_extra_mbit(found, delivered_mbit),
         ceiling_mbit=ceiling_mbit,
+        fixed_mbit=fixed_mbit,
     )
     if say:
         spans = [grid.span(k) for k in range(grid.count)]

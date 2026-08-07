@@ -1297,3 +1297,44 @@ def test_full_recode_packing_skips_the_pilot_run(tmp_path, monkeypatch) -> None:
     assert command[command.index("-c:v") + 1] == "libx264"
     assert command[command.index("-segment_start_number") + 1] == "5", "докатки нет"
     assert command[command.index("-ss") + 1] == f"{grid.start(5):.3f}"
+
+
+def test_a_light_source_is_not_blown_up_to_the_ceiling() -> None:
+    """Битрейт сплошного перекода считается от источника, а потолок остаётся потолком.
+
+    🔴 Замер на живом Q70D (TC-29, «Bocchi the Rock» — 1.3 Мбит/с HEVC, 0.2 ГБ на 23
+    минуты): перекод «в 9 Мбит/с» раздул аниме всемеро и положил в сегменты 18.3 и
+    21.4 МБ при потолке 16 и замеренной границе срыва 19.4 — то есть сплошной перекод
+    сам себе сделал ровно тот тяжёлый кусок, ради которого всё это затевалось.
+    """
+    from torrcast.cli import _encode_all
+    from torrcast.recode import FULL_FLOOR, FULL_GAIN
+    from torrcast.state import Config
+
+    config = Config(recode=True, recode_mbit=9.0)
+    light = _encode_all(config, "hevc", 1.28)
+    assert light is not None and light.mbit == pytest.approx(1.28 * FULL_GAIN)
+    heavy = _encode_all(config, "hevc", 12.0)
+    assert heavy is not None and heavy.mbit == 9.0, "потолок перекодирования не сдвинулся"
+    thin = _encode_all(config, "hevc", 0.4)
+    assert thin is not None and thin.mbit == FULL_FLOOR, "ниже пола 1080p разваливается"
+    blind = _encode_all(config, "hevc", 0.0)
+    assert blind is not None and blind.mbit == 9.0, "паспорт молчит — идём по потолку"
+
+
+def test_the_grid_weighs_a_fully_recoded_file_by_our_bitrate_not_the_source() -> None:
+    """Сетка обязана резать по тому, что уедет на ТВ, а уедет наш перекод.
+
+    Тот же замер: карта лёгкого HEVC разрешала куски по 15-20 с, потому что в файле они
+    и правда лёгкие. После перекода вес куска задаём мы, и сетка обязана знать об этом
+    ДО первого сегмента — иначе потолок 16 МБ не сработает ни разу.
+    """
+    from torrcast.stream import MAX_SEGMENT_BYTES
+
+    keys = _keys(duration=300.0, gop=7.0, rate=0.16e6)  # 1.3 Мбит/с — лёгкое аниме
+    naive = Grid.on_keyframes(keys.at, 300.0, 10.0, sizes=keys.offset, ceiling_mbit=9.0)
+    fixed = Grid.on_keyframes(keys.at, 300.0, 10.0, sizes=keys.offset, fixed_mbit=9.4)
+
+    assert max(naive.span(k) for k in range(naive.count)) > 13.0, "карта разрешает длинные"
+    worst = max(fixed.span(k) * 9.4e6 / 8 for k in range(fixed.count))
+    assert worst <= MAX_SEGMENT_BYTES, "перекодированный кусок обязан влезать в потолок"
