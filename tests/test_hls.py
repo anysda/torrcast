@@ -19,7 +19,7 @@ from __future__ import annotations
 import math
 import time
 from pathlib import Path
-from typing import Any
+from typing import IO, Any
 
 import pytest
 import requests
@@ -972,11 +972,16 @@ def test_mock_receiver_closes_its_ffmpeg_log(monkeypatch: pytest.MonkeyPatch) ->
     from torrcast import InfraError
     from torrcast.cast import MockReceiver
 
+    # mypy сужает тип receiver._err по присваиванию и не сбрасывает сужение на
+    # вызовах методов - смотреть на атрибут через функцию, а не напрямую
+    def err_of(r: MockReceiver) -> IO[bytes] | None:
+        return r._err
+
     receiver = MockReceiver()
     first = tempfile.TemporaryFile()  # noqa: SIM115 - закрыть его и есть предмет проверки
     receiver._err = first
     receiver.stop()
-    assert first.closed and receiver._err is None, "stop не закрыл журнал"
+    assert first.closed and err_of(receiver) is None, "stop не закрыл журнал"
 
     receiver._err = second = tempfile.TemporaryFile()  # noqa: SIM115 - то же самое
     monkeypatch.setattr(MockReceiver, "_probe", lambda self, url: None)
@@ -984,7 +989,7 @@ def test_mock_receiver_closes_its_ffmpeg_log(monkeypatch: pytest.MonkeyPatch) ->
     with pytest.raises(InfraError):
         receiver.play("http://127.0.0.1/index.m3u8")
     assert second.closed, "новый показ бросил журнал прошлого открытым"
-    assert receiver._err is None, "ffmpeg не запустился - журнал не за кем держать"
+    assert err_of(receiver) is None, "ffmpeg не запустился - журнал не за кем держать"
 
 
 def _no_ffmpeg(*args: Any, **kwargs: Any) -> Any:
@@ -1173,9 +1178,9 @@ def test_two_writers_of_one_key_map_do_not_share_a_draft(tmp_path: Path) -> None
         writer.join(timeout=10)
 
     assert len(set(drafts)) == 2, f"два писателя взяли одно имя: {drafts}"
-    for draft in [*drafts, _keys_draft(cache)]:
-        assert draft != cache and draft.name.endswith(".tmp")
-        assert draft.parent == cache.parent, "черновик кладётся рядом: replace атомарен в одной fs"
+    for name in [*drafts, _keys_draft(cache)]:
+        assert name != cache and name.name.endswith(".tmp")
+        assert name.parent == cache.parent, "черновик кладётся рядом: replace атомарен в одной fs"
 
 
 
