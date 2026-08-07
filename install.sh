@@ -21,6 +21,10 @@ BIN_DIR="${TORRCAST_BIN_DIR:-/usr/local/bin}"
 #: python3.12 в её репозиториях нет вовсе. Нижняя граница — 3.11
 #: (requires-python), на ней зелены тесты и mypy --strict.
 PYTHON="${TORRCAST_PYTHON:-}"
+#: Индекс пакетов Python. В части сетей штатный индекс не отвечает вовсе, поэтому
+#: рядом лежат полные зеркала (индекс + файлы) — установка сама выберет живое.
+PIP_INDEX="${TORRCAST_PIP_INDEX:-https://pypi.org/simple}"
+PIP_MIRRORS=("https://pypi.tuna.tsinghua.edu.cn/simple" "https://mirrors.aliyun.com/pypi/simple")
 
 TS_HOST="${TORRCAST_TS_HOST:-127.0.0.1}"
 TS_PORT="${TORRCAST_TS_PORT:-8090}"
@@ -189,6 +193,32 @@ install_packages() {
 }
 
 # --- 2. Пакет torrcast в собственный venv ------------------------------------
+
+# Отвечает ли индекс пакетов. Спрашиваем страницу одного пакета, а не корень индекса:
+# корневой листинг — десятки мегабайт, и замер упирался бы в его размер, а не в
+# доступность. Молчаливо: неответ здесь — штатная ветка, а не ошибка.
+index_alive() {  # $1 — базовый URL индекса
+    curl -fsS -m 10 -o /dev/null "${1%/}/pip/" 2>/dev/null
+}
+
+# Откуда pip берёт пакеты в этот заход: штатный индекс, а если из этой сети он не
+# отвечает — первое живое зеркало. Выбор кладётся в PIP_INDEX_URL, поэтому его видят и
+# сборочные окружения pip (зависимости сборки тоже качаются из индекса). Заданный
+# снаружи PIP_INDEX_URL не трогаем: выбор уже сделан за нас.
+pick_pip_index() {
+    [ -n "${PIP_INDEX_URL:-}" ] && return 0
+    index_alive "$PIP_INDEX" && return 0
+    local mirror
+    for mirror in "${PIP_MIRRORS[@]}"; do
+        if index_alive "$mirror"; then
+            export PIP_INDEX_URL="$mirror"
+            info "⚠ pypi недоступен — ставлю через зеркало ${mirror#https://}"
+            return 0
+        fi
+    done
+    info "⚠ pypi недоступен, и зеркала тоже — пробую штатным путём"
+}
+
 install_torrcast() {
     log "пакет torrcast → $PREFIX"
     pick_python  # фаза может гоняться и в одиночку, без `packages`
@@ -198,6 +228,7 @@ install_torrcast() {
     else
         skip "venv $PREFIX/venv"
     fi
+    pick_pip_index
     "$PREFIX/venv/bin/pip" install --quiet --upgrade pip
     # Первый вызов ставит зависимости, второй — САМ пакет, всегда заново.
     # ⚠️ Оба флага второго вызова нужны, и оба пойманы живой выкаткой:
