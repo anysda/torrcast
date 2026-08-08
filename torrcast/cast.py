@@ -17,7 +17,7 @@ import time
 from dataclasses import dataclass
 from typing import IO, Any, Literal, Protocol, runtime_checkable
 
-from torrcast import InfraError, why
+from torrcast import InfraError, trace, why
 from torrcast.stream import parse_manifest
 
 __all__ = [
@@ -174,6 +174,11 @@ class ChromecastReceiver:
     #: после неё обязан опуститься. Меньше шага нуджа - тоже: свой же прыжок вперёд мы
     #: перемоткой назад считать не должны.
     REWIND = 8.0
+    #: Насколько позиция должна прыгнуть между опросами, чтобы это была перемотка, а не ход
+    #: показа. Опрос идёт раз в 2 с (:func:`torrcast.cli._hold`), и за него живой показ
+    #: уходит на те же 2 с; берём с запасом на подвисший опрос. Собственный нудж под этот
+    #: порог тоже попадает, поэтому он помечается отдельно (:attr:`_nudged_to`).
+    SEEK_JUMP = 15.0
 
     def __init__(self, address: str) -> None:
         if not address:
@@ -192,6 +197,15 @@ class ChromecastReceiver:
         self._at = 0.0
         #: Сессия приложения приёмника, которую подняли мы (см. :meth:`_ours`).
         self._session = ""
+        #: Позиция с прошлого опроса и незакрытая перемотка (:meth:`_watch_seek`):
+        #: откуда прыгнули, куда и с какого монотонного момента ждём картинку.
+        self._seen = -1.0
+        self._seek_from = 0.0
+        self._seek_to = 0.0
+        self._seek_since = 0.0
+        #: Куда прыгнул наш собственный сторож: его прыжок перемоткой человека не считаем.
+        #: Гасится первым же совпадением - на второй прыжок нужен и второй нудж.
+        self._nudged_to = -1.0
 
     def play(self, url: str, title: str = "", at: float = 0.0) -> None:
         """Начать показ с секунды ``at`` и **дождаться картинки**, а не просто отправить LOAD.
@@ -208,6 +222,7 @@ class ChromecastReceiver:
         self._url, self._title = url, title or "torrcast"
         self._peak, self._reloads, self._stall_hits = at, 0, 0
         self._stall_at, self._stall_since = -1.0, 0.0
+        self._seen, self._seek_since, self._nudged_to = -1.0, 0.0, -1.0
         budget = self.REVIVE_TIMEOUT if self._started else self.START_TIMEOUT
         self._started = True
         self._at = at
@@ -287,6 +302,7 @@ class ChromecastReceiver:
             # 1:12:35, приёмник ушёл в ``IDLE/ERROR`` с нулём, ноль сошёл за перемотку - и
             # повтор LOAD вернул человека не туда, где он смотрел, а к началу фильма.
             self._peak, self._stall_hits = pos, 0
+        self._watch_seek(pos, state)
         if state == "BUFFERING":
             self._nudge(pos, front)
         else:
@@ -305,6 +321,7 @@ class ChromecastReceiver:
         if self._reloads >= self.LOAD_RETRIES:
             return False
         self._reloads += 1
+        trace.reload(pos=self._peak, tries=self._reloads)
         print(f"приёмник отвалился на {self._peak:.0f} с - повтор LOAD", flush=True)
         try:
             self._restart_app()  # чистое приложение: залипший молчит на любой LOAD
@@ -345,10 +362,44 @@ class ChromecastReceiver:
             return
         if front - pos < self.READY_AHEAD:
             return  # приёмник ждёт упаковку - это наша забота, а не его зависание
+        stuck = now - self._stall_since
         self._stall_hits += 1
         self._stall_since = now
+        target = self._peak + self.STALL_SKIP * self._stall_hits
+        self._nudged_to = target
+        trace.nudge(pos=pos, to=target, hit=self._stall_hits, stuck=stuck, front=front)
         with contextlib.suppress(Exception):
-            self._device().media_controller.seek(self._peak + self.STALL_SKIP * self._stall_hits)
+            self._device().media_controller.seek(target)
+
+    def _watch_seek(self, pos: float, state: str) -> None:
+        """Заметить перемотку и померить, через сколько после неё появилась картинка.
+
+        Перемотка видна только по позиции: приёмник мотает сам, никакой команды нам при
+        этом не приходит. Отличаем её от хода показа по величине прыжка
+        (:attr:`SEEK_JUMP`), а от собственного нуджа - по тому, куда прыгнули: сторож
+        только что назвал это место сам (:attr:`_nudged_to`).
+
+        ``IDLE`` из счёта выкинут по той же причине, что и в :meth:`position`: у мёртвой
+        сессии позиции нет вовсе, и её ноль - не перемотка в начало.
+        """
+        seen, self._seen = self._seen, pos
+        if state == "IDLE":
+            self._seen = seen  # позиции не было - и сравнивать в следующий раз не с чем
+            return
+        now = time.monotonic()
+        if self._seek_since and state == "PLAYING":
+            trace.seek(frm=self._seek_from, to=self._seek_to, wait=now - self._seek_since)
+            self._seek_since = 0.0
+        if seen < 0.0 or abs(pos - seen) <= self.SEEK_JUMP:
+            return
+        if self._nudged_to >= 0.0 and abs(pos - self._nudged_to) <= self.SEEK_JUMP:
+            self._nudged_to = -1.0  # прыжок наш: сторож уже записал его как нудж
+            return
+        self._seek_from, self._seek_to = seen, pos
+        if state == "PLAYING":  # успел отработать между опросами - ждать было нечего
+            trace.seek(frm=seen, to=pos, wait=0.0)
+            return
+        self._seek_since = now
 
     def seek(self, pos: float) -> None:
         """Перемотка от владеющего сендера — ровно та же MEDIA-команда, что с пульта.

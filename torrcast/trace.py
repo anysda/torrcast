@@ -34,11 +34,17 @@ __all__ = [
     "SID_ENV",
     "digest",
     "emit",
+    "evict",
+    "health",
     "log_dir",
     "log_path",
+    "nudge",
     "records",
+    "reload",
+    "seek",
     "session_id",
     "shutdown",
+    "warmth",
 ]
 
 #: Переопределение каталога ленты (тесты, локальный запуск). Пусто - рядом с состоянием.
@@ -221,6 +227,81 @@ def shutdown() -> None:
     _writer.stop()
 
 
+# --- схема событий ----------------------------------------------------------
+# Имена полей живут ЗДЕСЬ, а не по местам вызова: место вызова знает свои числа, а как
+# они называются в ленте и как читаются в `cast log` - дело этого модуля. Каждая функция
+# ниже - это и объявление полей, и единственный способ их поставить; печать той же записи
+# лежит рядом, в :func:`_event_line`. Все они, как и :func:`emit`, только кладут запись в
+# очередь: ни одна не имеет права ждать диск, даже если зовут её не из горячего пути.
+
+
+def nudge(pos: float, to: float, hit: int, stuck: float, front: float) -> None:
+    """Сторож расшевелил зависший приёмник: где стоял, куда прыгнули, каким по счёту.
+
+    ``stuck`` - сколько секунд позиция не двигалась, ``front`` - докуда было упаковано
+    (по нему видно, зависание это было или законное ожидание упаковки).
+    """
+    emit(
+        "play",
+        "nudge",
+        pos=round(pos, 1),
+        to=round(to, 1),
+        hit=hit,
+        stuck=round(stuck, 1),
+        front=round(front, 1),
+    )
+
+
+def reload(pos: float, tries: int) -> None:
+    """Повтор LOAD посреди показа: приёмник отвалился и его подняли заново."""
+    emit("play", "reload", pos=round(pos, 1), tries=tries)
+
+
+def seek(frm: float, to: float, wait: float) -> None:
+    """Перемотка: откуда, куда и сколько секунд ждали картинку после неё."""
+    emit("play", "seek", frm=round(frm, 1), to=round(to, 1), wait=round(wait, 2))
+
+
+def evict(key: str, freed: int, need: int, title: str = "") -> None:
+    """Бюджет прогрева вытеснил чужой каталог: кого, сколько байт освободил и подо что."""
+    emit("warm", "evict", key=key, title=title, freed=freed, need=need)
+
+
+def warmth(event: str, secs: float, dur: float, size: int, why: str = "") -> None:
+    """Доля прогретого на этот момент: секунды на диске, длина фильма, доля и вес.
+
+    ``event`` - ``ready`` (фильм лёг целиком) или ``stall`` (прогрев встал, причина - в
+    ``why``). Доля считается здесь, чтобы читатель ленты её не пересчитывал.
+    """
+    emit(
+        "warm",
+        event,
+        secs=round(secs),
+        dur=round(dur),
+        share=round(secs / dur, 3) if dur > 0 else 0.0,
+        size=size,
+        why=why,
+    )
+
+
+def health() -> tuple[bool, float, int]:
+    """Здоровье самой ленты: есть ли она, когда писали последний раз, сколько весит.
+
+    Возвращает ``(есть, время последней записи, байт всего)``; время - ``0.0``, если
+    ленты нет. Файлы читаются по ``stat``, содержимое не разбирается: строка в
+    ``cast doctor`` отвечает на «пишется ли след», а не «что в нём».
+    """
+    newest, total, found = 0.0, 0, False
+    with contextlib.suppress(OSError):
+        for path in log_dir().glob(f"{_PREFIX}*{_SUFFIX}"):
+            with contextlib.suppress(OSError):
+                stat = path.stat()
+                found = True
+                total += stat.st_size
+                newest = max(newest, stat.st_mtime)
+    return found, newest, total
+
+
 def records(since: float = 0.0) -> list[dict[str, Any]]:
     """Лента за все сутки в каталоге, по возрастанию времени, не раньше ``since``."""
     found: list[dict[str, Any]] = []
@@ -283,11 +364,11 @@ def _session_block(sid: str, rows: list[dict[str, Any]]) -> str:
         line = _event_line(rec, began)
         if line:
             lines.append("  " + line)
-    rebuffers = sum(1 for r in rows if r.get("event") == "buffering")
-    offline = sum(1 for r in rows if r.get("event") == "offline")
-    tail = f"  итог: ребуферов {rebuffers}"
-    if offline:
-        tail += f", обрывов сети {offline}"
+    counts = {name: sum(1 for r in rows if r.get("event") == name) for name in _COUNTED}
+    tail = f"  итог: ребуферов {counts['buffering']}"
+    for name, word in _COUNTED.items():
+        if name != "buffering" and counts[name]:
+            tail += f", {word} {counts[name]}"
     end = next((r for r in reversed(rows) if r.get("event") == "session_end"), None)
     if end is not None:
         where = _hms(float(end.get("pos", 0.0)))
@@ -297,6 +378,22 @@ def _session_block(sid: str, rows: list[dict[str, Any]]) -> str:
         tail += f"; {state}" + (f" из {_hms(dur)}" if dur and not watched else "")
     lines.append(tail)
     return "\n".join(lines)
+
+
+#: Что считается в итоговой строке сеанса и как это называется по-русски. Ребуферы
+#: печатаются всегда (ноль ребуферов - тоже новость), остальное - только когда было.
+_COUNTED: Final = {
+    "buffering": "ребуферов",
+    "offline": "обрывов сети",
+    "nudge": "нуджей сторожа",
+    "reload": "повторов LOAD",
+    "seek": "перемоток",
+    "evict": "вытеснений прогрева",
+}
+
+
+def _gb(size: float) -> str:
+    return f"{size / 1e9:.1f} ГБ"
 
 
 def _event_line(rec: dict[str, Any], began: float) -> str:
@@ -323,6 +420,40 @@ def _event_line(rec: dict[str, Any], began: float) -> str:
         return f"{stamp}ребуфер на {_hms(float(rec.get('pos', 0.0)))}"
     if event == "offline":
         return f"{stamp}сеть: {rec.get('why', 'обрыв')}"
+    if event == "nudge":
+        return (
+            f"{stamp}нудж сторожа {rec.get('hit', 1)}:"
+            f" {_hms(float(rec.get('pos', 0.0)))} -> {_hms(float(rec.get('to', 0.0)))}"
+            f" (стоял {float(rec.get('stuck', 0.0)):.0f} с,"
+            f" готово впереди {float(rec.get('front', 0.0)) - float(rec.get('pos', 0.0)):.0f} с)"
+        )
+    if event == "reload":
+        return (
+            f"{stamp}приёмник отвалился на {_hms(float(rec.get('pos', 0.0)))}"
+            f" - повтор LOAD {rec.get('tries', 1)}"
+        )
+    if event == "seek":
+        return (
+            f"{stamp}перемотка {_hms(float(rec.get('frm', 0.0)))}"
+            f" -> {_hms(float(rec.get('to', 0.0)))},"
+            f" картинка через {float(rec.get('wait', 0.0)):.1f} с"
+        )
+    if event == "evict":
+        who = rec.get("title") or rec.get("key", "?")
+        return (
+            f"{stamp}бюджет прогрева вытеснил «{who}»:"
+            f" освободилось {_gb(float(rec.get('freed', 0.0)))}"
+            f" под {_gb(float(rec.get('need', 0.0)))}"
+        )
+    if event in {"ready", "stall"}:
+        head = (
+            f"{stamp}прогрето {_hms(float(rec.get('secs', 0.0)))}"
+            f" из {_hms(float(rec.get('dur', 0.0)))}"
+            f" ({float(rec.get('share', 0.0)) * 100:.0f} %,"
+            f" {_gb(float(rec.get('size', 0.0)))})"
+        )
+        why = rec.get("why")
+        return f"{head} - прогрев встал: {why}" if why else head
     if event == "error":
         return f"{stamp}ошибка: {rec.get('text', '')}"
     if event == "session_start":

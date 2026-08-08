@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import json
+import os
 import threading
 import time
 from pathlib import Path
@@ -207,3 +208,307 @@ def test_digest_summarises_session(tmp_path: Path) -> None:
     assert "ребуферов 2" in text
     assert "обрывов сети 1" in text
     assert "остановлено" in text
+
+
+# --- поля вместо текста: нуджи сторожа, вытеснения прогрева, перемотки ---------
+
+
+def _only(rows: list[dict[str, object]], event: str) -> dict[str, object]:
+    found = [rec for rec in rows if rec.get("event") == event]
+    assert len(found) == 1, f"событий «{event}» в ленте {len(found)}, а не одно"
+    return found[0]
+
+
+class _FakeController:
+    def __init__(self, jumps: list[float]) -> None:
+        self.jumps = jumps
+
+    def seek(self, pos: float) -> None:
+        self.jumps.append(pos)
+
+
+class _FakeDevice:
+    def __init__(self, jumps: list[float]) -> None:
+        self.media_controller = _FakeController(jumps)
+
+
+class _Reported:
+    """MEDIA_STATUS, как его отдаёт приёмник: позиция, состояние, длительность."""
+
+    def __init__(self, pos: float, state: str = "PLAYING") -> None:
+        self.current_time = pos
+        self.player_state = state
+        self.idle_reason = None
+        self.duration = 5977.0
+        self.player_is_playing = state in {"PLAYING", "BUFFERING"}
+
+
+def test_a_nudge_is_a_record_with_numbers_not_a_line_of_text(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Нудж сторожа виден в ленте полями: где стоял, куда прыгнул, каким по счёту.
+
+    До этого о нудже можно было узнать только по косвенным признакам - ребуфер в ленте
+    есть, а лечили его или нет, не сказано. Разбор недельного следа обязан отвечать на
+    «сколько раз приёмник пришлось расшевелить и на каких местах фильма».
+    """
+    from torrcast.cast import ChromecastReceiver
+
+    monkeypatch.setattr(ChromecastReceiver, "_device", lambda self: _FakeDevice([]))
+    receiver = ChromecastReceiver("10.0.0.50")
+    receiver._peak = 84.0
+    receiver._nudge(84.0, front=144.0)  # первый неподвижный тик - ещё не зависание
+    receiver._stall_since -= ChromecastReceiver.STALL_SECONDS
+    receiver._nudge(84.0, front=144.0)
+    trace.shutdown()
+
+    rec = _only(_read_lines(tmp_path), "nudge")
+    assert rec["phase"] == "play"
+    assert rec["pos"] == 84.0
+    assert rec["to"] == 84.0 + ChromecastReceiver.STALL_SKIP
+    assert rec["hit"] == 1
+    assert rec["front"] == 144.0
+    assert float(str(rec["stuck"])) >= ChromecastReceiver.STALL_SECONDS
+    text = trace.digest(trace.records())
+    assert "нудж сторожа 1" in text and "1:24 -> 1:32" in text
+    assert "нуджей сторожа 1" in text
+
+
+def test_a_reload_of_a_dead_receiver_is_logged(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Повтор LOAD - тоже событие показа: на какой секунде отвалились и какая это попытка."""
+    from torrcast.cast import ChromecastReceiver
+
+    receiver = ChromecastReceiver("10.0.0.50")
+    receiver._peak = 4355.0
+    monkeypatch.setattr(ChromecastReceiver, "_restart_app", lambda self: None)
+    monkeypatch.setattr(ChromecastReceiver, "_load", lambda self, at=0.0: None)
+    assert receiver._reload()
+    trace.shutdown()
+
+    rec = _only(_read_lines(tmp_path), "reload")
+    assert rec["pos"] == 4355.0
+    assert rec["tries"] == 1
+    assert "повтор LOAD 1" in trace.digest(trace.records())
+
+
+def test_a_seek_carries_where_to_and_how_long_the_picture_took(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Перемотка - событие с полями, а не фаза таймлайна.
+
+    Приёмник мотает сам, команды нам при этом не приходит, поэтому перемотку видно только
+    по прыжку позиции. Ценность записи - в том, что было ПОСЛЕ: сколько человек смотрел на
+    чёрный экран, пока показ снова не поехал.
+    """
+    from torrcast.cast import ChromecastReceiver
+
+    monkeypatch.setattr(ChromecastReceiver, "_device", lambda self: _FakeDevice([]))
+    receiver = ChromecastReceiver("10.0.0.50")
+    script = [
+        _Reported(600.0),  # смотрим 10:00
+        _Reported(1891.0, "BUFFERING"),  # пультом на 31:31 - картинки ещё нет
+        _Reported(1891.0, "BUFFERING"),
+        _Reported(1893.0),  # поехало
+    ]
+    monkeypatch.setattr(ChromecastReceiver, "_status", lambda self: script.pop(0))
+    for _ in range(4):
+        receiver.position(front=1e6)
+    trace.shutdown()
+
+    rec = _only(_read_lines(tmp_path), "seek")
+    assert rec["frm"] == 600.0
+    assert rec["to"] == 1891.0
+    assert float(str(rec["wait"])) >= 0.0
+    text = trace.digest(trace.records())
+    assert "перемотка 10:00 -> 31:31" in text
+    assert "картинка через" in text
+    assert "перемоток 1" in text
+
+
+def test_our_own_nudge_is_not_counted_as_a_seek_by_the_viewer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Прыжок сторожа - не перемотка человека, и в ленте он ровно один раз, как нудж.
+
+    Иначе разбор недели врёт дважды: каждый нудж считается ещё и перемоткой, а «человек
+    мотает» перестаёт что-либо значить.
+    """
+    from torrcast.cast import ChromecastReceiver
+
+    monkeypatch.setattr(ChromecastReceiver, "_device", lambda self: _FakeDevice([]))
+    receiver = ChromecastReceiver("10.0.0.50")
+    stuck = [_Reported(84.0, "BUFFERING") for _ in range(4)]
+    # Прыжок сторожа растёт с каждой попыткой (8 · hits) и на третьей перерастает порог
+    # перемотки - ровно тот случай, в котором нудж и мог сойти за человека с пультом.
+    script = [*stuck, _Reported(108.0, "BUFFERING"), _Reported(110.0)]
+    monkeypatch.setattr(ChromecastReceiver, "_status", lambda self: script.pop(0))
+    receiver.position(front=1e6)  # первый неподвижный тик
+    for _ in range(3):
+        receiver._stall_since -= ChromecastReceiver.STALL_SECONDS
+        receiver.position(front=1e6)  # нудж: 92, 100, 108
+    receiver.position(front=1e6)  # приёмник доехал туда, куда его послал сторож
+    receiver.position(front=1e6)
+    trace.shutdown()
+
+    rows = _read_lines(tmp_path)
+    events = [r["event"] for r in rows if r["event"] in {"nudge", "seek"}]
+    assert events == ["nudge", "nudge", "nudge"], "свой же прыжок записан как перемотка"
+
+
+def test_an_eviction_says_who_was_thrown_out_and_how_much_it_freed(tmp_path: Path) -> None:
+    """Вытеснение из бюджета прогрева - запись с именем, названием и освобождёнными байтами.
+
+    Это единственный случай, когда прогрев трогает ЧУЖОЕ, и через неделю вопрос будет
+    ровно один: почему вчерашний фильм не открылся с диска. Ответ обязан лежать полями.
+    """
+    from torrcast.warm import META, Vault
+
+    root = tmp_path / "warm"
+    old = Vault(root=root, key="старый", budget=1000, floor=0, title="Тачки 3")
+    old.open()
+    old.path(0).write_bytes(b"x" * 400)
+    os.utime(old.dir / META, (time.time() - 86400, time.time() - 86400))
+    mine = Vault(root=root, key="мой", budget=1000, floor=0)
+    mine.open()
+    mine.path(0).write_bytes(b"x" * 400)
+
+    assert mine.fit(300) == "", "место обязано найтись за счёт чужого"
+    trace.shutdown()
+
+    rec = _only(_read_lines(tmp_path), "evict")
+    assert rec["phase"] == "warm"
+    assert rec["key"] == "старый"
+    assert rec["title"] == "Тачки 3"
+    assert rec["freed"] == 400
+    assert rec["need"] == 300
+    assert "вытеснил «Тачки 3»" in trace.digest(trace.records())
+
+
+def test_the_share_of_the_warmed_movie_is_a_field(tmp_path: Path) -> None:
+    """Доля прогретого уходит в ленту числами, а не строкой «прогрето 42 мин из 96».
+
+    Строка остаётся человеку в живом показе; недельному разбору нужны секунды, длина
+    фильма, доля и вес каталога - по ним видно, докуда дошёл прогрев и почему встал.
+    """
+    from torrcast.stream import Grid
+    from torrcast.warm import Vault, Warmer
+
+    grid = Grid.uniform(100.0)
+    vault = Vault(root=tmp_path / "warm", key="k", budget=1 << 30, floor=0)
+    vault.open()
+    for slot in range(3):
+        vault.path(slot).write_bytes(b"x" * 1024)
+    warmer = Warmer(source="clip", audio=0, grid=grid, vault=vault, log=lambda _line: None)
+    warmer._stall("бюджет диска 20 ГБ исчерпан")
+    trace.shutdown()
+
+    rec = _only(_read_lines(tmp_path), "stall")
+    assert rec["phase"] == "warm"
+    assert rec["dur"] == 100
+    assert rec["secs"] == round(warmer.warmed)
+    assert rec["share"] == round(warmer.warmed / 100.0, 3)
+    assert rec["size"] == 3 * 1024
+    assert rec["why"] == "бюджет диска 20 ГБ исчерпан"
+    assert "прогрев встал: бюджет диска 20 ГБ исчерпан" in trace.digest(trace.records())
+
+
+def test_the_new_fields_never_break_an_old_journal(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Лента, записанная ДО этих полей, обязана читаться `cast log` как читалась.
+
+    Разбор старых записей - не украшение: недельный след затем и держат неделю, чтобы
+    вчерашний сеанс пережил сегодняшнее обновление. Здесь - запись ровно того формата,
+    который был до добора полей, плюс событие, о котором эта версия не знает вовсе.
+    """
+    from torrcast import cli
+
+    old = [
+        {
+            "at": time.time() - 120,
+            "sid": "вчера",
+            "pid": 7,
+            "phase": "search",
+            "event": "query",
+            "query": "матрица",
+            "raw": 17,
+        },
+        {
+            "at": time.time() - 110,
+            "sid": "вчера",
+            "pid": 7,
+            "phase": "play",
+            "event": "buffering",
+            "pos": 120.0,
+        },
+        {
+            "at": time.time() - 100,
+            "sid": "вчера",
+            "pid": 7,
+            "phase": "play",
+            "event": "нечто",
+            "чего-мы-не-знаем": 1,
+        },
+        {
+            "at": time.time() - 90,
+            "sid": "вчера",
+            "pid": 7,
+            "phase": "session",
+            "event": "session_end",
+            "pos": 5400.0,
+            "dur": 6000.0,
+            "watched": False,
+        },
+    ]
+    path = tmp_path / f"trace-{time.strftime('%Y%m%d')}.jsonl"
+    path.write_text(
+        "".join(json.dumps(rec, ensure_ascii=False) + "\n" for rec in old), encoding="utf-8"
+    )
+
+    assert cli.main(["log"]) == 0
+    text = capsys.readouterr().out
+    assert "матрица" in text
+    assert "ребуфер на 2:00" in text
+    assert "ребуферов 1" in text and "нуджей" not in text
+    assert "остановлено на 1:30:00" in text
+
+
+def test_cast_log_shows_the_new_events(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """Сквозная проверка: события легли в ленту - и `cast log` их напечатал."""
+    from torrcast import cli
+
+    trace.emit("search", "query", query="тачки")
+    trace.nudge(pos=84.0, to=92.0, hit=1, stuck=9.0, front=144.0)
+    trace.seek(frm=600.0, to=1891.0, wait=3.2)
+    trace.evict(key="k", freed=4_200_000_000, need=1_000_000_000, title="Тачки 3")
+    trace.warmth("ready", secs=2520.0, dur=5760.0, size=6_000_000_000)
+    trace.shutdown()
+
+    assert cli.main(["log"]) == 0
+    text = capsys.readouterr().out
+    assert "нудж сторожа 1: 1:24 -> 1:32 (стоял 9 с, готово впереди 60 с)" in text
+    assert "перемотка 10:00 -> 31:31, картинка через 3.2 с" in text
+    assert "бюджет прогрева вытеснил «Тачки 3»: освободилось 4.2 ГБ под 1.0 ГБ" in text
+    assert "прогрето 42:00 из 1:36:00 (44 %, 6.0 ГБ)" in text
+    assert "нуджей сторожа 1, перемоток 1, вытеснений прогрева 1" in text
+
+
+def test_doctor_says_whether_the_journal_is_alive(tmp_path: Path) -> None:
+    """`cast doctor` отвечает и про сам след: есть ли он, свежий ли, сколько весит.
+
+    Пустая лента ломает не показ, а разбор: узнать, что писать было некуда, надо до того,
+    как понадобится вчерашний сеанс, - поэтому «внимание», а не «плохо».
+    """
+    from torrcast.doctor import _trace
+
+    line, ok = _trace()
+    assert ok, "отсутствие следа - не отказ показа"
+    assert "следа нет" in line
+
+    trace.emit("search", "query", query="матрица")
+    trace.shutdown()
+    line, ok = _trace()
+    assert ok
+    assert "след" in line and "МБ" in line and "последняя запись" in line

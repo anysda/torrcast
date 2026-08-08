@@ -43,6 +43,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final
 
+from torrcast import trace
 from torrcast.timing import mark
 
 if TYPE_CHECKING:
@@ -208,7 +209,11 @@ class Vault:
             key=_touched,
         )
         while others and _weigh(self.root) + need > self.budget:
-            shutil.rmtree(others.pop(0), ignore_errors=True)
+            gone = others.pop(0)
+            # Вес и имя снимаем ДО сноса: после ``rmtree`` сказать, что именно и на сколько
+            # освободили, уже не по чему, а в ленте это и есть вся ценность записи.
+            trace.evict(key=gone.name, freed=_weigh(gone), need=int(need), title=_title(gone))
+            shutil.rmtree(gone, ignore_errors=True)
         if need > self.budget - _weigh(self.root):
             return f"бюджет диска {self.budget / 1e9:.0f} ГБ исчерпан"
         if need + self.floor > self.free():
@@ -228,6 +233,15 @@ def _touched(path: Path) -> float:
         return (path / META).stat().st_mtime
     except OSError:
         return 0.0
+
+
+def _title(path: Path) -> str:
+    """Название вытесняемого показа из его паспорта; нет паспорта - пустая строка."""
+    with contextlib.suppress(OSError, ValueError):
+        found = json.loads((path / META).read_text(encoding="utf-8"))
+        if isinstance(found, dict):
+            return str(found.get("title", ""))
+    return ""
 
 
 def _weigh(where: Path) -> int:
@@ -372,6 +386,7 @@ class Warmer:
                     if not self.trouble:
                         self._say(self.line())
                         mark("прогрев готов", секунд=round(self.warmed))
+                        self._trace("ready")
                         self._chain()
                     return
                 tight = self.vault.fit(int(self._forecast(*job)))
@@ -428,6 +443,18 @@ class Warmer:
         self.trouble = why
         self._say(self.line())
         mark("прогрев встал", причина=why, секунд=round(self.warmed))
+        self._trace("stall", why)
+
+    def _trace(self, event: str, why: str = "") -> None:
+        """Доля прогретого в недельный след - полями, а не строкой журнала.
+
+        Строка (:meth:`line`) остаётся человеку в живом показе, а сюда идут те же числа
+        врозь: секунды на диске, длина фильма и вес каталога. По ним и через неделю видно,
+        сколько успел прогрев, - без разбора текста.
+        """
+        trace.warmth(
+            event, secs=self.warmed, dur=self.grid.duration, size=self.vault.size(), why=why
+        )
 
     def _run(self, first: int, last: int) -> None:
         """Один прогон ffmpeg: от ``first`` до ``last`` включительно, на диск, в темпе."""

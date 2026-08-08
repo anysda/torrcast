@@ -17,6 +17,7 @@ import os
 import socket
 import subprocess
 import sys
+import time
 from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import Path
@@ -47,6 +48,7 @@ def checkup(config: Config) -> Iterator[Line]:
     yield _torrserver(config)
     yield from _tv(config)
     yield _hls(config)
+    yield _trace()
 
 
 def _ok(text: str) -> Line:
@@ -205,6 +207,33 @@ def _hls(config: Config) -> Line:
     if left < 7:
         return _bad(f"раздача {base}, серту осталось {left} дн - показ вот-вот отвалится")
     return _ok(f"раздача {base}, серту осталось {left} дн")
+
+
+def _trace() -> Line:
+    """Недельный след: пишется ли он вообще, свежий ли и сколько занимает.
+
+    Проверка не про показ, а про диагностику: пустая или протухшая лента означает, что
+    разбирать прошлый сеанс будет нечем, и узнать об этом лучше заранее, а не тогда,
+    когда что-то уже сломалось. Сама по себе лента показу не нужна - поэтому «внимание».
+    """
+    from torrcast import trace
+
+    found, newest, total = trace.health()
+    if not found:
+        return _warn(f"следа нет в {trace.log_dir()} - `cast log` покажет пустоту")
+    days = (time.time() - newest) / 86400
+    size = f"{total / 1e6:.1f} МБ"
+    if days > trace.RETAIN_DAYS:
+        return _warn(f"след есть ({size}), но последняя запись {days:.0f} дн назад")
+    return _ok(f"след {size}, последняя запись {_ago(time.time() - newest)} назад")
+
+
+def _ago(seconds: float) -> str:
+    if seconds < 3600:
+        return f"{seconds / 60:.0f} мин"
+    if seconds < 86400:
+        return f"{seconds / 3600:.0f} ч"
+    return f"{seconds / 86400:.0f} дн"
 
 
 def _cert_days(path: str) -> int | None:
