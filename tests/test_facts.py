@@ -81,7 +81,7 @@ def test_case_variants_of_the_plain_name_are_tried_too() -> None:
     без этого варианта прямая выборка промахивалась и справка уходила в медленный поиск.
     """
     names = titles_for("breaking bad", None)
-    assert "breaking bad" == names[0], "само имя по-прежнему первое и в исходном виде"
+    assert names[0] == "breaking bad", "само имя по-прежнему первое и в исходном виде"
     assert "Breaking Bad" in names, "заглавные слова - под ними и лежит редирект"
     assert "Twin Peaks" in titles_for("twin peaks", None)
     # Русскому имени регистровый вариант ничего не добавляет - лишних кандидатов не плодим.
@@ -526,6 +526,7 @@ def test_a_memoized_address_rides_over_a_dns_storm(monkeypatch: Any) -> None:
     возвращается). Прямой резолв в ней не укладывается в бюджет, а память :func:`_resolve`
     и её собственный таймаут - укладываются.
     """
+    import socket
     import threading
     import time
 
@@ -535,9 +536,9 @@ def test_a_memoized_address_rides_over_a_dns_storm(monkeypatch: Any) -> None:
 
     def stuck(host: str, *_a: Any, **_k: Any) -> Any:
         blocked.wait()  # под бурей резолвер не отвечает
-        return [(facts_mod.socket.AF_INET, facts_mod.socket.SOCK_STREAM, 6, "", ("1.2.3.4", 0))]
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("1.2.3.4", 0))]
 
-    monkeypatch.setattr(facts_mod.socket, "getaddrinfo", stuck)
+    monkeypatch.setattr("torrcast.facts.socket.getaddrinfo", stuck)
     facts_mod._RESOLVED.clear()
 
     # Память переживает бурю: адрес разрешили ОДНАЖДЫ, до бури.
@@ -561,10 +562,12 @@ def test_a_memoized_address_rides_over_a_dns_storm(monkeypatch: Any) -> None:
 
     # А вот голый getaddrinfo (прежнее поведение connect) в той же буре в срок не отвечает.
     done = threading.Event()
-    threading.Thread(
-        target=lambda: facts_mod.socket.getaddrinfo("nomemo.example", 443) and done.set(),
-        daemon=True,
-    ).start()
+
+    def bare_resolve() -> None:
+        socket.getaddrinfo("nomemo.example", 443)
+        done.set()
+
+    threading.Thread(target=bare_resolve, daemon=True).start()
     assert not done.wait(FACTS_BUDGET), "прямой getaddrinfo под бурей за бюджет не разрешился"
 
     blocked.set()  # отпустить залипших демонов
