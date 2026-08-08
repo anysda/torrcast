@@ -104,6 +104,9 @@ _YEAR_RE: Final = re.compile(r"\b(1[89]\d{2}|20\d{2})\s+года")
 _CINEMA_RE: Final = re.compile(r"фильм|сериал|кинокартин|аниме|франшиз", re.IGNORECASE)
 #: Кириллица в заголовке: по ней видно, годится ли он сам как оригинальное название.
 _CYRILLIC: Final = re.compile(r"[а-яё]", re.IGNORECASE)
+#: Уточнение в конце заголовка английской статьи: «Wednesday (TV series)», «Cars (film)».
+#: Индексерам оно ни к чему - раздачу подписывают именем без скобки.
+_ENWIKI_TAIL_RE: Final = re.compile(r"\s*\([^)]*\)\s*$")
 #: Сколько символов статьи просим у Википедии. Раньше просили две фразы (``exsentences``),
 #: но фразы там режет тот же наивный счёт точек, от которого мы уходим: у «Дюны» ответ
 #: приезжал обрубком ««Дюна» (англ. Dune), в титрах «Дюна: Часть первая» (англ.» — и
@@ -307,37 +310,66 @@ def origin_now(title: str, series: bool = False, timeout: float = HTTP_TIMEOUT) 
     if series:  # у сериала своя статья, и лежит она под своим уточнением
         names.sort(key=lambda name: "сериал" not in name)
     hops, pages = _pages(get_json(_WIKI_HOST, _WIKI_PATH, _extract_params(names), {}, timeout))
-    found = read_origin([_article(name, hops, pages) for name in names], title)
+    direct = [_article(name, hops, pages) for name in names]
+    found = read_origin(direct, title, trusted=True)
     if found:
         return found
     payload = get_json(_WIKI_HOST, _WIKI_PATH, _search_params(f"{title} {kind}"), {}, timeout)
     return read_origin(_ranked(payload), title)
 
 
-def read_origin(pages: list[Any], title: str) -> Origin:
+def read_origin(pages: list[Any], title: str, trusted: bool = False) -> Origin:
     """Статьи-кандидаты → паспорт. Побеждает первая, которая про кино и про то самое.
 
-    Два условия, и оба нужны. Статья про кино — «Восхождение» это ещё и альпинизм, а
-    «Матрица» — таблица. Заголовок про то же, что спросили (:func:`akin`) — поиск честно
-    приносит и однофамильцев, и актёров той же картины.
+    Статья должна быть про кино — «Восхождение» это ещё и альпинизм, а «Матрица» —
+    таблица. А вот «про то самое» проверяется по-разному, и это ``trusted``.
 
-    Название латиницей берётся из скобки в первой фразе, а если её нет — из самого
-    заголовка статьи: франшиза «Kingsman» так и подписана, и это ровно то имя, которым
-    её ищут индексеры.
+    * **Поиск Википедии** (``trusted=False``) честно приносит однофамильцев, актёров и
+      саундтреки — их отсеивает :func:`akin` по заголовку.
+    * **Прямая выборка по имени** (``trusted=True``) — другое дело: имя мы назвали САМИ,
+      и до статьи нас довела сама Википедия своим перенаправлением. Спорить с ней
+      заголовком нельзя: она за тем и заведена, чтобы знать, что «Уэнсдей» пишется
+      «Уэнздей», «ВандаВижн» — «Ванда/Вижн», а «Фруктовая корзинка» — «Корзинка
+      фруктов». :func:`akin` все три заголовка отвергала, и справка молчала ровно там,
+      где знала ответ: на этих именах поиск и оставался без оригинала.
+
+    Название латиницей ищется по убыванию точности: скобка первой фразы («англ. …»),
+    затем заголовок английской статьи, затем сам заголовок, если он и так на латинице
+    (франшиза «Kingsman» подписана именно так — и именно так её ищут индексеры).
     """
     for page in pages:
         if page is None:
             continue
         heading = str(page.get("title") or "")
         extract = str(page.get("extract") or "")
-        if not _CINEMA_RE.search(f"{heading} {extract}") or not akin(title, heading):
+        if not _CINEMA_RE.search(f"{heading} {extract}"):
+            continue
+        if not trusted and not akin(title, heading):
             continue
         seen = _YEAR_RE.search(extract)
-        latin = latin_title(extract) or ("" if _CYRILLIC.search(heading) else heading)
+        latin = (
+            latin_title(extract)
+            or english_title(page)
+            or ("" if _CYRILLIC.search(heading) else heading)
+        )
         found = Origin(title=latin, year=int(seen.group(1)) if seen else None)
         if found:
             return found
     return Origin()
+
+
+def english_title(page: Any) -> str:
+    """Как та же картина называется в английской Википедии; уточнение в скобке отрезано.
+
+    Русская статья пишет оригинал в первой фразе не всегда: у аниме в скобке стоят
+    иероглифы («Юная революционерка Утэна» — 少女革命ウテナ), и латиницы там нет вовсе.
+    Межъязыковая ссылка отвечает на тот же вопрос и едет тем же запросом
+    (:func:`_extract_params`), а «(TV series)» и «(film)» на конце — это разметка
+    Википедии, а не часть имени: индексеру с ней делать нечего.
+    """
+    links = page.get("langlinks") or [] if isinstance(page, dict) else []
+    name = str(links[0].get("title") or "") if links else ""
+    return _ENWIKI_TAIL_RE.sub("", name).strip()
 
 
 def akin(title: str, heading: str) -> bool:
@@ -350,10 +382,22 @@ def akin(title: str, heading: str) -> bool:
     ⚠️ Сверяется НАЧАЛО имени, а не вхождение куда попало. «Ганнибал: Восхождение» тоже
     содержит слово «восхождение», и на вхождении справка уверенно выдавала его паспорт за
     паспорт фильма Шепитько - то есть ровно ту подмену, которую и должна ловить.
+
+    Пробелы и знаки между словами картину не различают: статья про «ВандаВижн» называется
+    «Ванда/Вижн», и одна косая черта делала имена чужими. Поэтому к трём сверкам добавлена
+    четвёртая - точное равенство имён, у которых убраны все разделители. Именно точное:
+    склей разделители у «начала имени», и «восхождение» совпало бы с «Ганнибалом».
     """
     base = slugify(heading.split(" (")[0])
+    solid = base.replace("-", "")
     return bool(base) and any(
-        want and (want == base or want.startswith(f"{base}-") or base.startswith(f"{want}-"))
+        want
+        and (
+            want == base
+            or want.startswith(f"{base}-")
+            or base.startswith(f"{want}-")
+            or want.replace("-", "") == solid
+        )
         for want in (slugify(title), slugify(transliterate(title)))
     )
 
@@ -546,7 +590,15 @@ def _extract_params(names: list[str]) -> dict[str, str]:
         "action": "query",
         "titles": "|".join(names[:_EXLIMIT]),
         "redirects": "1",
-        "prop": "extracts|pageprops",
+        # Ссылка на английскую статью едет тем же запросом и ничего не стоит, а имя за ней
+        # - ровно то, которым картину подписывают индексеры. Русская статья про аниме
+        # оригинал латиницей не пишет вовсе («Юная революционерка Утэна» - и японские
+        # иероглифы в скобке), и без этой ссылки добирать было бы нечем.
+        "prop": "extracts|pageprops|langlinks",
+        "lllang": "en",
+        # Потолок общий на все статьи запроса, а не на каждую: с ``1`` ссылка приезжала бы
+        # только у первой из них, и повезло бы не тому кандидату.
+        "lllimit": str(_EXLIMIT),
         "ppprop": "disambiguation|wikibase_item",
         "exintro": "1",
         "explaintext": "1",

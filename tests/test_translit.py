@@ -437,3 +437,65 @@ def test_the_gate_keeps_a_series_without_a_year(monkeypatch: pytest.MonkeyPatch)
     assert client.asked == ["дедвуд", "Deadwood"]
     assert len(plans[0].picture.releases) == 19
     assert "добрал по «Deadwood»: стало 19" in said
+
+
+def test_an_empty_result_asks_the_reference_by_the_query_itself(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """🔴 Русская выдача пуста - оригинал брать неоткуда, кроме справки.
+
+    Прежде на пустой выдаче оставался только транслит («Уэнсдей» → ``uensdey``), а он
+    не находит ничего: раздачи подписаны ``Wednesday``. Справку спрашиваем по САМОМУ
+    запросу - она отвечает про ту картину, которую спросили, а не про ту, что попала в
+    выдачу (её нет вовсе).
+    """
+    client = _FakeProwlarr(
+        {"wednesday": [raw(f"Wednesday.S01E{i:02d}.1080p.NF.WEB-DL", i) for i in range(1, 9)]}
+    )
+    asked = _knows(monkeypatch, {"уэнсдей": Origin(title="Wednesday")})
+
+    plans, said = _search(client, "уэнсдей", monkeypatch)
+
+    assert asked == ["уэнсдей"]
+    assert client.asked == ["уэнсдей", "Wednesday"]
+    assert len(plans[0].picture.releases) == 8
+    assert "добрал по «Wednesday»: стало 8" in said
+
+
+def test_a_silent_reference_on_an_empty_result_still_goes_by_translit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Сети нет - справка пуста, и остаётся ровно то, что было: транслит запроса."""
+    client = _FakeProwlarr({"brat": [raw(f"Brat.1997.BDRip.x264-{i}", i) for i in range(20)]})
+    asked = _knows(monkeypatch, {})
+
+    plans, _said = _search(client, "брат", monkeypatch)
+
+    assert asked == ["брат"]
+    assert client.asked == ["брат", "brat"]
+    assert len(plans[0].picture.releases) == 20
+
+
+def test_the_reference_original_does_not_open_the_gate_to_another_year(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """🔴 Оригинал из справки - proven, но год всё равно сверяется.
+
+    Имя пришло от справки, значит оно про ту самую картину; а вот приехать по нему может
+    чужое кино того же названия. Год расходится - добора не было, и это честное
+    «не нашлось», а не чужой фильм.
+    """
+    client = _FakeProwlarr(
+        {
+            "the ascent": [
+                raw(f"The.Climbers.2019.1080p.WEB-DL.x264-{i}", i) for i in range(20)
+            ]
+        }
+    )
+    asked = _knows(monkeypatch, {"восхождение": Origin(title="The Ascent", year=1976)})
+
+    with pytest.raises(NotFoundError):
+        _search(client, "восхождение", monkeypatch)
+
+    assert asked == ["восхождение"]
+    assert client.asked == ["восхождение", "The Ascent"]

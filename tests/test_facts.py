@@ -297,3 +297,89 @@ def test_broken_cache_is_the_same_as_no_cache(tmp_path: Any, monkeypatch: Any) -
     assert facts_mod._cached([("Моана", 2016)]) == {}
     path.write_text(json.dumps({"Моана|2016": {"rating": "IMDb 7.6"}}), encoding="utf-8")
     assert facts_mod._cached([("Моана", 2016)]) == {("Моана", 2016): Fact(rating="IMDb 7.6")}
+
+
+WEDNESDAY = (
+    "«Уэ́нздей» (англ. Wednesday) — американский комедийный сверхъестественный телесериал, "
+    "созданный Альфредом Гофом и Майлзом Милларом для стримингового сервиса Netflix."
+)
+UTENA = (
+    "«Юная революционерка Утэна» (яп. 少女革命ウテナ) — аниме-сериал, выпущенный студией "
+    "J.C.Staff под руководством режиссёра Кунихико Икухары."
+)
+CLIMBERS = (
+    "«Восхождение» (англ. The Climbers) — китайский фильм 2019 года режиссёра Дэниела Ли."
+)
+
+
+def _page(heading: str, extract: str, english: str = "") -> dict[str, Any]:
+    """Статья в том виде, в каком её отдаёт ``action=query``."""
+    page: dict[str, Any] = {"title": heading, "extract": extract}
+    if english:
+        page["langlinks"] = [{"lang": "en", "title": english}]
+    return page
+
+
+def test_wikipedia_knows_better_than_us_how_the_asked_name_is_spelled() -> None:
+    """Имя назвали мы сами, до статьи довело перенаправление - спорить с ним нечем.
+
+    «Уэнсдей» в русской Википедии пишется «Уэнздей», и прежняя сверка заголовка
+    (:func:`~torrcast.facts.akin`) отвергала статью, которую сама же Википедия и выдала:
+    справка молчала ровно там, где знала ответ, и поиску нечем было добирать.
+    """
+    page = _page("Уэнздей", WEDNESDAY)
+
+    assert facts_mod.read_origin([page], "Уэнсдей", trusted=True).title == "Wednesday"
+
+
+def test_a_namesake_from_the_search_is_still_checked_by_its_heading() -> None:
+    """Послабление касается только имён, которые мы назвали сами.
+
+    Поиск Википедии приносит однофамильцев наравне с нужным, и «Восхождение» 2019 года
+    под запрос «Восхождение» не подходит только заголовком - сверка остаётся.
+    """
+    page = _page("Ганнибал: Восхождение", CLIMBERS)
+
+    assert not facts_mod.read_origin([page], "Восхождение")
+    assert facts_mod.read_origin([page], "Ганнибал: Восхождение").year == 2019
+
+
+def test_the_original_name_comes_from_the_english_article_when_the_text_has_none() -> None:
+    """У аниме в скобке иероглифы, а не латиница - имя берётся из английской статьи."""
+    page = _page("Юная революционерка Утэна", UTENA, english="Revolutionary Girl Utena")
+
+    found = facts_mod.read_origin([page], "Утэна", trusted=True)
+    assert found.title == "Revolutionary Girl Utena"
+
+
+def test_the_english_heading_loses_its_disambiguation_bracket() -> None:
+    """«Wednesday (TV series)» - это разметка Википедии; индексер ищет «Wednesday»."""
+    assert facts_mod.english_title(_page("Уэнздей", "", english="Wednesday (TV series)")) == (
+        "Wednesday"
+    )
+    assert facts_mod.english_title(_page("Тачки", "", english="Cars (film)")) == "Cars"
+    assert facts_mod.english_title(_page("Внутри Лапенко", "")) == ""
+
+
+def test_the_english_article_does_not_outrank_the_original_in_the_text() -> None:
+    """Скобка первой фразы точнее: там оригинал, а не английское прокатное имя."""
+    page = _page("Уэнздей", WEDNESDAY, english="Wednesday (TV series)")
+
+    assert facts_mod.read_origin([page], "Уэнсдей", trusted=True).title == "Wednesday"
+
+
+def test_the_english_link_rides_along_with_the_extracts() -> None:
+    """Ссылка на английскую статью не стоит отдельного запроса - едет тем же."""
+    params = facts_mod._extract_params(["Уэнздей"])
+
+    assert "langlinks" in params["prop"]
+    assert params["lllang"] == "en"
+    assert int(params["lllimit"]) > 1, "потолок общий на все статьи запроса, не на первую"
+
+
+def test_a_slash_inside_the_heading_does_not_make_it_another_picture() -> None:
+    """«ВандаВижн» в русской Википедии подписан «Ванда/Вижн» - это то же имя."""
+    assert facts_mod.akin("вандавижн", "Ванда/Вижн")
+    assert facts_mod.akin("ВандаВижн", "Ванда/Вижн")
+    # Склейка разделителей не должна открывать дорогу однофамильцу.
+    assert not facts_mod.akin("восхождение", "Ганнибал: Восхождение")
