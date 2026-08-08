@@ -74,6 +74,13 @@ FACTS_BUDGET: Final = 1.5
 #: Потолок одного сетевого запроса. Меньше общего бюджета: их два, и второй зависит от
 #: первого; залипший запрос обязан отпустить меню, а не съесть весь бюджет.
 HTTP_TIMEOUT: Final = 1.2
+#: Сколько добор живёт ВСЕГО, секунды, считая от :meth:`Facts.start`. Меню отпускается
+#: через :data:`FACTS_BUDGET`, а поток дописывает кэш ещё столько - уже никого не держа.
+TOPUP_LIMIT: Final = 3.0
+#: Сколько помним, что справки нет, секунды. Пустой ответ - тоже ответ: без него каждое
+#: меню снова шло в сеть за той же самой пустотой, снова не успевало к дедлайну и снова
+#: печаталось голым. Срок конечный - статью могли и написать.
+EMPTY_TTL: Final = 7 * 24 * 3600
 #: Кем представляемся Wikimedia: у них это требование к автоматике, а не вежливость.
 USER_AGENT: Final = "torrcast/1.0 (https://github.com/anysda/torrcast)"
 _WIKI_HOST: Final = "ru.wikipedia.org"
@@ -510,9 +517,11 @@ class Facts:
         self._done = threading.Event()
         self._thread: threading.Thread | None = None
         self._deadline = 0.0
+        self._started = 0.0
 
     def start(self) -> None:
         """Пустить добор фоном. Ошибки внутри гасятся: справка не вправе ронять показ."""
+        self._started = time.monotonic()
         self._deadline = time.monotonic() + self.budget
         if not self.wanted:
             self._done.set()
@@ -533,10 +542,30 @@ class Facts:
         self._done.wait(max(0.0, self._deadline - time.monotonic()))
         return self.found.get((title, year), Fact())
 
+    def finish(self) -> None:
+        """Дать добору дописать кэш - уже ПОСЛЕ меню, чтобы следующее было полным.
+
+        Дедлайн отпускает МЕНЮ, а не поток: тот идёт дальше и кладёт найденное на диск.
+        В живом показе это и так успевает - пока человек читает меню и отвечает, поток
+        давно закончил, и здесь ждать нечего. А вот там, где ход обрывается сразу за меню
+        (``--dry``, отказ «картин много, а терминала нет»), процесс уносил поток с собой:
+        в кэш не попадало ничего, и следующий заход снова печатал голое меню.
+
+        Ждём не с нуля, а остаток :data:`TOPUP_LIMIT` от старта: полторы секунды бюджета
+        уже прошли, и на Ctrl-C это оставляет не задержку, а её хвостик.
+        """
+        thread = self._thread
+        if thread is not None:
+            thread.join(max(0.0, self._started + TOPUP_LIMIT - time.monotonic()))
+
     def _work(self) -> None:
         try:
-            self.found = fetch(self.wanted)
-            _remember(self.found)
+            fresh = fetch(self.wanted)
+            # Дописываем к тому, что уже лежало в кэше, а не заменяем: сеть отвечает только
+            # про ненайденное, и присваиванием мы выбрасывали справку, которая у нас была.
+            self.found = {**self.found, **fresh}
+            # Пустой ответ тоже запоминаем - иначе поход за ним повторяется каждое меню.
+            _remember(fresh, [key for key in self.wanted if key not in self.found])
         except Exception:
             pass
         finally:
@@ -546,10 +575,25 @@ class Facts:
 def fetch(
     wanted: list[tuple[str, int | None]], timeout: float = HTTP_TIMEOUT
 ) -> dict[tuple[str, int | None], Fact]:
-    """Собрать справку по картинам: Википедия → Wikidata → выгрузка рейтингов."""
+    """Собрать справку по картинам: Википедия → Wikidata → выгрузка рейтингов.
+
+    Цепочка тут не вся: Wikidata спрашивают по идентификаторам из Википедии, и эти два
+    запроса иначе как друг за другом не идут. А вот выгрузка рейтингов - файл на диске, с
+    сетью не связанный ничем; читалась она третьим шагом, и её сотня тысяч строк ложилась
+    на те же полторы секунды дедлайна, что и оба запроса. Теперь она читается ПОКА идёт
+    первый запрос и к моменту нужды уже готова.
+    """
+    scores: dict[str, str] = {}
+
+    def load() -> None:
+        nonlocal scores
+        scores = ratings()
+
+    reader = threading.Thread(target=load, daemon=True)
+    reader.start()
     about, entities = wiki_extracts(wanted, timeout)
     ids = wikidata_ids(sorted(set(entities.values())), timeout) if entities else {}
-    scores = ratings() if ids else {}
+    reader.join(timeout)
     out: dict[tuple[str, int | None], Fact] = {}
     for key in wanted:
         imdb_id, minutes = ids.get(entities.get(key, ""), ("", 0))
@@ -755,25 +799,46 @@ def _remember_origin(title: str, series: bool, found: Origin) -> None:
 
 
 def _cached(wanted: list[tuple[str, int | None]]) -> dict[tuple[str, int | None], Fact]:
-    """Что уже лежит на диске. Битый кэш — как пустой: перечитаем из сети."""
+    """Что уже лежит на диске. Битый кэш — как пустой: перечитаем из сети.
+
+    Ряд с отметкой ``empty`` — это записанное «справки нет»: картина отдаётся пустой, и в
+    сеть за ней не идут. Отметка со сроком (:data:`EMPTY_TTL`): вышел — ряда как не было.
+    """
     raw = _read_cache()
     out: dict[tuple[str, int | None], Fact] = {}
     for key in wanted:
         row = raw.get(_key(*key))
-        if isinstance(row, dict):
-            out[key] = Fact(
-                about=str(row.get("about", "")),
-                rating=str(row.get("rating", "")),
-                runtime=str(row.get("runtime", "")),
-            )
+        if not isinstance(row, dict):
+            continue
+        blank = row.get("empty")
+        if isinstance(blank, int | float) and time.time() - blank > EMPTY_TTL:
+            continue
+        out[key] = Fact(
+            about=str(row.get("about", "")),
+            rating=str(row.get("rating", "")),
+            runtime=str(row.get("runtime", "")),
+        )
     return out
 
 
-def _remember(found: dict[tuple[str, int | None], Fact]) -> None:
-    """Дописать найденное в кэш. Не вышло записать — молчим: это не путь показа."""
-    if not found:
+def _remember(
+    found: dict[tuple[str, int | None], Fact],
+    misses: Iterable[tuple[str, int | None]] = (),
+) -> None:
+    """Дописать итог в кэш. Не вышло записать — молчим: это не путь показа.
+
+    ``misses`` — картины, про которые источник ответил, но сказать ему нечего. Раньше они
+    в кэш не попадали вовсе, и каждое меню шло за ними в сеть заново: поход не успевал к
+    дедлайну, меню печаталось голым, следующее — точно так же. Пустой ответ — тоже ответ,
+    и он тоже помнится, только со сроком (:data:`EMPTY_TTL`).
+    """
+    blanks = list(misses)
+    if not found and not blanks:
         return
     raw = _read_cache()
     for key, fact in found.items():
         raw[_key(*key)] = {"about": fact.about, "rating": fact.rating, "runtime": fact.runtime}
+    now = int(time.time())
+    for key in blanks:
+        raw[_key(*key)] = {"about": "", "rating": "", "runtime": "", "empty": now}
     _write_cache(raw)

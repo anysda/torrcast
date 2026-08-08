@@ -383,3 +383,121 @@ def test_a_slash_inside_the_heading_does_not_make_it_another_picture() -> None:
     assert facts_mod.akin("ВандаВижн", "Ванда/Вижн")
     # Склейка разделителей не должна открывать дорогу однофамильцу.
     assert not facts_mod.akin("восхождение", "Ганнибал: Восхождение")
+
+
+def test_an_empty_answer_is_remembered_so_the_walk_is_not_repeated(
+    monkeypatch: Any, tmp_path: Any
+) -> None:
+    """Источник ответил, а сказать ему нечего - это тоже ответ, и он помнится.
+
+    Раньше пустой ряд в кэш не попадал вовсе: каждое меню шло за ним в сеть заново, не
+    успевало к дедлайну и печаталось голым - и следующее ровно так же.
+    """
+    monkeypatch.setattr(facts_mod, "CACHE_PATH", tmp_path / "facts.json")
+    walks: list[Any] = []
+
+    def once(wanted: Any, timeout: float = 0.0) -> Any:
+        walks.append(list(wanted))
+        return {("Тачки", 2006): Fact(rating="IMDb 7.2")}
+
+    monkeypatch.setattr(facts_mod, "fetch", once)
+    wanted = [("Тачки", 2006), ("Тачки: Мультачки. Байки Мэтра", 2008)]
+
+    first = Facts(wanted, budget=5.0)
+    first.start()
+    assert first.get("Тачки", 2006).rating == "IMDb 7.2"
+    first.finish()
+
+    second = Facts(wanted, budget=5.0)
+    second.start()
+    assert second.get("Тачки", 2006).rating == "IMDb 7.2"
+    assert second.get("Тачки: Мультачки. Байки Мэтра", 2008) == Fact()
+    # Второй заход в сеть не пошёл: пустота лежит в кэше наравне с найденным.
+    assert len(walks) == 1
+
+
+def test_a_stale_empty_answer_is_asked_again(monkeypatch: Any, tmp_path: Any) -> None:
+    """Срок у пустоты конечный: статью могли и написать - через :data:`EMPTY_TTL` спросим."""
+    import time
+
+    monkeypatch.setattr(facts_mod, "CACHE_PATH", tmp_path / "facts.json")
+    stale = int(time.time()) - facts_mod.EMPTY_TTL - 1
+    (tmp_path / "facts.json").write_text(
+        json.dumps({"Моана|2016": {"about": "", "rating": "", "runtime": "", "empty": stale}}),
+        encoding="utf-8",
+    )
+    walks: list[Any] = []
+
+    def once(wanted: Any, timeout: float = 0.0) -> Any:
+        walks.append(list(wanted))
+        return {("Моана", 2016): Fact(about=MOANA)}
+
+    monkeypatch.setattr(facts_mod, "fetch", once)
+    facts = Facts([("Моана", 2016)], budget=5.0)
+    facts.start()
+
+    assert facts.get("Моана", 2016).about == MOANA
+    assert walks == [[("Моана", 2016)]]
+
+
+def test_the_network_answer_does_not_throw_away_what_the_cache_had(
+    monkeypatch: Any, tmp_path: Any
+) -> None:
+    """Сеть отвечает про ненайденное - и не вправе стирать уже найденное.
+
+    Присваиванием ``self.found = fetch(...)`` кэшированная справка выбрасывалась: в меню
+    из четырёх картин оставалась ровно та, про которую ответила сеть.
+    """
+    monkeypatch.setattr(facts_mod, "CACHE_PATH", tmp_path / "facts.json")
+    monkeypatch.setattr(
+        facts_mod, "_cached", lambda wanted: {("Тачки", 2006): Fact(rating="IMDb 7.2")}
+    )
+    monkeypatch.setattr(
+        facts_mod, "fetch", lambda wanted, timeout=0.0: {("Тачки 2", 2011): Fact(rating="IMDb 6.2")}
+    )
+    facts = Facts([("Тачки", 2006), ("Тачки 2", 2011)], budget=5.0)
+    facts.start()
+    facts.finish()
+
+    assert facts.get("Тачки", 2006).rating == "IMDb 7.2"
+    assert facts.get("Тачки 2", 2011).rating == "IMDb 6.2"
+
+
+def test_the_ratings_dump_is_read_alongside_the_first_request_not_after_it(
+    monkeypatch: Any,
+) -> None:
+    """Выгрузка рейтингов - файл, а не сеть: внутри дедлайна она идёт параллельно запросу.
+
+    Третьим шагом её сотня тысяч строк ложилась на те же полторы секунды, что и оба
+    запроса, и справка не успевала к меню на ровном месте.
+    """
+    import time
+
+    order: list[str] = []
+
+    def slow_ratings() -> dict[str, str]:
+        order.append("рейтинги-начало")
+        time.sleep(0.3)
+        order.append("рейтинги-конец")
+        return {"tt0317219": "7.2"}
+
+    def slow_wiki(wanted: Any, timeout: float) -> Any:
+        order.append("вики-начало")
+        time.sleep(0.3)
+        order.append("вики-конец")
+        return {("Тачки", 2006): CARS}, {("Тачки", 2006): "Q182153"}
+
+    monkeypatch.setattr(facts_mod, "ratings", slow_ratings)
+    monkeypatch.setattr(facts_mod, "wiki_extracts", slow_wiki)
+    monkeypatch.setattr(
+        facts_mod, "wikidata_ids", lambda items, timeout: {"Q182153": ("tt0317219", 117)}
+    )
+
+    started = time.monotonic()
+    out = facts_mod.fetch([("Тачки", 2006)], timeout=5.0)
+    spent = time.monotonic() - started
+
+    assert out[("Тачки", 2006)].rating == "IMDb 7.2"
+    # Оба шага стартовали до того, как кончился любой из них - значит шли вместе.
+    assert order[:2] == ["рейтинги-начало", "вики-начало"]
+    assert spent < 0.55

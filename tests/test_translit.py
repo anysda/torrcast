@@ -499,3 +499,39 @@ def test_the_reference_original_does_not_open_the_gate_to_another_year(
 
     assert asked == ["восхождение"]
     assert client.asked == ["восхождение", "The Ascent"]
+
+
+def test_the_verdict_of_a_top_up_comes_after_the_line_of_that_very_search(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Сначала строка круга, потом его итог - иначе это читается как противоречие.
+
+    ``note`` печатается сразу, а строка фазы - только когда фазу закрыли, и в прежнем
+    порядке «приехала другая картина» выходило ПЕРЕД «поиск «The Climbers»… 102.1 с».
+    Человек читал два несвязанных сообщения как отказ, за которым будто бы последовал
+    удавшийся второй поиск, из которого и выросло меню.
+    """
+    client = _namesakes()
+    _plans, said = _search(client, "восхождение", monkeypatch)
+
+    assert "поиск «The Climbers»" in said
+    assert said.index("поиск «The Climbers»") < said.index("приехала другая картина")
+    # Итог называет, на чём остались: молчаливого «не беру» человеку мало.
+    assert "остаюсь на выдаче по «восхождение»" in said
+
+
+def test_the_same_name_is_not_asked_a_second_time(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Латинский запрос уже латинский: второй круг тем же именем - чистая трата.
+
+    На «cast cars» оригиналом из выдачи оказывается «Cars», то есть сам запрос, и добор
+    уходил на полный круг по всем индексерам за той же самой выдачей: на живом стенде это
+    стоило 102 секунды до меню.
+    """
+    client = _FakeProwlarr({"cars": [raw(f"Cars (2006) BDRip {i}", i) for i in range(3)]})
+    _knows(monkeypatch, {"cars": Origin(title="Cars", year=2006)})
+
+    plans, _said = _search(client, "cars", monkeypatch)
+
+    assert client.asked == ["cars"]
+    # Пул тощий - значит добор рассматривался и был отменён именно как бессмысленный.
+    assert max(len(p.picture.releases) for p in plans) < THIN_POOL

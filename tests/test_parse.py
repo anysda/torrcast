@@ -18,7 +18,9 @@ from torrcast.parse import (
     Release,
     cluster,
     franchise_key,
+    menu_order,
     other_words,
+    outside_numbering,
     parse_episode,
     parse_release_name,
     part_number,
@@ -555,3 +557,62 @@ def test_xvid_is_never_a_prime_release() -> None:
     """
     xvid = parse_release_name("Кино / Movie [2003, HDRip] XviD MVO")
     assert xvid.codec == "MPEG-4" and not xvid.prime
+
+
+def test_the_menu_numbers_the_franchise_by_part_not_by_year() -> None:
+    """Номер пункта = номер части: спин-офф 2008 года не встаёт между первой и второй.
+
+    Живая франшиза «Тачки»: у первой части номера нет вовсе, у спин-оффа «Мультачки» -
+    тоже, и по хронологии он оказывался вторым пунктом, оттесняя «Тачки 2» на третий.
+    Человек читает номер пункта как номер части и им же отвечает.
+    """
+    pictures = cluster(
+        [
+            _release("Тачки", 2006, original="Cars", seeders=15),
+            _release("Тачки: Мультачки. Байки Мэтра", 2008, seeders=3),
+            _release("Тачки 2", 2011, original="Cars 2", seeders=9),
+            _release("Тачки 3", 2017, original="Cars 3", seeders=26),
+        ]
+    )
+    whole = pick_franchise("тачки", pictures)
+
+    assert [p.title for p in menu_order(whole)] == [
+        "Тачки",
+        "Тачки 2",
+        "Тачки 3",
+        "Тачки: Мультачки. Байки Мэтра",
+    ]
+    # Уехавшему вниз пункту меню подписывает причину, остальным - нечего.
+    assert outside_numbering(whole) == {"movie:тачки-мультачки-байки-мэтра:2008"}
+
+
+def test_a_franchise_without_part_numbers_keeps_its_chronology() -> None:
+    """«Матрица» номеров частей не называет - выдумывать линейку и подписи не из чего."""
+    pictures = cluster(
+        [
+            _release("Матрица", 1999, seeders=90),
+            _release("Матрица: Перезагрузка", 2003, seeders=50),
+            _release("Матрица: Революция", 2003, seeders=40),
+            _release("Матрица: Воскрешение", 2021, seeders=20),
+        ]
+    )
+    whole = pick_franchise("матрица", pictures)
+
+    assert [p.title for p in menu_order(whole)] == [p.title for p in whole]
+    assert outside_numbering(whole) == set()
+
+
+def test_an_explicit_first_part_leaves_no_free_slot_for_a_nameless_one() -> None:
+    """Номер ``1`` назван вслух - значит безномерная картина первой частью не считается."""
+    pictures = cluster(
+        [
+            _release("Дюна: Часть первая", 2021, seeders=30),
+            _release("Дюна 1", 1984, seeders=10),
+            _release("Дюна 2", 2024, seeders=40),
+        ]
+    )
+    whole = pick_franchise("дюна", pictures)
+    ordered = menu_order(whole)
+
+    assert [p.year for p in ordered] == [1984, 2024, 2021]
+    assert outside_numbering(whole) == {ordered[-1].key}

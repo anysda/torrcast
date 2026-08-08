@@ -39,7 +39,9 @@ __all__ = [
     "franchise_name",
     "franchises",
     "map_episodes",
+    "menu_order",
     "other_words",
+    "outside_numbering",
     "parse_episode",
     "parse_release_name",
     "part_number",
@@ -919,6 +921,53 @@ def franchises(pictures: list[Picture]) -> dict[str, list[Picture]]:
     for items in grouped.values():
         items.sort(key=lambda p: (p.year is None, p.year or 0, p.part or 99, -len(p.releases)))
     return grouped
+
+
+def _numbered_line(pictures: list[Picture]) -> tuple[list[Picture], list[Picture]]:
+    """Франшиза → (основная линейка по номерам частей, всё остальное после неё).
+
+    Каталог нумерует не всё: у «Тачек» номер стоит на второй и третьей части, а первая
+    подписана просто «Тачки» - как и спин-офф «Тачки: Мультачки. Байки Мэтра» двумя
+    годами позже. По хронологии спин-офф оказывался между первой и второй частью, и в
+    меню выходило «2. Мультачки, 3. Тачки 2»: номер пункта не совпадал с номером части,
+    хотя человек читает его именно так и именно им отвечает.
+
+    Правило простое и держится на том, что каталог сказал вслух:
+
+    * у кого номер части есть - те и есть линейка, по возрастанию номера;
+    * первое место линейки свободно (номера ``1`` никто не назвал) - его занимает самая
+      ранняя из безномерных: это и есть первая часть, её просто не с чем нумеровать;
+    * остальные безномерные идут ПОСЛЕ линейки, в хронологии.
+
+    ⚠️ Нумерованных частей нет вовсе («Матрица», «Гарри Поттер») - порядок не трогаем:
+    там хронология и есть нумерация, а любое «после линейки» было бы выдумкой.
+    """
+    numbered = sorted(
+        (p for p in pictures if p.part is not None),
+        key=lambda p: (p.part or 0, p.year is None, p.year or 0),
+    )
+    if not numbered:
+        return list(pictures), []
+    rest = [p for p in pictures if p.part is None]
+    first = rest[:1] if all(p.part != 1 for p in numbered) else []
+    return first + numbered, rest[len(first) :]
+
+
+def menu_order(pictures: list[Picture]) -> list[Picture]:
+    """Порядок картин в меню: номер пункта = номер части (:func:`_numbered_line`)."""
+    line, tail = _numbered_line(pictures)
+    return line + tail
+
+
+def outside_numbering(pictures: list[Picture]) -> set[str]:
+    """Ключи картин, стоящих ПОСЛЕ нумерованной линейки, - им и подписи в меню.
+
+    Подпись честная - «без номера части», а не «спин-офф»: номер части каталог для них
+    действительно не назвал, а вот спин-офф ли это, мы не знаем. У «Форсажа» безномерными
+    подписаны «Двойной форсаж» и «Тройной форсаж» - это ровно основная линейка, и назвать
+    их спин-оффами значило бы соврать в строке, которую человек не может проверить.
+    """
+    return {p.key for p in _numbered_line(pictures)[1]}
 
 
 def _by_words(wanted: str, keys: Iterable[str]) -> str | None:

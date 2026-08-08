@@ -30,7 +30,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from functools import partial
 from pathlib import Path
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Final, Protocol, runtime_checkable
 
 from torrcast import (
     InfraError,
@@ -51,7 +51,9 @@ from torrcast.parse import (
     Release,
     franchise_key,
     map_episodes,
+    menu_order,
     other_words,
+    outside_numbering,
     slugify,
     split_episode,
     split_franchise_index,
@@ -720,7 +722,13 @@ def _cmd_play(args: Args) -> int:
         for plan in warm_order(plans)[:PREWARM]:
             bench.start(plan, plan.first)
         try:
-            plan = _pick_plan(plans, facts)
+            try:
+                plan = _pick_plan(plans, facts)
+            finally:
+                # Меню уже на экране, и ответ на него получен: пусть фоновый добор допишет
+                # кэш - СЛЕДУЮЩЕЕ меню этой франшизы будет полным. Ко времени до меню это
+                # отношения не имеет, а к моменту ответа поток обычно давно закончил.
+                facts.finish()
             prep = bench.resolve(plan, args, progress)
         except BaseException:  # Ctrl-C, «картин много, а терминала нет», «годного нет»
             bench.drop_all()  # прогретое без показа — мусор в рое и кэш в чужой RAM
@@ -821,11 +829,53 @@ def _search(config: Config, args: Args, progress: Progress) -> list[_Plan]:
     if other := other_words(name, _leading(found)):
         progress.note(f"«{name}» - в каталоге это «{other}»")
     progress.phase("")
+    # Номер пункта меню человек читает как номер части и им же отвечает: «Тачки 2» обязаны
+    # стоять вторыми, а безномерные - после линейки (:func:`~torrcast.parse.menu_order`).
+    found = menu_order(found)
     plans = [plan for plan in (_plan_for(p, args, config) for p in found) if plan.ranked]
+    # Соседи по франшизе, до меню не доехавшие: понадобятся, если у выбранной картины
+    # годного релиза не окажется вовсе (:func:`kin_line`).
+    kin = _kin(_leading(found), pictures, {plan.picture.key for plan in plans})
+    for plan in plans:
+        plan.kin = kin
     if not plans:  # картина есть, а раздач нужного сезона в ней нет
         want = args.episode or Episode(1, 1)
         raise NotFoundError(f"«{found[0].title}»: раздач с сезоном {want.season} нет")
     return plans
+
+
+#: Сколько соседей по франшизе называем в строке отказа. Больше не помещается в строку, да
+#: и незачем: это подсказка, а не второй список - список человек уже получит по `cast`.
+KIN_SHOWN: Final = 3
+
+
+def _kin(picture: Picture | None, pictures: list[Picture], shown: set[str]) -> list[Picture]:
+    """Части франшизы, до меню не доехавшие, но в каталоге живые.
+
+    Не доехать часть могла по-разному: запрос попал в свою половину двуязычной франшизы,
+    или у картины не осталось ни одного релиза, прошедшего отбор. Обещать за них ничего
+    нельзя - поэтому строка отказа говорит ровно «в каталоге есть», а не «возьми это».
+    """
+    from torrcast.parse import franchise_name, pick_franchise
+
+    if picture is None:
+        return []
+    whole = pick_franchise(franchise_name(picture.title), pictures)
+    return [p for p in whole if p.key not in shown and p.key != picture.key and p.releases]
+
+
+def kin_line(kin: list[Picture]) -> str:
+    """«в каталоге есть Тачки 2 (2011), Тачки 3 (2017) - cast тачки 2». Пусто - молчим.
+
+    Строка-подсказка, и только: сама другую часть не запускает. Человек просил «cast
+    cars», у этой картины годного релиза не нашлось - и подменить её соседкой по франшизе
+    значило бы показать не то, что просили. А вот промолчать о живых соседях, отправив
+    человека разбираться руками, - это скрыть то, что мы уже знаем.
+    """
+    if not kin:
+        return ""
+    names = ", ".join(f"{p.title} ({p.year or '?'})" for p in kin[:KIN_SHOWN])
+    return f"в каталоге есть {names} - cast {kin[0].title.casefold()}"
 
 
 def _nothing(name: str, index: int | None, pictures: list[Picture]) -> str:
@@ -877,7 +927,14 @@ def _second_language(
     только на тощем пуле: на полной выдаче (порог :data:`~torrcast.parse.THIN_POOL`) поиск
     остаётся ровно таким, каким был. Запросы идут последовательно, а не парой: Prowlarr
     отвечает, только когда опрошены все индексеры, и два круга разом - это не «вдвое
-    быстрее», а вдвое больше работы на тех же индексерах.
+    быстрее», а вдвое больше работы на тех же индексерах. И уж точно не тем же именем:
+    на латинском запросе оригинал из выдачи совпадает с самим запросом, и круг уходил
+    целиком впустую - на живом стенде это стоило 102 секунды до меню.
+
+    Строка вердикта печатается ПОСЛЕ строки того круга, о котором она говорит: ``note``
+    выходит сразу, а строка фазы - только когда фазу закрыли, и в прежнем порядке «не
+    беру» стояло перед «поиск… 102.1 с». Читалось это как противоречие: сначала отказ,
+    а следом будто бы удавшийся второй поиск, из которого и выросло меню.
 
     Выдачи склеиваются, а не заменяются: русские имена несут озвучки и оригинал, по
     которому кластер и сшивает оба языка в одну картину. Если добор ничего не дал или
@@ -902,7 +959,7 @@ def _second_language(
     и это не перестраховка: подмену видно только по году, потому что кластер сшивает
     одноимённые картины в одну франшизу и «стало больше» у неё выходит честным.
     """
-    from torrcast.parse import alt_query, cluster, pick_franchise
+    from torrcast.parse import alt_query, cluster, pick_franchise, slugify
 
     name, index = split_franchise_index(query)
     pool = [r for p in found for r in p.releases] or to_releases(raw)
@@ -919,10 +976,18 @@ def _second_language(
         # Название латиницей остаётся: номер части у него всё равно отрезан, и оно верное.
         about = Origin(title=about.title)
     alt = alt_query(name, pool, about.title)
-    if not alt:
+    # Тем же именем второй раз ходить незачем: на «cast cars» оригинал из выдачи - «Cars»,
+    # и это ещё один полный круг по всем индексерам (на живом стенде - 102 секунды) ради
+    # той же самой выдачи. Регистр и разделители имя не меняют, поэтому сверяем по слагу.
+    if not alt or slugify(alt) == slugify(name):
         return _as_is(raw, found, about, progress)
     progress.phase(f"поиск «{alt}»")
     merged = merge(raw, _ask(client, alt))
+    # Круг кончился - закрываем его строку прямо здесь. Всё, что скажем дальше, это его
+    # итог, а `note` печатается сразу, тогда как строка фазы ждёт закрытия фазы: без этого
+    # вердикт «не беру» выходил ПЕРЕД строкой «поиск «Cars»… 102.1 с», и человек читал два
+    # несвязанных сообщения как противоречие - отказ, а следом будто бы удавшийся поиск.
+    progress.phase("")
     if len(merged) == len(raw):
         return _as_is(raw, found, about, progress)
     pictures = cluster(to_releases(merged))
@@ -942,7 +1007,7 @@ def _second_language(
     # справки отвечает про ту самую картину. А вот оригинал из выдачи ничем не подтверждён.
     proven = bool(about.title) or alt == transliterate(name)
     if not same_picture(lead, _leading(wider), about, proven):
-        progress.note(f"по «{alt}» приехала другая картина - не беру")
+        progress.note(f"по «{alt}» приехала другая картина - остаюсь на выдаче по «{name}»")
         return _as_is(raw, found, about, progress)
     progress.note(f"по-русски раздач {was} - добрал по «{alt}»: стало {now}")
     return merged, pictures, wider
@@ -971,6 +1036,7 @@ def _as_is(
         return stays
     if abs(found[0].year - about.year) <= 1:
         return stays
+    progress.phase("")  # вердикт - итог уже законченного круга, и печатается после него
     progress.note(
         f"под этим именем в каталоге лежит картина {found[0].year} года, а не {about.year}"
     )
@@ -1065,6 +1131,9 @@ class _Plan:
     #: Ворота отбора открыты: живых именных кандидатов у картины нет (:func:`gate_open`),
     #: и молчаливые имена идут в очередь наравне с именными.
     loose: bool = False
+    #: Другие части той же франшизы, до меню не доехавшие: их нет в списке картин, но в
+    #: выдаче они есть и раздачи у них живые. Нужны одной строке отказа (:func:`kin_line`).
+    kin: list[Picture] = field(default_factory=list)
 
     @property
     def first(self) -> int:
@@ -1374,9 +1443,11 @@ class _Bench:
                 break
         shown = "; ".join(tried[:MAX_TRIES])
         more = f" и ещё {len(tried) - MAX_TRIES}" if len(tried) > MAX_TRIES else ""
+        offer = kin_line(plan.kin)
         raise NotFoundError(
             f"годного релиза нет ({shown}{more}): выбери руками — "
             "cast releases <запрос>, потом cast <запрос> --release N"
+            + (f"\n{offer}" if offer else "")
         )
 
     def _wait(self, prep: _Prep, progress: Progress) -> None:
@@ -2334,9 +2405,16 @@ def _pick_plan(plans: list[_Plan], facts: Facts | None = None) -> _Plan:
 _BLURB_INDENT = " " * 5
 
 
-def _named(picture: Picture) -> str:
-    kind = ", сериал" if picture.kind == "tv" else ""
-    return f"{picture.title} ({picture.year or '?'}{kind})"
+def _named(picture: Picture, aside: bool = False) -> str:
+    """Название с годом; ``aside`` - картина стоит после нумерованной линейки франшизы.
+
+    Подпись объясняет, почему пункт уехал вниз: номера части у неё нет, и в линейку по
+    номерам ей вставать не с чем (:func:`~torrcast.parse.outside_numbering`).
+    """
+    marks = ", сериал" if picture.kind == "tv" else ""
+    if aside:
+        marks += ", без номера части"
+    return f"{picture.title} ({picture.year or '?'}{marks})"
 
 
 def menu_lines(plans: list[_Plan], facts: Facts | None = None, width: int = 0) -> str:
@@ -2357,11 +2435,14 @@ def menu_lines(plans: list[_Plan], facts: Facts | None = None, width: int = 0) -
     строка, что печаталась раньше, без пустых разделителей и без «не нашёл».
     """
     columns = width or shutil.get_terminal_size((80, 24)).columns
+    aside = outside_numbering([plan.picture for plan in plans])
     rows: list[str] = []
     for number, plan in enumerate(plans, start=1):
         picture = plan.picture
         fact = facts.get(picture.title, picture.year) if facts else Fact()
-        head = " · ".join(x for x in (_named(picture), fact.rating, fact.runtime) if x)
+        head = " · ".join(
+            x for x in (_named(picture, picture.key in aside), fact.rating, fact.runtime) if x
+        )
         rows.append(f"  {number}. {head}")
         if fact.about:
             rows += textwrap.wrap(

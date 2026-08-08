@@ -957,3 +957,78 @@ def test_a_slow_neighbour_does_not_hold_up_the_show(
 
     assert prep.number == 1
     assert "релиз 2 не успел ответить" in capsys.readouterr().out
+
+
+def test_a_refusal_names_the_living_parts_of_the_franchise(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Годного релиза нет - но соседки по франшизе в каталоге живые, и о них говорят.
+
+    Раньше отказ отправлял человека разбираться руками (`cast releases <запрос>`), молча
+    зная, что в той же выдаче лежат другие части с живыми раздачами. Подсказка - строка,
+    и только: сама она ничего не запускает, подмена картины была бы обманом.
+    """
+    from torrcast.parse import Picture
+
+    ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(5)]
+    _probes(monkeypatch, ranked, "av1", "mpeg2video", "vc1")
+    plan = _plan(ranked)
+    plan.kin = [
+        Picture(title="Тачки 2", year=2011, releases=[rel(name="c2", seeders=30)]),
+        Picture(title="Тачки 3", year=2017, releases=[rel(name="c3", seeders=40)]),
+    ]
+    args = cli.Args(query=["тачки"])
+    with pytest.raises(NotFoundError) as caught, Progress(out=io.StringIO()) as progress:
+        cli._Bench(cast(Any, _FakeTorrServer())).resolve(plan, args, progress)
+
+    assert "годного релиза нет" in str(caught.value)
+    assert "в каталоге есть Тачки 2 (2011), Тачки 3 (2017) - cast тачки 2" in str(caught.value)
+    capsys.readouterr()
+
+
+def test_a_refusal_stays_silent_when_the_franchise_has_no_other_parts(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Предлагать нечего - и строки нет: пустой подсказки человек не заслужил."""
+    ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(5)]
+    _probes(monkeypatch, ranked, "av1", "mpeg2video", "vc1")
+    with pytest.raises(NotFoundError) as caught:
+        _resolve(cli._Bench(cast(Any, _FakeTorrServer())), ranked)
+
+    assert "в каталоге есть" not in str(caught.value)
+    capsys.readouterr()
+
+
+def test_only_parts_that_stayed_out_of_the_menu_are_offered() -> None:
+    """Подсказка не пересказывает меню: там человек эти картины уже видел.
+
+    А вот часть франшизы, до меню не доехавшая (запрос попал в свою половину двуязычной
+    франшизы либо у картины не осталось прошедших отбор релизов), - ровно то новое, что
+    отказу есть сказать. Мёртвую, без единой раздачи, не предлагаем и её.
+    """
+    from torrcast.parse import Picture, cluster
+
+    pictures = cluster(
+        [
+            _named_release("Тачки", 2006),
+            _named_release("Тачки 2", 2011),
+            _named_release("Тачки 3", 2017),
+        ]
+    )
+    lead = next(p for p in pictures if p.year == 2006)
+
+    kin = cli._kin(lead, pictures, {lead.key})
+    assert [p.title for p in kin] == ["Тачки 2", "Тачки 3"]
+    # Показанное в меню не повторяем.
+    shown = {p.key for p in pictures if p.year != 2017}
+    assert [p.title for p in cli._kin(lead, pictures, shown)] == ["Тачки 3"]
+    # Картина без раздач в каталоге не «живая» - о ней молчим.
+    assert cli._kin(lead, [*pictures, Picture(title="Тачки 4", year=2029)], {lead.key}) == kin
+    assert cli.kin_line([]) == ""
+
+
+def _named_release(title: str, year: int) -> Release:
+    """Раздача с настоящим именем картины: кластеру нужно именно оно, а не «Кино»."""
+    from torrcast.parse import parse_release_name
+
+    return parse_release_name(f"{title} ({year}) BDRip 1080p")
