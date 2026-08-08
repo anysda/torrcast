@@ -28,7 +28,7 @@
 ## Установка
 
 ```sh
-git clone <url-репозитория> torrcast && cd torrcast
+git clone https://gitlab.anysda.space/anysda/torrcast torrcast && cd torrcast
 sudo ./install.sh                 # зависимости, TorrServer, Prowlarr, индексеры, конфиг
 cast --tv 10.0.0.50               # единственная настройка - адрес телевизора
 ```
