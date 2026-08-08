@@ -2,7 +2,8 @@
 # install.sh — установка torrcast на Debian/Ubuntu (в том числе в LXC). Идемпотентен:
 # повторный запуск ничего не ломает и не пересоздаёт то, что уже на месте.
 #
-# Фазы: зависимости → пакет → TorrServer → Prowlarr → индексеры → конфиг → раздача.
+# Фазы: локаль → зависимости → пакет → TorrServer → Prowlarr → индексеры → конфиг →
+# раздача → приветствие.
 # Ноль регистраций и внешних ключей: apikey Prowlarr генерит сам себе, мы его
 # вычитываем из его же config.xml и кладём в конфиг torrcast.
 #
@@ -80,7 +81,15 @@ INDEXERS=(
 # Трекеры с логином, капчей или ключом сюда не попадают ни при каких условиях, а
 # semi-private (59 определений) не рассматриваются вовсе: там регистрация.
 
-PHASES="${TORRCAST_PHASES:-packages torrcast torrserver sources prowlarr indexers config hls facts}"
+PHASES="${TORRCAST_PHASES:-locale packages torrcast torrserver sources prowlarr indexers config hls facts motd}"
+
+#: Локаль. Без UTF-8 в системе консоль крошит кириллицу: русское название приезжает
+#: в `cast` битым ещё до разбора аргументов. C.UTF-8 берём целью потому, что она есть
+#: в любой современной glibc и не тянет за собой переводы; своя задаётся TORRCAST_LOCALE.
+LOCALE="${TORRCAST_LOCALE:-C.UTF-8}"
+
+#: Приветствие при входе по ssh. Печатает его pam_motd, поэтому файл кладём целиком.
+MOTD_FILE="${TORRCAST_MOTD:-/etc/motd}"
 
 # Выгрузка оценок IMDb под справку в меню франшизы (torrcast/facts.py). Открытая,
 # без ключа и регистрации, обновляется у них ежедневно; 8.6 МБ в архиве.
@@ -183,6 +192,69 @@ fetch() {  # $@ - аргументы curl; возвращает код посл�
     done
 }
 
+# --- 0. Локаль --------------------------------------------------------------
+
+# `locale -a` печатает имена в своём написании (`c.utf8`, `ru_RU.utf8`), поэтому
+# сравниваем приведёнными: без регистра и без дефисов.
+locale_key() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | tr -d '-'; }
+
+locale_present() {  # $1 - имя локали
+    local want line
+    want="$(locale_key "$1")"
+    while read -r line; do
+        [ "$(locale_key "$line")" = "$want" ] && return 0
+    done < <(locale -a 2>/dev/null)
+    return 1
+}
+
+# Приводим систему к UTF-8. Идемпотентно: собранную локаль не пересобираем, готовую
+# строку в конфигах не переписываем.
+setup_locale() {
+    log "локаль UTF-8 ($LOCALE)"
+    if ! locale_present "$LOCALE" && ! command -v locale-gen >/dev/null 2>&1 \
+        && ! command -v localedef >/dev/null 2>&1; then
+        apt-get update -qq
+        DEBIAN_FRONTEND=noninteractive apt-get install -y -qq locales
+    fi
+    if ! locale_present "$LOCALE" && [ -f /etc/locale.gen ] \
+        && command -v locale-gen >/dev/null 2>&1; then
+        info "собираю $LOCALE через locale-gen"
+        grep -qE "^[[:space:]]*$LOCALE([[:space:]]|\$)" /etc/locale.gen \
+            || printf '%s %s\n' "$LOCALE" "${LOCALE#*.}" >> /etc/locale.gen
+        locale-gen >/dev/null 2>&1 || true
+    fi
+    if ! locale_present "$LOCALE" && command -v localedef >/dev/null 2>&1; then
+        info "собираю $LOCALE через localedef"
+        localedef -i "${LOCALE%%.*}" -f "${LOCALE#*.}" "$LOCALE" >/dev/null 2>&1 || true
+    fi
+    # Собрать не вышло - берём любую готовую UTF-8: кириллица в консоли важнее, чем
+    # конкретное имя локали.
+    if ! locale_present "$LOCALE"; then
+        local ready; ready="$(locale -a 2>/dev/null | grep -i -m1 'utf-\?8$' || true)"
+        [ -n "$ready" ] || die "в системе нет ни одной UTF-8 локали и собрать её не вышло"
+        info "$LOCALE не собралась - беру готовую $ready"
+        LOCALE="$ready"
+    fi
+
+    # Вход по ssh берёт LANG отсюда (pam_env с envfile=/etc/default/locale).
+    if [ "$(sed -n 's/^LANG=//p' /etc/default/locale 2>/dev/null | head -1)" = "$LOCALE" ]; then
+        skip "LANG=$LOCALE в /etc/default/locale"
+    elif command -v update-locale >/dev/null 2>&1; then
+        update-locale "LANG=$LOCALE"
+        info "LANG=$LOCALE → /etc/default/locale"
+    else
+        printf 'LANG=%s\n' "$LOCALE" > /etc/default/locale
+        info "LANG=$LOCALE → /etc/default/locale"
+    fi
+    # Подстраховка для систем, где строки с envfile в pam.d нет: /etc/environment
+    # pam_env читает всегда.
+    if ! grep -qs "^LANG=$LOCALE\$" /etc/environment; then
+        [ -f /etc/environment ] && sed -i '/^LANG=/d' /etc/environment
+        printf 'LANG=%s\n' "$LOCALE" >> /etc/environment
+    fi
+    export LANG="$LOCALE"
+}
+
 # --- 1. Зависимости ---------------------------------------------------------
 #: python3-venv обязателен: на голом Debian `python3 -m venv` без него не работает.
 APT_PACKAGES=(ffmpeg curl ca-certificates jq tar openssl python3-venv)
@@ -217,20 +289,50 @@ ffmpeg_version() {  # $1 — путь/имя бинаря; печатает го
 
 # Проверка сборки в деле, а не по строчке версии: пакуем секунду MPEG-TS (наш формат)
 # и читаем её обратно. Segfault ловится здесь, а не на живом показе.
-ffmpeg_smoke() {  # $1 — каталог для временного файла
-    local clip="$1/smoke.ts"
-    /usr/local/bin/ffmpeg -hide_banner -loglevel error -y \
+ffmpeg_smoke() {  # $1 — каталог для файла, $2/$3 — ffmpeg/ffprobe (по умолчанию свои)
+    local clip="$1/smoke.ts" ff="${2:-/usr/local/bin/ffmpeg}" fp="${3:-/usr/local/bin/ffprobe}"
+    "$ff" -hide_banner -loglevel error -y \
         -f lavfi -i "testsrc=size=320x240:rate=25:duration=1" -f lavfi -i "sine=duration=1" \
         -c:v libx264 -pix_fmt yuv420p -preset ultrafast -c:a aac -f mpegts "$clip" || return 1
-    /usr/local/bin/ffprobe -v error -show_entries stream=codec_name -of csv "$clip" >/dev/null || return 1
+    "$fp" -v error -show_entries stream=codec_name -of csv "$clip" >/dev/null || return 1
     info "сборка проверена: MPEG-TS пакуется и читается"
 }
 
+#: Сборка из snap проходит проверку по версии, а конфайнмент не пускает её ни в каталог
+#: пакета, ни в состояние, ни в /dev/shm с сегментами: установка отчитывается зелёным,
+#: а показ разваливается на первом же файле. Такой ffmpeg считаем негодным независимо
+#: от версии - и ставим свою статическую сборку.
+ffmpeg_confined() {  # $1 — имя/путь бинаря; 0 = заперт в снапе
+    local real; real="$(readlink -f "$(command -v -- "$1" 2>/dev/null || true)" 2>/dev/null || true)"
+    case "$real" in
+        /snap/*|/var/lib/snapd/*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
 install_ffmpeg() {
-    local have; have="$(ffmpeg_version ffmpeg)"
-    if [ -n "$have" ] && dpkg --compare-versions "$have" ge "$FFMPEG_MIN" 2>/dev/null; then
-        skip "ffmpeg $have (нужно ≥ $FFMPEG_MIN: -readrate_initial_burst)"
-        return
+    local have reject=""
+    have="$(ffmpeg_version ffmpeg)"
+    if [ -n "$have" ] && ffmpeg_confined ffmpeg; then
+        info "ffmpeg $have из snap: в $PREFIX, $STATE_DIR и $HLS_DIR его конфайнмент \
+не пустит - беру статическую сборку"
+        reject=1
+    fi
+    if [ -z "$reject" ] && [ -n "$have" ] \
+        && dpkg --compare-versions "$have" ge "$FFMPEG_MIN" 2>/dev/null; then
+        # Версия - только полдела: проверяем найденный на PATH бинарь в деле, тем же
+        # MPEG-TS, что и свою сборку. Не пережил - ставим свою.
+        local ff fp probe
+        ff="$(command -v ffmpeg)"; fp="$(command -v ffprobe || true)"
+        probe="$(mktemp -d)"
+        if [ -n "$fp" ] && ffmpeg_smoke "$probe" "$ff" "$fp"; then
+            rm -rf "$probe"
+            skip "ffmpeg $have (нужно ≥ $FFMPEG_MIN: -readrate_initial_burst)"
+            return
+        fi
+        rm -rf "$probe"
+        info "ffmpeg $have не прошёл проверку MPEG-TS - беру статическую сборку"
+        reject=1
     fi
     [ "$(uname -m)" = "x86_64" ] || die "статической сборки ffmpeg под $(uname -m) нет — \
 поставь ffmpeg ≥ $FFMPEG_MIN сам"
@@ -832,8 +934,39 @@ setup_facts() {
     info "оценок: $(wc -l < "$IMDB_RATINGS_PATH") (от $IMDB_MIN_VOTES голосов)"
 }
 
+# Кто вошёл по ssh, должен сразу видеть, куда попал и что здесь спрашивать. Шпаргалка
+# перечисляет ровно то, что понимает CLI (torrcast/cli.py) - выдуманных команд быть не
+# должно, иначе приветствие врёт.
+setup_motd() {
+    log "приветствие при входе ($MOTD_FILE)"
+    local tmp; tmp="$(mktemp)"
+    {
+        printf '\033[1;32m'
+        cat <<'ART'
+ _                          _
+| |_ ___  _ __ ___ __ _ ___| |_
+| __/ _ \| '__/ __/ _` / __| __|
+| || (_) | | | (_| (_| \__ \ |_
+ \__\___/|_|  \___\__,_|___/\__|
+ART
+        printf '\n   торрент → ТВ без скачивания   ·   показ: cast <название>\n'
+        printf '   cast status | stop | doctor | releases | voices'
+        printf '   ·   ключи: --tv IP, --voice N, --new, --dry\n'
+        printf '\033[0m\n'
+    } > "$tmp"
+    if cmp -s "$tmp" "$MOTD_FILE"; then
+        rm -f "$tmp"
+        skip "$MOTD_FILE"
+        return
+    fi
+    install -m 0644 "$tmp" "$MOTD_FILE"
+    rm -f "$tmp"
+    info "приветствие обновлено"
+}
+
 main() {
     need_root
+    has locale     && setup_locale
     has packages   && install_packages
     has torrcast    && install_torrcast
     has torrserver && install_torrserver
@@ -843,6 +976,7 @@ main() {
     has config     && setup_config
     has hls        && setup_hls
     has facts      && setup_facts
+    has motd       && setup_motd
     log "готово. Осталось: cast --tv <ip-телевизора>"
 }
 
