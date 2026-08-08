@@ -1140,7 +1140,7 @@ def _season_reinforce(
     # (аниме «The Angel Next Door») по оригиналу не проходит.
     keep = [
         row
-        for row, rel in zip(extra, to_releases(extra))
+        for row, rel in zip(extra, to_releases(extra), strict=True)
         if rel.original and slugify(rel.original) == want_orig and rel.covers(want.season)
     ]
     merged = merge(raw, keep) if keep else raw
