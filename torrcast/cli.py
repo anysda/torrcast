@@ -545,7 +545,15 @@ def _cmd_releases(args: Args) -> int:
     for plan in plans:
         print()
         print(f"{_named(plan.picture)} - раздач {len(plan.ranked)}")
-        print(render_table(plan.ranked, plan.runtime, plan.warn_mbit, recode_at=plan.recode_at))
+        print(
+            render_table(
+                plan.ranked,
+                plan.runtime,
+                plan.warn_mbit,
+                recode_at=plan.recode_at,
+                hard_mbit=plan.hard_mbit,
+            )
+        )
     print()
     print("играть конкретный: cast <запрос> --release N [--file N]")
     return EXIT_OK
@@ -1356,10 +1364,16 @@ def _plan_for(picture: Picture, args: Args, config: Config) -> _Plan:
     # (:mod:`torrcast.recode`), поэтому честный тяжёлый 1080p теперь берётся, а отбраковывает
     # только то, что перекодированием не спасти, - ``bitrate_hard_mbit``. Перекодирование
     # выключено - потолком снова становится прежний ``bitrate_warn_mbit``.
+    # Выше ``bitrate_hard_mbit`` перекодированием спасается не всё, а только то, что
+    # перекодируется ЦЕЛИКОМ одним прогоном (``bitrate_recode_mbit``): аниме-BD-ремуксы
+    # на 28-37 Мбит/с - ровно этот случай, и отказывать им незачем.
     ceiling = config.bitrate_hard_mbit if config.recode else config.bitrate_warn_mbit
+    hard = ceiling
+    if config.recode:
+        ceiling = max(ceiling, config.bitrate_recode_mbit)
     want = series.want if series else None
-    loose = gate_open(pool, runtime, ceiling, want)
-    ranked = rank_releases(pool, runtime, ceiling, want=want, loose=loose)
+    loose = gate_open(pool, runtime, ceiling, want, hard_mbit=hard)
+    ranked = rank_releases(pool, runtime, ceiling, want=want, loose=loose, hard_mbit=hard)
     return _Plan(
         picture=picture,
         ranked=ranked,
@@ -1368,6 +1382,7 @@ def _plan_for(picture: Picture, args: Args, config: Config) -> _Plan:
         series=series,
         recode_at=config.recode_at_mbit if config.recode else 0.0,
         loose=loose,
+        hard_mbit=hard,
     )
 
 
@@ -1388,6 +1403,10 @@ class _Plan:
     #: Порог ПЕРЕКОДИРОВАНИЯ, Мбит/с: выше него куски перекодируются, а релиз годен.
     #: Ноль - перекодирование выключено, и тогда отбраковка и порог это одно число.
     recode_at: float = 0.0
+    #: Потолок для тех, кого сплошной перекод не спасает, Мбит/с: выше него релиз годен
+    #: только при перекоде ЦЕЛИКОМ и только пока кадр не выше 1080p
+    #: (:attr:`torrcast.state.Config.bitrate_hard_mbit`). Ноль - ступени нет.
+    hard_mbit: float = 0.0
     #: Ворота отбора открыты: живых именных кандидатов у картины нет (:func:`gate_open`),
     #: и молчаливые имена идут в очередь наравне с именными.
     loose: bool = False
@@ -1428,7 +1447,7 @@ class _Plan:
             n
             for n, r in enumerate(self.ranked, start=1)
             if n != self.first
-            and is_candidate(r, self.runtime, self.warn_mbit, self.loose)
+            and is_candidate(r, self.runtime, self.warn_mbit, self.loose, self.hard_mbit)
             and not misses_episode(r, self.want)
         ]
         return queue
@@ -1678,15 +1697,23 @@ class _Bench:
                 self.start(plan, following)
             self._wait(prep, progress)
             trouble = self._trouble(
-                prep, pinned=args.pinned, warn_mbit=plan.warn_mbit, recode=plan.recode_at > 0
+                prep,
+                pinned=args.pinned,
+                warn_mbit=plan.warn_mbit,
+                recode=plan.recode_at > 0,
+                hard_mbit=plan.hard_mbit,
             )
             if not trouble:
                 progress.phase("")
                 prep = self._honest(plan, prep, queue, args, progress)
                 # Молчаливых подмен нет ни в одну сторону: и «ресивер может не взять», и
-                # «перекодирую целиком» - это решение показа, и человек его слышит.
-                if prep.found.recoded_whole and plan.recode_at > 0:
-                    print(recode_note(prep.found.video or ""))
+                # «перекодирую целиком» - это решение показа, и человек его слышит. Вес
+                # тут такой же повод, как кодек: тяжёлый ремукс уезжает перекодированным
+                # целиком, и сказано об этом ровно теми же словами и тем же числом.
+                weight = prep.found.weight_mbit(prep.want.size)
+                heavy = plan.hard_mbit > 0 and weight > plan.hard_mbit
+                if plan.recode_at > 0 and (prep.found.recoded_whole or heavy):
+                    print(recode_note(prep.found.video or "", weight if heavy else 0.0))
                 elif warning := prep.found.video_warning:
                     print(warning)
                 return prep
@@ -1786,7 +1813,11 @@ class _Bench:
                 return chosen
             progress.phase("")
             why = self._trouble(
-                alt, pinned=False, warn_mbit=plan.warn_mbit, recode=plan.recode_at > 0
+                alt,
+                pinned=False,
+                warn_mbit=plan.warn_mbit,
+                recode=plan.recode_at > 0,
+                hard_mbit=plan.hard_mbit,
             )
             if why:
                 print(f"релиз {number} не годится ({why})")
@@ -1801,7 +1832,12 @@ class _Bench:
         return chosen
 
     def _trouble(
-        self, prep: _Prep, pinned: bool, warn_mbit: float = 0.0, recode: bool = False
+        self,
+        prep: _Prep,
+        pinned: bool,
+        warn_mbit: float = 0.0,
+        recode: bool = False,
+        hard_mbit: float = 0.0,
     ) -> str:
         """Почему релиз не годится; пусто — годится. Названный руками не подменяется.
 
@@ -1827,6 +1863,13 @@ class _Bench:
         всем, что нашлось, — теперь играет. Предпочтение H.264 при прочих равных живёт
         не здесь, а в ранжире (:func:`rank_releases` топит hevc ниже всех), то есть
         сплошной перекод достаётся ровно тем релизам, у которых альтернативы нет.
+
+        ⚠️ ``hard_mbit`` - потолок для тех, кого сплошной перекод НЕ спасает
+        (:attr:`torrcast.state.Config.bitrate_hard_mbit`). Здесь он достаётся кадру выше
+        1080p: замер скорости сплошного перекода снят на 1080p, а 4К - вчетверо больше
+        пикселей, и в реальное время на тех же ядрах он не укладывается. Рост кадра тут
+        знает ffprobe, а не имя раздачи, поэтому 4K-ремукс с молчаливым именем ловится
+        именно на этой ступени.
         """
         if prep.error:
             return prep.error
@@ -1834,8 +1877,11 @@ class _Bench:
             return "поток не прочитан"
         if not pinned and warn_mbit > 0:
             peak = prep.media.weight_mbit(prep.video.size)
-            if peak > warn_mbit:
-                return f"тяжёлый, ~{peak:.0f} Мбит/с"
+            ceiling = warn_mbit
+            if hard_mbit > 0 and prep.media.height > FULL_HEIGHT:
+                ceiling = min(warn_mbit, hard_mbit)
+            if peak > ceiling:
+                return f"слишком тяжёлый для приёмника, ~{peak:.0f} Мбит/с"
         codec = prep.media.video or "h264"
         if pinned or codec == "h264" or (recode and prep.media.recoded_whole):
             return ""
@@ -2118,8 +2164,18 @@ def _encode_all(config: Config, codec: str, video_mbit: float = 0.0) -> Encode |
     процессор на биты, которых в источнике нет. Отсюда :data:`FULL_GAIN` — во сколько
     раз H.264 тем же ``ultrafast`` (без CABAC и почти без анализа) дороже HEVC при
     сравнимой картинке, — и :data:`FULL_FLOOR`, ниже которого 1080p разваливается.
+
+    Второй повод для сплошного перекода — не кодек, а вес: выше
+    :attr:`torrcast.state.Config.bitrate_hard_mbit` тяжёл КАЖДЫЙ кусок, и посегментный
+    кодировщик выродился бы в сотню коротких ffmpeg вместо одного длинного. Живой класс,
+    ради которого написано, — аниме-BD-ремуксы 1080p на 28–37 Мбит/с; замер на 4 vCPU:
+    ``h264`` 37.8 Мбит/с → 9 Мбит/с идёт 3.4× реального времени, синтетический ``hevc``
+    29.9 Мбит/с → 2.35×. Потолок отбора для них — ``bitrate_recode_mbit``.
     """
-    if not config.recode or (codec or "") not in RECODE_CODECS:
+    if not config.recode:
+        return None
+    heavy = video_mbit > config.bitrate_hard_mbit
+    if (codec or "") not in RECODE_CODECS and not heavy:
         return None
     want = config.recode_mbit
     if video_mbit > 0:
@@ -2303,7 +2359,7 @@ def _play(
     )
     mark("сетка", сегментов=grid.count, покадрам=grid.on_keys)
     if whole is not None:
-        print(recode_note(codec), flush=True)
+        print(recode_note(codec, video_mbit if codec not in RECODE_CODECS else 0.0), flush=True)
         mark("сплошной перекод", кодек=codec, пресет=whole.preset, мбит=round(whole.mbit, 2))
     # Профиль тяжести всего фильма известен со старта - он считается из уже снятой
     # карты опорных кадров и не стоит ни одного запроса к рою. Тяжёлые куски кодировщик
@@ -2592,7 +2648,9 @@ def liveliness(plan: _Plan) -> int:
     «Ниндзя в стране снега» на два.
     """
     top = plan.ranked[0] if plan.ranked else None
-    if top is None or not is_candidate(top, plan.runtime, plan.warn_mbit, plan.loose):
+    if top is None or not is_candidate(
+        top, plan.runtime, plan.warn_mbit, plan.loose, plan.hard_mbit
+    ):
         return 0
     return top.seeders
 
@@ -2746,7 +2804,13 @@ def menu_lines(plans: list[_Plan], facts: Facts | None = None, width: int = 0) -
     return "\n".join(rows)
 
 
-def warned(release: Release, runtime: float, warn_mbit: float, recode_at: float = 0.0) -> str:
+def warned(
+    release: Release,
+    runtime: float,
+    warn_mbit: float,
+    recode_at: float = 0.0,
+    hard_mbit: float = 0.0,
+) -> str:
     """Почему релиз не дефолт: HEVC ресивер может не потянуть, жирный битрейт — тоже.
 
     Словами, а не значками: ``⚠`` из вывода убран целиком — в терминале он не нёс
@@ -2762,6 +2826,10 @@ def warned(release: Release, runtime: float, warn_mbit: float, recode_at: float 
         marks += ["перекодирую целиком" if recode_at > 0 else "не берём"]
     if peak > warn_mbit:
         marks += ["тяжёлый"]
+    elif hard_mbit > 0 and peak > hard_mbit:
+        # Тяжелее прежнего потолка, но играбелен: уедет перекодированным целиком.
+        if "перекодирую целиком" not in marks:
+            marks += ["перекодирую целиком"]
     elif recode_at > 0 and peak > recode_at:
         # Не брак, а честное предупреждение - тяжёлые куски поедут перекодированными.
         marks += ["перекодируем"]
@@ -2822,7 +2890,13 @@ def is_disc(release: Release) -> bool:
     return bool(_DISC_RE.search(release.raw_name))
 
 
-def is_candidate(release: Release, runtime: float, warn_mbit: float, loose: bool = False) -> bool:
+def is_candidate(
+    release: Release,
+    runtime: float,
+    warn_mbit: float,
+    loose: bool = False,
+    hard_mbit: float = 0.0,
+) -> bool:
     """Кандидат в дефолт: первый сорт (:attr:`Release.prime`), не образ диска и в
     пределах потолка декодера. Жирнее потолка — в таблице остаётся с пометкой, но Enter
     его не возьмёт: ресивер на таком битрейте встаёт.
@@ -2843,14 +2917,43 @@ def is_candidate(release: Release, runtime: float, warn_mbit: float, loose: bool
     «One Piece: Pirate Warriors 4 … PC | RePack» несёт 97 сидов и о качестве видео
     молчит по той простой причине, что видео там нет, — при открытых воротах он
     перевешивал настоящий сериал с русским дубляжом и вставал дефолтом меню.
+
+    ``hard_mbit`` — потолок для тех, кого сплошной перекод не спасает: имя, обещающее
+    кадр выше 1080p, судится им, а не поднятым ``warn_mbit``. Причина не в качестве, а в
+    арифметике: сплошной перекод замерен на 1080p (3.4× реального времени на
+    BD-ремуксе 37.8 Мбит/с), у 4К вчетверо больше пикселей, и на тех же ядрах реального
+    времени он не держит. Ноль — ступени нет, всё судится одним потолком.
     """
-    if is_disc(release) or bitrate_of(release, runtime) > warn_mbit:
+    ceiling = warn_mbit
+    if hard_mbit > 0 and release.height > FULL_HEIGHT:
+        ceiling = min(warn_mbit, hard_mbit)
+    if is_disc(release) or bitrate_of(release, runtime) > ceiling:
         return False
     return release.prime or (loose and release.quiet and release.kind != "other")
 
 
+def needs_whole_recode(release: Release, runtime: float, hard_mbit: float) -> bool:
+    """Релиз играбелен только сплошным перекодом: он тяжелее ``hard_mbit``.
+
+    Ступень отбора, а не отказ. Такой релиз берётся — но последним из годных: держать
+    его показ дороже во всём сразу. Процессор занят с первой секунды и до титров
+    (посегментному перекоду хватало тяжёлых мест), рою надо отдавать ~4.7 МБ/с
+    непрерывно вместо ~1 МБ/с, и любая просадка роя, которую лёгкий релиз пережил бы за
+    счёт запаса, тут сразу становится подгрузом. Поэтому ремукс на 36 Мбит/с обязан
+    уступать честному релизу на 8, даже когда сидов у него больше.
+
+    ``hard_mbit`` ноль — ступени нет: перекодирование выключено, и тяжёлое отсеяно
+    раньше, самим потолком отбора.
+    """
+    return hard_mbit > 0 and bitrate_of(release, runtime) > hard_mbit
+
+
 def gate_open(
-    releases: list[Release], runtime: float, warn_mbit: float, want: Episode | None = None
+    releases: list[Release],
+    runtime: float,
+    warn_mbit: float,
+    want: Episode | None = None,
+    hard_mbit: float = 0.0,
 ) -> bool:
     """Пора ли открыть ворота отбора: живого именного кандидата у картины нет.
 
@@ -2876,7 +2979,7 @@ def gate_open(
         return False
     return not any(
         r.seeders >= alive * GATE_LIVENESS
-        and is_candidate(r, runtime, warn_mbit)
+        and is_candidate(r, runtime, warn_mbit, hard_mbit=hard_mbit)
         and not misses_episode(r, want)
         for r in releases
     )
@@ -2998,6 +3101,7 @@ def rank_releases(
     warn_mbit: float,
     want: Episode | None = None,
     loose: bool = False,
+    hard_mbit: float = 0.0,
 ) -> list[Release]:
     """Порядок меню: сверху самый обсиженный кандидат, потом всё остальное по
     сидам, образы дисков всегда внизу — цельного файла внутри нет, стримить нечего.
@@ -3034,6 +3138,11 @@ def rank_releases(
     Следом — ступень :func:`is_full_hd`: живой 1080p обходит 720p, даже когда сидов
     у него меньше. Дальше внутри каждой группы всё как было — сиды, потом размер.
 
+    Сразу под годностью стоит :func:`needs_whole_recode`: релиз, который играется только
+    сплошным перекодом (BD-ремукс на 28-37 Мбит/с), годен, но идёт последним из годных.
+    Ступень стоит выше живости нарочно: тяжёлое берётся, когда легче ничего нет, а не
+    потому, что у ремукса больше сидов.
+
     ``loose`` — ворота отбора открыты (:func:`gate_open`), и молчаливые имена идут
     в кандидатах наравне с именными.
     """
@@ -3043,7 +3152,8 @@ def rank_releases(
         key=lambda r: (
             misses_episode(r, want),
             is_disc(r),
-            not is_candidate(r, runtime, warn_mbit, loose),
+            not is_candidate(r, runtime, warn_mbit, loose, hard_mbit),
+            needs_whole_recode(r, runtime, hard_mbit),
             is_dead(r, alive),
             is_dated(r, runtime),
             sound_step(r, alive),
@@ -3122,6 +3232,7 @@ def render_table(
     warn_mbit: float,
     limit: int = TABLE_LIMIT,
     recode_at: float = 0.0,
+    hard_mbit: float = 0.0,
 ) -> str:
     """Таблица релизов: N · качество · размер · сиды · озвучка · кодек. Битрейт для
     пометки прикидывается по размеру и типовой длительности, пока настоящая не прочитана
@@ -3135,7 +3246,7 @@ def render_table(
             _gb(r.size),
             str(r.seeders),
             _cut(", ".join(r.voices) or "-", 34),
-            ((r.codec or "?") + " " + warned(r, runtime, warn_mbit, recode_at)).strip(),
+            ((r.codec or "?") + " " + warned(r, runtime, warn_mbit, recode_at, hard_mbit)).strip(),
         )
         for number, r in enumerate(shown, start=1)
     ]

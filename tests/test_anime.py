@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from typing import Any, cast
 
 import pytest
 
@@ -394,3 +395,152 @@ def test_a_bare_und_track_is_not_shown_to_the_human_as_the_word_und() -> None:
     assert AudioTrack(index=0, language="und").label == "дорожка 1"
     assert AudioTrack(index=0, language="und", title="Дубляж").label == "Дубляж"
     assert AudioTrack(index=0, language="rus").label == "rus"
+
+
+#: Живое имя того самого класса: BD-ремукс аниме-сезона, 12 серий, 83 ГБ, 17 сидов.
+#: Внутри серия на 23.9 минуты и 36.4 Мбит/с видео - вдвое выше прежней отбраковки.
+TITAN_REMUX = (
+    "Атака титанов (S3, часть 1) / Shingeki no Kyojin Season 3 [TV] [E12 of 12] "
+    "[JAP+Sub] [2018, приключения, драма, сёнэн, BDRemux] [1080p]"
+)
+#: Полнометражное аниме тем же ремуксом: 30 ГБ, и прикидка по имени уже видит тяжесть.
+TITAN_MOVIE = (
+    "Атака Титанов: Хроника / Shingeki no Kyojin: Chronicle [Movie] [JAP+Sub] "
+    "[2020, приключения, драма, BDRemux] [1080p]"
+)
+
+
+def _prep(name: str, *, video_bps: float, height: int, size_gb: float, dur: float) -> object:
+    """Прочитанный ffprobe релиз: ровно то, чем судит отбор после похода в рой."""
+    from torrcast.cli import _Prep
+    from torrcast.stream import Media, TorrFile
+
+    prep = _Prep(number=1, release=named(name, size_gb=size_gb, seeders=17))
+    prep.video = TorrFile(0, "anime.mkv", int(size_gb * GB))
+    prep.media = Media(duration=dur, video="h264", video_bps=video_bps, height=height)
+    return prep
+
+
+def _bench() -> Any:
+    """Отбор без раздач: TorrServer тут ни о чём не спрашивают."""
+    from torrcast.cli import _Bench
+
+    class _Nothing:
+        def drop(self, torrent_hash: str) -> None:
+            """Раздач в этих тестах нет - забывать нечего."""
+
+    return _Bench(cast(Any, _Nothing()))
+
+
+def test_an_anime_bd_remux_plays_by_a_whole_file_recode_instead_of_being_refused() -> None:
+    """Ремукс на 36 Мбит/с - не отказ: его тянет сплошной перекод по файлу.
+
+    Замер на 4 vCPU по этой самой раздаче: перекод ultrafast в 9 Мбит/с идёт 3.4x
+    реального времени, чтение раздачи из роя - 47.7 МБ/с против нужных 4.7 МБ/с,
+    самый тяжёлый сегмент 13.2 МБ при потолке 16. Прежний потолок отбраковки (25)
+    ронял такой релиз после ffprobe, и у аниме это значило «показа нет»: BD-ремукс
+    там сплошь и рядом единственное, что нашлось.
+    """
+    config = Config()
+    prep = _prep(TITAN_REMUX, video_bps=36_420_000.0, height=1080, size_gb=6.8, dur=1434.0)
+    bench = _bench()
+
+    assert (
+        bench._trouble(
+            prep,
+            pinned=False,
+            warn_mbit=config.bitrate_recode_mbit,
+            recode=True,
+            hard_mbit=config.bitrate_hard_mbit,
+        )
+        == ""
+    ), "1080p-ремукс на 36 Мбит/с обязан играть"
+    assert (
+        bench._trouble(prep, pinned=False, warn_mbit=config.bitrate_hard_mbit, recode=True)
+        == "слишком тяжёлый для приёмника, ~36 Мбит/с"
+    ), "прежним потолком он же отбраковывался - и строка отказа называет причину"
+
+
+def test_a_whole_file_recode_is_chosen_by_weight_not_only_by_codec() -> None:
+    """Сплошной перекод берётся и на h264 - когда тяжёл каждый кусок.
+
+    Посегментный кодировщик на таком файле выродился бы в сотню коротких ffmpeg подряд;
+    один длинный прогон дешевле и не даёт смешанного потока.
+    """
+    from torrcast.cli import _encode_all
+
+    config = Config()
+
+    whole = _encode_all(config, "h264", 36.4)
+    assert whole is not None and whole.preset == "ultrafast"
+    assert whole.mbit == config.recode_mbit, "цель - планка приёмника, а не битрейт источника"
+    assert _encode_all(config, "h264", 17.8) is None, "честный тяжёлый 1080p идёт как раньше"
+    assert _encode_all(replace(config, recode=False), "h264", 36.4) is None
+
+
+def test_a_heavy_remux_never_outranks_a_light_release_that_plays_as_is() -> None:
+    """Тяжёлое берётся, только если легче ничего нет: ремукс идёт последним из годных.
+
+    Ступень стоит выше сидов нарочно. Сплошной перекод ремукса занимает процессор с
+    первой секунды до титров и требует от роя ~4.7 МБ/с непрерывно, а релиз на
+    8 Мбит/с уезжает копией и переживает просадку роя за счёт запаса.
+    """
+    remux = named(TITAN_MOVIE, size_gb=30.0, seeders=200)
+    light = named(
+        "Атака Титанов: Хроника / Shingeki no Kyojin: Chronicle [Movie] [RUS(int), JAP+Sub] "
+        "[2020, приключения, драма, BDRip] [1080p]",
+        size_gb=7.0,
+        seeders=20,
+    )
+    picture = Picture(title="Атака Титанов: Хроника", year=2020, releases=[remux, light])
+    args = Args(query=["атака титанов хроника"])
+
+    assert bitrate_of(remux, RUNTIME) > Config().bitrate_hard_mbit
+    plan = _plan_for(picture, args, Config())
+
+    assert plan.ranked[0] is light, "лёгкий обязан быть дефолтом даже с меньшими сидами"
+    assert plan.ranked[1] is remux, "но ремукс остаётся в очереди - им показ спасается"
+    assert plan.candidates(args) == [1, 2], "оба годны, порядок решает тяжесть"
+
+
+def test_a_4k_remux_stays_refused_because_a_whole_file_recode_does_not_keep_up() -> None:
+    """4К-ремукс не спасает и сплошной перекод: замер снят на 1080p.
+
+    У 2160p вчетверо больше пикселей, и на тех же ядрах перекод в реальное время не
+    укладывается. Поэтому кадр выше 1080p судится прежним ``bitrate_hard_mbit`` - и по
+    имени раздачи, и по паспорту ffprobe, если имя о разрешении промолчало.
+    """
+    config = Config()
+    uhd = named(
+        "Атака Титанов: Последняя атака / Attack on Titan - The Last Attack [Movie] "
+        "[JAP+Sub] [2024, BDRemux] [2160p]",
+        size_gb=30.0,
+        seeders=6,
+    )
+
+    assert uhd.height > 1080
+    assert not is_candidate(
+        uhd, RUNTIME, config.bitrate_recode_mbit, hard_mbit=config.bitrate_hard_mbit
+    ), "4К на 33 Мбит/с не берём: перекодировать его в реальное время нечем"
+
+    mute = _prep(TITAN_MOVIE, video_bps=33_000_000.0, height=2160, size_gb=30.0, dur=7200.0)
+    assert (
+        _bench()._trouble(
+            mute,
+            pinned=False,
+            warn_mbit=config.bitrate_recode_mbit,
+            recode=True,
+            hard_mbit=config.bitrate_hard_mbit,
+        )
+        == "слишком тяжёлый для приёмника, ~33 Мбит/с"
+    ), "молчаливое имя ловится паспортом"
+
+
+def test_the_recode_line_names_the_weight_and_the_reason() -> None:
+    """Одна честная строка: тяжесть названа вслух и числом, а не подменена молчком."""
+    from torrcast.stream import recode_note
+
+    assert recode_note("h264", 36.4) == (
+        "видео h264 36 Мбит/с - тяжело приёмнику, перекодирую целиком"
+    )
+    assert recode_note("hevc") == "видео hevc - перекодирую на ходу целиком"

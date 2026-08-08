@@ -750,7 +750,10 @@ def test_the_ceiling_is_checked_again_by_the_file_not_by_the_torrent_size() -> N
     prep.video = TorrFile(0, "moana2.mkv", 13_300_000_000)
     prep.media = Media(duration=5977.0, video="h264")
 
-    assert bench._trouble(prep, pinned=False, warn_mbit=16.0) == "тяжёлый, ~18 Мбит/с"
+    assert (
+        bench._trouble(prep, pinned=False, warn_mbit=16.0)
+        == "слишком тяжёлый для приёмника, ~18 Мбит/с"
+    )
     assert bench._trouble(prep, pinned=True, warn_mbit=16.0) == "", "руками - берём"
     assert bench._trouble(prep, pinned=False, warn_mbit=20.0) == "", "прежний потолок брал"
 
@@ -772,10 +775,16 @@ def test_the_ceiling_weighs_the_video_track_not_the_ten_dubs_around_it() -> None
     assert bench._trouble(prep, pinned=False, warn_mbit=16.0) == "", "видео 14.3 - годится"
 
     prep.media = Media(duration=5977.0, video="h264", video_bps=49_900_000.0)
-    assert bench._trouble(prep, pinned=False, warn_mbit=25.0) == "тяжёлый, ~50 Мбит/с"
+    assert (
+        bench._trouble(prep, pinned=False, warn_mbit=25.0)
+        == "слишком тяжёлый для приёмника, ~50 Мбит/с"
+    )
 
     prep.media = Media(duration=5977.0, video="h264")  # паспорт молчит - по размеру
-    assert bench._trouble(prep, pinned=False, warn_mbit=16.0) == "тяжёлый, ~18 Мбит/с"
+    assert (
+        bench._trouble(prep, pinned=False, warn_mbit=16.0)
+        == "слишком тяжёлый для приёмника, ~18 Мбит/с"
+    )
 
 
 def _franchise_plan(title: str, year: int, releases: list[Release]) -> Any:
