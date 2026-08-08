@@ -74,6 +74,20 @@ def test_article_names_walk_from_the_plain_title_to_the_qualified_one() -> None:
     assert "Моана" in titles_for("Моана: романтика золотого века", 1926)
 
 
+def test_case_variants_of_the_plain_name_are_tried_too() -> None:
+    """Регистр внутри слова Википедия не чинит - пробуем заглавные слова и нижний регистр.
+
+    «breaking bad» уходит в «Breaking bad» и мимо статьи, а редирект есть с «Breaking Bad»:
+    без этого варианта прямая выборка промахивалась и справка уходила в медленный поиск.
+    """
+    names = titles_for("breaking bad", None)
+    assert "breaking bad" == names[0], "само имя по-прежнему первое и в исходном виде"
+    assert "Breaking Bad" in names, "заглавные слова - под ними и лежит редирект"
+    assert "Twin Peaks" in titles_for("twin peaks", None)
+    # Русскому имени регистровый вариант ничего не добавляет - лишних кандидатов не плодим.
+    assert titles_for("Тачки 2", 2011).count("Тачки 2") == 1
+
+
 def test_the_year_in_the_text_is_what_confirms_the_picture() -> None:
     """Единственная защита от чужого фильма — год в первых фразах статьи."""
     assert confirms(MOANA, 2016)
@@ -501,3 +515,100 @@ def test_the_ratings_dump_is_read_alongside_the_first_request_not_after_it(
     # Оба шага стартовали до того, как кончился любой из них - значит шли вместе.
     assert order[:2] == ["рейтинги-начало", "вики-начало"]
     assert spent < 0.55
+
+
+def test_a_memoized_address_rides_over_a_dns_storm(monkeypatch: Any) -> None:
+    """Разрешённый адрес переживает DNS-бурю мимо резолвера, а голый getaddrinfo в ней тонет.
+
+    ``socket.getaddrinfo`` таймауту сокета не подчиняется: под бурей параллельных
+    резолвов прогрева он залипает дольше всего бюджета справки, и та не приезжает вовсе.
+    Буря смоделирована блокирующим резолвером (``blocked`` не взведён - getaddrinfo не
+    возвращается). Прямой резолв в ней не укладывается в бюджет, а память :func:`_resolve`
+    и её собственный таймаут - укладываются.
+    """
+    import threading
+    import time
+
+    from torrcast.facts import FACTS_BUDGET
+
+    blocked = threading.Event()
+
+    def stuck(host: str, *_a: Any, **_k: Any) -> Any:
+        blocked.wait()  # под бурей резолвер не отвечает
+        return [(facts_mod.socket.AF_INET, facts_mod.socket.SOCK_STREAM, 6, "", ("1.2.3.4", 0))]
+
+    monkeypatch.setattr(facts_mod.socket, "getaddrinfo", stuck)
+    facts_mod._RESOLVED.clear()
+
+    # Память переживает бурю: адрес разрешили ОДНАЖДЫ, до бури.
+    blocked.set()
+    assert facts_mod._resolve("wiki.example", 1.0) == "1.2.3.4"
+    blocked.clear()  # буря снова накрыла резолвер
+    started = time.monotonic()
+    assert facts_mod._resolve("wiki.example", 1.5) == "1.2.3.4"
+    assert time.monotonic() - started < FACTS_BUDGET, "из памяти - мимо бури, в срок"
+
+    # Холодный резолв под бурей не ест весь бюджет, а падает по своему таймауту.
+    facts_mod._RESOLVED.clear()
+    started = time.monotonic()
+    try:
+        facts_mod._resolve("cold.example", 0.5)
+    except OSError:
+        pass
+    else:
+        raise AssertionError("холодный резолв под бурей обязан упасть по таймауту")
+    assert 0.5 <= time.monotonic() - started < 1.2, "уложился в свой таймаут, а не завис"
+
+    # А вот голый getaddrinfo (прежнее поведение connect) в той же буре в срок не отвечает.
+    done = threading.Event()
+    threading.Thread(
+        target=lambda: facts_mod.socket.getaddrinfo("nomemo.example", 443) and done.set(),
+        daemon=True,
+    ).start()
+    assert not done.wait(FACTS_BUDGET), "прямой getaddrinfo под бурей за бюджет не разрешился"
+
+    blocked.set()  # отпустить залипших демонов
+    facts_mod._RESOLVED.clear()
+
+
+def test_an_unknown_type_is_trusted_only_when_film_and_series_agree(monkeypatch: Any) -> None:
+    """Тип неизвестен (пустая выдача) - пробуем оба, но верим лишь согласию.
+
+    Спека требует подсказывать тип, а на пустой выдаче его взять неоткуда. Наугад нельзя:
+    неверный тип уводит в чужую статью. Поэтому при ``series=None`` справка спрашивает и
+    фильм, и сериал, и берёт ответ, только если это одна картина.
+    """
+    from torrcast.facts import Origin, origin_either
+
+    monkeypatch.setattr(facts_mod, "_cached_origin", lambda title, series: None)
+    monkeypatch.setattr(facts_mod, "_remember_origin", lambda *a: None)
+
+    def deadwood(title: str, series: bool, timeout: float) -> Origin:
+        # Фильм 2006 против сериала 2004 - это разные картины, наугад не выдаём.
+        if series:
+            return Origin(title="Deadwood", year=2004, name="Дедвуд")
+        return Origin(title="Deadwood: The Movie", year=2006, name="Дедвуд")
+
+    monkeypatch.setattr(facts_mod, "origin_now", deadwood)
+    assert origin_either("Дедвуд") == Origin(), "фильм и сериал разошлись - молчим"
+
+    def climbers(title: str, series: bool, timeout: float) -> Origin:
+        # С неверным типом «Восхождение» уводит в чужой сериал «Hunyadi» 2024.
+        if series:
+            return Origin(title="Hunyadi", year=2024, name="Восхождение ворона")
+        return Origin(title="The Ascent", year=1976, name="Восхождение")
+
+    monkeypatch.setattr(facts_mod, "origin_now", climbers)
+    assert origin_either("Восхождение") == Origin(), "чужая статья из неверного типа - не паспорт"
+
+    def agreeing(title: str, series: bool, timeout: float) -> Origin:
+        return Origin(title="Cars", year=2006, name="Тачки")
+
+    monkeypatch.setattr(facts_mod, "origin_now", agreeing)
+    assert origin_either("Тачки").title == "Cars", "оба сошлись на одной картине - паспорт есть"
+
+    def only_movie(title: str, series: bool, timeout: float) -> Origin:
+        return Origin() if series else Origin(title="Psycho", year=1960, name="Психо")
+
+    monkeypatch.setattr(facts_mod, "origin_now", only_movie)
+    assert origin_either("Психо").title == "Psycho", "тип нашёлся один - его и берём"

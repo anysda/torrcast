@@ -422,6 +422,23 @@ def test_the_reference_year_decides_who_is_who() -> None:
     assert cli.same_picture(ours, ours, Origin(year=1976), proven=False)
 
 
+def test_a_remake_with_the_same_original_is_not_a_substitution() -> None:
+    """Ремейк с тем же оригиналом - та же картина, хоть годы и врозь.
+
+    Справка знает «Fruits Basket» 2006, а у индексеров ремейк 2019: оригинал один и тот
+    же, значит это добор той же вещи, а не подмена. А вот чужой оригинал год по-прежнему
+    разводит - дыру для настоящих подмен совпадение русского имени не открывает.
+    """
+    remake = Picture(title="Корзинка фруктов", year=2019, original="Fruits Basket", releases=[])
+    about = Origin(title="Fruits Basket", year=2006, name="Корзинка фруктов")
+    assert cli.same_picture(None, remake, about, proven=True)
+
+    # «Восхождение» Шепитько (The Ascent) против китайского (The Climbers) - разные оригиналы.
+    alien = Picture(title="Восхождение", year=2019, original="The Climbers", releases=[])
+    ascent = Origin(title="The Ascent", year=1976, name="Восхождение")
+    assert not cli.same_picture(None, alien, ascent, proven=True)
+
+
 def test_the_gate_keeps_a_series_without_a_year(monkeypatch: pytest.MonkeyPatch) -> None:
     """Годов не назвал никто (обычное дело у сериалов) - гейт сверяет франшизу и пропускает."""
     client = _FakeProwlarr(

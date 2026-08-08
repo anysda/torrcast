@@ -984,8 +984,10 @@ def _second_language(
     lead = _leading(found)
     # Справку спрашиваем вслепую: год выдачи ей не сообщаем, иначе она подстроится под него
     # и сверять станет нечего. Тип картины - другое дело, у сериала и фильма разные статьи.
-    # Сети нет - паспорт пуст, и всё дальше работает ровно так, как работало.
-    about = origin(name, series=bool(lead and lead.kind == "tv"))
+    # Русская выдача пуста - тип брать неоткуда: тогда series=None, и справка пробует оба и
+    # верит лишь согласию (иначе неверный тип уводит в чужую статью). Сети нет - паспорт
+    # пуст, и всё дальше работает ровно так, как работало.
+    about = origin(name, series=(lead.kind == "tv") if lead else None)
     if index is not None:
         # 🔴 Спросили номер части - год справки к делу не относится. Справку зовут по имени
         # франшизы, и отвечает она про её ПЕРВУЮ картину: у «тачек» это 2006 год, а человек
@@ -1059,6 +1061,10 @@ def _as_is(
         return stays
     if abs(found[0].year - about.year) <= 1:
         return stays
+    # Тот же оригинал - ремейк, а не другая картина: справка знает «Fruits Basket» 2006, в
+    # каталоге ремейк 2019, и это одна и та же вещь. Чужой оригинал год по-прежнему разводит.
+    if found[0].original and slugify(found[0].original) == slugify(about.title):
+        return stays
     progress.phase("")  # вердикт - итог уже законченного круга, и печатается после него
     progress.note(
         f"под этим именем в каталоге лежит картина {found[0].year} года, а не {about.year}"
@@ -1123,6 +1129,13 @@ def same_picture(
     """
     if after is None:
         return False
+    # Ремейк или переиздание с тем же оригиналом - та же картина, хоть годы и врозь:
+    # справка знает «Fruits Basket» 2006, а у индексеров ремейк 2019, и это добор, а не
+    # подмена. Спорит с годом только совпадение самого ОРИГИНАЛА: русское имя картину не
+    # определяет, а чужой оригинал («The Climbers» против «The Ascent») год по-прежнему
+    # разводит - дыру для настоящих подмен это не открывает.
+    if about.title and after.original and slugify(after.original) == slugify(about.title):
+        return True
     if about.year is not None and after.year is not None:
         return abs(after.year - about.year) <= 1
     if before is None:

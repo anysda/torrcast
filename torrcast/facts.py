@@ -151,6 +151,50 @@ _ABBREV: Final = frozenset(
 _SEARCH_HITS: Final = 6
 
 
+#: Разрешённые адреса храним, пока живёт процесс: у справки два-три статических хоста, и
+#: спрашивать их у DNS повторно незачем. Срок конечный - IP хоста может и смениться.
+_RESOLVED: dict[str, tuple[float, str]] = {}
+_RESOLVE_LOCK: Final = threading.Lock()
+_RESOLVE_TTL: Final = 600.0
+
+
+def _resolve(host: str, timeout: float) -> str:
+    """IPv4-адрес хоста - со своим таймаутом и памятью на процесс.
+
+    ``socket.getaddrinfo`` таймауту сокета не подчиняется: под бурей параллельных резолвов
+    (её поднимает прогрев раздач, пока справка едет фоном) он залипает НАДОЛГО, дольше
+    всего бюджета справки, и та не приезжает вовсе - хотя сам HTTP уложился бы в 0.7 с.
+    Стек залипшего потока упирался ровно сюда: ``getaddrinfo`` <- ``connect`` <-
+    ``get_json``. Поэтому, во-первых, резолвим в отдельном потоке с ``join`` по таймауту -
+    залипший ``getaddrinfo`` держит демона, а не справку. Во-вторых, помним найденное: у
+    справки два-три статических хоста, разрешить их надо однажды, а не на каждый запрос,
+    и раз разрешённый адрес переживает бурю мимо DNS. IPv4-only намеренно: v6-адрес висит
+    в SYN-SENT (см. :class:`_IPv4Connection`).
+    """
+    now = time.monotonic()
+    with _RESOLVE_LOCK:
+        hit = _RESOLVED.get(host)
+        if hit is not None and now - hit[0] < _RESOLVE_TTL:
+            return hit[1]
+    box: list[str] = []
+
+    def look() -> None:
+        with contextlib.suppress(OSError):
+            info = socket.getaddrinfo(host, None, socket.AF_INET, socket.SOCK_STREAM)
+            if info:
+                box.append(str(info[0][4][0]))
+
+    worker = threading.Thread(target=look, daemon=True)
+    worker.start()
+    worker.join(timeout)
+    if not box:
+        raise OSError(f"{host}: адрес не разрешён за {timeout:.1f} с")
+    address = box[0]
+    with _RESOLVE_LOCK:
+        _RESOLVED[host] = (time.monotonic(), address)
+    return address
+
+
 class _IPv4Connection(http.client.HTTPSConnection):
     """HTTPS строго по IPv4.
 
@@ -159,15 +203,18 @@ class _IPv4Connection(http.client.HTTPSConnection):
     AAAA-адресу и только потом падает на IPv4. Замер на таком хосте: 5.4 с против 0.33 с
     на тот же запрос. Бюджет справки — полторы секунды, то есть при v6 её не бывает
     никогда. Показу это не мешает (пусто — норма), но и терять её на ровном месте незачем.
+
+    Адрес берём у :func:`_resolve` - со своим таймаутом и памятью: голый ``getaddrinfo``
+    таймауту сокета не подчиняется и под DNS-бурей прогрева топил справку насмерть.
     """
 
     #: Контекст TLS: проверка серта и имени - обычная, ничего тут не ослаблено.
     context: ssl.SSLContext = ssl.create_default_context()
 
     def connect(self) -> None:
-        where = socket.getaddrinfo(self.host, self.port, socket.AF_INET, socket.SOCK_STREAM)
-        address = where[0][4]
-        raw = socket.create_connection((str(address[0]), int(address[1])), self.timeout)
+        budget = self.timeout if isinstance(self.timeout, int | float) else HTTP_TIMEOUT
+        address = _resolve(self.host, budget)
+        raw = socket.create_connection((address, self.port), self.timeout)
         self.sock = self.context.wrap_socket(raw, server_hostname=self.host)
 
 
@@ -222,6 +269,13 @@ def titles_for(title: str, year: int | None) -> list[str]:
     Подзаголовок после двоеточия отрезается отдельным кандидатом: раздачи подписывают
     старое кино развёрнуто («Моана: романтика золотого века»), а статья называется
     короче. Чужую статью это не притащит — год всё равно проверяется по тексту.
+
+    Регистр внутри слова Википедия сама не чинит: ``redirects=1`` нормализует лишь ПЕРВУЮ
+    букву. «breaking bad» уходит в «Breaking bad» и мимо статьи, тогда как редирект есть с
+    «Breaking Bad»; так же теряются «fruits basket», «twin peaks», «true detective». Поэтому
+    к именам добавляются регистровые варианты голого имени - заглавные слова и нижний
+    регистр. Лишний кандидат чужого не тащит (год и заголовок всё равно сверяются), а
+    редирект по нужному написанию находится в той же прямой выборке, без похода в поиск.
     """
     bases = [title.strip()]
     head = title.split(":", 1)[0].strip()
@@ -235,6 +289,10 @@ def titles_for(title: str, year: int | None) -> list[str]:
             name = base + qualifier.format(year=year)
             if name not in out:
                 out.append(name)
+    for base in bases:
+        for variant in (base.title(), base.lower()):
+            if variant != base and variant not in out:
+                out.append(variant)
     return out
 
 
@@ -274,7 +332,7 @@ class Origin:
         return bool(self.title or self.year or self.name)
 
 
-def origin(title: str, series: bool = False, budget: float = FACTS_BUDGET) -> Origin:
+def origin(title: str, series: bool | None = False, budget: float = FACTS_BUDGET) -> Origin:
     """Паспорт картины из Википедии. Жёсткий потолок по времени и кэш на диске.
 
     Зовётся только на тощей выдаче, то есть там, где поиск и так собирается идти на
@@ -289,7 +347,13 @@ def origin(title: str, series: bool = False, budget: float = FACTS_BUDGET) -> Or
     Молчание сети стоит ровно :attr:`budget`: запрос живёт в отдельном потоке, и залипший
     сокет держит не поиск, а демона, который умрёт вместе с процессом. Любая ошибка -
     пустой паспорт: справка не вправе ни ронять поиск, ни задерживать его сверх обещанного.
+
+    ``series=None`` - тип картины неизвестен (русская выдача пуста, спросить его неоткуда),
+    и это отдельный случай: см. :func:`origin_either`. У сериала и фильма разные статьи,
+    так что тип подсказывать надо, а наугад - нельзя (уводит в чужую статью).
     """
+    if series is None:
+        return origin_either(title, budget)
     stored = _cached_origin(title, series)
     if stored is not None:
         return stored
@@ -306,6 +370,45 @@ def origin(title: str, series: bool = False, budget: float = FACTS_BUDGET) -> Or
     if found:
         _remember_origin(title, series, found)
     return found
+
+
+def origin_either(title: str, budget: float = FACTS_BUDGET) -> Origin:
+    """Паспорт, когда тип картины неизвестен: пробуем и фильм, и сериал, верим согласию.
+
+    Тип статьи в Википедии разводит фильм и сериал по разным статьям, и спека требует его
+    подсказывать. На пустой русской выдаче взять его неоткуда, а подсказать наугад -
+    открыть дыру: с ``series=True`` «Восхождение» уводит в чужой сериал «Hunyadi» 2024
+    вместо фильма Шепитько, а с ``series=False`` «Дедвуд» даёт фильм 2006 вместо сериала
+    2004. Поэтому спрашиваем обе статьи разом и берём ответ, только если фильм и сериал
+    сошлись на одной картине (один оригинал или один год). Разошлись - честнее промолчать:
+    пустой паспорт гейт добора переживёт, а чужая статья открыла бы подмену.
+    """
+    box: dict[bool, Origin] = {}
+
+    def look(series: bool) -> None:
+        box[series] = origin(title, series, budget)
+
+    threads = [threading.Thread(target=look, args=(s,), daemon=True) for s in (False, True)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(budget)
+    movie, show = box.get(False, Origin()), box.get(True, Origin())
+    if movie and show:
+        return movie if _same_picture_origin(movie, show) else Origin()
+    return movie or show
+
+
+def _same_picture_origin(one: Origin, two: Origin) -> bool:
+    """Один ли это фильм у двух паспортов: сходятся оригинал латиницей либо год.
+
+    Русское имя у обоих одно (его и спросили), поэтому различает картины оригинал и год.
+    «Дедвуд»: фильм ``Deadwood: The Movie`` 2006 и сериал ``Deadwood`` 2004 - ни оригинал,
+    ни год не сходятся, значит это разные картины и подсказывать нечего.
+    """
+    same_latin = bool(slugify(one.title)) and slugify(one.title) == slugify(two.title)
+    same_year = one.year is not None and one.year == two.year
+    return same_latin or same_year
 
 
 def origin_now(title: str, series: bool = False, timeout: float = HTTP_TIMEOUT) -> Origin:
