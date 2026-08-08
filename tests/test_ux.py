@@ -355,6 +355,83 @@ def test_prewarmed_torrents_are_dropped_when_the_show_never_starts(
     assert len(dropped) == len(set(added)), "и все они убраны, раз показа не будет"
 
 
+#: Раздачи «Моаны 2» - картины, в которую попадает Enter, - в порядке отбора.
+SPARE_PICTURE = ("c" * 40, "d" * 40)
+
+
+def _btih(magnet: str) -> str:
+    """infoHash из magnet: по нему видно, какую именно раздачу подняли."""
+    return magnet.partition("btih:")[2][:40]
+
+
+def test_the_spare_release_warms_under_the_menu_not_after_the_first_one_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Под меню греется не только верх выбранной картины, но и её запасной релиз.
+
+    Пока запасной поднимался только в отборе, брак верха стоил человеку полного подъёма
+    второй раздачи - метаданные по DHT плюс ffprobe, - и всё это уже после вопроса, то
+    есть на глазах. Пауза, пока меню читают, при этом простаивала.
+    """
+    added: list[str] = []
+
+    class _Counting(_FakeTorrServer):
+        def add(self, magnet: str) -> str:
+            added.append(magnet)
+            return f"hash-{magnet[:30]}"
+
+    monkeypatch.setattr(cli, "TorrServer", _Counting)
+    under_question: list[set[str]] = []
+
+    def ask(prompt: str = "") -> str:
+        if "Что смотрим?" in prompt:  # вопрос на экране, ответа ещё нет
+            deadline = time.monotonic() + 5.0
+            while len(added) < 3 and time.monotonic() < deadline:
+                time.sleep(0.02)
+            under_question.append({_btih(m) for m in added})
+        return ""
+
+    monkeypatch.setattr("builtins.input", ask)
+
+    assert cli.main(["моана"]) == 0
+
+    assert under_question, "меню про франшизу спросили"
+    assert set(SPARE_PICTURE) <= under_question[0], "обе раздачи выбранной картины уже греются"
+
+
+def test_the_unused_spare_leaves_torrserver_by_its_own_hash(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Верх годен - запасной прибирается до старта показа, и прибирается ПО ХЭШУ.
+
+    Своё убирается поимённо, а не «снести всё, что видно в TorrServer»: раздачи прогрева
+    заведены с выключенным ``save_to_db``, в списке сервера их не видно вовсе, и чистка
+    списком снесла бы чужое, не тронув наше.
+    """
+    added: list[str] = []
+    dropped: list[str] = []
+
+    class _Counting(_FakeTorrServer):
+        def add(self, magnet: str) -> str:
+            added.append(magnet)
+            return f"hash-{magnet[:30]}"
+
+        def drop(self, torrent_hash: str) -> None:
+            dropped.append(torrent_hash)
+
+    monkeypatch.setattr(cli, "TorrServer", _Counting)
+    _answers(monkeypatch, "", "")
+
+    assert cli.main(["моана"]) == 0
+
+    raised = {f"hash-{magnet[:30]}" for magnet in added}
+    played = f"hash-magnet:?xt=urn:btih:{SPARE_PICTURE[0][:10]}"
+    spare = f"hash-magnet:?xt=urn:btih:{SPARE_PICTURE[1][:10]}"
+    assert spare in raised, "запасной релиз грелся"
+    assert set(dropped) == raised - {played}, "лишнее убрано, и убрано по хэшам"
+    assert played not in dropped, "играем то, что осталось"
+
+
 def _started_film(monkeypatch: pytest.MonkeyPatch, pos: float = 2467.0) -> None:
     """Начатый фильм в состоянии — единственный вход на путь «Продолжить?»."""
     state = State()

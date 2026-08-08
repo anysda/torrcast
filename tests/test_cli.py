@@ -917,6 +917,36 @@ def test_prewarm_starts_with_the_default_not_with_the_earliest() -> None:
     assert [p.picture.year for p in cli.warm_order(plans)] == [2016, 1926, 2024]
 
 
+def test_the_spare_release_goes_up_next_to_the_first_one(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Запасной релиз выбранной картины греется вместе с верхом, а не после его брака.
+
+    Номер у него ровно тот же, который возьмёт :meth:`~torrcast.cli._Bench.resolve`, -
+    следующий в очереди (:meth:`~torrcast.cli._Plan.candidates`). Отличается только время:
+    раньше он поднимался в отборе, теперь - пока на экране висит меню.
+    """
+    ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
+    _probes(monkeypatch, ranked, "h264")
+    bench = cli._Bench(cast(Any, _FakeTorrServer()))
+    plan = _plan(ranked)
+
+    bench.start(plan, plan.first)
+    spare = bench.spare(plan, cli.Args(query=["кино"]))
+
+    assert [prep.number for prep in spare] == [plan.candidates(cli.Args(query=["кино"]))[1]]
+    assert sorted(number for _, number in bench.preps) == [1, 2]
+
+
+def test_a_release_named_by_hand_has_no_spare(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``--release N`` - выбор человека: подменять нечем, и лишней раздачи не поднимаем."""
+    ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
+    _probes(monkeypatch, ranked, "h264")
+    torrserver = _FakeTorrServer()
+    bench = cli._Bench(cast(Any, torrserver))
+
+    assert bench.spare(_plan(ranked), cli.Args(query=["кино"], release=2)) == []
+    assert not bench.preps
+
+
 # --- Честное качество: заявка имени против того, что прочитал ffprobe -----------------
 
 
