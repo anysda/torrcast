@@ -72,9 +72,19 @@ WARM_RATE: Final = 4.0
 WARM_NICE: Final = 19
 #: Запас живого показа, ниже которого прогрев замирает, секунды.
 GUARD_LOW: Final = 25.0
-#: Запас, выше которого замерший прогрев оживает. Разведены намеренно: без гистерезиса
-#: прогрев дёргался бы стоп/старт на каждом опросе.
+#: Запас, выше которого замерший прогрев оживает сразу. Разведены с :data:`GUARD_LOW`
+#: намеренно: без гистерезиса прогрев дёргался бы стоп/старт на каждом опросе.
 GUARD_HIGH: Final = 45.0
+#: Сколько запас держится **над** :data:`GUARD_LOW`, прежде чем замерший прогрев оживает,
+#: не дождавшись :data:`GUARD_HIGH`, секунды. Нужно ровно для тесного, но здорового показа:
+#: когда смотрят вплотную за упаковкой, запас плавает у :data:`GUARD_LOW` и до
+#: :data:`GUARD_HIGH` не дотягивает никогда - без этой поблажки прогрев голодал бы вечно и
+#: "прогрета целиком" не наступало бы, а следующая серия так и не бралась в работу
+#: (:meth:`Warmer._chain`). Отмеряем именно ВЫДЕРЖКУ над порогом стопа, а не разовое
+#: касание: показ должен доказать, что запас и правда восстановился, а не мигнул. При
+#: реально просевшем запасе (ниже :data:`GUARD_LOW`) выдержка обнуляется и прогрев стоит -
+#: живой показ всегда важнее.
+STARVE_GRACE: Final = 6.0
 #: Сколько прогрев ждёт запаса живого показа, прежде чем начать работать несмотря ни на
 #: что (:meth:`Warmer._wait_for_picture`), секунды.
 START_GRACE: Final = 45.0
@@ -253,6 +263,11 @@ class Warmer:
     slack: float = 0.0
     #: Прогрев замер под просевшим запасом (:data:`GUARD_LOW`).
     idle: bool = False
+    #: С какого момента (монотонные секунды) запас держится над :data:`GUARD_LOW`, пока
+    #: прогрев замер; ``0.0`` - ещё не поднялся или прогрев не замирал. По этой выдержке
+    #: тесный, но здоровый показ оживляет прогрев, не дожидаясь :data:`GUARD_HIGH`
+    #: (:meth:`_may_resume`).
+    healthy_since: float = 0.0
     #: Почему прогрев дальше не идёт: бюджет диска, мёртвый источник. Пусто - идёт.
     trouble: str = ""
     stopped: bool = False
@@ -464,7 +479,7 @@ class Warmer:
             time.sleep(10.0)
 
     def _throttle(self, packer: Any) -> None:
-        """Запас показа просел — прогрев замирает; вырос — оживает.
+        """Запас показа просел — прогрев замирает; вырос (или долго здоров) — оживает.
 
         Именно ``SIGSTOP``, а не «снять и начать заново»: снятый прогон обошёлся бы
         показу дырой в звуке на стыке (заголовок модуля), а замерший продолжает с того
@@ -475,16 +490,39 @@ class Warmer:
             return
         if not self.idle and self.slack < GUARD_LOW:
             self.idle = True
+            self.healthy_since = 0.0
             with contextlib.suppress(OSError, ProcessLookupError):
                 packer.proc.send_signal(signal.SIGSTOP)
             mark("прогрев замер", запас=round(self.slack))
-        elif self.idle and self.slack > GUARD_HIGH:
+        elif self.idle and self._may_resume():
             self._resume(packer)
+
+    def _may_resume(self) -> bool:
+        """Пора ли оживлять замерший прогрев.
+
+        Два повода, и оба безопасны для показа. Первый - запас перевалил :data:`GUARD_HIGH`:
+        показ с большим отрывом от края, места хватает обоим. Второй - запас держится над
+        :data:`GUARD_LOW` дольше :data:`STARVE_GRACE`: это тесный, но здоровый показ (идёт
+        вплотную за упаковкой, до :data:`GUARD_HIGH` не дотягивает никогда), и без короткого
+        захода прогрев голодал бы вечно. Стоит запасу просесть ниже :data:`GUARD_LOW` -
+        выдержка обнуляется, и прогрев остаётся замершим: живой показ всегда важнее.
+        """
+        if self.slack > GUARD_HIGH:
+            return True
+        if self.slack < GUARD_LOW:
+            self.healthy_since = 0.0
+            return False
+        now = time.monotonic()
+        if self.healthy_since == 0.0:
+            self.healthy_since = now
+            return False
+        return now - self.healthy_since >= STARVE_GRACE
 
     def _resume(self, packer: Any) -> None:
         if not self.idle:
             return
         self.idle = False
+        self.healthy_since = 0.0
         with contextlib.suppress(OSError, ProcessLookupError):
             packer.proc.send_signal(signal.SIGCONT)
 

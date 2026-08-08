@@ -19,7 +19,16 @@ from torrcast.cli import Watch as _Watch
 from torrcast.cli import _Clock, _play
 from torrcast.state import Config, Entry, State
 from torrcast.stream import Feed, Grid, Packer, hls_dir, segment_name
-from torrcast.warm import FREE_FLOOR, META, Vault, Warmer, warm_key
+from torrcast.warm import (
+    FREE_FLOOR,
+    GUARD_HIGH,
+    GUARD_LOW,
+    META,
+    STARVE_GRACE,
+    Vault,
+    Warmer,
+    warm_key,
+)
 
 
 def _vault(tmp_path: Path, key: str = "k", budget: int = 1 << 30, floor: int = 0) -> Vault:
@@ -263,6 +272,82 @@ def test_the_budget_never_evicts_the_episode_being_watched(tmp_path: Path) -> No
     assert nxt.fit(300) == "", "место обязано найтись за счёт по-настоящему чужого"
     assert (root / "текущая").exists(), "выедена серия, которую смотрят прямо сейчас"
     assert not (root / "чужая").exists(), "давний чужой каталог не вытеснен"
+
+
+class _FakeProc:
+    """Процесс-заглушка: копит сигналы, которыми его придерживают и отпускают."""
+
+    def __init__(self) -> None:
+        self.signals: list[int] = []
+
+    def send_signal(self, sig: int) -> None:
+        self.signals.append(sig)
+
+
+class _FakePacker:
+    def __init__(self) -> None:
+        self.proc = _FakeProc()
+
+
+def _warmer(tmp_path: Path) -> Warmer:
+    return Warmer(source="s", audio=0, grid=_grid(), vault=_vault(tmp_path))
+
+
+def test_a_tight_but_healthy_show_wakes_warming_before_guard_high(tmp_path: Path) -> None:
+    """Показ вплотную за упаковкой держит запас между порогами и до GUARD_HIGH не дотягивает.
+
+    Раньше замерший прогрев в этой полосе стоял вечно, «прогрета целиком» не наступало, и
+    следующая серия так и не бралась в работу. Теперь выдержка над GUARD_LOW оживляет его.
+    Одного касания над порогом мало - показ должен подтвердить, что запас держится.
+    """
+    warmer = _warmer(tmp_path)
+    warmer.idle = True
+    warmer.slack = (GUARD_LOW + GUARD_HIGH) / 2
+    assert warmer._may_resume() is False, "прогрев ожил от одного касания над порогом"
+    assert warmer.healthy_since > 0.0, "выдержка здоровья не пошла"
+
+    warmer.healthy_since = time.monotonic() - STARVE_GRACE - 1.0
+    assert warmer._may_resume() is True, "здоровый, но тесный показ не оживил прогрев - голодание"
+
+
+def test_a_really_low_reserve_keeps_warming_stopped_no_matter_how_long(tmp_path: Path) -> None:
+    """Реально просевший запас держит прогрев замершим сколько угодно долго: живой показ
+    важнее, и никакая выдержка не оживляет прогрев ниже GUARD_LOW."""
+    warmer = _warmer(tmp_path)
+    warmer.idle = True
+    warmer.slack = GUARD_LOW - 5.0
+    warmer.healthy_since = time.monotonic() - STARVE_GRACE - 100.0
+    assert warmer._may_resume() is False, "прогрев ожил под реально просевшим запасом"
+    assert warmer.healthy_since == 0.0, "просадка не обнулила выдержку - здоровье зачлось ложно"
+
+
+def test_a_far_ahead_show_wakes_warming_at_once(tmp_path: Path) -> None:
+    """Классический выход из простоя цел: запас за GUARD_HIGH оживляет прогрев сразу."""
+    warmer = _warmer(tmp_path)
+    warmer.idle = True
+    warmer.slack = GUARD_HIGH + 1.0
+    assert warmer._may_resume() is True, "запас за GUARD_HIGH не оживил прогрев"
+
+
+def test_throttle_stops_on_drop_then_wakes_on_sustained_health(tmp_path: Path) -> None:
+    """Сквозь ``_throttle``: просадка замораживает, тесное здоровье со временем размораживает,
+    и вечного голодания в полосе между порогами больше нет."""
+    import signal
+
+    warmer = _warmer(tmp_path)
+    packer = _FakePacker()
+
+    warmer.slack = GUARD_LOW - 1.0
+    warmer._throttle(packer)
+    assert packer.proc.signals == [signal.SIGSTOP], "просадка не заморозила прогрев"
+
+    warmer.slack = (GUARD_LOW + GUARD_HIGH) / 2
+    warmer._throttle(packer)  # первое касание - только пошла выдержка
+    assert signal.SIGCONT not in packer.proc.signals, "ожил раньше выдержки"
+
+    warmer.healthy_since = time.monotonic() - STARVE_GRACE - 1.0
+    warmer._throttle(packer)
+    assert packer.proc.signals[-1] == signal.SIGCONT, "выдержка не разморозила прогрев"
 
 
 def test_the_show_reserve_reaches_both_warmers(tmp_path: Path) -> None:
