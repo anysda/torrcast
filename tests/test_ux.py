@@ -45,7 +45,9 @@ def _env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     save_config(Config(tv="10.0.0.50", prowlarr_apikey="ключ", hls_dir=str(tmp_path / "hls")))
     monkeypatch.setattr(cli, "Prowlarr", _FakeProwlarr)
     monkeypatch.setattr(cli, "TorrServer", _FakeTorrServer)
-    monkeypatch.setattr(cli, "probe", lambda url, timeout=90.0, alive=None: Media(5978.0, TRACKS, "h264", 1080))
+    monkeypatch.setattr(
+        cli, "probe", lambda url, timeout=90.0, alive=None: Media(5978.0, TRACKS, "h264", 1080)
+    )
     monkeypatch.setattr(cli, "start_play_unit", lambda key: None)
     monkeypatch.setattr(cli, "stop_play_unit", lambda: None)
     monkeypatch.setattr(cli, "_await_playing", lambda config, progress, timeout=120.0: None)
@@ -123,7 +125,9 @@ def test_a_single_choice_is_not_a_question(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Меню франшизы пропускается, когда картина одна; озвучки нет вовсе."""
-    monkeypatch.setattr(cli, "probe", lambda url, timeout=90.0, alive=None: Media(5978.0, TRACKS[:1], "h264"))
+    monkeypatch.setattr(
+        cli, "probe", lambda url, timeout=90.0, alive=None: Media(5978.0, TRACKS[:1], "h264")
+    )
     asked = _answers(monkeypatch)
 
     assert cli.main(["моана", "2"]) == 0

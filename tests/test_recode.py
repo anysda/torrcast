@@ -1256,9 +1256,7 @@ def test_the_whole_file_run_encodes_every_segment_to_the_end_of_the_film() -> No
     с ``-break_non_keyframes 0`` ждал бы кадр кодировщика и резал бы куда попало.
     """
     grid = _grid()
-    command = ffmpeg_pack_command(
-        "src", 0, "/run", grid, 0, 0.0, encode=Encode(preset=FULL_PRESET)
-    )
+    command = ffmpeg_pack_command("src", 0, "/run", grid, 0, 0.0, encode=Encode(preset=FULL_PRESET))
     assert command[command.index("-c:v") + 1] == "libx264"
     assert command[command.index("-preset") + 1] == FULL_PRESET
     assert "-to" not in command, "сплошной перекод идёт до конца входа"

@@ -756,10 +756,12 @@ def swarm_pulse(source_url: str, grace: float) -> Callable[[], bool]:
 
     def pull() -> None:
         request = urllib.request.Request(source_url, headers={"Range": f"bytes=0-{HEAD_WARM - 1}"})
-        with contextlib.suppress(Exception):
-            with urllib.request.urlopen(request, timeout=WARM_TIMEOUT) as answer:
-                if answer.read(1 << 20):
-                    seen.set()
+        with (
+            contextlib.suppress(Exception),
+            urllib.request.urlopen(request, timeout=WARM_TIMEOUT) as answer,
+        ):
+            if answer.read(1 << 20):
+                seen.set()
 
     threading.Thread(target=pull, daemon=True).start()
 

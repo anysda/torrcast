@@ -50,8 +50,9 @@ class TempoReader:
         # первые 3 с - показ здоров, прогрев трогается с места
         while time.monotonic() - began < 3.0 and not self.stop:
             self.warmer.feed(self.slack)
-            self.samples.append((time.monotonic() - began, self.slack, self.warmer.warmed,
-                                 self.warmer.idle))
+            self.samples.append(
+                (time.monotonic() - began, self.slack, self.warmer.warmed, self.warmer.idle)
+            )
             time.sleep(0.25)
         # дальше - тесный режим: цель зависит от того, тянет прогрев или замер
         while not self.stop:
@@ -63,13 +64,15 @@ class TempoReader:
             else:
                 self.slack = max(target, self.slack - step)
             self.warmer.feed(self.slack)
-            self.samples.append((time.monotonic() - began, self.slack, self.warmer.warmed,
-                                 self.warmer.idle))
+            self.samples.append(
+                (time.monotonic() - began, self.slack, self.warmer.warmed, self.warmer.idle)
+            )
             time.sleep(0.25)
 
 
-def measure(clip: str, floor: float, ceiling: float, rate: float, wall: float,
-            warm_dir: Path) -> dict[str, Any]:
+def measure(
+    clip: str, floor: float, ceiling: float, rate: float, wall: float, warm_dir: Path
+) -> dict[str, Any]:
     grid = Grid.uniform(_duration(clip))
     vault = Vault(root=warm_dir, key="bench", budget=1 << 34, floor=0)
     warmer = Warmer(source=clip, audio=0, grid=grid, vault=vault, rate=rate)
@@ -121,9 +124,19 @@ def _duration(clip: str) -> float:
     import subprocess
 
     out = subprocess.run(
-        ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of",
-         "default=nw=1:nk=1", clip],
-        capture_output=True, text=True, check=True,
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "default=nw=1:nk=1",
+            clip,
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
     ).stdout.strip()
     return float(out)
 
@@ -141,6 +154,7 @@ def main() -> int:
     warm_dir = Path(args.warm_dir)
     os.environ["TORRCAST_WARM"] = str(warm_dir)
     import shutil
+
     shutil.rmtree(warm_dir, ignore_errors=True)
 
     print(f"GUARD_LOW={GUARD_LOW}  GUARD_HIGH={GUARD_HIGH}  rate={args.rate}")
@@ -151,7 +165,7 @@ def main() -> int:
     print(f"  прогрета целиком: {r['done']}{done}")
     print(f"  прогрето итого: {r['warmed_final']:.0f} из {r['duration']:.0f} с фильма")
     print(f"  стена: {r['wall']:.1f} с")
-    print(f"  [способ 1] под SIGSTOP: {r['idle_time']:.1f} с ({100*r['idle_frac']:.0f}% времени)")
+    print(f"  [способ 1] под SIGSTOP: {r['idle_time']:.1f} с ({100 * r['idle_frac']:.0f}% времени)")
     print(f"  [способ 2] самый долгий застой прогретого: {r['longest_flat']:.1f} с")
     return 0
 

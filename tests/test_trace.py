@@ -72,11 +72,13 @@ def test_bad_field_dropped_not_raised(tmp_path: Path) -> None:
 
 def test_rotation_drops_old_days(tmp_path: Path) -> None:
     """Сутки старше семи - сносятся при первой же записи; свежие остаются."""
-    old = tmp_path / (f"trace-{time.strftime('%Y%m%d', time.localtime(time.time() - 30 * 86400))}"
-                      ".jsonl")
+    old = tmp_path / (
+        f"trace-{time.strftime('%Y%m%d', time.localtime(time.time() - 30 * 86400))}.jsonl"
+    )
     old.write_text('{"x":1}\n', encoding="utf-8")
-    young = tmp_path / (f"trace-{time.strftime('%Y%m%d', time.localtime(time.time() - 2 * 86400))}"
-                        ".jsonl")
+    young = tmp_path / (
+        f"trace-{time.strftime('%Y%m%d', time.localtime(time.time() - 2 * 86400))}.jsonl"
+    )
     young.write_text('{"x":1}\n', encoding="utf-8")
     trace.emit("search", "query")
     trace.shutdown()

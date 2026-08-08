@@ -318,10 +318,7 @@ HARRY = (
 
 def _harry() -> list[Picture]:
     return cluster(
-        [
-            _release(title, year, seeders=10, original=original)
-            for title, year, original in HARRY
-        ]
+        [_release(title, year, seeders=10, original=original) for title, year, original in HARRY]
     )
 
 

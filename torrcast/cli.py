@@ -1173,9 +1173,7 @@ def _season_reinforce(
 
     name, _index = split_franchise_index(query)
     want = args.episode or Episode(1, 1)
-    lead = max(
-        (p for p in found if p.kind == "tv"), key=lambda p: len(p.releases), default=None
-    )
+    lead = max((p for p in found if p.kind == "tv"), key=lambda p: len(p.releases), default=None)
     if lead is None:
         return raw, cluster(to_releases(raw)), found
     base = (lead.original or origin(name, series=True).title or transliterate(name)).strip()
@@ -1630,9 +1628,7 @@ class _Bench:
                 verdicts += 1
             self._forget(prep)
             progress.phase("")
-            goes_on = (
-                following is not None and verdicts < MAX_TRIES and time.monotonic() < deadline
-            )
+            goes_on = following is not None and verdicts < MAX_TRIES and time.monotonic() < deadline
             tail = f" - беру {following}" if goes_on else ""
             print(f"релиз {number} не годится ({trouble}){tail}")
             if not goes_on:
@@ -1730,9 +1726,7 @@ class _Bench:
             if not honest_shot(alt.release, alt.found) or alt.found.frame <= chosen.found.frame:
                 print(f"релиз {number} не лучше ({quality_text(alt.release, alt.found)})")
                 continue
-            print(
-                f"релиз {chosen.number} {short} - беру {number} (настоящий {alt.found.quality})"
-            )
+            print(f"релиз {chosen.number} {short} - беру {number} (настоящий {alt.found.quality})")
             self._forget(chosen)  # верх больше не нужен: полосу роя доедать ему незачем
             return alt
         print(f"релиз {chosen.number} {short} - честнее рядом нет, играю его")
@@ -1825,7 +1819,9 @@ class _Bench:
             # и вопросам человека. Показ потом либо берёт готовое, либо
             # дожидается этого же чтения, а не начинает своё вторым потоком.
             warm_file(source, alive=lambda: not prep.dropped, name=prep.want.name)
-            prep.media = probe(source, timeout=self.probe_budget, alive=swarm_pulse(source, SWARM_GRACE))
+            prep.media = probe(
+                source, timeout=self.probe_budget, alive=swarm_pulse(source, SWARM_GRACE)
+            )
             prep.read = time.monotonic() - began
             mark("ffprobe", релиз=prep.number, картина=plan.picture.key)
             prep.phase = "готово"
@@ -2758,9 +2754,7 @@ def is_disc(release: Release) -> bool:
     return bool(_DISC_RE.search(release.raw_name))
 
 
-def is_candidate(
-    release: Release, runtime: float, warn_mbit: float, loose: bool = False
-) -> bool:
+def is_candidate(release: Release, runtime: float, warn_mbit: float, loose: bool = False) -> bool:
     """Кандидат в дефолт: первый сорт (:attr:`Release.prime`), не образ диска и в
     пределах потолка декодера. Жирнее потолка — в таблице остаётся с пометкой, но Enter
     его не возьмёт: ресивер на таком битрейте встаёт.
@@ -3143,7 +3137,9 @@ def spoken(track: AudioTrack) -> str:
     return _SPOKEN.get((track.language or "").strip().casefold(), "оригинальный")
 
 
-def sound_note(media: Media, audio: int, pool: list[Release], release: Release | None = None) -> str:
+def sound_note(
+    media: Media, audio: int, pool: list[Release], release: Release | None = None
+) -> str:
     """Честная строка про звук, когда русской дорожки в файле не оказалось; иначе пусто.
 
     Решение владельца по аниме: субтитров не делаем — значит японский тайтл без

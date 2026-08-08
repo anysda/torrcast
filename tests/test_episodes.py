@@ -134,7 +134,9 @@ def test_the_unit_plays_the_whole_release_by_itself(monkeypatch: pytest.MonkeyPa
         return 0
 
     monkeypatch.setattr(cli, "TorrServer", _FakeTorrServer)
-    monkeypatch.setattr(cli, "probe", lambda url, timeout=90.0, alive=None: Media(MINUTES_24, (), "h264"))
+    monkeypatch.setattr(
+        cli, "probe", lambda url, timeout=90.0, alive=None: Media(MINUTES_24, (), "h264")
+    )
     monkeypatch.setattr(cli, "make_receiver", lambda kind, address, cert: tv)
     monkeypatch.setattr(cli, "_play", play)
 

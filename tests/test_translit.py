@@ -558,11 +558,7 @@ def test_the_reference_original_does_not_open_the_gate_to_another_year(
     «не нашлось», а не чужой фильм.
     """
     client = _FakeProwlarr(
-        {
-            "the ascent": [
-                raw(f"The.Climbers.2019.1080p.WEB-DL.x264-{i}", i) for i in range(20)
-            ]
-        }
+        {"the ascent": [raw(f"The.Climbers.2019.1080p.WEB-DL.x264-{i}", i) for i in range(20)]}
     )
     asked = _knows(monkeypatch, {"восхождение": Origin(title="The Ascent", year=1976)})
 

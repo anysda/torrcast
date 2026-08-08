@@ -18,12 +18,11 @@ from typing import Any, Literal, cast
 
 import pytest
 
+from tests.test_cli import _FakeTorrServer, _resolve, rel
 from torrcast import InfraError, cli
 from torrcast import stream as stream_mod
 from torrcast.parse import Release
 from torrcast.stream import Media, swarm_pulse
-
-from tests.test_cli import _FakeTorrServer, _resolve, rel
 
 
 def test_run_ffprobe_returns_the_moment_the_probe_exits() -> None:

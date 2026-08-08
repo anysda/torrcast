@@ -976,7 +976,9 @@ def glue(pictures: list[Picture]) -> list[Picture]:
 
     named: dict[tuple[Kind, str], list[int]] = {}
     for i, picture in enumerate(pictures):
-        names = {slugify(picture.title)} | ({slugify(picture.original)} if picture.original else set())
+        names = {slugify(picture.title)} | (
+            {slugify(picture.original)} if picture.original else set()
+        )
         for name in names:
             if name:
                 named.setdefault((picture.kind, name), []).append(i)
@@ -1009,7 +1011,9 @@ def _link(pictures: list[Picture], same: list[int], union: Callable[[int, int], 
     1967 и 1969 - уже нет. Картина без года достаётся цепочке, только если она под этим
     именем одна: две цепочки - это оригинал и ремейк, и молча выбрать между ними нельзя.
     """
-    dated = sorted((i for i in same if pictures[i].year is not None), key=lambda i: pictures[i].year or 0)
+    dated = sorted(
+        (i for i in same if pictures[i].year is not None), key=lambda i: pictures[i].year or 0
+    )
     chains: list[list[int]] = []
     for i in dated:
         year = pictures[i].year or 0
