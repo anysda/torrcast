@@ -66,6 +66,12 @@ INDEXERS=(
     # У YTS адрес API отдельной настройкой, и её умолчание из этой сети не отвечает.
     "yts|https://yts.gg/|apiurl=yts.gg"
 )
+# На этом индексере держится примерно половина каталога - весь западный хвост и аниме:
+# прямые трекеры из списка его не перекрывают, замены среди метапоисков в открытом пуле
+# нет. Поиск без него продолжает работать (деградируем, а не умираем), но выдача
+# заметно беднее - поэтому его непроход обязан быть виден словами, а не строкой в общем
+# потоке. То же состояние показывает `cast doctor`.
+KEY_INDEXER="Knaben"
 # Список короткий не по лени: пул прочёсан целиком и машинно. В схеме Prowlarr 622
 # определения, из них открытых (privacy=public) - 86, и каждое прощупано с той самой
 # машины, где стоит torrcast: базовый адрес плюс все зеркала из схемы (74 адреса на
@@ -163,6 +169,9 @@ log()  { printf '\033[1m==>\033[0m %s\n' "$*"; }
 skip() { printf '    уже на месте: %s\n' "$*"; }
 info() { printf '    %s\n' "$*"; }
 die()  { printf '\033[31mошибка:\033[0m %s\n' "$*" >&2; exit 1; }
+# Для того, что установку не роняет, но заметно урезает результат: обычная строка
+# info тонет в потоке установки, а это надо увидеть.
+loud() { printf '\033[1;33mвнимание:\033[0m %s\n' "$*" >&2; }
 has()  { [[ " $PHASES " == *" $1 "* ]]; }
 
 need_root() {
@@ -877,7 +886,7 @@ install_indexers() {
     jq -e 'type == "array" and length > 0 and all(.[]; has("definitionName"))' <<<"$schema" >/dev/null 2>&1 \
         || die "схема индексеров Prowlarr не в ожидаемом виде - API этой версии не тот, на который рассчитана установка"
 
-    local spec def url extra over body name
+    local spec def url extra over body name key_here=0
     for spec in "${INDEXERS[@]}"; do
         IFS='|' read -r def url extra <<<"$spec"
         name="$(jq -r --arg d "$def" '.[]|select(.definitionName==$d)|.name' <<<"$schema")"
@@ -887,6 +896,7 @@ install_indexers() {
         fi
         if jq -e --arg n "$name" 'any(.[]; .name==$n)' <<<"$existing" >/dev/null; then
             skip "индексер $name"
+            [ "$def" = "$KEY_INDEXER" ] && key_here=1
             continue
         fi
         # Поля определения, которые перебиваем: базовый URL плюс то, что задано третьим
@@ -903,6 +913,7 @@ install_indexers() {
         if curl -fsS -X POST "$PL_URL/api/v1/indexer?apikey=$key" \
              -H 'Content-Type: application/json' -d "$body" >/dev/null; then
             info "добавлен $name"
+            [ "$def" = "$KEY_INDEXER" ] && key_here=1
         else
             info "⚠ $name не добавился (недоступен из этой сети?) — не блокер"
         fi
@@ -922,6 +933,29 @@ install_indexers() {
         jq -r 'group_by(.indexer)[]|"    \(.[0].indexer): \(length)"' <<<"$out" 2>/dev/null || true
     else
         info "⚠ проверочный поиск НИЧЕГО не нашёл - индексеры недоступны из этой сети"
+    fi
+
+    # Гейт веса: остальные индексеры друг друга подстраховывают, а этот - нет. Установку
+    # не роняем (без него всё равно ищется), но и молчать нельзя: человек должен понимать,
+    # что каталог у него урезан, а не гадать, почему западного кино и аниме не находится.
+    local key_hits=0
+    if [ -n "$out" ]; then
+        key_hits="$(jq --arg n "$KEY_INDEXER" \
+            '[.[]|select(((.indexer // "")|ascii_downcase)|contains($n|ascii_downcase))]|length' \
+            <<<"$out" 2>/dev/null)" || key_hits=0
+    fi
+    if [ "$key_here" != 1 ]; then
+        loud "$KEY_INDEXER не завёлся - каталог западных релизов и аниме будет неполным"
+        info "поиск продолжит работать на остальных индексерах; повторный ./install.sh \
+заведёт его, когда он снова будет доступен"
+    elif [ "${found:-0}" -eq 0 ] 2>/dev/null; then
+        info "$KEY_INDEXER заведён, но проверить его нечем - проверочный поиск не ответил"
+    elif [ "${key_hits:-0}" -gt 0 ] 2>/dev/null; then
+        info "$KEY_INDEXER отвечает: $key_hits раздач в проверочном поиске"
+    else
+        loud "$KEY_INDEXER заведён, но не отдал ничего - каталог западных релизов и аниме \
+будет неполным"
+        info "поиск продолжит работать на остальных индексерах; состояние видно в cast doctor"
     fi
 }
 

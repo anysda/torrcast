@@ -1,9 +1,10 @@
 """``cast doctor`` — самопроверка окружения одной командой.
 
 Проверяется ровно то, обо что уже спотыкались: терминал и локаль (кириллица в
-вопросах), Prowlarr и TorrServer (есть чем искать и что раздавать), адрес ТВ и его порт
-8009 (есть кому играть), путь до ТВ и адрес раздачи, ffmpeg с ``-readrate_initial_burst``
-и серт, если кто-то включил https. Вердикт по-русски, без трейсбеков и без ``⚠``.
+вопросах), Prowlarr и TorrServer (есть чем искать и что раздавать), метапоиск, на
+котором держится западный и аниме-хвост каталога, адрес ТВ и его порт 8009 (есть кому
+играть), путь до ТВ и адрес раздачи, ffmpeg с ``-readrate_initial_burst`` и серт, если
+кто-то включил https. Вердикт по-русски, без трейсбеков и без ``⚠``.
 
 Каждая проверка возвращает пару ``(строка, всё ли хорошо)``: ``cast doctor`` печатает
 строки и завершается кодом 2, если хоть где-то «плохо».
@@ -29,6 +30,11 @@ __all__ = ["checkup"]
 Line = tuple[str, bool]
 #: Порт управления Chromecast: открыт даже в standby, коннект будит ТВ.
 CAST_PORT = 8009
+#: Метапоиск, на котором держится примерно половина каталога - весь западный хвост и
+#: аниме: прямые трекеры из установки его не перекрывают. Без него поиск продолжает
+#: работать, поэтому это «внимание», а не «плохо», - но молчать о нём нельзя, иначе
+#: урезанная выдача выглядит как пустой поиск без причины.
+KEY_INDEXER = "Knaben"
 _TIMEOUT = 5.0
 
 
@@ -37,7 +43,7 @@ def checkup(config: Config) -> Iterator[Line]:
     yield _terminal()
     yield _locale()
     yield _tools()
-    yield _prowlarr(config)
+    yield from _prowlarr(config)
     yield _torrserver(config)
     yield from _tv(config)
     yield _hls(config)
@@ -101,17 +107,48 @@ def _tools() -> Line:
     return _ok(f"{head}, -readrate_initial_burst есть")
 
 
-def _prowlarr(config: Config) -> Line:
+def _prowlarr(config: Config) -> Iterator[Line]:
+    """Prowlarr: отвечает ли, сколько индексеров и жив ли тот, что весит за половину."""
     if not config.prowlarr_apikey:
-        return _bad("Prowlarr: apikey пуст - искать нечем, перезапусти ./install.sh")
-    payload = _json(f"{config.prowlarr_url}/api/v1/health", {"X-Api-Key": config.prowlarr_apikey})
+        yield _bad("Prowlarr: apikey пуст - искать нечем, перезапусти ./install.sh")
+        return
+    headers = {"X-Api-Key": config.prowlarr_apikey}
+    payload = _json(f"{config.prowlarr_url}/api/v1/health", headers)
     if payload is None:
-        return _bad(f"Prowlarr не отвечает ({config.prowlarr_url}) - поиска не будет")
-    indexers = _json(f"{config.prowlarr_url}/api/v1/indexer", {"X-Api-Key": config.prowlarr_apikey})
+        yield _bad(f"Prowlarr не отвечает ({config.prowlarr_url}) - поиска не будет")
+        return
+    indexers = _json(f"{config.prowlarr_url}/api/v1/indexer", headers)
     count = len(indexers) if isinstance(indexers, list) else 0
     if not count:
-        return _bad(f"Prowlarr отвечает, но индексеров ноль ({config.prowlarr_url})")
-    return _ok(f"Prowlarr отвечает, индексеров {count} ({config.prowlarr_url})")
+        yield _bad(f"Prowlarr отвечает, но индексеров ноль ({config.prowlarr_url})")
+        return
+    yield _ok(f"Prowlarr отвечает, индексеров {count} ({config.prowlarr_url})")
+    yield _key_indexer(indexers)
+
+
+def _enabled_names(payload: object) -> list[str]:
+    """Имена включённых индексеров из ответа Prowlarr; выключенный не ищет."""
+    if not isinstance(payload, list):
+        return []
+    names: list[str] = []
+    for entry in payload:
+        if not isinstance(entry, dict) or not entry.get("enable", True):
+            continue
+        name = entry.get("name")
+        if isinstance(name, str):
+            names.append(name)
+    return names
+
+
+def _key_indexer(payload: object) -> Line:
+    """Метапоиск с половиной каталога: есть и включён - или выдача будет неполной."""
+    needle = KEY_INDEXER.lower()
+    if any(needle in name.lower() for name in _enabled_names(payload)):
+        return _ok(f"{KEY_INDEXER} на месте - западные релизы и аниме в каталоге есть")
+    return _warn(
+        f"{KEY_INDEXER} не заведён или выключен - искать можно, но западных релизов и "
+        "аниме в выдаче будет заметно меньше; вернуть - ./install.sh"
+    )
 
 
 def _torrserver(config: Config) -> Line:
