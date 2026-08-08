@@ -21,8 +21,8 @@ def _isolate(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv(trace.SID_ENV, "test-sid")
 
 
-def _read_lines(directory: Path) -> list[dict]:
-    rows: list[dict] = []
+def _read_lines(directory: Path) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
     for path in sorted(directory.glob("trace-*.jsonl")):
         for raw in path.read_text("utf-8").splitlines():
             rows.append(json.loads(raw))
@@ -116,8 +116,17 @@ def test_put_does_no_synchronous_io(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     import os as _os
 
     touched: list[str] = []
-    monkeypatch.setattr(_os, "open", lambda *a, **k: touched.append("open") or 3)  # type: ignore[arg-type,return-value]
-    monkeypatch.setattr(_os, "write", lambda *a, **k: touched.append("write") or 0)
+
+    def fake_open(*_a: object, **_k: object) -> int:
+        touched.append("open")
+        return 3
+
+    def fake_write(*_a: object, **_k: object) -> int:
+        touched.append("write")
+        return 0
+
+    monkeypatch.setattr(_os, "open", fake_open)
+    monkeypatch.setattr(_os, "write", fake_write)
 
     writer = trace._Writer()
     for i in range(500):
@@ -133,7 +142,7 @@ def test_flush_runs_off_the_caller_thread(tmp_path: Path, monkeypatch: pytest.Mo
     flusher: list[int] = []
     real_flush = trace._Writer._flush
 
-    def spy(self: trace._Writer, batch: list[dict]) -> None:
+    def spy(self: trace._Writer, batch: list[dict[str, object]]) -> None:
         flusher.append(threading.get_ident())
         real_flush(self, batch)
 
