@@ -805,4 +805,41 @@ def test_an_unknown_type_is_trusted_only_when_film_and_series_agree(monkeypatch:
         return Origin() if series else Origin(title="Psycho", year=1960, name="Психо")
 
     monkeypatch.setattr(facts_mod, "origin_now", only_movie)
-    assert origin_either("Психо").title == "Psycho", "тип нашёлся один - его и берём"
+    lone = origin_either("Психо")
+    assert lone.title == "Psycho", "тип нашёлся один - имя его и берём"
+    assert lone.year is None, "а год у одинокого ответа неподтверждён - см. соседний тест"
+
+
+def test_a_lone_answer_lends_its_name_but_never_its_year(monkeypatch: Any) -> None:
+    """Ответил один путь из двух - это не согласие, а единственное мнение. Год ему не верим.
+
+    «Атака титанов»: статьи об аниме-сериале в русской Википедии нет вовсе, и на оба
+    вопроса приезжает одна и та же статья японского игрового фильма. Гейт типа
+    (:func:`~torrcast.facts._fits_type`) отдаёт её только вопросу про фильм, вопрос про
+    сериал остаётся без ответа - и прежнее правило «ответил один - его и берём» уверенно
+    подписывало аниме-сериал 2013 года чужим годом 2015.
+
+    Имя и год у такого ответа стоят разного, поэтому и судьба у них разная. Имя ``Attack
+    on Titan`` у фильма и сериала общее, добору оно годится, а ошибись оно - цена лишние
+    раздачи. Год объявлен сильнее выдачи: с ним гейт добора выкидывает из каталога весь
+    сериал 2013 года как «другую картину» - молча и уверенно. Отдаём имя, молчим про год.
+    """
+    from torrcast.facts import Origin, origin_either
+
+    monkeypatch.setattr(facts_mod, "_cached_origin", lambda title, series: None)
+    monkeypatch.setattr(facts_mod, "_remember_origin", lambda *a: None)
+    film = _page("Атака титанов (фильм)", ATTACK_FILM, english="Attack on Titan")
+
+    def wiki(title: str, series: bool, timeout: float) -> Origin:
+        return facts_mod.read_origin([film], title, trusted=True, series=series)
+
+    monkeypatch.setattr(facts_mod, "origin_now", wiki)
+
+    # Так эта статья отвечает каждому из двух путей: фильму - всё, сериалу - ничего.
+    assert wiki("Атака титанов", False, 1.0) == Origin("Attack on Titan", 2015, "Атака титанов")
+    assert not wiki("Атака титанов", True, 1.0), "чужой тип - гейт молчит (соседняя работа)"
+
+    lone = origin_either("Атака титанов")
+    assert lone.title == "Attack on Titan", "имя общее у фильма и сериала - добору годится"
+    assert lone.name == "Атака титанов", "русское имя тоже: по нему добор ищет обратно"
+    assert lone.year is None, "год у сериала 2013, а не 2015 - неподтверждённый год не отдаём"
