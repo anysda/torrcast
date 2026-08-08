@@ -37,6 +37,21 @@ PL_URL="http://$PL_HOST:$PL_PORT"
 #: если её меньше, задай свой размер через TORRCAST_TS_CACHE.
 TS_CACHE="${TORRCAST_TS_CACHE:-4294967296}"
 
+# --- Версии соседей: пины ----------------------------------------------------
+# TorrServer и Prowlarr ставятся не «последние какие есть», а те, на которых обвязка
+# API проверена живьём. Свежий мажор соседа может молча сменить формат ответа - и
+# сломается это уже у чужого человека на чистой машине, а не у нас.
+#
+# Как поднять версию: поменять тег в нужной строке ниже - и прогнать install.sh на
+# чистой машине. Правка одна, оба пина лежат тут; самопроверка в конце установки
+# скажет, годится ли новая версия.
+# Разовое переопределение: TORRCAST_TS_VERSION=… TORRCAST_PL_VERSION=… ./install.sh
+#
+# Теги пишутся ровно так, как они названы у авторов: у TorrServer без «v», у
+# Prowlarr с «v».
+TS_VERSION="${TORRCAST_TS_VERSION:-MatriX.142.2}"
+PL_VERSION="${TORRCAST_PL_VERSION:-v2.5.2.5491}"
+
 # Индексеры: definitionName в схеме Prowlarr + базовый URL. Только открытые: ни
 # регистрации, ни капчи, ни ключа - трекеры с логином здесь не появятся принципиально.
 # Knaben - метапоиск (агрегирует чужие каталоги и отдаёт infoHash), остальные прямые.
@@ -186,10 +201,31 @@ fetch() {  # $@ - аргументы curl; возвращает код посл�
     while :; do
         curl -fsSL --retry 2 --retry-connrefused --connect-timeout 20 "$@" && return 0
         [ "$i" -ge "$DL_TRIES" ] && return 1
-        info "не скачалось (попытка $i из $DL_TRIES) - пробую снова"
+        # В stderr, а не в stdout: вывод fetch бывает и телом ответа, которое тут же
+        # читает jq - строка про повтор посреди JSON ломала бы разбор.
+        info "не скачалось (попытка $i из $DL_TRIES) - пробую снова" >&2
         sleep $((i * 3))
         i=$((i + 1))
     done
+}
+
+# Описание релиза с GitHub: сначала пиненный тег, и только если его там больше нет -
+# latest, вслух и с предупреждением. Пропавший тег (снесли, переименовали) не должен
+# останавливать установку: живая незнакомая версия полезнее мёртвой установки, а
+# несовместимость поймает самопроверка в конце - падение будет честным и с адресом.
+# Печатает JSON в stdout, все свои слова - в stderr, иначе jq подавится.
+gh_release() {  # $1 - владелец/репозиторий, $2 - тег пина, $3 - имя для сообщений
+    local api="https://api.github.com/repos/$1/releases" body code
+    body="$(mktemp)"
+    code="$(curl -fsSL --retry 2 --retry-connrefused --connect-timeout 20 \
+                 -o "$body" -w '%{http_code}' "$api/tags/$2" 2>/dev/null)" || true
+    if [ "$code" = 200 ] && [ -s "$body" ]; then
+        cat "$body"; rm -f "$body"; return 0
+    fi
+    rm -f "$body"
+    info "⚠ $3: пиненная версия $2 недоступна на GitHub (ответ ${code:-нет}) - беру latest" >&2
+    info "⚠ версия непроверенная; если обвязка API не сойдётся - установка упадёт ниже" >&2
+    fetch "$api/latest"
 }
 
 # --- 0. Локаль --------------------------------------------------------------
@@ -474,8 +510,6 @@ verify_torrcast() {
 }
 
 # --- 3. TorrServer ----------------------------------------------------------
-TS_RELEASE="${TORRCAST_TS_RELEASE:-https://api.github.com/repos/YouROK/TorrServer/releases/latest}"
-
 install_torrserver() {
     log "TorrServer ($TS_URL, кэш в RAM)"
     install -d -m 0755 "$PREFIX/bin" "$PREFIX/torrserver"
@@ -490,9 +524,11 @@ install_torrserver() {
             armv7l)  arch=arm7 ;;
             *) die "нет сборки TorrServer под $(uname -m)" ;;
         esac
-        url="$(fetch "$TS_RELEASE" \
-            | jq -r --arg n "TorrServer-linux-$arch" '.assets[]|select(.name==$n)|.browser_download_url')"
-        [ -n "$url" ] && [ "$url" != null ] || die "не нашёл сборку TorrServer-linux-$arch"
+        url="$(gh_release YouROK/TorrServer "$TS_VERSION" TorrServer \
+            | jq -r --arg n "TorrServer-linux-$arch" \
+                   '.assets[]|select(.name==$n)|.browser_download_url')" || url=""
+        [ -n "$url" ] && [ "$url" != null ] \
+            || die "не нашёл сборку TorrServer-linux-$arch (пин $TS_VERSION, latest тоже не отдал)"
         info "качаю $url"
         fetch -o "$PREFIX/bin/TorrServer.new" "$url" || die "не скачался TorrServer: $url"
         chmod +x "$PREFIX/bin/TorrServer.new"
@@ -684,7 +720,6 @@ seed_definitions() {
 # Качаем с GitHub, как и TorrServer. Родной prowlarr.servarr.com части адресов отдаёт
 # 403: зависеть от того, чей IP спрашивает, установка не должна. Сборка та же самая,
 # версия совпадает. Запасной путь остался вторым.
-PL_RELEASE="${TORRCAST_PL_RELEASE:-https://api.github.com/repos/Prowlarr/Prowlarr/releases/latest}"
 PL_FALLBACK="${TORRCAST_PL_FALLBACK:-https://prowlarr.servarr.com/v1/update/master/updatefile?os=linux&runtime=netcore&arch=x64}"
 
 install_prowlarr() {
@@ -695,8 +730,9 @@ install_prowlarr() {
         skip "бинарь Prowlarr"
     else
         local url
-        url="$(fetch "$PL_RELEASE" 2>/dev/null \
-            | jq -r '[.assets[]?|select(.name|test("linux-core-x64\\.tar\\.gz$"))][0].browser_download_url // empty')"
+        url="$(gh_release Prowlarr/Prowlarr "$PL_VERSION" Prowlarr \
+            | jq -r '[.assets[]?|select(.name|test("linux-core-x64\\.tar\\.gz$"))][0]
+                     .browser_download_url // empty')" || url=""
         if [ -z "$url" ]; then
             info "GitHub сборку не отдал — иду на $PL_FALLBACK"
             url="$PL_FALLBACK"
@@ -748,8 +784,15 @@ install_indexers() {
     key="$(prowlarr_apikey)"
     [ -n "$key" ] || die "не вычитал apikey из config.xml Prowlarr"
 
-    schema="$(curl -fsS "$PL_URL/api/v1/indexer/schema?apikey=$key")"
-    existing="$(curl -fsS "$PL_URL/api/v1/indexer?apikey=$key")"
+    # Гейт версии: обвязка рассчитана на конкретный формат ответа Prowlarr. Если
+    # поставилась версия, которая отвечает иначе (например, после отката пина на
+    # latest), это должно быть видно здесь и словами, а не молчаливым выходом.
+    schema="$(curl -fsS "$PL_URL/api/v1/indexer/schema?apikey=$key")" \
+        || die "Prowlarr не отдал схему индексеров ($PL_URL/api/v1/indexer/schema) - API этой версии не тот, на который рассчитана установка"
+    existing="$(curl -fsS "$PL_URL/api/v1/indexer?apikey=$key")" \
+        || die "Prowlarr не отдал список индексеров ($PL_URL/api/v1/indexer)"
+    jq -e 'type == "array" and length > 0 and all(.[]; has("definitionName"))' <<<"$schema" >/dev/null 2>&1 \
+        || die "схема индексеров Prowlarr не в ожидаемом виде - API этой версии не тот, на который рассчитана установка"
 
     local spec def url extra over body name
     for spec in "${INDEXERS[@]}"; do
