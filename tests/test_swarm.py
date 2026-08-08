@@ -112,3 +112,66 @@ def test_a_silent_stream_is_dropped_before_the_full_probe_budget(
     assert prep.number == 2, "молчащий поток не останавливает показ"
     assert "релиз 1 не годится (рой молчит" in printed and "беру 2" in printed
     assert elapsed < cli.PROBE_BUDGET, "не сожгли весь бюджет на молчащем релизе"
+
+
+# --- Шаг опроса метаданных (TC-126) ---------------------------------------------------
+#
+# Ожидание метаданных устранить нельзя: TorrServer не отдаст ни байта, пока рой их не
+# привезёт. Устранима только наша добавка к нему - остаток шага опроса. С прежней
+# секундой она была видна в замерах глазами: все времена ожидания выходили почти целыми
+# (2.01, 3.01, 5.01, 8.02, 11.02, 12.02 с), то есть в среднем полсекунды на каждом
+# старте мы досыпали уже поверх готовых метаданных.
+
+
+class _Late(stream_mod.TorrServer):
+    """Клиент TorrServer, у которого метаданные приезжают в назначенный момент времени.
+
+    Именно по времени, а не «на N-м опросе»: шаг опроса как раз и меняет число опросов,
+    и счётчик мерил бы не то. Единственный поход по сети подменён, остальной
+    :meth:`~torrcast.stream.TorrServer.wait_files` живой.
+    """
+
+    def __init__(self, ready_after: float) -> None:
+        super().__init__("http://torrserver.invalid")
+        self.ready = time.monotonic() + ready_after
+        self.polls = 0
+
+    def files(self, torrent_hash: str) -> list[stream_mod.TorrFile]:
+        self.polls += 1
+        if time.monotonic() < self.ready:
+            return []
+        return [stream_mod.TorrFile(0, "film.mkv", 8 << 30)]
+
+
+def test_metadata_are_taken_up_within_a_step_not_within_a_second() -> None:
+    """Пришедшие метаданные ждут нас не дольше одного шага опроса.
+
+    Это и есть цена вопроса: показ стартует настолько позже роя, насколько крупен шаг.
+    """
+    client = _Late(0.3)
+    began = time.monotonic()
+    assert client.wait_files("hash", timeout=5.0), "метаданные всё-таки приехали"
+    late = time.monotonic() - began - 0.3
+    assert late <= stream_mod.META_STEP_MAX + 0.05, f"метаданные пролежали лишние {late:.2f} с"
+
+
+def test_the_poll_never_turns_into_a_flood() -> None:
+    """Мелкий шаг - не повод долбить TorrServer: частота опроса имеет потолок."""
+    client = _Late(0.5)
+    client.wait_files("hash", timeout=5.0)
+    ceiling = 0.5 / stream_mod.META_STEP_MAX + 4  # +4 - разгон лестницы с мелкого шага
+    assert client.polls <= ceiling, f"{client.polls} опросов за полсекунды - это долбёжка"
+
+
+def test_the_metadata_deadline_is_a_deadline() -> None:
+    """Срок ожидания - это срок, а не «до конца ближайшего шага после него».
+
+    Последний сон подрезается по сроку: иначе на мёртвом рое короткий бюджет всё равно
+    округлялся бы вверх до целого шага, и отказ приходил бы позже, чем обещан.
+    """
+    client = _Late(99.0)  # рой молчит и будет молчать
+    began = time.monotonic()
+    with pytest.raises(InfraError, match="не отдала метаданные"):
+        client.wait_files("hash", timeout=0.35)
+    spent = time.monotonic() - began
+    assert 0.35 <= spent < 0.45, f"обещали ждать 0.35 с, ждали {spent:.2f} с"
