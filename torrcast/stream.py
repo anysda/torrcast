@@ -1679,14 +1679,21 @@ def ffmpeg_pack_command(
         # ``-to`` при ``-copyts`` считается в абсолютном времени фильма - том же, что в
         # сетке. Без ограничения заход кодировщика доехал бы до конца фильма.
         command += ["-to", f"{grid.end(until) + 1.0:.3f}"]
-    command += (
-        f"-c:a {AUDIO_CODEC} -ac {AUDIO_CHANNELS} -b:a {AUDIO_BITRATE} "
-        f"-muxdelay 0 -muxpreload 0 "
-        f"-f segment -segment_format mpegts -segment_time_delta {SPLIT_SLACK:g} "
-        f"-break_non_keyframes {0 if grid.on_keys else 1} "
-        f"-segment_start_number {slot - 1 if behind else slot} "
-        f"-segment_list {run}/{PACK_LIST} -segment_list_type csv -segment_list_flags +live"
-    ).split()
+    # ⚠️ Аргументы собираются СПИСКОМ, а не строкой с последующим ``.split()``. Разбиение по
+    # пробелам разрывало надвое любой путь с пробелом внутри (каталог прогона задаёт человек
+    # через ``TORRCAST_STATE``), и ffmpeg получал вместо имени списка два огрызка: список
+    # нарезки не появлялся вовсе, :meth:`Packer.publish` не выкладывал наружу ничего, а
+    # показ видел только «ни куска» - без причины.
+    command += [
+        "-c:a", AUDIO_CODEC, "-ac", f"{AUDIO_CHANNELS}", "-b:a", AUDIO_BITRATE,
+        "-muxdelay", "0", "-muxpreload", "0",
+        "-f", "segment", "-segment_format", "mpegts",
+        "-segment_time_delta", f"{SPLIT_SLACK:g}",
+        "-break_non_keyframes", f"{0 if grid.on_keys else 1}",
+        "-segment_start_number", f"{slot - 1 if behind else slot}",
+        "-segment_list", f"{run}/{PACK_LIST}",
+        "-segment_list_type", "csv", "-segment_list_flags", "+live",
+    ]  # fmt: skip
     if times:
         command += ["-segment_times", times]
     command.append(f"{run}/v%d.ts")

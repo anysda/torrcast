@@ -24,7 +24,7 @@ from typing import IO, Any
 import pytest
 import requests
 
-from tests.conftest import fake_packer, free_port
+from tests.conftest import CLIP_SECONDS, fake_packer, free_port
 from torrcast.cast import Report
 from torrcast.stream import (
     HLS_SEGMENT_SECONDS,
@@ -36,9 +36,11 @@ from torrcast.stream import (
     Feed,
     Grid,
     HlsServer,
+    Packer,
     ffmpeg_pack_command,
     hls_dir,
     parse_manifest,
+    segment_name,
 )
 
 #: Ровная сетка на два часа: примерно столько и играет полнометражный фильм.
@@ -352,6 +354,35 @@ def test_cutting_inside_a_gop_is_allowed_only_on_a_flat_grid() -> None:
     assert _flag(ffmpeg_pack_command("u", 0, "/run", keyed, 0, 0.0), "-break_non_keyframes") == "0"
     flat = Grid.uniform(600.0)
     assert _flag(ffmpeg_pack_command("u", 0, "/run", flat, 0, 0.0), "-break_non_keyframes") == "1"
+
+
+def test_a_space_in_the_run_directory_does_not_quietly_kill_the_packing(
+    clip: str, tmp_path: Path
+) -> None:
+    """Пробел в пути каталога прогона: кусок доходит до показа, а не «ни куска».
+
+    Хвост команды собирался f-строкой и разбивался по пробелам, поэтому путь с пробелом
+    внутри приезжал к ffmpeg двумя огрызками: ``-segment_list`` получал половину имени,
+    список нарезки не появлялся вовсе, а без него :meth:`Packer.publish` не выкладывает
+    наружу ничего — наверх шло «упаковка не дала ни куска» без причины (проверено откатом:
+    ровно этот тест на прежнем коде не находит ``v0.ts``). Каталог состояния задаёт человек
+    (``TORRCAST_STATE``), пробелы в путях у людей обычное дело, поэтому проверка идёт
+    настоящим прогоном ffmpeg, а не сравнением строк команды.
+    """
+    grid = Grid.uniform(float(CLIP_SECONDS))
+    out = tmp_path / "мои фильмы"
+    run = out / PACK_DIR
+    run.mkdir(parents=True)
+    command = ffmpeg_pack_command(clip, 0, str(run), grid, 0, 0.0, readrate=0.0, until=0)
+    assert str(run / PACK_LIST) in command, "имя списка обязано доехать до ffmpeg целиком"
+    packer = Packer.start(command, out, run, 0, last=0)
+    deadline = time.monotonic() + 120
+    while packer.poll() is None and time.monotonic() < deadline:
+        packer.publish()
+        time.sleep(0.2)
+    packer.publish()
+    packer.stop(keep_files=True, reason="проверка пути с пробелом")
+    assert (out / segment_name(0)).exists(), f"ни куска: {packer.why()}"
 
 
 def test_readrate_paces_packing_and_can_be_switched_off() -> None:
