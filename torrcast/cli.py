@@ -827,6 +827,10 @@ def _search(config: Config, args: Args, progress: Progress) -> list[_Plan]:
     found = pick_franchise(query, pictures)
     if max((len(p.releases) for p in found), default=0) < THIN_POOL:
         raw, pictures, found = _second_language(client, query, raw, found, progress)
+    # Сериал есть, а раздач нужного сезона в нём нет - добрать сезонной строкой по
+    # оригиналу, прежде чем честно отказать (:func:`_season_reinforce`).
+    if _lacks_season(found, args):
+        raw, pictures, found = _season_reinforce(client, query, args, raw, found, progress)
     mark("поиск", найдено=len(raw))
     if not raw:
         raise NotFoundError(f"по запросу «{name}» ничего не нашлось")
@@ -1070,6 +1074,82 @@ def _as_is(
         f"под этим именем в каталоге лежит картина {found[0].year} года, а не {about.year}"
     )
     return raw, cluster(to_releases(raw)), []
+
+
+def _lacks_season(found: list[Picture], args: Args) -> bool:
+    """Сериал найден, а раздач нужного сезона в нём нет ни по одному имени.
+
+    Ровно тот случай, где отбор упирался в «раздач с сезоном N нет»: TC-6 берёт сезон-пак,
+    КОГДА он есть в выдаче, но у части западных сериалов («Ангел») русский запрос не
+    приносит ни одной раздачи с нужным сезоном - пак лежит под оригинальным именем со
+    строкой сезона (``Angel S01``), до которой русское слово не достаёт. Проверяем по
+    именам (:meth:`Release.covers`), без похода в рой: имя пака сезон называет само.
+    """
+    tv = [p for p in found if p.kind == "tv"]
+    if not tv:
+        return False
+    want = args.episode or Episode(1, 1)
+    return not any(r.covers(want.season) for p in tv for r in p.releases)
+
+
+def _season_reinforce(
+    client: Prowlarr,
+    query: str,
+    args: Args,
+    raw: list[RawResult],
+    found: list[Picture],
+    progress: Progress,
+) -> tuple[list[RawResult], list[Picture], list[Picture]]:
+    """Добрать сезон-пак сезонной строкой по оригиналу, прежде чем честно отказать.
+
+    Родня транслит-добору (:func:`_second_language`), но повод другой: там пул тощий и
+    добираем ЛЮБЫЕ раздачи, здесь пул может быть и полным, а не хватает раздач ровно
+    нужного СЕЗОНА. Индексер ищет по имени раздачи, поэтому сезон-пак «Angel [S01-05]»
+    русское «ангел» не приносит - его находит строка ``Angel S01`` по оригиналу.
+
+    🔴 **Гейт против подмены.** Добор не пересобирает выдачу как попало: из ответа сезонной
+    строки берутся ТОЛЬКО раздачи, у которых оригинал совпадает с оригиналом найденного
+    сериала И имя которых называет нужный сезон. Без этого «Angel S01» натащил бы десяток
+    чужих аниме («The Angel Next Door ... S01»): у них другой оригинал, и фильтр их
+    отсекает. Сама картина после этого выбирается прежним :func:`~torrcast.parse.pick_franchise`.
+
+    Один лишний круг по индексерам, и только когда сезона в выдаче не было вовсе
+    (:func:`_lacks_season`): на счастливом пути добора нет. Ничего не подошло - остаётся
+    прежний результат, дальше честное «раздач с сезоном N нет».
+    """
+    from torrcast.parse import cluster, pick_franchise, slugify, transliterate
+
+    name, _index = split_franchise_index(query)
+    want = args.episode or Episode(1, 1)
+    lead = max(
+        (p for p in found if p.kind == "tv"), key=lambda p: len(p.releases), default=None
+    )
+    if lead is None:
+        return raw, cluster(to_releases(raw)), found
+    base = (lead.original or origin(name, series=True).title or transliterate(name)).strip()
+    season_query = f"{base} S{want.season:02d}" if base else ""
+    # Тем же именем второй раз ходить незачем: если оригинала нет и транслит совпал с
+    # запросом, сезонная строка это тот же круг по индексерам ради той же выдачи.
+    if not base or slugify(season_query) == slugify(name):
+        return raw, cluster(to_releases(raw)), found
+    progress.phase(f"поиск «{season_query}»")
+    extra = _ask(client, season_query)
+    progress.phase("")
+    want_orig = slugify(lead.original or base)
+    # Берём лишь раздачи ТОГО ЖЕ оригинала и ровно нужного сезона: чужое одноимённое
+    # (аниме «The Angel Next Door») по оригиналу не проходит.
+    keep = [
+        row
+        for row, rel in zip(extra, to_releases(extra))
+        if rel.original and slugify(rel.original) == want_orig and rel.covers(want.season)
+    ]
+    merged = merge(raw, keep) if keep else raw
+    if len(merged) == len(raw):
+        return raw, cluster(to_releases(raw)), found
+    pictures = cluster(to_releases(merged))
+    wider = pick_franchise(query, pictures)
+    progress.note(f"сезона {want.season} в выдаче не было - добрал по «{season_query}»")
+    return merged, pictures, wider
 
 
 def _leading(pictures: list[Picture]) -> Picture | None:
@@ -1471,6 +1551,7 @@ class _Bench:
             )
         tried: list[str] = []
         verdicts = 0
+        exhausted = False
         deadline = time.monotonic() + PICK_BUDGET
         for attempt, number in enumerate(queue, start=1):
             prep = self.start(plan, number)
@@ -1502,14 +1583,27 @@ class _Bench:
             tail = f" - беру {following}" if goes_on else ""
             print(f"релиз {number} не годится ({trouble}){tail}")
             if not goes_on:
+                # Дошли до конца очереди, а не встали по бюджету/попыткам: следующего нет.
+                exhausted = following is None
                 break
         shown = "; ".join(tried[:MAX_TRIES])
         more = f" и ещё {len(tried) - MAX_TRIES}" if len(tried) > MAX_TRIES else ""
         offer = kin_line(plan.kin)
+        tail = f"\n{offer}" if offer else ""
+        if verdicts == 0 and exhausted and tried:
+            # «Не нашли» и «нашли, но рой мёртв» - разные отказы. Очередь пройдена до конца, и
+            # ни один релиз не дошёл до приговора: ffprobe не прочитал ни одного, потому что не
+            # приехали ни метаданные по DHT, ни поток. Раздачи есть и по именам годны - мёртв
+            # рой, а не выбор. Врать «годного релиза нет» тут нельзя: выбирать руками не из
+            # чего, пиров нет ни у кого. Если же встали по бюджету (очередь не пройдена), ниже
+            # могли остаться живые - тогда прежняя строка, она про «ещё есть что пробовать».
+            raise NotFoundError(
+                f"раздач нашлось {len(tried)}, но рой у них мёртв - пиров нет, "
+                f"показывать нечего ({shown}{more})" + tail
+            )
         raise NotFoundError(
             f"годного релиза нет ({shown}{more}): выбери руками - "
-            "cast releases <запрос>, потом cast <запрос> --release N"
-            + (f"\n{offer}" if offer else "")
+            "cast releases <запрос>, потом cast <запрос> --release N" + tail
         )
 
     def _wait(self, prep: _Prep, progress: Progress) -> None:

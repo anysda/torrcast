@@ -361,7 +361,33 @@ def test_the_walk_down_the_queue_stops_when_the_start_budget_is_out(
         _resolve(cli._Bench(cast(Any, torrserver)), ranked)
 
     assert "годного релиза нет" in str(caught.value) and "нет пиров" in str(caught.value)
+    assert "рой у них мёртв" not in str(caught.value), "встали по бюджету - ниже могли быть живые"
     assert capsys.readouterr().out.count("нет пиров") == 1, "бюджет вышел - второго похода нет"
+
+
+def test_a_fully_walked_queue_of_dead_swarms_is_an_honest_dead_swarm(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Очередь пройдена до конца, а пиров нет ни у кого - это «рой мёртв», не «годного нет».
+
+    Отказы разные, и человеку с ними разное. «Годного релиза нет» зовёт выбрать руками, но
+    выбирать не из чего: раздачи есть и по именам годны, только рой у всех до одной пустой -
+    ни метаданных, ни потока. Это не выбор качества, это отсутствие показа, и говорить о нём
+    надо прямо. Отличие от :func:`test_the_walk_down_the_queue_stops...`: там встали по
+    бюджету и ниже могли лежать живые, а тут очередь именно кончилась.
+    """
+    ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
+    _probes(monkeypatch, ranked, "h264")
+    monkeypatch.setattr(Release, "magnet", property(lambda self: f"magnet-{self.raw_name}"))
+    torrserver = _FakeTorrServer(dead={f"hash-magnet-r{i}" for i in range(3)})
+
+    with pytest.raises(NotFoundError) as caught:
+        _resolve(cli._Bench(cast(Any, torrserver)), ranked)
+
+    msg = str(caught.value)
+    assert "рой у них мёртв" in msg and "пиров нет" in msg
+    assert "годного релиза нет" not in msg
+    assert capsys.readouterr().out.count("нет пиров") == 3, "каждая раздача стоит строки"
 
 
 def test_an_explicitly_named_release_is_played_as_asked_with_a_loud_warning(

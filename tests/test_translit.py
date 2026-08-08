@@ -19,7 +19,15 @@ import pytest
 from torrcast import NotFoundError, cli
 from torrcast.console import Progress
 from torrcast.facts import Origin
-from torrcast.parse import THIN_POOL, Picture, Release, alt_query, parse_release_name, transliterate
+from torrcast.parse import (
+    THIN_POOL,
+    Picture,
+    Release,
+    alt_query,
+    parse_release_name,
+    slugify,
+    transliterate,
+)
 from torrcast.search import RawResult, merge
 from torrcast.state import Config
 
@@ -158,6 +166,53 @@ def test_full_russian_pool_is_not_searched_twice(monkeypatch: pytest.MonkeyPatch
 
     assert client.asked == ["психо"]
     assert len(plans[0].picture.releases) == THIN_POOL
+
+
+def test_a_series_missing_the_wanted_season_is_topped_up_by_the_season_string(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Сезон-пак под оригинальным именем: «ангел» его не приносит, «Angel S01» - да.
+
+    У западного сериала русский запрос отдаёт раздачи чужих сезонов (S03, S04), а пак
+    первого сезона лежит под латинским «Angel [S01-05]», до которого «ангел» не достаёт.
+    Прежде отбор упирался в «раздач с сезоном 1 нет»; теперь сезонная строка по оригиналу
+    его добирает - а чужое одноимённое аниме («The Angel Next Door ... S01») в пул не
+    попадает: у него другой оригинал, и фильтр добора его отсекает.
+    """
+    _knows(monkeypatch, {})  # справка молчит - оригинал берётся из выдачи (Angel)
+    client = _FakeProwlarr(
+        {
+            "ангел": [
+                raw("Ангел / Angel [S03] (2001) WEB-DL 1080p", 1),
+                raw("Ангел / Angel [S04] (2003) WEB-DL 1080p", 2),
+            ],
+            "angel s01": [
+                raw("Ангел / Angel [S01-05] (1999) DVDRip | ТВ3", 3, seeders=0),
+                raw("The Angel Next Door Spoils Me Rotten S01 1080p", 4),
+            ],
+        }
+    )
+    plans, said = _search(client, "ангел", monkeypatch)
+
+    assert "Angel S01" in client.asked, "сезонная строка по оригиналу спрошена"
+    packs = [r for p in plans for r in p.picture.releases if r.covers(1)]
+    assert packs, "сезон-пак первого сезона добрался в план"
+    assert all(slugify(r.original or "") == "angel" for r in packs), "чужого аниме в пуле нет"
+    assert "сезона 1 в выдаче не было - добрал по «Angel S01»" in said
+
+
+def test_a_full_season_pool_skips_the_season_string_top_up(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Нужный сезон в выдаче есть - лишнего круга по сезонной строке не бывает."""
+    _knows(monkeypatch, {})
+    client = _FakeProwlarr(
+        {"ангел": [raw("Ангел / Angel [S01] (1999) WEB-DL 1080p", i) for i in range(3)]}
+    )
+    _plans, said = _search(client, "ангел", monkeypatch)
+
+    assert not any(a.startswith("Angel S") for a in client.asked), "сезон есть - добора нет"
+    assert "добрал по" not in said
 
 
 def test_nothing_found_in_russian_is_searched_by_translit(
