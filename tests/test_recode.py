@@ -375,6 +375,48 @@ def test_a_recoded_piece_lands_on_the_same_place_with_the_same_stamps(clip, tmp_
         assert keyed, f"v{number}: первый кадр не опорный - независимость сегмента враньё"
 
 
+@pytest.mark.usefixtures("clip")
+def test_the_fast_preset_really_sends_constrained_baseline(clip, tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """Что уходит на телевизор, читаем из SPS, а не из командной строки.
+
+    Улика: в аргументах стоял ``-profile:v high``, а в потоке был ``profile_idc=66``.
+    У x264 профиль - потолок, а не пол: на ``ultrafast`` (без CABAC и без 8x8dct) он
+    остаётся Constrained Baseline, сколько ни проси High. Приёмник его берёт, поэтому
+    здесь закреплён ФАКТ, а не желание: поднять профиль наружу - это смена потока,
+    и делается она не правкой аргументов, а живой приёмкой на Q70D.
+    """
+    bsfs = subprocess.run(["ffmpeg", "-hide_banner", "-bsfs"], capture_output=True, text=True)
+    if "trace_headers" not in bsfs.stdout:
+        pytest.skip("ffmpeg собран без trace_headers - SPS не разобрать")
+    out = tmp_path / "v0.ts"
+    subprocess.run(
+        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", clip, "-t", "2",
+         *Encode(preset=FULL_PRESET, mbit=2.0).args(_grid(), 0, 1), "-an", str(out)],
+        check=True, capture_output=True,
+    )  # fmt: skip
+    trace = subprocess.run(
+        ["ffmpeg", "-v", "trace", "-i", str(out), "-c", "copy", "-bsf:v", "trace_headers",
+         "-f", "null", "-"],
+        capture_output=True, text=True, check=True,
+    )  # fmt: skip
+    # Строка разбора выглядит как ``... 8  profile_idc  01000010 = 66``: имя поля и
+    # значение после ``=``. Берём первое вхождение каждого - это первый заголовок потока.
+    wanted = ("profile_idc", "entropy_coding_mode_flag", "max_num_ref_frames")
+    fields: dict[str, str] = {}
+    for line in trace.stderr.splitlines():
+        parts = line.split()
+        if len(parts) < 3 or parts[-2] != "=":
+            continue
+        for name in wanted:
+            if name in parts:
+                fields.setdefault(name, parts[-1])
+    got = fields.get("profile_idc")
+    assert got == "66", f"профиль потока сменился: {got}"
+    assert fields.get("entropy_coding_mode_flag") == "0", "включился CABAC - это другой поток"
+    # ffprobe про refs врёт всем файлам (это поле декодера), настоящее число - из SPS.
+    assert fields.get("max_num_ref_frames") == "1", "выросло опорных кадров - вырос и DPB"
+
+
 def test_the_deadline_is_the_packer_not_the_playhead(tmp_path) -> None:  # type: ignore[no-untyped-def]
     """Наружу сегмент выкладывает упаковщик, и он идёт впереди показа на ``burst``.
 
