@@ -51,12 +51,15 @@ if TYPE_CHECKING:
     from torrcast.stream import FilmKeys, Grid
 
 __all__ = [
+    "DEADLINE_MARGIN",
     "FULL_FLOOR",
     "FULL_GAIN",
     "FULL_PRESET",
+    "NEIGHBOUR_TOLL",
     "PRESETS",
     "RECODE_DIR",
     "Encode",
+    "Pace",
     "Recoder",
     "Weights",
     "preset_for",
@@ -73,6 +76,12 @@ RECODE_DIR: Final = "recode"
 #: 4.36×, superfast 2.62×, veryfast 1.54×, faster 1.04×, fast 0.72×, medium 0.55×.
 #: Здесь числа занижены примерно на 10 %: планировать по замеру «в идеальных условиях»
 #: нельзя, рядом работает упаковщик и TorrServer.
+#:
+#: ⚠️ Это не срок, а **только пропорция**. Абсолютные числа зависят от машины, от
+#: материала и от соседей и врут в обе стороны: на другом фильме (1920×804, вход
+#: 9.9 Мбит/с, та же машина) тот же замер даёт ultrafast 8.17×, superfast 4.32×,
+#: veryfast 2.62× — вдвое быстрее таблицы. Срок считает :class:`Pace`: он берёт отсюда
+#: отношение пресетов друг к другу, а масштаб — из ФАКТА последних заходов.
 PRESETS: Final = (("veryfast", 1.40), ("superfast", 2.35), ("ultrafast", 3.90))
 
 #: Пресет сплошного перекода - того, которым идёт ВЕСЬ файл с кодеком не по зубам
@@ -116,6 +125,28 @@ HEAD_NICE: Final = 0
 #: когда до готового перекода осталось четыре секунды, значит выбросить всю работу и
 #: отдать на ТВ копию втрое тяжелее.
 HEAD_LIMIT: Final = 2.0
+
+#: Какая доля срока считается «успеваем» (:func:`preset_for`). Не 1.0 и даже не 0.7:
+#: срок считается по скорости, которая ЗАМЕРЕНА в прошлом, а соседи появляются в
+#: настоящем. Замер разброса: тот же кусок тем же пресетом идёт 2.62× в одиночку и 1.84×
+#: под работающим прогревом — то есть решение, принятое на пустой машине, обесценивается
+#: в 1.43 раза, если сосед проснулся уже после него. Половина срока этот разброс держит
+#: (0.7 — нет: 0.7 × 0.7 = 0.49 от плана, то есть впритык), а стоит она одной ступени
+#: качества на редких кусках. Гейт продукта — ноль подгрузов, а не лучший пресет.
+DEADLINE_MARGIN: Final = 0.5
+
+#: Во сколько раз медленнее идёт живой перекод, пока рядом работает прогрев. Замер на
+#: 4 vCPU, настоящий материал, три пресета подряд: veryfast 2.62 → 1.84×, superfast
+#: 4.32 → 2.94×, ultrafast 8.17 → 5.65×. Потеря одна и та же (30 %) на всех трёх — она
+#: множитель, а не слагаемое, поэтому :class:`Pace` и правит таблицу масштабом.
+#: Отсюда же начальное значение :attr:`Pace.factor`: до первого замера планируем так,
+#: будто сосед уже работает, потому что через 45 с он и правда работает.
+NEIGHBOUR_TOLL: Final = 0.70
+
+#: Сколько последних заходов помнит :class:`Pace`. Планируем по ХУДШЕМУ из них, а не по
+#: среднему: сосед просыпается и засыпает, и среднее по такому ряду - это скорость,
+#: которой не было ни разу.
+PACE_MEMORY: Final = 3
 
 #: Вес паспорта ffprobe в скользящем среднем :meth:`Weights.calibrate`. Паспорт - это
 #: среднее по ВСЕМУ фильму, а один выложенный сегмент - шумный замер: пусть факт правит
@@ -169,9 +200,72 @@ def preset_for(
     подгруза. ``slack <= 0`` (кусок уже играют) — тоже самый быстрый.
     """
     for name, speed in presets:
-        if slack > 0 and seconds / speed <= slack * 0.7:
+        if slack > 0 and seconds / speed <= slack * DEADLINE_MARGIN:
             return name
     return presets[-1][0]
+
+
+@dataclass(slots=True)
+class Pace:
+    """Фактическая скорость перекода на ЭТОЙ машине, этом фильме и при этих соседях.
+
+    Зачем. :data:`PRESETS` — прибитые числа, снятые один раз на разогретом файле без
+    соседей, и срок по ним врёт в обе стороны. Улика, ради которой это написано: журнал
+    показа, где ``veryfast`` шёл 1.00×, 1.15× и 1.30× при табличных 1.40 — то есть
+    арифметика «успею ли к показу» обещала запас, которого не было, и кусок приезжал
+    впритык. Обратный промах не безобиднее: на лёгком материале тот же ``veryfast``
+    идёт 2.62×, и по таблице показ отказывается от качества, которое успевал.
+
+    Что меряется. Не скорость кодека, а **весь путь**: от запуска ffmpeg до готового
+    куска, вместе с подъёмом процесса, чтением исходника из раздачи и выкладкой. Ровно
+    это и стоит между решением «беру пресет получше» и куском на экране; чистая скорость
+    кодека из ``--speed`` этой цены не видит вовсе.
+
+    Как. Один общий масштаб на всю таблицу, а не число на пресет. Так каждый заход
+    уточняет срок для ВСЕХ пресетов, включая те, которыми на этом показе ещё не ходили,
+    а замер соседа говорит, что это честно: прогрев роняет все три пресета одинаково,
+    на 30 % (:data:`NEIGHBOUR_TOLL`). Пропорцию пресетов друг к другу таблица знает
+    заведомо лучше одного шумного замера.
+    """
+
+    #: Скользящее среднее «факт / табличка». До первого замера - :data:`NEIGHBOUR_TOLL`.
+    factor: float = NEIGHBOUR_TOLL
+    #: Последние :data:`PACE_MEMORY` замеров того же отношения.
+    recent: list[float] = field(default_factory=list)
+    #: Сколько заходов легло в замер. ``0`` - планируем по умолчанию, а не по факту.
+    seen: int = 0
+
+    @property
+    def plan(self) -> float:
+        """Масштаб, по которому считается срок: худшее из недавнего, а не среднее."""
+        return min([self.factor, *self.recent])
+
+    def table(self) -> tuple[tuple[str, float], ...]:
+        """:data:`PRESETS`, пересчитанные в скорость, которая тут и правда бывает."""
+        scale = self.plan
+        return tuple((name, speed * scale) for name, speed in PRESETS)
+
+    def speed(self, preset: str) -> float:
+        """Скорость одного пресета по тому же масштабу; неизвестный - самый быстрый."""
+        return dict(self.table()).get(preset, self.table()[-1][1])
+
+    def record(self, preset: str, seconds: float, spent: float) -> float:
+        """Учесть состоявшийся заход: ``seconds`` фильма за ``spent`` секунд стены.
+
+        Возвращает замеренное отношение к таблице - его печатает журнал. Заход, который
+        не дал ни куска (сорвался, брошен перемоткой), сюда не попадает: он мерит не
+        скорость, а помеху.
+        """
+        table = dict(PRESETS).get(preset)
+        if table is None or seconds <= 0 or spent <= 0:
+            return self.plan
+        got = seconds / spent / table
+        # Первый замер кладём целиком: до него масштаба нет, есть умолчание.
+        self.factor = got if self.seen == 0 else (self.factor + got) / 2
+        self.seen += 1
+        self.recent.append(got)
+        del self.recent[:-PACE_MEMORY]
+        return got
 
 
 @dataclass(slots=True)
@@ -325,6 +419,9 @@ class Recoder:
     #: 45 с - с запасом впятеро: самый длинный кусок сетки (20 с фильма) ultrafast'ом
     #: считается 5 с, плюс подъём захода 3 с, плюс доработка чужого захода (до 6 кусков).
     over_wait: float = 45.0
+    #: Фактическая скорость перекода на этом показе (:class:`Pace`). Всё, что считает срок,
+    #: спрашивает её, а не :data:`PRESETS` напрямую.
+    pace: Pace = field(default_factory=Pace)
     log: Any = None
 
     #: Где сейчас показ; обновляет :func:`torrcast.cli._hold`.
@@ -362,6 +459,16 @@ class Recoder:
     thread: Any = None
     packer: Any = None
     lock: Any = field(default_factory=threading.Lock)
+
+    @property
+    def working(self) -> bool:
+        """Идёт ли заход прямо сейчас. По этому и уступает прогрев (:class:`torrcast.warm.Warmer`).
+
+        Замер, ради которого свойство появилось: живой перекод под работающим прогревом
+        теряет 30 % скорости (:data:`NEIGHBOUR_TOLL`), а ``nice`` от этого не спасает -
+        прогрев идёт под ``nice 19`` и всё равно забирает 128 % из 400 %.
+        """
+        return self.job is not None
 
     @property
     def targets(self) -> tuple[int, ...]:
@@ -500,7 +607,8 @@ class Recoder:
             if slot not in set(self.targets):
                 return False
             warm = max(self.startup, self.grace - (now - self.began))
-            return self.grid.span(slot) / PRESETS[-1][1] + warm + self.hold_guard <= left
+            quickest = self.pace.table()[-1][1]
+            return self.grid.span(slot) / quickest + warm + self.hold_guard <= left
         first, last, until, since, speed = job
         if slot < first or now >= until:
             return False
@@ -517,7 +625,8 @@ class Recoder:
         if slot > last + self.run_max or slot not in set(self.targets):
             return False
         rest = sum(self.grid.span(k) for k in range(first, last + 1)) / speed - (now - since)
-        rest += sum(self.grid.span(k) for k in range(last + 1, slot + 1)) / PRESETS[-1][1]
+        quickest = self.pace.table()[-1][1]
+        rest += sum(self.grid.span(k) for k in range(last + 1, slot + 1)) / quickest
         return max(0.0, rest) + self.hold_guard <= left
 
     def _hold_bulky(self, slot: int, now: float) -> bool:
@@ -726,7 +835,7 @@ class Recoder:
         here = max(self.grid.slot_at(self.played), self.edge + 1)
         horizon = self.played + self.ahead
         heavy = set(self.targets)
-        quickest = PRESETS[-1][1]
+        quickest = self.pace.table()[-1][1]
         first = None
         for slot in sorted(heavy):
             if slot < here or self.grid.start(slot) > horizon:
@@ -786,8 +895,9 @@ class Recoder:
         seconds = sum(self.grid.span(s) for s in range(first, last + 1))
         # Срок - у ПОСЛЕДНЕГО куска захода: до него кодировщик доберётся позже всех, и
         # именно он решает, каким пресетом идти всему заходу.
-        preset = preset_for(seconds, self.slack(last))
-        quickest = PRESETS[-1][1]
+        table = self.pace.table()
+        preset = preset_for(seconds, self.slack(last), table)
+        quickest = table[-1][1]
         # Выкладка стоит на куске этого захода (:meth:`_hold_bulky`) - качество тут больше
         # не торгуется: пока мы выбираем пресет получше, приёмник ждёт наш кусок и никакого
         # другого. Срок у такого захода нулевой по определению.
@@ -821,7 +931,7 @@ class Recoder:
         # Срок, до которого упаковщику имеет смысл придерживать копии этого захода:
         # вдвое больше ожидаемого да ещё десять секунд сверху. Просрочен - копия уходит
         # как есть, потому что подгруз хуже тяжёлого куска.
-        speed = dict(PRESETS).get(preset, PRESETS[-1][1])
+        speed = self.pace.speed(preset)
         with self.lock:
             # ``last`` тут не украшение: без него огрызок за ``-to`` (секунда фильма
             # вместо десяти) лёг бы в каталог перекода как готовый кусок и уехал бы на ТВ
@@ -873,9 +983,23 @@ class Recoder:
         self.seconds += sum(self.grid.span(s) for s in got)
         spent = time.monotonic() - began
         if got:
+            # Замер сроку, а не отчёту: столько фильма за столько стены вышло ЗДЕСЬ - с
+            # подъёмом ffmpeg, чтением из раздачи и соседями (:class:`Pace`).
+            made = sum(self.grid.span(s) for s in got)
+            ratio = self.pace.record(preset, made, spent)
+            mark(
+                "темп перекода",
+                пресет=preset,
+                секунд=round(made, 1),
+                стена=round(spent, 1),
+                факт=round(made / spent, 2),
+                масштаб=round(ratio, 2),
+                план=round(self.pace.plan, 2),
+            )
             self._say(
                 f"перекодировал v{first}...v{first + len(got) - 1} "
-                f"({seconds:.0f} с фильма за {spent:.0f} с, {preset})"
+                f"({seconds:.0f} с фильма за {spent:.0f} с, {preset}, "
+                f"{made / spent:.2f}x - план {self.pace.plan:.2f} от таблицы)"
             )
         else:
             self._say(f"перекодирование v{first}...v{last} не дало ни куска за {spent:.0f} с")

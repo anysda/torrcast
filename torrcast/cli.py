@@ -2324,6 +2324,7 @@ def _warmer(
         began_at=grid.slot_at(start),
         rate=config.warm_rate,
         follow=follow,
+        rival=recoder,
         log=lambda text: print(text, flush=True),
     )
 

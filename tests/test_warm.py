@@ -360,3 +360,85 @@ def test_the_show_reserve_reaches_both_warmers(tmp_path: Path) -> None:
     warmer.feed(12.0)
     assert (warmer.slack, nxt.slack) == (12.0, 12.0), "запас показа не дошёл до следующей серии"
     assert "следующая" in warmer.line() or not warmer.done, "строка прогрева врёт о цепочке"
+
+
+# ------------------------------------------------- прогрев уступает живому перекоду
+
+
+class _Rival:
+    """Кодировщик живых кусков в двух состояниях: работает заход или нет."""
+
+    def __init__(self, working: bool = False) -> None:
+        self.working = working
+
+
+def test_warming_freezes_while_the_live_recoder_has_a_run_in_flight(tmp_path: Path) -> None:
+    """Замер: живой перекод под работающим прогревом теряет 30 % скорости (2.62x против
+    1.84x), и ``nice 19`` этого не лечит - прогрев всё равно держит 128 % из 400 %.
+    Процессор возвращает только пауза, поэтому заход кодировщика замораживает прогрев
+    независимо от запаса показа - даже когда запас прекрасен.
+    """
+    import signal
+
+    warmer = _warmer(tmp_path)
+    packer = _FakePacker()
+    warmer.rival = _Rival(working=True)
+    warmer.slack = GUARD_HIGH + 100.0  # запас отличный: по старому правилу греть можно
+
+    warmer._throttle(packer)
+    assert packer.proc.signals == [signal.SIGSTOP], "прогрев не уступил живому перекоду"
+    assert warmer.idle is True, "прогрев не отметил, что замер"
+    assert "уступил перекоду" in warmer.line(), "строка прогрева не называет причину паузы"
+
+    warmer.rival.working = False
+    warmer._throttle(packer)
+    assert packer.proc.signals[-1] == signal.SIGCONT, "заход кончился, а прогрев не ожил"
+
+
+def test_a_freeze_for_the_recoder_outlives_a_healthy_reserve(tmp_path: Path) -> None:
+    """Пока заход идёт, ничто не оживляет прогрев: ни запас за GUARD_HIGH, ни выдержка
+    здоровья. Иначе первый же опрос вернул бы соседа кодировщику обратно."""
+    import signal
+
+    warmer = _warmer(tmp_path)
+    packer = _FakePacker()
+    warmer.rival = _Rival(working=True)
+    warmer.slack = GUARD_HIGH + 100.0
+    warmer.healthy_since = time.monotonic() - STARVE_GRACE - 100.0
+
+    warmer._throttle(packer)
+    warmer._throttle(packer)
+    assert signal.SIGCONT not in packer.proc.signals, "прогрев ожил посреди чужого захода"
+
+
+def test_warming_without_a_recoder_behaves_exactly_as_before(tmp_path: Path) -> None:
+    """Фильм без тяжёлых кусков живёт без кодировщика вовсе, и правило про соседа не имеет
+    права ни замораживать такой прогрев, ни держать его замершим."""
+    import signal
+
+    warmer = _warmer(tmp_path)
+    packer = _FakePacker()
+    warmer.slack = GUARD_HIGH + 1.0
+
+    warmer._throttle(packer)
+    assert packer.proc.signals == [], "прогрев замер без всякой причины"
+
+    warmer.idle = True
+    warmer._throttle(packer)
+    assert packer.proc.signals == [signal.SIGCONT], "прогрев не ожил при отличном запасе"
+
+
+def test_the_recoder_reaches_the_next_episode_warmer_too(tmp_path: Path) -> None:
+    """Кодировщик у показа один, и уступать ему обязана вся цепочка прогрева: прогрев
+    следующей серии жжёт тот же процессор, что и прогрев этой."""
+    grid = _grid()
+    rival = _Rival()
+    nxt = Warmer(source="s2", audio=0, grid=grid, vault=_vault(tmp_path, key="следующая"))
+    warmer = Warmer(source="s1", audio=0, grid=grid, vault=_vault(tmp_path, key="эта"), rival=rival)
+    warmer.follow = lambda: nxt
+    for slot in range(grid.count):
+        _lay(warmer.vault, slot)
+
+    warmer._chain()
+    nxt.stop()
+    assert nxt.rival is rival, "прогрев следующей серии не знает про кодировщика"

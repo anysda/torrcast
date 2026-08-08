@@ -3,10 +3,21 @@
 from __future__ import annotations
 
 import subprocess
+from pathlib import Path
 
 import pytest
 
-from torrcast.recode import FULL_PRESET, PRESETS, Encode, Recoder, Weights, preset_for
+from torrcast.recode import (
+    DEADLINE_MARGIN,
+    FULL_PRESET,
+    NEIGHBOUR_TOLL,
+    PRESETS,
+    Encode,
+    Pace,
+    Recoder,
+    Weights,
+    preset_for,
+)
 from torrcast.stream import (
     FilmKeys,
     Grid,
@@ -101,7 +112,7 @@ def test_a_piece_that_is_almost_here_gets_the_fastest_preset() -> None:
 def test_the_preset_ladder_is_walked_from_slow_to_fast() -> None:
     """Между «успевает медленный» и «не успевает никто» стоит средний, а не пропасть."""
     seconds = 60.0
-    slack = seconds / PRESETS[1][1] / 0.7 + 0.1
+    slack = seconds / PRESETS[1][1] / DEADLINE_MARGIN + 0.1
     assert preset_for(seconds, slack) == PRESETS[1][0]
 
 
@@ -1336,3 +1347,101 @@ def test_the_grid_weighs_a_fully_recoded_file_by_our_bitrate_not_the_source() ->
     assert max(naive.span(k) for k in range(naive.count)) > 13.0, "карта разрешает длинные"
     worst = max(fixed.span(k) * 9.4e6 / 8 for k in range(fixed.count))
     assert worst <= MAX_SEGMENT_BYTES, "перекодированный кусок обязан влезать в потолок"
+
+
+# ------------------------------------------------------------- фактическая скорость
+
+
+def test_the_deadline_keeps_half_the_slack_in_reserve() -> None:
+    """Кусок, который по табличке ложится в срок «впритык», пресетом получше не идёт.
+
+    Улика, ради которой запас поднят: в журнале показа ``veryfast`` шёл 1.00-1.30x при
+    табличных 1.40, и кусок, посчитанный успевающим, приезжал поздно. Замер разброса -
+    тот же кусок тем же пресетом идёт 2.62x в одиночку и 1.84x рядом с прогревом: решение,
+    принятое на пустой машине, обесценивается в 1.43 раза, если сосед проснулся после него.
+    """
+    assert DEADLINE_MARGIN <= 0.5, "запас по сроку меньше половины - соседа он не держит"
+    seconds = 60.0
+    table = ((PRESETS[0][0], 1.0), (PRESETS[-1][0], 10.0))
+    # Ровно столько, сколько кодировать: старая арифметика (0.7 срока) сказала бы «успею».
+    assert preset_for(seconds, slack=seconds * 0.9, presets=table) == PRESETS[-1][0]
+    assert preset_for(seconds, slack=seconds * 2.5, presets=table) == PRESETS[0][0]
+
+
+def test_before_the_first_run_the_pace_plans_as_if_a_neighbour_is_working() -> None:
+    """Прогрев поднимается через 45 с после старта показа и живёт весь фильм, так что
+    «соседа нет» - это не про показ, а про стенд, где снимали таблицу."""
+    pace = Pace()
+    assert pace.seen == 0
+    assert pace.plan == NEIGHBOUR_TOLL < 1.0, "первый заход планируется по чистой табличке"
+    assert pace.table()[0][1] == pytest.approx(PRESETS[0][1] * NEIGHBOUR_TOLL)
+    assert pace.speed(PRESETS[1][0]) == pytest.approx(PRESETS[1][1] * NEIGHBOUR_TOLL)
+    assert pace.speed("такого пресета нет") == pace.table()[-1][1]
+
+
+def test_a_slow_run_drags_the_whole_ladder_down_not_just_its_own_preset() -> None:
+    """Замер соседа: прогрев роняет veryfast, superfast и ultrafast на одни и те же 30 %.
+    Потеря множительная, поэтому один заход уточняет срок для ВСЕХ пресетов - в том числе
+    тех, которыми на этом показе ещё не ходили."""
+    pace = Pace()
+    # Заход средним пресетом вышел вдвое медленнее таблички.
+    got = pace.record(PRESETS[1][0], seconds=100.0, spent=100.0 / (PRESETS[1][1] / 2))
+    assert got == pytest.approx(0.5)
+    assert pace.plan == pytest.approx(0.5), "первый замер не лёг в план целиком"
+    for (name, table), (same, planned) in zip(PRESETS, pace.table(), strict=True):
+        assert name == same
+        assert planned == pytest.approx(table * 0.5)
+
+
+def test_a_fast_machine_earns_back_the_quality_the_table_forbids() -> None:
+    """Промах таблицы в другую сторону не безобиднее: на лёгком материале тот же veryfast
+    идёт 2.62x, и по прибитым числам показ отказывался бы от качества, которое успевает."""
+    pace = Pace()
+    seconds, slack = 60.0, 60.0
+    assert preset_for(seconds, slack, pace.table()) == PRESETS[-1][0]
+    for _ in range(3):
+        pace.record(PRESETS[-1][0], seconds=100.0, spent=100.0 / (PRESETS[-1][1] * 2.0))
+    assert pace.plan > 1.0
+    assert preset_for(seconds, slack, pace.table()) == PRESETS[0][0]
+
+
+def test_the_plan_takes_the_worst_recent_run_not_the_average() -> None:
+    """Сосед просыпается и засыпает, и среднее по такому ряду - скорость, которой не было
+    ни разу. Планируем по худшему из недавних: промах в эту сторону стоит подгруза."""
+    pace = Pace()
+    pace.record(PRESETS[0][0], seconds=100.0, spent=100.0 / (PRESETS[0][1] * 2.0))
+    pace.record(PRESETS[0][0], seconds=100.0, spent=100.0 / (PRESETS[0][1] * 0.5))
+    assert pace.factor > 0.5, "среднее не поднялось - проверять нечего"
+    assert pace.plan == pytest.approx(0.5), "план взял среднее, а не худший заход"
+
+
+def test_a_run_that_gave_nothing_is_not_a_speed_measurement() -> None:
+    """Заход, брошенный перемоткой или сорвавшийся, мерит помеху, а не скорость."""
+    pace = Pace()
+    for bad in ((0.0, 10.0), (10.0, 0.0), (-1.0, 10.0)):
+        assert pace.record(PRESETS[0][0], *bad) == NEIGHBOUR_TOLL
+    assert pace.record("не наш пресет", 10.0, 1.0) == NEIGHBOUR_TOLL
+    assert pace.seen == 0, "негодный заход попал в замер"
+
+
+def test_the_recoder_plans_by_the_measured_pace_not_by_the_table(tmp_path: Path) -> None:
+    """Сквозь кодировщик: тот же кусок, тот же срок, а пресет разный - потому что на этой
+    машине с этими соседями замерена другая скорость."""
+    grid = _grid()
+    keys = _keys()
+    weights = Weights.of(keys, grid)
+    assert weights is not None
+    recoder = Recoder(
+        source="s",
+        audio=0,
+        grid=grid,
+        spare=tmp_path,
+        weights=weights,
+    )
+    idle = recoder.working
+    recoder.job = (0, 0, 0.0, 0.0, 1.0)
+    assert (idle, recoder.working) == (False, True), "прогреву не по чему уступать кодировщику"
+
+    quick = recoder.pace.table()[-1][1]
+    recoder.pace.record(PRESETS[-1][0], seconds=100.0, spent=100.0 / (PRESETS[-1][1] / 4))
+    assert recoder.pace.table()[-1][1] < quick, "замер не дошёл до кодировщика"
