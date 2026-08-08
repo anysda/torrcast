@@ -904,6 +904,10 @@ JSON
 }
 
 # --- 7. Юниты и https --------------------------------------------------------
+# Локаль службам задаём явно: systemd не наследует ни /etc/default/locale, ни
+# /etc/environment, поэтому без Environment= процесс живёт в POSIX-локали - кириллица
+# в его журнале и в именах файлов приезжает кракозябрами. Значение то же, которое
+# выбрала фаза `locale`.
 write_unit() {  # $1 имя, $2 описание, $3 команда
     local path="/etc/systemd/system/$1.service"
     local body
@@ -915,6 +919,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
+Environment=LANG=$LOCALE
 ExecStart=$3
 Restart=on-failure
 RestartSec=5
