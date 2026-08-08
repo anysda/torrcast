@@ -99,9 +99,13 @@ INDEXERS=(
 PHASES="${TORRCAST_PHASES:-locale packages torrcast torrserver sources prowlarr indexers config hls facts motd}"
 
 #: Локаль. Без UTF-8 в системе консоль крошит кириллицу: русское название приезжает
-#: в `cast` битым ещё до разбора аргументов. C.UTF-8 берём целью потому, что она есть
-#: в любой современной glibc и не тянет за собой переводы; своя задаётся TORRCAST_LOCALE.
-LOCALE="${TORRCAST_LOCALE:-C.UTF-8}"
+#: в `cast` битым ещё до разбора аргументов. Целью берём ru_RU.UTF-8: в C.UTF-8 строки
+#: сравниваются побайтно, и русские названия в списках выстраиваются не по алфавиту
+#: («Ёлки» после «Яги»). Своя задаётся TORRCAST_LOCALE.
+LOCALE="${TORRCAST_LOCALE:-ru_RU.UTF-8}"
+#: Куда честно отступаем, если цель не собралась: C.UTF-8 есть в любой современной glibc
+#: и не тянет за собой переводы. Сортировка станет побайтной, кириллица останется целой.
+LOCALE_FALLBACK="${TORRCAST_LOCALE_FALLBACK:-C.UTF-8}"
 
 #: Приветствие при входе по ssh. Печатает его pam_motd, поэтому файл кладём целиком.
 MOTD_FILE="${TORRCAST_MOTD:-/etc/motd}"
@@ -256,27 +260,42 @@ locale_present() {  # $1 - имя локали
     return 1
 }
 
+# Собрать локаль, если её ещё нет. Возвращает 0, только когда после всех попыток она
+# реально есть в системе: собрать может быть нечем (нет ни locale-gen, ни localedef -
+# так бывает на урезанных образах), и это штатная ветка, а не ошибка.
+locale_build() {  # $1 - имя локали
+    locale_present "$1" && return 0
+    if ! command -v locale-gen >/dev/null 2>&1 && ! command -v localedef >/dev/null 2>&1; then
+        apt-get update -qq
+        DEBIAN_FRONTEND=noninteractive apt-get install -y -qq locales
+    fi
+    if ! locale_present "$1" && [ -f /etc/locale.gen ] \
+        && command -v locale-gen >/dev/null 2>&1; then
+        info "собираю $1 через locale-gen"
+        grep -qE "^[[:space:]]*$1([[:space:]]|\$)" /etc/locale.gen \
+            || printf '%s %s\n' "$1" "${1#*.}" >> /etc/locale.gen
+        locale-gen >/dev/null 2>&1 || true
+    fi
+    if ! locale_present "$1" && command -v localedef >/dev/null 2>&1; then
+        info "собираю $1 через localedef"
+        localedef -i "${1%%.*}" -f "${1#*.}" "$1" >/dev/null 2>&1 || true
+    fi
+    locale_present "$1"
+}
+
 # Приводим систему к UTF-8. Идемпотентно: собранную локаль не пересобираем, готовую
 # строку в конфигах не переписываем.
 setup_locale() {
     log "локаль UTF-8 ($LOCALE)"
-    if ! locale_present "$LOCALE" && ! command -v locale-gen >/dev/null 2>&1 \
-        && ! command -v localedef >/dev/null 2>&1; then
-        apt-get update -qq
-        DEBIAN_FRONTEND=noninteractive apt-get install -y -qq locales
+    locale_build "$LOCALE" || true
+    # Цель не вышла - отступаем на C.UTF-8, и вслух: русская сортировка пропадёт, но
+    # показывать это как успех нельзя.
+    if ! locale_present "$LOCALE" && [ "$LOCALE" != "$LOCALE_FALLBACK" ]; then
+        info "$LOCALE в этой системе не собралась - беру $LOCALE_FALLBACK, сортировка будет побайтной"
+        LOCALE="$LOCALE_FALLBACK"
+        locale_build "$LOCALE" || true
     fi
-    if ! locale_present "$LOCALE" && [ -f /etc/locale.gen ] \
-        && command -v locale-gen >/dev/null 2>&1; then
-        info "собираю $LOCALE через locale-gen"
-        grep -qE "^[[:space:]]*$LOCALE([[:space:]]|\$)" /etc/locale.gen \
-            || printf '%s %s\n' "$LOCALE" "${LOCALE#*.}" >> /etc/locale.gen
-        locale-gen >/dev/null 2>&1 || true
-    fi
-    if ! locale_present "$LOCALE" && command -v localedef >/dev/null 2>&1; then
-        info "собираю $LOCALE через localedef"
-        localedef -i "${LOCALE%%.*}" -f "${LOCALE#*.}" "$LOCALE" >/dev/null 2>&1 || true
-    fi
-    # Собрать не вышло - берём любую готовую UTF-8: кириллица в консоли важнее, чем
+    # Не вышло и с ней - берём любую готовую UTF-8: кириллица в консоли важнее, чем
     # конкретное имя локали.
     if ! locale_present "$LOCALE"; then
         local ready; ready="$(locale -a 2>/dev/null | grep -i -m1 'utf-\?8$' || true)"
