@@ -535,3 +535,52 @@ def test_the_same_name_is_not_asked_a_second_time(monkeypatch: pytest.MonkeyPatc
     assert client.asked == ["cars"]
     # Пул тощий - значит добор рассматривался и был отменён именно как бессмысленный.
     assert max(len(p.picture.releases) for p in plans) < THIN_POOL
+
+
+def test_latin_query_is_topped_up_by_the_russian_title_from_the_reference(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Спросили латиницей, а живут раздачи под русским именем - добор идёт в другую сторону.
+
+    ``cast cars`` на живом каталоге приносил одну мёртвую англоязычную раздачу: «Тачки»
+    индексер по слову ``cars`` не отдаёт вовсе. Русское имя картины знает справка - им и
+    добираем, ровно как латинским именем добираем русский запрос.
+    """
+    client = _FakeProwlarr(
+        {
+            "cars": [raw("Cars (2006) 1080p WEB-DL", 1, seeders=3)],
+            "тачки": [raw(f"Тачки / Cars (2006) BDRip {i}", 10 + i) for i in range(4)]
+            + [raw(f"Тачки 3 / Cars 3 (2017) BDRip {i}", 20 + i) for i in range(14)],
+        }
+    )
+    _knows(monkeypatch, {"cars": Origin(title="Cars", year=2006, name="Тачки")})
+
+    plans, said = _search(client, "cars", monkeypatch)
+
+    assert client.asked == ["cars", "Тачки"]
+    # Картина одна на оба имени: русские раздачи в пуле, а не в соседнем пункте меню.
+    cars = next(p for p in plans if p.picture.year == 2006)
+    assert cars.picture.title == "Тачки"
+    assert len(cars.picture.releases) == 5
+    assert "добрал по «Тачки»" in said
+
+
+def test_the_biggest_part_of_a_franchise_is_not_a_swapped_picture(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Добор по имени от справки приносит франшизу целиком, и вожаком в ней становится
+    самая раздаваемая часть. Это не подмена: картина нужного года на месте, и гейт её видит.
+    """
+    client = _FakeProwlarr(
+        {
+            "cars": [raw("Cars (2006) 1080p WEB-DL", 1, seeders=3)],
+            "тачки": [raw(f"Тачки 3 / Cars 3 (2017) BDRip {i}", 20 + i) for i in range(14)]
+            + [raw(f"Тачки / Cars (2006) BDRip {i}", 10 + i) for i in range(4)],
+        }
+    )
+    _knows(monkeypatch, {"cars": Origin(title="Cars", year=2006, name="Тачки")})
+
+    plans, said = _search(client, "cars", monkeypatch)
+
+    assert [p.picture.year for p in plans] == [2006, 2017]
+    assert "приехала другая картина" not in said

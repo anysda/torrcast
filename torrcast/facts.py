@@ -111,9 +111,10 @@ _YEAR_RE: Final = re.compile(r"\b(1[89]\d{2}|20\d{2})\s+года")
 _CINEMA_RE: Final = re.compile(r"фильм|сериал|кинокартин|аниме|франшиз", re.IGNORECASE)
 #: Кириллица в заголовке: по ней видно, годится ли он сам как оригинальное название.
 _CYRILLIC: Final = re.compile(r"[а-яё]", re.IGNORECASE)
-#: Уточнение в конце заголовка английской статьи: «Wednesday (TV series)», «Cars (film)».
-#: Индексерам оно ни к чему - раздачу подписывают именем без скобки.
-_ENWIKI_TAIL_RE: Final = re.compile(r"\s*\([^)]*\)\s*$")
+#: Уточнение в конце заголовка статьи: «Wednesday (TV series)», «Восхождение (фильм, 1976)».
+#: Им Википедия разводит одноимённое, а индексерам оно ни к чему - раздачу подписывают
+#: именем без скобки, и именно имя мы у справки и берём.
+_TAIL_RE: Final = re.compile(r"\s*\([^)]*\)\s*$")
 #: Сколько символов статьи просим у Википедии. Раньше просили две фразы (``exsentences``),
 #: но фразы там режет тот же наивный счёт точек, от которого мы уходим: у «Дюны» ответ
 #: приезжал обрубком ««Дюна» (англ. Dune), в титрах «Дюна: Часть первая» (англ.» — и
@@ -259,13 +260,18 @@ class Origin:
     нет названия латиницей (советское и российское кино), а не «мы не нашли»: добирать
     латиницей такую картину нечем и не нужно. Пустой ``year`` — статью опознать не
     удалось; тогда гейт добора сверяет годы по самой выдаче, как умеет.
+
+    ``name`` - как ту же картину зовут по-русски (заголовок русской статьи). Нужен
+    зеркальному случаю: спросили латиницей, а половина каталога подписана по-русски
+    («Cars» - одна мёртвая раздача при живых «Тачках»), и добирать надо русским именем.
     """
 
     title: str = ""
     year: int | None = None
+    name: str = ""
 
     def __bool__(self) -> bool:
-        return bool(self.title or self.year)
+        return bool(self.title or self.year or self.name)
 
 
 def origin(title: str, series: bool = False, budget: float = FACTS_BUDGET) -> Origin:
@@ -343,6 +349,12 @@ def read_origin(pages: list[Any], title: str, trusted: bool = False) -> Origin:
     Название латиницей ищется по убыванию точности: скобка первой фразы («англ. …»),
     затем заголовок английской статьи, затем сам заголовок, если он и так на латинице
     (франшиза «Kingsman» подписана именно так — и именно так её ищут индексеры).
+
+    ⚠️ Спросили ЛАТИНИЦЕЙ - :func:`akin` бессильна: заголовок русской статьи про «Тачки»
+    с запросом ``cars`` не сверить ничем. Тождество тогда доказывает сам оригинал: статья
+    «Тачки» открывается скобкой «англ. Cars», и это ровно то имя, которое спросили. Точное
+    равенство обязательно - поиск Википедии по слову ``cars`` первой приносит «Тачки 4»
+    («англ. Cars 4»), и на вхождении подстрокой человек получил бы не ту картину.
     """
     for page in pages:
         if page is None:
@@ -351,18 +363,28 @@ def read_origin(pages: list[Any], title: str, trusted: bool = False) -> Origin:
         extract = str(page.get("extract") or "")
         if not _CINEMA_RE.search(f"{heading} {extract}"):
             continue
-        if not trusted and not akin(title, heading):
-            continue
         seen = _YEAR_RE.search(extract)
         latin = (
             latin_title(extract)
             or english_title(page)
             or ("" if _CYRILLIC.search(heading) else heading)
         )
-        found = Origin(title=latin, year=int(seen.group(1)) if seen else None)
+        if not trusted and not akin(title, heading) and not _same_latin(title, latin):
+            continue
+        found = Origin(
+            title=latin,
+            year=int(seen.group(1)) if seen else None,
+            name=_TAIL_RE.sub("", heading) if _CYRILLIC.search(heading) else "",
+        )
         if found:
             return found
     return Origin()
+
+
+def _same_latin(title: str, latin: str) -> bool:
+    """Спросили латиницей, и статья назвала ровно это же имя оригиналом - та самая картина."""
+    wanted = slugify(title)
+    return bool(wanted) and not _CYRILLIC.search(title) and slugify(latin) == wanted
 
 
 def english_title(page: Any) -> str:
@@ -376,7 +398,7 @@ def english_title(page: Any) -> str:
     """
     links = page.get("langlinks") or [] if isinstance(page, dict) else []
     name = str(links[0].get("title") or "") if links else ""
-    return _ENWIKI_TAIL_RE.sub("", name).strip()
+    return _TAIL_RE.sub("", name).strip()
 
 
 def akin(title: str, heading: str) -> bool:
@@ -789,12 +811,20 @@ def _cached_origin(title: str, series: bool) -> Origin | None:
     if not isinstance(row, dict):
         return None
     shown = row.get("year")
-    return Origin(title=str(row.get("title", "")), year=shown if isinstance(shown, int) else None)
+    return Origin(
+        title=str(row.get("title", "")),
+        year=shown if isinstance(shown, int) else None,
+        name=str(row.get("name", "")),
+    )
 
 
 def _remember_origin(title: str, series: bool, found: Origin) -> None:
     raw = _read_cache()
-    raw[_origin_key(title, series)] = {"title": found.title, "year": found.year}
+    raw[_origin_key(title, series)] = {
+        "title": found.title,
+        "year": found.year,
+        "name": found.name,
+    }
     _write_cache(raw)
 
 

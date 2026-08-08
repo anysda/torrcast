@@ -616,3 +616,127 @@ def test_an_explicit_first_part_leaves_no_free_slot_for_a_nameless_one() -> None
 
     assert [p.year for p in ordered] == [1984, 2024, 2021]
     assert outside_numbering(whole) == {ordered[-1].key}
+
+
+def test_latin_and_russian_names_of_one_picture_are_one_picture() -> None:
+    """«Врата Штейна» (русская озвучка, 2011) и ``Steins;Gate`` (года в именах нет) - одна
+    картина: имена сведены оригиналом из самой выдачи, а безымянный год спорить не может.
+
+    Пока их было две, запрос латиницей русскую озвучку не видел в принципе: пул латиницей
+    богатый, второго захода не будет, а склеивать было нечем.
+    """
+    releases = [
+        _release("Врата Штейна", 2011, original="Steins;Gate", seeders=86),
+        _release("Steins;Gate", None, seeders=179),
+        _release("Steins;Gate", None, seeders=140),
+    ]
+
+    pictures = cluster(releases)
+
+    assert len(pictures) == 1
+    assert (pictures[0].title, pictures[0].year) == ("Врата Штейна", 2011)
+    assert len(pictures[0].releases) == 3
+    assert pictures[0].also == "Steins;Gate"
+    assert pick_franchise("steins gate", pictures) == pictures
+
+
+def test_one_year_apart_is_the_same_picture() -> None:
+    """Год производства и год проката каталог путает постоянно: 1966 и 1967 у «Кавказской
+    пленницы» - одна и та же картина, а не две хилые.
+    """
+    releases = [
+        _release("Кавказская пленница, или Новые приключения Шурика", 1966, seeders=14),
+        _release("Кавказская пленница, или Новые приключения Шурика", 1967, seeders=4),
+    ]
+
+    pictures = cluster(releases)
+
+    assert len(pictures) == 1
+    assert len(pictures[0].releases) == 2
+    assert pictures[0].also == ""  # имя одно, говорить не о чем
+
+
+def test_remake_is_not_glued_to_the_original() -> None:
+    """Ремейк носит имя оригинала, и склеить их значило бы молча подсунуть чужой фильм."""
+    releases = [
+        _release("Психо", 1960, original="Psycho", seeders=40),
+        _release("Психо", 1998, original="Psycho", seeders=5),
+    ]
+
+    pictures = cluster(releases)
+
+    assert [(p.title, p.year) for p in pictures] == [("Психо", 1960), ("Психо", 1998)]
+
+
+def test_picture_without_a_year_stays_alone_between_two_namesakes() -> None:
+    """Под одним именем две картины разных лет - безымянная не достаётся ни одной из них:
+    выбирать наугад между оригиналом и ремейком нельзя.
+    """
+    releases = [
+        _release("Психо", 1960, original="Psycho", seeders=40),
+        _release("Психо", 1998, original="Psycho", seeders=5),
+        _release("Psycho", None, seeders=12),
+    ]
+
+    pictures = cluster(releases)
+
+    assert [(p.title, p.year, len(p.releases)) for p in pictures] == [
+        ("Психо", 1960, 1),
+        ("Психо", 1998, 1),
+        ("Psycho", None, 1),
+    ]
+
+
+def test_glue_keeps_parts_of_a_franchise_apart() -> None:
+    """Склейка сверяет ПОЛНОЕ имя, а не франшизу: «Тачки 2» и «Тачки 3» - разные картины."""
+    releases = [
+        _release("Тачки 2", 2011, original="Cars 2", seeders=126),
+        _release("Cars 3", None, seeders=30),
+        _release("Тачки 3", 2017, original="Cars 3", seeders=121),
+    ]
+
+    pictures = cluster(releases)
+
+    assert [(p.title, p.year, len(p.releases)) for p in pictures] == [
+        ("Тачки 2", 2011, 1),
+        ("Тачки 3", 2017, 2),
+    ]
+
+
+def test_series_and_movie_of_the_same_name_are_not_glued() -> None:
+    """У аниме сериал и полнометражка подписаны одинаково, а картины это разные."""
+    series = Release(
+        raw_name="Steins;Gate (2011)",
+        title="Steins;Gate",
+        year=None,
+        quality="1080p",
+        codec="H.264",
+        seeders=179,
+        seasons=(1,),
+        kind="tv",
+    )
+    movie = _release("Врата Штейна", 2011, original="Steins;Gate", seeders=19)
+
+    pictures = cluster([series, movie])
+
+    assert {p.kind for p in pictures} == {"tv", "movie"}
+    assert len(pictures) == 2
+
+
+def test_short_name_finds_the_classic_not_the_remake() -> None:
+    """«кавказская пленница» - это фильм Гайдая, а ремейк 2014 года стоит рядом, а не вместо.
+
+    Подзаголовок советское кино вводит словом «или», и без этого разреза короткий запрос
+    точно попадал в ключ ремейка: 22 раздачи классики лежали в той же выдаче незамеченными.
+    """
+    releases = [
+        _release("Кавказская пленница, или Новые приключения Шурика", 1967, seeders=14),
+        _release("Кавказская пленница!", 2014, seeders=1),
+    ]
+
+    found = pick_franchise("кавказская пленница", cluster(releases))
+
+    assert [(p.title, p.year) for p in found] == [
+        ("Кавказская пленница, или Новые приключения Шурика", 1967),
+        ("Кавказская пленница!", 2014),
+    ]

@@ -826,8 +826,13 @@ def _search(config: Config, args: Args, progress: Progress) -> list[_Plan]:
         raise NotFoundError(f"по запросу «{name}» ничего не разобралось")
     if not found:
         raise NotFoundError(_nothing(name, index, pictures))
-    if other := other_words(name, _leading(found)):
+    lead = _leading(found)
+    if other := other_words(name, lead):
         progress.note(f"«{name}» - в каталоге это «{other}»")
+    if lead is not None and lead.also:
+        # Склейка картин (:func:`~torrcast.parse.glue`) - решение автоматическое, и молчать
+        # о нём нельзя: человек спросил одно имя, а в меню и в отборе теперь оба.
+        progress.note(f"«{lead.also}» и «{lead.title}» - одна картина, раздач {len(lead.releases)}")
     progress.phase("")
     # Номер пункта меню человек читает как номер части и им же отвечает: «Тачки 2» обязаны
     # стоять вторыми, а безномерные - после линейки (:func:`~torrcast.parse.menu_order`).
@@ -974,8 +979,8 @@ def _second_language(
         # просил «тачки 2» - картину 2011-го. Гейт читал это расхождение как подмену и
         # выбрасывал честную выдачу; на живом стенде «тачки 2» так и не находились вовсе.
         # Название латиницей остаётся: номер части у него всё равно отрезан, и оно верное.
-        about = Origin(title=about.title)
-    alt = alt_query(name, pool, about.title)
+        about = Origin(title=about.title, name=about.name)
+    alt = alt_query(name, pool, about.title, about.name)
     # Тем же именем второй раз ходить незачем: на «cast cars» оригинал из выдачи - «Cars»,
     # и это ещё один полный круг по всем индексерам (на живом стенде - 102 секунды) ради
     # той же самой выдачи. Регистр и разделители имя не меняют, поэтому сверяем по слагу.
@@ -1005,8 +1010,12 @@ def _second_language(
         return _as_is(raw, found, about, progress)
     # Транслит - это сами слова запроса, чужого фильма он принести не может; оригинал из
     # справки отвечает про ту самую картину. А вот оригинал из выдачи ничем не подтверждён.
-    proven = bool(about.title) or alt == transliterate(name)
-    if not same_picture(lead, _leading(wider), about, proven):
+    proven = bool(about.title) or alt == about.name or alt == transliterate(name)
+    # Имя добора от справки - она отвечает про ТУ САМУЮ картину, и спор идёт лишь о том,
+    # доехала ли картина нужного года. Имя из выдачи ничем не подтверждено - там гейт строг
+    # и сверяет вожака: именно он станет ответом.
+    after = _twin(wider, about, lead) if proven else _leading(wider)
+    if not same_picture(lead, after, about, proven):
         progress.note(f"по «{alt}» приехала другая картина - остаюсь на выдаче по «{name}»")
         return _as_is(raw, found, about, progress)
     progress.note(f"по-русски раздач {was} - добрал по «{alt}»: стало {now}")
@@ -1051,6 +1060,32 @@ def _leading(pictures: list[Picture]) -> Picture | None:
     а вот вожак меняться не должен.
     """
     return max(pictures, key=lambda p: len(p.releases), default=None)
+
+
+def _twin(pictures: list[Picture], about: Origin, before: Picture | None) -> Picture | None:
+    """Кого из приехавших после добора сверять с той картиной, за которой шли.
+
+    Не самого многолюдного: добор по русскому имени приносит ФРАНШИЗУ целиком, и вожаком
+    в ней становится самая раздаваемая часть. На «cars» это «Тачки 3» (14 раздач против
+    четырёх у «Тачек» 2006 года), гейт читал 2017 против 2006 как подмену и выбрасывал
+    ровно ту выдачу, за которой ходил: человек оставался с одной мёртвой англоязычной
+    раздачей при живых русских.
+
+    Поэтому сверяется картина ТОГО ЖЕ ГОДА - года справки, а её нет, так года той картины,
+    за которой шли. Нет среди приехавших картины нужного года - сверять идёт вожак.
+
+    🔴 Зовётся это только на ДОКАЗАННОМ имени добора (справка), и в этом вся его
+    безопасность: справка отвечает про ту самую картину, поэтому вопрос к добору один -
+    доехала ли она. Имя, подобранное из выдачи, не доказывает ничего: под ним приезжает
+    однофамилец («Восхождение» - и фильм Шепитько, и китайский ``The Climbers``), и там
+    сверяется вожак, то есть тот, кто станет ответом.
+    """
+    year = about.year if about.year is not None else (before.year if before else None)
+    if year is not None:
+        near = [p for p in pictures if p.year is not None and abs(p.year - year) <= 1]
+        if near:
+            return max(near, key=lambda p: len(p.releases))
+    return _leading(pictures)
 
 
 def same_picture(

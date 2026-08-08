@@ -38,6 +38,7 @@ __all__ = [
     "franchise_key",
     "franchise_name",
     "franchises",
+    "glue",
     "map_episodes",
     "menu_order",
     "other_words",
@@ -515,6 +516,9 @@ class Picture:
     original: str | None = None
     #: Явный номер части, если он был хоть в одном варианте перевода названия.
     part: int | None = None
+    #: Второе имя картины, под которым её же раздачи лежат в каталоге отдельной кучкой
+    #: (:func:`glue`). Пусто — склейки не было, имя в каталоге одно.
+    also: str = ""
     releases: list[Release] = field(default_factory=list)
 
     @property
@@ -572,8 +576,15 @@ def franchise_key(title: str) -> str:
 
 
 def franchise_name(title: str) -> str:
-    """То же, что :func:`franchise_key`, но читаемым текстом: «Cars 3» → ``Cars``."""
-    base = re.split(r"\s*:\s*|\.\s+", title.strip(), maxsplit=1)[0]
+    """То же, что :func:`franchise_key`, но читаемым текстом: «Cars 3» → ``Cars``.
+
+    ⚠️ Подзаголовок советское кино вводит не двоеточием, а словом «или»: «Кавказская
+    пленница, или Новые приключения Шурика», «Ирония судьбы, или С лёгким паром!». Без
+    этого разреза классика Гайдая жила в каталоге под своим ключом, а короткий запрос
+    «кавказская пленница» точно попадал в ключ РЕМЕЙКА 2014 года - и человек, спросивший
+    классику, молча получал ремейк, хотя 22 раздачи оригинала лежали в той же выдаче.
+    """
+    base = re.split(r"\s*:\s*|\.\s+|,\s+или\s+", title.strip(), maxsplit=1)[0]
     # Хвост «3», «- 8», «II», а также диапазон «1-4» у сборников.
     base = re.sub(
         r"[\s,-]+(?:\d{1,2}(?:\s*[-,]\s*\d{1,2})*|[ivx]{1,4})\s*$", "", base, flags=re.IGNORECASE
@@ -616,7 +627,7 @@ def transliterate(text: str) -> str:
     return re.sub(r"\s+", " ", "".join(_TRANSLIT.get(ch, ch) for ch in lowered)).strip()
 
 
-def alt_query(query: str, releases: Iterable[Release], known: str = "") -> str:
+def alt_query(query: str, releases: Iterable[Release], known: str = "", native: str = "") -> str:
     """Чем ещё называется то, что спросили по-русски: запрос для второго захода.
 
     Зачем он вообще. Индексеры ищут по ИМЕНИ раздачи, а не по картине: половина
@@ -635,7 +646,13 @@ def alt_query(query: str, releases: Iterable[Release], known: str = "") -> str:
     3. Транслит - когда выдачи нет вовсе и читать нечего; он выручает русское кино,
        которое за рубежом так и подписывают (``Brat``).
 
-    Пустая строка - добирать нечем: запрос и так на латинице.
+    Зеркальный случай - ``native``, русское имя картины из той же справки. Спросили
+    латиницей («cars»), а половина каталога подписана по-русски: под именем ``Cars`` в
+    выдаче лежит одна мёртвая раздача, а «Тачки» живут четырьмя. Догадаться набрать
+    по-русски человек не обязан ровно так же, как и наоборот. Русское имя берётся ТОЛЬКО
+    из справки: в выдаче под латинским именем его взять неоткуда - там его и нет.
+
+    Пустая строка - добирать нечем: имени на другом языке никто не назвал.
 
     ⚠️ Оригинал ИЗ ВЫДАЧИ берётся по франшизе, поэтому номер части у него отрезается
     (:func:`franchise_name`). Без этого побеждало имя самой многолюдной части, и на
@@ -649,9 +666,10 @@ def alt_query(query: str, releases: Iterable[Release], known: str = "") -> str:
     выдачи вполне может оказаться чужим фильмом. Кто именно приехал по этому имени,
     решает гейт добора в :func:`~torrcast.cli._second_language`, а не эта функция.
     """
-    if not _CYRILLIC.search(query):
-        return ""
     wanted = slugify(query)
+    if not _CYRILLIC.search(query):
+        native = native.strip()
+        return native if _CYRILLIC.search(native) and slugify(native) != wanted else ""
     if known and not _CYRILLIC.search(known) and slugify(known) != wanted:
         return known.strip()
     names = Counter(
@@ -888,25 +906,127 @@ def cluster(releases: list[Release]) -> list[Picture]:
             key = canon.setdefault(by_orig, key)
         buckets.setdefault(key, []).append(release)
 
-    pictures: list[Picture] = []
-    for (kind, _, year), group in buckets.items():
-        titles = Counter(r.title for r in group if _CYRILLIC.search(r.title))
-        title = (titles or Counter(r.title for r in group)).most_common(1)[0][0]
-        originals = Counter(r.original for r in group if r.original)
-        # Номер части часто есть лишь в части переводов («Матрица 2: Перезагрузка»)
-        # — забираем его на всю картину, он точнее года при двух фильмах за год.
-        parts = Counter(n for r in group if (n := part_number(r.title)) is not None)
-        pictures.append(
-            Picture(
-                title=title,
-                year=year,
-                kind=kind,
-                original=originals.most_common(1)[0][0] if originals else None,
-                part=parts.most_common(1)[0][0] if parts else None,
-                releases=group,
-            )
-        )
+    pictures = [_compose(kind, year, group) for (kind, _, year), group in buckets.items()]
+    return _sorted(glue(pictures))
+
+
+def _compose(kind: Kind, year: int | None, group: list[Release], also: str = "") -> Picture:
+    """Кучка релизов → картина: каноническое имя, оригинал и номер части по большинству."""
+    titles = Counter(r.title for r in group if _CYRILLIC.search(r.title))
+    title = (titles or Counter(r.title for r in group)).most_common(1)[0][0]
+    originals = Counter(r.original for r in group if r.original)
+    # Номер части часто есть лишь в части переводов («Матрица 2: Перезагрузка»)
+    # — забираем его на всю картину, он точнее года при двух фильмах за год.
+    parts = Counter(n for r in group if (n := part_number(r.title)) is not None)
+    return Picture(
+        title=title,
+        year=year,
+        kind=kind,
+        original=originals.most_common(1)[0][0] if originals else None,
+        part=parts.most_common(1)[0][0] if parts else None,
+        also=also,
+        releases=group,
+    )
+
+
+def _sorted(pictures: list[Picture]) -> list[Picture]:
     return sorted(pictures, key=lambda p: (p.year is None, p.year or 0, p.title))
+
+
+def glue(pictures: list[Picture]) -> list[Picture]:
+    """Склеить картины, тождество которых ДОКАЗАНО именем и годом.
+
+    Кластер разводит релизы по ключу «имя + год», и одна картина рассыпается на кучки
+    ровно там, где каталог подписывает её по-разному. Живые примеры с домашних индексеров:
+
+    * «Врата Штейна» (2011, русская озвучка, 86 сидов) и ``Steins;Gate`` (36 раздач, года
+      в именах нет вовсе) - две картины, и запрос латиницей русской озвучки не видел В
+      ПРИНЦИПЕ: пул латиницей богатый, второго захода не будет, а склеивать было нечем;
+    * «Кавказская пленница, или Новые приключения Шурика» приезжает с годами 1966, 1967
+      и 1969 - каталог путает год производства с годом проката, и 22 раздачи классики
+      выглядят как три хилые картины.
+
+    Доказательство тождества - только имя, названное самим каталогом: полное название
+    картины или её оригинал (``Врата Штейна / Steins;Gate`` несёт оба). Франшиза здесь не
+    годится: «Тачки 2» и «Тачки 3» - одна франшиза и разные картины, поэтому номер части
+    из имени не режется. Одинаковых имён при разных типах не бывает: у аниме сериал и
+    полнометражка подписаны одинаково, а картины это разные, - ``kind`` разделяет.
+
+    🔴 **Год - гейт, а не украшение.** Ремейк носит имя оригинала («Психо» 1960 и 1998),
+    и склеить их значило бы молча подсунуть человеку чужой фильм. Поэтому:
+
+    * годы расходятся больше чем на 1 - НЕ склеиваем (±1 - это разница между годом
+      производства и годом проката, её раздачи путают постоянно);
+    * год не назван вовсе - склеиваем с единственным известным годом под этим именем, но
+      если под ним лежат ДВЕ картины разных лет, безымянная не достаётся никому: выбирать
+      наугад между оригиналом и ремейком нельзя.
+    """
+    parent = list(range(len(pictures)))
+
+    def root(i: int) -> int:
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    def union(a: int, b: int) -> None:
+        ra, rb = root(a), root(b)
+        if ra != rb:
+            parent[max(ra, rb)] = min(ra, rb)
+
+    named: dict[tuple[Kind, str], list[int]] = {}
+    for i, picture in enumerate(pictures):
+        names = {slugify(picture.title)} | ({slugify(picture.original)} if picture.original else set())
+        for name in names:
+            if name:
+                named.setdefault((picture.kind, name), []).append(i)
+    for same in named.values():
+        _link(pictures, same, union)
+
+    groups: dict[int, list[int]] = {}
+    for i in range(len(pictures)):
+        groups.setdefault(root(i), []).append(i)
+    out: list[Picture] = []
+    for members in groups.values():
+        if len(members) == 1:
+            out.append(pictures[members[0]])
+            continue
+        merged = sorted((pictures[i] for i in members), key=lambda p: -len(p.releases))
+        year = next((p.year for p in merged if p.year is not None), None)
+        releases = [r for p in merged for r in p.releases]
+        fresh = _compose(merged[0].kind, year, releases)
+        # Второе имя - самое многолюдное из тех, что не стали каноническим: именно его
+        # человек и набрал, если спрашивал латиницей, а в меню теперь русское название.
+        fresh.also = next((p.title for p in merged if slugify(p.title) != slugify(fresh.title)), "")
+        out.append(fresh)
+    return out
+
+
+def _link(pictures: list[Picture], same: list[int], union: Callable[[int, int], None]) -> None:
+    """Связать картины, приехавшие под одним именем: сначала по годам, потом безымянные.
+
+    Годы выстраиваются в цепочки шагом не больше единицы: 1966 и 1967 - одна картина,
+    1967 и 1969 - уже нет. Картина без года достаётся цепочке, только если она под этим
+    именем одна: две цепочки - это оригинал и ремейк, и молча выбрать между ними нельзя.
+    """
+    dated = sorted((i for i in same if pictures[i].year is not None), key=lambda i: pictures[i].year or 0)
+    chains: list[list[int]] = []
+    for i in dated:
+        year = pictures[i].year or 0
+        if chains and year - (pictures[chains[-1][-1]].year or 0) <= 1:
+            chains[-1].append(i)
+        else:
+            chains.append([i])
+    for chain in chains:
+        for i in chain[1:]:
+            union(chain[0], i)
+    blank = [i for i in same if pictures[i].year is None]
+    if len(chains) > 1:  # оригинал и ремейк под одним именем: безымянной картине веры нет
+        return
+    for i in blank[1:]:
+        union(blank[0], i)
+    if chains and blank:
+        union(chains[0][0], blank[0])
 
 
 def franchises(pictures: list[Picture]) -> dict[str, list[Picture]]:
@@ -1018,6 +1138,26 @@ def other_words(query: str, picture: Picture | None) -> str:
     return franchise_name(picture.title)
 
 
+def _aliases(groups: dict[str, list[Picture]]) -> dict[str, str]:
+    """Оригинальное имя франшизы → ключ русской франшизы, в которой её больше всего раздач.
+
+    ⚠️ Имён-однофамильцев в выдаче полно, и раньше побеждало последнее попавшееся: ``Steins;Gate``
+    вело не на «Врата Штейна» (41 раздача), а на «Врата Штейна ONA» - одну раздачу-огрызок,
+    случайно оказавшуюся в перечислении последней. Запрос латиницей после этого показывал
+    именно огрызок, а русская озвучка так и оставалась за бортом.
+    """
+    weight = {key: sum(len(p.releases) for p in items) for key, items in groups.items()}
+    aliases: dict[str, str] = {}
+    for key, items in groups.items():
+        for picture in items:
+            if not picture.original:
+                continue
+            name = franchise_key(picture.original)
+            if name and weight[key] > weight.get(aliases.get(name, ""), 0):
+                aliases[name] = key
+    return aliases
+
+
 def pick_franchise(query: str, pictures: list[Picture]) -> list[Picture]:
     """``«матрица 2»`` → [«Матрица: Перезагрузка»]; без номера — вся франшиза. Ищем по
     каноническому ключу (русскому или оригинальному), затем по вхождению подстроки, а
@@ -1025,9 +1165,7 @@ def pick_franchise(query: str, pictures: list[Picture]) -> list[Picture]:
     часть названия.
     """
     groups = franchises(pictures)
-    aliases = {
-        franchise_key(p.original): key for key, items in groups.items() for p in items if p.original
-    }
+    aliases = _aliases(groups)
 
     def lookup(name: str) -> str | None:
         wanted = slugify(name)
