@@ -160,11 +160,21 @@ need_root() {
     [ "$(id -u)" -eq 0 ] || die "запускать от root: sudo ./install.sh"
 }
 
+# Маска процесса для pgrep -f/pkill -f. Голая строка запуска шаблоном не годится: она
+# ищется как регулярка в ЛЮБОМ месте командной строки, поэтому под неё попадает чужой
+# процесс, который наш путь всего лишь упоминает в аргументах - редактор с открытым
+# файлом, grep по нему, less по логу. Прибиваем к началу строки запуска и требуем
+# границу слова в конце, а метасимволы (точки в путях, скобки) экранируем.
+proc_mask() {  # $1 - начало строки запуска; печатает шаблон для -f
+    printf '^%s( |$)' "$(printf '%s' "$1" | sed 's/[][^$.*+?(){}|\]/\\&/g')"
+}
+
 # Служба: в системе — юнит systemd, в песочнице — просто фоновый процесс,
 # чтобы фазы проверялись живьём, а не «как будто».
 run_service() {  # $1 имя, $2 описание, $3 команда
     if [ -n "${TORRCAST_NO_SYSTEMD:-}" ]; then
-        pgrep -f -- "$3" >/dev/null 2>&1 && { skip "процесс $1 (песочница)"; return 0; }
+        pgrep -f -- "$(proc_mask "$3")" >/dev/null 2>&1 \
+            && { skip "процесс $1 (песочница)"; return 0; }
         info "запускаю $1 фоном (песочница)"
         # shellcheck disable=SC2086
         setsid nohup $3 >"$PREFIX/$1.log" 2>&1 </dev/null &
@@ -176,9 +186,9 @@ run_service() {  # $1 имя, $2 описание, $3 команда
 
 # Погасить службу, чтобы следующий run_service поднял её заново: `enable --now` и
 # pgrep в песочнице живой процесс не трогают, а после обновления кода это и нужно.
-stop_service() {  # $1 имя, $2 маска процесса для песочницы
+stop_service() {  # $1 имя, $2 начало строки запуска для песочницы
     if [ -n "${TORRCAST_NO_SYSTEMD:-}" ]; then
-        pkill -f -- "$2" >/dev/null 2>&1 || true
+        pkill -f -- "$(proc_mask "$2")" >/dev/null 2>&1 || true
     else
         systemctl stop "$1.service" >/dev/null 2>&1 || true
     fi
@@ -634,7 +644,9 @@ setup_shim() {  # $@ - маршруты вида имя=кандидат[,кан
     [ "$(cat "$SHIM_DIR/routes" 2>/dev/null)" = "$(printf '%s\n' "${routes[@]}")" ] || changed=1
     printf '%s\n' "${routes[@]}" >"$SHIM_DIR/routes"
     for spec in "${routes[@]}"; do hosts_pin "${spec%%=*}"; done
-    [ "$changed" = 1 ] && stop_service torrcast-shim "$SHIM_DIR/sni-shim.py"
+    # Маска - начало строки запуска, без маршрутов: у живого процесса они прежние, а
+    # погасить надо именно его.
+    [ "$changed" = 1 ] && stop_service torrcast-shim "$PYTHON $SHIM_DIR/sni-shim.py"
     run_service torrcast-shim "TLS-шим для трекеров, чьё имя не проходит по SNI" \
         "$PYTHON $SHIM_DIR/sni-shim.py $SHIM_DIR/shim.crt $SHIM_DIR/shim.key $SHIM_PORT ${routes[*]}"
 }
