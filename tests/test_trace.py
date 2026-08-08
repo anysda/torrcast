@@ -413,6 +413,30 @@ def test_an_eviction_says_who_was_thrown_out_and_how_much_it_freed(tmp_path: Pat
     assert "вытеснил «Тачки 3»" in trace.digest(trace.records())
 
 
+def test_a_piece_laid_off_the_grid_is_a_record_with_numbers(tmp_path: Path) -> None:
+    """Промах укладки мимо сетки - поля, а не строка: где, на сколько, чем кончилось.
+
+    Дефект укладки мимо сетки прожил незамеченным неделями (:meth:`torrcast.warm.Warmer._verify`),
+    и вопрос через неделю будет ровно один: срабатывал ли сторож и на каких местах. Ответ
+    обязан лежать числами - границей, фактическим началом и разницей между ними, - а не
+    печататься в журнал показа, который гаснет вместе с ним.
+    """
+    trace.skew(slot=7, want=88.0, got=86.29, hole=True)
+    trace.shutdown()
+
+    rec = _only(_read_lines(tmp_path), "skew")
+    assert rec["phase"] == "warm"
+    assert rec["slot"] == 7
+    assert rec["want"] == 88.0
+    assert rec["got"] == 86.29
+    assert rec["off"] == -1.71, "разница обязана лежать полем, а не считаться читателем"
+    assert rec["hole"] is True
+    assert rec["src"] == trace.WARMED, "источник куска назван не так, как в записи отдачи"
+    text = trace.digest(trace.records())
+    assert "v7 лёг мимо сетки" in text and "место осталось непрогретым" in text
+    assert "кусков мимо сетки 1" in text
+
+
 def test_the_share_of_the_warmed_movie_is_a_field(tmp_path: Path) -> None:
     """Доля прогретого уходит в ленту числами, а не строкой «прогрето 42 мин из 96».
 

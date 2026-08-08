@@ -8,7 +8,10 @@
 from __future__ import annotations
 
 import hashlib
+import json
+import math
 import os
+import shutil
 import subprocess
 import time
 from pathlib import Path
@@ -16,6 +19,7 @@ from pathlib import Path
 import pytest
 
 from tests.conftest import CLIP_SECONDS, free_port
+from torrcast import trace
 from torrcast.cli import Watch as _Watch
 from torrcast.cli import _Clock, _play
 from torrcast.state import Config, Entry, State
@@ -33,10 +37,14 @@ from torrcast.warm import (
     FREE_FLOOR,
     GUARD_HIGH,
     GUARD_LOW,
+    HEAD_BYTES,
     META,
+    SKEW_MAX,
+    SKEW_TRIES,
     STARVE_GRACE,
     Vault,
     Warmer,
+    segment_start,
     warm_key,
 )
 
@@ -668,3 +676,182 @@ def test_the_recoding_run_of_the_warming_never_asks_the_pilot(
 
     assert not asked, "перекодирующий заход прогрева спросил пробный прогон"
     assert vault.path(slot).exists(), f"перекодирующий заход не выложил {segment_name(slot)}"
+
+
+# --- TC-125: сторож границ прогретого ------------------------------------------
+# Дефект укладки мимо сетки (выше, TC-124) прожил незамеченным не потому, что был хитрым,
+# а потому, что уложенный кусок никто не сверял с сеткой: код верил намерению, а не
+# результату. Тесты ниже проверяют не намерение и не аргументы ffmpeg, а НАЧАЛО уже
+# лежащего файла - то самое место, где дефект был виден с самого начала.
+
+#: Слот, на котором ставятся опыты сторожа: у :func:`_offkey_grid` его граница (21.0 с)
+#: заведомо не совпадает с опорным кадром ролика, то есть докатка гарантирована.
+_LAID = 2
+
+
+@pytest.fixture(scope="module")
+def warmed(clip: str, tmp_path_factory: pytest.TempPathFactory) -> tuple[Warmer, Vault]:
+    """Настоящий прогретый кусок: тот же ffmpeg, та же сетка, та же укладка.
+
+    Модульная и только на чтение: прогон ffmpeg стоит секунд, а нужен он сразу трём
+    опытам. Менять хранилище через неё нельзя - опыты, которым надо кусок испортить или
+    выбросить, копируют его себе.
+    """
+    room = tmp_path_factory.mktemp("прогретое")
+    vault = Vault(root=room / "warm", key="здоровый", budget=1 << 30, floor=0)
+    vault.open()
+    warmer = Warmer(source=clip, audio=0, grid=_offkey_grid(), vault=vault, rate=0.0, slack=1e6)
+    warmer._run(_LAID, _LAID)
+    return warmer, vault
+
+
+def test_the_guard_lets_a_healthy_piece_through(warmed: tuple[Warmer, Vault]) -> None:
+    """Здоровый заход сторож не трогает: кусок на месте, браковок нет.
+
+    Первый и главный вопрос к любому сторожу - не ловит ли он своих. Кусок тут уложен
+    настоящим прогревом от измеренного начала, то есть ровно так, как он ложится в бою.
+    """
+    warmer, vault = warmed
+
+    assert vault.path(_LAID).exists(), "сторож выбросил здоровый кусок"
+    assert warmer.skews == {}, f"здоровый заход записан в промахи: {warmer.skews}"
+    assert warmer.misgrid == -1, "здоровый заход оборван сторожем"
+
+
+def test_the_muxer_preroll_is_not_a_skew(warmed: tuple[Warmer, Vault], tmp_path: Path) -> None:
+    """Преролл муксера (-0.04 с) - не расхождение, а секунда назад - расхождение.
+
+    Порог отмерян от кадра, а не от нуля: у mpegts-муксера PCR штатно идёт на сорок
+    миллисекунд раньше первой метки видео, и у живой упаковки он ровно такой же. Сторож,
+    считающий это браком, выбрасывал бы куски, которые показ и так отдаёт с диска.
+    """
+    _, source = warmed
+    began = segment_start(source.path(_LAID))
+    assert not math.isnan(began), "начало уложенного куска не прочиталось - мерить нечем"
+
+    def _guard(edge: float) -> Warmer:
+        """Прогрев, чья граница слота стоит на ``edge``; кусок - копия здорового."""
+        bounds = list(_offkey_grid().bounds)
+        bounds[_LAID] = edge
+        vault = _vault(tmp_path, key=f"край{edge:.2f}")
+        shutil.copyfile(source.path(_LAID), vault.path(_LAID))
+        grid = Grid(tuple(bounds), float(CLIP_SECONDS), True)
+        return Warmer(source="нет", audio=0, grid=grid, vault=vault, rate=0.0)
+
+    preroll = _guard(began + 0.04)
+    assert preroll._verify(_LAID), f"преролл {0.04:+.2f} с сторож посчитал расхождением"
+    assert preroll.vault.path(_LAID).exists(), "здоровый кусок убран из хранилища"
+
+    broken = _guard(began + 1.0)
+    assert not broken._verify(_LAID), "кусок на секунду раньше границы сторож пропустил"
+    assert not broken.vault.path(_LAID).exists(), "бракованный кусок остался в показе"
+
+
+def test_the_guard_reads_the_head_of_the_file_and_never_the_source(
+    warmed: tuple[Warmer, Vault], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Сверка не ходит в сеть и не поднимает процессов: ей хватает головы файла.
+
+    Место вызова - путь укладки куска, рядом с показом. Запрос к раздаче стоил бы тут
+    секунд на кусок и умирал бы ровно тогда, когда прогрев и нужен, - при обрыве связи.
+    Поэтому и сеть, и ``ffprobe`` тут не «дорого», а запрещено.
+    """
+    import socket
+
+    _, vault = warmed
+    piece = vault.path(_LAID)
+    whole = segment_start(piece)
+
+    def _forbidden(*args: object, **kwargs: object) -> None:
+        raise AssertionError("сверка полезла наружу вместо чтения головы файла")
+
+    monkeypatch.setattr(socket, "socket", _forbidden)
+    monkeypatch.setattr(subprocess, "run", _forbidden)
+    monkeypatch.setattr(subprocess, "Popen", _forbidden)
+
+    head = tmp_path / "голова.ts"
+    head.write_bytes(piece.read_bytes()[:HEAD_BYTES])
+    assert segment_start(head) == whole, "ответ зависит от хвоста файла, а не от головы"
+    assert piece.stat().st_size > 10 * HEAD_BYTES, "кусок мал - доказывать нечего"
+
+
+def test_a_piece_laid_off_the_grid_never_reaches_the_show(
+    clip: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Кусок, уложенный мимо своей границы, сторож ловит, выбрасывает и говорит об этом.
+
+    Сдвиг тут не подрисован, а сделан настоящим ffmpeg: пробный прогон подменён на тот
+    самый ответ, который давал дефект TC-124 (задуманное сеткой начало вместо
+    измеренного), и заход честно уезжает на всю докатку. Первый промах - кусок вон и
+    заново; второй на том же месте - место честно объявлено непрогретым.
+    """
+    from torrcast import stream
+
+    monkeypatch.setenv(trace.LOG_ENV, str(tmp_path / "след"))
+    monkeypatch.setenv(trace.SID_ENV, "tc-125")
+    monkeypatch.setattr(stream, "pack_start", lambda url, at, timeout=0.0: at)
+    grid = _offkey_grid()
+    vault = _vault(tmp_path, key="кривой")
+    said: list[str] = []
+    warmer = Warmer(
+        source=clip, audio=0, grid=grid, vault=vault, rate=0.0, slack=1e6, log=said.append
+    )
+
+    warmer._run(_LAID, _LAID)
+    assert not vault.path(_LAID).exists(), "кусок мимо сетки остался лежать в показе"
+    assert warmer.skews == {_LAID: 1}, f"промах не посчитан: {warmer.skews}"
+    assert warmer.misgrid == _LAID, "заход, промахнувшийся мимо сетки, не оборван"
+    assert warmer.trouble == "", "первый промах обязан кончаться перекладкой, а не дырой"
+    assert any("перекладываю" in line for line in said), f"о промахе не сказано: {said}"
+
+    warmer._run(_LAID, _LAID)
+    assert warmer.skews == {_LAID: SKEW_TRIES}, "второй промах не посчитан"
+    assert not vault.path(_LAID).exists(), "кусок мимо сетки остался лежать в показе"
+    assert warmer.trouble, "второй промах на том же месте прошёл молча"
+    assert "непрогрет" in warmer.line(), f"дыра не названа дырой: {warmer.line()}"
+    assert not warmer.done, "«прогрето целиком» при дыре в прогретом"
+
+    trace.shutdown()
+    rows = [
+        json.loads(raw)
+        for path in sorted((tmp_path / "след").glob("trace-*.jsonl"))
+        for raw in path.read_text("utf-8").splitlines()
+    ]
+    skews = [rec for rec in rows if rec["event"] == "skew"]
+    assert len(skews) == SKEW_TRIES, f"в следе не оба промаха: {skews}"
+    assert skews[0]["slot"] == _LAID and skews[0]["hole"] is False
+    assert skews[1]["hole"] is True, "дыра в следе не помечена дырой"
+    assert skews[0]["off"] < -SKEW_MAX, f"сдвиг в следе меньше порога: {skews[0]}"
+
+
+def test_the_guard_checks_every_laid_piece_not_just_the_first(clip: str, tmp_path: Path) -> None:
+    """Сверяется КАЖДЫЙ уложенный кусок пачки, а не первый из неё.
+
+    ``publish`` выкладывает пачкой - прогрев опрашивает его раз в полсекунды, и за это
+    время на диск ложится несколько кусков сразу. Сторож, который смотрит на первый кусок
+    пачки и бросает остальные, оставил бы в показе ровно то, ради чего он поставлен.
+    Заход тут кривой по-настоящему: тот же ffmpeg, но заведённый от задуманного сеткой
+    начала - ровно так вёл себя дефект TC-124.
+    """
+    grid = _offkey_grid()
+    first, last = _LAID, grid.count - 1
+    crooked = tmp_path / "кривой"
+    _pack_to_the_end(
+        ffmpeg_pack_command(clip, 0, str(crooked / "run"), grid, first, grid.start(first),
+                            readrate=0.0, until=last),
+        crooked, first, last,
+    )  # fmt: skip
+    laid = sorted(range(first, grid.count))
+    for slot in laid:
+        assert (crooked / segment_name(slot)).exists(), (
+            f"кривой заход не дал {segment_name(slot)} - ловить нечего"
+        )
+
+    vault = _vault(tmp_path, key="пачка")
+    for slot in laid:
+        shutil.copyfile(crooked / segment_name(slot), vault.path(slot))
+    warmer = Warmer(source="нет", audio=0, grid=grid, vault=vault, rate=0.0)
+
+    warmer._inspect(first - 1, last)
+    assert sorted(warmer.skews) == laid, f"сторож проверил не всю пачку: {warmer.skews}"
+    assert vault.slots() == set(), f"мимо сетки, а в показе лежит: {sorted(vault.slots())}"

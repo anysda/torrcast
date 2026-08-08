@@ -48,6 +48,7 @@ __all__ = [
     "segment",
     "session_id",
     "shutdown",
+    "skew",
     "warmth",
 ]
 
@@ -329,6 +330,32 @@ def evict(key: str, freed: int, need: int, title: str = "") -> None:
     emit("warm", "evict", key=key, title=title, freed=freed, need=need)
 
 
+def skew(slot: int, want: float, got: float, hole: bool, src: str = WARMED) -> None:
+    """Уложенный кусок разошёлся со своей границей сетки: где, на сколько и чем кончилось.
+
+    ``want`` - граница сетки, ``got`` - где кусок начинается на самом деле, ``off`` -
+    разница (отрицательная: назад). ``hole`` - место признано непрогретым, ложь - кусок
+    выброшен и перекладывается заново. ``src`` - тот же источник куска, что и в
+    :func:`segment`: сверяется пока только прогретое, но событие про УКЛАДКУ, а не про
+    прогрев, и по одному полю видно, чьё производство промахнулось.
+
+    Событие существует ради истории: дефект укладки мимо сетки жил незамеченным, потому
+    что выглядел здоровым выборочно (:meth:`torrcast.warm.Warmer._verify`). Строка в
+    журнале показа гаснет вместе с ним, а эта запись лежит неделю - по ней видно, что
+    сторож срабатывал, сколько раз и на каких местах.
+    """
+    emit(
+        "warm",
+        "skew",
+        slot=slot,
+        want=round(want, 3),
+        got=round(got, 3),
+        off=round(got - want, 3),
+        hole=hole,
+        src=src,
+    )
+
+
 def warmth(event: str, secs: float, dur: float, size: int, why: str = "") -> None:
     """Доля прогретого на этот момент: секунды на диске, длина фильма, доля и вес.
 
@@ -478,6 +505,7 @@ _COUNTED: Final = {
     "reload": "повторов LOAD",
     "seek": "перемоток",
     "evict": "вытеснений прогрева",
+    "skew": "кусков мимо сетки",
 }
 
 
@@ -566,6 +594,13 @@ def _event_line(rec: dict[str, Any], began: float, seam: bool = False) -> str:
             f"{stamp}бюджет прогрева вытеснил «{who}»:"
             f" освободилось {_gb(float(rec.get('freed', 0.0)))}"
             f" под {_gb(float(rec.get('need', 0.0)))}"
+        )
+    if event == "skew":
+        end = "место осталось непрогретым" if rec.get("hole") else "кусок переложен заново"
+        return (
+            f"{stamp}v{rec.get('slot', '?')} лёг мимо сетки:"
+            f" начало {float(rec.get('off', 0.0)):+.2f} с"
+            f" от границы {_hms(float(rec.get('want', 0.0)))} - {end}"
         )
     if event in {"ready", "stall"}:
         head = (

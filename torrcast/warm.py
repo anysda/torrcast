@@ -44,6 +44,7 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import json
+import math
 import os
 import shutil
 import signal
@@ -59,7 +60,7 @@ from torrcast.timing import mark
 if TYPE_CHECKING:
     from torrcast.stream import Grid
 
-__all__ = ["Vault", "Warmer", "warm_key", "warm_root"]
+__all__ = ["Vault", "Warmer", "segment_start", "warm_key", "warm_root"]
 
 #: Каталог прогретого по умолчанию. Диск, не tmpfs - и это весь смысл модуля.
 WARM_DIR: Final = "/var/lib/torrcast/warm"
@@ -103,6 +104,91 @@ START_GRACE: Final = 45.0
 META: Final = "warm.json"
 #: Каталог прогона ffmpeg внутри каталога прогретого (см. :data:`torrcast.stream.PACK_DIR`).
 RUN_DIR: Final = "run"
+#: Насколько уложенный кусок вправе начаться РАНЬШЕ своей границы, секунды
+#: (:meth:`Warmer._verify`). Порог отмерен от кадра, а не от нуля: у самого медленного
+#: кино (23.976 к/с) кадр - это 41.7 мс, штатный преролл PCR у mpegts-муксера - около
+#: 40 мс, и ``-segment_time_delta`` разрешает резать на 20 мс раньше границы
+#: (:data:`torrcast.stream.SPLIT_SLACK`). Всё вместе - меньше сотой доли секунды сверх
+#: кадра; берём с запасом. Дефект, ради которого сторож написан, давал 1.4-3.8 с, то есть
+#: на порядок больше порога: сторож ловит поломку, а не дрожание меток.
+SKEW_MAX: Final = 0.15
+#: Сколько раз одно и то же место перепаковывается, прежде чем его признают непрогретым.
+#: Один повтор: заход, вставший не туда, кладёт мимо сетки ВЕСЬ свой участок, и второй
+#: такой же промах на том же месте - это не случайность, а поломка упаковки.
+SKEW_TRIES: Final = 2
+#: Сколько байт головы куска читает сверка. Пакет TS - 188 байт, PAT, PMT и первый пакет
+#: видео лежат в самом начале файла; 64 КиБ - это 348 пакетов, то есть запас в сотню раз.
+#: Больше читать нельзя: сверка идёт на пути укладки, а куски весят мегабайты.
+HEAD_BYTES: Final = 64 << 10
+#: Размер пакета MPEG-TS и его байт синхронизации.
+TS_PACKET: Final = 188
+TS_SYNC: Final = 0x47
+#: Часы MPEG: 90 кГц у меток PES, 27 МГц у PCR.
+PES_CLOCK: Final = 90_000.0
+PCR_CLOCK: Final = 27_000_000.0
+
+
+def segment_start(path: Path) -> float:
+    """С какой секунды ФИЛЬМА кусок начинается на самом деле; ``nan`` - не прочли.
+
+    Читается голова уже лежащего файла, и только она: ни ffprobe, ни ffmpeg, ни единого
+    обращения к раздаче. Причина не в красоте, а в месте вызова - сверка стоит на пути
+    укладки куска (:meth:`Warmer._verify`), рядом с показом, и не имеет права ни ждать
+    сеть, ни поднимать процесс. Замер на куске 2.7 МБ: 0.04-0.10 мс, когда кусок только что
+    записан и лежит в кэше страниц (это и есть штатный случай - сверяем сразу после
+    укладки), и 0.4 мс с холодного диска против 20-40 мс у одного ``ffprobe``.
+
+    Берётся PTS первого пакета видео. Именно PTS, а не DTS: граница сетки стоит на опорном
+    кадре, а карта опорных кадров (:mod:`torrcast.keymap`) хранит их ВРЕМЯ ПОКАЗА. У релиза
+    с B-кадрами DTS того же кадра лежит на кадр-другой раньше PTS, и сверка по DTS видела
+    бы этот зазор как расхождение. Метки абсолютные - это ``-copyts`` у обоих упаковщиков
+    (:func:`torrcast.stream.ffmpeg_pack_command`), поэтому PTS и есть время фильма.
+
+    PCR - запасной ответ: если в голове файла пакета видео с меткой не нашлось, начало
+    берётся по часам транспорта. Он на преролл муксера раньше PTS, и порог
+    (:data:`SKEW_MAX`) этот преролл вмещает.
+
+    ``nan`` - честное «не знаю»: файл не читается, не выровнен по пакетам TS или меток в
+    голове нет вовсе. Гадать тут нельзя ни в одну сторону: сторож на догадке выбрасывал бы
+    здоровые куски.
+    """
+    try:
+        with path.open("rb") as handle:
+            head = handle.read(HEAD_BYTES)
+    except OSError:
+        return math.nan
+    pcr = math.nan
+    for at in range(0, len(head) - TS_PACKET + 1, TS_PACKET):
+        packet = head[at : at + TS_PACKET]
+        if packet[0] != TS_SYNC:
+            return math.nan  # файл не выровнен по пакетам - разбирать нечего
+        payload = 4
+        control = (packet[3] >> 4) & 0x3
+        if control & 0x2:  # есть поле адаптации, а в нём может лежать PCR
+            length = packet[4]
+            if length >= 7 and packet[5] & 0x10 and math.isnan(pcr):
+                base = (int.from_bytes(packet[6:10], "big") << 1) | (packet[10] >> 7)
+                pcr = (base * 300 + (((packet[10] & 0x1) << 8) | packet[11])) / PCR_CLOCK
+            payload = 5 + length
+        if not control & 0x1 or payload + 14 > TS_PACKET or not packet[1] & 0x40:
+            continue  # без содержимого, без места под заголовок PES или не начало PES
+        pes = packet[payload:]
+        if pes[:3] != b"\x00\x00\x01" or not 0xE0 <= pes[3] <= 0xEF or not pes[7] & 0x80:
+            continue  # не видео или пакет без PTS
+        return _stamp(pes[9:14])
+    return pcr
+
+
+def _stamp(raw: bytes) -> float:
+    """Метка PES (33 бита вперемешку с маркерами) в секундах."""
+    ticks = (
+        ((raw[0] >> 1) & 0x7) << 30
+        | raw[1] << 22
+        | ((raw[2] >> 1) & 0x7F) << 15
+        | raw[3] << 7
+        | raw[4] >> 1
+    )
+    return ticks / PES_CLOCK
 
 
 def warm_root(configured: str = WARM_DIR) -> Path:
@@ -339,6 +425,11 @@ class Warmer:
     follow: Any = None
     #: Прогрев следующей серии, поднятый :meth:`_chain`; ``None`` - ещё не поднимали.
     after: Warmer | None = None
+    #: Сколько раз каждое место уже легло мимо сетки (:meth:`_verify`). Ключ - слот.
+    skews: dict[int, int] = field(default_factory=dict)
+    #: Слот, который прямо сейчас лёг мимо сетки; ``-1`` - прогон идёт ровно. По нему
+    #: :meth:`_run` обрывает заход: промахнулся один кусок - промахнулся весь заход.
+    misgrid: int = -1
 
     def start(self) -> None:
         self.vault.open()
@@ -441,7 +532,10 @@ class Warmer:
 
     def _work(self) -> None:
         self._wait_for_picture()
-        while not self.stopped:
+        # ``trouble`` тут не для порядка: им кончается и упёртый бюджет, и место, которое
+        # так и не легло на сетку (:meth:`_verify`). Без этого условия прогрев ходил бы
+        # кругами по одному и тому же непрогретому куску.
+        while not self.stopped and not self.trouble:
             try:
                 job = self._missing()
                 if job is None:
@@ -588,19 +682,31 @@ class Warmer:
             self.packer = packer = Packer.start(
                 command, self.vault.dir, self.vault.dir / RUN_DIR, first, last=last
             )
+        self.misgrid = -1
+        laid = first - 1
         try:
             while not self.stopped:
                 packer.publish()
-                if packer.edge >= last or packer.poll() is not None:
+                laid = self._inspect(laid, min(packer.edge, last))
+                if self.misgrid >= 0 or packer.edge >= last or packer.poll() is not None:
                     break
                 self._throttle(packer)
                 time.sleep(0.5)
+            if self.misgrid < 0:
+                # Мёртвый ffmpeg дописал последний кусок, но выложить его успевает уже
+                # не цикл (:meth:`torrcast.stream.Packer.publish`) - и сверить тоже.
+                packer.publish()
+                self._inspect(laid, min(packer.edge, last))
         finally:
             self._resume(packer)
             with self.lock:
                 self.packer = None
             packer.stop(keep_files=True, reason="прогрев окончен")
             self.vault.touch()
+        if self.misgrid >= 0:
+            # Заход, вставший не туда, кладёт мимо сетки весь свой участок: доводить его
+            # до конца значит намолотить ещё сотню таких же кусков.
+            return
         got = max(0, min(last, packer.edge) - first + 1)
         spent = time.monotonic() - began
         if spot and got:
@@ -617,6 +723,74 @@ class Warmer:
         elif not got:
             self._say(f"прогрев не дал ни куска за {spent:.0f} с - жду и пробую снова")
             time.sleep(10.0)
+
+    def _inspect(self, done: int, edge: int) -> int:
+        """Сверить с сеткой всё, что легло после ``done`` и не дальше ``edge``.
+
+        Возвращает новую границу сверенного. Обход не обрывается на первом же промахе, и
+        это важнее, чем кажется: ``publish`` выкладывает пачкой (:meth:`_run` опрашивает
+        его раз в полсекунды), а заход, вставший не туда, разъезжается с сеткой ЦЕЛИКОМ.
+        Оборви обход - и остальные куски пачки остались бы лежать в показе непроверенными,
+        то есть сторож ловил бы ровно один кусок из четырёх.
+        """
+        for slot in range(max(done + 1, 0), edge + 1):
+            self._verify(slot)
+        return max(done, edge)
+
+    def _verify(self, slot: int) -> bool:
+        """Кусок лёг на своё место сетки? Ложь - он уже убран и в показ не пойдёт.
+
+        🔴 Ради этой сверки карточка и написана. Дефект, из-за которого прогрев резал куски
+        мимо сетки, прожил незамеченным не потому, что был хитрым, а потому, что уложенное
+        никто не сверял: код верил намерению (``-segment_times`` от нужного места), а
+        муксер отмерял резы от ПЕРВОГО ПАКЕТА прогона (:meth:`_run`). Куски при этом лежали
+        под правильными именами и весили правдоподобно, а начинались на 1.4-3.8 с раньше
+        своих границ - на стыке с живой упаковкой метки шли НАЗАД до 1.7 с, около сорока
+        кадров дублировалось. Здоровым он выглядел выборочно: там, где в сдвинутом окне не
+        оказывалось опорного кадра, рез случайно вставал верно и кусок побайтово совпадал с
+        живым. Поэтому сверяется КАЖДЫЙ уложенный кусок, а не один на заход.
+
+        Ловится только сдвиг НАЗАД, и это не полумера. Раньше своей границы кусок начаться
+        не может ни по одной законной причине: обе упаковки заходят от измеренного начала
+        (:func:`torrcast.stream.pack_start`), а муксер режет по первому опорному кадру не
+        раньше границы. Позже - может, и законно: на сетке, чьи границы не попали на
+        опорные кадры, муксер ждёт следующего кадра, и ровно так же ведёт себя живая
+        упаковка - её кусок в этом месте побайтово тот же самый. Выбрасывать такое значило
+        бы выбрасывать то, что показ и так отдаёт с диска; расхождение сетки с потоком -
+        это про карту опорных кадров, и меряет его :meth:`torrcast.stream.Packer.drift`.
+
+        ``nan`` (не прочли) - пропускаем. Сторож, который бракует по незнанию, дороже того
+        дефекта, ради которого он поставлен.
+
+        Забракованный кусок именно СТИРАЕТСЯ, а не помечается: показ ищет прогретое глобом
+        каталога (:meth:`Vault.slots`, :meth:`torrcast.stream.Feed.segment`), и никакой
+        пометки он не читает. Отдачу это не роняет даже в самый неудачный момент - файл,
+        пропавший между проверкой и чтением, отдача уже переживает (``OSError`` →
+        404 → приёмник просит снова, :meth:`torrcast.stream._Handler._read`).
+        """
+        began = segment_start(self.vault.path(slot))
+        want = self.grid.start(slot)
+        if math.isnan(began) or began > want - SKEW_MAX:
+            return True
+        tries = self.skews.get(slot, 0) + 1
+        self.skews[slot] = tries
+        self.misgrid = slot if self.misgrid < 0 else self.misgrid
+        # Дыра - это честное «тут не прогрето»: файла нет, значит нет его и в
+        # :meth:`Vault.slots`, значит "прогрето целиком" (:attr:`done`) не наступит и
+        # следующая серия в работу не возьмётся (:meth:`_chain`). Ровно так же считается
+        # неготовым тяжёлый кусок, под которым лежит копия (:meth:`_spots_left`).
+        hole = tries >= SKEW_TRIES
+        with contextlib.suppress(OSError):
+            self.vault.path(slot).unlink(missing_ok=True)
+            self.vault.spot(slot).unlink(missing_ok=True)
+        trace.skew(slot=slot, want=want, got=began, hole=hole)
+        mark("кусок прогрева мимо сетки", слот=slot, сдвиг=round(began - want, 3), дыра=hole)
+        where = f"v{slot} на {want / 60:.0f}-й минуте лёг мимо сетки ({began - want:+.2f} с)"
+        if hole:
+            self._stall(f"{where} - это место осталось непрогретым")
+        else:
+            self._say(f"{where} - перекладываю его заново")
+        return False
 
     def _busy_rival(self) -> bool:
         """Идёт ли прямо сейчас заход живого перекода (:attr:`rival`)."""
