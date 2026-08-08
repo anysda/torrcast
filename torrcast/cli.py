@@ -38,6 +38,7 @@ from torrcast import (
     TorrcastError,
     __version__,
     console,  # через модуль: терминал спрашиваем там же, где и сами вопросы
+    trace,
     why,
 )
 from torrcast.cast import ChromecastReceiver, Receiver, make_receiver
@@ -276,6 +277,8 @@ class Args:
     voice: int | None = None
     new: bool = False
     dry: bool = False
+    #: ``cast log --since 2d|12h|30m|ГГГГ-ММ-ДД`` - с какого момента показывать след.
+    since: str | None = None
     #: Внутреннее: показ внутри transient-юнита, руками не зовётся.
     play_key: str | None = None
 
@@ -286,7 +289,8 @@ class Args:
         """
         if self.play_key:
             return "worker"
-        if self.query and self.query[0] in {"stop", "status", "doctor", "releases", "voices"}:
+        words = {"stop", "status", "doctor", "releases", "voices", "log"}
+        if self.query and self.query[0] in words:
             return self.query[0]
         if not self.query:
             return "configure" if self.tv else "status"
@@ -330,6 +334,9 @@ def parse_args(argv: Sequence[str] | None = None) -> Args:
     )
     parser.add_argument("--new", action="store_true", help="забыть прогресс и выбрать заново")
     parser.add_argument("--dry", action="store_true", help="весь резолв без каста")
+    parser.add_argument(
+        "--since", metavar="СРОК", help="cast log: с какого момента (2d / 12h / 30m / ГГГГ-ММ-ДД)"
+    )
     parser.add_argument("--play-key", metavar="KEY", help=argparse.SUPPRESS)
     parser.add_argument("--version", action="version", version=f"torrcast {__version__}")
     return Args(**vars(parser.parse_args(argv)))
@@ -354,6 +361,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 return _cmd_status()
             if command == "doctor":
                 return _cmd_doctor()
+            if command == "log":
+                return _cmd_log(args)
             if command == "releases":
                 return _cmd_releases(args)
             if command == "voices":
@@ -362,9 +371,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                 return _cmd_worker(str(args.play_key))
             return _cmd_play(args)
     except NotFoundError as exc:
+        trace.emit("error", "error", text=str(exc)[:200])
         print(str(exc), file=sys.stderr)
         return EXIT_NOT_FOUND
     except TorrcastError as exc:  # InfraError и всё прочее наше
+        trace.emit("error", "error", text=str(exc)[:200])
         print(str(exc), file=sys.stderr)
         return EXIT_INFRA
     except _Stopped:  # `cast stop` - штатный конец показа, а не отказ
@@ -375,6 +386,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         with contextlib.suppress(OSError):
             sys.stdout.close()
         return EXIT_OK
+    finally:
+        # Дожать хвост следа: фоновый писатель - демон, штатный выход обязан его дождаться.
+        trace.shutdown()
 
 
 def _cmd_configure(args: Args) -> int:
@@ -522,6 +536,33 @@ def _cmd_doctor() -> int:
     return EXIT_OK if not bad else EXIT_INFRA
 
 
+def _cmd_log(args: Args) -> int:
+    """``cast log [--since]`` — выжимка недельного диагностического следа.
+
+    По умолчанию - последние три сеанса; ``--since`` двигает границу (``2d``/``12h``/``30m``
+    или дата ``ГГГГ-ММ-ДД``) и снимает потолок числа сеансов. Читает ту же ленту, что ведут
+    поиск, отбор и показ, - никаких внешних систем, всё лежит рядом с состоянием.
+    """
+    since = _since_seconds(args.since)
+    rows = trace.records(since)
+    limit = 0 if args.since else 3
+    print(trace.digest(rows, limit=limit))
+    return EXIT_OK
+
+
+def _since_seconds(since: str | None) -> float:
+    """``--since`` в абсолютное время: ``2d``/``12h``/``30m`` от сейчас или дата ГГГГ-ММ-ДД."""
+    if not since:
+        return 0.0
+    units = {"d": 86400.0, "h": 3600.0, "m": 60.0}
+    tail = since[-1].lower()
+    if tail in units and since[:-1].isdigit():
+        return time.time() - int(since[:-1]) * units[tail]
+    with contextlib.suppress(ValueError, OverflowError):
+        return time.mktime(time.strptime(since, "%Y-%m-%d"))  # локальная дата, как и весь след
+    return 0.0
+
+
 def _cmd_worker(key: str) -> int:
     """Показ внутри transient-юнита: своей раздачей, своей упаковкой и своим сторожем.
 
@@ -562,6 +603,7 @@ def _cmd_worker(key: str) -> int:
         entry = _duration(key, entry, source)
         watch = Watch(key=key, entry=entry)
         title = " ".join(filter(None, (entry.title, entry.label)))
+        trace.emit("session", "session_start", title=title, pos=round(entry.pos, 1))
         print(f"показ «{title}» с {_hms(entry.pos)}", flush=True)
         code = _play(
             config,
@@ -752,6 +794,15 @@ def _cmd_play(args: Args) -> int:
         f" {series.want}" if series else f" ({plan.picture.year or '?'})"
     )
     about = f"{what} · {quality_text(release, media)} · {label}"
+    trace.emit(
+        "select",
+        "select",
+        release=prep.number,
+        quality=quality_text(release, media),
+        track=label,
+        codec=media.video or "",
+        mbit=round(bitrate_mbit(video.size, media.duration or plan.runtime), 1),
+    )
     # Настоящий битрейт: размер файла серии/фильма на его же длительность, а не оценка.
     peak = bitrate_mbit(video.size, media.duration or plan.runtime)
     if peak > config.bitrate_warn_mbit:
@@ -832,6 +883,7 @@ def _search(config: Config, args: Args, progress: Progress) -> list[_Plan]:
     if _lacks_season(found, args):
         raw, pictures, found = _season_reinforce(client, query, args, raw, found, progress)
     mark("поиск", найдено=len(raw))
+    trace.emit("search", "query", query=query, raw=len(raw), pictures=len(pictures))
     if not raw:
         raise NotFoundError(f"по запросу «{name}» ничего не нашлось")
     if not pictures:
@@ -1573,6 +1625,7 @@ class _Bench:
                     print(warning)
                 return prep
             tried.append(f"{number} - {trouble}")
+            trace.emit("select", "drop", release=number, why=trouble)
             if not prep.error and prep.media is not None:  # ffprobe прочитал и осудил
                 verdicts += 1
             self._forget(prep)
@@ -2256,6 +2309,13 @@ def _play(
         # показа или стык серий.
         if watch is not None:
             watch.flush()
+            trace.emit(
+                "session",
+                "session_end",
+                pos=round(watch.entry.pos, 1),
+                dur=round(watch.entry.dur, 1),
+                watched=bool(watch.done),
+            )
         if warmer is not None:
             warmer.stop()
             # Досмотрено (порог 95 %) - прогретое стирается: держать на диске фильм,
@@ -2319,7 +2379,8 @@ def _hold(
     #: сегодняшняя. А сразу после перемотки, где число ещё старое, позиция изменилась -
     #: и счётчик подвиса обнулён.
     last = 0.0
-    trace = bool(os.environ.get(TRACE_ENV))
+    show_trace = bool(os.environ.get(TRACE_ENV))
+    buffering = was_offline = False
     while True:
         _ctl(receiver)
         if trouble := feed.trouble():
@@ -2337,7 +2398,16 @@ def _hold(
             # Картинка на экране - теперь CLI имеет право сказать «старт NN с».
             seen = True
             mark_playing(feed.out)
-        if trace:
+        # Ребуфер - только вход в BUFFERING, а не каждый опрос: иначе счётчик считал бы
+        # секунды подвиса, а не сами подвисы. Сеть - на переходе в offline и обратно.
+        if position.state == "BUFFERING" and not buffering:
+            trace.emit("play", "buffering", pos=round(position.pos, 1))
+        buffering = position.state == "BUFFERING"
+        if bool(feed.offline) != was_offline:
+            was_offline = bool(feed.offline)
+            if was_offline:
+                trace.emit("play", "offline", why=str(feed.offline))
+        if show_trace:
             front = feed.front(position.pos)
             print(
                 f"запас: показ {position.pos:.0f} · упаковано {front:.0f} · "

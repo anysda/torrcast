@@ -27,7 +27,16 @@ TIMELINE_ENV: Final = "TORRCAST_TIMELINE"
 
 
 def mark(name: str, **facts: object) -> None:
-    """Отметить фазу критического пути. Без ``TORRCAST_TIMELINE`` — no-op."""
+    """Отметить фазу критического пути.
+
+    Секундомер старта (файл ``TORRCAST_TIMELINE``) остаётся выключенным по умолчанию, а вот
+    в недельный след фаза уходит всегда: он и заведён затем, чтобы знать про сеанс всё, и
+    все точки ``mark`` (поиск, индексеры, старт показа, прогрев) он подбирает даром, не
+    заводя вторых вызовов. Запись буферизованная и не в горячем пути (:func:`torrcast.trace.emit`).
+    """
+    from torrcast import trace
+
+    trace.emit("timeline", name, **facts)
     path = os.environ.get(TIMELINE_ENV)
     if not path:
         return

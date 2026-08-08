@@ -270,6 +270,10 @@ _PASS_ENV: Final = (
     "TORRCAST_TRACE",
     "TORRCAST_CTL",
     TIMELINE_ENV,
+    # Каталог недельного следа и общий id сеанса: без них показ вёл бы след в боевой
+    # каталог и под другим id, и поиск с показом не склеились бы в один сеанс.
+    "TORRCAST_LOG",
+    "TORRCAST_SID",
 )
 
 
@@ -2593,7 +2597,9 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         if body:
             sent = time.monotonic()
             self.wfile.write(data)
-            self._sent(name, len(data), time.monotonic() - sent)
+            took = time.monotonic() - sent
+            self._sent(name, len(data), took)
+            self._log_segment(name, began, len(data), took)
 
     def _read(self, name: str) -> bytes | None:
         """Тело ответа: манифест на весь фильм или сегмент, дождавшись упаковки."""
@@ -2665,6 +2671,27 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             f"отдал {name} · {size / 1e6:.1f} МБ за {seconds:.1f} с"
             f" · {size * 8 / seconds / 1e6:.1f} Мбит/с",
             flush=True,
+        )
+
+    def _log_segment(self, name: str, began: float, size: int, took: float) -> None:
+        """Каждый отданный сегмент - в недельный след: номер, вес, время отдачи и ожидания.
+
+        🔴 Это горячий путь. :func:`torrcast.trace.emit` только кладёт запись в очередь -
+        ни ``open``, ни ``write``, ни ``flush`` тут не случается, показ не ждёт журнал.
+        Отдельно от ``TORRCAST_TRACE`` (:meth:`_sent`): тот пишет в консоль по требованию, а
+        след ведётся всегда. Манифест не пишем - он не сегмент и дёргается на каждый опрос.
+        """
+        if not name.endswith(".ts"):
+            return
+        from torrcast import trace
+
+        trace.emit(
+            "play",
+            "segment",
+            slot=segment_slot(name),
+            mb=round(size / 1e6, 2),
+            sent=round(took, 3),
+            wait=round(time.monotonic() - began - took, 3),
         )
 
     def log_message(self, fmt: str, *args: Any) -> None:

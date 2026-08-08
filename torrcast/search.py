@@ -205,17 +205,26 @@ class Prowlarr:
             return None
         self._session = self._session or self._new_session()
         got: list[list[RawResult]] = []
+        counts: dict[str, int] = {}
         lost: list[str] = []
         why_lost = ""
         with ThreadPoolExecutor(max_workers=len(known)) as pool:
             asked = [(name, pool.submit(self._one, query, limit, num)) for num, name in known]
         for name, task in asked:
             try:
-                got.append(task.result())
+                rows = task.result()
             except InfraError as exc:
                 lost.append(name)
                 why_lost = str(exc)
+            else:
+                got.append(rows)
+                counts[name] = len(rows)
         self.silent = tuple(lost)
+        from torrcast import trace
+
+        # Полный расклад круга в недельный след: кто сколько отдал и кто смолчал. mark ниже
+        # заводится лишь на потерю (это фаза старта), а следу нужен и весь ответивший круг.
+        trace.emit("search", "indexers", got=counts, silent=list(lost))
         if lost:
             mark("индексеры", молчат=lost, бюджет=_INDEXER_TIMEOUT)
         if not got:  # молчат все до одного - это не «ничего не нашлось», а инфра
