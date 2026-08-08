@@ -385,8 +385,37 @@ ffmpeg_confined() {  # $1 — имя/путь бинаря; 0 = заперт в 
     esac
 }
 
+#: Уже стоящую свою сборку спрашиваем ПО ПУТИ, а не по PATH: на PATH её заслоняет
+#: любой другой ffmpeg (снап, пакетный), и повторный заход качал бы те же десятки
+#: мегабайт заново. Проверка та же, что и для чужой сборки: версия плюс MPEG-TS в деле,
+#: то есть «уже на месте» говорится только про годный бинарь.
+#: ⚠️ Спрашивать версию у отсутствующего файла нельзя: под `set -e` установка оборвётся
+#: на коде 127 - отсюда проверка на -x до вопроса.
+ffmpeg_ours_ok() {  # 0 = /usr/local/bin/ffmpeg на месте, годной версии и живой
+    [ -x /usr/local/bin/ffmpeg ] && [ -x /usr/local/bin/ffprobe ] || return 1
+    local mine probe rc=1
+    mine="$(ffmpeg_version /usr/local/bin/ffmpeg || true)"
+    [ -n "$mine" ] || return 1
+    dpkg --compare-versions "$mine" ge "$FFMPEG_MIN" 2>/dev/null || return 1
+    probe="$(mktemp -d)"
+    # Строку про пройденный MPEG-TS уводим в stderr: stdout тут - это версия, которую
+    # читает вызывающий, и чужая строка в нём стала бы «версией».
+    ffmpeg_smoke "$probe" /usr/local/bin/ffmpeg /usr/local/bin/ffprobe >&2 && rc=0
+    rm -rf "$probe"
+    [ "$rc" = 0 ] || return 1
+    printf '%s' "$mine"
+}
+
 install_ffmpeg() {
-    local have reject=""
+    local have reject="" mine
+    # Своя сборка уже стоит - ничего не качаем. Переставить принудительно: удалить
+    # /usr/local/bin/ffmpeg (так же переставляются TorrServer и Prowlarr) и запустить
+    # установку снова.
+    if mine="$(ffmpeg_ours_ok)"; then
+        skip "статическая сборка ffmpeg $mine в /usr/local/bin \
+(переставить - удали файл и запусти снова)"
+        return
+    fi
     have="$(ffmpeg_version ffmpeg)"
     if [ -n "$have" ] && ffmpeg_confined ffmpeg; then
         info "ffmpeg $have из snap: в $PREFIX, $STATE_DIR и $HLS_DIR его конфайнмент \
