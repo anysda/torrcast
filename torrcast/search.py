@@ -93,6 +93,11 @@ class RawResult:
     size: int = 0
     seeders: int = 0
     indexer: str = ""
+    #: Сколькими строками выдачи приехала эта раздача: индексеры зеркалят друг друга, и
+    #: один торрент приходит от нескольких сразу. :func:`merge` оставляет одну строку, но
+    #: помнит, сколько их было - иначе счёт «сколько нашлось» зависел бы от того, как
+    #: устроен опрос индексеров, а не от каталога.
+    copies: int = 1
 
     @property
     def magnet(self) -> str:
@@ -280,12 +285,25 @@ def merge(*batches: list[RawResult]) -> list[RawResult]:
     Один и тот же торрент приходит и по русскому названию, и по латинскому, а
     ещё и из разных индексеров - тождество тут ровно одно, ``infoHash``. Порядок
     сохраняем: раздачи первого запроса идут первыми.
+
+    ⚠️ Сколькими строками раздача приехала - не пустяк, а :attr:`RawResult.copies`. Пока
+    индексеры спрашивались общим запросом, зеркальный торрент считался столько раз,
+    сколько индексеров его несут, и все замеры «сколько нашлось» сделаны в этих строках.
+    Склейка их обнулять не вправе: иначе один и тот же каталог выглядит то полным, то
+    тощим - смотря как опрошены индексеры. Считаем по РАЗНЫМ индексерам, а не по строкам:
+    добор вторым именем приносит те же раздачи от тех же индексеров, и складывать круги
+    значило бы удваивать каталог на ровном месте.
     """
     seen: dict[str, RawResult] = {}
+    sources: dict[str, set[str]] = {}
+    carried: dict[str, int] = {}
     for batch in batches:
         for item in batch:
-            seen.setdefault(item.info_hash.lower(), item)
-    return list(seen.values())
+            key = item.info_hash.lower()
+            seen.setdefault(key, item)
+            sources.setdefault(key, set()).add(item.indexer)
+            carried[key] = max(carried.get(key, 1), item.copies)
+    return [replace(r, copies=max(len(sources[k]), carried[k])) for k, r in seen.items()]
 
 
 def to_releases(results: list[RawResult]) -> list[Release]:
@@ -297,6 +315,7 @@ def to_releases(results: list[RawResult]) -> list[Release]:
             seeders=item.seeders,
             magnet=item.magnet,
             indexer=item.indexer,
+            copies=item.copies,
         )
         for item in results
     ]

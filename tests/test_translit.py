@@ -46,10 +46,10 @@ def _knows(monkeypatch: pytest.MonkeyPatch, passports: dict[str, Origin]) -> lis
     return asked
 
 
-def raw(name: str, number: int, seeders: int = 100) -> RawResult:
+def raw(name: str, number: int, seeders: int = 100, indexer: str = "Knaben") -> RawResult:
     """Строка выдачи: hash различает раздачи, по нему же они и склеиваются."""
     return RawResult(
-        title=name, info_hash=f"{number:040x}", size=int(8 * GB), seeders=seeders, indexer="Knaben"
+        title=name, info_hash=f"{number:040x}", size=int(8 * GB), seeders=seeders, indexer=indexer
     )
 
 
@@ -109,6 +109,25 @@ def test_merge_keeps_each_torrent_once_and_holds_the_order() -> None:
     assert [r.title for r in merged] == ["Психо", "Психо", "Psycho"]
 
 
+def test_merge_remembers_how_many_indexers_carried_the_torrent() -> None:
+    """Склеили три зеркальные выдачи - раздача одна, но строк за ней три."""
+    mirrors = [
+        [raw("Психо / Psycho (1960) DVDRip", 1, indexer=name)]
+        for name in ("Knaben", "RuTor", "Nyaa.si")
+    ]
+    merged = merge(*mirrors)
+    assert [r.copies for r in merged] == [3]
+
+
+def test_merge_does_not_count_the_same_indexer_twice() -> None:
+    """Второй круг по другому имени приносит те же строки от тех же индексеров - каталог
+    от этого не удваивается: считаем разные индексеры, а не сложенные круги.
+    """
+    ru_round = merge([raw("Психо / Psycho (1960) DVDRip", 1, indexer="Knaben")], [])
+    latin_round = [raw("Psycho 1960 DVDRip", 1, indexer="Knaben")]
+    assert [r.copies for r in merge(ru_round, latin_round)] == [1]
+
+
 class _FakeProwlarr:
     """Индексер, который русский запрос знает хуже латинского - как живой."""
 
@@ -166,6 +185,56 @@ def test_full_russian_pool_is_not_searched_twice(monkeypatch: pytest.MonkeyPatch
 
     assert client.asked == ["психо"]
     assert len(plans[0].picture.releases) == THIN_POOL
+
+
+def _mirror(count: int, *indexers: str) -> list[RawResult]:
+    """Одни и те же ``count`` раздач «Психо», принесённые каждым из индексеров.
+
+    Так и выглядит живой круг: Knaben несёт то же, что nyaa и остальные, и после склейки
+    по ``infoHash`` от трёх выдач остаётся одна.
+    """
+    return merge(
+        *[
+            [raw(f"Психо / Psycho (1960) DVDRip {i}", i, indexer=name) for i in range(count)]
+            for name in indexers
+        ]
+    )
+
+
+def test_a_mirrored_pool_is_not_mistaken_for_a_thin_one(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Шесть раздач от трёх зеркалящих индексеров - восемнадцать строк выдачи, и это не
+    повод для второго круга: столько же строк отдавал и общий запрос, по которому мерился
+    порог. Иначе цена поиска зависела бы от того, сколько индексеров дублируют друг друга.
+    """
+    client = _FakeProwlarr(
+        {
+            "психо": _mirror(6, "Knaben", "RuTor", "Nyaa.si"),
+            "psycho": [raw(f"Psycho.1960.1080p.BluRay.x264-GRP{i}", 100 + i) for i in range(40)],
+        }
+    )
+
+    plans, _said = _search(client, "психо", monkeypatch)
+
+    assert client.asked == ["психо"], "зеркала склеились - но каталог от этого не обеднел"
+    assert len(plans[0].picture.releases) == 6
+
+
+def test_a_truly_poor_pool_still_asks_the_latin_title(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Те же шесть раздач, но их несёт один индексер: шесть строк - пул честно тощий,
+    и второй круг по латинскому имени обязан случиться. Механизм не заглушён.
+    """
+    client = _FakeProwlarr(
+        {
+            "психо": _mirror(6, "Knaben"),
+            "psycho": [raw(f"Psycho.1960.1080p.BluRay.x264-GRP{i}", 100 + i) for i in range(40)],
+        }
+    )
+
+    plans, said = _search(client, "психо", monkeypatch)
+
+    assert client.asked == ["психо", "Psycho"]
+    assert len(plans[0].picture.releases) == 46
+    assert "добрал по «Psycho»" in said
 
 
 def test_a_series_missing_the_wanted_season_is_topped_up_by_the_season_string(

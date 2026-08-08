@@ -876,7 +876,10 @@ def _search(config: Config, args: Args, progress: Progress) -> list[_Plan]:
     pictures = cluster(to_releases(raw))
     # Номер в запросе - позиция во франшизе, а не в общей выдаче.
     found = pick_franchise(query, pictures)
-    if max((len(p.releases) for p in found), default=0) < THIN_POOL:
+    # Тощесть меряется строками выдачи (:attr:`~torrcast.parse.Picture.rows`), а не
+    # склеенными раздачами: зеркалящие индексеры несут один торрент по разу каждый, и по
+    # склеенному пулу порог срабатывал бы тем чаще, чем больше зеркал в круге.
+    if max((p.rows for p in found), default=0) < THIN_POOL:
         raw, pictures, found = _second_language(client, query, raw, found, progress)
     # Сериал есть, а раздач нужного сезона в нём нет - добрать сезонной строкой по
     # оригиналу, прежде чем честно отказать (:func:`_season_reinforce`).
