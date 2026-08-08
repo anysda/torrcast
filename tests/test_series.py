@@ -77,7 +77,7 @@ def test_season_pack_maps_every_file_to_its_own_season() -> None:
     assert {f.season for f in found} == {1, 2, 3}
     assert sne(found)[:2] == ["s1e1", "s1e2"]
     assert sne(found)[7] == "s2e1", "после последней серии сезона идёт первая следующего"
-    assert found[7].index == 8, "и её файл — тот, что лежит в каталоге Season 2"
+    assert found[7].index == 8, "и её файл - тот, что лежит в каталоге Season 2"
 
 
 def test_subtitles_and_bonus_files_are_not_episodes() -> None:
@@ -105,7 +105,7 @@ def test_cyrillic_x_between_season_and_episode() -> None:
     """
     pack = files(
         "Scrubs/Season 2/Scrubs 2x24 My Dream Job.avi",
-        "Scrubs/Season 3/Scrubs 3х01 My Own American Girl.avi",  # х — U+0445
+        "Scrubs/Season 3/Scrubs 3х01 My Own American Girl.avi",  # х - U+0445
     )
 
     assert sne(map_episodes(pack)) == ["s2e24", "s3e1"]
@@ -233,7 +233,7 @@ def test_release_name_tells_which_seasons_it_covers() -> None:
 
     assert pack.seasons == (1, 2, 3, 4, 5, 6) and pack.covers(6) and not pack.covers(7)
     assert single.season == 2 and single.covers(2) and not single.covers(3)
-    assert silent.covers(1) and silent.covers(9), "имя молчит — решат файлы"
+    assert silent.covers(1) and silent.covers(9), "имя молчит - решат файлы"
 
 
 @pytest.mark.parametrize(
@@ -275,7 +275,7 @@ def test_a_season_pack_and_a_silent_name_are_never_accused_of_missing_an_episode
     assert pack.episodes == () and silent.episodes == ()
     assert pack.covers_episode(Episode(1, 1)) and pack.covers_episode(Episode(15, 20))
     assert silent.covers_episode(Episode(1, 1)) and silent.covers_episode(Episode(1, 6))
-    assert not pack.covers_episode(Episode(16, 1)), "сезона нет — и серии нет"
+    assert not pack.covers_episode(Episode(16, 1)), "сезона нет - и серии нет"
 
 
 def test_the_selector_prefers_the_pack_that_has_the_wanted_episode() -> None:
@@ -294,7 +294,7 @@ def test_the_selector_prefers_the_pack_that_has_the_wanted_episode() -> None:
     assert rank_releases([stub, full], runtime, 40.0)[0] is stub, "без серии решают сиды"
     assert rank_releases([stub, full], runtime, 40.0, want=Episode(1, 1))[0] is stub
     order = rank_releases([stub, full], runtime, 40.0, want=Episode(1, 20))
-    assert order[0] is full, "нужна двадцатая — верх тот, у кого она есть"
+    assert order[0] is full, "нужна двадцатая - верх тот, у кого она есть"
     assert order[1] is stub, "и всё же не выкинут: руками --release N его возьмут"
 
 

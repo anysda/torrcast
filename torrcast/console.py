@@ -101,7 +101,7 @@ def ask_line(question: str, default: str = "") -> str:
     """
     prompt = f"{question}: "
     if not stdin_is_tty():
-        print(f"{prompt}{default or '(терминала нет — беру по умолчанию)'}", flush=True)
+        print(f"{prompt}{default or '(терминала нет - беру по умолчанию)'}", flush=True)
         return clean(default).casefold()
     try:
         raw = input(prompt)
@@ -121,7 +121,7 @@ def ask(question: str, count: int, default: int = 1) -> int:
         if answer.isdigit() and 1 <= int(answer) <= count:
             return int(answer)
         print(f"нужен номер от 1 до {count}")
-        if not stdin_is_tty():  # спросить некого — вторым кругом висеть не будем
+        if not stdin_is_tty():  # спросить некого - вторым кругом висеть не будем
             return default
 
 
@@ -198,14 +198,14 @@ class Progress:
             with self._lock:
                 # ⚠️ Не выходим из потока на пустой фазе: между фазами `_text` пуст, а
                 # `phase()` заводит поток только пока его нет вовсе. Поток, ушедший на
-                # первом же `phase("")`, уносил с собой бегущее время всех следующих фаз —
-                # и на экране висело замершее «метаданные (DHT)… 0 с» ровно там, где
+                # первом же `phase("")`, уносил с собой бегущее время всех следующих фаз -
+                # и на экране висело замершее «метаданные (DHT)... 0 с» ровно там, где
                 # должен идти живой прогресс.
                 if self._text:
                     self._draw()
 
     def _draw(self) -> None:
-        line = f"{self._text}… {time.monotonic() - self._since:.0f} с"
+        line = f"{self._text}... {time.monotonic() - self._since:.0f} с"
         self.out.write("\r" + line + " " * max(0, self._width - len(line)))
         self.out.flush()
         self._width = len(line)
@@ -222,7 +222,7 @@ class Progress:
             return
         spent = time.monotonic() - self._since
         self._erase()
-        self._say(f"{self._text}… {spent:.1f} с")
+        self._say(f"{self._text}... {spent:.1f} с")
 
     def _say(self, text: str) -> None:
         self.out.write(text + "\n")

@@ -41,7 +41,7 @@ def rel(
         size=int(size_gb * GB),
         seeders=seeders,
         # Свой magnet на релиз: без него раздачи неразличимы, а подготовка их греет
-        # параллельно — и тест не может сказать, про какую именно раздача ffprobe.
+        # параллельно - и тест не может сказать, про какую именно раздача ffprobe.
         magnet=f"magnet:?xt=urn:btih:{abs(hash(name)):x}",
     )
 
@@ -93,7 +93,7 @@ def test_seeded_dvdrip_does_not_beat_a_live_1080p() -> None:
     dvd = rel(name="DVDRip", codec=None, quality=None, size_gb=1.4, seeders=800)
     hd = rel(name="1080p", seeders=40)
     assert rank_releases([dvd, hd], RUNTIME, 20.0)[0].raw_name == "1080p"
-    # Живого 1080p нет вовсе — берём просто самый обсиженный, DVDRip годится.
+    # Живого 1080p нет вовсе - берём просто самый обсиженный, DVDRip годится.
     sd = rel(name="ещё DVDRip", codec=None, quality=None, size_gb=1.4, seeders=5)
     assert rank_releases([sd, dvd], RUNTIME, 20.0)[0].raw_name == "DVDRip"
 
@@ -154,7 +154,7 @@ def test_table_shows_only_the_head_of_a_long_list() -> None:
 def test_missing_values_are_shown_as_dashes() -> None:
     text = render_table([rel(codec=None, quality=None, size_gb=0, voices=())], RUNTIME, 20.0)
     row = text.splitlines()[2]
-    assert "—" in row and "?" in row
+    assert "-" in row and "?" in row
 
 
 @pytest.mark.parametrize("size_gb,expected", [(4.0, ""), (28.0, "тяжёлый")])
@@ -192,7 +192,7 @@ class _FakeTorrServer:
 
     def wait_files(self, torrent_hash: str, timeout: float = 60.0) -> list[TorrFile]:
         if torrent_hash in self.dead:  # раздача с мёртвым роем: пиров нет и не будет
-            raise InfraError(f"раздача не отдала метаданные за {timeout:.0f} с — нет пиров")
+            raise InfraError(f"раздача не отдала метаданные за {timeout:.0f} с - нет пиров")
         return self.files
 
     def stream_url(self, torrent_hash: str, index: int) -> str:
@@ -226,7 +226,7 @@ def _plan(ranked: list[Release], recode_at: float = 10.0) -> Any:
 
     picture = Picture(title="Кино", year=1999, releases=ranked)
     # ``recode_at`` не украшение: в бою перекодирование включено (:class:`Config`), и
-    # именно от него зависит, отказ HEVC или сплошной перекод. Ноль — «перекодирование
+    # именно от него зависит, отказ HEVC или сплошной перекод. Ноль - «перекодирование
     # выключено», и тогда поведение обязано остаться прежним.
     return cli._Plan(
         picture=picture, ranked=ranked, runtime=RUNTIME, warn_mbit=20.0, recode_at=recode_at
@@ -252,7 +252,7 @@ def test_a_release_that_turns_out_not_to_be_h264_is_swapped_out_loudly(
 
     assert (prep.number, prep.found.video) == (2, "h264")
     assert prep.want.name == "movie.mkv"
-    assert "релиз 1 не годится (av1) — беру 2" in capsys.readouterr().out
+    assert "релиз 1 не годится (av1) - беру 2" in capsys.readouterr().out
     assert torrserver.dropped, "неподошедшая раздача из TorrServer убирается"
 
 
@@ -291,7 +291,7 @@ def test_hevc_is_still_refused_when_recoding_is_switched_off(
     prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer())), ranked, recode_at=0.0)
 
     assert prep.number == 2, "без перекодирования HEVC остаётся отказом"
-    assert "релиз 1 не годится (hevc) — беру 2" in capsys.readouterr().out
+    assert "релиз 1 не годится (hevc) - беру 2" in capsys.readouterr().out
 
 
 def test_a_dead_swarm_is_not_a_hang_but_the_next_release(
@@ -337,7 +337,7 @@ def test_silent_swarms_do_not_burn_the_tries_meant_for_verdicts(
     prep = _resolve(cli._Bench(cast(Any, torrserver)), ranked)
 
     printed = capsys.readouterr().out
-    assert prep.number == 5, "четыре молчаливых роя подряд — и всё же дошли до живого"
+    assert prep.number == 5, "четыре молчаливых роя подряд - и всё же дошли до живого"
     assert printed.count("нет пиров") == 4, "каждая осечка стоит строки, молчаливых нет"
     assert "беру 5" in printed
 
@@ -361,7 +361,7 @@ def test_the_walk_down_the_queue_stops_when_the_start_budget_is_out(
         _resolve(cli._Bench(cast(Any, torrserver)), ranked)
 
     assert "годного релиза нет" in str(caught.value) and "нет пиров" in str(caught.value)
-    assert capsys.readouterr().out.count("нет пиров") == 1, "бюджет вышел — второго похода нет"
+    assert capsys.readouterr().out.count("нет пиров") == 1, "бюджет вышел - второго похода нет"
 
 
 def test_an_explicitly_named_release_is_played_as_asked_with_a_loud_warning(
@@ -415,7 +415,7 @@ def test_three_failed_probes_end_with_an_honest_exit(
     with pytest.raises(NotFoundError) as caught:
         _resolve(cli._Bench(cast(Any, _FakeTorrServer())), ranked)
     assert "годного релиза нет" in str(caught.value)
-    assert "1 — av1" in str(caught.value) and "3 — vc1" in str(caught.value)
+    assert "1 - av1" in str(caught.value) and "3 - vc1" in str(caught.value)
     assert len(re.findall(r"беру \d", capsys.readouterr().out)) == 2  # не больше MAX_TRIES
 
 
@@ -480,7 +480,7 @@ def test_a_seeded_avi_no_longer_wins_the_top() -> None:
         seeders=140,
     )
     ranked = rank_releases([avi, avc], RUNTIME, 20.0)
-    assert ranked[0] is avc, "верх — годный WEB-DL-AVC"
+    assert ranked[0] is avc, "верх - годный WEB-DL-AVC"
     assert ranked[1] is avi, "и всё же не выкинут: судья по-прежнему ffprobe"
     assert cli.is_dated(avi, RUNTIME) and not cli.is_dated(avc, RUNTIME)
 
@@ -524,7 +524,7 @@ def test_a_series_pack_is_judged_by_the_size_of_one_episode() -> None:
     assert cli.bitrate_of(good, runtime) == pytest.approx(
         cli.bitrate_of(fat, runtime) * 0.75, rel=0.01
     ), "битрейт считается на серию: 60 ГБ на восьмерых против 80 ГБ на восьмерых"
-    assert cli.is_dated(old, runtime), "0.25 ГБ на серию — это SD, сколько бы сидов ни было"
+    assert cli.is_dated(old, runtime), "0.25 ГБ на серию - это SD, сколько бы сидов ни было"
     assert not cli.is_dated(good, runtime)
     assert rank_releases([old, good], runtime, 40.0)[0] is good
 
@@ -559,7 +559,7 @@ def test_dated_sinks_below_candidates_but_above_hevc() -> None:
     disc = rel(name="Кино (1999) DVD-Video", seeders=999)
     order = [r.raw_name for r in rank_releases([disc, dated, hevc, good], RUNTIME, 20.0)]
     assert order == ["web-dl", "DVDRip-AVC", "hevc", "Кино (1999) DVD-Video"]
-    assert is_candidate(dated, RUNTIME, 20.0), "старьё остаётся годным — судит ffprobe"
+    assert is_candidate(dated, RUNTIME, 20.0), "старьё остаётся годным - судит ffprobe"
 
 
 def test_a_name_that_admits_sd_sinks_below_any_hd() -> None:
@@ -571,7 +571,7 @@ def test_a_name_that_admits_sd_sinks_below_any_hd() -> None:
     hd = rel(name="WEB-DL 720p", codec=None, quality="720p", size_gb=4.0, seeders=12)
     assert cli.is_dated(sd, RUNTIME) and not cli.is_dated(hd, RUNTIME)
     assert rank_releases([sd, hd], RUNTIME, 25.0)[0] is hd
-    assert rank_releases([sd], RUNTIME, 25.0)[0] is sd, "другого нет — играем что есть"
+    assert rank_releases([sd], RUNTIME, 25.0)[0] is sd, "другого нет - играем что есть"
 
 
 def test_an_sd_rip_no_longer_outseeds_the_honest_1080p() -> None:
@@ -634,7 +634,7 @@ def test_the_ceiling_is_checked_again_by_the_file_not_by_the_torrent_size() -> N
     prep.media = Media(duration=5977.0, video="h264")
 
     assert bench._trouble(prep, pinned=False, warn_mbit=16.0) == "тяжёлый, ~18 Мбит/с"
-    assert bench._trouble(prep, pinned=True, warn_mbit=16.0) == "", "руками — берём"
+    assert bench._trouble(prep, pinned=True, warn_mbit=16.0) == "", "руками - берём"
     assert bench._trouble(prep, pinned=False, warn_mbit=20.0) == "", "прежний потолок брал"
 
 
@@ -652,12 +652,12 @@ def test_the_ceiling_weighs_the_video_track_not_the_ten_dubs_around_it() -> None
     prep = cli._Prep(number=1, release=rel(size_gb=13.3 * 1e9 / GB))
     prep.video = TorrFile(0, "moana2.mkv", 13_300_000_000)
     prep.media = Media(duration=5977.0, video="h264", video_bps=14_333_000.0)
-    assert bench._trouble(prep, pinned=False, warn_mbit=16.0) == "", "видео 14.3 — годится"
+    assert bench._trouble(prep, pinned=False, warn_mbit=16.0) == "", "видео 14.3 - годится"
 
     prep.media = Media(duration=5977.0, video="h264", video_bps=49_900_000.0)
     assert bench._trouble(prep, pinned=False, warn_mbit=25.0) == "тяжёлый, ~50 Мбит/с"
 
-    prep.media = Media(duration=5977.0, video="h264")  # паспорт молчит — по размеру
+    prep.media = Media(duration=5977.0, video="h264")  # паспорт молчит - по размеру
     assert bench._trouble(prep, pinned=False, warn_mbit=16.0) == "тяжёлый, ~18 Мбит/с"
 
 
@@ -814,7 +814,7 @@ def test_launch_line_shows_the_confirmed_resolution_not_the_claim() -> None:
     """«Моана 2»: имя обещает 1080p, ffprobe читает 1150×574 — печатаем факт."""
     assert cli.quality_text(rel(quality="1080p"), Media(5977.0, (), "h264", 574, 1150)) == "574p"
     assert cli.quality_text(rel(quality="1080p"), Media(5977.0, (), "h264", 1080, 1920)) == "1080p"
-    # ffprobe высоту не отдал — врать нечем, остаётся заявка имени и честный «?».
+    # ffprobe высоту не отдал - врать нечем, остаётся заявка имени и честный «?».
     assert cli.quality_text(rel(quality="720p"), Media(5977.0, (), "h264", 0)) == "720p"
     assert cli.quality_text(rel(quality=None), Media(5977.0, (), "h264", 0)) == "?"
 
@@ -827,7 +827,7 @@ def test_cropped_widescreen_is_not_a_liar() -> None:
     assert scope.quality == "1080p" and cli.understated(rel(quality="1080p"), scope) == ""
     liar = Media(5977.0, (), "h264", 574, 1150)  # живая «Моана 2», верх выдачи
     assert liar.quality == "574p" and cli.understated(rel(quality="1080p"), liar) != ""
-    # Имя не назвало ничего, а внутри HD — придираться не к чему.
+    # Имя не назвало ничего, а внутри HD - придираться не к чему.
     assert cli.understated(rel(quality=None), Media(5977.0, (), "h264", 720, 1280)) == ""
     assert cli.understated(rel(quality=None), liar) != ""
 
@@ -853,8 +853,8 @@ def test_a_top_that_turns_out_to_be_sd_gives_way_to_a_confirmed_1080p(
     prep = _resolve(cli._Bench(cast(Any, torrserver)), ranked)
 
     printed = capsys.readouterr().out
-    assert prep.number == 2, "среди честных обсиженность решает, но 574p — не честный 1080p"
-    assert "релиз 1 на деле 574p — беру 2 (настоящий 1080p)" in printed
+    assert prep.number == 2, "среди честных обсиженность решает, но 574p - не честный 1080p"
+    assert "релиз 1 на деле 574p - беру 2 (настоящий 1080p)" in printed
     assert torrserver.dropped, "отвергнутый верх не доедает полосу роя"
 
 
@@ -901,9 +901,9 @@ def test_when_the_neighbour_lies_too_we_play_the_truth_out_loud(
     prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer())), ranked)
 
     printed = capsys.readouterr().out
-    assert prep.number == 1, "лучше 574p рядом нет — играем то, что есть"
+    assert prep.number == 1, "лучше 574p рядом нет - играем то, что есть"
     assert "релиз 2 не лучше (576p)" in printed
-    assert "релиз 1 на деле 574p — честнее рядом нет, играю его" in printed
+    assert "релиз 1 на деле 574p - честнее рядом нет, играю его" in printed
 
 
 def test_a_named_release_is_never_second_guessed_for_quality(

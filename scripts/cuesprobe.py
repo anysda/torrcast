@@ -90,7 +90,7 @@ def main() -> int:
     t = time.monotonic()
     head = reader.read(0, args.head)
     out["head"] = time.monotonic() - t
-    print(f"голова {len(head) / 1e6:.2f} МБ — {out['head']:.2f} с")
+    print(f"голова {len(head) / 1e6:.2f} МБ - {out['head']:.2f} с")
 
     cues_at, scale, duration = head_scan(head)
     print(f"  Cues на {cues_at} (файл {want.size}), длина {duration * scale / 1e9:.0f} с")
@@ -101,7 +101,7 @@ def main() -> int:
     t = time.monotonic()
     chunk = reader.read(cues_at, args.tail)
     out["tail1"] = time.monotonic() - t
-    print(f"хвост одним куском {len(chunk) / 1e6:.2f} МБ — {out['tail1']:.2f} с")
+    print(f"хвост одним куском {len(chunk) / 1e6:.2f} МБ - {out['tail1']:.2f} с")
 
     ident, size, data = _walk(chunk, 0, 32)[0]
     print(f"  Cues: id={ident:#x} тело {size} байт, влезло в кусок: {data + size <= len(chunk)}")
@@ -109,7 +109,7 @@ def main() -> int:
         t = time.monotonic()
         rest = reader.read(cues_at + len(chunk), data + size - len(chunk))
         out["tail2"] = time.monotonic() - t
-        print(f"добор тела {len(rest) / 1e6:.2f} МБ — {out['tail2']:.2f} с")
+        print(f"добор тела {len(rest) / 1e6:.2f} МБ - {out['tail2']:.2f} с")
 
     out["total"] = sum(v for k, v in out.items() if k != "meta")
     print(json.dumps(out))

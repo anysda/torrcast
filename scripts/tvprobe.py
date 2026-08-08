@@ -30,7 +30,7 @@ from torrcast.recode import RECODE_DIR, Encode, Recoder, Weights
 from torrcast.state import load_config
 from torrcast.stream import Feed, Grid, HlsServer, film_keys, grid_for, hls_base, hls_dir, probe
 
-#: Позиция не двигается дольше этого при живом запасе упаковки — это подвис.
+#: Позиция не двигается дольше этого при живом запасе упаковки - это подвис.
 STALL = 3.0
 
 
@@ -91,7 +91,7 @@ def main() -> None:
         "--head-wait", type=float, default=12.0, help="ждать перекод первого сегмента, с"
     )
     parser.add_argument(
-        "--poll", type=float, default=0.5, help="как часто опрашивать приёмник, с (показ — 2.0)"
+        "--poll", type=float, default=0.5, help="как часто опрашивать приёмник, с (показ - 2.0)"
     )
     args = parser.parse_args()
 
@@ -103,12 +103,12 @@ def main() -> None:
         print(
             f"паспорт: видео {media.video_bps / 1e6:.2f} Мбит/с, на ТВ уедет {delivered:.2f} Мбит/с"
             if delivered > 0
-            else "паспорт веса видеодорожки не несёт — поправка наберётся по факту"
+            else "паспорт веса видеодорожки не несёт - поправка наберётся по факту"
         )
     grid = make_grid(args, delivered)
     slot = grid.slot_at(args.at)
     print(
-        f"сетка: {grid.count} сегментов; место {args.at:.1f} с — это v{slot} "
+        f"сетка: {grid.count} сегментов; место {args.at:.1f} с - это v{slot} "
         f"[{grid.start(slot):.3f}..{grid.end(slot):.3f}), соседи: "
         + ", ".join(
             f"{grid.start(k):.3f}" for k in range(max(0, slot - 1), min(grid.count, slot + 4))
@@ -119,12 +119,12 @@ def main() -> None:
     if args.recode:
         keys = film_keys(args.url)
         # Профиль как в показе: вес видеодорожки из паспорта ffprobe. ``--extra``
-        # оставлен ручным перебивом — им же меряется цена ошибки в поправке.
+        # оставлен ручным перебивом - им же меряется цена ошибки в поправке.
         weights = Weights.of(
             keys, grid, extra=args.extra, delivered=0.0 if args.extra else delivered
         )
         if weights is None:
-            print("карта без смещений — профиля тяжести нет")
+            print("карта без смещений - профиля тяжести нет")
         else:
             print(
                 f"поправка «контейнер → ТВ»: {weights.extra:.2f} Мбит/с "

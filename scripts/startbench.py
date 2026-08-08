@@ -44,7 +44,7 @@ def config(prod: Path, port: int) -> Path:
     body["hls_dir"] = "/dev/shm/torrcast-bench"
     body["hls_port"] = port
     # ⚠️ Ограждение: ни одного пакета к телевизору. Адрес раздачи задаётся руками,
-    # чтобы показ не искал маршрут до ТВ, а приёмник замера — mock, он никуда не звонит.
+    # чтобы показ не искал маршрут до ТВ, а приёмник замера - mock, он никуда не звонит.
     body["hls_base_url"] = f"http://127.0.0.1:{port}"
     body["tv"] = ""
     path = BENCH / "config.json"
@@ -140,7 +140,7 @@ def main() -> int:
     cfg = config(Path(args.prod_config), args.port)
     line = BENCH / "timeline.jsonl"
     line.unlink(missing_ok=True)
-    state.unlink(missing_ok=True)  # старт без сохранённой позиции — это и есть холодный
+    state.unlink(missing_ok=True)  # старт без сохранённой позиции - это и есть холодный
     shutil.rmtree("/dev/shm/torrcast-bench", ignore_errors=True)
     torrserver = json.loads(cfg.read_text("utf-8"))["torrserver_url"]
     query = args.query
@@ -162,7 +162,7 @@ def main() -> int:
     began = time.monotonic()
     # ⚠️ ``--think`` работает только через pty, и это не прихоть. Без терминала ask_line
     # штатно **не спрашивает вовсе** (чтобы не висеть на пайпе), поэтому ответы
-    # уходили мгновенно, сколько ни задерживай запись в stdin, — то есть «человек думает»
+    # уходили мгновенно, сколько ни задерживай запись в stdin, - то есть «человек думает»
     # на пайпе не воспроизводится в принципе, и прогреву под вопросом не достаётся ни
     # секунды. С pty `cast` видит терминал, ждёт Enter'а, и пауза становится настоящей.
     master = -1
@@ -197,8 +197,8 @@ def main() -> int:
         proc.kill()
         out, _ = proc.communicate()
     total = time.monotonic() - began
-    # CLI уходит, как только приёмник сказал «играю», — а первый сегмент к этому моменту
-    # ещё пакуется. Метрика — именно он, поэтому ждём его и только потом гасим показ.
+    # CLI уходит, как только приёмник сказал «играю», - а первый сегмент к этому моменту
+    # ещё пакуется. Метрика - именно он, поэтому ждём его и только потом гасим показ.
     seen.wait(args.segment_wait)
     stop.set()
     if master >= 0:
@@ -208,7 +208,7 @@ def main() -> int:
 
     print(out.rstrip())
     marks = {str(m["name"]): float(m["at"]) for m in read(line)}
-    # ⚠️ Ноль — Enter после последнего вопроса. Если такой метки в ленте нет (на пути
+    # ⚠️ Ноль - Enter после последнего вопроса. Если такой метки в ленте нет (на пути
     # продолжения её может не быть), нулём становится запуск юнита: он идёт сразу за
     # ответом (замерено: 0.05 с) и есть всегда.
     zero = "ответы" if "ответы" in marks else "юнит"

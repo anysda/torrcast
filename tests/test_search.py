@@ -50,7 +50,7 @@ def test_json_carries_size_and_seeders(json_results: list[RawResult]) -> None:
 
 def test_torznab_reads_infohash_from_attr(xml_results: list[RawResult]) -> None:
     """infohash и seeders в Torznab лежат не в тегах, а в ``torznab:attr``."""
-    assert len(xml_results) == 3  # четвёртый item — без infohash
+    assert len(xml_results) == 3  # четвёртый item - без infohash
     assert all(len(r.info_hash) == 40 for r in xml_results)
     assert all(r.indexer == "Knaben" for r in xml_results)
     assert any(r.seeders > 0 for r in xml_results)

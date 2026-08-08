@@ -148,7 +148,7 @@ def test_warming_lays_the_whole_clip_on_disk_and_reports_it(clip: str, tmp_path:
     vault = _vault(tmp_path)
     said: list[str] = []
     # Запас показа тут никто не меряет: прогрев проверяется сам по себе, без живой
-    # упаковки рядом, — поэтому сразу отдаём ему «запас есть» (:meth:`Warmer._wait_for_picture`).
+    # упаковки рядом, - поэтому сразу отдаём ему «запас есть» (:meth:`Warmer._wait_for_picture`).
     warmer = Warmer(
         source=clip, audio=0, grid=grid, vault=vault, rate=0.0, slack=1e6, log=said.append
     )
@@ -196,7 +196,7 @@ def test_the_show_end_takes_the_warmed_film_off_the_disk(
     watch = _Watch(key=key, entry=entry, every=0.0)
     assert _play(config, clip, 0, "тест", _Clock(), watch=watch) == 0
 
-    assert watch.done, "ролик не досмотрен — проверять уборку не на чем"
+    assert watch.done, "ролик не досмотрен - проверять уборку не на чем"
     assert not any(warm.rglob("v*.ts")), "прогретое пережило досмотренный показ"
     saved = State.load().get(key)
     assert saved is not None and saved.warm >= 0.0, "прогрев не виден состоянию"

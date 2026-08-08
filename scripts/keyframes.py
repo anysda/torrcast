@@ -39,7 +39,7 @@ def report(duration: float, points: tuple[Point, ...], grid: int) -> None:
         print(f"  пятёрка самых {what}:")
         for at, span, weight in sorted(gops, key=key)[-5:][::-1]:
             print(
-                f"    {int(at) // 60}:{int(at) % 60:02d} — {span:5.2f} с, {weight / 1e6:6.2f} МБ, "
+                f"    {int(at) // 60}:{int(at) % 60:02d} - {span:5.2f} с, {weight / 1e6:6.2f} МБ, "
                 f"{weight * 8 / span / 1e6:5.1f} Мбит/с"
             )
     if grid <= 0:

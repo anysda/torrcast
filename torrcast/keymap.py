@@ -50,10 +50,10 @@ from torrcast import InfraError, why
 __all__ = ["HEAD_PEEK", "KeyMap", "Point", "Reader", "keyframes", "video_track"]
 
 #: Сколько головы читаем сначала. Этого куска хватает и на то, чтобы узнать контейнер,
-#: и на то, чтобы найти индекс: у mkv в первых килобайтах лежат SeekHead и Info, у mp4 —
+#: и на то, чтобы найти индекс: у mkv в первых килобайтах лежат SeekHead и Info, у mp4 -
 #: заголовок ``moov``. У роя это не вопрос байтов, а вопрос **очереди**: пока не приехала
 #: голова, запрос к любому другому месту даже не отправлен. Замер:
-#: 4 МиБ головы стоят 1.5–5.2 с, 256 КиБ — 0.2–0.6 с.
+#: 4 МиБ головы стоят 1.5-5.2 с, 256 КиБ - 0.2-0.6 с.
 HEAD_PEEK: Final = 256 << 10
 
 
@@ -74,7 +74,7 @@ class KeyMap(NamedTuple):
     requests: int
     #: Контейнер, ``mkv`` или ``mp4``. Он уже известен по первым байтам головы, и знать
     #: его дальше по пути стоит ноль запросов, а решает многое: сколько головы греть,
-    #: чтобы ffmpeg открыл вход, — у mp4 там ``moov`` на мегабайты, у mkv хватает
+    #: чтобы ffmpeg открыл вход, - у mp4 там ``moov`` на мегабайты, у mkv хватает
     #: килобайт.
     kind: str = ""
 
@@ -95,7 +95,7 @@ class Reader:
         try:
             with urllib.request.urlopen(request, timeout=self.timeout) as answer:
                 data: bytes = answer.read()
-        # ValueError — это «источник вообще не URL» (путь к файлу в тестах и на dev).
+        # ValueError - это «источник вообще не URL» (путь к файлу в тестах и на dev).
         # Без неё показ падал бы ещё до упаковки там, где достаточно ровной сетки.
         except (urllib.error.URLError, OSError, ValueError) as exc:
             raise InfraError(f"не читается голова файла: {why(exc)}") from exc
@@ -113,11 +113,11 @@ def keyframes(url: str) -> KeyMap:
     """
     reader = Reader(url)
     head = reader.read(0, HEAD_PEEK)
-    if head[:4] == b"\x1a\x45\xdf\xa3":  # EBML — mkv/webm
+    if head[:4] == b"\x1a\x45\xdf\xa3":  # EBML - mkv/webm
         from torrcast import mkv
 
         return mkv.keys(reader, head)
-    # ISO BMFF: первый бокс файла — ftyp (иногда его нет и файл начинается сразу с moov).
+    # ISO BMFF: первый бокс файла - ftyp (иногда его нет и файл начинается сразу с moov).
     if head[4:8] in {b"ftyp", b"moov", b"free", b"skip", b"mdat", b"wide"}:
         from torrcast import mp4
 

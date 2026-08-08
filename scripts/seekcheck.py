@@ -154,7 +154,7 @@ class Consumer:
 
 def case_back(user: Consumer, keep: float) -> None:
     """Упаковка от нуля, показ ушёл вперёд, запрос — в самое начало фильма."""
-    print("\n— сценарий «упаковка с нуля → показ ушёл вперёд → запрос далеко назад» —")
+    print("\n- сценарий «упаковка с нуля → показ ушёл вперёд → запрос далеко назад» -")
     user.feed.restart(0)
     last = user.play(0, keep + 3 * user.feed.grid.span(0))
     left = sorted(s for s in _slots(user.feed) if s <= 1)
@@ -167,7 +167,7 @@ def case_mid(user: Consumer, keep: float) -> None:
     """То же наоборот: упаковка начата с середины, запрос уходит ниже её старта."""
     grid = user.feed.grid
     start = grid.slot_at(grid.duration / 2)
-    print(f"\n— сценарий «упаковка с середины (v{start}) → показ вперёд → запрос ниже старта» —")
+    print(f"\n- сценарий «упаковка с середины (v{start}) → показ вперёд → запрос ниже старта» -")
     user.feed.restart(start)
     last = user.play(start, grid.start(start) + keep + 3 * grid.span(start))
     print(f"  показ на {grid.end(last):.0f} с")
@@ -179,7 +179,7 @@ def case_fwd(user: Consumer) -> None:
     """Регресс: обычная перемотка вперёд далеко за край упаковки."""
     grid = user.feed.grid
     far = min(grid.slot_at(grid.duration * 0.8), grid.count - 2)
-    print(f"\n— регресс: перемотка вперёд на v{far} ({grid.start(far):.0f} с) —")
+    print(f"\n- регресс: перемотка вперёд на v{far} ({grid.start(far):.0f} с) -")
     waited = user.take(far, "прыжок вперёд")
     for slot in range(far + 1, far + 4):  # префетч живого приёмника: шесть кусков разом
         user.take(slot)
@@ -214,7 +214,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument("--source", help="URL потока (TorrServer)")
-    source.add_argument("--file", help="локальный файл — поднимем ему Range-раздачу сами")
+    source.add_argument("--file", help="локальный файл - поднимем ему Range-раздачу сами")
     parser.add_argument("--case", default="all", choices=("all", "back", "mid", "fwd"))
     parser.add_argument("--out", default="/dev/shm/seekcheck", help="каталог показа")
     parser.add_argument("--step", type=float, default=10.0, help="шаг сетки, с")
@@ -252,7 +252,7 @@ def main() -> int:
     began = time.monotonic()
     try:
         code, size, waited = get(f"{base}/index.m3u8", 30.0)
-        print(f"манифест: {code}, {size} байт на {grid.count} сегментов — за {waited:.2f} с")
+        print(f"манифест: {code}, {size} байт на {grid.count} сегментов - за {waited:.2f} с")
         if args.case in ("all", "back"):
             case_back(user, args.keep)
         if args.case in ("all", "mid"):
@@ -265,7 +265,7 @@ def main() -> int:
         shutil.rmtree(out, ignore_errors=True)
 
     print(
-        f"\nитог: 404 — {user.misses}, худшее ожидание {user.worst:.1f} с, "
+        f"\nитог: 404 - {user.misses}, худшее ожидание {user.worst:.1f} с, "
         f"всего {time.monotonic() - began:.0f} с"
     )
     return 0 if user.misses == 0 else 1

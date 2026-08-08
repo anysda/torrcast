@@ -70,9 +70,9 @@ def test_swarm_pulse_calls_a_byteless_stream_dead_only_after_the_grace(
     """Ни байта за отсрочку — рой мёртв; но пока отсрочка идёт, ждём: рой ещё может ожить."""
     monkeypatch.setattr("urllib.request.urlopen", lambda *a, **k: _Body(b""))
     alive = swarm_pulse("http://ts/x/0", grace=0.2)
-    assert alive()  # отсрочка не вышла — терпим
+    assert alive()  # отсрочка не вышла - терпим
     time.sleep(0.3)
-    assert not alive()  # байт нет и отсрочка вышла — рой молчит
+    assert not alive()  # байт нет и отсрочка вышла - рой молчит
 
 
 def test_swarm_pulse_stays_alive_once_a_byte_arrives(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -80,7 +80,7 @@ def test_swarm_pulse_stays_alive_once_a_byte_arrives(monkeypatch: pytest.MonkeyP
     monkeypatch.setattr("urllib.request.urlopen", lambda *a, **k: _Body(b"\x00" * 4096))
     alive = swarm_pulse("http://ts/x/0", grace=0.05)
     time.sleep(0.2)  # отсрочка давно вышла
-    assert alive()  # но байт был — раздача честно читается
+    assert alive()  # но байт был - раздача честно читается
 
 
 def test_a_silent_stream_is_dropped_before_the_full_probe_budget(

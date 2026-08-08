@@ -44,7 +44,7 @@ def test_watchdog_writes_position_not_more_often_than_the_interval() -> None:
     entry = remember(pos=0.0, dur=5978.0)
     watch = cli.Watch(key=KEY, entry=entry, every=3600.0)
 
-    watch.see(120.0)  # интервал не вышел — на диске по-прежнему ноль
+    watch.see(120.0)  # интервал не вышел - на диске по-прежнему ноль
 
     assert saved().pos == 0.0
     watch.every = 0.0
@@ -108,7 +108,7 @@ def test_resume_asks_once_and_starts_from_the_saved_position(
 
     printed = capsys.readouterr().out
     assert asked == ["«Моана 2» остановились на 0:41:07. Продолжить? [Да/сначала]: "]
-    assert "— на ТВ" in printed
+    assert "- на ТВ" in printed
     assert "ищу" not in printed, "resume не ходит в Prowlarr"
     assert started == [KEY]
     assert saved().pos == 2467.0 and saved().audio == 1
@@ -143,7 +143,7 @@ def test_new_goes_through_the_search_and_keeps_the_position_of_a_run_that_never_
     assert cli.main(["моана", "2", "--new"]) == 2
 
     kept = State.load().get(KEY)
-    assert kept is not None and kept.pos == 2467.0, "показ не начался — позиция на месте"
+    assert kept is not None and kept.pos == 2467.0, "показ не начался - позиция на месте"
     assert "остановились" not in capsys.readouterr().out
 
 
@@ -184,7 +184,7 @@ def test_status_shows_what_is_playing_and_from_where(
     assert cli.main(["status"]) == 0
 
     printed = capsys.readouterr().out
-    assert "играю «Моана 2» — 0:41:07 / 1:39:38" in printed
+    assert "играю «Моана 2» - 0:41:07 / 1:39:38" in printed
     assert KEY in printed and "файл #2" in printed and "дорожка 2" in printed
 
 

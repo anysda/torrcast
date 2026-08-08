@@ -62,7 +62,7 @@ _LATIN: Final = re.compile(r"[a-z]", re.IGNORECASE)
 _QUALITY_RE: Final = re.compile(r"\b(2160p|1080p|720p|576p|480p|360p|4k|uhd)\b", re.IGNORECASE)
 _HEVC_RE: Final = re.compile(r"\b(hevc|h\.?\s?265|x265)\b", re.IGNORECASE)
 _H264_RE: Final = re.compile(r"\b(avc|h\.?\s?264|x264)\b", re.IGNORECASE)
-#: MPEG-4 Part 2 (XviD/DivX и родня). Читается ПОСЛЕ H.264: «MPEG-4 AVC» — это H.264,
+#: MPEG-4 Part 2 (XviD/DivX и родня). Читается ПОСЛЕ H.264: «MPEG-4 AVC» - это H.264,
 #: и порядок в :func:`_parse_codec` разводит их сам, без хитрых заглядываний вперёд.
 _MPEG4_RE: Final = re.compile(
     r"\b(xvid|divx|dx50|div3|3ivx|ms-?mpeg-?4|mpeg-?4|mp4v)\b", re.IGNORECASE
@@ -71,7 +71,7 @@ _AV1_RE: Final = re.compile(r"\bav1\b", re.IGNORECASE)
 _HDR_RE: Final = re.compile(r"\b(hdr10\+?|hdr|dolby\s*vision|dv)\b", re.IGNORECASE)
 #: Контейнер .avi в имени. Внутри .avi H.264 бывает, но на живой выдаче (36 раздач,
 #: у которых удалось достать .torrent и заглянуть в имена файлов) все восемь .avi
-#: оказались SD-рипами MPEG-4 — ни одного исключения.
+#: оказались SD-рипами MPEG-4 - ни одного исключения.
 _AVI_RE: Final = re.compile(r"\.avi\b", re.IGNORECASE)
 
 #: Источник картинки. Порядок важен: первый сработавший и есть ответ.
@@ -128,7 +128,7 @@ _TAG_ONLY_RE: Final = re.compile(
 )
 #: Виды перевода из :data:`_VOICES`, наличие которых в имени и есть обещание русской
 #: ЗВУКОВОЙ дорожки. «Субтитры» и «Original» сюда не входят намеренно: читать титры
-#: вместо озвучки решено не предлагать, а «оригинал» — это как раз то, чего не понять.
+#: вместо озвучки решено не предлагать, а «оригинал» - это как раз то, чего не понять.
 _DUBBED: Final = frozenset(
     {"Гоблин", "Дубляж", "Многоголосый", "Двухголосый", "Авторский", "Одноголосый"}
 )
@@ -147,15 +147,15 @@ _SUB_MENTION_RE: Final = re.compile(
 
 #: Русская дорожка названа языковой меткой. Живая выдача аниме держится ровно на них:
 #: «[RUS(int)]» (дорожка внутри контейнера), «[RUS(ext), ENG, JAP+Sub]» (отдельным
-#: файлом), «[RUS + JAP]». Голое ``ru`` сюда не годится — его дают адреса трекеров
+#: файлом), «[RUS + JAP]». Голое ``ru`` сюда не годится - его дают адреса трекеров
 #: («kinozal.ru») в хвосте имени.
 _RU_AUDIO_RE: Final = re.compile(r"\brus\b|\brussian\b|\bрус\b|русск\w*", re.IGNORECASE)
 
-#: Студии русской озвучки аниме: у них имя студии — единственный маркер дорожки во всём
-#: имени («… BDRip-HEVC 1080p | Shiza Project», «Naruto- Shippuuden - AniLiberty.TOP»).
+#: Студии русской озвучки аниме: у них имя студии - единственный маркер дорожки во всём
+#: имени («... BDRip-HEVC 1080p | Shiza Project», «Naruto- Shippuuden - AniLiberty.TOP»).
 #: Список нарочно короткий и из различимых имён: английские фан-саб-группы Nyaa
 #: (SubsPlease, Judas, MTBB, Trix, Arid, QM) сюда попасть не должны ни при каких
-#: обстоятельствах — у них японский звук и английские титры.
+#: обстоятельствах - у них японский звук и английские титры.
 _RU_STUDIO_RE: Final = re.compile(
     r"anilib(?:ria|erty)|ani-?dub|shiza|animevost|ani-?media|anistar|anifilm|"
     r"animaunt|anirise|aniplague|aniomnia|persona\s*99|kansai|ancord|jaskier|"
@@ -204,7 +204,7 @@ _TITLE_TAIL_RE: Final = re.compile(
 )
 _BRACKETS_RE: Final = re.compile(r"[\[(][^\[\]()]*[\])]")
 _OPEN_BRACKET_RE: Final = re.compile(r"[\[(]")
-#: Явный номер части в самом названии: «Тачки 3», «Форсаж - 8», «Терминатор II: …».
+#: Явный номер части в самом названии: «Тачки 3», «Форсаж - 8», «Терминатор II: ...».
 _PART_NUMBER_RE: Final = re.compile(r"^.+?[\s,-]+(\d{1,2}|[ivx]{1,4})(?=\s*[:.]|\s*$)", re.I)
 _ROMAN: Final[dict[str, int]] = {
     "i": 1,
@@ -227,7 +227,7 @@ _YEAR_PATTERNS: Final[tuple[re.Pattern[str], ...]] = (
 _SEASON_EPISODE_RES: Final[tuple[re.Pattern[str], ...]] = (
     re.compile(r"\bs\s*(?P<season>\d{1,2})\s*[.\-_ ]?\s*e\s*(?P<episode>\d{1,3})\b", re.IGNORECASE),
     re.compile(r"\b(?P<season>\d{1,2})\s*[xх]\s*(?P<episode>\d{1,3})\b", re.IGNORECASE),
-    # Хвост слова забираем целиком: «5 серия» вырезается из запроса без остатка «…я».
+    # Хвост слова забираем целиком: «5 серия» вырезается из запроса без остатка «...я».
     re.compile(r"(?P<season>\d{1,2})\s*сезон\D{0,14}?(?P<episode>\d{1,3})\s*сери\w*", re.I),
     re.compile(r"(?P<episode>\d{1,3})\s*сери\D{0,14}?(?P<season>\d{1,2})\s*сезон\w*", re.I),
 )
@@ -242,7 +242,7 @@ _SEASON_SPAN_RES: Final[tuple[re.Pattern[str], ...]] = (
     re.compile(r"\b(\d{1,2})\s*-\s*(\d{1,2})\s*(?:сезон\w*|seasons?)\b", re.IGNORECASE),
 )
 #: Серии, лежащие ВНУТРИ раздачи, по её имени. Порядок обязателен: сначала диапазон
-#: («1-5 из 220» = серии 1…5), потом счёт («220 of 220» = все 220, то есть 1…220).
+#: («1-5 из 220» = серии 1...5), потом счёт («220 of 220» = все 220, то есть 1...220).
 #: Прочитай их наоборот - и полный сезон превратился бы в одну серию, а огрызок в пак.
 #: Числа ограничены тремя цифрами и обрамлены стражами ``(?<!\d)/(?!\d)``: без них
 #: «(2005-2020)» в имени читалось бы как диапазон серий.
@@ -268,7 +268,7 @@ _EPISODE_ONLY_RES: Final[tuple[re.Pattern[str], ...]] = (
     re.compile(r"\b(?P<episode>\d{1,3})\s*(?:из|of)\s*\d{1,3}\b", re.IGNORECASE),
     re.compile(r"\b(?P<episode>\d{1,3})\s*-?\s*(?:я|ая)?\s*сери", re.IGNORECASE),
 )
-#: Расширения видео: всё прочее в раздаче — субтитры, обложки и мусор.
+#: Расширения видео: всё прочее в раздаче - субтитры, обложки и мусор.
 VIDEO_EXT: Final = (".mkv", ".mp4", ".avi", ".ts", ".m2ts", ".mov", ".webm", ".m4v", ".mpg")
 #: Файлы, которые серией не являются, даже если номер в имени есть: сэмплы, трейлеры,
 #: опенинги/эндинги без титров (аниме-раздачи держат их отдельной папкой), бонусы.
@@ -291,7 +291,7 @@ _SMALL_RATIO: Final = 0.35
 #: больше нигде (OVA, ONA). Сюда же метка ``[TV]`` / ``[ТВ-2]``: так подписывает
 #: сериалы ровно анимешный раздел, у обычного сериала в имени стоит ``[S01]``.
 #:
-#: Цена ошибки в обе стороны — секунды, а не подмена: признак отключает ОДНУ
+#: Цена ошибки в обе стороны - секунды, а не подмена: признак отключает ОДНУ
 #: прикидку по размеру (:func:`~torrcast.cli.is_dated`), а годность как решал, так и
 #: решает ffprobe после выбора. Поэтому список и держится узким, а не «на всякий».
 _ANIME_RE: Final = re.compile(
@@ -299,18 +299,18 @@ _ANIME_RE: Final = re.compile(
     r"\bsho[uw]?nen\b|\bshoujo\b|\bseinen\b|\bova\b|\bona\b|\[\s*tv\s*-?\s*\d?\s*\]|\bтв-\d",
     re.IGNORECASE,
 )
-#: Индексеры, у которых аниме — всё, что там лежит. Имя приходит от Prowlarr как есть.
+#: Индексеры, у которых аниме - всё, что там лежит. Имя приходит от Prowlarr как есть.
 _ANIME_INDEXERS: Final = ("nyaa", "anilib", "anidub", "animelayer")
 
 #: Токены кодека: цифры в них к сериям отношения не имеют. Вырезаются только в разборе
-#: сериальности (:func:`_parse_series`) — сам кодек читается отдельно и раньше.
+#: сериальности (:func:`_parse_series`) - сам кодек читается отдельно и раньше.
 _CODEC_TOKEN_RE: Final = re.compile(
     r"\b[xх]\s?26[456]\b|\bh\.?\s?26[456]\b|\bavc\b|\bhevc\b|\bav1\b|\bvp9\b|\bdiv[x]\b",
     re.IGNORECASE,
 )
 
 #: Сериальность без номера сезона: «12 из 24», «E12 of 12», «[ТВ-2]».
-#: Голое ``episode``/``tv`` сюда не годится — «Star Wars Episode I» это фильм.
+#: Голое ``episode``/``tv`` сюда не годится - «Star Wars Episode I» это фильм.
 _SERIES_HINT_RE: Final = re.compile(
     r"\d+\s*(?:из|of)\s*\d+|сери[ия]\b|сезон|\bseason\b|\bs\d{1,2}\b|"
     r"\bсериал|\[tv\]|\bтв-\d",
@@ -333,10 +333,10 @@ class Release:
     voices: tuple[str, ...] = ()
     season: int | None = None
     episode: int | None = None
-    #: Сезоны пака целиком: ``[S01-06]`` → (1…6). Пусто — сезон один или не назван.
+    #: Сезоны пака целиком: ``[S01-06]`` → (1...6). Пусто - сезон один или не назван.
     seasons: tuple[int, ...] = ()
-    #: Серии, которые лежат ВНУТРИ раздачи, по её имени: ``[S01E01-08 of 220]`` → (1…8),
-    #: ``[E220 of 220]`` → (1…220). Пусто — имя о серияx молчит, и решат файлы.
+    #: Серии, которые лежат ВНУТРИ раздачи, по её имени: ``[S01E01-08 of 220]`` → (1...8),
+    #: ``[E220 of 220]`` → (1...220). Пусто - имя о серияx молчит, и решат файлы.
     episodes: tuple[int, ...] = ()
     size: int = 0
     seeders: int = 0
@@ -517,7 +517,7 @@ class Picture:
     #: Явный номер части, если он был хоть в одном варианте перевода названия.
     part: int | None = None
     #: Второе имя картины, под которым её же раздачи лежат в каталоге отдельной кучкой
-    #: (:func:`glue`). Пусто — склейки не было, имя в каталоге одно.
+    #: (:func:`glue`). Пусто - склейки не было, имя в каталоге одно.
     also: str = ""
     releases: list[Release] = field(default_factory=list)
 
@@ -598,7 +598,7 @@ def part_number(title: str) -> int | None:
     if not match:
         return None
     if re.search(r"\d\s*[-,]\s*$", title[: match.start(1)]):
-        return None  # «Форсаж 1-4», «Матрица 1,2,3» — это диапазон, а не номер части
+        return None  # «Форсаж 1-4», «Матрица 1,2,3» - это диапазон, а не номер части
     token = match.group(1).lower()
     return int(token) if token.isdigit() else _ROMAN.get(token)
 
@@ -787,7 +787,7 @@ def _collect(
         if season is None:
             season = _season_of(item.name, hint)
         was = picked.get((season, episode))
-        if was is None or item.size > was.size:  # тот же номер дважды — берём файл крупнее
+        if was is None or item.size > was.size:  # тот же номер дважды - берём файл крупнее
             picked[(season, episode)] = item
     # Разнобой: номера повторяются (значит, читали не то) или разобралась горстка файлов.
     if strict and (not picked or len(picked) * 10 < matched * 9 or matched * 2 < len(videos)):
@@ -894,7 +894,7 @@ def cluster(releases: list[Release]) -> list[Picture]:
         if release.original and _CYRILLIC.search(release.title):
             aliases.setdefault(slugify(release.original), slugify(release.title))
 
-    # Ключ кластера — русский slug; при совпадении оригинала и года варианты
+    # Ключ кластера - русский slug; при совпадении оригинала и года варианты
     # перевода («Матрица 2: Перезагрузка» и «Матрица: Перезагрузка») сливаются.
     canon: dict[tuple[Kind, str, int | None], tuple[Kind, str, int | None]] = {}
     buckets: dict[tuple[Kind, str, int | None], list[Release]] = {}
@@ -916,7 +916,7 @@ def _compose(kind: Kind, year: int | None, group: list[Release], also: str = "")
     title = (titles or Counter(r.title for r in group)).most_common(1)[0][0]
     originals = Counter(r.original for r in group if r.original)
     # Номер части часто есть лишь в части переводов («Матрица 2: Перезагрузка»)
-    # — забираем его на всю картину, он точнее года при двух фильмах за год.
+    # - забираем его на всю картину, он точнее года при двух фильмах за год.
     parts = Counter(n for r in group if (n := part_number(r.title)) is not None)
     return Picture(
         title=title,
@@ -1182,7 +1182,7 @@ def pick_franchise(query: str, pictures: list[Picture]) -> list[Picture]:
         # находил франшизу «гарри поттер» и отсчитывал номер части по ней.
         if loose := _by_words(wanted, groups):
             return loose
-        # Запрос длиннее канона: «киберпанк бегущие по краю» — это франшиза «киберпанк»
+        # Запрос длиннее канона: «киберпанк бегущие по краю» - это франшиза «киберпанк»
         # (подзаголовок после двоеточия в ключ не входит). Берём самое длинное совпадение.
         hits = [k for k in groups if k and k in wanted]
         return max(hits, key=len) if hits else None
@@ -1256,8 +1256,8 @@ def _title_zone(text: str, span: tuple[int, int] | None) -> str:
     cut = _TITLE_CUT_RE.search(zone)
     if cut:
         zone = zone[: cut.start()]
-    zone = _OPEN_BRACKET_RE.split(zone)[0]  # обрезали внутри скобки: «Bleach … [»
-    # Отдельного правила для «от <релиз-группа>» нет и быть не должно: «от» —
+    zone = _OPEN_BRACKET_RE.split(zone)[0]  # обрезали внутри скобки: «Bleach ... [»
+    # Отдельного правила для «от <релиз-группа>» нет и быть не должно: «от» -
     # обычный предлог («Человек-паук: Вдали от дома»), а хвост с группой и так
     # остаётся за техническим токеном, по которому строка уже обрезана.
     if zone.count(".") >= 2 and zone.count(" ") <= 1:  # scene-имя через точки
@@ -1338,7 +1338,7 @@ def _parse_series(
         return seasons[0], None, seasons, (), True
     found = parse_episode(text)
     if found is not None:
-        # «S2E1-8 of 8» — это пак сезона, а не первая серия.
+        # «S2E1-8 of 8» - это пак сезона, а не первая серия.
         pack = re.search(r"[eхx]\s*\d{1,3}\s*-\s*\d{1,3}", text, re.IGNORECASE)
         return found.season, None if pack else found.episode, (), episodes, True
     for pattern in _SEASON_ONLY_RES:

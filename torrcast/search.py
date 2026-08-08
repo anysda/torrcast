@@ -43,7 +43,7 @@ _SEARCH_PATH: Final = "/api/v1/search"
 #: приходит целиком. Прежние 60 с рубили такой поиск начисто - вместе с находками
 #: остальных индексеров, то есть ровно там, где ответ уже был.
 _TIMEOUT: Final = 150.0
-#: Кино, сериалы и «Other» — под последней RuTor отдаёт вообще всё (категорий у него нет).
+#: Кино, сериалы и «Other» - под последней RuTor отдаёт вообще всё (категорий у него нет).
 _CATEGORIES: Final = (2000, 5000, 8000)
 _TORZNAB_NS: Final = "{http://torznab.com/schemas/2015/feed}"
 _HASH_RE: Final = re.compile(r"^[0-9a-fA-F]{40}$")
@@ -51,7 +51,7 @@ _HASH_RE: Final = re.compile(r"^[0-9a-fA-F]{40}$")
 _Row = tuple[Any, Any, Any, Any, Any]
 
 #: Открытые трекеры, которые мы дописываем в каждый magnet. У раздач RuTracker
-#: из Knaben публичных ретрекеров нет, у RuTor нет ``tr=`` вообще — без этого
+#: из Knaben публичных ретрекеров нет, у RuTor нет ``tr=`` вообще - без этого
 #: списка пиры искались бы только через DHT.
 PUBLIC_TRACKERS: Final = (
     "udp://tracker.opentrackr.org:1337/announce",

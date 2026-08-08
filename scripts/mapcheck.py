@@ -109,7 +109,7 @@ def main() -> int:
         f"контейнер {found.kind}"
     )
     if found.kind != "mkv":
-        print("сверка по байтам умеет пока только mkv — остаётся ffprobe")
+        print("сверка по байтам умеет пока только mkv - остаётся ffprobe")
 
     reader = Reader(args.url)
     facts = MkvHead(reader.read(0, HEAD_PEEK)) if found.kind == "mkv" else None

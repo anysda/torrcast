@@ -22,7 +22,7 @@ from typing import Any, Final
 
 __all__ = ["TIMELINE_ENV", "mark", "read", "report"]
 
-#: Куда писать ленту меток. Пусто — секундомера нет.
+#: Куда писать ленту меток. Пусто - секундомера нет.
 TIMELINE_ENV: Final = "TORRCAST_TIMELINE"
 
 

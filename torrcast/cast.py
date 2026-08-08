@@ -39,7 +39,7 @@ ReceiverKind = Literal["chromecast", "mock"]
 HLS_TYPE = "application/vnd.apple.mpegurl"
 HLS_HINTS = {"hlsVideoSegmentFormat": "mpeg2_ts", "hlsSegmentFormat": "ts"}
 
-#: Номер сегмента в имени ``index<N>.ts`` — по нему ловятся дыры в нумерации.
+#: Номер сегмента в имени ``index<N>.ts`` - по нему ловятся дыры в нумерации.
 _NUM_RE = re.compile(r"(\d+)\.ts$")
 #: Строки ffmpeg, означающие, что кусок не доехал: для приёмки это разрыв.
 _LOST_RE = re.compile(r"Failed to open segment|Error opening|Cannot reload|skipping", re.I)
@@ -132,16 +132,16 @@ class ChromecastReceiver:
     позиция и так лежит в state.json, а забор сегментов виден в ``ss``.
     """
 
-    #: Пока показ ни разу не начался, ``IDLE`` — это «ещё грузится», а не отказ: ресивер
+    #: Пока показ ни разу не начался, ``IDLE`` - это «ещё грузится», а не отказ: ресивер
     #: сначала тянет манифест и первый сегмент, и до этого статус остаётся IDLE. Замерено
     #: на живом Q70D: ``play_media`` возвращается через 0.03 с, а PLAYING
-    #: приходит через 0.7–1.5 с — то есть «сразу после LOAD» приёмник всегда не играет.
+    #: приходит через 0.7-1.5 с - то есть «сразу после LOAD» приёмник всегда не играет.
     START_TIMEOUT = 90.0
     #: Сколько ждём картинку, когда показ **возобновляют** (перепаковка после перемотки
     #: назад за окно, возврат с паузы). ⚠️ Ресивер, поймавший 404 на пропавшем сегменте,
-    #: не берёт LOAD ещё пару минут — замерено: ни повтор LOAD, ни `quit_app`,
+    #: не берёт LOAD ещё пару минут - замерено: ни повтор LOAD, ни `quit_app`,
     #: ни новое соединение, ни новый процесс не ускоряют это ни на секунду, а вот через
-    #: 2.5–3 минуты он снова играет с первой попытки. Поэтому здесь не 90 с, а терпение:
+    #: 2.5-3 минуты он снова играет с первой попытки. Поэтому здесь не 90 с, а терпение:
     #: показ возвращается сам, вместо того чтобы умереть у человека на глазах.
     REVIVE_TIMEOUT = 300.0
     #: Как часто повторять LOAD, пока приёмник не берёт его.
@@ -149,29 +149,29 @@ class ChromecastReceiver:
     #: Пауза между повторами LOAD: ресиверу нужно время закрыть прошлую сессию.
     LOAD_PAUSE = 3.0
     #: Столько терпим молчаливый IDLE после LOAD, прежде чем считать, что его не взяли.
-    #: ⚠️ Это не противоречит «IDLE до первого показа — это загрузка»: живой Q70D отвечает
-    #: PLAYING за 0.7–1.5 с, а 30 с молчания означают, что грузить он не начинал.
+    #: ⚠️ Это не противоречит «IDLE до первого показа - это загрузка»: живой Q70D отвечает
+    #: PLAYING за 0.7-1.5 с, а 30 с молчания означают, что грузить он не начинал.
     STUCK_SECONDS = 30.0
     #: app_id Default Media Receiver: чужой app = каст сняли пультом, показ окончен.
     MEDIA_APP = "CC1AD845"
-    #: Неподвижный BUFFERING дольше этого — приёмник завис (см. :meth:`_nudge`).
-    #: Штатный ребуфер на живом Q70D укладывается в 1–3 с, так что 8 с — это уже не он.
+    #: Неподвижный BUFFERING дольше этого - приёмник завис (см. :meth:`_nudge`).
+    #: Штатный ребуфер на живом Q70D укладывается в 1-3 с, так что 8 с - это уже не он.
     #: ⚠️ Мелкий порог был бы опасен, пока «завис» и «ждёт упаковку» не различались: с
     #: упаковкой по требованию законный BUFFERING в неупакованном месте
     #: длится секунды, и нудж на нём мешал бы нам самим. Теперь их различает ``front``
     #: (см. :attr:`READY_AHEAD`), и терпеть зависание сорок пять секунд больше незачем:
-    #: замерено — приёмник встал на 1:24 «Моаны» при 60 с готового запаса и
+    #: замерено - приёмник встал на 1:24 «Моаны» при 60 с готового запаса и
     #: сам не ожил ни разу, а весь провал показа был ровно порогом этого сторожа.
     STALL_SECONDS = 8.0
     #: Столько секунд упаковки впереди позиции считаем доказательством «еда на столе».
-    #: Меньше — приёмник ждёт нас, и лечится это упаковкой, а не перемоткой.
+    #: Меньше - приёмник ждёт нас, и лечится это упаковкой, а не перемоткой.
     READY_AHEAD = 8.0
     #: Шаг прыжка вперёд на каждом нудже: мимо куска, на котором приёмник споткнулся.
     STALL_SKIP = 8.0
     #: Насколько позиция должна уехать назад, чтобы считать это перемоткой человека, а не
-    #: дрожанием счётчика. Больше сегмента (:data:`torrcast.stream.Config.hls_segment` — 10 с
-    #: по умолчанию) брать нельзя: перемотка на один кусок назад — обычное дело, и «максимум»
-    #: после неё обязан опуститься. Меньше шага нуджа — тоже: свой же прыжок вперёд мы
+    #: дрожанием счётчика. Больше сегмента (:data:`torrcast.stream.Config.hls_segment` - 10 с
+    #: по умолчанию) брать нельзя: перемотка на один кусок назад - обычное дело, и «максимум»
+    #: после неё обязан опуститься. Меньше шага нуджа - тоже: свой же прыжок вперёд мы
     #: перемоткой назад считать не должны.
     REWIND = 8.0
 
@@ -238,7 +238,7 @@ class ChromecastReceiver:
         with contextlib.suppress(Exception):
             self._cast.media_controller.stop()
         if not quit_app:
-            return  # показ передают следующей серии — приложение ей и достанется
+            return  # показ передают следующей серии - приложение ей и достанется
         with contextlib.suppress(Exception):
             self._cast.quit_app()
         with contextlib.suppress(Exception):
@@ -272,14 +272,14 @@ class ChromecastReceiver:
         st = self._status()
         state = str(st.player_state or "")
         pos = st.current_time or 0.0
-        if pos > self._peak:  # реальный прогресс — прошлые нуджи больше не в счёт
+        if pos > self._peak:  # реальный прогресс - прошлые нуджи больше не в счёт
             self._peak, self._stall_hits = pos, 0
         elif state != "IDLE" and self._peak - pos > self.REWIND:
-            # Позиция уехала назад глубже допуска — это перемотка пультом: сами мы
+            # Позиция уехала назад глубже допуска - это перемотка пультом: сами мы
             # прыгаем только вперёд. Максимум обязан пойти за человеком, иначе нудж
             # целится в место, которое он только что покинул. Замер на живом Q70D:
             # откат с 31:31 на 10:00, через 35 с показ выкинуло обратно на
-            # 31:31 (и второй раз — с 29:55 на 30:59 нуджем через накопленные попытки).
+            # 31:31 (и второй раз - с 29:55 на 30:59 нуджем через накопленные попытки).
             #
             # 🔴 ``IDLE`` из этого правила исключён: у мёртвой сессии позиции нет вовсе,
             # и ``current_time`` в ней - не «человек отмотал в начало», а «отвечать
@@ -305,11 +305,11 @@ class ChromecastReceiver:
         if self._reloads >= self.LOAD_RETRIES:
             return False
         self._reloads += 1
-        print(f"приёмник отвалился на {self._peak:.0f} с — повтор LOAD", flush=True)
+        print(f"приёмник отвалился на {self._peak:.0f} с - повтор LOAD", flush=True)
         try:
             self._restart_app()  # чистое приложение: залипший молчит на любой LOAD
             self._load(self._peak)
-        except Exception:  # приёмник мог просто уйти — решает следующий тик
+        except Exception:  # приёмник мог просто уйти - решает следующий тик
             return False
         return True
 
@@ -344,7 +344,7 @@ class ChromecastReceiver:
         if now - self._stall_since < self.STALL_SECONDS:
             return
         if front - pos < self.READY_AHEAD:
-            return  # приёмник ждёт упаковку — это наша забота, а не его зависание
+            return  # приёмник ждёт упаковку - это наша забота, а не его зависание
         self._stall_hits += 1
         self._stall_since = now
         with contextlib.suppress(Exception):
@@ -370,7 +370,7 @@ class ChromecastReceiver:
     def _load(self, at: float = 0.0) -> None:
         controller = self._device().media_controller
         # BUFFERED, а не LIVE: манифест VOD знает длительность целиком, и ресивер
-        # рисует шкалу с общим временем — перемотка пультом работает.
+        # рисует шкалу с общим временем - перемотка пультом работает.
         controller.play_media(
             self._url,
             HLS_TYPE,
@@ -380,7 +380,7 @@ class ChromecastReceiver:
             current_time=at,
         )
         controller.block_until_active(timeout=30)
-        # Чья сессия на приёмнике — запоминаем здесь: по ней :meth:`_ours` отличит наш
+        # Чья сессия на приёмнике - запоминаем здесь: по ней :meth:`_ours` отличит наш
         # показ от чужого, когда придёт пора закрывать приложение.
         self._session = getattr(self._cast.status, "session_id", "") or ""
 
@@ -417,7 +417,7 @@ class ChromecastReceiver:
                 self._reloads += 1
                 tried = time.monotonic()
                 left = deadline - time.monotonic()
-                print(f"LOAD не взяли ({self._why()}) — гружу заново, ещё {left:.0f} с", flush=True)
+                print(f"LOAD не взяли ({self._why()}) - гружу заново, ещё {left:.0f} с", flush=True)
                 self._restart_app()
                 self._load(self._at)
         return False
@@ -432,7 +432,7 @@ class ChromecastReceiver:
         смерти юнита. При этом новый процесс с новым соединением на том же ТВ поднимает
         картинку за 3 с. Значит, чинить надо не только приёмник, но и свою сессию.
         """
-        print("приёмник залип — закрываю приложение и соединение, гружу заново", flush=True)
+        print("приёмник залип - закрываю приложение и соединение, гружу заново", flush=True)
         if self._cast is not None:
             with contextlib.suppress(Exception):
                 self._cast.quit_app()
@@ -448,7 +448,7 @@ class ChromecastReceiver:
         """
         controller = self._device().media_controller
         # ⚠️ На закрытом ресивере update_status ПЕРЕЗАПУСКАЕТ пустой Default Media
-        # Receiver — «вышел в Home, а каст открылся снова». Поэтому
+        # Receiver - «вышел в Home, а каст открылся снова». Поэтому
         # чужой app_id проверяем раньше и статус не трогаем.
         if getattr(self._cast.status, "app_id", None) != self.MEDIA_APP:
             return controller.status
@@ -501,10 +501,10 @@ class MockReceiver:
     def play(self, url: str, title: str = "", at: float = 0.0) -> None:
         self._probe(url)  # первый ответ проверяем сами: TLS, доступность, CORS
         self._close_log()  # серия за серией играет один и тот же приёмник: прошлый журнал закрыт
-        self._err = tempfile.TemporaryFile()  # noqa: SIM115 — живёт всё воспроизведение
+        self._err = tempfile.TemporaryFile()  # noqa: SIM115 - живёт всё воспроизведение
         self._start = at
         # ⚠️ Опции TLS ставятся только под https-адрес: на http ffmpeg не «игнорирует
-        # лишнее», а падает с «Option tls_verify not found» ещё до открытия входа —
+        # лишнее», а падает с «Option tls_verify not found» ещё до открытия входа -
         # то есть на дефолтном транспорте mock не декодировал бы ничего.
         tls = ["-tls_verify", "1", *(["-ca_file", self.ca] if self.ca else [])]
         command = [
@@ -551,7 +551,7 @@ class MockReceiver:
         self._pos = Position(self._pos.pos, self._pos.dur, False)
 
     def position(self, front: float = 0.0) -> Position:
-        # dur — то, что уже упаковано и лежит в манифесте: показ по нему видит, насколько
+        # dur - то, что уже упаковано и лежит в манифесте: показ по нему видит, насколько
         # упаковка ушла вперёд от приёмника. Запас mock'у ни к чему: он не зависает.
         playing = self._pos.playing
         return Position(self._pos.pos, self.report.duration, playing, "PLAYING" if playing else "")
@@ -572,7 +572,7 @@ class MockReceiver:
         except requests.RequestException as exc:
             raise InfraError(f"приёмник не забрал манифест: {why(exc)}") from exc
         if response.headers.get(_CORS_HEADER) != "*":
-            raise InfraError(f"в ответе нет {_CORS_HEADER}: * — Chromecast такое молча не играет")
+            raise InfraError(f"в ответе нет {_CORS_HEADER}: * - Chromecast такое молча не играет")
 
     def _follow(self, url: str) -> None:
         """Позиция из ``-progress`` декодера: ровно то, что ТВ отдал бы сторожу."""
@@ -609,7 +609,7 @@ class MockReceiver:
             body = session.get(url, timeout=30)
             self._check(body)
             segments, _ = parse_manifest(body.text)
-        except Exception:  # без манифеста показа нет вовсе — это уже поймал _probe
+        except Exception:  # без манифеста показа нет вовсе - это уже поймал _probe
             self._done.set()
             return
         self.report.duration = sum(seconds for _, seconds in segments)
@@ -635,7 +635,7 @@ class MockReceiver:
             head = session.head(url, timeout=30)
             self._check(head)
             size = int(head.headers.get("Content-Length") or 0)
-        except Exception:  # сегмент из манифеста обязан отдаваться — иначе это дыра
+        except Exception:  # сегмент из манифеста обязан отдаваться - иначе это дыра
             self.report.gaps += 1
             return
         if seconds > 0:
@@ -666,7 +666,7 @@ def trust_anchor(cert: str) -> str:
         context.load_verify_locations(cafile=cert)
         anchors = context.get_ca_certs()
     except (OSError, ssl.SSLError):
-        return cert  # нечитаемый серт — пусть падает там, где это видно
+        return cert  # нечитаемый серт - пусть падает там, где это видно
     if len(anchors) == 1 and anchors[0].get("subject") == anchors[0].get("issuer"):
         return cert
     return ""

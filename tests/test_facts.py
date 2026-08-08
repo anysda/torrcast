@@ -70,7 +70,7 @@ def test_article_names_walk_from_the_plain_title_to_the_qualified_one() -> None:
     assert titles_for("Тачки 2", 2011)[0] == "Тачки 2"
     assert "Моана (мультфильм)" in titles_for("Моана", 2016)
     assert "Моана (фильм, 2026)" in titles_for("Моана", 2026)
-    # Раздачи подписывают старое кино развёрнуто — короткое имя тоже надо попробовать.
+    # Раздачи подписывают старое кино развёрнуто - короткое имя тоже надо попробовать.
     assert "Моана" in titles_for("Моана: романтика золотого века", 1926)
 
 
@@ -78,8 +78,8 @@ def test_the_year_in_the_text_is_what_confirms_the_picture() -> None:
     """Единственная защита от чужого фильма — год в первых фразах статьи."""
     assert confirms(MOANA, 2016)
     assert not confirms(MOANA, 2026), "мультфильм 2016 года не выдать за ремейк"
-    assert not confirms(MOANA_2026, 2026), "года в тексте нет — значит, подтвердить нечем"
-    assert not confirms(CARS, None), "год картины неизвестен — сверять не с чем"
+    assert not confirms(MOANA_2026, 2026), "года в тексте нет - значит, подтвердить нечем"
+    assert not confirms(CARS, None), "год картины неизвестен - сверять не с чем"
 
 
 def test_a_disambiguation_page_is_not_a_description() -> None:
@@ -148,16 +148,16 @@ def test_the_description_is_the_whole_first_sentence() -> None:
     """Описание — первая фраза целиком: с жанром и годом, а не огрызок до многоточия."""
     assert shorten(CARS).endswith("Walt Disney Pictures.")
     assert "Режиссёром" not in shorten(CARS), "вторая фраза в меню не нужна"
-    assert "…" not in shorten(CARS), "фраза влезла в потолок — резать нечего"
+    assert "..." not in shorten(CARS), "фраза влезла в потолок - резать нечего"
 
 
 def test_only_a_sentence_past_the_cap_gets_an_ellipsis() -> None:
     """Многоточие остаётся ровно для фраз длиннее всякого разумного потолка."""
     long_one = "«Оппенгеймер» (англ. Oppenheimer) — " + "очень длинное описание, " * 20
     cut = shorten(long_one)
-    assert len(cut) <= BLURB_CAP + 1 and cut.endswith("…")
-    assert not cut.endswith(",…"), "хвост запятой перед многоточием не нужен"
-    assert shorten("«Тачки» — мультфильм. Вторая фраза.", 10) == "«Тачки»…"
+    assert len(cut) <= BLURB_CAP + 3 and cut.endswith("...")
+    assert not cut.endswith(",..."), "хвост запятой перед многоточием не нужен"
+    assert shorten("«Тачки» — мультфильм. Вторая фраза.", 10) == "«Тачки»..."
 
 
 def test_a_dot_inside_a_bracket_or_a_quote_is_not_the_end_of_the_phrase() -> None:
@@ -252,7 +252,7 @@ def test_menu_puts_rating_and_time_in_the_head_and_the_plot_below() -> None:
     assert printed[0] == "  1. Моана: романтика золотого века (1926)"
     assert printed[1] == "  2. Моана (2016) · IMDb 7.6 · 1 ч 47 мин"
     assert printed[2].startswith("     «Моа́на» (англ. Moana) — американский")
-    assert printed[-1] == "  3. Моана 2 (2024)", "у остальных справки нет — и лишних строк нет"
+    assert printed[-1] == "  3. Моана 2 (2024)", "у остальных справки нет - и лишних строк нет"
 
 
 def test_the_description_wraps_by_words_under_the_terminal() -> None:
@@ -264,7 +264,7 @@ def test_the_description_wraps_by_words_under_the_terminal() -> None:
     facts.found = {("Моана", 2016): Fact(about=MOANA)}
     printed = cli.menu_lines(_moana_franchise(), facts, width=60).splitlines()
     blurb = [line for line in printed if line.startswith("     ")]
-    assert len(blurb) > 1, "фраза не влезла в одну строку — значит, перенеслась"
+    assert len(blurb) > 1, "фраза не влезла в одну строку - значит, перенеслась"
     assert all(len(line) < 60 for line in blurb), "строка не должна вылезать за терминал"
     assert not any(line.endswith("-") for line in blurb), "перенос по словам, не по дефису"
     assert " ".join(line.strip() for line in blurb) == MOANA, "фраза цела и ничем не обрезана"

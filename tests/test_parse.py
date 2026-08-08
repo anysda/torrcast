@@ -262,7 +262,7 @@ def test_key_of_a_picture_without_a_year_keeps_the_original_title() -> None:
 
     assert invasion.key == "movie:вторжение-invasion:0"
     assert intruder.key == "movie:вторжение-the-intruder:0"
-    # Год известен — ключ ровно канонический, без довесков.
+    # Год известен - ключ ровно канонический, без довесков.
     assert cluster([_release("Тачки", 2006, original="Cars")])[0].key == "movie:тачки:2006"
 
 
@@ -423,7 +423,7 @@ def _release(
     )
 
 
-#: Дословные имена с живой выдачи Knaben — именно на них разбор и спотыкался.
+#: Дословные имена с живой выдачи Knaben - именно на них разбор и спотыкался.
 MOANA_2 = (
     "Moana 2 (2024) 1080p BRRip 5.1 x264 -YTS",
     "Moana 2 2024 1080p BluRay DD  7 1 X265-Ralphy",

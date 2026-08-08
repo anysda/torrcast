@@ -107,7 +107,7 @@ def profile(torrent_hash: str, step: float, threshold: float, extra: float) -> N
     grid, keys = _grid_of(url, step)
     weights = Weights.of(keys, grid, extra=extra)  # type: ignore[arg-type]
     if weights is None:
-        print("карта без смещений — профиля не будет")
+        print("карта без смещений - профиля не будет")
         return
     total = grid.duration
     print(f"\nпоправка «контейнер → ТВ»: {extra:.2f} Мбит/с (замерь --calibrate)")

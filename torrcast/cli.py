@@ -121,78 +121,78 @@ __all__ = [
 EXIT_OK, EXIT_NOT_FOUND, EXIT_INFRA = 0, 1, 2
 #: Сколько строк таблицы релизов показываем: ниже начинаются раздачи без сидов.
 TABLE_LIMIT = 12
-#: Сколько ПРИГОВОРОВ подряд терпим, прежде чем сдаться: подмены не молчат. Приговор —
+#: Сколько ПРИГОВОРОВ подряд терпим, прежде чем сдаться: подмены не молчат. Приговор -
 #: это когда ffprobe раздачу прочитал и она не годится (av1, vc1, тяжёлая). Осечка роя
 #: приговором не считается и попытку не жжёт (:meth:`_Bench.resolve`).
 MAX_TRIES = 3
-#: ``--voice`` без номера: показать меню озвучек. Ноль тут свободен — дорожки для
+#: ``--voice`` без номера: показать меню озвучек. Ноль тут свободен - дорожки для
 #: человека нумеруются с единицы.
 VOICE_MENU = 0
-#: Сколько картин франшизы греем под меню: топ-2–3 релиза уходят в TorrServer фоном,
+#: Сколько картин франшизы греем под меню: топ-2-3 релиза уходят в TorrServer фоном,
 #: пока человек отвечает на вопросы.
 PREWARM = 3
-#: Бюджет одной раздачи на метаданные по DHT, секунды. Не уложилась — не «зависли
+#: Бюджет одной раздачи на метаданные по DHT, секунды. Не уложилась - не «зависли
 #: насмерть», а честная строка и следующий релиз.
 META_BUDGET = 20.0
 #: Бюджет на чтение дорожек (ffprobe) той же раздачи, секунды.
 PROBE_BUDGET = 40.0
 #: Сколько ffprobe ждёт первых байт потока, прежде чем счесть рой мёртвым, секунды.
 #: Раздача с мёртвым роем метаданные отдаёт (они уже в TorrServer), а содержимого не
-#: отдаёт вовсе — и раньше на ней сгорал весь :data:`PROBE_BUDGET` (сорок секунд на одном
+#: отдаёт вовсе - и раньше на ней сгорал весь :data:`PROBE_BUDGET` (сорок секунд на одном
 #: молчащем релизе, когда рядом в очереди стояли живые). Отсрочка отделяет такой рой от
-#: честно долгого заголовка («Моана 2» едет 17 с): ни байта за неё — пиров нет, обрываем
+#: честно долгого заголовка («Моана 2» едет 17 с): ни байта за неё - пиров нет, обрываем
 #: и берём запасного, он уже греется параллельно (:func:`torrcast.stream.swarm_pulse`).
 SWARM_GRACE = 12.0
 #: **Бюджет всей фазы отбора, секунды**: столько CLI перебирает очередь, прежде чем
-#: сдаться. Число не новое и не «с запасом»: это ровно прежний потолок фазы — три
+#: сдаться. Число не новое и не «с запасом»: это ровно прежний потолок фазы - три
 #: попытки, каждая по полному бюджету раздачи (:data:`META_BUDGET` + :data:`PROBE_BUDGET`).
 #: Потолок остался тем же, изменилось только, на что он тратится: раньше в него
-#: укладывались строго три раздачи, теперь — сколько успеет, пока осечки идут молчанием
+#: укладывались строго три раздачи, теперь - сколько успеет, пока осечки идут молчанием
 #: роя. Осечки эти дешёвые: запасной греется параллельно с текущим, поэтому мёртвая
 #: раздача стоит не двадцати секунд, а разницы между двумя ожиданиями DHT.
 PICK_BUDGET = MAX_TRIES * (META_BUDGET + PROBE_BUDGET)
 #: Сколько ждём ответа от честного запасного, если верх оказался хуже, чем обещал. Запасной
 #: к этой секунде уже греется (:meth:`_Bench.resolve` поднимает следующего сразу), так что
-#: платим не за прогрев, а за разницу между двумя ffprobe. Не уложился — играем то, что
+#: платим не за прогрев, а за разницу между двумя ffprobe. Не уложился - играем то, что
 #: есть, и говорим об этом вслух: лишние секунды старта хуже, чем 574p.
 HONEST_BUDGET = 12.0
 #: Ниже этой высоты кадра HD уже не назовёшь. Имя раздачи о разрешении молчит чаще, чем
-#: врёт (у «Моаны 2» — в 5 именах из 11), поэтому «имя молчало, а внутри SD» — такой же
+#: врёт (у «Моаны 2» - в 5 именах из 11), поэтому «имя молчало, а внутри SD» - такой же
 #: повод посмотреть на соседа, как и прямое враньё в имени.
 HD_HEIGHT = 720
 #: Ступень, ради которой затеян отбор: честный 1080p. Имя, называющее её (или выше),
-#: поднимается над названным 720p — но только если раздача жива (:func:`is_full_hd`).
+#: поднимается над названным 720p - но только если раздача жива (:func:`is_full_hd`).
 FULL_HEIGHT = 1080
 #: Насколько живым обязан быть названный 1080p, чтобы обойти 720p: доля от сидов самой
 #: обсиженной раздачи картины. Не абсолютное число, потому что живость у картин разная:
-#: у новинки лидер набирает сотни сидов, у кино 1994 года — четыре десятка, и «20 сидов»
+#: у новинки лидер набирает сотни сидов, у кино 1994 года - четыре десятка, и «20 сидов»
 #: означало бы в этих двух пулах совершенно разное. Замер по живой выдаче: у «Мастера и
 #: Маргариты» 1080p держит 0.40 от лидера (59 против 146) и обязан выиграть, у «Зелёной
-#: мили» — 0.10 (4 против 38), у «Форреста Гампа» — 0.05 (2 против 41), и эти обязаны
-#: проиграть: 15 ГБ на двух сидах — это не 1080p, а подгрузы.
+#: мили» - 0.10 (4 против 38), у «Форреста Гампа» - 0.05 (2 против 41), и эти обязаны
+#: проиграть: 15 ГБ на двух сидах - это не 1080p, а подгрузы.
 FULL_HD_LIVENESS = 0.25
 #: Насколько живым обязан быть именной кандидат, чтобы ворота отбора остались закрытыми:
 #: доля от сидов самой обсиженной раздачи картины. Доля, а не абсолютное число, ровно по
 #: той же причине, что и у :data:`FULL_HD_LIVENESS`.
 #:
-#: Замер по живой выдаче «наруто»: у картины «Наруто» (2002) именных кандидатов два — на
-#: 3 и на 1 сид, — а полный сериал «[E220 of 220]» с 91 сидом в кандидаты не проходил
-#: вовсе. 3/91 = 0.03: живым такой кандидат не назовёшь, и выбор между ним и ничем — это
+#: Замер по живой выдаче «наруто»: у картины «Наруто» (2002) именных кандидатов два - на
+#: 3 и на 1 сид, - а полный сериал «[E220 of 220]» с 91 сидом в кандидаты не проходил
+#: вовсе. 3/91 = 0.03: живым такой кандидат не назовёшь, и выбор между ним и ничем - это
 #: выбор между подгрузами и подгрузами. У фильмов с богатой выдачей доля лидера-кандидата
 #: заметно выше порога, и ворота там не открываются никогда.
 GATE_LIVENESS = 0.25
 #: Насколько живым обязан быть релиз с обещанной русской дорожкой, чтобы обойти по звуку
 #: более обсиженного соседа (:func:`sound_step`). Порог ниже, чем у HD (0.10 против 0.25),
-#: и это не небрежность: «1080p вместо 720p» — оттенок, а «по-русски вместо по-японски» —
+#: и это не небрежность: «1080p вместо 720p» - оттенок, а «по-русски вместо по-японски» -
 #: разница между «посмотрел» и «не посмотрел», и платить за неё сидами можно дороже.
 #: Замер по живой выдаче: у «Врат Штейна» русский BDRip 1080p держит 86 сидов против 397
-#: у самого живого «[Anime Time]» — 0.22, и обязан выиграть; у «Наруто: Ураганные
-#: хроники» русская раздача имеет НОЛЬ сидов против трёх — 0.0, и обязана проиграть,
+#: у самого живого «[Anime Time]» - 0.22, и обязан выиграть; у «Наруто: Ураганные
+#: хроники» русская раздача имеет НОЛЬ сидов против трёх - 0.0, и обязана проиграть,
 #: потому что мёртвый рой это не показ ни на каком языке.
 SOUND_LIVENESS = 0.10
-#: Насколько подтверждённая высота вправе отставать от заявленной. 0.9 — это про обрезку
-#: чёрных полей: у 1080p-широкоформатника реальная высота 800–816, и релиз честен. А
-#: 574 против 1080 — это уже другая ступень лестницы, а не кадрирование.
+#: Насколько подтверждённая высота вправе отставать от заявленной. 0.9 - это про обрезку
+#: чёрных полей: у 1080p-широкоформатника реальная высота 800-816, и релиз честен. А
+#: 574 против 1080 - это уже другая ступень лестницы, а не кадрирование.
 HONEST_RATIO = 0.9
 #: Потолок ожидания метаданных раздачи **в юните**, секунды. Здесь это не «бюджет фазы
 #: под меню» (:data:`META_BUDGET`), а последний рубеж: магнит юниту уже дали, и если
@@ -202,18 +202,18 @@ WORKER_META = 60.0
 #: читается она из потока (:func:`_duration`).
 WORKER_DUR = 90.0
 #: Прочее на пути юнита до картинки, у чего своего потолка нет: запуск transient-юнита,
-#: чтение состояния, подъём раздачи. Секунды, но считать их нулём — врать себе.
+#: чтение состояния, подъём раздачи. Секунды, но считать их нулём - врать себе.
 START_SLACK = 10.0
 #: **Бюджет старта показа: столько CLI ждёт картинку на экране** (:func:`_await_playing`).
 #:
 #: Число не выбирается на глаз и не «берётся с запасом»: это сумма потолков всех фаз,
-#: которые юнит проходит от запуска до первого ``PLAYING``, — метаданные раздачи, ffprobe
+#: которые юнит проходит от запуска до первого ``PLAYING``, - метаданные раздачи, ffprobe
 #: длительности, ожидание чужой карты опорных кадров, пробный прогон упаковки и терпение
 #: приёмника к молчаливому ``IDLE``. Пока CLI ждал меньше суммы (120 с против 60 + 90 +
 #: 60), он гасил `stop_play_unit`'ом показ, который вот-вот начался бы.
 #:
 #: Ждать так долго не страшно и не молчаливо: :class:`~torrcast.console.Progress` всё это
-#: время показывает живую фазу, а любая честная неудача убивает юнит раньше — CLI видит
+#: время показывает живую фазу, а любая честная неудача убивает юнит раньше - CLI видит
 #: это по :func:`unit_active` и печатает причину из журнала, не досиживая до конца.
 START_BUDGET = (
     WORKER_META
@@ -226,38 +226,38 @@ START_BUDGET = (
 #: Как часто сторож кладёт позицию в state, секунды.
 WATCH_SECONDS = 10.0
 #: Доля фильма, с которой прогрев считается полным в статусе. Не единица: хвост сетки
-#: короче шага, и последний кусок доезжает позже всех — а «интернет не нужен» верно уже
+#: короче шага, и последний кусок доезжает позже всех - а «интернет не нужен» верно уже
 #: тогда, когда впереди лежит всё, что зритель успеет посмотреть.
 WARMED_RATIO = 0.99
-#: Как часто показ пишет в журнал, что видит приёмник: позиция и общее время —
+#: Как часто показ пишет в журнал, что видит приёмник: позиция и общее время -
 #: единственное доказательство того, что на экране есть таймлайн.
 SAY_SECONDS = 30.0
-#: ``TORRCAST_TRACE=1`` — писать в журнал запас показа на каждом опросе (раз в 2 с):
+#: ``TORRCAST_TRACE=1`` - писать в журнал запас показа на каждом опросе (раз в 2 с):
 #: позиция приёмника, край упаковки, разница между ними и вес tmpfs. Инструмент про
 #: устойчивость: её провал видно только в динамике запаса, а раз в 30 с он теряется.
 TRACE_ENV = "TORRCAST_TRACE"
-#: ``TORRCAST_CTL=<файл>`` — диагностический пульт показа: строка в файле («``seek 1200``»,
+#: ``TORRCAST_CTL=<файл>`` - диагностический пульт показа: строка в файле («``seek 1200``»,
 #: «``pause``», «``play``») исполняется владеющим сендером на ближайшем опросе, файл
 #: съедается. Нужен ровно затем, что кнопку на пульте может нажать только человек, а
 #: вторым pychromecast команду не подать вовсе: приёмник считает второе соединение тем же
 #: сендером и отвечает пустым MEDIA_STATUS (докстринг :class:`ChromecastReceiver`).
 #: Приёмнику это приходит той же MEDIA-командой, что и с пульта, поэтому проверка честная.
-#: На счастливом пути не участвует: переменной нет — кода нет.
+#: На счастливом пути не участвует: переменной нет - кода нет.
 CTL_ENV = "TORRCAST_CTL"
 #: Сколько терпим паузу на пульте, прежде чем погасить упаковку: дальше
-#: сегменты копились бы в tmpfs впустую — приёмник их не забирает.
+#: сегменты копились бы в tmpfs впустую - приёмник их не забирает.
 PAUSE_SECONDS = 60.0
-#: Пауза длиннее этого — показ считается оконченным: юнит гаснет и не держит раздачу.
+#: Пауза длиннее этого - показ считается оконченным: юнит гаснет и не держит раздачу.
 PAUSE_LIMIT = 3600.0
-#: Битрейт, ниже которого раздача без единого маркера качества в имени — это SD-рип
+#: Битрейт, ниже которого раздача без единого маркера качества в имени - это SD-рип
 #: (MPEG-4 в .avi), а не скромный 1080p. Порог выбран по замеру, а не на глаз: из 264
 #: раздач живой выдачи («моана», «тачки», «матрица», «интерстеллар», «аватар») удалось
 #: достать .torrent и заглянуть внутрь у 36. Все восемь .avi в этой выборке не называют
 #: ни разрешения, ни кодека, и у пяти полнометражных потолок вышел 3.5 Мбит/с; ближайший
-#: снизу подтверждённый .mkv с такой же безымянной шапкой — 5.4 Мбит/с. Порог поставлен
+#: снизу подтверждённый .mkv с такой же безымянной шапкой - 5.4 Мбит/с. Порог поставлен
 #: посередине этого зазора.
 SD_BITRATE = 4.0
-#: Признаки образа диска в имени раздачи — внутри VOB/BDMV, а не один файл.
+#: Признаки образа диска в имени раздачи - внутри VOB/BDMV, а не один файл.
 _DISC_RE = re.compile(
     r"\b(?:video_?ts|bdmv|dvd[- ]?video|dvd[59]|iso|blu-?ray\s*(?:disc|cee)|avc\+?\s*iso)\b",
     re.IGNORECASE,
@@ -270,7 +270,7 @@ class Args:
     tv: str | None = None
     release: int | None = None
     file: int | None = None
-    #: ``--voice N`` — играть дорожку N; ``--voice`` без номера (:data:`VOICE_MENU`) —
+    #: ``--voice N`` - играть дорожку N; ``--voice`` без номера (:data:`VOICE_MENU`) -
     #: показать меню озвучек и спросить. На счастливом пути обоих нет: озвучка
     #: выбирается сама.
     voice: int | None = None
@@ -310,7 +310,7 @@ class Args:
 
 def parse_args(argv: Sequence[str] | None = None) -> Args:
     """Разобрать argv по контракту CLI."""
-    about = "torrcast — найти релиз и кастить его на ТВ без скачивания"
+    about = "torrcast - найти релиз и кастить его на ТВ без скачивания"
     parser = argparse.ArgumentParser(prog="cast", description=about, allow_abbrev=False)
     parser.add_argument("query", nargs="*", help="название, либо stop / status")
     parser.add_argument("--tv", metavar="IP", help="разовая настройка адреса ТВ (или mock)")
@@ -322,7 +322,7 @@ def parse_args(argv: Sequence[str] | None = None) -> Args:
         nargs="?",
         const=VOICE_MENU,
         metavar="N",
-        help="озвучка: N — взять дорожку N и запомнить, без номера — меню",
+        help="озвучка: N - взять дорожку N и запомнить, без номера - меню",
     )
     # Прежнее имя того же флага: ломать чужие пальцы и историю оболочки незачем.
     parser.add_argument(
@@ -367,11 +367,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     except TorrcastError as exc:  # InfraError и всё прочее наше
         print(str(exc), file=sys.stderr)
         return EXIT_INFRA
-    except _Stopped:  # `cast stop` — штатный конец показа, а не отказ
+    except _Stopped:  # `cast stop` - штатный конец показа, а не отказ
         return EXIT_OK
     except KeyboardInterrupt:
         return EXIT_INFRA
-    except BrokenPipeError:  # `cast status | head` — не повод показывать трейсбек
+    except BrokenPipeError:  # `cast status | head` - не повод показывать трейсбек
         with contextlib.suppress(OSError):
             sys.stdout.close()
         return EXIT_OK
@@ -430,19 +430,19 @@ def _cmd_status() -> int:
         return EXIT_OK
     key, entry = found
     what = f"«{entry.title}»" + (f" {entry.label}" if entry.label else "")
-    # Разрешение — подтверждённое ffprobe у играющего файла, а не заявка имени.
+    # Разрешение - подтверждённое ffprobe у играющего файла, а не заявка имени.
     what += f" · {entry.quality}" if entry.quality else ""
-    print(f"играю {what} — {_hms(entry.pos)} / {_hms(entry.dur)}")
+    print(f"играю {what} - {_hms(entry.pos)} / {_hms(entry.dur)}")
     if entry.warm > 0:
-        # Прогрев — это и есть ответ на вопрос «переживёт ли показ обрыв связи», поэтому
+        # Прогрев - это и есть ответ на вопрос «переживёт ли показ обрыв связи», поэтому
         # он стоит в статусе, а не в отладочной ручке.
         whole = entry.dur > 0 and entry.warm >= entry.dur * WARMED_RATIO
         print(
             f"   прогрето {_hms(entry.warm)} из {_hms(entry.dur)}"
-            + (" — весь фильм на диске, интернет не нужен" if whole else "")
+            + (" - весь фильм на диске, интернет не нужен" if whole else "")
         )
     where = "адрес раздачи не определён"
-    with contextlib.suppress(TorrcastError):  # адреса нет — статус показа это не отменяет
+    with contextlib.suppress(TorrcastError):  # адреса нет - статус показа это не отменяет
         where = hls_base(config)
     print(
         f"   {key} · файл #{entry.file_idx} · дорожка {entry.audio + 1} · "
@@ -465,7 +465,7 @@ def _cmd_releases(args: Args) -> int:
         plans = _search(config, inner, progress)
     for plan in plans:
         print()
-        print(f"{_named(plan.picture)} — раздач {len(plan.ranked)}")
+        print(f"{_named(plan.picture)} - раздач {len(plan.ranked)}")
         print(render_table(plan.ranked, plan.runtime, plan.warn_mbit, recode_at=plan.recode_at))
     print()
     print("играть конкретный: cast <запрос> --release N [--file N]")
@@ -497,7 +497,7 @@ def _cmd_voices(args: Args) -> int:
     media = prep.found
     remembered = _remembered(State.load(), plan.picture.key, None)
     print()
-    print(f"{_named(plan.picture)} — релиз {prep.number}: {_cut(prep.release.title, 60)}")
+    print(f"{_named(plan.picture)} - релиз {prep.number}: {_cut(prep.release.title, 60)}")
     print(voices_table(media, media.default_track(), remembered))
     print()
     print("играть конкретную: cast <запрос> --voice N   (выбор запомнится на эту картину)")
@@ -518,7 +518,7 @@ def _cmd_doctor() -> int:
         print(line)
         bad += 0 if ok else 1
     print()
-    print("всё в порядке" if not bad else f"проблем: {bad} — смотри строки «плохо» выше")
+    print("всё в порядке" if not bad else f"проблем: {bad} - смотри строки «плохо» выше")
     return EXIT_OK if not bad else EXIT_INFRA
 
 
@@ -554,7 +554,7 @@ def _cmd_worker(key: str) -> int:
         entry = State.load().get(key)
         if entry is None:
             raise InfraError(f"в состоянии нет записи {key}")
-        if entry.magnet != magnet:  # раздача та же — метаданные второй раз не ждём
+        if entry.magnet != magnet:  # раздача та же - метаданные второй раз не ждём
             magnet = entry.magnet
             torrent_hash = torrserver.add(magnet)
             torrserver.wait_files(torrent_hash, timeout=WORKER_META)
@@ -612,7 +612,7 @@ def _duration(key: str, entry: Entry, source: str) -> Entry:
         return entry
     media = probe(source, timeout=WORKER_DUR)
     entry.dur = media.duration
-    # Ноль — «ещё не спрашивали», минус — «спросили, паспорт промолчал» (mp4 без тегов).
+    # Ноль - «ещё не спрашивали», минус - «спросили, паспорт промолчал» (mp4 без тегов).
     entry.vbps = media.video_bps / 1e6 or -1.0
     # Кодек следующей серии тоже свой: в раздаче аниме нередко лежат и HEVC, и H.264,
     # а решение «перекодировать целиком» принимается по файлу, который играем сейчас.
@@ -659,7 +659,7 @@ class Watch:
         """Позиция от приёмника; на диск — не чаще раза в ``every`` секунд. Порог 95 %
         записывается сразу: на нём держится стык серий, ждать тика ещё 10 с незачем.
         """
-        if pos <= 0:  # приёмник ещё не начал считать — нулём позицию не затираем
+        if pos <= 0:  # приёмник ещё не начал считать - нулём позицию не затираем
             return
         self.entry.pos = pos
         if self.entry.watched or time.monotonic() - self.last >= self.every:
@@ -720,7 +720,7 @@ def _cmd_play(args: Args) -> int:
 
     with Progress() as progress:
         plans = _search(config, args, progress)
-        # Справка к меню (рейтинг, хронометраж, о чём кино) едет фоном — ровно в те
+        # Справка к меню (рейтинг, хронометраж, о чём кино) едет фоном - ровно в те
         # секунды, что уходят на подъём прогрева. Меню её не ждёт: см. torrcast.facts.
         facts = Facts([(p.picture.title, p.picture.year) for p in plans])
         facts.start()
@@ -739,14 +739,14 @@ def _cmd_play(args: Args) -> int:
                 facts.finish()
             prep = bench.resolve(plan, args, progress)
         except BaseException:  # Ctrl-C, «картин много, а терминала нет», «годного нет»
-            bench.drop_all()  # прогретое без показа — мусор в рое и кэш в чужой RAM
+            bench.drop_all()  # прогретое без показа - мусор в рое и кэш в чужой RAM
             raise
-        bench.keep_only(prep)  # прогрев греет лишнее — до показа лишнее убираем
+        bench.keep_only(prep)  # прогрев греет лишнее - до показа лишнее убираем
 
     release, video, media = prep.release, prep.want, prep.found
     audio, voice = pick_voice(media, args, _remembered(state, plan.picture.key, found_entry))
     mark("ответы")  # ноль секундомера: Enter после последнего вопроса
-    label = media.tracks[audio].label if audio < len(media.tracks) else "—"
+    label = media.tracks[audio].label if audio < len(media.tracks) else "-"
     series = plan.series
     what = f"«{plan.picture.title}»" + (
         f" {series.want}" if series else f" ({plan.picture.year or '?'})"
@@ -756,18 +756,18 @@ def _cmd_play(args: Args) -> int:
     peak = bitrate_mbit(video.size, media.duration or plan.runtime)
     if peak > config.bitrate_warn_mbit:
         print(
-            f"внимание: ~{peak:.0f} Мбит/с — тяжёлые куски перекодирую на ходу"
+            f"внимание: ~{peak:.0f} Мбит/с - тяжёлые куски перекодирую на ходу"
             if config.recode
-            else f"внимание: ~{peak:.0f} Мбит/с — ресивер на таком битрейте может встать"
+            else f"внимание: ~{peak:.0f} Мбит/с - ресивер на таком битрейте может встать"
         )
-    # Молчаливого японского не бывает: перевода в файле нет — человек слышит об этом
+    # Молчаливого японского не бывает: перевода в файле нет - человек слышит об этом
     # строкой, а не на слух через минуту показа.
     if note := sound_note(media, audio, plan.ranked, release):
         print(note)
     if args.pinned:  # отладочный путь: тут внутренности показывать и надо
         print(f"файл: {video.base} · {_gb(video.size)} · {_hms(media.duration)} · {media.video}")
     if args.dry:
-        print(f"(--dry) {about} — каста нет")
+        print(f"(--dry) {about} - каста нет")
         return EXIT_OK
     entry = Entry(
         title=plan.picture.title,
@@ -781,7 +781,7 @@ def _cmd_play(args: Args) -> int:
         # секунды, не набирая поправку «контейнер → ТВ» вслепую.
         vbps=media.video_bps / 1e6 or -1.0,
         # Кодек оттуда же: по нему показ решает, играть копией или перекодировать файл
-        # целиком, и решает это один раз — до первого сегмента (:func:`_encode_all`).
+        # целиком, и решает это один раз - до первого сегмента (:func:`_encode_all`).
         codec=media.video or "",
         # То, что уехало на ТВ: `cast status` покажет факт, а не заявку имени.
         quality=media.quality if media.height else "",
@@ -790,7 +790,7 @@ def _cmd_play(args: Args) -> int:
         episode=series.want.episode if series else None,
         episodes=series.table if series else [],
     )
-    if stale is not None:  # точка невозврата пройдена — вот теперь --new вправе забывать
+    if stale is not None:  # точка невозврата пройдена - вот теперь --new вправе забывать
         _forget_progress(stale)
     return _launch(config, plan.picture.key, entry, about, clock)
 
@@ -815,7 +815,7 @@ def _search(config: Config, args: Args, progress: Progress) -> list[_Plan]:
     """Поиск и разбор выдачи: запрос → картины франшизы, каждая со своим пулом релизов."""
     from torrcast.parse import THIN_POOL, cluster, pick_franchise
 
-    if not config.prowlarr_apikey:  # без Prowlarr искать нечем — это инфра-ошибка
+    if not config.prowlarr_apikey:  # без Prowlarr искать нечем - это инфра-ошибка
         raise InfraError("не настроен Prowlarr: apikey пуст, перезапусти ./install.sh")
     query = args.title_query
     name, index = split_franchise_index(query)
@@ -823,7 +823,7 @@ def _search(config: Config, args: Args, progress: Progress) -> list[_Plan]:
     progress.phase(f"поиск «{name}»")
     raw = _ask(client, name)
     pictures = cluster(to_releases(raw))
-    # Номер в запросе — позиция во франшизе, а не в общей выдаче.
+    # Номер в запросе - позиция во франшизе, а не в общей выдаче.
     found = pick_franchise(query, pictures)
     if max((len(p.releases) for p in found), default=0) < THIN_POOL:
         raw, pictures, found = _second_language(client, query, raw, found, progress)
@@ -998,7 +998,7 @@ def _second_language(
     merged = merge(raw, _ask(client, alt))
     # Круг кончился - закрываем его строку прямо здесь. Всё, что скажем дальше, это его
     # итог, а `note` печатается сразу, тогда как строка фазы ждёт закрытия фазы: без этого
-    # вердикт «не беру» выходил ПЕРЕД строкой «поиск «Cars»… 102.1 с», и человек читал два
+    # вердикт «не беру» выходил ПЕРЕД строкой «поиск «Cars»... 102.1 с», и человек читал два
     # несвязанных сообщения как противоречие - отказ, а следом будто бы удавшийся поиск.
     progress.phase("")
     if len(merged) == len(raw):
@@ -1135,10 +1135,10 @@ def _plan_for(picture: Picture, args: Args, config: Config) -> _Plan:
     pool = picture.releases
     if series is not None:
         pool = [r for r in pool if r.covers(series.want.season)]
-    # Потолок отбора — уже не потолок декодера. Тяжёлые куски перекодируются
+    # Потолок отбора - уже не потолок декодера. Тяжёлые куски перекодируются
     # (:mod:`torrcast.recode`), поэтому честный тяжёлый 1080p теперь берётся, а отбраковывает
-    # только то, что перекодированием не спасти, — ``bitrate_hard_mbit``. Перекодирование
-    # выключено — потолком снова становится прежний ``bitrate_warn_mbit``.
+    # только то, что перекодированием не спасти, - ``bitrate_hard_mbit``. Перекодирование
+    # выключено - потолком снова становится прежний ``bitrate_warn_mbit``.
     ceiling = config.bitrate_hard_mbit if config.recode else config.bitrate_warn_mbit
     want = series.want if series else None
     loose = gate_open(pool, runtime, ceiling, want)
@@ -1169,7 +1169,7 @@ class _Plan:
     warn_mbit: float
     series: _Series | None = None
     #: Порог ПЕРЕКОДИРОВАНИЯ, Мбит/с: выше него куски перекодируются, а релиз годен.
-    #: Ноль — перекодирование выключено, и тогда отбраковка и порог это одно число.
+    #: Ноль - перекодирование выключено, и тогда отбраковка и порог это одно число.
     recode_at: float = 0.0
     #: Ворота отбора открыты: живых именных кандидатов у картины нет (:func:`gate_open`),
     #: и молчаливые имена идут в очередь наравне с именными.
@@ -1244,7 +1244,7 @@ class _Series:
         found = next((f for f in self.files if f.at == self.want), None)
         if found is None:
             raise NotFoundError(
-                f"серии {self.want} в этой раздаче нет ({self.summary()}) — "
+                f"серии {self.want} в этой раздаче нет ({self.summary()}) - "
                 "возьми другую раздачу: cast <запрос> --release N"
             )
         return next(f for f in files if f.index == found.index)
@@ -1259,8 +1259,8 @@ class _Series:
         if not self.files:
             return "серий не нашлось"
         seasons = {f.season for f in self.files}
-        span = f"сезоны {min(seasons)}–{max(seasons)} · " if len(seasons) > 1 else ""
-        return f"{span}серий {len(self.files)}: {self.files[0].at}…{self.files[-1].at}"
+        span = f"сезоны {min(seasons)}-{max(seasons)} · " if len(seasons) > 1 else ""
+        return f"{span}серий {len(self.files)}: {self.files[0].at}...{self.files[-1].at}"
 
 
 def _continue(config: Config, key: str, entry: Entry, args: Args, clock: _Clock) -> int | None:
@@ -1270,18 +1270,18 @@ def _continue(config: Config, key: str, entry: Entry, args: Args, clock: _Clock)
     Сериал вопросов не задаёт вовсе: релиз, дорожка и список серий уже выбраны, а
     какую серию и с какого места играть — записано. Фильм спрашивает ровно одно.
     """
-    if not entry.serial:  # фильм (в том числе ошибочно записанный сериалом) — один вопрос
+    if not entry.serial:  # фильм (в том числе ошибочно записанный сериалом) - один вопрос
         if not entry.resumable:
-            return None  # продолжать нечего — озвучку выберет обычный путь, по дорожкам
+            return None  # продолжать нечего - озвучку выберет обычный путь, по дорожкам
         return _resume(config, key, _voiced(config, entry, args), clock=clock, dry=args.dry)
     entry = _voiced(config, entry, args)
-    if args.episode is not None:  # `cast киберпанк s2e5` — прыжок по кэшу раздачи
+    if args.episode is not None:  # `cast киберпанк s2e5` - прыжок по кэшу раздачи
         jumped = entry.jump(args.episode.season, args.episode.episode)
         if jumped is None:
-            return None  # серии в этой раздаче нет — честно идём искать релиз сезона
+            return None  # серии в этой раздаче нет - честно идём искать релиз сезона
         return _launch(config, key, jumped, _about(jumped), clock, args.dry)
     if entry.done:  # конец раздачи: сама собой следующая серия не появится
-        print(f"«{entry.title}» — {entry.label} была последней в раздаче")
+        print(f"«{entry.title}» - {entry.label} была последней в раздаче")
         if ask_line("Смотреть сначала? [Да/нет]")[:1] in {"н", "n"}:
             return EXIT_OK
         first = entry.episodes[0]
@@ -1360,7 +1360,7 @@ class _Prep:
     release: Release
     torrent_hash: str = ""
     #: Прогрев оказался ненужным: показ ушёл на другую картину или другой релиз. Такая
-    #: раздача убирается из TorrServer сразу — иначе два лишних торрента тянули бы кэш
+    #: раздача убирается из TorrServer сразу - иначе два лишних торрента тянули бы кэш
     #: и полосу у самого показа.
     dropped: bool = False
     video: TorrFile | None = None
@@ -1448,7 +1448,7 @@ class _Bench:
             # Молчать тут нельзя: человек попросил серию, а половину выдачи мы не взяли.
             print(
                 f"серии {plan.want} нет в раздачах: {len(skipped)} "
-                f"(«{_cut(skipped[0].raw_name, 60)}»…) — беру ту, где она есть"
+                f"(«{_cut(skipped[0].raw_name, 60)}»...) - беру ту, где она есть"
             )
         tried: list[str] = []
         verdicts = 0
@@ -1466,13 +1466,13 @@ class _Bench:
                 progress.phase("")
                 prep = self._honest(plan, prep, queue, args, progress)
                 # Молчаливых подмен нет ни в одну сторону: и «ресивер может не взять», и
-                # «перекодирую целиком» — это решение показа, и человек его слышит.
+                # «перекодирую целиком» - это решение показа, и человек его слышит.
                 if prep.found.recoded_whole and plan.recode_at > 0:
                     print(recode_note(prep.found.video or ""))
                 elif warning := prep.found.video_warning:
                     print(warning)
                 return prep
-            tried.append(f"{number} — {trouble}")
+            tried.append(f"{number} - {trouble}")
             if not prep.error and prep.media is not None:  # ffprobe прочитал и осудил
                 verdicts += 1
             self._forget(prep)
@@ -1480,7 +1480,7 @@ class _Bench:
             goes_on = (
                 following is not None and verdicts < MAX_TRIES and time.monotonic() < deadline
             )
-            tail = f" — беру {following}" if goes_on else ""
+            tail = f" - беру {following}" if goes_on else ""
             print(f"релиз {number} не годится ({trouble}){tail}")
             if not goes_on:
                 break
@@ -1488,7 +1488,7 @@ class _Bench:
         more = f" и ещё {len(tried) - MAX_TRIES}" if len(tried) > MAX_TRIES else ""
         offer = kin_line(plan.kin)
         raise NotFoundError(
-            f"годного релиза нет ({shown}{more}): выбери руками — "
+            f"годного релиза нет ({shown}{more}): выбери руками - "
             "cast releases <запрос>, потом cast <запрос> --release N"
             + (f"\n{offer}" if offer else "")
         )
@@ -1498,7 +1498,7 @@ class _Bench:
         deadline = prep.started + self.meta_budget + self.probe_budget + 5.0
         while not prep.ready.wait(0.2):
             progress.phase(prep.phase)
-            if time.monotonic() > deadline:  # поток сам не уложился — не ждём вечно
+            if time.monotonic() > deadline:  # поток сам не уложился - не ждём вечно
                 prep.error = prep.error or f"фаза «{prep.phase}» не уложилась в бюджет"
                 return
 
@@ -1539,7 +1539,7 @@ class _Bench:
         short = understated(chosen.release, chosen.found)
         if not short:
             return chosen
-        # Очередь целиком тут не спрашивается: каждый вопрос — это ещё одна раздача в
+        # Очередь целиком тут не спрашивается: каждый вопрос - это ещё одна раздача в
         # TorrServer, то есть кэш и полоса роя у того, кого мы и так вот-вот покажем.
         rest = [
             n
@@ -1549,10 +1549,10 @@ class _Bench:
         deadline = time.monotonic() + HONEST_BUDGET
         for number in rest:
             alt = self.start(plan, number)
-            phase = f"релиз {chosen.number} {short} — смотрю {number}"
+            phase = f"релиз {chosen.number} {short} - смотрю {number}"
             if not self._peek(alt, progress, deadline, phase):
                 progress.phase("")
-                print(f"релиз {number} не успел ответить — играю {chosen.number} ({short})")
+                print(f"релиз {number} не успел ответить - играю {chosen.number} ({short})")
                 return chosen
             progress.phase("")
             why = self._trouble(
@@ -1565,11 +1565,11 @@ class _Bench:
                 print(f"релиз {number} не лучше ({quality_text(alt.release, alt.found)})")
                 continue
             print(
-                f"релиз {chosen.number} {short} — беру {number} (настоящий {alt.found.quality})"
+                f"релиз {chosen.number} {short} - беру {number} (настоящий {alt.found.quality})"
             )
             self._forget(chosen)  # верх больше не нужен: полосу роя доедать ему незачем
             return alt
-        print(f"релиз {chosen.number} {short} — честнее рядом нет, играю его")
+        print(f"релиз {chosen.number} {short} - честнее рядом нет, играю его")
         return chosen
 
     def _trouble(
@@ -1655,7 +1655,7 @@ class _Bench:
             source = self.torrserver.stream_url(prep.torrent_hash, prep.want.index)
             # Всё, что показ прочитает из роя первым, читается здесь и сейчас: карта
             # опорных кадров (без неё нет сетки) и начало файла (его читает ffmpeg). Это
-            # самая ранняя секунда, когда известен файл, — то есть параллельно и ffprobe,
+            # самая ранняя секунда, когда известен файл, - то есть параллельно и ffprobe,
             # и вопросам человека. Показ потом либо берёт готовое, либо
             # дожидается этого же чтения, а не начинает своё вторым потоком.
             warm_file(source, alive=lambda: not prep.dropped, name=prep.want.name)
@@ -1720,7 +1720,7 @@ class _Resume:
             torrent_hash = self.torrserver.add(self.entry.magnet)
             files = self.torrserver.wait_files(torrent_hash)
             self.source = self.torrserver.stream_url(torrent_hash, self.entry.file_idx)
-            # Имя файла — подсказка о контейнере для грелки головы: карта, снятая прошлой
+            # Имя файла - подсказка о контейнере для грелки головы: карта, снятая прошлой
             # версией, лежит в кэше без него (:func:`torrcast.stream.container_of`).
             name = next((f.name for f in files if f.index == self.entry.file_idx), "")
             warm_file(self.source, at=self.entry.pos, alive=lambda: not self.cancelled, name=name)
@@ -1763,7 +1763,7 @@ def _launch(
 ) -> int:
     """Показ уезжает в transient-юнит: ``cast`` завершился — показ продолжается."""
     if dry:
-        print(f"(--dry) {about} — каста нет")
+        print(f"(--dry) {about} - каста нет")
         return EXIT_OK
     # Сначала гасим прошлый показ и только потом пишем свою запись: умирающий юнит по
     # SIGTERM дописывает СВОЮ позицию, и записанный раньше прыжок на s1e5 он бы затёр.
@@ -1776,7 +1776,7 @@ def _launch(
     mark("юнит")
     with Progress() as progress:
         _await_playing(config, progress)
-    print(f"играю {about} — на ТВ   (старт {clock.total:.0f} с)")
+    print(f"играю {about} - на ТВ   (старт {clock.total:.0f} с)")
     return EXIT_OK
 
 
@@ -1810,7 +1810,7 @@ def _await_playing(config: Config, progress: Progress, timeout: float = START_BU
         time.sleep(0.2)
     progress.phase("")
     stop_play_unit()
-    raise InfraError(f"показ не начался за {timeout:.0f} с — {unit_why()}")
+    raise InfraError(f"показ не начался за {timeout:.0f} с - {unit_why()}")
 
 
 def _recoder(
@@ -1834,26 +1834,26 @@ def _recoder(
     if not config.recode:
         return None
     if not grid.on_keys:
-        print("сетка не по опорным кадрам — тяжёлые куски перекодировать не берусь", flush=True)
+        print("сетка не по опорным кадрам - тяжёлые куски перекодировать не берусь", flush=True)
         return None
     try:
         keys = film_keys(source)
     except InfraError as exc:
-        print(f"профиль тяжести не снят ({why(exc)}) — играю как есть", flush=True)
+        print(f"профиль тяжести не снят ({why(exc)}) - играю как есть", flush=True)
         return None
     # Сколько уедет на ТВ: видеодорожка идёт копией, звук всегда AAC, сверху оверхед
-    # mpegts. Паспорт молчит (mp4 без тегов) — поправка наберётся по факту, как раньше.
+    # mpegts. Паспорт молчит (mp4 без тегов) - поправка наберётся по факту, как раньше.
     delivered = (video_mbit + AUDIO_MBIT) * TS_OVERHEAD if video_mbit > 0 else 0.0
     weights = Weights.of(keys, grid, delivered=delivered)
     if weights is None:
-        print("карта без смещений — профиль тяжести не построить, играю как есть", flush=True)
+        print("карта без смещений - профиль тяжести не построить, играю как есть", flush=True)
         return None
     print(
         f"профиль тяжести: контейнер {weights.container:.1f} Мбит/с, "
         + (
             f"на ТВ уедет {delivered:.1f} (видео {video_mbit:.1f} по паспорту)"
             if delivered > 0
-            else "веса видеодорожки в паспорте нет — поправку наберу по факту"
+            else "веса видеодорожки в паспорте нет - поправку наберу по факту"
         ),
         flush=True,
     )
@@ -2062,10 +2062,10 @@ def _play(
     #
     # Сетке нужен не только шаг, но и вес. Сегмент тяжелее ~19 МБ приёмник не
     # доигрывает, а выбрасывает буфер и качает его заново, поэтому граница ставится с
-    # оглядкой на предсказанный вес куска — а он зависит и от паспорта (что уедет на ТВ),
+    # оглядкой на предсказанный вес куска - а он зависит и от паспорта (что уедет на ТВ),
     # и от того, перекодируем ли мы тяжёлое (тогда кусок не тяжелее ``recode_mbit``).
-    # Кодек, который приёмник не декодирует, — это решение на весь показ, а не на кусок:
-    # перекодирует сама упаковка, одним прогоном, и кодировщик тяжёлых кусков не нужен —
+    # Кодек, который приёмник не декодирует, - это решение на весь показ, а не на кусок:
+    # перекодирует сама упаковка, одним прогоном, и кодировщик тяжёлых кусков не нужен -
     # перекодировать поверх перекода нечего. Решается это ДО сетки: от битрейта перекода
     # зависит вес каждого куска, а значит и то, где сетка поставит границы.
     grid, whole = _layout(
@@ -2075,7 +2075,7 @@ def _play(
     if whole is not None:
         print(recode_note(codec), flush=True)
         mark("сплошной перекод", кодек=codec, пресет=whole.preset, мбит=round(whole.mbit, 2))
-    # Профиль тяжести всего фильма известен со старта — он считается из уже снятой
+    # Профиль тяжести всего фильма известен со старта - он считается из уже снятой
     # карты опорных кадров и не стоит ни одного запроса к рою. Тяжёлые куски кодировщик
     # начнёт перекодировать сразу, пока играет остальное.
     recoder = (
@@ -2091,7 +2091,7 @@ def _play(
         )
     )
     # Прогрев поднимается ПОСЛЕ старта показа (ниже), а собирается здесь: ему нужны и
-    # сетка, и решение о перекодировании — те же, что у живой упаковки.
+    # сетка, и решение о перекодировании - те же, что у живой упаковки.
     warmer = _warmer(
         config, source, audio, grid, start, about, whole=whole, recoder=recoder, follow=follow
     )
@@ -2129,9 +2129,9 @@ def _play(
         mark("упаковка пошла")
         receiver.play(url, about, at=start)
         mark("LOAD взят")
-        print(f"играю {about} — на ТВ   (старт {clock.total:.0f} с)", flush=True)
+        print(f"играю {about} - на ТВ   (старт {clock.total:.0f} с)", flush=True)
         # ⚠️ Прогрев стартует ровно ЗДЕСЬ и ни строкой выше: путь до картинки он не
-        # удлиняет ни на секунду — ни своим ffmpeg, ни чтением каталога. Всё, что он
+        # удлиняет ни на секунду - ни своим ffmpeg, ни чтением каталога. Всё, что он
         # делает, происходит уже при играющем показе и на остатке процессора.
         if warmer is not None:
             warmer.start()
@@ -2139,26 +2139,26 @@ def _play(
     finally:
         # Позиция фиксируется при любом исходе, включая SIGTERM, и делается это ПЕРВЫМ
         # делом: показ, доигранный до конца файла, отмечает «досмотрено» ровно здесь, а
-        # приёмнику ниже нужно уже готовое состояние — по нему он и узнаёт, конец это
+        # приёмнику ниже нужно уже готовое состояние - по нему он и узнаёт, конец это
         # показа или стык серий.
         if watch is not None:
             watch.flush()
         if warmer is not None:
             warmer.stop()
-            # Досмотрено (порог 95 %) — прогретое стирается: держать на диске фильм,
+            # Досмотрено (порог 95 %) - прогретое стирается: держать на диске фильм,
             # который уже посмотрели, незачем. Прерванный показ прогретое сохраняет:
             # `cast` завтра продолжит с диска и без сети.
             if watch is not None and watch.done:
                 warmer.vault.clear()
-                print("досмотрено — прогретое с диска убрал", flush=True)
+                print("досмотрено - прогретое с диска убрал", flush=True)
         # ⚠️ suppress(Exception), а не TorrcastError: pychromecast на полуживом соединении
-        # роняет что угодно, а ffmpeg и раздача обязаны погаснуть в любом случае — иначе
+        # роняет что угодно, а ffmpeg и раздача обязаны погаснуть в любом случае - иначе
         # процесс уходит, а они остаются.
         with contextlib.suppress(Exception):
-            # Показ кончился — приложение приёмника закрываем, чтобы ТВ вернулся в
+            # Показ кончился - приложение приёмника закрываем, чтобы ТВ вернулся в
             # исходное состояние: иконка Default Media Receiver иначе висит до своего
             # таймаута простоя и оттягивает автовыключение.
-            # Исключение ровно одно — стык серий: следующая серия грузится в то же
+            # Исключение ровно одно - стык серий: следующая серия грузится в то же
             # приложение, и гасить его между ними значит моргать экраном на каждой.
             receiver.stop(quit_app=not _handover(watch))
         feed.stop()
@@ -2168,9 +2168,9 @@ def _play(
     if report is None:
         return EXIT_OK
     print(report.line())
-    # Серию обрывают намеренно на пороге 95 % — хвост упаковки декодеру и не отдавали.
+    # Серию обрывают намеренно на пороге 95 % - хвост упаковки декодеру и не отдавали.
     if not report.ok and not (watch is not None and watch.done):
-        raise InfraError("приёмник не досмотрел поток — цифры выше")
+        raise InfraError("приёмник не досмотрел поток - цифры выше")
     return EXIT_OK
 
 
@@ -2199,29 +2199,29 @@ def _hold(
     именно завершается — под SIGSTOP'ом приёмник намертво вис в BUFFERING.
     """
     paused, said, seen = 0.0, 0.0, False
-    #: Позиция приёмника с прошлого опроса — от неё считается запас показа. Прошлая, а не
+    #: Позиция приёмника с прошлого опроса - от неё считается запас показа. Прошлая, а не
     #: сегодняшняя, потому что запас нужен раньше, чем приходит ответ приёмника, и взять
     #: его больше неоткуда. На решение сторожа это не влияет: нудж срабатывает только
     #: после :attr:`STALL_SECONDS` неподвижности, то есть когда прошлая позиция и есть
-    #: сегодняшняя. А сразу после перемотки, где число ещё старое, позиция изменилась —
+    #: сегодняшняя. А сразу после перемотки, где число ещё старое, позиция изменилась -
     #: и счётчик подвиса обнулён.
     last = 0.0
     trace = bool(os.environ.get(TRACE_ENV))
     while True:
         _ctl(receiver)
         if trouble := feed.trouble():
-            # Убитый сигналом ffmpeg ничего сказать не успевает — не выдумываем за него.
+            # Убитый сигналом ffmpeg ничего сказать не успевает - не выдумываем за него.
             raise InfraError(f"упаковка оборвалась: {trouble}")
         try:
             # Запас упаковки идёт приёмнику: неподвижный BUFFERING при готовых сегментах
-            # впереди — это зависание, а при пустых — законное ожидание нас.
+            # впереди - это зависание, а при пустых - законное ожидание нас.
             position = receiver.position(feed.front(last))
-        except InfraError:  # приёмник позицию не отдаёт — показу остаётся только ждать
+        except InfraError:  # приёмник позицию не отдаёт - показу остаётся только ждать
             time.sleep(2.0)
             continue
         last = position.pos
         if not seen and position.state == "PLAYING":
-            # Картинка на экране — теперь CLI имеет право сказать «старт NN с».
+            # Картинка на экране - теперь CLI имеет право сказать «старт NN с».
             seen = True
             mark_playing(feed.out)
         if trace:
@@ -2237,9 +2237,9 @@ def _hold(
             # и сторож приёмника, и на просевшем замирает (:meth:`torrcast.warm.Warmer._throttle`).
             warmer.feed(feed.front(position.pos) - position.pos)
             if warmer.done and feed.rest():
-                print("прогрето целиком — живую упаковку гашу, показ идёт с диска", flush=True)
+                print("прогрето целиком - живую упаковку гашу, показ идёт с диска", flush=True)
         if time.monotonic() - said >= SAY_SECONDS:
-            # Что видит приёмник, тем и отчитываемся: длительность и позиция — это ровно
+            # Что видит приёмник, тем и отчитываемся: длительность и позиция - это ровно
             # ``duration`` и ``current_time`` из MEDIA_STATUS, снятые владеющим сендером.
             # Другого доказательства «на ТВ есть таймлайн» у нас нет.
             said = time.monotonic()
@@ -2253,7 +2253,7 @@ def _hold(
                 # Обрыв длиннее прогретого не имеет права быть молчаливой смертью: показ
                 # говорит, докуда он обеспечен, и продолжает пробовать сеть.
                 print(
-                    f"сети нет ({feed.offline}) — показ обеспечен до "
+                    f"сети нет ({feed.offline}) - показ обеспечен до "
                     f"{_hms(feed.front(position.pos))}",
                     flush=True,
                 )
@@ -2264,14 +2264,14 @@ def _hold(
                 watch.entry.warm = warmer.warmed
             watch.see(position.pos)
             if watch.done and watch.entry.serial:
-                return  # серия досмотрена — освобождаем показ под следующую
+                return  # серия досмотрена - освобождаем показ под следующую
         if position.state == "PAUSED":
             paused = paused or time.monotonic()
             if time.monotonic() - paused > PAUSE_LIMIT:
-                return  # пауза длиной с вечер — показ окончен, юнит гасим
+                return  # пауза длиной с вечер - показ окончен, юнит гасим
             if time.monotonic() - paused > PAUSE_SECONDS and not feed.halted():
-                print("пауза на пульте — упаковку гашу", flush=True)
-                feed.halt()  # вернутся к показу — раздача сама начнёт паковать заново
+                print("пауза на пульте - упаковку гашу", flush=True)
+                feed.halt()  # вернутся к показу - раздача сама начнёт паковать заново
         elif not position.playing:
             return
         else:
@@ -2437,7 +2437,7 @@ def _pick_plan(plans: list[_Plan], facts: Facts | None = None) -> _Plan:
     default = first_alive(plans)
     if not console.stdin_is_tty():
         raise NotFoundError(
-            f"подходит картин: {len(plans)}, а терминала нет — вслепую не выбираю; "
+            f"подходит картин: {len(plans)}, а терминала нет - вслепую не выбираю; "
             f"назови картину точно (например «{plans[default - 1].picture.title}») "
             "или запусти cast в терминале"
         )
@@ -2493,7 +2493,7 @@ def menu_lines(plans: list[_Plan], facts: Facts | None = None, width: int = 0) -
                 width=max(40, columns - 1),
                 initial_indent=_BLURB_INDENT,
                 subsequent_indent=_BLURB_INDENT,
-                # Дефис — часть слова: «компьютерно-анимационный» рвать по нему незачем.
+                # Дефис - часть слова: «компьютерно-анимационный» рвать по нему незачем.
                 break_on_hyphens=False,
             )
     return "\n".join(rows)
@@ -2516,7 +2516,7 @@ def warned(release: Release, runtime: float, warn_mbit: float, recode_at: float 
     if peak > warn_mbit:
         marks += ["тяжёлый"]
     elif recode_at > 0 and peak > recode_at:
-        # Не брак, а честное предупреждение — тяжёлые куски поедут перекодированными.
+        # Не брак, а честное предупреждение - тяжёлые куски поедут перекодированными.
         marks += ["перекодируем"]
     return ", ".join(marks)
 
@@ -2545,7 +2545,7 @@ def understated(release: Release, media: Media) -> str:
     Возвращает кусок фразы, а не флаг: строка про подмену обязана назвать обе цифры,
     иначе она ничего не объясняет.
     """
-    if not media.height:  # ffprobe высоту не отдал — сравнивать не с чем, молчим
+    if not media.height:  # ffprobe высоту не отдал - сравнивать не с чем, молчим
         return ""
     if release.height:
         if media.frame < release.height * HONEST_RATIO:
@@ -2729,9 +2729,9 @@ def is_dated(release: Release, runtime: float) -> bool:
     """
     if release.dated:
         return True
-    if release.height:  # имя назвало ступень — верим ему, спорить с ним дело ffprobe
+    if release.height:  # имя назвало ступень - верим ему, спорить с ним дело ffprobe
         return release.height < HD_HEIGHT
-    if release.anime:  # жанровый битрейт: 1-1.5 Мбит/с на серию — это норма, а не SD
+    if release.anime:  # жанровый битрейт: 1-1.5 Мбит/с на серию - это норма, а не SD
         return False
     return 0.0 < bitrate_of(release, runtime) < SD_BITRATE
 
@@ -2889,7 +2889,7 @@ def render_table(
             r.quality or "?",
             _gb(r.size),
             str(r.seeders),
-            _cut(", ".join(r.voices) or "—", 34),
+            _cut(", ".join(r.voices) or "-", 34),
             ((r.codec or "?") + " " + warned(r, runtime, warn_mbit, recode_at)).strip(),
         )
         for number, r in enumerate(shown, start=1)
@@ -2902,7 +2902,7 @@ def render_table(
 
     out = ["Релизы:", line(head), *(line(row).rstrip() for row in rows)]
     if len(releases) > len(shown):
-        out.append(f"  … и ещё {len(releases) - len(shown)} с меньшим числом сидов")
+        out.append(f"  ... и ещё {len(releases) - len(shown)} с меньшим числом сидов")
     return "\n".join(out)
 
 
@@ -2929,9 +2929,9 @@ def pick_voice(media: Media, args: Args, remembered: str = "") -> tuple[int, str
         found = media.find_voice(remembered)
         if found is not None:
             return found, remembered
-        # Память живёт на картину, а релиз временный: озвучки в нём нет — говорим и
+        # Память живёт на картину, а релиз временный: озвучки в нём нет - говорим и
         # играем обычную, но выбор пользователя не забываем (:attr:`Entry.voice`).
-        print(f"озвучки «{remembered}» в этом релизе нет — беру обычную")
+        print(f"озвучки «{remembered}» в этом релизе нет - беру обычную")
     return media.default_track(), remembered
 
 
@@ -2983,10 +2983,10 @@ def sound_note(media: Media, audio: int, pool: list[Release], release: Release |
         return ""
     track = media.tracks[audio] if audio < len(media.tracks) else media.tracks[0]
     if not track.named:
-        # Раздача язык дорожки не назвала (тег ``und``). Единственная косвенная улика —
-        # имя раздачи: русский маркер в нём (:attr:`Release.dubbed`) — повод СКАЗАТЬ про
+        # Раздача язык дорожки не назвала (тег ``und``). Единственная косвенная улика -
+        # имя раздачи: русский маркер в нём (:attr:`Release.dubbed`) - повод СКАЗАТЬ про
         # русскую, назвав источник, а не молча подставить её (и не выдать за неё). Улики
-        # нет — язык так и остаётся неизвестным, и об этом честная строка.
+        # нет - язык так и остаётся неизвестным, и об этом честная строка.
         if release is not None and release.dubbed:
             return "звук без метки языка - по имени релиза русская"
         return "язык дорожки неизвестен - раздача не назвала язык озвучки"
@@ -3003,7 +3003,7 @@ def _voice_number(media: Media, number: int) -> int:
     """Номер дорожки от человека → индекс; чужого номера нет — честная строка."""
     if not 1 <= number <= len(media.tracks):
         raise NotFoundError(
-            f"дорожек {len(media.tracks)}, номера {number} нет — посмотри: cast voices <запрос>"
+            f"дорожек {len(media.tracks)}, номера {number} нет - посмотри: cast voices <запрос>"
         )
     return number - 1
 
@@ -3011,7 +3011,7 @@ def _voice_number(media: Media, number: int) -> int:
 def _ask_voice(media: Media) -> int:
     """Меню озвучек — только по ``--voice`` без номера. Дефолт тот же, что и без флага."""
     default = media.default_track()
-    if len(media.tracks) == 1:  # выбора нет — вопроса тоже
+    if len(media.tracks) == 1:  # выбора нет - вопроса тоже
         return default
     print(voices_table(media, default))
     return ask("Озвучка?", len(media.tracks), default=default + 1) - 1
@@ -3030,11 +3030,11 @@ def voices_table(media: Media, default: int, remembered: str = "") -> str:
 
 
 def _gb(size: int) -> str:
-    return f"{size / 1024**3:.1f} ГБ" if size else "—"
+    return f"{size / 1024**3:.1f} ГБ" if size else "-"
 
 
 def _cut(text: str, limit: int) -> str:
-    return text if len(text) <= limit else text[: limit - 1] + "…"
+    return text if len(text) <= limit else text[: limit - 3] + "..."
 
 
 def _pad(text: str, width: int) -> str:

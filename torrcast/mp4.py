@@ -51,12 +51,12 @@ from torrcast.keymap import KeyMap, Point, Reader
 __all__ = ["MOOV_CHUNK", "keys"]
 
 #: Каким шагом дочитывается ``moov``. Разбор идёт строго вперёд, поэтому куски ложатся
-#: подряд — для роя это лучший из возможных запросов. Мельче делать нечего: заход к
-#: холодной раздаче стоит дороже мегабайта, крупнее — начинаем тянуть дорожку звука,
+#: подряд - для роя это лучший из возможных запросов. Мельче делать нечего: заход к
+#: холодной раздаче стоит дороже мегабайта, крупнее - начинаем тянуть дорожку звука,
 #: которая нам не нужна.
 MOOV_CHUNK: Final = 1 << 20
 #: Сколько верхних боксов пройдём в поисках ``moov``. Их в файле единицы (``ftyp``,
-#: ``free``, ``mdat``, ``moov``); полсотни — это уже не mp4, а мусор, и лучше честно
+#: ``free``, ``mdat``, ``moov``); полсотни - это уже не mp4, а мусор, и лучше честно
 #: сдаться, чем ходить по нему запросами.
 MAX_TOP_BOXES: Final = 50
 
@@ -112,7 +112,7 @@ def _boxes(window: _Window, start: int, end: int) -> Iterator[tuple[bytes, int, 
                 return
             size = struct.unpack(">Q", head[8:16])[0]
             data = at + 16
-        elif size == 0:  # «до конца родителя» — так пишут последний бокс
+        elif size == 0:  # «до конца родителя» - так пишут последний бокс
             size = end - at
         if size < data - at or at + size > end:
             return
@@ -161,7 +161,7 @@ def _find_moov(reader: Reader, head: bytes) -> tuple[int, int, int]:
         if size < header:
             break
         at += size
-    raise InfraError("в mp4 нет бокса moov — карту опорных кадров взять неоткуда")
+    raise InfraError("в mp4 нет бокса moov - карту опорных кадров взять неоткуда")
 
 
 def _movie(window: _Window, moov: tuple[int, int]) -> tuple[int, float]:
@@ -267,7 +267,7 @@ def _sample_times(window: _Window, stbl: tuple[int, int], wanted: list[int]) -> 
     """
     found = _find(window, *stbl, b"stts")
     if found is None:
-        raise InfraError("в mp4 нет таблицы stts — времена кадров взять неоткуда")
+        raise InfraError("в mp4 нет таблицы stts - времена кадров взять неоткуда")
     at, count = _table(window, *found, 8)
     runs = struct.iter_unpack(">II", window.take(at, count * 8))
     times: list[int] = []

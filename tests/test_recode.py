@@ -241,7 +241,7 @@ def test_nothing_beyond_the_horizon_is_encoded_in_advance(tmp_path) -> None:  # 
     )
     recoder.played = 0.0
     recoder.done = set(range(0, 20))
-    assert recoder._pick() is None  # всё, что ближе 30 с, уже сделано; дальше — не лезем
+    assert recoder._pick() is None  # всё, что ближе 30 с, уже сделано; дальше - не лезем
 
 
 def test_a_run_is_never_longer_than_the_cap(tmp_path) -> None:  # type: ignore[no-untyped-def]
@@ -281,7 +281,7 @@ def test_played_pieces_leave_the_cache(tmp_path) -> None:  # type: ignore[no-unt
 
 def test_a_film_with_no_heavy_pieces_starts_no_encoder(tmp_path) -> None:  # type: ignore[no-untyped-def]
     grid = _grid()
-    weights = Weights.of(_keys(rate=0.5e6), grid)  # 4 Мбит/с — приёмник и не заметит
+    weights = Weights.of(_keys(rate=0.5e6), grid)  # 4 Мбит/с - приёмник и не заметит
     assert weights is not None
     said: list[str] = []
     recoder = Recoder(
@@ -327,7 +327,7 @@ def test_a_recoded_piece_lands_on_the_same_place_with_the_same_stamps(clip, tmp_
         where = tmp_path / ("enc" if encode else "copy")
         (where / "run").mkdir(parents=True)
         # У копии место старта измеряется пробным прогоном (``-ss`` уводит на опорный
-        # кадр раньше), у перекода — не измеряется вовсе: там ``-ss`` точен.
+        # кадр раньше), у перекода - не измеряется вовсе: там ``-ss`` точен.
         at = grid.start(slot) if encode else pack_start(str(clip), grid.start(slot))
         command = ffmpeg_pack_command(
             str(clip), 0, str(where / "run"), grid, slot, at,
@@ -358,10 +358,10 @@ def test_a_recoded_piece_lands_on_the_same_place_with_the_same_stamps(clip, tmp_
         assert number in recoded, f"кодировщик не отдал v{number}"
         assert number in copied, f"копия не отдала v{number}"
         began, ended, keyed = recoded[number]
-        # Метка начала совпадает с копией с точностью до кадра, и кадр этот — опорный.
+        # Метка начала совпадает с копией с точностью до кадра, и кадр этот - опорный.
         assert abs(began - copied[number][0]) < 0.1, f"v{number}: метки разъехались"
         assert abs(ended - copied[number][1]) < 0.1, f"v{number}: длина разъехалась"
-        assert keyed, f"v{number}: первый кадр не опорный — независимость сегмента враньё"
+        assert keyed, f"v{number}: первый кадр не опорный - независимость сегмента враньё"
 
 
 def test_the_deadline_is_the_packer_not_the_playhead(tmp_path) -> None:  # type: ignore[no-untyped-def]
@@ -392,7 +392,7 @@ def test_what_the_packer_already_published_is_never_re_encoded(tmp_path) -> None
         source="src", audio=0, grid=grid, spare=tmp_path, weights=weights, threshold=15.0
     )
     recoder.played = 0.0
-    recoder.note(3, "копия")  # упаковщик выложил v0…v3
+    recoder.note(3, "копия")  # упаковщик выложил v0...v3
     job = recoder._pick()
     assert job is not None
     assert job[0] == 4
@@ -443,7 +443,7 @@ def test_a_copy_waits_while_its_piece_is_being_recoded(tmp_path) -> None:  # typ
     assert recoder.holding(5)  # заход не идёт, но следующим возьмут ровно этот кусок
     recoder.job = (4, 8, clock.monotonic() + 60.0, clock.monotonic(), 4.0)
     assert recoder.holding(5)
-    assert recoder.holding(9)  # следующий заход возьмёт и его — успевается
+    assert recoder.holding(9)  # следующий заход возьмёт и его - успевается
     assert not recoder.holding(20)  # а так далеко у кодировщика планов ещё нет
 
 
@@ -531,9 +531,9 @@ def test_while_the_encoder_is_still_starting_the_copy_still_waits(tmp_path) -> N
     recoder.played = 0.0
     recoder.began = clock.monotonic()
     assert recoder.job is None
-    assert recoder.holding(5)  # тяжёлый и далеко — подождём подъёма
-    assert not recoder.holding(0)  # упаковку с него не начинали — это не голова прогона
-    recoder.played = grid.start(5) - 3.0  # показ почти дошёл — подъём уже не успеет
+    assert recoder.holding(5)  # тяжёлый и далеко - подождём подъёма
+    assert not recoder.holding(0)  # упаковку с него не начинали - это не голова прогона
+    recoder.played = grid.start(5) - 3.0  # показ почти дошёл - подъём уже не успеет
     assert not recoder.holding(5)
 
 
@@ -560,7 +560,7 @@ def test_the_very_first_segment_of_a_run_is_waited_for(tmp_path) -> None:  # typ
 def test_a_light_first_segment_is_never_waited_for(tmp_path) -> None:  # type: ignore[no-untyped-def]
     """Лёгкому фильму перекодирование не мешает: голову держать не за чем и не за кого."""
     grid = _grid()
-    weights = Weights.of(_keys(rate=0.5e6), grid)  # 4 Мбит/с — тяжёлого нет вовсе
+    weights = Weights.of(_keys(rate=0.5e6), grid)  # 4 Мбит/с - тяжёлого нет вовсе
     assert weights is not None
     recoder = Recoder(
         source="src", audio=0, grid=grid, spare=tmp_path, weights=weights, threshold=15.0
@@ -757,7 +757,7 @@ def test_the_head_preempts_a_run_that_works_ahead(tmp_path, monkeypatch) -> None
     monkeypatch.setattr(stream.Packer, "start", classmethod(lambda cls, *a, **k: packer))
     recoder.opening(0)
     recoder.played = grid.start(12)  # показ ушёл вперёд, кодировщик работает впрок за ним
-    recoder.opening(3)  # перемотали НАЗАД — голова теперь позади захода
+    recoder.opening(3)  # перемотали НАЗАД - голова теперь позади захода
     recoder._run(12, 14)
     assert packer.stopped == "голова прогона важнее"
 
@@ -779,7 +779,7 @@ def test_the_pieces_right_after_the_current_run_are_held_too(tmp_path) -> None: 
     )
     recoder.opening(4)
     recoder.job = (4, 4, clock.monotonic() + 60.0, clock.monotonic(), PRESETS[-1][1])
-    assert recoder.holding(5)  # следующий за головой — успеется, держим
+    assert recoder.holding(5)  # следующий за головой - успеется, держим
     assert recoder.holding(6)
     assert not recoder.holding(25)  # а так далеко у кодировщика планов ещё нет
 
@@ -816,7 +816,7 @@ def test_between_runs_the_copy_still_waits(tmp_path) -> None:  # type: ignore[no
     recoder.began = clock.monotonic() - 100.0  # фора на подъём давно вышла
     recoder.played = grid.start(5) - 5.0
     assert recoder.job is None
-    assert recoder.holding(6)  # до него полтора десятка секунд — следующий заход успеет
+    assert recoder.holding(6)  # до него полтора десятка секунд - следующий заход успеет
     assert not recoder.holding(5)  # а этот уже под носом: ждать значит подгружаться
 
 
@@ -861,7 +861,7 @@ def test_the_head_is_waited_for_while_the_encoder_is_still_on_it(tmp_path) -> No
     recoder.head_at = now - recoder.head_wait - 1.0  # потолок по секундомеру вышел
     recoder.job = (7, 7, now + 5.0, now - 13.0, PRESETS[-1][1])  # заход за головой идёт
     assert recoder.holding(7)
-    recoder.job = (9, 12, now + 5.0, now - 13.0, PRESETS[-1][1])  # заход чужой — не ждём
+    recoder.job = (9, 12, now + 5.0, now - 13.0, PRESETS[-1][1])  # заход чужой - не ждём
     assert not recoder.holding(7)
 
 
@@ -903,7 +903,7 @@ def test_a_copy_heavier_than_the_cap_is_never_released_on_a_deadline(tmp_path) -
     )
     recoder.played = 0.0
     recoder.began = clock.monotonic() - 100.0
-    # Срок захода вышел двести секунд назад — по прежнему правилу копия ушла бы наружу.
+    # Срок захода вышел двести секунд назад - по прежнему правилу копия ушла бы наружу.
     recoder.job = (4, 8, clock.monotonic() - 1.0, clock.monotonic() - 200.0, 4.0)
     assert recoder.holding(5), "просроченный перекод тяжёлую копию не освобождает"
     assert recoder.blocked == 5, "кодировщик обязан узнать, что выкладка встала на v5"
@@ -924,7 +924,7 @@ def test_the_weight_of_a_copy_is_taken_from_the_file_when_it_exists(tmp_path) ->
     recoder = Recoder(
         source="src", audio=0, grid=grid, spare=tmp_path, weights=weights, threshold=10.0
     )
-    assert not recoder.oversize(5), "по карте — влезает"
+    assert not recoder.oversize(5), "по карте - влезает"
     assert recoder.oversize(5, size=51_400_000), "а по факту приехало вчетверо больше"
 
 
@@ -937,7 +937,7 @@ def test_a_long_light_piece_is_recoded_too_because_it_is_too_heavy(tmp_path) -> 
     порога, а вес выше потолка.
     """
     grid = _grid(gop=20.0, step=10.0)  # опорные кадры редкие: сегмент = 20 с фильма
-    weights = Weights.of(_keys(gop=20.0, rate=1.1e6), grid)  # 8.8 Мбит/с — не тяжёлый
+    weights = Weights.of(_keys(gop=20.0, rate=1.1e6), grid)  # 8.8 Мбит/с - не тяжёлый
     assert weights is not None
     recoder = Recoder(
         source="src", audio=0, grid=grid, spare=tmp_path, weights=weights, threshold=10.0
@@ -969,7 +969,7 @@ def test_the_bulky_copy_is_released_when_the_encoder_has_given_up(tmp_path) -> N
     recoder.done.discard(5)
     assert recoder.holding(5)
     recoder.stuck[5] = clock.monotonic() - recoder.over_wait - 0.1  # предохранитель
-    assert not recoder.holding(5), "кодировщика нет вовсе — копия уходит, но с руганью"
+    assert not recoder.holding(5), "кодировщика нет вовсе - копия уходит, но с руганью"
 
 
 def test_a_held_piece_stops_holding_once_its_recode_is_ready(tmp_path) -> None:  # type: ignore[no-untyped-def]
@@ -1010,7 +1010,7 @@ def test_the_tail_of_a_run_is_dropped_and_never_published(tmp_path) -> None:  # 
     assert sorted(p.name for p in out.glob("v*.ts")) == ["v5.ts", "v6.ts"]
     assert packer.edge == 6
     assert not (run / segment_name(7)).exists()  # огрызок убран, а не оставлен на потом
-    assert not (run / segment_name(4)).exists()  # докатка — как и была
+    assert not (run / segment_name(4)).exists()  # докатка - как и была
 
 
 def test_the_correction_comes_from_the_passport_not_from_guesswork() -> None:
@@ -1208,7 +1208,7 @@ def test_the_merged_piece_is_not_mistaken_for_a_packed_segment(tmp_path, monkeyp
     monkeypatch.setattr("torrcast.stream.merge_tracks", merge)
     packer.publish()
     assert (out / segment_name(0)).read_bytes() == b"mixed"
-    # Кусок v2 не дописан (следующего за ним нет) и наружу не ушёл — а ушёл бы, если бы
+    # Кусок v2 не дописан (следующего за ним нет) и наружу не ушёл - а ушёл бы, если бы
     # склейка попала в перебор каталога прогона и сдвинула «последний» на единицу.
     assert not (out / segment_name(2)).exists()
     assert sorted(p.name for p in packer.run.glob("v*.ts")) == [segment_name(2)]
@@ -1244,7 +1244,7 @@ def test_a_codec_the_receiver_cannot_decode_is_a_decision_about_the_file() -> No
     assert whole is not None, "HEVC обязан перекодироваться целиком"
     assert (whole.preset, whole.mbit) == (FULL_PRESET, 9.0), "пресет замерен, потолок прежний"
     assert _encode_all(config, "h264") is None, "H.264 уезжает копией, как и раньше"
-    assert _encode_all(config, "") is None, "паспорт молчит — прежнее поведение"
+    assert _encode_all(config, "") is None, "паспорт молчит - прежнее поведение"
     assert _encode_all(Config(recode=False), "hevc") is None, "перекодирование выключено"
 
 
@@ -1319,7 +1319,7 @@ def test_a_light_source_is_not_blown_up_to_the_ceiling() -> None:
     thin = _encode_all(config, "hevc", 0.4)
     assert thin is not None and thin.mbit == FULL_FLOOR, "ниже пола 1080p разваливается"
     blind = _encode_all(config, "hevc", 0.0)
-    assert blind is not None and blind.mbit == 9.0, "паспорт молчит — идём по потолку"
+    assert blind is not None and blind.mbit == 9.0, "паспорт молчит - идём по потолку"
 
 
 def test_the_grid_weighs_a_fully_recoded_file_by_our_bitrate_not_the_source() -> None:
@@ -1331,7 +1331,7 @@ def test_the_grid_weighs_a_fully_recoded_file_by_our_bitrate_not_the_source() ->
     """
     from torrcast.stream import MAX_SEGMENT_BYTES
 
-    keys = _keys(duration=300.0, gop=7.0, rate=0.16e6)  # 1.3 Мбит/с — лёгкое аниме
+    keys = _keys(duration=300.0, gop=7.0, rate=0.16e6)  # 1.3 Мбит/с - лёгкое аниме
     naive = Grid.on_keyframes(keys.at, 300.0, 10.0, sizes=keys.offset, ceiling_mbit=9.0)
     fixed = Grid.on_keyframes(keys.at, 300.0, 10.0, sizes=keys.offset, fixed_mbit=9.4)
 

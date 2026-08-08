@@ -141,14 +141,14 @@ def test_the_unit_plays_the_whole_release_by_itself(monkeypatch: pytest.MonkeyPa
     assert cli._cmd_worker(KEY) == 0
 
     assert receivers == [tv, tv, tv], (
-        "приёмник один на весь юнит — второй сендер гасит показ на стыке серий"
+        "приёмник один на весь юнит - второй сендер гасит показ на стыке серий"
     )
     assert [about for about, _ in played] == [
         "Киберпанк: Бегущие по краю s1e1",
         "Киберпанк: Бегущие по краю s1e2",
         "Киберпанк: Бегущие по краю s1e3",
     ]
-    assert [index for _, index in played] == [0, 1, 2], "каждой серии — свой файл раздачи"
+    assert [index for _, index in played] == [0, 1, 2], "каждой серии - свой файл раздачи"
     assert _FakeTorrServer.added == ["magnet:?xt=1"], "раздача одна: заново её не добавляем"
     assert saved().done and saved().label == "s1e3", "конец раздачи отмечен в состоянии"
 
@@ -178,7 +178,7 @@ def test_the_next_episode_learns_its_own_duration(monkeypatch: pytest.MonkeyPatc
 
     assert cli._cmd_worker(KEY) == 0
 
-    assert len(probed) == 2, "у первой серии длительность уже была, у двух следующих — нет"
+    assert len(probed) == 2, "у первой серии длительность уже была, у двух следующих - нет"
 
 
 def test_a_series_continues_the_right_episode_from_the_right_place(
@@ -279,4 +279,4 @@ def test_status_names_the_episode(
 
     assert cli.main(["status"]) == 0
 
-    assert "играю «Киберпанк: Бегущие по краю» s1e2 — 0:05:10 / 0:24:00" in capsys.readouterr().out
+    assert "играю «Киберпанк: Бегущие по краю» s1e2 - 0:05:10 / 0:24:00" in capsys.readouterr().out

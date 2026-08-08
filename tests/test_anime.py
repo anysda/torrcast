@@ -71,8 +71,8 @@ def test_a_full_anime_pack_without_a_single_quality_marker_gets_into_the_queue()
 
     plan = _plan_for(picture, args, Config())
 
-    assert plan.loose, "живого именного кандидата у картины нет — ворота открыты"
-    assert plan.ranked[0] is full, "дефолт — единственная живая раздача, а не огрызок на 3 сида"
+    assert plan.loose, "живого именного кандидата у картины нет - ворота открыты"
+    assert plan.ranked[0] is full, "дефолт - единственная живая раздача, а не огрызок на 3 сида"
     assert plan.candidates(args)[:1] == [1]
     assert len(plan.candidates(args)) == 3, "запасные остались, судить их будет ffprobe"
 
@@ -91,7 +91,7 @@ def test_a_rich_movie_keeps_the_gate_shut_and_the_queue_named() -> None:
 
     plan = _plan_for(picture, args, Config())
 
-    assert not plan.loose, "живых именных кандидатов двое — открывать нечего"
+    assert not plan.loose, "живых именных кандидатов двое - открывать нечего"
     assert not is_candidate(mute, RUNTIME, 25.0), "молчаливая раздача кандидатом не стала"
     assert [plan.ranked[n - 1] for n in plan.candidates(args)] == [good, second]
 
@@ -110,7 +110,7 @@ def test_the_open_gate_does_not_let_a_game_repack_pretend_to_be_a_show() -> None
     )
 
     assert game.kind == "other"
-    assert game.quiet, "о качестве видео имя молчит — видео там нет"
+    assert game.quiet, "о качестве видео имя молчит - видео там нет"
     assert not is_candidate(game, RUNTIME, 25.0, loose=True)
 
 
@@ -199,7 +199,7 @@ def test_a_zero_seeded_release_never_stands_above_a_live_one() -> None:
 
     assert is_dead(dead, alive=3) and not is_dead(alive, alive=3)
     assert is_dated(alive, tv) and not is_dated(dead, tv), (
-        "по ступени старья мёртвый выигрывает — и до правки этого хватало, чтобы встать верхом"
+        "по ступени старья мёртвый выигрывает - и до правки этого хватало, чтобы встать верхом"
     )
     assert rank_releases([dead, alive], tv, 25.0)[0] is alive
 
@@ -243,9 +243,9 @@ def test_an_anime_pack_is_not_called_dated_for_its_genre_bitrate() -> None:
     )
     tv = RUNTIME_GUESS["tv"]
 
-    assert pack.anime and pack.quiet, "имя аниме о качестве молчит — тем и жив признак"
+    assert pack.anime and pack.quiet, "имя аниме о качестве молчит - тем и жив признак"
     assert 0.0 < bitrate_of(pack, tv) < SD_BITRATE, (
-        "битрейт по прикидке и правда ниже порога SD — спор именно о том, что это значит"
+        "битрейт по прикидке и правда ниже порога SD - спор именно о том, что это значит"
     )
     assert not is_dated(pack, tv), "жанровый битрейт старьём не делает"
     assert gate_open([pack, rival], tv, 25.0)

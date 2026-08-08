@@ -70,7 +70,7 @@ def config_for(tmp_path: Path, tls: tuple[str, str]) -> Config:
         hls_port=free_port(),
         hls_readrate=0.0,  # приёмка идёт быстрее реального времени
         hls_keyframes=False,
-        # Прогрев на диск — отдельный тракт со своими тестами (`test_warm.py`). Здесь
+        # Прогрев на диск - отдельный тракт со своими тестами (`test_warm.py`). Здесь
         # проверяется живая упаковка, и второй ffmpeg рядом с ней только мешал бы мерить.
         warm=False,
     )
@@ -139,7 +139,7 @@ def test_mock_decodes_the_whole_stream_without_gaps(
     config.transport = transport  # type: ignore[assignment]
     assert _play(config, clip, 0, "тест", _Clock(), duration=float(CLIP_SECONDS)) == 0
     printed = capsys.readouterr().out
-    assert "— на ТВ" in printed
+    assert "- на ТВ" in printed
     assert "разрывов 0" in printed and "без CORS 0" in printed
     decoded = float(printed.split("декодировано ")[1].split(" ")[0])
     # Допуск ровно в один сегмент: если ENDLIST попадает в ту же перезагрузку плейлиста,
@@ -392,7 +392,7 @@ def test_the_show_sweeps_ram_behind_the_receiver_while_it_plays(
 
     edge = feed.grid.slot_at(160.0)
     left = sorted(int(path.name[1:-3]) for path in feed.out.glob("v*.ts"))
-    assert left == list(range(edge, 60)), "позади показа держим окно, остальное — из RAM"
+    assert left == list(range(edge, 60)), "позади показа держим окно, остальное - из RAM"
 
 
 def test_a_pause_on_the_remote_stops_packing(
@@ -451,7 +451,7 @@ def test_the_diagnostic_remote_reaches_the_receiver_once(
     cli._hold(receiver, feed)
 
     assert seen == [("seek", 1200.5)], "команда исполнена один раз и владеющим сендером"
-    assert not ctl.exists(), "команда одноразовая — файл съеден"
+    assert not ctl.exists(), "команда одноразовая - файл съеден"
 
 
 def test_the_diagnostic_remote_is_absent_without_the_variable(
@@ -503,7 +503,7 @@ def test_a_repack_in_the_middle_keeps_the_proof_of_the_picture(tmp_path: Path) -
 
     feed.packer.stop(keep_files=True)  # так гаснет упаковка между кусками фильма
 
-    assert playing_flag(feed.out).exists(), "показ идёт — флажок на месте"
+    assert playing_flag(feed.out).exists(), "показ идёт - флажок на месте"
     assert sorted(feed.out.glob("v*.ts")), "упакованное перезапуск не выбрасывает"
 
 
@@ -556,7 +556,7 @@ def test_one_dead_run_is_blamed_once_and_not_on_every_request(
     monkeypatch.setattr(Feed, "restart", lambda self, slot: None)
 
     feed.packer.proc.code = -9  # type: ignore[attr-defined]
-    feed.restarted = time.monotonic()  # перезапуск только что был — второй не нужен
+    feed.restarted = time.monotonic()  # перезапуск только что был - второй не нужен
     for _ in range(10):
         feed.segment(70)
 
@@ -571,7 +571,7 @@ def test_resume_starts_from_the_offset_and_ends_as_watched(
     сторож кладёт в state абсолютную позицию, а на 95 % пишет «досмотрено».
     """
     monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
-    # Длительность занижена на сегмент — хвост HLS у клиента может отвалиться, а проверяем
+    # Длительность занижена на сегмент - хвост HLS у клиента может отвалиться, а проверяем
     # мы тут переход «досмотрено», а не хвост. Сетку показа считаем той же арифметикой,
     # что и он сам: позиция берётся на границе, иначе упаковка законно начнётся с начала
     # сегмента и проверять было бы нечего.
@@ -627,14 +627,14 @@ def test_a_stuck_receiver_is_nudged_only_when_the_packing_is_ahead(
     receiver._peak = 84.0
 
     receiver._nudge(84.0, front=144.0)
-    assert jumps == [], "первый неподвижный тик — ещё не зависание"
+    assert jumps == [], "первый неподвижный тик - ещё не зависание"
 
     receiver._stall_since -= ChromecastReceiver.STALL_SECONDS
     receiver._nudge(84.0, front=88.0)
-    assert jumps == [], "запаса впереди нет — приёмник ждёт нас, а не завис"
+    assert jumps == [], "запаса впереди нет - приёмник ждёт нас, а не завис"
 
     receiver._nudge(84.0, front=144.0)
-    assert jumps == [84.0 + ChromecastReceiver.STALL_SKIP], "еда на столе — расшевелить"
+    assert jumps == [84.0 + ChromecastReceiver.STALL_SKIP], "еда на столе - расшевелить"
 
 
 class _Reported:
@@ -742,11 +742,11 @@ def test_the_receiver_app_is_closed_only_on_our_own_session() -> None:
 
     alien_app = _FakeCast(app_id="Netflix")
     _receiver_on(alien_app).stop(quit_app=True)
-    assert alien_app.log == [], "на ТВ чужое приложение — не наше дело"
+    assert alien_app.log == [], "на ТВ чужое приложение - не наше дело"
 
     closed = _FakeCast(app_id=None)
     _receiver_on(closed).stop(quit_app=True)
-    assert closed.log == [], "приёмник уже закрыт — закрывать нечего"
+    assert closed.log == [], "приёмник уже закрыт - закрывать нечего"
 
     alien_session = _FakeCast(session="чужая")
     _receiver_on(alien_session).stop(quit_app=True)
@@ -793,10 +793,10 @@ def test_the_show_end_closes_the_app_and_the_episode_seam_does_not(
         _play(config, clip, 0, "тест", _Clock(), watch=_Watch(key=key, entry=entry, every=0.0))
 
     run(episode=1)
-    assert quits == [False], "серия досмотрена, впереди s1e2 — приложение не трогаем"
+    assert quits == [False], "серия досмотрена, впереди s1e2 - приложение не трогаем"
 
     run(episode=2)
-    assert quits == [False, True], "последняя серия — показ окончен, приложение закрываем"
+    assert quits == [False, True], "последняя серия - показ окончен, приложение закрываем"
 
 
 def test_a_finished_movie_hands_nothing_over(
@@ -815,10 +815,10 @@ def test_a_finished_movie_hands_nothing_over(
     state.save()
     watch = _Watch(key=key, entry=entry, every=0.0)
 
-    assert not cli._handover(watch), "`cast stop`: сторож не досматривал — передавать нечего"
+    assert not cli._handover(watch), "`cast stop`: сторож не досматривал - передавать нечего"
 
     watch.flush()  # порог 95 %: фильму это «досмотрено», а не следующая серия
-    assert watch.done and not cli._handover(watch), "титры кончились — закрываем приложение"
+    assert watch.done and not cli._handover(watch), "титры кончились - закрываем приложение"
 
 
 def test_a_closed_show_never_starts_ffmpeg_again(
@@ -861,7 +861,7 @@ def test_a_planned_stop_of_the_show_is_a_success_not_a_failure(
         return cli.EXIT_OK
 
     monkeypatch.setattr(cli, "_cmd_status", terminated)
-    assert cli.main(["status"]) == cli.EXIT_OK, "`cast stop` — это успех показа, а не отказ"
+    assert cli.main(["status"]) == cli.EXIT_OK, "`cast stop` - это успех показа, а не отказ"
     assert isinstance(caught[0], KeyboardInterrupt), "раскрутка обязана идти как прежде"
 
     monkeypatch.setattr(cli, "_cmd_status", lambda: (_ for _ in ()).throw(KeyboardInterrupt()))

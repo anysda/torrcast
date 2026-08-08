@@ -22,7 +22,7 @@ from torrcast.stream import AudioTrack, Media, TorrFile
 AWAIT_PLAYING = cli._await_playing
 
 GB = 1024**3
-#: Ключ сохранённой «Moana (2016)» — записи, которую находит запрос «моана».
+#: Ключ сохранённой «Moana (2016)» - записи, которую находит запрос «моана».
 OLD_KEY = "movie:moana:2016"
 #: Выдача «моаны», сведённая к сути: две картины франшизы, у каждой по два релиза.
 FOUND = [
@@ -111,8 +111,8 @@ def test_the_happy_path_asks_about_the_film_and_nothing_else(
     assert [q.split("[")[0].strip() for q in asked] == ["Что смотрим?"]
     assert "Озвучка:" not in printed, "меню озвучки на счастливом пути больше нет"
     assert "  1. Moana (2016)" in printed and "  2. Моана 2 (2024)" in printed
-    assert "играю «Моана 2» (2024) · 1080p · rus · Дубляж — на ТВ" in printed
-    # Ни таблицы релизов, ни файлов, ни серий — именно этого пользователь видеть не хочет.
+    assert "играю «Моана 2» (2024) · 1080p · rus · Дубляж - на ТВ" in printed
+    # Ни таблицы релизов, ни файлов, ни серий - именно этого пользователь видеть не хочет.
     for forbidden in ("Релизы:", "Качество", "Файл:", "Серии:", ".mkv", "Какой берём?"):
         assert forbidden not in printed, forbidden
     # И ни одного значка из запрещённого набора: вывод остаётся текстом, а не пиктограммами.
@@ -128,7 +128,7 @@ def test_a_single_choice_is_not_a_question(
 
     assert cli.main(["моана", "2"]) == 0
 
-    assert asked == [], "выбирать не из чего — спрашивать не о чем"
+    assert asked == [], "выбирать не из чего - спрашивать не о чем"
     assert "Озвучка:" not in capsys.readouterr().out
 
 
@@ -201,7 +201,7 @@ def test_new_forgets_the_old_record_only_when_the_show_really_starts(
     assert cli.main(["моана", "--new"]) == 0
 
     left = State.load()
-    assert left.get(OLD_KEY) is None, "показ пошёл — прежний прогресс забыт, как и просили"
+    assert left.get(OLD_KEY) is None, "показ пошёл - прежний прогресс забыт, как и просили"
     assert left.entries["movie:моана-2:2024"].pos == 0.0
 
 
@@ -260,7 +260,7 @@ def test_the_start_time_means_a_picture_on_the_screen(
 
     mark_playing(out)
     assert playing_flag(out).exists()
-    with Progress() as progress:  # флажок на месте — ждать больше нечего
+    with Progress() as progress:  # флажок на месте - ждать больше нечего
         AWAIT_PLAYING(config, progress, timeout=0.6)
 
 
@@ -342,7 +342,7 @@ def test_prewarmed_torrents_are_dropped_when_the_show_never_starts(
         "builtins.input", lambda prompt="": (_ for _ in ()).throw(KeyboardInterrupt)
     )
 
-    assert cli.main(["моана"]) != 0, "Ctrl-C на вопросе — не показ"
+    assert cli.main(["моана"]) != 0, "Ctrl-C на вопросе - не показ"
 
     assert added, "прогрев под меню раздачи поднимает"
     assert len(dropped) == len(set(added)), "и все они убраны, раз показа не будет"

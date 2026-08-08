@@ -162,7 +162,7 @@ def test_the_playback_address_is_our_own_leg_toward_the_tv(tmp_path: Path) -> No
     manual = Config(tv="127.0.0.1", hls_base_url="http://10.0.0.10:8080/")
     assert hls_base(manual) == "http://10.0.0.10:8080"
     with pytest.raises(InfraError):
-        hls_base(Config())  # адрес ТВ не задан — маршрута нет, и молчать об этом нельзя
+        hls_base(Config())  # адрес ТВ не задан - маршрута нет, и молчать об этом нельзя
 
 
 def test_a_segment_name_always_means_the_same_place_of_the_film() -> None:
@@ -178,8 +178,8 @@ def test_a_segment_name_always_means_the_same_place_of_the_film() -> None:
             assert grid.slot_at(grid.start(slot)) == slot, f"начало {slot}"
             assert grid.slot_at(grid.start(slot) + grid.span(slot) / 2) == slot, f"середина {slot}"
             assert grid.start(slot) < grid.end(slot), f"пустой сегмент {slot}"
-        assert grid.slot_at(-10.0) == 0, "до начала фильма — первый сегмент, а не отрицательный"
-        assert grid.slot_at(grid.duration * 2) == grid.count - 1, "за концом — последний"
+        assert grid.slot_at(-10.0) == 0, "до начала фильма - первый сегмент, а не отрицательный"
+        assert grid.slot_at(grid.duration * 2) == grid.count - 1, "за концом - последний"
         assert grid.end(grid.count - 1) == grid.duration, "последний сегмент кончается фильмом"
 
 
@@ -201,7 +201,7 @@ def test_the_manifest_promises_the_whole_film_so_the_tv_has_a_timeline() -> None
         assert len(segments) == grid.count
         assert segments[0][0] == "v0.ts" and segments[-1][0] == f"v{grid.count - 1}.ts"
 
-    # Ровная сетка на целое число шагов — это ровно столько же сегментов, без хвоста.
+    # Ровная сетка на целое число шагов - это ровно столько же сегментов, без хвоста.
     step = float(HLS_SEGMENT_SECONDS)
     whole = Grid.uniform(step * 5)
     assert parse_manifest(whole.manifest())[0] == [(f"v{n}.ts", step) for n in range(5)]
@@ -220,9 +220,9 @@ def test_a_keyframe_grid_never_cuts_a_segment_shorter_than_the_step() -> None:
     grid = Grid.on_keyframes(_keyframes(), 600.0, step)
 
     spans = [grid.span(k) for k in range(grid.count)]
-    assert min(spans[:-1]) >= step, "сегмент короче шага — сетка рассыпалась на огрызки"
+    assert min(spans[:-1]) >= step, "сегмент короче шага - сетка рассыпалась на огрызки"
     assert spans[-1] >= step / 2, "хвост прилипает к последнему куску, а не висит огрызком"
-    assert max(spans) < step + 3.0, "GOP около 2 с — длиннее шага плюс GOP сегмента не бывает"
+    assert max(spans) < step + 3.0, "GOP около 2 с - длиннее шага плюс GOP сегмента не бывает"
 
     flash = [b for b in grid.bounds if 300.0 <= b < 300.5]
     assert len(flash) <= 1, "из пачки опорных кадров вспышки в сетку идёт не больше одного"
@@ -237,7 +237,7 @@ def test_the_target_duration_covers_the_longest_segment() -> None:
     """
     for grid in (Grid.uniform(5978.5), Grid.on_keyframes(_keyframes(), 600.0), Grid.uniform(3.0)):
         longest = max(grid.span(k) for k in range(grid.count))
-        assert grid.target() >= longest, "цель короче куска — приёмник вправе не успеть"
+        assert grid.target() >= longest, "цель короче куска - приёмник вправе не успеть"
         assert grid.target() == max(1, math.ceil(longest)), "цель округляется вверх, и не в ноль"
         assert f"#EXT-X-TARGETDURATION:{grid.target()}" in grid.manifest()
 
@@ -264,13 +264,13 @@ def test_stream_format_is_fixed_and_not_negotiable() -> None:
     grid = Grid.uniform(100.0)
     command = ffmpeg_pack_command("http://ts/stream", 1, "/dev/shm/torrcast/pack", grid, 0, 0.0)
     text = " ".join(command)
-    assert "-c:v copy" in text, "видео только copy — перекодировать 1080p нам нечем"
+    assert "-c:v copy" in text, "видео только copy - перекодировать 1080p нам нечем"
     assert "-c:a aac -ac 2 -b:a 192k" in text, "AC3/DTS passthrough запрещён"
     assert "-map 0:v:0 -map 0:a:1" in text, "один вариант и выбранная дорожка по индексу"
     assert "-f segment -segment_format mpegts" in text, "сетку задаёт список, а не один шаг"
     assert command[-1] == "/dev/shm/torrcast/pack/v%d.ts", "имя = место в фильме"
     assert f"-segment_list /dev/shm/torrcast/pack/{PACK_LIST}" in text, "чем сверять факт"
-    assert "-copyts" in text, "метки времени — абсолютные, иначе позиция считается от куска"
+    assert "-copyts" in text, "метки времени - абсолютные, иначе позиция считается от куска"
 
 
 def test_mpegts_muxer_does_not_shove_its_own_delay_into_the_timestamps() -> None:
@@ -326,11 +326,11 @@ def test_the_run_in_is_numbered_below_the_slot_and_only_when_it_is_one() -> None
     grid = Grid.uniform(100.0)
 
     exact = ffmpeg_pack_command("u", 0, "/run", grid, 5, grid.start(5))
-    assert _flag(exact, "-segment_start_number") == "5", "встали на границу — докатки нет"
+    assert _flag(exact, "-segment_start_number") == "5", "встали на границу - докатки нет"
     assert _flag(exact, "-ss") == "50.000" and exact.index("-ss") < exact.index("-i")
 
     near = ffmpeg_pack_command("u", 0, "/run", grid, 5, grid.start(5) - SPLIT_SLACK / 2)
-    assert _flag(near, "-segment_start_number") == "5", "полкадра — это та же граница"
+    assert _flag(near, "-segment_start_number") == "5", "полкадра - это та же граница"
 
     behind = ffmpeg_pack_command("u", 0, "/run", grid, 5, 48.7)
     assert _flag(behind, "-segment_start_number") == "4", "докатка ложится под чужой номер"
@@ -378,7 +378,7 @@ def test_the_initial_burst_replaces_pausing_the_packer() -> None:
     quiet = ffmpeg_pack_command("u", 0, "/run", grid, 0, 0.0, readrate=0.0, burst=60.0)
     assert "-readrate_initial_burst" not in quiet
 
-    # В доках про SIGSTOP написано — важно, чтобы его не осталось в КОДЕ показа.
+    # В доках про SIGSTOP написано - важно, чтобы его не осталось в КОДЕ показа.
     for module in (stream_module, cli_module, cast_module):
         source = Path(str(module.__file__)).read_text(encoding="utf-8")
         assert "send_signal" not in source, f"{module.__name__}: показ шлёт сигналы упаковке"
@@ -424,9 +424,9 @@ def test_a_half_written_segment_never_leaves_the_run_directory(tmp_path: Path) -
     packer.publish()
 
     assert sorted(p.name for p in out.glob("v*.ts")) == ["v0.ts", "v1.ts"]
-    assert (packer.run / "v2.ts").exists(), "последний кусок ещё пишется — наружу ему рано"
+    assert (packer.run / "v2.ts").exists(), "последний кусок ещё пишется - наружу ему рано"
 
-    # Код 0: ffmpeg дошёл до конца входа сам — значит дописан и последний кусок.
+    # Код 0: ffmpeg дошёл до конца входа сам - значит дописан и последний кусок.
     packer.proc.code = 0  # type: ignore[attr-defined]
     packer.publish()
     assert sorted(p.name for p in out.glob("v*.ts")) == ["v0.ts", "v1.ts", "v2.ts"]
@@ -454,7 +454,7 @@ def test_a_run_in_is_thrown_away_and_never_overwrites_an_honest_segment(
     packer.publish()
 
     assert (out / "v4.ts").read_bytes() == b"honest v4 from the previous run", "докатка затёрла"
-    assert not (packer.run / "v4.ts").exists(), "докатка не выброшена — прогон копит мусор"
+    assert not (packer.run / "v4.ts").exists(), "докатка не выброшена - прогон копит мусор"
     assert (out / "v5.ts").read_bytes() == b"honest v5"
     assert not (out / "v6.ts").exists(), "последний кусок ещё пишется"
 
@@ -480,10 +480,10 @@ def test_what_was_actually_cut_is_checked_against_the_manifest(tmp_path: Path) -
     (packer.run / PACK_LIST).write_text(
         "v2.ts,0.000000,30.000000\nv3.ts,30.000000,40.000000\nv4.ts,41.500000,50.000000\n"
     )
-    assert packer.drift(grid) == pytest.approx(1.5), "кусок уехал на 1.5 с — так и скажем"
+    assert packer.drift(grid) == pytest.approx(1.5), "кусок уехал на 1.5 с - так и скажем"
 
     fresh = fake_packer(hls_dir(str(tmp_path / "fresh")))
-    assert fresh.cuts() == [] and fresh.drift(grid) == 0.0, "списка нет — не выдумываем"
+    assert fresh.cuts() == [] and fresh.drift(grid) == 0.0, "списка нет - не выдумываем"
 
 
 def test_a_request_for_an_unpacked_place_repacks_instead_of_404(
@@ -523,7 +523,7 @@ def test_a_burst_of_requests_after_a_seek_restarts_packing_only_once(
     for slot in range(50, 56):
         feed.segment(slot)
 
-    assert started == [50], "остальные пять — префетч того же места, а не пять перемоток"
+    assert started == [50], "остальные пять - префетч того же места, а не пять перемоток"
 
 
 def test_a_forward_seek_inside_the_run_does_not_wait_out_the_readrate(
@@ -549,12 +549,12 @@ def test_a_forward_seek_inside_the_run_does_not_wait_out_the_readrate(
     # и всё, что попадает в burst, честно «вот-вот допакуется».
     feed.packer = fake_packer(out, edge=4, at=0.0, rate=1.0, burst=60.0)
     feed.segment(5)
-    assert started == [], "кусок внутри burst — упаковка достанет его за мгновение"
+    assert started == [], "кусок внутри burst - упаковка достанет его за мгновение"
 
     # Тот же запрос в семи сегментах за краем: 110-я секунда фильма при планке чтения на
-    # 60-й — это 50 секунд ожидания. Перезапуск с этого места стоит 3–4.
+    # 60-й - это 50 секунд ожидания. Перезапуск с этого места стоит 3-4.
     feed.segment(11)
-    assert started == [11], "ждать 50 с вместо перезапуска — это и есть чёрный экран"
+    assert started == [11], "ждать 50 с вместо перезапуска - это и есть чёрный экран"
 
     # А тот же прогон, проживший сто секунд, дочитал до 160-й: ждать нечего.
     started.clear()
@@ -562,7 +562,7 @@ def test_a_forward_seek_inside_the_run_does_not_wait_out_the_readrate(
         out, edge=4, at=0.0, rate=1.0, burst=60.0, began=time.monotonic() - 100.0
     )
     feed.segment(11)
-    assert started == [], "упаковка это место уже прошла — перезапуск был бы вредительством"
+    assert started == [], "упаковка это место уже прошла - перезапуск был бы вредительством"
 
 
 def test_the_seek_threshold_is_counted_in_segments_not_in_seconds(
@@ -585,10 +585,10 @@ def test_the_seek_threshold_is_counted_in_segments_not_in_seconds(
     feed.packer = fake_packer(out)
 
     feed.segment(4 + feed.ahead)
-    assert started == [], "семь сегментов впереди края — обычный ход показа, ждём упаковку"
+    assert started == [], "семь сегментов впереди края - обычный ход показа, ждём упаковку"
 
     feed.segment(4 + feed.ahead + 1)
-    assert started == [12], "восьмой — уже перемотка, и паковать надо оттуда"
+    assert started == [12], "восьмой - уже перемотка, и паковать надо оттуда"
 
 
 def test_a_seek_back_behind_the_run_repacks_instead_of_waiting_out_the_clock(
@@ -623,8 +623,8 @@ def test_a_seek_back_behind_the_run_repacks_instead_of_waiting_out_the_clock(
     answer = feed.segment(1)
 
     assert started == [1], "перемотка назад лечится тем же, чем вперёд: упаковкой с места"
-    assert answer == out / "v1.ts", "None здесь — это 404, после которого ТВ молчит минутами"
-    assert time.monotonic() - began < 2.0, "две минуты тишины до 404 — та самая беда"
+    assert answer == out / "v1.ts", "None здесь - это 404, после которого ТВ молчит минутами"
+    assert time.monotonic() - began < 2.0, "две минуты тишины до 404 - та самая беда"
 
 
 def test_pieces_of_past_runs_never_move_the_edge_of_the_current_run(
@@ -648,10 +648,10 @@ def test_pieces_of_past_runs_never_move_the_edge_of_the_current_run(
     (out / "v900.ts").write_bytes(b"x")  # кусок прошлого прогона: показ там уже был
 
     feed.segment(9)
-    assert started == [], "девятый — в семи сегментах за краем, это обычный ход показа"
+    assert started == [], "девятый - в семи сегментах за краем, это обычный ход показа"
 
     feed.segment(11)
-    assert started == [11], "одиннадцатый — за краем дальше `ahead`, и чужой v900 тут не судья"
+    assert started == [11], "одиннадцатый - за краем дальше `ahead`, и чужой v900 тут не судья"
 
     started.clear()
     assert feed.segment(900) == out / "v900.ts", "кусок прошлого прогона честен: сетка одна"
@@ -678,7 +678,7 @@ def test_a_piece_finished_by_this_very_poll_is_not_mistaken_for_a_seek_back(
     (feed.packer.run / "v5.ts").write_bytes(b"done")  # закрыт: за ним открыт следующий
     (feed.packer.run / "v6.ts").write_bytes(b"half")  # ещё пишется
 
-    assert feed.segment(5) == out / "v5.ts", "кусок допакован — его и отдаём"
+    assert feed.segment(5) == out / "v5.ts", "кусок допакован - его и отдаём"
     assert started == [], "и это ровный ход показа, а не перемотка назад"
     assert feed.packer.edge == 5, "край прогона подвинулся ровно на выложенное"
 
@@ -701,7 +701,7 @@ def test_segments_left_ahead_after_a_rollback_do_not_pile_up_in_tmpfs(tmp_path: 
     feed = Feed(source="", audio=0, out=out, grid=grid, keep=120.0, ahead=7)
     feed.packer = fake_packer(out, first=1, edge=5)  # откатились в начало и пакуем оттуда
 
-    feed.prune(played=20.0)  # показ на 20-й секунде — это второй сегмент
+    feed.prune(played=20.0)  # показ на 20-й секунде - это второй сегмент
 
     left = sorted(int(p.name[1:-3]) for p in out.glob("v*.ts"))
     assert left == [1, 2, 3, 4, 5], "место, откуда ушли, вымыто; запас текущего прогона цел"
@@ -872,7 +872,7 @@ def test_only_what_the_receiver_has_passed_is_swept_out_of_ram(tmp_path: Path) -
             (out / f"v{slot}.ts").write_bytes(b"x")
         feed = Feed(source="", audio=0, out=out, grid=grid, keep=40.0)
 
-        feed.prune(played=200.0)  # показ на 200-й секунде, окно 40 с — всё до 160-й не нужно
+        feed.prune(played=200.0)  # показ на 200-й секунде, окно 40 с - всё до 160-й не нужно
         edge = grid.slot_at(160.0)
         assert edge > 0, "тест бессмыслен, если окно не отрезает ничего"
         left = sorted(int(p.name[1:-3]) for p in out.glob("v*.ts"))
@@ -930,15 +930,15 @@ def test_the_lead_over_the_receiver_is_measurable(tmp_path: Path) -> None:
     out = hls_dir(str(tmp_path / "hls"))
     grid = Grid.on_keyframes(_keyframes(), 600.0)
     feed = Feed(source="", audio=0, out=out, grid=grid)
-    assert feed.front() == 0.0 and feed.weight() == 0, "упаковки нет — и запаса нет"
-    assert feed.drift() == 0.0, "упаковки нет — и расхождению с манифестом взяться неоткуда"
+    assert feed.front() == 0.0 and feed.weight() == 0, "упаковки нет - и запаса нет"
+    assert feed.drift() == 0.0, "упаковки нет - и расхождению с манифестом взяться неоткуда"
 
     for slot in range(30, 36):
         (out / f"v{slot}.ts").write_bytes(b"x" * 1000)
     feed.packer = fake_packer(out, first=30)
 
     where = grid.start(30)
-    assert feed.front(where) == grid.end(35), "готовы сегменты 30…35 — запас до конца 35-го"
+    assert feed.front(where) == grid.end(35), "готовы сегменты 30...35 - запас до конца 35-го"
     assert feed.weight() == 6000
 
 
@@ -958,7 +958,7 @@ def test_the_lead_is_counted_from_the_receiver_and_breaks_on_a_hole(tmp_path: Pa
         (out / f"v{slot}.ts").write_bytes(b"x")
     feed.packer = fake_packer(out, first=30)
 
-    assert feed.front(5.0) == 5.0, "перед приёмником пусто — запаса нет, что бы ни лежало дальше"
+    assert feed.front(5.0) == 5.0, "перед приёмником пусто - запаса нет, что бы ни лежало дальше"
     assert feed.front(grid.start(30)) == grid.end(35), "цепочка обрывается на дырке, а не на 41"
     assert feed.front(grid.start(40)) == grid.end(41), "считаем от приёмника, а не от начала"
 
@@ -1073,7 +1073,7 @@ def test_the_position_is_warmed_by_its_byte_offset_not_by_a_proportion(
     from torrcast.stream import HEAD_OPEN, FilmKeys, warm_file
 
     keys = FilmKeys(600.0, [0.0, 100.0, 200.0, 300.0], [0, 90 << 20, 500 << 20, 505 << 20], "mp4")
-    # 200-я секунда — ровно половина фильма, а лежит она на 500 МБ из 505: пропорция
+    # 200-я секунда - ровно половина фильма, а лежит она на 500 МБ из 505: пропорция
     # показала бы 250 МБ, то есть промахнулась бы на четверть фильма.
     assert keys.byte_at(240.0) == 500 << 20
     assert keys.byte_at(0.0) == 0 and keys.byte_at(-5.0) == 0
@@ -1200,8 +1200,8 @@ def test_the_head_warmed_under_the_question_is_sized_by_the_container(
     from torrcast import stream as stream_module
     from torrcast.stream import HEAD_OPEN, FilmKeys, head_open, warm_file
 
-    assert head_open("mkv") < head_open("mp4"), "у mkv голова меньше — это и есть правка"
-    assert head_open("") == stream_module.HEAD_OPEN_DEFAULT, "контейнер не известен — с запасом"
+    assert head_open("mkv") < head_open("mp4"), "у mkv голова меньше - это и есть правка"
+    assert head_open("") == stream_module.HEAD_OPEN_DEFAULT, "контейнер не известен - с запасом"
 
     asked: list[tuple[int, int]] = []
 
@@ -1250,7 +1250,7 @@ def test_an_old_key_cache_takes_the_container_from_the_file_name(
         if len(asked) >= 2:
             break
         time.sleep(0.01)
-    assert asked[0] == (0, HEAD_OPEN["mkv"]), "имя файла назвало контейнер — греем по нему"
+    assert asked[0] == (0, HEAD_OPEN["mkv"]), "имя файла назвало контейнер - греем по нему"
 
 
 def _desert(mbit: float = 10.0) -> tuple[list[float], list[int], float]:
@@ -1294,11 +1294,11 @@ def test_the_grid_never_hands_the_receiver_a_segment_heavier_than_the_cap() -> N
         "карта подобрана неверно: прежнее правило обязано давать кусок тяжелее потолка"
     )
     assert all(weigh(capped, k) <= MAX_SEGMENT_BYTES for k in range(capped.count)), (
-        "сегмент тяжелее потолка — это и есть подвис приёмника"
+        "сегмент тяжелее потолка - это и есть подвис приёмника"
     )
     assert capped.bounds != heavy.bounds, "сетка обязана была измениться"
     assert all(b in keys or b == 0.0 for b in capped.bounds), "границы остались на опорных кадрах"
-    assert capped.count == heavy.count + 1, "лишний рез ровно один — в пустыне, а не по всему кино"
+    assert capped.count == heavy.count + 1, "лишний рез ровно один - в пустыне, а не по всему кино"
 
 
 def test_the_cap_counts_what_leaves_for_the_tv_not_what_lies_in_the_container() -> None:
@@ -1316,8 +1316,8 @@ def test_the_cap_counts_what_leaves_for_the_tv_not_what_lies_in_the_container() 
     aware = Grid.on_keyframes(keys, duration, 10.0, sizes=sizes, extra_mbit=12.0)
     recoded = Grid.on_keyframes(keys, duration, 10.0, sizes=sizes, ceiling_mbit=8.0)
 
-    assert blind.bounds == plain.bounds, "по контейнеру не влезает ничего — правило сдаётся"
-    assert aware.count == plain.count + 1, "поправка известна — рез ровно один, в пустыне"
+    assert blind.bounds == plain.bounds, "по контейнеру не влезает ничего - правило сдаётся"
+    assert aware.count == plain.count + 1, "поправка известна - рез ровно один, в пустыне"
     assert recoded.count == plain.count + 1, "перекод сделает кусок легче, и сетка это знает"
     for grid in (aware, recoded):
         heaviest = max(grid.span(k) * 8e6 / 8 for k in range(grid.count))
@@ -1336,5 +1336,5 @@ def test_a_grid_without_a_byte_map_stays_exactly_as_it_was() -> None:
         "без карты байт сетка обязана остаться прежней"
     )
     assert Grid.on_keyframes(keys, duration, 10.0, sizes=sizes[:-3]).bounds == plain, (
-        "карта не той длины — не повод менять нарезку молча"
+        "карта не той длины - не повод менять нарезку молча"
     )

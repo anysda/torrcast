@@ -40,7 +40,7 @@ CUE_CLUSTER_POSITION: Final = 0xF1
 #: Запасной размер головы: :data:`~torrcast.keymap.HEAD_PEEK` не хватило (длинный
 #: SeekHead, толстые теги).
 HEAD_BYTES: Final = 4 << 20
-#: Сколько берём с места Cues одним куском. Тело Cues — сотни килобайт (замерено: 163,
+#: Сколько берём с места Cues одним куском. Тело Cues - сотни килобайт (замерено: 163,
 #: 189 и 456 КБ), поэтому оно влезает целиком, и хвост стоит **одного** запроса вместо
 #: двух: заголовок и тело раньше читались порознь, а холодный рой платит за каждый заход.
 CUES_CHUNK: Final = 1 << 20
@@ -75,7 +75,7 @@ def _walk(buf: bytes, start: int, end: int) -> list[tuple[int, int, int]]:
         except (ValueError, IndexError):
             return found
         found.append((ident, size, data))
-        # Segment длиной с весь фильм в голову не влез: его дети — да, а вот соседа за
+        # Segment длиной с весь фильм в голову не влез: его дети - да, а вот соседа за
         # ним в этом куске уже нет, и шагать туда вслепую нельзя.
         if data + size > len(buf):
             return found
@@ -113,7 +113,7 @@ class _Head:
             elif ident == INFO:
                 self._info(head, data, end)
             elif ident == CLUSTER:
-                break  # пошли данные фильма — служебного дальше в голове нет
+                break  # пошли данные фильма - служебного дальше в голове нет
 
     def _seek_head(self, head: bytes, data: int, end: int) -> None:
         for _, seek_size, seek in [e for e in _walk(head, data, end) if e[0] == SEEK]:
@@ -148,7 +148,7 @@ def keys(reader: Reader, head: bytes) -> KeyMap:
     if facts.segment is None:
         raise InfraError("это не mkv: элемента Segment в голове файла нет")
     if facts.cues_at is None:
-        raise InfraError("в файле нет индекса Cues — карту опорных кадров взять неоткуда")
+        raise InfraError("в файле нет индекса Cues - карту опорных кадров взять неоткуда")
 
     chunk = reader.read(facts.cues_at, CUES_CHUNK)
     found = _walk(chunk, 0, min(32, len(chunk)))
@@ -158,7 +158,7 @@ def keys(reader: Reader, head: bytes) -> KeyMap:
     if ident != CUES:
         raise InfraError(f"по позиции из SeekHead лежит не Cues, а {ident:#x}")
     body = chunk[data : data + size]
-    if len(body) < size:  # редкий толстый индекс — добираем остаток
+    if len(body) < size:  # редкий толстый индекс - добираем остаток
         body += reader.read(facts.cues_at + len(chunk), size - len(body))
 
     points = _points(body, facts)

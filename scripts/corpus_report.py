@@ -23,7 +23,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from torrcast.parse import Release, parse_release_name
 
-#: Источники, по которым спрашивают кино и сериалы, — на них и держим целевые ≥95 %.
+#: Источники, по которым спрашивают кино и сериалы, - на них и держим целевые ≥95 %.
 CINEMA_SOURCES = frozenset({"rutor", "kinozal", "knaben:RuTracker.org", "megapeer"})
 _CYRILLIC = re.compile(r"[а-яё]", re.IGNORECASE)
 _YEAR_IN_TEXT = re.compile(r"(?:19|20)\d{2}")
@@ -67,7 +67,7 @@ def report(rows: list[dict[str, object]], top_fails: int) -> None:
         )
     print("=" * 88)
     print(
-        "* «год есть» — доля назв+год среди имён, где четырёхзначный год вообще "
+        "* «год есть» - доля назв+год среди имён, где четырёхзначный год вообще "
         "присутствует в строке:\n  остальное парсеру взять неоткуда (scene-сериалы, "
         "аниме-равки, паки без года)."
     )

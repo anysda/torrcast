@@ -23,7 +23,7 @@ def test_broken_input_never_reaches_the_parser() -> None:
     assert console.clean("моа\udcd0на") == "моана"
     assert console.clean(" да\x07\x1b ") == "да"
     assert console.clean("моана").encode("utf-8") == "моана".encode()
-    # Ответ из битого pty обязан пережить запись в файл — на этом рвалось всё остальное.
+    # Ответ из битого pty обязан пережить запись в файл - на этом рвалось всё остальное.
     assert console.clean("Моана\udce2\udc80").encode("utf-8", "strict")
 
 
@@ -35,7 +35,7 @@ def test_the_terminal_gets_iutf8_and_gives_the_mode_back() -> None:
     parent, child = pty.openpty()
     saved = sys.stdin
     try:
-        sys.stdin = open(child, encoding="utf-8")  # noqa: SIM115 — закрываем в finally
+        sys.stdin = open(child, encoding="utf-8")  # noqa: SIM115 - закрываем в finally
         before = termios.tcgetattr(child)
         termios.tcsetattr(child, termios.TCSANOW, [before[0] & ~console.iutf8(), *before[1:]])
         assert not termios.tcgetattr(child)[0] & console.iutf8(), "готовим pty как у ssh"
@@ -73,7 +73,7 @@ def test_a_question_takes_a_digit_and_a_bare_enter(monkeypatch: pytest.MonkeyPat
     monkeypatch.setattr("builtins.input", lambda prompt="": next(answers))
 
     assert console.ask("Что смотрим?", 3) == 2
-    assert console.ask("Что смотрим?", 3) == 1, "Enter — это дефолт"
+    assert console.ask("Что смотрим?", 3) == 1, "Enter - это дефолт"
     assert console.ask("Что смотрим?", 3) == 3, "пробелы вокруг цифры не мешают"
     assert console.ask("Что смотрим?", 3) == 1, "чушь переспрашивается, а не падает"
 
@@ -89,15 +89,15 @@ def test_progress_names_every_phase_and_its_time() -> None:
     """Фазы с бегущим временем: пользователь видит, на чём стоим, и сколько уже."""
     out = io.StringIO()
     progress = console.Progress(out=out, tick=0.01)
-    assert not progress.live, "не терминал — печатаем построчно, без перерисовки"
+    assert not progress.live, "не терминал - печатаем построчно, без перерисовки"
     progress.phase("поиск «моана»")
     time.sleep(0.05)
     progress.phase("метаданные (DHT)")
     progress.stop()
 
     printed = _said(out)
-    assert "поиск «моана»… 0." in printed
-    assert "метаданные (DHT)… 0." in printed
+    assert "поиск «моана»... 0." in printed
+    assert "метаданные (DHT)... 0." in printed
 
 
 def _said(out: io.StringIO) -> str:
