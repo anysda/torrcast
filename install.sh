@@ -105,6 +105,9 @@ LOCALE="${TORRCAST_LOCALE:-C.UTF-8}"
 
 #: Приветствие при входе по ssh. Печатает его pam_motd, поэтому файл кладём целиком.
 MOTD_FILE="${TORRCAST_MOTD:-/etc/motd}"
+#: Где приветствие собирается динамически (Ubuntu): pam_motd прогоняет этот каталог по
+#: именам, а статический файл печатает уже после него. Есть каталог - кладём скрипт в него.
+MOTD_D="${TORRCAST_MOTD_D:-/etc/update-motd.d}"
 
 # Выгрузка оценок IMDb под справку в меню франшизы (torrcast/facts.py). Открытая,
 # без ключа и регистрации, обновляется у них ежедневно; 8.6 МБ в архиве.
@@ -997,29 +1000,55 @@ setup_facts() {
 # Кто вошёл по ssh, должен сразу видеть, куда попал и что здесь спрашивать. Шпаргалка
 # перечисляет ровно то, что понимает CLI (torrcast/cli.py) - выдуманных команд быть не
 # должно, иначе приветствие врёт.
-setup_motd() {
-    log "приветствие при входе ($MOTD_FILE)"
-    local tmp; tmp="$(mktemp)"
-    {
-        printf '\033[1;32m'
-        cat <<'ART'
+motd_banner() {
+    printf '\033[1;32m'
+    cat <<'ART'
  _                          _
 | |_ ___  _ __ ___ __ _ ___| |_
 | __/ _ \| '__/ __/ _` / __| __|
 | || (_) | | | (_| (_| \__ \ |_
  \__\___/|_|  \___\__,_|___/\__|
 ART
-        printf '\n   торрент → ТВ без скачивания   ·   показ: cast <название>\n'
-        printf '   cast status | stop | doctor | releases | voices'
-        printf '   ·   ключи: --tv IP, --voice N, --new, --dry\n'
-        printf '\033[0m\n'
-    } > "$tmp"
-    if cmp -s "$tmp" "$MOTD_FILE"; then
+    printf '\n   торрент → ТВ без скачивания   ·   показ: cast <название>\n'
+    printf '   cast status | stop | doctor | releases | voices'
+    printf '   ·   ключи: --tv IP, --voice N, --new, --dry\n'
+    printf '\033[0m\n'
+}
+
+setup_motd() {
+    local target mode tmp
+    tmp="$(mktemp)"
+    if [ -d "$MOTD_D" ]; then
+        # Динамическое приветствие печатается раньше статического файла, поэтому там, где
+        # каталог есть, шпаргалка едет скриптом: иначе она уходит под дистрибутивный вывод
+        # (справка, обновления, состояние диска). Номер 00 - первым в каталоге.
+        # Статический файл в этой ветке не пишем: печатались бы оба, один под другим.
+        target="$MOTD_D/00-torrcast"; mode=0755
+        log "приветствие при входе ($target)"
+        # Прежний заход мог положить шпаргалку в статический файл - её убираем, иначе
+        # после перехода на скрипт она печаталась бы второй раз.
+        if [ -f "$MOTD_FILE" ] && grep -qF 'cast status | stop | doctor' "$MOTD_FILE"; then
+            : >"$MOTD_FILE"
+            info "старое приветствие из $MOTD_FILE убрано - теперь его печатает скрипт"
+        fi
+        {
+            printf '#!/bin/sh\n'
+            printf '# приветствие torrcast; кладёт install.sh, печатает pam_motd при входе\n'
+            printf "cat <<'TORRCAST_MOTD'\n"
+            motd_banner
+            printf 'TORRCAST_MOTD\n'
+        } > "$tmp"
+    else
+        target="$MOTD_FILE"; mode=0644
+        log "приветствие при входе ($target)"
+        motd_banner > "$tmp"
+    fi
+    if cmp -s "$tmp" "$target"; then
         rm -f "$tmp"
-        skip "$MOTD_FILE"
+        skip "$target"
         return
     fi
-    install -m 0644 "$tmp" "$MOTD_FILE"
+    install -m "$mode" "$tmp" "$target"
     rm -f "$tmp"
     info "приветствие обновлено"
 }
