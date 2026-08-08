@@ -18,7 +18,7 @@ from tests.conftest import CLIP_SECONDS, free_port
 from torrcast.cli import Watch as _Watch
 from torrcast.cli import _Clock, _play
 from torrcast.state import Config, Entry, State
-from torrcast.stream import Feed, Grid, Packer, hls_dir, segment_name
+from torrcast.stream import Feed, Grid, Packer, ffmpeg_pack_command, hls_dir, segment_name
 from torrcast.warm import (
     FREE_FLOOR,
     GUARD_HIGH,
@@ -442,3 +442,116 @@ def test_the_recoder_reaches_the_next_episode_warmer_too(tmp_path: Path) -> None
     warmer._chain()
     nxt.stop()
     assert nxt.rival is rival, "прогрев следующей серии не знает про кодировщика"
+
+
+# --- TC-106: прогретый кусок и живой обязаны быть однородны ---------------------
+# Куски одного показа приходят приёмнику из двух мест - из окна живой упаковки и с диска
+# (:meth:`torrcast.stream.Feed.segment`), - и для приёмника это ОДНА лента. Если два
+# производителя решают про кодирование по-разному, на стыке меняется SPS: другой профиль,
+# другая энтропийная кодировка, другая глубина буфера кадров. Тесты ниже проверяют не
+# аргументы ffmpeg, а выданные байты.
+
+
+def _sps(path: Path) -> bytes:
+    """Первый SPS (nal_unit_type 7) из готового куска - именно тот, что читает приёмник.
+
+    Достаётся не через ``ffprobe -show_entries stream=profile``: паспорт печатает разбор,
+    а сравнивать надо байты. Видеодорожка выкладывается как есть в Annex-B, и SPS в ней
+    лежит целиком.
+    """
+    raw = subprocess.run(
+        ["ffmpeg", "-v", "error", "-i", str(path),
+         "-map", "0:v:0", "-c", "copy", "-f", "h264", "-"],
+        check=True, capture_output=True,
+    ).stdout  # fmt: skip
+    starts = [i for i in range(len(raw) - 4) if raw[i : i + 3] == b"\x00\x00\x01"]
+    for begin, end in zip(starts, [*starts[1:], len(raw)], strict=False):
+        head = raw[begin + 3]
+        if head & 0x1F == 7:
+            return bytes(raw[begin + 3 : end]).rstrip(b"\x00")
+    raise AssertionError(f"в {path.name} нет SPS - сравнивать нечего")
+
+
+def test_a_light_film_is_warmed_by_the_very_copy_the_live_packing_gives(tmp_path: Path) -> None:
+    """Один тяжёлый кусок не имеет права переводить ВЕСЬ прогрев на перекод.
+
+    Улика, ради которой тест написан: на лёгком материале (5 тяжёлых кусков из 525) живая
+    упаковка отдавала копию релиза, а прогрев клал на диск сплошной ``ultrafast`` - другой
+    профиль, другая энтропийная кодировка. Решение обязано быть одно на обоих.
+    """
+    from torrcast.cli import _warmer
+    from torrcast.recode import Encode
+
+    class _Heavy:
+        targets = (1, 4)
+        encode = Encode(preset="veryfast", mbit=9.0)
+
+    config = Config(warm=True, warm_dir=str(tmp_path / "warm"))
+    warmer = _warmer(config, "http://ts/stream?link=abc&index=1", 0, _grid(), 0.0, "кино",
+                     recoder=_Heavy())  # fmt: skip
+
+    assert warmer is not None
+    assert warmer.encode is None, "прогрев ушёл в сплошной перекод там, где показ отдаёт копию"
+    assert warmer.spots == (1, 4), "тяжёлые куски прогреву не названы"
+    assert warmer.spot_encode is _Heavy.encode, "тяжёлое греется не тем, чем его отдаёт показ"
+
+
+def test_an_undecodable_codec_still_recodes_both_the_show_and_the_warming(tmp_path: Path) -> None:
+    """Обратная сторона того же правила: показ идёт сплошным перекодом - и прогрев тоже."""
+    from torrcast.cli import _warmer
+    from torrcast.recode import Encode
+
+    whole = Encode(preset="ultrafast", mbit=6.0)
+    config = Config(warm=True, warm_dir=str(tmp_path / "warm"))
+    warmer = _warmer(config, "http://ts/stream?link=abc&index=1", 0, _grid(), 0.0, "кино",
+                     whole=whole)  # fmt: skip
+
+    assert warmer is not None and warmer.encode is whole, "прогрев разошёлся с показом"
+    assert warmer.spots == (), "поверх сплошного перекода точечный перекод не нужен"
+
+
+def test_the_warmed_film_is_homogeneous_and_its_heavy_piece_is_recoded(
+    clip: str, tmp_path: Path
+) -> None:
+    """Настоящий прогон: SPS прогретых кусков совпадает с SPS копии ПОБАЙТОВО.
+
+    Копия - это исходник как есть, поэтому сравнение идёт с куском, упакованным тем же
+    ``-c:v copy``, каким его кладёт живая упаковка. Тяжёлый кусок - единственное место,
+    где SPS меняется, и меняется он ровно там же и в живом показе.
+    """
+    from torrcast.recode import Encode
+
+    grid = _grid()
+    vault = _vault(tmp_path)
+    spot = 1
+    warmer = Warmer(
+        source=clip, audio=0, grid=grid, vault=vault, rate=0.0, slack=1e6,
+        spots=(spot,), spot_encode=Encode(preset="ultrafast", mbit=1.0),
+    )  # fmt: skip
+    warmer.start()
+    deadline = time.monotonic() + 180
+    while not warmer.done and time.monotonic() < deadline:
+        time.sleep(0.5)
+    warmer.stop()
+    assert warmer.done, f"прогрев не дошёл до конца: {warmer.line()}"
+    assert vault.spot(spot).exists(), "тяжёлый кусок так и остался копией"
+
+    # Эталон - кусок живой упаковки того же места, снятый тем же кодом.
+    live = tmp_path / "live"
+    packer = Packer.start(
+        ffmpeg_pack_command(clip, 0, str(live / "run"), grid, 0, grid.start(0), until=0),
+        live, live / "run", 0, last=0,
+    )  # fmt: skip
+    deadline = time.monotonic() + 60
+    while packer.edge < 0 and time.monotonic() < deadline:
+        packer.publish()
+        time.sleep(0.2)
+    packer.stop(keep_files=True, reason="эталон снят")
+    copied = _sps(live / segment_name(0))
+
+    plain = [s for s in range(grid.count) if s != spot]
+    for slot in plain:
+        assert _sps(vault.path(slot)) == copied, (
+            f"прогретый {segment_name(slot)} закодирован не так, как его кладёт упаковка"
+        )
+    assert _sps(vault.path(spot)) != copied, "тяжёлый кусок не перекодирован"

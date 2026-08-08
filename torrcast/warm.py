@@ -110,7 +110,9 @@ def warm_root(configured: str = WARM_DIR) -> Path:
     return Path(os.environ.get(WARM_ENV) or configured or WARM_DIR)
 
 
-def warm_key(source: str, audio: int, grid: Grid, encode: Any = None) -> str:
+def warm_key(
+    source: str, audio: int, grid: Grid, encode: Any = None, spots: tuple[int, ...] = ()
+) -> str:
     """Ключ каталога прогретого: один и тот же показ — один и тот же ключ.
 
     В ключ входит всё, от чего зависит СОДЕРЖИМОЕ сегмента: раздача с номером файла
@@ -124,6 +126,9 @@ def warm_key(source: str, audio: int, grid: Grid, encode: Any = None) -> str:
         f"a{audio}",
         f"g{grid.count}:{grid.duration:.3f}:{grid.on_keys:d}",
         "" if encode is None else f"e{encode.preset}:{encode.mbit:.2f}",
+        # Точечно перекодированные куски - тоже содержимое каталога: сменился список
+        # тяжёлых мест (другой порог, другой профиль тяжести) - каталог другой.
+        "" if not spots else f"s{len(spots)}:{spots[0]}:{spots[-1]}",
     ]
     return hashlib.sha1("|".join(parts).encode("utf-8")).hexdigest()[:16]
 
@@ -160,6 +165,16 @@ class Vault:
 
     def have(self, slot: int) -> bool:
         return self.path(slot).exists()
+
+    def spot(self, slot: int) -> Path:
+        """Метка «этот кусок уже перекодирован точечно», а не скопирован.
+
+        Отдельный пустой файл рядом с куском, а не поле в паспорте: прогрев переживает
+        снятие показа на любом месте, и после перезапуска надо знать поштучно, что уже
+        сделано. Имя не подходит под ``v*.ts``, поэтому ни :meth:`slots`, ни вес каталога
+        его не видят.
+        """
+        return self.dir / f"v{slot}.rec"
 
     def slots(self) -> set[int]:
         """Что уже прогрето. Читается глобом: другого источника правды тут нет и не надо."""
@@ -277,7 +292,19 @@ class Warmer:
     grid: Grid
     vault: Vault
     #: Чем кодировать видео (:class:`torrcast.recode.Encode`); ``None`` - копия.
+    #:
+    #: 🔴 Ставится ТЕМ ЖЕ решением, что у живой упаковки (:func:`torrcast.cli._warmer`).
+    #: Прогретый кусок и живой - это одна лента для приёмника, и если они закодированы
+    #: по-разному, на стыке источников у него меняется SPS.
     encode: Any = None
+    #: Слоты, которые живой показ отдаёт перекодированными поштучно (тяжёлые куски,
+    #: :attr:`torrcast.recode.Recoder.targets`). Прогрев обязан положить на диск их же и
+    #: такими же: копия тяжёлого куска приёмнику не по зубам, а перекод всего фильма ради
+    #: пяти кусков расходится с живой упаковкой во всём остальном.
+    spots: tuple[int, ...] = ()
+    #: Чем перекодировать :attr:`spots` - тот же :class:`torrcast.recode.Encode`, которым
+    #: их берёт живой кодировщик.
+    spot_encode: Any = None
     #: С какого места смотрим: прогрев идёт отсюда вперёд, голова - потом.
     began_at: int = 0
     rate: float = WARM_RATE
@@ -345,8 +372,27 @@ class Warmer:
 
     @property
     def done(self) -> bool:
-        """Весь фильм на диске: показ дальше не нуждается в сети вовсе."""
-        return len(self.vault.slots()) >= self.grid.count
+        """Весь фильм на диске: показ дальше не нуждается в сети вовсе.
+
+        Тяжёлые куски засчитываются только перекодированными (:meth:`_spots_left`): пока
+        на их месте лежит копия, прогретое отличается от того, что отдал бы живой показ.
+        """
+        return len(self.vault.slots()) >= self.grid.count and not self._spots_left()
+
+    def _spots_left(self) -> tuple[int, ...]:
+        """Тяжёлые куски, которые ещё не перекодированы точечно.
+
+        Кусок берётся в работу, только когда копия уже лежит: перекод идёт поверх неё, и
+        порядок «сначала весь фильм копией, потом тяжёлые места» держит одно свойство -
+        прогретое в любой момент играбельно целиком, даже если прогрев сняли посередине.
+        """
+        if not self.spots or self.spot_encode is None:
+            return ()
+        return tuple(
+            slot
+            for slot in self.spots
+            if self.vault.have(slot) and not self.vault.spot(slot).exists()
+        )
 
     def line(self) -> str:
         """Строка о прогреве для журнала и статуса — та самая «прогрето 42 мин из 96»."""
@@ -399,6 +445,12 @@ class Warmer:
             try:
                 job = self._missing()
                 if job is None:
+                    left = self._spots_left()
+                    if left:
+                        # Фильм лёг копией целиком - осталось привести тяжёлые места к
+                        # тому же виду, в котором их отдаёт живой показ.
+                        self._run(left[0], left[0], spot=True)
+                        continue
                     if not self.trouble:
                         self._say(self.line())
                         mark("прогрев готов", секунд=round(self.warmed))
@@ -475,8 +527,15 @@ class Warmer:
             event, secs=self.warmed, dur=self.grid.duration, size=self.vault.size(), why=why
         )
 
-    def _run(self, first: int, last: int) -> None:
-        """Один прогон ffmpeg: от ``first`` до ``last`` включительно, на диск, в темпе."""
+    def _run(self, first: int, last: int, spot: bool = False) -> None:
+        """Один прогон ffmpeg: от ``first`` до ``last`` включительно, на диск, в темпе.
+
+        ``spot`` - это не участок, а один тяжёлый кусок, который перекладывается поверх
+        своей же копии перекодом (:attr:`spots`). Отдельный короткий прогон тут законен:
+        ровно так же, отдельным прогоном на кусок, тяжёлое место берёт и живой показ
+        (:class:`torrcast.recode.Recoder`), то есть стык звука на его границе у показа уже
+        есть - и прогретое повторяет его один в один, а не добавляет свой.
+        """
         from torrcast.stream import Packer, ffmpeg_pack_command
 
         command = ffmpeg_pack_command(
@@ -488,13 +547,17 @@ class Warmer:
             self.grid.start(first),
             readrate=self.rate,
             burst=0.0,
-            encode=self.encode,
+            encode=self.spot_encode if spot else self.encode,
             until=last,
         )
         command = ["nice", "-n", str(self.nice), *command]
         began = time.monotonic()
-        mark("прогрев пошёл", первый=first, последний=last, темп=self.rate)
-        self._say(f"грею на диск с {self.grid.start(first) / 60:.0f}-й минуты, темп ×{self.rate:g}")
+        mark("прогрев пошёл", первый=first, последний=last, темп=self.rate, точечно=spot)
+        self._say(
+            f"тяжёлый v{first} на диске кладу перекодом - тем же, каким его отдаёт показ"
+            if spot
+            else f"грею на диск с {self.grid.start(first) / 60:.0f}-й минуты, темп ×{self.rate:g}"
+        )
         with self.lock:
             self.packer = packer = Packer.start(
                 command, self.vault.dir, self.vault.dir / RUN_DIR, first, last=last
@@ -514,6 +577,11 @@ class Warmer:
             self.vault.touch()
         got = max(0, min(last, packer.edge) - first + 1)
         spent = time.monotonic() - began
+        if spot and got:
+            # Метка ставится ПОСЛЕ выкладки: оборвался прогон - на месте куска осталась
+            # копия, и следующий круг возьмётся за него снова.
+            with contextlib.suppress(OSError):
+                self.vault.spot(first).touch()
         if got and packer.poll() not in (0, None) and packer.edge < last:
             # Прогон оборвался сам - почти всегда это пропавшая сеть. Не авария:
             # следующий круг начнёт с первого непрогретого куска, когда сеть вернётся.

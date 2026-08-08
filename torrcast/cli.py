@@ -2293,27 +2293,42 @@ def _warmer(
 ) -> Warmer | None:
     """Фоновый прогрев всего фильма на диск или ``None``, если он выключен.
 
-    Чем кодировать прогретое — решается здесь и один раз на показ, потому что стык двух
-    прогонов ffmpeg стоит показу дыры в звуке (докстринг :mod:`torrcast.warm`):
+    🔴 **Прогрев кодирует кусок ровно тем же решением, что и живая упаковка.** Куски
+    одного показа приходят приёмнику из двух мест — из окна упаковки и с диска
+    (:meth:`torrcast.stream.Feed.segment`), — и для приёмника это одна лента. Разойдись
+    решение о кодировании, и на стыке двух источников меняется SPS: другой профиль, другая
+    энтропийная кодировка, другая глубина буфера кадров — то есть декодер обязан
+    переинициализироваться посреди фильма. Поэтому решение здесь ОДНО на обоих:
 
-    * кодек, который приёмник не декодирует, — тем же сплошным перекодом, что и живая
-      упаковка (``whole``): иначе на диске лежал бы HEVC, который ТВ не возьмёт;
-    * фильм с тяжёлыми кусками (жив кодировщик) — целиком в потолок ``recode_mbit``.
-      Наружу такой фильм и так уезжает перекодированным в тяжёлых местах, а держать
-      прогрев «копия там, перекод тут» нельзя: каждый переход между режимами — это
-      новый прогон, то есть стык звука посреди фильма;
-    * всё остальное — копией, как играет живая упаковка.
+    * кодек, который приёмник не декодирует, — сплошной перекод (``whole``), и у показа,
+      и у прогрева;
+    * тяжёлые куски — точечный перекод тем же :class:`Encode`, которым их берёт живой
+      кодировщик (``recoder``), и ровно на тех же слотах;
+    * всё остальное — копия.
+
+    ⚠️ Прежде тут стояло «есть хоть один тяжёлый кусок — греть весь фильм перекодом».
+    Замер на лёгком материале («Тачки 3»: 5 тяжёлых кусков из 525): живая упаковка отдавала
+    копию релиза, а прогрев клал на диск сплошной ``ultrafast``, и SPS этих двух не
+    совпадали ни одним байтом. Стык был не редкостью, а нормой работы — прогрев обгоняет
+    показ и отдаёт ему свои куски.
     """
     if not config.warm:
         return None
     encode = whole
-    if encode is None and recoder is not None and recoder.targets:
-        encode = Encode(preset=FULL_PRESET, mbit=config.recode_mbit)
+    spots = () if whole is not None or recoder is None else tuple(recoder.targets)
     vault = Vault(
         root=warm_root(config.warm_dir),
-        key=warm_key(source, audio, grid, encode),
+        key=warm_key(source, audio, grid, encode, spots),
         budget=int(config.warm_budget_gb * 1e9),
         title=title,
+    )
+    spot_encode = getattr(recoder, "encode", None) if spots else None
+    trace.plan(
+        pack="recode" if encode is not None else "copy",
+        warm="recode" if encode is not None else "copy",
+        spots=len(spots),
+        preset=str(getattr(spot_encode or encode, "preset", "")),
+        mbit=float(getattr(spot_encode or encode, "mbit", 0.0)),
     )
     return Warmer(
         source=source,
@@ -2321,6 +2336,8 @@ def _warmer(
         grid=grid,
         vault=vault,
         encode=encode,
+        spots=spots,
+        spot_encode=spot_encode,
         began_at=grid.slot_at(start),
         rate=config.warm_rate,
         follow=follow,
