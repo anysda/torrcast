@@ -24,8 +24,11 @@ BIN_DIR="${TORRCAST_BIN_DIR:-/usr/local/bin}"
 PYTHON="${TORRCAST_PYTHON:-}"
 #: Индекс пакетов Python. В части сетей штатный индекс не отвечает вовсе, поэтому
 #: рядом лежат полные зеркала (индекс + файлы) — установка сама выберет живое.
+#: Зеркала намеренно из разных геозон: первое вне китайского сегмента, два других
+#: китайские - блокировка одной зоны не убивает разом все резервы. Ручной выбор -
+#: через TORRCAST_PIP_INDEX.
 PIP_INDEX="${TORRCAST_PIP_INDEX:-https://pypi.org/simple}"
-PIP_MIRRORS=("https://pypi.tuna.tsinghua.edu.cn/simple" "https://mirrors.aliyun.com/pypi/simple")
+PIP_MIRRORS=("https://pypi-mirror.gitverse.ru/simple" "https://pypi.tuna.tsinghua.edu.cn/simple" "https://mirrors.aliyun.com/pypi/simple")
 
 TS_HOST="${TORRCAST_TS_HOST:-127.0.0.1}"
 TS_PORT="${TORRCAST_TS_PORT:-8090}"
@@ -350,6 +353,10 @@ pick_python() {
 #: dmesg) — то есть ломается ровно на том формате, в котором мы пакуем.
 FFMPEG_MIN="${TORRCAST_FFMPEG_MIN:-6.1}"
 FFMPEG_URL="${TORRCAST_FFMPEG_URL:-https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n7.1-latest-linux64-gpl-7.1.tar.xz}"
+#: Запасной источник на ДРУГОМ хосте (не GitHub): если BtbN недоступен целиком (блок,
+#: снятый релиз) - берём портативную статическую сборку jellyfin-ffmpeg. Это своя сборка
+#: проекта, не johnvansickle, и на MPEG-TS её всё равно проверяет ffmpeg_smoke ниже.
+FFMPEG_URL2="${TORRCAST_FFMPEG_URL2:-https://repo.jellyfin.org/files/ffmpeg/linux/latest-7.x/amd64/jellyfin-ffmpeg_7.1.4-3_portable_linux64-gpl.tar.xz}"
 
 ffmpeg_version() {  # $1 — путь/имя бинаря; печатает голую версию либо ничего
     "$1" -version 2>/dev/null | head -1 | awk '{print $3}' | sed 's/^[^0-9]*//'
@@ -404,14 +411,27 @@ install_ffmpeg() {
     fi
     [ "$(uname -m)" = "x86_64" ] || die "статической сборки ffmpeg под $(uname -m) нет — \
 поставь ffmpeg ≥ $FFMPEG_MIN сам"
-    info "ffmpeg ${have:-нет} — беру статическую сборку: $FFMPEG_URL"
+    info "ffmpeg ${have:-нет} — беру статическую сборку"
     # Каталог убираем сами: `trap ... RETURN` без `set -T` цепляется ко ВСЕМ функциям
     # сразу и падает на первом же чужом return («work: unbound variable»).
     local work; work="$(mktemp -d)"
-    fetch -o "$work/ffmpeg.tar.xz" "$FFMPEG_URL" || die "не скачался ffmpeg: $FFMPEG_URL"
-    tar -xf "$work/ffmpeg.tar.xz" -C "$work"
-    local bin; bin="$(find "$work" -type f -name ffmpeg -perm -u+x | head -1)"
-    [ -n "$bin" ] || die "в архиве ffmpeg нет бинаря ffmpeg"
+    # Идём по источникам на разных хостах: первый отдавший годный архив с бинарём и
+    # побеждает. Так падение одного хоста (BtbN снят/заблокирован) не валит установку.
+    local url bin=""
+    for url in "$FFMPEG_URL" "$FFMPEG_URL2"; do
+        [ -n "$url" ] || continue
+        info "качаю статический ffmpeg: ${url#https://}"
+        if fetch -o "$work/ffmpeg.tar.xz" "$url" \
+            && tar -xf "$work/ffmpeg.tar.xz" -C "$work" 2>/dev/null \
+            && bin="$(find "$work" -type f -name ffmpeg -perm -u+x | head -1)" \
+            && [ -n "$bin" ]; then
+            break
+        fi
+        info "источник не дал годного архива: ${url#https://} - пробую следующий"
+        rm -rf "${work:?}"/* 2>/dev/null || true
+        bin=""
+    done
+    [ -n "$bin" ] || die "статическую сборку ffmpeg не удалось получить ни с одного источника"
     install -d -m 0755 /usr/local/bin
     install -m 0755 "$bin" /usr/local/bin/ffmpeg
     install -m 0755 "$(dirname "$bin")/ffprobe" /usr/local/bin/ffprobe
