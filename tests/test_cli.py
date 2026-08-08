@@ -212,7 +212,7 @@ def _probes(monkeypatch: pytest.MonkeyPatch, releases: list[Release], *codecs: s
     виден в адресе потока, а место в очереди известно заранее.
     """
 
-    def read(url: str, timeout: float = 90.0) -> Media:
+    def read(url: str, timeout: float = 90.0, alive: object = None) -> Media:
         for number, release in enumerate(releases):
             if f"hash-{release.magnet}/" in url and number < len(codecs):
                 return Media(3600.0, (), codecs[number])
@@ -801,7 +801,7 @@ def _reads(monkeypatch: pytest.MonkeyPatch, releases: list[Release], *media: Med
     разрыв между тем, что раздача обещает именем, и тем, что лежит внутри.
     """
 
-    def read(url: str, timeout: float = 90.0) -> Media:
+    def read(url: str, timeout: float = 90.0, alive: object = None) -> Media:
         for number, release in enumerate(releases):
             if f"hash-{release.magnet}/" in url and number < len(media):
                 return media[number]
@@ -941,7 +941,7 @@ def test_a_slow_neighbour_does_not_hold_up_the_show(
     ]
     slow = threading.Event()
 
-    def read(url: str, timeout: float = 90.0) -> Media:
+    def read(url: str, timeout: float = 90.0, alive: object = None) -> Media:
         if f"hash-{ranked[1].magnet}/" in url:  # честный сосед на холодном рое
             slow.wait(5.0)
             return Media(5977.0, (), "h264", 1080, 1920)

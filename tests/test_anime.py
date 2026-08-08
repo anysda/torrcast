@@ -353,3 +353,44 @@ def test_the_line_names_the_language_it_actually_hears() -> None:
 
     assert "только французский звук" in sound_note(_media("fra"), 0, pool)
     assert "только оригинальный звук" in sound_note(_media("swe"), 0, pool)
+
+
+def test_an_undetermined_track_without_any_clue_says_the_language_is_unknown() -> None:
+    """Единственная дорожка с тегом ``und`` и без улик в имени: язык честно неизвестен.
+
+    Замер на тысяче запросов: 16 играбельных релизов держали ровно одну дорожку ``und``,
+    и показ про язык озвучки молчал. Молчать нельзя, но и выдавать неизвестное за русское
+    (или за «оригинальный») — тоже: честная строка называет вещи как есть.
+    """
+    pool = [named("Movie (2019) WEB-DL 1080p", size_gb=8, seeders=100)]
+    release = pool[0]
+
+    assert (
+        sound_note(_media("und"), 0, pool, release)
+        == "язык дорожки неизвестен - раздача не назвала язык озвучки"
+    )
+
+
+def test_an_undetermined_track_is_called_russian_only_when_the_name_proves_it() -> None:
+    """``und`` + русский маркер в имени раздачи — единственная улика, и по ней можно
+    СКАЗАТЬ про русскую, назвав источник. Без улики за русскую её не выдаём.
+    """
+    proven = named("Кино / Movie (1999) WEB-DL 1080p | Дубляж", size_gb=8, seeders=100)
+    assert proven.dubbed
+    assert (
+        sound_note(_media("und"), 0, [proven], proven)
+        == "звук без метки языка - по имени релиза русская"
+    )
+
+    mute = named("Movie (2019) WEB-DL 1080p", size_gb=8, seeders=100)
+    assert not mute.dubbed
+    assert "русская" not in sound_note(_media("und"), 0, [mute], mute)
+
+
+def test_a_bare_und_track_is_not_shown_to_the_human_as_the_word_und() -> None:
+    """В подписи озвучки «und» человеку не место: код языка ему ничего не говорит.
+    Без метки и заголовка дорожка называется по номеру, а язык — отдельной строкой.
+    """
+    assert AudioTrack(index=0, language="und").label == "дорожка 1"
+    assert AudioTrack(index=0, language="und", title="Дубляж").label == "Дубляж"
+    assert AudioTrack(index=0, language="rus").label == "rus"

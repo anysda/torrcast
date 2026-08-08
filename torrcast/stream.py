@@ -355,7 +355,13 @@ class AudioTrack:
         хвост из неё убран: «DUB (Rus) / AC3 / 6 ch / 384 kbps / 48 kHz» — это одна и та
         же озвучка что с битрейтом в имени, что без.
         """
-        parts = [p for p in (self.language, self.clean_title) if p]
+        lang = self.language
+        if (lang or "").strip().casefold() in _VAGUE_LANG:
+            # «und»/«unk» человеку про язык не говорят ничего — в подпись их не тащим,
+            # иначе озвучка читается как «und», а не как язык. Честную строку про
+            # неизвестный язык даёт показ отдельно (:func:`torrcast.cli.sound_note`).
+            lang = None
+        parts = [p for p in (lang, self.clean_title) if p]
         return " · ".join(parts) if parts else f"дорожка {self.index + 1}"
 
     @property
@@ -367,6 +373,13 @@ class AudioTrack:
                 break
             kept.append(chunk.strip())
         return " / ".join(p for p in kept if p).strip(" .")
+
+    @property
+    def named(self) -> bool:
+        """Назвала ли раздача язык дорожки. ``und``/``unk`` и пустой тег — это «не
+        назвала» (:data:`_VAGUE_LANG`): язык неизвестен, и выдавать его за русский
+        нельзя (:func:`torrcast.cli.sound_note`)."""
+        return (self.language or "").strip().casefold() not in _VAGUE_LANG
 
     @property
     def is_russian(self) -> bool:
@@ -692,7 +705,67 @@ def _keep_media(cache: Path, media: Media) -> None:
         tmp.replace(cache)
 
 
-def probe(url: str, timeout: float = 90.0) -> Media:
+def _run_ffprobe(command: list[str], timeout: float, alive: Any) -> str:
+    """Запустить ffprobe и вернуть stdout. Без ``alive`` — прежний :func:`subprocess.run`
+    с тем же таймаутом; с ``alive`` — то же самое, но с возможностью оборвать чтение
+    раньше бюджета, когда рой замолчал (:func:`swarm_pulse`).
+
+    Живой релиз проходит ровно как раньше: ffprobe дочитывает заголовок и выходит сам,
+    ``alive`` всё это время True, никакой лишней секунды не добавляется. Обрыв случается
+    только на молчащем рое — там, где иначе сгорел бы весь ``timeout``.
+    """
+    if alive is None:
+        done = subprocess.run(command, capture_output=True, text=True, timeout=timeout, check=True)
+        return done.stdout
+    proc = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            out, err = proc.communicate(timeout=0.5)
+        except subprocess.TimeoutExpired:
+            if not alive():
+                proc.kill()
+                proc.communicate()
+                raise InfraError("рой молчит - за отсрочку не пришло ни байта потока") from None
+            if time.monotonic() >= deadline:
+                proc.kill()
+                proc.communicate()
+                raise subprocess.TimeoutExpired(command, timeout) from None
+            continue
+        if proc.returncode:
+            raise subprocess.CalledProcessError(proc.returncode, command, out, err)
+        return out
+
+
+def swarm_pulse(source_url: str, grace: float) -> Callable[[], bool]:
+    """Признак жизни потока под ffprobe: тянет первые байты в фоне и отвечает, стоит ли
+    ещё ждать. Пришёл хоть байт — раздача жива и читается (у «Моаны 2» заголовок едет
+    17 с, это норма, и обрывать её нельзя). Ни байта за ``grace`` — рой молчит: пиров
+    нет, и досиживать на нём весь :data:`torrcast.cli.PROBE_BUDGET` незачем, запасной уже
+    греется параллельно (:meth:`torrcast.cli._Bench.resolve`).
+
+    Читаем ровно до первого куска: подтвердить жизнь достаточно, а сами байты в кэш роя
+    тянут прогрев (:func:`warm_file`) и показ — второй раз их брать незачем.
+    """
+    started = time.monotonic()
+    seen = threading.Event()
+
+    def pull() -> None:
+        request = urllib.request.Request(source_url, headers={"Range": f"bytes=0-{HEAD_WARM - 1}"})
+        with contextlib.suppress(Exception):
+            with urllib.request.urlopen(request, timeout=WARM_TIMEOUT) as answer:
+                if answer.read(1 << 20):
+                    seen.set()
+
+    threading.Thread(target=pull, daemon=True).start()
+
+    def alive() -> bool:
+        return seen.is_set() or (time.monotonic() - started) < grace
+
+    return alive
+
+
+def probe(url: str, timeout: float = 90.0, alive: Any = None) -> Media:
     """Дорожки и длительность из HTTP-потока, не качая файл: ffprobe берёт заголовок mkv
     запросами Range — это и есть цена меню озвучек.
 
@@ -702,6 +775,11 @@ def probe(url: str, timeout: float = 90.0) -> Media:
     узнаёт свою длительность именно отсюда (:func:`torrcast.cli._duration`), а узнать её
     она обязана и тогда, когда сети уже нет: без длительности нет ни порога 95 %, ни
     сетки, ни манифеста - то есть нет и автоперехода на прогретую серию посреди обрыва.
+
+    ``alive`` — жив ли смысл дочитывать. Раздача с мёртвым роем метаданные отдаёт (они
+    уже в TorrServer), а содержимого не отдаёт вовсе: ffprobe на ней молча сидит весь
+    ``timeout``. Признак жизни (:func:`swarm_pulse`) отличает такую от честно долгого
+    заголовка и даёт оборвать ожидание рано, не жгя весь бюджет на молчащем релизе.
     """
     cache = _media_cache(url)
     if (ready := _read_media(cache)) is not None:
@@ -716,15 +794,15 @@ def probe(url: str, timeout: float = 90.0) -> Media:
     flags = ["-v", "error", "-show_entries", entries, "-of", "json"]
     command = ["ffprobe", *flags, url]
     try:
-        done = subprocess.run(command, capture_output=True, text=True, timeout=timeout, check=True)
+        stdout = _run_ffprobe(command, timeout, alive)
     except FileNotFoundError as exc:
         raise InfraError("ffprobe не установлен") from exc
     except subprocess.TimeoutExpired as exc:
         raise InfraError("ffprobe не дождался потока") from exc
     except subprocess.CalledProcessError as exc:
-        raise InfraError(f"ffprobe не прочитал поток: {exc.stderr.strip()[:120]}") from exc
+        raise InfraError(f"ffprobe не прочитал поток: {(exc.stderr or '').strip()[:120]}") from exc
     try:
-        payload: Any = json.loads(done.stdout)
+        payload: Any = json.loads(stdout)
     except ValueError as exc:
         raise InfraError("ffprobe вернул не JSON") from exc
     if not isinstance(payload, dict):

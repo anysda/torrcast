@@ -83,6 +83,7 @@ from torrcast.stream import (
     recode_note,
     start_play_unit,
     stop_play_unit,
+    swarm_pulse,
     unit_active,
     unit_key,
     unit_why,
@@ -135,6 +136,13 @@ PREWARM = 3
 META_BUDGET = 20.0
 #: Бюджет на чтение дорожек (ffprobe) той же раздачи, секунды.
 PROBE_BUDGET = 40.0
+#: Сколько ffprobe ждёт первых байт потока, прежде чем счесть рой мёртвым, секунды.
+#: Раздача с мёртвым роем метаданные отдаёт (они уже в TorrServer), а содержимого не
+#: отдаёт вовсе — и раньше на ней сгорал весь :data:`PROBE_BUDGET` (сорок секунд на одном
+#: молчащем релизе, когда рядом в очереди стояли живые). Отсрочка отделяет такой рой от
+#: честно долгого заголовка («Моана 2» едет 17 с): ни байта за неё — пиров нет, обрываем
+#: и берём запасного, он уже греется параллельно (:func:`torrcast.stream.swarm_pulse`).
+SWARM_GRACE = 12.0
 #: **Бюджет всей фазы отбора, секунды**: столько CLI перебирает очередь, прежде чем
 #: сдаться. Число не новое и не «с запасом»: это ровно прежний потолок фазы — три
 #: попытки, каждая по полному бюджету раздачи (:data:`META_BUDGET` + :data:`PROBE_BUDGET`).
@@ -754,7 +762,7 @@ def _cmd_play(args: Args) -> int:
         )
     # Молчаливого японского не бывает: перевода в файле нет — человек слышит об этом
     # строкой, а не на слух через минуту показа.
-    if note := sound_note(media, audio, plan.ranked):
+    if note := sound_note(media, audio, plan.ranked, release):
         print(note)
     if args.pinned:  # отладочный путь: тут внутренности показывать и надо
         print(f"файл: {video.base} · {_gb(video.size)} · {_hms(media.duration)} · {media.video}")
@@ -1651,7 +1659,7 @@ class _Bench:
             # и вопросам человека. Показ потом либо берёт готовое, либо
             # дожидается этого же чтения, а не начинает своё вторым потоком.
             warm_file(source, alive=lambda: not prep.dropped, name=prep.want.name)
-            prep.media = probe(source, timeout=self.probe_budget)
+            prep.media = probe(source, timeout=self.probe_budget, alive=swarm_pulse(source, SWARM_GRACE))
             prep.read = time.monotonic() - began
             mark("ffprobe", релиз=prep.number, картина=plan.picture.key)
             prep.phase = "готово"
@@ -2952,7 +2960,7 @@ def spoken(track: AudioTrack) -> str:
     return _SPOKEN.get((track.language or "").strip().casefold(), "оригинальный")
 
 
-def sound_note(media: Media, audio: int, pool: list[Release]) -> str:
+def sound_note(media: Media, audio: int, pool: list[Release], release: Release | None = None) -> str:
     """Честная строка про звук, когда русской дорожки в файле не оказалось; иначе пусто.
 
     Решение владельца по аниме: субтитров не делаем — значит японский тайтл без
@@ -2973,7 +2981,16 @@ def sound_note(media: Media, audio: int, pool: list[Release]) -> str:
     """
     if not media.tracks or any(t.is_russian for t in media.tracks):
         return ""
-    lang = spoken(media.tracks[audio]) if audio < len(media.tracks) else "оригинальный"
+    track = media.tracks[audio] if audio < len(media.tracks) else media.tracks[0]
+    if not track.named:
+        # Раздача язык дорожки не назвала (тег ``und``). Единственная косвенная улика —
+        # имя раздачи: русский маркер в нём (:attr:`Release.dubbed`) — повод СКАЗАТЬ про
+        # русскую, назвав источник, а не молча подставить её (и не выдать за неё). Улики
+        # нет — язык так и остаётся неизвестным, и об этом честная строка.
+        if release is not None and release.dubbed:
+            return "звук без метки языка - по имени релиза русская"
+        return "язык дорожки неизвестен - раздача не назвала язык озвучки"
+    lang = spoken(track)
     if any(r.dubbed and r.seeders > 0 for r in pool):
         return (
             f"только {lang} звук - перевода в этом релизе нет, но в каталоге он есть: "

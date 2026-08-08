@@ -134,7 +134,7 @@ def test_the_unit_plays_the_whole_release_by_itself(monkeypatch: pytest.MonkeyPa
         return 0
 
     monkeypatch.setattr(cli, "TorrServer", _FakeTorrServer)
-    monkeypatch.setattr(cli, "probe", lambda url, timeout=90.0: Media(MINUTES_24, (), "h264"))
+    monkeypatch.setattr(cli, "probe", lambda url, timeout=90.0, alive=None: Media(MINUTES_24, (), "h264"))
     monkeypatch.setattr(cli, "make_receiver", lambda kind, address, cert: tv)
     monkeypatch.setattr(cli, "_play", play)
 
@@ -160,7 +160,7 @@ def test_the_next_episode_learns_its_own_duration(monkeypatch: pytest.MonkeyPatc
     remember(dur=MINUTES_24)
     probed: list[str] = []
 
-    def probe(url: str, timeout: float = 90.0) -> Media:
+    def probe(url: str, timeout: float = 90.0, alive: object = None) -> Media:
         probed.append(url)
         return Media(MINUTES_24 + len(probed), (), "h264")
 
