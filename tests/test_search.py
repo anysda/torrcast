@@ -126,3 +126,86 @@ def test_search_builds_expected_url() -> None:
 def test_search_reports_empty_result_as_not_found() -> None:
     with pytest.raises(NotFoundError, match="ничего не нашлось"):
         _client([]).search("нетакогофильма")
+
+
+def _row(name: str, tag: str) -> dict[str, object]:
+    """Одна строка выдачи: хэш подделываем из тега, чтобы раздачи не склеились."""
+    return {
+        "title": name,
+        "infoHash": tag * 40,
+        "size": 1024,
+        "seeders": 5,
+        "indexer": name.split(".")[0],
+    }
+
+
+class _Swarm:
+    """Prowlarr с четырьмя индексерами, из которых один умеет молчать до бюджета."""
+
+    def __init__(self, mute: int | None = None, mute_all: bool = False) -> None:
+        self.mute = mute
+        self.mute_all = mute_all
+        self.urls: list[str] = []
+        self.waited: list[float] = []
+        self.payload: object = []
+
+    def get(self, url: str, timeout: float) -> _Swarm:
+        import requests
+
+        self.urls.append(url)
+        self.waited.append(timeout)
+        if url.endswith("/api/v1/indexer?apikey=KEY"):
+            self.payload = [
+                {"id": 1, "name": "Knaben", "enable": True},
+                {"id": 2, "name": "RuTor", "enable": True},
+                {"id": 3, "name": "Nyaa.si", "enable": True},
+                {"id": 4, "name": "YTS", "enable": False},
+            ]
+            return self
+        num = int(url.rsplit("&indexerIds=", 1)[1])
+        if self.mute_all or num == self.mute:
+            raise requests.ConnectTimeout("молчит")
+        self.payload = [_row(f"picture.{num}", str(num))]
+        return self
+
+    def raise_for_status(self) -> None:
+        return None
+
+    def json(self) -> object:
+        return self.payload
+
+
+def _swarm(**kwargs: object) -> Prowlarr:
+    client = Prowlarr("http://127.0.0.1:9696/", "KEY")
+    client._session = _Swarm(**kwargs)  # type: ignore[assignment,arg-type]
+    return client
+
+
+def test_search_asks_every_indexer_apart() -> None:
+    """Врозь - значит по запросу на индексер, и выключенный не спрашиваем вовсе."""
+    client = _swarm()
+    results = client.search("матрица")
+    urls = client._session.urls  # type: ignore[union-attr]
+    assert [u.rsplit("=", 1)[1] for u in urls if "&indexerIds=" in u] == ["1", "2", "3"]
+    assert [r.title for r in results] == ["picture.1", "picture.2", "picture.3"]
+    assert client.silent == ()
+
+
+def test_silent_indexer_costs_only_its_own_budget() -> None:
+    """Молчун не забирает выдачу остальных: она приезжает, а его имя названо.
+
+    Это и есть цена залипания: раньше один молчащий индексер держал общий запрос до
+    сотой секунды, и меню ждали 100 с вместе с уже готовыми находками трёх других.
+    """
+    client = _swarm(mute=2)
+    results = client.search("матрица")
+    assert [r.title for r in results] == ["picture.1", "picture.3"]
+    assert client.silent == ("RuTor",)
+    # Личный бюджет молчуна - не общий потолок: 20 с против 150.
+    assert max(client._session.waited) < client.timeout  # type: ignore[union-attr]
+
+
+def test_all_indexers_silent_is_infra_not_empty_result() -> None:
+    """Молчат все до одного - это отказ инфраструктуры, а не «ничего не нашлось»."""
+    with pytest.raises(InfraError, match="не отвечает"):
+        _swarm(mute_all=True).search("матрица")

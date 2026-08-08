@@ -8,6 +8,10 @@ Jackett, у Prowlarr 404 (Torznab-XML отдаётся по индексеру `
 разбирает :func:`from_torznab` — он же путь совместимости с Jackett'ом); ``magnetUrl``
 в выдаче — ссылка-прокси на сам Prowlarr, опора только ``infoHash``, magnet собираем
 сами и вешаем публичные трекеры (пиры — magnet + DHT + публичные ретрекеры).
+
+⚠️ Третья: у агрегата нет частичного ответа, поэтому спрашиваем индексеры врозь -
+каждого своим запросом и в свой бюджет (:meth:`Prowlarr._apart`). Иначе один молчащий
+индексер держит в себе находки всех остальных.
 """
 
 from __future__ import annotations
@@ -21,6 +25,7 @@ from xml.etree import ElementTree
 
 from torrcast import InfraError, NotFoundError, why
 from torrcast.parse import Release, parse_release_name
+from torrcast.timing import mark
 
 if TYPE_CHECKING:
     import requests
@@ -36,13 +41,22 @@ __all__ = [
 ]
 
 _SEARCH_PATH: Final = "/api/v1/search"
-#: Потолок ожидания выдачи. Prowlarr отдаёт её, только когда опрошены ВСЕ индексеры,
-#: поэтому потолок здесь - это не «сколько ждём обычно» (обычно 1-3 с), а «сколько
-#: терпим одного залипшего». Залипания замерены: живой индексер, который из консоли
-#: отвечает за 0.2 с, изредка держит запрос Prowlarr около 100 с, после чего выдача
-#: приходит целиком. Прежние 60 с рубили такой поиск начисто - вместе с находками
+_INDEXERS_PATH: Final = "/api/v1/indexer"
+#: Потолок общего запроса - того, которым спрашиваем, когда список индексеров недоступен
+#: (:meth:`Prowlarr._known`). Такой запрос отдаётся, только когда опрошены ВСЕ индексеры,
+#: поэтому потолок здесь - это не «сколько ждём обычно» (обычно 1-3 с), а «сколько терпим
+#: одного залипшего». Прежние 60 с рубили такой поиск начисто - вместе с находками
 #: остальных индексеров, то есть ровно там, где ответ уже был.
 _TIMEOUT: Final = 150.0
+#: Личный бюджет ОДНОГО индексера. Замеры на живом стенде (1985 запросов к четырём
+#: индексерам): половина ответов до 0.5 с, 99-я доля - 5.6 с, самый долгий честный
+#: ответ - 16 с (отказ трекера и повтор внутри Prowlarr). Всё, что дольше, - уже не
+#: медленный ответ, а молчание: канал рвёт поток посреди тела, и Prowlarr сидит на нём
+#: до своей сотой секунды. Бюджет отрезает такое молчание, не задев ни одного живого
+#: ответа, и стоит поиску не 100 с, а этих секунд - да и то лишь молчуну.
+_INDEXER_TIMEOUT: Final = 20.0
+#: Список индексеров - локальная страница Prowlarr, сеть в ней не участвует.
+_LIST_TIMEOUT: Final = 15.0
 #: Кино, сериалы и «Other» - под последней RuTor отдаёт вообще всё (категорий у него нет).
 _CATEGORIES: Final = (2000, 5000, 8000)
 _TORZNAB_NS: Final = "{http://torznab.com/schemas/2015/feed}"
@@ -135,29 +149,114 @@ class Prowlarr:
         self.base_url = base_url.rstrip("/")
         self.apikey = apikey
         self.timeout = timeout
+        #: Индексеры, не уложившиеся в личный бюджет последнего поиска - по именам.
+        self.silent: tuple[str, ...] = ()
         self._session: requests.Session | None = None
+        self._indexers: tuple[tuple[int, str], ...] | None = None
 
     def search(self, query: str, limit: int = 100) -> list[RawResult]:
         """Найти раздачи во всех подключённых индексерах: :class:`InfraError` — Prowlarr
         недоступен или ответил не тем, :class:`NotFoundError` — пригодных раздач нет.
+
+        Спрашиваем КАЖДЫЙ индексер отдельным запросом (см. :meth:`_apart`): у общего
+        запроса нет частичного ответа, и один молчун держит в себе выдачу всех
+        остальных. Список индексеров не отдали - остаётся прежний общий запрос.
         """
-        cats = "".join(f"&categories={c}" for c in _CATEGORIES)
-        url = (
-            f"{self.base_url}{_SEARCH_PATH}?apikey={quote(self.apikey)}"
-            f"&query={quote(query)}&type=search&limit={limit}{cats}"
-        )
-        results = from_json(self._get_json(url))
+        found = self._apart(query, limit)
+        results = found if found is not None else from_json(self._get_json(self._url(query, limit)))
         if not results:
             raise NotFoundError(f"по запросу «{query}» ничего не нашлось")
         return results
 
-    def _get_json(self, url: str) -> Any:
+    def _url(self, query: str, limit: int, indexer: int | None = None) -> str:
+        cats = "".join(f"&categories={c}" for c in _CATEGORIES)
+        one = f"&indexerIds={indexer}" if indexer is not None else ""
+        return (
+            f"{self.base_url}{_SEARCH_PATH}?apikey={quote(self.apikey)}"
+            f"&query={quote(query)}&type=search&limit={limit}{cats}{one}"
+        )
+
+    def _apart(self, query: str, limit: int) -> list[RawResult] | None:
+        """Круг по индексерам, где у каждого свой бюджет; ``None`` - список не отдали.
+
+        🔴 Зачем врозь, если у Prowlarr есть общий запрос. Он отвечает, только когда
+        опрошены ВСЕ индексеры, и вернуть половину выдачи не умеет. Один залипший
+        индексер поэтому стоил не своей задержки, а всего поиска: замерено на живом
+        стенде - три индексера ответили за 0.1-0.6 с, четвёртый молчал, и `cast`
+        отдал меню через 100.1 с (внутри Prowlarr это ``Failed to read complete http
+        response`` ровно на сотой секунде - потолок его собственного HTTP-клиента).
+        Второй круг по латинскому названию удваивал цену: человек ждал две минуты
+        на живой франшизе. Врозь молчун стоит только своего бюджета, а находки
+        остальных приезжают за их обычные 0.1-0.6 с.
+
+        Параллель тут не «побольше потоков», а ровно та же, что была: общий запрос
+        Prowlarr сам опрашивает индексеры разом. На хост по-прежнему приходится один
+        запрос за круг - это важно для тех трекеров, что рассыпаются от нескольких
+        одновременных.
+
+        Выдачи склеиваются :func:`merge`, то есть по ``infoHash``: один и тот же торрент
+        из двух индексеров - одна раздача, а не две. Общий запрос отдавал такие строки
+        дважды (на живом стенде «матрица»: 190 строк против 179 склеенных).
+        """
+        from concurrent.futures import ThreadPoolExecutor
+
+        known = self._known()
+        if not known:
+            return None
+        self._session = self._session or self._new_session()
+        got: list[list[RawResult]] = []
+        lost: list[str] = []
+        why_lost = ""
+        with ThreadPoolExecutor(max_workers=len(known)) as pool:
+            asked = [(name, pool.submit(self._one, query, limit, num)) for num, name in known]
+        for name, task in asked:
+            try:
+                got.append(task.result())
+            except InfraError as exc:
+                lost.append(name)
+                why_lost = str(exc)
+        self.silent = tuple(lost)
+        if lost:
+            mark("индексеры", молчат=lost, бюджет=_INDEXER_TIMEOUT)
+        if not got:  # молчат все до одного - это не «ничего не нашлось», а инфра
+            raise InfraError(why_lost)
+        return merge(*got)
+
+    def _one(self, query: str, limit: int, indexer: int) -> list[RawResult]:
+        """Выдача одного индексера в его личный бюджет."""
+        return from_json(self._get_json(self._url(query, limit, indexer), _INDEXER_TIMEOUT))
+
+    def _known(self) -> tuple[tuple[int, str], ...]:
+        """Включённые индексеры (номер, имя); пусто - спрашивать придётся общим запросом."""
+        if self._indexers is None:
+            try:
+                payload = self._get_json(
+                    f"{self.base_url}{_INDEXERS_PATH}?apikey={quote(self.apikey)}", _LIST_TIMEOUT
+                )
+            except InfraError:
+                return ()
+            if not isinstance(payload, list):
+                return ()
+            self._indexers = tuple(
+                (int(i["id"]), str(i.get("name") or i["id"]))
+                for i in payload
+                if isinstance(i, dict) and i.get("enable") and str(i.get("id", "")).isdigit()
+            )
+        return self._indexers
+
+    def _new_session(self) -> requests.Session:
+        """Сессия, поднятая ДО потоков: ленивая её сборка внутри них - гонка."""
+        import requests
+
+        return requests.Session()
+
+    def _get_json(self, url: str, timeout: float | None = None) -> Any:
         import requests
 
         if self._session is None:
-            self._session = requests.Session()
+            self._session = self._new_session()
         try:
-            response = self._session.get(url, timeout=self.timeout)
+            response = self._session.get(url, timeout=timeout or self.timeout)
             response.raise_for_status()
             return response.json()
         except requests.RequestException as exc:
