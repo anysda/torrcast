@@ -11,7 +11,7 @@ from typing import Any, cast
 
 import pytest
 
-from torrcast import InfraError, NotFoundError, cli
+from torrcast import InfraError, NotFoundError, cli, console, scan
 from torrcast.cli import TABLE_LIMIT, is_candidate, is_disc, rank_releases, render_table, warned
 from torrcast.console import Progress
 from torrcast.parse import Release, parse_release_name
@@ -464,6 +464,97 @@ def test_tv_mock_switches_the_receiver_and_leaves_no_tv_address(
 
     assert cli.main(["--tv", "10.0.0.50"]) == 0
     assert (load_config().tv, load_config().receiver) == ("10.0.0.50", "chromecast")
+
+
+def test_tv_without_an_address_offers_the_receivers_it_found(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`cast --tv` без адреса - финал установки: список приёмников и ответ номером.
+
+    Адрес телевизора человеку взять негде: в меню ТВ он спрятан через три экрана, а в
+    роутер пускают не всех. Поэтому спрашиваем не адрес, а «какой из этих телевизоров
+    твой», и в состояние уезжает ровно то же поле, что и при заданном руками адресе.
+    """
+    monkeypatch.setenv("TORRCAST_CONFIG", str(tmp_path / "config.json"))
+    monkeypatch.setattr(
+        scan,
+        "find",
+        lambda: scan.Found(
+            devices=[
+                scan.Device("10.0.0.50", name="Samsung Q70D", how="mdns"),
+                scan.Device("10.0.0.60", model="Chromecast", how="скан"),
+            ]
+        ),
+    )
+    monkeypatch.setattr("builtins.input", lambda _prompt: "2")
+
+    assert cli.main(["--tv"]) == 0
+
+    out = capsys.readouterr().out
+    assert "  1. Samsung Q70D - 10.0.0.50" in out
+    assert "  2. Chromecast - 10.0.0.60" in out
+    assert (load_config().tv, load_config().receiver) == ("10.0.0.60", "chromecast")
+
+
+def test_the_only_receiver_found_is_taken_by_enter(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Нашёлся один - вопрос остаётся, но отвечается пустым Enter: номер тут не нужен."""
+    monkeypatch.setenv("TORRCAST_CONFIG", str(tmp_path / "config.json"))
+    monkeypatch.setattr(
+        scan,
+        "find",
+        lambda: scan.Found(devices=[scan.Device("10.0.0.50", name="Samsung Q70D", how="mdns")]),
+    )
+    monkeypatch.setattr("builtins.input", lambda _prompt: "")
+
+    assert cli.main(["--tv"]) == 0
+    assert load_config().tv == "10.0.0.50"
+    assert "ТВ: Samsung Q70D - 10.0.0.50" in capsys.readouterr().out
+
+
+def test_finding_nobody_says_why_and_keeps_the_manual_way(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Пустой список - не «ошибка сети», а причина и выход: ТВ выключен либо не в той сети.
+
+    Заодно вслух говорится о подсети, которую мы не обходили: умолчать о ней - значит
+    оставить человека гадать, почему его телевизор не нашёлся.
+    """
+    monkeypatch.setenv("TORRCAST_CONFIG", str(tmp_path / "config.json"))
+    monkeypatch.setattr(
+        scan, "find", lambda: scan.Found(notes=["подсеть 10.5.0.0/16 на 65534 адресов"])
+    )
+
+    assert cli.main(["--tv"]) == 1
+
+    done = capsys.readouterr()
+    assert "10.5.0.0/16" in done.out
+    assert "включён" in done.err and "той же сети" in done.err
+    assert "cast --tv <ip>" in done.err
+    assert not (tmp_path / "config.json").exists(), "неудачный поиск конфиг не трогает"
+
+
+def test_several_receivers_without_a_terminal_are_not_picked_blindly(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Спросить некого, а найдено несколько - молча записать первый попавшийся нельзя.
+
+    Это ровно тот же отказ, что и в меню картин: любой дефолт тут означает чужое
+    устройство в конфиге, а не оттенок выбора.
+    """
+    monkeypatch.setenv("TORRCAST_CONFIG", str(tmp_path / "config.json"))
+    monkeypatch.setattr(console, "stdin_is_tty", lambda: False)
+    monkeypatch.setattr(
+        scan,
+        "find",
+        lambda: scan.Found(
+            devices=[scan.Device("10.0.0.50"), scan.Device("10.0.0.60", name="Гостиная")]
+        ),
+    )
+
+    assert cli.main(["--tv"]) == 1
+    assert not (tmp_path / "config.json").exists()
 
 
 def test_warmup_leaves_in_torrserver_only_what_we_play(monkeypatch: pytest.MonkeyPatch) -> None:

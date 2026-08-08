@@ -24,13 +24,12 @@ from pathlib import Path
 
 from torrcast.console import iutf8 as _iutf8
 from torrcast.console import stdin_is_tty
+from torrcast.scan import CAST_PORT
 from torrcast.state import Config
 
-__all__ = ["checkup"]
+__all__ = ["CAST_PORT", "checkup"]
 
 Line = tuple[str, bool]
-#: Порт управления Chromecast: открыт даже в standby, коннект будит ТВ.
-CAST_PORT = 8009
 #: Метапоиск, на котором держится примерно половина каталога - весь западный хвост и
 #: аниме: прямые трекеры из установки его не перекрывают. Без него поиск продолжает
 #: работать, поэтому это «внимание», а не «плохо», - но молчать о нём нельзя, иначе
@@ -169,7 +168,7 @@ def _tv(config: Config) -> Iterator[Line]:
     from torrcast.stream import our_address
 
     if not config.tv:
-        yield _bad("адрес ТВ не задан: cast --tv <ip>")
+        yield _bad("адрес ТВ не задан: cast --tv (найдёт приёмники сам) или cast --tv <ip>")
         return
     if config.receiver == "mock":
         yield _warn(f"приёмник mock ({config.tv}) - каста наружу нет, это режим проверки")

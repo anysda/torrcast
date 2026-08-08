@@ -2,7 +2,8 @@
 
 Контракт: ``cast <запрос> [sNeM] [--new] [--dry]``, отладочные ручки ``--release N`` /
 ``--file N`` / ``--voice N`` / ``cast releases <запрос>`` / ``cast voices <запрос>``,
-а также ``cast stop``, ``cast status``, ``cast doctor``, ``cast --tv <ip>``. Коды
+а также ``cast stop``, ``cast status``, ``cast doctor``, ``cast --tv`` (с адресом или без
+адреса - тогда приёмники ищутся сами и выбираются номером из списка). Коды
 выхода: ``0`` ок · ``1`` не нашли · ``2`` инфра-ошибка; наружу — короткие русские
 строки без трейсбеков.
 
@@ -38,6 +39,7 @@ from torrcast import (
     TorrcastError,
     __version__,
     console,  # через модуль: терминал спрашиваем там же, где и сами вопросы
+    scan,  # через модуль: поиск приёмников тесты подменяют целиком
     trace,
     why,
 )
@@ -61,6 +63,7 @@ from torrcast.parse import (
     transliterate,
 )
 from torrcast.recode import FULL_FLOOR, FULL_GAIN, FULL_PRESET, Encode, Recoder
+from torrcast.scan import Device
 from torrcast.search import Prowlarr, RawResult, merge, to_releases
 from torrcast.state import Config, Entry, State, load_config, save_config
 from torrcast.stream import (
@@ -96,6 +99,7 @@ from torrcast.warm import Vault, Warmer, warm_key, warm_root
 __all__ = [
     "Args",
     "bitrate_of",
+    "found_tv",
     "gate_open",
     "honest_shot",
     "is_dated",
@@ -114,6 +118,7 @@ __all__ = [
     "sound_note",
     "sound_step",
     "spoken",
+    "tv_lines",
     "understated",
     "voices_table",
     "warm_order",
@@ -129,6 +134,9 @@ MAX_TRIES = 3
 #: ``--voice`` без номера: показать меню озвучек. Ноль тут свободен - дорожки для
 #: человека нумеруются с единицы.
 VOICE_MENU = 0
+#: ``--tv`` без адреса: найти приёмники в сети и показать список. Адресом такое значение
+#: не бывает никогда, поэтому путь «адрес назвали руками» остаётся ровно прежним.
+TV_MENU = "?"
 #: Сколько картин франшизы греем под меню: топ-2-3 релиза уходят в TorrServer фоном,
 #: пока человек отвечает на вопросы.
 PREWARM = 3
@@ -268,6 +276,8 @@ _DISC_RE = re.compile(
 @dataclass(slots=True)
 class Args:
     query: list[str]
+    #: ``--tv <ip>`` - запомнить адрес; ``--tv`` без адреса (:data:`TV_MENU`) - найти
+    #: приёмники в сети и спросить, какой из них телевизор.
     tv: str | None = None
     release: int | None = None
     file: int | None = None
@@ -317,7 +327,13 @@ def parse_args(argv: Sequence[str] | None = None) -> Args:
     about = "torrcast - найти релиз и кастить его на ТВ без скачивания"
     parser = argparse.ArgumentParser(prog="cast", description=about, allow_abbrev=False)
     parser.add_argument("query", nargs="*", help="название, либо stop / status")
-    parser.add_argument("--tv", metavar="IP", help="разовая настройка адреса ТВ (или mock)")
+    parser.add_argument(
+        "--tv",
+        nargs="?",
+        const=TV_MENU,
+        metavar="IP",
+        help="настройка ТВ: без адреса - найти приёмники в сети и выбрать из списка",
+    )
     parser.add_argument("--release", type=int, metavar="N", help="отладка: взять релиз N")
     parser.add_argument("--file", type=int, metavar="N", help="отладка: взять файл N раздачи")
     parser.add_argument(
@@ -392,18 +408,67 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 def _cmd_configure(args: Args) -> int:
-    """``cast --tv <ip>`` — единственная настройка.
+    """``cast --tv`` - единственная настройка: адрес телевизора.
+
+    Без адреса приёмники ищутся сами (:func:`found_tv`), с адресом - берётся сказанное:
+    кто свой IP помнит, тому лишний поиск ни к чему. Пишется в конфиг в обоих случаях
+    одинаково, разница ровно в том, откуда взялась строка.
 
     Отдельное значение ``mock`` включает headless-приёмник: так torrcast проверяется без
     телевизора, и адрес ТВ в конфиге при этом отсутствует физически.
     """
+    device = found_tv() if args.tv == TV_MENU else Device(address=str(args.tv))
     config = load_config()
-    config.tv = args.tv
-    config.receiver = "mock" if args.tv == "mock" else "chromecast"
+    config.tv = device.address
+    config.receiver = "mock" if device.address == "mock" else "chromecast"
     save_config(config)
-    note = " (headless-приёмник, каста наружу нет)" if args.tv == "mock" else ""
-    print(f"ТВ: {config.tv}{note}")
+    note = " (headless-приёмник, каста наружу нет)" if device.address == "mock" else ""
+    name = f"{device.name} - " if device.name else ""
+    print(f"ТВ: {name}{config.tv}{note}")
     return EXIT_OK
+
+
+def found_tv() -> Device:
+    """``cast --tv`` без адреса: найти приёмники в сети и спросить, который из них ТВ.
+
+    Это последний шаг установки, и человек на нём знает про свой дом ровно одно - как
+    телевизор называется. Поэтому список из имён и адресов, ответ номером, а единственный
+    найденный подтверждается пустым Enter.
+
+    Никого не нашли - не «ошибка сети», а понятная причина: телевизор выключен или стоит
+    в другой сети. Нашли несколько, а терминала нет - отказываемся вслух, ровно как в
+    меню картин: выбрать вслепую тут значит записать в конфиг чужое устройство.
+    """
+    with Progress() as progress:
+        progress.phase("ищу приёмники в сети")
+        found = scan.find()
+    for note in found.notes:
+        print(note)
+    if not found.devices:
+        raise NotFoundError(
+            "приёмников в сети не нашёл - телевизор включён и в той же сети? "
+            "адрес можно задать и руками: cast --tv <ip>"
+        )
+    print(tv_lines(found.devices))
+    if len(found.devices) > 1 and not console.stdin_is_tty():
+        raise NotFoundError(
+            f"нашёл приёмников: {len(found.devices)}, а терминала нет - вслепую не выбираю; "
+            "назови адрес сам: cast --tv <ip>"
+        )
+    return found.devices[ask("Какой телевизор?", len(found.devices)) - 1]
+
+
+def tv_lines(devices: list[Device]) -> str:
+    """Список найденных приёмников: номер, имя, адрес - по строке на устройство.
+
+    Формат тот же, что у меню картин: глаз уже знает, что отвечать надо номером слева.
+    Адрес печатается всегда, даже когда имя есть: имён вида «Гостиная» в доме бывает
+    два, а адрес различает их наверняка.
+    """
+    return "\n".join(
+        f"  {number}. {device.title} - {device.address}"
+        for number, device in enumerate(devices, start=1)
+    )
 
 
 def _cmd_stop() -> int:

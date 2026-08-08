@@ -1113,7 +1113,7 @@ motd_banner() {
 ART
     printf '\n   торрент → ТВ без скачивания   ·   показ: cast <название>\n'
     printf '   cast status | stop | doctor | releases | voices'
-    printf '   ·   ключи: --tv IP, --voice N, --new, --dry\n'
+    printf '   ·   ключи: --tv, --voice N, --new, --dry\n'
     printf '\033[0m\n'
 }
 
@@ -1168,7 +1168,7 @@ main() {
     has hls        && setup_hls
     has facts      && setup_facts
     has motd       && setup_motd
-    log "готово. Осталось: cast --tv <ip-телевизора>"
+    log "готово. Осталось: cast --tv - найдёт телевизоры в сети и спросит, который твой"
 }
 
 main "$@"

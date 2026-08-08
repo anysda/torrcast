@@ -182,7 +182,7 @@ class ChromecastReceiver:
 
     def __init__(self, address: str) -> None:
         if not address:
-            raise InfraError("адрес ТВ не задан: cast --tv <ip>")
+            raise InfraError("адрес ТВ не задан: cast --tv - найдёт телевизоры в сети")
         self.address = address
         self._cast: Any = None
         self._url = ""
