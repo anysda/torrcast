@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import http.server
 import importlib.util
+import socket
 import ssl
 import sys
 import threading
@@ -223,3 +224,102 @@ def test_queue_is_per_host(
     print(f"здоровый хост при забитом соседе: код {code}, {spent:.2f} с")
     assert code == 200
     assert spent < HOLD * 3, "здоровый хост ждал чужую очередь"
+
+
+def _blackhole() -> socket.socket:
+    """Хост, который принимает соединение и молчит: TLS-рукопожатие к нему висит.
+
+    Занятый им слот освобождается только по таймауту - ровно так ведёт себя больной
+    фронт, из-за которого весь потолок и заведён.
+    """
+    srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(8)
+    held: list[socket.socket] = []
+
+    def loop() -> None:
+        while True:
+            try:
+                conn, _ = srv.accept()
+            except OSError:
+                return
+            held.append(conn)  # держим и не отвечаем
+
+    threading.Thread(target=loop, daemon=True).start()
+    return srv
+
+
+def _open_and_send(port: int, host: str) -> ssl.SSLSocket:
+    """TLS-клиент к шиму: шлём запрос и НЕ читаем ответ - соединение остаётся у нас."""
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    context.check_hostname = False
+    context.verify_mode = ssl.CERT_NONE
+    conn = context.wrap_socket(socket.create_connection(("127.0.0.1", port)), server_hostname="x")
+    conn.sendall(f"GET / HTTP/1.1\r\nHost: {host}\r\n\r\n".encode())
+    return conn
+
+
+def _drop_then_third(tls: tuple[str, str], sick_port: int) -> float:
+    """Обрыв в очереди, затем настоящий третий запрос: за сколько тот получит ответ.
+
+    Единственный слот держим руками - будто на хосте уже висит запрос. Первый клиент
+    встаёт в очередь и обрывается, стоя в ней. Вторым в ту же очередь встаёт настоящий
+    запрос через шим. Отпускаем ручной слот. Если обрыв замечен, оборвавшийся слот не
+    занимает и третий уходит на хост сразу (один таймаут к больному). Если нет - мёртвый
+    держит слот весь таймаут, и третий ждёт ещё столько же (два таймаута).
+    """
+    route = shim.Route("sick.test", [f"https://127.0.0.1:{sick_port}"])
+    route.gate = threading.BoundedSemaphore(1)
+    server = _shim(tls, {"sick.test": route})
+    front = server.server_address[1]
+    spent: dict[str, float] = {}
+
+    def third() -> None:
+        _code, took = _get(front, "sick.test")
+        spent["took"] = took
+
+    try:
+        assert route.gate.acquire(blocking=False), "слот занять руками"
+        dropped = _open_and_send(front, "sick.test")  # первый в очереди
+        time.sleep(0.5)  # обработчик доходит до ожидания в очереди
+        dropped.close()  # клиент бросает соединение, стоя в очереди
+        time.sleep(0.2)  # FIN доезжает до шима
+        worker = threading.Thread(target=third)
+        worker.start()
+        time.sleep(0.3)  # третий успевает встать в очередь вторым
+        route.gate.release()  # ручной слот отпущен - очередь оживает
+        worker.join(timeout=shim._TIMEOUT * 3 + 5)
+        return spent["took"]
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_dropped_client_frees_slot_at_once(
+    tls: tuple[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Клиент, оборвавший соединение в очереди, слот не проедает: следующий проходит сразу.
+
+    Замеряем оба поведения на одном сценарии. Со старым (проверку живости глушим) мёртвый
+    держит слот весь таймаут к больному хосту, и третий ждёт два таймаута. С новым - обрыв
+    замечен, слот сразу свободен, и третий укладывается в один таймаут.
+    """
+    monkeypatch.setattr(shim, "_TIMEOUT", 2)
+    blackhole = _blackhole()
+    sick_port = blackhole.getsockname()[1]
+    try:
+        with monkeypatch.context() as bypass:
+            bypass.setattr(shim, "_client_present", lambda conn: True)
+            stuck = _drop_then_third(tls, sick_port)
+        freed = _drop_then_third(tls, sick_port)
+    finally:
+        blackhole.close()
+    err = capsys.readouterr().err
+    print(f"третий получил ответ: без проверки {stuck:.2f} с, с проверкой {freed:.2f} с")
+    assert stuck >= shim._TIMEOUT * 1.8, "без проверки мёртвый держит слот весь таймаут"
+    assert freed < shim._TIMEOUT * 1.7, "с проверкой третий укладывается в один таймаут"
+    assert stuck - freed >= shim._TIMEOUT * 0.7, "проверка живости обязана вернуть слот раньше"
+    assert "клиент ушёл из очереди" in err, "уход из очереди должен попасть в журнал"

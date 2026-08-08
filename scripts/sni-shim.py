@@ -37,7 +37,9 @@ from __future__ import annotations
 
 import contextlib
 import http.server
+import os
 import random
+import select
 import socket
 import socketserver
 import ssl
@@ -209,21 +211,70 @@ def _opener(verify: bool) -> urllib.request.OpenerDirector:
     return urllib.request.build_opener(_NoRedirect(), urllib.request.HTTPSHandler(context=context))
 
 
+def _client_present(conn: socket.socket) -> bool:
+    """Клиент ещё на линии - или оборвал соединение, пока стоял в очереди?
+
+    Подсматриваем в приёмный буфер, ничего не вычитывая. Здоровый клиент ждёт ответа и
+    молчит - буфер пуст, ``select`` его не показывает, считаем живым. Если же сокет читаем,
+    заглядываем одним байтом с ``MSG_PEEK`` (не потребляя его): пусто - пришёл EOF, сторона
+    закрылась; что-то есть - клиент на месте. ``MSG_PEEK`` на TLS-сокете нельзя, поэтому
+    смотрим сырой TCP через отдельную ручку того же сокета; менять режим самого сокета
+    нельзя - флаг блокировки у дубля общий с оригиналом.
+    """
+    try:
+        readable, _, _ = select.select([conn], [], [], 0)
+    except OSError:
+        return False
+    if not readable:
+        return True
+    try:
+        raw = socket.socket(conn.family, socket.SOCK_STREAM, fileno=os.dup(conn.fileno()))
+    except OSError:
+        return False
+    try:
+        return raw.recv(1, socket.MSG_PEEK) != b""
+    except OSError:
+        return False
+    finally:
+        raw.close()
+
+
 @contextlib.contextmanager
-def _in_queue(route: Route) -> Iterator[None]:
-    """Занять место в очереди к хосту.
+def _in_queue(route: Route, conn: socket.socket) -> Iterator[bool]:
+    """Занять место в очереди к хосту; ``True`` - слот наш, идём на хост.
 
     Свободно - проходим сразу, ничего не стоит. Занято - ждём здесь, а не идём на хост
     третьими. Личный таймаут запроса ожидание не съедает: он отсчитывается уже за
     воротами, так что медленный сосед по очереди не превращается в отказ.
+
+    Осознанного потолка на само ожидание нет, и это не упущение. Ждущих на хост не больше,
+    чем мест (``_PER_HOST``), так что верхняя граница ожидания конечна - порядка одного
+    таймаута на место впереди - и клиент со своим таймаутом всё равно сдаётся раньше. А
+    оборвать ожидание своим 504 нельзя: 504 от нас Prowlarr читает так же, как 504 от
+    перегруженного хоста, и уводит индексер в тот самый многочасовой бан, ради ухода от
+    которого весь потолок и заведён. Ожидание тут строго безопаснее отказа.
+
+    Дождавшийся слота проверяет, жив ли ещё клиент: тот мог оборвать соединение, пока
+    стоял в очереди. Такой слот тратить на поход к хосту и запись в мёртвый сокет незачем -
+    отпускаем сразу, и следующий в очереди проходит по-настоящему.
     """
-    if not route.gate.acquire(blocking=False):
-        waited = time.monotonic()
-        route.gate.acquire()
-        waited = time.monotonic() - waited
-        print(f"{route.host}: очередь, ждал {waited:.1f} с", file=sys.stderr, flush=True)
+    if route.gate.acquire(blocking=False):
+        try:
+            yield True
+        finally:
+            route.gate.release()
+        return
+    waited = time.monotonic()
+    route.gate.acquire()
+    waited = time.monotonic() - waited
+    print(f"{route.host}: очередь, ждал {waited:.1f} с", file=sys.stderr, flush=True)
+    if not _client_present(conn):
+        route.gate.release()
+        print(f"{route.host}: клиент ушёл из очереди, слот свободен", file=sys.stderr, flush=True)
+        yield False
+        return
     try:
-        yield
+        yield True
     finally:
         route.gate.release()
 
@@ -267,8 +318,9 @@ def build_server(
             length = int(self.headers.get("Content-Length") or 0)
             body = self.rfile.read(length) if length else None
             # Тело от клиента читаем до очереди: место занимаем ровно на поход к хосту.
-            with _in_queue(route):
-                self._upstream(route, method, body)
+            with _in_queue(route, self.connection) as ours:
+                if ours:
+                    self._upstream(route, method, body)
 
         def _upstream(self, route: Route, method: str, body: bytes | None) -> None:
             last = "маршрут пуст"
