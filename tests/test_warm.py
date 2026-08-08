@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 import subprocess
 import time
@@ -18,7 +19,16 @@ from tests.conftest import CLIP_SECONDS, free_port
 from torrcast.cli import Watch as _Watch
 from torrcast.cli import _Clock, _play
 from torrcast.state import Config, Entry, State
-from torrcast.stream import Feed, Grid, Packer, ffmpeg_pack_command, hls_dir, segment_name
+from torrcast.stream import (
+    SPLIT_SLACK,
+    Feed,
+    Grid,
+    Packer,
+    ffmpeg_pack_command,
+    hls_dir,
+    pack_start,
+    segment_name,
+)
 from torrcast.warm import (
     FREE_FLOOR,
     GUARD_HIGH,
@@ -555,3 +565,106 @@ def test_the_warmed_film_is_homogeneous_and_its_heavy_piece_is_recoded(
             f"прогретый {segment_name(slot)} закодирован не так, как его кладёт упаковка"
         )
     assert _sps(vault.path(spot)) != copied, "тяжёлый кусок не перекодирован"
+
+
+# --- TC-124: прогрев обязан заходить туда же, куда заходит живая упаковка -------
+# Резы захода ffmpeg отмеряет от ПЕРВОГО ПАКЕТА прогона, а список ``-segment_times``
+# считается от того начала, которое ему назвали. Назвали задуманное сеткой, а встал он
+# раньше - и весь заход разъезжается с сеткой на всю докатку. Проверяются, как и выше,
+# выданные БАЙТЫ, а не аргументы ffmpeg.
+
+
+def _offkey_grid() -> Grid:
+    """Сетка, чьи границы заведомо не совпадают с опорными кадрами ролика.
+
+    У ролика опорный кадр каждые 2 с (``-g 50`` при 25 к/с), поэтому границы, сдвинутые
+    на секунду, гарантируют докатку: ``-ss`` уводит ffmpeg на опорный кадр раньше границы -
+    ровно то, что происходит на настоящем релизе.
+    """
+    return Grid(tuple(float(k * 10 + (1 if k else 0)) for k in range(6)), float(CLIP_SECONDS), True)
+
+
+def _md5(path: Path) -> str:
+    return hashlib.md5(path.read_bytes()).hexdigest()
+
+
+def _pack_to_the_end(command: list[str], out: Path, first: int, last: int) -> None:
+    """Один прогон упаковки до конца участка - эталон живого показа."""
+    packer = Packer.start(command, out, out / "run", first, last=last)
+    deadline = time.monotonic() + 180
+    while packer.poll() is None and time.monotonic() < deadline:
+        packer.publish()
+        time.sleep(0.2)
+    packer.publish()
+    packer.stop(keep_files=True, reason="эталон снят")
+
+
+def test_warming_enters_the_run_exactly_where_the_live_packing_enters_it(
+    clip: str, tmp_path: Path
+) -> None:
+    """Прогретый кусок побайтово равен живому НА ВСЁМ заходе, а не местами.
+
+    Улика, ради которой тест написан: прогрев называл ffmpeg задуманное сеткой начало
+    (``grid.start``), а живая упаковка - измеренное (:func:`torrcast.stream.pack_start`).
+    ffmpeg вставал раньше, резы захода уезжали на всю докатку, и первый кусок прогрева
+    начинался на 1.7 с раньше своей границы: PCR и метки видео шли НАЗАД на стыке с живым
+    куском. Там, где в сдвинутом окне не оказывалось опорного кадра, рез вставал верно и
+    кусок совпадал с живым - поэтому сравниваются все куски захода, а не один.
+    """
+    grid = _offkey_grid()
+    first, last = 2, grid.count - 1
+    at = pack_start(clip, grid.start(first))
+    assert at < grid.start(first) - SPLIT_SLACK, (
+        f"ролик не даёт докатки на границе {grid.start(first)} с - тесту нечего ловить"
+    )
+
+    live = tmp_path / "live"
+    _pack_to_the_end(
+        ffmpeg_pack_command(clip, 0, str(live / "run"), grid, first, at, readrate=0.0, until=last),
+        live, first, last,
+    )  # fmt: skip
+
+    vault = _vault(tmp_path, key="прогрев")
+    warmer = Warmer(source=clip, audio=0, grid=grid, vault=vault, rate=0.0, slack=1e6)
+    warmer._run(first, last)
+
+    for slot in range(first, grid.count):
+        want = live / segment_name(slot)
+        assert want.exists(), f"эталон {segment_name(slot)} не снялся - сравнивать не с чем"
+        assert vault.path(slot).exists(), f"прогрев не выложил {segment_name(slot)}"
+        assert _md5(vault.path(slot)) == _md5(want), (
+            f"прогретый {segment_name(slot)} разошёлся с живым по байтам: "
+            f"{vault.path(slot).stat().st_size} Б против {want.stat().st_size} Б"
+        )
+
+
+def test_the_recoding_run_of_the_warming_never_asks_the_pilot(
+    clip: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """У перекодирующего захода ``-ss`` точен, и пробный прогон ему вреден.
+
+    Измеренное начало увело бы такой заход на сегмент назад: докатки он не делает вовсе
+    (:func:`torrcast.stream.ffmpeg_pack_command`). Пробный прогон тут подменён заведомо
+    неверным ответом - если прогрев его спросит и послушает, кусок ляжет не на своё место.
+    """
+    from torrcast import stream
+    from torrcast.recode import Encode
+
+    asked: list[float] = []
+
+    def _pilot(url: str, at: float, timeout: float = 0.0) -> float:
+        asked.append(at)
+        return at - 5.0
+
+    monkeypatch.setattr(stream, "pack_start", _pilot)
+    grid = _offkey_grid()
+    slot = 2
+    vault = _vault(tmp_path, key="точечно")
+    warmer = Warmer(
+        source=clip, audio=0, grid=grid, vault=vault, rate=0.0, slack=1e6,
+        spots=(slot,), spot_encode=Encode(preset="ultrafast", mbit=1.0),
+    )  # fmt: skip
+    warmer._run(slot, slot, spot=True)
+
+    assert not asked, "перекодирующий заход прогрева спросил пробный прогон"
+    assert vault.path(slot).exists(), f"перекодирующий заход не выложил {segment_name(slot)}"

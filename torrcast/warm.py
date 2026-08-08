@@ -535,19 +535,45 @@ class Warmer:
         ровно так же, отдельным прогоном на кусок, тяжёлое место берёт и живой показ
         (:class:`torrcast.recode.Recoder`), то есть стык звука на его границе у показа уже
         есть - и прогретое повторяет его один в один, а не добавляет свой.
-        """
-        from torrcast.stream import Packer, ffmpeg_pack_command
 
+        🔴 Где прогон встал на самом деле - :func:`torrcast.stream.pack_start`, ровно как у
+        живой упаковки (:meth:`torrcast.stream.Feed.restart`), а не «где его задумала сетка».
+        Разница не бухгалтерская: ``-segment_times`` считаются от ``at``, а муксер отмеряет
+        их от ПЕРВОГО ПАКЕТА прогона. Отдали задуманное начало - и все резы захода
+        попросились раньше на всю докатку. Замер на живом материале: ``-ss 2901.815`` ставит
+        ffmpeg на 2899.730, докатка 2.085 с, и прогретый кусок начинался на 2932.638 вместо
+        2934.432 - PCR на 1.668 с назад, DTS видео на 1.710 с (обратный ход -22 мс уже
+        подтверждённо ронял показ, тут в 75 раз больше). Куски при этом лежали под
+        правильными именами и весили правдоподобно, а манифест обещал 10.885 с против
+        12.595 с в файле - около 40 дублированных кадров. Там, где в сдвинутом окне опорных
+        кадров не было, рез вставал верно и кусок был побайтово равен живому - отсюда и
+        незаметность.
+
+        ⚠️ Пробный прогон нужен ровно копии. У перекодирующего захода (``spot``, сплошной
+        :attr:`encode`) ``-ss`` точен, докатки нет, и измеренное начало увело бы весь заход
+        на сегмент назад (:func:`torrcast.stream.ffmpeg_pack_command`).
+
+        Цена честная: копирующих заходов у прогрева два на фильм - хвост от места показа и
+        голова (:meth:`_missing`), - а точечные идут перекодом и пробного не просят вовсе.
+        0.5-2.9 с на заход против получаса прогрева не считаются.
+        """
+        from torrcast.stream import Packer, ffmpeg_pack_command, pack_start
+
+        encode = self.spot_encode if spot else self.encode
+        at = self.grid.start(first)
+        if encode is None:
+            at = pack_start(self.source, at)
+            mark("пробный прогон прогрева", слот=first, встали=round(at, 3))
         command = ffmpeg_pack_command(
             self.source,
             self.audio,
             str(self.vault.dir / RUN_DIR),
             self.grid,
             first,
-            self.grid.start(first),
+            at,
             readrate=self.rate,
             burst=0.0,
-            encode=self.spot_encode if spot else self.encode,
+            encode=encode,
             until=last,
         )
         command = ["nice", "-n", str(self.nice), *command]
