@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.conftest import CLIP_SECONDS
+from tests.conftest import CLIP_SECONDS, free_port
 from torrcast.cli import Watch as _Watch
 from torrcast.cli import _Clock, _play
 from torrcast.state import Config, Entry, State
@@ -188,7 +188,7 @@ def test_the_show_end_takes_the_warmed_film_off_the_disk(
         hls_dir=str(tmp_path / "hls"),
         hls_cert=tls[0],
         hls_key=tls[1],
-        hls_port=18471,
+        hls_port=free_port(),
         hls_readrate=0.0,
         hls_keyframes=False,
         warm=True,

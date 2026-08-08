@@ -24,7 +24,7 @@ from typing import IO, Any
 import pytest
 import requests
 
-from tests.conftest import fake_packer
+from tests.conftest import fake_packer, free_port
 from torrcast.cast import Report
 from torrcast.stream import (
     HLS_SEGMENT_SECONDS,
@@ -81,10 +81,11 @@ def _boundaries(command: list[str], at: float) -> dict[int, float]:
 def served(tmp_path: Path) -> Any:
     """Живая раздача с одним готовым сегментом — по http, как её берёт ТВ."""
     root, feed = _stub(tmp_path)
-    server = HlsServer(root, host="127.0.0.1", port=18453, feed=feed)
+    port = free_port()
+    server = HlsServer(root, host="127.0.0.1", port=port, feed=feed)
     server.start()
     try:
-        yield requests.Session(), "http://127.0.0.1:18453"
+        yield requests.Session(), f"http://127.0.0.1:{port}"
     finally:
         server.stop()
 
@@ -113,10 +114,11 @@ def test_the_default_transport_is_plain_http_by_ip(tmp_path: Path) -> None:
     assert Config().hls_port == 8080
 
     root, feed = _stub(tmp_path)
-    server = HlsServer(root, host="127.0.0.1", port=18457, feed=feed)
+    port = free_port()
+    server = HlsServer(root, host="127.0.0.1", port=port, feed=feed)
     server.start()
     try:
-        answer = requests.get("http://127.0.0.1:18457/index.m3u8", timeout=10)
+        answer = requests.get(f"http://127.0.0.1:{port}/index.m3u8", timeout=10)
         assert answer.status_code == 200
         assert answer.headers["Access-Control-Allow-Origin"] == "*"
         assert answer.headers["Content-Type"] == "application/vnd.apple.mpegurl"
@@ -129,12 +131,13 @@ def test_https_stays_a_working_but_switched_off_option(
 ) -> None:
     """Код https никуда не делся: включается флагом и играет как раньше."""
     root, feed = _stub(tmp_path)
-    server = HlsServer(root, tls[0], tls[1], host="127.0.0.1", port=18458, tls=True, feed=feed)
+    port = free_port()
+    server = HlsServer(root, tls[0], tls[1], host="127.0.0.1", port=port, tls=True, feed=feed)
     server.start()
     session = requests.Session()
     session.verify = tls[0]  # серт = собственный корень: TLS проверяется по-настоящему
     try:
-        answer = session.get("https://127.0.0.1:18458/index.m3u8", timeout=10)
+        answer = session.get(f"https://127.0.0.1:{port}/index.m3u8", timeout=10)
         assert answer.status_code == 200
         assert answer.headers["Access-Control-Allow-Origin"] == "*"
     finally:
@@ -786,7 +789,7 @@ def test_a_stopped_show_stops_answering_even_on_a_live_connection(tmp_path: Path
     """
     import http.client
 
-    port = 18461
+    port = free_port()  # порт один на две серии: в этом весь тест
     old_root, old_feed = _stub(tmp_path / "s1e5")
     old = HlsServer(old_root, host="127.0.0.1", port=port, feed=old_feed)
     old.start()

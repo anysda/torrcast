@@ -25,7 +25,7 @@ from typing import Any, Final
 
 import pytest
 
-from tests.conftest import CLIP_SECONDS, fake_packer
+from tests.conftest import CLIP_SECONDS, fake_packer, free_port
 from torrcast import InfraError
 from torrcast.cli import Watch as _Watch
 from torrcast.cli import _Clock, _play
@@ -46,11 +46,15 @@ from torrcast.stream import (
 )
 
 
-def config_for(tmp_path: Path, tls: tuple[str, str], port: int) -> Config:
+def config_for(tmp_path: Path, tls: tuple[str, str]) -> Config:
     """Конфиг показа как в бою: http по голому IP, приёмник — mock.
 
     ``tls`` тут остаётся ради второго прогона той же цепочки по https: транспорт —
     выключенная опция, но она обязана работать, и проверяется тем же тестом.
+
+    Порт берётся свободный (:func:`tests.conftest.free_port`), а не константой: показ
+    поднимает настоящую раздачу, и с прибитым номером два прогона рядом дрались бы за
+    bind. Номер порта ни одному тесту ниже не интересен - он спрашивается у конфига.
 
     ``hls_keyframes=False``: карта опорных кадров снимается Range-запросами по HTTP
     (:mod:`torrcast.mkv`), а источник у этих тестов — файл на диске, читать который тем же
@@ -63,7 +67,7 @@ def config_for(tmp_path: Path, tls: tuple[str, str], port: int) -> Config:
         hls_dir=str(tmp_path / "hls"),
         hls_cert=tls[0],
         hls_key=tls[1],
-        hls_port=port,
+        hls_port=free_port(),
         hls_readrate=0.0,  # приёмка идёт быстрее реального времени
         hls_keyframes=False,
         # Прогрев на диск — отдельный тракт со своими тестами (`test_warm.py`). Здесь
@@ -118,10 +122,9 @@ def _video(path: Path) -> str:
     return hashlib.md5(done.stdout).hexdigest()
 
 
-@pytest.mark.parametrize(("transport", "port"), [("http", 18461), ("https", 18462)])
+@pytest.mark.parametrize("transport", ["http", "https"])
 def test_mock_decodes_the_whole_stream_without_gaps(
     transport: str,
-    port: int,
     clip: str,
     tls: tuple[str, str],
     tmp_path: Path,
@@ -132,7 +135,7 @@ def test_mock_decodes_the_whole_stream_without_gaps(
     Оба транспорта гоняются одной и той же цепочкой: http — рабочий дефолт,
     https — выключенная опция, которая обязана оставаться живой.
     """
-    config = config_for(tmp_path, tls, port)
+    config = config_for(tmp_path, tls)
     config.transport = transport  # type: ignore[assignment]
     assert _play(config, clip, 0, "тест", _Clock(), duration=float(CLIP_SECONDS)) == 0
     printed = capsys.readouterr().out
@@ -160,7 +163,7 @@ def test_a_source_the_receiver_cannot_decode_is_recoded_from_the_first_segment(
     Проверяем не намерение, а факт: ffprobe каждого выложенного сегмента.
     """
     assert _probe(Path(clip_hevc))[0]["codec_name"] == "hevc", "источник обязан быть HEVC"
-    config = config_for(tmp_path, tls, 18464)
+    config = config_for(tmp_path, tls)
     kept: list[Path] = []
     where = tmp_path / "kept"
     where.mkdir()
@@ -267,7 +270,7 @@ def test_packing_torn_off_again_and_again_is_an_honest_infra_error(
     умирает, и показ пакует заново с того места, где стоит приёмник. А вот источник,
     который рвётся раз за разом, обязан кончиться ошибкой кодом 2, а не вечным кругом.
     """
-    config = config_for(tmp_path, tls, 18463)
+    config = config_for(tmp_path, tls)
     config.hls_readrate = 1.0  # реальное время: есть куда вклиниться посреди показа
     killer = threading.Thread(target=_kill_when_playing, args=(config, str(tmp_path)), daemon=True)
     killer.start()
@@ -581,7 +584,7 @@ def test_resume_starts_from_the_offset_and_ends_as_watched(
     state.save()
     watch = _Watch(key=key, entry=entry, every=0.0)
 
-    config = config_for(tmp_path, tls, 18465)
+    config = config_for(tmp_path, tls)
     assert _play(config, clip, 0, "тест", _Clock(), watch=watch) == 0
 
     printed = capsys.readouterr().out
@@ -775,7 +778,7 @@ def test_the_show_end_closes_the_app_and_the_episode_seam_does_not(
             super().stop()
 
     monkeypatch.setattr(cli, "make_receiver", lambda kind, address="", ca="": _Recorder())
-    config = config_for(tmp_path, tls, 18471)
+    config = config_for(tmp_path, tls)
     key = "tv:сериал:2026"
     length = float(CLIP_SECONDS)
 
