@@ -25,7 +25,9 @@ import pytest
 import requests
 
 from tests.conftest import CLIP_SECONDS, fake_packer, free_port
+from torrcast import stream
 from torrcast.cast import Report
+from torrcast.keymap import Reader, keyframes, video_track
 from torrcast.stream import (
     HLS_SEGMENT_SECONDS,
     MAX_SEGMENT_BYTES,
@@ -34,11 +36,14 @@ from torrcast.stream import (
     PACK_LIST,
     SPLIT_SLACK,
     Feed,
+    FilmKeys,
     Grid,
     HlsServer,
     Packer,
     ffmpeg_pack_command,
     hls_dir,
+    mapped_start,
+    pack_start,
     parse_manifest,
     segment_name,
 )
@@ -383,6 +388,120 @@ def test_a_space_in_the_run_directory_does_not_quietly_kill_the_packing(
     packer.publish()
     packer.stop(keep_files=True, reason="проверка пути с пробелом")
     assert (out / segment_name(0)).exists(), f"ни куска: {packer.why()}"
+
+
+# --- TC-122: точка захода упаковки берётся из карты, а не пробным прогоном каждый раз ---
+# Перемотку демуксера ведёт тот самый индекс контейнера, из которого снята карта, поэтому
+# место посадки ``-ss`` вычислимо (:func:`mapped_start`). Проверяется это не рассуждением, а
+# настоящим ffmpeg: предсказание против измеренного, на mkv и на mp4.
+
+
+@pytest.fixture
+def offline_keys(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Карта снимается с локального файла: Range-запросы читают путь, а не сеть."""
+
+    def read(self: Reader, offset: int, size: int) -> bytes:
+        data = Path(self.url).read_bytes()[offset : offset + size]
+        self.taken += len(data)
+        self.requests += 1
+        return data
+
+    monkeypatch.setattr(Reader, "read", read)
+
+
+def _map_of(path: str) -> FilmKeys:
+    """Карта файла в том виде, в каком её видит показ (:func:`torrcast.stream.film_keys`)."""
+    found = keyframes(path)
+    track = video_track(found.points)
+    video = [p for p in found.points if p.track == track]
+    return FilmKeys(found.duration, [p.at for p in video], [p.offset for p in video], found.kind)
+
+
+@pytest.mark.parametrize("container", ["mkv", "mp4"])
+def test_the_entry_point_from_the_map_is_where_ffmpeg_actually_lands(
+    clip: str, clip_mp4: str, offline_keys: None, container: str
+) -> None:
+    """Предсказанное по карте место захода совпадает с измеренным - на каждой границе.
+
+    Демуксер решает: mkv по ``-ss`` в опорный кадр уезжает на предыдущий («через один»),
+    mp4 встаёт ровно в него. Поэтому проверяются оба контейнера и все границы подряд, а не
+    одна: ошибка на один опорный кадр разъезжает с сеткой весь заход целиком.
+    Щуп на .ts этот класс дефектов не воспроизвёл бы вовсе - у mpegts ``-ss`` уезжает
+    ВПЕРЁД, и докатки у него не бывает.
+    """
+    path = clip if container == "mkv" else clip_mp4
+    keys = _map_of(path)
+    assert keys.kind == container, "тест обязан мерить тот контейнер, который назвал"
+    for at in keys.at[2:12]:
+        guess = mapped_start(keys, at)
+        assert not math.isnan(guess), f"карта молчит про свою же границу {at:.3f}"
+        measured = stream._pilot_start(path, at)
+        assert guess == pytest.approx(measured, abs=SPLIT_SLACK), (
+            f"{container}: карта обещает {guess:.3f} на границе {at:.3f}, а ffmpeg встал "
+            f"на {measured:.3f}"
+        )
+
+
+def test_the_map_is_believed_only_after_the_pilot_has_confirmed_it(
+    clip: str, offline_keys: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Пробный прогон - один на файл, а не один на заход, и он именно сверка.
+
+    Первый заход платит прогон и сверяет им карту; дальше место захода считается по карте
+    даром. Дёшево поверить карте сразу проект уже дважды не смог: резы захода муксер
+    отмеряет от первого пакета, и заход, вставший не туда, кладёт мимо сетки весь участок.
+    """
+    monkeypatch.setattr(stream, "_SEEK_OK", {})
+    keys = _map_of(clip)
+    asked: list[float] = []
+    honest = stream._pilot_start
+
+    def counted(url: str, at: float, timeout: float = 0.0) -> float:
+        asked.append(at)
+        return honest(url, at)
+
+    monkeypatch.setattr(stream, "_pilot_start", counted)
+    first, second = keys.at[6], keys.at[9]
+    assert pack_start(clip, first, keys=keys) == pytest.approx(mapped_start(keys, first))
+    assert pack_start(clip, second, keys=keys) == pytest.approx(mapped_start(keys, second))
+    assert asked == [first], f"пробных прогонов {len(asked)}, а карта сверяется один раз"
+    assert stream._SEEK_OK[clip] is True
+
+
+def test_a_lying_map_is_caught_by_the_pilot_and_never_believed_again(
+    clip: str, offline_keys: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Карта разошлась с фактом - работает прежний пробный прогон, и место захода верное.
+
+    Подсунута карта, сдвинутая на 0.7 с: предсказание расходится с измеренным больше чем на
+    полкадра. Показ обязан этого не заметить - заход всё равно начинается там, где ffmpeg
+    встал на самом деле.
+    """
+    monkeypatch.setattr(stream, "_SEEK_OK", {})
+    keys = _map_of(clip)
+    lying = keys._replace(at=[second + 0.7 for second in keys.at])
+    for at in (keys.at[6], keys.at[9]):
+        assert pack_start(clip, at, keys=lying) == pytest.approx(
+            stream._pilot_start(clip, at), abs=SPLIT_SLACK
+        ), "заход ушёл туда, куда показала врущая карта"
+    assert stream._SEEK_OK[clip] is False, "враньё карты запоминается: второй раз не спрашиваем"
+
+
+def test_the_map_keeps_quiet_where_the_rule_does_not_hold() -> None:
+    """``nan`` там, где правило не обязано работать: чужой контейнер, край карты, голова файла.
+
+    Голова - не придирка: у начала файла ffmpeg не пускает dts ниже нуля и сдвигает метки
+    на кадр-два вперёд (замер: карта обещает 0.000, факт 0.080), то есть единственное место,
+    где права карта, а не прогон.
+    """
+    keys = FilmKeys(60.0, [0.0, 2.0, 4.0, 6.0], [0, 1, 2, 3], "mkv")
+    assert math.isnan(mapped_start(keys, 2.0)), "посадка в самое начало файла - не по карте"
+    assert mapped_start(keys, 6.0) == pytest.approx(4.0), "mkv уезжает на предыдущий кадр"
+    assert mapped_start(keys._replace(kind="mp4"), 6.0) == pytest.approx(6.0), "mp4 встаёт в него"
+    assert math.isnan(mapped_start(keys, 60.0)), "за краем карты соседней строки нет"
+    assert math.isnan(mapped_start(keys._replace(kind=""), 6.0)), "контейнер неизвестен"
+    assert math.isnan(mapped_start(keys._replace(kind="ts"), 6.0)), "у mpegts своё правило"
+    assert math.isnan(mapped_start(None, 6.0)), "карты нет - предсказывать нечем"
 
 
 def test_readrate_paces_packing_and_can_be_switched_off() -> None:
