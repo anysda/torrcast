@@ -8,11 +8,14 @@
 
 from __future__ import annotations
 
+import threading
+import time
 from pathlib import Path
+from typing import Any
 
 import pytest
 
-from torrcast import cli
+from torrcast import InfraError, cli
 from torrcast.search import RawResult
 from torrcast.state import Config, Entry, State, save_config
 from torrcast.stream import AudioTrack, Media, TorrFile
@@ -350,3 +353,154 @@ def test_prewarmed_torrents_are_dropped_when_the_show_never_starts(
 
     assert added, "прогрев под меню раздачи поднимает"
     assert len(dropped) == len(set(added)), "и все они убраны, раз показа не будет"
+
+
+def _started_film(monkeypatch: pytest.MonkeyPatch, pos: float = 2467.0) -> None:
+    """Начатый фильм в состоянии — единственный вход на путь «Продолжить?»."""
+    state = State()
+    state.put(
+        "movie:моана-2:2024",
+        Entry(title="Моана 2", magnet="magnet:?xt=1", pos=pos, dur=5978.0, query="моана-2"),
+    )
+    state.save()
+    monkeypatch.setattr(cli, "warm_file", lambda *a, **k: None)
+
+
+def test_the_swarm_goes_up_while_the_question_is_still_unanswered(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Раздача поднимается при ПЕЧАТИ вопроса, а не по ответу.
+
+    Самая дорогая фаза продолжения — метаданные раздачи по DHT, и это секунды. Ровно
+    столько же человек читает вопрос и тянется к клавише, поэтому подъём и уходит вперёд
+    вопроса: к Enter'у метаданные чаще всего уже приехали. Ждать ответа, чтобы начать, —
+    значит выбросить эту паузу целиком.
+    """
+    _started_film(monkeypatch)
+    raised = threading.Event()
+
+    class _Timed(_FakeTorrServer):
+        def add(self, magnet: str) -> str:
+            raised.set()
+            return f"hash-{magnet[:30]}"
+
+    monkeypatch.setattr(cli, "TorrServer", _Timed)
+    under_question: list[bool] = []
+
+    def ask(prompt: str = "") -> str:
+        under_question.append(raised.wait(5.0))  # вопрос на экране, ответа ещё нет
+        return ""
+
+    monkeypatch.setattr("builtins.input", ask)
+
+    assert cli.main(["моана", "2"]) == 0
+    assert under_question == [True], "раздача поднята, пока вопрос ещё не отвечен"
+
+
+def test_the_position_warmer_dies_on_the_answer(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Грелка позиции гаснет на Enter'е и ни секундой позже.
+
+    Прогрев, доигрывающий после ответа, — это второй читатель того же места через
+    TorrServer, и он отбирает у показа ровно ту полосу, ради которой затевался
+    (:meth:`torrcast.cli._Resume.enough`). Смысл прогрева весь в секундах ДО ответа.
+    """
+    _started_film(monkeypatch)
+    warming = threading.Event()
+    alive_of: list[Any] = []
+
+    def warm_file(source: str, at: float = 0.0, alive: Any = None, name: str = "") -> None:
+        alive_of.append(alive)
+        warming.set()
+
+    monkeypatch.setattr(cli, "warm_file", warm_file)
+
+    def ask(prompt: str = "") -> str:
+        assert warming.wait(5.0), "грелка успевает встать под вопросом"
+        return ""
+
+    monkeypatch.setattr("builtins.input", ask)
+
+    assert cli.main(["моана", "2"]) == 0
+    assert alive_of and alive_of[0]() is False, "после ответа грелка себя считает мёртвой"
+
+
+def test_a_failed_background_raise_is_not_a_failed_command(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Не поднялась раздача фоном — просто ждём как раньше, молча и не падая.
+
+    Фоновый подъём — ускорение, а не источник правды: то же самое сделает сам показ в
+    юните, только на своём времени. Ошибке отсюда нечего сказать человеку.
+    """
+    _started_film(monkeypatch)
+    started: list[str] = []
+
+    class _Dead(_FakeTorrServer):
+        def add(self, magnet: str) -> str:
+            raise InfraError("TorrServer не отвечает")
+
+    monkeypatch.setattr(cli, "TorrServer", _Dead)
+    monkeypatch.setattr(cli, "start_play_unit", lambda key: started.append(key))
+    _answers(monkeypatch, "")
+
+    assert cli.main(["моана", "2"]) == 0
+    assert started == ["movie:моана-2:2024"], "показ идёт своим ходом"
+    assert "TorrServer" not in capsys.readouterr().out, "фоновая осечка человека не касается"
+
+
+def test_a_run_that_never_starts_takes_its_torrent_back(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Показа не будет (``--dry``) — поднятая раздача убирается по ЕЁ хэшу.
+
+    Раздача с ``save_to_db: false`` в списке TorrServer не видна, поэтому «снести всё из
+    list» тут не годится вдвойне: и своё не найдёт, и чужое снесёт. Хэш известен ровно
+    один — тот, что подняли сами.
+    """
+    _started_film(monkeypatch)
+    added: list[str] = []
+    dropped: list[str] = []
+    raised = threading.Event()
+
+    class _Counting(_FakeTorrServer):
+        def add(self, magnet: str) -> str:
+            added.append(magnet)
+            raised.set()
+            return f"hash-{magnet[:30]}"
+
+        def drop(self, torrent_hash: str) -> None:
+            dropped.append(torrent_hash)
+
+    monkeypatch.setattr(cli, "TorrServer", _Counting)
+
+    def ask(prompt: str = "") -> str:
+        raised.wait(5.0)
+        return ""
+
+    monkeypatch.setattr("builtins.input", ask)
+
+    assert cli.main(["моана", "2", "--dry"]) == 0
+    assert added == ["magnet:?xt=1"]
+    assert dropped == ["hash-magnet:?xt=1"], "убрано ровно поднятое, по явному хэшу"
+
+
+def test_an_instant_answer_is_no_worse_than_before(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Enter нажали мгновенно — путь остаётся прежним: раздача та же, позиция цела.
+
+    Подъём в этот момент ещё в пути, и ответ его не ждёт: показ поднимет ту же раздачу
+    сам. Ускорение, которого не случилось, — это просто прежняя скорость.
+    """
+    _started_film(monkeypatch)
+    started: list[str] = []
+
+    class _Slow(_FakeTorrServer):
+        def add(self, magnet: str) -> str:
+            time.sleep(0.3)  # человек успевает ответить раньше, чем раздача поднимется
+            return f"hash-{magnet[:30]}"
+
+    monkeypatch.setattr(cli, "TorrServer", _Slow)
+    monkeypatch.setattr(cli, "start_play_unit", lambda key: started.append(key))
+    _answers(monkeypatch, "")
+
+    assert cli.main(["моана", "2"]) == 0
+    assert started == ["movie:моана-2:2024"]
+    kept = State.load().get("movie:моана-2:2024")
+    assert kept is not None and kept.pos == 2467.0, "продолжаем с сохранённого места"

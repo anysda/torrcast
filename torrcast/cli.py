@@ -2006,13 +2006,22 @@ class _Resume:
     entry: Entry
     source: str = ""
     cancelled: bool = False
+    #: Хэш поднятой раздачи. Нужен ровно затем, чтобы её было чем убрать: раздачи с
+    #: ``save_to_db: false`` в списке TorrServer не видны, и «снести всё из list» снесло бы
+    #: чужое (:meth:`_Bench.drop_all` убирает своё по тем же явным хэшам).
+    torrent_hash: str = ""
+    #: Показа не будет: поднятое надо убрать, даже если подъём ещё в пути.
+    discarded: bool = False
 
     def start(self) -> None:
         threading.Thread(target=self._work, daemon=True).start()
 
     def _work(self) -> None:
         with contextlib.suppress(TorrcastError):
-            torrent_hash = self.torrserver.add(self.entry.magnet)
+            self.torrent_hash = torrent_hash = self.torrserver.add(self.entry.magnet)
+            if self.discarded:  # отказались, пока раздача поднималась - убираем её сами
+                self.torrserver.drop(torrent_hash)
+                return
             files = self.torrserver.wait_files(torrent_hash)
             self.source = self.torrserver.stream_url(torrent_hash, self.entry.file_idx)
             # Имя файла - подсказка о контейнере для грелки головы: карта, снятая прошлой
@@ -2034,6 +2043,23 @@ class _Resume:
         """
         self.cancelled = True
 
+    def discard(self) -> None:
+        """Показа не будет вовсе — поднятую раздачу убрать по ЕЁ хэшу.
+
+        Ровно два таких выхода: Ctrl-C на вопросе и ``--dry`` (он и заведён затем, чтобы
+        ничего не начиналось и следов не оставалось). Раздача при этом уже поднята, а
+        живёт она не в нашем процессе: наш умрёт, а она останется качать метаданные в
+        чужой RAM до перезапуска TorrServer — та же беда, что у прогрева под меню
+        (:meth:`_Bench.drop_all`).
+
+        ⚠️ Ответ «сначала» сюда не относится: раздача та же самая, меняется только место,
+        с которого играем, — убрать её значило бы сломать показ.
+        """
+        self.cancelled = True
+        self.discarded = True
+        if self.torrent_hash:
+            self.torrserver.drop(self.torrent_hash)
+
 
 def _resume(config: Config, key: str, entry: Entry, clock: _Clock, dry: bool = False) -> int:
     """Возобновление: один вопрос и сразу показ. Релиз, файл и дорожка берутся из
@@ -2045,11 +2071,17 @@ def _resume(config: Config, key: str, entry: Entry, clock: _Clock, dry: bool = F
     warm = _Resume(TorrServer(config.torrserver_url), entry)
     warm.start()
     question = f"«{entry.title}» остановились на {_hms(entry.pos)}. Продолжить? [Да/сначала]"
-    answer = ask_line(question)
+    try:
+        answer = ask_line(question)
+    except BaseException:  # Ctrl-C на вопросе - показа не будет, а раздача уже поднята
+        warm.discard()
+        raise
     warm.enough()
     mark("рой прогрет")  # TC-108: замер
     if answer[:1] in {"с", "s", "н", "n"}:  # «сначала» / «с начала» / «нет»
         entry.pos = 0.0
+    if dry:  # показа не будет: своё поднятое убираем сами, чужого не трогаем
+        warm.discard()
     mark("ответы")  # ноль секундомера: Enter после последнего вопроса
     return _launch(config, key, entry, _about(entry), clock, dry)
 
