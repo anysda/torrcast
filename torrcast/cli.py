@@ -859,15 +859,18 @@ def _cmd_play(args: Args) -> int:
         # Прогрев под меню: пока идёт вопрос, раздачи уже качают метаданные.
         for plan in warm_order(plans)[:PREWARM]:
             bench.start(plan, plan.first)
+        mark("прогрев пущен")  # TC-108: замер
         try:
             try:
                 plan = _pick_plan(plans, facts)
+                mark("картина выбрана")  # TC-108: замер
             finally:
                 # Меню уже на экране, и ответ на него получен: пусть фоновый добор допишет
                 # кэш - СЛЕДУЮЩЕЕ меню этой франшизы будет полным. Ко времени до меню это
                 # отношения не имеет, а к моменту ответа поток обычно давно закончил.
                 facts.finish()
             prep = bench.resolve(plan, args, progress)
+            mark("отбор релиза", релиз=prep.number)  # TC-108: замер
         except BaseException:  # Ctrl-C, «картин много, а терминала нет», «годного нет»
             bench.drop_all()  # прогретое без показа - мусор в рое и кэш в чужой RAM
             raise
@@ -961,6 +964,7 @@ def _search(config: Config, args: Args, progress: Progress) -> list[_Plan]:
     client = Prowlarr(config.prowlarr_url, config.prowlarr_apikey)
     progress.phase(f"поиск «{name}»")
     raw = _ask(client, name)
+    mark("индексеры ответили", строк=len(raw))  # TC-108: замер
     pictures = cluster(to_releases(raw))
     # Номер в запросе - позиция во франшизе, а не в общей выдаче.
     found = pick_franchise(query, pictures)
@@ -2043,6 +2047,7 @@ def _resume(config: Config, key: str, entry: Entry, clock: _Clock, dry: bool = F
     question = f"«{entry.title}» остановились на {_hms(entry.pos)}. Продолжить? [Да/сначала]"
     answer = ask_line(question)
     warm.enough()
+    mark("рой прогрет")  # TC-108: замер
     if answer[:1] in {"с", "s", "н", "n"}:  # «сначала» / «с начала» / «нет»
         entry.pos = 0.0
     mark("ответы")  # ноль секундомера: Enter после последнего вопроса
