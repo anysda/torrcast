@@ -539,3 +539,65 @@ def test_doctor_says_whether_the_journal_is_alive(tmp_path: Path) -> None:
     line, ok = _trace()
     assert ok
     assert "след" in line and "МБ" in line and "последняя запись" in line
+
+
+def test_a_served_piece_says_which_producer_made_it(tmp_path: Path) -> None:
+    """Кусок в ленте несёт ИСТОЧНИК: живая упаковка или прогретое.
+
+    Без этого поля разбор упирался в слепую зону: по записи видно вес и время отдачи, но
+    не видно, чей это кусок, - а куски одного показа делают два разных производителя, и
+    расхождение между ними приёмник ловит именно на стыке.
+    """
+    monkey = pytest.MonkeyPatch()
+    monkey.setenv(trace.LOG_ENV, str(tmp_path))
+    monkey.setenv(trace.SID_ENV, "src")
+    trace.segment(slot=40, mb=3.1, sent=0.4, wait=0.02, src=trace.PACKED)
+    trace.segment(slot=41, mb=2.9, sent=0.3, wait=0.01, src=trace.WARMED)
+    trace.shutdown()
+    rows = [r for r in trace.records() if r.get("event") == "segment"]
+    monkey.undo()
+
+    assert [r["src"] for r in rows] == ["pack", "warm"], "источник куска в ленту не попал"
+    assert rows[0]["slot"] == 40 and rows[0]["mb"] == 3.1, "прежние поля записи потерялись"
+    seams = trace._seams(rows)
+    assert [r["slot"] for r in seams] == [41], "смена производителя посреди показа не видна"
+    assert "стыков источника 1" in trace.digest(rows), "выжимка молчит про стык источников"
+    assert "источник сменился на прогретое" in trace.digest(rows), "стык не назван"
+
+
+def test_the_source_field_costs_the_hot_path_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Врезка источника не имеет права трогать диск: :func:`trace.segment` - тот же put."""
+    monkeypatch.setenv(trace.LOG_ENV, str(tmp_path))
+    monkeypatch.setenv(trace.SID_ENV, "hot")
+    import os as _os
+
+    writes: list[int] = []
+    real_write = _os.write
+
+    def counting_write(fd: int, data: bytes) -> int:
+        writes.append(fd)
+        return real_write(fd, data)
+
+    monkeypatch.setattr(_os, "write", counting_write)
+    monkeypatch.setattr(trace._Writer, "_start", lambda self: None)  # поток не поднимаем
+    for slot in range(200):
+        trace.segment(slot=slot, mb=3.0, sent=0.1, wait=0.0, src=trace.WARMED)
+
+    assert writes == [], "запись источника сделала синхронный write - регресс инварианта"
+
+
+def test_the_plan_says_how_both_producers_encode(tmp_path: Path) -> None:
+    """Решение о кодировании - строка ленты, а не разбор аргументов ffmpeg постфактум."""
+    monkey = pytest.MonkeyPatch()
+    monkey.setenv(trace.LOG_ENV, str(tmp_path))
+    monkey.setenv(trace.SID_ENV, "plan")
+    trace.plan(pack="copy", warm="copy", spots=5, preset="veryfast", mbit=9.0)
+    trace.shutdown()
+    rows = [r for r in trace.records() if r.get("event") == "plan"]
+    monkey.undo()
+
+    assert rows[0]["pack"] == "copy" and rows[0]["warm"] == "copy", "решения в ленте нет"
+    assert rows[0]["spots"] == 5, "точечный перекод не сосчитан"
+    assert "упаковка - копия, прогрев - копия" in trace.digest(rows), "выжимка молчит о решении"

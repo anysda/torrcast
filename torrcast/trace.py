@@ -40,10 +40,12 @@ __all__ = [
     "log_dir",
     "log_path",
     "nudge",
+    "plan",
     "records",
     "reload",
     "revive",
     "seek",
+    "segment",
     "session_id",
     "shutdown",
     "warmth",
@@ -254,6 +256,46 @@ def nudge(pos: float, to: float, hit: int, stuck: float, front: float) -> None:
     )
 
 
+#: Откуда взялся отданный кусок. Имена короткие, потому что поле идёт в КАЖДОЙ записи
+#: сегмента: ``pack`` - живая упаковка показа, ``warm`` - прогретое на диске.
+PACKED: Final = "pack"
+WARMED: Final = "warm"
+
+
+def segment(slot: int, mb: float, sent: float, wait: float, src: str) -> None:
+    """Отданный приёмнику кусок: номер, вес, время отдачи, ожидание и ИСТОЧНИК.
+
+    ``src`` - :data:`PACKED` или :data:`WARMED`. Без него в ленте не отличить кусок живой
+    упаковки от прогретого, а это разные производители: разойдись у них решение о
+    кодировании - и на стыке декодер приёмника переинициализируется. Стыки считает
+    :func:`digest`, поэтому поле стоит в каждой записи, а не только на переходах: по одним
+    переходам нельзя сказать, чем шёл показ между ними.
+
+    🔴 Зовётся из горячего пути отдачи (:meth:`torrcast.stream._Handler._log_segment`):
+    только :func:`emit`, то есть только укладка в очередь.
+    """
+    emit(
+        "play",
+        "segment",
+        slot=slot,
+        mb=round(mb, 2),
+        sent=round(sent, 3),
+        wait=round(wait, 3),
+        src=src,
+    )
+
+
+def plan(pack: str, warm: str, spots: int, preset: str = "", mbit: float = 0.0) -> None:
+    """Чем кодирует куски живая упаковка и чем - прогрев, один раз на показ.
+
+    ``pack``/``warm`` - ``copy`` или ``recode``; ``spots`` - сколько кусков перекодируются
+    точечно (тяжёлые). Запись существует ради одного вопроса: одинаково ли решают два
+    производителя кусков одного показа. Разошлись - это видно строкой в ``cast log``, а не
+    разбором аргументов ffmpeg постфактум.
+    """
+    emit("warm", "plan", pack=pack, warm=warm, spots=spots, preset=preset, mbit=round(mbit, 2))
+
+
 def reload(pos: float, tries: int) -> None:
     """Повтор LOAD посреди показа: приёмник отвалился и его подняли заново."""
     emit("play", "reload", pos=round(pos, 1), tries=tries)
@@ -371,6 +413,28 @@ def digest(rows: list[dict[str, Any]], limit: int = 3) -> str:
     return "\n\n".join(blocks)
 
 
+def _seams(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Записи сегментов, на которых сменился источник (:func:`segment`).
+
+    Первый кусок сеанса стыком не считается: у него нет предыдущего источника, а «показ
+    начался с прогретого» - не стык, а начало. Пустой список значит ровно «в ленте нет
+    записей с полем ``src``» ИЛИ «источник за весь сеанс не менялся»: эти два случая
+    различаются наличием самих записей сегментов, и путать их нельзя.
+    """
+    found: list[dict[str, Any]] = []
+    previous = ""
+    for rec in rows:
+        if rec.get("event") != "segment":
+            continue
+        src = str(rec.get("src", ""))
+        if not src:
+            continue
+        if previous and src != previous:
+            found.append(rec)
+        previous = src
+    return found
+
+
 def _session_block(sid: str, rows: list[dict[str, Any]]) -> str:
     began = float(rows[0].get("at", 0.0))
     lines: list[str] = []
@@ -380,12 +444,15 @@ def _session_block(sid: str, rows: list[dict[str, Any]]) -> str:
     if title:
         head += f" · «{title}»"
     lines.append(head)
+    seams = {id(rec) for rec in _seams(rows)}
     for rec in rows:
-        line = _event_line(rec, began)
+        line = _event_line(rec, began, seam=id(rec) in seams)
         if line:
             lines.append("  " + line)
     counts = {name: sum(1 for r in rows if r.get("event") == name) for name in _COUNTED}
     tail = f"  итог: ребуферов {counts['buffering']}"
+    if seams:
+        tail += f", стыков источника {len(seams)}"
     for name, word in _COUNTED.items():
         if name != "buffering" and counts[name]:
             tail += f", {word} {counts[name]}"
@@ -414,14 +481,35 @@ _COUNTED: Final = {
 }
 
 
+#: Решение о кодировании куска по-русски (:func:`plan`).
+_PLAN: Final = {"copy": "копия", "recode": "перекод"}
+
+
 def _gb(size: float) -> str:
     return f"{size / 1e9:.1f} ГБ"
 
 
-def _event_line(rec: dict[str, Any], began: float) -> str:
+#: Как называется источник куска в выжимке.
+_SOURCES: Final = {PACKED: "живая упаковка", WARMED: "прогретое"}
+
+
+def _event_line(rec: dict[str, Any], began: float, seam: bool = False) -> str:
     at = float(rec.get("at", 0.0)) - began
     stamp = f"+{at:6.1f}с "
     event = rec.get("event", "")
+    if event == "segment":
+        # Каждый кусок в выжимку не печатаем - их сотни; печатаем только смену источника.
+        if not seam:
+            return ""
+        src = str(rec.get("src", ""))
+        return f"{stamp}v{rec.get('slot', '?')}: источник сменился на {_SOURCES.get(src, src)}"
+    if event == "plan":
+        spots = int(rec.get("spots", 0))
+        tail = f", точечный перекод {spots}" if spots else ""
+        return (
+            f"{stamp}куски: упаковка - {_PLAN.get(str(rec.get('pack', '')), '?')},"
+            f" прогрев - {_PLAN.get(str(rec.get('warm', '')), '?')}{tail}"
+        )
     if event == "indexers":
         got = rec.get("got") or {}
         silent = rec.get("silent") or []

@@ -2568,6 +2568,9 @@ class _Handler(http.server.BaseHTTPRequestHandler):
     server_version = "torrcast"
     root: Path = Path()
     feed: ClassVar[Feed | None] = None
+    #: Откуда взят кусок, который сейчас отдаём (:data:`torrcast.trace.PACKED` /
+    #: :data:`torrcast.trace.WARMED`). Ставит :meth:`_read`, читает :meth:`_log_segment`.
+    _src: str = "pack"
 
     def do_GET(self) -> None:
         self._serve(body=True)
@@ -2610,7 +2613,12 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             self._log_segment(name, began, len(data), took)
 
     def _read(self, name: str) -> bytes | None:
-        """Тело ответа: манифест на весь фильм или сегмент, дождавшись упаковки."""
+        """Тело ответа: манифест на весь фильм или сегмент, дождавшись упаковки.
+
+        Заодно запоминает, ОТКУДА взят кусок (:attr:`_src`): решает это
+        :meth:`Feed.segment`, а в след пишет :meth:`_log_segment`, и передать источник
+        между ними больше нечем - наружу уходят одни байты.
+        """
         if name.endswith(".m3u8"):
             return self.feed.manifest() if self.feed is not None else None
         path = self.root / name
@@ -2619,6 +2627,9 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             if found is None:
                 return None
             path = found
+            from torrcast import trace
+
+            self._src = trace.PACKED if found.parent == self.feed.out else trace.WARMED
         try:
             return path.read_bytes()
         except OSError:  # вычистило окном ровно между проверкой и чтением
@@ -2682,7 +2693,12 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         )
 
     def _log_segment(self, name: str, began: float, size: int, took: float) -> None:
-        """Каждый отданный сегмент - в недельный след: номер, вес, время отдачи и ожидания.
+        """Каждый отданный сегмент - в недельный след: номер, вес, время, ожидание, ИСТОЧНИК.
+
+        Источник (:attr:`_src`) - живая упаковка или прогретое. Без него в ленте не видно
+        главного: показ идёт кусками ДВУХ производителей, и разбор «почему приёмник
+        споткнулся вот здесь» упирался в то, что по записи нельзя сказать, чей это был
+        кусок и не сменился ли производитель ровно на этом месте.
 
         🔴 Это горячий путь. :func:`torrcast.trace.emit` только кладёт запись в очередь -
         ни ``open``, ни ``write``, ни ``flush`` тут не случается, показ не ждёт журнал.
@@ -2693,13 +2709,12 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             return
         from torrcast import trace
 
-        trace.emit(
-            "play",
-            "segment",
+        trace.segment(
             slot=segment_slot(name),
-            mb=round(size / 1e6, 2),
-            sent=round(took, 3),
-            wait=round(time.monotonic() - began - took, 3),
+            mb=size / 1e6,
+            sent=took,
+            wait=time.monotonic() - began - took,
+            src=self._src,
         )
 
     def log_message(self, fmt: str, *args: Any) -> None:
