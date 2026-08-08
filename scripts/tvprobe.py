@@ -207,10 +207,12 @@ def main() -> None:
     if recoder is not None:
         print(f"кодировщик: {recoder.report()}")
     if stalls:
-        where = max(stalls, key=lambda s: s[1])
+        # Отдельное имя: `where` выше держит точку перемотки (float), а тут пара
+        # «позиция, длительность»: под одним именем типы не сходятся.
+        stall = max(stalls, key=lambda s: s[1])
         print(
-            f"ВЕРДИКТ: встал на {where[0]:.3f} с (сегмент v{grid.slot_at(where[0])}), "
-            f"держался {where[1]:.1f} с при живом запасе"
+            f"ВЕРДИКТ: встал на {stall[0]:.3f} с (сегмент v{grid.slot_at(stall[0])}), "
+            f"держался {stall[1]:.1f} с при живом запасе"
         )
     else:
         print(f"ВЕРДИКТ: чисто, дошёл до {lowest:.3f} с без подвисов")

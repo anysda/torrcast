@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import subprocess
 import time
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import pytest
 
@@ -57,7 +57,7 @@ class _Body:
     def __enter__(self) -> _Body:
         return self
 
-    def __exit__(self, *_: object) -> bool:
+    def __exit__(self, *_: object) -> Literal[False]:
         return False
 
     def read(self, _size: int) -> bytes:

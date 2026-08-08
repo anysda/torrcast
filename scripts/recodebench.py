@@ -120,10 +120,12 @@ def profile(torrent_hash: str, step: float, threshold: float, extra: float) -> N
             f"  >= {level:2} Мбит/с: {len(heavy):4} сегм. из {grid.count} "
             f"({seconds:5.0f} с, {100 * seconds / total:4.1f}% фильма)"
         )
-    heavy = set(weights.heavy(threshold))
+    # Отдельное имя: выше `heavy` - кортеж от weights.heavy(), тут нужен набор
+    # для проверок на вхождение, под одним именем типы не сходятся.
+    heavy_slots = set(weights.heavy(threshold))
     runs, cur = [], None
     for slot in range(grid.count):
-        if slot in heavy:
+        if slot in heavy_slots:
             cur = [slot, slot] if cur is None else [cur[0], slot]
         elif cur:
             runs.append(tuple(cur))

@@ -49,7 +49,7 @@ known-first-party = ["torrcast"]
 [tool.mypy]
 python_version = "3.11"
 strict = true
-files = ["torrcast", "tests"]
+files = ["torrcast", "tests", "scripts"]
 warn_unreachable = true
 warn_unused_configs = true
 disallow_any_explicit = false
