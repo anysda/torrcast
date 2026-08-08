@@ -22,6 +22,12 @@
 
 Кандидаты пробуются по порядку, сработавший запоминается до первой осечки.
 
+К одному хосту шим держит не больше двух запросов зараз: фронт трекера, спрошенный
+по IP, столько и тянет, а лишним параллельным отвечает 504 на шестнадцатой секунде -
+после серии таких индексер уезжает в бан на три часа. Лишние ждут очереди, а не летят
+на хост. Счёт очереди у каждого хоста свой: больной сосед чужие не задерживает, и
+одиночный запрос на пустой очереди не ждёт вовсе.
+
 Слушает только 127.0.0.1; наружу не смотрит и ничего не кэширует.
 
     sni-shim.py <cert> <key> <порт> имя=кандидат[,кандидат…] …
@@ -29,6 +35,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import http.server
 import random
 import socket
@@ -40,6 +47,10 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 #: Заголовки, которые нельзя переносить как есть: часть про соединение (оно у нас
 #: своё), часть мы пересчитываем сами.
@@ -58,6 +69,9 @@ _HOP = frozenset(
     }
 )
 _TIMEOUT = 30
+#: Сколько запросов зараз пускаем на ОДИН хост. Два - потолок, который держит самый
+#: слабый из наших фронтов; третий параллельный он уже не обслуживает, а роняет в 504.
+_PER_HOST = 2
 #: Насколько верим разобранному адресу origin'а, прежде чем спросить DNS заново.
 _DNS_TTL = 300.0
 _DNS_TIMEOUT = 5.0
@@ -154,6 +168,9 @@ class Route:
         self.host = host
         self.candidates = candidates
         self.current = 0
+        #: Места в очереди к ЭТОМУ хосту. Свой счётчик на каждый - в этом весь смысл:
+        #: хост, который сейчас болеет, держит только своих ждущих.
+        self.gate = threading.BoundedSemaphore(_PER_HOST)
 
     def targets(self, resolver: Resolver) -> list[tuple[str, bool, int]]:
         """Куда идти: ``(база, проверять ли серт, номер кандидата)``, с рабочего."""
@@ -192,16 +209,33 @@ def _opener(verify: bool) -> urllib.request.OpenerDirector:
     return urllib.request.build_opener(_NoRedirect(), urllib.request.HTTPSHandler(context=context))
 
 
-def main() -> int:
-    cert, key, port_text = sys.argv[1:4]
-    port = int(port_text)
-    routes: dict[str, Route] = {}
-    for spec in sys.argv[4:]:
-        name, _, candidates = spec.partition("=")
-        routes[name.lower()] = Route(name, [c for c in candidates.split(",") if c])
-    if not routes:
-        print("нечего вести: не задан ни один маршрут имя=кандидат", file=sys.stderr)
-        return 2
+@contextlib.contextmanager
+def _in_queue(route: Route) -> Iterator[None]:
+    """Занять место в очереди к хосту.
+
+    Свободно - проходим сразу, ничего не стоит. Занято - ждём здесь, а не идём на хост
+    третьими. Личный таймаут запроса ожидание не съедает: он отсчитывается уже за
+    воротами, так что медленный сосед по очереди не превращается в отказ.
+    """
+    if not route.gate.acquire(blocking=False):
+        waited = time.monotonic()
+        route.gate.acquire()
+        waited = time.monotonic() - waited
+        print(f"{route.host}: очередь, ждал {waited:.1f} с", file=sys.stderr, flush=True)
+    try:
+        yield
+    finally:
+        route.gate.release()
+
+
+def build_server(
+    cert: str, key: str, port: int, routes: dict[str, Route]
+) -> http.server.HTTPServer:
+    """Собрать слушающий шим.
+
+    Отдельно от :func:`main` - чтобы его можно было завести на случайном порту и
+    остановить: так его гоняют тесты.
+    """
     resolver = Resolver()
     openers = {True: _opener(verify=True), False: _opener(verify=False)}
 
@@ -232,6 +266,11 @@ def main() -> int:
                 return
             length = int(self.headers.get("Content-Length") or 0)
             body = self.rfile.read(length) if length else None
+            # Тело от клиента читаем до очереди: место занимаем ровно на поход к хосту.
+            with _in_queue(route):
+                self._upstream(route, method, body)
+
+        def _upstream(self, route: Route, method: str, body: bytes | None) -> None:
             last = "маршрут пуст"
             for base, verify, number in route.targets(resolver):
                 request = urllib.request.Request(base + self.path, data=body, method=method)
@@ -269,7 +308,19 @@ def main() -> int:
     context.load_cert_chain(cert, key)
     server = Server(("127.0.0.1", port), Handler)
     server.socket = context.wrap_socket(server.socket, server_side=True)
-    server.serve_forever()
+    return server
+
+
+def main() -> int:
+    cert, key, port_text = sys.argv[1:4]
+    routes: dict[str, Route] = {}
+    for spec in sys.argv[4:]:
+        name, _, candidates = spec.partition("=")
+        routes[name.lower()] = Route(name, [c for c in candidates.split(",") if c])
+    if not routes:
+        print("нечего вести: не задан ни один маршрут имя=кандидат", file=sys.stderr)
+        return 2
+    build_server(cert, key, int(port_text), routes).serve_forever()
     return 0
 
 
