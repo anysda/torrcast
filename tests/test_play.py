@@ -471,6 +471,231 @@ def test_the_diagnostic_remote_is_absent_without_the_variable(
     assert ctl.read_text("utf-8") == "seek 1200.5", "файл не читается и не съедается"
 
 
+class _Ticker:
+    """Часы, которые двигает только сон показа: опрос раз в 2 с, как в жизни."""
+
+    def __init__(self) -> None:
+        self.now = 1000.0
+
+    def sleep(self, seconds: float) -> None:
+        self.now += seconds or 2.0
+
+    def monotonic(self) -> float:
+        return self.now
+
+
+class _Warm:
+    """Прогрев глазами показа: сколько секунд легло на диск и лёг ли фильм целиком."""
+
+    def __init__(self, warmed: float = 600.0, done: bool = False) -> None:
+        self.warmed = warmed
+        self.done = done
+
+    def feed(self, slack: float) -> None:
+        pass
+
+    def line(self) -> str:
+        return "прогрето"
+
+
+class _Fading:
+    """Приёмник, у которого кончилось терпение: показ он бросил, но поднять себя даёт.
+
+    Так и ведёт себя живой Q70D на обрыве длиннее примерно четырёх минут: свои два повтора
+    LOAD он тратит сам, после чего сессия мертва - состояние ``IDLE``, а позиции в ней нет
+    вовсе, там ноль. Мир при этом продолжает жить: через ``back_at`` секунд темноты сеть
+    возвращается, прогрев тащит куски и раздача снова читается.
+    """
+
+    def __init__(
+        self,
+        clock: _Ticker,
+        feed: Feed,
+        warmer: _Warm,
+        takes: bool = True,
+        at: float = 1200.0,
+        dur: float = 7200.0,
+        back_at: float = 0.0,
+    ) -> None:
+        self.clock, self.feed, self.warmer = clock, feed, warmer
+        self.takes, self.at, self.dur, self.back_at = takes, at, dur, back_at
+        self.began = clock.now
+        self.left = 1  # один опрос показ ещё идёт, дальше приёмник его бросает
+        self.replays: list[float] = []
+
+    def play(self, url: str, title: str = "", at: float = 0.0) -> None:
+        pass
+
+    def stop(self, quit_app: bool = False) -> None:
+        pass
+
+    def position(self, front: float = 0.0) -> Any:
+        from torrcast.cast import Position
+
+        if self.back_at and self.clock.now - self.began >= self.back_at:
+            self.feed.offline = ""  # раздача снова читается
+            self.warmer.warmed += 10.0  # и прогрев потащил новые куски
+        if self.left > 0:
+            self.left -= 1
+            return Position(self.at, self.dur, True, "PLAYING")
+        return Position(0.0, self.dur, False, "IDLE")
+
+    def replay(self, at: float) -> bool:
+        self.replays.append(at)
+        if not self.takes:
+            return False
+        # Показ поднялся и доехал до титров - дальше приёмник гаснет уже законно.
+        self.at, self.left = self.dur * 0.96, 2
+        return True
+
+
+def _dark(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    offline: str = "источник молчит дольше 45 с",
+    **kwargs: Any,
+) -> tuple[_Ticker, Feed, _Warm, _Fading]:
+    """Общий вход всех сценариев: смотрели 20-ю минуту, сеть оборвалась, экран погас."""
+    clock = _Ticker()
+    monkeypatch.setattr(time, "sleep", clock.sleep)
+    monkeypatch.setattr(time, "monotonic", clock.monotonic)
+    feed = _feed_with_segments(tmp_path)
+    feed.offline = offline
+    warmer = _Warm(warmed=kwargs.pop("warmed", 600.0), done=kwargs.pop("done", False))
+    return clock, feed, warmer, _Fading(clock, feed, warmer, **kwargs)
+
+
+def test_an_outage_longer_than_the_receivers_patience_does_not_end_the_show(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Обрыв длиннее терпения приёмника: экран погас - показ поднимается сам и с места.
+
+    Замерено на живом Q70D: пустой экран дольше примерно четырёх минут - и приёмник,
+    истратив свои два повтора LOAD, бросает показ насовсем. Позиция при этом честно
+    сохранена, но экран остаётся чёрным, пока человек не сходит к консоли, - а продукт
+    обещает обратное: показ переживает обрыв интернета.
+
+    Проверяется всё, чем это обещание держится: пока источник молчит, LOAD в приёмник не
+    летит вовсе (терпение у него своё, и жечь его впустую нельзя), а как только куски
+    пошли снова, показ грузится ровно с той секунды, на которой его смотрели.
+    """
+    from torrcast import cli
+
+    clock, feed, warmer, receiver = _dark(tmp_path, monkeypatch, back_at=300.0)
+
+    cli._hold(receiver, feed, None, warmer)  # type: ignore[arg-type]
+
+    assert receiver.replays == [1200.0], "показ подняли, и ровно с той секунды, где смотрели"
+    assert clock.now - 1000.0 >= 300.0, "до возврата сети приёмник не трогали ни разу"
+    printed = capsys.readouterr().out
+    assert "показ погас на 0:20:00" in printed, "уход в темноту - честная строка, не молчание"
+    assert "поднимаю показ с 0:20:00" in printed and "показ поднят с 0:20:00" in printed
+
+
+def test_a_dark_show_gives_up_after_a_limited_number_of_tries(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Попыток конечное число, и между ними держится выдержка.
+
+    Бесконечный цикл LOAD в приёмник недопустим: терпение у него своё, а пойманный 404 он
+    помнит две-три минуты. Сеть вернулась, а показ всё равно не встаёт - значит дело не в
+    сети, и упираться дальше нечего: гаснем честно, `cast` продолжит с места.
+    """
+    from torrcast import cli
+
+    clock, feed, warmer, receiver = _dark(tmp_path, monkeypatch, takes=False, back_at=300.0)
+
+    cli._hold(receiver, feed, None, warmer)  # type: ignore[arg-type]
+
+    assert receiver.replays == [1200.0] * cli.REVIVE_TRIES, "попытки конечны и все - с места"
+    assert clock.now - 1000.0 >= 300.0 + 2 * cli.REVIVE_PAUSE, "между попытками выдержка"
+    printed = capsys.readouterr().out
+    assert "приёмник показ не взял" in printed
+    assert "показ поднять не удалось" in printed and "cast продолжит с 0:20:00" in printed
+
+
+def test_a_network_that_never_returns_ends_the_show_exactly_as_before(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Сеть так и не вернулась - фолбэк: гаснем честно, ни одного LOAD в приёмник.
+
+    Это ровно сегодняшнее поведение, и оно обязано остаться: показ кончается, позиция уже
+    в состоянии, `cast` продолжит с места. Ново здесь одно - показ не уходит молча в ту же
+    секунду, а ждёт сеть, пока ждать есть смысл.
+    """
+    from torrcast import cli
+
+    clock, feed, warmer, receiver = _dark(tmp_path, monkeypatch)
+
+    cli._hold(receiver, feed, None, warmer)  # type: ignore[arg-type]
+
+    assert receiver.replays == [], "мёртвая сеть - в приёмник не ушло ни одного LOAD"
+    assert clock.now - 1000.0 > cli.REVIVE_LIMIT, "ждали ровно столько, сколько обещали"
+    printed = capsys.readouterr().out
+    assert "показ погас на 0:20:00" in printed and "cast продолжит с 0:20:00" in printed
+
+
+def test_a_warmed_movie_is_revived_without_waiting_for_the_network(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Фильм лёг на диск целиком - воскрешение не ждёт сети ни секунды: смотреть есть что."""
+    from torrcast import cli
+
+    clock, feed, warmer, receiver = _dark(tmp_path, monkeypatch, warmed=7200.0, done=True)
+
+    cli._hold(receiver, feed, None, warmer)  # type: ignore[arg-type]
+
+    assert receiver.replays == [1200.0], "подняли сразу и с сохранённого места"
+    assert clock.now - 1000.0 < cli.REVIVE_PAUSE, "ждать возврата сети было незачем"
+
+
+def test_a_finished_movie_is_not_resurrected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Титры - не авария: досмотренный фильм гаснет и остаётся погашенным."""
+    from torrcast import cli
+
+    clock, feed, warmer, receiver = _dark(tmp_path, monkeypatch, offline="", at=7100.0)
+
+    cli._hold(receiver, feed, None, warmer)  # type: ignore[arg-type]
+
+    assert receiver.replays == [], "конец показа не воскрешают"
+    assert clock.now - 1000.0 < cli.REVIVE_PAUSE, "и не ждут на нём ни сети, ни выдержки"
+
+
+def test_the_dark_show_is_revived_only_on_a_free_receiver(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Воскрешаем только СВОЙ показ - той же аккуратностью, что и закрываем приложение.
+
+    Пока нас не было, на том же ТВ могли начать смотреть другое: чужое приложение, чужая
+    сессия в том же Default Media Receiver, чужой ``content_id`` в нашей. Перебивать такое
+    нельзя ничем - ни LOAD, ни ``quit_app`` перед ним; показу остаётся честно погаснуть.
+    """
+    from torrcast.cast import ChromecastReceiver
+
+    loads: list[float] = []
+    monkeypatch.setattr(ChromecastReceiver, "_restart_app", lambda self: None)
+    monkeypatch.setattr(ChromecastReceiver, "_load", lambda self, at=0.0: loads.append(at))
+    monkeypatch.setattr(ChromecastReceiver, "_settle", lambda self, budget: True)
+
+    aliens = [
+        _FakeCast(app_id="Netflix"),
+        _FakeCast(session="чужая"),
+        _FakeCast(content="http://10.0.0.20:8010/cast.m3u8"),
+    ]
+    for alien in aliens:
+        assert _receiver_on(alien).replay(1200.0) is False, "чужой показ неприкосновенен"
+    assert loads == [], "в чужой показ не ушло ни одного LOAD"
+    assert all(alien.log == [] for alien in aliens), "и приложение чужому не закрывали"
+
+    for free in (_FakeCast(app_id=None), _FakeCast(app_id=ChromecastReceiver.BACKDROP_APP)):
+        receiver = _receiver_on(free)
+        assert receiver.replay(1200.0) is True, "экран свободен - показ поднимаем"
+        assert receiver._peak == 1200.0, "сторож считает с того места, куда грузили"
+    assert loads == [1200.0, 1200.0], "по одному LOAD на свободный приёмник"
+
+
 def test_the_show_directory_is_left_clean_after_the_stop(tmp_path: Path) -> None:
     """После остановки в каталоге показа не остаётся ничего — включая флажок картинки
     и каталог прогона упаковки.

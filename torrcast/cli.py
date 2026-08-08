@@ -65,7 +65,7 @@ from torrcast.parse import (
 from torrcast.recode import FULL_FLOOR, FULL_GAIN, FULL_PRESET, Encode, Recoder
 from torrcast.scan import Device
 from torrcast.search import Prowlarr, RawResult, merge, to_releases
-from torrcast.state import Config, Entry, State, load_config, save_config
+from torrcast.state import WATCHED_RATIO, Config, Entry, State, load_config, save_config
 from torrcast.stream import (
     KEYS_WAIT,
     PILOT_TIMEOUT,
@@ -258,6 +258,21 @@ CTL_ENV = "TORRCAST_CTL"
 PAUSE_SECONDS = 60.0
 #: Пауза длиннее этого - показ считается оконченным: юнит гаснет и не держит раздачу.
 PAUSE_LIMIT = 3600.0
+#: Сколько раз юнит поднимает погасший показ за один сеанс (:class:`_Revival`).
+#: Три - это не «побольше»: столько же попыток даётся упаковке (:attr:`Feed.limit`), и
+#: столько же раз человек нажал бы `cast` руками, прежде чем решить, что чинить надо не
+#: показ. Счётчик на весь показ и не обнуляется удачей: иначе показ, гаснущий сразу после
+#: подъёма, гонял бы приёмник по кругу вечно.
+REVIVE_TRIES = 3
+#: Выдержка между попытками воскрешения. Меньше нельзя: приёмник, поймавший 404, не берёт
+#: LOAD ещё две-три минуты (:class:`Feed`), и долбить его чаще - только жечь его терпение.
+REVIVE_PAUSE = 60.0
+#: Сколько всего ждём в темноте, прежде чем погаснуть честно. Вчетверо дольше терпения
+#: самого приёмника (~4 минуты) и вчетверо короче терпения к паузе (:data:`PAUSE_LIMIT`):
+#: обрыв длиннее четверти часа - это уже не «моргнул интернет», зритель за это время
+#: встал и ушёл, а держать раздачу и tmpfs ради пустого экрана незачем. Позиция к этому
+#: моменту давно в состоянии, и `cast` продолжит с неё.
+REVIVE_LIMIT = 900.0
 #: Битрейт, ниже которого раздача без единого маркера качества в имени - это SD-рип
 #: (MPEG-4 в .avi), а не скромный 1080p. Порог выбран по замеру, а не на глаз: из 264
 #: раздач живой выдачи («моана», «тачки», «матрица», «интерстеллар», «аватар») удалось
@@ -2477,6 +2492,97 @@ def _handover(watch: Watch | None) -> bool:
     return watch is not None and watch.done and _following(watch.key) is not None
 
 
+@dataclass(slots=True)
+class _Revival:
+    """Показ погас - ждём факта возврата сети и поднимаем LOAD с сохранённого места.
+
+    🔴 Терпение приёмника меньше нашего и кончается молча. Замер на живом Q70D: обрыв
+    длиннее примерно четырёх минут пустого экрана - и приёмник, исчерпав свои два повтора
+    LOAD, бросает показ насовсем. Строка при этом честная и позиция сохранена, но экран
+    чёрный до тех пор, пока человек не сходит к консоли. Продукт обещает другое: «что ни
+    запросил - оно взяло и включилось», и показ обязан пережить обрыв интернета сам.
+
+    Отсюда порядок: пока приёмник тёмный, LOAD в него не летит вовсе (у него своё
+    терпение, и жечь его впустую нельзя) - ждём **факта**, а не таймера:
+
+    * фильм лёг на диск целиком - сети не нужно вовсе, поднимаем сразу;
+    * прогрев принёс новые куски - источник ожил, значит и сеть вернулась;
+    * раздача снова читается (:attr:`Feed.offline` пуст) - то же самое.
+
+    Всё остальное - ограждения, и каждое кончается фолбэком «гаснем честно, а `cast`
+    продолжит с места»: чужой показ на приёмнике не перебивается (:meth:`Receiver._free`),
+    попыток не больше :data:`REVIVE_TRIES` с выдержкой :data:`REVIVE_PAUSE`, а вся темнота
+    вместе - не дольше :data:`REVIVE_LIMIT`.
+    """
+
+    #: С какого монотонного момента длится темнота; ``0.0`` - показ идёт.
+    since: float = 0.0
+    #: Сколько попыток подъёма потрачено за весь показ (не обнуляется удачей).
+    tries: int = 0
+    #: Монотонное время последней попытки - от него отсчитывается :data:`REVIVE_PAUSE`.
+    last: float = 0.0
+    #: Сколько было прогрето, когда погасли: рост этого числа и есть «куски пошли».
+    warmed: float = 0.0
+
+    def alive(self) -> None:
+        """Показ идёт - темноте конец. Потраченные попытки при этом остаются потраченными."""
+        self.since = 0.0
+
+    def resurrect(self, receiver: Receiver, feed: Feed, warmer: Warmer | None, pos: float) -> bool:
+        """``True`` - показ ещё держим (ждём сеть или только что подняли), ``False`` - гаснем.
+
+        ``pos`` - место, откуда поднимать: последняя позиция, которую приёмник успел
+        назвать живой. Из мёртвой сессии её не взять - там ноль.
+        """
+        now = time.monotonic()
+        if not isinstance(receiver, _Revivable) or pos <= 0:
+            return False  # поднимать нечем или неоткуда - это обычный конец показа
+        if feed.duration > 0 and pos >= feed.duration * WATCHED_RATIO:
+            return False  # фильм досмотрен: гаснущий экран тут и есть титры, а не авария
+        if not self.since:
+            self.since, self.warmed = now, warmer.warmed if warmer is not None else 0.0
+            why = str(feed.offline) or "приёмник бросил показ"
+            trace.dark(pos=pos, why=why)
+            print(
+                f"показ погас на {_hms(pos)} ({why}) - подниму сам, как вернётся сеть",
+                flush=True,
+            )
+        dark = now - self.since
+        if self.tries >= REVIVE_TRIES or dark > REVIVE_LIMIT:
+            print(
+                f"показ поднять не удалось ({self.tries} попыт., темнота {dark:.0f} с) - "
+                f"гашу; cast продолжит с {_hms(pos)}",
+                flush=True,
+            )
+            return False
+        if not self._may(feed, warmer) or (self.last and now - self.last < REVIVE_PAUSE):
+            return True  # сети всё ещё нет либо выдержка между попытками не вышла
+        self.tries, self.last = self.tries + 1, now
+        print(f"сеть вернулась - поднимаю показ с {_hms(pos)} (попытка {self.tries})", flush=True)
+        ok = receiver.replay(pos)
+        trace.revive(pos=pos, tries=self.tries, waited=dark, ok=ok)
+        print(
+            f"показ поднят с {_hms(pos)}"
+            if ok
+            else "приёмник показ не взял - жду ещё (или он занят чужим показом)",
+            flush=True,
+        )
+        return True
+
+    def _may(self, feed: Feed, warmer: Warmer | None) -> bool:
+        """Вернулась ли сеть - по факту, а не по часам.
+
+        Прогретое сильнее любого признака сети: лежащий на диске фильм смотрится и без
+        интернета вовсе, и ждать его возврата было бы враньём.
+        """
+        if warmer is not None:
+            if warmer.done:
+                return True
+            if warmer.warmed > self.warmed:
+                return True
+        return not feed.offline
+
+
 def _hold(
     receiver: Receiver, feed: Feed, watch: Watch | None = None, warmer: Warmer | None = None
 ) -> None:
@@ -2499,8 +2605,12 @@ def _hold(
     #: сегодняшняя. А сразу после перемотки, где число ещё старое, позиция изменилась -
     #: и счётчик подвиса обнулён.
     last = 0.0
+    #: Место, где показ шёл в последний раз живым. Ровно оттуда его и поднимают
+    #: (:class:`_Revival`): у мёртвой сессии позиции нет вовсе, там ноль.
+    held = 0.0
     show_trace = bool(os.environ.get(TRACE_ENV))
     buffering = was_offline = False
+    revival = _Revival()
     while True:
         _ctl(receiver)
         if trouble := feed.trouble():
@@ -2514,6 +2624,8 @@ def _hold(
             time.sleep(2.0)
             continue
         last = position.pos
+        if position.playing and position.pos > 0:
+            held = position.pos
         if not seen and position.state == "PLAYING":
             # Картинка на экране - теперь CLI имеет право сказать «старт NN с».
             seen = True
@@ -2576,13 +2688,31 @@ def _hold(
                 print("пауза на пульте - упаковку гашу", flush=True)
                 feed.halt()  # вернутся к показу - раздача сама начнёт паковать заново
         elif not position.playing:
-            return
+            # Показ погас. Это конец только тогда, когда поднять его не удалось: обрыв
+            # интернета длиннее приёмникова терпения гасит экран, а фильм и место, где
+            # его смотрели, никуда не делись (:class:`_Revival`).
+            if not revival.resurrect(receiver, feed, warmer, held):
+                return
         else:
+            revival.alive()
             paused = 0.0
             if feed.recoder is not None:
                 feed.recoder.played = position.pos
             feed.prune(position.pos)
         time.sleep(2.0)
+
+
+@runtime_checkable
+class _Revivable(Protocol):
+    """Приёмник, чей погасший показ можно поднять заново (:class:`_Revival`).
+
+    Отдельно от :class:`Receiver` намеренно: воскрешать имеет смысл только тот приёмник,
+    у которого есть собственное терпение и который его тратит. У mock его нет - он не
+    бросает показ и не залипает, - и делать вид, что он умеет воскресать, значило бы
+    проверять на приёмке не то, что происходит на живом ТВ.
+    """
+
+    def replay(self, at: float) -> bool: ...
 
 
 @runtime_checkable

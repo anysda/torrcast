@@ -357,6 +357,33 @@ def test_our_own_nudge_is_not_counted_as_a_seek_by_the_viewer(
     assert events == ["nudge", "nudge", "nudge"], "свой же прыжок записан как перемотка"
 
 
+def test_a_dark_screen_and_its_revival_are_records_with_numbers(tmp_path: Path) -> None:
+    """Погасший показ и его подъём - события ленты, а не только строки в журнале.
+
+    Через неделю вопрос будет ровно один: сам ли показ пережил обрыв или человек ходил к
+    консоли. Ответ обязан лежать полями: где погас, что показ знал о беде, сколько длилась
+    темнота и взял ли приёмник LOAD с какой попытки.
+    """
+    trace.dark(pos=4355.0, why="источник молчит дольше 45 с")
+    trace.revive(pos=4355.0, tries=1, waited=312.0, ok=False)
+    trace.revive(pos=4355.0, tries=2, waited=374.0, ok=True)
+    trace.shutdown()
+
+    rows = _read_lines(tmp_path)
+    dark = _only(rows, "dark")
+    assert dark["phase"] == "play"
+    assert dark["pos"] == 4355.0 and dark["why"] == "источник молчит дольше 45 с"
+    ups = [r for r in rows if r["event"] == "revive"]
+    assert [r["tries"] for r in ups] == [1, 2]
+    assert [r["ok"] for r in ups] == [False, True]
+    assert ups[1]["waited"] == 374.0
+    text = trace.digest(trace.records())
+    assert "показ погас на 1:12:35: источник молчит дольше 45 с" in text
+    assert "приёмник показ не взял с 1:12:35 (попытка 1, темнота 312 с)" in text
+    assert "показ поднят с 1:12:35 (попытка 2, темнота 374 с)" in text
+    assert "погасаний показа 1" in text and "воскрешений показа 2" in text
+
+
 def test_an_eviction_says_who_was_thrown_out_and_how_much_it_freed(tmp_path: Path) -> None:
     """Вытеснение из бюджета прогрева - запись с именем, названием и освобождёнными байтами.
 

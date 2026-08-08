@@ -32,6 +32,7 @@ from typing import Any, Final
 __all__ = [
     "LOG_ENV",
     "SID_ENV",
+    "dark",
     "digest",
     "emit",
     "evict",
@@ -41,6 +42,7 @@ __all__ = [
     "nudge",
     "records",
     "reload",
+    "revive",
     "seek",
     "session_id",
     "shutdown",
@@ -257,6 +259,24 @@ def reload(pos: float, tries: int) -> None:
     emit("play", "reload", pos=round(pos, 1), tries=tries)
 
 
+def dark(pos: float, why: str) -> None:
+    """Показ погас: приёмник бросил его насовсем, на экране пусто.
+
+    ``pos`` - место фильма, где это случилось (оно же сохранено в состоянии), ``why`` -
+    что показ знал о беде в тот момент (обрыв источника или молчаливый отказ приёмника).
+    """
+    emit("play", "dark", pos=round(pos, 1), why=why)
+
+
+def revive(pos: float, tries: int, waited: float, ok: bool) -> None:
+    """Попытка поднять погасший показ: откуда, какая по счёту, после скольких секунд темноты.
+
+    ``ok`` - взял ли приёмник LOAD. Ложь тут не хуже правды: по ней и видно, сколько раз
+    воскрешение не удалось, прежде чем показ погас честно.
+    """
+    emit("play", "revive", pos=round(pos, 1), tries=tries, waited=round(waited, 1), ok=ok)
+
+
 def seek(frm: float, to: float, wait: float) -> None:
     """Перемотка: откуда, куда и сколько секунд ждали картинку после неё."""
     emit("play", "seek", frm=round(frm, 1), to=round(to, 1), wait=round(wait, 2))
@@ -385,6 +405,8 @@ def _session_block(sid: str, rows: list[dict[str, Any]]) -> str:
 _COUNTED: Final = {
     "buffering": "ребуферов",
     "offline": "обрывов сети",
+    "dark": "погасаний показа",
+    "revive": "воскрешений показа",
     "nudge": "нуджей сторожа",
     "reload": "повторов LOAD",
     "seek": "перемоток",
@@ -431,6 +453,18 @@ def _event_line(rec: dict[str, Any], began: float) -> str:
         return (
             f"{stamp}приёмник отвалился на {_hms(float(rec.get('pos', 0.0)))}"
             f" - повтор LOAD {rec.get('tries', 1)}"
+        )
+    if event == "dark":
+        return (
+            f"{stamp}показ погас на {_hms(float(rec.get('pos', 0.0)))}:"
+            f" {rec.get('why', 'приёмник бросил показ')}"
+        )
+    if event == "revive":
+        took = "показ поднят" if rec.get("ok") else "приёмник показ не взял"
+        return (
+            f"{stamp}{took} с {_hms(float(rec.get('pos', 0.0)))}"
+            f" (попытка {rec.get('tries', 1)},"
+            f" темнота {float(rec.get('waited', 0.0)):.0f} с)"
         )
     if event == "seek":
         return (
