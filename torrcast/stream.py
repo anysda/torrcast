@@ -75,6 +75,7 @@ __all__ = [
     "recode_note",
     "segment_name",
     "segment_slot",
+    "shelf_weight",
     "start_play_unit",
     "stop_play_unit",
     "timeline_shift",
@@ -275,6 +276,21 @@ META_STEP_GROW: Final = 1.5
 #: прежних 1.3, за долгое ожидание в 12 с - 63 запроса вместо 9. Против полсекунды,
 #: которые этим возвращаются себе на каждом холодном старте, это ноль.
 META_STEP_MAX: Final = 0.2
+#: Сколько карт опорных кадров держим на полке (:func:`_keys_cache`).
+#:
+#: Карта - самый тяжёлый из кэшей рядом с состоянием: на живой полке в 299 карт медиана
+#: 22 КБ, среднее 29 КБ, а самая большая - 874 КБ (длинный фильм, 7 тысяч точек Cues).
+#: 256 карт - это порядка 7 МБ, то есть полка перестаёт расти где-то на месяцах показов,
+#: а не «никогда». Потолок здесь по числу файлов, а не по байтам, ровно потому, что
+#: число видно одним ``scandir``, а байты - только полным обходом с ``stat``
+#: (:func:`_trim`), и платить его на каждом старте было бы дороже самой болезни.
+KEYS_KEPT: Final = 256
+#: Сколько паспортов держим на полке (:func:`_media_cache`).
+#:
+#: Паспорт - это длительность, дорожки и кодек, порядка килобайта; вдвое больший потолок
+#: тут всё равно весит меньше мегабайта. Он больше не из щедрости: паспорт снимается и на
+#: те релизы, которые показом так и не стали (отбор), поэтому паспортов заводится больше.
+PROBE_KEPT: Final = 512
 
 _TIMEOUT: Final = 30.0
 _UNIT_NAME: Final = "torrcast-play"
@@ -695,6 +711,72 @@ class TorrServer:
             raise InfraError("TorrServer вернул не JSON") from exc
 
 
+def _touch(cache: Path) -> None:
+    """Отметить, что кэшем только что воспользовались.
+
+    Полки живут по времени **обращения**, а не создания (:func:`_trim`): карта фильма,
+    который смотрят каждый вечер, снимается один раз, и вытеснять её за возраст значило
+    бы выбрасывать ровно то, что нужнее всего. ``utime`` - одна запись в inode, файл при
+    этом не читается и не переписывается.
+    """
+    with contextlib.suppress(OSError):
+        os.utime(cache)
+
+
+def _mtime(entry: os.DirEntry[str]) -> float:
+    with contextlib.suppress(OSError):
+        return entry.stat().st_mtime
+    return 0.0
+
+
+def _trim(directory: Path, kept: int) -> None:
+    """Подрезать полку до ``kept`` самых недавно спрошенных. Осечка - не беда: это кэш.
+
+    Подрезка идёт в общей нитке с показом, поэтому она дважды скупая. Имена берутся одним
+    ``scandir``, а времена спрашиваются только когда потолок и правда перебран - и тогда
+    режем сразу до трёх четвертей полки. Иначе на полной полке полный обход с ``stat``
+    приходился бы на каждый старт; так он приходится раз на четверть потолка, то есть
+    раз на 64 новых карты, а потолок остаётся потолком.
+
+    Цена замерена на полке в 256 карт с живым разбросом весов: обычный старт - 0.18 мс
+    (максимум 0.46), тот один старт из 64, где подрезка срабатывает, - 4.25 мс
+    (максимум 8.55). Против секунд ожидания роя это ноль.
+
+    Того, что смотрят прямо сейчас, подрезка не касается: его запись либо только что
+    сделана (значит, самая свежая), либо только что прочитана и отмечена
+    (:func:`_touch`). Чтобы такая запись попала под нож, между её чтением и подрезкой
+    должны появиться десятки более свежих - а это уже не «сейчас».
+
+    Берутся только ``*.json``: черновики и замки соседних писателей - не наше дело.
+    """
+    with contextlib.suppress(OSError):
+        with os.scandir(directory) as reading:
+            shelf = [entry for entry in reading if entry.name.endswith(".json")]
+        if len(shelf) <= kept:
+            return
+        for entry in sorted(shelf, key=_mtime)[: len(shelf) - kept * 3 // 4]:
+            with contextlib.suppress(OSError):
+                Path(entry.path).unlink(missing_ok=True)
+
+
+def shelf_weight(directory: Path) -> tuple[int, int]:
+    """Сколько на полке записей и сколько они весят байт; нет полки - ``(0, 0)``.
+
+    Нужно одному ``cast doctor``: кэши тихо растут годами, и цифра рядом с потолком -
+    единственный способ заметить это раньше, чем кончится место.
+    """
+    count = 0
+    weight = 0
+    with contextlib.suppress(OSError), os.scandir(directory) as reading:
+        for entry in reading:
+            if not entry.name.endswith(".json"):
+                continue
+            count += 1
+            with contextlib.suppress(OSError):
+                weight += entry.stat().st_size
+    return count, weight
+
+
 def _media_cache(source_url: str) -> Path:
     """Где лежит снятый паспорт этого файла (:func:`probe`).
 
@@ -712,7 +794,7 @@ def _media_cache(source_url: str) -> Path:
 def _read_media(cache: Path) -> Media | None:
     with contextlib.suppress(OSError, ValueError, KeyError, TypeError):
         saved = json.loads(cache.read_text("utf-8"))
-        return Media(
+        media = Media(
             duration=float(saved["duration"]),
             tracks=tuple(AudioTrack(**track) for track in saved["tracks"]),
             video=_opt_str(saved.get("video")),
@@ -720,6 +802,8 @@ def _read_media(cache: Path) -> Media | None:
             width=int(saved.get("width") or 0),
             video_bps=float(saved.get("video_bps") or 0.0),
         )
+        _touch(cache)  # полка живёт по времени обращения (:func:`_trim`)
+        return media
     return None
 
 
@@ -747,6 +831,7 @@ def _keep_media(cache: Path, media: Media) -> None:
             encoding="utf-8",
         )
         tmp.replace(cache)
+    _trim(cache.parent, PROBE_KEPT)
 
 
 def _run_ffprobe(command: list[str], timeout: float, alive: Any) -> str:
@@ -1197,12 +1282,14 @@ def _read_keys(cache: Path) -> FilmKeys | None:
         at = [float(x) for x in saved["keys"]]
         # Кэш прошлой версии смещений не знал: он всё ещё годен для сетки, а грелка
         # позиции без смещений просто не работает - это лучше, чем выбросить карту.
-        return FilmKeys(
+        ready = FilmKeys(
             float(saved["duration"]),
             at,
             [int(x) for x in saved.get("bytes", ())],
             str(saved.get("kind", "")),
         )
+        _touch(cache)  # полка живёт по времени обращения (:func:`_trim`)
+        return ready
     return None
 
 
@@ -1292,6 +1379,9 @@ def film_keys(source_url: str) -> FilmKeys:
                 tmp.replace(cache)
             finally:  # своё имя не должно превратиться в свой же мусор на полке
                 tmp.unlink(missing_ok=True)
+        # Подрезка идёт после записи, а не до: только что снятая карта - самая свежая на
+        # полке, и подрезать раньше значило бы мерить полку без неё.
+        _trim(cache.parent, KEYS_KEPT)
     finally:
         holding.set()
         with contextlib.suppress(OSError):

@@ -47,6 +47,7 @@ def checkup(config: Config) -> Iterator[Line]:
     yield _torrserver(config)
     yield from _tv(config)
     yield _hls(config)
+    yield _shelves()
     yield _trace()
 
 
@@ -206,6 +207,26 @@ def _hls(config: Config) -> Line:
     if left < 7:
         return _bad(f"раздача {base}, серту осталось {left} дн - показ вот-вот отвалится")
     return _ok(f"раздача {base}, серту осталось {left} дн")
+
+
+def _shelves() -> Line:
+    """Кэши карт опорных кадров и паспортов: сколько записей и сколько это весит.
+
+    Строка одна и всегда «ок»: это не проверка, а цифра. Расти без предела полки больше
+    не могут (:func:`torrcast.stream._trim`), но потолок молчаливый, а инструмент живёт
+    годами - и место на диске лучше видеть числом, чем узнавать о нём от файловой
+    системы. Потолки печатаются рядом, чтобы «много» и «мало» читались без документации.
+    """
+    from torrcast.state import state_path
+    from torrcast.stream import KEYS_KEPT, PROBE_KEPT, shelf_weight
+
+    shelf = state_path().parent
+    keys, keys_weight = shelf_weight(shelf / "keys")
+    probe, probe_weight = shelf_weight(shelf / "probe")
+    return _ok(
+        f"кэши в {shelf}: карт {keys}/{KEYS_KEPT} ({keys_weight / 1e6:.1f} МБ), "
+        f"паспортов {probe}/{PROBE_KEPT} ({probe_weight / 1e6:.1f} МБ)"
+    )
 
 
 def _trace() -> Line:
