@@ -487,7 +487,7 @@ def _cmd_voices(args: Args) -> int:
     media = prep.found
     remembered = _remembered(State.load(), plan.picture.key, None)
     print()
-    print(f"{_named(plan.picture)} — релиз №{prep.number}: {_cut(prep.release.title, 60)}")
+    print(f"{_named(plan.picture)} — релиз {prep.number}: {_cut(prep.release.title, 60)}")
     print(voices_table(media, media.default_track(), remembered))
     print()
     print("играть конкретную: cast <запрос> --voice N   (выбор запомнится на эту картину)")
@@ -1360,7 +1360,7 @@ class _Bench:
                 elif warning := prep.found.video_warning:
                     print(warning)
                 return prep
-            tried.append(f"№{number} — {trouble}")
+            tried.append(f"{number} — {trouble}")
             if not prep.error and prep.media is not None:  # ffprobe прочитал и осудил
                 verdicts += 1
             self._forget(prep)
@@ -1368,8 +1368,8 @@ class _Bench:
             goes_on = (
                 following is not None and verdicts < MAX_TRIES and time.monotonic() < deadline
             )
-            tail = f" — беру №{following}" if goes_on else ""
-            print(f"релиз №{number} не годится ({trouble}){tail}")
+            tail = f" — беру {following}" if goes_on else ""
+            print(f"релиз {number} не годится ({trouble}){tail}")
             if not goes_on:
                 break
         shown = "; ".join(tried[:MAX_TRIES])
@@ -1435,27 +1435,27 @@ class _Bench:
         deadline = time.monotonic() + HONEST_BUDGET
         for number in rest:
             alt = self.start(plan, number)
-            phase = f"№{chosen.number} {short} — смотрю №{number}"
+            phase = f"релиз {chosen.number} {short} — смотрю {number}"
             if not self._peek(alt, progress, deadline, phase):
                 progress.phase("")
-                print(f"релиз №{number} не успел ответить — играю №{chosen.number} ({short})")
+                print(f"релиз {number} не успел ответить — играю {chosen.number} ({short})")
                 return chosen
             progress.phase("")
             why = self._trouble(
                 alt, pinned=False, warn_mbit=plan.warn_mbit, recode=plan.recode_at > 0
             )
             if why:
-                print(f"релиз №{number} не годится ({why})")
+                print(f"релиз {number} не годится ({why})")
                 continue
             if not honest_shot(alt.release, alt.found) or alt.found.frame <= chosen.found.frame:
-                print(f"релиз №{number} не лучше ({quality_text(alt.release, alt.found)})")
+                print(f"релиз {number} не лучше ({quality_text(alt.release, alt.found)})")
                 continue
             print(
-                f"релиз №{chosen.number} {short} — беру №{number} (настоящий {alt.found.quality})"
+                f"релиз {chosen.number} {short} — беру {number} (настоящий {alt.found.quality})"
             )
             self._forget(chosen)  # верх больше не нужен: полосу роя доедать ему незачем
             return alt
-        print(f"релиз №{chosen.number} {short} — честнее рядом нет, играю его")
+        print(f"релиз {chosen.number} {short} — честнее рядом нет, играю его")
         return chosen
 
     def _trouble(
@@ -2754,7 +2754,7 @@ def render_table(
     limit: int = TABLE_LIMIT,
     recode_at: float = 0.0,
 ) -> str:
-    """Таблица релизов: № · качество · размер · сиды · озвучка · кодек. Битрейт для
+    """Таблица релизов: N · качество · размер · сиды · озвучка · кодек. Битрейт для
     пометки прикидывается по размеру и типовой длительности, пока настоящая не прочитана
     ffprobe; ниже ``limit`` — раздачи без сидов, выбирать там нечего.
     """
@@ -2770,7 +2770,7 @@ def render_table(
         )
         for number, r in enumerate(shown, start=1)
     ]
-    head = ("№", "Качество", "Размер", "Сиды", "Озвучка", "Кодек")
+    head = ("N", "Качество", "Размер", "Сиды", "Озвучка", "Кодек")
     width = [max(len(c[i]) for c in (head, *rows)) for i in range(len(head))]
 
     def line(cells: tuple[str, ...]) -> str:

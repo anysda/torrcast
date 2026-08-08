@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import re
 import threading
 from dataclasses import replace
 from pathlib import Path
@@ -125,7 +126,7 @@ def test_table_has_all_the_columns() -> None:
     text = render_table([rel(seeders=214, voices=("Дубляж",))], RUNTIME, 20.0)
     lines = text.splitlines()
     assert lines[0] == "Релизы:"
-    assert lines[1].split() == ["№", "Качество", "Размер", "Сиды", "Озвучка", "Кодек"]
+    assert lines[1].split() == ["N", "Качество", "Размер", "Сиды", "Озвучка", "Кодек"]
     assert lines[2].split() == ["1", "1080p", "8.0", "ГБ", "214", "Дубляж", "H.264"]
 
 
@@ -251,7 +252,7 @@ def test_a_release_that_turns_out_not_to_be_h264_is_swapped_out_loudly(
 
     assert (prep.number, prep.found.video) == (2, "h264")
     assert prep.want.name == "movie.mkv"
-    assert "релиз №1 не годится (av1) — беру №2" in capsys.readouterr().out
+    assert "релиз 1 не годится (av1) — беру 2" in capsys.readouterr().out
     assert torrserver.dropped, "неподошедшая раздача из TorrServer убирается"
 
 
@@ -260,7 +261,7 @@ def test_hevc_release_plays_and_says_so_instead_of_being_refused(
 ) -> None:
     """HEVC — не отказ, а сплошной перекод: аниме иначе не играет вовсе.
 
-    До этого верх отбора с HEVC внутри стоил строки «релиз №1 не годится (hevc)», и на
+    До этого верх отбора с HEVC внутри стоил строки «релиз 1 не годится (hevc)», и на
     Nyaa, где HEVC бывает всем, что нашлось, показ кончался «годного релиза нет».
     Теперь такой релиз играет, перекодированный целиком, и об этом говорится вслух.
     """
@@ -273,7 +274,7 @@ def test_hevc_release_plays_and_says_so_instead_of_being_refused(
     printed = capsys.readouterr().out
     assert (prep.number, prep.found.video) == (1, "hevc"), "HEVC-релиз играет, а не отказывает"
     assert "видео hevc - перекодирую на ходу целиком" in printed
-    assert "не годится" not in printed and "беру №" not in printed
+    assert "не годится" not in printed and not re.search(r"беру \d", printed)
 
 
 def test_hevc_is_still_refused_when_recoding_is_switched_off(
@@ -290,7 +291,7 @@ def test_hevc_is_still_refused_when_recoding_is_switched_off(
     prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer())), ranked, recode_at=0.0)
 
     assert prep.number == 2, "без перекодирования HEVC остаётся отказом"
-    assert "релиз №1 не годится (hevc) — беру №2" in capsys.readouterr().out
+    assert "релиз 1 не годится (hevc) — беру 2" in capsys.readouterr().out
 
 
 def test_a_dead_swarm_is_not_a_hang_but_the_next_release(
@@ -310,8 +311,8 @@ def test_a_dead_swarm_is_not_a_hang_but_the_next_release(
 
     printed = capsys.readouterr().out
     assert prep.number == 2, "мёртвая раздача не останавливает показ"
-    assert "релиз №1 не годится (раздача не отдала метаданные" in printed
-    assert "беру №2" in printed
+    assert "релиз 1 не годится (раздача не отдала метаданные" in printed
+    assert "беру 2" in printed
 
 
 def test_silent_swarms_do_not_burn_the_tries_meant_for_verdicts(
@@ -338,7 +339,7 @@ def test_silent_swarms_do_not_burn_the_tries_meant_for_verdicts(
     printed = capsys.readouterr().out
     assert prep.number == 5, "четыре молчаливых роя подряд — и всё же дошли до живого"
     assert printed.count("нет пиров") == 4, "каждая осечка стоит строки, молчаливых нет"
-    assert "беру №5" in printed
+    assert "беру 5" in printed
 
 
 def test_the_walk_down_the_queue_stops_when_the_start_budget_is_out(
@@ -377,7 +378,7 @@ def test_an_explicitly_named_release_is_played_as_asked_with_a_loud_warning(
 
     printed = capsys.readouterr().out
     assert (prep.number, prep.found.video) == (1, "av1"), "названный релиз не подменяется"
-    assert "внимание: видео av1" in printed and "беру №" not in printed
+    assert "внимание: видео av1" in printed and not re.search(r"беру \d", printed)
     assert not torrserver.dropped, "раздача остаётся: её и просили"
 
 
@@ -414,8 +415,8 @@ def test_three_failed_probes_end_with_an_honest_exit(
     with pytest.raises(NotFoundError) as caught:
         _resolve(cli._Bench(cast(Any, _FakeTorrServer())), ranked)
     assert "годного релиза нет" in str(caught.value)
-    assert "№1 — av1" in str(caught.value) and "№3 — vc1" in str(caught.value)
-    assert capsys.readouterr().out.count("беру №") == 2  # не больше MAX_TRIES попыток
+    assert "1 — av1" in str(caught.value) and "3 — vc1" in str(caught.value)
+    assert len(re.findall(r"беру \d", capsys.readouterr().out)) == 2  # не больше MAX_TRIES
 
 
 def test_tv_mock_switches_the_receiver_and_leaves_no_tv_address(
@@ -853,7 +854,7 @@ def test_a_top_that_turns_out_to_be_sd_gives_way_to_a_confirmed_1080p(
 
     printed = capsys.readouterr().out
     assert prep.number == 2, "среди честных обсиженность решает, но 574p — не честный 1080p"
-    assert "релиз №1 на деле 574p — беру №2 (настоящий 1080p)" in printed
+    assert "релиз 1 на деле 574p — беру 2 (настоящий 1080p)" in printed
     assert torrserver.dropped, "отвергнутый верх не доедает полосу роя"
 
 
@@ -879,7 +880,7 @@ def test_an_honest_top_is_played_without_a_word(
     prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer())), ranked)
 
     assert prep.number == 1
-    assert "беру №" not in capsys.readouterr().out
+    assert not re.search(r"беру \d", capsys.readouterr().out)
 
 
 def test_when_the_neighbour_lies_too_we_play_the_truth_out_loud(
@@ -901,8 +902,8 @@ def test_when_the_neighbour_lies_too_we_play_the_truth_out_loud(
 
     printed = capsys.readouterr().out
     assert prep.number == 1, "лучше 574p рядом нет — играем то, что есть"
-    assert "релиз №2 не лучше (576p)" in printed
-    assert "релиз №1 на деле 574p — честнее рядом нет, играю его" in printed
+    assert "релиз 2 не лучше (576p)" in printed
+    assert "релиз 1 на деле 574p — честнее рядом нет, играю его" in printed
 
 
 def test_a_named_release_is_never_second_guessed_for_quality(
@@ -923,7 +924,7 @@ def test_a_named_release_is_never_second_guessed_for_quality(
     prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer())), ranked, release=1)
 
     assert prep.number == 1
-    assert "беру №" not in capsys.readouterr().out
+    assert not re.search(r"беру \d", capsys.readouterr().out)
 
 
 def test_a_slow_neighbour_does_not_hold_up_the_show(
@@ -955,4 +956,4 @@ def test_a_slow_neighbour_does_not_hold_up_the_show(
         slow.set()  # поток прогрева отпускаем, чтобы не висел до конца прогона
 
     assert prep.number == 1
-    assert "релиз №2 не успел ответить" in capsys.readouterr().out
+    assert "релиз 2 не успел ответить" in capsys.readouterr().out

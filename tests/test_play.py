@@ -14,11 +14,14 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import json
+import os
+import signal
 import subprocess
 import threading
 import time
+import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, Final
 
 import pytest
 
@@ -298,13 +301,45 @@ def _kill_when_playing(config: Config, pattern: str) -> None:
     deadline = time.monotonic() + 60
     while time.monotonic() < deadline:
         if list(out.glob("**/v*.ts")):
-            subprocess.run(["pkill", "-9", "-f", pattern], check=False)
+            for pid in _own_pids(pattern):  # только свои: соседний прогон не наше дело
+                with contextlib.suppress(OSError):
+                    os.kill(pid, signal.SIGKILL)
         time.sleep(0.3)
 
 
+#: Метка этого прогона. Она попадает в окружение всех потомков (ffmpeg поднимается
+#: обычным ``Popen`` без ``env``), и по ней свои процессы отличаются от чужих.
+_RUN_MARK: Final = f"TORRCAST_TEST_RUN={os.getpid()}-{uuid.uuid4().hex}"
+os.environ["TORRCAST_TEST_RUN"] = _RUN_MARK.split("=", 1)[1]
+
+
+def _own_pids(pattern: str) -> list[int]:
+    """Свои живые процессы, у которых ``pattern`` есть в командной строке.
+
+    /proc читается руками, а не ``pgrep -f``, и на то две причины. Первая — соседний
+    прогон: порт и каталог показа у него те же, так что по одной командной строке его
+    процессы не отличить от наших, и тест краснел на чужом ffmpeg. Вторая — сам поиск:
+    ``pgrep -f`` находит и себя, и запущенный рядом такой же ``pgrep`` с тем же
+    шаблоном. Метка прогона (:data:`_RUN_MARK`) снимает обе.
+    """
+    mine = []
+    for entry in Path("/proc").iterdir():
+        if not entry.name.isdigit() or int(entry.name) == os.getpid():
+            continue
+        try:
+            raw = (entry / "cmdline").read_bytes()
+            if pattern not in raw.replace(b"\0", b" ").decode("utf-8", "replace"):
+                continue
+            environ = (entry / "environ").read_bytes()
+        except OSError:
+            continue  # процесс умер под руками или он не наш
+        if _RUN_MARK.encode() in environ.split(b"\0"):
+            mine.append(int(entry.name))
+    return mine
+
+
 def _alive(pattern: str) -> bool:
-    done = subprocess.run(["pgrep", "-f", pattern], capture_output=True, text=True, check=False)
-    return bool(done.stdout.strip())
+    return bool(_own_pids(pattern))
 
 
 class _FakeReceiver:
