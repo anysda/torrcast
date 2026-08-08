@@ -122,12 +122,23 @@ _CINEMA_RE: Final = re.compile(r"(?:фильм|сериал)\b|кинокарт�
 #: рядом обязан стоять жанр. Жанр тоже сам по себе ничего не значит: драма бывает и
 #: театральная, и книжная.
 _SCREEN_RE: Final = re.compile(r"телевизионн", re.IGNORECASE)
+#: Каким словом статья объявляет СВОЙ тип: фильм она или сериал. Ими разводится
+#: экранизация и исходный сериал - см. :func:`_fits_type`. Подстрокой намеренно:
+#: «мультфильм», «кинофильм», «телефильм» - всё это фильм, а «телесериал» и
+#: «аниме-сериал» - сериал.
+_FILM_WORD_RE: Final = re.compile(r"фильм|кинокартин|полнометражн", re.IGNORECASE)
+_SERIES_WORD_RE: Final = re.compile(r"сериал|телевизионн|сезон", re.IGNORECASE)
 _GENRE_RE: Final = re.compile(
     r"\b(?:драма|драмеди|комедия|мелодрама|боевик|триллер|детектив|вестерн|мюзикл|антология)\b",
     re.IGNORECASE,
 )
 #: Кириллица в заголовке: по ней видно, годится ли он сам как оригинальное название.
 _CYRILLIC: Final = re.compile(r"[а-яё]", re.IGNORECASE)
+#: Иероглифы и слоговые азбуки. Скобка первой фразы у японского кино двуязычна («яп.
+#: 進撃の巨人 エンド オブ ザ ワールド Shingeki no Kyojin: Endo obu za Wārudo»), и латиница в
+#: ней есть - но выдать ЭТО индексеру за название нельзя. Такую скобку пропускаем: имя
+#: возьмётся из английской статьи (:func:`english_title`), где оно записано именем.
+_CJK: Final = re.compile(r"[぀-ヿ㐀-鿿가-힯]")
 #: Уточнение в конце заголовка статьи: «Wednesday (TV series)», «Восхождение (фильм, 1976)».
 #: Им Википедия разводит одноимённое, а индексерам оно ни к чему - раздачу подписывают
 #: именем без скобки, и именно имя мы у справки и берём.
@@ -444,19 +455,21 @@ def origin_now(title: str, series: bool = False, timeout: float = HTTP_TIMEOUT) 
         names.sort(key=lambda name: "сериал" not in name)
     hops, pages = _pages(get_json(_WIKI_HOST, _WIKI_PATH, _extract_params(names), {}, timeout))
     direct = [_article(name, hops, pages) for name in names]
-    found = read_origin(direct, title, trusted=True)
+    found = read_origin(direct, title, trusted=True, series=series)
     if found:
         return found
     payload = get_json(_WIKI_HOST, _WIKI_PATH, _search_params(f"{title} {kind}"), {}, timeout)
-    return read_origin(_ranked(payload), title)
+    return read_origin(_ranked(payload), title, series=series)
 
 
-def read_origin(pages: list[Any], title: str, trusted: bool = False) -> Origin:
+def read_origin(
+    pages: list[Any], title: str, trusted: bool = False, series: bool | None = None
+) -> Origin:
     """Статьи-кандидаты → паспорт. Побеждает первая, которая про кино и про то самое.
 
     Статья должна быть про кино (:func:`_about_cinema`) — «Восхождение» это ещё и
-    альпинизм, а «Матрица» — таблица. А вот «про то самое» проверяется по-разному, и
-    это ``trusted``.
+    альпинизм, а «Матрица» — таблица, — и того же типа, что спросили
+    (:func:`_fits_type`). А вот «про то самое» проверяется по-разному, и это ``trusted``.
 
     * **Поиск Википедии** (``trusted=False``) честно приносит однофамильцев, актёров и
       саундтреки — их отсеивает :func:`akin` по заголовку.
@@ -482,9 +495,8 @@ def read_origin(pages: list[Any], title: str, trusted: bool = False) -> Origin:
             continue
         heading = str(page.get("title") or "")
         extract = str(page.get("extract") or "")
-        if not _about_cinema(heading, extract):
+        if not _about_cinema(heading, extract) or not _fits_type(series, heading, extract):
             continue
-        seen = _YEAR_RE.search(extract)
         latin = (
             latin_title(extract)
             or english_title(page)
@@ -494,7 +506,7 @@ def read_origin(pages: list[Any], title: str, trusted: bool = False) -> Origin:
             continue
         found = Origin(
             title=latin,
-            year=int(seen.group(1)) if seen else None,
+            year=picture_year(extract),
             name=_TAIL_RE.sub("", heading) if _CYRILLIC.search(heading) else "",
         )
         if found:
@@ -521,6 +533,61 @@ def _about_cinema(heading: str, extract: str) -> bool:
     if _CINEMA_RE.search(text):
         return True
     return bool(_SCREEN_RE.search(text) and _GENRE_RE.search(text))
+
+
+def picture_year(extract: str) -> int | None:
+    """Год САМОЙ картины из статьи; не уверены - ``None``, и это честнее числа наугад.
+
+    Год паспорта сильнее выдачи, поэтому ошибиться в нём - то же самое, что подменить
+    картину. А брался он первым попавшимся «NNNN года» по всей первой врезке, и в статьях
+    об экранизациях это через раз год СОСЕДА: у сериала «Фарго» 2014 года врезка второй
+    фразой говорит «вдохновлён фильмом 1996 года», у «Дедвуд: Фильм» 2019 года - «по
+    мотивам сериала 2006 года». Справка уверенно называла 1996 и 2006.
+
+    Поэтому год ищется в два шага. Сначала - в первой фразе: там стоит паспортная формула
+    («американский компьютерно-анимационный фильм 2006 года»), и она про эту картину, а не
+    про соседа. Нет его там - годимся только на единогласие: когда во всей врезке год
+    назван один-единственный, спутать его не с чем («Мастер и Маргарита (телесериал, 2005)»
+    - только 2005). Названо несколько - выбирать между ними нечем, и мы молчим.
+    """
+    first = _YEAR_RE.search(sentence(extract))
+    if first:
+        return int(first.group(1))
+    named = {match.group(1) for match in _YEAR_RE.finditer(extract)}
+    return int(named.pop()) if len(named) == 1 else None
+
+
+def _fits_type(series: bool | None, heading: str, extract: str) -> bool:
+    """Того ли типа статья, что спросили: сериал против фильма.
+
+    Гейт против худшего брака справки - молчаливой подмены картины её ЭКРАНИЗАЦИЕЙ.
+    Тип картины у поиска есть, и он подсказывается (:func:`origin`), но одной подсказки
+    мало: она только двигает кандидата с нужным уточнением в начало очереди
+    (:func:`origin_now`), а не выкидывает чужие. Статьи «Атака титанов (телесериал)» в
+    русской Википедии нет вовсе, и очередь спокойно доходила до «Атака титанов (фильм)» -
+    японского игрового фильма 2015 года. Дальше не спасало ничто: статья про кино, гейт
+    :func:`_about_cinema` её пропускал, заголовок под запрос подходил (:func:`akin` -
+    «Атака титанов» слово в слово), а год ей никто не подсказывает. И поиск уходил
+    добирать чужую картину с паспортом, который сильнее выдачи.
+
+    Сверяется ОБЪЯВЛЕННЫЙ тип - тот, которым статья открывает первую фразу («японский
+    художественный фильм», «американский телесериал-антология»), - и только по первой
+    фразе с заголовком: дальше по тексту «фильм» и «сериал» стоят про соседей по
+    франшизе, а не про саму картину.
+
+    Отказ - только на ПРЯМОМ противоречии: статья назвала чужой тип и не назвала нужный.
+    Молчание о типе отказом не считается, и это не поблажка, а необходимость: «Во все
+    тяжкие» открывается словами «американская телевизионная криминальная драма» (ни
+    «фильма», ни «сериала»), а «Блич» - «манга Тайто Кубо и её аниме-адаптации». Требуй
+    мы явного слова, справка замолчала бы на картинах, которые сегодня знает.
+    """
+    if series is None:
+        return True
+    text = f"{heading} {sentence(extract)}"
+    said_film = bool(_FILM_WORD_RE.search(text))
+    said_series = bool(_SERIES_WORD_RE.search(text))
+    asked, other = (said_series, said_film) if series else (said_film, said_series)
+    return asked or not other
 
 
 def _same_latin(title: str, latin: str) -> bool:
@@ -581,9 +648,17 @@ def latin_title(extract: str) -> str:
     бывает несколько, и не все они про название — «(род. 1950)» у режиссёра тоже скобка
     с сокращением, поэтому годится лишь та, внутри которой латиница и нет кириллицы.
     Хвост после запятой отрезается: там лежит дословный перевод, а не имя раздачи.
+
+    ⚠️ Иероглифы отсекаются наравне с кириллицей. У японского кино скобка двуязычна -
+    «(яп. 進撃の巨人 エンド オブ ザ ワールド Shingeki no Kyojin: Endo obu za Wārudo)», - и латиница
+    в ней есть, так что прежняя проверка её принимала и отдавала поиску целиком, вместе с
+    иероглифами. Искать по такой строке нечего. Пропустив скобку, имя берут из английской
+    статьи (:func:`english_title`), где оно записано одним именем.
     """
     for match in _ORIGINAL_RE.finditer(extract):
         name = re.split(r"[,;]", match.group(1))[0].strip(" «»\"'")
+        if _CJK.search(name):
+            continue
         if re.search(r"[A-Za-z]", name) and not re.search(r"[А-Яа-яЁё]", name):
             return name
     return ""
