@@ -262,10 +262,16 @@ EOF
     # Изменившийся юнит - это не только daemon-reload: `enable --now` уже поднятую
     # службу не перезапустит, и она осталась бы жить со СТАРЫМИ потолками памяти. На
     # чистой машине перезапускать нечего, на обновлении - обязательно.
-    local fresh=0
+    # ⚠️ Поэтому спрашиваем ДО правки юнита, работала ли служба. Рестарт того, что
+    # `enable --now` секунду назад подняло само, не просто лишний: он глушит службу
+    # посреди её первого запуска, а systemd ждёт остановки до TimeoutStopSec. Prowlarr в
+    # этот момент раскатывает свою базу и на SIGTERM не отзывается - замер на чистой
+    # машине: 90 секунд установки ровно тут, на ожидании SIGKILL.
+    local fresh=0 was_up=0
+    systemctl is-active --quiet "$1.service" && was_up=1
     write_unit "$1" "$2" "$3" "${4:-}" && fresh=1
     systemctl enable --now "$1.service"
-    [ "$fresh" = 1 ] && systemctl restart "$1.service"
+    [ "$fresh" = 1 ] && [ "$was_up" = 1 ] && systemctl restart "$1.service"
     return 0
 }
 
@@ -491,7 +497,10 @@ install_ffmpeg() {
 (переставить - удали файл и запусти снова)"
         return
     fi
-    have="$(ffmpeg_version ffmpeg)"
+    # `|| true` не для красоты: ffmpeg на PATH может не быть вовсе (в репозитории он
+    # заведомо стар, и мы его не ставили), а под `set -e` пустой ответ отсюда оборвал бы
+    # установку на коде 127.
+    have="$(ffmpeg_version ffmpeg || true)"
     if [ -n "$have" ] && ffmpeg_confined ffmpeg; then
         info "ffmpeg $have из snap: в $PREFIX, $STATE_DIR и $HLS_DIR его конфайнмент \
 не пустит - беру статическую сборку"
@@ -545,19 +554,56 @@ install_ffmpeg() {
         || die "поставился ffmpeg $now — это всё ещё ниже $FFMPEG_MIN"
     ffmpeg_smoke "$work" || die "сборка ffmpeg $now не пережила MPEG-TS — другой URL"
     rm -rf "$work"
-    info "ffmpeg $now → /usr/local/bin (пакетная $(ffmpeg_version /usr/bin/ffmpeg) осталась)"
+    local packaged; packaged="$(ffmpeg_version /usr/bin/ffmpeg || true)"
+    info "ffmpeg $now → /usr/local/bin${packaged:+ (пакетная $packaged осталась)}"
+}
+
+# Версия ffmpeg, которую отдаст apt этой системы, - голая, без эпохи и ревизии
+# дистрибутива. Эпоху отрезать обязательно: у Debian это `7:5.1.6-0+deb12u1`, и
+# `dpkg --compare-versions` честно скажет, что 7:5.1.6 больше 6.1 - сравнивая эпохи, а
+# не то, что нам нужно. Ничего не печатает, если пакета в репозитории нет вовсе.
+# ⚠️ LC_ALL=C обязателен: фаза `locale` уже включила русскую локаль, и apt печатает
+# «Кандидат:» вместо «Candidate:» - разбор молча возвращал пустоту, а установка тянула
+# ненужный пакет ffmpeg (пойман замером: минута на пустом месте).
+apt_candidate_version() {  # $1 - имя пакета
+    LC_ALL=C apt-cache policy "$1" 2>/dev/null |
+        sed -n 's/^ *Candidate: *//p' | head -1 |
+        sed 's/^[0-9]*://; s/-.*//; s/^(none)$//'
 }
 
 install_packages() {
     log "зависимости"
-    local missing=()
+    local want=() missing=() pkg updated=0
+    # Пакетный ffmpeg берём, только если он годен: он тут запасной аэродром, чтобы не
+    # качать статическую сборку там, где системный уже свежее нижней границы (Ubuntu
+    # 24.04 - 6.1.1). Где он заведомо стар (Debian 12 - 5.1), ставить его незачем:
+    # статическую сборку мы всё равно возьмём, а он тянет за собой полторы сотни пакетов.
+    # Замер на чистой Debian 12: apt с ffmpeg - 55 с, без него - 9 с, и ни один из этих
+    # пакетов дальше не нужен.
+    # На пустой машине списки apt ещё не скачаны и версии не видно - тогда обновляем их
+    # прямо здесь (позже они всё равно понадобятся) и спрашиваем ещё раз.
+    local apt_ff; apt_ff="$(apt_candidate_version ffmpeg)"
+    if [ -z "$apt_ff" ] && ! dpkg -s ffmpeg >/dev/null 2>&1; then
+        apt-get update -qq; updated=1
+        apt_ff="$(apt_candidate_version ffmpeg)"
+    fi
     for pkg in "${APT_PACKAGES[@]}"; do
+        if [ "$pkg" = ffmpeg ] && [ -n "$apt_ff" ] \
+            && ! dpkg -s ffmpeg >/dev/null 2>&1 \
+            && ! dpkg --compare-versions "$apt_ff" ge "$FFMPEG_MIN" 2>/dev/null; then
+            info "в репозитории ffmpeg $apt_ff (нужно ≥ $FFMPEG_MIN) - пакет не ставлю, \
+беру статическую сборку"
+            continue
+        fi
+        want+=("$pkg")
+    done
+    for pkg in "${want[@]}"; do
         dpkg -s "$pkg" >/dev/null 2>&1 || missing+=("$pkg")
     done
     if [ ${#missing[@]} -eq 0 ]; then
-        skip "apt-пакеты (${APT_PACKAGES[*]})"
+        skip "apt-пакеты (${want[*]})"
     else
-        apt-get update -qq
+        [ "$updated" = 1 ] || apt-get update -qq
         DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${missing[@]}"
     fi
     install_ffmpeg
@@ -812,6 +858,40 @@ setup_shim() {  # $@ - маршруты вида имя=кандидат[,кан
         "$PYTHON $SHIM_DIR/sni-shim.py $SHIM_DIR/shim.crt $SHIM_DIR/shim.key $SHIM_PORT ${routes[*]}"
 }
 
+# Пробы независимы, а каждая ждёт СВОЙ таймаут (до 25 с на трекер) - последовательно
+# это набегало в минуту с лишним чистого ожидания на пустом месте. Гоняем их разом, а
+# ответы разбираем потом и в исходном порядке: параллельность не должна превращать
+# журнал установки в чересполосицу. Печатает каталог с файлами «имя» → код возврата.
+#: Сколько раз проба через уже поднятый шим повторяется, прежде чем признать его
+#: молчание: служба только что запущена, сокета может ещё не быть.
+SHIM_PROBE_TRIES=12
+probe_all() {  # $1 - 1 = долбиться до ответа (через шим), 0 = одна проба; дальше строки SHIMS
+    local retry="$1"; shift
+    local dir spec host path body ups pids=()
+    dir="$(mktemp -d)"
+    for spec in "$@"; do
+        IFS='|' read -r host path body ups <<<"$spec"
+        # Код возврата уводим в файл, а сама подоболочка завершается успешно: под
+        # `set -e` упавшая фоновая проба уронила бы установку на `wait`.
+        (
+            rc=1 i=0
+            while :; do
+                if probe_whole "$host" "$path" "$body"; then rc=0; break; fi
+                i=$((i + 1))
+                { [ "$retry" = 1 ] && [ "$i" -lt "$SHIM_PROBE_TRIES" ]; } || break
+                sleep 1
+            done
+            printf '%s' "$rc" >"$dir/$host"
+            true
+        ) &
+        pids+=("$!")
+    done
+    # Ждём поимённо: в песочнице рядом живут фоновые «службы», и голый `wait` завис бы
+    # на них до скончания века.
+    wait "${pids[@]}"
+    printf '%s' "$dir"
+}
+
 check_sources() {
     log "источники: что доступно из этой сети"
 
@@ -824,21 +904,28 @@ check_sources() {
         SEED_DEFS=1
     fi
 
-    local spec host path body ups routes=()
+    local spec host path body ups routes=() ask=() probes=""
+    for spec in "${SHIMS[@]}"; do
+        IFS='|' read -r host path body ups <<<"$spec"
+        # Замер пошёл бы через уже стоящий шим и всегда отвечал бы «всё хорошо» - а
+        # код из репы так бы и не доехал. Прибито - значит ведём через шим и дальше,
+        # спрашивать нечего.
+        pinned "$host" || ask+=("$spec")
+    done
+    if [ "${#ask[@]}" -gt 0 ]; then probes="$(probe_all 0 "${ask[@]}")"; fi
     for spec in "${SHIMS[@]}"; do
         IFS='|' read -r host path body ups <<<"$spec"
         if pinned "$host"; then
-            # Замер пошёл бы через уже стоящий шим и всегда отвечал бы «всё хорошо» - а
-            # код из репы так бы и не доехал. Прибито - значит ведём через шим и дальше.
             info "$host уже за шимом - маршрут остаётся"
             routes+=("$host=$ups")
-        elif probe_whole "$host" "$path" "$body"; then
+        elif [ "$(cat "$probes/$host" 2>/dev/null)" = 0 ]; then
             info "$host отвечает целиком - обход не нужен"
         else
             info "⚠ $host отдаёт ответ не целиком (режется по имени в SNI) - веду через шим"
             routes+=("$host=$ups")
         fi
     done
+    if [ -n "$probes" ]; then rm -rf "$probes"; fi
     if [ "${#routes[@]}" -eq 0 ]; then
         info "все трекеры доступны по имени - шим не нужен"
         return
@@ -848,22 +935,23 @@ check_sources() {
     # «Шим поднят» и «через него отвечает» - разные утверждения. Проверяем вторым
     # заходом: имя уже прибито к шиму, поэтому та же проба идёт сквозь него. Служба
     # только что запущена, сокета может ещё не быть - спрашиваем не один раз.
-    local i
+    local through=()
     for spec in "${SHIMS[@]}"; do
         IFS='|' read -r host path body ups <<<"$spec"
         printf '%s\n' "${routes[@]}" | grep -qx "$host=$ups" || continue
-        i=0
-        until probe_whole "$host" "$path" "$body"; do
-            i=$((i + 1))
-            [ "$i" -ge 12 ] && break
-            sleep 1
-        done
-        if [ "$i" -lt 12 ]; then
+        through+=("$spec")
+    done
+    if [ "${#through[@]}" -eq 0 ]; then return 0; fi
+    probes="$(probe_all 1 "${through[@]}")"
+    for spec in "${through[@]}"; do
+        IFS='|' read -r host path body ups <<<"$spec"
+        if [ "$(cat "$probes/$host" 2>/dev/null)" = 0 ]; then
             info "через шим $host отвечает целиком"
         else
             info "⚠ $host не отвечает и через шим - его индексер останется пустым"
         fi
     done
+    rm -rf "$probes"
 }
 
 # Определения индексеров (Cardigann) - из репы Prowlarr/Indexers на GitHub.
@@ -950,6 +1038,16 @@ prowlarr_apikey() {
 }
 
 # --- 5. Индексеры через API (ноль ручных шагов в вебе) ----------------------
+#: Проверочный поиск в конце фазы: чем спрашиваем и сколько ждём ОДИН индексер. Ждать
+#: столько же, сколько ждёт сам Prowlarr (100 с у .NET), незачем: штатный поиск у живого
+#: индексера занимает 1-3 секунды, а мёртвый не ответит и за сто. Взятые 25 - восьмикратный
+#: запас к норме. Молчание за этот срок - не приговор индексеру, а честная строка в отчёте.
+#: ⚠️ Спрашивать поимённо дороже, чем одним общим поиском: общий Prowlarr отдаёт мгновенно,
+#: потому что молчащий индексер у него уже под штрафом и в опрос не попадает - то есть
+#: «проверка» на повторном заходе не проверяла ровно то, ради чего затевалась.
+PL_SEARCH_TIMEOUT="${TORRCAST_SEARCH_TIMEOUT:-25}"
+PL_SEARCH_PROBE="${TORRCAST_SEARCH_PROBE:-матрица}"
+
 install_indexers() {
     [ "$SEED_DEFS" = 1 ] && seed_definitions
     log "индексеры Prowlarr"
@@ -968,6 +1066,8 @@ install_indexers() {
         || die "схема индексеров Prowlarr не в ожидаемом виде - API этой версии не тот, на который рассчитана установка"
 
     local spec def url extra over body name key_here=0
+    local work pids=() queued=()
+    work="$(mktemp -d)"
     for spec in "${INDEXERS[@]}"; do
         IFS='|' read -r def url extra <<<"$spec"
         name="$(jq -r --arg d "$def" '.[]|select(.definitionName==$d)|.name' <<<"$schema")"
@@ -991,46 +1091,76 @@ install_indexers() {
               enable:true, appProfileId:1, tags:[], added:"0001-01-01T00:00:00Z",
               fields:[.fields[]|{name, value:(if $o[.name] != null then $o[.name] else .value end)}]}
         ' <<<"$schema")"
-        if curl -fsS -X POST "$PL_URL/api/v1/indexer?apikey=$key" \
-             -H 'Content-Type: application/json' -d "$body" >/dev/null; then
+        # Добавление индексера Prowlarr сопровождает пробным обращением к трекеру и ждёт
+        # его ДО СВОЕГО таймаута - у .NET это 100 секунд. Один недоступный из этой сети
+        # трекер (замер: yts) держал очередь все 100 секунд, пока три живых ждали своей.
+        # Шлём разом, ответы разбираем ниже и в исходном порядке.
+        ( curl -fsS -X POST "$PL_URL/api/v1/indexer?apikey=$key" \
+              -H 'Content-Type: application/json' -d "$body" >/dev/null 2>&1 \
+            && printf 0 >"$work/add-$def" || printf 1 >"$work/add-$def"; true ) &
+        pids+=("$!")
+        queued+=("$def|$name")
+    done
+    if [ "${#pids[@]}" -gt 0 ]; then wait "${pids[@]}"; fi
+    for spec in "${queued[@]}"; do
+        IFS='|' read -r def name <<<"$spec"
+        if [ "$(cat "$work/add-$def" 2>/dev/null)" = 0 ]; then
             info "добавлен $name"
             [ "$def" = "$KEY_INDEXER" ] && key_here=1
         else
             info "⚠ $name не добавился (недоступен из этой сети?) — не блокер"
         fi
     done
-    info "индексеров сейчас: $(curl -fsS "$PL_URL/api/v1/indexer?apikey=$key" | jq 'length')"
 
     # Живая проверка: «индексер заведён» и «поиск что-то находит» - разные утверждения.
     # Первое бывает правдой при неправде второго - например когда сеть режет индексер.
     # Отказ самой проверки установку не роняет: это отчёт, а не условие.
-    local out found
-    out="$(curl -fsS -m 120 -G "$PL_URL/api/v1/search" \
-        --data-urlencode "apikey=$key" --data-urlencode "query=матрица" \
-        --data-urlencode "type=search" --data-urlencode "limit=100" 2>/dev/null)" || out=""
-    found="$(jq 'length' <<<"${out:-[]}" 2>/dev/null)" || found=0
-    if [ "${found:-0}" -gt 0 ] 2>/dev/null; then
-        info "проверочный поиск «матрица»: $found раздач"
-        jq -r 'group_by(.indexer)[]|"    \(.[0].indexer): \(length)"' <<<"$out" 2>/dev/null || true
+    # ⚠️ Спрашиваем КАЖДЫЙ индексер отдельно и разом, со своим таймаутом. Один общий
+    # поиск отвечает по самому медленному: недоступный трекер держал ответ все 100
+    # секунд .NET-таймаута, и проверка стоила дороже, чем половина установки. Теперь
+    # молчание одного стоит $PL_SEARCH_TIMEOUT с и названо по имени.
+    local list total=0 key_hits=0 key_answered=0 lines=() id iname n
+    list="$(curl -fsS "$PL_URL/api/v1/indexer?apikey=$key")" || list='[]'
+    info "индексеров сейчас: $(jq 'length' <<<"$list")"
+    pids=()
+    while IFS='|' read -r id def iname; do
+        [ -n "$id" ] || continue
+        ( curl -fsS -m "$PL_SEARCH_TIMEOUT" -G "$PL_URL/api/v1/search" \
+              --data-urlencode "apikey=$key" --data-urlencode "query=$PL_SEARCH_PROBE" \
+              --data-urlencode "type=search" --data-urlencode "limit=100" \
+              --data-urlencode "indexerIds=$id" >"$work/search-$id" 2>/dev/null \
+            || : >"$work/search-$id"; true ) &
+        pids+=("$!")
+    done < <(jq -r '.[]|"\(.id)|\(.definitionName)|\(.name)"' <<<"$list")
+    if [ "${#pids[@]}" -gt 0 ]; then wait "${pids[@]}"; fi
+    while IFS='|' read -r id def iname; do
+        [ -n "$id" ] || continue
+        n="$(jq 'length' <"$work/search-$id" 2>/dev/null)" || n=""
+        if [ -z "$n" ]; then
+            lines+=("    ⚠ $iname: не ответил за $PL_SEARCH_TIMEOUT с")
+            continue
+        fi
+        lines+=("    $iname: $n")
+        total=$((total + n))
+        if [ "$def" = "$KEY_INDEXER" ]; then key_hits="$n"; key_answered=1; fi
+    done < <(jq -r '.[]|"\(.id)|\(.definitionName)|\(.name)"' <<<"$list")
+    rm -rf "$work"
+    if [ "$total" -gt 0 ]; then
+        info "проверочный поиск «$PL_SEARCH_PROBE»: $total раздач"
     else
         info "⚠ проверочный поиск НИЧЕГО не нашёл - индексеры недоступны из этой сети"
     fi
+    if [ "${#lines[@]}" -gt 0 ]; then printf '%s\n' "${lines[@]}"; fi
 
     # Гейт веса: остальные индексеры друг друга подстраховывают, а этот - нет. Установку
     # не роняем (без него всё равно ищется), но и молчать нельзя: человек должен понимать,
     # что каталог у него урезан, а не гадать, почему западного кино и аниме не находится.
-    local key_hits=0
-    if [ -n "$out" ]; then
-        key_hits="$(jq --arg n "$KEY_INDEXER" \
-            '[.[]|select(((.indexer // "")|ascii_downcase)|contains($n|ascii_downcase))]|length' \
-            <<<"$out" 2>/dev/null)" || key_hits=0
-    fi
     if [ "$key_here" != 1 ]; then
         loud "$KEY_INDEXER не завёлся - каталог западных релизов и аниме будет неполным"
         info "поиск продолжит работать на остальных индексерах; повторный ./install.sh \
 заведёт его, когда он снова будет доступен"
-    elif [ "${found:-0}" -eq 0 ] 2>/dev/null; then
-        info "$KEY_INDEXER заведён, но проверить его нечем - проверочный поиск не ответил"
+    elif [ "$key_answered" != 1 ]; then
+        info "$KEY_INDEXER заведён, но проверить его нечем - он не ответил за $PL_SEARCH_TIMEOUT с"
     elif [ "${key_hits:-0}" -gt 0 ] 2>/dev/null; then
         info "$KEY_INDEXER отвечает: $key_hits раздач в проверочном поиске"
     else
