@@ -454,6 +454,49 @@ def test_a_part_that_the_franchise_does_not_have_is_named_as_such(
         _search(client, "матрица 5", monkeypatch)
 
     assert "картин во франшизе 1, номера 5 нет" in str(caught.value)
+    assert client.asked[:2] == ["матрица", "матрица 5"], "всей строкой спросили вместо отказа"
+
+
+def test_a_number_that_belongs_to_the_title_is_searched_whole(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """🔴 TC-296. «бен 10» - целое имя, а не десятая часть франшизы «бен».
+
+    Живой каталог: по строке «бен» приезжает «Бен» 1972 года и три десятка однофамильцев,
+    а семи картин линейки «Бен 10» нет ВООБЩЕ НИ ОДНОЙ - их отдаёт только та же строка
+    целиком. Человек читал «картин во франшизе 1, номера 10 нет» при живом сериале.
+    """
+    client = _FakeProwlarr(
+        {
+            "бен": [raw(f"Бен / Ben (1972) BDRip {i}", i) for i in range(20)],
+            "бен 10": [
+                raw(f"Бен 10 / Ben 10 (2005) WEB-DL 1080p s01e0{i}", 100 + i) for i in range(1, 5)
+            ],
+        }
+    )
+
+    plans, said = _search(client, "бен 10", monkeypatch)
+
+    assert client.asked[:2] == ["бен", "бен 10"]
+    assert [plan.picture.title for plan in plans] == ["Бен 10"]
+    assert "искал «бен 10» целиком" in said
+
+
+def test_the_whole_string_is_not_asked_when_the_part_is_found(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Счастливый путь франшизы за это не платит: «тачки 2» находятся первым же кругом."""
+    client = _FakeProwlarr(
+        {
+            "тачки": [raw(f"Тачки / Cars (2006) BDRip {i}", i) for i in range(20)]
+            + [raw(f"Тачки 2 / Cars 2 (2011) BDRip {i}", 100 + i) for i in range(20)]
+        }
+    )
+
+    plans, _said = _search(client, "тачки 2", monkeypatch)
+
+    assert client.asked == ["тачки"]
+    assert [plan.picture.year for plan in plans] == [2011]
 
 
 def test_the_part_number_picks_inside_the_named_franchise(

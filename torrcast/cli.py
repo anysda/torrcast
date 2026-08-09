@@ -1447,6 +1447,52 @@ def _relayout(
     return swapped, fixed, moved, raw
 
 
+def _titled_number(
+    client: Prowlarr, query: str, name: str, raw: list[RawResult], progress: Progress
+) -> tuple[list[RawResult], list[Picture], list[Picture]]:
+    """Второй заход ВСЕЙ строкой: цифра оказалась частью названия. Не помогло - как было.
+
+    🔴 TC-296. `cast «бен 10»` уезжал искать «Бен-Гур». Хвостовая цифра читается номером
+    части франшизы (:func:`~torrcast.parse.split_franchise_index`), и в индексеры уходил
+    обрубок «бен» - строка, по которой каталог отдаёт «Бена» 1972 года и три десятка
+    однофамильцев, а семи картин «Бен 10» не отдаёт ВООБЩЕ НИ ОДНОЙ. Дальше всё честно
+    работало по чужой выдаче: тощий пул звал добор, справка по «бену» приводила
+    ``Ben-Hur``, и человек читал «картин во франшизе 1, номера 10 нет» при живом сериале,
+    который лежит в том же каталоге. Замер той же строкой без обрезки: 88 строк, семь
+    картин линейки «Бен 10».
+
+    Отличить номер части от цифры в названии ДО первого круга нечем: «тачки 2» и «бен 10»
+    - одна и та же строка с точностью до слов. Зато после круга каталог уже ответил, и
+    ответ этот однозначный: картины с таким номером в найденной франшизе НЕТ (пустой
+    ``found`` при названном номере) - значит либо номер лишний, либо франшиза не та.
+    В обоих случаях впереди был отказ, и заход всей строкой стоит ровно столько же,
+    сколько стоил бы он, - как и второй заход по забытой раскладке (:func:`_relayout`).
+
+    На счастливом пути этого захода нет вовсе: «тачки 2», «форсаж 5», «шрек 2» находят
+    свою картину первым же кругом, и сюда не заглядывают. Круг платится из остатка цели
+    (:func:`_no_budget`), как и все прочие доборы.
+
+    ⚠️ Не помогло - остаётся ПРЕЖНЯЯ выдача, а не расширенная. Лишние строки сдвинули бы
+    нумерацию франшизы (о том же :func:`_second_language`), и честное «номера N нет»
+    стало бы неправдой про другую линейку.
+    """
+    from torrcast.parse import cluster, pick_franchise
+
+    if _no_budget(client, f"поиск «{query}» целиком", progress) is None:
+        return raw, cluster(to_releases(raw)), []
+    progress.phase(f"поиск «{query}»")
+    merged = merge(raw, _ask(client, query, progress))
+    progress.phase("")
+    if len(merged) == len(raw):
+        return raw, cluster(to_releases(raw)), []
+    pictures = cluster(to_releases(merged))
+    found = pick_franchise(query, pictures)
+    if not found:
+        return raw, cluster(to_releases(raw)), []
+    progress.note(f"по «{name}» картины не нашлось - искал «{query}» целиком")
+    return merged, pictures, found
+
+
 def _search(
     config: Config, args: Args, progress: Progress, profile: Profile = CAUTIOUS
 ) -> list[_Plan]:
@@ -1477,8 +1523,18 @@ def _search(
     pictures = cluster(to_releases(raw))
     # Номер в запросе - позиция во франшизе, а не в общей выдаче.
     found = pick_franchise(query, pictures)
+    titled = False
+    if index is not None and not found:
+        # Цифра оказалась частью названия, и обрубок увёз поиск не туда
+        # (:func:`_titled_number`). Заход платится только вместо отказа.
+        raw, pictures, found = _titled_number(client, query, name, raw, progress)
+        # Каталог ответил: цифра - часть имени. Дальше по строке идут справка и добор, и
+        # обрубок им не годится ровно так же, как не годился индексерам.
+        titled = bool(found)
+        if titled:
+            name, index = query, None
     if worth_asking_original(found, args, config, profile):
-        raw, pictures, found = _second_language(client, query, args, raw, found, progress)
+        raw, pictures, found = _second_language(client, query, args, raw, found, progress, titled)
     # Сериал есть, а раздач нужного сезона в нём нет - добрать сезонной строкой по
     # оригиналу, прежде чем честно отказать (:func:`_season_reinforce`).
     if _lacks_season(found, args):
@@ -1799,6 +1855,7 @@ def _second_language(
     raw: list[RawResult],
     found: list[Picture],
     progress: Progress,
+    titled: bool = False,
 ) -> tuple[list[RawResult], list[Picture], list[Picture]]:
     """Русский запрос дал пусто или тощий пул - переспросить тем же названием на латинице.
 
@@ -1881,10 +1938,15 @@ def _second_language(
     ⚠️ Имени, за которым стоит САМА Википедия, это не касается: перенаправление «Мальчик
     и цапля» → «Мальчик и птица» - её собственное утверждение о том, что это одна вещь,
     и отметки ``guessed`` у такого паспорта нет.
+
+    ⚠️ ``titled`` - каталог уже сказал, что хвостовая цифра это часть НАЗВАНИЯ, а не номер
+    части (:func:`_titled_number`). Тогда обрубок «бен» не годится ни справке, ни строке
+    добора: по нему справка отвечает про «Бен-Гур», и второй заход уходит за чужой
+    картиной. Спрашиваем всей строкой - справка знает «Бен 10» и отдаёт ``Ben 10``.
     """
     from torrcast.parse import alt_query, cluster, pick_franchise, slugify
 
-    name, index = split_franchise_index(query)
+    name, index = (query, None) if titled else split_franchise_index(query)
     # 🔴 TC-243. Картины не нашлось вовсе - без второго имени тут отказ, и справка
     # становится единственной опорой: ей отдаётся весь остаток цели, а не обычный потолок.
     if (spare := _no_budget(client, f"добор по «{name}»", progress, alone=not found)) is None:

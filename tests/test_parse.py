@@ -16,8 +16,10 @@ import pytest
 from torrcast.parse import (
     Picture,
     Release,
+    alt_query,
     cluster,
     franchise_key,
+    franchise_name,
     in_digits,
     menu_order,
     other_words,
@@ -956,6 +958,85 @@ def test_picture_without_a_year_stays_alone_between_two_namesakes() -> None:
         ("Психо", 1960, 1),
         ("Психо", 1998, 1),
         ("Psycho", None, 1),
+    ]
+
+
+def test_a_channel_in_front_is_not_the_name_of_the_picture() -> None:
+    """🔴 TC-297. «BBC. Живая планета» - это «Живая планета», а не картина канала BBC."""
+    assert franchise_key("BBC. Живая планета") == "живая-планета"
+    assert franchise_name("BBC. The Living Planet") == "The Living Planet"
+    assert franchise_name("Discovery. Смертельный улов") == "Смертельный улов"
+    assert franchise_name("BBC: Планета Земля 3") == "Планета Земля"
+    assert franchise_name("BBC Proms") == "BBC Proms", "без знака это первое слово названия"
+
+
+def test_the_second_query_takes_the_title_and_not_the_channel() -> None:
+    """Добор идёт оригинальным названием, а не маркой вещателя.
+
+    По строке ``BBC`` приезжает какое угодно кино, кроме спрошенного, и человек читал
+    честное «по BBC приехала другая картина» при живой раздаче в той же выдаче.
+    """
+    releases = [
+        parse_release_name(
+            "BBC. Живая планета / BBC. The Living Planet  (1984) DVDRip | P1"
+        ),
+        parse_release_name(
+            "BBC. Океаны: Наша Голубая Планета / BBC. Oceans: Our Blue Planet "
+            "[2018, документальный, UHD BDRemux 2160p] Original Eng + Sub (Rus, Eng)"
+        ),
+    ]
+
+    found = pick_franchise("живая планета", cluster(releases))
+
+    assert [p.title for p in found] == ["BBC. Живая планета"]
+    assert alt_query("живая планета", releases) == "The Living Planet"
+
+
+def test_two_original_names_are_still_one_picture() -> None:
+    """🔴 TC-308. Международное имя и родное - одна картина, а не две.
+
+    «Унесённые призраками» приезжают строками с ТРЕМЯ именами разом; в паспорт попадает
+    японское, а полсотни латинских раздач подписаны английским. Пока имена сверялись как
+    строки, в меню стояли две картины 2001 года: у одной русский звук, у другой английский,
+    и от того, каким именем спросили, зависело, какую человек увидит.
+    """
+    pictures = cluster(
+        [
+            parse_release_name(
+                "Унесённые призраками / Sen to Chihiro no Kamikakushi / Spirited Away "
+                "(2001) BDRip 1080p | D"
+            ),
+            parse_release_name("Spirited.Away.2001.1080p.BluRay.x264-GRP"),
+            parse_release_name("Spirited.Away.2001.720p.BluRay.x264-CTU"),
+        ]
+    )
+
+    assert len(pictures) == 1
+    assert (pictures[0].title, pictures[0].original) == (
+        "Унесённые призраками",
+        "Sen to Chihiro no Kamikakushi",
+    )
+    assert pictures[0].also == "Spirited Away", "второе имя названо вслух, а не проглочено"
+    assert len(pictures[0].releases) == 3
+
+
+def test_a_third_name_does_not_move_a_picture_that_names_itself() -> None:
+    """Третья подпись сводит только с ОДИНОКИМ именем - каталог его не спарил ни с чем.
+
+    Пара имён в заголовке уже сказала, как картина зовётся, и третья подпись чужого
+    заголовка её не отменяет. Год тут одинаковый нарочно: держит картины врозь именно это
+    правило, а не гейт года.
+    """
+    pictures = cluster(
+        [
+            parse_release_name("Ночная смена / Night Shift / Призраки (2019) BDRip 1080p"),
+            parse_release_name("Призраки / Ghosts (2019) WEB-DL 1080p"),
+        ]
+    )
+
+    assert [(p.title, p.original) for p in pictures] == [
+        ("Ночная смена", "Night Shift"),
+        ("Призраки", "Ghosts"),
     ]
 
 
