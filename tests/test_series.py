@@ -556,3 +556,46 @@ def test_a_stitched_show_is_dated_by_its_first_season() -> None:
 
     assert len(pictures) == 1, "сезоны одного сериала - одна картина"
     assert pictures[0].year == 2005, "год сериала - тот, с которого он начался"
+
+
+def test_same_named_different_shows_are_not_stitched_by_season_numbers() -> None:
+    """🔴 TC-240. «Трансформеры» 2007 и «Трансформеры» 2017 - РАЗНЫЕ сериалы.
+
+    Сшивка сезонов (TC-201) держится на номере сезона, а номер - улика короткая: у
+    «Transformers: Animated» (2007-2009) есть сезоны 1-3, и любой чужой сериал под тем
+    же русским именем, начавший со второго сезона, читался как его продолжение. Так
+    «Transformers: Prime Wars Trilogy» (2017) и приклеился к мультсериалу десятилетней
+    давности: 20 серий чужой картины уехали в чужое меню.
+
+    Развело их имя, а не номер. Оригинальное название у раздачи было - «Трансформеры:
+    Трилогия войн Праймов / Transformers: Prime Wars Trilogy», - но слово «трилогия»
+    считалось меткой сборника и резало строку вместе с оригиналом, оставляя безымянного
+    тёзку. В середине фразы это обычное слово названия, а меткой сборника оно бывает,
+    только когда закрывает свой кусок: «Матрица: Трилогия / The Matrix».
+    """
+    animated = [
+        parse_release_name(
+            "Трансформеры / Transformers: Animated / S1E1-16 of 16 [2007] WEB-DL 1080p | D"
+        ),
+        parse_release_name(
+            "Трансформеры / Transformers: Animated / S2E1-13 of 13 [2008] WEB-DL 1080p | D"
+        ),
+        parse_release_name(
+            "Трансформеры / Transformers: Animated / S3E1-13 of 13 [2009] WEB-DL 1080p | D"
+        ),
+    ]
+    stranger = parse_release_name(
+        "Трансформеры: Трилогия войн Праймов / Transformers: Prime Wars Trilogy / "
+        "S2E9-28 of 28 [2017, WEB-DL 1080p] Sub Rus"
+    )
+
+    pictures = cluster([*animated, stranger])
+
+    assert len(pictures) == 2, "разные сериалы под одним русским именем - разные картины"
+    same = next(p for p in pictures if p.original == "Transformers: Animated")
+    assert len(same.releases) == 3, "сезоны своего сериала остались вместе"
+    assert stranger.original == "Transformers: Prime Wars Trilogy", "оригинал раздача назвала"
+
+    # Метка сборника на своём месте - в конце куска - режет имя, как и раньше.
+    pack = parse_release_name("Матрица: Трилогия / The Matrix (1999) BDRip 1080p")
+    assert pack.title == "Матрица"
