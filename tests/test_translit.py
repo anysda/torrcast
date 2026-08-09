@@ -47,10 +47,16 @@ def _knows(monkeypatch: pytest.MonkeyPatch, passports: dict[str, Origin]) -> lis
     return asked
 
 
-def raw(name: str, number: int, seeders: int = 100, indexer: str = "Knaben") -> RawResult:
+def raw(
+    name: str,
+    number: int,
+    seeders: int = 100,
+    indexer: str = "Knaben",
+    size: float = 8 * GB,
+) -> RawResult:
     """Строка выдачи: hash различает раздачи, по нему же они и склеиваются."""
     return RawResult(
-        title=name, info_hash=f"{number:040x}", size=int(8 * GB), seeders=seeders, indexer=indexer
+        title=name, info_hash=f"{number:040x}", size=int(size), seeders=seeders, indexer=indexer
     )
 
 
@@ -1249,3 +1255,94 @@ def test_a_latin_query_that_finds_something_is_never_re_read_as_layout(
 
     assert client.asked == ["cars"]
     assert "раскладке" not in said
+
+
+def test_a_picture_dubbed_only_in_unplayable_releases_is_asked_by_original_and_year(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """🔴 TC-210. «Тачки»: по-русски одни образы DVD, играбельное - англоязычный рип.
+
+    Живая выдача первой части: все русские раздачи оказались DVD-образами (играть в них
+    нечего, и отбор не берёт их по делу), а единственным кандидатом остаётся
+    ``Cars 2006 BluRay 1080p`` на 66 сид - без русской дорожки. Добор вторым языком сюда
+    уже сходил и принёс ровно его: по слову ``Cars`` индексер отдаёт первую сотню строк,
+    и русского ``BDRip 1080p | D`` в ней нет.
+
+    Разводит эту сотню ГОД: точная строка ``Cars 2006`` приносит «Тачки / Cars (2006)
+    BDRip 1080p | D» на 61 сид - честный 1080p с дубляжом и вчетверо легче образа диска.
+    """
+    _knows(monkeypatch, {"тачки": Origin(title="Cars", year=2006, name="Тачки")})
+    client = _FakeProwlarr(
+        {
+            "тачки": [
+                raw(f"Тачки / Cars [2006, США, мультфильм, DVD9] дубляж {i}", i, seeders=4)
+                for i in range(3)
+            ],
+            "cars": [raw("Cars 2006 BluRay 1080p DDP 5 1 x264-hallowed", 10, seeders=66)],
+            "cars 2006": [
+                raw("Тачки / Cars (2006) BDRip 1080p | D", 20, seeders=61, size=4.4 * GB)
+            ],
+        }
+    )
+
+    plans, said = _search(client, "тачки", monkeypatch)
+
+    assert client.asked == ["тачки", "Cars", "Cars 2006"]
+    assert "«Тачки» по-русски есть только там, где играть нечем - добрал по «Cars 2006»" in said
+    top = plans[0].ranked[0]
+    assert top.dubbed, "верхом стоит раздача с русской дорожкой, а не англоязычный рип"
+    assert "BDRip 1080p | D" in top.raw_name
+
+
+def test_a_dub_locked_behind_the_bitrate_ceiling_is_asked_by_original_and_year(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """🔴 TC-211. «Тачки 2»: дубляж обещан только 4К-ремуксом, который отбор не берёт.
+
+    Кандидатом у второй части стоит ремукс на 27 ГБ, о звуке молчащий, а дубляж назван в
+    38-гигабайтном 2160p - и тот не проходит потолок битрейта (:func:`over_ceiling`)
+    задолго до всякого ffprobe. Отказывать потолком нельзя (ремукс такого веса и правда
+    не сыграть), но и вечера по-русски так не выходит.
+
+    Номер части у добора вторым языком отрезан разбором франшизы, поэтому он уходит
+    словом ``Cars`` и не приносит ничего. Точная строка собирается по самой картине -
+    ``Cars 2 2011``, - и приносит «Тачки 2 / Cars 2 (2011) BDRip 1080p» на 11 сид: пять
+    гигабайт, дубляж, никакого сплошного перекода.
+    """
+    _knows(monkeypatch, {"тачки": Origin(title="Cars", year=2006, name="Тачки")})
+    client = _FakeProwlarr(
+        {
+            "тачки": [
+                raw(
+                    "Тачки 2 / Cars 2 [2011, США, мультфильм, BDRemux 1080p] "
+                    "[Локализованный видеоряд]",
+                    1,
+                    seeders=71,
+                    size=27 * GB,
+                ),
+                raw(
+                    "Тачки 2 / Cars 2 [2011, США, мультфильм, UHD BDRemux 2160p, HDR10] "
+                    "Dub + Ukr + Original (Eng)",
+                    2,
+                    seeders=126,
+                    size=38 * GB,
+                ),
+            ],
+            "cars 2 2011": [
+                raw(
+                    "Тачки 2 / Cars 2 (2011) BDRip 1080p от Leonardo and Scarabey-Лицензия",
+                    3,
+                    seeders=11,
+                    size=5.3 * GB,
+                )
+            ],
+        }
+    )
+
+    plans, said = _search(client, "тачки 2", monkeypatch)
+
+    assert client.asked == ["тачки", "Cars", "Cars 2 2011"]
+    assert "«Тачки 2» по-русски есть только там, где играть нечем" in said
+    top = plans[0].ranked[0]
+    assert top.dubbed and top.height == 1080, "верх - честный 1080p с дубляжом"
+    assert "Leonardo" in top.raw_name

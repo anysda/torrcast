@@ -1468,6 +1468,10 @@ def _search(
     # оригиналу, прежде чем честно отказать (:func:`_season_reinforce`).
     if _lacks_season(found, args):
         raw, pictures, found = _season_reinforce(client, query, args, raw, found, progress)
+    # Картина есть, а русской дорожки не обещает ни одна её играбельная раздача - добрать
+    # точной строкой «оригинал + год» (:func:`_voice_reinforce`).
+    if (voiceless := voiceless_pool(found, args, config, profile)) is not None:
+        raw, pictures, found = _voice_reinforce(client, query, voiceless, raw, found, progress)
     mark("поиск", найдено=len(raw))
     trace.emit("search", "query", query=query, raw=len(raw), pictures=len(pictures))
     if not raw:
@@ -2140,6 +2144,139 @@ def _season_reinforce(
     pictures = cluster(to_releases(merged))
     wider = pick_franchise(query, pictures)
     progress.note(f"сезона {want.season} в выдаче не было - добрал по «{season_query}»")
+    return merged, pictures, wider
+
+
+def voiceless_pool(
+    found: list[Picture], args: Args, config: Config, profile: Profile = CAUTIOUS
+) -> Picture | None:
+    """Картина, у которой русская дорожка обещана только в неиграбельных раздачах.
+
+    🔴 Русская дорожка - часть «включилось», а не предпочтение (TC-178): релиз без неё
+    показу не годится, и очередь на нём не кончается, а идёт дальше. Значит картина,
+    у которой дубляж лежит ровно там, куда отбор не ходит, - это не «выбор победнее»,
+    а вечер, которого не будет, и повод переспросить он ровно такой же, как негодный пул
+    (:func:`unfit_pool`). Живые случаи - обе «Тачки»: у первой части русские раздачи
+    оказались образами DVD, у второй дубляж обещан 38-гигабайтным 4К-ремуксом и
+    56-гигабайтным двухдисковым изданием, и то и другое отбор не берёт по делу.
+
+    Условия ДВА, и второе не менее важно первого:
+
+    * ни одна играбельная раздача русского не обещает. «Играбельная» - то же самое слово,
+      что и в :func:`fitness`: годна воротами, жива и не старьё;
+    * а НЕИГРАБЕЛЬНАЯ - обещает. Без этого условия круг платили бы за любую выдачу,
+      чьи имена о звуке просто МОЛЧАТ, - а молчание вполне может скрывать дубляж, его
+      рассудит ffprobe (:func:`sound_step` о том же). Здесь же каталог сказал прямо:
+      русская дорожка у картины есть, и лежит она не там, где мы ищем.
+
+    Спрашивается по имени раздачи (:attr:`~torrcast.parse.Release.dubbed`), то есть до
+    всякого ffprobe и без единого похода в рой.
+
+    Картина берётся не любая из найденных, а ТА, ЧТО СЫГРАЕТ (:func:`first_alive`): на
+    франшизе «тачки» это первая часть, а не самая обсиженная третья, и добирать надо
+    именно ей. Без оригинала или года точной строки не собрать - тогда ``None``.
+
+    ⚠️ Сериал сюда не заходит, и это не забывчивость. «Оригинал + год» - приём КАТАЛОГА
+    ПОЛНОМЕТРАЖНОГО КИНО: у фильма год стоит в имени каждой раздачи и разводит выдачу, а
+    сезон-пак подписан годом первого сезона или вилкой лет, и точной строкой его не
+    вытащить - его вытаскивает своя, сезонная (:func:`_season_reinforce`).
+
+    Замер по ста сохранённым выдачам говорит и про цену: круг сработал бы в 13 из 99, а
+    без сериалов - в 5 из 99. Это один лишний круг по индексерам там, где иначе показа
+    нет, и платится он из остатка цели (:func:`_no_budget`), как и оба соседних добора.
+    """
+    plans = [
+        plan
+        for plan in (_plan_for(p, args, config, profile) for p in menu_order(found))
+        if plan.ranked
+    ]
+    if not plans:
+        return None
+    plan = plans[first_alive(plans) - 1]
+    if plan.picture.kind == "tv" or not plan.picture.original or not plan.picture.year:
+        return None
+    if fitness(plan, dubbed=True) or not any(r.dubbed for r in plan.ranked):
+        return None
+    return plan.picture
+
+
+def _voice_reinforce(
+    client: Prowlarr,
+    query: str,
+    lead: Picture,
+    raw: list[RawResult],
+    found: list[Picture],
+    progress: Progress,
+) -> tuple[list[RawResult], list[Picture], list[Picture]]:
+    """Добрать точной строкой «оригинал + год», когда русской дорожки нет ни у кого.
+
+    🔴 Третий добор, и повод у него свой. Тощий пул добирают вторым языком
+    (:func:`_second_language`), нехватку сезона - сезонной строкой
+    (:func:`_season_reinforce`), а здесь раздач может быть сколько угодно, и все они
+    негодны по одной причине: играть картину не на чем по-русски.
+
+    Живые случаи, ради которых написано, - обе «Тачки»:
+
+    * «тачки» - все русские раздачи первой части оказались образами DVD (играть в них
+      нечего), и единственным кандидатом остался англоязычный ``Cars 2006 BluRay 1080p``
+      на 66 сид. Добор вторым языком сюда уже сходил и принёс ровно его;
+    * «тачки 2» - кандидатами стоят 0.4-гигабайтный HDRip «фильм о фильме» и ремукс на
+      27 ГБ, о звуке молчащий, а дубляж лежит в 38-гигабайтном 4К-ремуксе, который
+      потолок битрейта не пускает по делу.
+
+    Обычный запрос обеих не спасает, и вот почему: индексер отдаёт первую сотню строк
+    на слово, и по слову ``Cars`` в неё попадают «Тачки 3», «Cars on the Road», гоночные
+    симуляторы и десяток англоязычных рипов, а русский ``BDRip 1080p | D`` - нет. ГОД в
+    строке эту сотню и разводит: по ``Cars 2006`` приезжает «Тачки / Cars (2006) BDRip
+    1080p | D» на 61 сид, по ``Cars 2 2011`` - «Тачки 2 / Cars 2 (2011) BDRip 1080p» на
+    11 сид. Обе - честный 1080p с дубляжом, обе легче пяти гигабайт.
+
+    🔴 **Однофамильца этот круг не приносит.** Из ответа берутся только раздачи, у
+    которых ОРИГИНАЛ совпадает с оригиналом картины, за которой шли, и год сходится с её
+    годом (±1 - разница проката и производства). Новых картин добор не открывает вовсе:
+    он пополняет ту, что уже нашлась, и меню от него не растёт. Ничего не подошло -
+    остаётся прежняя выдача целиком.
+
+    Один лишний круг по индексерам, и только там, где иначе показа нет: пока у картины
+    есть живая раздача с обещанным русским звуком, сюда не заходят (:func:`voiceless_pool`).
+    Круг платит из остатка цели, как и оба соседних добора (:func:`_no_budget`).
+    """
+    from torrcast.parse import cluster, pick_franchise
+
+    name, _index = split_franchise_index(query)
+    exact = f"{lead.original} {lead.year}"
+    # Тем же именем второй раз ходить незачем: это тот же круг ради той же выдачи.
+    if slugify(exact) == slugify(name):
+        return raw, cluster(to_releases(raw)), found
+    if _no_budget(client, f"добор по «{exact}»", progress) is None:
+        return raw, cluster(to_releases(raw)), found
+    progress.phase(f"поиск «{exact}»")
+    extra = _ask(client, exact)
+    progress.phase("")
+    want_orig = slugify(lead.original or "")
+    keep = [
+        row
+        for row, rel in zip(extra, to_releases(extra), strict=True)
+        if rel.original
+        and slugify(rel.original) == want_orig
+        and rel.year is not None
+        and lead.year is not None
+        and abs(rel.year - lead.year) <= 1
+    ]
+    merged = merge(raw, keep) if keep else raw
+    if len(merged) == len(raw):
+        return raw, cluster(to_releases(raw)), found
+    pictures = cluster(to_releases(merged))
+    wider = pick_franchise(query, pictures)
+    was = sum(len(p.releases) for p in found)
+    now = sum(len(p.releases) for p in wider)
+    if now <= was:
+        # Прибавка ушла мимо картины - тогда второго захода как будто и не было.
+        return raw, cluster(to_releases(raw)), found
+    progress.note(
+        f"«{lead.title}» по-русски есть только там, где играть нечем - "
+        f"добрал по «{exact}»: раздач стало {now}"
+    )
     return merged, pictures, wider
 
 
@@ -4825,7 +4962,7 @@ def liveliness(plan: _Plan) -> int:
     )
 
 
-def fitness(plan: _Plan) -> int:
+def fitness(plan: _Plan, dubbed: bool = False) -> int:
     """Сиды лучшей раздачи, которой картину и правда стоит смотреть; 0 - такой нет.
 
     От :func:`liveliness` отличается двумя условиями, и оба взяты у самого отбора, а не
@@ -4845,12 +4982,19 @@ def fitness(plan: _Plan) -> int:
     ⚠️ Порядок отбора это НЕ смягчает и не ужесточает: годность релиза по-прежнему решает
     :func:`is_candidate`, а старьё по-прежнему играется, когда другого нет вовсе. Здесь
     считается только вес картины в двух вопросах выше.
+
+    ``dubbed`` - считать только раздачи, чьё ИМЯ обещает русскую дорожку
+    (:attr:`~torrcast.parse.Release.dubbed`). Тем же словом «стоит смотреть» отвечают на
+    третий вопрос - «состоится ли вечер ПО-РУССКИ» (:func:`voiceless_pool`): русская дорожка
+    входит в «включилось» (TC-178), и пул без единой играбельной раздачи с нею - такой же
+    тупик, как пул без единой играбельной вовсе.
     """
     return max(
         (
             release.seeders
             for release in plan.ranked
             if release.seeders >= ALIVE_SEEDERS
+            and (release.dubbed or not dubbed)
             and is_candidate(
                 release,
                 plan.runtime,
