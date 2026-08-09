@@ -15,7 +15,7 @@ import pytest
 from torrcast import InfraError, NotFoundError, cli, console, scan
 from torrcast.cli import TABLE_LIMIT, is_candidate, is_disc, rank_releases, render_table, warned
 from torrcast.console import Progress
-from torrcast.parse import Kind, Release, parse_release_name
+from torrcast.parse import Kind, Picture, Release, parse_release_name
 from torrcast.state import load_config
 from torrcast.stream import RUNTIME_GUESS, Media, TorrFile
 
@@ -903,7 +903,6 @@ def test_the_ceiling_weighs_the_video_track_not_the_ten_dubs_around_it() -> None
 
 
 def _franchise_plan(title: str, year: int | None, releases: list[Release]) -> Any:
-    from torrcast.parse import Picture
 
     return cli._Plan(
         picture=Picture(title=title, year=year, releases=releases),
@@ -1183,7 +1182,6 @@ def test_a_pool_without_a_single_peer_says_so_plainly() -> None:
 
 def _series_plan(title: str, year: int, kind: Kind, releases: list[Release]) -> Any:
     """План картины, у которой запрос назвал серию: тип сказан вслух (``s1e1``)."""
-    from torrcast.parse import Picture
 
     return cli._Plan(
         picture=Picture(title=title, year=year, kind=kind, releases=releases),
@@ -1371,7 +1369,6 @@ def test_the_year_gate_stays_silent_where_it_should() -> None:
     из имени), год картины неизвестен (опровергать нечего), год сошёлся или это ремейк.
     """
     from torrcast.facts import Origin
-    from torrcast.parse import Picture
 
     plan = _franchise_plan("Оно", 2017, [rel(name="a")])
     assert cli.year_note(plan, Origin()) == "", "справка пуста - молчим и НЕ блокируем"
@@ -2028,3 +2025,68 @@ def test_a_4k_file_that_needs_a_full_recode_is_refused_before_the_unit_starts() 
     cli._refuse_hopeless(config, replace(uhd, codec="h264", depth=8))
     # Кадра не спрашивали (запись прежней версии) - молчим и играем как раньше.
     cli._refuse_hopeless(config, replace(uhd, frame=0))
+
+
+def test_releases_table_uses_true_duration_and_matches_explicit_release(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """У картины с длительностью сильно больше двух часов таблица cast releases
+    и последующий --release N дают одну и ту же раздачу под одним и тем же номером.
+    """
+    from torrcast.facts import Fact
+    from torrcast.state import Config
+
+    lighter = rel(name="lighter", size_gb=10, seeders=50)
+    heavy = rel(name="heavy", size_gb=20, seeders=100)
+
+    config = Config(bitrate_warn_mbit=16.0)
+    # На 2 часах heavy (20 ГБ) улетает за потолок 16 Мбит/с.
+    ranked_guess = cli.rank_releases([lighter, heavy], 120.0 * 60.0, config.bitrate_warn_mbit)
+
+    from torrcast.parse import Picture
+
+    plan = cli._Plan(
+        picture=Picture(title="Кино", year=1999, releases=[lighter, heavy]),
+        ranked=ranked_guess,
+        runtime=120.0 * 60.0,
+        warn_mbit=config.bitrate_warn_mbit,
+    )
+
+    def fake_search(*args: Any, **kwargs: Any) -> list[cli._Plan]:
+        return [plan]
+
+    monkeypatch.setattr(cli, "_search", fake_search)
+    monkeypatch.setattr(cli, "load_config", lambda: config)
+
+    class FakeFacts:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
+        def start(self) -> None:
+            pass
+
+        def finish(self) -> None:
+            pass
+
+        def get(self, *args: Any, **kwargs: Any) -> Fact:
+            return Fact(runtime="3 ч")
+
+    monkeypatch.setattr(cli, "Facts", FakeFacts)
+
+    cli._cmd_releases(cli.Args(query=["releases", "кино"]))
+    printed = capsys.readouterr().out
+
+    # Таблица должна перестроить план на 3 часах и показать heavy первым,
+    # так как на 3 часах его битрейт падает ниже 16 Мбит/с.
+    import re
+
+    assert re.search(r"1\s+1080p\s+20.0 ГБ", printed), (
+        "таблица должна строиться на настоящей длительности"
+    )
+
+    args = cli.Args(query=["кино"], release=1)
+    assert args.release is not None
+    fresh_plan = cli._timed(plan, cast(Any, FakeFacts()), args, config)
+    assert fresh_plan.ranked[args.release - 1].raw_name == "heavy", (
+        "отбор не должен расходиться с таблицей"
+    )

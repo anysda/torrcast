@@ -740,10 +740,13 @@ def _cmd_status() -> int:
 
 
 def _cmd_releases(args: Args) -> int:
-    """``cast releases <запрос>`` — отладочная ручка: старая таблица и выход.
+    """``cast releases <запрос>`` — отладочная ручка: таблица и выход.
 
     На счастливом пути таблицы нет вовсе: релиз выбирается сам. Но посмотреть, из чего
     он выбирал, иногда надо — и тогда рядом лежит ``cast <запрос> --release N``.
+
+    Таблица спрашивает настоящую длительность, чтобы битрейт (а значит, и порядок
+    раздач, и номера ``N``) совпал с тем, что сыграет ``cast`` по этому номеру.
     """
     config = load_config()
     inner = Args(query=list(args.query[1:]))
@@ -751,21 +754,27 @@ def _cmd_releases(args: Args) -> int:
         raise NotFoundError("что искать? cast releases <запрос>")
     with Progress() as progress:
         plans = _search(config, inner, progress)
-    for plan in plans:
-        print()
-        print(f"{_named(plan.picture)} - раздач {len(plan.ranked)}")
-        print(
-            render_table(
-                plan.ranked,
-                plan.runtime,
-                plan.warn_mbit,
-                recode_at=plan.recode_at,
-                hard_mbit=plan.hard_mbit,
+    facts = Facts([(p.picture.title, p.picture.year) for p in plans])
+    facts.start()
+    try:
+        for plan in plans:
+            plan = _timed(plan, facts, inner, config, CAUTIOUS)
+            print()
+            print(f"{_named(plan.picture)} - раздач {len(plan.ranked)}")
+            print(
+                render_table(
+                    plan.ranked,
+                    plan.runtime,
+                    plan.warn_mbit,
+                    recode_at=plan.recode_at,
+                    hard_mbit=plan.hard_mbit,
+                )
             )
-        )
-    print()
-    print("играть конкретный: cast <запрос> --release N [--file N]")
-    return EXIT_OK
+        print()
+        print("играть конкретный: cast <запрос> --release N [--file N]")
+        return EXIT_OK
+    finally:
+        facts.finish()
 
 
 def _cmd_voices(args: Args) -> int:
@@ -1972,11 +1981,6 @@ def _timed(
     прикидке, и это решение не молчаливое: событие ``runtime`` уходит в недельный след
     (:func:`torrcast.trace.emit`) с тем же числом, которым считался битрейт.
     """
-    if args.release is not None:
-        # Релиз назван руками, а номера ему давала таблица ``cast releases`` - она
-        # строится на прикидке и справки не спрашивает. Пересобрать порядок здесь
-        # значило бы сыграть не тот номер, который человек прочитал глазами.
-        return plan
     fact = facts.get(plan.picture.title, plan.picture.year) if facts is not None else Fact()
     minutes = minutes_of(fact.runtime)
     if minutes <= 0:
