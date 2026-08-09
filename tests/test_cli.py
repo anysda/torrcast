@@ -1446,3 +1446,102 @@ def test_a_neighbour_asked_about_honesty_is_dropped_once_it_has_answered(
     assert prep.number == 1, "лучше 574p рядом нет - играем то, что есть"
     assert "не лучше" in capsys.readouterr().out
     assert torrserver.dropped == [f"hash-{ranked[1].magnet}"], "сосед отпущен по своему хэшу"
+
+
+# --- Пак, который считает сезоны, но не серии (TC-139) --------------------------------
+
+
+def _series_release(name: str, size_gb: float, seeders: int) -> Release:
+    """Раздача сериала прямо из живой выдачи «Чёрных парусов» - именем и размером."""
+    from torrcast.parse import parse_release_name
+
+    return replace(
+        parse_release_name(name), size=int(size_gb * 1e9), seeders=seeders, magnet=f"magnet:{name}"
+    )
+
+
+def test_a_multi_season_pack_that_hides_its_bitrate_stops_outranking_the_live_one() -> None:
+    """🟡 «Чёрные паруса»: перебор упирался в старьё, у которого имя молчит обо всём.
+
+    ``[S01-04] (2014-2017) HDTV-AlexFilm`` не называет ни разрешения, ни кодека и серий
+    не считает - :func:`~torrcast.cli.bitrate_of` на нём отдаёт ноль, и раздача с ОДНИМ
+    сидом вставала в очереди выше сериала на 61 сид. Три таких верха подряд - это три
+    приговора ``mpeg4``, весь :data:`~torrcast.cli.MAX_TRIES` и 130 секунд, после которых
+    показ говорит «годного релиза нет» при живом каталоге.
+    """
+    from torrcast.cli import is_dated, pack_mbit
+
+    tv = RUNTIME_GUESS["tv"]
+    pda = _series_release(
+        "Чёрные паруса / Black Sails [S01-04] (2014-2017) HDRip, WEB-DL, HDTV | КПК", 10.24, 1
+    )
+    hdtv = _series_release(
+        "Чёрные паруса / Black Sails [S01-04] (2014-2017) HDTV-AlexFilm", 27.24, 1
+    )
+    honest = _series_release(
+        "Черные паруса / Black Sails [S01-04] (2014-2017) BDRip 720p-AlexFilm", 114.21, 1
+    )
+
+    assert round(pack_mbit(pda, tv), 1) == 1.3
+    assert round(pack_mbit(hdtv, tv), 1) == 3.4
+    assert round(pack_mbit(honest, tv)) == 14
+    assert is_dated(pda, tv) and is_dated(hdtv, tv)
+    assert not is_dated(honest, tv), "114 ГБ на четыре сезона - настоящий 720p, не старьё"
+
+
+def test_the_pack_ceiling_never_judges_a_release_only_orders_it() -> None:
+    """Потолок пака - это ПОРЯДОК и только он: ворота отбора считают, как считали.
+
+    Отдельно от :func:`~torrcast.cli.bitrate_of` он живёт нарочно: тот кормит
+    :func:`~torrcast.cli.is_candidate`, и потолок в воротах означал бы «слишком тяжёлый»,
+    то есть отказ показывать честный 114-гигабайтный пак.
+    """
+    from torrcast.cli import bitrate_of, is_candidate, pack_mbit
+
+    tv = RUNTIME_GUESS["tv"]
+    honest = _series_release(
+        "Черные паруса / Black Sails [S01-04] (2014-2017) BDRip 720p-AlexFilm", 114.21, 1
+    )
+    assert bitrate_of(honest, tv) == 0.0, "серий имя не считает - ворота молчат, как молчали"
+    assert is_candidate(honest, tv, 16.0), "и кандидатом он остаётся"
+    assert round(pack_mbit(honest, tv)) == 14, "а порядок при этом знает про него больше"
+
+    # Имя, которое серии ПОСЧИТАЛО, потолком не судится вовсе: там есть настоящее число.
+    counted = _series_release(
+        "Чёрные Паруса / Black Sails / S1E1-8 of 8 (2014) [HDRip] MVO (LostFilm)", 8.91, 9
+    )
+    assert counted.episode_count == 8
+    assert pack_mbit(counted, tv) == 0.0
+
+
+def test_the_live_series_climbs_over_the_silent_one_seed_packs() -> None:
+    """Порядок очереди на живой выдаче «Чёрных парусов»: 61 сид поднимается с 5-го на 3-е.
+
+    Требований это не смягчает ни на знак - mpeg4 как отбраковывался ffprobe, так и
+    отбраковывается. Меняется только то, до какого места очереди перебор доходит,
+    прежде чем упрётся в бюджет попыток.
+    """
+    tv = RUNTIME_GUESS["tv"]
+    releases = [
+        _series_release(
+            "Черные паруса / Black Sails [S01-04] (2014-2017) BDRip 720p-AlexFilm", 114.21, 1
+        ),
+        _series_release("Чёрные паруса / Black Sails [S01-04] (2014-2017) HDTV-AlexFilm", 27.24, 1),
+        _series_release("Чёрные Паруса / Black Sails [S01] (2014) HDTV 720p-BaibaKo", 17.32, 1),
+        _series_release(
+            "Чёрные паруса / Black Sails [S01-04] (2014-2017) HDRip, WEB-DL, HDTV | КПК", 10.24, 1
+        ),
+        _series_release(
+            "Чёрные Паруса / Black Sails / Сезоны: 1-4 / E1-38 of 38 (2014-2017) "
+            "[HDRip] MVO (LostFilm)",
+            32.53,
+            61,
+        ),
+    ]
+
+    order = [r.size for r in rank_releases(releases, tv, 16.0)]
+
+    assert order.index(int(32.53 * 1e9)) == 2, "живой сериал третий, а не пятый"
+    assert order.index(int(27.24 * 1e9)) > 2, "молчаливые односидные паки ушли ниже него"
+    assert order.index(int(10.24 * 1e9)) > 2
+    assert order[0] == int(114.21 * 1e9), "честный 720p с верха не сходит"
