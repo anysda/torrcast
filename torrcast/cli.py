@@ -134,6 +134,7 @@ __all__ = [
     "voice_note",
     "voices_table",
     "warm_order",
+    "year_note",
 ]
 
 EXIT_OK, EXIT_NOT_FOUND, EXIT_INFRA = 0, 1, 2
@@ -1128,6 +1129,12 @@ def _cmd_play(args: Args) -> int:
         # секунды, что уходят на подъём прогрева. Меню её не ждёт: см. torrcast.facts.
         facts = Facts([(p.picture.title, p.picture.year) for p in plans])
         facts.start()
+        # 🔴 TC-199/TC-200. Год картины, которая встанет дефолтом, сверяется со справкой -
+        # так же, как добор сверяет свой (:func:`year_note`). Справку зовём вслепую и фоном,
+        # ровно в те секунды, что уходят на меню и прогрев: путь до меню её не ждёт, а к
+        # последней строке перед стартом паспорт уже приехал. Год выдачи ей НЕ сообщаем -
+        # иначе подстроится под подмену и сверять станет нечего.
+        passport = _passport(plans)
         torrserver = TorrServer(config.torrserver_url)
         bench = _Bench(torrserver, choose=_file_picker(args), profile=chosen.profile)
         # Прогрев под меню: пока идёт вопрос, раздачи уже качают метаданные.
@@ -1204,6 +1211,10 @@ def _cmd_play(args: Args) -> int:
     # про КАРТИНУ человек должен унести с собой. Человек выбрал пункт меню сам - подмены
     # нет и строки нет (:func:`default_note`).
     if note := swap_note(plans, plan, args.title_query):
+        print(note)
+    # 🔴 TC-199/TC-200. Год дефолтной картины против независимого слова справки: имя
+    # раздачи врёт («Оно» 2014, «Медведь» 2026), а год у дефолта не сверялся нигде.
+    if _is_default(plans, plan) and (note := year_note(plan, passport.get(), args.title_query)):
         print(note)
     if args.dry:
         print(f"(--dry) {about} - каста нет")
@@ -4287,14 +4298,108 @@ def swap_note(plans: list[_Plan], picked: _Plan, asked: str = "") -> str:
 
     Картина одна - меню не задавалось вовсе, выбора не было, и строки нет.
     """
-    if len(plans) < 2:
-        return ""
-    # План после меню пересобирается на настоящей длительности (:func:`_timed`) и это
-    # уже ДРУГОЙ объект - сверка по картине, идентичность тут врёт.
-    number = next((n for n, plan in enumerate(plans, start=1) if plan.picture is picked.picture), 0)
-    if number != first_alive(plans):
+    if not _is_default(plans, picked):
         return ""
     return default_note(plans, asked)
+
+
+def _is_default(plans: list[_Plan], picked: _Plan) -> bool:
+    """Встал ли выбранный план дефолтом (:func:`first_alive`), а не выбором человека.
+
+    Человек, ответивший на меню номером, ничего не подменял - он выбрал. Строки про
+    подмену (:func:`swap_note`, :func:`year_note`) живут ровно там, где картину выбрали
+    за него. Картина одна - меню не задавалось вовсе, выбора не было.
+
+    План после меню пересобирается на настоящей длительности (:func:`_timed`) и это уже
+    ДРУГОЙ объект - сверка идёт по картине, идентичность тут врёт.
+    """
+    if len(plans) < 2:
+        return False
+    number = next((n for n, plan in enumerate(plans, start=1) if plan.picture is picked.picture), 0)
+    return number == first_alive(plans)
+
+
+def year_note(picked: _Plan, about: Origin, asked: str = "") -> str:
+    """🔴 TC-199/TC-200. Честная строка, когда год дефолтной картины расходится со справкой.
+
+    Год картины склеивается из ИМЕНИ раздачи, а имя врёт: «Оно» уезжает раздачей 2014
+    года, «Медведь» - 2026-го, «Брат 2» - «Брат 2025». Гейт подмены сверял этот год со
+    справкой только ВОКРУГ ДОБОРА (:func:`_second_language`), а у картины, вставшей
+    дефолтом, год не сверялся нигде - и человек молча получал не тот фильм.
+
+    Сверка та же, что у добора: независимое слово справки (:func:`~torrcast.facts.origin`,
+    год выдачи ей НЕ подсказан) против года картины, с тем же допуском ±1 год (год
+    производства против года проката) и той же поблажкой ремейку - совпал оригинал, значит
+    та же вещь, хоть годы и врозь.
+
+    Право у строки ровно одно - сказать вслух; ни блокировать показ, ни менять год картины
+    она не вправе (TC-199/TC-200 - про честность, а не про отказ). Молчим в трёх случаях,
+    и все три - ограждения:
+
+    * справка пуста или неуверенна (``about.year is None``) - латинописанное аниме, нет
+      статьи, сеть легла, год в статье назван неоднозначно. Сверять нечем, и год из имени
+      остаётся единственным источником: подменять его молчанием справки нельзя;
+    * год картины неизвестен (``picture.year is None``) - опровергать нечего;
+    * годы сошлись (±1) или это ремейк того же оригинала - решение верное, строка была бы
+      шумом.
+    """
+    picture = picked.picture
+    if about.year is None or picture.year is None:
+        return ""
+    if about.title and picture.original and slugify(picture.original) == slugify(about.title):
+        return ""
+    if abs(picture.year - about.year) <= 1:
+        return ""
+    head = f"спросили «{asked}» - " if asked else ""
+    return (
+        f"{head}беру «{picture.title}» {picture.year} года, "
+        f"но справка знает эту картину как {about.year}"
+    )
+
+
+class _Passport:
+    """Фоновый паспорт дефолтной картины: :func:`_passport` пускает, :meth:`get` забирает.
+
+    Справка (:func:`~torrcast.facts.origin`) - независимое слово для гейта года выбранной
+    картины (:func:`year_note`). Нужна она лишь к последней строке перед стартом, поэтому
+    едет фоном, ровно в те секунды, что уходят на меню и прогрев. :meth:`get` дожидается
+    её сам добор бюджетом ограничил, так что путь до меню она не держит.
+    """
+
+    def __init__(self, picture: Picture | None) -> None:
+        self._picture = picture
+        self._box: list[Origin] = []
+        self._thread: threading.Thread | None = None
+
+    def start(self) -> None:
+        if self._picture is None:  # меню не было - и сверять нечего
+            return
+        self._thread = threading.Thread(target=self._work, daemon=True)
+        self._thread.start()
+
+    def _work(self) -> None:
+        # Тип картины известен из выдачи (:attr:`Picture.kind`), и его подсказать надо:
+        # у сериала и фильма разные статьи. Год выдачи - нет: см. :func:`year_note`.
+        with contextlib.suppress(Exception):
+            self._box.append(origin(self._picture.title, series=self._picture.kind == "tv"))  # type: ignore[union-attr]
+
+    def get(self) -> Origin:
+        thread = self._thread
+        if thread is not None:
+            thread.join()
+        return self._box[0] if self._box else Origin()
+
+
+def _passport(plans: list[_Plan]) -> _Passport:
+    """Пустить фоном добор паспорта той картины, что встанет дефолтом (:func:`year_note`).
+
+    Только на меню из нескольких картин: одна картина - выбора не было, сверять нечего, и
+    лишнего похода к справке на счастливом однокартинном пути не случается.
+    """
+    default = plans[first_alive(plans) - 1].picture if len(plans) >= 2 else None
+    holder = _Passport(default)
+    holder.start()
+    return holder
 
 
 def _passed_why(plans: list[_Plan], number: int, numbers: list[int]) -> str:

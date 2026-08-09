@@ -412,6 +412,10 @@ class Origin:
     title: str = ""
     year: int | None = None
     name: str = ""
+    #: Q-идентификатор статьи в Wikidata. Не паспорт сам по себе (в :meth:`__bool__` не
+    #: входит и в кэш пишется отдельно), а ключ ко второму источнику: по нему одинокий год
+    #: сверяется с датой публикации P577 (:func:`origin_either`, :func:`confirmed_year`).
+    entity: str = ""
 
     def __bool__(self) -> bool:
         return bool(self.title or self.year or self.name)
@@ -498,7 +502,83 @@ def origin_either(title: str, budget: float = FACTS_BUDGET) -> Origin:
     if movie and show:
         return movie if _same_picture_origin(movie, show) else Origin()
     lone = movie or show
-    return Origin(title=lone.title, name=lone.name)
+    year = _second_source_year(lone, budget)
+    return Origin(title=lone.title, year=year, name=lone.name, entity=lone.entity)
+
+
+def _second_source_year(lone: Origin, budget: float) -> int | None:
+    """Год одинокого ответа - только если его подтверждает ВТОРОЙ источник (Wikidata P577).
+
+    🔴 TC-134. Одинокий ответ (:func:`origin_either`) никем не подтверждён: второй путь
+    молчит не потому, что картины другого типа нет, а потому, что статьи о ней нет в
+    русской Википедии. Прежде год у такого ответа отбирался ВСЕГДА - и это отбирало год
+    у верных одиночек тоже («Психо» 1960, «Моана» 2016, «Во все тяжкие» 2008), а на них
+    стоит год-опора гейтов добора. Отобрать год у всех - лекарство хуже болезни.
+
+    Второй источник - дата первой публикации P577 из Wikidata, тем же SPARQL и тем же
+    IPv4-клиентом, что уже носят хронометраж (:func:`wikidata_ids`). Совпал её год с годом
+    статьи - год подтверждён двумя источниками, отдаём. Разошлись, второго года нет или
+    Wikidata молчит - МОЛЧИМ: год роняем, а не выбираем «поудачнее». При расхождении
+    источников чужой год страшнее пустого - им гейт добора молча выкидывает всю картину.
+
+    Хоп стоит времени до меню, поэтому спрашиваем P577 ТОЛЬКО когда год реально нужен: у
+    ответа он есть (иначе сверять нечего) и есть чем спросить второй источник (``entity``).
+    Латинописанное аниме приходит без Q-идентификатора - тогда второго источника нет, и
+    год остаётся неподтверждённым, ровно как раньше.
+    """
+    if lone.year is None or not lone.entity:
+        return None
+    return lone.year if confirmed_year(lone.entity, lone.year, budget) else None
+
+
+def confirmed_year(entity: str, year: int, budget: float = FACTS_BUDGET) -> bool:
+    """Подтверждает ли Wikidata (P577) год статьи. Молчание/расхождение/ошибка - ``False``.
+
+    Год живёт в бюджете справки, а лишний хоп его тратит, поэтому запрос идёт в отдельном
+    потоке с ``join`` по бюджету: залипший сокет держит демона, а не путь до меню. Любая
+    ошибка (сети нет, v6 висит в SYN-SENT, Wikidata ответила не так) - тоже ``False``:
+    неподтверждённый год честнее чужого.
+    """
+    box: list[int | None] = []
+
+    def work() -> None:
+        with contextlib.suppress(Exception):
+            box.append(published_year(entity, min(HTTP_TIMEOUT, budget)))
+
+    thread = threading.Thread(target=work, daemon=True)
+    thread.start()
+    thread.join(budget)
+    return bool(box) and box[0] == year
+
+
+def published_year(entity: str, timeout: float = HTTP_TIMEOUT) -> int | None:
+    """Год первой публикации картины из Wikidata (P577); нет даты - ``None``.
+
+    Тот же SPARQL и тот же клиент, что у :func:`wikidata_ids`. Дат у P577 бывает несколько
+    (разные страны проката, издания) - берём самую раннюю: она и есть «первая публикация».
+    """
+    query = f"SELECT ?date WHERE {{ wd:{entity} wdt:P577 ?date }}"
+    head = {"Accept": "application/sparql-results+json"}
+    payload = get_json(_WIKIDATA_HOST, _WIKIDATA_PATH, {"query": query}, head, timeout)
+    return read_published(payload)
+
+
+def read_published(payload: Any) -> int | None:
+    """Ответ SPARQL на P577 → самый ранний год; ни одной даты - ``None``.
+
+    Дата приезжает ISO-строкой («2016-11-14T00:00:00Z», у старого кино с точностью до года
+    - «1960-01-01T00:00:00Z»); год - её первые четыре цифры.
+    """
+    if not isinstance(payload, dict):
+        return None
+    rows = (payload.get("results", {}) or {}).get("bindings", [])
+    years: list[int] = []
+    for row in rows:
+        value = row.get("date", {}).get("value", "")
+        match = re.match(r"(\d{4})-", value)
+        if match:
+            years.append(int(match.group(1)))
+    return min(years) if years else None
 
 
 def _same_picture_origin(one: Origin, two: Origin) -> bool:
@@ -813,6 +893,7 @@ def read_origin(
             title=latin,
             year=picture_year(extract),
             name=_TAIL_RE.sub("", heading) if _CYRILLIC.search(heading) else "",
+            entity=str((page.get("pageprops") or {}).get("wikibase_item") or ""),
         )
         if found:
             return found
@@ -1436,6 +1517,7 @@ def _cached_origin(title: str, series: bool) -> Origin | None:
         title=str(row.get("title", "")),
         year=shown if isinstance(shown, int) else None,
         name=str(row.get("name", "")),
+        entity=str(row.get("entity", "")),
     )
 
 
@@ -1445,6 +1527,9 @@ def _remember_origin(title: str, series: bool, found: Origin) -> None:
         "title": found.title,
         "year": found.year,
         "name": found.name,
+        # Q-идентификатор нужен на диске, иначе одинокий год (:func:`origin_either`) на
+        # втором показе терял бы второй источник и ронял год, подтверждённый на первом.
+        "entity": found.entity,
     }
     _write_cache(raw)
 

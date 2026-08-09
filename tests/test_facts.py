@@ -845,6 +845,87 @@ def test_a_lone_answer_lends_its_name_but_never_its_year(monkeypatch: Any) -> No
     assert lone.year is None, "год у сериала 2013, а не 2015 - неподтверждённый год не отдаём"
 
 
+def test_the_publication_year_is_the_earliest_p577_date() -> None:
+    """🔴 TC-134. Год первой публикации из P577 - самая ранняя дата; ни одной - ``None``."""
+    payload = {
+        "results": {
+            "bindings": [
+                {"date": {"value": "2016-12-02T00:00:00Z"}},  # прокат в одной стране
+                {"date": {"value": "2016-11-14T00:00:00Z"}},  # премьера - раньше
+            ]
+        }
+    }
+    assert facts_mod.read_published(payload) == 2016
+    assert facts_mod.read_published({"results": {"bindings": []}}) is None
+    assert facts_mod.read_published("не словарь") is None
+
+
+def test_a_lone_year_is_kept_only_when_a_second_source_confirms_it(monkeypatch: Any) -> None:
+    """🔴 TC-134. Одинокий год отдаём, лишь если его подтверждает P577; иначе - только имя.
+
+    Прежде год у одинокого ответа (:func:`origin_either`) отбирался ВСЕГДА, и с ним у
+    верных одиночек терялась год-опора гейтов добора. Второй источник - дата первой
+    публикации Wikidata (P577): совпала с годом статьи - год двух источников отдаём,
+    разошлась или Wikidata молчит - МОЛЧИМ (только имя), а не выбираем «поудачнее».
+
+    Таблица: имя -> (год статьи, P577) -> итог года.
+    """
+    from torrcast.facts import Origin, origin_either
+
+    monkeypatch.setattr(facts_mod, "_cached_origin", lambda title, series: None)
+    monkeypatch.setattr(facts_mod, "_remember_origin", lambda *a: None)
+    p577 = {"Q1": 1960, "Q2": 2016, "Q3": 2008, "Q4": 1999, "Q5": None}
+    monkeypatch.setattr(facts_mod, "published_year", lambda entity, timeout=1.0: p577.get(entity))
+
+    # имя -> (паспорт статьи с Q-идентификатором, ожидаемый год итога)
+    table = {
+        "Психо": (Origin("Psycho", 1960, "Психо", "Q1"), 1960),  # 1960 == 1960 -> год
+        "Моана": (Origin("Moana", 2016, "Моана", "Q2"), 2016),  # 2016 == 2016 -> год
+        "Во все тяжкие": (Origin("Breaking Bad", 2008, "Во все тяжкие", "Q3"), 2008),  # -> год
+        "Оно": (Origin("It", 2014, "Оно", "Q4"), None),  # P577 1999 != 2014 -> молчим
+        "Медведь": (Origin("The Bear", 2026, "Медведь", "Q5"), None),  # Wikidata молчит -> молчим
+    }
+    for name, (paper, want) in table.items():
+        monkeypatch.setattr(
+            facts_mod,
+            "origin_now",
+            lambda title, series, timeout, paper=paper: Origin() if series else paper,
+        )
+        got = origin_either(name)
+        assert got.title == paper.title, f"{name}: имя одинокого ответа остаётся всегда"
+        assert got.year == want, f"{name}: год статьи {paper.year}, P577 {p577[paper.entity]}"
+
+
+def test_a_lone_answer_without_a_wikidata_id_never_asks_for_a_second_source(
+    monkeypatch: Any,
+) -> None:
+    """🔴 TC-134. Нет Q-идентификатора - второго источника нет: год роняем, P577 не трогаем.
+
+    Латинописанное аниме русская Википедия отдаёт без ``wikibase_item`` (оригинал берётся
+    из английской статьи), и спросить P577 нечем. Хоп стоит времени до меню, поэтому его и
+    не делаем: год реально нужен, да спросить второй источник нечем - год остаётся
+    неподтверждённым, ровно как раньше. «Атака титанов» так и держится зелёной.
+    """
+    from torrcast.facts import Origin, origin_either
+
+    monkeypatch.setattr(facts_mod, "_cached_origin", lambda title, series: None)
+    monkeypatch.setattr(facts_mod, "_remember_origin", lambda *a: None)
+    calls: list[str] = []
+    monkeypatch.setattr(
+        facts_mod, "published_year", lambda entity, timeout=1.0: calls.append(entity) or 2015
+    )
+    lone_no_id = Origin("Attack on Titan", 2015, "Атака титанов")  # entity == ""
+    monkeypatch.setattr(
+        facts_mod,
+        "origin_now",
+        lambda title, series, timeout: Origin() if series else lone_no_id,
+    )
+    lone = origin_either("Атака титанов")
+    assert lone.title == "Attack on Titan", "имя остаётся - справка не замолкает"
+    assert lone.year is None, "без второго источника год неподтверждён"
+    assert not calls, "без Q-идентификатора P577 не спрашиваем - лишний хоп ни к чему"
+
+
 WHISPERS = (
     "«Шёпоты и крики» (швед. Viskningar och rop) — шведский художественный фильм в жанре "
     "психологической драмы режиссёра Ингмара Бергмана, вышедший в 1972 году."

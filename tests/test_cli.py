@@ -1346,6 +1346,67 @@ def test_the_line_belongs_to_the_default_not_to_the_human_choice() -> None:
     assert cli.swap_note(plans[:1], plans[0], "оно") == "", "картина одна - выбора не было"
 
 
+def test_the_default_pictures_year_is_checked_against_the_reference() -> None:
+    """🔴 TC-199/TC-200. Год дефолтной картины сверяется со справкой - как год добора.
+
+    Год склеивается из ИМЕНИ раздачи, а имя врёт: «Оно» уезжает раздачей 2014 года при
+    фильме 2017-го, «Медведь» - 2026-го. Гейт подмены сверял год только вокруг добора, а у
+    картины, вставшей дефолтом, год не сверялся нигде - и человек молча получал не тот год.
+    """
+    from torrcast.facts import Origin
+
+    plan = _franchise_plan("Оно", 2014, [rel(name="Оно 2014 BDRip 1080p")])
+    note = cli.year_note(plan, Origin(title="It", year=2017), asked="оно")
+    assert note, "год расходится со справкой - решение обязано прозвучать"
+    assert "\n" not in note, "строка одна"
+    assert note.startswith("спросили «оно» - "), note
+    assert "2014" in note and "2017" in note, note
+
+
+def test_the_year_gate_stays_silent_where_it_should() -> None:
+    """🔴 TC-199/TC-200. Ограждения гейта года: молчим, где сверять нечем или год верен.
+
+    Право у строки одно - сказать вслух; блокировать показ или менять год картины она не
+    вправе. Молчим в трёх случаях: справка пуста/неуверенна (не подменять её молчанием год
+    из имени), год картины неизвестен (опровергать нечего), год сошёлся или это ремейк.
+    """
+    from torrcast.facts import Origin
+    from torrcast.parse import Picture
+
+    plan = _franchise_plan("Оно", 2017, [rel(name="a")])
+    assert cli.year_note(plan, Origin()) == "", "справка пуста - молчим и НЕ блокируем"
+    assert cli.year_note(plan, Origin(title="It", year=None)) == "", "год справке неведом - молчим"
+    unknown = _franchise_plan("Оно", None, [rel(name="a")])
+    assert cli.year_note(unknown, Origin(title="It", year=2017)) == "", "года картины нет - молчим"
+    assert cli.year_note(plan, Origin(title="It", year=2017)) == "", "год сошёлся - строки нет"
+    near = _franchise_plan("Оно", 2016, [rel(name="a")])
+    assert cli.year_note(near, Origin(title="It", year=2017)) == "", "±1 год (прокат) - не подмена"
+    releases = [rel(name="a")]
+    remake = cli._Plan(
+        picture=Picture(
+            title="Корзинка фруктов", year=2019, original="Fruits Basket", releases=releases
+        ),
+        ranked=rank_releases(releases, RUNTIME, 20.0),
+        runtime=RUNTIME,
+        warn_mbit=20.0,
+    )
+    assert cli.year_note(remake, Origin(title="Fruits Basket", year=2006)) == "", (
+        "ремейк - та же вещь"
+    )
+
+
+def test_the_year_line_belongs_to_the_default_not_to_the_human_choice() -> None:
+    """Гейт года живёт там же, где гейт картины: у дефолта, а не у выбора человека.
+
+    Человек, ответивший на меню сам, ничего не подменял - говорить ему «беру не тот год»
+    было бы враньём (:func:`~torrcast.cli._is_default`, общий с :func:`~torrcast.cli.swap_note`).
+    """
+    plans = _parts(("Оно", 2014, 37), ("Оно", 2017, 214))
+    assert cli._is_default(plans, plans[0]), "первая часть по хронологии - дефолт"
+    assert not cli._is_default(plans, plans[1]), "вторую выбрал человек - не дефолт"
+    assert not cli._is_default(plans[:1], plans[0]), "картина одна - выбора не было"
+
+
 def test_a_lone_release_still_wins_when_the_whole_franchise_is_lone() -> None:
     """Все живые картины об одной раздаче - список остаётся как был.
 
