@@ -977,21 +977,14 @@ def test_a_shorter_article_title_brings_the_real_original(
     )
     _knows(
         monkeypatch,
-        {
-            "все мы незнакомцы": Origin(
-                title="All of Us Strangers", name="Незнакомцы", guessed=True
-            )
-        },
+        {"все мы незнакомцы": Origin(title="All of Us Strangers", name="Незнакомцы", guessed=True)},
     )
 
     plans, said = _search(client, "все мы незнакомцы", monkeypatch)
 
     assert client.asked == ["все мы незнакомцы", "All of Us Strangers"]
     assert len(plans[0].picture.releases) == 20
-    assert (
-        "оригинал «All of Us Strangers» - по справке; без неё второго запроса не было бы"
-        in said
-    )
+    assert "оригинал «All of Us Strangers» - по справке; без неё второго запроса не было бы" in said
 
 
 def test_the_same_name_in_another_spelling_is_still_topped_up(
