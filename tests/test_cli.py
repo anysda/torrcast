@@ -2090,6 +2090,8 @@ def test_releases_table_uses_true_duration_and_matches_explicit_release(
     assert fresh_plan.ranked[args.release - 1].raw_name == "heavy", (
         "отбор не должен расходиться с таблицей"
     )
+
+
 # --- 🔴 TC-194: экран и след говорят про одни и те же решения ------------------
 
 
