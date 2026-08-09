@@ -596,3 +596,147 @@ def test_the_recode_line_names_the_weight_and_the_reason() -> None:
         "видео h264 36 Мбит/с - тяжело приёмнику, перекодирую целиком"
     )
     assert recode_note("hevc") == "видео hevc - перекодирую на ходу целиком"
+
+
+#: Живая выдача «Gintama s1e1»: 162 раздачи в каталоге, первая серия - ровно в двух.
+#: Единственный её живой носитель - HEVC, и до ворот отбора он не доживал.
+GINTAMA_HEVC = "Гинтама / Gintama TV-1 [01-201] (2006) BDRip-HEVC  720p | L1"
+GINTAMA_DEAD = (
+    "Гинтама / Gintama TV [01-252] + OVA + Movies  + BONUS (2006-2012) DVDRip-AVC, HDTV-AVC"
+)
+
+
+def test_the_only_live_carrier_of_the_episode_is_hevc_and_it_finally_plays() -> None:
+    """«Гинтама»: первая серия жива ровно в HEVC - и очередь обязана до неё дойти.
+
+    Замер по кэшу живой выдачи. Каталог - 162 раздачи, первая серия по именам есть в
+    двух: ``DVDRip-AVC`` на 99 ГБ с НУЛЁМ сидов и ``BDRip-HEVC 720p`` с четырьмя.
+    Ворота отбора HEVC не пускали вовсе, кандидатом оставалась мёртвая раздача, и показа
+    не было. При этом играть HEVC тракт умеет ровно так же, как десятибитный H.264, -
+    сплошным перекодом по файлу.
+    """
+    hevc = named(GINTAMA_HEVC, size_gb=30.2, seeders=4)
+    dead = named(GINTAMA_DEAD, size_gb=99.2, seeders=0)
+    picture = Picture(title="Гинтама", year=2006, kind="tv", releases=[dead, hevc])
+    args = Args(query=["gintama", "s1e1"])
+
+    plan = _plan_for(picture, args, Config())
+
+    assert hevc.is_hevc and not hevc.prime, "именем он признался, и ворота держали его снаружи"
+    assert plan.last_resort, "живого кандидата с первой серией нет ни одного"
+    assert plan.ranked[0] is hevc, "живой HEVC выше мёртвого AVC: ноль сидов - это не показ"
+    assert [plan.ranked[n - 1] for n in plan.candidates(args)] == [hevc, dead]
+
+
+def test_a_live_ordinary_release_keeps_hevc_out_of_the_queue_as_before() -> None:
+    """Обычный случай не двигается ни на строку: при живом H.264 HEVC не кандидат.
+
+    Цена сплошного перекода замерена и никуда не делась: процессор занят от первой
+    секунды до титров, старт медленнее (8 с против 5). Поэтому HEVC - последняя надежда,
+    а не равноправный кандидат.
+    """
+    good = named("Аниме / Anime [TV] [01-12 из 12] (2019) BDRip 1080p | D", size_gb=8.0, seeders=40)
+    hevc = named(
+        "Аниме / Anime [TV] [01-12 из 12] (2019) BDRip-HEVC 1080p | L1", size_gb=6.0, seeders=300
+    )
+    picture = Picture(title="Аниме", year=2019, kind="tv", releases=[hevc, good])
+    args = Args(query=["аниме", "s1e1"])
+
+    plan = _plan_for(picture, args, Config())
+
+    assert not plan.last_resort, "живой обычный кандидат есть - надеяться не на что"
+    assert plan.ranked[0] is good, "HEVC не обгоняет живой H.264 даже семикратным перевесом сидов"
+    assert [plan.ranked[n - 1] for n in plan.candidates(args)] == [good]
+
+
+def test_the_last_hope_does_not_open_for_a_4k_hevc_because_the_recode_never_keeps_up() -> None:
+    """2160p сплошным перекодом не идёт: телевизор показа не начинает вовсе.
+
+    Скорость замерена на 1080p - 4.04x реального времени на 4 vCPU; у 2160p вчетверо
+    больше пикселей. Пускать такой релиз в очередь значило бы обещать показ, которого не
+    будет, поэтому здесь нужен честный отказ, а не вечная петля воскрешений.
+    """
+    from torrcast.cli import hevc_hope
+
+    uhd = named("Аниме / Anime [TV] [01-12 из 12] (2019) BDRip-HEVC 2160p", size_gb=20.0, seeders=9)
+    hd = named("Аниме / Anime [TV] [01-12 из 12] (2019) BDRip-HEVC 1080p", size_gb=8.0, seeders=9)
+
+    assert uhd.height > 1080 and hd.height == 1080
+    assert not hevc_hope(uhd, True), "4К не спасает и последняя надежда"
+    assert hevc_hope(hd, True)
+    assert not hevc_hope(hd, False), "ворота закрыты - признак не срабатывает вовсе"
+    assert not is_candidate(uhd, RUNTIME, 40.0, hard_mbit=25.0, last=True)
+    assert is_candidate(hd, RUNTIME, 40.0, hard_mbit=25.0, last=True)
+
+
+def test_a_light_4k_hevc_is_refused_by_the_passport_not_looped_forever() -> None:
+    """Лёгкое 4К проходит потолок веса - и всё равно отказ: перекод не успевает.
+
+    Потолок ``bitrate_hard_mbit`` ловит 4К-ремуксы тяжестью, а 2160p HEVC на 12 Мбит/с
+    для него лёгкий. Спасает не вес: спасает арифметика пикселей, и считать её надо по
+    паспорту ffprobe, а не по имени раздачи.
+    """
+    config = Config()
+    light = cast(
+        Any, _prep(GINTAMA_HEVC, video_bps=12_000_000.0, height=2160, size_gb=20.0, dur=7200.0)
+    )
+    light.media = replace(cast(Media, light.media), video="hevc")
+    assert light.media.recoded_whole, "HEVC уезжает сплошным перекодом - о нём и речь"
+
+    assert (
+        _bench()._trouble(
+            light,
+            pinned=False,
+            warn_mbit=config.bitrate_recode_mbit,
+            recode=True,
+            hard_mbit=config.bitrate_hard_mbit,
+        )
+        == "hevc 2160p - сплошной перекод не успевает"
+    ), "отказ назван своим именем, и очередь идёт дальше"
+
+
+def test_the_heavy_path_says_so_out_loud_in_one_line() -> None:
+    """Молчаливых подмен нет: взяли HEVC последней надеждой - сказали одной строкой."""
+    from torrcast.cli import last_hope_note
+
+    hevc = named(GINTAMA_HEVC, size_gb=30.2, seeders=4)
+    dead = named(GINTAMA_DEAD, size_gb=99.2, seeders=0)
+    picture = Picture(title="Гинтама", year=2006, kind="tv", releases=[dead, hevc])
+    plan = _plan_for(picture, Args(query=["gintama", "s1e1"]), Config())
+
+    assert last_hope_note(plan, hevc) == (
+        "живой раздачи серии s1e1 без HEVC нет - беру HEVC последней надеждой"
+    )
+    assert last_hope_note(plan, dead) == "", "обычный релиз про надежду молчит"
+
+
+def test_the_last_hope_asks_the_receiver_profile_not_a_module_constant() -> None:
+    """«Тяжёлый ли HEVC» — вопрос ПРОФИЛЯ приёмника, и задан он там же, где всегда.
+
+    Пороги приёмника живут в :mod:`torrcast.profile`, и набор кодеков на сплошной перекод
+    у профилей может разойтись. Последняя надежда стоит ровно на том, что HEVC — путь
+    дорогой: процессор занят до титров, старт медленнее. Приёмнику, который берёт HEVC
+    копией, ничего этого не грозит, и ворота ему не нужны.
+
+    🔴 Оба живых профиля сегодня перекодируют HEVC (у приставки набор оставлен прежним
+    до замера через наш mpegts), поэтому ступень работает на обоих одинаково. Приёмник,
+    который HEVC копирует, остаётся БЕЗ такой раздачи вовсе: держит её не эта ступень, а
+    ворота (:attr:`~torrcast.parse.Release.prime`), и ослаблять их — отдельная карточка.
+    """
+    from torrcast.profile import ANDROID_TV, CAUTIOUS
+
+    hevc = named(GINTAMA_HEVC, size_gb=30.2, seeders=4)
+    dead = named(GINTAMA_DEAD, size_gb=99.2, seeders=0)
+    picture = Picture(title="Гинтама", year=2006, kind="tv", releases=[dead, hevc])
+    args = Args(query=["gintama", "s1e1"])
+
+    for profile in (CAUTIOUS, ANDROID_TV):
+        plan = _plan_for(picture, args, Config(), profile)
+        assert plan.last_resort, f"{profile.key}: HEVC он перекодирует целиком - надежда нужна"
+        assert plan.ranked[0] is hevc
+
+    native = replace(
+        CAUTIOUS, key="native", recode_codecs=frozenset(), copy_codecs=frozenset({"h264", "hevc"})
+    )
+    plan = _plan_for(picture, args, Config(), native)
+    assert not plan.last_resort, "берёт HEVC копией - тяжёлого пути нет, и ворота не про него"

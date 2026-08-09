@@ -107,10 +107,13 @@ __all__ = [
     "bitrate_of",
     "found_tv",
     "gate_open",
+    "hevc_hope",
     "honest_shot",
     "is_dated",
     "is_dead",
     "is_full_hd",
+    "last_hope",
+    "last_hope_note",
     "liveliest",
     "liveliness",
     "main",
@@ -943,7 +946,7 @@ def _cmd_play(args: Args) -> int:
             return code
 
     with Progress() as progress:
-        plans = _search(config, args, progress)
+        plans = _search(config, args, progress, chosen.profile)
         # Справка к меню (рейтинг, хронометраж, о чём кино) едет фоном - ровно в те
         # секунды, что уходят на подъём прогрева. Меню её не ждёт: см. torrcast.facts.
         facts = Facts([(p.picture.title, p.picture.year) for p in plans])
@@ -1057,8 +1060,17 @@ def _forget_progress(key: str) -> None:
     state.save()
 
 
-def _search(config: Config, args: Args, progress: Progress) -> list[_Plan]:
-    """Поиск и разбор выдачи: запрос → картины франшизы, каждая со своим пулом релизов."""
+def _search(
+    config: Config, args: Args, progress: Progress, profile: Profile = CAUTIOUS
+) -> list[_Plan]:
+    """Поиск и разбор выдачи: запрос → картины франшизы, каждая со своим пулом релизов.
+
+    ``profile`` - чей декодер судит релизы (:mod:`torrcast.profile`). Пороги битрейта до
+    отбора доезжают сами - профиль накладывается на настройки ещё в ``_cmd_play``
+    (:func:`torrcast.profile.tune`), - а вот НАБОР КОДЕКОВ в настройках ключа не имеет, и
+    спросить о нём можно только сам профиль (:func:`last_hope`). Умолчание осторожное:
+    отладочные ручки ``cast releases`` и ``cast voices`` приёмника не опрашивают вовсе.
+    """
     from torrcast.parse import THIN_POOL, cluster, pick_franchise
 
     if not config.prowlarr_apikey:  # без Prowlarr искать нечем - это инфра-ошибка
@@ -1100,7 +1112,7 @@ def _search(config: Config, args: Args, progress: Progress) -> list[_Plan]:
     # Номер пункта меню человек читает как номер части и им же отвечает: «Тачки 2» обязаны
     # стоять вторыми, а безномерные - после линейки (:func:`~torrcast.parse.menu_order`).
     found = menu_order(found)
-    plans = [plan for plan in (_plan_for(p, args, config) for p in found) if plan.ranked]
+    plans = [plan for plan in (_plan_for(p, args, config, profile) for p in found) if plan.ranked]
     for line in season_gaps(found, {plan.picture.key for plan in plans}, args.episode):
         progress.note(line)
     # Соседи по франшизе, до меню не доехавшие: понадобятся, если у выбранной картины
@@ -1631,7 +1643,7 @@ def same_picture(
     return franchise_key(before.title) == franchise_key(after.title)
 
 
-def _plan_for(picture: Picture, args: Args, config: Config) -> _Plan:
+def _plan_for(picture: Picture, args: Args, config: Config, profile: Profile = CAUTIOUS) -> _Plan:
     """План по одной картине: пул релизов в порядке отбора и цель для сериала."""
     from torrcast.stream import RUNTIME_GUESS
 
@@ -1653,7 +1665,19 @@ def _plan_for(picture: Picture, args: Args, config: Config) -> _Plan:
         ceiling = max(ceiling, config.bitrate_recode_mbit)
     want = series.want if series else None
     loose = gate_open(pool, runtime, ceiling, want, hard_mbit=hard)
-    ranked = rank_releases(pool, runtime, ceiling, want=want, loose=loose, hard_mbit=hard)
+    # Ворота последней надежды открываются при двух условиях сразу, и оба - не про пул.
+    # Первое: перекодирование включено. Играть HEVC умеет ровно сплошной перекод, и без
+    # него пускать такой релиз в очередь значило бы обещать показ, которого не будет.
+    # Второе: HEVC для ЭТОГО приёмника и правда тяжёлый путь - спрашивается там же, где
+    # об этом спрашивают показ и прогрев (:func:`torrcast.stream.recodes_whole`), чтобы
+    # отбор не судил по чужим числам. Приёмник, который берёт HEVC копией, в последней
+    # надежде не нуждается вовсе: у него это обычный релиз, и место ему в воротах
+    # (:attr:`torrcast.parse.Release.prime`), а не здесь.
+    heavy_hevc = recodes_whole("hevc", profile.copy_depth, profile)
+    last = config.recode and heavy_hevc and last_hope(pool, runtime, ceiling, want, loose, hard)
+    ranked = rank_releases(
+        pool, runtime, ceiling, want=want, loose=loose, hard_mbit=hard, last=last
+    )
     return _Plan(
         picture=picture,
         ranked=ranked,
@@ -1662,6 +1686,7 @@ def _plan_for(picture: Picture, args: Args, config: Config) -> _Plan:
         series=series,
         recode_at=config.recode_at_mbit if config.recode else 0.0,
         loose=loose,
+        last_resort=last,
         hard_mbit=hard,
         asked_series=args.episode is not None,
     )
@@ -1691,6 +1716,10 @@ class _Plan:
     #: Ворота отбора открыты: живых именных кандидатов у картины нет (:func:`gate_open`),
     #: и молчаливые имена идут в очередь наравне с именными.
     loose: bool = False
+    #: Ворота последней надежды открыты: живого кандидата с нужной серией нет ВООБЩЕ
+    #: (:func:`last_hope`), и в очередь пускается названный HEVC — играть его будет
+    #: сплошной перекод. Перекодирование выключено — ворота закрыты всегда.
+    last_resort: bool = False
     #: Другие части той же франшизы, до меню не доехавшие: их нет в списке картин, но в
     #: выдаче они есть и раздачи у них живые. Нужны одной строке отказа (:func:`kin_line`).
     kin: list[Picture] = field(default_factory=list)
@@ -1721,6 +1750,11 @@ class _Plan:
         При открытых воротах (:attr:`loose`) в очередь идут и молчаливые имена: у
         картины иначе нет ни одного живого кандидата, а судить молчание всё равно
         может только ffprobe — и он его тут же и судит.
+
+        При открытых воротах последней надежды (:attr:`last_resort`) к ним добавляется
+        названный HEVC до 1080p включительно (:func:`hevc_hope`): играть его будет
+        сплошной перекод, и берётся он ровно тогда, когда живого кандидата с нужной
+        серией нет вообще.
         """
         if args.release is not None:
             if not 1 <= args.release <= len(self.ranked):
@@ -1731,7 +1765,9 @@ class _Plan:
             n
             for n, r in enumerate(self.ranked, start=1)
             if n != self.first
-            and is_candidate(r, self.runtime, self.warn_mbit, self.loose, self.hard_mbit)
+            and is_candidate(
+                r, self.runtime, self.warn_mbit, self.loose, self.hard_mbit, self.last_resort
+            )
             and not misses_episode(r, self.want)
         ]
         return queue
@@ -2068,6 +2104,8 @@ class _Bench:
                 # целиком, и сказано об этом ровно теми же словами и тем же числом.
                 weight = prep.found.weight_mbit(prep.want.size)
                 heavy = plan.hard_mbit > 0 and weight > plan.hard_mbit
+                if hope := last_hope_note(plan, prep.release):
+                    print(hope)
                 if plan.recode_at > 0 and (prep.found.recoded_whole or heavy):
                     # Причина - кодек (с глубиной, если она и есть причина) либо вес.
                     silent = prep.found.recoded_whole
@@ -2224,6 +2262,13 @@ class _Bench:
         не здесь, а в ранжире (:func:`rank_releases` топит hevc ниже всех), то есть
         сплошной перекод достаётся ровно тем релизам, у которых альтернативы нет.
 
+        🔴 Сплошной перекод спасает не любой кадр: скорость замерена на 1080p (4.04x
+        реального времени на 4 vCPU), у 2160p вчетверо больше пикселей, и в бюджет
+        старта такой перекод не влезает — телевизор показ не начинает. Поэтому 4К,
+        которое иначе поехало бы сплошным перекодом (HEVC, десятибитный H.264), здесь
+        получает честный отказ и очередь идёт дальше. Имя раздачи об этом не
+        спрашивается вовсе: высоту говорит ffprobe.
+
         ⚠️ ``hard_mbit`` - потолок для тех, кого сплошной перекод НЕ спасает
         (:attr:`torrcast.state.Config.bitrate_hard_mbit`). Здесь он достаётся кадру выше
         1080p: замер скорости сплошного перекода снят на 1080p, а 4К - вчетверо больше
@@ -2253,7 +2298,18 @@ class _Bench:
         # приходят из его профиля (:mod:`torrcast.profile`).
         whole = recodes_whole(prep.media.video or "", prep.media.depth, self.profile)
         plain = self.profile.plays_copy(prep.media.video or "") and not whole
-        if pinned or plain or (recode and whole):
+        if pinned or plain:
+            return ""
+        if recode and whole:
+            # 🔴 Сплошной перекод замерен на 1080p (4.04x реального времени на 4 vCPU).
+            # У 2160p вчетверо больше пикселей, в реальное время он не укладывается, и
+            # телевизор показ не начинает вовсе. Отказ тут дешевле вечной петли
+            # «залип → воскрешаю»: очередь пойдёт дальше, а человек прочтёт причину.
+            # Высоту говорит ffprobe, а не имя, - 4K с молчаливым именем ловится здесь.
+            # Потолок кадра НЕ из профиля нарочно: он про наши 4 vCPU, а не про
+            # телевизор (:mod:`torrcast.profile` говорит это прямо).
+            if prep.media.height > FULL_HEIGHT:
+                return f"{codec} {prep.media.quality} - сплошной перекод не успевает"
             return ""
         return codec
 
@@ -3488,6 +3544,13 @@ def liveliness(plan: _Plan) -> int:
     мелочь: пока они спрашивались строго, аниме с молчаливыми именами весило ноль
     целиком — у «наруто» дефолтом меню вместо сериала на 91 сид вставал полнометражный
     «Ниндзя в стране снега» на два.
+
+    🔴 Последняя надежда (:attr:`_Plan.last_resort`) сюда НЕ спрашивается, и это
+    осознанно. Вес картины решает, какой пункт меню предложить человеку, а HEVC — не
+    предпочтение, а единственный оставшийся носитель ВНУТРИ уже выбранной картины.
+    Замер на кэше выдачи «синий экзорцист s1e1»: стоило дать HEVC вес, и дефолт меню
+    переезжал с «Blue Exorcist» (1080p H.264, 5 сидов) на одноимённую картину с
+    ``HEVC``, то есть ровно то предпочтение, которого быть не должно.
     """
     return max(
         (
@@ -3790,6 +3853,24 @@ def warned(
     return ", ".join(marks)
 
 
+def last_hope_note(plan: _Plan, release: Release) -> str:
+    """Та самая честная строка про последнюю надежду; пусто — путь обычный.
+
+    Печатается ровно тогда, когда показ берёт релиз, попавший в очередь ТОЛЬКО потому,
+    что живого кандидата с нужной серией нет вовсе (:func:`hevc_hope`). Человек обязан
+    услышать не только «перекодирую целиком» (:func:`torrcast.stream.recode_note` скажет
+    это следующей строкой), но и ПОЧЕМУ выбран дорогой путь: иначе «Гинтама» на HEVC и
+    «Гинтама» на честном 1080p выглядят с экрана одинаково, а стоят разного.
+
+    Строка одна, без числа: считать тут нечего — это не размен качества, а
+    единственный оставшийся носитель серии.
+    """
+    if not (plan.last_resort and hevc_hope(release, plan.last_resort)):
+        return ""
+    what = f"серии {plan.want}" if plan.want else "картины"
+    return f"живой раздачи {what} без HEVC нет - беру HEVC последней надеждой"
+
+
 def quality_text(release: Release, media: Media) -> str:
     """Разрешение, которое реально поедет на ТВ. ffprobe уже прочитан — врать нечем.
 
@@ -3850,6 +3931,7 @@ def is_candidate(
     warn_mbit: float,
     loose: bool = False,
     hard_mbit: float = 0.0,
+    last: bool = False,
 ) -> bool:
     """Кандидат в дефолт: первый сорт (:attr:`Release.prime`), не образ диска и в
     пределах потолка декодера. Жирнее потолка — в таблице остаётся с пометкой, но Enter
@@ -3861,10 +3943,17 @@ def is_candidate(
     и перехода к следующему уже стоит на пути (:meth:`_Bench.resolve`), и стоит он
     ровно тех же секунд, что и на любом другом релизе.
 
-    Имя, сказавшее о себе правду, послаблением не пользуется ни при каких воротах:
-    названный HEVC, MPEG-4 и «480p» остаются снаружи, потому что про них известно, а не
-    неизвестно. Образ диска и потолок битрейта тоже не двигаются: там играть нечего и
-    там ресивер встаёт, а от открытых ворот это не меняется.
+    Имя, сказавшее о себе правду, послаблением ``loose`` не пользуется: названный HEVC,
+    MPEG-4 и «480p» остаются снаружи, потому что про них известно, а не неизвестно.
+    Образ диска и потолок битрейта тоже не двигаются: там играть нечего и там ресивер
+    встаёт, а от открытых ворот это не меняется.
+
+    ``last`` — последняя надежда (:func:`last_hope`): живого кандидата с нужной серией
+    нет ВООБЩЕ, и тогда в очередь пускается названный HEVC (:func:`hevc_hope`). Это не
+    смягчение ворот, а признание того, что тракт умеет: такой файл играется сплошным
+    перекодом (:data:`torrcast.stream.RECODE_CODECS`) ровно как десятибитный H.264.
+    Предпочтением это не становится ни на шаг — ворота открываются только когда живого
+    обычного кандидата нет, а порядок держит HEVC ниже всех живых (:func:`rank_releases`).
 
     ⚠️ Не-видео (``kind == "other"``: игры, музыка, книги) послабление не пускает
     никогда, и это не перестраховка. Замер на живой выдаче «one piece»: репак игры
@@ -3883,7 +3972,48 @@ def is_candidate(
         ceiling = min(warn_mbit, hard_mbit)
     if is_disc(release) or bitrate_of(release, runtime) > ceiling:
         return False
-    return release.prime or (loose and release.quiet and release.kind != "other")
+    if release.prime or (loose and release.quiet and release.kind != "other"):
+        return True
+    return hevc_hope(release, last)
+
+
+def hevc_hope(release: Release, last: bool) -> bool:
+    """Релиз проходит в очередь ТОЛЬКО последней надеждой: он названный HEVC.
+
+    Ворота отбора держали HEVC снаружи с самого начала, и это было правдой ровно до тех
+    пор, пока показ его не умел. Теперь умеет: сплошной перекод по файлу закрыл
+    десятибитный H.264 (:func:`torrcast.stream.recodes_whole`), и HEVC идёт по тому же
+    пути тем же кодом. Ворота при этом отбраковывали то, что тракт играет, — и на
+    «Гинтаме» это стоило показа целиком: первая серия во всём каталоге лежит в двух
+    раздачах, DVDRip-AVC с НУЛЁМ сидов и ``BDRip-HEVC 720p`` с четырьмя, то есть
+    единственный живой носитель серии в очередь не попадал вовсе.
+
+    ``last`` — ворота последней надежды открыты (:func:`_plan_for`). Закрыты — признак
+    не срабатывает никогда, и ни отбор, ни порядок не меняются ни на знак: при живом
+    обычном релизе HEVC по-прежнему не кандидат. Это не осторожность, а цена: сплошной
+    перекод занимает процессор от первой секунды до титров и стартует медленнее
+    (замер: 8 с против 5 с).
+
+    🔴 Про ПРИЁМНИК здесь не спрашивается ничего, и это не забывчивость. Вопрос «а этот
+    декодер вообще спотыкается о HEVC» — один на весь код
+    (:func:`torrcast.stream.recodes_whole`), задаётся он профилю
+    (:mod:`torrcast.profile`) и задан уже в воротах, при вычислении ``last``. Спросить
+    его и тут значило бы развести решение о кодеке на два места, а именно от этого и
+    ломался десятибитный H.264.
+
+    Кадр выше 1080p сюда не проходит и последней надеждой (:data:`FULL_HEIGHT`).
+    Причина арифметическая, та же, что у :func:`is_candidate` с ``hard_mbit``: скорость
+    сплошного перекода замерена на 1080p (4.04× реального времени на 4 vCPU), у 2160p
+    вчетверо больше пикселей, и в бюджет старта такой перекод не влезает вовсе —
+    телевизор не начинает показ. Честный отказ здесь дешевле вечной петли «залип →
+    воскрешаю». Имя, о разрешении молчащее, проходит: судить его будет ffprobe после
+    выбора (:meth:`_Bench._trouble`), у которого высота кадра не заявка, а факт.
+
+    ⚠️ Потолок кадра — НЕ поле профиля, и переносить его туда не надо: он про наши
+    4 vCPU, а не про телевизор. Смени приёмник — он не изменится ни на знак, о чём
+    :mod:`torrcast.profile` говорит прямым текстом.
+    """
+    return last and release.is_hevc and release.height <= FULL_HEIGHT
 
 
 def needs_whole_recode(release: Release, runtime: float, hard_mbit: float) -> bool:
@@ -3936,6 +4066,45 @@ def gate_open(
         and is_candidate(r, runtime, warn_mbit, hard_mbit=hard_mbit)
         and not misses_episode(r, want)
         for r in releases
+    )
+
+
+def last_hope(
+    releases: list[Release],
+    runtime: float,
+    warn_mbit: float,
+    want: Episode | None = None,
+    loose: bool = False,
+    hard_mbit: float = 0.0,
+) -> bool:
+    """Пора ли пускать в очередь названный HEVC: живого кандидата нет ВООБЩЕ.
+
+    Ступень за :func:`gate_open`, и порог у неё жёстче нарочно. Открытые ворота ещё
+    ничего не гарантируют: они пускают молчаливые имена, а те могут все до одного лежать
+    с нулём сидов. Ровно это и есть «Гинтама»: 162 раздачи в каталоге, первая серия — в
+    двух, и та, что проходит ворота (``DVDRip-AVC``, 99 ГБ), раздаётся нулём пиров.
+    Кандидат формально есть, показа нет.
+
+    Поэтому здесь спрашивается не «есть ли кандидат», а «есть ли кандидат, которым
+    МОЖНО СЫГРАТЬ»: годен по :func:`is_candidate`, несёт нужную серию и жив. Живость —
+    строгий ноль, а не доля от лидера (:func:`is_dead`): доля это размен качества на
+    рой, а тут разменивать нечего — либо рой есть, либо показа нет.
+
+    ``loose`` — те же ворота, что у самого плана: молчаливое имя, если оно живое, —
+    полноценный кандидат, и последнюю надежду оно закрывает наравне с именным.
+
+    HEVC в выдаче может и не быть вовсе — тогда открытые ворота не меняют ничего:
+    признак :func:`hevc_hope` не сработает ни на одной раздаче.
+
+    ⚠️ Про приёмник тут не спрашивается: «тяжёлый ли для него HEVC» — вопрос профиля, и
+    задаёт его :func:`_plan_for` перед этой ступенью, одним и тем же
+    :func:`torrcast.stream.recodes_whole` на весь код.
+    """
+    return not any(
+        release.seeders > 0
+        and is_candidate(release, runtime, warn_mbit, loose, hard_mbit)
+        and not misses_episode(release, want)
+        for release in releases
     )
 
 
@@ -4087,6 +4256,7 @@ def rank_releases(
     want: Episode | None = None,
     loose: bool = False,
     hard_mbit: float = 0.0,
+    last: bool = False,
 ) -> list[Release]:
     """Порядок меню: сверху самый обсиженный кандидат, потом всё остальное по
     сидам, образы дисков всегда внизу — цельного файла внутри нет, стримить нечего.
@@ -4128,8 +4298,21 @@ def rank_releases(
     Ступень стоит выше живости нарочно: тяжёлое берётся, когда легче ничего нет, а не
     потому, что у ремукса больше сидов.
 
+    Сразу под живостью стоит :func:`hevc_hope` — релиз, попавший в очередь последней
+    надеждой. Ступень пустая, пока ворота ``last`` закрыты: ключ у всех одинаковый, и
+    порядок обычного случая не меняется ни на строку. Открылись — HEVC уходит под всех
+    прочих кандидатов, потому что стоит он дороже во всём: процессор занят сплошным
+    перекодом от первой секунды до титров, а старт замерен на 3 с медленнее.
+
+    Ниже живости, а не выше, она стоит по той же причине, по которой :func:`is_dead`
+    поднялась над качеством: ворота последней надежды открываются только тогда, когда
+    живого обычного кандидата нет вовсе, и единственный, кто остаётся против HEVC, —
+    раздача с нулём сидов. Она не «обычный релиз», она отсутствие показа, и двадцать
+    секунд молчания DHT перед живым HEVC — чистая потеря старта.
+
     ``loose`` — ворота отбора открыты (:func:`gate_open`), и молчаливые имена идут
-    в кандидатах наравне с именными.
+    в кандидатах наравне с именными. ``last`` — открыты ворота последней надежды
+    (:func:`last_hope`).
     """
     alive = max((r.seeders for r in releases), default=0)
     return sorted(
@@ -4137,9 +4320,10 @@ def rank_releases(
         key=lambda r: (
             misses_episode(r, want),
             is_disc(r),
-            not is_candidate(r, runtime, warn_mbit, loose, hard_mbit),
+            not is_candidate(r, runtime, warn_mbit, loose, hard_mbit, last),
             needs_whole_recode(r, runtime, hard_mbit),
             is_dead(r, alive),
+            hevc_hope(r, last),
             is_dated(r, runtime),
             sound_step(r, alive),
             not is_full_hd(r, alive),
