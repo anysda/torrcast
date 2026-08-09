@@ -1048,8 +1048,13 @@ def test_the_mock_receiver_burns_its_patience_before_it_drops_the_show(
     """
     clock, _, _, receiver, source = _blinking(tmp_path, monkeypatch, dark_at=0.0)
 
-    assert MockReceiver.PATIENCE == 240.0, "замер на живом Q70D: около четырёх минут"
-    assert MockReceiver.LOAD_RETRIES == 2, "и ровно два повтора LOAD внутри них"
+    # ⚠️ Числа переписаны по замеру 09-08-2026 (живой Q70D, рапорт приёмника + tcpdump):
+    # прежние «240 с» склеивали два РАЗНЫХ срока - смерть медиасессии (23.5 с) и уход
+    # приложения с экрана (301 с), - а «повторы LOAD» на деле оказались перезаборами
+    # куска по HTTP: media_session_id при них не менялся. Поведение теста не изменилось:
+    # терпение он и раньше задавал сам, а проверяет он правила, а не цифры.
+    assert MockReceiver.PATIENCE == 23.5, "замер: столько живёт медиасессия после стопа"
+    assert MockReceiver.SEGMENT_RETRIES == 2, "и ровно два перезабора куска внутри неё"
 
     seen = []
     for _ in range(6):
@@ -1085,14 +1090,20 @@ def test_a_source_that_never_returns_ends_the_show_on_the_mock_too(
     assert "показ поднять не удалось" in printed and "cast продолжит с 0:20:08" in printed
 
 
-def test_the_mock_receiver_refuses_to_load_right_after_a_404(
+def test_the_mock_receiver_takes_a_load_right_after_a_404(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """404 заглушка помнит так же долго, как живой приёмник, - и LOAD в это время не берёт.
+    """404 заглушка наказывает ровно столько, сколько сказано в профиле, - то есть нисколько.
 
-    Замерено на живом Q70D: поймавший 404 ресивер не берёт LOAD ещё две-три минуты, и не
-    ускоряет это ничто. Ровно поэтому раздача 404 и не отдаёт. Заглушка, прощающая 404,
-    показывала бы воскрешение с первой попытки там, где ТВ молчит минутами.
+    🔴 Ожидание переписано по замеру 09-08-2026 (живой Q70D, рапорт приёмника + tcpdump):
+    наказание за 404 опровергнуто трижды - LOAD после него берётся даже быстрее обычного
+    тёплого. Прежний тест закреплял ровно ту легенду, которую замер снял, и оставить его
+    значило бы держать в сухом прогоне выдуманную аварию.
+
+    Что от него осталось и почему: сам механизм наказания жив и берётся из профиля
+    (:attr:`torrcast.profile.Profile.sulk`) - мерили чистый 404 в здоровой сессии, и
+    приёмник, который всё-таки обижается, должен настраиваться числом, а не правкой кода.
+    На решение «держать запрос вместо 404» этот ноль не влияет: там своя причина.
     """
     now = [1000.0]
     monkeypatch.setattr(time, "monotonic", lambda: now[0])
@@ -1103,12 +1114,12 @@ def test_the_mock_receiver_refuses_to_load_right_after_a_404(
     monkeypatch.setattr(MockReceiver, "_open", lambda self, url, at=0.0: opens.append(at))
 
     receiver._caught(_Answer(404))
-    assert receiver.replay(1200.0) is False, "приёмник помнит 404 и LOAD не берёт"
-    assert opens == [], "и грузить в него бесполезно - не пробуем вовсе"
-
-    now[0] += MockReceiver.SULK
+    assert MockReceiver.SULK == 0.0, "наказания за 404 нет - замер снял его трижды"
     assert receiver.replay(1200.0) is False, "картинки нет - врать о поднятом показе нельзя"
-    assert opens == [1200.0], "а вот попытку приёмник уже принял"
+    assert opens == [1200.0], "но попытку приёмник принял сразу, не выжидая ни секунды"
+
+    # Что наказание всё ещё СТАВИТСЯ числом профиля - проверяется отдельно
+    # (tests/test_profile.py): механизм жив, изменилась только замеренная величина.
 
 
 class _Answer:
@@ -1424,7 +1435,9 @@ def test_the_show_end_closes_the_app_and_the_episode_seam_does_not(
             quits.append(quit_app)
             super().stop()
 
-    monkeypatch.setattr(cli, "make_receiver", lambda kind, address="", ca="": _Recorder())
+    monkeypatch.setattr(
+        cli, "make_receiver", lambda kind, address="", ca="", profile=None: _Recorder()
+    )
     config = config_for(tmp_path, tls)
     key = "tv:сериал:2026"
     length = float(CLIP_SECONDS)

@@ -642,5 +642,9 @@ def _event_line(rec: dict[str, Any], began: float, seam: bool = False) -> str:
     if event == "error":
         return f"{stamp}ошибка: {rec.get('text', '')}"
     if event == "session_start":
-        return f"{stamp}показ «{rec.get('title', '')}» с {_hms(float(rec.get('pos', 0.0)))}"
+        # Профиль приёмника: по какому набору порогов играли. В записях прежних версий
+        # его нет вовсе - тогда и в строке о нём молчим, а не пишем «профиль ?».
+        profile = str(rec.get("profile", ""))
+        head = f"{stamp}показ «{rec.get('title', '')}» с {_hms(float(rec.get('pos', 0.0)))}"
+        return f"{head} · профиль {profile}" if profile else head
     return ""

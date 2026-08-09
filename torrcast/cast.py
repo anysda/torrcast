@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from typing import IO, Any, Literal, Protocol, runtime_checkable
 
 from torrcast import InfraError, trace, why
+from torrcast.profile import CAUTIOUS, Profile
 from torrcast.stream import parse_manifest
 
 __all__ = [
@@ -143,7 +144,11 @@ class ChromecastReceiver:
     #: ни новое соединение, ни новый процесс не ускоряют это ни на секунду, а вот через
     #: 2.5-3 минуты он снова играет с первой попытки. Поэтому здесь не 90 с, а терпение:
     #: показ возвращается сам, вместо того чтобы умереть у человека на глазах.
-    REVIVE_TIMEOUT = 300.0
+    #: 🔴 Это число и соседние - **осторожный профиль** (:data:`torrcast.profile.CAUTIOUS`),
+    #: и живут они здесь только умолчанием: живой показ берёт пороги из профиля своего
+    #: приёмника (``self.profile``), а у приставки Android TV терпение к темноте и обида
+    #: на 404 измерены совсем другими.
+    REVIVE_TIMEOUT = CAUTIOUS.revive_timeout
     #: Сколько ждём картинку, поднимая ПОГАСШИЙ показ (:meth:`replay`). Здесь не 300 с:
     #: попытка тут не одна, интервалы держит зовущий (:class:`torrcast.cli._Revival`), и
     #: висеть в одной попытке пять минут значило бы проспать вернувшуюся сеть. Минуты
@@ -151,7 +156,7 @@ class ChromecastReceiver:
     #: бюджета :meth:`_settle` успевает ещё раз перегрузить молчащий LOAD.
     WAKE_TIMEOUT = 60.0
     #: Как часто повторять LOAD, пока приёмник не берёт его.
-    LOAD_RETRIES = 2
+    LOAD_RETRIES = CAUTIOUS.load_retries
     #: Пауза между повторами LOAD: ресиверу нужно время закрыть прошлую сессию.
     LOAD_PAUSE = 3.0
     #: Столько терпим молчаливый IDLE после LOAD, прежде чем считать, что его не взяли.
@@ -170,12 +175,12 @@ class ChromecastReceiver:
     #: (см. :attr:`READY_AHEAD`), и терпеть зависание сорок пять секунд больше незачем:
     #: замерено - приёмник встал на 1:24 «Моаны» при 60 с готового запаса и
     #: сам не ожил ни разу, а весь провал показа был ровно порогом этого сторожа.
-    STALL_SECONDS = 8.0
+    STALL_SECONDS = CAUTIOUS.stall_seconds
     #: Столько секунд упаковки впереди позиции считаем доказательством «еда на столе».
     #: Меньше - приёмник ждёт нас, и лечится это упаковкой, а не перемоткой.
-    READY_AHEAD = 8.0
+    READY_AHEAD = CAUTIOUS.ready_ahead
     #: Шаг прыжка вперёд на каждом нудже: мимо куска, на котором приёмник споткнулся.
-    STALL_SKIP = 8.0
+    STALL_SKIP = CAUTIOUS.stall_skip
     #: Насколько позиция должна уехать назад, чтобы считать это перемоткой человека, а не
     #: дрожанием счётчика. Больше сегмента (:data:`torrcast.stream.Config.hls_segment` - 10 с
     #: по умолчанию) брать нельзя: перемотка на один кусок назад - обычное дело, и «максимум»
@@ -188,10 +193,13 @@ class ChromecastReceiver:
     #: порог тоже попадает, поэтому он помечается отдельно (:attr:`_nudged_to`).
     SEEK_JUMP = 15.0
 
-    def __init__(self, address: str) -> None:
+    def __init__(self, address: str, profile: Profile = CAUTIOUS) -> None:
         if not address:
             raise InfraError("адрес ТВ не задан: cast --tv - найдёт телевизоры в сети")
         self.address = address
+        #: Профиль этого приёмника: его терпение, его повторы LOAD, его сторож нуджей.
+        #: Умолчание осторожное - показ без выбранного профиля ведёт себя как раньше.
+        self.profile = profile
         self._cast: Any = None
         self._url = ""
         self._title = ""
@@ -231,7 +239,7 @@ class ChromecastReceiver:
         self._peak, self._reloads, self._stall_hits = at, 0, 0
         self._stall_at, self._stall_since = -1.0, 0.0
         self._seen, self._seek_since, self._nudged_to = -1.0, 0.0, -1.0
-        budget = self.REVIVE_TIMEOUT if self._started else self.START_TIMEOUT
+        budget = self.profile.revive_timeout if self._started else self.START_TIMEOUT
         self._started = True
         self._at = at
         self._load(at)
@@ -326,7 +334,7 @@ class ChromecastReceiver:
         Грузим с ``current_time``: манифест описывает весь фильм, поэтому вернуть
         приёмник ровно туда, где он споткнулся, — это просто позиция в LOAD.
         """
-        if self._reloads >= self.LOAD_RETRIES:
+        if self._reloads >= self.profile.load_retries:
             return False
         self._reloads += 1
         trace.reload(pos=self._peak, tries=self._reloads)
@@ -418,14 +426,14 @@ class ChromecastReceiver:
         if pos != self._stall_at:
             self._stall_at, self._stall_since = pos, now
             return
-        if now - self._stall_since < self.STALL_SECONDS:
+        if now - self._stall_since < self.profile.stall_seconds:
             return
-        if front - pos < self.READY_AHEAD:
+        if front - pos < self.profile.ready_ahead:
             return  # приёмник ждёт упаковку - это наша забота, а не его зависание
         stuck = now - self._stall_since
         self._stall_hits += 1
         self._stall_since = now
-        target = self._peak + self.STALL_SKIP * self._stall_hits
+        target = self._peak + self.profile.stall_skip * self._stall_hits
         self._nudged_to = target
         trace.nudge(pos=pos, to=target, hit=self._stall_hits, stuck=stuck, front=front)
         with contextlib.suppress(Exception):
@@ -606,25 +614,31 @@ class MockReceiver:
     самого приёмника (Default Media Receiver), а не трюки вокруг телевизора.
     """
 
-    #: Сколько приёмник терпит стоящую картинку, прежде чем бросить показ насовсем.
-    #: Замер на живом Q70D: пустой экран дольше примерно четырёх минут - и сессии больше
-    #: нет. Терпение задаётся в конструкторе: тест не имеет права идти четыре минуты.
-    PATIENCE = 240.0
-    #: Столько повторов LOAD приёмник тратит на пропавшую картинку сам, внутри своего
-    #: терпения. Замерено там же: их ровно два, и после них он уже не пробует.
-    LOAD_RETRIES = 2
-    #: Сколько приёмник не берёт LOAD вовсе, поймав 404. Замерено на живом Q70D: две-три
-    #: минуты, и не ускоряет это ни повтор LOAD, ни новое соединение, ни новый процесс.
-    #: Поэтому раздача 404 и не отдаёт (:class:`torrcast.stream.Feed`) - а заглушка обязана
-    #: наказывать за него так же, иначе на сухом прогоне «работает» то, что живьём молчит.
-    SULK = 150.0
+    #: Сколько приёмник терпит стоящую картинку, прежде чем умрёт медиасессия. Замер
+    #: 09-08-2026 на живом Q70D (рапорт приёмника + tcpdump): 23.5 с. Прежние «около
+    #: четырёх минут» склеивали этот срок со сроком жизни приложения на экране
+    #: (:attr:`torrcast.profile.Profile.app_patience`) и не равны ни одному из них.
+    #: Терпение задаётся и в конструкторе: тест не обязан выжидать даже эти секунды.
+    PATIENCE = CAUTIOUS.patience
+    #: Сколько раз приёмник САМ перезабирает пропавший кусок, прежде чем сдаться.
+    #: ⚠️ Не «повторы LOAD»: ``media_session_id`` при этом не меняется, приёмник
+    #: переспрашивает тот же кусок по HTTP (:attr:`torrcast.profile.Profile.segment_retries`).
+    #: У Q70D их два, у приставки Android TV - ни одного.
+    SEGMENT_RETRIES = CAUTIOUS.segment_retries
+    #: Сколько приёмник не берёт LOAD вовсе, поймав 404. 🔴 Ноль, и это замер, а не
+    #: упрощение: наказание за 404 опровергнуто трижды (:attr:`torrcast.profile.Profile.sulk`).
+    #: Заглушка наказывала за 404 две с половиной минуты - и ровно этого на живом ТВ нет.
+    SULK = CAUTIOUS.sulk
     #: Сколько ждём картинку, поднимая погасший показ (:meth:`replay`) - как у живого
     #: приёмника: попытка тут не одна, интервалы держит зовущий.
     WAKE_TIMEOUT = 60.0
 
-    def __init__(self, ca: str = "", patience: float = 0.0) -> None:
+    def __init__(self, ca: str = "", patience: float = 0.0, profile: Profile = CAUTIOUS) -> None:
         self.ca = ca
-        self.patience = patience or self.PATIENCE
+        #: Чей приёмник изображаем: у профиля своё терпение, свои повторы и своя обида
+        #: на 404. Умолчание осторожное - тот самый Q70D, на котором всё замерено.
+        self.profile = profile
+        self.patience = patience or profile.patience
         self.report = Report()
         self._proc: subprocess.Popen[str] | None = None
         self._err: IO[bytes] | None = None
@@ -752,8 +766,8 @@ class MockReceiver:
     def _wait(self, pos: float) -> bool:
         """Терпение приёмника к стоящей картинке; ``False`` - оно кончилось, показ брошен.
 
-        Внутри терпения приёмник пробует поднять себя сам - те самые два повтора LOAD
-        (:attr:`LOAD_RETRIES`), разнесённые по терпению поровну. Источник к этому моменту
+        Внутри терпения приёмник пробует поднять себя сам - те самые два перезабора куска
+        (:attr:`SEGMENT_RETRIES`), разнесённые по терпению поровну. Источник к этому моменту
         может уже вернуться, и тогда картинка пойдёт дальше без всякого воскрешения;
         а не вернулся - терпение выходит, и показ гаснет так же молча, как на ТВ.
         """
@@ -764,8 +778,8 @@ class MockReceiver:
             self._dead = True
             self._quiet()
             return False
-        step = self.patience / (self.LOAD_RETRIES + 1)
-        if self._loads < self.LOAD_RETRIES and dark >= step * (self._loads + 1):
+        step = self.patience / (self.profile.segment_retries + 1)
+        if self._loads < self.profile.segment_retries and dark >= step * (self._loads + 1):
             self._loads += 1
             with contextlib.suppress(InfraError, OSError):
                 self._open(self._url, pos)  # источника всё ещё нет - терпим дальше
@@ -894,14 +908,20 @@ class MockReceiver:
             self.report.no_cors += 1
 
     def _caught(self, response: Any) -> None:
-        """404 приёмник помнит: ближайшие :attr:`SULK` секунд он не берёт LOAD вовсе.
+        """404 приёмник помнит :attr:`SULK` секунд - и это ноль (замер 09-08-2026).
 
-        Замерено на живом Q70D и стоит за тем, что раздача 404 не отдаёт (:class:`Feed`).
-        Заглушка, прощающая 404, врала бы в самую опасную сторону: на сухом прогоне
-        воскрешение проходило бы с первой попытки там, где живой ТВ молчит минутами.
+        🔴 Наказание за 404 опровергнуто трижды на живом Q70D двумя независимыми
+        каналами: LOAD после 404 берётся даже быстрее обычного тёплого. Поэтому заглушка
+        за него больше и не наказывает - модель обязана держаться замера, а не легенды.
+
+        ⚠️ Механизм оставлен на месте, и поле в профиле тоже: мерили мгновенный чистый
+        404 внутри здоровой сессии, а прежнее наблюдение пришло из другого сценария.
+        Найдётся приёмник, который обижается, - наказание вернётся числом в его профиле,
+        а не правкой кода. И на решение «держать запрос вместо 404»
+        (:attr:`torrcast.stream.Feed.wait`) этот ноль не влияет вовсе.
         """
         if getattr(response, "status_code", 0) == 404:
-            self._sulk = time.monotonic() + self.SULK
+            self._sulk = time.monotonic() + self.profile.sulk
 
 
 def trust_anchor(cert: str) -> str:
@@ -929,7 +949,9 @@ def trust_anchor(cert: str) -> str:
     return ""
 
 
-def make_receiver(kind: ReceiverKind, address: str = "", ca: str = "") -> Receiver:
+def make_receiver(
+    kind: ReceiverKind, address: str = "", ca: str = "", profile: Profile = CAUTIOUS
+) -> Receiver:
     if kind == "mock":
-        return MockReceiver(trust_anchor(ca) if ca else "")
-    return ChromecastReceiver(address)
+        return MockReceiver(trust_anchor(ca) if ca else "", profile=profile)
+    return ChromecastReceiver(address, profile=profile)

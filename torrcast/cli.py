@@ -62,6 +62,9 @@ from torrcast.parse import (
     split_franchise_index,
     transliterate,
 )
+from torrcast.profile import CAUTIOUS, Profile
+from torrcast.profile import detect as detect_profile
+from torrcast.profile import tune as tune_profile
 from torrcast.recode import FULL_FLOOR, FULL_GAIN, FULL_PRESET, Encode, Recoder
 from torrcast.scan import Device
 from torrcast.search import Prowlarr, RawResult, merge, to_releases
@@ -724,11 +727,19 @@ def _cmd_worker(key: str) -> int:
     """
     mark("процесс показа")
     config = load_config()
+    # Профиль приёмника юнит выбирает себе сам, а не получает от CLI: юнит переживает
+    # смену серии и живёт своей жизнью, а опрос паспорта стоит одного HTTP к устройству.
+    chosen = detect_profile(config)
+    config = tune_profile(config, chosen.profile)
+    print(f"профиль приёмника: {chosen.profile.title} - {chosen.how}", flush=True)
     # SIGTERM от `cast stop` обязан пройти через finally: иначе позиция не запишется.
     signal.signal(signal.SIGTERM, _on_term)
     torrserver = TorrServer(config.torrserver_url)
     receiver = make_receiver(
-        config.receiver, config.tv or "", config.hls_cert if config.transport == "https" else ""
+        config.receiver,
+        config.tv or "",
+        config.hls_cert if config.transport == "https" else "",
+        profile=chosen.profile,
     )
     magnet, torrent_hash = "", ""
     supply = Supply(TorrServer(config.torrserver_url, timeout=PROBE_TIMEOUT))
@@ -749,7 +760,15 @@ def _cmd_worker(key: str) -> int:
         entry = _duration(key, entry, source)
         watch = Watch(key=key, entry=entry)
         title = " ".join(filter(None, (entry.title, entry.label)))
-        trace.emit("session", "session_start", title=title, pos=round(entry.pos, 1))
+        # Профиль идёт в след каждой серией: по какому набору порогов играли - вопрос,
+        # который иначе снова пришлось бы выяснять с гипервизора.
+        trace.emit(
+            "session",
+            "session_start",
+            title=title,
+            pos=round(entry.pos, 1),
+            profile=chosen.profile.key,
+        )
         print(f"показ «{title}» с {_hms(entry.pos)}", flush=True)
         code = _play(
             config,
@@ -764,8 +783,9 @@ def _cmd_worker(key: str) -> int:
             depth=entry.depth,
             # Прогрев следующей серии впрок: собирается лениво, когда текущая уже на
             # диске (:meth:`torrcast.warm.Warmer._chain`). Раздача та же, файл - соседний.
-            follow=partial(_next_warmer, config, torrserver, torrent_hash, entry),
+            follow=partial(_next_warmer, config, torrserver, torrent_hash, entry, chosen.profile),
             supply=supply,
+            profile=chosen.profile,
         )
         following = _following(key) if watch.done else None
         if following is None:
@@ -908,6 +928,11 @@ def _cmd_play(args: Args) -> int:
     mark("команда")
     clock = _Clock()
     config = load_config()
+    # Профиль приёмника - до всего остального: от него зависят и потолки отбора, и то,
+    # какой кодек считается играбельным. Спрашивать о нём человека нечего: он выбирается
+    # по паспорту устройства, а незнакомому приёмнику достаётся осторожный набор.
+    chosen = detect_profile(config)
+    config = tune_profile(config, chosen.profile)
     state = State.load()
     found_entry = state.find(args.title_query)
     # --new: прежний прогресс не продолжаем и выбираем заново, но запись пока цела.
@@ -924,7 +949,7 @@ def _cmd_play(args: Args) -> int:
         facts = Facts([(p.picture.title, p.picture.year) for p in plans])
         facts.start()
         torrserver = TorrServer(config.torrserver_url)
-        bench = _Bench(torrserver, choose=_file_picker(args))
+        bench = _Bench(torrserver, choose=_file_picker(args), profile=chosen.profile)
         # Прогрев под меню: пока идёт вопрос, раздачи уже качают метаданные.
         order = warm_order(plans)
         for plan in order[:PREWARM]:
@@ -1898,9 +1923,12 @@ class _Bench:
         choose: Callable[[_Plan, Release, list[TorrFile]], TorrFile] | None = None,
         meta_budget: float = META_BUDGET,
         probe_budget: float = PROBE_BUDGET,
+        profile: Profile = CAUTIOUS,
     ) -> None:
         self.torrserver = torrserver
         self.choose = choose or _default_file
+        #: Чей декодер судит релизы: что играется копией, а что не играется вовсе.
+        self.profile = profile
         self.meta_budget = meta_budget
         self.probe_budget = probe_budget
         self.preps: dict[tuple[str, int], _Prep] = {}
@@ -2221,8 +2249,11 @@ class _Bench:
         codec = prep.media.video_name or "h264"
         # «Обычный» - это восьмибитный H.264, и только он: десятибитный такой же ``h264``
         # по имени, но по зубам приёмнику ровно так же, как HEVC, то есть никак.
-        plain = (prep.media.video or "h264") == "h264" and not prep.media.recoded_whole
-        if pinned or plain or (recode and prep.media.recoded_whole):
+        # Белый список кодеков и глубина цвета - свойство ПРИЁМНИКА, а не показа: они
+        # приходят из его профиля (:mod:`torrcast.profile`).
+        whole = recodes_whole(prep.media.video or "", prep.media.depth, self.profile)
+        plain = self.profile.plays_copy(prep.media.video or "") and not whole
+        if pinned or plain or (recode and whole):
             return ""
         return codec
 
@@ -2521,7 +2552,11 @@ def _recoder(
 
 
 def _encode_all(
-    config: Config, codec: str, video_mbit: float = 0.0, depth: int = 0
+    config: Config,
+    codec: str,
+    video_mbit: float = 0.0,
+    depth: int = 0,
+    profile: Profile = CAUTIOUS,
 ) -> Encode | None:
     """Чем перекодировать ВЕСЬ файл или ``None`` — если видео уезжает копией, как всегда.
 
@@ -2554,7 +2589,7 @@ def _encode_all(
     if not config.recode:
         return None
     heavy = video_mbit > config.bitrate_hard_mbit
-    if not recodes_whole(codec or "", depth) and not heavy:
+    if not recodes_whole(codec or "", depth, profile) and not heavy:
         return None
     want = config.recode_mbit
     if video_mbit > 0:
@@ -2570,6 +2605,7 @@ def _layout(
     video_mbit: float,
     say: Any = None,
     depth: int = 0,
+    profile: Profile = CAUTIOUS,
 ) -> tuple[Grid, Encode | None]:
     """Сетка сегментов и решение «перекодировать файл целиком» - одной парой.
 
@@ -2588,7 +2624,7 @@ def _layout(
     """
     from torrcast.stream import AUDIO_MBIT, TS_OVERHEAD, grid_for
 
-    whole = _encode_all(config, codec, video_mbit, depth)
+    whole = _encode_all(config, codec, video_mbit, depth, profile)
     grid = grid_for(
         source,
         length,
@@ -2599,11 +2635,19 @@ def _layout(
         ceiling_mbit=config.recode_mbit if config.recode else 0.0,
         # Сплошной перекод: вес куска задаём мы сами, карта источника тут не судья.
         fixed_mbit=(whole.mbit + AUDIO_MBIT) * TS_OVERHEAD if whole is not None else 0.0,
+        # Потолок веса куска - у каждого приёмника свой (:mod:`torrcast.profile`).
+        cap=profile.max_segment_bytes,
     )
     return grid, whole
 
 
-def _next_warmer(config: Config, torrserver: Any, torrent_hash: str, entry: Entry) -> Warmer | None:
+def _next_warmer(
+    config: Config,
+    torrserver: Any,
+    torrent_hash: str,
+    entry: Entry,
+    profile: Profile = CAUTIOUS,
+) -> Warmer | None:
     """Прогрев СЛЕДУЮЩЕЙ серии - тем же механизмом, каким грелась текущая.
 
     Зовётся лениво и ровно один раз: когда текущая серия уже лежит на диске целиком и
@@ -2628,8 +2672,16 @@ def _next_warmer(config: Config, torrserver: Any, torrent_hash: str, entry: Entr
     source = torrserver.stream_url(torrent_hash, following.file_idx)
     media = probe(source, timeout=WORKER_DUR)
     video_mbit = max(0.0, media.video_bps / 1e6)
+    # 🔴 Профиль тот же, что у показа: разойдись они - прогретое ляжет под другим ключом
+    # (:func:`torrcast.warm.warm_key`), и показ своего же прогретого не найдёт.
     grid, whole = _layout(
-        config, source, media.duration, media.video or "", video_mbit, depth=media.depth
+        config,
+        source,
+        media.duration,
+        media.video or "",
+        video_mbit,
+        depth=media.depth,
+        profile=profile,
     )
     recoder = (
         None
@@ -2735,6 +2787,7 @@ def _play(
     depth: int = 0,
     follow: Any = None,
     supply: Supply | None = None,
+    profile: Profile = CAUTIOUS,
 ) -> int:
     """Упаковка → раздача по http на голом IP → приёмник. Своих демонов нет: и ffmpeg,
     и раздача живут ровно на время показа и гасятся вместе с ним, что бы ни случилось.
@@ -2749,6 +2802,9 @@ def _play(
     ``supply`` - источник показа (:class:`torrcast.stream.Supply`): служба раздач и наша
     раздача в ней. Спрашивают его только на краю показа, зато прежде, чем объявить показ
     погасшим, - иначе за аварию источника отвечает приёмник, который ни при чём.
+
+    ``profile`` - пороги ПРИЁМНИКА (:mod:`torrcast.profile`): вес куска, терпение, сторож
+    нуджей, удержание запроса вместо 404. Умолчание осторожное - тот же Q70D, что и был.
     """
     from torrcast.recode import RECODE_DIR
     from torrcast.stream import hls_base, hls_dir
@@ -2777,12 +2833,16 @@ def _play(
         video_mbit,
         say=lambda text: print(text, flush=True),
         depth=depth,
+        profile=profile,
     )
     mark("сетка", сегментов=grid.count, покадрам=grid.on_keys)
     if whole is not None:
         # Причина перекода называется вслух: кодек с глубиной - или вес, и тогда с числом.
         name = codec_name(codec, depth)
-        print(recode_note(name, 0.0 if recodes_whole(codec, depth) else video_mbit), flush=True)
+        print(
+            recode_note(name, 0.0 if recodes_whole(codec, depth, profile) else video_mbit),
+            flush=True,
+        )
         mark("сплошной перекод", кодек=name, пресет=whole.preset, мбит=round(whole.mbit, 2))
     # Профиль тяжести всего фильма известен со старта - он считается из уже снятой
     # карты опорных кадров и не стоит ни одного запроса к рою. Тяжёлые куски кодировщик
@@ -2812,6 +2872,9 @@ def _play(
         readrate=config.hls_readrate,
         burst=config.hls_burst,
         keep=config.hls_keep,
+        # Сколько держать запрос вместо 404 - свойство приёмника: Q70D после 404 молчит
+        # минутами, а приставка Android TV берёт следующий LOAD через девять секунд.
+        wait=profile.hold_seconds,
         log=lambda text: print(text, flush=True),
         recoder=recoder,
         encode=whole,
@@ -2824,7 +2887,9 @@ def _play(
     # нечего, и mock не должен делать вид, что что-то проверил. Готовый приёмник приходит
     # с сериалом: он один на весь юнит (см. :func:`_cmd_worker`).
     if receiver is None:
-        receiver = make_receiver(config.receiver, config.tv or "", config.hls_cert if tls else "")
+        receiver = make_receiver(
+            config.receiver, config.tv or "", config.hls_cert if tls else "", profile=profile
+        )
     url = f"{hls_base(config)}/index.m3u8"
     try:
         server.start()
@@ -2844,7 +2909,7 @@ def _play(
         # делает, происходит уже при играющем показе и на остатке процессора.
         if warmer is not None:
             warmer.start()
-        _hold(receiver, feed, watch, warmer, supply)
+        _hold(receiver, feed, watch, warmer, supply, profile)
     finally:
         # Позиция фиксируется при любом исходе, включая SIGTERM, и делается это ПЕРВЫМ
         # делом: показ, доигранный до конца файла, отмечает «досмотрено» ровно здесь, а
@@ -3030,6 +3095,12 @@ class _Revival:
     #: С какого монотонного момента показ снова идёт после темноты; ``0.0`` - либо темноты
     #: не было вовсе, либо запас попыток уже возвращён.
     back: float = 0.0
+    #: Выдержка между попытками подъёма, секунды: мера молчания приёмника после 404
+    #: (:attr:`torrcast.profile.Profile.revive_pause`). Умолчание - осторожный профиль.
+    pause: float = REVIVE_PAUSE
+    #: Сколько показ должен идти живым, чтобы запас попыток снова считался полным.
+    #: Меньше :attr:`pause` брать нельзя - см. :data:`REVIVE_LIVED`.
+    lived: float = REVIVE_LIVED
 
     def alive(self, shown: bool = True) -> None:
         """Показ идёт - темноте конец, а пережитый обрыв возвращает потраченный запас.
@@ -3053,7 +3124,7 @@ class _Revival:
             return  # обрыва не было вовсе - и возвращать нечего
         if not shown:
             self.back = now
-        elif now - self.back >= REVIVE_LIVED:
+        elif now - self.back >= self.lived:
             self.back, self.tries = 0.0, 0
 
     def resurrect(self, receiver: Receiver, feed: Feed, warmer: Warmer | None, pos: float) -> bool:
@@ -3083,9 +3154,9 @@ class _Revival:
                 flush=True,
             )
             return False
-        if not self._may(feed, warmer) or (self.last and now - self.last < REVIVE_PAUSE):
+        if not self._may(feed, warmer) or (self.last and now - self.last < self.pause):
             return True  # сети всё ещё нет либо выдержка между попытками не вышла
-        if self.dropped and dark < REVIVE_PAUSE:
+        if self.dropped and dark < self.pause:
             # 🔴 Показ бросил сам приёмник, источник цел - и признаки «сеть вернулась»
             # про приёмник не говорят ровно ничего. Прогрев в этот момент растёт всегда
             # (служба раздач жива, куски идут), :attr:`Feed.offline` пуст всегда - поэтому
@@ -3167,6 +3238,7 @@ def _hold(
     watch: Watch | None = None,
     warmer: Warmer | None = None,
     supply: Supply | None = None,
+    profile: Profile = CAUTIOUS,
 ) -> None:
     """Держим показ: опрос приёмника раз в 2 с, упаковка должна быть жива, из RAM уходит
     только пройденное, сторож раз в 10 с пишет позицию.
@@ -3207,7 +3279,9 @@ def _hold(
     held = 0.0
     show_trace = bool(os.environ.get(TRACE_ENV))
     buffering = was_offline = False
-    revival = _Revival(supply=supply)
+    # Выдержка между попытками воскрешения - мера молчания ПРИЁМНИКА после 404, поэтому
+    # она приходит из его профиля, а не из общей константы.
+    revival = _Revival(supply=supply, pause=profile.revive_pause, lived=profile.revive_pause)
     while True:
         _ctl(receiver)
         if trouble := feed.trouble():

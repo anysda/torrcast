@@ -81,6 +81,10 @@ class Device:
     model: str = ""
     #: Кто нашёл: ``mdns`` (по имени) или ``скан`` (по порту 8009).
     how: str = ""
+    #: Производитель по паспорту устройства. В меню он не нужен - по нему выбирается
+    #: профиль приёмника (:func:`torrcast.profile.for_passport`), и часто он единственное,
+    #: чем устройство себя называет: у приставки Xiaomi имя и модель приходят пустыми.
+    maker: str = ""
 
     @property
     def title(self) -> str:
@@ -242,6 +246,7 @@ def named(address: str, timeout: float = NAME_TIMEOUT) -> Device:
         name=str(status.friendly_name or ""),
         model=str(status.model_name or ""),
         how="скан",
+        maker=str(getattr(status, "manufacturer", "") or ""),
     )
 
 
@@ -276,6 +281,7 @@ def by_mdns(timeout: float = MDNS_TIMEOUT) -> list[Device]:
                         name=str(info.friendly_name or ""),
                         model=str(info.model_name or ""),
                         how="mdns",
+                        maker=str(getattr(info, "manufacturer", "") or ""),
                     )
                 )
     except Exception:

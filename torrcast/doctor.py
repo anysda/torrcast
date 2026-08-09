@@ -55,6 +55,7 @@ def checkup(config: Config) -> Iterator[Line]:
     yield _torrserver(config)
     yield _cache(config)
     yield from _tv(config)
+    yield _profile(config)
     yield _hls(config)
     yield _shelves()
     yield _trace()
@@ -248,6 +249,27 @@ def _tv(config: Config) -> Iterator[Line]:
         yield _bad(f"порт {CAST_PORT} на ТВ не открылся ({exc.strerror or exc}) - ТВ обесточен?")
     finally:
         sock.close()
+
+
+def _profile(config: Config) -> Line:
+    """Профиль приёмника: по какому набору порогов будет играть показ и откуда он взялся.
+
+    Строка тут ровно потому, что искать это однажды пришлось бы с гипервизора: пороги
+    веса куска, терпения и битрейта у двух приёмников разные, и «почему на этом
+    телевизоре перекодируется всё подряд» без этой строки не отвечается ничем.
+
+    Осторожный профиль на незнакомом приёмнике - не беда, а замысел: он играет медленнее,
+    но играет. Поэтому «внимание» здесь только тогда, когда осторожный набор достался
+    приёмнику, которого мы не смогли спросить, - это единственный случай, где строка
+    подсказывает человеку, что можно сделать лучше.
+    """
+    from torrcast.profile import CAUTIOUS, detect
+
+    chosen = detect(config)
+    text = f"профиль приёмника: {chosen.profile.title} - {chosen.how}"
+    if chosen.profile is CAUTIOUS and chosen.how.endswith("беру осторожный"):
+        return _warn(f"{text}; назвать руками - ключ receiver_profile в конфиге")
+    return _ok(text)
 
 
 def _hls(config: Config) -> Line:

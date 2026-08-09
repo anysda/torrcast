@@ -129,6 +129,7 @@ def test_the_unit_plays_the_whole_release_by_itself(monkeypatch: pytest.MonkeyPa
         depth: int = 0,
         follow: Any = None,
         supply: Any = None,
+        profile: Any = None,
     ) -> int:
         played.append((about, int(source.rsplit("/", 1)[-1])))
         receivers.append(receiver)
@@ -139,7 +140,7 @@ def test_the_unit_plays_the_whole_release_by_itself(monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr(
         cli, "probe", lambda url, timeout=90.0, alive=None: Media(MINUTES_24, (), "h264")
     )
-    monkeypatch.setattr(cli, "make_receiver", lambda kind, address, cert: tv)
+    monkeypatch.setattr(cli, "make_receiver", lambda kind, address, cert, profile=None: tv)
     monkeypatch.setattr(cli, "_play", play)
 
     assert cli._cmd_worker(KEY) == 0
@@ -170,7 +171,7 @@ def test_the_next_episode_learns_its_own_duration(monkeypatch: pytest.MonkeyPatc
 
     monkeypatch.setattr(cli, "TorrServer", _FakeTorrServer)
     monkeypatch.setattr(cli, "probe", probe)
-    monkeypatch.setattr(cli, "make_receiver", lambda kind, address, cert: None)
+    monkeypatch.setattr(cli, "make_receiver", lambda kind, address, cert, profile=None: None)
     monkeypatch.setattr(
         cli,
         "_play",
@@ -204,7 +205,7 @@ def test_a_record_from_before_the_ten_bit_era_asks_the_passport_once(
 
     monkeypatch.setattr(cli, "TorrServer", _FakeTorrServer)
     monkeypatch.setattr(cli, "probe", probe)
-    monkeypatch.setattr(cli, "make_receiver", lambda kind, address, cert: None)
+    monkeypatch.setattr(cli, "make_receiver", lambda kind, address, cert, profile=None: None)
 
     def play(
         config: Any, source: str, audio: int, about: str, clock: Any, watch: Any = None, **rest: Any
