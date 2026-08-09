@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import threading
 import time
+from datetime import UTC, datetime, timedelta
 from itertools import permutations
 from pathlib import Path
 from typing import Final
@@ -181,7 +182,13 @@ class _Swarm:
         rows: int = 1,
         hold: set[int] | None = None,
         yts: bool = False,
+        blocked: dict[int, str] | None = None,
     ) -> None:
+        #: Кого Prowlarr увёл в недоступные: номер - время последнего отказа (UTC).
+        #: Пусто - как на здоровом стенде: страница статуса показывает только банных.
+        self.blocked = blocked or {}
+        #: Куда сходило лечение бана (:meth:`Prowlarr._heal`): адреса POST по порядку.
+        self.probed: list[str] = []
         self.mute = mute
         self.mute_all = mute_all
         #: Сколько раздач отдаёт один ответивший индексер: одна - пул тощий (сработает
@@ -205,6 +212,15 @@ class _Swarm:
 
         self.urls.append(url)
         self.waited.append(timeout)
+        if "/api/v1/indexerstatus?" in url:
+            return _Reply(
+                [
+                    {"indexerId": num, "mostRecentFailure": failed, "disabledTill": failed}
+                    for num, failed in self.blocked.items()
+                ]
+            )
+        if "/api/v1/indexer/" in url:  # тело одного индексера - его же и понесёт проверка
+            return _Reply({"id": int(url.split("/api/v1/indexer/")[1].split("?")[0])})
         if url.endswith("/api/v1/indexer?apikey=KEY"):
             return _Reply(
                 [
@@ -221,6 +237,11 @@ class _Swarm:
         if num in self.hold and not self.gate.wait(timeout):
             raise requests.ConnectTimeout("молчит")
         return _Reply(self._rows(num))
+
+    def post(self, url: str, json: object = None, timeout: float = 0.0) -> _Reply:
+        """Проверка индексера - единственная ручка, которой снимается бан (TC-272)."""
+        self.probed.append(url)
+        return _Reply({})
 
     def _rows(self, num: int) -> list[dict[str, object]]:
         """Выдача одного индексера: при ``rows == 1`` - ровно одна строка (как было),
@@ -315,6 +336,84 @@ def test_prowlarr_400_names_unavailable_indexers_not_prowlarr() -> None:
     message = str(caught.value)
     assert message == "индексеры не отвечают: Knaben, RuTor"
     assert "Prowlarr не отвечает" not in message
+
+
+def _ago(seconds: float) -> str:
+    """Время отказа глазами Prowlarr: UTC с ``Z`` на конце, как на живом стенде."""
+    return (datetime.now(UTC) - timedelta(seconds=seconds)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _probes(client: Prowlarr, wait: float = 2.0) -> list[str]:
+    """Куда сходило лечение бана. Оно идёт своим потоком и круга не держит (TC-272),
+    поэтому ждём его здесь, а не в поиске."""
+    session = client._session
+    end = time.monotonic() + wait
+    while time.monotonic() < end and not session.probed:  # type: ignore[union-attr]
+        time.sleep(0.01)
+    probed: list[str] = session.probed  # type: ignore[union-attr]
+    return probed
+
+
+def test_заблокированный_индексер_не_занимает_места_в_круге() -> None:
+    """🔴 TC-259. Забаненного Prowlarr'ом спрашивать нельзя: вместо его выдачи придёт
+    отказ ВСЕГО поиска («all selected indexers being unavailable»), неотличимый от смерти
+    самого Prowlarr. Места в круге и личного бюджета он при этом стоит как живой - и в
+    списке индексеров выглядит включённым. Такой в круг не идёт и молчуном не зовётся:
+    молчун не ответил нам, а этого мы и не спрашивали.
+    """
+    client = _swarm(yts=True, blocked={4: _ago(300)})
+    results = client.search("матрица")
+    asked = [u.rsplit("=", 1)[1] for u in client._session.urls if "&indexerIds=" in u]  # type: ignore[union-attr]
+    assert "4" not in asked  # YTS заблокирован - персонального запроса не получает
+    assert client.banned == ("YTS",)
+    assert client.silent == ()  # заблокированный - не молчун
+    assert results  # находки остальных на месте: смерть звена урезает каталог, а не показ
+
+
+def test_бан_снимается_проверкой_индексера() -> None:
+    """🔴 TC-272. Ручки «снять бан» у Prowlarr нет (DELETE на статус отвечает 405), и сам
+    он отпускает по своим часам, а не по здоровью источника: замер на стенде - канал
+    пропадал на 12 с, каталог был урезан ещё 59.2 с ПОСЛЕ его возврата, а на хронике
+    отсрочка дорастает до часа. Снимает бан только успешная проверка индексера - она
+    ходит в источник по-настоящему, поэтому вернуть мёртвого в каталог ею нельзя.
+    """
+    client = _swarm(yts=True, blocked={4: _ago(300)})
+    client.search("матрица")
+    assert _probes(client) == ["http://127.0.0.1:9696/api/v1/indexer/test?apikey=KEY"]
+
+
+def test_свежий_отказ_проверками_не_добиваем() -> None:
+    """Источник, отказавший только что, не трогаем: лишний запрос к трекеру - это ровно
+    та причина, по которой Prowlarr и раздаёт баны (Nyaa отвечает на них 504)."""
+    client = _swarm(yts=True, blocked={4: _ago(1)})
+    client.search("матрица")
+    assert _probes(client, wait=0.3) == []
+    assert client.banned == ("YTS",)  # в круг он всё равно не идёт
+
+
+def test_бан_всех_индексеров_это_отказ_инфры_а_не_пустой_поиск() -> None:
+    """Заблокированы все до одного - каталога нет, и сказать это надо словами: пустая
+    выдача вместо честного отказа тут была бы молчаливой подменой."""
+    banned = {num: _ago(300) for num in (1, 2, 3)}
+    with pytest.raises(InfraError, match="все индексеры"):
+        _swarm(blocked=banned).search("матрица")
+
+
+def test_пустой_поиск_при_бане_кворумного_это_не_ничего_не_нашлось() -> None:
+    """«Ничего не нашлось» - утверждение о каталоге, а бан кворумного забирает его
+    половину (замер: 41% строк на Knaben, 56% на RuTor - разные половины). Пустота при
+    таком бане это «судить не по чему», и код возврата обязан быть другим."""
+    client = _swarm(rows=0, blocked={1: _ago(300)})
+    with pytest.raises(InfraError, match="искать было нечем"):
+        client.search("матрица")
+
+
+def test_пустой_поиск_при_бане_некворумного_остаётся_пустым_но_названным() -> None:
+    """У некворумного замерен НОЛЬ запросов, где он единственный источник, - пустоту его
+    бан не отменяет. Но человек должен знать, что искали урезанным каталогом."""
+    client = _swarm(rows=0, yts=True, blocked={4: _ago(300)})
+    with pytest.raises(NotFoundError, match="каталог сейчас урезан"):
+        client.search("матрица")
 
 
 def test_anime_query_reads_a_cheap_signal() -> None:

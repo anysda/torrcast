@@ -20,17 +20,19 @@ Jackett, у Prowlarr 404 (Torznab-XML отдаётся по индексеру `
 
 from __future__ import annotations
 
+import contextlib
 import re
 import threading
 import time
 from collections import Counter
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field, replace
+from datetime import datetime
 from typing import TYPE_CHECKING, Any, Final
 from urllib.parse import quote
 from xml.etree import ElementTree
 
-from torrcast import InfraError, NotFoundError, why
+from torrcast import InfraError, NotFoundError, TorrcastError, why
 from torrcast.parse import Release, anime_indexer, by_majority, looks_anime, parse_release_name
 from torrcast.timing import mark
 
@@ -55,6 +57,26 @@ __all__ = [
 
 _SEARCH_PATH: Final = "/api/v1/search"
 _INDEXERS_PATH: Final = "/api/v1/indexer"
+#: Кого Prowlarr увёл в недоступные: список из одних заблокированных, с полями
+#: ``indexerId``, ``disabledTill`` и ``mostRecentFailure``. Отпустивших он не показывает,
+#: поэтому «пусто» тут и значит «бана нет».
+_STATUS_PATH: Final = "/api/v1/indexerstatus"
+#: Проверка одного индексера: POST с его же телом из :data:`_INDEXERS_PATH`. Это
+#: единственная снаружи доступная ручка, которая СНИМАЕТ бан (:meth:`Prowlarr._probe`).
+_TEST_PATH: Final = "/api/v1/indexer/test"
+#: 🔴 TC-259/TC-272. Как часто мы вправе стучаться в заблокированный индексер.
+#:
+#: Prowlarr держит бан по своим часам, а не по здоровью источника: замер на стенде -
+#: канал пропадал на 12 с, а каталог возвращался через 59.2 с после его возврата.
+#: Дальше хуже, отсрочка растёт по отказам: 1 мин, 4-5 мин, 15 мин, и на хронике - час.
+#: Своей памяти между поисками у клиента нет (:meth:`Prowlarr.__init__`), поэтому тормоз
+#: тут один - время последнего отказа, которое Prowlarr считает сам: неудачная проверка
+#: обновляет его на «сейчас», и следующая случится не раньше чем через эту паузу.
+#: Минута выбрана по нижней ступени отсрочки: короче - значит стучаться в источник,
+#: который Prowlarr и сам подождал бы столько же, а на 504-х это прямая дорога к
+#: многочасовому бану. Первую ступень пауза не выигрывает (она ей и равна), зато
+#: складывает все остальные - час ожидания превращается в минуту.
+_HEAL_PAUSE: Final = 60.0
 #: Потолок общего запроса - того, которым спрашиваем, когда список индексеров недоступен
 #: (:meth:`Prowlarr._known`). Такой запрос отдаётся, только когда опрошены ВСЕ индексеры,
 #: поэтому потолок здесь - это не «сколько ждём обычно» (обычно 1-3 с), а «сколько терпим
@@ -81,6 +103,14 @@ GOAL: Final = 10.0
 #: индексера (десять картин вместо пятидесяти, ``YTS_LIMIT`` в ``install.sh``), и по
 #: объёму тела до порога обрыва теперь троекратный запас. Этот бюджет остался страховкой
 #: на случай, когда порог просядет ещё, а не главной защитой от молчания.
+#: 🔴 TC-273: YTS ЖИВ, и держим мы его честно. Числился он мёртвым по HTTP 400 в ответ на
+#: свой персональный запрос - но 400 у Prowlarr это не смерть индексера, а его бан
+#: («Search failed due to all selected indexers being unavailable»), и приходил он на
+#: любой забаненный индексер одинаково. Живая проба на здоровом стенде: 24 раздачи на
+#: «matrix» за 0.1 с, повторно после снятия бана - те же 24. Место в круге он занимает
+#: своим коротким бюджетом, и вклад его прежний (+2.1%, ноль уникальных дыр) - но раз он
+#: отвечает, молчащим в списке ему не место: круг платит за него шесть секунд ХВОСТА,
+#: который никого не ждёт, а не шесть секунд пути.
 _SHORT_TIMEOUT: Final = 6.0
 #: Кому этот бюджет достаётся - по подстроке в имени индексера, как и у аниме-списка.
 _SHORT_BUDGET: Final = ("yts",)
@@ -233,6 +263,26 @@ def quorum_indexer(name: str) -> bool:
     return any(part in low for part in QUORUM_INDEXERS)
 
 
+def _rested(failed: str) -> bool:
+    """Отдохнул ли источник настолько, что в него пора стучаться (:data:`_HEAL_PAUSE`).
+
+    ``failed`` - время последнего отказа глазами Prowlarr, UTC («2026-08-09T20:13:28Z»).
+    Оно же и весь наш тормоз: памяти между поисками у клиента нет, а эту отметку Prowlarr
+    переписывает на КАЖДОМ отказе - в том числе на нашей неудачной проверке. Отсюда и
+    свойство, ради которого отметка взята вместо своего счётчика: сколько бы поисков ни
+    случилось подряд, в мёртвый источник мы постучимся не чаще раза в паузу.
+
+    Дробную часть секунды отрезаем: Prowlarr отдаёт её то в шесть знаков, то в семь, а
+    :meth:`~datetime.datetime.fromisoformat` до 3.12 семь не принимает. Время не прочиталось
+    - считаем, что пора: не полечить вовсе хуже, чем сходить лишний раз.
+    """
+    try:
+        moment = datetime.fromisoformat(re.sub(r"\.\d+", "", failed).replace("Z", "+00:00"))
+    except ValueError:
+        return True
+    return time.time() - moment.timestamp() >= _HEAL_PAUSE
+
+
 @dataclass(slots=True)
 class _Ask:
     """Один спрошенный индексер: место под ответ и флаг «поток закончил».
@@ -322,6 +372,9 @@ class Prowlarr:
         self.silent: tuple[str, ...] = ()
         #: Уже названные человеку молчуны: повторный добор не должен повторять строку.
         self.reported_silent: set[str] = set()
+        #: Индексеры, которых Prowlarr увёл в недоступные, - по именам. Молчунами они не
+        #: считаются: молчун не ответил нам, а этих мы и не спрашивали (TC-259).
+        self.banned: tuple[str, ...] = ()
         self._session: requests.Session | None = None
         self._indexers: tuple[tuple[int, str], ...] | None = None
         #: Опоздавшие: круг ушёл по кворуму, а эти ещё в пути (TC-118).
@@ -345,8 +398,31 @@ class Prowlarr:
         found = self._apart(query, limit)
         results = found if found is not None else from_json(self._get_json(self._url(query, limit)))
         if not results:
-            raise NotFoundError(f"по запросу «{query}» ничего не нашлось")
+            raise self._nothing(query)
         return results
+
+    def _nothing(self, query: str) -> TorrcastError:
+        """Чем считать пустой поиск, когда часть каталога заблокирована (TC-259).
+
+        «Ничего не нашлось» - утверждение о КАТАЛОГЕ, и делать его, не спросив половину
+        каталога, нельзя: замер выдачи даёт 41% строк на Knaben и 56% на RuTor, и это
+        разные половины. Поэтому бан кворумного (:func:`quorum_indexer`) превращает пустой
+        ответ из «такого фильма нет» в «судить не по чему» - разные это и для человека, и
+        для кода возврата. Бан некворумного пустоту не отменяет (у YTS замерено НОЛЬ
+        запросов, где он единственный источник), но и молчать о нём нельзя: человек должен
+        знать, что искали урезанным каталогом.
+        """
+        if any(quorum_indexer(name) for name in self.banned):
+            return InfraError(
+                f"по запросу «{query}» искать было нечем: Prowlarr увёл в недоступные "
+                f"{', '.join(self.banned)} - без них каталога нет"
+            )
+        if self.banned:
+            return NotFoundError(
+                f"по запросу «{query}» ничего не нашлось; каталог сейчас урезан - "
+                f"Prowlarr увёл в недоступные {', '.join(self.banned)}"
+            )
+        return NotFoundError(f"по запросу «{query}» ничего не нашлось")
 
     def _url(self, query: str, limit: int, indexer: int | None = None) -> str:
         from torrcast.parse import wire_query
@@ -399,11 +475,26 @@ class Prowlarr:
         (меньше :data:`_FALLBACK_POOL` раздач) - анимешные зовутся вторым кругом,
         фолбэком. Недоступный Nyaa ломает ровно свой круг: имя попадает в молчуны,
         находки остальных доезжают - как и у любого молчуна выше.
+
+        🔴 TC-259: заблокированных Prowlarr'ом в круг не берём (:meth:`_blocked`). Спросить
+        их всё равно нельзя - вместо выдачи придёт отказ всего поиска, - а места в круге и
+        личного бюджета они стоят как живые. Взамен в них стучится :meth:`_heal`, и
+        починившееся звено возвращается в каталог следующим же поиском.
         """
         known = self._known()
         if not known:
             return None
         self._session = self._session or self._new_session()
+        blocked = self._blocked()
+        self._heal(blocked)
+        self.banned = tuple(name for num, name in known if num in blocked)
+        if self.banned:
+            known = tuple(pair for pair in known if pair[0] not in blocked)
+        if not known:  # заблокированы все до одного - это отказ инфры, а не пустой поиск
+            raise InfraError(
+                "Prowlarr увёл в недоступные все индексеры "
+                f"({', '.join(self.banned)}) - каталога сейчас нет"
+            )
         counts: dict[str, int] = {}
         spent: dict[str, int] = {}
         lost: list[str] = []
@@ -448,10 +539,16 @@ class Prowlarr:
             "indexers",
             got=counts,
             silent=list(lost),
+            banned=list(self.banned),
             ms=spent,
             fallback=fallback,
             late=waiting,
         )
+        if self.banned:
+            # Отдельной строкой от молчунов: молчун не ответил нам, а заблокированного мы
+            # и не спрашивали - Prowlarr не дал. Смешать их значит спрятать причину, по
+            # которой каталог урезан, за словом «молчит».
+            mark("индексеры", заблокированы=list(self.banned))
         if lost:
             # Бюджет теперь у каждого свой (TC-226), и в фазе он назван поимённо: иначе
             # «молчит YTS, бюджет 20 с» врало бы про то, сколько круг на нём простоял.
@@ -575,6 +672,76 @@ class Prowlarr:
     def _one(self, query: str, limit: int, indexer: int, budget: float) -> list[RawResult]:
         """Выдача одного индексера в его личный бюджет."""
         return from_json(self._get_json(self._url(query, limit, indexer), budget))
+
+    def _blocked(self) -> dict[int, str]:
+        """Кого Prowlarr увёл в недоступные: номер - когда обещает отпустить.
+
+        🔴 TC-259. Включённый и доступный - разные вещи, а по списку индексеров
+        (:meth:`_known`) их не различить: забаненный так и стоит ``enable: true``.
+        Спросить его при этом нельзя - персональный запрос вернёт не выдачу, а отказ
+        всего поиска («all selected indexers being unavailable»), то есть ровно то же,
+        что вернул бы мёртвый Prowlarr. Отсюда и путаница в замерах: индексер числился
+        мёртвым, хотя мёртв был не он, а наше право его спрашивать.
+
+        Отказ этой страницы - не отказ поиска: не прочитали статус, значит идём кругом
+        как раньше, вслепую. Хуже, чем было, от этого не станет.
+        """
+        try:
+            payload = self._get_json(
+                f"{self.base_url}{_STATUS_PATH}?apikey={quote(self.apikey)}", _LIST_TIMEOUT
+            )
+        except InfraError:
+            return {}
+        if not isinstance(payload, list):
+            return {}
+        return {
+            int(item["indexerId"]): str(item.get("mostRecentFailure") or "")
+            for item in payload
+            if isinstance(item, dict) and str(item.get("indexerId", "")).isdigit()
+        }
+
+    def _heal(self, blocked: dict[int, str]) -> None:
+        """Постучаться в заблокированные индексеры - вдруг источник уже вернулся.
+
+        🔴 TC-272. Prowlarr снимает бан по своим часам, а не по здоровью источника, и
+        каталог возвращается не когда звено починилось, а когда истечёт отсрочка (замер:
+        канал пропал на 12 с - каталог был урезан 59.2 с ПОСЛЕ его возврата; на хронике
+        отсрочка дорастает до часа). Ручки «снять бан» у Prowlarr нет
+        (``DELETE /api/v1/indexerstatus`` отвечает 405), но есть :data:`_TEST_PATH`: он
+        ходит в источник по-настоящему, и УСПЕХ гасит отсрочку - тот же замер с лечением
+        дал 10.6 с вместо 59.2. Честность тут держится сама собой: бан снимает не наша
+        просьба, а ответ источника; мёртвый источник так и останется мёртвым.
+
+        Круга это не держит: стучимся отдельным потоком, как и опоздавшие (TC-118), а
+        плодами пользуется уже следующий поиск. Ждать смысла нет - выдача заблокированного
+        в этот круг всё равно не попадёт.
+        """
+        rested = tuple(num for num, failed in blocked.items() if _rested(failed))
+        if not rested:
+            return
+        threading.Thread(target=self._probe, args=(rested,), daemon=True, name="idx-heal").start()
+
+    def _probe(self, nums: tuple[int, ...]) -> None:
+        """Стук в заблокированные - строго по одному, друг за другом.
+
+        Параллель тут запрещена нарочно: лишние одновременные запросы к одному трекеру
+        и есть та причина, по которой Prowlarr раздаёт баны (Nyaa отвечает на них 504).
+        Лечить бан способом, которым он ставится, - худшее, что можно придумать.
+        """
+        import requests
+
+        session = self._session or self._new_session()
+        for num in nums:
+            with contextlib.suppress(requests.RequestException, InfraError, ValueError):
+                body = self._get_json(
+                    f"{self.base_url}{_INDEXERS_PATH}/{num}?apikey={quote(self.apikey)}",
+                    _LIST_TIMEOUT,
+                )
+                session.post(
+                    f"{self.base_url}{_TEST_PATH}?apikey={quote(self.apikey)}",
+                    json=body,
+                    timeout=_EXTRA_TIMEOUT,
+                )
 
     def _known(self) -> tuple[tuple[int, str], ...]:
         """Включённые индексеры (номер, имя); пусто - спрашивать придётся общим запросом."""
