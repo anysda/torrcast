@@ -638,6 +638,11 @@ def _event_line(rec: dict[str, Any], began: float, seam: bool = False) -> str:
 
         parts = ", ".join(f"{name}:{count}{_took(name)}" for name, count in got.items())
         tail = f"; молчат {', '.join(str(name) + _took(name) for name in silent)}" if silent else ""
+        # Опоздавшие - не молчуны: круг ушёл по кворуму, а они доезжают доливом (TC-118).
+        # Разница видна только тут, и без неё выжимка врала бы про причину хвоста.
+        waited = rec.get("late") or []
+        if waited:
+            tail += f"; опоздали {', '.join(str(name) for name in waited)}"
         return f"{stamp}индексеры {parts or '-'}{tail}"
     if event == "query":
         # Запрос печатался только в шапке сеанса («сеанс ... · «Сталкер»»), а сколько

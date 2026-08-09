@@ -28,7 +28,7 @@ import textwrap
 import threading
 import time
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from functools import partial
 from pathlib import Path
 from typing import Any, Final, NoReturn, Protocol, runtime_checkable
@@ -45,7 +45,7 @@ from torrcast import (
 )
 from torrcast.cast import ChromecastReceiver, Receiver, make_receiver
 from torrcast.console import Progress, ask, ask_line, terminal
-from torrcast.facts import Fact, Facts, Origin, minutes_of, origin, shorten
+from torrcast.facts import FACTS_BUDGET, Fact, Facts, Origin, minutes_of, origin, shorten
 from torrcast.parse import (
     VIDEO_EXT,
     Episode,
@@ -67,7 +67,15 @@ from torrcast.profile import detect as detect_profile
 from torrcast.profile import tune as tune_profile
 from torrcast.recode import FULL_FLOOR, FULL_GAIN, FULL_PRESET, RECODE_HEIGHT, Encode, Recoder
 from torrcast.scan import Device
-from torrcast.search import Prowlarr, RawResult, merge, to_releases
+from torrcast.search import (
+    CIRCLE_SHARE,
+    GOAL,
+    SECOND_LEAST,
+    Prowlarr,
+    RawResult,
+    merge,
+    to_releases,
+)
 from torrcast.state import WATCHED_RATIO, Config, Entry, State, load_config, save_config
 from torrcast.stream import (
     KEYS_WAIT,
@@ -1221,6 +1229,10 @@ def _cmd_play(args: Args) -> int:
             try:
                 plan = _pick_plan(plans, facts)
                 mark("картина выбрана")  # TC-108: замер
+                # Опоздавший индексер: круг ушёл по кворуму, и его выдача доехала, пока
+                # человек читал меню. Доливаем ЗДЕСЬ - список уже прочитан и отвечен,
+                # менять под курсором нечего (:func:`_topup`).
+                plan = bench.reorder(plan, _topup(plan, args, config, chosen.profile, progress))
                 # Справка уже дождана меню - её хронометраж встаёт в знаменатель
                 # битрейта вместо прикидки (:func:`_timed`), и порядок отбора
                 # пересобирается на настоящих числах. Прогретое при этом не пропадает:
@@ -1435,6 +1447,9 @@ def _search(
     kin = _kin(_leading(found), pictures, {plan.picture.key for plan in plans})
     for plan in plans:
         plan.kin = kin
+        # Опоздавший индексер (круг ушёл по кворуму, TC-118) доедет уже после меню -
+        # ручку долива несёт план, а зовут её один раз и после ответа (:func:`_topup`).
+        plan.late = client.late
     if not plans:  # картина есть, а раздач нужного сезона в ней нет
         want = args.episode or Episode(1, 1)
         raise NotFoundError(f"«{found[0].title}»: раздач с сезоном {want.season} нет")
@@ -1596,6 +1611,31 @@ def _ask(client: Prowlarr, query: str) -> list[RawResult]:
         return []
 
 
+def _no_budget(client: Prowlarr, what: str, progress: Progress) -> float | None:
+    """Хватит ли остатка цели на второй заход; ``None`` - не хватит, и это сказано вслух.
+
+    🔴 TC-228. Второй круг зовётся в 18 запросах из 100 и удваивает цену поиска: сквозной
+    замер 1.93-2.39 с там, где он есть, против 0.01-0.09 с там, где его нет. Своего
+    бюджета у него не было вовсе - он платил хвост первого круга плюс свой полный, и на
+    хвосте Knaben (502 плюс ретрай, 10-20 с) это давало 30 с при цели в 10.
+
+    Теперь у него есть остаток цели (:meth:`~torrcast.search.Prowlarr.spare`), и остаток
+    этот честный: часы идут от начала поиска, поэтому справка на пути добора
+    (:func:`~torrcast.facts.origin`) считается наравне со всем прочим, а не «бесплатно».
+    Возвращается она же как потолок справки - чтобы та не съела то, на что рассчитывает
+    сам круг (:data:`~torrcast.search.CIRCLE_SHARE`).
+
+    Отказ не молчаливый: человек ждал дольше обещанного и вправе знать, что второго
+    захода за него не сделали. Обещать «нашлось бы» тут нельзя - неизвестно.
+    """
+    spare = client.spare()
+    if spare >= SECOND_LEAST:
+        return min(FACTS_BUDGET, spare - CIRCLE_SHARE)
+    progress.phase("")
+    progress.note(f"{what} не делаю: поиск уже съел цель в {GOAL:.0f} с")
+    return None
+
+
 def _second_language(
     client: Prowlarr,
     query: str,
@@ -1615,7 +1655,7 @@ def _second_language(
     тощем пуле: на полной выдаче (порог :data:`~torrcast.parse.THIN_POOL`) поиск остаётся
     ровно таким, каким был. Цена круга - обычно 0.5-1.5 с, но ровно та же, что у первого:
     если индексер молчит, круг стоит его личного бюджета
-    (:data:`~torrcast.search._INDEXER_TIMEOUT`), и тогда добор виден человеку секундами
+    (:data:`~torrcast.search._QUORUM_TIMEOUT`), и тогда добор виден человеку секундами
     ожидания. Обещать «1-3 с» тут нельзя: замеры на живом стенде давали и 101.6-102.1 с -
     столько круг стоил, пока молчание одного индексера ждали общим запросом.
 
@@ -1667,6 +1707,8 @@ def _second_language(
     from torrcast.parse import alt_query, cluster, pick_franchise, slugify
 
     name, index = split_franchise_index(query)
+    if (spare := _no_budget(client, f"добор по «{name}»", progress)) is None:
+        return _as_is(raw, found, Origin(), progress)
     pool = [r for p in found for r in p.releases] or to_releases(raw)
     lead = _leading(found)
     # Справку спрашиваем вслепую: год выдачи ей не сообщаем, иначе она подстроится под него
@@ -1674,7 +1716,7 @@ def _second_language(
     # Русская выдача пуста - тип брать неоткуда: тогда series=None, и справка пробует оба и
     # верит лишь согласию (иначе неверный тип уводит в чужую статью). Сети нет - паспорт
     # пуст, и всё дальше работает ровно так, как работало.
-    about = origin(name, series=(lead.kind == "tv") if lead else None)
+    about = origin(name, series=(lead.kind == "tv") if lead else None, budget=spare)
     if index is not None:
         # 🔴 Спросили номер части - год справки к делу не относится. Справку зовут по имени
         # франшизы, и отвечает она про её ПЕРВУЮ картину: у «тачек» это 2006 год, а человек
@@ -1871,7 +1913,13 @@ def _season_reinforce(
     lead = max((p for p in found if p.kind == "tv"), key=lambda p: len(p.releases), default=None)
     if lead is None:
         return raw, cluster(to_releases(raw)), found
-    base = (lead.original or origin(name, series=True).title or transliterate(name)).strip()
+    # Сезонная строка - такой же второй круг, как и добор вторым языком, и цель тратит
+    # так же (TC-228). Остатка нет - честнее отказать сразу, чем платить полный круг.
+    if (spare := _no_budget(client, f"добор сезона {want.season}", progress)) is None:
+        return raw, cluster(to_releases(raw)), found
+    base = (
+        lead.original or origin(name, series=True, budget=spare).title or transliterate(name)
+    ).strip()
     season_query = f"{base} S{want.season:02d}" if base else ""
     # Тем же именем второй раз ходить незачем: если оригинала нет и транслит совпал с
     # запросом, сезонная строка это тот же круг по индексерам ради той же выдачи.
@@ -2076,6 +2124,64 @@ def _timed(
     return fresh
 
 
+def _topup(plan: _Plan, args: Args, config: Config, profile: Profile, progress: Progress) -> _Plan:
+    """Долить опоздавший индексер в пул УЖЕ выбранной картины (TC-118).
+
+    🔴 Круг индексеров уходит по кворуму (:data:`~torrcast.search.QUORUM_INDEXERS`), и
+    опоздавший доезжает, когда список картин человек уже прочитал. Место вызова выбрано
+    ровно по одному правилу: **менять то, на что человек смотрит, нельзя**. Поэтому
+    долив зовётся ПОСЛЕ ответа на меню, и права у него ровно одно - пополнить пул той
+    картины, которую и выбрали:
+
+    * список картин, их порядок и дефолт долив не трогает вовсе - меню уже напечатано,
+      и подменить в нём номер или первую живую часть значило бы соврать задним числом;
+    * картина, которой в меню не было, из долива в него не попадает - её и предложить
+      уже некому;
+    * а вот верх ОТБОРА долив поменять вправе - выбирали картину, а не раздачу, - но
+      молча этого не делает: строка ниже называет и опоздавшего, и то, что верх другой.
+
+    Пул при этом только растёт: старые раздачи остаются теми же объектами, и прогрев,
+    пущенный под меню, переезжает на новые номера (:meth:`_Bench.reorder`), а не
+    выбрасывается. Долив пустой или ничего не добавил - план возвращается прежним.
+    """
+    from torrcast.parse import cluster
+
+    rows = plan.late()
+    if not rows:
+        return plan
+    extra = to_releases(rows)
+    have = {r.magnet for r in plan.picture.releases}
+    # Кластер тут - судья принадлежности, а не сборщик: спрашиваем у него, какие из
+    # приехавших раздач относятся к ТОЙ ЖЕ картине, и берём только их. Сам пул собираем
+    # заменой поля, чтобы прежние релизы остались прежними объектами - по ним прогрев и
+    # ищет своё новое место.
+    grown = next(
+        (p for p in cluster([*plan.picture.releases, *extra]) if p.key == plan.picture.key), None
+    )
+    mine = {r.magnet for r in grown.releases} if grown is not None else set()
+    add = [r for r in extra if r.magnet in mine and r.magnet not in have]
+    if not add:
+        return plan
+    fresh = _plan_for(
+        replace(plan.picture, releases=[*plan.picture.releases, *add]), args, config, profile
+    )
+    if not fresh.ranked:  # отнимать уже показанное долив не вправе
+        return plan
+    fresh.kin = plan.kin
+    who = ", ".join(sorted({r.indexer for r in add if r.indexer})) or "опоздавший индексер"
+    changed = bool(plan.ranked) and fresh.ranked[0].magnet != plan.ranked[0].magnet
+    progress.note(
+        f"«{who}» доехал после списка: раздач {len(fresh.picture.releases)}"
+        f" вместо {len(plan.picture.releases)}" + (", верх отбора другой" if changed else "")
+    )
+    return fresh
+
+
+def _nothing_late() -> list[RawResult]:
+    """Долива нет: план собран не поиском (тесты, отладочные ручки) - доливать нечего."""
+    return []
+
+
 @dataclass(slots=True)
 class _Plan:
     """Что покажем по одной картине: пул релизов и, для сериала, нужная серия.
@@ -2115,6 +2221,9 @@ class _Plan:
     #: Раздачи картины, не доехавшие даже до :attr:`ranked`: нужного сезона в них нет по
     #: их же именам. Нужны счёту отсева (:func:`queue_drops`), чтобы он сходился с пулом.
     off_season: int = 0
+    #: Выдача опоздавших индексеров: круг ушёл по кворуму, а эти доехали позже (TC-118).
+    #: Зовётся ОДИН раз и только после ответа на меню - :func:`_topup`.
+    late: Callable[[], list[RawResult]] = _nothing_late
 
     @property
     def first(self) -> int:

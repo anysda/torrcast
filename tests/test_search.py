@@ -8,6 +8,8 @@
 from __future__ import annotations
 
 import json
+import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -140,45 +142,70 @@ def _row(name: str, tag: str) -> dict[str, object]:
     }
 
 
+class _Reply:
+    """Ответ одного запроса. Отдельным объектом, а не полем сессии: индексеры теперь
+    спрашиваются каждый своим потоком, и общее поле payload они бы затирали друг у друга."""
+
+    def __init__(self, payload: object) -> None:
+        self.payload = payload
+
+    def raise_for_status(self) -> None:
+        return None
+
+    def json(self) -> object:
+        return self.payload
+
+
 class _Swarm:
     """Prowlarr с четырьмя индексерами, из которых один умеет молчать до бюджета."""
 
     def __init__(
-        self, mute: int | None = None, mute_all: bool = False, rows: int = 1, yts: bool = False
+        self,
+        mute: int | None = None,
+        mute_all: bool = False,
+        rows: int = 1,
+        hold: set[int] | None = None,
+        yts: bool = False,
     ) -> None:
         self.mute = mute
         self.mute_all = mute_all
         #: Сколько раздач отдаёт один ответивший индексер: одна - пул тощий (сработает
         #: фолбэк по анимешным, TC-229), несколько - пул полный, и фолбэку нечего добавить.
         self.rows = rows
-        #: Включён ли YTS. По умолчанию нет: он с личным коротким бюджетом (TC-213), и
+        #: Кого держим до отмашки: так изображается опоздавший, не выдумывая секунд.
+        #: Отмашки нет до конца бюджета - индексер молчит, как молчал бы живой.
+        self.hold = hold or set()
+        self.gate = threading.Event()
+        #: Включён ли YTS. По умолчанию нет: у него личный короткий бюджет (TC-213), и
         #: остальным тестам круга это только мешало бы.
         self.yts = yts
         self.urls: list[str] = []
         self.waited: list[float] = []
-        #: Бюджет, с которым спросили КАЖДОГО: имя индексера → секунды.
+        #: Бюджет, с которым спросили каждого: списками этого не собрать - запросы идут
+        #: из разных потоков, и два параллельных списка разъезжаются между собой.
         self.budget: dict[str, float] = {}
-        self.payload: object = []
 
-    def get(self, url: str, timeout: float) -> _Swarm:
+    def get(self, url: str, timeout: float) -> _Reply:
         import requests
 
         self.urls.append(url)
         self.waited.append(timeout)
         if url.endswith("/api/v1/indexer?apikey=KEY"):
-            self.payload = [
-                {"id": 1, "name": "Knaben", "enable": True},
-                {"id": 2, "name": "RuTor", "enable": True},
-                {"id": 3, "name": "Nyaa.si", "enable": True},
-                {"id": 4, "name": "YTS", "enable": self.yts},
-            ]
-            return self
+            return _Reply(
+                [
+                    {"id": 1, "name": "Knaben", "enable": True},
+                    {"id": 2, "name": "RuTor", "enable": True},
+                    {"id": 3, "name": "Nyaa.si", "enable": True},
+                    {"id": 4, "name": "YTS", "enable": self.yts},
+                ]
+            )
         num = int(url.rsplit("&indexerIds=", 1)[1])
         self.budget[str(num)] = timeout
         if self.mute_all or num == self.mute:
             raise requests.ConnectTimeout("молчит")
-        self.payload = self._rows(num)
-        return self
+        if num in self.hold and not self.gate.wait(timeout):
+            raise requests.ConnectTimeout("молчит")
+        return _Reply(self._rows(num))
 
     def _rows(self, num: int) -> list[dict[str, object]]:
         """Выдача одного индексера: при ``rows == 1`` - ровно одна строка (как было),
@@ -195,12 +222,6 @@ class _Swarm:
             }
             for k in range(self.rows)
         ]
-
-    def raise_for_status(self) -> None:
-        return None
-
-    def json(self) -> object:
-        return self.payload
 
 
 def _swarm(**kwargs: object) -> Prowlarr:
@@ -329,16 +350,19 @@ def test_yts_asked_in_its_own_short_budget() -> None:
     его выдачу рвёт канал на объёме тела, и молчание выбирало все 20 с (замер на
     стенде: «barbie» - 20.02 с). Честный ответ у него - 0.5-0.9 с.
     """
-    from torrcast.search import _INDEXER_TIMEOUT, _SHORT_TIMEOUT, indexer_budget
+    from torrcast.search import _EXTRA_TIMEOUT, _QUORUM_TIMEOUT, _SHORT_TIMEOUT, indexer_budget
 
     client = _swarm(yts=True, rows=2)
     client.search("barbie 2023")  # латиница с годом - не аниме, Nyaa вне круга
     budget = client._session.budget  # type: ignore[union-attr]
-    assert budget == {"1": _INDEXER_TIMEOUT, "2": _INDEXER_TIMEOUT, "4": _SHORT_TIMEOUT}
-    assert _SHORT_TIMEOUT < _INDEXER_TIMEOUT, "короткий бюджет обязан быть заметно короче"
+    assert budget == {"1": _QUORUM_TIMEOUT, "2": _QUORUM_TIMEOUT, "4": _SHORT_TIMEOUT}
+    assert _SHORT_TIMEOUT < _EXTRA_TIMEOUT, "короткий бюджет обязан быть заметно короче"
     # Судим по имени, а не по номеру: номер у индексера свой на каждой установке.
+    # Короткий список только УРЕЗАЕТ роль (TC-226): YTS некворумный, его потолок и так
+    # десять секунд, а короткий бюджет опускает до шести.
     assert indexer_budget("YTS") == _SHORT_TIMEOUT
-    assert indexer_budget("Knaben") == _INDEXER_TIMEOUT
+    assert indexer_budget("Knaben") == _QUORUM_TIMEOUT
+    assert indexer_budget("Nyaa.si") == _EXTRA_TIMEOUT
 
 
 def test_silent_yts_costs_only_its_short_budget() -> None:
@@ -359,6 +383,105 @@ def test_show_survives_when_nyaa_is_silent_in_fallback() -> None:
     results = client.search("матрица")
     assert [r.title for r in results] == ["picture.1", "picture.2"]
     assert client.silent == ("Nyaa.si",)
+
+
+def test_круг_уходит_по_кворуму_не_дожидаясь_остальных() -> None:
+    """🔴 TC-118: круг возвращается, когда ответил кворум (Knaben + RuTor), а не когда
+    отговорили все четверо. Опоздавший (Nyaa) в этот момент ещё держит соединение - и
+    раньше держал бы вместе с ним всё меню, до своего полного бюджета в 20 с."""
+    client = _swarm(rows=2, hold={3})  # Nyaa не отпустят до отмашки
+    results = client.search("Naruto [TV]")  # аниме-запрос: Nyaa в основном круге
+    assert len(results) == 4  # Knaben и RuTor по две раздачи, Nyaa не дождались
+    assert client.silent == ()  # опоздавший - не молчун: он ещё в пути
+
+
+def test_опоздавший_доливается_после_круга_а_не_теряется() -> None:
+    """Выдача опоздавшего не выбрасывается: она забирается :meth:`Prowlarr.late` уже
+    после того, как список показан. Пока индексер в пути, долив пуст - ждать его на
+    пути до меню и значило бы не уходить по кворуму."""
+    client = _swarm(rows=2, hold={3})
+    client.search("Naruto [TV]")
+    assert client.late() == []  # ещё в пути - долив ничего не обещает
+    client._session.gate.set()  # type: ignore[union-attr]
+    late = client.late(wait=5.0)
+    assert len(late) == 2  # доехали ровно раздачи Nyaa
+    assert client.late() == []  # долив разовый: второй раз брать нечего
+
+
+def test_кворумного_индексера_круг_всё_же_дожидается() -> None:
+    """Кворум - это Knaben и RuTor: без них выдачи нет, и ждать их приходится. Отпустим
+    RuTor с задержкой - его раздачи обязаны попасть в тот же круг, а не в долив."""
+    client = _swarm(rows=2, hold={2})  # RuTor из кворума
+    threading.Timer(0.2, client._session.gate.set).start()  # type: ignore[union-attr]
+    results = client.search("Naruto [TV]")
+    assert len(results) == 6  # все трое: круг дождался кворумного
+    assert client.late() == []  # опоздавших нет вовсе
+
+
+def test_круг_без_кворумных_ждёт_всех() -> None:
+    """Фолбэк по анимешным (TC-229) идёт без кворумных вовсе - ждать в нём некого,
+    поэтому такой круг дожидается всех спрошенных. Иначе он возвращался бы пустым."""
+    client = _swarm(hold={3})  # rows=1: пул тощий, фолбэк зовёт Nyaa
+    threading.Timer(0.2, client._session.gate.set).start()  # type: ignore[union-attr]
+    results = client.search("матрица")
+    assert [r.title for r in results] == ["picture.1", "picture.2", "picture.3"]
+
+
+def test_кворумного_ждём_дольше_остальных() -> None:
+    """🔴 TC-226. Хвост поиска - это Knaben: 502 через 10-15 с плюс ретрай Prowlarr.
+    Резать его личным бюджетом в 3-5 с нельзя - он несёт 41% каталога, и замер дал
+    1 подмену дефолта и 7 подмен верхнего релиза на 100 запросов. Поэтому кворумному
+    бюджет остаётся полным, а короткий достаётся тем, кого круг и так не ждёт."""
+    client = _swarm(rows=2)
+    client.search("Naruto [TV]")
+    budget = client._session.budget  # type: ignore[union-attr]
+    assert budget["1"] == budget["2"] == 20.0, "Knaben и RuTor - кворум, их ждём дольше"
+    assert budget["3"] == 10.0, "Nyaa круг не ждёт: его бюджет - цель пути, а не молчание"
+
+
+def test_второй_круг_идёт_в_остаток_цели() -> None:
+    """🔴 TC-228. Первый круг - это и есть поиск, у него личные бюджеты. А каждый
+    следующий (добор вторым языком, сезонная строка, чтение раскладки) платит из остатка
+    цели: раньше он платил хвост первого круга ПЛЮС свой полный, и на хвосте Knaben это
+    давало 30 с при цели в 10."""
+    client = _swarm(rows=2)
+    client.search("Naruto [TV]")
+    assert client._session.budget["1"] == 20.0  # type: ignore[union-attr]
+    client._began = time.monotonic() - 8.0  # изобразим поиск, съевший 8 секунд цели
+    client.search("Naruto [TV]")
+    budget = client._session.budget  # type: ignore[union-attr]
+    assert 1.5 < budget["1"] <= 2.0, "кворумному во втором круге - ровно остаток цели"
+    assert budget["3"] <= 2.0, "и некворумному тоже: цель у поиска одна на всех"
+
+
+def test_огрызок_бюджета_доводится_до_секунды() -> None:
+    """Цель съедена целиком, а спрашивать всё-таки идём (пустая выдача, чтение забытой
+    раскладки) - тогда круг спрашивается хотя бы на секунду. Круг с нулевым бюджетом это
+    не экономия, а гарантированный молчун ценой в лишний запрос к трекеру."""
+    client = _swarm(rows=2)
+    client.search("Naruto [TV]")
+    client._began = time.monotonic() - 30.0  # цели не осталось вовсе
+    assert client.spare() == 0.0
+    client.search("Naruto [TV]")
+    assert client._session.budget["1"] == 1.0  # type: ignore[union-attr]
+
+
+def test_след_отличает_опоздавшего_от_молчуна(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Опоздавший и молчун - разные причины хвоста, и в следе они врозь: иначе `cast log`
+    объяснял бы задержку кругом, которого не было."""
+    from torrcast import trace
+
+    monkeypatch.setenv(trace.LOG_ENV, str(tmp_path))
+    monkeypatch.setenv(trace.SID_ENV, "test-sid")
+    client = _swarm(rows=2, hold={3})
+    client.search("Naruto [TV]")
+    trace.shutdown()
+    (row,) = [r for r in trace.records() if r.get("event") == "indexers"]
+    assert row["late"] == ["Nyaa.si"]
+    assert row["silent"] == []
+    assert "опоздали Nyaa.si" in trace.digest(trace.records())
 
 
 def test_wire_query_разводит_склеенные_знаком_слова() -> None:

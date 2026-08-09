@@ -16,6 +16,7 @@ from torrcast import InfraError, NotFoundError, cli, console, scan
 from torrcast.cli import TABLE_LIMIT, is_candidate, is_disc, rank_releases, render_table, warned
 from torrcast.console import Progress
 from torrcast.parse import Kind, Picture, Release, parse_release_name
+from torrcast.profile import CAUTIOUS
 from torrcast.state import load_config
 from torrcast.stream import RUNTIME_GUESS, Media, TorrFile
 
@@ -240,6 +241,116 @@ def _plan(ranked: list[Release], recode_at: float = 10.0) -> Any:
     return cli._Plan(
         picture=picture, ranked=ranked, runtime=RUNTIME, warn_mbit=20.0, recode_at=recode_at
     )
+
+
+def _raw(name: str, tag: str, seeders: int) -> Any:
+    """Одна строка выдачи опоздавшего индексера; хэш подделываем из тега."""
+    from torrcast.search import RawResult
+
+    return RawResult(
+        title=name, info_hash=tag * 40, size=int(8 * GB), seeders=seeders, indexer="Nyaa.si"
+    )
+
+
+def _topup(plan: Any, rows: list[Any]) -> tuple[Any, str]:
+    """Долив опоздавшего в готовый план; отдаёт новый план и напечатанное."""
+    plan.late = lambda: rows
+    out = io.StringIO()
+    with Progress(out=out) as progress:
+        fresh = cli._topup(plan, cli.Args(query=["кино"]), load_config(), CAUTIOUS, progress)
+    return fresh, out.getvalue()
+
+
+def test_долив_опоздавшего_пополняет_пул_выбранной_картины(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """🔴 TC-118. Круг ушёл по кворуму, Nyaa доехал, пока человек читал меню. Его раздачи
+    доливаются в пул ВЫБРАННОЙ картины - иначе опоздавший терялся бы вовсе."""
+    monkeypatch.setenv("TORRCAST_LOG", "")
+    plan = _plan([rel(name="Кино / Movie (1999) BDRip 1080p", seeders=100)])
+    fresh, said = _topup(plan, [_raw("Кино / Movie (1999) BDRip 2160p", "b", 900)])
+
+    assert len(fresh.picture.releases) == 2
+    assert fresh.picture.key == plan.picture.key, "картина та же - подменять её долив не вправе"
+    assert "доехал после списка: раздач 2 вместо 1" in said
+
+
+def test_долив_называет_вслух_смену_верха_отбора(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Верх отбора долив поменять вправе - выбирали картину, а не раздачу, - но не молча:
+    строка называет и опоздавшего, и то, что верх теперь другой."""
+    monkeypatch.setenv("TORRCAST_LOG", "")
+    plan = _plan([rel(name="Кино / Movie (1999) BDRip 1080p", seeders=100)])
+    fresh, said = _topup(plan, [_raw("Кино / Movie (1999) BDRip 1080p x264", "c", 900)])
+
+    assert fresh.ranked[0].seeders == 900, "обсиженная раздача встала верхом отбора"
+    assert "верх отбора другой" in said
+
+
+def test_долив_не_вносит_в_список_картину_которой_в_меню_не_было(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Меню уже напечатано, и человек по нему ответил. Картина, приехавшая с опоздавшим,
+    в него попасть не может - предложить её уже некому, а подменить выбранную нельзя."""
+    monkeypatch.setenv("TORRCAST_LOG", "")
+    plan = _plan([rel(name="Кино / Movie (1999) BDRip 1080p", seeders=100)])
+    fresh, said = _topup(plan, [_raw("Другое / Other (2001) BDRip 1080p", "d", 900)])
+
+    assert fresh is plan, "чужая картина плана не меняет вовсе"
+    assert said == "", "и молчит, потому что менять было нечего"
+
+
+def test_пустой_долив_оставляет_план_прежним(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Опоздавший так и не доехал - план прежний, и ни одной лишней строки."""
+    monkeypatch.setenv("TORRCAST_LOG", "")
+    plan = _plan([rel(name="Кино / Movie (1999) BDRip 1080p", seeders=100)])
+    fresh, said = _topup(plan, [])
+
+    assert fresh is plan
+    assert said == ""
+
+
+class _Spent:
+    """Клиент поиска, у которого от цели осталось ровно столько."""
+
+    def __init__(self, spare: float) -> None:
+        self._spare = spare
+
+    def spare(self) -> float:
+        return self._spare
+
+
+def _budget(spare: float) -> tuple[float | None, str]:
+    out = io.StringIO()
+    with Progress(out=out) as progress:
+        left = cli._no_budget(cast(Any, _Spent(spare)), "добор по «кино»", progress)
+    return left, out.getvalue()
+
+
+def test_второй_заход_без_остатка_цели_честно_не_делается(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """🔴 TC-228. Первый круг съел цель (хвост Knaben - 10-20 с) - второго не будет, и
+    человек об этом читает. Молча съесть ещё один круг было бы хуже всего: он ждал бы
+    вдвое дольше обещанного и не узнал бы, за что."""
+    monkeypatch.setenv("TORRCAST_LOG", "")
+    left, said = _budget(0.3)
+
+    assert left is None
+    assert "не делаю: поиск уже съел цель в 10 с" in said
+
+
+def test_остаток_цели_делится_между_справкой_и_кругом(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Справка на пути добора учтена честно: ей достаётся остаток за вычетом доли самого
+    круга, и её потолок она не переходит. Порог второго захода из этих двух частей и
+    сложен - иначе полторы секунды справки съедали бы круг целиком, а он уже оплачен."""
+    monkeypatch.setenv("TORRCAST_LOG", "")
+    from torrcast.facts import FACTS_BUDGET
+    from torrcast.search import CIRCLE_SHARE, SECOND_LEAST
+
+    assert SECOND_LEAST == FACTS_BUDGET + CIRCLE_SHARE, "порог = потолок справки плюс круг"
+    assert _budget(10.0)[0] == FACTS_BUDGET, "цела вся цель - справке её полный потолок"
+    assert _budget(SECOND_LEAST)[0] == pytest.approx(FACTS_BUDGET), "в обрез - потолок тот же"
+    assert _budget(SECOND_LEAST - 0.01)[0] is None, "на волос меньше - второго захода нет"
 
 
 def _resolve(bench: Any, ranked: list[Release], recode_at: float = 10.0, **flags: Any) -> Any:

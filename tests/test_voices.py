@@ -336,6 +336,16 @@ class _FakeProwlarr:
     def search(self, query: str) -> list[RawResult]:
         return list(FOUND)
 
+    def late(self) -> list[RawResult]:
+        """Опоздавших нет: круг тут отвечает разом (TC-118)."""
+        return []
+
+    def spare(self) -> float:
+        """Остаток цели: тут поиск мгновенный, поэтому цела вся (TC-228)."""
+        from torrcast.search import GOAL
+
+        return GOAL
+
 
 class _FakeTorrServer:
     """TorrServer со счётом раздач: кого подняли и кого убрали - по хэшам."""

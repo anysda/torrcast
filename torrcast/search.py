@@ -12,14 +12,19 @@ Jackett, у Prowlarr 404 (Torznab-XML отдаётся по индексеру `
 ⚠️ Третья: у агрегата нет частичного ответа, поэтому спрашиваем индексеры врозь -
 каждого своим запросом и в свой бюджет (:meth:`Prowlarr._apart`). Иначе один молчащий
 индексер держит в себе находки всех остальных.
+
+⚠️ Четвёртая: круг возвращается по КВОРУМУ (:data:`QUORUM_INDEXERS`), а не по последнему
+ответившему. Опоздавший при этом не выбрасывается - он доезжает фоном и забирается
+:meth:`Prowlarr.late` уже после того, как список показан (TC-118).
 """
 
 from __future__ import annotations
 
 import re
+import threading
 import time
 from collections.abc import Iterable, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any, Final
 from urllib.parse import quote
 from xml.etree import ElementTree
@@ -32,13 +37,18 @@ if TYPE_CHECKING:
     import requests
 
 __all__ = [
+    "CIRCLE_SHARE",
+    "GOAL",
     "PUBLIC_TRACKERS",
+    "QUORUM_INDEXERS",
+    "SECOND_LEAST",
     "Prowlarr",
     "RawResult",
     "anime_query",
     "from_torznab",
     "magnet_for",
     "merge",
+    "quorum_indexer",
     "to_releases",
 ]
 
@@ -50,13 +60,15 @@ _INDEXERS_PATH: Final = "/api/v1/indexer"
 #: одного залипшего». Прежние 60 с рубили такой поиск начисто - вместе с находками
 #: остальных индексеров, то есть ровно там, где ответ уже был.
 _TIMEOUT: Final = 150.0
-#: Личный бюджет ОДНОГО индексера. Замеры на живом стенде (1985 запросов к четырём
+#: Цель пути: столько секунд от `cast` до картинки на экране. Здесь она не потолок, а
+#: мера - ею меряются бюджеты, которые иначе не с чем сравнить.
+GOAL: Final = 10.0
+#: Личный бюджет КВОРУМНОГО индексера. Замеры на живом стенде (1985 запросов к четырём
 #: индексерам): половина ответов до 0.5 с, 99-я доля - 5.6 с, самый долгий честный
 #: ответ - 16 с (отказ трекера и повтор внутри Prowlarr). Всё, что дольше, - уже не
 #: медленный ответ, а молчание: канал рвёт поток посреди тела, и Prowlarr сидит на нём
 #: до своей сотой секунды. Бюджет отрезает такое молчание, не задев ни одного живого
 #: ответа, и стоит поиску не 100 с, а этих секунд - да и то лишь молчуну.
-_INDEXER_TIMEOUT: Final = 20.0
 #: Личный - и заметно более короткий - бюджет для тех, кому нечего терять. Общий бюджет
 #: щедр нарочно: за ним стоят индексеры, чьё молчание стоит находок. У YTS не стоит:
 #: замер (TC-141) дал +2.1% к пулу и НОЛЬ запросов, где он единственный источник
@@ -67,8 +79,62 @@ _INDEXER_TIMEOUT: Final = 20.0
 _SHORT_TIMEOUT: Final = 6.0
 #: Кому этот бюджет достаётся - по подстроке в имени индексера, как и у аниме-списка.
 _SHORT_BUDGET: Final = ("yts",)
+#:
+#: 🔴 TC-226. Двадцать секунд с целью в десять не сходятся, и это осознанный выбор, а не
+#: недосмотр. Хвост поиска - это Knaben: ``api.knaben.org`` отдаёт 502 через 10-15 с
+#: (холодный бэкенд), а Prowlarr сверху ретраит с отсрочкой (в его же логе: «Request for
+#: Knaben failed with status BadGateway. Retrying in 0.26-4.19 s»), и один поиск из семи
+#: стоит 10-20 с. Резать хвост можно двумя способами, и оба замерены:
+#:
+#: * личный бюджет Knaben 3-5 с - тогда его строки просто не доезжают, а он несёт 41%
+#:   каталога. Цена: 1 подмена дефолта и 7 подмен верхнего релиза на 100 запросов;
+#:   выигрыш - те самые 10-15 с на 14 запросах из 100, около 154 с на сотню;
+#: * ждать Knaben дольше остальных - кворумному полный бюджет, некворумным столько,
+#:   сколько их выдаче ещё есть куда лечь (:data:`_EXTRA_TIMEOUT`). Подмен ноль,
+#:   экономия 85 с на сотню.
+#:
+#: Разница в скорости между вариантами - 69 с на 100 запросов, то есть 0.7 с в среднем на
+#: запрос: против цели в 10 с это не видно. Разница в честности - 8 молчаливых подмен на
+#: сотню, и одна из них - ДЕФОЛТ, то есть не тот фильм по Enter. Гейт «ноль подмен»
+#: сильнее скорости, поэтому взят второй вариант: 1 поиск из 7 выходит за цель, и это
+#: названо здесь прямо, а не спрятано в число.
+_QUORUM_TIMEOUT: Final = 20.0
+#: Личный бюджет НЕКВОРУМНОГО индексера (Nyaa, YTS). Круг их не ждёт (TC-118), поэтому
+#: бюджет отвечает не за путь до меню, а за то, до каких пор их выдаче ещё есть куда
+#: лечь: долив попадает в пул выбранной картины, а выбирают её в пределах цели
+#: (:data:`GOAL`). Что приехало позже - опоздало ко всему сразу. Живых ответов это не
+#: режет: 99-я доля честного ответа - 5.6 с, то есть цель вдвое шире.
+_EXTRA_TIMEOUT: Final = GOAL
+#: Сколько цели (:data:`GOAL`) оставляем самому кругу второго захода. Круг по индексерам
+#: дешевле секунды и не бывает: медиана 0.53 с, 75-я доля 1.20 с. Это же и пол бюджета:
+#: круг, спрошенный меньше чем на секунду, - гарантированный молчун, то есть лишний
+#: запрос к трекеру за заранее известный отказ.
+CIRCLE_SHARE: Final = 1.0
+#: 🔴 TC-228. Ниже стольких секунд цели второй заход не зовём вовсе. Второй круг (добор
+#: вторым языком, сезонная строка, чтение забытой раскладки) зовётся в 18 запросах из 100
+#: и УДВАИВАЕТ цену поиска: сквозной замер 1.93-2.39 с против 0.01-0.09 с там, где его
+#: нет. Своего бюджета у него не было ни секунды - он платил хвост первого круга плюс
+#: полный второй, и на хвосте Knaben это давало 30 с при цели в 10. Порог складывается из
+#: замеренных частей: справка на пути (:data:`~torrcast.facts.FACTS_BUDGET`, медиана 0.93 с
+#: там, где зовётся, и 9 запросов из 100 упираются в её потолок 1.5 с) плюс сам круг
+#: (:data:`CIRCLE_SHARE`). Меньше этого оставлять добору незачем: он не успеет ни
+#: спросить справку, ни дождаться круга, а стоить будет как полный.
+SECOND_LEAST: Final = 2.5
+#: Запас поверх личного бюджета на ожидание потока: сам запрос уже ограничен бюджетом,
+#: и эта секунда нужна лишь на то, чтобы поток успел записать ответ и поднять флаг.
+#: Без неё круг изредка объявлял молчуном того, кто ответил на последней миллисекунде.
+_ASK_SLACK: Final = 1.0
 #: Список индексеров - локальная страница Prowlarr, сеть в ней не участвует.
 _LIST_TIMEOUT: Final = 15.0
+#: 🔴 Индексеры, на которых держится каталог: круг возвращается, когда ответили ОНИ,
+#: а не последний из четырёх. Порог не выдуман: на замере выдачи Knaben несёт 41% строк
+#: (весь западный хвост и аниме через чужие каталоги), RuTor - 56% (русские раздачи и
+#: озвучки), и перекрыть друг друга они не могут - это разные половины каталога. Кворум
+#: без Knaben это не кворум: половина каталога отсутствует, и «первая живая часть» в
+#: меню считалась бы по другой выдаче. Nyaa и YTS в кворум не входят: YTS не дал ни одной
+#: уникальной дыры (замер TC-141), Nyaa отвечает только на аниме (пусто в 79% запросов) -
+#: их отсутствие снижает полноту, но не меняет того, что человек видит первым.
+QUORUM_INDEXERS: Final = ("knaben", "rutor")
 #: Меньше стольких раздач после основного круга - пул тощий, и анимешные индексеры
 #: зовём фолбэком (TC-229). Порог нарочно мал: это не мера полноты каталога (та -
 #: :data:`~torrcast.parse.THIN_POOL`, и мерится строками), а отсечка «почти пусто»,
@@ -113,9 +179,21 @@ def magnet_for(info_hash: str, title: str = "") -> str:
 
 
 def indexer_budget(name: str) -> float:
-    """Сколько секунд ждём ЭТОГО индексера (:data:`_SHORT_BUDGET`, TC-213)."""
+    """Сколько секунд ждём ЭТОГО индексера. Единственное место, где считается бюджет.
+
+    Складывается из двух вещей, и обе замерены:
+
+    * РОЛЬ в круге (TC-226): кворумного (:data:`QUORUM_INDEXERS`) ждём полный
+      :data:`_QUORUM_TIMEOUT`, потому что без него каталога нет; остальных - столько,
+      сколько их выдаче ещё есть куда лечь (:data:`_EXTRA_TIMEOUT`), круг их и так не ждёт;
+    * КОРОТКИЙ СПИСОК (TC-213): у кого нечего терять, тот и ждать себя не заставляет
+      (:data:`_SHORT_BUDGET`). Берём меньшее из двух - короткий список только урезает,
+      поднять бюджет он не может.
+    """
     low = name.lower()
-    return _SHORT_TIMEOUT if any(mark in low for mark in _SHORT_BUDGET) else _INDEXER_TIMEOUT
+    role = _QUORUM_TIMEOUT if quorum_indexer(name) else _EXTRA_TIMEOUT
+    short = any(mark in low for mark in _SHORT_BUDGET)
+    return min(role, _SHORT_TIMEOUT) if short else role
 
 
 def anime_query(query: str) -> bool:
@@ -138,6 +216,33 @@ def anime_query(query: str) -> bool:
     if _CYRILLIC_RE.search(query):
         return False
     return not _NOT_ANIME_RE.search(query)
+
+
+def quorum_indexer(name: str) -> bool:
+    """Индексер из кворума (:data:`QUORUM_INDEXERS`) - тот, без которого выдачи нет.
+
+    Имя приходит от Prowlarr как есть («Knaben», «RuTor»), поэтому сверяем подстрокой
+    в нижнем регистре - ровно как :func:`~torrcast.parse.anime_indexer`.
+    """
+    low = name.lower()
+    return any(part in low for part in QUORUM_INDEXERS)
+
+
+@dataclass(slots=True)
+class _Ask:
+    """Один спрошенный индексер: место под ответ и флаг «поток закончил».
+
+    Поток свой и демонский, а не из пула: опоздавший живёт дольше круга (TC-118), и
+    пул задержал бы на нём выход процесса - потоки пула дожидаются на atexit, демонские
+    умирают вместе с командой.
+    """
+
+    name: str
+    budget: float
+    done: threading.Event = field(default_factory=threading.Event)
+    rows: list[RawResult] | None = None
+    ms: int = 0
+    err: InfraError | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -212,6 +317,13 @@ class Prowlarr:
         self.silent: tuple[str, ...] = ()
         self._session: requests.Session | None = None
         self._indexers: tuple[tuple[int, str], ...] | None = None
+        #: Опоздавшие: круг ушёл по кворуму, а эти ещё в пути (TC-118).
+        self._late: list[_Ask] = []
+        #: Начало поиска - от него считается остаток цели (:meth:`spare`, TC-228).
+        #: Клиент живёт ровно один поиск, поэтому «создан» и «начат» тут одно и то же.
+        self._began = time.monotonic()
+        #: Первый круг ещё не сделан: он один и идёт без оглядки на цель.
+        self._first = True
 
     def search(self, query: str, limit: int = 100) -> list[RawResult]:
         """Найти раздачи во всех подключённых индексерах: :class:`InfraError` — Prowlarr
@@ -264,6 +376,14 @@ class Prowlarr:
         из двух индексеров - одна раздача, а не две. Общий запрос отдавал такие строки
         дважды (на живом стенде «матрица»: 190 строк против 179 склеенных).
 
+        🔴 TC-118: круг возвращается по КВОРУМУ (:data:`QUORUM_INDEXERS`), а не по
+        последнему ответившему. Раньше меню ждало ВСЕХ, и молчун жёг полный личный
+        бюджет: на холодном старте тяжёлой картины (замер TC-108) это 47.8% всего
+        времени пути, а по второму источнику (`cast log`) Nyaa.si замолчал после
+        3-4 запросов и стоил ровно 20.1 с - при том, что в здоровых кругах отдавал
+        по этим же запросам НОЛЬ строк. Опоздавший не выбрасывается: его поток живёт
+        дальше, а выдачу забирает :meth:`late` - уже после того, как список показан.
+
         🔴 TC-229: анимешные индексеры (Nyaa и прочие, :func:`~torrcast.parse.anime_indexer`)
         - не всегда в круге. Nyaa молчит на явно не-аниме запросах (замер 09-08-2026:
         пусто в 79% запросов), а параллель по нему лимитирована - 2-4 одновременных,
@@ -285,29 +405,80 @@ class Prowlarr:
         # Анимешные в основном круге - на похожем на аниме запросе; без них круг пуст
         # или они и есть весь список - тоже зовём сразу, фолбэку нечего добавить.
         whole = not main or not anime or anime_query(query)
-        got, why_lost = self._circle(known if whole else main, query, limit, counts, spent, lost)
+        # 🔴 TC-228: первый круг идёт в свои личные бюджеты, а каждый следующий - в остаток
+        # цели (:meth:`spare`). Первый круг это и есть поиск, резать его нечем; а вот
+        # второй заход раньше платил хвост первого плюс свой полный - и удваивал цену.
+        cap = 0.0 if self._first else max(self.spare(), CIRCLE_SHARE)
+        self._first = False
+        got, why_lost = self._circle(
+            known if whole else main, query, limit, counts, spent, lost, cap
+        )
         # Фолбэк: пул без анимешных тощий - позвать и их. Пустая выдача ответивших
         # (got непуст, раздач ноль) - самый тощий пул из возможных.
         fallback = not whole and bool(got) and len(merge(*got)) < _FALLBACK_POOL
         if fallback:
-            more, err = self._circle(anime, query, limit, counts, spent, lost)
+            # Фолбэк - тоже второй круг, и цель он тратит наравне с добором.
+            more, err = self._circle(
+                anime, query, limit, counts, spent, lost, max(self.spare(), CIRCLE_SHARE)
+            )
             got += more
             why_lost = why_lost or str(err or "")
         self.silent = tuple(lost)
+        waiting = [ask.name for ask in self._late]
+        # Кворум не отдал ничего, и показывать пока нечего - вот тут опоздавшего и правда
+        # стоит дождаться: спешить некуда, показывать всё равно нечего. Это ровно тот
+        # случай, ради которого долив не выбрасывается, а живёт дальше.
+        if not got and (rows := self.late(wait=_EXTRA_TIMEOUT)):
+            got.append(rows)
         from torrcast import trace
 
         # Полный расклад круга в недельный след: кто сколько отдал, кто смолчал и сколько
         # миллисекунд каждый держал круг (поле ms - НАШ секундомер на месте вызова, а не
         # elapsedTime истории Prowlarr: та не считает провалившиеся и повторные попытки).
         # mark ниже заводится лишь на потерю (это фаза старта), а следу нужен весь круг.
-        trace.emit("search", "indexers", got=counts, silent=list(lost), ms=spent, fallback=fallback)
+        trace.emit(
+            "search",
+            "indexers",
+            got=counts,
+            silent=list(lost),
+            ms=spent,
+            fallback=fallback,
+            late=waiting,
+        )
         if lost:
-            # Бюджет в отметке - не общий потолок, а тот, что и правда выбрали молчуны:
-            # у части индексеров он свой и короткий (:func:`indexer_budget`).
-            mark("индексеры", молчат=lost, бюджет=max(indexer_budget(n) for n in lost))
+            # Бюджет теперь у каждого свой (TC-226), и в фазе он назван поимённо: иначе
+            # «молчит YTS, бюджет 20 с» врало бы про то, сколько круг на нём простоял.
+            budgets = {name: indexer_budget(name) for name in lost}
+            mark("индексеры", молчат=lost, бюджет=budgets)
         if not got:  # молчат все до одного - это не «ничего не нашлось», а инфра
             raise InfraError(why_lost)
         return merge(*got)
+
+    def late(self, wait: float = 0.0) -> list[RawResult]:
+        """Выдача опоздавших: круг ушёл по кворуму, а эти доехали уже потом (TC-118).
+
+        🔴 Зовётся ОДИН раз и только там, где долив уже ничего не подменяет: список
+        картин человек к этой секунде прочитал и ответил на него, и менять под курсором
+        нечего. Что доехало - забирается, кто ещё в пути - остаётся ждать следующего
+        вызова; ``wait`` больше нуля нужен ровно одному случаю: показывать нечего вовсе,
+        и тогда опоздавший - единственное, что вообще может приехать.
+
+        Не ждать по умолчанию - тоже решение: долив нужен там, где он бесплатен. Секунда
+        ожидания здесь стоила бы ровно столько же, сколько стоила бы в круге, - а круг от
+        неё и уходил.
+        """
+        rows: list[RawResult] = []
+        rest: list[_Ask] = []
+        for ask in self._late:
+            if wait > 0:
+                ask.done.wait(wait)
+            if not ask.done.is_set():
+                rest.append(ask)
+                continue
+            if ask.rows:
+                rows += ask.rows
+        self._late = rest
+        return merge(rows) if rows else []
 
     def _circle(
         self,
@@ -317,33 +488,64 @@ class Prowlarr:
         counts: dict[str, int],
         spent: dict[str, int],
         lost: list[str],
+        cap: float = 0.0,
     ) -> tuple[list[list[RawResult]], str]:
         """Один круг по индексерам: каждому свой запрос в свой бюджет, все разом.
+
+        ``cap`` - потолок бюджета для этого круга: ноль на первом (он и есть поиск), а на
+        каждом следующем - остаток цели (TC-228).
+
+        🔴 Круг кончается, когда ответил КВОРУМ (:func:`quorum_indexer`), а не последний
+        из спрошенных. Кто к этой секунде не успел - не потерян и не молчун: его поток
+        живёт дальше, а выдача забирается :meth:`late` уже после показа списка (TC-118).
+        Кворума в этом круге нет вовсе (фолбэк по анимешным, TC-229) - тогда ждём всех:
+        иначе ждать было бы некого и круг возвращался бы пустым.
 
         Расклад (кто сколько отдал, кто смолчал, миллисекунды) складывает в переданные
         словари: кругов может быть два - основной и фолбэк на тощем пуле (TC-229), -
         а след и список молчунов у поиска общие. Возвращает выдачи и причину последней
         потери - она понадобится, если смолчат все.
         """
-        from concurrent.futures import ThreadPoolExecutor
-
+        asked = [self._spawn(query, limit, num, name, cap) for num, name in pairs]
+        core = [ask for ask in asked if quorum_indexer(ask.name)] or asked
+        for ask in core:
+            ask.done.wait(ask.budget + _ASK_SLACK)
         got: list[list[RawResult]] = []
         why_lost = ""
-        with ThreadPoolExecutor(max_workers=len(pairs)) as pool:
-            asked = [
-                (name, pool.submit(self._timed, query, limit, num, indexer_budget(name)))
-                for num, name in pairs
-            ]
-        for name, task in asked:
-            rows, took, err = task.result()
-            spent[name] = took
-            if rows is None:
-                lost.append(name)
-                why_lost = str(err)
+        for ask in asked:
+            if not ask.done.is_set():  # опоздал, но не потерян: доедет доливом
+                self._late.append(ask)
+                continue
+            spent[ask.name] = ask.ms
+            if ask.rows is None:
+                lost.append(ask.name)
+                why_lost = str(ask.err)
             else:
-                got.append(rows)
-                counts[name] = len(rows)
+                got.append(ask.rows)
+                counts[ask.name] = len(ask.rows)
         return got, why_lost
+
+    def spare(self) -> float:
+        """Сколько секунд цели (:data:`GOAL`) этот поиск ещё не потратил (TC-228).
+
+        Часы идут от создания клиента, то есть от начала поиска, и считают ВСЁ, что
+        случилось на пути: первый круг, справку на пути добора (:func:`~torrcast.facts.origin`,
+        медиана 0.93 с там, где зовётся), разбор выдачи. Именно поэтому справка тут
+        учтена честно - её не надо вычитать отдельно, она уже в прошедшем времени.
+        """
+        return max(0.0, GOAL - (time.monotonic() - self._began))
+
+    def _spawn(self, query: str, limit: int, num: int, name: str, cap: float = 0.0) -> _Ask:
+        """Пустить один индексер отдельным потоком и вернуть место под его ответ."""
+        budget = indexer_budget(name)
+        ask = _Ask(name=name, budget=min(budget, cap) if cap else budget)
+
+        def work() -> None:
+            ask.rows, ask.ms, ask.err = self._timed(query, limit, num, ask.budget)
+            ask.done.set()
+
+        threading.Thread(target=work, daemon=True, name=f"idx-{name}").start()
+        return ask
 
     def _timed(
         self, query: str, limit: int, num: int, budget: float

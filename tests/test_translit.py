@@ -39,7 +39,7 @@ def _knows(monkeypatch: pytest.MonkeyPatch, passports: dict[str, Origin]) -> lis
     """Подложить справке готовые паспорта и записывать, о чём её спрашивали."""
     asked: list[str] = []
 
-    def about(title: str, series: bool = False) -> Origin:
+    def about(title: str, series: bool = False, budget: float = 0.0) -> Origin:
         asked.append(title)
         return passports.get(title, Origin())
 
@@ -145,6 +145,16 @@ class _FakeProwlarr:
         if not found:
             raise NotFoundError(f"по запросу «{query}» ничего не нашлось")
         return found
+
+    def late(self) -> list[RawResult]:
+        """Опоздавших нет: круг тут отвечает разом (TC-118)."""
+        return []
+
+    def spare(self) -> float:
+        """Остаток цели: тут поиск мгновенный, поэтому цела вся (TC-228)."""
+        from torrcast.search import GOAL
+
+        return GOAL
 
 
 def _catalog(russian: int, latin: int) -> _FakeProwlarr:

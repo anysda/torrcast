@@ -50,7 +50,7 @@ def _silent_facts(monkeypatch: pytest.MonkeyPatch) -> None:
     Тесты в сеть не ходят - ни за справкой, ни за чем-либо ещё. Заодно это и есть штатный
     случай «сети нет»: путь добора обязан работать и без справки.
     """
-    monkeypatch.setattr(cli, "origin", lambda title, series=False: Origin())
+    monkeypatch.setattr(cli, "origin", lambda title, series=False, budget=0.0: Origin())
 
 
 @pytest.fixture(autouse=True)
