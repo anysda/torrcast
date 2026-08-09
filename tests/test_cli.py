@@ -368,13 +368,16 @@ def test_the_walk_down_the_queue_stops_when_the_start_budget_is_out(
 def test_a_fully_walked_queue_of_dead_swarms_is_an_honest_dead_swarm(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Очередь пройдена до конца, а пиров нет ни у кого - это «рой мёртв», не «годного нет».
+    """Очередь пройдена до конца, а ни одна раздача не отозвалась - это не «годного нет».
 
     Отказы разные, и человеку с ними разное. «Годного релиза нет» зовёт выбрать руками, но
-    выбирать не из чего: раздачи есть и по именам годны, только рой у всех до одной пустой -
+    выбирать не из чего: раздачи есть и по именам годны, только рой у всех до одной молчит -
     ни метаданных, ни потока. Это не выбор качества, это отсутствие показа, и говорить о нём
     надо прямо. Отличие от :func:`test_the_walk_down_the_queue_stops...`: там встали по
     бюджету и ниже могли лежать живые, а тут очередь именно кончилась.
+
+    «Пиров нет» тут при этом не говорится: сиды у раздач как раз числятся - сотня, - и
+    молчание роя с пустой выдачей путать нельзя (:func:`~torrcast.cli.silent_swarm`).
     """
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
     _probes(monkeypatch, ranked, "h264")
@@ -385,7 +388,9 @@ def test_a_fully_walked_queue_of_dead_swarms_is_an_honest_dead_swarm(
         _resolve(cli._Bench(cast(Any, torrserver)), ranked)
 
     msg = str(caught.value)
-    assert "рой у них мёртв" in msg and "пиров нет" in msg
+    assert "раздач в выдаче 3, потрогали 3 (все)" in msg and "ни одна не отозвалась" in msg
+    assert "до 100" in msg, "сиды называются как обещание индексера, а не как факт"
+    assert "пиров нет" not in msg, "пиры числятся - врать про пустую выдачу нельзя"
     assert "годного релиза нет" not in msg
     assert capsys.readouterr().out.count("нет пиров") == 3, "каждая раздача стоит строки"
 
@@ -905,6 +910,42 @@ def test_an_equal_race_is_won_by_chronology() -> None:
     first = _franchise_plan("Кино", 2001, [rel(name="a", seeders=100)])
     second = _franchise_plan("Кино 2", 2005, [rel(name="b", seeders=100)])
     assert cli.liveliest([first, second]) == 1
+
+
+def test_a_half_walked_queue_is_not_a_dead_swarm() -> None:
+    """Отказ обязан различать «пиров правда нет» и «перебрали три раздачи из пятнадцати».
+
+    Прежняя строка была одна на все случаи - «рой у них мёртв, пиров нет». В замере
+    каталога её получили 18 запросов из 225, и у девяти рой был живой: очередь отбора
+    просто кончилась раньше выдачи. Числа в строке теперь всегда два.
+    """
+    pool = [rel(name=f"r{n}", seeders=7 * n) for n in range(15)]
+    plan = _plan(pool)
+    half = cli.silent_swarm(plan, 3, "1 - тишина")
+    assert "раздач в выдаче 15, потрогали 3" in half
+    assert "мёртв" not in half, "живой рой мёртвым не называем"
+    assert "до 98 сид" in half and "cast releases" in half
+
+    whole = cli.silent_swarm(plan, 15, "1 - тишина")
+    assert "раздач в выдаче 15, потрогали 15 (все)" in whole
+    assert "ни одна не отозвалась" in whole and "числятся" in whole
+
+
+def test_a_pool_without_a_single_peer_says_so_plainly() -> None:
+    """Сидов не числится ни у одной раздачи - вот тут «пиров нет» и есть правда.
+
+    Эталонная пара из живой выдачи: у «Зелёной границы» две раздачи и ноль сид, у
+    «Двенадцати обезьян» тридцать раздач и до 105 сид. Формулировки обязаны отличаться.
+    """
+    border = _plan([rel(name=f"r{n}", seeders=0) for n in range(2)])
+    monkeys = _plan([rel(name=f"r{n}", seeders=3 + n) for n in range(30)])
+    dead = cli.silent_swarm(border, 2, "1 - тишина")
+    live = cli.silent_swarm(monkeys, 3, "1 - тишина")
+    assert dead == (
+        "раздач в выдаче 2, потрогали 2 - пиров нет ни у одной, показывать нечего (1 - тишина)"
+    )
+    assert "пиров нет" not in live
+    assert dead != live
 
 
 def test_prewarm_starts_with_the_default_not_with_the_earliest() -> None:
