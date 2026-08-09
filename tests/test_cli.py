@@ -18,7 +18,7 @@ from torrcast.console import Progress
 from torrcast.parse import Kind, Picture, Release, parse_release_name
 from torrcast.profile import CAUTIOUS
 from torrcast.state import load_config
-from torrcast.stream import RUNTIME_GUESS, Media, TorrFile
+from torrcast.stream import RUNTIME_GUESS, AudioTrack, Media, TorrFile
 
 RUNTIME = RUNTIME_GUESS["movie"]
 GB = 1024**3
@@ -2250,6 +2250,129 @@ def test_a_slow_neighbour_does_not_hold_up_the_show(
 
     assert prep.number == 1
     assert "релиз 2 не успел ответить" in capsys.readouterr().out
+
+
+# --- Честный звук: неназванный язык против соседа, обещавшего русскую дорожку ---------
+
+#: Дорожка без тега языка и без заголовка: ffprobe про язык не сказал ничего. Ровно так
+#: выглядят «Оставленные», «Зона интересов», «Жить» и «В поисках Сахарного Человека» -
+#: одна безымянная дорожка на весь файл.
+UNNAMED = (AudioTrack(0, "und", None, "ac3", 6),)
+#: Тот же файл, но с подтверждённой русской дорожкой.
+RUSSIAN = (AudioTrack(0, "rus", "Дубляж (Jaskier)", "ac3", 6),)
+#: ...и с чужой: имя обещало русскую, а внутри английская.
+FOREIGN = (AudioTrack(0, "eng", "Original", "ac3", 6),)
+
+
+def test_an_unnamed_language_asks_the_neighbour_that_promises_russian(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """🔴 TC-301. Верх про язык звука не сказал ничего - спрашиваем того, кто сказал.
+
+    Живой случай: «Оставленные» уезжают с единственной дорожкой без тега языка, а ниже в
+    той же очереди стоит нетронутая раздача «от Scarabey» с двумя русскими дорожками.
+    Гейт русской озвучки такой верх пропускает по делу - бракуя его, мы бракуем не релиз,
+    а собственное незнание, - и ровно поэтому до обещанной русской очередь не доходит
+    вовсе: показ уже начался.
+
+    Машинка тут не новая: это та же проверка честности, что переспрашивает соседа про
+    заниженное разрешение (:meth:`~torrcast.cli._Bench._honest`), и цена та же -
+    :data:`~torrcast.cli.HONEST_BUDGET` на всё.
+    """
+    ranked = [
+        rel(name="Кино [WEB-DL 1080p] тихий", voices=(), seeders=140),
+        rel(name="Кино [BDRip 1080p] от Scarabey | D", seeders=121),
+    ]
+    _reads(
+        monkeypatch,
+        ranked,
+        Media(5977.0, UNNAMED, "h264", 1080, 1920),
+        Media(5977.0, RUSSIAN, "h264", 1080, 1920),
+    )
+    torrserver = _FakeTorrServer()
+
+    prep = _resolve(cli._Bench(cast(Any, torrserver)), ranked)
+
+    printed = capsys.readouterr().out
+    assert prep.number == 2, "незнание меняем на знание, а не на догадку"
+    assert "язык звука в релизе 1 не назван - беру 2, там русская дорожка" in printed
+    assert torrserver.dropped, "отвергнутый верх не доедает полосу роя"
+
+
+def test_a_neighbour_whose_promise_turns_out_empty_does_not_win(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Имя соседа обещало русскую, а паспорт её не нашёл - играем прежнего, и вслух.
+
+    Обещание имени врёт в обе стороны, и менять релиз ради обещания нельзя: меняем
+    незнание на ЗНАНИЕ. Молчания тут тоже нет - каждое решение стоит строки.
+    """
+    ranked = [
+        rel(name="Кино [WEB-DL 1080p] тихий", voices=(), seeders=140),
+        rel(name="Кино [BDRip 1080p] обещал | D", seeders=121),
+    ]
+    _reads(
+        monkeypatch,
+        ranked,
+        Media(5977.0, UNNAMED, "h264", 1080, 1920),
+        Media(5977.0, FOREIGN, "h264", 1080, 1920),
+    )
+
+    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer())), ranked)
+
+    printed = capsys.readouterr().out
+    assert prep.number == 1
+    assert "релиз 2 - русской дорожки в нём тоже нет" in printed
+    assert "язык звука в релизе 1 не назван - русской рядом нет, играю его" in printed
+
+
+def test_a_confirmed_russian_track_asks_nobody(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Паспорт назвал русскую - вопросов нет, лишних секунд тоже.
+
+    И обратная половина того же: раздача, обещавшая русскую своим ИМЕНЕМ, поводом для
+    вопроса не считается - у нас уже есть основание, а не незнание (счастливый путь
+    аниме вроде «Реинкарнации безработного», где имя обещает, а тег языка пуст).
+    """
+    ranked = [
+        rel(name="Кино [WEB-DL 1080p] a", seeders=140),
+        rel(name="Кино [BDRip 1080p] b | D", seeders=121),
+    ]
+    _reads(
+        monkeypatch,
+        ranked,
+        Media(5977.0, RUSSIAN, "h264", 1080, 1920),
+        Media(5977.0, RUSSIAN, "h264", 1080, 1920),
+    )
+    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer())), ranked)
+    assert prep.number == 1
+    assert not re.search(r"беру \d", capsys.readouterr().out)
+
+    promised = [
+        rel(name="Аниме [TV] [RUS(int), JAP+Sub] [1080p] a", seeders=140),
+        rel(name="Аниме [TV] [RUS(int)] [1080p] b", seeders=121),
+    ]
+    _reads(
+        monkeypatch,
+        promised,
+        Media(5977.0, UNNAMED, "h264", 1080, 1920),
+        Media(5977.0, RUSSIAN, "h264", 1080, 1920),
+    )
+    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer())), promised)
+    assert prep.number == 1, "имя обещало русскую - это основание, а не незнание"
+    assert not re.search(r"беру \d", capsys.readouterr().out)
+
+
+def test_the_passport_has_three_answers_about_the_language() -> None:
+    """«Да», «нет» и «не знаю» - и третий ответ не равен первому (:func:`unnamed_sound`)."""
+    silent = rel(name="Кино [WEB-DL 1080p] тихий", voices=())
+    promised = rel(name="Кино [WEB-DL 1080p] | D")
+
+    assert cli.unnamed_sound(silent, Media(5977.0, UNNAMED, "h264", 1080, 1920))
+    assert not cli.unnamed_sound(silent, Media(5977.0, RUSSIAN, "h264", 1080, 1920)), "паспорт: да"
+    assert not cli.unnamed_sound(silent, Media(5977.0, FOREIGN, "h264", 1080, 1920)), "паспорт: нет"
+    assert not cli.unnamed_sound(promised, Media(5977.0, UNNAMED, "h264", 1080, 1920)), "имя: да"
 
 
 def test_a_refusal_names_the_living_parts_of_the_franchise(

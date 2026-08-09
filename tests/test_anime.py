@@ -397,6 +397,51 @@ def test_a_russian_track_in_a_separate_file_is_not_a_russian_soundtrack() -> Non
     assert inside.dubbed and not inside.external_dub, "внутри контейнера - наша"
 
 
+def test_ext_slash_int_in_one_marker_still_promises_a_playable_track() -> None:
+    """🔴 TC-301. ``RUS(ext/int)`` - это ОБЕЩАНИЕ внутренней дорожки, а не только внешней.
+
+    Живой случай, ради которого написано: «Врата Штейна … [RUS(ext/int), JAP+Sub] …
+    [1080p]» держит 86 сидов, тогда как все остальные русские раздачи картины стоят на
+    нуле и на единице. Пока скобки съедались целиком, эта раздача не обещала русского
+    вовсе - и не попадала ни в хвост очереди, ни в вопрос соседу, а показ уезжал
+    по-японски со строкой «в каталоге перевод есть».
+
+    Разница с ``RUS(ext)`` рядом принципиальна и обязана уцелеть: там дорожка правда
+    только отдельным файлом, и играть её показ не умеет.
+    """
+    both = parse_release_name(
+        "Врата Штейна / Steins;Gate [TV+Special] [E24+2 of 24+2] [RUS(ext/int), JAP+Sub] "
+        "[2011, триллер, фантастика, драма, BDRip] [1080p]"
+    )
+    apart = parse_release_name("Аниме [TV] [12 of 12] [RUS(ext), ENG, JAP+Sub] [2020, WEBRip]")
+
+    assert both.dubbed, "часть серий несёт русскую дорожку внутри контейнера"
+    assert not both.external_dub, "«перевод лежит отдельным файлом» - тут это уже неправда"
+    assert apart.external_dub and not apart.dubbed, "чистый ext по-прежнему не наша дорожка"
+
+
+def test_a_dub_listing_foreign_languages_promises_nothing_russian() -> None:
+    """🔴 TC-301. «[Dub - Japanese , English , Arabic]» - перечень ЧУЖИХ дорожек.
+
+    Живой случай: «[TekkenQ8] Spirited Away … [Dub - Japanese , English , Arabic]» на 64
+    сида вставал верхом отбора по звуковой ступени, обгоняя соседа со 110 сидами, и уверял
+    человека строкой, что перевод у картины есть. Русского в нём нет ни одной дорожки.
+
+    Обратный порядок читается только по названию языка: «Dub-Nickelodeon» - это студия
+    нашего дубляжа, и трогать её нельзя.
+    """
+    foreign = parse_release_name(
+        "[TekkenQ8] Spirited Away (2001) [BD 1080p] [Dub - Japanese , English , Arabic] "
+        "[Sub - English , Arabic]"
+    )
+    studio = parse_release_name(
+        "Аватар: Легенда о Корре / The Legend of Korra [01x01-12] (2012) WEB-DL | Dub-Nickelodeon"
+    )
+
+    assert not foreign.dubbed, "перечислены японский, английский и арабский - нашего нет"
+    assert studio.dubbed, "после «Dub» стоит студия, а не чужой язык"
+
+
 def test_an_internal_russian_track_outranks_an_external_one() -> None:
     """🔴 TC-191. ``RUS(int)`` встаёт над ``RUS(ext)`` ДО всякого ffprobe: метку читает ранжир.
 

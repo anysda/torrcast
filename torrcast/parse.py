@@ -169,7 +169,17 @@ _RU_AUDIO_RE: Final = re.compile(r"\brus\b|\brussian\b|\bрус\b|русск\w*"
 #: вычитаются субтитры (:data:`_SUB_MENTION_RE`): в самом видео этой дорожки нет, а играть
 #: звук из соседнего файла показ не умеет. Метка «int» рядом («[RUS(int), RUS(ext)]»)
 #: уцелеет и честно скажет, что дорожка внутри контейнера есть тоже.
-_RU_EXT_RE: Final = re.compile(r"\b(?:rus(?:sian)?|рус\w*)\s*\(\s*ext[^)]*\)", re.IGNORECASE)
+#:
+#: 🔴 TC-301. «int» РЯДОМ и «int» ВНУТРИ ТЕХ ЖЕ СКОБОК - одно и то же обещание, и метку
+#: «RUS(ext/int)» вычитать нельзя: у пака часть серий несёт русскую дорожку внутри
+#: контейнера, и играется она как любая другая. Пока скобки съедались целиком, такая
+#: раздача переставала обещать русское вовсе - то есть не попадала ни в хвост очереди
+#: (:meth:`~torrcast.cli._Plan._dubbed_tail`), ни в вопрос соседу
+#: (:meth:`~torrcast.cli._Bench._honest`). Живой случай: «Врата Штейна … [RUS(ext/int),
+#: JAP+Sub] … [1080p]» - 86 сидов против 0-1 у всех остальных русских раздач картины.
+_RU_EXT_RE: Final = re.compile(
+    r"\b(?:rus(?:sian)?|рус\w*)\s*\(\s*ext(?![^)]*\bint\b)[^)]*\)", re.IGNORECASE
+)
 
 #: Студии русской озвучки аниме: у них имя студии - единственный маркер дорожки во всём
 #: имени («... BDRip-HEVC 1080p | Shiza Project», «Naruto- Shippuuden - AniLiberty.TOP»).
@@ -184,14 +194,31 @@ _RU_STUDIO_RE: Final = re.compile(
     re.IGNORECASE,
 )
 
+#: Языки, которые в имени раздачи означают ЧУЖОЙ звук. Русского тут нет и быть не может:
+#: список ровно затем и нужен, чтобы отличить чужую дорожку от нашей.
+_FOREIGN_LANG: Final = (
+    r"(?:eng|english|англ\w*|ita|ital\w*|spa|esp|lat|pt-?br|por|fre|fra|fren\w*|"
+    r"ger|deu|jap|jpn|japanese|kor|korean|chi|zho|chinese|ara|arabic|hin|tur|"
+    r"ukr|укр|kaz|каз|multi\d*|dual)"
+)
+
 #: Дубляж, про который прямо сказано, что он ЧУЖОЙ: «[English Dub]», «[Multi-Dub]»,
 #: «Dub (Ita)». Вычитается из имени вместе с субтитрами, иначе английский дубляж Nyaa
 #: читался бы как русский: маркер ``dub`` в :data:`_VOICES` про язык не спрашивает,
 #: потому что писан по русским трекерам, где чужого дубляжа в имени не бывает.
+#:
+#: 🔴 TC-301. Языки стоят и ПОСЛЕ слова «dub», а не только перед ним: «[Dub - Japanese ,
+#: English , Arabic]» - это перечисление чужих дорожек, и русской среди них нет ни одной.
+#: Пока читалось только «<язык> dub», такое имя обещало русский дубляж на ровном месте:
+#: «[TekkenQ8] Spirited Away … [Dub - Japanese , English , Arabic]» на 64 сида вставал
+#: верхом отбора по звуковой ступени (:func:`~torrcast.cli.sound_step`) и уверял человека,
+#: что перевод у картины есть.
+#:
+#: Обратный порядок читается ТОЛЬКО через тире или двоеточие и только по названию языка:
+#: «Dub-Nickelodeon» и «Dub (Rus, Eng)» - это студия и наша дорожка, и трогать их нельзя.
 _FOREIGN_DUB_RE: Final = re.compile(
-    r"\b(?:eng|english|англ\w*|ita|ital\w*|spa|esp|lat|pt-?br|por|fre|fra|fren\w*|"
-    r"ger|deu|jap|jpn|kor|chi|zho|ukr|укр|kaz|каз|multi\d*|dual)"
-    r"[\s._+-]*(?:audio|dubs?|dubbed|voice)\b",
+    rf"\b{_FOREIGN_LANG}[\s._+-]*(?:audio|dubs?|dubbed|voice)\b"
+    rf"|\bdubs?\b\s*[-–:]\s*{_FOREIGN_LANG}\b(?:\s*[,+/]\s*{_FOREIGN_LANG}\b)*",
     re.IGNORECASE,
 )
 
