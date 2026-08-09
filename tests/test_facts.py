@@ -911,9 +911,12 @@ def test_a_lone_answer_without_a_wikidata_id_never_asks_for_a_second_source(
     monkeypatch.setattr(facts_mod, "_cached_origin", lambda title, series: None)
     monkeypatch.setattr(facts_mod, "_remember_origin", lambda *a: None)
     calls: list[str] = []
-    monkeypatch.setattr(
-        facts_mod, "published_year", lambda entity, timeout=1.0: calls.append(entity) or 2015
-    )
+
+    def _spy_published(entity: str, timeout: float = 1.0) -> int:
+        calls.append(entity)
+        return 2015
+
+    monkeypatch.setattr(facts_mod, "published_year", _spy_published)
     lone_no_id = Origin("Attack on Titan", 2015, "Атака титанов")  # entity == ""
     monkeypatch.setattr(
         facts_mod,

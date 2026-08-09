@@ -902,7 +902,7 @@ def test_the_ceiling_weighs_the_video_track_not_the_ten_dubs_around_it() -> None
     )
 
 
-def _franchise_plan(title: str, year: int, releases: list[Release]) -> Any:
+def _franchise_plan(title: str, year: int | None, releases: list[Release]) -> Any:
     from torrcast.parse import Picture
 
     return cli._Plan(
