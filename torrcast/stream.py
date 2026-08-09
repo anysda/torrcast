@@ -1,6 +1,7 @@
 """TorrServer, ffprobe и упаковка потока в HLS. Своего CDN-кода нет: раздачу отдаёт
 TorrServer (кэш в RAM, на диск не пишем), пакует ffmpeg. Формат для ТВ
-зафиксирован: HLS, сегменты MPEG-TS ~4 с, один вариант в манифесте, видео ``copy``,
+зафиксирован: HLS, сегменты MPEG-TS по сетке ~10 с (замер: на сетке 4 с приёмник
+разработки встаёт намертво на границе сегмента), один вариант в манифесте, видео ``copy``,
 аудио **всегда** в AAC stereo 192k, CORS ``*`` на всех ответах.
 """
 
@@ -30,7 +31,7 @@ from urllib.parse import quote
 
 from torrcast import InfraError, why
 from torrcast.parse import VIDEO_EXT
-from torrcast.profile import CAUTIOUS, Profile
+from torrcast.profile import CAUTIOUS, COPY, Profile
 from torrcast.timing import TIMELINE_ENV, mark
 
 if TYPE_CHECKING:
@@ -822,8 +823,12 @@ class Media:
 
         Десятибитный H.264 сюда попадает наравне с HEVC, хотя зовётся ``h264``: на живом
         Q70D он встаёт (:data:`COPY_DEPTH`), и молчать об этом - та же подмена.
+
+        Спрашивается тот же единственный судья, что и у показа
+        (:meth:`torrcast.profile.Profile.verdict`): строка и решение обязаны говорить об
+        одном файле одно и то же.
         """
-        if self.video in (None, "h264") and self.depth <= COPY_DEPTH:
+        if CAUTIOUS.verdict(self.video or "", self.depth) == COPY:
             return ""
         return f"внимание: видео {self.video_name} - ресивер может не взять, а мы не перекодируем"
 
@@ -897,6 +902,20 @@ def codec_name(codec: str, depth: int = 0) -> str:
 def recodes_whole(codec: str, depth: int = 0, profile: Profile = CAUTIOUS) -> bool:
     """Пойдёт ли этот файл ЦЕЛИКОМ через перекод - единственный ответ на этот вопрос.
 
+    🔴 Вопрос упаковки задан НАОБОРОТ к тому, как он задавался раньше: не «перечислен ли
+    этот кодек среди перекодируемых», а «разрешено ли ему уехать копией»
+    (:meth:`torrcast.profile.Profile.verdict`). Разница не косметическая. Пока список был
+    чёрным, всё, о чём никто не подумал, уезжало на приёмник как есть: VP9-раздача
+    отбраковывалась на отборе, но названная руками (``--release N``) или поднятая из
+    записи возобновления доезжала до упаковки, получала ``-c:v copy`` в mpegts - и
+    приставка не начинала показ вовсе (``LOAD`` не взят, ``IDLE/ERROR``). Белый список
+    такого пропустить не может: копия достаётся только тому, что в нём названо.
+
+    Отказ отбора (:const:`torrcast.profile.REFUSE`) для упаковки означает ровно то же, что
+    и перекод: раз мы всё-таки играем этот файл, копия - гарантированный чёрный экран, а
+    сплошной перекод - хотя бы шанс. Отбраковывает такое отбор, и делает это раньше
+    (:meth:`torrcast.cli._Bench._trouble`).
+
     🔴 Функция одна на весь код намеренно. Решение принимается дважды - показом
     (:func:`torrcast.cli._play`) и прогревом следующей серии впрок
     (:func:`torrcast.cli._next_warmer`), - и разойтись они не имеют права: прогретое лежит
@@ -905,12 +924,13 @@ def recodes_whole(codec: str, depth: int = 0, profile: Profile = CAUTIOUS) -> bo
     десятибитным H.264: показ мешал в одном потоке копию и перекод, SPS не совпадал ни
     одним байтом, а приёмник вставал намертво.
 
-    Поводов ровно два, и оба - свойство файла, а не куска:
+    Поводов ровно три, и все - свойство файла, а не куска:
 
-    * кодек, которого приёмник не декодирует вовсе (:data:`RECODE_CODECS`);
+    * кодек, который мы берём на себя целиком (:data:`RECODE_CODECS`);
     * глубина цвета выше :data:`COPY_DEPTH` - десятибитный H.264 (Hi10P), которым собрана
       добрая половина аниме-BDRip. Имя кодека у него то же самое ``h264``, поэтому по
-      имени он и проходил как обычный - до замера на живом ТВ.
+      имени он и проходил как обычный - до замера на живом ТВ;
+    * кодек, которого нет в белом списке копии вовсе (vp9, av1, vc1, mpeg2video).
 
     ``depth`` ноль - глубину не спрашивали (запись прежней версии): тогда решаем по
     кодеку, как решали раньше.
@@ -918,7 +938,7 @@ def recodes_whole(codec: str, depth: int = 0, profile: Profile = CAUTIOUS) -> bo
     ``profile`` - чей это декодер (:mod:`torrcast.profile`). Умолчание осторожное: кто
     профиля не назвал, судится по Q70D, то есть ровно как раньше.
     """
-    return codec in profile.recode_codecs or depth > profile.copy_depth
+    return profile.verdict(codec, depth) != COPY
 
 
 def recode_note(codec: str, weight_mbit: float = 0.0) -> str:

@@ -85,6 +85,9 @@ def test_the_stick_is_bold_only_where_it_was_measured() -> None:
     stick, cautious = profile.ANDROID_TV, profile.CAUTIOUS
     assert stick.warn_mbit > cautious.warn_mbit and stick.recode_at_mbit > cautious.recode_at_mbit
     assert stick.segment_retries == 0, "приставка кусок не перезабирает - замер"
+    assert stick.dead_url_seconds == 4.0, "мёртвый URL - IDLE/ERROR на 4-й секунде, замер"
+    assert stick.patience == cautious.patience, "терпение пустого экрана приставки не мерено"
+    assert stick.app_patience == cautious.app_patience, "сколько висит её приложение - не мерено"
     assert stick.revive_timeout < cautious.revive_timeout
     assert stick.recode_codecs == cautious.recode_codecs, "HEVC в нашем mpegts ещё не проверен"
     assert stick.copy_depth == cautious.copy_depth, "Hi10P в нашем mpegts ещё не проверен"
@@ -186,7 +189,8 @@ def test_the_receiver_takes_its_thresholds_from_the_profile() -> None:
     stick = cast.ChromecastReceiver("10.0.0.50", profile=profile.ANDROID_TV)
     assert stick.profile.revive_timeout == 60.0 != cast.ChromecastReceiver.REVIVE_TIMEOUT
     mock = cast.MockReceiver(profile=profile.ANDROID_TV)
-    assert mock.patience == profile.ANDROID_TV.patience != cast.MockReceiver.PATIENCE
+    assert mock.patience == profile.ANDROID_TV.patience
+    assert mock.profile.segment_retries == 0 != cast.MockReceiver.SEGMENT_RETRIES
     assert mock.profile.sulk == 0.0, "приставка на 404 не обижается - замер"
 
 
@@ -197,6 +201,64 @@ def test_the_codec_verdict_follows_the_profile() -> None:
     assert not stream.recodes_whole("h264", 8, profile.CAUTIOUS)
     assert profile.CAUTIOUS.plays_copy("h264") and not profile.CAUTIOUS.plays_copy("av1")
     assert profile.CAUTIOUS.plays_copy(""), "паспорта нет - играем копией, как прежде"
+
+
+@pytest.mark.parametrize(
+    "codec,depth,want",
+    [
+        ("h264", 8, profile.COPY),
+        ("h264", 0, profile.COPY),
+        ("", 0, profile.COPY),  # запись прежней версии: кодека не спрашивали
+        ("h264", 10, profile.RECODE),  # Hi10P зовётся тем же именем
+        ("hevc", 8, profile.RECODE),
+        ("hevc", 10, profile.RECODE),
+        ("vp9", 0, profile.REFUSE),
+        ("av1", 0, profile.REFUSE),
+        ("vc1", 0, profile.REFUSE),
+        ("mpeg2video", 0, profile.REFUSE),
+    ],
+)
+def test_the_verdict_is_the_only_place_where_a_codec_is_judged(
+    codec: str, depth: int, want: str
+) -> None:
+    """🔴 Судьба картинки решается одним вызовом: копия, сплошной перекод или отказ.
+
+    Раньше ответов было два разных в двух местах - белый список копии на отборе и чёрный
+    список перекода в упаковке, - и между ними была щель ровно в размер VP9.
+    """
+    assert profile.CAUTIOUS.verdict(codec, depth) == want
+    assert profile.ANDROID_TV.verdict(codec, depth) == want, "замер на приставке был нативный"
+
+
+@pytest.mark.parametrize("codec", ["vp9", "av1", "vc1", "mpeg2video"])
+def test_an_unmeasured_codec_never_leaves_for_the_receiver_as_a_copy(codec: str) -> None:
+    """🔴 То, чего приёмник не играет по HLS, копией не уезжает НИКОГДА.
+
+    Тот самый дефект: отбор VP9 отбраковывал, а упаковка про него не знала вовсе -
+    список перекодируемых кодеков был чёрным и состоял из одного ``hevc``. Раздача,
+    названная руками (``--release N``) или поднятая из записи возобновления, доезжала до
+    упаковки и получала ``-c:v copy`` в mpegts: приёмник такой показ не начинает вовсе.
+    AV1 при этом спасала отбраковка на отборе, VP9 не спасало ничто.
+    """
+    from torrcast.cli import _encode_all
+    from torrcast.state import Config
+
+    assert stream.recodes_whole(codec, 0, profile.CAUTIOUS), "копией такое не отдаём"
+    assert _encode_all(Config(), codec, profile=profile.CAUTIOUS) is not None
+    assert not stream.Media(video=codec).video_warning.startswith("внимание: видео h264")
+    assert stream.Media(video=codec, duration=1.0).recoded_whole, "ключ прогретого тот же"
+
+
+def test_the_hevc_path_is_untouched_and_plain_h264_still_goes_as_a_copy() -> None:
+    """Гейт обратной стороны: закрытому пути HEVC от белого списка ни жарко ни холодно."""
+    from torrcast.cli import _encode_all
+    from torrcast.state import Config
+
+    assert _encode_all(Config(), "hevc", profile=profile.CAUTIOUS) is not None
+    assert _encode_all(Config(), "h264", depth=10, profile=profile.CAUTIOUS) is not None
+    assert _encode_all(Config(), "h264", depth=8, profile=profile.CAUTIOUS) is None
+    assert _encode_all(Config(), "", profile=profile.CAUTIOUS) is None
+    assert not stream.recodes_whole("h264", 8, profile.CAUTIOUS)
 
 
 class _FakeDevice:

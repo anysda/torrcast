@@ -100,7 +100,13 @@ def test_seeded_dvdrip_does_not_beat_a_live_1080p() -> None:
 
 
 def test_fat_release_stays_in_the_table_but_never_becomes_the_default() -> None:
-    """Больше ~20 Мбит/с ресивер не тянет: релиз в таблице есть, но помечен и не дефолт."""
+    """Тяжелее потолка отбора (тут он задан 20 Мбит/с) - релиз в таблице есть, но помечен
+    и не дефолт.
+
+    ⚠️ Число тут аргумент теста, а не свойство приёмника: рабочий потолок битрейта
+    Samsung Q70D - ~10 Мбит/с (замер; «~20» было легендой), и живёт он в его профиле
+    (:attr:`torrcast.profile.Profile.recode_at_mbit`).
+    """
     fat = rel(name="remux", size_gb=28, seeders=900)
     thin = rel(name="1080p", size_gb=8, seeders=30)
     assert not is_candidate(fat, RUNTIME, 20.0) and is_candidate(thin, RUNTIME, 20.0)
@@ -399,8 +405,14 @@ def test_a_fully_walked_queue_of_dead_swarms_is_an_honest_dead_swarm(
 def test_an_explicitly_named_release_is_played_as_asked_with_a_loud_warning(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """`--release N` неприкосновенен: проверка кодека его не подменяет. Не h264 — громкое
-    предупреждение и показ того, что просили.
+    """`--release N` неприкосновенен: проверка кодека его не подменяет. Не h264 — громкая
+    строка и показ того, что просили.
+
+    🔴 Строка изменилась вместе с решением: раньше тут печаталось «внимание: видео av1 -
+    ресивер может не взять, а мы не перекодируем», и это было ровно то враньё, из-за
+    которого AV1 и VP9 уезжали на приёмник копией в mpegts. Копией их не отдаём вовсе
+    (:meth:`torrcast.profile.Profile.verdict`): раз человек назвал релиз руками, он идёт
+    сплошным перекодом, и об этом сказано вслух.
     """
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
     _probes(monkeypatch, ranked, "av1")
@@ -410,7 +422,8 @@ def test_an_explicitly_named_release_is_played_as_asked_with_a_loud_warning(
 
     printed = capsys.readouterr().out
     assert (prep.number, prep.found.video) == (1, "av1"), "названный релиз не подменяется"
-    assert "внимание: видео av1" in printed and not re.search(r"беру \d", printed)
+    assert "видео av1 - перекодирую на ходу целиком" in printed
+    assert "не перекодируем" not in printed and not re.search(r"беру \d", printed)
     assert not torrserver.dropped, "раздача остаётся: её и просили"
 
 
@@ -449,6 +462,24 @@ def test_three_failed_probes_end_with_an_honest_exit(
     assert "годного релиза нет" in str(caught.value)
     assert "1 - av1" in str(caught.value) and "3 - vc1" in str(caught.value)
     assert len(re.findall(r"беру \d", capsys.readouterr().out)) == 2  # не больше MAX_TRIES
+
+
+def test_vp9_is_refused_at_the_pick_like_av1_and_never_reaches_the_packer(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """🔴 VP9 - честный отказ отбора, а не молчаливая копия в mpegts.
+
+    До этого VP9 не спасало ничто: в наборе кодеков на сплошной перекод стоял один
+    ``hevc``, белого списка копии упаковка не спрашивала вовсе, и раздача уезжала на
+    приёмник как есть - ``LOAD`` не взят, ``IDLE/ERROR``, чёрный экран.
+    """
+    ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
+    _probes(monkeypatch, ranked, "vp9", "h264")
+
+    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer())), ranked)
+
+    assert (prep.number, prep.found.video) == (2, "h264"), "берём тот, про который знаем всё"
+    assert "релиз 1 не годится (vp9) - беру 2" in capsys.readouterr().out
 
 
 def test_tv_mock_switches_the_receiver_and_leaves_no_tv_address(
