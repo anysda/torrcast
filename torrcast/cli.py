@@ -5160,6 +5160,7 @@ def rank_releases(
             not is_full_hd(r, alive),
             -r.seeders,
             -r.size,
+            r.magnet,
         ),
     )
 

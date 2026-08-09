@@ -625,7 +625,7 @@ class Picture:
         """
         if not self.releases:
             return None
-        return sorted(self.releases, key=lambda r: (not r.prime, -r.seeders, -r.size))[0]
+        return sorted(self.releases, key=lambda r: (not r.prime, -r.seeders, -r.size, r.magnet))[0]
 
 
 @dataclass(frozen=True, slots=True)
@@ -1149,7 +1149,7 @@ def _compose(kind: Kind, year: int | None, group: list[Release], also: str = "")
 
 
 def _sorted(pictures: list[Picture]) -> list[Picture]:
-    return sorted(pictures, key=lambda p: (p.year is None, p.year or 0, p.title))
+    return sorted(pictures, key=lambda p: (p.year is None, p.year or 0, p.title, p.original or ""))
 
 
 def glue(pictures: list[Picture]) -> list[Picture]:
@@ -1215,7 +1215,10 @@ def glue(pictures: list[Picture]) -> list[Picture]:
         if len(members) == 1:
             out.append(pictures[members[0]])
             continue
-        merged = sorted((pictures[i] for i in members), key=lambda p: -len(p.releases))
+        merged = sorted(
+            (pictures[i] for i in members),
+            key=lambda p: (-len(p.releases), p.title, p.original or ""),
+        )
         year = next((p.year for p in merged if p.year is not None), None)
         releases = [r for p in merged for r in p.releases]
         fresh = _compose(merged[0].kind, year, releases)
@@ -1287,7 +1290,8 @@ def _link(pictures: list[Picture], same: list[int], union: Callable[[int, int], 
     именем одна: две цепочки - это оригинал и ремейк, и молча выбрать между ними нельзя.
     """
     dated = sorted(
-        (i for i in same if pictures[i].year is not None), key=lambda i: pictures[i].year or 0
+        (i for i in same if pictures[i].year is not None),
+        key=lambda i: (pictures[i].year or 0, pictures[i].title, pictures[i].original or ""),
     )
     chains: list[list[int]] = []
     for i in dated:
@@ -1339,7 +1343,9 @@ def franchises(pictures: list[Picture]) -> dict[str, list[Picture]]:
     for picture in pictures:
         grouped.setdefault(picture.franchise, []).append(picture)
     for items in grouped.values():
-        items.sort(key=lambda p: (p.year is None, p.year or 0, p.part or 99, -len(p.releases)))
+        items.sort(
+            key=lambda p: (p.year is None, p.year or 0, p.part or 99, -len(p.releases), p.title)
+        )
     return grouped
 
 
@@ -1364,7 +1370,7 @@ def _numbered_line(pictures: list[Picture]) -> tuple[list[Picture], list[Picture
     """
     numbered = sorted(
         (p for p in pictures if p.part is not None),
-        key=lambda p: (p.part or 0, p.year is None, p.year or 0),
+        key=lambda p: (p.part or 0, p.year is None, p.year or 0, p.title),
     )
     if not numbered:
         return list(pictures), []
@@ -1565,7 +1571,7 @@ def _by_subtitle(query: str, pictures: list[Picture]) -> list[Picture]:
     if not wanted:
         return []
     items = [p for p in pictures if wanted in _subtitles(p)]
-    items.sort(key=lambda p: (p.year is None, p.year or 0, p.part or 99, -len(p.releases)))
+    items.sort(key=lambda p: (p.year is None, p.year or 0, p.part or 99, -len(p.releases), p.title))
     return items
 
 
@@ -1603,7 +1609,7 @@ def _both_languages(
         fresh = [p for p in groups.get(twin, []) if id(p) not in seen]
         items += fresh
         seen |= {id(p) for p in fresh}
-    items.sort(key=lambda p: (p.year is None, p.year or 0, p.part or 99, -len(p.releases)))
+    items.sort(key=lambda p: (p.year is None, p.year or 0, p.part or 99, -len(p.releases), p.title))
     return items
 
 
