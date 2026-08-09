@@ -5968,7 +5968,7 @@ def voice_note(media: Media, audio: int) -> str:
     tail = f" ({studio.name})" if studio and studio.name else ""
     why = ""
     if track.is_russian and studio and studio.ranks and track.rank_step < track.step:
-        why = f" - студию судим по ступени «{studio.ranks}»"
+        why = f" - эта студия у нас на уровне «{studio.ranks}»"
     return f"дорожек rus {russian}, беру {what}{tail}{why}"
 
 
