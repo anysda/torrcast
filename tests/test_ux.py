@@ -139,14 +139,14 @@ def test_the_question_says_out_loud_what_enter_will_start(
     assert cli.main(["моана"]) == 0
 
     printed = capsys.readouterr().out
-    enter = "Enter - «Моана 2 (2024)», пункт 2 из 2"
+    enter = "Enter - «Moana (2016)», пункт 1 из 2"
     assert enter in printed
     assert (
         printed.index("  1. Moana (2016)")
         < printed.index("  2. Моана 2 (2024)")
         < printed.index(enter)
     ), "список хронологический, а строка про дефолт - в хвосте, у самого вопроса"
-    assert "играю «Моана 2»" in printed, "и Enter запустил ровно то, что было названо"
+    assert "играю «Moana»" in printed, "и Enter запустил ровно то, что было названо"
 
 
 def test_a_single_choice_is_not_a_question(
