@@ -94,7 +94,7 @@ import time
 import urllib.error
 import urllib.request
 import zlib
-from typing import TYPE_CHECKING, NamedTuple
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Iterator
@@ -119,6 +119,21 @@ _TIMEOUT = 30
 #: Сколько запросов зараз пускаем на ОДИН хост. Два - потолок, который держит самый
 #: слабый из наших фронтов; третий параллельный он уже не обслуживает, а роняет в 504.
 _PER_HOST = 2
+#: Сколько соединений ждут своей очереди на ПРИЁМ, пока шим занят предыдущими.
+#:
+#: 🔴 TC-306. Умолчание :mod:`socketserver` - пять, и оно рассчитано не на нашу нагрузку:
+#: за одним поиском стоят четыре индексера, у каждого свои повторы внутри Prowlarr, а
+#: поисков бывает и два разом (добор, фолбэк по анимешным). Пять мест на это - счёт из
+#: другой задачи. Переполненная очередь приёма на Linux не отвечает отказом, а МОЛЧА
+#: роняет SYN, и клиент вместо «занято» получает таймаут - то есть ровно тот отказ
+#: канала, который наверху не отличить от «ничего не нашлось».
+#: Сотня с лишним стоит одну структуру ядра на место и заведомо перекрывает и повторы,
+#: и залп после перезапуска, когда все четверо стучатся разом.
+_BACKLOG = 128
+#: Сколько ждём от клиента рукопожатия, прежде чем считать его ушедшим. Здоровое TLS
+#: по петле укладывается в миллисекунды; десять секунд - это про клиента, у которого
+#: канал съел ClientHello, а не про медленного.
+_HANDSHAKE = 10.0
 #: Насколько верим разобранному адресу origin'а, прежде чем спросить DNS заново.
 _DNS_TTL = 300.0
 _DNS_TIMEOUT = 5.0
@@ -761,6 +776,40 @@ def build_server(
 
     class Server(socketserver.ThreadingMixIn, http.server.HTTPServer):
         daemon_threads = True
+        request_queue_size = _BACKLOG
+
+        def get_request(self) -> tuple[socket.socket, Any]:
+            """Принять соединение и НЕ здороваться: рукопожатие - дело потока.
+
+            🔴 TC-306. Обёрнутый слушающий сокет здоровается прямо в приёмном цикле:
+            :meth:`ssl.SSLSocket.accept` доводит рукопожатие до конца и только потом
+            возвращает соединение. Пока оно идёт, шим не принимает НИКОГО - а таймаута
+            у слушающего сокета нет, так что клиент, поднявший TCP и замолчавший
+            (канал съел его ClientHello - ровно та болезнь, ради которой шим и живёт),
+            вешает не себя, а весь шим. Замер на живой машине: ОДИН такой молчун - и
+            все сто следующих запросов ушли в таймаут, вместо ответа 421 за доли
+            секунды. Очередь приёма тут не спасает никакая: она копится, а не тает.
+
+            Поэтому обёртка уехала в :meth:`finish_request`, то есть в поток запроса:
+            приёмный цикл теперь только принимает. Заодно у рукопожатия появился срок
+            (:data:`_HANDSHAKE`) - молчун стоит одного потока и десяти секунд.
+            """
+            conn, addr = self.socket.accept()
+            conn.settimeout(_HANDSHAKE)
+            return conn, addr
+
+        def finish_request(self, request: Any, client_address: Any) -> None:
+            """Рукопожатие и сам запрос - уже своим потоком (см. :meth:`get_request`)."""
+            tls = context.wrap_socket(request, server_side=True)
+            # Сроку место было ровно на рукопожатии: дальше запрос живёт по своим
+            # часам (:data:`_TIMEOUT` наверх) и по терпению клиента, как и раньше.
+            tls.settimeout(None)
+            try:
+                super().finish_request(tls, client_address)
+            finally:
+                # Сокет теперь наш: `wrap_socket` забрал у исходного его дескриптор,
+                # и закрыть исходный (это сделает socketserver) уже ничего не закроет.
+                self.shutdown_request(tls)
 
         def handle_error(
             self, request: socket.socket | tuple[bytes, socket.socket], client_address: object
@@ -773,19 +822,26 @@ def build_server(
             поэтому обрыв клиента печатается одной строкой - как уход из очереди
             (:func:`_in_queue`). 🔴 Глушится ТОЛЬКО он: любое другое исключение идёт
             прежним трейсбеком - молчание о настоящей поломке хуже шума.
+
+            Второй такой же случай - несостоявшееся рукопожатие (TC-306): молчун и
+            мусор на порту теперь падают тут, а не в приёмном цикле. Это тоже про
+            клиента, а не про нас, и трейсбека не стоит.
             """
-            if isinstance(
-                sys.exc_info()[1], (ssl.SSLEOFError, BrokenPipeError, ConnectionResetError)
-            ):
+            failed = sys.exc_info()[1]
+            if isinstance(failed, (ssl.SSLEOFError, BrokenPipeError, ConnectionResetError)):
                 print("клиент ушёл раньше ответа", file=sys.stderr, flush=True)
+                return
+            if isinstance(failed, (ssl.SSLError, TimeoutError)):
+                print(f"рукопожатие не состоялось: {failed}", file=sys.stderr, flush=True)
                 return
             super().handle_error(request, client_address)
 
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     context.load_cert_chain(cert, key)
-    server = Server(("127.0.0.1", port), Handler)
-    server.socket = context.wrap_socket(server.socket, server_side=True)
-    return server
+    # Слушающий сокет остаётся голым нарочно: обёртка на нём означала бы рукопожатие
+    # в приёмном цикле (TC-306, см. `Server.get_request`). TLS надевается на каждое
+    # принятое соединение отдельно, уже в его потоке.
+    return Server(("127.0.0.1", port), Handler)
 
 
 def main(argv: list[str] | None = None) -> int:

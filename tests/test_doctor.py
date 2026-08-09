@@ -207,3 +207,29 @@ def test_mdns_silence_is_a_warning_not_a_failure(monkeypatch: pytest.MonkeyPatch
     line, good = doctor._mdns()
     assert good and line.startswith("внимание"), line
     assert "тишина" in line
+
+
+def _unit_env(monkeypatch: pytest.MonkeyPatch, environment: str) -> tuple[str, bool]:
+    """Строка про дорогу к трекерам при таком окружении юнита Prowlarr - без systemd."""
+
+    class _Done:
+        stdout = environment
+
+    monkeypatch.setattr(doctor.subprocess, "run", lambda *args, **kwargs: _Done())
+    return doctor._family()
+
+
+def test_дорога_prowlarr_к_трекерам_видна_человеку(monkeypatch: pytest.MonkeyPatch) -> None:
+    """🔴 TC-311. IPv6 - это не «медленнее», это молчащий индексер.
+
+    Замер тем же мгновением и тем же запросом: по IPv6 тело трекера встаёт раньше, чем
+    по IPv4 (13.4-13.9 КБ против 17.5-18.9 КБ у одного имени, 15.0-16.4 против 20.5 у
+    другого, шесть попыток из шести), а по умолчанию Prowlarr берёт именно IPv6. Проба
+    при этом отвечает «здоров», потому что щупает не ту дорогу, - вот об этом и строка.
+    """
+    sick, _ = _unit_env(monkeypatch, "Environment=LANG=ru_RU.UTF-8\n")
+    good, _ = _unit_env(monkeypatch, f"Environment=LANG=ru_RU.UTF-8 {doctor.IPV4_ONLY}\n")
+    print(f"{sick}\n{good}")
+    assert sick.startswith("внимание"), "может уйти на IPv6 - человек обязан об этом услышать"
+    assert doctor.IPV4_ONLY in sick, "у строки должно быть лечение, а не только диагноз"
+    assert good.startswith("ок"), "ручка на месте - дорога известна"

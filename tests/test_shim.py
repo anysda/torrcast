@@ -580,6 +580,56 @@ def test_dropped_client_frees_slot_at_once(
     assert "клиент ушёл из очереди" in err, "уход из очереди должен попасть в журнал"
 
 
+def _ask_briefly(port: int, host: str, budget: float = 8.0) -> tuple[int, float]:
+    """Запрос к шиму с коротким терпением: код ответа и сколько ждали.
+
+    Отдельно от :func:`_get` ровно из-за терпения: там минута, а здесь ответ либо
+    приезжает за доли секунды, либо не приезжает вовсе, и ждать минуту незачем.
+    """
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    context.check_hostname = False
+    context.verify_mode = ssl.CERT_NONE
+    began = time.monotonic()
+    raw = socket.create_connection(("127.0.0.1", port), timeout=budget)
+    raw.settimeout(budget)
+    with context.wrap_socket(raw, server_hostname="x") as conn:
+        conn.sendall(f"GET / HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n".encode())
+        head = conn.recv(64).split(b"\r\n")[0].decode("ascii", "replace")
+    return int(head.split()[1]), time.monotonic() - began
+
+
+def test_молчащий_клиент_не_запирает_шим_целиком(
+    tls: tuple[str, str], capsys: pytest.CaptureFixture[str]
+) -> None:
+    """🔴 TC-306. Клиент, поднявший TCP и замолчавший, стоит одного потока, а не всего шима.
+
+    Так выглядит ровно та болезнь, ради которой шим и живёт: канал съел ClientHello, и
+    соединение висит без единого байта. Пока рукопожатие делалось в приёмном цикле,
+    такой молчун запирал приём НАСОВСЕМ - замер на живой машине: один молчун, и все сто
+    следующих запросов ушли в таймаут вместо ответа за доли секунды.
+
+    Проверяем самым дешёвым запросом, какой есть: имя не наше, ответ 421, до трекеров
+    дело не доходит. Важно тут не что ответили, а что ответили вообще.
+    """
+    server = _shim(tls, {})
+    port = server.server_address[1]
+    quiet = socket.create_connection(("127.0.0.1", port), timeout=5)
+    try:
+        time.sleep(0.3)  # молчун успевает занять приёмный цикл, если тот его берёт
+        code, took = _ask_briefly(port, "unknown.test")
+        second, _ = _ask_briefly(port, "unknown.test")
+    finally:
+        quiet.close()
+        server.shutdown()
+        server.server_close()
+    print(f"при молчуне ответ {code} за {took:.2f} с, следом {second}")
+    assert code == 421, "запрос обязан быть обслужен, пока рядом висит молчун"
+    assert second == 421, "и следующий тоже: молчун не занимает очередь навсегда"
+    assert took < 3, "ответ не должен ждать чужого рукопожатия"
+    assert server.request_queue_size > 5, "очередь приёма - не умолчание socketserver"
+    assert "Traceback" not in capsys.readouterr().err, "молчун - не авария шима"
+
+
 def _wait_log(capsys: pytest.CaptureFixture[str], marker: str, budget: float = 5.0) -> str:
     """Дождаться строки в журнале шима: печатает её поток обработчика, не мы."""
     deadline = time.monotonic() + budget

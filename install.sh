@@ -40,6 +40,23 @@ PL_HOST="${TORRCAST_PL_HOST:-127.0.0.1}"
 PL_PORT="${TORRCAST_PL_PORT:-9696}"
 TS_URL="http://$TS_HOST:$TS_PORT"
 PL_URL="http://$PL_HOST:$PL_PORT"
+#: 🔴 TC-311. Prowlarr ходит к трекерам строго по IPv4, и это замер, а не осторожность.
+#: Один и тот же ответ в одно и то же мгновение: по IPv6 тело обрывается РАНЬШЕ, чем по
+#: IPv4 - у одного имени 13.4-13.9 КБ против 17.5-18.9 КБ, у другого 15.0-16.4 КБ против
+#: 20.5 КБ, шесть попыток из шести. Дорогу выбирает не наш код, а тот, кто по ней идёт, и
+#: по умолчанию он берёт IPv6: снимок соединений во время живого поиска - Prowlarr сидит
+#: на IPv6-адресе трекера все 25 секунд и получает «Failed to read complete http response».
+#: Отсюда и старая загадка «шим лечит имя»: во многом он лечил его тем, что сам ходит
+#: только по IPv4.
+#:
+#: ⚠️ Порядок семейств в `/etc/gai.conf` тут НЕ помогает, и это тоже замер: со строкой
+#: `precedence ::ffff:0:0/96 100` система стала называть IPv4 первым (`getent ahosts`), а
+#: Prowlarr в тот же миг всё равно ушёл на IPv6. Его дорогу двигает только своя ручка -
+#: та, что ниже; с ней в том же замере он пошёл на IPv4-адрес трекера.
+#:
+#: Цена ошибки несимметрична: имя, здоровое по IPv4 и битое по IPv6, отвечает пробе
+#: «здоров», а индексер молчит - причём молчит не словами, а пустой выдачей.
+PL_IPV4="Environment=DOTNET_SYSTEM_NET_DISABLEIPV6=1"
 #: Кэш раздачи - это ЗАПАС ПОКАЗА НА ОБРЫВ: пока в нём лежат куски вперёд от места
 #: показа, картинка живёт без интернета. Поэтому «сколько его» - вопрос не вкуса, а
 #: обещания продукта, и размер НЕ прибит числом: он считается от машины
@@ -1037,6 +1054,7 @@ pinned() {  # $1 имя - прибито ли уже к 127.0.0.1
     grep -qE "^127\.0\.0\.1[[:space:]]+$1(\$|[[:space:]])" "$HOSTS_FILE"
 }
 
+
 hosts_pin() {  # $1 имя — прибить к 127.0.0.1, идемпотентно
     if pinned "$1"; then
         skip "$HOSTS_FILE: $1"
@@ -1434,7 +1452,7 @@ XML
     fi
 
     run_service prowlarr "Prowlarr для torrcast" \
-        "$PREFIX/prowlarr/Prowlarr -nobrowser -data=$PREFIX/prowlarr-data"
+        "$PREFIX/prowlarr/Prowlarr -nobrowser -data=$PREFIX/prowlarr-data" "$PL_IPV4"
     wait_http "$PL_URL/ping" 120 || die "Prowlarr не поднялся на $PL_URL"
 
     # Определения должны лежать на месте раньше, чем у Prowlarr спросят схему, - иначе
@@ -1451,7 +1469,7 @@ XML
         if trim_yts "$PREFIX/prowlarr-data/Definitions"; then
             stop_service prowlarr "$PREFIX/prowlarr/Prowlarr"
             run_service prowlarr "Prowlarr для torrcast" \
-                "$PREFIX/prowlarr/Prowlarr -nobrowser -data=$PREFIX/prowlarr-data"
+                "$PREFIX/prowlarr/Prowlarr -nobrowser -data=$PREFIX/prowlarr-data" "$PL_IPV4"
             wait_http "$PL_URL/ping" 120 || die "Prowlarr не поднялся на $PL_URL"
         fi
     fi

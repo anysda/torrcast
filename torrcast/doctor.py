@@ -37,6 +37,8 @@ Line = tuple[str, bool]
 #: работать, поэтому это «внимание», а не «плохо», - но молчать о нём нельзя, иначе
 #: урезанная выдача выглядит как пустой поиск без причины.
 KEY_INDEXER = "Knaben"
+#: Ручка, которой Prowlarr запрещено ходить по IPv6 (TC-311). Её же ставит установка.
+IPV4_ONLY = "DOTNET_SYSTEM_NET_DISABLEIPV6=1"
 _TIMEOUT = 5.0
 #: Во сколько раз память службы раздачи больше кэша, который она держит В ПАМЯТИ. Замер:
 #: кэш лежит в куче Go, и рядом с каждым куском живёт его копия в работе плюс мусор,
@@ -61,6 +63,7 @@ def checkup(config: Config) -> Iterator[Line]:
     yield _terminal()
     yield _locale()
     yield _tools()
+    yield _family()
     yield from _prowlarr(config)
     yield _torrserver(config)
     yield _cache(config)
@@ -128,6 +131,39 @@ def _tools() -> Line:
     if "readrate_initial_burst" not in done.stdout:
         return _bad(f"{head}: нет -readrate_initial_burst - старт будет медленным")
     return _ok(f"{head}, -readrate_initial_burst есть")
+
+
+def _family() -> Line:
+    """Какой дорогой Prowlarr идёт к трекерам: по IPv4 или как ляжет (TC-311).
+
+    🔴 Проверка дешёвая, а стережёт дорогую ошибку. По IPv6 ответы трекеров обрываются
+    РАНЬШЕ, чем по IPv4 (замер тем же мгновением и тем же запросом: у одного имени
+    13.4-13.9 КБ против 17.5-18.9 КБ, у другого 15.0-16.4 КБ против 20.5 КБ, шесть попыток
+    из шести), а по умолчанию Prowlarr берёт именно IPv6 - это видно в снимке соединений
+    во время живого поиска. Итог такой ошибки не «медленнее», а «индексер молчит», и
+    выглядит это как пустой поиск.
+
+    Ставит эту ручку установка; строка тут - про машину, которую с тех пор поправили
+    мимо неё. Порядок семейств в системе (`/etc/gai.conf`) смотреть бесполезно: замерено,
+    что Prowlarr его не слушает.
+    """
+    try:
+        done = subprocess.run(
+            ["systemctl", "show", "prowlarr.service", "-p", "Environment"],
+            capture_output=True,
+            text=True,
+            timeout=_TIMEOUT,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return _warn("службой Prowlarr не управляем - какой дорогой он идёт к трекерам, не видно")
+    if IPV4_ONLY in done.stdout:
+        return _ok("Prowlarr ходит к трекерам по IPv4 - по IPv6 их ответы обрываются раньше")
+    return _warn(
+        "Prowlarr может пойти к трекеру по IPv6, а по нему ответы обрываются раньше - "
+        "индексер замолчит, и выглядеть это будет как пустой поиск; лечится строкой "
+        f"«{IPV4_ONLY}» в его юните (её ставит установка)"
+    )
 
 
 def _prowlarr(config: Config) -> Iterator[Line]:

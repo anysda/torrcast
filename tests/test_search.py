@@ -183,10 +183,17 @@ class _Swarm:
         hold: set[int] | None = None,
         yts: bool = False,
         blocked: dict[int, str] | None = None,
+        refuses: set[int] | None = None,
     ) -> None:
         #: Кого Prowlarr увёл в недоступные: номер - время последнего отказа (UTC).
         #: Пусто - как на здоровом стенде: страница статуса показывает только банных.
         self.blocked = blocked or {}
+        #: Кто отказал СЕЙЧАС, до всякого бана (TC-291). Живой замер: источник отвечает
+        #: отказом соединения, Prowlarr отдаёт нам ``200 []`` - и в тот же миг заводит
+        #: себе отметку об отказе. Ровно это тут и изображается.
+        self.refuses = refuses or set()
+        #: Отметки, заведённые такими отказами: их видно на странице статуса.
+        self.refused_at: dict[int, str] = {}
         #: Куда сходило лечение бана (:meth:`Prowlarr._heal`): адреса POST по порядку.
         self.probed: list[str] = []
         self.mute = mute
@@ -216,7 +223,7 @@ class _Swarm:
             return _Reply(
                 [
                     {"indexerId": num, "mostRecentFailure": failed, "disabledTill": failed}
-                    for num, failed in self.blocked.items()
+                    for num, failed in {**self.blocked, **self.refused_at}.items()
                 ]
             )
         if "/api/v1/indexer/" in url:  # тело одного индексера - его же и понесёт проверка
@@ -232,6 +239,9 @@ class _Swarm:
             )
         num = int(url.rsplit("&indexerIds=", 1)[1])
         self.budget[str(num)] = timeout
+        if num in self.refuses:  # источник не ответил, а наверх поехало «нашлось ноль»
+            self.refused_at[num] = _ago(0)
+            return _Reply([])
         if self.mute_all or num == self.mute:
             raise requests.ConnectTimeout("молчит")
         if num in self.hold and not self.gate.wait(timeout):
@@ -414,6 +424,52 @@ def test_пустой_поиск_при_бане_некворумного_ост
     client = _swarm(rows=0, yts=True, blocked={4: _ago(300)})
     with pytest.raises(NotFoundError, match="каталог сейчас урезан"):
         client.search("матрица")
+
+
+def test_пустота_отказавшего_источника_не_выдаётся_за_честный_ноль() -> None:
+    """🔴 TC-291. Окно ПЕРЕД баном: источник уже не отвечает, а Prowlarr ещё отдаёт 200 [].
+
+    Замер на живом стенде: источник отвечает отказом соединения - первый запрос приходит
+    как «HTTP 200, строк 0», и только со второго начинается 400 «выбранные индексеры
+    недоступны» (это уже TC-259). Одного запроса хватает, чтобы соврать про весь каталог:
+    живьём на лежащем звене человеку сказали «ничего не нашлось».
+
+    Улика при этом есть уже в первый миг - Prowlarr тогда же ставит себе отметку отказа.
+    """
+    client = _swarm(rows=0, refuses={1})  # Knaben, кворумный
+    with pytest.raises(InfraError, match="отказ у Knaben") as caught:
+        client.search("матрица")
+    print(str(caught.value))
+    assert "ничего не нашлось" not in str(caught.value), "это не утверждение о каталоге"
+
+
+def test_отказ_некворумного_пустоту_не_отменяет_но_называется() -> None:
+    """У некворумного замерен НОЛЬ запросов, где он единственный источник: пустота
+    остаётся пустотой. Но искали урезанным каталогом, и человек должен это услышать."""
+    client = _swarm(rows=0, yts=True, refuses={4})
+    with pytest.raises(NotFoundError, match="каталог сейчас урезан - отказ у YTS") as caught:
+        client.search("матрица")
+    print(str(caught.value))
+
+
+def test_честный_ноль_остаётся_честным() -> None:
+    """🔴 Ограждение к TC-291: «ничего не нашлось» СУЩЕСТВУЕТ. Все ответили, все отдали
+    ноль, отметок об отказах нет - это честная пустая полка, и подменять её отказом
+    инфры значит врать во вторую сторону."""
+    with pytest.raises(NotFoundError, match=r"^по запросу «матрица» ничего не нашлось$"):
+        _swarm(rows=0).search("матрица")
+
+
+def test_вчерашний_отказ_сегодняшнюю_пустоту_не_объясняет() -> None:
+    """Отметка старше начала поиска - не про этот поиск: источник мог отказать час назад
+    и с тех пор ожить. Судим только по тому, что случилось на наших глазах, - иначе
+    первая же старая отметка навсегда отменила бы честное «ничего не нашлось»."""
+    from torrcast import search
+
+    began = _swarm(rows=0)._begun_at
+    assert search._just_now(_ago(0), began), "отказ этого поиска - наш"
+    assert not search._just_now(_ago(3600), began), "часовой давности отказ пустоту не объясняет"
+    assert not search._just_now("не время вовсе", began), "не прочли время - не обвиняем"
 
 
 def test_anime_query_reads_a_cheap_signal() -> None:
