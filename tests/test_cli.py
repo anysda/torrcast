@@ -1330,3 +1330,119 @@ def _named_release(title: str, year: int) -> Release:
     from torrcast.parse import parse_release_name
 
     return parse_release_name(f"{title} ({year}) BDRip 1080p")
+
+
+# --- Потолок одновременных раздач (TC-145) -------------------------------------------
+
+
+def test_a_picture_we_did_not_choose_stops_being_warmed_the_moment_we_choose(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Картина выбрана - прогревы ОСТАЛЬНЫХ картин убираются сразу, а не после отбора.
+
+    Раньше они доживали до :meth:`~torrcast.cli._Bench.keep_only`, то есть до конца
+    отбора: до :data:`~torrcast.cli.PICK_BUDGET` секунд две-три чужие раздачи тянули
+    куски у той единственной, которую мы вот-вот покажем.
+
+    Внутри выбранной картины не убирается ничего: запасной релиз греется параллельно
+    верху намеренно, и распорядиться им вправе только сам отбор.
+    """
+    torrserver = _FakeTorrServer()
+    bench = cli._Bench(cast(Any, torrserver))
+    mine = _franchise_plan("Кино", 1999, [rel(name=f"a{i}", seeders=100 - i) for i in range(3)])
+    other = _franchise_plan("Кино 2", 2005, [rel(name=f"b{i}", seeders=100 - i) for i in range(3)])
+    bench.start(mine, 1)
+    bench.spare(mine, cli.Args(query=["кино"]))
+    bench.start(other, 1)
+    assert len(bench.live()) == 3
+
+    bench.keep_plan(mine)
+
+    assert sorted(prep.number for prep in bench.live()) == [1, 2], "верх и запасной - живы"
+    assert [key[0] for key, _ in bench.preps.items() if not _.dropped] == [
+        mine.picture.key,
+        mine.picture.key,
+    ]
+    assert torrserver.dropped, "чужая картина убрана по своему хэшу, а не «всё из списка»"
+
+
+def test_we_never_hold_more_torrents_at_once_than_the_ceiling(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Жёсткий потолок: сколько бы ни длился перебор, одновременно держим не больше
+    :data:`~torrcast.cli.MAX_LIVE` раздач.
+
+    TorrServer падает по таймеру раз в 15 минут тем вероятнее, чем больше раздач
+    он тянет; до потолка очередь перебора поднимала по раздаче за попытку, а убиралось
+    всё разом только перед стартом показа.
+    """
+    ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(12)]
+    _probes(monkeypatch, ranked, *(["h264"] * 11), "h264")
+    torrserver = _FakeTorrServer()
+    bench = cli._Bench(cast(Any, torrserver))
+    plan = _plan(ranked)
+    peak = 0
+
+    # Прогрев под меню: три картины и запасной - это и есть пик, который потолок терпит.
+    for number in range(1, cli.PREWARM + 1):
+        bench.start(plan, number)
+    bench.spare(plan, cli.Args(query=["кино"]))
+    peak = max(peak, len(bench.live()))
+    for number in range(cli.PREWARM + 1, len(ranked) + 1):
+        bench.needed = {(plan.picture.key, number)}
+        bench.start(plan, number)
+        peak = max(peak, len(bench.live()))
+
+    assert peak == cli.MAX_LIVE == 4
+    assert len(bench.preps) == len(ranked), "греть перестали не потому, что не начинали"
+
+
+def test_the_ceiling_never_kills_the_warmup_someone_is_waiting_for(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Потолок убирает самый СТАРЫЙ ненужный прогрев и никогда - нужный.
+
+    Запасной релиз греется параллельно верху намеренно (замеренный выигрыш 5 с), и
+    убить его потолком значило бы вернуть человеку полную цену подъёма второй раздачи.
+    """
+    ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(6)]
+    _probes(monkeypatch, ranked, *(["h264"] * 6))
+    bench = cli._Bench(cast(Any, _FakeTorrServer()))
+    plan = _plan(ranked)
+    for number in (1, 2, 3, 4):
+        bench.start(plan, number)
+    bench.needed = {(plan.picture.key, 1), (plan.picture.key, 2)}
+
+    bench.start(plan, 5)
+
+    live = sorted(prep.number for prep in bench.live())
+    assert 1 in live and 2 in live, "тех, чьего ответа ждут, потолок не трогает"
+    assert 3 not in live, "самый старый из ненужных и уходит"
+    assert 5 in live
+
+
+def test_a_neighbour_asked_about_honesty_is_dropped_once_it_has_answered(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Проверка «честного HD» спрашивает соседей по одному - и отпускает их сразу.
+
+    До сих пор отвергнутый сосед доживал до старта показа: до трёх лишних раздач
+    (:data:`~torrcast.cli.MAX_TRIES`) в тот самый момент, когда полоса роя нужна показу.
+    """
+    ranked = [
+        rel(name="Кино [WEB-DL] a", quality=None, size_gb=3.14, seeders=140),
+        rel(name="Кино [WEB-DL 1080p] b", codec=None, size_gb=3.20, seeders=121),
+    ]
+    _reads(
+        monkeypatch,
+        ranked,
+        Media(5977.0, (), "h264", 574, 1150),
+        Media(5977.0, (), "h264", 576, 1024),
+    )
+    torrserver = _FakeTorrServer()
+
+    prep = _resolve(cli._Bench(cast(Any, torrserver)), ranked)
+
+    assert prep.number == 1, "лучше 574p рядом нет - играем то, что есть"
+    assert "не лучше" in capsys.readouterr().out
+    assert torrserver.dropped == [f"hash-{ranked[1].magnet}"], "сосед отпущен по своему хэшу"

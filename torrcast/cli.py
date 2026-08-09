@@ -153,6 +153,21 @@ PREWARM = 3
 #: Пик одновременных раздач от этого не растёт (в отборе он и был PREWARM + 1), а вот пауза
 #: под меню, которая иначе простаивает, уходит в дело.
 PREWARM_SPARE = 1
+#: **Жёсткий потолок одновременных раздач, которые держим МЫ** (:meth:`_Bench._room`).
+#:
+#: Число не про вежливость к службе, а про её живучесть. Замер на стенде: TorrServer
+#: падает по таймеру раз в 15 минут (паника в форке библиотеки), и срывается тем
+#: вероятнее, чем больше раздач и чем активнее у них просят куски: с ОДНОЙ раздачей тик
+#: проходит спокойно, со 120 раздачами и живым чтением - паника на первом же тике.
+#: Прогрев по своей природе греет лишнее (:data:`PREWARM` картин плюс
+#: :data:`PREWARM_SPARE`), и без потолка это лишнее копилось: очередь перебора поднимала
+#: по раздаче за попытку, честная проверка (:meth:`_Bench._honest`) - ещё до
+#: :data:`MAX_TRIES` сверху, а убиралось всё разом только перед стартом показа.
+#:
+#: Четыре - это ровно пик прогрева под меню (:data:`PREWARM` + :data:`PREWARM_SPARE`),
+#: то есть замеренного выигрыша потолок не трогает: и топ-3 картины, и запасной релиз
+#: греются как грелись. Он режет то, что живёт ПОСЛЕ того, как перестало быть нужным.
+MAX_LIVE = PREWARM + PREWARM_SPARE
 #: Бюджет одной раздачи на метаданные по DHT, секунды. Не уложилась - не «зависли
 #: насмерть», а честная строка и следующий релиз.
 META_BUDGET = 20.0
@@ -895,6 +910,10 @@ def _cmd_play(args: Args) -> int:
             try:
                 plan = _pick_plan(plans, facts)
                 mark("картина выбрана")  # TC-108: замер
+                # Прогретые кандидаты ДРУГИХ картин с этой секунды - мусор: они тянут
+                # куски у той раздачи, которую сейчас будем показывать, и всё это время
+                # стоят в TorrServer лишними (:meth:`_Bench.keep_plan`).
+                bench.keep_plan(plan)
             finally:
                 # Меню уже на экране, и ответ на него получен: пусть фоновый добор допишет
                 # кэш - СЛЕДУЮЩЕЕ меню этой франшизы будет полным. Ко времени до меню это
@@ -1786,6 +1805,9 @@ class _Bench:
         self.meta_budget = meta_budget
         self.probe_budget = probe_budget
         self.preps: dict[tuple[str, int], _Prep] = {}
+        #: Прогревы, которые прямо сейчас кому-то нужны и потолком не убираются: тот, чьего
+        #: ответа ждут, и тот, который греется ему на смену. Пусто под меню - там нужны все.
+        self.needed: set[tuple[str, int]] = set()
 
     def start(self, plan: _Plan, number: int) -> _Prep:
         """Начать (или вернуть уже начатую) подготовку релиза ``number`` этого плана."""
@@ -1793,10 +1815,53 @@ class _Bench:
         found = self.preps.get(key)
         if found is not None:
             return found
+        self._room()
         prep = _Prep(number=number, release=plan.ranked[number - 1])
         self.preps[key] = prep
         threading.Thread(target=self._work, args=(plan, prep), daemon=True).start()
         return prep
+
+    def live(self) -> list[_Prep]:
+        """Прогревы, за которыми в TorrServer стоит (или вот-вот встанет) наша раздача."""
+        return [prep for prep in self.preps.values() if not prep.dropped]
+
+    def _room(self) -> None:
+        """Освободить место под новую раздачу: одновременно держим не больше :data:`MAX_LIVE`.
+
+        Убирается САМЫЙ СТАРЫЙ из ненужных - тот, чей прогрев начался раньше всех и кого
+        никто не ждёт (:attr:`needed`). Порядок именно такой, а не «последний заведённый»:
+        свежий прогрев - это работа, которая ещё идёт и вот-вот пригодится, а старый под
+        меню уже отдал всё, что мог.
+
+        🔴 Убирается по ЯВНОМУ ХЭШУ прогрева (:meth:`_forget`), а не «всё, что видно в
+        списке службы»: в списке лежат и чужие раздачи, и своё мы там не всегда видим -
+        заводим с ``save_to_db:false``. «Снести всё из list» уже сносило чужое.
+        """
+        while len(self.live()) >= MAX_LIVE:
+            spare = [
+                prep
+                for key, prep in self.preps.items()
+                if not prep.dropped and key not in self.needed
+            ]
+            if not spare:  # все живые нужны - потолок не повод убивать работу под ответом
+                return
+            self._forget(min(spare, key=lambda prep: prep.started))
+
+    def keep_plan(self, plan: _Plan) -> None:
+        """Картина выбрана - прогревы ОСТАЛЬНЫХ картин больше не нужны, и они убираются.
+
+        До сих пор они доживали до :meth:`keep_only`, то есть до конца отбора, - а отбор
+        это до :data:`PICK_BUDGET` секунд (180). Всё это время две-три чужие раздачи
+        тянули куски у той единственной, которую мы вот-вот покажем, и подставляли
+        TorrServer под его же таймер (:data:`MAX_LIVE`).
+
+        Внутри выбранной картины не трогается ничего: запасной релиз греется параллельно
+        верху НАМЕРЕННО (:meth:`spare`, замеренный выигрыш - 5 с), и убрать его вправе
+        только сам отбор, когда выбор уже сделан.
+        """
+        for key, prep in self.preps.items():
+            if key[0] != plan.picture.key:
+                self._forget(prep)
 
     def spare(self, plan: _Plan, args: Args) -> list[_Prep]:
         """Поднять запасной релиз этого плана - тот, к которому уйдёт отбор, если верх забракуют.
@@ -1852,8 +1917,11 @@ class _Bench:
         exhausted = False
         deadline = time.monotonic() + PICK_BUDGET
         for attempt, number in enumerate(queue, start=1):
-            prep = self.start(plan, number)
             following = queue[attempt] if attempt < len(queue) else None
+            # Нужны ровно двое: тот, чьего ответа ждём, и тот, кто греется ему на смену.
+            # Всё прочее прогретое потолок вправе убрать прямо здесь (:meth:`_room`).
+            self.needed = {(plan.picture.key, n) for n in (number, following) if n is not None}
+            prep = self.start(plan, number)
             if following is not None:  # запасной греется, пока ждём этот
                 self.start(plan, following)
             self._wait(prep, progress)
@@ -1963,6 +2031,9 @@ class _Bench:
         ][:MAX_TRIES]
         deadline = time.monotonic() + HONEST_BUDGET
         for number in rest:
+            # Нужны двое: тот, кого играем, если проверка ничего не найдёт, и тот, кого
+            # спрашиваем сейчас. Проверенные и отвергнутые убираются тут же, ниже.
+            self.needed = {(plan.picture.key, chosen.number), (plan.picture.key, number)}
             alt = self.start(plan, number)
             phase = f"релиз {chosen.number} {short} - смотрю {number}"
             if not self._peek(alt, progress, deadline, phase):
@@ -1979,9 +2050,11 @@ class _Bench:
             )
             if why:
                 print(f"релиз {number} не годится ({why})")
+                self._forget(alt)  # спросили и получили ответ - держать его больше незачем
                 continue
             if not honest_shot(alt.release, alt.found) or alt.found.frame <= chosen.found.frame:
                 print(f"релиз {number} не лучше ({quality_text(alt.release, alt.found)})")
+                self._forget(alt)
                 continue
             print(f"релиз {chosen.number} {short} - беру {number} (настоящий {alt.found.quality})")
             self._forget(chosen)  # верх больше не нужен: полосу роя доедать ему незачем
