@@ -124,6 +124,31 @@ def test_the_happy_path_asks_about_the_film_and_nothing_else(
     assert not set(printed) & set("→⚠▶≥")
 
 
+def test_the_question_says_out_loud_what_enter_will_start(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """🔴 TC-204. Дефолт - не первая строка меню, а в длинной франшизе он и за экраном:
+    терминал после вывода показывает хвост. Поэтому прямо перед вопросом сказано, что
+    случится по Enter, - названием и годом, а не одной цифрой в скобках.
+
+    Строка стоит ПОСЛЕ списка: шапка уехала бы вверх вместе со списком. Сам список
+    остаётся хронологическим - меняется показ дефолта, а не порядок.
+    """
+    _answers(monkeypatch, "", "")  # Enter на вопросе - то самое, о чём строка и говорит
+
+    assert cli.main(["моана"]) == 0
+
+    printed = capsys.readouterr().out
+    enter = "Enter - «Моана 2 (2024)», пункт 2 из 2"
+    assert enter in printed
+    assert (
+        printed.index("  1. Moana (2016)")
+        < printed.index("  2. Моана 2 (2024)")
+        < printed.index(enter)
+    ), "список хронологический, а строка про дефолт - в хвосте, у самого вопроса"
+    assert "играю «Моана 2»" in printed, "и Enter запустил ровно то, что было названо"
+
+
 def test_a_single_choice_is_not_a_question(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

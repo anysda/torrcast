@@ -10,8 +10,8 @@ from pathlib import Path
 
 import pytest
 
-from torrcast import cli
-from torrcast.state import Entry, State
+from torrcast import InfraError, cli
+from torrcast.state import Entry, State, load_config
 from torrcast.stream import unit_active, unit_why
 
 KEY = "movie:моана-2:2024"
@@ -268,6 +268,12 @@ class _Torrents:
     def __call__(self, url: str, timeout: float = 30.0) -> _Torrents:
         return self
 
+    def add(self, magnet: str) -> str:
+        """Прогрев под вопросом «Продолжить?» тут не проверяется: пусть служба молчит -
+        это штатная ветка, и на уборку она не влияет.
+        """
+        raise InfraError("TorrServer не отвечает")
+
     def drop(self, torrent_hash: str) -> None:
         self.dropped.append(torrent_hash)
 
@@ -309,6 +315,54 @@ def test_stop_with_nothing_playing_touches_no_torrent(monkeypatch: pytest.Monkey
     assert cli.main(["stop"]) == 0
 
     assert torrents.dropped == []
+
+
+#: Хэш раздачи, которую поднял умерший юнит: он записан в состоянии и больше нигде.
+ORPHAN = "aa11bb22cc33dd44ee55ff6677889900aabbccdd"
+
+
+def test_the_next_cast_takes_down_the_torrent_of_a_killed_unit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """🔴 Юнит, убитый SIGKILL, оставлял раздачу в TorrServer навсегда: хэш знал только
+    мёртвый процесс, а список службы своих раздач не показывает (``save_to_db:false``).
+
+    Теперь хэш лежит в состоянии рядом с позицией, и следующий ``cast``, увидев запись
+    без живого юнита, убирает раздачу по этому явному хэшу - и только по нему. Повторный
+    запуск на убранной раздаче не падает: сноса больше нет, потому что нет и записи.
+    """
+    remember(pos=2467.0, dur=5978.0, torrent=ORPHAN)
+    torrents = _Torrents()
+    monkeypatch.setattr(cli, "TorrServer", torrents)
+    monkeypatch.setattr(cli, "unit_active", lambda: False)
+    monkeypatch.setattr(cli, "start_play_unit", lambda key: None)
+    monkeypatch.setattr(cli, "_await_playing", lambda config, progress, timeout=120.0: None)
+    monkeypatch.setattr("builtins.input", lambda prompt="": "")
+
+    assert cli.main(["моана", "2"]) == 0
+
+    assert torrents.dropped == [ORPHAN], "убрано ровно записанное, по явному хэшу"
+    assert saved().torrent == "", "сирота убрана - и отметка о ней снята"
+
+    torrents.dropped.clear()
+    assert cli.main(["моана", "2"]) == 0
+    assert torrents.dropped == [], "второй раз убирать нечего, и это не ошибка"
+
+
+def test_a_live_show_keeps_its_torrent(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Запись есть, а юнит ЖИВ - раздача его: трогать её нельзя, иначе показ на экране
+    останется без источника. Мёртвым хозяин считается по живости процесса, а не по факту
+    записи.
+    """
+    remember(pos=2467.0, dur=5978.0, torrent=ORPHAN)
+    torrents = _Torrents()
+    monkeypatch.setattr(cli, "TorrServer", torrents)
+    monkeypatch.setattr(cli, "unit_active", lambda: True)
+
+    cli._release_orphans(load_config())
+
+    assert torrents.dropped == []
+    assert saved().torrent == ORPHAN, "хозяин жив - отметка остаётся его"
 
 
 def test_a_magnet_gives_up_its_hash_without_asking_anyone() -> None:

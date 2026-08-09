@@ -1050,6 +1050,26 @@ def test_a_film_only_catalogue_keeps_the_default_where_it_was() -> None:
     assert cli.default_note([first, second]) == ""
 
 
+def test_the_default_names_itself_for_a_menu_that_does_not_fit_the_screen() -> None:
+    """🔴 TC-204. «Ван Пис»: дефолт стоял строкой 33 из 35, а человек видел только `[33]`.
+
+    Порядок меню хронологический и таким остаётся - меняется показ дефолта, а не порядок:
+    список по-прежнему начинается с самой ранней картины, а что случится по Enter,
+    сказано словами - названием и годом, а не одной цифрой.
+    """
+    plans = [
+        _franchise_plan("Ван Пис", 1990 + n, [rel(name=f"rip {n}", seeders=0 if n < 33 else 20)])
+        for n in range(1, 36)
+    ]
+    default = cli.first_alive(plans)
+
+    assert default == 33, "живой в этой выдаче стала только тридцать третья картина"
+    assert cli.default_line(plans, default) == "Enter - «Ван Пис (2023)», пункт 33 из 35"
+    assert cli.menu_lines(plans, width=80).splitlines()[0].startswith("  1. Ван Пис (1991)"), (
+        "список не переупорядочивается: хронология - осознанное решение"
+    )
+
+
 def test_prewarm_starts_with_the_default_not_with_the_earliest() -> None:
     """Греем то, во что попадёт Enter: иначе прогрев под меню греет чужую картину.
 

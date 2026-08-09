@@ -581,6 +581,49 @@ def _release_torrents(config: Config, hashes: Sequence[str]) -> None:
             torrserver.drop(torrent_hash)
 
 
+def _own_torrent(key: str, torrent_hash: str) -> None:
+    """Отметить в состоянии хэш раздачи, которую держит показ; пусто - снять отметку.
+
+    Записывается в тот же момент, когда юнит раздачу поднял, и снимается тогда, когда он
+    её убрал: между этими двумя секундами запись и есть единственный след того, кому
+    раздача принадлежит (:attr:`torrcast.state.Entry.torrent`).
+
+    Состояние перечитывается: рядом мог писать сторож позиции.
+    """
+    state = State.load()
+    entry = state.get(key)
+    if entry is None or entry.torrent == torrent_hash:
+        return
+    entry.torrent = torrent_hash
+    state.put(key, entry)
+    state.save()
+
+
+def _release_orphans(config: Config) -> None:
+    """Убрать раздачу, чей хозяин умер не по-людски: SIGKILL по таймауту, паника, ребут.
+
+    Юнит убирает своё сам на любом штатном выходе, но SIGKILL не спрашивает, и хэш умирал
+    вместе с процессом: раздача оставалась в TorrServer навсегда - до его перезапуска, - а
+    убрать её было нечем (``save_to_db:false``, в списке службы её не видно, и «снести всё
+    из list» снесло бы чужое). Теперь хэш лежит в состоянии, и сирота живёт максимум до
+    следующего запуска.
+
+    🔴 Мёртвым хозяин считается по ЖИВОСТИ юнита, а не по наличию записи: идёт показ -
+    раздача его, и трогать её нельзя. Убирается только то, что записано явным хэшем,
+    повторный снос уже убранной - не ошибка (:meth:`torrcast.stream.TorrServer.drop`).
+    """
+    state = State.load()
+    orphans = {key: entry.torrent for key, entry in state if entry.torrent}
+    if not orphans:  # обычный случай, и он не стоит ни одного вопроса systemd
+        return
+    if unit_active():  # показ идёт - раздача под ним живая, и она не сирота
+        return
+    _release_torrents(config, list(orphans.values()))
+    for key in orphans:  # не через put: уборка мусора не делает запись «самой свежей»
+        state.entries[key].torrent = ""
+    state.save()
+
+
 def _cmd_stop() -> int:
     """``cast stop`` — снять каст и зафиксировать позицию. Позицию пишет сам
     юнит: ``systemctl stop`` шлёт ему SIGTERM и ждёт, сторож на выходе дописывает state.
@@ -808,6 +851,9 @@ def _cmd_worker(key: str) -> int:
         return _worker_loop(config, key, torrserver, receiver, supply, mine, chosen.profile)
     finally:
         _release_torrents(config, mine)
+        # Раздачи больше нет - и записи о ней тоже: следующему запуску убирать нечего.
+        with contextlib.suppress(TorrcastError):  # не вправе провалить сам выход
+            _own_torrent(key, "")
 
 
 def _worker_loop(
@@ -831,6 +877,11 @@ def _worker_loop(
             magnet = entry.magnet
             torrent_hash = torrserver.add(magnet)
             mine.append(torrent_hash)  # с этой секунды у раздачи есть хозяин - этот юнит
+            # ...и с этой же секунды имя хозяина знает состояние: умри мы по SIGKILL,
+            # хэш - единственное, чем раздачу потом убрать (:func:`_release_orphans`).
+            # Поле правится и в своей копии записи: её кладёт на диск сторож позиции.
+            entry.torrent = torrent_hash
+            _own_torrent(key, torrent_hash)
             torrserver.wait_files(torrent_hash, timeout=WORKER_META)
             # Тот же магнит, но живёт он теперь и у сторожа: URL потока несёт только хэш,
             # и вернуть раздачу с трекерами после аварии источника может лишь он
@@ -1009,6 +1060,9 @@ def _cmd_play(args: Args) -> int:
     mark("команда")
     clock = _Clock()
     config = load_config()
+    # Раздача показа, убитого не по-людски, - первое, что убирается: она держит рой и
+    # место в TorrServer, а хозяина у неё нет. Пустое состояние это не стоит ни секунды.
+    _release_orphans(config)
     # Профиль приёмника - до всего остального: от него зависят и потолки отбора, и то,
     # какой кодек считается играбельным. Спрашивать о нём человека нечего: он выбирается
     # по паспорту устройства, а незнакомому приёмнику достаётся осторожный набор.
@@ -3985,7 +4039,27 @@ def _pick_plan(plans: list[_Plan], facts: Facts | None = None) -> _Plan:
             f"назови картину точно (например «{plans[default - 1].picture.title}») "
             "или запусти cast в терминале"
         )
+    print(default_line(plans, default))
     return plans[ask("Что смотрим?", len(plans), default=default) - 1]
+
+
+def default_line(plans: list[_Plan], default: int) -> str:
+    """Что случится по Enter - словами, последней строкой перед вопросом.
+
+    🔴 TC-204. Порядок меню хронологический, и это решение: франшизу читают так, как её
+    снимали. А дефолт - первая ЖИВАЯ картина (:func:`first_alive`), и он с первой строкой
+    не совпадает почти в половине меню: в замере 45 многокартинных меню из 82, в 13 из них
+    дефолт стоял пятым и дальше, а у «ван пис s1e1» - строкой 33 из 35. Одной цифры в
+    ``[33]`` человеку мало: он видит номер, а не название.
+
+    Строка стоит именно ПЕРЕД вопросом, а не шапкой над списком. Терминал после длинного
+    вывода показывает его ХВОСТ: шапка тридцатипятистрочного меню уезжает за экран вместе
+    с ним, и «дефолт виден без прокрутки» она не даёт. Хвост же виден всегда - ровно
+    там, где человек и держит глаза, отвечая на вопрос.
+
+    Список при этом не переупорядочивается: показ дефолта - это показ, а не порядок.
+    """
+    return f"Enter - «{_named(plans[default - 1].picture)}», пункт {default} из {len(plans)}"
 
 
 #: Отступ описания в меню: ровно под название, за номером с точкой.

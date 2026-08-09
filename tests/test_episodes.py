@@ -228,6 +228,41 @@ def test_a_record_from_before_the_ten_bit_era_asks_the_passport_once(
     assert probed[:1] == ["http://ts/hash/0"], "и спрошено это ровно один раз на серию"
 
 
+def test_the_unit_signs_its_torrent_in_the_state_and_unsigns_it_on_the_way_out(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """🔴 Хэш раздачи знал только живой процесс: убитый SIGKILL юнит уносил его с собой, а
+    раздача оставалась в TorrServer навсегда - и убрать её было нечем.
+
+    Поэтому хэш пишется в состояние ровно тогда, когда раздача поднята, и снимается
+    ровно тогда, когда она убрана. Внутри показа отметка обязана пережить и сторожа
+    позиции (он кладёт запись на диск каждые несколько секунд), и стык серий: раздача
+    одна на всю раздачу.
+    """
+    remember(dur=MINUTES_24, depth=8)
+    _FakeTorrServer.added, _FakeTorrServer.dropped = [], []
+    signed: list[str] = []
+
+    def play(
+        config: Any, source: str, audio: int, about: str, clock: Any, watch: Any = None, **rest: Any
+    ) -> int:
+        watch.see(watch.entry.dur)  # заодно и сторож кладёт запись на диск
+        entry = State.load().get(KEY)
+        signed.append(entry.torrent if entry else "")
+        return 0
+
+    monkeypatch.setattr(cli, "TorrServer", _FakeTorrServer)
+    monkeypatch.setattr(cli, "probe", lambda url, timeout=90.0, alive=None: Media(MINUTES_24, ()))
+    monkeypatch.setattr(cli, "make_receiver", lambda kind, address, cert, profile=None: None)
+    monkeypatch.setattr(cli, "_play", play)
+
+    assert cli._cmd_worker(KEY) == 0
+
+    assert signed == ["hash", "hash", "hash"], "пока показ идёт, хозяин раздачи назван"
+    assert _FakeTorrServer.dropped == ["hash"], "раздача убрана на выходе, как и раньше"
+    assert saved().torrent == "", "убрана - и отметки о ней больше нет"
+
+
 def test_a_series_continues_the_right_episode_from_the_right_place(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
