@@ -20,13 +20,15 @@ import subprocess
 import threading
 import time
 import uuid
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Final
 
 import pytest
 
-from tests.conftest import CLIP_SECONDS, fake_packer, free_port
+from tests.conftest import CLIP_SECONDS, FakeProc, fake_packer, free_port
 from torrcast import InfraError
+from torrcast.cast import MockReceiver, Position
 from torrcast.cli import Watch as _Watch
 from torrcast.cli import _Clock, _play
 from torrcast.state import Config, Entry, State
@@ -472,13 +474,21 @@ def test_the_diagnostic_remote_is_absent_without_the_variable(
 
 
 class _Ticker:
-    """Часы, которые двигает только сон показа: опрос раз в 2 с, как в жизни."""
+    """Часы, которые двигает только сон показа: опрос раз в 2 с, как в жизни.
+
+    ``ticks`` - те, для кого время идёт вместе с часами: декодер заглушки за сон показа
+    успевает продвинуться ровно на столько же секунд, на сколько сдвинулись часы.
+    """
 
     def __init__(self) -> None:
         self.now = 1000.0
+        self.ticks: list[Callable[[float], None]] = []
 
     def sleep(self, seconds: float) -> None:
-        self.now += seconds or 2.0
+        seconds = seconds or 2.0
+        self.now += seconds
+        for tick in list(self.ticks):
+            tick(seconds)
 
     def monotonic(self) -> float:
         return self.now
@@ -694,6 +704,215 @@ def test_the_dark_show_is_revived_only_on_a_free_receiver(
         assert receiver.replay(1200.0) is True, "экран свободен - показ поднимаем"
         assert receiver._peak == 1200.0, "сторож считает с того места, куда грузили"
     assert loads == [1200.0, 1200.0], "по одному LOAD на свободный приёмник"
+
+
+class _Source:
+    """Источник под показом на заглушке: моргает, а заглушка видит только картинку.
+
+    Приёмник про перезапуск TorrServer не знает ничего и знать не может: у него на экране
+    либо идёт картинка, либо стоит. Поэтому обрыв здесь и выглядит так же, как на ТВ, -
+    декодер жив, а позиция не двигается. Возврат источника видит уже показ: раздача снова
+    читается (:attr:`Feed.offline` пуст) и прогрев потащил новые куски.
+
+    Сам декодер тут поддельный: заглушка проверяется как модель приёмника, а её ffmpeg и
+    забор сегментов по сети проверяются отдельно и на настоящем ролике (см. верх файла).
+    """
+
+    def __init__(
+        self,
+        clock: _Ticker,
+        receiver: MockReceiver,
+        feed: Feed,
+        warmer: _Warm,
+        dur: float = 7200.0,
+        dark_at: float = 10.0,
+        back_at: float = 0.0,
+        after: float = 6.0,
+    ) -> None:
+        self.clock, self.receiver, self.feed, self.warmer = clock, receiver, feed, warmer
+        self.dur, self.back_at, self.after = dur, back_at, after
+        self.up = True
+        self.down_at = clock.now + dark_at
+        self.up_at = 0.0
+        self.woke = 0.0
+        self.ending = 0
+        #: С какой секунды заглушка пробовала открыть поток - каждый LOAD, свой и чужой.
+        self.opens: list[float] = []
+        clock.ticks.append(self.tick)
+
+    def open(self, url: str, at: float = 0.0) -> None:
+        """То же, что делает :meth:`MockReceiver._open`: спросить источник и завести декодер."""
+        self.opens.append(at)
+        if not self.up:
+            raise InfraError("приёмник не забрал манифест: источника нет")
+        if len(self.opens) > 1:
+            self.woke = self.clock.now
+        self.receiver._proc = FakeProc()  # type: ignore[assignment]
+        self.receiver._start = at
+        self.receiver.report.duration = self.dur
+        self.receiver._pos = Position(at, self.dur, True)
+
+    def tick(self, seconds: float) -> None:
+        now = self.clock.now
+        if self.up and self.down_at and now >= self.down_at:
+            self.down_at, self.up_at = 0.0, (now + self.back_at if self.back_at else 0.0)
+            self.up, self.feed.offline = False, "источник молчит дольше 45 с"
+        elif not self.up and self.up_at and now >= self.up_at:
+            self.up, self.feed.offline = True, ""  # раздача снова читается
+            self.warmer.warmed += 10.0  # и прогрев потащил новые куски
+        if self.woke and now - self.woke >= self.after:
+            return self.finish()
+        pos = self.receiver._pos
+        if self.up and pos.playing:
+            self.receiver._pos = Position(pos.pos + seconds, self.dur, True)
+
+    def finish(self) -> None:
+        """Показ доехал до титров, а следом кончился вход - ровно в этом порядке.
+
+        Порядок тут и есть суть: место, с которого показ поднимают, - последнее, где он
+        был живым, и у досмотренного фильма оно за порогом 95 %. Погаси декодер раньше -
+        и титры сошли бы за аварию.
+        """
+        self.ending += 1
+        if self.ending == 1:
+            self.receiver._pos = Position(self.dur * 0.96, self.dur, True)
+            return
+        self.woke = 0.0
+        self.receiver._proc.code = 0  # type: ignore[union-attr]
+        self.receiver._pos = Position(self.dur * 0.96, self.dur, False)
+
+
+def _blinking(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    patience: float = 6.0,
+    **kwargs: Any,
+) -> tuple[_Ticker, Feed, _Warm, MockReceiver, _Source]:
+    """Показ на заглушке, под которым моргает источник - сухой прогон живой аварии.
+
+    Терпение приёмника задаётся, а не выжидается: живьём его четыре минуты, и тест,
+    честно простоявший их, никто гонять не станет.
+    """
+    clock = _Ticker()
+    monkeypatch.setattr(time, "sleep", clock.sleep)
+    monkeypatch.setattr(time, "monotonic", clock.monotonic)
+    feed = _feed_with_segments(tmp_path)
+    warmer = _Warm(warmed=600.0)
+    receiver = MockReceiver(patience=patience)
+    source = _Source(clock, receiver, feed, warmer, **kwargs)
+    monkeypatch.setattr(MockReceiver, "_open", lambda self, url, at=0.0: source.open(url, at))
+    receiver.play("http://127.0.0.1:8010/index.m3u8", at=1200.0)
+    return clock, feed, warmer, receiver, source
+
+
+def test_a_blinking_source_takes_the_mock_receiver_dark_and_the_show_comes_back(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Источник моргнул - показ погас - источник вернулся - показ поднялся. На заглушке.
+
+    Ровно этого сценария на сухом прогоне и не было: заглушка показ не бросала никогда,
+    :class:`torrcast.cli._Revivable` не реализовывала, и живая авария (перезапуск
+    TorrServer под показом) воскрешения не вызывала ни разу - и не могла.
+
+    Терпение заглушки тут своё, но правила у него чужие, замеренные на живом Q70D: пока
+    оно идёт, показ считается живым (``BUFFERING``) и приёмник тратит на картинку два
+    своих повтора LOAD; кончилось - сессии нет, и позиция в ней читается нулём.
+    """
+    from torrcast import cli
+
+    _, feed, warmer, receiver, source = _blinking(tmp_path, monkeypatch, back_at=120.0)
+
+    cli._hold(receiver, feed, None, warmer)  # type: ignore[arg-type]
+
+    first, own, revival = source.opens[0], source.opens[1:3], source.opens[3:]
+    assert first == 1200.0, "показ начался с 20-й минуты"
+    assert own == [1208.0, 1208.0], "приёмник потратил на пропавшую картинку свои два LOAD"
+    assert revival == [1208.0], "воскрешение пришло снаружи - и ровно с места остановки"
+    printed = capsys.readouterr().out
+    assert "показ погас на 0:20:08" in printed, "заглушка бросила показ, а не досидела до конца"
+    assert "сеть вернулась - поднимаю показ с 0:20:08" in printed
+    assert "показ поднят с 0:20:08" in printed, "картинка вернулась, и заглушка это подтвердила"
+
+
+def test_the_mock_receiver_burns_its_patience_before_it_drops_the_show(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Терпение заглушки - не бутафория: пока оно идёт, показ живой и воскрешать нечего.
+
+    Живой приёмник на стоящей картинке уходит в ``BUFFERING`` и держится примерно четыре
+    минуты. Заглушка, гаснущая на первом же неподвижном опросе, звала бы воскрешение там,
+    где настоящий ТВ ещё показывает фильм, - то есть врала бы в другую сторону.
+    """
+    clock, _, _, receiver, source = _blinking(tmp_path, monkeypatch, dark_at=0.0)
+
+    assert MockReceiver.PATIENCE == 240.0, "замер на живом Q70D: около четырёх минут"
+    assert MockReceiver.LOAD_RETRIES == 2, "и ровно два повтора LOAD внутри них"
+
+    seen = []
+    for _ in range(6):
+        time.sleep(2.0)  # опрос показа раз в 2 с, как в жизни
+        seen.append(receiver.position())
+
+    states = [(round(p.pos), p.playing, p.state) for p in seen]
+    assert states[0] == (1200, True, "PLAYING"), "первый опрос - картинка ещё шла"
+    assert states[1:4] == [(1200, True, "BUFFERING")] * 3, "картинка стоит, но показ живой"
+    assert states[4:] == [(0, False, "IDLE")] * 2, "терпение вышло - сессии нет, позиции тоже"
+    assert source.opens == [1200.0, 1200.0, 1200.0], "свои повторы потрачены внутри терпения"
+    assert clock.now - 1000.0 == 12.0, "и всё это - заданное терпение, а не выжданные минуты"
+
+
+def test_a_source_that_never_returns_ends_the_show_on_the_mock_too(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Источник не вернулся - гаснем честно: попытки конечны, LOAD в приёмник не летит.
+
+    Отрицательная половина того же сценария. Заглушка обязана уметь и её: показ, который
+    поднимается на сухом прогоне всегда, доказывал бы ровно ничего.
+    """
+    from torrcast import cli
+
+    clock, feed, warmer, receiver, source = _blinking(tmp_path, monkeypatch)
+
+    cli._hold(receiver, feed, None, warmer)  # type: ignore[arg-type]
+
+    assert source.opens == [1200.0, 1208.0, 1208.0], "после своих двух повторов - ни одного LOAD"
+    assert clock.now - 1000.0 > cli.REVIVE_LIMIT, "ждали ровно столько, сколько обещали"
+    printed = capsys.readouterr().out
+    assert "показ погас на 0:20:08" in printed
+    assert "показ поднять не удалось" in printed and "cast продолжит с 0:20:08" in printed
+
+
+def test_the_mock_receiver_refuses_to_load_right_after_a_404(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """404 заглушка помнит так же долго, как живой приёмник, - и LOAD в это время не берёт.
+
+    Замерено на живом Q70D: поймавший 404 ресивер не берёт LOAD ещё две-три минуты, и не
+    ускоряет это ничто. Ровно поэтому раздача 404 и не отдаёт. Заглушка, прощающая 404,
+    показывала бы воскрешение с первой попытки там, где ТВ молчит минутами.
+    """
+    now = [1000.0]
+    monkeypatch.setattr(time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(time, "sleep", lambda seconds: now.__setitem__(0, now[0] + seconds))
+    opens: list[float] = []
+    receiver = MockReceiver()
+    receiver._url = "http://127.0.0.1:8010/index.m3u8"
+    monkeypatch.setattr(MockReceiver, "_open", lambda self, url, at=0.0: opens.append(at))
+
+    receiver._caught(_Answer(404))
+    assert receiver.replay(1200.0) is False, "приёмник помнит 404 и LOAD не берёт"
+    assert opens == [], "и грузить в него бесполезно - не пробуем вовсе"
+
+    now[0] += MockReceiver.SULK
+    assert receiver.replay(1200.0) is False, "картинки нет - врать о поднятом показе нельзя"
+    assert opens == [1200.0], "а вот попытку приёмник уже принял"
+
+
+class _Answer:
+    """Ответ раздачи глазами приёмника - от него нужен только код."""
+
+    def __init__(self, status_code: int) -> None:
+        self.status_code = status_code
 
 
 def test_the_show_directory_is_left_clean_after_the_stop(tmp_path: Path) -> None:

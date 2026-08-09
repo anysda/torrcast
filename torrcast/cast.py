@@ -596,10 +596,35 @@ class MockReceiver:
     по-настоящему, а не ``verify=False`` — чему доверять, решает :func:`trust_anchor`
     (системное хранилище для настоящего LE-серта, ровно как у ТВ, или сам файл для
     self-signed; пустой ``ca`` = хранилище). На http проверять нечего.
+
+    Терпение к пропавшей картинке mock моделирует нарочно (:attr:`PATIENCE`,
+    :meth:`replay`): без него целый класс аварий - «источник моргнул под показом» - на
+    сухом прогоне не проверялся вовсе, потому что заглушка показ не бросала никогда и
+    воскрешать в ней было нечего. Модель держится на замерах живого Q70D и ничего сверх
+    них не обещает; чего она не умеет - сказано у :attr:`PATIENCE` и :meth:`replay`.
+    Самсунговской специфики в ней по-прежнему нет: терпение и повторы LOAD - это поведение
+    самого приёмника (Default Media Receiver), а не трюки вокруг телевизора.
     """
 
-    def __init__(self, ca: str = "") -> None:
+    #: Сколько приёмник терпит стоящую картинку, прежде чем бросить показ насовсем.
+    #: Замер на живом Q70D: пустой экран дольше примерно четырёх минут - и сессии больше
+    #: нет. Терпение задаётся в конструкторе: тест не имеет права идти четыре минуты.
+    PATIENCE = 240.0
+    #: Столько повторов LOAD приёмник тратит на пропавшую картинку сам, внутри своего
+    #: терпения. Замерено там же: их ровно два, и после них он уже не пробует.
+    LOAD_RETRIES = 2
+    #: Сколько приёмник не берёт LOAD вовсе, поймав 404. Замерено на живом Q70D: две-три
+    #: минуты, и не ускоряет это ни повтор LOAD, ни новое соединение, ни новый процесс.
+    #: Поэтому раздача 404 и не отдаёт (:class:`torrcast.stream.Feed`) - а заглушка обязана
+    #: наказывать за него так же, иначе на сухом прогоне «работает» то, что живьём молчит.
+    SULK = 150.0
+    #: Сколько ждём картинку, поднимая погасший показ (:meth:`replay`) - как у живого
+    #: приёмника: попытка тут не одна, интервалы держит зовущий.
+    WAKE_TIMEOUT = 60.0
+
+    def __init__(self, ca: str = "", patience: float = 0.0) -> None:
         self.ca = ca
+        self.patience = patience or self.PATIENCE
         self.report = Report()
         self._proc: subprocess.Popen[str] | None = None
         self._err: IO[bytes] | None = None
@@ -608,10 +633,35 @@ class MockReceiver:
         self._start = 0.0
         self._last = -1
         self._follower: threading.Thread | None = None
+        #: Чем и подо что грузили: повтор LOAD уходит туда же, куда и первый.
+        self._url = ""
+        #: Позиция с прошлого опроса: стоящая картинка видна только по ней.
+        self._seen = -1.0
+        #: С какого монотонного момента картинка стоит; ``0.0`` - она идёт.
+        self._still = 0.0
+        #: Сколько повторов LOAD потрачено на текущую остановку картинки.
+        self._loads = 0
+        #: Приёмник бросил показ: сессии больше нет, позиции в ней тоже.
+        self._dead = False
+        #: Докуда приёмник не берёт LOAD после пойманного 404 (:attr:`SULK`).
+        self._sulk = 0.0
 
     def play(self, url: str, title: str = "", at: float = 0.0) -> None:
+        self._url = url
+        self._seen, self._still, self._loads, self._dead = -1.0, 0.0, 0, False
+        self._open(url, at)
+
+    def _open(self, url: str, at: float = 0.0) -> None:
+        """Открыть поток с секунды ``at``: проверка ответа, декодер, счётчики приёмки.
+
+        Зовётся и на первый LOAD, и на каждый повтор — свой (:meth:`_wait`) и чужой
+        (:meth:`replay`). Порядок обязателен: сперва спрашиваем источник и только потом
+        рушим прошлый декодер, иначе неудачный повтор гасил бы ещё живую картинку.
+        """
         self._probe(url)  # первый ответ проверяем сами: TLS, доступность, CORS
-        self._close_log()  # серия за серией играет один и тот же приёмник: прошлый журнал закрыт
+        self._quiet()
+        self._done = threading.Event()  # прошлые потоки остановлены, у этого показа свой
+        self._last = -1  # нумерация сегментов пойдёт с места подъёма, а не подряд с прошлой
         self._err = tempfile.TemporaryFile()  # noqa: SIM115 - живёт всё воспроизведение
         self._start = at
         # ⚠️ Опции TLS ставятся только под https-адрес: на http ffmpeg не «игнорирует
@@ -649,6 +699,10 @@ class MockReceiver:
         """Снять каст. Приложения у mock нет, поэтому ``quit_app`` ему нечего закрывать —
         аргумент есть только затем, чтобы mock оставался приёмником (:class:`Receiver`).
         """
+        self._quiet()
+
+    def _quiet(self) -> None:
+        """Остановить декодер и его потоки: показ снимают либо грузят заново."""
         self._done.set()
         if self._proc is not None and self._proc.poll() is None:
             self._proc.terminate()
@@ -658,14 +712,94 @@ class MockReceiver:
         # не отнять счёт разрывов, и закрываем сами, если он не дошёл или не заводился.
         if self._follower is not None:
             self._follower.join(timeout=5)
+        self._follower = None
         self._close_log()
         self._pos = Position(self._pos.pos, self._pos.dur, False)
 
     def position(self, front: float = 0.0) -> Position:
+        """Что приёмник видит на экране — картинку, ожидание её или мёртвую сессию.
+
+        Ожидание тут не бутафория: у живого приёмника терпение своё и кончается молча,
+        поэтому и заглушка стоящую картинку сперва терпит (:meth:`_wait`), а потом бросает
+        показ насовсем. Разницу видно снаружи ровно так же, как на ТВ: пока терпит -
+        ``BUFFERING`` и показ считается живым, бросил - ``IDLE``, и поднимать его теперь
+        некому, кроме :meth:`replay`.
+        """
         # dur - то, что уже упаковано и лежит в манифесте: показ по нему видит, насколько
         # упаковка ушла вперёд от приёмника. Запас mock'у ни к чему: он не зависает.
-        playing = self._pos.playing
-        return Position(self._pos.pos, self.report.duration, playing, "PLAYING" if playing else "")
+        dur = self.report.duration
+        if self._dead:
+            # 🔴 У мёртвой сессии позиции нет вовсе - там ноль, и это не перемотка в начало.
+            # Ровно так отвечает и живой Q70D, бросив показ; на этом нуле сторож обязан
+            # держать своё место сам (:class:`torrcast.cli._Revival`).
+            return Position(0.0, dur, False, "IDLE")
+        pos, moving = self._pos.pos, self._pos.pos > self._seen
+        self._seen = pos
+        if self._pos.playing and moving:
+            self._still, self._loads = 0.0, 0
+            return Position(pos, dur, True, "PLAYING")
+        if self._over():
+            return Position(pos, dur, False, "")  # декодер дошёл до конца входа - это титры
+        if self._wait(pos):
+            # Приёмник ждёт картинку и показ считает живым - как ТВ в BUFFERING.
+            return Position(pos, dur, True, "BUFFERING")
+        return Position(0.0, dur, False, "IDLE")
+
+    def _over(self) -> bool:
+        """Кончился ли вход честно: декодер вышел нулём, значит фильм доигран, а не оборван."""
+        return self._proc is not None and self._proc.poll() == 0
+
+    def _wait(self, pos: float) -> bool:
+        """Терпение приёмника к стоящей картинке; ``False`` - оно кончилось, показ брошен.
+
+        Внутри терпения приёмник пробует поднять себя сам - те самые два повтора LOAD
+        (:attr:`LOAD_RETRIES`), разнесённые по терпению поровну. Источник к этому моменту
+        может уже вернуться, и тогда картинка пойдёт дальше без всякого воскрешения;
+        а не вернулся - терпение выходит, и показ гаснет так же молча, как на ТВ.
+        """
+        now = time.monotonic()
+        self._still = self._still or now
+        dark = now - self._still
+        if dark >= self.patience:
+            self._dead = True
+            self._quiet()
+            return False
+        step = self.patience / (self.LOAD_RETRIES + 1)
+        if self._loads < self.LOAD_RETRIES and dark >= step * (self._loads + 1):
+            self._loads += 1
+            with contextlib.suppress(InfraError, OSError):
+                self._open(self._url, pos)  # источника всё ещё нет - терпим дальше
+        return True
+
+    def replay(self, at: float) -> bool:
+        """Поднять СВОЙ погасший показ с секунды ``at``; ``True`` - картинка вернулась.
+
+        Тот же договор, что и у :meth:`ChromecastReceiver.replay`: позиция приходит
+        снаружи (у мёртвой сессии её нет), исключения наружу не выпускаются, а ``True``
+        говорится только про действительно вернувшуюся картинку, а не про отправленный
+        LOAD. Ждать её дольше :attr:`WAKE_TIMEOUT` незачем: попытка тут не одна.
+
+        ⚠️ Чужой показ заглушка не видит и видеть не может - :meth:`ChromecastReceiver._free`
+        здесь не воспроизводится ничем. Что приёмник занят чужим, проверяется только на
+        живом ТВ.
+        """
+        if not self._url or time.monotonic() < self._sulk:
+            return False  # приёмник поймал 404 и ближайшие минуты не берёт LOAD вовсе
+        try:
+            self._open(self._url, at)
+        except (InfraError, OSError):
+            return False  # источника всё ещё нет - зовущий попробует ещё раз или погасит
+        self._seen, self._still, self._loads = at, 0.0, 0
+        deadline = time.monotonic() + self.WAKE_TIMEOUT
+        while time.monotonic() < deadline:
+            time.sleep(1.0)
+            if self._pos.pos > at:  # декодер поехал - картинка на экране
+                self._dead = False
+                return True
+            if not self._pos.playing:
+                break  # декодер лёг, не начав: показа нет, и врать о нём нельзя
+        self._quiet()
+        return False
 
     def _session(self) -> Any:
         import requests
@@ -679,6 +813,7 @@ class MockReceiver:
 
         try:
             response = self._session().get(url, timeout=30)
+            self._caught(response)
             response.raise_for_status()
         except requests.RequestException as exc:
             raise InfraError(f"приёмник не забрал манифест: {why(exc)}") from exc
@@ -753,9 +888,20 @@ class MockReceiver:
             self.report.peak_mbit = max(self.report.peak_mbit, size * 8 / seconds / 1e6)
 
     def _check(self, response: Any) -> None:
+        self._caught(response)
         response.raise_for_status()
         if response.headers.get(_CORS_HEADER) != "*":
             self.report.no_cors += 1
+
+    def _caught(self, response: Any) -> None:
+        """404 приёмник помнит: ближайшие :attr:`SULK` секунд он не берёт LOAD вовсе.
+
+        Замерено на живом Q70D и стоит за тем, что раздача 404 не отдаёт (:class:`Feed`).
+        Заглушка, прощающая 404, врала бы в самую опасную сторону: на сухом прогоне
+        воскрешение проходило бы с первой попытки там, где живой ТВ молчит минутами.
+        """
+        if getattr(response, "status_code", 0) == 404:
+            self._sulk = time.monotonic() + self.SULK
 
 
 def trust_anchor(cert: str) -> str:
