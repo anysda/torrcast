@@ -2718,10 +2718,16 @@ class _Bench:
         if not pinned and warn_mbit > 0:
             peak = prep.media.weight_mbit(prep.video.size)
             ceiling = warn_mbit
+            # Причину отказа называем по ситуации. Обычный потолок - свойство
+            # приёмника. А потолок, опущенный по высоте кадра (RECODE_HEIGHT), -
+            # это скорость перекода НАШЕЙ машины: кадр выше 1080p в реальное время
+            # не укладывается, и винить тут приёмник - нечестно.
+            reason = "слишком тяжёлый для приёмника"
             if hard_mbit > 0 and prep.media.height > RECODE_HEIGHT:
                 ceiling = min(warn_mbit, hard_mbit)
+                reason = "перекод такого кадра этой машине не по силам"
             if peak > ceiling:
-                return f"слишком тяжёлый для приёмника, ~{peak:.0f} Мбит/с"
+                return f"{reason}, ~{peak:.0f} Мбит/с"
         # ⚠️ Имя кодека тут не последнее слово: Hi10P зовётся ``h264``, а приёмник его не
         # берёт (:meth:`torrcast.profile.Profile.verdict`). При выключенном перекодировании
         # такой релиз - честный отказ отбора наравне с HEVC, и назван он своим именем:

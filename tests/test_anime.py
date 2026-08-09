@@ -602,7 +602,8 @@ def test_a_4k_remux_stays_refused_because_a_whole_file_recode_does_not_keep_up()
 
     У 2160p вчетверо больше пикселей, и на тех же ядрах перекод в реальное время не
     укладывается. Поэтому кадр выше 1080p судится прежним ``bitrate_hard_mbit`` - и по
-    имени раздачи, и по паспорту ffprobe, если имя о разрешении промолчало.
+    имени раздачи, и по паспорту ffprobe, если имя о разрешении промолчало. И отказ
+    называет честную причину: ограничение - скорость НАШЕЙ машины, а не приёмник.
     """
     config = Config()
     uhd = named(
@@ -626,8 +627,8 @@ def test_a_4k_remux_stays_refused_because_a_whole_file_recode_does_not_keep_up()
             recode=True,
             hard_mbit=config.bitrate_hard_mbit,
         )
-        == "слишком тяжёлый для приёмника, ~33 Мбит/с"
-    ), "молчаливое имя ловится паспортом"
+        == "перекод такого кадра этой машине не по силам, ~33 Мбит/с"
+    ), "молчаливое имя ловится паспортом, и отказ винит нашу машину, а не приёмник"
 
 
 def test_the_recode_line_names_the_weight_and_the_reason() -> None:
