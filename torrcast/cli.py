@@ -820,18 +820,28 @@ def _cmd_releases(args: Args) -> int:
 
     Таблица спрашивает настоящую длительность, чтобы битрейт (а значит, и порядок
     раздач, и номера ``N``) совпал с тем, что сыграет ``cast`` по этому номеру.
+
+    🔴 TC-241. Судит таблица по ОБНАРУЖЕННОМУ профилю приёмника - тому самому, на
+    который поедет показ: по осторожному умолчанию пометка «перекодируем» врала,
+    обещая перекод там, где приставка играет копией. Определение профиля - то же, что
+    на пути показа (:func:`~torrcast.profile.detect`), и оно не молчаливое: строка про
+    профиль печатается всегда, и приёмника может не быть вовсе - тогда строка честно
+    говорит, по какому профилю судим.
     """
     config = load_config()
     inner = Args(query=list(args.query[1:]))
     if not inner.query:
         raise NotFoundError("что искать? cast releases <запрос>")
+    chosen = detect_profile(config)
+    config = tune_profile(config, chosen.profile)
     with Progress() as progress:
-        plans = _search(config, inner, progress)
+        plans = _search(config, inner, progress, chosen.profile)
     facts = Facts([(p.picture.title, p.picture.year) for p in plans])
     facts.start()
     try:
+        print(f"профиль приёмника: {chosen.profile.title} - {chosen.how}")
         for plan in plans:
-            plan = _timed(plan, facts, inner, config, CAUTIOUS)
+            plan = _timed(plan, facts, inner, config, chosen.profile)
             print()
             print(f"{_named(plan.picture)} - раздач {len(plan.ranked)}")
             print(
@@ -1247,8 +1257,20 @@ def _cmd_play(args: Args) -> int:
                 mark("картина выбрана")  # TC-108: замер
                 # Опоздавший индексер: круг ушёл по кворуму, и его выдача доехала, пока
                 # человек читал меню. Доливаем ЗДЕСЬ - список уже прочитан и отвечен,
-                # менять под курсором нечего (:func:`_topup`).
-                plan = bench.reorder(plan, _topup(plan, args, config, chosen.profile, progress))
+                # менять под курсором нечего (:func:`_topup`). Ключи меню ему нужны,
+                # чтобы отличить картину, которой в списке не было (о ней - честная
+                # строка), от соседней по меню (о ней говорить «её не было» - соврать).
+                plan = bench.reorder(
+                    plan,
+                    _topup(
+                        plan,
+                        args,
+                        config,
+                        chosen.profile,
+                        progress,
+                        menu=frozenset(p.picture.key for p in plans),
+                    ),
+                )
                 # Справка уже дождана меню - её хронометраж встаёт в знаменатель
                 # битрейта вместо прикидки (:func:`_timed`), и порядок отбора
                 # пересобирается на настоящих числах. Прогретое при этом не пропадает:
@@ -1409,8 +1431,10 @@ def _search(
     ``profile`` - чей декодер судит релизы (:mod:`torrcast.profile`). Пороги битрейта до
     отбора доезжают сами - профиль накладывается на настройки ещё в ``_cmd_play``
     (:func:`torrcast.profile.tune`), - а вот НАБОР КОДЕКОВ в настройках ключа не имеет, и
-    спросить о нём можно только сам профиль (:func:`last_hope`). Умолчание осторожное:
-    отладочные ручки ``cast releases`` и ``cast voices`` приёмника не опрашивают вовсе.
+    спросить о нём можно только сам профиль (:func:`last_hope`). Умолчание осторожное, и
+    пользуются им только ручки вроде ``cast voices``: ``cast releases`` передаёт
+    обнаруженный профиль явно - таблица обязана судить про тот приёмник, на который
+    поедет показ (TC-241).
     """
     from torrcast.parse import cluster, pick_franchise
 
@@ -2230,7 +2254,14 @@ def _timed(
     return fresh
 
 
-def _topup(plan: _Plan, args: Args, config: Config, profile: Profile, progress: Progress) -> _Plan:
+def _topup(
+    plan: _Plan,
+    args: Args,
+    config: Config,
+    profile: Profile,
+    progress: Progress,
+    menu: frozenset[str] = frozenset(),
+) -> _Plan:
     """Долить опоздавший индексер в пул УЖЕ выбранной картины (TC-118).
 
     🔴 Круг индексеров уходит по кворуму (:data:`~torrcast.search.QUORUM_INDEXERS`), и
@@ -2242,7 +2273,8 @@ def _topup(plan: _Plan, args: Args, config: Config, profile: Profile, progress: 
     * список картин, их порядок и дефолт долив не трогает вовсе - меню уже напечатано,
       и подменить в нём номер или первую живую часть значило бы соврать задним числом;
     * картина, которой в меню не было, из долива в него не попадает - её и предложить
-      уже некому;
+      уже некому. Но и молча она не пропадает (TC-238): её называет одна честная
+      строка (:func:`_foreign_note`), как и всякое авто-решение;
     * а вот верх ОТБОРА долив поменять вправе - выбирали картину, а не раздачу, - но
       молча этого не делает: строка ниже называет и опоздавшего, и то, что верх другой.
 
@@ -2266,6 +2298,9 @@ def _topup(plan: _Plan, args: Args, config: Config, profile: Profile, progress: 
     )
     mine = {r.magnet for r in grown.releases} if grown is not None else set()
     add = [r for r in extra if r.magnet in mine and r.magnet not in have]
+    # Чужая картина (TC-238): в меню её внести нельзя, но и пропасть молча она не
+    # должна - строка печатается независимо от того, был ли долив в свою картину.
+    _foreign_note([r for r in extra if r.magnet not in mine], menu, progress)
     if not add:
         return plan
     fresh = _plan_for(
@@ -2281,6 +2316,37 @@ def _topup(plan: _Plan, args: Args, config: Config, profile: Profile, progress: 
         f" вместо {len(plan.picture.releases)}" + (", верх отбора другой" if changed else "")
     )
     return fresh
+
+
+def _foreign_note(foreign: list[Release], menu: frozenset[str], progress: Progress) -> None:
+    """Честная строка про картину опоздавшего индексера, которой в меню не было (TC-238).
+
+    Меню напечатано и отвечено, поэтому внести туда новую картину долив не вправе
+    никогда - но молчаливых пропаж у нас нет: человек узнаёт, что опоздавший источник
+    привёз ещё одну картину, и что в отбор она не пойдёт. Раздачи картин, которые в
+    меню ЕСТЬ (``menu`` - ключи показанного списка), строки не получают: сказать про
+    них «в списке её не было» значило бы соврать.
+    """
+    from torrcast.parse import cluster
+
+    guests = [p for p in cluster(foreign) if p.key not in menu]
+    if not guests:
+        return
+    who = (
+        ", ".join(sorted({r.indexer for p in guests for r in p.releases if r.indexer}))
+        or "опоздавший индексер"
+    )
+    names = ", ".join(f"«{p.title}» ({p.year or '?'})" for p in guests[:KIN_SHOWN])
+    if len(guests) > KIN_SHOWN:
+        names += f" и ещё {len(guests) - KIN_SHOWN}"
+    progress.note(
+        f"«{who}» доехал после списка: привёз {names} - "
+        + (
+            "в списке её не было, в отбор она не пойдёт"
+            if len(guests) == 1
+            else "в списке их не было, в отбор они не пойдут"
+        )
+    )
 
 
 def _nothing_late() -> list[RawResult]:

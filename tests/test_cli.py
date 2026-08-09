@@ -252,12 +252,12 @@ def _raw(name: str, tag: str, seeders: int) -> Any:
     )
 
 
-def _topup(plan: Any, rows: list[Any]) -> tuple[Any, str]:
+def _topup(plan: Any, rows: list[Any], menu: frozenset[str] = frozenset()) -> tuple[Any, str]:
     """Долив опоздавшего в готовый план; отдаёт новый план и напечатанное."""
     plan.late = lambda: rows
     out = io.StringIO()
     with Progress(out=out) as progress:
-        fresh = cli._topup(plan, cli.Args(query=["кино"]), load_config(), CAUTIOUS, progress)
+        fresh = cli._topup(plan, cli.Args(query=["кино"]), load_config(), CAUTIOUS, progress, menu)
     return fresh, out.getvalue()
 
 
@@ -290,13 +290,56 @@ def test_долив_не_вносит_в_список_картину_котор�
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Меню уже напечатано, и человек по нему ответил. Картина, приехавшая с опоздавшим,
-    в него попасть не может - предложить её уже некому, а подменить выбранную нельзя."""
+    в него попасть не может - предложить её уже некому, а подменить выбранную нельзя.
+    Но и молча она пропадать не должна (TC-238): молчаливых пропаж не бывает, и человек
+    узнаёт одной строкой, что опоздавший источник привёз ещё одну картину."""
     monkeypatch.setenv("TORRCAST_LOG", "")
     plan = _plan([rel(name="Кино / Movie (1999) BDRip 1080p", seeders=100)])
     fresh, said = _topup(plan, [_raw("Другое / Other (2001) BDRip 1080p", "d", 900)])
 
     assert fresh is plan, "чужая картина плана не меняет вовсе"
-    assert said == "", "и молчит, потому что менять было нечего"
+    assert "привёз «Другое» (2001)" in said, "опоздавшего и привезённое называют вслух"
+    assert "в списке её не было, в отбор она не пойдёт" in said
+
+
+def test_долив_молчит_про_картину_которая_в_меню_есть(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Раздача ДРУГОЙ картины из меню тоже не доливается - долив пополняет только пул
+    выбранной, - но сказать про такую «в списке её не было» значило бы соврать: она там
+    есть, человек её видел. Поэтому соседняя по меню строки не получает."""
+    monkeypatch.setenv("TORRCAST_LOG", "")
+    from torrcast.parse import cluster
+    from torrcast.search import to_releases
+
+    plan = _plan([rel(name="Кино / Movie (1999) BDRip 1080p", seeders=100)])
+    rows = [_raw("Другое / Other (2001) BDRip 1080p", "d", 900)]
+    guest = cluster(to_releases(rows))[0]
+    menu = frozenset({plan.picture.key, guest.key})
+    fresh, said = _topup(plan, rows, menu)
+
+    assert fresh is plan, "чужой пул долив не пополняет"
+    assert said == "", "про картину из меню говорить «её не было» - соврать"
+
+
+def test_чужая_картина_не_глушит_долив_в_свою(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Опоздавший привёз и раздачу ВЫБРАННОЙ картины, и картину вне списка: пул растёт,
+    и печатаются обе строки - про долив и про ту, что в отбор не пойдёт."""
+    monkeypatch.setenv("TORRCAST_LOG", "")
+    plan = _plan([rel(name="Кино / Movie (1999) BDRip 1080p", seeders=100)])
+    fresh, said = _topup(
+        plan,
+        [
+            _raw("Кино / Movie (1999) BDRip 2160p", "b", 900),
+            _raw("Другое / Other (2001) BDRip 1080p", "d", 900),
+        ],
+    )
+
+    assert len(fresh.picture.releases) == 2, "своя раздача долилась"
+    assert "доехал после списка: раздач 2 вместо 1" in said
+    assert "привёз «Другое» (2001)" in said
 
 
 def test_пустой_долив_оставляет_план_прежним(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -2627,6 +2670,78 @@ def test_releases_table_uses_true_duration_and_matches_explicit_release(
     assert fresh_plan.ranked[args.release - 1].raw_name == "heavy", (
         "отбор не должен расходиться с таблицей"
     )
+
+
+class _Facts3h:
+    """Справка, которая на любую картину отвечает хронометражем «3 ч»."""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        pass
+
+    def start(self) -> None:
+        pass
+
+    def finish(self) -> None:
+        pass
+
+    def get(self, *args: Any, **kwargs: Any) -> Any:
+        from torrcast.facts import Fact
+
+        return Fact(runtime="3 ч")
+
+
+def _releases_output(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> str:
+    """Прогон ``cast releases`` над одной раздачей 18 ГБ; отдаёт напечатанное.
+
+    Поиск и справка подменены, а вот определение профиля и сборка таблицы - настоящие:
+    тест про то, по ЧЬЕМУ профилю судит таблица. 18 ГБ на трёх часах - это ~14 Мбит/с:
+    осторожный профиль (порог перекода 10) подписывает такую «перекодируем», а приставка
+    Android TV (порог 28) играет её копией - ровно случай TC-241.
+    """
+    from torrcast.state import Config
+
+    heavy = rel(name="Кино / Movie (1999) BDRip 1080p", size_gb=18, seeders=100)
+    plan = cli._Plan(
+        picture=Picture(title="Кино", year=1999, releases=[heavy]),
+        ranked=[heavy],
+        runtime=RUNTIME,
+        warn_mbit=16.0,
+    )
+    monkeypatch.setattr(cli, "_search", lambda *args: [plan])
+    monkeypatch.setattr(cli, "load_config", Config)
+    monkeypatch.setattr(cli, "Facts", _Facts3h)
+    cli._cmd_releases(cli.Args(query=["releases", "кино"]))
+    return capsys.readouterr().out
+
+
+def test_releases_table_judges_by_the_detected_receiver_profile(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """🔴 TC-241. Таблица обязана судить по тому приёмнику, на который поедет показ:
+    обнаруженной приставке Android TV раздача на 18 ГБ едет копией, и пометка
+    «перекодируем» рядом с ней - ложь, которой в таблице быть не должно."""
+    from torrcast.profile import ANDROID_TV, Choice
+
+    monkeypatch.setattr(
+        cli, "detect_profile", lambda config: Choice(ANDROID_TV, "по паспорту: Xiaomi TV Stick")
+    )
+    printed = _releases_output(monkeypatch, capsys)
+
+    assert "профиль приёмника: приставка Android TV" in printed, (
+        "человек видит, по какому профилю судит таблица"
+    )
+    assert "перекодируем" not in printed, "приставка играет 18 ГБ копией - пометка врала"
+
+
+def test_releases_table_says_by_which_profile_it_judges_without_a_receiver(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Приёмника нет вовсе - таблица не молчит, по какому профилю судит: она говорит,
+    что судит по осторожному, и тогда та же раздача честно подписана «перекодируем»."""
+    printed = _releases_output(monkeypatch, capsys)
+
+    assert "профиль приёмника: осторожный" in printed
+    assert "перекодируем" in printed, "осторожный профиль такие куски перекодирует"
 
 
 # --- 🔴 TC-194: экран и след говорят про одни и те же решения ------------------
