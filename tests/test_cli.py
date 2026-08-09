@@ -614,6 +614,84 @@ def test_warmup_leaves_in_torrserver_only_what_we_play(monkeypatch: pytest.Monke
     assert prep.torrent_hash not in torrserver.dropped
 
 
+def test_warmup_spares_a_release_a_parallel_show_holds(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Рядом идёт показ, а параллельный ``cast`` греет ту же выдачу: ``add`` идемпотентен,
+    и раздача живого показа попадает в прогрев. Уборка прогрева обязана её пощадить -
+    снос выдернул бы источник из-под экрана. Хозяина видно по записи состояния.
+    """
+    from torrcast.state import Entry, State
+
+    monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
+    ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
+    torrserver = _FakeTorrServer()
+    bench = cli._Bench(cast(Any, torrserver))
+    chosen = cli._Prep(number=1, release=ranked[0], torrent_hash="hash-play")
+    held = cli._Prep(number=2, release=ranked[1], torrent_hash="hash-parallel")
+    cold = cli._Prep(number=3, release=ranked[2], torrent_hash="hash-cold")
+    bench.preps = {("movie:кино:1999", p.number): p for p in (chosen, held, cold)}
+
+    state = State()
+    state.put("movie:кино:2022", Entry(title="Кино", magnet="m", torrent="hash-parallel"))
+    state.save()
+
+    bench.keep_only(chosen)
+
+    assert "hash-parallel" not in torrserver.dropped, "раздачу живого показа не сносим"
+    assert torrserver.dropped == ["hash-cold"], "холодный прогрев убираем как прежде"
+
+
+def test_voice_cleanup_spares_a_release_a_parallel_show_holds(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """``cast --voice`` на играющий фильм поднимает ту же раздачу (``add`` идемпотентен).
+    Не пригодилась - убираем свою, но не ту, что держит живой показ.
+    """
+    from torrcast.state import Entry, State
+
+    monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
+    dropped: list[str] = []
+    monkeypatch.setattr(cli, "_release_torrents", lambda config, hashes: dropped.extend(hashes))
+    config = load_config()
+
+    state = State()
+    state.put("movie:кино:2022", Entry(title="Кино", magnet="m", torrent="hash-live"))
+    state.save()
+
+    cli._Voiced(torrent_hash="hash-live").drop(config)
+    assert dropped == [], "раздачу живого показа cast --voice не трогает"
+
+    cli._Voiced(torrent_hash="hash-cold").drop(config)
+    assert dropped == ["hash-cold"], "свою неиспользованную раздачу убираем как прежде"
+
+
+def test_resume_discard_spares_a_release_a_parallel_show_holds(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Ctrl-C на «Продолжить?», пока рядом идёт показ той же раздачи: свою поднятую
+    раздачу убрали бы, но она же держит живой показ - не трогаем.
+    """
+    from torrcast.state import Entry, State
+
+    monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
+    torrserver = _FakeTorrServer()
+
+    state = State()
+    state.put("movie:кино:2022", Entry(title="Кино", magnet="m", torrent="hash-live"))
+    state.save()
+
+    warm = cli._Resume(cast(Any, torrserver), Entry(title="Кино", magnet="m"))
+    warm.torrent_hash = "hash-live"
+    warm.discard()
+    assert torrserver.dropped == [], "раздачу живого показа resume не сносит"
+
+    cold = cli._Resume(cast(Any, torrserver), Entry(title="Кино2", magnet="m2"))
+    cold.torrent_hash = "hash-cold"
+    cold.discard()
+    assert torrserver.dropped == ["hash-cold"], "свою поднятую раздачу убираем как прежде"
+
+
 def test_a_seeded_avi_no_longer_wins_the_top() -> None:
     """Живая выдача по «Моане 2»: 221 сид против 140 — и всё равно не дефолт.
 

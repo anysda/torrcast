@@ -649,6 +649,26 @@ def _release_orphans(config: Config) -> None:
     state.save()
 
 
+def _held_by_show(torrent_hash: str) -> bool:
+    """Правда ли, что раздачу держит показ: её хэш записан в состоянии хозяином.
+
+    Параллельный ``cast`` греет раздачи той же выдачи, что стоит на экране (досмотр
+    сериала из той же раздачи, ``cast voices`` на играющий фильм), а ``add`` в TorrServer
+    идемпотентен - и раздача живого показа оказывается среди прогретых. Снести её на
+    уборке прогрева - выдернуть источник из-под экрана, поэтому каждый такой снос
+    спрашивает состояние.
+
+    Счётчика владения тут не нужно: двух держателей не бывает по устройству
+    (:meth:`torrcast.state.State.held`). А systemd нарочно не спрашивается: так нет ни окна
+    гонки на старте юнита (``is-active`` отвечает «active» не в первую же секунду), ни
+    цены на счастливом пути - одно чтение файла на снос, а сносы не горячий путь.
+
+    Цена консервативности: хэш, забытый убитым юнитом (SIGKILL), прогрев сносить не
+    станет - за него уберёт :func:`_release_orphans` при следующем запуске показа.
+    """
+    return bool(torrent_hash) and torrent_hash in State.load().held()
+
+
 def _cmd_stop() -> int:
     """``cast stop`` — снять каст и зафиксировать позицию. Позицию пишет сам
     юнит: ``systemctl stop`` шлёт ему SIGTERM и ждёт, сторож на выходе дописывает state.
@@ -2209,10 +2229,17 @@ class _Voiced:
     handed: bool = False
 
     def drop(self, config: Config) -> None:
-        """Убрать, если так и не пригодилась. Повторный вызов и пустой хэш безвредны."""
+        """Убрать, если так и не пригодилась. Повторный вызов и пустой хэш безвредны.
+
+        Кроме одного случая: ту же раздачу держит живой показ - ``cast --voice`` на
+        играющий фильм поднимает её же (``add`` идемпотентен), и снос выдернул бы её
+        из-под экрана (:func:`_held_by_show`). Уберёт её хозяин показа сам.
+        """
         if self.handed or not self.torrent_hash:
             return
         torrent_hash, self.torrent_hash = self.torrent_hash, ""
+        if _held_by_show(torrent_hash):
+            return
         with contextlib.suppress(TorrcastError):
             _release_torrents(config, [torrent_hash])
 
@@ -2765,9 +2792,14 @@ class _Bench:
         return codec
 
     def _forget(self, prep: _Prep) -> None:
-        """Убрать раздачу из TorrServer: она либо не подошла, либо больше не нужна."""
+        """Убрать раздачу из TorrServer: она либо не подошла, либо больше не нужна.
+
+        Кроме одного случая: её держит живой показ - параллельный ``cast`` греет ту же
+        выдачу, и снос чужой раздачи выдернул бы источник из-под экрана
+        (:func:`_held_by_show`).
+        """
         prep.dropped = True
-        if prep.torrent_hash:
+        if prep.torrent_hash and not _held_by_show(prep.torrent_hash):
             self.torrserver.drop(prep.torrent_hash)
 
     def drop_all(self) -> None:
@@ -2878,7 +2910,8 @@ class _Resume:
         with contextlib.suppress(TorrcastError):
             self.torrent_hash = torrent_hash = self.torrserver.add(self.entry.magnet)
             if self.discarded:  # отказались, пока раздача поднималась - убираем её сами
-                self.torrserver.drop(torrent_hash)
+                if not _held_by_show(torrent_hash):  # ...но не из-под живого показа
+                    self.torrserver.drop(torrent_hash)
                 return
             files = self.torrserver.wait_files(torrent_hash)
             self.source = self.torrserver.stream_url(torrent_hash, self.entry.file_idx)
@@ -2912,10 +2945,14 @@ class _Resume:
 
         ⚠️ Ответ «сначала» сюда не относится: раздача та же самая, меняется только место,
         с которого играем, — убрать её значило бы сломать показ.
+
+        И ту же раздачу, что держит параллельный живой показ (та же выдача, тот же
+        infohash), тоже не трогаем: снос выдернул бы источник из-под экрана
+        (:func:`_held_by_show`). Гонку с ещё не завершённым ``add`` ловит :meth:`_work`.
         """
         self.cancelled = True
         self.discarded = True
-        if self.torrent_hash:
+        if self.torrent_hash and not _held_by_show(self.torrent_hash):
             self.torrserver.drop(self.torrent_hash)
 
 

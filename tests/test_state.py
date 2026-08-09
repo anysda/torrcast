@@ -51,6 +51,21 @@ def test_drop_forgets_entry() -> None:
     assert state.get("movie:тачки:2006") is None
 
 
+def test_held_reports_only_hashes_a_show_still_holds() -> None:
+    """`held()` - хэши раздач с живым хозяином: непустое поле :attr:`Entry.torrent`.
+
+    По этому множеству уборка прогрева параллельного показа узнаёт, что раздача чья-то,
+    и не сносит её из-под экрана. Запись без хэша (позиция без живого показа) в множество
+    не попадает: сносить там нечего.
+    """
+    state = State()
+    state.put("movie:матрица:1999", Entry(title="Матрица", magnet="m1", torrent="aaa"))
+    state.put("tv:киберпанк:2022", Entry(title="Киберпанк", magnet="m2", torrent="bbb"))
+    state.put("movie:тачки:2006", Entry(title="Тачки", magnet="m3"))  # хэша нет - не держит
+
+    assert state.held() == {"aaa", "bbb"}
+
+
 def test_missing_state_file_is_empty_not_error() -> None:
     """Отсутствующий файл состояния — не ошибка."""
     assert not State.load().entries
