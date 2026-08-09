@@ -2251,7 +2251,7 @@ def _voice_reinforce(
     if _no_budget(client, f"добор по «{exact}»", progress) is None:
         return raw, cluster(to_releases(raw)), found
     progress.phase(f"поиск «{exact}»")
-    extra = _ask(client, exact)
+    extra = _ask(client, exact, progress)
     progress.phase("")
     want_orig = slugify(lead.original or "")
     keep = [
