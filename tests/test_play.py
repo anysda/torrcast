@@ -14,6 +14,7 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import json
+import logging
 import os
 import signal
 import subprocess
@@ -1335,6 +1336,122 @@ def test_the_peak_follows_the_viewer_back_after_a_rewind(monkeypatch: pytest.Mon
     assert jumps == [619.0 + ChromecastReceiver.STALL_SKIP], (
         "нудж целится на кусок вперёд от текущего места, а не назад в покинутое"
     )
+
+
+class _Gone:
+    """Ушедший приёмник: ``seek`` принимает, указатель двигает - а кадра не даёт ни разу.
+
+    Ровно так выглядит замер: приёмник послушно отвечает на каждый нудж новой позицией и
+    остаётся в ``BUFFERING``, поэтому «указатель поехал» доказательством вылеченного
+    подвиса быть не может.
+    """
+
+    def __init__(self, pos: float = 84.0) -> None:
+        self.status = _Reported(pos, "BUFFERING")
+        self.media_controller = self
+        self.jumps: list[float] = []
+
+    def seek(self, pos: float) -> None:
+        self.jumps.append(pos)
+        self.status = _Reported(pos, "BUFFERING")
+
+    def freeze(self) -> None:
+        self.status = _Reported(self.status.current_time, "BUFFERING")
+
+    def show(self, pos: float) -> None:
+        self.status = _Reported(pos, "PLAYING")
+
+
+def _watched(monkeypatch: pytest.MonkeyPatch, gone: _Gone) -> Any:
+    from torrcast.cast import ChromecastReceiver
+
+    monkeypatch.setattr(ChromecastReceiver, "_device", lambda self: gone)
+    monkeypatch.setattr(ChromecastReceiver, "_status", lambda self: gone.status)
+    return ChromecastReceiver("10.0.0.50")
+
+
+def test_a_blind_ladder_of_nudges_gives_up_instead_of_walking_the_movie(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Лестница нуджей без единого показанного кадра обязана кончиться - и передать
+    показ воскрешению.
+
+    Замер: за 780 с показа сторож сработал 24 раза, и 12 из них были одной лестницей
+    подряд, без единого ``PLAYING`` между прыжками. Это не залипший кусок, а ушедший
+    приёмник: прыжки его не лечат, а только шагают по фильму - те 12 нуджей увели
+    указатель на 96 с впустую, и каждый стоил 8 с неподвижной картинки и до 8 с плёнки.
+    """
+    from torrcast.cast import ChromecastReceiver
+
+    gone = _Gone(84.0)
+    receiver = _watched(monkeypatch, gone)
+
+    result = receiver.position(front=1e6)
+    for _ in range(30):  # минута показа при опросе раз в 2 с
+        receiver._stall_since -= ChromecastReceiver.STALL_SECONDS
+        result = receiver.position(front=1e6)
+        if not result.playing:
+            break
+
+    limit = ChromecastReceiver.BLIND_NUDGES
+    assert len(gone.jumps) == limit, "лестница не остановилась - сторож шагает по фильму"
+    assert gone.jumps == [84.0 + 8.0 * step for step in range(1, limit + 1)]
+    assert not result.playing, "показ живым больше не считается - эстафета воскрешению"
+    assert result.state == "BUFFERING", "состояние приёмника отдаём как есть, без вранья"
+    assert gone.jumps[-1] - 84.0 == 8.0 * limit, "по фильму прошагано ровно на лестницу"
+
+
+def test_a_single_nudge_still_pulls_the_receiver_out(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Штатный случай - подвис, вылеченный ОДНИМ нуджем, - счётчик лестницы не трогает.
+
+    Пять разных подвисов за показ, каждый вылечен одним прыжком: показ всё это время
+    живой, сторож всё это время на месте. Обнуляет счёт именно показанный кадр.
+    """
+    from torrcast.cast import ChromecastReceiver
+
+    gone = _Gone(84.0)
+    receiver = _watched(monkeypatch, gone)
+
+    for _ in range(5):
+        gone.freeze()
+        receiver.position(front=1e6)  # первый неподвижный тик - ещё не зависание
+        receiver._stall_since -= ChromecastReceiver.STALL_SECONDS
+        assert receiver.position(front=1e6).playing, "одиночный нудж показ не хоронит"
+        gone.show(gone.status.current_time + 2.0)  # прыжок помог: кадр на экране
+        assert receiver.position(front=1e6).state == "PLAYING"
+
+    assert len(gone.jumps) == 5, "сторож остался на месте - лечить подвисы больше некому"
+    assert receiver._blind == 0 and not receiver._gone
+
+
+def test_only_the_cosmetic_pychromecast_line_is_hushed(caplog: pytest.LogCaptureFixture) -> None:
+    """Гасим РОВНО одну строку чужой библиотеки, а настоящие её жалобы доходят.
+
+    Строка про «не смог определить тип устройства» печатается на каждом подключении и
+    ничего не значит: pychromecast спрашивает страницу сведений по https на 8443,
+    которого у телевизора нет, ловит отказ тут же и подставляет тип по умолчанию.
+    ``port=8009`` в её тексте - распечатка списка сервисов, а не отказавший порт; на этом
+    уже строилась ложная гипотеза «телевизор выпадает по 8009».
+    """
+    from torrcast import cast
+
+    cast.hush_cosmetic_noise()
+    cast.hush_cosmetic_noise()  # второй вызов второго фильтра не вешает
+    logger = logging.getLogger("pychromecast.dial")
+    assert len(logger.filters) == 1
+
+    with caplog.at_level(logging.WARNING, logger="pychromecast.dial"):
+        logger.warning(
+            "Failed to determine cast type for host %s (%s) (services:%s)",
+            "10.0.0.50",
+            "[Errno 111] Connection refused",
+            "[HostServiceInfo(host='10.0.0.50', port=8009)]",
+        )
+        logger.error("Failed to connect to service %s, retrying in %.1fs", "тв", 5.0)
+
+    said = [record.getMessage() for record in caplog.records]
+    assert len(said) == 1, "приглушать надо одну строку, а не логгер целиком"
+    assert said[0].startswith("Failed to connect"), "настоящая ошибка обязана доходить"
 
 
 class _FakeStatus:

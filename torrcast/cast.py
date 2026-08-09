@@ -9,6 +9,7 @@ Samsung-специфики здесь нет и быть не должно: ни
 from __future__ import annotations
 
 import contextlib
+import logging
 import re
 import subprocess
 import tempfile
@@ -29,6 +30,7 @@ __all__ = [
     "Position",
     "Receiver",
     "Report",
+    "hush_cosmetic_noise",
     "make_receiver",
     "trust_anchor",
 ]
@@ -47,6 +49,45 @@ _LOST_RE = re.compile(r"Failed to open segment|Error opening|Cannot reload|skipp
 _CORS_HEADER = "Access-Control-Allow-Origin"
 #: На сколько секунд вперёд декодера mock позволяет себе спрашивать сегменты.
 _AUDIT_AHEAD = 8.0
+
+#: Логгер pychromecast, на котором живёт единственная приглушаемая строка (:class:`_Cosmetic`).
+_DIAL_LOGGER = "pychromecast.dial"
+
+
+class _Cosmetic(logging.Filter):
+    """Гасит РОВНО одну строку pychromecast - косметическую, и ничего кроме неё.
+
+    Строка: ``Failed to determine cast type for host ... (Connection refused) (services:...)``,
+    и печатается она на КАЖДОМ подключении к приёмнику. Что за ней стоит: разбирая
+    устройство, pychromecast спрашивает у него страницу сведений ``/setup/eureka_info``
+    по https на порту 8443; у телевизора этого порта нет вовсе (8008 и 8009 открыты, 8443
+    отвечает отказом), исключение ловится тут же на месте и подменяется типом устройства
+    по умолчанию - на показ это не влияет ничем. ``port=8009`` внутри текста сбивает с
+    толку отдельно: это распечатка списка сервисов устройства, а не отказавший порт.
+    Строка уже стоила ложной гипотезы «телевизор выпадает по 8009», поэтому её и убираем.
+
+    ⚠️ Глушится именно ОДНО сообщение, а не логгер: настоящие жалобы pychromecast должны
+    доходить до человека. Чужая библиотека при этом не трогается - фильтр вешается
+    снаружи, на её логгер (:func:`hush_cosmetic_noise`).
+    """
+
+    #: Начало шаблона сообщения; шаблон, а не готовый текст - фильтр стоит на логгере и
+    #: видит запись до подстановки адреса и причины.
+    NOISE = "Failed to determine cast type"
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return not str(record.msg).startswith(self.NOISE)
+
+
+def hush_cosmetic_noise() -> None:
+    """Повесить :class:`_Cosmetic` на логгер pychromecast; звать можно сколько угодно.
+
+    Зовётся отовсюду, где поднимается pychromecast: и перед показом
+    (:meth:`ChromecastReceiver._device`), и при поиске приёмников (:mod:`torrcast.scan`).
+    """
+    logger = logging.getLogger(_DIAL_LOGGER)
+    if not any(isinstance(one, _Cosmetic) for one in logger.filters):
+        logger.addFilter(_Cosmetic())
 
 
 @dataclass(frozen=True, slots=True)
@@ -181,6 +222,9 @@ class ChromecastReceiver:
     READY_AHEAD = CAUTIOUS.ready_ahead
     #: Шаг прыжка вперёд на каждом нудже: мимо куска, на котором приёмник споткнулся.
     STALL_SKIP = CAUTIOUS.stall_skip
+    #: Столько нуджей подряд без единого показанного кадра - и сторож умолкает
+    #: (:meth:`_nudge`, :attr:`torrcast.profile.Profile.blind_nudges`).
+    BLIND_NUDGES = CAUTIOUS.blind_nudges
     #: Насколько позиция должна уехать назад, чтобы считать это перемоткой человека, а не
     #: дрожанием счётчика. Больше сегмента (:data:`torrcast.stream.Config.hls_segment` - 10 с
     #: по умолчанию) брать нельзя: перемотка на один кусок назад - обычное дело, и «максимум»
@@ -222,6 +266,13 @@ class ChromecastReceiver:
         #: Куда прыгнул наш собственный сторож: его прыжок перемоткой человека не считаем.
         #: Гасится первым же совпадением - на второй прыжок нужен и второй нудж.
         self._nudged_to = -1.0
+        #: Сколько нуджей подряд не дали НИ ОДНОГО показанного кадра. Обнуляется только
+        #: кадром (``PLAYING``), а не уехавшим указателем: у ушедшего приёмника указатель
+        #: как раз послушно едет за каждым ``seek`` (:meth:`_nudge`).
+        self._blind = 0
+        #: Сторож сдался: лестница нуджей не показала ни кадра, и показ считается
+        #: погасшим - дальше его поднимает воскрешение (:class:`torrcast.cli._Revival`).
+        self._gone = False
 
     def play(self, url: str, title: str = "", at: float = 0.0) -> None:
         """Начать показ с секунды ``at`` и **дождаться картинки**, а не просто отправить LOAD.
@@ -239,6 +290,7 @@ class ChromecastReceiver:
         self._peak, self._reloads, self._stall_hits = at, 0, 0
         self._stall_at, self._stall_since = -1.0, 0.0
         self._seen, self._seek_since, self._nudged_to = -1.0, 0.0, -1.0
+        self._blind, self._gone = 0, False
         budget = self.profile.revive_timeout if self._started else self.START_TIMEOUT
         self._started = True
         self._at = at
@@ -318,6 +370,9 @@ class ChromecastReceiver:
             # 1:12:35, приёмник ушёл в ``IDLE/ERROR`` с нулём, ноль сошёл за перемотку - и
             # повтор LOAD вернул человека не туда, где он смотрел, а к началу фильма.
             self._peak, self._stall_hits = pos, 0
+        if state == "PLAYING":
+            # Кадр на экране - лестница нуджей начинается с нуля, чем бы она ни кончилась.
+            self._blind, self._gone = 0, False
         self._watch_seek(pos, state)
         if state == "BUFFERING":
             self._nudge(pos, front)
@@ -325,6 +380,11 @@ class ChromecastReceiver:
             self._stall_at, self._stall_since = -1.0, 0.0
         if state == "IDLE" and st.idle_reason == "ERROR" and self._reload():
             return Position(self._peak, st.duration or 0.0, True, "BUFFERING")
+        if self._gone:
+            # 🔴 Сторож своё отработал и передаёт эстафету воскрешению: живым такой показ
+            # называть больше нельзя, хотя приёмник и рапортует BUFFERING. Состояние
+            # отдаём как есть - врать о нём незачем, а решает зовущий по ``playing``.
+            return Position(pos, st.duration or 0.0, False, state)
         return Position(pos, st.duration or 0.0, st.player_is_playing, state)
 
     def _reload(self) -> bool:
@@ -374,6 +434,7 @@ class ChromecastReceiver:
         self._reloads, self._stall_hits = 0, 0
         self._stall_at, self._stall_since = -1.0, 0.0
         self._seen, self._seek_since, self._nudged_to = -1.0, 0.0, -1.0
+        self._blind, self._gone = 0, False
         try:
             self._restart_app()
             self._load(at)
@@ -421,6 +482,16 @@ class ChromecastReceiver:
         фильм ``seek`` стал точным (замерено: позиция встаёт ровно в запрошенную), но
         правило остаётся: нудж — это лечение застрявшего куска, и лечится он тем, что
         кусок пропускают, а не тем, что его переигрывают.
+
+        ⚠️ У лестницы есть конец (:attr:`torrcast.profile.Profile.blind_nudges`). Нудж
+        лечит **застрявший кусок**, и доказательство того, что он вылечил, ровно одно -
+        показанный кадр. Уехавший указатель доказательством не является: ушедший приёмник
+        честно принимает ``seek`` и двигает ``current_time``, оставаясь в ``BUFFERING``, -
+        замерено, 12 нуджей подряд без единого ``PLAYING``, 96 с фильма прошагано впустую.
+        Поэтому после :attr:`torrcast.profile.Profile.blind_nudges` слепых прыжков сторож
+        умолкает и объявляет показ погасшим (:attr:`_gone`): дальше это работа
+        воскрешения (:class:`torrcast.cli._Revival`), которое поднимает сессию с последнего
+        показанного кадра, а не гонит указатель дальше по фильму.
         """
         now = time.monotonic()
         if pos != self._stall_at:
@@ -430,6 +501,19 @@ class ChromecastReceiver:
             return
         if front - pos < self.profile.ready_ahead:
             return  # приёмник ждёт упаковку - это наша забота, а не его зависание
+        if self._blind >= self.profile.blind_nudges:
+            # Прыгать больше некуда: за всю лестницу приёмник не показал ни кадра. Каждый
+            # следующий прыжок стоил бы ещё 8 с неподвижной картинки и до 8 с плёнки.
+            self._stall_since = now
+            if not self._gone:
+                self._gone = True
+                print(
+                    f"нуджи не дали ни кадра ({self._blind} подряд) - прыгать перестаю, "
+                    "показ поднимется с последнего показанного кадра",
+                    flush=True,
+                )
+            return
+        self._blind += 1
         stuck = now - self._stall_since
         self._stall_hits += 1
         self._stall_since = now
@@ -586,6 +670,7 @@ class ChromecastReceiver:
 
             import pychromecast
 
+            hush_cosmetic_noise()  # косметика 8443 на каждом подключении - не наша беда
             try:
                 device = pychromecast.get_chromecast_from_host(
                     (self.address, 8009, uuid.UUID(int=0), None, None), timeout=10

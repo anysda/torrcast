@@ -234,8 +234,13 @@ def named(address: str, timeout: float = NAME_TIMEOUT) -> Device:
     """
     try:
         from pychromecast.dial import get_device_info
+
+        from torrcast.cast import hush_cosmetic_noise
     except ImportError:  # pragma: no cover - pychromecast стоит зависимостью
         return Device(address=address, how="скан")
+    # Опрос устройства идёт и по 8443, которого у телевизора нет: жалоба на это -
+    # косметика, а поиск и без неё честно скажет, что нашёл (:class:`torrcast.cast._Cosmetic`).
+    hush_cosmetic_noise()
     status = None
     with suppress(Exception):
         status = get_device_info(address, timeout=timeout)
@@ -262,8 +267,11 @@ def by_mdns(timeout: float = MDNS_TIMEOUT) -> list[Device]:
     try:
         import zeroconf
         from pychromecast.discovery import CastBrowser, SimpleCastListener
+
+        from torrcast.cast import hush_cosmetic_noise
     except ImportError:  # pragma: no cover - pychromecast стоит зависимостью
         return []
+    hush_cosmetic_noise()  # см. :func:`named`: жалоба на 8443 ничего не значит
     try:
         zconf = zeroconf.Zeroconf(ip_version=zeroconf.IPVersion.V4Only)
     except Exception:
