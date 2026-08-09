@@ -462,6 +462,10 @@ class Args:
     #: приёмники в сети и спросить, какой из них телевизор.
     tv: str | None = None
     release: int | None = None
+    #: ``--pick N`` - картина N из меню, вопрос «Что смотрим?» не задаётся. Номер называет
+    #: человек по списку на экране: молчаливой подмены тут не бывает, а без терминала это
+    #: единственный способ назвать картину неинтерактивному запуску.
+    pick: int | None = None
     file: int | None = None
     #: ``--voice N`` - играть дорожку N; ``--voice`` без номера (:data:`VOICE_MENU`) -
     #: показать меню озвучек и спросить. На счастливом пути обоих нет: озвучка
@@ -516,7 +520,16 @@ def parse_args(argv: Sequence[str] | None = None) -> Args:
         metavar="IP",
         help="настройка ТВ: без адреса - найти приёмники в сети и выбрать из списка",
     )
-    parser.add_argument("--release", type=int, metavar="N", help="отладка: взять релиз N")
+    # Номер релиза имеет смысл только вместе с запросом: другой запрос - другой список.
+    parser.add_argument(
+        "--release",
+        type=int,
+        metavar="N",
+        help="отладка: взять релиз N; номера - из cast releases с тем же запросом",
+    )
+    parser.add_argument(
+        "--pick", type=int, metavar="N", help="картина N из меню, без вопроса"
+    )
     parser.add_argument("--file", type=int, metavar="N", help="отладка: взять файл N раздачи")
     parser.add_argument(
         "--voice",
@@ -1262,7 +1275,7 @@ def _cmd_play(args: Args) -> int:
         mark("прогрев пущен")  # TC-108: замер
         try:
             try:
-                plan = _pick_plan(plans, facts)
+                plan = _pick_plan(plans, facts, pick=args.pick)
                 mark("картина выбрана")  # TC-108: замер
                 # Опоздавший индексер: круг ушёл по кворуму, и его выдача доехала, пока
                 # человек читал меню. Доливаем ЗДЕСЬ - список уже прочитан и отвечен,
@@ -1348,6 +1361,9 @@ def _cmd_play(args: Args) -> int:
     if _is_default(plans, plan) and (note := year_note(plan, passport.get(), args.title_query)):
         print(note)
     if args.dry:
+        # Показа не будет: «сыгранная» раздача - такой же мусор, как прогретое лишнее.
+        # Убирается по СВОИМ явным хэшам, как на любом выходе без показа.
+        bench.drop_all()
         print(f"(--dry) {about} - каста нет")
         return EXIT_OK
     entry = Entry(
@@ -3597,12 +3613,14 @@ class _Bench:
         """Показа не будет: всё прогретое убирается из TorrServer.
 
         Выходов мимо :meth:`keep_only` хватает — Ctrl-C на вопросе «Что смотрим?», запуск
-        без терминала, «годного релиза нет». Раздачи при этом уже добавлены и тянут кэш в
-        RAM до перезапуска TorrServer: ``save_to_db`` у них выключен, но живут они не в
-        нашем процессе, и умирают не вместе с ним.
+        без терминала, «годного релиза нет», ``--dry`` (ему сносится и ВЫБРАННАЯ раздача:
+        :meth:`keep_only` к тому месту уже прошёл, и живой остаётся ровно она). Раздачи
+        при этом уже добавлены и тянут кэш в RAM до перезапуска TorrServer: ``save_to_db``
+        у них выключен, но живут они не в нашем процессе, и умирают не вместе с ним.
         """
         for prep in self.preps.values():
-            self._forget(prep)
+            if not prep.dropped:  # убранное потолком или keep_only второй раз не трогаем
+                self._forget(prep)
 
     def keep_only(self, chosen: _Prep) -> None:
         """Оставить в TorrServer одну раздачу — ту, которую показываем.
@@ -5510,7 +5528,7 @@ def warm_order(plans: list[_Plan]) -> list[_Plan]:
     return [plans[default - 1]] + [p for n, p in enumerate(plans, start=1) if n != default]
 
 
-def _pick_plan(plans: list[_Plan], facts: Facts | None = None) -> _Plan:
+def _pick_plan(plans: list[_Plan], facts: Facts | None = None, pick: int | None = None) -> _Plan:
     """Вопрос «какой фильм франшизы?»; один вариант — без вопроса.
 
     Дефолт — первая живая картина франшизы (:func:`first_alive`): смотреть начинают
@@ -5523,6 +5541,11 @@ def _pick_plan(plans: list[_Plan], facts: Facts | None = None) -> _Plan:
     фраза о том, что это за кино. Её тут не ждут: что успело приехать фоном, то и
     печатается, остальное просто не печатается.
 
+    ``pick`` - номер пункта, названный флагом ``--pick N``: вопрос тогда не задаётся
+    вовсе, и терминал не нужен. Это не молчаливая подмена, а названный человеком выбор -
+    тот же номер, что стоит у пункта меню на экране. Номер вне списка - честная ошибка,
+    а не тихий первый пункт.
+
     Без терминала (ssh без pty, cron, чужой скрипт) спрашивать некого, и общее правило —
     не висеть, а брать дефолт. Здесь мы по-прежнему отказываемся — и «дефолт стал умнее»
     ничего не меняет. У озвучки дефолт считается правилами, у «Продолжить?» это
@@ -5532,16 +5555,19 @@ def _pick_plan(plans: list[_Plan], facts: Facts | None = None) -> _Plan:
     без терминала видеть его некому. Поэтому отказываемся вслух и подсказываем, как
     назвать картину точно.
     """
-    if len(plans) == 1:
-        print(menu_lines(plans, facts))
-        return plans[0]
+    if pick is not None and not 1 <= pick <= len(plans):
+        raise NotFoundError(f"подходит картин: {len(plans)}, номера {pick} нет")
     print(menu_lines(plans, facts))
+    if pick is not None:  # номер назвал сам человек - ни вопроса, ни подмены
+        return plans[pick - 1]
+    if len(plans) == 1:
+        return plans[0]
     default = first_alive(plans)
     if not console.stdin_is_tty():
         raise NotFoundError(
             f"подходит картин: {len(plans)}, а терминала нет - вслепую не выбираю; "
             f"назови картину точно (например «{plans[default - 1].picture.title}») "
-            "или запусти cast в терминале"
+            f"или её номер (--pick N), либо запусти cast в терминале"
         )
     print(default_line(plans, default))
     return plans[ask("Что смотрим?", len(plans), default=default) - 1]

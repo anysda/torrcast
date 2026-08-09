@@ -289,6 +289,49 @@ def test_without_a_terminal_an_ambiguous_franchise_is_refused_not_guessed(
     assert kept is not None and kept.pos == 2467.0, "сохранённую позицию не трогаем никогда"
 
 
+def test_a_pick_names_the_film_without_a_question(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Картину можно назвать флагом - тогда вопроса «Что смотрим?» нет вовсе.
+
+    Номер - ровно тот, что стоит у пункта меню на экране, и называет его человек:
+    молчаливой подмены тут нет, есть названный выбор, как у ``--release`` и ``--voice``.
+    """
+    asked = _answers(monkeypatch)
+
+    assert cli.main(["моана", "--pick", "2"]) == 0
+
+    assert asked == [], "номер назван флагом - спрашивать нечего"
+    key, _entry = next(iter(State.load()))
+    assert key == "movie:моана-2:2024"
+
+
+def test_a_pick_works_where_a_menu_cannot_be_asked(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Без терминала меню упирается в честный отказ - а с флагом картина названа и там.
+
+    Это и есть назначение флага: любой неинтерактивный сценарий (ssh без pty, скрипт)
+    называет номер заранее и не упирается в вопрос, на который некому ответить.
+    """
+    from torrcast import console
+
+    monkeypatch.setattr(console, "stdin_is_tty", lambda: False)
+    _answers(monkeypatch)
+
+    assert cli.main(["моана", "--pick", "1"]) == 0
+
+    key, _entry = next(iter(State.load()))
+    assert key == "movie:moana:2016"
+
+
+def test_a_pick_outside_the_menu_is_an_honest_error(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Номер, которого нет в меню, - ошибка вслух, а не молчаливый первый пункт."""
+    monkeypatch.setattr(cli, "start_play_unit", lambda key: pytest.fail("не кастим"))
+    _answers(monkeypatch)
+
+    assert cli.main(["моана", "--pick", "7"]) == 1
+    assert "номера 7 нет" in capsys.readouterr().err
+
+
 def test_new_forgets_the_old_record_only_when_the_show_really_starts(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -652,6 +695,41 @@ def test_a_run_that_never_starts_takes_its_torrent_back(monkeypatch: pytest.Monk
     assert cli.main(["моана", "2", "--dry"]) == 0
     assert added == ["magnet:?xt=1"]
     assert dropped == ["hash-magnet:?xt=1"], "убрано ровно поднятое, по явному хэшу"
+
+
+def test_a_dry_run_takes_even_the_chosen_torrent_back(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``--dry`` с поиском убирает ВСЁ поднятое - и раздачу, которую «сыграли бы», тоже.
+
+    Лишнее из прогрева убиралось всегда (:meth:`_Bench.keep_only`), а выбранная раздача
+    оставалась жить в TorrServer до его перезапуска: с ``save_to_db: false`` в списке
+    службы её не видно, и копилась она молча. Сухой прогон заведён ровно затем, чтобы
+    следов не оставалось, - и сносить он обязан ровно своё, по явным хэшам.
+    """
+    added: list[str] = []
+    dropped: list[str] = []
+
+    class _Counting(_FakeTorrServer):
+        def add(self, magnet: str) -> str:
+            torrent_hash = super().add(magnet)
+            added.append(torrent_hash)
+            return torrent_hash
+
+        def drop(self, torrent_hash: str) -> None:
+            dropped.append(torrent_hash)
+
+    monkeypatch.setattr(cli, "TorrServer", _Counting)
+    _answers(monkeypatch, "")
+
+    assert cli.main(["моана", "--dry"]) == 0
+
+    # Чужие прогревы догорают в своих потоках и доносят свои сносы оттуда - дожидаемся,
+    # но не дольше пяти секунд: на сломанном коде выбранная раздача не уходит никогда.
+    deadline = time.monotonic() + 5.0
+    while set(added) - set(dropped) and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert added, "прогрев под меню раздачи поднимал"
+    assert set(dropped) <= set(added), "снесено только своё, чужих хэшей тут нет"
+    assert not set(added) - set(dropped), "убрано всё поднятое, выбранная - тоже"
 
 
 def test_an_instant_answer_is_no_worse_than_before(monkeypatch: pytest.MonkeyPatch) -> None:
