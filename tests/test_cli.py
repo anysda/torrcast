@@ -795,6 +795,15 @@ def test_warmup_leaves_in_torrserver_only_what_we_play(monkeypatch: pytest.Monke
     bench = cli._Bench(cast(Any, torrserver))
 
     prep = _resolve(bench, ranked)
+    # Запасной релиз греется в своём потоке, и resolve на подделках отвечает за
+    # микросекунды - раньше, чем тот успевает дойти до TorrServer. Хэша в прогреве тогда
+    # ещё нет, и keep_only нечего сносить: в полном прогоне планировщик изредка нарезал
+    # потоки именно так, и проверка ниже валилась на ровном месте. Дожидаемся прогрева
+    # явно: событие ready поток ставит всегда (_work, ветка finally), так что ожидание
+    # конечное, а не гадание на таймере.
+    for other in bench.preps.values():
+        if other is not prep:
+            assert other.ready.wait(timeout=10), "запасной прогрев обязан ответить"
     bench.keep_only(prep)
 
     assert len(bench.preps) > 1, "запасной релиз греется заранее"
