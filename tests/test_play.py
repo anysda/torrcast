@@ -752,6 +752,130 @@ def test_the_bookmark_holds_the_last_frame_seen_not_where_the_watchdog_drove(
     assert entry.pos == 159.0, "и «Продолжить?» зовёт туда же, а не на 4:15"
 
 
+class _Blinking:
+    """Приёмник, бросающий показ при ЖИВОМ источнике, - и молчащий после этого.
+
+    Замер живого Q70D, из которого выросли обе проверки ниже. Первое: пока идёт темнота,
+    служба раздач цела, и прогрев растёт всё это время - то есть признак «сеть вернулась»
+    выполнен с нулевой секунды темноты и про приёмник не говорит ничего. Второе: пойманный
+    404 приёмник помнит две-три минуты и LOAD в это время не берёт вовсе (``refuses``),
+    поэтому попытка, выстрелившая сразу, сгорает впустую.
+    """
+
+    def __init__(
+        self,
+        clock: _Ticker,
+        warmer: _Warm,
+        alive: float = 30.0,
+        live: float = 180.0,
+        refuses: int = 0,
+        revives: int = 0,
+    ) -> None:
+        self.clock, self.warmer = clock, warmer
+        self.live, self.refuses, self.revives = live, refuses, revives
+        self.until = clock.now + alive
+        self.at = 1200.0
+        self.died = 0.0
+        self.replays: list[float] = []
+        self.when: list[float] = []
+        self.revived: list[float] = []
+
+    def play(self, url: str, title: str = "", at: float = 0.0) -> None:
+        pass
+
+    def stop(self, quit_app: bool = False) -> None:
+        pass
+
+    def position(self, front: float = 0.0) -> Any:
+        from torrcast.cast import Position
+
+        self.warmer.warmed += 5.0  # служба раздач жива весь показ - куски идут всегда
+        if self.clock.now < self.until:
+            self.at += 2.0
+            return Position(self.at, 7200.0, True, "PLAYING")
+        self.died = self.died or self.clock.now
+        return Position(0.0, 7200.0, False, "IDLE")
+
+    def replay(self, at: float) -> bool:
+        self.replays.append(at)
+        self.when.append(self.clock.now)
+        if self.refuses:
+            self.refuses -= 1
+            return False  # 404 ещё не отпустил: LOAD приёмник не берёт
+        if not self.revives:
+            return False
+        self.revives -= 1
+        self.refuses = 1 if self.revives else 0  # следующий обрыв начнётся так же
+        self.at, self.until, self.died = at, self.clock.now + self.live, 0.0
+        self.revived.append(at)
+        return True
+
+
+def test_a_try_is_not_burnt_on_a_receiver_that_only_just_dropped_the_show(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Показ бросил приёмник, источник цел - первая попытка не стреляет в темноту 0 с.
+
+    Замер на живом Q70D: попытка 1 ушла в приёмник мгновенно, потому что признак «сеть
+    вернулась» увидел РАСТУЩИЙ ПРОГРЕВ, - а прогрев растёт всегда, пока жива служба
+    раздач, то есть ровно в сценарии «умер приёмник, источник цел». Приёмник в эту секунду
+    LOAD не берёт вовсе (после 404 он молчит две-три минуты), и попытка сгорала впустую -
+    одна из трёх на весь показ.
+
+    Признаки источника про приёмник не говорят ничего, и ждать в такой темноте можно
+    только его самого, а мера его молчания - время (:data:`torrcast.cli.REVIVE_PAUSE`).
+    """
+    from torrcast import cli
+
+    clock = _Ticker()
+    monkeypatch.setattr(time, "sleep", clock.sleep)
+    monkeypatch.setattr(time, "monotonic", clock.monotonic)
+    feed = _feed_with_segments(tmp_path)
+    feed.offline = ""  # упаковка на обрыв не жаловалась: рвался не источник
+    warmer = _Warm()
+    receiver = _Blinking(clock, warmer)
+
+    cli._hold(receiver, feed, None, warmer, _supply(_Service()))  # type: ignore[arg-type]
+
+    assert receiver.replays, "показ всё-таки поднимали - попытки не пропали вовсе"
+    assert receiver.when[0] - receiver.died >= cli.REVIVE_PAUSE, (
+        "первый LOAD ушёл не раньше, чем приёмнику дали отмолчаться"
+    )
+    assert len(receiver.replays) == cli.REVIVE_TRIES, "и попытки остались конечными"
+
+
+def test_two_short_outages_do_not_eat_the_whole_stock_of_tries(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Два коротких обрыва подряд - и оба показ переживает: запас отмерян обрыву.
+
+    Замер на живом Q70D: за 13 минут показа два коротких обрыва израсходовали все три
+    попытки, отмеренные на весь сеанс. Каждый обрыв показ пережил и человек не заметил
+    ничего - но защиты на остаток вечера уже не осталось, и третий обрыв гасил бы показ
+    насовсем при живых и приёмнике, и источнике.
+
+    Возвращает запас не сам факт подъёма (это говорит приёмник), а прожитая после него
+    минута настоящей картинки (:data:`torrcast.cli.REVIVE_LIVED`): мигающий показ так себе
+    попытки не наотдаёт, и поток LOAD остаётся конечным.
+    """
+    from torrcast import cli
+
+    clock = _Ticker()
+    monkeypatch.setattr(time, "sleep", clock.sleep)
+    monkeypatch.setattr(time, "monotonic", clock.monotonic)
+    feed = _feed_with_segments(tmp_path)
+    feed.offline = ""
+    warmer = _Warm()
+    receiver = _Blinking(clock, warmer, refuses=1, revives=2)
+
+    cli._hold(receiver, feed, None, warmer, _supply(_Service()))  # type: ignore[arg-type]
+
+    assert len(receiver.revived) == 2, "оба обрыва показ пережил, а не только первый"
+    assert receiver.revived[1] > receiver.revived[0], "второй раз поднялись дальше по фильму"
+    printed = capsys.readouterr().out
+    assert printed.count("показ поднят с ") == 2, "и человек увидел оба подъёма"
+
+
 def test_the_dark_show_is_revived_only_on_a_free_receiver(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
