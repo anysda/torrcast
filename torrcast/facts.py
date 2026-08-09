@@ -57,7 +57,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final
 from urllib.parse import urlencode
 
-from torrcast.parse import slugify, transliterate
+from torrcast.parse import same_word, same_words, slugify, transliterate
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -823,7 +823,7 @@ def _near_name(title: str, heading: str) -> bool:
             return True
         mine, theirs = want.split("-"), base.split("-")
         if len(mine) >= _PHRASE_WORDS and len(mine) == len(theirs):
-            odd = sum(1 for one, two in zip(mine, theirs, strict=True) if not _same_word(one, two))
+            odd = sum(1 for one, two in zip(mine, theirs, strict=True) if not same_word(one, two))
             if odd <= 1:
                 return True
     return False
@@ -1037,7 +1037,7 @@ def akin(title: str, heading: str, longer: bool = True) -> bool:
     четвёртая - точное равенство имён, у которых убраны все разделители. Именно точное:
     склей разделители у «начала имени», и «восхождение» совпало бы с «Ганнибалом».
 
-    Пятая сверка - те же слова в другом порядке и другой форме (:func:`_same_words`):
+    Пятая сверка - те же слова в другом порядке и другой форме (:func:`~torrcast.parse.same_words`):
     классику человек называет по памяти, и «Крики и шёпот» - это статья «Шёпоты и крики».
 
     ⚠️ ``longer`` запрещает шестую сверку - ту, где ДЛИННЕЕ заголовок статьи («Кингсман» →
@@ -1056,7 +1056,7 @@ def akin(title: str, heading: str, longer: bool = True) -> bool:
             or want.startswith(f"{base}-")
             or (longer and base.startswith(f"{want}-"))
             or want.replace("-", "") == solid
-            or _same_words(want, base)
+            or same_words(want, base)
         )
         for want in (slugify(title), slugify(transliterate(title)))
     )
@@ -1082,51 +1082,6 @@ def _crowded(title: str, pages: Iterable[Any]) -> bool:
         if base and any(base.startswith(f"{want}-") for want in wants)
     }
     return len(seen) > 1
-
-
-#: Сколько букв слова должны совпасть, чтобы это было одно слово в другой форме. Четыре -
-#: это «шепот»/«шепоты» и «самурае»/«самураи», но не «крик»/«кран».
-_STEM: Final = 4
-#: Насколько хвосты слов вправе разойтись сверх общего начала: русское окончание.
-_ENDING: Final = 2
-
-
-def _same_words(want: str, base: str) -> bool:
-    """Те же слова, только в другом порядке и в другой форме.
-
-    Классику человек зовёт по памяти, а Википедия подписывает её точно: фильм Бергмана
-    лежит под именем «Шёпоты и крики», а спрашивают его «Крики и шёпот». Слово в слово
-    такие имена не совпадают ничем, :func:`akin` отвергала статью, справка молчала - и
-    поиск уходил в индексер транслитом ``kriki i shepot`` вместо ``Viskningar och rop``.
-
-    Сверка нарочно тесная, потому что она единственная не требует совпадения по порядку.
-
-    * слов должно быть **поровну** и **каждому** найдётся пара. Иначе «Восхождение»
-      совпало бы с «Ганнибал: Восхождение» - той самой подменой, которую ловит
-      :func:`akin`;
-    * имён из одного слова это не касается вовсе: у них порядок переставлять нечего, а
-      совпадение по началу приняло бы «Персону» за «Персонажа»;
-    * слово от слова отличается только окончанием: общее начало от :data:`_STEM` букв, и
-      сверх него у каждого не больше :data:`_ENDING` букв хвоста.
-    """
-    mine, theirs = want.split("-"), base.split("-")
-    if len(mine) < 2 or len(mine) != len(theirs):
-        return False
-    left = list(theirs)
-    for word in mine:
-        pair = next((other for other in left if _same_word(word, other)), None)
-        if pair is None:
-            return False
-        left.remove(pair)
-    return True
-
-
-def _same_word(one: str, two: str) -> bool:
-    """Одно ли это слово в разных формах: «шепот» и «шепоты», «самураев» и «самураи»."""
-    if one == two:
-        return True
-    common = len(os.path.commonprefix([one, two]))
-    return common >= _STEM and len(one) - common <= _ENDING and len(two) - common <= _ENDING
 
 
 def latin_title(extract: str) -> str:

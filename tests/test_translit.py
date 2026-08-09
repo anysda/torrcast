@@ -455,17 +455,25 @@ def test_a_named_part_is_not_thrown_away_by_the_year_of_the_first_one(
     assert "в каталоге лежит картина" not in said
 
 
-def test_a_namesake_without_a_part_number_is_still_stopped(
+def test_a_year_that_disagrees_without_a_part_number_is_named_but_not_taken_away(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Послабление касается ТОЛЬКО запроса с номером: без номера год справки решает."""
+    """🔴 TC-248. Без номера части год справки говорит своё слово, но выдачу не отнимает.
+
+    Спросили «тачки», справка знает первую картину 2006 года, а в каталоге под этим именем
+    лежит только вторая, 2011-го. Прежде гейт выбрасывал её вместе со всей выдачей и
+    отвечал «ничего не нашлось» - при живых раздачах в руках. Расхождение печатается
+    строкой, картину с её годом человек видит в меню и решает сам.
+    """
     client = _FakeProwlarr(
         {"тачки": [raw(f"Тачки 2 / Cars 2 (2011) BDRip {i}", i) for i in range(3)]}
     )
     _knows(monkeypatch, {"тачки": Origin(title="Cars", year=2006)})
 
-    with pytest.raises(NotFoundError):
-        _search(client, "тачки", monkeypatch)
+    plans, said = _search(client, "тачки", monkeypatch)
+
+    assert [p.picture.year for p in plans] == [2011]
+    assert "под этим именем в каталоге лежит картина 2011 года, а не 2006" in said
 
 
 def test_other_word_order_is_found_and_said_out_loud(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -688,6 +696,45 @@ def test_top_up_that_brings_a_namesake_picture_is_refused(
     assert max(len(p.picture.releases) for p in plans) == 4
     assert "добрал" not in said
     assert "приехала другая картина" in said
+
+
+def test_the_reference_year_never_takes_away_what_the_russian_query_found(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """🔴 TC-248. «Крестьяне» и «Восхождение» держатся ОДНОВРЕМЕННО, одним тестом.
+
+    У гейта года остаётся право не ДОБАВИТЬ своё и нет права ОТНЯТЬ найденное.
+
+    «Крестьяне»: справка знает картину 1935 года, а каталог под этим именем несёт 2023-й
+    живым BDRip 1080p. Прежде гейт выбрасывал его вместе с выдачей и отвечал «ничего не
+    нашлось» - честный отказ при существующем кино, то есть брак. Теперь расхождение
+    сказано строкой, а картина осталась: слово справки против слова каталога решает
+    человек, он видит в меню и имя, и год.
+
+    «Восхождение»: настоящую подмену тот же гейт ловит как ловил - чужой ``The Climbers``
+    2019 года к выдаче Шепитько не подмешивается, потому что там его именно ДОБАВЛЯЮТ.
+    """
+    peasants = _FakeProwlarr(
+        {
+            "крестьяне": [
+                raw(f"Крестьяне / Chlopi (2023) BDRip 1080p {i}", i, seeders=44) for i in range(6)
+            ]
+        }
+    )
+    _knows(monkeypatch, {"крестьяне": Origin(year=1935)})
+
+    plans, said = _search(peasants, "крестьяне", monkeypatch)
+
+    assert [p.picture.title for p in plans] == ["Крестьяне"]
+    assert len(plans[0].picture.releases) == 6, "живой 1080p остался в руках"
+    assert "ничего не нашлось" not in said
+    assert "под этим именем в каталоге лежит картина 2023 года, а не 1935" in said
+
+    ascent, told = _search(_namesakes(), "восхождение", monkeypatch)
+
+    assert max(len(p.picture.releases) for p in ascent) == 4, "чужая картина не подмешана"
+    assert "добрал" not in told
+    assert "приехала другая картина" in told
 
 
 def test_the_reference_year_outweighs_the_pool_in_the_gate(

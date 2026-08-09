@@ -18,6 +18,7 @@
 
 from __future__ import annotations
 
+import os.path
 import re
 import statistics
 import unicodedata
@@ -51,8 +52,11 @@ __all__ = [
     "parse_release_name",
     "part_number",
     "pick_franchise",
+    "same_word",
+    "same_words",
     "seasons_named",
     "slugify",
+    "spell",
     "split_episode",
     "split_franchise_index",
     "transliterate",
@@ -870,6 +874,100 @@ def transliterate(text: str) -> str:
     return re.sub(r"\s+", " ", "".join(_TRANSLIT.get(ch, ch) for ch in lowered)).strip()
 
 
+#: Латинская буква, у которой в русском написании ДВА равноправных двойника: «кс» и «з».
+#: ``Xena`` - это и «Ксена», и «Зена», и обе записи в каталоге живые. Транслит возвращает
+#: из «Ксены» ``ksena``, а оригинал в раздаче подписан ``Xena``: как строки они разные,
+#: и картина, лежащая под русским именем «Зена», по запросу «Ксена» не находилась вовсе.
+_SPELL_X: Final = re.compile(r"x")
+
+
+def spell(text: str) -> str:
+    """Нормализованная транслитерация: «Ксена» и ``Xena`` пишутся одинаково - ``ksena``.
+
+    Простой транслит (:func:`transliterate`) сводит русское написание к латинскому
+    буква в букву, но САМА латиница пишет один звук по-разному, и русский переносит его
+    то так, то этак (:data:`_SPELL_X`). Нормализация убирает именно это расхождение,
+    оставляя всё остальное как есть: это ключ для сверки имён, а не запрос в индексер.
+    """
+    return _SPELL_X.sub("ks", transliterate(text))
+
+
+#: Сколько букв слова должны совпасть, чтобы это было одно слово в другой форме. Четыре -
+#: это «шепот»/«шепоты» и «самурае»/«самураи», но не «крик»/«кран».
+_STEM: Final = 4
+#: Насколько хвосты слов вправе разойтись сверх общего начала: русское окончание.
+_ENDING: Final = 2
+
+
+def same_word(one: str, two: str) -> bool:
+    """Одно ли это слово: та же строка, та же основа или та же строка другой азбукой.
+
+    Формы слова человек путает свободно: «Робот мечты» вместо «Мечты робота», «Крики и
+    шёпот» вместо «Шёпоты и крики». Общее начало от :data:`_STEM` букв и не больше
+    :data:`_ENDING` букв хвоста сверх него - это окончание, а не другое слово.
+
+    ⚠️ Транслит сводит русское слово с латинским, но НИКОГДА двух русских между собой:
+    мягкий знак он съедает, и «мать» стала бы «матом». Поэтому по звучанию сверяются
+    только слова из РАЗНЫХ азбук.
+    """
+    if one == two:
+        return True
+    if bool(_CYRILLIC.search(one)) != bool(_CYRILLIC.search(two)):
+        one, two = spell(one), spell(two)
+        if one == two:
+            return True
+    common = len(os.path.commonprefix([one, two]))
+    return common >= _STEM and len(one) - common <= _ENDING and len(two) - common <= _ENDING
+
+
+def same_words(want: str, base: str) -> bool:
+    """Те же слова, только в другом порядке и в другой форме.
+
+    Классику человек зовёт по памяти, а каталог со справкой подписывают её точно: фильм
+    Бергмана лежит под именем «Шёпоты и крики», а спрашивают его «Крики и шёпот»; «Мечты
+    робота» спрашивают «Робот мечты». Слово в слово такие имена не совпадают ничем.
+
+    Сверка нарочно тесная, потому что она единственная не требует совпадения по порядку.
+
+    * слов должно быть **поровну** и **каждому** найдётся пара. Иначе «Восхождение»
+      совпало бы с «Ганнибал: Восхождение» - той самой подменой, которую ловит
+      :func:`~torrcast.facts.akin`;
+    * имён из одного слова это не касается вовсе: у них порядок переставлять нечего, а
+      совпадение по началу приняло бы «Персону» за «Персонажа»;
+    * слово ПЕРЕСТАВЛЕННОЕ отличается от своей пары только окончанием (:func:`same_word`),
+      а слово, оставшееся на своём месте, обязано совпасть буква в букву.
+    """
+    return _paired(want.split("-"), base.split("-"))
+
+
+def _paired(mine: Sequence[str], theirs: Sequence[str]) -> bool:
+    """Каждому слову одного имени нашлась своя пара в другом, и лишних не осталось.
+
+    🔴 Форма слова прощается только ПЕРЕЕХАВШЕМУ слову. Слово, стоящее на том же месте,
+    сверяется целиком, и вот почему: «Кольца власти» - это сериал 2022 года, а «Кольцо
+    власти» - фильм 2007-го, лежащий в той же выдаче. Имена различает ровно одна буква
+    окончания, и прости мы её на месте, запрос молча уезжал бы в чужое кино. Переставленное
+    слово - другое дело: «Робот мечты» против «Мечты робота» это не однофамильцы, а одно
+    имя, названное по памяти, и порядок тут единственная разница по существу.
+    """
+    if len(mine) < 2 or len(mine) != len(theirs):
+        return False
+    left = list(enumerate(theirs))
+    for here, word in enumerate(mine):
+        pair = next(
+            (
+                spot
+                for spot in left
+                if word == spot[1] or (spot[0] != here and same_word(word, spot[1]))
+            ),
+            None,
+        )
+        if pair is None:
+            return False
+        left.remove(pair)
+    return True
+
+
 def alt_query(query: str, releases: Iterable[Release], known: str = "", native: str = "") -> str:
     """Чем ещё называется то, что спросили по-русски: запрос для второго захода.
 
@@ -1530,16 +1628,37 @@ def _by_words(wanted: str, keys: Iterable[str]) -> str | None:
 
     Из подошедших берётся самый тесный ключ: у «гарри поттер дары смерти» это
     ``гарри-поттер-и-дары-смерти``, а не ``гарри-поттер-и-дары-смерти-в-3д``.
+
+    🔴 Вторым заходом слова сверяются ПО ФОРМЕ (:func:`same_words`): «Робот мечты» - это
+    «Мечты робота», а буква в букву эти имена не сходятся ни одним из способов выше, и
+    запрос падал в пустоту при восьми строках выдачи. Заход именно второй, а не общее
+    послабление: пока слова совпадают целиком, всё решает первый, и ключ, найденный им,
+    сильнее любой догадки об окончании.
+
+    Дороги подмене это не открывает, и держат её два условия сразу (:func:`_paired`):
+    слов должно быть ПОРОВНУ, и окончание прощается только слову, которое ПЕРЕЕХАЛО.
+    «Дети мужчин» так и не станут «Мужчинами, женщинами и детьми» - слов там больше, - а
+    «кольца власти» не станут «Кольцом власти»: там разница в окончании стоит на месте.
     """
     asked = _words(wanted)
     if len(asked) < 2:
         return None
     hits = [key for key in keys if asked <= _words(key)]
+    if not hits:
+        # Порядок слов тут значит всё (:func:`_paired`), поэтому сверяются списки в том
+        # виде, как имя написано, а не множества.
+        mine = _word_list(wanted)
+        hits = [key for key in keys if _paired(mine, _word_list(key))]
     return min(hits, key=lambda key: (len(_words(key)), len(key))) if hits else None
 
 
 def _words(slug: str) -> set[str]:
-    return {word for word in slug.split("-") if len(word) > 1}
+    return set(_word_list(slug))
+
+
+def _word_list(slug: str) -> list[str]:
+    """Слова имени по порядку, без односложных союзов («и», «в»): их ставят как попало."""
+    return [word for word in slug.split("-") if len(word) > 1]
 
 
 def other_words(query: str, picture: Picture | None) -> str:
@@ -1616,6 +1735,17 @@ def pick_franchise(query: str, pictures: list[Picture]) -> list[Picture]:
     # и на «двенадцати обезьянах» это «12 обезьян» - цифрой. Спросили же прописью, поэтому
     # ключи ищутся ещё и в цифровой записи (:func:`in_digits`).
     digits = {in_digits(key): key for key in groups}
+    # Одно и то же имя переносят в русский по-разному: «Зена - королева воинов / Xena»
+    # лежит под одним написанием, а спрашивают её «Ксена» - тем же ``Xena``, только
+    # перенесённым иначе. Нормализованная транслитерация (:func:`spell`) сводит обе записи
+    # к одной строке.
+    #
+    # 🔴 Указатель строится по ОРИГИНАЛАМ (``aliases``), а не по русским ключам каталога.
+    # Пару языков должна назвать сама раздача: транслит одного лишь русского имени - это
+    # наша догадка о том, как его напишут латиницей, и ручаться ею за картину нельзя.
+    spelled: dict[str, str] = {}
+    for written, target in sorted(aliases.items()):
+        spelled.setdefault(spell(written), target)
 
     def named(name: str) -> str | None:
         """Ключ, которым каталог подписал картину ЦЕЛИКОМ: та же строка, её латинский
@@ -1648,8 +1778,14 @@ def pick_franchise(query: str, pictures: list[Picture]) -> list[Picture]:
             return loose
         # Запрос длиннее канона: «киберпанк бегущие по краю» - это франшиза «киберпанк»
         # (подзаголовок после двоеточия в ключ не входит). Берём самое длинное совпадение.
-        hits = [k for k in groups if k and k in wanted]
-        return max(hits, key=len) if hits else None
+        if hits := [k for k in groups if k and k in wanted]:
+            return max(hits, key=len)
+        # Последняя ступень - звучание (:data:`spelled`). Последняя нарочно: сверка по
+        # звучанию отвечает, КАК имя произносится, а не как оно написано в каталоге, и
+        # пока картину находит само написание, спрашивать больше не о чем. Транслит
+        # русского имени («vrata shteyna») именно так и находит картину, подписанную
+        # латиницей целиком, - вхождением, а не звучанием.
+        return spelled.get(spell(wanted))
 
     name, index = split_franchise_index(query)
     key = lookup(name)
@@ -1662,6 +1798,10 @@ def pick_franchise(query: str, pictures: list[Picture]) -> list[Picture]:
         if not items:
             items = _by_subtitle(query, pictures) or _by_alias(query, pictures)
             index = None
+        if not items:
+            # Слова запроса разошлись по двум именам картины - последняя и самая
+            # нестрогая ступень, поэтому она идёт после псевдонимов (:func:`_by_alias`).
+            items, index = _by_both_names(query, pictures), None
         return _numbered(items, index)
 
     items = _numbered(_both_languages(groups, aliases, key), index)
@@ -1778,6 +1918,49 @@ def _by_alias(query: str, pictures: list[Picture]) -> list[Picture]:
         return []
     items.sort(key=lambda p: (p.year is None, p.year or 0, p.part or 99, -len(p.releases), p.title))
     return items
+
+
+def _by_both_names(query: str, pictures: list[Picture]) -> list[Picture]:
+    """Картины, у которых в ДВУХ именах разом нашлись все слова запроса.
+
+    Имя франшизы человек читает с обложки, а подзаголовок помнит по озвучке, и в запросе
+    они встречаются в разных азбуках: «Gundam 0080 Карманная война» - это «Мобильный воин
+    ГАНДАМ 0080: Карманная война», подписанная в каталоге ещё и оригиналом ``Mobile Suit
+    Gundam 0080: War in the Pocket``. Ни одно из двух имён по отдельности всех слов запроса
+    не содержит: «карманной войны» нет в оригинале, ``Gundam`` нет в русском написании
+    («ГАНДАМ» - это ``gandam``, а не ``gundam``). Порознь их не сводит ничто, и запрос
+    падал в пустоту.
+
+    🔴 Отдаётся КАРТИНА, а не её франшиза - ровно по той же причине, что и в
+    :func:`_by_subtitle`: слова подзаголовка человек назвал про одну часть, и подставить
+    вместо неё всю линейку «Гандама» значило бы молча показать другое кино.
+
+    Проверка тесная: слова сверяются ЦЕЛИКОМ (ни форм, ни начал), их должно быть хотя бы
+    два, и найтись обязаны ВСЕ. Лишние слова в именах картины запросу не мешают - он
+    короче полного имени всегда, - но своё слово каждый обязан предъявить.
+
+    🔴 И главное: имена должны понадобиться ОБА. Хватило одного - эта ступень молчит, а
+    отвечает лестница выше (ключи, оригиналы, подстроки, слова). Иначе шаг подменял бы
+    собой всё, что уже умеет каталог: на корпусе в 418 картин без этого условия он один
+    отвечал на восемь десятков запросов вместо штатных ступеней - и разбор имени начинал
+    зависеть не от того, как картина подписана, а от того, чьи слова где встретились.
+    """
+    asked = _words(slugify(query))
+    if len(asked) < 2:
+        return []
+    items = [p for p in pictures if asked <= _both_words(p) and not _one_name_is_enough(asked, p)]
+    items.sort(key=lambda p: (p.year is None, p.year or 0, p.part or 99, -len(p.releases), p.title))
+    return items
+
+
+def _one_name_is_enough(asked: set[str], picture: Picture) -> bool:
+    """Хватило ли одного имени картины, чтобы покрыть все слова запроса."""
+    return any(asked <= _words(slugify(name)) for name in (picture.title, picture.original or ""))
+
+
+def _both_words(picture: Picture) -> set[str]:
+    """Все слова обоих имён картины: русского и оригинального."""
+    return _words(slugify(picture.title)) | _words(slugify(picture.original or ""))
 
 
 def _subtitles(picture: Picture) -> set[str]:
