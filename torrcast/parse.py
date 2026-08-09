@@ -180,7 +180,7 @@ _FOREIGN_DUB_RE: Final = re.compile(
 #: Не-видео: музыка, книги, игры. Срабатывает только при отсутствии видео-маркеров.
 _NON_VIDEO_RE: Final = re.compile(
     r"\b(flac|mp3|ape|wav|lossless|vinyl|аудиокнига|audiobook|"
-    r"pdf|fb2|epub|djvu|mobi|rtf|azw3|"
+    r"pdf|fb2|epub|djvu|mobi|rtf|azw3|cbz|cbr|"
     r"repack|gog|steam-?rip|pc|x64|iso|portable|crack)\b",
     re.IGNORECASE,
 )
@@ -243,6 +243,28 @@ _SEASON_SPAN_RES: Final[tuple[re.Pattern[str], ...]] = (
     re.compile(r"\bs\s?(\d{1,2})\s*-\s*s?\s?(\d{1,2})\b", re.IGNORECASE),
     re.compile(r"\b(\d{1,2})\s*-\s*(\d{1,2})\s*(?:сезон\w*|seasons?)\b", re.IGNORECASE),
 )
+#: Сквозной диапазон серий отдельной скобкой: ``[01-201]``, ``[202-252]``, ``(01-12)``.
+#:
+#: 🔴 TC-169. У длинного аниме сезон в имени называют не всегда, а серии сплошь и рядом
+#: нумеруют СКВОЗНО через весь сериал, диапазоном в скобке и без единого слова «серии»:
+#: «Гинтама / Gintama TV-1 [01-201] (2006)», «TV-2 [202-252] (2011)», «TV-8 [354-367]».
+#: Такое имя не читалось вовсе - ни серий, ни сериальности, - и раздача с ПЕРВОЙ серией
+#: становилась «фильмом», выпадая из разбора по сериям целиком. Замер на живой выдаче
+#: «Gintama»: серию 1 не покрывала НИ ОДНА раздача из 162, при том что сама она лежала
+#: в выдаче двумя строками.
+#:
+#: Голое «1-8» правило по-прежнему не читает (см. ``e``-диапазон выше) - стражи узкие:
+#:
+#: * диапазон занимает скобку ЦЕЛИКОМ, от ``[``/``(`` до ``]``/``)``: «1080p CR WEB-DL»
+#:   и «HEVC 10bit» в скобке не одни, и правило их не видит;
+#: * начало либо с ведущим нулём (``01``), либо трёхзначное (``202``): именно так
+#:   подписывают серии, а номера частей франшизы («Форсаж [1-4]») не подписывают никак;
+#: * числа не длиннее трёх цифр - «(2006-2012)» это годы, а не серии.
+#:
+#: Замер ложных срабатываний по всем кэшам стенда - в отчёте TC-169.
+_EPISODE_BRACKET_RE: Final = re.compile(
+    r"[\[(]\s*(?:[eеэ]p?\.?\s*)?(?P<start>0\d{1,2}|\d{3})\s*-\s*(?P<end>\d{1,3})\s*[\])]"
+)
 #: Серии, лежащие ВНУТРИ раздачи, по её имени. Порядок обязателен: сначала диапазон
 #: («1-5 из 220» = серии 1...5), потом счёт («220 of 220» = все 220, то есть 1...220).
 #: Прочитай их наоборот - и полный сезон превратился бы в одну серию, а огрызок в пак.
@@ -258,6 +280,7 @@ _EPISODE_SPAN_RES: Final[tuple[re.Pattern[str], ...]] = (
     # Без «из/of»: ``S01E01-08``, ``E12-24``. Буква ``e`` обязательна - голое «1-8»
     # в имени раздачи чаще про части названия, чем про серии.
     re.compile(r"[eеэ]\s*(?P<start>\d{1,3})\s*-\s*[eеэ]?\s*(?P<end>\d{1,3})(?!\d)", re.IGNORECASE),
+    _EPISODE_BRACKET_RE,
 )
 #: Счёт серий без диапазона: «220 of 220», «12 из 24» - в раздаче серии с первой по N.
 _EPISODE_COUNT_RE: Final = re.compile(
@@ -1145,6 +1168,59 @@ def glue(pictures: list[Picture]) -> list[Picture]:
     return out
 
 
+def _run_span(picture: Picture) -> tuple[int, int] | None:
+    """Сквозной отрезок серий картины: ``[01-201]`` → (1, 201). Нет такого имени - None.
+
+    Считаются только раздачи со СКВОЗНОЙ нумерацией - те, что перечислили серии, но не
+    назвали сезона. Раздача, назвавшая сезон, нумерует серии внутри него и к общей линейке
+    сериала отношения не имеет.
+    """
+    numbers = [
+        n
+        for r in picture.releases
+        if r.episodes and not r.seasons and r.season is None
+        for n in (r.episodes[0], r.episodes[-1])
+    ]
+    return (min(numbers), max(numbers)) if numbers else None
+
+
+def _continued(
+    pictures: list[Picture], chains: list[list[int]], union: Callable[[int, int], None]
+) -> list[list[int]]:
+    """Сшить цепочки лет, которые ПРОДОЛЖАЮТ нумерацию серий, а не начинают её заново.
+
+    🔴 TC-169, точечное послабление гейта года - и только для сериалов со сквозной
+    нумерацией (:func:`_run_span`). Длинное аниме идёт по каталогу кусками, у каждого
+    свой год, а серии считаются насквозь через весь сериал: «Гинтама / Gintama TV-1
+    [01-201] (2006)», «TV-2 [202-252] (2011)», ... «TV-8 [354-367] (2018)». Между
+    крайними кусками 12 лет, гейт года читал это как ремейк - и сериал рассыпался на
+    шесть картин, из которых у той, где лежит ПЕРВАЯ серия, оставалось две раздачи.
+
+    Гейт при этом не ослаблен: ремейк тем и ремейк, что начинает счёт заново, и его
+    диапазон стартует с первой серии. Сшиваем, только когда поздний кусок:
+
+    * начинается НЕ с первой серии - счёт не начат заново;
+    * начинается там, где кончился ранний (с зазором не больше одной серии, а
+      пересечение допустимо: сборник «TV [01-252]» перекрывает куски внутри себя).
+
+    Обе стороны обязаны назвать свои серии сами. Молчит хоть одна - сшивать нечем, и
+    работает прежний гейт года.
+    """
+    if len(chains) < 2 or any(pictures[i].kind != "tv" for chain in chains for i in chain):
+        return chains
+    out: list[list[int]] = [chains[0]]
+    for chain in chains[1:]:
+        before = [span for i in out[-1] if (span := _run_span(pictures[i]))]
+        after = [span for i in chain if (span := _run_span(pictures[i]))]
+        start = min((s for s, _ in after), default=0)
+        if before and start > 1 and start <= max(e for _, e in before) + 1:
+            union(out[-1][0], chain[0])
+            out[-1] = out[-1] + chain
+            continue
+        out.append(chain)
+    return out
+
+
 def _link(pictures: list[Picture], same: list[int], union: Callable[[int, int], None]) -> None:
     """Связать картины, приехавшие под одним именем: сначала по годам, потом безымянные.
 
@@ -1165,6 +1241,7 @@ def _link(pictures: list[Picture], same: list[int], union: Callable[[int, int], 
     for chain in chains:
         for i in chain[1:]:
             union(chain[0], i)
+    chains = _continued(pictures, chains, union)
     blank = [i for i in same if pictures[i].year is None]
     if len(chains) > 1:  # оригинал и ремейк под одним именем: безымянной картине веры нет
         return
@@ -1613,7 +1690,10 @@ def _parse_series(
         # сезоне у релиза значит «может быть любой» (:meth:`Release.covers`), а вот номер
         # серии теперь честный - и огрызок больше не выдаёт себя за весь сериал.
         return None, number, (), episodes, True
-    return None, None, (), episodes, bool(_SERIES_HINT_RE.search(text))
+    # Перечисленные серии - сами по себе признак сериала: имя, назвавшее диапазон серий,
+    # о сериальности уже сказало («[01-201]»), и ждать от него ещё и слова «сезон»
+    # значило бы записать сквозную нумерацию в фильмы (TC-169).
+    return None, None, (), episodes, bool(episodes) or bool(_SERIES_HINT_RE.search(text))
 
 
 def _episode_span(text: str) -> tuple[int, ...]:

@@ -379,3 +379,60 @@ def test_season_gaps_speaks_instead_of_dropping_picture() -> None:
     assert season_gaps([gintama], shown={gintama.key}, want=Episode(1, 1)) == []
     # Имена, молчащие о сезонах, не дают повода сказать «сезона нет»: это была бы ложь.
     assert season_gaps([spinoff], shown=set(), want=Episode(1, 1)) == []
+
+
+def test_cross_season_episode_range_is_read() -> None:
+    """TC-169: сквозной диапазон серий отдельной скобкой - это серии, а не фильм.
+
+    Длинное аниме приезжает кусками, где сезона не назвали вовсе, а серии посчитали
+    насквозь через весь сериал: «Гинтама / Gintama TV-1 [01-201] (2006)». Такое имя
+    не читалось никак - ни серий, ни сериальности, - и раздача с ПЕРВОЙ серией
+    становилась «фильмом» мимо разбора по сериям.
+    """
+    from torrcast.parse import Episode, parse_release_name
+
+    first = parse_release_name("Гинтама / Gintama TV-1 [01-201] (2006) BDRip-HEVC  720p | L1")
+    assert first.kind == "tv"
+    assert first.episodes == tuple(range(1, 202))
+    assert first.covers_episode(Episode(1, 1))
+
+    later = parse_release_name("Гинтама / Gintama TV-2 [202-252] (2011) BDRip-HEVC 1080p | L1")
+    assert later.episodes == tuple(range(202, 253))
+    # Кусок, начинающийся с 202-й, первой серией себя не называет.
+    assert not later.covers_episode(Episode(1, 1))
+
+    # Годы в скобках сериями не становятся, а номера частей франшизы не подписывают
+    # серии ни ведущим нулём, ни тремя цифрами.
+    whole = parse_release_name(
+        "Гинтама / Gintama TV [01-252] + OVA + Movies  + BONUS (2006-2012) DVDRip-AVC, HDTV-AVC"
+    )
+    assert whole.episodes == tuple(range(1, 253))
+    assert parse_release_name("Форсаж [1-4] (2001-2009) BDRip 1080p").episodes == ()
+    assert parse_release_name("Moana 2 2024 1080p WEB-DL DDP5 1 x264-NTb").episodes == ()
+    assert parse_release_name("Moana 2 2024 1080p WEB-DL DDP5 1 x264-NTb").kind == "movie"
+
+
+def test_year_gate_lets_one_numbering_line_through() -> None:
+    """TC-169: гейт года сшивает куски, продолжающие нумерацию, и держит ремейки.
+
+    «Гинтама» идёт по каталогу шестью кусками с 2006 по 2018 год, и между крайними 12
+    лет: гейт читал это как ремейк, и картина с первой серией оставалась в стороне от
+    той, где лежали остальные 200. Ремейк при этом начинает счёт заново - по этому его
+    и отличаем.
+    """
+    from torrcast.parse import glue, parse_release_name
+
+    def picture(name: str, year: int | None) -> Picture:
+        return Picture(title="Гинтама", year=year, kind="tv", releases=[parse_release_name(name)])
+
+    early = picture("Гинтама / Gintama TV-1 [01-201] (2006) BDRip-HEVC  720p | L1", 2006)
+    late = picture("Гинтама / Gintama TV-2 [202-252] (2011) BDRip-HEVC 1080p | L1", 2011)
+    assert len(glue([early, late])) == 1
+
+    # Счёт начат заново - это другая картина, и сшивать её нельзя.
+    remake = picture("Гинтама / Gintama [01-24] (2011) BDRip-HEVC 1080p | L1", 2011)
+    assert len(glue([early, remake])) == 2
+
+    # Молчащие о сериях куски судит прежний гейт года.
+    silent = picture("Гинтама / Gintama (2011) BDRip 1080p | L1", 2011)
+    assert len(glue([early, silent])) == 2
