@@ -143,14 +143,21 @@ def _row(name: str, tag: str) -> dict[str, object]:
 class _Swarm:
     """Prowlarr с четырьмя индексерами, из которых один умеет молчать до бюджета."""
 
-    def __init__(self, mute: int | None = None, mute_all: bool = False, rows: int = 1) -> None:
+    def __init__(
+        self, mute: int | None = None, mute_all: bool = False, rows: int = 1, yts: bool = False
+    ) -> None:
         self.mute = mute
         self.mute_all = mute_all
         #: Сколько раздач отдаёт один ответивший индексер: одна - пул тощий (сработает
         #: фолбэк по анимешным, TC-229), несколько - пул полный, и фолбэку нечего добавить.
         self.rows = rows
+        #: Включён ли YTS. По умолчанию нет: он с личным коротким бюджетом (TC-213), и
+        #: остальным тестам круга это только мешало бы.
+        self.yts = yts
         self.urls: list[str] = []
         self.waited: list[float] = []
+        #: Бюджет, с которым спросили КАЖДОГО: имя индексера → секунды.
+        self.budget: dict[str, float] = {}
         self.payload: object = []
 
     def get(self, url: str, timeout: float) -> _Swarm:
@@ -163,10 +170,11 @@ class _Swarm:
                 {"id": 1, "name": "Knaben", "enable": True},
                 {"id": 2, "name": "RuTor", "enable": True},
                 {"id": 3, "name": "Nyaa.si", "enable": True},
-                {"id": 4, "name": "YTS", "enable": False},
+                {"id": 4, "name": "YTS", "enable": self.yts},
             ]
             return self
         num = int(url.rsplit("&indexerIds=", 1)[1])
+        self.budget[str(num)] = timeout
         if self.mute_all or num == self.mute:
             raise requests.ConnectTimeout("молчит")
         self.payload = self._rows(num)
@@ -311,6 +319,37 @@ def test_thin_pool_falls_back_to_nyaa(tmp_path: Path, monkeypatch: pytest.Monkey
     assert [r.title for r in results] == ["picture.1", "picture.2", "picture.3"]
     (row,) = [r for r in trace.records() if r.get("event") == "indexers"]
     assert row["fallback"] is True
+
+
+def test_yts_asked_in_its_own_short_budget() -> None:
+    """🔴 TC-213: у YTS бюджет свой и короткий, у остальных - общий.
+
+    Терять на нём нечего: замер TC-141 дал +2.1% к пулу и ноль запросов, где он
+    единственный источник играбельного HD. А платили мы за него полным бюджетом:
+    его выдачу рвёт канал на объёме тела, и молчание выбирало все 20 с (замер на
+    стенде: «barbie» - 20.02 с). Честный ответ у него - 0.5-0.9 с.
+    """
+    from torrcast.search import _INDEXER_TIMEOUT, _SHORT_TIMEOUT, indexer_budget
+
+    client = _swarm(yts=True, rows=2)
+    client.search("barbie 2023")  # латиница с годом - не аниме, Nyaa вне круга
+    budget = client._session.budget  # type: ignore[union-attr]
+    assert budget == {"1": _INDEXER_TIMEOUT, "2": _INDEXER_TIMEOUT, "4": _SHORT_TIMEOUT}
+    assert _SHORT_TIMEOUT < _INDEXER_TIMEOUT, "короткий бюджет обязан быть заметно короче"
+    # Судим по имени, а не по номеру: номер у индексера свой на каждой установке.
+    assert indexer_budget("YTS") == _SHORT_TIMEOUT
+    assert indexer_budget("Knaben") == _INDEXER_TIMEOUT
+
+
+def test_silent_yts_costs_only_its_short_budget() -> None:
+    """Молчащий YTS не держит круг общим бюджетом: и отметка называет его цену честно."""
+    from torrcast.search import _SHORT_TIMEOUT
+
+    client = _swarm(yts=True, rows=2, mute=4)
+    results = client.search("barbie 2023")
+    assert [r.indexer for r in results] == ["idx.1", "idx.1", "idx.2", "idx.2"]
+    assert client.silent == ("YTS",)
+    assert client._session.budget["4"] == _SHORT_TIMEOUT  # type: ignore[union-attr]
 
 
 def test_show_survives_when_nyaa_is_silent_in_fallback() -> None:

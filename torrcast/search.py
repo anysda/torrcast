@@ -57,6 +57,16 @@ _TIMEOUT: Final = 150.0
 #: до своей сотой секунды. Бюджет отрезает такое молчание, не задев ни одного живого
 #: ответа, и стоит поиску не 100 с, а этих секунд - да и то лишь молчуну.
 _INDEXER_TIMEOUT: Final = 20.0
+#: Личный - и заметно более короткий - бюджет для тех, кому нечего терять. Общий бюджет
+#: щедр нарочно: за ним стоят индексеры, чьё молчание стоит находок. У YTS не стоит:
+#: замер (TC-141) дал +2.1% к пулу и НОЛЬ запросов, где он единственный источник
+#: играбельного HD, - кириллицы у него нет, сериалов нет. А платим мы за него полным
+#: бюджетом: канал рвёт его выдачу на объёме тела, и залипший ответ выбирает все 20 с
+#: (замер на стенде: «barbie» - ровно 20.02 с молчания). Честный ответ у него укладывается
+#: в секунду (там же: 0.5-0.9 с), так что шесть - это шестикратный запас к норме.
+_SHORT_TIMEOUT: Final = 6.0
+#: Кому этот бюджет достаётся - по подстроке в имени индексера, как и у аниме-списка.
+_SHORT_BUDGET: Final = ("yts",)
 #: Список индексеров - локальная страница Prowlarr, сеть в ней не участвует.
 _LIST_TIMEOUT: Final = 15.0
 #: Меньше стольких раздач после основного круга - пул тощий, и анимешные индексеры
@@ -100,6 +110,12 @@ def magnet_for(info_hash: str, title: str = "") -> str:
         parts.append(f"dn={quote(title)}")
     parts += [f"tr={quote(t, safe='')}" for t in PUBLIC_TRACKERS]
     return "&".join(parts)
+
+
+def indexer_budget(name: str) -> float:
+    """Сколько секунд ждём ЭТОГО индексера (:data:`_SHORT_BUDGET`, TC-213)."""
+    low = name.lower()
+    return _SHORT_TIMEOUT if any(mark in low for mark in _SHORT_BUDGET) else _INDEXER_TIMEOUT
 
 
 def anime_query(query: str) -> bool:
@@ -286,7 +302,9 @@ class Prowlarr:
         # mark ниже заводится лишь на потерю (это фаза старта), а следу нужен весь круг.
         trace.emit("search", "indexers", got=counts, silent=list(lost), ms=spent, fallback=fallback)
         if lost:
-            mark("индексеры", молчат=lost, бюджет=_INDEXER_TIMEOUT)
+            # Бюджет в отметке - не общий потолок, а тот, что и правда выбрали молчуны:
+            # у части индексеров он свой и короткий (:func:`indexer_budget`).
+            mark("индексеры", молчат=lost, бюджет=max(indexer_budget(n) for n in lost))
         if not got:  # молчат все до одного - это не «ничего не нашлось», а инфра
             raise InfraError(why_lost)
         return merge(*got)
@@ -312,7 +330,10 @@ class Prowlarr:
         got: list[list[RawResult]] = []
         why_lost = ""
         with ThreadPoolExecutor(max_workers=len(pairs)) as pool:
-            asked = [(name, pool.submit(self._timed, query, limit, num)) for num, name in pairs]
+            asked = [
+                (name, pool.submit(self._timed, query, limit, num, indexer_budget(name)))
+                for num, name in pairs
+            ]
         for name, task in asked:
             rows, took, err = task.result()
             spent[name] = took
@@ -325,7 +346,7 @@ class Prowlarr:
         return got, why_lost
 
     def _timed(
-        self, query: str, limit: int, num: int
+        self, query: str, limit: int, num: int, budget: float
     ) -> tuple[list[RawResult] | None, int, InfraError | None]:
         """Один индексер под нашим секундомером: выдача, миллисекунды и ошибка.
 
@@ -335,14 +356,14 @@ class Prowlarr:
         """
         began = time.monotonic()
         try:
-            rows: list[RawResult] | None = self._one(query, limit, num)
+            rows: list[RawResult] | None = self._one(query, limit, num, budget)
             return rows, int((time.monotonic() - began) * 1000), None
         except InfraError as exc:
             return None, int((time.monotonic() - began) * 1000), exc
 
-    def _one(self, query: str, limit: int, indexer: int) -> list[RawResult]:
+    def _one(self, query: str, limit: int, indexer: int, budget: float) -> list[RawResult]:
         """Выдача одного индексера в его личный бюджет."""
-        return from_json(self._get_json(self._url(query, limit, indexer), _INDEXER_TIMEOUT))
+        return from_json(self._get_json(self._url(query, limit, indexer), budget))
 
     def _known(self) -> tuple[tuple[int, str], ...]:
         """Включённые индексеры (номер, имя); пусто - спрашивать придётся общим запросом."""

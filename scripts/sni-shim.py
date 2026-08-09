@@ -19,8 +19,21 @@
 * `https://запасное-имя` - другое имя, ведущее в тот же origin. Нужно там, где без
   SNI origin не отвечает (CDN на общем адресе) и приходится показывать имя, которого
   в списке DPI нет.
+* `named` - то же имя, но адрес спрашиваем у DNS сами. Для тех, у кого запасного имени
+  нет, а без имени в рукопожатии CDN отвечает 403 (замер на yts.gg: 403 за 0.1 с с
+  обоих адресов). Показать имя обычным способом нельзя - `getaddrinfo` вернёт нас же
+  из `/etc/hosts`, - поэтому адрес берём своим запросом к DNS, а имя остаётся в SNI,
+  в `Host` и в проверке серта. Заодно это лечит угон DNS: подставной адрес отдаёт
+  самоподписанный серт, проверка его не принимает, и шим уходит на следующий адрес.
 
 Кандидаты пробуются по порядку, сработавший запоминается до первой осечки.
+
+Наверх шим всегда просит `gzip`, а вниз отдаёт распакованным, если клиент сжатого не
+просил. Это не экономия трафика, а обход той же болезни: рвётся поток на ОБЪЁМЕ тела,
+и сжатая выдача чаще остаётся ниже порога обрыва (замер на yts.gg: 60 КБ голого тела
+обрываются на 15 КБ и висят до таймаута, те же данные в gzip - 4.8 КБ и целиком за
+0.9 с). Prowlarr сжатия не просит (видно в pcap), и попросить его за Prowlarr больше
+некому.
 
 К одному хосту шим держит не больше двух запросов зараз: фронт трекера, спрошенный
 по IP, столько и тянет, а лишним параллельным отвечает 504 на шестнадцатой секунде -
@@ -36,6 +49,8 @@
 from __future__ import annotations
 
 import contextlib
+import gzip
+import http.client
 import http.server
 import os
 import random
@@ -49,7 +64,8 @@ import threading
 import time
 import urllib.error
 import urllib.request
-from typing import TYPE_CHECKING
+import zlib
+from typing import TYPE_CHECKING, NamedTuple
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -163,6 +179,20 @@ class Resolver:
         return found
 
 
+class Target(NamedTuple):
+    """Одна попытка: куда стучаться, проверять ли серт и чей это кандидат.
+
+    ``via`` пусто - соединение встаёт туда, куда ведёт ``base``. Непусто - это адрес,
+    на который жмём, а имя из ``base`` остаётся в SNI, в ``Host`` и в проверке серта
+    (кандидат ``named``).
+    """
+
+    base: str
+    verify: bool
+    via: str
+    number: int
+
+
 class Route:
     """Один трекер: имя, которое видит Prowlarr, и кандидаты, куда ходить на самом деле."""
 
@@ -174,20 +204,24 @@ class Route:
         #: хост, который сейчас болеет, держит только своих ждущих.
         self.gate = threading.BoundedSemaphore(_PER_HOST)
 
-    def targets(self, resolver: Resolver) -> list[tuple[str, bool, int]]:
-        """Куда идти: ``(база, проверять ли серт, номер кандидата)``, с рабочего."""
+    def targets(self, resolver: Resolver) -> list[Target]:
+        """Куда идти, начиная с того кандидата, который сработал в прошлый раз."""
         order = list(range(len(self.candidates)))
         order = order[self.current :] + order[: self.current]
-        out: list[tuple[str, bool, int]] = []
+        out: list[Target] = []
         for number in order:
             candidate = self.candidates[number]
-            if candidate != "direct":
-                out.append((candidate.rstrip("/"), True, number))
+            if candidate not in ("direct", "named"):
+                out.append(Target(candidate.rstrip("/"), True, "", number))
                 continue
             try:
-                out += [(f"https://{ip}", False, number) for ip in resolver.addresses(self.host)]
+                found = resolver.addresses(self.host)
             except OSError:
                 continue
+            if candidate == "direct":  # по адресу и без имени: серт там на чужое имя
+                out += [Target(f"https://{ip}", False, "", number) for ip in found]
+            else:  # по адресу, но с именем: и SNI, и серт остаются настоящими
+                out += [Target(f"https://{self.host}", True, ip, number) for ip in found]
         return out
 
 
@@ -209,6 +243,53 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 def _opener(verify: bool) -> urllib.request.OpenerDirector:
     context = ssl.create_default_context() if verify else _plain_context()
     return urllib.request.build_opener(_NoRedirect(), urllib.request.HTTPSHandler(context=context))
+
+
+def _pinned_opener(address: str) -> urllib.request.OpenerDirector:
+    """Опенер, который жмёт на ЗАДАННЫЙ адрес, а имя берёт из адресной строки.
+
+    Ровно то, чего не умеет `getaddrinfo`: имя в `/etc/hosts` прибито к самому шиму, и
+    обычный запрос вернулся бы к нам же. Подменяем только адрес соединения - SNI, `Host`
+    и проверка серта остаются на настоящем имени (`https://yts.gg/...` при соединении на
+    адрес его origin'а).
+    """
+    context = ssl.create_default_context()
+
+    class Connection(http.client.HTTPSConnection):
+        def connect(self) -> None:
+            self.sock = context.wrap_socket(
+                socket.create_connection((address, self.port), self.timeout),
+                server_hostname=self.host,
+            )
+
+    class Handler(urllib.request.HTTPSHandler):
+        def https_open(self, req: urllib.request.Request) -> http.client.HTTPResponse:
+            return self.do_open(Connection, req)
+
+    return urllib.request.build_opener(_NoRedirect(), Handler())
+
+
+def _unpack(
+    payload: bytes, headers: list[tuple[str, str]], wanted: bool
+) -> tuple[bytes, list[tuple[str, str]]]:
+    """Распаковать тело, если наверху взяли сжатым, а клиент сжатого не просил.
+
+    Сжатие тут - наша самодеятельность (см. модульную строку), клиент о нём не знает, и
+    отдать ему gzip, которого он не просил, значило бы сломать разбор ответа. Не
+    распаковалось - отдаём как есть вместе с заголовком: пусть лучше клиент увидит
+    сжатое тело и скажет об этом, чем получит мусор под видом целого ответа.
+    """
+    encoding = ""
+    for name, value in headers:
+        if name.lower() == "content-encoding":
+            encoding = value.strip().lower()
+    if wanted or encoding != "gzip" or not payload:
+        return payload, headers
+    try:
+        body = gzip.decompress(payload)
+    except (OSError, EOFError, zlib.error):
+        return payload, headers
+    return body, [(n, v) for n, v in headers if n.lower() != "content-encoding"]
 
 
 def _client_present(conn: socket.socket) -> bool:
@@ -289,6 +370,15 @@ def build_server(
     """
     resolver = Resolver()
     openers = {True: _opener(verify=True), False: _opener(verify=False)}
+    #: Опенеры кандидата `named`: по одному на адрес, собираются на первом же походе.
+    pinned: dict[str, urllib.request.OpenerDirector] = {}
+    pinned_lock = threading.Lock()
+
+    def opener_for(target: Target) -> urllib.request.OpenerDirector:
+        if not target.via:
+            return openers[target.verify]
+        with pinned_lock:
+            return pinned.setdefault(target.via, _pinned_opener(target.via))
 
     class Handler(http.server.BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
@@ -324,24 +414,31 @@ def build_server(
 
         def _upstream(self, route: Route, method: str, body: bytes | None) -> None:
             last = "маршрут пуст"
-            for base, verify, number in route.targets(resolver):
-                request = urllib.request.Request(base + self.path, data=body, method=method)
+            wanted = "gzip" in (self.headers.get("Accept-Encoding") or "").lower()
+            for target in route.targets(resolver):
+                request = urllib.request.Request(target.base + self.path, data=body, method=method)
                 request.add_header("Host", route.host)
                 for name, value in self.headers.items():
                     if name.lower() not in _HOP:
                         request.add_header(name, value)
+                # Просим сжатие ПОСЛЕ клиентских заголовков: своё «gzip» здесь важнее
+                # того, что прислал клиент, а вниз тело всё равно поедет распакованным.
+                request.add_header("Accept-Encoding", "gzip")
                 try:
-                    with openers[verify].open(request, timeout=_TIMEOUT) as response:
-                        route.current = number
-                        payload = response.read()
-                        self._reply(response.status, list(response.headers.items()), payload)
+                    with opener_for(target).open(request, timeout=_TIMEOUT) as response:
+                        route.current = target.number
+                        payload, headers = _unpack(
+                            response.read(), list(response.headers.items()), wanted
+                        )
+                        self._reply(response.status, headers, payload)
                         return
                 except urllib.error.HTTPError as exc:  # ответ есть, просто не 2xx
-                    route.current = number
-                    self._reply(exc.code, list(exc.headers.items()), exc.read())
+                    route.current = target.number
+                    payload, headers = _unpack(exc.read(), list(exc.headers.items()), wanted)
+                    self._reply(exc.code, headers, payload)
                     return
                 except Exception as exc:  # любой отказ значит «следующий кандидат»
-                    last = f"{base}: {exc}"
+                    last = f"{target.base}: {exc}"
             self._reply(502, [("Content-Type", "text/plain")], f"{last}\n".encode())
 
         def do_GET(self) -> None:

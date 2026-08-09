@@ -1,16 +1,23 @@
 """Шим для трекеров, чьё имя не проходит по TLS (``scripts/sni-shim.py``).
 
-Проверяется здесь ровно одно, зато замером, а не рассуждением: сколько запросов шим
-пускает на хост одновременно. Фронт трекера, спрошенный по IP, тянет два; третьему
-параллельному он отвечает 504 на шестнадцатой секунде, а после серии таких Prowlarr
-уводит индексер в бан на три часа. Поэтому лишние обязаны ЖДАТЬ.
+Проверяется здесь замером, а не рассуждением, ровно два его свойства.
+
+Первое: сколько запросов шим пускает на хост одновременно. Фронт трекера, спрошенный
+по IP, тянет два; третьему параллельному он отвечает 504 на шестнадцатой секунде, а
+после серии таких Prowlarr уводит индексер в бан на три часа. Поэтому лишние обязаны
+ЖДАТЬ.
+
+Второе: шим просит наверху gzip и отдаёт вниз распакованным (TC-213). Канал рвёт поток
+на ОБЪЁМЕ тела, и сжатая выдача чаще остаётся ниже порога обрыва; Prowlarr сжатия не
+просит, попросить за него больше некому.
 
 Бэкенд здесь свой, медленный и считающий: он сам говорит, сколько запросов держал
-зараз. Сети тесту не нужно.
+зараз и о чём его просили. Сети тесту не нужно.
 """
 
 from __future__ import annotations
 
+import gzip
 import http.server
 import importlib.util
 import socket
@@ -224,6 +231,146 @@ def test_queue_is_per_host(
     print(f"здоровый хост при забитом соседе: код {code}, {spent:.2f} с")
     assert code == 200
     assert spent < HOLD * 3, "здоровый хост ждал чужую очередь"
+
+
+#: Тело, на котором видно сжатие: повторяющийся текст ужимается в разы, и «просил ли шим
+#: gzip» читается уже по размеру ответа, а не только по заголовку.
+BULK = ("раздача matrix 1080p\n" * 400).encode()
+
+
+class Asked:
+    """Что бэкенд услышал в запросе и что отдал в ответ."""
+
+    def __init__(self) -> None:
+        self.encoding = ""
+        self.sent_gzip = False
+
+
+def _gzip_backend(tls: tuple[str, str], asked: Asked) -> http.server.HTTPServer:
+    """Origin, который умеет отдавать сжатым - и запоминает, просили ли его об этом."""
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"
+
+        def log_message(self, *args: object) -> None:
+            """Молчим: вывод теста не про это."""
+
+        def do_GET(self) -> None:
+            asked.encoding = self.headers.get("Accept-Encoding") or ""
+            body, packed = BULK, "gzip" in asked.encoding.lower()
+            if packed:
+                body = gzip.compress(BULK)
+            asked.sent_gzip = packed
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            if packed:
+                self.send_header("Content-Encoding", "gzip")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+    class Server(http.server.ThreadingHTTPServer):
+        daemon_threads = True
+
+    cert, key = tls
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.load_cert_chain(cert, key)
+    server = Server(("127.0.0.1", 0), Handler)
+    server.socket = context.wrap_socket(server.socket, server_side=True)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server
+
+
+def _fetch(port: int, host: str, accept: str | None = None) -> tuple[bytes, dict[str, str]]:
+    """Запрос к шиму: тело ответа как есть и его заголовки."""
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    context.check_hostname = False
+    context.verify_mode = ssl.CERT_NONE
+    headers = {"Host": host} | ({"Accept-Encoding": accept} if accept else {})
+    request = urllib.request.Request(f"https://127.0.0.1:{port}/", headers=headers)
+    opener = urllib.request.build_opener(urllib.request.HTTPSHandler(context=context))
+    with opener.open(request, timeout=30) as response:
+        return response.read(), {k.lower(): v for k, v in response.headers.items()}
+
+
+def test_shim_asks_gzip_and_unpacks_it(tls: tuple[str, str], plain_openers: None) -> None:
+    """🔴 TC-213: клиент про сжатие не заикался - шим всё равно просит его наверху.
+
+    Ради этого всё и затевалось: тело едет по каналу сжатым (тут - втрое короче), а
+    клиент получает его распакованным и без ``Content-Encoding`` - для него не
+    изменилось ничего.
+    """
+    asked = Asked()
+    origin = _gzip_backend(tls, asked)
+    routes = {
+        "tracker.test": shim.Route(
+            "tracker.test", [f"https://127.0.0.1:{origin.server_address[1]}"]
+        )
+    }
+    server = _shim(tls, routes)
+    try:
+        body, headers = _fetch(server.server_address[1], "tracker.test")
+    finally:
+        server.shutdown()
+        server.server_close()
+        origin.shutdown()
+        origin.server_close()
+    print(
+        f"наверх просили «{asked.encoding}», по каналу ехало {len(gzip.compress(BULK))} Б "
+        f"вместо {len(BULK)} Б, клиенту приехало {len(body)} Б"
+    )
+    assert "gzip" in asked.encoding.lower(), "шим обязан просить сжатие за клиента"
+    assert asked.sent_gzip, "origin отдал сжатым"
+    assert body == BULK, "клиенту тело обязано приехать распакованным"
+    assert "content-encoding" not in headers, "распаковали - заголовок обязан уйти"
+    assert headers["content-length"] == str(len(BULK))
+
+
+def test_client_that_asked_gzip_gets_it_as_is(tls: tuple[str, str], plain_openers: None) -> None:
+    """А если сжатие просил сам клиент - отдаём как есть: распаковывать за него нечего."""
+    asked = Asked()
+    origin = _gzip_backend(tls, asked)
+    routes = {
+        "tracker.test": shim.Route(
+            "tracker.test", [f"https://127.0.0.1:{origin.server_address[1]}"]
+        )
+    }
+    server = _shim(tls, routes)
+    try:
+        body, headers = _fetch(server.server_address[1], "tracker.test", accept="gzip")
+    finally:
+        server.shutdown()
+        server.server_close()
+        origin.shutdown()
+        origin.server_close()
+    assert headers.get("content-encoding") == "gzip"
+    assert gzip.decompress(body) == BULK
+
+
+def test_named_candidate_keeps_the_name_and_pins_the_address() -> None:
+    """Кандидат ``named``: адрес свой, имя настоящее.
+
+    Без имени в рукопожатии CDN отвечает 403 (замер на yts.gg), а спросить имя обычным
+    способом нельзя - в ``/etc/hosts`` оно прибито к самому шиму. Поэтому адрес берётся
+    своим запросом к DNS, а в ``base`` остаётся имя: оно и уедет в SNI, и попадёт в
+    проверку серта. Для сравнения ``direct`` - ровно наоборот.
+    """
+
+    class _Fixed:
+        def addresses(self, host: str) -> list[str]:
+            return ["203.0.113.7", "203.0.113.8"]
+
+    resolver = _Fixed()
+    named = shim.Route("tracker.test", ["named"]).targets(resolver)
+    assert [(t.base, t.verify, t.via) for t in named] == [
+        ("https://tracker.test", True, "203.0.113.7"),
+        ("https://tracker.test", True, "203.0.113.8"),
+    ]
+    direct = shim.Route("tracker.test", ["direct"]).targets(resolver)
+    assert [(t.base, t.verify, t.via) for t in direct] == [
+        ("https://203.0.113.7", False, ""),
+        ("https://203.0.113.8", False, ""),
+    ]
 
 
 def _blackhole() -> socket.socket:
