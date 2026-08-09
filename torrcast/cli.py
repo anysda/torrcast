@@ -130,6 +130,7 @@ __all__ = [
     "spoken",
     "tv_lines",
     "understated",
+    "voice_note",
     "voices_table",
     "warm_order",
 ]
@@ -1087,6 +1088,10 @@ def _cmd_play(args: Args) -> int:
     # Молчаливого японского не бывает: перевода в файле нет - человек слышит об этом
     # строкой, а не на слух через минуту показа.
     if note := sound_note(media, audio, plan.ranked, release):
+        print(note)
+    # Русских дорожек было несколько - говорим, сколько и что взяли: подпись дорожки
+    # отвечает «что играет», а эта строка - «почему это, а не соседняя».
+    if note := voice_note(media, audio):
         print(note)
     if args.pinned:  # отладочный путь: тут внутренности показывать и надо
         print(f"файл: {video.base} · {_gb(video.size)} · {_hms(media.duration)} · {media.video}")
@@ -4741,6 +4746,31 @@ def sound_note(
             "cast releases <запрос>, потом cast <запрос> --release N"
         )
     return f"только {lang} звук, перевода в каталоге нет"
+
+
+def voice_note(media: Media, audio: int) -> str:
+    """Одна строка про то, из чего выбиралась озвучка: «дорожек rus 4, беру дубляж
+    (LostFilm)»; выбора не было — пусто.
+
+    Подпись взятой дорожки печатается и так, но она отвечает на вопрос «что играет», а
+    не «почему это». У «Барби» рядом лежат три русские дорожки, и человек, услышав не ту,
+    до сих пор не знал ни что выбор был, ни что рядом было из чего выбрать.
+
+    Молчим ровно там, где выбирать было не из чего: одна русская дорожка (или ни одной) -
+    это не решение, а единственный вариант, и строка про него была бы шумом. Список
+    студий целиком тут не печатается намеренно: он длинный, а нужен по запросу -
+    ``cast voices <запрос>``.
+    """
+    russian = sum(1 for t in media.tracks if t.is_russian)
+    if russian < 2 or not 0 <= audio < len(media.tracks):
+        return ""
+    track = media.tracks[audio]
+    # Русских две, а играет нерусская - значит обе служебные; это тоже выбор, и назвать
+    # его надо языком, а не видом перевода.
+    what = (track.kind or "русскую") if track.is_russian else spoken(track)
+    studio = track.studio
+    tail = f" ({studio.name})" if studio and studio.name else ""
+    return f"дорожек rus {russian}, беру {what}{tail}"
 
 
 def _voice_number(media: Media, number: int) -> int:

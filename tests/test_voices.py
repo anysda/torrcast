@@ -20,7 +20,17 @@ import pytest
 from torrcast import InfraError, cli
 from torrcast.search import RawResult
 from torrcast.state import Config, Entry, State, save_config
-from torrcast.stream import AudioTrack, Media, TorrFile
+from torrcast.stream import (
+    STEP_FOREIGN,
+    STEP_RU_PLAIN,
+    STEP_SERVICE,
+    STUDIOS,
+    VOICE_KINDS,
+    AudioTrack,
+    Media,
+    TorrFile,
+    voice_order,
+)
 
 GB = 1024**3
 KEY = "movie:моана-2:2024"
@@ -69,6 +79,44 @@ MATRIX = (
     AudioTrack(1, "rus", "AVO Визгунов (Rus) / AC3 / 2 ch / 192 kbps / 48 kHz", "ac3", 2),
     AudioTrack(2, "eng", "Original (Eng) / AC3 / 6 ch / 384 kbps / 48 kHz", "ac3", 6),
 )
+#: «Барби», WEB-DL 1080p. Ни одна русская дорожка не названа видом перевода - только
+#: студией, и лестница по заголовку тут слепа целиком.
+BARBIE = (
+    AudioTrack(0, "rus", "Bravo Records Georgia", "ac3", 6),
+    AudioTrack(1, "rus", "LostFilm", "ac3", 6),
+    AudioTrack(2, "rus", "TVShows", "ac3", 6),
+    AudioTrack(3, "eng", "Original", "ac3", 6),
+)
+#: «Головоломка»: дубляж подписан студией и лежит НЕ первым - порядок в файле его не
+#: спасает, ступень спасает.
+INSIDEOUT = (
+    AudioTrack(0, "rus", "LostFilm", "ac3", 6),
+    AudioTrack(1, "rus", "HDrezka Studio", "ac3", 6),
+    AudioTrack(2, "rus", "MovieDalen", "ac3", 6),
+    AudioTrack(3, "eng", "Original", "dts", 6),
+)
+#: «Криминальное чтиво»: дубляж Невафильма против двухголосого «Кубик в Кубе».
+PULP = (
+    AudioTrack(0, "rus", "Кубик в Кубе", "ac3", 2),
+    AudioTrack(1, "rus", "Nevafilm", "ac3", 6),
+    AudioTrack(2, "eng", "Original", "ac3", 6),
+)
+#: «Твоё имя»: у аниме студия в заголовке - вообще единственная подпись, какая бывает.
+YOURNAME = (
+    AudioTrack(0, "rus", "AlexFilm", "aac", 2),
+    AudioTrack(1, "rus", "SHIZA Project", "aac", 2),
+    AudioTrack(2, "rus", "Timecraft", "aac", 6),
+    AudioTrack(3, "jpn", "Original", "flac", 2),
+)
+#: Дубляж, написанный не словом «дубляж»: так подписывают лицензионную дорожку.
+DUBBED_WORDS = (
+    AudioTrack(0, "rus", "MVO (TVShows)", "ac3", 6),
+    AudioTrack(1, "rus", "Dubbed", "ac3", 6),
+    AudioTrack(2, "rus", "Dubbing", "ac3", 6),
+    AudioTrack(3, "rus", "Лицензия", "ac3", 6),
+    AudioTrack(4, "rus", "Полное дублирование", "ac3", 6),
+    AudioTrack(5, "rus", "iTunes", "ac3", 6),
+)
 
 
 @pytest.mark.parametrize(
@@ -84,6 +132,12 @@ MATRIX = (
         (CARS[1:], 3, "остались тифлокомментарий и чужие дубляжи - оригинал лучше всех"),
         (CARS[1:4], 1, "и даже без оригинала украинский дубляж выше тифлокомментария"),
         ((), 0, "дорожек нет - говорить не о чем"),
+        (BARBIE, 1, "студия читается как ступень: LostFilm выше незнакомой студии"),
+        (INSIDEOUT, 2, "дубляж студии берётся третьим по счёту, а не первым по порядку"),
+        (PULP, 1, "дубляж Невафильма выше двухголосого, хоть и лежит вторым"),
+        (YOURNAME, 2, "дубляж студии выше двух многоголосых, стоящих раньше него"),
+        (DUBBED_WORDS, 1, "«Dubbed» - это дубляж, и он выше многоголосого"),
+        (DUBBED_WORDS[3:], 0, "«Лицензия», «Полное дублирование» и «iTunes» - тоже дубляж"),
     ],
 )
 def test_the_sanest_voice_is_picked_by_the_ladder(
@@ -100,6 +154,64 @@ def test_the_language_tag_beats_the_title() -> None:
     """«Дубляж» с тегом ``kaz`` — казахская дорожка, как её ни подпиши (живой «Тачки 3»)."""
     assert [t.is_russian for t in CARS] == [True, True, False, False, False]
     assert [t.is_russian for t in CYBERPUNK] == [True, False]
+
+
+def test_a_studio_signature_reads_as_a_rung_of_the_ladder() -> None:
+    """Подпись студией - тот же вид перевода, только сказанный именем студии."""
+    assert [t.kind for t in BARBIE] == ["", "многоголосый", "многоголосый", ""]
+    assert [t.kind for t in INSIDEOUT] == ["многоголосый", "многоголосый", "дубляж", ""]
+    assert [t.kind for t in PULP] == ["двухголосый", "дубляж", ""]
+    assert [t.kind for t in YOURNAME] == ["многоголосый", "многоголосый", "дубляж", ""]
+
+
+def test_the_title_beats_the_studio_table() -> None:
+    """Что дорожка написала про себя, точнее того, что мы знаем про студию вообще.
+
+    Jaskier делает и дубляж, и многоголосый закадровый, и в «Моане 2» лежат обе его
+    дорожки. Таблица студий тут второй голос, а не первый.
+    """
+    assert MOANA2[2].kind == "дубляж" and MOANA2[3].kind == "многоголосый"
+
+
+def test_an_unknown_studio_does_not_break_the_choice() -> None:
+    """Таблица студий заведомо протухает: незнакомая студия не поднимает и не роняет.
+
+    «Bravo Records Georgia» в таблице нет и не будет - таких имён в раздачах бесконечно.
+    Дорожка остаётся русской без метки, то есть ровно там, где стояла до таблицы.
+    """
+    unknown = AudioTrack(0, "rus", "Bravo Records Georgia")
+    assert unknown.studio is None and unknown.kind == ""
+    assert unknown.step == STEP_RU_PLAIN
+    assert unknown.is_russian, "тег языка её русской и оставляет"
+    assert Media(tracks=(unknown,)).default_track() == 0, "одна дорожка - она и играет"
+
+
+def test_the_studio_table_never_beats_the_language_tag_or_lifts_a_service_track() -> None:
+    """Два ограждения таблицы: тег языка сильнее заголовка, тифлокомментарий - внизу."""
+    foreign = AudioTrack(0, "ukr", "Дубляж (LostFilm)")
+    assert not foreign.is_russian and foreign.step == STEP_FOREIGN
+    service = AudioTrack(1, "rus", "Дубляж для слабовидящих (Мосфильм)")
+    assert service.step == STEP_SERVICE
+
+
+def test_the_studio_weight_is_reserved_but_not_used_yet() -> None:
+    """Место под ранжир «крутости» есть, самого ранжира нет: вес у всех нулевой.
+
+    Порядок внутри ступени пока авторский - тот, в котором дорожки лежат в файле.
+    """
+    assert {s.fame for s in STUDIOS.values()} == {0}
+    assert {s.kind for s in STUDIOS.values()} <= set(VOICE_KINDS), "ступени только из лестницы"
+    assert voice_order(MOANA2[1]) < voice_order(MOANA2[2]), "равная ступень - порядок в файле"
+
+
+def test_the_note_explains_the_choice_only_when_there_was_one() -> None:
+    """Строка про выбор: сколько было русских и что взяли; выбора не было - молчим."""
+    assert cli.voice_note(Media(tracks=BARBIE), 1) == "дорожек rus 3, беру многоголосый (LostFilm)"
+    assert cli.voice_note(Media(tracks=INSIDEOUT), 2) == "дорожек rus 3, беру дубляж (MovieDalen)"
+    assert cli.voice_note(Media(tracks=PULP), 1) == "дорожек rus 2, беру дубляж (Невафильм)"
+    assert cli.voice_note(Media(tracks=CYBERPUNK), 0) == "", "русская одна - выбора не было"
+    assert cli.voice_note(Media(tracks=()), 0) == "", "дорожек нет - и говорить не о чем"
+    assert "LostFilm" not in cli.voice_note(Media(tracks=INSIDEOUT), 2), "список студий не печатаем"
 
 
 def test_the_label_drops_the_technical_tail() -> None:
@@ -200,7 +312,9 @@ def test_the_default_voice_is_named_in_the_launch_line_and_not_remembered(
 
     assert cli.main(["моана", "2"]) == 0
 
-    assert "rus · Дубляж. (MovieDalen)" in capsys.readouterr().out
+    printed = capsys.readouterr().out
+    assert "rus · Дубляж. (MovieDalen)" in printed
+    assert "дорожек rus 8, беру дубляж (MovieDalen)" in printed, "выбор объяснён одной строкой"
     saved = State.load().entries[KEY]
     assert (saved.audio, saved.voice) == (0, ""), "автовыбор память не занимает"
 
