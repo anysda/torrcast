@@ -169,15 +169,51 @@ def test_a_bare_enter_is_enough_for_everything(
 ) -> None:
     """Любой вопрос принимает пустой Enter: русский ввод допустим, но не обязателен.
 
-    Enter приводит в самую живую картину, а не в первую по хронологии:
-    у «Моаны 2» верх отбора собрал 140 сидов, у «Moana» 2016 — 22.
+    Enter приводит в ПЕРВУЮ ЖИВУЮ часть франшизы, а не в самую обсиженную: «моана» -
+    это просьба про «Moana» 2016 с её 22 сидами, даже когда у «Моаны 2» их 140
+    (🔴 TC-196). Список при этом остаётся хронологическим.
     """
     _answers(monkeypatch, "", "")
 
     assert cli.main(["моана"]) == 0
     printed = capsys.readouterr().out
     assert "  1. Moana (2016)\n  2. Моана 2 (2024)" in printed, "список остался хронологией"
-    assert "играю «Моана 2» (2024)" in printed
+    assert "играю «Moana» (2016)" in printed
+
+
+#: Выдача «мумии»: две картины под одним именем - самая тихая из подмен (🔴 TC-198).
+TWINS = [
+    RawResult("Мумия / The Mummy (1999) BDRip 1080p | D", "e" * 40, 5 * GB, 47),
+    RawResult("Мумия / The Mummy (2026) WEB-DL 1080p | D", "f" * 40, 4 * GB, 604),
+]
+
+
+def test_the_swap_line_is_the_last_word_before_the_start(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """🔴 TC-198: взяли не то, что назвали, - и человек слышит об этом ПЕРЕД стартом.
+
+    Место у строки одно и выбрано не для порядка: фазы поиска к этой секунде уехали
+    вверх экрана и читаются как ход работы, а решение про картину человек уносит с
+    собой. Раньше на «мумию» не печаталось ничего вовсе - тихо игралась та «Мумия»,
+    у которой рой пожирнее.
+    """
+
+    class _Twins(_FakeProwlarr):
+        def search(self, query: str) -> list[RawResult]:
+            return list(TWINS)
+
+    monkeypatch.setattr(cli, "Prowlarr", _Twins)
+    _answers(monkeypatch, "", "")
+
+    assert cli.main(["мумия"]) == 0
+
+    lines = [line for line in capsys.readouterr().out.splitlines() if line.strip()]
+    assert lines[-1].startswith("играю «Мумия» (1999)"), lines[-1]
+    assert lines[-2] == (
+        "спросили «мумия» - беру «Мумия (1999)»: под этим именем есть ещё "
+        "«Мумия (2026)» - другая картина"
+    ), lines[-2]
 
 
 def test_the_film_with_a_number_in_the_title_is_a_film(
@@ -214,7 +250,7 @@ def test_without_a_terminal_an_ambiguous_franchise_is_refused_not_guessed(
 
     printed = capsys.readouterr()
     assert "1. Moana (2016)" in printed.out and "2. Моана 2 (2024)" in printed.out
-    assert "вслепую не выбираю" in printed.err and "Моана 2" in printed.err
+    assert "вслепую не выбираю" in printed.err and "Moana" in printed.err
     kept = State.load().get(OLD_KEY)
     assert kept is not None and kept.pos == 2467.0, "сохранённую позицию не трогаем никогда"
 
@@ -380,8 +416,8 @@ def test_prewarmed_torrents_are_dropped_when_the_show_never_starts(
     assert len(dropped) == len(set(added)), "и все они убраны, раз показа не будет"
 
 
-#: Раздачи «Моаны 2» - картины, в которую попадает Enter, - в порядке отбора.
-SPARE_PICTURE = ("c" * 40, "d" * 40)
+#: Раздачи «Moana» 2016 - первой живой части, в которую попадает Enter, - в порядке отбора.
+SPARE_PICTURE = ("a" * 40, "b" * 40)
 
 
 def _btih(magnet: str) -> str:
