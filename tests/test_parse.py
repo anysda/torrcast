@@ -221,6 +221,36 @@ def test_franchise_index_is_split_off_but_year_is_not() -> None:
 
 
 @pytest.mark.parametrize(
+    "query",
+    [
+        "Kill Bill: Vol. 1",
+        "Kill Bill Vol 2",
+        "Гарри Поттер и Дары Смерти: Часть 2",
+        "Дюна: Часть 2",
+    ],
+)
+def test_number_after_a_marker_word_stays_in_the_title(query: str) -> None:
+    """Цифра после «Vol.»/«Part»/«Часть» — часть НАЗВАНИЯ, а не номер части франшизы.
+
+    «Kill Bill: Vol. 1» уходил в индексер обрубком ``Kill Bill: Vol.``: живой круг по
+    четырём индексерам отдавал на него 126 строк, из которых 58 были про ВТОРОЙ том, а
+    оторванная единица тратилась как номер части — и отбор садился на латинского
+    отщепенца «Kill Bill Volume 1» в две раздачи. Полное имя даёт 99 строк, но 67 из них
+    про первый том против прежних 63.
+    """
+    assert split_franchise_index(query) == (query, None)
+
+
+@pytest.mark.parametrize(
+    ("query", "name", "index"),
+    [("тачки 3", "тачки", 3), ("моана 2", "моана", 2), ("терминатор 2", "терминатор", 2)],
+)
+def test_plain_franchise_number_is_still_a_number(query: str, name: str, index: int) -> None:
+    """Ограждение к тесту выше: обычный номер части резать как резали."""
+    assert split_franchise_index(query) == (name, index)
+
+
+@pytest.mark.parametrize(
     ("title", "key", "part"),
     [
         ("Матрица", "матрица", None),

@@ -804,15 +804,38 @@ def _akin(wanted: str, slug: str) -> bool:
     return bool(wanted) and bool(slug) and (wanted in slug or slug in wanted)
 
 
+#: Слова-показатели, после которых цифра - часть САМОГО названия, а не номер части
+#: франшизы: «Kill Bill: Vol. 1», «Deathly Hallows: Part 2», «Дюна: Часть вторая».
+#: Сюда же попадает голая точка или двоеточие: каталог вводит ими подзаголовок, и
+#: «Vol.» перед цифрой без слова уже сказал всё, что нужно.
+_TITLE_NUMBER_RE: Final = re.compile(
+    r"(?:[.:]|\b(?:vol|volume|part|pt|chapter|book|эпизод|часть|ч|глава|том|книга|кн))\s*$",
+    re.IGNORECASE,
+)
+
+
 def split_franchise_index(query: str) -> tuple[str, int | None]:
     """Отделить хвостовой номер франшизы: ``«матрица 2»`` → ``("матрица", 2)``. Номер —
     позиция в отсортированной по году франшизе, а не часть названия;
     год (четыре цифры) номером не считается.
+
+    🔴 Цифра после слова-показателя номером НЕ считается. «Kill Bill: Vol. 1» уходил в
+    индексер как ``Kill Bill: Vol.`` — имя, которым раздачу не подписывает никто, — и
+    каталог терялся целиком ещё до кластеризации: искать по обрубку нечего. То же самое
+    ждало «…: Part 2» и «Дюна: Часть 2». Признак — то, что стоит ПЕРЕД цифрой
+    (:data:`_TITLE_NUMBER_RE`): слово вроде ``Vol``/``Part``/«Часть» или просто точка с
+    двоеточием, которыми каталог вводит подзаголовок.
+
+    Обычный номер части при этом остаётся номером: «Тачки 3», «Моана 2», «Терминатор 2»
+    заканчиваются буквой, а не показателем, и режутся как раньше.
     """
     match = re.search(r"^(?P<name>.+?)\s+(?P<index>\d{1,2})$", query.strip())
     if not match:
         return query.strip(), None
-    return match.group("name").strip(), int(match.group("index"))
+    name = match.group("name").strip()
+    if _TITLE_NUMBER_RE.search(name):
+        return query.strip(), None
+    return name, int(match.group("index"))
 
 
 def parse_episode(text: str) -> Episode | None:
