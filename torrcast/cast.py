@@ -611,21 +611,27 @@ class ChromecastReceiver:
         self._session = getattr(self._cast.status, "session_id", "") or ""
 
     def _settle(self, budget: float) -> bool:
-        """Дождаться, пока приёмник действительно заиграет; отказ LOAD — повторить LOAD.
+        """Дождаться, пока приёмник действительно заиграет; отказ LOAD - повторить LOAD.
 
-        ``IDLE`` без причины — это «ещё грузится», его терпим до :data:`START_TIMEOUT`.
-        А вот причина говорит, что LOAD не взяли, и ждать бессмысленно:
+        ``IDLE`` без причины - это «ещё грузится», его терпим до конца ``budget``: ресивер
+        сперва тянет манифест и первый сегмент. А вот причина говорит, что LOAD не взяли,
+        и ждать бессмысленно:
 
-        * ``ERROR`` — ресивер не смог начать (проверенный рецепт: ровно 2 попытки);
-        * ``IDLE`` дольше :data:`STUCK_SECONDS` — LOAD не взяли молча. Такое ловилось
+        * ``ERROR`` - ресивер не смог начать;
+        * ``IDLE`` дольше :data:`STUCK_SECONDS` - LOAD не взяли молча. Такое ловилось
           после перепаковки: приёмник стоял в IDLE при живых сегментах.
 
-        Пробуем до конца ``budget``, а не «два раза»: приёмник после 404 оживает минутами,
-        и единственное, что работает, — терпеливо повторять LOAD.
+        Повтор LOAD - один счётчик на весь показ (:attr:`_reloads`), и потолок ему ставит
+        профиль приёмника (:attr:`torrcast.profile.Profile.load_retries`), а не бюджет
+        ожидания: лестница ожидания не имеет права плодить свои попытки. Иначе счёт вёлся
+        бы временем, и на неигравшем релизе в приёмник уходил бы десяток LOAD подряд, всё
+        глубже загоняя его, пока прогон висит перед пустым экраном. Исчерпав повторы, честно
+        возвращаем ``False`` - зовущий назовёт причину строкой, а не оставит человека в
+        бесконечной петле LOAD. Каждый повтор ложится в след (:func:`torrcast.trace.reload`).
 
         ⚠️ ``INTERRUPTED`` поводом для повтора НЕ является: так ресивер отчитывается о
         КОНЦЕ ПРЕЖНЕЙ сессии, которую оборвал наш же новый LOAD. Повтор на него сбивает
-        только что принятый LOAD — проверено живьём, показ на этом и умер.
+        только что принятый LOAD - проверено живьём, показ на этом и умер.
 
         Любая повторная попытка идёт в чистое приложение: залипший Default Media Receiver
         молчит на все LOAD подряд, а `quit_app` лечит сразу.
@@ -640,10 +646,16 @@ class ChromecastReceiver:
             waited = time.monotonic() - tried
             refused = status.idle_reason == "ERROR" and waited >= self.LOAD_PAUSE
             if refused or waited >= self.STUCK_SECONDS:
+                if self._reloads >= self.profile.load_retries:
+                    return False  # повторы LOAD исчерпаны - показ не начался, гаснем честно
                 self._reloads += 1
+                trace.reload(pos=self._peak, tries=self._reloads)
                 tried = time.monotonic()
-                left = deadline - time.monotonic()
-                print(f"LOAD не взяли ({self._why()}) - гружу заново, ещё {left:.0f} с", flush=True)
+                print(
+                    f"LOAD не взяли ({self._why()}) - повтор {self._reloads} "
+                    f"из {self.profile.load_retries}",
+                    flush=True,
+                )
                 self._restart_app()
                 self._load(self._at)
         return False

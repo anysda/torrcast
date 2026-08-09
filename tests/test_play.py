@@ -910,6 +910,83 @@ def test_the_dark_show_is_revived_only_on_a_free_receiver(
     assert loads == [1200.0, 1200.0], "по одному LOAD на свободный приёмник"
 
 
+def test_a_release_that_never_plays_stops_at_the_profile_not_at_eleven(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Неигравший релиз: ровно столько повторов LOAD, сколько заявил профиль, - и честная
+    строка вместо зависания в лестнице ожидания.
+
+    Раньше лестница ожидания считала попытки временем бюджета, а не профилем: приёмник,
+    роняющий каждый LOAD в IDLE/ERROR, получал их десяток подряд (на гейте - одиннадцать),
+    всё глубже заваливаясь, а прогон висел в лестнице, пока его не прибивали руками. Теперь
+    счётчик повторов LOAD один на весь показ, потолок ему - ``load_retries`` приёмника, и
+    исчерпав его, показ возвращает управление честной строкой.
+    """
+    from torrcast.cast import ChromecastReceiver
+
+    class _FakeClock:
+        def __init__(self) -> None:
+            self.now = 0.0
+
+        def monotonic(self) -> float:
+            return self.now
+
+        def sleep(self, seconds: float) -> None:
+            self.now += seconds
+
+    clock = _FakeClock()
+    monkeypatch.setattr("torrcast.cast.time.monotonic", clock.monotonic)
+    monkeypatch.setattr("torrcast.cast.time.sleep", clock.sleep)
+
+    loads: list[float] = []
+
+    class _Silent:
+        """Приёмник, берущий соединение, но роняющий каждый LOAD в IDLE/ERROR."""
+
+        def __init__(self) -> None:
+            self.app_id = ChromecastReceiver.MEDIA_APP
+            self.session_id = "наша"
+            self.content_id = ""
+            self.player_state = "IDLE"
+            self.idle_reason = "ERROR"
+            self.current_time = 0.0
+            self.duration = 0.0
+            self.player_is_playing = False
+            self.status = self
+            self.media_controller = self
+
+        def play_media(self, url: str, mime: str, current_time: float = 0.0, **_: Any) -> None:
+            loads.append(current_time)
+
+        def block_until_active(self, timeout: float = 30.0) -> None:
+            pass
+
+        def update_status(self) -> None:
+            pass
+
+        def quit_app(self, timeout: float = 10.0) -> None:
+            pass
+
+        def disconnect(self) -> None:
+            pass
+
+    receiver = ChromecastReceiver("10.0.0.50")
+    receiver._cast = _Silent()
+    # Чистое приложение под повтор здесь не поднимаем заново: тот же приёмник и та же
+    # лента LOAD, а считаем именно её длину.
+    monkeypatch.setattr(ChromecastReceiver, "_restart_app", lambda self: None)
+
+    with pytest.raises(InfraError) as err:
+        receiver.play("http://10.0.0.10:8443/index.m3u8", "кино", at=1200.0)
+
+    assert receiver.profile.load_retries == 2, "осторожный профиль - замер Q70D"
+    assert len(loads) == 1 + receiver.profile.load_retries, (
+        "первый LOAD и ровно load_retries повторов - не одиннадцать по бюджету времени"
+    )
+    assert loads[1:] == [1200.0] * receiver.profile.load_retries, "повтор уходит туда же"
+    assert "не начал показ" in str(err.value), "исчерпав попытки, показ гаснет честной строкой"
+
+
 class _Source:
     """Источник под показом на заглушке: моргает, а заглушка видит только картинку.
 
