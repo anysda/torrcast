@@ -672,6 +672,14 @@ def _event_line(rec: dict[str, Any], began: float, seam: bool = False) -> str:
         return f"{stamp}длительность {_hms(float(rec.get('secs', 0.0)))} - {got}"
     if event == "drop":
         return f"{stamp}отброшен релиз {rec.get('release', '?')}: {rec.get('why', '?')}"
+    if event == "switch":
+        # Смена КАРТИНЫ посреди отбора (TC-203): у выбранной играть нечем, рядом живёт
+        # одноимённая живая. Решение это громкое, и в ленте оно обязано быть видно так же,
+        # как на экране, - иначе разбор отказа не сойдётся с тем, что человек читал.
+        return (
+            f"{stamp}у «{rec.get('from', '?')}» играть нечем ({rec.get('why', '?')})"
+            f" - ухожу к «{rec.get('to', '?')}»"
+        )
     if event == "note":
         return f"{stamp}{rec.get('text', '')}"
     if event == "buffering":

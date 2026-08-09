@@ -1090,10 +1090,12 @@ def test_the_ceiling_weighs_the_video_track_not_the_ten_dubs_around_it() -> None
     )
 
 
-def _franchise_plan(title: str, year: int | None, releases: list[Release]) -> Any:
+def _franchise_plan(
+    title: str, year: int | None, releases: list[Release], kind: Kind = "movie"
+) -> Any:
 
     return cli._Plan(
-        picture=Picture(title=title, year=year, releases=releases),
+        picture=Picture(title=title, year=year, kind=kind, releases=releases),
         ranked=rank_releases(releases, RUNTIME, 20.0),
         runtime=RUNTIME,
         warn_mbit=20.0,
@@ -1610,6 +1612,212 @@ def test_the_year_line_belongs_to_the_default_not_to_the_human_choice() -> None:
     assert cli._is_default(plans, plans[0]), "первая часть по хронологии - дефолт"
     assert not cli._is_default(plans, plans[1]), "вторую выбрал человек - не дефолт"
     assert not cli._is_default(plans[:1], plans[0]), "картина одна - выбора не было"
+
+
+def test_the_year_gate_catches_a_fresh_namesake_hiding_under_an_old_name() -> None:
+    """🔴 TC-192. «Брат 2» уезжал на «Брат (2025)» - год выбранной картины и ловит гейт.
+
+    Картину по номеру части выбирает разбор, и выбирает верно (см. тест
+    ``test_brother_two_is_the_year_two_thousand_and_not_a_fresh_namesake`` в
+    ``test_parse``). Но год картины склеен из ИМЁН раздач, а имя подписывает переиздание
+    свежим годом - и остаток подмены ловится ровно там же, где «Оно» и «Медведь»: вторым
+    независимым словом справки. Переделывать под этот случай нечего, случай фиксируется.
+    """
+    from torrcast.facts import Origin
+
+    plan = _franchise_plan("Брат 2", 2025, [rel(name="Брат 2 (2025) WEB-DL 1080p")])
+    note = cli.year_note(plan, Origin(title="Brat 2", year=2000), asked="брат 2")
+    assert note and "2025" in note and "2000" in note, note
+    honest = _franchise_plan("Брат 2", 2000, [rel(name="Брат 2 (2000) BDRip 1080p")])
+    assert cli.year_note(honest, Origin(title="Brat 2", year=2000), asked="брат 2") == ""
+
+
+def test_a_film_is_not_swapped_for_a_same_name_series_with_a_deeper_queue() -> None:
+    """🔴 TC-192. «Нелюбовь» - это фильм Звягинцева, а не сериал «НЕлюбовь [S01]».
+
+    Однораздачная картина уступает дефолт соседке, у которой и очередь глубже, и рой
+    живее (:func:`~torrcast.cli.backed`). Через границу типа это правило врёт: у фильма
+    раздача одна на всё кино, у сериала - на каждый сезон, и общей линейкой фильм
+    объявлялся «формально живым» ровно за то, что он фильм. Замер: фильм 2017 года одной
+    раздачей на 40 сид против сериала двумя на 120 - дефолтом молча вставал сериал.
+    """
+    film = _franchise_plan("Нелюбовь", 2017, [rel(name="Нелюбовь 2017 BDRip 1080p", seeders=40)])
+    series = _franchise_plan(
+        "НЕлюбовь",
+        2022,
+        [
+            rel(name="НЕлюбовь S01 WEBRip 720p", quality="720p", size_gb=5.0, seeders=120),
+            rel(name="НЕлюбовь S01 WEB-DL 1080p", size_gb=6.0, seeders=60),
+        ],
+        kind="tv",
+    )
+    plans = [film, series]
+    assert [cli.liveliness(p) for p in plans] == [40, 120], "рой у сериала и правда живее"
+    assert cli.backed(plans, [1, 2]) == [1, 2], "глубина сериала фильму не судья"
+    assert cli.first_alive(plans) == 1
+    assert "НЕлюбовь" in cli.default_note(plans, "нелюбовь"), "о тёзке другого типа - вслух"
+
+
+def test_a_lone_release_still_yields_to_a_deeper_queue_of_its_own_kind() -> None:
+    """Ограждение к правке выше: внутри одного типа ступень работает как работала.
+
+    «Мальтийский сокол» 1931 года - одно обещание индексера на 16 сид, а у тёзки 1941
+    года двадцать две раздачи и лучшая годная живее. Обе - полнометражки, мерить их одной
+    линейкой и надо.
+    """
+    thin = _franchise_plan(
+        "Мальтийский сокол", 1931, [rel(name="Мальтийский сокол 1931 BDRip", seeders=16)]
+    )
+    deep = _franchise_plan(
+        "Мальтийский сокол",
+        1941,
+        [
+            rel(name="Мальтийский сокол BDRip 1080p Дубляж", size_gb=8.0, seeders=5),
+            rel(name="The Maltese Falcon BDRip 720p", quality="720p", size_gb=4.0, seeders=28),
+        ],
+    )
+    assert cli.backed([thin, deep], [1, 2]) == [2]
+    assert cli.first_alive([thin, deep]) == 2
+
+
+def _invisible_man() -> list[Any]:
+    """Меню «человек-невидимка»: 1933 год формально жив, а играть им нечем.
+
+    Одна раздача на девять сид - порог живости она проходит, очереди за ней нет. Рядом
+    стоит тёзка 2020 года: две раздачи, 210 и 90 сид.
+    """
+    return [
+        _franchise_plan(
+            "Человек-невидимка",
+            1933,
+            [rel(name="The Invisible Man 1933 BDRip", size_gb=1.5, seeders=9)],
+        ),
+        _franchise_plan(
+            "Человек-невидимка",
+            2020,
+            [
+                rel(name="Человек-невидимка 2020 WEB-DL 1080p", size_gb=4.2, seeders=210),
+                rel(name="Человек-невидимка 2020 BDRip 1080p", size_gb=8.0, seeders=90),
+            ],
+        ),
+    ]
+
+
+def test_the_show_moves_to_a_live_namesake_when_the_chosen_picture_cannot_play() -> None:
+    """🔴 TC-203. У выбранной картины играть нечем, а тёзка рядом жива - уходим к ней.
+
+    Шесть отказов из 115 в замере каталога выглядели так: все раздачи выбранной картины
+    негодны, а в том же меню стоит живая одноимённая. «Человек-невидимка» садился на 1933
+    год при живой картине 2020-го - и отказ был честен про картину и неправдой про вечер.
+    """
+    plans = _invisible_man()
+    spare = cli.understudy(plans, plans[0])
+    assert spare is not None and spare.picture.year == 2020
+    note = cli.understudy_note(plans[0], spare, "годного релиза нет")
+    assert "\n" not in note, "строка одна"
+    assert "1933" in note and "2020" in note, note
+    assert "годного релиза нет" in note, "причина названа, а не «просто ухожу»"
+
+
+def test_the_understudy_is_a_namesake_and_never_someone_elses_picture() -> None:
+    """🔴 TC-203. Ограждения ухода: тёзка по году - да, соседка по франшизе - никогда.
+
+    «Тачки 2» вместо «Тачек» - это другое кино, и уходить туда самому нельзя ни при каком
+    отказе: о таких соседях говорит подсказка (:func:`~torrcast.cli.kin_line`), и подсказкой
+    она и остаётся. Тип обязан совпасть по той же причине, по какой его не меняет дефолт.
+    Мёртвая тёзка дублёром не бывает: играть ею нечем ровно так же.
+    """
+    cars = _parts(("Тачки", 2006, 66), ("Тачки 3", 2017, 121))
+    assert cli.understudy(cars, cars[0]) is None, "соседка по франшизе - другое кино"
+
+    film = _franchise_plan("Нелюбовь", 2017, [rel(name="кино", seeders=9)])
+    series = _franchise_plan(
+        "Нелюбовь",
+        2022,
+        [rel(name="s01", seeders=120), rel(name="s02", seeders=60)],
+        kind="tv",
+    )
+    assert cli.understudy([film, series], film) is None, "сериал вместо фильма - подмена"
+
+    dead = _parts(("Мумия", 1999, 47), ("Мумия", 2017, 2))
+    assert cli.understudy(dead, dead[0]) is None, "тёзка мертва - уходить некуда"
+    assert cli.understudy(_invisible_man()[:1], _invisible_man()[0]) is None, "меню из одной"
+
+
+class _SwitchBench:
+    """Скамейка, у которой играет только картина 2020 года: 1933-я отказывает как в жизни."""
+
+    def __init__(self) -> None:
+        self.asked: list[int | None] = []
+        self.kept: list[int | None] = []
+
+    def resolve(self, plan: Any, args: Any, progress: Any) -> Any:
+        self.asked.append(plan.picture.year)
+        if plan.picture.year != 2020:
+            raise NotFoundError(
+                "годного релиза нет (1 - тяжёлый): выбери руками - cast releases <запрос>"
+                "\nв каталоге есть Человек-невидимка (2020) - cast человек-невидимка"
+            )
+        return cast(Any, plan.picture.year)
+
+    def reorder(self, plan: Any, fresh: Any) -> Any:
+        return fresh
+
+    def keep_plan(self, plan: Any) -> None:
+        self.kept.append(plan.picture.year)
+
+
+def test_the_switch_to_the_understudy_happens_by_itself_and_is_said_out_loud(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """🔴 TC-203. Играть выбранной картиной нечем - показ сам уходит к живой тёзке.
+
+    Уход не молчаливый и не безграничный: строка печатается ОБЯЗАТЕЛЬНО (это смена
+    картины), а кругов ровно два - выбранная и одна тёзка. Совет «выбери руками» из
+    отказа в строку не переезжает: после автоматического ухода он был бы неправдой.
+    """
+    plans = _invisible_man()
+    bench = _SwitchBench()
+    args = cli.Args(query=["человек-невидимка"])
+
+    plan, prep = cli._played(
+        cast(Any, bench), plans, plans[0], args, cast(Any, None), None, load_config(), CAUTIOUS
+    )
+
+    assert plan.picture.year == 2020 and cast(Any, prep) == 2020
+    assert bench.asked == [1933, 2020], "круга ровно два"
+    assert bench.kept == [2020], "прогретое чужих картин убирается уже под новую картину"
+    said = capsys.readouterr().out.strip()
+    assert said.count("\n") == 0, "строка одна"
+    assert "1933" in said and "2020" in said and "годного релиза нет" in said, said
+    assert "cast releases" not in said, "ход руками после автоматического ухода - неправда"
+
+
+def test_without_a_live_namesake_the_refusal_stays_the_refusal(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Ограждение: тёзки нет - отказ доезжает до человека ровно таким, каким родился.
+
+    Уход к соседке по франшизе или к одноимённому сериалу тут был бы подменой картины,
+    и молчание отказа подменять его нечем: подсказку про соседей отказ несёт сам
+    (:func:`~torrcast.cli.kin_line`).
+    """
+    plans = _parts(("Тачки", 2006, 66), ("Тачки 3", 2017, 121))
+    bench = _SwitchBench()
+
+    with pytest.raises(NotFoundError, match="годного релиза нет"):
+        cli._played(
+            cast(Any, bench),
+            plans,
+            plans[0],
+            cli.Args(query=["тачки"]),
+            cast(Any, None),
+            None,
+            load_config(),
+            CAUTIOUS,
+        )
+    assert bench.asked == [2006], "лишнего круга нет"
+    assert capsys.readouterr().out == "", "никакого ухода не было - и говорить не о чем"
 
 
 def test_a_lone_release_still_wins_when_the_whole_franchise_is_lone() -> None:

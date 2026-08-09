@@ -139,6 +139,8 @@ __all__ = [
     "swap_note",
     "tv_lines",
     "understated",
+    "understudy",
+    "understudy_note",
     "voice_note",
     "voices_table",
     "warm_order",
@@ -1247,7 +1249,7 @@ def _cmd_play(args: Args) -> int:
                 # кэш - СЛЕДУЮЩЕЕ меню этой франшизы будет полным. Ко времени до меню это
                 # отношения не имеет, а к моменту ответа поток обычно давно закончил.
                 facts.finish()
-            prep = bench.resolve(plan, args, progress)
+            plan, prep = _played(bench, plans, plan, args, progress, facts, config, chosen.profile)
             mark("отбор релиза", релиз=prep.number)  # TC-108: замер
         except BaseException:  # Ctrl-C, «картин много, а терминала нет», «годного нет»
             bench.drop_all()  # прогретое без показа - мусор в рое и кэш в чужой RAM
@@ -4461,12 +4463,30 @@ def backed(plans: list[_Plan], alive: list[int]) -> list[int]:
 
     Живых с очередью нет вовсе - список остаётся как был: выбирать не из чего, и
     молчаливо превращать «живую» картину в «мёртвую» не за что.
+
+    🔴 TC-192. Уступают друг другу картины ОДНОГО типа, и это ограждение, а не оттенок.
+    Глубина очереди у сериала говорит о сериале и ровно ничего - о полнометражной тёзке:
+    у сериала раздача на каждый сезон, у фильма она одна на всё кино, и мерить их одной
+    линейкой значит объявлять фильм «формально живым» за то, что он фильм. Замер:
+    «Нелюбовь» - фильм Звягинцева 2017 года одной раздачей на 40 сид против сериала
+    «НЕлюбовь [S01]» двумя раздачами на 120, и дефолтом молча вставал сериал. Тип запрос
+    называет вслух ровно одним способом (:func:`asked_kind`), и там, где он промолчал,
+    подменять кино сериалом за него нельзя.
     """
     deep = [n for n in alive if len(plans[n - 1].ranked) > 1]
     if not deep:
         return alive
-    strongest = max(liveliness(plans[n - 1]) for n in deep)
-    return [n for n in alive if n in deep or liveliness(plans[n - 1]) > strongest]
+    return [n for n in alive if n in deep or liveliness(plans[n - 1]) > _rival(plans, deep, n)]
+
+
+def _rival(plans: list[_Plan], deep: list[int], number: int) -> int:
+    """Самая живая очередь СВОЕГО типа - её и обязана перебить однораздачная картина.
+    Очередей своего типа нет вовсе - уступать нечему, и порог равен нулю.
+    """
+    kind = plans[number - 1].picture.kind
+    return max(
+        (liveliness(plans[n - 1]) for n in deep if plans[n - 1].picture.kind == kind), default=0
+    )
 
 
 def asked_kind(plans: list[_Plan]) -> list[int]:
@@ -4668,6 +4688,109 @@ def _passed_why(plans: list[_Plan], number: int, numbers: list[int]) -> str:
     if number not in alive_numbers(plans, numbers):
         return f"рой у неё мёртв - сидов {life}"
     return f"у неё всего одна раздача, а тут их {len(plans[number - 1].ranked)}"
+
+
+def understudy(plans: list[_Plan], failed: _Plan) -> _Plan | None:
+    """🔴 TC-203. Живая ТЁЗКА выбранной картины - та, которой показ доиграет вместо неё.
+
+    У выбранной картины кончились все раздачи, а рядом в меню стоит одноимённая живая -
+    и человек читал отказ. Замер каталога: 6 отказов из 115, и самый наглядный -
+    «Человек-невидимка»: дефолт садился на 1933 год (формально живой, играть нечем) при
+    живой картине 2020 года в том же меню. Отказ там был честен про картину и неправдой
+    про вечер: кино с этим именем в каталоге есть, и оно играет.
+
+    Тёзка - это ровно ТО ЖЕ НАЗВАНИЕ (:func:`_namesake`), а не соседка по франшизе.
+    Разница принципиальная: «Тачки 2» вместо «Тачек» - это другое кино, и уходить туда
+    самому нельзя ни при каком отказе (о таких соседях говорит подсказка
+    :func:`kin_line`, и она остаётся подсказкой). А «Человек-невидимка» 1933 и 2020 -
+    это одна вещь, снятая дважды: имя человек назвал верно, промахнулись мы годом.
+
+    Тип тоже обязан совпасть: полнометражка и одноимённый сериал - разные вещи, и
+    подменять одно другим молча нельзя ровно по той же причине, по какой этого не делает
+    дефолт (:func:`backed`).
+
+    Круг ровно один: берём самую живую из тёзок. Лишний заход стоит человеку секунд, и
+    платить их за перебор всего меню незачем - если и она не сыграет, честный отказ
+    честнее долгого перебора.
+    """
+    number = next((n for n, plan in enumerate(plans, start=1) if plan.picture is failed.picture), 0)
+    if number == 0:
+        return None
+    twins = [
+        n
+        for n in alive_numbers(plans, list(range(1, len(plans) + 1)))
+        if n != number
+        and _namesake(plans, n, number)
+        and plans[n - 1].picture.kind == failed.picture.kind
+    ]
+    if not twins:
+        return None
+    return plans[max(twins, key=lambda n: liveliness(plans[n - 1])) - 1]
+
+
+def _played(
+    bench: _Bench,
+    plans: list[_Plan],
+    plan: _Plan,
+    args: Args,
+    progress: Progress,
+    facts: Facts | None,
+    config: Config,
+    profile: Profile,
+) -> tuple[_Plan, _Prep]:
+    """Отбор релиза выбранной картины, а нечем играть - её живой тёзки (:func:`understudy`).
+
+    🔴 TC-203. Отдельной функцией это стоит затем, что уход к тёзке - смена КАРТИНЫ, и
+    смена эта обязана быть проверяемой отдельно от всего пути показа: печатается строка,
+    пишется след, план подменяется целиком (вместе с длительностью из справки и порядком
+    прогретого). Возвращается пара «чем в итоге играем» - вызывающему нужны обе половины.
+
+    Кругов ровно два: выбранная картина и одна тёзка. Дальше - честный отказ: перебирать
+    меню целиком дороже, чем сказать правду, а цель пути - десять секунд до картинки.
+    """
+    try:
+        return plan, bench.resolve(plan, args, progress)
+    except NotFoundError as refusal:
+        spare = understudy(plans, plan)
+        if spare is None:
+            raise
+        why = _why_refused(refusal)
+        print(understudy_note(plan, spare, why))
+        trace.emit(
+            "select",
+            "switch",
+            **{"from": plan.picture.title, "to": spare.picture.title, "why": why},
+        )
+    # Тёзке достаётся ровно то же, что досталось бы ей после меню: своя длительность из
+    # справки и свой порядок прогретого (:func:`_timed`, :meth:`_Bench.reorder`).
+    spare = bench.reorder(spare, _timed(spare, facts, args, config, profile))
+    bench.keep_plan(spare)
+    return spare, bench.resolve(spare, args, progress)
+
+
+def understudy_note(failed: _Plan, spare: _Plan, why: str) -> str:
+    """Одна строка про уход к тёзке (:func:`understudy`) - печатается ВСЕГДА.
+
+    Уход к тёзке - это смена картины, то есть ровно то, о чём молчать нельзя
+    (:func:`default_note`). Строка называет обе стороны с годами и причину, по которой
+    первая не сыграла: без причины это выглядело бы как каприз показа, а с ней человек
+    видит, что выбор был сделан за него не от лени.
+    """
+    return (
+        f"«{_named(failed.picture)}» - играть нечем ({why}); "
+        f"ухожу к «{_named(spare.picture)}»: раздач {len(spare.ranked)}"
+    )
+
+
+def _why_refused(refusal: NotFoundError) -> str:
+    """Голова отказа - без списка приговоров и без подсказки про соседей.
+
+    В отказе есть всё: перечень осуждённых релизов, совет выбрать руками, строка
+    :func:`kin_line`. В строке ухода к тёзке нужна ровно причина, потому что совет
+    «выбери руками» после автоматического ухода уже неправда.
+    """
+    head = str(refusal).splitlines()[0]
+    return _cut(head.split(":")[0].strip(), 60)
 
 
 def _namesake(plans: list[_Plan], number: int, picked: int) -> bool:

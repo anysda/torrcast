@@ -995,6 +995,97 @@ def test_full_latin_name_does_not_merge_namesakes() -> None:
     assert [p.title for p in pick_franchise("Predator: Origins", pictures)] == ["Хищник"]
 
 
+def test_the_number_sign_is_punctuation_and_not_two_latin_letters() -> None:
+    """🔴 TC-192. «Легенда №17» и запрос «легенда 17» - одна и та же картина.
+
+    Номер каталог вводит знаком «№», а человек его не набирает вовсе. Знак этот Unicode
+    раскладывает в две ЛАТИНСКИЕ буквы (``NFKC``: ``№`` → ``No``), и картина получала имя
+    «Легенда No17» с ключом ``легенда-no17``: с ``легенда-17`` он не сходится ни строкой,
+    ни словами, ни цифрами. Дальше семнадцать съедал разбор номера части - франшиза
+    «легенда», семнадцатой части в ней нет и быть не может, - и человек читал «номера 17
+    нет» при живой картине в девять десятков сидов. Тот же шов резал «Палату №6».
+    """
+    assert slugify("Легенда №17") == slugify("Легенда 17") == "легенда-17"
+    assert parse_release_name("Легенда №17 (2013) BDRip 1080p").title == "Легенда 17"
+    assert parse_release_name("Палата №6 (2009) DVDRip").title == "Палата 6"
+
+    pictures = cluster(
+        [
+            _release("Легенда 17", 2013, seeders=90),
+            _release("Легенда", 2015, original="Legend", seeders=30),
+        ]
+    )
+    assert [(p.title, p.year) for p in pick_franchise("легенда 17", pictures)] == [
+        ("Легенда 17", 2013)
+    ]
+    # Имя без номера остаётся именем франшизы - обе картины, как и было.
+    assert len(pick_franchise("легенда", pictures)) == 2
+
+
+def test_a_tank_model_is_not_the_thirty_fourth_part_of_a_franchise() -> None:
+    """🔴 TC-192. «Т-34» - марка танка, а не тридцать четвёртая часть серии «Т».
+
+    Хвостовое число резалось как номер части, и от названия оставалась ОДНА БУКВА: ключ
+    франшизы ``т``, номер части 34. Соседями картине в такой франшизе становится любой
+    другой однобуквенный огрызок, а номер пункта меню человек читает как номер части.
+    Франшизы из одной буквы не бывает - на этом правило и стоит.
+
+    Строка «т 34», набранная через пробел, приходит к той же картине: номера 34 во
+    франшизе нет, а вся строка целиком - имя, которым каталог картину и подписал.
+    """
+    assert part_number("Т-34") is None
+    assert franchise_key("Т-34") == "т-34"
+    pictures = cluster(
+        [
+            _release("Т-34", 2018, original="T-34", seeders=120),
+            _release("Т-34", 2018, original="T-34", seeders=60),
+        ]
+    )
+    for query in ("т-34", "т 34", "T-34"):
+        assert [p.title for p in pick_franchise(query, pictures)] == ["Т-34"], query
+
+
+def test_a_number_the_franchise_never_had_is_still_an_honest_empty_answer() -> None:
+    """Ограждение к возврату «цифра была частью имени»: где номер - номер, там он и есть.
+
+    Возврат к целой строке разрешён только при ПОЛНОМ совпадении с именем из каталога.
+    Иначе «матрица 7» находила бы франшизу вхождением и вместо честного «номера 7 нет»
+    выкладывала всю линейку - то есть отвечала бы на вопрос, которого не задавали.
+    """
+    pictures = cluster(
+        [
+            _release("Матрица", 1999, original="The Matrix", seeders=139),
+            _release("Матрица: Перезагрузка", 2003, original="The Matrix Reloaded", seeders=48),
+        ]
+    )
+    assert pick_franchise("матрица 7", pictures) == [], "седьмой «Матрицы» нет - и врать нечем"
+    assert [p.title for p in pick_franchise("матрица 2", pictures)] == ["Матрица: Перезагрузка"]
+
+
+def test_brother_two_is_the_year_two_thousand_and_not_a_fresh_namesake() -> None:
+    """🔴 TC-192. «Брат 2» - фильм 2000 года, а не свежая тёзка первой части.
+
+    В выдаче рядом лежат три картины под двумя именами, и в меню они отличаются одним
+    годом в скобках. Номер части, названный вслух самим каталогом, сильнее позиции в
+    хронологии (:func:`~torrcast.parse._numbered`) - им картина и выбирается; год же
+    выбранной картины сверяет со справкой уже гейт года (TC-199/TC-200), потому что имя
+    раздачи врёт и про него.
+    """
+    pictures = cluster(
+        [
+            _release("Брат", 1997, original="Brat", seeders=90),
+            _release("Брат 2", 2000, original="Brat 2", seeders=80),
+            _release("Брат", 2025, seeders=400),
+        ]
+    )
+    assert [(p.title, p.year) for p in pick_franchise("брат 2", pictures)] == [("Брат 2", 2000)]
+    assert [(p.title, p.year) for p in pick_franchise("брат", pictures)] == [
+        ("Брат", 1997),
+        ("Брат 2", 2000),
+        ("Брат", 2025),
+    ]
+
+
 def test_seasons_named_reads_only_what_names_said() -> None:
     """TC-154: сезоны картины - это то, что назвали ИМЕНА раздач, и ничего сверх.
 

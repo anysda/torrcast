@@ -665,11 +665,22 @@ def wire_query(query: str) -> str:
     return _GLUE.sub(" ", query)
 
 
+#: «№» перед числом - знак препинания, а не буквы: каталог вводит им номер, человек его
+#: не набирает вовсе.
+#:
+#: 🔴 Убирается ДО ``NFKC``, и это весь смысл правила. Нормализация раскладывает U+2116 в
+#: две латинские буквы, и «Легенда №17» становится «Легенда No17»: слаг ``легенда-no17``
+#: с запросом «легенда 17» не сходится ни строкой, ни словами, ни цифрами, и картина
+#: терялась целиком при живой выдаче в девять десятков сидов. То же ждало «Палату №6».
+_NUMERO_RE: Final = re.compile(r"\s*№\s*(?=\d)")
+
+
 def slugify(text: str) -> str:
     """Название → ключ состояния: нижний регистр, дефисы, без мусора; кириллица
     сохраняется, ключи русские (``movie:матрица:1999``).
     """
-    normalized = unicodedata.normalize("NFKC", text).casefold().replace("ё", "е")
+    plain = _NUMERO_RE.sub(" ", text)
+    normalized = unicodedata.normalize("NFKC", plain).casefold().replace("ё", "е")
     return re.sub(r"[^0-9a-zа-я]+", "-", normalized).strip("-")
 
 
@@ -718,6 +729,14 @@ def in_digits(slug: str) -> str:
     return "-".join(_NUMERALS.get(word, word) for word in slug.split("-"))
 
 
+#: Сколько знаков обязано остаться от названия, чтобы хвостовое число считалось номером
+#: части. Франшизы из одной буквы не бывает: «Т-34» - это марка танка, а не тридцать
+#: четвёртая часть серии «Т». Без порога картина уезжала во франшизу с ключом ``т``, где
+#: ей соседями становились любые другие однобуквенные огрызки, а номером пункта меню -
+#: тридцать четыре.
+_FRANCHISE_MIN: Final = 2
+
+
 def franchise_key(title: str) -> str:
     """Каноническое имя франшизы: «Матрица: Перезагрузка» и «Тачки 3» → одна серия.
     Режем подзаголовок после двоеточия и хвостовой номер части — именно они
@@ -737,9 +756,11 @@ def franchise_name(title: str) -> str:
     """
     base = re.split(r"\s*:\s*|\.\s+|,\s+или\s+", title.strip(), maxsplit=1)[0]
     # Хвост «3», «- 8», «II», а также диапазон «1-4» у сборников.
-    base = re.sub(
+    cut = re.sub(
         r"[\s,-]+(?:\d{1,2}(?:\s*[-,]\s*\d{1,2})*|[ivx]{1,4})\s*$", "", base, flags=re.IGNORECASE
     )
+    if len(cut.rstrip(" -")) >= _FRANCHISE_MIN:
+        base = cut
     return base.rstrip(" -")
 
 
@@ -748,6 +769,8 @@ def part_number(title: str) -> int | None:
     match = _PART_NUMBER_RE.match(title.strip())
     if not match:
         return None
+    if len(title[: match.start(1)].rstrip(" ,-")) < _FRANCHISE_MIN:
+        return None  # «Т-34», «В-2»: это марка, а не тридцать четвёртая часть франшизы
     if re.search(r"\d\s*[-,]\s*$", title[: match.start(1)]):
         return None  # «Форсаж 1-4», «Матрица 1,2,3» - это диапазон, а не номер части
     token = match.group(1).lower()
@@ -1515,7 +1538,11 @@ def pick_franchise(query: str, pictures: list[Picture]) -> list[Picture]:
     # ключи ищутся ещё и в цифровой записи (:func:`in_digits`).
     digits = {in_digits(key): key for key in groups}
 
-    def lookup(name: str) -> str | None:
+    def named(name: str) -> str | None:
+        """Ключ, которым каталог подписал картину ЦЕЛИКОМ: та же строка, её латинский
+        двойник или она же цифрами. Нестрогих ступеней тут нет нарочно - на этот ответ
+        опирается разбор «имя это или номер части» (:data:`_TITLE_NUMBER_RE` ниже).
+        """
         wanted = slugify(name)
         if not wanted:
             return None
@@ -1525,6 +1552,14 @@ def pick_franchise(query: str, pictures: list[Picture]) -> list[Picture]:
             return aliases[wanted]
         if (counted := in_digits(wanted)) in digits:
             return digits[counted]
+        return None
+
+    def lookup(name: str) -> str | None:
+        if (exact := named(name)) is not None:
+            return exact
+        wanted = slugify(name)
+        if not wanted:
+            return None
         if hits := [k for k in groups if wanted in k]:
             return min(hits, key=len)
         # Порядок слов и союзы - на совести человека, а не каталога (:func:`_by_words`).
@@ -1548,7 +1583,20 @@ def pick_franchise(query: str, pictures: list[Picture]) -> list[Picture]:
             items, index = _by_subtitle(query, pictures), None
         return _numbered(items, index)
 
-    return _numbered(_both_languages(groups, aliases, key), index)
+    items = _numbered(_both_languages(groups, aliases, key), index)
+    if not items and index is not None and (whole := named(query)) is not None:
+        # 🔴 Номера в этой франшизе нет, а вся строка целиком - имя картины в каталоге:
+        # значит цифра была частью названия. «Легенда 17» уходила во франшизу «легенда»
+        # за семнадцатой частью, которой нет и быть не может, и человек читал «картин во
+        # франшизе 2, номера 17 нет» при живой картине на девять десятков сидов. Тот же
+        # класс, что «Kill Bill: Vol. 1», только показателя перед цифрой тут нет вовсе -
+        # ручается за пару сам каталог, подписавший картину ровно этой строкой.
+        #
+        # Совпадение требуется ПОЛНОЕ (:func:`named`, без нестрогих ступеней): иначе
+        # «матрица 7» находила бы франшизу вхождением и вместо честного «номера 7 нет»
+        # выкладывала всю линейку.
+        items = _both_languages(groups, aliases, whole)
+    return items
 
 
 def _numbered(items: list[Picture], index: int | None) -> list[Picture]:
@@ -1633,7 +1681,9 @@ def _both_languages(
 
 
 def _normalize(name: str) -> str:
-    text = unicodedata.normalize("NFKC", name).replace("\xa0", " ")
+    # «№» снимается до NFKC, иначе он станет буквами «No» и прирастёт к числу
+    # (:data:`_NUMERO_RE`): и в ключе, и в имени картины на экране.
+    text = unicodedata.normalize("NFKC", _NUMERO_RE.sub(" ", name)).replace("\xa0", " ")
     text = text.replace("–", "-").replace("—", "-").replace("‐", "-")
     text = re.sub(r"(\d{3,4})\s*р\b", r"\1p", text)  # 720р (кириллица) → 720p
     return re.sub(r"\s+", " ", text).strip()
