@@ -209,3 +209,27 @@ def test_all_indexers_silent_is_infra_not_empty_result() -> None:
     """Молчат все до одного - это отказ инфраструктуры, а не «ничего не нашлось»."""
     with pytest.raises(InfraError, match="не отвечает"):
         _swarm(mute_all=True).search("матрица")
+
+
+def test_wire_query_разводит_склеенные_знаком_слова() -> None:
+    """TC-129: Prowlarr вырезает такой знак, не ставя пробела, и в индексер уходит
+    несуществующее слово ``SteinsGate`` - ноль строк там, где их 96."""
+    from torrcast.parse import wire_query
+
+    assert wire_query("Steins;Gate") == "Steins Gate"
+    assert wire_query("Fate/Zero") == "Fate Zero"
+
+
+def test_wire_query_не_трогает_живые_знаки() -> None:
+    """Точка, дефис и апостроф до индексера доезжают целыми, и выдача по ним живая."""
+    from torrcast.parse import wire_query
+
+    for query in ("F.R.I.E.N.D.S.", "WALL-E", "Ocean's Eleven", "Fast & Furious", "Amélie"):
+        assert wire_query(query) == query
+
+
+def test_поисковый_url_несёт_запрос_без_склейки() -> None:
+    """На проводе - разведённая форма: иначе санитайзер Prowlarr склеит слова."""
+    url = Prowlarr("http://p", "k")._url("Steins;Gate", 100)
+    assert "query=Steins%20Gate" in url
+    assert "%3B" not in url

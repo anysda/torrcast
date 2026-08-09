@@ -174,11 +174,16 @@ class Prowlarr:
         return results
 
     def _url(self, query: str, limit: int, indexer: int | None = None) -> str:
+        from torrcast.parse import wire_query
+
         cats = "".join(f"&categories={c}" for c in _CATEGORIES)
         one = f"&indexerIds={indexer}" if indexer is not None else ""
+        # Спрашиваем ровно то, что просили, но в форме, которую переживёт санитайзер
+        # Prowlarr (:func:`~torrcast.parse.wire_query`, TC-129). Само название человеку
+        # не переписываем: в сообщениях и ключах состояния остаётся исходный запрос.
         return (
             f"{self.base_url}{_SEARCH_PATH}?apikey={quote(self.apikey)}"
-            f"&query={quote(query)}&type=search&limit={limit}{cats}{one}"
+            f"&query={quote(wire_query(query))}&type=search&limit={limit}{cats}{one}"
         )
 
     def _apart(self, query: str, limit: int) -> list[RawResult] | None:
