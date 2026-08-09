@@ -49,6 +49,8 @@ __all__ = [
     "PILOT_TIMEOUT",
     "RECODE_CODECS",
     "RUNTIME_GUESS",
+    "STUDIOS",
+    "VOICE_KINDS",
     "AudioTrack",
     "Feed",
     "FilmKeys",
@@ -56,6 +58,7 @@ __all__ = [
     "HlsServer",
     "Media",
     "Packer",
+    "Studio",
     "Supply",
     "TorrFile",
     "TorrServer",
@@ -85,6 +88,7 @@ __all__ = [
     "shelf_weight",
     "start_play_unit",
     "stop_play_unit",
+    "studio_of",
     "timeline_shift",
     "unit_active",
     "unit_key",
@@ -433,16 +437,134 @@ _ORIGINAL_RE: Final = re.compile(r"original|\borig\b|ориг", re.IGNORECASE)
 #: Регексы писаны по живой выдаче: «Дубляж. (MovieDalen)», «MVO (LostFilm)»,
 #: «[TVShows][MVO]», «DUB-Blu-ray CEE», «MVO-студия «Омикрон»», «AVO-Сербин», «VO-Есарев».
 _VOICE_STEPS: Final[tuple[tuple[str, re.Pattern[str]], ...]] = (
-    ("дубляж", re.compile(r"дубляж|дублир|\bdub\b|\bдб\b", re.IGNORECASE)),
+    (
+        "дубляж",
+        re.compile(
+            r"дубляж|дублир|\bdub(?:bed|bing)?\b|\bдб\b|лицензи|itunes|professional\s*dub",
+            re.IGNORECASE,
+        ),
+    ),
     ("многоголосый", re.compile(r"многоголос|закадр|\bmvo\b|\bпм\b|\bлм\b", re.IGNORECASE)),
     ("двухголосый", re.compile(r"двухголос|\bdvo\b|\bдвг\b", re.IGNORECASE)),
     ("одноголосый", re.compile(r"одноголос|авторск|\bavo\b|\bvo\b|\bло\b|\bап\b", re.IGNORECASE)),
 )
+#: Имена ступеней в порядке лестницы - для таблицы студий и строк человеку.
+VOICE_KINDS: Final[tuple[str, ...]] = tuple(name for name, _ in _VOICE_STEPS)
 #: Ступени, на которые встаёт нерусская дорожка и служебная.
 STEP_RU_PLAIN: Final = len(_VOICE_STEPS)  #: русская без маркера перевода
 STEP_ORIGINAL: Final = STEP_RU_PLAIN + 1  #: оригинал
 STEP_FOREIGN: Final = STEP_RU_PLAIN + 2  #: чужой дубляж: украинский, казахский
 STEP_SERVICE: Final = STEP_RU_PLAIN + 3  #: тифлокомментарий и комментарии
+
+
+@dataclass(frozen=True, slots=True)
+class Studio:
+    """Что мы знаем про студию озвучки: как её звать и какой перевод она делает.
+
+    ``fame`` - место студии внутри своей ступени, больше = ближе к дефолту. Сегодня он у
+    всех нулевой намеренно: ранжир «крутости» - отдельная работа, а порядок внутри
+    ступени пока остаётся авторским (:func:`voice_order`). Поле стоит здесь, чтобы
+    ранжир лёг одной правкой ОДНОЙ таблицы, а не новым проходом по коду.
+    """
+
+    kind: str  #: ступень из :data:`VOICE_KINDS`
+    name: str = ""  #: как называть студию вслух; пусто - как записана ключом
+    fame: int = 0  #: вес внутри ступени; 0 - «просто известная студия»
+
+
+#: 🔴 ЖИВАЯ таблица студий: подпись в заголовке дорожки → ступень лестницы. Правится
+#: здесь и только здесь.
+#:
+#: Нужна затем, что половина раздач подписывает дорожки НЕ ступенью, а студией: у
+#: «Барби» все русские дорожки - «LostFilm», «TVShows», «Bravo Records Georgia», и ни
+#: слова про дубляж. Без таблицы все они вставали на одну ступень «русская без метки», и
+#: выбор сводился к порядку дорожек в файле - то есть к случайности.
+#:
+#: ⚠️ Таблица заведомо неполная и будет протухать: студии появляются и переименовываются
+#: быстрее, чем правится код. Поэтому НЕЗНАКОМАЯ студия не роняет выбор и ничего не
+#: ломает - она просто не поднимает дорожку выше «русской без метки». Цена ошибки в
+#: одну сторону (не узнали хорошую студию) - прежнее поведение; в другую (записали не в
+#: ту ступень) - слышимая подмена, поэтому вписывать сюда наугад нельзя.
+#:
+#: Ключ - имя студии в нижнем регистре, сравнение по словам (:func:`studio_of`), так что
+#: «MVO (LostFilm)», «[TVShows][MVO]» и «Дубляж. (MovieDalen)» попадают все.
+STUDIOS: Final[dict[str, Studio]] = {
+    # --- полный дубляж ---
+    "невафильм": Studio("дубляж", "Невафильм"),
+    "nevafilm": Studio("дубляж", "Невафильм"),
+    "мосфильм": Studio("дубляж", "Мосфильм-мастер"),
+    "пифагор": Studio("дубляж", "Пифагор"),
+    "кириллица": Studio("дубляж", "Кириллица"),
+    "sdi media": Studio("дубляж", "SDI Media"),
+    "iyuno": Studio("дубляж", "Iyuno"),
+    "русский дубляж": Studio("дубляж", "Русский дубляж"),
+    "moviedalen": Studio("дубляж", "MovieDalen"),
+    "movie dubbing": Studio("дубляж", "Movie Dubbing"),
+    "amazing dubbing": Studio("дубляж", "Amazing Dubbing"),
+    "red head sound": Studio("дубляж", "Red Head Sound"),
+    "flarrow films": Studio("дубляж", "Flarrow Films"),
+    "jaskier": Studio("дубляж", "Jaskier"),
+    "timecraft": Studio("дубляж", "Timecraft"),
+    "реанимедиа": Studio("дубляж", "Реанимедиа"),
+    "reanimedia": Studio("дубляж", "Реанимедиа"),
+    # --- многоголосый закадровый ---
+    "lostfilm": Studio("многоголосый", "LostFilm"),
+    "tvshows": Studio("многоголосый", "TVShows"),
+    "hdrezka": Studio("многоголосый", "HDRezka Studio"),
+    "hdrezka studio": Studio("многоголосый", "HDRezka Studio"),
+    "newstudio": Studio("многоголосый", "NewStudio"),
+    "alexfilm": Studio("многоголосый", "AlexFilm"),
+    "baibako": Studio("многоголосый", "BaibaKo"),
+    "байбако": Studio("многоголосый", "BaibaKo"),
+    "coldfilm": Studio("многоголосый", "ColdFilm"),
+    "novafilm": Studio("многоголосый", "NovaFilm"),
+    "амедиа": Studio("многоголосый", "Амедиа"),
+    "viruseproject": Studio("многоголосый", "ViruseProject"),
+    "1win": Studio("многоголосый", "1win Studio"),
+    "студийная банда": Studio("многоголосый", "Студийная банда"),
+    "studio band": Studio("многоголосый", "Студийная банда"),
+    "shiza": Studio("многоголосый", "SHIZA Project"),
+    "anilibria": Studio("многоголосый", "AniLibria"),
+    "anidub": Studio("многоголосый", "AniDub"),
+    "animevost": Studio("многоголосый", "AnimeVost"),
+    "anifilm": Studio("многоголосый", "AniFilm"),
+    # --- двухголосый закадровый ---
+    "кубик в кубе": Studio("двухголосый", "Кубик в Кубе"),
+    "дядюшка шурик": Studio("двухголосый", "Дядюшка Шурик"),
+    "gears media": Studio("двухголосый", "Gears Media"),
+    # --- одноголосый и авторский ---
+    "гоблин": Studio("одноголосый", "Гоблин"),
+    "пучков": Studio("одноголосый", "Гоблин"),
+    "кураж бамбей": Studio("одноголосый", "Кураж-Бамбей"),
+    "сыендук": Studio("одноголосый", "Сыендук"),
+    "гаврилов": Studio("одноголосый", "Гаврилов"),
+    "володарский": Studio("одноголосый", "Володарский"),
+    "михалёв": Studio("одноголосый", "Михалёв"),
+    "михалев": Studio("одноголосый", "Михалёв"),
+    "живов": Studio("одноголосый", "Живов"),
+    "сербин": Studio("одноголосый", "Сербин"),
+    "визгунов": Studio("одноголосый", "Визгунов"),
+    "есарев": Studio("одноголосый", "Есарев"),
+    "ancord": Studio("одноголосый", "Ancord"),
+}
+#: Всё, что не буква и не цифра, - разделитель слов: «[TVShows][MVO]», «AVO-Сербин»,
+#: «Дубляж. (MovieDalen)» подписаны одной и той же студией, а разделены по-разному.
+_WORDS_RE: Final = re.compile(r"[^0-9a-zа-яё]+", re.IGNORECASE)
+
+
+def studio_of(title: str | None) -> Studio | None:
+    """Студия из заголовка дорожки по :data:`STUDIOS`; ``None`` — незнакомая или её нет.
+
+    Сравниваем по словам, а не подстрокой: иначе «Ancord» нашёлся бы в любом слове,
+    которое его содержит. Из нескольких совпадений берём самое длинное имя - «HDRezka
+    Studio» точнее, чем «HDRezka», и если однажды они разъедутся по ступеням, победит
+    более подробная запись.
+    """
+    words = f" {_WORDS_RE.sub(' ', (title or '').casefold()).strip()} "
+    hit = [key for key in STUDIOS if f" {key} " in words]
+    return STUDIOS[max(hit, key=len)] if hit else None
+
+
 #: Технический хвост заголовка: «DUB (Rus) / AC3 / 6 ch / 384 kbps / 48 kHz». Человеку
 #: в строке запуска он не нужен, а подписью озвучки (она же ключ памяти) быть мешает.
 _TECH_RE: Final = re.compile(
@@ -505,13 +627,29 @@ class AudioTrack:
         if lang not in _VAGUE_LANG:  # язык назван, и он не русский - заголовок не спорит
             return False
         title = self.title or ""
-        return bool(_RU_TITLE_RE.search(title)) and not _FOREIGN_TITLE_RE.search(title)
+        # Знакомая студия - тоже улика русской дорожки, и часто единственная: у «Барби»
+        # заголовок русской дорожки состоит из имени студии целиком («TVShows»).
+        named = _RU_TITLE_RE.search(title) or studio_of(title) is not None
+        return bool(named) and not _FOREIGN_TITLE_RE.search(title)
+
+    @property
+    def studio(self) -> Studio | None:
+        """Знакомая студия из заголовка (:func:`studio_of`); ``None`` — не узнали."""
+        return studio_of(self.title)
 
     @property
     def kind(self) -> str:
-        """Вид перевода словами: ``дубляж``, ``многоголосый``…; пусто — маркера нет."""
+        """Вид перевода словами: ``дубляж``, ``многоголосый``…; пусто — маркера нет.
+
+        Сперва спрашиваем сам заголовок, и только потом таблицу студий: «MVO. (Jaskier)»
+        - это многоголосый, хотя дубляжи Jaskier делает тоже. Что дорожка про себя
+        написала, всегда точнее, чем что мы знаем про студию вообще.
+        """
         title = self.title or ""
-        return next((name for name, rx in _VOICE_STEPS if rx.search(title)), "")
+        if named := next((name for name, rx in _VOICE_STEPS if rx.search(title)), ""):
+            return named
+        studio = self.studio
+        return studio.kind if studio else ""
 
     @property
     def step(self) -> int:
@@ -525,13 +663,17 @@ class AudioTrack:
         return next(steps, STEP_RU_PLAIN)
 
 
-def voice_order(track: AudioTrack) -> tuple[int, int]:
-    """Место дорожки в очереди на дефолт: ступень, а при равной ступени — порядок в файле.
+def voice_order(track: AudioTrack) -> tuple[int, int, int]:
+    """Место дорожки в очереди на дефолт: ступень, вес студии, порядок в файле.
 
     Порядок внутри ступени берём авторский: сборщик раздачи кладёт первой ту озвучку,
     которую сам считает основной («Моана 2»: три дубляжа подряд, первым MovieDalen).
+    Вес студии (:attr:`Studio.fame`) стоит между ними и сегодня ни на что не влияет -
+    он нулевой у всех: ранжир «крутости» - отдельная работа, и ляжет он в
+    :data:`STUDIOS`, не сюда.
     """
-    return (track.step, track.index)
+    studio = track.studio
+    return (track.step, -(studio.fame if studio else 0), track.index)
 
 
 @dataclass(slots=True)
