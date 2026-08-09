@@ -46,6 +46,34 @@ def test_emit_schema(tmp_path: Path) -> None:
     assert isinstance(rec["pid"], int)
 
 
+def test_two_show_sessions_are_unambiguously_selected_in_one_log(tmp_path: Path) -> None:
+    """Две серии одного вызова получают разные метки и не смешиваются при отборе."""
+    first = trace.start_session()
+    trace.emit("session", "session_start", title="первая", pos=0.0)
+    trace.emit("play", "buffering", pos=12.0)
+    trace.emit("session", "session_end", pos=60.0, dur=60.0, watched=True)
+    second = trace.start_session()
+    trace.emit("session", "session_start", title="вторая", pos=0.0)
+    trace.emit("play", "buffering", pos=34.0)
+    trace.emit("session", "session_end", pos=50.0, dur=50.0, watched=True)
+    trace.shutdown()
+
+    rows = trace.records()
+    selected = [row for row in rows if row["sid"] == first]
+    journal = [
+        f"[сеанс {first}] экран: 0:12 из 1:00 · BUFFERING",
+        f"[сеанс {second}] экран: 0:34 из 0:50 · BUFFERING",
+    ]
+    shown = [line for line in journal if f"[сеанс {first}]" in line]
+    assert first != second
+    assert [row["event"] for row in selected] == ["session_start", "buffering", "session_end"]
+    assert {row["sid"] for row in selected} == {first}
+    assert shown == [f"[сеанс {first}] экран: 0:12 из 1:00 · BUFFERING"]
+    digest = trace.digest(rows, limit=0)
+    assert f"сеанс {first}" in digest and f"сеанс {second}" in digest
+    assert digest.count("итог: ребуферов 1; досмотрено") == 2
+
+
 def test_records_reads_and_orders(tmp_path: Path) -> None:
     """`records` собирает ленту по каталогу и сортирует по времени, фильтруя по `since`."""
     trace.emit("play", "segment", slot=1)

@@ -55,6 +55,7 @@ __all__ = [
     "session_id",
     "shutdown",
     "skew",
+    "start_session",
     "warmth",
 ]
 
@@ -74,6 +75,9 @@ _SUFFIX: Final = ".jsonl"
 #: Очередь ограничена: если фоновый писатель отстаёт, запись роняется, но показ - никогда.
 _QUEUE_MAX: Final = 4096
 _BATCH: Final = 256
+_session_seq = 0
+_session_root = ""
+_last_session = ""
 
 
 def log_dir() -> Path:
@@ -98,6 +102,24 @@ def session_id() -> str:
     if not sid:
         sid = f"{int(time.time())}-{os.getpid()}"
         os.environ[SID_ENV] = sid
+    return sid
+
+
+def start_session() -> str:
+    """Начать отдельный сеанс показа и вернуть его идентификатор.
+
+    Вызывается один раз на границе фильма или серии, не из горячего пути. Родительский
+    идентификатор сохраняет связь с вызовом ``cast``, суффикс не даёт сериям склеиться.
+    """
+    global _last_session, _session_root, _session_seq
+    current = os.environ.get(SID_ENV, "")
+    if current != _last_session:
+        _session_root = current or f"{int(time.time())}-{os.getpid()}"
+        _session_seq = 0
+    _session_seq += 1
+    sid = f"{_session_root}.{_session_seq}"
+    os.environ[SID_ENV] = sid
+    _last_session = sid
     return sid
 
 
@@ -475,8 +497,9 @@ def _clock(at: float) -> str:
 def digest(rows: list[dict[str, Any]], limit: int = 3) -> str:
     """Читаемая выжимка последних сеансов: что искали, что взяли, ребуферы и ошибки.
 
-    Сеанс - все записи с одним ``sid`` (:func:`session_id` держит его общим у команды и
-    юнита). Порядок - от свежих; ``limit`` ограничивает число сеансов, ``0`` - все.
+    Сеанс - все записи с одним ``sid``. Каждая серия начинает новый идентификатор через
+    :func:`start_session`. Порядок - от свежих; ``limit`` ограничивает число сеансов,
+    ``0`` - все.
     """
     if not rows:
         return "следа нет - за неделю ни одного сеанса"
@@ -523,7 +546,7 @@ def _session_block(sid: str, rows: list[dict[str, Any]]) -> str:
     lines: list[str] = []
     query = next((r for r in rows if r.get("event") == "query"), None)
     title = query.get("query") if query else None
-    head = f"сеанс {_clock(began)}"
+    head = f"сеанс {sid} · {_clock(began)}"
     if title:
         head += f" · «{title}»"
     lines.append(head)

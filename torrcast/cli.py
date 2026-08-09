@@ -1051,6 +1051,8 @@ def _worker_loop(
         entry = _duration(key, entry, source)
         watch = Watch(key=key, entry=entry)
         title = " ".join(filter(None, (entry.title, entry.label)))
+        sid = trace.start_session()
+        journal = f"[сеанс {sid}]"
         # Профиль идёт в след каждой серией: по какому набору порогов играли - вопрос,
         # который иначе снова пришлось бы выяснять с гипервизора.
         trace.emit(
@@ -1060,7 +1062,7 @@ def _worker_loop(
             pos=round(entry.pos, 1),
             profile=profile.key,
         )
-        print(f"показ «{title}» с {_hms(entry.pos)}", flush=True)
+        print(f"{journal} показ «{title}» с {_hms(entry.pos)}", flush=True)
         code = _play(
             config,
             source,
@@ -1081,6 +1083,7 @@ def _worker_loop(
             follow=partial(_next_warmer, config, torrserver, torrent_hash, entry, profile),
             supply=supply,
             profile=profile,
+            journal=journal,
         )
         following = _following(key) if watch.done else None
         if following is None:
@@ -4357,6 +4360,7 @@ def _play(
     profile: Profile = CAUTIOUS,
     frame: int = 0,
     hdr: bool = False,
+    journal: str = "",
 ) -> int:
     """Упаковка → раздача по http на голом IP → приёмник. Своих демонов нет: и ffmpeg,
     и раздача живут ровно на время показа и гасятся вместе с ним, что бы ни случилось.
@@ -4383,6 +4387,7 @@ def _play(
     length = watch.entry.dur if watch else duration
     tls = config.transport == "https"
     video_mbit = max(0.0, watch.entry.vbps) if watch else 0.0
+    journal = journal or f"[сеанс {trace.session_id()}]"
     # Сетка сегментов снимается с самого файла и дальше не меняется: она же в манифесте,
     # она же в команде ffmpeg. Всё, что показ говорит о времени, считается по ней.
     #
@@ -4487,13 +4492,13 @@ def _play(
         mark("упаковка пошла")
         receiver.play(url, about, at=start)
         mark("LOAD взят")
-        print(f"играю {about} - на ТВ   (старт {clock.total:.0f} с)", flush=True)
+        print(f"{journal} играю {about} - на ТВ   (старт {clock.total:.0f} с)", flush=True)
         # ⚠️ Прогрев стартует ровно ЗДЕСЬ и ни строкой выше: путь до картинки он не
         # удлиняет ни на секунду - ни своим ffmpeg, ни чтением каталога. Всё, что он
         # делает, происходит уже при играющем показе и на остатке процессора.
         if warmer is not None:
             warmer.start()
-        _hold(receiver, feed, watch, warmer, supply, profile)
+        _hold(receiver, feed, watch, warmer, supply, profile, journal=journal)
     finally:
         # Позиция фиксируется при любом исходе, включая SIGTERM, и делается это ПЕРВЫМ
         # делом: показ, доигранный до конца файла, отмечает «досмотрено» ровно здесь, а
@@ -4532,7 +4537,7 @@ def _play(
     report = getattr(receiver, "report", None)
     if report is None:
         return EXIT_OK
-    print(report.line())
+    print(f"{journal} {report.line()}")
     # Серию обрывают намеренно на пороге 95 % - хвост упаковки декодеру и не отдавали.
     if not report.ok and not (watch is not None and watch.done):
         _blame_the_end(supply)
@@ -4848,6 +4853,7 @@ def _hold(
     supply: Supply | None = None,
     profile: Profile = CAUTIOUS,
     clock: Clock = CLOCK,
+    journal: str = "",
 ) -> None:
     """Держим показ: опрос приёмника раз в 2 с, упаковка должна быть жива, из RAM уходит
     только пройденное, сторож раз в 10 с пишет позицию.
@@ -4865,6 +4871,7 @@ def _hold(
     бы терпение приёмника и выдержки между попытками подъёма по-настоящему.
     """
     paused, said, seen = 0.0, 0.0, False
+    journal = journal or f"[сеанс {trace.session_id()}]"
     #: Позиция приёмника с прошлого опроса - от неё считается запас показа. Прошлая, а не
     #: сегодняшняя, потому что запас нужен раньше, чем приходит ответ приёмника, и взять
     #: его больше неоткуда. На решение сторожа это не влияет: нудж срабатывает только
@@ -4958,7 +4965,7 @@ def _hold(
         if show_trace:
             front = feed.front(position.pos)
             print(
-                f"запас: показ {position.pos:.0f} · упаковано {front:.0f} · "
+                f"{journal} запас: показ {position.pos:.0f} · упаковано {front:.0f} · "
                 f"впереди {front - position.pos:.0f} с · {feed.weight() / 1e6:.0f} МБ · "
                 f"расхождение с манифестом {feed.drift():.3f} с · {position.state}",
                 flush=True,
@@ -4975,7 +4982,8 @@ def _hold(
             # Другого доказательства «на ТВ есть таймлайн» у нас нет.
             said = clock.monotonic()
             print(
-                f"экран: {_hms(position.pos)} из {_hms(position.dur)} · {position.state}",
+                f"{journal} экран: {_hms(position.pos)} из {_hms(position.dur)} · "
+                f"{position.state}",
                 flush=True,
             )
             if warmer is not None:
