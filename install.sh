@@ -2,8 +2,12 @@
 # install.sh — установка torrcast на Debian/Ubuntu (в том числе в LXC). Идемпотентен:
 # повторный запуск ничего не ломает и не пересоздаёт то, что уже на месте.
 #
-# Фазы: локаль → зависимости → пакет → TorrServer → Prowlarr → индексеры → конфиг →
-# раздача → приветствие.
+# Фазы: локаль → зависимости → (ffmpeg, TorrServer, Prowlarr, источники - РАЗОМ, в фоне)
+# → пакет → индексеры → конфиг → раздача → приветствие.
+# Порядок фаз в выводе - это порядок, в котором результат каждой впервые понадобился, а
+# не порядок их запуска: всё, что про сеть, идёт параллельно (см. `job_start`).
+# Что первому показу не нужно (индексер на сто секунд, оценки IMDb к меню), доводится
+# уже после «готово» (см. `late_run`) - и об этом сказано строкой, а не молчанием.
 # Ноль регистраций и внешних ключей: apikey Prowlarr генерит сам себе, мы его
 # вычитываем из его же config.xml и кладём в конфиг torrcast.
 #
@@ -132,7 +136,7 @@ KEY_INDEXER="Knaben"
 # Трекеры с логином, капчей или ключом сюда не попадают ни при каких условиях, а
 # semi-private (59 определений) не рассматриваются вовсе: там регистрация.
 
-PHASES="${TORRCAST_PHASES:-locale packages torrcast torrserver sources prowlarr indexers config hls facts motd}"
+PHASES="${TORRCAST_PHASES:-locale packages ffmpeg torrcast torrserver sources prowlarr indexers config hls facts motd}"
 
 #: Локаль. Без UTF-8 в системе консоль крошит кириллицу: русское название приезжает
 #: в `cast` битым ещё до разбора аргументов. Целью берём ru_RU.UTF-8: в C.UTF-8 строки
@@ -181,8 +185,6 @@ SHIMS=(
     # и целиком за 0.9 с. Prowlarr сжатия не просит, шим просит за него.
     'yts.gg|/api/v2/list_movies.json?query_term=matrix&limit=50||named'
 )
-#: Нужно ли засеивать определения индексеров руками - решает фаза `sources`.
-SEED_DEFS=0
 #: Браузерная подпись: без неё часть трекеров отвечает отказом ещё на пробе.
 UA="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122 Safari/537.36"
 
@@ -209,6 +211,84 @@ has()  { [[ " $PHASES " == *" $1 "* ]]; }
 need_root() {
     [ -n "${TORRCAST_NO_ROOT:-}" ] && return 0
     [ "$(id -u)" -eq 0 ] || die "запускать от root: sudo ./install.sh"
+}
+
+# --- Задания в фоне ----------------------------------------------------------
+# Половину установки занимало ожидание сети, и занимало ПО ОЧЕРЕДИ: статическая сборка
+# ffmpeg, два соседних сервера, пробы трекеров и определения индексеров ничего друг о
+# друге не знают, но каждое стояло в своей фазе (замер: 145 с всего, из них 96 - четыре
+# такие фазы подряд). Теперь они идут разом, а ждём каждое ровно там, где его результат
+# впервые нужен.
+#
+# Вывод задания копится в файл и печатается ЦЕЛИКОМ в момент ожидания: параллельные
+# фазы, пишущие вперемешку, превратили бы журнал установки в кашу, а он тут - главное
+# доказательство того, что произошло. Порядок строк внутри фазы поэтому цел, а сами
+# фазы приезжают в том порядке, в каком их результат понадобился.
+#
+# 🔴 Провал задания не тонет: `job_wait` возвращает его код, а вызывающий говорит о нём
+# словами и роняет установку там же, где ронял бы последовательный код.
+declare -A JOB_PID=()
+JOB_DIR=""
+
+job_start() {  # $1 - имя задания, дальше команда с аргументами
+    local name="$1"; shift
+    [ -n "$JOB_DIR" ] || JOB_DIR="$(mktemp -d)"
+    # Код возврата уводим в файл: под `set -e` упавшее фоновое задание уронило бы
+    # установку на `wait`, а нам нужно сперва напечатать, что именно у него случилось.
+    # Там же и длительность - её задание считает САМО, по своим часам: снаружи видно
+    # только «сколько прошло до того, как его дождались», а это совсем другое число.
+    (
+        local began="$SECONDS" rc=0
+        "$@" >"$JOB_DIR/$name.out" 2>&1 || rc=$?
+        printf '%s' "$((SECONDS - began))" >"$JOB_DIR/$name.took"
+        printf '%s' "$rc" >"$JOB_DIR/$name.rc"
+    ) &
+    JOB_PID[$name]=$!
+}
+
+job_wait() {  # $1 - имя задания; печатает его вывод, возвращает его код
+    local name="$1" pid="${JOB_PID[$1]:-}"
+    [ -n "$pid" ] || return 0  # задание не запускалось - фаза выключена в PHASES
+    wait "$pid" 2>/dev/null || true
+    unset "JOB_PID[$name]"
+    [ -s "$JOB_DIR/$name.out" ] && cat "$JOB_DIR/$name.out"
+    # Сколько фаза шла на самом деле. Не украшение: у параллельных фаз время из журнала
+    # больше не читается (все их строки приезжают разом), а без него не видно, во что
+    # установка упирается и стало ли ей от параллели легче.
+    info "└ фоном: $(cat "$JOB_DIR/$name.took" 2>/dev/null || printf '?') с"
+    return "$(cat "$JOB_DIR/$name.rc" 2>/dev/null || printf 1)"
+}
+
+# --- Догрев после «готово» ---------------------------------------------------
+# Не всё, что установка делает, нужно первому показу. Индексер, который добавляется сто
+# секунд, и восьмимегабайтная выгрузка оценок к меню - это догрев: `cast` играет и без
+# них. Такое доводится ПОСЛЕ того, как установка отчиталась, и человек про это узнаёт
+# строкой, а не молчанием.
+#: Что доводится в фоне - строки, которые `main` печатает сразу после «готово». Копятся в
+#: файле, а не в переменной: догрев заводится и из фоновых заданий, а те живут в своих
+#: подоболочках, и присвоение оттуда до `main` не доедет.
+LATE_NOTES="$(mktemp)"
+#: Куда догрев пишет свой итог: установка к этому времени уже отчиталась, и сказать
+#: «получилось» ей больше некуда.
+LATE_LOG="${TORRCAST_LATE_LOG:-$STATE_DIR/late.log}"
+
+# ⚠️ Отвязываемся от установки по-настоящему: свои stdin/stdout/stderr в файл (иначе ssh,
+# которым запускали установку, будет ждать закрытия трубы и «зависнет» уже после
+# «готово») и игнор SIGHUP (иначе закрытая консоль убьёт догрев на середине).
+late_run() {  # $1 - чем это назвать человеку, дальше команда с аргументами
+    local note="$1"; shift
+    install -d -m 0755 "$(dirname "$LATE_LOG")"
+    (
+        trap '' HUP
+        printf '%s | начал: %s\n' "$(date '+%F %T')" "$note"
+        # Итог пишем в обеих ветках: догрев не обязан удаться, но обязан сказать.
+        if "$@"; then
+            printf '%s | готово: %s\n' "$(date '+%F %T')" "$note"
+        else
+            printf '%s | НЕ вышло: %s - на показ не влияет\n' "$(date '+%F %T')" "$note"
+        fi
+    ) >>"$LATE_LOG" 2>&1 </dev/null &
+    printf '%s\n' "$note" >>"$LATE_NOTES"
 }
 
 # Маска процесса для pgrep -f/pkill -f. Голая строка запуска шаблоном не годится: она
@@ -621,7 +701,6 @@ install_packages() {
         [ "$updated" = 1 ] || apt-get update -qq
         DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${missing[@]}"
     fi
-    install_ffmpeg
     pick_python
     info "интерпретатор $PYTHON ($("$PYTHON" -c 'import sys; print(sys.version.split()[0])'))"
 }
@@ -807,12 +886,19 @@ hosts_pin() {  # $1 имя — прибить к 127.0.0.1, идемпотент
 
 # Отвечает ли имя ЦЕЛИКОМ. Успех - curl дочитал ответ до конца: обрыв посреди тела он
 # считает ошибкой, даже если заголовки были 200. Ровно так троттлинг и выглядит.
+#: Сколько ждём одну пробу. Здоровое тело в 200 КБ приезжает за 0.117 с, а больное не
+#: приезжает никогда - оно висит до таймаута, и вся цена этой фазы складывается из
+#: таких повисших проб (замер: четыре имени по 25 с - это и была вся фаза источников).
+#: Восемь секунд - семидесятикратный запас к здоровому ответу; всё, что медленнее, мы
+#: всё равно поведём через шим, и хуже от этого не станет: шим тем же именам делает
+#: только легче.
+PROBE_TIMEOUT="${TORRCAST_PROBE_TIMEOUT:-8}"
 probe_whole() {  # $1 имя, $2 путь, $3 тело POST (пусто - GET)
     if [ -n "$3" ]; then
-        curl -fsS -m 25 -o /dev/null -A "$UA" -H 'Content-Type: application/json' \
+        curl -fsS -m "$PROBE_TIMEOUT" -o /dev/null -A "$UA" -H 'Content-Type: application/json' \
             -X POST -d "$3" "https://$1$2" 2>/dev/null
     else
-        curl -fsS -m 25 -o /dev/null -A "$UA" "https://$1$2" 2>/dev/null
+        curl -fsS -m "$PROBE_TIMEOUT" -o /dev/null -A "$UA" "https://$1$2" 2>/dev/null
     fi
 }
 
@@ -873,19 +959,20 @@ setup_shim() {  # $@ - маршруты вида имя=кандидат[,кан
         "$PYTHON $SHIM_DIR/sni-shim.py $SHIM_DIR/shim.crt $SHIM_DIR/shim.key $SHIM_PORT ${routes[*]}"
 }
 
-# Пробы независимы, а каждая ждёт СВОЙ таймаут (до 25 с на трекер) - последовательно
-# это набегало в минуту с лишним чистого ожидания на пустом месте. Гоняем их разом, а
-# ответы разбираем потом и в исходном порядке: параллельность не должна превращать
-# журнал установки в чересполосицу. Печатает каталог с файлами «имя» → код возврата.
-#: Сколько раз проба через уже поднятый шим повторяется, прежде чем признать его
-#: молчание: служба только что запущена, сокета может ещё не быть.
+# Пробы независимы, а каждая ждёт СВОЙ таймаут - последовательно это набегало в минуту
+# с лишним чистого ожидания на пустом месте. Гоняем их разом, а ответы разбираем потом и
+# в исходном порядке: параллельность не должна превращать журнал установки в
+# чересполосицу. Печатает каталог с файлами «имя» → код возврата.
+#: Сколько раз проба через уже поднятый шим повторяется, прежде чем признать его молчание.
 SHIM_PROBE_TRIES=12
-#: ⚠️ Повторяем только МГНОВЕННЫЕ провалы - те, ради которых лестница и заведена: пока
-#: сокета нет, проба падает за доли секунды. Проба, отвисевшая свои 25 секунд, говорит
-#: обратное: шим на месте, а хост через него не отвечает, - и одиннадцать повторов по 25
-#: секунд ничего не меняют, только держат человека (замер повторного захода: nyaa.si -
-#: 204 секунды ровно здесь, с тем же итогом). Порог с запасом на первое рукопожатие.
-SHIM_PROBE_FAST=5
+#: ⚠️ Потолок на ВСЕ повторы одной пробы. Лестница заведена под «служба только что
+#: поднята, сокета может ещё не быть» - такая проба падает мгновенно, и десяток повторов
+#: стоит доли секунды. Но повторять стоит и провал по таймауту: рядом качаются соседи,
+#: канал занят, и живой трекер не поспевает ответить (замер: трое из четырёх названы
+#: молчунами, и все трое сразу после этого исправно отдавали раздачи). Цена такой
+#: терпимости - вот этот потолок: без него лестница стоила 204 секунды ожидания при том
+#: же итоге, и стоила их человеку. Теперь она живёт в догреве, и не ждёт её никто.
+SHIM_PROBE_BUDGET=45
 probe_all() {  # $1 - 1 = долбиться до ответа (через шим), 0 = одна проба; дальше строки SHIMS
     local retry="$1"; shift
     local dir spec host path body ups pids=()
@@ -895,13 +982,12 @@ probe_all() {  # $1 - 1 = долбиться до ответа (через ши�
         # Код возврата уводим в файл, а сама подоболочка завершается успешно: под
         # `set -e` упавшая фоновая проба уронила бы установку на `wait`.
         (
-            rc=1 i=0 began=0
+            rc=1 i=0 began="$SECONDS"
             while :; do
-                began="$SECONDS"
                 if probe_whole "$host" "$path" "$body"; then rc=0; break; fi
                 i=$((i + 1))
                 { [ "$retry" = 1 ] && [ "$i" -lt "$SHIM_PROBE_TRIES" ] \
-                    && [ $((SECONDS - began)) -lt "$SHIM_PROBE_FAST" ]; } || break
+                    && [ $((SECONDS - began)) -lt "$SHIM_PROBE_BUDGET" ]; } || break
                 sleep 1
             done
             printf '%s' "$rc" >"$dir/$host"
@@ -915,18 +1001,9 @@ probe_all() {  # $1 - 1 = долбиться до ответа (через ши�
     printf '%s' "$dir"
 }
 
+# Замер и обход для тех трекеров, чьё имя может не пройти по TLS (:data:`SHIMS`).
 check_sources() {
     log "источники: что доступно из этой сети"
-
-    if curl -fsS -m 15 -o /dev/null "$PL_DEFS_URL" 2>/dev/null; then
-        info "каталог индексеров Prowlarr доступен - он возьмёт определения сам"
-    else
-        # Без этой строки КАЖДЫЙ запрос схемы ждёт таймаута .NET — 100 секунд.
-        info "⚠ каталог индексеров Prowlarr недоступен - определения возьмём с GitHub"
-        hosts_pin indexers.prowlarr.com
-        SEED_DEFS=1
-    fi
-
     local spec host path body ups routes=() ask=() probes=""
     for spec in "${SHIMS[@]}"; do
         IFS='|' read -r host path body ups <<<"$spec"
@@ -955,23 +1032,35 @@ check_sources() {
     fi
     setup_shim "${routes[@]}"
 
-    # «Шим поднят» и «через него отвечает» - разные утверждения. Проверяем вторым
-    # заходом: имя уже прибито к шиму, поэтому та же проба идёт сквозь него. Служба
-    # только что запущена, сокета может ещё не быть - спрашиваем не один раз.
+    # «Шим поднят» и «через него отвечает» - разные утверждения, и второе проверяется
+    # второй пробой: имя уже прибито к шиму, поэтому та же проба идёт сквозь него.
+    # 🔴 Но это ОТЧЁТ, а не условие: маршрут уже стоит, и от результата этой пробы он не
+    # меняется. Держать на ней человека нечем - она уезжает в догрев. Заодно уходит и
+    # ложная тревога: пока рядом качаются соседи, канал занят, проба не поспевает в свой
+    # таймаут, и установка сообщала «не отвечает и через шим» про живой трекер (замер:
+    # трое из четырёх, и все трое сразу после этого исправно отдавали раздачи).
     local through=()
     for spec in "${SHIMS[@]}"; do
         IFS='|' read -r host path body ups <<<"$spec"
         printf '%s\n' "${routes[@]}" | grep -qx "$host=$ups" || continue
         through+=("$spec")
     done
-    if [ "${#through[@]}" -eq 0 ]; then return 0; fi
-    probes="$(probe_all 1 "${through[@]}")"
-    for spec in "${through[@]}"; do
+    if [ "${#through[@]}" -gt 0 ]; then
+        late_run "проверка трекеров через шим" verify_shims "${through[@]}"
+    fi
+}
+
+# Отвечают ли трекеры через уже поднятый шим. Живёт в догреве (см. :func:`check_sources`),
+# и потому может позволить себе лестницу повторов: держать ею установку больше не нужно.
+verify_shims() {  # $@ - строки SHIMS тех, кого ведём через шим
+    local spec host path body ups probes
+    probes="$(probe_all 1 "$@")"
+    for spec in "$@"; do
         IFS='|' read -r host path body ups <<<"$spec"
         if [ "$(cat "$probes/$host" 2>/dev/null)" = 0 ]; then
             info "через шим $host отвечает целиком"
         else
-            info "⚠ $host не отвечает и через шим - его индексер останется пустым"
+            info "⚠ $host не отвечает и через шим - его индексер может остаться пустым"
         fi
     done
     rm -rf "$probes"
@@ -1009,6 +1098,18 @@ PL_FALLBACK="${TORRCAST_PL_FALLBACK:-https://prowlarr.servarr.com/v1/update/mast
 install_prowlarr() {
     log "Prowlarr ($PL_URL, публичные индексеры)"
     install -d -m 0755 "$PREFIX/prowlarr-data"
+
+    # 🔴 Решаем про определения ДО первого старта Prowlarr, и потому здесь, а не в фазе
+    # источников: прибитое имя должно лежать в /etc/hosts раньше, чем служба пойдёт за
+    # каталогом сама. Без этой строки КАЖДЫЙ запрос схемы ждёт таймаута .NET - 100 секунд.
+    # Сама выгрузка с GitHub (восемь мегабайт) от нашей закачки не зависит и едет рядом.
+    if curl -fsS -m 15 -o /dev/null "$PL_DEFS_URL" 2>/dev/null; then
+        info "каталог индексеров Prowlarr доступен - он возьмёт определения сам"
+    else
+        info "⚠ каталог индексеров Prowlarr недоступен - определения возьмём с GitHub"
+        hosts_pin indexers.prowlarr.com
+        job_start defs seed_definitions
+    fi
 
     if [ -x "$PREFIX/prowlarr/Prowlarr" ]; then
         skip "бинарь Prowlarr"
@@ -1053,6 +1154,13 @@ XML
     run_service prowlarr "Prowlarr для torrcast" \
         "$PREFIX/prowlarr/Prowlarr -nobrowser -data=$PREFIX/prowlarr-data"
     wait_http "$PL_URL/ping" 120 || die "Prowlarr не поднялся на $PL_URL"
+
+    # Определения должны лежать на месте раньше, чем у Prowlarr спросят схему, - иначе
+    # индексеров в ней просто не окажется. Служба поднимается ровно столько же времени,
+    # сколько они качаются, поэтому ждём их здесь, а не раньше.
+    if [ -n "${JOB_PID[defs]:-}" ]; then
+        job_wait defs || info "⚠ определения индексеров не разложились - останутся встроенные"
+    fi
 }
 
 # apikey Prowlarr генерит себе сам при первом старте — просто вычитываем.
@@ -1070,13 +1178,6 @@ prowlarr_apikey() {
 #: «проверка» на повторном заходе не проверяла ровно то, ради чего затевалась.
 PL_SEARCH_TIMEOUT="${TORRCAST_SEARCH_TIMEOUT:-25}"
 PL_SEARCH_PROBE="${TORRCAST_SEARCH_PROBE:-матрица}"
-#: Что доводится в фоне - строкой, которую печатает `main` сразу после «готово». Пусто -
-#: догревать нечего, лишней строки не будет.
-LATE_NOTE=""
-#: Куда фоновое добавление пишет свой итог: установка к этому времени уже отчиталась, и
-#: сказать «добавился» ей больше некуда.
-LATE_LOG="${TORRCAST_LATE_LOG:-$STATE_DIR/late-indexers.log}"
-
 late_indexer() {  # $1 - definitionName; 0 = добавляем в фоне, а не на глазах у человека
     # Ключевой не откладывается ни при каких условиях: фон не имеет права спрятать то,
     # без чего каталог наполовину пуст.
@@ -1086,42 +1187,62 @@ late_indexer() {  # $1 - definitionName; 0 = добавляем в фоне, а 
     return 1
 }
 
-# Добавить отложенные индексеры ПОСЛЕ выхода установки. Тела запросов уже собраны, так
-# что подоболочке остаётся только сходить в свой Prowlarr - никакой сети, кроме той, что
-# он дёрнет сам.
-# ⚠️ Отвязываемся от установки по-настоящему: свои stdin/stdout/stderr в файл (иначе ssh,
-# которым запускали установку, будет ждать закрытия трубы и «зависнет» после «готово») и
-# игнор SIGHUP (иначе закрытая консоль убьёт нас на середине).
-add_late() {  # $1 - apikey; дальше пары «имя<TAB>тело» строками на stdin
-    local key="$1" pending
-    pending="$(cat)"
-    install -d -m 0755 "$(dirname "$LATE_LOG")"
-    (
-        trap '' HUP
-        local iname ibody have
-        while IFS=$'\t' read -r iname ibody; do
-            [ -n "$iname" ] || continue
-            # Между запуском и этой минутой мог пройти второй заход установки и добавить
-            # его сам - тогда просто уходим, а не плодим второй такой же индексер.
-            have="$(curl -fsS "$PL_URL/api/v1/indexer?apikey=$key" 2>/dev/null \
-                | jq -r --arg n "$iname" 'any(.[]; .name==$n)' 2>/dev/null)" || have=""
-            if [ "$have" = true ]; then
-                printf '%s | %s уже на месте\n' "$(date '+%F %T')" "$iname"
-                continue
-            fi
-            if curl -fsS -X POST "$PL_URL/api/v1/indexer?apikey=$key" \
-                    -H 'Content-Type: application/json' -d "$ibody" >/dev/null 2>&1; then
-                printf '%s | %s добавлен\n' "$(date '+%F %T')" "$iname"
-            else
-                printf '%s | %s не добавился (недоступен из этой сети?) - не блокер\n' \
-                    "$(date '+%F %T')" "$iname"
-            fi
-        done <<<"$pending"
-    ) >>"$LATE_LOG" 2>&1 </dev/null &
+# Добавить отложенные индексеры. Тела запросов собраны заранее, так что здесь остаётся
+# только сходить в свой Prowlarr - никакой сети, кроме той, что он дёрнет сам.
+add_indexers() {  # $1 - apikey; дальше пары «имя<TAB>тело»
+    local key="$1" spec iname ibody have
+    shift
+    for spec in "$@"; do
+        IFS=$'\t' read -r iname ibody <<<"$spec"
+        [ -n "$iname" ] || continue
+        # Между запуском и этой минутой мог пройти второй заход установки и добавить его
+        # сам - тогда просто уходим, а не плодим второй такой же индексер.
+        have="$(curl -fsS "$PL_URL/api/v1/indexer?apikey=$key" 2>/dev/null \
+            | jq -r --arg n "$iname" 'any(.[]; .name==$n)' 2>/dev/null)" || have=""
+        if [ "$have" = true ]; then
+            info "$iname уже на месте"
+            continue
+        fi
+        if curl -fsS -X POST "$PL_URL/api/v1/indexer?apikey=$key" \
+                -H 'Content-Type: application/json' -d "$ibody" >/dev/null 2>&1; then
+            info "$iname добавлен"
+        else
+            info "⚠ $iname не добавился (недоступен из этой сети?) - не блокер"
+        fi
+    done
+}
+
+# Проверочные поиски по индексерам, кроме ключевого: «индексер заведён» и «поиск что-то
+# находит» - разные утверждения, но ждать второго человеку незачем. Ключевой проверяется
+# на глазах (без него каталог урезан вдвое), остальные - здесь.
+check_indexers() {  # $1 - apikey; дальше тройки «номер<TAB>имя»
+    local key="$1" spec id iname n out
+    shift
+    out="$(mktemp -d)"
+    for spec in "$@"; do
+        IFS=$'\t' read -r id iname <<<"$spec"
+        [ -n "$id" ] || continue
+        ( curl -fsS -m "$PL_SEARCH_TIMEOUT" -G "$PL_URL/api/v1/search" \
+              --data-urlencode "apikey=$key" --data-urlencode "query=$PL_SEARCH_PROBE" \
+              --data-urlencode "type=search" --data-urlencode "limit=100" \
+              --data-urlencode "indexerIds=$id" >"$out/$id" 2>/dev/null \
+            || : >"$out/$id"; true ) &
+    done
+    wait
+    for spec in "$@"; do
+        IFS=$'\t' read -r id iname <<<"$spec"
+        [ -n "$id" ] || continue
+        n="$(jq 'length' <"$out/$id" 2>/dev/null)" || n=""
+        if [ -z "$n" ]; then
+            info "⚠ $iname: не ответил за $PL_SEARCH_TIMEOUT с"
+        else
+            info "$iname: $n раздач в проверочном поиске «$PL_SEARCH_PROBE»"
+        fi
+    done
+    rm -rf "$out"
 }
 
 install_indexers() {
-    [ "$SEED_DEFS" = 1 ] && seed_definitions
     log "индексеры Prowlarr"
     local key schema existing
     key="$(prowlarr_apikey)"
@@ -1190,72 +1311,62 @@ install_indexers() {
         fi
     done
 
+    rm -rf "$work"
+
     # Живая проверка: «индексер заведён» и «поиск что-то находит» - разные утверждения.
     # Первое бывает правдой при неправде второго - например когда сеть режет индексер.
-    # Отказ самой проверки установку не роняет: это отчёт, а не условие.
-    # ⚠️ Спрашиваем КАЖДЫЙ индексер отдельно и разом, со своим таймаутом. Один общий
-    # поиск отвечает по самому медленному: недоступный трекер держал ответ все 100
-    # секунд .NET-таймаута, и проверка стоила дороже, чем половина установки. Теперь
-    # молчание одного стоит $PL_SEARCH_TIMEOUT с и названо по имени.
-    local list total=0 key_hits=0 key_answered=0 lines=() id iname n
+    # 🔴 На глазах у человека проверяем ОДИН - ключевой. Остальные друг друга
+    # подстраховывают, и ждать их молчания (до $PL_SEARCH_TIMEOUT с каждому) незачем: их
+    # проверка уезжает в догрев, к оценкам IMDb. А этот не подстраховывает никто, поэтому
+    # его пустота обязана быть видна словами прямо здесь - и стоит она секунду, если он
+    # жив. Отказ самой проверки установку не роняет: это отчёт, а не условие.
+    local list key_id="" key_name="" rest=() id iname n
     list="$(curl -fsS "$PL_URL/api/v1/indexer?apikey=$key")" || list='[]'
     info "индексеров сейчас: $(jq 'length' <<<"$list")"
-    pids=()
     while IFS='|' read -r id def iname; do
         [ -n "$id" ] || continue
-        ( curl -fsS -m "$PL_SEARCH_TIMEOUT" -G "$PL_URL/api/v1/search" \
-              --data-urlencode "apikey=$key" --data-urlencode "query=$PL_SEARCH_PROBE" \
-              --data-urlencode "type=search" --data-urlencode "limit=100" \
-              --data-urlencode "indexerIds=$id" >"$work/search-$id" 2>/dev/null \
-            || : >"$work/search-$id"; true ) &
-        pids+=("$!")
-    done < <(jq -r '.[]|"\(.id)|\(.definitionName)|\(.name)"' <<<"$list")
-    if [ "${#pids[@]}" -gt 0 ]; then wait "${pids[@]}"; fi
-    while IFS='|' read -r id def iname; do
-        [ -n "$id" ] || continue
-        n="$(jq 'length' <"$work/search-$id" 2>/dev/null)" || n=""
-        if [ -z "$n" ]; then
-            lines+=("    ⚠ $iname: не ответил за $PL_SEARCH_TIMEOUT с")
-            continue
+        if [ "$def" = "$KEY_INDEXER" ]; then
+            key_id="$id"; key_name="$iname"
+        else
+            rest+=("$(printf '%s\t%s' "$id" "$iname")")
         fi
-        lines+=("    $iname: $n")
-        total=$((total + n))
-        if [ "$def" = "$KEY_INDEXER" ]; then key_hits="$n"; key_answered=1; fi
     done < <(jq -r '.[]|"\(.id)|\(.definitionName)|\(.name)"' <<<"$list")
-    rm -rf "$work"
-    if [ "$total" -gt 0 ]; then
-        info "проверочный поиск «$PL_SEARCH_PROBE»: $total раздач"
-    else
-        info "⚠ проверочный поиск НИЧЕГО не нашёл - индексеры недоступны из этой сети"
-    fi
-    if [ "${#lines[@]}" -gt 0 ]; then printf '%s\n' "${lines[@]}"; fi
 
-    # Гейт веса: остальные индексеры друг друга подстраховывают, а этот - нет. Установку
-    # не роняем (без него всё равно ищется), но и молчать нельзя: человек должен понимать,
-    # что каталог у него урезан, а не гадать, почему западного кино и аниме не находится.
+    # Гейт веса: на этом индексере держится половина каталога, и замены ему в открытом
+    # пуле нет. Установку не роняем (без него всё равно ищется), но и молчать нельзя:
+    # человек должен понимать, что каталог у него урезан, а не гадать, почему западного
+    # кино и аниме не находится.
     if [ "$key_here" != 1 ]; then
         loud "$KEY_INDEXER не завёлся - каталог западных релизов и аниме будет неполным"
         info "поиск продолжит работать на остальных индексерах; повторный ./install.sh \
 заведёт его, когда он снова будет доступен"
-    elif [ "$key_answered" != 1 ]; then
-        info "$KEY_INDEXER заведён, но проверить его нечем - он не ответил за $PL_SEARCH_TIMEOUT с"
-    elif [ "${key_hits:-0}" -gt 0 ] 2>/dev/null; then
-        info "$KEY_INDEXER отвечает: $key_hits раздач в проверочном поиске"
+    elif [ -z "$key_id" ]; then
+        info "$KEY_INDEXER заведён, но в списке Prowlarr его нет - проверить нечем"
     else
-        loud "$KEY_INDEXER заведён, но не отдал ничего - каталог западных релизов и аниме \
+        n="$(curl -fsS -m "$PL_SEARCH_TIMEOUT" -G "$PL_URL/api/v1/search" \
+                --data-urlencode "apikey=$key" --data-urlencode "query=$PL_SEARCH_PROBE" \
+                --data-urlencode "type=search" --data-urlencode "limit=100" \
+                --data-urlencode "indexerIds=$key_id" 2>/dev/null | jq 'length' 2>/dev/null)" || n=""
+        if [ -z "$n" ]; then
+            info "$key_name заведён, но проверить его нечем - он не ответил за $PL_SEARCH_TIMEOUT с"
+        elif [ "$n" -gt 0 ]; then
+            info "$key_name отвечает: $n раздач в проверочном поиске «$PL_SEARCH_PROBE»"
+        else
+            loud "$key_name заведён, но не отдал ничего - каталог западных релизов и аниме \
 будет неполным"
-        info "поиск продолжит работать на остальных индексерах; состояние видно в cast doctor"
+            info "поиск продолжит работать на остальных индексерах; состояние видно в cast doctor"
+        fi
     fi
 
-    # Отложенные уходят в фон последними: к этой минуте всё, ради чего человек ждёт, уже
-    # проверено и названо. Строку про них печатает `main` сразу после «готово» - обещать
-    # готовность и молчать про догрев нельзя.
+    # Догрев: сперва то, ради чего он заведён (индексер на сто секунд), следом проверка
+    # остальных. Порядок не случаен - проверять имеет смысл уже полный список.
     if [ "${#late[@]}" -gt 0 ]; then
-        printf '%s\n' "${late[@]}" | add_late "$key"
         local names=""
         for spec in "${late[@]}"; do names="$names${names:+, }${spec%%$'\t'*}"; done
-        LATE_NOTE="в фоне доводится $names (минуты две) - поиск работает и без него, \
-итог в $LATE_LOG и в cast doctor"
+        late_run "индексер $names (добавляется до двух минут)" add_indexers "$key" "${late[@]}"
+    fi
+    if [ "${#rest[@]}" -gt 0 ]; then
+        late_run "проверочный поиск по остальным индексерам" check_indexers "$key" "${rest[@]}"
     fi
 }
 
@@ -1458,21 +1569,57 @@ setup_motd() {
 
 main() {
     need_root
+    # Локаль и apt идут первыми и по очереди, иначе никак: `curl`, `jq` и `python3-venv`
+    # приезжают именно отсюда, а без них не начать ни одну загрузку.
     has locale     && setup_locale
     has packages   && install_packages
+
+    # 🔴 Дальше вся работа - сеть, и вся она независима: статическая сборка ffmpeg, два
+    # соседних сервера, пробы трекеров и определения индексеров ничего не знают друг о
+    # друге. По очереди это стоило больше половины установки. Пускаем разом и ждём каждое
+    # там, где его результат впервые нужен; вывод каждого приезжает целиком (:func:`job_start`).
+    JOB_DIR="$(mktemp -d)"
+    has ffmpeg     && job_start ffmpeg     install_ffmpeg
+    has torrserver && job_start torrserver install_torrserver
+    has sources    && job_start sources    check_sources
+    has prowlarr   && job_start prowlarr   install_prowlarr
+    log "в фоне: ffmpeg, TorrServer, Prowlarr, источники - их вывод придёт целиком"
+
+    # Самое долгое (venv и колёса с pypi) держим на переднем плане: пока идёт оно,
+    # соседи успевают скачаться, подняться и ответить.
     has torrcast    && install_torrcast
-    has torrserver && install_torrserver
-    has sources    && check_sources
-    has prowlarr   && install_prowlarr
+
+    # Индексерам нужны оба: шим с прибитыми именами и поднятый Prowlarr.
+    if has sources; then
+        job_wait sources || info "⚠ проверка источников не доработала - смотри строки выше"
+    fi
+    if has prowlarr; then
+        job_wait prowlarr || die "Prowlarr не поставился - причина в строках выше"
+    fi
     has indexers   && install_indexers
     has config     && setup_config
     has hls        && setup_hls
-    has facts      && setup_facts
+
+    # Без этих двух `cast` не покажет ничего, поэтому «готово» ждёт их обоих.
+    if has ffmpeg; then
+        job_wait ffmpeg || die "ffmpeg не поставился - причина в строках выше"
+    fi
+    if has torrserver; then
+        job_wait torrserver || die "TorrServer не поставился - причина в строках выше"
+    fi
+    # А это первому показу не нужно: оценки украшают меню, и качать их человеку незачем.
+    has facts      && late_run "оценки IMDb для справки в меню" setup_facts
     has motd       && setup_motd
+    [ -n "$JOB_DIR" ] && rm -rf "$JOB_DIR"
+
     log "готово. Осталось: cast --tv - найдёт телевизоры в сети и спросит, который твой"
     # «Готово» сказано, когда `cast` и правда может играть. Если что-то ещё догревается -
     # это отдельная строка ПОСЛЕ него, а не задержка перед ним.
-    if [ -n "$LATE_NOTE" ]; then info "$LATE_NOTE"; fi
+    if [ -s "$LATE_NOTES" ]; then
+        info "догрев: $(awk 'NR>1{printf "; "} {printf "%s", $0} END{print ""}' "$LATE_NOTES") \
+(итог в $LATE_LOG)"
+    fi
+    rm -f "$LATE_NOTES"
 }
 
 main "$@"
