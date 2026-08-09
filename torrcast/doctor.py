@@ -20,6 +20,7 @@ import subprocess
 import sys
 import time
 from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -137,7 +138,66 @@ def _prowlarr(config: Config) -> Iterator[Line]:
         yield _bad(f"Prowlarr отвечает, но индексеров ноль ({config.prowlarr_url})")
         return
     yield _ok(f"Prowlarr отвечает, индексеров {count} ({config.prowlarr_url})")
+    statuses = _json(f"{config.prowlarr_url}/api/v1/indexerstatus", headers)
+    yield from _indexer_status(indexers, statuses)
+    yield from _live_indexers(config, indexers)
     yield _key_indexer(indexers)
+
+
+def _indexer_status(indexers: object, statuses: object) -> Iterator[Line]:
+    """Паузы Prowlarr по именам: голый номер индексера человеку ничего не говорит."""
+    if not isinstance(indexers, list) or not isinstance(statuses, list):
+        return
+    names = {
+        entry.get("id"): entry.get("name")
+        for entry in indexers
+        if isinstance(entry, dict) and isinstance(entry.get("name"), str)
+    }
+    for status in statuses:
+        if not isinstance(status, dict) or not status.get("disabledTill"):
+            continue
+        name = names.get(status.get("indexerId"), str(status.get("indexerId") or "?"))
+        till = str(status["disabledTill"]).replace("T", " ").removesuffix("Z")
+        yield _bad(f"индексер {name} отключён Prowlarr до {till}")
+
+
+def _live_indexers(config: Config, payload: object) -> Iterator[Line]:
+    """По одному настоящему поиску на индексер, не больше трёх одновременно."""
+    if not isinstance(payload, list):
+        return
+    pairs = [
+        (int(entry["id"]), str(entry["name"]))
+        for entry in payload
+        if isinstance(entry, dict)
+        and entry.get("enable", True)
+        and str(entry.get("id", "")).isdigit()
+        and isinstance(entry.get("name"), str)
+    ]
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        answers = list(pool.map(lambda pair: _probe_indexer(config, pair[0]), pairs))
+    for (_, name), answered in zip(pairs, answers, strict=True):
+        if answered:
+            yield _ok(f"индексер {name} ответил на живой поиск")
+        else:
+            yield _bad(f"индексер {name} не ответил на живой поиск - выдача неполная")
+
+
+def _probe_indexer(config: Config, indexer: int) -> bool:
+    """Популярный запрос обязан вернуть список с хотя бы одной строкой, не голый HTTP 200."""
+    import requests
+
+    try:
+        response = requests.get(
+            f"{config.prowlarr_url}/api/v1/search",
+            headers={"X-Api-Key": config.prowlarr_apikey},
+            params={"query": "matrix", "type": "search", "indexerIds": indexer, "limit": 1},
+            timeout=_TIMEOUT,
+        )
+        response.raise_for_status()
+        payload = response.json()
+    except (requests.RequestException, ValueError):
+        return False
+    return isinstance(payload, list) and bool(payload)
 
 
 def _enabled_names(payload: object) -> list[str]:

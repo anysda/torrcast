@@ -159,6 +159,18 @@ class _Reply:
         return self.payload
 
 
+class _UnavailableReply(_Reply):
+    text = "All selected indexers being unavailable"
+
+    def raise_for_status(self) -> None:
+        import requests
+
+        response = requests.Response()
+        response.status_code = 400
+        response._content = self.text.encode()
+        raise requests.HTTPError("400 Client Error", response=response)
+
+
 class _Swarm:
     """Prowlarr с четырьмя индексерами, из которых один умеет молчать до бюджета."""
 
@@ -283,6 +295,25 @@ def test_all_indexers_silent_is_infra_not_empty_result() -> None:
     """Молчат все до одного - это отказ инфраструктуры, а не «ничего не нашлось»."""
     with pytest.raises(InfraError, match="не отвечает"):
         _swarm(mute_all=True).search("матрица")
+
+
+def test_prowlarr_400_names_unavailable_indexers_not_prowlarr() -> None:
+    """Особый 400 означает, что Prowlarr жив, а отказали выбранные индексеры."""
+    client = _swarm()
+    session = client._session
+    original = session.get  # type: ignore[union-attr]
+
+    def unavailable(url: str, timeout: float) -> _Reply:
+        if "/api/v1/search" in url:
+            return _UnavailableReply([])
+        return original(url, timeout)
+
+    session.get = unavailable  # type: ignore[union-attr,method-assign]
+    with pytest.raises(InfraError) as caught:
+        client.search("матрица")
+    message = str(caught.value)
+    assert message == "индексеры не отвечают: Knaben, RuTor"
+    assert "Prowlarr не отвечает" not in message
 
 
 def test_anime_query_reads_a_cheap_signal() -> None:

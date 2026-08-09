@@ -1416,7 +1416,7 @@ def _relayout(
         return query, name, index, []
     fixed, moved = split_franchise_index(swapped)
     progress.phase(f"поиск «{fixed}»")
-    raw = _ask(client, fixed)
+    raw = _ask(client, fixed, progress)
     if not raw:
         return query, name, index, []
     progress.note(f"«{query}» - это «{swapped}» в русской раскладке")
@@ -1444,7 +1444,7 @@ def _search(
     name, index = split_franchise_index(query)
     client = Prowlarr(config.prowlarr_url, config.prowlarr_apikey)
     progress.phase(f"поиск «{name}»")
-    raw = _ask(client, name)
+    raw = _ask(client, name, progress)
     if not raw:
         # Ни одной строки - повод заподозрить забытую раскладку (:func:`unswap_layout`).
         # Проверка стоит один заход к индексерам и только там, где иначе был бы отказ.
@@ -1685,12 +1685,20 @@ def _nothing(name: str, index: int | None, pictures: list[Picture]) -> str:
     return f"по запросу «{name}» ничего не нашлось"
 
 
-def _ask(client: Prowlarr, query: str) -> list[RawResult]:
+def _ask(client: Prowlarr, query: str, progress: Progress) -> list[RawResult]:
     """Один запрос к индексерам; пусто - это не ошибка, а повод переспросить иначе."""
     try:
-        return client.search(query)
+        rows = client.search(query)
     except NotFoundError:
-        return []
+        rows = []
+    reported = getattr(client, "reported_silent", set())
+    silent = [name for name in getattr(client, "silent", ()) if name not in reported]
+    reported.update(silent)
+    if len(silent) == 1:
+        progress.note(f"индексер {silent[0]} не ответил - выдача может быть хуже")
+    elif silent:
+        progress.note(f"индексеры не ответили: {', '.join(silent)} - выдача может быть хуже")
+    return rows
 
 
 def _no_budget(
@@ -1834,7 +1842,7 @@ def _second_language(
     if not alt or slugify(alt) == slugify(name):
         return _as_is(raw, found, about, progress)
     progress.phase(f"поиск «{alt}»")
-    merged = merge(raw, _ask(client, alt))
+    merged = merge(raw, _ask(client, alt, progress))
     # Круг кончился - закрываем его строку прямо здесь. Всё, что скажем дальше, это его
     # итог, а `note` печатается сразу, тогда как строка фазы ждёт закрытия фазы: без этого
     # вердикт «не беру» выходил ПЕРЕД строкой «поиск «Cars»... 102.1 с», и человек читал два
@@ -2056,7 +2064,7 @@ def _season_reinforce(
     if not base or slugify(season_query) == slugify(name):
         return raw, cluster(to_releases(raw)), found
     progress.phase(f"поиск «{season_query}»")
-    extra = _ask(client, season_query)
+    extra = _ask(client, season_query, progress)
     progress.phase("")
     want_orig = slugify(lead.original or base)
     # Берём лишь раздачи ТОГО ЖЕ оригинала и ровно нужного сезона: чужое одноимённое
@@ -3022,6 +3030,12 @@ class _Bench:
             # меню раздача отвечает мгновенно, и её приговор человеку ничего не стоил.
             entered = time.monotonic()
             self._wait(prep, progress)
+            # Ошибка самой службы раздачи относится ко всей очереди, а не к одному
+            # рою. Перебирать остальные релизы бессмысленно: они пойдут через тот же
+            # мёртвый порт и лишь размножат одну строку, после чего итог ещё и свалит
+            # вину на раздачи.
+            if prep.error.startswith("TorrServer "):
+                raise InfraError(prep.error)
             trouble = self._trouble(
                 prep,
                 pinned=args.pinned,

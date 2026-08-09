@@ -320,6 +320,8 @@ class Prowlarr:
         self.timeout = timeout
         #: Индексеры, не уложившиеся в личный бюджет последнего поиска - по именам.
         self.silent: tuple[str, ...] = ()
+        #: Уже названные человеку молчуны: повторный добор не должен повторять строку.
+        self.reported_silent: set[str] = set()
         self._session: requests.Session | None = None
         self._indexers: tuple[tuple[int, str], ...] | None = None
         #: Опоздавшие: круг ушёл по кворуму, а эти ещё в пути (TC-118).
@@ -456,6 +458,8 @@ class Prowlarr:
             budgets = {name: indexer_budget(name) for name in lost}
             mark("индексеры", молчат=lost, бюджет=budgets)
         if not got:  # молчат все до одного - это не «ничего не нашлось», а инфра
+            if lost and why_lost.startswith("Prowlarr: выбранные индексеры"):
+                raise InfraError(f"индексеры не отвечают: {', '.join(lost)}")
             raise InfraError(why_lost)
         return merge(*got)
 
@@ -606,9 +610,19 @@ class Prowlarr:
             response.raise_for_status()
             return response.json()
         except requests.RequestException as exc:
+            response = getattr(exc, "response", None)
+            body = str(getattr(response, "text", "") or "").casefold()
+            if "all selected indexers being unavailable" in body:
+                raise _IndexersUnavailableError(
+                    "Prowlarr: выбранные индексеры не отвечают"
+                ) from exc
             raise InfraError(f"Prowlarr не отвечает ({self.base_url}): {why(exc)}") from exc
         except ValueError as exc:
             raise InfraError("Prowlarr вернул не JSON") from exc
+
+
+class _IndexersUnavailableError(InfraError):
+    """Prowlarr жив, но спрятал отказ всех выбранных индексеров за HTTP 400."""
 
 
 def merge(*batches: list[RawResult]) -> list[RawResult]:

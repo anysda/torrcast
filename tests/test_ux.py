@@ -136,6 +136,28 @@ def test_the_happy_path_asks_about_the_film_and_nothing_else(
     assert not set(printed) & set("→⚠▶≥")
 
 
+def test_silent_indexer_is_named_once_during_search(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Урезанная выдача не выглядит полной: промолчавший источник назван на экране."""
+
+    class _SilentProwlarr(_FakeProwlarr):
+        silent = ("Knaben",)
+        reported_silent: set[str]
+
+        def __init__(self, url: str, apikey: str) -> None:
+            super().__init__(url, apikey)
+            self.reported_silent = set()
+
+    monkeypatch.setattr(cli, "Prowlarr", _SilentProwlarr)
+    _answers(monkeypatch, "2", "")
+
+    assert cli.main(["моана"]) == 0
+    printed = capsys.readouterr().out
+    line = "индексер Knaben не ответил - выдача может быть хуже"
+    assert printed.count(line) == 1
+
+
 def test_the_question_says_out_loud_what_enter_will_start(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

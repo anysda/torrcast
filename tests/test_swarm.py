@@ -118,6 +118,27 @@ def test_a_silent_stream_is_dropped_before_the_full_probe_budget(
     assert elapsed < cli.PROBE_BUDGET, "не сожгли весь бюджет на молчащем релизе"
 
 
+def test_dead_torrserver_stops_before_the_next_release() -> None:
+    """Мёртв общий порт - отказ инфраструктуры, а не три якобы мёртвых роя."""
+    ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
+
+    class _Dead(_FakeTorrServer):
+        calls = 0
+
+        def add(self, magnet: str) -> str:
+            self.calls += 1
+            raise InfraError("TorrServer не отвечает (http://127.0.0.1:8090): connection refused")
+
+    torrserver = _Dead()
+    with pytest.raises(InfraError) as caught:
+        _resolve(cli._Bench(cast(Any, torrserver)), ranked)
+
+    assert str(caught.value) == (
+        "TorrServer не отвечает (http://127.0.0.1:8090): connection refused"
+    )
+    assert torrserver.calls <= 2, "после пары прогрева очередь продолжаться не должна"
+
+
 # --- Шаг опроса метаданных (TC-126) ---------------------------------------------------
 #
 # Ожидание метаданных устранить нельзя: TorrServer не отдаст ни байта, пока рой их не

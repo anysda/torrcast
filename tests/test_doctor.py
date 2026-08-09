@@ -28,6 +28,7 @@ def _answers(monkeypatch: pytest.MonkeyPatch, indexers: object) -> None:
         return indexers if url.endswith("/api/v1/indexer") else []
 
     monkeypatch.setattr(doctor, "_json", fake)
+    monkeypatch.setattr(doctor, "_probe_indexer", lambda config, indexer: True)
 
 
 def _lines(monkeypatch: pytest.MonkeyPatch, indexers: object) -> list[tuple[str, bool]]:
@@ -37,6 +38,27 @@ def _lines(monkeypatch: pytest.MonkeyPatch, indexers: object) -> list[tuple[str,
 
 def _entry(name: str, enable: bool = True) -> dict[str, Any]:
     return {"name": name, "enable": enable}
+
+
+def test_live_probe_and_backoff_expose_a_dead_indexer(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Флаг enable не здоровье: пауза и пустая живая проба обе делают doctor красным."""
+    indexers = [{"id": 7, "name": KEY_INDEXER, "enable": True}]
+
+    def fake(url: str, headers: dict[str, str]) -> object | None:
+        if url.endswith("/api/v1/indexer"):
+            return indexers
+        if url.endswith("/api/v1/indexerstatus"):
+            return [{"indexerId": 7, "disabledTill": "2026-08-09T12:30:00Z"}]
+        return []
+
+    monkeypatch.setattr(doctor, "_json", fake)
+    monkeypatch.setattr(doctor, "_probe_indexer", lambda config, indexer: False, raising=False)
+
+    lines = list(doctor._prowlarr(_config()))
+    text = "\n".join(line for line, _ in lines)
+    assert "индексер Knaben отключён Prowlarr до 2026-08-09 12:30:00" in text
+    assert "индексер Knaben не ответил на живой поиск - выдача неполная" in text
+    assert any(not good for _, good in lines)
 
 
 def test_key_indexer_present(monkeypatch: pytest.MonkeyPatch) -> None:
