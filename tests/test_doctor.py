@@ -100,8 +100,18 @@ def test_names_survive_junk_rows() -> None:
     assert doctor._enabled_names("не список") == []
 
 
-def _sets(monkeypatch: pytest.MonkeyPatch, size: int, disk: bool = False) -> None:
-    monkeypatch.setattr(doctor, "_settings", lambda url: {"CacheSize": size, "UseDisk": disk})
+def _sets(
+    monkeypatch: pytest.MonkeyPatch, size: int, disk: bool = False, path: str = "/var/cache"
+) -> None:
+    monkeypatch.setattr(
+        doctor,
+        "_settings",
+        lambda url: {
+            "CacheSize": size,
+            "UseDisk": disk,
+            "TorrentsSavePath": path if disk else "",
+        },
+    )
 
 
 def test_cache_fits_the_machine(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -122,12 +132,38 @@ def test_cache_too_big_is_bad(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "не влезает" in line, line
 
 
-def test_cache_on_disk_weighs_itself(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Кэш на диске память не ест: тот же размер с UseDisk проходит."""
-    _sets(monkeypatch, 4 * 1024**3, disk=True)
+def test_cache_on_disk_is_not_measured_by_memory(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Замер: кэш на диске стоит службе сотню мегабайт при любом своём размере.
+
+    Поэтому 12 ГиБ кэша на 8-гигабайтной машине - это «ок», хотя в памяти столько не
+    бывает вовсе. Проверяем именно это: память тут больше не мера.
+    """
+    _sets(monkeypatch, 12 * 1024**3, disk=True)
     monkeypatch.setattr(doctor, "machine_memory", lambda: 8 * 1024**3)
+    monkeypatch.setattr(doctor, "disk_free", lambda path: 60 * 1024**3)
     line, good = doctor._cache(_config())
-    assert good and "на диске" in line, line
+    assert good, f"12 ГиБ на диске при 8 ГиБ памяти - это норма, а не поломка: {line}"
+    assert "на диске" in line and "12.0 ГиБ" in line, line
+
+
+def test_cache_on_disk_without_room_for_warmup_is_bad(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Раздел, где кэшу место есть, а прогреву уже нет, - это «плохо».
+
+    Обещание «показ переживает обрыв» держат оба сразу, и кэш, съевший раздел, ломает
+    его ровно так же, как отсутствие кэша.
+    """
+    _sets(monkeypatch, 4 * 1024**3, disk=True)
+    monkeypatch.setattr(doctor, "disk_free", lambda path: 10 * 1024**3)
+    line, good = doctor._cache(_config())
+    assert not good, f"10 ГиБ на раздел под кэш и прогрев - этого не хватает: {line}"
+    assert "прогреву места не остаётся" in line, line
+
+
+def test_cache_on_disk_without_path_is_bad(monkeypatch: pytest.MonkeyPatch) -> None:
+    """UseDisk без пути - служба кладёт кэш куда сама решит, и это не наш раздел."""
+    _sets(monkeypatch, 4 * 1024**3, disk=True, path="")
+    line, good = doctor._cache(_config())
+    assert not good and "путь не задан" in line, line
 
 
 def test_cache_unreadable_settings_do_not_fail_checkup(monkeypatch: pytest.MonkeyPatch) -> None:
