@@ -4027,7 +4027,7 @@ def default_note(plans: list[_Plan], asked: str = "") -> str:
     if passed := [n for n in numbers if n < picked]:
         other = _named(plans[passed[0] - 1].picture)
         return f"{head} «{mine}», а не «{other}»: {_passed_why(plans, passed[0], numbers)}"
-    if twins := [n for n in numbers if n != picked and _twin(plans, n, picked)]:
+    if twins := [n for n in numbers if n != picked and _namesake(plans, n, picked)]:
         others = ", ".join(f"«{_named(plans[n - 1].picture)}»" for n in twins)
         return f"{head} «{mine}»: под этим именем есть ещё {others} - другая картина"
     return ""
@@ -4067,7 +4067,7 @@ def _passed_why(plans: list[_Plan], number: int, numbers: list[int]) -> str:
     return f"у неё всего одна раздача, а тут их {len(plans[number - 1].ranked)}"
 
 
-def _twin(plans: list[_Plan], number: int, picked: int) -> bool:
+def _namesake(plans: list[_Plan], number: int, picked: int) -> bool:
     """Тёзка по году: то же название, другая картина.
 
     Одноимённые части - самая тихая из подмен: в меню они отличаются только годом в
