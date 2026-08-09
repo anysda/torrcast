@@ -4982,8 +4982,7 @@ def _hold(
             # Другого доказательства «на ТВ есть таймлайн» у нас нет.
             said = clock.monotonic()
             print(
-                f"{journal} экран: {_hms(position.pos)} из {_hms(position.dur)} · "
-                f"{position.state}",
+                f"{journal} экран: {_hms(position.pos)} из {_hms(position.dur)} · {position.state}",
                 flush=True,
             )
             if warmer is not None:
