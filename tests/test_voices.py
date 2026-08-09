@@ -160,8 +160,8 @@ def test_a_studio_signature_reads_as_a_rung_of_the_ladder() -> None:
     """Подпись студией - тот же вид перевода, только сказанный именем студии."""
     assert [t.kind for t in BARBIE] == ["", "многоголосый", "многоголосый", ""]
     assert [t.kind for t in INSIDEOUT] == ["многоголосый", "многоголосый", "дубляж", ""]
-    # Кубик в Кубе занесён в «многоголосый» - формально двухголосые, но по крутости равны лучшим
-    assert [t.kind for t in PULP] == ["многоголосый", "дубляж", ""]
+    # Кубик в Кубе вслух остаётся двухголосым, хотя судим мы их по многоголосой ступени.
+    assert [t.kind for t in PULP] == ["двухголосый", "дубляж", ""]
     assert [t.kind for t in YOURNAME] == ["многоголосый", "многоголосый", "дубляж", ""]
 
 
@@ -230,10 +230,12 @@ FARGO = (
 def test_kubik_beats_lostfilm() -> None:
     """Кубик в Кубе побеждает LostFilm как в меню, так и в дефолте.
 
-    Оба - многоголосые в одной ступени; внутри ступени решает fame:
-    у Кубика он положительный, у LostFilm - нулевой.
+    Кубик двухголосый, и вслух он так и называется, но судят его по многоголосой
+    ступени (``ranks``), а внутри неё решает fame: у Кубика он положительный,
+    у LostFilm - нулевой.
     """
-    assert STUDIOS["кубик в кубе"].kind == "многоголосый"
+    assert STUDIOS["кубик в кубе"].kind == "двухголосый", "вслух - что есть на самом деле"
+    assert STUDIOS["кубик в кубе"].ranks == "многоголосый", "судим по ступени выше"
     assert voice_order(FARGO[1]) < voice_order(FARGO[0]), "Кубик левее LostFilm в очереди"
     assert Media(tracks=FARGO).default_track() == FARGO[1].index, "Кубик берётся дефолтом"
 
@@ -273,7 +275,7 @@ def test_voice_note_explains_non_default_choice() -> None:
     """
     note = cli.voice_note(Media(tracks=FARGO), Media(tracks=FARGO).default_track())
     assert "Кубик в Кубе" in note, "студия называется"
-    assert "многоголосый" in note, "ступень называется"
+    assert "двухголосый" in note, "вид перевода называется честно"
 
 
 def test_the_note_explains_the_choice_only_when_there_was_one() -> None:

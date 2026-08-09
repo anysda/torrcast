@@ -159,21 +159,33 @@ def test_already_warmed_releases_move_with_the_new_order() -> None:
 
 
 def test_a_hand_picked_release_keeps_the_number_the_table_showed() -> None:
-    """``--release N`` порядок не пересобирает: номер N человек прочитал в таблице.
+    """``--release N`` играет ровно ту раздачу, что стояла под номером N в таблице.
 
-    Таблица ``cast releases`` строится на прикидке и справки не спрашивает - переставь
-    мы порядок здесь, и названный руками номер сыграл бы другую раздачу.
+    🔴 TC-216. Держится этот инвариант теперь не заслонкой, а тем, что ОБЕ стороны
+    считают битрейт по одной длительности: ``cast releases`` спрашивает справку так же,
+    как путь показа. Раньше таблица строилась на прикидке «фильм это два часа», и
+    заслонка в :func:`_timed` запрещала пересобирать порядок под названный номер -
+    порядок сходился ценой того, что таблица врала про битрейт.
     """
     full = named("Интерстеллар / Interstellar (2014) BDRip 1080p | D", size_gb=16.5, seeders=90)
     small = named("Интерстеллар / Interstellar (2014) WEB-DL 720p | D", size_gb=4.0, seeders=120)
     picture = Picture(title="Интерстеллар", year=2014, releases=[full, small])
-    args = Args(query=["интерстеллар"], release=2)
     config = Config(recode=False)
-    blind = _plan_for(picture, args, config)
+    facts = facts_with("Интерстеллар", 2014, "2 ч 49 мин")
 
-    plan = _timed(blind, facts_with("Интерстеллар", 2014, "2 ч 49 мин"), args, config)
+    shown = _timed(
+        _plan_for(picture, Args(query=["интерстеллар"]), config),
+        facts,
+        Args(query=["интерстеллар"]),
+        config,
+    )
+    named_by_hand = Args(query=["интерстеллар"], release=2)
+    played = _timed(_plan_for(picture, named_by_hand, config), facts, named_by_hand, config)
 
-    assert plan is blind, "порядок остался тем, по которому человек называл номер"
+    assert [r.title for r in played.ranked] == [r.title for r in shown.ranked], (
+        "номер из таблицы означает ту же раздачу на показе"
+    )
+    assert played.runtime == shown.runtime, "длительность у таблицы и у показа одна"
 
 
 # --- TC-186: счёт отсева сходится с пулом -----------------------------------
