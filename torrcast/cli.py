@@ -45,7 +45,7 @@ from torrcast import (
 )
 from torrcast.cast import ChromecastReceiver, Receiver, make_receiver
 from torrcast.console import Progress, ask, ask_line, terminal
-from torrcast.facts import Fact, Facts, Origin, origin, shorten
+from torrcast.facts import Fact, Facts, Origin, minutes_of, origin, shorten
 from torrcast.parse import (
     VIDEO_EXT,
     Episode,
@@ -1116,6 +1116,11 @@ def _cmd_play(args: Args) -> int:
             try:
                 plan = _pick_plan(plans, facts)
                 mark("картина выбрана")  # TC-108: замер
+                # Справка уже дождана меню - её хронометраж встаёт в знаменатель
+                # битрейта вместо прикидки (:func:`_timed`), и порядок отбора
+                # пересобирается на настоящих числах. Прогретое при этом не пропадает:
+                # номера релизов переезжают вместе с порядком (:meth:`_Bench.reorder`).
+                plan = bench.reorder(plan, _timed(plan, facts, args, config, chosen.profile))
                 # Прогретые кандидаты ДРУГИХ картин с этой секунды - мусор: они тянут
                 # куски у той раздачи, которую сейчас будем показывать, и всё это время
                 # стоят в TorrServer лишними (:meth:`_Bench.keep_plan`).
@@ -1842,12 +1847,24 @@ def same_picture(
     return franchise_key(before.title) == franchise_key(after.title)
 
 
-def _plan_for(picture: Picture, args: Args, config: Config, profile: Profile = CAUTIOUS) -> _Plan:
-    """План по одной картине: пул релизов в порядке отбора и цель для сериала."""
+def _plan_for(
+    picture: Picture,
+    args: Args,
+    config: Config,
+    profile: Profile = CAUTIOUS,
+    runtime: float = 0.0,
+) -> _Plan:
+    """План по одной картине: пул релизов в порядке отбора и цель для сериала.
+
+    ``runtime`` — настоящая длительность картины, секунды (из справки, :func:`_timed`).
+    Ноль — её не назвал никто, и в знаменатель битрейта идёт прикидка
+    (:data:`torrcast.stream.RUNTIME_GUESS`).
+    """
     from torrcast.stream import RUNTIME_GUESS
 
     series = _Series(want=args.episode or Episode(1, 1)) if picture.kind == "tv" else None
-    runtime = RUNTIME_GUESS.get(picture.kind, 7200.0)
+    known = runtime > 0
+    runtime = runtime if known else RUNTIME_GUESS.get(picture.kind, 7200.0)
     pool = picture.releases
     if series is not None:
         pool = [r for r in pool if r.covers(series.want.season)]
@@ -1881,6 +1898,8 @@ def _plan_for(picture: Picture, args: Args, config: Config, profile: Profile = C
         picture=picture,
         ranked=ranked,
         runtime=runtime,
+        runtime_known=known,
+        off_season=len(picture.releases) - len(pool),
         warn_mbit=ceiling,
         series=series,
         recode_at=config.recode_at_mbit if config.recode else 0.0,
@@ -1889,6 +1908,54 @@ def _plan_for(picture: Picture, args: Args, config: Config, profile: Profile = C
         hard_mbit=hard,
         asked_series=args.episode is not None,
     )
+
+
+def _timed(
+    plan: _Plan, facts: Facts | None, args: Args, config: Config, profile: Profile = CAUTIOUS
+) -> _Plan:
+    """Пересобрать план на НАСТОЯЩЕЙ длительности картины, как только её назвала справка.
+
+    🔴 TC-185. Битрейт релиза отбор считает делением размера раздачи на длительность
+    (:func:`bitrate_of`), а длительности до ffprobe он не знает и берёт прикидку «фильм
+    это два часа». Прикидка не нейтральна: у «Интерстеллара» (2 ч 49 мин) она завышает
+    битрейт в 1.41 раза, у «Форреста Гампа» (2 ч 22 мин) — в 1.18, и честный 1080p,
+    лежащий под потолком, отсекался потолком, которого он не переходил. Молча: отказ
+    арифметики строки не печатает.
+
+    Потолки при этом не двигаются ни на знак — чинится ЗНАМЕНАТЕЛЬ.
+
+    Лишнего запроса тут нет ни одного: хронометраж уже приехал в справке к меню
+    («2 ч 49 мин» печатается рядом с рейтингом), и спрашивается он у той же
+    :class:`~torrcast.facts.Facts`, которую меню уже дождалось. Поэтому и зовётся это
+    ПОСЛЕ меню: до меню справки ещё нет, а ждать её на пути старта нельзя.
+
+    Справка молчит (нет статьи, нет сети, картины нет в выгрузке) — план остаётся на
+    прикидке, и это решение не молчаливое: событие ``runtime`` уходит в недельный след
+    (:func:`torrcast.trace.emit`) с тем же числом, которым считался битрейт.
+    """
+    if args.release is not None:
+        # Релиз назван руками, а номера ему давала таблица ``cast releases`` - она
+        # строится на прикидке и справки не спрашивает. Пересобрать порядок здесь
+        # значило бы сыграть не тот номер, который человек прочитал глазами.
+        return plan
+    fact = facts.get(plan.picture.title, plan.picture.year) if facts is not None else Fact()
+    minutes = minutes_of(fact.runtime)
+    if minutes <= 0:
+        trace.emit(
+            "select", "runtime", secs=round(plan.runtime), src="guess", title=plan.picture.title
+        )
+        return plan
+    fresh = _plan_for(plan.picture, args, config, profile, runtime=minutes * 60.0)
+    fresh.kin = plan.kin
+    trace.emit(
+        "select",
+        "runtime",
+        secs=round(fresh.runtime),
+        src="facts",
+        title=plan.picture.title,
+        was=round(plan.runtime),
+    )
+    return fresh
 
 
 @dataclass(slots=True)
@@ -1925,6 +1992,11 @@ class _Plan:
     #: Запрос назвал СЕРИЮ (``s1e1``), а не просто имя. Тогда тип сказан вслух, и дефолт
     #: обязан считаться среди сериалов (:func:`asked_kind`), а не среди тёзок-полнометражек.
     asked_series: bool = False
+    #: :attr:`runtime` — настоящая длительность из справки, а не прикидка (:func:`_timed`).
+    runtime_known: bool = False
+    #: Раздачи картины, не доехавшие даже до :attr:`ranked`: нужного сезона в них нет по
+    #: их же именам. Нужны счёту отсева (:func:`queue_drops`), чтобы он сходился с пулом.
+    off_season: int = 0
 
     @property
     def first(self) -> int:
@@ -2306,6 +2378,42 @@ class _Bench:
                 return
             self._forget(min(spare, key=lambda prep: prep.started))
 
+    def reorder(self, before: _Plan, after: _Plan) -> _Plan:
+        """Переставить уже начатые прогревы под НОВЫЙ порядок отбора; вернуть новый план.
+
+        Прогрев под меню заводится по номеру релиза в плане (:meth:`start`), а номер —
+        это место в :attr:`_Plan.ranked`. Пересборка плана на настоящей длительности
+        (:func:`_timed`) порядок вправе поменять, и без переезда ключей прогрев верха
+        отдался бы уже другой раздаче: та же цифра, другой магнит.
+
+        Переезд считается по самой раздаче, а не по цифре: у прогрева она уже лежит
+        (:attr:`_Prep.release`), и ищется её новое место. Раздачи, которой в новом
+        порядке нет вовсе, быть не может — пул тот же, — но если она пропадёт, прогрев
+        отпускается, а не переносится наугад.
+        """
+        if after is before:
+            return before
+        places = {id(release): number for number, release in enumerate(after.ranked, start=1)}
+        moved: dict[tuple[str, int], _Prep] = {}
+        for key, prep in self.preps.items():
+            if key[0] != after.picture.key:
+                moved[key] = prep
+                continue
+            number = places.get(id(prep.release))
+            if number is None:  # раздача выпала из порядка - её прогрев больше не нужен
+                self._forget(prep)
+                continue
+            prep.number = number
+            moved[(key[0], number)] = prep
+        self.preps = moved
+        self.needed = {
+            (key, places.get(id(before.ranked[number - 1]), number))
+            if key == after.picture.key and 1 <= number <= len(before.ranked)
+            else (key, number)
+            for key, number in self.needed
+        }
+        return after
+
     def keep_plan(self, plan: _Plan) -> None:
         """Картина выбрана - прогревы ОСТАЛЬНЫХ картин больше не нужны, и они убираются.
 
@@ -2365,6 +2473,17 @@ class _Bench:
         фазы прежний, каждая осечка стоит строки, а очередь конечна.
         """
         queue = plan.candidates(args)
+        # Пул, очередь и весь отсев с причинами - одним событием на запрос (TC-186).
+        # Сумма очереди и причин сходится с пулом картины: раздача, не доехавшая до
+        # каста, больше не исчезает молча (:func:`queue_drops`).
+        drops = queue_drops(plan, queue, pinned=args.release is not None)
+        trace.emit(
+            "select",
+            "queue",
+            pool=len(plan.picture.releases),
+            queued=len(queue),
+            dropped=drops,
+        )
         if args.release is None and (skipped := plan.skipped):
             # Молчать тут нельзя: человек попросил серию, а половину выдачи мы не взяли.
             print(
@@ -2372,6 +2491,9 @@ class _Bench:
                 f"(«{_cut(skipped[0].raw_name, 60)}»...) - беру ту, где она есть"
             )
         tried: list[str] = []
+        #: Приговоры по номерам релизов: нужны строке о снижении ступени (TC-187), чтобы
+        #: она называла причину, а не просто «лучшее было».
+        judged: dict[int, str] = {}
         verdicts = 0
         exhausted = False
         deadline = time.monotonic() + PICK_BUDGET
@@ -2408,8 +2530,12 @@ class _Bench:
                     print(recode_note(prep.found.video_name, 0.0 if silent else weight))
                 elif warning := prep.found.video_warning:
                     print(warning)
+                # Ступень ниже доступной - тоже авто-решение, и оно не молчит (TC-187).
+                if step := stepdown_note(plan, prep.number, prep.media, queue, judged, attempt):
+                    print(step)
                 return prep
             tried.append(f"{number} - {trouble}")
+            judged[number] = trouble
             trace.emit("select", "drop", release=number, why=trouble)
             if not prep.error and prep.media is not None:  # ffprobe прочитал и осудил
                 verdicts += 1
@@ -4352,14 +4478,105 @@ def is_candidate(
     BD-ремуксе 37.8 Мбит/с), у 4К вчетверо больше пикселей, и на тех же ядрах реального
     времени он не держит. Ноль — ступени нет, всё судится одним потолком.
     """
-    ceiling = warn_mbit
-    if hard_mbit > 0 and release.height > FULL_HEIGHT:
-        ceiling = min(warn_mbit, hard_mbit)
-    if is_disc(release) or bitrate_of(release, runtime) > ceiling:
+    if is_disc(release) or over_ceiling(release, runtime, warn_mbit, hard_mbit):
         return False
     if release.prime or (loose and release.quiet and release.kind != "other"):
         return True
     return hevc_hope(release, last)
+
+
+def over_ceiling(
+    release: Release, runtime: float, warn_mbit: float, hard_mbit: float = 0.0
+) -> bool:
+    """Битрейт релиза выше потолка отбора: играть его нечем, и в очередь он не идёт.
+
+    Потолок у кадра выше 1080p свой (``hard_mbit``): сплошной перекод, которым спасают
+    тяжёлое, замерен на 1080p, а у 4К вчетверо больше пикселей — см. :func:`is_candidate`.
+
+    Отдельной функцией это стоит затем, что решение «выкинуть по битрейту» обязано
+    называться одним и тем же кодом и в воротах, и в счёте отсева (:func:`drop_reason`):
+    иначе счёт объяснял бы отказ не тем, чем он случился.
+    """
+    ceiling = warn_mbit
+    if hard_mbit > 0 and release.height > FULL_HEIGHT:
+        ceiling = min(warn_mbit, hard_mbit)
+    return bitrate_of(release, runtime) > ceiling
+
+
+#: Раздачи картины, отсеянные до очереди, по причинам (:func:`drop_reason`). Порядок
+#: слов один на весь код: причина называется там, где считается, и печатается в
+#: `cast log` теми же словами (:func:`torrcast.trace._event_line`).
+OFF_SEASON: Final = "нужного сезона нет"
+_NO_EPISODE: Final = "нужной серии нет по имени"
+_DISC: Final = "образ диска"
+_HEAVY: Final = "тяжелее потолка"
+_HEVC: Final = "hevc, а сплошного перекода нет"
+_CODEC: Final = "кодек не тот"
+_SMALL: Final = "кадр ниже 720p по имени"
+_SOURCE: Final = "источник не HD"
+_QUIET: Final = "имя молчит о качестве"
+_PINNED: Final = "релиз назван руками"
+
+
+def drop_reason(release: Release, plan: _Plan) -> str:
+    """Почему раздача не доехала до очереди отбора; пусто — доехала.
+
+    🔴 TC-186. Пул картины и очередь отбора — не одно и то же: между ними стоят ворота
+    (:func:`is_candidate`), сезонный фильтр и потолок битрейта, и на замере тысячи
+    запросов между ними терялось 895 раздач из 3164 — без строки на экране и без
+    события в недельном следе. «В журнале нет строки» это не «события не было»:
+    отказавшая арифметика выглядела в следе ровно как её отсутствие.
+
+    Причины перечислены в том же порядке, в каком судит :meth:`_Plan.candidates`, и
+    каждая раздача получает ПЕРВУЮ подошедшую: у выкинутой их бывает несколько сразу,
+    а объяснять человеку надо ту, на которой её и выкинули.
+    """
+    if misses_episode(release, plan.want):
+        return _NO_EPISODE
+    if is_disc(release):
+        return _DISC
+    if over_ceiling(release, plan.runtime, plan.warn_mbit, plan.hard_mbit):
+        return _HEAVY
+    if release.is_hevc and not plan.last_resort:
+        return _HEVC
+    # Дальше раздача не прошла ворота (:attr:`~torrcast.parse.Release.prime`), и причина
+    # у ворот ровно та, чем имя о себе сказало: назван чужой кодек, назван мелкий кадр,
+    # назван не-HD-источник. Не сказало ничего - это молчание, и оно отдельная причина:
+    # молчаливую раздачу судит ffprobe, когда ворота открыты (:attr:`_Plan.loose`).
+    if release.codec:
+        return _CODEC
+    if release.height:
+        return _SMALL
+    if release.source:
+        return _SOURCE
+    return _QUIET
+
+
+def queue_drops(plan: _Plan, queue: list[int], pinned: bool = False) -> dict[str, int]:
+    """Сколько раздач картины выкинуто до очереди и по каким причинам.
+
+    Считается ПО ПУЛУ КАРТИНЫ, а не по :attr:`_Plan.ranked`: раздачи, у которых нет
+    нужного сезона, отсекаются ещё при сборке плана (:func:`_plan_for`) и до сих пор не
+    попадали ни в одну строку вовсе. Поэтому сумма очереди и всех причин сходится с
+    длиной ``plan.picture.releases`` — это и есть проверка того, что счёт полон.
+
+    Свёрткой, а не событием на раздачу, — намеренно: 895 событий на один запрос это не
+    диагностика, а способ переполнить очередь записи, из которой события теряются молча
+    (:class:`torrcast.trace._Writer`).
+
+    ``pinned`` — релиз назван руками (``--release N``), и остальные не «выкинуты», а не
+    спрошены: причин отбора у них нет.
+    """
+    counts: dict[str, int] = {}
+    if plan.off_season:
+        counts[OFF_SEASON] = plan.off_season
+    taken = set(queue)
+    for number, release in enumerate(plan.ranked, start=1):
+        if number in taken:
+            continue
+        why = _PINNED if pinned else drop_reason(release, plan)
+        counts[why] = counts.get(why, 0) + 1
+    return counts
 
 
 def hevc_hope(release: Release, last: bool) -> bool:
@@ -4762,6 +4979,70 @@ def is_full_hd(release: Release, alive: int) -> bool:
     if release.height < FULL_HEIGHT or release.seeders <= 0:
         return False
     return release.seeders >= alive * FULL_HD_LIVENESS
+
+
+#: Насколько чужое обещание должно превышать наш кадр, чтобы считаться ступенью выше.
+#: 1080 против 1078 — не ступень, а округление разных рипов одного и того же мастера.
+STEP_RATIO: Final = 0.95
+
+
+def stepdown_note(
+    plan: _Plan,
+    number: int,
+    media: Media | None,
+    queue: list[int],
+    judged: dict[int, str] | None = None,
+    reached: int = 0,
+) -> str:
+    """Одна строка о том, что показ едет ступенью НИЖЕ, чем в выдаче было доступно.
+
+    🔴 TC-187. «Интерстеллар», «Форрест Гамп», «Зелёная миля», «Нелюбовь» доезжали в
+    720p и SD при живых 1080p в той же выдаче — и ни одна строка об этом не говорила.
+    Молчаливых подмен нет: снижение ступени — такое же авто-решение, как выбор релиза,
+    и человек обязан услышать не только «что взяли», но и «почему не лучшее».
+
+    Взятое меряется ПАСПОРТОМ, а не именем: ffprobe уже прочитан, и «названный 1080p, а
+    внутри 574p» обязан считаться SD, иначе строка молчала бы ровно там, где подмена и
+    случилась. Соседей мерить нечем, кроме имени, — их паспорта нет и не будет, пока их
+    не подняли; поэтому у них берётся заявка, а порог :data:`STEP_RATIO` не даёт считать
+    ступенью разницу в округлении.
+
+    Причина — из того, чем кончилась их очередь:
+
+    - ``отбраковали`` — раздачу трогали, и ffprobe (или рой) её осудил; приговор в строке;
+    - ``не дошли`` — стояла в очереди, но до неё не добрались: годный нашёлся раньше;
+    - ``в очередь не попал`` — выкинули воротами ещё до каста (:func:`drop_reason`);
+    - ``рой мёртв`` — лучшее в выдаче есть, а сидов у него ноль: это не показ.
+
+    Лучшего не было — строки нет вовсе: сообщать нечего, а лишняя строка на каждом
+    показе обесценивает все остальные.
+    """
+    judged = judged or {}
+    taken = plan.ranked[number - 1]
+    frame = media.frame if media is not None and media.height else taken.height
+    better = [
+        (n, r)
+        for n, r in enumerate(plan.ranked, start=1)
+        if n != number
+        and r.height * STEP_RATIO > frame
+        and not misses_episode(r, plan.want)
+        and not is_disc(r)
+    ]
+    if not better:
+        return ""
+    alive = [(n, r) for n, r in better if r.seeders > 0]
+    best = max(alive or better, key=lambda pair: (pair[1].height, pair[1].seeders))
+    at, rival = best
+    if not alive:
+        why = "рой мёртв"
+    elif at in judged:
+        why = f"отбраковали ({judged[at]})"
+    elif at in queue:
+        why = "не дошли" if queue.index(at) >= reached else "не ответил"
+    else:
+        why = f"в очередь не попал: {drop_reason(rival, plan)}"
+    took = media.quality if media is not None and media.height else (taken.quality or "?")
+    return f"взял {took}, рядом был {rival.quality} (релиз {at}, сидов {rival.seeders}) - {why}"
 
 
 def bitrate_of(release: Release, duration: float) -> float:

@@ -572,6 +572,18 @@ def _event_line(rec: dict[str, Any], began: float, seam: bool = False) -> str:
             f" · {rec.get('quality', '?')} · {rec.get('track', '?')}"
             f" · ~{rec.get('mbit', '?')} Мбит/с"
         )
+    if event == "queue":
+        # Отсев до очереди - свёрткой, а не событием на раздачу: их сотни на запрос.
+        # Сумма очереди и причин обязана сходиться с пулом, и в строке это видно глазами.
+        dropped = rec.get("dropped") or {}
+        reasons = ", ".join(f"{name} {count}" for name, count in dropped.items())
+        lost = sum(int(count) for count in dropped.values())
+        head = f"{stamp}пул {rec.get('pool', '?')}: в очереди {rec.get('queued', '?')}"
+        return f"{head}, выкинуто {lost}" + (f" ({reasons})" if reasons else "")
+    if event == "runtime":
+        # Знаменатель битрейта отбора: чем считали и откуда взяли (TC-185).
+        got = "из справки" if rec.get("src") == "facts" else "прикидка: справка молчит"
+        return f"{stamp}длительность {_hms(float(rec.get('secs', 0.0)))} - {got}"
     if event == "drop":
         return f"{stamp}отброшен релиз {rec.get('release', '?')}: {rec.get('why', '?')}"
     if event == "note":
