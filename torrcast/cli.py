@@ -527,9 +527,7 @@ def parse_args(argv: Sequence[str] | None = None) -> Args:
         metavar="N",
         help="отладка: взять релиз N; номера - из cast releases с тем же запросом",
     )
-    parser.add_argument(
-        "--pick", type=int, metavar="N", help="картина N из меню, без вопроса"
-    )
+    parser.add_argument("--pick", type=int, metavar="N", help="картина N из меню, без вопроса")
     parser.add_argument("--file", type=int, metavar="N", help="отладка: взять файл N раздачи")
     parser.add_argument(
         "--voice",
