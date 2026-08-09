@@ -1301,9 +1301,17 @@ def pick_franchise(query: str, pictures: list[Picture]) -> list[Picture]:
     if key is None:  # номер оказался частью названия: «пила 8», «форсаж 6»
         key, index = lookup(query), None
     if key is None:
-        return []
+        # Имени франшизы человек мог и не назвать: он зовёт картину подзаголовком.
+        items = _by_subtitle(name, pictures)
+        if not items:
+            items, index = _by_subtitle(query, pictures), None
+        return _numbered(items, index)
 
-    items = _both_languages(groups, aliases, key)
+    return _numbered(_both_languages(groups, aliases, key), index)
+
+
+def _numbered(items: list[Picture], index: int | None) -> list[Picture]:
+    """Номер части из запроса → одна картина; номера нет — вся линейка как есть."""
     if index is None:
         return items
     # Явный номер части сильнее позиции: «тачки 2» → «Тачки 2», а не спин-офф.
@@ -1311,6 +1319,48 @@ def pick_franchise(query: str, pictures: list[Picture]) -> list[Picture]:
     if explicit:
         return [max(explicit, key=lambda p: len(p.releases))]
     return [items[index - 1]] if 1 <= index <= len(items) else []
+
+
+#: Чем каталог вводит подзаголовок: двоеточием, а советское кино — словом «или».
+_SUBTITLE_RE: Final = re.compile(r"\s*:\s*|,\s+или\s+")
+
+
+def _by_subtitle(query: str, pictures: list[Picture]) -> list[Picture]:
+    """Картины, чей ПОДЗАГОЛОВОК человек и назвал: «кольца власти» → «Властелин колец:
+    Кольца власти».
+
+    Каталог подписывает сериал полным именем («Властелин колец: Кольца власти»), а зовут
+    его тем словом, под которым знают, — подзаголовком. В ключ франшизы подзаголовок не
+    входит, его режет :func:`franchise_name` первым делом, и до этой проверки запрос
+    «кольца власти» падал в пустоту при 39 раздачах до 117 сидов в первой же выдаче:
+    ключа ``кольца-власти`` в каталоге нет, а ``властелин-колец`` в запрос не входит ни
+    подстрокой, ни словами. Дальше пустоту добивал добор, приносивший по оригиналу
+    ``The Lord of the Rings`` всю чужую франшизу, — и человек читал «ничего не нашлось».
+
+    🔴 Отдаётся КАРТИНА с этим подзаголовком, а не её франшиза. Подзаголовком человек
+    называет одну часть, и подставить вместо «Двух крепостей» всего «Властелина колец»
+    значило бы молча показать другое кино.
+
+    Подзаголовок сверяется ЦЕЛИКОМ, поэтому однофамильцы мимо: «кольца власти» — это не
+    «Кольцо власти» 2007 года, лежащее в той же выдаче. Ищется и в русском имени, и в
+    оригинале: половина каталога подписана только латиницей.
+    """
+    wanted = slugify(query)
+    if not wanted:
+        return []
+    items = [p for p in pictures if wanted in _subtitles(p)]
+    items.sort(key=lambda p: (p.year is None, p.year or 0, p.part or 99, -len(p.releases)))
+    return items
+
+
+def _subtitles(picture: Picture) -> set[str]:
+    """Подзаголовки картины — то, что каталог написал после двоеточия, слагами."""
+    found = set()
+    for title in (picture.title, picture.original or ""):
+        parts = _SUBTITLE_RE.split(title.strip(), maxsplit=1)
+        if len(parts) == 2 and (slug := slugify(parts[1])):
+            found.add(slug)
+    return found
 
 
 def _both_languages(

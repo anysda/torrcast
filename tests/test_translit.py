@@ -440,6 +440,66 @@ def _namesakes() -> _FakeProwlarr:
     )
 
 
+def test_a_subtitle_query_needs_no_second_round(monkeypatch: pytest.MonkeyPatch) -> None:
+    """🔴 «Кольца власти» - подзаголовок сериала, и картина находится с первого круга.
+
+    Прежде запрос не привязывался ни к одной картине, пустой пул звал добор, тот
+    приносил по оригиналу всю чужую франшизу - и гейт честно её отбраковывал вместе с
+    русской выдачей. Человек читал «ничего не нашлось» при 20 живых раздачах.
+    """
+    client = _FakeProwlarr(
+        {
+            "кольца власти": [
+                raw(
+                    "Властелин колец: Кольца власти / The Lord of the Rings: "
+                    f"The Rings of Power (2022) WEB-DL 1080p {i}",
+                    i,
+                    seeders=91,
+                )
+                for i in range(20)
+            ]
+        }
+    )
+    asked = _knows(monkeypatch, {})
+    plans, said = _search(client, "кольца власти", monkeypatch)
+
+    assert client.asked == ["кольца власти"], "лишнего круга по индексерам не нужно"
+    assert asked == [], "справку тоже не тревожим: пул полон"
+    assert [p.picture.title for p in plans] == ["Властелин колец: Кольца власти"]
+    assert len(plans[0].picture.releases) == 20
+    assert "ничего не нашлось" not in said
+
+
+def test_a_thin_subtitle_pool_is_never_zeroed_by_the_gate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Пул тощий, добор привёз чужую франшизу - гейт её не берёт, но и своё не выбрасывает."""
+    client = _FakeProwlarr(
+        {
+            "кольца власти": [
+                raw(
+                    "Властелин колец: Кольца власти / The Lord of the Rings: "
+                    f"The Rings of Power (2022) WEB-DL 1080p {i}",
+                    i,
+                    seeders=91,
+                )
+                for i in range(3)
+            ],
+            "the lord of the rings": [
+                raw(f"The.Lord.of.the.Rings.The.War.of.the.Rohirrim.2024.1080p-{i}", 100 + i)
+                for i in range(40)
+            ],
+        }
+    )
+    _knows(monkeypatch, {})
+    plans, said = _search(client, "кольца власти", monkeypatch)
+
+    assert client.asked == ["кольца власти", "The Lord of the Rings"]
+    assert [p.picture.title for p in plans] == ["Властелин колец: Кольца власти"]
+    assert len(plans[0].picture.releases) == 3, "чужая франшиза к картине не подмешана"
+    assert "добрал" not in said
+
+
 def test_top_up_that_brings_a_namesake_picture_is_refused(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -372,6 +372,40 @@ def test_matching_by_words_stays_narrow() -> None:
     assert pick_franchise("наследственное", pictures) == []
 
 
+def test_a_subtitle_is_a_name_too() -> None:
+    """🔴 Человек зовёт картину подзаголовком - «Кольца власти», а не «Властелин колец».
+
+    Каталог подписывает сериал полным именем, ключ франшизы подзаголовок режет, и запрос
+    падал в пустоту при 39 живых раздачах в той же выдаче: cast печатал «ничего не
+    нашлось» там, где лежало 28 раздач до 91 сида.
+
+    Отдаётся именно эта КАРТИНА, а не вся её франшиза: подставить «Властелина колец»
+    вместо «Колец власти» значило бы показать другое кино.
+    """
+    pictures = cluster(
+        [
+            _release("Властелин колец: Кольца власти", 2022, seeders=91),
+            _release("Властелин колец: Братство кольца", 2001, seeders=98),
+            _release("Кольцо власти: Мировое супергосударство", 2007, seeders=1),
+        ]
+    )
+
+    assert [p.title for p in pick_franchise("кольца власти", pictures)] == [
+        "Властелин колец: Кольца власти"
+    ]
+    # Однофамилец мимо: подзаголовок сверяется целиком, «кольца» - это не «кольцо».
+    assert [p.year for p in pick_franchise("кольцо власти", pictures)] == [2007]
+    # Имя франшизы по-прежнему приводит франшизу целиком.
+    assert len(pick_franchise("властелин колец", pictures)) == 2
+
+
+def test_a_subtitle_is_read_in_the_original_title_as_well() -> None:
+    """Половина каталога подписана только латиницей - подзаголовок ищется и в оригинале."""
+    pictures = cluster([_release("Rings of Power", 2022, original="LOTR: The Rings of Power")])
+
+    assert [p.title for p in pick_franchise("the rings of power", pictures)] == ["Rings of Power"]
+
+
 def test_a_single_word_never_goes_through_the_word_match() -> None:
     """Одного слова для перестановки мало: оно и так ищется подстрокой."""
     pictures = cluster([_release("Психо", 1960, original="Psycho")])
