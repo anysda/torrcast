@@ -110,7 +110,10 @@ _SD_SOURCES: Final = frozenset({"DVDRip", "DVDScr", "VHSRip", "TVRip", "SATRip",
 #: Маркеры озвучки: regex по всему имени → нормальная форма. Порядок = приоритет.
 _VOICES: Final[tuple[tuple[str, str], ...]] = (
     (r"гоблин\b|пучков|goblin\b", "Гоблин"),
-    (r"дубляж|дублир|\bдб\b|\bdub\b", "Дубляж"),
+    # Тот же набор маркеров, что в лестнице дорожек (torrcast/stream.py:_VOICE_STEPS):
+    # «Dubbed», «Movie Dubbing», «Лицензия», «iTunes». Страж «no » нужен, потому что
+    # «no dub» - это отсутствие дубляжа; «undubbed» не срабатывает уже по \b.
+    (r"дубляж|дублир|(?<!no )\bdub(?:bed|bing)?\b|\bдб\b|лицензи|itunes", "Дубляж"),
     (r"многоголос|\bmvo\b|\bпм\b|\bлм\b", "Многоголосый"),
     (r"двухголос|\bdvo\b|\bдвг\b|\bпд\b|\bлд\b", "Двухголосый"),
     (r"авторск|\bavo\b|\bап\b", "Авторский"),

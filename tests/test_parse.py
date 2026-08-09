@@ -190,6 +190,38 @@ def test_hevc_is_flagged() -> None:
 
 
 @pytest.mark.parametrize(
+    "name",
+    [
+        "Престиж / The Prestige (2006) BDRip 1080p Dubbed",
+        "Драйв / Drive (2011) WEB-DL 1080p Movie Dubbing",
+        "Брат 2 / Brat 2 (2000) BDRip 1080p Лицензия",
+        "Форсаж / The Fast and the Furious (2001) WEB-DL 1080p iTunes",
+    ],
+)
+def test_dub_markers_in_name(name: str) -> None:
+    """Маркеры дубляжа в имени читаются так же, как в подписях дорожек."""
+    release = parse_release_name(name)
+
+    assert "Дубляж" in release.voices
+    assert release.dubbed
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "The Prestige (2006) BDRip 1080p undubbed",
+        "Drive (2011) WEB-DL 1080p no dub",
+    ],
+)
+def test_no_dub_negation_is_not_dubbed(name: str) -> None:
+    """«undubbed» и «no dub» - это отсутствие дубляжа, а не его маркер."""
+    release = parse_release_name(name)
+
+    assert "Дубляж" not in release.voices
+    assert not release.dubbed
+
+
+@pytest.mark.parametrize(
     ("text", "expected"),
     [
         ("Cyberpunk.Edgerunners.s01e05.1080p", (1, 5)),
