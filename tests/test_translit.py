@@ -863,3 +863,89 @@ def test_the_biggest_part_of_a_franchise_is_not_a_swapped_picture(
 
     assert [p.picture.year for p in plans] == [2006, 2017]
     assert "приехала другая картина" not in said
+
+
+def test_a_classic_with_a_known_original_is_asked_by_it_and_not_by_translit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Неанглийская классика ищется оригиналом; транслит - запасной ход, а не первый.
+
+    Живой замер (TC-138): «Крики и шёпот» уходили в индексер транслитом
+    ``kriki i shepot`` и приносили НОЛЬ строк, тогда как под своим оригиналом
+    ``Viskningar och rop`` в том же каталоге лежат девять. Транслит тут не выручает - он
+    выдумывает имя, которым раздачу не подписывал никто.
+    """
+    client = _FakeProwlarr(
+        {
+            "крики и шёпот": [raw("Крики и шёпот (1972) DVDRip", 1)],
+            "viskningar och rop": [
+                raw(f"Viskningar och rop AKA Cries and Whispers 1972 BDRip {i}", 10 + i)
+                for i in range(9)
+            ],
+        }
+    )
+    _knows(
+        monkeypatch, {"крики и шёпот": Origin(title="Viskningar och rop", name="Шёпоты и крики")}
+    )
+
+    _plans, said = _search(client, "крики и шёпот", monkeypatch)
+
+    assert client.asked == ["крики и шёпот", "Viskningar och rop"]
+    assert transliterate("крики и шёпот") not in client.asked
+    assert "добрал по «Viskningar och rop»: стало 10" in said
+
+
+def test_the_swap_of_the_query_is_said_out_loud(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Смена запроса - не молчаливое дело: сказано, что имя от справки и чем искали бы без неё."""
+    client = _FakeProwlarr(
+        {
+            "крики и шёпот": [raw("Крики и шёпот (1972) DVDRip", 1)],
+            "viskningar och rop": [
+                raw(f"Viskningar och rop 1972 BDRip {i}", 10 + i) for i in range(9)
+            ],
+        }
+    )
+    _knows(
+        monkeypatch, {"крики и шёпот": Origin(title="Viskningar och rop", name="Шёпоты и крики")}
+    )
+
+    _plans, said = _search(client, "крики и шёпот", monkeypatch)
+
+    assert "оригинал «Viskningar och rop» - по справке; без неё искал бы «kriki i shepot»" in said
+
+
+def test_the_reference_that_says_nothing_new_keeps_quiet(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Справка назвала то же имя, что лежало в выдаче, - объявлять нечего, строки нет."""
+    client = _catalog(russian=2, latin=40)
+    _knows(monkeypatch, {"психо": Origin(title="Psycho", year=1960)})
+
+    _plans, said = _search(client, "психо", monkeypatch)
+
+    assert "по справке" not in said
+    assert "добрал по «Psycho»" in said
+
+
+def test_a_latin_named_picture_without_an_article_keeps_its_translit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Смежный класс: у латинописанного аниме статьи в русской Википедии нет вовсе.
+
+    «Врата Штейна» подписаны латиницей (``Steins;Gate``), русской статьи под этим именем
+    нет, и справка молчит по-честному. Транслит для такой картины - единственное, что
+    есть, и отнимать его нельзя: на нём и стоит весь добор.
+    """
+    client = _FakeProwlarr(
+        {
+            "врата штейна": [raw("Врата Штейна (2011) WEB-DL", 1)],
+            "vrata shteyna": [
+                raw(f"Vrata Shteyna Steins Gate 2011 BDRip {i}", 10 + i) for i in range(6)
+            ],
+        }
+    )
+    _knows(monkeypatch, {})  # статьи нет - паспорт пуст
+
+    _plans, said = _search(client, "врата штейна", monkeypatch)
+
+    assert client.asked == ["врата штейна", "vrata shteyna"]
+    assert "по справке" not in said
+    assert "добрал по «vrata shteyna»: стало 7" in said

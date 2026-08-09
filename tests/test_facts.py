@@ -843,3 +843,97 @@ def test_a_lone_answer_lends_its_name_but_never_its_year(monkeypatch: Any) -> No
     assert lone.title == "Attack on Titan", "имя общее у фильма и сериала - добору годится"
     assert lone.name == "Атака титанов", "русское имя тоже: по нему добор ищет обратно"
     assert lone.year is None, "год у сериала 2013, а не 2015 - неподтверждённый год не отдаём"
+
+
+WHISPERS = (
+    "«Шёпоты и крики» (швед. Viskningar och rop) — шведский художественный фильм в жанре "
+    "психологической драмы режиссёра Ингмара Бергмана, вышедший в 1972 году."
+)
+BICYCLE_THIEVES = (
+    "«Похитители велосипедов» (итал. Ladri di biciclette) — драма Витторио Де Сика 1948 "
+    "года по одноимённому произведению Луиджи Бартолини, ставшая классикой итальянского "
+    "неореализма и мирового кинематографа в целом. Стабильно входит в список лучших "
+    "фильмов по версии IMDb."
+)
+SEVEN_SAMURAI = (
+    "О сериале см. статью 7 самураев.\n\n«Семь самура́ев» (яп. 七人の侍 ситинин-но самурай) — "
+    "эпическая самурайская кинодрама, поставленная режиссёром Акирой Куросавой в жанре "
+    "дзидайгэки в 1954 году."
+)
+SAMURAI_7 = (
+    "7 самураев (яп. サムライ7 Samurai 7) — аниме-ремейк фильма Акиры Куросавы «Семь "
+    "самураев», снятый к 50-летию оригинала."
+)
+
+
+def test_the_same_words_in_another_order_are_still_the_same_picture() -> None:
+    """Классику зовут по памяти: «Крики и шёпот» - это статья «Шёпоты и крики».
+
+    Слово в слово такие имена не сходятся ничем, и справка молчала - а поиск уходил в
+    индексер транслитом ``kriki i shepot`` (ноль строк на живом стенде) вместо
+    ``Viskningar och rop`` (девять).
+    """
+    page = _page("Шёпоты и крики", WHISPERS, english="Cries and Whispers")
+
+    assert facts_mod.read_origin([page], "Крики и шёпот").title == "Viskningar och rop"
+    assert facts_mod.akin("Крики и шёпот", "Шёпоты и крики")
+    assert facts_mod.akin("Семнадцать мгновений весны", "Семнадцать мгновений весны")
+
+
+def test_a_reshuffled_name_is_not_a_licence_to_take_a_neighbour() -> None:
+    """Послабление тесное: слов поровну, каждому пара, и одно слово так не сверяется вовсе.
+
+    Иначе «Восхождение» совпало бы с «Ганнибал: Восхождение», а «Персона» - с «Персонажем»:
+    ровно те подмены, ради которых :func:`~torrcast.facts.akin` и написана.
+    """
+    assert not facts_mod.akin("Восхождение", "Ганнибал: Восхождение")
+    assert not facts_mod.akin("Персона", "Персонаж")
+    assert not facts_mod.akin("Крики и шёпот", "Крики и шорох")
+    assert not facts_mod.akin("Тачки 2", "Тачки 3")
+
+
+def test_the_pointer_line_at_the_top_is_not_the_pictures_own_sentence() -> None:
+    """«О сериале см. статью 7 самураев.» - это разводка одноимённого, а не фраза о картине.
+
+    Читая её первой фразой, справка видела у фильма Куросавы слово «сериале», отвергала
+    его статью как чужой тип и уходила в соседнюю - аниме-ремейк, - откуда приносила
+    ``Samurai 7`` оригиналом классики 1954 года. Тихая подмена картины: поиск ушёл бы в
+    индексер именем совсем другого кино.
+    """
+    assert facts_mod.sentence(SEVEN_SAMURAI).startswith("«Семь самура́ев»")
+
+    pages = [_page("Семь самураев", SEVEN_SAMURAI, english="Seven Samurai")]
+    assert facts_mod.read_origin(pages, "Семь самураев", trusted=True, series=False).title == (
+        "Seven Samurai"
+    )
+    # А сам ремейк остаётся собой: указатель отрезан только там, где он есть.
+    remake = _page("7 самураев", SAMURAI_7, english="Samurai 7")
+    assert facts_mod.read_origin([remake], "7 самураев", trusted=True).title == "Samurai 7"
+
+
+def test_a_classic_that_never_says_the_word_film_still_gives_its_original() -> None:
+    """Паспортная формула произведения: название в кавычках, жанр и год выхода.
+
+    Статья о «Похитителях велосипедов» слова «фильм» в именительном не говорит ни разу
+    («драма Витторио Де Сика 1948 года»), и прежний гейт молчал на классике, которую знает
+    любой каталог: ``Ladri di biciclette`` - шесть строк на живом стенде против нуля у
+    транслита ``pokhititeli velosipedov``.
+    """
+    page = _page("Похитители велосипедов", BICYCLE_THIEVES, english="Bicycle Thieves")
+
+    found = facts_mod.read_origin([page], "Похитители велосипедов", trusted=True, series=False)
+    assert found.title == "Ladri di biciclette"
+    assert found.year == 1948
+
+
+def test_the_passport_formula_does_not_open_the_gate_to_books_and_people() -> None:
+    """Третий путь гейта не отменяет первых двух ограждений: чужое так же молчит.
+
+    Роман Герберта открывается кавычками и годом, но жанра кино у него нет; у человека нет
+    и кавычек. Стоит пустить их дальше - и справка выдаст «Dune» или «William Bradley Pitt»
+    за оригинальное название картины.
+    """
+    for heading, extract in NOT_CINEMA.items():
+        page = _page(heading, extract, english=heading)
+
+        assert not facts_mod.read_origin([page], heading.split(" (")[0], trusted=True), heading

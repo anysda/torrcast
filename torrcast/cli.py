@@ -1257,6 +1257,14 @@ def _second_language(
         # Название латиницей остаётся: номер части у него всё равно отрезан, и оно верное.
         about = Origin(title=about.title, name=about.name)
     alt = alt_query(name, pool, about.title, about.name)
+    said = _query_note(name, alt, pool, about)
+    if said:
+        # Закрываем строку первого круга ДО объяснения: заметка выходит сразу, а строка
+        # фазы - только когда фазу закрыли, и без этого «искал бы «kriki i shepot»»
+        # вставало ПЕРЕД строкой «поиск «крики и шёпот»... 1.5 с» - то есть перед тем
+        # самым кругом, из которого оно и следует.
+        progress.phase("")
+        progress.note(said)
     # Тем же именем второй раз ходить незачем: на «cast cars» оригинал из выдачи - «Cars»,
     # и это ещё один полный круг по всем индексерам (на живом стенде - до 102 секунд, если
     # в круге кто-то молчит) ради той же самой выдачи. Регистр и разделители имя не меняют,
@@ -1304,6 +1312,28 @@ def _second_language(
         return _as_is(raw, found, about, progress)
     progress.note(f"по-русски раздач {was} - добрал по «{alt}»: стало {now}")
     return merged, pictures, wider
+
+
+def _query_note(name: str, alt: str, pool: list[Release], about: Origin) -> str:
+    """Строка о том, что запрос второго захода выбрала справка, а не транслит с выдачей.
+
+    Молчаливых подмен у нас нет, и смена ЗАПРОСА - такая же подмена, как смена картины:
+    в индексер уходит не то, что человек набрал. Пока справка молчала, второй заход шёл
+    транслитом («Крики и шёпот» → ``kriki i shepot``), и по одной строке фазы «поиск
+    «Viskningar och rop»» не понять, откуда взялось шведское имя и почему ему верить.
+
+    Печатается только там, где справка ДЕЙСТВИТЕЛЬНО изменила запрос: без неё второй заход
+    ушёл бы другим именем (транслитом или оригиналом из выдачи). Совпали - говорить не о
+    чем, и строки нет: справка тут ничего не решила.
+    """
+    from torrcast.parse import alt_query, slugify
+
+    if not alt or not about.title:
+        return ""
+    blind = alt_query(name, pool)  # чем бы искали, не будь справки
+    if not blind or slugify(blind) == slugify(alt):
+        return ""
+    return f"оригинал «{alt}» - по справке; без неё искал бы «{blind}»"
 
 
 def _vouched(theirs: list[Picture], about: Origin, proven: bool) -> bool:
