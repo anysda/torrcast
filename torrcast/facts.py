@@ -115,7 +115,17 @@ _YEAR_RE: Final = re.compile(r"\b(1[89]\d{2}|20\d{2})\s+года")
 #: Гарри Поттере», у Аарона Пола - «в сериале „Во все тяжкие“», и справка бодро выдавала
 #: «Emma Charlotte Duerre Watson» за оригинальное название картины. Косвенный падеж - это
 #: упоминание кино, а сама статья про человека; тип картины стоит в именительном.
-_CINEMA_RE: Final = re.compile(r"(?:фильм|сериал)\b|кинокартин|аниме|франшиз", re.IGNORECASE)
+#:
+#: ⚠️ «Серия фильмов» вписана отдельным оборотом, и это ровно та поблажка, которую
+#: правило целого слова запрещает. Статью о франшизе русская Википедия открывает словами
+#: «Гарри Поттер (англ. Harry Potter) - серия фильмов, основанных на книгах», где «фильмов»
+#: стоит в косвенном падеже - и гейт её отвергал. А отвергнув франшизу, справка доходила
+#: до первой попавшейся ЧАСТИ и выдавала её паспорт за паспорт всей серии. Косвенный падеж
+#: пропускается только в связке со словом «серия»: «в фильмах о Гарри Поттере» (биография
+#: Эммы Уотсон) под неё не подходит, и та дыра остаётся закрытой.
+_CINEMA_RE: Final = re.compile(
+    r"(?:фильм|сериал)\b|сери[яию]\s+(?:мульт)?фильмов|кинокартин|аниме|франшиз", re.IGNORECASE
+)
 #: Тип картины, записанный без киношного слова: статья о «Во все тяжкие» открывается
 #: словами «американская телевизионная криминальная драма» - ни «фильма», ни «сериала» в
 #: ней нет, и оригинал (Breaking Bad) поиску не доставался. Экранного признака одного мало:
@@ -512,6 +522,9 @@ def origin_now(title: str, series: bool = False, timeout: float = HTTP_TIMEOUT) 
     голым именем — страница значений, а «Кингсман: Секретная служба» на ru.wikipedia
     подписана латиницей («Kingsman: Секретная служба»), и никаким перебором уточнений в
     неё не попасть. Тогда спрашиваем поиском самой Википедии — он эти случаи и разводит.
+
+    Третий шаг (:func:`_misremembered`) — для имени, названного НЕ ТАК, как подписана
+    статья: он стоит денег и идёт только на пустом месте, когда первые два уже промолчали.
     """
     kind = "сериал" if series else "фильм"
     names = titles_for(title, None)
@@ -522,8 +535,227 @@ def origin_now(title: str, series: bool = False, timeout: float = HTTP_TIMEOUT) 
     found = read_origin(direct, title, trusted=True, series=series)
     if found:
         return found
+    found = redirected_name(names, hops, pages, title)
+    if found:
+        return found
     payload = get_json(_WIKI_HOST, _WIKI_PATH, _search_params(f"{title} {kind}"), {}, timeout)
-    return read_origin(_ranked(payload), title, series=series)
+    found = read_origin(_ranked(payload), title, series=series)
+    return found or _misremembered(title, series, timeout)
+
+
+#: Каким произведением статья себя объявляет - в любом виде, а не только экранном. Список
+#: нужен единственному пути :func:`redirected_name`, где статья и так доказана
+#: перенаправлением, и отвечает он на один вопрос: произведение это или что-то ещё.
+_WORK_RE: Final = re.compile(
+    r"визуальн|новелл|манга|манги|ранобэ|аниме|\bигр\w*|роман|фильм|сериал|франшиз|комикс",
+    re.IGNORECASE,
+)
+
+
+def redirected_name(
+    names: list[str], hops: dict[str, str], pages: dict[str, Any], title: str
+) -> Origin:
+    """Русское имя, которое сама Википедия перенаправляет на латинский заголовок.
+
+    Слепая зона справки на аниме, подписанном латиницей: «врата штейна» - живое
+    перенаправление на статью ``Steins;Gate``, но статья эта о ВИЗУАЛЬНОЙ НОВЕЛЛЕ, с
+    которой всё началось, и киношного гейта :func:`_about_cinema` она не проходит. Справка
+    молчала, добор шёл транслитом ``vrata shteyna`` в никуда, а до-вожаком склейки
+    оставался сиквел - и скачок года гейт добора честно читал как подмену.
+
+    Отвечать тут есть чем, и ответ подтверждён источником: перенаправление русского имени
+    на латинский заголовок - это и есть утверждение Википедии «то же самое зовут вот так».
+    Ровно его мы и берём - ИМЕНЕМ, без года:
+
+    * год такой статьи чужой картине не годится вовсе. У ``Steins;Gate`` первая врезка
+      кончается словами «20 августа 2026 года выйдет ремейк новеллы», и :func:`picture_year`
+      честно называет 2026 - год, которого у аниме 2011 года нет и близко. Год объявлен
+      сильнее выдачи, поэтому чужого года не бывает: пусто;
+    * заголовок обязан быть на латинице, а запрос - по-русски. Это граница, за которой
+      начинаются статьи о людях: русская Википедия подписывает их по-русски («Питт,
+      Брэд»), и киношный гейт им по-прежнему единственная преграда;
+    * статья обязана назвать себя произведением (:data:`_WORK_RE`) - иначе перенаправление
+      привело бы к компании или к городу.
+    """
+    if not _CYRILLIC.search(title):
+        return Origin()
+    for name in names:
+        page = _article(name, hops, pages)
+        if page is None:
+            continue
+        heading = str(page.get("title") or "")
+        if not heading or _CYRILLIC.search(heading) or slugify(heading) == slugify(name):
+            continue
+        if not _WORK_RE.search(f"{heading} {page.get('extract') or ''}"):
+            continue
+        return Origin(title=_TAIL_RE.sub("", heading).strip() or heading)
+    return Origin()
+
+
+#: Сколько подсказок берём у Википедии на одно написание. Нужное лежит в первых строках,
+#: дальше идут однофамильцы - и всё равно каждую подсказку сверяет :func:`_near_name`.
+_SUGGEST_HITS: Final = 6
+#: Со скольких слов имя можно спрашивать по куску: у двух слов кусок - это одно слово, а
+#: одним словом в заголовке совпадает пол-Википедии.
+_PHRASE_WORDS: Final = 3
+
+
+def _misremembered(title: str, series: bool, timeout: float) -> Origin:
+    """Имя названо не так, как подписана статья: описка, другая транскрипция, чужое слово.
+
+    Третий и последний шаг справки, и ходит он только по пустому месту - когда прямая
+    выборка и поиск Википедии уже промолчали. Счастливый путь сюда не заходит вовсе, так
+    что бюджет справки этот шаг не трогает; на пустом же пути поиск и так собирается на
+    второй круг по индексерам, и лишние доли секунды там не видны.
+
+    Два способа спросить, оба идут разом и оба отвечают ЗАГОЛОВКАМИ, а не догадками:
+
+    * **подсказки Википедии** (``opensearch``) - она сама правит транскрипцию:
+      «Сальтберн» → «Солтберн». Спрашиваем и по-русски, и транслитом: аниме русская
+      Википедия подписывает латиницей, и «ре зеро» находится только как ``re zero``
+      («Re:Zero. Жизнь с нуля в альтернативном мире»);
+    * **поиск по заголовкам без одного слова** (``intitle:``) - для имени, в котором
+      человек одно слово помнит не то: «мужчина который удивил всех» ищется как
+      ``intitle:"который удивил всех"`` и приводит к «Человек, который удивил всех».
+
+    Найденное сверяется :func:`_near_name` - подсказка и поиск по куску притаскивают чужое
+    («Сальтерас», «Сальтенья»), а тождество имени тут никем не доказано. Прошедшее сверку
+    читается как выборка по имени (``trusted``): статью назвала сама Википедия.
+
+    ⚠️ Паспорт этого шага - БЕЗ ГОДА, по той же причине, по которой без года отвечает
+    одинокий путь :func:`origin_either`. Имя тут не доказано, а лишь признано похожим, и
+    цена ошибки у двух полей разная: именем добор ищет раздачи (худшее - лишние), а год
+    объявлен сильнее выдачи, и неверным годом гейт молча выкидывает всю картину. У «ре
+    зеро» это видно прямо: русская статья - о ранобэ 2014 года, аниме же вышло в 2016-м.
+    """
+    box: dict[str, list[Any]] = {}
+
+    def suggest(key: str, query: str) -> None:
+        with contextlib.suppress(Exception):
+            box[key] = _suggested(query, timeout)
+
+    def phrase() -> None:
+        with contextlib.suppress(Exception):
+            box["phrase"] = _by_phrase(title, timeout)
+
+    latin = transliterate(title)
+    work = [
+        threading.Thread(target=suggest, args=("ru", title), daemon=True),
+        threading.Thread(target=phrase, daemon=True),
+    ]
+    if latin.lower() != title.lower():
+        work.append(threading.Thread(target=suggest, args=("latin", latin), daemon=True))
+    for thread in work:
+        thread.start()
+    for thread in work:
+        thread.join(timeout)
+    seen: set[str] = set()
+    pages: list[Any] = []
+    for key in ("ru", "latin", "phrase"):
+        for page in box.get(key, []):
+            heading = str(page.get("title") or "")
+            if heading in seen or not _near_name(title, heading):
+                continue
+            seen.add(heading)
+            pages.append(page)
+    found = read_origin(pages, title, trusted=True, series=series)
+    return Origin(title=found.title, name=found.name)
+
+
+def _suggested(query: str, timeout: float) -> list[Any]:
+    """Подсказки Википедии по написанию имени - сразу статьями, одним запросом.
+
+    ``opensearch`` отвечает голыми заголовками, и за их первыми фразами пришлось бы ехать
+    вторым запросом - то есть вторым кругом по сети внутри и без того последнего шага.
+    ``generator=prefixsearch`` - тот же самый подсказчик (``opensearch`` им и работает
+    внутри), но статьи приезжают с ним разом, за один поход и те же 0.4 с.
+    """
+    params = {
+        **_search_params(""),
+        "generator": "prefixsearch",
+        "gpssearch": query,
+        "gpslimit": str(_SUGGEST_HITS),
+        "gpsnamespace": "0",
+    }
+    params.pop("gsrsearch", None)
+    params.pop("gsrlimit", None)
+    params.pop("gsrnamespace", None)
+    return _ranked(get_json(_WIKI_HOST, _WIKI_PATH, params, {}, timeout))
+
+
+def _by_phrase(title: str, timeout: float) -> list[Any]:
+    """Статьи, у которых в ЗАГОЛОВКЕ стоит запрос без одного крайнего слова.
+
+    Так ловится имя, в котором человек помнит не то одно слово: «мужчина который удивил
+    всех» - это «Человек, который удивил всех». Обычный поиск такое не разводит вовсе: он
+    полнотекстовый, и по этому запросу первым приносит биографию актёра. Отбрасывается
+    ровно одно слово с краю (голову и хвост пробуем оба), и найденное всё равно сверяется
+    по словам (:func:`_near_name`) - иначе ``intitle:"воспоминание"`` притащил бы что угодно.
+    """
+    words = title.split()
+    if len(words) < _PHRASE_WORDS:
+        return []
+    out: list[Any] = []
+    for phrase in (" ".join(words[1:]), " ".join(words[:-1])):
+        payload = get_json(
+            _WIKI_HOST, _WIKI_PATH, _search_params(f'intitle:"{phrase}"'), {}, timeout
+        )
+        out.extend(_ranked(payload))
+        if out:
+            break
+    return out
+
+
+def _near_name(title: str, heading: str) -> bool:
+    """Почти то же имя: одна буква расхождения либо одно слово из нескольких.
+
+    Сверка последнего шага (:func:`_misremembered`), и она нарочно тесная - подсказки
+    Википедии на «Сальтберн» приносят и «Сальтерас», и «Сальтенья», и «Салитерник, Цви».
+
+    * **одна буква** - другая транскрипция того же имени: «сальтберн» и «солтберн».
+      Коротким именам это не разрешено: у имени из пяти букв одна буква разницы - это уже
+      другое имя («Психо» и «Психи»);
+    * **одно слово** - имя из трёх и более слов, в котором ровно одно стоит не то:
+      «мужчина который удивил всех» против «человек который удивил всех». Слов должно быть
+      поровну и на своих местах: перестановки и пропуски сюда не входят.
+    """
+    if akin(title, heading):
+        return True
+    name = heading.split(" (")[0]
+    # Сверяем однородное с однородным: «Сальтберн» и «Солтберн» расходятся на две буквы
+    # («а»/«о» и мягкий знак), а те же имена транслитом - ``saltbern`` и ``soltbern`` -
+    # ровно на одну. Мягкий знак имя не различает, и латинская пара это знает.
+    for want, base in (
+        (slugify(title), slugify(name)),
+        (slugify(transliterate(title)), slugify(transliterate(name))),
+    ):
+        if not want or not base:
+            continue
+        if len(want) >= _NEAR_LETTERS and _one_edit(want, base):
+            return True
+        mine, theirs = want.split("-"), base.split("-")
+        if len(mine) >= _PHRASE_WORDS and len(mine) == len(theirs):
+            odd = sum(1 for one, two in zip(mine, theirs, strict=True) if not _same_word(one, two))
+            if odd <= 1:
+                return True
+    return False
+
+
+#: Короче этого одна буква разницы - уже другое имя, а не другая транскрипция.
+_NEAR_LETTERS: Final = 7
+
+
+def _one_edit(one: str, two: str) -> bool:
+    """Различаются ли строки не больше чем на одну букву (вставка, пропуск или замена)."""
+    if abs(len(one) - len(two)) > 1:
+        return False
+    short, long = sorted((one, two), key=len)
+    head = len(os.path.commonprefix([short, long]))
+    if short == long:
+        return True
+    if len(short) == len(long):
+        return short[head + 1 :] == long[head + 1 :]
+    return short[head:] == long[head + 1 :]
 
 
 def read_origin(
@@ -553,7 +785,12 @@ def read_origin(
     «Тачки» открывается скобкой «англ. Cars», и это ровно то имя, которое спросили. Точное
     равенство обязательно - поиск Википедии по слову ``cars`` первой приносит «Тачки 4»
     («англ. Cars 4»), и на вхождении подстрокой человек получил бы не ту картину.
+
+    ⚠️ Голое имя франшизы частью франшизы не отвечается (:func:`_crowded`): «гарри поттер»
+    приносил паспорт ПЯТОГО фильма, добор уходил по его оригиналу и приводил 79 чужих
+    раздач одной части. Либо статья самой франшизы, либо ничего.
     """
+    crowd = _crowded(title, pages)
     for page in pages:
         if page is None:
             continue
@@ -566,7 +803,11 @@ def read_origin(
             or english_title(page)
             or ("" if _CYRILLIC.search(heading) else heading)
         )
-        if not trusted and not akin(title, heading) and not _same_latin(title, latin):
+        if (
+            not trusted
+            and not akin(title, heading, longer=not crowd)
+            and not _same_latin(title, latin)
+        ):
             continue
         found = Origin(
             title=latin,
@@ -691,7 +932,7 @@ def english_title(page: Any) -> str:
     return _TAIL_RE.sub("", name).strip()
 
 
-def akin(title: str, heading: str) -> bool:
+def akin(title: str, heading: str, longer: bool = True) -> bool:
     """Про то же ли это, что спросили: заголовок статьи против запроса.
 
     Уточнение в скобках отбрасывается («Восхождение (фильм, 1976)» → «Восхождение»), а
@@ -709,6 +950,13 @@ def akin(title: str, heading: str) -> bool:
 
     Пятая сверка - те же слова в другом порядке и другой форме (:func:`_same_words`):
     классику человек называет по памяти, и «Крики и шёпот» - это статья «Шёпоты и крики».
+
+    ⚠️ ``longer`` запрещает шестую сверку - ту, где ДЛИННЕЕ заголовок статьи («Кингсман» →
+    «Кингсман: Секретная служба»). Сверка нужная, но именно ею справка подменяла франшизу
+    случайной частью: на голое «гарри поттер» ей подходили и «Орден Феникса», и
+    «Принц-полукровка», и «узник Азкабана», а побеждал тот, кого выше поставил поиск.
+    Выключает её :func:`_crowded` - там, где таких продолжений в выдаче несколько: одно
+    продолжение это уточнение имени, а несколько - выбор части наугад.
     """
     base = slugify(heading.split(" (")[0])
     solid = base.replace("-", "")
@@ -717,12 +965,34 @@ def akin(title: str, heading: str) -> bool:
         and (
             want == base
             or want.startswith(f"{base}-")
-            or base.startswith(f"{want}-")
+            or (longer and base.startswith(f"{want}-"))
             or want.replace("-", "") == solid
             or _same_words(want, base)
         )
         for want in (slugify(title), slugify(transliterate(title)))
     )
+
+
+def _crowded(title: str, pages: Iterable[Any]) -> bool:
+    """Продолжают ли запрошенное имя сразу несколько статей выдачи.
+
+    Так выглядит запрос голым именем франшизы: «гарри поттер» продолжают «Гарри Поттер и
+    Орден Феникса», «...и Принц-полукровка», «...и узник Азкабана». Выбрать из них нечем -
+    человек не называл части, - и любой выбор был бы молчаливой подменой картины. Значит
+    годится только статья, названная РОВНО так же (сама франшиза), либо ничего.
+
+    Одно продолжение - другое дело: «Кингсман» продолжает единственная статья «Кингсман:
+    Секретная служба», и это не выбор, а уточнение имени.
+    """
+    wants = [want for want in (slugify(title), slugify(transliterate(title))) if want]
+    seen = {
+        base
+        for page in pages
+        if page is not None
+        for base in (slugify(str(page.get("title") or "").split(" (")[0]),)
+        if base and any(base.startswith(f"{want}-") for want in wants)
+    }
+    return len(seen) > 1
 
 
 #: Сколько букв слова должны совпасть, чтобы это было одно слово в другой форме. Четыре -

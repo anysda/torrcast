@@ -937,3 +937,153 @@ def test_the_passport_formula_does_not_open_the_gate_to_books_and_people() -> No
         page = _page(heading, extract, english=heading)
 
         assert not facts_mod.read_origin([page], heading.split(" (")[0], trusted=True), heading
+
+
+HP_FRANCHISE = (
+    "Га́рри По́ттер (англ. Harry Potter) — серия фильмов, основанных на книгах о Гарри "
+    "Поттере английской писательницы Дж. К. Роулинг."
+)
+HP_PHOENIX = (
+    "«Га́рри По́ттер и О́рден Фе́никса» (англ. Harry Potter and the Order of the Phoenix) — "
+    "фэнтезийно-приключенческий фильм 2007 года режиссёра Дэвида Йейтса, пятый из серии "
+    "фильмов о Гарри Поттере."
+)
+HP_PRINCE = (
+    "«Га́рри По́ттер и Принц-полукро́вка» (англ. Harry Potter and the Half-Blood Prince) — "
+    "фэнтезийно-приключенческий фильм 2009 года режиссёра Дэвида Йейтса, шестой из серии "
+    "фильмов о Гарри Поттере."
+)
+HP_AZKABAN = (
+    "«Га́рри По́ттер и у́зник Азкаба́на» (англ. Harry Potter and the Prisoner of Azkaban) — "
+    "фэнтезийно-приключенческий фильм 2004 года, третий из серии фильмов о Гарри Поттере."
+)
+STEINS_GATE = (
+    "Steins;Gate (яп. シュタインズ ゲート Сютайндзу Гэ:то, «Врата;Штейна», МФА: [staɪnz ɡeɪt]) — "
+    "японская визуальная новелла, разработанная компаниями 5pb. и Nitroplus. Является "
+    "второй игрой в серии Science Adventure. 20 августа 2026 года выйдет ремейк новеллы."
+)
+SALTBURN = (
+    "«Солтберн» (англ. Saltburn) — американский художественный фильм 2023 года в жанре "
+    "чёрной комедии и психологической драмы, режиссёра Эмиральд Феннел."
+)
+SURPRISED = (
+    "«Человек, который удивил всех» — драматический фильм режиссёров Наташи Меркуловой и "
+    "Алексея Чупова, снятый ими по собственному сценарию в 2018 году."
+)
+
+
+def test_a_bare_franchise_name_is_answered_by_the_franchise_or_by_nothing() -> None:
+    """Голое имя франшизы частью франшизы не отвечается.
+
+    На «гарри поттер» справка приносила паспорт ПЯТОГО фильма: статья о самой серии не
+    проходила киношный гейт («серия фильмов» - косвенный падеж), а сверка заголовка
+    принимала любое продолжение имени, и побеждал тот, кого выше поставил поиск. Добор
+    уходил по оригиналу пятой части и приводил 79 чужих раздач одной картины - они и
+    выигрывали порог живости.
+    """
+    parts = [
+        _page("Гарри Поттер и Орден Феникса (фильм)", HP_PHOENIX),
+        _page("Гарри Поттер и Принц-полукровка (фильм)", HP_PRINCE),
+        _page("Гарри Поттер и узник Азкабана (фильм)", HP_AZKABAN),
+    ]
+    whole = _page(
+        "Гарри Поттер (серия фильмов)", HP_FRANCHISE, english="Harry Potter (film series)"
+    )
+
+    found = facts_mod.read_origin([whole, *parts], "гарри поттер")
+    assert found.title == "Harry Potter", "имя франшизы - ровно то, которым её подписывают"
+    assert found.name == "Гарри Поттер"
+    assert found.year is None, "у серии фильмов года нет, и выдумывать его нечем"
+    # Статьи о серии нет - молчание: выбрать часть за человека справка не вправе.
+    assert not facts_mod.read_origin(parts, "гарри поттер")
+    # Продолжение одно - это уточнение имени, а не выбор части: так находится «Кингсман».
+    assert facts_mod.read_origin(parts[:1], "гарри поттер").title.startswith("Harry Potter and")
+
+
+def test_a_franchise_article_passes_the_cinema_gate_but_a_biography_still_does_not() -> None:
+    """Поблажка «серия фильмов» ровно одна и косвенный падеж вообще не открывает.
+
+    Слово «фильмов» ловится только в связке со словом «серия»: у Эммы Уотсон в статье
+    стоит «в фильмах о Гарри Поттере», и её паспорт справке по-прежнему не достаётся.
+    """
+    assert facts_mod._about_cinema("Гарри Поттер (серия фильмов)", HP_FRANCHISE)
+    assert not facts_mod._about_cinema(
+        "Уотсон, Эмма",
+        "Эмма Шарлотта Дюэрре Уотсон (англ. Emma Charlotte Duerre Watson) — "
+        "британская актриса, известная по ролям в фильмах о Гарри Поттере.",
+    )
+
+
+def test_a_redirect_to_a_latin_heading_gives_the_original_name_without_a_year() -> None:
+    """Русское имя аниме, подписанного латиницей: перенаправление и есть ответ.
+
+    «врата штейна» - живое перенаправление Википедии на статью ``Steins;Gate``, но статья
+    эта о визуальной новелле, с которой всё началось, и киношного гейта она не проходит.
+    Справка молчала, добор шёл транслитом ``vrata shteyna`` в никуда.
+
+    Год такой статьи брать нельзя вовсе: у ``Steins;Gate`` во врезке стоит «20 августа 2026
+    года выйдет ремейк новеллы», а аниме вышло в 2011-м. Год сильнее выдачи, и чужим годом
+    гейт добора выкинул бы всю картину.
+    """
+    names = ["врата штейна"]
+    hops = {"врата штейна": "Врата штейна", "Врата штейна": "Steins;Gate"}
+    pages = {"Steins;Gate": _page("Steins;Gate", STEINS_GATE, english="Steins;Gate")}
+
+    found = facts_mod.redirected_name(names, hops, pages, "врата штейна")
+    assert found.title == "Steins;Gate"
+    assert found.year is None
+    # Без перенаправления пути нет: заголовок мы назвали сами, и доказывать им нечего.
+    assert not facts_mod.redirected_name(["Steins;Gate"], {}, pages, "Steins;Gate"), (
+        "спросили латиницей - это не перенаправление русского имени"
+    )
+
+
+def test_a_redirect_to_a_person_is_not_an_original_name() -> None:
+    """Граница узкого пути: заголовок обязан быть латиницей, а статья - произведением."""
+    pages = {
+        "Дитрих Марлен": _page(
+            "Дитрих Марлен",
+            "Мари Магдалена Дитрих (нем. Marie Magdalene Dietrich) — немецкая актриса.",
+        ),
+        "Nokia": _page("Nokia", "Nokia Corporation — финская транснациональная компания."),
+    }
+    assert not facts_mod.redirected_name(
+        ["марлен дитрих"], {"марлен дитрих": "Дитрих Марлен"}, pages, "марлен дитрих"
+    )
+    assert not facts_mod.redirected_name(["нокиа"], {"нокиа": "Nokia"}, pages, "нокиа")
+
+
+def test_a_name_spelled_another_way_is_recognised_only_when_it_is_almost_the_same() -> None:
+    """Сверка последнего шага: одна буква или одно слово, и ни шагу дальше.
+
+    «Сальтберн» и «Солтберн» - одно имя в двух транскрипциях (транслитом расхождение ровно
+    в букву), «мужчина который удивил всех» и «Человек, который удивил всех» - одно имя, в
+    котором человек помнит не то одно слово из четырёх. А «Сальтерас» и «Сальтенья»,
+    которые подсказчик Википедии приносит тем же списком, - уже другие имена.
+    """
+    assert facts_mod._near_name("сальтберн", "Солтберн")
+    assert facts_mod._near_name("мужчина который удивил всех", "Человек, который удивил всех")
+    assert not facts_mod._near_name("сальтберн", "Сальтерас")
+    assert not facts_mod._near_name("сальтберн", "Сальтенья")
+    assert not facts_mod._near_name("сальтберн", "Салитерник, Цви")
+    # Коротким именам одна буква не прощается: это уже другая картина.
+    assert not facts_mod._near_name("Психо", "Психи")
+    # Двух слов из четырёх мало: половину имени человек не выдумывает.
+    assert not facts_mod._near_name("мужчина который удивил свету", "Человек, который удивил всех")
+
+
+def test_an_almost_the_same_name_still_gives_up_its_picture() -> None:
+    """Прошедшая сверку статья читается как выборка по имени - но всегда без года.
+
+    Имя тут не доказано, а признано похожим, и цена ошибки у полей разная: именем добор
+    ищет раздачи, а год объявлен сильнее выдачи.
+    """
+    saltburn = _page("Солтберн", SALTBURN, english="Saltburn (film)")
+    surprised = _page(
+        "Человек, который удивил всех", SURPRISED, english="The Man Who Surprised Everyone"
+    )
+
+    assert facts_mod.read_origin([saltburn], "сальтберн", trusted=True).title == "Saltburn"
+    found = facts_mod.read_origin([surprised], "мужчина который удивил всех", trusted=True)
+    assert found.title == "The Man Who Surprised Everyone"
+    assert found.name == "Человек, который удивил всех"
