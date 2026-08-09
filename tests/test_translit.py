@@ -440,6 +440,88 @@ def _namesakes() -> _FakeProwlarr:
     )
 
 
+def _unglued() -> _FakeProwlarr:
+    """Две половины одной картины, которые нечем сшить: русская и латинская.
+
+    Дословная форма живого случая: русские раздачи «Синего экзорциста» несут оригинал,
+    а латинские - только своё имя, без года и без русского названия. Кластер оставляет
+    их разными картинами, и привязка к картине по русскому запросу латинскую половину
+    не видит.
+    """
+    return _FakeProwlarr(
+        {
+            "синий экзорцист": [
+                raw(f"Синий экзорцист / Ao no Exorcist (2011) BDRip {i}", i, seeders=1)
+                for i in range(3)
+            ],
+            "blue exorcist": [
+                raw(f"Blue Exorcist S01E{i:02d} 1080p WEB-DL", 100 + i, seeders=33)
+                for i in range(1, 26)
+            ],
+        }
+    )
+
+
+def test_the_top_up_is_not_lost_on_the_binding_to_a_picture(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """🔴 Добор привёз картину под её латинским именем - и она обязана доехать до очереди.
+
+    Прежде она пропадала целиком: pick_franchise по русскому запросу латинскую половину
+    не находит, добор выходил «пустым», и человек оставался с тремя мёртвыми раздачами
+    при двадцати пяти живых в той же выдаче.
+    """
+    client = _unglued()
+    _knows(monkeypatch, {"синий экзорцист": Origin(title="Blue Exorcist", year=2009)})
+    plans, said = _search(client, "синий экзорцист", monkeypatch)
+
+    assert client.asked == ["синий экзорцист", "Blue Exorcist"]
+    assert {p.picture.title for p in plans} == {"Синий экзорцист", "Blue Exorcist"}
+    assert max(len(p.picture.releases) for p in plans) == 25
+    assert "добрал по «Blue Exorcist»" in said
+
+
+def test_the_reference_year_of_a_whole_franchise_does_not_kill_the_top_up(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Справка о сериале называет год ПЕРВОГО сезона, а картины в каталоге - свои.
+
+    Спорить тут не о чем: у латинских раздач года нет вовсе, и разводить ими нечего.
+    Раньше это расхождение (2009 у справки против 2011 в каталоге) читалось как подмена.
+    """
+    client = _unglued()
+    _knows(monkeypatch, {"синий экзорцист": Origin(title="Blue Exorcist", year=1066)})
+    _plans, said = _search(client, "синий экзорцист", monkeypatch)
+
+    assert "приехала другая картина" not in said
+
+
+def test_a_namesake_under_the_reference_name_is_still_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """🔴 Ослабление точечное: имя из справки ручается за картину, но не против ГОДА.
+
+    Справка знает «Восхождение» Шепитько как ``The Ascent`` 1977 года, а в каталоге под
+    этим именем лежит чужой фильм 2019-го на двадцать раздач. Раздач больше - картина
+    другая, и подмешивать её к найденному нельзя.
+    """
+    client = _FakeProwlarr(
+        {
+            "восхождение": [raw(f"Восхождение (1977) DVDRip {i}", i) for i in range(4)],
+            "the ascent": [
+                raw(f"The Ascent (2019) WEB-DL {i}", 100 + i, seeders=80) for i in range(20)
+            ],
+        }
+    )
+    _knows(monkeypatch, {"восхождение": Origin(title="The Ascent", year=1977)})
+    plans, said = _search(client, "восхождение", monkeypatch)
+
+    assert client.asked == ["восхождение", "The Ascent"]
+    assert [p.picture.year for p in plans] == [1977]
+    assert max(len(p.picture.releases) for p in plans) == 4
+    assert "добрал" not in said
+
+
 def test_a_subtitle_query_needs_no_second_round(monkeypatch: pytest.MonkeyPatch) -> None:
     """🔴 «Кольца власти» - подзаголовок сериала, и картина находится с первого круга.
 
