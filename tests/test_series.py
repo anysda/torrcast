@@ -343,3 +343,39 @@ def test_the_episode_is_cut_off_the_query(
 
     assert name == title
     assert ((found.season, found.episode) if found else None) == expected
+
+
+def test_season_gaps_speaks_instead_of_dropping_picture() -> None:
+    """TC-154: сериал, выпавший из меню из-за отсутствия сезона, называет себя вслух.
+
+    Замер на «Гинтама»: картина 2018 года доезжает до меню с 41 раздачей и 33 живыми,
+    план по ней не строится (ни одна раздача не назвала первый сезон - в именах стоят
+    5-10), и она молча исчезала из списка. Человек читал дефолт, вставший на спин-офф
+    «Gintama: 3-nen Z-gumi Ginpachi-sensei», и ни одного слова о том, куда делся
+    основной сериал. Молчаливых отказов у нас не бывает.
+    """
+    from torrcast.cli import season_gaps
+    from torrcast.parse import Episode, Picture, parse_release_name
+
+    gintama = Picture(
+        title="Гинтама",
+        year=2018,
+        kind="tv",
+        releases=[
+            parse_release_name("Gintama S06E06 Inside the Palace 1080p CR WEB-DL H 264-Kitsune"),
+            parse_release_name("Gintama S10E22 Specter 1080p CR WEB-DL DDP2 0 H 264-Kitsune"),
+        ],
+    )
+    spinoff = Picture(
+        title="Gintama: 3-nen Z-gumi Ginpachi-sensei",
+        year=None,
+        kind="tv",
+        releases=[parse_release_name("Gintama 3-nen Z-gumi Ginpachi-sensei 1080p BDRip x264")],
+    )
+
+    lines = season_gaps([gintama, spinoff], shown=set(), want=Episode(1, 1))
+    assert lines == ["«Гинтама» (2018): раздач 2, но сезона 1 среди них нет - названы 6, 10"]
+    # Картина, попавшая в меню, о себе не рассказывает: рассказывать не о чем.
+    assert season_gaps([gintama], shown={gintama.key}, want=Episode(1, 1)) == []
+    # Имена, молчащие о сезонах, не дают повода сказать «сезона нет»: это была бы ложь.
+    assert season_gaps([spinoff], shown=set(), want=Episode(1, 1)) == []

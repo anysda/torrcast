@@ -48,6 +48,7 @@ __all__ = [
     "parse_release_name",
     "part_number",
     "pick_franchise",
+    "seasons_named",
     "slugify",
     "split_episode",
     "split_franchise_index",
@@ -1171,6 +1172,26 @@ def _link(pictures: list[Picture], same: list[int], union: Callable[[int, int], 
         union(blank[0], i)
     if chains and blank:
         union(chains[0][0], blank[0])
+
+
+def seasons_named(picture: Picture) -> tuple[int, ...]:
+    """Сезоны, которые раздачи картины назвали САМИ, по возрастанию; пусто - все молчат.
+
+    Нужна одной честной строке. Сериал попадает в меню целой картиной, а план строится
+    только по тем раздачам, чьё имя накрывает спрошенный сезон (:meth:`Release.covers`).
+    Не накрыл никто - картина исчезала из меню молча, и человек читал дефолт, вставший
+    на соседа. Живой промах: «Гинтама» (2018) переживает привязку с 41 раздачей и 33
+    живыми, но все они подписаны сезонами 5-10, первого нет ни в одной, - и на `s1e1`
+    дефолтом вставал спин-офф «Gintama: 3-nen Z-gumi Ginpachi-sensei», ни словом не
+    объяснив, куда делся основной сериал.
+
+    ⚠️ Это то, что сказало ИМЯ, а не то, что лежит в раздаче. Молчащие о сезоне раздачи
+    сюда не попадают вовсе: они накрывают любой сезон (окончательный ответ дают файлы), и
+    называть их сезон было бы выдумкой. Поэтому пустой ответ значит «имена молчат», а не
+    «сезонов нет», и строка на нём не строится.
+    """
+    named = {s for r in picture.releases for s in (r.seasons or ((r.season,) if r.season else ()))}
+    return tuple(sorted(named))
 
 
 def franchises(pictures: list[Picture]) -> dict[str, list[Picture]]:

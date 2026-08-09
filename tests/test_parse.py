@@ -961,3 +961,35 @@ def test_full_latin_name_does_not_merge_namesakes() -> None:
 
     assert [p.title for p in pick_franchise("Predator: Prey", pictures)] == ["Добыча"]
     assert [p.title for p in pick_franchise("Predator: Origins", pictures)] == ["Хищник"]
+
+
+def test_seasons_named_reads_only_what_names_said() -> None:
+    """TC-154: сезоны картины - это то, что назвали ИМЕНА раздач, и ничего сверх.
+
+    «Гинтама» (2018) переживает привязку с 41 раздачей и 33 живыми, а на `s1e1` не даёт
+    ни одного кандидата: все её раздачи подписаны сезонами 5-10, первого нет ни в одной.
+    Молчащая о сезоне раздача сюда не попадает - она накрывает любой сезон, и называть
+    её сезон было бы выдумкой.
+    """
+    from torrcast.parse import seasons_named
+
+    picture = Picture(
+        title="Гинтама",
+        year=2018,
+        kind="tv",
+        releases=[
+            parse_release_name("Gintama S06E06 Inside the Palace 1080p CR WEB-DL H 264-Kitsune"),
+            parse_release_name("Gintama S10E22 Specter 1080p CR WEB-DL DDP2 0 H 264-Kitsune"),
+            parse_release_name("[Sylvar] Gintama Season 8 (BD Remux 1080p x264 8-bit FLAC)"),
+        ],
+    )
+    assert seasons_named(picture) == (6, 8, 10)
+    assert 1 not in seasons_named(picture)
+
+    silent = Picture(
+        title="Gintama: 3-nen Z-gumi Ginpachi-sensei",
+        year=None,
+        kind="tv",
+        releases=[parse_release_name("Gintama 3-nen Z-gumi Ginpachi-sensei 1080p BDRip x264")],
+    )
+    assert seasons_named(silent) == (), "имя о сезоне молчит - выдумывать нечего"
