@@ -265,6 +265,34 @@ def test_a_fat_but_dead_russian_pool_asks_the_original_too(
     assert "добрал по «Psycho»" in said
 
 
+def test_a_fat_pool_of_living_old_rips_still_asks_the_original(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """🔴 TC-262. Живое старьё в пуле - не повод отказаться от второго захода.
+
+    Соблазн сузить повод до «негоден И мёртв» (раз старьё живо, вечер как-то состоится)
+    замер тысячи запросов отверг: это сняло бы одну трату в 2.3 с вместе с ПЯТЬЮ
+    вечерами, где живым в пуле было только старьё, а под оригиналом лежал живой 1080p, -
+    «Конклав», «Реальная любовь», «Крёстный отец 2», «Шёпот сердца» и «Иван Васильевич
+    меняет профессию». Цена самого повода при этом мала: 16 запросов из 1000 и 1.84 с по
+    медиане (:func:`~torrcast.cli.worth_asking_original`).
+
+    Пул тут ровно такой: DVDRip'ы названы кодеком, а значит ворота отбора проходят
+    (:attr:`~torrcast.parse.Release.prime`), сидов под ними полно, - и всё равно
+    спрашиваем оригинал. От соседнего теста отличается именно этим: там старьё до
+    очереди не доезжает, здесь доезжает и играется.
+    """
+    sd = ru("Психо / Psycho (1960) DVDRip x264 0")
+    assert sd.prime and sd.dated, "премиса: старьё, которое ворота отбора всё же проходит"
+
+    client = _catalog(russian=THIN_POOL + 5, latin=40, quality="DVDRip x264")
+    plans, said = _search(client, "психо", monkeypatch)
+
+    assert client.asked == ["психо", "Psycho"], "живое старьё - это не годный релиз"
+    assert len(plans[0].picture.releases) == THIN_POOL + 45
+    assert "добрал по «Psycho»" in said
+
+
 def _mirror(count: int, *indexers: str, quality: str = "BDRip 1080p") -> list[RawResult]:
     """Одни и те же ``count`` раздач «Психо», принесённые каждым из индексеров.
 
