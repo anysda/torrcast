@@ -563,8 +563,20 @@ def _event_line(rec: dict[str, Any], began: float, seam: bool = False) -> str:
     if event == "indexers":
         got = rec.get("got") or {}
         silent = rec.get("silent") or []
-        parts = ", ".join(f"{name}:{count}" for name, count in got.items())
-        tail = f"; молчат {', '.join(map(str, silent))}" if silent else ""
+        took = rec.get("ms") or {}
+
+        def _took(name: object) -> str:
+            # Время держим за именем: «за 0.4 с» после счётчика, у молчунов - вместо него.
+            # В записях прежних версий поля ms нет вовсе - тогда строка выглядит как раньше.
+            ms = took.get(str(name)) if isinstance(took, dict) else None
+            return f" за {float(ms) / 1000:.1f} с" if ms is not None else ""
+
+        parts = ", ".join(f"{name}:{count}{_took(name)}" for name, count in got.items())
+        tail = (
+            f"; молчат {', '.join(str(name) + _took(name) for name in silent)}"
+            if silent
+            else ""
+        )
         return f"{stamp}индексеры {parts or '-'}{tail}"
     if event == "select":
         return (

@@ -192,7 +192,13 @@ def test_segment_emit_no_disk(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
 def test_digest_summarises_session(tmp_path: Path) -> None:
     """Выжимка сводит сеанс: запрос, взятый релиз, ребуферы, обрывы, итог."""
     trace.emit("search", "query", query="матрица")
-    trace.emit("search", "indexers", got={"rutor": 40, "nnm": 12}, silent=["kinozal"])
+    trace.emit(
+        "search",
+        "indexers",
+        got={"rutor": 40, "nnm": 12},
+        silent=["kinozal"],
+        ms={"rutor": 412, "nnm": 890, "kinozal": 20031},
+    )
     trace.emit("select", "drop", release=1, why="av1")
     trace.emit("select", "select", release=2, quality="1080p", track="Дубляж", mbit=11.0)
     trace.emit("play", "buffering", pos=120.0)
@@ -202,7 +208,7 @@ def test_digest_summarises_session(tmp_path: Path) -> None:
     trace.shutdown()
     text = trace.digest(trace.records(), limit=3)
     assert "матрица" in text
-    assert "rutor:40" in text and "kinozal" in text
+    assert "rutor:40 за 0.4 с" in text and "kinozal за 20.0 с" in text
     assert "av1" in text
     assert "1080p" in text
     assert "ребуферов 2" in text

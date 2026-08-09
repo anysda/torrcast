@@ -17,6 +17,7 @@ Jackett, у Prowlarr 404 (Torznab-XML отдаётся по индексеру `
 from __future__ import annotations
 
 import re
+import time
 from collections.abc import Iterable
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, Final
@@ -216,30 +217,49 @@ class Prowlarr:
         self._session = self._session or self._new_session()
         got: list[list[RawResult]] = []
         counts: dict[str, int] = {}
+        spent: dict[str, int] = {}
         lost: list[str] = []
         why_lost = ""
         with ThreadPoolExecutor(max_workers=len(known)) as pool:
-            asked = [(name, pool.submit(self._one, query, limit, num)) for num, name in known]
+            asked = [(name, pool.submit(self._timed, query, limit, num)) for num, name in known]
         for name, task in asked:
-            try:
-                rows = task.result()
-            except InfraError as exc:
+            rows, took, err = task.result()
+            spent[name] = took
+            if rows is None:
                 lost.append(name)
-                why_lost = str(exc)
+                why_lost = str(err)
             else:
                 got.append(rows)
                 counts[name] = len(rows)
         self.silent = tuple(lost)
         from torrcast import trace
 
-        # Полный расклад круга в недельный след: кто сколько отдал и кто смолчал. mark ниже
-        # заводится лишь на потерю (это фаза старта), а следу нужен и весь ответивший круг.
-        trace.emit("search", "indexers", got=counts, silent=list(lost))
+        # Полный расклад круга в недельный след: кто сколько отдал, кто смолчал и сколько
+        # миллисекунд каждый держал круг (поле ms - НАШ секундомер на месте вызова, а не
+        # elapsedTime истории Prowlarr: та не считает провалившиеся и повторные попытки).
+        # mark ниже заводится лишь на потерю (это фаза старта), а следу нужен весь круг.
+        trace.emit("search", "indexers", got=counts, silent=list(lost), ms=spent)
         if lost:
             mark("индексеры", молчат=lost, бюджет=_INDEXER_TIMEOUT)
         if not got:  # молчат все до одного - это не «ничего не нашлось», а инфра
             raise InfraError(why_lost)
         return merge(*got)
+
+    def _timed(
+        self, query: str, limit: int, num: int
+    ) -> tuple[list[RawResult] | None, int, InfraError | None]:
+        """Один индексер под нашим секундомером: выдача, миллисекунды и ошибка.
+
+        Замер ровно вокруг вызова, чтобы хвост круга (кто и сколько держал) читался
+        из следа без внешнего секундомера - и для молчунов тоже, поэтому ошибка
+        возвращается значением, а не вылетает мимо замера.
+        """
+        began = time.monotonic()
+        try:
+            rows: list[RawResult] | None = self._one(query, limit, num)
+            return rows, int((time.monotonic() - began) * 1000), None
+        except InfraError as exc:
+            return None, int((time.monotonic() - began) * 1000), exc
 
     def _one(self, query: str, limit: int, indexer: int) -> list[RawResult]:
         """Выдача одного индексера в его личный бюджет."""

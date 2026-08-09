@@ -205,6 +205,28 @@ def test_silent_indexer_costs_only_its_own_budget() -> None:
     assert max(client._session.waited) < client.timeout  # type: ignore[union-attr]
 
 
+def test_trace_carries_per_indexer_milliseconds(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Событие круга несёт время КАЖДОГО индексера - и ответившего, и молчуна.
+
+    Замер наш, на месте вызова: elapsedTime истории Prowlarr врёт про провалившиеся
+    и повторные попытки, и хвост круга (кто и сколько держал) без своего секундомера
+    из следа не разобрать (TC-230).
+    """
+    from torrcast import trace
+
+    monkeypatch.setenv(trace.LOG_ENV, str(tmp_path))
+    monkeypatch.setenv(trace.SID_ENV, "test-sid")
+    client = _swarm(mute=2)
+    client.search("матрица")
+    trace.shutdown()
+    (row,) = [r for r in trace.records() if r.get("event") == "indexers"]
+    took = row["ms"]
+    assert set(took) == {"Knaben", "RuTor", "Nyaa.si"}
+    assert all(isinstance(ms, int) and ms >= 0 for ms in took.values())
+
+
 def test_all_indexers_silent_is_infra_not_empty_result() -> None:
     """Молчат все до одного - это отказ инфраструктуры, а не «ничего не нашлось»."""
     with pytest.raises(InfraError, match="не отвечает"):
