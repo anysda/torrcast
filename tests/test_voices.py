@@ -13,10 +13,11 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import ClassVar
 
 import pytest
 
-from torrcast import cli
+from torrcast import InfraError, cli
 from torrcast.search import RawResult
 from torrcast.state import Config, Entry, State, save_config
 from torrcast.stream import AudioTrack, Media, TorrFile
@@ -131,6 +132,7 @@ def _env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
     monkeypatch.setenv("TORRCAST_CONFIG", str(tmp_path / "config.json"))
     save_config(Config(tv="mock", prowlarr_apikey="ключ", hls_dir=str(tmp_path / "hls")))
+    _FakeTorrServer.added, _FakeTorrServer.dropped = [], []
     monkeypatch.setattr(cli, "Prowlarr", _FakeProwlarr)
     monkeypatch.setattr(cli, "TorrServer", _FakeTorrServer)
     monkeypatch.setattr(
@@ -150,11 +152,18 @@ class _FakeProwlarr:
 
 
 class _FakeTorrServer:
-    def __init__(self, url: str) -> None:
-        self.url = url
+    """TorrServer со счётом раздач: кого подняли и кого убрали - по хэшам."""
+
+    added: ClassVar[list[str]] = []
+    dropped: ClassVar[list[str]] = []
+
+    def __init__(self, url: str, timeout: float = 30.0) -> None:
+        self.url, self.timeout = url, timeout
 
     def add(self, magnet: str) -> str:
-        return f"hash-{magnet[:30]}"
+        torrent_hash = f"hash-{magnet[:30]}"
+        _FakeTorrServer.added.append(torrent_hash)
+        return torrent_hash
 
     def wait_files(self, torrent_hash: str, timeout: float = 60.0) -> list[TorrFile]:
         return [TorrFile(0, "Moana.2.2024.1080p.mkv", 3 * GB)]
@@ -163,7 +172,12 @@ class _FakeTorrServer:
         return f"http://ts/{torrent_hash}/{index}"
 
     def drop(self, torrent_hash: str) -> None:
-        pass
+        _FakeTorrServer.dropped.append(torrent_hash)
+
+    @classmethod
+    def left(cls) -> set[str]:
+        """Раздачи, которые после всего остались висеть в службе."""
+        return set(cls.added) - set(cls.dropped)
 
 
 def _answers(monkeypatch: pytest.MonkeyPatch, *replies: str) -> list[str]:
@@ -362,6 +376,85 @@ def test_a_series_remembers_the_voice_for_the_whole_show(
     assert cli.main(["киберпанк"]) == 0
     assert asked == [], "повторный запуск ничего не спрашивает"
     assert "rus · MVO (TVShows)" in capsys.readouterr().out
+
+
+def _serial(key: str = "tv:киберпанк:2022") -> str:
+    """Сериал в состоянии: продолжение идёт по записи, поиска на этом пути нет."""
+    state = State()
+    state.put(
+        key,
+        Entry(
+            title="Киберпанк",
+            magnet="magnet:?xt=urn:btih:" + "b" * 40,
+            kind="tv",
+            query="киберпанк",
+            season=1,
+            episode=2,
+            episodes=[[1, 1, 0], [1, 2, 1], [1, 3, 2]],
+        ),
+    )
+    state.save()
+    return key
+
+
+def test_a_dry_run_with_a_voice_leaves_no_torrent_behind(monkeypatch: pytest.MonkeyPatch) -> None:
+    """🔴 ``--voice`` поднимал раздачу ради дорожек и не убирал её НИКОГДА - даже всухую.
+
+    Сухой прогон заведён затем, чтобы следов не оставалось, а след оставался самый
+    дорогой: раздача живёт не в нашем процессе, а в TorrServer, до его перезапуска. И
+    падает он тем вероятнее, чем их больше - замер: с одной раздачей тик проходит, со 120
+    и живым чтением паника на первом же тике.
+    """
+    _serial()
+    _answers(monkeypatch)
+    monkeypatch.setattr(cli, "start_play_unit", lambda key: pytest.fail("сухой прогон не кастит"))
+
+    assert cli.main(["киберпанк", "--voice", "5", "--dry"]) == 0
+
+    assert _FakeTorrServer.added, "дорожки читаются из потока - раздачу поднять пришлось"
+    assert _FakeTorrServer.left() == set(), "и всё поднятое убрано по своим хэшам"
+
+
+def test_a_voice_torrent_is_handed_to_the_show_and_not_pulled_from_under_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Показ начался на том же магните - раздача теперь ЕГО, и убирать её нельзя.
+
+    Уборка тут не «на всякий случай, вдруг лишняя»: у раздачи ровно один хозяин, и он
+    меняется один раз - от вызова с ``--voice`` к юниту. Снести её на этом стыке значило
+    бы выдернуть раздачу из-под показа, который сам её и играет.
+    """
+    key = _serial()
+    _answers(monkeypatch)
+    started: list[str] = []
+    monkeypatch.setattr(cli, "start_play_unit", lambda name: started.append(name))
+
+    assert cli.main(["киберпанк", "--voice", "5"]) == 0
+
+    assert started == [key], "показ пошёл"
+    assert _FakeTorrServer.dropped == [], "из-под начавшегося показа раздачу не выдёргиваем"
+
+
+def test_a_voice_torrent_dies_with_the_show_that_never_started(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Юнит не поднялся - раздача, поднятая ради дорожек, остаётся без хозяина и уходит.
+
+    Тот же исход у Ctrl-C на вопросе и у «серии в этой раздаче нет»: показа не будет, а
+    раздача уже есть. До сих пор её не убирал никто.
+    """
+    _serial()
+    _answers(monkeypatch)
+
+    def refuse(key: str) -> None:
+        raise InfraError("не запустился юнит torrcast-play")
+
+    monkeypatch.setattr(cli, "start_play_unit", refuse)
+
+    assert cli.main(["киберпанк", "--voice", "5"]) == 2
+
+    assert _FakeTorrServer.added, "раздачу подняли"
+    assert _FakeTorrServer.left() == set(), "и убрали, раз показа не вышло"
 
 
 def test_the_old_flag_still_works(monkeypatch: pytest.MonkeyPatch) -> None:

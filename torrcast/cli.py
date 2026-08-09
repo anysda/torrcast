@@ -544,9 +544,53 @@ def tv_lines(devices: list[Device]) -> str:
     )
 
 
+#: Хэш раздачи внутри магнита: ровно сорок шестнадцатеричных знаков и ничего другого.
+#: Base32-форма (32 знака) сюда намеренно не попадает: TorrServer знает раздачу по hex, и
+#: снос «похожей строки» был бы сносом наугад - а сносим мы только по ТОЧНОМУ своему хэшу.
+_BTIH: Final = re.compile(r"xt=urn:btih:([0-9a-fA-F]{40})")
+
+
+def _torrent_hash(magnet: str) -> str:
+    """Хэш раздачи прямо из магнита, без похода в TorrServer; не разобрали — пусто.
+
+    Нужен там, где хозяин раздачи уже умер и спросить у него нечего (``cast stop`` после
+    убитого юнита): хэш - это часть самого магнита, и знать его можно, не поднимая ничего.
+    """
+    found = _BTIH.search(magnet)
+    return found.group(1).lower() if found else ""
+
+
+def _release_torrents(config: Config, hashes: Sequence[str]) -> None:
+    """Убрать свои раздачи по ЯВНЫМ хэшам: показа больше нет, а они живут дальше.
+
+    🔴 Именно по хэшам, а не «всё, что видно в списке службы»: свои раздачи мы заводим с
+    ``save_to_db:false`` и в списке их не видим вовсе, зато видим ЧУЖИЕ - и «снести всё из
+    list» уже сносило чужое. Здесь список не спрашивается ни разу.
+
+    Срок службе даётся короткий (:data:`torrcast.stream.PROBE_TIMEOUT`), а молчание не
+    считается бедой: уборка идёт на выходе, в том числе по SIGTERM от ``cast stop``, и
+    задерживать выход из-за неотвечающей службы она права не имеет. Повторный снос
+    несуществующей раздачи - не ошибка (:meth:`torrcast.stream.TorrServer.drop`).
+    """
+    if not hashes:
+        return
+    torrserver = TorrServer(config.torrserver_url, timeout=PROBE_TIMEOUT)
+    for torrent_hash in dict.fromkeys(h for h in hashes if h):
+        with contextlib.suppress(TorrcastError):
+            torrserver.drop(torrent_hash)
+
+
 def _cmd_stop() -> int:
     """``cast stop`` — снять каст и зафиксировать позицию. Позицию пишет сам
     юнит: ``systemctl stop`` шлёт ему SIGTERM и ждёт, сторож на выходе дописывает state.
+
+    Раздачу за собой убирает сам юнит (:func:`_cmd_worker`), и к этой строке он уже мёртв:
+    ``systemctl stop`` его дождался. Но умереть он мог и не по-людски - SIGKILL по
+    таймауту, паника, перезагрузка, - а раздача переживает свой процесс: она живёт в
+    TorrServer до его перезапуска. Поэтому тот же хэш сносится ещё раз, уже отсюда: он
+    берётся из магнита остановленной записи (:func:`_torrent_hash`), снос идемпотентен, и
+    ничего, кроме этого хэша, не трогается. Когда ничего не играло, не трогается и он:
+    раздачу с тем же магнитом в этот момент может греть чужой ход.
     """
     played = unit_active()
     key = unit_key()  # спрашиваем, пока юнит жив: у мёртвого описания уже не узнать
@@ -556,6 +600,8 @@ def _cmd_stop() -> int:
         print("ничего не играет")
         return EXIT_OK
     _, entry = found
+    with contextlib.suppress(TorrcastError):  # уборка не вправе провалить саму остановку
+        _release_torrents(load_config(), [_torrent_hash(entry.magnet)])
     print(f"остановлено: «{entry.title}» на {_hms(entry.pos)} / {_hms(entry.dur)}")
     return EXIT_OK
 
@@ -727,6 +773,16 @@ def _cmd_worker(key: str) -> int:
     отвечает новому пустым статусом. Замер на живом Q70D, стык s1e5→s1e6: два
     соединения в ``ss``, «LOAD не взяли (IDLE/ERROR)», «приёмник залип — закрываю
     приложение и соединение», экран пустой **15.3 с**.
+
+    ⚠️ **Раздача уезжает вместе с показом.** Юнит - единственный её хозяин: он её поднял,
+    он один из неё читает, и кроме него о ней не знает никто (``save_to_db:false``, в
+    списке службы её не видно). Пока уборки тут не было, каждый сеанс оставлял по раздаче
+    навсегда - до перезапуска TorrServer, - и они копились ровно в той службе, которая
+    падает по таймеру тем вероятнее, чем их больше (:data:`MAX_LIVE`). Убирается своё и
+    только своё, по хэшам, которые юнит завёл сам, и на любом выходе: штатный конец,
+    ошибка и SIGTERM от ``cast stop`` (он приходит как :class:`_Stopped` и раскручивает
+    ``finally`` наравне с прочими). Прогрев следующей серии тут не жертва: он идёт по этой
+    же раздаче и кончается вместе с юнитом.
     """
     mark("процесс показа")
     config = load_config()
@@ -744,8 +800,27 @@ def _cmd_worker(key: str) -> int:
         config.hls_cert if config.transport == "https" else "",
         profile=chosen.profile,
     )
-    magnet, torrent_hash = "", ""
     supply = Supply(TorrServer(config.torrserver_url, timeout=PROBE_TIMEOUT))
+    #: Хэши, которые подняли МЫ, - по ним и только по ним пойдёт уборка на выходе.
+    mine: list[str] = []
+    try:
+        return _worker_loop(config, key, torrserver, receiver, supply, mine)
+    finally:
+        _release_torrents(config, mine)
+
+
+def _worker_loop(
+    config: Config,
+    key: str,
+    torrserver: TorrServer,
+    receiver: Receiver,
+    supply: Supply,
+    mine: list[str],
+) -> int:
+    """Сам цикл показа: серия за серией, пока сериал не кончится. Раздачи, которые он
+    поднял, складываются в ``mine`` — их убирает :func:`_cmd_worker` на выходе.
+    """
+    magnet, torrent_hash = "", ""
     while True:
         entry = State.load().get(key)
         if entry is None:
@@ -753,6 +828,7 @@ def _cmd_worker(key: str) -> int:
         if entry.magnet != magnet:  # раздача та же - метаданные второй раз не ждём
             magnet = entry.magnet
             torrent_hash = torrserver.add(magnet)
+            mine.append(torrent_hash)  # с этой секунды у раздачи есть хозяин - этот юнит
             torrserver.wait_files(torrent_hash, timeout=WORKER_META)
             # Тот же магнит, но живёт он теперь и у сторожа: URL потока несёт только хэш,
             # и вернуть раздачу с трекерами после аварии источника может лишь он
@@ -1825,24 +1901,42 @@ def _continue(config: Config, key: str, entry: Entry, args: Args, clock: _Clock)
 
     Сериал вопросов не задаёт вовсе: релиз, дорожка и список серий уже выбраны, а
     какую серию и с какого места играть — записано. Фильм спрашивает ровно одно.
+
+    ``--voice`` поднимает раздачу ещё до показа (:func:`_revoice` читает её дорожки), и
+    хозяин у неё — этот вызов, пока показ её не принял. Принимает он её ровно в одном
+    случае: юнит поднялся и играет ТОТ ЖЕ магнит (:attr:`_Voiced.handed`) — дальше её
+    уберёт сам юнит. Все прочие исходы — сухой прогон, Ctrl-C на вопросе, «серии тут нет»,
+    «смотреть сначала? нет», не поднявшийся юнит — оставляли раздачу навсегда, и убирает
+    её теперь ``finally``, по её собственному хэшу.
     """
-    if not entry.serial:  # фильм (в том числе ошибочно записанный сериалом) - один вопрос
-        if not entry.resumable:
-            return None  # продолжать нечего - озвучку выберет обычный путь, по дорожкам
-        return _resume(config, key, _voiced(config, entry, args), clock=clock, dry=args.dry)
-    entry = _voiced(config, entry, args)
-    if args.episode is not None:  # `cast киберпанк s2e5` - прыжок по кэшу раздачи
-        jumped = entry.jump(args.episode.season, args.episode.episode)
-        if jumped is None:
-            return None  # серии в этой раздаче нет - честно идём искать релиз сезона
-        return _launch(config, key, jumped, _about(jumped), clock, args.dry)
-    if entry.done:  # конец раздачи: сама собой следующая серия не появится
-        print(f"«{entry.title}» - {entry.label} была последней в раздаче")
-        if ask_line("Смотреть сначала? [Да/нет]")[:1] in {"н", "n"}:
-            return EXIT_OK
-        first = entry.episodes[0]
-        entry = entry.jump(first[0], first[1]) or entry
-    return _launch(config, key, entry, _about(entry), clock, args.dry)
+    own = _Voiced()
+    try:
+        if not entry.serial:  # фильм (в том числе ошибочно записанный сериалом) - вопрос один
+            if not entry.resumable:
+                return None  # продолжать нечего - озвучку выберет обычный путь, по дорожкам
+            entry = _voiced(config, entry, args, own)
+            code = _resume(config, key, entry, clock=clock, dry=args.dry)
+            own.handed = not args.dry  # показ пошёл и раздача та же - дальше она его
+            return code
+        entry = _voiced(config, entry, args, own)
+        if args.episode is not None:  # `cast киберпанк s2e5` - прыжок по кэшу раздачи
+            jumped = entry.jump(args.episode.season, args.episode.episode)
+            if jumped is None:
+                return None  # серии в этой раздаче нет - честно идём искать релиз сезона
+            code = _launch(config, key, jumped, _about(jumped), clock, args.dry)
+            own.handed = not args.dry
+            return code
+        if entry.done:  # конец раздачи: сама собой следующая серия не появится
+            print(f"«{entry.title}» - {entry.label} была последней в раздаче")
+            if ask_line("Смотреть сначала? [Да/нет]")[:1] in {"н", "n"}:
+                return EXIT_OK
+            first = entry.episodes[0]
+            entry = entry.jump(first[0], first[1]) or entry
+        code = _launch(config, key, entry, _about(entry), clock, args.dry)
+        own.handed = not args.dry
+        return code
+    finally:
+        own.drop(config)
 
 
 def _remembered(state: State, key: str, found: tuple[str, Entry] | None) -> str:
@@ -1857,18 +1951,57 @@ def _remembered(state: State, key: str, found: tuple[str, Entry] | None) -> str:
     return entry.voice if entry is not None else ""
 
 
-def _voiced(config: Config, entry: Entry, args: Args) -> Entry:
+@dataclass(slots=True)
+class _Voiced:
+    """Раздача, поднятая ради ``--voice``: у неё есть хозяин, пока её не принял показ.
+
+    Дорожки читаются из потока, а поток начинается с раздачи в TorrServer — и раздача
+    эта переживает наш процесс: живёт она в чужой памяти до перезапуска службы. Пока
+    хозяина у неё не было, каждый вызов с ``--voice`` оставлял по раздаче навсегда, в том
+    числе ``--dry``, который заведён ровно затем, чтобы следов не оставлять.
+
+    Хозяин один и меняется один раз: если показ поднялся на том же магните, раздача
+    достаётся юниту (:attr:`handed`), и убирает её он (:func:`_cmd_worker`). Во всех
+    остальных исходах её убирает :meth:`drop` — по СВОЕМУ хэшу, чужого не касаясь.
+    """
+
+    torrent_hash: str = ""
+    #: Показ принял эту раздачу: юнит играет тот же магнит и уберёт её за собой сам.
+    handed: bool = False
+
+    def drop(self, config: Config) -> None:
+        """Убрать, если так и не пригодилась. Повторный вызов и пустой хэш безвредны."""
+        if self.handed or not self.torrent_hash:
+            return
+        torrent_hash, self.torrent_hash = self.torrent_hash, ""
+        with contextlib.suppress(TorrcastError):
+            _release_torrents(config, [torrent_hash])
+
+
+def _voiced(config: Config, entry: Entry, args: Args, own: _Voiced | None = None) -> Entry:
     """Запись с учётом ``--voice``; без флага — она же, не тронутая и без похода в рой.
 
     Флага нет — не читаем ничего: этот путь тем и хорош, что обходится состоянием.
     ⚠️ Звать только тогда, когда запись действительно пойдёт в показ. Живая грабля:
     вызов до проверки «есть ли что продолжать» лез в TorrServer за раздачей,
     которую никто играть не собирался, и падал на её магните.
+
+    ``own`` — хозяин поднятой раздачи (:class:`_Voiced`): в списке службы её не видно, и
+    убрать её можно только по хэшу, который знает он. Хозяина не назвали — раздача
+    убирается тут же, на выходе: бесхозной она не остаётся ни в одном случае.
     """
-    return entry if args.voice is None else _revoice(config, entry, args)
+    if args.voice is None:
+        return entry
+    if own is not None:
+        return _revoice(config, entry, args, own)
+    orphan = _Voiced()
+    try:
+        return _revoice(config, entry, args, orphan)
+    finally:
+        orphan.drop(config)
 
 
-def _revoice(config: Config, entry: Entry, args: Args) -> Entry:
+def _revoice(config: Config, entry: Entry, args: Args, own: _Voiced) -> Entry:
     """``--voice`` поверх сохранённого выбора: перечитать дорожки раздачи и взять нужную.
 
     Нужно ровно для сериала и продолжения: там показ идёт по записи состояния и потока
@@ -1879,11 +2012,15 @@ def _revoice(config: Config, entry: Entry, args: Args) -> Entry:
     Состояние отсюда не пишется: выбор уезжает в запись показа (:func:`_launch`) вместе
     с позицией и серией. Так у ``--dry`` не остаётся следов, а память не переписывается
     показом, который не начался.
+
+    ⚠️ Следов не остаётся и в TorrServer: поднятая здесь раздача записывается хозяину
+    (``own``) сразу же, той же строкой, что и поднимается. Раньше её не убирал никто -
+    ни при сухом прогоне, ни когда показ до старта так и не доходил.
     """
     torrserver = TorrServer(config.torrserver_url)
     with Progress() as progress:
         progress.phase("дорожки")
-        torrent_hash = torrserver.add(entry.magnet)
+        own.torrent_hash = torrent_hash = torrserver.add(entry.magnet)
         torrserver.wait_files(torrent_hash, timeout=META_BUDGET)
         media = probe(torrserver.stream_url(torrent_hash, entry.file_idx), timeout=PROBE_BUDGET)
         progress.phase("")
@@ -2206,6 +2343,11 @@ class _Bench:
             if not self._peek(alt, progress, deadline, phase):
                 progress.phase("")
                 print(f"релиз {number} не успел ответить - играю {chosen.number} ({short})")
+                # Спросили и ждать перестали - значит, ответ больше не нужен, а раздача
+                # соседа осталась бы висеть до общей уборки, доедая полосу у того, кого мы
+                # сейчас играем. Отпускаем сразу и по своему хэшу; подъём, который ещё
+                # идёт в его потоке, уберёт себя сам (:meth:`_work`, ветка ``dropped``).
+                self._forget(alt)
                 return chosen
             progress.phase("")
             why = self._trouble(

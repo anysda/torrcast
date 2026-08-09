@@ -57,6 +57,7 @@ class _FakeTorrServer:
     """TorrServer в объёме, нужном показу: раздача добавляется один раз на magnet."""
 
     added: ClassVar[list[str]] = []
+    dropped: ClassVar[list[str]] = []
 
     def __init__(self, url: str, timeout: float = 30.0) -> None:
         self.url, self.timeout = url, timeout
@@ -64,6 +65,9 @@ class _FakeTorrServer:
     def add(self, magnet: str) -> str:
         _FakeTorrServer.added.append(magnet)
         return "hash"
+
+    def drop(self, torrent_hash: str) -> None:
+        _FakeTorrServer.dropped.append(torrent_hash)
 
     def wait_files(self, torrent_hash: str, timeout: float = 60.0) -> list[TorrFile]:
         return [TorrFile(i, f"Cyberpunk.S01E0{i + 1}.mkv", 1024**3) for i in range(3)]
@@ -111,7 +115,7 @@ def test_the_unit_plays_the_whole_release_by_itself(monkeypatch: pytest.MonkeyPa
     раздачи, без участия CLI. Раздача кончилась — цикл выходит, юнит гаснет чисто.
     """
     remember(dur=MINUTES_24)
-    _FakeTorrServer.added = []
+    _FakeTorrServer.added, _FakeTorrServer.dropped = [], []
     played: list[tuple[str, int]] = []
     receivers: list[Any] = []
     tv = object()
@@ -155,6 +159,7 @@ def test_the_unit_plays_the_whole_release_by_itself(monkeypatch: pytest.MonkeyPa
     ]
     assert [index for _, index in played] == [0, 1, 2], "каждой серии - свой файл раздачи"
     assert _FakeTorrServer.added == ["magnet:?xt=1"], "раздача одна: заново её не добавляем"
+    assert _FakeTorrServer.dropped == ["hash"], "и на конце показа она убрана - хозяин кончился"
     assert saved().done and saved().label == "s1e3", "конец раздачи отмечен в состоянии"
 
 

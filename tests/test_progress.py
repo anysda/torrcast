@@ -32,7 +32,8 @@ def saved(key: str = KEY) -> Entry:
 
 def remember(**fields: object) -> Entry:
     """Положить в состояние недосмотренный фильм."""
-    entry = Entry(title="Моана 2", magnet="magnet:?xt=1", query="моана-2", **fields)  # type: ignore[arg-type]
+    fields = {"magnet": "magnet:?xt=1", **fields}
+    entry = Entry(title="Моана 2", query="моана-2", **fields)  # type: ignore[arg-type]
     state = State()
     state.put(KEY, entry)
     state.save()
@@ -251,6 +252,74 @@ def test_stop_without_playback_says_so(
 
     assert cli.main(["stop"]) == 0
     assert capsys.readouterr().out.strip() == "ничего не играет"
+
+
+#: Хэш и магнит остановленной картины: снос идёт по хэшу ИЗ МАГНИТА, а не по списку.
+HASH = "4f2c1a90bd9e3f1fbaa1a8b8b7c0d1e2f3a4b5c6"
+PLAYED = f"magnet:?xt=urn:btih:{HASH.upper()}&dn=Moana+2&tr=udp%3A%2F%2Ftracker%3A1337"
+
+
+class _Torrents:
+    """TorrServer в объёме уборки: что у него просили снять и просили ли вообще."""
+
+    def __init__(self) -> None:
+        self.dropped: list[str] = []
+
+    def __call__(self, url: str, timeout: float = 30.0) -> _Torrents:
+        return self
+
+    def drop(self, torrent_hash: str) -> None:
+        self.dropped.append(torrent_hash)
+
+
+def test_stop_takes_the_torrent_down_with_the_show(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """🔴 `cast stop` гасил юнит, а раздача оставалась жить в TorrServer до его перезапуска.
+
+    Раздачу за собой убирает сам юнит, но умереть он мог и не по-людски (SIGKILL по
+    таймауту, паника, перезагрузка), а раздача переживает свой процесс. Поэтому тот же
+    хэш сносится ещё раз отсюда - и берётся он из МАГНИТА остановленной записи: списка
+    службы своя раздача не показывает вовсе (``save_to_db:false``), а сносить по списку
+    значило бы сносить чужое.
+    """
+    remember(pos=660.0, dur=5978.0, magnet=PLAYED)
+    torrents = _Torrents()
+    monkeypatch.setattr(cli, "unit_active", lambda: True)
+    monkeypatch.setattr(cli, "unit_key", lambda: KEY)
+    monkeypatch.setattr(cli, "stop_play_unit", lambda: None)
+    monkeypatch.setattr(cli, "TorrServer", torrents)
+
+    assert cli.main(["stop"]) == 0
+
+    assert torrents.dropped == [HASH], "снят ровно свой хэш, в нижнем регистре и один раз"
+
+
+def test_stop_with_nothing_playing_touches_no_torrent(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ничего не играло - ничего и не сносим: ту же раздачу может прямо сейчас греть
+    чужой ход, и «на всякий случай» её убирать нельзя.
+    """
+    remember(pos=660.0, dur=5978.0, magnet=PLAYED)
+    torrents = _Torrents()
+    monkeypatch.setattr(cli, "unit_active", lambda: False)
+    monkeypatch.setattr(cli, "unit_key", lambda: "")
+    monkeypatch.setattr(cli, "stop_play_unit", lambda: None)
+    monkeypatch.setattr(cli, "TorrServer", torrents)
+
+    assert cli.main(["stop"]) == 0
+
+    assert torrents.dropped == []
+
+
+def test_a_magnet_gives_up_its_hash_without_asking_anyone() -> None:
+    """Хэш - часть самого магнита, и знать его можно, не поднимая ничего.
+
+    Разбирается только сорокознаковая hex-форма: base32 - другая запись того же хэша,
+    TorrServer знает раздачу по hex, и снос «похожей строки» был бы сносом наугад.
+    """
+    assert cli._torrent_hash(PLAYED) == HASH
+    assert cli._torrent_hash("magnet:?xt=urn:btih:MFRGGZDFMZTWQ2LKNNWG23TP&dn=x") == ""
+    assert cli._torrent_hash("magnet:?xt=1") == "" and cli._torrent_hash("") == ""
 
 
 def test_systemd_plumbing_answers_about_a_unit_that_does_not_exist() -> None:

@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import re
 import threading
+import time
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, cast
@@ -1446,6 +1447,42 @@ def test_a_neighbour_asked_about_honesty_is_dropped_once_it_has_answered(
     assert prep.number == 1, "лучше 574p рядом нет - играем то, что есть"
     assert "не лучше" in capsys.readouterr().out
     assert torrserver.dropped == [f"hash-{ranked[1].magnet}"], "сосед отпущен по своему хэшу"
+
+
+def test_a_neighbour_that_missed_its_budget_is_let_go_too(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Сосед не успел ответить за свой бюджет - раздача его тоже больше не нужна.
+
+    Ждать перестали - значит, ответ не нужен, а раздача осталась бы висеть до общей
+    уборки, доедая полосу роя у того, кого мы прямо сейчас играем. Подъём, который в его
+    потоке ещё идёт, убирает себя сам: хэш к тому моменту известен только этому потоку.
+    """
+    ranked = [
+        rel(name="Кино [WEB-DL] a", quality=None, size_gb=3.14, seeders=140),
+        rel(name="Кино [WEB-DL 1080p] b", codec=None, size_gb=3.20, seeders=121),
+    ]
+    slow = f"hash-{ranked[1].magnet}"
+    honest = Media(5977.0, (), "h264", 574, 1150)
+
+    def read(url: str, timeout: float = 90.0, alive: object = None) -> Media:
+        if f"{slow}/" in url:
+            time.sleep(0.6)  # сосед отвечает дольше, чем ему отмерено
+            return Media(5977.0, (), "h264", 1080, 1920)
+        return honest
+
+    monkeypatch.setattr(cli, "probe", read)
+    monkeypatch.setattr(cli, "HONEST_BUDGET", 0.05)
+    torrserver = _FakeTorrServer()
+
+    prep = _resolve(cli._Bench(cast(Any, torrserver)), ranked)
+
+    assert prep.number == 1, "ответа не дождались - играем то, что уже прочитано"
+    assert "не успел ответить" in capsys.readouterr().out
+    deadline = time.monotonic() + 5.0
+    while slow not in torrserver.dropped and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert torrserver.dropped == [slow], "и его раздача убрана по своему хэшу, а не по списку"
 
 
 # --- Пак, который считает сезоны, но не серии (TC-139) --------------------------------
