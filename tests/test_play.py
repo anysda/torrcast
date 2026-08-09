@@ -673,6 +673,85 @@ def test_a_finished_movie_is_not_resurrected(
     assert clock.now - 1000.0 < cli.REVIVE_PAUSE, "и не ждут на нём ни сети, ни выдержки"
 
 
+class _Nudged:
+    """Приёмник, застрявший в BUFFERING: сторож подвиса гонит указатель вперёд по 8 с.
+
+    Ровно замер живого Q70D: картинка стоит на 2:39, а сторож
+    (:meth:`torrcast.cast.ChromecastReceiver._nudge`) двенадцать раз прыгает вперёд, вытаскивая
+    приёмник из зависания, и уводит позицию на 4:15 - на 1:36 впереди последнего кадра,
+    который человек видел. Картинки всё это время нет: состояние остаётся ``BUFFERING``,
+    и только его отличие от ``PLAYING`` и говорит, где кончился показ, а где начался
+    указатель. Потом приёмник бросает показ насовсем.
+    """
+
+    def __init__(self, clock: _Ticker, feed: Feed, warmer: _Warm, back_at: float = 0.0) -> None:
+        self.clock, self.feed, self.warmer, self.back_at = clock, feed, warmer, back_at
+        self.began = clock.now
+        self.seen = 159.0  # 2:39 - последний показанный кадр
+        self.pos = self.seen
+        self.nudges = 12
+        self.shown = True
+        self.replays: list[float] = []
+
+    def play(self, url: str, title: str = "", at: float = 0.0) -> None:
+        pass
+
+    def stop(self, quit_app: bool = False) -> None:
+        pass
+
+    def position(self, front: float = 0.0) -> Any:
+        from torrcast.cast import Position
+
+        if self.back_at and self.clock.now - self.began >= self.back_at:
+            self.feed.offline = ""
+            self.warmer.warmed += 10.0
+        if self.shown:  # один опрос картинка ещё идёт - его и обязана запомнить закладка
+            self.shown = False
+            return Position(self.seen, 7200.0, True, "PLAYING")
+        if self.nudges > 0:
+            self.nudges -= 1
+            self.pos += 8.0  # прыжок сторожа: указатель поехал, картинка - нет
+            return Position(self.pos, 7200.0, True, "BUFFERING")
+        return Position(0.0, 7200.0, False, "IDLE")
+
+    def replay(self, at: float) -> bool:
+        self.replays.append(at)
+        return False  # приёмник так и не вернулся: показ кончится честной темнотой
+
+
+def test_the_bookmark_holds_the_last_frame_seen_not_where_the_watchdog_drove(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Сторож подвиса увёл указатель на 1:36 вперёд - воскресаем с последнего КАДРА.
+
+    Замер на живом Q70D: показ встал на 2:39, сторож сделал 12 нуджей по 8 с и довёл
+    указатель до 4:15, а картинки не было ни секунды из этих полутора минут. Воскрешение
+    при этом точное - оно поднимает ровно ту секунду, которую ему дали, - и потому человек
+    продолжал с места, которого не видел, а «Продолжить?» звало его туда же.
+
+    Сторож здесь прав и не трогается: он вытаскивает приёмник из зависания, и прыгать ему
+    есть чем только вперёд. Чинится закладка: место показа отмеряет глаз, а не указатель,
+    то есть ``PLAYING``, а не ``BUFFERING``.
+    """
+    from torrcast import cli
+
+    clock = _Ticker()
+    monkeypatch.setattr(time, "sleep", clock.sleep)
+    monkeypatch.setattr(time, "monotonic", clock.monotonic)
+    monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
+    feed = _feed_with_segments(tmp_path)
+    feed.offline = "источник молчит дольше 45 с"
+    warmer = _Warm()
+    receiver = _Nudged(clock, feed, warmer, back_at=100.0)
+    entry = Entry(title="ролик", magnet=MAGNET, pos=0.0, dur=7200.0)
+    watch = _Watch(key="movie:ролик:2026", entry=entry, every=0.0)
+
+    cli._hold(receiver, feed, watch, warmer)  # type: ignore[arg-type]
+
+    assert receiver.replays == [159.0] * cli.REVIVE_TRIES, "поднимаем с показанного кадра"
+    assert entry.pos == 159.0, "и «Продолжить?» зовёт туда же, а не на 4:15"
+
+
 def test_the_dark_show_is_revived_only_on_a_free_receiver(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
