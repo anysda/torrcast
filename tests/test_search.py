@@ -10,7 +10,9 @@ from __future__ import annotations
 import json
 import threading
 import time
+from itertools import permutations
 from pathlib import Path
+from typing import Final
 
 import pytest
 
@@ -23,6 +25,7 @@ from torrcast.search import (
     from_json,
     from_torznab,
     magnet_for,
+    merge,
     to_releases,
 )
 
@@ -506,3 +509,51 @@ def test_поисковый_url_несёт_запрос_без_склейки() 
     url = Prowlarr("http://p", "k")._url("Steins;Gate", 100)
     assert "query=Steins%20Gate" in url
     assert "%3B" not in url
+
+
+def _mirror(title: str, seeders: int, indexer: str, size: int = 8_000_000_000) -> RawResult:
+    """Одна и та же раздача глазами разных индексеров: hash общий, данные врозь."""
+    return RawResult(title=title, info_hash="a" * 40, size=size, seeders=seeders, indexer=indexer)
+
+
+#: Живой случай с сырых пулов: один индексер видит у раздачи 2 сида, другой 26, третий
+#: зовёт её иначе. До TC-239 в выдачу шла строка того, кто ответил первым.
+_ONE_TORRENT: Final = (
+    _mirror("Дюна: Пророчество / Dune: Prophecy (2024) WEB-DL 1080p", 2, "Knaben"),
+    _mirror("Дюна: Пророчество / Dune: Prophecy (2024) WEB-DL 1080p", 26, "RuTor", 8_000_000_512),
+    _mirror("Dune Prophecy S01 2024 1080p WEB-DL", 9, "Nyaa.si", 8_000_001_024),
+)
+
+
+def test_склейка_не_зависит_от_порядка_прихода_индексеров() -> None:
+    """Кто ответил первым - дело сети, а не каталога: строка раздачи обязана совпасть
+    при любом порядке ответов, иначе на телевизор едет то один файл, то другой.
+    """
+    snapshots = {
+        tuple(
+            (row.title, row.seeders, row.size, row.indexer, row.copies)
+            for row in merge(*([item] for item in order))
+        )
+        for order in permutations(_ONE_TORRENT)
+    }
+    assert len(snapshots) == 1
+
+
+def test_склейка_берёт_максимум_сидов_и_имя_по_большинству() -> None:
+    """Рой у раздачи ОДИН - расхождение в сидах это разное время скрейпа, поэтому цифра
+    берётся самая свежая. Имя - по большинству, тем же правилом, что у канона картины:
+    оно не обязано приехать той же строкой, что и максимум сидов.
+    """
+    (merged,) = merge(*([item] for item in _ONE_TORRENT))
+    assert merged.seeders == 26
+    assert merged.title == "Дюна: Пророчество / Dune: Prophecy (2024) WEB-DL 1080p"
+    assert merged.copies == 3  # сколько РАЗНЫХ индексеров привезли раздачу - счёт прежний
+
+
+def test_склейка_разводит_ничью_имён_короче_и_по_алфавиту() -> None:
+    """Двое индексеров - обычное дело, и большинства там не бывает. Ничья разводится
+    так же, как в кластеризации, а не по тому, чей ответ приехал раньше.
+    """
+    pair = (_mirror("Психо", 5, "Knaben"), _mirror("Psycho", 7, "RuTor"))
+    names = {merge(*([item] for item in order))[0].title for order in permutations(pair)}
+    assert names == {"Психо"}

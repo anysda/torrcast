@@ -35,6 +35,7 @@ __all__ = [
     "Release",
     "alt_query",
     "anime_indexer",
+    "by_majority",
     "cluster",
     "franchise_key",
     "franchise_name",
@@ -1187,7 +1188,7 @@ def cluster(releases: list[Release]) -> list[Picture]:
     return _sorted(glue(pictures))
 
 
-def _by_majority(counted: Counter[str]) -> str:
+def by_majority(counted: Counter[str]) -> str:
     """Самое частое имя кучки; при РАВНОМ счёте - самое короткое, потом по алфавиту.
 
     Развязка тут не косметика. ``most_common`` при равенстве отдаёт то имя, что легло в
@@ -1206,12 +1207,12 @@ def _by_majority(counted: Counter[str]) -> str:
 def _compose(kind: Kind, year: int | None, group: list[Release], also: str = "") -> Picture:
     """Кучка релизов → картина: каноническое имя, оригинал и номер части по большинству."""
     titles = Counter(r.title for r in group if _CYRILLIC.search(r.title))
-    title = _by_majority(titles or Counter(r.title for r in group))
+    title = by_majority(titles or Counter(r.title for r in group))
     originals = Counter(r.original for r in group if r.original)
     # Номер части часто есть лишь в части переводов («Матрица 2: Перезагрузка»)
     # - забираем его на всю картину, он точнее года при двух фильмах за год.
     parts = Counter(n for r in group if (n := part_number(r.title)) is not None)
-    original = _by_majority(originals) if originals else None
+    original = by_majority(originals) if originals else None
     return Picture(
         title=title,
         year=year,

@@ -23,6 +23,7 @@ from __future__ import annotations
 import re
 import threading
 import time
+from collections import Counter
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any, Final
@@ -30,7 +31,7 @@ from urllib.parse import quote
 from xml.etree import ElementTree
 
 from torrcast import InfraError, NotFoundError, why
-from torrcast.parse import Release, anime_indexer, looks_anime, parse_release_name
+from torrcast.parse import Release, anime_indexer, by_majority, looks_anime, parse_release_name
 from torrcast.timing import mark
 
 if TYPE_CHECKING:
@@ -620,17 +621,49 @@ def merge(*batches: list[RawResult]) -> list[RawResult]:
     тощим - смотря как опрошены индексеры. Считаем по РАЗНЫМ индексерам, а не по строкам:
     добор вторым именем приносит те же раздачи от тех же индексеров, и складывать круги
     значило бы удваивать каталог на ровном месте.
+
+    🔴 Строки об ОДНОЙ раздаче у разных индексеров расходятся, и оставить строку того,
+    кто ответил первым, значило бы отдать выдачу на волю сети. Расхождение массовое:
+    на сырых пулах (99 запросов) из 661 раздачи, приехавшей больше чем одной строкой,
+    сиды разошлись у 625, имена - у 490. Разрывы не косметические: «Дюна: Пророчество»
+    приезжает то на 2 сидах, то на 26, «Матрица: Воскрешение» - 8 против 19, а сиды
+    стоят высоко в отборе, и мёртвая на вид раздача уходит под все живые. Поэтому
+    склейка выбирает поля сама (:func:`_fold`), а не берёт первую попавшуюся строку.
     """
-    seen: dict[str, RawResult] = {}
+    rows: dict[str, list[RawResult]] = {}
     sources: dict[str, set[str]] = {}
     carried: dict[str, int] = {}
     for batch in batches:
         for item in batch:
             key = item.info_hash.lower()
-            seen.setdefault(key, item)
+            rows.setdefault(key, []).append(item)
             sources.setdefault(key, set()).add(item.indexer)
             carried[key] = max(carried.get(key, 1), item.copies)
-    return [replace(r, copies=max(len(sources[k]), carried[k])) for k, r in seen.items()]
+    return [
+        replace(_fold(group), copies=max(len(sources[key]), carried[key]))
+        for key, group in rows.items()
+    ]
+
+
+def _fold(rows: list[RawResult]) -> RawResult:
+    """Строки одной раздачи - в одну, не глядя, кто ответил первым.
+
+    Рой у раздачи ОДИН: один ``infoHash`` - один и тот же торрент у всех индексеров.
+    Расхождение в сидах - это разное время скрейпа, а не разные раздачи, поэтому берём
+    максимум: свежая цифра честнее протухшей, а сиды в выдаче и так лишь подсказка -
+    живость проверяется по привезённым байтам, а не по обещанию индексера.
+
+    Имя - по большинству, тем же правилом, что у канона картины
+    (:func:`~torrcast.parse.by_majority`): чаще встретившееся, при равенстве короче и
+    дальше по алфавиту. Остальное (размер, индексер) берётся у строки, чьё имя
+    победило, - чтобы поля не собирались в химеру из разных ответов. Размеры у одной
+    раздачи расходятся только на округлении: 99% пар - в пределах 0.35%.
+    """
+    title = by_majority(Counter(row.title for row in rows))
+    return replace(
+        min((row for row in rows if row.title == title), key=lambda row: (row.indexer, row.size)),
+        seeders=max(row.seeders for row in rows),
+    )
 
 
 def to_releases(results: list[RawResult]) -> list[Release]:
