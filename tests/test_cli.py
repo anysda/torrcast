@@ -14,7 +14,7 @@ import pytest
 from torrcast import InfraError, NotFoundError, cli, console, scan
 from torrcast.cli import TABLE_LIMIT, is_candidate, is_disc, rank_releases, render_table, warned
 from torrcast.console import Progress
-from torrcast.parse import Release, parse_release_name
+from torrcast.parse import Kind, Release, parse_release_name
 from torrcast.state import load_config
 from torrcast.stream import RUNTIME_GUESS, Media, TorrFile
 
@@ -946,6 +946,107 @@ def test_a_pool_without_a_single_peer_says_so_plainly() -> None:
     )
     assert "пиров нет" not in live
     assert dead != live
+
+
+def _series_plan(title: str, year: int, kind: Kind, releases: list[Release]) -> Any:
+    """План картины, у которой запрос назвал серию: тип сказан вслух (``s1e1``)."""
+    from torrcast.parse import Picture
+
+    return cli._Plan(
+        picture=Picture(title=title, year=year, kind=kind, releases=releases),
+        ranked=rank_releases(releases, RUNTIME, 20.0),
+        runtime=RUNTIME,
+        warn_mbit=20.0,
+        asked_series=True,
+    )
+
+
+def test_liveliness_counts_the_best_playable_release_not_the_queue_top() -> None:
+    """«Мальтийский сокол» 1941 из живой выдачи: наверху очереди не самая живая раздача.
+
+    Очередь сортируется не сидами одними: 1080p и русская дорожка стоят выше. Наверху
+    у картины оказался релиз на 5 сидов, а годный сосед ниже держал 28 - и картина с
+    двадцатью двумя раздачами весила меньше однораздачной тёзки 1931 года на 16 сид.
+    """
+    falcon = _franchise_plan(
+        "Мальтийский сокол",
+        1941,
+        [
+            rel(name="Мальтийский сокол BDRip 1080p Дубляж", size_gb=8.0, seeders=5),
+            rel(name="The Maltese Falcon BDRip 720p", quality="720p", size_gb=4.0, seeders=28),
+        ],
+    )
+    assert falcon.ranked[0].seeders == 5, "наверху очереди - то, что лучше смотреть"
+    assert cli.liveliness(falcon) == 28, "а весит картина по лучшей ГОДНОЙ раздаче"
+
+
+def test_default_steps_over_a_picture_backed_by_a_single_release() -> None:
+    """Живая выдача по «мальтийскому соколу»: дефолт садился на 1931 год одной раздачей.
+
+    Порог живости она проходила честно - 16 сид против 28 у лучшей годной раздачи
+    соседки, - но играть ею нечего: одно обещание индексера и никакой очереди за ним.
+    Рядом стоит картина 1941 года с двадцатью двумя раздачами.
+    """
+    thin = _franchise_plan(
+        "Мальтийский сокол", 1931, [rel(name="Мальтийский сокол 1931 BDRip", seeders=16)]
+    )
+    deep = _franchise_plan(
+        "Мальтийский сокол",
+        1941,
+        [
+            rel(name="Мальтийский сокол BDRip 1080p Дубляж", size_gb=8.0, seeders=5),
+            rel(name="The Maltese Falcon BDRip 720p", quality="720p", size_gb=4.0, seeders=28),
+        ],
+    )
+    assert cli.alive_numbers([thin, deep], [1, 2]) == [1, 2], "по сидам живы обе"
+    assert cli.first_alive([thin, deep]) == 2
+    assert "всего одна раздача" in cli.default_note([thin, deep])
+
+
+def test_a_lone_release_still_wins_when_the_whole_franchise_is_lone() -> None:
+    """Все живые картины об одной раздаче - список остаётся как был.
+
+    Ступень отбрасывает однораздачные, только пока в живых есть кто-то ещё: иначе она
+    молчаливо превращала бы «живую» картину в мёртвую, а выбирать всё равно не из чего.
+    Здесь же и защита от «дефолт = самая раздаваемая»: первая часть франшизы остаётся
+    дефолтом, даже когда у сиквела раздач больше.
+    """
+    first = _franchise_plan("Кино", 2001, [rel(name="a", seeders=100)])
+    second = _franchise_plan("Кино 2", 2005, [rel(name="b", seeders=90), rel(name="c", seeders=80)])
+    assert cli.first_alive([first, second]) == 1
+    assert cli.default_note([first, second]) == "", "решения не принимали - и строки нет"
+
+
+def test_asked_series_outweighs_a_namesake_film() -> None:
+    """«хорошая жена s1e1» - просьба про сериал, а дефолтом вставал фильм 1987 года.
+
+    У фильма три раздачи и ни одной живой, у сериала 2015 года - тридцать раздач и 18
+    сид. Тип, названный запросом, весит больше одноимённого соседа другого типа.
+    """
+    film = _series_plan(
+        "Хорошая жена",
+        1987,
+        "movie",
+        [rel(name="film", seeders=6), rel(name="film dvd", quality="720p", seeders=4)],
+    )
+    show = _series_plan(
+        "Хорошая жена",
+        2015,
+        "tv",
+        [rel(name="s01", seeders=12), rel(name="s01 web", quality="720p", seeders=18)],
+    )
+    assert cli.first_alive([film, show]) == 2
+    note = cli.default_note([film, show])
+    assert "спросили серию" in note and "2015" in note and "1987" in note
+
+
+def test_a_film_only_catalogue_keeps_the_default_where_it_was() -> None:
+    """Сериалов в выдаче нет вовсе - гейт типа молчит: он не судья тому, чего не видел."""
+    first = _series_plan("Кино", 2001, "movie", [rel(name="a", seeders=100)])
+    second = _series_plan("Кино 2", 2005, "movie", [rel(name="b", seeders=100)])
+    assert cli.asked_kind([first, second]) == [1, 2]
+    assert cli.first_alive([first, second]) == 1
+    assert cli.default_note([first, second]) == ""
 
 
 def test_prewarm_starts_with_the_default_not_with_the_earliest() -> None:
