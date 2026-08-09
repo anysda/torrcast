@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import subprocess
 from typing import TYPE_CHECKING, Any
 
 from torrcast import doctor
@@ -215,7 +216,9 @@ def _unit_env(monkeypatch: pytest.MonkeyPatch, environment: str) -> tuple[str, b
     class _Done:
         stdout = environment
 
-    monkeypatch.setattr(doctor.subprocess, "run", lambda *args, **kwargs: _Done())
+    # Через сам модуль subprocess, а не через реэкспорт из doctor: mypy strict
+    # справедливо не считает чужой импорт частью договора модуля.
+    monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: _Done())
     return doctor._family()
 
 
