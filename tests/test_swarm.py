@@ -244,17 +244,38 @@ def test_a_healthy_release_pays_nothing_for_the_grace() -> None:
     assert spent < 0.2, f"готовые метаданные стоили {spent:.2f} с"
 
 
-def test_swarm_alive_errs_towards_waiting_and_admits_when_it_does_not_know() -> None:
-    """Ноль - только когда служба назвала счётчики и все они пусты; иначе ждём.
+def test_swarm_alive_counts_contacts_and_not_addresses_from_dht() -> None:
+    """Найденный в DHT адрес - ещё не рой; жизнью считается состоявшийся контакт.
 
-    Ответ намеренно завышающий: любой ненулевой счётчик роя - это «на том конце кто-то
-    есть», и ошибиться можно только в сторону терпения.
+    Ответы взяты с живой службы: свежедобавленная раздача с мёртвым роем минутами
+    рапортует ``total_peers`` 7-9 и столько же ``half_open_peers``, а ключей про
+    состоявшийся контакт у неё нет вовсе. Считай мы кандидатов жизнью, отсрочка не
+    сработала бы ни разу, и отказ по-прежнему стоил бы полный бюджет.
     """
     from torrcast.stream import swarm_alive
 
-    assert swarm_alive({"active_peers": 0, "total_peers": 0, "download_speed": 0}) is False
-    assert swarm_alive({"active_peers": 0, "pending_peers": 7}) is True
+    dead = {
+        "stat": 1,
+        "stat_string": "Torrent getting info",
+        "total_peers": 9,
+        "half_open_peers": 9,
+    }
+    live = {
+        "stat": 3,
+        "stat_string": "Torrent working",
+        "total_peers": 379,
+        "pending_peers": 378,
+        "half_open_peers": 8,
+        "active_peers": 1,
+        "connected_seeders": 1,
+        "bytes_written": 1735,
+        "bytes_read": 25635,
+    }
+    assert swarm_alive(dead) is False, "кандидаты из DHT - не контакт"
+    assert swarm_alive(live) is True, "подключённый пир и прочитанные байты - контакт"
     assert swarm_alive({"active_peers": 0, "bytes_read": 4096}) is True
+    assert swarm_alive({"active_peers": 0, "total_peers": 0, "download_speed": 0}) is False
+    # Служба про рой не рассказала вовсе - ждём полный бюджет, как ждали всегда.
     assert swarm_alive({"file_stats": [], "torrent_size": 8 << 30}) is None
 
 

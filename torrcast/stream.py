@@ -1022,23 +1022,34 @@ def swarm_alive(status: dict[str, Any]) -> bool | None:
     сама знает про рой, - и приезжает этот ответ тем же опросом (``action=get``), которым
     берутся файлы (:meth:`TorrServer.wait_files`): ни одного лишнего запроса.
 
-    Живым считается ЛЮБОЙ ненулевой счётчик роя: пиры (подключённые, ожидающие,
-    полуоткрытые), скорости, байты. Ответ намеренно завышающий - ноль тут означает отказ,
-    и ошибаться можно только в сторону «подождём ещё».
+    🔴 Считается СОСТОЯВШИЙСЯ контакт, а не найденный адрес, и это замерено, а не выведено.
+    У раздачи с мёртвым роем служба бодро рапортует ``total_peers`` 7-9 и столько же
+    ``half_open_peers`` и держит их так минутами: это кандидаты из DHT, с которыми никто
+    не поговорил. Считай мы их жизнью, отсрочка не срабатывала бы никогда. У живой
+    раздачи в тот же миг стоят ``active_peers``, ``connected_seeders`` и ``bytes_read``,
+    а у мёртвой этих ключей нет вовсе.
 
-    🔴 Имена счётчиков не перечислены списком, и это не лень: служба вправе звать их
-    по-своему и в новой версии переименовать. Раздача, про рой которой нам НЕ сказали,
-    обязана ждать полный бюджет ровно как ждала всегда - отсюда третий ответ ``None``.
-    Молчание счётчика - не молчание роя.
+    Отсюда два разных списка слов: «нашли адрес» (total/pending/half open) жизнью не
+    считается, «поговорили» (active, connected, скорости, байты) - считается.
+
+    Раздача, про рой которой нам НЕ сказали ВООБЩЕ, обязана ждать полный бюджет ровно
+    как ждала всегда - отсюда третий ответ ``None``. Отличаем это от честного нуля по
+    тому, есть ли в ответе хоть один счётчик роя: служба, которая про рой рассказывает,
+    просто опускает нулевые поля.
     """
-    counts = [
-        value
-        for key, value in status.items()
-        if any(word in key.casefold() for word in ("peers", "speed", "bytes"))
-        and isinstance(value, int)
-        and not isinstance(value, bool)
-    ]
-    return any(count > 0 for count in counts) if counts else None
+    said = False
+    for key, value in status.items():
+        name = key.casefold()
+        if not any(word in name for word in ("peers", "speed", "bytes")):
+            continue
+        if not isinstance(value, int) or isinstance(value, bool):
+            continue
+        said = True
+        if any(word in name for word in ("total", "pending", "half")):
+            continue  # адрес из DHT, а не контакт: у мёртвого роя их тоже 7-9
+        if value > 0:
+            return True
+    return False if said else None
 
 
 class TorrServer:
