@@ -476,7 +476,9 @@ def build_server(
     class Server(socketserver.ThreadingMixIn, http.server.HTTPServer):
         daemon_threads = True
 
-        def handle_error(self, request: socket.socket, client_address: object) -> None:
+        def handle_error(
+            self, request: socket.socket | tuple[bytes, socket.socket], client_address: object
+        ) -> None:
             """Клиент, ушедший раньше ответа - одна строка, а не трейсбек.
 
             Штатное событие: Prowlarr закрыл соединение до того, как шим записал
