@@ -26,7 +26,12 @@
   в `Host` и в проверке серта. Заодно это лечит угон DNS: подставной адрес отдаёт
   самоподписанный серт, проверка его не принимает, и шим уходит на следующий адрес.
 
-Кандидаты пробуются по порядку, сработавший запоминается до первой осечки.
+Кандидаты пробуются по порядку, сработавший запоминается до первой осечки. Осечка - это
+не только оборванное соединение: ответ 5xx тоже уводит на следующего кандидата, потому
+что это не ответ трекера, а его отсутствие, и клиент (Prowlarr) читает такой ответ как
+«повтори» - повторяет сам, с отсрочкой и по тому же адресу. Пока у нас есть запасной
+адрес, отдавать наверх повод для повтора незачем; кончились кандидаты - отдаём чужой
+отказ как есть.
 
 Наверх шим всегда просит `gzip`, а вниз отдаёт распакованным, если клиент сжатого не
 просил. Это не экономия трафика, а обход той же болезни: рвётся поток на ОБЪЁМЕ тела,
@@ -414,6 +419,9 @@ def build_server(
 
         def _upstream(self, route: Route, method: str, body: bytes | None) -> None:
             last = "маршрут пуст"
+            #: Придержанный 5xx: ответ, который лучше не отдавать, пока есть непробованный
+            #: кандидат. Отдадим его, только если лучше не нашлось.
+            held: tuple[int, list[tuple[str, str]], bytes] | None = None
             wanted = "gzip" in (self.headers.get("Accept-Encoding") or "").lower()
             for target in route.targets(resolver):
                 request = urllib.request.Request(target.base + self.path, data=body, method=method)
@@ -433,12 +441,27 @@ def build_server(
                         self._reply(response.status, headers, payload)
                         return
                 except urllib.error.HTTPError as exc:  # ответ есть, просто не 2xx
-                    route.current = target.number
                     payload, headers = _unpack(exc.read(), list(exc.headers.items()), wanted)
-                    self._reply(exc.code, headers, payload)
-                    return
+                    if exc.code < 500:  # это ответ трекера по существу: «нет», «нельзя»
+                        route.current = target.number
+                        self._reply(exc.code, headers, payload)
+                        return
+                    # 🔴 TC-237. Пятисотый - не ответ, а его отсутствие, и отдавать его,
+                    # имея непробованного кандидата, нельзя: Prowlarr читает ЛЮБОЙ 5xx как
+                    # «повтори» и сам ретраит с отсрочкой (в его логе «Request for … failed
+                    # with status BadGateway. Retrying in 0.26-4.19 s»). Снять этот повтор
+                    # настройкой нечем - строка зашита в его сборку, - зато повод для него
+                    # чаще всего наш: запасной адрес у нас уже есть, просто до него не
+                    # доходило. Сбойный кандидат вдобавок не запоминается: пометить его
+                    # «сработавшим» значило бы начинать с него и в следующий раз.
+                    held = held or (exc.code, headers, payload)
+                    last = f"{target.base}: {exc.code} {exc.reason}"
                 except Exception as exc:  # любой отказ значит «следующий кандидат»
                     last = f"{target.base}: {exc}"
+            if held is not None:  # лучше не нашлось - отдаём чужой отказ как есть
+                status, headers, payload = held
+                self._reply(status, headers, payload)
+                return
             self._reply(502, [("Content-Type", "text/plain")], f"{last}\n".encode())
 
         def do_GET(self) -> None:

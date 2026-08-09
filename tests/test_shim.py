@@ -373,6 +373,113 @@ def test_named_candidate_keeps_the_name_and_pins_the_address() -> None:
     ]
 
 
+class Hits:
+    """Сколько раз спросили этот origin."""
+
+    def __init__(self) -> None:
+        self.count = 0
+        self._lock = threading.Lock()
+
+    def add(self) -> None:
+        with self._lock:
+            self.count += 1
+
+
+def _status_backend(
+    tls: tuple[str, str], status: int, hits: Hits, body: bytes
+) -> http.server.HTTPServer:
+    """Origin, который всегда отвечает заданным кодом и считает, сколько раз его спросили."""
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"
+
+        def log_message(self, *args: object) -> None:
+            """Молчим: вывод теста не про это."""
+
+        def do_GET(self) -> None:
+            hits.add()
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+    class Server(http.server.ThreadingHTTPServer):
+        daemon_threads = True
+
+    cert, key = tls
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.load_cert_chain(cert, key)
+    server = Server(("127.0.0.1", 0), Handler)
+    server.socket = context.wrap_socket(server.socket, server_side=True)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server
+
+
+def test_пятисотый_уводит_на_следующего_кандидата(
+    tls: tuple[str, str], plain_openers: None
+) -> None:
+    """🔴 TC-237: 502 от первого адреса не уезжает наверх, пока есть второй.
+
+    Prowlarr читает любой 5xx как «повтори» и повторяет сам, с отсрочкой и по тому же
+    адресу; снять этот повтор настройкой нечем. Зато запасной адрес у нас уже есть -
+    и пока он не спрошен, повода для повтора наверх отдавать нельзя. Заодно проверяем,
+    что сбойный кандидат не запомнился: второй запрос идёт сразу к здоровому.
+    """
+    sick_hits, well_hits = Hits(), Hits()
+    sick = _status_backend(tls, 502, sick_hits, b"bad gateway\n")
+    well = _status_backend(tls, 200, well_hits, b'{"hits": []}\n')
+    route = shim.Route(
+        "tracker.test",
+        [
+            f"https://127.0.0.1:{sick.server_address[1]}",
+            f"https://127.0.0.1:{well.server_address[1]}",
+        ],
+    )
+    server = _shim(tls, {"tracker.test": route})
+    try:
+        first, _ = _get(server.server_address[1], "tracker.test")
+        second, _ = _get(server.server_address[1], "tracker.test")
+    finally:
+        for srv in (server, sick, well):
+            srv.shutdown()
+            srv.server_close()
+    print(f"коды: {first} и {second}; больного спросили {sick_hits.count} раз(а)")
+    assert first == 200, "502 от первого кандидата обязан увести на второй"
+    assert second == 200
+    assert sick_hits.count == 1, "к сбойному кандидату второй раз не возвращаемся"
+    assert well_hits.count == 2, "здоровый кандидат отвечает на оба запроса"
+
+
+def test_чужой_отказ_доезжает_когда_кандидаты_кончились(
+    tls: tuple[str, str], plain_openers: None
+) -> None:
+    """Все кандидаты отдали 5xx - наверх едет их код, а не выдуманный нами 502.
+
+    И спрошены обязаны быть ВСЕ: отказ первого сам по себе ещё ничего не значит.
+    """
+    first_hits, second_hits = Hits(), Hits()
+    one = _status_backend(tls, 503, first_hits, b"down\n")
+    two = _status_backend(tls, 503, second_hits, b"down too\n")
+    route = shim.Route(
+        "tracker.test",
+        [
+            f"https://127.0.0.1:{one.server_address[1]}",
+            f"https://127.0.0.1:{two.server_address[1]}",
+        ],
+    )
+    server = _shim(tls, {"tracker.test": route})
+    try:
+        code, _ = _get(server.server_address[1], "tracker.test")
+    finally:
+        for srv in (server, one, two):
+            srv.shutdown()
+            srv.server_close()
+    print(f"код наверх: {code}; спросили обоих: {first_hits.count} и {second_hits.count}")
+    assert code == 503, "отдаём чужой отказ как есть, а не свой 502"
+    assert first_hits.count == 1 and second_hits.count == 1, "спрошены обязаны быть все"
+
+
 def _blackhole() -> socket.socket:
     """Хост, который принимает соединение и молчит: TLS-рукопожатие к нему висит.
 
