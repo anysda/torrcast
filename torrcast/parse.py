@@ -34,12 +34,14 @@ __all__ = [
     "Picture",
     "Release",
     "alt_query",
+    "anime_indexer",
     "cluster",
     "franchise_key",
     "franchise_name",
     "franchises",
     "glue",
     "in_digits",
+    "looks_anime",
     "map_episodes",
     "menu_order",
     "other_words",
@@ -349,6 +351,21 @@ _ANIME_RE: Final = re.compile(
 #: Индексеры, у которых аниме - всё, что там лежит. Имя приходит от Prowlarr как есть.
 _ANIME_INDEXERS: Final = ("nyaa", "anilib", "anidub", "animelayer")
 
+
+def looks_anime(text: str) -> bool:
+    """Текст (имя раздачи или поисковый запрос) прямо говорит про аниме.
+
+    Тот же узкий список, что судит имена раздач (:data:`_ANIME_RE`): слово
+    «аниме»/«anime», японские жанры, OVA/ONA, метка ``[TV]``.
+    """
+    return bool(_ANIME_RE.search(text))
+
+
+def anime_indexer(name: str) -> bool:
+    """Индексер, у которого аниме - всё, что там лежит (:data:`_ANIME_INDEXERS`)."""
+    low = name.lower()
+    return any(mark in low for mark in _ANIME_INDEXERS)
+
 #: Токены кодека: цифры в них к сериям отношения не имеют. Вырезаются только в разборе
 #: сериальности (:func:`_parse_series`) - сам кодек читается отдельно и раньше.
 _CODEC_TOKEN_RE: Final = re.compile(
@@ -476,9 +493,9 @@ class Release:
         Индексер спрашивается вторым сигналом: у Nyaa и AniLibria аниме — всё, что там
         лежит, а имена раздач оттуда бывают вовсе без русских слов и жанров.
         """
-        if any(mark in self.indexer.lower() for mark in _ANIME_INDEXERS):
+        if anime_indexer(self.indexer):
             return True
-        return bool(_ANIME_RE.search(self.raw_name))
+        return looks_anime(self.raw_name)
 
     @property
     def dated(self) -> bool:

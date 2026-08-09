@@ -17,6 +17,7 @@ from torrcast.search import (
     PUBLIC_TRACKERS,
     Prowlarr,
     RawResult,
+    anime_query,
     from_json,
     from_torznab,
     magnet_for,
@@ -142,9 +143,12 @@ def _row(name: str, tag: str) -> dict[str, object]:
 class _Swarm:
     """Prowlarr с четырьмя индексерами, из которых один умеет молчать до бюджета."""
 
-    def __init__(self, mute: int | None = None, mute_all: bool = False) -> None:
+    def __init__(self, mute: int | None = None, mute_all: bool = False, rows: int = 1) -> None:
         self.mute = mute
         self.mute_all = mute_all
+        #: Сколько раздач отдаёт один ответивший индексер: одна - пул тощий (сработает
+        #: фолбэк по анимешным, TC-229), несколько - пул полный, и фолбэку нечего добавить.
+        self.rows = rows
         self.urls: list[str] = []
         self.waited: list[float] = []
         self.payload: object = []
@@ -165,8 +169,24 @@ class _Swarm:
         num = int(url.rsplit("&indexerIds=", 1)[1])
         if self.mute_all or num == self.mute:
             raise requests.ConnectTimeout("молчит")
-        self.payload = [_row(f"picture.{num}", str(num))]
+        self.payload = self._rows(num)
         return self
+
+    def _rows(self, num: int) -> list[dict[str, object]]:
+        """Выдача одного индексера: при ``rows == 1`` - ровно одна строка (как было),
+        иначе несколько строк с разными хэшами, чтобы :func:`merge` их не склеил."""
+        if self.rows == 1:
+            return [_row(f"picture.{num}", str(num))]
+        return [
+            {
+                "title": f"picture.{num}.{k}",
+                "infoHash": f"{num:x}{k:x}".ljust(40, "0"),
+                "size": 1024,
+                "seeders": 5,
+                "indexer": f"idx.{num}",
+            }
+            for k in range(self.rows)
+        ]
 
     def raise_for_status(self) -> None:
         return None
@@ -231,6 +251,75 @@ def test_all_indexers_silent_is_infra_not_empty_result() -> None:
     """Молчат все до одного - это отказ инфраструктуры, а не «ничего не нашлось»."""
     with pytest.raises(InfraError, match="не отвечает"):
         _swarm(mute_all=True).search("матрица")
+
+
+def test_anime_query_reads_a_cheap_signal() -> None:
+    """«Похоже на аниме» - дешёвый признак, две проверки: прямые слова про аниме или
+    латиница без кино-маркеров. При сомнении зовём - полноту аниме ронять нельзя (TC-229)."""
+    # Прямые слова аниме - хоть по-русски, хоть латиницей: японские жанры, OVA, метка [TV].
+    assert anime_query("боруто аниме")
+    assert anime_query("Naruto [TV]")
+    assert anime_query("Steins Gate OVA")
+    # Латиница без кино-маркеров: оригинальное имя аниме от имени картины не отличить,
+    # поэтому сомнение - в пользу вызова.
+    assert anime_query("Frieren")
+    assert anime_query("Steins Gate")
+    # Русскоязычный запрос без аниме-слов: Nyaa на нём молчит, в основной круг не идёт.
+    assert not anime_query("матрица")
+    assert not anime_query("дюна 2021")
+    # Латиница с кино-маркером - год, movie, season, s01: не аниме.
+    assert not anime_query("Dune 2021")
+    assert not anime_query("Barbie movie")
+    assert not anime_query("Breaking Bad season 1")
+    assert not anime_query("The Wire s01")
+
+
+def test_non_anime_query_skips_nyaa_when_pool_is_rich() -> None:
+    """🔴 TC-229: явно не-аниме запрос на полном пуле Nyaa не тревожит - тот молчит на
+    79% запросов, и лишняя параллель по нему грозит 504-баном Prowlarr на часы."""
+    client = _swarm(rows=2)  # Knaben и RuTor дают по две - пул не тощий
+    results = client.search("матрица")
+    urls = client._session.urls  # type: ignore[union-attr]
+    asked = [u.rsplit("=", 1)[1] for u in urls if "&indexerIds=" in u]
+    assert asked == ["1", "2"]  # Nyaa (id 3) не спрошен вовсе
+    assert client.silent == ()  # неспрошенный - не молчун
+    assert len(results) == 4
+
+
+def test_anime_query_calls_nyaa_in_the_main_circle() -> None:
+    """Похожий на аниме запрос зовёт Nyaa сразу, а не фолбэком: пул тут и без него полный,
+    так что фолбэк бы не сработал - значит Nyaa именно в основном круге."""
+    client = _swarm(rows=2)
+    results = client.search("Naruto [TV]")
+    asked = [u.rsplit("=", 1)[1] for u in client._session.urls if "&indexerIds=" in u]  # type: ignore[union-attr]
+    assert asked == ["1", "2", "3"]  # Nyaa в основном круге
+    assert len(results) == 6
+
+
+def test_thin_pool_falls_back_to_nyaa(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Не-аниме запрос, но пул без анимешных вышел тощим - фолбэком зовём и Nyaa.
+    В след это событие пишется флагом ``fallback`` (TC-229)."""
+    from torrcast import trace
+
+    monkeypatch.setenv(trace.LOG_ENV, str(tmp_path))
+    monkeypatch.setenv(trace.SID_ENV, "test-sid")
+    client = _swarm()  # rows=1: Knaben + RuTor = две раздачи, ниже порога
+    results = client.search("матрица")
+    trace.shutdown()
+    asked = [u.rsplit("=", 1)[1] for u in client._session.urls if "&indexerIds=" in u]  # type: ignore[union-attr]
+    assert asked == ["1", "2", "3"]  # 1 и 2 в основном круге, 3 добран фолбэком
+    assert [r.title for r in results] == ["picture.1", "picture.2", "picture.3"]
+    (row,) = [r for r in trace.records() if r.get("event") == "indexers"]
+    assert row["fallback"] is True
+
+
+def test_show_survives_when_nyaa_is_silent_in_fallback() -> None:
+    """Деградация: Nyaa недоступен на фолбэке - его имя уходит в молчуны, находки
+    остальных доезжают, показ не ломается."""
+    client = _swarm(mute=3)  # тощий пул -> фолбэк зовёт Nyaa, а тот молчит
+    results = client.search("матрица")
+    assert [r.title for r in results] == ["picture.1", "picture.2"]
+    assert client.silent == ("Nyaa.si",)
 
 
 def test_wire_query_разводит_склеенные_знаком_слова() -> None:

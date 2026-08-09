@@ -18,14 +18,14 @@ from __future__ import annotations
 
 import re
 import time
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, Final
 from urllib.parse import quote
 from xml.etree import ElementTree
 
 from torrcast import InfraError, NotFoundError, why
-from torrcast.parse import Release, parse_release_name
+from torrcast.parse import Release, anime_indexer, looks_anime, parse_release_name
 from torrcast.timing import mark
 
 if TYPE_CHECKING:
@@ -35,6 +35,7 @@ __all__ = [
     "PUBLIC_TRACKERS",
     "Prowlarr",
     "RawResult",
+    "anime_query",
     "from_torznab",
     "magnet_for",
     "merge",
@@ -58,6 +59,20 @@ _TIMEOUT: Final = 150.0
 _INDEXER_TIMEOUT: Final = 20.0
 #: Список индексеров - локальная страница Prowlarr, сеть в ней не участвует.
 _LIST_TIMEOUT: Final = 15.0
+#: Меньше стольких раздач после основного круга - пул тощий, и анимешные индексеры
+#: зовём фолбэком (TC-229). Порог нарочно мал: это не мера полноты каталога (та -
+#: :data:`~torrcast.parse.THIN_POOL`, и мерится строками), а отсечка «почти пусто»,
+#: после которой лишний круг по Nyaa дешевле, чем промах мимо аниме-раздач.
+_FALLBACK_POOL: Final = 3
+#: Кино-маркеры в латинском запросе: год или явное «фильм/сериал/сезон». Такой запрос
+#: анимешным не бывает, и Nyaa на нём - лишний участник круга.
+_NOT_ANIME_RE: Final = re.compile(
+    r"\b(?:19|20)\d{2}\b|\bmovies?\b|\bfilms?\b|\bseries\b|\bseason\b|\bs\d{1,2}\b",
+    re.IGNORECASE,
+)
+#: Кириллица в запросе: каталог Nyaa ромадзи/английский, и русскоязычный запрос без
+#: аниме-слов он молчит почти всегда.
+_CYRILLIC_RE: Final = re.compile(r"[а-яё]", re.IGNORECASE)
 #: Кино, сериалы и «Other» - под последней RuTor отдаёт вообще всё (категорий у него нет).
 _CATEGORIES: Final = (2000, 5000, 8000)
 _TORZNAB_NS: Final = "{http://torznab.com/schemas/2015/feed}"
@@ -85,6 +100,28 @@ def magnet_for(info_hash: str, title: str = "") -> str:
         parts.append(f"dn={quote(title)}")
     parts += [f"tr={quote(t, safe='')}" for t in PUBLIC_TRACKERS]
     return "&".join(parts)
+
+
+def anime_query(query: str) -> bool:
+    """Запрос похож на аниме - значит Nyaa и прочие анимешные индексеры идут в основном
+    круге, а не фолбэком (TC-229).
+
+    Признак нарочно дешёвый, две проверки. Прямые слова - «аниме», японские жанры,
+    OVA, ``[TV]`` (тот же узкий список, что судит имена раздач,
+    :func:`~torrcast.parse.looks_anime`). Иначе - латиница без кино-маркеров
+    (:data:`_NOT_ANIME_RE`): каталог Nyaa ромадзи/английский, и оригинальное имя аниме
+    («Frieren», «Steins Gate») неотличимо от имени картины, поэтому сомнение трактуем
+    в пользу вызова - полноту аниме ронять нельзя. Зато русскоязычный запрос без
+    аниме-слов Nyaa молчит почти всегда (замер 09-08-2026: пусто в 79% запросов,
+    строки - только на аниме), и там он зовётся лишь фолбэком на тощем пуле
+    (:meth:`Prowlarr._apart`) - параллель по нему лимитирована, и лишний круг это
+    лишний риск 504-бана Prowlarr на часы.
+    """
+    if looks_anime(query):
+        return True
+    if _CYRILLIC_RE.search(query):
+        return False
+    return not _NOT_ANIME_RE.search(query)
 
 
 @dataclass(frozen=True, slots=True)
@@ -166,7 +203,9 @@ class Prowlarr:
 
         Спрашиваем КАЖДЫЙ индексер отдельным запросом (см. :meth:`_apart`): у общего
         запроса нет частичного ответа, и один молчун держит в себе выдачу всех
-        остальных. Список индексеров не отдали - остаётся прежний общий запрос.
+        остальных. Анимешные индексеры (Nyaa и прочие) - только на похожем на аниме
+        запросе (:func:`anime_query`) или фолбэком на тощем пуле (TC-229). Список
+        индексеров не отдали - остаётся прежний общий запрос.
         """
         found = self._apart(query, limit)
         results = found if found is not None else from_json(self._get_json(self._url(query, limit)))
@@ -208,20 +247,72 @@ class Prowlarr:
         Выдачи склеиваются :func:`merge`, то есть по ``infoHash``: один и тот же торрент
         из двух индексеров - одна раздача, а не две. Общий запрос отдавал такие строки
         дважды (на живом стенде «матрица»: 190 строк против 179 склеенных).
-        """
-        from concurrent.futures import ThreadPoolExecutor
 
+        🔴 TC-229: анимешные индексеры (Nyaa и прочие, :func:`~torrcast.parse.anime_indexer`)
+        - не всегда в круге. Nyaa молчит на явно не-аниме запросах (замер 09-08-2026:
+        пусто в 79% запросов), а параллель по нему лимитирована - 2-4 одновременных,
+        дальше 504 и health-бан Prowlarr на часы. Поэтому на не-аниме запросе
+        (:func:`anime_query`) первый круг идёт без него, и лишь если пул вышел тощим
+        (меньше :data:`_FALLBACK_POOL` раздач) - анимешные зовутся вторым кругом,
+        фолбэком. Недоступный Nyaa ломает ровно свой круг: имя попадает в молчуны,
+        находки остальных доезжают - как и у любого молчуна выше.
+        """
         known = self._known()
         if not known:
             return None
         self._session = self._session or self._new_session()
-        got: list[list[RawResult]] = []
         counts: dict[str, int] = {}
         spent: dict[str, int] = {}
         lost: list[str] = []
+        anime = [pair for pair in known if anime_indexer(pair[1])]
+        main = [pair for pair in known if not anime_indexer(pair[1])]
+        # Анимешные в основном круге - на похожем на аниме запросе; без них круг пуст
+        # или они и есть весь список - тоже зовём сразу, фолбэку нечего добавить.
+        whole = not main or not anime or anime_query(query)
+        got, why_lost = self._circle(known if whole else main, query, limit, counts, spent, lost)
+        # Фолбэк: пул без анимешных тощий - позвать и их. Пустая выдача ответивших
+        # (got непуст, раздач ноль) - самый тощий пул из возможных.
+        fallback = not whole and bool(got) and len(merge(*got)) < _FALLBACK_POOL
+        if fallback:
+            more, err = self._circle(anime, query, limit, counts, spent, lost)
+            got += more
+            why_lost = why_lost or str(err or "")
+        self.silent = tuple(lost)
+        from torrcast import trace
+
+        # Полный расклад круга в недельный след: кто сколько отдал, кто смолчал и сколько
+        # миллисекунд каждый держал круг (поле ms - НАШ секундомер на месте вызова, а не
+        # elapsedTime истории Prowlarr: та не считает провалившиеся и повторные попытки).
+        # mark ниже заводится лишь на потерю (это фаза старта), а следу нужен весь круг.
+        trace.emit("search", "indexers", got=counts, silent=list(lost), ms=spent, fallback=fallback)
+        if lost:
+            mark("индексеры", молчат=lost, бюджет=_INDEXER_TIMEOUT)
+        if not got:  # молчат все до одного - это не «ничего не нашлось», а инфра
+            raise InfraError(why_lost)
+        return merge(*got)
+
+    def _circle(
+        self,
+        pairs: Sequence[tuple[int, str]],
+        query: str,
+        limit: int,
+        counts: dict[str, int],
+        spent: dict[str, int],
+        lost: list[str],
+    ) -> tuple[list[list[RawResult]], str]:
+        """Один круг по индексерам: каждому свой запрос в свой бюджет, все разом.
+
+        Расклад (кто сколько отдал, кто смолчал, миллисекунды) складывает в переданные
+        словари: кругов может быть два - основной и фолбэк на тощем пуле (TC-229), -
+        а след и список молчунов у поиска общие. Возвращает выдачи и причину последней
+        потери - она понадобится, если смолчат все.
+        """
+        from concurrent.futures import ThreadPoolExecutor
+
+        got: list[list[RawResult]] = []
         why_lost = ""
-        with ThreadPoolExecutor(max_workers=len(known)) as pool:
-            asked = [(name, pool.submit(self._timed, query, limit, num)) for num, name in known]
+        with ThreadPoolExecutor(max_workers=len(pairs)) as pool:
+            asked = [(name, pool.submit(self._timed, query, limit, num)) for num, name in pairs]
         for name, task in asked:
             rows, took, err = task.result()
             spent[name] = took
@@ -231,19 +322,7 @@ class Prowlarr:
             else:
                 got.append(rows)
                 counts[name] = len(rows)
-        self.silent = tuple(lost)
-        from torrcast import trace
-
-        # Полный расклад круга в недельный след: кто сколько отдал, кто смолчал и сколько
-        # миллисекунд каждый держал круг (поле ms - НАШ секундомер на месте вызова, а не
-        # elapsedTime истории Prowlarr: та не считает провалившиеся и повторные попытки).
-        # mark ниже заводится лишь на потерю (это фаза старта), а следу нужен весь круг.
-        trace.emit("search", "indexers", got=counts, silent=list(lost), ms=spent)
-        if lost:
-            mark("индексеры", молчат=lost, бюджет=_INDEXER_TIMEOUT)
-        if not got:  # молчат все до одного - это не «ничего не нашлось», а инфра
-            raise InfraError(why_lost)
-        return merge(*got)
+        return got, why_lost
 
     def _timed(
         self, query: str, limit: int, num: int
