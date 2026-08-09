@@ -4171,7 +4171,9 @@ def swap_note(plans: list[_Plan], picked: _Plan, asked: str = "") -> str:
     """
     if len(plans) < 2:
         return ""
-    number = next((n for n, plan in enumerate(plans, start=1) if plan is picked), 0)
+    # План после меню пересобирается на настоящей длительности (:func:`_timed`) и это
+    # уже ДРУГОЙ объект - сверка по картине, идентичность тут врёт.
+    number = next((n for n, plan in enumerate(plans, start=1) if plan.picture is picked.picture), 0)
     if number != first_alive(plans):
         return ""
     return default_note(plans, asked)
