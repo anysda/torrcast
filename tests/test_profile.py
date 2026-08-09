@@ -78,17 +78,21 @@ def test_the_stick_is_bold_only_where_it_was_measured() -> None:
     """Смелое у приставки - только то, что замер называет прямо.
 
     Замер 09-08-2026: 28 Мбит/с CBR прошли начисто (потолок Q70D около 10), после 404
-    обиды нет - следующий LOAD взят через 8.9 с. Про вес куска, шаг сетки и пороги
-    сторожа нуджей замер не говорит НИЧЕГО, а HEVC через наш mpegts на ней ещё не
-    проходил - значит, эти пороги обязаны остаться осторожными.
+    обиды нет - следующий LOAD взят через 8.9 с, пустой экран приставка терпит дольше
+    577 с (оба прогона обрывал наблюдатель, верхняя граница не найдена, приложение само
+    с экрана не уходит). Про вес куска, шаг сетки и пороги сторожа нуджей замер не
+    говорит НИЧЕГО, а HEVC через наш mpegts на ней ещё не проходил - значит, эти пороги
+    обязаны остаться осторожными.
     """
     stick, cautious = profile.ANDROID_TV, profile.CAUTIOUS
     assert stick.warn_mbit > cautious.warn_mbit and stick.recode_at_mbit > cautious.recode_at_mbit
     assert stick.segment_retries == 0, "приставка кусок не перезабирает - замер"
     assert stick.dead_url_seconds == 4.0, "мёртвый URL - IDLE/ERROR на 4-й секунде, замер"
-    assert stick.patience == cautious.patience, "терпение пустого экрана приставки не мерено"
-    assert stick.app_patience == cautious.app_patience, "сколько висит её приложение - не мерено"
-    assert stick.revive_timeout < cautious.revive_timeout
+    assert stick.patience == 577.0 > cautious.patience, "нижняя граница, верхняя не найдена"
+    assert stick.app_patience == 577.0, "приложение висело на экране весь прогон голодания"
+    assert stick.hold_seconds == cautious.hold_seconds == 120.0, "120 с тишины терпит с запасом"
+    assert stick.revive_timeout == 577.0 > cautious.revive_timeout, "окно возврата - та же граница"
+    assert stick.revive_pause == 10.0, "LOAD после IDLE/ERROR взят через 8.9 с - замер"
     assert stick.recode_codecs == cautious.recode_codecs, "HEVC в нашем mpegts ещё не проверен"
     assert stick.copy_depth == cautious.copy_depth, "Hi10P в нашем mpegts ещё не проверен"
     assert stick.max_segment_bytes == cautious.max_segment_bytes, "вес куска не измеряли"
@@ -187,7 +191,7 @@ def test_the_receiver_takes_its_thresholds_from_the_profile() -> None:
     оставить показ читать их напрямую - тогда профиль не менял бы ровно ничего.
     """
     stick = cast.ChromecastReceiver("10.0.0.50", profile=profile.ANDROID_TV)
-    assert stick.profile.revive_timeout == 60.0 != cast.ChromecastReceiver.REVIVE_TIMEOUT
+    assert stick.profile.revive_timeout == 577.0 != cast.ChromecastReceiver.REVIVE_TIMEOUT
     mock = cast.MockReceiver(profile=profile.ANDROID_TV)
     assert mock.patience == profile.ANDROID_TV.patience
     assert mock.profile.segment_retries == 0 != cast.MockReceiver.SEGMENT_RETRIES
