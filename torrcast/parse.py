@@ -39,6 +39,7 @@ __all__ = [
     "franchise_name",
     "franchises",
     "glue",
+    "in_digits",
     "map_episodes",
     "menu_order",
     "other_words",
@@ -608,6 +609,51 @@ def slugify(text: str) -> str:
     return re.sub(r"[^0-9a-zа-я]+", "-", normalized).strip("-")
 
 
+#: Числительные, которыми каталог подписывает ОДНУ И ТУ ЖЕ картину то цифрой, то словом.
+#: Список короткий нарочно: это счётные слова, с которых начинается название, а не
+#: словарь чисел. Больше двадцати в названиях считает уже не человек, а порядковый номер
+#: серии, и путать их не надо.
+_NUMERALS: Final = {
+    "один": "1", "одна": "1", "одно": "1", "one": "1",
+    "два": "2", "две": "2", "two": "2",
+    "три": "3", "three": "3",
+    "четыре": "4", "four": "4",
+    "пять": "5", "five": "5",
+    "шесть": "6", "six": "6",
+    "семь": "7", "seven": "7",
+    "восемь": "8", "eight": "8",
+    "девять": "9", "nine": "9",
+    "десять": "10", "ten": "10",
+    "одиннадцать": "11", "eleven": "11",
+    "двенадцать": "12", "twelve": "12",
+    "тринадцать": "13", "thirteen": "13",
+    "четырнадцать": "14", "fourteen": "14",
+    "пятнадцать": "15", "fifteen": "15",
+    "шестнадцать": "16", "sixteen": "16",
+    "семнадцать": "17", "seventeen": "17",
+    "восемнадцать": "18", "eighteen": "18",
+    "девятнадцать": "19", "nineteen": "19",
+    "двадцать": "20", "twenty": "20",
+}  # fmt: skip
+
+
+def in_digits(slug: str) -> str:
+    """Слаг, где числительное СЛОВОМ записано цифрой: ``двенадцать-обезьян`` → ``12-обезьян``.
+
+    Каталог подписывает число как придётся, и одна картина рассыпается на две кучки
+    ровно по этому шву. Живой случай, ради которого написано: «Двенадцать обезьян»
+    (1995) приезжает 35 строками, из них 29 раздач под именем «12 обезьян» (до 105
+    сидов) и ОДНА - под именем прописью, образ диска на 4 сида. Имена как строки
+    разные, поэтому :func:`glue` их не сшивал, а :func:`pick_franchise` по запросу
+    прописью отдавал ту самую единственную раздачу: в меню выходило «раздач 1» при
+    живой выдаче в тридцать.
+
+    Замена пословная и только по точному совпадению слова: «двенадцать» - число,
+    а «двенадцатая ночь» или «семья» - уже нет, и трогать их незачем.
+    """
+    return "-".join(_NUMERALS.get(word, word) for word in slug.split("-"))
+
+
 def franchise_key(title: str) -> str:
     """Каноническое имя франшизы: «Матрица: Перезагрузка» и «Тачки 3» → одна серия.
     Режем подзаголовок после двоеточия и хвостовой номер части — именно они
@@ -1029,6 +1075,9 @@ def glue(pictures: list[Picture]) -> list[Picture]:
         names = {slugify(picture.title)} | (
             {slugify(picture.original)} if picture.original else set()
         )
+        # Число словом и число цифрой - одно имя (:func:`in_digits`). Гейт года при этом
+        # остаётся прежним, так что «12 обезьян» 1995-го с сериалом 2015-го не сшить.
+        names |= {in_digits(name) for name in names if name}
         for name in names:
             if name:
                 named.setdefault((picture.kind, name), []).append(i)
@@ -1220,6 +1269,10 @@ def pick_franchise(query: str, pictures: list[Picture]) -> list[Picture]:
     """
     groups = franchises(pictures)
     aliases = _aliases(groups)
+    # Каноническим именем картины становится то, которым её подписало БОЛЬШИНСТВО раздач,
+    # и на «двенадцати обезьянах» это «12 обезьян» - цифрой. Спросили же прописью, поэтому
+    # ключи ищутся ещё и в цифровой записи (:func:`in_digits`).
+    digits = {in_digits(key): key for key in groups}
 
     def lookup(name: str) -> str | None:
         wanted = slugify(name)
@@ -1229,6 +1282,8 @@ def pick_franchise(query: str, pictures: list[Picture]) -> list[Picture]:
             return wanted
         if wanted in aliases:
             return aliases[wanted]
+        if (counted := in_digits(wanted)) in digits:
+            return digits[counted]
         if hits := [k for k in groups if wanted in k]:
             return min(hits, key=len)
         # Порядок слов и союзы - на совести человека, а не каталога (:func:`_by_words`).

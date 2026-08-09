@@ -18,6 +18,7 @@ from torrcast.parse import (
     Release,
     cluster,
     franchise_key,
+    in_digits,
     menu_order,
     other_words,
     outside_numbering,
@@ -698,6 +699,58 @@ def test_glue_keeps_parts_of_a_franchise_apart() -> None:
         ("Тачки 2", 2011, 1),
         ("Тачки 3", 2017, 2),
     ]
+
+
+def test_number_in_words_and_in_digits_is_one_picture() -> None:
+    """«12 обезьян» и «Двенадцать обезьян» - один фильм 1995 года, а не две картины.
+
+    Замер на живой выдаче: 29 раздач лежат под именем цифрой (до 105 сидов), одна -
+    прописью. Пока имена сверялись как строки, запрос прописью получал ровно её.
+    """
+    releases = [
+        _release("12 обезьян", 1995, seeders=105),
+        _release("12 обезьян", 1995, seeders=64),
+        _release("Двенадцать обезьян", 1995, seeders=4),
+    ]
+
+    pictures = cluster(releases)
+
+    assert [(p.title, p.year, len(p.releases)) for p in pictures] == [("12 обезьян", 1995, 3)]
+
+
+def test_query_in_words_finds_the_picture_named_in_digits() -> None:
+    """Спросили прописью, каталог подписал цифрой - картина всё равно находится."""
+    releases = [
+        _release("12 обезьян", 1995, seeders=105),
+        _release("Двенадцать обезьян", 1995, seeders=4),
+    ]
+
+    found = pick_franchise("Двенадцать обезьян", cluster(releases))
+
+    assert [(p.title, len(p.releases)) for p in found] == [("12 обезьян", 2)]
+
+
+def test_number_bridge_does_not_glue_a_remake() -> None:
+    """Гейт года сильнее числительного: одноимённый ремейк остаётся отдельной картиной."""
+    releases = [
+        _release("12 разгневанных мужчин", 1957, seeders=40),
+        _release("Двенадцать разгневанных мужчин", 1997, seeders=7),
+    ]
+
+    pictures = cluster(releases)
+
+    assert [(p.title, p.year) for p in pictures] == [
+        ("12 разгневанных мужчин", 1957),
+        ("Двенадцать разгневанных мужчин", 1997),
+    ]
+
+
+def test_in_digits_touches_only_whole_words() -> None:
+    """Замена пословная: «двенадцать» - число, «двенадцатая» и «семья» - нет."""
+    assert in_digits("двенадцать-обезьян") == "12-обезьян"
+    assert in_digits("twelve-monkeys") == "12-monkeys"
+    assert in_digits("двенадцатая-ночь") == "двенадцатая-ночь"
+    assert in_digits("семья-сопрано") == "семья-сопрано"
 
 
 def test_series_and_movie_of_the_same_name_are_not_glued() -> None:
