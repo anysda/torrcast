@@ -688,3 +688,32 @@ def test_склейка_разводит_ничью_имён_короче_и_п�
     pair = (_mirror("Психо", 5, "Knaben"), _mirror("Psycho", 7, "RuTor"))
     names = {merge(*([item] for item in order))[0].title for order in permutations(pair)}
     assert names == {"Психо"}
+
+
+#: Аниме-раздача, которую зеркалят общий индексер и Nyaa. Имя от общего выигрывает
+#: склейку, и про аниме оно не говорит ни слова - ни жанра, ни OVA, ни метки [TV].
+_ANIME_MIRROR: Final = (
+    _mirror("Cyberpunk Edgerunners S01 BD 1080p x264 FLAC", 40, "Knaben"),
+    _mirror("Cyberpunk Edgerunners S01 BD 1080p x264 FLAC", 12, "Knaben"),
+    _mirror("[Shiniori-Raws] Cyberpunk Edgerunners (BD 1080p)", 31, "Nyaa.si"),
+)
+
+
+def test_склейка_помнит_всех_принёсших_индексеров() -> None:
+    """Кто привёз раздачу - не то же самое, что чья строка выиграла имя. Nyaa стоит в
+    алфавите позже общего индексера и на склейке проигрывает всегда, поэтому имена
+    принёсших переезжают целиком, а не сводятся к счётчику копий.
+    """
+    (merged,) = merge(*([item] for item in _ANIME_MIRROR))
+    assert merged.indexer == "Knaben"  # чья строка выиграла имя - как и было
+    assert merged.indexers == ("Knaben", "Nyaa.si")
+
+
+def test_аниме_признак_переживает_склейку_с_общим_индексером() -> None:
+    """Раздача с Nyaa - аниме, кто бы ни выиграл имя: у Nyaa аниме всё, что там лежит.
+    Пока признак читался у строки-победителя, аниме с общего индексера выглядело обычным
+    кино - и прикидка битрейта судила его порогом, писанным по игровому полному метру.
+    """
+    for order in permutations(_ANIME_MIRROR):
+        (release,) = to_releases(merge(*([item] for item in order)))
+        assert release.anime, release.raw_name

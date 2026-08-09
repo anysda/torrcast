@@ -37,6 +37,7 @@ from torrcast.cli import (
     sound_note,
 )
 from torrcast.parse import Picture, Release, parse_release_name
+from torrcast.search import RawResult, merge, to_releases
 from torrcast.state import Config
 from torrcast.stream import RUNTIME_GUESS, AudioTrack, Media
 
@@ -317,6 +318,28 @@ def test_a_named_sd_anime_is_still_dated_for_all_its_genre() -> None:
     assert rip.anime and sd.anime
     assert is_dated(rip, RUNTIME) and is_dated(sd, RUNTIME)
     assert rank_releases([rip, sd, good], RUNTIME, 25.0)[0] is good
+
+
+def test_an_anime_mirrored_by_a_general_indexer_keeps_its_genre_bitrate() -> None:
+    """Тот же признак, но раздача приехала ОТ ДВОИХ: с Nyaa и с общего индексера.
+
+    Склейка оставляет одну строку, и её ``indexer`` - это индексер победившего ИМЕНИ, то
+    есть в паре «Knaben против Nyaa.si» всегда алфавитно первый. Пока жанр читался у
+    победителя, аниме с Nyaa теряло признак ровно тогда, когда его кто-то зеркалит, - и
+    честный жанровый битрейт (замер: 170 раздач на 6 аниме-запросах) получал метку
+    «старьё» за то, что рисованная картинка жмётся лучше живой съёмки.
+    """
+    quiet = "Anime Series [12 of 12] (2020) BDRip | JAP+Sub"
+    mirror = (
+        RawResult(quiet, "b" * 40, int(2.0 * GB), 40, "Knaben"),
+        RawResult(quiet, "b" * 40, int(2.0 * GB), 31, "Nyaa.si"),
+    )
+    (release,) = to_releases(merge(*([item] for item in mirror)))
+    tv = RUNTIME_GUESS["tv"]
+
+    assert release.anime, "аниме-индексер в группе - это аниме, кто бы ни выиграл имя"
+    assert 0.0 < bitrate_of(release, tv) < SD_BITRATE, "спор идёт именно о низком битрейте"
+    assert not is_dated(release, tv)
 
 
 def test_the_sound_step_never_outranks_honest_quality() -> None:

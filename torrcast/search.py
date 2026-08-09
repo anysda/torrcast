@@ -312,6 +312,13 @@ class RawResult:
     #: помнит, сколько их было - иначе счёт «сколько нашлось» зависел бы от того, как
     #: устроен опрос индексеров, а не от каталога.
     copies: int = 1
+    #: ВСЕ индексеры, принёсшие эту раздачу, по именам и по алфавиту. Склейка оставляет
+    #: одну строку (:func:`_fold`), и поле :attr:`indexer` у неё - индексер той строки,
+    #: чьё ИМЯ победило, а не «откуда раздача вообще пришла». Разница не бухгалтерская:
+    #: у Nyaa и AniLibria аниме - всё, что там лежит, и признак жанра
+    #: (:attr:`~torrcast.parse.Release.anime`) читается именно отсюда. Пусто - строка ещё
+    #: не проходила склейку, и всё, что известно, стоит в :attr:`indexer`.
+    indexers: tuple[str, ...] = ()
 
     @property
     def magnet(self) -> str:
@@ -813,18 +820,30 @@ def merge(*batches: list[RawResult]) -> list[RawResult]:
     приезжает то на 2 сидах, то на 26, «Матрица: Воскрешение» - 8 против 19, а сиды
     стоят высоко в отборе, и мёртвая на вид раздача уходит под все живые. Поэтому
     склейка выбирает поля сама (:func:`_fold`), а не берёт первую попавшуюся строку.
+
+    🔴 TC-257: ИМЕНА принёсших индексеров переезжают в :attr:`RawResult.indexers` целиком.
+    Раньше их считали и выбрасывали, оставляя счётчик ``copies``, - а вместе с ними
+    пропадал и жанр: аниме-индексер в группе значит «аниме», кто бы ни выиграл имя.
     """
     rows: dict[str, list[RawResult]] = {}
     sources: dict[str, set[str]] = {}
+    names: dict[str, set[str]] = {}
     carried: dict[str, int] = {}
     for batch in batches:
         for item in batch:
             key = item.info_hash.lower()
             rows.setdefault(key, []).append(item)
             sources.setdefault(key, set()).add(item.indexer)
+            # Счёт copies идёт по СТРОКАМ выдачи (sources) и остаётся прежним, а имена
+            # копятся отдельно: склейка склеенного не вправе ни терять их, ни удваивать счёт.
+            names.setdefault(key, set()).update(item.indexers or (item.indexer,))
             carried[key] = max(carried.get(key, 1), item.copies)
     return [
-        replace(_fold(group), copies=max(len(sources[key]), carried[key]))
+        replace(
+            _fold(group),
+            copies=max(len(sources[key]), carried[key]),
+            indexers=tuple(sorted(name for name in names[key] if name)),
+        )
         for key, group in rows.items()
     ]
 
@@ -842,6 +861,12 @@ def _fold(rows: list[RawResult]) -> RawResult:
     дальше по алфавиту. Остальное (размер, индексер) берётся у строки, чьё имя
     победило, - чтобы поля не собирались в химеру из разных ответов. Размеры у одной
     раздачи расходятся только на округлении: 99% пар - в пределах 0.35%.
+
+    ⚠️ Поэтому ``indexer`` тут отвечает на вопрос «чья это строка», а не «откуда раздача».
+    Спрашивать его про жанр нельзя: аниме-индексер стоит в алфавите позже общего
+    (Nyaa.si против Knaben), и на замере 100 сохранённых выдач аниме-признак так пропадал
+    у 170 раздач на 6 аниме-запросах из 19. Кто принёс раздачу на самом деле - в
+    :attr:`RawResult.indexers`, их складывает :func:`merge`.
     """
     title = by_majority(Counter(row.title for row in rows))
     return replace(
@@ -859,6 +884,7 @@ def to_releases(results: list[RawResult]) -> list[Release]:
             seeders=item.seeders,
             magnet=item.magnet,
             indexer=item.indexer,
+            indexers=item.indexers,
             copies=item.copies,
         )
         for item in results
