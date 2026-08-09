@@ -302,6 +302,27 @@ def reload(pos: float, tries: int) -> None:
     emit("play", "reload", pos=round(pos, 1), tries=tries)
 
 
+def offline(why: str, asked: bool = False) -> None:
+    """Источник перестал читаться: чем это объясняется и спрашивали ли самого источника.
+
+    ``asked`` - правда ли причину назвал сам источник (:meth:`torrcast.stream.Origin.trouble`),
+    а не догадка по мёртвому прогону упаковки. Разница существенная: «упаковка оборвалась»
+    и «служба раздач не отвечает» выглядят в показе одинаково, а значат разное, и в следе
+    это должно быть видно без гадания.
+    """
+    emit("play", "offline", why=why, asked=asked)
+
+
+def resupply(torrent: str, ok: bool) -> None:
+    """Раздачу вернули МАГНИТОМ после аварии источника: чью и удалось ли.
+
+    ``torrent`` - хэш нашей раздачи (чужих не трогаем), ``ok`` - вернулась ли она под тем
+    же хэшем. Событие про трекеры: URL потока несёт только хэш, и служба, пережившая
+    перезапуск, заводит по нему раздачу без трекеров - ноль байт при живом рое.
+    """
+    emit("play", "resupply", torrent=torrent, ok=ok)
+
+
 def dark(pos: float, why: str) -> None:
     """Показ погас: приёмник бросил его насовсем, на экране пусто.
 
@@ -499,6 +520,7 @@ def _session_block(sid: str, rows: list[dict[str, Any]]) -> str:
 _COUNTED: Final = {
     "buffering": "ребуферов",
     "offline": "обрывов сети",
+    "resupply": "возвратов раздачи магнитом",
     "dark": "погасаний показа",
     "revive": "воскрешений показа",
     "nudge": "нуджей сторожа",
@@ -557,7 +579,13 @@ def _event_line(rec: dict[str, Any], began: float, seam: bool = False) -> str:
     if event == "buffering":
         return f"{stamp}ребуфер на {_hms(float(rec.get('pos', 0.0)))}"
     if event == "offline":
-        return f"{stamp}сеть: {rec.get('why', 'обрыв')}"
+        # Спрошенный источник называется источником: «сеть» тут была бы догадкой, а мы
+        # знаем точно - служба ответила (или не ответила) нам сама.
+        head = "источник" if rec.get("asked") else "сеть"
+        return f"{stamp}{head}: {rec.get('why', 'обрыв')}"
+    if event == "resupply":
+        end = "раздача вернулась" if rec.get("ok") else "служба ещё не отдала раздачу"
+        return f"{stamp}раздачу добавил магнитом заново - {end}"
     if event == "nudge":
         return (
             f"{stamp}нудж сторожа {rec.get('hit', 1)}:"

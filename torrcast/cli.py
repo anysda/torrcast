@@ -69,12 +69,14 @@ from torrcast.state import WATCHED_RATIO, Config, Entry, State, load_config, sav
 from torrcast.stream import (
     KEYS_WAIT,
     PILOT_TIMEOUT,
+    PROBE_TIMEOUT,
     RECODE_CODECS,
     AudioTrack,
     Feed,
     Grid,
     HlsServer,
     Media,
+    Supply,
     TorrFile,
     TorrServer,
     bitrate_mbit,
@@ -690,6 +692,7 @@ def _cmd_worker(key: str) -> int:
         config.receiver, config.tv or "", config.hls_cert if config.transport == "https" else ""
     )
     magnet, torrent_hash = "", ""
+    supply = Supply(TorrServer(config.torrserver_url, timeout=PROBE_TIMEOUT))
     while True:
         entry = State.load().get(key)
         if entry is None:
@@ -698,6 +701,11 @@ def _cmd_worker(key: str) -> int:
             magnet = entry.magnet
             torrent_hash = torrserver.add(magnet)
             torrserver.wait_files(torrent_hash, timeout=WORKER_META)
+            # Тот же магнит, но живёт он теперь и у сторожа: URL потока несёт только хэш,
+            # и вернуть раздачу с трекерами после аварии источника может лишь он
+            # (:class:`torrcast.stream.Supply`). За магнитом в индексеры мы не ходим - он
+            # лежит в записи картины.
+            supply.torrent_hash, supply.magnet, supply.lost = torrent_hash, magnet, ""
         source = torrserver.stream_url(torrent_hash, entry.file_idx)
         entry = _duration(key, entry, source)
         watch = Watch(key=key, entry=entry)
@@ -716,6 +724,7 @@ def _cmd_worker(key: str) -> int:
             # Прогрев следующей серии впрок: собирается лениво, когда текущая уже на
             # диске (:meth:`torrcast.warm.Warmer._chain`). Раздача та же, файл - соседний.
             follow=partial(_next_warmer, config, torrserver, torrent_hash, entry),
+            supply=supply,
         )
         following = _following(key) if watch.done else None
         if following is None:
@@ -2475,6 +2484,7 @@ def _play(
     receiver: Receiver | None = None,
     codec: str = "",
     follow: Any = None,
+    supply: Supply | None = None,
 ) -> int:
     """Упаковка → раздача по http на голом IP → приёмник. Своих демонов нет: и ffmpeg,
     и раздача живут ровно на время показа и гасятся вместе с ним, что бы ни случилось.
@@ -2485,6 +2495,10 @@ def _play(
 
     ``follow`` - чем прогреву заняться, когда эта серия ляжет на диск целиком
     (:attr:`torrcast.warm.Warmer.follow`); у фильма его нет и быть не может.
+
+    ``supply`` - источник показа (:class:`torrcast.stream.Supply`): служба раздач и наша
+    раздача в ней. Спрашивают его только на краю показа, зато прежде, чем объявить показ
+    погасшим, - иначе за аварию источника отвечает приёмник, который ни при чём.
     """
     from torrcast.recode import RECODE_DIR
     from torrcast.stream import hls_base, hls_dir
@@ -2572,7 +2586,7 @@ def _play(
         # делает, происходит уже при играющем показе и на остатке процессора.
         if warmer is not None:
             warmer.start()
-        _hold(receiver, feed, watch, warmer)
+        _hold(receiver, feed, watch, warmer, supply)
     finally:
         # Позиция фиксируется при любом исходе, включая SIGTERM, и делается это ПЕРВЫМ
         # делом: показ, доигранный до конца файла, отмечает «досмотрено» ровно здесь, а
@@ -2628,6 +2642,27 @@ def _handover(watch: Watch | None) -> bool:
     return watch is not None and watch.done and _following(watch.key) is not None
 
 
+def _asked(supply: Supply | None) -> str:
+    """Спросить ИСТОЧНИК: что с ним не так; пусто - он в порядке (и раздача при трекерах).
+
+    Единственное место, где показ обращается к источнику, и зовут его только с края
+    показа: упаковка объявила себя мёртвой либо приёмник погасил экран. В горячем пути
+    этих вопросов нет и быть не может - раздача сегментов не ждёт ни журнал, ни лишний
+    запрос.
+
+    Возврат раздачи магнитом говорится вслух ровно здесь, одной строкой и одним событием
+    следа: два разных мнения о том, что сделано с источником, - это то же самое, что
+    молчание.
+    """
+    if supply is None:
+        return ""
+    why_source = supply.check()
+    if supply.restored:
+        trace.resupply(torrent=supply.torrent_hash, ok=True)
+        print("источник вернулся - раздачу добавил магнитом заново", flush=True)
+    return why_source
+
+
 @dataclass(slots=True)
 class _Revival:
     """Показ погас - ждём факта возврата сети и поднимаем LOAD с сохранённого места.
@@ -2643,7 +2678,15 @@ class _Revival:
 
     * фильм лёг на диск целиком - сети не нужно вовсе, поднимаем сразу;
     * прогрев принёс новые куски - источник ожил, значит и сеть вернулась;
-    * раздача снова читается (:attr:`Feed.offline` пуст) - то же самое.
+    * раздача снова читается (:attr:`Feed.offline` пуст) - то же самое;
+    * источник, которого мы СПРОСИЛИ (:class:`torrcast.stream.Supply`), снова отвечает и
+      снова знает нашу раздачу - её мы к этому моменту уже вернули магнитом.
+
+    🔴 Причина темноты берётся не из воздуха и не из пустого :attr:`Feed.offline`: прежде
+    чем сказать «приёмник бросил показ», показ спрашивает источник. Трёхсекундный обрыв
+    службы раздач не взводил в показе ровно ничего (ни счёт оборванных прогонов, ни часы
+    молчания), и обвинение доставалось приёмнику - при живом, ни в чём не виноватом
+    приёмнике и мёртвом источнике.
 
     Всё остальное - ограждения, и каждое кончается фолбэком «гаснем честно, а `cast`
     продолжит с места»: чужой показ на приёмнике не перебивается (:meth:`Receiver._free`),
@@ -2659,10 +2702,17 @@ class _Revival:
     last: float = 0.0
     #: Сколько было прогрето, когда погасли: рост этого числа и есть «куски пошли».
     warmed: float = 0.0
+    #: Источник показа или ``None`` (показ не из раздачи либо старый вызов). Спрашивается
+    #: только отсюда и только в темноте: пока картинка идёт, вопросов источнику нет.
+    supply: Supply | None = None
+    #: Правда ли темнота случилась из-за ИСТОЧНИКА, а не приёмника: тогда и возврата ждём
+    #: от источника, а не от :attr:`Feed.offline`, который в этом случае может быть пуст.
+    blamed: bool = False
 
     def alive(self) -> None:
         """Показ идёт - темноте конец. Потраченные попытки при этом остаются потраченными."""
         self.since = 0.0
+        self.blamed = False
 
     def resurrect(self, receiver: Receiver, feed: Feed, warmer: Warmer | None, pos: float) -> bool:
         """``True`` - показ ещё держим (ждём сеть или только что подняли), ``False`` - гаснем.
@@ -2677,7 +2727,7 @@ class _Revival:
             return False  # фильм досмотрен: гаснущий экран тут и есть титры, а не авария
         if not self.since:
             self.since, self.warmed = now, warmer.warmed if warmer is not None else 0.0
-            why = str(feed.offline) or "приёмник бросил показ"
+            why = self._why(feed)
             trace.dark(pos=pos, why=why)
             print(
                 f"показ погас на {_hms(pos)} ({why}) - подниму сам, как вернётся сеть",
@@ -2705,22 +2755,61 @@ class _Revival:
         )
         return True
 
+    def _why(self, feed: Feed) -> str:
+        """Из-за чего погас показ. Прежде чем винить приёмник, спрашиваем ИСТОЧНИК.
+
+        Порядок именно такой. Приёмник гаснет молча и одинаково - и когда он сам исчерпал
+        терпение, и когда ему нечего показывать, потому что источника не стало. Свои
+        признаки показа тут не помощники: обрыв службы раздач на три секунды не взводит ни
+        счёт оборванных прогонов, ни часы молчания (:data:`torrcast.stream.MUTE_SECONDS`), и
+        :attr:`Feed.offline` остаётся пустым. Вопрос источнику стоит двух запросов и
+        задаётся ровно один раз - в тот момент, когда показ уже признан погасшим.
+
+        Причина возвращается одной строкой, и она же уезжает и в след, и человеку на
+        экран: двух разных мнений о том, что случилось, быть не должно.
+        """
+        why_source = _asked(self.supply)
+        if why_source:
+            self.blamed = True
+            if why_source != str(feed.offline):  # об одной аварии след пишет один раз
+                trace.offline(why=why_source, asked=True)
+            # Показ узнаёт причину от нас: дальше по ней живёт и упаковка (пробовать
+            # реже, не умирать), и сам :class:`_Revival` (:meth:`_may`).
+            feed.offline = why_source
+            return why_source
+        return str(feed.offline) or "приёмник бросил показ"
+
     def _may(self, feed: Feed, warmer: Warmer | None) -> bool:
         """Вернулась ли сеть - по факту, а не по часам.
 
         Прогретое сильнее любого признака сети: лежащий на диске фильм смотрится и без
         интернета вовсе, и ждать его возврата было бы враньём.
+
+        Когда погасли из-за источника, спрашиваем ровно его же: :attr:`Feed.offline` в
+        этом случае снимает только выложенный кусок, а выкладывать некому - упаковка ждёт
+        запроса приёмника, а приёмник тёмен. Заодно это единственное место, где раздача
+        возвращается магнитом: служба ответила - значит, самое время вернуть ей трекеры,
+        и сделать это надо ДО того, как приёмник попросит поток по голому хэшу.
         """
         if warmer is not None:
             if warmer.done:
                 return True
             if warmer.warmed > self.warmed:
                 return True
+        if self.blamed and self.supply is not None:
+            if _asked(self.supply):
+                return False  # источник всё ещё лежит - жечь терпение приёмника незачем
+            feed.offline = ""
+            return True
         return not feed.offline
 
 
 def _hold(
-    receiver: Receiver, feed: Feed, watch: Watch | None = None, warmer: Warmer | None = None
+    receiver: Receiver,
+    feed: Feed,
+    watch: Watch | None = None,
+    warmer: Warmer | None = None,
+    supply: Supply | None = None,
 ) -> None:
     """Держим показ: опрос приёмника раз в 2 с, упаковка должна быть жива, из RAM уходит
     только пройденное, сторож раз в 10 с пишет позицию.
@@ -2746,10 +2835,34 @@ def _hold(
     held = 0.0
     show_trace = bool(os.environ.get(TRACE_ENV))
     buffering = was_offline = False
-    revival = _Revival()
+    revival = _Revival(supply=supply)
     while True:
         _ctl(receiver)
         if trouble := feed.trouble():
+            # 🔴 Упаковка сдалась - и вот теперь спрашиваем ИСТОЧНИК. Оборванные подряд
+            # прогоны значат «показывать нечего» только при живом источнике; служба
+            # раздач, которую перезапустили, рвёт вход так же, а ждать её три секунды.
+            # Вопрос задаётся здесь, на краю показа, а не в горячем пути: раздача
+            # сегментов не ждёт ни журнал, ни лишний запрос.
+            why_source = _asked(supply)
+            if why_source:
+                feed.stall(why_source)  # показ не умирает, а ждёт возврата источника
+                if not was_offline:  # говорим об аварии один раз, а не каждые две секунды
+                    was_offline = True
+                    trace.offline(why=why_source, asked=True)
+                    print(
+                        f"источник не читается ({why_source}) - жду его возврата, "
+                        "показ подниму сам",
+                        flush=True,
+                    )
+                time.sleep(2.0)
+                continue
+            if supply is not None and supply.restored:
+                # Источник вернулся ровно сейчас, и раздача у него снова с трекерами:
+                # хоронить показ на этом месте было бы враньём - упаковка попробует ещё.
+                feed.stall("")
+                time.sleep(2.0)
+                continue
             # Убитый сигналом ffmpeg ничего сказать не успевает - не выдумываем за него.
             raise InfraError(f"упаковка оборвалась: {trouble}")
         try:
@@ -2774,7 +2887,9 @@ def _hold(
         if bool(feed.offline) != was_offline:
             was_offline = bool(feed.offline)
             if was_offline:
-                trace.emit("play", "offline", why=str(feed.offline))
+                # Догадка, а не ответ источника: сюда приходят обрывы, замеченные самой
+                # упаковкой (:meth:`torrcast.stream.Feed._survive`, :meth:`_mute`).
+                trace.offline(why=str(feed.offline), asked=False)
         if show_trace:
             front = feed.front(position.pos)
             print(
@@ -2829,6 +2944,9 @@ def _hold(
             # его смотрели, никуда не делись (:class:`_Revival`).
             if not revival.resurrect(receiver, feed, warmer, held):
                 return
+            # Причину темноты добывает сам :class:`_Revival`, спрашивая источник, и в след
+            # она уже легла (:meth:`_Revival._why`). Второй раз то же событие не пишем.
+            was_offline = bool(feed.offline)
         else:
             revival.alive()
             paused = 0.0

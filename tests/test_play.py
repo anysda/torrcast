@@ -1350,3 +1350,229 @@ def test_the_cli_never_kills_a_show_that_is_still_inside_the_units_budget(
         cli._await_playing(Config(hls_dir=str(tmp_path)), _Mute())  # type: ignore[arg-type]
 
     assert stopped and stopped[0] >= phases, "показ погашен внутри бюджета юнита"
+
+
+class _Service:
+    """Служба раздач глазами показа: жива ли, что у неё в списке и что она знает о файлах.
+
+    Ровно те три вопроса, из которых складывается ответ «виноват источник»
+    (:meth:`torrcast.stream.Supply.check`), плюс счётчик добавлений: возврат раздачи
+    магнитом обязан быть идемпотентным и не трогать ничего, кроме нашего хэша.
+    """
+
+    def __init__(self, up: bool = True, listed: bool = True, files: bool = True) -> None:
+        self.up, self._listed, self._files = up, listed, files
+        self.added: list[str] = []
+        self.dropped: list[str] = []
+
+    def alive(self) -> bool:
+        return self.up
+
+    def listed(self, torrent_hash: str) -> bool:
+        if not self.up:
+            raise InfraError("TorrServer не отвечает")
+        return self._listed
+
+    def files(self, torrent_hash: str) -> list[object]:
+        if not self.up:
+            raise InfraError("TorrServer не отвечает")
+        return [object()] if self._files else []
+
+    def add(self, magnet: str) -> str:
+        if not self.up:
+            raise InfraError("TorrServer не отвечает")
+        self.added.append(magnet)
+        # Магнит вернул раздаче трекеры: она снова в списке и снова с метаданными.
+        self._listed = self._files = True
+        return MAGNET_HASH
+
+    def drop(self, torrent_hash: str) -> None:
+        self.dropped.append(torrent_hash)
+
+
+MAGNET_HASH: Final = "9a76e7bc1701cf0eb3efe4d9518c999b6ee8a8e4"
+MAGNET: Final = f"magnet:?xt=urn:btih:{MAGNET_HASH}&tr=udp%3A%2F%2Ftracker.example%3A1337"
+
+
+def _supply(service: _Service) -> Any:
+    from torrcast.stream import Supply
+
+    return Supply(service, torrent_hash=MAGNET_HASH, magnet=MAGNET)  # type: ignore[arg-type]
+
+
+def _events(directory: Path) -> list[dict[str, Any]]:
+    from torrcast import trace
+
+    trace.shutdown()
+    rows: list[dict[str, Any]] = []
+    for path in sorted(directory.glob("trace-*.jsonl")):
+        for raw in path.read_text("utf-8").splitlines():
+            rows.append(json.loads(raw))
+    return rows
+
+
+def test_a_dead_source_is_named_instead_of_blaming_the_receiver(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Показ гаснет при мёртвом источнике - и виноватым называется ИСТОЧНИК.
+
+    Замер на живом стенде: перезапуск службы раздач посреди показа кончал показ за
+    3.5-12 с, человек 14 с не видел ни строки, а потом получал «приёмник не досмотрел
+    поток». Своих признаков у показа тут нет ни одного: трёхсекундный обрыв не взводит
+    ни счёт оборванных прогонов, ни часы молчания, и :attr:`Feed.offline` пуст. Поэтому
+    прежде, чем признать показ погасшим, спрашивается сам источник - и его ответ уходит
+    одной и той же строкой и человеку, и в недельный след.
+    """
+    from torrcast import cli, trace
+
+    monkeypatch.setenv(trace.LOG_ENV, str(tmp_path / "trace"))
+    (tmp_path / "trace").mkdir()
+    _clock, feed, warmer, receiver = _dark(tmp_path, monkeypatch, offline="")
+    service = _Service(up=False)
+
+    cli._hold(receiver, feed, None, warmer, _supply(service))  # type: ignore[arg-type]
+
+    printed = capsys.readouterr().out
+    assert "показ погас на 0:20:00 (TorrServer не отвечает)" in printed, (
+        "человеку сказано про источник, а не про приёмник"
+    )
+    rows = _events(tmp_path / "trace")
+    dark = next(r for r in rows if r["event"] == "dark")
+    offline = next(r for r in rows if r["event"] == "offline")
+    assert dark["why"] == "TorrServer не отвечает" == offline["why"], "след и строка совпадают"
+    assert offline["asked"] is True, "причина взята у самого источника, а не угадана"
+    assert receiver.replays == [], "пока источник лежит, терпение приёмника не жжём"
+
+
+def test_the_returning_source_gets_the_torrent_back_by_magnet(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Служба вернулась - раздачу добавляем МАГНИТОМ, и только потом поднимаем показ.
+
+    После перезапуска списка раздач у службы нет вовсе (заводим их с ``save_to_db:false``),
+    а в URL потока едет только хэш: попросив по нему поток, мы получили бы раздачу без
+    трекеров - замерено, 25 с и ноль байт, пиры только по DHT. Трекеры живут в магните из
+    записи картины, и возвращает их этот вызов - ровно один, идемпотентный и только по
+    нашему хэшу.
+    """
+    from torrcast import cli, trace
+
+    monkeypatch.setenv(trace.LOG_ENV, str(tmp_path / "trace"))
+    (tmp_path / "trace").mkdir()
+    clock, feed, warmer, receiver = _dark(tmp_path, monkeypatch, offline="")
+    warmer.warmed = 0.0  # прогрева нет: возврат показа держится только на источнике
+    service = _Service(up=False)
+    clock.ticks.append(
+        lambda _s: service.__setattr__("up", clock.now - 1000.0 >= 30.0)  # служба вернулась
+    )
+    service._listed = service._files = False  # перезапуск: своей раздачи она не помнит
+
+    cli._hold(receiver, feed, None, warmer, _supply(service))  # type: ignore[arg-type]
+
+    assert service.added == [MAGNET], "раздачу вернули магнитом ровно один раз"
+    assert service.dropped == [], "чужих раздач и своей же не сносим - только добавляем"
+    assert receiver.replays == [1200.0], "показ поднят с того места, где смотрели"
+    printed = capsys.readouterr().out
+    assert "источник вернулся - раздачу добавил магнитом заново" in printed
+    rows = _events(tmp_path / "trace")
+    back = next(r for r in rows if r["event"] == "resupply")
+    assert back["torrent"] == MAGNET_HASH and back["ok"] is True
+
+
+def test_a_torrent_left_as_a_bare_hash_is_a_source_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Раздача есть, а метаданных нет - это раздача, заведённая по голому хэшу.
+
+    Так она и появляется: наш же URL потока просит службу о хэше, та заводит раздачу без
+    единого трекера и ищет пиров одним DHT. Считать источник исправным в этот момент -
+    то же самое, что молчать: показ не получит ни байта.
+    """
+    service = _Service(up=True, listed=True, files=False)
+    supply = _supply(service)
+
+    why = supply.check()
+
+    assert why == "" and supply.restored, "раздачу без трекеров вернули магнитом сразу же"
+    assert service.added == [MAGNET]
+    assert supply.check() == "" and service.added == [MAGNET], "второй раз добавлять нечего"
+
+
+def test_a_healthy_source_is_never_blamed_and_never_re_added(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Источник в порядке - он и молчит: ни строки обвинения, ни лишнего добавления."""
+    service = _Service()
+    supply = _supply(service)
+
+    assert supply.check() == "" and not supply.restored
+    assert service.added == [] and service.dropped == []
+
+
+def test_a_dead_source_does_not_kill_the_show_when_packing_gives_up(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Упаковка сдалась, а виноват источник - показ не умирает, а ждёт его возврата.
+
+    Три оборванных подряд прогона значат «показывать нечего» только при живом источнике.
+    Служба раздач, которую перезапустили, рвёт вход точно так же, и старый показ хоронил
+    себя строкой «упаковка оборвалась» - про наш ffmpeg, а не про причину.
+    """
+    from torrcast import cli, trace
+
+    monkeypatch.setenv(trace.LOG_ENV, str(tmp_path / "trace"))
+    (tmp_path / "trace").mkdir()
+    _clock, feed, warmer, receiver = _dark(tmp_path, monkeypatch, offline="")
+    feed.fatal = "ffmpeg сдался: Input/output error"
+    service = _Service(up=False)
+
+    cli._hold(receiver, feed, None, warmer, _supply(service))  # type: ignore[arg-type]
+
+    printed = capsys.readouterr().out
+    assert "источник не читается (TorrServer не отвечает) - жду его возврата" in printed
+    assert "упаковка оборвалась" not in printed, "показ не хоронит себя чужой виной"
+    assert feed.offline == "TorrServer не отвечает", "приговор упаковке снят, показ ждёт"
+    rows = _events(tmp_path / "trace")
+    assert [r["asked"] for r in rows if r["event"] == "offline"] == [True]
+
+
+def test_a_packing_failure_on_a_healthy_source_still_ends_the_show(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Источник в порядке, а упаковка сдалась - это по-прежнему конец показа с ошибкой."""
+    from torrcast import cli
+
+    _clock, feed, warmer, receiver = _dark(tmp_path, monkeypatch, offline="")
+    feed.fatal = "ffmpeg сдался: Invalid data found"
+    service = _Service()
+
+    with pytest.raises(InfraError, match="упаковка оборвалась"):
+        cli._hold(receiver, feed, None, warmer, _supply(service))  # type: ignore[arg-type]
+
+
+def test_the_source_is_never_asked_while_the_picture_is_alive(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Пока идёт картинка, источник не спрашивают ни разу.
+
+    Ограждение горячего пути: показ не имеет права ждать ни журнал, ни лишний запрос -
+    вопросы источнику появляются только там, где показ уже кончается. Здесь показ идёт
+    ровно так, как ему положено: приёмник играет, упаковка жива, - и ни один запрос к
+    источнику не уходит.
+    """
+    from torrcast import cli
+
+    monkeypatch.setattr(time, "sleep", lambda seconds: None)
+    feed = _feed_with_segments(tmp_path)
+    service = _Service()
+    asked: list[str] = []
+    supply = _supply(service)
+
+    def spy(_self: Any) -> str:
+        asked.append("?")
+        return ""
+
+    monkeypatch.setattr(type(supply), "check", spy)
+    receiver = _FakeReceiver([(200.0, "PLAYING"), (210.0, "PLAYING"), (220.0, "PLAYING")])
+
+    cli._hold(receiver, feed, None, None, supply)
+
+    assert asked == [], "живой показ источник не спрашивает"
