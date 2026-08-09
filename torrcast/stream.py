@@ -323,6 +323,13 @@ _TIMEOUT: Final = 30.0
 #: вопроса, а повторным вопросом. Долгий срок тут вреден: пока мы ждём ответа, показ уже
 #: гаснет, и человеку нужна строка, а не наше терпение.
 PROBE_TIMEOUT: Final = 3.0
+#: Сколько даём вернувшейся раздаче на метаданные, прежде чем снова счесть её пустышкой.
+#:
+#: Раздача, добавленная магнитом заново, секунду-другую стоит без списка файлов - рой
+#: только собирается. Без этой отсрочки показ считал бы её той самой «раздачей по голому
+#: хэшу» и добавлял магнит на каждом опросе: замер на живой службе - возврат магнитом на
+#: КАЖДОМ вопросе, пока едут метаданные.
+META_GRACE: Final = 30.0
 _UNIT_NAME: Final = "torrcast-play"
 #: Описание юнита несёт ключ показа - по нему ``status`` знает, что играет.
 _UNIT_TAG: Final = "torrcast: "
@@ -812,6 +819,8 @@ class Supply:
     #: Правда ли последняя проверка вернула раздачу магнитом. Об этом говорят вслух - и
     #: человеку, и следу, - потому что это и есть возврат трекеров.
     restored: bool = False
+    #: Монотонный момент последнего возврата: от него отсчитывается :data:`META_GRACE`.
+    restored_at: float = 0.0
 
     def check(self) -> str:
         """Что не так с ИСТОЧНИКОМ прямо сейчас; пусто - источник в порядке.
@@ -836,6 +845,8 @@ class Supply:
             if not self.server.listed(self.torrent_hash):
                 self._blame("TorrServer потерял нашу раздачу")
             elif not self.server.files(self.torrent_hash):
+                if time.monotonic() - self.restored_at < META_GRACE:
+                    return ""  # раздачу только что вернули магнитом - метаданные ещё едут
                 self._blame("раздача осталась без трекеров - метаданных нет")
             elif not self.lost:
                 return ""  # служба отвечает, раздача на месте, аварии за ней не числится
@@ -860,7 +871,7 @@ class Supply:
             self.server.add(self.magnet)
         except InfraError:
             return why_source or "TorrServer не отвечает"  # служба ещё не поднялась
-        self.lost, self.restored = "", True
+        self.lost, self.restored, self.restored_at = "", True, time.monotonic()
         return ""
 
     def _blame(self, why_source: str) -> str:

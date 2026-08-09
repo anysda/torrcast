@@ -1576,3 +1576,94 @@ def test_the_source_is_never_asked_while_the_picture_is_alive(
     cli._hold(receiver, feed, None, None, supply)
 
     assert asked == [], "живой показ источник не спрашивает"
+
+
+def test_a_show_that_never_started_still_names_the_dead_source(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Показ, не сдвинувшийся с нуля, кончается строкой про ИСТОЧНИК, а не про приёмник.
+
+    Сюда приходит самый обидный случай: картинка так и не поехала, поднимать нечего и
+    неоткуда (:class:`torrcast.cli._Revival` без позиции не работает), - и человек получал
+    «приёмник не досмотрел поток» при живом приёмнике и мёртвой службе раздач. Спросить
+    источник тут стоит тех же двух запросов, а показ уже кончился: горячего пути нет.
+    """
+    from torrcast import cli
+
+    monkeypatch.setattr(time, "sleep", lambda seconds: None)
+    service = _Service(up=False)
+    supply = _supply(service)
+
+    with pytest.raises(InfraError, match="источник не читается \\(TorrServer не отвечает\\)"):
+        cli._blame_the_end(supply)
+
+
+def test_a_show_that_never_started_blames_the_receiver_when_the_source_is_fine(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Источник в порядке - строка остаётся прежней, и это правильно."""
+    from torrcast import cli
+
+    monkeypatch.setattr(time, "sleep", lambda seconds: None)
+    with pytest.raises(InfraError, match="приёмник не досмотрел поток"):
+        cli._blame_the_end(_supply(_Service()))
+
+
+def test_a_source_that_came_back_by_itself_is_still_the_one_to_blame(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Служба поднялась за три секунды - и всё равно виновата она, а не приёмник.
+
+    Замер на стенде: перезапуск службы раздач стоит 3.0-3.1 с недоступности, а терпение
+    приёмника - минуты. К мгновению, когда показ признан погасшим, служба уже отвечает, и
+    вопрос «сейчас всё хорошо?» сам по себе оправдал бы её. Доказательство аварии - в том,
+    что раздачу пришлось возвращать магнитом: без падения службы её никто не терял бы.
+    """
+    from torrcast import cli, trace
+
+    monkeypatch.setenv(trace.LOG_ENV, str(tmp_path / "trace"))
+    (tmp_path / "trace").mkdir()
+    _clock, feed, warmer, receiver = _dark(tmp_path, monkeypatch, offline="")
+    service = _Service(listed=False, files=False)  # служба уже поднялась, но список пуст
+
+    cli._hold(receiver, feed, None, warmer, _supply(service))  # type: ignore[arg-type]
+
+    printed = capsys.readouterr().out
+    assert "показ погас на 0:20:00 (TorrServer перезапускался - раздачу вернул магнитом)" in printed
+    assert service.added == [MAGNET], "раздача вернулась магнитом, а не голым хэшем"
+    rows = _events(tmp_path / "trace")
+    assert next(r for r in rows if r["event"] == "dark")["why"] == (
+        "TorrServer перезапускался - раздачу вернул магнитом"
+    )
+
+
+def test_the_source_is_asked_more_than_once_before_it_is_believed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Один вопрос источнику - мало: умирающая служба отвечает как живая.
+
+    Замер на живой службе (05:37:48.3 - 05:37:51.5): все три секунды своей остановки
+    TorrServer отвечал на ``/echo`` и отдавал список раздач, а показ умирает как раз
+    внутри этого окна. Здесь служба тоже «здорова» на первых вопросах и теряет раздачу
+    на третьем - и виноватым всё равно называется источник.
+    """
+    from torrcast import cli
+
+    monkeypatch.setattr(time, "sleep", lambda seconds: None)
+    service = _Service()
+    asked: list[int] = []
+    real = type(service).listed
+
+    def slow_death(self: _Service, torrent_hash: str) -> bool:
+        asked.append(1)
+        if len(asked) >= 3:
+            self._listed = False
+        return bool(real(self, torrent_hash))
+
+    monkeypatch.setattr(_Service, "listed", slow_death)
+
+    with pytest.raises(InfraError, match="источник не читается"):
+        cli._blame_the_end(_supply(service))
+
+    assert len(asked) >= 3, "источник спрошен несколько раз, а не единожды"
+    assert service.added == [MAGNET], "заметив пропажу, раздачу вернули магнитом"

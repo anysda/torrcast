@@ -58,8 +58,8 @@ class _FakeTorrServer:
 
     added: ClassVar[list[str]] = []
 
-    def __init__(self, url: str) -> None:
-        self.url = url
+    def __init__(self, url: str, timeout: float = 30.0) -> None:
+        self.url, self.timeout = url, timeout
 
     def add(self, magnet: str) -> str:
         _FakeTorrServer.added.append(magnet)
@@ -127,6 +127,7 @@ def test_the_unit_plays_the_whole_release_by_itself(monkeypatch: pytest.MonkeyPa
         receiver: Any = None,
         codec: str = "",
         follow: Any = None,
+        supply: Any = None,
     ) -> int:
         played.append((about, int(source.rsplit("/", 1)[-1])))
         receivers.append(receiver)
