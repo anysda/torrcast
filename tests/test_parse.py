@@ -490,6 +490,59 @@ def test_real_series_stay_series(name: str) -> None:
     assert parse_release_name(name).kind == "tv", name
 
 
+#: Одна серия, подписанная фансабом: так их и кладут SubsPlease, Erai-raws, ASW,
+#: LoliHouse, shincaps. Имена дословные, с живой выдачи Nyaa.
+FANSUB = (
+    ("[Erai-raws] Gintama: 3-nen Z-gumi Ginpachi-sensei - 11 [1080p CR WEB-DL AVC AAC]", 11),
+    ("[ASW] Gintama - 3-nen Z-gumi Ginpachi-sensei - 12 [1080p HEVC x265 10Bit][AAC]", 12),
+    ("[SubsPlease] Gintama - 3-nen Z-gumi Ginpachi-sensei - 11 (720p) [719CF203].mkv", 11),
+    ("[shincaps] Haikyuu!! - 03 (ANIMAX Asia 1920x1080 H264 MP2).ts", 3),
+)
+
+
+@pytest.mark.parametrize(("name", "episode"), FANSUB)
+def test_a_fansub_number_is_an_episode_not_a_title(name: str, episode: int) -> None:
+    """«Название - 11» у аниме — это ОДИННАДЦАТАЯ СЕРИЯ, а не другое кино.
+
+    Номер оставался в названии, и кластер заводил под каждую серию свою «картину» в
+    две-три раздачи. На живом каталоге «Gintama» (162 раздачи, 68 живых) это давало 27
+    картин вместо 17, а дефолтом вставала «Гинтама: Любовные Благовония» — одна раздача,
+    ноль живых.
+    """
+    release = parse_release_name(name)
+
+    assert release.episode == episode, name
+    assert release.kind == "tv", name
+    assert not release.title.rstrip(" .").endswith(str(episode)), release.title
+
+
+def test_a_fansub_series_is_one_picture_not_one_per_episode() -> None:
+    """Все серии тайтла — одна картина; на этом и садился дефолт (TC-151)."""
+    names = [name for name, _ in FANSUB[:3]]
+
+    pictures = cluster([parse_release_name(name) for name in names])
+
+    assert len(pictures) == 1
+    assert len(pictures[0].releases) == 3
+
+
+#: Номер части у кино выглядит так же - и обязан остаться номером части.
+NOT_FANSUB = (
+    "[Rutor] Форсаж - 8 (2017) BDRip 1080p",
+    "Форсаж - 8 / The Fate of the Furious (2017) BDRip 1080p",
+    "[Kinozal] Убить Билла: Фильм 2 (2004) BDRip 720p",
+)
+
+
+@pytest.mark.parametrize("name", NOT_FANSUB)
+def test_a_movie_part_number_is_not_an_episode(name: str) -> None:
+    """Ограждение: год в имени запрещает читать хвостовую цифру как номер серии."""
+    release = parse_release_name(name)
+
+    assert release.kind == "movie", name
+    assert release.episode is None, name
+
+
 def test_moana_franchise_is_shown_in_both_languages() -> None:
     """«Moana» и «Моана 2» — одна франшиза, как бы её ни спросили."""
     releases = [

@@ -269,6 +269,24 @@ _EPISODE_ONLY_RES: Final[tuple[re.Pattern[str], ...]] = (
     re.compile(r"\b(?P<episode>\d{1,3})\s*(?:из|of)\s*\d{1,3}\b", re.IGNORECASE),
     re.compile(r"\b(?P<episode>\d{1,3})\s*-?\s*(?:я|ая)?\s*сери", re.IGNORECASE),
 )
+#: Фансабовская подпись серии: ``[Группа] Название - 12 [1080p ...]``. Так подписывают
+#: ОДНУ серию SubsPlease, Erai-raws, ASW, Judas, LoliHouse, shincaps - то есть весь
+#: анимешный раздел; ``v2`` после номера - перевыпуск той же серии.
+#:
+#: Стражи нарочно узкие, потому что «Название - 8» это ещё и номер части у кино
+#: («Форсаж - 8»):
+#:
+#: * имя начинается с тега релиз-группы в квадратных скобках - у рутрекера и рутора
+#:   имена начинаются с названия;
+#: * между названием и номером - тире С ПРОБЕЛАМИ, а в самом названии до номера нет ни
+#:   скобок, ни хвостов («3-nen» не тире с пробелами и потому не мешает);
+#: * сразу за номером начинается технический блок в скобках или конец строки;
+#: * в имени НЕТ года - иначе «[Группа] Форсаж - 8 (2017) BDRip» прочиталось бы как
+#:   восьмая серия. Замер по кэшам стенда: правило ловит 149 имён из 2051, все до одной
+#:   серии аниме, и ни в одной из них года нет.
+_FANSUB_EPISODE_RE: Final = re.compile(
+    r"^\[[^\[\]]+\]\s*(?P<name>[^\[\]()]+?)\s+-\s+(?P<episode>\d{1,3})(?:v\d)?\s*(?=[\[(]|$)"
+)
 #: Расширения видео: всё прочее в раздаче - субтитры, обложки и мусор.
 VIDEO_EXT: Final = (".mkv", ".mp4", ".avi", ".ts", ".m2ts", ".mov", ".webm", ".m4v", ".mpg")
 #: Файлы, которые серией не являются, даже если номер в имени есть: сэмплы, трейлеры,
@@ -1406,9 +1424,26 @@ def _find_year(text: str) -> tuple[int | None, tuple[int, int] | None]:
     return None, None
 
 
+def _fansub_episode(text: str) -> re.Match[str] | None:
+    """Совпадение ``[Группа] Название - 12 [...]`` или ``None``; год в имени запрещает.
+
+    Одна точка правды для двух читателей: :func:`_title_zone` берёт отсюда НАЗВАНИЕ (без
+    номера), :func:`_parse_series` - НОМЕР СЕРИИ. Разъедься они - и номер остался бы в
+    названии, а кластер по-прежнему заводил бы под каждую серию свою «картину».
+    """
+    if _find_year(text)[0] is not None:
+        return None
+    return _FANSUB_EPISODE_RE.match(text)
+
+
 def _title_zone(text: str, span: tuple[int, int] | None) -> str:
     """Отрезать от имени кусок, в котором лежат названия."""
-    zone = text[: span[0]] if span else text
+    # Номер серии - не часть имени. Без этого «Gintama: 3-nen Z-gumi Ginpachi-sensei - 11»
+    # и «- 12» становились РАЗНЫМИ картинами, каждая в пару раздач, и дефолт садился на
+    # такой огрызок при полном каталоге рядом (TC-151). Зона при этом идёт дальше по
+    # общему пути: «Haikyuu!! 2nd Season» обязана обрезаться там же, где обрезалась.
+    fansub = _fansub_episode(text)
+    zone = fansub.group("name") if fansub else (text[: span[0]] if span else text)
     # Скобки убираем ПЕРВЫМИ: иначе «сезон» внутри «(5 сезон: 1-3 серии из 3)»
     # обрежет строку раньше оригинального названия, которое идёт после скобки.
     zone = _BRACKETS_RE.sub(" ", zone)  # (Режиссёр), [S01], (IMAX Edition), [Group]
@@ -1487,7 +1522,12 @@ def _parse_series(
     это «5.1» плюс кодек, а разбор видел «1 x264» и объявлял полнометражку сериалом
     s1e264. Кодек о сериях не говорит ничего, поэтому вырезать его здесь безопасно —
     а весь остальной парсер остаётся как был.
+
+    Фансабовский номер (:data:`_FANSUB_EPISODE_RE`) читается ПОСЛЕДНИМ из номеров и до
+    вырезания кодека: он привязан к началу имени, где кодека нет и быть не может. Ниже
+    ``SxxExx`` и диапазонов он стоит потому, что те точнее — они называют ещё и сезон.
     """
+    fansub = _fansub_episode(text)
     text = _CODEC_TOKEN_RE.sub(" ", text)
     seasons = _season_span(text)
     episodes = _episode_span(text)
@@ -1500,10 +1540,16 @@ def _parse_series(
         # «S2E1-8 of 8» - это пак сезона, а не первая серия.
         pack = re.search(r"[eхx]\s*\d{1,3}\s*-\s*\d{1,3}", text, re.IGNORECASE)
         return found.season, None if pack else found.episode, (), episodes, True
+    number = int(fansub.group("episode")) if fansub else None
     for pattern in _SEASON_ONLY_RES:
         match = pattern.search(text)
         if match:
-            return int(match.group("season")), None, (), episodes, True
+            return int(match.group("season")), number, (), episodes, True
+    if number is not None:
+        # Сезон в фансабовском имени называют не всегда («Haikyuu!! - 03»); молчание о
+        # сезоне у релиза значит «может быть любой» (:meth:`Release.covers`), а вот номер
+        # серии теперь честный - и огрызок больше не выдаёт себя за весь сериал.
+        return None, number, (), episodes, True
     return None, None, (), episodes, bool(_SERIES_HINT_RE.search(text))
 
 
