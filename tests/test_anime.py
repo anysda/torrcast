@@ -877,6 +877,30 @@ def test_the_last_hope_asks_the_receiver_profile_not_a_module_constant() -> None
     )
     plan = _plan_for(picture, args, Config(), native)
     assert not plan.last_resort, "берёт HEVC копией - тяжёлого пути нет, и ворота не про него"
+    assert plan.copy_hevc, "разрешение профиля доехало до обычных ворот"
+    assert plan.ranked[0] is hevc, "живой HEVC собственного ресивера - обычный кандидат"
+    assert plan.candidates(args)[0] == 1, "HEVC не потерялся между порядком и очередью"
+    assert cli.drop_reason(hevc, plan) == "", "счёт отсева не спорит с воротами"
+
+
+def test_a_native_codec_does_not_weaken_the_quality_gate() -> None:
+    """Профиль снимает только запрет кодека, но не потолок качества и веса."""
+    from torrcast.profile import CAUTIOUS
+
+    native = replace(
+        CAUTIOUS, key="native", recode_codecs=frozenset(), copy_codecs=frozenset({"h264", "hevc"})
+    )
+    heavy = named(GINTAMA_HEVC, size_gb=2000.0, seeders=40)
+    playable = named(GINTAMA_HEVC, size_gb=8.0, seeders=4)
+    picture = Picture(title="Гинтама", year=2006, kind="tv", releases=[heavy, playable])
+    args = Args(query=["gintama", "s1e1"])
+
+    plan = _plan_for(picture, args, Config(recode=False), native)
+    assert plan.copy_hevc, "HEVC разрешён именно профилем собственного ресивера"
+    assert plan.ranked[0] is playable, "профиль не поднимает HEVC выше потолка битрейта"
+    assert heavy not in [plan.ranked[n - 1] for n in plan.candidates(args)], (
+        "тяжёлый релиз остаётся снаружи"
+    )
 
 
 # --- 🔴 TC-178: русская дорожка как условие ГОДНОСТИ релиза ---------------------------

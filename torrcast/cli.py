@@ -2181,19 +2181,31 @@ def _plan_for(
     if config.recode:
         ceiling = max(ceiling, config.bitrate_recode_mbit)
     want = series.want if series else None
-    loose = gate_open(pool, runtime, ceiling, want, hard_mbit=hard)
+    copy_hevc = profile.plays_copy("hevc", profile.copy_depth)
+    loose = gate_open(pool, runtime, ceiling, want, hard_mbit=hard, copy_hevc=copy_hevc)
     # Ворота последней надежды открываются при двух условиях сразу, и оба - не про пул.
     # Первое: перекодирование включено. Играть HEVC умеет ровно сплошной перекод, и без
     # него пускать такой релиз в очередь значило бы обещать показ, которого не будет.
     # Второе: HEVC для ЭТОГО приёмника и правда тяжёлый путь - спрашивается там же, где
     # об этом спрашивают показ и прогрев (:func:`torrcast.stream.recodes_whole`), чтобы
     # отбор не судил по чужим числам. Приёмник, который берёт HEVC копией, в последней
-    # надежде не нуждается вовсе: у него это обычный релиз, и место ему в воротах
-    # (:attr:`torrcast.parse.Release.prime`), а не здесь.
+    # надежде не нуждается вовсе: у него это обычный релиз, и место ему в воротах,
+    # которым передан ответ профиля, а не здесь.
     heavy_hevc = recodes_whole("hevc", profile.copy_depth, profile)
-    last = config.recode and heavy_hevc and last_hope(pool, runtime, ceiling, want, loose, hard)
+    last = (
+        config.recode
+        and heavy_hevc
+        and last_hope(pool, runtime, ceiling, want, loose, hard, copy_hevc=copy_hevc)
+    )
     ranked = rank_releases(
-        pool, runtime, ceiling, want=want, loose=loose, hard_mbit=hard, last=last
+        pool,
+        runtime,
+        ceiling,
+        want=want,
+        loose=loose,
+        hard_mbit=hard,
+        last=last,
+        copy_hevc=copy_hevc,
     )
     return _Plan(
         picture=picture,
@@ -2206,6 +2218,7 @@ def _plan_for(
         recode_at=config.recode_at_mbit if config.recode else 0.0,
         loose=loose,
         last_resort=last,
+        copy_hevc=copy_hevc,
         hard_mbit=hard,
         asked_series=args.episode is not None,
     )
@@ -2382,6 +2395,8 @@ class _Plan:
     #: (:func:`last_hope`), и в очередь пускается названный HEVC — играть его будет
     #: сплошной перекод. Перекодирование выключено — ворота закрыты всегда.
     last_resort: bool = False
+    #: HEVC объявлен своим ресивером как играющий копией через наш HLS.
+    copy_hevc: bool = False
     #: Другие части той же франшизы, до меню не доехавшие: их нет в списке картин, но в
     #: выдаче они есть и раздачи у них живые. Нужны одной строке отказа (:func:`kin_line`).
     kin: list[Picture] = field(default_factory=list)
@@ -2436,7 +2451,13 @@ class _Plan:
             for n, r in enumerate(self.ranked, start=1)
             if n != self.first
             and is_candidate(
-                r, self.runtime, self.warn_mbit, self.loose, self.hard_mbit, self.last_resort
+                r,
+                self.runtime,
+                self.warn_mbit,
+                self.loose,
+                self.hard_mbit,
+                self.last_resort,
+                self.copy_hevc,
             )
             and not misses_episode(r, self.want)
         ]
@@ -2475,7 +2496,9 @@ class _Plan:
             if n not in seen
             and r.dubbed
             and not misses_episode(r, self.want)
-            and is_candidate(r, self.runtime, self.warn_mbit, True, self.hard_mbit, True)
+            and is_candidate(
+                r, self.runtime, self.warn_mbit, True, self.hard_mbit, True, self.copy_hevc
+            )
         ]
 
     @property
@@ -4710,7 +4733,14 @@ def liveliness(plan: _Plan) -> int:
         (
             release.seeders
             for release in plan.ranked
-            if is_candidate(release, plan.runtime, plan.warn_mbit, plan.loose, plan.hard_mbit)
+            if is_candidate(
+                release,
+                plan.runtime,
+                plan.warn_mbit,
+                plan.loose,
+                plan.hard_mbit,
+                copy_hevc=plan.copy_hevc,
+            )
         ),
         default=0,
     )
@@ -4742,7 +4772,14 @@ def fitness(plan: _Plan) -> int:
             release.seeders
             for release in plan.ranked
             if release.seeders >= ALIVE_SEEDERS
-            and is_candidate(release, plan.runtime, plan.warn_mbit, plan.loose, plan.hard_mbit)
+            and is_candidate(
+                release,
+                plan.runtime,
+                plan.warn_mbit,
+                plan.loose,
+                plan.hard_mbit,
+                copy_hevc=plan.copy_hevc,
+            )
             and not is_dated(release, plan.runtime)
         ),
         default=0,
@@ -5462,6 +5499,7 @@ def is_candidate(
     loose: bool = False,
     hard_mbit: float = 0.0,
     last: bool = False,
+    copy_hevc: bool = False,
 ) -> bool:
     """Кандидат в дефолт: первый сорт (:attr:`Release.prime`), не образ диска и в
     пределах потолка декодера. Жирнее потолка — в таблице остаётся с пометкой, но Enter
@@ -5485,6 +5523,10 @@ def is_candidate(
     Предпочтением это не становится ни на шаг — ворота открываются только когда живого
     обычного кандидата нет, а порядок держит HEVC ниже всех живых (:func:`rank_releases`).
 
+    ``copy_hevc`` - ответ единственного судьи кодека (:meth:`Profile.verdict`): свой
+    ресивер объявил HEVC играющим копией через наш HLS. Для него HEVC проходит обычные
+    ворота; профиль не снимает ограничения образа диска, качества и битрейта.
+
     ⚠️ Не-видео (``kind == "other"``: игры, музыка, книги) послабление не пускает
     никогда, и это не перестраховка. Замер на живой выдаче «one piece»: репак игры
     «One Piece: Pirate Warriors 4 … PC | RePack» несёт 97 сидов и о качестве видео
@@ -5500,7 +5542,11 @@ def is_candidate(
     """
     if is_disc(release) or over_ceiling(release, runtime, warn_mbit, hard_mbit):
         return False
-    if release.prime or (loose and release.quiet and release.kind != "other"):
+    if (
+        release.prime
+        or (copy_hevc and release.is_hevc)
+        or (loose and release.quiet and release.kind != "other")
+    ):
         return True
     return hevc_hope(release, last)
 
@@ -5557,7 +5603,9 @@ def drop_reason(release: Release, plan: _Plan) -> str:
         return _DISC
     if over_ceiling(release, plan.runtime, plan.warn_mbit, plan.hard_mbit):
         return _HEAVY
-    if release.is_hevc and not plan.last_resort:
+    if release.is_hevc and plan.copy_hevc:
+        return ""
+    if release.is_hevc and not (plan.last_resort or plan.copy_hevc):
         return _HEVC
     # Дальше раздача не прошла ворота (:attr:`~torrcast.parse.Release.prime`), и причина
     # у ворот ровно та, чем имя о себе сказало: назван чужой кодек, назван мелкий кадр,
@@ -5676,8 +5724,12 @@ def gate_open(
     warn_mbit: float,
     want: Episode | None = None,
     hard_mbit: float = 0.0,
+    copy_hevc: bool = False,
 ) -> bool:
     """Пора ли открыть ворота отбора: живого именного кандидата у картины нет.
+
+    ``copy_hevc`` приходит из профиля и делает HEVC обычным именным кандидатом только
+    для ресивера, который объявил его играющим копией через наш HLS.
 
     Ворота (:attr:`Release.prime`) защищают от мусора и делают это по делу — пока в
     выдаче есть из чего выбирать. У аниме выбирать нечасто есть из чего: имена раздач
@@ -5701,7 +5753,7 @@ def gate_open(
         return False
     return not any(
         r.seeders >= alive * GATE_LIVENESS
-        and is_candidate(r, runtime, warn_mbit, hard_mbit=hard_mbit)
+        and is_candidate(r, runtime, warn_mbit, hard_mbit=hard_mbit, copy_hevc=copy_hevc)
         and not misses_episode(r, want)
         for r in releases
     )
@@ -5714,6 +5766,7 @@ def last_hope(
     want: Episode | None = None,
     loose: bool = False,
     hard_mbit: float = 0.0,
+    copy_hevc: bool = False,
 ) -> bool:
     """Пора ли пускать в очередь названный HEVC: живого кандидата нет ВООБЩЕ.
 
@@ -5740,7 +5793,7 @@ def last_hope(
     """
     return not any(
         release.seeders > 0
-        and is_candidate(release, runtime, warn_mbit, loose, hard_mbit)
+        and is_candidate(release, runtime, warn_mbit, loose, hard_mbit, copy_hevc=copy_hevc)
         and not misses_episode(release, want)
         for release in releases
     )
@@ -5895,6 +5948,7 @@ def rank_releases(
     loose: bool = False,
     hard_mbit: float = 0.0,
     last: bool = False,
+    copy_hevc: bool = False,
 ) -> list[Release]:
     """Порядок меню: сверху самый обсиженный кандидат, потом всё остальное по
     сидам, образы дисков всегда внизу — цельного файла внутри нет, стримить нечего.
@@ -5950,7 +6004,8 @@ def rank_releases(
 
     ``loose`` — ворота отбора открыты (:func:`gate_open`), и молчаливые имена идут
     в кандидатах наравне с именными. ``last`` — открыты ворота последней надежды
-    (:func:`last_hope`).
+    (:func:`last_hope`). ``copy_hevc`` - профиль разрешил HEVC копией, поэтому это
+    обычный кандидат, а не последняя надежда.
     """
     alive = max((r.seeders for r in releases), default=0)
     return sorted(
@@ -5958,7 +6013,7 @@ def rank_releases(
         key=lambda r: (
             misses_episode(r, want),
             is_disc(r),
-            not is_candidate(r, runtime, warn_mbit, loose, hard_mbit, last),
+            not is_candidate(r, runtime, warn_mbit, loose, hard_mbit, last, copy_hevc),
             needs_whole_recode(r, runtime, hard_mbit),
             is_dead(r, alive),
             hevc_hope(r, last),
