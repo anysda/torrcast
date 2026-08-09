@@ -9,6 +9,10 @@
 
 Выключено по умолчанию: без переменной окружения :func:`mark` не делает ничего и не
 стоит ничего. Разбор ленты — :func:`report`, им пользуется ``scripts/startbench.py``.
+
+Здесь же живёт источник времени показа (:class:`Clock`, :data:`CLOCK`): всё, что ждёт
+секундами - терпение приёмника, выдержка между попытками подъёма, опрос показа раз в
+2 с, - спрашивает время у него, а не у :mod:`time` напрямую.
 """
 
 from __future__ import annotations
@@ -18,12 +22,45 @@ import json
 import os
 import time
 from pathlib import Path
-from typing import Any, Final
+from typing import Any, Final, Protocol, runtime_checkable
 
-__all__ = ["TIMELINE_ENV", "mark", "read", "report"]
+__all__ = ["CLOCK", "TIMELINE_ENV", "Clock", "RealClock", "mark", "read", "report"]
 
 #: Куда писать ленту меток. Пусто - секундомера нет.
 TIMELINE_ENV: Final = "TORRCAST_TIMELINE"
+
+
+@runtime_checkable
+class Clock(Protocol):
+    """Часы показа: монотонное время и сон. Ровно то, чем меряют терпение и выдержки.
+
+    Заведены не ради «чистоты», а ради сухого прогона. Времени тут ждут минутами
+    (терпение приёмника, выдержка между попытками подъёма), и тест, честно выждавший их,
+    никто гонять не станет. Подменять же :func:`time.sleep` на весь процесс - хуже
+    настоящего сна: патч видят и чужие потоки, живые в этот момент, и каждый их сон
+    двигает часы теста. Отсюда часы отдельным объектом: у боевого пути они настоящие
+    (:data:`CLOCK`), у теста - свои, и никто, кроме него, их не трогает.
+    """
+
+    def monotonic(self) -> float:
+        """Монотонные секунды: считать ими разрешено только разницу."""
+
+    def sleep(self, seconds: float) -> None:
+        """Подождать ``seconds`` секунд."""
+
+
+class RealClock:
+    """Настоящее время: ровно :func:`time.monotonic` и :func:`time.sleep`."""
+
+    def monotonic(self) -> float:
+        return time.monotonic()
+
+    def sleep(self, seconds: float) -> None:
+        time.sleep(seconds)
+
+
+#: Часы боевого пути. Заводить свои незачем - объект без состояния.
+CLOCK: Final[Clock] = RealClock()
 
 
 def mark(name: str, **facts: object) -> None:

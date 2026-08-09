@@ -21,6 +21,7 @@ from typing import IO, Any, Literal, Protocol, runtime_checkable
 from torrcast import InfraError, trace, why
 from torrcast.profile import CAUTIOUS, Profile
 from torrcast.stream import parse_manifest
+from torrcast.timing import CLOCK, Clock
 
 __all__ = [
     "HLS_HINTS",
@@ -718,12 +719,22 @@ class MockReceiver:
     #: приёмника: попытка тут не одна, интервалы держит зовущий.
     WAKE_TIMEOUT = 60.0
 
-    def __init__(self, ca: str = "", patience: float = 0.0, profile: Profile = CAUTIOUS) -> None:
+    def __init__(
+        self,
+        ca: str = "",
+        patience: float = 0.0,
+        profile: Profile = CAUTIOUS,
+        clock: Clock = CLOCK,
+    ) -> None:
         self.ca = ca
         #: Чей приёмник изображаем: у профиля своё терпение, свои повторы и своя обида
         #: на 404. Умолчание осторожное - тот самый Q70D, на котором всё замерено.
         self.profile = profile
         self.patience = patience or profile.patience
+        #: Чем меряется терпение (:meth:`_wait`, :meth:`replay`). Умолчание - настоящее
+        #: время; сухому прогону сюда дают свои часы, чтобы не выжидать эти секунды и не
+        #: зависеть от загрузки машины (:class:`torrcast.timing.Clock`).
+        self.clock = clock
         self.report = Report()
         self._proc: subprocess.Popen[str] | None = None
         self._err: IO[bytes] | None = None
@@ -856,7 +867,7 @@ class MockReceiver:
         может уже вернуться, и тогда картинка пойдёт дальше без всякого воскрешения;
         а не вернулся - терпение выходит, и показ гаснет так же молча, как на ТВ.
         """
-        now = time.monotonic()
+        now = self.clock.monotonic()
         self._still = self._still or now
         dark = now - self._still
         if dark >= self.patience:
@@ -882,16 +893,16 @@ class MockReceiver:
         здесь не воспроизводится ничем. Что приёмник занят чужим, проверяется только на
         живом ТВ.
         """
-        if not self._url or time.monotonic() < self._sulk:
+        if not self._url or self.clock.monotonic() < self._sulk:
             return False  # приёмник поймал 404 и ближайшие минуты не берёт LOAD вовсе
         try:
             self._open(self._url, at)
         except (InfraError, OSError):
             return False  # источника всё ещё нет - зовущий попробует ещё раз или погасит
         self._seen, self._still, self._loads = at, 0.0, 0
-        deadline = time.monotonic() + self.WAKE_TIMEOUT
-        while time.monotonic() < deadline:
-            time.sleep(1.0)
+        deadline = self.clock.monotonic() + self.WAKE_TIMEOUT
+        while self.clock.monotonic() < deadline:
+            self.clock.sleep(1.0)
             if self._pos.pos > at:  # декодер поехал - картинка на экране
                 self._dead = False
                 return True
@@ -1006,7 +1017,7 @@ class MockReceiver:
         (:attr:`torrcast.stream.Feed.wait`) этот ноль не влияет вовсе.
         """
         if getattr(response, "status_code", 0) == 404:
-            self._sulk = time.monotonic() + self.profile.sulk
+            self._sulk = self.clock.monotonic() + self.profile.sulk
 
 
 def trust_anchor(cert: str) -> str:

@@ -99,7 +99,7 @@ from torrcast.stream import (
     unit_why,
     warm_file,
 )
-from torrcast.timing import mark
+from torrcast.timing import CLOCK, Clock, mark
 from torrcast.warm import Vault, Warmer, warm_key, warm_root
 
 __all__ = [
@@ -3468,7 +3468,7 @@ def _blame_the_end(supply: Supply | None) -> NoReturn:
     raise InfraError("приёмник не досмотрел поток - цифры выше")
 
 
-def _blamed(supply: Supply | None) -> str:
+def _blamed(supply: Supply | None, clock: Clock = CLOCK) -> str:
     """Причина аварии ИСТОЧНИКА для строки человеку; пусто - источник тут ни при чём.
 
     ⚠️ Отличается от :func:`_asked` двумя вещами, и обе - из замеров на живой службе.
@@ -3492,7 +3492,7 @@ def _blamed(supply: Supply | None) -> str:
         if supply is not None and supply.restored:
             return "TorrServer перезапускался - раздачу вернул магнитом"
         if left > 1 and supply is not None:
-            time.sleep(SOURCE_PAUSE)
+            clock.sleep(SOURCE_PAUSE)
     return ""
 
 
@@ -3584,6 +3584,9 @@ class _Revival:
     #: Сколько показ должен идти живым, чтобы запас попыток снова считался полным.
     #: Меньше :attr:`pause` брать нельзя - см. :data:`REVIVE_LIVED`.
     lived: float = REVIVE_LIVED
+    #: Чем меряется темнота и выдержка между попытками. Умолчание - настоящее время;
+    #: сухой прогон подаёт свои часы (:class:`torrcast.timing.Clock`).
+    clock: Clock = CLOCK
 
     def alive(self, shown: bool = True) -> None:
         """Показ идёт - темноте конец, а пережитый обрыв возвращает потраченный запас.
@@ -3599,7 +3602,7 @@ class _Revival:
         может: картинки в нём нет ни секунды, а сторож подвиса в это время гонит указатель
         вперёд. Встала картинка - минуту живого показа считаем заново.
         """
-        now = time.monotonic()
+        now = self.clock.monotonic()
         if self.since:
             self.since, self.blamed, self.dropped = 0.0, False, False
             self.back = now  # темнота кончилась - засекаем прожитое
@@ -3616,7 +3619,7 @@ class _Revival:
         ``pos`` - место, откуда поднимать: последняя позиция, которую приёмник успел
         назвать живой. Из мёртвой сессии её не взять - там ноль.
         """
-        now = time.monotonic()
+        now = self.clock.monotonic()
         if not isinstance(receiver, _Revivable) or pos <= 0:
             return False  # поднимать нечем или неоткуда - это обычный конец показа
         if feed.duration > 0 and pos >= feed.duration * WATCHED_RATIO:
@@ -3674,7 +3677,7 @@ class _Revival:
         Причина возвращается одной строкой, и она же уезжает и в след, и человеку на
         экран: двух разных мнений о том, что случилось, быть не должно.
         """
-        why_source = _blamed(self.supply)
+        why_source = _blamed(self.supply, self.clock)
         if why_source:
             self.blamed = True
             if why_source != str(feed.offline):  # об одной аварии след пишет один раз
@@ -3722,6 +3725,7 @@ def _hold(
     warmer: Warmer | None = None,
     supply: Supply | None = None,
     profile: Profile = CAUTIOUS,
+    clock: Clock = CLOCK,
 ) -> None:
     """Держим показ: опрос приёмника раз в 2 с, упаковка должна быть жива, из RAM уходит
     только пройденное, сторож раз в 10 с пишет позицию.
@@ -3733,6 +3737,10 @@ def _hold(
     Придерживать ffmpeg сигналом (SIGSTOP) здесь больше нечем и незачем: темп держит
     сам ffmpeg (``-readrate`` + ``-readrate_initial_burst``), а под паузой процесс
     именно завершается — под SIGSTOP'ом приёмник намертво вис в BUFFERING.
+
+    ``clock`` - чем меряются все выдержки показа (:class:`torrcast.timing.Clock`). Боевой
+    путь ходит по настоящему времени; сухому прогону нужны свои часы, иначе тест выжидал
+    бы терпение приёмника и выдержки между попытками подъёма по-настоящему.
     """
     paused, said, seen = 0.0, 0.0, False
     #: Позиция приёмника с прошлого опроса - от неё считается запас показа. Прошлая, а не
@@ -3764,7 +3772,9 @@ def _hold(
     buffering = was_offline = False
     # Выдержка между попытками воскрешения - мера молчания ПРИЁМНИКА после 404, поэтому
     # она приходит из его профиля, а не из общей константы.
-    revival = _Revival(supply=supply, pause=profile.revive_pause, lived=profile.revive_pause)
+    revival = _Revival(
+        supply=supply, pause=profile.revive_pause, lived=profile.revive_pause, clock=clock
+    )
     while True:
         _ctl(receiver)
         if trouble := feed.trouble():
@@ -3784,13 +3794,13 @@ def _hold(
                         "показ подниму сам",
                         flush=True,
                     )
-                time.sleep(2.0)
+                clock.sleep(2.0)
                 continue
             if supply is not None and supply.restored:
                 # Источник вернулся ровно сейчас, и раздача у него снова с трекерами:
                 # хоронить показ на этом месте было бы враньём - упаковка попробует ещё.
                 feed.stall("")
-                time.sleep(2.0)
+                clock.sleep(2.0)
                 continue
             # Убитый сигналом ffmpeg ничего сказать не успевает - не выдумываем за него.
             raise InfraError(f"упаковка оборвалась: {trouble}")
@@ -3799,7 +3809,7 @@ def _hold(
             # впереди - это зависание, а при пустых - законное ожидание нас.
             position = receiver.position(feed.front(last))
         except InfraError:  # приёмник позицию не отдаёт - показу остаётся только ждать
-            time.sleep(2.0)
+            clock.sleep(2.0)
             continue
         last = position.pos
         if position.pos > 0 and position.state not in {"BUFFERING", "IDLE"}:
@@ -3833,11 +3843,11 @@ def _hold(
             warmer.feed(feed.front(position.pos) - position.pos)
             if warmer.done and feed.rest():
                 print("прогрето целиком - живую упаковку гашу, показ идёт с диска", flush=True)
-        if time.monotonic() - said >= SAY_SECONDS:
+        if clock.monotonic() - said >= SAY_SECONDS:
             # Что видит приёмник, тем и отчитываемся: длительность и позиция - это ровно
             # ``duration`` и ``current_time`` из MEDIA_STATUS, снятые владеющим сендером.
             # Другого доказательства «на ТВ есть таймлайн» у нас нет.
-            said = time.monotonic()
+            said = clock.monotonic()
             print(
                 f"экран: {_hms(position.pos)} из {_hms(position.dur)} · {position.state}",
                 flush=True,
@@ -3864,10 +3874,10 @@ def _hold(
             if watch.done and watch.entry.serial:
                 return  # серия досмотрена - освобождаем показ под следующую
         if position.state == "PAUSED":
-            paused = paused or time.monotonic()
-            if time.monotonic() - paused > PAUSE_LIMIT:
+            paused = paused or clock.monotonic()
+            if clock.monotonic() - paused > PAUSE_LIMIT:
                 return  # пауза длиной с вечер - показ окончен, юнит гасим
-            if time.monotonic() - paused > PAUSE_SECONDS and not feed.halted():
+            if clock.monotonic() - paused > PAUSE_SECONDS and not feed.halted():
                 print("пауза на пульте - упаковку гашу", flush=True)
                 feed.halt()  # вернутся к показу - раздача сама начнёт паковать заново
         elif not position.playing:
@@ -3887,7 +3897,7 @@ def _hold(
             if feed.recoder is not None:
                 feed.recoder.played = position.pos
             feed.prune(position.pos)
-        time.sleep(2.0)
+        clock.sleep(2.0)
 
 
 @runtime_checkable

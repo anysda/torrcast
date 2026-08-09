@@ -562,14 +562,11 @@ class _Fading:
 
 def _dark(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
     offline: str = "источник молчит дольше 45 с",
     **kwargs: Any,
 ) -> tuple[_Ticker, Feed, _Warm, _Fading]:
     """Общий вход всех сценариев: смотрели 20-ю минуту, сеть оборвалась, экран погас."""
     clock = _Ticker()
-    monkeypatch.setattr(time, "sleep", clock.sleep)
-    monkeypatch.setattr(time, "monotonic", clock.monotonic)
     feed = _feed_with_segments(tmp_path)
     feed.offline = offline
     warmer = _Warm(warmed=kwargs.pop("warmed", 600.0), done=kwargs.pop("done", False))
@@ -592,9 +589,9 @@ def test_an_outage_longer_than_the_receivers_patience_does_not_end_the_show(
     """
     from torrcast import cli
 
-    clock, feed, warmer, receiver = _dark(tmp_path, monkeypatch, back_at=300.0)
+    clock, feed, warmer, receiver = _dark(tmp_path, back_at=300.0)
 
-    cli._hold(receiver, feed, None, warmer)  # type: ignore[arg-type]
+    cli._hold(receiver, feed, None, warmer, clock=clock)  # type: ignore[arg-type]
 
     assert receiver.replays == [1200.0], "показ подняли, и ровно с той секунды, где смотрели"
     assert clock.now - 1000.0 >= 300.0, "до возврата сети приёмник не трогали ни разу"
@@ -614,9 +611,9 @@ def test_a_dark_show_gives_up_after_a_limited_number_of_tries(
     """
     from torrcast import cli
 
-    clock, feed, warmer, receiver = _dark(tmp_path, monkeypatch, takes=False, back_at=300.0)
+    clock, feed, warmer, receiver = _dark(tmp_path, takes=False, back_at=300.0)
 
-    cli._hold(receiver, feed, None, warmer)  # type: ignore[arg-type]
+    cli._hold(receiver, feed, None, warmer, clock=clock)  # type: ignore[arg-type]
 
     assert receiver.replays == [1200.0] * cli.REVIVE_TRIES, "попытки конечны и все - с места"
     assert clock.now - 1000.0 >= 300.0 + 2 * cli.REVIVE_PAUSE, "между попытками выдержка"
@@ -636,9 +633,9 @@ def test_a_network_that_never_returns_ends_the_show_exactly_as_before(
     """
     from torrcast import cli
 
-    clock, feed, warmer, receiver = _dark(tmp_path, monkeypatch)
+    clock, feed, warmer, receiver = _dark(tmp_path)
 
-    cli._hold(receiver, feed, None, warmer)  # type: ignore[arg-type]
+    cli._hold(receiver, feed, None, warmer, clock=clock)  # type: ignore[arg-type]
 
     assert receiver.replays == [], "мёртвая сеть - в приёмник не ушло ни одного LOAD"
     assert clock.now - 1000.0 > cli.REVIVE_LIMIT, "ждали ровно столько, сколько обещали"
@@ -652,9 +649,9 @@ def test_a_warmed_movie_is_revived_without_waiting_for_the_network(
     """Фильм лёг на диск целиком - воскрешение не ждёт сети ни секунды: смотреть есть что."""
     from torrcast import cli
 
-    clock, feed, warmer, receiver = _dark(tmp_path, monkeypatch, warmed=7200.0, done=True)
+    clock, feed, warmer, receiver = _dark(tmp_path, warmed=7200.0, done=True)
 
-    cli._hold(receiver, feed, None, warmer)  # type: ignore[arg-type]
+    cli._hold(receiver, feed, None, warmer, clock=clock)  # type: ignore[arg-type]
 
     assert receiver.replays == [1200.0], "подняли сразу и с сохранённого места"
     assert clock.now - 1000.0 < cli.REVIVE_PAUSE, "ждать возврата сети было незачем"
@@ -666,9 +663,9 @@ def test_a_finished_movie_is_not_resurrected(
     """Титры - не авария: досмотренный фильм гаснет и остаётся погашенным."""
     from torrcast import cli
 
-    clock, feed, warmer, receiver = _dark(tmp_path, monkeypatch, offline="", at=7100.0)
+    clock, feed, warmer, receiver = _dark(tmp_path, offline="", at=7100.0)
 
-    cli._hold(receiver, feed, None, warmer)  # type: ignore[arg-type]
+    cli._hold(receiver, feed, None, warmer, clock=clock)  # type: ignore[arg-type]
 
     assert receiver.replays == [], "конец показа не воскрешают"
     assert clock.now - 1000.0 < cli.REVIVE_PAUSE, "и не ждут на нём ни сети, ни выдержки"
@@ -737,8 +734,6 @@ def test_the_bookmark_holds_the_last_frame_seen_not_where_the_watchdog_drove(
     from torrcast import cli
 
     clock = _Ticker()
-    monkeypatch.setattr(time, "sleep", clock.sleep)
-    monkeypatch.setattr(time, "monotonic", clock.monotonic)
     monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
     feed = _feed_with_segments(tmp_path)
     feed.offline = "источник молчит дольше 45 с"
@@ -747,7 +742,7 @@ def test_the_bookmark_holds_the_last_frame_seen_not_where_the_watchdog_drove(
     entry = Entry(title="ролик", magnet=MAGNET, pos=0.0, dur=7200.0)
     watch = _Watch(key="movie:ролик:2026", entry=entry, every=0.0)
 
-    cli._hold(receiver, feed, watch, warmer)  # type: ignore[arg-type]
+    cli._hold(receiver, feed, watch, warmer, clock=clock)  # type: ignore[arg-type]
 
     assert receiver.replays == [159.0] * cli.REVIVE_TRIES, "поднимаем с показанного кадра"
     assert entry.pos == 159.0, "и «Продолжить?» зовёт туда же, а не на 4:15"
@@ -829,14 +824,12 @@ def test_a_try_is_not_burnt_on_a_receiver_that_only_just_dropped_the_show(
     from torrcast import cli
 
     clock = _Ticker()
-    monkeypatch.setattr(time, "sleep", clock.sleep)
-    monkeypatch.setattr(time, "monotonic", clock.monotonic)
     feed = _feed_with_segments(tmp_path)
     feed.offline = ""  # упаковка на обрыв не жаловалась: рвался не источник
     warmer = _Warm()
     receiver = _Blinking(clock, warmer)
 
-    cli._hold(receiver, feed, None, warmer, _supply(_Service()))  # type: ignore[arg-type]
+    cli._hold(receiver, feed, None, warmer, _supply(_Service()), clock=clock)  # type: ignore[arg-type]
 
     assert receiver.replays, "показ всё-таки поднимали - попытки не пропали вовсе"
     assert receiver.when[0] - receiver.died >= cli.REVIVE_PAUSE, (
@@ -862,14 +855,12 @@ def test_two_short_outages_do_not_eat_the_whole_stock_of_tries(
     from torrcast import cli
 
     clock = _Ticker()
-    monkeypatch.setattr(time, "sleep", clock.sleep)
-    monkeypatch.setattr(time, "monotonic", clock.monotonic)
     feed = _feed_with_segments(tmp_path)
     feed.offline = ""
     warmer = _Warm()
     receiver = _Blinking(clock, warmer, refuses=1, revives=2)
 
-    cli._hold(receiver, feed, None, warmer, _supply(_Service()))  # type: ignore[arg-type]
+    cli._hold(receiver, feed, None, warmer, _supply(_Service()), clock=clock)  # type: ignore[arg-type]
 
     assert len(receiver.revived) == 2, "оба обрыва показ пережил, а не только первый"
     assert receiver.revived[1] > receiver.revived[0], "второй раз поднялись дальше по фильму"
@@ -995,14 +986,14 @@ def _blinking(
     """Показ на заглушке, под которым моргает источник - сухой прогон живой аварии.
 
     Терпение приёмника задаётся, а не выжидается: живьём его четыре минуты, и тест,
-    честно простоявший их, никто гонять не станет.
+    честно простоявший их, никто гонять не станет. Часы у показа и у заглушки одни и свои
+    (:class:`torrcast.timing.Clock`): настоящий :mod:`time` тут не трогают вовсе, потому и
+    исход не зависит от того, чем занята машина.
     """
     clock = _Ticker()
-    monkeypatch.setattr(time, "sleep", clock.sleep)
-    monkeypatch.setattr(time, "monotonic", clock.monotonic)
     feed = _feed_with_segments(tmp_path)
     warmer = _Warm(warmed=600.0)
-    receiver = MockReceiver(patience=patience)
+    receiver = MockReceiver(patience=patience, clock=clock)
     source = _Source(clock, receiver, feed, warmer, **kwargs)
     monkeypatch.setattr(MockReceiver, "_open", lambda self, url, at=0.0: source.open(url, at))
     receiver.play("http://127.0.0.1:8010/index.m3u8", at=1200.0)
@@ -1024,9 +1015,9 @@ def test_a_blinking_source_takes_the_mock_receiver_dark_and_the_show_comes_back(
     """
     from torrcast import cli
 
-    _, feed, warmer, receiver, source = _blinking(tmp_path, monkeypatch, back_at=120.0)
+    clock, feed, warmer, receiver, source = _blinking(tmp_path, monkeypatch, back_at=120.0)
 
-    cli._hold(receiver, feed, None, warmer)  # type: ignore[arg-type]
+    cli._hold(receiver, feed, None, warmer, clock=clock)  # type: ignore[arg-type]
 
     first, own, revival = source.opens[0], source.opens[1:3], source.opens[3:]
     assert first == 1200.0, "показ начался с 20-й минуты"
@@ -1059,7 +1050,7 @@ def test_the_mock_receiver_burns_its_patience_before_it_drops_the_show(
 
     seen = []
     for _ in range(6):
-        time.sleep(2.0)  # опрос показа раз в 2 с, как в жизни
+        clock.sleep(2.0)  # опрос показа раз в 2 с, как в жизни
         seen.append(receiver.position())
 
     states = [(round(p.pos), p.playing, p.state) for p in seen]
@@ -1082,7 +1073,7 @@ def test_a_source_that_never_returns_ends_the_show_on_the_mock_too(
 
     clock, feed, warmer, receiver, source = _blinking(tmp_path, monkeypatch)
 
-    cli._hold(receiver, feed, None, warmer)  # type: ignore[arg-type]
+    cli._hold(receiver, feed, None, warmer, clock=clock)  # type: ignore[arg-type]
 
     assert source.opens == [1200.0, 1208.0, 1208.0], "после своих двух повторов - ни одного LOAD"
     assert clock.now - 1000.0 > cli.REVIVE_LIMIT, "ждали ровно столько, сколько обещали"
@@ -1106,11 +1097,9 @@ def test_the_mock_receiver_takes_a_load_right_after_a_404(
     приёмник, который всё-таки обижается, должен настраиваться числом, а не правкой кода.
     На решение «держать запрос вместо 404» этот ноль не влияет: там своя причина.
     """
-    now = [1000.0]
-    monkeypatch.setattr(time, "monotonic", lambda: now[0])
-    monkeypatch.setattr(time, "sleep", lambda seconds: now.__setitem__(0, now[0] + seconds))
+    clock = _Ticker()
     opens: list[float] = []
-    receiver = MockReceiver()
+    receiver = MockReceiver(clock=clock)
     receiver._url = "http://127.0.0.1:8010/index.m3u8"
     monkeypatch.setattr(MockReceiver, "_open", lambda self, url, at=0.0: opens.append(at))
 
@@ -1760,10 +1749,10 @@ def test_a_dead_source_is_named_instead_of_blaming_the_receiver(
 
     monkeypatch.setenv(trace.LOG_ENV, str(tmp_path / "trace"))
     (tmp_path / "trace").mkdir()
-    _clock, feed, warmer, receiver = _dark(tmp_path, monkeypatch, offline="")
+    clock, feed, warmer, receiver = _dark(tmp_path, offline="")
     service = _Service(up=False)
 
-    cli._hold(receiver, feed, None, warmer, _supply(service))  # type: ignore[arg-type]
+    cli._hold(receiver, feed, None, warmer, _supply(service), clock=clock)  # type: ignore[arg-type]
 
     printed = capsys.readouterr().out
     assert "показ погас на 0:20:00 (TorrServer не отвечает)" in printed, (
@@ -1792,7 +1781,7 @@ def test_the_returning_source_gets_the_torrent_back_by_magnet(
 
     monkeypatch.setenv(trace.LOG_ENV, str(tmp_path / "trace"))
     (tmp_path / "trace").mkdir()
-    clock, feed, warmer, receiver = _dark(tmp_path, monkeypatch, offline="")
+    clock, feed, warmer, receiver = _dark(tmp_path, offline="")
     warmer.warmed = 0.0  # прогрева нет: возврат показа держится только на источнике
     service = _Service(up=False)
     clock.ticks.append(
@@ -1800,7 +1789,7 @@ def test_the_returning_source_gets_the_torrent_back_by_magnet(
     )
     service._listed = service._files = False  # перезапуск: своей раздачи она не помнит
 
-    cli._hold(receiver, feed, None, warmer, _supply(service))  # type: ignore[arg-type]
+    cli._hold(receiver, feed, None, warmer, _supply(service), clock=clock)  # type: ignore[arg-type]
 
     assert service.added == [MAGNET], "раздачу вернули магнитом ровно один раз"
     assert service.dropped == [], "чужих раздач и своей же не сносим - только добавляем"
@@ -1853,11 +1842,11 @@ def test_a_dead_source_does_not_kill_the_show_when_packing_gives_up(
 
     monkeypatch.setenv(trace.LOG_ENV, str(tmp_path / "trace"))
     (tmp_path / "trace").mkdir()
-    _clock, feed, warmer, receiver = _dark(tmp_path, monkeypatch, offline="")
+    clock, feed, warmer, receiver = _dark(tmp_path, offline="")
     feed.fatal = "ffmpeg сдался: Input/output error"
     service = _Service(up=False)
 
-    cli._hold(receiver, feed, None, warmer, _supply(service))  # type: ignore[arg-type]
+    cli._hold(receiver, feed, None, warmer, _supply(service), clock=clock)  # type: ignore[arg-type]
 
     printed = capsys.readouterr().out
     assert "источник не читается (TorrServer не отвечает) - жду его возврата" in printed
@@ -1873,12 +1862,12 @@ def test_a_packing_failure_on_a_healthy_source_still_ends_the_show(
     """Источник в порядке, а упаковка сдалась - это по-прежнему конец показа с ошибкой."""
     from torrcast import cli
 
-    _clock, feed, warmer, receiver = _dark(tmp_path, monkeypatch, offline="")
+    clock, feed, warmer, receiver = _dark(tmp_path, offline="")
     feed.fatal = "ffmpeg сдался: Invalid data found"
     service = _Service()
 
     with pytest.raises(InfraError, match="упаковка оборвалась"):
-        cli._hold(receiver, feed, None, warmer, _supply(service))  # type: ignore[arg-type]
+        cli._hold(receiver, feed, None, warmer, _supply(service), clock=clock)  # type: ignore[arg-type]
 
 
 def test_the_source_is_never_asked_while_the_picture_is_alive(
@@ -1956,10 +1945,10 @@ def test_a_source_that_came_back_by_itself_is_still_the_one_to_blame(
 
     monkeypatch.setenv(trace.LOG_ENV, str(tmp_path / "trace"))
     (tmp_path / "trace").mkdir()
-    _clock, feed, warmer, receiver = _dark(tmp_path, monkeypatch, offline="")
+    clock, feed, warmer, receiver = _dark(tmp_path, offline="")
     service = _Service(listed=False, files=False)  # служба уже поднялась, но список пуст
 
-    cli._hold(receiver, feed, None, warmer, _supply(service))  # type: ignore[arg-type]
+    cli._hold(receiver, feed, None, warmer, _supply(service), clock=clock)  # type: ignore[arg-type]
 
     printed = capsys.readouterr().out
     assert "показ погас на 0:20:00 (TorrServer перезапускался - раздачу вернул магнитом)" in printed
