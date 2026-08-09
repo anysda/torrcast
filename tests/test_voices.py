@@ -160,7 +160,8 @@ def test_a_studio_signature_reads_as_a_rung_of_the_ladder() -> None:
     """Подпись студией - тот же вид перевода, только сказанный именем студии."""
     assert [t.kind for t in BARBIE] == ["", "многоголосый", "многоголосый", ""]
     assert [t.kind for t in INSIDEOUT] == ["многоголосый", "многоголосый", "дубляж", ""]
-    assert [t.kind for t in PULP] == ["двухголосый", "дубляж", ""]
+    # Кубик в Кубе занесён в «многоголосый» - формально двухголосые, но по крутости равны лучшим
+    assert [t.kind for t in PULP] == ["многоголосый", "дубляж", ""]
     assert [t.kind for t in YOURNAME] == ["многоголосый", "многоголосый", "дубляж", ""]
 
 
@@ -194,14 +195,85 @@ def test_the_studio_table_never_beats_the_language_tag_or_lifts_a_service_track(
     assert service.step == STEP_SERVICE
 
 
-def test_the_studio_weight_is_reserved_but_not_used_yet() -> None:
-    """Место под ранжир «крутости» есть, самого ранжира нет: вес у всех нулевой.
+def test_studio_fame_ranks_studios_within_a_step() -> None:
+    """Ранжир крутости разводит студии внутри ступени; ступени из лестницы не смешиваются.
 
-    Порядок внутри ступени пока авторский - тот, в котором дорожки лежат в файле.
+    fame работает ТОЛЬКО внутри ступени: дубляж всегда выше многоголосого,
+    даже если у многоголосого fame=100.
     """
-    assert {s.fame for s in STUDIOS.values()} == {0}
+    # ступени в таблице - только иззвестных (:data:`VOICE_KINDS`)
     assert {s.kind for s in STUDIOS.values()} <= set(VOICE_KINDS), "ступени только из лестницы"
-    assert voice_order(MOANA2[1]) < voice_order(MOANA2[2]), "равная ступень - порядок в файле"
+    # AniDub вредоносный и fame отрицательный; Кубик в Кубе - положительный
+    assert STUDIOS["anidub"].fame < 0
+    assert STUDIOS["кубик в кубе"].fame > 0
+    # равная ступень, разный вес - порядок по весу
+    assert voice_order(MOANA2[4]) < voice_order(MOANA2[5]), (
+        "TVShows (0) выше LostFilm (0) только по индексу"
+    )
+    # дубляж не пробивается fame многоголосого - лестница сильнее
+    dub = AudioTrack(0, "rus", "Дубляж")
+    mvo_high_fame = AudioTrack(1, "rus", "Кубик в Кубе")
+    assert voice_order(dub) < voice_order(mvo_high_fame), (
+        "дубляж всегда выше, даже если у многоголосого fame=10"
+    )
+
+
+#: «Фарго» (sезон без дубляжа): Кубик в Кубе против LostFilm, два многоголосых.
+#: Дорожки реальные - так подписывают сериальные раздачи.
+FARGO = (
+    AudioTrack(0, "rus", "MVO (LostFilm)", "ac3", 2),
+    AudioTrack(1, "rus", "Кубик в Кубе", "ac3", 2),
+    AudioTrack(2, "eng", "Original", "ac3", 6),
+)
+
+
+def test_kubik_beats_lostfilm() -> None:
+    """Кубик в Кубе побеждает LostFilm как в меню, так и в дефолте.
+
+    Оба - многоголосые в одной ступени; внутри ступени решает fame:
+    у Кубика он положительный, у LostFilm - нулевой.
+    """
+    assert STUDIOS["кубик в кубе"].kind == "многоголосый"
+    assert voice_order(FARGO[1]) < voice_order(FARGO[0]), "Кубик левее LostFilm в очереди"
+    assert Media(tracks=FARGO).default_track() == FARGO[1].index, "Кубик берётся дефолтом"
+
+
+#: «Фрирен» (s1e1): AniLibria и AniDub в одной раздаче; оригинал японский.
+#: AniDub встраивает 21 с рекламы - должна победить AniLibria.
+FRIEREN = (
+    AudioTrack(0, "rus", "AniLibria", "aac", 2),
+    AudioTrack(1, "rus", "AniDub", "aac", 2),
+    AudioTrack(2, "jpn", "Original", "flac", 2),
+)
+#: «Фрирен»: релиз без AniLibria - только AniDub и оригинал.
+FRIEREN_ANIDUB_ONLY = (
+    AudioTrack(0, "rus", "AniDub", "aac", 2),
+    AudioTrack(1, "jpn", "Original", "flac", 2),
+)
+
+
+def test_anilibria_beats_anidub() -> None:
+    """При живой AniLibria дефолт на «Фрирене» - не AniDub.
+
+    AniDub встраивает рекламу прямо в файл (замерено: s1e1 у AniLibria 26:00,
+    у AniDub 26:21 - лишние 21 с), и fame у них отрицательный.
+    Если AniDub - единственный русский вариант, всё равно берётся он.
+    """
+    assert STUDIOS["anidub"].fame < 0
+    assert Media(tracks=FRIEREN).default_track() == FRIEREN[0].index, "AniLibria, не AniDub"
+    assert Media(tracks=FRIEREN_ANIDUB_ONLY).default_track() == FRIEREN_ANIDUB_ONLY[0].index, (
+        "AniDub единственный русский - берётся он, реклама лучше японского"
+    )
+
+
+def test_voice_note_explains_non_default_choice() -> None:
+    """Если дефолт - не дубляж, voice_note честно объясняет почему взяла именно эту.
+
+    Например, Кубик в Кубе в Фарго: дубляжа нет, берётся лучшая доступная студия.
+    """
+    note = cli.voice_note(Media(tracks=FARGO), Media(tracks=FARGO).default_track())
+    assert "Кубик в Кубе" in note, "студия называется"
+    assert "многоголосый" in note, "ступень называется"
 
 
 def test_the_note_explains_the_choice_only_when_there_was_one() -> None:
