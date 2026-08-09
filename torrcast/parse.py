@@ -1245,6 +1245,16 @@ def _run_span(picture: Picture) -> tuple[int, int] | None:
     return (min(numbers), max(numbers)) if numbers else None
 
 
+def _picture_season_span(picture: Picture) -> tuple[int, int] | None:
+    """Сквозной отрезок сезонов картины. Нет таких имён - None."""
+    numbers = [
+        s
+        for r in picture.releases
+        for s in (r.seasons or ([r.season] if r.season is not None else []))
+    ]
+    return (min(numbers), max(numbers)) if numbers else None
+
+
 def _continued(
     pictures: list[Picture], chains: list[list[int]], union: Callable[[int, int], None]
 ) -> list[list[int]]:
@@ -1260,21 +1270,30 @@ def _continued(
     Гейт при этом не ослаблен: ремейк тем и ремейк, что начинает счёт заново, и его
     диапазон стартует с первой серии. Сшиваем, только когда поздний кусок:
 
-    * начинается НЕ с первой серии - счёт не начат заново;
-    * начинается там, где кончился ранний (с зазором не больше одной серии, а
+    * начинается НЕ с первой серии/сезона - счёт не начат заново;
+    * начинается там, где кончился ранний (с зазором не больше одной серии/сезона, а
       пересечение допустимо: сборник «TV [01-252]» перекрывает куски внутри себя).
 
-    Обе стороны обязаны назвать свои серии сами. Молчит хоть одна - сшивать нечем, и
-    работает прежний гейт года.
+    Обе стороны обязаны назвать свои серии/сезоны сами. Молчит хоть одна - сшивать
+    нечем, и работает прежний гейт года.
     """
     if len(chains) < 2 or any(pictures[i].kind != "tv" for chain in chains for i in chain):
         return chains
     out: list[list[int]] = [chains[0]]
     for chain in chains[1:]:
-        before = [span for i in out[-1] if (span := _run_span(pictures[i]))]
-        after = [span for i in chain if (span := _run_span(pictures[i]))]
-        start = min((s for s, _ in after), default=0)
-        if before and start > 1 and start <= max(e for _, e in before) + 1:
+        before_ep = [span for i in out[-1] if (span := _run_span(pictures[i]))]
+        after_ep = [span for i in chain if (span := _run_span(pictures[i]))]
+        start_ep = min((s for s, _ in after_ep), default=0)
+
+        before_s = [span for i in out[-1] if (span := _picture_season_span(pictures[i]))]
+        after_s = [span for i in chain if (span := _picture_season_span(pictures[i]))]
+        start_s = min((s for s, _ in after_s), default=0)
+
+        # Сшивает ЛЮБАЯ из двух линеек: сквозная нумерация серий (аниме) или нумерация
+        # сезонов (длинный сериал, у которого каждый сезон датирован своим годом).
+        if (before_ep and start_ep > 1 and start_ep <= max(e for _, e in before_ep) + 1) or (
+            before_s and start_s > 1 and start_s <= max(e for _, e in before_s) + 1
+        ):
             union(out[-1][0], chain[0])
             out[-1] = out[-1] + chain
             continue

@@ -16,6 +16,7 @@ from torrcast.parse import (
     Episode,
     EpisodeFile,
     Picture,
+    cluster,
     map_episodes,
     parse_release_name,
     split_episode,
@@ -436,3 +437,30 @@ def test_year_gate_lets_one_numbering_line_through() -> None:
     # Молчащие о сериях куски судит прежний гейт года.
     silent = picture("Гинтама / Gintama (2011) BDRip 1080p | L1", 2011)
     assert len(glue([early, silent])) == 2
+
+
+def test_seasons_of_one_show_dated_apart_still_make_one_picture() -> None:
+    """🔴 TC-201. Сезоны одного сериала подписаны РАЗНЫМИ годами - и это один сериал.
+
+    Гейт года разводит одноимённые картины не зря (ремейк «Флэша» 2014-го не сериал
+    1990-го), но у длинного сериала каждый сезон датирован своим годом, и гейт резал
+    его на «годовые» картины: «Доктор Кто» давал 16 штук, «Чёрное зеркало» 7,
+    «Клиника» 8. Выбор сезона тогда решался тем, какая из них выиграет ранжир: на
+    ``доктор кто s5e10`` побеждала картина 2017 года при живой картине 2005 в том же меню.
+
+    Сшивает их признак ПРОДОЛЖЕНИЯ НУМЕРАЦИИ (тот же приём, что для сквозной нумерации
+    аниме), а не имя: у ремейка нумерация начинается заново, и он остаётся отдельным.
+    """
+    show = [
+        parse_release_name(f"Доктор Кто / Doctor Who [S{n:02d}] ({year})")
+        for n, year in enumerate(
+            (2005, 2006, 2007, 2008, 2010, 2011, 2012, 2014, 2015, 2017), start=1
+        )
+    ]
+    assert len(cluster(show)) == 1, "сезоны одного сериала - одна картина"
+
+    remakes = [
+        parse_release_name("Флэш / The Flash [S01] (1990)"),
+        parse_release_name("Флэш / The Flash [S01] (2014)"),
+    ]
+    assert len(cluster(remakes)) == 2, "перезапуск начинает нумерацию заново - другая картина"
