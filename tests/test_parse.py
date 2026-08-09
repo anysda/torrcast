@@ -907,3 +907,57 @@ def test_short_name_finds_the_classic_not_the_remake() -> None:
         ("Кавказская пленница, или Новые приключения Шурика", 1967),
         ("Кавказская пленница!", 2014),
     ]
+
+
+def test_latin_full_name_beats_soundtrack_scrap() -> None:
+    """TC-153: латинское имя картины сводится с русским на привязке, а не вторым кругом.
+
+    Живая выдача по «Kill Bill: Vol. 1» - 96 раздач. Картина «Убить Билла» (2003, 58
+    раздач) подписана строками ``Убить Билла / Kill Bill: Vol. 1``, то есть каталог сам
+    ручается за пару, но в указатель псевдонимов попадал только КОРЕНЬ ``kill-bill``:
+    двоеточие с номером части режет :func:`franchise_key`. Точное же ``kill-bill-vol-1``
+    доставалось сборнику саундтреков «VA - Убить Билла - 1» - одной раздаче без единого
+    живого сида, - потому что у него номер части стоит без двоеточия и не режется.
+    Запрос латиницей попадал точным совпадением в этот огрызок: 96 раздач схлопывались
+    до одной мёртвой, и картину спасал только второй круг по русскому имени.
+    """
+    releases = [
+        *(
+            _release("Убить Билла", 2003, original="Kill Bill: Vol. 1", seeders=n)
+            for n in (110, 82, 41, 13)
+        ),
+        *(
+            _release("Убить Билла 2", 2004, original="Kill Bill: Vol. 2", seeders=n)
+            for n in (130, 12)
+        ),
+        _release("VA - Убить Билла - 1", 2007, original="Kill Bill Vol.1", seeders=1),
+    ]
+    pictures = cluster(releases)
+
+    found = pick_franchise("Kill Bill: Vol. 1", pictures)
+    assert [p.title for p in found] == ["Убить Билла", "Убить Билла 2"]
+    assert sum(len(p.releases) for p in found) == 6, "вся франшиза, а не огрызок в одну раздачу"
+    # Корень франшизы работает ровно как работал: добавленное имя лишь длиннее.
+    assert [p.title for p in pick_franchise("Kill Bill", pictures)] == [
+        "Убить Билла",
+        "Убить Билла 2",
+    ]
+
+
+def test_full_latin_name_does_not_merge_namesakes() -> None:
+    """TC-153: длинное имя РАЗВОДИТ однофамильцев, которых корень франшизы сводил.
+
+    Гейт против подмены здесь держится на том, что добавленное в указатель имя ДЛИННЕЕ
+    уже лежавшего там корня: «Хищник» ``Predator: Origins`` и «Добыча» ``Predator: Prey``
+    делят корень ``predator``, и по корню запрос достаётся тому, у кого раздач больше.
+    Полное имя каждую уводит к своей картине - дороги однофамильцам это не открывает,
+    а закрывает.
+    """
+    releases = [
+        *(_release("Хищник", 2018, original="Predator: Origins", seeders=n) for n in (50, 40, 30)),
+        _release("Добыча", 2022, original="Predator: Prey", seeders=9),
+    ]
+    pictures = cluster(releases)
+
+    assert [p.title for p in pick_franchise("Predator: Prey", pictures)] == ["Добыча"]
+    assert [p.title for p in pick_franchise("Predator: Origins", pictures)] == ["Хищник"]
