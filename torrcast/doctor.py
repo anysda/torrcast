@@ -3,8 +3,9 @@
 Проверяется ровно то, обо что уже спотыкались: терминал и локаль (кириллица в
 вопросах), Prowlarr и TorrServer (есть чем искать и что раздавать), метапоиск, на
 котором держится западный и аниме-хвост каталога, адрес ТВ и его порт 8009 (есть кому
-играть), путь до ТВ и адрес раздачи, ffmpeg с ``-readrate_initial_burst`` и серт, если
-кто-то включил https. Вердикт по-русски, без трейсбеков и без ``⚠``.
+играть), путь до ТВ и адрес раздачи, mDNS-путь поиска приёмников (будут ли имена),
+ffmpeg с ``-readrate_initial_burst`` и серт, если кто-то включил https. Вердикт
+по-русски, без трейсбеков и без ``⚠``.
 
 Каждая проверка возвращает пару ``(строка, всё ли хорошо)``: ``cast doctor`` печатает
 строки и завершается кодом 2, если хоть где-то «плохо».
@@ -55,6 +56,7 @@ def checkup(config: Config) -> Iterator[Line]:
     yield _torrserver(config)
     yield _cache(config)
     yield from _tv(config)
+    yield _mdns()
     yield _profile(config)
     yield _hls(config)
     yield _shelves()
@@ -249,6 +251,28 @@ def _tv(config: Config) -> Iterator[Line]:
         yield _bad(f"порт {CAST_PORT} на ТВ не открылся ({exc.strerror or exc}) - ТВ обесточен?")
     finally:
         sock.close()
+
+
+def _mdns() -> Line:
+    """Путь поиска приёмников по mDNS: жив ли он, и что именно не так, если имен нет.
+
+    Строка тут из-за старой ложной тревоги: поиск молча возвращал пустой список, и
+    «в сети нет мультикаста» было не отличить от «запустили системным python без
+    zeroconf». Теперь причину различает :func:`torrcast.scan.by_mdns`, а doctor её
+    показывает. Тишина в эфире и отказ сети - «внимание», а не «плохо»: адреса найдёт
+    обход подсетей, mDNS даёт только имена. Отсутствующий модуль - уже «плохо»: это
+    сломанная установка, а не свойство сети.
+    """
+    from torrcast.scan import by_mdns
+
+    heard = by_mdns()
+    if heard.devices:
+        names = ", ".join(device.title for device in heard.devices[:3])
+        count = len(heard.devices)
+        return _ok(f"mDNS: услышал приёмников {count} ({names}) - имена в поиске будут")
+    if heard.reason == "module":
+        return _bad(heard.note)
+    return _warn(heard.note)
 
 
 def _profile(config: Config) -> Line:

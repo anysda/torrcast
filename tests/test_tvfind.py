@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import socket
 import ssl
+import sys
 import threading
 import time
 
@@ -107,7 +108,9 @@ def test_mdns_and_the_scan_merge_by_address_and_the_name_wins(
 
     monkeypatch.setattr(scan, "interfaces", lambda: [Net("eth0", "10.0.0.7", "255.255.255.0")])
     monkeypatch.setattr(
-        scan, "by_mdns", lambda _timeout: [Device("10.0.0.50", name="Samsung Q70D", how="mdns")]
+        scan,
+        "by_mdns",
+        lambda _timeout: scan.Mdns([Device("10.0.0.50", name="Samsung Q70D", how="mdns")]),
     )
     monkeypatch.setattr(scan, "by_scan", lambda *_a, **_k: ["10.0.0.50", "10.0.0.60", "10.0.0.9"])
     monkeypatch.setattr(scan, "named", name_of)
@@ -118,6 +121,107 @@ def test_mdns_and_the_scan_merge_by_address_and_the_name_wins(
     assert found.devices[1].name == "Samsung Q70D", "имя от mDNS перебивает обход"
     assert found.devices[2].title == "Chromecast"
     assert sorted(asked) == ["10.0.0.60", "10.0.0.9"], "имя у известного по mDNS не переспрашиваем"
+
+
+def test_find_says_why_mdns_is_silent(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Пустой mDNS - не молчок: причина приезжает в notes и печатается перед меню.
+
+    Именно отсутствие этой строки однажды родило ложную тревогу: «приёмник молчит» было
+    не отличить от «в этом python нет zeroconf».
+    """
+    silent = scan.Mdns(reason="module", note="нет zeroconf")
+    monkeypatch.setattr(scan, "interfaces", lambda: [Net("eth0", "10.0.0.7", "255.255.255.0")])
+    monkeypatch.setattr(scan, "by_mdns", lambda _timeout: silent)
+    monkeypatch.setattr(scan, "by_scan", lambda *_a, **_k: ["10.0.0.50"])
+    monkeypatch.setattr(scan, "named", lambda address: Device(address, how="скан"))
+
+    found = scan.find()
+
+    assert "нет zeroconf" in found.notes
+
+
+def test_mdns_without_the_module_names_the_reason(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Системный python без zeroconf - та самая ложная тревога: причина обязана звучать."""
+    monkeypatch.setitem(sys.modules, "zeroconf", None)  # import zeroconf упадёт
+
+    heard = scan.by_mdns(timeout=0.01)
+
+    assert heard.devices == []
+    assert heard.reason == "module"
+    assert "zeroconf" in heard.note
+
+
+def test_mdns_without_multicast_names_the_reason(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Сеть не дала поднять мультикаст - это другая причина, и она с текстом ошибки."""
+    import zeroconf
+
+    def refuse(*_args: object, **_kwargs: object) -> object:
+        raise OSError("мультикаста нет")
+
+    monkeypatch.setattr(zeroconf, "Zeroconf", refuse)
+
+    heard = scan.by_mdns(timeout=0.01)
+
+    assert heard.devices == []
+    assert heard.reason == "network"
+    assert "мультикаста нет" in heard.note
+
+
+class _FakeZeroconf:
+    def __init__(self, *_args: object, **_kwargs: object) -> None:
+        pass
+
+    def close(self) -> None:
+        pass
+
+
+class _FakeBrowser:
+    """Браузер mDNS без сети: ``devices`` пуст, как в эфире без приёмников."""
+
+    def __init__(self, *_args: object) -> None:
+        self.devices: dict[str, object] = {}
+
+    def start_discovery(self) -> None:
+        pass
+
+    def stop_discovery(self) -> None:
+        pass
+
+
+def _quiet_ether(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Слушание mDNS без живой сети: сокет поднялся, эфир молчит."""
+    import pychromecast.discovery
+    import zeroconf
+
+    monkeypatch.setattr(zeroconf, "Zeroconf", _FakeZeroconf)
+    monkeypatch.setattr(pychromecast.discovery, "CastBrowser", _FakeBrowser)
+
+
+def test_mdns_silence_is_named_too(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Слушали честно и никого не услышали - третья причина, не «ошибка сети»."""
+    _quiet_ether(monkeypatch)
+
+    heard = scan.by_mdns(timeout=0.01)
+
+    assert heard.devices == []
+    assert heard.reason == "silence"
+    assert "никто не отозвался" in heard.note
+
+
+def test_mdns_broken_listening_names_the_reason(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Слушание оборвалось посередине - это «network», и текст обрыва виден."""
+    _quiet_ether(monkeypatch)
+
+    def blow_up(self: _FakeBrowser) -> None:
+        raise RuntimeError("сокет умер")
+
+    monkeypatch.setattr(_FakeBrowser, "start_discovery", blow_up)
+
+    heard = scan.by_mdns(timeout=0.01)
+
+    assert heard.devices == []
+    assert heard.reason == "network"
+    assert "сокет умер" in heard.note
 
 
 def test_a_nameless_receiver_still_gets_a_line() -> None:

@@ -39,6 +39,7 @@ __all__ = [
     "CAST_PORT",
     "Device",
     "Found",
+    "Mdns",
     "Net",
     "alive",
     "by_mdns",
@@ -112,6 +113,25 @@ class Found:
     devices: list[Device] = field(default_factory=list)
     #: Пропущенные подсети и прочее, о чём человеку надо сказать вслух, а не умолчать.
     notes: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True, slots=True)
+class Mdns:
+    """Итог слушания mDNS: приёмники и различимая причина, если услышать не вышло.
+
+    Пустой список без причины однажды уже родил ложную тревогу: поиск молчал, и «в
+    сети нет мультикаста» было не отличить от «в этом python нет zeroconf». Поэтому
+    причина - поле результата, а не подавленное исключение: ``reason`` читает машина
+    (doctor), ``note`` - человек (строка перед меню поиска).
+    """
+
+    devices: list[Device] = field(default_factory=list)
+    #: Почему слушание не дало приёмников: ``module`` (в этом python нет zeroconf),
+    #: ``network`` (сеть не дала мультикаста или слушание оборвалось) или ``silence``
+    #: (слушали честно, но никто не отозвался). Пусто - приёмники услышаны.
+    reason: str = ""
+    #: Та же причина словами для человека; печатается как есть, без перевода.
+    note: str = ""
 
 
 def interfaces() -> list[Net]:
@@ -255,29 +275,44 @@ def named(address: str, timeout: float = NAME_TIMEOUT) -> Device:
     )
 
 
-def by_mdns(timeout: float = MDNS_TIMEOUT) -> list[Device]:
+def by_mdns(timeout: float = MDNS_TIMEOUT) -> Mdns:
     """Приёмники, которые сами объявили о себе по mDNS: тут и берутся человеческие имена.
 
     Слушаем строго IPv4: на хосте без внешнего IPv6 сокет уходит в SYN-SENT и висит
     там дольше всего нашего поиска.
 
     Любой сбой zeroconf (нет мультикаста, чужой namespace, занятый порт) - это не отказ
-    поиска: остаётся обход подсетей, и он найдёт то же самое, только без имён.
+    поиска: остаётся обход подсетей, и он найдёт то же самое, только без имён. Но
+    причину пустого ответа мы больше не глотаем: :class:`Mdns` разводит три случая -
+    нет модуля, сеть не дала слушать, слушали и никого не услышали.
     """
     try:
         import zeroconf
         from pychromecast.discovery import CastBrowser, SimpleCastListener
 
         from torrcast.cast import hush_cosmetic_noise
-    except ImportError:  # pragma: no cover - pychromecast стоит зависимостью
-        return []
+    except ImportError:  # другой python без зависимостей: так рождалась ложная тревога
+        return Mdns(
+            reason="module",
+            note=(
+                "mDNS не слушаю: в этом python нет модуля zeroconf - "
+                "имён приёмников не будет, адреса найдёт обход подсетей"
+            ),
+        )
     hush_cosmetic_noise()  # см. :func:`named`: жалоба на 8443 ничего не значит
     try:
         zconf = zeroconf.Zeroconf(ip_version=zeroconf.IPVersion.V4Only)
-    except Exception:
-        return []
+    except Exception as exc:  # нет мультикаста, чужой namespace, занятый порт 5353
+        return Mdns(
+            reason="network",
+            note=(
+                f"mDNS не слушаю: сеть не дала мультикаста ({exc}) - "
+                "имён приёмников не будет, адреса найдёт обход подсетей"
+            ),
+        )
     browser = CastBrowser(SimpleCastListener(), zconf)
     found: list[Device] = []
+    broken = ""
     try:
         browser.start_discovery()
         time.sleep(timeout)
@@ -292,14 +327,31 @@ def by_mdns(timeout: float = MDNS_TIMEOUT) -> list[Device]:
                         maker=str(getattr(info, "manufacturer", "") or ""),
                     )
                 )
-    except Exception:
-        return found
+    except Exception as exc:  # слушание оборвалось: показываем, что успели услышать
+        broken = str(exc) or type(exc).__name__
     finally:
         with suppress(Exception):
             browser.stop_discovery()
         with suppress(Exception):
             zconf.close()
-    return found
+    if found:
+        return Mdns(devices=found)
+    if broken:
+        return Mdns(
+            reason="network",
+            note=(
+                f"mDNS оборвался ({broken}) - "
+                "имён приёмников не будет, адреса найдёт обход подсетей"
+            ),
+        )
+    return Mdns(
+        reason="silence",
+        note=(
+            f"mDNS слушал {timeout:g} сек - никто не отозвался: приёмник в другом "
+            "сегменте (мультикаст через маршрутизатор не ходит) или молчит; "
+            "адреса найдёт обход подсетей"
+        ),
+    )
 
 
 def by_scan(
@@ -357,14 +409,16 @@ def find(
         scanning = pool.submit(by_scan, hosts(networks, ours), timeout, WORKERS, budget)
         heard = listening.result()
         addresses = scanning.result()
+    if heard.note:  # почему mDNS пуст: нет модуля, нет мультикаста или тишина в эфире
+        notes.append(heard.note)
     named_by_scan: list[Device] = []
-    known = {device.address for device in heard}
+    known = {device.address for device in heard.devices}
     fresh = [address for address in addresses if address not in known]
     if fresh:
         with ThreadPoolExecutor(max_workers=min(WORKERS, len(fresh))) as pool:
             named_by_scan = list(pool.map(named, fresh))
     devices = {device.address: device for device in named_by_scan}
-    for device in heard:  # имя от mDNS перебивает добытое обходом
+    for device in heard.devices:  # имя от mDNS перебивает добытое обходом
         devices[device.address] = device
     order = sorted(devices.values(), key=lambda device: _key(device.address))
     return Found(devices=order, notes=notes)

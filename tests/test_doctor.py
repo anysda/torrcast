@@ -113,3 +113,39 @@ def test_cache_unreadable_settings_do_not_fail_checkup(monkeypatch: pytest.Monke
     monkeypatch.setattr(doctor, "_settings", lambda url: None)
     line, good = doctor._cache(_config())
     assert good and "неизвестен" in line, line
+
+
+def _mdns_result(monkeypatch: pytest.MonkeyPatch, result: object) -> None:
+    from torrcast import scan
+
+    monkeypatch.setattr(scan, "by_mdns", lambda *_a, **_k: result)
+
+
+def test_mdns_heard_receivers_is_ok(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Эфир ответил: строка зелёная, и в ней имена - они и есть смысл mDNS."""
+    from torrcast import scan
+
+    _mdns_result(monkeypatch, scan.Mdns(devices=[scan.Device("10.0.0.50", name="Samsung Q70D")]))
+    line, good = doctor._mdns()
+    assert good and line.startswith("ок"), line
+    assert "Samsung Q70D" in line
+
+
+def test_mdns_missing_module_is_bad(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Нет zeroconf - это сломанная установка (системный python), а не свойство сети."""
+    from torrcast import scan
+
+    _mdns_result(monkeypatch, scan.Mdns(reason="module", note="mDNS не слушаю: нет zeroconf"))
+    line, good = doctor._mdns()
+    assert not good and line.startswith("плохо"), line
+    assert "zeroconf" in line
+
+
+def test_mdns_silence_is_a_warning_not_a_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Тишина в эфире - «внимание»: адреса найдёт обход подсетей, теряются только имена."""
+    from torrcast import scan
+
+    _mdns_result(monkeypatch, scan.Mdns(reason="silence", note="mDNS слушал 4 сек - тишина"))
+    line, good = doctor._mdns()
+    assert good and line.startswith("внимание"), line
+    assert "тишина" in line
