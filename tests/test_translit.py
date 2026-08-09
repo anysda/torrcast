@@ -27,6 +27,7 @@ from torrcast.parse import (
     parse_release_name,
     slugify,
     transliterate,
+    unswap_layout,
 )
 from torrcast.search import RawResult, merge
 from torrcast.state import Config
@@ -949,3 +950,49 @@ def test_a_latin_named_picture_without_an_article_keeps_its_translit(
     assert client.asked == ["врата штейна", "vrata shteyna"]
     assert "по справке" not in said
     assert "добрал по «vrata shteyna»: стало 7" in said
+
+
+def test_a_query_typed_in_the_wrong_layout_reads_as_russian() -> None:
+    """🔴 TC-195. `nfxrb` - это «тачки» клавиша в клавишу, а не транслит."""
+    assert unswap_layout("nfxrb") == "тачки"
+    assert unswap_layout("rjhgjhfwbz vjycnhjd") == "корпорация монстров"
+    assert unswap_layout("NFXRB") == "тачки"
+
+
+def test_the_layout_swap_keeps_digits_and_spacing() -> None:
+    """Номер части в новой строке остаётся номером: «nfxrb 2» → «тачки 2»."""
+    assert unswap_layout("nfxrb 2") == "тачки 2"
+
+
+def test_the_wrong_layout_finds_the_picture_instead_of_refusing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """🔴 TC-195. Ровно первая строка вечера владельца: `cast nfxrb` вместо «cast тачки».
+
+    Прежде это был отказ «по запросу «nfxrb» ничего не нашлось» за 1.8 с при живом
+    каталоге. Откат правки роняет тест на ``NotFoundError``.
+    """
+    client = _FakeProwlarr(
+        {"тачки": [raw(f"Тачки / Cars (2006) BDRip 1080p {i}", i) for i in range(20)]}
+    )
+
+    plans, said = _search(client, "nfxrb", monkeypatch)
+
+    assert client.asked == ["nfxrb", "тачки"]
+    assert plans[0].picture.title.casefold().startswith("тачки")
+    # Подмена не молчаливая: человек читает, что за него прочитали.
+    assert "в русской раскладке" in said
+
+
+def test_a_latin_query_that_finds_something_is_never_re_read_as_layout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """«cars» находит своё, и второго захода («сфкы») не случается вовсе - ни секунды."""
+    client = _FakeProwlarr(
+        {"cars": [raw(f"Cars.2006.1080p.BluRay.x264-GRP{i}", i) for i in range(20)]}
+    )
+
+    _plans, said = _search(client, "cars", monkeypatch)
+
+    assert client.asked == ["cars"]
+    assert "раскладке" not in said

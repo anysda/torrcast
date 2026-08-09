@@ -97,6 +97,48 @@ def test_a_rich_movie_keeps_the_gate_shut_and_the_queue_named() -> None:
     assert [plan.ranked[n - 1] for n in plan.candidates(args)] == [good, second]
 
 
+def test_a_russian_release_waits_in_the_queue_tail_when_the_gate_shut_it_out() -> None:
+    """🔴 TC-195. Вечер владельца: «Тачки» 2006 - очередь из одного релиза при пяти раздачах.
+
+    Живая выдача «тачки» (замер 09.08.2026, четыре индексера): у картины пять раздач.
+    Верх - названный ``1080p H.264`` 7.1 ГБ на 66 сид, и он единственный именной, поэтому
+    ворота закрыты и очередь состояла ровно из него. Его рой промолчал, и показ ответил
+    «раздач в выдаче 5, потрогали 1 - до остальных отбор не дошёл» - при двух нетронутых
+    раздачах С ДУБЛЯЖОМ (4.4 ГБ на 3 и на 1 сид).
+
+    Откат правки роняет тест: очередь снова становится ``[1]``.
+    """
+    top = named("Тачки / Cars (2006) BDRip 1080p [H.264]", size_gb=7.1, seeders=66)
+    dub_big = named("Тачки / Cars (2006) [Дубляж, Многоголосый, Субтитры]", size_gb=4.4, seeders=3)
+    dub_small = named("Тачки / Cars (2006) [Дубляж, Субтитры]", size_gb=4.4, seeders=1)
+    picture = Picture(title="Тачки", year=2006, releases=[top, dub_big, dub_small])
+    args = Args(query=["тачки"])
+
+    plan = _plan_for(picture, args, Config())
+
+    assert not plan.loose, "живой именной кандидат есть - ворота закрыты, и это правильно"
+    queue = plan.candidates(args)
+    assert queue[0] == 1, "голова очереди не сдвинулась: дефолт и время до картинки прежние"
+    assert len(queue) == 3, "русские раздачи ждут в хвосте, а не выброшены из очереди"
+    assert {plan.ranked[n - 1] for n in queue[1:]} == {dub_big, dub_small}
+
+
+def test_the_queue_tail_takes_russian_only_and_not_any_silent_rip() -> None:
+    """Хвост - про русскую дорожку, а не про «пустить всех»: англоязычный рип не зовём.
+
+    Молчание про КАЧЕСТВО рассудит ffprobe, молчание про ЯЗЫК рассуживать нечем, и
+    хвост, натащивший англорипов, подсунул бы человеку кино без перевода.
+    """
+    top = named("Кино / Movie (1999) BDRip 1080p | D", size_gb=8.0, seeders=200)
+    mute = named("Кино / Movie (1999) Complete", size_gb=4.0, seeders=180)
+    picture = Picture(title="Кино", year=1999, releases=[top, mute])
+    args = Args(query=["кино"])
+
+    plan = _plan_for(picture, args, Config())
+
+    assert plan.candidates(args) == [1], "русской дорожки у молчуна нет - в хвост не идёт"
+
+
 def test_the_open_gate_does_not_let_a_game_repack_pretend_to_be_a_show() -> None:
     """Не-видео не проходит ни при каких воротах — оно не «неизвестного качества».
 

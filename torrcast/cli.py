@@ -1137,6 +1137,40 @@ def _forget_progress(key: str) -> None:
     state.save()
 
 
+def _relayout(
+    client: Prowlarr, query: str, name: str, index: int | None, progress: Progress
+) -> tuple[str, str, int | None, list[RawResult]]:
+    """Второй заход той же строкой, прочитанной как забытая раскладка. Пусто - как было.
+
+    🔴 TC-195. `cast nfxrb` - это «тачки»: запрос, набранный не переключив раскладку.
+    Отказ по нему приходил за 1.8 с и был чистой правдой про строку ``nfxrb`` и полной
+    неправдой про картину, которая лежит в каталоге двумя десятками раздач. Ровно так
+    владелец и начал тот вечер - первой строкой в истории его оболочки.
+
+    Зовётся ровно на пустой выдаче, и это принципиально: у латинской строки всегда есть
+    кириллический двойник, и звать перевод раньше значило бы искать «сфкы» вместо
+    «cars». Пустая выдача - единственный случай, когда терять нечего, и стоит он один
+    заход к индексерам там, где иначе человек уже читал бы отказ.
+
+    Номер части перечитывается заново (:func:`~torrcast.parse.split_franchise_index`):
+    «nfxrb 2» - это «тачки 2», и цифра в новой строке обязана снова стать номером, а не
+    остаться в имени. Подмена не молчаливая: строка про раскладку печатается до меню -
+    человек видит, ЧТО именно за него прочитали.
+    """
+    from torrcast.parse import unswap_layout
+
+    swapped = unswap_layout(query)
+    if swapped == query.casefold():
+        return query, name, index, []
+    fixed, moved = split_franchise_index(swapped)
+    progress.phase(f"поиск «{fixed}»")
+    raw = _ask(client, fixed)
+    if not raw:
+        return query, name, index, []
+    progress.note(f"«{query}» - это «{swapped}» в русской раскладке")
+    return swapped, fixed, moved, raw
+
+
 def _search(
     config: Config, args: Args, progress: Progress, profile: Profile = CAUTIOUS
 ) -> list[_Plan]:
@@ -1157,6 +1191,10 @@ def _search(
     client = Prowlarr(config.prowlarr_url, config.prowlarr_apikey)
     progress.phase(f"поиск «{name}»")
     raw = _ask(client, name)
+    if not raw:
+        # Ни одной строки - повод заподозрить забытую раскладку (:func:`unswap_layout`).
+        # Проверка стоит один заход к индексерам и только там, где иначе был бы отказ.
+        query, name, index, raw = _relayout(client, query, name, index, progress)
     mark("индексеры ответили", строк=len(raw))  # TC-108: замер
     pictures = cluster(to_releases(raw))
     # Номер в запросе - позиция во франшизе, а не в общей выдаче.
@@ -1847,7 +1885,43 @@ class _Plan:
             )
             and not misses_episode(r, self.want)
         ]
-        return queue
+        return queue + self._dubbed_tail(queue)
+
+    def _dubbed_tail(self, queue: list[int]) -> list[int]:
+        """Хвост очереди: русские раздачи, которых ворота отбора не пустили внутрь.
+
+        🔴 TC-195. Ворота (:func:`is_candidate`) судят ИМЯ раздачи, и раздача, чьё имя
+        молчит о качестве, кандидатом не становится, пока у картины есть живой ИМЕННОЙ
+        кандидат (:attr:`loose`). Ровно на этом вечер владельца и кончился: у «Тачек»
+        2006 года очередь состояла из ОДНОГО релиза - названного 1080p H.264 на 66 сид,
+        - его рой промолчал, и показ отказал строкой «раздач в выдаче 5, потрогали 1 -
+        до остальных отбор не дошёл». А среди четырёх нетронутых лежали две с дубляжом
+        (4.4 ГБ на 3 и на 1 сид), которых никто не спрашивал.
+
+        Отказ был честен про то, что потрогали, и бесполезен для человека: картина в
+        каталоге есть, русская дорожка у неё есть, а на экране пусто.
+
+        Хвост, а не послабление ворот, - и это главное. Порядок головы очереди не
+        меняется ни на знак: дефолт тот же, запасные те же, и на картине, где голова
+        играет, хвоста не видно вовсе - до него просто не доходят. Значит и время до
+        картинки прежнее. Меняется ровно один случай: голова кончилась, а показывать
+        нечего.
+
+        В хвост идёт только то, у чего РУССКАЯ дорожка названа именем
+        (:attr:`~torrcast.parse.Release.dubbed`): молчание про качество мы простить
+        готовы - его рассудит ffprobe, - а молчание про язык прощать нечему, иначе
+        хвост натащил бы англоязычных рипов туда, где человек ждёт перевод. Потолок
+        битрейта и образы дисков хвост не двигает: там ресивер встаёт и играть нечего.
+        """
+        seen = set(queue)
+        return [
+            n
+            for n, r in enumerate(self.ranked, start=1)
+            if n not in seen
+            and r.dubbed
+            and not misses_episode(r, self.want)
+            and is_candidate(r, self.runtime, self.warn_mbit, True, self.hard_mbit, True)
+        ]
 
     @property
     def want(self) -> Episode | None:
