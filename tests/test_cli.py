@@ -1866,3 +1866,26 @@ def test_the_live_series_climbs_over_the_silent_one_seed_packs() -> None:
     assert order.index(int(27.24 * 1e9)) > 2, "молчаливые односидные паки ушли ниже него"
     assert order.index(int(10.24 * 1e9)) > 2
     assert order[0] == int(114.21 * 1e9), "честный 720p с верха не сходит"
+
+
+def test_a_4k_file_that_needs_a_full_recode_is_refused_before_the_unit_starts() -> None:
+    """🔴 TC-157: 2160p HEVC мимо отбора (``--release N``) - отказ строкой, а не 86 с молчания.
+
+    Сплошной перекод меняет кодек, но не кадр, а 4К приёмник не берёт и перекодированным:
+    замер на живом Q70D - пять заходов LOAD, каждый ``IDLE/ERROR`` сразу после первого
+    сегмента. Поэтому проверка стоит ДО юнита: ни ffmpeg, ни раздачи не поднимается.
+    """
+    from torrcast.state import Entry
+
+    config = load_config()
+    uhd = Entry(title="Матрица", magnet="m", codec="hevc", depth=10, frame=2160, quality="2160p")
+    with pytest.raises(NotFoundError) as refusal:
+        cli._refuse_hopeless(config, uhd)
+    assert "2160p" in str(refusal.value) and "1080p" in str(refusal.value)
+
+    # 1080p тем же кодеком - ровно то, ради чего сплошной перекод и заведён.
+    cli._refuse_hopeless(config, replace(uhd, frame=1080, quality="1080p"))
+    # 4К, которое уезжает копией, перекода не просит и под запрет не попадает.
+    cli._refuse_hopeless(config, replace(uhd, codec="h264", depth=8))
+    # Кадра не спрашивали (запись прежней версии) - молчим и играем как раньше.
+    cli._refuse_hopeless(config, replace(uhd, frame=0))

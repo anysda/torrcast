@@ -1206,6 +1206,8 @@ def _cmd_play(args: Args) -> int:
         depth=media.depth,
         # То, что уехало на ТВ: `cast status` покажет факт, а не заявку имени.
         quality=media.quality if media.height else "",
+        # Тот же кадр числом: по нему показ решает, есть ли смысл в сплошном перекоде.
+        frame=media.frame,
         query=slugify(args.title_query),
         season=series.want.season if series else None,
         episode=series.want.episode if series else None,
@@ -2738,15 +2740,21 @@ class _Bench:
             # «мы не осилили», а «есть кандидат, про которого мы знаем всё».
             return codec
         if recode:
-            # 🔴 Сплошной перекод замерен на 1080p (4.04x реального времени на 4 vCPU).
-            # У 2160p вчетверо больше пикселей, в реальное время он не укладывается, и
-            # телевизор показ не начинает вовсе. Отказ тут дешевле вечной петли
-            # «залип → воскрешаю»: очередь пойдёт дальше, а человек прочтёт причину.
-            # Высоту говорит ffprobe, а не имя, - 4K с молчаливым именем ловится здесь.
-            # Потолок кадра НЕ из профиля нарочно: он про наши 4 vCPU, а не про
-            # телевизор (:mod:`torrcast.profile` говорит это прямо).
-            if prep.media.height > RECODE_HEIGHT:
-                return f"{codec} {prep.media.quality} - сплошной перекод не успевает"
+            # 🔴 Сплошной перекод меняет кодек, но не кадр, а 4К приёмник не берёт и в
+            # своём кодеке тоже: замер 09-08-2026 на Q70D - пять заходов LOAD, каждый
+            # ``IDLE/ERROR`` сразу после первого сегмента (:attr:`Profile.recode_frame`).
+            # Отказ тут дешевле вечной петли «залип → воскрешаю»: очередь пойдёт дальше,
+            # а человек прочтёт причину. Кадр говорит ffprobe, а не имя, - 4K с
+            # молчаливым именем ловится здесь.
+            #
+            # ⚠️ Прежнее объяснение («сплошной перекод 4К не успевает») тем же замером
+            # опровергнуто: фактическая скорость на 4 vCPU - 1.03× реального времени.
+            # Потолок поэтому и переехал в профиль: он про телевизор, а не про наши ядра.
+            if prep.media.frame > self.profile.recode_frame:
+                return (
+                    f"{codec} {prep.media.quality} - приёмник не берёт такой кадр "
+                    f"в перекодированном виде"
+                )
             return ""
         return codec
 
@@ -2937,6 +2945,7 @@ def _launch(
     if dry:
         print(f"(--dry) {about} - каста нет")
         return EXIT_OK
+    _refuse_hopeless(config, entry)
     # Сначала гасим прошлый показ и только потом пишем свою запись: умирающий юнит по
     # SIGTERM дописывает СВОЮ позицию, и записанный раньше прыжок на s1e5 он бы затёр.
     stop_play_unit()
@@ -2950,6 +2959,37 @@ def _launch(
         _await_playing(config, progress)
     print(f"играю {about} - на ТВ   (старт {clock.total:.0f} с)")
     return EXIT_OK
+
+
+def _refuse_hopeless(config: Config, entry: Entry) -> None:
+    """Отказать ДО юнита, если этой записи на этом приёмнике картинки не видать.
+
+    🔴 Случай ровно один, и он живой (TC-157): файл, который приёмник не декодирует
+    (HEVC, Hi10P), спасается сплошным перекодом, а перекод меняет кодек, но не кадр, —
+    и 4К приёмник не берёт уже по кадру. Замер 09-08-2026 на Q70D: пять заходов LOAD,
+    каждый — ``IDLE/ERROR`` сразу после первого сегмента, картинки нет ни разу
+    (:attr:`torrcast.profile.Profile.recode_frame`).
+
+    Отбор такие релизы отбраковывает сам (:meth:`_Bench._trouble`), но мимо отбора ведут
+    две двери: ``--release N`` / ``--file N`` (там человек выбрал сам, и подмен не бывает)
+    и продолжение записи, попавшей в состояние через них же. Без этой проверки обе
+    кончались одинаково: 86 с «жду телевизор», код 2 и ни слова о причине. Теперь
+    причина печатается за доли секунды, а ffmpeg и раздача не поднимаются вовсе.
+
+    Молчим там, где не знаем: кадр ноль — это записи прежних версий, они играются
+    как раньше.
+    """
+    profile = detect_profile(config).profile
+    if not entry.frame or entry.frame <= profile.recode_frame:
+        return
+    if not recodes_whole(entry.codec or "", entry.depth, profile):
+        return
+    name = codec_name(entry.codec or "", entry.depth)
+    raise NotFoundError(
+        f"{entry.quality or f'{entry.frame}p'} {name} - такой кадр приёмник берёт только "
+        f"в исходном кодеке, а его он не декодирует: нужен релиз "
+        f"{profile.recode_frame}p или ниже"
+    )
 
 
 def _await_playing(config: Config, progress: Progress, timeout: float = START_BUDGET) -> None:

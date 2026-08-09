@@ -712,11 +712,11 @@ def test_the_last_hope_does_not_open_for_a_4k_hevc_because_the_recode_never_keep
 
 
 def test_a_light_4k_hevc_is_refused_by_the_passport_not_looped_forever() -> None:
-    """Лёгкое 4К проходит потолок веса - и всё равно отказ: перекод не успевает.
+    """Лёгкое 4К проходит потолок веса - и всё равно отказ: приёмнику не по кадру.
 
     Потолок ``bitrate_hard_mbit`` ловит 4К-ремуксы тяжестью, а 2160p HEVC на 12 Мбит/с
-    для него лёгкий. Спасает не вес: спасает арифметика пикселей, и считать её надо по
-    паспорту ffprobe, а не по имени раздачи.
+    для него лёгкий. Спасает не вес: спасает кадр, и считать его надо по паспорту
+    ffprobe, а не по имени раздачи (:attr:`torrcast.profile.Profile.recode_frame`).
     """
     config = Config()
     light = cast(
@@ -733,7 +733,7 @@ def test_a_light_4k_hevc_is_refused_by_the_passport_not_looped_forever() -> None
             recode=True,
             hard_mbit=config.bitrate_hard_mbit,
         )
-        == "hevc 2160p - сплошной перекод не успевает"
+        == "hevc 2160p - приёмник не берёт такой кадр в перекодированном виде"
     ), "отказ назван своим именем, и очередь идёт дальше"
 
 
