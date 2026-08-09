@@ -319,10 +319,10 @@ class _Spent:
         return self._spare
 
 
-def _budget(spare: float) -> tuple[float | None, str]:
+def _budget(spare: float, alone: bool = False) -> tuple[float | None, str]:
     out = io.StringIO()
     with Progress(out=out) as progress:
-        left = cli._no_budget(cast(Any, _Spent(spare)), "добор по «кино»", progress)
+        left = cli._no_budget(cast(Any, _Spent(spare)), "добор по «кино»", progress, alone)
     return left, out.getvalue()
 
 
@@ -351,6 +351,48 @@ def test_остаток_цели_делится_между_справкой_и_�
     assert _budget(10.0)[0] == FACTS_BUDGET, "цела вся цель - справке её полный потолок"
     assert _budget(SECOND_LEAST)[0] == pytest.approx(FACTS_BUDGET), "в обрез - потолок тот же"
     assert _budget(SECOND_LEAST - 0.01)[0] is None, "на волос меньше - второго захода нет"
+
+
+def test_справке_на_безнадёжном_пути_достаётся_весь_остаток_цели(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """🔴 TC-243. Русская выдача не дала картины - справка тут единственная опора.
+
+    Полутора секунд ей на это не хватает: прямая выборка промолчала, а поиск Википедии и
+    разбор описки - ещё два-три запроса, и они физически не успевают («Секреты
+    Лос-Анджелеса», «Реинкарнация (фильм, 2018)» лежат первыми строками поиска). Дороже
+    отказа этот путь стать не может, поэтому потолок ему - весь остаток цели за вычетом
+    доли круга. Счастливый путь при этом не удлиняется ни на миллисекунду: там картина
+    найдена, и потолок остаётся прежним.
+    """
+    monkeypatch.setenv("TORRCAST_LOG", "")
+    from torrcast.facts import FACTS_BUDGET
+    from torrcast.search import CIRCLE_SHARE, SECOND_LEAST
+
+    alone, usual = _budget(9.0, alone=True)[0], _budget(9.0)[0]
+    assert alone == pytest.approx(9.0 - CIRCLE_SHARE), "безнадёжному пути - весь остаток цели"
+    assert usual == FACTS_BUDGET, "счастливый путь не удлинился ни на миллисекунду"
+    # Порог второго захода общий: остатка нет - нет и захода, сколь бы ни была нужна справка.
+    assert _budget(SECOND_LEAST - 0.01, alone=True)[0] is None, "цель съедена - честный отказ"
+
+
+def test_тип_картины_справке_называет_выдача_а_на_пустой_сам_запрос() -> None:
+    """🔴 TC-243. Тип нужен справке, и брать его наугад нельзя - только с чужих слов.
+
+    У сериала и фильма разные статьи, и подсказка наугад уводит в чужую («Восхождение» с
+    ``True`` - сериал 2024 вместо фильма Шепитько). Поэтому источников ровно два, и оба
+    говорят о картине прямо: разобранная выдача первого круга, а на пустой выдаче - сам
+    запрос, в котором человек назвал серию. Молчание о серии по-прежнему не значит
+    «фильм»: тогда справка идёт прежним осторожным режимом «оба типа» (``None``).
+    """
+    show = Picture(title="Клиника", year=2001, kind="tv")
+    film = Picture(title="Клиника", year=2001, kind="movie")
+
+    assert cli._asked_kind(show, cli.Args(query=["клиника"])) is True
+    assert cli._asked_kind(film, cli.Args(query=["клиника"])) is False
+    asked = cli._asked_kind(None, cli.Args(query=["клиника", "s1e1"]))
+    assert asked is True, "выдачи нет, но серию назвал сам человек - это сериал"
+    assert cli._asked_kind(None, cli.Args(query=["клиника"])) is None, "спросить не у кого"
 
 
 def _resolve(bench: Any, ranked: list[Release], recode_at: float = 10.0, **flags: Any) -> Any:
@@ -2637,3 +2679,51 @@ def test_a_neighbour_that_is_no_better_is_a_record_of_the_trace_too(
     printed = capsys.readouterr().out
     assert prep.number == 1 and "релиз 2 не лучше" in printed
     assert _turned_down_on_screen(printed) == _turned_down_in_trace() == ["2"]
+
+
+class _Silent(_Spent):
+    """Клиент второго круга: остаток цели тот, а индексеры молчат."""
+
+    def search(self, query: str) -> list[Any]:
+        return []
+
+
+def _asked_reference(
+    monkeypatch: pytest.MonkeyPatch, found: list[Picture], args: cli.Args, spare: float = 9.0
+) -> tuple[Any, ...]:
+    """Чем и с каким потолком добор спросил справку. Круг при этом пустой."""
+    from torrcast.facts import Origin
+
+    calls: list[tuple[Any, ...]] = []
+
+    def _spy(name: str, series: bool | None = False, budget: float = 0.0) -> Origin:
+        calls.append((name, series, budget))
+        return Origin()
+
+    monkeypatch.setattr(cli, "origin", _spy)
+    with Progress(out=io.StringIO()) as progress:
+        cli._second_language(cast(Any, _Silent(spare)), "клиника", args, [], found, progress)
+    return calls[0]
+
+
+def test_добор_без_картины_спрашивает_справку_всерьёз(monkeypatch: pytest.MonkeyPatch) -> None:
+    """🔴 TC-243. Картины не нашлось - тут справка единственная опора, и зовут её всерьёз.
+
+    Две наши причины разом. Первая: тип картины брать было неоткуда, и справка шла самым
+    слабым режимом «оба типа, верить лишь согласию» - а согласия у сериала с одноимённым
+    фильмом не бывает, и имя терялось («Дедвуд», «Клиника»). Теперь тип называет сам
+    запрос, если человек назвал серию. Вторая: полутора секунд на шаги 2-3 справки не
+    хватает физически, поэтому безнадёжному пути отдаётся весь остаток цели.
+
+    Счастливый путь не удлиняется: картина найдена - потолок прежний, а тип берётся у неё.
+    """
+    monkeypatch.setenv("TORRCAST_LOG", "")
+    from torrcast.facts import FACTS_BUDGET
+    from torrcast.search import CIRCLE_SHARE
+
+    empty = _asked_reference(monkeypatch, [], cli.Args(query=["клиника", "s1e1"]))
+    assert empty == ("клиника", True, pytest.approx(9.0 - CIRCLE_SHARE))
+
+    lean = Picture(title="Клиника", year=2001, kind="tv", releases=[rel(name="Клиника s01e01")])
+    thin = _asked_reference(monkeypatch, [lean], cli.Args(query=["клиника", "s1e1"]))
+    assert thin == ("клиника", True, FACTS_BUDGET), "картина есть - потолок прежний, тип от неё"

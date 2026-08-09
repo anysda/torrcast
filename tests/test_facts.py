@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import json
+import time
 from typing import Any
 
 from torrcast import cli
@@ -1171,3 +1172,42 @@ def test_an_almost_the_same_name_still_gives_up_its_picture() -> None:
     found = facts_mod.read_origin([surprised], "мужчина который удивил всех", trusted=True)
     assert found.title == "The Man Who Surprised Everyone"
     assert found.name == "Человек, который удивил всех"
+
+
+def test_both_types_together_fit_into_one_budget_not_two(monkeypatch: Any) -> None:
+    """🔴 TC-243. Бюджет режима «оба типа» - СРОК на весь поход, а не мерка на каждый шаг.
+
+    Одинокий ответ (:func:`~torrcast.facts.origin_either`) отправлялся за подтверждением
+    года ко второму источнику со своим полным бюджетом СВЕРХ уже потраченного, и режим
+    стоил вдвое дороже обещанного. Пока потолок был полторы секунды, лишняя терялась в
+    шуме; на пустой выдаче справке отдают весь остаток цели (TC-243) - и эти «вдвое»
+    становятся всей целью до картинки.
+
+    Здесь оба пути отвечают на исходе срока, а Wikidata молчит дольше, чем его осталось.
+    Правильный ответ - вернуться в срок БЕЗ года: неподтверждённый год честнее чужого, а
+    ждать его дольше обещанного нельзя. До правки тот же поход занимал почти два бюджета.
+    """
+    from torrcast.facts import Origin, origin_either
+
+    budget = 1.0
+    monkeypatch.setattr(facts_mod, "_cached_origin", lambda title, series: None)
+    monkeypatch.setattr(facts_mod, "_remember_origin", lambda *a: None)
+    lone = Origin("Moana", 2016, "Моана", "Q1")
+
+    def slow_paper(title: str, series: bool, timeout: float) -> Origin:
+        time.sleep(budget * 0.8)  # оба пути уложились в срок, но съели почти весь
+        return Origin() if series else lone
+
+    def slow_wikidata(entity: str, timeout: float = 1.0) -> int:
+        time.sleep(budget)  # остатка срока на второй источник уже нет
+        return 2016
+
+    monkeypatch.setattr(facts_mod, "origin_now", slow_paper)
+    monkeypatch.setattr(facts_mod, "published_year", slow_wikidata)
+    started = time.monotonic()
+    found = origin_either("Моана", budget=budget)
+    elapsed = time.monotonic() - started
+
+    assert found.title == "Moana", "имя одинокого ответа остаётся - справка не замолкает"
+    assert found.year is None, "второй источник не успел - год неподтверждён, и мы молчим"
+    assert elapsed < budget * 1.4, f"обещали {budget} с, ушло {elapsed:.2f} с"

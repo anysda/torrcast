@@ -1423,7 +1423,7 @@ def _search(
     # склеенными раздачами: зеркалящие индексеры несут один торрент по разу каждый, и по
     # склеенному пулу порог срабатывал бы тем чаще, чем больше зеркал в круге.
     if max((p.rows for p in found), default=0) < THIN_POOL:
-        raw, pictures, found = _second_language(client, query, raw, found, progress)
+        raw, pictures, found = _second_language(client, query, args, raw, found, progress)
     # Сериал есть, а раздач нужного сезона в нём нет - добрать сезонной строкой по
     # оригиналу, прежде чем честно отказать (:func:`_season_reinforce`).
     if _lacks_season(found, args):
@@ -1619,7 +1619,9 @@ def _ask(client: Prowlarr, query: str) -> list[RawResult]:
         return []
 
 
-def _no_budget(client: Prowlarr, what: str, progress: Progress) -> float | None:
+def _no_budget(
+    client: Prowlarr, what: str, progress: Progress, alone: bool = False
+) -> float | None:
     """Хватит ли остатка цели на второй заход; ``None`` - не хватит, и это сказано вслух.
 
     🔴 TC-228. Второй круг зовётся в 18 запросах из 100 и удваивает цену поиска: сквозной
@@ -1635,10 +1637,19 @@ def _no_budget(client: Prowlarr, what: str, progress: Progress) -> float | None:
 
     Отказ не молчаливый: человек ждал дольше обещанного и вправе знать, что второго
     захода за него не сделали. Обещать «нашлось бы» тут нельзя - неизвестно.
+
+    🔴 TC-243. ``alone`` - справка тут единственная опора: русская выдача не дала картины
+    вовсе, и без второго имени путь кончается отказом «ничего не нашлось». Полутора секунд
+    (:data:`~torrcast.facts.FACTS_BUDGET`) ей на это не хватает: прямая выборка промолчала,
+    а поиск Википедии и разбор описки - это ещё два-три запроса, и они физически не
+    успевают («Секреты Лос-Анджелеса» и «Реинкарнация (фильм, 2018)» лежат первыми
+    строками поиска, но приезжают уже никому не нужными). Тогда потолком становится весь
+    остаток цели за вычетом доли круга: дороже отказа это стать не может, а счастливый
+    путь сюда не заходит - там картина найдена, и потолок прежний.
     """
     spare = client.spare()
     if spare >= SECOND_LEAST:
-        return min(FACTS_BUDGET, spare - CIRCLE_SHARE)
+        return spare - CIRCLE_SHARE if alone else min(FACTS_BUDGET, spare - CIRCLE_SHARE)
     progress.phase("")
     progress.note(f"{what} не делаю: поиск уже съел цель в {GOAL:.0f} с")
     return None
@@ -1647,6 +1658,7 @@ def _no_budget(client: Prowlarr, what: str, progress: Progress) -> float | None:
 def _second_language(
     client: Prowlarr,
     query: str,
+    args: Args,
     raw: list[RawResult],
     found: list[Picture],
     progress: Progress,
@@ -1715,16 +1727,16 @@ def _second_language(
     from torrcast.parse import alt_query, cluster, pick_franchise, slugify
 
     name, index = split_franchise_index(query)
-    if (spare := _no_budget(client, f"добор по «{name}»", progress)) is None:
+    # 🔴 TC-243. Картины не нашлось вовсе - без второго имени тут отказ, и справка
+    # становится единственной опорой: ей отдаётся весь остаток цели, а не обычный потолок.
+    if (spare := _no_budget(client, f"добор по «{name}»", progress, alone=not found)) is None:
         return _as_is(raw, found, Origin(), progress)
     pool = [r for p in found for r in p.releases] or to_releases(raw)
     lead = _leading(found)
     # Справку спрашиваем вслепую: год выдачи ей не сообщаем, иначе она подстроится под него
     # и сверять станет нечего. Тип картины - другое дело, у сериала и фильма разные статьи.
-    # Русская выдача пуста - тип брать неоткуда: тогда series=None, и справка пробует оба и
-    # верит лишь согласию (иначе неверный тип уводит в чужую статью). Сети нет - паспорт
-    # пуст, и всё дальше работает ровно так, как работало.
-    about = origin(name, series=(lead.kind == "tv") if lead else None, budget=spare)
+    # Сети нет - паспорт пуст, и всё дальше работает ровно так, как работало.
+    about = origin(name, series=_asked_kind(lead, args), budget=spare)
     if index is not None:
         # 🔴 Спросили номер части - год справки к делу не относится. Справку зовут по имени
         # франшизы, и отвечает она про её ПЕРВУЮ картину: у «тачек» это 2006 год, а человек
@@ -1788,6 +1800,31 @@ def _second_language(
         return _as_is(raw, found, about, progress)
     progress.note(f"по-русски раздач {was} - добрал по «{alt}»: стало {now}")
     return merged, pictures, wider
+
+
+def _asked_kind(lead: Picture | None, args: Args) -> bool | None:
+    """Сериал это или фильм - для справки; ``None`` - неизвестно, и она спросит оба.
+
+    Тип разводит статьи Википедии по разным страницам, и наугад его подсказывать нельзя:
+    с ``True`` «Восхождение» уводит в чужой сериал 2024 года вместо фильма Шепитько, с
+    ``False`` «Дедвуд» даёт фильм 2006 вместо сериала 2004. Поэтому источников ровно два,
+    и оба говорят о картине прямо:
+
+    * выдача первого круга - у найденной картины тип уже разобран;
+    * сам запрос - серию называет человек, и «клиника s1e1» это утверждение о сериале,
+      а не догадка (:attr:`Args.episode`).
+
+    🔴 TC-243. Второй источник нужен там, где первого нет: русская выдача пуста, тип брать
+    было неоткуда, и справка шла в самом слабом своём режиме - «спросить оба и поверить
+    лишь согласию» (:func:`~torrcast.facts.origin_either`). Согласия у сериала с фильмом
+    не бывает ровно тогда, когда одноимённый фильм существует: «Дедвуд» и «Клиника» на
+    живой пробе так и теряют имя (``Deadwood``, ``Scrubs``) - а без имени второй заход
+    уходит транслитом в никуда. Молчание о серии по-прежнему НЕ значит «фильм»: сериал
+    зовут и без номера, поэтому там остаётся прежний осторожный режим.
+    """
+    if lead is not None:
+        return lead.kind == "tv"
+    return True if args.episode else None
 
 
 def _query_note(name: str, alt: str, pool: list[Release], about: Origin) -> str:

@@ -487,7 +487,15 @@ def origin_either(title: str, budget: float = FACTS_BUDGET) -> Origin:
     профессию» 1973, «Семнадцать мгновений весны» 1973 - верные, «Атака титанов» 2015 -
     чужой). Пять верных гейтов за одну молчаливую подмену - размен в ту сторону, которую
     требует спека, и справка при этом не замолкает: имя латиницей остаётся у всех шестерых.
+
+    ⚠️ TC-243. ``budget`` тут СРОК, а не мерка на каждый шаг. Два пути идут разом и в срок
+    укладываются оба, но следом за одиноким ответом шёл второй источник
+    (:func:`_second_source_year`) - со своим полным бюджетом сверх уже потраченного, то
+    есть режим «оба типа» стоил вдвое дороже обещанного. Пока потолок был полторы секунды,
+    лишняя терялась в шуме; на пустой выдаче, где справке отдают весь остаток цели, эти
+    «вдвое» - вся цель до картинки. Считаем от срока: сколько осталось, столько и спрашиваем.
     """
+    deadline = time.monotonic() + budget
     box: dict[bool, Origin] = {}
 
     def look(series: bool) -> None:
@@ -497,12 +505,12 @@ def origin_either(title: str, budget: float = FACTS_BUDGET) -> Origin:
     for thread in threads:
         thread.start()
     for thread in threads:
-        thread.join(budget)
+        thread.join(max(0.0, deadline - time.monotonic()))
     movie, show = box.get(False, Origin()), box.get(True, Origin())
     if movie and show:
         return movie if _same_picture_origin(movie, show) else Origin()
     lone = movie or show
-    year = _second_source_year(lone, budget)
+    year = _second_source_year(lone, max(0.0, deadline - time.monotonic()))
     return Origin(title=lone.title, year=year, name=lone.name, entity=lone.entity)
 
 

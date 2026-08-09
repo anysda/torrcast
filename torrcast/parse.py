@@ -405,6 +405,10 @@ class Release:
     raw_name: str
     title: str
     original: str | None = None
+    #: Имена картины, стоящие в заголовке МЕЖДУ первым именем и оригиналом: «Одна из
+    #: многих / Из многих / **Плюрибус** / Pluribus» (:func:`_split_titles`). Каноническим
+    #: именем такое не становится и картины не склеивает - им только ищут (:func:`_by_alias`).
+    aliases: tuple[str, ...] = ()
     year: int | None = None
     quality: str | None = None
     codec: str | None = None
@@ -602,6 +606,10 @@ class Picture:
     #: Второе имя картины, под которым её же раздачи лежат в каталоге отдельной кучкой
     #: (:func:`glue`). Пусто - склейки не было, имя в каталоге одно.
     also: str = ""
+    #: Псевдонимы из заголовков своих же раздач, слагами: имена, стоящие между первым
+    #: именем и оригиналом (:attr:`Release.aliases`). Не паспорт картины, а указатель для
+    #: поиска - ни в меню, ни в склейку, ни в ключ они не идут (:func:`_by_alias`).
+    aliases: tuple[str, ...] = ()
     releases: list[Release] = field(default_factory=list)
 
     @property
@@ -1115,7 +1123,7 @@ def parse_release_name(name: str) -> Release:
     """Разобрать имя раздачи в структуру (форматы — в докстринге модуля)."""
     text = _normalize(name)
     year, span = _find_year(text)
-    title, original = _split_titles(_title_zone(text, span))
+    title, original, aliases = _split_titles(_title_zone(text, span))
 
     quality_match = _QUALITY_RE.search(text)
     quality = _normalize_quality(quality_match.group(1)) if quality_match else None
@@ -1127,6 +1135,7 @@ def parse_release_name(name: str) -> Release:
         raw_name=name,
         title=title,
         original=original,
+        aliases=aliases,
         year=year,
         quality=quality,
         codec=_parse_codec(text),
@@ -1202,15 +1211,28 @@ def _compose(kind: Kind, year: int | None, group: list[Release], also: str = "")
     # Номер части часто есть лишь в части переводов («Матрица 2: Перезагрузка»)
     # - забираем его на всю картину, он точнее года при двух фильмах за год.
     parts = Counter(n for r in group if (n := part_number(r.title)) is not None)
+    original = _by_majority(originals) if originals else None
     return Picture(
         title=title,
         year=year,
         kind=kind,
-        original=_by_majority(originals) if originals else None,
+        original=original,
         part=min(parts, key=lambda n: (-parts[n], n)) if parts else None,
         also=also,
+        aliases=_alias_slugs(group, title, original),
         releases=group,
     )
+
+
+def _alias_slugs(group: list[Release], title: str, original: str | None) -> tuple[str, ...]:
+    """Псевдонимы кучки слагами: имена из заголовков минус те, что уже стали паспортом.
+
+    Порядок отсортирован нарочно: разбор не вправе зависеть от того, чей индексер ответил
+    первым (:func:`cluster`), а псевдонимы приезжают из разных строк выдачи.
+    """
+    known = {slugify(title), slugify(original or "")}
+    found = {slug for r in group for name in r.aliases if (slug := slugify(name))}
+    return tuple(sorted(found - known))
 
 
 def _sorted(pictures: list[Picture]) -> list[Picture]:
@@ -1629,10 +1651,12 @@ def pick_franchise(query: str, pictures: list[Picture]) -> list[Picture]:
     if key is None:  # номер оказался частью названия: «пила 8», «форсаж 6»
         key, index = lookup(query), None
     if key is None:
-        # Имени франшизы человек мог и не назвать: он зовёт картину подзаголовком.
-        items = _by_subtitle(name, pictures)
+        # Имени франшизы человек мог и не назвать: он зовёт картину подзаголовком или тем
+        # именем, которое каталог поставил в заголовке третьим (:func:`_by_alias`).
+        items = _by_subtitle(name, pictures) or _by_alias(name, pictures)
         if not items:
-            items, index = _by_subtitle(query, pictures), None
+            items = _by_subtitle(query, pictures) or _by_alias(query, pictures)
+            index = None
         return _numbered(items, index)
 
     items = _numbered(_both_languages(groups, aliases, key), index)
@@ -1690,6 +1714,36 @@ def _by_subtitle(query: str, pictures: list[Picture]) -> list[Picture]:
     if not wanted:
         return []
     items = [p for p in pictures if wanted in _subtitles(p)]
+    items.sort(key=lambda p: (p.year is None, p.year or 0, p.part or 99, -len(p.releases), p.title))
+    return items
+
+
+def _by_alias(query: str, pictures: list[Picture]) -> list[Picture]:
+    """Картины, которых человек назвал ТРЕТЬИМ именем из их же заголовка.
+
+    🔴 TC-244. Каталог подписывает картину перечислением имён, и знают её сплошь и рядом
+    не первым из них: «Одна из многих / Из многих / **Плюрибус** / Pluribus» (10 строк),
+    «Птицы 2 / **Марш пингвинов** / La marche de l'empereur» (5), «А в душе я танцую /
+    **Внутри себя я танцую**» (13), «Каждый за себя / **Загадка Каспара Хаузера**» (1).
+    Разбор читал первое имя и оригинал, а всё между ними терял - и запрос падал в пустоту
+    при живых раздачах в своей же выдаче. Лишнего похода к индексерам тут нет: ответ уже
+    приехал, его надо просто прочитать.
+
+    🔴 **Псевдоним не вправе свести разные картины.** Одноимённость - больное место
+    каталога («Призраки», «Ангел», «Убийство»), поэтому:
+
+    * шаг последний: любое имя, которым каталог подписал картину сам, сильнее псевдонима,
+      и до сюда доходит лишь то, что не нашлось никак иначе (:func:`pick_franchise`);
+    * имя сверяется ЦЕЛИКОМ, без нестрогих ступеней с вхождением подстроки;
+    * псевдоним, который тянет к себе больше одной франшизы, не решает ничего: молчим,
+      как молчали, - честное «не нашлось» лучше однофамильца.
+    """
+    wanted = slugify(query)
+    if not wanted:
+        return []
+    items = [p for p in pictures if wanted in p.aliases]
+    if len({p.franchise for p in items}) != 1:
+        return []
     items.sort(key=lambda p: (p.year is None, p.year or 0, p.part or 99, -len(p.releases), p.title))
     return items
 
@@ -1785,18 +1839,33 @@ def _title_zone(text: str, span: tuple[int, int] | None) -> str:
     return zone.strip(" .-_|,:;/")
 
 
-def _split_titles(zone: str) -> tuple[str, str | None]:
-    """``«Матрица / The Matrix»`` → русское и оригинальное название."""
+def _split_titles(zone: str) -> tuple[str, str | None, tuple[str, ...]]:
+    """``«Матрица / The Matrix»`` → русское название, оригинал и всё, что между ними.
+
+    🔴 TC-244. Третье имя в заголовке раздачи - не украшение, а единственное имя, под
+    которым картину знают: «Одна из многих / Из многих / Плюрибус / Pluribus», «Птицы 2 /
+    Марш пингвинов / La marche de l'empereur», «А в душе я танцую / Внутри себя я танцую».
+    Читались только первое имя и оригинал, всё между ними терялось - и запрос «плюрибус»
+    падал в пустоту при десяти строках этой самой раздачи в своей же выдаче.
+
+    Отдаём такие имена третьим полем, а не подменяем ими первое: каноническое имя картины
+    по-прежнему считает каталог большинством (:func:`_compose`), и подмены имени в меню
+    тут нет. Псевдонимом ищут - и только (:func:`_by_alias`).
+
+    Зона имён приходит уже обрезанной (:func:`_title_zone`): всё после первой скобки и
+    после первого технического токена в неё не входит, так что перечислением имён считается
+    ровно заголовок, а не хвост раздачи.
+    """
     parts = [p.strip(" .-_|,:;") for p in re.split(r"[/|]", zone)]
     parts = [p for p in parts if len(p) > 1 and not _TAG_ONLY_RE.match(p)]
     if not parts:
-        return zone.strip() or "?", None
+        return zone.strip() or "?", None, ()
 
     russian = next((p for p in parts if _CYRILLIC.search(p) and not _UKRAINIAN.search(p)), None)
     latin = next((p for p in parts if _LATIN.search(p) and not _CYRILLIC.search(p)), None)
     if russian is None:
-        return latin or parts[0], None
-    return russian, latin
+        return latin or parts[0], None, ()
+    return russian, latin, tuple(p for p in parts if p != russian and p != latin)
 
 
 def _parse_codec(text: str) -> str | None:

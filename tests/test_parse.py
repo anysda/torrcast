@@ -1174,3 +1174,73 @@ def test_the_picture_does_not_depend_on_who_answered_first(names: tuple[str, ...
         rotated = releases[shift:] + releases[:shift]
         again = [(p.title, p.year, p.kind, p.original, len(p.releases)) for p in cluster(rotated)]
         assert again == first, f"порядок прихода сдвинут на {shift} - картина другая"
+
+
+#: 🔴 TC-244. Имена с живой выдачи: картину знают НЕ первым именем заголовка, а третьим.
+#: Числом в комментарии - сколько строк выдачи стояло за этой раздачей на замере.
+_THIRD_NAME = (
+    ("Одна из многих / Из многих / Плюрибус / Pluribus (Сезон 1) WEB-DL 1080p", "плюрибус"),
+    (
+        "Птицы 2 / Марш пингвинов / La marche de l'empereur (2005) BDRip 1080p",
+        "марш пингвинов",
+    ),
+    ("А в душе я танцую / Внутри себя я танцую (2004) BDRip 1080p", "внутри себя я танцую"),
+    ("Каждый за себя / Загадка Каспара Хаузера (1974) DVDRip", "загадка каспара хаузера"),
+)
+
+
+@pytest.mark.parametrize(("name", "asked"), _THIRD_NAME)
+def test_a_third_name_in_the_heading_finds_the_picture(name: str, asked: str) -> None:
+    """🔴 TC-244. Псевдоним из заголовка находит картину в её же выдаче.
+
+    Четыре промаха класса «не нашли» - и там это весь ответ: раздачи уже приехали, просто
+    подписаны перечислением имён, а разбор читал из него первое имя и оригинал. «Плюрибус»
+    (10 строк), «Марш пингвинов» (5), «Внутри себя я танцую» (13), «Загадка Каспара
+    Хаузера» (1) падали в пустоту при живых раздачах в первой же выдаче.
+    """
+    release = parse_release_name(name)
+    pictures = cluster([release])
+
+    assert pick_franchise(asked, pictures) == pictures, f"«{asked}» обязано найтись своей выдачей"
+    assert slugify(asked) not in {slugify(release.title), slugify(release.original or "")}, (
+        "проверка имеет смысл, только если это имя не первое и не оригинал"
+    )
+
+
+def test_a_third_name_never_becomes_the_name_of_the_picture() -> None:
+    """Псевдоним нужен поиску, а не меню: имя картины считает каталог, как и считал."""
+    picture = cluster([parse_release_name(_THIRD_NAME[0][0])])[0]
+
+    assert picture.title == "Одна из многих", "в меню - имя каталога, а не псевдоним"
+    assert picture.original == "Pluribus"
+    assert picture.aliases == ("из-многих", "плюрибус"), "псевдонимы лежат отдельно и по порядку"
+
+
+def test_a_shared_alias_never_glues_two_different_pictures() -> None:
+    """🔴 Одноимённость - больное место каталога, и псевдониму её открывать нельзя.
+
+    Один и тот же псевдоним в заголовках двух РАЗНЫХ картин ничего не решает: выбрать
+    между ними нечем, а молча подсунуть одну из двух хуже честного «не нашлось».
+    """
+    pictures = cluster(
+        [
+            parse_release_name("Ночная смена / Призраки (2019) BDRip 1080p"),
+            parse_release_name("Дом у дороги / Призраки (2004) BDRip 1080p"),
+        ]
+    )
+
+    assert len(pictures) == 2, "две разные картины"
+    assert pick_franchise("призраки", pictures) == [], "однофамильцев не разводим - молчим"
+
+
+def test_the_catalogues_own_name_outranks_any_alias() -> None:
+    """Имя, которым каталог подписал картину сам, сильнее псевдонима чужого заголовка."""
+    pictures = cluster(
+        [
+            parse_release_name("Призраки / Ghosts (2021) WEB-DL 1080p"),
+            parse_release_name("Ночная смена / Призраки (2019) BDRip 1080p"),
+        ]
+    )
+    found = pick_franchise("призраки", pictures)
+
+    assert [p.title for p in found] == ["Призраки"], "точное имя каталога решает спор само"
