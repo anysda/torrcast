@@ -688,3 +688,111 @@ def test_the_old_flag_still_works(monkeypatch: pytest.MonkeyPatch) -> None:
     assert cli.main(["моана", "2", "--audio", "6"]) == 0
 
     assert State.load().entries[KEY].voice == "rus · MVO (LostFilm)"
+
+
+# --- 🔴 TC-178/TC-191: русская дорожка как условие «включилось», сквозь настоящий cli --
+
+
+#: Дорожки тут про ЯЗЫК, а не про лестницу: одна дорожка на релиз, и весь вопрос в том,
+#: русская она или нет. Лестницу озвучек проверяют живые наборы выше по файлу.
+JAPANESE = (AudioTrack(0, "jpn", "Japanese", "aac", 2),)
+RUSSIAN = (AudioTrack(0, "rus", "Дубляж", "ac3", 6),)
+
+
+def _pool(
+    monkeypatch: pytest.MonkeyPatch, *releases: tuple[str, str, tuple[AudioTrack, ...]]
+) -> None:
+    """Выдача из имён раздач и паспорт под каждую: имя, метка магнита, дорожки.
+
+    Паспорт привязан к самой раздаче (метка магнита видна в адресе потока), а не к
+    порядку вызовов: запасной релиз греется параллельно с верхом.
+    """
+    rows = [
+        RawResult(name, tag * 40, 8 * GB, seeders)
+        for seeders, (name, tag, _) in zip((90, 30), releases, strict=True)
+    ]
+    monkeypatch.setattr(_FakeProwlarr, "search", lambda self, query: list(rows))
+
+    def read(url: str, timeout: float = 90.0, alive: object = None) -> Media:
+        for _, tag, tracks in releases:
+            if f"btih:{tag * 10}" in url:
+                return Media(5978.0, tracks, "h264", 1080, 1920)
+        return Media(5978.0, JAPANESE, "h264", 1080, 1920)
+
+    monkeypatch.setattr(cli, "probe", read)
+
+
+def test_a_japanese_top_release_steps_aside_for_a_russian_one_below_it(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """🔴 TC-178, случай первый: русская дорожка в выдаче ЕСТЬ - её и включаем.
+
+    Имя врёт: обе раздачи обещают «[RUS(int)]», и порядок между ними решают сиды - у
+    верха их втрое больше. Русского звука внутри у него при этом нет, и до правки играл бы
+    он: обещание имени отбор проверял только на отборе, а лестница дорожек выбирала лучшее
+    из того, что нашлось В ВЗЯТОМ релизе. Теперь паспорт решает годность, и показ уходит к
+    соседу, сказав об этом одной строкой.
+    """
+    _pool(
+        monkeypatch,
+        ("Аниме / Anime (2020) WEB-DL 1080p [RUS(int)]", "c", JAPANESE),
+        ("Аниме / Anime (2020) WEB-DL 1080p [RUS(int)]", "d", RUSSIAN),
+    )
+    _answers(monkeypatch)
+
+    assert cli.main(["аниме"]) == 0
+
+    printed = capsys.readouterr().out
+    assert "релиз 1 без русской озвучки (японский) - беру 2" in printed
+    assert "rus · Дубляж" in printed, "играет русская дорожка"
+    assert "только японский звук" not in printed, "оправдываться не в чем"
+    assert _FakeTorrServer.left() == {"hash-magnet:?xt=urn:btih:" + "d" * 10}, (
+        "отложенный японский релиз не остаётся висеть в службе - её держит только показ"
+    )
+
+
+def test_a_dub_that_exists_only_next_to_the_video_is_named_out_loud(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """🔴 TC-191, случай второй: перевод в каталоге есть, но только ``RUS(ext)``.
+
+    Русская дорожка лежит ОТДЕЛЬНЫМ ФАЙЛОМ, и подмешать её показ не умеет. Молча отдать
+    японский под видом «включилось» нельзя, отправить выбирать раздачу руками - тоже
+    неправда: выбирать не из чего. Строка говорит как есть.
+    """
+    _pool(
+        monkeypatch,
+        ("Аниме / Anime (2020) WEB-DL 1080p [RUS(ext), ENG, JAP+Sub]", "c", JAPANESE),
+        ("Аниме / Anime (2020) WEB-DL 1080p [JAP+Sub]", "d", JAPANESE),
+    )
+    _answers(monkeypatch)
+
+    assert cli.main(["аниме"]) == 0
+
+    printed = capsys.readouterr().out
+    assert "релиз 1 без русской озвучки (японский) - беру 2" in printed
+    assert "русской озвучки нет ни в одной из проверенных раздач (2)" in printed
+    assert "включаю релиз 1, звук японский" in printed
+    assert "только японский звук - в каталоге перевод есть, но лежит отдельным файлом" in printed
+
+
+def test_a_picture_nobody_ever_dubbed_still_plays_and_says_why(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """🔴 TC-178, случай третий: русской дорожки нет ни у кого - это дыра каталога.
+
+    Отказать значило бы отобрать у зрителя и то, что есть. Показ идёт, а строка называет
+    и язык звука, и то, что перевода в каталоге нет вовсе.
+    """
+    _pool(
+        monkeypatch,
+        ("Аниме / Anime (2020) WEB-DL 1080p [JAP+Sub]", "c", JAPANESE),
+        ("Аниме / Anime (2020) WEB-DL 1080p [JAP+Sub]", "d", JAPANESE),
+    )
+    _answers(monkeypatch)
+
+    assert cli.main(["аниме"]) == 0
+
+    printed = capsys.readouterr().out
+    assert "русской озвучки нет ни в одной из проверенных раздач (2)" in printed
+    assert "только японский звук, перевода в каталоге нет" in printed

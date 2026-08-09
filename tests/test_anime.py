@@ -1,10 +1,15 @@
-"""Отбор релиза у аниме: ворота для молчаливых имён и предпочтение русской озвучки.
+"""Отбор релиза у аниме: ворота для молчаливых имён и русская озвучка как условие показа.
 
 Аниме — худший жанр замера покрытия, и обе причины видны прямо в именах раздач.
 Первая: у аниме имя сплошь не называет ни разрешения, ни кодека, ни HD-источника, и
 ворота отбора оставляют картину вообще без живых кандидатов. Вторая: японская дорожка
 без перевода — это не «звук похуже», а несмотренный тайтл, и русский дубляж у аниме
 часто лежит ОТДЕЛЬНОЙ раздачей, которая по сидам проигрывает вчистую.
+
+🔴 TC-178. Вторая причина перестала быть предпочтением: «включилось» значит «включилось
+с русской озвучкой». Релиз, у которого русской дорожки не оказалось, годным не считается,
+и отбор идёт дальше по очереди; честная строка достаётся только той картине, у которой
+русской нет ни у кого.
 
 Имена здесь взяты с живой выдачи Prowlarr (Knaben, RuTor, Nyaa) и не причёсаны:
 именно их своеобразие ворота и не переваривали.
@@ -17,6 +22,8 @@ from typing import Any, cast
 
 import pytest
 
+from tests.test_cli import _FakeTorrServer, _resolve, rel
+from torrcast import cli, trace
 from torrcast.cli import (
     SD_BITRATE,
     Args,
@@ -324,7 +331,8 @@ def test_the_sound_step_never_outranks_honest_quality() -> None:
     "name,promised",
     [
         ("Аниме [TV] [12 of 12] [RUS(int), JAP+Sub] [2020, WEBRip] [1080p]", True),
-        ("Аниме [TV] [12 of 12] [RUS(ext), ENG, JAP+Sub] [2020, DVDRip]", True),
+        ("Аниме [TV] [12 of 12] [RUS(ext), ENG, JAP+Sub] [2020, DVDRip]", False),
+        ("Аниме [TV] [12 of 12] [RUS(int), RUS(ext), JAP+Sub] [2020, WEBRip]", True),
         ("Naruto: Shippuuden [01-500 из 500] (2007) BDRip-HEVC 1080p | Shiza Project", True),
         ("Naruto- Shippuuden - AniLiberty.TOP [HDTVRip 720p][AVC][370-500]", True),
         ("Кино / Movie (1999) WEB-DL 1080p | D", True),
@@ -338,11 +346,52 @@ def test_the_sound_step_never_outranks_honest_quality() -> None:
 def test_the_name_is_read_for_a_russian_track_not_for_subtitles(name: str, promised: bool) -> None:
     """Обещание русской ДОРОЖКИ читается из имени, а титры и чужой дубляж — не обещание.
 
-    Три ловушки живой выдачи разом: «Rus Sub» — это титры; «English Dub» и «Multi-Dub» —
-    дубляж, только не тот; а «| Shiza Project» и «AniLiberty» — единственный маркер
-    дорожки во всём имени, и без него аниме-раздача выглядит немой.
+    Четыре ловушки живой выдачи разом: «Rus Sub» — это титры; «English Dub» и «Multi-Dub» —
+    дубляж, только не тот; «| Shiza Project» и «AniLiberty» — единственный маркер дорожки
+    во всём имени, и без него аниме-раздача выглядит немой; а «RUS(ext)» — это обещание
+    дорожки ОТДЕЛЬНЫМ ФАЙЛОМ, которую показ не играет (🔴 TC-191).
     """
     assert parse_release_name(name).dubbed is promised
+
+
+def test_a_russian_track_in_a_separate_file_is_not_a_russian_soundtrack() -> None:
+    """🔴 TC-191. ``RUS(ext)`` — русская дорожка ОТДЕЛЬНЫМ ФАЙЛОМ, и «включилось» это не.
+
+    Ровно этим «Наруто» и уезжал по-японски: пак на 91 сид носит в имени «[RUS(ext), ENG,
+    JAP+Sub]», отбор читал метку как обещание русского звука и до соседа с «[RUS(int)]»
+    (3 сида) не доходил. Внутри mkv у пака японская дорожка, русская лежит рядом файлом,
+    и подмешивать её показ не умеет.
+
+    Признак при этом не теряется: он живёт отдельно и нужен честной строке — «перевод
+    есть, но отдельным файлом» и «перевода нет вовсе» это два разных ответа.
+    """
+    apart = parse_release_name(NARUTO_FULL)
+    inside = parse_release_name(
+        "Наруто / Naruto [TV] [1-5 из 220] [RUS(int)] [2002, DVDRip] [1080p]"
+    )
+
+    assert apart.external_dub and not apart.dubbed, "обещана отдельным файлом - не наша дорожка"
+    assert inside.dubbed and not inside.external_dub, "внутри контейнера - наша"
+
+
+def test_an_internal_russian_track_outranks_an_external_one() -> None:
+    """🔴 TC-191. ``RUS(int)`` встаёт над ``RUS(ext)`` ДО всякого ffprobe: метку читает ранжир.
+
+    Обе раздачи тут живые и равные по сидам, и до правки порядок между ними решал размер:
+    метка про звук в ранжир не попадала вовсе.
+    """
+    apart = named(
+        "Аниме / Anime [TV] [12 of 12] [RUS(ext), ENG, JAP+Sub] [2020, WEB-DL] [1080p]",
+        size_gb=20.0,
+        seeders=40,
+    )
+    inside = named(
+        "Аниме / Anime [TV] [12 of 12] [RUS(int), JAP+Sub] [2020, WEB-DL] [1080p]",
+        size_gb=8.0,
+        seeders=40,
+    )
+
+    assert rank_releases([apart, inside], RUNTIME, 25.0)[0] is inside
 
 
 def _media(*languages: str) -> Media:
@@ -363,8 +412,8 @@ def test_a_japanese_only_show_says_so_out_loud_instead_of_playing_silently() -> 
 
 
 def test_when_the_catalogue_does_have_a_dub_the_line_says_where_to_look() -> None:
-    """Перевод в выдаче есть, а в ЭТОМ релизе его не оказалось — так бывает у ``RUS(ext)``,
-    где русская дорожка лежит отдельным файлом. Тогда строка обязана назвать и запасной ход.
+    """Перевод в выдаче есть, а в ЭТОМ релизе его не оказалось. Тогда строка обязана
+    назвать и запасной ход: выбрать раздачу руками.
     """
     pool = [
         named(NARUTO_FULL, size_gb=157.3, seeders=91),
@@ -379,6 +428,20 @@ def test_when_the_catalogue_does_have_a_dub_the_line_says_where_to_look() -> Non
 
     assert note.startswith("только японский звук - перевода в этом релизе нет")
     assert "--release N" in note
+
+
+def test_a_dub_that_exists_only_as_a_separate_file_is_named_as_such() -> None:
+    """🔴 TC-191. Весь перевод в каталоге - только ``RUS(ext)``, отдельным файлом.
+
+    Отправлять человека выбирать раздачу руками тут нечестно: выбирать не из чего, все
+    кандидаты приведут к тому же японскому звуку. Строка называет вещи как есть.
+    """
+    pool = [named(NARUTO_FULL, size_gb=157.3, seeders=91)]
+
+    note = sound_note(_media("jpn", "eng"), 0, pool)
+
+    assert note == "только японский звук - в каталоге перевод есть, но лежит отдельным файлом"
+    assert "--release N" not in note, "выбирать руками нечего - совет был бы враньём"
 
 
 def test_a_release_with_a_russian_track_says_nothing_extra() -> None:
@@ -814,3 +877,129 @@ def test_the_last_hope_asks_the_receiver_profile_not_a_module_constant() -> None
     )
     plan = _plan_for(picture, args, Config(), native)
     assert not plan.last_resort, "берёт HEVC копией - тяжёлого пути нет, и ворота не про него"
+
+
+# --- 🔴 TC-178: русская дорожка как условие ГОДНОСТИ релиза ---------------------------
+
+
+def _tracks(monkeypatch: pytest.MonkeyPatch, ranked: list[Release], *langs: str) -> list[str]:
+    """Подсунуть ffprobe: по языку дорожки на релиз, считая от верха. Отдаёт список
+    спрошенных потоков - по нему видно, сколько раз мы ходили к паспорту и за кем.
+
+    Язык привязан к САМОЙ раздаче (её магнит виден в адресе потока), а не к порядку
+    вызовов: запасной релиз греется параллельно с верхом, и кто дошёл до ffprobe первым -
+    дело случая.
+    """
+    asked: list[str] = []
+
+    def read(url: str, timeout: float = 90.0, alive: object = None) -> Media:
+        asked.append(url)
+        for number, release in enumerate(ranked):
+            if f"hash-{release.magnet}/" in url and number < len(langs):
+                track = AudioTrack(index=0, language=langs[number])
+                return Media(3600.0, (track,), "h264", 1080, 1920)
+        return Media(3600.0, (AudioTrack(index=0, language="rus"),), "h264", 1080, 1920)
+
+    monkeypatch.setattr(cli, "probe", read)
+    return asked
+
+
+def test_a_release_without_a_russian_track_is_not_good_enough_and_the_search_goes_on(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """🔴 TC-178. «Включилось» значит «включилось с русской озвучкой».
+
+    До этой правки паспорт с одной японской дорожкой считался годным: лестница выбирала
+    лучшее из того, что есть В ВЗЯТОМ релизе, печатала честную строку - и человек
+    оставался с японским звуком при живом соседе с русским. Честная строка тут не
+    результат, а признание, что мы не дотянулись.
+    """
+    ranked = [rel(name="r0", seeders=100), rel(name="r1", seeders=90)]
+    _tracks(monkeypatch, ranked, "jpn", "rus")
+    torrserver = _FakeTorrServer()
+
+    prep = _resolve(cli._Bench(cast(Any, torrserver)), ranked)
+
+    printed = capsys.readouterr().out
+    assert prep.number == 2, "японский релиз годным не считается - идём дальше по очереди"
+    assert prep.found.tracks[0].is_russian
+    assert "релиз 1 без русской озвучки (японский) - беру 2" in printed
+
+
+def test_the_gate_costs_no_extra_probe_when_the_top_release_speaks_russian(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Скорость - часть продукта: на счастливом пути гейт не стоит ни одного лишнего шага.
+
+    Спрашивается уже прочитанный паспорт, а не второй ffprobe и не второй поход в рой.
+    Верх заговорил по-русски - очередь дальше не идёт, и к паспорту каждой поднятой
+    раздачи мы обращаемся ровно один раз.
+    """
+    ranked = [rel(name="r0", seeders=100), rel(name="r1", seeders=90), rel(name="r2", seeders=80)]
+    asked = _tracks(monkeypatch, ranked, "rus", "rus", "rus")
+
+    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer())), ranked)
+
+    printed = capsys.readouterr().out
+    assert prep.number == 1
+    assert len(asked) == len(set(asked)), "за один и тот же паспорт дважды не платим"
+    assert len(asked) <= 2, "верх и греющийся ему на смену запасной - больше никого не трогали"
+    assert "без русской озвучки" not in printed, "счастливый путь лишних строк не печатает"
+
+
+def test_when_nobody_has_a_russian_track_the_show_still_happens_and_says_so(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """🔴 TC-178. Гейт не слепой: русской нет ни у кого - человек всё равно получает картину.
+
+    Отказать тут значило бы отобрать у зрителя и то, что есть: японский тайтл, который
+    никто не озвучивал, - это дыра каталога, а не осечка отбора. Решение громкое: строка
+    называет и то, что искали, и то, что в итоге включили.
+    """
+    ranked = [rel(name="r0", seeders=100), rel(name="r1", seeders=90)]
+    _tracks(monkeypatch, ranked, "jpn", "jpn")
+
+    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer())), ranked)
+
+    printed = capsys.readouterr().out
+    assert prep.number == 1, "лучший из того, что есть, а не отказ"
+    assert "релиз 1 без русской озвучки (японский) - беру 2" in printed
+    assert "русской озвучки нет ни в одной из проверенных раздач (2)" in printed
+    assert "включаю релиз 1, звук японский" in printed
+
+
+def test_the_catalogue_hole_lands_in_the_weekly_trace(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Any, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """🔴 TC-178. «Русской нет ни у кого» обязано попадать в след, а не тонуть в строке.
+
+    По этим записям замер и считает, у скольких картин русской дорожки нет вовсе: экран
+    гаснет вместе с сеансом, а недельная лента лежит и читается ``cast log``.
+    """
+    monkeypatch.setenv(trace.LOG_ENV, str(tmp_path))
+    monkeypatch.setenv(trace.SID_ENV, "test-mute")
+    ranked = [rel(name="r0", seeders=100), rel(name="r1", seeders=90)]
+    _tracks(monkeypatch, ranked, "jpn", "jpn")
+
+    _resolve(cli._Bench(cast(Any, _FakeTorrServer())), ranked)
+    trace.shutdown()
+    capsys.readouterr()
+
+    rows = trace.records()
+    mute = [r for r in rows if r.get("event") == "mute"]
+    assert mute, "дыра каталога обязана быть в ленте"
+    assert (mute[-1]["release"], mute[-1]["lang"], mute[-1]["checked"]) == (1, "японский", 2)
+    assert "русской озвучки нет ни у кого (проверено 2)" in trace.digest(rows)
+
+
+def test_a_hand_picked_release_is_never_judged_for_its_language(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """``--release N`` - человек выбрал сам, и спорить с ним про язык звука не наше дело."""
+    ranked = [rel(name="r0", seeders=100), rel(name="r1", seeders=90)]
+    _tracks(monkeypatch, ranked, "jpn", "rus")
+
+    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer())), ranked, release=1)
+
+    assert prep.number == 1
+    assert "без русской озвучки" not in capsys.readouterr().out

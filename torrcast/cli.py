@@ -2867,6 +2867,23 @@ class _Bench:
         читает за секунду, - SD-рип на 1.5 ГБ, mpeg4, av1, - и до живого 1080p ниже по
         очереди дело не доходило (44 случая в замере каталога). Дешёвый приговор больше
         не отнимает место у следующей раздачи, дорогой отнимает как отнимал.
+
+        🔴 TC-178. Третья осечка - **звук**: «включилось» значит «включилось С РУССКОЙ
+        ОЗВУЧКОЙ», и релиз, у которого русской дорожки не оказалось, годным не считается.
+        Судит паспорт, а не имя (:attr:`torrcast.stream.Media.foreign`): имя врёт и молчит,
+        а до ffprobe язык звука не знает никто. Считается такая осечка как приговор - про
+        релиз узнали всё, - и поэтому упирается в те же :data:`MAX_TRIES` и
+        :data:`VERDICT_BUDGET`, что и остальные: гейт не имеет права стать бесконечным
+        перебором выдачи, цель пути прежняя - десять секунд до картинки.
+
+        Лишнего времени гейт не стоит вовсе: спрашивается уже прочитанный паспорт, второго
+        ffprobe и второго похода в рой на релиз не появляется. Дороже становится ровно
+        один случай - когда верх отбора оказался нерусским, и это ровно тот случай, ради
+        которого всё и затевалось.
+
+        И гейт не слепой: первый безрусский, но во всём остальном годный кандидат
+        откладывается в сторону, а не выбрасывается, и если русской не найдётся ни у кого,
+        играет он (:meth:`_mute_fallback`). Человек без картины не остаётся.
         """
         queue = plan.candidates(args)
         # Пул, очередь и весь отсев с причинами - одним событием на запрос (TC-186).
@@ -2894,12 +2911,21 @@ class _Bench:
         #: Во что приговоры уже обошлись человеку, секунды (:data:`VERDICT_BUDGET`).
         priced = 0.0
         exhausted = False
+        #: Первый годный кандидат, у которого не оказалось русской дорожки: он не играет,
+        #: пока в очереди есть кого спросить, но и не выбрасывается - это запасной ход на
+        #: случай, когда русской не найдётся ни у кого (:meth:`_mute_fallback`).
+        mute: _Prep | None = None
+        #: Докуда дошла очередь - для строки о снижении ступени на запасном ходу.
+        reached = 0
         deadline = time.monotonic() + PICK_BUDGET
         for attempt, number in enumerate(queue, start=1):
+            reached = attempt
             following = queue[attempt] if attempt < len(queue) else None
             # Нужны ровно двое: тот, чьего ответа ждём, и тот, кто греется ему на смену.
             # Всё прочее прогретое потолок вправе убрать прямо здесь (:meth:`_room`).
-            self.needed = {(plan.picture.key, n) for n in (number, following) if n is not None}
+            # Третий - отложенный безрусский: его раздача ещё может понадобиться показу.
+            keep = (number, following, mute.number if mute is not None else None)
+            self.needed = {(plan.picture.key, n) for n in keep if n is not None}
             prep = self.start(plan, number)
             if following is not None:  # запасной греется, пока ждём этот
                 self.start(plan, following)
@@ -2914,44 +2940,45 @@ class _Bench:
                 recode=plan.recode_at > 0,
                 hard_mbit=plan.hard_mbit,
             )
-            if not trouble:
+            # 🔴 TC-178. Русская дорожка - часть «включилось», а не предпочтение: релиз,
+            # у которого её нет, годным не считается, и очередь идёт дальше. Спрашивается
+            # уже прочитанный паспорт (:attr:`torrcast.stream.Media.foreign`) - ни одного
+            # лишнего ffprobe и ни одного лишнего похода в рой это не стоит. Названный
+            # руками релиз не судим: там человек выбрал сам.
+            voiceless = not trouble and not args.pinned and prep.found.foreign
+            if not trouble and not voiceless:
                 progress.phase("")
                 prep = self._honest(plan, prep, queue, args, progress, judged)
-                # Молчаливых подмен нет ни в одну сторону: и «ресивер может не взять», и
-                # «перекодирую целиком» - это решение показа, и человек его слышит. Вес
-                # тут такой же повод, как кодек: тяжёлый ремукс уезжает перекодированным
-                # целиком, и сказано об этом ровно теми же словами и тем же числом.
-                weight = prep.found.weight_mbit(prep.want.size)
-                heavy = plan.hard_mbit > 0 and weight > plan.hard_mbit
-                if hope := last_hope_note(plan, prep.release):
-                    print(hope)
-                if plan.recode_at > 0 and (prep.found.recoded_whole or heavy):
-                    # Причина - кодек (с глубиной, если она и есть причина) либо вес.
-                    silent = prep.found.recoded_whole
-                    print(recode_note(prep.found.video_name, 0.0 if silent else weight))
-                elif warning := prep.found.video_warning:
-                    print(warning)
-                # Ступень ниже доступной - тоже авто-решение, и оно не молчит (TC-187).
-                if step := stepdown_note(plan, prep.number, prep.media, queue, judged, attempt):
-                    print(step)
+                self._announce(plan, prep, queue, judged, attempt)
                 return prep
-            tried.append(f"{number} - {trouble}")
-            _turned_down(judged, number, trouble)
+            why = trouble or "без русской озвучки"
+            tried.append(f"{number} - {why}")
+            _turned_down(judged, number, why)
             if not prep.error and prep.media is not None:  # ffprobe прочитал и осудил
                 verdicts += 1
                 priced += time.monotonic() - entered
-            self._forget(prep)
+            if voiceless and mute is None:
+                mute = prep  # запасной ход: русской может не оказаться ни у кого
+            else:
+                self._forget(prep)
             progress.phase("")
             # Три приговора - пол, дальше решают секунды: дешёвые приговоры (SD-рип,
             # mpeg4) места следующей раздаче больше не занимают, дорогие занимают.
             affordable = verdicts < MAX_TRIES or priced < VERDICT_BUDGET
             goes_on = following is not None and affordable and time.monotonic() < deadline
             tail = f" - беру {following}" if goes_on else ""
-            print(f"релиз {number} не годится ({trouble}){tail}")
+            head = (
+                f"релиз {number} без русской озвучки ({heard(prep.found)})"
+                if voiceless
+                else f"релиз {number} не годится ({why})"
+            )
+            print(head + tail)
             if not goes_on:
                 # Дошли до конца очереди, а не встали по бюджету/попыткам: следующего нет.
                 exhausted = following is None
                 break
+        if mute is not None:
+            return self._mute_fallback(plan, mute, queue, judged, reached, len(tried))
         shown = "; ".join(tried[:MAX_TRIES])
         more = f" и ещё {len(tried) - MAX_TRIES}" if len(tried) > MAX_TRIES else ""
         offer = kin_line(plan.kin)
@@ -2968,6 +2995,74 @@ class _Bench:
             f"годного релиза нет ({shown}{more}): выбери руками - "
             "cast releases <запрос>, потом cast <запрос> --release N" + tail
         )
+
+    def _announce(
+        self,
+        plan: _Plan,
+        prep: _Prep,
+        queue: list[int],
+        judged: dict[int, str],
+        reached: int,
+    ) -> None:
+        """Строки перед стартом: чем играем и чего это стоило. Молчаливых подмен нет.
+
+        Собраны в одном месте, потому что путей к показу теперь два - обычный и запасной
+        ход без русской озвучки (:meth:`_mute_fallback`), - а строки на них обязаны быть
+        одни и те же: и «перекодирую целиком», и «ступень ниже доступной» относятся к
+        файлу, а не к тому, как отбор до него добрался.
+        """
+        # Молчаливых подмен нет ни в одну сторону: и «ресивер может не взять», и
+        # «перекодирую целиком» - это решение показа, и человек его слышит. Вес
+        # тут такой же повод, как кодек: тяжёлый ремукс уезжает перекодированным
+        # целиком, и сказано об этом ровно теми же словами и тем же числом.
+        weight = prep.found.weight_mbit(prep.want.size)
+        heavy = plan.hard_mbit > 0 and weight > plan.hard_mbit
+        if hope := last_hope_note(plan, prep.release):
+            print(hope)
+        if plan.recode_at > 0 and (prep.found.recoded_whole or heavy):
+            # Причина - кодек (с глубиной, если она и есть причина) либо вес.
+            silent = prep.found.recoded_whole
+            print(recode_note(prep.found.video_name, 0.0 if silent else weight))
+        elif warning := prep.found.video_warning:
+            print(warning)
+        # Ступень ниже доступной - тоже авто-решение, и оно не молчит (TC-187).
+        if step := stepdown_note(plan, prep.number, prep.media, queue, judged, reached):
+            print(step)
+
+    def _mute_fallback(
+        self,
+        plan: _Plan,
+        mute: _Prep,
+        queue: list[int],
+        judged: dict[int, str],
+        reached: int,
+        tried: int,
+    ) -> _Prep:
+        """Запасной ход: русской дорожки не нашлось ни у кого - играем то, что есть.
+
+        🔴 TC-178. Гейт русской озвучки нельзя делать слепым. Русская дорожка - условие
+        годности релиза, но у картины её может не быть НИ У КОГО: японский тайтл, который
+        никто не озвучивал, старое кино, чужой сериал. Отказать в такой картине значило бы
+        отобрать у человека и то, что есть, - а он про неё ничего плохого не спрашивал.
+
+        Поэтому ступеней две. Пока в очереди есть кого спросить, безрусский релиз ждёт в
+        стороне (его раздача при этом не убирается - иначе запасной ход стоил бы второго
+        подъёма с нуля). Кончилась очередь - он играет, и решение это громкое: строка на
+        экране, запись в недельном следе (по ней замер и считает дыры каталога) и честная
+        строка про язык звука перед стартом (:func:`sound_note`).
+
+        Проверки честности (:meth:`_honest`) тут нет намеренно: она меняет релиз ради
+        разрешения, а на этом пути мы уже знаем, что русской дорожки нет ни у одного из
+        проверенных, и второй круг ffprobe стоил бы секунд ровно за то же самое.
+        """
+        lang = heard(mute.found)
+        trace.emit("select", "mute", release=mute.number, lang=lang, checked=tried)
+        print(
+            f"русской озвучки нет ни в одной из проверенных раздач ({tried}) - "
+            f"включаю релиз {mute.number}, звук {lang}"
+        )
+        self._announce(plan, mute, queue, judged, reached)
+        return mute
 
     def _wait(self, prep: _Prep, progress: Progress) -> None:
         """Дождаться подготовки, показывая фазу и бегущее время."""
@@ -3068,6 +3163,14 @@ class _Bench:
                 _turned_down(judged, number, why)
                 print(f"релиз {number} не годится ({why})")
                 self._forget(alt)  # спросили и получили ответ - держать его больше незачем
+                continue
+            # 🔴 TC-178. Честный 1080p без русской дорожки - это не «лучше»: разрешение
+            # выиграно, а картина осталась несмотренной. Взятый сюда доходит только с
+            # русской дорожкой (или с неназванным языком), и менять её на кадр нельзя.
+            if alt.found.foreign:
+                _turned_down(judged, number, "без русской озвучки")
+                print(f"релиз {number} не лучше (без русской озвучки)")
+                self._forget(alt)
                 continue
             if not honest_shot(alt.release, alt.found) or alt.found.frame <= chosen.found.frame:
                 _turned_down(judged, number, f"не лучше ({quality_text(alt.release, alt.found)})")
@@ -6023,6 +6126,21 @@ def spoken(track: AudioTrack) -> str:
     return _SPOKEN.get((track.language or "").strip().casefold(), "оригинальный")
 
 
+def heard(media: Media) -> str:
+    """Каким языком заговорит этот файл: язык дорожки, которую взял бы показ.
+
+    Нужен строкам отбора (:meth:`_Bench.resolve`): «релиз 1 без русской озвучки» само по
+    себе не говорит человеку ничего о том, что он услышит, а «(японский)» говорит. Берётся
+    та же дорожка, что и играла бы (:meth:`torrcast.stream.Media.default_track`), - иначе
+    строка отбора и строка запуска называли бы разные языки одного файла.
+    """
+    if not media.tracks:
+        return "неизвестный"
+    index = media.default_track()
+    track = media.tracks[index] if index < len(media.tracks) else media.tracks[0]
+    return spoken(track)
+
+
 def sound_note(
     media: Media, audio: int, pool: list[Release], release: Release | None = None
 ) -> str:
@@ -6033,13 +6151,16 @@ def sound_note(
     человека выяснять на слух. Показ при этом играет: решает он сам, наше дело —
     предупредить честно.
 
-    Строки две, и разница между ними не косметическая:
+    Строки три, и разница между ними не косметическая:
 
+    * перевод в каталоге есть, но в этом релизе его не оказалось — строка называет и
+      запасной ход: выбрать раздачу руками;
+    * 🔴 TC-191: перевод в каталоге есть, но только ОТДЕЛЬНЫМ ФАЙЛОМ
+      (:attr:`~torrcast.parse.Release.external_dub`, «[RUS(ext)]») — тогда выбирать
+      руками нечего: играть звук из соседнего файла показ не умеет, и честнее сказать
+      это прямо, чем отправить человека по кругу за тем же японским;
     * перевода нет вообще ни у кого в выдаче — «только японский звук, перевода в
-      каталоге нет», и делать тут больше нечего;
-    * перевод в каталоге есть, но в этом релизе его не оказалось — такое бывает
-      у ``RUS(ext)``, где русская дорожка лежит отдельным файлом, — тогда строка
-      называет и запасной ход: выбрать раздачу руками.
+      каталоге нет», и делать тут больше нечего.
 
     Чей звук играет, читается из дорожки (:func:`spoken`), а не додумывается: у
     французского фильма без перевода японского звука взяться неоткуда.
@@ -6061,6 +6182,8 @@ def sound_note(
             f"только {lang} звук - перевода в этом релизе нет, но в каталоге он есть: "
             "cast releases <запрос>, потом cast <запрос> --release N"
         )
+    if any(r.external_dub and r.seeders > 0 for r in pool):
+        return f"только {lang} звук - в каталоге перевод есть, но лежит отдельным файлом"
     return f"только {lang} звук, перевода в каталоге нет"
 
 
