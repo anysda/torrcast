@@ -366,6 +366,7 @@ def anime_indexer(name: str) -> bool:
     low = name.lower()
     return any(mark in low for mark in _ANIME_INDEXERS)
 
+
 #: Токены кодека: цифры в них к сериям отношения не имеют. Вырезаются только в разборе
 #: сериальности (:func:`_parse_series`) - сам кодек читается отдельно и раньше.
 _CODEC_TOKEN_RE: Final = re.compile(
