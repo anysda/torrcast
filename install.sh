@@ -36,9 +36,26 @@ PL_HOST="${TORRCAST_PL_HOST:-127.0.0.1}"
 PL_PORT="${TORRCAST_PL_PORT:-9696}"
 TS_URL="http://$TS_HOST:$TS_PORT"
 PL_URL="http://$PL_HOST:$PL_PORT"
-#: Кэш TorrServer держим в RAM, на диск не пишем. 4 ГиБ — половина от 8 ГиБ памяти:
-#: если её меньше, задай свой размер через TORRCAST_TS_CACHE.
-TS_CACHE="${TORRCAST_TS_CACHE:-4294967296}"
+#: Кэш TorrServer держим в RAM, на диск не пишем. Размер НЕ прибит числом: он считается
+#: от фактической памяти машины (:func:`ts_cache_size`), потому что машина бывает и на
+#: 4 ГБ, и на 32. Ручное переопределение - TORRCAST_TS_CACHE (байты).
+#:
+#: ⚠️ Замер: RSS TorrServer примерно ВДВОЕ больше кэша, который он держит - кэш лежит в
+#: куче Go, и рядом с каждым куском живёт его копия в работе (readahead) плюс мусор,
+#: который сборщик забирает уже после. Прибитые 4 ГиБ «половина от 8 ГиБ памяти»
+#: половиной не были: 4 ГиБ кэша - 7.45 ГБ RSS при потолке 8 ГБ, и машина вставала колом
+#: на четвёртой минуте показа. Отсюда делитель ниже.
+#: Две далеко разнесённые головы чтения по одной раздаче (живая упаковка и прогрев)
+#: держат занятыми оба конца кэша, поэтому запас «на одну голову» не годится.
+TS_MEM_OVERHEAD=2
+#: МиБ, которые НЕ отдаём под кэш: сама система, python показа, два ffmpeg, сегменты в
+#: /dev/shm. Замер под показом с прогревом: 0.5-1.2 ГиБ, берём с запасом.
+TS_MEM_RESERVE=1792
+#: Нижняя и верхняя границы кэша. Нижняя - чтобы на 4-гигабайтной машине осталось чем
+#: кормить показ; верхняя - потому что дальше расти незачем: запас на обрыв уже часовой,
+#: а память нужнее машине.
+TS_CACHE_MIN=268435456
+TS_CACHE_MAX=8589934592
 
 # --- Версии соседей: пины ----------------------------------------------------
 # TorrServer и Prowlarr ставятся не «последние какие есть», а те, на которых обвязка
@@ -188,19 +205,68 @@ proc_mask() {  # $1 - начало строки запуска; печатает
     printf '^%s( |$)' "$(printf '%s' "$1" | sed 's/[][^$.*+?(){}|\]/\\&/g')"
 }
 
+# Память ЭТОЙ машины, байты. Не только /proc/meminfo: под cgroup (контейнер, LXC) машине
+# видно больше, чем ей на деле дадут, - берём меньшее из двух. Ошибиться тут дорого:
+# именно на разнице между «памятью в meminfo» и реальным потолком контейнер и вставал.
+host_memory() {
+    local mem lim
+    mem=$(( $(awk '/^MemTotal:/{print $2}' /proc/meminfo) * 1024 ))
+    while read -r lim; do
+        case "$lim" in ''|*[!0-9]*) continue ;; esac
+        [ "$lim" -gt 0 ] && [ "$lim" -lt "$mem" ] && mem="$lim"
+    done <<EOF
+$(cat /sys/fs/cgroup/memory.max /sys/fs/cgroup/memory/memory.limit_in_bytes 2>/dev/null)
+EOF
+    printf '%s' "$mem"
+}
+
+# Сколько памяти позволено самой службе раздачи, байты: всё, кроме запаса на остальных.
+ts_mem_budget() {
+    local budget
+    budget=$(( $(host_memory) - TS_MEM_RESERVE * 1024 * 1024 ))
+    [ "$budget" -lt $(( TS_CACHE_MIN * TS_MEM_OVERHEAD )) ] \
+        && budget=$(( TS_CACHE_MIN * TS_MEM_OVERHEAD ))
+    printf '%s' "$budget"
+}
+
+# Размер кэша раздачи, байты: бюджет службы, делённый на замеренный перерасход.
+ts_cache_size() {
+    local cache
+    cache=$(( $(ts_mem_budget) / TS_MEM_OVERHEAD ))
+    [ "$cache" -lt "$TS_CACHE_MIN" ] && cache="$TS_CACHE_MIN"
+    [ "$cache" -gt "$TS_CACHE_MAX" ] && cache="$TS_CACHE_MAX"
+    printf '%s' "$cache"
+}
+
 # Служба: в системе — юнит systemd, в песочнице — просто фоновый процесс,
 # чтобы фазы проверялись живьём, а не «как будто».
-run_service() {  # $1 имя, $2 описание, $3 команда
+run_service() {  # $1 имя, $2 описание, $3 команда, $4 - лишние строки секции [Service]
     if [ -n "${TORRCAST_NO_SYSTEMD:-}" ]; then
         pgrep -f -- "$(proc_mask "$3")" >/dev/null 2>&1 \
             && { skip "процесс $1 (песочница)"; return 0; }
         info "запускаю $1 фоном (песочница)"
+        # Потолки памяти в песочнице ставит не systemd, поэтому Environment= разбираем
+        # сами: без них служба в песочнице росла бы иначе, чем в системе, и замер
+        # песочницы ничего бы не говорил о живой машине. Строки MemoryMax= тут нечему
+        # применить - в песочнице cgroup своего юнита нет.
+        local line
+        while IFS= read -r line; do
+            case "$line" in Environment=*) export "${line#Environment=}" ;; esac
+        done <<EOF
+${4:-}
+EOF
         # shellcheck disable=SC2086
         setsid nohup $3 >"$PREFIX/$1.log" 2>&1 </dev/null &
         return 0
     fi
-    write_unit "$1" "$2" "$3"
+    # Изменившийся юнит - это не только daemon-reload: `enable --now` уже поднятую
+    # службу не перезапустит, и она осталась бы жить со СТАРЫМИ потолками памяти. На
+    # чистой машине перезапускать нечего, на обновлении - обязательно.
+    local fresh=0
+    write_unit "$1" "$2" "$3" "${4:-}" && fresh=1
     systemctl enable --now "$1.service"
+    [ "$fresh" = 1 ] && systemctl restart "$1.service"
+    return 0
 }
 
 # Погасить службу, чтобы следующий run_service поднял её заново: `enable --now` и
@@ -601,7 +667,10 @@ verify_torrcast() {
 
 # --- 3. TorrServer ----------------------------------------------------------
 install_torrserver() {
-    log "TorrServer ($TS_URL, кэш в RAM)"
+    local budget
+    TS_CACHE="${TORRCAST_TS_CACHE:-$(ts_cache_size)}"
+    budget=$(( TS_CACHE * TS_MEM_OVERHEAD ))
+    log "TorrServer ($TS_URL, кэш в RAM $((TS_CACHE / 1024 / 1024)) МиБ)"
     install -d -m 0755 "$PREFIX/bin" "$PREFIX/torrserver"
 
     if [ -x "$PREFIX/bin/TorrServer" ]; then
@@ -625,8 +694,20 @@ install_torrserver() {
         mv "$PREFIX/bin/TorrServer.new" "$PREFIX/bin/TorrServer"
     fi
 
+    # Два потолка вокруг кэша, и оба не для красоты.
+    # GOMEMLIMIT - мягкий: он не запрещает расти, а заставляет сборщик мусора Go
+    # работать раньше и чаще, и именно он снимает тот самый двукратный перерасход над
+    # кэшем. Ставится по бюджету службы, то есть кэш живёт свободно, а всё лишнее
+    # собирается, не дожидаясь, пока память кончится у машины.
+    # MemoryMax - жёсткий, на случай, когда мягкого не хватило (кэш вырос сам, чужая
+    # утечка, раздача с гигантским куском). Служба тогда умирает и поднимается заново
+    # (Restart=on-failure): показ прервётся, но машина останется живой - а вставший колом
+    # хозяин без ssh это ровно то, что мы чиним.
     run_service torrserver "TorrServer для torrcast" \
-        "$PREFIX/bin/TorrServer --port $TS_PORT --ip $TS_HOST --path $PREFIX/torrserver"
+        "$PREFIX/bin/TorrServer --port $TS_PORT --ip $TS_HOST --path $PREFIX/torrserver" \
+        "Environment=GOMEMLIMIT=${budget}B
+MemoryMax=$(( budget + 256 * 1024 * 1024 ))
+MemorySwapMax=0"
     wait_http "$TS_URL/echo" 60 || die "TorrServer не поднялся на $TS_URL"
 
     # Кэш в RAM, публичные ретрекеры в magnet'ы, DHT и PEX включены.
@@ -641,7 +722,7 @@ install_torrserver() {
                                         |.ConnectionsLimit=100')"
     curl -fsS -X POST "$TS_URL/settings" -H 'Content-Type: application/json' \
         -d "{\"action\":\"set\",\"sets\":$sets}" >/dev/null
-    info "кэш $((TS_CACHE / 1024 / 1024)) МиБ в RAM, ретрекеры включены"
+    info "кэш $((TS_CACHE / 1024 / 1024)) МиБ в RAM при $(( $(host_memory) / 1024 / 1024 )) МиБ памяти машины, потолок службы $((budget / 1024 / 1024)) МиБ, ретрекеры включены"
 }
 
 # --- 3.5. Источники: проверяем, что доступно, и обходим только то, что бито ----
@@ -1013,7 +1094,7 @@ JSON
 # /etc/environment, поэтому без Environment= процесс живёт в POSIX-локали - кириллица
 # в его журнале и в именах файлов приезжает кракозябрами. Значение то же, которое
 # выбрала фаза `locale`.
-write_unit() {  # $1 имя, $2 описание, $3 команда
+write_unit() {  # $1 имя, $2 описание, $3 команда, $4 - лишние строки секции [Service]
     local path="/etc/systemd/system/$1.service"
     local body
     body="$(cat <<UNIT
@@ -1025,7 +1106,8 @@ Wants=network-online.target
 [Service]
 Type=simple
 Environment=LANG=$LOCALE
-ExecStart=$3
+${4:+$4
+}ExecStart=$3
 Restart=on-failure
 RestartSec=5
 
@@ -1035,7 +1117,7 @@ UNIT
 )"
     if [ -f "$path" ] && [ "$(cat "$path")" = "$body" ]; then
         skip "юнит $1.service"
-        return
+        return 1
     fi
     printf '%s\n' "$body" >"$path"
     systemctl daemon-reload

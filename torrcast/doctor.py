@@ -36,6 +36,14 @@ Line = tuple[str, bool]
 #: урезанная выдача выглядит как пустой поиск без причины.
 KEY_INDEXER = "Knaben"
 _TIMEOUT = 5.0
+#: Во сколько раз память службы раздачи больше кэша, который она держит. Замер: кэш лежит
+#: в куче Go, и рядом с каждым куском живёт его копия в работе плюс мусор, который
+#: сборщик забирает уже потом. Тот же множитель считает размер кэша в ``install.sh``
+#: (``TS_MEM_OVERHEAD``) - если правишь тут, правь и там.
+CACHE_OVERHEAD = 2
+#: Байты, которые кэшу не отдают: система, python показа, два ffmpeg, сегменты в
+#: /dev/shm (``install.sh``: ``TS_MEM_RESERVE``).
+CACHE_RESERVE = 1792 * 1024 * 1024
 
 
 def checkup(config: Config) -> Iterator[Line]:
@@ -45,6 +53,7 @@ def checkup(config: Config) -> Iterator[Line]:
     yield _tools()
     yield from _prowlarr(config)
     yield _torrserver(config)
+    yield _cache(config)
     yield from _tv(config)
     yield _hls(config)
     yield _shelves()
@@ -164,6 +173,57 @@ def _torrserver(config: Config) -> Line:
     return _ok(f"TorrServer {response.text.strip()[:20]} ({config.torrserver_url})")
 
 
+def _cache(config: Config) -> Line:
+    """Кэш раздачи: сколько его, во что он обойдётся памяти и влезает ли это в машину.
+
+    Строка тут потому, что искать это число однажды пришлось с гипервизора: кэш в 4 ГиБ
+    на 8-гигабайтной машине вырастал в 7.45 ГБ RSS, и она вставала колом на четвёртой
+    минуте показа - без ssh, без журнала. Размер кэша теперь считается от фактической
+    памяти (:func:`machine_memory`), и его видно отсюда.
+    """
+    sets = _settings(config.torrserver_url)
+    if not isinstance(sets, dict):
+        return _warn("настройки TorrServer не читаются - размер кэша неизвестен")
+    size = int(sets.get("CacheSize") or 0)
+    total = machine_memory()
+    where = "на диске" if sets.get("UseDisk") else "в RAM"
+    weight = size if sets.get("UseDisk") else size * CACHE_OVERHEAD
+    text = (
+        f"кэш раздачи {_gib(size)} {where}, под показом это ~{_gib(weight)} памяти "
+        f"из {_gib(total)} машины"
+    )
+    if weight + CACHE_RESERVE > total:
+        return _bad(f"{text} - не влезает: показ уронит машину, переставь install.sh")
+    return _ok(text)
+
+
+def machine_memory() -> int:
+    """Память, которая есть у ЭТОЙ машины, байты - с оглядкой на cgroup.
+
+    В контейнере ``/proc/meminfo`` показывает не то, что дадут: потолок стоит на cgroup,
+    и упирается показ именно в него. Берём меньшее из двух.
+    """
+    total = 0
+    try:
+        for line in Path("/proc/meminfo").read_text().splitlines():
+            if line.startswith("MemTotal:"):
+                total = int(line.split()[1]) * 1024
+    except (OSError, ValueError, IndexError):
+        return 0
+    for path in ("/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory/memory.limit_in_bytes"):
+        try:
+            limit = int(Path(path).read_text().strip())
+        except (OSError, ValueError):
+            continue
+        if 0 < limit < total:
+            total = limit
+    return total
+
+
+def _gib(size: int) -> str:
+    return f"{size / 1024**3:.1f} ГиБ"
+
+
 def _tv(config: Config) -> Iterator[Line]:
     """Адрес ТВ, маршрут до него и порт 8009 — он открыт даже у спящего Q70D."""
     from torrcast.stream import our_address
@@ -270,6 +330,19 @@ def _cert_days(path: str) -> int | None:
         return None
     stamp = datetime.strptime(until, "%b %d %H:%M:%S %Y %Z").replace(tzinfo=UTC)
     return (stamp - datetime.now(UTC)).days
+
+
+def _settings(url: str) -> object | None:
+    """Настройки TorrServer. Спрашиваются POST-ом с телом - GET на этот адрес молчит."""
+    import requests
+
+    try:
+        response = requests.post(f"{url}/settings", json={"action": "get"}, timeout=_TIMEOUT)
+        response.raise_for_status()
+        payload: object = response.json()
+        return payload
+    except (requests.RequestException, ValueError):
+        return None
 
 
 def _json(url: str, headers: dict[str, str]) -> object | None:

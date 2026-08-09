@@ -76,3 +76,40 @@ def test_names_survive_junk_rows() -> None:
     payload = [_entry("RuTor"), "мусор", {"enable": True}, {"name": 7}, None]
     assert doctor._enabled_names(payload) == ["RuTor"]
     assert doctor._enabled_names("не список") == []
+
+
+def _sets(monkeypatch: pytest.MonkeyPatch, size: int, disk: bool = False) -> None:
+    monkeypatch.setattr(doctor, "_settings", lambda url: {"CacheSize": size, "UseDisk": disk})
+
+
+def test_cache_fits_the_machine(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Кэш, который вместе со своим перерасходом влезает в память, - строка «ок» с цифрой."""
+    _sets(monkeypatch, 3 * 1024**3)
+    monkeypatch.setattr(doctor, "machine_memory", lambda: 8 * 1024**3)
+    line, good = doctor._cache(_config())
+    assert good, "3 ГиБ кэша на 8 ГиБ машины - это норма, а не поломка"
+    assert "3.0 ГиБ" in line and "8.0 ГиБ" in line, f"размер и память обязаны быть видны: {line}"
+
+
+def test_cache_too_big_is_bad(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Тот самый случай: 4 ГиБ кэша на 8 ГиБ машины - показ уронит машину."""
+    _sets(monkeypatch, 4 * 1024**3)
+    monkeypatch.setattr(doctor, "machine_memory", lambda: 8 * 1024**3)
+    line, good = doctor._cache(_config())
+    assert not good, "кэш вдвое тяжелее себя не влезает в 8 ГиБ - это «плохо», а не «ок»"
+    assert "не влезает" in line, line
+
+
+def test_cache_on_disk_weighs_itself(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Кэш на диске память не ест: тот же размер с UseDisk проходит."""
+    _sets(monkeypatch, 4 * 1024**3, disk=True)
+    monkeypatch.setattr(doctor, "machine_memory", lambda: 8 * 1024**3)
+    line, good = doctor._cache(_config())
+    assert good and "на диске" in line, line
+
+
+def test_cache_unreadable_settings_do_not_fail_checkup(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Молчащий TorrServer - это «внимание»: про него уже сказала строка выше."""
+    monkeypatch.setattr(doctor, "_settings", lambda url: None)
+    line, good = doctor._cache(_config())
+    assert good and "неизвестен" in line, line
