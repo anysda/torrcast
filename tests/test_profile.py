@@ -49,6 +49,22 @@ def test_the_stream_constants_are_the_cautious_profile() -> None:
     assert cast.ChromecastReceiver.REVIVE_TIMEOUT == cautious.revive_timeout == 300.0
 
 
+def test_the_revival_waits_are_the_cautious_profile() -> None:
+    """Обе выдержки воскрешения - из профиля приёмника, и они про РАЗНОЕ.
+
+    :attr:`torrcast.profile.Profile.revive_drop` - через сколько приёмник снова берёт LOAD
+    (замер: 3-4 с), :attr:`torrcast.profile.Profile.revive_pause` - как редко жечь
+    оставшиеся попытки, чтобы их хватило на всё окно возврата. Сложи их в одно число - и
+    темнота по вине приёмника снова станет минутой чёрного экрана впустую.
+    """
+    from torrcast import cli
+
+    cautious = profile.CAUTIOUS
+    assert cli.REVIVE_PAUSE == cautious.revive_pause == 60.0
+    assert cli.REVIVE_DROP == cautious.revive_drop == 4.0
+    assert cautious.revive_drop < cautious.revive_pause, "приёмника ждут секунды, а не минуту"
+
+
 @pytest.mark.parametrize(
     "maker,model,name",
     [
@@ -93,6 +109,9 @@ def test_the_stick_is_bold_only_where_it_was_measured() -> None:
     assert stick.hold_seconds == cautious.hold_seconds == 120.0, "120 с тишины терпит с запасом"
     assert stick.revive_timeout == 577.0 > cautious.revive_timeout, "окно возврата - та же граница"
     assert stick.revive_pause == 10.0, "LOAD после IDLE/ERROR взят через 8.9 с - замер"
+    assert stick.revive_drop == 10.0 > cautious.revive_drop, (
+        "приставке проворность не выдумываем: раньше 8.9 с к LOAD она не возвращалась"
+    )
     assert stick.recode_codecs == cautious.recode_codecs, "HEVC в нашем mpegts ещё не проверен"
     assert stick.copy_depth == cautious.copy_depth, "Hi10P в нашем mpegts ещё не проверен"
     assert stick.max_segment_bytes == cautious.max_segment_bytes, "вес куска не измеряли"
