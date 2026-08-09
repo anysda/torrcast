@@ -461,6 +461,47 @@ def test_a_subtitle_is_a_name_too() -> None:
     assert len(pick_franchise("властелин колец", pictures)) == 2
 
 
+def test_a_namesake_stub_does_not_take_the_subtitle_query_for_itself() -> None:
+    """🔴 TC-246. «Космическая одиссея» - это и ключ огрызка, и подзаголовок классики.
+
+    Подзаголовок читался только тогда, когда по ключу не нашлось НИЧЕГО, а по ключу
+    находилась картина 1987 года с единственной мёртвой раздачей. «2001: Космическая
+    одиссея» лежала в той же выдаче двумя десятками раздач, но её ключ - ``2001``, и до
+    меню она не доезжала вовсе: человек читал «рой мёртв» при 80 строках в пуле.
+
+    В меню теперь обе, и выбор между ними - работа меню, а не порядка проверок здесь.
+    """
+    pictures = cluster(
+        [
+            _release(
+                "2001: Космическая одиссея", 1968, seeders=49, original="2001: A Space Odyssey"
+            ),
+            _release("Космическая одиссея", 1987, seeders=0),
+        ]
+    )
+
+    found = pick_franchise("космическая одиссея", pictures)
+
+    assert [p.year for p in found] == [1987, 1968], "огрызок остаётся, классика добавлена"
+
+
+def test_a_subtitle_never_widens_a_query_that_named_a_part_number() -> None:
+    """Ограждение к правке выше: номер части отсчитывается по линейке франшизы.
+
+    Картина из чужой франшизы, добавленная в линейку, сдвинула бы нумерацию - и «2»
+    означало бы не ту часть, которую человек назвал.
+    """
+    pictures = cluster(
+        [
+            _release("Матрица", 1999, seeders=90),
+            _release("Матрица: Перезагрузка", 2003, seeders=80),
+            _release("Перезагрузка", 2021, seeders=1),
+        ]
+    )
+
+    assert [p.year for p in pick_franchise("матрица 2", pictures)] == [2003]
+
+
 def test_a_subtitle_is_read_in_the_original_title_as_well() -> None:
     """Половина каталога подписана только латиницей - подзаголовок ищется и в оригинале."""
     pictures = cluster([_release("Rings of Power", 2022, original="LOTR: The Rings of Power")])

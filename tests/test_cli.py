@@ -1731,6 +1731,70 @@ def test_a_lone_release_still_yields_to_a_deeper_queue_of_its_own_kind() -> None
     assert cli.first_alive([thin, deep]) == 2
 
 
+def test_default_leaves_a_dead_end_picture_for_its_living_namesake() -> None:
+    """🔴 TC-246. «Призраки»: 190 строк в пуле, 58 HD - а дефолт вставал на тупик.
+
+    Тупик тут дословный: одна SD-раздача, порог живости она проходит (8 сид), очереди за
+    ней нет, и нужного сезона тоже. Рядом стоит картина ровно того же имени с тридцатью
+    раздачами в 1080p. :func:`~torrcast.cli.backed` за неё не берётся - тип другой (TC-192),
+    - и дефолтом молча вставал тупик. Тот же расклад у «Ангела», «Убийства», «Родины».
+    """
+    stub = _franchise_plan(
+        "Призраки", 2014, [rel(name="Призраки 2014 HDRip", quality=None, size_gb=1.4, seeders=8)]
+    )
+    live = _franchise_plan(
+        "Призраки",
+        2021,
+        [
+            rel(name=f"Призраки / Ghosts S01 WEB-DL 1080p {i}", size_gb=6.0, seeders=40 + i)
+            for i in range(30)
+        ],
+        kind="tv",
+    )
+    plans = [stub, live]
+
+    assert cli.alive_numbers(plans, [1, 2]) == [1, 2], "по сидам жива и та, и другая"
+    assert cli.fitness(stub) == 0, "играть по-человечески тупику нечем"
+    assert cli.playable(plans, [1, 2]) == [2]
+    assert cli.first_alive(plans) == 2
+    assert "живого HD у неё нет" in cli.default_note(plans, "призраки"), "смена картины - вслух"
+
+
+def test_a_living_namesake_of_another_name_never_takes_the_default() -> None:
+    """Ограждение к правке выше: уступают только ТЁЗКИ, соседи по франшизе - никогда.
+
+    Дефолт франшизы - первая живая часть, и это решение отдельное от качества: «Тачки»,
+    у которых в каталоге одни DVD-образы, обязаны остаться первым пунктом, а не уступить
+    третьей части за её живой 1080p.
+    """
+    first = _franchise_plan(
+        "Тачки", 2006, [rel(name="Тачки 2006 DVDRip", quality=None, size_gb=1.4, seeders=66)]
+    )
+    third = _franchise_plan(
+        "Тачки 3", 2017, [rel(name="Тачки 3 2017 WEB-DL 1080p", size_gb=4.6, seeders=121)]
+    )
+    plans = [first, third]
+
+    assert cli.fitness(first) == 0 and cli.fitness(third) == 121
+    assert cli.playable(plans, [1, 2]) == [1, 2], "это другая картина, а не тёзка"
+    assert cli.first_alive(plans) == 1
+
+
+def test_all_namesakes_in_a_dead_end_keep_their_places() -> None:
+    """Уступать некому - список остаётся как был: выбирать всё равно не из чего."""
+    early = _franchise_plan(
+        "Призраки", 2014, [rel(name="Призраки 2014 HDRip", quality=None, size_gb=1.4, seeders=8)]
+    )
+    late = _franchise_plan(
+        "Призраки", 2021, [rel(name="Призраки 2021 DVDRip", quality=None, size_gb=1.3, seeders=40)]
+    )
+    plans = [early, late]
+
+    assert [cli.fitness(p) for p in plans] == [0, 0]
+    assert cli.playable(plans, [1, 2]) == [1, 2]
+    assert cli.first_alive(plans) == 1
+
+
 def _invisible_man() -> list[Any]:
     """Меню «человек-невидимка»: 1933 год формально жив, а играть им нечем.
 

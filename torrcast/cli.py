@@ -1412,7 +1412,7 @@ def _search(
     спросить о нём можно только сам профиль (:func:`last_hope`). Умолчание осторожное:
     отладочные ручки ``cast releases`` и ``cast voices`` приёмника не опрашивают вовсе.
     """
-    from torrcast.parse import THIN_POOL, cluster, pick_franchise
+    from torrcast.parse import cluster, pick_franchise
 
     if not config.prowlarr_apikey:  # без Prowlarr искать нечем - это инфра-ошибка
         raise InfraError("не настроен Prowlarr: apikey пуст, перезапусти ./install.sh")
@@ -1429,10 +1429,7 @@ def _search(
     pictures = cluster(to_releases(raw))
     # Номер в запросе - позиция во франшизе, а не в общей выдаче.
     found = pick_franchise(query, pictures)
-    # Тощесть меряется строками выдачи (:attr:`~torrcast.parse.Picture.rows`), а не
-    # склеенными раздачами: зеркалящие индексеры несут один торрент по разу каждый, и по
-    # склеенному пулу порог срабатывал бы тем чаще, чем больше зеркал в круге.
-    if max((p.rows for p in found), default=0) < THIN_POOL:
+    if worth_asking_original(found, args, config, profile):
         raw, pictures, found = _second_language(client, query, args, raw, found, progress)
     # Сериал есть, а раздач нужного сезона в нём нет - добрать сезонной строкой по
     # оригиналу, прежде чем честно отказать (:func:`_season_reinforce`).
@@ -1472,6 +1469,49 @@ def _search(
         want = args.episode or Episode(1, 1)
         raise NotFoundError(f"«{found[0].title}»: раздач с сезоном {want.season} нет")
     return plans
+
+
+def worth_asking_original(
+    found: list[Picture], args: Args, config: Config, profile: Profile = CAUTIOUS
+) -> bool:
+    """Стоит ли переспросить оригинальным названием (:func:`_second_language`).
+
+    Поводов два, и оба про одно: русской выдачи не хватило.
+
+    1. Пул ТОЩИЙ - строк выдачи меньше :data:`~torrcast.parse.THIN_POOL`. Мера считается
+       строками (:attr:`~torrcast.parse.Picture.rows`), а не склеенными раздачами:
+       зеркалящие индексеры несут один торрент по разу каждый, и по склеенному пулу
+       порог срабатывал бы тем чаще, чем больше зеркал в круге.
+    2. 🔴 TC-245. Пул НЕГОДЕН - раздач много, а играть нечем (:func:`unfit_pool`).
+       Тощесть тут ничего не ловит, а беда та же самая: «Оранжевый хит сезона» приезжал
+       57 русскими строками без единого HD, отбор перебирал мертвецов и сдавался, тогда
+       как под ``Orange Is the New Black`` лежат 93 HD. То же у «Звёздного пути:
+       Следующее поколение» (24 строки без HD против 116 со ста живыми HD). Толщина пула
+       про его годность не говорит ровно ничего, и мерить надо годность.
+
+    Второй повод считается по УЖЕ вынесенным приговорам отбора, а не заранее: пул
+    прогоняется через тот же :func:`_plan_for`, что построит меню, и вопрос к нему один -
+    осталось ли после отбора хоть что-нибудь, чем стоит играть. Лишнего круга на здоровой
+    выдаче отсюда не берётся: годная раздача есть - второго захода нет.
+    """
+    from torrcast.parse import THIN_POOL
+
+    if max((p.rows for p in found), default=0) < THIN_POOL:
+        return True
+    return unfit_pool(found, args, config, profile)
+
+
+def unfit_pool(
+    found: list[Picture], args: Args, config: Config, profile: Profile = CAUTIOUS
+) -> bool:
+    """Пул негоден: ни у одной картины нет раздачи, которой стоило бы играть.
+
+    «Стоило бы» - это :func:`fitness`, то есть уже собранные факты отбора: раздача годна
+    по :func:`is_candidate`, жива по :data:`ALIVE_SEEDERS` и не старьё по
+    :func:`is_dated`. Ни одного такого релиза во всём пуле - и вечер по этой выдаче не
+    состоится, сколько бы строк в ней ни было.
+    """
+    return not any(fitness(_plan_for(p, args, config, profile)) for p in found)
 
 
 #: Сколько соседей по франшизе называем в строке отказа. Больше не помещается в строку, да
@@ -4496,6 +4536,39 @@ def liveliness(plan: _Plan) -> int:
     )
 
 
+def fitness(plan: _Plan) -> int:
+    """Сиды лучшей раздачи, которой картину и правда стоит смотреть; 0 - такой нет.
+
+    От :func:`liveliness` отличается двумя условиями, и оба взяты у самого отбора, а не
+    придуманы заново:
+
+    * раздача ЖИВА - сидов не меньше :data:`ALIVE_SEEDERS`. Живость картины считается
+      этим же порогом (:func:`alive_numbers`), и второго значения у слова тут нет;
+    * раздача НЕ СТАРЬЁ - :func:`is_dated`. Это тот самый приговор, который отбор выносит
+      каждой строке: XviD и DVDRip, названная ступень ниже :data:`HD_HEIGHT`, молчаливое
+      имя при SD-битрейте.
+
+    Нужна она там, где вопрос не «кто живее», а «состоится ли вечер вообще»: пул, в
+    котором ни одной такой раздачи нет, годным не бывает (:func:`unfit_pool`), а картина
+    без единой такой раздачи - тупик, и дефолт меню на неё не садится, когда рядом стоит
+    живая тёзка (:func:`playable`).
+
+    ⚠️ Порядок отбора это НЕ смягчает и не ужесточает: годность релиза по-прежнему решает
+    :func:`is_candidate`, а старьё по-прежнему играется, когда другого нет вовсе. Здесь
+    считается только вес картины в двух вопросах выше.
+    """
+    return max(
+        (
+            release.seeders
+            for release in plan.ranked
+            if release.seeders >= ALIVE_SEEDERS
+            and is_candidate(release, plan.runtime, plan.warn_mbit, plan.loose, plan.hard_mbit)
+            and not is_dated(release, plan.runtime)
+        ),
+        default=0,
+    )
+
+
 def liveliest(plans: list[_Plan]) -> int:
     """Номер (с единицы) самой живой картины — он же дефолт меню и первый на прогрев.
 
@@ -4546,7 +4619,7 @@ def _first_alive(plans: list[_Plan], numbers: list[int]) -> int:
     if not numbers:
         return liveliest(plans)
     if alive := alive_numbers(plans, numbers):
-        return backed(plans, alive)[0]
+        return backed(plans, playable(plans, alive))[0]
     return max(numbers, key=lambda n: (liveliness(plans[n - 1]), -n))
 
 
@@ -4558,6 +4631,45 @@ def alive_numbers(plans: list[_Plan], numbers: list[int]) -> list[int]:
     и чужой рой его ни подтвердить, ни отменить не может.
     """
     return [n for n in numbers if liveliness(plans[n - 1]) >= ALIVE_SEEDERS]
+
+
+def playable(plans: list[_Plan], alive: list[int]) -> list[int]:
+    """🔴 TC-246. Тупиковая картина уступает дефолт своей ТЁЗКЕ, которой есть чем играть.
+
+    Тупик - это картина, у которой после отбора не осталось ни одной раздачи, годной,
+    живой и не старья разом (:func:`fitness`). Порог живости она проходит честно, и
+    :func:`backed` за неё тоже не берётся, когда тёзка другого типа: замер каталога -
+    «Призраки» приезжают 190 строками, из них 58 HD, а дефолтом вставала одноимённая
+    картина с одной SD-раздачей и без нужного сезона. То же у «Ангела» (194 строки, 68
+    HD), «Убийства» (189 / 91) и «Родины» (128 / 24).
+
+    🔴 Уступают друг другу только ТЁЗКИ - картины, которые каталог подписал ОДНИМ И ТЕМ
+    ЖЕ именем. Это ограждение, а не оттенок. Соседей по франшизе правило не трогает
+    вовсе: дефолт франшизы - первая живая часть, и «Тачки», у которых в каталоге одни
+    DVD-образы, обязаны остаться первым пунктом, а не уступить третьей части за её
+    1080p. Тёзки же - это одна и та же вещь под одним именем, хронология между ними
+    ничего не значит, и человек, назвавший имя, просил ту из них, которую можно смотреть.
+
+    ⚠️ Ранжир по качеству это не смягчает: старьё как игралось последним, так и играется,
+    и картина, у которой ВСЕ тёзки тупиковые, дефолта не теряет - уступать некому.
+
+    ⚠️ TC-192 не отменяется. «Нелюбовь» - фильм 2017 года одной живой 1080p-раздачей
+    против сериала-тёзки: у фильма годная раздача есть, тупиком он не был и дефолт
+    остаётся за ним.
+    """
+    fit = {n: fitness(plans[n - 1]) for n in alive}
+    if not any(fit.values()):
+        return alive
+    return [
+        n
+        for n in alive
+        if fit[n] or not any(m != n and fit[m] and _same_name(plans, m, n) for m in alive)
+    ]
+
+
+def _same_name(plans: list[_Plan], first: int, second: int) -> bool:
+    """Одним ли именем каталог подписал две картины меню."""
+    return plans[first - 1].picture.title.casefold() == plans[second - 1].picture.title.casefold()
 
 
 def backed(plans: list[_Plan], alive: list[int]) -> list[int]:
@@ -4801,16 +4913,19 @@ def _passport(plans: list[_Plan]) -> _Passport:
 def _passed_why(plans: list[_Plan], number: int, numbers: list[int]) -> str:
     """Почему картина, стоящая раньше по хронологии, дефолтом не стала.
 
-    Причины ровно три, и человеку они разные: «играть нечем» (годной раздачи нет ни
+    Причины ровно четыре, и человеку они разные: «играть нечем» (годной раздачи нет ни
     одной - образы дисков, 4K сверх потолка декодера, старьё), «рой мёртв» (годная
-    раздача есть, но сидов у неё столько, что это подгрузы) и «всего одна раздача»
-    (:func:`backed`: одно обещание индексера против очереди у соседки).
+    раздача есть, но сидов у неё столько, что это подгрузы), «живого HD нет»
+    (:func:`playable`: у тёзки того же имени он есть, а тут одно старьё) и «всего одна
+    раздача» (:func:`backed`: одно обещание индексера против очереди у соседки).
     """
     life = liveliness(plans[number - 1])
     if life <= 0:
         return "играть у неё нечем - ни одной годной раздачи"
     if number not in alive_numbers(plans, numbers):
         return f"рой у неё мёртв - сидов {life}"
+    if not fitness(plans[number - 1]):
+        return "живого HD у неё нет - одно старьё"
     return f"у неё всего одна раздача, а тут их {len(plans[number - 1].ranked)}"
 
 

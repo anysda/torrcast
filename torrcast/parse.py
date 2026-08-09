@@ -1549,6 +1549,10 @@ def other_words(query: str, picture: Picture | None) -> str:
     бульвар» - об этом надо сказать. Совпадение подстрокой (в любую сторону) и попадание
     по оригинальному названию молчаливы: там человек назвал картину ровно так, как её
     зовут, и объяснять нечего.
+
+    ⚠️ Называется КАРТИНА целиком, а не корень её франшизы. Корень режет подзаголовок
+    (:func:`franchise_name`), и на запросе подзаголовком строка выходила прямой
+    бессмыслицей: «космическая одиссея» - в каталоге это «2001».
     """
     if picture is None:
         return ""
@@ -1558,7 +1562,7 @@ def other_words(query: str, picture: Picture | None) -> str:
         keys.append(franchise_key(picture.original))
     if any(wanted in key or key in wanted for key in keys):
         return ""
-    return franchise_name(picture.title)
+    return picture.title
 
 
 def _aliases(groups: dict[str, list[Picture]]) -> dict[str, str]:
@@ -1673,7 +1677,34 @@ def pick_franchise(query: str, pictures: list[Picture]) -> list[Picture]:
         # «матрица 7» находила бы франшизу вхождением и вместо честного «номера 7 нет»
         # выкладывала всю линейку.
         items = _both_languages(groups, aliases, whole)
-    return items
+    return _with_subtitled(items, name, pictures, index)
+
+
+def _with_subtitled(
+    items: list[Picture], name: str, pictures: list[Picture], index: int | None
+) -> list[Picture]:
+    """Картины, названные ПОДЗАГОЛОВКОМ, - вдобавок к найденным по ключу франшизы.
+
+    🔴 TC-246. Подзаголовок читался только тогда, когда по ключу не нашлось ничего
+    (:func:`_by_subtitle`), а найтись по ключу может огрызок. «Космическая одиссея» -
+    это ключ картины 1987 года с одной мёртвой раздачей, и она забирала запрос себе
+    целиком: «2001: Космическая одиссея» лежала в той же выдаче двумя десятками раздач,
+    но её ключ - ``2001``, запрос в него не входит, и до меню она не доезжала вовсе.
+    Человек читал «рой мёртв» по единственной раздаче чужой картины при 80 строках в
+    пуле. Тот же класс - ``RahXephon`` при 76 строках.
+
+    Берутся ОБЕ, а не одна вместо другой: имя человек назвал верно, и обе картины
+    подписаны им честно - одна целиком, другая подзаголовком. Кому из них быть дефолтом,
+    решает меню по живости (:func:`~torrcast.cli.first_alive`), а не порядок проверок
+    здесь; смену видно и списком, и честной строкой.
+
+    ⚠️ Номер части в запросе это выключает: номер отсчитывается по линейке франшизы, и
+    добавленная в неё картина из чужой франшизы сдвинула бы нумерацию.
+    """
+    if index is not None or not items:
+        return items
+    keys = {p.key for p in items}
+    return items + [p for p in _by_subtitle(name, pictures) if p.key not in keys]
 
 
 def _numbered(items: list[Picture], index: int | None) -> list[Picture]:

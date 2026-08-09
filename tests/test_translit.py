@@ -157,11 +157,16 @@ class _FakeProwlarr:
         return GOAL
 
 
-def _catalog(russian: int, latin: int) -> _FakeProwlarr:
-    """«Психо»: по-русски пара DVDRip'ов, на латинице - весь каталог в 1080p."""
+def _catalog(russian: int, latin: int, quality: str = "DVDRip") -> _FakeProwlarr:
+    """«Психо»: по-русски пара DVDRip'ов, на латинице - весь каталог в 1080p.
+
+    ``quality`` - чем подписаны РУССКИЕ строки. Умолчание и есть беда: DVDRip мимо
+    отбора, и такой пул негоден, сколько бы строк в нём ни было (TC-245). Полным и
+    годным его делает ровно то, ради чего всё затевалось, - живой 1080p.
+    """
     return _FakeProwlarr(
         {
-            "психо": [raw(f"Психо / Psycho (1960) DVDRip {i}", i) for i in range(russian)],
+            "психо": [raw(f"Психо / Psycho (1960) {quality} {i}", i) for i in range(russian)],
             "psycho": [raw(f"Psycho.1960.1080p.BluRay.x264-GRP{i}", 100 + i) for i in range(latin)],
         }
     )
@@ -190,23 +195,68 @@ def test_thin_russian_pool_is_topped_up_by_the_latin_title(
 
 
 def test_full_russian_pool_is_not_searched_twice(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Счастливый путь не платит за чужую беду: полная выдача - один запрос."""
-    client = _catalog(russian=THIN_POOL, latin=40)
+    """Счастливый путь не платит за чужую беду: полная и годная выдача - один запрос."""
+    client = _catalog(russian=THIN_POOL, latin=40, quality="BDRip 1080p")
     plans, _said = _search(client, "психо", monkeypatch)
 
     assert client.asked == ["психо"]
     assert len(plans[0].picture.releases) == THIN_POOL
 
 
-def _mirror(count: int, *indexers: str) -> list[RawResult]:
+def test_a_fat_but_sd_russian_pool_asks_the_original_too(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """🔴 TC-245. Толщина пула про его годность не говорит ничего.
+
+    Замер каталога: «Оранжевый хит сезона» приезжал 57 русскими строками без единого HD,
+    отбор перебирал мертвецов и сдавался, а под ``Orange Is the New Black`` лежали 93 HD.
+    Тощесть тут не срабатывала ни разу - строк-то много, - и второго захода не случалось.
+    """
+    client = _catalog(russian=THIN_POOL + 5, latin=40)
+    plans, said = _search(client, "психо", monkeypatch)
+
+    assert client.asked == ["психо", "Psycho"], "HD ноль - это тоже повод спросить оригинал"
+    assert len(plans[0].picture.releases) == THIN_POOL + 45
+    assert f"по-русски раздач {THIN_POOL + 5} - добрал по «Psycho»" in said
+
+
+def test_a_fat_but_dead_russian_pool_asks_the_original_too(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Вторая половина того же: HD в пуле есть, а сидов под ним нет.
+
+    Порог живости тут тот же, которым меряется картина в меню
+    (:data:`~torrcast.cli.ALIVE_SEEDERS`): под ним раздача не играет, и пул из таких строк
+    негоден ровно так же, как пул из одного SD.
+    """
+    client = _FakeProwlarr(
+        {
+            "психо": [
+                raw(f"Психо / Psycho (1960) BDRip 1080p {i}", i, seeders=cli.ALIVE_SEEDERS - 3)
+                for i in range(THIN_POOL + 5)
+            ],
+            "psycho": [raw(f"Psycho.1960.1080p.BluRay.x264-GRP{i}", 100 + i) for i in range(40)],
+        }
+    )
+    plans, said = _search(client, "психо", monkeypatch)
+
+    assert client.asked == ["психо", "Psycho"]
+    assert len(plans[0].picture.releases) == THIN_POOL + 45
+    assert "добрал по «Psycho»" in said
+
+
+def _mirror(count: int, *indexers: str, quality: str = "BDRip 1080p") -> list[RawResult]:
     """Одни и те же ``count`` раздач «Психо», принесённые каждым из индексеров.
 
     Так и выглядит живой круг: Knaben несёт то же, что nyaa и остальные, и после склейки
     по ``infoHash`` от трёх выдач остаётся одна.
+
+    Раздачи годные нарочно: здесь мерится ТОЩЕСТЬ пула, и негодность (TC-245) в эту мерку
+    лезть не должна - иначе тест проходил бы по другой причине, чем написано.
     """
     return merge(
         *[
-            [raw(f"Психо / Psycho (1960) DVDRip {i}", i, indexer=name) for i in range(count)]
+            [raw(f"Психо / Psycho (1960) {quality} {i}", i, indexer=name) for i in range(count)]
             for name in indexers
         ]
     )
@@ -563,6 +613,39 @@ def test_a_subtitle_query_needs_no_second_round(monkeypatch: pytest.MonkeyPatch)
     assert "ничего не нашлось" not in said
 
 
+def test_a_dead_namesake_no_longer_swallows_a_subtitle_query(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """🔴 TC-246. «Космическая одиссея»: вердикт «рой мёртв» по одной чужой раздаче.
+
+    Под этим именем в каталоге лежит картина 1987 года с единственной мёртвой раздачей, и
+    запрос доставался ей целиком - при 21 строке в пуле. Классика 1968 года подписана
+    ``2001: Космическая одиссея``, её ключ - ``2001``, и до меню она не доезжала вовсе.
+
+    Теперь в меню обе, дефолт стоит на живой, и человек читает обе стороны выбора.
+    """
+    client = _FakeProwlarr(
+        {
+            "космическая одиссея": [
+                raw(
+                    f"2001: Космическая одиссея / 2001: A Space Odyssey (1968) BDRip 1080p {i}",
+                    i,
+                    seeders=49,
+                )
+                for i in range(20)
+            ]
+            + [raw("Космическая одиссея (1987) VHSRip", 90, seeders=0)]
+        }
+    )
+    plans, said = _search(client, "космическая одиссея", monkeypatch)
+
+    assert [p.picture.year for p in plans] == [1987, 1968], "в меню обе картины"
+    assert cli.first_alive(plans) == 2, "дефолт - живая, а не мёртвый огрызок"
+    assert "«космическая одиссея» - в каталоге это «2001: Космическая одиссея»" in said
+    note = cli.default_note(plans, "космическая одиссея")
+    assert "«2001: Космическая одиссея (1968)»" in note and "«Космическая одиссея (1987)»" in note
+
+
 def test_a_thin_subtitle_pool_is_never_zeroed_by_the_gate(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -667,7 +750,7 @@ def test_the_full_pool_asks_neither_the_indexers_nor_the_reference(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Счастливый путь не платит ни за второй круг по индексерам, ни за справку."""
-    client = _catalog(russian=THIN_POOL, latin=40)
+    client = _catalog(russian=THIN_POOL, latin=40, quality="BDRip 1080p")
     asked = _knows(monkeypatch, {"психо": Origin(title="Psycho", year=1960)})
     plans, _said = _search(client, "психо", monkeypatch)
 
