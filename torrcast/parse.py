@@ -1145,7 +1145,18 @@ def cluster(releases: list[Release]) -> list[Picture]:
     """Сгруппировать релизы в картины; порядок = хронология франшизы.
     Кросс-язычность: если хоть где-то встретилось ``Тачки 3 / Cars 3``, то чисто
     латинский релиз ``Cars 3`` попадёт в тот же кластер, что и русский.
+
+    🔴 Разбор идёт в порядке, который НЕ зависит от того, чей индексер ответил первым.
+    Развязки ничьих в самих сортировках (TC-227) для этого мало: словарь синонимов и
+    канон оригинала берут первую попавшуюся строку (``setdefault``), а каноническое имя
+    картины считается большинством (:func:`_compose`) - и при равном счёте побеждает
+    опять же тот, кто пришёл раньше. Замерено на сырых пулах (99 запросов, по 10
+    перетасовок каждый): без этой строки перетасовка меняла картину у 59 запросов из 99,
+    а верхний релиз картины С ТЕМ ЖЕ именем и годом - у 25. Живой случай - «Дюна» 2000:
+    картина приезжала то на 5 раздач с верхом на 7 сидах, то на 2 раздачи с верхом на 39,
+    и узнать об этом человеку было неоткуда.
     """
+    releases = sorted(releases, key=lambda r: (r.magnet, r.raw_name))
     aliases: dict[str, str] = {}
     for release in releases:
         if release.original and _CYRILLIC.search(release.title):
@@ -1167,10 +1178,26 @@ def cluster(releases: list[Release]) -> list[Picture]:
     return _sorted(glue(pictures))
 
 
+def _by_majority(counted: Counter[str]) -> str:
+    """Самое частое имя кучки; при РАВНОМ счёте - самое короткое, потом по алфавиту.
+
+    Развязка тут не косметика. ``most_common`` при равенстве отдаёт то имя, что легло в
+    счётчик первым, то есть то, чей индексер ответил быстрее: «Армитаж: Двойная матрица»
+    приезжает с оригиналом ``Armitage III: Dual Matrix`` и ``Armitage: Dual-Matrix``
+    поровну, и картина меняла паспорт от запуска к запуску.
+
+    Короткое имя при равенстве - не произвол: длиннее его делают ровно довески каталога,
+    номер части в переводе названия («Матрица 2: Перезагрузка» против «Матрица:
+    Перезагрузка») или лишняя нумерация оригинала. Номер части при этом не теряется -
+    его забирает :attr:`Picture.part` отдельным счётом.
+    """
+    return min(counted, key=lambda name: (-counted[name], len(name), name))
+
+
 def _compose(kind: Kind, year: int | None, group: list[Release], also: str = "") -> Picture:
     """Кучка релизов → картина: каноническое имя, оригинал и номер части по большинству."""
     titles = Counter(r.title for r in group if _CYRILLIC.search(r.title))
-    title = (titles or Counter(r.title for r in group)).most_common(1)[0][0]
+    title = _by_majority(titles or Counter(r.title for r in group))
     originals = Counter(r.original for r in group if r.original)
     # Номер части часто есть лишь в части переводов («Матрица 2: Перезагрузка»)
     # - забираем его на всю картину, он точнее года при двух фильмах за год.
@@ -1179,8 +1206,8 @@ def _compose(kind: Kind, year: int | None, group: list[Release], also: str = "")
         title=title,
         year=year,
         kind=kind,
-        original=originals.most_common(1)[0][0] if originals else None,
-        part=parts.most_common(1)[0][0] if parts else None,
+        original=_by_majority(originals) if originals else None,
+        part=min(parts, key=lambda n: (-parts[n], n)) if parts else None,
         also=also,
         releases=group,
     )
@@ -1257,7 +1284,17 @@ def glue(pictures: list[Picture]) -> list[Picture]:
             (pictures[i] for i in members),
             key=lambda p: (-len(p.releases), p.title, p.original or ""),
         )
-        year = next((p.year for p in merged if p.year is not None), None)
+        # 🔴 Год склеенной картины - самый РАННИЙ из известных, а не год самой толстой
+        # кучки. Пока склеивались только годы, расходящиеся на единицу, разницы не было;
+        # со сшивкой сезонов (TC-201) кучки разъехались на десятилетия, и сериал стал
+        # подписываться годом самого обсиженного сезона: «Доктор Кто (2017, сериал)» при
+        # 12 раздачах 2005-го против 90 раздач 2017-го, «Игра престолов (2019)»,
+        # «Чёрное зеркало (2019)». Это не только кривая строка в меню: справку ищут по
+        # паре «имя + год» и сверяют год по первым фразам статьи
+        # (:func:`torrcast.facts.confirms`), а статья открывается годом НАЧАЛА сериала.
+        # С чужим годом справки нет вовсе - ни рейтинга, ни описания, ни хронометража,
+        # на котором считается битрейт (TC-185).
+        year = min((p.year for p in merged if p.year is not None), default=None)
         releases = [r for p in merged for r in p.releases]
         fresh = _compose(merged[0].kind, year, releases)
         # Второе имя - самое многолюдное из тех, что не стали каноническим: именно его
