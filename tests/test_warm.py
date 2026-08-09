@@ -15,13 +15,15 @@ import shutil
 import subprocess
 import time
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from tests.conftest import CLIP_SECONDS, free_port
-from torrcast import trace
+from torrcast import cli, trace
+from torrcast.cast import MockReceiver, Position, trust_anchor
 from torrcast.cli import Watch as _Watch
-from torrcast.cli import _Clock, _play
+from torrcast.cli import _Clock, _play, _Stopped
 from torrcast.state import Config, Entry, State
 from torrcast.stream import (
     SPLIT_SLACK,
@@ -47,6 +49,7 @@ from torrcast.warm import (
     Warmer,
     segment_start,
     warm_key,
+    warm_root,
 )
 
 
@@ -64,6 +67,45 @@ def _lay(vault: Vault, slot: int, size: int = 1024) -> Path:
 
 def _grid() -> Grid:
     return Grid.uniform(float(CLIP_SECONDS))
+
+
+def _warm_clip_for_show(clip: str, tmp_path: Path) -> Grid:
+    """Прогреть ролик по-настоящему под тем ключом, который показ посчитает себе сам:
+    копия, без точечных перекодов - решение лёгкого ролика. Возвращает сетку, по ней
+    тест сверяет, что состояние увидело ровно столько, сколько лежит на диске.
+    """
+    grid = _grid()
+    vault = Vault(
+        root=warm_root(str(tmp_path / "warm")),
+        key=warm_key(clip, 0, grid, None, ()),
+        budget=1 << 30,
+        floor=0,
+        title="тест",
+    )
+    warmer = Warmer(source=clip, audio=0, grid=grid, vault=vault, rate=0.0, slack=1e6)
+    warmer.start()
+    deadline = time.monotonic() + 120
+    while not warmer.done and time.monotonic() < deadline:
+        time.sleep(0.5)
+    warmer.stop()
+    assert warmer.done, f"прогрев не дошёл до конца: {warmer.line()}"
+    return grid
+
+
+class _TurnedOff(MockReceiver):
+    """Приёмник, который «выключили» на N-м опросе позиции - ровно как SIGTERM от
+    ``cast stop``, только детерминированно: сигнал по часам проигрывал бы гонку
+    заглушке, доигрывающей ролик за секунды."""
+
+    def __init__(self, polls: int, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self._left = polls
+
+    def position(self, front: float = 0.0) -> Position:
+        self._left -= 1
+        if self._left == 0:
+            raise _Stopped
+        return super().position(front)
 
 
 def test_the_key_changes_with_everything_that_changes_the_bytes() -> None:
@@ -198,20 +240,19 @@ def test_the_show_end_takes_the_warmed_film_off_the_disk(
     clip: str, tls: tuple[str, str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Досмотр под заглушкой доводит показ до конца и берётся за уборку прогретого, не
-    падая на ней, а состояние видит прогрев.
+    падая на ней, а состояние перестаёт утверждать, что на диске что-то есть.
 
-    ⚠️ Чего этот тест НЕ доказывает: что :meth:`Vault.clear` действительно стирает
-    уложенные куски. Под mock вторая голова чтения не запускается вовсе (докстринг
-    :class:`torrcast.cast.MockReceiver`), к концу показа в каталоге прогретого пусто, и
-    проверка «ничего не осталось» прошла бы даже при сломанной уборке. Сам факт удаления
-    сверяется на реально уложенных файлах в
-    :func:`test_the_vault_clear_wipes_the_warmed_directory`; здесь же проверяется, что
-    сквозной досмотр на заглушке доходит до вызова уборки, не роняет показ и что прогрев
-    доезжает до состояния.
+    Фильм прогревается по-настоящему ДО показа (:func:`_warm_clip_for_show`), поэтому
+    «ничего не осталось» здесь - настоящее доказательство уборки: стирается реально
+    уложенное. Тем же концом проверяется правда состояния наружу (TC-255): прогретое
+    досмотренного стёрто, и ``warm`` обязан уйти в ноль - иначе сторонний щуп читал бы
+    «фильм целиком на диске» про пустое место.
     """
     monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
     warm = tmp_path / "warm"
     monkeypatch.setenv("TORRCAST_WARM", str(warm))
+    _warm_clip_for_show(clip, tmp_path)
+    assert any(warm.rglob("v*.ts")), "стирать нечего - прогрев до показа не состоялся"
     length = float(CLIP_SECONDS)
     key = "movie:ролик:2026"
     entry = Entry(title="ролик", magnet="magnet:?xt=1", dur=length)
@@ -234,24 +275,68 @@ def test_the_show_end_takes_the_warmed_film_off_the_disk(
     assert _play(config, clip, 0, "тест", _Clock(), watch=watch) == 0
 
     assert watch.done, "ролик не досмотрен - до вызова уборки показ не дошёл"
-    # Под mock прогрев ничего не кладёт, поэтому каталог и так пуст - это НЕ доказательство
-    # работающей уборки (её сверяет test_the_vault_clear_wipes_the_warmed_directory), а
-    # лишь проверка, что сквозной досмотр не оставил прогретого и не упал на его уборке.
     assert not any(warm.rglob("v*.ts")), "прогретое пережило досмотренный показ"
     saved = State.load().get(key)
-    assert saved is not None and saved.warm >= 0.0, "прогрев не виден состоянию"
+    assert saved is not None and saved.done, "состояние не отметило досмотр"
+    assert saved.warm == 0.0, "состояние врёт про прогретое, которого уже нет на диске"
+
+
+def test_a_show_stopped_midway_leaves_the_warm_visible_outside(
+    clip: str, tls: tuple[str, str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Снятый посреди фильма показ оставляет прогрев видимым СНАРУЖИ процесса: щуп
+    читает state.json и видит, сколько фильма лежит на диске (TC-255).
+
+    Сценарий инцидента: журнал прогона честно писал «прогрето 0:22:46 из 0:22:46 -
+    фильм целиком на диске», а в state.json поле ``warm`` оставалось нулём - снаружи
+    прогрев не был виден вовсе. Здесь фильм прогрет по-настоящему до показа, а показ
+    снимается до первого показанного кадра - ровно тот случай, где у сторожа не было
+    ни одного штатного тика (``see`` не пишет, пока приёмник считает ноль), и спасти
+    прогрев может только запись на выходе. Приёмник «выключается» на втором опросе -
+    так устроен ``cast stop``, только без гонки с заглушкой, доигрывающей ролик за
+    секунды.
+    """
+    monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
+    warm = tmp_path / "warm"
+    monkeypatch.setenv("TORRCAST_WARM", str(warm))
+    grid = _warm_clip_for_show(clip, tmp_path)
+    key = "movie:ролик:2026"
+    entry = Entry(title="ролик", magnet="magnet:?xt=1", dur=float(CLIP_SECONDS))
+    state = State()
+    state.put(key, entry)
+    state.save()
+
+    config = Config(
+        receiver="mock",
+        tv="127.0.0.1",
+        hls_dir=str(tmp_path / "hls"),
+        hls_cert=tls[0],
+        hls_key=tls[1],
+        hls_port=free_port(),
+        hls_readrate=0.0,
+        hls_keyframes=False,
+        warm=True,
+    )
+    receiver = _TurnedOff(polls=2, ca=trust_anchor(tls[0]))
+    monkeypatch.setattr(cli, "make_receiver", lambda *args, **kwargs: receiver)
+    watch = _Watch(key=key, entry=entry, every=0.0)
+    with pytest.raises(_Stopped):
+        _play(config, clip, 0, "тест", _Clock(), watch=watch)
+
+    saved = State.load().get(key)
+    assert saved is not None and not saved.done, "показ успел досмотреться - снят не посреди"
+    assert saved.warm == pytest.approx(grid.duration), "прогрев не виден снаружи показа"
+    assert any(warm.rglob("v*.ts")), "прогретое стёрто с диска недосмотренного показа"
 
 
 def test_the_vault_clear_wipes_the_warmed_directory(tmp_path: Path) -> None:
     """Уборка прогретого стирает каталог показа ЦЕЛИКОМ - и это сверяется на реально
     уложенных файлах, а не на пустом месте.
 
-    Сквозной сухой прогон (`test_the_show_end_takes_the_warmed_film_off_the_disk`)
-    доказать уборку не может: под заглушкой вторая голова чтения не запускается вовсе
-    (докстринг :class:`torrcast.cast.MockReceiver`), и к концу показа стирать нечего -
-    проверка «ничего не осталось» прошла бы даже при сломанной :meth:`Vault.clear`.
-    Поэтому саму уборку сверяем здесь: кладём куски, точечную метку, паспорт и недобитый
-    каталог прогона - и требуем, чтобы после уборки не осталось ни файла и ни каталога.
+    Сквозной прогон (`test_the_show_end_takes_the_warmed_film_off_the_disk`) сверяет
+    уборку целиком, но на одном счастливом пути. Здесь - сама :meth:`Vault.clear` и её
+    тяжёлые случаи: кладём куски, точечную метку, паспорт и недобитый каталог прогона -
+    и требуем, чтобы после уборки не осталось ни файла и ни каталога.
     """
     vault = _vault(tmp_path, key="досмотренный")
     for slot in range(4):
