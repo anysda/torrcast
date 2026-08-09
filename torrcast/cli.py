@@ -1691,8 +1691,12 @@ def _ask(client: Prowlarr, query: str, progress: Progress) -> list[RawResult]:
         rows = client.search(query)
     except NotFoundError:
         rows = []
-    silent = [name for name in client.silent if name not in client.reported_silent]
-    client.reported_silent.update(silent)
+    # Через getattr, а не полем: в тестах на месте клиента стоят подделки, которые
+    # обещают только `search`, и требовать от них весь договор Prowlarr незачем.
+    lost: tuple[str, ...] = getattr(client, "silent", ())
+    reported: set[str] = getattr(client, "reported_silent", set())
+    silent = [name for name in lost if name not in reported]
+    reported.update(silent)
     if len(silent) == 1:
         progress.note(f"индексер {silent[0]} не ответил - выдача может быть хуже")
     elif silent:
