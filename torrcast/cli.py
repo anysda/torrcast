@@ -2363,6 +2363,23 @@ class _Prep:
         return f"метаданные {self.meta:.1f} с, дорожки {self.read:.1f} с"
 
 
+def _turned_down(judged: dict[int, str], number: int, why: str) -> None:
+    """Релиз отвергнут: приговор запомнить и положить в след - ровно один раз на решение.
+
+    🔴 TC-194. Единственное место, где рождается запись ``select/drop``, и заведено оно
+    затем, чтобы отказ не мог напечататься мимо следа. Так и было: очередь отбора
+    (:meth:`_Bench.resolve`) писала запись, а проверка честности (:meth:`_Bench._honest`)
+    печатала свои отказы молча - «Наруто» кончился одной строкой на экране и нулём
+    событий в недельной ленте, то есть след говорил, что отбор прошёл без единой осечки.
+
+    ``judged`` - те же приговоры по номерам, которыми потом объясняется снижение ступени
+    (:func:`stepdown_note`): релиз, которого мы коснулись, обязан числиться отбракованным,
+    а не «не дошли».
+    """
+    judged[number] = why
+    trace.emit("select", "drop", release=number, why=why)
+
+
 class _Bench:
     """Прогрев релизов: несколько раздач готовятся разом, показ берёт первую годную.
 
@@ -2565,7 +2582,7 @@ class _Bench:
             )
             if not trouble:
                 progress.phase("")
-                prep = self._honest(plan, prep, queue, args, progress)
+                prep = self._honest(plan, prep, queue, args, progress, judged)
                 # Молчаливых подмен нет ни в одну сторону: и «ресивер может не взять», и
                 # «перекодирую целиком» - это решение показа, и человек его слышит. Вес
                 # тут такой же повод, как кодек: тяжёлый ремукс уезжает перекодированным
@@ -2585,8 +2602,7 @@ class _Bench:
                     print(step)
                 return prep
             tried.append(f"{number} - {trouble}")
-            judged[number] = trouble
-            trace.emit("select", "drop", release=number, why=trouble)
+            _turned_down(judged, number, trouble)
             if not prep.error and prep.media is not None:  # ffprobe прочитал и осудил
                 verdicts += 1
             self._forget(prep)
@@ -2638,7 +2654,13 @@ class _Bench:
         return True
 
     def _honest(
-        self, plan: _Plan, chosen: _Prep, queue: list[int], args: Args, progress: Progress
+        self,
+        plan: _Plan,
+        chosen: _Prep,
+        queue: list[int],
+        args: Args,
+        progress: Progress,
+        judged: dict[int, str] | None = None,
     ) -> _Prep:
         """Подтверждённое разрешение против обещанного: 574p вместо 1080p — не мелочь.
 
@@ -2655,9 +2677,18 @@ class _Bench:
 
         Молчаливых подмен нет в обе стороны: и подмена, и отказ от неё печатают строку.
         ``--release N`` и ``--file N`` не трогаем вовсе — там человек выбрал сам.
+
+        🔴 TC-194. ``judged`` - приговоры, уже вынесенные очередью отбора (:meth:`resolve`).
+        Без него проверка переспрашивала тех, кого сама же только что забраковала: их
+        подготовка лежит в :attr:`preps` готовой, ``ffprobe`` прочитан, и тот же
+        :meth:`_trouble` с теми же порогами возвращал тот же приговор - вторая одинаковая
+        строка на экране («Сталкер»: два решения, четыре строки) и ни одной новой записи в
+        следе. Заодно этим съедались места в :data:`MAX_TRIES`, и до по-настоящему
+        непроверенных соседей проверка не доходила.
         """
         if args.release is not None or args.pinned:
             return chosen
+        judged = judged or {}
         short = understated(chosen.release, chosen.found)
         if not short:
             return chosen
@@ -2666,7 +2697,9 @@ class _Bench:
         rest = [
             n
             for n in queue
-            if n != chosen.number and promises_more(plan.ranked[n - 1], chosen.found)
+            if n != chosen.number
+            and n not in judged
+            and promises_more(plan.ranked[n - 1], chosen.found)
         ][:MAX_TRIES]
         deadline = time.monotonic() + HONEST_BUDGET
         for number in rest:
@@ -2677,6 +2710,7 @@ class _Bench:
             phase = f"релиз {chosen.number} {short} - смотрю {number}"
             if not self._peek(alt, progress, deadline, phase):
                 progress.phase("")
+                _turned_down(judged, number, "не успел ответить")
                 print(f"релиз {number} не успел ответить - играю {chosen.number} ({short})")
                 # Спросили и ждать перестали - значит, ответ больше не нужен, а раздача
                 # соседа осталась бы висеть до общей уборки, доедая полосу у того, кого мы
@@ -2693,10 +2727,12 @@ class _Bench:
                 hard_mbit=plan.hard_mbit,
             )
             if why:
+                _turned_down(judged, number, why)
                 print(f"релиз {number} не годится ({why})")
                 self._forget(alt)  # спросили и получили ответ - держать его больше незачем
                 continue
             if not honest_shot(alt.release, alt.found) or alt.found.frame <= chosen.found.frame:
+                _turned_down(judged, number, f"не лучше ({quality_text(alt.release, alt.found)})")
                 print(f"релиз {number} не лучше ({quality_text(alt.release, alt.found)})")
                 self._forget(alt)
                 continue

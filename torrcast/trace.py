@@ -16,6 +16,12 @@
 
 Всё локально: лента лежит там же, где состояние, никакой внешней системы. Разбор - команда
 ``cast log`` (:func:`digest`), она же читает :func:`records`.
+
+🔴 **Слепая зона ленты.** Плата за то, что показ не ждёт диск, - конечная очередь: когда
+фоновый писатель отстаёт, запись роняется (:meth:`_Writer.put`). Молча это больше не
+происходит - потери считаются и уходят в ленту записью ``lost``, и ``cast log`` её печатает,
+- но САМИ потерянные события не восстановимы. Читать ленту рядом с такой записью надо с
+поправкой: пропуск там значит «съедено очередью», а не «этого не было».
 """
 
 from __future__ import annotations
@@ -108,13 +114,26 @@ class _Writer:
         self._thread: threading.Thread | None = None
         self._lock = threading.Lock()
         self._pruned = ""
+        #: Сколько записей очередь не приняла. Счётчик без замка НАМЕРЕННО: он про уже
+        #: сломавшийся случай, а цена в горячем пути обязана остаться нулевой - недосчёт
+        #: на гонке дешевле замка в отдаче сегмента.
+        self._lost = 0
 
     def put(self, record: dict[str, Any]) -> None:
-        """ГОРЯЧИЙ ПУТЬ. Ровно одно: неблокирующая укладка в очередь. Ни байта на диск."""
+        """ГОРЯЧИЙ ПУТЬ. Ровно одно: неблокирующая укладка в очередь. Ни байта на диск.
+
+        🔴 СЛЕПАЯ ЗОНА. Очередь конечна (:data:`_QUEUE_MAX`), и переполнение роняет запись:
+        показ важнее диагностики. Молча это больше не делается - потери считаются и уходят
+        в ленту отдельной записью (``lost``), которую печатает и ``cast log``. Но и запись о
+        потере не всесильна: сами потерянные события не восстановимы, и «в ленте нет строки»
+        рядом с ``lost`` значит «строка могла быть съедена очередью», а не «события не было».
+        """
         if self._thread is None:
             self._start()
-        with contextlib.suppress(queue.Full):
+        try:
             self._q.put_nowait(record)
+        except queue.Full:
+            self._lost += 1
 
     def _start(self) -> None:
         with self._lock:
@@ -147,7 +166,7 @@ class _Writer:
                 item = self._q.get_nowait()
                 if item is not None:
                     batch.append(item)
-        if batch:
+        if batch or self._lost:  # признание в потерях дожимается даже с пустым хвостом
             self._flush(batch)
 
     def stop(self) -> None:
@@ -161,6 +180,22 @@ class _Writer:
 
     def _flush(self, batch: list[dict[str, Any]]) -> None:
         path = log_path()
+        lost, self._lost = self._lost, 0
+        if lost:
+            # Переполнение очереди - единственный способ потерять решение уже ПОСЛЕ того,
+            # как о нём сказали человеку. Признаваться в этом обязана сама лента: иначе
+            # разбор недели уверенно прочитает пропуск как «события не было».
+            batch = [
+                {
+                    "at": round(time.time(), 3),
+                    "sid": session_id(),
+                    "pid": os.getpid(),
+                    "phase": "trace",
+                    "event": "lost",
+                    "count": lost,
+                },
+                *batch,
+            ]
         blob = "".join(json.dumps(rec, ensure_ascii=False) + "\n" for rec in batch)
         with contextlib.suppress(OSError):
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -493,10 +528,27 @@ def _session_block(sid: str, rows: list[dict[str, Any]]) -> str:
         head += f" · «{title}»"
     lines.append(head)
     seams = {id(rec) for rec in _seams(rows)}
+    # Фаза таймлайна повторяется: упаковка заходит на каждый прыжок, тяжёлый кусок - на
+    # каждый слот. Печатается ПЕРВАЯ и сказано, сколько их было всего, - иначе одна фаза
+    # съедает выжимку так же, как её съели бы куски (:func:`_event_line`, ветка segment).
+    phases: dict[str, int] = {}
     for rec in rows:
+        if rec.get("phase") == "timeline":
+            name = str(rec.get("event", ""))
+            phases[name] = phases.get(name, 0) + 1
+    shown: set[str] = set()
+    for rec in rows:
+        name = str(rec.get("event", ""))
+        if rec.get("phase") == "timeline":
+            if name in shown:
+                continue
+            shown.add(name)
         line = _event_line(rec, began, seam=id(rec) in seams)
-        if line:
-            lines.append("  " + line)
+        if not line:
+            continue
+        if phases.get(name, 1) > 1 and rec.get("phase") == "timeline":
+            line += f", всего {phases[name]}"
+        lines.append("  " + line)
     counts = {name: sum(1 for r in rows if r.get("event") == name) for name in _COUNTED}
     tail = f"  итог: ребуферов {counts['buffering']}"
     if seams:
@@ -542,6 +594,19 @@ def _gb(size: float) -> str:
 #: Как называется источник куска в выжимке.
 _SOURCES: Final = {PACKED: "живая упаковка", WARMED: "прогретое"}
 
+#: Конверт записи (:func:`emit`): он одинаков у всех и в строке события не печатается.
+_ENVELOPE: Final = frozenset({"at", "sid", "pid", "phase", "event"})
+
+
+def _facts(rec: dict[str, Any]) -> str:
+    """Поля записи как есть, ``имя=значение``: чем печатать событие, у которого нет ветки.
+
+    Для фазы таймлайна это не запасной вариант, а единственно верный: числа у неё разные
+    у каждой метки (``слот=7 сдвиг=-1.71``), и знает их место вызова, а не этот модуль.
+    """
+    facts = ", ".join(f"{key}={value}" for key, value in rec.items() if key not in _ENVELOPE)
+    return f" ({facts})" if facts else ""
+
 
 def _event_line(rec: dict[str, Any], began: float, seam: bool = False) -> str:
     at = float(rec.get("at", 0.0)) - began
@@ -574,6 +639,14 @@ def _event_line(rec: dict[str, Any], began: float, seam: bool = False) -> str:
         parts = ", ".join(f"{name}:{count}{_took(name)}" for name, count in got.items())
         tail = f"; молчат {', '.join(str(name) + _took(name) for name in silent)}" if silent else ""
         return f"{stamp}индексеры {parts or '-'}{tail}"
+    if event == "query":
+        # Запрос печатался только в шапке сеанса («сеанс ... · «Сталкер»»), а сколько
+        # строк и картин он принёс - нигде: у события не было своей ветки, и оно молча
+        # выпадало из ленты. В записях прежних версий полей может не быть - молчим о них.
+        raw, pictures = rec.get("raw"), rec.get("pictures")
+        tail = f": строк {raw}" if raw is not None else ""
+        tail += f", картин {pictures}" if pictures is not None else ""
+        return f"{stamp}запрос «{rec.get('query', '')}»{tail}"
     if event == "select":
         return (
             f"{stamp}взят релиз {rec.get('release', '?')}"
@@ -667,4 +740,21 @@ def _event_line(rec: dict[str, Any], began: float, seam: bool = False) -> str:
         profile = str(rec.get("profile", ""))
         head = f"{stamp}показ «{rec.get('title', '')}» с {_hms(float(rec.get('pos', 0.0)))}"
         return f"{head} · профиль {profile}" if profile else head
-    return ""
+    if event == "session_end":
+        return ""  # конец сеанса печатает итоговая строка блока, второй раз незачем
+    if event == "lost":
+        return (
+            f"{stamp}потеряно записей {rec.get('count', '?')}:"
+            " очередь следа переполнилась - этих решений в ленте нет"
+        )
+    if str(rec.get("phase", "")) == "timeline":
+        # Фазы критического пути (:func:`torrcast.timing.mark`) уходят в ленту ВСЕГДА, а до
+        # TC-194 не печатались НИКОГДА: своей ветки у них нет, и они выпадали в общий
+        # «вернуть пусто» - целый класс событий, которого человек в `cast log` не видел,
+        # хотя в jsonl он лежит. Имя фазы и её числа уже по-русски («отбор релиза
+        # релиз=2»), поэтому печатаются как есть.
+        return f"{stamp}фаза «{event}»{_facts(rec)}"
+    # Событие, о котором ЭТА версия не знает: чужая ветка, старая лента, новое поле.
+    # Молчать о нём нельзя ровно по той же причине: пустая строка в выжимке читается как
+    # «события не было», а оно было и лежит в файле.
+    return f"{stamp}{rec.get('phase', '?')}/{event}{_facts(rec)}"

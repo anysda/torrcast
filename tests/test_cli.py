@@ -2090,3 +2090,117 @@ def test_releases_table_uses_true_duration_and_matches_explicit_release(
     assert fresh_plan.ranked[args.release - 1].raw_name == "heavy", (
         "отбор не должен расходиться с таблицей"
     )
+# --- 🔴 TC-194: экран и след говорят про одни и те же решения ------------------
+
+
+def _turned_down_on_screen(printed: str) -> list[str]:
+    """Номера релизов, которым на экране сказали «нет», в порядке появления.
+
+    Строк отказа три вида, и все три - решение отбора: приговор ffprobe, «не лучше» после
+    проверки честности и «не успел ответить». Ловится номер, а не формулировка: тест про
+    ДУБЛЬ и ПРОПУСК, а не про то, какими словами отказ объяснён.
+    """
+    return re.findall(r"релиз (\d+) не (?:годится|лучше|успел ответить)", printed)
+
+
+def _turned_down_in_trace() -> list[str]:
+    """Те же отказы, как их видит недельная лента (`cast log` печатает эти же записи)."""
+    from torrcast import trace
+
+    trace.shutdown()
+    return [str(rec.get("release")) for rec in trace.records() if rec.get("event") == "drop"]
+
+
+def _own_trace(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, sid: str) -> None:
+    from torrcast import trace
+
+    monkeypatch.setenv(trace.LOG_ENV, str(tmp_path))
+    monkeypatch.setenv(trace.SID_ENV, sid)
+
+
+def test_a_release_already_judged_is_not_turned_down_twice_on_screen(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    """🔴 TC-194. Кого забраковала очередь отбора, того проверка честности не судит заново.
+
+    Замер, с которого началось: у «Сталкера» в недельной ленте два отказа, а на экране
+    человек прочитал четыре строки. Подготовка забракованного релиза остаётся в
+    :attr:`~torrcast.cli._Bench.preps` готовой - ``ffprobe`` прочитан, ответ есть, - и
+    проверка честности переспрашивала её тем же :meth:`~torrcast.cli._Bench._trouble` с теми
+    же порогами. Приговор выходил тот же, строка печаталась вторая, а записи не было ни
+    одной новой: экран и лента расходились ровно на этот дубль.
+    """
+    _own_trace(monkeypatch, tmp_path, "сталкер")
+    ranked = [
+        rel(name="Кино [WEB-DL 1080p] a", size_gb=3.20, seeders=140),
+        rel(name="Кино [WEB-DL] b", quality=None, size_gb=3.14, seeders=121),
+    ]
+    _reads(
+        monkeypatch,
+        ranked,
+        Media(5977.0, (), "av1", 1080, 1920),  # верх обещает 1080p, а внутри av1
+        Media(5977.0, (), "h264", 574, 1150),  # годен, но занижен - зовётся проверка честности
+    )
+
+    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer())), ranked)
+
+    printed = capsys.readouterr().out
+    assert prep.number == 2, "годным оказался второй - его и играем"
+    assert _turned_down_on_screen(printed) == ["1"], "один отказ - одна строка, а не две"
+    assert _turned_down_in_trace() == ["1"], "экран и лента обязаны сойтись число в число"
+
+
+def test_a_release_turned_down_by_the_honesty_check_is_written_to_the_trace(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    """🔴 TC-194. Отказ проверки честности - решение, и в ленте оно обязано лежать.
+
+    Второй замер: у «Наруто» строка отказа на экране одна, а событий за сеанс НОЛЬ - по
+    следу выходило, что отбор прошёл без единой осечки. Запись рождалась только в очереди
+    отбора, а :meth:`~torrcast.cli._Bench._honest` печатал свои отказы мимо неё.
+    """
+    _own_trace(monkeypatch, tmp_path, "наруто")
+    ranked = [
+        rel(name="Кино [WEB-DL] a", quality=None, size_gb=3.14, seeders=140),
+        rel(name="Кино [WEB-DL 1080p] b", size_gb=3.20, seeders=121),
+    ]
+    _reads(
+        monkeypatch,
+        ranked,
+        Media(5977.0, (), "h264", 574, 1150),  # верх годен, но занижен
+        Media(5977.0, (), "av1", 1080, 1920),  # сосед обещает больше, а внутри av1
+    )
+
+    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer())), ranked)
+
+    printed = capsys.readouterr().out
+    assert prep.number == 1, "сосед не годится - играем то, что есть"
+    assert _turned_down_on_screen(printed) == ["2"], "отказ соседа сказан человеку"
+    assert _turned_down_in_trace() == ["2"], "и он же обязан лежать в недельной ленте"
+
+
+def test_a_neighbour_that_is_no_better_is_a_record_of_the_trace_too(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    """🔴 TC-194. «Не лучше» - тоже отказ: сосед поднят, прочитан и отвергнут.
+
+    Отличие от негодного только в причине: этот релиз играбелен, просто врёт именем так
+    же, как верх. Для разбора недели разницы нет - раздачу трогали и от неё отказались.
+    """
+    _own_trace(monkeypatch, tmp_path, "не-лучше")
+    ranked = [
+        rel(name="Кино [WEB-DL] a", quality=None, size_gb=3.14, seeders=140),
+        rel(name="Кино [WEB-DL 1080p] b", codec=None, size_gb=3.20, seeders=121),
+    ]
+    _reads(
+        monkeypatch,
+        ranked,
+        Media(5977.0, (), "h264", 574, 1150),
+        Media(5977.0, (), "h264", 576, 1024),  # обещал 1080p, а внутри такой же SD
+    )
+
+    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer())), ranked)
+
+    printed = capsys.readouterr().out
+    assert prep.number == 1 and "релиз 2 не лучше" in printed
+    assert _turned_down_on_screen(printed) == _turned_down_in_trace() == ["2"]

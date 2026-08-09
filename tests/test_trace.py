@@ -631,3 +631,77 @@ def test_the_plan_says_how_both_producers_encode(tmp_path: Path) -> None:
     assert rows[0]["pack"] == "copy" and rows[0]["warm"] == "copy", "решения в ленте нет"
     assert rows[0]["spots"] == 5, "точечный перекод не сосчитан"
     assert "упаковка - копия, прогрев - копия" in trace.digest(rows), "выжимка молчит о решении"
+
+
+# --- 🔴 TC-194: в выжимке видны ВСЕ классы записанных событий -----------------
+
+
+def test_cast_log_shows_the_timeline_and_the_query(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Фазы критического пути и запрос пишутся в ленту всегда - и обязаны печататься.
+
+    🔴 TC-194. До этого `cast log` не рендерил их вовсе: своей ветки у события нет,
+    :func:`trace._event_line` возвращала пустую строку, и целый класс записей, лежащих в
+    ``jsonl``, человек не видел. Это ровно та ловушка, ради которой след и заведён: «в
+    журнале нет строки» читалось как «события не было».
+    """
+    from torrcast import cli
+    from torrcast.timing import mark
+
+    trace.emit("search", "query", query="сталкер", raw=41, pictures=3)
+    mark("отбор релиза", релиз=2)
+    mark("упаковка пошла")
+    mark("упаковка пошла")  # фаза повторяется: у показа их бывают десятки
+    trace.emit("session", "session_end", pos=60.0, dur=120.0, watched=False)
+    trace.shutdown()
+
+    assert cli.main(["log"]) == 0
+    text = capsys.readouterr().out
+    assert "запрос «сталкер»: строк 41, картин 3" in text
+    assert "фаза «отбор релиза» (релиз=2)" in text
+    assert "фаза «упаковка пошла», всего 2" in text
+    assert text.count("фаза «упаковка пошла»") == 1, "повтор фазы не имеет права съесть выжимку"
+    assert "session_end" not in text, "конец сеанса печатает итоговая строка, и только она"
+    assert "остановлено на 1:00" in text
+
+
+def test_an_event_this_version_does_not_know_is_printed_anyway(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Событие без своей ветки печатается полями, а не пропадает.
+
+    Лента живёт неделю и переживает обновления: запись соседней ветки или прошлой версии
+    обязана быть видна хотя бы как есть. Молчание тут - худший из возможных ответов.
+    """
+    from torrcast import cli
+
+    trace.emit("play", "нечто", чего_мы_не_знаем=1)
+    trace.shutdown()
+
+    assert cli.main(["log"]) == 0
+    assert "play/нечто (чего_мы_не_знаем=1)" in capsys.readouterr().out
+
+
+def test_records_eaten_by_a_full_queue_are_confessed_and_not_hidden(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Слепая зона названа вслух: переполненная очередь роняет записи и говорит сколько.
+
+    Плата за то, что показ не ждёт диск, - конечная очередь (:data:`trace._QUEUE_MAX`).
+    Записи при этом теряются, и восстановить их нечем; но молчать о самой потере нельзя -
+    иначе разбор недели уверенно прочитает дыру как «решений не было».
+    """
+    monkeypatch.setattr(trace, "_QUEUE_MAX", 2)
+    monkeypatch.setattr(trace._Writer, "_start", lambda self: None)  # поток не поднимаем
+    writer = trace._Writer()
+    for slot in range(10):
+        writer.put({"phase": "play", "event": "segment", "slot": slot, "sid": "test-sid"})
+    writer.stop()  # thread не поднимался - stop дожимает синхронно через drain
+
+    rows = _read_lines(tmp_path)
+    lost = [rec for rec in rows if rec.get("event") == "lost"]
+    assert len(lost) == 1, "о потере сказано ровно один раз на пакет"
+    assert lost[0]["count"] == 8, "восемь записей очередь не приняла - столько и признано"
+    assert len([r for r in rows if r.get("event") == "segment"]) == 2
+    assert "потеряно записей 8" in trace.digest(trace.records())
