@@ -39,6 +39,7 @@ from torrcast.warm import (
     GUARD_LOW,
     HEAD_BYTES,
     META,
+    RUN_DIR,
     SKEW_MAX,
     SKEW_TRIES,
     STARVE_GRACE,
@@ -196,8 +197,17 @@ def test_warming_lays_the_whole_clip_on_disk_and_reports_it(clip: str, tmp_path:
 def test_the_show_end_takes_the_warmed_film_off_the_disk(
     clip: str, tls: tuple[str, str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Досмотрено — прогретое стирается. Держать на диске фильм, который уже посмотрели,
-    незачем ни минуты: это те же гигабайты, что и у следующего.
+    """Досмотр под заглушкой доводит показ до конца и берётся за уборку прогретого, не
+    падая на ней, а состояние видит прогрев.
+
+    ⚠️ Чего этот тест НЕ доказывает: что :meth:`Vault.clear` действительно стирает
+    уложенные куски. Под mock вторая голова чтения не запускается вовсе (докстринг
+    :class:`torrcast.cast.MockReceiver`), к концу показа в каталоге прогретого пусто, и
+    проверка «ничего не осталось» прошла бы даже при сломанной уборке. Сам факт удаления
+    сверяется на реально уложенных файлах в
+    :func:`test_the_vault_clear_wipes_the_warmed_directory`; здесь же проверяется, что
+    сквозной досмотр на заглушке доходит до вызова уборки, не роняет показ и что прогрев
+    доезжает до состояния.
     """
     monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
     warm = tmp_path / "warm"
@@ -223,10 +233,39 @@ def test_the_show_end_takes_the_warmed_film_off_the_disk(
     watch = _Watch(key=key, entry=entry, every=0.0)
     assert _play(config, clip, 0, "тест", _Clock(), watch=watch) == 0
 
-    assert watch.done, "ролик не досмотрен - проверять уборку не на чем"
+    assert watch.done, "ролик не досмотрен - до вызова уборки показ не дошёл"
+    # Под mock прогрев ничего не кладёт, поэтому каталог и так пуст - это НЕ доказательство
+    # работающей уборки (её сверяет test_the_vault_clear_wipes_the_warmed_directory), а
+    # лишь проверка, что сквозной досмотр не оставил прогретого и не упал на его уборке.
     assert not any(warm.rglob("v*.ts")), "прогретое пережило досмотренный показ"
     saved = State.load().get(key)
     assert saved is not None and saved.warm >= 0.0, "прогрев не виден состоянию"
+
+
+def test_the_vault_clear_wipes_the_warmed_directory(tmp_path: Path) -> None:
+    """Уборка прогретого стирает каталог показа ЦЕЛИКОМ - и это сверяется на реально
+    уложенных файлах, а не на пустом месте.
+
+    Сквозной сухой прогон (`test_the_show_end_takes_the_warmed_film_off_the_disk`)
+    доказать уборку не может: под заглушкой вторая голова чтения не запускается вовсе
+    (докстринг :class:`torrcast.cast.MockReceiver`), и к концу показа стирать нечего -
+    проверка «ничего не осталось» прошла бы даже при сломанной :meth:`Vault.clear`.
+    Поэтому саму уборку сверяем здесь: кладём куски, точечную метку, паспорт и недобитый
+    каталог прогона - и требуем, чтобы после уборки не осталось ни файла и ни каталога.
+    """
+    vault = _vault(tmp_path, key="досмотренный")
+    for slot in range(4):
+        _lay(vault, slot)
+    vault.spot(1).touch()  # метка точечного перекода рядом с куском
+    run = vault.dir / RUN_DIR
+    run.mkdir()  # недобитый каталог прогона ffmpeg
+    (run / "leftover.ts").write_bytes(b"x")
+    assert vault.dir.exists() and any(vault.dir.rglob("v*.ts")), "класть было нечего"
+
+    vault.clear()
+
+    assert not vault.dir.exists(), "каталог прогретого пережил уборку"
+    assert not any(vault.root.rglob("v*.ts")), "куски прогретого остались на диске"
 
 
 def test_the_next_episode_starts_warming_only_when_this_one_is_on_disk(tmp_path: Path) -> None:
