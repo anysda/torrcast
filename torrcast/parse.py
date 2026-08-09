@@ -1035,8 +1035,12 @@ def alt_query(query: str, releases: Iterable[Release], known: str = "", native: 
        нечего.
     2. Оригинал из выдачи: раздачи вида «Психо / Psycho (1960)» несут его сами, и он
        точнее транслита («Психо» → ``Psycho``, а не ``psikho``).
-    3. Транслит - когда выдачи нет вовсе и читать нечего; он выручает русское кино,
-       которое за рубежом так и подписывают (``Brat``).
+    3. Транслит - когда выдачи нет вовсе и читать нечего; он выручает короткие имена
+       русского кино, которые за рубежом так и подписывают (``Brat``). При полностью
+       пустой выдаче длинное русское имя транслитом ничем не подтверждено: это не второе
+       имя, а тот же запрос другими буквами, и заведомо пустого второго круга для него
+       не бывает. Если первая выдача картину уже назвала, транслит остаётся последней
+       попыткой - так находятся латинописанные релизы ``Vrata Shteyna``.
 
     Зеркальный случай - ``native``, русское имя картины из той же справки. Спросили
     латиницей («cars»), а половина каталога подписана по-русски: под именем ``Cars`` в
@@ -1064,15 +1068,17 @@ def alt_query(query: str, releases: Iterable[Release], known: str = "", native: 
         return native if _CYRILLIC.search(native) and slugify(native) != wanted else ""
     if known and not _CYRILLIC.search(known) and slugify(known) != wanted:
         return known.strip()
+    pool = list(releases)
     names = Counter(
         franchise_name(original)
-        for release in releases
+        for release in pool
         if (original := release.original) and _akin(wanted, slugify(release.title))
     )
     for name, _count in names.most_common():
         if name and not _CYRILLIC.search(name) and slugify(name) != wanted:
             return name
-    return transliterate(query)
+    words = slugify(query).split("-")
+    return transliterate(query) if pool or len(words) == 1 else ""
 
 
 def _akin(wanted: str, slug: str) -> bool:

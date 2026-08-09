@@ -1197,6 +1197,27 @@ def test_the_same_name_and_the_almost_the_same_name_are_not_one_yardstick() -> N
     assert facts_mod._near_name("мужчина который удивил всех", "Человек, который удивил всех")
 
 
+def test_a_localized_name_finds_the_shorter_article_without_taking_its_namesake() -> None:
+    """🔴 TC-283. Два слова прокатного имени не должны заслонять нужную статью."""
+    older = _page(
+        "Незнакомцы (фильм, 2008)",
+        "«Незнакомцы» - американский фильм ужасов.",
+        english="The Strangers",
+    )
+    wanted = _page(
+        "Незнакомцы (фильм, 2023)",
+        "«Незнакомцы» - художественный фильм режиссёра Эндрю Хэйга.",
+        english="All of Us Strangers",
+    )
+
+    found = facts_mod.read_origin([older, wanted], "Все мы незнакомцы", series=False)
+
+    assert found.title == "All of Us Strangers"
+    assert found.name == "Незнакомцы"
+    assert found.guessed, "сокращённый заголовок остаётся догадкой, а не точным именем"
+    assert facts_mod.same_name("Все мы незнакомцы", found.name)
+
+
 def test_a_name_found_by_likeness_says_so_in_the_passport(monkeypatch: Any) -> None:
     """🔴 TC-253. Имя, найденное по сходству, помечается: гейту добора это не имя картины.
 

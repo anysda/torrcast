@@ -105,6 +105,20 @@ def test_alt_query_falls_back_to_translit_when_nothing_was_found() -> None:
     assert alt_query("брат", []) == "brat"
 
 
+def test_alt_query_does_not_transliterate_a_phrase_without_an_original() -> None:
+    """Длинное имя другими буквами - заведомо пустой круг, а не другое имя картины."""
+    hopeless = (
+        "Американская фабрика",
+        "13-я поправка",
+        "Супер размер меня",
+        "Колыма - родина нашего страха",
+        "Двадцать шагов до славы",
+        "Оазис: Суперзвуковой",
+    )
+
+    assert [alt_query(title, []) for title in hopeless] == [""] * len(hopeless)
+
+
 def test_alt_query_is_empty_for_a_latin_request() -> None:
     """Спросили латиницей - добирать нечем, второго захода не бывает."""
     assert alt_query("psycho", [ru("Психо / Psycho (1960) DVDRip")]) == ""
@@ -948,6 +962,36 @@ def test_a_name_the_reference_only_guessed_does_not_bring_a_stranger(
 
     assert client.asked == ["все мы незнакомцы"], "за чужой картиной не ходят даже разок"
     assert "справка нашла лишь похожее имя «Все мы убийцы»" in said
+
+
+def test_a_shorter_article_title_brings_the_real_original(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """🔴 TC-283. Прокатное имя на два слова длиннее статьи, но это та же картина."""
+    client = _FakeProwlarr(
+        {
+            "all of us strangers": [
+                raw(f"All.of.Us.Strangers.2023.1080p.WEB-DL.x264-{i}", i) for i in range(20)
+            ]
+        }
+    )
+    _knows(
+        monkeypatch,
+        {
+            "все мы незнакомцы": Origin(
+                title="All of Us Strangers", name="Незнакомцы", guessed=True
+            )
+        },
+    )
+
+    plans, said = _search(client, "все мы незнакомцы", monkeypatch)
+
+    assert client.asked == ["все мы незнакомцы", "All of Us Strangers"]
+    assert len(plans[0].picture.releases) == 20
+    assert (
+        "оригинал «All of Us Strangers» - по справке; без неё второго запроса не было бы"
+        in said
+    )
 
 
 def test_the_same_name_in_another_spelling_is_still_topped_up(

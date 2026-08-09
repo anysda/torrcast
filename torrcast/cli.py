@@ -2004,7 +2004,9 @@ def _query_note(name: str, alt: str, pool: list[Release], about: Origin) -> str:
     if not alt or not about.title:
         return ""
     blind = alt_query(name, pool)  # чем бы искали, не будь справки
-    if not blind or slugify(blind) == slugify(alt):
+    if not blind:
+        return f"оригинал «{alt}» - по справке; без неё второго запроса не было бы"
+    if slugify(blind) == slugify(alt):
         return ""
     return f"оригинал «{alt}» - по справке; без неё искал бы «{blind}»"
 

@@ -820,6 +820,14 @@ def same_name(title: str, heading: str) -> bool:
     """
     if akin(title, heading):
         return True
+    wanted = slugify(title).split("-")
+    base_words = slugify(heading.split(" (")[0]).split("-")
+    if (
+        len(wanted) == len(base_words) + 2
+        and wanted[-len(base_words) :] == base_words
+        and all(len(word) <= 3 for word in wanted[:2])
+    ):
+        return True
     name = heading.split(" (")[0]
     # Сверяем однородное с однородным: «Сальтберн» и «Солтберн» расходятся на две буквы
     # («а»/«о» и мягкий знак), а те же имена транслитом - ``saltbern`` и ``soltbern`` -
@@ -915,6 +923,7 @@ def read_origin(
     раздач одной части. Либо статья самой франшизы, либо ничего.
     """
     crowd = _crowded(title, pages)
+    shortened = Origin()
     for page in pages:
         if page is None:
             continue
@@ -932,6 +941,13 @@ def read_origin(
             and not akin(title, heading, longer=not crowd)
             and not _same_latin(title, latin)
         ):
+            if not shortened and _localized_short_name(title, heading, latin):
+                shortened = Origin(
+                    title=latin,
+                    name=_TAIL_RE.sub("", heading),
+                    entity=str((page.get("pageprops") or {}).get("wikibase_item") or ""),
+                    guessed=True,
+                )
             continue
         found = Origin(
             title=latin,
@@ -941,7 +957,29 @@ def read_origin(
         )
         if found:
             return found
-    return Origin()
+    return shortened
+
+
+def _localized_short_name(title: str, heading: str, latin: str) -> bool:
+    """Прокатное имя длиннее заголовка на два коротких начальных слова.
+
+    Так русская статья ``Незнакомцы`` находится по прокатному имени ``Все мы
+    незнакомцы``: её оригинал ``All of Us Strangers`` подтверждает, что короткий
+    заголовок не потерял слова картины. Одного совпавшего хвоста недостаточно - первый
+    же кандидат поиска ``The Strangers`` был бы одноимённым фильмом 2008 года.
+
+    Это по-прежнему догадка справки, поэтому найденный паспорт получает ``guessed`` и
+    проходит обычный гейт второго захода, а не выдаётся за точное имя.
+    """
+    wanted = slugify(title).split("-")
+    base = slugify(heading.split(" (")[0]).split("-")
+    original = slugify(latin).split("-")
+    return (
+        len(wanted) == len(base) + 2
+        and wanted[-len(base) :] == base
+        and all(len(word) <= 3 for word in wanted[:2])
+        and len(original) >= len(wanted)
+    )
 
 
 def _about_cinema(heading: str, extract: str) -> bool:
