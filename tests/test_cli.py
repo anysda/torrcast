@@ -449,21 +449,96 @@ def test_a_named_hevc_release_is_not_a_warning_but_a_promise_to_recode(
     assert "не перекодируем" not in printed
 
 
-def test_three_failed_probes_end_with_an_honest_exit(
+#: Кодеки, которых мы не берём на себя, по одному на релиз: перекод целиком замерен для
+#: HEVC (:data:`torrcast.stream.RECODE_CODECS`), а av1/vc1/vp9/mpeg2video остаются честным
+#: отказом. Раздаются на ВСЮ очередь: играбельный релиз ниже по списку отбор теперь
+#: дочерпывает (TC-188), и «годного нет» обязано означать, что годного правда нет.
+REFUSED = ("av1", "mpeg2video", "vc1", "vp9", "av1")
+
+
+def test_a_queue_of_failed_probes_ends_with_an_honest_exit(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Три попытки подряд не дали играбельного видео — код 1 с объяснением.
-
-    Кодеки тут те, которых мы не берём на себя: перекод целиком замерен для HEVC
-    (:data:`torrcast.stream.RECODE_CODECS`), а av1/vc1 остаются честным отказом.
-    """
+    """Ни один релиз очереди не дал играбельного видео - код 1 с объяснением."""
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(5)]
-    _probes(monkeypatch, ranked, "av1", "mpeg2video", "vc1")
+    _probes(monkeypatch, ranked, *REFUSED)
     with pytest.raises(NotFoundError) as caught:
         _resolve(cli._Bench(cast(Any, _FakeTorrServer())), ranked)
     assert "годного релиза нет" in str(caught.value)
     assert "1 - av1" in str(caught.value) and "3 - vc1" in str(caught.value)
-    assert len(re.findall(r"беру \d", capsys.readouterr().out)) == 2  # не больше MAX_TRIES
+    assert len(re.findall(r"беру \d", capsys.readouterr().out)) == 4  # очередь пройдена
+
+
+def test_cheap_verdicts_do_not_eat_the_place_of_the_living_release_below(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """🔴 TC-188. Живой 1080p за тремя заведомо худшими: до него обязаны дойти.
+
+    Замер каталога: из 92 живых 1080p, прошедших мимо показа, 44 просто СТОЯЛИ В
+    ОЧЕРЕДИ. Съедали их места вот такие три - SD-рип, mpeg4, av1: ffprobe читает их
+    за секунду и тут же отбраковывает, человеку такой приговор не стоит почти ничего,
+    а место в очереди он занимал ровно как приговор тяжёлому ремуксу.
+
+    Здесь три приговора подряд стоят долей секунды (:class:`_FakeTorrServer` отвечает
+    сразу), то есть весь :data:`~torrcast.cli.VERDICT_BUDGET` остаётся нетронутым, и
+    четвёртая раздача - названный 1080p - обязана быть спрошена.
+    """
+    ranked = [
+        rel(name="SD-рип", quality="480p", seeders=90),
+        rel(name="старьё", quality="576p", seeders=80),
+        rel(name="av1", seeders=70),
+        rel(name="честный 1080p", seeders=60),
+    ]
+    _probes(monkeypatch, ranked, "mpeg4", "mpeg4", "av1", "h264")
+
+    began = time.monotonic()
+    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer())), ranked)
+    spent = time.monotonic() - began
+
+    printed = capsys.readouterr().out
+    assert prep.number == 4, "три дешёвых приговора - и всё же дошли до живого 1080p"
+    assert printed.count("не годится") == 3, "каждый приговор стоит строки, молчаливых нет"
+    assert spent < cli.VERDICT_BUDGET, f"дошли за {spent:.1f} с при бюджете приговоров 15 с"
+
+
+def test_expensive_verdicts_still_stop_the_walk_at_three(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Потолок не снят, а переведён в секунды: дорогие приговоры держат прежние три.
+
+    Бюджет обнулён - значит каждый приговор «дорогой», и отбор обязан вести себя ровно
+    как до TC-188: три приговора и честный отказ, даже когда ниже стоит играбельный.
+    Иначе правка была бы не «считаем цену», а «подняли потолок».
+    """
+    monkeypatch.setattr(cli, "VERDICT_BUDGET", 0.0)
+    ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(5)]
+    _probes(monkeypatch, ranked, "av1", "mpeg2video", "vc1")
+
+    with pytest.raises(NotFoundError) as caught:
+        _resolve(cli._Bench(cast(Any, _FakeTorrServer())), ranked)
+
+    assert "годного релиза нет" in str(caught.value)
+    assert len(re.findall(r"беру \d", capsys.readouterr().out)) == 2, "не больше MAX_TRIES"
+
+
+def test_the_healthy_case_pays_nothing_for_the_deeper_walk(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Верх годен - очередь не трогается вовсе, и путь к картинке той же длины.
+
+    Цена правки обязана быть нулевой там, где приговоров нет ни одного: секундомер
+    считает только ожидание осуждённых, а годный верх не осуждается.
+    """
+    ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(5)]
+    _probes(monkeypatch, ranked, "h264")
+
+    began = time.monotonic()
+    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer())), ranked)
+    spent = time.monotonic() - began
+
+    assert prep.number == 1
+    assert "не годится" not in capsys.readouterr().out
+    assert spent < 1.0, f"здоровый случай занял {spent:.2f} с"
 
 
 def test_vp9_is_refused_at_the_pick_like_av1_and_never_reaches_the_packer(
@@ -1712,7 +1787,7 @@ def test_a_refusal_names_the_living_parts_of_the_franchise(
     from torrcast.parse import Picture
 
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(5)]
-    _probes(monkeypatch, ranked, "av1", "mpeg2video", "vc1")
+    _probes(monkeypatch, ranked, *REFUSED)
     plan = _plan(ranked)
     plan.kin = [
         Picture(title="Тачки 2", year=2011, releases=[rel(name="c2", seeders=30)]),
@@ -1732,7 +1807,7 @@ def test_a_refusal_stays_silent_when_the_franchise_has_no_other_parts(
 ) -> None:
     """Предлагать нечего - и строки нет: пустой подсказки человек не заслужил."""
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(5)]
-    _probes(monkeypatch, ranked, "av1", "mpeg2video", "vc1")
+    _probes(monkeypatch, ranked, *REFUSED)
     with pytest.raises(NotFoundError) as caught:
         _resolve(cli._Bench(cast(Any, _FakeTorrServer())), ranked)
 
