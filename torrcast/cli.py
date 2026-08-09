@@ -804,7 +804,7 @@ def _cmd_worker(key: str) -> int:
     #: Хэши, которые подняли МЫ, - по ним и только по ним пойдёт уборка на выходе.
     mine: list[str] = []
     try:
-        return _worker_loop(config, key, torrserver, receiver, supply, mine)
+        return _worker_loop(config, key, torrserver, receiver, supply, mine, chosen.profile)
     finally:
         _release_torrents(config, mine)
 
@@ -816,6 +816,7 @@ def _worker_loop(
     receiver: Receiver,
     supply: Supply,
     mine: list[str],
+    profile: Profile,
 ) -> int:
     """Сам цикл показа: серия за серией, пока сериал не кончится. Раздачи, которые он
     поднял, складываются в ``mine`` — их убирает :func:`_cmd_worker` на выходе.
@@ -846,7 +847,7 @@ def _worker_loop(
             "session_start",
             title=title,
             pos=round(entry.pos, 1),
-            profile=chosen.profile.key,
+            profile=profile.key,
         )
         print(f"показ «{title}» с {_hms(entry.pos)}", flush=True)
         code = _play(
@@ -862,9 +863,9 @@ def _worker_loop(
             depth=entry.depth,
             # Прогрев следующей серии впрок: собирается лениво, когда текущая уже на
             # диске (:meth:`torrcast.warm.Warmer._chain`). Раздача та же, файл - соседний.
-            follow=partial(_next_warmer, config, torrserver, torrent_hash, entry, chosen.profile),
+            follow=partial(_next_warmer, config, torrserver, torrent_hash, entry, profile),
             supply=supply,
-            profile=chosen.profile,
+            profile=profile,
         )
         following = _following(key) if watch.done else None
         if following is None:
