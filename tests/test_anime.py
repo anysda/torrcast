@@ -478,6 +478,58 @@ def test_a_whole_file_recode_is_chosen_by_weight_not_only_by_codec() -> None:
     assert _encode_all(replace(config, recode=False), "h264", 36.4) is None
 
 
+def test_ten_bit_h264_goes_through_a_whole_file_recode_like_hevc() -> None:
+    """🔴 Hi10P - не «обычный h264»: приёмник его не декодирует, значит перекод целиком.
+
+    Замер на живом Q70D (TC-164, «Death Note» BDRip 1080p, 6.5 Мбит/с, ``High 10`` /
+    ``yuv420p10le``): копия доигрывала ~70 с буфера и вставала в вечную петлю
+    «залип - LOAD - BUFFERING». Гейт смотрел только на имя кодека, а имя у Hi10P то же
+    самое - ``h264``, - поэтому он и проходил как обычный.
+    """
+    from torrcast.cli import _encode_all
+
+    config = Config()
+
+    whole = _encode_all(config, "h264", 6.5, 10)
+    assert whole is not None, "десятибитный H.264 обязан идти сплошным перекодом"
+    assert whole.preset == "ultrafast"
+    assert whole.mbit == config.recode_mbit, "6.5 × 2.5 выше планки - берём планку"
+    assert _encode_all(config, "h264", 6.5, 8) is None, "восьмибитный уезжает копией"
+    assert _encode_all(config, "h264", 6.5) is None, "глубину не спрашивали - прежний путь"
+    assert _encode_all(replace(config, recode=False), "h264", 6.5, 10) is None
+
+    # Вверх не перекодируем: лёгкому источнику - лёгкая цель, тем же правилом, что у HEVC.
+    light = _encode_all(config, "h264", 1.3, 10)
+    assert light is not None and light.mbit == pytest.approx(3.25)
+
+
+def test_the_show_and_the_warmer_decide_the_recode_the_same_way() -> None:
+    """🔴 Показ и прогрев обязаны решать одинаково - иначе прогретое ляжет не под тем ключом.
+
+    Прогрев зовёт :func:`torrcast.cli._layout` с паспортом только что снятого ffprobe, показ -
+    с тем, что лежит в записи состояния. Разойдись они, и ключ прогретого куска
+    (:func:`torrcast.warm.warm_key`) не совпадёт с ключом, который спросит показ: грелось
+    впустую, а на экран уехала бы смесь копии и перекода - ровно тот SPS, на котором
+    приёмник встаёт.
+    """
+    from torrcast.cli import _encode_all
+    from torrcast.state import Entry
+    from torrcast.stream import Media
+
+    config = Config()
+    media = Media(1366.0, (), "h264", profile="High 10", pix_fmt="yuv420p10le")
+    # Запись состояния несёт ровно то же, что паспорт: и кодек, и глубину.
+    entry = Entry(
+        title="Тетрадь смерти", magnet="magnet:?xt=1", codec=media.video or "", depth=media.depth
+    )
+
+    warmer = _encode_all(config, media.video or "", 6.5, media.depth)
+    show = _encode_all(config, entry.codec, 6.5, entry.depth)
+    assert warmer == show and show is not None, "одно решение на обе стороны"
+    # А без глубины стороны расходятся - это и был дефект.
+    assert _encode_all(config, entry.codec, 6.5) != show
+
+
 def test_a_heavy_remux_never_outranks_a_light_release_that_plays_as_is() -> None:
     """Тяжёлое берётся, только если легче ничего нет: ремукс идёт последним из годных.
 

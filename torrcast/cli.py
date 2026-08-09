@@ -70,7 +70,6 @@ from torrcast.stream import (
     KEYS_WAIT,
     PILOT_TIMEOUT,
     PROBE_TIMEOUT,
-    RECODE_CODECS,
     AudioTrack,
     Feed,
     Grid,
@@ -80,6 +79,7 @@ from torrcast.stream import (
     TorrFile,
     TorrServer,
     bitrate_mbit,
+    codec_name,
     forget_playing,
     hls_base,
     mark_playing,
@@ -87,6 +87,7 @@ from torrcast.stream import (
     playing_flag,
     probe,
     recode_note,
+    recodes_whole,
     start_play_unit,
     stop_play_unit,
     swarm_pulse,
@@ -759,6 +760,8 @@ def _cmd_worker(key: str) -> int:
             watch,
             receiver=receiver,
             codec=entry.codec,
+            # Кодек без глубины цвета - половина паспорта: Hi10P зовётся тем же h264.
+            depth=entry.depth,
             # Прогрев следующей серии впрок: собирается лениво, когда текущая уже на
             # диске (:meth:`torrcast.warm.Warmer._chain`). Раздача та же, файл - соседний.
             follow=partial(_next_warmer, config, torrserver, torrent_hash, entry),
@@ -795,16 +798,24 @@ def _duration(key: str, entry: Entry, source: str) -> Entry:
     (у «Моаны 2» ffprobe стоит до 17 с) за то, что показ и так доберёт по факту
     (:meth:`torrcast.recode.Weights.calibrate`). Своё число такая запись получит на первом
     же обычном запуске через выбор релиза.
+
+    🔴 Ради глубины цвета (:attr:`Entry.depth`) ffprobe зовётся и у записи с известной
+    длительностью - ровно один раз на запись. Записи прежних версий её не несут вовсе, а
+    молчание тут читается как «восемь бит», то есть как «уезжай копией»: на десятибитном
+    H.264 это вечная петля на экране (:func:`torrcast.stream.recodes_whole`). Один ffprobe
+    против неиграющего показа - цена, которую платить стоит, и платится она однажды.
     """
-    if entry.dur > 0:
+    if entry.dur > 0 and entry.depth > 0:
         return entry
     media = probe(source, timeout=WORKER_DUR)
-    entry.dur = media.duration
+    entry.dur = media.duration or entry.dur
     # Ноль - «ещё не спрашивали», минус - «спросили, паспорт промолчал» (mp4 без тегов).
     entry.vbps = media.video_bps / 1e6 or -1.0
     # Кодек следующей серии тоже свой: в раздаче аниме нередко лежат и HEVC, и H.264,
     # а решение «перекодировать целиком» принимается по файлу, который играем сейчас.
     entry.codec = media.video or ""
+    # Глубина цвета оттуда же и той же ценой: без неё Hi10P неотличим от обычного H.264.
+    entry.depth = media.depth
     state = State.load()
     state.put(key, entry)
     state.save()
@@ -991,6 +1002,8 @@ def _cmd_play(args: Args) -> int:
         # Кодек оттуда же: по нему показ решает, играть копией или перекодировать файл
         # целиком, и решает это один раз - до первого сегмента (:func:`_encode_all`).
         codec=media.video or "",
+        # И глубина цвета рядом: одного имени кодека для этого решения не хватает.
+        depth=media.depth,
         # То, что уехало на ТВ: `cast status` покажет факт, а не заявку имени.
         quality=media.quality if media.height else "",
         query=slugify(args.title_query),
@@ -2028,7 +2041,9 @@ class _Bench:
                 weight = prep.found.weight_mbit(prep.want.size)
                 heavy = plan.hard_mbit > 0 and weight > plan.hard_mbit
                 if plan.recode_at > 0 and (prep.found.recoded_whole or heavy):
-                    print(recode_note(prep.found.video or "", weight if heavy else 0.0))
+                    # Причина - кодек (с глубиной, если она и есть причина) либо вес.
+                    silent = prep.found.recoded_whole
+                    print(recode_note(prep.found.video_name, 0.0 if silent else weight))
                 elif warning := prep.found.video_warning:
                     print(warning)
                 return prep
@@ -2199,8 +2214,15 @@ class _Bench:
                 ceiling = min(warn_mbit, hard_mbit)
             if peak > ceiling:
                 return f"слишком тяжёлый для приёмника, ~{peak:.0f} Мбит/с"
-        codec = prep.media.video or "h264"
-        if pinned or codec == "h264" or (recode and prep.media.recoded_whole):
+        # ⚠️ Имя кодека тут не последнее слово: Hi10P зовётся ``h264``, а приёмник его не
+        # берёт (:func:`torrcast.stream.recodes_whole`). При выключенном перекодировании
+        # такой релиз - честный отказ отбора наравне с HEVC, и назван он своим именем:
+        # «h264» в строке «не подошёл» человека бы только запутало.
+        codec = prep.media.video_name or "h264"
+        # «Обычный» - это восьмибитный H.264, и только он: десятибитный такой же ``h264``
+        # по имени, но по зубам приёмнику ровно так же, как HEVC, то есть никак.
+        plain = (prep.media.video or "h264") == "h264" and not prep.media.recoded_whole
+        if pinned or plain or (recode and prep.media.recoded_whole):
             return ""
         return codec
 
@@ -2498,14 +2520,21 @@ def _recoder(
     )
 
 
-def _encode_all(config: Config, codec: str, video_mbit: float = 0.0) -> Encode | None:
+def _encode_all(
+    config: Config, codec: str, video_mbit: float = 0.0, depth: int = 0
+) -> Encode | None:
     """Чем перекодировать ВЕСЬ файл или ``None`` — если видео уезжает копией, как всегда.
 
     Решение файл-уровневое и принимается один раз, по паспорту ffprobe: приёмник либо
-    декодирует кодек, либо нет (:data:`torrcast.stream.RECODE_CODECS`), и середины тут не
+    декодирует поток, либо нет (:func:`torrcast.stream.recodes_whole`), и середины тут не
     бывает. Посегментное решение по весу и битрейту на таком файле давало **смешанный**
     поток H.264 и HEVC — на живом Q70D это 24 с картинки и вечная петля «залип →
     перезагрузка»: ровно на границе первого не перекодированного куска.
+
+    ``depth`` - глубина цвета из того же паспорта (:attr:`torrcast.state.Entry.depth`).
+    🔴 Спрашивается она наравне с кодеком, потому что имени кодека не хватает: Hi10P
+    зовётся тем же ``h264``, а приёмник его не декодирует (:data:`COPY_DEPTH`). Ноль -
+    глубину не спрашивали (запись прежней версии), решаем по одному кодеку.
 
     Битрейт — не потолок, а **цель**, и она считается от источника. ``recode_mbit``
     остаётся потолком, но брать его всегда нельзя: 🔴 замер на живом Q70D (TC-29,
@@ -2525,7 +2554,7 @@ def _encode_all(config: Config, codec: str, video_mbit: float = 0.0) -> Encode |
     if not config.recode:
         return None
     heavy = video_mbit > config.bitrate_hard_mbit
-    if (codec or "") not in RECODE_CODECS and not heavy:
+    if not recodes_whole(codec or "", depth) and not heavy:
         return None
     want = config.recode_mbit
     if video_mbit > 0:
@@ -2534,7 +2563,13 @@ def _encode_all(config: Config, codec: str, video_mbit: float = 0.0) -> Encode |
 
 
 def _layout(
-    config: Config, source: str, length: float, codec: str, video_mbit: float, say: Any = None
+    config: Config,
+    source: str,
+    length: float,
+    codec: str,
+    video_mbit: float,
+    say: Any = None,
+    depth: int = 0,
 ) -> tuple[Grid, Encode | None]:
     """Сетка сегментов и решение «перекодировать файл целиком» - одной парой.
 
@@ -2544,12 +2579,16 @@ def _layout(
     легло бы под другим ключом (:func:`torrcast.warm.warm_key`), и показ, ради которого
     всё грелось, своего же прогретого не нашёл бы.
 
+    🔴 Ровно поэтому паспорт сюда приходит целиком - и кодек, и глубина цвета: пока
+    глубину знал один прогрев, а показ решал по имени кодека, десятибитный H.264 уезжал
+    на ТВ копией и вставал намертво (:func:`torrcast.stream.recodes_whole`).
+
     Порядок внутри тоже не случаен: сплошной перекод решается ДО сетки, потому что от
     битрейта перекода зависит вес каждого куска, а значит и то, где сетка ставит границы.
     """
     from torrcast.stream import AUDIO_MBIT, TS_OVERHEAD, grid_for
 
-    whole = _encode_all(config, codec, video_mbit)
+    whole = _encode_all(config, codec, video_mbit, depth)
     grid = grid_for(
         source,
         length,
@@ -2589,7 +2628,9 @@ def _next_warmer(config: Config, torrserver: Any, torrent_hash: str, entry: Entr
     source = torrserver.stream_url(torrent_hash, following.file_idx)
     media = probe(source, timeout=WORKER_DUR)
     video_mbit = max(0.0, media.video_bps / 1e6)
-    grid, whole = _layout(config, source, media.duration, media.video or "", video_mbit)
+    grid, whole = _layout(
+        config, source, media.duration, media.video or "", video_mbit, depth=media.depth
+    )
     recoder = (
         None
         if whole is not None
@@ -2691,6 +2732,7 @@ def _play(
     duration: float = 0.0,
     receiver: Receiver | None = None,
     codec: str = "",
+    depth: int = 0,
     follow: Any = None,
     supply: Supply | None = None,
 ) -> int:
@@ -2728,12 +2770,20 @@ def _play(
     # перекодировать поверх перекода нечего. Решается это ДО сетки: от битрейта перекода
     # зависит вес каждого куска, а значит и то, где сетка поставит границы.
     grid, whole = _layout(
-        config, source, length, codec, video_mbit, say=lambda text: print(text, flush=True)
+        config,
+        source,
+        length,
+        codec,
+        video_mbit,
+        say=lambda text: print(text, flush=True),
+        depth=depth,
     )
     mark("сетка", сегментов=grid.count, покадрам=grid.on_keys)
     if whole is not None:
-        print(recode_note(codec, video_mbit if codec not in RECODE_CODECS else 0.0), flush=True)
-        mark("сплошной перекод", кодек=codec, пресет=whole.preset, мбит=round(whole.mbit, 2))
+        # Причина перекода называется вслух: кодек с глубиной - или вес, и тогда с числом.
+        name = codec_name(codec, depth)
+        print(recode_note(name, 0.0 if recodes_whole(codec, depth) else video_mbit), flush=True)
+        mark("сплошной перекод", кодек=name, пресет=whole.preset, мбит=round(whole.mbit, 2))
     # Профиль тяжести всего фильма известен со старта - он считается из уже снятой
     # карты опорных кадров и не стоит ни одного запроса к рою. Тяжёлые куски кодировщик
     # начнёт перекодировать сразу, пока играет остальное.

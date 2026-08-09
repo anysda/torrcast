@@ -1008,6 +1008,57 @@ def test_the_real_video_codec_comes_from_the_stream_not_the_name() -> None:
     assert Media().video_warning == ""
 
 
+def test_ten_bit_h264_is_not_the_same_picture_as_plain_h264() -> None:
+    """🔴 Hi10P зовётся ``h264``, а приёмник его не декодирует: паспорт обязан их различать.
+
+    Живой замер (TC-164, «Death Note» BDRip): ``h264`` / ``High 10`` / ``yuv420p10le``
+    доигрывал буфер до 70 с и вставал в вечную петлю LOAD/BUFFERING. По имени кодека такой
+    файл неотличим от обычного, поэтому решает глубина цвета.
+    """
+    from torrcast.stream import Media, color_depth
+
+    assert color_depth("yuv420p10le") == 10
+    assert color_depth("yuv420p") == 8, "обычная картинка - восемь бит"
+    assert color_depth("p010le") == 10, "формат аппаратного декодера - тоже десять"
+    assert color_depth("yuv444p12le") == 12
+    assert color_depth(None) == 8, "паспорт молчит - решаем как раньше, копией"
+    assert color_depth(None, "High 10") == 10, "формата кадра нет - верим профилю"
+    assert color_depth("", "Main 10") == 10
+    assert color_depth(None, "High 4:4:4 Predictive") == 8, "цифры в имени - не глубина"
+
+    hi10 = Media(video="h264", profile="High 10", pix_fmt="yuv420p10le")
+    plain = Media(video="h264", profile="High", pix_fmt="yuv420p")
+    assert hi10.depth == 10 and plain.depth == 8
+    assert hi10.recoded_whole, "десятибитный H.264 идёт сплошным перекодом, как HEVC"
+    assert not plain.recoded_whole, "обычный H.264 как уезжал копией, так и уезжает"
+    assert hi10.video_name == "h264 10 бит" and plain.video_name == "h264"
+    assert "10 бит" in hi10.video_warning, "молчать о нём нельзя: приёмник на нём встаёт"
+    assert plain.video_warning == ""
+    assert Media().depth == 0, "видео нет - и глубины нет"
+
+
+def test_a_passport_from_the_old_shelf_is_not_believed_about_the_picture(tmp_path: Path) -> None:
+    """Паспорт прежней версии формата кадра не несёт - и принят быть не может.
+
+    Прими его показ за правду - и десятибитный H.264 снова уехал бы копией: молчание
+    старой записи неотличимо от честного «восемь бит».
+    """
+    import json
+
+    from torrcast.stream import AudioTrack, _keep_media, _read_media
+    from torrcast.stream import Media as Passport
+
+    cache = tmp_path / "probe.json"
+    fresh = Passport(duration=1366.0, tracks=(AudioTrack(0, "rus"),), video="h264")
+    _keep_media(cache, fresh)
+    assert _read_media(cache) is not None, "свой же паспорт читается"
+
+    saved = json.loads(cache.read_text("utf-8"))
+    del saved["v"]
+    cache.write_text(json.dumps(saved), encoding="utf-8")
+    assert _read_media(cache) is None, "паспорт прежней версии - как будто его нет"
+
+
 def test_only_what_the_receiver_has_passed_is_swept_out_of_ram(tmp_path: Path) -> None:
     """Фильм целиком в tmpfs не влезает, поэтому позади показа держим окно ``keep``.
 

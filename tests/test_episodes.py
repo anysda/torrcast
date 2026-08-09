@@ -126,6 +126,7 @@ def test_the_unit_plays_the_whole_release_by_itself(monkeypatch: pytest.MonkeyPa
         duration: float = 0.0,
         receiver: Any = None,
         codec: str = "",
+        depth: int = 0,
         follow: Any = None,
         supply: Any = None,
     ) -> int:
@@ -160,12 +161,12 @@ def test_the_next_episode_learns_its_own_duration(monkeypatch: pytest.MonkeyPatc
     """Порог 95 % считается от длительности серии, а её у следующей серии ещё нет:
     юнит читает её из потока сам, иначе «досмотрено» наступило бы мгновенно.
     """
-    remember(dur=MINUTES_24)
+    remember(dur=MINUTES_24, depth=8)
     probed: list[str] = []
 
     def probe(url: str, timeout: float = 90.0, alive: object = None) -> Media:
         probed.append(url)
-        return Media(MINUTES_24 + len(probed), (), "h264")
+        return Media(MINUTES_24 + len(probed), (), "h264", pix_fmt="yuv420p")
 
     monkeypatch.setattr(cli, "TorrServer", _FakeTorrServer)
     monkeypatch.setattr(cli, "probe", probe)
@@ -182,6 +183,43 @@ def test_the_next_episode_learns_its_own_duration(monkeypatch: pytest.MonkeyPatc
     assert cli._cmd_worker(KEY) == 0
 
     assert len(probed) == 2, "у первой серии длительность уже была, у двух следующих - нет"
+
+
+def test_a_record_from_before_the_ten_bit_era_asks_the_passport_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """🔴 Запись прежней версии глубины цвета не несёт - и молчит она как «восемь бит».
+
+    Это не мелочь учёта: на десятибитном H.264 такое молчание означает «уезжай копией», а
+    копию приёмник не декодирует - доигрывает буфер и встаёт (TC-164). Поэтому глубина
+    добирается одним ffprobe при первом же продолжении и остаётся в записи навсегда.
+    """
+    remember(dur=MINUTES_24, codec="h264")  # depth не проставлен - запись прежней версии
+    probed: list[str] = []
+    seen: list[int] = []
+
+    def probe(url: str, timeout: float = 90.0, alive: object = None) -> Media:
+        probed.append(url)
+        return Media(MINUTES_24, (), "h264", profile="High 10", pix_fmt="yuv420p10le")
+
+    monkeypatch.setattr(cli, "TorrServer", _FakeTorrServer)
+    monkeypatch.setattr(cli, "probe", probe)
+    monkeypatch.setattr(cli, "make_receiver", lambda kind, address, cert: None)
+
+    def play(
+        config: Any, source: str, audio: int, about: str, clock: Any, watch: Any = None, **rest: Any
+    ) -> int:
+        seen.append(int(rest.get("depth") or 0))
+        watch.see(watch.entry.dur)
+        return 0
+
+    monkeypatch.setattr(cli, "_play", play)
+
+    assert cli._cmd_worker(KEY) == 0
+
+    assert seen[0] == 10, "показ обязан узнать глубину, а не решать по одному имени кодека"
+    assert saved().depth == 10, "узнанное осталось в записи - второй раз спрашивать незачем"
+    assert probed[:1] == ["http://ts/hash/0"], "и спрошено это ровно один раз на серию"
 
 
 def test_a_series_continues_the_right_episode_from_the_right_place(

@@ -40,6 +40,7 @@ if TYPE_CHECKING:
     from torrcast.state import Config
 
 __all__ = [
+    "COPY_DEPTH",
     "HLS_SEGMENT_SECONDS",
     "KEYS_WAIT",
     "MAX_SEGMENT_BYTES",
@@ -59,6 +60,8 @@ __all__ = [
     "TorrServer",
     "Warmup",
     "bitrate_mbit",
+    "codec_name",
+    "color_depth",
     "ffmpeg_pack_command",
     "film_keys",
     "forget_playing",
@@ -75,6 +78,7 @@ __all__ = [
     "playing_flag",
     "probe",
     "recode_note",
+    "recodes_whole",
     "segment_name",
     "segment_slot",
     "shelf_weight",
@@ -268,7 +272,24 @@ MAX_SEGMENT_BYTES: Final = 16_000_000
 #: Здесь только hevc, и это не лень: цена перекода замерена ровно для него (HEVC-декод
 #: плюс x264 ultrafast - двукратный запас к реальному времени). av1/vc1 остаются отказом
 #: отбора, пока такого же замера для них нет.
+#:
+#: ⚠️ Имени кодека для решения МАЛО, и это тоже замер, а не осторожность: H.264 бывает
+#: десятибитным (:data:`COPY_DEPTH`), зовётся всё тем же ``h264`` - и приёмник его не
+#: декодирует. Поэтому спрашивать надо :func:`recodes_whole`, а не членство в наборе.
 RECODE_CODECS: Final = frozenset({"hevc"})
+#: Глубина цвета, которую приёмник берёт копией. Выше - перекод целиком.
+#:
+#: 🔴 Замер на живом Q70D (09-08, «Death Note» BDRip 1080p, ``h264`` / ``High 10`` /
+#: ``yuv420p10le``, 6.5 Мбит/с): доигрывает ровно то, что успело влезть в буфер (~70 с),
+#: и встаёт в вечную петлю «залип - закрываю приложение - LOAD - BUFFERING - залип».
+#: Позиция при этом стоит колом, а упаковка ушла на 259-339 с вперёд, то есть куски
+#: приезжают - их не берёт декодер. Контрольный опыт с выключенным прогревом даёт то же
+#: самое: стык источников ни при чём, дело в самом потоке.
+#:
+#: Восьмибитный H.264 (``High``, ``yuv420p``) в тех же условиях играет часами - потому
+#: граница и стоит по глубине, а не по имени профиля: имён у десятибитного потока много
+#: (``High 10``, ``High 10 Intra``), а ``pix_fmt`` один и честен.
+COPY_DEPTH: Final = 8
 #: Типовая длительность до ffprobe (фильм 2 ч, серия 45 мин): только для прикидки битрейта.
 RUNTIME_GUESS: Final = {"movie": 7200.0, "tv": 2700.0, "other": 7200.0}
 #: Сколько упаковка имеет право не выложить ни куска, прежде чем это признают обрывом
@@ -543,6 +564,23 @@ class Media:
     #: (:meth:`torrcast.recode.Weights.calibrate`) - 8-10 сегментов показа мимо профиля.
     video_bps: float = 0.0
 
+    # ⚠️ Два поля картинки стоят в конце паспорта, а не рядом с ``video``, и это не
+    # небрежность: паспорт собирают позиционно в двух десятках мест, и вклинься новое
+    # поле в середину - «1080» молча стало бы именем профиля.
+
+    #: Имя профиля видео (``High``, ``High 10``, ``Main 10``); ``None`` - паспорт молчит.
+    #:
+    #: Само по себе имя ничего не решает, оно второй голос при счёте глубины цвета
+    #: (:func:`color_depth`). Но в паспорте оно лежит рядом с ``pix_fmt`` и стоит ноль
+    #: лишних запросов, а человеку в отчёте «h264 High 10» говорит больше, чем «h264».
+    profile: str | None = None
+    #: Формат кадра (``yuv420p``, ``yuv420p10le``) - то, что видит декодер приёмника.
+    #:
+    #: 🔴 Из него считается глубина цвета (:attr:`depth`), а из неё - решение
+    #: «копия или перекод целиком» (:func:`recodes_whole`). Пока этого поля в паспорте не
+    #: было, десятибитный H.264 проходил как обычный: имя кодека у них одно на двоих.
+    pix_fmt: str | None = None
+
     @property
     def delivered_mbit(self) -> float:
         """Сколько Мбит/с уедет на ТВ в среднем по фильму; ``0`` — паспорт не сказал.
@@ -595,13 +633,23 @@ class Media:
         return f"{self.height}p" if self.height else "?"
 
     @property
-    def recoded_whole(self) -> bool:
-        """Этот файл придётся перекодировать целиком (:data:`RECODE_CODECS`).
+    def depth(self) -> int:
+        """Глубина цвета картинки в битах (:func:`color_depth`); ``0`` - видео тут нет."""
+        return color_depth(self.pix_fmt, self.profile) if self.video else 0
 
-        Признак файла, а не куска: приёмник либо декодирует кодек, либо нет, и середины
+    @property
+    def recoded_whole(self) -> bool:
+        """Этот файл придётся перекодировать целиком (:func:`recodes_whole`).
+
+        Признак файла, а не куска: приёмник либо декодирует поток, либо нет, и середины
         тут не бывает. Ровно поэтому решение и принимается один раз по паспорту.
         """
-        return (self.video or "") in RECODE_CODECS
+        return recodes_whole(self.video or "", self.depth)
+
+    @property
+    def video_name(self) -> str:
+        """Как называть эту картинку человеку (:func:`codec_name`)."""
+        return codec_name(self.video or "", self.depth)
 
     @property
     def video_warning(self) -> str:
@@ -610,10 +658,13 @@ class Media:
         ⚠️ Строка честна ровно там, где перекодирования нет: при включённом
         перекодировании HEVC мы берём на себя целиком, и говорит об этом
         :func:`recode_note`, а не она (:meth:`torrcast.cli._Bench.resolve`).
+
+        Десятибитный H.264 сюда попадает наравне с HEVC, хотя зовётся ``h264``: на живом
+        Q70D он встаёт (:data:`COPY_DEPTH`), и молчать об этом - та же подмена.
         """
-        if self.video in (None, "h264"):
+        if self.video in (None, "h264") and self.depth <= COPY_DEPTH:
             return ""
-        return f"внимание: видео {self.video} - ресивер может не взять, а мы не перекодируем"
+        return f"внимание: видео {self.video_name} - ресивер может не взять, а мы не перекодируем"
 
     def default_track(self) -> int:
         """«Самая нормальная» озвучка — та, что играет без вопросов: русский дубляж →
@@ -636,6 +687,74 @@ class Media:
         if not want:
             return None
         return next((t.index for t in self.tracks if t.label.casefold().strip() == want), None)
+
+
+#: Сколько бит на цвет обещает ``pix_fmt``: ``yuv420p10le`` → 10, ``p010le`` → 10,
+#: ``yuv420p`` → ничего (значит, обычные 8). Суффикс порядка байт к делу не относится,
+#: одна цифра после ``p`` - тоже не глубина (``yuv420p`` кончается на ``p``, а не на число).
+_DEPTH_FMT: Final = re.compile(r"p(\d{2,3})(?:[lb]e)?$")
+#: То же число, но из имени профиля - на случай, когда ``pix_fmt`` не спросили или он
+#: пуст: ``High 10``, ``High 10 Intra``, ``Main 10``. Отдельно стоящее число, а не любое:
+#: ``High 4:4:4 Predictive`` десятибитным от цифр в имени не становится.
+_DEPTH_PROFILE: Final = re.compile(r"(?<!\d)(\d{1,2})(?!\d)")
+
+
+def color_depth(pix_fmt: str | None, profile: str | None = None) -> int:
+    """Глубина цвета картинки в битах по паспорту ffprobe; молчит паспорт - :data:`COPY_DEPTH`.
+
+    Спрашиваем сперва ``pix_fmt``, и это не вкусовщина: формат кадра - то, что видит
+    декодер, а имя профиля пишет кодировщик, и оно бывает и пустым, и незнакомым
+    (``High 10 Intra``, ``Hi10P`` в одних тулзах против ``High 10`` в ffprobe). Профиль
+    остаётся вторым голосом ровно для случая, когда формата кадра в паспорте нет.
+
+    Умолчание тут - именно 8, а не «неизвестно»: показ обязан на что-то решиться, и без
+    единого признака десятибитности решаться он должен так же, как решался всегда -
+    копией. Отличать «не спрашивали» от «спросили и там восемь» - дело не паспорта, а
+    записи состояния (:attr:`torrcast.state.Entry.depth`).
+    """
+    if pix_fmt and (found := _DEPTH_FMT.search(pix_fmt.strip().casefold())):
+        # ``p010le`` - тот же десятибитный кадр, только записанный как у аппаратного
+        # декодера: ведущий ноль тут часть имени формата, а не часть числа.
+        return int(found.group(1).lstrip("0") or COPY_DEPTH)
+    if profile and (bits := _DEPTH_PROFILE.search(profile)):
+        return max(COPY_DEPTH, int(bits.group(1)))
+    return COPY_DEPTH
+
+
+def codec_name(codec: str, depth: int = 0) -> str:
+    """Как называть картинку человеку: ``h264``, ``h264 10 бит``, ``hevc``.
+
+    Только для строк - в решениях у имени работы нет (:func:`recodes_whole`). Но врать в
+    них нельзя: два потока, из которых один приёмник играет часами, а на другом встаёт
+    намертво, зовутся в паспорте одинаково - значит, называть их одинаково нельзя нам.
+    """
+    if not codec:
+        return ""
+    return f"{codec} {depth} бит" if depth > COPY_DEPTH else codec
+
+
+def recodes_whole(codec: str, depth: int = 0) -> bool:
+    """Пойдёт ли этот файл ЦЕЛИКОМ через перекод - единственный ответ на этот вопрос.
+
+    🔴 Функция одна на весь код намеренно. Решение принимается дважды - показом
+    (:func:`torrcast.cli._play`) и прогревом следующей серии впрок
+    (:func:`torrcast.cli._next_warmer`), - и разойтись они не имеют права: прогретое лежит
+    под ключом, в который входит перекод (:func:`torrcast.warm.warm_key`), и стоит одному
+    месту решить иначе, как показ своего же прогретого не найдёт. Ровно так и вышло с
+    десятибитным H.264: показ мешал в одном потоке копию и перекод, SPS не совпадал ни
+    одним байтом, а приёмник вставал намертво.
+
+    Поводов ровно два, и оба - свойство файла, а не куска:
+
+    * кодек, которого приёмник не декодирует вовсе (:data:`RECODE_CODECS`);
+    * глубина цвета выше :data:`COPY_DEPTH` - десятибитный H.264 (Hi10P), которым собрана
+      добрая половина аниме-BDRip. Имя кодека у него то же самое ``h264``, поэтому по
+      имени он и проходил как обычный - до замера на живом ТВ.
+
+    ``depth`` ноль - глубину не спрашивали (запись прежней версии): тогда решаем по
+    кодеку, как решали раньше.
+    """
+    return codec in RECODE_CODECS or depth > COPY_DEPTH
 
 
 def recode_note(codec: str, weight_mbit: float = 0.0) -> str:
@@ -945,6 +1064,12 @@ def shelf_weight(directory: Path) -> tuple[int, int]:
     return count, weight
 
 
+#: Версия формата паспорта на полке (:func:`_read_media`). Растёт, когда в паспорт
+#: добавляется поле, от которого зависит РЕШЕНИЕ показа: старая запись такого поля не
+#: несёт, и молчание в ней неотличимо от честного ответа. ``2`` - формат кадра и профиль.
+_MEDIA_VERSION: Final = 2
+
+
 def _media_cache(source_url: str) -> Path:
     """Где лежит снятый паспорт этого файла (:func:`probe`).
 
@@ -960,12 +1085,24 @@ def _media_cache(source_url: str) -> Path:
 
 
 def _read_media(cache: Path) -> Media | None:
+    """Паспорт с полки; ``None`` - полки нет, запись битая или снята прежней версией.
+
+    ⚠️ Версия проверяется, и это не бюрократия. Паспорта прежних версий не несут формата
+    кадра, то есть про десятибитный H.264 молчат ровно так же, как молчал старый ffprobe:
+    прими мы такой паспорт за правду - и показ снова уехал бы копией на приёмник, который
+    её не декодирует (:func:`recodes_whole`). Цена отказа - один ffprobe на файл, один
+    раз; цена доверия - вечная петля на экране.
+    """
     with contextlib.suppress(OSError, ValueError, KeyError, TypeError):
         saved = json.loads(cache.read_text("utf-8"))
+        if int(saved.get("v") or 0) < _MEDIA_VERSION:
+            return None
         media = Media(
             duration=float(saved["duration"]),
             tracks=tuple(AudioTrack(**track) for track in saved["tracks"]),
             video=_opt_str(saved.get("video")),
+            profile=_opt_str(saved.get("profile")),
+            pix_fmt=_opt_str(saved.get("pix_fmt")),
             height=int(saved.get("height") or 0),
             width=int(saved.get("width") or 0),
             video_bps=float(saved.get("video_bps") or 0.0),
@@ -988,9 +1125,12 @@ def _keep_media(cache: Path, media: Media) -> None:
         tmp.write_text(
             json.dumps(
                 {
+                    "v": _MEDIA_VERSION,
                     "duration": media.duration,
                     "tracks": [asdict(track) for track in media.tracks],
                     "video": media.video,
+                    "profile": media.profile,
+                    "pix_fmt": media.pix_fmt,
                     "height": media.height,
                     "width": media.width,
                     "video_bps": media.video_bps,
@@ -1085,7 +1225,9 @@ def probe(url: str, timeout: float = 90.0, alive: Any = None) -> Media:
         return ready
     entries = (
         "format=duration:"
-        "stream=index,codec_name,codec_type,channels,width,height,bit_rate:"
+        # ``profile`` и ``pix_fmt`` берутся тем же одним запросом и ничего не стоят, а без
+        # них показ не отличает Hi10P от обычного H.264 (:func:`recodes_whole`).
+        "stream=index,codec_name,codec_type,channels,width,height,bit_rate,profile,pix_fmt:"
         # Теги дорожки берутся ЦЕЛИКОМ, а не списком: mkvmerge пишет вес дорожки то как
         # ``BPS``, то как ``BPS-eng``/``BPS-rus`` - суффикс языковой и заранее неизвестен.
         "stream_tags"
@@ -1117,6 +1259,8 @@ def probe(url: str, timeout: float = 90.0, alive: Any = None) -> Media:
         duration=duration,
         tracks=tuple(_track(i, s) for i, s in enumerate(audio)),
         video=_opt_str(video[0].get("codec_name")) if video else None,
+        profile=_opt_str(video[0].get("profile")) if video else None,
+        pix_fmt=_opt_str(video[0].get("pix_fmt")) if video else None,
         height=int(video[0].get("height") or 0) if video else 0,
         width=int(video[0].get("width") or 0) if video else 0,
         video_bps=_video_bps(video[0], duration) if video else 0.0,
