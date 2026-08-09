@@ -1148,8 +1148,7 @@ _ARMITAGE = (
     "Армитаж: Двойная матрица / Armitage III: Dual Matrix [Movie] [RUS(int),ENG,JAP+Sub]"
     " [2002, приключения, фантастика, боевик, киберпанк, DVDRip]",
     "Армитаж: Двойная Матрица / Armitage: Dual-Matrix (2002) DVDRip-AVC | P",
-    "Армитаж: Двойная матрица / Armitage: Dual Matrix (2002) WEBRip-HEVC 1080p"
-    " | MC Entertainment",
+    "Армитаж: Двойная матрица / Armitage: Dual Matrix (2002) WEBRip-HEVC 1080p | MC Entertainment",
 )
 
 
