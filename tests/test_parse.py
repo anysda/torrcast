@@ -977,9 +977,7 @@ def test_the_second_query_takes_the_title_and_not_the_channel() -> None:
     честное «по BBC приехала другая картина» при живой раздаче в той же выдаче.
     """
     releases = [
-        parse_release_name(
-            "BBC. Живая планета / BBC. The Living Planet  (1984) DVDRip | P1"
-        ),
+        parse_release_name("BBC. Живая планета / BBC. The Living Planet  (1984) DVDRip | P1"),
         parse_release_name(
             "BBC. Океаны: Наша Голубая Планета / BBC. Oceans: Our Blue Planet "
             "[2018, документальный, UHD BDRemux 2160p] Original Eng + Sub (Rus, Eng)"
