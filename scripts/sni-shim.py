@@ -33,6 +33,21 @@
 адрес, отдавать наверх повод для повтора незачем; кончились кандидаты - отдаём чужой
 отказ как есть.
 
+Прибитое имя - это АРЕНДА, а не запись навсегда. Строки в `/etc/hosts` ставит сам шим,
+когда сокет уже слушает, и снимает их, уходя (и штатным `stop`, и падением: то же самое
+делает `ExecStopPost=` юнита). Иначе шим был бы единой точкой отказа на все свои имена
+сразу: пока строка висит, имя ведёт на 127.0.0.1, где никто не отвечает, и трекер
+пропадает не «пока чинится обход», а насовсем. Без строки он идёт своим путём - хуже, чем
+через шим, но это деградация, а не смерть каталога.
+
+Решение «прямо или через шим» тоже не вечное: канал режет по имени не всегда, обрыв
+приходит и уходит в пределах часа. Поэтому шим ПЕРЕРЕШАЕТ его фоном (:class:`Watch`),
+щупая источник НАПРЯМУЮ, мимо `/etc/hosts` - проба сквозь себя же всегда отвечала бы
+«всё хорошо». Цена ошибки несимметрична: лишний обход здорового имени не стоит почти
+ничего, а пропущенный обход больного - это молчащий индексер до следующей установки.
+Отсюда и перекос: на любом сомнении ведём через шим, а снимаем обход только после
+нескольких проверок подряд, где имя ответило целиком.
+
 Наверх шим всегда просит `gzip`, а вниз отдаёт распакованным, если клиент сжатого не
 просил. Это не экономия трафика, а обход той же болезни: рвётся поток на ОБЪЁМЕ тела,
 и сжатая выдача чаще остаётся ниже порога обрыва (замер на yts.gg: 60 КБ голого тела
@@ -49,6 +64,13 @@
 Слушает только 127.0.0.1; наружу не смотрит и ничего не кэширует.
 
     sni-shim.py <cert> <key> <порт> имя=кандидат[,кандидат…] …
+    sni-shim.py --resolve имя …   адреса origin'а мимо `/etc/hosts` (ими щупает установка)
+    sni-shim.py --unpin имя …     снять наши строки из `/etc/hosts` (это же делает юнит)
+
+Остальное приезжает окружением, чтобы не городить кавычки в строке запуска юнита:
+`TORRCAST_HOSTS`, `TORRCAST_ROUTE_PROBES` (файл `имя|путь|тело` - чем щупать),
+`TORRCAST_ROUTE_PINNED` (что прибито на старте), `TORRCAST_ROUTE_EVERY` (как часто
+перерешать, 0 - не перерешать) и пороги пробы `TORRCAST_PROBE_*` - те же, что у установки.
 """
 
 from __future__ import annotations
@@ -60,10 +82,12 @@ import http.server
 import os
 import random
 import select
+import signal
 import socket
 import socketserver
 import ssl
 import struct
+import subprocess
 import sys
 import threading
 import time
@@ -73,7 +97,7 @@ import zlib
 from typing import TYPE_CHECKING, NamedTuple
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Callable, Iterable, Iterator
 
 #: Заголовки, которые нельзя переносить как есть: часть про соединение (оно у нас
 #: своё), часть мы пересчитываем сами.
@@ -98,6 +122,27 @@ _PER_HOST = 2
 #: Насколько верим разобранному адресу origin'а, прежде чем спросить DNS заново.
 _DNS_TTL = 300.0
 _DNS_TIMEOUT = 5.0
+
+#: Где лежит таблица имён. Подменяется в песочнице и в тестах.
+_HOSTS = os.environ.get("TORRCAST_HOSTS") or "/etc/hosts"
+#: Метка наших строк в ней: по ней и только по ней мы их потом убираем. Чужую строку
+#: (например, нарочно прибитый каталог определений Prowlarr) не трогаем никогда.
+_PIN_MARK = "# torrcast-shim"
+#: Как часто перерешать маршрут. Ноль - не перерешать вовсе (так гоняют тесты).
+_WATCH_EVERY = float(os.environ.get("TORRCAST_ROUTE_EVERY") or 900)
+#: Сколько проверок ПОДРЯД имя должно ответить целиком, чтобы снять с него обход.
+#: Больше одной нарочно: снять обход по одной удачной пробе - это как раз тот дешёвый
+#: способ получить дорогую ошибку (молчащий индексер), от которого весь перекос и заведён.
+_WATCH_CLEAR = 2
+#: Пороги пробы - те же, что у установки (`probe_whole` в install.sh, TC-235): судим по
+#: ПРОСТОЮ потока, а не по общему времени. Значения приезжают оттуда же, окружением.
+_PROBE_TIMEOUT = os.environ.get("TORRCAST_PROBE_TIMEOUT") or "25"
+_PROBE_STALL = os.environ.get("TORRCAST_PROBE_STALL") or "5"
+_PROBE_FLOOR = os.environ.get("TORRCAST_PROBE_FLOOR") or "1024"
+_PROBE_UA = os.environ.get("TORRCAST_PROBE_UA") or (
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/122 Safari/537.36"
+)
 
 
 def _nameservers() -> list[str]:
@@ -126,16 +171,16 @@ def _skip_name(data: bytes, pos: int) -> int:
     raise OSError("обрезанный ответ DNS")
 
 
-def _query_a(host: str, server: str) -> list[str]:
-    """Спросить у DNS адреса имени напрямую, минуя `/etc/hosts`.
+def _query(host: str, server: str, rtype: int = 1) -> list[str]:
+    """Спросить у DNS адреса имени напрямую, минуя `/etc/hosts` (``rtype`` 1 - A, 28 - AAAA).
 
     Через `socket.getaddrinfo` нельзя: имя там уже прибито к нам же, и шим ходил бы
-    сам к себе. Запрос простой - один вопрос об A-записи, ответ разбираем руками.
+    сам к себе. Запрос простой - один вопрос об адресе, ответ разбираем руками.
     """
     ident = random.randrange(1 << 16)  # не крипта: ident отсеивает чужие ответы
     labels = b"".join(bytes([len(p)]) + p for p in host.encode("idna").split(b"."))
     query = struct.pack(">HHHHHH", ident, 0x0100, 1, 0, 0, 0) + labels + b"\0"
-    query += struct.pack(">HH", 1, 1)
+    query += struct.pack(">HH", rtype, 1)
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
         sock.settimeout(_DNS_TIMEOUT)
         sock.sendto(query, (server, 53))
@@ -149,22 +194,44 @@ def _query_a(host: str, server: str) -> list[str]:
     out: list[str] = []
     for _ in range(answers):
         pos = _skip_name(data, pos)
-        rtype, _cls, _ttl, rdlen = struct.unpack(">HHIH", data[pos : pos + 10])
+        kind, _cls, _ttl, rdlen = struct.unpack(">HHIH", data[pos : pos + 10])
         pos += 10
-        if rtype == 1 and rdlen == 4:
+        if kind == 1 and rdlen == 4:
             out.append(socket.inet_ntoa(data[pos : pos + 4]))
+        elif kind == 28 and rdlen == 16:
+            out.append(socket.inet_ntop(socket.AF_INET6, data[pos : pos + 16]))
         pos += rdlen
     return out
 
 
 class Resolver:
-    """Адреса origin'ов: спрашиваем DNS сами и держим разобранное недолгое время."""
+    """Адреса origin'ов: спрашиваем DNS сами и держим разобранное недолгое время.
 
-    def __init__(self) -> None:
+    🔴 TC-267. Последний удачный ответ помним ОТДЕЛЬНО от свежего и без срока: у
+    трекеров, чей единственный кандидат - `direct` или `named`, адрес и есть весь
+    маршрут, и минутная немота DNS означала бы для них не «медленнее», а «никак».
+    Замер на живой машине: пока рядом шли пробы, DNS перестал отвечать на пять секунд, и
+    шим отдал `502 маршрут пуст` на nyaa и rutor разом - у Knaben в тот же миг всё было
+    хорошо, потому что у него есть запасное ИМЯ, которому адрес не нужен. Адрес origin'а
+    меняется куда реже, чем моргает канал, так что помнить его строго лучше, чем
+    оставаться без маршрута.
+    """
+
+    def __init__(self, ttl: float = _DNS_TTL) -> None:
+        self._ttl = ttl
         self._cache: dict[str, tuple[float, list[str]]] = {}
+        #: Последнее, что DNS вообще успел про имя сказать. Срока годности нет нарочно.
+        self._known: dict[str, list[str]] = {}
         self._lock = threading.Lock()
 
     def addresses(self, host: str) -> list[str]:
+        """Адреса, по которым ходит САМ шим. Только IPv4, и это не упущение.
+
+        🔴 Замер на живой машине: у yts.gg тело по IPv6 встаёт на 16401 Б и висит до
+        таймаута с обоих его адресов, а те же данные по IPv4 приезжают целиком за 0.3 с.
+        Клиент (Prowlarr) семейство выбирает сам и берёт IPv6 первым, так что «шим
+        помогает» тут во многом означает «шим идёт по IPv4».
+        """
         with self._lock:
             fresh = self._cache.get(host)
             if fresh and fresh[0] > time.monotonic():
@@ -172,16 +239,42 @@ class Resolver:
         found: list[str] = []
         for server in _nameservers():
             try:
-                found = [a for a in _query_a(host, server) if not a.startswith("127.")]
+                found = [a for a in _query(host, server) if not a.startswith("127.")]
             except (OSError, struct.error, IndexError):
                 continue
             if found:
                 break
         if not found:
+            with self._lock:
+                remembered = self._known.get(host)
+            if remembered:
+                print(f"{host}: DNS молчит, иду по прежнему адресу", file=sys.stderr, flush=True)
+                return remembered
             raise OSError(f"DNS не дал адреса для {host}")
         with self._lock:
-            self._cache[host] = (time.monotonic() + _DNS_TTL, found)
+            self._cache[host] = (time.monotonic() + self._ttl, found)
+            self._known[host] = found
         return found
+
+    def client_addresses(self, host: str) -> list[str]:
+        """Адреса, на которые ляжет ОБЫЧНЫЙ клиент: по первому на каждое семейство.
+
+        🔴 Этим и только этим щупает :class:`Watch`. Проверять один IPv4, когда клиент
+        первым берёт IPv6, значит мерить не ту дорогу: замер на живой машине - проба по
+        IPv4 отвечала целиком за 0.3 с, а Prowlarr в тот же миг получал по IPv6 обрыв на
+        16401 Б и «Failed to read complete http response». Здоровым имя считается, только
+        если отвечают ВСЕ семейства: клиент выбирает не наше мнение, а своё.
+        """
+        out = self.addresses(host)[:1]
+        for server in _nameservers():
+            try:
+                sixth = [a for a in _query(host, server, 28) if ":" in a]
+            except (OSError, struct.error, IndexError):
+                continue
+            if sixth:
+                out += sixth[:1]
+                break
+        return out
 
 
 class Target(NamedTuple):
@@ -201,9 +294,13 @@ class Target(NamedTuple):
 class Route:
     """Один трекер: имя, которое видит Prowlarr, и кандидаты, куда ходить на самом деле."""
 
-    def __init__(self, host: str, candidates: list[str]) -> None:
+    def __init__(self, host: str, candidates: list[str], path: str = "", body: str = "") -> None:
         self.host = host
         self.candidates = candidates
+        #: Чем щупать источник напрямую (:class:`Watch`): путь и тело POST. Пусто - имя
+        #: перерешать нечем, и маршрут у него остаётся тот, с которым его завели.
+        self.path = path
+        self.body = body
         self.current = 0
         #: Места в очереди к ЭТОМУ хосту. Свой счётчик на каждый - в этом весь смысл:
         #: хост, который сейчас болеет, держит только своих ждущих.
@@ -216,18 +313,204 @@ class Route:
         out: list[Target] = []
         for number in order:
             candidate = self.candidates[number]
-            if candidate not in ("direct", "named"):
+            kind, _, mirror = candidate.partition(":")
+            if kind not in ("direct", "named"):
                 out.append(Target(candidate.rstrip("/"), True, "", number))
                 continue
+            # `direct:зеркало` - адрес берём у зеркала, а спрашиваем всё равно про своё
+            # имя (оно уедет в `Host`). Это второй край того же каталога: имени в
+            # рукопожатии нет, так что зеркало здесь - именно адрес, а не другой сайт.
             try:
-                found = resolver.addresses(self.host)
+                found = resolver.addresses(mirror or self.host)
             except OSError:
                 continue
-            if candidate == "direct":  # по адресу и без имени: серт там на чужое имя
+            if kind == "direct":  # по адресу и без имени: серт там на чужое имя
                 out += [Target(f"https://{ip}", False, "", number) for ip in found]
             else:  # по адресу, но с именем: и SNI, и серт остаются настоящими
                 out += [Target(f"https://{self.host}", True, ip, number) for ip in found]
         return out
+
+
+def _ours(line: str, owned: set[str]) -> bool:
+    """Наша ли это строка в `/etc/hosts`.
+
+    Своей считаем помеченную (:data:`_PIN_MARK`) и ровно один вид непомеченной -
+    `127.0.0.1 имя` из нашего же списка: так подбираются строки, оставленные прежними
+    установками, когда метки ещё не было. Всё прочее - чужое: строка с несколькими
+    именами, чужой адрес, нарочно прибитый посторонний хост.
+    """
+    body = line.split("#")[0].split()
+    if not body:
+        return False
+    if line.rstrip().endswith(_PIN_MARK):
+        return True
+    return len(body) == 2 and body[0] == "127.0.0.1" and body[1].lower() in owned
+
+
+def set_pins(path: str, wanted: Iterable[str], owned: Iterable[str]) -> bool:
+    """Оставить прибитыми к шиму ровно ``wanted`` из наших имён ``owned``.
+
+    Печатает ``True``, если файл пришлось менять. Идемпотентно и без побочных жертв:
+    чужие строки переносятся как есть и в прежнем порядке.
+    """
+    mine = {h.lower() for h in owned}
+    try:
+        with open(path, encoding="utf-8", errors="replace") as handle:
+            was = handle.read()
+    except OSError:
+        return False
+    lines = [line for line in was.splitlines() if not _ours(line, mine)]
+    lines += [f"127.0.0.1 {host} {_PIN_MARK}" for host in wanted]
+    text = "".join(f"{line}\n" for line in lines)
+    if text == was:
+        return False
+    # Сперва подменой файла целиком (в этот миг таблица имён либо старая, либо новая, но
+    # не обрезанная), и только если так нельзя - записью на месте: `/etc/hosts` бывает
+    # примонтированным снаружи, и подменить его тогда не выйдет.
+    spare = f"{path}.torrcast"
+    try:
+        with open(spare, "w", encoding="utf-8") as handle:
+            handle.write(text)
+        os.chmod(spare, 0o644)
+        os.replace(spare, path)
+    except OSError:
+        with contextlib.suppress(OSError):
+            os.unlink(spare)
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write(text)
+    return True
+
+
+def load_probes(path: str) -> dict[str, tuple[str, str]]:
+    """Чем щупать источники: строки ``имя|путь|тело`` от установки (её список `SHIMS`)."""
+    out: dict[str, tuple[str, str]] = {}
+    try:
+        with open(path, encoding="utf-8") as handle:
+            for line in handle:
+                host, _, rest = line.strip().partition("|")
+                probe, _, body = rest.partition("|")
+                if host and probe:
+                    out[host.lower()] = (probe, body)
+    except OSError:
+        pass
+    return out
+
+
+def probe_direct(host: str, path: str, body: str, address: str) -> bool:
+    """Отвечает ли имя ЦЕЛИКОМ, если идти к нему НАПРЯМУЮ, мимо `/etc/hosts`.
+
+    Та же проба, которой судит установка (`probe_whole` в install.sh) и тем же самым
+    curl: судья - ПРОСТОЙ потока (`--speed-time`/`--speed-limit`, TC-235), а не часы,
+    потому что болезнь выглядит как «заголовки пришли, тело встало», а не как «долго».
+    Отличий два, и оба обязательны. Первое: адрес подставляем свой (`--resolve`) - имя в
+    `/etc/hosts` прибито к нам же, и обычная проба ушла бы сквозь шим и всегда отвечала
+    бы «всё хорошо» (ровно поэтому прежний код и не пересматривал решение). Второе: тело
+    читается целиком, потому что рвётся оно на объёме, и проба на один коннект больного
+    имени не видит.
+    """
+    command = [
+        "curl", "-fsS",
+        "-m", _PROBE_TIMEOUT,
+        "--speed-time", _PROBE_STALL,
+        "--speed-limit", _PROBE_FLOOR,
+        "-o", os.devnull,
+        "-A", _PROBE_UA,
+        "--resolve", f"{host}:443:{f'[{address}]' if ':' in address else address}",
+    ]  # fmt: skip
+    if body:
+        command += ["-H", "Content-Type: application/json", "-X", "POST", "-d", body]
+    command.append(f"https://{host}{path}")
+    try:
+        # Список аргументов, а не строка: оболочки в этом пути нет вовсе.
+        done = subprocess.run(
+            command, capture_output=True, timeout=float(_PROBE_TIMEOUT) + 5, check=False
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return done.returncode == 0
+
+
+class Watch(threading.Thread):
+    """Перерешает, идти ли к имени напрямую или через шим, и правит `/etc/hosts`.
+
+    🔴 TC-260. Решение принималось один раз при установке и жило вечно, а канал живёт
+    иначе: замер живьём - в 19:00 имя рвалось в 100% попыток, в 20:00 в 0% на обоих его
+    адресах. Значит, решение обязано иметь срок годности и переигрываться по факту, а не
+    по памяти об установке.
+
+    Перекос сознательный и держится на цене ошибки. Лишний обход здорового имени стоит
+    почти ничего (лишний местный хоп), а пропущенный обход больного - молчащего индексера
+    до следующей установки. Поэтому: одна неудачная проба сразу возвращает имя за шим, а
+    снимается обход только после :data:`_WATCH_CLEAR` удачных подряд. Проверить не вышло
+    (DNS молчит) - решение не меняем вовсе, а счёт удачных обнуляем.
+
+    На горячем пути этого нет и быть не может: живёт в своём потоке, ходит по кругу раз в
+    :data:`_WATCH_EVERY` секунд и щупает источники ПО ОДНОМУ - параллельные пробы к
+    трекеру и есть то, чем зарабатывается многочасовой бан индексера.
+    """
+
+    def __init__(
+        self,
+        routes: dict[str, Route],
+        resolver: Resolver,
+        pinned: Iterable[str],
+        hosts: str = _HOSTS,
+        every: float = _WATCH_EVERY,
+        probe: Callable[[str, str, str, str], bool] = probe_direct,
+    ) -> None:
+        super().__init__(daemon=True, name="route-watch")
+        self.routes = routes
+        self.resolver = resolver
+        self.hosts = hosts
+        self.every = every
+        self.pinned = {h.lower() for h in pinned}
+        self._probe = probe
+        self._good: dict[str, int] = dict.fromkeys(routes, 0)
+
+    def apply(self) -> bool:
+        """Привести `/etc/hosts` к нынешнему решению."""
+        return set_pins(self.hosts, sorted(self.pinned), self.routes)
+
+    def verdict(self, route: Route) -> bool | None:
+        """Отвечает ли имя напрямую: ``None`` - проверить не вышло.
+
+        Здоровье требует согласия ВСЕХ адресов, на которые может лечь клиент: он
+        выбирает дорогу сам, и один больной край - это молчащий индексер через раз.
+        """
+        try:
+            found = self.resolver.client_addresses(route.host)
+        except OSError:
+            return None
+        if not found:
+            return None
+        return all(self._probe(route.host, route.path, route.body, at) for at in found)
+
+    def round(self) -> None:
+        """Один круг проверок: по одному имени за раз, потом одна правка файла."""
+        for host, route in self.routes.items():
+            if not route.path:
+                continue
+            healthy = self.verdict(route)
+            if healthy is None:
+                self._good[host] = 0
+                continue
+            if not healthy:
+                self._good[host] = 0
+                if host not in self.pinned:
+                    self.pinned.add(host)
+                    print(f"{host}: имя режется, веду через шим", file=sys.stderr, flush=True)
+                continue
+            self._good[host] += 1
+            if self._good[host] >= _WATCH_CLEAR and host in self.pinned:
+                self.pinned.discard(host)
+                print(f"{host}: отвечает по имени, обход снят", file=sys.stderr, flush=True)
+        self.apply()
+
+    def run(self) -> None:
+        while True:
+            time.sleep(self.every)
+            with contextlib.suppress(Exception):  # круг проверок не вправе ронять шим
+                self.round()
 
 
 def _plain_context() -> ssl.SSLContext:
@@ -366,14 +649,15 @@ def _in_queue(route: Route, conn: socket.socket) -> Iterator[bool]:
 
 
 def build_server(
-    cert: str, key: str, port: int, routes: dict[str, Route]
+    cert: str, key: str, port: int, routes: dict[str, Route], resolver: Resolver | None = None
 ) -> http.server.HTTPServer:
     """Собрать слушающий шим.
 
     Отдельно от :func:`main` - чтобы его можно было завести на случайном порту и
-    остановить: так его гоняют тесты.
+    остановить: так его гоняют тесты. Разбор имён общий с :class:`Watch` - у обоих одна
+    и та же память об адресах origin'ов.
     """
-    resolver = Resolver()
+    resolver = resolver or Resolver()
     openers = {True: _opener(verify=True), False: _opener(verify=False)}
     #: Опенеры кандидата `named`: по одному на адрес, собираются на первом же походе.
     pinned: dict[str, urllib.request.OpenerDirector] = {}
@@ -502,16 +786,48 @@ def build_server(
     return server
 
 
-def main() -> int:
-    cert, key, port_text = sys.argv[1:4]
+def main(argv: list[str] | None = None) -> int:
+    args = list(sys.argv[1:] if argv is None else argv)
+    # Две служебные ходки без сервера. `--resolve` - адрес origin'а мимо `/etc/hosts`:
+    # им установка щупает источник напрямую, тем же приёмом, что и сам шим.
+    if args and args[0] == "--resolve":
+        found = 0
+        resolver = Resolver()
+        for host in args[1:]:
+            with contextlib.suppress(OSError):
+                print("\n".join(resolver.client_addresses(host)))
+                found += 1
+        return 0 if found else 1
+    # `--unpin` - снять наши строки. Это же делает юнит после остановки службы, чтобы
+    # имена не остались прибитыми к тому, кого больше нет (даже после SIGKILL).
+    if args and args[0] == "--unpin":
+        set_pins(_HOSTS, [], args[1:])
+        return 0
+
+    cert, key, port_text = args[:3]
+    probes = load_probes(os.environ.get("TORRCAST_ROUTE_PROBES") or "")
     routes: dict[str, Route] = {}
-    for spec in sys.argv[4:]:
+    for spec in args[3:]:
         name, _, candidates = spec.partition("=")
-        routes[name.lower()] = Route(name, [c for c in candidates.split(",") if c])
+        path, body = probes.get(name.lower(), ("", ""))
+        routes[name.lower()] = Route(name, [c for c in candidates.split(",") if c], path, body)
     if not routes:
         print("нечего вести: не задан ни один маршрут имя=кандидат", file=sys.stderr)
         return 2
-    build_server(cert, key, int(port_text), routes).serve_forever()
+    resolver = Resolver()
+    server = build_server(cert, key, int(port_text), routes, resolver)
+    pinned = (os.environ.get("TORRCAST_ROUTE_PINNED") or "").replace(",", " ").split()
+    watch = Watch(routes, resolver, pinned, hosts=_HOSTS, every=_WATCH_EVERY)
+    # Уходя, снимаем свои строки: имя, прибитое к молчащему шиму, - это не «обход не
+    # работает», а «трекера нет». Поэтому и SIGTERM ловим сами - иначе сюда не вернуться.
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+    try:
+        watch.apply()  # прибиваем только теперь: сокет уже слушает, и ответить есть кому
+        if watch.every > 0:
+            watch.start()
+        server.serve_forever()
+    finally:
+        set_pins(watch.hosts, [], routes)
     return 0
 
 

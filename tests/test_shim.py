@@ -653,3 +653,225 @@ def test_a_real_shim_failure_still_screams(
     assert "Traceback" in err, "настоящая поломка обязана остаться трейсбеком"
     assert "настоящая поломка" in err, "и с её собственным текстом"
     assert "ушёл раньше ответа" not in err, "поломку нельзя принять за уход клиента"
+
+
+# --- Маршрут не прибит навсегда: аренда имени и перерешение (TC-267, TC-260) ------
+
+
+class _Steady:
+    """Разбор имён, который всегда отвечает одним и тем же набором адресов."""
+
+    def __init__(self, *addresses: str) -> None:
+        self.list = list(addresses) or ["203.0.113.7"]
+
+    def client_addresses(self, host: str) -> list[str]:
+        return self.list
+
+
+class _Mute:
+    """Разбор имён, который не отвечает: проверить маршрут нечем."""
+
+    def client_addresses(self, host: str) -> list[str]:
+        raise OSError("DNS не дал адреса")
+
+
+def _watch(
+    hosts: Path,
+    probe: object,
+    pinned: tuple[str, ...] = (),
+    resolver: object | None = None,
+) -> object:
+    """Круг перепроверки с подставной пробой: сети тесту не нужно."""
+    routes = {"tracker.test": shim.Route("tracker.test", ["direct"], "/search?q=matrix", "")}
+    return shim.Watch(
+        routes, resolver or _Steady(), pinned, hosts=str(hosts), every=0, probe=probe
+    )
+
+
+def test_the_name_is_leased_not_carved(tmp_path: Path) -> None:
+    """Строку в hosts ставим и снимаем мы, а чужие строки в файле переживают это целыми.
+
+    Сломай :func:`~sni_shim.set_pins` - и трекер либо останется прибитым к мёртвому шиму
+    (то есть пропадёт совсем), либо утащит за собой чужую строку.
+    """
+    hosts = tmp_path / "hosts"
+    hosts.write_text(
+        "127.0.0.1 localhost\n"
+        "127.0.0.1 indexers.prowlarr.com\n"  # чужая: прибита нарочно и не нами
+        "127.0.0.1 tracker.test\n"  # наша, но прежняя - ещё без метки
+        "192.0.2.10 nas.home\n",
+        encoding="utf-8",
+    )
+    owned = ["tracker.test", "other.test"]
+
+    assert shim.set_pins(str(hosts), ["other.test"], owned) is True
+    lines = hosts.read_text(encoding="utf-8").splitlines()
+    print(f"после аренды: {lines}")
+    assert "127.0.0.1 other.test # torrcast-shim" in lines
+    assert not any(line.startswith("127.0.0.1 tracker.test") for line in lines), (
+        "имя, которое больше не ведём через шим, обязано перестать вести на 127.0.0.1"
+    )
+    assert "127.0.0.1 indexers.prowlarr.com" in lines, "чужую строку трогать нельзя"
+    assert "192.0.2.10 nas.home" in lines
+    assert shim.set_pins(str(hosts), ["other.test"], owned) is False, "повтор ничего не меняет"
+
+    assert shim.set_pins(str(hosts), [], owned) is True
+    left = hosts.read_text(encoding="utf-8").splitlines()
+    print(f"после снятия: {left}")
+    assert not any("torrcast-shim" in line for line in left)
+    assert left == ["127.0.0.1 localhost", "127.0.0.1 indexers.prowlarr.com", "192.0.2.10 nas.home"]
+
+
+def test_the_shim_hands_the_names_back_when_it_goes_down(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """🔴 TC-267. Шим упал - имена свободны; и прибиты они только пока сокет слушает.
+
+    Это и есть вся разница между «обход не работает» и «трекера нет»: пока строка висит,
+    имя ведёт на 127.0.0.1, где никого нет, и индексер пуст независимо от того, режет ли
+    что-то канал прямо сейчас.
+    """
+    hosts = tmp_path / "hosts"
+    hosts.write_text("127.0.0.1 localhost\n", encoding="utf-8")
+    monkeypatch.setattr(shim, "_HOSTS", str(hosts))
+    monkeypatch.setattr(shim, "_WATCH_EVERY", 0.0)  # круг проверок тут не нужен
+    monkeypatch.setenv("TORRCAST_ROUTE_PINNED", "tracker.test")
+    monkeypatch.setenv("TORRCAST_ROUTE_PROBES", str(tmp_path / "нет-такого"))
+    seen: list[list[str]] = []
+
+    class _Listening:
+        """Слушающий сокет: к этому мигу имя обязано быть уже прибито."""
+
+        def serve_forever(self) -> None:
+            seen.append(hosts.read_text(encoding="utf-8").splitlines())
+            raise KeyboardInterrupt
+
+    monkeypatch.setattr(shim, "build_server", lambda *a, **k: _Listening())
+    with pytest.raises(KeyboardInterrupt):
+        shim.main(["cert", "key", "0", "tracker.test=direct", "well.test=direct"])
+
+    print(f"пока шим слушал: {seen[0]}")
+    print(f"после его ухода: {hosts.read_text(encoding='utf-8').splitlines()}")
+    assert "127.0.0.1 tracker.test # torrcast-shim" in seen[0], "прибивать надо уже на ходу"
+    assert not any("well.test" in line for line in seen[0]), "здорового за шим не уводим"
+    assert hosts.read_text(encoding="utf-8") == "127.0.0.1 localhost\n", (
+        "уходя, шим обязан снять свои строки - иначе он единая точка отказа на все имена"
+    )
+
+
+def test_one_dns_blip_does_not_empty_the_only_route(monkeypatch: pytest.MonkeyPatch) -> None:
+    """🔴 TC-267. У кого один кандидат, у того адрес и есть весь маршрут.
+
+    Замер на живой машине: DNS не ответил пять секунд, и шим отдал `502 маршрут пуст`
+    (пустой список целей - это ровно он) на nyaa и rutor разом, тогда как Knaben в тот же
+    миг отвечал 200 своим запасным ИМЕНЕМ, которому адрес не нужен.
+    """
+    answers = [["203.0.113.7"]]
+
+    def flaky(host: str, server: str, rtype: int = 1) -> list[str]:
+        if not answers:
+            raise OSError("DNS молчит")
+        return answers.pop()
+
+    monkeypatch.setattr(shim, "_nameservers", lambda: ["192.0.2.53"])
+    monkeypatch.setattr(shim, "_query", flaky)
+    resolver = shim.Resolver(ttl=0)  # свежесть тут не при чём: спрашиваем каждый раз
+    route = shim.Route("tracker.test", ["direct"])
+
+    first = [target.base for target in route.targets(resolver)]
+    second = [target.base for target in route.targets(resolver)]
+    print(f"при живом DNS: {first}; когда он замолчал: {second}")
+    assert first == ["https://203.0.113.7"]
+    assert second == first, "маршрут не вправе исчезать вместе с ответом DNS"
+
+
+def test_a_mirror_is_a_second_address_for_the_same_catalogue() -> None:
+    """🔴 TC-267. `direct:зеркало` - второй край того же каталога, а не другое имя.
+
+    Имени в рукопожатии нет вовсе (идём по адресу), так что зеркало здесь - именно
+    адрес; своё имя уезжает в `Host`, и трекер отвечает своей же выдачей.
+    """
+
+    class _TwoSided:
+        def addresses(self, host: str) -> list[str]:
+            return {"tracker.test": ["203.0.113.7"], "mirror.test": ["198.51.100.9"]}[host]
+
+    route = shim.Route("tracker.test", ["direct", "direct:mirror.test"])
+    targets = route.targets(_TwoSided())
+    print(f"кандидаты по порядку: {[(t.base, t.verify) for t in targets]}")
+    assert [t.base for t in targets] == ["https://203.0.113.7", "https://198.51.100.9"]
+    assert not any(t.verify for t in targets), "по адресу серт всегда на чужое имя"
+
+
+def test_a_cut_name_goes_back_behind_the_shim_at_once(tmp_path: Path) -> None:
+    """🔴 TC-260. Имя начали резать - обход возвращается тем же кругом, без вопросов.
+
+    Цена ошибки несимметрична: лишний обход здорового стоит местного хопа, а
+    пропущенный обход больного - молчащего индексера до следующей установки. Поэтому
+    сюда - сразу, а обратно - только с разбором (см. соседний тест).
+    """
+    hosts = tmp_path / "hosts"
+    hosts.write_text("", encoding="utf-8")
+    watch = _watch(hosts, probe=lambda *a: False)
+    watch.round()
+    lines = hosts.read_text(encoding="utf-8").splitlines()
+    print(f"после круга: {lines}")
+    assert lines == ["127.0.0.1 tracker.test # torrcast-shim"]
+
+
+def test_the_bypass_is_lifted_only_after_a_run_of_clean_rounds(tmp_path: Path) -> None:
+    """🔴 TC-260. Обход снимается по факту здоровья, но не по одной удачной пробе."""
+    hosts = tmp_path / "hosts"
+    hosts.write_text("", encoding="utf-8")
+    watch = _watch(hosts, probe=lambda *a: True, pinned=("tracker.test",))
+    watch.round()
+    after_one = hosts.read_text(encoding="utf-8").splitlines()
+    watch.round()
+    after_two = hosts.read_text(encoding="utf-8").splitlines()
+    print(f"после первого круга: {after_one}; после второго: {after_two}")
+    assert after_one == ["127.0.0.1 tracker.test # torrcast-shim"], "одной пробы мало"
+    assert after_two == [], "здоровое имя обязано вернуться на свой прямой путь"
+
+
+def test_a_round_that_could_not_check_changes_nothing(tmp_path: Path) -> None:
+    """Проверить не вышло (DNS молчит) - решение остаётся прежним, а счёт удачных обнуляется."""
+    hosts = tmp_path / "hosts"
+    hosts.write_text("", encoding="utf-8")
+    watch = _watch(hosts, probe=lambda *a: True, pinned=("tracker.test",))
+    watch.round()  # одна удачная проба уже была
+    watch.resolver = _Mute()
+    watch.round()  # проверить нечем - не считается
+    watch.resolver = _Steady()
+    watch.round()  # снова первая удачная
+    print(f"после трёх кругов: {hosts.read_text(encoding='utf-8').splitlines()}")
+    assert hosts.read_text(encoding="utf-8").splitlines() == [
+        "127.0.0.1 tracker.test # torrcast-shim"
+    ], "непроверенный круг не вправе ни снимать обход, ни считаться удачной пробой"
+
+
+def test_a_name_is_healthy_only_when_every_family_answers(tmp_path: Path) -> None:
+    """🔴 TC-260. Дорогу выбирает клиент, а не мы: один больной адрес - имя больное.
+
+    Замер на живой машине: yts.gg по IPv4 отдавал ответ целиком за 0.3 с, и проба одного
+    IPv4 честно говорила «здоров». Prowlarr в тот же миг брал IPv6 - обрыв тела на
+    16401 Б и «Failed to read complete http response», то есть пустой индексер при
+    зелёной пробе. Именно этот перекос и лечится согласием всех семейств.
+    """
+    hosts = tmp_path / "hosts"
+    hosts.write_text("", encoding="utf-8")
+    asked: list[str] = []
+
+    def probe(host: str, path: str, body: str, address: str) -> bool:
+        asked.append(address)
+        return ":" not in address  # IPv6 режется, IPv4 отвечает целиком
+
+    watch = _watch(
+        hosts, probe=probe, resolver=_Steady("203.0.113.7", "2001:db8::7"), pinned=("tracker.test",)
+    )
+    watch.round()
+    watch.round()
+    print(f"щупали: {asked}; hosts: {hosts.read_text(encoding='utf-8').splitlines()}")
+    assert "2001:db8::7" in asked, "IPv6 обязан быть прощупан: клиент берёт его первым"
+    assert hosts.read_text(encoding="utf-8").splitlines() == [
+        "127.0.0.1 tracker.test # torrcast-shim"
+    ], "имя, больное хоть на одном семействе, обязано остаться за шимом"

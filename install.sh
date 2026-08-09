@@ -191,18 +191,39 @@ PL_DEFS_URL="${TORRCAST_PL_DEFS_URL:-https://indexers.prowlarr.com/master/11}"
 DEFS_TARBALL="${TORRCAST_DEFS_TARBALL:-https://codeload.github.com/Prowlarr/Indexers/tar.gz/refs/heads/master}"
 SHIM_DIR="${TORRCAST_SHIM_DIR:-/etc/torrcast-shim}"
 SHIM_PORT="${TORRCAST_SHIM_PORT:-443}"
+#: Таблица имён. Отдельной переменной - чтобы песочница правила свою копию, а не систему.
+HOSTS_FILE="${TORRCAST_HOSTS:-/etc/hosts}"
+#: Как часто шим перерешает, идти ли к имени напрямую (секунды, 0 - не перерешать).
+#: 🔴 TC-260. Канал режет по имени не всегда: замер живьём - в 19:00 имя рвалось в 100%
+#: попыток, часом позже в 0% на обоих его адресах. Решение, принятое один раз при
+#: установке, к вечеру уже про другую сеть, поэтому оно и переигрывается. Четверть часа -
+#: это заметно чаще, чем меняется погода канала, и заметно реже, чем стоило бы внимания
+#: трекеру: четыре пробы за круг, по одной зараз.
+ROUTE_EVERY="${TORRCAST_ROUTE_EVERY:-900}"
 
 # Трекеры, чьё имя может не пройти по TLS. Поля:
 #   имя | путь пробы | тело POST (пусто - GET) | кандидаты обхода через запятую.
 # Проба обязана просить ЗАМЕТНОЕ тело (десятки КБ): мелкий ответ проходит и через
 # троттлинг, обрыв ловится только на объёме. Кандидаты - то, что умеет sni-shim.py:
-# `direct` (стучаться на IP origin'а: для IP-адреса SNI не отправляется вовсе) и
-# запасное имя, ведущее в тот же origin, - для тех, кто без SNI не отвечает.
+# `direct` (стучаться на IP origin'а: для IP-адреса SNI не отправляется вовсе),
+# `direct:другое-имя` (то же самое, но адрес берём у зеркала - это ДРУГОЙ край того же
+# каталога), `named` (адрес спрашиваем сами, имя в рукопожатии остаётся) и запасное имя
+# `https://…`, ведущее в тот же origin, - для тех, кто без SNI не отвечает.
+# 🔴 TC-267. Кандидат у трекера обязан быть не один. Единственный путь означает, что
+# любая заминка на нём - молчащий индексер: замер на живой машине, DNS не ответил пять
+# секунд, и nyaa с rutor разом получили `502 маршрут пуст`, пока у Knaben с его запасным
+# именем всё было хорошо.
 # Новый такой трекер заводится одной строкой здесь и строкой в INDEXERS.
 SHIMS=(
     'api.knaben.org|/v1|{"query":"матрица","search_type":"score","size":50}|direct,https://knaben.eu'
-    'nyaa.si|/?f=0&c=0_0&q=naruto||direct'
-    'rutor.info|/search/matrix||direct'
+    # Запасного имени нет (зеркала - чужие обёртки за CDN: 403 либо обрыв тела, замер),
+    # второго адреса у origin'а тоже нет. Что есть - второй СПОСОБ дойти до того же
+    # адреса: с именем в рукопожатии. Сейчас его режут, но режут не всегда (TC-260), и
+    # перебор кандидатов стоит одной попытки.
+    'nyaa.si|/?f=0&c=0_0&q=naruto||direct,named'
+    # У rutor.is тот же каталог на соседнем адресе (замер: та же страница, 96132 Б с
+    # обоих), поэтому это честный второй край, а не переименование первого.
+    'rutor.info|/search/matrix||direct,direct:rutor.is,named'
     # У этого запасного имени нет, а без имени в рукопожатии его CDN отвечает 403 с обоих
     # адресов (замер, 0.1 с) - отсюда `named`. Ходить через шим ему нужно ради сжатия:
     # голая выдача этой пробы обрывается на 15 КБ и висит до таймаута, а сжатая - 4.8 КБ
@@ -921,16 +942,40 @@ MemorySwapMax=0"
 # только если источник реально не отвечает.
 
 pinned() {  # $1 имя - прибито ли уже к 127.0.0.1
-    grep -qE "^127\.0\.0\.1[[:space:]]+$1(\$|[[:space:]])" /etc/hosts
+    grep -qE "^127\.0\.0\.1[[:space:]]+$1(\$|[[:space:]])" "$HOSTS_FILE"
 }
 
 hosts_pin() {  # $1 имя — прибить к 127.0.0.1, идемпотентно
     if pinned "$1"; then
-        skip "/etc/hosts: $1"
+        skip "$HOSTS_FILE: $1"
     else
-        printf '127.0.0.1 %s\n' "$1" >>/etc/hosts
-        info "/etc/hosts: $1 → 127.0.0.1"
+        printf '127.0.0.1 %s\n' "$1" >>"$HOSTS_FILE"
+        info "$HOSTS_FILE: $1 → 127.0.0.1"
     fi
+}
+
+# Адрес origin'а спрашиваем у DNS сами, тем же приёмом, что и шим (его `Resolver`).
+# 🔴 Иначе проверять нечего: имя трекера может быть прибито к шиму, и проба ушла бы
+# СКВОЗЬ него, всегда отвечая «всё хорошо» - ровно поэтому прежняя установка и не
+# пересматривала однажды принятое решение.
+# Печатает по адресу на каждое семейство: клиент выбирает дорогу сам, и щупать одну
+# лишь IPv4, когда он первым берёт IPv6, значит мерить не то. Замер: yts.gg по IPv4
+# отдавал ответ целиком за 0.3 с, а Prowlarr в тот же миг получал по IPv6 обрыв на
+# 16401 Б - и именно этим обходом шим его и лечит (сам он ходит только по IPv4).
+shim_resolve() {  # $1 имя; печатает адреса origin'а через пробел (пусто - не разобрали)
+    pick_python
+    "$PYTHON" "$REPO_DIR/scripts/sni-shim.py" --resolve "$1" 2>/dev/null | tr '\n' ' '
+}
+
+# Отвечает ли имя целиком по КАЖДОМУ своему адресу. Один больной край - это молчащий
+# индексер через раз, а цена такой ошибки несимметрична (см. `check_sources`).
+probe_every() {  # $1 имя, $2 путь, $3 тело POST, $4 адреса через пробел
+    local address seen=0
+    for address in $4; do
+        probe_whole "$1" "$2" "$3" "$address" || return 1
+        seen=1
+    done
+    [ "$seen" = 1 ]
 }
 
 # Отвечает ли имя ЦЕЛИКОМ. Успех - curl дочитал ответ до конца: обрыв посреди тела он
@@ -957,14 +1002,16 @@ PROBE_STALL="${TORRCAST_PROBE_STALL:-5}"
 #: меньше самого медленного здорового ответа и заведомо больше нуля, который отдаёт
 #: обрыв.
 PROBE_FLOOR="${TORRCAST_PROBE_FLOOR:-1024}"
-probe_whole() {  # $1 имя, $2 путь, $3 тело POST (пусто - GET)
+probe_whole() {  # $1 имя, $2 путь, $3 тело POST (пусто - GET), $4 адрес origin'а (пусто - как ляжет DNS)
+    local pin=()
+    [ -n "${4:-}" ] && pin=(--resolve "$1:443:$4")
     if [ -n "$3" ]; then
         curl -fsS -m "$PROBE_TIMEOUT" --speed-time "$PROBE_STALL" --speed-limit "$PROBE_FLOOR" \
-            -o /dev/null -A "$UA" -H 'Content-Type: application/json' \
+            -o /dev/null -A "$UA" "${pin[@]}" -H 'Content-Type: application/json' \
             -X POST -d "$3" "https://$1$2" 2>/dev/null
     else
         curl -fsS -m "$PROBE_TIMEOUT" --speed-time "$PROBE_STALL" --speed-limit "$PROBE_FLOOR" \
-            -o /dev/null -A "$UA" "https://$1$2" 2>/dev/null
+            -o /dev/null -A "$UA" "${pin[@]}" "https://$1$2" 2>/dev/null
     fi
 }
 
@@ -980,8 +1027,9 @@ retire_old_shim() {
     info "прежний одиночный шим убран - его место занимает общий"
 }
 
-setup_shim() {  # $@ - маршруты вида имя=кандидат[,кандидат…]
-    local routes=("$@") spec sans="" changed=0
+setup_shim() {  # $1 - имена, которые ведём через шим (через запятую), дальше маршруты имя=кандидат[,…]
+    local pins="$1"; shift
+    local routes=("$@") spec spec_host spec_path spec_body sans="" changed=0 probes=""
     install -d -m 0755 "$SHIM_DIR"
     pick_python  # фаза может гоняться и в одиночку, без `packages`
     [ -n "${TORRCAST_NO_SYSTEMD:-}" ] || retire_old_shim
@@ -1017,12 +1065,34 @@ setup_shim() {  # $@ - маршруты вида имя=кандидат[,кан
 
     [ "$(cat "$SHIM_DIR/routes" 2>/dev/null)" = "$(printf '%s\n' "${routes[@]}")" ] || changed=1
     printf '%s\n' "${routes[@]}" >"$SHIM_DIR/routes"
-    for spec in "${routes[@]}"; do hosts_pin "${spec%%=*}"; done
+    # Чем шим перещупывает источники (:data:`SHIMS` без кандидатов). Файлом, а не строкой
+    # запуска: в теле пробы живут кавычки, а строку юнита systemd разбирает по-своему.
+    for spec in "${SHIMS[@]}"; do
+        IFS='|' read -r spec_host spec_path spec_body _ <<<"$spec"
+        probes="$probes$spec_host|$spec_path|$spec_body"$'\n'
+    done
+    [ "$(cat "$SHIM_DIR/probes" 2>/dev/null)" = "${probes%$'\n'}" ] || changed=1
+    printf '%s' "$probes" >"$SHIM_DIR/probes"
+
+    # 🔴 TC-267. Строки в /etc/hosts ставит и снимает сам шим - здесь их больше нет.
+    # Прибитое имя ведёт на 127.0.0.1, и пока шима там нет, трекера нет вовсе; аренда же
+    # кончается вместе со службой, и трекер остаётся хотя бы со своим прямым путём.
+    # `ExecStopPost` - на случай, когда попрощаться служба не успела (SIGKILL, OOM).
+    local knobs; knobs="Environment=TORRCAST_HOSTS=$HOSTS_FILE
+Environment=TORRCAST_ROUTE_PROBES=$SHIM_DIR/probes
+Environment=TORRCAST_ROUTE_PINNED=$pins
+Environment=TORRCAST_ROUTE_EVERY=$ROUTE_EVERY
+Environment=TORRCAST_PROBE_TIMEOUT=$PROBE_TIMEOUT
+Environment=TORRCAST_PROBE_STALL=$PROBE_STALL
+Environment=TORRCAST_PROBE_FLOOR=$PROBE_FLOOR
+Environment=TORRCAST_PROBE_UA=$UA
+ExecStopPost=$PYTHON $SHIM_DIR/sni-shim.py --unpin ${routes[*]%%=*}"
     # Маска - начало строки запуска, без маршрутов: у живого процесса они прежние, а
     # погасить надо именно его.
     [ "$changed" = 1 ] && stop_service torrcast-shim "$PYTHON $SHIM_DIR/sni-shim.py"
     run_service torrcast-shim "TLS-шим для трекеров, чьё имя не проходит по SNI" \
-        "$PYTHON $SHIM_DIR/sni-shim.py $SHIM_DIR/shim.crt $SHIM_DIR/shim.key $SHIM_PORT ${routes[*]}"
+        "$PYTHON $SHIM_DIR/sni-shim.py $SHIM_DIR/shim.crt $SHIM_DIR/shim.key $SHIM_PORT ${routes[*]}" \
+        "$knobs"
 }
 
 # Пробы независимы, а каждая ждёт СВОЙ таймаут - последовательно это набегало в минуту
@@ -1039,17 +1109,26 @@ SHIM_PROBE_TRIES=12
 #: терпимости - вот этот потолок: без него лестница стоила 204 секунды ожидания при том
 #: же итоге, и стоила их человеку. Теперь она живёт в догреве, и не ждёт её никто.
 SHIM_PROBE_BUDGET=45
-probe_all() {  # $1 - 1 = долбиться до ответа (через шим), 0 = одна проба; дальше строки SHIMS
-    local retry="$1"; shift
-    local dir spec host path body ups pids=()
+probe_all() {  # $1 - `direct` (одна проба мимо hosts) либо `through` (сквозь шим, до ответа); дальше строки SHIMS
+    local how="$1"; shift
+    local dir spec host path body ups at retry=0 pids=()
+    [ "$how" = through ] && retry=1
     dir="$(mktemp -d)"
     for spec in "$@"; do
         IFS='|' read -r host path body ups <<<"$spec"
+        # Адрес берём до развилки: у `through` его быть не должно вовсе (там вся соль в
+        # том, чтобы пойти именно сквозь прибитое имя), у `direct` - обязан.
+        at=""
+        [ "$how" = direct ] && at="$(shim_resolve "$host")"
         # Код возврата уводим в файл, а сама подоболочка завершается успешно: под
         # `set -e` упавшая фоновая проба уронила бы установку на `wait`.
         (
             rc=1 i=0 began="$SECONDS"
             while :; do
+                if [ "$how" = direct ]; then
+                    if probe_every "$host" "$path" "$body" "$at"; then rc=0; fi
+                    break
+                fi
                 if probe_whole "$host" "$path" "$body"; then rc=0; break; fi
                 i=$((i + 1))
                 { [ "$retry" = 1 ] && [ "$i" -lt "$SHIM_PROBE_TRIES" ] \
@@ -1070,33 +1149,39 @@ probe_all() {  # $1 - 1 = долбиться до ответа (через ши�
 # Замер и обход для тех трекеров, чьё имя может не пройти по TLS (:data:`SHIMS`).
 check_sources() {
     log "источники: что доступно из этой сети"
-    local spec host path body ups routes=() ask=() probes=""
+    local spec host path body ups routes=() pins=() probes=""
+    # 🔴 TC-260. Спрашиваем ВСЕХ и каждый раз заново. Прежде прибитое имя проверять не
+    # ходили вовсе («уже за шимом - маршрут остаётся»), и однажды принятое решение жило
+    # вечно, хотя канал живёт часами: замер - в 19:00 имя рвалось всегда, часом позже ни
+    # разу. Проба идёт мимо `/etc/hosts` (:func:`shim_resolve`), поэтому прибитое имя ей
+    # больше не мешает, а сквозь шим она не уходит.
+    probes="$(probe_all direct "${SHIMS[@]}")"
     for spec in "${SHIMS[@]}"; do
         IFS='|' read -r host path body ups <<<"$spec"
-        # Замер пошёл бы через уже стоящий шим и всегда отвечал бы «всё хорошо» - а
-        # код из репы так бы и не доехал. Прибито - значит ведём через шим и дальше,
-        # спрашивать нечего.
-        pinned "$host" || ask+=("$spec")
-    done
-    if [ "${#ask[@]}" -gt 0 ]; then probes="$(probe_all 0 "${ask[@]}")"; fi
-    for spec in "${SHIMS[@]}"; do
-        IFS='|' read -r host path body ups <<<"$spec"
-        if pinned "$host"; then
-            info "$host уже за шимом - маршрут остаётся"
-            routes+=("$host=$ups")
-        elif [ "$(cat "$probes/$host" 2>/dev/null)" = 0 ]; then
-            info "$host отвечает целиком - обход не нужен"
-        else
+        # Маршрут заводим КАЖДОМУ, даже здоровому: шим ему пока не нужен, но перерешать
+        # это - его же работа, и без маршрута ему нечем будет подхватить имя, когда канал
+        # начнёт его резать.
+        routes+=("$host=$ups")
+        if [ "$(cat "$probes/$host" 2>/dev/null)" != 0 ]; then
             info "⚠ $host отдаёт ответ не целиком (режется по имени в SNI) - веду через шим"
-            routes+=("$host=$ups")
+            pins+=("$host")
+        elif pinned "$host"; then
+            # 🔴 Одной удачной пробы мало, чтобы снять уже стоящий обход: цена ошибки
+            # несимметрична. Лишний обход здорового стоит местного хопа, а снятый обход с
+            # больного - молчащего индексера до следующей установки, и молчит он не
+            # словами, а пустой выдачей. Поэтому обход снимает только фоновая
+            # перепроверка, и лишь когда имя ответит целиком несколько раз подряд.
+            info "$host отвечает по имени - обход снимется сам, если это подтвердится"
+            pins+=("$host")
+        else
+            info "$host отвечает целиком - веду напрямую"
         fi
     done
     if [ -n "$probes" ]; then rm -rf "$probes"; fi
-    if [ "${#routes[@]}" -eq 0 ]; then
-        info "все трекеры доступны по имени - шим не нужен"
-        return
+    if [ "${#pins[@]}" -eq 0 ]; then
+        info "все трекеры отвечают по имени - шим держим наготове, он перепроверит сам"
     fi
-    setup_shim "${routes[@]}"
+    setup_shim "$(IFS=,; printf '%s' "${pins[*]}")" "${routes[@]}"
 
     # «Шим поднят» и «через него отвечает» - разные утверждения, и второе проверяется
     # второй пробой: имя уже прибито к шиму, поэтому та же проба идёт сквозь него.
@@ -1108,7 +1193,7 @@ check_sources() {
     local through=()
     for spec in "${SHIMS[@]}"; do
         IFS='|' read -r host path body ups <<<"$spec"
-        printf '%s\n' "${routes[@]}" | grep -qx "$host=$ups" || continue
+        printf '%s\n' ${pins[@]+"${pins[@]}"} | grep -qx "$host" || continue
         through+=("$spec")
     done
     if [ "${#through[@]}" -gt 0 ]; then
@@ -1120,7 +1205,7 @@ check_sources() {
 # и потому может позволить себе лестницу повторов: держать ею установку больше не нужно.
 verify_shims() {  # $@ - строки SHIMS тех, кого ведём через шим
     local spec host path body ups probes
-    probes="$(probe_all 1 "$@")"
+    probes="$(probe_all through "$@")"
     for spec in "$@"; do
         IFS='|' read -r host path body ups <<<"$spec"
         if [ "$(cat "$probes/$host" 2>/dev/null)" = 0 ]; then
