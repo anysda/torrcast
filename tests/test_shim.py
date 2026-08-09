@@ -30,7 +30,7 @@ import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
@@ -680,12 +680,10 @@ def _watch(
     probe: object,
     pinned: tuple[str, ...] = (),
     resolver: object | None = None,
-) -> object:
+) -> Any:  # shim грузится importlib'ом, статического типа у него нет
     """Круг перепроверки с подставной пробой: сети тесту не нужно."""
     routes = {"tracker.test": shim.Route("tracker.test", ["direct"], "/search?q=matrix", "")}
-    return shim.Watch(
-        routes, resolver or _Steady(), pinned, hosts=str(hosts), every=0, probe=probe
-    )
+    return shim.Watch(routes, resolver or _Steady(), pinned, hosts=str(hosts), every=0, probe=probe)
 
 
 def test_the_name_is_leased_not_carved(tmp_path: Path) -> None:

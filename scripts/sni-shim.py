@@ -657,7 +657,9 @@ def build_server(
     остановить: так его гоняют тесты. Разбор имён общий с :class:`Watch` - у обоих одна
     и та же память об адресах origin'ов.
     """
-    resolver = resolver or Resolver()
+    # Отдельным именем, а не переприсваиванием: замыкание обработчика видит его как
+    # уже разрешённый, без «а вдруг там None».
+    names: Resolver = resolver or Resolver()
     openers = {True: _opener(verify=True), False: _opener(verify=False)}
     #: Опенеры кандидата `named`: по одному на адрес, собираются на первом же походе.
     pinned: dict[str, urllib.request.OpenerDirector] = {}
@@ -707,7 +709,7 @@ def build_server(
             #: кандидат. Отдадим его, только если лучше не нашлось.
             held: tuple[int, list[tuple[str, str]], bytes] | None = None
             wanted = "gzip" in (self.headers.get("Accept-Encoding") or "").lower()
-            for target in route.targets(resolver):
+            for target in route.targets(names):
                 request = urllib.request.Request(target.base + self.path, data=body, method=method)
                 request.add_header("Host", route.host)
                 for name, value in self.headers.items():
