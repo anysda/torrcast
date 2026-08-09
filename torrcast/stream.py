@@ -1000,6 +1000,47 @@ def recode_note(codec: str, weight_mbit: float = 0.0) -> str:
     return f"видео {codec} - перекодирую на ходу целиком"
 
 
+def _file_stats(status: dict[str, Any]) -> list[TorrFile]:
+    """Файлы раздачи из ответа службы; пусто - метаданные ещё не приехали."""
+    raw = status.get("file_stats")
+    if not isinstance(raw, list):
+        return []
+    return [
+        TorrFile(int(i.get("id") or 0), str(i.get("path", "")), int(i.get("length") or 0))
+        for i in raw
+        if isinstance(i, dict)
+    ]
+
+
+def swarm_alive(status: dict[str, Any]) -> bool | None:
+    """Есть ли у раздачи хоть один контакт по мнению самой службы. ``None`` — она молчит.
+
+    Это тот же приём, что :func:`swarm_pulse`, только для фазы, где потока ещё нет.
+    Признак жизни у :func:`swarm_pulse` - пришедший байт, и раньше метаданных взять его
+    неоткуда: ``/stream`` дожидается метаданных внутри себя, то есть до них не отдаёт ни
+    байта даже у самой живой раздачи. Спросить на этой фазе можно ровно одно - что служба
+    сама знает про рой, - и приезжает этот ответ тем же опросом (``action=get``), которым
+    берутся файлы (:meth:`TorrServer.wait_files`): ни одного лишнего запроса.
+
+    Живым считается ЛЮБОЙ ненулевой счётчик роя: пиры (подключённые, ожидающие,
+    полуоткрытые), скорости, байты. Ответ намеренно завышающий - ноль тут означает отказ,
+    и ошибаться можно только в сторону «подождём ещё».
+
+    🔴 Имена счётчиков не перечислены списком, и это не лень: служба вправе звать их
+    по-своему и в новой версии переименовать. Раздача, про рой которой нам НЕ сказали,
+    обязана ждать полный бюджет ровно как ждала всегда - отсюда третий ответ ``None``.
+    Молчание счётчика - не молчание роя.
+    """
+    counts = [
+        value
+        for key, value in status.items()
+        if any(word in key.casefold() for word in ("peers", "speed", "bytes"))
+        and isinstance(value, int)
+        and not isinstance(value, bool)
+    ]
+    return any(count > 0 for count in counts) if counts else None
+
+
 class TorrServer:
     """Клиент TorrServer: добавить magnet, дождаться метаданных, отдать URL потока."""
 
@@ -1032,21 +1073,26 @@ class TorrServer:
         except InfraError as exc:  # прогрев не обязан удаться - решает основной путь
             warmup.error = exc
 
-    def files(self, torrent_hash: str) -> list[TorrFile]:
-        """Список файлов раздачи; пуст, пока метаданные не приехали по DHT."""
+    def status(self, torrent_hash: str) -> dict[str, Any]:
+        """Всё, что служба знает про раздачу: файлы, счётчики роя, скорости.
+
+        Отдельный метод от :meth:`files` появился ради одного числа - контактов роя
+        (:func:`swarm_alive`). Запрос был и остаётся ОДИН: раньше из его ответа брался
+        только список файлов, а остальное выбрасывалось, и ожидание метаданных не знало
+        о рое ничего, хотя ответ про него уже лежал в руках.
+        """
         payload = self._post("/torrents", {"action": "get", "hash": torrent_hash})
         if not isinstance(payload, dict):
             raise InfraError("TorrServer вернул неожиданный ответ на список файлов")
-        raw = payload.get("file_stats")
-        if not isinstance(raw, list):
-            return []
-        return [
-            TorrFile(int(i.get("id") or 0), str(i.get("path", "")), int(i.get("length") or 0))
-            for i in raw
-            if isinstance(i, dict)
-        ]
+        return payload
 
-    def wait_files(self, torrent_hash: str, timeout: float = 60.0) -> list[TorrFile]:
+    def files(self, torrent_hash: str) -> list[TorrFile]:
+        """Список файлов раздачи; пуст, пока метаданные не приехали по DHT."""
+        return _file_stats(self.status(torrent_hash))
+
+    def wait_files(
+        self, torrent_hash: str, timeout: float = 60.0, grace: float = 0.0
+    ) -> list[TorrFile]:
         """Дождаться метаданных: пиры по DHT и ретрекерам; нет за ``timeout`` — ошибка.
 
         Ждать приходится рой, и это ожидание неустранимо: TorrServer не отдаёт ни байта,
@@ -1057,14 +1103,33 @@ class TorrServer:
 
         Последний сон подрезается по ``deadline``: срок ожидания - это срок, а не «до
         конца ближайшего шага после него».
+
+        ``grace`` — сколько секунд рою даётся на ПЕРВЫЙ КОНТАКТ, прежде чем счесть его
+        пустым (:func:`swarm_alive`); ноль - не считать вовсе, ждать весь ``timeout``, как
+        ждали всегда. Отсрочка тут не второй таймаут, а разделитель двух совершенно
+        разных случаев, которые до неё стоили одинаково - полного бюджета:
+
+        * рой медленный: контакты есть, метаданные едут долго. Такой ждём весь бюджет -
+          именно ради него бюджет и назначен;
+        * роя нет вовсе: за отсрочку служба не насчитала ни пира, ни байта. Ждать нечего
+          и некого, и следующий релиз в очереди узнает об этом на четырнадцать секунд
+          раньше (:data:`torrcast.cli.PEER_GRACE` против :data:`torrcast.cli.META_BUDGET`).
+
+        Здоровая раздача не платит за отсрочку ни миллисекунды: её метаданные приезжают
+        первыми же опросами, то есть до всякой проверки контактов.
         """
         deadline = time.monotonic() + timeout
+        hopeless = time.monotonic() + grace
         step = META_STEP
         while True:
-            files = self.files(torrent_hash)
+            status = self.status(torrent_hash)
+            files = _file_stats(status)
             if files:
                 return files
-            left = deadline - time.monotonic()
+            now = time.monotonic()
+            if grace > 0 and now >= hopeless and swarm_alive(status) is False:
+                raise InfraError(f"рой пуст - за {grace:.0f} с ни одного пира")
+            left = deadline - now
             if left <= 0:
                 raise InfraError(f"раздача не отдала метаданные за {timeout:.0f} с - нет пиров")
             time.sleep(min(step, left))

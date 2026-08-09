@@ -73,7 +73,9 @@ class _FakeTorrServer:
     def add(self, magnet: str) -> str:
         return f"hash-{magnet[:30]}"
 
-    def wait_files(self, torrent_hash: str, timeout: float = 60.0) -> list[TorrFile]:
+    def wait_files(
+        self, torrent_hash: str, timeout: float = 60.0, grace: float = 0.0
+    ) -> list[TorrFile]:
         return [
             TorrFile(0, "Moana/Moana.2016.1080p.mkv", 5 * GB),
             TorrFile(1, "Moana/Moana.sample.mkv", 30 * 1024**2),

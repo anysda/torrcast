@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 import pytest
 
 from tests.test_cli import _FakeTorrServer, _resolve, rel
-from torrcast import InfraError, cli
+from torrcast import InfraError, NotFoundError, cli
 from torrcast import stream as stream_mod
 from torrcast.parse import Release
 from torrcast.stream import Media, swarm_pulse
@@ -133,18 +133,23 @@ class _Late(stream_mod.TorrServer):
     Именно по времени, а не «на N-м опросе»: шаг опроса как раз и меняет число опросов,
     и счётчик мерил бы не то. Единственный поход по сети подменён, остальной
     :meth:`~torrcast.stream.TorrServer.wait_files` живой.
+
+    ``peers`` - что служба отвечает про рой: ``None`` значит «не сказала ничего», и это
+    не то же самое, что «пиров нет» (:func:`~torrcast.stream.swarm_alive`).
     """
 
-    def __init__(self, ready_after: float) -> None:
+    def __init__(self, ready_after: float, peers: int | None = None) -> None:
         super().__init__("http://torrserver.invalid")
         self.ready = time.monotonic() + ready_after
+        self.peers = peers
         self.polls = 0
 
-    def files(self, torrent_hash: str) -> list[stream_mod.TorrFile]:
+    def status(self, torrent_hash: str) -> dict[str, Any]:
         self.polls += 1
+        about: dict[str, Any] = {} if self.peers is None else {"active_peers": self.peers}
         if time.monotonic() < self.ready:
-            return []
-        return [stream_mod.TorrFile(0, "film.mkv", 8 << 30)]
+            return about
+        return {**about, "file_stats": [{"id": 0, "path": "film.mkv", "length": 8 << 30}]}
 
 
 def test_metadata_are_taken_up_within_a_step_not_within_a_second() -> None:
@@ -179,6 +184,173 @@ def test_the_metadata_deadline_is_a_deadline() -> None:
         client.wait_files("hash", timeout=0.35)
     spent = time.monotonic() - began
     assert 0.35 <= spent < 0.45, f"обещали ждать 0.35 с, ждали {spent:.2f} с"
+
+
+# --- Пустой рой отличается от медленного за секунды (TC-140) --------------------------
+#
+# Отказ был честен и стоил двадцати секунд НА РЕЛИЗ: META_BUDGET доставался одинаково и
+# рою, который едет медленно, и рою, которого нет вовсе. Отличить их раньше бюджета нечем
+# - кроме одного: служба сама считает свои контакты, и ответ про них приезжает тем же
+# опросом, которым берутся файлы. Сиды из выдачи тут не судья ни на знак: они врут в обе
+# стороны, и отказ идёт по факту «никто не подключился», а не по обещанию индексера.
+
+
+def test_a_swarm_with_no_contacts_is_called_empty_within_the_grace() -> None:
+    """Контактов ноль и за отсрочку не появилось - ждать некого, отказ приходит сразу."""
+    client = _Late(99.0, peers=0)
+    began = time.monotonic()
+    with pytest.raises(InfraError, match="рой пуст"):
+        client.wait_files("hash", timeout=20.0, grace=0.3)
+    spent = time.monotonic() - began
+    assert spent < 1.0, f"пустой рой стоил {spent:.1f} с вместо отсрочки"
+
+
+def test_a_slow_but_live_swarm_still_waits_out_the_whole_budget() -> None:
+    """Контакты есть, метаданные едут долго - это рой, а не пустота: досиживаем до конца.
+
+    Ради этого случая бюджет и назначен, и отсрочка не имеет права его укоротить.
+    """
+    client = _Late(0.8, peers=3)
+    began = time.monotonic()
+    assert client.wait_files("hash", timeout=20.0, grace=0.2), "медленный рой всё-таки приехал"
+    spent = time.monotonic() - began
+    assert spent >= 0.8, f"дождались за {spent:.2f} с - отсрочка укоротила живой рой"
+
+
+def test_silence_about_peers_is_not_silence_of_the_swarm() -> None:
+    """Служба про пиров не сказала ничего - ждём полный бюджет, как ждали всегда.
+
+    Молчание счётчика и отсутствие роя - разные вещи, и путать их нельзя: иначе первая
+    же версия TorrServer, назвавшая счётчики иначе, похоронила бы весь отбор.
+    """
+    client = _Late(99.0, peers=None)
+    began = time.monotonic()
+    with pytest.raises(InfraError, match="не отдала метаданные"):
+        client.wait_files("hash", timeout=0.6, grace=0.2)
+    spent = time.monotonic() - began
+    assert spent >= 0.6, f"ждали {spent:.2f} с - отказали за неизвестное, а не за известное"
+
+
+def test_a_healthy_release_pays_nothing_for_the_grace() -> None:
+    """Метаданные уже здесь - проверка контактов не случается вовсе, даже на нулевых.
+
+    Здоровая раздача отвечает первым же опросом, то есть до всякой отсрочки, и никакой
+    новой миллисекунды на её пути нет.
+    """
+    client = _Late(0.0, peers=0)
+    began = time.monotonic()
+    assert client.wait_files("hash", timeout=20.0, grace=0.001), "метаданные были готовы"
+    spent = time.monotonic() - began
+    assert spent < 0.2, f"готовые метаданные стоили {spent:.2f} с"
+
+
+def test_swarm_alive_errs_towards_waiting_and_admits_when_it_does_not_know() -> None:
+    """Ноль - только когда служба назвала счётчики и все они пусты; иначе ждём.
+
+    Ответ намеренно завышающий: любой ненулевой счётчик роя - это «на том конце кто-то
+    есть», и ошибиться можно только в сторону терпения.
+    """
+    from torrcast.stream import swarm_alive
+
+    assert swarm_alive({"active_peers": 0, "total_peers": 0, "download_speed": 0}) is False
+    assert swarm_alive({"active_peers": 0, "pending_peers": 7}) is True
+    assert swarm_alive({"active_peers": 0, "bytes_read": 4096}) is True
+    assert swarm_alive({"file_stats": [], "torrent_size": 8 << 30}) is None
+
+
+class _Offline(stream_mod.TorrServer):
+    """Клиент службы без сети: хэш берётся из магнита, снос копится списком.
+
+    Что именно отвечает раздача - дело наследника: тут проверяется отбор, а не разбор
+    JSON, и ответ службы задаётся одним методом :meth:`status`.
+    """
+
+    def __init__(self) -> None:
+        super().__init__("http://torrserver.invalid")
+        self.dropped: list[str] = []
+
+    def add(self, magnet: str) -> str:
+        return f"hash-{magnet}"
+
+    def stream_url(self, torrent_hash: str, index: int) -> str:
+        return f"http://ts/{torrent_hash}/{index}"
+
+    def drop(self, torrent_hash: str) -> None:
+        self.dropped.append(torrent_hash)
+
+
+class _Empty(_Offline):
+    """Раздача пуста: контактов ноль и метаданных не будет никогда."""
+
+    def status(self, torrent_hash: str) -> dict[str, Any]:
+        return {"file_stats": [], "active_peers": 0, "total_peers": 0, "download_speed": 0}
+
+
+class _Slow(_Offline):
+    """Рой медленный, но живой: пиры есть с первой секунды, метаданные едут позже."""
+
+    def __init__(self, ready_after: float, peers: int) -> None:
+        super().__init__()
+        self.ready = time.monotonic() + ready_after
+        self.peers = peers
+
+    def status(self, torrent_hash: str) -> dict[str, Any]:
+        about: dict[str, Any] = {"active_peers": self.peers}
+        if time.monotonic() < self.ready:
+            return about
+        return {**about, "file_stats": [{"id": 0, "path": "film.mkv", "length": 8 << 30}]}
+
+
+def test_a_picture_whose_swarm_never_answers_is_refused_in_seconds_with_a_move(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Вся очередь молчит пирами - правда говорится за секунды и с ходом для человека.
+
+    Сиды у раздач числятся (4, 2 и 1), и заранее их никто не судит: очередь проходится
+    целиком, каждая раздача спрашивается по-настоящему. Отказывает факт - служба не
+    насчитала ни одного контакта, - а не обещание индексера.
+    """
+    ranked = [rel(name=f"r{i}", seeders=4 - i) for i in range(3)]
+    monkeypatch.setattr(Release, "magnet", property(lambda self: f"magnet-{self.raw_name}"))
+    monkeypatch.setattr(cli, "PEER_GRACE", 0.3)
+    torrserver = _Empty()
+
+    began = time.monotonic()
+    with pytest.raises(NotFoundError) as refusal:
+        _resolve(cli._Bench(cast(Any, torrserver)), ranked)
+    spent = time.monotonic() - began
+
+    said = str(refusal.value)
+    printed = capsys.readouterr().out
+    assert spent < cli.META_BUDGET / 4, f"отказ занял {spent:.1f} с при бюджете релиза 20 с"
+    assert "рой пуст" in printed, "человеку не сказали, чем именно кончилась раздача"
+    assert "потрогали 3 (все)" in said, "спросили не всю очередь"
+    assert "ни одна не отозвалась" in said and "числятся" in said
+    assert "назови картину иначе" in said, "отказ без хода - тупик"
+    assert torrserver.dropped, "пустые раздачи из TorrServer убираются"
+
+
+def test_a_slow_swarm_is_not_mistaken_for_an_empty_one_by_the_pick(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Верх едет медленно, но пиры у него есть - отбор дожидается его и играет именно его.
+
+    Обратная сторона той же правки: ускорять отказ можно только там, где отказывать не
+    жалко. Живой рой обязан доехать, сколько бы отсрочек мимо него ни прошло.
+    """
+    ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
+    monkeypatch.setattr(Release, "magnet", property(lambda self: f"magnet-{self.raw_name}"))
+    monkeypatch.setattr(cli, "PEER_GRACE", 0.2)
+
+    def read(url: str, timeout: float = 90.0, alive: Any = None) -> Media:
+        return Media(3600.0, (), "h264")
+
+    monkeypatch.setattr(cli, "probe", read)
+
+    prep = _resolve(cli._Bench(cast(Any, _Slow(0.6, peers=2))), ranked)
+
+    assert prep.number == 1, "медленный, но живой рой отбор бросать не имеет права"
+    assert prep.meta >= 0.6, f"метаданные пришли за {prep.meta:.2f} с - ждали не рой"
 
 
 # --- Потолок кэшей карт и паспортов (TC-127) ------------------------------------------

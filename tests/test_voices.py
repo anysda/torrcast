@@ -351,7 +351,9 @@ class _FakeTorrServer:
         _FakeTorrServer.added.append(torrent_hash)
         return torrent_hash
 
-    def wait_files(self, torrent_hash: str, timeout: float = 60.0) -> list[TorrFile]:
+    def wait_files(
+        self, torrent_hash: str, timeout: float = 60.0, grace: float = 0.0
+    ) -> list[TorrFile]:
         return [TorrFile(0, "Moana.2.2024.1080p.mkv", 3 * GB)]
 
     def stream_url(self, torrent_hash: str, index: int) -> str:

@@ -69,7 +69,9 @@ class _FakeTorrServer:
     def drop(self, torrent_hash: str) -> None:
         _FakeTorrServer.dropped.append(torrent_hash)
 
-    def wait_files(self, torrent_hash: str, timeout: float = 60.0) -> list[TorrFile]:
+    def wait_files(
+        self, torrent_hash: str, timeout: float = 60.0, grace: float = 0.0
+    ) -> list[TorrFile]:
         return [TorrFile(i, f"Cyberpunk.S01E0{i + 1}.mkv", 1024**3) for i in range(3)]
 
     def stream_url(self, torrent_hash: str, index: int) -> str:

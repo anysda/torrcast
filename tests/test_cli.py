@@ -197,7 +197,9 @@ class _FakeTorrServer:
     def add(self, magnet: str) -> str:
         return f"hash-{magnet}"
 
-    def wait_files(self, torrent_hash: str, timeout: float = 60.0) -> list[TorrFile]:
+    def wait_files(
+        self, torrent_hash: str, timeout: float = 60.0, grace: float = 0.0
+    ) -> list[TorrFile]:
         if torrent_hash in self.dead:  # раздача с мёртвым роем: пиров нет и не будет
             raise InfraError(f"раздача не отдала метаданные за {timeout:.0f} с - нет пиров")
         return self.files
@@ -1174,10 +1176,30 @@ def test_a_pool_without_a_single_peer_says_so_plainly() -> None:
     dead = cli.silent_swarm(border, 2, "1 - тишина")
     live = cli.silent_swarm(monkeys, 3, "1 - тишина")
     assert dead == (
-        "раздач в выдаче 2, потрогали 2 - пиров нет ни у одной, показывать нечего (1 - тишина)"
+        "раздач в выдаче 2, потрогали 2 - пиров нет ни у одной, показывать нечего: "
+        "назови картину иначе или зайди позже - другой запрос соберёт другую выдачу, "
+        "а рой может ожить (1 - тишина)"
     )
     assert "пиров нет" not in live
     assert dead != live
+
+
+def test_every_refusal_leaves_the_person_a_move() -> None:
+    """Отказ без хода - тупик: человеку остаётся гадать, что делать дальше.
+
+    Ходы разные, потому что разное осталось непроверенным: пока в выдаче есть нетронутые
+    раздачи, ход - ручной выбор; когда потрогали всё, ручной выбор врал бы надеждой, и
+    честный ход другой - другой запрос или другое время.
+    """
+    pool = [rel(name=f"r{n}", seeders=7 * n) for n in range(15)]
+    plan = _plan(pool)
+    assert "cast releases" in cli.silent_swarm(plan, 3, "1 - тишина"), "нетронутые есть - выбор"
+    for said in (
+        cli.silent_swarm(plan, 15, "1 - тишина"),
+        cli.silent_swarm(_plan([rel(name="r", seeders=0)]), 1, "1 - тишина"),
+    ):
+        assert "назови картину иначе" in said and "зайди позже" in said
+        assert "--release" not in said, "выбирать не из чего - надежду не предлагаем"
 
 
 def _series_plan(title: str, year: int, kind: Kind, releases: list[Release]) -> Any:
