@@ -2335,11 +2335,44 @@ class _Series:
         self.files = map_episodes(files, release.season)
         found = next((f for f in self.files if f.at == self.want), None)
         if found is None:
-            raise NotFoundError(
-                f"серии {self.want} в этой раздаче нет ({self.summary()}) - "
-                "возьми другую раздачу: cast <запрос> --release N"
-            )
+            raise NotFoundError(self._miss_reason(release))
         return next(f for f in files if f.index == found.index)
+
+    def _miss_reason(self, release: Release) -> str:
+        """Текст отказа: серии правда нет — или раздача считает в ДРУГОЙ системе.
+
+        🔴 TC-182. У одного сериала сосуществуют ДВЕ нумерации: у «Гинтамы» 38 раздач
+        подписаны сезонами S05-S10 (нумерация стриминга), а куски RuTor — сквозным
+        счётом через весь сериал (``[01-201]``, ``[202-252]``, ``[253-265]``). Это
+        РАЗНЫЕ номера: s5e1 по-стриминговому живёт где-то внутри сквозного 202-252, а
+        вычислить, где именно, нельзя честно — границ сезонов не назвало ни одно имя,
+        и любой пересчёт был бы выдумкой.
+
+        Признак системы — настоящий и лежит в имени раздачи: сезон она либо назвала
+        (:attr:`~torrcast.parse.Release.season` / :attr:`~torrcast.parse.Release.seasons`),
+        либо перечислила серии, не назвав сезона, — тот же признак, по которому
+        сквозную линейку отличает :func:`torrcast.parse._run_span`. Раздача со сквозным
+        счётом на просьбу о пятом сезоне не должна отвечать «серии нет»: серия там,
+        скорее всего, ЕСТЬ — под сквозным номером, — и прежний ответ был неправдой
+        дважды: и про наличие, и про причину. Поэтому здесь называются ОБЕ системы.
+        """
+        if (
+            self.want.season > 1
+            and release.episodes
+            and release.season is None
+            and not release.seasons
+        ):
+            span = f"{release.episodes[0]}-{release.episodes[-1]}"
+            return (
+                f"нумерации разные: {self.want} — это счёт по сезонам, а раздача считает "
+                f"серии насквозь через весь сериал ({span}), не называя сезонов "
+                f"({self.summary()}) — нужна раздача, подписанная сезоном: "
+                "cast <запрос> --release N"
+            )
+        return (
+            f"серии {self.want} в этой раздаче нет ({self.summary()}) - "
+            "возьми другую раздачу: cast <запрос> --release N"
+        )
 
     @property
     def table(self) -> list[list[int]]:

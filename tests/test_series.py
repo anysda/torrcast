@@ -11,7 +11,8 @@ from dataclasses import replace
 
 import pytest
 
-from torrcast.cli import Args, _plan_for, rank_releases
+from torrcast import NotFoundError
+from torrcast.cli import Args, _plan_for, _Series, rank_releases
 from torrcast.parse import (
     Episode,
     EpisodeFile,
@@ -110,6 +111,70 @@ def test_cyrillic_x_between_season_and_episode() -> None:
     )
 
     assert sne(map_episodes(pack)) == ["s2e24", "s3e1"]
+
+
+def test_a_merged_double_episode_is_found_by_its_first_number() -> None:
+    """🔴 TC-205: «друзья s10e17» — двойной финал одним файлом, и это ЕСТЬ s10e17.
+
+    Сцена кладёт сдвоенную серию слитным именем: ``Friends.S10E17E18.The.Last.One.avi``
+    (и вариант ``S10E17_18``). Страж границы слова видел за первым номером второй и не
+    считал имя серией ВОВСЕ — файл молча выпадал из списка, и пак, объявивший «сезоны
+    1-10: s1e1...s10e18», не мог отдать s10e17: серия лежала в раздаче, но не ложилась
+    ни на какую пару «сезон, серия». Первый номер сдвоенного файла — честный ответ
+    (тот же приём, что у ``10x17&18``): файл и есть семнадцатая серия.
+    """
+    for tail in ("S10E17E18", "S10E17_18", "10x17_18"):
+        pack = files(
+            "FRIENDS/Season 10/Friends.S10E16.The.One Where Estelle Dies.avi",
+            f"FRIENDS/Season 10/Friends.{tail}.The.Last.One.avi",
+        )
+        found = map_episodes(pack)
+        assert sne(found) == ["s10e16", "s10e17"], f"слитный номер {tail} потерял серию"
+
+    # Весь путь целиком, как в живом показе: пак объявляет серию, choose её берёт.
+    release = parse_release_name("Друзья / Friends [S01-10] (1994-2004) BDRip 1080p")
+    pack = files(
+        "FRIENDS/Season 10/Friends.S10E16.The.One Where Estelle Dies.avi",
+        "FRIENDS/Season 10/Friends.S10E17E18.The.Last.One.avi",
+    )
+    series = _Series(want=Episode(10, 17))
+    chosen = series.choose(release, pack)
+    assert "S10E17E18" in chosen.name, "объявленная s10e17 берётся из двойного файла"
+
+    # А слитный номер без разделителя серией не становится: «1080p» не хвост серии.
+    glued = files(
+        "Show/Show.S01E04.1080p.mkv",
+        "Show/Show.S01E051080p.mkv",  # некорректное имя, а не «серия 5 в кадре 1080p»
+    )
+    assert sne(map_episodes(glued)) == ["s1e4"], "разделитель у второго номера обязателен"
+
+
+def test_two_numbering_systems_are_named_aloud_instead_of_a_plain_miss() -> None:
+    """🔴 TC-182: «гинтама s5e1» на раздаче со сквозным счётом — «нумерации разные».
+
+    У «Гинтамы» сосуществуют ДВЕ системы координат: 38 раздач подписаны сезонами
+    S05-S10 (нумерация стриминга), а куски RuTor — сквозным счётом через весь сериал
+    (``[01-201]``, ``[202-252]``, ``[253-265]``). Это разные номера, и свести их честно
+    нельзя: границ сезонов не назвало ни одно имя. Признак системы — из имени раздачи:
+    сезон назван (``season``/``seasons``) или серии перечислены без сезона (сквозная
+    линейка, как у :func:`torrcast.parse._run_span`). Сквозная раздача на просьбу о
+    сезоне отвечает про РАЗНЫЕ нумерации и показывает обе, а не «серии нет» — серия
+    там, скорее всего, есть, только под сквозным номером.
+    """
+    absolute = parse_release_name("Гинтама / Gintama TV-2 [202-252] (2011) BDRip-HEVC 1080p | L1")
+    pack = files(*(f"Gintama/Gintama - {n}.mkv" for n in range(202, 253)))
+
+    with pytest.raises(NotFoundError, match="нумерации разные"):
+        _Series(want=Episode(5, 1)).choose(absolute, pack)
+
+    # Своя система работает как работала: сквозной номер из сквозной раздачи берётся.
+    assert "202" in _Series(want=Episode(1, 202)).choose(absolute, pack).name
+
+    # А раздача, назвавшая сезон, на чужой сезон отвечает по-прежнему: «серии нет».
+    by_season = parse_release_name("Гинтама / Gintama [S05] (2017) WEB-DL 1080p")
+    season_pack = numbered("Gintama/Gintama.S05E{n:02d}.mkv", 12)
+    with pytest.raises(NotFoundError, match="серии s6e1 в этой раздаче нет"):
+        _Series(want=Episode(6, 1)).choose(by_season, season_pack)
 
 
 def test_anime_files_with_bare_numbers() -> None:
