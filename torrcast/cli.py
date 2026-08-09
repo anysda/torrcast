@@ -1088,8 +1088,15 @@ def _duration(key: str, entry: Entry, source: str) -> Entry:
     молчание тут читается как «восемь бит», то есть как «уезжай копией»: на десятибитном
     H.264 это вечная петля на экране (:func:`torrcast.stream.recodes_whole`). Один ffprobe
     против неиграющего показа - цена, которую платить стоит, и платится она однажды.
+
+    🔴 TC-251. Тем же одним ffprobe добирается и кадр (:attr:`Entry.frame`) - ровно по
+    той же причине. Запись прежней версии его не несёт, а молчание тут читается
+    :func:`torrcast.recode.level_for` как «4.1»: на 4К это враньё в поток (у 2160p 32400
+    макроблоков против потолка 8192), и окно у вранья ровно одно - первое продолжение
+    старой записи. Лишнего запроса это не стоит: паспорт и так читается один раз на
+    запись ради глубины, кадр лежит в нём же.
     """
-    if entry.dur > 0 and entry.depth > 0:
+    if entry.dur > 0 and entry.depth > 0 and entry.frame > 0:
         return entry
     media = probe(source, timeout=WORKER_DUR)
     entry.dur = media.duration or entry.dur
@@ -1100,6 +1107,9 @@ def _duration(key: str, entry: Entry, source: str) -> Entry:
     entry.codec = media.video or ""
     # Глубина цвета оттуда же и той же ценой: без неё Hi10P неотличим от обычного H.264.
     entry.depth = media.depth
+    # И кадр тем же паспортом: без него 4К-запись прежней версии уезжала бы с уровнем
+    # «4.1» в потоке - заведомым враньём (TC-251).
+    entry.frame = media.frame
     state = State.load()
     state.put(key, entry)
     state.save()
@@ -5940,6 +5950,12 @@ def voice_note(media: Media, audio: int) -> str:
     это не решение, а единственный вариант, и строка про него была бы шумом. Список
     студий целиком тут не печатается намеренно: он длинный, а нужен по запросу -
     ``cast voices <запрос>``.
+
+    🔴 TC-242. Когда взятое расходится с лестницей по типу - двухголосый обошёл живой
+    многоголосый - строка называет и ПРИЧИНУ, коротким хвостом: иначе человек читает её
+    как противоречие лестнице. Причина одна: студию судят по её отборной ступени
+    (:attr:`torrcast.stream.AudioTrack.rank_step`), а не по той, что произносится вслух.
+    Нет расхождения - нет и хвоста: счастливый путь не засоряем.
     """
     russian = sum(1 for t in media.tracks if t.is_russian)
     if russian < 2 or not 0 <= audio < len(media.tracks):
@@ -5950,7 +5966,10 @@ def voice_note(media: Media, audio: int) -> str:
     what = (track.kind or "русскую") if track.is_russian else spoken(track)
     studio = track.studio
     tail = f" ({studio.name})" if studio and studio.name else ""
-    return f"дорожек rus {russian}, беру {what}{tail}"
+    why = ""
+    if track.is_russian and studio and studio.ranks and track.rank_step < track.step:
+        why = f" - студию судим по ступени «{studio.ranks}»"
+    return f"дорожек rus {russian}, беру {what}{tail}{why}"
 
 
 def _voice_number(media: Media, number: int) -> int:

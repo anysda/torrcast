@@ -687,6 +687,22 @@ class AudioTrack:
         steps = (i for i, (name, _) in enumerate(_VOICE_STEPS) if name == self.kind)
         return next(steps, STEP_RU_PLAIN)
 
+    @property
+    def rank_step(self) -> int:
+        """Ступень, по которой дорожку судят на отборе; обычно это :attr:`step`.
+
+        Расходится с ней только там, где студия крутее своего вида перевода
+        (:attr:`Studio.ranks`). Поднимаем, а не опускаем: если дорожка уже назвалась
+        дубляжом, отборная ступень студии её не ухудшает. Нерусские и служебные дорожки
+        не трогаем вовсе - там ступень означает не качество перевода, а язык.
+        """
+        step = self.step
+        studio = self.studio
+        if step >= STEP_RU_PLAIN or studio is None or not studio.ranks:
+            return step
+        ranks = (i for i, (n, _) in enumerate(_VOICE_STEPS) if n == studio.ranks)
+        return min(step, next(ranks, step))
+
 
 def voice_order(track: AudioTrack) -> tuple[int, int, int]:
     """Место дорожки в очереди на дефолт: ступень, вес студии, порядок в файле.
@@ -697,27 +713,12 @@ def voice_order(track: AudioTrack) -> tuple[int, int, int]:
       (AniDub) уходит правее незнакомых студий с нулевым весом
     - порядок дорожки в файле: сборщик раздачи кладёт первой ту, которую считает главной
 
-    Ступень тут берётся ОТБОРНАЯ (:attr:`Studio.ranks`), а не та, что произносится
-    вслух: «Кубик в Кубе» двухголосые, но крутее всей многоголосой ступени. Вслух они
-    остаются двухголосыми - см. :class:`Studio`.
+    Ступень тут берётся ОТБОРНАЯ (:attr:`AudioTrack.rank_step`), а не та, что
+    произносится вслух: «Кубик в Кубе» двухголосые, но крутее всей многоголосой ступени.
+    Вслух они остаются двухголосыми - см. :class:`Studio`.
     """
     studio = track.studio
-    return (_rank_step(track), -(studio.fame if studio else 0), track.index)
-
-
-def _rank_step(track: AudioTrack) -> int:
-    """Ступень, по которой дорожку судят на отборе; обычно это :attr:`AudioTrack.step`.
-
-    Расходится с ней только там, где студия крутее своего вида перевода
-    (:attr:`Studio.ranks`). Поднимаем, а не опускаем: если дорожка уже назвалась
-    дубляжом, отборная ступень студии её не ухудшает. Нерусские и служебные дорожки не
-    трогаем вовсе - там ступень означает не качество перевода, а язык.
-    """
-    step = track.step
-    studio = track.studio
-    if step >= STEP_RU_PLAIN or studio is None or not studio.ranks:
-        return step
-    return min(step, next((i for i, (n, _) in enumerate(_VOICE_STEPS) if n == studio.ranks), step))
+    return (track.rank_step, -(studio.fame if studio else 0), track.index)
 
 
 @dataclass(slots=True)

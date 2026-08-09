@@ -170,7 +170,7 @@ def test_the_next_episode_learns_its_own_duration(monkeypatch: pytest.MonkeyPatc
     """Порог 95 % считается от длительности серии, а её у следующей серии ещё нет:
     юнит читает её из потока сам, иначе «досмотрено» наступило бы мгновенно.
     """
-    remember(dur=MINUTES_24, depth=8)
+    remember(dur=MINUTES_24, depth=8, frame=1080)  # у первой серии паспорт полный
     probed: list[str] = []
 
     def probe(url: str, timeout: float = 90.0, alive: object = None) -> Media:
@@ -228,6 +228,43 @@ def test_a_record_from_before_the_ten_bit_era_asks_the_passport_once(
 
     assert seen[0] == 10, "показ обязан узнать глубину, а не решать по одному имени кодека"
     assert saved().depth == 10, "узнанное осталось в записи - второй раз спрашивать незачем"
+    assert probed[:1] == ["http://ts/hash/0"], "и спрошено это ровно один раз на серию"
+
+
+def test_a_record_from_before_the_frame_era_asks_the_passport_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """🔴 TC-251. Запись прежней версии кадра не несёт - и молчит она как «1080p».
+
+    Молчание читается :func:`torrcast.recode.level_for` как «4.1», а на 4К это враньё в
+    поток: у 2160p 32400 макроблоков против потолка 8192. Поэтому кадр добирается тем же
+    одним ffprobe, что и глубина цвета, при первом же продолжении - и остаётся в записи.
+    """
+    remember(dur=MINUTES_24, codec="h264", depth=8)  # frame не проставлен - прежняя версия
+    probed: list[str] = []
+    seen: list[int] = []
+
+    def probe(url: str, timeout: float = 90.0, alive: object = None) -> Media:
+        probed.append(url)
+        return Media(MINUTES_24, (), "h264", height=2160, width=3840, pix_fmt="yuv420p")
+
+    monkeypatch.setattr(cli, "TorrServer", _FakeTorrServer)
+    monkeypatch.setattr(cli, "probe", probe)
+    monkeypatch.setattr(cli, "make_receiver", lambda kind, address, cert, profile=None: None)
+
+    def play(
+        config: Any, source: str, audio: int, about: str, clock: Any, watch: Any = None, **rest: Any
+    ) -> int:
+        seen.append(int(rest.get("frame") or 0))
+        watch.see(watch.entry.dur)
+        return 0
+
+    monkeypatch.setattr(cli, "_play", play)
+
+    assert cli._cmd_worker(KEY) == 0
+
+    assert seen[0] == 2160, "показ обязан узнать кадр, а не писать в поток «4.1» на 4К"
+    assert saved().frame == 2160, "узнанное осталось в записи - второй раз спрашивать незачем"
     assert probed[:1] == ["http://ts/hash/0"], "и спрошено это ровно один раз на серию"
 
 

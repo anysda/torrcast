@@ -288,6 +288,30 @@ def test_the_note_explains_the_choice_only_when_there_was_one() -> None:
     assert "LostFilm" not in cli.voice_note(Media(tracks=INSIDEOUT), 2), "список студий не печатаем"
 
 
+def test_the_note_names_why_the_ladder_was_beaten_by_type() -> None:
+    """🔴 TC-242. Дефолт сошёл с лестницы по типу - строка называет причину.
+
+    «Беру двухголосый» рядом с живым многоголосым читается как противоречие лестнице:
+    двухголосый на ней НИЖЕ. Причина одна - студию судят по отборной ступени
+    (``Studio.ranks``), и она называется коротким хвостом в той же строке. Нет
+    расхождения - нет и хвоста.
+    """
+    media = Media(tracks=FARGO)
+    assert cli.voice_note(media, media.default_track()) == (
+        "дорожек rus 2, беру двухголосый (Кубик в Кубе) - студию судим по ступени «многоголосый»"
+    )
+    # Дорожка сама назвалась многоголосой - отборная ступень совпала с произносимой,
+    # и причины называть нечего.
+    named = (
+        AudioTrack(0, "rus", "MVO (Кубик в Кубе)", "ac3", 2),
+        AudioTrack(1, "rus", "MVO (LostFilm)", "ac3", 2),
+        AudioTrack(2, "eng", "Original", "ac3", 6),
+    )
+    assert cli.voice_note(Media(tracks=named), 0) == (
+        "дорожек rus 2, беру многоголосый (Кубик в Кубе)"
+    )
+
+
 def test_the_label_drops_the_technical_tail() -> None:
     """Подпись — она же ключ памяти: битрейт и частота в ней только мешают."""
     assert MATRIX[0].label == "rus · DUB (Rus)"
