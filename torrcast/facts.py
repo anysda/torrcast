@@ -416,6 +416,12 @@ class Origin:
     #: входит и в кэш пишется отдельно), а ключ ко второму источнику: по нему одинокий год
     #: сверяется с датой публикации P577 (:func:`origin_either`, :func:`confirmed_year`).
     entity: str = ""
+    #: Статью не назвали по имени, а лишь ПРИЗНАЛИ похожей (:func:`_misremembered`): имя
+    #: спросили одно, подписана она другим. Обычно это описка человека («Сальтберн» и
+    #: «Солтберн»), но ровно так же выглядит и чужая картина («Все мы незнакомцы» и «Все мы
+    #: убийцы»), поэтому гейт добора такому имени на слово не верит
+    #: (:func:`~torrcast.cli._second_language`).
+    guessed: bool = False
 
     def __bool__(self) -> bool:
         return bool(self.title or self.year or self.name)
@@ -511,7 +517,9 @@ def origin_either(title: str, budget: float = FACTS_BUDGET) -> Origin:
         return movie if _same_picture_origin(movie, show) else Origin()
     lone = movie or show
     year = _second_source_year(lone, max(0.0, deadline - time.monotonic()))
-    return Origin(title=lone.title, year=year, name=lone.name, entity=lone.entity)
+    return Origin(
+        title=lone.title, year=year, name=lone.name, entity=lone.entity, guessed=lone.guessed
+    )
 
 
 def _second_source_year(lone: Origin, budget: float) -> int | None:
@@ -747,7 +755,9 @@ def _misremembered(title: str, series: bool, timeout: float) -> Origin:
             seen.add(heading)
             pages.append(page)
     found = read_origin(pages, title, trusted=True, series=series)
-    return Origin(title=found.title, name=found.name)
+    # Имя тут не доказано, а признано похожим - так и говорим паспортом, чтобы гейт добора
+    # знал, на чём стоит второе имя (:attr:`Origin.guessed`).
+    return Origin(title=found.title, name=found.name, guessed=bool(found))
 
 
 def _suggested(query: str, timeout: float) -> list[Any]:
@@ -794,18 +804,19 @@ def _by_phrase(title: str, timeout: float) -> list[Any]:
     return out
 
 
-def _near_name(title: str, heading: str) -> bool:
-    """Почти то же имя: одна буква расхождения либо одно слово из нескольких.
+def same_name(title: str, heading: str) -> bool:
+    """То же ли это имя картины: заголовок статьи против того, что назвал человек.
 
-    Сверка последнего шага (:func:`_misremembered`), и она нарочно тесная - подсказки
-    Википедии на «Сальтберн» приносят и «Сальтерас», и «Сальтенья», и «Салитерник, Цви».
+    Сверка тесная нарочно - ею гейт добора решает, можно ли верить имени со справки там,
+    где сверить его больше не с чем (:func:`~torrcast.cli._second_language`). Годится
+    только само имя: точное (:func:`akin` знает и другой порядок слов, и слитное
+    написание) либо в другой транскрипции - одна буква расхождения, «сальтберн» и
+    «солтберн». Коротким именам и она не прощается: у имени из пяти букв одна буква
+    разницы - это уже другое имя («Психо» и «Психи»).
 
-    * **одна буква** - другая транскрипция того же имени: «сальтберн» и «солтберн».
-      Коротким именам это не разрешено: у имени из пяти букв одна буква разницы - это уже
-      другое имя («Психо» и «Психи»);
-    * **одно слово** - имя из трёх и более слов, в котором ровно одно стоит не то:
-      «мужчина который удивил всех» против «человек который удивил всех». Слов должно быть
-      поровну и на своих местах: перестановки и пропуски сюда не входят.
+    ⚠️ Одно слово из нескольких сюда НЕ входит, и это вся разница с :func:`_near_name`.
+    «Все мы незнакомцы» и «Все мы убийцы» расходятся ровно в одном слове из трёх - и это
+    разные картины (2023 и 1952 годов), а не описка.
     """
     if akin(title, heading):
         return True
@@ -817,10 +828,35 @@ def _near_name(title: str, heading: str) -> bool:
         (slugify(title), slugify(name)),
         (slugify(transliterate(title)), slugify(transliterate(name))),
     ):
+        if want and base and len(want) >= _NEAR_LETTERS and _one_edit(want, base):
+            return True
+    return False
+
+
+def _near_name(title: str, heading: str) -> bool:
+    """Почти то же имя: одна буква расхождения либо одно слово из нескольких.
+
+    Сверка последнего шага (:func:`_misremembered`), и она нарочно тесная - подсказки
+    Википедии на «Сальтберн» приносят и «Сальтерас», и «Сальтенья», и «Салитерник, Цви».
+
+    * **то же имя** (:func:`same_name`) - в том числе в другой транскрипции;
+    * **одно слово** - имя из трёх и более слов, в котором ровно одно стоит не то:
+      «мужчина который удивил всех» против «человек который удивил всех». Слов должно быть
+      поровну и на своих местах: перестановки и пропуски сюда не входят.
+
+    ⚠️ Второе послабление доказывает заметно меньше первого: одним словом расходятся и
+    «Все мы незнакомцы» с «Все мы убийцы», а это разные картины. Отсюда отметка
+    :attr:`Origin.guessed` - имя, найденное этой сверкой, гейту добора не доказательство.
+    """
+    if same_name(title, heading):
+        return True
+    name = heading.split(" (")[0]
+    for want, base in (
+        (slugify(title), slugify(name)),
+        (slugify(transliterate(title)), slugify(transliterate(name))),
+    ):
         if not want or not base:
             continue
-        if len(want) >= _NEAR_LETTERS and _one_edit(want, base):
-            return True
         mine, theirs = want.split("-"), base.split("-")
         if len(mine) >= _PHRASE_WORDS and len(mine) == len(theirs):
             odd = sum(1 for one, two in zip(mine, theirs, strict=True) if not same_word(one, two))
@@ -1481,6 +1517,7 @@ def _cached_origin(title: str, series: bool) -> Origin | None:
         year=shown if isinstance(shown, int) else None,
         name=str(row.get("name", "")),
         entity=str(row.get("entity", "")),
+        guessed=bool(row.get("guessed")),
     )
 
 
@@ -1493,6 +1530,9 @@ def _remember_origin(title: str, series: bool, found: Origin) -> None:
         # Q-идентификатор нужен на диске, иначе одинокий год (:func:`origin_either`) на
         # втором показе терял бы второй источник и ронял год, подтверждённый на первом.
         "entity": found.entity,
+        # Отметка «имя лишь похоже» тоже нужна на диске: без неё гейт добора на втором
+        # показе той же картины поверил бы догадке как доказанному имени.
+        "guessed": found.guessed,
     }
     _write_cache(raw)
 

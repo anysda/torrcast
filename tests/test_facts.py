@@ -1174,6 +1174,73 @@ def test_an_almost_the_same_name_still_gives_up_its_picture() -> None:
     assert found.name == "Человек, который удивил всех"
 
 
+STRANGERS = (
+    "«Все мы убийцы» (фр. Nous sommes tous des assassins) — французский художественный "
+    "фильм режиссёра Андре Кайата, вышедший на экраны в 1952 году."
+)
+
+
+def test_the_same_name_and_the_almost_the_same_name_are_not_one_yardstick() -> None:
+    """🔴 TC-253. Одна буква - то же имя, одно слово из трёх - уже другая картина.
+
+    Мерки две, и они разные. «Сальтберн» и «Солтберн» - одно имя в двух транскрипциях,
+    и добору по нему верить можно. А «Все мы незнакомцы» и «Все мы убийцы» расходятся
+    ровно одним словом из трёх - и это картины 2023 и 1952 годов. Прежняя, единственная
+    мерка (:func:`~torrcast.facts._near_name`) не различала их вовсе.
+    """
+    assert facts_mod.same_name("сальтберн", "Солтберн")
+    assert facts_mod.same_name("Уэнсдей", "Уэнздей")
+    assert facts_mod.same_name("Крики и шёпот", "Шёпоты и крики")
+    assert not facts_mod.same_name("Все мы незнакомцы", "Все мы убийцы")
+    assert not facts_mod.same_name("мужчина который удивил всех", "Человек, который удивил всех")
+    # Послабление на слово живёт там, где и жило: в сверке последнего шага справки.
+    assert facts_mod._near_name("мужчина который удивил всех", "Человек, который удивил всех")
+
+
+def test_a_name_found_by_likeness_says_so_in_the_passport(monkeypatch: Any) -> None:
+    """🔴 TC-253. Имя, найденное по сходству, помечается: гейту добора это не имя картины.
+
+    Спросили «Все мы незнакомцы» - статьи с таким заголовком в Википедии нет, и
+    подсказчик приносит «Все мы убийцы»: одно слово из трёх, сверку последнего шага это
+    проходит. Паспорт отдаётся (имя латиницей всё-таки лучше транслита), но отдаётся с
+    отметкой ``guessed`` - иначе на пустой русской выдаче гейт принял бы французскую
+    картину 1952 года за спрошенную.
+    """
+    wrong = _page("Все мы убийцы", STRANGERS)
+    monkeypatch.setattr(facts_mod, "_suggested", lambda query, timeout: [wrong])
+    monkeypatch.setattr(facts_mod, "_by_phrase", lambda title, timeout: [])
+
+    found = facts_mod._misremembered("Все мы незнакомцы", False, 1.0)
+
+    assert found.title == "Nous sommes tous des assassins"
+    assert found.name == "Все мы убийцы"
+    assert found.guessed, "имя лишь похоже - паспорт обязан это сказать"
+    assert found.year is None
+
+
+def test_the_likeness_mark_survives_the_cache_and_the_both_types_mode(
+    monkeypatch: Any, tmp_path: Any
+) -> None:
+    """Отметка «имя лишь похоже» доезжает и до диска, и через режим «оба типа».
+
+    Без диска гейт добора на втором показе той же картины поверил бы догадке как
+    доказанному имени, а без режима «оба типа» - на первом же: пустая русская выдача тем
+    и отличается, что тип картины спросить неоткуда (:func:`~torrcast.facts.origin_either`).
+    """
+    from torrcast.facts import Origin
+
+    monkeypatch.setattr(facts_mod, "CACHE_PATH", tmp_path / "facts.json")
+    guess = Origin(title="Nous sommes tous des assassins", name="Все мы убийцы", guessed=True)
+    monkeypatch.setattr(
+        facts_mod, "origin_now", lambda title, series, timeout: Origin() if series else guess
+    )
+
+    lone = facts_mod.origin_either("Все мы незнакомцы", 1.0)
+    assert lone.guessed, "режим «оба типа» отметку не теряет"
+
+    assert facts_mod._cached_origin("Все мы незнакомцы", False) == guess
+
+
 def test_both_types_together_fit_into_one_budget_not_two(monkeypatch: Any) -> None:
     """🔴 TC-243. Бюджет режима «оба типа» - СРОК на весь поход, а не мерка на каждый шаг.
 

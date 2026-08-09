@@ -900,6 +900,119 @@ def test_a_silent_reference_on_an_empty_result_still_goes_by_translit(
     assert len(plans[0].picture.releases) == 20
 
 
+def _refused(client: _FakeProwlarr, query: str, monkeypatch: pytest.MonkeyPatch) -> str:
+    """Поиск, кончившийся отказом: всё, что при этом было сказано вслух."""
+    monkeypatch.setattr(cli, "Prowlarr", client)
+    config = Config(tv="127.0.0.1", prowlarr_apikey="KEY")
+    out = io.StringIO()
+    with Progress(out=out) as progress, pytest.raises(NotFoundError):
+        cli._search(config, cli.Args(query=query.split()), progress)
+    return out.getvalue()
+
+
+def test_a_name_the_reference_only_guessed_does_not_bring_a_stranger(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """🔴 TC-253. Русская выдача пуста, и справка знает имя лишь по сходству - не верим.
+
+    Живая проба: статьи «Все мы незнакомцы» в русской Википедии нет вовсе, и справка
+    находит по сходству имён «Все мы убийцы» - французскую картину 1952 года. На пустой
+    выдаче сверять добор не с чем (:func:`~torrcast.cli.same_picture` с ``before=None``
+    решала по одному происхождению имени), и чужое кино доезжало под знакомым именем -
+    худший вид брака по спеке. Теперь справка обязана назвать ту же картину тем же
+    именем; назвала другим - второго захода к индексерам не делаем вовсе.
+    """
+    client = _FakeProwlarr(
+        {
+            "nous sommes tous des assassins": [
+                raw(f"Nous.sommes.tous.des.assassins.1952.DVDRip.x264-{i}", i) for i in range(20)
+            ]
+        }
+    )
+    _knows(
+        monkeypatch,
+        {
+            "все мы незнакомцы": Origin(
+                title="Nous sommes tous des assassins", name="Все мы убийцы", guessed=True
+            )
+        },
+    )
+
+    said = _refused(client, "все мы незнакомцы", monkeypatch)
+
+    assert client.asked == ["все мы незнакомцы"], "за чужой картиной не ходят даже разок"
+    assert "справка нашла лишь похожее имя «Все мы убийцы»" in said
+
+
+def test_the_same_name_in_another_spelling_is_still_topped_up(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """А описка в одну букву добор не отменяет: «Сальтберн» и «Солтберн» - одно имя.
+
+    Тут справка называет ТУ ЖЕ картину, только другой транскрипцией, и это и есть второй
+    признак: сверять было с чем, и сверка сошлась. Молчим и добираем, как добирали.
+    """
+    client = _FakeProwlarr(
+        {"saltburn": [raw(f"Saltburn.2023.1080p.WEB-DL.x264-{i}", i) for i in range(20)]}
+    )
+    _knows(monkeypatch, {"сальтберн": Origin(title="Saltburn", name="Солтберн", guessed=True)})
+
+    plans, said = _search(client, "сальтберн", monkeypatch)
+
+    assert client.asked == ["сальтберн", "Saltburn"]
+    assert len(plans[0].picture.releases) == 20
+    assert "сверить было не с чем" not in said
+
+
+def test_a_guessed_name_with_nothing_to_check_it_against_is_taken_out_loud(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Сверить догадку нечем - берём, но говорим об этом: за проверенное не выдаём.
+
+    Русская Википедия подписывает аниме латиницей, и своего русского имени у статьи нет
+    вовсе. Отказывать тут не за что - имя ничему не противоречит, - но и молчать нельзя:
+    человек вправе знать, что картину под его именем выбрала справка, а не выдача.
+    """
+    client = _FakeProwlarr(
+        {"re:zero": [raw(f"Re.Zero.S01E{i:02d}.1080p.WEB-DL", i) for i in range(1, 9)]}
+    )
+    _knows(monkeypatch, {"ре зеро": Origin(title="Re:Zero", guessed=True)})
+
+    plans, said = _search(client, "ре зеро", monkeypatch)
+
+    assert client.asked == ["ре зеро", "Re:Zero"]
+    assert len(plans[0].picture.releases) == 8
+    assert "имя «Re:Zero» взято со справки, сверить было не с чем" in said
+
+
+def test_a_name_wikipedia_itself_redirects_to_is_not_a_guess(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Другое русское имя от САМОЙ Википедии - не догадка, и добор ею не отменяется.
+
+    «Мальчик и цапля» - живое перенаправление на статью «Мальчик и птица»: это утверждение
+    самой Википедии о том, что картина одна. Сверка имён тут ни при чём, отметки
+    ``guessed`` у такого паспорта нет, и всё работает ровно так, как работало.
+    """
+    client = _FakeProwlarr(
+        {
+            "the boy and the heron": [
+                raw(f"The.Boy.and.the.Heron.2023.1080p.BluRay-{i}", i) for i in range(20)
+            ]
+        }
+    )
+    _knows(
+        monkeypatch,
+        {"мальчик и цапля": Origin(title="The Boy and the Heron", name="Мальчик и птица")},
+    )
+
+    plans, said = _search(client, "мальчик и цапля", monkeypatch)
+
+    assert client.asked == ["мальчик и цапля", "The Boy and the Heron"]
+    assert len(plans[0].picture.releases) == 20
+    assert "похожее имя" not in said and "сверить было не с чем" not in said
+
+
 def test_the_reference_original_does_not_open_the_gate_to_another_year(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
