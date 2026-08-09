@@ -476,6 +476,23 @@ def build_server(
     class Server(socketserver.ThreadingMixIn, http.server.HTTPServer):
         daemon_threads = True
 
+        def handle_error(self, request: socket.socket, client_address: object) -> None:
+            """Клиент, ушедший раньше ответа - одна строка, а не трейсбек.
+
+            Штатное событие: Prowlarr закрыл соединение до того, как шим записал
+            ответ, и ``wfile.write`` падает ``ssl.SSLEOFError``. Сорок строк трейсбека
+            на каждый такой уход выглядят в журнале аварией и топят настоящие поломки,
+            поэтому обрыв клиента печатается одной строкой - как уход из очереди
+            (:func:`_in_queue`). 🔴 Глушится ТОЛЬКО он: любое другое исключение идёт
+            прежним трейсбеком - молчание о настоящей поломке хуже шума.
+            """
+            if isinstance(
+                sys.exc_info()[1], (ssl.SSLEOFError, BrokenPipeError, ConnectionResetError)
+            ):
+                print("клиент ушёл раньше ответа", file=sys.stderr, flush=True)
+                return
+            super().handle_error(request, client_address)
+
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     context.load_cert_chain(cert, key)
     server = Server(("127.0.0.1", port), Handler)

@@ -22,6 +22,7 @@ import http.server
 import importlib.util
 import socket
 import ssl
+import struct
 import sys
 import threading
 import time
@@ -577,3 +578,78 @@ def test_dropped_client_frees_slot_at_once(
     assert freed < shim._TIMEOUT * 1.7, "с проверкой третий укладывается в один таймаут"
     assert stuck - freed >= shim._TIMEOUT * 0.7, "проверка живости обязана вернуть слот раньше"
     assert "клиент ушёл из очереди" in err, "уход из очереди должен попасть в журнал"
+
+
+def _wait_log(capsys: pytest.CaptureFixture[str], marker: str, budget: float = 5.0) -> str:
+    """Дождаться строки в журнале шима: печатает её поток обработчика, не мы."""
+    deadline = time.monotonic() + budget
+    err = ""
+    while time.monotonic() < deadline:
+        time.sleep(0.05)
+        err = capsys.readouterr().err
+        if marker in err or "Traceback" in err:
+            break
+    return err
+
+
+def test_client_gone_before_the_answer_is_one_line_not_a_traceback(
+    tls: tuple[str, str],
+    plain_openers: None,
+    backend: tuple[http.server.HTTPServer, Counter],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Клиент, ушедший раньше ответа - короткая строка в журнале, а не трейсбек.
+
+    Штатная ситуация: Prowlarr закрыл соединение, пока шим ждал origin, и запись
+    ответа в мёртвый сокет падает (``ssl.SSLEOFError`` и родня). Прежде каждый такой
+    уход клал в журнал сорок строк трейсбека - штатное событие выглядело аварией и
+    топило настоящие поломки.
+    """
+    origin, _ = backend
+    port = origin.server_address[1]
+    routes = {"tracker.test": shim.Route("tracker.test", [f"https://127.0.0.1:{port}"])}
+    server = _shim(tls, routes)
+    try:
+        conn = _open_and_send(server.server_address[1], "tracker.test")
+        # Обрыв с RST, а не вежливое закрытие: так запись ответа упадёт наверняка,
+        # а не когда повезёт с буферами.
+        conn.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0))
+        conn.close()  # клиент ушёл, не дожидаясь ответа
+        err = _wait_log(capsys, "ушёл раньше ответа")
+    finally:
+        server.shutdown()
+        server.server_close()
+    print(f"журнал шима на ушедшего клиента: {err.strip()!r}")
+    assert "ушёл раньше ответа" in err, "уход клиента обязан попасть в журнал строкой"
+    assert "Traceback" not in err, "а трейсбека на штатное событие быть не должно"
+
+
+def test_a_real_shim_failure_still_screams(
+    tls: tuple[str, str], capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Настоящая поломка обязана остаться трейсбеком: глушится только уход клиента.
+
+    Молчание о поломке хуже шума: если «тишина» накрыла бы любое исключение, упавший
+    шим выглядел бы здоровым. Здесь маршрут ломается сам - и журнал обязан об этом
+    кричать, как кричал всегда.
+    """
+
+    class _Broken:
+        host = "broken.test"
+        gate = threading.BoundedSemaphore(shim._PER_HOST)
+        current = 0
+
+        def targets(self, resolver: object) -> list[object]:
+            raise RuntimeError("настоящая поломка")
+
+    server = _shim(tls, {"broken.test": _Broken()})
+    try:
+        with pytest.raises((urllib.error.URLError, OSError)):  # ответа нет - обрыв
+            _get(server.server_address[1], "broken.test")
+        err = _wait_log(capsys, "настоящая поломка")
+    finally:
+        server.shutdown()
+        server.server_close()
+    assert "Traceback" in err, "настоящая поломка обязана остаться трейсбеком"
+    assert "настоящая поломка" in err, "и с её собственным текстом"
+    assert "ушёл раньше ответа" not in err, "поломку нельзя принять за уход клиента"
