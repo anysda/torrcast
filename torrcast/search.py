@@ -610,8 +610,7 @@ class Prowlarr:
             response.raise_for_status()
             return response.json()
         except requests.RequestException as exc:
-            response = getattr(exc, "response", None)
-            body = str(getattr(response, "text", "") or "").casefold()
+            body = str(getattr(exc.response, "text", "") or "").casefold()
             if "all selected indexers being unavailable" in body:
                 raise _IndexersUnavailableError(
                     "Prowlarr: выбранные индексеры не отвечают"

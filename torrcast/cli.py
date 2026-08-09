@@ -1691,9 +1691,8 @@ def _ask(client: Prowlarr, query: str, progress: Progress) -> list[RawResult]:
         rows = client.search(query)
     except NotFoundError:
         rows = []
-    reported = getattr(client, "reported_silent", set())
-    silent = [name for name in getattr(client, "silent", ()) if name not in reported]
-    reported.update(silent)
+    silent = [name for name in client.silent if name not in client.reported_silent]
+    client.reported_silent.update(silent)
     if len(silent) == 1:
         progress.note(f"индексер {silent[0]} не ответил - выдача может быть хуже")
     elif silent:

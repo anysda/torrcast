@@ -303,10 +303,11 @@ def test_prowlarr_400_names_unavailable_indexers_not_prowlarr() -> None:
     session = client._session
     original = session.get  # type: ignore[union-attr]
 
-    def unavailable(url: str, timeout: float) -> _Reply:
+    def unavailable(url: str, **kwargs: object) -> _Reply:
         if "/api/v1/search" in url:
             return _UnavailableReply([])
-        return original(url, timeout)
+        reply: _Reply = original(url, **kwargs)  # type: ignore[arg-type,assignment]
+        return reply
 
     session.get = unavailable  # type: ignore[union-attr,method-assign]
     with pytest.raises(InfraError) as caught:

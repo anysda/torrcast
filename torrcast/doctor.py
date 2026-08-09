@@ -190,7 +190,12 @@ def _probe_indexer(config: Config, indexer: int) -> bool:
         response = requests.get(
             f"{config.prowlarr_url}/api/v1/search",
             headers={"X-Api-Key": config.prowlarr_apikey},
-            params={"query": "matrix", "type": "search", "indexerIds": indexer, "limit": 1},
+            params={
+                "query": "matrix",
+                "type": "search",
+                "indexerIds": str(indexer),
+                "limit": "1",
+            },
             timeout=_TIMEOUT,
         )
         response.raise_for_status()
