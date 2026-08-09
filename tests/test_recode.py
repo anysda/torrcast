@@ -12,10 +12,12 @@ from torrcast.recode import (
     FULL_PRESET,
     NEIGHBOUR_TOLL,
     PRESETS,
+    RECODE_HEIGHT,
     Encode,
     Pace,
     Recoder,
     Weights,
+    level_for,
     preset_for,
 )
 from torrcast.stream import (
@@ -1373,6 +1375,93 @@ def test_a_light_source_is_not_blown_up_to_the_ceiling() -> None:
     assert blind is not None and blind.mbit == 9.0, "паспорт молчит - идём по потолку"
 
 
+def test_a_frame_above_the_receivers_ceiling_is_scaled_down_instead_of_refused() -> None:
+    """🔴 TC-222: 2160p едет сплошным перекодом вниз до 1080p - и говорит об этом вслух.
+
+    Замер TC-157 на 4 vCPU: тот же ``ultrafast`` без скейла идёт 1.03x реального времени,
+    со скейлом до 1080p - 1.53x. То есть скейл не «ещё одна нагрузка», а разгрузка: x264
+    получает вчетверо меньше пикселей. Поэтому «нет 1080p» перестало значить «показа нет».
+    """
+    from torrcast.cli import _encode_all
+    from torrcast.profile import CAUTIOUS
+    from torrcast.state import Config
+    from torrcast.stream import recode_note
+
+    whole = _encode_all(Config(), "hevc", 20.0, 10, CAUTIOUS, frame=2160)
+    assert whole is not None and whole.scaled, "4К обязано ужиматься, а не ехать как есть"
+    assert whole.out_frame == RECODE_HEIGHT == CAUTIOUS.recode_frame
+    args = whole.args(_grid(), 0, 2)
+    assert "-vf" in args, "без фильтра перекод сменил бы кодек, но не кадр"
+    chain = args[args.index("-vf") + 1]
+    # Габарит, а не одна высота: скоуп 3840x1600 - это тоже 2160p, и ``-2:1080`` развернул
+    # бы его в 2592x1080 - кадр шире 1080p, то есть ровно то, чего приёмник не берёт.
+    assert chain.startswith("scale=w=min(iw\\,1920):h=min(ih\\,1080)")
+    assert "force_original_aspect_ratio=decrease" in chain
+
+    # ...и человек, выбравший 4К-раздачу, читает это строкой, а не догадывается по чёткости.
+    assert recode_note("hevc 10 бит", 0.0, 2160, whole.out_frame) == (
+        "видео hevc 10 бит - перекодирую на ходу целиком, 2160p - играю в 1080p"
+    )
+    # На 1080p не поменялось ничего: ни фильтра, ни строки.
+    same = _encode_all(Config(), "hevc", 20.0, 10, CAUTIOUS, frame=1080)
+    assert same is not None and not same.scaled and "-vf" not in same.args(_grid(), 0, 2)
+    assert recode_note("hevc 10 бит") == "видео hevc 10 бит - перекодирую на ходу целиком"
+
+
+def test_the_level_in_the_stream_matches_the_frame_that_actually_leaves() -> None:
+    """🔴 TC-224: уровень считается от кадра, а не пишется строкой.
+
+    Уровень - обещание декодеру «кадр не больше такого-то», и меряется оно в макроблоках
+    16x16. У 4.1 их 8192: 1080p (120x68 = 8160) влезает, 2160p (240x135 = 32400) больше
+    вчетверо. Прибитая строка «4.1» на 4К-кадре была прямым враньём в поток и держалась
+    ровно на том, что 4К до кодировщика не доходило.
+    """
+    from torrcast.profile import CAUTIOUS
+
+    assert level_for(1080) == "4.1", "1080p влезает в 4.1 - на нём не меняется ничего"
+    assert level_for(720) == "4.1", "ниже 4.1 не опускаемся: уровень потолок, а не заявка"
+    assert level_for(0) == "4.1", "кадра не спрашивали - прежнее поведение"
+    assert level_for(2160) == "5.1", "32400 макроблоков - это уже 5.1, и врать тут нечем"
+
+    # Верно по построению, а не по совпадению: наружу уходит ужатый кадр, и уровень
+    # считается от него же. Приёмник с другим потолком получит свой честный уровень.
+    scaled = Encode(preset=FULL_PRESET, mbit=9.0, frame=2160, ceiling=CAUTIOUS.recode_frame)
+    assert "4.1" in scaled.args(_grid(), 0, 2), "ужали до 1080p - 4.1 стал честным"
+    huge = Encode(preset=FULL_PRESET, mbit=9.0, frame=2160, ceiling=2160)
+    assert not huge.scaled and "5.1" in huge.args(_grid(), 0, 2), "не ужали - назвали как есть"
+
+
+def test_the_tonemap_is_a_conversion_not_a_relabel_and_it_is_measured() -> None:
+    """🔴 TC-223: метки BT.709 ставятся ТОЛЬКО вместе с преобразованием цвета.
+
+    Пометить кадр в PQ как BT.709, не преобразовав его, - переклеенный ярлык: приёмник
+    развернёт яркость не той кривой, и картинка поедет тусклой. Поэтому метки и цепочка
+    ходят парой: есть тонемап - есть метки, нет тонемапа - уезжают СВОИ метки источника,
+    какие и уезжали до этой правки.
+
+    Цена замерена (09-08-2026, 4 vCPU, «Матрица» 2160p HDR10, тяжёлое место 93 с,
+    ``ultrafast`` 9 Мбит/с): один скейл до 1080p - 1.34-1.41x реального времени, скейл с
+    тонемапом - 1.00x, тонемап до скейла (на 4К) - 0.37x. Запас съеден целиком, поэтому
+    настройка по умолчанию выключена, а порядок в цепочке - скейл первым.
+    """
+    from torrcast.recode import TONEMAP
+    from torrcast.state import Config
+
+    assert not Config().recode_tonemap, "по умолчанию выключен: 1.00x - это ноль запаса"
+
+    plain = Encode(preset=FULL_PRESET, mbit=9.0, frame=2160, ceiling=1080)
+    assert "-color_primaries" not in plain.args(_grid(), 0, 2), "нет тонемапа - нет и меток"
+
+    colored = Encode(preset=FULL_PRESET, mbit=9.0, frame=2160, ceiling=1080, hdr=True)
+    args = colored.args(_grid(), 0, 2)
+    chain = args[args.index("-vf") + 1]
+    assert TONEMAP in chain, "метка без преобразования - переклеенный ярлык"
+    assert chain.index("scale=") < chain.index(TONEMAP), "тонемап работает уже на 1080p"
+    assert [args[args.index(k) + 1] for k in ("-color_primaries", "-color_trc", "-colorspace")] == [
+        "bt709"
+    ] * 3
+
+
 def test_the_grid_weighs_a_fully_recoded_file_by_our_bitrate_not_the_source() -> None:
     """Сетка обязана резать по тому, что уедет на ТВ, а уедет наш перекод.
 
@@ -1389,6 +1478,40 @@ def test_the_grid_weighs_a_fully_recoded_file_by_our_bitrate_not_the_source() ->
     assert max(naive.span(k) for k in range(naive.count)) > 13.0, "карта разрешает длинные"
     worst = max(fixed.span(k) * 9.4e6 / 8 for k in range(fixed.count))
     assert worst <= MAX_SEGMENT_BYTES, "перекодированный кусок обязан влезать в потолок"
+
+
+def test_a_scaled_down_4k_show_gets_its_grid_weighed_by_our_bitrate_too(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """🔴 TC-222: у ужатого 4К сетка считается по НАШИМ 9 Мбит/с, а не по карте исходника.
+
+    Ловушка тут своя, и она новая: раньше 4К до сетки не доходило вовсе. 2160p на
+    4 Мбит/с - для карты файл лёгкий, она разрешает куски по 17 с; а уедет в них наш
+    перекод на 9 Мбит/с, то есть 20 МБ при потолке приёмника 16. Сплошной перекод сам
+    себе делает тот тяжёлый кусок, ради которого он и заведён.
+
+    Сетка тут строится настоящая - той же :func:`torrcast.cli._layout`, что и на показе;
+    подменена только карта опорных кадров, чтобы не ходить в рой.
+    """
+    from torrcast.cli import _layout
+    from torrcast.profile import CAUTIOUS
+    from torrcast.state import Config
+    from torrcast.stream import AUDIO_MBIT, TS_OVERHEAD
+
+    keys = _keys(duration=595.0, gop=8.5, rate=0.5e6)  # 4 Мбит/с - для карты это лёгкий файл
+    monkeypatch.setattr("torrcast.stream.film_keys", lambda url: keys)
+
+    grid, whole = _layout(Config(), "http://ts/x", 595.0, "h264", 4.0, depth=8, frame=2160)
+    assert whole is not None and whole.mbit == 9.0, "4К поехало сплошным перекодом"
+    ours = (whole.mbit + AUDIO_MBIT) * TS_OVERHEAD
+    # Хвост сетки в счёт не идёт: он по правилу такой, какой остался, и потолок веса на
+    # него не распространялся никогда - это не про 4К и не про эту правку.
+    worst = max(grid.span(k) * ours * 1e6 / 8 for k in range(grid.count - 1))
+    assert worst <= CAUTIOUS.max_segment_bytes, "кусок обязан влезать в потолок приёмника"
+
+    # А по карте исходника та же сетка разрешила бы куски, в которые наш перекод не влез бы.
+    naive = Grid.on_keyframes(keys.at, 595.0, Config().hls_segment, sizes=keys.offset)
+    assert max(naive.span(k) * ours * 1e6 / 8 for k in range(naive.count - 1)) > 20e6
 
 
 # ------------------------------------------------------------- фактическая скорость

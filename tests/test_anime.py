@@ -692,39 +692,60 @@ def test_a_live_ordinary_release_keeps_hevc_out_of_the_queue_as_before() -> None
     assert [plan.ranked[n - 1] for n in plan.candidates(args)] == [good]
 
 
-def test_the_last_hope_does_not_open_for_a_4k_hevc_because_the_recode_never_keeps_up() -> None:
-    """2160p сплошным перекодом не идёт: телевизор показа не начинает вовсе.
+def test_a_4k_release_never_lifts_over_a_live_1080p_however_many_seeders_it_has() -> None:
+    """🔴 TC-221: 2160p отбраковывается в пользу ЖИВОГО 1080p, а не берётся за чёткость.
 
-    Скорость замерена на 1080p - 4.04x реального времени на 4 vCPU; у 2160p вчетверо
-    больше пикселей. Пускать такой релиз в очередь значило бы обещать показ, которого не
-    будет, поэтому здесь нужен честный отказ, а не вечная петля воскрешений.
+    Решение владельца ровно такое, и держит его порядок, а не запрет: 4К играется только
+    сплошным перекодом со скейлом вниз - копией приёмник его не берёт (TC-157), - то есть
+    по цене это тот же класс, что BD-ремукс. Ступень «играется только сплошным перекодом»
+    стоит выше живости и выше качества, поэтому девятикратный перевес сидов 4К не спасает.
+    """
+    from torrcast.cli import needs_whole_recode, rank_releases
+
+    uhd = named("Аниме / Anime [TV] [01-12 из 12] (2019) BDRip-HEVC 2160p", size_gb=20.0, seeders=9)
+    hd = named("Аниме / Anime [TV] [01-12 из 12] (2019) BDRip-HEVC 1080p", size_gb=8.0, seeders=1)
+
+    assert uhd.height > 1080 and hd.height == 1080
+    assert needs_whole_recode(uhd, RUNTIME, 25.0), "4К - это сплошной перекод, и цена та же"
+    assert not needs_whole_recode(hd, RUNTIME, 25.0)
+    order = rank_releases([uhd, hd], RUNTIME, 40.0, hard_mbit=25.0, last=True)
+    assert order[0] is hd, "живой 1080p с одним сидом обходит 4К с девятью"
+
+
+def test_the_last_hope_opens_for_a_4k_hevc_because_it_is_scaled_down_now() -> None:
+    """🔴 TC-222: 1080p у картины нет вовсе - 4К пускается в очередь, а не отбрасывается.
+
+    Прежний запрет стоял на арифметике «перекод 4К не успевает», и замер TC-157 её
+    перевернул: со скейлом до 1080p тот же ultrafast идёт 1.53x реального времени против
+    1.03x без скейла. Отказывать тут значило бы отказывать в единственном носителе
+    картины ради потолка, которого больше нет.
     """
     from torrcast.cli import hevc_hope
 
     uhd = named("Аниме / Anime [TV] [01-12 из 12] (2019) BDRip-HEVC 2160p", size_gb=20.0, seeders=9)
-    hd = named("Аниме / Anime [TV] [01-12 из 12] (2019) BDRip-HEVC 1080p", size_gb=8.0, seeders=9)
+    hd = named("Аниме / Anime [TV] [01-12 из 12] (2019) BDRip-HEVC 1080p", size_gb=8.0, seeders=1)
 
-    assert uhd.height > 1080 and hd.height == 1080
-    assert not hevc_hope(uhd, True), "4К не спасает и последняя надежда"
+    assert hevc_hope(uhd, True), "последняя надежда - и 4К в ней участвует"
     assert hevc_hope(hd, True)
     assert not hevc_hope(hd, False), "ворота закрыты - признак не срабатывает вовсе"
-    assert not is_candidate(uhd, RUNTIME, 40.0, hard_mbit=25.0, last=True)
-    assert is_candidate(hd, RUNTIME, 40.0, hard_mbit=25.0, last=True)
+    assert is_candidate(uhd, RUNTIME, 40.0, hard_mbit=25.0, last=True)
 
 
-def test_a_light_4k_hevc_is_refused_by_the_passport_not_looped_forever() -> None:
-    """Лёгкое 4К проходит потолок веса - и всё равно отказ: приёмнику не по кадру.
+def test_a_light_4k_release_is_taken_and_scaled_down_instead_of_being_refused() -> None:
+    """🔴 TC-222: лёгкое 4К больше не отказ - оно едет сплошным перекодом вниз до 1080p.
 
-    Потолок ``bitrate_hard_mbit`` ловит 4К-ремуксы тяжестью, а 2160p HEVC на 12 Мбит/с
-    для него лёгкий. Спасает не вес: спасает кадр, и считать его надо по паспорту
-    ffprobe, а не по имени раздачи (:attr:`torrcast.profile.Profile.recode_frame`).
+    Потолок ``bitrate_hard_mbit`` ловит 4К-ремуксы тяжестью, а 2160p на 12 Мбит/с для него
+    лёгкий, и раньше такой релиз получал отказ по кадру. Замер TC-157 это правило снял:
+    ужатый до 1080p перекод идёт быстрее неужатого. Отказ остаётся ровно там, где ужимать
+    нечем, - при выключенном перекодировании, и назван он кадром, а не кодеком.
     """
     config = Config()
     light = cast(
         Any, _prep(GINTAMA_HEVC, video_bps=12_000_000.0, height=2160, size_gb=20.0, dur=7200.0)
     )
-    light.media = replace(cast(Media, light.media), video="hevc")
-    assert light.media.recoded_whole, "HEVC уезжает сплошным перекодом - о нём и речь"
+    light.media = replace(cast(Media, light.media), video="h264", pix_fmt="yuv420p")
+    assert light.media.frame == 2160 and light.media.depth == 8
+    assert light.media.recoded_whole, "копией 4К не уезжает даже в посильном кодеке (TC-221)"
 
     assert (
         _bench()._trouble(
@@ -734,8 +755,18 @@ def test_a_light_4k_hevc_is_refused_by_the_passport_not_looped_forever() -> None
             recode=True,
             hard_mbit=config.bitrate_hard_mbit,
         )
-        == "hevc 2160p - приёмник не берёт такой кадр в перекодированном виде"
-    ), "отказ назван своим именем, и очередь идёт дальше"
+        == ""
+    ), "перекодирование включено - кадр ужмётся, и релиз годен"
+    assert (
+        _bench()._trouble(
+            light,
+            pinned=False,
+            warn_mbit=config.bitrate_recode_mbit,
+            recode=False,
+            hard_mbit=config.bitrate_hard_mbit,
+        )
+        == "2160p - такой кадр приёмнику только через перекод"
+    ), "ужимать нечем - честный отказ, и назван он кадром, а не кодеком"
 
 
 def test_the_heavy_path_says_so_out_loud_in_one_line() -> None:

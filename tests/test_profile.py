@@ -253,6 +253,36 @@ def test_the_verdict_is_the_only_place_where_a_codec_is_judged(
     assert profile.ANDROID_TV.verdict(codec, depth) == want, "замер на приставке был нативный"
 
 
+def test_a_frame_the_receiver_cannot_take_never_leaves_as_a_copy_either() -> None:
+    """🔴 TC-221: 2160p копией не уезжает, даже когда кодек и глубина цвета посильные.
+
+    Дефект был ровно такой: ветка «играет копией» смотрела на один кодек, а 2160p H.264
+    8 бит - это самый обычный ``h264``. Он проходил все проверки и уезжал на приёмник как
+    есть, где вставал точно так же, как чистый 4К-клип замера TC-157: пять заходов LOAD,
+    каждый ``IDLE/ERROR`` сразу после первого сегмента.
+
+    🔴 Судья один на кодек и на кадр - :meth:`Profile.verdict`. Разведи их по двум местам,
+    и повторится история десятибитного H.264: отбор судил бы по одному правилу, упаковка
+    по другому, а прогретое легло бы под третьим ключом.
+    """
+    from torrcast.cli import _encode_all
+    from torrcast.state import Config
+
+    q70d = profile.CAUTIOUS
+    assert q70d.recode_frame == 1080, "потолок кадра - свойство приёмника, отсюда и берётся"
+    assert q70d.verdict("h264", 8, 1080) == profile.COPY, "на 1080p не поменялось ничего"
+    assert q70d.verdict("h264", 8, 2160) == profile.RECODE, "4К - только перекодом вниз"
+    assert not q70d.plays_copy("h264", 8, 2160)
+    assert q70d.verdict("vp9", 0, 2160) == profile.REFUSE, "большой кадр не отменяет отказа"
+
+    # ...и то же самое всеми, кто спрашивает: упаковка, ключ прогретого и сборка перекода.
+    assert stream.recodes_whole("h264", 8, q70d, 2160)
+    assert not stream.recodes_whole("h264", 8, q70d, 1080)
+    assert stream.Media(video="h264", width=3840, height=2160, duration=1.0).recoded_whole
+    assert _encode_all(Config(), "h264", depth=8, profile=q70d, frame=2160) is not None
+    assert _encode_all(Config(), "h264", depth=8, profile=q70d, frame=1080) is None
+
+
 @pytest.mark.parametrize("codec", ["vp9", "av1", "vc1", "mpeg2video"])
 def test_an_unmeasured_codec_never_leaves_for_the_receiver_as_a_copy(codec: str) -> None:
     """🔴 То, чего приёмник не играет по HLS, копией не уезжает НИКОГДА.

@@ -780,6 +780,10 @@ class Media:
     #: «копия или перекод целиком» (:func:`recodes_whole`). Пока этого поля в паспорте не
     #: было, десятибитный H.264 проходил как обычный: имя кодека у них одно на двоих.
     pix_fmt: str | None = None
+    #: Кривая яркости потока (``smpte2084``, ``arib-std-b67``, ``bt709``); ``None`` -
+    #: паспорт молчит. Из неё считается :attr:`hdr`, а больше ни из чего её не сосчитать:
+    #: ни кодек, ни глубина цвета, ни ширина кадра про HDR не говорят ничего.
+    color_trc: str | None = None
 
     @property
     def delivered_mbit(self) -> float:
@@ -838,6 +842,19 @@ class Media:
         return color_depth(self.pix_fmt, self.profile) if self.video else 0
 
     @property
+    def hdr(self) -> bool:
+        """Картинка в HDR: яркость записана не той кривой, которой её покажет SDR-экран.
+
+        Признак ровно один - кривая (:attr:`color_trc`), и подменять её соседями нельзя:
+        десятибитный HEVC в BT.2020 бывает и обычным SDR, а 4К - тем более. HDR делает
+        именно ``smpte2084`` (PQ, HDR10 и Dolby Vision) или ``arib-std-b67`` (HLG).
+
+        Молчание паспорта (mp4 без тегов, кривой ремукс) читается как SDR: тонемап на
+        SDR-исходнике портит картинку ровно так же, как его отсутствие - на HDR.
+        """
+        return (self.color_trc or "") in {"smpte2084", "arib-std-b67"}
+
+    @property
     def recoded_whole(self) -> bool:
         """Этот файл придётся перекодировать целиком (:func:`recodes_whole`).
 
@@ -849,7 +866,7 @@ class Media:
         целиком»). Там, где от ответа зависит НАРЕЗКА, спрашивать надо
         :func:`recodes_whole` с профилем показа - иначе прогретое ляжет под другим ключом.
         """
-        return recodes_whole(self.video or "", self.depth)
+        return recodes_whole(self.video or "", self.depth, frame=self.frame)
 
     @property
     def video_name(self) -> str:
@@ -865,13 +882,14 @@ class Media:
         :func:`recode_note`, а не она (:meth:`torrcast.cli._Bench.resolve`).
 
         Десятибитный H.264 сюда попадает наравне с HEVC, хотя зовётся ``h264``: на живом
-        Q70D он встаёт (:data:`COPY_DEPTH`), и молчать об этом - та же подмена.
+        Q70D он встаёт (:data:`COPY_DEPTH`), и молчать об этом - та же подмена. Кадр 4К -
+        туда же: без перекодирования его не ужать, а копией приёмник его не берёт (TC-157).
 
         Спрашивается тот же единственный судья, что и у показа
         (:meth:`torrcast.profile.Profile.verdict`): строка и решение обязаны говорить об
         одном файле одно и то же.
         """
-        if CAUTIOUS.verdict(self.video or "", self.depth) == COPY:
+        if CAUTIOUS.verdict(self.video or "", self.depth, self.frame) == COPY:
             return ""
         return f"внимание: видео {self.video_name} - ресивер может не взять, а мы не перекодируем"
 
@@ -942,7 +960,7 @@ def codec_name(codec: str, depth: int = 0) -> str:
     return f"{codec} {depth} бит" if depth > COPY_DEPTH else codec
 
 
-def recodes_whole(codec: str, depth: int = 0, profile: Profile = CAUTIOUS) -> bool:
+def recodes_whole(codec: str, depth: int = 0, profile: Profile = CAUTIOUS, frame: int = 0) -> bool:
     """Пойдёт ли этот файл ЦЕЛИКОМ через перекод - единственный ответ на этот вопрос.
 
     🔴 Вопрос упаковки задан НАОБОРОТ к тому, как он задавался раньше: не «перечислен ли
@@ -967,24 +985,26 @@ def recodes_whole(codec: str, depth: int = 0, profile: Profile = CAUTIOUS) -> bo
     десятибитным H.264: показ мешал в одном потоке копию и перекод, SPS не совпадал ни
     одним байтом, а приёмник вставал намертво.
 
-    Поводов ровно три, и все - свойство файла, а не куска:
+    Поводов ровно четыре, и все - свойство файла, а не куска:
 
     * кодек, который мы берём на себя целиком (:data:`RECODE_CODECS`);
     * глубина цвета выше :data:`COPY_DEPTH` - десятибитный H.264 (Hi10P), которым собрана
       добрая половина аниме-BDRip. Имя кодека у него то же самое ``h264``, поэтому по
       имени он и проходил как обычный - до замера на живом ТВ;
+    * кадр выше :attr:`torrcast.profile.Profile.recode_frame` - 2160p приёмник не берёт и в
+      посильном кодеке (TC-157), и перекод его ужимает вниз;
     * кодек, которого нет в белом списке копии вовсе (vp9, av1, vc1, mpeg2video).
 
     ``depth`` ноль - глубину не спрашивали (запись прежней версии): тогда решаем по
-    кодеку, как решали раньше.
+    кодеку, как решали раньше. ``frame`` ноль - то же самое про кадр.
 
     ``profile`` - чей это декодер (:mod:`torrcast.profile`). Умолчание осторожное: кто
     профиля не назвал, судится по Q70D, то есть ровно как раньше.
     """
-    return profile.verdict(codec, depth) != COPY
+    return profile.verdict(codec, depth, frame) != COPY
 
 
-def recode_note(codec: str, weight_mbit: float = 0.0) -> str:
+def recode_note(codec: str, weight_mbit: float = 0.0, frame: int = 0, out_frame: int = 0) -> str:
     """Та самая одна честная строка про сплошной перекод.
 
     Одна на весь показ и одинаковая везде: и в терминале при выборе релиза, и в журнале
@@ -994,10 +1014,19 @@ def recode_note(codec: str, weight_mbit: float = 0.0) -> str:
     ``weight_mbit`` — перекодируем не из-за кодека, а из-за веса (BD-ремукс на
     28–37 Мбит/с). Причина называется вслух вместе с числом: молчаливой подмены «взял
     ремукс и тихо пережал» быть не должно.
+
+    ``frame`` и ``out_frame`` — 🔴 TC-222: кадр ужимается, и молчать об этом нельзя. Взяв
+    2160p, показ отдаёт наружу 1080p, и человек, который выбрал 4К-раздачу, обязан
+    прочитать это строкой, а не догадаться по чёткости. Ужатия нет (``out_frame`` не ниже
+    ``frame``) — строка ровно та же, что была.
     """
+    shrink = f", {frame}p - играю в {out_frame}p" if 0 < out_frame < frame else ""
     if weight_mbit > 0:
-        return f"видео {codec} {weight_mbit:.0f} Мбит/с - тяжело приёмнику, перекодирую целиком"
-    return f"видео {codec} - перекодирую на ходу целиком"
+        return (
+            f"видео {codec} {weight_mbit:.0f} Мбит/с - тяжело приёмнику, "
+            f"перекодирую целиком{shrink}"
+        )
+    return f"видео {codec} - перекодирую на ходу целиком{shrink}"
 
 
 def _file_stats(status: dict[str, Any]) -> list[TorrFile]:
@@ -1369,8 +1398,9 @@ def shelf_weight(directory: Path) -> tuple[int, int]:
 
 #: Версия формата паспорта на полке (:func:`_read_media`). Растёт, когда в паспорт
 #: добавляется поле, от которого зависит РЕШЕНИЕ показа: старая запись такого поля не
-#: несёт, и молчание в ней неотличимо от честного ответа. ``2`` - формат кадра и профиль.
-_MEDIA_VERSION: Final = 2
+#: несёт, и молчание в ней неотличимо от честного ответа. ``2`` - формат кадра и профиль,
+#: ``3`` - кривая яркости (:attr:`Media.hdr`).
+_MEDIA_VERSION: Final = 3
 
 
 def _media_cache(source_url: str) -> Path:
@@ -1406,6 +1436,7 @@ def _read_media(cache: Path) -> Media | None:
             video=_opt_str(saved.get("video")),
             profile=_opt_str(saved.get("profile")),
             pix_fmt=_opt_str(saved.get("pix_fmt")),
+            color_trc=_opt_str(saved.get("color_trc")),
             height=int(saved.get("height") or 0),
             width=int(saved.get("width") or 0),
             video_bps=float(saved.get("video_bps") or 0.0),
@@ -1434,6 +1465,7 @@ def _keep_media(cache: Path, media: Media) -> None:
                     "video": media.video,
                     "profile": media.profile,
                     "pix_fmt": media.pix_fmt,
+                    "color_trc": media.color_trc,
                     "height": media.height,
                     "width": media.width,
                     "video_bps": media.video_bps,
@@ -1530,7 +1562,9 @@ def probe(url: str, timeout: float = 90.0, alive: Any = None) -> Media:
         "format=duration:"
         # ``profile`` и ``pix_fmt`` берутся тем же одним запросом и ничего не стоят, а без
         # них показ не отличает Hi10P от обычного H.264 (:func:`recodes_whole`).
-        "stream=index,codec_name,codec_type,channels,width,height,bit_rate,profile,pix_fmt:"
+        "stream=index,codec_name,codec_type,channels,width,height,bit_rate,profile,pix_fmt,"
+        # ``color_transfer`` - оттуда же и даром, а без него HDR не отличить от SDR вовсе.
+        "color_transfer:"
         # Теги дорожки берутся ЦЕЛИКОМ, а не списком: mkvmerge пишет вес дорожки то как
         # ``BPS``, то как ``BPS-eng``/``BPS-rus`` - суффикс языковой и заранее неизвестен.
         "stream_tags"
@@ -1564,6 +1598,7 @@ def probe(url: str, timeout: float = 90.0, alive: Any = None) -> Media:
         video=_opt_str(video[0].get("codec_name")) if video else None,
         profile=_opt_str(video[0].get("profile")) if video else None,
         pix_fmt=_opt_str(video[0].get("pix_fmt")) if video else None,
+        color_trc=_opt_str(video[0].get("color_transfer")) if video else None,
         height=int(video[0].get("height") or 0) if video else 0,
         width=int(video[0].get("width") or 0) if video else 0,
         video_bps=_video_bps(video[0], duration) if video else 0.0,
