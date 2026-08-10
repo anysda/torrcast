@@ -547,6 +547,40 @@ def test_a_number_that_belongs_to_the_title_is_searched_whole(
     assert "искал «бен 10» целиком" in said
 
 
+def test_a_number_at_a_series_name_asks_for_that_season(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """🔴 TC-363. «человек-бензопила 2» - это второй сезон, а не вторая часть франшизы.
+
+    Под именем сериала лежит и полный метр к нему, раздач у фильма больше, - и номер,
+    отсчитанный по хронологии, отвечал фильмом. Теперь номер уходит в сезонную машинерию
+    целиком: сезон спрашивается у раздач, добирается сезонной строкой по оригиналу и, если
+    его нет, кончается честным отказом. Прочтение при этом названо вслух.
+    """
+    client = _FakeProwlarr(
+        {
+            "человек-бензопила": [
+                raw("Человек-бензопила / Chainsaw Man [S01] (2022) BDRip 1080p | D", 1),
+                raw(
+                    "Человек-бензопила. Фильм: История Резе / Chainsaw Man Movie: Reze-hen "
+                    "(2025) WEB-DL 1080p | D",
+                    2,
+                ),
+            ]
+        }
+    )
+
+    with pytest.raises(NotFoundError) as caught:
+        _search(client, "человек-бензопила 2", monkeypatch)
+
+    assert "раздач с сезоном 2 нет" in str(caught.value)
+    plans, said = _search(client, "человек-бензопила 1", monkeypatch)
+    assert [(plan.picture.title, plan.picture.kind) for plan in plans] == [
+        ("Человек-бензопила", "tv")
+    ]
+    assert "номер 1 читаю сезоном, а не частью" in said
+
+
 def test_the_whole_string_is_not_asked_when_the_part_is_found(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -29,6 +29,7 @@ from torrcast.parse import (
     parse_release_name,
     part_number,
     pick_franchise,
+    reads_season,
     slugify,
     split_franchise_index,
 )
@@ -458,6 +459,136 @@ def test_a_yearless_fan_edit_does_not_outweigh_the_living_part() -> None:
     # назвал этим номером, и честно показывается.
     lonely = [p for p in pictures if p.title != "Матрица: Воскрешение"]
     assert [p.title for p in pick_franchise("матрица 4", lonely)] == ["Матрица 4"]
+
+
+def test_the_free_first_slot_goes_to_the_living_first_part() -> None:
+    """Свободное первое место линейки занимает живая первая часть, а не однофамилец (TC-361).
+
+    Имена дословные, с сохранённой выдачи. Каталог подписал номерами части с четвёртой по
+    десятую, первое место линейки свободно, - и прежний разбор отдавал его самой ранней
+    безномерной картине по хронологии. Ею оказался «Форсаж» 1992 года с оригиналом
+    ``Afterburn``: другое кино, одна раздача. Живой «Форсаж» 2001 года стоял в стороне с
+    подписью «без номера части», хотя нумерованные части выросли именно из него.
+
+    Второе ограждение в том же наборе: «Форсаж: Хоббс и Шоу» кучкой полнее первой части,
+    но вышел ПОСЛЕ нумерации - первой частью такое быть не может, и место он не занимает.
+    """
+    pictures = cluster(
+        [
+            parse_release_name(name)
+            for name in (
+                "Форсаж / Afterburn [1992, США, Драма, DVDRip-AVC] AVO + Original Eng",
+                "Форсаж / The Fast and the Furious (2001) HDRip | D | Open Matte",
+                "Форсаж / The Fast and the Furious [2001, Боевик, BDRip 1080p] "
+                "[Расширенная версия / Extended Edition]",
+                "Форсаж 5 / Fast Five (2011) HybridRip-AVC от DoMiNo | D | Театральная "
+                "версия | Open Matte",
+                "Форсаж 10 / Fast X (2023) HDRip-AVC от ExKinoRay | D, P",
+                "Форсаж: Хоббс и Шоу / Fast & Furious Presents: Hobbs & Shaw [2019, США, "
+                "боевик, приключения, BDRemux 1080p] Dub (BD 4K EUR) + AVO",
+                "Форсаж: Хоббс и Шоу / Fast & Furious Presents: Hobbs & Shaw [2019, США, "
+                "боевик, приключения, BDRip 1080p] Dub (BD 4K EUR) + VO",
+                "Форсаж: Хоббс и Шоу / Fast & Furious Presents: Hobbs & Shaw [2019, США, "
+                "боевик, приключения, BDRip] AVO",
+            )
+        ]
+    )
+    first = pick_franchise("форсаж 1", pictures)
+
+    assert [(p.title, p.year) for p in first] == [("Форсаж", 2001)], "однофамилец не первая часть"
+    whole = pick_franchise("форсаж", pictures)
+    assert [(p.title, p.year) for p in menu_order(whole)][:3] == [
+        ("Форсаж", 2001),
+        ("Форсаж 5", 2011),
+        ("Форсаж 10", 2023),
+    ]
+    # Уехавшему за линейку меню подписывает причину - каталог его номером не назвал.
+    assert {p.title for p in whole if p.key in outside_numbering(whole)} == {
+        "Форсаж",
+        "Форсаж: Хоббс и Шоу",
+    }
+    # Названные каталогом номера отвечают как прежде: правило сужено, а не выключено.
+    assert [p.title for p in pick_franchise("форсаж 5", pictures)] == ["Форсаж 5"]
+    assert pick_franchise("форсаж 2", pictures) == [], "второй части в выдаче нет"
+
+
+def test_a_number_after_a_series_name_is_a_season_not_a_part() -> None:
+    """У сериала номер это сезон, а не часть франшизы (TC-363).
+
+    Имена дословные, с сохранённой выдачи. Под именем сериала лежит ещё и полный метр к
+    нему - «Человек-бензопила. Фильм: История Резе», 65 раздач против девяти у самого
+    сериала, - и номер отсчитывался по хронологии: «chainsaw man 2» отвечал фильмом, а
+    «chainsaw man 3» - его же латинским дублем без года. Второго сезона человек так и не
+    просил ни разу.
+    """
+    pictures = cluster(
+        [
+            parse_release_name(name)
+            for name in (
+                "Человек-бензопила / Chainsaw Man [S01] (2022) BDRip-HEVC 1080p | D | "
+                "Flarrow Films, Force Media",
+                "Человек-бензопила / Chainsaw Man [S01] (2022) BDRip 1080p от Deadmauvlad | "
+                "D, L, L2 | Crunchyroll, StudioBand, AniDub, AniLibria",
+                "Человек-бензопила. Фильм: История Резе / Chainsaw Man Movie: Reze-hen "
+                "(2025) WEB-DL 1080p от FortunaTV | Локализованный видеоряд | D | Flarrow Films",
+                "Человек-бензопила. Фильм: История Резе / Chainsaw Man Movie: Reze-hen "
+                "(2025) UHD WEB-DL-HEVC 2160p от KORSARS | 4K | D | Force Media",
+                "Человек-бензопила. Фильм: История Резе / Chainsaw Man Movie: Reze-hen "
+                "(2025) WEB-DL 720p | D | Force Media",
+            )
+        ]
+    )
+
+    for query in ("chainsaw man 2", "chainsaw man 3", "человек-бензопила 2"):
+        found = pick_franchise(query, pictures)
+        assert [(p.title, p.kind) for p in found] == [("Человек-бензопила", "tv")], query
+    # Без номера франшиза показывается как была - фильм к сериалу из меню не исчезает.
+    assert len(pick_franchise("chainsaw man", pictures)) == 2
+
+
+def test_a_number_stays_a_part_when_the_series_is_not_the_franchise_root() -> None:
+    """Сериал в хвосте киношной франшизы номер сезоном не делает (TC-363).
+
+    Ограждение, и мерено оно на сохранённых выдачах: документальный сериал попадается под
+    именем половины киношных франшиз. Хватило бы одного его присутствия - и «титаник 3»
+    отвечал бы документалкой 2012 года вместо картины 1997-го.
+    """
+    pictures = cluster(
+        [
+            _release("Титаник", 1943, seeders=1),
+            _release("Титаник", 1953, seeders=6),
+            _release("Титаник", 1997, original="Titanic", seeders=68),
+            Release(
+                raw_name="Титаник / Titanic (2012) HDTVRip [S01]",
+                title="Титаник",
+                year=2012,
+                kind="tv",
+                season=1,
+                seeders=1,
+            ),
+        ]
+    )
+
+    assert [p.year for p in pick_franchise("титаник 3", pictures)] == [1997]
+    assert not reads_season(pick_franchise("титаник", pictures))
+
+
+def test_the_free_first_slot_stays_early_when_the_pools_are_equal() -> None:
+    """Кучки претендентов равны - первое место остаётся у ранней картины (TC-361).
+
+    Ограждение против мерки роем: у «Тачек» на сохранённой выдаче 4 сида, а у спин-оффа
+    «Мультачки» - 5, и порог по сидам отдал бы первое место спин-оффу. Считается кучка, а
+    сиды у одной и той же картины гуляют от прогона к прогону.
+    """
+    pictures = cluster(
+        [
+            _release("Тачки", 2006, original="Cars", seeders=4),
+            _release("Тачки: Мультачки. Байки Мэтра", 2008, seeders=5),
+            _release("Тачки 2", 2011, original="Cars 2", seeders=9),
+        ]
+    )
+
+    assert [p.title for p in pick_franchise("тачки 1", pictures)] == ["Тачки"]
 
 
 def test_cars_franchise_is_cross_language() -> None:

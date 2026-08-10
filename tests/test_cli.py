@@ -3430,3 +3430,41 @@ def test_повод_потолка_узок() -> None:
         "имя в каталоге есть - обрезан лишь хвост, и это не повод"
     )
     assert cli._ceiling_hides_name(capped, "девять", pictures, found)
+
+
+def test_two_pictures_under_one_name_and_year_are_named_out_loud() -> None:
+    """🔴 TC-371. Развести пару нечем - значит человек читает о ней строкой.
+
+    Именем «Девять» и годом 2009 в русском прокате подписаны мюзикл ``Nine`` и мультфильм
+    ``9``. Оба признака отбора - имя и год - у них совпадают, и в одну кучку их сводит сам
+    каталог: больше в раздачах не сказано ничего. Молчаливой подмены тут быть не должно, а
+    развести пару может только независимый источник - справка знает обе картины.
+    """
+    from torrcast.facts import Origin
+
+    plan = _franchise_plan("Девять", 2009, [rel(name="Девять / Nine (2009) BDRip 1080p")])
+    about = Origin(title="Nine", year=2009, namesake="9 (мультфильм, 2009)")
+    note = cli.namesake_note(plan, about)
+
+    assert note and "\n" not in note, "строка одна"
+    assert "«9 (мультфильм, 2009)»" in note and "2009" in note, note
+
+
+def test_the_namesake_line_stays_silent_where_it_should() -> None:
+    """Ограждения строки про двусмысленность: тёзки нет, года нет, год разъехался.
+
+    Год, разошедшийся со справкой, - самый важный случай: паспорт приехал про ДРУГУЮ
+    картину, и её тёзка к выбранной отношения не имеет. Про сам разъезд человек читает
+    своей строкой (:func:`~torrcast.cli.year_note`), и валить их в кучу нельзя.
+    """
+    from torrcast.facts import Origin
+
+    plan = _franchise_plan("Девять", 2009, [rel(name="Девять / Nine (2009) BDRip 1080p")])
+    assert cli.namesake_note(plan, Origin(title="Nine", year=2009)) == "", "тёзки нет - молчим"
+    assert cli.namesake_note(plan, Origin(namesake="9 (мультфильм, 2009)")) == "", (
+        "года справка не назвала - сверять нечем"
+    )
+    other = Origin(title="Nine", year=1957, namesake="Девять дней одного года")
+    assert cli.namesake_note(plan, other) == "", "справка про другую картину - и тёзка её"
+    unknown = _franchise_plan("Девять", None, [rel(name="Девять BDRip")])
+    assert cli.namesake_note(unknown, Origin(title="Nine", year=2009, namesake="9")) == ""

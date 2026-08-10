@@ -429,6 +429,10 @@ class Origin:
     #: убийцы»), поэтому гейт добора такому имени на слово не верит
     #: (:func:`~torrcast.cli._second_language`).
     guessed: bool = False
+    #: Заголовок ДРУГОЙ картины того же года, которую справка знает под тем же именем
+    #: (:func:`namesake`). Не паспорт, а повод для честной строки: развести такую пару
+    #: разбору нечем, и человек обязан о ней прочитать (:func:`~torrcast.cli.namesake_note`).
+    namesake: str = ""
 
     def __bool__(self) -> bool:
         return bool(self.title or self.year or self.name)
@@ -1160,10 +1164,49 @@ def read_origin(
             year=picture_year(extract),
             name=_TAIL_RE.sub("", heading) if _CYRILLIC.search(heading) else "",
             entity=str((page.get("pageprops") or {}).get("wikibase_item") or ""),
+            namesake=namesake(pages, heading, picture_year(extract)),
         )
         if found:
             return found
     return shortened
+
+
+def namesake(pages: list[Any], heading: str, year: int | None) -> str:
+    """Заголовок ДРУГОЙ картины того же года, которую справка знает под тем же именем.
+
+    🔴 TC-371. Двусмысленность бывает не в отборе, а в самих источниках: именем «Девять» и
+    годом 2009 в русском прокате подписаны две разные картины - мюзикл (``Nine``) и
+    мультфильм (``9``). Каталог сводит их в одну кучку: имя и год - оба признака отбора - у
+    них совпадают, а больше в раздачах не сказано ничего. Развести их разбором нечем, и
+    молчать об этом нельзя: человек просит «девять», получает одну из двух, и объяснения
+    нет ни строчки.
+
+    Признак стоит ровно ноль: статьи уже приехали. Справка спрашивается сразу под всеми
+    уточнениями (:data:`_QUALIFIERS`), «(мультфильм)» и «(фильм)» среди них, и обе картины
+    лежат в одном ответе - остаётся их сосчитать.
+
+    Ограждения два, и оба про то, чтобы строка не стала шумом:
+
+    * год ОДИН И ТОТ ЖЕ. Одноимённых картин в справке полно («Дюна» 1984 и 2021, «Моана»
+      2016 и 2026), но год их разводит, и разводит его же отбор - говорить не о чем;
+    * статья ДРУГАЯ: тот же заголовок приезжает по нескольку раз, потому что под разными
+      уточнениями лежит одно перенаправление.
+
+    Про кино ли вторая статья, решает тот же гейт, что и для первой (:func:`_about_cinema`):
+    у «Матрицы» под тем же именем лежит таблица, и картиной она не станет.
+    """
+    if year is None:
+        return ""
+    for page in pages:
+        if page is None:
+            continue
+        other = str(page.get("title") or "")
+        extract = str(page.get("extract") or "")
+        if other == heading or not _about_cinema(other, extract):
+            continue
+        if picture_year(extract) == year:
+            return other
+    return ""
 
 
 def _localized_short_name(title: str, heading: str, latin: str) -> bool:
@@ -1762,6 +1805,7 @@ def _cached_origin(title: str, series: bool) -> Origin | None:
         name=str(row.get("name", "")),
         entity=str(row.get("entity", "")),
         guessed=bool(row.get("guessed")),
+        namesake=str(row.get("namesake", "")),
     )
 
 
@@ -1777,6 +1821,9 @@ def _remember_origin(title: str, series: bool, found: Origin) -> None:
         # Отметка «имя лишь похоже» тоже нужна на диске: без неё гейт добора на втором
         # показе той же картины поверил бы догадке как доказанному имени.
         "guessed": found.guessed,
+        # Тёзка того же года (TC-371) - тоже на диск: со второго показа справку не
+        # спрашивают вовсе, и честная строка про двусмысленность иначе пропадала бы.
+        "namesake": found.namesake,
     }
     _write_cache(raw)
 

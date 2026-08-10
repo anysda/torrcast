@@ -58,6 +58,7 @@ from torrcast.cli import (
     Args,
     _Plan,
     _plan_for,
+    _season_asked,
     first_alive,
     queue_drops,
     unfit_pool,
@@ -69,6 +70,7 @@ from torrcast.parse import (
     cluster,
     menu_order,
     pick_franchise,
+    split_franchise_index,
 )
 from torrcast.profile import CAUTIOUS, Profile, tune
 from torrcast.search import RawResult, merge, to_releases
@@ -195,6 +197,12 @@ def replay(query: str, batches: list[list[RawResult]], config: Config, profile: 
     with watching_glue() as merges:
         pictures = cluster(to_releases(raw))
     found = menu_order(pick_franchise(args.title_query, pictures))
+    # Номер при имени сериала - сезон, и боевой путь читает его именно так (TC-363,
+    # :func:`~torrcast.cli._season_asked`). Щуп повторяет то же самое: иначе планы
+    # строились бы по первому сезону там, где спрошен второй.
+    name, index = split_franchise_index(args.title_query)
+    if index is not None and _season_asked(found, name, pictures):
+        args = Args(query=[*name.split(), f"s{index}e1"])
     plans = [p for p in (_plan_for(pic, args, config, profile) for pic in found) if p.ranked]
     return Replay(
         query=query,

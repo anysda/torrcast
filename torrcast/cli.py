@@ -137,6 +137,7 @@ __all__ = [
     "liveliness",
     "main",
     "misses_episode",
+    "namesake_note",
     "pack_mbit",
     "parse_args",
     "pick_voice",
@@ -1423,6 +1424,10 @@ def _cmd_play(args: Args) -> int:
     # раздачи врёт («Оно» 2014, «Медведь» 2026), а год у дефолта не сверялся нигде.
     if _is_default(plans, plan) and (note := year_note(plan, passport.get(), args.title_query)):
         print(note)
+    # 🔴 TC-371. Двусмысленность самих источников: под одним именем и годом картин две,
+    # и развести их отбору нечем - значит человек читает об этом строкой.
+    if note := namesake_note(plan, passport.get()):
+        print(note)
     if args.dry:
         # Показа не будет: «сыгранная» раздача - такой же мусор, как прогретое лишнее.
         # Убирается по СВОИМ явным хэшам, как на любом выходе без показа.
@@ -1560,6 +1565,21 @@ def _titled_number(
     return merged, pictures, found
 
 
+def _season_asked(found: list[Picture], name: str, pictures: list[Picture]) -> bool:
+    """Номер запроса просит СЕЗОН сериала, а не часть франшизы (TC-363).
+
+    Спрашивается ровно то же, что решил разбор (:func:`~torrcast.parse.reads_season`), и
+    сверяется его ответом: номер отдан сериалам франшизы, а не картине по счёту. Двух
+    правил тут нет - есть одно, и cli лишь читает, чем оно кончилось: номер должен
+    доехать до сезонной машинерии, а знает про сезоны она, а не разбор.
+    """
+    from torrcast.parse import pick_franchise, reads_season
+
+    if not found or any(picture.kind != "tv" for picture in found):
+        return False
+    return reads_season(pick_franchise(name, pictures))
+
+
 def _search(
     config: Config, args: Args, progress: Progress, profile: Profile = CAUTIOUS
 ) -> list[_Plan]:
@@ -1591,6 +1611,15 @@ def _search(
     # Номер в запросе - позиция во франшизе, а не в общей выдаче.
     found = pick_franchise(query, pictures)
     titled = False
+    if index is not None and _season_asked(found, name, pictures):
+        # 🔴 TC-363. У сериала номер это сезон, а не часть франшизы
+        # (:func:`~torrcast.parse.reads_season`), и дальше по строке он идёт ровно тем же
+        # путём, что и явное `sNeM`: своей сезонной машинерией, вплоть до честного
+        # «раздач с сезоном N нет». Молчать о таком прочтении нельзя - номер человек
+        # написал сам, и он вправе знать, чем мы его сочли.
+        progress.note(f"«{name}» - это сериал: номер {index} читаю сезоном, а не частью")
+        args = replace(args, query=[*name.split(), f"s{index}e1"])
+        query, index = name, None
     if index is not None and not found:
         # Цифра оказалась частью названия, и обрубок увёз поиск не туда
         # (:func:`_titled_number`). Заход платится только вместо отказа.
@@ -5886,6 +5915,38 @@ def year_note(picked: _Plan, about: Origin, asked: str = "") -> str:
     return (
         f"{head}беру «{picture.title}» {picture.year} года, "
         f"но справка знает эту картину как {about.year}"
+    )
+
+
+def namesake_note(picked: _Plan, about: Origin) -> str:
+    """🔴 TC-371. Честная строка: под этим именем и годом картин ДВЕ, а играет одна.
+
+    Двусмысленность тут не наша: именем «Девять» и годом 2009 в русском прокате подписаны
+    мюзикл ``Nine`` и мультфильм ``9``. Отбор выбирает картину по имени и году - обоими
+    признаками они совпадают, - и в одну кучку их сводит сам каталог: больше в раздачах не
+    сказано ничего. Развести такую пару разбору нечем, и это ровно тот случай, когда
+    молчать нельзя: человек просил имя, получил одну из двух, а какую - решил вес кучки.
+
+    Сказать об этом может только независимый источник, и он уже отвечает: справка знает
+    обе картины и приносит их одним ответом (:func:`~torrcast.facts.namesake`). Строка
+    называет вторую картину так, как её подписала справка, - по этому имени человек
+    отличит одну от другой и спросит точнее.
+
+    Молчим, когда сверять нечего или не о чем:
+
+    * тёзки того же года справка не нашла - строка была бы выдумкой;
+    * год картины разошёлся со справкой (допуск ±1, как у :func:`year_note`): паспорт
+      приехал про ДРУГУЮ картину, и её тёзка к выбранной отношения не имеет. Про сам
+      разъезд годов человек читает своей строкой.
+    """
+    picture = picked.picture
+    if not about.namesake or about.year is None or picture.year is None:
+        return ""
+    if abs(picture.year - about.year) > 1:
+        return ""
+    return (
+        f"«{picture.title}» ({picture.year}): под этим именем и годом картин две - "
+        f"справка знает ещё «{about.namesake}», развести их по имени и году нечем"
     )
 
 

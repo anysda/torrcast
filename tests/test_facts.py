@@ -1519,3 +1519,59 @@ def test_own_name_first_keeps_redirected_spellings_in_the_race() -> None:
     pages: list[Any] = [{"title": "Уэнздей (телесериал)"}]
 
     assert facts_mod._own_name_first(pages, "уэнсдей") == pages
+
+
+#: Первые фразы двух статей русской Википедии: под именем «Девять» и годом 2009 в прокате
+#: две разные картины, и справка знает обе.
+NINE_MUSICAL = (
+    "«Девя́ть» (англ. Nine) — американский музыкальный драматический фильм 2009 года "
+    "режиссёра Роба Маршалла по мотивам одноимённого бродвейского мюзикла."
+)
+NINE_CARTOON = (
+    "«9» (англ. 9) — американский компьютерно-анимационный постапокалиптический "
+    "фильм 2009 года режиссёра Шейна Эккера."
+)
+
+
+def test_the_reference_names_the_second_picture_of_the_same_year() -> None:
+    """🔴 TC-371. Под одним именем и годом картин две - справка называет вторую.
+
+    Развести такую пару разбору нечем: имя и год - оба признака отбора - у мюзикла и
+    мультфильма совпадают, а больше раздачи не говорят ничего. Зато справка приносит обе
+    статьи одним ответом: «(мультфильм)» и «(фильм)» стоят среди её уточнений.
+    """
+    pages: list[Any] = [
+        {"title": "Девять (фильм)", "extract": NINE_MUSICAL},
+        {"title": "9 (мультфильм, 2009)", "extract": NINE_CARTOON},
+    ]
+
+    found = facts_mod.read_origin(pages, "Девять", trusted=True, series=False)
+
+    assert (found.title, found.year) == ("Nine", 2009)
+    assert found.namesake == "9 (мультфильм, 2009)"
+
+
+def test_a_namesake_of_another_year_is_not_an_ambiguity() -> None:
+    """Одноимённые картины разных лет разводит год - и разводит его сам отбор."""
+    pages: list[Any] = [
+        {"title": "Моана (мультфильм)", "extract": MOANA},
+        {"title": "Моана (фильм, 2026)", "extract": MOANA_2026.replace("режиссёра", "2026 года")},
+    ]
+
+    found = facts_mod.read_origin(pages, "Моана", trusted=True, series=False)
+
+    assert (found.title, found.year) == ("Moana", 2016)
+    assert not found.namesake, "год развёл картины - говорить не о чем"
+
+
+def test_a_namesake_is_not_read_from_a_non_cinema_article() -> None:
+    """Тёзка обязана быть КАРТИНОЙ: под «Матрицей» лежит ещё и таблица."""
+    pages: list[Any] = [
+        {"title": "Девять (фильм)", "extract": NINE_MUSICAL},
+        {
+            "title": "9 (число)",
+            "extract": "9 (девять) — натуральное число между 8 и 10, известное с 2009 года.",
+        },
+    ]
+
+    assert not facts_mod.read_origin(pages, "Девять", trusted=True, series=False).namesake

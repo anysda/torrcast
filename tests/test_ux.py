@@ -798,3 +798,28 @@ def test_an_instant_answer_is_no_worse_than_before(monkeypatch: pytest.MonkeyPat
     assert started == ["movie:моана-2:2024"]
     kept = State.load().get("movie:моана-2:2024")
     assert kept is not None and kept.pos == 2467.0, "продолжаем с сохранённого места"
+
+
+def test_two_pictures_under_one_name_reach_the_last_line(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """🔴 TC-371. Строку про двусмысленность человек читает там же, где решение о картине.
+
+    Развести пару одноимённых картин одного года отбору нечем: имя и год у них совпадают,
+    и каталог сводит их в одну кучку. Значит слово остаётся за справкой, а место строки -
+    последнее перед стартом, рядом с гейтом года: решение о КАРТИНЕ человек уносит с собой.
+    """
+    from torrcast.facts import Origin
+
+    monkeypatch.setattr(
+        cli,
+        "origin",
+        lambda *a, **k: Origin(title="Moana", year=2016, namesake="Моана (фильм, 2026)"),
+    )
+    _answers(monkeypatch, "1", "")
+
+    assert cli.main(["моана"]) == 0
+
+    printed = capsys.readouterr().out
+    assert "под этим именем и годом картин две" in printed
+    assert "«Моана (фильм, 2026)»" in printed
