@@ -29,7 +29,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Final, NamedTuple
 from urllib.parse import quote
 
-from torrcast import InfraError, NotFoundError, why
+from torrcast import InfraError, NotFoundError, SwarmError, why
 from torrcast.parse import VIDEO_EXT
 from torrcast.profile import CAUTIOUS, COPY, Profile
 from torrcast.timing import TIMELINE_ENV, mark
@@ -732,17 +732,6 @@ class Warmup:
     error: InfraError | None = None
     thread: threading.Thread | None = None
 
-    def result(self, timeout: float = 30.0) -> str:
-        """Дождаться hash прогретой раздачи."""
-        if self.thread is not None:
-            self.thread.join(timeout)
-        if self.error is not None:
-            raise self.error
-        if not self.torrent_hash:
-            raise InfraError("TorrServer не принял раздачу за отведённое время")
-        return self.torrent_hash
-
-
 @dataclass(frozen=True, slots=True)
 class Media:
     """Что ffprobe вычитал из потока: длительность, звуковые дорожки и кодек видео."""
@@ -1220,10 +1209,12 @@ class TorrServer:
                 return files
             now = time.monotonic()
             if grace > 0 and now >= hopeless and swarm_alive(status) is False:
-                raise InfraError(f"рой пуст - за {grace:.0f} с ни одного пира")
+                raise SwarmError(f"рой пуст - за {grace:.0f} с ни одного пира")
             left = deadline - now
             if left <= 0:
-                raise InfraError(f"раздача не отдала метаданные за {timeout:.0f} с - нет пиров")
+                raise SwarmError(
+                    f"раздача не отдала метаданные за {timeout:.0f} с - нет пиров"
+                )
             time.sleep(min(step, left))
             step = min(step * META_STEP_GROW, META_STEP_MAX)
 
@@ -1568,7 +1559,7 @@ def _run_ffprobe(command: list[str], timeout: float, alive: Any) -> str:
             if not alive():
                 proc.kill()
                 proc.communicate()
-                raise InfraError("рой молчит - за отсрочку не пришло ни байта потока") from None
+                raise SwarmError("рой молчит - за отсрочку не пришло ни байта потока") from None
             if time.monotonic() >= deadline:
                 proc.kill()
                 proc.communicate()

@@ -363,6 +363,25 @@ def test_prowlarr_400_names_unavailable_indexers_not_prowlarr() -> None:
     assert "Prowlarr не отвечает" not in message
 
 
+def test_unavailable_indexers_are_recognized_by_type_not_message(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Отказ выбранных индексеров остаётся узнаваемым при любом тексте для человека."""
+    from torrcast.search import _IndexersUnavailableError
+
+    client = _swarm()
+
+    def unavailable(*args: object, **kwargs: object) -> tuple[list[list[object]], InfraError]:
+        lost: list[str] = args[5]  # type: ignore[assignment]
+        lost.extend(("Knaben", "RuTor"))
+        return [], _IndexersUnavailableError("каталог временно недоступен")
+
+    monkeypatch.setattr(client, "_circle", unavailable)
+
+    with pytest.raises(InfraError, match=r"^индексеры не отвечают: Knaben, RuTor$"):
+        client.search("матрица")
+
+
 def _ago(seconds: float) -> str:
     """Время отказа глазами Prowlarr: UTC с ``Z`` на конце, как на живом стенде."""
     return (datetime.now(UTC) - timedelta(seconds=seconds)).strftime("%Y-%m-%dT%H:%M:%SZ")

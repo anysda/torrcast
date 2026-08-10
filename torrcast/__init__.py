@@ -8,7 +8,7 @@ Prowlarr/Torznab; :mod:`torrcast.stream` — TorrServer, ffprobe, HLS;
 
 from __future__ import annotations
 
-__all__ = ["InfraError", "NotFoundError", "TorrcastError", "__version__", "why"]
+__all__ = ["InfraError", "NotFoundError", "SwarmError", "TorrcastError", "__version__", "why"]
 
 __version__ = "0.1.0"
 
@@ -23,6 +23,10 @@ class NotFoundError(TorrcastError):
 
 class InfraError(TorrcastError):
     """Легла инфраструктура: Prowlarr / TorrServer / приёмник. Код выхода 2."""
+
+
+class SwarmError(InfraError):
+    """Раздача не ответила: о её содержимом ничего не известно."""
 
 
 #: Сетевые сбои по-русски: наружу не носим ни трейсбек, ни внутренности urllib3.

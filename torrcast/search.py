@@ -632,7 +632,7 @@ class Prowlarr:
                 anime, query, limit, counts, spent, lost, max(self.spare(), self.cap_floor)
             )
             got += more
-            why_lost = why_lost or str(err or "")
+            why_lost = why_lost or err
         self.silent = tuple(lost)
         # Ровно ``limit`` строк - индексер отдал столько, сколько ему разрешили, и хвост
         # выдачи обрезан: у RuTor это его собственный потолок, повышением ``limit`` не
@@ -671,9 +671,9 @@ class Prowlarr:
             budgets = {name: indexer_budget(name) for name in lost}
             mark("индексеры", молчат=lost, бюджет=budgets)
         if not got:  # молчат все до одного - это не «ничего не нашлось», а инфра
-            if lost and why_lost.startswith("Prowlarr: выбранные индексеры"):
+            if lost and isinstance(why_lost, _IndexersUnavailableError):
                 raise InfraError(f"индексеры не отвечают: {', '.join(lost)}")
-            raise InfraError(why_lost)
+            raise InfraError(str(why_lost or ""))
         return merge(*got)
 
     def late(self, wait: float = 0.0) -> list[RawResult]:
@@ -711,7 +711,7 @@ class Prowlarr:
         spent: dict[str, int],
         lost: list[str],
         cap: float = 0.0,
-    ) -> tuple[list[list[RawResult]], str]:
+    ) -> tuple[list[list[RawResult]], InfraError | None]:
         """Один круг по индексерам: каждому свой запрос в свой бюджет, все разом.
 
         ``cap`` - потолок бюджета для этого круга: ноль на первом (он и есть поиск), а на
@@ -733,7 +733,7 @@ class Prowlarr:
         for ask in core:
             ask.done.wait(ask.budget + _ASK_SLACK)
         got: list[list[RawResult]] = []
-        why_lost = ""
+        why_lost: InfraError | None = None
         for ask in asked:
             if not ask.done.is_set():  # опоздал, но не потерян: доедет доливом
                 self._late.append(ask)
@@ -741,7 +741,7 @@ class Prowlarr:
             spent[ask.name] = ask.ms
             if ask.rows is None:
                 lost.append(ask.name)
-                why_lost = str(ask.err)
+                why_lost = ask.err
             else:
                 got.append(ask.rows)
                 counts[ask.name] = len(ask.rows)

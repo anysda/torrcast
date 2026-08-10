@@ -12,13 +12,13 @@ from typing import Any, cast
 
 import pytest
 
-from torrcast import InfraError, NotFoundError, cli, console, scan
+from torrcast import InfraError, NotFoundError, SwarmError, cli, console, scan
 from torrcast.cli import TABLE_LIMIT, is_candidate, is_disc, rank_releases, render_table, warned
 from torrcast.console import Progress
 from torrcast.parse import Episode, Kind, Picture, Release, parse_release_name
 from torrcast.profile import CAUTIOUS
 from torrcast.state import load_config
-from torrcast.stream import RUNTIME_GUESS, AudioTrack, Media, TorrFile
+from torrcast.stream import RUNTIME_GUESS, AudioTrack, Media, ServerDownError, TorrFile
 
 RUNTIME = RUNTIME_GUESS["movie"]
 GB = 1024**3
@@ -293,7 +293,7 @@ class _FakeTorrServer:
         self, torrent_hash: str, timeout: float = 60.0, grace: float = 0.0
     ) -> list[TorrFile]:
         if torrent_hash in self.dead:  # раздача с мёртвым роем: пиров нет и не будет
-            raise InfraError(f"раздача не отдала метаданные за {timeout:.0f} с - нет пиров")
+            raise SwarmError(f"раздача не отдала метаданные за {timeout:.0f} с - нет пиров")
         return self.files
 
     def stream_url(self, torrent_hash: str, index: int) -> str:
@@ -750,7 +750,7 @@ class _Impatient(_FakeTorrServer):
         self, torrent_hash: str, timeout: float = 60.0, grace: float = 0.0
     ) -> list[TorrFile]:
         if grace > 0:
-            raise InfraError(f"рой пуст - за {grace:.0f} с ни одного пира")
+            raise SwarmError(f"рой пуст - за {grace:.0f} с ни одного пира")
         return self.files
 
 
@@ -838,6 +838,24 @@ def test_the_patient_ask_goes_to_the_release_the_swarm_silenced_not_to_a_judged_
     assert "спрашиваю релиз 1" not in printed, "про верх известно всё - терпеть тут нечего"
 
 
+@pytest.mark.parametrize(
+    ("failure", "silenced"),
+    [
+        (SwarmError("рой молчит"), True),
+        (NotFoundError("файл не найден"), False),
+        (ServerDownError("служба не отвечает"), False),
+        (InfraError("новый инфраструктурный отказ"), False),
+    ],
+)
+def test_a_failure_explicitly_names_whether_the_swarm_was_silent(
+    failure: InfraError | NotFoundError, silenced: bool
+) -> None:
+    """Новый вид инфраструктурного отказа не получает судьбу роя по наследованию."""
+    prep = cli._Prep(number=1, release=rel(), failure=failure)
+
+    assert cli._silenced(prep) is silenced
+
+
 def test_a_disc_image_verdict_is_not_asked_twice(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -860,7 +878,9 @@ def test_a_disc_image_verdict_is_not_asked_twice(
             self, torrent_hash: str, timeout: float = 60.0, grace: float = 0.0
         ) -> list[TorrFile]:
             if torrent_hash == f"hash-{ranked[1].magnet}":
-                raise InfraError(f"раздача не отдала метаданные за {timeout:.0f} с - нет пиров")
+                raise SwarmError(
+                    f"раздача не отдала метаданные за {timeout:.0f} с - нет пиров"
+                )
             return self.files
 
     torrserver = _HalfDead(files=disc.files)

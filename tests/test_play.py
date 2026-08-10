@@ -618,6 +618,33 @@ def test_an_outage_longer_than_the_receivers_patience_does_not_end_the_show(
     assert "поднимаю показ с 0:20:00" in printed and "показ поднят с 0:20:00" in printed
 
 
+def test_a_restored_source_spends_a_try_only_after_the_first_piece_is_ready(
+    tmp_path: Path,
+) -> None:
+    """Ответившая служба ещё собирает метаданные и пиров - LOAD ждёт готового куска."""
+    from torrcast import cli
+
+    clock, feed, warmer, receiver = _dark(tmp_path, warmed=0.0)
+    for piece in feed.out.glob("v*.ts"):
+        piece.unlink()
+    service = _Service(up=False)
+    ready_at = clock.now + 300.0
+    returned_at = clock.now + 243.0
+
+    def source_progress(_seconds: float) -> None:
+        if clock.now >= returned_at:
+            service.up = True
+        if clock.now >= ready_at:
+            (feed.out / segment_name(feed.grid.slot_at(1200.0))).write_bytes(b"ready")
+
+    clock.ticks.append(source_progress)
+
+    cli._hold(receiver, feed, None, warmer, _supply(service), clock=clock)  # type: ignore[arg-type]
+
+    assert receiver.replays == [1200.0], "готовый кусок получил одну попытку подъёма"
+    assert clock.now >= ready_at, "ответ службы сам по себе попытку не потратил"
+
+
 def test_a_dark_show_gives_up_after_a_limited_number_of_tries(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -1964,9 +1991,12 @@ def test_the_returning_source_gets_the_torrent_back_by_magnet(
     clock, feed, warmer, receiver = _dark(tmp_path, offline="")
     warmer.warmed = 0.0  # прогрева нет: возврат показа держится только на источнике
     service = _Service(up=False)
-    clock.ticks.append(
-        lambda _s: service.__setattr__("up", clock.now - 1000.0 >= 30.0)  # служба вернулась
-    )
+    def restore(_seconds: float) -> None:
+        service.up = clock.now - 1000.0 >= 30.0
+        if service.up:
+            (feed.out / segment_name(feed.grid.slot_at(1200.0))).write_bytes(b"ready")
+
+    clock.ticks.append(restore)
     service._listed = service._files = False  # перезапуск: своей раздачи она не помнит
 
     cli._hold(receiver, feed, None, warmer, _supply(service), clock=clock)  # type: ignore[arg-type]

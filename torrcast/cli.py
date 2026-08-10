@@ -36,6 +36,7 @@ from typing import Any, Final, NoReturn, Protocol, runtime_checkable
 from torrcast import (
     InfraError,
     NotFoundError,
+    SwarmError,
     TorrcastError,
     __version__,
     console,  # через модуль: терминал спрашиваем там же, где и сами вопросы
@@ -3481,13 +3482,12 @@ def _silenced(prep: _Prep | None) -> bool:
 
     «Нужной серии в раздаче нет» и «отдельного видеофайла нет» - это
     :class:`~torrcast.NotFoundError`: про раздачу узнали всё, что хотели, и терпение ей
-    ничего не добавит. Молчание роя приезжает :class:`~torrcast.InfraError`, а не
+    ничего не добавит. Молчание роя приезжает :class:`~torrcast.SwarmError`, а не
     уложившаяся в бюджет фаза - вовсе без отказа, одной строкой :attr:`_Prep.error`.
     """
     if prep is None or prep.media is not None:
         return False
-    # ServerDownError сюда не доходит: на нём отбор кончается сразу (:meth:`_Bench.resolve`).
-    return prep.failure is None or isinstance(prep.failure, InfraError)
+    return prep.failure is None or isinstance(prep.failure, SwarmError)
 
 
 class _Bench:
@@ -5319,7 +5319,7 @@ class _Revival:
                 flush=True,
             )
             return False
-        if not self._may(feed, warmer) or (self.last and now - self.last < self.pause):
+        if not self._may(feed, warmer, pos) or (self.last and now - self.last < self.pause):
             return True  # сети всё ещё нет либо выдержка между попытками не вышла
         if self.dropped and dark < self.drop:
             # 🔴 Показ бросил сам приёмник, источник цел - и признаки «сеть вернулась»
@@ -5375,7 +5375,7 @@ class _Revival:
         self.dropped = True
         return "приёмник бросил показ"
 
-    def _may(self, feed: Feed, warmer: Warmer | None) -> bool:
+    def _may(self, feed: Feed, warmer: Warmer | None, pos: float) -> bool:
         """Вернулась ли сеть - по факту, а не по часам.
 
         Прогретое сильнее любого признака сети: лежащий на диске фильм смотрится и без
@@ -5396,7 +5396,10 @@ class _Revival:
             if _asked(self.supply):
                 return False  # источник всё ещё лежит - жечь терпение приёмника незачем
             feed.offline = ""
-            return True
+            # Ответ службы доказывает возврат источника, но не готовность потока. После
+            # повторного добавления раздача ещё собирает метаданные и пиров; LOAD имеет
+            # смысл лишь тогда, когда упаковка уже отдала кусок у сохранённой позиции.
+            return feed.front(pos) > pos
         return not feed.offline
 
 
