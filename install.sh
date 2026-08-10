@@ -229,6 +229,16 @@ IMDB_RATINGS_PATH="${TORRCAST_IMDB_RATINGS_PATH:-/var/lib/torrcast/imdb-ratings.
 # станет искать в торрентах, набирает тысячи голосов с запасом.
 IMDB_MIN_VOTES="${TORRCAST_IMDB_MIN_VOTES:-1000}"
 
+# Русские прокатные имена IMDb под паспорт картины (torrcast/facts.py, RU_NAMES_PATH):
+# когда у картины нет статьи в русской Википедии, оригинал и год добирает офлайн-карта.
+# Полные выгрузки - 735 МБ трафика (510 + 225); фильтр оставляет 11 МБ на диске.
+IMDB_AKAS_URL="${TORRCAST_IMDB_AKAS_URL:-https://datasets.imdbws.com/title.akas.tsv.gz}"
+IMDB_BASICS_URL="${TORRCAST_IMDB_BASICS_URL:-https://datasets.imdbws.com/title.basics.tsv.gz}"
+IMDB_NAMES_PATH="${TORRCAST_IMDB_NAMES_PATH:-/var/lib/torrcast/imdb-ru-names.tsv}"
+#: Как часто карту перечитываем, дней. Выгрузки тяжёлые, а устаревает карта медленно:
+#: месячной давности она не знает разве что новинок проката.
+IMDB_NAMES_DAYS="${TORRCAST_IMDB_NAMES_DAYS:-30}"
+
 # Источники, которые домашний канал может резать (см. фазу `sources`).
 PL_DEFS_URL="${TORRCAST_PL_DEFS_URL:-https://indexers.prowlarr.com/master/11}"
 DEFS_TARBALL="${TORRCAST_DEFS_TARBALL:-https://codeload.github.com/Prowlarr/Indexers/tar.gz/refs/heads/master}"
@@ -1917,6 +1927,46 @@ setup_facts() {
     info "оценок: $(wc -l < "$IMDB_RATINGS_PATH") (от $IMDB_MIN_VOTES голосов)"
 }
 
+setup_names() {
+    log "паспорт картины: русские прокатные имена IMDb ($IMDB_NAMES_PATH)"
+    install -d -m 0755 "$(dirname "$IMDB_NAMES_PATH")"
+    # Свежее месяца не перекачиваем: 735 МБ на каждый прогон установщика незачем.
+    if [ -s "$IMDB_NAMES_PATH" ] && [ -z "$(find "$IMDB_NAMES_PATH" -mtime +"$IMDB_NAMES_DAYS")" ]; then
+        skip "$IMDB_NAMES_PATH ($(wc -l < "$IMDB_NAMES_PATH") имён)"
+        return
+    fi
+    local tmp="$IMDB_NAMES_PATH.part" names basics
+    names="$(mktemp)"
+    basics="$(mktemp)"
+    # Паспорт - подмога добора, а не механизм показа: не скачалось, нет сети - установка
+    # идёт дальше, а справка отвечает ровно так, как отвечала без карты.
+    if ! fetch --max-time 3600 "$IMDB_AKAS_URL" | gzip -dc | awk -F'\t' \
+        'NR>1 && ($4=="RU" || $4=="SU" || $5=="ru") && !seen[$1"\t"$3]++ { print $1 "\t" $3 }' > "$names"; then
+        rm -f "$names" "$basics"
+        info "выгрузка имён IMDb не скачалась - паспорт останется как был, на показ не влияет"
+        return
+    fi
+    # Тип, оригинал и год лежат в другой выгрузке; берём из неё только картины, у которых
+    # нашлось русское имя, и только экранные: эпизоды и игры паспорту не нужны.
+    if ! fetch --max-time 1800 "$IMDB_BASICS_URL" | gzip -dc | awk -F'\t' \
+        'NR==FNR { keep[$1]; next } FNR>1 && ($1 in keep) \
+        && $2!="tvEpisode" && $2!="videoGame" && $5!="1" \
+        { o=$4; if (o=="\\N") o=$3; print $1 "\t" $2 "\t" o "\t" $6 }' "$names" - > "$basics"; then
+        rm -f "$names" "$basics"
+        info "выгрузка карточек IMDb не скачалась - паспорт останется как был, на показ не влияет"
+        return
+    fi
+    if awk -F'\t' 'NR==FNR { b[$1]=$2 "\t" $3 "\t" $4; next } \
+        ($1 in b) { print $2 "\t" $1 "\t" b[$1] }' "$basics" "$names" > "$tmp"; then
+        mv "$tmp" "$IMDB_NAMES_PATH"
+        info "имён: $(wc -l < "$IMDB_NAMES_PATH")"
+    else
+        rm -f "$tmp"
+        info "карта имён IMDb не собралась - паспорт останется как был, на показ не влияет"
+    fi
+    rm -f "$names" "$basics"
+}
+
 # Кто вошёл по ssh, должен сразу видеть, куда попал и что здесь спрашивать. Шпаргалка
 # перечисляет ровно то, что понимает CLI (torrcast/cli.py) - выдуманных команд быть не
 # должно, иначе приветствие врёт.
@@ -2015,6 +2065,7 @@ main() {
     fi
     # А это первому показу не нужно: оценки украшают меню, и качать их человеку незачем.
     has facts      && late_run "оценки IMDb для справки в меню" setup_facts
+    has facts      && late_run "русские прокатные имена IMDb для паспорта картины" setup_names
     has motd       && setup_motd
     [ -n "$JOB_DIR" ] && rm -rf "$JOB_DIR"
 

@@ -23,9 +23,6 @@
   Двухлетней давности справка хуже, чем никакой.
 * Рейтинг из Wikidata (``P444``) — дыряв и неверен: у «Тачек» лежит оценка Rotten
   Tomatoes без IMDb вовсе, у «Тачек 3» подписано «IMDb 7.4» при настоящих 6.7.
-* Полные выгрузки IMDb ``title.basics`` (225 МБ) и ``title.akas`` (510 МБ) — ими можно
-  сматчить картину и взять хронометраж совсем без сети, но 745 МБ на установку ради
-  двух строк в меню несоразмерны. ``title.ratings`` — 8.6 МБ, и это уже терпимо.
 
 **Второй потребитель — поиск.** :func:`origin` спрашивает у той же статьи паспорт
 картины: оригинальное название латиницей и год выпуска. Это чинит сразу две беды добора
@@ -33,6 +30,12 @@
 первую выдачу («Кингсман: Секретная служба» → ``Kingsman: The Secret Service`` вместо
 транслита в никуда), а год становится опорой гейта, который не даёт добору молча
 подменить картину чужой одноимённой. Сеть молчит — паспорт пуст, и поиск идёт как шёл.
+
+**Офлайн-карта русских прокатных имён** (:data:`RU_NAMES_PATH`) отвечает там, где у
+картины нет русской статьи вовсе: русское прокатное имя такой картины живёт в выгрузке
+IMDb парой к оригиналу и году, и Википедия тут бессильна по построению. `install.sh`
+собирает карту из полных выгрузок ``title.akas`` и ``title.basics`` — это 735 МБ трафика
+при установке и 11 МБ на диске; в рантайме похода в сеть нет, есть чтение файла.
 
 **Меню справку не ждёт.** Всё это тянется фоном (:meth:`Facts.start`), пока
 прогреваются раздачи, а :meth:`Facts.get` отдаёт то, что успело приехать к
@@ -67,6 +70,10 @@ __all__ = ["CACHE_PATH", "RATINGS_PATH", "Fact", "Facts", "Origin", "origin", "t
 #: Выгрузка IMDb ``title.ratings.tsv``: ``tconst<TAB>рейтинг<TAB>голоса``. Кладёт и
 #: обновляет `install.sh`; нет файла - просто не будет рейтинга.
 RATINGS_PATH: Final = Path("/var/lib/torrcast/imdb-ratings.tsv")
+#: Офлайн-карта русских прокатных имён IMDb: ``имя<TAB>tconst<TAB>тип<TAB>оригинал<TAB>год``.
+#: Собирает `install.sh` из выгрузок ``title.akas`` и ``title.basics``; нет файла -
+#: картина без русской статьи остаётся без паспорта, и это не сбой.
+RU_NAMES_PATH: Final = Path("/var/lib/torrcast/imdb-ru-names.tsv")
 #: Найденная справка ложится сюда, чтобы второй показ той же франшизы не ходил в сеть.
 CACHE_PATH: Final = Path("/var/lib/torrcast/facts.json")
 #: Сколько меню согласно ждать справку, секунды. Потолок, а не ожидание: в норме оба
@@ -621,7 +628,12 @@ def origin_now(title: str, series: bool = False, timeout: float = HTTP_TIMEOUT) 
 
     Третий шаг (:func:`_misremembered`) — для имени, названного НЕ ТАК, как подписана
     статья: он стоит денег и идёт только на пустом месте, когда первые два уже промолчали.
+
+    Четвёртый (:func:`_imdb_ru`) — офлайн-карта русских прокатных имён IMDb, для картины
+    без русской статьи вовсе: сеть тут уже ответила «не знаю», и дальше слово за файлом.
     """
+    warm = threading.Thread(target=_ru_names, daemon=True)
+    warm.start()  # карта читается, пока отвечает Википедия: к моменту нужды она тёплая
     kind = "сериал" if series else "фильм"
     names = titles_for(title, None)
     if series:  # у сериала своя статья, и лежит она под своим уточнением
@@ -636,7 +648,7 @@ def origin_now(title: str, series: bool = False, timeout: float = HTTP_TIMEOUT) 
         return found
     payload = get_json(_WIKI_HOST, _WIKI_PATH, _search_params(f"{title} {kind}"), {}, timeout)
     found = read_origin(_ranked(payload), title, series=series)
-    return found or _misremembered(title, series, timeout)
+    return found or _misremembered(title, series, timeout) or _imdb_ru(title, series)
 
 
 #: Каким произведением статья себя объявляет - в любом виде, а не только экранном. Список
@@ -758,6 +770,108 @@ def _misremembered(title: str, series: bool, timeout: float) -> Origin:
     # Имя тут не доказано, а признано похожим - так и говорим паспортом, чтобы гейт добора
     # знал, на чём стоит второе имя (:attr:`Origin.guessed`).
     return Origin(title=found.title, name=found.name, guessed=bool(found))
+
+
+#: Типы записей IMDb, которые паспорт считает СЕРИАЛОМ: у сериала и фильма в выгрузке
+#: разные строки, и подсказанный тип разводит однофамильцев так же, как тип статьи.
+_TV_KINDS: Final = frozenset({"tvSeries", "tvMiniSeries"})
+#: Разобранная карта :data:`RU_NAMES_PATH`: нормализованное имя → кандидаты
+#: ``(tconst, тип, оригинал, год, имя как в выгрузке)``. ``None`` - файл ещё не читали.
+_RuName = tuple[str, str, str, str, str]
+_RU_NAMES: dict[str, list[_RuName]] | None = None
+_RU_LOCK: Final = threading.Lock()
+#: Голоса IMDb по tconst - из того же файла, что и рейтинг меню. Спрашиваются, только
+#: когда на одно русское имя претендуют несколько картин. ``None`` - ещё не читали.
+_VOTES: dict[str, int] | None = None
+
+
+def _read_ru_names(path: Path) -> dict[str, list[_RuName]]:
+    """Файл карты → словарь по нормализованному имени; нет файла - пусто, и это не сбой."""
+    out: dict[str, list[_RuName]] = {}
+    try:
+        with path.open(encoding="utf-8") as handle:
+            for line in handle:
+                fields = line.rstrip("\n").split("\t")
+                name, tconst, kind, original, year = [*fields, "", "", "", "", ""][:5]
+                if not name or not tconst:
+                    continue
+                candidates = out.setdefault(slugify(name), [])
+                if all(tconst != known[0] for known in candidates):
+                    candidates.append((tconst, kind, original, year, name))
+    except (OSError, ValueError):  # нет файла или он битый - карты нет, и это не сбой
+        pass
+    return out
+
+
+def _ru_names() -> dict[str, list[_RuName]]:
+    """Карта русских прокатных имён IMDb. Читается один раз и лишь когда понадобилась.
+
+    Файл - сотни тысяч строк: разбор это заметные доли секунды, поэтому читаем его по
+    требованию и фоном (:func:`origin_now` греет чтение, пока отвечает Википедия), а не
+    на старте каждого `cast`. Нет файла (установка без справки, не скачалось) - пустая
+    карта, и паспорт молчит ровно так, как молчал без неё.
+    """
+    global _RU_NAMES
+    with _RU_LOCK:
+        if _RU_NAMES is None:
+            _RU_NAMES = _read_ru_names(RU_NAMES_PATH)
+        return _RU_NAMES
+
+
+def _votes() -> dict[str, int]:
+    """tconst → число голосов из выгрузки рейтингов; нет файла - пусто, и это не сбой."""
+    global _VOTES
+    with _RU_LOCK:
+        if _VOTES is None:
+            _VOTES = {}
+            try:
+                with RATINGS_PATH.open(encoding="utf-8") as handle:
+                    next(handle, None)  # шапка «tconst averageRating numVotes»
+                    for line in handle:
+                        parts = line.split("\t")
+                        if len(parts) >= 3 and parts[2].strip().isdigit():
+                            _VOTES[parts[0]] = int(parts[2])
+            except (OSError, ValueError):
+                pass
+        return _VOTES
+
+
+def _imdb_ru(title: str, series: bool) -> Origin:
+    """Паспорт по офлайн-карте русских прокатных имён IMDb - последний шаг справки.
+
+    Зовётся, когда Википедия промолчала целиком: своей русской статьи у картины нет, и ни
+    выборка по имени, ни поиск, ни подсказки её не нашли. Русское прокатное имя при этом
+    часто существует - в выгрузке IMDb оно лежит парой к оригиналу и году, и карта
+    :data:`RU_NAMES_PATH` отвечает без сети.
+
+    Ручательство тут - САМА пара «имя - картина» из выгрузки: это утверждение каталога, а
+    не сходство строк, поэтому единственный кандидат догадкой не считается. Несколько
+    картин под одним именем - другое дело: выбор между ними делает число голосов IMDb, а
+    это уже чья-то оценка, поэтому такой паспорт помечается ``guessed`` - решает гейт
+    добора. Голосов нет (файл не доехал) - молчим: неподтверждённый выбор хуже пустого.
+
+    Оригинал на кириллице (русская картина) латинским именем не является: добирать ей
+    нечем, и ``title`` честно остаётся пустым - а вот год отдаём, он опора гейта.
+    """
+    typed = [
+        candidate
+        for candidate in _ru_names().get(slugify(title), [])
+        if (candidate[1] in _TV_KINDS) == series
+    ]
+    if not typed:
+        return Origin()
+    guessed = False
+    if len(typed) > 1:
+        votes = _votes()
+        best = max(typed, key=lambda candidate: votes.get(candidate[0], 0))
+        if not votes.get(best[0]):
+            return Origin()
+        typed = [best]
+        guessed = True
+    _tconst, _kind, original, raw_year, name = typed[0]
+    year = int(raw_year) if raw_year.isdigit() else None
+    latin = "" if _CYRILLIC.search(original) else original
+    return Origin(title=latin, year=year, name=name, guessed=guessed)
 
 
 def _suggested(query: str, timeout: float) -> list[Any]:

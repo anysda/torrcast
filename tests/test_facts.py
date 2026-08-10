@@ -1372,3 +1372,123 @@ def test_both_types_together_fit_into_one_budget_not_two(monkeypatch: Any) -> No
     assert found.title == "Moana", "имя одинокого ответа остаётся - справка не замолкает"
     assert found.year is None, "второй источник не успел - год неподтверждён, и мы молчим"
     assert elapsed < budget * 1.4, f"обещали {budget} с, ушло {elapsed:.2f} с"
+
+
+# --- Офлайн-карта русских прокатных имён IMDb (:data:`RU_NAMES_PATH`) ----------------
+#
+# Картина без русской статьи в Википедии (типичное документальное) справке недоступна по
+# построению: ни выборка по имени, ни поиск статью не находят. Русское прокатное имя при
+# этом живёт в выгрузке IMDb парой к оригиналу и году - карта и отвечает без сети.
+RU_MAP = (
+    "Американская фабрика\ttt9351980\tmovie\tAmerican Factory\t2019\n"
+    # Русская картина: оригинал на кириллице, латинского имени у неё нет по построению.
+    "Колыма - родина нашего страха\ttt1132100\tmovie\tКолыма - родина нашего страха\t2019\n"
+    # Одно русское имя у фильма и у сериала - их разводит подсказанный тип.
+    "Пятая власть\ttt1111111\tmovie\tThe Fifth Estate\t2013\n"
+    "Пятая власть\ttt2222222\ttvSeries\tFifth Power\t2001\n"
+    # Одно русское имя у двух фильмов - выбор между ними делает число голосов.
+    "Совпадение\ttt3333333\tmovie\tJust Coincidence\t2001\n"
+    "Совпадение\ttt4444444\tmovie\tMere Coincidence\t1989\n"
+)
+
+
+def _ru_map(monkeypatch: Any, tmp_path: Any, rows: str = RU_MAP, votes: str = "") -> None:
+    """Карта и голоса из временных файлов; кэши разбора сброшены, чтобы читались они."""
+    names = tmp_path / "imdb-ru-names.tsv"
+    names.write_text(rows, encoding="utf-8")
+    ratings = tmp_path / "imdb-ratings.tsv"
+    ratings.write_text("tconst\taverageRating\tnumVotes\n" + votes, encoding="utf-8")
+    monkeypatch.setattr(facts_mod, "RU_NAMES_PATH", names)
+    monkeypatch.setattr(facts_mod, "RATINGS_PATH", ratings)
+    monkeypatch.setattr(facts_mod, "_RU_NAMES", None)
+    monkeypatch.setattr(facts_mod, "_VOTES", None)
+
+
+def test_a_picture_without_an_article_gets_its_original_from_the_offline_map(
+    monkeypatch: Any, tmp_path: Any
+) -> None:
+    """Статьи нет, а прокатное имя есть: карта отдаёт оригинал и год, и это не догадка."""
+    _ru_map(monkeypatch, tmp_path)
+    found = facts_mod._imdb_ru("Американская фабрика", False)
+    assert found.title == "American Factory"
+    assert found.year == 2019
+    assert found.name == "Американская фабрика"
+    assert not found.guessed, "пара «имя - картина» из выгрузки - утверждение каталога"
+
+
+def test_the_map_matches_despite_case_and_punctuation(monkeypatch: Any, tmp_path: Any) -> None:
+    """Регистр и разделители имя не меняют: ключ карты нормализован с обеих сторон."""
+    _ru_map(monkeypatch, tmp_path)
+    found = facts_mod._imdb_ru("американская  ФАБРИКА!", False)
+    assert found.title == "American Factory"
+
+
+def test_the_map_honors_the_spelled_out_type(monkeypatch: Any, tmp_path: Any) -> None:
+    """Фильм и сериал под одним русским именем разводятся подсказанным типом."""
+    _ru_map(monkeypatch, tmp_path)
+    movie = facts_mod._imdb_ru("Пятая власть", False)
+    series = facts_mod._imdb_ru("Пятая власть", True)
+    assert (movie.title, movie.year) == ("The Fifth Estate", 2013)
+    assert (series.title, series.year) == ("Fifth Power", 2001)
+
+
+def test_several_namesakes_are_a_guess_chosen_by_the_crowd(monkeypatch: Any, tmp_path: Any) -> None:
+    """Два фильма под одним именем - выбирает число голосов, и паспорт помечен догадкой."""
+    _ru_map(monkeypatch, tmp_path, votes="tt3333333\t7.0\t120\ntt4444444\t7.4\t68000\n")
+    found = facts_mod._imdb_ru("Совпадение", False)
+    assert found.title == "Mere Coincidence"
+    assert found.guessed, "выбор по голосам - чья-то оценка, а не утверждение каталога"
+
+
+def test_namesakes_without_votes_stay_silent(monkeypatch: Any, tmp_path: Any) -> None:
+    """Однофамильцы есть, а голосов нет - неподтверждённый выбор хуже пустого паспорта."""
+    _ru_map(monkeypatch, tmp_path)
+    assert not facts_mod._imdb_ru("Совпадение", False)
+
+
+def test_a_russian_original_is_a_year_not_a_latin_name(monkeypatch: Any, tmp_path: Any) -> None:
+    """У русской картины нет латинского имени: карта отдаёт год, а ``title`` пуст."""
+    _ru_map(monkeypatch, tmp_path)
+    found = facts_mod._imdb_ru("Колыма - родина нашего страха", False)
+    assert found.title == "", "кириллический оригинал - не имя для добора латиницей"
+    assert found.year == 2019
+    assert found.name == "Колыма - родина нашего страха"
+
+
+def test_a_missing_map_file_is_silence_not_a_crash(monkeypatch: Any, tmp_path: Any) -> None:
+    """Нет файла карты (установка без справки) - паспорт пуст, и это не сбой."""
+    monkeypatch.setattr(facts_mod, "RU_NAMES_PATH", tmp_path / "no-such-file.tsv")
+    monkeypatch.setattr(facts_mod, "_RU_NAMES", None)
+    assert not facts_mod._imdb_ru("Американская фабрика", False)
+
+
+def test_the_map_answers_when_wikipedia_does_not_know_the_name(
+    monkeypatch: Any, tmp_path: Any
+) -> None:
+    """Все шаги Википедии промолчали - паспорт приходит из офлайн-карты, без сети."""
+    _ru_map(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        facts_mod,
+        "get_json",
+        lambda *a: {"query": {"pages": []}},  # сеть «не знает»
+    )
+    found = facts_mod.origin_now("Американская фабрика", False, 1.0)
+    assert found.title == "American Factory"
+    assert found.year == 2019
+
+
+def test_an_article_answer_is_never_overridden_by_the_map(monkeypatch: Any, tmp_path: Any) -> None:
+    """Статья нашлась - карта не спрашивается вовсе: она последний шаг, а не поправка."""
+    _ru_map(monkeypatch, tmp_path, rows="Тачки\ttt0000001\tmovie\tWrong Title\t1900\n")
+
+    def wiki(
+        host: str, path: str, params: dict[str, str], headers: dict[str, str], t: float
+    ) -> Any:
+        if params.get("generator"):  # поиск и подсказки сюда не доходят
+            raise AssertionError("статья нашлась прямой выборкой - поиск не нужен")
+        return _wiki_reply()
+
+    monkeypatch.setattr(facts_mod, "get_json", wiki)
+    found = facts_mod.origin_now("Тачки", False, 1.0)
+    assert found.title == "Cars"
+    assert found.year == 2006
