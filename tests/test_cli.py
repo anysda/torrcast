@@ -2932,6 +2932,119 @@ def test_the_passport_has_three_answers_about_the_language() -> None:
     assert not cli.unnamed_sound(promised, Media(5977.0, UNNAMED, "h264", 1080, 1920)), "имя: да"
 
 
+# --- Прогрев соседа по звуку: обещавшая русскую раздача греется под меню (TC-309) ------
+
+
+def test_a_dubbed_neighbour_warms_under_the_menu_when_the_top_promises_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """🔴 TC-309. Верх именем русскую не обещает - ближайший обещавший греется заодно.
+
+    Проверка честности спросит этого соседа первым же вопросом, если дорожка верха
+    окажется без тега языка (:meth:`~torrcast.cli._Bench._honest`, повод «язык звука не
+    назван»), а с нуля - метаданные роя плюс чтение дорожек - он в
+    :data:`~torrcast.cli.HONEST_BUDGET` укладывался не всегда. Пауза под меню при этом
+    простаивает.
+    """
+    ranked = [
+        rel(name="Кино [WEB-DL 1080p] тихий", voices=(), seeders=140),
+        rel(name="Кино [WEB-DL 1080p] запасной", voices=(), seeders=130),
+        rel(name="Кино [BDRip 1080p] от Scarabey | D", seeders=121),
+    ]
+    _reads(monkeypatch, ranked, *([Media(5977.0, (), "h264", 1080, 1920)] * 3))
+    bench = cli._Bench(cast(Any, _FakeTorrServer()))
+
+    preps = bench.spare(_plan(ranked), cli.Args(query=["кино"]))
+
+    assert {prep.number for prep in preps} == {2, 3}, "запасной и обещавший русскую сосед"
+
+
+def test_a_dubbed_neighbour_warms_when_a_front_candidate_promises_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Верх обещал, но второй кандидат молчит - сосед по звуку греется всё равно.
+
+    Проверка честности спрашивает того, кого отбор реально взял, а это не обязан быть
+    верх: верх забракуют (мёртвый рой, чужой язык в паспорте), и повод «язык звука не
+    назван» всплывёт на втором-третьем кандидате. Гейт поэтому смотрит первых
+    :data:`~torrcast.cli.MAX_TRIES` кандидатов, а не одного верха.
+    """
+    ranked = [
+        rel(name="Кино [BDRip 1080p] верх | D", seeders=140),
+        rel(name="Кино [WEB-DL 1080p] тихий", voices=(), seeders=130),
+        rel(name="Кино [BDRip 1080p] от Scarabey | D", seeders=121),
+    ]
+    _reads(monkeypatch, ranked, *([Media(5977.0, (), "h264", 1080, 1920)] * 3))
+    bench = cli._Bench(cast(Any, _FakeTorrServer()))
+
+    preps = bench.spare(_plan(ranked), cli.Args(query=["кино"]))
+
+    assert {prep.number for prep in preps} == {2, 3}
+
+
+def test_a_picture_whose_front_candidates_all_promise_russian_warms_no_sound_neighbour(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Все первые кандидаты обещали русскую - вопроса о звуке не будет, раздачи лишней нет.
+
+    Прогрев обещавшего соседа - это ещё одна раздача в рое, и платить её надо ровно за
+    тот случай, который она спасает: вопрос «язык звука не назван» релизу, обещавшему
+    русскую своим именем, не задаётся вовсе (:func:`unnamed_sound`).
+    """
+    ranked = [rel(name=f"Кино [BDRip 1080p] р{i} | D", seeders=100 - i) for i in range(3)]
+    _reads(monkeypatch, ranked, *([Media(5977.0, (), "h264", 1080, 1920)] * 3))
+    bench = cli._Bench(cast(Any, _FakeTorrServer()))
+
+    preps = bench.spare(_plan(ranked), cli.Args(query=["кино"]))
+
+    assert {prep.number for prep in preps} == {2}, "только обычный запасной"
+    assert len(bench.preps) == 1, "и лишней раздачи в TorrServer нет"
+
+
+def test_no_dubbed_neighbour_in_the_pool_means_nothing_extra_to_warm(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Обещанной русской в очереди нет вовсе - греть нечего, лишней раздачи не появляется."""
+    ranked = [rel(name=f"Кино [WEB-DL 1080p] р{i}", voices=(), seeders=100 - i) for i in range(3)]
+    _reads(monkeypatch, ranked, *([Media(5977.0, (), "h264", 1080, 1920)] * 3))
+    bench = cli._Bench(cast(Any, _FakeTorrServer()))
+
+    preps = bench.spare(_plan(ranked), cli.Args(query=["кино"]))
+
+    assert {prep.number for prep in preps} == {2}
+    assert len(bench.preps) == 1
+
+
+def test_a_dubbed_spare_is_not_warmed_twice(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ближайший обещавший русскую - это и есть обычный запасной: одна раздача, а не две."""
+    ranked = [
+        rel(name="Кино [WEB-DL 1080p] тихий", voices=(), seeders=140),
+        rel(name="Кино [BDRip 1080p] от Scarabey | D", seeders=121),
+    ]
+    _reads(monkeypatch, ranked, *([Media(5977.0, (), "h264", 1080, 1920)] * 2))
+    bench = cli._Bench(cast(Any, _FakeTorrServer()))
+
+    preps = bench.spare(_plan(ranked), cli.Args(query=["кино"]))
+
+    assert {prep.number for prep in preps} == {2}
+    assert len(bench.preps) == 1, "та же подготовка, а не вторая раздача того же релиза"
+
+
+def test_a_named_release_still_has_no_spare_at_all(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``--release N``: человек выбрал сам, и ни запасного, ни соседа по звуку не греется."""
+    ranked = [
+        rel(name="Кино [WEB-DL 1080p] тихий", voices=(), seeders=140),
+        rel(name="Кино [BDRip 1080p] от Scarabey | D", seeders=121),
+    ]
+    _reads(monkeypatch, ranked, *([Media(5977.0, (), "h264", 1080, 1920)] * 2))
+    bench = cli._Bench(cast(Any, _FakeTorrServer()))
+
+    assert bench.spare(_plan(ranked), cli.Args(query=["кино"], release=2)) == []
+    assert not bench.preps
+
+
 @pytest.mark.parametrize(
     "title",
     [
@@ -3087,7 +3200,8 @@ def test_we_never_hold_more_torrents_at_once_than_the_ceiling(
     plan = _plan(ranked)
     peak = 0
 
-    # Прогрев под меню: три картины и запасной - это и есть пик, который потолок терпит.
+    # Прогрев под меню: три картины и запасной (первые кандидаты фикстуры русскую
+    # обещают сами, поэтому соседа по звуку нет - :data:`PREWARM_DUB` тут не срабатывает).
     for number in range(1, cli.PREWARM + 1):
         bench.start(plan, number)
     bench.spare(plan, cli.Args(query=["кино"]))
@@ -3097,7 +3211,7 @@ def test_we_never_hold_more_torrents_at_once_than_the_ceiling(
         bench.start(plan, number)
         peak = max(peak, len(bench.live()))
 
-    assert peak == cli.MAX_LIVE == 4
+    assert peak == cli.MAX_LIVE == 5
     assert len(bench.preps) == len(ranked), "греть перестали не потому, что не начинали"
 
 
@@ -3113,16 +3227,16 @@ def test_the_ceiling_never_kills_the_warmup_someone_is_waiting_for(
     _probes(monkeypatch, ranked, *(["h264"] * 6))
     bench = cli._Bench(cast(Any, _FakeTorrServer()))
     plan = _plan(ranked)
-    for number in (1, 2, 3, 4):
+    for number in (1, 2, 3, 4, 5):
         bench.start(plan, number)
     bench.needed = {(plan.picture.key, 1), (plan.picture.key, 2)}
 
-    bench.start(plan, 5)
+    bench.start(plan, 6)
 
     live = sorted(prep.number for prep in bench.live())
     assert 1 in live and 2 in live, "тех, чьего ответа ждут, потолок не трогает"
     assert 3 not in live, "самый старый из ненужных и уходит"
-    assert 5 in live
+    assert 6 in live
 
 
 def test_a_neighbour_asked_about_honesty_is_dropped_once_it_has_answered(
