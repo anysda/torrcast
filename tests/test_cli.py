@@ -454,6 +454,9 @@ class _Spent:
     def spare(self) -> float:
         return self._spare
 
+    def late(self) -> list[Any]:
+        return []
+
 
 def _budget(spare: float) -> tuple[float | None, str]:
     out = io.StringIO()
@@ -3627,6 +3630,124 @@ class _Ceiling(_Spent):
     def search(self, query: str) -> list[Any]:
         self.asked.append(query)
         return self._rows
+
+
+class _LateSecond(_Ceiling):
+    """Второй круг пуст, но хвост первого уже завершился."""
+
+    def __init__(self, rows: list[Any]) -> None:
+        super().__init__(9.0, [])
+        self._late_rows = rows
+
+    def late(self) -> list[Any]:
+        rows, self._late_rows = self._late_rows, []
+        return rows
+
+
+def test_добор_учитывает_готовую_опоздавшую_выдачу(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """TC-410. Хвост первого круга участвует в отборе до показа списка.
+
+    У раздачи нет латинской подписи, поэтому пустой второй круг её не повторит. Она уже
+    доехала к окончанию добора - ждать сверх бюджета не требуется.
+    """
+    from torrcast.facts import Origin
+    from torrcast.search import RawResult
+
+    late = [RawResult("Клиника S01 1080p", "e" * 40, 15 * 1024**3, 30)]
+    client = _LateSecond(late)
+    monkeypatch.setattr(
+        cli, "origin", lambda *a, **k: Origin(title="Scrubs", year=2001, name="Клиника")
+    )
+
+    with Progress(out=io.StringIO()) as progress:
+        raw, _pictures, found = cli._second_language(
+            cast(Any, client),
+            "клиника",
+            cli.Args(query=["клиника", "s1e1"]),
+            [],
+            [],
+            progress,
+        )
+
+    assert client.asked == ["Scrubs"], "добор вторым именем действительно состоялся"
+    assert len(raw) == 1
+    assert [picture.title for picture in found] == ["Клиника"]
+    assert client.late() == [], "готовый хвост забирается один раз"
+
+
+def test_короткое_имя_берёт_картину_из_первого_пула_по_паспорту(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """TC-411. Полное паспортное имя выбирает уже приехавшую картину без нового круга.
+
+    Короткое ``lain`` само указывает на журнал, поэтому вес выдачи не может быть
+    разрешением на подмену. Паспорт независимо называет сериал и его год - только эта
+    пара даёт право выбрать сериал из того же пула.
+    """
+    from torrcast.facts import Origin
+    from torrcast.parse import cluster, pick_franchise
+    from torrcast.search import RawResult, to_releases
+
+    raw = [
+        RawResult("lainzine 1-5 (2024) PDF", "a" * 40, 100 * 1024**2, 2),
+        RawResult("Serial Experiments Lain (1998) BDRip 1080p", "b" * 40, 12 * 1024**3, 40),
+    ]
+    pictures = cluster(to_releases(raw))
+    found = pick_franchise("lain", pictures)
+    client = _Ceiling(9.0, [])
+    monkeypatch.setattr(
+        cli,
+        "origin",
+        lambda *a, **k: Origin(
+            title="Serial Experiments Lain", year=1998, name="Эксперименты Лэйн"
+        ),
+    )
+
+    with Progress(out=io.StringIO()) as progress:
+        _raw, _pictures, rescued = cli._second_language(
+            cast(Any, client), "lain", cli.Args(query=["lain"]), raw, found, progress
+        )
+
+    assert [picture.title for picture in found] == ["lainzine 1-5"], "короткое имя неоднозначно"
+    assert [(picture.title, picture.year) for picture in rescued] == [
+        ("Serial Experiments Lain", 1998)
+    ]
+    assert client.asked == [], "картина уже в первом пуле - новый круг не нужен"
+
+
+def test_паспортное_имя_не_подменяет_картину_при_споре_года(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Короткое имя не получает права выбрать тёзку с годом вопреки паспорту."""
+    from torrcast.facts import Origin
+    from torrcast.parse import cluster, pick_franchise
+    from torrcast.search import RawResult, to_releases
+
+    raw = [
+        RawResult("lainzine 1-5 (2024) PDF", "c" * 40, 100 * 1024**2, 2),
+        RawResult("Serial Experiments Lain (2025) WEB-DL 1080p", "d" * 40, 8 * 1024**3, 9),
+    ]
+    pictures = cluster(to_releases(raw))
+    client = _Ceiling(9.0, [])
+    monkeypatch.setattr(
+        cli, "origin", lambda *a, **k: Origin(title="Serial Experiments Lain", year=1998)
+    )
+
+    with Progress(out=io.StringIO()) as progress:
+        _raw, _pictures, found = cli._second_language(
+            cast(Any, client),
+            "lain",
+            cli.Args(query=["lain"]),
+            raw,
+            pick_franchise("lain", pictures),
+            progress,
+        )
+
+    assert [picture.title for picture in found] == ["lainzine 1-5"], (
+        "спор года сильнее совпавшего длинного имени"
+    )
 
 
 def _nine_yards_pool() -> tuple[list[Any], list[Picture], list[Picture]]:

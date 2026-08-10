@@ -2166,6 +2166,22 @@ def _second_language(
             )
             return _as_is(raw, found, about, progress)
         hearsay = False
+    # Полное имя уже приехавшей картины может лежать только в паспорте. Короткий запрос
+    # ``lain`` сам по себе выбирает журнал ``lainzine``, хотя в том же первом пуле есть
+    # ``Serial Experiments Lain``. Второй круг тут ничего не находит - он лишь повторяет
+    # уже имеющуюся картину другим именем. Паспортное имя применяем прямо к первому пулу,
+    # но только когда оно однозначно указывает на одну картину и её год не спорит со
+    # справкой. Сам короткий запрос права голоса не получает.
+    first_pictures = cluster(to_releases(raw))
+    passport_hits: dict[str, Picture] = {}
+    for passport_name in (about.title, about.name):
+        for picture in pick_franchise(passport_name, first_pictures):
+            passport_hits[picture.key] = picture
+    found_keys = {picture.key for picture in found}
+    if len(passport_hits) == 1 and set(passport_hits) != found_keys:
+        passport_found = list(passport_hits.values())
+        if _vouched(passport_found, about, proven=True):
+            return raw, first_pictures, passport_found
     said = _query_note(name, alt, pool, about)
     if said:
         # Закрываем строку первого круга ДО объяснения: заметка выходит сразу, а строка
@@ -2201,7 +2217,12 @@ def _second_language(
     # кворум закрывает круг за его обычные 0.5-1.5 с.
     client.cap_floor = GOAL
     try:
-        merged = merge(raw, _ask(client, asked, progress))
+        second = _ask(client, asked, progress)
+        # Пока шёл второй круг, один из запросов мог завершиться уже после кворума.
+        # Список картин человеку ещё не показан, поэтому готовый хвост можно включить в
+        # тот же отбор без ожидания и без подмены уже прочитанного меню. Особенно важен
+        # хвост первого круга: картина без латинской подписи по имени добора не найдётся.
+        merged = merge(raw, second, client.late())
     finally:
         client.cap_floor = CIRCLE_SHARE
     # Круг кончился - закрываем его строку прямо здесь. Всё, что скажем дальше, это его
