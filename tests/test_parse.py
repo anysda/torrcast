@@ -116,6 +116,12 @@ def test_junk_is_not_video() -> None:
         "(Black Metal) [CD] Perversus Stigmata - Void - 2009, FLAC (image+.cue), lossless",
         "Сергей Александровский - Моя мадам (2026) MP3",
         "Мейер Мэттью - Mad Max and Philosophy [2024, PDF, ENG]",
+        # Игра подписывается и приставкой, и словами про игровое видео - без единого
+        # маркера качества в имени. Имена дословные, с сохранённой выдачи.
+        "История игрушек 3: Большой побег / Toy Story 3 (2010) PS3",
+        "Cars 2: The Video Game (2011) Xbox 360",
+        "Властелин колец: Битва за Средиземье 2 / The Lord of the Rings: The Battle for "
+        "Middle-earth II  | Cinematic video (2006) HD  | P1",
     ]
     assert all(parse_release_name(name).kind == "other" for name in junk)
     assert parse_release_name("Дюна / Dune (2021) BDRip 1080p").kind == "movie"
@@ -326,6 +332,9 @@ def test_plain_franchise_number_is_still_a_number(query: str, name: str, index: 
         ("Терминатор 2: Судный день", "терминатор", 2),
         ("Терминатор II", "терминатор", 2),
         ("Форсаж 1-4", "форсаж", None),
+        # По одному названию глава от части не отличима - решает сиблинг (TC-406).
+        ("Гарри Поттер и Дары Смерти: Часть 1", "гарри-поттер-и-дары-смерти", 1),
+        ("Стражи Галактики. Часть 2", "стражи-галактики", 2),
     ],
 )
 def test_franchise_key_and_part_number(title: str, key: str, part: int | None) -> None:
@@ -618,6 +627,59 @@ def test_the_free_first_slot_is_not_for_a_subtitled_picture() -> None:
     assert outside_numbering(whole) == {"movie:тачки-мультачки-байки-мэтра:2008"}
 
 
+def test_non_video_does_not_hold_the_franchise_numbering() -> None:
+    """Номер в имени игры или книги линейку кинофраншизы не образует.
+
+    Имена дословные, с сохранённой выдачи. «Битва за Средиземье 2» - нарезка роликов
+    из игры, одна раздача без сидов, - и она была ЕДИНСТВЕННОЙ подписанной номером
+    частью «Властелина колец»: от неё строилась вся линейка (первое место доставалось
+    «Братству кольца»), а «Две крепости» и «Возвращение короля» уезжали в хвост с
+    подписью «без номера части». Запрос «властелин колец 2» отвечал игрой.
+
+    Второй след того же класса - том аудиокниги «Homo Ludens 1. Класс: Сталкер»: номер
+    тома ставил её ПЕРВЫМ пунктом меню кинофраншизы «Сталкер», выше фильма 1979 года.
+    """
+    pictures = cluster(
+        [
+            parse_release_name(name)
+            for name in (
+                "Властелин колец: Братство кольца / The Lord of the Rings: The "
+                "Fellowship of the Ring (2001) BDRip 1080p | D",
+                "Властелин колец: Две крепости / The Lord of the Rings: The Two "
+                "Towers (2002) BDRip 1080p | D",
+                "Властелин колец: Битва за Средиземье 2 / The Lord of the Rings: The "
+                "Battle for Middle-earth II  | Cinematic video (2006) HD  | P1",
+                "Сталкер / Stalker (1979) BDRip 1080p | D",
+                "Дан Лебэл - Homo Ludens 1. Класс: Сталкер (2019) MP3",
+            )
+        ]
+    )
+
+    rings = pick_franchise("властелин колец", pictures)
+    assert [p.title for p in menu_order(rings)] == [
+        "Властелин колец: Братство кольца",
+        "Властелин колец: Две крепости",
+        "Властелин колец: Битва за Средиземье 2",
+    ], "не-видео из меню не исчезает, но стоит по году, а не по номеру"
+    assert outside_numbering(rings) == set(), "линейки из одной игры нет - и подписей нет"
+    assert [p.title for p in pick_franchise("властелин колец 2", pictures)] == [
+        "Властелин колец: Две крепости"
+    ]
+
+    stalker = pick_franchise("сталкер", pictures)
+    assert next(p.title for p in menu_order(stalker)) == "Сталкер", "первый пункт - фильм"
+    assert outside_numbering(stalker) == set()
+    # Настоящие номерные части это не трогает: ограждение сужено до не-видео.
+    numbered = cluster(
+        [
+            _release("Тачки", 2006, original="Cars", seeders=4),
+            _release("Тачки 2", 2011, original="Cars 2", seeders=9),
+            _release("Тачки 3", 2017, original="Cars 3", seeders=26),
+        ]
+    )
+    assert [p.title for p in pick_franchise("тачки 3", numbered)] == ["Тачки 3"]
+
+
 def test_cars_franchise_is_cross_language() -> None:
     """«Тачки»/«Cars» склеиваются, если оба варианта есть в имени раздачи."""
     releases = [
@@ -664,6 +726,71 @@ def test_part_number_selects_inside_the_franchise_not_the_anthology() -> None:
 
     assert [p.year for p in pick_franchise("гарри поттер дары смерти 2", pictures)] == [2011]
     assert [p.year for p in pick_franchise("гарри поттер дары смерти 1", pictures)] == [2010]
+
+
+def test_chapters_of_one_picture_do_not_number_the_franchise() -> None:
+    """«Часть I»/«Часть II» - главы одной картины, а не части 1 и 2 всей франшизы.
+
+    Имена дословные, с сохранённой выдачи. У восьми фильмов про Гарри Поттер номеров
+    нет вовсе, но «Дары Смерти: Часть I» и «Часть II» приносили в широкое меню номера
+    1 и 2: линейкой становились две главы одной картины, а все настоящие фильмы
+    уезжали в хвост с подписью «без номера части» - франшиза без номеров читалась
+    нумерованной. Глава доказывается сиблингом: каталог назвал «Часть 1» того же
+    имени, - значит, работа делилась на главы.
+    """
+    pictures = cluster(
+        [
+            parse_release_name(name)
+            for name in (
+                "Гарри Поттер и философский камень / Harry Potter and the "
+                "Philosopher's Stone (2001) BDRip 1080p | D",
+                "Гарри Поттер и Тайная комната / Harry Potter and the Chamber of "
+                "Secrets (2002) BDRip 1080p | D",
+                "Гарри Поттер и Дары Смерти: Часть I / Harry Potter and the Deathly "
+                "Hallows: Part 1 (2010) BDRip 1080p | D",
+                "Гарри Поттер и Дары Смерти: Часть II / Harry Potter and the Deathly "
+                "Hallows: Part 2 (2011) BDRip 1080p | D",
+            )
+        ]
+    )
+
+    whole = pick_franchise("гарри поттер", pictures)
+    assert all(p.part is None for p in pictures), "главам номер части не присваивается"
+    assert outside_numbering(whole) == set(), "подписей «без номера части» нет - линейки нет"
+    # А внутри своей франшизы главы отвечают на номер по хронологии, как любая
+    # франшиза без подписанных номеров: спрошенная часть находится как прежде.
+    hallows = pick_franchise("дары смерти 2", pictures)
+    assert [(p.title, p.year) for p in hallows] == [("Гарри Поттер и Дары Смерти: Часть II", 2011)]
+
+
+def test_a_part_two_without_a_part_one_stays_a_franchise_part() -> None:
+    """«Стражи Галактики. Часть 2» без «Части 1» рядом - часть франшизы, а не глава.
+
+    Имена дословные, с сохранённой выдачи: первый фильм каталог подписал просто
+    «Стражи Галактики», делить его не на что, - и номера при «Часть 2»/«Часть 3»
+    это настоящие номера частей франшизы. Снять их значило бы отдать запрос
+    «стражи галактики 2» мультсериалу 2015 года по хронологии. Ограждение к
+    :func:`test_chapters_of_one_picture_do_not_number_the_franchise`.
+    """
+    pictures = cluster(
+        [
+            parse_release_name(name)
+            for name in (
+                "Стражи Галактики / Guardians of the Galaxy (2014) BDRip 1080p | D",
+                "Стражи Галактики / Guardians of the Galaxy [S01-03] (2015-2019) "
+                "WEB-DL-AVC | Невафильм",
+                "Стражи Галактики. Часть 2 / Guardians of the Galaxy Vol. 2 (2017) BDRip 1080p | D",
+                "Стражи Галактики. Часть 3 / Guardians of the Galaxy Vol. 3 (2023) BDRip 1080p | D",
+            )
+        ]
+    )
+
+    assert [p.title for p in pick_franchise("стражи галактики 2", pictures)] == [
+        "Стражи Галактики. Часть 2"
+    ]
+    assert [p.title for p in pick_franchise("стражи галактики 3", pictures)] == [
+        "Стражи Галактики. Часть 3"
+    ]
 
 
 def test_word_order_in_the_query_is_not_the_users_problem() -> None:

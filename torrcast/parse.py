@@ -240,10 +240,19 @@ _FOREIGN_DUB_RE: Final = re.compile(
 )
 
 #: Не-видео: музыка, книги, игры. Срабатывает только при отсутствии видео-маркеров.
+#:
+#: 🔴 Игра подписывается и без ``repack``/``pc``: приставкой (``PS3``, ``Xbox 360``,
+#: ``Wii``, ``Nintendo``) или словами про игровое видео. «Властелин колец: Битва за
+#: Средиземье 2 ... | Cinematic video (2006) HD | P1» - нарезка роликов из игры, и видео
+#: в ней действительно есть, только картиной она не является: разобранная как кино, она
+#: вставала единственной подписанной номером частью франшизы и строила линейку
+#: «Властелина колец» от себя. Голое ``switch`` маркером не становится нарочно: так
+#: зовётся и кино («Switch», 2011), а без видео-маркеров в имени различить их нечем.
 _NON_VIDEO_RE: Final = re.compile(
     r"\b(flac|mp3|ape|wav|lossless|vinyl|аудиокнига|audiobook|"
     r"pdf|fb2|epub|djvu|mobi|rtf|azw3|cbz|cbr|"
-    r"repack|gog|steam-?rip|pc|x64|iso|portable|crack)\b",
+    r"repack|gog|steam-?rip|pc|x64|iso|portable|crack|"
+    r"ps[1-5]|psp|xbox|nintendo|wii|cinematic\s+video)\b",
     re.IGNORECASE,
 )
 _VIDEO_MARKER_RE: Final = re.compile(
@@ -306,6 +315,13 @@ _BRACKETS_RE: Final = re.compile(r"[\[(][^\[\]()]*[\])]")
 _OPEN_BRACKET_RE: Final = re.compile(r"[\[(]")
 #: Явный номер части в самом названии: «Тачки 3», «Форсаж - 8», «Терминатор II: ...».
 _PART_NUMBER_RE: Final = re.compile(r"^.+?[\s,-]+(\d{1,2}|[ivx]{1,4})(?=\s*[:.]|\s*$)", re.I)
+#: Слова, которыми каталог подписывает ГЛАВЫ одной картины: «Дары Смерти: Часть II»,
+#: «Deathly Hallows: Part 2». Список нарочно уже :data:`_TITLE_NUMBER_RE` (тот страж
+#: разбирает ЗАПРОС и держится шире): «Оно: Глава 2» и «Звёздные войны: Эпизод IV» -
+#: настоящие части франшизы, а «частью»/``part`` зовут половины одной работы. Само по
+#: себе слово главу не доказывает - «Стражи Галактики. Часть 2» так названа ВТОРАЯ часть
+#: франшизы; решает сиблинг «Часть 1» (:func:`_unchaptered`).
+_CHAPTER_RE: Final = re.compile(r"\b(?:часть|part)$", re.IGNORECASE)
 _ROMAN: Final[dict[str, int]] = {
     "i": 1,
     "ii": 2,
@@ -1019,13 +1035,20 @@ def franchise_name(title: str) -> str:
 
 
 def part_number(title: str) -> int | None:
-    """Явный номер части в названии: «Тачки 3» → 3, «Терминатор II» → 2, иначе None."""
+    """Явный номер части в названии: «Тачки 3» → 3, «Терминатор II» → 2, иначе None.
+
+    Номер после «Часть»/``Part`` здесь остаётся номером: по одному названию главу
+    одной картины от второй части франшизы не отличить («Дары Смерти: Часть II»
+    против «Стражи Галактики. Часть 2»). Это различие требует каталога целиком и
+    стоит ступенью позже - :func:`_unchaptered`.
+    """
     match = _PART_NUMBER_RE.match(title.strip())
     if not match:
         return None
-    if len(title[: match.start(1)].rstrip(" ,-")) < _FRANCHISE_MIN:
+    head = title[: match.start(1)]
+    if len(head.rstrip(" ,-")) < _FRANCHISE_MIN:
         return None  # «Т-34», «В-2»: это марка, а не тридцать четвёртая часть франшизы
-    if re.search(r"\d\s*[-,]\s*$", title[: match.start(1)]):
+    if re.search(r"\d\s*[-,]\s*$", head):
         return None  # «Форсаж 1-4», «Матрица 1,2,3» - это диапазон, а не номер части
     token = match.group(1).lower()
     return int(token) if token.isdigit() else _ROMAN.get(token)
@@ -1580,7 +1603,61 @@ def cluster(releases: list[Release]) -> list[Picture]:
         buckets.setdefault(key, []).append(release)
 
     pictures = [_compose(kind, year, group) for (kind, _, year), group in buckets.items()]
-    return _sorted(glue(pictures))
+    return _sorted(_unchaptered(glue(pictures)))
+
+
+def _chapter_of(title: str) -> tuple[str, int] | None:
+    """Глава в имени: «Дары Смерти: Часть II» → ``("дары смерти", 2)``; не глава - None."""
+    match = _PART_NUMBER_RE.match(title.strip())
+    if not match:
+        return None
+    head = title[: match.start(1)].rstrip(" ,-")
+    if not _CHAPTER_RE.search(head):
+        return None
+    base = slugify(_CHAPTER_RE.sub("", head).rstrip(" ,-:."))
+    token = match.group(1).lower()
+    number = int(token) if token.isdigit() else _ROMAN.get(token)
+    return (base, number) if base and number is not None else None
+
+
+def _unchaptered(pictures: list[Picture]) -> list[Picture]:
+    """Снять номер части франшизы с ГЛАВ одной картины; сами картины не трогаются.
+
+    🔴 TC-406. «Гарри Поттер и Дары Смерти: Часть I» и «Часть II» - половины одной
+    работы, но их номера 1 и 2 в широком меню «гарри поттер» читались номерами частей
+    ВСЕЙ франшизы: линейкой становились две главы, а восемь настоящих фильмов уезжали
+    в хвост с подписью «без номера части» - франшиза без номеров выглядела
+    нумерованной.
+
+    Глава доказывается сиблингом: каталог назвал «Часть 1» того же имени - значит,
+    работа делилась на главы, и номера в ней - номера глав. Без сиблинга номер
+    остаётся номером части: «Стражи Галактики. Часть 2» - вторая часть франшизы
+    (первый фильм каталог подписал просто «Стражи Галактики», делить её не на что), и
+    запрос «стражи галактики 2» отвечает ею, как прежде. Тем же правилом живы «Оно:
+    Глава 2» и «Дюна: Часть вторая» - слово тут не решает ничего, решает подпись
+    каталога. Меряется по сохранённым выдачам: снятие номера с глав не стоит ни одного
+    настоящего номерного ответа.
+
+    Запрос к самой главенной работе это не ломает: «дары смерти 2» отвечает второй
+    главой по хронологии - как всякая франшиза, которую каталог номерами не подписал.
+    """
+    chaptered = {
+        chapter[0]
+        for picture in pictures
+        for release in picture.releases
+        if (chapter := _chapter_of(release.title)) is not None and chapter[1] == 1
+    }
+    if not chaptered:
+        return pictures
+    for picture in pictures:
+        if picture.part is None:
+            continue
+        for release in picture.releases:
+            chapter = _chapter_of(release.title)
+            if chapter is not None and chapter[0] in chaptered and chapter[1] == picture.part:
+                picture.part = None
+                break
+    return pictures
 
 
 def by_majority(counted: Counter[str]) -> str:
@@ -1987,16 +2064,25 @@ def _numbered_line(pictures: list[Picture]) -> tuple[list[Picture], list[Picture
       только если её с франшизой связала сама подпись каталога;
     * остальные безномерные идут ПОСЛЕ линейки, в хронологии.
 
+    🔴 Не-видео (``kind == "other"``) места в линейке не занимает, даже когда в его имени
+    есть номер: том аудиокниги «Homo Ludens 1. Класс: Сталкер» вставал ПЕРВЫМ пунктом
+    меню кинофраншизы «Сталкер» - единственным носителем номера во всей выдаче - и мог
+    быть принят за первую часть фильма. Здесь это ограждение обязано стоять само, а не
+    полагаться на фильтр в :func:`_numbered`: сюда линейку приносят и
+    :func:`menu_order`, и :func:`outside_numbering`, а они зовут её на всём меню целиком.
+    Из хвоста не-видео при этом не исчезает: показать его - честно, давать ему номер
+    части - нет.
+
     ⚠️ Нумерованных частей нет вовсе («Матрица», «Гарри Поттер») - порядок не трогаем:
     там хронология и есть нумерация, а любое «после линейки» было бы выдумкой.
     """
     numbered = sorted(
-        (p for p in pictures if p.part is not None),
+        (p for p in pictures if p.part is not None and p.kind != "other"),
         key=lambda p: (p.part or 0, p.year is None, p.year or 0, p.title),
     )
     if not numbered:
         return list(pictures), []
-    rest = [p for p in pictures if p.part is None]
+    rest = [p for p in pictures if p.part is None or p.kind == "other"]
     free = _free_first(rest, numbered) if rest and all(p.part != 1 for p in numbered) else None
     first = [free] if free is not None else []
     tail = [p for p in rest if p is not free]
@@ -2048,8 +2134,11 @@ def _free_first(rest: list[Picture], numbered: list[Picture]) -> Picture | None:
     titled = [
         p
         for p in rest
-        if slugify(p.title) == p.franchise
-        or (p.original is not None and franchise_key(p.original) in roots)
+        if p.kind != "other"  # первое место - картине, а не тому книги или репаку игры
+        and (
+            slugify(p.title) == p.franchise
+            or (p.original is not None and franchise_key(p.original) in roots)
+        )
     ]
     if not titled:
         return None
