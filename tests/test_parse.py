@@ -984,6 +984,29 @@ def test_a_franchise_without_part_numbers_keeps_its_chronology() -> None:
     assert outside_numbering(whole) == set()
 
 
+def test_plain_franchise_name_reaches_its_films_without_non_video() -> None:
+    """Голое имя франшизы раскрывает фильмы с продолжением имени, но не игру."""
+    releases = [
+        Release(
+            raw_name="Гарри Поттер: Чемпионат мира по квиддичу (2003) PC RePack",
+            title="Гарри Поттер: Чемпионат мира по квиддичу",
+            year=2003,
+            kind="other",
+        ),
+        _release("Гарри Поттер: История магии", 2017),
+        _release("Гарри Поттер и философский камень", 2001, seeders=20),
+        _release("Гарри Поттер и Тайная комната", 2002, seeders=18),
+    ]
+
+    menu = menu_order(pick_franchise("гарри поттер", cluster(releases)))
+
+    assert [(p.title, p.kind) for p in menu] == [
+        ("Гарри Поттер и философский камень", "movie"),
+        ("Гарри Поттер и Тайная комната", "movie"),
+        ("Гарри Поттер: История магии", "movie"),
+    ]
+
+
 def test_an_explicit_first_part_leaves_no_free_slot_for_a_nameless_one() -> None:
     """Номер ``1`` назван вслух - значит безномерная картина первой частью не считается."""
     pictures = cluster(
@@ -1026,6 +1049,46 @@ def test_a_collection_release_does_not_become_a_menu_line() -> None:
         ("Хоббит: Нежданное путешествие", 2012),
         ("Хоббит: Пустошь Смауга", 2013),
         ("Хоббит: Битва пяти воинств", 2014),
+    ]
+
+
+def test_a_bilingual_list_of_films_is_a_collection() -> None:
+    """Несколько русских и латинских имён через слэш перечисляют разные картины."""
+    pack = parse_release_name(
+        "Хоббит/Нежданное путешествие/Пустошь Смауга/The Hobbit/"
+        "An Unexpected Journey/The Desolation of Smaug "
+        "[2012-3, США, Новая Зеландия, фэнтези, 3 DVD5] Dub"
+    )
+    one_picture = parse_release_name(
+        "Унесённые призраками / Sen to Chihiro no Kamikakushi / Spirited Away (2001) BDRip 1080p"
+    )
+    many_names_one_picture = parse_release_name(
+        "Клинок, рассекающий демонов: Деревня кузнецов / "
+        "Kimetsu no Yaiba: Katanakaji no Sato Hen / Demon Slayer: Swordsmith Village Arc / "
+        "Blade of Demon Destruction / Истребитель демонов [TV] [S3] [2023] BDRip"
+    )
+
+    assert pack.collection is True
+    assert one_picture.collection is False
+    assert many_names_one_picture.collection is False
+
+
+def test_a_movie_trilogy_label_marks_a_collection() -> None:
+    """Слово «Кинотрилогия» прямо называет пачку фильмов и не становится пунктом меню."""
+    releases = [
+        parse_release_name(
+            "Властелин колец: Кинотрилогия / The Lord of the Rings: "
+            "The Motion Picture Trilogy (2001-2003) BDRip 1080p"
+        ),
+        parse_release_name(
+            "Властелин колец: Братство кольца / The Lord of the Rings: "
+            "The Fellowship of the Ring (2001) BDRip 1080p"
+        ),
+    ]
+
+    pictures = cluster(releases)
+    assert [p.title for p in menu_order(pick_franchise("властелин колец", pictures))] == [
+        "Властелин колец: Братство кольца"
     ]
 
 
@@ -1247,6 +1310,63 @@ def test_glue_keeps_parts_of_a_franchise_apart() -> None:
     assert [(p.title, p.year, len(p.releases)) for p in pictures] == [
         ("Тачки 2", 2011, 1),
         ("Тачки 3", 2017, 2),
+    ]
+
+
+def test_glue_keeps_a_named_parody_apart_from_the_original() -> None:
+    """Явно названная пародия - другая картина, даже если оригинальное имя общее."""
+    pictures = cluster(
+        [
+            parse_release_name(
+                "Властелин колец: Возвращение короля / "
+                "The Lord of the Rings: The Return of the King (2003) BDRip 1080p Dub"
+            ),
+            parse_release_name(
+                "Властелин Колец: Возвращение Бомжа / "
+                "The Lord of the Rings: The Return of the King "
+                "[2004, фэнтези, приключения, пародия, DVDRip]"
+            ),
+        ]
+    )
+
+    assert [(p.title, p.year) for p in pictures] == [
+        ("Властелин колец: Возвращение короля", 2003),
+        ("Властелин Колец: Возвращение Бомжа", 2004),
+    ]
+
+
+def test_a_goblin_voice_is_not_mistaken_for_a_parody() -> None:
+    """Имя дорожки не меняет картину: обычная альтернативная озвучка остаётся в пуле."""
+    pictures = cluster(
+        [
+            parse_release_name("Матрица / The Matrix (1999) BDRip 1080p Dub"),
+            parse_release_name("Матрица / The Matrix (1999) BDRip AVO (Гоблин)"),
+        ]
+    )
+
+    assert len(pictures) == 1
+    assert len(pictures[0].releases) == 2
+
+
+def test_a_parody_studio_label_before_the_original_prevents_glue() -> None:
+    """Студийная подпись в русском имени отделяет пародийную трилогию от сборника."""
+    pictures = cluster(
+        [
+            parse_release_name(
+                "Властелин колец: Кинотрилогия / "
+                "The Lord of the Rings: The Motion Picture Trilogy (2001-2003) BDRip"
+            ),
+            parse_release_name(
+                "Властелин Колец: Братва и кольцо | Две сорванные башни | "
+                "Возвращение Бомжа (Гоблин) / The Lord of the Rings: "
+                "The Motion Picture Trilogy [2002, 2003, 2004, комедия, BDRip]"
+            ),
+        ]
+    )
+
+    assert [p.title for p in pictures] == [
+        "Властелин колец",
+        "Властелин Колец: Братва и кольцо",
     ]
 
 

@@ -269,7 +269,7 @@ _VIDEO_MARKER_RE: Final = re.compile(
 #: имя, обрезанное по «Трилогия», перестанет считаться сборником при первой же правке
 #: одного списка мимо другого.
 _COLLECTION_LATIN: Final = r"collection"
-_COLLECTION_RUSSIAN: Final = r"трилогия|дилогия|квадрология|антология|коллекция"
+_COLLECTION_RUSSIAN: Final = r"кинотрилогия|трилогия|дилогия|квадрология|антология|коллекция"
 _TITLE_CUT_RE: Final = re.compile(
     r"\b(?:bd-?remux|bd-?rip|remux|blu-?ray|web-?dl\w*|web-?rip|webrip|hdrip|"
     r"dvd-?rip|dvd\d?|hdtv\w*|hdcam|telesync|dvdscr|satrip|iptv|"
@@ -285,6 +285,14 @@ _TITLE_CUT_RE: Final = re.compile(
 _COLLECTION_CUT_RE: Final = re.compile(
     rf"^(?:{_COLLECTION_LATIN}|{_COLLECTION_RUSSIAN})$", re.IGNORECASE
 )
+
+#: Явная подпись другой картины или монтажа. Проверяется по полному имени раздачи:
+#: жанр «пародия» обычно стоит уже после заголовка, а ``fanedit`` - рядом с качеством.
+#: Имя озвучки сюда не входит: ``AVO (Goblin)`` остаётся дорожкой обычной картины.
+_ALTERNATIVE_PICTURE_RE: Final = re.compile(
+    r"\bпароди[яи]\b|\b(?:fan[ ._-]?edit)\b|\bсмешн(?:ой|ый)\s+перевод\b", re.IGNORECASE
+)
+_ALTERNATIVE_TITLE_RE: Final = re.compile(r"\(гоблин\)", re.IGNORECASE)
 #: Те же русские метки, но списком слов: по ним :func:`_title_zone` узнаёт рез, за которым
 #: через слэш стоит оригинальное название (TC-282). Список НЕ заводится второй раз -
 #: он разбирается из :data:`_COLLECTION_RUSSIAN`, иначе две правки разойдутся.
@@ -1435,6 +1443,12 @@ def parse_release_name(name: str) -> Release:
     year, span = _find_year(text)
     zone, collection = _title_zone(text, span)
     title, original, aliases = _split_titles(zone)
+    names = (title, *((original,) if original else ()), *aliases)
+    latin_names = sum(bool(_LATIN.search(part) and not _CYRILLIC.search(part)) for part in names)
+    russian_names = sum(bool(_CYRILLIC.search(part)) for part in names)
+    # У одной картины бывают два оригинальных и два переводных имени. Три пары уже
+    # перечисляют три картины: «Хоббит / Нежданное путешествие / Пустошь Смауга / ...».
+    collection = collection or (latin_names >= 3 and russian_names >= 3)
 
     quality_match = _QUALITY_RE.search(text)
     quality = _normalize_quality(quality_match.group(1)) if quality_match else None
@@ -1605,6 +1619,12 @@ def glue(pictures: list[Picture]) -> list[Picture]:
     """
     parent = list(range(len(pictures)))
 
+    def alternative_release(release: Release) -> bool:
+        title = release.raw_name.split(" / ", 1)[0]
+        return bool(
+            _ALTERNATIVE_PICTURE_RE.search(release.raw_name) or _ALTERNATIVE_TITLE_RE.search(title)
+        )
+
     def root(i: int) -> int:
         while parent[i] != i:
             parent[i] = parent[parent[i]]
@@ -1616,7 +1636,10 @@ def glue(pictures: list[Picture]) -> list[Picture]:
         if ra != rb:
             parent[max(ra, rb)] = min(ra, rb)
 
-    named: dict[tuple[Kind, str], list[int]] = {}
+    alternative = [
+        bool(p.releases) and all(alternative_release(r) for r in p.releases) for p in pictures
+    ]
+    named: dict[tuple[Kind, str, bool], list[int]] = {}
     for i, picture in enumerate(pictures):
         names = {slugify(picture.title)} | (
             {slugify(picture.original)} if picture.original else set()
@@ -1626,22 +1649,24 @@ def glue(pictures: list[Picture]) -> list[Picture]:
         names |= {in_digits(name) for name in names if name}
         for name in names:
             if name:
-                named.setdefault((picture.kind, name), []).append(i)
+                named.setdefault((picture.kind, name, alternative[i]), []).append(i)
     for same in named.values():
         _link(pictures, same, union)
     # Третье имя из заголовка (:attr:`Picture.aliases`) сводит картину только с ОДИНОКИМ
     # именем - тем, которое каталог не спарил ни с чем (``original`` пуст).
-    lone: dict[tuple[Kind, str], list[int]] = {}
+    lone: dict[tuple[Kind, str, bool], list[int]] = {}
     for i, picture in enumerate(pictures):
         if picture.original:
             continue
         for name in {(slug := slugify(picture.title)), in_digits(slug)}:
             if name:
-                lone.setdefault((picture.kind, name), []).append(i)
+                lone.setdefault((picture.kind, name, alternative[i]), []).append(i)
     for i, picture in enumerate(pictures):
         for alias in picture.aliases:
             for name in (alias, in_digits(alias)):
-                if (bucket := lone.get((picture.kind, name))) is not None and i not in bucket:
+                if (
+                    bucket := lone.get((picture.kind, name, alternative[i]))
+                ) is not None and i not in bucket:
                     bucket.append(i)
     for same in lone.values():
         _link(pictures, same, union)
@@ -1833,10 +1858,19 @@ def franchises(pictures: list[Picture]) -> dict[str, list[Picture]]:
     for picture in pictures:
         grouped.setdefault(picture.franchise, []).append(picture)
     for items in grouped.values():
-        items.sort(
-            key=lambda p: (p.year is None, p.year or 0, p.part or 99, -len(p.releases), p.title)
-        )
+        items.sort(key=_franchise_item_key)
     return grouped
+
+
+def _franchise_item_key(picture: Picture) -> tuple[bool, int, int, int, str]:
+    """Порядок частей франшизы: год, названный номер, вес и имя."""
+    return (
+        picture.year is None,
+        picture.year or 0,
+        picture.part or 99,
+        -len(picture.releases),
+        picture.title,
+    )
 
 
 def _numbered_line(pictures: list[Picture]) -> tuple[list[Picture], list[Picture]]:
@@ -1888,7 +1922,11 @@ def menu_order(pictures: list[Picture]) -> list[Picture]:
     чего, а пустое меню значит «ничего не нашлось» при живой выдаче в руках.
     """
     picked = [p for p in pictures if not p.collection]
-    line, tail = _numbered_line(picked or list(pictures))
+    source = picked or list(pictures)
+    keys = {p.franchise for p in source}
+    if any(sum(other.startswith(f"{key}-и-") for other in keys) >= 2 for key in keys):
+        return sorted(source, key=_franchise_item_key)
+    line, tail = _numbered_line(source)
     return line + tail
 
 
@@ -1903,7 +1941,12 @@ def outside_numbering(pictures: list[Picture]) -> set[str]:
     return {p.key for p in _numbered_line(pictures)[1]}
 
 
-def _by_words(wanted: str, keys: Iterable[str]) -> str | None:
+def _group_weight(groups: dict[str, list[Picture]], key: str) -> int:
+    """Число раздач за ключом франшизы - вес не зависит от порядка выдачи."""
+    return sum(len(p.releases) for p in groups[key])
+
+
+def _by_words(wanted: str, groups: dict[str, list[Picture]]) -> str | None:
     """Ключ франшизы, в словах которого есть ВСЕ слова запроса - в любом порядке.
 
     Человек называет картину своими словами, а не так, как её подписал каталог:
@@ -1935,13 +1978,20 @@ def _by_words(wanted: str, keys: Iterable[str]) -> str | None:
     asked = _words(wanted)
     if len(asked) < 2:
         return None
-    hits = [key for key in keys if asked <= _words(key)]
+    hits = [key for key in groups if asked <= _words(key)]
     if not hits:
         # Порядок слов тут значит всё (:func:`_paired`), поэтому сверяются списки в том
         # виде, как имя написано, а не множества.
         mine = _word_list(wanted)
-        hits = [key for key in keys if _paired(mine, _word_list(key))]
-    return min(hits, key=lambda key: (len(_words(key)), len(key))) if hits else None
+        hits = [key for key in groups if _paired(mine, _word_list(key))]
+    return (
+        min(
+            hits,
+            key=lambda key: (len(_words(key)), len(key), -_group_weight(groups, key), key),
+        )
+        if hits
+        else None
+    )
 
 
 def _words(slug: str) -> set[str]:
@@ -2062,7 +2112,7 @@ def pick_franchise(query: str, pictures: list[Picture]) -> list[Picture]:
         if not wanted:
             return None
         if hits := [k for k in groups if wanted in k]:
-            return min(hits, key=len)
+            return min(hits, key=lambda key: (len(key), -_group_weight(groups, key), key))
         # Порядок слов и союзы - на совести человека, а не каталога (:func:`_by_words`).
         # Стоит выше грубого «ключ входит в запрос»: у «гарри поттер дары смерти» тот
         # находил франшизу «гарри поттер» и отсчитывал номер части по ней.
@@ -2096,8 +2146,24 @@ def pick_franchise(query: str, pictures: list[Picture]) -> list[Picture]:
             items, index = _by_both_names(query, pictures), None
         return _numbered(items, index)
 
-    items = _numbered(_both_languages(groups, aliases, key), index)
-    if not items and index is not None and (whole := named(query)) is not None:
+    franchise_items = _both_languages(groups, aliases, key)
+    if index is None:
+        continuation_groups = {
+            grouped_key: [p for p in grouped_items if p.kind != "other"]
+            for grouped_key, grouped_items in groups.items()
+            if grouped_key.startswith(f"{key}-и-")
+        }
+        continuation_groups = {k: items for k, items in continuation_groups.items() if items}
+        if len(continuation_groups) >= 2:
+            continuations = [p for items in continuation_groups.values() for p in items]
+            known = {p.key for p in continuations}
+            franchise_items = sorted(
+                [p for p in franchise_items if p.kind != "other" and p.key not in known]
+                + continuations,
+                key=_franchise_item_key,
+            )
+    items = _numbered(franchise_items, index)
+    if not items and index is not None and (whole_name := named(query)) is not None:
         # 🔴 Номера в этой франшизе нет, а вся строка целиком - имя картины в каталоге:
         # значит цифра была частью названия. «Легенда 17» уходила во франшизу «легенда»
         # за семнадцатой частью, которой нет и быть не может, и человек читал «картин во
@@ -2108,7 +2174,7 @@ def pick_franchise(query: str, pictures: list[Picture]) -> list[Picture]:
         # Совпадение требуется ПОЛНОЕ (:func:`named`, без нестрогих ступеней): иначе
         # «матрица 7» находила бы франшизу вхождением и вместо честного «номера 7 нет»
         # выкладывала всю линейку.
-        items = _both_languages(groups, aliases, whole)
+        items = _both_languages(groups, aliases, whole_name)
     return _with_subtitled(items, name, pictures, index)
 
 

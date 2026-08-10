@@ -6,7 +6,7 @@ import random
 from typing import Any
 
 from torrcast.cli import rank_releases
-from torrcast.parse import Release, cluster, menu_order
+from torrcast.parse import Release, cluster, menu_order, pick_franchise
 
 
 def test_deterministic_ties() -> None:
@@ -59,3 +59,35 @@ def test_deterministic_ties() -> None:
         shuffled = list(releases)
         rng.shuffle(shuffled)
         assert run_flow(shuffled) == expected, "Случайный порядок сломал ранжир"
+
+
+def test_short_query_tie_uses_release_count_then_key() -> None:
+    """Равные по длине имена выбираются по числу раздач и алфавиту, не по входу."""
+    releases = [
+        Release(raw_name="Девять песен", title="Девять песен", year=2004, kind="movie"),
+        Release(raw_name="Девять миров", title="Девять миров", year=2009, kind="movie"),
+        Release(raw_name="Девять ярдов", title="Девять ярдов", year=2000, kind="movie"),
+        Release(raw_name="Девять ярдов 1080p", title="Девять ярдов", year=2000, kind="movie"),
+    ]
+
+    def picked(pool: list[Release]) -> tuple[str, ...]:
+        return tuple(p.title for p in pick_franchise("девять", cluster(pool)))
+
+    assert picked(releases) == ("Девять ярдов",)
+    assert picked(list(reversed(releases))) == ("Девять ярдов",)
+
+    tied = releases[:-1]
+    assert picked(tied) == ("Девять миров",)
+    assert picked(list(reversed(tied))) == ("Девять миров",)
+
+
+def test_word_match_tie_uses_release_count_then_key() -> None:
+    """Словесная ступень разрешает такую же ничью тем же устойчивым правилом."""
+    releases = [
+        Release(raw_name="Алый тихий берег", title="Алый тихий берег", kind="movie"),
+        Release(raw_name="Алый новый берег", title="Алый новый берег", kind="movie"),
+        Release(raw_name="Алый новый берег 1080p", title="Алый новый берег", kind="movie"),
+    ]
+
+    found = pick_franchise("алый берег", cluster(releases))
+    assert [p.title for p in found] == ["Алый новый берег"]
