@@ -732,6 +732,17 @@ class Warmup:
     error: InfraError | None = None
     thread: threading.Thread | None = None
 
+    def result(self, timeout: float = 30.0) -> str:
+        """Дождаться hash прогретой раздачи."""
+        if self.thread is not None:
+            self.thread.join(timeout)
+        if self.error is not None:
+            raise self.error
+        if not self.torrent_hash:
+            raise InfraError("TorrServer не принял раздачу за отведённое время")
+        return self.torrent_hash
+
+
 @dataclass(frozen=True, slots=True)
 class Media:
     """Что ffprobe вычитал из потока: длительность, звуковые дорожки и кодек видео."""
