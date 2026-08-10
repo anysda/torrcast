@@ -196,8 +196,7 @@ def case_start(user: Consumer, at: float) -> None:
     user.feed.restart(slot)
     waited = user.take(slot, "первый кусок захода")
     print(
-        f"  ⇒ ПЕРВЫЙ КУСОК ЗАХОДА: {time.monotonic() - began:.1f} с "
-        f"(ожидание тела {waited:.1f} с)"
+        f"  ⇒ ПЕРВЫЙ КУСОК ЗАХОДА: {time.monotonic() - began:.1f} с (ожидание тела {waited:.1f} с)"
     )
 
 
