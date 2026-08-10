@@ -775,7 +775,7 @@ install_ffmpeg() {
     fi
     [ "$(uname -m)" = "x86_64" ] || die "статической сборки ffmpeg под $(uname -m) нет — \
 поставь ffmpeg ≥ $FFMPEG_MIN сам"
-    info "ffmpeg ${have:-нет} — беру статическую сборку"
+    info "ffmpeg ${have:-нет} - беру статическую сборку"
     # Каталог убираем сами: `trap ... RETURN` без `set -T` цепляется ко ВСЕМ функциям
     # сразу и падает на первом же чужом return («work: unbound variable»).
     local work; work="$(mktemp -d)"
@@ -881,11 +881,11 @@ pick_pip_index() {
     for mirror in "${PIP_MIRRORS[@]}"; do
         if index_alive "$mirror"; then
             export PIP_INDEX_URL="$mirror"
-            info "⚠ pypi недоступен — ставлю через зеркало ${mirror#https://}"
+            info "⚠ pypi недоступен - ставлю через зеркало ${mirror#https://}"
             return 0
         fi
     done
-    info "⚠ pypi недоступен, и зеркала тоже — пробую штатным путём"
+    info "⚠ pypi недоступен, и зеркала тоже - пробую штатным путём"
 }
 
 install_torrcast() {
@@ -935,7 +935,7 @@ verify_torrcast() {
     # из каталога репы, нашёл бы исходники репы и сверка сравнивала бы их сами с собой.
     installed="$("$PREFIX/venv/bin/python" -P -c \
         'import pathlib, torrcast; print(pathlib.Path(torrcast.__file__).resolve().parent)')" ||
-        die "пакет torrcast не импортируется из $PREFIX/venv — установка не состоялась"
+        die "пакет torrcast не импортируется из $PREFIX/venv - установка не состоялась"
     [ -d "$REPO_DIR/torrcast" ] || die "рядом с install.sh нет каталога torrcast/ — нечего сверять"
     [ -d "$installed" ] || die "torrcast импортируется, но каталога $installed нет"
 
@@ -1442,7 +1442,7 @@ install_prowlarr() {
             | jq -r '[.assets[]?|select(.name|test("linux-core-x64\\.tar\\.gz$"))][0]
                      .browser_download_url // empty')" || url=""
         if [ -z "$url" ]; then
-            info "GitHub сборку не отдал — иду на $PL_FALLBACK"
+            info "GitHub сборку не отдал - иду на $PL_FALLBACK"
             url="$PL_FALLBACK"
         fi
         info "качаю $url"
@@ -1674,7 +1674,7 @@ install_indexers() {
             info "добавлен $name"
             [ "$def" = "$KEY_INDEXER" ] && key_here=1
         else
-            info "⚠ $name не добавился (недоступен из этой сети?) — не блокер"
+            info "⚠ $name не добавился (недоступен из этой сети?) - не блокер"
         fi
     done
 
@@ -1833,7 +1833,7 @@ setup_hls() {
     log "раздача HLS ($HLS_TRANSPORT, порт $HLS_PORT, сегменты в $HLS_DIR)"
     install -d -m 0755 "$HLS_DIR"
     if [ "$HLS_TRANSPORT" != "https" ]; then
-        info "адрес раздачи собирается по маршруту до ТВ — ни серта, ни имени, ни DNS"
+        info "адрес раздачи собирается по маршруту до ТВ - ни серта, ни имени, ни DNS"
         return
     fi
     install -d -m 0700 "$TLS_DIR"
@@ -1851,7 +1851,7 @@ setup_hls() {
         -subj "/CN=$HLS_HOST" -addext "basicConstraints=critical,CA:TRUE" \
         -addext "subjectAltName=DNS:$HLS_HOST,DNS:localhost,IP:127.0.0.1" 2>/dev/null
     chmod 600 "$TLS_DIR/torrcast.key"
-    info "выпущен self-signed на $HLS_HOST — mock-приёмке этого достаточно"
+    info "выпущен self-signed на $HLS_HOST - mock-приёмке этого достаточно"
     info "⚠ живому ТВ нужен серт LE: Chromecast self-signed молча не играет"
 }
 
