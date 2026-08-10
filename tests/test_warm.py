@@ -142,6 +142,34 @@ def test_the_show_reads_the_warmed_piece_without_touching_the_packer(tmp_path: P
     assert feed.have(3) and not feed.have(4)
 
 
+def test_a_warmed_copy_heavier_than_the_ceiling_is_not_a_warmed_piece(tmp_path: Path) -> None:
+    """Прогретая копия тяжелее потолка приёмника наружу не идёт и запасом не считается.
+
+    Прогрев кладёт фильм на диск копией, а тяжёлые места приводит к перекоду отдельным,
+    поздним заходом (:meth:`torrcast.warm.Warmer._spots_left`). До него на месте тяжёлого
+    куска лежит копия во весь свой вес, а показ берёт прогретое напрямую с диска - мимо
+    обоих мест, где вес зажат потолком (:meth:`torrcast.stream.Packer.publish`,
+    :meth:`torrcast.recode.Recoder.holding`).
+
+    Замер на живом Q70D («Тачки» 2006, 1080p, 39% фильма тяжелее потолка): прогрев обгонял
+    показ вчетверо, наружу уезжали прогретые копии по 17-44 МБ, и приёмник вставал на
+    каждой - 32 ``BUFFERING`` и 20 пинков за 14 минут показа.
+
+    Копию при этом не трогаем: точечный перекод ляжет ровно поверх неё.
+    """
+    vault = _vault(tmp_path)
+    grid = _grid()
+    out = hls_dir(str(tmp_path / "hls"))
+    feed = Feed(source="нет", audio=0, out=out, grid=grid, vault=vault, cap=4096)
+    light, heavy = _lay(vault, 0, size=4096), _lay(vault, 1, size=4097)
+
+    assert feed.segment(0) == light, "лёгкий прогретый кусок не прочитался"
+    assert feed._warm(1) is None, "прогретая копия тяжелее потолка уехала на ТВ"
+    assert feed.have(0) and not feed.have(1), "тяжёлая копия числится готовым куском"
+    assert feed.front(0.0) == pytest.approx(grid.end(0)), "тяжёлая копия зачлась запасом"
+    assert heavy.exists(), "тяжёлую копию стёрли - точечному перекоду ложиться не на что"
+
+
 def test_the_warmed_tail_counts_as_the_show_reserve(tmp_path: Path) -> None:
     """Запас показа считается и по прогретому: иначе сторож приёмника решил бы, что
     впереди пусто, и дёргал бы нуджем работающий показ (:meth:`Feed.front`)."""

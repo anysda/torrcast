@@ -4638,6 +4638,9 @@ def _play(
         # Сколько держать запрос вместо 404 - свойство приёмника: Q70D после 404 молчит
         # минутами, а приставка Android TV берёт следующий LOAD через девять секунд.
         wait=profile.hold_seconds,
+        # Потолок веса куска нужен раздаче отдельно от сетки: прогретое на диске уезжает
+        # на ТВ мимо упаковки, и взвесить его больше негде (:meth:`Feed._warm`).
+        cap=profile.max_segment_bytes,
         log=lambda text: print(text, flush=True),
         recoder=recoder,
         encode=whole,
