@@ -218,7 +218,7 @@ LOCALE_FALLBACK="${TORRCAST_LOCALE_FALLBACK:-C.UTF-8}"
 # Выгрузка оценок IMDb под справку в меню франшизы (torrcast/facts.py). Открытая,
 # без ключа и регистрации, обновляется у них ежедневно; 8.6 МБ в архиве.
 IMDB_RATINGS_URL="${TORRCAST_IMDB_RATINGS_URL:-https://datasets.imdbws.com/title.ratings.tsv.gz}"
-IMDB_RATINGS_PATH="${TORRCAST_IMDB_RATINGS_PATH:-/var/lib/torrcast/imdb-ratings.tsv}"
+IMDB_RATINGS_PATH="${TORRCAST_IMDB_RATINGS_PATH:-$STATE_DIR/imdb-ratings.tsv}"
 # Ниже скольких голосов оценку не берём. Не вкусовщина, а размер: с порогом файл
 # худеет с 30 МБ до 2 (106 тысяч строк вместо полутора миллионов), а всё, что человек
 # станет искать в торрентах, набирает тысячи голосов с запасом.
@@ -229,7 +229,7 @@ IMDB_MIN_VOTES="${TORRCAST_IMDB_MIN_VOTES:-1000}"
 # Полные выгрузки - 735 МБ трафика (510 + 225); фильтр оставляет 11 МБ на диске.
 IMDB_AKAS_URL="${TORRCAST_IMDB_AKAS_URL:-https://datasets.imdbws.com/title.akas.tsv.gz}"
 IMDB_BASICS_URL="${TORRCAST_IMDB_BASICS_URL:-https://datasets.imdbws.com/title.basics.tsv.gz}"
-IMDB_NAMES_PATH="${TORRCAST_IMDB_NAMES_PATH:-/var/lib/torrcast/imdb-ru-names.tsv}"
+IMDB_NAMES_PATH="${TORRCAST_IMDB_NAMES_PATH:-$STATE_DIR/imdb-ru-names.tsv}"
 #: Как часто карту перечитываем, дней. Выгрузки тяжёлые, а устаревает карта медленно:
 #: месячной давности она не знает разве что новинок проката.
 IMDB_NAMES_DAYS="${TORRCAST_IMDB_NAMES_DAYS:-30}"
@@ -1950,9 +1950,10 @@ setup_names() {
         skip "$IMDB_NAMES_PATH ($(wc -l < "$IMDB_NAMES_PATH") имён)"
         return
     fi
-    local tmp="$IMDB_NAMES_PATH.part" names basics
-    names="$(mktemp)"
-    basics="$(mktemp)"
+    local tmp="$IMDB_NAMES_PATH.part"
+    local names="$IMDB_NAMES_PATH.akas.part"
+    local basics="$IMDB_NAMES_PATH.basics.part"
+    rm -f "$tmp" "$names" "$basics"
     # Паспорт - подмога добора, а не механизм показа: не скачалось, нет сети - установка
     # идёт дальше, а справка отвечает ровно так, как отвечала без карты.
     if ! fetch --max-time 3600 "$IMDB_AKAS_URL" | gzip -dc | awk -F'\t' \

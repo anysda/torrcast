@@ -41,3 +41,15 @@ def test_install_removes_its_login_notice_without_a_motd_phase() -> None:
     assert 'rm -f "$motd_d/00-torrcast"' in cleanup
     assert "cast status | stop | doctor" in cleanup
     assert "cleanup_login_notice" in SCRIPT.split("main() {", 1)[1]
+
+
+def test_imdb_files_follow_the_state_directory() -> None:
+    assert 'IMDB_RATINGS_PATH="${TORRCAST_IMDB_RATINGS_PATH:-$STATE_DIR/imdb-ratings.tsv}"' in SCRIPT
+    assert 'IMDB_NAMES_PATH="${TORRCAST_IMDB_NAMES_PATH:-$STATE_DIR/imdb-ru-names.tsv}"' in SCRIPT
+
+
+def test_name_map_intermediates_stay_beside_the_result() -> None:
+    body = SCRIPT.split("setup_names() {", 1)[1].split("\n}", 1)[0]
+    assert 'local names="$IMDB_NAMES_PATH.akas.part"' in body
+    assert 'local basics="$IMDB_NAMES_PATH.basics.part"' in body
+    assert "mktemp" not in body

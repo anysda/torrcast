@@ -1575,6 +1575,20 @@ def test_an_article_answer_is_never_overridden_by_the_map(monkeypatch: Any, tmp_
     assert found.year == 2006
 
 
+def test_an_article_answer_does_not_parse_the_offline_map(monkeypatch: Any) -> None:
+    """Статья нашлась - процесс не греет карту, которая этому ответу не понадобится."""
+    import threading
+
+    parsed = threading.Event()
+    monkeypatch.setattr(facts_mod, "get_json", lambda *a: _wiki_reply())
+    monkeypatch.setattr(facts_mod, "_ru_names", lambda: parsed.set() or {})
+
+    found = facts_mod.origin_now("Тачки", False, 1.0)
+
+    assert found.title == "Cars"
+    assert not parsed.wait(0.1), "карта не нужна ответившей статье"
+
+
 def test_own_name_first_prefers_the_article_named_like_the_query() -> None:
     """Прямая выборка: тёзка запроса сильнее одноимённой подмены по алфавиту уточнений.
 
