@@ -44,13 +44,14 @@ def free_port() -> int:
 
 
 @pytest.fixture(autouse=True)
-def _silent_facts(monkeypatch: pytest.MonkeyPatch) -> None:
+def _silent_facts(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Справка молчит, пока тест не попросит обратного.
 
     Тесты в сеть не ходят - ни за справкой, ни за чем-либо ещё. Заодно это и есть штатный
     случай «сети нет»: путь добора обязан работать и без справки.
     """
     monkeypatch.setattr(cli, "origin", lambda title, series=False, budget=0.0: Origin())
+    monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
 
 
 @pytest.fixture(autouse=True)

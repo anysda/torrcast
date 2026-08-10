@@ -314,6 +314,21 @@ def test_broken_cache_is_the_same_as_no_cache(tmp_path: Any, monkeypatch: Any) -
     assert facts_mod._cached([("Моана", 2016)]) == {("Моана", 2016): Fact(rating="IMDb 7.6")}
 
 
+def test_cache_follows_the_state_directory(tmp_path: Any, monkeypatch: Any) -> None:
+    """Разные каталоги состояния не читают и не дописывают кэш друг друга."""
+    first = tmp_path / "first" / "state.json"
+    second = tmp_path / "second" / "state.json"
+
+    monkeypatch.setenv("TORRCAST_STATE", str(first))
+    facts_mod._remember({("Тачки", 2006): Fact(rating="IMDb 7.2")})
+    assert facts_mod._cached([("Тачки", 2006)])
+
+    monkeypatch.setenv("TORRCAST_STATE", str(second))
+    assert facts_mod._cached([("Тачки", 2006)]) == {}
+    assert (first.parent / "facts.json").exists()
+    assert not (second.parent / "facts.json").exists()
+
+
 WEDNESDAY = (
     "«Уэ́нздей» (англ. Wednesday) — американский комедийный сверхъестественный телесериал, "
     "созданный Альфредом Гофом и Майлзом Милларом для стримингового сервиса Netflix."
@@ -644,6 +659,17 @@ def test_a_stale_empty_answer_is_asked_again(monkeypatch: Any, tmp_path: Any) ->
 
     assert facts.get("Моана", 2016).about == MOANA
     assert walks == [[("Моана", 2016)]]
+
+
+def test_an_empty_answer_without_an_expiry_is_asked_again(monkeypatch: Any, tmp_path: Any) -> None:
+    """Старый пустой ряд без срока не может навсегда закрыть поход к источнику."""
+    monkeypatch.setattr(facts_mod, "CACHE_PATH", tmp_path / "facts.json")
+    (tmp_path / "facts.json").write_text(
+        json.dumps({"Тачки|2006": {"about": "", "rating": "", "runtime": ""}}),
+        encoding="utf-8",
+    )
+
+    assert facts_mod._cached([("Тачки", 2006)]) == {}
 
 
 def test_the_network_answer_does_not_throw_away_what_the_cache_had(
@@ -1329,10 +1355,24 @@ def test_the_likeness_mark_survives_the_cache_and_the_both_types_mode(
         facts_mod, "origin_now", lambda title, series, timeout: Origin() if series else guess
     )
 
-    lone = facts_mod.origin_either("Все мы незнакомцы", 1.0)
+    lone = facts_mod.origin("Все мы незнакомцы", None, 1.0)
     assert lone.guessed, "режим «оба типа» отметку не теряет"
 
-    assert facts_mod._cached_origin("Все мы незнакомцы", False) == guess
+    assert facts_mod._cached_origin("Все мы незнакомцы", None) == guess
+
+
+def test_the_both_types_mode_uses_only_its_own_cache_key(monkeypatch: Any, tmp_path: Any) -> None:
+    """Внутренние пробы фильма и сериала не становятся ответами на запрос с типом."""
+    from torrcast.facts import Origin
+
+    monkeypatch.setattr(facts_mod, "CACHE_PATH", tmp_path / "facts.json")
+    found = Origin(title="Serial Experiments Lain", year=1998, name="Эксперименты Лэйн")
+    monkeypatch.setattr(facts_mod, "origin_now", lambda title, series, timeout: found)
+
+    assert facts_mod.origin("Эксперименты Лэйн", None, budget=1.0) == found
+    assert facts_mod._cached_origin("Эксперименты Лэйн", None) == found
+    assert facts_mod._cached_origin("Эксперименты Лэйн", False) is None
+    assert facts_mod._cached_origin("Эксперименты Лэйн", True) is None
 
 
 def test_both_types_together_fit_into_one_budget_not_two(monkeypatch: Any) -> None:

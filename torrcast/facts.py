@@ -61,6 +61,7 @@ from typing import TYPE_CHECKING, Any, Final
 from urllib.parse import urlencode
 
 from torrcast.parse import same_word, same_words, slugify, transliterate
+from torrcast.state import state_path
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -76,6 +77,7 @@ RATINGS_PATH: Final = Path("/var/lib/torrcast/imdb-ratings.tsv")
 RU_NAMES_PATH: Final = Path("/var/lib/torrcast/imdb-ru-names.tsv")
 #: Найденная справка ложится сюда, чтобы второй показ той же франшизы не ходил в сеть.
 CACHE_PATH: Final = Path("/var/lib/torrcast/facts.json")
+_DEFAULT_CACHE_PATH: Final = CACHE_PATH
 #: Сколько меню согласно ждать справку, секунды. Потолок, а не ожидание: в норме оба
 #: запроса укладываются в секунду, и ждать нечего - они идут, пока греются раздачи.
 FACTS_BUDGET: Final = 1.5
@@ -458,11 +460,19 @@ def origin(title: str, series: bool | None = False, budget: float = FACTS_BUDGET
     и это отдельный случай: см. :func:`origin_either`. У сериала и фильма разные статьи,
     так что тип подсказывать надо, а наугад - нельзя (уводит в чужую статью).
     """
-    if series is None:
-        return origin_either(title, budget)
     stored = _cached_origin(title, series)
     if stored is not None:
         return stored
+    if series is None:
+        found = origin_either(title, budget)
+        if found:
+            _remember_origin(title, series, found)
+        return found
+    return _origin_typed(title, series, budget, remember=True)
+
+
+def _origin_typed(title: str, series: bool, budget: float, *, remember: bool) -> Origin:
+    """Паспорт для внутренней типизированной пробы без подмены ключа запроса."""
     box: list[Origin] = []
 
     def work() -> None:
@@ -489,7 +499,7 @@ def origin(title: str, series: bool | None = False, budget: float = FACTS_BUDGET
             guessed=found.guessed or offline.guessed,
             namesake=found.namesake,
         )
-    if found:
+    if found and remember:
         _remember_origin(title, series, found)
     return found
 
@@ -532,7 +542,7 @@ def origin_either(title: str, budget: float = FACTS_BUDGET) -> Origin:
     box: dict[bool, Origin] = {}
 
     def look(series: bool) -> None:
-        box[series] = origin(title, series, budget)
+        box[series] = _origin_typed(title, series, budget, remember=False)
 
     threads = [threading.Thread(target=look, args=(s,), daemon=True) for s in (False, True)]
     for thread in threads:
@@ -1784,15 +1794,16 @@ def _key(title: str, year: int | None) -> str:
     return f"{title}|{year if year is not None else ''}"
 
 
-def _origin_key(title: str, series: bool) -> str:
+def _origin_key(title: str, series: bool | None) -> str:
     """Паспорта лежат в том же файле, что и справка, но в своём ряду ключей."""
-    return f"origin|{'tv' if series else 'movie'}|{title}"
+    kind = "either" if series is None else "tv" if series else "movie"
+    return f"origin|{kind}|{title}"
 
 
 def _read_cache() -> dict[str, Any]:
     """Кэш с диска. Битый или отсутствующий — пустой: перечитаем из сети."""
     try:
-        raw = json.loads(CACHE_PATH.read_text(encoding="utf-8"))
+        raw = json.loads(_cache_path().read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {}
     return raw if isinstance(raw, dict) else {}
@@ -1801,15 +1812,23 @@ def _read_cache() -> dict[str, Any]:
 def _write_cache(raw: dict[str, Any]) -> None:
     """Дописать кэш. Не вышло записать — молчим: это не путь показа."""
     try:
-        CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
-        tmp = CACHE_PATH.with_suffix(".tmp")
+        path = _cache_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
         tmp.write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
-        tmp.replace(CACHE_PATH)
+        tmp.replace(path)
     except OSError:
         pass
 
 
-def _cached_origin(title: str, series: bool) -> Origin | None:
+def _cache_path() -> Path:
+    """Кэш рядом с состоянием; явная подмена константы остаётся удобной для тестов."""
+    if CACHE_PATH != _DEFAULT_CACHE_PATH:
+        return CACHE_PATH
+    return state_path().with_name("facts.json")
+
+
+def _cached_origin(title: str, series: bool | None) -> Origin | None:
     """Что лежит в кэше. ``None`` — не спрашивали; пустой паспорт — спрашивали, нет его."""
     row = _read_cache().get(_origin_key(title, series))
     if not isinstance(row, dict):
@@ -1825,7 +1844,7 @@ def _cached_origin(title: str, series: bool) -> Origin | None:
     )
 
 
-def _remember_origin(title: str, series: bool, found: Origin) -> None:
+def _remember_origin(title: str, series: bool | None, found: Origin) -> None:
     raw = _read_cache()
     raw[_origin_key(title, series)] = {
         "title": found.title,
@@ -1859,11 +1878,14 @@ def _cached(wanted: list[tuple[str, int | None]]) -> dict[tuple[str, int | None]
         blank = row.get("empty")
         if isinstance(blank, int | float) and time.time() - blank > EMPTY_TTL:
             continue
-        out[key] = Fact(
+        fact = Fact(
             about=str(row.get("about", "")),
             rating=str(row.get("rating", "")),
             runtime=str(row.get("runtime", "")),
         )
+        if not fact and not isinstance(blank, int | float):
+            continue
+        out[key] = fact
     return out
 
 
