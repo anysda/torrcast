@@ -2496,22 +2496,27 @@ def catalog_has_name(query: str, pictures: list[Picture]) -> bool:
     в ней нет - и это повод переспросить точнее, а не смириться с соседями по подстроке
     (:func:`~torrcast.cli._ceiling_reinforce`).
 
-    Считается подписью: имя франшизы («матрица» за «Матрицей: Перезагрузкой»), точное
-    имя картины, её оригинал и третьи имена из заголовков раздач - всё то, чем каталог
-    сам назвал картину. Нарочно НЕ считаются: вхождение подстрокой (соседи - это и есть
-    симптом) и цифровая запись числительных (:func:`in_digits`): «9» и «Девять» - разные
-    картины, и запрос словом не должен довольствоваться картиной, подписанной цифрой.
+    Считается подписью: имя франшизы у ненумерованной или первой части, точное имя
+    картины, её оригинал и подтверждённое несколькими раздачами третье имя. Нарочно НЕ
+    считаются: одинокий сиквел, одиночный псевдоним, вхождение подстрокой и цифровая
+    запись числительных (:func:`in_digits`): «9» и «Девять» - разные картины, и запрос
+    словом не должен довольствоваться картиной, подписанной цифрой.
     """
     name, _index = split_franchise_index(query)
     wanted = slugify(name)
     if not wanted:
         return False
     for picture in pictures:
-        if franchise_key(picture.title) == wanted or slugify(picture.title) == wanted:
+        if slugify(picture.title) == wanted:
             return True
         if picture.original and slugify(picture.original) == wanted:
             return True
-        if wanted in picture.aliases:
+        if franchise_key(picture.title) == wanted and picture.part in (None, 1):
+            return True
+        alias_support = sum(
+            wanted in {slugify(alias) for alias in release.aliases} for release in picture.releases
+        )
+        if alias_support >= 2:
             return True
     return False
 

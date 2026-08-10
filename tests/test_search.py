@@ -286,6 +286,21 @@ def test_search_asks_every_indexer_apart() -> None:
     assert client.silent == ()
 
 
+def test_source_ceiling_does_not_follow_requested_limit() -> None:
+    """Полная страница источника остаётся потолком при большем клиентском лимите."""
+    client = _swarm(rows=100)
+    client.search("матрица", limit=200)
+    assert client.capped == ("Knaben", "RuTor")
+
+
+def test_one_silent_source_does_not_hide_another_sources_ceiling() -> None:
+    """Молчание одного источника видно отдельно, потолок другого не пропадает."""
+    client = _swarm(rows=100, mute=2)
+    client.search("матрица", limit=200)
+    assert client.silent == ("RuTor",)
+    assert client.capped == ("Knaben",)
+
+
 def test_silent_indexer_costs_only_its_own_budget() -> None:
     """Молчун не забирает выдачу остальных: она приезжает, а его имя названо.
 

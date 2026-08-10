@@ -15,7 +15,15 @@ import pytest
 from torrcast import InfraError, NotFoundError, SwarmError, cli, console, scan
 from torrcast.cli import TABLE_LIMIT, is_candidate, is_disc, rank_releases, render_table, warned
 from torrcast.console import Progress
-from torrcast.parse import Episode, Kind, Picture, Release, parse_release_name
+from torrcast.parse import (
+    Episode,
+    Kind,
+    Picture,
+    Release,
+    cluster,
+    parse_release_name,
+    pick_franchise,
+)
 from torrcast.profile import CAUTIOUS
 from torrcast.state import load_config
 from torrcast.stream import RUNTIME_GUESS, AudioTrack, Media, ServerDownError, TorrFile
@@ -4108,6 +4116,18 @@ def test_повод_потолка_узок() -> None:
         "имя в каталоге есть - обрезан лишь хвост, и это не повод"
     )
     assert cli._ceiling_hides_name(capped, "девять", pictures, found)
+
+
+def test_потолок_не_принимает_сиквел_за_спрошенную_первую_часть() -> None:
+    pictures = cluster(
+        [
+            parse_release_name("Лёд 3 (2024) WEB-DL 1080p"),
+            parse_release_name("Замёрзшие мертвецы / Лёд / Glacé (2016) WEB-DL 1080p"),
+        ]
+    )
+    found = pick_franchise("лёд", pictures)
+    capped = cast(Any, _Ceiling(9.0, []))
+    assert cli._ceiling_hides_name(capped, "лёд", pictures, found)
 
 
 def test_two_pictures_under_one_name_and_year_are_named_out_loud() -> None:

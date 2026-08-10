@@ -2248,7 +2248,7 @@ def test_an_exact_alias_outranks_a_substring_in_a_foreign_key() -> None:
 
 
 def test_catalog_has_name() -> None:
-    """Подпись каталога - точное имя картины, франшизы, оригинала или третье имя.
+    """Подпись каталога - точное имя, начало франшизы или повторённое третье имя.
 
     Не подпись: сосед по подстроке («Девять ярдов» - не «Девять») и цифровая запись
     числительного («9» - не «Девять»): это разные картины, и запрос словом не должен
@@ -2260,6 +2260,9 @@ def test_catalog_has_name() -> None:
             parse_release_name("Матрица: Перезагрузка / The Matrix Reloaded (2003) BDRip 1080p"),
             parse_release_name("9 (2009) BDRip 1080p"),
             parse_release_name("Дикие истории / Relatos salvajes / Wild Tales (2014) BDRip 1080p"),
+            parse_release_name("Дикие истории / Relatos salvajes / Wild Tales (2014) WEB-DL 1080p"),
+            parse_release_name("Замёрзшие мертвецы / Лёд / Glacé (2016) WEB-DL 1080p"),
+            parse_release_name("Лёд 3 (2024) WEB-DL 1080p"),
         ]
     )
 
@@ -2270,3 +2273,4 @@ def test_catalog_has_name() -> None:
     assert catalog_has_name("the matrix reloaded", pictures), "оригинал - тоже подпись"
     assert catalog_has_name("wild tales", pictures), "третье имя - тоже подпись"
     assert catalog_has_name("9", pictures), "цифрой спросили - цифра и есть имя"
+    assert not catalog_has_name("лёд", pictures), "сиквел и одиночный чужой псевдоним - не подпись"
