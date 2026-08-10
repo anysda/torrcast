@@ -49,6 +49,20 @@ from torrcast.stream import (
 )
 
 
+def test_a_release_without_a_video_file_is_a_verdict_not_an_infra_error() -> None:
+    """«Образ диска» - приговор раздаче (:class:`NotFoundError`), а не сбой инфраструктуры.
+
+    Типом этого отказа пользуется отбор (:func:`~torrcast.cli._silenced`): InfraError
+    читается молчанием роя, и раздача-журнал («lainzine 1-5» по запросу «lain», TC-399)
+    числилась бы неотозвавшейся, хотя про неё известно всё.
+    """
+    from torrcast import NotFoundError
+    from torrcast.stream import TorrFile, pick_video_file
+
+    with pytest.raises(NotFoundError, match="нет отдельного видеофайла"):
+        pick_video_file([TorrFile(0, "VIDEO_TS.VOB", 4 * 1024**3), TorrFile(1, "cover.jpg", 1)])
+
+
 def config_for(tmp_path: Path, tls: tuple[str, str]) -> Config:
     """Конфиг показа как в бою: http по голому IP, приёмник — mock.
 

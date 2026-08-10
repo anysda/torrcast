@@ -871,6 +871,33 @@ def test_a_disc_image_verdict_is_not_asked_twice(
     assert printed.count("отдельного видеофайла") == 1, "приговор звучит ровно один раз"
 
 
+def test_a_disc_image_verdict_is_not_reported_as_a_silent_swarm(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """🔴 TC-399. «В раздаче нет видеофайла» - приговор, а не молчание роя.
+
+    По запросу «lain» выдача состояла из одной раздачи - самиздатовского журнала
+    «lainzine 1-5». Осмотр честно ответил «отдельного видеофайла нет», а итоговый отказ
+    советовал «зайди позже - рой может ожить», хотя рой был ни при чём: метаданные
+    приехали, про раздачу известно всё, и ожить ей не поможет ничто. Отказ обязан
+    назвать причину, а не роем её прикрывать.
+    """
+    ranked = [rel(name="r0", seeders=100)]
+    _probes(monkeypatch, ranked, "h264")
+
+    def choose(plan: Any, release: Release, files: list[TorrFile]) -> TorrFile:
+        raise NotFoundError("в раздаче нет отдельного видеофайла (похоже на образ диска)")
+
+    torrserver = _FakeTorrServer()
+    with pytest.raises(NotFoundError) as caught:
+        _resolve(cli._Bench(cast(Any, torrserver), choose=choose), ranked)
+
+    msg = str(caught.value)
+    assert "годного релиза нет" in msg and "нет отдельного видеофайла" in msg
+    assert "зайди позже" not in msg, "рой тут ни при чём - обещать его пробуждение нельзя"
+    assert "не отозвалась" not in msg, "раздача отозвалась: приговор, а не молчание"
+
+
 def test_an_explicitly_named_release_is_played_as_asked_with_a_loud_warning(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

@@ -1211,6 +1211,15 @@ def alt_query(query: str, releases: Iterable[Release], known: str = "", native: 
     по-русски человек не обязан ровно так же, как и наоборот. Русское имя берётся ТОЛЬКО
     из справки: в выдаче под латинским именем его взять неоткуда - там его и нет.
 
+    🔴 TC-399. Но сперва - оригинал из справки, если он отличается от запроса. Короткое
+    обиходное имя («lain») - это не полное название (``Serial Experiments Lain``), и
+    добор русским именем тут проигрывает дважды: русскоязычные индексеры отвечают
+    дольше всех, и круг добора закрывается кворумом быстрых ДО их ответа, а под
+    полным оригиналом та же картина лежит сотней раздач у быстрых. Правило ровно
+    зеркальное русской ветке: латинский оригинал от справки, не совпадающий с
+    запросом, сильнее русского имени; совпадающий («cars» → ``Cars``) нового круга
+    не даст, и тогда берётся русское имя.
+
     Пустая строка - добирать нечем: имени на другом языке никто не назвал.
 
     ⚠️ Оригинал ИЗ ВЫДАЧИ берётся по франшизе, поэтому номер части у него отрезается
@@ -1227,6 +1236,9 @@ def alt_query(query: str, releases: Iterable[Release], known: str = "", native: 
     """
     wanted = slugify(query)
     if not _CYRILLIC.search(query):
+        known = known.strip()
+        if known and not _CYRILLIC.search(known) and slugify(known) != wanted:
+            return known
         native = native.strip()
         return native if _CYRILLIC.search(native) and slugify(native) != wanted else ""
     if known and not _CYRILLIC.search(known) and slugify(known) != wanted:

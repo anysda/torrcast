@@ -82,6 +82,23 @@ def test_alt_query_takes_original_title_from_the_thin_results() -> None:
     assert alt_query("психо", thin) == "Psycho"
 
 
+def test_a_latin_query_prefers_the_references_original_over_the_native_name() -> None:
+    """🔴 TC-399. Короткое обиходное имя латиницей добирается полным оригиналом справки.
+
+    По «lain» справка назвала и оригинал (``Serial Experiments Lain``), и русское имя
+    («Эксперименты Лэйн»). Добор русским именем проигрывает: русскоязычные индексеры
+    отвечают дольше всех, и круг закрывается кворумом быстрых до их ответа - живая
+    проба так и принесла ноль, тогда как под оригиналом картина лежит у быстрых.
+    Совпадающий с запросом оригинал («cars» → ``Cars``) нового круга не даст - тогда
+    берётся русское имя, как и раньше.
+    """
+    assert (
+        alt_query("lain", [], known="Serial Experiments Lain", native="Эксперименты Лэйн")
+        == "Serial Experiments Lain"
+    )
+    assert alt_query("cars", [], known="Cars", native="Тачки") == "Тачки"
+
+
 def test_alt_query_prefers_the_most_common_original() -> None:
     pool = [
         ru("Сияние / The Shining (1980) BDRip 1080p"),
@@ -1088,15 +1105,61 @@ def test_original_title_comes_from_the_reference_when_the_pool_has_none(
 
 
 def test_a_silent_reference_leaves_the_old_path_alone(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Сети нет - справка пуста, и добор идёт прежним путём: оригинал из выдачи."""
+    """Сети нет - справка пуста, и добор идёт прежним путём: оригинал из выдачи.
+
+    Молчание под типом вожака переспрашивается без типа (TC-399) - и тоже молчит,
+    поэтому справку тут слышно дважды, а путь добора от этого не меняется.
+    """
     client = _catalog(russian=2, latin=40)
     asked = _knows(monkeypatch, {})
     plans, said = _search(client, "психо", monkeypatch)
 
-    assert asked == ["психо"]
+    assert asked == ["психо", "психо"], "под типом молчит - переспрос без типа, тоже мимо"
     assert client.asked == ["психо", "Psycho"]
     assert len(plans[0].picture.releases) == 42
     assert "добрал по «Psycho»" in said
+
+
+def test_a_silent_answer_under_the_leads_kind_is_reasked_without_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """🔴 TC-399. Тип, подсказанный мусорным вожаком тощего пула, не хоронит картину.
+
+    По запросу «lain» приехала одна строка - самиздатовский журнал «lainzine 1-5», и
+    его тип («не сериал») отправлял справку в молчание: статьи о фильме «Lain» нет,
+    есть статья о СЕРИАЛЕ «Serial Experiments Lain». Молчание под типом
+    переспрашивается без него - справка спрашивает обе статьи разом и верит лишь
+    согласию, - и картина добирается полным оригиналом из её паспорта: русское имя
+    тут проигрывает, круг добора по нему закрывается кворумом быстрых индексеров до
+    ответа русскоязычных, а под оригиналом картина лежит у быстрых. Журнал при этом
+    остаётся как был.
+    """
+    client = _FakeProwlarr(
+        {
+            "lain": [raw("lainzine 1-5 (pdf)", 1, seeders=5)],
+            "serial experiments lain": [
+                raw(f"Serial Experiments Lain [S01] (1998) BDRip 1080p-{i}", 100 + i, seeders=50)
+                for i in range(3)
+            ],
+        }
+    )
+    asked: list[tuple[str, bool | None]] = []
+
+    def about(title: str, series: bool | None = False, budget: float = 0.0) -> Origin:
+        asked.append((title, series))
+        if series is None:  # без типа справка знает: это сериал «Serial Experiments Lain»
+            return Origin(title="Serial Experiments Lain", name="Эксперименты Лэйн")
+        return Origin()  # под типом «фильм», который назвал журнал, - молчание
+
+    monkeypatch.setattr(cli, "origin", about)
+    plans, said = _search(client, "lain", monkeypatch)
+
+    assert asked == [("lain", False), ("lain", None)], "молчание под типом - переспрос без него"
+    assert client.asked == ["lain", "Serial Experiments Lain"]
+    titles = [p.picture.title for p in plans]
+    assert "Serial Experiments Lain" in titles, "картина добралась оригиналом из паспорта"
+    assert "lainzine 1-5" in titles, "найденное первым запросом не отнимается"
+    assert "добрал по «Serial Experiments Lain»" in said
 
 
 def test_the_full_pool_asks_neither_the_indexers_nor_the_reference(
