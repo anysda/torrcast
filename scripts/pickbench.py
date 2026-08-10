@@ -84,7 +84,8 @@ def once(url: str, order: list[cli._Plan], think: float, spare: bool) -> tuple[f
     args = cli.Args(query=["кино"])
     warmed = cli.warm_order(order)
     for plan in warmed[: cli.PREWARM]:
-        bench.start(plan, plan.first)
+        if queue := plan.candidates(args):  # голова очереди, как на боевом пути (TC-432)
+            bench.start(plan, queue[0])
     if spare:  # правка TC-120: запасной релиз выбранной картины греется тут же
         bench.spare(warmed[0], args)
     time.sleep(think)  # человек читает меню и жмёт Enter

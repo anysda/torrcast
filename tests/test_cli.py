@@ -189,12 +189,14 @@ def test_the_picture_keeps_its_own_name_even_when_it_sounds_like_a_bonus() -> No
     assert is_candidate(short, 21 * 60.0, 16.0), "справка назвала 21 минуту - это картина"
 
 
-def test_the_only_release_of_a_picture_plays_even_if_it_is_a_bonus() -> None:
-    """Ограждение: последнего играбельного отбор не отнимает - показать лучше, чем нет.
+def test_the_only_release_of_a_picture_is_not_shown_instead_of_it() -> None:
+    """🔴 TC-432. Единственная раздача, которая не картина, в очередь не встаёт.
 
-    У «Мандалорца» 2019 года в сохранённой выдаче ровно одна раздача-фильм, и та трейлер.
-    Ворота её кандидатом не считают, но верх :attr:`~torrcast.cli._Plan.ranked` попадает в
-    очередь всегда, и картина остаётся играбельной.
+    У «Мандалорца» 2019 года в сохранённой выдаче ровно одна раздача-фильм, и та
+    трейлер. Прежняя безусловность верха ранжира ставила его в очередь первым, и
+    человек, прося сериал, получал ролик о нём - подмену картины молча. Ворота
+    проходят все, включая верх; вернуть отсеянную раздачу может только сам человек,
+    номером из таблицы.
     """
     only = _named(
         "Мандалорец / The Mandalorian [2019, фантастика, приключения, HDRip] Трейлер", 0.21, 1
@@ -206,7 +208,29 @@ def test_the_only_release_of_a_picture_plays_even_if_it_is_a_bonus() -> None:
         warn_mbit=16.0,
     )
     assert not is_candidate(only, RUNTIME, 16.0)
-    assert plan.candidates(cli.Args(query=["мандалорец"])) == [1], "играть всё равно есть чем"
+    assert plan.candidates(cli.Args(query=["мандалорец"])) == [], "подмены картины нет"
+    assert plan.candidates(cli.Args(query=["мандалорец"], release=1)) == [1], (
+        "названный человеком номер в ворота не ходит"
+    )
+
+
+def test_an_empty_queue_is_an_honest_refusal_not_a_substitute() -> None:
+    """🔴 TC-432. Ворота не пустил никого - честное «не нашлось», а не подстановка.
+
+    «Ведьмак 3: Дикая Охота» - игра на 35.6 ГБ, и на запрос «ведьмак s2e4» она стояла
+    единственным кандидатом своей картины: верх ранжира попадал в очередь безусловно.
+    Отказ обязан назвать выдачу и причину отсева каждой раздачи - и не советовать
+    выбирать руками там, где все раздачи отвергнуты по известным признакам.
+    """
+    game = [rel(name=f"игра {n}", size_gb=35.6, seeders=40 - n) for n in range(2)]
+
+    with pytest.raises(NotFoundError) as caught:
+        _resolve(cli._Bench(cast(Any, _FakeTorrServer())), game)
+
+    msg = str(caught.value)
+    assert "годного релиза нет: раздач в выдаче 2" in msg, msg
+    assert "все до одной отсеял отбор (тяжелее потолка - 2)" in msg, msg
+    assert "выбери руками" not in msg and "--release" not in msg
 
 
 def test_a_heavy_bonus_disc_with_a_plain_mark_is_turned_away() -> None:
@@ -730,7 +754,10 @@ def test_the_walk_down_the_queue_stops_when_the_start_budget_is_out(
 
     Потолок тот же, что был у трёх попыток по полному бюджету раздачи
     (:data:`~torrcast.cli.PICK_BUDGET`), и кончиться он обязан честной строкой, а не
-    новым походом в рой.
+    новым походом в рой. 🔴 TC-435: честная - это «рой молчит», а не «годного релиза
+    нет»: негодных не нашли ни одной, их просто не прочитали. Совета «выбери руками»
+    тут нет - весь бюджет ушёл на раздачи, стоявшие выше неспрошенных, и про хвост
+    очереди мы не знаем ничего (:func:`~torrcast.cli.silent_swarm`).
     """
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(6)]
     _probes(monkeypatch, ranked, "h264")
@@ -741,9 +768,43 @@ def test_the_walk_down_the_queue_stops_when_the_start_budget_is_out(
     with pytest.raises(NotFoundError) as caught:
         _resolve(cli._Bench(cast(Any, torrserver)), ranked)
 
-    assert "годного релиза нет" in str(caught.value) and "нет пиров" in str(caught.value)
-    assert "рой у них мёртв" not in str(caught.value), "встали по бюджету - ниже могли быть живые"
+    msg = str(caught.value)
+    assert "раздач в выдаче 6, потрогали 1 из очереди 6" in msg, msg
+    assert "эти молчат, на остальных не хватило времени" in msg, msg
+    assert "нет пиров" in msg, "причина молчания названа, а не спрятана"
+    assert "годного релиза нет" not in msg, "это молчание роя, а не отсутствие годных"
+    assert "выбери руками" not in msg and "--release" not in msg
+    assert "зайди позже" in msg, "ход остаётся, но честный"
     assert capsys.readouterr().out.count("нет пиров") == 1, "бюджет вышел - второго похода нет"
+
+
+def test_a_timed_out_walk_does_not_speak_for_the_queue_it_never_reached(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """🔴 TC-435. Встали по часам - молчание приписывается только тронутым.
+
+    Замер TC-424: обход «Дюны» (пул 134, очередь 89) встал по потолку фазы на 60-й
+    раздаче и кончился строкой «годного релиза нет (...): выбери руками». Негодных
+    среди них не нашли ни одной - ни одна не отозвалась вовсе, - и отказ обязан
+    называть это молчанием роя. Ровно так же он обязан не выдавать за молчание те 29
+    раздач очереди, до которых обход не дошёл, и не звать выбирать их номером.
+    """
+    alive = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
+    heavy = [rel(name=f"жирный{i}", size_gb=40.0, seeders=10 - i) for i in range(2)]
+    ranked = alive + heavy
+    _probes(monkeypatch, ranked, "h264")
+    monkeypatch.setattr(Release, "magnet", property(lambda self: f"magnet-{self.raw_name}"))
+    monkeypatch.setattr(cli, "PICK_BUDGET", 0.0)
+    torrserver = _FakeTorrServer(dead={f"hash-magnet-r{i}" for i in range(3)})
+
+    with pytest.raises(NotFoundError) as caught:
+        _resolve(cli._Bench(cast(Any, torrserver)), ranked)
+
+    msg = str(caught.value)
+    assert "раздач в выдаче 5, потрогали 1 из очереди 3" in msg, msg
+    assert "играть нечего" not in msg, "двое в очереди не тронуты - за них не говорим"
+    assert "выбери руками" not in msg and "--release" not in msg
+    assert "годного релиза нет" not in msg
 
 
 def test_a_fully_walked_queue_of_dead_swarms_is_an_honest_dead_swarm(
@@ -1890,6 +1951,24 @@ def test_a_half_walked_queue_is_not_a_dead_swarm() -> None:
     assert "ни одна не отозвалась" in whole and "числятся" in whole
 
 
+def test_a_walk_cut_by_the_clock_counts_the_queue_it_did_not_reach() -> None:
+    """🔴 TC-435. Обход, срезанный потолком фазы, называет оба числа: очередь и тронутых.
+
+    Очередь взяла двенадцать раздач из пятнадцати, а часы кончились на третьей. Сказать
+    «потрогали 3 (все)» тут значило бы записать в молчащие девять раздач, которых никто
+    не спрашивал, а звать выбрать их номером - выдать за подсказку непроверенное: весь
+    бюджет фазы ушёл на тех, кто стоял выше.
+    """
+    pool = [rel(name=f"r{n}", seeders=7 * n) for n in range(15)]
+    said = cli.silent_swarm(_plan(pool), list(range(1, 13)), 3, "1 - тишина")
+
+    assert "раздач в выдаче 15, потрогали 3 из очереди 12" in said
+    assert "на остальных не хватило времени" in said
+    assert "(все)" not in said and "играть нечего" not in said
+    assert "cast releases" not in said and "--release" not in said
+    assert "зайди позже" in said, "ход остаётся, но честный"
+
+
 def test_a_pool_without_a_single_peer_says_so_plainly() -> None:
     """Сидов не числится ни у одной раздачи - вот тут «пиров нет» и есть правда.
 
@@ -2760,7 +2839,7 @@ def test_the_spare_release_goes_up_next_to_the_first_one(monkeypatch: pytest.Mon
     bench = cli._Bench(cast(Any, _FakeTorrServer()))
     plan = _plan(ranked)
 
-    bench.start(plan, plan.first)
+    bench.start(plan, plan.candidates(cli.Args(query=["кино"]))[0])
     spare = bench.spare(plan, cli.Args(query=["кино"]))
 
     assert [prep.number for prep in spare] == [plan.candidates(cli.Args(query=["кино"]))[1]]

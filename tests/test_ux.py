@@ -375,6 +375,25 @@ def test_release_and_file_are_debug_handles_and_show_the_insides(
     assert State.load().entries["movie:моана-2:2024"].file_idx == 0
 
 
+def test_a_hand_picked_number_does_not_trip_the_neighbours_prewarm(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Названный номер относится к выбранной картине, а греются под меню все.
+
+    Прогрев поднимает голову очереди у первых картин списка (:data:`~torrcast.cli.PREWARM`),
+    и номер, названный руками, у соседки может не существовать вовсе: у «Моаны» 2016 года
+    раздачи две, а спрошена третья у «Моаны 2». Соседка на этом молчит - спрос идёт с той
+    картины, которую человек выбрал.
+    """
+    extra = RawResult("Моана 2 / Moana 2 (2024) BDRip 1080p x264", "e" * 40, 4 * GB, 90)
+    monkeypatch.setattr(_FakeProwlarr, "search", lambda self, query: [*FOUND, extra])
+    _answers(monkeypatch, "2", "")
+
+    assert cli.main(["моана", "--release", "3"]) == 0
+
+    assert "релизов 2" not in capsys.readouterr().out, "счёт соседки к выбору не относится"
+
+
 def test_releases_prints_the_old_table_and_exits(capsys: pytest.CaptureFixture[str]) -> None:
     """`cast releases <запрос>` — та самая таблица, но только по явной просьбе."""
     assert cli.main(["releases", "моана"]) == 0
