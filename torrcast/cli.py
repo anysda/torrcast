@@ -3568,9 +3568,7 @@ class _Bench:
         short = understated(chosen.release, chosen.found)
         # Поводы не складываются: разрешение уже названо ложью, и менять релиз дважды за
         # один старт незачем. Про язык спрашиваем там, где про кадр вопросов нет.
-        deaf = not short and unnamed_sound(
-            chosen.release, chosen.found, native=plan.picture.native
-        )
+        deaf = not short and unnamed_sound(chosen.release, chosen.found, native=plan.picture.native)
         if not short and not deaf:
             return chosen
         why_look = short or "язык звука не назван"
