@@ -469,6 +469,68 @@ def test_nothing_found_in_russian_is_searched_by_translit(
     assert len(plans[0].picture.releases) == 20
 
 
+class _SpentProwlarr(_FakeProwlarr):
+    """Тот же каталог, но первый круг уже съел цель почти всю (TC-386)."""
+
+    def __init__(self, catalog: dict[str, list[RawResult]], spare: float) -> None:
+        super().__init__(catalog)
+        self._spent = spare
+        #: Пол бюджета, с которым спрошен каждый круг: у добора он обязан быть целью.
+        self.floors: list[float | None] = []
+
+    def search(self, query: str, limit: int = 100) -> list[RawResult]:
+        self.floors.append(getattr(self, "cap_floor", None))
+        return super().search(query, limit)
+
+    def spare(self) -> float:
+        return self._spent
+
+
+def test_thin_pool_is_topped_up_even_when_the_goal_is_spent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """🔴 TC-386. Цель съедена первым кругом - добор по второму имени не отменяется.
+
+    Отмена стоила картины: живой замер TC-372 - «тачки» при медленном Knaben (7.0 с
+    вместо 0.5) теряли пул с 28 раздач до 4-5 и кончались кодом 1. По лестнице целей
+    «не включилось» сильнее «дольше 10 секунд»: круг добора идёт с полом в целую цель,
+    человек читает про превышение строкой, а после захода пол возвращён обычному.
+    """
+    from torrcast.search import CIRCLE_SHARE, GOAL
+
+    client = _SpentProwlarr(
+        {
+            "психо": [raw(f"Психо / Psycho (1960) DVDRip {i}", i) for i in range(2)],
+            "psycho": [raw(f"Psycho.1960.1080p.BluRay.x264-GRP{i}", 100 + i) for i in range(40)],
+        },
+        spare=0.3,
+    )
+    plans, said = _search(client, "психо", monkeypatch)
+
+    assert client.asked == ["психо", "Psycho"], "добор съеденной целью не отменяется"
+    assert len(plans[0].picture.releases) == 42
+    assert "всё равно делаю" in said, "превышение цели объявлено вслух"
+    assert "не делаю" not in said
+    assert client.floors == [None, GOAL], "круг добора спрошен с полом в целую цель"
+    assert client.cap_floor == CIRCLE_SHARE, "после добора пол возвращён обычному"
+
+
+def test_empty_russian_answer_is_searched_even_when_the_goal_is_spent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """🔴 TC-386. Русская выдача пуста и цель съедена - добор делается и тут: без него
+    не тощий пул, а честный отказ «ничего не нашлось» при живой картине в каталоге."""
+    client = _SpentProwlarr(
+        {"brat": [raw(f"Brat.1997.BDRip.x264-{i}", i) for i in range(20)]},
+        spare=0.3,
+    )
+    plans, said = _search(client, "брат", monkeypatch)
+
+    assert client.asked == ["брат", "brat"], "и безнадёжный путь не отменяется бюджетом"
+    assert len(plans[0].picture.releases) == 20
+    assert "всё равно делаю" in said
+
+
 def test_second_search_that_found_nothing_leaves_the_first_result_alone(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

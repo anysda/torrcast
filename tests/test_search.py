@@ -656,6 +656,21 @@ def test_огрызок_бюджета_доводится_до_секунды() 
     assert client._session.budget["1"] == 1.0  # type: ignore[union-attr]
 
 
+def test_пол_второго_круга_поднимается_добором_до_цели() -> None:
+    """🔴 TC-386. Добор по второму имени картины поднимает пол бюджета круга до целой
+    цели: медленный, но живой индексер (на живом стенде Knaben отвечал 7.0 с вместо
+    0.5) в секундный остаток не укладывается, и добор проходил формально, не привезя
+    ничего, - картина пропадала из каталога, как при отмене. По умолчанию пол прежний:
+    одна секунда (:data:`CIRCLE_SHARE`)."""
+    client = _swarm(rows=2)
+    assert client.cap_floor == 1.0, "пол по умолчанию - доля круга, как прежде"
+    client.search("Naruto [TV]")
+    client._began = time.monotonic() - 30.0  # цели не осталось вовсе
+    client.cap_floor = 10.0  # так делает добор по второму имени
+    client.search("Naruto [TV]")
+    assert client._session.budget["1"] == 10.0  # type: ignore[union-attr]
+
+
 def test_след_отличает_опоздавшего_от_молчуна(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

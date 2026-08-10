@@ -158,6 +158,10 @@ CIRCLE_SHARE: Final = 1.0
 #: там, где зовётся, и 9 запросов из 100 упираются в её потолок 1.5 с) плюс сам круг
 #: (:data:`CIRCLE_SHARE`). Меньше этого оставлять добору незачем: он не успеет ни
 #: спросить справку, ни дождаться круга, а стоить будет как полный.
+#: ⚠️ TC-386. Порог охраняет заходы, у которых есть честный отступ (уточнение, сезонная
+#: и голосовая строки, переспрос всей строкой). Добор по второму ИМЕНИ картины им не
+#: отменяется: без второго имени картина пропадает из каталога, и цель тут подчинена
+#: поиску (:func:`torrcast.cli._second_language`, :attr:`Prowlarr.cap_floor`).
 SECOND_LEAST: Final = 2.5
 #: Запас поверх личного бюджета на ожидание потока: сам запрос уже ограничен бюджетом,
 #: и эта секунда нужна лишь на то, чтобы поток успел записать ответ и поднять флаг.
@@ -428,6 +432,14 @@ class Prowlarr:
         self._begun_at = time.time()
         #: Первый круг ещё не сделан: он один и идёт без оглядки на цель.
         self._first = True
+        #: 🔴 TC-386. Пол бюджета ВТОРОГО круга: потолком ему служит остаток цели
+        #: (:meth:`spare`), но ниже этой отметки он не опускается. Обычный пол -
+        #: :data:`CIRCLE_SHARE`: круг, спрошенный меньше чем на секунду, -
+        #: гарантированный молчун. Добор по второму имени картины поднимает пол до
+        #: :data:`GOAL` (:func:`torrcast.cli._second_language`): без второго имени
+        #: картина пропадает из каталога, а медленный, но живой ответ индексера
+        #: (99-я доля - 5.6 с) в десять секунд укладывается.
+        self.cap_floor: float = CIRCLE_SHARE
 
     def search(self, query: str, limit: int = 100) -> list[RawResult]:
         """Найти раздачи во всех подключённых индексерах: :class:`InfraError` — Prowlarr
@@ -596,9 +608,10 @@ class Prowlarr:
         # или они и есть весь список - тоже зовём сразу, фолбэку нечего добавить.
         whole = not main or not anime or anime_query(query)
         # 🔴 TC-228: первый круг идёт в свои личные бюджеты, а каждый следующий - в остаток
-        # цели (:meth:`spare`). Первый круг это и есть поиск, резать его нечем; а вот
-        # второй заход раньше платил хвост первого плюс свой полный - и удваивал цену.
-        cap = 0.0 if self._first else max(self.spare(), CIRCLE_SHARE)
+        # цели (:meth:`spare`), но не ниже пола (:attr:`cap_floor`). Первый круг это и есть
+        # поиск, резать его нечем; а вот второй заход раньше платил хвост первого плюс
+        # свой полный - и удваивал цену.
+        cap = 0.0 if self._first else max(self.spare(), self.cap_floor)
         self._first = False
         got, why_lost = self._circle(
             known if whole else main, query, limit, counts, spent, lost, cap
@@ -609,7 +622,7 @@ class Prowlarr:
         if fallback:
             # Фолбэк - тоже второй круг, и цель он тратит наравне с добором.
             more, err = self._circle(
-                anime, query, limit, counts, spent, lost, max(self.spare(), CIRCLE_SHARE)
+                anime, query, limit, counts, spent, lost, max(self.spare(), self.cap_floor)
             )
             got += more
             why_lost = why_lost or str(err or "")
