@@ -125,6 +125,97 @@ def test_disc_images_never_become_the_default() -> None:
     assert rank_releases([disc, plain], RUNTIME, 20.0)[0].raw_name.endswith("BDRip 1080p")
 
 
+def _named(name: str, size_gb: float, seeders: int) -> Release:
+    """Раздача прямо из сохранённой выдачи: имя настоящее, размер и сиды тоже."""
+    return replace(
+        parse_release_name(name),
+        size=int(size_gb * GB),
+        seeders=seeders,
+        magnet=f"magnet:?xt=urn:btih:{abs(hash(name)):x}",
+    )
+
+
+def test_a_making_of_never_stands_for_the_picture_itself() -> None:
+    """🔴 TC-290. Ролик о съёмках - не картина, и кандидатом он быть не вправе.
+
+    Живой случай из сохранённой выдачи «тачки»: у картины «Тачки 2» ворота отбора судили
+    разрешение, битрейт, живость и звук - и ни одна ступень не спрашивала, картина ли это
+    вообще. «HDRip … фильм о фильме» на 0.4 ГБ проходил обычным кандидатом, а в пуле, где у
+    картины всего две раздачи, вставал ПЕРВЫМ, то есть дефолтом Enter. Человек просит кино
+    и получает получасовой ролик о съёмках - молчаливая подмена самой картины.
+    """
+    making = _named(
+        "Тачки 2 / Cars 2 [2011, мультфильм, комедия, приключения, HDRip] фильм о фильме", 0.4, 1
+    )
+    trailer = _named("Тачки 2 / Cars 2 (2011) HDRip 720р-Трейлер", 0.02, 0)
+    picture = _named("Тачки 2 / Cars 2 (2011) BDRip 720p от Leonardo and Scarabey", 3.0, 13)
+
+    assert making.extras and trailer.extras, "имя само называет их приложением к картине"
+    assert not picture.extras
+    assert not is_candidate(making, RUNTIME, 16.0) and not is_candidate(trailer, RUNTIME, 16.0)
+    assert is_candidate(picture, RUNTIME, 16.0), "а сама картина кандидат, как и была"
+    assert rank_releases([making, picture], RUNTIME, 16.0)[0] is picture
+
+
+def test_the_picture_keeps_its_own_name_even_when_it_sounds_like_a_bonus() -> None:
+    """Ограждение: слово в СОБСТВЕННОМ имени картины приложением её не делает.
+
+    Три случая из тех же выдач, и все три обязаны остаться кандидатами: документальная
+    картина, у которой «вырезанные сцены» стоят в названии; раздача, несущая картину И
+    приложение к ней («+ Бонус», «+ Extra»); короткометражка, которую справка честно
+    называет короткой, - при её длительности вес на минуту у неё обычный.
+    """
+    own_name = _named(
+        "Твин Пикс: Вырезанные сцены / Twin Peaks: The Missing Pieces (2014) BDRip 720p", 7.36, 4
+    )
+    with_bonus = _named("Тачки + Бонус / Cars (2006) BDRip 1080p от HD Club", 10.8, 6)
+    pack = _named("Пацаны / The Boys [S01-05 + Extra] (2019-2026) WEB-DL-AVC | КПК", 9.46, 40)
+    short = _named("Немая жизнь / Silent Life [2006, драма, WEB-DL 1080p] интервью", 1.4, 12)
+
+    assert not own_name.extras and not with_bonus.extras and not pack.extras
+    assert is_candidate(own_name, RUNTIME, 16.0) and is_candidate(with_bonus, RUNTIME, 16.0)
+    # Короткометражке метку ставит имя, а ворота её снимает длительность из справки:
+    # 21 минута при 1.4 ГБ - это 9 Мбит/с, вес картины, а не ролика о ней.
+    assert short.extras, "слово в имени есть"
+    assert not is_candidate(short, RUNTIME, 16.0), "на прикидке «фильм это два часа» - ролик"
+    assert is_candidate(short, 21 * 60.0, 16.0), "справка назвала 21 минуту - это картина"
+
+
+def test_the_only_release_of_a_picture_plays_even_if_it_is_a_bonus() -> None:
+    """Ограждение: последнего играбельного отбор не отнимает - показать лучше, чем нет.
+
+    У «Мандалорца» 2019 года в сохранённой выдаче ровно одна раздача-фильм, и та трейлер.
+    Ворота её кандидатом не считают, но верх :attr:`~torrcast.cli._Plan.ranked` попадает в
+    очередь всегда, и картина остаётся играбельной.
+    """
+    only = _named(
+        "Мандалорец / The Mandalorian [2019, фантастика, приключения, HDRip] Трейлер", 0.21, 1
+    )
+    plan = cli._Plan(
+        picture=Picture(title="Мандалорец", year=2019, releases=[only]),
+        ranked=rank_releases([only], RUNTIME, 16.0),
+        runtime=RUNTIME,
+        warn_mbit=16.0,
+    )
+    assert not is_candidate(only, RUNTIME, 16.0)
+    assert plan.candidates(cli.Args(query=["мандалорец"])) == [1], "играть всё равно есть чем"
+
+
+def test_a_bonus_disc_too_heavy_to_be_a_clip_is_kept_but_stands_last() -> None:
+    """Вес выше порога - ворота молчат, а порядок всё равно уводит приложение под картину.
+
+    Ошибка тут несимметрична: ролик столько не весит, и выкидывать одиннадцать гигабайт по
+    одному слову в имени дорого. Зато уводить их под саму картину - бесплатно.
+    """
+    from torrcast.cli import is_extra
+
+    bonus = _named("Титаник / Titanic (1997) BDRip | Дополнительные материалы", 11.56, 12)
+    picture = _named("Титаник / Titanic (1997) BDRip 1080p", 11.0, 12)
+    assert bonus.extras and not is_extra(bonus, RUNTIME), "по весу это не ролик"
+    assert is_candidate(bonus, RUNTIME, 16.0), "и ворота его не отнимают"
+    assert rank_releases([bonus, picture], RUNTIME, 16.0)[0] is picture
+
+
 def test_ordinary_release_is_not_mistaken_for_a_disc() -> None:
     assert not is_disc(rel(name="Кино (1999) BDRip 1080p x264 от Мутный"))
     assert is_disc(rel(name="Кино (1999) Blu-Ray Disc 1080p"))
@@ -1214,10 +1305,13 @@ def _moana_franchise() -> list[Any]:
 def _cars_franchise() -> list[Any]:
     """Франшиза «тачки» из живой выдачи: у каждой картины верх её отбора.
 
-    «Тачки 2» стоят тут четырьмя релизами не для красоты: обсиженный BD-ремукс на
-    38.4 ГБ выше потолка отбора, и годным верхом у картины остаётся 0.4-гигабайтный
-    HDRip «фильм о фильме» с одним сидом. Ровно этот случай порог живости и обязан
-    отбросить, хотя формально «кандидат есть».
+    «Тачки 2» стоят тут двумя релизами не для красоты: обсиженный BD-ремукс на 38.4 ГБ
+    выше потолка отбора, а второй релиз - 0.4-гигабайтный HDRip «фильм о фильме» с одним
+    сидом. Играть картине нечем, и сказать это обязаны ДВЕ ступени независимо: ворота
+    отбора (🔴 TC-290: ролик о съёмках не кандидат вовсе) и порог живости
+    (:data:`~torrcast.cli.ALIVE_SEEDERS`: один сид - не рой). Ступени намеренно не
+    выброшены одна ради другой: у ворот на такой случай есть и другой ответ - раздача,
+    которая и правда картина, просто мёртвая.
     """
     return [
         _franchise_plan(
@@ -1249,7 +1343,9 @@ def test_menu_default_is_the_first_living_picture_of_the_franchise() -> None:
     при этом вполне играбельна: 1080p BluRay на 66 сидов, 0.55 от лидера франшизы.
     """
     plans = _cars_franchise()
-    assert [cli.liveliness(p) for p in plans] == [66, 0, 1, 121]
+    # У «Тачек 2» вес нулевой: ремукс не проходит потолок, а «фильм о фильме» - ворота
+    # (🔴 TC-290). Раньше он весил один сид, и картина держалась на ролике о съёмках.
+    assert [cli.liveliness(p) for p in plans] == [66, 0, 0, 121]
     assert cli.liveliest(plans) == 4, "прежнее правило и правда уводило на третью часть"
     assert cli.first_alive(plans) == 1
 

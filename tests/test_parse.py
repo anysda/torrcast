@@ -827,6 +827,49 @@ def test_a_fresh_release_is_not_marked_dated(name: str) -> None:
     assert not parse_release_name(name).dated, name
 
 
+#: Раздача сама называет себя приложением к картине - все имена из сохранённых выдач.
+EXTRAS_NAMES = (
+    "Тачки 2 / Cars 2 [2011, мультфильм, комедия, приключения, HDRip] фильм о фильме",
+    "Тачки 2 / Cars 2 (2011) HDRip 720р-Трейлер",
+    "Оно / It [2017, Ужасы | Триллер, BDRip 720p] дополнительные материалы",
+    "Тачки 3 [Бонус-Диск] / Cars 3 [Bonus Disc] [2017, Мультфильм, BDRip 720]",
+    "Интерстеллар / Interstellar (2014) DCPRip-Тизер",
+    "РобоКоп / RoboCop (2014) BDRip 720p от Azazel | Дополнительные материалы | L1",
+)
+#: А это картины, хотя те же слова в именах есть: слово стоит в СОБСТВЕННОМ названии
+#: картины либо после плюса - «картина И приложение к ней».
+NOT_EXTRAS_NAMES = (
+    "Твин Пикс: Вырезанные сцены / Twin Peaks: The Missing Pieces (2014) BDRip 720p",
+    "Интервью / The Interview (2014) HDRip 700MB",
+    "Форсаж. Евротур / Bonus Trip (2024) WEB-DL 1080p",
+    "Тачки + Бонус / Cars (2006) BDRip 1080p от HD Club",
+    "Пацаны / The Boys [S01-05 + Extra] (2019-2026) WEB-DL-AVC | КПК",
+    "Чернобыль. Зона отчуждения [S01-02 + Финал + Фильм о фильме] (2014-2019) WEB-DL-AVC",
+    "Атака титанов / Shingeki no Kyojin [01-80 + 3 extra] (2009-2016)",
+    "Whiplash / Одержимость (2014) + Extras (1080p BluRay x264 AAC)",
+    "Матрица / The Matrix (1999) BDRip 1080p",
+    # Документальная картина о съёмках, у которой это и есть собственное имя: в каталоге
+    # она стоит отдельной картиной, и спросивший её по имени обязан её получить.
+    "Бесконечность - не предел / To Infinity and Beyond. The Making of Toy Story (1996) DVDRip",
+)
+
+
+@pytest.mark.parametrize("name", EXTRAS_NAMES)
+def test_a_release_that_calls_itself_a_bonus_is_marked_extras(name: str) -> None:
+    """🔴 TC-290. Приложение к картине читается из имени и до всякого веса."""
+    assert parse_release_name(name).extras, name
+
+
+@pytest.mark.parametrize("name", NOT_EXTRAS_NAMES)
+def test_the_picture_itself_is_never_marked_extras(name: str) -> None:
+    """Ограждение: слово в имени самой картины и форма «картина + приложение» - не метка.
+
+    Ошибиться тут дороже, чем пропустить: метка уводит раздачу под картину в порядке
+    отбора, и повесить её на саму картину значило бы наказать ту, за которой и пришли.
+    """
+    assert not parse_release_name(name).extras, name
+
+
 def test_mpeg4_avc_is_h264_and_not_mpeg4() -> None:
     """⚠️ «MPEG-4 AVC» на rutracker означает H.264: порядок проверок в разборе кодека
     держит именно этот случай, иначе годный BDRemux уехал бы в старьё.
