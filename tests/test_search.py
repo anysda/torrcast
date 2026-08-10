@@ -805,6 +805,43 @@ def test_аниме_признак_переживает_склейку_с_общ
         assert release.anime, release.raw_name
 
 
+#: Один торрент под двумя именами (TC-382): у строки Nyaa метка внешней дорожки
+#: ``[RUS(ext)]``, у строки общего индексера её нет - а торрент один и тот же.
+_EXT_MIRROR: Final = (
+    _mirror("Naruto [TV] [E220 of 220] [2002 ... DVDRip] | L2, L1", 91, "Knaben"),
+    _mirror(
+        "Наруто (S1) / Naruto [TV] [E220 of 220] [RUS(ext), ENG, JAP+Sub] [2002 ... DVDRip]",
+        90,
+        "Nyaa.si",
+    ),
+)
+
+
+def test_склейка_помнит_все_имена_раздачи() -> None:
+    """Имя победителя - одно, но сказанное каталогом об одной раздаче складывается:
+    все её имена переезжают целиком, а не выбираются вместе с победившим."""
+    (merged,) = merge(*([item] for item in _EXT_MIRROR))
+    assert merged.title == "Naruto [TV] [E220 of 220] [2002 ... DVDRip] | L2, L1"
+    assert set(merged.names) == {item.title for item in _EXT_MIRROR}
+
+
+def test_метка_внешней_дорожки_переживает_склейку() -> None:
+    """Метка ``RUS(ext)`` проигравшего имени - всё ещё факт об этой раздаче: честная
+    строка про звук обязана сказать «перевод отдельным файлом», в каком бы порядке
+    ни ответили индексеры."""
+    for order in permutations(_EXT_MIRROR):
+        (release,) = to_releases(merge(*([item] for item in order)))
+        assert release.external_dub, release.raw_name
+
+
+def test_внешняя_дорожка_озвучкой_не_считается_и_после_склейки() -> None:
+    """🔴 TC-191 при этом в силе: метка внешней дорожки - не обещание русского звука,
+    и склейка имён её в озвучку не превращает."""
+    for order in permutations(_EXT_MIRROR):
+        (release,) = to_releases(merge(*([item] for item in order)))
+        assert not release.dubbed, release.raw_name
+
+
 def test_склейка_берёт_размер_по_большинству() -> None:
     """Размер идёт в прикидку битрейта напрямую, поэтому его судит то же большинство,
     что и имя: цифра, которую сообщили чаще. Строка-победитель выиграла ИМЯ, а не

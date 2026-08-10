@@ -526,6 +526,12 @@ class Release:
     #: только тот, чья строка выиграла склейку. Пусто - раздача приехала одной строкой, и
     #: всё, что о ней известно, стоит в :attr:`indexer`.
     indexers: tuple[str, ...] = ()
+    #: ВСЕ имена, под которыми приехала раздача (:attr:`~torrcast.search.RawResult.names`),
+    #: а не только то, что выиграло склейку. Признаки имён (:attr:`external_dub`) читаются
+    #: отсюда: один торрент подписан у разных индексеров по-разному, и то, что сказал о
+    #: раздаче каталог, складывается, а не выбирается вместе с именем победителя. Пусто -
+    #: раздача приехала одной строкой, и всё, что известно, стоит в :attr:`raw_name`.
+    names: tuple[str, ...] = ()
     #: Раздача - СБОРНИК нескольких картин: имя обрезано словом «Трилогия», «Коллекция»,
     #: ``Collection`` (:data:`_COLLECTION_CUT_RE`). Не оценка качества раздачи, а ответ на
     #: один вопрос: то, что стоит за именем, - это картина или пачка картин.
@@ -620,8 +626,14 @@ class Release:
         отбор такой релиз годным не считает (:attr:`dubbed` метку вычитает), а человеку
         разница важна - «перевода нет вовсе» и «перевод есть, но отдельным файлом» это
         два разных ответа и два разных следующих шага.
+
+        🔴 TC-382. Спрашиваются ВСЕ имена раздачи (:attr:`names`), а не то одно, что
+        выиграло склейку: один и тот же торрент приходит от разных индексеров под
+        разными именами - у одного «[RUS(ext), JAP+Sub]», у другого «| L2, L1», - и
+        метка выживала, только если побеждало первое. Сказанное каталогом об одной
+        раздаче складывается, а не выбирается вместе с именем победителя.
         """
-        return bool(_RU_EXT_RE.search(self.raw_name))
+        return any(_RU_EXT_RE.search(name) for name in self.names or (self.raw_name,))
 
     @property
     def anime(self) -> bool:
@@ -2259,10 +2271,22 @@ def pick_franchise(query: str, pictures: list[Picture]) -> list[Picture]:
         wanted = slugify(name)
         if not wanted:
             return None
+        pointed = aliases.get(wanted)
         if wanted in groups:
+            # 🔴 TC-394. Имя может претендовать на ДВА места сразу: быть ключом своей
+            # франшизы и указателем на чужую (оригинал другой картины). Однофамильцев
+            # разводит вес - то же правило, что в :func:`_aliases`: «whiplash» - это
+            # сериал-однофамилец 1961 года на одну раздачу и оригинал «Одержимости»
+            # 2014-го на шесть десятков, и слово за тем, за кого каталог.
+            if (
+                pointed is not None
+                and pointed != wanted
+                and (_group_weight(groups, pointed) > _group_weight(groups, wanted))
+            ):
+                return pointed
             return wanted
-        if wanted in aliases:
-            return aliases[wanted]
+        if pointed is not None:
+            return pointed
         if (counted := in_digits(wanted)) in digits:
             return digits[counted]
         return None
@@ -2650,6 +2674,28 @@ def _subtitles(picture: Picture) -> set[str]:
     return found
 
 
+def _kindred(picture: Picture, base: list[Picture]) -> bool:
+    """Есть ли у картины с франшизой общее что-то, КРОМЕ слова в имени (TC-394).
+
+    Мост между русским и оригинальным именем заведён ради находимости по обоим именам
+    (см. :func:`_both_languages`), но слово - это всё, что он проверяет, а однофамильцев
+    под одним словом у каталога полно: «whiplash» - это и сериал 1961 года на одну
+    раздачу, и оригинал «Одержимости» 2014-го на шесть десятков. Свести их в одну
+    франшизу значит отдать номер запроса сериалу («whiplash 2» читался вторым сезоном
+    сериала, которого нет), тогда как человек звал картину.
+
+    Общее - это тип картины или год (с тем же допуском ±1, что у гейта года в
+    :func:`glue`): у двух половин ОДНОЙ картины, записанных на двух языках, совпадает
+    хотя бы что-то из этого. Не совпало ничего - картины разные, и мост их не сводит.
+    """
+    for other in base:
+        if picture.kind == other.kind:
+            return True
+        if picture.year is None or other.year is None or abs(picture.year - other.year) <= 1:
+            return True
+    return False
+
+
 def _both_languages(
     groups: dict[str, list[Picture]], aliases: dict[str, str], key: str
 ) -> list[Picture]:
@@ -2660,8 +2706,12 @@ def _both_languages(
     и запрос ``cast moana`` показывал бы только первую часть, а ``cast моана`` — только
     вторую. Псевдоним по оригинальному названию у нас уже посчитан — этого хватает,
     чтобы показать человеку всю франшизу, не трогая саму кластеризацию.
+
+    🔴 TC-394. Близнецом становится не всякая франшиза под тем же словом, а та, у
+    которой со спрошенной есть общее, кроме слова (:func:`_kindred`): тип или год.
     """
     items = list(groups[key])
+    base = list(items)
     # Псевдоним считается от оригинального названия к русскому, а спросить могут любым:
     # ``cast moana`` и ``cast моана`` обязаны показать одну и ту же франшизу.
     twins = {aliases.get(key, "")} | {a for a, target in aliases.items() if target == key}
@@ -2671,7 +2721,10 @@ def _both_languages(
             continue
         # ⚠️ В `seen` уходят только новички: пересчёт по всему списку стоил бы прохода на
         # каждого близнеца, то есть квадрата по числу картин на ровном месте.
-        fresh = [p for p in groups.get(twin, []) if id(p) not in seen]
+        # Родство меряется со спрошенной франшизой, а не с уже принятыми близнецами:
+        # иначе цепочка «у каждого звена что-то общее с соседом» стянула бы в одну
+        # франшизу и чужие картины.
+        fresh = [p for p in groups.get(twin, []) if id(p) not in seen and _kindred(p, base)]
         items += fresh
         seen |= {id(p) for p in fresh}
     items.sort(key=lambda p: (p.year is None, p.year or 0, p.part or 99, -len(p.releases), p.title))

@@ -1009,6 +1009,60 @@ def test_moana_franchise_is_shown_in_both_languages() -> None:
         assert [p.year for p in found] == [2016, 2024], query
 
 
+def test_language_bridge_does_not_merge_namesakes() -> None:
+    """🔴 TC-394. Сериал-однофамилец и картина с тем же оригиналом - разные картины.
+
+    Живая выдача «whiplash»: сериал ``Whiplash`` 1961 года (1 раздача) и «Одержимость»
+    2014-го с оригиналом ``Whiplash`` (65 раздач). У них нет ничего общего, кроме слова:
+    тип разный, годы разные. Мост между языками такое не сводит, и номер в запросе
+    отвечает картиной, которую человек имел в виду, - честное «номера 2 нет» про
+    «Одержимость», а не «сезона 2 нет» про сериал.
+    """
+    series = Release(
+        raw_name="Whiplash 1961 S01 DVDRip", title="Whiplash", year=1961, kind="tv", seeders=1
+    )
+    movie = [_release("Одержимость", 2014, original="Whiplash", seeders=94) for _ in range(3)]
+    pictures = cluster([series, *movie])
+    for query in ("whiplash", "одержимость"):
+        found = pick_franchise(query, pictures)
+        assert [(p.title, p.kind) for p in found] == [("Одержимость", "movie")], query
+    assert pick_franchise("whiplash 2", pictures) == [], "номера 2 во франшизе нет"
+
+
+def test_language_bridge_keeps_heavy_exact_name() -> None:
+    """Спор имени решает вес, а не порядок проверок: тяжёлая точная франшиза удерживает
+    запрос у себя, и лёгкий однофамилец по ту сторону моста ей не мешает."""
+    series = [
+        Release(
+            raw_name=f"Whiplash 1961 S01E{i:02d} DVDRip",
+            title="Whiplash",
+            year=1961,
+            kind="tv",
+            seeders=10,
+        )
+        for i in range(1, 4)
+    ]
+    movie = [_release("Одержимость", 2014, original="Whiplash", seeders=94)]
+    pictures = cluster([*series, *movie])
+    found = pick_franchise("whiplash", pictures)
+    assert [(p.title, p.kind) for p in found] == [("Whiplash", "tv")]
+
+
+def test_language_bridge_merges_same_year() -> None:
+    """Общий год - тоже родство: разнотипные картины одного года под одним словом
+    сводятся, как и прежде, - у них со словом совпадает и дата."""
+    movie = [_release("Одержимость", 2014, original="Whiplash", seeders=94) for _ in range(3)]
+    making_of = Release(
+        raw_name="Whiplash (2014) The Making Of",
+        title="Whiplash",
+        year=2014,
+        kind="other",
+    )
+    pictures = cluster([*movie, making_of])
+    found = pick_franchise("одержимость", pictures)
+    assert {p.title for p in found} == {"Одержимость", "Whiplash"}
+
+
 def test_a_franchise_of_twins_costs_one_pass_not_a_square(monkeypatch: pytest.MonkeyPatch) -> None:
     """Сборка франшизы из двух языков линейна по числу картин, а не квадратична.
 

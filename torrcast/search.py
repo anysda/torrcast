@@ -352,6 +352,13 @@ class RawResult:
     #: (:attr:`~torrcast.parse.Release.anime`) читается именно отсюда. Пусто - строка ещё
     #: не проходила склейку, и всё, что известно, стоит в :attr:`indexer`.
     indexers: tuple[str, ...] = ()
+    #: ВСЕ имена, под которыми приехала эта раздача, по алфавиту. Склейка выбирает имя
+    #: большинством (:func:`_fold`), а признаки имени - например, метку внешней дорожки
+    #: (:attr:`~torrcast.parse.Release.external_dub`) - читают отсюда: то, что сказал
+    #: каталог об одной и той же раздаче, складывается, а не выбирается вместе с именем
+    #: победителя. Пусто - строка ещё не проходила склейку, и всё, что известно, стоит
+    #: в :attr:`title`.
+    names: tuple[str, ...] = ()
 
     @property
     def magnet(self) -> str:
@@ -926,10 +933,17 @@ def merge(*batches: list[RawResult]) -> list[RawResult]:
     🔴 TC-257: ИМЕНА принёсших индексеров переезжают в :attr:`RawResult.indexers` целиком.
     Раньше их считали и выбрасывали, оставляя счётчик ``copies``, - а вместе с ними
     пропадал и жанр: аниме-индексер в группе значит «аниме», кто бы ни выиграл имя.
+
+    🔴 TC-382: ИМЕНА самих строк переезжают в :attr:`RawResult.names` целиком - по той же
+    причине. Один торрент приходит от разных индексеров под разными именами, и метка
+    внешней дорожки (``[RUS(ext), JAP+Sub]`` против ``| L2, L1``) выживала склейку,
+    только если побеждало имя с ней. Признаки имён складываются по всем строкам раздачи,
+    а не выбираются вместе с именем победителя.
     """
     rows: dict[str, list[RawResult]] = {}
     sources: dict[str, set[str]] = {}
     names: dict[str, set[str]] = {}
+    titles: dict[str, set[str]] = {}
     carried: dict[str, int] = {}
     for batch in batches:
         for item in batch:
@@ -939,12 +953,14 @@ def merge(*batches: list[RawResult]) -> list[RawResult]:
             # Счёт copies идёт по СТРОКАМ выдачи (sources) и остаётся прежним, а имена
             # копятся отдельно: склейка склеенного не вправе ни терять их, ни удваивать счёт.
             names.setdefault(key, set()).update(item.indexers or (item.indexer,))
+            titles.setdefault(key, set()).update(item.names or (item.title,))
             carried[key] = max(carried.get(key, 1), item.copies)
     return [
         replace(
             _fold(group),
             copies=max(len(sources[key]), carried[key]),
             indexers=tuple(sorted(name for name in names[key] if name)),
+            names=tuple(sorted(titles[key])),
         )
         for key, group in rows.items()
     ]
@@ -999,6 +1015,7 @@ def to_releases(results: list[RawResult]) -> list[Release]:
             magnet=item.magnet,
             indexer=item.indexer,
             indexers=item.indexers,
+            names=item.names,
             copies=item.copies,
         )
         for item in results
