@@ -832,11 +832,12 @@ def test_shim_takes_the_systemd_socket_only_from_its_own_activation(
     monkeypatch.setenv("LISTEN_PID", "1")
     assert shim._activated_socket() is None
     monkeypatch.setenv("LISTEN_PID", str(shim.os.getpid()))
-    monkeypatch.setattr(
-        shim.socket,
-        "socket",
-        lambda *args, **kwargs: seen.append(kwargs["fileno"]) or sentinel,
-    )
+
+    def _remember(*_args: object, **kwargs: int) -> object:
+        seen.append(kwargs["fileno"])
+        return sentinel
+
+    monkeypatch.setattr(shim.socket, "socket", _remember)
     assert shim._activated_socket() is sentinel
     assert seen == [3]
 
