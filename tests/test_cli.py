@@ -592,6 +592,40 @@ def test_hevc_is_still_refused_when_recoding_is_switched_off(
     assert "релиз 1 не годится (hevc) - беру 2" in capsys.readouterr().out
 
 
+def test_mpeg4_release_plays_through_the_same_whole_recode_instead_of_being_refused(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """XviD/DivX - не отказ, а сплошной перекод: на старом кино другого носителя нет.
+
+    Мультклассика и советская документалка лежат в единственной раздаче, и внутри у неё
+    ``mpeg4``. Такой релиз играет тем же механизмом, что и HEVC, и говорит об этом
+    вслух; цена перекода замерена (:attr:`torrcast.profile.Profile.recode_codecs`).
+    """
+    ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
+    _probes(monkeypatch, ranked, "mpeg4", "h264")
+    torrserver = _FakeTorrServer()
+
+    prep = _resolve(cli._Bench(cast(Any, torrserver)), ranked)
+
+    printed = capsys.readouterr().out
+    assert (prep.number, prep.found.video) == (1, "mpeg4"), "mpeg4-релиз играет, а не отказывает"
+    assert "видео mpeg4 - перекодирую на ходу целиком" in printed
+    assert "не годится" not in printed and not re.search(r"беру \d", printed)
+
+
+def test_mpeg4_is_still_refused_when_recoding_is_switched_off(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Перекодирование выключено - играть mpeg4 нечем, и отказ остаётся честным."""
+    ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
+    _probes(monkeypatch, ranked, "mpeg4", "h264")
+
+    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer())), ranked, recode_at=0.0)
+
+    assert prep.number == 2, "без перекодирования mpeg4 остаётся отказом"
+    assert "релиз 1 не годится (mpeg4) - беру 2" in capsys.readouterr().out
+
+
 def test_a_dead_swarm_is_not_a_hang_but_the_next_release(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -764,7 +798,7 @@ def test_cheap_verdicts_do_not_eat_the_place_of_the_living_release_below(
     """🔴 TC-188. Живой 1080p за тремя заведомо худшими: до него обязаны дойти.
 
     Замер каталога: из 92 живых 1080p, прошедших мимо показа, 44 просто СТОЯЛИ В
-    ОЧЕРЕДИ. Съедали их места вот такие три - SD-рип, mpeg4, av1: ffprobe читает их
+    ОЧЕРЕДИ. Съедали их места вот такие три - SD-рип, vp9, av1: ffprobe читает их
     за секунду и тут же отбраковывает, человеку такой приговор не стоит почти ничего,
     а место в очереди он занимал ровно как приговор тяжёлому ремуксу.
 
@@ -778,7 +812,7 @@ def test_cheap_verdicts_do_not_eat_the_place_of_the_living_release_below(
         rel(name="av1", seeders=70),
         rel(name="честный 1080p", seeders=60),
     ]
-    _probes(monkeypatch, ranked, "mpeg4", "mpeg4", "av1", "h264")
+    _probes(monkeypatch, ranked, "vp9", "vp9", "av1", "h264")
 
     began = time.monotonic()
     prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer())), ranked)

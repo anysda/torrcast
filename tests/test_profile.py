@@ -37,7 +37,7 @@ def test_the_stream_constants_are_the_cautious_profile() -> None:
     """Константы упаковки - тот же осторожный профиль, а не своя копия чисел."""
     cautious = profile.CAUTIOUS
     assert stream.MAX_SEGMENT_BYTES == cautious.max_segment_bytes == 16_000_000
-    assert stream.RECODE_CODECS == cautious.recode_codecs == frozenset({"hevc"})
+    assert stream.RECODE_CODECS == cautious.recode_codecs == frozenset({"hevc", "mpeg4"})
     assert stream.COPY_DEPTH == cautious.copy_depth == 8
     assert dataclasses.fields(stream.Feed)  # slots-датакласс: умолчание берём из поля
     holds = {f.name: f.default for f in dataclasses.fields(stream.Feed)}
