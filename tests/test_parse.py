@@ -17,6 +17,7 @@ from torrcast.parse import (
     Picture,
     Release,
     alt_query,
+    catalog_has_name,
     cluster,
     franchise_key,
     franchise_name,
@@ -1805,3 +1806,49 @@ def test_the_catalogues_own_name_outranks_any_alias() -> None:
     found = pick_franchise("призраки", pictures)
 
     assert [p.title for p in found] == ["Призраки"], "точное имя каталога решает спор само"
+
+
+def test_an_exact_alias_outranks_a_substring_in_a_foreign_key() -> None:
+    """Точный псевдоним сильнее ВХОЖДЕНИЯ запроса в чужой ключ франшизы.
+
+    Живой промах: «wild tales» - это «Дикие истории» 2014 года (54 сида на живом роем),
+    и раздача сама называет оба имени. Но ключ «wild-tales-from-the-farm» СОДЕРЖИТ
+    запрос подстрокой, и вхождение срабатывало раньше псевдонима: в меню уезжал сериал
+    с пустым роем, а картина оставалась в своей же выдаче невидимой.
+    """
+    pictures = cluster(
+        [
+            parse_release_name("Дикие истории / Relatos salvajes / Wild Tales (2014) BDRip 1080p"),
+            parse_release_name("Wild Tales From The Farm S01E02 1080p WEB h264-SKYFiRE"),
+        ]
+    )
+    found = pick_franchise("wild tales", pictures)
+
+    assert [p.title for p in found] == ["Дикие истории"], (
+        "точное третье имя отвечает про картину, а не про соседа по подстроке"
+    )
+
+
+def test_catalog_has_name() -> None:
+    """Подпись каталога - точное имя картины, франшизы, оригинала или третье имя.
+
+    Не подпись: сосед по подстроке («Девять ярдов» - не «Девять») и цифровая запись
+    числительного («9» - не «Девять»): это разные картины, и запрос словом не должен
+    довольствоваться картиной, подписанной цифрой.
+    """
+    pictures = cluster(
+        [
+            parse_release_name("Девять ярдов / The Whole Nine Yards (2000) BDRip 1080p"),
+            parse_release_name("Матрица: Перезагрузка / The Matrix Reloaded (2003) BDRip 1080p"),
+            parse_release_name("9 (2009) BDRip 1080p"),
+            parse_release_name("Дикие истории / Relatos salvajes / Wild Tales (2014) BDRip 1080p"),
+        ]
+    )
+
+    assert not catalog_has_name("девять", pictures), "соседи по подстроке - не подпись"
+    assert not catalog_has_name("девять 2", pictures), "номер части имени не добавляет"
+    assert catalog_has_name("девять ярдов", pictures)
+    assert catalog_has_name("матрица", pictures), "имя франшизы - тоже подпись"
+    assert catalog_has_name("the matrix reloaded", pictures), "оригинал - тоже подпись"
+    assert catalog_has_name("wild tales", pictures), "третье имя - тоже подпись"
+    assert catalog_has_name("9", pictures), "цифрой спросили - цифра и есть имя"

@@ -639,7 +639,7 @@ def origin_now(title: str, series: bool = False, timeout: float = HTTP_TIMEOUT) 
     if series:  # у сериала своя статья, и лежит она под своим уточнением
         names.sort(key=lambda name: "сериал" not in name)
     hops, pages = _pages(get_json(_WIKI_HOST, _WIKI_PATH, _extract_params(names), {}, timeout))
-    direct = [_article(name, hops, pages) for name in names]
+    direct = _own_name_first([_article(name, hops, pages) for name in names], title)
     found = read_origin(direct, title, trusted=True, series=series)
     if found:
         return found
@@ -649,6 +649,30 @@ def origin_now(title: str, series: bool = False, timeout: float = HTTP_TIMEOUT) 
     payload = get_json(_WIKI_HOST, _WIKI_PATH, _search_params(f"{title} {kind}"), {}, timeout)
     found = read_origin(_ranked(payload), title, series=series)
     return found or _misremembered(title, series, timeout) or _imdb_ru(title, series)
+
+
+def _own_name_first(pages: list[Any], title: str) -> list[Any]:
+    """Кандидаты прямой выборки: сначала статьи, названные ИМЕНЕМ запроса.
+
+    Уточнение в скобках порядка не задаёт: «девять (мультфильм)» стоит в перечне раньше
+    «девять (фильм)» просто по алфавиту, и первая же киношная статья побеждала - справка
+    отвечала про мультфильм «9», когда спрашивали «Девять». Между тем перенаправление
+    «девять (мультфильм)» → ``9 (мультфильм, 2009)`` - это уже ДРУГОЕ имя: статья
+    подписана не так, как спросили. Статья же «Девять (фильм)» названа ровно спрошенным
+    словом, и её слово о картине с этим именем сильнее.
+
+    Переименованные перенаправления («Уэнсдей» → «Уэнздей») ничего не теряют: они просто
+    идут следом, и без тёзок впереди выбор остаётся прежним. Меняется ровно один случай -
+    когда про кино есть и тёзка, и одноимённая подмена: раньше побеждал порядок уточнений,
+    теперь - имя.
+    """
+    wanted = slugify(title)
+
+    def own(page: Any) -> bool:
+        heading = str((page or {}).get("title") or "")
+        return bool(wanted) and slugify(heading.split(" (")[0]) == wanted
+
+    return sorted(pages, key=lambda page: not own(page))
 
 
 #: Каким произведением статья себя объявляет - в любом виде, а не только экранном. Список

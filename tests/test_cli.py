@@ -3190,3 +3190,135 @@ def test_добор_без_картины_спрашивает_справку_в
     lean = Picture(title="Клиника", year=2001, kind="tv", releases=[rel(name="Клиника s01e01")])
     thin = _asked_reference(monkeypatch, [lean], cli.Args(query=["клиника", "s1e1"]))
     assert thin == ("клиника", True, FACTS_BUDGET), "картина есть - потолок прежний, тип от неё"
+
+
+class _Ceiling(_Spent):
+    """Клиент второго круга: индексер упёрся в потолок, ответ уточнения заготовлен."""
+
+    capped = ("RuTor",)
+
+    def __init__(self, spare: float, rows: list[Any]) -> None:
+        super().__init__(spare)
+        self._rows = rows
+        self.asked: list[str] = []
+
+    def search(self, query: str) -> list[Any]:
+        self.asked.append(query)
+        return self._rows
+
+
+def _nine_yards_pool() -> tuple[list[Any], list[Picture], list[Picture]]:
+    """Пул запроса «девять»: сотня строк про соседей, самой «Девять» в ней нет."""
+    from torrcast.parse import cluster, pick_franchise
+    from torrcast.search import RawResult, to_releases
+
+    raw = [
+        RawResult(
+            "Девять ярдов / The Whole Nine Yards (2000) BDRip 1080p", "a" * 40, 8 * 1024**3, 50
+        )
+    ]
+    pictures = cluster(to_releases(raw))
+    return raw, pictures, pick_franchise("девять", pictures)
+
+
+def _refined(
+    monkeypatch: pytest.MonkeyPatch,
+    about: Any,
+    rows: list[Any],
+) -> tuple[_Ceiling, io.StringIO, tuple[list[Any], list[Picture], list[Picture]]]:
+    raw, pictures, found = _nine_yards_pool()
+    client = _Ceiling(9.0, rows)
+    monkeypatch.setattr(cli, "origin", lambda *a, **k: about)
+    out = io.StringIO()
+    with Progress(out=out) as progress:
+        result = cli._ceiling_reinforce(
+            cast(Any, client), "девять", cli.Args(query=["девять"]), raw, pictures, found, progress
+        )
+    return client, out, result
+
+
+def test_потолок_прячет_картину_и_добор_её_достаёт(monkeypatch: pytest.MonkeyPatch) -> None:
+    """🔴 TC-331. Выдача упёрлась в потолок, самой картины в ней нет - уточняем запрос.
+
+    Живой случай: по запросу «девять» 21 раздача картины «Девять» (2009) лежит за
+    сотней строк потолка индексера, каталог её не видит вовсе, и в меню человек
+    получает «Девять ярдов». Уточнённый запрос «девять 2009» (год - из справки) сужает
+    выдачу так, что картина влезает под потолок, и встаёт в меню ВПЕРЕДИ соседей по
+    подстроке - с честной строкой о том, что произошло.
+    """
+    from torrcast.facts import Origin
+    from torrcast.search import RawResult
+
+    rows = [RawResult("Девять / Nine (2009) BDRip 1080p | D", "b" * 40, 9 * 1024**3, 7)]
+    client, out, (_raw, _pictures, found) = _refined(
+        monkeypatch, Origin(title="Nine", year=2009, name="Девять"), rows
+    )
+
+    assert client.asked == ["девять 2009"], "второй круг - уточнённым запросом"
+    assert [p.title for p in found] == ["Девять", "Девять ярдов"], (
+        "картина с именем запроса встаёт впереди соседей по подстроке"
+    )
+    assert found[0].year == 2009
+    assert "упёрлась в потолок" in out.getvalue(), "подмена не молчаливая"
+
+
+def test_уточнение_не_идёт_за_именем_без_поручительства(monkeypatch: pytest.MonkeyPatch) -> None:
+    """🔴 Гейт TC-253: имя, лишь признанное похожим, второго круга не заказывает."""
+    from torrcast.facts import Origin
+    from torrcast.search import RawResult
+
+    rows = [RawResult("Девять / Nine (2009) BDRip 1080p | D", "b" * 40, 9 * 1024**3, 7)]
+    about = Origin(title="Nine", year=2009, name="Девять", guessed=True)
+    client, _out, (raw, _pictures, found) = _refined(monkeypatch, about, rows)
+
+    assert client.asked == [], "имени без поручительства второй круг не достаётся"
+    assert [p.title for p in found] == ["Девять ярдов"], "выдача остаётся прежней"
+    assert len(raw) == 1
+
+
+def test_уточнению_нужен_год_справки(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Года у справки нет - уточнять нечем, и второго круга нет вовсе."""
+    from torrcast.facts import Origin
+    from torrcast.search import RawResult
+
+    rows = [RawResult("Девять / Nine (2009) BDRip 1080p | D", "b" * 40, 9 * 1024**3, 7)]
+    client, _out, (_raw, _pictures, found) = _refined(
+        monkeypatch, Origin(title="Nine", name="Девять"), rows
+    )
+
+    assert client.asked == []
+    assert [p.title for p in found] == ["Девять ярдов"]
+
+
+def test_уточнение_не_берёт_картину_с_чужим_именем_и_годом(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Уточнённый круг привёз соседей - прежняя выдача остаётся, подмены нет."""
+    from torrcast.facts import Origin
+    from torrcast.search import RawResult
+
+    rows = [
+        RawResult(
+            "Десять ярдов / The Whole Ten Yards (2004) BDRip 1080p", "c" * 40, 8 * 1024**3, 15
+        )
+    ]
+    about = Origin(title="Nine", year=2009, name="Девять")
+    client, out, (_raw, _pictures, found) = _refined(monkeypatch, about, rows)
+
+    assert client.asked == ["девять 2009"], "круг был - но ничего подписанного «девять»"
+    assert [p.title for p in found] == ["Девять ярдов"], "соседи добором не считаются"
+    assert "упёрлась в потолок" not in out.getvalue(), "не случилось - не говорим"
+
+
+def test_повод_потолка_узок() -> None:
+    """Три условия разом: потолок у индексера, пул не пуст, имени запроса в каталоге нет."""
+    _raw, pictures, found = _nine_yards_pool()
+    spare = cast(Any, _Spent(9.0))
+    capped = cast(Any, _Ceiling(9.0, []))
+
+    assert not cli._ceiling_hides_name(spare, "девять", pictures, found), "нет потолка - нет повода"
+    assert not cli._ceiling_hides_name(capped, "девять", pictures, []), (
+        "пустая выдача - это тощий пул, а не потолок: там отвечает добор вторым языком"
+    )
+    assert not cli._ceiling_hides_name(capped, "девять ярдов", pictures, found), (
+        "имя в каталоге есть - обрезан лишь хвост, и это не повод"
+    )
+    assert cli._ceiling_hides_name(capped, "девять", pictures, found)

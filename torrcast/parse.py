@@ -2088,6 +2088,21 @@ def pick_franchise(query: str, pictures: list[Picture]) -> list[Picture]:
     spelled: dict[str, str] = {}
     for written, target in sorted(aliases.items()):
         spelled.setdefault(spell(written), target)
+    # Третьи имена из заголовков раздач («Дикие истории / Relatos salvajes / Wild Tales»)
+    # - тоже подпись каталога, только слабее оригинала: раздача назвала это имя, но не
+    # поставила его ни названием картины, ни оригиналом. Точное совпадение с ним сильнее
+    # НЕСТРОГИХ ступеней ниже (вхождение в чужой ключ, слова, звучание): «wild tales» -
+    # это «Дикие истории» 2014 года, а не сериал ``Wild Tales From The Farm``, чей ключ
+    # лишь содержит запрос подстрокой. Спор двух франшиз за одно третье имя не решаем -
+    # ровно как в :func:`_by_alias`, честное «не нашлось» лучше однофамильца.
+    third: dict[str, str] = {}
+    for group_key, items in groups.items():
+        for picture in items:
+            for slug in picture.aliases:
+                if not slug or slug in groups or slug in aliases:
+                    continue
+                if third.setdefault(slug, group_key) != group_key:
+                    third[slug] = ""
 
     def named(name: str) -> str | None:
         """Ключ, которым каталог подписал картину ЦЕЛИКОМ: та же строка, её латинский
@@ -2111,6 +2126,8 @@ def pick_franchise(query: str, pictures: list[Picture]) -> list[Picture]:
         wanted = slugify(name)
         if not wanted:
             return None
+        if pointed := third.get(wanted):
+            return pointed
         if hits := [k for k in groups if wanted in k]:
             return min(hits, key=lambda key: (len(key), -_group_weight(groups, key), key))
         # Порядок слов и союзы - на совести человека, а не каталога (:func:`_by_words`).
@@ -2176,6 +2193,34 @@ def pick_franchise(query: str, pictures: list[Picture]) -> list[Picture]:
         # выкладывала всю линейку.
         items = _both_languages(groups, aliases, whole_name)
     return _with_subtitled(items, name, pictures, index)
+
+
+def catalog_has_name(query: str, pictures: list[Picture]) -> bool:
+    """Подписана ли хоть одна картина каталога ТОЧНО именем запроса.
+
+    Вопрос не «что похоже», а «есть ли оно тут»: по запросу «девять» каталог отвечает
+    сотней строк про «Девять ярдов», «Девять песен» и «Девять королей», а самой «Девять»
+    в ней нет - и это повод переспросить точнее, а не смириться с соседями по подстроке
+    (:func:`~torrcast.cli._ceiling_reinforce`).
+
+    Считается подписью: имя франшизы («матрица» за «Матрицей: Перезагрузкой»), точное
+    имя картины, её оригинал и третьи имена из заголовков раздач - всё то, чем каталог
+    сам назвал картину. Нарочно НЕ считаются: вхождение подстрокой (соседи - это и есть
+    симптом) и цифровая запись числительных (:func:`in_digits`): «9» и «Девять» - разные
+    картины, и запрос словом не должен довольствоваться картиной, подписанной цифрой.
+    """
+    name, _index = split_franchise_index(query)
+    wanted = slugify(name)
+    if not wanted:
+        return False
+    for picture in pictures:
+        if franchise_key(picture.title) == wanted or slugify(picture.title) == wanted:
+            return True
+        if picture.original and slugify(picture.original) == wanted:
+            return True
+        if wanted in picture.aliases:
+            return True
+    return False
 
 
 def _with_subtitled(
