@@ -218,24 +218,27 @@ def _live_indexers(config: Config, payload: object) -> Iterator[Line]:
         and isinstance(entry.get("name"), str)
     ]
     with ThreadPoolExecutor(max_workers=3) as pool:
-        answers = list(pool.map(lambda pair: _probe_indexer(config, pair[0]), pairs))
-    for (_, name), answered in zip(pairs, answers, strict=True):
-        if answered:
+        answers = list(pool.map(lambda pair: _probe_indexer(config, *pair), pairs))
+    for (_, name), answer in zip(pairs, answers, strict=True):
+        if answer == "answered":
             yield _ok(f"индексер {name} ответил на живой поиск")
+        elif answer == "irrelevant":
+            yield _bad(f"индексер {name} ответил мимо контрольного запроса - выдача ненадёжна")
         else:
             yield _bad(f"индексер {name} не ответил на живой поиск - выдача неполная")
 
 
-def _probe_indexer(config: Config, indexer: int) -> bool:
-    """Популярный запрос обязан вернуть список с хотя бы одной строкой, не голый HTTP 200."""
+def _probe_indexer(config: Config, indexer: int, name: str) -> str:
+    """Distinguish a useful answer from silence and an unrelated fuzzy match."""
     import requests
 
+    query = "Kaiba" if "anilibria" in name.casefold() else "matrix"
     try:
         response = requests.get(
             f"{config.prowlarr_url}/api/v1/search",
             headers={"X-Api-Key": config.prowlarr_apikey},
             params={
-                "query": "matrix",
+                "query": query,
                 "type": "search",
                 "indexerIds": str(indexer),
                 "limit": "1",
@@ -245,8 +248,17 @@ def _probe_indexer(config: Config, indexer: int) -> bool:
         response.raise_for_status()
         payload = response.json()
     except (requests.RequestException, ValueError):
-        return False
-    return isinstance(payload, list) and bool(payload)
+        return "silent"
+    if not isinstance(payload, list) or not payload:
+        return "silent"
+    if query == "Kaiba" and not any(
+        isinstance(row, dict)
+        and isinstance(row.get("title"), str)
+        and query.casefold() in row["title"].casefold()
+        for row in payload
+    ):
+        return "irrelevant"
+    return "answered"
 
 
 def _enabled_names(payload: object) -> list[str]:

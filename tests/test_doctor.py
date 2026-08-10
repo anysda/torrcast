@@ -29,7 +29,7 @@ def _answers(monkeypatch: pytest.MonkeyPatch, indexers: object) -> None:
         return indexers if url.endswith("/api/v1/indexer") else []
 
     monkeypatch.setattr(doctor, "_json", fake)
-    monkeypatch.setattr(doctor, "_probe_indexer", lambda config, indexer: True)
+    monkeypatch.setattr(doctor, "_probe_indexer", lambda config, indexer, name: "answered")
 
 
 def _lines(monkeypatch: pytest.MonkeyPatch, indexers: object) -> list[tuple[str, bool]]:
@@ -53,12 +53,25 @@ def test_live_probe_and_backoff_expose_a_dead_indexer(monkeypatch: pytest.Monkey
         return []
 
     monkeypatch.setattr(doctor, "_json", fake)
-    monkeypatch.setattr(doctor, "_probe_indexer", lambda config, indexer: False, raising=False)
+    monkeypatch.setattr(
+        doctor, "_probe_indexer", lambda config, indexer, name: "silent", raising=False
+    )
 
     lines = list(doctor._prowlarr(_config()))
     text = "\n".join(line for line, _ in lines)
     assert "индексер Knaben отключён Prowlarr до 2026-08-09 12:30:00" in text
     assert "индексер Knaben не ответил на живой поиск - выдача неполная" in text
+    assert any(not good for _, good in lines)
+
+
+def test_live_probe_names_an_unrelated_answer(monkeypatch: pytest.MonkeyPatch) -> None:
+    indexers = [{"id": 38, "name": "AniLibria", "enable": True}]
+    _answers(monkeypatch, indexers)
+    monkeypatch.setattr(doctor, "_probe_indexer", lambda config, indexer, name: "irrelevant")
+
+    lines = list(doctor._prowlarr(_config()))
+    text = "\n".join(line for line, _ in lines)
+    assert "AniLibria ответил мимо контрольного запроса" in text
     assert any(not good for _, good in lines)
 
 

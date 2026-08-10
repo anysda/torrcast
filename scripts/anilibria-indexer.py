@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 import urllib.parse
@@ -15,6 +16,22 @@ from typing import Any
 ORIGINS = ("https://anilibria.top", "https://api.anilibria.app")
 TIMEOUT = 3.0
 LIMIT = 5
+
+
+def _words(value: str) -> set[str]:
+    """Words suitable for checking whether the catalog result answers the query."""
+    return set(re.findall(r"[\w]+", value.casefold()))
+
+
+def _matches(release: dict[str, Any], query: str) -> bool:
+    """Reject fuzzy API hits that do not contain the requested title."""
+    wanted = _words(query)
+    if not wanted:
+        return False
+    name = release.get("name")
+    names = name.values() if isinstance(name, dict) else (name,)
+    names = (*names, release.get("alias"))
+    return any(wanted <= _words(value) for value in names if isinstance(value, str))
 
 
 def _json(origin: str, path: str) -> Any:
@@ -38,7 +55,8 @@ def search(query: str) -> list[dict[str, Any]]:
         try:
             answer = _json(candidate, path)
             if isinstance(answer, list):
-                releases, origin = answer[:LIMIT], candidate
+                releases = [row for row in answer if isinstance(row, dict) and _matches(row, query)]
+                releases, origin = releases[:LIMIT], candidate
                 break
         except (OSError, ValueError):
             continue

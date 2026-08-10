@@ -300,6 +300,21 @@ def test_silent_indexer_costs_only_its_own_budget() -> None:
     assert max(client._session.waited) < client.timeout  # type: ignore[union-attr]
 
 
+def test_slow_extra_indexer_does_not_hold_the_ready_catalog() -> None:
+    """A non-quorum tail may keep working, but the ready catalog returns immediately."""
+    client = _swarm(hold={3}, rows=2)
+    began = time.monotonic()
+    try:
+        results = client.search("Naruto [TV]")
+        elapsed = time.monotonic() - began
+    finally:
+        client._session.gate.set()  # type: ignore[union-attr]
+
+    assert len(results) == 4
+    assert elapsed < 0.5
+    assert [ask.name for ask in client._late] == ["Nyaa.si"]
+
+
 def test_trace_carries_per_indexer_milliseconds(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
