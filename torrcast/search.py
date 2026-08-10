@@ -61,21 +61,16 @@ _INDEXERS_PATH: Final = "/api/v1/indexer"
 #: ``indexerId``, ``disabledTill`` и ``mostRecentFailure``. Отпустивших он не показывает,
 #: поэтому «пусто» тут и значит «бана нет».
 _STATUS_PATH: Final = "/api/v1/indexerstatus"
-#: Проверка одного индексера: POST с его же телом из :data:`_INDEXERS_PATH`. Это
-#: единственная снаружи доступная ручка, которая СНИМАЕТ бан (:meth:`Prowlarr._probe`).
+#: Проверка одного индексера: POST с его же телом из :data:`_INDEXERS_PATH`. Успех
+#: снимает истёкшую отсрочку; активную не проверяем, потому что отказ начинает её заново.
 _TEST_PATH: Final = "/api/v1/indexer/test"
-#: 🔴 TC-259/TC-272. Как часто мы вправе стучаться в заблокированный индексер.
+#: 🔴 TC-259/TC-272. Как часто мы вправе стучаться после окончания отсрочки.
 #:
-#: Prowlarr держит бан по своим часам, а не по здоровью источника. Живой замер на
-#: Prowlarr 2.5.2.5491: первый отказ ставит ``disabledTill`` ровно на 60 секунд после
-#: ``mostRecentFailure``; четыре проверки подряд внутри этой минуты оставили те же
-#: 60 секунд. Рост следующих ступеней этим замером не подтверждён.
-#: Своей памяти между поисками у клиента нет (:meth:`Prowlarr.__init__`), поэтому тормоз
-#: тут один - время последнего отказа, которое Prowlarr считает сам: неудачная проверка
-#: обновляет его на «сейчас», и следующая случится не раньше чем через эту паузу.
-#: Минута выбрана по доказанной нижней ступени: чаще стучаться на 504-х значит лишь
-#: продлевать бан. Первую ступень пауза не выигрывает (она ей равна), зато успешная
-#: проверка снимает её немедленно и выигрывает любую уже накопленную длинную ступень.
+#: Prowlarr держит бан по своим часам, а не по здоровью источника. На неответившем живом
+#: источнике первая ступень - 60 секунд. У отсутствующего источника ступень дорастает до
+#: суток, а неудачная проверка начинает её заново. Поэтому действующий ``disabledTill``
+#: не трогаем; после его окончания минута от последнего отказа защищает от повторного
+#: стука по одной и той же отметке.
 _HEAL_PAUSE: Final = 60.0
 #: Припуск к отметке отказа (TC-291): доли секунды мы отрезаем при разборе, а саму
 #: отметку ставит Prowlarr, а не наш секундомер. Две секунды - это заведомо больше
@@ -292,10 +287,9 @@ def _moment(failed: str) -> float | None:
 def _rested(failed: str) -> bool:
     """Отдохнул ли источник настолько, что в него пора стучаться (:data:`_HEAL_PAUSE`).
 
-    Отметка отказа - это и весь наш тормоз: памяти между поисками у клиента нет, а её
-    Prowlarr переписывает на КАЖДОМ отказе - в том числе на нашей неудачной проверке.
-    Отсюда и свойство, ради которого отметка взята вместо своего счётчика: сколько бы
-    поисков ни случилось подряд, в мёртвый источник мы постучимся не чаще раза в паузу.
+    Отметка отказа ограничивает частоту после окончания ``disabledTill``. Пока отсрочка
+    действует, :meth:`Prowlarr._heal` не стучится вовсе: неудачная проверка начала бы её
+    заново.
 
     Время не прочиталось - считаем, что пора: не полечить вовсе хуже, чем сходить лишний раз.
     """
@@ -532,7 +526,7 @@ class Prowlarr:
             return ()
         return tuple(
             name
-            for num, failed in sorted(self._blocked().items())
+            for num, (failed, _disabled) in sorted(self._blocked().items())
             if (name := names.get(num, ""))
             and name not in self.banned
             and _just_now(failed, self._begun_at)
@@ -791,7 +785,7 @@ class Prowlarr:
         """Выдача одного индексера в его личный бюджет."""
         return from_json(self._get_json(self._url(query, limit, indexer), budget))
 
-    def _blocked(self) -> dict[int, str]:
+    def _blocked(self) -> dict[int, tuple[str, str]]:
         """Кого Prowlarr увёл в недоступные: номер - когда обещает отпустить.
 
         🔴 TC-259. Включённый и доступный - разные вещи, а по списку индексеров
@@ -813,12 +807,15 @@ class Prowlarr:
         if not isinstance(payload, list):
             return {}
         return {
-            int(item["indexerId"]): str(item.get("mostRecentFailure") or "")
+            int(item["indexerId"]): (
+                str(item.get("mostRecentFailure") or ""),
+                str(item.get("disabledTill") or ""),
+            )
             for item in payload
             if isinstance(item, dict) and str(item.get("indexerId", "")).isdigit()
         }
 
-    def _heal(self, blocked: dict[int, str]) -> None:
+    def _heal(self, blocked: dict[int, tuple[str, str]]) -> None:
         """Постучаться в заблокированные индексеры - вдруг источник уже вернулся.
 
         🔴 TC-272. Prowlarr снимает бан по своим часам, а не по здоровью источника, и
@@ -834,7 +831,12 @@ class Prowlarr:
         плодами пользуется уже следующий поиск. Ждать смысла нет - выдача заблокированного
         в этот круг всё равно не попадёт.
         """
-        rested = tuple(num for num, failed in blocked.items() if _rested(failed))
+        now = time.time()
+        rested = tuple(
+            num
+            for num, (failed, disabled) in blocked.items()
+            if _rested(failed) and (_moment(disabled) or 0.0) <= now + _CLOCK_SLACK
+        )
         if not rested:
             return
         threading.Thread(target=self._probe, args=(rested,), daemon=True, name="idx-heal").start()

@@ -114,10 +114,15 @@ _HOP = frozenset(
         "upgrade",
     }
 )
-_TIMEOUT = 30
+#: Один молчащий кандидат не вправе съесть бюджет до сменной альтернативы.
+_TIMEOUT = 5.0
+#: Весь перебор маршрута заканчивается раньше личного бюджета индексера (20 с).
+_ROUTE_TIMEOUT = 15.0
 #: Сколько запросов зараз пускаем на ОДИН хост. Два - потолок, который держит самый
 #: слабый из наших фронтов; третий параллельный он уже не обслуживает, а роняет в 504.
 _PER_HOST = 2
+#: Как часто ждущий слот проверяет, не ушёл ли его клиент.
+_QUEUE_POLL = 0.1
 #: Сколько соединений ждут своей очереди на ПРИЁМ, пока шим занят предыдущими.
 #:
 #: 🔴 TC-306. Умолчание :mod:`socketserver` - пять, и оно рассчитано не на нашу нагрузку:
@@ -668,12 +673,9 @@ def _in_queue(route: Route, conn: socket.socket) -> Iterator[bool]:
     третьими. Личный таймаут запроса ожидание не съедает: он отсчитывается уже за
     воротами, так что медленный сосед по очереди не превращается в отказ.
 
-    Осознанного потолка на само ожидание нет, и это не упущение. Ждущих на хост не больше,
-    чем мест (``_PER_HOST``), так что верхняя граница ожидания конечна - порядка одного
-    таймаута на место впереди - и клиент со своим таймаутом всё равно сдаётся раньше. А
-    оборвать ожидание своим 504 нельзя: 504 от нас Prowlarr читает так же, как 504 от
-    перегруженного хоста, и уводит индексер в тот самый многочасовой бан, ради ухода от
-    которого весь потолок и заведён. Ожидание тут строго безопаснее отказа.
+    Осознанного потолка на ожидание живого клиента нет: оборвать его своим 504 нельзя,
+    потому что Prowlarr читает такой ответ как отказ источника. Но очередь проверяет
+    соединение короткими интервалами, чтобы уже ушедший клиент не ждал освобождения слота.
 
     Дождавшийся слота проверяет, жив ли ещё клиент: тот мог оборвать соединение, пока
     стоял в очереди. Такой слот тратить на поход к хосту и запись в мёртвый сокет незачем -
@@ -686,7 +688,16 @@ def _in_queue(route: Route, conn: socket.socket) -> Iterator[bool]:
             route.gate.release()
         return
     waited = time.monotonic()
-    route.gate.acquire()
+    while not route.gate.acquire(timeout=_QUEUE_POLL):
+        if not _client_present(conn):
+            waited = time.monotonic() - waited
+            print(
+                f"{route.host}: клиент ушёл из очереди через {waited:.1f} с",
+                file=sys.stderr,
+                flush=True,
+            )
+            yield False
+            return
     waited = time.monotonic() - waited
     print(f"{route.host}: очередь, ждал {waited:.1f} с", file=sys.stderr, flush=True)
     if not _client_present(conn):
@@ -764,11 +775,16 @@ def build_server(
 
         def _upstream(self, route: Route, method: str, body: bytes | None) -> None:
             last = "маршрут пуст"
+            deadline = time.monotonic() + _ROUTE_TIMEOUT
             #: Придержанный 5xx: ответ, который лучше не отдавать, пока есть непробованный
             #: кандидат. Отдадим его, только если лучше не нашлось.
             held: tuple[int, list[tuple[str, str]], bytes] | None = None
             wanted = "gzip" in (self.headers.get("Accept-Encoding") or "").lower()
             for target in route.targets(names):
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    last = "маршрут не ответил в срок"
+                    break
                 request = urllib.request.Request(target.base + self.path, data=body, method=method)
                 request.add_header("Host", route.host)
                 for name, value in self.headers.items():
@@ -778,7 +794,9 @@ def build_server(
                 # того, что прислал клиент, а вниз тело всё равно поедет распакованным.
                 request.add_header("Accept-Encoding", "gzip")
                 try:
-                    with opener_for(target).open(request, timeout=_TIMEOUT) as response:
+                    with opener_for(target).open(
+                        request, timeout=min(_TIMEOUT, remaining)
+                    ) as response:
                         route.current = target.number
                         payload, headers = _unpack(
                             response.read(), list(response.headers.items()), wanted

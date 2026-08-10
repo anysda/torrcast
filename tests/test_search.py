@@ -183,11 +183,13 @@ class _Swarm:
         hold: set[int] | None = None,
         yts: bool = False,
         blocked: dict[int, str] | None = None,
+        disabled_till: dict[int, str] | None = None,
         refuses: set[int] | None = None,
     ) -> None:
         #: Кого Prowlarr увёл в недоступные: номер - время последнего отказа (UTC).
         #: Пусто - как на здоровом стенде: страница статуса показывает только банных.
         self.blocked = blocked or {}
+        self.disabled_till = disabled_till or {}
         #: Кто отказал СЕЙЧАС, до всякого бана (TC-291). Живой замер: источник отвечает
         #: отказом соединения, Prowlarr отдаёт нам ``200 []`` - и в тот же миг заводит
         #: себе отметку об отказе. Ровно это тут и изображается.
@@ -222,7 +224,11 @@ class _Swarm:
         if "/api/v1/indexerstatus?" in url:
             return _Reply(
                 [
-                    {"indexerId": num, "mostRecentFailure": failed, "disabledTill": failed}
+                    {
+                        "indexerId": num,
+                        "mostRecentFailure": failed,
+                        "disabledTill": self.disabled_till.get(num, failed),
+                    }
                     for num, failed in {**self.blocked, **self.refused_at}.items()
                 ]
             )
@@ -448,6 +454,18 @@ def test_свежий_отказ_проверками_не_добиваем() ->
     client.search("матрица")
     assert _probes(client, wait=0.3) == []
     assert client.banned == ("YTS",)  # в круг он всё равно не идёт
+
+
+def test_суточную_отсрочку_лечебным_стуком_не_продлеваем() -> None:
+    """Мёртвому источнику Prowlarr назначает сутки и каждым POST начинает их заново."""
+    client = _swarm(
+        yts=True,
+        blocked={4: _ago(300)},
+        disabled_till={4: _ago(-24 * 60 * 60)},
+    )
+    client.search("матрица")
+    assert _probes(client, wait=0.3) == []
+    assert client.banned == ("YTS",)
 
 
 def test_бан_всех_индексеров_это_отказ_инфры_а_не_пустой_поиск() -> None:

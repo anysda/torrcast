@@ -234,6 +234,42 @@ def test_queue_is_per_host(
     assert spent < HOLD * 3, "здоровый хост ждал чужую очередь"
 
 
+def test_silent_candidate_does_not_hide_working_fallback(
+    tls: tuple[str, str],
+    plain_openers: None,
+    backend: tuple[http.server.HTTPServer, Counter],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Первый молчун отдаёт место сменной альтернативе внутри бюджета маршрута."""
+    monkeypatch.setattr(shim, "_TIMEOUT", 0.6)
+    monkeypatch.setattr(shim, "_ROUTE_TIMEOUT", 1.5)
+    blackhole = _blackhole()
+    origin, counter = backend
+    route = shim.Route(
+        "tracker.test",
+        [
+            f"https://127.0.0.1:{blackhole.getsockname()[1]}",
+            f"https://127.0.0.1:{origin.server_address[1]}",
+        ],
+    )
+    server = _shim(tls, {"tracker.test": route})
+    try:
+        code, spent = _get(server.server_address[1], "tracker.test")
+    finally:
+        server.shutdown()
+        server.server_close()
+        blackhole.close()
+    print(f"после молчуна: код {code}, {spent:.2f} с, фолбэк спросили {counter.served} раз")
+    assert code == 200
+    assert counter.served == 1
+    assert spent < shim._ROUTE_TIMEOUT
+
+
+def test_all_rutor_candidates_fit_indexer_budget() -> None:
+    """Три способа доступа успевают сменить друг друга до потолка индексера."""
+    assert shim._TIMEOUT * 3 <= shim._ROUTE_TIMEOUT < 20
+
+
 #: Тело, на котором видно сжатие: повторяющийся текст ужимается в разы, и «просил ли шим
 #: gzip» читается уже по размеру ответа, а не только по заголовку.
 BULK = ("раздача matrix 1080p\n" * 400).encode()
@@ -578,6 +614,36 @@ def test_dropped_client_frees_slot_at_once(
     assert freed < shim._TIMEOUT * 1.7, "с проверкой третий укладывается в один таймаут"
     assert stuck - freed >= shim._TIMEOUT * 0.7, "проверка живости обязана вернуть слот раньше"
     assert "клиент ушёл из очереди" in err, "уход из очереди должен попасть в журнал"
+
+
+def test_dropped_client_leaves_queue_before_a_slot_opens(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Ушедший клиент не ждёт занятого origin до его многосекундного таймаута."""
+    route = shim.Route("sick.test", ["direct"])
+    poll = getattr(shim, "_QUEUE_POLL", 0.1)
+    for _ in range(shim._PER_HOST):
+        assert route.gate.acquire(blocking=False)
+    client, peer = socket.socketpair()
+    finished = threading.Event()
+
+    def wait() -> None:
+        with shim._in_queue(route, client) as ours:
+            assert not ours
+        finished.set()
+
+    worker = threading.Thread(target=wait)
+    worker.start()
+    time.sleep(poll * 1.5)
+    peer.close()
+    try:
+        assert finished.wait(poll * 4), "ушедший клиент остался в очереди"
+        assert "клиент ушёл из очереди" in capsys.readouterr().err
+    finally:
+        for _ in range(shim._PER_HOST):
+            route.gate.release()
+        client.close()
+        worker.join(timeout=1)
 
 
 def _ask_briefly(port: int, host: str, budget: float = 8.0) -> tuple[int, float]:
