@@ -2133,7 +2133,20 @@ def _second_language(
     # поэтому сверяем по слагу.
     if not alt or slugify(alt) == slugify(name):
         return _as_is(raw, found, about, progress)
-    progress.phase(f"поиск «{alt}»")
+    # Несколько картин под одним коротким именем заполняют широкий латинский поиск
+    # свежими тёзками. Если независимый паспорт назвал отсутствующий в первом круге год,
+    # уточняем исходное имя им: это всё тот же один добор, но русская строка сохраняет
+    # релизы с озвучкой, ради которых человек и назвал картину по-русски.
+    exact_year = (
+        about.year
+        if index is None
+        and about.year is not None
+        and len(found) > 1
+        and all(picture.year is None or abs(picture.year - about.year) > 1 for picture in found)
+        else None
+    )
+    asked = f"{name} {exact_year}" if exact_year is not None else alt
+    progress.phase(f"поиск «{asked}»")
     # 🔴 TC-386. Круг добора спрашивается с полом в целую цель: медленный, но живой
     # индексер (на живом стенде Knaben отвечал 7.0 с вместо 0.5) в остаток цели не
     # укладывается, и добор проходил формально, не привезя ничего, - картина пропадала
@@ -2141,7 +2154,7 @@ def _second_language(
     # кворум закрывает круг за его обычные 0.5-1.5 с.
     client.cap_floor = GOAL
     try:
-        merged = merge(raw, _ask(client, alt, progress))
+        merged = merge(raw, _ask(client, asked, progress))
     finally:
         client.cap_floor = CIRCLE_SHARE
     # Круг кончился - закрываем его строку прямо здесь. Всё, что скажем дальше, это его
@@ -6944,6 +6957,10 @@ def rank_releases(
     бонус-диск на 11 ГБ ворота пропускают (столько ролик не весит, а ошибиться тут дорого),
     а порядок всё равно держит его последним из годных — у картины есть она сама.
 
+    Там же сборник уступает одиночной раздаче картины. Внутри дилогии или коллекции
+    выбор файла снова должен угадать часть, хотя индексер уже умеет отдать ровно
+    спрошенный фильм. Сборник остаётся кандидатом, когда одиночного релиза нет.
+
     ⚠️ Ниже годности, а не выше, и это не мелочь. Выше она топила бы годную раздачу под
     негодную из-за одного слова в имени: у документального «Нечто: Ужас обретает форму»
     оба релиза подписаны «фильм о фильме», и BDRip на 2.2 ГБ уходил под DVDRip на 0.7,
@@ -7003,6 +7020,7 @@ def rank_releases(
             misses_episode(r, want),
             is_disc(r),
             not is_candidate(r, runtime, warn_mbit, loose, hard_mbit, last, copy_hevc),
+            r.collection,
             r.extras,
             needs_whole_recode(r, runtime, hard_mbit),
             is_dead(r, alive),

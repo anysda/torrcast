@@ -1477,6 +1477,47 @@ def test_the_map_answers_when_wikipedia_does_not_know_the_name(
     assert found.year == 2019
 
 
+def test_the_map_answers_when_wikipedia_misses_the_deadline(
+    monkeypatch: Any, tmp_path: Any
+) -> None:
+    """Медленная страница значений не отнимает картину, известную офлайн-каталогу."""
+    _ru_map(monkeypatch, tmp_path)
+    monkeypatch.setattr(facts_mod, "CACHE_PATH", tmp_path / "facts.json")
+
+    def slow_article(title: str, series: bool, timeout: float) -> Any:
+        time.sleep(0.1)
+        return facts_mod.Origin()
+
+    monkeypatch.setattr(facts_mod, "origin_now", slow_article)
+
+    found = facts_mod.origin("Американская фабрика", False, budget=0.01)
+
+    assert (found.title, found.year) == ("American Factory", 2019)
+
+
+def test_the_map_supplies_the_year_an_article_does_not_name(
+    monkeypatch: Any, tmp_path: Any
+) -> None:
+    """Имя статьи и год офлайн-каталога складываются в один паспорт."""
+    _ru_map(
+        monkeypatch,
+        tmp_path,
+        rows="Брат\ttt0118767\tmovie\tBrat\t1997\n",
+    )
+    monkeypatch.setattr(facts_mod, "CACHE_PATH", tmp_path / "facts.json")
+    monkeypatch.setattr(
+        facts_mod,
+        "origin_now",
+        lambda title, series, timeout: facts_mod.Origin(
+            title="Brother", name="Брат", entity="Q1192679"
+        ),
+    )
+
+    found = facts_mod.origin("Брат", False, budget=0.1)
+
+    assert (found.title, found.year, found.entity) == ("Brother", 1997, "Q1192679")
+
+
 def test_an_article_answer_is_never_overridden_by_the_map(monkeypatch: Any, tmp_path: Any) -> None:
     """Статья нашлась - карта не спрашивается вовсе: она последний шаг, а не поправка."""
     _ru_map(monkeypatch, tmp_path, rows="Тачки\ttt0000001\tmovie\tWrong Title\t1900\n")

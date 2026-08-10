@@ -222,6 +222,17 @@ def test_every_release_of_the_pool_is_either_queued_or_counted_out() -> None:
     assert all(count > 0 for count in drops.values())
 
 
+def test_a_single_film_outranks_a_more_seeded_collection() -> None:
+    """Дилогия остаётся запасной: одиночная раздача не требует угадывать файл части."""
+    collection = named("Брат. Дилогия (1997-2000) WEB-DL 1080p", size_gb=13.1, seeders=7)
+    single = named("Брат (1997) WEB-DL 1080p", size_gb=5.4, seeders=5)
+    picture = Picture(title="Брат", year=1997, releases=[collection, single])
+
+    plan = _plan_for(picture, Args(query=["брат"]), Config())
+
+    assert plan.ranked == [single, collection]
+
+
 def test_a_dropped_release_is_named_by_the_reason_it_was_dropped() -> None:
     """У каждой причины своё имя, и это имя того шага, на котором раздачу выкинули."""
     picture = _mixed_picture()

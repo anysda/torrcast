@@ -531,6 +531,27 @@ def test_empty_russian_answer_is_searched_even_when_the_goal_is_spent(
     assert "всё равно делаю" in said
 
 
+def test_a_missing_old_namesake_is_searched_by_original_and_year(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Свежая тёзка не прячет первую картину за широким запросом без года."""
+    client = _FakeProwlarr(
+        {
+            "брат": [
+                raw("Брат / Brat (2025) WEB-DL 1080p", 1),
+                raw("Брат 2 / Brat 2 (2000) BDRip 1080p", 2),
+            ],
+            "брат 1997": [raw("Брат / Brat (1997) BDRip 1080p", 3)],
+        }
+    )
+    _knows(monkeypatch, {"брат": Origin(title="Brat", year=1997, name="Брат")})
+
+    plans, _said = _search(client, "брат", monkeypatch)
+
+    assert client.asked == ["брат", "брат 1997"]
+    assert [plan.picture.year for plan in plans] == [1997, 2000, 2025]
+
+
 def test_second_search_that_found_nothing_leaves_the_first_result_alone(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

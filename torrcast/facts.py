@@ -473,6 +473,22 @@ def origin(title: str, series: bool | None = False, budget: float = FACTS_BUDGET
     thread.start()
     thread.join(budget)
     found = box[0] if box else Origin()
+    # После страницы значений сетевому пути нужен второй запрос. Офлайн-каталог
+    # ``origin_now`` уже греет параллельно, и тот успевает дать поиску имя с годом в тот
+    # же срок. Для коротких имён это решающий признак: один транслит не разводит старую
+    # картину и свежую тёзку.
+    offline = _imdb_ru(title, series) if not found or found.year is None else Origin()
+    if not found:
+        found = offline
+    elif found.year is None and offline.year is not None:
+        found = Origin(
+            title=found.title or offline.title,
+            year=offline.year,
+            name=found.name or offline.name,
+            entity=found.entity,
+            guessed=found.guessed or offline.guessed,
+            namesake=found.namesake,
+        )
     if found:
         _remember_origin(title, series, found)
     return found
