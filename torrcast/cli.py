@@ -1344,7 +1344,14 @@ def _cmd_play(args: Args) -> int:
         )
     # Молчаливого японского не бывает: перевода в файле нет - человек слышит об этом
     # строкой, а не на слух через минуту показа.
-    if note := sound_note(media, audio, plan.ranked, release):
+    playable = [plan.ranked[number - 1] for number in plan.candidates(args)]
+    if note := sound_note(
+        media,
+        audio,
+        playable,
+        release,
+        native=plan.picture.native,
+    ):
         print(note)
     # Русских дорожек было несколько - говорим, сколько и что взяли: подпись дорожки
     # отвечает «что играет», а эта строка - «почему это, а не соседняя».
@@ -2156,6 +2163,10 @@ def _as_is(
     """
     from torrcast.parse import cluster
 
+    if about.name and not about.title:
+        for picture in found:
+            if same_name(picture.title, about.name):
+                picture.native = True
     stays = (raw, cluster(to_releases(raw)), found)
     if about.year is None or len(found) != 1 or found[0].year is None:
         return stays
@@ -3557,7 +3568,9 @@ class _Bench:
         short = understated(chosen.release, chosen.found)
         # Поводы не складываются: разрешение уже названо ложью, и менять релиз дважды за
         # один старт незачем. Про язык спрашиваем там, где про кадр вопросов нет.
-        deaf = not short and unnamed_sound(chosen.release, chosen.found)
+        deaf = not short and unnamed_sound(
+            chosen.release, chosen.found, native=plan.picture.native
+        )
         if not short and not deaf:
             return chosen
         why_look = short or "язык звука не назван"
@@ -5884,7 +5897,7 @@ def promises_more(release: Release, media: Media) -> bool:
     return release.height >= HD_HEIGHT and release.height > media.frame
 
 
-def unnamed_sound(release: Release, media: Media) -> bool:
+def unnamed_sound(release: Release, media: Media, *, native: bool = False) -> bool:
     """Про язык звука этого релиза не известно НИЧЕГО: молчат и паспорт, и имя.
 
     🔴 TC-301. У паспорта три ответа, а не два. «Русская есть»
@@ -5905,7 +5918,7 @@ def unnamed_sound(release: Release, media: Media) -> bool:
     это отдельный вопрос (её читает :func:`sound_note`). Здесь сказано ровно одно: мы не
     знаем, а рядом, возможно, знают.
     """
-    if media.russian or media.foreign:
+    if media.russian or media.foreign or native:
         return False
     return not release.dubbed
 
@@ -6697,7 +6710,12 @@ def heard(media: Media) -> str:
 
 
 def sound_note(
-    media: Media, audio: int, pool: list[Release], release: Release | None = None
+    media: Media,
+    audio: int,
+    pool: list[Release],
+    release: Release | None = None,
+    *,
+    native: bool = False,
 ) -> str:
     """Честная строка про звук, когда русской дорожки в файле не оказалось; иначе пусто.
 
@@ -6724,6 +6742,8 @@ def sound_note(
         return ""
     track = media.tracks[audio] if audio < len(media.tracks) else media.tracks[0]
     if not track.named:
+        if native:
+            return ""
         # Раздача язык дорожки не назвала (тег ``und``). Единственная косвенная улика -
         # имя раздачи: русский маркер в нём (:attr:`Release.dubbed`) - повод СКАЗАТЬ про
         # русскую, назвав источник, а не молча подставить её (и не выдать за неё). Улики
@@ -6732,11 +6752,8 @@ def sound_note(
             return "звук без метки языка - по имени релиза русская"
         return "язык дорожки неизвестен - раздача не назвала язык озвучки"
     lang = spoken(track)
-    if any(r.dubbed and r.seeders > 0 for r in pool):
-        return (
-            f"только {lang} звук - перевода в этом релизе нет, но в каталоге он есть: "
-            "cast releases <запрос>, потом cast <запрос> --release N"
-        )
+    if any(r is not release and r.dubbed and r.seeders > 0 for r in pool):
+        return f"только {lang} звук - в каталоге, возможно, есть перевод в другой раздаче"
     if any(r.external_dub and r.seeders > 0 for r in pool):
         return f"только {lang} звук - в каталоге перевод есть, но лежит отдельным файлом"
     return f"только {lang} звук, перевода в каталоге нет"

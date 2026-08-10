@@ -199,7 +199,7 @@ _RU_STUDIO_RE: Final = re.compile(
 _FOREIGN_LANG: Final = (
     r"(?:eng|english|англ\w*|ita|ital\w*|spa|esp|lat|pt-?br|por|fre|fra|fren\w*|"
     r"ger|deu|jap|jpn|japanese|kor|korean|chi|zho|chinese|ara|arabic|hin|tur|"
-    r"ukr|укр|kaz|каз|multi\d*|dual)"
+    r"ukr|укр|kaz|каз|thai|tamil|malaysian|bahasa\s+melayu|multi\d*|dual)"
 )
 
 #: Дубляж, про который прямо сказано, что он ЧУЖОЙ: «[English Dub]», «[Multi-Dub]»,
@@ -694,6 +694,8 @@ class Picture:
     #: поиска - ни в меню, ни в склейку, ни в ключ они не идут (:func:`_by_alias`).
     aliases: tuple[str, ...] = ()
     releases: list[Release] = field(default_factory=list)
+    #: Справка подтвердила отечественное происхождение картины.
+    native: bool = False
 
     @property
     def key(self) -> str:

@@ -224,6 +224,18 @@ def test_no_dub_negation_is_not_dubbed(name: str) -> None:
 
 
 @pytest.mark.parametrize(
+    "name",
+    [
+        "Dune (2021) 720p CAMRip [Malaysian Bahasa Melayu - Dub] Dual-Audio",
+        "Dune (2021) 720p CAMRip [Thai - Dub] Dual-Audio x264",
+    ],
+)
+def test_a_named_foreign_dub_does_not_promise_russian(name: str) -> None:
+    """Встреченные в опорном корпусе языки перед ``Dub`` означают чужую дорожку."""
+    assert not parse_release_name(name).dubbed
+
+
+@pytest.mark.parametrize(
     ("text", "expected"),
     [
         ("Cyberpunk.Edgerunners.s01e05.1080p", (1, 5)),

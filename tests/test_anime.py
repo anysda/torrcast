@@ -479,7 +479,7 @@ def test_a_japanese_only_show_says_so_out_loud_instead_of_playing_silently() -> 
     assert sound_note(_media("jpn"), 0, pool) == "только японский звук, перевода в каталоге нет"
 
 
-def test_when_the_catalogue_does_have_a_dub_the_line_says_where_to_look() -> None:
+def test_when_the_catalogue_may_have_a_dub_the_line_does_not_promise_it() -> None:
     """Перевод в выдаче есть, а в ЭТОМ релизе его не оказалось. Тогда строка обязана
     назвать и запасной ход: выбрать раздачу руками.
     """
@@ -494,8 +494,18 @@ def test_when_the_catalogue_does_have_a_dub_the_line_says_where_to_look() -> Non
 
     note = sound_note(_media("jpn", "eng"), 0, pool)
 
-    assert note.startswith("только японский звук - перевода в этом релизе нет")
-    assert "--release N" in note
+    assert note == "только японский звук - в каталоге, возможно, есть перевод в другой раздаче"
+    assert "--release N" not in note
+
+
+def test_an_unplayable_dub_is_not_offered_as_a_way_out() -> None:
+    """Отсев показа передаёт строке только очередь; тяжёлого дубляжа в ней уже нет."""
+    selected = named("Anime [JAP] WEB-DL 1080p", size_gb=2.0, seeders=20)
+
+    note = sound_note(_media("jpn"), 0, [], selected)
+
+    assert note == "только японский звук, перевода в каталоге нет"
+    assert "--release N" not in note
 
 
 def test_a_dub_that_exists_only_as_a_separate_file_is_named_as_such() -> None:

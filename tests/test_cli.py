@@ -2375,6 +2375,35 @@ def test_the_passport_has_three_answers_about_the_language() -> None:
     assert not cli.unnamed_sound(promised, Media(5977.0, UNNAMED, "h264", 1080, 1920)), "имя: да"
 
 
+@pytest.mark.parametrize(
+    "title",
+    [
+        "Бригада",
+        "Мосгаз",
+        "Тайны следствия",
+        "Улицы разбитых фонарей",
+        "Три кота",
+        "Барбоскины",
+    ],
+)
+def test_a_native_picture_accepts_its_only_unnamed_track(title: str) -> None:
+    """У отечественной картины пустой оригинал - паспорт происхождения, а не пробел."""
+    release = rel(name=f"{title} [WEB-DL 1080p]", voices=())
+    media = Media(5977.0, UNNAMED, "h264", 1080, 1920)
+
+    assert not cli.unnamed_sound(release, media, native=True)
+    assert cli.sound_note(media, 0, [release], release, native=True) == ""
+
+
+def test_a_foreign_picture_does_not_call_its_only_unnamed_track_russian() -> None:
+    """У иностранной картины безымянная дорожка остаётся неизвестной, не русской."""
+    release = rel(name="The Holdovers [WEB-DL 1080p]", voices=())
+    media = Media(5977.0, UNNAMED, "h264", 1080, 1920)
+
+    assert cli.unnamed_sound(release, media, native=False)
+    assert "русская" not in cli.sound_note(media, 0, [release], release, native=False)
+
+
 def test_a_refusal_names_the_living_parts_of_the_franchise(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
