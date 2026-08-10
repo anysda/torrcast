@@ -18,6 +18,7 @@ from typing import ClassVar
 import pytest
 
 from torrcast import InfraError, cli
+from torrcast.console import Progress
 from torrcast.search import RawResult
 from torrcast.state import Config, Entry, State, save_config
 from torrcast.stream import (
@@ -739,12 +740,26 @@ def test_a_japanese_top_release_steps_aside_for_a_russian_one_below_it(
         ("Аниме / Anime (2020) WEB-DL 1080p [RUS(int)]", "c", JAPANESE),
         ("Аниме / Anime (2020) WEB-DL 1080p [RUS(int)]", "d", RUSSIAN),
     )
+    prefixes: list[str] = []
+    wait = cli._Bench._wait
+
+    def watched_wait(
+        self: cli._Bench, prep: cli._Prep, progress: Progress, prefix: str = ""
+    ) -> None:
+        prefixes.append(prefix)
+        wait(self, prep, progress, prefix)
+
+    monkeypatch.setattr(cli._Bench, "_wait", watched_wait)
     _answers(monkeypatch)
 
     assert cli.main(["аниме"]) == 0
 
     printed = capsys.readouterr().out
     assert "релиз 1 без русской озвучки (японский) - беру 2" in printed
+    assert prefixes[:2] == [
+        "ищу русскую озвучку: релиз 1 из 2 - ",
+        "ищу русскую озвучку: релиз 2 из 2 - ",
+    ]
     assert "rus · Дубляж" in printed, "играет русская дорожка"
     assert "только японский звук" not in printed, "оправдываться не в чем"
     assert _FakeTorrServer.left() == {"hash-magnet:?xt=urn:btih:" + "d" * 10}, (

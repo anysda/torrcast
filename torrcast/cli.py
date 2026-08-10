@@ -3722,7 +3722,10 @@ class _Bench:
             # Секундомер стоит вокруг ОЖИДАНИЯ, а не вокруг работы потока: прогретая под
             # меню раздача отвечает мгновенно, и её приговор человеку ничего не стоил.
             entered = time.monotonic()
-            self._wait(prep, progress)
+            voice_search = (
+                "" if args.pinned else f"ищу русскую озвучку: релиз {attempt} из {len(queue)} - "
+            )
+            self._wait(prep, progress, prefix=voice_search)
             # Ошибка самой службы раздачи относится ко всей очереди, а не к одному
             # рою. Перебирать остальные релизы бессмысленно: они пойдут через тот же
             # мёртвый порт и лишь размножат одну строку, после чего итог ещё и свалит
@@ -3857,7 +3860,11 @@ class _Bench:
         self.preps.pop((key, number), None)
         self.needed = {(key, number)}
         prep = self.start(plan, number, patient=True)
-        self._wait(prep, progress)
+        self._wait(
+            prep,
+            progress,
+            prefix=f"ищу русскую озвучку: релиз {queue.index(number) + 1} из {len(queue)} - ",
+        )
         progress.phase("")
         if isinstance(prep.failure, ServerDownError):
             raise InfraError(prep.error)
@@ -3950,11 +3957,11 @@ class _Bench:
         self._announce(plan, mute, queue, judged, reached)
         return mute
 
-    def _wait(self, prep: _Prep, progress: Progress) -> None:
+    def _wait(self, prep: _Prep, progress: Progress, prefix: str = "") -> None:
         """Дождаться подготовки, показывая фазу и бегущее время."""
         deadline = prep.started + self.meta_budget + self.probe_budget + 5.0
         while not prep.ready.wait(0.2):
-            progress.phase(prep.phase)
+            progress.phase(f"{prefix}{prep.phase}")
             if time.monotonic() > deadline:  # поток сам не уложился - не ждём вечно
                 prep.error = prep.error or f"фаза «{prep.phase}» не уложилась в бюджет"
                 return
