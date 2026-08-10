@@ -648,6 +648,76 @@ def test_a_network_that_never_returns_ends_the_show_exactly_as_before(
     assert "показ погас на 0:20:00" in printed and "cast продолжит с 0:20:00" in printed
 
 
+def test_the_darkness_is_named_in_the_state_and_not_called_a_show(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Пока экран чёрный, это видно снаружи: отметка темноты с причиной уходит в состояние.
+
+    Замер на живом стенде: с мёртвым источником юнит жил 902 с, и все эти минуты
+    ``cast status`` отвечал «играю» - живой юнит был для него доказательством картинки.
+    Доказательства в нём нет: юнит нарочно переживает смерть источника, потому что
+    вернувшийся источник он поднимает сам. Правду про экран поэтому говорит сам показ, и
+    кладёт он её в ту же запись, куда кладёт позицию, - другого канала наружу нет.
+
+    Здесь играть нечем вовсе: источник мёртв, прогретого ноль. Проверяется, что отметка
+    появляется не в конце, а в самой темноте, называет причину и уходит вместе с показом.
+    """
+    from torrcast import cli
+
+    monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
+    clock, feed, warmer, receiver = _dark(tmp_path, offline="")
+    warmer.warmed = 0.0  # прогретого нет - в темноте играть нечем
+    entry = Entry(title="ролик", magnet=MAGNET, pos=0.0, dur=7200.0)
+    watch = _Watch(key="movie:ролик:2026", entry=entry, every=0.0)
+    seen: list[tuple[float, str]] = []
+    clock.ticks.append(lambda _s: seen.append(_dark_mark(watch.key)))
+
+    cli._hold(receiver, feed, watch, warmer, _supply(_Service(up=False)), clock=clock)  # type: ignore[arg-type]
+
+    marked = [mark for mark in seen if mark[0]]
+    assert marked, "темнота не названа темнотой ни разу за все 900 с"
+    assert {why for _at, why in marked} == {"TorrServer не отвечает"}, "причина не та"
+    assert len(marked) * 2 > cli.REVIVE_LIMIT * 0.9, "отметка появилась не сразу, а под конец"
+    assert seen[0] == (0.0, ""), "у живой картинки отметки темноты нет"
+    printed = capsys.readouterr().out
+    assert "(TorrServer не отвечает) - картинки нет; источник не вернулся" in printed, (
+        "человеку про темноту сказано числом, а не строкой «экран: … · IDLE»"
+    )
+    assert "погашу через 0:00:02" in printed, "не сказано, когда показ сдастся сам"
+    assert printed.count("экран:") == 1, "экраном названа только живая картинка, до темноты"
+    assert "показ обеспечен до" not in printed, "обеспечивать в темноте уже нечего"
+
+
+def test_the_darkness_mark_goes_away_with_the_picture(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Сеть вернулась, показ поднят - отметки темноты в состоянии больше нет.
+
+    Иначе ``cast status`` звал бы погасшим показ, который давно идёт: отметка обязана
+    сниматься тем же, чем ставится, и в ту же секунду.
+    """
+    from torrcast import cli
+
+    monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
+    clock, feed, warmer, receiver = _dark(tmp_path, back_at=300.0)
+    entry = Entry(title="ролик", magnet=MAGNET, pos=0.0, dur=7200.0)
+    watch = _Watch(key="movie:ролик:2026", entry=entry, every=0.0)
+    seen: list[tuple[float, str]] = []
+    clock.ticks.append(lambda _s: seen.append(_dark_mark(watch.key)))
+
+    cli._hold(receiver, feed, watch, warmer, clock=clock)  # type: ignore[arg-type]
+
+    assert receiver.replays == [1200.0], "показ подняли - иначе проверять нечего"
+    assert [mark for mark in seen if mark[0]], "темнота была и отмечена"
+    assert _dark_mark(watch.key) == (0.0, ""), "картинка идёт, а запись зовёт показ погасшим"
+
+
+def _dark_mark(key: str) -> tuple[float, str]:
+    """Отметка темноты из состояния: когда погасло и почему."""
+    entry = State.load().get(key)
+    return (entry.dark, entry.dark_why) if entry is not None else (0.0, "")
+
+
 def test_a_warmed_movie_is_revived_without_waiting_for_the_network(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

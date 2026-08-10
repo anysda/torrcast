@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 import pytest
@@ -187,6 +188,27 @@ def test_status_shows_what_is_playing_and_from_where(
     printed = capsys.readouterr().out
     assert "играю «Моана 2» - 0:41:07 / 1:39:38" in printed
     assert KEY in printed and "файл #2" in printed and "дорожка 2" in printed
+
+
+def test_status_does_not_call_a_black_screen_a_show(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Юнит жив, а картинки нет - статус говорит про темноту, а не «играю».
+
+    Живой юнит доказывает, что показ заведён, и только это: он нарочно переживает смерть
+    источника, чтобы поднять показ, когда тот вернётся. Замер на живом стенде: с мёртвым
+    источником юнит жил 902 с, и все эти минуты статус отвечал «играю» - человек смотрел в
+    чёрный экран, которому инструмент выдавал справку о здоровье.
+    """
+    remember(pos=2467.0, dur=5978.0, dark=time.time() - 200.0, dark_why="TorrServer не отвечает")
+    monkeypatch.setattr(cli, "unit_active", lambda: True)
+
+    assert cli.main(["status"]) == 0
+
+    printed = capsys.readouterr().out
+    assert "играю" not in printed, "чёрный экран назван показом"
+    assert "показ погас: «Моана 2» - 0:41:07 / 1:39:38" in printed
+    assert "темнота 0:03:20 (TorrServer не отвечает) - жду возврата, подниму сам" in printed
 
 
 def test_status_names_the_unit_key_not_the_freshest_record(
