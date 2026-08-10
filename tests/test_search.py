@@ -773,3 +773,56 @@ def test_аниме_признак_переживает_склейку_с_общ
     for order in permutations(_ANIME_MIRROR):
         (release,) = to_releases(merge(*([item] for item in order)))
         assert release.anime, release.raw_name
+
+
+def test_склейка_берёт_размер_по_большинству() -> None:
+    """Размер идёт в прикидку битрейта напрямую, поэтому его судит то же большинство,
+    что и имя: цифра, которую сообщили чаще. Строка-победитель выиграла ИМЯ, а не
+    размер - у неё он просто от того индексера, кто первым стоит в алфавите.
+    """
+    rows = (
+        _mirror("Психо / Psycho (1960) DVDRip", 5, "Knaben", 8_000_000_000),
+        _mirror("Психо / Psycho (1960) DVDRip", 6, "Nyaa.si", 8_100_000_000),
+        _mirror("Psycho (1960) DVDRip", 7, "RuTor", 8_100_000_000),
+    )
+    (merged,) = merge(*([item] for item in rows))
+    assert merged.size == 8_100_000_000
+
+
+def test_склейка_разводит_ничью_размеров_в_большую_сторону() -> None:
+    """Большинства у двоих зеркал не бывает, а промах в сторону тяжести дёшев: потолок
+    битрейта и перекод для того и стоят. Заниженный размер пропустил бы неподъёмную
+    раздачу мимо ворот - поэтому при равном счёте берётся большая цифра.
+    """
+    pair = (
+        _mirror("Психо / Psycho (1960) DVDRip", 5, "Knaben", 8_000_000_000),
+        _mirror("Психо / Psycho (1960) DVDRip", 6, "RuTor", 8_100_000_000),
+    )
+    sizes = {merge(*([item] for item in order))[0].size for order in permutations(pair)}
+    assert sizes == {8_100_000_000}
+
+
+def test_склейка_не_считает_молчание_о_размере_голосом() -> None:
+    """Нулевой размер - это «индексер не сказал», а не «раздача ничего не весит»:
+    в большинстве он не участвует, иначе двое молчунов обнуляли бы честную цифру.
+    """
+    rows = (
+        _mirror("Психо / Psycho (1960) DVDRip", 5, "Knaben", 0),
+        _mirror("Психо / Psycho (1960) DVDRip", 6, "Nyaa.si", 8_000_000_000),
+        _mirror("Psycho (1960) DVDRip", 7, "RuTor", 0),
+    )
+    (merged,) = merge(*([item] for item in rows))
+    assert merged.size == 8_000_000_000
+
+
+def test_склейка_не_зависит_от_разбивки_строк_по_пачкам() -> None:
+    """Порядок индексеров проверен перестановками выше; тут - порядок строк ВНУТРИ:
+    одна пачка на всех и по пачке на индексера обязаны дать тот же выход побайтово.
+    """
+    one_batch = merge(list(_ONE_TORRENT))
+    per_indexer = merge(*([item] for item in _ONE_TORRENT))
+
+    def snapshot(rows: list[RawResult]) -> list[tuple[str, int, int, str, int]]:
+        return [(row.title, row.seeders, row.size, row.indexer, row.copies) for row in rows]
+
+    assert snapshot(one_batch) == snapshot(per_indexer)
