@@ -1497,6 +1497,43 @@ def test_a_third_name_does_not_move_a_picture_that_names_itself() -> None:
     ]
 
 
+def test_same_translation_and_year_do_not_override_different_originals() -> None:
+    """Одинаковый перевод не сводит две картины с разными явными оригиналами."""
+    pictures = cluster(
+        [
+            parse_release_name("Девять / Nine (2009) BDRip 1080p | D"),
+            parse_release_name("Девять / Nine (2009) WEB-DL 1080p | D"),
+            parse_release_name("Девять / 9 (2009) BDRip 1080p | D"),
+        ]
+    )
+
+    assert [(p.title, p.original, len(p.releases)) for p in pictures] == [
+        ("Девять", "9", 1),
+        ("Девять", "Nine", 2),
+    ]
+
+
+def test_episode_range_without_brackets_joins_a_paired_series() -> None:
+    """Диапазон серий в хвосте не становится третьим названием той же картины."""
+    pictures = cluster(
+        [
+            parse_release_name("Serial Experiments Lain (1998) BDRip 1080p"),
+            parse_release_name(
+                "Эксперименты Лэйн / Serial Experiments Lain (1998) сериал WEB-DL 1080p MVO"
+            ),
+            parse_release_name("Serial Experiments Lain 1-13 BDRip 1080p"),
+        ]
+    )
+
+    assert len(pictures) == 1
+    assert (pictures[0].title, pictures[0].kind, len(pictures[0].releases)) == (
+        "Эксперименты Лэйн",
+        "tv",
+        3,
+    )
+    assert any(release.episodes == tuple(range(1, 14)) for release in pictures[0].releases)
+
+
 def test_glue_keeps_parts_of_a_franchise_apart() -> None:
     """Склейка сверяет ПОЛНОЕ имя, а не франшизу: «Тачки 2» и «Тачки 3» - разные картины."""
     releases = [

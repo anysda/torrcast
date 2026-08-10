@@ -1438,11 +1438,28 @@ def _base(path: str) -> str:
     return path.replace("\\", "/").rsplit("/", 1)[-1]
 
 
+def _bare_episode_span(zone: str) -> tuple[int, ...]:
+    """Диапазон серий в хвосте латинского имени: ``Serial Experiments Lain 1-13``.
+
+    Голая пара чисел слишком похожа на диапазон частей сборника, поэтому признак узкий:
+    счёт начинается с первой серии, содержит хотя бы три серии, а перед ним стоят не
+    меньше трёх слов латиницей. Остальные формы читает общий разбор диапазонов.
+    """
+    match = re.search(r"^(.+?)\s+1\s*-\s*(\d{1,3})\s*$", zone)
+    if not match or len(re.findall(r"[A-Za-z]+", match.group(1))) < 3:
+        return ()
+    end = int(match.group(2))
+    return tuple(range(1, end + 1)) if 3 <= end <= 500 else ()
+
+
 def parse_release_name(name: str) -> Release:
     """Разобрать имя раздачи в структуру (форматы — в докстринге модуля)."""
     text = _normalize(name)
     year, span = _find_year(text)
     zone, collection = _title_zone(text, span)
+    bare_episodes = _bare_episode_span(zone)
+    if bare_episodes:
+        zone = re.sub(r"\s+1\s*-\s*\d{1,3}\s*$", "", zone)
     title, original, aliases = _split_titles(zone)
     names = (title, *((original,) if original else ()), *aliases)
     latin_names = sum(bool(_LATIN.search(part) and not _CYRILLIC.search(part)) for part in names)
@@ -1455,6 +1472,8 @@ def parse_release_name(name: str) -> Release:
     quality = _normalize_quality(quality_match.group(1)) if quality_match else None
 
     season, episode, seasons, episodes, series = _parse_series(text)
+    if bare_episodes and not episodes:
+        episodes, series = bare_episodes, True
     kind: Kind = "other" if _is_non_video(text) else ("tv" if series else "movie")
 
     return Release(
@@ -1494,20 +1513,46 @@ def cluster(releases: list[Release]) -> list[Picture]:
     """
     releases = sorted(releases, key=lambda r: (r.magnet, r.raw_name))
     aliases: dict[str, str] = {}
+    paired: dict[tuple[Kind, str, int | None], set[str]] = {}
+    original_kinds: dict[tuple[str, int | None], set[Kind]] = {}
     for release in releases:
         if release.original and _CYRILLIC.search(release.title):
-            aliases.setdefault(slugify(release.original), slugify(release.title))
+            original = slugify(release.original)
+            title = slugify(release.title)
+            aliases.setdefault(original, title)
+            paired.setdefault((release.kind, title, release.year), set()).add(original)
+            original_kinds.setdefault((original, release.year), set()).add(release.kind)
+    series_originals = {
+        release.slug for release in releases if not release.original and release.kind == "tv"
+    }
 
-    # Ключ кластера - русский slug; при совпадении оригинала и года варианты
-    # перевода («Матрица 2: Перезагрузка» и «Матрица: Перезагрузка») сливаются.
+    # Обычно ключ кластера - русский slug: так варианты перевода одного оригинала
+    # сходятся через ``canon``. Исключение - каталог явно назвал под одним переводом и
+    # годом несколько оригиналов: «Девять / Nine» и «Девять / 9» - разные картины.
+    disputed = {
+        key
+        for key, originals in paired.items()
+        if len(originals) > 1 and any(len(x) == 1 for x in originals)
+    }
     canon: dict[tuple[Kind, str, int | None], tuple[Kind, str, int | None]] = {}
     buckets: dict[tuple[Kind, str, int | None], list[Release]] = {}
     for release in releases:
+        kind = release.kind
         slug = release.slug if release.original else aliases.get(release.slug, release.slug)
-        key = (release.kind, slug, release.year)
+        if (
+            not release.original
+            and release.slug in series_originals
+            and len(kinds := original_kinds.get((release.slug, release.year), set())) == 1
+        ):
+            # Непомеченный латинский релиз наследует тип у парной строки каталога.
+            kind = next(iter(kinds))
+        key = (kind, slug, release.year)
         if release.original:
-            by_orig = (release.kind, slugify(release.original), release.year)
-            key = canon.setdefault(by_orig, key)
+            original = slugify(release.original)
+            if (release.kind, slugify(release.title), release.year) in disputed:
+                key = (kind, original, release.year)
+            else:
+                key = canon.setdefault((kind, original, release.year), key)
         buckets.setdefault(key, []).append(release)
 
     pictures = [_compose(kind, year, group) for (kind, _, year), group in buckets.items()]
@@ -1640,14 +1685,41 @@ def glue(pictures: list[Picture]) -> list[Picture]:
     alternative = [
         bool(p.releases) and all(alternative_release(r) for r in p.releases) for p in pictures
     ]
+    disputed = {
+        (picture.kind, slugify(picture.title), picture.year)
+        for picture in pictures
+        if picture.original
+        and len(
+            {
+                slugify(other.original)
+                for other in pictures
+                if other.original
+                and other.kind == picture.kind
+                and other.year == picture.year
+                and slugify(other.title) == slugify(picture.title)
+            }
+        )
+        > 1
+        and any(
+            len(slugify(other.original)) == 1
+            for other in pictures
+            if other.original
+            and other.kind == picture.kind
+            and other.year == picture.year
+            and slugify(other.title) == slugify(picture.title)
+        )
+    }
     named: dict[tuple[Kind, str, bool], list[int]] = {}
     for i, picture in enumerate(pictures):
-        names = {slugify(picture.title)} | (
-            {slugify(picture.original)} if picture.original else set()
-        )
+        title = slugify(picture.title)
+        contested = (picture.kind, title, picture.year) in disputed
+        names = set() if contested else {title}
+        if picture.original:
+            names.add(slugify(picture.original))
         # Число словом и число цифрой - одно имя (:func:`in_digits`). Гейт года при этом
         # остаётся прежним, так что «12 обезьян» 1995-го с сериалом 2015-го не сшить.
-        names |= {in_digits(name) for name in names if name}
+        if not contested:
+            names |= {in_digits(name) for name in names if name}
         for name in names:
             if name:
                 named.setdefault((picture.kind, name, alternative[i]), []).append(i)
@@ -2681,12 +2753,24 @@ def _split_titles(zone: str) -> tuple[str, str | None, tuple[str, ...]]:
     ровно заголовок, а не хвост раздачи.
     """
     parts = [p.strip(" .-_|,:;") for p in re.split(r"[/|]", zone)]
-    parts = [p for p in parts if len(p) > 1 and not _TAG_ONLY_RE.match(p)]
+    numeric_original = (
+        len(parts) == 2 and bool(_CYRILLIC.search(parts[0])) and bool(re.fullmatch(r"\d", parts[1]))
+    )
+    # Односимвольное число бывает полным оригинальным именем картины: «Девять / 9».
+    # Буквенные односимвольные куски остаются служебными метками и именем не становятся.
+    parts = [
+        p
+        for p in parts
+        if (len(p) > 1 or (numeric_original and p.isdigit())) and not _TAG_ONLY_RE.match(p)
+    ]
     if not parts:
         return zone.strip() or "?", None, ()
 
     russian = next((p for p in parts if _CYRILLIC.search(p) and not _UKRAINIAN.search(p)), None)
-    latin = next((p for p in parts if _LATIN.search(p) and not _CYRILLIC.search(p)), None)
+    latin = next(
+        (p for p in parts if (p.isdigit() or _LATIN.search(p)) and not _CYRILLIC.search(p)),
+        None,
+    )
     if russian is None:
         return latin or parts[0], None, ()
     return russian, latin, tuple(p for p in parts if p != russian and p != latin)
