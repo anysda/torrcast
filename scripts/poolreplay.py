@@ -11,6 +11,10 @@
 Живых служб не нужно ни одной: ни Prowlarr, ни TorrServer, ни приёмника, ни сети.
 Выдачи в репе не лежат - путь к ним задаётся аргументом.
 
+С ``--jsonl`` рядом с разбором ложится ПАСПОРТ прогона (``<вывод>.passport.json``):
+коммит и отпечаток кода, отпечаток корпуса, дата, версия щупа. Без него сохранённый
+прогон нечем пересчитать: см. :mod:`runpass`.
+
 Формат ``pools.jsonl``, одна строка на запрос::
 
     {"query": "титаник",
@@ -46,6 +50,9 @@ from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import runpass
 
 from torrcast.cli import (
     Args,
@@ -388,6 +395,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--releases", type=int, default=3, help="сколько релизов очереди печатать")
     ap.add_argument("--jsonl", type=Path, help="куда положить разбор построчно")
     args = ap.parse_args(argv)
+    cmdline = list(argv) if argv is not None else sys.argv[1:]
 
     config = tune(Config(), CAUTIOUS)
     items: list[Replay] = []
@@ -430,6 +438,8 @@ def main(argv: list[str] | None = None) -> int:
         with args.jsonl.open("w", encoding="utf-8") as fh:
             for item in items:
                 fh.write(json.dumps(as_json(item), ensure_ascii=False) + "\n")
+        card = runpass.passport("poolreplay", [args.pools], cmdline)
+        print(f"\n{runpass.told(card)}\nпаспорт прогона: {runpass.write(card, args.jsonl)}")
     return 0
 
 

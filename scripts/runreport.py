@@ -10,6 +10,10 @@
 строка файла - один запрос; обязательны ``query`` и ``verdict``, остальное
 (``why``, ``kind``, ``epoch``, ``src``, ``res``) считается по наличию.
 
+Первой строкой сводки идёт ПАСПОРТ: коммит и отпечаток кода, отпечаток сырья, дата,
+версия щупа (:mod:`runpass`); с ``--out`` он же ложится рядом отдельным файлом
+``<сводка>.passport.json``. Сводка без паспорта непроверяема: пересчитать её нечем.
+
 🔴 Колонки задаёт САМО СЫРЬЁ, а не список в коде, и сумма колонок сверяется с числом
 строк на каждой таблице (:func:`tally`). Прежний счёт знал пять вердиктов, а прогон
 раскладывал строки по восьми: на тысяче запросов 70 строк (7 %) не попадали ни в одну
@@ -27,9 +31,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from collections import Counter
 from pathlib import Path
 from typing import Any
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import runpass
 
 #: Порядок колонок: сначала успех, потом отказы от «нашли, но не сыграли» к «не нашли».
 #: Список НЕ ограничивает счёт - он только сортирует; вердикт, которого тут нет, встанет
@@ -181,14 +190,19 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--out", type=Path, help="куда положить сводку (markdown)")
     ap.add_argument("--keep-repeats", action="store_true", help="не сворачивать перезапуски")
     args = ap.parse_args(argv)
+    cmdline = list(argv) if argv is not None else sys.argv[1:]
 
     rows = load(args.jsonl)
     repeats = 0
     if not args.keep_repeats:
         rows, repeats = dedup(rows)
-    text = "\n".join(report(rows, repeats, args.by))
+    # Паспорт идёт первой строкой самой сводки: пересчитать её потом нечем, если не
+    # знать, каким кодом и по какому сырью её сделали.
+    card = runpass.passport("runreport", args.jsonl, cmdline)
+    text = "\n".join([runpass.told(card), "", *report(rows, repeats, args.by)])
     if args.out:
         args.out.write_text(text + "\n", encoding="utf-8")
+        text += f"\n\nпаспорт прогона: {runpass.write(card, args.out)}"
     print(text)
     return 0
 

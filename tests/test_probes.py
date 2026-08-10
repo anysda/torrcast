@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import sys
 from pathlib import Path
 from types import ModuleType
@@ -179,3 +180,65 @@ def test_щуп_называет_кого_не_пустил_в_меню() -> Non
     )
     assert item.pictures == 2 and len(item.menu) == 1
     assert [p.title for p in item.missed] == ["Криминальное чтиво"]
+
+
+def written(path: Path) -> dict[str, Any]:
+    """Паспорт, положенный щупом рядом с его выводом."""
+    card = path.with_name(path.name + ".passport.json")
+    assert card.exists(), f"щуп не оставил паспорта рядом с {path.name}"
+    loaded = json.loads(card.read_text(encoding="utf-8"))
+    assert isinstance(loaded, dict)
+    return loaded
+
+
+def test_отпечаток_кода_меняется_вместе_с_кодом(tmp_path: Path) -> None:
+    """Отпечаток считается по самим файлам: git на стенде может и не приехать."""
+    runpass = probe("runpass")
+    assert runpass.fingerprint(tmp_path) == (None, 0), "кода рядом нет - и отпечатка нет"
+
+    (tmp_path / "torrcast").mkdir()
+    (tmp_path / "torrcast" / "parse.py").write_text("x = 1\n", encoding="utf-8")
+    before, count = runpass.fingerprint(tmp_path)
+    assert count == 1 and before is not None
+    (tmp_path / "torrcast" / "parse.py").write_text("x = 2\n", encoding="utf-8")
+    assert runpass.fingerprint(tmp_path)[0] != before, "правка кода не изменила отпечаток"
+
+
+def test_счёт_кладёт_паспорт_рядом_со_сводкой(tmp_path: Path) -> None:
+    """Сводка называет код и сырьё - иначе её нечем пересчитать."""
+    report = probe("runreport")
+    runpass = probe("runpass")
+    raw = tmp_path / "res.jsonl"
+    raw.write_text(
+        "\n".join(json.dumps(row, ensure_ascii=False) for row in rows_of(*ALL_VERDICTS)) + "\n",
+        encoding="utf-8",
+    )
+    out = tmp_path / "report.md"
+    assert report.main([str(raw), "--out", str(out)]) == 0
+
+    assert out.read_text(encoding="utf-8").startswith("Паспорт прогона: runreport")
+    card = written(out)
+    assert card["tool"] == "runreport"
+    assert card["probe"]["sha256"] == runpass.digest(SCRIPTS / "runreport.py")
+    assert card["code"]["fingerprint"] == runpass.fingerprint()[0]
+    assert card["inputs"] == [runpass.about(raw)]
+    assert card["inputs"][0]["lines"] == len(ALL_VERDICTS)
+    assert card["output"]["sha256"] == runpass.digest(out)
+
+
+def test_щуп_отбора_кладёт_паспорт_рядом_с_разбором(tmp_path: Path) -> None:
+    """Разбор пулов подписан тем же паспортом: два замера сравнивают отпечатки, не память."""
+    replay = probe("poolreplay")
+    runpass = probe("runpass")
+    pools = tmp_path / "pools.jsonl"
+    pools.write_text(json.dumps(gates_pool(), ensure_ascii=False) + "\n", encoding="utf-8")
+    out = tmp_path / "replay.jsonl"
+    assert replay.main([str(pools), "--jsonl", str(out)]) == 0
+
+    card = written(out)
+    assert card["tool"] == "poolreplay"
+    assert card["probe"]["sha256"] == runpass.digest(SCRIPTS / "poolreplay.py")
+    assert card["code"]["fingerprint"] == runpass.fingerprint()[0]
+    assert card["inputs"] == [runpass.about(pools)]
+    assert card["output"] == runpass.about(out)
+    assert card["argv"] == [str(pools), "--jsonl", str(out)]
