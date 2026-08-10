@@ -33,12 +33,12 @@
 адрес, отдавать наверх повод для повтора незачем; кончились кандидаты - отдаём чужой
 отказ как есть.
 
-Прибитое имя - это АРЕНДА, а не запись навсегда. Строки в `/etc/hosts` ставит сам шим,
-когда сокет уже слушает, и снимает их, уходя (и штатным `stop`, и падением: то же самое
-делает `ExecStopPost=` юнита). Иначе шим был бы единой точкой отказа на все свои имена
-сразу: пока строка висит, имя ведёт на 127.0.0.1, где никто не отвечает, и трекер
-пропадает не «пока чинится обход», а насовсем. Без строки он идёт своим путём - хуже, чем
-через шим, но это деградация, а не смерть каталога.
+Прибитое имя - это АРЕНДА, а не запись навсегда. Слушающий сокет держит systemd, поэтому
+штатный рестарт процесса не рвёт входящие соединения: они ждут новый процесс в очереди.
+Отдельный сторож снимает строки из `/etc/hosts`, только если процесса непрерывно нет
+дольше порога. Иначе шим был бы единой точкой отказа на все свои имена сразу: при
+настоящей смерти имя вело бы на 127.0.0.1 навсегда. Без строки оно идёт своим прямым
+путём - хуже, чем через шим, но это деградация, а не смерть каталога.
 
 Решение «прямо или через шим» тоже не вечное: канал режет по имени не всегда, обрыв
 приходит и уходит в пределах часа. Поэтому шим ПЕРЕРЕШАЕТ его фоном (:class:`Watch`),
@@ -65,7 +65,7 @@
 
     sni-shim.py <cert> <key> <порт> имя=кандидат[,кандидат…] …
     sni-shim.py --resolve имя …   адреса origin'а мимо `/etc/hosts` (ими щупает установка)
-    sni-shim.py --unpin имя …     снять наши строки из `/etc/hosts` (это же делает юнит)
+    sni-shim.py --unpin имя …     снять наши строки из `/etc/hosts`
 
 Остальное приезжает окружением, чтобы не городить кавычки в строке запуска юнита:
 `TORRCAST_HOSTS`, `TORRCAST_ROUTE_PROBES` (файл `имя|путь|тело` - чем щупать),
@@ -82,7 +82,6 @@ import http.server
 import os
 import random
 import select
-import signal
 import socket
 import socketserver
 import ssl
@@ -140,6 +139,7 @@ _DNS_TIMEOUT = 5.0
 
 #: Где лежит таблица имён. Подменяется в песочнице и в тестах.
 _HOSTS = os.environ.get("TORRCAST_HOSTS") or "/etc/hosts"
+_LEASE_POLL = 0.25
 #: Метка наших строк в ней: по ней и только по ней мы их потом убираем. Чужую строку
 #: (например, нарочно прибитый каталог определений Prowlarr) не трогаем никогда.
 _PIN_MARK = "# torrcast-shim"
@@ -394,6 +394,43 @@ def set_pins(path: str, wanted: Iterable[str], owned: Iterable[str]) -> bool:
         with open(path, "w", encoding="utf-8") as handle:
             handle.write(text)
     return True
+
+
+class LeaseGuard:
+    """Решает, пора ли освобождать имена после непрерывной смерти шима."""
+
+    def __init__(self, grace: float) -> None:
+        self.grace = grace
+        self.down_since: float | None = None
+
+    def tick(self, alive: bool, now: float) -> bool:
+        """Вернуть ``True``, когда процесса непрерывно нет не меньше ``grace`` секунд."""
+        if alive:
+            self.down_since = None
+            return False
+        if self.down_since is None:
+            self.down_since = now
+            return False
+        return now - self.down_since >= self.grace
+
+
+def _process_alive(path: str) -> bool:
+    try:
+        with open(path, encoding="ascii") as handle:
+            pid = int(handle.read().strip())
+        os.kill(pid, 0)
+    except (OSError, ValueError):
+        return False
+    return True
+
+
+def guard_lease(pidfile: str, grace: float, names: list[str]) -> None:
+    """Держать аренду сквозь короткий рестарт, но снять после настоящей смерти шима."""
+    guard = LeaseGuard(grace)
+    while True:
+        if guard.tick(_process_alive(pidfile), time.monotonic()):
+            set_pins(_HOSTS, [], names)
+        time.sleep(_LEASE_POLL)
 
 
 def load_probes(path: str) -> dict[str, tuple[str, str]]:
@@ -663,6 +700,13 @@ def _in_queue(route: Route, conn: socket.socket) -> Iterator[bool]:
         route.gate.release()
 
 
+def _activated_socket() -> socket.socket | None:
+    """Забрать слушающий fd systemd; без socket activation вернуть ``None``."""
+    if os.environ.get("LISTEN_PID") != str(os.getpid()) or os.environ.get("LISTEN_FDS") != "1":
+        return None
+    return socket.socket(fileno=3)
+
+
 def build_server(
     cert: str, key: str, port: int, routes: dict[str, Route], resolver: Resolver | None = None
 ) -> http.server.HTTPServer:
@@ -841,7 +885,16 @@ def build_server(
     # Слушающий сокет остаётся голым нарочно: обёртка на нём означала бы рукопожатие
     # в приёмном цикле (TC-306, см. `Server.get_request`). TLS надевается на каждое
     # принятое соединение отдельно, уже в его потоке.
-    return Server(("127.0.0.1", port), Handler)
+    activated = _activated_socket()
+    if activated is None:
+        return Server(("127.0.0.1", port), Handler)
+    server = Server(("127.0.0.1", port), Handler, bind_and_activate=False)
+    server.socket.close()
+    server.socket = activated
+    server.server_address = activated.getsockname()
+    server.server_name = "localhost"
+    server.server_port = port
+    return server
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -861,6 +914,9 @@ def main(argv: list[str] | None = None) -> int:
     if args and args[0] == "--unpin":
         set_pins(_HOSTS, [], args[1:])
         return 0
+    if args and args[0] == "--guard":
+        guard_lease(args[1], float(args[2]), args[3:])
+        return 0
 
     cert, key, port_text = args[:3]
     probes = load_probes(os.environ.get("TORRCAST_ROUTE_PROBES") or "")
@@ -874,18 +930,18 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     resolver = Resolver()
     server = build_server(cert, key, int(port_text), routes, resolver)
+    pidfile = os.environ.get("TORRCAST_SHIM_PID") or ""
+    if pidfile:
+        with open(pidfile, "w", encoding="ascii") as handle:
+            handle.write(str(os.getpid()))
     pinned = (os.environ.get("TORRCAST_ROUTE_PINNED") or "").replace(",", " ").split()
     watch = Watch(routes, resolver, pinned, hosts=_HOSTS, every=_WATCH_EVERY)
-    # Уходя, снимаем свои строки: имя, прибитое к молчащему шиму, - это не «обход не
-    # работает», а «трекера нет». Поэтому и SIGTERM ловим сами - иначе сюда не вернуться.
-    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
-    try:
-        watch.apply()  # прибиваем только теперь: сокет уже слушает, и ответить есть кому
-        if watch.every > 0:
-            watch.start()
-        server.serve_forever()
-    finally:
-        set_pins(watch.hosts, [], routes)
+    # Прибиваем только теперь: сокет уже слушает, и ответить есть кому. Освобождает имена
+    # отдельный сторож, если процесса непрерывно нет дольше штатного RestartSec.
+    watch.apply()
+    if watch.every > 0:
+        watch.start()
+    server.serve_forever()
     return 0
 
 

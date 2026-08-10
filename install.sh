@@ -1112,6 +1112,11 @@ PROBE_STALL="${TORRCAST_PROBE_STALL:-5}"
 #: меньше самого медленного здорового ответа и заведомо больше нуля, который отдаёт
 #: обрыв.
 PROBE_FLOOR="${TORRCAST_PROBE_FLOOR:-1024}"
+#: Сколько непрерывно может не быть процесса шима, прежде чем отдельный сторож снимет
+#: его строки из hosts. Штатный RestartSec=5 укладывается с двукратным запасом; настоящая
+#: смерть всё равно освобождает прямую дорогу, как требует аренда TC-267.
+SHIM_DEAD_GRACE="${TORRCAST_SHIM_DEAD_GRACE:-12}"
+SHIM_PID="$SHIM_DIR/shim.pid"
 probe_whole() {  # $1 имя, $2 путь, $3 тело POST (пусто - GET), $4 адрес origin'а (пусто - как ляжет DNS)
     local pin=()
     [ -n "${4:-}" ] && pin=(--resolve "$1:443:$4")
@@ -1184,11 +1189,14 @@ setup_shim() {  # $1 - имена, которые ведём через шим (
     [ "$(cat "$SHIM_DIR/probes" 2>/dev/null)" = "${probes%$'\n'}" ] || changed=1
     printf '%s' "$probes" >"$SHIM_DIR/probes"
 
-    # 🔴 TC-267. Строки в /etc/hosts ставит и снимает сам шим - здесь их больше нет.
+    # 🔴 TC-267/TC-323. Строки в /etc/hosts ставит шим, а снимает отдельный сторож,
+    # только если процесса непрерывно нет дольше SHIM_DEAD_GRACE. Сам процесс не вправе
+    # снимать их на SIGTERM: короткий штатный рестарт иначе выглядит для Prowlarr как
+    # одновременный отказ всех источников.
     # Прибитое имя ведёт на 127.0.0.1, и пока шима там нет, трекера нет вовсе; аренда же
     # кончается вместе со службой, и трекер остаётся хотя бы со своим прямым путём.
-    # `ExecStopPost` - на случай, когда попрощаться служба не успела (SIGKILL, OOM).
     local knobs; knobs="Environment=TORRCAST_HOSTS=$HOSTS_FILE
+Environment=TORRCAST_SHIM_PID=$SHIM_PID
 Environment=TORRCAST_ROUTE_PROBES=$SHIM_DIR/probes
 Environment=TORRCAST_ROUTE_PINNED=$pins
 Environment=TORRCAST_ROUTE_EVERY=$ROUTE_EVERY
@@ -1196,10 +1204,36 @@ Environment=TORRCAST_PROBE_TIMEOUT=$PROBE_TIMEOUT
 Environment=TORRCAST_PROBE_STALL=$PROBE_STALL
 Environment=TORRCAST_PROBE_FLOOR=$PROBE_FLOOR
 Environment=TORRCAST_PROBE_UA=$UA
-ExecStopPost=$PYTHON $SHIM_DIR/sni-shim.py --unpin ${routes[*]%%=*}"
+Sockets=torrcast-shim.socket"
     # Маска - начало строки запуска, без маршрутов: у живого процесса они прежние, а
     # погасить надо именно его.
-    [ "$changed" = 1 ] && stop_service torrcast-shim "$PYTHON $SHIM_DIR/sni-shim.py"
+    if [ "$changed" = 1 ]; then
+        stop_service torrcast-shim "$PYTHON $SHIM_DIR/sni-shim.py"
+        stop_service torrcast-shim-guard "$PYTHON $SHIM_DIR/sni-shim.py --guard"
+    fi
+    # Socket-unit владеет портом независимо от процесса: во время рестарта входящие
+    # соединения ждут новый шим в backlog, а не получают Connection refused.
+    if [ -z "${TORRCAST_NO_SYSTEMD:-}" ]; then
+        local socket_unit=/etc/systemd/system/torrcast-shim.socket socket_body
+        socket_body="[Unit]
+Description=Сокет TLS-шима
+
+[Socket]
+ListenStream=127.0.0.1:$SHIM_PORT
+NoDelay=true
+
+[Install]
+WantedBy=sockets.target"
+        if [ ! -f "$socket_unit" ] || [ "$(cat "$socket_unit")" != "$socket_body" ]; then
+            stop_service torrcast-shim "$PYTHON $SHIM_DIR/sni-shim.py"
+            printf '%s\n' "$socket_body" >"$socket_unit"
+            systemctl daemon-reload
+        fi
+        systemctl enable --now torrcast-shim.socket
+    fi
+    run_service torrcast-shim-guard "Сторож аренды имён TLS-шима" \
+        "$PYTHON $SHIM_DIR/sni-shim.py --guard $SHIM_PID $SHIM_DEAD_GRACE ${routes[*]%%=*}" \
+        "Environment=TORRCAST_HOSTS=$HOSTS_FILE"
     run_service torrcast-shim "TLS-шим для трекеров, чьё имя не проходит по SNI" \
         "$PYTHON $SHIM_DIR/sni-shim.py $SHIM_DIR/shim.crt $SHIM_DIR/shim.key $SHIM_PORT ${routes[*]}" \
         "$knobs"

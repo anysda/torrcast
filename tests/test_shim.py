@@ -802,9 +802,43 @@ def test_the_shim_hands_the_names_back_when_it_goes_down(
     print(f"после его ухода: {hosts.read_text(encoding='utf-8').splitlines()}")
     assert "127.0.0.1 tracker.test # torrcast-shim" in seen[0], "прибивать надо уже на ходу"
     assert not any("well.test" in line for line in seen[0]), "здорового за шим не уводим"
-    assert hosts.read_text(encoding="utf-8") == "127.0.0.1 localhost\n", (
-        "уходя, шим обязан снять свои строки - иначе он единая точка отказа на все имена"
+    assert "127.0.0.1 tracker.test # torrcast-shim" in hosts.read_text(encoding="utf-8"), (
+        "короткий штатный рестарт обязан сохранить аренду для следующего процесса"
     )
+
+
+def test_lease_guard_ignores_restart_but_releases_a_dead_shim() -> None:
+    """🔴 TC-323/TC-267. Короткий рестарт не отказ, долгая смерть освобождает hosts."""
+    guard = shim.LeaseGuard(grace=12.0)
+    verdicts = [
+        guard.tick(False, 100.0),
+        guard.tick(False, 105.0),  # штатный RestartSec
+        guard.tick(True, 105.1),
+        guard.tick(False, 200.0),
+        guard.tick(False, 211.9),
+        guard.tick(False, 212.0),
+    ]
+    print(f"решения сторожа: {verdicts}")
+    assert verdicts == [False, False, False, False, False, True]
+
+
+def test_shim_takes_the_systemd_socket_only_from_its_own_activation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Чужой activation env не трогаем; свой fd 3 переживает рестарт процесса."""
+    seen: list[int] = []
+    sentinel = object()
+    monkeypatch.setenv("LISTEN_FDS", "1")
+    monkeypatch.setenv("LISTEN_PID", "1")
+    assert shim._activated_socket() is None
+    monkeypatch.setenv("LISTEN_PID", str(shim.os.getpid()))
+    monkeypatch.setattr(
+        shim.socket,
+        "socket",
+        lambda *args, **kwargs: seen.append(kwargs["fileno"]) or sentinel,
+    )
+    assert shim._activated_socket() is sentinel
+    assert seen == [3]
 
 
 def test_one_dns_blip_does_not_empty_the_only_route(monkeypatch: pytest.MonkeyPatch) -> None:
