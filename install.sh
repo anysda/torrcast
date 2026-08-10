@@ -1313,15 +1313,38 @@ check_sources() {
 
 # Отвечают ли трекеры через уже поднятый шим. Живёт в догреве (см. :func:`check_sources`),
 # и потому может позволить себе лестницу повторов: держать ею установку больше не нужно.
+# 🔴 TC-313. Имена в /etc/hosts прибивает сам шим, и делает это АСИНХРОННО старту службы:
+# служба уже «active», а строк в файле ещё нет. Проба, ушедшая в этот зазор, идёт ПРЯМЫМ
+# путём, а строка «через шим отвечает» говорила бы про не тот путь. Поэтому сперва ждём
+# прибития (потолок ниже - страховка, не норма: служба встаёт за секунды, а ждёт это
+# только догрев, не человек), а не дождались - честно говорим, что проверяли прямой путь.
+#: Сколько секунд ждём, пока шим прибьёт имена, прежде чем щупать прямой путь.
+SHIM_PIN_WAIT="${TORRCAST_SHIM_PIN_WAIT:-20}"
 verify_shims() {  # $@ - строки SHIMS тех, кого ведём через шим
-    local spec host path body ups probes
+    local spec host path body ups probes waited=0 missing
+    while [ "$waited" -lt "$SHIM_PIN_WAIT" ]; do
+        missing=0
+        for spec in "$@"; do
+            IFS='|' read -r host path body ups <<<"$spec"
+            pinned "$host" || { missing=1; break; }
+        done
+        [ "$missing" = 0 ] && break
+        sleep 1
+        waited=$((waited + 1))
+    done
     probes="$(probe_all through "$@")"
     for spec in "$@"; do
         IFS='|' read -r host path body ups <<<"$spec"
-        if [ "$(cat "$probes/$host" 2>/dev/null)" = 0 ]; then
-            info "через шим $host отвечает целиком"
+        if pinned "$host"; then
+            if [ "$(cat "$probes/$host" 2>/dev/null)" = 0 ]; then
+                info "через шим $host отвечает целиком"
+            else
+                info "⚠ $host не отвечает и через шим - его индексер может остаться пустым"
+            fi
+        elif [ "$(cat "$probes/$host" 2>/dev/null)" = 0 ]; then
+            info "$host отвечает целиком напрямую - шим имя ещё не прибил, проверял прямой путь"
         else
-            info "⚠ $host не отвечает и через шим - его индексер может остаться пустым"
+            info "⚠ $host не отвечает напрямую, и шим его ещё не прибил - его индексер может остаться пустым"
         fi
     done
     rm -rf "$probes"
@@ -1562,31 +1585,28 @@ unban_indexers() {  # $1 - apikey
 # Проверочные поиски по индексерам, кроме ключевого: «индексер заведён» и «поиск что-то
 # находит» - разные утверждения, но ждать второго человеку незачем. Ключевой проверяется
 # на глазах (без него каталог урезан вдвое), остальные - здесь.
+# 🔴 TC-292. Спрашиваем СТРОГО по одному, как и лечение бана (`Prowlarr._probe` в
+# search.py): залп одновременных поисков - это ровно тот образ действий, за который
+# трекер раздаёт баны. Живая проба: `POST /indexer/testall` САМ забанил Nyaa, а через
+# шим Nyaa держит 2-4 одновременных запроса, дальше 504 и health-бан Prowlarr на часы.
+# Установке это ничего не стоит: функция живёт в догреве (`late_run`), и человек её не
+# ждёт - а вот забаненный индексер на выходе установки ждать приходится часами.
 check_indexers() {  # $1 - apikey; дальше тройки «номер<TAB>имя»
-    local key="$1" spec id iname n out
+    local key="$1" spec id iname n
     shift
-    out="$(mktemp -d)"
     for spec in "$@"; do
         IFS=$'\t' read -r id iname <<<"$spec"
         [ -n "$id" ] || continue
-        ( curl -fsS -m "$PL_SEARCH_TIMEOUT" -G "$PL_URL/api/v1/search" \
-              --data-urlencode "apikey=$key" --data-urlencode "query=$PL_SEARCH_PROBE" \
-              --data-urlencode "type=search" --data-urlencode "limit=100" \
-              --data-urlencode "indexerIds=$id" >"$out/$id" 2>/dev/null \
-            || : >"$out/$id"; true ) &
-    done
-    wait
-    for spec in "$@"; do
-        IFS=$'\t' read -r id iname <<<"$spec"
-        [ -n "$id" ] || continue
-        n="$(jq 'length' <"$out/$id" 2>/dev/null)" || n=""
+        n="$(curl -fsS -m "$PL_SEARCH_TIMEOUT" -G "$PL_URL/api/v1/search" \
+                --data-urlencode "apikey=$key" --data-urlencode "query=$PL_SEARCH_PROBE" \
+                --data-urlencode "type=search" --data-urlencode "limit=100" \
+                --data-urlencode "indexerIds=$id" 2>/dev/null | jq 'length' 2>/dev/null)" || n=""
         if [ -z "$n" ]; then
             info "⚠ $iname: не ответил за $PL_SEARCH_TIMEOUT с"
         else
             info "$iname: $n раздач в проверочном поиске «$PL_SEARCH_PROBE»"
         fi
     done
-    rm -rf "$out"
 }
 
 install_indexers() {
