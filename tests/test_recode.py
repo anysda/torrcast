@@ -1001,12 +1001,8 @@ def test_a_long_light_piece_is_recoded_too_because_it_is_too_heavy(tmp_path) -> 
     assert 3 in recoder.targets, "но 22 МБ одним куском он не доигрывает"
 
 
-def test_the_bulky_copy_is_released_when_the_encoder_has_given_up(tmp_path) -> None:  # type: ignore[no-untyped-def]
-    """Ждать мертвеца нельзя и тут: сдавшийся кодировщик держать показ не имеет права.
-
-    Худшее, что даёт отказ, — сегодняшнее поведение (тяжёлая копия и возможный подвис),
-    а не чёрный экран до 404.
-    """
+def test_the_bulky_copy_stays_inside_when_the_encoder_has_given_up(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """Предохранитель ожидания не превращается в обход потолка приёмника."""
     import time as clock
 
     grid = _grid()
@@ -1019,12 +1015,22 @@ def test_the_bulky_copy_is_released_when_the_encoder_has_given_up(tmp_path) -> N
     recoder.began = clock.monotonic() - 100.0
 
     recoder.done.add(5)  # заход над этим куском ничего не дал и повторять его нечем
-    assert not recoder.holding(5)
+    assert not recoder.holding(5), "предохранитель ожидания по-прежнему заканчивает выдержку"
 
     recoder.done.discard(5)
     assert recoder.holding(5)
     recoder.stuck[5] = clock.monotonic() - recoder.over_wait - 0.1  # предохранитель
-    assert not recoder.holding(5), "кодировщика нет вовсе - копия уходит, но с руганью"
+    assert not recoder.holding(5), "предохранитель ожидания по-прежнему заканчивает выдержку"
+
+    out = tmp_path / "out"
+    out.mkdir()
+    packer = fake_packer(out, first=5)
+    packer.run.mkdir(parents=True, exist_ok=True)
+    (packer.run / segment_name(5)).write_bytes(b"x" * 16_000_001)
+    (packer.run / segment_name(6)).write_bytes(b"next")
+    packer.hold = lambda slot, size: False  # выдержка уже закончилась
+    packer.publish()
+    assert not (out / segment_name(5)).exists(), "тяжёлая копия не выходит после выдержки"
 
 
 def test_a_held_piece_stops_holding_once_its_recode_is_ready(tmp_path) -> None:  # type: ignore[no-untyped-def]
@@ -1231,6 +1237,30 @@ def test_a_too_heavy_copy_loses_even_to_a_broken_seam(tmp_path, monkeypatch) -> 
     packer.publish()
     assert (out / segment_name(0)).read_bytes() == b"recode"
     assert told == [(0, "перекод")]
+
+
+def test_a_merge_heavier_than_the_cap_is_not_sent_to_the_receiver(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """Потолок проверяет готовую склейку, а не её части до запуска ffmpeg."""
+    from torrcast.stream import MAX_SEGMENT_BYTES
+
+    out = tmp_path / "out"
+    spare = out / "recode"
+    spare.mkdir(parents=True)
+    packer = fake_packer(out, first=0)
+    packer.spare = spare
+    packer.run.mkdir(parents=True, exist_ok=True)
+    (packer.run / segment_name(0)).write_bytes(b"copy")
+    (packer.run / segment_name(1)).write_bytes(b"next")
+    (spare / segment_name(0)).write_bytes(b"recode")
+
+    def merge(video, audio, dst, timeout=30.0, shift=0.0):  # type: ignore[no-untyped-def]
+        dst.write_bytes(b"x" * (MAX_SEGMENT_BYTES + 1))
+        return True
+
+    monkeypatch.setattr("torrcast.stream.merge_tracks", merge)
+    packer.publish()
+    assert (out / segment_name(0)).read_bytes() == b"recode"
+    assert (out / segment_name(0)).stat().st_size <= MAX_SEGMENT_BYTES
 
 
 def test_the_timeline_shift_of_garbage_is_unknown(tmp_path) -> None:  # type: ignore[no-untyped-def]

@@ -2759,6 +2759,29 @@ class Packer:
                     source, how = path, "копия"
                 else:
                     source, how = better, "перекод"
+            # Последний гейт стоит после склейки: только здесь известен вес ровно того
+            # файла, который получит приёмник. Обе его части могут влезать по отдельности,
+            # а готовый MPEG-TS - выйти за потолок из-за звука и накладных расходов.
+            # Тогда голое видео перекода безопаснее; если не влезло и оно, наружу не
+            # выходит ничего. Так же здесь остаётся тяжёлая копия, которую предохранитель
+            # ожидания отпустил после срыва кодировщика.
+            try:
+                oversized = source.stat().st_size > MAX_SEGMENT_BYTES
+            except OSError:
+                oversized = False
+            if oversized and how == "склейка" and better is not None:
+                source.unlink(missing_ok=True)
+                try:
+                    safe_recode = better.stat().st_size <= MAX_SEGMENT_BYTES
+                except OSError:
+                    safe_recode = False
+                if safe_recode:
+                    source, how = better, "перекод"
+                    oversized = False
+            if oversized:
+                if how == "склейка":
+                    source.unlink(missing_ok=True)
+                break
             moved = False
             with contextlib.suppress(OSError):
                 os.replace(source, self.out / segment_name(slot))
