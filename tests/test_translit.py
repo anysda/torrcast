@@ -393,6 +393,71 @@ def test_a_full_season_pool_skips_the_season_string_top_up(
     assert "добрал по" not in said
 
 
+def test_a_guessed_origin_is_not_the_season_top_up_filter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Догадка справки - не ключ фильтра сезонного добора.
+
+    У вожака нет оригинала в имени раздач, а справка статьи про «незнакомку» не нашла -
+    лишь признала похожей чужую (``The Stranger``). Такое имя, став ключом фильтра,
+    пропускает раздачи ЧУЖОГО сериала: они сшиваются с вожаком по русскому имени, и
+    человек молча получает «The Stranger» вместо «Незнакомки» - подмену мимо гейта
+    TC-253. Поэтому догадка без второго признака добором не берётся: сезонная строка
+    строится транслитом и, ничего не найдя, честно отказывает.
+    """
+    _knows(
+        monkeypatch,
+        {"незнакомка": Origin(title="The Stranger", name="Незнакомые", guessed=True)},
+    )
+    client = _FakeProwlarr(
+        {
+            "незнакомка": [
+                raw(f"Незнакомка [S02] (2021) WEB-DL 1080p {i}", i) for i in range(THIN_POOL + 1)
+            ],
+            "the stranger s01": [
+                raw("Незнакомка / The Stranger [S01] (2020) WEB-DL 1080p", 100),
+                raw("The Stranger S01 1080p WEB-DL", 101),
+            ],
+        }
+    )
+
+    with pytest.raises(NotFoundError, match="раздач с сезоном 1 нет"):
+        _search(client, "незнакомка s1e1", monkeypatch)
+
+    assert "The Stranger S01" not in client.asked, "сезонная строка по догадке не спрошена"
+
+
+def test_a_guess_the_reference_confirms_still_tops_up_the_season(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Догадку, которую справка подтверждает сама, добор берёт: описка «сальтберн».
+
+    Статья названа тем же словом, что спросили («Солтберн» - та же картина в другой
+    транскрипции), и это ровно тот второй признак, с которым гейт добора верит имени
+    со справки (:func:`torrcast.cli._second_language`). Сезонная строка по ``Saltburn``
+    законна и добирает пак, как и прежде.
+    """
+    _knows(monkeypatch, {"сальтберн": Origin(title="Saltburn", name="Солтберн", guessed=True)})
+    client = _FakeProwlarr(
+        {
+            "сальтберн": [
+                raw(f"Сальтберн [S02] (2023) WEB-DL 1080p {i}", i) for i in range(THIN_POOL + 1)
+            ],
+            "saltburn s01": [
+                raw(f"Сальтберн / Saltburn [S01] (2023) WEB-DL 1080p e0{i}", 100 + i)
+                for i in range(1, 4)
+            ],
+        }
+    )
+
+    plans, said = _search(client, "сальтберн s1e1", monkeypatch)
+
+    assert "Saltburn S01" in client.asked, "сезонная строка по подтверждённой догадке спрошена"
+    packs = [r for p in plans for r in p.picture.releases if r.covers(1)]
+    assert packs, "сезон-пак первого сезона добрался в план"
+    assert "сезона 1 в выдаче не было - добрал по «Saltburn S01»" in said
+
+
 def test_nothing_found_in_russian_is_searched_by_translit(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
