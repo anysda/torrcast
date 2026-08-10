@@ -817,8 +817,21 @@ def same_name(title: str, heading: str) -> bool:
     ⚠️ Одно слово из нескольких сюда НЕ входит, и это вся разница с :func:`_near_name`.
     «Все мы незнакомцы» и «Все мы убийцы» расходятся ровно в одном слове из трёх - и это
     разные картины (2023 и 1952 годов), а не описка.
+
+    🔴 TC-338. Два соседних случая тоже не то же имя, хотя формально близки:
+
+    * **номер части - не описка**: «Крепкий орешек 2» и «Крепкий орешек 3» различаются
+      одной буквой-цифрой, и разбор «одна правка по слагу» признавал их одним именем.
+      Цифра в имени - это другая часть франшизы, а не неверно нажатая клавиша: расхождение
+      единственной цифрой имени не прощается (:func:`_digit_edit`);
+    * **часть франшизы - не целое**: на голое «матрица» статья «Матрица: Перезагрузка»
+      отвечать не вправе - это одна из частей, а не названное имя. Поэтому :func:`akin`
+      зовётся с ``longer=False``: запрос, длиннее заголовка («Властелин колец: Братство
+      кольца» против статьи «Властелин колец»), по-прежнему то же имя, а вот заголовок,
+      продолжающий запрос частью франшизы, - нет. Угадать такую статью по сходству теперь
+      не выйдет уже в :func:`_misremembered`, и до гейта она не доезжает вовсе.
     """
-    if akin(title, heading):
+    if akin(title, heading, longer=False):
         return True
     wanted = slugify(title).split("-")
     base_words = slugify(heading.split(" (")[0]).split("-")
@@ -836,7 +849,13 @@ def same_name(title: str, heading: str) -> bool:
         (slugify(title), slugify(name)),
         (slugify(transliterate(title)), slugify(transliterate(name))),
     ):
-        if want and base and len(want) >= _NEAR_LETTERS and _one_edit(want, base):
+        if (
+            want
+            and base
+            and len(want) >= _NEAR_LETTERS
+            and _one_edit(want, base)
+            and not _digit_edit(want, base)
+        ):
             return True
     return False
 
@@ -921,6 +940,22 @@ def _one_edit(one: str, two: str) -> bool:
     if len(short) == len(long):
         return short[head + 1 :] == long[head + 1 :]
     return short[head:] == long[head + 1 :]
+
+
+def _digit_edit(one: str, two: str) -> bool:
+    """Единственная разница строк - цифра: номер части («орешек-2»/«орешек-3»), а не описка.
+
+    Зовётся вслед за :func:`_one_edit`, поэтому разница ровно одна и стоит она на первом
+    несовпавшем месте. Одна цифра имени - другая часть франшизы, и прощать её как
+    неверно нажатую клавишу значило бы пускать «Час пик 3» за «Час пик 2».
+    """
+    short, long = sorted((one, two), key=len)
+    if short == long:
+        return False
+    head = len(os.path.commonprefix([short, long]))
+    if len(short) == len(long):
+        return short[head].isdigit() and long[head].isdigit()
+    return long[head].isdigit()
 
 
 def read_origin(

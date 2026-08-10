@@ -418,6 +418,47 @@ def test_a_game_does_not_stand_in_for_a_missing_part() -> None:
     assert "Матрица: Путь Нео" in whole and "Матрица: Воскрешение" in whole
 
 
+def test_a_yearless_fan_edit_does_not_outweigh_the_living_part() -> None:
+    """Явный номер без года не перевешивает живую настоящую часть (TC-335).
+
+    Имена дословные, с сохранённой выдачи. «Матрица 4 / Matrix 4 - As It Should Be» -
+    фанатская перемонтажка: номер в имени явный, а года каталог ей назвать не смог
+    (диапазон «(2021/2022)»). Рядом лежит «Матрица: Воскрешение» - настоящая четвёртая
+    часть, номером каталог её не подписал, - и прежний разбор отдавал запрос «матрица 4»
+    сборке на двух раздачах: явный номер был сильнее всех прочих признаков.
+    """
+    pictures = cluster(
+        [
+            parse_release_name(name)
+            for name in (
+                "Матрица / The Matrix (1999) WEB-DL 720p от SuperMin | D | Open Matte",
+                "Матрица: Перезагрузка / The Matrix Reloaded (2003) BDRemux 1080p | Dub",
+                "Матрица 2: Перезагрузка / The Matrix Reloaded (2003) WEB-DL 2160p | Dub",
+                "Матрица: Революция / The Matrix Revolutions (2003) BDRemux 1080p | Dub",
+                "Матрица 3: Революция / The Matrix Revolutions (2003) BDRip | Dub",
+                "Матрица: Воскрешение / The Matrix Resurrections (2021) WEB-DL 1080p | D",
+                "Матрица: Воскрешение / The Matrix Resurrections (2021) BDRip-AV1 1080p "
+                "от SuperMin | D",
+                "Матрица: Воскрешение / The Matrix Resurrections (2021) BDRemux 1080p | Dub",
+                "Матрица 4  / Matrix 4 - As It Should Be (2021/2022) HDRip-AVC | P | "
+                "Фанатская версия",
+                "Матрица 4 / Matrix 4 - As It Should Be (2021/2022) HDRip 1080p | P | "
+                "Фанатская версия",
+            )
+        ]
+    )
+
+    found = [p.title for p in pick_franchise("матрица 4", pictures)]
+    assert found == ["Матрица: Воскрешение"], "безгодовая сборка живой части не соперник"
+    # Названные каталогом номера с годом отвечают как прежде - явный номер не ослаблен.
+    assert [p.title for p in pick_franchise("матрица 2", pictures)] == ["Матрица: Перезагрузка"]
+    assert [p.title for p in pick_franchise("матрица 3", pictures)] == ["Матрица: Революция"]
+    # Живой части рядом нет - безгодовый носитель остаётся единственным, кого каталог
+    # назвал этим номером, и честно показывается.
+    lonely = [p for p in pictures if p.title != "Матрица: Воскрешение"]
+    assert [p.title for p in pick_franchise("матрица 4", lonely)] == ["Матрица 4"]
+
+
 def test_cars_franchise_is_cross_language() -> None:
     """«Тачки»/«Cars» склеиваются, если оба варианта есть в имени раздачи."""
     releases = [
