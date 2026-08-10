@@ -680,6 +680,48 @@ def test_non_video_does_not_hold_the_franchise_numbering() -> None:
     assert [p.title for p in pick_franchise("тачки 3", numbered)] == ["Тачки 3"]
 
 
+def test_cyrillic_pc_marker_reads_as_non_video() -> None:
+    """Платформа, подписанная кириллицей («РС», «ПК»), читается как латинское «PC».
+
+    Имена дословные, с сохранённой выдачи. У игры «Черное зеркало 3» в каталоге два
+    близнеца: подписанный латиницей («PC-Лицензия») страж читал верно, а подписанный
+    кириллицей («РС») разбирался как фильм с номером части 3 и вставал третьей частью
+    в линейке сериала. «Disney: Тачки 2» с той же подписью - игра по мультфильму,
+    а не вторая часть «Тачек».
+    """
+    for name in (
+        "Черное зеркало 3 / The Black Mirror 3 (2011) РС",
+        "Черное зеркало 3 / The Black Mirror 3: Final Fear (2011) PC-Лицензия",
+        "Черное зеркало: Антология / Black Mirror: Anthology (2003-2011) РС | "
+        "RePack от R.G. Catalyst",
+        "Disney: Тачки 2 / Cars 2: The Video Game (2011) РС",
+        "Smash Cars (2011) РС-Пиратка",
+    ):
+        assert parse_release_name(name).kind == "other", name
+
+    # Настоящие номерные части читаются по-прежнему.
+    cars = parse_release_name("Тачки 3 / Cars 3 (2017) BDRip 1080p")
+    assert (cars.kind, part_number(cars.title)) == ("movie", 3)
+    guardians = parse_release_name(
+        "Стражи Галактики. Часть 2 / Guardians of the Galaxy Vol. 2 (2017) BDRip 1080p"
+    )
+    assert (guardians.kind, part_number(guardians.title)) == ("movie", 2)
+
+    # И место в линейке сериала игра больше не держит.
+    pictures = cluster(
+        [
+            parse_release_name(name)
+            for name in (
+                "Черное зеркало / Black Mirror (2011) WEB-DL 1080p",
+                "Черное зеркало 3 / The Black Mirror 3 (2011) РС",
+            )
+        ]
+    )
+    mirror = pick_franchise("чёрное зеркало", pictures)
+    assert outside_numbering(mirror) == set(), "линейки из одной игры нет - и подписей нет"
+    assert pick_franchise("чёрное зеркало 3", pictures) == [], "третьей части нет - а не игра"
+
+
 def test_cars_franchise_is_cross_language() -> None:
     """«Тачки»/«Cars» склеиваются, если оба варианта есть в имени раздачи."""
     releases = [
