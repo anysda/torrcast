@@ -1557,6 +1557,11 @@ prowlarr_apikey() {
 #: «проверка» на повторном заходе не проверяла ровно то, ради чего затевалась.
 PL_SEARCH_TIMEOUT="${TORRCAST_SEARCH_TIMEOUT:-25}"
 PL_SEARCH_PROBE="${TORRCAST_SEARCH_PROBE:-матрица}"
+#: Prowlarr сам щупает источник на POST. Одновременное добавление поэтому
+#: становится залпом к трекерам. Две секунды между началами оставляют
+#: на критическом пути ровно одну живую пробу. Переопределение нужно только
+#: для изолированной проверки установки.
+INDEXER_ADD_GAP="${TORRCAST_INDEXER_ADD_GAP:-2}"
 late_indexer() {  # $1 - definitionName; 0 = добавляем в фоне, а не на глазах у человека
     # Ключевой не откладывается ни при каких условиях: фон не имеет права спрятать то,
     # без чего каталог наполовину пуст.
@@ -1670,8 +1675,7 @@ install_indexers() {
         || die "схема индексеров Prowlarr не в ожидаемом виде - API этой версии не тот, на который рассчитана установка"
 
     local spec def url extra over body name key_here=0
-    local work pids=() queued=() late=()
-    work="$(mktemp -d)"
+    local late=() answer status first=1
     for spec in "${INDEXERS[@]}"; do
         IFS='|' read -r def url extra <<<"$spec"
         name="$(jq -r --arg d "$def" '.[]|select(.definitionName==$d)|.name' <<<"$schema")"
@@ -1701,28 +1705,22 @@ install_indexers() {
             late+=("$(printf '%s\t%s' "$name" "$body")")
             continue
         fi
-        # Добавление индексера Prowlarr сопровождает пробным обращением к трекеру и ждёт
-        # его ДО СВОЕГО таймаута - у .NET это 100 секунд. Здесь остались те, ради кого
-        # ждать стоит, и шлём мы их разом: очередь идёт по самому медленному, а не по
-        # сумме. Ответы разбираем ниже и в исходном порядке.
-        ( curl -fsS -X POST "$PL_URL/api/v1/indexer?apikey=$key" \
-              -H 'Content-Type: application/json' -d "$body" >/dev/null 2>&1 \
-            && printf 0 >"$work/add-$def" || printf 1 >"$work/add-$def"; true ) &
-        pids+=("$!")
-        queued+=("$def|$name")
-    done
-    if [ "${#pids[@]}" -gt 0 ]; then wait "${pids[@]}"; fi
-    for spec in "${queued[@]}"; do
-        IFS='|' read -r def name <<<"$spec"
-        if [ "$(cat "$work/add-$def" 2>/dev/null)" = 0 ]; then
+        # Каждый POST запускает живую пробу Prowlarr. Начинаем следующую только
+        # после конца предыдущей. Если бан уже пойман, тело отказа называет
+        # это честнее, чем догадка о сети; установка в обоих случаях идёт дальше.
+        [ "$first" = 1 ] || sleep "$INDEXER_ADD_GAP"
+        first=0
+        answer="$(mktemp)"
+        status="$(curl -sS -o "$answer" -w '%{http_code}' -X POST \
+            "$PL_URL/api/v1/indexer?apikey=$key" -H 'Content-Type: application/json' \
+            -d "$body" 2>/dev/null)" || status=000
+        if [[ "$status" = 2* ]]; then
             info "добавлен $name"
             [ "$def" = "$KEY_INDEXER" ] && key_here=1
         else
-            info "⚠ $name не добавился (недоступен из этой сети?) - не блокер"
+            info "⚠ $name не добавился: Prowlarr ответил HTTP $status$(jq -r 'if type==\"array\" then .[0].errorMessage // empty else .message // empty end | if length>0 then \": \"+. else \"\" end' "$answer" 2>/dev/null) - не блокер"
         fi
     done
-
-    rm -rf "$work"
 
     # Живая проверка: «индексер заведён» и «поиск что-то находит» - разные утверждения.
     # Первое бывает правдой при неправде второго - например когда сеть режет индексер.

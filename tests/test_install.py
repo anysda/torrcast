@@ -1,0 +1,27 @@
+"""Ограждения критического пути установки.
+
+Сам install.sh меняет систему, поэтому тест проверяет его контракт как текст:
+добавление индексеров не уходит в фон, а отказ Prowlarr остаётся виден.
+"""
+
+from pathlib import Path
+
+
+SCRIPT = (Path(__file__).parents[1] / "install.sh").read_text(encoding="utf-8")
+
+
+def _install_indexers() -> str:
+    return SCRIPT.split("install_indexers() {", 1)[1].split("# --- 6.", 1)[0]
+
+
+def test_indexers_are_added_one_at_a_time() -> None:
+    body = _install_indexers()
+    assert "INDEXER_ADD_GAP" in body
+    assert "sleep \"$INDEXER_ADD_GAP\"" in body
+    assert "pids+=(" not in body
+
+
+def test_an_add_failure_names_the_prowlarr_response_and_continues() -> None:
+    body = _install_indexers()
+    assert "Prowlarr ответил HTTP $status" in body
+    assert " - не блокер" in body
