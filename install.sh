@@ -127,6 +127,7 @@ INDEXERS=(
     "Knaben|https://knaben.org/"       # метапоиск: широкий хвост каталога
     "rutor|https://rutor.info/"        # русские раздачи и озвучки
     "nyaasi|https://nyaa.si/"          # аниме
+    "anilibria|http://127.0.0.1:9697/" # аниме с русской озвучкой
     # У YTS адрес API отдельной настройкой, и умолчание там - имя, которое в этой сети
     # угоняет DNS (чужой адрес с самоподписанным сертом). Живое имя одно, оба его адреса
     # отвечают 200 за 0.9-1.4 с, но тело рвётся на объёме - см. строку в SHIMS.
@@ -274,6 +275,7 @@ SHIMS=(
     # адреса: с именем в рукопожатии. Сейчас его режут, но режут не всегда (TC-260), и
     # перебор кандидатов стоит одной попытки.
     'nyaa.si|/?f=0&c=0_0&q=naruto||direct,named'
+    'anilibria.top|/api/v1/app/search/releases?query=Kaiba||named,https://api.anilibria.app'
     # У rutor.is тот же каталог на соседнем адресе (замер: та же страница, 96132 Б с
     # обоих), поэтому это честный второй край, а не переименование первого.
     'rutor.info|/search/matrix||direct,direct:rutor.is,named'
@@ -1400,12 +1402,13 @@ verify_shims() {  # $@ - строки SHIMS тех, кого ведём чере
 # Рестарт не нужен — схема пересобирается на каждый запрос.
 seed_definitions() {
     local dir="$PREFIX/prowlarr-data/Definitions"
+    install -d -m 0755 "$dir"
+    install -m 0644 "$REPO_DIR/definitions/anilibria.yml" "$dir/anilibria.yml"
     if [ "$(find "$dir" -maxdepth 1 -name '*.yml' 2>/dev/null | wc -l)" -gt 100 ]; then
         skip "определения индексеров ($(find "$dir" -maxdepth 1 -name '*.yml' | wc -l) шт.)"
         return
     fi
     log "определения индексеров с GitHub"
-    install -d -m 0755 "$dir"
     local tmp; tmp="$(mktemp -d)"
     if fetch -o "$tmp/defs.tar.gz" "$DEFS_TARBALL" \
        && tar -xzf "$tmp/defs.tar.gz" -C "$tmp" --wildcards '*/definitions/v11/*.yml'; then
@@ -1464,7 +1467,27 @@ PL_FALLBACK="${TORRCAST_PL_FALLBACK:-https://prowlarr.servarr.com/v1/update/mast
 
 install_prowlarr() {
     log "Prowlarr ($PL_URL, публичные индексеры)"
+    pick_python
     install -d -m 0755 "$PREFIX/prowlarr-data"
+
+    # AniLibria отдаёт поиск релизов и их торренты двумя открытыми
+    # REST-запросами. Местный адаптер склеивает их в обычную схему
+    # Cardigann; слушает только localhost, ключей и состояния у него нет.
+    if ! cmp -s "$REPO_DIR/scripts/anilibria-indexer.py" "$PREFIX/anilibria-indexer.py"; then
+        stop_service anilibria-indexer "$PYTHON $PREFIX/anilibria-indexer.py"
+        install -m 0755 "$REPO_DIR/scripts/anilibria-indexer.py" "$PREFIX/anilibria-indexer.py"
+    fi
+    run_service anilibria-indexer "Поиск AniLibria для Prowlarr" \
+        "$PYTHON $PREFIX/anilibria-indexer.py 9697" ""
+    wait_http "http://127.0.0.1:9697/ping" 15 \
+        || info "⚠ AniLibria не поднялась - остальные индексеры продолжат работать"
+    install -d -m 0755 "$PREFIX/prowlarr-data/Definitions"
+    if ! cmp -s "$REPO_DIR/definitions/anilibria.yml" \
+            "$PREFIX/prowlarr-data/Definitions/anilibria.yml"; then
+        stop_service prowlarr "$PREFIX/prowlarr/Prowlarr"
+    fi
+    install -m 0644 "$REPO_DIR/definitions/anilibria.yml" \
+        "$PREFIX/prowlarr-data/Definitions/anilibria.yml"
 
     # 🔴 Решаем про определения ДО первого старта Prowlarr, и потому здесь, а не в фазе
     # источников: прибитое имя должно лежать в /etc/hosts раньше, чем служба пойдёт за

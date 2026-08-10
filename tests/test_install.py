@@ -6,7 +6,6 @@
 
 from pathlib import Path
 
-
 SCRIPT = (Path(__file__).parents[1] / "install.sh").read_text(encoding="utf-8")
 
 
@@ -17,7 +16,7 @@ def _install_indexers() -> str:
 def test_indexers_are_added_one_at_a_time() -> None:
     body = _install_indexers()
     assert "INDEXER_ADD_GAP" in body
-    assert "sleep \"$INDEXER_ADD_GAP\"" in body
+    assert 'sleep "$INDEXER_ADD_GAP"' in body
     assert "pids+=(" not in body
 
 
@@ -25,3 +24,9 @@ def test_an_add_failure_names_the_prowlarr_response_and_continues() -> None:
     body = _install_indexers()
     assert "Prowlarr ответил HTTP $status" in body
     assert " - не блокер" in body
+
+
+def test_anilibria_is_a_regular_indexer_with_a_shim_route() -> None:
+    assert '"anilibria|http://127.0.0.1:9697/"' in SCRIPT
+    assert "'anilibria.top|/api/v1/app/search/releases?query=Kaiba||" in SCRIPT
+    assert '"$REPO_DIR/definitions/anilibria.yml"' in SCRIPT

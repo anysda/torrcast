@@ -1,0 +1,32 @@
+---
+id: anilibria
+name: AniLibria
+description: "Russian dubbed anime from AniLibria"
+language: ru-RU
+type: public
+encoding: UTF-8
+links: [http://127.0.0.1:9697/]
+caps:
+  categorymappings:
+    - {id: 5070, cat: TV/Anime, desc: "Anime"}
+  modes:
+    search: [q]
+    tv-search: [q, season, ep]
+search:
+  paths:
+    - path: search
+      response: {type: json}
+  inputs:
+    q: "{{ .Keywords }}"
+  rows: {selector: results}
+  fields:
+    category: {text: 5070}
+    title: {selector: title}
+    details: {selector: magnet}
+    download: {selector: magnet}
+    size: {selector: size}
+    seeders: {selector: seeders}
+    leechers: {selector: leechers}
+    date: {selector: date}
+    downloadvolumefactor: {text: 0}
+    uploadvolumefactor: {text: 1}
