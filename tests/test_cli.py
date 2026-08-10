@@ -243,8 +243,9 @@ def test_the_only_sure_marked_release_of_a_picture_still_plays() -> None:
         2,
     )
     plan = cli._Plan(
-        picture=Picture(title="Властелин Колец: воссоединение актёрского состава", year=2021,
-                        releases=[only]),
+        picture=Picture(
+            title="Властелин Колец: воссоединение актёрского состава", year=2021, releases=[only]
+        ),
         ranked=rank_releases([only], RUNTIME, 16.0),
         runtime=RUNTIME,
         warn_mbit=16.0,

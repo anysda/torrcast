@@ -127,8 +127,13 @@ def main(argv: list[str] | None = None) -> int:
                 f"{plan.ranked[n - 1].codec or '-'}"
                 for n in below[:4]
             )
-        (dated_top_hd_below if kind == "dated" else silent_top_hd_below if kind == "silent"
-         else []).append(row)
+        (
+            dated_top_hd_below
+            if kind == "dated"
+            else silent_top_hd_below
+            if kind == "silent"
+            else []
+        ).append(row)
 
     print("=== SD наверху ===")
     print(f"картин с очередью: {sum(tops.values())}, верхи: {tops}")
