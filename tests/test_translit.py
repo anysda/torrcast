@@ -518,8 +518,7 @@ def test_the_titled_number_reaches_the_season_top_up_whole(
                 for i in range(1, THIN_POOL + 1)
             ],
             "ben 10 s02": [
-                raw(f"Бен 10 / Ben 10 (2005) WEB-DL 1080p s02e0{i}", 200 + i)
-                for i in range(1, 5)
+                raw(f"Бен 10 / Ben 10 (2005) WEB-DL 1080p s02e0{i}", 200 + i) for i in range(1, 5)
             ],
         }
     )

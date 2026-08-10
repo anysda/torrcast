@@ -1557,9 +1557,7 @@ def _search(
     # Сериал есть, а раздач нужного сезона в нём нет - добрать сезонной строкой по
     # оригиналу, прежде чем честно отказать (:func:`_season_reinforce`).
     if _lacks_season(found, args):
-        raw, pictures, found = _season_reinforce(
-            client, query, args, raw, found, progress, titled
-        )
+        raw, pictures, found = _season_reinforce(client, query, args, raw, found, progress, titled)
     # Картина есть, а русской дорожки не обещает ни одна её играбельная раздача - добрать
     # точной строкой «оригинал + год» (:func:`_voice_reinforce`).
     if (voiceless := voiceless_pool(found, args, config, profile)) is not None:
