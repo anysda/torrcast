@@ -951,7 +951,7 @@ def _cmd_voices(args: Args) -> int:
         plans = _search(config, inner, progress)
         bench = _Bench(TorrServer(config.torrserver_url), choose=_file_picker(inner))
         try:
-            plan = _pick_plan(plans)
+            plan = _pick_plan(plans, asked=inner.title_query)
             prep = bench.resolve(plan, inner, progress)
         finally:
             bench.drop_all()
@@ -1332,7 +1332,7 @@ def _cmd_play(args: Args) -> int:
         mark("прогрев пущен")  # TC-108: замер
         try:
             try:
-                plan = _pick_plan(plans, facts, pick=args.pick)
+                plan = _pick_plan(plans, facts, pick=args.pick, asked=args.title_query)
                 mark("картина выбрана")  # TC-108: замер
                 # Опоздавший индексер: круг ушёл по кворуму, и его выдача доехала, пока
                 # человек читал меню. Доливаем ЗДЕСЬ - список уже прочитан и отвечен,
@@ -1892,14 +1892,17 @@ def _nothing(name: str, index: int | None, pictures: list[Picture]) -> str:
 
     Разводим по факту: спрашивали ли номер и стоит ли за ним живая франшиза.
 
-    * франшиза есть, номера в ней нет → сколько в ней картин и что номера столько нет;
+    * франшиза есть, номера в ней нет → сколько в ней картин и что номера столько нет,
+      плюс перечень того, что в ней есть, - молчаливого отказа быть не должно (TC-373);
     * во всём остальном → честное «ничего не нашлось», то есть «назови другими словами».
     """
     from torrcast.parse import pick_franchise
 
     whole = pick_franchise(name, pictures) if index is not None else []
     if whole:
-        return f"«{name}»: картин во франшизе {len(whole)}, номера {index} нет"
+        have = ", ".join(f"{p.title} ({p.year or '?'})" for p in whole[:5])
+        more = " и другие" if len(whole) > 5 else ""
+        return f"«{name}»: картин во франшизе {len(whole)}, номера {index} нет - есть: {have}{more}"
     return f"по запросу «{name}» ничего не нашлось"
 
 
@@ -6059,6 +6062,70 @@ def _passed_why(plans: list[_Plan], number: int, numbers: list[int]) -> str:
     return f"у неё всего одна раздача, а тут их {len(plans[number - 1].ranked)}"
 
 
+def part_one_swap(plans: list[_Plan], asked: str) -> str:
+    """Честная строка вместо дефолта меню, когда дефолт подменил бы часть франшизы.
+
+    🔴 TC-373. Запрос «тачки» - это просьба про «Тачки» 2006 года, и пока первая часть
+    играет, дефолт стоит на ней. А вот когда её нет в выдаче или играть ей нечем, дефолт
+    по правилу «первая живая часть» (:func:`first_alive`) перескакивал на «Тачки 2» - и
+    Enter включал другое кино той же франшизы, которого не просили. Строка про это была
+    (:func:`default_note`), но показ всё равно начинался сам.
+
+    Теперь в этом случае дефолта нет вовсе: строка называет, что случилось с первой
+    частью, список того, что есть, уже на экране над ней, и номер части называет сам
+    человек. Пустой ответ - дефолт честен, и случаев тут три:
+
+    * номер назван явно («тачки 2») - спрошенное уже отобрано до меню
+      (:func:`~torrcast.parse.pick_franchise`), и дефолт - ровно оно;
+    * франшиза без номерованных частей («Моана», «Мумия») - там первая ЖИВАЯ картина и
+      есть ответ на запрос, решение «дефолт франшизы - первая живая часть» не тронуто;
+    * дефолт встал на саму первую часть или на её ТЁЗКУ по году («Человек-невидимка» 2020
+      вместо 1933): тёзка - та же вещь под тем же именем, послабление для неё остаётся.
+
+    Запрос, назвавший франшизу оригинальным именем («cars»), читается так же, как русский:
+    имя первой части сверяется в обоих языках.
+
+    Линейкой считаются только картины: номерованная книжная серия («Homo Ludens 1» рядом
+    со «Сталкером») франшизу не образует. И номер внутри одной картины («Дары Смерти:
+    Часть I») - это глава, а не часть франшизы: если «первая часть» линейки младше другой
+    картины меню, перед нами семья однофамильцев, и там дефолт честен.
+    """
+    from torrcast.parse import _numbered_line
+
+    name, index = split_franchise_index(asked)
+    if index is not None or len(plans) < 2:
+        return ""
+    key = slugify(name)
+    pictures = [plan.picture for plan in plans]
+    films = [p for p in pictures if p.kind != "other"]
+    if not key or not any(p.part is not None for p in films):
+        return ""
+    line = _numbered_line(films)[0]
+    first = line[0] if line and line[0].part in (None, 1) else None
+    if first is not None and any(p.year and first.year and p.year < first.year for p in films):
+        return ""
+    names = {p.franchise for p in pictures}
+    # Оригинальные имена зовут ту же франшизу («cars» - это «тачки»), а корень ключа
+    # (:func:`franchise_key`) режет номер части: «Cars 2» подписано корнем «cars».
+    names |= {franchise_key(p.original) for p in pictures if p.original}
+    if key not in names:  # запрос назвал не франшизу, а картину - подменять тут нечего
+        return ""
+    if first is None:
+        return (
+            f"«{name}»: первой части в выдаче нет, и вместо неё другую часть сам не "
+            f"включаю - вот что есть, назови номер"
+        )
+    default = plans[first_alive(plans) - 1].picture
+    if default is first or default.title.casefold() == first.title.casefold():
+        return ""
+    number = next(n for n, plan in enumerate(plans, start=1) if plan.picture is first)
+    why = _passed_why(plans, number, asked_kind(plans))
+    return (
+        f"«{_named(first)}» не играет: {why}; вместо неё другую часть сам не включаю - "
+        f"вот что есть, назови номер"
+    )
+
+
 def understudy(plans: list[_Plan], failed: _Plan) -> _Plan | None:
     """🔴 TC-203. Живая ТЁЗКА выбранной картины - та, которой показ доиграет вместо неё.
 
@@ -6190,7 +6257,9 @@ def warm_order(plans: list[_Plan]) -> list[_Plan]:
     return [plans[default - 1]] + [p for n, p in enumerate(plans, start=1) if n != default]
 
 
-def _pick_plan(plans: list[_Plan], facts: Facts | None = None, pick: int | None = None) -> _Plan:
+def _pick_plan(
+    plans: list[_Plan], facts: Facts | None = None, pick: int | None = None, asked: str = ""
+) -> _Plan:
     """Вопрос «какой фильм франшизы?»; один вариант — без вопроса.
 
     Дефолт — первая живая картина франшизы (:func:`first_alive`): смотреть начинают
@@ -6198,6 +6267,12 @@ def _pick_plan(plans: list[_Plan], facts: Facts | None = None, pick: int | None 
     романтику золотого века» 1926 года — немое документальное кино, один VHS-рип, 5
     сидов, — то есть человек, ответивший так, как приглашает строка `[1]`, гарантированно
     не получал ничего.
+
+    🔴 TC-373. Ограждение того же дефолта: перескочив через спрошенную часть франшизы
+    (её нет в выдаче или играть ей нечем), он вставал на ДРУГУЮ часть - и Enter включал
+    «Тачки 2» вместо просимых «Тачек». Такому дефолту не бывать (:func:`part_one_swap`):
+    строка говорит, что случилось с первой частью, список остаётся на экране, и номер
+    называет сам человек.
 
     К каждой картине печатается справка (:mod:`torrcast.facts`) — рейтинг, хронометраж и
     фраза о том, что это за кино. Её тут не ждут: что успело приехать фоном, то и
@@ -6231,6 +6306,11 @@ def _pick_plan(plans: list[_Plan], facts: Facts | None = None, pick: int | None 
             f"назови картину точно (например «{plans[default - 1].picture.title}») "
             f"или её номер (--pick N), либо запусти cast в терминале"
         )
+    if note := part_one_swap(plans, asked):
+        # Дефолт подменил бы спрошенную часть другой - тогда его нет вовсе: строка
+        # называет, что с первой частью, список на экране, номер зовёт человек.
+        print(note)
+        return plans[ask("Что смотрим?", len(plans), default=None) - 1]
     print(default_line(plans, default))
     return plans[ask("Что смотрим?", len(plans), default=default) - 1]
 

@@ -591,6 +591,33 @@ def test_the_free_first_slot_stays_early_when_the_pools_are_equal() -> None:
     assert [p.title for p in pick_franchise("тачки 1", pictures)] == ["Тачки"]
 
 
+def test_the_free_first_slot_is_not_for_a_subtitled_picture() -> None:
+    """Свободное первое место - только картине, названной именем франшизы (TC-373).
+
+    Первая часть пропала из выдачи (добор за ней не состоялся), и прежний разбор
+    отдавал её место спин-оффу: на запрос «тачки 1» отвечали «Тачки: Мультачки. Байки
+    Мэтра» - другой картиной той же франшизы, и молча. Подзаголовок - это подпись
+    каталога «я другая картина», и номером первой части такая картина не отвечает.
+    """
+    pictures = cluster(
+        [
+            _release("Тачки: Мультачки. Байки Мэтра", 2008, seeders=5),
+            _release("Тачки 2", 2011, original="Cars 2", seeders=9),
+            _release("Тачки 3", 2017, original="Cars 3", seeders=26),
+        ]
+    )
+
+    assert pick_franchise("тачки 1", pictures) == [], "первой части нет - а не спин-офф"
+    whole = pick_franchise("тачки", pictures)
+    assert [p.title for p in menu_order(whole)] == [
+        "Тачки 2",
+        "Тачки 3",
+        "Тачки: Мультачки. Байки Мэтра",
+    ]
+    # Спин-офф уехал за линейку и получил честную подпись, а не место первой части.
+    assert outside_numbering(whole) == {"movie:тачки-мультачки-байки-мэтра:2008"}
+
+
 def test_cars_franchise_is_cross_language() -> None:
     """«Тачки»/«Cars» склеиваются, если оба варианта есть в имени раздачи."""
     releases = [

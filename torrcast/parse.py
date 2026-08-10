@@ -1887,7 +1887,8 @@ def _numbered_line(pictures: list[Picture]) -> tuple[list[Picture], list[Picture
 
     * у кого номер части есть - те и есть линейка, по возрастанию номера;
     * первое место линейки свободно (номера ``1`` никто не назвал) - его занимает первая
-      часть, которую каталог просто не с чем было нумеровать (:func:`_free_first`);
+      часть, которую каталог просто не с чем было нумеровать (:func:`_free_first`), и
+      только если её с франшизой связала сама подпись каталога;
     * остальные безномерные идут ПОСЛЕ линейки, в хронологии.
 
     ⚠️ Нумерованных частей нет вовсе («Матрица», «Гарри Поттер») - порядок не трогаем:
@@ -1900,13 +1901,23 @@ def _numbered_line(pictures: list[Picture]) -> tuple[list[Picture], list[Picture
     if not numbered:
         return list(pictures), []
     rest = [p for p in pictures if p.part is None]
-    first = [_free_first(rest, numbered)] if rest and all(p.part != 1 for p in numbered) else []
-    tail = [p for p in rest if not any(p is taken for taken in first)]
+    free = _free_first(rest, numbered) if rest and all(p.part != 1 for p in numbered) else None
+    first = [free] if free is not None else []
+    tail = [p for p in rest if p is not free]
     return first + numbered, tail
 
 
-def _free_first(rest: list[Picture], numbered: list[Picture]) -> Picture:
-    """Кто из безномерных занимает свободное первое место линейки.
+def _free_first(rest: list[Picture], numbered: list[Picture]) -> Picture | None:
+    """Кто из безномерных занимает свободное первое место линейки; ``None`` - некому.
+
+    🔴 TC-373. Претендент обязан быть связан с франшизой ПОДПИСЬЮ КАТАЛОГА, а не одним
+    «раньше всех вышел»: либо он назван ровно именем франшизы («Форсаж» 2001, «Оно»,
+    «Ледниковый период»), либо его оригинал делит корень с оригиналом нумерованной части
+    («Властелин колец: Братство кольца» делит ``The Lord of the Rings`` с «Битвой за
+    Средиземье 2»). Прежде место доставалось любой ранней безномерной, и на запрос
+    «тачки 1» при пропавшей из выдачи первой части отвечал спин-офф «Тачки: Мультачки.
+    Байки Мэтра» - другая картина той же франшизы (корень её оригинала ``Cars Toon``
+    свой, а не ``Cars``), молча вставшая на место просимой.
 
     🔴 TC-361. Прежде место отдавалось самой ранней безномерной по хронологии, и на
     «форсаж 1» отвечал «Форсаж» 1992 года - однофамилец с оригиналом ``Afterburn``, одной
@@ -1937,12 +1948,21 @@ def _free_first(rest: list[Picture], numbered: list[Picture]) -> Picture:
     от чего, и место занимает самая ранняя безномерная, как прежде. Честный ответ тут
     только такой: линейка без первой части - это то, что сказал каталог.
     """
+    roots = {franchise_key(p.original) for p in numbered if p.original}
+    titled = [
+        p
+        for p in rest
+        if slugify(p.title) == p.franchise
+        or (p.original is not None and franchise_key(p.original) in roots)
+    ]
+    if not titled:
+        return None
     anchor = min((p.year for p in numbered if p.year is not None), default=None)
     if anchor is None:
-        return rest[0]
-    early = [p for p in rest if p.year is not None and p.year < anchor and not p.collection]
+        return titled[0]
+    early = [p for p in titled if p.year is not None and p.year < anchor and not p.collection]
     if not early:
-        return rest[0]
+        return titled[0]
     return max(early, key=lambda p: (len(p.releases), -(p.year or 0)))
 
 

@@ -2078,6 +2078,200 @@ def test_all_namesakes_in_a_dead_end_keep_their_places() -> None:
     assert cli.first_alive(plans) == 1
 
 
+def _numbered_cars(first_dead: bool = True) -> list[Any]:
+    """Нумерованная франшиза «тачки»: первая часть и два сиквела с явными номерами.
+
+    Мёртвая первая часть - живой случай: у «Тачек» в каталоге одни DVD-образы, играть
+    ими нечего, и порог живости такой рой не считает.
+    """
+    plans = [
+        _franchise_plan(
+            "Тачки",
+            2006,
+            [
+                rel(
+                    name="Тачки 2006 DVD5",
+                    codec=None,
+                    quality=None,
+                    size_gb=4.4,
+                    seeders=3 if first_dead else 66,
+                )
+            ]
+            if first_dead
+            else [rel(name="Тачки 2006 BDRip 1080p", size_gb=4.4, seeders=66)],
+        ),
+        _franchise_plan(
+            "Тачки 2", 2011, [rel(name="Тачки 2 2011 WEB-DL 1080p", size_gb=4.6, seeders=71)]
+        ),
+        _franchise_plan(
+            "Тачки 3", 2017, [rel(name="Тачки 3 2017 WEB-DL 1080p", size_gb=4.6, seeders=121)]
+        ),
+    ]
+    plans[0].picture.original = "Cars"
+    plans[1].picture.original = "Cars 2"
+    plans[1].picture.part = 2
+    plans[2].picture.original = "Cars 3"
+    plans[2].picture.part = 3
+    return plans
+
+
+def test_the_default_never_switches_to_another_part_of_the_franchise() -> None:
+    """🔴 TC-373. Спрошенная часть не играет - дефолт на другую часть не встаёт.
+
+    Живой случай: запрос «тачки», у первой части одни DVD-образы, и Enter включал
+    «Тачки 2» - другое кино той же франшизы, которого не просили. Строка теперь
+    называет, что с первой частью, а показ другой части начинает только сам человек.
+    """
+    plans = _numbered_cars()
+
+    note = cli.part_one_swap(plans, "тачки")
+    assert "«Тачки (2006)» не играет" in note
+    assert "другую часть сам не включаю" in note
+
+    assert cli.part_one_swap(plans, "тачки 2") == "", "номер назван явно - дефолт честен"
+    assert cli.part_one_swap(plans, "форсаж") == "", "запрос не про эту франшизу"
+    assert cli.part_one_swap(_moana_franchise(), "моана") == "", "франшиза без номеров"
+    alive = _numbered_cars(first_dead=False)
+    assert cli.part_one_swap(alive, "тачки") == "", "первая часть жива - дефолт на ней"
+
+
+def test_the_original_name_of_the_franchise_reads_the_same() -> None:
+    """Франшизу назвали оригинальным именем («cars») - правило то же, что для «тачки»."""
+    plans = _numbered_cars()
+
+    assert "не играет" in cli.part_one_swap(plans, "cars")
+    assert "первой части в выдаче нет" in cli.part_one_swap(plans[1:], "cars")
+
+
+def test_the_default_is_no_default_when_the_first_part_is_absent() -> None:
+    """Первой части нет в выдаче вовсе (добор за ней не состоялся) - об этом вслух."""
+    plans = _numbered_cars()[1:]
+
+    assert "первой части в выдаче нет" in cli.part_one_swap(plans, "тачки")
+
+
+def test_the_namesake_relaxation_stays() -> None:
+    """Ограждение: тёзка первой части - не другая часть, и дефолт на неё остаётся.
+
+    «Оно» 1990 и «Оно» 2017 - одна вещь, снятая дважды: имя человек назвал верно, и
+    послабление для однофамильца не тронуто. А вот «Оно 2» - другая часть, и встань
+    дефолт на неё - строка была бы.
+    """
+    first = _franchise_plan(
+        "Оно",
+        1990,
+        [rel(name="Оно 1990 DVDRip", codec=None, quality=None, size_gb=1.4, seeders=9)],
+    )
+    twin = _franchise_plan(
+        "Оно", 2017, [rel(name="Оно 2017 WEB-DL 1080p", size_gb=4.6, seeders=80)]
+    )
+    second = _franchise_plan(
+        "Оно 2", 2019, [rel(name="Оно 2 2019 WEB-DL 1080p", size_gb=4.6, seeders=60)]
+    )
+    second.picture.part = 2
+
+    assert cli.part_one_swap([first, twin, second], "оно") == "", "тёзка - та же вещь"
+    assert "не играет" in cli.part_one_swap([first, second], "оно"), "а часть - нет"
+
+
+def test_a_chapter_of_one_picture_is_not_a_part_of_the_franchise() -> None:
+    """«Дары Смерти: Часть I» - глава одной картины, а не первая часть франшизы.
+
+    Живой случай из корпуса: номер главы попадает в ``part``, и без ограждения
+    «первая часть не играет» собиралась из глав одного фильма 2010 года - при живом
+    «философском камне» 2001 года, стоящем дефолтом. Пока в меню есть картина старше
+    «первой части» линейки, это нумерация внутри одной вещи, и дефолт честен.
+    """
+    stone = _franchise_plan(
+        "Гарри Поттер и философский камень",
+        2001,
+        [rel(name="Гарри Поттер и философский камень 2001 BDRip 1080p", size_gb=2.5, seeders=40)],
+    )
+    hallows_one = _franchise_plan(
+        "Гарри Поттер и Дары Смерти: Часть I",
+        2010,
+        [rel(name="Гарри Поттер и Дары Смерти Часть I 2010 BDRip 1080p", size_gb=2.6, seeders=30)],
+    )
+    hallows_one.picture.part = 1
+    hallows_two = _franchise_plan(
+        "Гарри Поттер и Дары Смерти: Часть II",
+        2011,
+        [rel(name="Гарри Поттер и Дары Смерти Часть II 2011 BDRip 1080p", size_gb=2.6, seeders=30)],
+    )
+    hallows_two.picture.part = 2
+    doc = _franchise_plan(
+        "Гарри Поттер: История магии",
+        2017,
+        [rel(name="Гарри Поттер История магии 2017 WEB-DL 1080p", size_gb=1.4, seeders=9)],
+    )
+
+    assert cli.part_one_swap([stone, hallows_one, hallows_two, doc], "гарри поттер") == ""
+
+
+def test_a_numbered_book_series_is_not_a_franchise_line() -> None:
+    """Книжная серия с номером тома рядом с кинокартиной - не линейка франшизы.
+
+    Живой случай из корпуса: «Homo Ludens 1. Класс: Сталкер» (``kind="other"``)
+    попадает в меню фильма «Сталкер», и без ограждения том считался «первой частью»,
+    которая якобы не играет. Картины линейку образуют, чужие носители - нет.
+    """
+    book = _franchise_plan(
+        "Дан Лебэл - Homo Ludens 1. Класс: Сталкер",
+        2019,
+        [rel(name="Homo Ludens 1 fb2", codec=None, quality=None, size_gb=0.01, seeders=2)],
+        kind="other",
+    )
+    book.picture.part = 1
+    film = _franchise_plan(
+        "Сталкер", 1979, [rel(name="Сталкер 1979 BDRip 1080p", size_gb=4.4, seeders=50)]
+    )
+
+    assert cli.part_one_swap([book, film], "сталкер") == ""
+
+
+def test_the_menu_asks_without_a_default_when_another_part_would_answer(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Спрошенной части нет - Enter другую часть не включает: номер называет человек."""
+    plans = _numbered_cars()[1:]
+    monkeypatch.setattr(cli.console, "stdin_is_tty", lambda: True)
+    monkeypatch.setattr("builtins.input", lambda prompt="": "1")
+
+    plan = cli._pick_plan(plans, asked="тачки")
+
+    out = capsys.readouterr().out
+    assert "первой части в выдаче нет" in out
+    assert "Enter -" not in out, "дефолта нет: другую часть по Enter не включаем"
+    assert plan.picture.title == "Тачки 2", "номер назвал сам человек"
+
+
+def test_the_menu_default_stays_on_the_living_first_part(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Ограждение: первая часть жива - дефолт «первая живая часть» не тронут."""
+    plans = _numbered_cars(first_dead=False)
+    monkeypatch.setattr(cli.console, "stdin_is_tty", lambda: True)
+    monkeypatch.setattr("builtins.input", lambda prompt="": "")
+
+    plan = cli._pick_plan(plans, asked="тачки")
+
+    assert "Enter - «Тачки (2006)»" in capsys.readouterr().out
+    assert plan.picture.title == "Тачки"
+
+
+def test_a_missing_part_answer_lists_what_the_franchise_has() -> None:
+    """Отказ «номера нет» перечисляет, что во франшизе есть: молчаливого отказа нет."""
+    pictures = [
+        Picture(title="Тачки 2", year=2011, part=2, releases=[rel(name="c2", seeders=9)]),
+        Picture(title="Тачки 3", year=2017, part=3, releases=[rel(name="c3", seeders=26)]),
+    ]
+
+    text = cli._nothing("тачки", 1, pictures)
+
+    assert "картин во франшизе 2, номера 1 нет" in text
+    assert "Тачки 2 (2011)" in text and "Тачки 3 (2017)" in text
+
+
 def _invisible_man() -> list[Any]:
     """Меню «человек-невидимка»: 1933 год формально жив, а играть им нечем.
 

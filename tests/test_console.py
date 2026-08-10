@@ -78,6 +78,21 @@ def test_a_question_takes_a_digit_and_a_bare_enter(monkeypatch: pytest.MonkeyPat
     assert console.ask("Что смотрим?", 3) == 1, "чушь переспрашивается, а не падает"
 
 
+def test_a_question_without_a_default_ignores_a_bare_enter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Дефолта нет (``None``) - Enter не ответ: номер части называет человек (TC-373)."""
+    answers = iter(["", "2"])
+    monkeypatch.setattr(console, "stdin_is_tty", lambda: True)
+    monkeypatch.setattr("builtins.input", lambda prompt="": next(answers))
+
+    assert console.ask("Что смотрим?", 3, default=None) == 2
+
+    monkeypatch.setattr(console, "stdin_is_tty", lambda: False)
+    with pytest.raises(EOFError):
+        console.ask("Что смотрим?", 3, default=None)
+
+
 def test_russian_answer_survives_the_question(monkeypatch: pytest.MonkeyPatch) -> None:
     """Русский ввод допустим, но никогда не обязателен."""
     monkeypatch.setattr(console, "stdin_is_tty", lambda: True)
