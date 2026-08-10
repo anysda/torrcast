@@ -1313,6 +1313,46 @@ def test_a_name_the_reference_only_guessed_does_not_bring_a_stranger(
     assert "справка нашла лишь похожее имя «Все мы убийцы»" in said
 
 
+def test_a_guessed_name_with_a_living_lead_does_not_bring_a_stranger(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """🔴 TC-359. Догадка справки прикрыта гейтом одинаково, есть вожак или нет.
+
+    Тот же живой случай, что в TC-253, но пул не пуст, а негоден: «Все мы незнакомцы»
+    нашлись русскими DVDRip'ами без единого HD, и вожак есть. Гейт подмены
+    (:func:`~torrcast.cli.same_picture`) от этого не сильнее: он сверяет добор со
+    справкой, а оба они тут про одну и ту же чужую картину - и живые раздачи «Все мы
+    убийцы» 1952 года вставали в меню рядом со спрошенной картиной. Имя, лишь
+    признанное похожим, в индексеры не идёт независимо от того, нашлась картина или
+    нет.
+    """
+    client = _FakeProwlarr(
+        {
+            "все мы незнакомцы": [
+                raw(f"Все мы незнакомцы (2023) DVDRip {i}", i) for i in range(THIN_POOL + 5)
+            ],
+            "nous sommes tous des assassins": [
+                raw(f"Nous.sommes.tous.des.assassins.1952.BDRip.1080p.x264-{i}", 100 + i)
+                for i in range(20)
+            ],
+        }
+    )
+    _knows(
+        monkeypatch,
+        {
+            "все мы незнакомцы": Origin(
+                title="Nous sommes tous des assassins", name="Все мы убийцы", guessed=True
+            )
+        },
+    )
+
+    plans, said = _search(client, "все мы незнакомцы", monkeypatch)
+
+    assert client.asked == ["все мы незнакомцы"], "за чужой картиной не ходят и с живым вожаком"
+    assert "справка нашла лишь похожее имя «Все мы убийцы»" in said
+    assert all(plan.picture.year != 1952 for plan in plans), "чужая картина в меню не встаёт"
+
+
 def test_a_shorter_article_title_brings_the_real_original(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1354,6 +1394,32 @@ def test_the_same_name_in_another_spelling_is_still_topped_up(
     assert client.asked == ["сальтберн", "Saltburn"]
     assert len(plans[0].picture.releases) == 20
     assert "сверить было не с чем" not in said
+
+
+def test_the_same_confirmed_guess_is_topped_up_with_a_living_lead(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Живой вожак гейту не помеха и не послабление: подтверждённая догадка добирает.
+
+    Пара к TC-359: пул негодный (русские DVDRip'ы без HD), справка признала имя лишь
+    похожим, но называет ТУ ЖЕ картину другой транскрипцией - второй признак есть, и
+    добор работает ровно так, как на пустой выдаче.
+    """
+    client = _FakeProwlarr(
+        {
+            "сальтберн": [
+                raw(f"Сальтберн / Saltburn (2023) DVDRip {i}", i) for i in range(THIN_POOL + 5)
+            ],
+            "saltburn": [raw(f"Saltburn.2023.1080p.WEB-DL.x264-{i}", 100 + i) for i in range(20)],
+        }
+    )
+    _knows(monkeypatch, {"сальтберн": Origin(title="Saltburn", name="Солтберн", guessed=True)})
+
+    plans, said = _search(client, "сальтберн", monkeypatch)
+
+    assert client.asked == ["сальтберн", "Saltburn"]
+    assert len(plans[0].picture.releases) == THIN_POOL + 25
+    assert "добрал по «Saltburn»" in said
 
 
 def test_a_guessed_name_with_nothing_to_check_it_against_is_taken_out_loud(

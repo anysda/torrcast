@@ -1441,6 +1441,50 @@ def test_a_dead_1080p_does_not_buy_a_step_with_rebuffering() -> None:
     assert not cli.is_full_hd(full, alive=41)
 
 
+def test_a_live_1080p_is_not_priced_against_a_dated_pool_leader() -> None:
+    """«История игрушек 3»: лидер пула — старьё, и его сиды не цена размена.
+
+    Верх выдачи по сидам держал 126-сидовый ``BDRip-AVC`` на 1.5 ГБ, утопленный своей
+    ступенью старья и в споре за верх не участвующий. А знаменатель живости считался
+    по нему, и названный 1080p с 30 сидами проигрывал 720p с 55: 30 < 126 × 0.25.
+    Против настоящего соперника у него 0.55 — ступень его, и дефолт обязан встать на 1080p.
+    """
+    dated = rel(name="BDRip-AVC", codec=None, quality=None, size_gb=1.5, seeders=126)
+    hd = rel(name="BDRip 720p", codec=None, quality="720p", size_gb=5.3, seeders=55)
+    full = rel(name="BDRip 1080p", codec=None, size_gb=7.2, seeders=30)
+    assert cli.is_dated(dated, RUNTIME), "лидер пула сидит на ступени старья"
+    assert rank_releases([dated, hd, full], RUNTIME, 25.0)[0] is full
+
+
+def test_a_barely_seeded_1080p_does_not_claim_the_step() -> None:
+    """«Сёгун»: 1080p на трёх сидах против 720p на пяти — доля не оживляет не-рой.
+
+    Против пятисидового соседа доля 0.60 формально проходит любой порог, а три сида —
+    это подгрузы, и живой 720p честнее: рой, не играбельный сам по себе
+    (:data:`~torrcast.cli.ALIVE_SEEDERS`), ступенью качества не лечится.
+    """
+    full = rel(name="BDRip 1080p", codec=None, size_gb=7.2, seeders=3)
+    hd = rel(name="BDRip 720p", codec=None, quality="720p", size_gb=5.3, seeders=5)
+    assert rank_releases([full, hd], RUNTIME, 25.0)[0] is hd
+    assert not cli.is_full_hd(full, alive=5)
+
+
+def test_a_live_1080p_is_not_priced_against_a_pool_leader_on_the_recode_step() -> None:
+    """«Тачки 2»: лидер пула — тяжеляк, играбельный только сплошным перекодом.
+
+    Верх выдачи по сидам держал ремукс на 71 сид, утопленный своей ступенью веса
+    (:func:`~torrcast.cli.needs_whole_recode`) и в споре за верх не участвующий. А
+    знаменатель живости считался по нему, и русский 1080p-дубляж с 11 сидами
+    проигрывал русскому же 720p с тринадцатью: 11 < 71 × 0.25. Против настоящего
+    соперника у него 0.85 — ступень его, и дефолт обязан встать на 1080p.
+    """
+    heavy = rel(name="BDRemux 1080p", codec=None, size_gb=45.0, seeders=71)
+    hd = rel(name="BDRip 720p", codec=None, quality="720p", size_gb=5.3, seeders=13)
+    full = rel(name="BDRip 1080p", codec=None, size_gb=7.2, seeders=11)
+    assert cli.needs_whole_recode(heavy, RUNTIME, 25.0), "лидер пула сидит на ступени перекода"
+    assert rank_releases([heavy, hd, full], RUNTIME, 25.0)[0] is full
+
+
 def test_a_lying_1080p_is_still_swapped_by_ffprobe() -> None:
     """Ступень поднимает ОБЕЩАНИЕ, а судит по-прежнему кадр: 1080p в имени, 574p внутри."""
     liar = rel(name="BDRip 1080p", codec=None, size_gb=7.0, seeders=100)
