@@ -609,8 +609,9 @@ def _bench() -> Any:
     from torrcast.cli import _Bench
 
     class _Nothing:
-        def drop(self, torrent_hash: str) -> None:
+        def drop(self, torrent_hash: str) -> bool:
             """Раздач в этих тестах нет - забывать нечего."""
+            return True
 
     return _Bench(cast(Any, _Nothing()))
 

@@ -1265,12 +1265,27 @@ class TorrServer:
             for item in payload
         )
 
-    def drop(self, torrent_hash: str) -> None:
-        """Убрать раздачу; отсутствие её ошибкой не считается."""
-        with contextlib.suppress(InfraError):
-            self._post("/torrents", {"action": "rem", "hash": torrent_hash})
+    def drop(self, torrent_hash: str) -> bool:
+        """Убрать раздачу; ``True`` - служба ответила, и раздачи у неё больше нет.
 
-    def _post(self, path: str, body: dict[str, Any]) -> Any:
+        Отсутствие раздачи ошибкой не считается и здесь: на хэш, которого служба не знает,
+        она отвечает обычным «убрал» (замер), поэтому повторный снос ничего не стоит.
+        Значит осечка тут означает ровно одно - службы сейчас нет, и раздача как была, так
+        и осталась. Разницу между «убрал» и «не дозвонился» видно только по этому ответу, а
+        не по исключению: ждать службу на выходе показа нельзя, поэтому осечка по-прежнему
+        не авария (:func:`torrcast.cli._release_torrents`).
+
+        ⚠️ Тело ответа на снос ПУСТОЕ, и это не поломка: службе нечего о нём рассказывать.
+        Пока пустой ответ считался «не JSON», снос был неотличим от мёртвой службы вообще
+        всегда - и по нему нельзя было судить ни о чём (``json_body=False``).
+        """
+        try:
+            self._post("/torrents", {"action": "rem", "hash": torrent_hash}, json_body=False)
+        except InfraError:
+            return False
+        return True
+
+    def _post(self, path: str, body: dict[str, Any], json_body: bool = True) -> Any:
         import requests
 
         if self._session is None:
@@ -1278,9 +1293,12 @@ class TorrServer:
         try:
             response = self._session.post(f"{self.base_url}{path}", json=body, timeout=self.timeout)
             response.raise_for_status()
-            return response.json()
         except requests.RequestException as exc:
             raise ServerDownError(f"TorrServer не отвечает ({self.base_url}): {why(exc)}") from exc
+        if not json_body:  # служба ответила - больше от неё тут ничего и не нужно
+            return None
+        try:
+            return response.json()
         except ValueError as exc:
             raise ServerDownError("TorrServer вернул не JSON") from exc
 

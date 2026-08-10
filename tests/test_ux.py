@@ -95,8 +95,10 @@ class _FakeTorrServer:
     def stream_url(self, torrent_hash: str, index: int) -> str:
         return f"http://ts/{torrent_hash}/{index}"
 
-    def drop(self, torrent_hash: str) -> None:
+    def drop(self, torrent_hash: str) -> bool:
         pass
+
+        return True
 
 
 def _answers(monkeypatch: pytest.MonkeyPatch, *replies: str) -> list[str]:
@@ -479,8 +481,9 @@ def test_prewarmed_torrents_are_dropped_when_the_show_never_starts(
             added.append(magnet)
             return f"hash-{magnet[:30]}"
 
-        def drop(self, torrent_hash: str) -> None:
+        def drop(self, torrent_hash: str) -> bool:
             dropped.append(torrent_hash)
+            return True
 
     monkeypatch.setattr(cli, "TorrServer", _Counting)
     monkeypatch.setattr(
@@ -554,8 +557,9 @@ def test_the_unused_spare_leaves_torrserver_by_its_own_hash(
             added.append(magnet)
             return f"hash-{magnet[:30]}"
 
-        def drop(self, torrent_hash: str) -> None:
+        def drop(self, torrent_hash: str) -> bool:
             dropped.append(torrent_hash)
+            return True
 
     monkeypatch.setattr(cli, "TorrServer", _Counting)
     _answers(monkeypatch, "", "")
@@ -681,8 +685,9 @@ def test_a_run_that_never_starts_takes_its_torrent_back(monkeypatch: pytest.Monk
             raised.set()
             return f"hash-{magnet[:30]}"
 
-        def drop(self, torrent_hash: str) -> None:
+        def drop(self, torrent_hash: str) -> bool:
             dropped.append(torrent_hash)
+            return True
 
     monkeypatch.setattr(cli, "TorrServer", _Counting)
 
@@ -714,8 +719,9 @@ def test_a_dry_run_takes_even_the_chosen_torrent_back(monkeypatch: pytest.Monkey
             added.append(torrent_hash)
             return torrent_hash
 
-        def drop(self, torrent_hash: str) -> None:
+        def drop(self, torrent_hash: str) -> bool:
             dropped.append(torrent_hash)
+            return True
 
     monkeypatch.setattr(cli, "TorrServer", _Counting)
     _answers(monkeypatch, "")

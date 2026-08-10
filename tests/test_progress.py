@@ -260,10 +260,14 @@ PLAYED = f"magnet:?xt=urn:btih:{HASH.upper()}&dn=Moana+2&tr=udp%3A%2F%2Ftracker%
 
 
 class _Torrents:
-    """TorrServer в объёме уборки: что у него просили снять и просили ли вообще."""
+    """TorrServer в объёме уборки: что у него просили снять, просили ли вообще и
+    дозвонились ли. Молчащая служба ничего не убирает и отвечает об этом (``drop`` -
+    ложь): «убрал» и «не дозвонился» - разные события, и различает их только ответ.
+    """
 
-    def __init__(self) -> None:
+    def __init__(self, up: bool = True) -> None:
         self.dropped: list[str] = []
+        self.up = up
 
     def __call__(self, url: str, timeout: float = 30.0) -> _Torrents:
         return self
@@ -274,8 +278,11 @@ class _Torrents:
         """
         raise InfraError("TorrServer не отвечает")
 
-    def drop(self, torrent_hash: str) -> None:
+    def drop(self, torrent_hash: str) -> bool:
+        if not self.up:
+            return False
         self.dropped.append(torrent_hash)
+        return True
 
 
 def test_stop_takes_the_torrent_down_with_the_show(
@@ -363,6 +370,72 @@ def test_a_live_show_keeps_its_torrent(monkeypatch: pytest.MonkeyPatch) -> None:
 
     assert torrents.dropped == []
     assert saved().torrent == ORPHAN, "хозяин жив - отметка остаётся его"
+
+
+def test_a_torrent_the_service_did_not_take_down_is_not_forgotten(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """🔴 Молчание службы - не уборка, а хэш забывался всё равно, и раздача становилась
+    вечной.
+
+    Замер на стенде: показ кончился при лежащей службе раздач, снос до неё не доехал -
+    и отметка о раздаче из состояния всё равно исчезла. Раздача при этом переживает свой
+    процесс и живёт в службе до её перезапуска, а снести её больше нечем: хэш не знает
+    никто. Забывать его можно только вместе с раздачей.
+    """
+    remember(pos=2467.0, dur=5978.0, torrent=ORPHAN)
+    torrents = _Torrents(up=False)
+    monkeypatch.setattr(cli, "TorrServer", torrents)
+    monkeypatch.setattr(cli, "unit_active", lambda: False)
+
+    cli._release_orphans(load_config())
+
+    assert torrents.dropped == [], "службы нет - убирать было некому"
+    assert saved().torrent == ORPHAN, "раздача жива, и хэш - единственное, чем её снести"
+
+    torrents.up = True
+    cli._release_orphans(load_config())
+
+    assert torrents.dropped == [ORPHAN], "служба вернулась - сироту убрал следующий запуск"
+    assert saved().torrent == "", "вот теперь раздачи нет, и записи о ней тоже"
+
+
+class _Answer:
+    """Ответ службы на снос: код есть, тела нет. Ровно так отвечает живой TorrServer."""
+
+    status_code = 200
+
+    def raise_for_status(self) -> None:
+        pass
+
+    def json(self) -> object:
+        raise ValueError("нечего разбирать")
+
+
+class _Answering:
+    def post(self, url: str, json: object = None, timeout: float = 0.0) -> _Answer:
+        return _Answer()
+
+
+def test_the_service_answers_whether_it_took_the_torrent_down() -> None:
+    """Ответ на снос - про службу, а не про раздачу: без него уборку не отличить от тишины.
+
+    Раздачи, которой служба не знает, снос стоит одного обычного «убрал» (замер на живой
+    службе), так что повторять его безопасно. Значит осечка тут означает ровно одно -
+    службы сейчас нет; исключением она по-прежнему не становится, показ на выходе ждать
+    её не вправе.
+
+    🔴 И тело у этого ответа пустое (замер на живой службе). Пока пустой ответ считался
+    «служба вернула не JSON», снос НИКОГДА не выглядел удавшимся - даже когда раздачу
+    честно убрали.
+    """
+    from torrcast.stream import TorrServer
+
+    assert TorrServer("http://127.0.0.1:1").drop(ORPHAN) is False, "службы нет - и уборки нет"
+
+    served = TorrServer("http://127.0.0.1:1")
+    served._session = _Answering()  # type: ignore[assignment]
+    assert served.drop(ORPHAN) is True, "пустой ответ - это ответ, а не поломка"
 
 
 def test_a_magnet_gives_up_its_hash_without_asking_anyone() -> None:

@@ -1802,8 +1802,10 @@ class _Service:
         self._listed = self._files = True
         return MAGNET_HASH
 
-    def drop(self, torrent_hash: str) -> None:
+    def drop(self, torrent_hash: str) -> bool:
         self.dropped.append(torrent_hash)
+
+        return True
 
 
 MAGNET_HASH: Final = "9a76e7bc1701cf0eb3efe4d9518c999b6ee8a8e4"

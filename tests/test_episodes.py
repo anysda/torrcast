@@ -66,8 +66,9 @@ class _FakeTorrServer:
         _FakeTorrServer.added.append(magnet)
         return "hash"
 
-    def drop(self, torrent_hash: str) -> None:
+    def drop(self, torrent_hash: str) -> bool:
         _FakeTorrServer.dropped.append(torrent_hash)
+        return True
 
     def wait_files(
         self, torrent_hash: str, timeout: float = 60.0, grace: float = 0.0

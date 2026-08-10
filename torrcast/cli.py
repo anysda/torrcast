@@ -691,24 +691,31 @@ def _torrent_hash(magnet: str) -> str:
     return found.group(1).lower() if found else ""
 
 
-def _release_torrents(config: Config, hashes: Sequence[str]) -> None:
-    """Убрать свои раздачи по ЯВНЫМ хэшам: показа больше нет, а они живут дальше.
+def _release_torrents(config: Config, hashes: Sequence[str]) -> list[str]:
+    """Убрать свои раздачи по ЯВНЫМ хэшам; возвращает те, которых в службе больше нет.
 
-    🔴 Именно по хэшам, а не «всё, что видно в списке службы»: свои раздачи мы заводим с
-    ``save_to_db:false`` и в списке их не видим вовсе, зато видим ЧУЖИЕ - и «снести всё из
-    list» уже сносило чужое. Здесь список не спрашивается ни разу.
+    🔴 Именно по хэшам, а не «всё, что видно в списке службы»: раздачи мы заводим с
+    ``save_to_db:false``, и «снести всё из list» уже сносило ЧУЖОЕ. Здесь список не
+    спрашивается ни разу.
 
     Срок службе даётся короткий (:data:`torrcast.stream.PROBE_TIMEOUT`), а молчание не
     считается бедой: уборка идёт на выходе, в том числе по SIGTERM от ``cast stop``, и
     задерживать выход из-за неотвечающей службы она права не имеет. Повторный снос
     несуществующей раздачи - не ошибка (:meth:`torrcast.stream.TorrServer.drop`).
+
+    🔴 Но молчание - и не уборка, а разница между ними видна только отсюда. Зовущие по
+    этому ответу решают, забывать ли хэш: забытый хэш нечем снести, а раздача переживает
+    свой процесс и живёт в службе до её перезапуска.
     """
+    gone: list[str] = []
     if not hashes:
-        return
+        return gone
     torrserver = TorrServer(config.torrserver_url, timeout=PROBE_TIMEOUT)
     for torrent_hash in dict.fromkeys(h for h in hashes if h):
         with contextlib.suppress(TorrcastError):
-            torrserver.drop(torrent_hash)
+            if torrserver.drop(torrent_hash):
+                gone.append(torrent_hash)
+    return gone
 
 
 def _own_torrent(key: str, torrent_hash: str) -> None:
@@ -734,13 +741,16 @@ def _release_orphans(config: Config) -> None:
 
     Юнит убирает своё сам на любом штатном выходе, но SIGKILL не спрашивает, и хэш умирал
     вместе с процессом: раздача оставалась в TorrServer навсегда - до его перезапуска, - а
-    убрать её было нечем (``save_to_db:false``, в списке службы её не видно, и «снести всё
-    из list» снесло бы чужое). Теперь хэш лежит в состоянии, и сирота живёт максимум до
-    следующего запуска.
+    убрать её было нечем («снести всё из list» снесло бы чужое). Теперь хэш лежит в
+    состоянии, и сирота живёт максимум до следующего запуска.
 
     🔴 Мёртвым хозяин считается по ЖИВОСТИ юнита, а не по наличию записи: идёт показ -
     раздача его, и трогать её нельзя. Убирается только то, что записано явным хэшем,
     повторный снос уже убранной - не ошибка (:meth:`torrcast.stream.TorrServer.drop`).
+
+    🔴 Забывается хэш только вместе с раздачей. Служба, которая не ответила, ничего не
+    убрала, а запись - единственное, чем эту раздачу вообще можно снести: стерев её за
+    молчание, мы делали сироту вечной. Не убралось - не забываем, попробуем в другой раз.
     """
     state = State.load()
     orphans = {key: entry.torrent for key, entry in state if entry.torrent}
@@ -748,9 +758,12 @@ def _release_orphans(config: Config) -> None:
         return
     if unit_active():  # показ идёт - раздача под ним живая, и она не сирота
         return
-    _release_torrents(config, list(orphans.values()))
-    for key in orphans:  # не через put: уборка мусора не делает запись «самой свежей»
-        state.entries[key].torrent = ""
+    gone = set(_release_torrents(config, list(orphans.values())))
+    if not gone:  # службы нет - сироты остались сиротами, и запись о них тоже
+        return
+    for key, torrent_hash in orphans.items():
+        if torrent_hash in gone:  # не через put: уборка мусора не делает запись «свежей»
+            state.entries[key].torrent = ""
     state.save()
 
 
@@ -1019,10 +1032,13 @@ def _cmd_worker(key: str) -> int:
     try:
         return _worker_loop(config, key, torrserver, receiver, supply, mine, chosen.profile)
     finally:
-        _release_torrents(config, mine)
+        gone = _release_torrents(config, mine)
         # Раздачи больше нет - и записи о ней тоже: следующему запуску убирать нечего.
-        with contextlib.suppress(TorrcastError):  # не вправе провалить сам выход
-            _own_torrent(key, "")
+        # А вот если служба смолчала, раздача жива, и запись о ней - единственное, чем её
+        # потом снести (:func:`_release_orphans`): такой хэш забывать нельзя.
+        if not mine or mine[-1] in gone:
+            with contextlib.suppress(TorrcastError):  # не вправе провалить сам выход
+                _own_torrent(key, "")
 
 
 def _worker_loop(

@@ -350,8 +350,10 @@ class _Offline(stream_mod.TorrServer):
     def stream_url(self, torrent_hash: str, index: int) -> str:
         return f"http://ts/{torrent_hash}/{index}"
 
-    def drop(self, torrent_hash: str) -> None:
+    def drop(self, torrent_hash: str) -> bool:
         self.dropped.append(torrent_hash)
+
+        return True
 
 
 class _Empty(_Offline):
