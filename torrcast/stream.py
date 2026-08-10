@@ -29,7 +29,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Final, NamedTuple
 from urllib.parse import quote
 
-from torrcast import InfraError, why
+from torrcast import InfraError, NotFoundError, why
 from torrcast.parse import VIDEO_EXT
 from torrcast.profile import CAUTIOUS, COPY, Profile
 from torrcast.timing import TIMELINE_ENV, mark
@@ -1727,10 +1727,18 @@ def _track(index: int, stream: dict[str, Any]) -> AudioTrack:
 
 
 def pick_video_file(files: list[TorrFile]) -> TorrFile:
-    """Самый крупный видеофайл раздачи, он же фильм; образ диска — :class:`InfraError`."""
+    """Самый крупный видеофайл раздачи, он же фильм; образ диска — :class:`NotFoundError`.
+
+    Тип отказа здесь - не украшение, а решение отбора (:func:`torrcast.cli._silenced`):
+    :class:`InfraError` - это «рой промолчал, про раздачу не узнали ничего», и такую
+    раздачу промолчавшая очередь спрашивает ещё раз. А тут метаданные приехали целиком
+    и ответ известен навсегда: видеофайла в раздаче нет. Второй спрос дал бы ровно тот
+    же ответ за те же секунды - как у «нужной серии в раздаче нет»
+    (:meth:`torrcast.cli._Series.choose`), и тип у них один.
+    """
     videos = [f for f in files if f.name.lower().endswith(VIDEO_EXT)]
     if not videos:
-        raise InfraError(
+        raise NotFoundError(
             "в раздаче нет отдельного видеофайла (похоже на образ диска) - "
             "возьми другой релиз: cast <запрос> --release N"
         )

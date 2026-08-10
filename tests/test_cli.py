@@ -835,6 +835,42 @@ def test_the_patient_ask_goes_to_the_release_the_swarm_silenced_not_to_a_judged_
     assert "спрашиваю релиз 1" not in printed, "про верх известно всё - терпеть тут нечего"
 
 
+def test_a_disc_image_verdict_is_not_asked_twice(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Приговор «образ диска» - не молчание роя: второй спрос дал бы ровно тот же ответ.
+
+    Раздача, у которой метаданные приехали целиком и видеофайла в ней не оказалось,
+    осуждена, а не промолчала: про неё известно всё, и терпение её ответа не изменит.
+    Опознаётся это ТИПОМ отказа (:func:`torrcast.cli._silenced`), а типом тут обязан быть
+    тот же, что у «нужной серии нет» (:func:`torrcast.stream.pick_video_file` поднимает
+    его на пути настоящего прогрева, без всякого подставного ``choose``).
+    """
+    ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(2)]
+    _probes(monkeypatch, ranked, "h264")
+    # Рой у верха ЖИВОЙ: метаданные приехали, а внутри - образ диска, видеофайла нет.
+    disc = _FakeTorrServer(files=[TorrFile(0, "movie.iso", 25 * GB)])
+
+    # У второй рой мёртв - она промолчала по-настоящему, и переспрашивать надо её.
+    class _HalfDead(_FakeTorrServer):
+        def wait_files(
+            self, torrent_hash: str, timeout: float = 60.0, grace: float = 0.0
+        ) -> list[TorrFile]:
+            if torrent_hash == f"hash-{ranked[1].magnet}":
+                raise InfraError(f"раздача не отдала метаданные за {timeout:.0f} с - нет пиров")
+            return self.files
+
+    torrserver = _HalfDead(files=disc.files)
+    with pytest.raises(NotFoundError):
+        _resolve(cli._Bench(cast(Any, torrserver)), ranked)
+
+    printed = capsys.readouterr().out
+    assert "релиз 1 не годится (в раздаче нет отдельного видеофайла" in printed
+    assert "спрашиваю релиз 2 ещё раз" in printed, "переспрашивается промолчавший"
+    assert "спрашиваю релиз 1" not in printed, "осуждённый второго спроса не получает"
+    assert printed.count("отдельного видеофайла") == 1, "приговор звучит ровно один раз"
+
+
 def test_an_explicitly_named_release_is_played_as_asked_with_a_loud_warning(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
