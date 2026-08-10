@@ -1557,11 +1557,15 @@ def _search(
     # Сериал есть, а раздач нужного сезона в нём нет - добрать сезонной строкой по
     # оригиналу, прежде чем честно отказать (:func:`_season_reinforce`).
     if _lacks_season(found, args):
-        raw, pictures, found = _season_reinforce(client, query, args, raw, found, progress)
+        raw, pictures, found = _season_reinforce(
+            client, query, args, raw, found, progress, titled
+        )
     # Картина есть, а русской дорожки не обещает ни одна её играбельная раздача - добрать
     # точной строкой «оригинал + год» (:func:`_voice_reinforce`).
     if (voiceless := voiceless_pool(found, args, config, profile)) is not None:
-        raw, pictures, found = _voice_reinforce(client, query, voiceless, raw, found, progress)
+        raw, pictures, found = _voice_reinforce(
+            client, query, voiceless, raw, found, progress, titled
+        )
     mark("поиск", найдено=len(raw))
     trace.emit("search", "query", query=query, raw=len(raw), pictures=len(pictures))
     if not raw:
@@ -2216,6 +2220,7 @@ def _season_reinforce(
     raw: list[RawResult],
     found: list[Picture],
     progress: Progress,
+    titled: bool = False,
 ) -> tuple[list[RawResult], list[Picture], list[Picture]]:
     """Добрать сезон-пак сезонной строкой по оригиналу, прежде чем честно отказать.
 
@@ -2233,10 +2238,15 @@ def _season_reinforce(
     Один лишний круг по индексерам, и только когда сезона в выдаче не было вовсе
     (:func:`_lacks_season`): на счастливом пути добора нет. Ничего не подошло - остаётся
     прежний результат, дальше честное «раздач с сезоном N нет».
+
+    ⚠️ ``titled`` - каталог уже сказал, что хвостовая цифра это часть НАЗВАНИЯ, а не номер
+    части (:func:`_titled_number`). Тогда строку делить повторно нельзя: обрубок «бен»
+    уводит и справку, и сезонную строку за чужой картиной, как и в доборе вторым языком
+    (:func:`_second_language`).
     """
     from torrcast.parse import cluster, pick_franchise, slugify, transliterate
 
-    name, _index = split_franchise_index(query)
+    name, _index = (query, None) if titled else split_franchise_index(query)
     want = args.episode or Episode(1, 1)
     lead = max((p for p in found if p.kind == "tv"), key=lambda p: len(p.releases), default=None)
     if lead is None:
@@ -2333,6 +2343,7 @@ def _voice_reinforce(
     raw: list[RawResult],
     found: list[Picture],
     progress: Progress,
+    titled: bool = False,
 ) -> tuple[list[RawResult], list[Picture], list[Picture]]:
     """Добрать точной строкой «оригинал + год», когда русской дорожки нет ни у кого.
 
@@ -2366,10 +2377,15 @@ def _voice_reinforce(
     Один лишний круг по индексерам, и только там, где иначе показа нет: пока у картины
     есть живая раздача с обещанным русским звуком, сюда не заходят (:func:`voiceless_pool`).
     Круг платит из остатка цели, как и оба соседних добора (:func:`_no_budget`).
+
+    ⚠️ ``titled`` - каталог уже сказал, что хвостовая цифра это часть НАЗВАНИЯ, а не номер
+    части (:func:`_titled_number`). Тогда строку делить повторно нельзя: обрубок «бен»
+    уводит точную строку за чужой картиной, как и в доборе вторым языком
+    (:func:`_second_language`).
     """
     from torrcast.parse import cluster, pick_franchise
 
-    name, _index = split_franchise_index(query)
+    name, _index = (query, None) if titled else split_franchise_index(query)
     exact = f"{lead.original} {lead.year}"
     # Тем же именем второй раз ходить незачем: это тот же круг ради той же выдачи.
     if slugify(exact) == slugify(name):

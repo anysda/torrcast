@@ -285,6 +285,10 @@ _TITLE_CUT_RE: Final = re.compile(
 _COLLECTION_CUT_RE: Final = re.compile(
     rf"^(?:{_COLLECTION_LATIN}|{_COLLECTION_RUSSIAN})$", re.IGNORECASE
 )
+#: Те же русские метки, но списком слов: по ним :func:`_title_zone` узнаёт рез, за которым
+#: через слэш стоит оригинальное название (TC-282). Список НЕ заводится второй раз -
+#: он разбирается из :data:`_COLLECTION_RUSSIAN`, иначе две правки разойдутся.
+_RU_CUT_WORDS: Final = frozenset(_COLLECTION_RUSSIAN.split("|"))
 #: Мусорный хвост названия: релиз-группы и слова-пустышки.
 _TITLE_TAIL_RE: Final = re.compile(
     r"(?:\s*[-|]\s*(?:aniliberty\.top|anilibria\w*|complete|extras?|full)\s*$)+", re.IGNORECASE
@@ -2366,7 +2370,16 @@ def _title_zone(text: str, span: tuple[int, int] | None) -> tuple[str, bool]:
     cut = _TITLE_CUT_RE.search(zone)
     collection = bool(cut and _COLLECTION_CUT_RE.match(cut.group(0)))
     if cut:
-        zone = zone[: cut.start()]
+        tail = zone[cut.end() :].lstrip()
+        if cut.group(0).casefold() in _RU_CUT_WORDS and tail[:1] in ("/", "|"):
+            # 🔴 TC-282. Метка сборника закрывает только СВОЙ кусок: «Матрица: Трилогия /
+            # The Matrix: Trilogy». Рез по ней уносил и оригинал за слэшем - картина
+            # оставалась без оригинального названия вовсе. Метка режется, а кусок за
+            # слэшем живёт дальше; техтокены в нём режутся тем же правилом.
+            rest = _TITLE_CUT_RE.search(tail)
+            zone = zone[: cut.start()] + (tail[: rest.start()] if rest else tail)
+        else:
+            zone = zone[: cut.start()]
     zone = _OPEN_BRACKET_RE.split(zone)[0]  # обрезали внутри скобки: «Bleach ... [»
     # Отдельного правила для «от <релиз-группа>» нет и быть не должно: «от» -
     # обычный предлог («Человек-паук: Вдали от дома»), а хвост с группой и так

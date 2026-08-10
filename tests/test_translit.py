@@ -499,6 +499,40 @@ def test_the_whole_string_is_not_asked_when_the_part_is_found(
     assert [plan.picture.year for plan in plans] == [2011]
 
 
+def test_the_titled_number_reaches_the_season_top_up_whole(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """🔴 TC-321. «бен 10 s2e1»: добор сезона спрашивает всю строку, а не обрубок «бен».
+
+    Каталог уже ответил, что цифра - часть названия (TC-296), и добор вторым языком это
+    знает. Сезонный добор строку делил ЗАНОВО, и в справку уезжал обрубок «бен» - тот,
+    про который она отвечает «Бен-Гур». Справка по целому имени знает ``Ben 10``, и
+    сезонная строка строится по ней.
+    """
+    about = _knows(monkeypatch, {"бен 10": Origin(title="Ben 10")})
+    client = _FakeProwlarr(
+        {
+            "бен": [raw(f"Бен / Ben (1972) BDRip {i}", i) for i in range(20)],
+            "бен 10": [
+                raw(f"Бен 10 (2005) WEB-DL 1080p s01e{i:02d}", 100 + i)
+                for i in range(1, THIN_POOL + 1)
+            ],
+            "ben 10 s02": [
+                raw(f"Бен 10 / Ben 10 (2005) WEB-DL 1080p s02e0{i}", 200 + i)
+                for i in range(1, 5)
+            ],
+        }
+    )
+
+    plans, said = _search(client, "бен 10 s2e1", monkeypatch)
+
+    assert about, "добор до справки дошёл"
+    assert set(about) == {"бен 10"}, "справку спросили целой строкой, а не обрубком «бен»"
+    assert "Ben 10 S02" in client.asked
+    assert "добрал по «Ben 10 S02»" in said
+    assert plans
+
+
 def test_the_part_number_picks_inside_the_named_franchise(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

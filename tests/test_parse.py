@@ -160,6 +160,24 @@ def test_preposition_ot_is_not_a_release_group() -> None:
     assert release.original == "Spider-Man: Far from Home"
 
 
+def test_a_collection_label_does_not_take_the_original_with_it() -> None:
+    """🔴 TC-282. Метка сборника режет своё русское имя, но не оригинал за слэшем.
+
+    «Матрица: Трилогия / The Matrix: Trilogy» разбиралась в «Матрицу» с ПУСТЫМ
+    оригиналом: рез по слову «трилогия» съедал всё после него вместе со слэшем и
+    латинским названием. Без оригинала такая раздача не сшивается с картиной и не даёт
+    имени для добора вторым языком.
+    """
+    pack = parse_release_name("Матрица: Трилогия / The Matrix: Trilogy (1999-2003) BDRip 1080p")
+
+    assert pack.title == "Матрица"
+    assert pack.original == "The Matrix: Trilogy"
+
+    box = parse_release_name("Безумный Макс: Коллекция / Mad Max: Collection (1979-2024) BDRip")
+    assert box.title == "Безумный Макс"
+    assert box.original == "Mad Max"
+
+
 def test_star_wars_episode_is_a_movie() -> None:
     """«Episode I» в оригинальном названии — не признак сериала."""
     release = parse_release_name(
