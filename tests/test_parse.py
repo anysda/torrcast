@@ -365,6 +365,41 @@ def test_matrix_two_is_reloaded() -> None:
     assert len(pick_franchise("матрица", pictures)) == 4
 
 
+def test_a_game_does_not_stand_in_for_a_missing_part() -> None:
+    """Номера во франшизе нет - и подставлять на его место нечего (TC-320).
+
+    Имена дословные, с живой выдачи. Игра «Матрица: Путь Нео» приезжает одной раздачей
+    и по хронологии встаёт следом за «Революцией»: на живой выдаче она уезжала в меню
+    единственной строкой запроса «матрица 5», тут - «матрица 4». Соседний номер отдавал
+    «Воскрешение» - тоже не ту картину, которую человек назвал.
+    """
+    pictures = cluster(
+        [
+            parse_release_name(name)
+            for name in (
+                "Матрица / The Matrix (1999) WEB-DL 720p от SuperMin | D | Open Matte",
+                "Матрица: Перезагрузка / The Matrix Reloaded (2003) BDRemux 1080p | Dub",
+                "Матрица 2: Перезагрузка / The Matrix Reloaded (2003) WEB-DL 2160p | Dub",
+                "Матрица: Революция / The Matrix Revolutions (2003) BDRemux 1080p | Dub",
+                "Матрица 3: Революция / The Matrix Revolutions (2003) BDRip | Dub",
+                "Матрица: Путь Нео / The Matrix: Path of Neo  (2005) PC | RePack-Yaroslav98",
+                "Матрица: Воскрешение / The Matrix Resurrections (2021) WEB-DL 1080p | D",
+            )
+        ]
+    )
+
+    assert [p.title for p in pictures if p.kind == "other"] == ["Матрица: Путь Нео"]
+    assert pick_franchise("матрица 4", pictures) == [], "игра местом в линейке не считается"
+    assert pick_franchise("матрица 5", pictures) == [], "пятой части во франшизе нет"
+    # Названные каталогом номера отвечают как прежде, первое место линейки свободно.
+    assert [p.title for p in pick_franchise("матрица 1", pictures)] == ["Матрица"]
+    assert [p.title for p in pick_franchise("матрица 2", pictures)] == ["Матрица: Перезагрузка"]
+    assert [p.title for p in pick_franchise("матрица 3", pictures)] == ["Матрица: Революция"]
+    # Без номера части франшиза показывается как была: не-видео из каталога не исчезает.
+    whole = [p.title for p in pick_franchise("матрица", pictures)]
+    assert "Матрица: Путь Нео" in whole and "Матрица: Воскрешение" in whole
+
+
 def test_cars_franchise_is_cross_language() -> None:
     """«Тачки»/«Cars» склеиваются, если оба варианта есть в имени раздачи."""
     releases = [
