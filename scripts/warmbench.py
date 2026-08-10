@@ -3,7 +3,7 @@
 Вместо телевизора - ПОДДЕЛЬНЫЙ читатель темпа: он держит запас живого показа около
 GUARD_LOW обратной связью (прогрев активен -> запас проседает; прогрев замер -> запас
 восстанавливается, но упирается в потолок ниже GUARD_HIGH, потому что показ идёт вплотную
-за упаковкой). Настоящий ffmpeg греет настоящий ролик на диск в /home/claude/tmp - боевое
+за упаковкой). Настоящий ffmpeg греет настоящий ролик во временный каталог - боевое
 хранилище не трогается (TORRCAST_WARM).
 
 Мерим ДВУМЯ способами:
@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -148,7 +149,7 @@ def main() -> int:
     ap.add_argument("--wall", type=float, default=90.0)
     ap.add_argument("--floor", type=float, default=15.0, help="куда валится запас под прогревом")
     ap.add_argument("--ceiling", type=float, default=35.0, help="потолок запаса, прогрев замер")
-    ap.add_argument("--warm-dir", default="/home/claude/tmp/warmbench")
+    ap.add_argument("--warm-dir", default=str(Path(tempfile.gettempdir()) / "torrcast-warmbench"))
     args = ap.parse_args()
 
     warm_dir = Path(args.warm_dir)

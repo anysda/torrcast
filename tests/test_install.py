@@ -30,3 +30,14 @@ def test_anilibria_is_a_regular_indexer_with_a_shim_route() -> None:
     assert '"anilibria|http://127.0.0.1:9697/"' in SCRIPT
     assert "'anilibria.top|/api/v1/app/search/releases?query=Kaiba||" in SCRIPT
     assert '"$REPO_DIR/definitions/anilibria.yml"' in SCRIPT
+
+
+def test_install_removes_its_login_notice_without_a_motd_phase() -> None:
+    phases = SCRIPT.split('PHASES="', 1)[1].split('"', 1)[0]
+    assert "cleanup_login_notice() {" in SCRIPT
+    cleanup = SCRIPT.split("cleanup_login_notice() {", 1)[1].split("\n}", 1)[0]
+
+    assert "motd" not in phases
+    assert 'rm -f "$motd_d/00-torrcast"' in cleanup
+    assert "cast status | stop | doctor" in cleanup
+    assert "cleanup_login_notice" in SCRIPT.split("main() {", 1)[1]

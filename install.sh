@@ -3,7 +3,7 @@
 # повторный запуск ничего не ломает и не пересоздаёт то, что уже на месте.
 #
 # Фазы: локаль → зависимости → (ffmpeg, TorrServer, Prowlarr, источники - РАЗОМ, в фоне)
-# → пакет → индексеры → конфиг → раздача → приветствие.
+# → пакет → индексеры → конфиг → раздача.
 # Порядок фаз в выводе - это порядок, в котором результат каждой впервые понадобился, а
 # не порядок их запуска: всё, что про сеть, идёт параллельно (см. `job_start`).
 # Что первому показу не нужно (индексер на сто секунд, оценки IMDb к меню), доводится
@@ -204,7 +204,7 @@ KEY_INDEXER="Knaben"
 # Трекеры с логином, капчей или ключом сюда не попадают ни при каких условиях, а
 # semi-private (59 определений) не рассматриваются вовсе: там регистрация.
 
-PHASES="${TORRCAST_PHASES:-locale packages ffmpeg torrcast torrserver sources prowlarr indexers config hls facts motd}"
+PHASES="${TORRCAST_PHASES:-locale packages ffmpeg torrcast torrserver sources prowlarr indexers config hls facts}"
 
 #: Локаль. Без UTF-8 в системе консоль крошит кириллицу: русское название приезжает
 #: в `cast` битым ещё до разбора аргументов. Целью берём ru_RU.UTF-8: в C.UTF-8 строки
@@ -214,12 +214,6 @@ LOCALE="${TORRCAST_LOCALE:-ru_RU.UTF-8}"
 #: Куда честно отступаем, если цель не собралась: C.UTF-8 есть в любой современной glibc
 #: и не тянет за собой переводы. Сортировка станет побайтной, кириллица останется целой.
 LOCALE_FALLBACK="${TORRCAST_LOCALE_FALLBACK:-C.UTF-8}"
-
-#: Приветствие при входе по ssh. Печатает его pam_motd, поэтому файл кладём целиком.
-MOTD_FILE="${TORRCAST_MOTD:-/etc/motd}"
-#: Где приветствие собирается динамически (Ubuntu): pam_motd прогоняет этот каталог по
-#: именам, а статический файл печатает уже после него. Есть каталог - кладём скрипт в него.
-MOTD_D="${TORRCAST_MOTD_D:-/etc/update-motd.d}"
 
 # Выгрузка оценок IMDb под справку в меню франшизы (torrcast/facts.py). Открытая,
 # без ключа и регистрации, обновляется у них ежедневно; 8.6 МБ в архиве.
@@ -564,7 +558,7 @@ fetch() {  # $@ - аргументы curl; возвращает код посл�
 # бессмысленно: GitHub ответил честно, и второй заход ничего не оживит.
 # Печатает JSON в stdout, все свои слова - в stderr, иначе jq подавится.
 GH_TAG_TRIES=3
-gh_release() {  # $1 - владелец/репозиторий, $2 - тег пина, $3 - имя для сообщений
+gh_release() {  # $1 - организация/репозиторий, $2 - тег пина, $3 - имя для сообщений
     local api="https://api.github.com/repos/$1/releases" body code i=1
     body="$(mktemp)"
     while :; do
@@ -1988,64 +1982,18 @@ setup_names() {
     rm -f "$names" "$basics"
 }
 
-# Кто вошёл по ssh, должен сразу видеть, куда попал и что здесь спрашивать. Шпаргалка
-# перечисляет ровно то, что понимает CLI (torrcast/cli.py) - выдуманных команд быть не
-# должно, иначе приветствие врёт.
-motd_banner() {
-    printf '\033[1;32m'
-    cat <<'ART'
- _                          _
-| |_ ___  _ __ ___ __ _ ___| |_
-| __/ _ \| '__/ __/ _` / __| __|
-| || (_) | | | (_| (_| \__ \ |_
- \__\___/|_|  \___\__,_|___/\__|
-ART
-    printf '\n   торрент → ТВ без скачивания   ·   показ: cast <название>\n'
-    printf '   cast status | stop | doctor | releases | voices'
-    printf '   ·   ключи: --tv, --voice N, --new, --dry\n'
-    printf '\033[0m\n'
-}
-
-setup_motd() {
-    local target mode tmp
-    tmp="$(mktemp)"
-    if [ -d "$MOTD_D" ]; then
-        # Динамическое приветствие печатается раньше статического файла, поэтому там, где
-        # каталог есть, шпаргалка едет скриптом: иначе она уходит под дистрибутивный вывод
-        # (справка, обновления, состояние диска). Номер 00 - первым в каталоге.
-        # Статический файл в этой ветке не пишем: печатались бы оба, один под другим.
-        target="$MOTD_D/00-torrcast"; mode=0755
-        log "приветствие при входе ($target)"
-        # Прежний заход мог положить шпаргалку в статический файл - её убираем, иначе
-        # после перехода на скрипт она печаталась бы второй раз.
-        if [ -f "$MOTD_FILE" ] && grep -qF 'cast status | stop | doctor' "$MOTD_FILE"; then
-            : >"$MOTD_FILE"
-            info "старое приветствие из $MOTD_FILE убрано - теперь его печатает скрипт"
-        fi
-        {
-            printf '#!/bin/sh\n'
-            printf '# приветствие torrcast; кладёт install.sh, печатает pam_motd при входе\n'
-            printf "cat <<'TORRCAST_MOTD'\n"
-            motd_banner
-            printf 'TORRCAST_MOTD\n'
-        } > "$tmp"
-    else
-        target="$MOTD_FILE"; mode=0644
-        log "приветствие при входе ($target)"
-        motd_banner > "$tmp"
+cleanup_login_notice() {
+    local motd_file="${TORRCAST_MOTD:-/etc/motd}"
+    local motd_d="${TORRCAST_MOTD_D:-/etc/update-motd.d}"
+    rm -f "$motd_d/00-torrcast"
+    if [ -f "$motd_file" ] && grep -qF 'cast status | stop | doctor' "$motd_file"; then
+        : >"$motd_file"
     fi
-    if cmp -s "$tmp" "$target"; then
-        rm -f "$tmp"
-        skip "$target"
-        return
-    fi
-    install -m "$mode" "$tmp" "$target"
-    rm -f "$tmp"
-    info "приветствие обновлено"
 }
 
 main() {
     need_root
+    cleanup_login_notice
     # Локаль и apt идут первыми и по очереди, иначе никак: `curl`, `jq` и `python3-venv`
     # приезжают именно отсюда, а без них не начать ни одну загрузку.
     has locale     && setup_locale
@@ -2087,7 +2035,6 @@ main() {
     # А это первому показу не нужно: оценки украшают меню, и качать их человеку незачем.
     has facts      && late_run "оценки IMDb для справки в меню" setup_facts
     has facts      && late_run "русские прокатные имена IMDb для паспорта картины" setup_names
-    has motd       && setup_motd
     [ -n "$JOB_DIR" ] && rm -rf "$JOB_DIR"
 
     log "готово. Осталось: cast --tv - найдёт телевизоры в сети и спросит, который твой"
