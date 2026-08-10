@@ -262,14 +262,28 @@ _VIDEO_MARKER_RE: Final = re.compile(
 #: 2017 года приезжал безымянным тёзкой «Transformers: Animated» - с ним его и сшивало
 #: по номеру сезона (TC-240). Латинское ``collection`` таких падежей не знает и режет
 #: по-прежнему безусловно.
+#:
+#: 🔴 TC-327. Слова про сборник вынесены отдельными кусками (:data:`_COLLECTION_LATIN`,
+#: :data:`_COLLECTION_RUSSIAN`) не ради красоты: по ним же читается, что раздача - СБОРНИК
+#: (:attr:`Release.collection`). Список обязан быть один: заведи ему второй разбор - и
+#: имя, обрезанное по «Трилогия», перестанет считаться сборником при первой же правке
+#: одного списка мимо другого.
+_COLLECTION_LATIN: Final = r"collection"
+_COLLECTION_RUSSIAN: Final = r"трилогия|дилогия|квадрология|антология|коллекция"
 _TITLE_CUT_RE: Final = re.compile(
     r"\b(?:bd-?remux|bd-?rip|remux|blu-?ray|web-?dl\w*|web-?rip|webrip|hdrip|"
     r"dvd-?rip|dvd\d?|hdtv\w*|hdcam|telesync|dvdscr|satrip|iptv|"
     r"2160p|1080p|720p|576p|480p|4k|uhd|hevc|x26[45]|h\.?\s?26[45]|avc|av1|"
     r"s\d{1,2}\s?e\d{1,3}|s\d{2}|season|сезон|complete|\d+\s*(?:из|of)\s*\d+|"
-    r"серии|серия|выпуск|collection)\b"
-    r"|\b(?:трилогия|дилогия|квадрология|антология|коллекция)\b(?!\s+[^\W\d_])",
+    rf"серии|серия|выпуск|{_COLLECTION_LATIN})\b"
+    rf"|\b(?:{_COLLECTION_RUSSIAN})\b(?!\s+[^\W\d_])",
     re.IGNORECASE,
+)
+#: Имя обрезано ИМЕННО словом про сборник - значит за именем стоит не картина, а пачка
+#: картин (:attr:`Release.collection`). Сверяется с тем, что вырезал :data:`_TITLE_CUT_RE`,
+#: и потому спрашивает целое совпадение, а не вхождение.
+_COLLECTION_CUT_RE: Final = re.compile(
+    rf"^(?:{_COLLECTION_LATIN}|{_COLLECTION_RUSSIAN})$", re.IGNORECASE
 )
 #: Мусорный хвост названия: релиз-группы и слова-пустышки.
 _TITLE_TAIL_RE: Final = re.compile(
@@ -499,6 +513,10 @@ class Release:
     #: только тот, чья строка выиграла склейку. Пусто - раздача приехала одной строкой, и
     #: всё, что о ней известно, стоит в :attr:`indexer`.
     indexers: tuple[str, ...] = ()
+    #: Раздача - СБОРНИК нескольких картин: имя обрезано словом «Трилогия», «Коллекция»,
+    #: ``Collection`` (:data:`_COLLECTION_CUT_RE`). Не оценка качества раздачи, а ответ на
+    #: один вопрос: то, что стоит за именем, - это картина или пачка картин.
+    collection: bool = False
 
     @property
     def is_hevc(self) -> bool:
@@ -782,6 +800,21 @@ class Picture:
         отсюда, потому что и порог мерился по строкам - см. его описание.
         """
         return sum(r.copies for r in self.releases)
+
+    @property
+    def collection(self) -> bool:
+        """Картина - на самом деле СБОРНИК: все её раздачи назвали себя пачкой картин.
+
+        🔴 TC-327. «Хоббит: Трилогия», «Гарри Поттер: Коллекция», «Хоббит / Властелин
+        колец: Коллекция ... (2001-2014)» - имя такой раздачи обрезается по слову про
+        сборник до голого имени франшизы, и в каталоге заводится картина «Хоббит (2001)»
+        или «Гарри Поттер (2001)», которой не существует. Диапазон лет в имени схлопывается
+        в первый год, поэтому гейт года такую кучку не разводит.
+
+        Ровно все, а не большинство: одна честная раздача под тем же именем и годом - это
+        уже картина, и сборники рядом с ней только пополняют её пул.
+        """
+        return bool(self.releases) and all(r.collection for r in self.releases)
 
     @property
     def seeders(self) -> int:
@@ -1396,7 +1429,8 @@ def parse_release_name(name: str) -> Release:
     """Разобрать имя раздачи в структуру (форматы — в докстринге модуля)."""
     text = _normalize(name)
     year, span = _find_year(text)
-    title, original, aliases = _split_titles(_title_zone(text, span))
+    zone, collection = _title_zone(text, span)
+    title, original, aliases = _split_titles(zone)
 
     quality_match = _QUALITY_RE.search(text)
     quality = _normalize_quality(quality_match.group(1)) if quality_match else None
@@ -1420,6 +1454,7 @@ def parse_release_name(name: str) -> Release:
         seasons=seasons,
         episodes=episodes,
         kind=kind,
+        collection=collection,
     )
 
 
@@ -1619,24 +1654,46 @@ def glue(pictures: list[Picture]) -> list[Picture]:
             (pictures[i] for i in members),
             key=lambda p: (-len(p.releases), p.title, p.original or ""),
         )
-        # 🔴 Год склеенной картины - самый РАННИЙ из известных, а не год самой толстой
-        # кучки. Пока склеивались только годы, расходящиеся на единицу, разницы не было;
-        # со сшивкой сезонов (TC-201) кучки разъехались на десятилетия, и сериал стал
-        # подписываться годом самого обсиженного сезона: «Доктор Кто (2017, сериал)» при
-        # 12 раздачах 2005-го против 90 раздач 2017-го, «Игра престолов (2019)»,
-        # «Чёрное зеркало (2019)». Это не только кривая строка в меню: справку ищут по
-        # паре «имя + год» и сверяют год по первым фразам статьи
-        # (:func:`torrcast.facts.confirms`), а статья открывается годом НАЧАЛА сериала.
-        # С чужим годом справки нет вовсе - ни рейтинга, ни описания, ни хронометража,
-        # на котором считается битрейт (TC-185).
-        year = min((p.year for p in merged if p.year is not None), default=None)
         releases = [r for p in merged for r in p.releases]
+        year = _glued_year(merged[0].kind, merged, releases)
         fresh = _compose(merged[0].kind, year, releases)
         # Второе имя - самое многолюдное из тех, что не стали каноническим: именно его
         # человек и набрал, если спрашивал латиницей, а в меню теперь русское название.
         fresh.also = next((p.title for p in merged if slugify(p.title) != slugify(fresh.title)), "")
         out.append(fresh)
     return out
+
+
+def _glued_year(kind: Kind, merged: list[Picture], releases: list[Release]) -> int | None:
+    """Год склеенной картины: у кино - по большинству раздач, у сериала - самый ранний.
+
+    🔴 TC-201. **У сериала год - самый РАННИЙ из известных**, а не год самой толстой кучки.
+    Со сшивкой сезонов кучки разъезжаются на десятилетия, и сериал подписывался годом
+    самого обсиженного сезона: «Доктор Кто (2017)» при 12 раздачах 2005-го против 90
+    раздач 2017-го, «Игра престолов (2019)», «Чёрное зеркало (2019)». Это не только кривая
+    строка в меню: справку ищут по паре «имя + год» и сверяют год по первым фразам статьи
+    (:func:`torrcast.facts.confirms`), а статья открывается годом НАЧАЛА сериала. С чужим
+    годом справки нет вовсе - ни рейтинга, ни описания, ни хронометража, на котором
+    считается битрейт (TC-185).
+
+    🔴 TC-328. **У кино ранний год - не начало, а описка каталога**, и правило сериала на
+    него не переносится. Гейт года (:func:`_link`) сводит в одну картину только соседние
+    годы, так что спорят тут не оригинал с ремейком, а год производства с годом проката:
+    «Титаник» стоял в меню как «Титаник (1996)» из-за трёх раздач из 68, подписанных
+    1996-м. Год человек читает глазами, чтобы отличить оригинал от ремейка, - это наш же
+    приём против подмены картины, и врущий год подрывает ровно тот признак, на который мы
+    его учим смотреть. Слово за большинством раздач; при равном счёте - за ранним годом,
+    то есть за прежним ответом.
+
+    Считается по РАЗДАЧАМ, а не по кучкам: кучка тут - не голос, а лишь то, как каталог
+    разложил одинаковые имена, и одна раздача с опиской весит там столько же, сколько
+    шесть десятков без неё.
+    """
+    dated = [r.year for r in releases if r.year is not None]
+    if kind != "tv" and dated:
+        counted = Counter(dated)
+        return min(counted, key=lambda year: (-counted[year], year))
+    return min((p.year for p in merged if p.year is not None), default=None)
 
 
 def _run_span(picture: Picture) -> tuple[int, int] | None:
@@ -1809,8 +1866,25 @@ def _numbered_line(pictures: list[Picture]) -> tuple[list[Picture], list[Picture
 
 
 def menu_order(pictures: list[Picture]) -> list[Picture]:
-    """Порядок картин в меню: номер пункта = номер части (:func:`_numbered_line`)."""
-    line, tail = _numbered_line(pictures)
+    """Меню франшизы: что в нём стоит и в каком порядке (номер пункта = номер части).
+
+    🔴 TC-327. Сборник в меню не пункт. Раздача «Хоббит: Трилогия», «Гарри Поттер:
+    Коллекция», «Хоббит / Властелин колец: Коллекция ... (2001-2014)» обрезается по слову
+    про сборник до имени франшизы и заводит в каталоге картину, которой нет: в меню по
+    «хоббит» стояло «Хоббит (2001)» одной раздачей на 165 ГБ - две трилогии сразу. Диапазон
+    лет схлопывается в первый год, так что гейт года такое не разводит, а человек читает
+    строку меню как картину и выбирает её.
+
+    Убирается ПУНКТ МЕНЮ, а не раздача: сборник остаётся в каталоге, и там, где он и есть
+    картина (сезон-пак сериала лежит в одной кучке с остальными раздачами сезона), его
+    ничто не трогает - словом про сборник подписывают пачку ФИЛЬМОВ, а не сезоны
+    (:attr:`Picture.collection`).
+
+    ⚠️ Кроме сборников в меню не нашлось ничего - показываем их: выбирать всё равно не из
+    чего, а пустое меню значит «ничего не нашлось» при живой выдаче в руках.
+    """
+    picked = [p for p in pictures if not p.collection]
+    line, tail = _numbered_line(picked or list(pictures))
     return line + tail
 
 
@@ -2244,8 +2318,14 @@ def _fansub_episode(text: str) -> re.Match[str] | None:
     return _FANSUB_EPISODE_RE.match(text)
 
 
-def _title_zone(text: str, span: tuple[int, int] | None) -> str:
-    """Отрезать от имени кусок, в котором лежат названия."""
+def _title_zone(text: str, span: tuple[int, int] | None) -> tuple[str, bool]:
+    """Отрезать от имени кусок, в котором лежат названия; вторым - сборник ли это.
+
+    Сборник узнаётся ровно тем словом, по которому имя и обрезано
+    (:data:`_COLLECTION_CUT_RE`): «Хоббит: **Трилогия** / The Hobbit: Trilogy», «Гарри
+    Поттер: **Коллекция**». Второго разбора имени под это нет и не нужно - вопрос «где
+    кончилось название» и вопрос «сборник ли это» решает одна и та же находка.
+    """
     # Номер серии - не часть имени. Без этого «Gintama: 3-nen Z-gumi Ginpachi-sensei - 11»
     # и «- 12» становились РАЗНЫМИ картинами, каждая в пару раздач, и дефолт садился на
     # такой огрызок при полном каталоге рядом (TC-151). Зона при этом идёт дальше по
@@ -2256,6 +2336,7 @@ def _title_zone(text: str, span: tuple[int, int] | None) -> str:
     # обрежет строку раньше оригинального названия, которое идёт после скобки.
     zone = _BRACKETS_RE.sub(" ", zone)  # (Режиссёр), [S01], (IMAX Edition), [Group]
     cut = _TITLE_CUT_RE.search(zone)
+    collection = bool(cut and _COLLECTION_CUT_RE.match(cut.group(0)))
     if cut:
         zone = zone[: cut.start()]
     zone = _OPEN_BRACKET_RE.split(zone)[0]  # обрезали внутри скобки: «Bleach ... [»
@@ -2265,7 +2346,7 @@ def _title_zone(text: str, span: tuple[int, int] | None) -> str:
     if zone.count(".") >= 2 and zone.count(" ") <= 1:  # scene-имя через точки
         zone = zone.replace(".", " ")
     zone = _TITLE_TAIL_RE.sub("", zone)
-    return zone.strip(" .-_|,:;/")
+    return zone.strip(" .-_|,:;/"), collection
 
 
 def _split_titles(zone: str) -> tuple[str, str | None, tuple[str, ...]]:

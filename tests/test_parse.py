@@ -947,6 +947,62 @@ def test_an_explicit_first_part_leaves_no_free_slot_for_a_nameless_one() -> None
     assert outside_numbering(whole) == {ordered[-1].key}
 
 
+def test_a_collection_release_does_not_become_a_menu_line() -> None:
+    """🔴 TC-327. Раздача-сборник в меню не пункт: за ней стоит пачка картин, а не картина.
+
+    Имя сборника обрезается по слову «Трилогия»/«Коллекция» до голого имени франшизы, а
+    диапазон лет в скобке схлопывается в первый год - и гейт года такую кучку не разводит.
+    В живой выдаче по «хоббит» из-за этого стояло «Хоббит (2001)» одной раздачей на 165 ГБ:
+    две трилогии сразу, картины с таким именем и годом не существует вовсе.
+    """
+    names = [
+        "Хоббит: Нежданное путешествие / The Hobbit: An Unexpected Journey (2012) BDRip 1080p",
+        "Хоббит: Пустошь Смауга / The Hobbit: The Desolation of Smaug (2013) BDRip 1080p",
+        "Хоббит: Битва пяти воинств / The Hobbit: The Battle of the Five Armies (2014) BDRip",
+        "Хоббит: Трилогия / The Hobbit: Trilogy (2012-2014) BDRip 1080p",
+        "Хоббит / Властелин колец: Коллекция / The Hobbit / The Lord of the rings: Collection"
+        " (2001-2014) BDRip 1080p",
+    ]
+    pictures = cluster([parse_release_name(name) for name in names])
+
+    assert [(p.title, p.year) for p in pictures if p.collection] == [
+        ("Хоббит", 2001),
+        ("Хоббит", 2012),
+    ], "каталог сборники знает - в меню их не пускает отдельная ступень"
+    assert [(p.title, p.year) for p in menu_order(pick_franchise("хоббит", pictures))] == [
+        ("Хоббит: Нежданное путешествие", 2012),
+        ("Хоббит: Пустошь Смауга", 2013),
+        ("Хоббит: Битва пяти воинств", 2014),
+    ]
+
+
+def test_a_season_pack_stays_a_picture_and_a_lone_collection_stays_in_the_menu() -> None:
+    """🔴 TC-327, обе ограды разом: сборник не мусор, и сезон-пак не сборник.
+
+    Сезон-пак «Клиника [S01-09]» - обычная раздача сериала, лежит в одной кучке с
+    остальными и остаётся картиной. А если, кроме сборников, не нашлось ничего, они и
+    показываются: выбирать всё равно не из чего, а пустое меню значит «ничего не нашлось»
+    при живой выдаче в руках.
+    """
+    series = cluster(
+        [
+            parse_release_name("Клиника / Scrubs [S01-09] (2001-2010) WEB-DL 1080p"),
+            parse_release_name("Клиника / Scrubs [S07] (2008) WEB-DL 1080p"),
+        ]
+    )
+
+    assert [(p.title, p.kind, p.collection) for p in series] == [("Клиника", "tv", False)]
+    assert len(menu_order(pick_franchise("клиника", series))) == 1
+
+    lonely = cluster(
+        [parse_release_name("Хоббит: Трилогия / The Hobbit: Trilogy (2012-2014) BDRip 1080p")]
+    )
+
+    assert [(p.title, p.year) for p in menu_order(pick_franchise("хоббит", lonely))] == [
+        ("Хоббит", 2012)
+    ]
+
+
 def test_latin_and_russian_names_of_one_picture_are_one_picture() -> None:
     """«Врата Штейна» (русская озвучка, 2011) и ``Steins;Gate`` (года в именах нет) - одна
     картина: имена сведены оригиналом из самой выдачи, а безымянный год спорить не может.
@@ -983,6 +1039,38 @@ def test_one_year_apart_is_the_same_picture() -> None:
     assert len(pictures) == 1
     assert len(pictures[0].releases) == 2
     assert pictures[0].also == ""  # имя одно, говорить не о чем
+
+
+def test_a_glued_film_wears_the_year_of_the_majority_and_a_series_the_earliest() -> None:
+    """🔴 TC-328 и TC-201 одним тестом: у кино год по большинству, у сериала - самый ранний.
+
+    «Титаник» стоял в меню как «Титаник (1996)» из-за трёх раздач из 68 с этим годом:
+    ранний год у кино - это описка каталога (год производства против года проката), а не
+    начало чего-либо. Год человек читает глазами, чтобы отличить оригинал от ремейка, и
+    врущий год подрывает ровно этот приём.
+
+    У сериала правило обратное и остаётся прежним: сезоны датированы каждый своим годом,
+    самый обсиженный - не первый, а справку открывает год НАЧАЛА показа.
+    """
+    titanic = cluster(
+        [_release("Титаник", 1996, seeders=3)] * 3 + [_release("Титаник", 1997, seeders=9)] * 65
+    )
+
+    assert [(p.title, p.year, len(p.releases)) for p in titanic] == [("Титаник", 1997, 68)]
+
+    def season(year: int, number: int) -> Release:
+        return Release(
+            raw_name=f"Доктор Кто / Doctor Who [S{number:02d}] ({year}) WEB-DL 1080p",
+            title="Доктор Кто",
+            original="Doctor Who",
+            year=year,
+            kind="tv",
+            season=number,
+        )
+
+    series = cluster([season(2005, 1), season(2006, 2), season(2006, 3), season(2006, 4)])
+
+    assert [(p.title, p.year, p.kind) for p in series] == [("Доктор Кто", 2005, "tv")]
 
 
 def test_remake_is_not_glued_to_the_original() -> None:
