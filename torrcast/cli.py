@@ -95,6 +95,7 @@ from torrcast.stream import (
     Grid,
     HlsServer,
     Media,
+    ServerDownError,
     Supply,
     TorrFile,
     TorrServer,
@@ -1382,7 +1383,10 @@ def _cmd_play(args: Args) -> int:
         # Показа не будет: «сыгранная» раздача - такой же мусор, как прогретое лишнее.
         # Убирается по СВОИМ явным хэшам, как на любом выходе без показа.
         bench.drop_all()
-        print(f"(--dry) {about} - каста нет")
+        # Сухой прогон - главный замер отбора, поэтому он называет, ЧТО выбрал бы:
+        # имя файла внутри раздачи, а не эхо запроса. Иначе дефект «сыграла не та
+        # серия» (сквозная нумерация против сезонной) всухую не виден вовсе (TC-302).
+        print(f"(--dry) {about} · файл «{video.base}» - каста нет")
         return EXIT_OK
     entry = Entry(
         title=plan.picture.title,
@@ -3102,6 +3106,10 @@ class _Prep:
     video: TorrFile | None = None
     media: Media | None = None
     error: str = ""
+    #: Отказ, которым кончилась подготовка (``error`` - его строка для человека).
+    #: Нужен именно типом: «умерло собственное звено» опознаётся по классу
+    #: исключения, а не по префиксу текста - текст пишется языком зрителя и правится.
+    failure: TorrcastError | None = None
     phase: str = "очередь"
     started: float = field(default_factory=time.monotonic)
     meta: float = 0.0
@@ -3375,8 +3383,9 @@ class _Bench:
             # Ошибка самой службы раздачи относится ко всей очереди, а не к одному
             # рою. Перебирать остальные релизы бессмысленно: они пойдут через тот же
             # мёртвый порт и лишь размножат одну строку, после чего итог ещё и свалит
-            # вину на раздачи.
-            if prep.error.startswith("TorrServer "):
+            # вину на раздачи. Опознаётся такой отказ ТИПОМ исключения, а не текстом:
+            # строка печатается языком зрителя и правится, тип - нет (TC-281).
+            if isinstance(prep.failure, ServerDownError):
                 raise InfraError(prep.error)
             trouble = self._trouble(
                 prep,
@@ -3840,6 +3849,7 @@ class _Bench:
             prep.phase = "готово"
         except TorrcastError as exc:
             prep.error = str(exc)
+            prep.failure = exc
             prep.phase = "сбой"
         finally:
             prep.ready.set()

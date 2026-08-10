@@ -732,6 +732,44 @@ def test_a_dry_run_takes_even_the_chosen_torrent_back(monkeypatch: pytest.Monkey
     assert not set(added) - set(dropped), "убрано всё поднятое, выбранная - тоже"
 
 
+def test_a_dry_run_names_the_chosen_file_not_the_request_echo(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """🔴 TC-302. Сухой прогон печатал ЭХО ЗАПРОСА (``series.want``), и дефект «сыграла
+    серию „- 84" вместо s1e1» (сквозная нумерация против сезонной) им не виден ВООБЩЕ:
+    числа по сериям, снятые всухую, были враньём. Теперь ``--dry`` называет, ЧТО он
+    выбрал бы, - имя файла внутри раздачи.
+    """
+
+    class _SeriesProwlarr(_FakeProwlarr):
+        def search(self, query: str) -> list[RawResult]:
+            return [
+                RawResult(
+                    "Киберпанк: Бегущие по краю / Cyberpunk: Edgerunners (2022) "
+                    "S01 WEB-DL 1080p x264 | D",
+                    "e" * 40,
+                    9 * GB,
+                    55,
+                )
+            ]
+
+    class _SeriesTorrServer(_FakeTorrServer):
+        def wait_files(
+            self, torrent_hash: str, timeout: float = 60.0, grace: float = 0.0
+        ) -> list[TorrFile]:
+            return [TorrFile(i, f"Cyberpunk.S01E0{i + 1}.mkv", 2 * GB) for i in range(3)]
+
+    monkeypatch.setattr(cli, "Prowlarr", _SeriesProwlarr)
+    monkeypatch.setattr(cli, "TorrServer", _SeriesTorrServer)
+    _answers(monkeypatch, "")
+
+    assert cli.main(["киберпанк", "s1e3", "--dry"]) == 0
+
+    said = capsys.readouterr().out
+    assert "Cyberpunk.S01E03.mkv" in said, "сухой прогон называет ВЫБРАННЫЙ файл"
+    assert "каста нет" in said
+
+
 def test_an_instant_answer_is_no_worse_than_before(monkeypatch: pytest.MonkeyPatch) -> None:
     """Enter нажали мгновенно — путь остаётся прежним: раздача та же, позиция цела.
 

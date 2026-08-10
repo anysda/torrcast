@@ -23,7 +23,7 @@ from tests.test_cli import _FakeTorrServer, _resolve, rel
 from torrcast import InfraError, NotFoundError, cli
 from torrcast import stream as stream_mod
 from torrcast.parse import Release
-from torrcast.stream import Media, swarm_pulse
+from torrcast.stream import Media, ServerDownError, swarm_pulse
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -127,7 +127,9 @@ def test_dead_torrserver_stops_before_the_next_release() -> None:
 
         def add(self, magnet: str) -> str:
             self.calls += 1
-            raise InfraError("TorrServer не отвечает (http://127.0.0.1:8090): connection refused")
+            raise ServerDownError(
+                "TorrServer не отвечает (http://127.0.0.1:8090): connection refused"
+            )
 
     torrserver = _Dead()
     with pytest.raises(InfraError) as caught:
@@ -137,6 +139,37 @@ def test_dead_torrserver_stops_before_the_next_release() -> None:
         "TorrServer не отвечает (http://127.0.0.1:8090): connection refused"
     )
     assert torrserver.calls <= 2, "после пары прогрева очередь продолжаться не должна"
+
+
+def test_the_same_words_without_the_type_do_not_stop_the_queue(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """🔴 TC-281. Те же слова, но НЕ типом «служба умерла» - отказ одного релиза.
+
+    Раньше «умерло наше звено» опознавалось по ПРЕФИКСУ строки, которую мы правим
+    языком зрителя: стоило тексту измениться - и очередь пошла бы через мёртвый порт
+    молча, ни один тест бы не заметил (они проверяли ту же строку). Теперь решает
+    тип исключения, и чужая ошибка с теми же словами очередь не останавливает.
+    """
+    ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(2)]
+    monkeypatch.setattr(Release, "magnet", property(lambda self: f"magnet-{self.raw_name}"))
+
+    class _Shaky(_FakeTorrServer):
+        def add(self, magnet: str) -> str:
+            if magnet == "magnet-r0":  # слова те же, что у мёртвой службы, а тип - нет
+                raise InfraError(
+                    "TorrServer не отвечает (http://127.0.0.1:8090): connection refused"
+                )
+            return super().add(magnet)
+
+    def read(url: str, timeout: float = 90.0, alive: Any = None) -> Media:
+        return Media(3600.0, (), "h264")
+
+    monkeypatch.setattr(cli, "probe", read)
+
+    prep = _resolve(cli._Bench(cast(Any, _Shaky())), ranked)
+
+    assert prep.number == 2, "чужая ошибка с теми же словами - не отказ инфраструктуры"
 
 
 # --- Шаг опроса метаданных (TC-126) ---------------------------------------------------

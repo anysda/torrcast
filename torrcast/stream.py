@@ -59,6 +59,7 @@ __all__ = [
     "HlsServer",
     "Media",
     "Packer",
+    "ServerDownError",
     "Studio",
     "Supply",
     "TorrFile",
@@ -1121,6 +1122,16 @@ def swarm_alive(status: dict[str, Any]) -> bool | None:
     return False if said else None
 
 
+class ServerDownError(InfraError):
+    """Умерло СОБСТВЕННОЕ звено - сама служба раздач, а не рой и не раздача.
+
+    Разница с остальными отказами принципиальна: «рой пуст» и «раздача не отдала
+    метаданные» относятся к ОДНОМУ релизу, а мёртвая служба - ко всей очереди сразу,
+    и перебирать релизы через неё бессмысленно. Поэтому такой отказ опознаётся
+    ТИПОМ, а не текстом строки: строка пишется языком зрителя и правится, тип - нет.
+    """
+
+
 class TorrServer:
     """Клиент TorrServer: добавить magnet, дождаться метаданных, отдать URL потока."""
 
@@ -1133,10 +1144,10 @@ class TorrServer:
         """Добавить magnet и вернуть его hash. Метаданных на этот момент ещё нет."""
         payload = self._post("/torrents", {"action": "add", "link": magnet, "save_to_db": False})
         if not isinstance(payload, dict):
-            raise InfraError("TorrServer вернул неожиданный ответ на добавление")
+            raise ServerDownError("TorrServer вернул неожиданный ответ на добавление")
         torrent_hash = str(payload.get("hash", ""))
         if not torrent_hash:
-            raise InfraError("TorrServer не отдал hash раздачи")
+            raise ServerDownError("TorrServer не отдал hash раздачи")
         return torrent_hash
 
     def warm(self, magnet: str) -> Warmup:
@@ -1163,7 +1174,7 @@ class TorrServer:
         """
         payload = self._post("/torrents", {"action": "get", "hash": torrent_hash})
         if not isinstance(payload, dict):
-            raise InfraError("TorrServer вернул неожиданный ответ на список файлов")
+            raise ServerDownError("TorrServer вернул неожиданный ответ на список файлов")
         return payload
 
     def files(self, torrent_hash: str) -> list[TorrFile]:
@@ -1247,7 +1258,7 @@ class TorrServer:
         """Есть ли такая раздача в списке службы. Сравнение по хэшу, регистр не в счёт."""
         payload = self._post("/torrents", {"action": "list"})
         if not isinstance(payload, list):
-            raise InfraError("TorrServer вернул неожиданный ответ на список раздач")
+            raise ServerDownError("TorrServer вернул неожиданный ответ на список раздач")
         want = torrent_hash.casefold()
         return any(
             isinstance(item, dict) and str(item.get("hash", "")).casefold() == want
@@ -1269,9 +1280,9 @@ class TorrServer:
             response.raise_for_status()
             return response.json()
         except requests.RequestException as exc:
-            raise InfraError(f"TorrServer не отвечает ({self.base_url}): {why(exc)}") from exc
+            raise ServerDownError(f"TorrServer не отвечает ({self.base_url}): {why(exc)}") from exc
         except ValueError as exc:
-            raise InfraError("TorrServer вернул не JSON") from exc
+            raise ServerDownError("TorrServer вернул не JSON") from exc
 
 
 @dataclass
