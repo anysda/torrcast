@@ -261,13 +261,18 @@ def test_a_heavy_bonus_disc_with_a_plain_mark_is_turned_away() -> None:
     assert rank_releases([bonus, picture], RUNTIME, 16.0)[0] is picture
 
 
-def test_the_only_sure_marked_release_of_a_picture_still_plays() -> None:
-    """Ограждение TC-290: ворота не отнимают у картины последний играбельный релиз.
+def test_the_only_sure_marked_release_of_a_picture_is_not_shown_instead_of_it() -> None:
+    """🔴 TC-432 поверх TC-339: однозначная метка отнимает и единственную раздачу.
 
     У «воссоединения актёрского состава» из сохранённой выдачи единственная раздача
     несёт метку «допматериалы» - и она же есть та самая картина, которую спросили.
-    Ворота её кандидатом не считают, но верх :attr:`~torrcast.cli._Plan.ranked` попадает
-    в очередь всегда, и показ остаётся.
+    Замер TC-339 держался на том, что верх :attr:`~torrcast.cli._Plan.ranked` попадает в
+    очередь безусловно; TC-432 повёл через ворота и его, и такая картина теперь кончается
+    честным отказом, а не бонус-диском вместо картины. Метка при этом судит БЕЗ веса, как
+    и судила: 2.4 ГБ тут по битрейту выглядят картиной.
+
+    Вернуть отсеянную раздачу может только сам человек, номером из таблицы: ``--release N``
+    в ворота не ходит.
     """
     only = _named(
         "Властелин Колец: воссоединение актёрского состава / Cast Reunion [2021] допматериалы",
@@ -283,7 +288,10 @@ def test_the_only_sure_marked_release_of_a_picture_still_plays() -> None:
         warn_mbit=16.0,
     )
     assert only.extras_sure and not is_candidate(only, RUNTIME, 16.0)
-    assert plan.candidates(cli.Args(query=["властелин", "колец"])) == [1], "играть есть чем"
+    assert plan.candidates(cli.Args(query=["властелин", "колец"])) == [], "подмены картины нет"
+    assert plan.candidates(cli.Args(query=["властелин", "колец"], release=1)) == [1], (
+        "названный человеком номер в ворота не ходит"
+    )
 
 
 def test_ordinary_release_is_not_mistaken_for_a_disc() -> None:
