@@ -201,19 +201,56 @@ def test_the_only_release_of_a_picture_plays_even_if_it_is_a_bonus() -> None:
     assert plan.candidates(cli.Args(query=["мандалорец"])) == [1], "играть всё равно есть чем"
 
 
-def test_a_bonus_disc_too_heavy_to_be_a_clip_is_kept_but_stands_last() -> None:
-    """Вес выше порога - ворота молчат, а порядок всё равно уводит приложение под картину.
+def test_a_heavy_bonus_disc_with_a_plain_mark_is_turned_away() -> None:
+    """🔴 TC-339. Однозначная метка судит без веса: тяжёлое приложение - не кандидат.
 
-    Ошибка тут несимметрична: ролик столько не весит, и выкидывать одиннадцать гигабайт по
-    одному слову в имени дорого. Зато уводить их под саму картину - бесплатно.
+    «Дополнительные материалы» и «бонус-диск» не бывают картиной ни при каком битрейте:
+    «Титаник | Дополнительные материалы» на 11.6 ГБ, «Довод» на 22.5 ГБ, «Хоббит:
+    Приложения» на 19.2 ГБ проходили ворота по весу и могли подменить картину, стоит
+    умереть всему выше них. Метке без веса - только ВОРОТА; порядок и таблица видят
+    раздачу по-прежнему, а картина, у которой других раздач нет, своего верха не
+    теряет (:meth:`_Plan.candidates`).
+
+    Метка НЕоднозначная («трейлер» у ещё не вышедшей картины, «фильм о фильме» у
+    документального кино) без веса не судится: такую носят и раздачи самой картины.
     """
     from torrcast.cli import is_extra
 
     bonus = _named("Титаник / Titanic (1997) BDRip | Дополнительные материалы", 11.56, 12)
+    disc = _named("Тачки 3 [Бонус-Диск] / Cars 3 [Bonus Disc] (2017) BDRip 720p", 2.7, 3)
     picture = _named("Титаник / Titanic (1997) BDRip 1080p", 11.0, 12)
-    assert bonus.extras and not is_extra(bonus, RUNTIME), "по весу это не ролик"
-    assert is_candidate(bonus, RUNTIME, 16.0), "и ворота его не отнимают"
+    trailer = _named("Дюна: Часть Третья / Dune: Part Three (2026) WEB-DL | Трейлеры", 2.5, 10)
+
+    assert bonus.extras_sure and disc.extras_sure
+    assert is_extra(bonus, RUNTIME) and is_extra(disc, RUNTIME), "вес такой метке не нужен"
+    assert not is_candidate(bonus, RUNTIME, 16.0) and not is_candidate(disc, RUNTIME, 16.0)
+    assert not trailer.extras_sure and not is_extra(trailer, RUNTIME)
+    assert is_candidate(trailer, RUNTIME, 16.0), "неоднозначная метка без веса не судит"
     assert rank_releases([bonus, picture], RUNTIME, 16.0)[0] is picture
+
+
+def test_the_only_sure_marked_release_of_a_picture_still_plays() -> None:
+    """Ограждение TC-290: ворота не отнимают у картины последний играбельный релиз.
+
+    У «воссоединения актёрского состава» из сохранённой выдачи единственная раздача
+    несёт метку «допматериалы» - и она же есть та самая картина, которую спросили.
+    Ворота её кандидатом не считают, но верх :attr:`~torrcast.cli._Plan.ranked` попадает
+    в очередь всегда, и показ остаётся.
+    """
+    only = _named(
+        "Властелин Колец: воссоединение актёрского состава / Cast Reunion [2021] допматериалы",
+        2.4,
+        2,
+    )
+    plan = cli._Plan(
+        picture=Picture(title="Властелин Колец: воссоединение актёрского состава", year=2021,
+                        releases=[only]),
+        ranked=rank_releases([only], RUNTIME, 16.0),
+        runtime=RUNTIME,
+        warn_mbit=16.0,
+    )
+    assert only.extras_sure and not is_candidate(only, RUNTIME, 16.0)
+    assert plan.candidates(cli.Args(query=["властелин", "колец"])) == [1], "играть есть чем"
 
 
 def test_ordinary_release_is_not_mistaken_for_a_disc() -> None:
@@ -1365,15 +1402,44 @@ def test_a_series_pack_is_judged_by_the_size_of_one_episode() -> None:
 def test_a_series_pack_that_does_not_count_its_episodes_is_left_to_ffprobe() -> None:
     """Имя не считает серии — делить не на что, и оценки не будет: врать себе хуже.
 
-    Такую раздачу («Локи [S01] WEB-DL», сколько внутри серий — знают только файлы)
-    по-прежнему судит ffprobe уже после выбора, с отбраковкой и переходом к следующей.
+    🔴 TC-344. Ответ прикидки тут - ``None``, «не знаю», а не ноль: ноль ворота
+    читали как «ниже любого порога», то есть как «лёгкий и безопасный», и молчание
+    имени выходило за подтверждённый вес. Такую раздачу («Локи [S01] WEB-DL», сколько
+    внутри серий — знают только файлы) по-прежнему судит ffprobe уже после выбора, с
+    отбраковкой и переходом к следующей - в отказ незнание не превращается нигде.
     """
     silent = replace(
         parse_release_name("Локи / Loki [S01] (2021) WEB-DL"), size=int(8 * GB), seeders=24
     )
     assert silent.kind == "tv" and silent.episode_count == 0
-    assert cli.bitrate_of(silent, RUNTIME_GUESS["tv"]) == 0.0
+    assert cli.bitrate_of(silent, RUNTIME_GUESS["tv"]) is None
     assert not cli.is_dated(silent, RUNTIME_GUESS["tv"])
+    assert cli.is_candidate(silent, RUNTIME_GUESS["tv"], 16.0), "не знаю - это не отказ"
+
+
+def test_unknown_weight_is_not_light_weight_at_the_extras_gate() -> None:
+    """🔴 TC-344. У приложения-сериала без счёта серий вес молчит - и ворота молчат.
+
+    Раньше прикидка отдавала ноль, и ворота приложений читали его как «лёгкий»:
+    сериальная раздача с меткой приложения выкидывалась по весу, которого у неё нет.
+    Метка сама по себе раздачу только топит под картину (:func:`rank_releases`).
+    Однозначная метка («дополнительные материалы») судит и без веса - это TC-339.
+    """
+    tv = RUNTIME_GUESS["tv"]
+    extra = replace(
+        parse_release_name("Локи / Loki [S01] (2021) WEB-DL | за кадром"),
+        size=int(0.4 * GB),
+        seeders=3,
+    )
+    sure = replace(
+        parse_release_name("Локи / Loki [S01] (2021) WEB-DL | Дополнительные материалы"),
+        size=int(18 * GB),
+        seeders=3,
+    )
+    assert extra.extras and cli.bitrate_of(extra, tv) is None
+    assert not cli.is_extra(extra, tv), "вес молчит - ворота молчат, топит только порядок"
+    assert sure.extras_sure and cli.bitrate_of(sure, tv) is None
+    assert cli.is_extra(sure, tv), "однозначной метке вес не нужен ни в какую сторону"
 
 
 def test_dated_sinks_below_candidates_but_above_hevc() -> None:
@@ -3380,10 +3446,10 @@ def test_a_multi_season_pack_that_hides_its_bitrate_stops_outranking_the_live_on
     """🟡 «Чёрные паруса»: перебор упирался в старьё, у которого имя молчит обо всём.
 
     ``[S01-04] (2014-2017) HDTV-AlexFilm`` не называет ни разрешения, ни кодека и серий
-    не считает - :func:`~torrcast.cli.bitrate_of` на нём отдаёт ноль, и раздача с ОДНИМ
-    сидом вставала в очереди выше сериала на 61 сид. Три таких верха подряд - это три
-    приговора ``mpeg4``, весь :data:`~torrcast.cli.MAX_TRIES` и 130 секунд, после которых
-    показ говорит «годного релиза нет» при живом каталоге.
+    не считает - :func:`~torrcast.cli.bitrate_of` на таком молчит (``None``, TC-344), и
+    раздача с ОДНИМ сидом вставала в очереди выше сериала на 61 сид. Три таких верха
+    подряд - это три приговора ``mpeg4``, весь :data:`~torrcast.cli.MAX_TRIES` и 130
+    секунд, после которых показ говорит «годного релиза нет» при живом каталоге.
     """
     from torrcast.cli import is_dated, pack_mbit
 
@@ -3418,7 +3484,7 @@ def test_the_pack_ceiling_never_judges_a_release_only_orders_it() -> None:
     honest = _series_release(
         "Черные паруса / Black Sails [S01-04] (2014-2017) BDRip 720p-AlexFilm", 114.21, 1
     )
-    assert bitrate_of(honest, tv) == 0.0, "серий имя не считает - ворота молчат, как молчали"
+    assert bitrate_of(honest, tv) is None, "серий имя не считает - ворота молчат, как молчали"
     assert is_candidate(honest, tv, 16.0), "и кандидатом он остаётся"
     assert round(pack_mbit(honest, tv)) == 14, "а порядок при этом знает про него больше"
 

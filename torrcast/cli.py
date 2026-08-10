@@ -6533,6 +6533,8 @@ def warned(
     marks: list[str] = []
     if release.is_hevc:
         marks += ["перекодирую целиком" if recode_at > 0 else "не берём"]
+    if peak is None:  # вес неизвестен (TC-344) - пометок по весу нет, врать нечем
+        return ", ".join(marks)
     if peak > warn_mbit:
         marks += ["тяжёлый"]
     elif hard_mbit > 0 and peak > hard_mbit:
@@ -6674,8 +6676,29 @@ def is_extra(release: Release, runtime: float) -> bool:
     ⚠️ Единственную раздачу картины признак не отнимает: верх :attr:`_Plan.ranked` попадает
     в очередь всегда (:meth:`_Plan.candidates`), и картина, у которой других раздач нет,
     остаётся играбельной. Лучше показать приложение, чем не показать ничего.
+
+    🔴 TC-339. Весу есть предел измерения: «Титаник | Дополнительные материалы» на
+    11.6 ГБ, «Довод» на 22.5 ГБ, «Хоббит: Приложения» на 19.2 ГБ по битрейту выглядят
+    картиной и ворота проходили, а подменить её могут, стоит умереть всему выше них.
+    Поэтому однозначная метка (:attr:`~torrcast.parse.Release.extras_sure`) судит БЕЗ
+    веса: «дополнительные материалы» и «бонус-диск» не бывают картиной ни при каком
+    битрейте. Прочие метки без веса не судятся по-прежнему: их носят и раздачи самой
+    картины, и сохранённая выдача это подтверждает - отсев по любой метке оставил бы
+    без живых кандидатов 10 картин корпуса из 107 пулов, по однозначной - ни одной
+    (все такие картины держатся верхом очереди, который ворота не трогают).
+
+    🔴 TC-344. Молчание веса - не «лёгкий»: у сериала, чьё имя серий не считает,
+    :func:`bitrate_of` отдаёт ``None``, и приложение с таким весом ворота НЕ отсекают -
+    выкидывать раздачу по весу, которого нет, значит карать за собственное незнание.
+    Порядок её всё равно уводит под картину (:func:`rank_releases`), а судит содержимое
+    ffprobe, как и всякую молчаливую раздачу.
     """
-    return release.extras and bitrate_of(release, runtime) < EXTRAS_MBIT
+    if not release.extras:
+        return False
+    if release.extras_sure:
+        return True
+    mbit = bitrate_of(release, runtime)
+    return mbit is not None and mbit < EXTRAS_MBIT
 
 
 def is_candidate(
@@ -6756,7 +6779,10 @@ def over_ceiling(
     ceiling = warn_mbit
     if hard_mbit > 0 and release.height > RECODE_HEIGHT:
         ceiling = min(warn_mbit, hard_mbit)
-    return bitrate_of(release, runtime) > ceiling
+    mbit = bitrate_of(release, runtime)
+    # Вес неизвестен (TC-344) - потолок молчит: выкидывать по весу, которого нет,
+    # нельзя, а тяжесть файла рассудит ffprobe уже после выбора (:meth:`_Bench._trouble`).
+    return mbit is not None and mbit > ceiling
 
 
 #: Раздачи картины, отсеянные до очереди, по причинам (:func:`drop_reason`). Порядок
@@ -6908,7 +6934,8 @@ def needs_whole_recode(release: Release, runtime: float, hard_mbit: float) -> bo
     """
     if release.height > RECODE_HEIGHT:
         return True
-    return hard_mbit > 0 and bitrate_of(release, runtime) > hard_mbit
+    mbit = bitrate_of(release, runtime)
+    return hard_mbit > 0 and mbit is not None and mbit > hard_mbit
 
 
 def gate_open(
@@ -7088,7 +7115,8 @@ def is_dated(release: Release, runtime: float) -> bool:
         return release.height < HD_HEIGHT
     if release.anime:  # жанровый битрейт: 1-1.5 Мбит/с на серию - это норма, а не SD
         return False
-    if 0.0 < bitrate_of(release, runtime) < SD_BITRATE:
+    mbit = bitrate_of(release, runtime)
+    if mbit is not None and mbit < SD_BITRATE:
         return True
     return 0.0 < pack_mbit(release, runtime) < SD_BITRATE
 
@@ -7098,8 +7126,8 @@ def pack_mbit(release: Release, runtime: float) -> float:
 
     Дыра, которую это закрывает, и есть 🟡 «Чёрные паруса»: имена вида
     ``[S01-04] (2014-2017) HDTV-AlexFilm`` и ``HDRip, WEB-DL, HDTV … | КПК`` не называют
-    ни разрешения, ни кодека, а серий не считают вовсе — :func:`bitrate_of` на них отдаёт
-    ноль, :func:`is_dated` промолчать обязана, и такая раздача с ОДНИМ сидом встаёт
+    ни разрешения, ни кодека, а серий не считают вовсе — :func:`bitrate_of` на них
+    молчит, :func:`is_dated` промолчать обязана, и такая раздача с ОДНИМ сидом встаёт
     в очереди перебора ВЫШЕ живого сериала на 61 сид. А внутри у них SD: показ либо
     сожжёт на них :data:`MAX_TRIES` и 130 секунд, либо сыграет SD, не дойдя до живого
     720p, — и то и другое при живом каталоге.
@@ -7381,20 +7409,25 @@ def stepdown_note(
     return f"взял {took}, рядом был {rival.quality} (релиз {at}, сидов {rival.seeders}) - {why}"
 
 
-def bitrate_of(release: Release, duration: float) -> float:
+def bitrate_of(release: Release, duration: float) -> float | None:
     """Оценка битрейта по размеру раздачи. У фильма делится вся раздача, у сериала —
     размер ОДНОЙ СЕРИИ: «9.7 ГБ» на восемь серий это 3 Мбит/с, а не 30, и по оценке
     целиком самые обсиженные раздачи сезона улетали бы вниз с пометкой «тяжёлый».
 
     Сколько внутри серий, говорит имя раздачи (:attr:`Release.episode_count`):
     ``[S01E01-08 of 220]`` — восемь, ``[E220 of 220]`` — двести двадцать. Имя молчит —
-    отдаём ноль, как и раньше: делить на выдуманный счёт значит врать себе, а
-    настоящий битрейт серии всё равно померит ffprobe по её файлу.
+    отдаём ``None``, и это 🔴 TC-344: «не знаю» и «мало» — разные ответы. Ноль здесь
+    раньше значил «ниже любого порога», и ворота читали молчание имени как «лёгкий и
+    безопасный»: весовая половина :func:`is_extra` у таких сериалов срабатывала всегда,
+    а потолок :func:`over_ceiling` - никогда. Делить на выдуманный счёт значит врать
+    себе, а настоящий битрейт серии всё равно померит ffprobe по её файлу - поэтому
+    каждый, кто зовёт эту прикидку, обязан решить свой ``None`` сам: в отказ молчание
+    не превращается нигде.
     """
     if release.kind != "tv":
         return bitrate_mbit(release.size, duration)
     count = release.episode_count
-    return bitrate_mbit(release.size // count, duration) if count else 0.0
+    return bitrate_mbit(release.size // count, duration) if count else None
 
 
 def render_table(
