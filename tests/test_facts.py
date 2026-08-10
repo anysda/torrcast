@@ -1157,6 +1157,35 @@ def test_a_name_spelled_another_way_is_recognised_only_when_it_is_almost_the_sam
     assert not facts_mod._near_name("мужчина который удивил свету", "Человек, который удивил всех")
 
 
+def test_one_word_apart_counts_by_letters_not_by_words() -> None:
+    """🔴 TC-284. Одно слово из трёх - ещё не описка: смотрим, что за ним осталось.
+
+    Прежняя мерка считала слова, и «одно из трёх» принимала любое: описку («мужчина» вместо
+    «человек») и чужую картину («Все мы незнакомцы» против «Все мы убийцы» - 2023 и 1952
+    годов) одинаково. Разница между ними не в числе слов, а в том, сколько имени стоит за
+    совпадением: «который удивил всех» - это семнадцать букв против семи, а «Все мы» -
+    пять против десяти, и найдено оно ровно тем, чем подсказчик Википедии искал.
+
+    На наборе из 36 пар имён (описки, другие переводы, соседние части франшиз,
+    однофамильцы) прежняя мерка принимала все 18 чужих картин, эта - пять, и ни одной
+    верной пары при этом не потеряла.
+    """
+    # Совпавшее перевешивает - имя то же, пусть человек и помнит не то слово.
+    assert facts_mod._near_name("полет над гнездом кукушки", "Пролетая над гнездом кукушки")
+    assert facts_mod._near_name("старикам здесь не место", "Старикам тут не место")
+    assert facts_mod._near_name("властелин колец две крепости", "Властелин колец: Две башни")
+    # Совпало одно лёгкое начало, а спорит всё остальное - это другая картина.
+    assert not facts_mod._near_name("Все мы незнакомцы", "Все мы убийцы")
+    assert not facts_mod._near_name("побег из претории", "Побег из Шоушенка")
+    assert not facts_mod._near_name("дом у озера", "Дом у дороги")
+    assert not facts_mod._near_name("ночь в музее", "Ночь в Роксбери")
+    assert not facts_mod._near_name("однажды в америке", "Однажды в Голливуде")
+    assert not facts_mod._near_name("сумерки сага затмение", "Сумерки. Сага. Новолуние")
+    # Эталоны TC-253 остаются при своём: то же имя мерка по-прежнему знает.
+    assert facts_mod._near_name("сальтберн", "Солтберн")
+    assert facts_mod._near_name("мальчик и цапля", "Мальчик и птица")
+
+
 def test_an_almost_the_same_name_still_gives_up_its_picture() -> None:
     """Прошедшая сверку статья читается как выборка по имени - но всегда без года.
 
@@ -1221,11 +1250,31 @@ def test_a_localized_name_finds_the_shorter_article_without_taking_its_namesake(
 def test_a_name_found_by_likeness_says_so_in_the_passport(monkeypatch: Any) -> None:
     """🔴 TC-253. Имя, найденное по сходству, помечается: гейту добора это не имя картины.
 
-    Спросили «Все мы незнакомцы» - статьи с таким заголовком в Википедии нет, и
-    подсказчик приносит «Все мы убийцы»: одно слово из трёх, сверку последнего шага это
-    проходит. Паспорт отдаётся (имя латиницей всё-таки лучше транслита), но отдаётся с
-    отметкой ``guessed`` - иначе на пустой русской выдаче гейт принял бы французскую
-    картину 1952 года за спрошенную.
+    Спросили «мужчина который удивил всех» - статьи с таким заголовком в Википедии нет, и
+    поиск по куску приводит к «Человек, который удивил всех»: слово человек помнит не то,
+    а имя за ним стоит целиком. Паспорт отдаётся (имя латиницей всё-таки лучше транслита),
+    но отдаётся с отметкой ``guessed``: тождества имён тут никто не доказывал, и решать,
+    можно ли на нём строить второй заход, будет гейт добора.
+    """
+    close = _page("Человек, который удивил всех", SURPRISED, english="The Man Who Surprised")
+    monkeypatch.setattr(facts_mod, "_suggested", lambda query, timeout: [])
+    monkeypatch.setattr(facts_mod, "_by_phrase", lambda title, timeout: [close])
+
+    found = facts_mod._misremembered("мужчина который удивил всех", False, 1.0)
+
+    assert found.title == "The Man Who Surprised"
+    assert found.name == "Человек, который удивил всех"
+    assert found.guessed, "имя лишь похоже - паспорт обязан это сказать"
+    assert found.year is None
+
+
+def test_a_stranger_one_word_away_is_not_offered_at_all(monkeypatch: Any) -> None:
+    """🔴 TC-284. Чужая картина в одном слове от запроса не доезжает даже догадкой.
+
+    Статьи «Все мы незнакомцы» в Википедии нет, и подсказчик приносит «Все мы убийцы» -
+    французскую картину 1952 года. Раньше её отдавали паспортом с отметкой ``guessed``, и
+    дальше её ловил гейт добора (TC-253). Ловить теперь нечего: за совпавшим «Все мы»
+    картины не стоит, и последний шаг справки честно остаётся ни с чем.
     """
     wrong = _page("Все мы убийцы", STRANGERS)
     monkeypatch.setattr(facts_mod, "_suggested", lambda query, timeout: [wrong])
@@ -1233,10 +1282,9 @@ def test_a_name_found_by_likeness_says_so_in_the_passport(monkeypatch: Any) -> N
 
     found = facts_mod._misremembered("Все мы незнакомцы", False, 1.0)
 
-    assert found.title == "Nous sommes tous des assassins"
-    assert found.name == "Все мы убийцы"
-    assert found.guessed, "имя лишь похоже - паспорт обязан это сказать"
-    assert found.year is None
+    assert not found.title, "чужой оригинал уводит добор к чужой картине"
+    assert not found.name
+    assert not found.guessed
 
 
 def test_the_likeness_mark_survives_the_cache_and_the_both_types_mode(
