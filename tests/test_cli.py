@@ -15,7 +15,7 @@ import pytest
 from torrcast import InfraError, NotFoundError, cli, console, scan
 from torrcast.cli import TABLE_LIMIT, is_candidate, is_disc, rank_releases, render_table, warned
 from torrcast.console import Progress
-from torrcast.parse import Kind, Picture, Release, parse_release_name
+from torrcast.parse import Episode, Kind, Picture, Release, parse_release_name
 from torrcast.profile import CAUTIOUS
 from torrcast.state import load_config
 from torrcast.stream import RUNTIME_GUESS, AudioTrack, Media, TorrFile
@@ -1740,12 +1740,12 @@ def test_a_half_walked_queue_is_not_a_dead_swarm() -> None:
     """
     pool = [rel(name=f"r{n}", seeders=7 * n) for n in range(15)]
     plan = _plan(pool)
-    half = cli.silent_swarm(plan, 3, "1 - тишина")
+    half = cli.silent_swarm(plan, [1, 2, 3], 3, "1 - тишина")
     assert "раздач в выдаче 15, потрогали 3" in half
     assert "мёртв" not in half, "живой рой мёртвым не называем"
-    assert "до 98 сид" in half and "cast releases" in half
+    assert "до 14 сид" in half and "cast releases" in half
 
-    whole = cli.silent_swarm(plan, 15, "1 - тишина")
+    whole = cli.silent_swarm(plan, list(range(1, 16)), 15, "1 - тишина")
     assert "раздач в выдаче 15, потрогали 15 (все)" in whole
     assert "ни одна не отозвалась" in whole and "числятся" in whole
 
@@ -1758,8 +1758,8 @@ def test_a_pool_without_a_single_peer_says_so_plainly() -> None:
     """
     border = _plan([rel(name=f"r{n}", seeders=0) for n in range(2)])
     monkeys = _plan([rel(name=f"r{n}", seeders=3 + n) for n in range(30)])
-    dead = cli.silent_swarm(border, 2, "1 - тишина")
-    live = cli.silent_swarm(monkeys, 3, "1 - тишина")
+    dead = cli.silent_swarm(border, [1, 2], 2, "1 - тишина")
+    live = cli.silent_swarm(monkeys, [1, 2, 3], 3, "1 - тишина")
     assert dead == (
         "раздач в выдаче 2, потрогали 2 - пиров нет ни у одной, показывать нечего: "
         "назови картину иначе или зайди позже - другой запрос соберёт другую выдачу, "
@@ -1778,13 +1778,70 @@ def test_every_refusal_leaves_the_person_a_move() -> None:
     """
     pool = [rel(name=f"r{n}", seeders=7 * n) for n in range(15)]
     plan = _plan(pool)
-    assert "cast releases" in cli.silent_swarm(plan, 3, "1 - тишина"), "нетронутые есть - выбор"
+    assert "cast releases" in cli.silent_swarm(plan, [1, 2, 3], 3, "1 - тишина"), (
+        "нетронутые есть - выбор"
+    )
     for said in (
-        cli.silent_swarm(plan, 15, "1 - тишина"),
-        cli.silent_swarm(_plan([rel(name="r", seeders=0)]), 1, "1 - тишина"),
+        cli.silent_swarm(plan, list(range(1, 16)), 15, "1 - тишина"),
+        cli.silent_swarm(_plan([rel(name="r", seeders=0)]), [1], 1, "1 - тишина"),
     ):
         assert "назови картину иначе" in said and "зайди позже" in said
         assert "--release" not in said, "выбирать не из чего - надежду не предлагаем"
+
+
+def test_the_seed_count_in_a_refusal_is_about_the_asked_not_the_listing() -> None:
+    """🔴 TC-376. «Сидов числится до N» описывало всю выдачу, а спрашивали мы очередь.
+
+    Максимум выдачи (25) лежит на раздаче, которую ворота в очередь не пустили, - и
+    число выглядело уликой против роя («числится 25, а молчат»), уликой не будучи.
+    Печатаемое число обязано описывать то, что мы правда спрашивали.
+    """
+    asked = rel(name="r1", seeders=10)
+    outsider = rel(name="молчун", quality=None, codec=None, seeders=25)
+    plan = _plan([asked, outsider])
+    assert not is_candidate(outsider, RUNTIME, 20.0), "молчуна в очередь не пустили"
+    said = cli.silent_swarm(plan, [1], 1, "1 - тишина")
+    assert "до 10 сид" in said and "25" not in said, "25 сид - не у тех, кого спрашивали"
+    assert "cast releases" in said, "молчун пригоден по известным признакам - выбор есть"
+
+
+def test_a_refusal_does_not_offer_a_pick_from_the_known_unplayable() -> None:
+    """🔴 TC-375. Всё нетронутое непригодно по уже известным признакам - выбора нет.
+
+    Замер по сохранённым прогонам (1131 запрос): у отказов с ручным выбором 132
+    нетронутые раздачи из 195 не содержали запрошенной серии вовсе, а в семи отказах
+    из 42 не содержали её ВСЕ нетронутые. Предлагать выбор из этого - отправить
+    человека перебирать то, что играть нельзя, и он вернётся ни с чем.
+    """
+    pool = [rel(name="r1", seeders=9)]
+    pool += [rel(name=f"remux {n}", size_gb=60, seeders=50) for n in range(3)]
+    plan = _plan(pool)
+    said = cli.silent_swarm(plan, [1], 1, "1 - тишина")
+    assert "тяжелее потолка - 3" in said
+    assert "cast releases" not in said and "--release" not in said
+    assert "назови картину иначе" in said, "ход остаётся, но честный"
+
+
+def test_a_refusal_names_the_missing_episode_instead_of_a_manual_pick() -> None:
+    """🔴 TC-375 для сериала: нетронутые с чужим сезоном - играть в них нечего."""
+    first = rel(name="s1 pack", seeders=9)
+    strangers = [replace(rel(name=f"s2 pack {n}", seeders=12), season=2) for n in range(2)]
+    plan = _plan([first, *strangers])
+    plan.series = cli._Series(want=Episode(1, 1))
+    said = cli.silent_swarm(plan, [1], 1, "1 - тишина")
+    assert "нужной серии нет - 2" in said
+    assert "cast releases" not in said and "--release" not in said
+    assert "назови картину иначе" in said
+
+
+def test_a_refusal_still_offers_a_pick_when_someone_untouched_is_playable() -> None:
+    """Непригодна только ЧАСТЬ нетронутого - ручной выбор остаётся честным ходом."""
+    asked = rel(name="r1", seeders=9)
+    heavy = rel(name="remux", size_gb=60, seeders=50)
+    quiet = rel(name="молчун", quality=None, codec=None, seeders=25)
+    plan = _plan([asked, heavy, quiet])
+    said = cli.silent_swarm(plan, [1], 1, "1 - тишина")
+    assert "cast releases" in said, "пригодный нетронутый есть - выбор предлагаем"
 
 
 def _series_plan(title: str, year: int, kind: Kind, releases: list[Release]) -> Any:
