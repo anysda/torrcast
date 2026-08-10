@@ -1991,6 +1991,7 @@ def test_the_returning_source_gets_the_torrent_back_by_magnet(
     clock, feed, warmer, receiver = _dark(tmp_path, offline="")
     warmer.warmed = 0.0  # прогрева нет: возврат показа держится только на источнике
     service = _Service(up=False)
+
     def restore(_seconds: float) -> None:
         service.up = clock.now - 1000.0 >= 30.0
         if service.up:

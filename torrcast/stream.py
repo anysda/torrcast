@@ -1223,9 +1223,7 @@ class TorrServer:
                 raise SwarmError(f"рой пуст - за {grace:.0f} с ни одного пира")
             left = deadline - now
             if left <= 0:
-                raise SwarmError(
-                    f"раздача не отдала метаданные за {timeout:.0f} с - нет пиров"
-                )
+                raise SwarmError(f"раздача не отдала метаданные за {timeout:.0f} с - нет пиров")
             time.sleep(min(step, left))
             step = min(step * META_STEP_GROW, META_STEP_MAX)
 

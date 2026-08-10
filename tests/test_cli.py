@@ -878,9 +878,7 @@ def test_a_disc_image_verdict_is_not_asked_twice(
             self, torrent_hash: str, timeout: float = 60.0, grace: float = 0.0
         ) -> list[TorrFile]:
             if torrent_hash == f"hash-{ranked[1].magnet}":
-                raise SwarmError(
-                    f"раздача не отдала метаданные за {timeout:.0f} с - нет пиров"
-                )
+                raise SwarmError(f"раздача не отдала метаданные за {timeout:.0f} с - нет пиров")
             return self.files
 
     torrserver = _HalfDead(files=disc.files)
