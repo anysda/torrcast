@@ -7487,9 +7487,10 @@ def stepdown_note(
 
 
 def bitrate_of(release: Release, duration: float) -> float | None:
-    """Оценка битрейта по размеру раздачи. У фильма делится вся раздача, у сериала —
-    размер ОДНОЙ СЕРИИ: «9.7 ГБ» на восемь серий это 3 Мбит/с, а не 30, и по оценке
-    целиком самые обсиженные раздачи сезона улетали бы вниз с пометкой «тяжёлый».
+    """Оценка битрейта по размеру раздачи. У одиночного фильма берётся вся раздача,
+    у сборника - один фильм, у сериала - ОДНА СЕРИЯ: «9.7 ГБ» на восемь серий это
+    3 Мбит/с, а не 30, и по оценке целиком самые обсиженные раздачи сезона улетали бы
+    вниз с пометкой «тяжёлый».
 
     Сколько внутри серий, говорит имя раздачи (:attr:`Release.episode_count`):
     ``[S01E01-08 of 220]`` — восемь, ``[E220 of 220]`` — двести двадцать. Имя молчит —
@@ -7502,7 +7503,8 @@ def bitrate_of(release: Release, duration: float) -> float | None:
     не превращается нигде.
     """
     if release.kind != "tv":
-        return bitrate_mbit(release.size, duration)
+        count = release.collection_count
+        return bitrate_mbit(release.size // count, duration) if count else None
     count = release.episode_count
     return bitrate_mbit(release.size // count, duration) if count else None
 

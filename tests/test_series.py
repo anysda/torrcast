@@ -478,6 +478,36 @@ def test_cross_season_episode_range_is_read() -> None:
     assert parse_release_name("Moana 2 2024 1080p WEB-DL DDP5 1 x264-NTb").kind == "movie"
 
 
+def test_a_whole_show_with_linear_episode_numbers_covers_later_seasons() -> None:
+    """Полный пак с S1 и сквозным E не объявляет все поздние сезоны чужими."""
+    linear = parse_release_name("Викинги / Vikings / S1E1-89 of 89 [2013-2020, WEB-DL 1080p] MVO")
+    assert linear.season is None
+    assert linear.episode_count == 89
+    assert linear.covers(4)
+    assert linear.covers_episode(Episode(4, 15))
+
+    season = parse_release_name("Викинги / Vikings / S1E1-9 of 9 [2013, WEB-DL 1080p] MVO")
+    assert season.season == 1
+    assert not season.covers(4)
+
+    short_show = parse_release_name(
+        "Острые козырьки / Peaky Blinders / S1E1-36 of 36 [2013-2022, BDRip] MVO"
+    )
+    assert short_show.season is None
+    assert short_show.covers_episode(Episode(5, 2))
+
+
+def test_named_seasons_do_not_turn_their_count_into_episode_count() -> None:
+    """Диапазоны сезонов и сквозных серий читаются независимо."""
+    release = parse_release_name(
+        "Игра престолов / Game of Thrones / Сезоны: 1-8 из 8 / E1-73 of 73 "
+        "[2011-2019, WEB-DL 1080p] MVO"
+    )
+    assert release.seasons == tuple(range(1, 9))
+    assert release.episode_count == 73
+    assert release.covers_episode(Episode(8, 1))
+
+
 def test_year_gate_lets_one_numbering_line_through() -> None:
     """TC-169: гейт года сшивает куски, продолжающие нумерацию, и держит ремейки.
 

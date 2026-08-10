@@ -1477,6 +1477,22 @@ def test_a_series_pack_is_judged_by_the_size_of_one_episode() -> None:
     assert rank_releases([old, good], runtime, 40.0)[0] is good
 
 
+def test_a_film_collection_is_judged_by_the_part_that_will_play() -> None:
+    """Вес сборника делится на фильмы, а не сравнивается с одним фильмом целиком."""
+    trilogy = replace(
+        parse_release_name("Матрица: Трилогия / The Matrix (1999-2003) BDRip 1080p"),
+        size=int(28.6 * GB),
+    )
+    collection = replace(
+        parse_release_name("Матрица: Коллекция / The Matrix (1999-2003) BDRip 1080p"),
+        size=int(28.6 * GB),
+    )
+    assert trilogy.collection_count == 3
+    assert cli.bitrate_of(trilogy, 120 * 60) == pytest.approx(11.4, abs=0.1)
+    assert cli.bitrate_of(collection, 120 * 60) is None
+    assert cli.is_candidate(collection, 120 * 60, 16.0)
+
+
 def test_a_series_pack_that_does_not_count_its_episodes_is_left_to_ffprobe() -> None:
     """Имя не считает серии — делить не на что, и оценки не будет: врать себе хуже.
 

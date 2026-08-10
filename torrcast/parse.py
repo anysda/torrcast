@@ -388,6 +388,11 @@ _SEASON_ONLY_RES: Final[tuple[re.Pattern[str], ...]] = (
 _SEASON_SPAN_RES: Final[tuple[re.Pattern[str], ...]] = (
     re.compile(r"\bs\s?(\d{1,2})\s*-\s*s?\s?(\d{1,2})\b", re.IGNORECASE),
     re.compile(r"\b(\d{1,2})\s*-\s*(\d{1,2})\s*(?:сезон\w*|seasons?)\b", re.IGNORECASE),
+    re.compile(
+        r"\b(?:сезон\w*|seasons?)\s*:\s*(\d{1,2})\s*-\s*(\d{1,2})"
+        r"(?:\s*(?:из|of)\s*\d{1,2})?\b",
+        re.IGNORECASE,
+    ),
 )
 #: Сквозной диапазон серий отдельной скобкой: ``[01-201]``, ``[202-252]``, ``(01-12)``.
 #:
@@ -417,6 +422,11 @@ _EPISODE_BRACKET_RE: Final = re.compile(
 #: Числа ограничены тремя цифрами и обрамлены стражами ``(?<!\d)/(?!\d)``: без них
 #: «(2005-2020)» в имени читалось бы как диапазон серий.
 _EPISODE_SPAN_RES: Final[tuple[re.Pattern[str], ...]] = (
+    re.compile(
+        r"[eеэ]\s*(?P<start>\d{1,3})\s*-\s*[eеэ]?\s*(?P<end>\d{1,3})(?!\d)"
+        r"\s*(?:из|of)\s*\d{1,3}",
+        re.IGNORECASE,
+    ),
     re.compile(
         r"(?<!\d)(?P<start>\d{1,3})\s*-\s*[eеэ]?\s*(?P<end>\d{1,3})(?!\d)\s*(?:из|of)\s*\d{1,3}",
         re.IGNORECASE,
@@ -821,6 +831,22 @@ class Release:
         if self.episodes:
             return len(self.episodes)
         return 1 if self.episode is not None else 0
+
+    @property
+    def collection_count(self) -> int | None:
+        """Сколько фильмов в сборнике; ``None`` — имя числа не говорит."""
+        if not self.collection:
+            return 1
+        low = self.raw_name.lower()
+        for marker, count in (
+            ("дилог", 2),
+            ("трилог", 3),
+            ("trilogy", 3),
+            ("квадролог", 4),
+        ):
+            if marker in low:
+                return count
+        return None
 
     @property
     def slug(self) -> str:
@@ -3026,14 +3052,16 @@ def _parse_series(
     seasons = _season_span(text)
     episodes = _episode_span(text)
     if seasons:
-        # Пак сезонов: серии внутри него нумеруются по-своему в каждом сезоне, и
-        # диапазон из имени («S01-15 + Special») к ним отношения не имеет.
-        return seasons[0], None, seasons, (), True
+        # Диапазон сезонов задаёт покрытие, а отдельный E-диапазон считает серии
+        # всего пака. Голый «S01-15» сериями не становится.
+        return seasons[0], None, seasons, episodes, True
     found = parse_episode(text)
     if found is not None:
         # «S2E1-8 of 8» - это пак сезона, а не первая серия.
         pack = re.search(r"[eхx]\s*\d{1,3}\s*-\s*\d{1,3}", text, re.IGNORECASE)
-        return found.season, None if pack else found.episode, (), episodes, True
+        # В длинном полном паке S1 - начало сквозной нумерации, не единственный сезон.
+        linear = bool(pack and found.season == 1 and len(episodes) > 24)
+        return None if linear else found.season, None if pack else found.episode, (), episodes, True
     number = int(fansub.group("episode")) if fansub else None
     for pattern in _SEASON_ONLY_RES:
         match = pattern.search(text)
