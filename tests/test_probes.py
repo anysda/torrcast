@@ -96,10 +96,20 @@ def gates_pool() -> dict[str, Any]:
     return pool(
         "врата штейна",
         RuTor=[
-            ["Врата Штейна / Steins;Gate [2011, Япония, фантастика, BDRip 1080p] MVO",
-             "a" * 40, int(8.2 * GB), 60, "RuTor"],
-            ["Врата Штейна / Steins;Gate [2011, Япония, фантастика, WEB-DL 720p] MVO",
-             "b" * 40, int(3.1 * GB), 25, "RuTor"],
+            [
+                "Врата Штейна / Steins;Gate [2011, Япония, фантастика, BDRip 1080p] MVO",
+                "a" * 40,
+                int(8.2 * GB),
+                60,
+                "RuTor",
+            ],
+            [
+                "Врата Штейна / Steins;Gate [2011, Япония, фантастика, WEB-DL 720p] MVO",
+                "b" * 40,
+                int(3.1 * GB),
+                25,
+                "RuTor",
+            ],
         ],
         Knaben=[
             ["Steins;Gate BDRip 1080p x264 AAC", "c" * 40, int(7.4 * GB), 40, "Knaben"],
@@ -148,10 +158,20 @@ def test_щуп_называет_кого_не_пустил_в_меню() -> Non
     record = pool(
         "врата штейна",
         RuTor=[
-            ["Врата Штейна / Steins;Gate [2011, Япония, фантастика, BDRip 1080p] MVO",
-             "a" * 40, int(8.2 * GB), 60, "RuTor"],
-            ["Криминальное чтиво / Pulp Fiction [1994, США, криминал, BDRip 1080p] MVO",
-             "e" * 40, int(9.0 * GB), 80, "RuTor"],
+            [
+                "Врата Штейна / Steins;Gate [2011, Япония, фантастика, BDRip 1080p] MVO",
+                "a" * 40,
+                int(8.2 * GB),
+                60,
+                "RuTor",
+            ],
+            [
+                "Криминальное чтиво / Pulp Fiction [1994, США, криминал, BDRip 1080p] MVO",
+                "e" * 40,
+                int(9.0 * GB),
+                80,
+                "RuTor",
+            ],
         ],
     )
     item = replay.replay(

@@ -221,7 +221,7 @@ def verdicts(plan: _Plan, args: Args) -> tuple[list[int], dict[str, int]]:
 
 
 def size_of(release: Release) -> str:
-    return f"{release.size / 1024 ** 3:.1f} ГБ" if release.size else "размер не назван"
+    return f"{release.size / 1024**3:.1f} ГБ" if release.size else "размер не назван"
 
 
 def name_of(picture: Picture) -> str:
@@ -261,8 +261,10 @@ def detail(item: Replay, menu_shown: int, releases_shown: int) -> list[str]:
     default = item.default
     for number, picture in enumerate(item.menu[:menu_shown], start=1):
         mark = " ← Enter" if default is not None and picture.key == default.key else ""
-        out.append(f"  [{number}] {name_of(picture)} раздач {len(picture.releases)}, "
-                   f"строк {picture.rows}{mark}")
+        out.append(
+            f"  [{number}] {name_of(picture)} раздач {len(picture.releases)}, "
+            f"строк {picture.rows}{mark}"
+        )
         plan = by_key.get(picture.key)
         if plan is None:
             out.append("       пул отбора пуст: нужного сезона в раздачах нет")
@@ -313,21 +315,27 @@ def as_json(item: Replay) -> dict[str, Any]:
     for plan in item.plans:
         queue, drops = verdicts(plan, args)
         chosen = plan.ranked[queue[0] - 1] if queue else None
-        plans.append({
-            "title": plan.picture.title,
-            "year": plan.picture.year,
-            "kind": plan.picture.kind,
-            "releases": len(plan.picture.releases),
-            "rows": plan.picture.rows,
-            "queue": len(queue),
-            "loose": plan.loose,
-            "last_resort": plan.last_resort,
-            "drops": drops,
-            "default": None if chosen is None else {
-                "name": chosen.raw_name, "seeders": chosen.seeders, "size": chosen.size,
-                "indexer": chosen.indexer,
-            },
-        })
+        plans.append(
+            {
+                "title": plan.picture.title,
+                "year": plan.picture.year,
+                "kind": plan.picture.kind,
+                "releases": len(plan.picture.releases),
+                "rows": plan.picture.rows,
+                "queue": len(queue),
+                "loose": plan.loose,
+                "last_resort": plan.last_resort,
+                "drops": drops,
+                "default": None
+                if chosen is None
+                else {
+                    "name": chosen.raw_name,
+                    "seeders": chosen.seeders,
+                    "size": chosen.size,
+                    "indexer": chosen.indexer,
+                },
+            }
+        )
     return {
         "query": item.query,
         "raw_rows": item.raw_rows,
@@ -339,15 +347,27 @@ def as_json(item: Replay) -> dict[str, Any]:
         ],
         "thin": item.thin,
         "unfit": item.unfit,
-        "top": None if top is None else {"title": top.title, "year": top.year,
-                                         "also": top.also, "releases": len(top.releases)},
-        "default": None if default is None else {"title": default.title, "year": default.year,
-                                                 "releases": len(default.releases)},
+        "top": None
+        if top is None
+        else {
+            "title": top.title,
+            "year": top.year,
+            "also": top.also,
+            "releases": len(top.releases),
+        },
+        "default": None
+        if default is None
+        else {"title": default.title, "year": default.year, "releases": len(default.releases)},
         "merges": [
-            {"into": picture.title, "year": picture.year, "parts": len(members),
-             "from": [{"title": p.title, "year": p.year, "releases": len(p.releases)}
-                      for p in members],
-             "releases": len(picture.releases)}
+            {
+                "into": picture.title,
+                "year": picture.year,
+                "parts": len(members),
+                "from": [
+                    {"title": p.title, "year": p.year, "releases": len(p.releases)} for p in members
+                ],
+                "releases": len(picture.releases),
+            }
             for members, picture in item.merges
         ],
         "plans": plans,
@@ -357,8 +377,12 @@ def as_json(item: Replay) -> dict[str, Any]:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="офлайн-прогон отбора по сохранённым выдачам")
     ap.add_argument("pools", type=Path, help="pools.jsonl со снятыми выдачами индексеров")
-    ap.add_argument("--query", action="append", default=[],
-                    help="разобрать подробно только запросы, содержащие эту подстроку")
+    ap.add_argument(
+        "--query",
+        action="append",
+        default=[],
+        help="разобрать подробно только запросы, содержащие эту подстроку",
+    )
     ap.add_argument("--glue", action="store_true", help="отчёт о склейках картин")
     ap.add_argument("--menu", type=int, default=5, help="сколько картин меню расписывать")
     ap.add_argument("--releases", type=int, default=3, help="сколько релизов очереди печатать")
@@ -374,21 +398,30 @@ def main(argv: list[str] | None = None) -> int:
         query = str(record.get("query", ""))
         items.append(replay(query, batches_of(record), config, CAUTIOUS))
 
-    picked = [
-        item for item in items
-        if any(needle.lower() in item.query.lower() for needle in args.query)
-    ] if args.query else []
+    picked = (
+        [
+            item
+            for item in items
+            if any(needle.lower() in item.query.lower() for needle in args.query)
+        ]
+        if args.query
+        else []
+    )
 
     if picked:
         for item in picked:
             print("\n".join(detail(item, args.menu, args.releases)))
     else:
-        print(f"{'запрос':<28}{'строк':>6}{'раздач':>7}{'картин':>7}{'меню':>6}{'склеек':>7}"
-              f"  ТН  верх меню")
+        print(
+            f"{'запрос':<28}{'строк':>6}{'раздач':>7}{'картин':>7}{'меню':>6}{'склеек':>7}"
+            f"  ТН  верх меню"
+        )
         for item in items:
             print(brief(item))
-        print("\n  ТН: Т - пул тощий (строк за картиной < "
-              f"{THIN_POOL}), Н - пул негоден (играть нечего)")
+        print(
+            "\n  ТН: Т - пул тощий (строк за картиной < "
+            f"{THIN_POOL}), Н - пул негоден (играть нечего)"
+        )
 
     if args.glue:
         print("\n".join(glue_report(picked or items)))
