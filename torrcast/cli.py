@@ -74,7 +74,7 @@ from torrcast.parse import (
 from torrcast.profile import CAUTIOUS, COPY, REFUSE, Profile
 from torrcast.profile import detect as detect_profile
 from torrcast.profile import tune as tune_profile
-from torrcast.recode import FULL_FLOOR, FULL_GAIN, FULL_PRESET, RECODE_HEIGHT, Encode, Recoder
+from torrcast.recode import RECODE_HEIGHT, Encode, Recoder, whole_encode
 from torrcast.scan import Device
 from torrcast.search import (
     CIRCLE_SHARE,
@@ -4189,12 +4189,9 @@ def _encode_all(
     heavy = video_mbit > config.bitrate_hard_mbit
     if not recodes_whole(codec or "", depth, profile, frame) and not heavy:
         return None
-    want = config.recode_mbit
-    if video_mbit > 0:
-        want = min(want, max(FULL_FLOOR, video_mbit * FULL_GAIN))
-    return Encode(
-        preset=FULL_PRESET,
-        mbit=want,
+    return whole_encode(
+        config.recode_mbit,
+        video_mbit=video_mbit,
         frame=frame,
         ceiling=profile.recode_frame,
         hdr=hdr and config.recode_tonemap,
@@ -4941,6 +4938,16 @@ def _hold(
     #: доигранный конец входа. Штатная перемотка человеком тоже: после неё приёмник
     #: возвращается в ``PLAYING``, и первый же показанный кадр двигает закладку за ним.
     held = 0.0
+    #: Позиция, на которой приёмник ВПЕРВЫЕ сказал ``PLAYING``; ``-1`` - ещё не говорил.
+    #:
+    #: 🔴 Слово состояния приходит раньше картинки, и разница не мелочь. Замер на живом
+    #: Q70D (заход в тяжёлое место, сплошной перекод): приёмник отвечает ``PLAYING`` на
+    #: 8.2-й секунде, а указатель стоит на месте захода ещё 6.0 с и трогается только
+    #: тогда, когда показ выложил ВТОРОЙ кусок. Тот же прогон на другой сетке: ``PLAYING``
+    #: на 10.4-й секунде, первый кадр - на 15.4-й. То есть каждое наше «старт NN с» было
+    #: занижено на 5-6 с, и занижено ровно там, где человеку хуже всего - на тяжёлом месте.
+    #: Отсюда правило: картинку доказывает ДВИЖЕНИЕ указателя, а не слово приёмника.
+    still_at = -1.0
     show_trace = bool(os.environ.get(TRACE_ENV))
     buffering = was_offline = False
     # Обе выдержки воскрешения - мера молчания ПРИЁМНИКА, поэтому приходят из его профиля,
@@ -4992,9 +4999,16 @@ def _hold(
         if position.pos > 0 and position.state not in {"BUFFERING", "IDLE"}:
             held = position.pos
         if not seen and position.state == "PLAYING":
-            # Картинка на экране - теперь CLI имеет право сказать «старт NN с».
-            seen = True
-            mark_playing(feed.out)
+            # Картинка на экране - теперь CLI имеет право сказать «старт NN с». Право это
+            # даёт СДВИНУВШИЙСЯ указатель, а не слово ``PLAYING`` (см. :data:`still_at`):
+            # приёмник объявляет себя играющим, ещё не набрав кадров, и на тяжёлом заходе
+            # держит указатель на месте старта секунд шесть. Цена честности - один опрос
+            # (2 с) запаса в худшую сторону; цена прежней доверчивости была 5-6 с в лучшую.
+            if still_at < 0:
+                still_at = position.pos
+            elif position.pos > still_at:
+                seen = True
+                mark_playing(feed.out)
         # Ребуфер - только вход в BUFFERING, а не каждый опрос: иначе счётчик считал бы
         # секунды подвиса, а не сами подвисы. Сеть - на переходе в offline и обратно.
         if position.state == "BUFFERING" and not buffering:

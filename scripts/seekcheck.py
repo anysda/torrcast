@@ -36,10 +36,15 @@ import time
 import urllib.error
 import urllib.request
 from pathlib import Path
+from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from torrcast.profile import CAUTIOUS
+from torrcast.recode import FULL_FLOOR, FULL_GAIN, FULL_PRESET, Encode
 from torrcast.stream import (
+    AUDIO_MBIT,
+    TS_OVERHEAD,
     Feed,
     HlsServer,
     grid_for,
@@ -175,6 +180,27 @@ def case_mid(user: Consumer, keep: float) -> None:
     print(f"  ⇒ ждали {waited:.1f} с")
 
 
+def case_start(user: Consumer, at: float) -> None:
+    """Голый заход: упаковка с нужного места и первый кусок - больше ничего.
+
+    Это и есть метрика человека: от «поехали» до готовности первого куска. Остальные
+    сценарии меряют показ, который уже идёт, а тут показа ещё нет вовсе.
+    """
+    grid = user.feed.grid
+    slot = grid.slot_at(at)
+    print(
+        f"\n- заход с {at:.1f} с (v{slot}, [{grid.start(slot):.3f}..{grid.end(slot):.3f}), "
+        f"{grid.span(slot):.1f} с) -"
+    )
+    began = time.monotonic()
+    user.feed.restart(slot)
+    waited = user.take(slot, "первый кусок захода")
+    print(
+        f"  ⇒ ПЕРВЫЙ КУСОК ЗАХОДА: {time.monotonic() - began:.1f} с "
+        f"(ожидание тела {waited:.1f} с)"
+    )
+
+
 def case_fwd(user: Consumer) -> None:
     """Регресс: обычная перемотка вперёд далеко за край упаковки."""
     grid = user.feed.grid
@@ -184,6 +210,25 @@ def case_fwd(user: Consumer) -> None:
     for slot in range(far + 1, far + 4):  # префетч живого приёмника: шесть кусков разом
         user.take(slot)
     print(f"  ⇒ первый кусок за {waited:.1f} с, префетч подхватился")
+
+
+def whole_encode(media: Any, mbit: float, tonemap: bool = False) -> Encode:
+    """Сплошной перекод ровно тем, чем его собирает показ (:func:`torrcast.cli._encode_all`).
+
+    Повторять сборку в щупе приходится потому, что от неё зависит и вес сегмента, и
+    скорость первого куска: замер по чужим настройкам мерил бы не тот тракт. ``tonemap``
+    выключен по умолчанию - ровно как :attr:`torrcast.state.Config.recode_tonemap`.
+    """
+    want = mbit
+    if media.video_bps > 0:
+        want = min(want, max(FULL_FLOOR, media.video_bps / 1e6 * FULL_GAIN))
+    return Encode(
+        preset=FULL_PRESET,
+        mbit=want,
+        frame=media.frame,
+        ceiling=CAUTIOUS.recode_frame,
+        hdr=media.hdr and tonemap,
+    )
 
 
 def _slots(feed: Feed) -> list[int]:
@@ -215,7 +260,8 @@ def main() -> int:
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument("--source", help="URL потока (TorrServer)")
     source.add_argument("--file", help="локальный файл - поднимем ему Range-раздачу сами")
-    parser.add_argument("--case", default="all", choices=("all", "back", "mid", "fwd"))
+    parser.add_argument("--case", default="all", choices=("all", "back", "mid", "fwd", "start"))
+    parser.add_argument("--at", type=float, default=0.0, help="с какой секунды заходить (start)")
     parser.add_argument("--out", default="/dev/shm/seekcheck", help="каталог показа")
     parser.add_argument("--step", type=float, default=10.0, help="шаг сетки, с")
     parser.add_argument("--keep", type=float, default=120.0, help="окно позади показа, с")
@@ -223,6 +269,8 @@ def main() -> int:
     parser.add_argument("--readrate", type=float, default=1.0)
     parser.add_argument("--wait", type=float, default=120.0, help="сколько показ держит запрос")
     parser.add_argument("--trace", action="store_true", help="печатать решения об упаковке")
+    parser.add_argument("--whole", action="store_true", help="перекодировать фильм целиком")
+    parser.add_argument("--mbit", type=float, default=9.0, help="во сколько перекодировать")
     args = parser.parse_args()
 
     if args.trace:
@@ -231,7 +279,23 @@ def main() -> int:
     url = args.source or serve_file(Path(args.file).resolve())
     media = probe(url)
     print(f"источник: {url}\nдлительность {media.duration:.1f} с, видео {media.video}")
-    grid = grid_for(url, media.duration, args.step, True, say=print)
+    whole = whole_encode(media, args.mbit) if args.whole else None
+    if whole is not None:
+        print(
+            f"сплошной перекод: {whole.preset}, {whole.mbit:.2f} Мбит/с, "
+            f"кадр {whole.out_frame}, тонемап {whole.hdr}"
+        )
+    grid = grid_for(
+        url,
+        media.duration,
+        args.step,
+        True,
+        say=print,
+        delivered_mbit=media.delivered_mbit,
+        # Сплошной перекод: вес куска задаём мы сами, карта источника тут не судья.
+        fixed_mbit=(whole.mbit + AUDIO_MBIT) * TS_OVERHEAD if whole is not None else 0.0,
+        cap=CAUTIOUS.max_segment_bytes,
+    )
 
     out = hls_dir(args.out)
     feed = Feed(
@@ -244,6 +308,7 @@ def main() -> int:
         keep=args.keep,
         wait=args.wait,
         log=functools.partial(print, "  упаковка:"),
+        encode=whole,
     )
     server = HlsServer(out, host="127.0.0.1", port=HLS_PORT, feed=feed)
     server.start()
@@ -253,6 +318,8 @@ def main() -> int:
     try:
         code, size, waited = get(f"{base}/index.m3u8", 30.0)
         print(f"манифест: {code}, {size} байт на {grid.count} сегментов - за {waited:.2f} с")
+        if args.case == "start":
+            case_start(user, args.at)
         if args.case in ("all", "back"):
             case_back(user, args.keep)
         if args.case in ("all", "mid"):

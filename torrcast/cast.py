@@ -809,10 +809,14 @@ class MockReceiver:
         self._dead = False
         #: Докуда приёмник не берёт LOAD после пойманного 404 (:attr:`SULK`).
         self._sulk = 0.0
+        #: Первый кадр этого показа уже был на экране. До него приёмник копит фильм
+        #: (:attr:`torrcast.profile.Profile.start_buffer`), после - идёт как шёл.
+        self._shown = False
 
     def play(self, url: str, title: str = "", at: float = 0.0) -> None:
         self._url = url
         self._seen, self._still, self._loads, self._dead = -1.0, 0.0, 0, False
+        self._shown = False
         self._open(url, at)
 
     def _open(self, url: str, at: float = 0.0) -> None:
@@ -899,7 +903,8 @@ class MockReceiver:
             return Position(0.0, dur, False, "IDLE")
         pos, moving = self._pos.pos, self._pos.pos > self._seen
         self._seen = pos
-        if self._pos.playing and moving:
+        if self._pos.playing and moving and self._buffered(pos, front):
+            self._shown = True
             self._still, self._loads = 0.0, 0
             return Position(pos, dur, True, "PLAYING")
         if self._over():
@@ -908,6 +913,21 @@ class MockReceiver:
             # Приёмник ждёт картинку и показ считает живым - как ТВ в BUFFERING.
             return Position(pos, dur, True, "BUFFERING")
         return Position(0.0, dur, False, "IDLE")
+
+    def _buffered(self, pos: float, front: float) -> bool:
+        """Набрал ли показ столько фильма, сколько приёмнику нужно до ПЕРВОГО кадра.
+
+        🔴 Замер на живом Q70D (:attr:`torrcast.profile.Profile.start_buffer`): приёмник
+        отвечает ``PLAYING``, ещё не показав ни кадра, и держит указатель на месте захода,
+        пока не накопит около десяти секунд фильма. Заглушка этого не знала и объявляла
+        картинку по первому же сдвигу своего декодера - то есть сухой прогон показывал
+        старт на 5-6 с бодрее живого ТВ, и ровно на эти секунды врали все замеры старта.
+
+        Запас показу известен не всегда: ``front <= pos`` значит «впереди не названо
+        ничего», и судить тут не о чем - работает прежнее правило. Кадр уже был на
+        экране - правило тоже не работает: копит приёмник один раз, на заходе.
+        """
+        return self._shown or front <= pos or front - pos >= self.profile.start_buffer
 
     def _over(self) -> bool:
         """Кончился ли вход честно: декодер вышел нулём, значит фильм доигран, а не оборван."""

@@ -67,6 +67,7 @@ __all__ = [
     "Recoder",
     "Weights",
     "preset_for",
+    "whole_encode",
 ]
 
 #: Каталог перекодированных кусков внутри каталога показа. Наружу они попадают не отсюда,
@@ -362,6 +363,25 @@ class Encode:
                 "-colorspace", "bt709",
             ]  # fmt: skip
         return video
+
+
+def whole_encode(
+    mbit: float, video_mbit: float = 0.0, frame: int = 0, ceiling: int = 0, hdr: bool = False
+) -> Encode:
+    """Чем перекодировать ВЕСЬ файл: пресет, битрейт и кадр - одним решением.
+
+    Живёт здесь, а не у показа, ровно потому, что спрашивают об этом трое: сам показ
+    (:func:`torrcast.cli._encode_all`), сетка прогрева и щупы замера. Разойдись они хоть
+    в одном числе - щуп мерил бы не тот тракт, а прогретое легло бы под чужим ключом.
+
+    ``video_mbit`` - вес видеодорожки источника: перекодировать лёгкое аниме в полные
+    ``mbit`` значит потратить процессор на биты, которых во входе нет
+    (:data:`FULL_GAIN`, :data:`FULL_FLOOR`).
+    """
+    want = mbit
+    if video_mbit > 0:
+        want = min(want, max(FULL_FLOOR, video_mbit * FULL_GAIN))
+    return Encode(preset=FULL_PRESET, mbit=want, frame=frame, ceiling=ceiling, hdr=hdr)
 
 
 def preset_for(

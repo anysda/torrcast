@@ -2083,3 +2083,62 @@ def test_the_source_is_asked_more_than_once_before_it_is_believed(
 
     assert len(asked) >= 3, "источник спрошен несколько раз, а не единожды"
     assert service.added == [MAGNET], "заметив пропажу, раздачу вернули магнитом"
+
+
+def test_the_picture_is_proved_by_a_moving_pointer_not_by_the_word_playing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``PLAYING`` при стоящем указателе - это ещё не картинка, и флажок ему не полагается.
+
+    🔴 Замер на живом Q70D (заход в тяжёлое место, сплошной перекод): приёмник отвечает
+    ``PLAYING`` на 8.2-й секунде, а указатель стоит на месте захода ещё 6.0 с - до тех
+    пор, пока показ не выложил ВТОРОЙ кусок. То есть каждое «старт NN с» было занижено
+    на 5-6 с ровно там, где человеку хуже всего. Здесь показ дожидается сдвига указателя.
+    """
+    from torrcast import cli
+    from torrcast.stream import playing_flag
+
+    monkeypatch.setattr(time, "sleep", lambda seconds: None)
+    feed = _feed_with_segments(tmp_path)
+    # Приёмник говорит «играю», не двигая указатель, и только потом трогается с места.
+    stuck = _FakeReceiver([(300.0, "PLAYING"), (300.0, "PLAYING"), (0.0, "IDLE")])
+
+    cli._hold(stuck, feed)
+
+    assert not playing_flag(feed.out).exists(), "указатель стоял - картинки не было"
+
+    feed = _feed_with_segments(tmp_path)
+    moved = _FakeReceiver([(300.0, "PLAYING"), (300.5, "PLAYING"), (0.0, "IDLE")])
+
+    cli._hold(moved, feed)
+
+    assert playing_flag(feed.out).exists(), "указатель пошёл - вот это и есть картинка"
+
+
+def test_the_mock_waits_for_as_much_film_as_the_receiver_gathers_before_the_first_frame(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Заглушка не показывает кадр раньше, чем показ набрал запас живого приёмника.
+
+    🔴 Замер на живом Q70D (:attr:`torrcast.profile.Profile.start_buffer`): на сетке по 8 с
+    указатель тронулся только со ВТОРЫМ куском (16 с фильма), на сетке по 2.5 с - с
+    четвёртым (10 с), а на третьем (7.5 с) ещё стоял. Заглушка объявляла картинку по
+    первому же сдвигу своего декодера, то есть сухой прогон был бодрее живого ТВ на те
+    самые секунды, из-за которых старт и меряют.
+    """
+    from torrcast.cast import MockReceiver, Position
+    from torrcast.profile import CAUTIOUS
+
+    assert CAUTIOUS.start_buffer == 10.0, "замер: столько фильма Q70D копит до первого кадра"
+
+    mock = MockReceiver()
+    monkeypatch.setattr(MockReceiver, "_over", lambda self: False)
+    mock._pos = Position(300.0, 0.0, True)
+
+    # Один кусок по 8 с впереди - живой приёмник тут ещё копит и кадра не показывает.
+    assert mock.position(front=308.0).state == "BUFFERING", "8 с фильма приёмнику мало"
+    mock._pos = Position(300.5, 0.0, True)
+    # Второй кусок пришёл - запас перевалил за десять секунд, вот теперь картинка.
+    assert mock.position(front=316.0).state == "PLAYING", "16 с - приёмник трогается"
+    mock._pos = Position(301.0, 0.0, True)
+    assert mock.position(front=303.0).state == "PLAYING", "копит он один раз, на заходе"

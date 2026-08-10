@@ -26,15 +26,29 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from torrcast.cast import ChromecastReceiver
-from torrcast.recode import RECODE_DIR, Encode, Recoder, Weights
+from torrcast.profile import CAUTIOUS
+from torrcast.recode import RECODE_DIR, Encode, Recoder, Weights, whole_encode
 from torrcast.state import load_config
-from torrcast.stream import Feed, Grid, HlsServer, film_keys, grid_for, hls_base, hls_dir, probe
+from torrcast.stream import (
+    AUDIO_MBIT,
+    TS_OVERHEAD,
+    Feed,
+    Grid,
+    HlsServer,
+    film_keys,
+    grid_for,
+    hls_base,
+    hls_dir,
+    probe,
+)
 
 #: Позиция не двигается дольше этого при живом запасе упаковки - это подвис.
 STALL = 3.0
 
 
-def make_grid(args: argparse.Namespace, delivered: float = 0.0) -> Grid:
+def make_grid(
+    args: argparse.Namespace, delivered: float = 0.0, whole: Encode | None = None
+) -> Grid:
     """Сетка смока: явный список границ, ровная или по опорным кадрам.
 
     ``--drop``/``--add`` двигают отдельные границы, не трогая остальную сетку, — это и
@@ -56,6 +70,9 @@ def make_grid(args: argparse.Namespace, delivered: float = 0.0) -> Grid:
             say=print,
             delivered_mbit=delivered,
             ceiling_mbit=args.mbit if args.recode else 0.0,
+            # Сплошной перекод: вес куска задаём мы сами, карта источника тут не судья.
+            fixed_mbit=(whole.mbit + AUDIO_MBIT) * TS_OVERHEAD if whole is not None else 0.0,
+            cap=CAUTIOUS.max_segment_bytes,
         )
     drop = {float(x) for x in args.drop.split(",") if x}
     extra = {float(x) for x in args.add.split(",") if x}
@@ -83,6 +100,8 @@ def main() -> None:
     parser.add_argument("--audio", type=int, default=0)
     parser.add_argument("--title", default="проверка нарезки")
     parser.add_argument("--recode", action="store_true", help="перекодировать тяжёлые куски")
+    parser.add_argument("--whole", action="store_true", help="перекодировать фильм целиком")
+    parser.add_argument("--tonemap", action="store_true", help="привести HDR к SDR")
     parser.add_argument("--threshold", type=float, default=15.0, help="порог тяжести, Мбит/с")
     parser.add_argument("--preset", default="veryfast")
     parser.add_argument("--mbit", type=float, default=12.0, help="во сколько перекодировать")
@@ -97,7 +116,11 @@ def main() -> None:
 
     config = load_config()
     out = hls_dir(config.hls_dir)
-    media = None if (args.uniform or args.bounds) else probe(args.url)
+    # ⚠️ Паспорт нужен и на явной сетке, если перекодируем целиком: из него берутся кадр,
+    # HDR и вес видеодорожки, а без них ``--whole`` молча выродился бы в копию - и щуп
+    # отдал бы приёмнику ровно тот поток, ради отказа от которого перекод и заведён.
+    quiet = (args.uniform or args.bounds) and not args.whole
+    media = None if quiet else probe(args.url)
     delivered = media.delivered_mbit if media else 0.0
     if media is not None:
         print(
@@ -105,7 +128,20 @@ def main() -> None:
             if delivered > 0
             else "паспорт веса видеодорожки не несёт - поправка наберётся по факту"
         )
-    grid = make_grid(args, delivered)
+    whole = None
+    if args.whole and media is not None:
+        whole = whole_encode(
+            args.mbit,
+            video_mbit=media.video_bps / 1e6,
+            frame=media.frame,
+            ceiling=CAUTIOUS.recode_frame,
+            hdr=media.hdr and args.tonemap,
+        )
+        print(
+            f"сплошной перекод: {whole.preset}, {whole.mbit:.2f} Мбит/с, "
+            f"кадр {whole.out_frame}, тонемап {whole.hdr}"
+        )
+    grid = make_grid(args, delivered, whole)
     slot = grid.slot_at(args.at)
     print(
         f"сетка: {grid.count} сегментов; место {args.at:.1f} с - это v{slot} "
@@ -154,6 +190,7 @@ def main() -> None:
         keep=config.hls_keep,
         log=lambda text: print(f"  упаковка: {text}", flush=True),
         recoder=recoder,
+        encode=whole,
     )
     server = HlsServer(out, port=config.hls_port, feed=feed)
     receiver = ChromecastReceiver(config.tv or "")
