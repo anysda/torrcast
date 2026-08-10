@@ -381,11 +381,17 @@ class _Slow(_Offline):
 def test_a_picture_whose_swarm_never_answers_is_refused_in_seconds_with_a_move(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Вся очередь молчит пирами - правда говорится за секунды и с ходом для человека.
+    """Вся очередь молчит пирами - правда говорится быстро и с ходом для человека.
 
     Сиды у раздач числятся (4, 2 и 1), и заранее их никто не судит: очередь проходится
     целиком, каждая раздача спрашивается по-настоящему. Отказывает факт - служба не
     насчитала ни одного контакта, - а не обещание индексера.
+
+    🔴 TC-300. Цена отказа теперь складывается из двух разных вещей, и обе тут проверяются:
+    сам обход очереди по-прежнему стоит отсрочек, а не бюджетов (три раздачи - меньше
+    секунды), но сверх него платится РОВНО ОДИН полный бюджет раздачи - за последний,
+    терпеливый спрос лучшей из промолчавших (:meth:`~torrcast.cli._Bench._recheck`). Трёх
+    бюджетов, как до отсрочек, тут нет и близко.
     """
     ranked = [rel(name=f"r{i}", seeders=4 - i) for i in range(3)]
     monkeypatch.setattr(Release, "magnet", property(lambda self: f"magnet-{self.raw_name}"))
@@ -399,8 +405,12 @@ def test_a_picture_whose_swarm_never_answers_is_refused_in_seconds_with_a_move(
 
     said = str(refusal.value)
     printed = capsys.readouterr().out
-    assert spent < cli.META_BUDGET / 4, f"отказ занял {spent:.1f} с при бюджете релиза 20 с"
-    assert "рой пуст" in printed, "человеку не сказали, чем именно кончилась раздача"
+    assert spent < cli.META_BUDGET * 1.25, (
+        f"отказ занял {spent:.1f} с: обход трёх раздач стоит отсрочек, а сверх него - "
+        "один бюджет раздачи на терпеливый спрос, но не три бюджета"
+    )
+    assert printed.count("рой пуст") == 3, "человеку не сказали, чем именно кончилась раздача"
+    assert "спрашиваю релиз 1 ещё раз" in printed, "последний спрос тоже громкий"
     assert "потрогали 3 (все)" in said, "спросили не всю очередь"
     assert "ни одна не отозвалась" in said and "числятся" in said
     assert "назови картину иначе" in said, "отказ без хода - тупик"

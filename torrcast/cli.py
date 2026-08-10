@@ -254,6 +254,10 @@ SWARM_GRACE = 12.0
 #: магнита (DHT у неё общий на процесс и уже разогрет, трекеры едут из самого магнита), и
 #: втрое короче прежней цены отказа. Ошибка в эту сторону стоит одного места в очереди:
 #: следующий релиз всё равно спрашивается, а осечка роя попытку не жжёт (:data:`MAX_TRIES`).
+#:
+#: 🔴 TC-300. Ровно поэтому отсрочка снимается там, где очереди больше нет: когда
+#: промолчали все до одной, её ошибка стоит уже не места, а показа, и последний спрос
+#: идёт по полному бюджету раздачи (:meth:`_Bench._recheck`).
 PEER_GRACE = 6.0
 #: **Бюджет всей фазы отбора, секунды**: столько CLI перебирает очередь, прежде чем
 #: сдаться. Число не новое и не «с запасом»: это ровно прежний потолок фазы - три
@@ -3266,6 +3270,12 @@ class _Prep:
     #: Нужен именно типом: «умерло собственное звено» опознаётся по классу
     #: исключения, а не по префиксу текста - текст пишется языком зрителя и правится.
     failure: TorrcastError | None = None
+    #: Спрашивать рой по ПОЛНЫМ бюджетам фазы, без отсрочек на первый контакт
+    #: (:data:`PEER_GRACE`, :data:`SWARM_GRACE`). Отсрочки существуют, чтобы не занимать
+    #: место в очереди безнадёжной раздачей, и стоит их ошибка ровно этого места - пока
+    #: в очереди есть кого спросить. Когда спрашивать больше некого, платить отсрочкам
+    #: нечем: терпеливо спрашивается один-единственный релиз (:meth:`_Bench._recheck`).
+    patient: bool = False
     phase: str = "очередь"
     started: float = field(default_factory=time.monotonic)
     meta: float = 0.0
@@ -3306,6 +3316,25 @@ def _turned_down(judged: dict[int, str], number: int, why: str) -> None:
     trace.emit("select", "drop", release=number, why=why)
 
 
+def _silenced(prep: _Prep | None) -> bool:
+    """Осечка ли это РОЯ: про сам релиз мы так ничего и не узнали.
+
+    Отличается тем же, чем отличаются две осечки отбора (:meth:`_Bench.resolve`): ffprobe
+    паспорт прочитал - про релиз известно всё, и второй раз спрашивать нечего; рой
+    промолчал - неизвестно ничего, кроме того, что раздача не отозвалась. Опознаётся
+    ТИПОМ отказа, а не текстом: текст пишется языком зрителя и правится (TC-281).
+
+    «Нужной серии в раздаче нет» и «отдельного видеофайла нет» - это
+    :class:`~torrcast.NotFoundError`: про раздачу узнали всё, что хотели, и терпение ей
+    ничего не добавит. Молчание роя приезжает :class:`~torrcast.InfraError`, а не
+    уложившаяся в бюджет фаза - вовсе без отказа, одной строкой :attr:`_Prep.error`.
+    """
+    if prep is None or prep.media is not None:
+        return False
+    # ServerDownError сюда не доходит: на нём отбор кончается сразу (:meth:`_Bench.resolve`).
+    return prep.failure is None or isinstance(prep.failure, InfraError)
+
+
 class _Bench:
     """Прогрев релизов: несколько раздач готовятся разом, показ берёт первую годную.
 
@@ -3333,14 +3362,19 @@ class _Bench:
         #: ответа ждут, и тот, который греется ему на смену. Пусто под меню - там нужны все.
         self.needed: set[tuple[str, int]] = set()
 
-    def start(self, plan: _Plan, number: int) -> _Prep:
-        """Начать (или вернуть уже начатую) подготовку релиза ``number`` этого плана."""
+    def start(self, plan: _Plan, number: int, patient: bool = False) -> _Prep:
+        """Начать (или вернуть уже начатую) подготовку релиза ``number`` этого плана.
+
+        ``patient`` - спрашивать рой без отсрочек, по полным бюджетам фазы
+        (:attr:`_Prep.patient`). Уже начатому прогреву терпения не добавляет: отсрочки
+        задаются в момент вопроса, и передумать на середине нельзя.
+        """
         key = (plan.picture.key, number)
         found = self.preps.get(key)
         if found is not None:
             return found
         self._room()
-        prep = _Prep(number=number, release=plan.ranked[number - 1])
+        prep = _Prep(number=number, release=plan.ranked[number - 1], patient=patient)
         self.preps[key] = prep
         threading.Thread(target=self._work, args=(plan, prep), daemon=True).start()
         return prep
@@ -3464,6 +3498,12 @@ class _Bench:
         Поэтому попытку жжёт только приговор (:data:`MAX_TRIES`), а молчание роя — часы
         (:data:`PICK_BUDGET`). Бесконечно это не длится и молчаливым не бывает: потолок
         фазы прежний, каждая осечка стоит строки, а очередь конечна.
+
+        🔴 TC-300. А кончившаяся очередь, в которой промолчали ВСЕ, кончается не отказом:
+        лучший из промолчавших спрашивается ещё раз - один и без отсрочек, в остаток того
+        же бюджета фазы (:meth:`_recheck`). Замер: такие отказы не упирались ни в
+        приговоры, ни в часы ни разу из 98, то есть терпения им не хватало нашего, а не
+        бюджетного.
 
         🔴 TC-188. Сами приговоры тоже считаются не поштучно, а СЕКУНДАМИ ожидания
         (:data:`VERDICT_BUDGET`): три места счётчика сгорали на именах, которые ffprobe
@@ -3589,6 +3629,10 @@ class _Bench:
                 break
         if mute is not None:
             return self._mute_fallback(plan, mute, queue, judged, reached, len(tried))
+        if verdicts == 0 and exhausted and tried:
+            revived = self._recheck(plan, queue, args, progress, judged, deadline)
+            if revived is not None:
+                return revived
         shown = "; ".join(tried[:MAX_TRIES])
         more = f" и ещё {len(tried) - MAX_TRIES}" if len(tried) > MAX_TRIES else ""
         offer = kin_line(plan.kin)
@@ -3605,6 +3649,87 @@ class _Bench:
             f"годного релиза нет ({shown}{more}): выбери руками - "
             "cast releases <запрос>, потом cast <запрос> --release N" + tail
         )
+
+    def _recheck(
+        self,
+        plan: _Plan,
+        queue: list[int],
+        args: Args,
+        progress: Progress,
+        judged: dict[int, str],
+        deadline: float,
+    ) -> _Prep | None:
+        """Второй спрос очереди, промолчавшей целиком: одному релизу и без отсрочек.
+
+        🔴 TC-300. Отказ «до остальных отбор не дошёл» звучал так, будто обход упёрся в
+        потолок, и потолки же в нём и подозревали. Замер по двум сохранённым прогонам
+        (1131 запрос, 98 таких отказов) говорит обратное: НИ ОДИН из них не встал ни по
+        приговорам (:data:`MAX_TRIES` - их там ноль по определению ветки), ни по часам
+        (самый долгий занял 91 с из 180 :data:`PICK_BUDGET`). Очередь всякий раз доходила
+        до собственного конца, и кончалась она тем, что каждый её релиз промолчал роем; в
+        56 отказах из 98 при этом потрогали ВСЮ выдачу до последней раздачи. Поднимать
+        потолки тут нечего - поднимать надо терпение.
+
+        Молчание это часто ложное. Тот же корпус запросов, прогнанный дважды тем же кодом
+        в один день: из 17 картин, отказанных молчанием роя в первом прогоне, во втором
+        сыграли 8, и наоборот - из 13 отказанных во втором в первом сыграли 5. Живой рой,
+        которого не дождались, выглядит точно так же, как мёртвый.
+
+        Не дождались его МЫ, и ровно на столько, на сколько сами назначили: отсрочки
+        (:data:`PEER_GRACE`, :data:`SWARM_GRACE`) обрывают раздачу втрое-вчетверо раньше
+        её собственного бюджета. Заведены они по честному расчёту - «ошибка стоит одного
+        места в очереди, следующий релиз всё равно спрашивается», - и расчёт этот верен
+        ровно до тех пор, пока в очереди есть кого спрашивать. Когда промолчали все,
+        ошибка отсрочки стоит уже не места, а всего показа, а бюджет фазы при этом не
+        потрачен и наполовину (медиана такого отказа - 23 с из 180).
+
+        Поэтому перед отказом лучший из промолчавших спрашивается ещё раз: один (соседей
+        рядом не греется), по полным бюджетам метаданных и дорожек, без единой отсрочки.
+        Потолок фазы стоит где стоял - второго спроса не будет вовсе, если остаток бюджета
+        не покрывает его худшую цену, - и стоит он строки в обе стороны: и когда идёт, и
+        когда рой промолчал повторно.
+
+        Спрашивается тот, про кого мы правда ничего не знаем (:func:`_silenced`): раздачу
+        без нужной серии терпение не изменит.
+        """
+        key = plan.picture.key
+        number = next((n for n in queue if _silenced(self.preps.get((key, n)))), None)
+        if number is None:  # молчал не рой, а сами раздачи - им терпение не поможет
+            return None
+        if time.monotonic() + self.meta_budget + self.probe_budget > deadline:
+            return None  # честный второй спрос в остаток бюджета фазы уже не влезает
+        print(
+            f"промолчала вся очередь ({len(queue)}) - спрашиваю релиз {number} "
+            "ещё раз, одного и без отсрочек"
+        )
+        # Прогрев, оборванный отсрочкой, уже забыт вместе с раздачей: спрашиваем заново.
+        self.preps.pop((key, number), None)
+        self.needed = {(key, number)}
+        prep = self.start(plan, number, patient=True)
+        self._wait(prep, progress)
+        progress.phase("")
+        if isinstance(prep.failure, ServerDownError):
+            raise InfraError(prep.error)
+        trouble = self._trouble(
+            prep,
+            pinned=args.pinned,
+            warn_mbit=plan.warn_mbit,
+            recode=plan.recode_at > 0,
+            hard_mbit=plan.hard_mbit,
+        )
+        if trouble:
+            _turned_down(judged, number, trouble)
+            print(f"релиз {number} молчит и в одиночку ({trouble})")
+            self._forget(prep)
+            return None
+        if not args.pinned and prep.found.foreign:
+            # Ожил безрусский: русской не нашлось ни у кого, кого вообще удалось спросить.
+            return self._mute_fallback(plan, prep, queue, judged, len(queue), len(queue))
+        # Проверки честности (:meth:`_honest`) тут нет по той же причине, что и на запасном
+        # ходу: сравнивать не с кем - все соседи уже ответили молчанием, и второй круг
+        # ffprobe спрашивал бы ровно тех, кто только что промолчал.
+        self._announce(plan, prep, queue, judged, len(queue))
+        return prep
 
     def _announce(
         self,
@@ -3983,7 +4108,9 @@ class _Bench:
             prep.phase = "метаданные (DHT)"
             prep.torrent_hash = self.torrserver.add(prep.release.magnet)
             files = self.torrserver.wait_files(
-                prep.torrent_hash, timeout=self.meta_budget, grace=PEER_GRACE
+                prep.torrent_hash,
+                timeout=self.meta_budget,
+                grace=0.0 if prep.patient else PEER_GRACE,
             )
             prep.meta = time.monotonic() - prep.started
             mark("метаданные", релиз=prep.number, картина=plan.picture.key)
@@ -3998,7 +4125,9 @@ class _Bench:
             # дожидается этого же чтения, а не начинает своё вторым потоком.
             warm_file(source, alive=lambda: not prep.dropped, name=prep.want.name)
             prep.media = probe(
-                source, timeout=self.probe_budget, alive=swarm_pulse(source, SWARM_GRACE)
+                source,
+                timeout=self.probe_budget,
+                alive=None if prep.patient else swarm_pulse(source, SWARM_GRACE),
             )
             prep.read = time.monotonic() - began
             mark("ffprobe", релиз=prep.number, картина=plan.picture.key)

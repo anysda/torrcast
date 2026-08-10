@@ -710,6 +710,11 @@ def test_a_fully_walked_queue_of_dead_swarms_is_an_honest_dead_swarm(
 
     «Пиров нет» тут при этом не говорится: сиды у раздач как раз числятся - сотня, - и
     молчание роя с пустой выдачей путать нельзя (:func:`~torrcast.cli.silent_swarm`).
+
+    🔴 TC-300. Строк на три раздачи тут четыре: перед отказом лучший из промолчавших
+    спрашивается ещё раз, один и без отсрочек (:meth:`~torrcast.cli._Bench._recheck`).
+    Рой этой картины мёртв по-настоящему, второй спрос это подтверждает - и отказ
+    остаётся ровно тем же, что был, вместе со всеми своими числами.
     """
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
     _probes(monkeypatch, ranked, "h264")
@@ -724,7 +729,110 @@ def test_a_fully_walked_queue_of_dead_swarms_is_an_honest_dead_swarm(
     assert "до 100" in msg, "сиды называются как обещание индексера, а не как факт"
     assert "пиров нет" not in msg, "пиры числятся - врать про пустую выдачу нельзя"
     assert "годного релиза нет" not in msg
-    assert capsys.readouterr().out.count("нет пиров") == 3, "каждая раздача стоит строки"
+    printed = capsys.readouterr().out
+    assert printed.count("нет пиров") == 4, "три раздачи и второй спрос лучшей из них"
+    assert "релиз 1 молчит и в одиночку" in printed, "второй спрос тоже стоит строки"
+
+
+class _Impatient(_FakeTorrServer):
+    """Рой отзывается, но не в отсрочку: за отсрочку у него ни одного контакта, за полный
+    бюджет раздачи - метаданные целиком.
+
+    Так выглядит живая раздача, которую очередь считает мёртвой: отсрочка обрывает её
+    втрое раньше её собственного бюджета (:data:`~torrcast.cli.PEER_GRACE`), и очередь
+    доходит до конца, ни разу никого не дослушав.
+    """
+
+    def wait_files(
+        self, torrent_hash: str, timeout: float = 60.0, grace: float = 0.0
+    ) -> list[TorrFile]:
+        if grace > 0:
+            raise InfraError(f"рой пуст - за {grace:.0f} с ни одного пира")
+        return self.files
+
+
+def test_a_queue_that_went_silent_to_the_end_gets_one_patient_ask_and_reaches_the_living(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """🔴 TC-300. Промолчавшая целиком очередь - не приговор картине: спрашиваем ещё раз.
+
+    Отсрочки на первый контакт заведены ради очереди: пока в ней есть кого спросить,
+    ошибка отсрочки стоит одного места. Когда промолчали ВСЕ, ошибка стоит показа, а
+    бюджет фазы при этом не потрачен и наполовину - и лучший из промолчавших
+    спрашивается ещё раз, один и по полному бюджету раздачи.
+    """
+    ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
+    _probes(monkeypatch, ranked, "h264")
+    monkeypatch.setattr(Release, "magnet", property(lambda self: f"magnet-{self.raw_name}"))
+    torrserver = _Impatient()
+
+    prep = _resolve(cli._Bench(cast(Any, torrserver)), ranked)
+
+    printed = capsys.readouterr().out
+    assert prep.number == 1, "терпеливый второй спрос дошёл до живой раздачи"
+    assert printed.count("рой пуст") == 3, "обход очереди прежний: каждая осечка стоит строки"
+    assert "промолчала вся очередь (3) - спрашиваю релиз 1 ещё раз, одного и без отсрочек" in (
+        printed
+    )
+
+
+def test_the_patient_ask_is_not_made_when_the_phase_budget_cannot_cover_it(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Второй спрос живёт внутри прежнего потолка фазы, а не сверх него.
+
+    Потолок (:data:`~torrcast.cli.PICK_BUDGET`) заводился не зря: человек сидит у консоли.
+    Остатка меньше худшей цены спроса - спроса и нет, отказ приходит как приходил.
+    """
+    ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
+    _probes(monkeypatch, ranked, "h264")
+    monkeypatch.setattr(Release, "magnet", property(lambda self: f"magnet-{self.raw_name}"))
+    monkeypatch.setattr(cli, "PICK_BUDGET", 1.0)  # на обход хватает, на второй спрос нет
+    torrserver = _Impatient()
+
+    with pytest.raises(NotFoundError) as caught:
+        _resolve(cli._Bench(cast(Any, torrserver)), ranked)
+
+    printed = capsys.readouterr().out
+    assert "потрогали 3 (все)" in str(caught.value)
+    assert "ещё раз" not in printed, "бюджет фазы второго спроса не покрывает - его и нет"
+
+
+def test_the_patient_ask_goes_to_the_release_the_swarm_silenced_not_to_a_judged_one(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Терпение достаётся тому, про кого мы ничего не узнали, а не тому, про кого узнали всё.
+
+    Раздача, у которой метаданные приехали, а нужного файла в ней не оказалось, второму
+    спросу не подлежит: её ответ не изменится ни от какого терпения. Спрашивается первая
+    из тех, кого оборвал рой.
+    """
+    ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
+    _probes(monkeypatch, ranked, "h264")
+    monkeypatch.setattr(Release, "magnet", property(lambda self: f"magnet-{self.raw_name}"))
+
+    class _Mixed(_Impatient):
+        """Верх метаданные отдаёт мгновенно, остальные молчат до полного бюджета."""
+
+        def wait_files(
+            self, torrent_hash: str, timeout: float = 60.0, grace: float = 0.0
+        ) -> list[TorrFile]:
+            if torrent_hash == "hash-magnet-r0":
+                return self.files
+            return super().wait_files(torrent_hash, timeout, grace)
+
+    def choose(plan: Any, release: Release, files: list[TorrFile]) -> TorrFile:
+        if release.raw_name == "r0":
+            raise NotFoundError("серии s1e1 в этой раздаче нет (серий не нашлось)")
+        return files[0]
+
+    torrserver = _Mixed()
+    prep = _resolve(cli._Bench(cast(Any, torrserver), choose=choose), ranked)
+
+    printed = capsys.readouterr().out
+    assert prep.number == 2, "терпеливо спросили того, кого оборвал рой"
+    assert "спрашиваю релиз 2 ещё раз" in printed
+    assert "спрашиваю релиз 1" not in printed, "про верх известно всё - терпеть тут нечего"
 
 
 def test_an_explicitly_named_release_is_played_as_asked_with_a_loud_warning(
