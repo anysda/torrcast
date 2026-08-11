@@ -3164,20 +3164,17 @@ RUSSIAN = (AudioTrack(0, "rus", "Дубляж (Jaskier)", "ac3", 6),)
 FOREIGN = (AudioTrack(0, "eng", "Original", "ac3", 6),)
 
 
-def test_an_unnamed_language_asks_the_neighbour_that_promises_russian(
+def test_an_unnamed_language_does_not_stop_the_queue_at_the_top(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """🔴 TC-301. Верх про язык звука не сказал ничего - спрашиваем того, кто сказал.
+    """🔴 TC-492. Верх про язык звука не сказал ничего - идём дальше по очереди.
 
     Живой случай: «Оставленные» уезжают с единственной дорожкой без тега языка, а ниже в
-    той же очереди стоит нетронутая раздача «от Scarabey» с двумя русскими дорожками.
-    Гейт русской озвучки такой верх пропускает по делу - бракуя его, мы бракуем не релиз,
-    а собственное незнание, - и ровно поэтому до обещанной русской очередь не доходит
-    вовсе: показ уже начался.
-
-    Машинка тут не новая: это та же проверка честности, что переспрашивает соседа про
-    заниженное разрешение (:meth:`~torrcast.cli._Bench._honest`), и цена та же -
-    :data:`~torrcast.cli.HONEST_BUDGET` на всё.
+    той же очереди стоит нетронутая раздача «от Scarabey» с двумя русскими дорожками. До
+    правки гейт такой верх пропускал - и очередь до подтверждённой русской не доходила
+    вовсе, потому что показ уже начался. Незнание годностью не считается, и очередь
+    доходит сама: ни одного лишнего ffprobe это не стоит, спрашивается уже прочитанный
+    паспорт.
     """
     ranked = [
         rel(name="Кино [WEB-DL 1080p] тихий", voices=(), seeders=140),
@@ -3195,17 +3192,26 @@ def test_an_unnamed_language_asks_the_neighbour_that_promises_russian(
 
     printed = capsys.readouterr().out
     assert prep.number == 2, "незнание меняем на знание, а не на догадку"
-    assert "язык звука в релизе 1 не назван - беру 2, там русская дорожка" in printed
-    assert torrserver.dropped, "отвергнутый верх не доедает полосу роя"
+    assert "релиз 1 без русской озвучки (не назван) - беру 2" in printed
+    assert not torrserver.dropped, (
+        "отложенный верх - это запасной ход, и до конца отбора его раздача живёт: "
+        "снести её значило бы поднимать с нуля, если русской не найдётся ни у кого"
+    )
 
 
-def test_a_neighbour_whose_promise_turns_out_empty_does_not_win(
+def test_an_unnamed_language_falls_back_to_the_existing_mute_move(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Имя соседа обещало русскую, а паспорт её не нашёл - играем прежнего, и вслух.
+    """🔴 TC-492. Русской не нашлось ни у кого - играет отложенный, и это ЗАПАСНОЙ ХОД.
 
-    Обещание имени врёт в обе стороны, и менять релиз ради обещания нельзя: меняем
-    незнание на ЗНАНИЕ. Молчания тут тоже нет - каждое решение стоит строки.
+    До правки безымянный паспорт кончался собственной строкой «русской рядом нет, играю
+    его» - то есть тем же показом, только с оправданием. Хода тут не заводится нового:
+    работает тот же :meth:`~torrcast.cli._Bench._mute_fallback`, что и у прямо нерусского
+    релиза, одной строкой на всё решение.
+
+    Отложенный при этом выбирается не первым попавшимся: паспорт, промолчавший про язык,
+    ещё может оказаться русским, а названный английским - уже нет. Поэтому играет верх с
+    незнанием, а не второй релиз со знанием «нет».
     """
     ranked = [
         rel(name="Кино [WEB-DL 1080p] тихий", voices=(), seeders=140),
@@ -3222,8 +3228,11 @@ def test_a_neighbour_whose_promise_turns_out_empty_does_not_win(
 
     printed = capsys.readouterr().out
     assert prep.number == 1
-    assert "релиз 2 - русской дорожки в нём тоже нет" in printed
-    assert "язык звука в релизе 1 не назван - русской рядом нет, играю его" in printed
+    assert "релиз 1 без русской озвучки (не назван) - беру 2" in printed
+    assert "релиз 2 без русской озвучки (английский)" in printed
+    assert "русской озвучки нет ни в одной из проверенных раздач (2)" in printed
+    assert "включаю релиз 1, звук не назван" in printed
+    assert "играю его" not in printed, "второй строки под тот же случай не заводится"
 
 
 def test_a_confirmed_russian_track_asks_nobody(
@@ -3231,9 +3240,9 @@ def test_a_confirmed_russian_track_asks_nobody(
 ) -> None:
     """Паспорт назвал русскую - вопросов нет, лишних секунд тоже.
 
-    И обратная половина того же: раздача, обещавшая русскую своим ИМЕНЕМ, поводом для
-    вопроса не считается - у нас уже есть основание, а не незнание (счастливый путь
-    аниме вроде «Реинкарнации безработного», где имя обещает, а тег языка пуст).
+    И обратная половина того же (🔴 TC-492): раздача, обещавшая русскую своим ИМЕНЕМ,
+    основанием не считается. Имя не гарантирует дорожки (TC-191), и «[RUS(int)]» с пустым
+    тегом языка - то же самое незнание, что и молчаливое имя: очередь идёт дальше.
     """
     ranked = [
         rel(name="Кино [WEB-DL 1080p] a", seeders=140),
@@ -3260,19 +3269,15 @@ def test_a_confirmed_russian_track_asks_nobody(
         Media(5977.0, RUSSIAN, "h264", 1080, 1920),
     )
     prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer())), promised)
-    assert prep.number == 1, "имя обещало русскую - это основание, а не незнание"
-    assert not re.search(r"беру \d", capsys.readouterr().out)
+    assert prep.number == 2, "обещание имени русской дорожкой не становится"
 
 
 def test_the_passport_has_three_answers_about_the_language() -> None:
-    """«Да», «нет» и «не знаю» - и третий ответ не равен первому (:func:`unnamed_sound`)."""
-    silent = rel(name="Кино [WEB-DL 1080p] тихий", voices=())
-    promised = rel(name="Кино [WEB-DL 1080p] | D")
-
-    assert cli.unnamed_sound(silent, Media(5977.0, UNNAMED, "h264", 1080, 1920))
-    assert not cli.unnamed_sound(silent, Media(5977.0, RUSSIAN, "h264", 1080, 1920)), "паспорт: да"
-    assert not cli.unnamed_sound(silent, Media(5977.0, FOREIGN, "h264", 1080, 1920)), "паспорт: нет"
-    assert not cli.unnamed_sound(promised, Media(5977.0, UNNAMED, "h264", 1080, 1920)), "имя: да"
+    """«Да», «нет» и «не знаю» - и годен только первый (:func:`voice_unproven`)."""
+    assert not cli.voice_unproven(Media(5977.0, RUSSIAN, "h264", 1080, 1920)), "паспорт: да"
+    assert cli.voice_unproven(Media(5977.0, FOREIGN, "h264", 1080, 1920)), "паспорт: нет"
+    assert cli.voice_unproven(Media(5977.0, UNNAMED, "h264", 1080, 1920)), "паспорт: не знаю"
+    assert not cli.voice_unproven(Media(5977.0, (), "h264", 1080, 1920)), "звук не прочитан вовсе"
 
 
 # --- Прогрев соседа по звуку: обещавшая русскую раздача греется под меню (TC-309) ------
@@ -3332,7 +3337,7 @@ def test_a_picture_whose_front_candidates_all_promise_russian_warms_no_sound_nei
 
     Прогрев обещавшего соседа - это ещё одна раздача в рое, и платить её надо ровно за
     тот случай, который она спасает: вопрос «язык звука не назван» релизу, обещавшему
-    русскую своим именем, не задаётся вовсе (:func:`unnamed_sound`).
+    русскую своим именем, не задаётся вовсе (:func:`voice_unproven`).
     """
     ranked = [rel(name=f"Кино [BDRip 1080p] р{i} | D", seeders=100 - i) for i in range(3)]
     _reads(monkeypatch, ranked, *([Media(5977.0, (), "h264", 1080, 1920)] * 3))
@@ -3404,7 +3409,7 @@ def test_a_native_picture_accepts_its_only_unnamed_track(title: str) -> None:
     release = rel(name=f"{title} [WEB-DL 1080p]", voices=())
     media = Media(5977.0, UNNAMED, "h264", 1080, 1920)
 
-    assert not cli.unnamed_sound(release, media, native=True)
+    assert not cli.voice_unproven(media, native=True)
     assert cli.sound_note(media, 0, [release], release, native=True) == ""
 
 
@@ -3413,7 +3418,7 @@ def test_a_foreign_picture_does_not_call_its_only_unnamed_track_russian() -> Non
     release = rel(name="The Holdovers [WEB-DL 1080p]", voices=())
     media = Media(5977.0, UNNAMED, "h264", 1080, 1920)
 
-    assert cli.unnamed_sound(release, media, native=False)
+    assert cli.voice_unproven(media, native=False)
     assert "русская" not in cli.sound_note(media, 0, [release], release, native=False)
 
 

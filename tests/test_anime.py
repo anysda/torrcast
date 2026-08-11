@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+import io
 from dataclasses import replace
 from typing import Any, cast
 
@@ -36,6 +37,7 @@ from torrcast.cli import (
     rank_releases,
     sound_note,
 )
+from torrcast.console import Progress
 from torrcast.parse import Picture, Release, parse_release_name
 from torrcast.search import RawResult, merge, to_releases
 from torrcast.state import Config
@@ -1121,4 +1123,79 @@ def test_a_hand_picked_release_is_never_judged_for_its_language(
     prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer())), ranked, release=1)
 
     assert prep.number == 1
+    assert "без русской озвучки" not in capsys.readouterr().out
+
+
+# --- 🔴 TC-492: «язык не назван» - это незнание, а не годность -------------------------
+
+
+def test_an_unnamed_language_no_longer_ends_the_queue(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """🔴 TC-492. Переигровка сеанса «Эксперименты Лэйн» (11-08, очередь из восьми).
+
+    Как было: релизы 1 и 3 забракованы паспортом («без русской озвучки»), у четвёртого
+    язык звука не назван - и он игрался, потому что незнание засчитывалось за русскую
+    дорожку. В очереди при этом оставались нетронутыми ещё четыре раздачи, и в одной из
+    них русская дорожка есть. Зритель услышал нерусский звук при живом соседе.
+
+    Как стало: незнание не годность. Очередь идёт дальше и доходит до подтверждённой
+    русской. Лишнего ffprobe это не стоит - спрашивается тот же уже прочитанный паспорт,
+    - а от бесконечного перебора выдачу защищают прежние потолки (:data:`MAX_TRIES`,
+    :data:`VERDICT_BUDGET`), а не согласие играть неизвестно что.
+    """
+    ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(8)]
+    _tracks(monkeypatch, ranked, "jpn", "jpn", "jpn", "und", "jpn", "rus", "jpn", "jpn")
+
+    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer())), ranked)
+
+    printed = capsys.readouterr().out
+    assert prep.number == 6, "русская дорожка нашлась ниже по очереди - её и играем"
+    assert "релиз 4 без русской озвучки (не назван) - беру 5" in printed
+    assert "играю его" not in printed, "«не назван, играю его» больше не бывает"
+
+
+def test_when_the_queue_runs_out_the_unnamed_release_plays_by_the_mute_move(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """🔴 TC-492. Русской не нашлось ни у кого - играет отложенный, ходом TC-178.
+
+    Хода под этот случай не заводится нового и строки не разводится: работает тот же
+    :meth:`~torrcast.cli._Bench._mute_fallback`, что и у прямо нерусского релиза. Играет
+    при этом тот, про кого меньше известно плохого: паспорт, промолчавший про язык, ещё
+    может оказаться русским, а названный японским русским уже не станет.
+    """
+    ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
+    _tracks(monkeypatch, ranked, "jpn", "und", "jpn")
+
+    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer())), ranked)
+
+    printed = capsys.readouterr().out
+    assert prep.number == 2, "незнание лучше знания «нет»: японский русским не станет"
+    assert "релиз 1 без русской озвучки (японский) - беру 2" in printed
+    assert "русской озвучки нет ни в одной из проверенных раздач (3)" in printed
+    assert "включаю релиз 2, звук не назван" in printed
+
+
+def test_a_native_picture_still_plays_its_only_unnamed_track(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """У отечественной картины безымянная дорожка - паспорт происхождения, а не пробел.
+
+    «Бригаду» никто не озвучивал, она так и снята: гонять по такой очереди гейт русской
+    озвучки значило бы искать перевод русского фильма на русский.
+    """
+    ranked = [rel(name="r0", seeders=100), rel(name="r1", seeders=90)]
+    _tracks(monkeypatch, ranked, "und", "rus")
+    picture = Picture(title="Бригада", year=2002, releases=ranked, native=True)
+    plan = cli._Plan(
+        picture=picture, ranked=ranked, runtime=RUNTIME, warn_mbit=20.0, recode_at=10.0
+    )
+
+    with Progress(out=io.StringIO()) as progress:
+        prep = cli._Bench(cast(Any, _FakeTorrServer())).resolve(
+            plan, cli.Args(query=["бригада"]), progress
+        )
+
+    assert prep.number == 1, "своя картина: пустой тег языка - это и есть русский звук"
     assert "без русской озвучки" not in capsys.readouterr().out
