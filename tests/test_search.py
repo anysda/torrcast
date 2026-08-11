@@ -185,7 +185,10 @@ class _Swarm:
         blocked: dict[int, str] | None = None,
         disabled_till: dict[int, str] | None = None,
         refuses: set[int] | None = None,
+        empty: set[int] | None = None,
     ) -> None:
+        #: Кто отвечает ЧЕСТНЫМ нулём: он не молчун и не отказ, просто ничего не нашёл.
+        self.empty = empty or set()
         #: Кого Prowlarr увёл в недоступные: номер - время последнего отказа (UTC).
         #: Пусто - как на здоровом стенде: страница статуса показывает только банных.
         self.blocked = blocked or {}
@@ -245,6 +248,8 @@ class _Swarm:
             )
         num = int(url.rsplit("&indexerIds=", 1)[1])
         self.budget[str(num)] = timeout
+        if num in self.empty:
+            return _Reply([])
         if num in self.refuses:  # источник не ответил, а наверх поехало «нашлось ноль»
             self.refused_at[num] = _ago(0)
             return _Reply([])
@@ -663,6 +668,37 @@ def test_опоздавший_доливается_после_круга_а_не
     late = client.late(wait=5.0)
     assert len(late) == 2  # доехали ровно раздачи Nyaa
     assert client.late() == []  # долив разовый: второй раз брать нечего
+
+
+def test_пустой_пул_дожидается_опоздавшего() -> None:
+    """🔴 TC-318. Пул пуст, а опоздавший ещё в пути - тогда его дожидаются: сказать
+    «ничего не нашлось» про каталог, у которого не спросили последнего, нельзя.
+
+    Честный ноль ответивших идёт тут наравне с молчанием: строк не приехало ни одной, и
+    выбор у человека тот же - пусто или картина.
+    """
+    client = _swarm(rows=2, empty={1, 2}, hold={3})
+    threading.Timer(0.2, client._session.gate.set).start()  # type: ignore[union-attr]
+    try:
+        results = client.search("Naruto [TV]")
+    finally:
+        client._session.gate.set()  # type: ignore[union-attr]
+    assert [r.title for r in results] == ["picture.3.0", "picture.3.1"]
+
+
+def test_ожидание_опоздавшего_не_длиннее_остатка_цели() -> None:
+    """Ждать на пустом пуле - решение про остаток цели (:meth:`Prowlarr.spare`), а не про
+    бюджет опоздавшего: цели не осталось - ждать нечем, и пустой ответ приходит сразу."""
+    client = _swarm(rows=2, empty={1, 2}, hold={3})
+    client._began = time.monotonic() - 30.0  # цель съедена целиком
+    assert client.spare() == 0.0
+    began = time.monotonic()
+    try:
+        with pytest.raises(NotFoundError, match="ничего не нашлось"):
+            client.search("Naruto [TV]")
+    finally:
+        client._session.gate.set()  # type: ignore[union-attr]
+    assert time.monotonic() - began < 1.0
 
 
 def test_кворумного_индексера_круг_всё_же_дожидается() -> None:
