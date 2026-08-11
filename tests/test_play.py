@@ -681,9 +681,10 @@ def test_a_network_that_never_returns_ends_the_show_exactly_as_before(
 
     clock, feed, warmer, receiver = _dark(tmp_path)
 
-    cli._hold(receiver, feed, None, warmer, clock=clock)  # type: ignore[arg-type]
+    expected_end = cli._hold(receiver, feed, None, warmer, clock=clock)  # type: ignore[arg-type]
 
     assert receiver.replays == [], "мёртвая сеть - в приёмник не ушло ни одного LOAD"
+    assert expected_end, "исчерпанные попытки - ожидаемый фолбэк, а не падение юнита"
     assert clock.now - 1000.0 > cli.REVIVE_LIMIT, "ждали ровно столько, сколько обещали"
     printed = capsys.readouterr().out
     assert "показ погас на 0:20:00" in printed and "cast продолжит с 0:20:00" in printed
@@ -751,6 +752,22 @@ def test_the_darkness_mark_goes_away_with_the_picture(
     assert receiver.replays == [1200.0], "показ подняли - иначе проверять нечего"
     assert [mark for mark in seen if mark[0]], "темнота была и отмечена"
     assert _dark_mark(watch.key) == (0.0, ""), "картинка идёт, а запись зовёт показ погасшим"
+
+
+def test_the_darkness_reason_follows_a_returning_source(tmp_path: Path) -> None:
+    """Источник уже отвечает - текущая строка больше не называет его мёртвым."""
+    from torrcast import cli
+
+    clock, feed, warmer, receiver = _dark(tmp_path)
+    service = _Service(up=False)
+    revival = cli._Revival(supply=_supply(service), clock=clock)
+
+    assert revival.resurrect(receiver, feed, warmer, 1200.0)
+    assert revival.why == "TorrServer не отвечает"
+    service.up = True
+
+    assert revival.resurrect(receiver, feed, warmer, 1200.0)
+    assert revival.why == "источник вернулся - жду готовности потока"
 
 
 def _dark_mark(key: str) -> tuple[float, str]:

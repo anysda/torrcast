@@ -1455,6 +1455,7 @@ def _cmd_play(args: Args) -> int:
         audio,
         playable,
         release,
+        prep.files,
         native=plan.picture.native,
     ):
         print(note)
@@ -3514,6 +3515,7 @@ class _Prep:
     #: и полосу у самого показа.
     dropped: bool = False
     video: TorrFile | None = None
+    files: list[TorrFile] = field(default_factory=list)
     media: Media | None = None
     error: str = ""
     #: Отказ, которым кончилась подготовка (``error`` - его строка для человека).
@@ -4449,6 +4451,7 @@ class _Bench:
                 timeout=self.meta_budget,
                 grace=prep.contact_wait or 0.0,
             )
+            prep.files = files
             prep.meta = time.monotonic() - prep.started
             mark("метаданные", релиз=prep.number, картина=plan.picture.key)
             prep.video = self.choose(plan, prep.release, files)
@@ -5173,7 +5176,7 @@ def _play(
         # делает, происходит уже при играющем показе и на остатке процессора.
         if warmer is not None:
             warmer.start()
-        _hold(receiver, feed, watch, warmer, supply, profile, journal=journal)
+        expected_end = _hold(receiver, feed, watch, warmer, supply, profile, journal=journal)
     finally:
         # Позиция фиксируется при любом исходе, включая SIGTERM, и делается это ПЕРВЫМ
         # делом: показ, доигранный до конца файла, отмечает «досмотрено» ровно здесь, а
@@ -5214,7 +5217,7 @@ def _play(
         return EXIT_OK
     print(f"{journal} {report.line()}")
     # Серию обрывают намеренно на пороге 95 % - хвост упаковки декодеру и не отдавали.
-    if not report.ok and not (watch is not None and watch.done):
+    if not report.ok and not expected_end and not (watch is not None and watch.done):
         _blame_the_end(supply)
     return EXIT_OK
 
@@ -5396,6 +5399,8 @@ class _Revival:
     #: перенос отсчёта на момент приговора добавлял бы эти секунды чёрного экрана
     #: сверху - впустую, готовый приёмник ждал бы нас, а не мы его.
     drop: float = REVIVE_DROP
+    #: Попытки закончились штатным фолбэком: позиция сохранена, показ можно продолжить.
+    ended: bool = False
     #: Сколько показ должен идти живым, чтобы запас попыток снова считался полным.
     #: Меньше :attr:`pause` брать нельзя - см. :data:`REVIVE_LIVED`.
     lived: float = REVIVE_LIVED
@@ -5464,6 +5469,7 @@ class _Revival:
                 f"гашу; cast продолжит с {_hms(pos)}",
                 flush=True,
             )
+            self.ended = True
             return False
         if not self._may(feed, warmer, pos) or (self.last and now - self.last < self.pause):
             return True  # сети всё ещё нет либо выдержка между попытками не вышла
@@ -5542,6 +5548,7 @@ class _Revival:
             if _asked(self.supply):
                 return False  # источник всё ещё лежит - жечь терпение приёмника незачем
             feed.offline = ""
+            self.why = "источник вернулся - жду готовности потока"
             # Ответ службы доказывает возврат источника, но не готовность потока. После
             # повторного добавления раздача ещё собирает метаданные и пиров; LOAD имеет
             # смысл лишь тогда, когда упаковка уже отдала кусок у сохранённой позиции.
@@ -5558,7 +5565,7 @@ def _hold(
     profile: Profile = CAUTIOUS,
     clock: Clock = CLOCK,
     journal: str = "",
-) -> None:
+) -> bool:
     """Держим показ: опрос приёмника раз в 2 с, упаковка должна быть жива, из RAM уходит
     только пройденное, сторож раз в 10 с пишет позицию.
 
@@ -5756,11 +5763,11 @@ def _hold(
                 watch.entry.dark, watch.entry.dark_why = revival.began, revival.why
                 watch.flush()
             if watch.done and watch.entry.serial:
-                return  # серия досмотрена - освобождаем показ под следующую
+                return False  # серия досмотрена - освобождаем показ под следующую
         if position.state == "PAUSED":
             paused = paused or clock.monotonic()
             if clock.monotonic() - paused > PAUSE_LIMIT:
-                return  # пауза длиной с вечер - показ окончен, юнит гасим
+                return False  # пауза длиной с вечер - показ окончен, юнит гасим
             if clock.monotonic() - paused > PAUSE_SECONDS and not feed.halted():
                 print("пауза на пульте - упаковку гашу", flush=True)
                 feed.halt()  # вернутся к показу - раздача сама начнёт паковать заново
@@ -5769,7 +5776,7 @@ def _hold(
             # интернета длиннее приёмникова терпения гасит экран, а фильм и место, где
             # его смотрели, никуда не делись (:class:`_Revival`).
             if not revival.resurrect(receiver, feed, warmer, held):
-                return
+                return revival.ended
             # Причину темноты добывает сам :class:`_Revival`, спрашивая источник, и в след
             # она уже легла (:meth:`_Revival._why`). Второй раз то же событие не пишем.
             was_offline = bool(feed.offline)
@@ -7700,6 +7707,7 @@ def sound_note(
     audio: int,
     pool: list[Release],
     release: Release | None = None,
+    files: Sequence[TorrFile] = (),
     *,
     native: bool = False,
 ) -> str:
@@ -7740,9 +7748,25 @@ def sound_note(
     lang = spoken(track)
     if any(r is not release and r.dubbed and r.seeders > 0 for r in pool):
         return f"только {lang} звук - в каталоге, возможно, есть перевод в другой раздаче"
-    if any(r.external_dub and r.seeders > 0 for r in pool):
+    if _russian_audio_file(files) or any(r.external_dub and r.seeders > 0 for r in pool):
         return f"только {lang} звук - в каталоге перевод есть, но лежит отдельным файлом"
     return f"только {lang} звук, перевода в каталоге нет"
+
+
+_AUDIO_FILE_EXT: Final = frozenset(
+    {".aac", ".ac3", ".dts", ".eac3", ".flac", ".m4a", ".mka", ".mp3", ".ogg", ".opus", ".wav"}
+)
+_RU_FILE_RE: Final = re.compile(
+    r"(?:^|[ ._\[(+-])(?:rus|russian|рус(?:ский|ская)?)(?:$|[ ._\])+-])", re.I
+)
+
+
+def _russian_audio_file(files: Sequence[TorrFile]) -> bool:
+    """Есть ли в раздаче отдельный файл звука, прямо названный русским."""
+    return any(
+        Path(file.name).suffix.casefold() in _AUDIO_FILE_EXT and _RU_FILE_RE.search(file.base)
+        for file in files
+    )
 
 
 def voice_note(media: Media, audio: int) -> str:

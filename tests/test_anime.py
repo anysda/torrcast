@@ -522,6 +522,22 @@ def test_a_dub_that_exists_only_as_a_separate_file_is_named_as_such() -> None:
     assert "--release N" not in note, "выбирать руками нечего - совет был бы враньём"
 
 
+def test_a_separate_russian_audio_file_is_read_from_the_torrent_contents() -> None:
+    """Имя релиза молчит, но уже полученный список файлов прямо называет русский звук."""
+    from torrcast.stream import TorrFile
+
+    release = named("Anime BDRip 720p | L2, L1", size_gb=8, seeders=20)
+    files = [
+        TorrFile(0, "Anime/S01E01.mkv", 2 * GB),
+        TorrFile(1, "Anime/Audio/S01E01.RUS.mka", 100 * 1024**2),
+    ]
+
+    assert not release.external_dub, "имя релиза симптом не выдаёт"
+    assert sound_note(_media("jpn"), 0, [release], release, files) == (
+        "только японский звук - в каталоге перевод есть, но лежит отдельным файлом"
+    )
+
+
 def test_a_release_with_a_russian_track_says_nothing_extra() -> None:
     """Русская дорожка на месте — предупреждать не о чем, лишних строк не печатаем."""
     pool = [named("Кино / Movie (1999) WEB-DL 1080p | D", size_gb=8, seeders=100)]
