@@ -186,9 +186,11 @@ class _Swarm:
         disabled_till: dict[int, str] | None = None,
         refuses: set[int] | None = None,
         empty: set[int] | None = None,
+        delay: dict[int, float] | None = None,
     ) -> None:
         #: Кто отвечает ЧЕСТНЫМ нулём: он не молчун и не отказ, просто ничего не нашёл.
         self.empty = empty or set()
+        self.delay = delay or {}
         #: Кого Prowlarr увёл в недоступные: номер - время последнего отказа (UTC).
         #: Пусто - как на здоровом стенде: страница статуса показывает только банных.
         self.blocked = blocked or {}
@@ -248,6 +250,12 @@ class _Swarm:
             )
         num = int(url.rsplit("&indexerIds=", 1)[1])
         self.budget[str(num)] = timeout
+        pause = self.delay.get(num, 0.0)
+        if pause > timeout:
+            time.sleep(timeout)
+            raise requests.ConnectTimeout("молчит")
+        if pause:
+            time.sleep(pause)
         if num in self.empty:
             return _Reply([])
         if num in self.refuses:  # источник не ответил, а наверх поехало «нашлось ноль»
@@ -612,12 +620,18 @@ def test_yts_asked_in_its_own_short_budget() -> None:
     его выдачу рвёт канал на объёме тела, и молчание выбирало все 20 с (замер на
     стенде: «barbie» - 20.02 с). Честный ответ у него - 0.5-0.9 с.
     """
-    from torrcast.search import _EXTRA_TIMEOUT, _QUORUM_TIMEOUT, _SHORT_TIMEOUT, indexer_budget
+    from torrcast.search import (
+        _EXTRA_TIMEOUT,
+        _LATE_TIMEOUT,
+        _QUORUM_TIMEOUT,
+        _SHORT_TIMEOUT,
+        indexer_budget,
+    )
 
     client = _swarm(yts=True, rows=2)
     client.search("barbie 2023")  # латиница с годом - не аниме, Nyaa вне круга
     budget = client._session.budget  # type: ignore[union-attr]
-    assert budget == {"1": _QUORUM_TIMEOUT, "2": _QUORUM_TIMEOUT, "4": _SHORT_TIMEOUT}
+    assert budget == {"1": _LATE_TIMEOUT, "2": _LATE_TIMEOUT, "4": _SHORT_TIMEOUT}
     assert _SHORT_TIMEOUT < _EXTRA_TIMEOUT, "короткий бюджет обязан быть заметно короче"
     # Судим по имени, а не по номеру: номер у индексера свой на каждой установке.
     # Короткий список только УРЕЗАЕТ роль (TC-226): YTS некворумный, его потолок и так
@@ -668,6 +682,51 @@ def test_опоздавший_доливается_после_круга_а_не
     late = client.late(wait=5.0)
     assert len(late) == 2  # доехали ровно раздачи Nyaa
     assert client.late() == []  # долив разовый: второй раз брать нечего
+
+
+def test_поздний_ответ_живёт_дольше_бюджета_круга(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """TC-454: бюджет круга выпускает меню, но не обрывает честный поздний ответ.
+
+    Knaben здесь отвечает после своего искусственно короткого бюджета. Круг обязан
+    оставить запрос в доливе, а долив - получить строки из того же запроса.
+    """
+    from torrcast import search
+
+    original = search.indexer_budget
+    monkeypatch.setattr(
+        search,
+        "indexer_budget",
+        lambda name: 0.02 if name == "Knaben" else original(name),
+    )
+    monkeypatch.setattr(search, "_ASK_SLACK", 0.0)
+    client = _swarm(rows=2, delay={1: 0.06})
+
+    results = client.search("матрица")
+
+    assert [r.indexer for r in results] == ["idx.2", "idx.2", "idx.3", "idx.3"]
+    assert client.silent == ("Knaben",), "на пути к меню молчание названо честно"
+    late = client.late(wait=0.2)
+    assert [r.indexer for r in late] == ["idx.1", "idx.1"]
+    assert client._session.budget["1"] > 0.06  # type: ignore[union-attr]
+
+
+def test_потолок_второго_круга_не_обрывает_живой_ответ(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """TC-455: малый остаток цели ограничивает круг, но не срок HTTP-ответа."""
+    from torrcast import search
+
+    monkeypatch.setattr(search, "_ASK_SLACK", 0.05)
+    client = _swarm(rows=2, delay={3: 0.04})
+    got, error = client._circle(  # type: ignore[attr-defined]
+        [(3, "Nyaa.si")], "Naruto [TV]", 100, {}, {}, [], cap=0.02
+    )
+
+    assert error is None
+    assert len(got) == 1 and len(got[0]) == 2
+    assert client._session.budget["3"] > 0.04  # type: ignore[union-attr]
 
 
 def test_пустой_пул_дожидается_опоздавшего() -> None:
@@ -725,11 +784,11 @@ def test_кворумного_ждём_дольше_остальных() -> None
     Резать его личным бюджетом в 3-5 с нельзя - он несёт 41% каталога, и замер дал
     1 подмену дефолта и 7 подмен верхнего релиза на 100 запросов. Поэтому кворумному
     бюджет остаётся полным, а короткий достаётся тем, кого круг и так не ждёт."""
-    client = _swarm(rows=2)
-    client.search("Naruto [TV]")
-    budget = client._session.budget  # type: ignore[union-attr]
-    assert budget["1"] == budget["2"] == 20.0, "Knaben и RuTor - кворум, их ждём дольше"
-    assert budget["3"] == 10.0, "Nyaa круг не ждёт: его бюджет - цель пути, а не молчание"
+    from torrcast.search import indexer_budget, response_budget
+
+    assert indexer_budget("Knaben") == indexer_budget("RuTor") == 20.0
+    assert indexer_budget("Nyaa.si") == 10.0
+    assert response_budget("Knaben") > indexer_budget("Knaben"), "ответ живёт в фоне"
 
 
 def test_второй_круг_идёт_в_остаток_цели() -> None:
@@ -739,12 +798,12 @@ def test_второй_круг_идёт_в_остаток_цели() -> None:
     давало 30 с при цели в 10."""
     client = _swarm(rows=2)
     client.search("Naruto [TV]")
-    assert client._session.budget["1"] == 20.0  # type: ignore[union-attr]
     client._began = time.monotonic() - 8.0  # изобразим поиск, съевший 8 секунд цели
-    client.search("Naruto [TV]")
-    budget = client._session.budget  # type: ignore[union-attr]
-    assert 1.5 < budget["1"] <= 2.0, "кворумному во втором круге - ровно остаток цели"
-    assert budget["3"] <= 2.0, "и некворумному тоже: цель у поиска одна на всех"
+    cap = max(client.spare(), client.cap_floor)
+    core = client._spawn("Naruto [TV]", 100, 1, "Knaben", cap)
+    extra = client._spawn("Naruto [TV]", 100, 3, "Nyaa.si", cap)
+    assert 1.5 < core.budget <= 2.0, "кворумному во втором круге - остаток цели"
+    assert extra.budget <= 2.0, "и некворумному тоже: цель у поиска одна на всех"
 
 
 def test_огрызок_бюджета_доводится_до_секунды() -> None:
@@ -755,8 +814,8 @@ def test_огрызок_бюджета_доводится_до_секунды() 
     client.search("Naruto [TV]")
     client._began = time.monotonic() - 30.0  # цели не осталось вовсе
     assert client.spare() == 0.0
-    client.search("Naruto [TV]")
-    assert client._session.budget["1"] == 1.0  # type: ignore[union-attr]
+    ask = client._spawn("Naruto [TV]", 100, 1, "Knaben", client.cap_floor)
+    assert ask.budget == 1.0
 
 
 def test_пол_второго_круга_поднимается_добором_до_цели() -> None:
@@ -770,8 +829,8 @@ def test_пол_второго_круга_поднимается_добором_
     client.search("Naruto [TV]")
     client._began = time.monotonic() - 30.0  # цели не осталось вовсе
     client.cap_floor = 10.0  # так делает добор по второму имени
-    client.search("Naruto [TV]")
-    assert client._session.budget["1"] == 10.0  # type: ignore[union-attr]
+    ask = client._spawn("Naruto [TV]", 100, 1, "Knaben", client.cap_floor)
+    assert ask.budget == 10.0
 
 
 def test_след_отличает_опоздавшего_от_молчуна(

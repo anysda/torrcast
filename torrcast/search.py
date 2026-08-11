@@ -136,6 +136,12 @@ _SHORT_BUDGET: Final = ("yts",)
 #: сильнее скорости, поэтому взят второй вариант: 1 поиск из 7 выходит за цель, и это
 #: названо здесь прямо, а не спрятано в число.
 _QUORUM_TIMEOUT: Final = 20.0
+#: Срок жизни фонового HTTP-запроса к кворумному индексеру. Он не держит круг:
+#: :data:`_QUORUM_TIMEOUT` по-прежнему выпускает меню. Но медленный честный ответ
+#: должен успеть доехать в :meth:`Prowlarr.late`: сохранённый замер на 170 запросах
+#: дал ответы Knaben на 31.73 и 32.72 с, причём второй принёс 66 строк. 45 секунд
+#: оставляют им запас и заканчивают запрос раньше внутреннего потолка Prowlarr.
+_LATE_TIMEOUT: Final = 45.0
 #: Личный бюджет НЕКВОРУМНОГО индексера (Nyaa, YTS). Круг их не ждёт (TC-118), поэтому
 #: бюджет отвечает не за путь до меню, а за то, до каких пор их выдаче ещё есть куда
 #: лечь: долив попадает в пул выбранной картины, а выбирают её в пределах цели
@@ -235,6 +241,17 @@ def indexer_budget(name: str) -> float:
     role = _QUORUM_TIMEOUT if quorum_indexer(name) else _EXTRA_TIMEOUT
     short = any(mark in low for mark in _SHORT_BUDGET)
     return min(role, _SHORT_TIMEOUT) if short else role
+
+
+def response_budget(name: str) -> float:
+    """Сколько живёт HTTP-запрос после того, как круг перестал его ждать.
+
+    Потолок следующего круга сюда не входит: он ограничивает путь до меню, а не
+    уничтожает ответ. Некворумные сохраняют свой личный срок; Knaben и RuTor могут
+    честно ответить позднее срока круга, и такой ответ забирает :meth:`Prowlarr.late`.
+    """
+    budget = indexer_budget(name)
+    return max(budget, _LATE_TIMEOUT) if quorum_indexer(name) else budget
 
 
 def anime_query(query: str) -> bool:
@@ -739,6 +756,12 @@ class Prowlarr:
         for ask in asked:
             if not ask.done.is_set():  # опоздал, но не потерян: доедет доливом
                 self._late.append(ask)
+                # Кворумного уже прождали весь бюджет круга. На пути к показу это
+                # честное «молчит», даже если фоновый запрос позднее привезёт строки.
+                # Некворумный круг не держал вовсе, поэтому его раньше личного срока
+                # молчуном не называем.
+                if ask in core:
+                    lost.append(ask.name)
                 continue
             spent[ask.name] = ask.ms
             if ask.rows is None:
@@ -765,7 +788,10 @@ class Prowlarr:
         ask = _Ask(name=name, budget=min(budget, cap) if cap else budget)
 
         def work() -> None:
-            ask.rows, ask.ms, ask.err = self._timed(query, limit, num, ask.budget)
+            # Бюджет ``ask`` отвечает только за критический путь. Сам запрос живёт в
+            # личный срок индексера, чтобы потолок второго круга не обрывал быстрый
+            # ответ на границе, а поздний кворумный ответ мог доехать в долив.
+            ask.rows, ask.ms, ask.err = self._timed(query, limit, num, response_budget(name))
             ask.done.set()
 
         threading.Thread(target=work, daemon=True, name=f"idx-{name}").start()
