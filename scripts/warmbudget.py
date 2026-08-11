@@ -35,7 +35,7 @@ from torrcast.stream import (
     _read_keys,
     _weigher,
 )
-from torrcast.warm import Vault, Warmer
+from torrcast.warm import WARM_BUDGET, Vault, Warmer
 
 
 def main() -> int:
@@ -45,7 +45,7 @@ def main() -> int:
     ap.add_argument("--step", type=float, default=10.0, help="шаг сетки, секунды")
     ap.add_argument("--ceiling", type=float, default=9.0, help="потолок перекодирования, Мбит/с")
     ap.add_argument("--cap", type=int, default=MAX_SEGMENT_BYTES, help="потолок куска, байты")
-    ap.add_argument("--budget", type=float, default=20.0, help="бюджет прогрева, ГБ")
+    ap.add_argument("--budget", type=float, default=WARM_BUDGET / 1e9, help="бюджет прогрева, ГБ")
     args = ap.parse_args()
 
     rows = []

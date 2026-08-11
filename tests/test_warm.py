@@ -45,6 +45,7 @@ from torrcast.warm import (
     SKEW_MAX,
     SKEW_TRIES,
     STARVE_GRACE,
+    WARM_BUDGET,
     Vault,
     Warmer,
     segment_start,
@@ -260,11 +261,30 @@ def test_the_budget_evicts_other_shows_by_age_and_never_the_own(tmp_path: Path) 
     assert "бюджет" in mine.fit(1 << 40), "бюджет не удержан"
 
 
-def test_the_budget_leaves_the_disk_room_to_breathe(tmp_path: Path) -> None:
+@pytest.mark.parametrize("movie_gb", [20.1, 20.7, 21.3])
+def test_the_warm_budget_accepts_the_heavy_movies(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, movie_gb: float
+) -> None:
+    """Три тяжёлых фильма, ради которых поднят бюджет, проходят проверку до записи."""
+    vault = Vault(root=tmp_path / "warm", key="тяжёлый", floor=0)
+    monkeypatch.setattr(Vault, "free", lambda _self: WARM_BUDGET * 2)
+    assert vault.budget == WARM_BUDGET
+    assert int(Config().warm_budget_gb * 1e9) == vault.budget, "конфиг разошёлся с хранилищем"
+    assert vault.fit(int(movie_gb * 1e9)) == "", f"фильм {movie_gb} ГБ остался без страховки"
+
+
+def test_the_budget_leaves_the_disk_room_to_breathe(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Диску не дают лопнуть: даже пустой бюджет не разрешает залезть в последние
     гигабайты раздела — рядом живут и state, и раздача, и система."""
     vault = _vault(tmp_path, budget=1 << 62, floor=FREE_FLOOR)
-    assert "запас" in vault.fit(vault.free() - FREE_FLOOR // 2), "прогрев готов забить раздел"
+    need = 21_300_000_000
+    monkeypatch.setattr(Vault, "free", lambda _self: need + FREE_FLOOR - 1)
+    refusal = vault.fit(need)
+    assert "на разделе свободно" in refusal and "запас" in refusal, (
+        "наш бюджет не должен скрывать нехватку чужого места"
+    )
 
 
 def test_warming_lays_the_whole_clip_on_disk_and_reports_it(clip: str, tmp_path: Path) -> None:

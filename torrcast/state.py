@@ -17,7 +17,7 @@ from typing import Any, Literal
 
 from torrcast import TorrcastError
 from torrcast.profile import CAUTIOUS
-from torrcast.warm import WARM_DIR
+from torrcast.warm import WARM_BUDGET, WARM_DIR
 
 __all__ = ["Config", "Entry", "State", "config_path", "load_config", "save_config", "state_path"]
 
@@ -214,7 +214,7 @@ class Config:
     #: Где лежит прогретое. **Диск, не tmpfs**: целый фильм в память не влезает.
     warm_dir: str = WARM_DIR
     #: Бюджет диска под всё прогретое, ГБ (:data:`torrcast.warm.WARM_BUDGET`).
-    warm_budget_gb: float = 20.0
+    warm_budget_gb: float = WARM_BUDGET / 1e9
     #: Во сколько раз быстрее реального времени идёт прогрев (:data:`torrcast.warm.WARM_RATE`).
     warm_rate: float = 4.0
 
