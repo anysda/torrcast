@@ -70,7 +70,7 @@ _CYRILLIC: Final = re.compile(r"[а-яё]", re.IGNORECASE)
 _UKRAINIAN: Final = re.compile(r"[іїєґ]", re.IGNORECASE)
 _LATIN: Final = re.compile(r"[a-z]", re.IGNORECASE)
 
-_QUALITY_RE: Final = re.compile(r"\b(2160p|1080p|720p|576p|480p|360p|4k|uhd)\b", re.IGNORECASE)
+_QUALITY_RE: Final = re.compile(r"\b(2160p|1080[pi]|720p|576p|480p|360p|4k|uhd)\b", re.IGNORECASE)
 _HEVC_RE: Final = re.compile(r"\b(hevc|h\.?\s?265|x265)\b", re.IGNORECASE)
 _H264_RE: Final = re.compile(r"\b(avc|h\.?\s?264|x264)\b", re.IGNORECASE)
 #: MPEG-4 Part 2 (XviD/DivX и родня). Читается ПОСЛЕ H.264: «MPEG-4 AVC» - это H.264,
@@ -80,6 +80,10 @@ _MPEG4_RE: Final = re.compile(
 )
 _AV1_RE: Final = re.compile(r"\bav1\b", re.IGNORECASE)
 _HDR_RE: Final = re.compile(r"\b(hdr10\+?|hdr|dolby\s*vision|dv)\b", re.IGNORECASE)
+_STEREO_RE: Final = re.compile(
+    r"(?:\b3d\b|\b3д\b|\bhalf[ ._-]*(?:sideby-side|sbs|over-under)|стереопар\w*)",
+    re.IGNORECASE,
+)
 #: Контейнер .avi в имени. Внутри .avi H.264 бывает, но на живой выдаче (36 раздач,
 #: у которых удалось достать .torrent и заглянуть в имена файлов) все восемь .avi
 #: оказались SD-рипами MPEG-4 - ни одного исключения.
@@ -317,7 +321,9 @@ _COLLECTION_CUT_RE: Final = re.compile(
 #: жанр «пародия» обычно стоит уже после заголовка, а ``fanedit`` - рядом с качеством.
 #: Имя озвучки сюда не входит: ``AVO (Goblin)`` остаётся дорожкой обычной картины.
 _ALTERNATIVE_PICTURE_RE: Final = re.compile(
-    r"\bпароди[яи]\b|\b(?:fan[ ._-]?edit)\b|\bсмешн(?:ой|ый)\s+перевод\b", re.IGNORECASE
+    r"\bпароди[яи]\b|\bфанатск\w*\s+верси\w*\b|\b(?:fan[ ._-]?edit)\b|"
+    r"\bсмешн(?:ой|ый)\s+перевод\b",
+    re.IGNORECASE,
 )
 _ALTERNATIVE_TITLE_RE: Final = re.compile(r"\(гоблин\)", re.IGNORECASE)
 #: Те же русские метки, но списком слов: по ним :func:`_title_zone` узнаёт рез, за которым
@@ -352,7 +358,7 @@ _ROMAN: Final[dict[str, int]] = {
     "x": 10,
 }
 _YEAR_PATTERNS: Final[tuple[re.Pattern[str], ...]] = (
-    re.compile(r"[(\[]\s*((?:19|20)\d{2})(?:\s*-\s*(?:19|20)\d{2})?\s*[,)\]]"),
+    re.compile(r"[(\[]\s*((?:19|20)\d{2})(?:\s*[-/]\s*(?:19|20)\d{2})?\s*[,)\]]"),
     re.compile(r"(?:^|[/|,]\s*)((?:19|20)\d{2})(?:\s*-\s*(?:19|20)\d{2})?\s*(?=[/|,]|$)"),
     re.compile(r"(?<=[\s.])((?:19|20)\d{2})(?=[\s.])"),
 )
@@ -596,8 +602,18 @@ class Release:
     @property
     def height(self) -> int:
         """Высота кадра из качества; 0 — качество в имени не указано."""
-        digits = (self.quality or "").rstrip("p")
+        digits = (self.quality or "").rstrip("pi")
         return int(digits) if digits.isdigit() else 0
+
+    @property
+    def interlaced(self) -> bool:
+        """Имя обещает чересстрочный, а не прогрессивный кадр."""
+        return bool(self.quality and self.quality.endswith("i"))
+
+    @property
+    def stereoscopic(self) -> bool:
+        """Раздача предназначена для стереоскопического показа."""
+        return bool(_STEREO_RE.search(self.raw_name))
 
     @property
     def prime(self) -> bool:
@@ -1833,6 +1849,18 @@ def glue(pictures: list[Picture]) -> list[Picture]:
     """
     parent = list(range(len(pictures)))
 
+    def identity(name: str) -> str:
+        """Имя картины без подписи формата показа в его хвосте."""
+        plain = re.sub(r"(?:-)?(?:в-)?3[дd]$", "", slugify(name)).rstrip("-")
+        return re.sub(
+            r"(?<=-)(?:часть|part)-([ivx]{1,4})$",
+            lambda match: (
+                match.group(0)[: match.group(0).rfind("-") + 1]
+                + str(_ROMAN.get(match.group(1), match.group(1)))
+            ),
+            plain,
+        )
+
     def alternative_release(release: Release) -> bool:
         title = release.raw_name.split(" / ", 1)[0]
         return bool(
@@ -1879,11 +1907,11 @@ def glue(pictures: list[Picture]) -> list[Picture]:
     }
     named: dict[tuple[Kind, str, bool], list[int]] = {}
     for i, picture in enumerate(pictures):
-        title = slugify(picture.title)
+        title = identity(picture.title)
         contested = (picture.kind, title, picture.year) in disputed
         names = set() if contested else {title}
         if picture.original:
-            names.add(slugify(picture.original))
+            names.add(identity(picture.original))
         # Число словом и число цифрой - одно имя (:func:`in_digits`). Гейт года при этом
         # остаётся прежним, так что «12 обезьян» 1995-го с сериалом 2015-го не сшить.
         if not contested:
@@ -1899,7 +1927,7 @@ def glue(pictures: list[Picture]) -> list[Picture]:
     for i, picture in enumerate(pictures):
         if picture.original:
             continue
-        for name in {(slug := slugify(picture.title)), in_digits(slug)}:
+        for name in {(slug := identity(picture.title)), in_digits(slug)}:
             if name:
                 lone.setdefault((picture.kind, name, alternative[i]), []).append(i)
     for i, picture in enumerate(pictures):
@@ -2051,8 +2079,18 @@ def _link(pictures: list[Picture], same: list[int], union: Callable[[int, int], 
     )
     chains: list[list[int]] = []
     for i in dated:
-        year = pictures[i].year or 0
-        if chains and year - (pictures[chains[-1][-1]].year or 0) <= 1:
+        current = pictures[i]
+        year = current.year or 0
+        previous = pictures[chains[-1][-1]] if chains else None
+        close_outlier = False
+        if previous is not None and previous.original and current.original:
+            close_outlier = (
+                year - (previous.year or 0) == 2
+                and len(previous.releases) == 1
+                and len(current.releases) >= 10
+                and slugify(previous.original) == slugify(current.original)
+            )
+        if previous is not None and (year - (previous.year or 0) <= 1 or close_outlier):
             chains[-1].append(i)
         else:
             chains.append([i])
@@ -2623,7 +2661,12 @@ def _numbered(items: list[Picture], index: int | None) -> list[Picture]:
     explicit = [p for p in line if p.part == index]
     if explicit:
         best = max(explicit, key=lambda p: len(p.releases))
-        if best.year is not None:
+        alternative = bool(best.releases) and all(
+            _ALTERNATIVE_PICTURE_RE.search(r.raw_name)
+            or _ALTERNATIVE_TITLE_RE.search(r.raw_name.split(" / ", 1)[0])
+            for r in best.releases
+        )
+        if best.year is not None and not alternative:
             return [best]
         # 🔴 TC-335. Безгодовый носитель явного номера сам за себя не ручается: «Матрица 4
         # / Matrix 4 - As It Should Be» - фанатская перемонтажка на двух раздачах, и год

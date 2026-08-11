@@ -13,6 +13,7 @@ from typing import NamedTuple
 
 import pytest
 
+from torrcast.cli import is_full_hd
 from torrcast.parse import (
     Picture,
     Release,
@@ -139,6 +140,21 @@ def test_parses_typical_russian_release() -> None:
     assert release.source == "BDRip"
     assert "Дубляж" in release.voices
     assert not release.is_hevc
+
+
+def test_slash_year_range_uses_its_first_year() -> None:
+    release = parse_release_name(
+        "Матрица 4 / Matrix 4 - As It Should Be (2021/2022) HDRip 1080p | P"
+    )
+
+    assert release.year == 2021
+
+
+def test_1080i_is_named_but_not_promoted_as_full_hd() -> None:
+    release = parse_release_name("Матрица / The Matrix [1999, HDTV 1080i] [Open Matte] Dub")
+
+    assert (release.quality, release.height, release.interlaced) == ("1080i", 1080, True)
+    assert not is_full_hd(release, alive=10)
 
 
 def test_parses_kinozal_slash_format() -> None:
@@ -1578,6 +1594,34 @@ def test_one_year_apart_is_the_same_picture() -> None:
     assert len(pictures) == 1
     assert len(pictures[0].releases) == 2
     assert pictures[0].also == ""  # имя одно, говорить не о чем
+
+
+def test_a_single_two_year_typo_joins_the_dominant_picture() -> None:
+    releases = [_release("Гарри Поттер и Принц-полукровка", 2007, original="Half-Blood Prince")]
+    releases += [
+        _release("Гарри Поттер и Принц-полукровка", 2009, original="Half-Blood Prince")
+        for _ in range(10)
+    ]
+    releases.append(_release("Гарри Поттер и Орден Феникса", 2007, original="Order of the Phoenix"))
+
+    pictures = cluster(releases)
+
+    assert [(p.title, p.year, len(p.releases)) for p in pictures] == [
+        ("Гарри Поттер и Орден Феникса", 2007, 1),
+        ("Гарри Поттер и Принц-полукровка", 2009, 11),
+    ]
+
+
+def test_a_3d_label_does_not_make_another_picture() -> None:
+    pictures = cluster(
+        [
+            _release("Дары Смерти: часть 1", 2010, original="Deathly Hallows: Part 1"),
+            _release("Дары Смерти: часть 1 в 3Д", 2010, original="Deathly Hallows: Part 1 3D"),
+        ]
+    )
+
+    assert len(pictures) == 1
+    assert [r.stereoscopic for r in pictures[0].releases] == [False, True]
 
 
 def test_a_glued_film_wears_the_year_of_the_majority_and_a_series_the_earliest() -> None:

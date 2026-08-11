@@ -7330,6 +7330,7 @@ def rank_releases(
             not is_candidate(r, runtime, warn_mbit, loose, hard_mbit, last, copy_hevc),
             r.collection,
             r.extras,
+            r.stereoscopic,
             needs_whole_recode(r, runtime, hard_mbit),
             is_dead(r, alive),
             hevc_hope(r, last),
@@ -7417,7 +7418,7 @@ def is_full_hd(release: Release, alive: int) -> bool:
     перекодом» (:func:`needs_whole_recode`) стоит ВЫШЕ этой и топит 2160p под всех, у
     кого кадр по зубам приёмнику (TC-221). Здесь 2160p спорит уже только с 720p.
     """
-    if release.height < FULL_HEIGHT or release.seeders < ALIVE_SEEDERS:
+    if release.interlaced or release.height < FULL_HEIGHT or release.seeders < ALIVE_SEEDERS:
         return False
     return release.seeders >= alive * FULL_HD_LIVENESS
 
