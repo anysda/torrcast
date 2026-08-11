@@ -41,6 +41,7 @@
 from __future__ import annotations
 
 import contextlib
+import signal
 import threading
 import time
 from dataclasses import dataclass, field, replace
@@ -171,6 +172,21 @@ HEAD_NICE: Final = 0
 #: отдать на ТВ копию втрое тяжелее.
 HEAD_LIMIT: Final = 2.0
 
+#: Скорость, ниже которой пресет на пути показа не берут, сколько бы ни было срока
+#: (:func:`preset_for`), - разы реального времени.
+#:
+#: Это не то же самое, что срок, и разбор живого показа стоил ровно на этой разнице:
+#: заход ``veryfast`` шёл 0.87× при сроке 57 с, то есть укладывался в него вчетверо, - и
+#: всё равно был неправ. Пока он делал 11.8 с фильма, реального времени прошло 13.6 с, и
+#: всё это время процессор держал он: показ на пути перекода не отыгрывал у реального
+#: времени ничего, упаковке уйти вперёд было не с чего, а следующему тяжёлому куску
+#: доставалась машина, уже занятая предыдущим. Срок отвечает на вопрос «успею ли к ЭТОМУ
+#: куску», реальное время - на вопрос «останется ли что-нибудь СЛЕДУЮЩЕМУ».
+#:
+#: Цена ошибки в эту сторону - одна ступень чёткости на редком куске, в обратную -
+#: подгруз, а гейт продукта сильнее скорости и чёткости разом.
+REALTIME: Final = 1.0
+
 #: Какая доля срока считается «успеваем» (:func:`preset_for`). Не 1.0 и даже не 0.7:
 #: срок считается по скорости, которая ЗАМЕРЕНА в прошлом, а соседи появляются в
 #: настоящем. Замер разброса: тот же кусок тем же пресетом идёт 2.62× в одиночку и 1.84×
@@ -186,7 +202,25 @@ DEADLINE_MARGIN: Final = 0.5
 #: множитель, а не слагаемое, поэтому :class:`Pace` и правит таблицу масштабом.
 #: Отсюда же начальное значение :attr:`Pace.factor`: до первого замера планируем так,
 #: будто сосед уже работает, потому что через 45 с он и правда работает.
+#:
+#: ⚠️ Число это про ПЕРЕКОДИРУЮЩИЙ прогрев, и разбор живого показа стоил ровно на этой
+#: недоговорённости: гипотеза «перекод не успевает, потому что делит процессор с
+#: прогревом» проверялась там, где прогрев шёл копией. Замер на 4 vCPU (1080p H.264
+#: 16 Мбит/с на входе, кусок 14.3 с, медиана из трёх): рядом со СПЛОШНЫМ перекодом
+#: прогрева заход veryfast идёт 0.95× вместо 1.41× — те же 33 %, число честное; рядом с
+#: КОПИРУЮЩИМ прогревом (``nice 19``, темп 4) — 1.38× вместо 1.41×, то есть 2-3 %, и это
+#: шум. Копией прогрев ходит на всём, что показ отдаёт без сплошного перекода, то есть
+#: чаще; на таком показе план по умолчанию пессимистичен на треть и стоит ступени
+#: чёткости на первом заходе. Менять умолчание — решение о том, что видит зритель, и
+#: отдельная карточка; здесь важно не искать причину опоздания в прогреве, пока не
+#: посмотрели, каким он идёт.
 NEIGHBOUR_TOLL: Final = 0.70
+
+#: Насколько свежим должен быть файл в рабочем каталоге ужатия, чтобы считать ужатие
+#: живым (:meth:`Recoder._shrink_running`), секунды. Ужатие пишет свой сегмент сплошным
+#: потоком, и пока оно идёт, метка времени файла обновляется непрерывно; полторы секунды -
+#: запас в семь раз к шагу опроса выкладки (0.2 с) и в пять к шагу опроса захода (0.3 с).
+SHRINK_FRESH: Final = 1.5
 
 #: Сколько последних заходов помнит :class:`Pace`. Планируем по ХУДШЕМУ из них, а не по
 #: среднему: сосед просыпается и засыпает, и среднее по такому ряду - это скорость,
@@ -444,13 +478,14 @@ def whole_encode(
 def preset_for(
     seconds: float, slack: float, presets: tuple[tuple[str, float], ...] = PRESETS
 ) -> str:
-    """Самый качественный пресет, который успевает уложить ``seconds`` фильма в ``slack``.
+    """Самый качественный пресет, который успевает уложить ``seconds`` фильма в ``slack``
+    и при этом идёт **не медленнее реального времени** (:data:`REALTIME`).
 
     Не успевает ни один — берём самый быстрый: кратковременное снижение качества дешевле
     подгруза. ``slack <= 0`` (кусок уже играют) — тоже самый быстрый.
     """
     for name, speed in presets:
-        if slack > 0 and seconds / speed <= slack * DEADLINE_MARGIN:
+        if speed >= REALTIME and slack > 0 and seconds / speed <= slack * DEADLINE_MARGIN:
             return name
     return presets[-1][0]
 
@@ -713,6 +748,13 @@ class Recoder:
     blocked: int = -1
     #: С какой секунды держим слишком тяжёлую копию: слот → ``time.monotonic``.
     stuck: dict[int, float] = field(default_factory=dict)
+    #: Кусок, который выкладка ужимает на месте сама, и когда она за него взялась
+    #: (:meth:`_hold_bulky`); ``None`` - никто ничего не ужимает. Пока ужатие идёт, заход
+    #: замирает и отдаёт ему процессор (:meth:`_yield_to_shrink`).
+    shrinking: tuple[int, float] | None = None
+    #: Сколько секунд этот заход простоял, уступая ужатию. Из замера темпа вычитается:
+    #: пауза мерит вежливость, а не скорость кодека (:meth:`Pace.record`).
+    stalled: float = 0.0
     thread: Any = None
     packer: Any = None
     lock: Any = field(default_factory=threading.Lock)
@@ -771,11 +813,19 @@ class Recoder:
         self.thread.start()
 
     def stop(self) -> None:
-        """Снять кодировщик и его процесс. Готовые куски не трогаем — их уберёт показ."""
+        """Снять кодировщик и его процесс. Готовые куски не трогаем — их уберёт показ.
+
+        ⚠️ Сначала снять паузу, и только потом гасить. Заход мог замереть, уступая ужатию
+        (:meth:`_yield_to_shrink`), а замерший процесс SIGTERM не обрабатывает вовсе:
+        :meth:`torrcast.stream.Packer.stop` честно ждёт его пять секунд и добивает
+        SIGKILL - пять секунд на конце показа за счёт человека. Оживить стоит один сигнал.
+        """
         self.stopped = True
         with self.lock:
             packer, self.packer = self.packer, None
         if packer is not None:
+            with contextlib.suppress(OSError, ProcessLookupError, AttributeError):
+                packer.proc.send_signal(signal.SIGCONT)
             packer.stop(keep_files=True, reason="показ окончен")
 
     def ready(self, slot: int) -> Path | None:
@@ -905,8 +955,20 @@ class Recoder:
         Плюс предохранитель :attr:`over_wait` - на случай, когда ffmpeg не поднимается
         вовсе. Что делать с отпущенной копией, решает выкладка: ужимает её на месте
         или честно пропускает (:meth:`torrcast.stream.Feed._shrink`).
+
+        🔴 Каждый отказ ждать - это заявка на второй кодировщик в машине, и отсюда же
+        она и отмечается (:attr:`shrinking`): следующим делом выкладка поднимет своё
+        ужатие, а заход обязан на это время замереть (:meth:`_yield_to_shrink`).
         """
-        if self.stopped or slot in self.done or slot not in set(self.targets):
+        if self.stopped:
+            return False
+        if slot in self.done or slot not in set(self.targets):
+            # Кодировщик за это место не берётся: либо уже сдался, либо профиль тяжести
+            # его промахнул - вес копии оказался выше предсказанного. Ровно так ушли в
+            # ужатие слоты 0, 2 и 4 разбираемого показа: ни один из них не был в
+            # :attr:`targets`, и ни на одном не встала выкладка - она просто ужала их
+            # сама, втроём за первые двенадцать секунд, рядом с чужим заходом.
+            self.shrinking = (slot, now)
             return False
         since = self.stuck.get(slot)
         if since is None:
@@ -924,7 +986,80 @@ class Recoder:
         # ожидание - дальше кусок решает выкладка (ужатие на месте или пропуск).
         self._say(f"⚠️ v{slot}: перекода нет {self.over_wait:.0f} с - снимаю ожидание")
         self._unstick(slot)
+        self.shrinking = (slot, now)
         return False
+
+    def _shrink_touched(self) -> float:
+        """Когда в рабочем каталоге ужатия последний раз что-то писали (стенные секунды)."""
+        from torrcast.stream import SHRINK_DIR
+
+        newest = 0.0
+        with contextlib.suppress(OSError):
+            for path in (self.spare / SHRINK_DIR).glob("*.ts"):
+                with contextlib.suppress(OSError):
+                    newest = max(newest, path.stat().st_mtime)
+        return newest
+
+    def _shrink_running(self) -> bool:
+        """Ужимает ли выкладка кусок прямо сейчас - по её же рабочему каталогу.
+
+        Заявку ставит :meth:`_hold_bulky` (:attr:`shrinking`), а живость подтверждает
+        факт, а не таймер: ужатие пишет свой сегмент в ``spare/<SHRINK_DIR>``
+        (:meth:`torrcast.stream.Feed._shrink`), и пока метка времени файла свежее
+        :data:`SHRINK_FRESH`, второй кодировщик на машине работает. Один таймер тут врал
+        бы в обе стороны: ужатие бывает и мгновенным (перекод доехал сам, пока ждали
+        замок), и долгим до :attr:`over_wait`.
+
+        Пока ffmpeg ужатия поднимается (:attr:`startup`), каталог пуст не потому, что всё
+        кончилось, - эту фору держим по заявке.
+        """
+        at = self.shrinking
+        if at is None:
+            return False
+        slot, since = at
+        waited = time.monotonic() - since
+        if waited < self.startup:
+            return True
+        fresh = time.time() - self._shrink_touched() < SHRINK_FRESH
+        if fresh and waited < self.over_wait and self.ready(slot) is None:
+            return True
+        self.shrinking = None
+        return False
+
+    def _yield_to_shrink(self, packer: Any) -> float:
+        """Замереть, пока выкладка ужимает кусок на месте. Возвращает, сколько простояли.
+
+        Кто кому уступает, решается не вежливостью, а тем, кого ждут. Ужатие на месте
+        идёт по нужде: на его куске выкладка СТОИТ, и пока он не готов, приёмник не
+        получает ни его, ни всего, что за ним. Заход же работает впрок - его кусок нужен
+        через десятки секунд, и опоздание на пять ему ничего не стоит.
+
+        Замер на стенде, ради которого это написано (4 vCPU, 1080p H.264 16 Мбит/с на
+        входе, кусок 14.3 с, медиана из трёх): рядом с ужатием живой заход идёт
+        ``veryfast`` 0.46× вместо 1.41×, ``superfast`` 0.70× вместо 2.24×, ``ultrafast``
+        0.95× вместо 3.09×. Потеря одна и та же - две трети - на всех трёх пресетах, то
+        есть это не «немного медленнее», а «вдвое-втрое», и оба кодировщика ползут разом.
+        Для сравнения, второй половиной той же гипотезы был прогрев: он в своём обычном
+        виде (копия, ``nice 19``, темп 4) стоит заходу 3 %, то есть ничего.
+
+        Именно ``SIGSTOP``, а не «снять и начать заново» и не ``nice``: процессор у ffmpeg
+        отбирает только пауза (заголовок :mod:`torrcast.warm`), а снятый заход выбросил бы
+        уже посчитанные секунды. Пауза короткая по определению - ужатие это один кусок.
+        """
+        if not self._shrink_running():
+            return 0.0
+        began = time.monotonic()
+        slot = self.shrinking[0] if self.shrinking is not None else -1
+        with contextlib.suppress(OSError, ProcessLookupError, AttributeError):
+            packer.proc.send_signal(signal.SIGSTOP)
+        mark("заход уступил ужатию", слот=slot)
+        try:
+            while not self.stopped and self._shrink_running():
+                time.sleep(0.2)
+        finally:
+            with contextlib.suppress(OSError, ProcessLookupError, AttributeError):
+                packer.proc.send_signal(signal.SIGCONT)
+        return time.monotonic() - began
 
     def _unstick(self, slot: int) -> None:
         """Кусок больше не держит выкладку: перекод готов, ушёл наружу или мы сдались."""
@@ -1184,6 +1319,7 @@ class Recoder:
         )
         command = ["nice", "-n", str(HEAD_NICE if first == self.head else NICE), *command]
         began = time.monotonic()
+        self.stalled = 0.0
         # Срок, до которого упаковщику имеет смысл придерживать копии этого захода:
         # вдвое больше ожидаемого да ещё десять секунд сверху. Просрочен - копия уходит
         # как есть, потому что подгруз хуже тяжёлого куска.
@@ -1201,6 +1337,18 @@ class Recoder:
                 packer.publish()
                 if packer.edge >= last or packer.poll() is not None:
                     break
+                # Выкладка ужимает тяжёлый кусок на месте - заход замирает и отдаёт ей
+                # процессор (:meth:`_yield_to_shrink`). Простой не идёт в замер темпа:
+                # он мерит вежливость, а не скорость, и попади он в :class:`Pace` -
+                # следующий заход планировался бы по скорости, которой не бывает.
+                stall = self._yield_to_shrink(packer)
+                if stall > 0.0:
+                    self.stalled += stall
+                    began += stall
+                    with self.lock:
+                        if self.job is not None:
+                            self.job = (first, last, self.job[2] + stall, began, speed)
+                    continue
                 # Перемотали за пределы этого захода - он больше не самый нужный.
                 gone = self.played > self.grid.end(last)
                 far = self.played < self.grid.start(first) - self.ahead
@@ -1251,6 +1399,7 @@ class Recoder:
                 факт=round(made / spent, 2),
                 масштаб=round(ratio, 2),
                 план=round(self.pace.plan, 2),
+                пауза=round(self.stalled, 1),
             )
             self._say(
                 f"перекодировал v{first}...v{first + len(got) - 1} "

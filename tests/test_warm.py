@@ -804,6 +804,39 @@ def test_warming_freezes_while_the_live_recoder_has_a_run_in_flight(tmp_path: Pa
     assert packer.proc.signals[-1] == signal.SIGCONT, "заход кончился, а прогрев не ожил"
 
 
+def test_warming_does_not_even_start_a_run_while_the_recoder_works(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Уступка начинается раньше первого :meth:`Warmer._throttle`, а не после него.
+
+    Между «пора греть» и первой заморозкой прогрев успевает поднять пробный прогон
+    (:meth:`Warmer._run`) - ещё один ffmpeg и ещё один запрос в ту же раздачу. В разборе
+    живого показа он встал ровно внутрь чужого захода на 15-й секунде, а сам прогрев
+    замер через миллисекунду после старта: весь процессор, который прогрев в ту минуту
+    отобрал у показа, был процессором пробного прогона.
+    """
+    started: list[tuple[int, int]] = []
+
+    def _fake_run(self: Warmer, first: int, last: int, spot: bool = False) -> None:
+        started.append((first, last))
+        self.stopped = True
+
+    monkeypatch.setattr(Warmer, "_run", _fake_run)
+    warmer = _warmer(tmp_path)
+    warmer.slack = GUARD_HIGH + 100.0  # запас отличный: ждать картинки нечего
+    warmer.rival = _Rival(working=True)
+    warmer.start()
+    time.sleep(1.5)
+    assert started == [], "прогрев поднял прогон посреди чужого захода"
+
+    warmer.rival.working = False
+    deadline = time.monotonic() + 10.0
+    while not started and time.monotonic() < deadline:
+        time.sleep(0.1)
+    warmer.stop()
+    assert started == [(0, _grid().count - 1)], "заход кончился, а прогрев так и не тронулся"
+
+
 def test_a_freeze_for_the_recoder_outlives_a_healthy_reserve(tmp_path: Path) -> None:
     """Пока заход идёт, ничто не оживляет прогрев: ни запас за GUARD_HIGH, ни выдержка
     здоровья. Иначе первый же опрос вернул бы соседа кодировщику обратно."""

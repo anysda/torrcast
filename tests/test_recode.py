@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+import signal
 import subprocess
 from pathlib import Path
 
@@ -13,7 +15,9 @@ from torrcast.recode import (
     MAXRATE_GAIN,
     NEIGHBOUR_TOLL,
     PRESETS,
+    REALTIME,
     RECODE_HEIGHT,
+    SHRINK_FRESH,
     Encode,
     Pace,
     Recoder,
@@ -110,6 +114,28 @@ def test_a_piece_that_is_almost_here_gets_the_fastest_preset() -> None:
     """Кратковременное снижение качества допустимо, а подгруз — нет."""
     assert preset_for(seconds=60.0, slack=20.0) == PRESETS[-1][0]
     assert preset_for(seconds=60.0, slack=0.0) == PRESETS[-1][0]
+
+
+def test_a_preset_slower_than_real_time_is_not_taken_however_long_the_deadline() -> None:
+    """Срок и реальное время - два разных вопроса, и живой показ стоил ровно на разнице.
+
+    Улика: заход veryfast шёл 0.87x при сроке 57 с - в срок он укладывался вчетверо и был
+    неправ. Пока он делал 11.8 с фильма, реального времени прошло 13.6 с, процессор всё
+    это время держал он, упаковке уйти вперёд было не с чего, а следующему тяжёлому куску
+    доставалась уже занятая машина. Срок отвечает «успею ли к ЭТОМУ куску», реальное
+    время - «останется ли что-нибудь СЛЕДУЮЩЕМУ».
+    """
+    seconds = 12.0
+    # Медленный пресет успевает по сроку с запасом в сто раз - и всё равно не берётся.
+    table = ((PRESETS[0][0], 0.87), (PRESETS[1][0], 1.46), (PRESETS[-1][0], 2.42))
+    assert preset_for(seconds, slack=1200.0, presets=table) == PRESETS[1][0]
+    # Тот же расклад, но табличка честная: качество, которое успевает, не отбираем.
+    quick = ((PRESETS[0][0], 1.41), (PRESETS[1][0], 2.24), (PRESETS[-1][0], 3.09))
+    assert preset_for(seconds, slack=1200.0, presets=quick) == PRESETS[0][0]
+    # Не успевает никто - берём самый быстрый, как и раньше: подгруз хуже чёткости.
+    slow = ((PRESETS[0][0], 0.3), (PRESETS[1][0], 0.5), (PRESETS[-1][0], 0.8))
+    assert preset_for(seconds, slack=1200.0, presets=slow) == PRESETS[-1][0]
+    assert REALTIME == 1.0
 
 
 def test_the_preset_ladder_is_walked_from_slow_to_fast() -> None:
@@ -1160,6 +1186,137 @@ def test_a_held_piece_stops_holding_once_its_recode_is_ready(tmp_path) -> None: 
     (tmp_path / segment_name(5)).write_bytes(b"x")
     assert not recoder.holding(5)
     assert recoder.blocked == -1, "затор рассосался, и чужие заходы бросать больше незачем"
+
+
+def test_a_piece_the_feed_shrinks_itself_is_marked_as_a_second_encoder(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """Отказ ждать перекод - это заявка на второй кодировщик в машине, и она отмечается.
+
+    Ровно так ушли в ужатие слоты 0, 2 и 4 разбираемого показа: профиль тяжести их
+    промахнул, в :attr:`Recoder.targets` их не было, выкладка ни на одном не встала - она
+    ужала их сама, втроём за первые двенадцать секунд, рядом с чужим заходом.
+    """
+    import time as clock
+
+    grid = _grid()
+    weights = Weights.of(_keys(rate=1.0e6), grid)
+    assert weights is not None
+    recoder = Recoder(
+        source="src", audio=0, grid=grid, spare=tmp_path, weights=weights, threshold=10.0
+    )
+    recoder.played = 0.0
+    recoder.began = clock.monotonic() - 100.0
+    assert 5 not in recoder.targets, "лёгкое кино: по карте этот кусок в потолок влезает"
+
+    assert not recoder.holding(5, size=16_000_001), "ждать нечего - кодировщик за него не брался"
+    assert recoder.shrinking is not None and recoder.shrinking[0] == 5
+
+    # Тот же отказ, но по предохранителю ожидания: кусок СВОЙ, а перекода за минуту нет.
+    mine = Weights.of(_keys(rate=4.0e6), grid)
+    assert mine is not None
+    heavy = Recoder(source="src", audio=0, grid=grid, spare=tmp_path, weights=mine, threshold=10.0)
+    heavy.played = 0.0
+    heavy.began = clock.monotonic() - 100.0
+    assert heavy.holding(5, size=16_000_001)
+    heavy.stuck[5] = clock.monotonic() - heavy.over_wait - 0.1
+    assert not heavy.holding(5, size=16_000_001)
+    assert heavy.shrinking is not None and heavy.shrinking[0] == 5
+
+
+def test_the_run_steps_aside_while_the_feed_shrinks_a_piece_in_place(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """Заход замирает на ужатии и оживает, когда оно кончилось.
+
+    Замер на стенде (4 vCPU, 1080p H.264 16 Мбит/с, кусок 14.3 с, медиана из трёх): рядом
+    с ужатием живой заход идёт veryfast 0.46x вместо 1.41x, superfast 0.70x вместо 2.24x,
+    ultrafast 0.95x вместо 3.09x - две трети скорости на всех трёх пресетах. Ждут при
+    этом ужатие, а не заход: на его куске выкладка СТОИТ.
+    """
+    import time as clock
+
+    from torrcast.stream import SHRINK_DIR
+
+    class Signalled:
+        def __init__(self) -> None:
+            self.seen: list[int] = []
+            self.code: int | None = None
+
+        def send_signal(self, number: int) -> None:
+            self.seen.append(number)
+
+        def poll(self) -> int | None:
+            return self.code
+
+        def terminate(self) -> None:
+            self.code = -15
+
+        def wait(self, timeout: float | None = None) -> int:
+            return -15
+
+    grid = _grid()
+    weights = Weights.of(_keys(rate=4.0e6), grid)
+    assert weights is not None
+    recoder = Recoder(
+        source="src", audio=0, grid=grid, spare=tmp_path, weights=weights, threshold=10.0
+    )
+    out = tmp_path / "out"
+    out.mkdir()
+    packer = fake_packer(out, first=5)
+    proc = Signalled()
+    packer.proc = proc  # type: ignore[assignment]
+
+    assert recoder._yield_to_shrink(packer) == 0.0, "никто ничего не ужимает - заход идёт"
+    assert proc.seen == []
+
+    shrink = tmp_path / SHRINK_DIR
+    shrink.mkdir()
+    (shrink / segment_name(5)).write_bytes(b"x")  # ужатие пишет свой кусок прямо сейчас
+    recoder.shrinking = (5, clock.monotonic())
+    assert recoder._shrink_running()
+
+    # Ужатие кончилось: файл больше не трогают, и заход обязан ожить сам.
+    stale = clock.time() - SHRINK_FRESH - 1.0
+    os.utime(shrink / segment_name(5), (stale, stale))
+    recoder.startup = 0.3
+    stalled = recoder._yield_to_shrink(packer)
+    assert stalled >= 0.3, "заход простоял ровно фору на подъём ужатия"
+    assert proc.seen == [signal.SIGSTOP, signal.SIGCONT], "процессор отбирает только пауза"
+
+    # Конец показа снимает паузу до того, как гасить прогон: замерший процесс SIGTERM не
+    # обрабатывает, и упаковщик честно ждал бы его пять секунд за счёт человека.
+    proc.seen.clear()
+    recoder.packer = packer
+    recoder.stop()
+    assert proc.seen[0] == signal.SIGCONT, "прогон гасили, не сняв с него паузу"
+    assert recoder.shrinking is None, "заявка снята - второй раз замирать не на чем"
+
+
+def test_a_ready_shrink_does_not_keep_the_run_frozen(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """Кусок ужат и лежит - держать заход замершим не на чем.
+
+    Предохранитель тут второй: ужатие бывает и мгновенным (перекод доехал сам, пока
+    ждали замок), и тогда каталог прогона свежим не станет вовсе.
+    """
+    import time as clock
+
+    from torrcast.stream import SHRINK_DIR
+
+    grid = _grid()
+    weights = Weights.of(_keys(rate=4.0e6), grid)
+    assert weights is not None
+    recoder = Recoder(
+        source="src", audio=0, grid=grid, spare=tmp_path, weights=weights, threshold=10.0
+    )
+    recoder.startup = 0.0
+    # Предохранитель по времени: ffmpeg ужатия не поднялся вовсе, каталог пуст.
+    recoder.shrinking = (6, clock.monotonic() - recoder.over_wait - 1.0)
+    assert not recoder._shrink_running()
+
+    # И по факту: ужатое уже лежит в каталоге перекода, ждать больше нечего.
+    (tmp_path / SHRINK_DIR).mkdir()
+    (tmp_path / SHRINK_DIR / segment_name(5)).write_bytes(b"x")
+    (tmp_path / segment_name(5)).write_bytes(b"x")
+    recoder.shrinking = (5, clock.monotonic())
+    assert not recoder._shrink_running()
+    assert recoder.shrinking is None
 
 
 def test_the_tail_of_a_run_is_dropped_and_never_published(tmp_path) -> None:  # type: ignore[no-untyped-def]
