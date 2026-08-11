@@ -851,6 +851,46 @@ def test_a_part_two_without_a_part_one_stays_a_franchise_part() -> None:
     ]
 
 
+def test_a_single_and_form_continuation_does_not_expand_the_franchise() -> None:
+    """Одиночное продолжение и-формы франшизу не раскрывает: чаще всего это однофамилец.
+
+    Замер :mod:`scripts/contprobe` по сотне сохранённых выдач: и-группа ровно одна у
+    восьми запросов, и шесть из восьми - чужие картины, назвавшиеся союзом («Друзья и
+    соседи» к «Друзьям», «Шерлок и дочь» к «Шерлоку», «Медведь и кукла» к «Медведю»).
+    Настоящая часть («Мандалорец и Грогу», два десятка раздач) теряется на том же
+    пороге, но по имени картины её от однофамильца не отличить - порог в две и-группы
+    и есть та цена, которой куплен ноль подмен.
+    """
+    pictures = cluster(
+        [
+            _release("Медведь", 2022, seeders=30, original="The Bear"),
+            _release("Медведь и кукла", 1970, seeders=7, original="L'Ours et la poupée"),
+        ]
+    )
+
+    assert [p.title for p in pick_franchise("медведь", pictures)] == ["Медведь"]
+
+
+def test_continuations_in_other_key_forms_stay_out_of_the_franchise() -> None:
+    """Продолжения с ключом другой формы (тире, длинный номер) франшизу не раскрывают.
+
+    Тот же замер: соседние ключи без союза «и» есть у трети запросов, но среди них
+    mockbuster от настоящего продолжения по имени неотличим («Мумия возрождается»
+    против «Мумия возвращается», «Титаник 666» против «Титаника»). Раскрытие по
+    префиксу ключа кладёт в меню и тех и других, поэтому форма ключа без союза
+    продолжением не считается.
+    """
+    pictures = cluster(
+        [
+            _release("Титаник", 1997, seeders=50, original="Titanic"),
+            _release("Титаник 666", 2022, seeders=2, original="Titanic 666"),
+            _release("Титаник Красного моря", 2007, seeders=2),
+        ]
+    )
+
+    assert [p.title for p in pick_franchise("титаник", pictures)] == ["Титаник"]
+
+
 def test_word_order_in_the_query_is_not_the_users_problem() -> None:
     """«бульвар сансет» находит «Сансет бульвар»: те же слова, другой порядок."""
     pictures = cluster([_release("Сансет бульвар", 1950, seeders=4, original="Sunset Blvd")])
