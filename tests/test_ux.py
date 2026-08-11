@@ -160,6 +160,29 @@ def test_silent_indexer_is_named_once_during_search(
     assert printed.count(line) == 1
 
 
+def test_banned_indexer_is_named_too(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """🔴 TC-510. Выпасть из каталога можно двумя способами, и оба видны человеку: молчун
+    не ответил нам, а заблокированного мы и не спрашивали (TC-259). Строка при этом одна
+    и на весь поиск одна - разводить их по кругам поиска незачем."""
+
+    class _BannedProwlarr(_FakeProwlarr):
+        banned = ("Knaben",)
+        reported_silent: set[str]
+
+        def __init__(self, url: str, apikey: str) -> None:
+            super().__init__(url, apikey)
+            self.reported_silent = set()
+
+    monkeypatch.setattr(cli, "Prowlarr", _BannedProwlarr)
+    _answers(monkeypatch, "2", "")
+
+    assert cli.main(["моана"]) == 0
+    printed = capsys.readouterr().out
+    assert printed.count("индексер Knaben недоступен - выдача может быть хуже") == 1
+
+
 def test_the_question_says_out_loud_what_enter_will_start(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

@@ -32,7 +32,7 @@ from typing import TYPE_CHECKING, Any, Final
 from urllib.parse import quote
 from xml.etree import ElementTree
 
-from torrcast import InfraError, NotFoundError, TorrcastError, why
+from torrcast import InfraError, NotFoundError, why
 from torrcast.parse import Release, anime_indexer, by_majority, looks_anime, parse_release_name
 from torrcast.timing import mark
 
@@ -451,11 +451,18 @@ class Prowlarr:
         #: Ровно потолок - это не полнота, а обрезанный хвост: за сотней строк могут
         #: лежать раздачи, до которых выдача не дошла (:func:`~torrcast.cli._ceiling_reinforce`).
         self.capped: tuple[str, ...] = ()
-        #: Уже названные человеку молчуны: повторный добор не должен повторять строку.
+        #: Уже названные человеку выпавшие источники - и молчуны, и заблокированные
+        #: (:func:`~torrcast.cli._ask`): повторный добор не должен повторять строку.
         self.reported_silent: set[str] = set()
         #: Индексеры, которых Prowlarr увёл в недоступные, - по именам. Молчунами они не
         #: считаются: молчун не ответил нам, а этих мы и не спрашивали (TC-259).
         self.banned: tuple[str, ...] = ()
+        #: 🔴 TC-510. Кто ответил нам за ЭТОТ поиск - хоть строкой, хоть честным нулём.
+        #: Копится по всем кругам поиска, а не по последнему: клиент живёт ровно один
+        #: поиск, и вопрос «было ли чем искать» - вопрос о поиске целиком. Отсюда
+        #: единственное право на отказ: пока хоть кто-то отвечал, пустота это урезанный
+        #: каталог, а не отсутствие каталога.
+        self.answered: set[str] = set()
         self._session: requests.Session | None = None
         self._indexers: tuple[tuple[int, str], ...] | None = None
         #: Опоздавшие: круг ушёл по кворуму, а эти ещё в пути (TC-118).
@@ -494,16 +501,15 @@ class Prowlarr:
             raise self._nothing(query)
         return results
 
-    def _nothing(self, query: str) -> TorrcastError:
+    def _nothing(self, query: str) -> NotFoundError:
         """Чем считать пустой поиск, когда часть каталога до нас не дошла (TC-259, TC-291).
 
         «Ничего не нашлось» - утверждение о КАТАЛОГЕ, и делать его, не спросив половину
         каталога, нельзя: замер выдачи даёт 41% строк на Knaben и 56% на RuTor, и это
-        разные половины. Поэтому бан кворумного (:func:`quorum_indexer`) превращает пустой
-        ответ из «такого фильма нет» в «судить не по чему» - разные это и для человека, и
-        для кода возврата. Бан некворумного пустоту не отменяет (у YTS замерено НОЛЬ
-        запросов, где он единственный источник), но и молчать о нём нельзя: человек должен
-        знать, что искали урезанным каталогом.
+        разные половины. Поэтому выпавшее звено называется прямо в отказе: и бан
+        (:attr:`banned`), и спрятанный за ``200 []`` отказ (:meth:`_refused`, TC-291), и
+        молчание в свой бюджет (:attr:`silent`). Человек должен знать, что искали
+        урезанным каталогом, - иначе «нет такого фильма» звучит приговором каталогу.
 
         🔴 TC-291 закрывает окно ПЕРЕД баном. Бан - это уже вторая беда; первая в том,
         что на самый первый отказ источника Prowlarr отвечает нам ``200 []`` - ровно тем
@@ -512,29 +518,31 @@ class Prowlarr:
         второго приходит 400 «выбранные индексеры недоступны» (это уже :meth:`_blocked`).
         То есть соврать хватает одного запроса - а живьём этого хватило, чтобы на
         лежащем звене сказать «ничего не нашлось» про полный каталог.
+
+        🔴 TC-510. Отказом инфры («искать было нечем») пустота тут больше не становится
+        НИКОГДА, и это не смягчение TC-259/TC-291, а их же мысль, доведённая до конца.
+        Отказ инфры обрывает поиск целиком: его не ловит :func:`~torrcast.cli._ask`, и
+        вместе с ним пропадают и добор второй строкой, и уже найденный пул. Пока нам
+        отвечал хоть кто-то (:attr:`answered`), «нечем искать» просто неправда - искать
+        было чем, только урезанным каталогом. Замер офлайн по сохранённым выдачам (10
+        запросов, молчит один Knaben, остальные живы): 6 запросов из 10 кончались кодом
+        2 и пустым экраном, причём у четырёх из них пул первого круга был непуст (17, 6,
+        15 и 43 раздачи) - его выбрасывал отказ ВТОРОГО круга. Право на отказ осталось
+        там, где оно правдиво: не ответил никто (:meth:`_apart`).
         """
         refused = self._refused()
-        if any(quorum_indexer(name) for name in self.banned):
-            return InfraError(
-                f"по запросу «{query}» искать было нечем: Prowlarr увёл в недоступные "
-                f"{', '.join(self.banned)} - без них каталога нет"
+        gone = "; ".join(
+            part
+            for part in (
+                f"Prowlarr увёл в недоступные {', '.join(self.banned)}" if self.banned else "",
+                f"отказ у {', '.join(refused)}" if refused else "",
+                f"молчит {', '.join(self.silent)}" if self.silent else "",
             )
-        if any(quorum_indexer(name) for name in refused):
-            return InfraError(
-                f"по запросу «{query}» искать было нечем: отказ у {', '.join(refused)} - "
-                "пустая выдача тут не «такого фильма нет», а молчание источника"
-            )
-        if self.banned or refused:
-            urezan = "; ".join(
-                part
-                for part in (
-                    f"Prowlarr увёл в недоступные {', '.join(self.banned)}" if self.banned else "",
-                    f"отказ у {', '.join(refused)}" if refused else "",
-                )
-                if part
-            )
+            if part
+        )
+        if gone:
             return NotFoundError(
-                f"по запросу «{query}» ничего не нашлось; каталог сейчас урезан - {urezan}"
+                f"по запросу «{query}» ничего не нашлось; каталог сейчас урезан - {gone}"
             )
         return NotFoundError(f"по запросу «{query}» ничего не нашлось")
 
@@ -703,6 +711,14 @@ class Prowlarr:
             # «молчит YTS, бюджет 20 с» врало бы про то, сколько круг на нём простоял.
             budgets = {name: indexer_budget(name) for name in lost}
             mark("индексеры", молчат=lost, бюджет=budgets)
+        if not got and self.answered:
+            # 🔴 TC-510. Круг пуст, но в этом поиске нам уже отвечали: значит молчит не
+            # инфраструктура, а вот этот круг - добор второй строкой, фолбэк, переспрос
+            # раскладки. Такой круг не вправе отменять поиск: отказ инфры не ловит
+            # :func:`~torrcast.cli._ask`, и вместе с добором он выбрасывает уже собранный
+            # пул. Замер офлайн: у 4 запросов из 10 (молчит один Knaben) так пропадало
+            # меню, которое было готово.
+            return []
         if not got:  # молчат все до одного - это не «ничего не нашлось», а инфра
             if lost and isinstance(why_lost, _IndexersUnavailableError):
                 raise InfraError(f"индексеры не отвечают: {', '.join(lost)}")
@@ -732,7 +748,10 @@ class Prowlarr:
             if not ask.done.is_set():
                 rest.append(ask)
                 continue
-            if ask.rows:
+            if ask.rows is not None:
+                # Опоздавший тоже ОТВЕТИЛ (TC-510): пусть после круга, но каталог свой
+                # он показал, и молчанием всего поиска это уже не назовёшь.
+                self.answered.add(ask.name)
                 rows += ask.rows
         self._late = rest
         return merge(rows) if rows else []
@@ -784,6 +803,9 @@ class Prowlarr:
                 lost.append(ask.name)
                 why_lost = ask.err
             else:
+                # Честный ноль - тоже ответ (TC-510): каталог свой источник показал, и
+                # пустота такого поиска - это «нет такого фильма», а не «нечем искать».
+                self.answered.add(ask.name)
                 got.append(ask.rows)
                 counts[ask.name] = len(ask.rows)
         return got, why_lost
