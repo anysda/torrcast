@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 
 import pytest
 
-from tests.test_cli import _FakeTorrServer, _resolve, rel
+from tests.test_cli import _FakeTorrServer, _plan, _probes, _resolve, rel
 from torrcast import InfraError, NotFoundError, cli
 from torrcast import stream as stream_mod
 from torrcast.parse import Release
@@ -574,3 +574,88 @@ def test_trimming_does_not_hold_up_the_start(
     usual = time.monotonic() - began
     assert worst < 0.1, f"подрезка полной полки стоила {worst * 1000:.1f} мс"
     assert usual < 0.02, f"обычная проверка полки стоила {usual * 1000:.1f} мс"
+
+
+class _LateHead(_Offline):
+    """Верх очереди отзывается позже отсрочки, остальные - сразу.
+
+    Так выглядит обычная раздача в неудачную минуту: контактов на первых секундах нет,
+    служба рапортует одних кандидатов из DHT, а потом рой находится и метаданные едут.
+    """
+
+    def __init__(self, head: str, answers_in: float) -> None:
+        super().__init__()
+        self.head = head
+        self.ready = time.monotonic() + answers_in
+
+    def status(self, torrent_hash: str) -> dict[str, Any]:
+        files = [{"id": 0, "path": "film.mkv", "length": 8 << 30}]
+        if torrent_hash != self.head:
+            return {"active_peers": 3, "file_stats": files}
+        if time.monotonic() < self.ready:
+            return {"active_peers": 0, "total_peers": 8, "half_open_peers": 8}
+        return {"active_peers": 2, "file_stats": files}
+
+
+def test_the_grace_a_release_gets_is_the_price_of_dropping_it() -> None:
+    """Длинная отсрочка достаётся тому, чьей осечкой платят ступенью чёткости.
+
+    🔴 TC-387. Терпение тут не про раздачу, а про то, чем обходится ошибка: под 1080p с
+    720p в очереди стоит обещание продукта, а под 720p - соседнее место в очереди.
+    """
+    full, hd = rel(name="полный", quality="1080p"), rel(name="обычный", quality="720p")
+    quiet = rel(name="молчит про кадр", quality=None)
+    twin = rel(name="второй", quality="1080p")
+    four_k = rel(name="четыре кэ", quality="2160p")
+
+    assert cli.peer_grace(_plan([full, hd]), full) == cli.STEP_GRACE
+    assert cli.peer_grace(_plan([full, quiet]), full) == cli.STEP_GRACE, (
+        "имя, молчащее о разрешении, ступень не обещает - защищать её есть от кого"
+    )
+    assert cli.peer_grace(_plan([full, twin]), full) == cli.PEER_GRACE, (
+        "заменить ступенью ниже нечем - терпение ничего не защищает"
+    )
+    assert cli.peer_grace(_plan([full, hd]), hd) == cli.PEER_GRACE
+    assert cli.peer_grace(_plan([four_k, hd]), four_k) == cli.STEP_GRACE, (
+        "2160p - тоже честный HD, и ступень под ним та же"
+    )
+
+
+def test_a_full_hd_head_is_not_dropped_for_a_slow_minute_of_its_swarm(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """1080p, чей рой отозвался позже обычной отсрочки, играет сам, а не уступает 720p.
+
+    🔴 TC-387. Замер: один и тот же релиз в соседних прогонах то жив, то «рой пуст», и
+    от этого зависит ступень на экране.
+    """
+    ranked = [rel(name="полный", quality="1080p"), rel(name="обычный", quality="720p")]
+    _probes(monkeypatch, ranked, "h264", "h264")
+    monkeypatch.setattr(cli, "PEER_GRACE", 0.2)
+    monkeypatch.setattr(cli, "STEP_GRACE", 1.2)
+    head = f"hash-{ranked[0].magnet}"
+
+    prep = _resolve(cli._Bench(cast(Any, _LateHead(head, answers_in=0.6))), ranked)
+
+    assert prep.number == 1, "ступень отдали не рою, а собственному нетерпению"
+    assert prep.meta >= 0.6, f"метаданные пришли за {prep.meta:.2f} с - ждали не рой"
+
+
+def test_a_slow_head_still_yields_when_nothing_below_it_is_a_step_lower(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Терпение узкое: очередь из одинаковых ступеней идёт дальше по обычной отсрочке.
+
+    Иначе это была бы не защита ступени, а поднятый всем :data:`~torrcast.cli.PEER_GRACE`,
+    и каждый пустой рой снова стоил бы человеку лишних секунд.
+    """
+    ranked = [rel(name="полный", quality="1080p"), rel(name="второй", quality="1080p")]
+    _probes(monkeypatch, ranked, "h264", "h264")
+    monkeypatch.setattr(cli, "PEER_GRACE", 0.2)
+    monkeypatch.setattr(cli, "STEP_GRACE", 1.2)
+    head = f"hash-{ranked[0].magnet}"
+
+    prep = _resolve(cli._Bench(cast(Any, _LateHead(head, answers_in=0.6))), ranked)
+
+    assert prep.number == 2, "ступени под верхом нет - ждать его дольше незачем"
+    assert "рой пуст" in capsys.readouterr().out
