@@ -1248,6 +1248,25 @@ class Recoder:
             if spent > self.slack(last + 1):
                 break
             last += 1
+        # Одиночный тяжёлый кусок посреди потока не оставляй островом перекода между
+        # двумя копиями: на некоторых приёмниках оба стыка подряд роняют медиасессию,
+        # хотя каждый сегмент сам по себе исправен. Если до цели ещё есть зазор, возьми
+        # по лёгкому соседу с каждой стороны и сделай один однородный заход. Голова выше
+        # нарочно исключена, а срок правого соседа не даёт этой страховке устроить
+        # подгруз ради более красивого стыка.
+        if (
+            last == first
+            and first > here
+            and first + 1 < self.grid.count
+            and self.run_max >= 3
+            and first - 1 not in self.done
+            and first + 1 not in self.done
+            and self.ready(first - 1) is None
+            and self.ready(first + 1) is None
+        ):
+            joined = sum(self.grid.span(slot) for slot in range(first - 1, first + 2))
+            if joined / quickest <= self.slack(first + 1):
+                return first - 1, first + 1
         return first, last
 
     def _work(self) -> None:

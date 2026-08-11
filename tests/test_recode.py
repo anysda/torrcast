@@ -763,6 +763,43 @@ def test_the_head_is_encoded_alone_and_therefore_fastest(tmp_path) -> None:  # t
     assert preset_for(grid.span(7), recoder.slack(7)) == PRESETS[-1][0]
 
 
+def test_a_late_single_piece_takes_light_neighbours_into_one_run(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """Остров перекода получает по лёгкому соседу, если тройка успевает целиком."""
+    grid = _grid()
+    raw = tuple(20.0 if slot == 11 else 2.0 for slot in range(grid.count))
+    recoder = Recoder(
+        source="src",
+        audio=0,
+        grid=grid,
+        spare=tmp_path,
+        weights=Weights(raw),
+        threshold=15.0,
+    )
+    recoder.opening(0)
+    recoder.note(3, "копия")
+    assert recoder._pick() == (10, 12)
+
+
+def test_a_late_single_piece_does_not_take_neighbours_if_they_would_be_late(
+    tmp_path: Path,
+) -> None:
+    """Однородный стык дешевле только пока он не задерживает правый сосед."""
+    grid = _grid()
+    raw = tuple(20.0 if slot == 5 else 2.0 for slot in range(grid.count))
+    recoder = Recoder(
+        source="src",
+        audio=0,
+        grid=grid,
+        spare=tmp_path,
+        weights=Weights(raw),
+        threshold=15.0,
+    )
+    recoder.opening(0)
+    recoder.note(3, "копия")
+    recoder.pace.factor = 0.2
+    assert recoder._pick() == (5, 5)
+
+
 def test_a_seek_makes_the_new_place_the_head_and_rewinds_the_edge(tmp_path) -> None:  # type: ignore[no-untyped-def]
     """Перемотка назад: край упаковки обязан уехать назад вместе с ней.
 
