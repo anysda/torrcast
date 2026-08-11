@@ -1507,6 +1507,70 @@ def test_a_stuck_receiver_is_nudged_only_when_the_packing_is_ahead(
     assert jumps == [84.0 + ChromecastReceiver.STALL_SKIP], "еда на столе - расшевелить"
 
 
+#: Сетка «Моаны» 2016 вокруг места, на котором показ умер: границы взяты у неё же.
+_MOANA = Grid((0.0, 112.905, 124.583, 137.095, 148.940, 161.037), 6500.285, True)
+
+
+def test_a_nudge_lands_past_the_segment_and_not_eight_seconds_ahead(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Прыжок мимо застрявшего куска обязан быть длиннее самого куска.
+
+    Замер на «Моане» 2016: показ встал на 127.2 с внутри сегмента
+    ``[124.583..137.095)``, а сторож прыгнул на 8 с — то есть в тот же сегмент, откуда
+    и прыгал. Оба нуджа сеанса приземлились туда же, и застрявший кусок так и остался
+    впереди: 5 мин 48 с показа сдвинули картинку на 2.4 с.
+    """
+    from torrcast.cast import ChromecastReceiver
+
+    jumps: list[float] = []
+    monkeypatch.setattr(ChromecastReceiver, "_device", lambda self: _FakeDevice(jumps))
+    receiver = ChromecastReceiver("10.0.0.50")
+    receiver.next_cut = _MOANA.after
+    receiver._peak = 127.2
+
+    assert _MOANA.slot_at(127.2 + ChromecastReceiver.STALL_SKIP) == _MOANA.slot_at(127.2), (
+        "замер: прежний шаг не выводил из сегмента вовсе"
+    )
+
+    receiver._nudge(127.2, front=200.0)
+    receiver._stall_since -= ChromecastReceiver.STALL_SECONDS
+    receiver._nudge(127.2, front=200.0)
+
+    assert jumps == [137.095 + ChromecastReceiver.CUT_SLACK]
+    assert _MOANA.slot_at(jumps[0]) == _MOANA.slot_at(127.2) + 1, "прыгнули ровно на кусок вперёд"
+
+
+def test_a_segment_that_keeps_killing_the_show_is_stepped_over(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Показ, умирающий на одном куске, обязан однажды перешагнуть его, а не ходить кругом.
+
+    Замер на «Моане» 2016: четыре смерти, три воскрешения и семь повторов LOAD подряд —
+    и каждый круг возвращал приёмник на то же место, получая тот же исход, до самого
+    конца сеанса. Первые смерти при этом законны: моргнувшую сеть от невоспроизводимого
+    куска отличает только счёт.
+    """
+    from torrcast.cast import ChromecastReceiver
+
+    loads: list[float] = []
+    monkeypatch.setattr(ChromecastReceiver, "_restart_app", lambda self: None)
+    monkeypatch.setattr(ChromecastReceiver, "_load", lambda self, at=0.0: loads.append(at))
+    monkeypatch.setattr(ChromecastReceiver, "_free", lambda self: True)
+    monkeypatch.setattr(ChromecastReceiver, "_settle", lambda self, budget: True)
+    receiver = ChromecastReceiver("10.0.0.50")
+    receiver.next_cut = _MOANA.after
+    receiver._peak = 127.2
+
+    assert receiver._reload() is True
+    assert receiver._reload() is True
+    assert loads == [127.2, 127.2], "первые смерти возвращают человека туда, где он смотрел"
+
+    assert receiver.replay(127.2) is True
+    assert loads[-1] == 137.095 + ChromecastReceiver.CUT_SLACK, "третья смерть - кусок перешагнут"
+    assert "перешагиваю" in capsys.readouterr().out, "решение сказано вслух"
+
+
 class _Reported:
     """MEDIA_STATUS, как его отдаёт живой приёмник: позиция, состояние, длительность."""
 

@@ -1932,6 +1932,17 @@ class Grid:
         """Номер сегмента, в который попадает секунда фильма."""
         return max(0, bisect.bisect_right(self.bounds, max(seconds, 0.0)) - 1)
 
+    def after(self, seconds: float) -> float:
+        """Начало сегмента, который идёт ЗА тем, куда попадает ``seconds``.
+
+        Ровно то место, куда обязан целиться прыжок через кусок, на котором приёмник
+        споткнулся (:meth:`torrcast.cast.ChromecastReceiver._nudge`): прыжок короче
+        сегмента приземляется в него же и перешагнуть его не может никогда. Сегменты
+        разной длины (6.0-14.9 с на «Моане» 2016), поэтому шаг тут и не может быть
+        числом - только границей сетки.
+        """
+        return self.end(self.slot_at(seconds))
+
     def target(self) -> int:
         """``EXT-X-TARGETDURATION``: округлённая вверх длина самого длинного сегмента."""
         return max(1, math.ceil(max(self.span(k) for k in range(self.count))))

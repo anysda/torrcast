@@ -19,7 +19,10 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import shutil
+import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -40,10 +43,43 @@ from torrcast.stream import (
     hls_base,
     hls_dir,
     probe,
+    segment_name,
 )
 
 #: Позиция не двигается дольше этого при живом запасе упаковки - это подвис.
 STALL = 3.0
+
+#: Как часто подкладывать ядовитый кусок на место здорового (:func:`spoil`).
+POISON_STEP = 0.1
+
+
+def brew_poison(url: str, grid: Grid, slot: int, audio: int, where: Path) -> Path:
+    """Сварить кусок, который приёмник ЗАВЕДОМО не покажет: то же место, но ``yuv444p``.
+
+    Ядовитость тут не догадка, а замер: ``yuv444p`` валит Samsung Q70D целиком - показ
+    на таком куске не начинается вовсе. Годится ровно этим: отказ повторяется каждый раз
+    и не зависит ни от битрейта, ни от веса, то есть проверяет ВОССТАНОВЛЕНИЕ, а не
+    терпение приёмника.
+    """
+    out = where / f"poison-v{slot}.ts"
+    command = [
+        "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+        "-ss", f"{grid.start(slot):.3f}", "-to", f"{grid.end(slot):.3f}", "-i", url,
+        "-map", "0:v:0", "-map", f"0:a:{audio}",
+        "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv444p",
+        "-c:a", "aac", "-ac", "2", "-f", "mpegts", str(out),
+    ]  # fmt: skip
+    subprocess.run(command, check=True)
+    return out
+
+
+def spoil(ready: Path, target: Path, stop: threading.Event) -> None:
+    """Держать ``target`` ядовитым весь показ: упаковка кладёт туда здоровый кусок."""
+    while not stop.is_set():
+        with contextlib.suppress(OSError):
+            if not target.exists() or target.stat().st_size != ready.stat().st_size:
+                shutil.copy2(ready, target)
+        stop.wait(POISON_STEP)
 
 
 def make_grid(
@@ -57,6 +93,10 @@ def make_grid(
     ``delivered`` и потолок перекодирования идут в сетку ровно так же, как в показе
     (:func:`torrcast.cli._play`): от них зависит потолок веса сегмента, а смок обязан
     резать так же, как настоящий показ, иначе он меряет не то.
+
+    ``--ceiling`` отвязывает потолок сетки от цели перекода. Без него два прогона с
+    разной целью режут фильм по разным границам, и сравнивать в них нечего: «тот же
+    слот» в них - разные куски фильма.
     """
     if args.bounds:
         given = tuple(float(x) for x in args.bounds.split(","))
@@ -69,7 +109,7 @@ def make_grid(
             not args.uniform,
             say=print,
             delivered_mbit=delivered,
-            ceiling_mbit=args.mbit if args.recode else 0.0,
+            ceiling_mbit=(args.ceiling or args.mbit) if args.recode else 0.0,
             # Сплошной перекод: вес куска задаём мы сами, карта источника тут не судья.
             fixed_mbit=(whole.mbit + AUDIO_MBIT) * TS_OVERHEAD if whole is not None else 0.0,
             cap=CAUTIOUS.max_segment_bytes,
@@ -105,12 +145,21 @@ def main() -> None:
     parser.add_argument("--threshold", type=float, default=15.0, help="порог тяжести, Мбит/с")
     parser.add_argument("--preset", default="veryfast")
     parser.add_argument("--mbit", type=float, default=12.0, help="во сколько перекодировать")
+    parser.add_argument(
+        "--ceiling",
+        type=float,
+        default=0.0,
+        help="потолок веса куска для сетки, Мбит/с; 0 - брать --mbit",
+    )
     parser.add_argument("--extra", type=float, default=0.0, help="поправка «контейнер → ТВ»")
     parser.add_argument(
         "--head-wait", type=float, default=12.0, help="ждать перекод первого сегмента, с"
     )
     parser.add_argument(
         "--poll", type=float, default=0.5, help="как часто опрашивать приёмник, с (показ - 2.0)"
+    )
+    parser.add_argument(
+        "--poison", type=int, default=-1, help="сделать этот сегмент невоспроизводимым"
     )
     args = parser.parse_args()
 
@@ -194,7 +243,24 @@ def main() -> None:
     )
     server = HlsServer(out, port=config.hls_port, feed=feed)
     receiver = ChromecastReceiver(config.tv or "")
+    # Сторож подвиса меряет прыжок сеткой, а не абсолютной секундой: без этого он
+    # приземляется в тот же кусок, на котором приёмник и споткнулся.
+    receiver.next_cut = grid.after
     url = f"{hls_base(config)}/index.m3u8"
+
+    stop_poison = threading.Event()
+    poisoner = None
+    if args.poison >= 0:
+        ready = brew_poison(args.url, grid, args.poison, args.audio, out.parent)
+        target = out / segment_name(args.poison)
+        print(
+            f"ядовитый v{args.poison} [{grid.start(args.poison):.3f}.."
+            f"{grid.end(args.poison):.3f}): {ready.stat().st_size / 1e6:.2f} МБ yuv444p"
+        )
+        poisoner = threading.Thread(
+            target=spoil, args=(ready, target, stop_poison), daemon=True, name="poison"
+        )
+        poisoner.start()
 
     lowest, stalls, buffering = args.at, [], 0
     try:
@@ -235,6 +301,9 @@ def main() -> None:
             lowest = max(lowest, position.pos)
             time.sleep(args.poll)
     finally:
+        stop_poison.set()
+        if poisoner is not None:
+            poisoner.join(timeout=2)
         with contextlib.suppress(Exception):
             receiver.stop()
         feed.stop()

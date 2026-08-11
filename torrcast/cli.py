@@ -5218,6 +5218,12 @@ def _play(
         receiver = make_receiver(
             config.receiver, config.tv or "", config.hls_cert if tls else "", profile=profile
         )
+    # Сетку знает показ, а спотыкается о неё приёмник: и прыжок сторожа, и подъём после
+    # отказа обязаны мерить кусками, а не секундами
+    # (:meth:`torrcast.cast.ChromecastReceiver._nudge`). Приёмник живёт весь юнит и
+    # достаётся следующей серии - сетка у неё своя, и назвать её надо каждой.
+    if isinstance(receiver, ChromecastReceiver):
+        receiver.next_cut = grid.after
     url = f"{hls_base(config)}/index.m3u8"
     try:
         server.start()
