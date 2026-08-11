@@ -2088,6 +2088,19 @@ def test_a_refusal_still_offers_a_pick_when_someone_untouched_is_playable() -> N
     assert "cast releases" in said, "пригодный нетронутый есть - выбор предлагаем"
 
 
+def test_a_refusal_after_a_manual_pick_offers_another_release() -> None:
+    """``--release N`` уже выбрал релиз: повторить тот же ход отказ не предлагает."""
+    asked = rel(name="r1", seeders=9)
+    quiet = rel(name="молчун", quality=None, codec=None, seeders=25)
+    plan = _plan([asked, quiet])
+
+    said = cli.silent_swarm(plan, [1], 1, "1 - тишина", picked=1)
+
+    assert "выбери другой релиз" in said
+    assert "выбери руками" not in said
+    assert "cast releases" in said and "--release N" in said
+
+
 def _series_plan(title: str, year: int, kind: Kind, releases: list[Release]) -> Any:
     """План картины, у которой запрос назвал серию: тип сказан вслух (``s1e1``)."""
 

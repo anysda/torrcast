@@ -1637,6 +1637,19 @@ def test_the_reference_that_says_nothing_new_keeps_quiet(monkeypatch: pytest.Mon
     assert "добрал по «Psycho»" in said
 
 
+def test_an_empty_second_language_round_explains_its_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Второй круг без новых строк всё равно называет человеку свой итог."""
+    client = _FakeProwlarr({"психо": [raw("Психо (1960) DVDRip", 1)]})
+    _knows(monkeypatch, {"психо": Origin(title="Psycho", year=1960)})
+
+    _plans, said = _search(client, "психо", monkeypatch)
+
+    assert client.asked == ["психо", "Psycho"]
+    assert said.count("добор по «Psycho» ничего не дал") == 1
+
+
 def test_a_latin_named_picture_without_an_article_keeps_its_translit(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

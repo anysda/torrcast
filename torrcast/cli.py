@@ -1876,7 +1876,9 @@ def kin_line(kin: list[Picture]) -> str:
     return f"в каталоге есть {names} - cast {kin[0].title.casefold()}"
 
 
-def silent_swarm(plan: _Plan, queue: list[int], touched: int, shown: str) -> str:
+def silent_swarm(
+    plan: _Plan, queue: list[int], touched: int, shown: str, *, picked: int | None = None
+) -> str:
     """Отказ, когда ни одна тронутая раздача не отозвалась ни метаданными, ни потоком.
 
     Прежде это была одна строка на все случаи - «рой у них мёртв, пиров нет». С виду
@@ -1964,8 +1966,9 @@ def silent_swarm(plan: _Plan, queue: list[int], touched: int, shown: str) -> str
             if peers
             else " (сидов у потроганных не числилось)"
         )
+        move = "выбери другой релиз" if picked is not None else "выбери руками"
         return (
-            f"{counts} - эти молчат, до остальных отбор не дошёл{seed}: выбери руками - "
+            f"{counts} - эти молчат, до остальных отбор не дошёл{seed}: {move} - "
             f"cast releases <запрос>, потом cast <запрос> --release N ({shown})"
         )
     if not untouched:
@@ -2281,13 +2284,6 @@ def _second_language(
         if _vouched(passport_found, about, proven=True):
             return raw, first_pictures, passport_found
     said = _query_note(name, alt, pool, about)
-    if said:
-        # Закрываем строку первого круга ДО объяснения: заметка выходит сразу, а строка
-        # фазы - только когда фазу закрыли, и без этого «искал бы «kriki i shepot»»
-        # вставало ПЕРЕД строкой «поиск «крики и шёпот»... 1.5 с» - то есть перед тем
-        # самым кругом, из которого оно и следует.
-        progress.phase("")
-        progress.note(said)
     # Тем же именем второй раз ходить незачем: на «cast cars» оригинал из выдачи - «Cars»,
     # и это ещё один полный круг по всем индексерам (на живом стенде - до 102 секунд, если
     # в круге кто-то молчит) ради той же самой выдачи. Регистр и разделители имя не меняют,
@@ -2329,6 +2325,8 @@ def _second_language(
     # несвязанных сообщения как противоречие - отказ, а следом будто бы удавшийся поиск.
     progress.phase("")
     if len(merged) == len(raw):
+        outcome = f"добор по «{alt}» ничего не дал"
+        progress.note(f"{said}; {outcome}" if said else outcome)
         return _as_is(raw, found, about, progress)
     pictures = cluster(to_releases(merged))
     # Транслит - это сами слова запроса, чужого фильма он принести не может; оригинал из
@@ -2352,20 +2350,25 @@ def _second_language(
         # Прибавка не в раздачах картины, а в чужих строках выдачи: широкий пул сдвинул бы
         # нумерацию франшизы («дилижанс 1» уехал бы с 1939 года на 1936) и ничего не дал
         # взамен. Тогда второго захода как будто и не было.
+        outcome = f"добор по «{alt}» новых раздач картины не дал"
+        progress.note(f"{said}; {outcome}" if said else outcome)
         return _as_is(raw, found, about, progress)
     # Имя добора от справки - она отвечает про ТУ САМУЮ картину, и спор идёт лишь о том,
     # доехала ли картина нужного года. Имя из выдачи ничем не подтверждено - там гейт строг
     # и сверяет вожака: именно он станет ответом.
     after = _twin(wider, about, lead) if proven else _leading(wider)
     if not vouched and not same_picture(lead, after, about, proven):
-        progress.note(f"по «{alt}» приехала другая картина - остаюсь на выдаче по «{name}»")
+        outcome = f"по «{alt}» приехала другая картина - остаюсь на выдаче по «{name}»"
+        progress.note(f"{said}; {outcome}" if said else outcome)
         return _as_is(raw, found, about, progress)
+    details = []
     if hearsay:
         # Своего русского имени у статьи нет вовсе (аниме русская Википедия подписывает
         # латиницей), и подтвердить догадку справки было нечем. Выдать её за проверенное
         # молча нельзя: человек вправе знать, на чьём слове стоит эта выдача.
-        progress.note(f"имя «{alt}» взято со справки, сверить было не с чем")
-    progress.note(f"по-русски раздач {was} - добрал по «{alt}»: стало {now}")
+        details.append(f"имя «{alt}» взято со справки, сверить было не с чем")
+    details.append(f"по-русски раздач {was} - добрал по «{alt}»: стало {now}")
+    progress.note("; ".join(([said] if said else []) + details))
     return merged, pictures, wider
 
 
@@ -3966,9 +3969,12 @@ class _Bench:
             # 🔴 TC-399. Ветка - только когда промолчали ВСЕ тронутые. Приговор осмотра
             # («отдельного видеофайла нет», «нужной серии нет») молчанием роя не является:
             # про такую раздачу известно всё, и «зайди позже - рой оживёт» было бы ложью.
-            raise NotFoundError(silent_swarm(plan, queue, len(tried), f"{shown}{more}") + tail)
+            raise NotFoundError(
+                silent_swarm(plan, queue, len(tried), f"{shown}{more}", picked=args.release) + tail
+            )
+        move = "выбери другой релиз" if args.release is not None else "выбери руками"
         raise NotFoundError(
-            f"годного релиза нет ({shown}{more}): выбери руками - "
+            f"годного релиза нет ({shown}{more}): {move} - "
             "cast releases <запрос>, потом cast <запрос> --release N" + tail
         )
 
