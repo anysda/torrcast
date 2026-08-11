@@ -354,9 +354,9 @@ def plan(pack: str, warm: str, spots: int, preset: str = "", mbit: float = 0.0) 
     emit("warm", "plan", pack=pack, warm=warm, spots=spots, preset=preset, mbit=round(mbit, 2))
 
 
-def reload(pos: float, tries: int) -> None:
+def reload(pos: float, tries: int, error: int | None = None) -> None:
     """Повтор LOAD посреди показа: приёмник отвалился и его подняли заново."""
-    emit("play", "reload", pos=round(pos, 1), tries=tries)
+    emit("play", "reload", pos=round(pos, 1), tries=tries, error=error)
 
 
 def offline(why: str, asked: bool = False) -> None:
@@ -731,9 +731,12 @@ def _event_line(rec: dict[str, Any], began: float, seam: bool = False) -> str:
             f" готово впереди {float(rec.get('front', 0.0)) - float(rec.get('pos', 0.0)):.0f} с)"
         )
     if event == "reload":
+        error = ""
+        if "error" in rec:
+            error = f", код {rec['error']}" if rec.get("error") is not None else ", без кода"
         return (
             f"{stamp}приёмник отвалился на {_hms(float(rec.get('pos', 0.0)))}"
-            f" - повтор LOAD {rec.get('tries', 1)}"
+            f"{error} - повтор LOAD {rec.get('tries', 1)}"
         )
     if event == "dark":
         return (

@@ -1121,6 +1121,31 @@ def test_a_release_that_never_plays_stops_at_the_profile_not_at_eleven(
     assert "не начал показ" in str(err.value), "исчерпав попытки, показ гаснет честной строкой"
 
 
+def test_the_receivers_detailed_error_survives_pychromecast_parsing() -> None:
+    """Код отказа снимается с сырого ответа, пока библиотека его не выбросила."""
+    from torrcast.cast import ChromecastReceiver
+
+    seen: list[dict[str, Any]] = []
+
+    class _Controller:
+        def _process_media_status(self, data: dict[str, Any]) -> None:
+            seen.append(data)
+
+    receiver = ChromecastReceiver("10.0.0.50")
+    controller = _Controller()
+    receiver._catch_media_error(controller)
+
+    controller._process_media_status(
+        {"status": [{"playerState": "IDLE", "idleReason": "ERROR", "detailedErrorCode": 102}]}
+    )
+
+    assert receiver._error_code == 102, "код декодера не потерян"
+    assert len(seen) == 1, "обычный разбор статуса продолжился"
+
+    controller._process_media_status({"status": [{"playerState": "IDLE", "idleReason": "ERROR"}]})
+    assert receiver._error_code is None, "отказ без кода не наследует прошлую причину"
+
+
 class _Source:
     """Источник под показом на заглушке: моргает, а заглушка видит только картинку.
 

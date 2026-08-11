@@ -304,6 +304,10 @@ class ChromecastReceiver:
         #: Сторож сдался: лестница нуджей не показала ни кадра, и показ считается
         #: погасшим - дальше его поднимает воскрешение (:class:`torrcast.cli._Revival`).
         self._gone = False
+        #: Последняя подробная причина отказа из сырого ``MEDIA_STATUS``. pychromecast
+        #: это поле не переносит в :class:`MediaStatus`, поэтому снимаем его до разбора
+        #: ответа (:meth:`_catch_media_error`). ``None`` означает именно ответ без кода.
+        self._error_code: int | None = None
         #: Где кончается сегмент, накрывающий эту секунду фильма
         #: (:meth:`torrcast.stream.Grid.after`); ``None`` - сетки не назвали.
         #:
@@ -477,8 +481,9 @@ class ChromecastReceiver:
             return False
         self._reloads += 1
         at = self._past_deadly(self._peak)
-        trace.reload(pos=self._peak, tries=self._reloads)
-        print(f"приёмник отвалился на {self._peak:.0f} с - повтор LOAD", flush=True)
+        trace.reload(pos=self._peak, tries=self._reloads, error=self._error_code)
+        reason = f", код {self._error_code}" if self._error_code is not None else ", без кода"
+        print(f"приёмник отвалился на {self._peak:.0f} с{reason} - повтор LOAD", flush=True)
         try:
             self._restart_app()  # чистое приложение: залипший молчит на любой LOAD
             self._load(at)
@@ -677,6 +682,7 @@ class ChromecastReceiver:
 
     def _load(self, at: float = 0.0) -> None:
         controller = self._device().media_controller
+        self._error_code = None  # новый LOAD - новая причина, старую приписывать ему нельзя
         # BUFFERED, а не LIVE: манифест VOD знает длительность целиком, и ресивер
         # рисует шкалу с общим временем - перемотка пультом работает.
         controller.play_media(
@@ -779,7 +785,23 @@ class ChromecastReceiver:
     def _why(self) -> str:
         status = self._status()
         state = status.player_state or "нет статуса"
-        return f"{state}/{status.idle_reason}" if status.idle_reason else str(state)
+        why = f"{state}/{status.idle_reason}" if status.idle_reason else str(state)
+        return f"{why}, код {self._error_code}" if self._error_code is not None else why
+
+    def _catch_media_error(self, controller: Any) -> None:
+        """Сохранить ``detailedErrorCode``, который pychromecast обычно выбрасывает."""
+        original = controller._process_media_status
+
+        def process(data: dict[str, Any]) -> None:
+            statuses = data.get("status") or []
+            if statuses:
+                raw = statuses[0]
+                if raw.get("playerState") == "IDLE" and raw.get("idleReason") == "ERROR":
+                    code = raw.get("detailedErrorCode")
+                    self._error_code = code if isinstance(code, int) else None
+            original(data)
+
+        controller._process_media_status = process
 
     def _device(self) -> Any:
         if self._cast is None:
@@ -795,6 +817,7 @@ class ChromecastReceiver:
                 device.wait(timeout=20)
             except Exception as exc:
                 raise InfraError(f"ТВ {self.address} не принял каст: {why(exc)}") from exc
+            self._catch_media_error(device.media_controller)
             self._cast = device
         return self._cast
 
