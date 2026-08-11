@@ -61,7 +61,6 @@ from torrcast.cli import (
     _plan_for,
     _season_asked,
     drop_reason,
-    first_alive,
     queue_drops,
     unfit_pool,
 )
@@ -166,12 +165,8 @@ class Replay:
 
     @property
     def default(self) -> Picture | None:
-        """Что играет по Enter: первая по хронологии живая часть (:func:`first_alive`).
-
-        Верх списка и дефолт - разные вещи, и путать их нельзя: в меню «мумия» первой
-        строкой стоит «Мумия» 1932 года, а Enter играет 1999-й.
-        """
-        return self.plans[first_alive(self.plans) - 1].picture if self.plans else None
+        """Что играет по Enter: верхняя картина меню, для которой построен план."""
+        return self.plans[0].picture if self.plans else None
 
 
 def batches_of(record: dict[str, Any]) -> list[list[RawResult]]:
