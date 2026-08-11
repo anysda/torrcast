@@ -1867,6 +1867,12 @@ class Grid:
     duration: float
     #: Границы стоят на опорных кадрах - сегменты самостоятельны.
     on_keys: bool = False
+    #: Предсказатель веса куска ``[a, b)`` КОПИЕЙ - без потолка перекодирования
+    #: (:func:`_weigher`), по той же карте опорных кадров, по которой поставлены
+    #: границы; ``None`` - карты нет, и вес куска неизвестен. Хранится в сетке, потому
+    #: что карта известна ровно в момент её постройки, а нужна позже и в другом месте:
+    #: прогрев проверяет по ней бюджет диска (:meth:`torrcast.warm.Warmer._forecast`).
+    weigh: Callable[[float, float], float] | None = None
 
     @classmethod
     def uniform(cls, duration: float, step: float = HLS_SEGMENT_SECONDS) -> Grid:
@@ -1920,6 +1926,14 @@ class Grid:
         кусок файла, который перекодируется целиком (:data:`RECODE_CODECS`).
         """
         weigh = _weigher(keys, sizes, extra_mbit, ceiling_mbit, fixed_mbit)
+        # Отдельно от границ - вес КОПИИ (без потолков): тяжёлый кусок режется сеткой и
+        # уезжает на ТВ перекодом, а на диск прогрев кладёт сначала его самого, во весь
+        # вес. Бюджет прогрева проверяется именно под этот, пиковый, вес.
+        copy = (
+            _weigher(keys, sizes, extra_mbit, 0.0)
+            if len(sizes) == len(keys) and len(keys) >= 2
+            else None
+        )
         bounds = [0.0]
         limit = duration - step / 2
         index = 0
@@ -1941,7 +1955,7 @@ class Grid:
                 bounds.append(first)  # влез - или один GOP тяжелее потолка, резать нечем
             else:
                 bounds.append(fits)
-        return cls(tuple(bounds), duration, True)
+        return cls(tuple(bounds), duration, True, copy)
 
     @property
     def count(self) -> int:

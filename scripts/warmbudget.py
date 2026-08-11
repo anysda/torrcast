@@ -7,8 +7,9 @@
 поэтому число «сколько лягет на диск» тут не оценка на глаз, а расчёт показа.
 
 Рядом печатается ``запрос`` - то, на что прогрев просит места у бюджета перед заходом
-(:meth:`torrcast.warm.Warmer._forecast`): у копии это вес куска НА ПОТОЛКЕ приёмника,
-сколько бы кусок ни весил на самом деле.
+(:meth:`torrcast.warm.Warmer._forecast`): зовётся сам предсказатель, а не переписанная
+тут арифметика, поэтому расхождение «запроса» с «копией» - это и есть ошибка прогрева,
+а не ошибка щупа.
 
     python scripts/warmbudget.py --keys /var/lib/torrcast/keys --probe /var/lib/torrcast/probe
 
@@ -34,6 +35,7 @@ from torrcast.stream import (
     _read_keys,
     _weigher,
 )
+from torrcast.warm import Vault, Warmer
 
 
 def main() -> int:
@@ -78,6 +80,11 @@ def main() -> int:
         weigh = _weigher(keys.at, keys.offset, extra, args.ceiling)
         sizes = [copy(grid.start(k), grid.end(k)) for k in range(grid.count)]
         thin = [weigh(grid.start(k), grid.end(k)) for k in range(grid.count)]
+        # Запрос - то, что прогрев просит у бюджета перед заходом на весь фильм
+        # копией. Зовём сам предсказатель, а не его пересказ: щуп обязан мерять бой.
+        warmer = Warmer(
+            source="нет", audio=0, grid=grid, vault=Vault(root=Path("/nonexistent"), key="з")
+        )
         rows.append(
             {
                 "name": path.stem,
@@ -87,7 +94,7 @@ def main() -> int:
                 "pieces": grid.count,
                 "real": sum(sizes),
                 "thin": sum(thin),
-                "ask": grid.count * float(args.cap),
+                "ask": warmer._forecast(0, grid.count - 1),
                 "heavy": sum(1 for s in sizes if s > args.cap),
             }
         )

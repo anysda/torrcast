@@ -437,7 +437,8 @@ class Warmer:
     #: тесный, но здоровый показ оживляет прогрев, не дожидаясь :data:`GUARD_HIGH`
     #: (:meth:`_may_resume`).
     healthy_since: float = 0.0
-    #: Почему прогрев дальше не идёт: бюджет диска, мёртвый источник. Пусто - идёт.
+    #: Почему прогрев дальше не идёт: бюджет диска, мёртвый источник, место, которое не
+    #: легло на сетку, тяжёлые места копией, которые перекодировать нечем. Пусто - идёт.
     trouble: str = ""
     stopped: bool = False
     thread: Any = None
@@ -504,10 +505,23 @@ class Warmer:
     def done(self) -> bool:
         """Весь фильм на диске: показ дальше не нуждается в сети вовсе.
 
-        Тяжёлые куски засчитываются только перекодированными (:meth:`_spots_left`): пока
-        на их месте лежит копия, прогретое отличается от того, что отдал бы живой показ.
+        Считается ровно то же, что и в :attr:`warmed`, - только то, что показ и правда
+        возьмёт с диска: копия тяжелее потолка приёмника наружу не идёт
+        (:meth:`torrcast.stream.Feed._warm`), и пока на месте тяжёлого куска лежит она, а
+        не перекод (:meth:`_spots_left`), «готово» - ложь: человек выключит интернет и
+        упрётся в темноту на первом же тяжёлом месте.
         """
-        return len(self.vault.slots()) >= self.grid.count and not self._spots_left()
+        return len(self.vault.slots(self.cap)) >= self.grid.count and not self._spots_left()
+
+    def _pending(self) -> bool:
+        """Осталась ли прогреву работа: непрогретое место или тяжёлый кусок под перекод.
+
+        По этому признаку решается цепочка (:meth:`_chain`), а не по :attr:`done`: фильм
+        с местами тяжелее потолка приёмника, которые перекодировать нечем, «готовым» не
+        станет никогда - но и работа прогрева на нём кончилась, так что следующая серия
+        ждать его не обязана.
+        """
+        return self._missing() is not None or bool(self._spots_left())
 
     def _spots_left(self) -> tuple[int, ...]:
         """Тяжёлые куски, которые ещё не перекодированы точечно.
@@ -585,9 +599,20 @@ class Warmer:
                         self._run(left[0], left[0], spot=True)
                         continue
                     if not self.trouble:
-                        self._say(self.line())
-                        mark("прогрев готов", секунд=round(self.warmed))
-                        self._trace("ready")
+                        if self.done:
+                            self._say(self.line())
+                            mark("прогрев готов", секунд=round(self.warmed))
+                            self._trace("ready")
+                        else:
+                            # Лежит всё, что прогрев в силах положить, но часть мест -
+                            # копиями тяжелее потолка приёмника, а перекодировать их нечем
+                            # (перекод выключен или профиль тяжести их промахнул). «Готово»
+                            # это назвать нельзя - под этими местами показу нужна сеть, -
+                            # а вот работа прогрева кончилась, и цепочка идёт дальше.
+                            self._stall(
+                                "места тяжелее потолка приёмника остались копией - "
+                                "без сети их не досмотреть"
+                            )
                         self._chain()
                     return
                 tight = self.vault.fit(int(self._forecast(*job)))
@@ -609,9 +634,12 @@ class Warmer:
         показа, а выкачивание раздачи на диск, чего мы не делаем нигде.
 
         Поднимается ровно здесь и ни секундой раньше: пока текущая серия не на диске,
-        каждый байт раздачи нужен ей, а не следующей.
+        каждый байт раздачи нужен ей, а не следующей. «На диске» тут - всё, что прогрев
+        в силах положить (:meth:`_pending`), а не обязательно «готово» (:attr:`done`):
+        место тяжелее потолка приёмника без перекода прогретым не станет никогда, и
+        держать из-за него цепочку - значит оставить стык серий без страховки вовсе.
         """
-        if self.stopped or self.follow is None or self.after is not None or not self.done:
+        if self.stopped or self.follow is None or self.after is not None or self._pending():
             return
         try:
             following = self.follow()
@@ -633,14 +661,23 @@ class Warmer:
 
     def _forecast(self, first: int, last: int) -> float:
         """Во сколько байт обойдётся этот участок. Считаем по нашему же битрейту, когда
-        перекодируем, и по уже прогретому (или по потолку), когда копируем."""
+        перекодируем, и по карте опорных кадров, когда копируем."""
         from torrcast.stream import AUDIO_MBIT, MAX_SEGMENT_BYTES, TS_OVERHEAD
 
         seconds = sum(self.grid.span(s) for s in range(first, last + 1))
         if self.encode is not None:
             mbit = float(self.encode.mbit)
             return (mbit + AUDIO_MBIT) * TS_OVERHEAD * seconds * 1e6 / 8
-        # Копия: вес куска задан сеткой, и она сама зажата потолком сегмента.
+        if self.grid.weigh is not None:
+            # Копия: каждый кусок взвешивается по той же карте, по которой сетка ставила
+            # границы, - «кусок равен потолку» ошибался в обе стороны разом: лёгкое кино
+            # переспросило на треть и вытеснило соседей зря, тяжёлое недоспросило вдвое,
+            # и бюджет проверялся на вдвое меньшем числе, чем потом легло.
+            return sum(
+                self.grid.weigh(self.grid.start(s), self.grid.end(s))
+                for s in range(first, last + 1)
+            )
+        # Карты нет - вес куска неизвестен, просим по потолку сегмента, как раньше.
         return seconds / max(self.grid.span(first), 1.0) * MAX_SEGMENT_BYTES
 
     def _stall(self, why: str) -> None:
@@ -723,12 +760,23 @@ class Warmer:
             )
         self.misgrid = -1
         laid = first - 1
+        checked = first - 1
         try:
             while not self.stopped:
                 packer.publish()
                 laid = self._inspect(laid, min(packer.edge, last))
                 if self.misgrid >= 0 or packer.edge >= last or packer.poll() is not None:
                     break
+                if not spot and laid > checked:
+                    # Заход - это весь остаток фильма, и за него и бюджет, и запас
+                    # раздела меняются: перепроверяем по ходу укладки, а не раз на
+                    # входе. По мере укладки, а не по таймеру: ``fit`` взвешивает весь
+                    # каталог, и лишний раз гонять его каждые полсекунды незачем.
+                    checked = laid
+                    tight = self.vault.fit(int(self._forecast(laid + 1, last)))
+                    if tight:
+                        self._stall(tight)
+                        break
                 self._throttle(packer)
                 time.sleep(0.5)
             if self.misgrid < 0:

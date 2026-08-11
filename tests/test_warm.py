@@ -453,6 +453,70 @@ def test_the_next_episode_is_not_warmed_while_this_one_is_not_done(tmp_path: Pat
     assert warmer.trouble and warmer.after is None, "следующая серия взята при недогретой текущей"
 
 
+def test_the_done_flag_counts_only_what_the_show_can_take(tmp_path: Path) -> None:
+    """«Готово» и счётчик прогретого считают одно и то же - иначе строка врёт дважды.
+
+    Копия тяжелее потолка приёмника показу не по зубам (:meth:`Feed._warm`), а «готово»
+    смотрело на весь каталог: строка выходила вида «прогрето 50 мин из 60 - фильм
+    целиком на диске, интернет больше не нужен» - два числа в ней противоречили хвосту,
+    а хвост был неправдой. Человек выключил бы интернет и упёрся в темноту на первом же
+    тяжёлом месте.
+    """
+    vault = _vault(tmp_path)
+    grid = _grid()
+    warmer = Warmer(source="s", audio=0, grid=grid, vault=vault, cap=4096)
+    for slot in range(grid.count):
+        _lay(vault, slot, size=4096)
+    _lay(vault, 1, size=4097)
+
+    # Оба состояния снимаем в переменные: сверяются они парой, и читать признак прямо в
+    # `assert` нельзя - тайпчекер запомнит первый ответ и второй счёт просто выкинет.
+    heavy, said = warmer.done, warmer.line()
+    assert warmer.warmed < grid.duration
+    assert not heavy, "тяжёлая копия зачлась готовой - строка соврёт про сеть"
+    assert "интернет больше не нужен" not in said
+
+    vault.path(1).write_bytes(b"x" * 4096)  # точечный перекод лёг поверх копии
+    whole, told = warmer.done, warmer.line()
+    assert whole, "перекод лёг поверх тяжёлой копии, а готово не наступило"
+    assert "интернет больше не нужен" in told
+
+
+def test_the_chain_outlives_a_film_whose_heavy_pieces_stay_copies(tmp_path: Path) -> None:
+    """Тяжёлые места лежат копией и перекодировать их нечем: строка честная, цепочка живая.
+
+    Это два конца одной правки, и резать их порознь нельзя. Строгое «готово» без
+    цепочки давало мёртвую очередь: текущая серия «готовой» не становится никогда, и
+    следующая не берётся в работу. Цепочка без строгого «готово» давала ложную строку
+    про досмотр без сети.
+    """
+    grid = _grid()
+    mine = _vault(tmp_path, key="эта")
+    for slot in range(grid.count):
+        _lay(mine, slot, size=4096)
+    _lay(mine, 1, size=4097)
+    said: list[str] = []
+    nxt = Warmer(source="s2", audio=0, grid=grid, vault=_vault(tmp_path, key="следующая"))
+    warmer = Warmer(
+        source="s1",
+        audio=0,
+        grid=grid,
+        vault=mine,
+        cap=4096,
+        follow=lambda: nxt,
+        slack=999.0,
+        log=said.append,
+    )
+    warmer._work()
+
+    assert not warmer.done, "фильм с тяжёлой копией объявлен прогретым целиком"
+    assert all("интернет больше не нужен" not in line for line in said), said
+    assert any("потолка приёмника" in line for line in said), "нет честной причины"
+    assert warmer.after is nxt, "цепочка встала там, где работа прогрева кончилась"
+    warmer.stop()
+    assert nxt.stopped, "снятие показа обязано снимать и прогрев следующей серии"
+
+
 def test_the_budget_never_evicts_the_episode_being_watched(tmp_path: Path) -> None:
     """Прогрев следующей серии не имеет права выесть ту, которую смотрят.
 
@@ -490,6 +554,132 @@ class _FakePacker:
 
 def _warmer(tmp_path: Path) -> Warmer:
     return Warmer(source="s", audio=0, grid=_grid(), vault=_vault(tmp_path))
+
+
+# --- TC-468: прикидка веса захода и бюджет по ходу захода ----------------------
+# «Каждый кусок равен потолку приёмника» ошибалось в обе стороны на одном и том же
+# корпусе из 84 карт опорных кадров (scripts/warmbudget.py): лёгкое кино просило 11.6
+# ГБ при факте 8.6 и вытесняло соседей зря, тяжёлое - 9.9 ГБ при факте 21.3, и бюджет
+# проверялся на вдвое меньшем числе, чем потом легло. А проверялся он раз на заход,
+# хотя заход - это весь остаток фильма.
+
+
+def test_the_forecast_weighs_pieces_by_the_keyframe_map(tmp_path: Path) -> None:
+    """Прикидка веса захода взвешивает каждый кусок по карте опорных кадров - по той же,
+    по которой показ строит сетку и профиль тяжести, - а не «кусок равен потолку»."""
+    from torrcast.stream import MAX_SEGMENT_BYTES
+
+    keys = [float(k * 2) for k in range(31)]
+
+    def _warmer_on(sizes: list[int], key: str) -> Warmer:
+        grid = Grid.on_keyframes(keys, 60.0, 10.0, sizes=sizes, ceiling_mbit=9.0)
+        assert grid.weigh is not None, "сетка с картой не несёт предсказателя веса"
+        return Warmer(source="нет", audio=0, grid=grid, vault=_vault(tmp_path, key=key))
+
+    def _by_map(warmer: Warmer) -> float:
+        grid = warmer.grid
+        assert grid.weigh is not None
+        return sum(grid.weigh(grid.start(s), grid.end(s)) for s in range(grid.count))
+
+    light = _warmer_on([k * 1_000_000 for k in range(31)], "л")  # копия 4 Мбит/с
+    assert light._forecast(0, light.grid.count - 1) == pytest.approx(_by_map(light))
+    assert _by_map(light) < light.grid.count * MAX_SEGMENT_BYTES / 2, (
+        "лёгкая копия по-прежнему просится по потолку - соседей вытесняет зря"
+    )
+
+    heavy = _warmer_on([k * 6_000_000 for k in range(31)], "т")  # копия 24 Мбит/с
+    assert heavy._forecast(0, heavy.grid.count - 1) == pytest.approx(_by_map(heavy))
+    assert _by_map(heavy) > heavy.grid.count * MAX_SEGMENT_BYTES, (
+        "тяжёлая копия по-прежнему недоспросила - бюджет проверен на меньшем числе"
+    )
+
+
+def test_the_forecast_falls_back_to_the_ceiling_without_a_map(tmp_path: Path) -> None:
+    """Карты нет - вес куска неизвестен, и прикидка остаётся прежней: по потолку."""
+    from torrcast.stream import MAX_SEGMENT_BYTES
+
+    grid = _grid()
+    assert grid.weigh is None, "ровная сетка не должна нести предсказателя веса"
+    warmer = Warmer(source="нет", audio=0, grid=grid, vault=_vault(tmp_path))
+    assert warmer._forecast(0, grid.count - 1) == pytest.approx(grid.count * MAX_SEGMENT_BYTES)
+
+    bare = Grid.on_keyframes([float(k * 2) for k in range(31)], 60.0, 10.0)
+    assert bare.weigh is None, "карта без смещений не должна давать предсказателя"
+
+
+#: Вес куска, который кладёт заглушка: тяжелее потолочной прикидки ровной сетки, чтобы
+#: факт укладки догонял бюджет по ходу захода, а не на входе в него.
+_PIECE = 20_000_000
+
+
+class _LayingPacker:
+    """Упаковка-заглушка: каждый ``publish`` кладёт очередной кусок и двигает край."""
+
+    def __init__(self, out: Path, first: int, last: int) -> None:
+        self.out = out
+        self.edge = first - 1
+        self.last = last
+        self.proc = _FakeProc()
+
+    @classmethod
+    def start(
+        cls, command: list[str], out: Path, run: Path, first: int, last: int = -1
+    ) -> _LayingPacker:
+        return cls(out, first, last)
+
+    def publish(self) -> None:
+        if self.edge < self.last:
+            self.edge += 1
+            (self.out / segment_name(self.edge)).write_bytes(b"x" * _PIECE)
+
+    def poll(self) -> int | None:
+        return None
+
+    def stop(self, keep_files: bool = True, reason: str = "") -> None:
+        return None
+
+
+def test_the_budget_is_rechecked_as_the_run_lays_pieces(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Бюджет перепроверяется по мере укладки, а не раз на входе в заход.
+
+    Заход - это весь остаток фильма, и за него вес каталога вырастает в разы: на входе
+    место под заход было (20 + 5x16 = 100 МБ из 105), а после третьего куска прогрев
+    обязан встать с честной причиной, а не доложить остаток сверх бюджета.
+    """
+    from torrcast import stream
+
+    monkeypatch.setattr(stream, "Packer", _LayingPacker)
+    monkeypatch.setattr(stream, "pack_start", lambda url, at, timeout=0.0: at)
+    grid = _grid()
+    said: list[str] = []
+    warmer = Warmer(
+        source="нет",
+        audio=0,
+        grid=grid,
+        vault=_vault(tmp_path, key="тесный", budget=105_000_000),
+        slack=1e6,
+        log=said.append,
+    )
+    warmer._run(0, grid.count - 1)
+
+    assert warmer.trouble.startswith("бюджет"), f"прогрев не встал: {warmer.trouble!r}"
+    assert any("прогрев встал" in line for line in said), "остановка прошла молча"
+    laid = len(list(warmer.vault.dir.glob("v*.ts")))
+    assert 0 < laid < grid.count, f"уложено {laid} из {grid.count} - не похоже на стоп по ходу"
+
+    roomy = Warmer(
+        source="нет",
+        audio=0,
+        grid=grid,
+        vault=_vault(tmp_path, key="широкий", budget=1 << 30),
+        slack=1e6,
+    )
+    roomy._run(0, grid.count - 1)
+    assert not roomy.trouble and len(list(roomy.vault.dir.glob("v*.ts"))) == grid.count, (
+        "здоровый заход остановлен перепроверкой"
+    )
 
 
 def test_a_tight_but_healthy_show_wakes_warming_before_guard_high(tmp_path: Path) -> None:
