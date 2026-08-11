@@ -16,7 +16,9 @@ https проверяется отдельно: это выключенная о�
 
 from __future__ import annotations
 
+import json
 import math
+import subprocess
 import time
 from pathlib import Path
 from typing import IO, Any
@@ -294,6 +296,57 @@ def test_mpegts_muxer_does_not_shove_its_own_delay_into_the_timestamps() -> None
         text = " ".join(ffmpeg_pack_command("u", 0, "/run", grid, 5, at))
         assert "-muxdelay 0" in text and "-muxpreload 0" in text, "иначе метки уедут на 1.4 с"
     assert MPEGTS_MUX_DELAY == 1.4, "замерено на живом файле, а не взято из головы"
+
+
+def test_a_new_packaging_run_does_not_turn_timestamps_back(
+    clip_mp4_bframes: str, tmp_path: Path
+) -> None:
+    """Заход с нуля и перезаход обязаны писать одну ленту PTS/DTS.
+
+    У H.264 с двумя-тремя B-кадрами первый DTS отрицательный. MPEG-TS по умолчанию
+    прячет его и сдвигает весь прогон с нуля вперёд, а перезаход после ``-ss`` уже не
+    сдвигает. На стыке получался обратный ход: в боевом тракте замерены 80 мс видео и
+    44.6 мс звука. Проверяем настоящие отданные куски через ``ffprobe -show_packets``:
+    не только соседей одного прогона, но и замену второго куска новым заходом.
+    """
+    found = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "v", "-skip_frame", "nokey",
+         "-show_entries", "frame=pts_time", "-of", "csv=p=0", clip_mp4_bframes],
+        check=True, capture_output=True, text=True, timeout=30,
+    )  # fmt: skip
+    keys = [float(line.strip().rstrip(",")) for line in found.stdout.splitlines() if line.strip()]
+    grid = Grid.on_keyframes(keys, CLIP_SECONDS)
+
+    def pack(name: str, slot: int) -> Path:
+        run = tmp_path / name
+        run.mkdir()
+        at = 0.0 if slot == 0 else pack_start(clip_mp4_bframes, grid.start(slot))
+        command = ffmpeg_pack_command(
+            clip_mp4_bframes, 0, str(run), grid, slot, at, readrate=0.0, until=1
+        )
+        subprocess.run(command, check=True, capture_output=True, timeout=180)
+        return run
+
+    def first_dts(path: Path, stream_name: str) -> float:
+        done = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", stream_name, "-show_packets",
+             "-show_entries", "packet=dts_time,duration_time", "-of", "json", str(path)],
+            check=True, capture_output=True, text=True, timeout=30,
+        )  # fmt: skip
+        packets = json.loads(done.stdout)["packets"]
+        marks = [float(packet["dts_time"]) for packet in packets]
+        assert marks, f"ffprobe не нашёл пакетов {stream_name} в {path.name}"
+        return min(marks)
+
+    head = pack("head", 0)
+    restarted = pack("restarted", 1)
+    for stream_name in ("v", "a"):
+        clean_start = first_dts(head / "v1.ts", stream_name)
+        restarted_start = first_dts(restarted / "v1.ts", stream_name)
+        assert restarted_start >= clean_start - 0.001, (
+            f"{stream_name}: перезаход сдвинул ленту назад на "
+            f"{1000 * (clean_start - restarted_start):.3f} мс"
+        )
 
 
 def test_segment_numbers_mean_the_same_place_wherever_the_run_started() -> None:
