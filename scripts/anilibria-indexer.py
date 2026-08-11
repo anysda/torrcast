@@ -58,7 +58,12 @@ def search(query: str) -> list[dict[str, Any]]:
                 releases = [row for row in answer if isinstance(row, dict) and _matches(row, query)]
                 releases, origin = releases[:LIMIT], candidate
                 break
-        except (OSError, ValueError):
+        # SubprocessError belongs here as much as OSError: a hung origin leaves
+        # `subprocess.run` in its own TimeoutExpired, which is NOT an OSError. Uncaught it
+        # would leave the handler through a dropped connection, and Prowlarr answers a
+        # dropped connection with a ban ladder - and the step for a source that does not
+        # answer is a whole day, so one stall would cost far more than this source is worth.
+        except (OSError, subprocess.SubprocessError, ValueError):
             continue
     if not origin:
         return []
@@ -66,7 +71,9 @@ def search(query: str) -> list[dict[str, Any]]:
     def torrents(release: dict[str, Any]) -> list[dict[str, Any]]:
         try:
             details = _json(origin, f"/api/v1/anime/torrents/release/{int(release['id'])}")
-        except (KeyError, TypeError, ValueError, OSError):
+        # The same TimeoutExpired reaches this call too, and here a stall is likelier: the
+        # details of one release are asked for after the listing already answered.
+        except (KeyError, TypeError, ValueError, OSError, subprocess.SubprocessError):
             return []
         found = details.get("torrents", details) if isinstance(details, dict) else details
         return found if isinstance(found, list) else []

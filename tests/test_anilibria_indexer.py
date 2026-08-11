@@ -1,6 +1,7 @@
 """The optional anime source narrows the catalog instead of breaking search."""
 
 import importlib.util
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -32,6 +33,37 @@ def test_dead_primary_uses_the_alternative(monkeypatch: pytest.MonkeyPatch) -> N
 
 def test_all_dead_sources_are_an_empty_result(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(adapter, "_json", lambda *_a: (_ for _ in ()).throw(OSError()))
+    assert adapter.search("Kaiba") == []
+
+
+def test_hung_sources_are_an_empty_result_and_not_a_dropped_connection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A stall is how this source usually dies, and it does not arrive as OSError:
+    `subprocess.run` raises its own TimeoutExpired, which descends from SubprocessError.
+    Uncaught it leaves the handler as a dropped connection, and Prowlarr answers a dropped
+    connection with a ban ladder - the step for a source that does not answer is a whole
+    day, so one stall would cost the whole search instead of narrowing the catalog."""
+    monkeypatch.setattr(
+        adapter,
+        "_json",
+        lambda *_a: (_ for _ in ()).throw(subprocess.TimeoutExpired("curl", 4.0)),
+    )
+    assert adapter.search("Kaiba") == []
+
+
+def test_a_release_that_hangs_on_details_only_drops_itself(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The details of a release are asked for after the listing answered, so a stall there
+    reaches a second catch - and it too owes the caller rows, not a broken connection."""
+
+    def answer(_origin: str, path: str) -> Any:
+        if "/search/" in path:
+            return [{"id": 7, "name": {"english": "Kaiba"}}]
+        raise subprocess.TimeoutExpired("curl", 4.0)
+
+    monkeypatch.setattr(adapter, "_json", answer)
     assert adapter.search("Kaiba") == []
 
 
