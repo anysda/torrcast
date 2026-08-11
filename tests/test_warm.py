@@ -170,6 +170,35 @@ def test_a_warmed_copy_heavier_than_the_ceiling_is_not_a_warmed_piece(tmp_path: 
     assert heavy.exists(), "тяжёлую копию стёрли - точечному перекоду ложиться не на что"
 
 
+def test_the_warmed_counter_names_only_what_the_show_can_take(tmp_path: Path) -> None:
+    """«Прогрето NN» называет то, что показ возьмёт с диска, а не то, что просто лежит.
+
+    Копия тяжелее потолка приёмника наружу не идёт (:meth:`torrcast.stream.Feed._warm`):
+    под таким местом работает живая упаковка, и обрыва связи оно не переживёт. Замер
+    («Тачки» 2006, 1080p): тяжелее потолка 38 % кусков - ровно на столько человеку и
+    приписывался запас, которого у него нет.
+
+    Заодно сверяется, что честный счёт не сдвинул укладку: прогреву тяжёлое место
+    по-прежнему видно уложенным, иначе он перекладывал бы его вечно.
+    """
+    vault = _vault(tmp_path)
+    grid = _grid()
+    out = hls_dir(str(tmp_path / "hls"))
+    feed = Feed(source="нет", audio=0, out=out, grid=grid, vault=vault, cap=4096)
+    warmer = Warmer(source="нет", audio=0, grid=grid, vault=vault, cap=4096)
+    _lay(vault, 0, size=4096)
+    heavy = _lay(vault, 1, size=4097)
+
+    assert feed._warm(1) is None, "потолок показа изменился - счёт прогрева меряет не то"
+    assert warmer.warmed == pytest.approx(grid.span(0)), "тяжёлая копия зачлась прогретой"
+    assert f"прогрето {cli._hms(grid.span(0))} из" in warmer.line(), "строка врёт про запас"
+    assert vault.slots() == {0, 1}, "укладка потеряла кусок - прогрев переложит его заново"
+    assert warmer._missing() == (2, grid.count - 1), "прогрев вернулся за уложенным куском"
+
+    heavy.write_bytes(b"x" * 4096)  # точечный перекод лёг поверх копии
+    assert warmer.warmed == pytest.approx(grid.span(0) + grid.span(1)), "перекод не зачёлся"
+
+
 def test_the_warmed_tail_counts_as_the_show_reserve(tmp_path: Path) -> None:
     """Запас показа считается и по прогретому: иначе сторож приёмника решил бы, что
     впереди пусто, и дёргал бы нуджем работающий показ (:meth:`Feed.front`)."""

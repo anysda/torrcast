@@ -55,6 +55,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final
 
 from torrcast import trace
+from torrcast.profile import CAUTIOUS
 from torrcast.timing import mark
 
 if TYPE_CHECKING:
@@ -269,16 +270,23 @@ class Vault:
         """
         return self.dir / f"v{slot}.rec"
 
-    def slots(self) -> set[int]:
-        """Что уже прогрето. Читается глобом: другого источника правды тут нет и не надо."""
+    def slots(self, cap: int = 0) -> set[int]:
+        """Что уже прогрето. Читается глобом: другого источника правды тут нет и не надо.
+
+        ``cap`` - потолок веса куска у приёмника: тогда считаются только те куски, которые
+        показ и правда возьмёт с диска (:meth:`torrcast.stream.Feed._warm`). Ноль - всё, что
+        лежит: прогреву решать, куда идти дальше, надо по файлам (:meth:`Warmer._missing`),
+        иначе тяжёлое место перекладывалось бы вечно.
+        """
         from torrcast.stream import segment_slot
 
         found: set[int] = set()
         with contextlib.suppress(OSError):
             for path in self.dir.glob("v*.ts"):
                 slot = segment_slot(path.name)
-                if slot >= 0:
-                    found.add(slot)
+                if slot < 0 or (cap > 0 and _size(path) > cap):
+                    continue
+                found.add(slot)
         return found
 
     def open(self) -> None:
@@ -362,6 +370,15 @@ def _title(path: Path) -> str:
     return ""
 
 
+def _size(path: Path) -> int:
+    """Вес файла; не прочли - ноль. Ноль тут безопасен: кусок, пропавший между глобом и
+    ``stat``, отдача уже переживает (404 → приёмник просит снова)."""
+    try:
+        return path.stat().st_size
+    except OSError:
+        return 0
+
+
 def _weigh(where: Path) -> int:
     total = 0
     with contextlib.suppress(OSError):
@@ -400,6 +417,11 @@ class Warmer:
     spot_encode: Any = None
     #: С какого места смотрим: прогрев идёт отсюда вперёд, голова - потом.
     began_at: int = 0
+    #: Потолок веса одного куска у приёмника, байты
+    #: (:attr:`torrcast.profile.Profile.max_segment_bytes`). Прогреву он нужен не для
+    #: укладки, а для счёта: тяжелее потолка показ прогретое с диска не берёт
+    #: (:meth:`torrcast.stream.Feed._warm`), и запасом такой кусок не является.
+    cap: int = CAUTIOUS.max_segment_bytes
     rate: float = WARM_RATE
     nice: int = WARM_NICE
     log: Any = None
@@ -465,8 +487,18 @@ class Warmer:
 
     @property
     def warmed(self) -> float:
-        """Сколько секунд фильма уже лежит на диске."""
-        return sum(self.grid.span(slot) for slot in self.vault.slots())
+        """Сколько секунд фильма показ может взять с диска.
+
+        Считается не «сколько лежит», а «что возьмут»: копия тяжелее потолка приёмника
+        наружу не идёт (:meth:`torrcast.stream.Feed._warm`), под таким местом работает живая
+        упаковка - значит, обрыва связи оно не переживёт и запасом не является. Тяжёлое
+        место входит в счёт, когда прогрев приведёт его к перекоду (:meth:`_spots_left`),
+        то есть к тому же виду, в котором его отдаёт показ.
+
+        Замер, ради которого счёт такой («Тачки» 2006, 1080p): тяжелее потолка 38 % кусков,
+        и число называло запас, которого у человека нет.
+        """
+        return sum(self.grid.span(slot) for slot in self.vault.slots(self.cap))
 
     @property
     def done(self) -> bool:

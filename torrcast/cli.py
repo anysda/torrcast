@@ -4950,6 +4950,7 @@ def _next_warmer(
         title,
         whole=whole,
         recoder=recoder,
+        profile=profile,
     )
 
 
@@ -4963,6 +4964,7 @@ def _warmer(
     whole: Any = None,
     recoder: Any = None,
     follow: Any = None,
+    profile: Profile = CAUTIOUS,
 ) -> Warmer | None:
     """Фоновый прогрев всего фильма на диск или ``None``, если он выключен.
 
@@ -5012,6 +5014,10 @@ def _warmer(
         spots=spots,
         spot_encode=spot_encode,
         began_at=grid.slot_at(start),
+        # Потолок веса куска - свойство приёмника, и прогреву он нужен ровно затем, чтобы
+        # «прогрето NN» называло то, что показ и правда возьмёт с диска
+        # (:attr:`torrcast.warm.Warmer.warmed`, :meth:`torrcast.stream.Feed._warm`).
+        cap=profile.max_segment_bytes,
         rate=config.warm_rate,
         follow=follow,
         rival=recoder,
@@ -5126,7 +5132,16 @@ def _play(
     # Прогрев поднимается ПОСЛЕ старта показа (ниже), а собирается здесь: ему нужны и
     # сетка, и решение о перекодировании - те же, что у живой упаковки.
     warmer = _warmer(
-        config, source, audio, grid, start, about, whole=whole, recoder=recoder, follow=follow
+        config,
+        source,
+        audio,
+        grid,
+        start,
+        about,
+        whole=whole,
+        recoder=recoder,
+        follow=follow,
+        profile=profile,
     )
     feed = Feed(
         source=source,
@@ -5631,6 +5646,11 @@ def _hold(
     )
     while True:
         _ctl(receiver)
+        # Выкладка кусков стоит на пути запроса сегмента, а запросов может не быть вовсе:
+        # показ, который берёт прогретое с диска, к упаковке не обращается, и написанное
+        # ею копится в памяти (:meth:`torrcast.stream.Feed.sweep`). Поэтому её зовут ещё и
+        # по часам показа - здесь, до всякого разговора с приёмником.
+        feed.sweep()
         if trouble := feed.trouble():
             # 🔴 Упаковка сдалась - и вот теперь спрашиваем ИСТОЧНИК. Оборванные подряд
             # прогоны значат «показывать нечего» только при живом источнике; служба

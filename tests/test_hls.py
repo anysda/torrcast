@@ -808,6 +808,65 @@ def test_pieces_of_past_runs_never_move_the_edge_of_the_current_run(
     assert started == [], "и перепаковывать место, которое уже лежит в tmpfs, незачем"
 
 
+def test_pieces_nobody_asked_for_are_handed_over_by_the_clock_of_the_show(tmp_path: Path) -> None:
+    """Выкладка зовётся и тогда, когда у упаковки никто ничего не просит.
+
+    Показ, читающий прогретое с диска (:meth:`Feed._warm`), к упаковке не обращается
+    вовсе - а ffmpeg продолжает писать в tmpfs. Замер на стенде, 1080p 9.1 Мбит/с: за 12
+    минут фильма несданное выросло до 832 МБ при выложенных 12 МБ и крае на нуле. С
+    выкладкой по часам показа тот же прогон держит несданного 2 МБ, а вся память показа
+    стоит на 152 МБ - окне ``keep`` секунд, как и задумано.
+    """
+    out = hls_dir(str(tmp_path / "hls"))
+    feed = Feed(source="", audio=0, out=out, grid=Grid.uniform(FILM))
+    feed.packer = packer = fake_packer(out, first=0, edge=-1, code=0)
+    packer.run.mkdir(parents=True)
+    for slot in range(4):
+        (packer.run / f"v{slot}.ts").write_bytes(b"x" * 1000)
+
+    assert packer.pending() == 4000, "несданного не видно - расти оно будет молча"
+    assert feed.weight() == 4000, "вес показа не считает того, что лежит в каталоге прогона"
+
+    feed.sweep()
+
+    assert packer.edge == 3, "куски так и лежат в памяти, а приёмнику не отдано ничего"
+    assert packer.pending() == 0 and feed.weight() == 4000, "выложенное считается дважды"
+    assert not packer.halted, "прогон погашен на ровном месте"
+
+
+def test_the_unhanded_pieces_have_a_ceiling_and_reaching_it_is_said_out_loud(
+    tmp_path: Path,
+) -> None:
+    """У несданного есть потолок, и его достижение - строка, а не тихое съедание памяти.
+
+    Выкладка встаёт на куске, который отдать не может (придержан под перекод, тяжелее
+    потолка приёмника), и всё, что за ним, копится в памяти без предела. Прогон, который
+    пишет в никуда, гасится: память возвращается, а запрос сегмента поднимет упаковку
+    заново (:meth:`_steer`) - ровно как после паузы на пульте.
+    """
+    said: list[str] = []
+    out = hls_dir(str(tmp_path / "hls"))
+    feed = Feed(
+        source="",
+        audio=0,
+        out=out,
+        grid=Grid.uniform(FILM),
+        log=said.append,
+        pending_cap=4_000_000,
+    )
+    feed.packer = packer = fake_packer(out, first=0, edge=-1, code=0)
+    packer.run.mkdir(parents=True)
+    packer.hold = lambda slot, size=0: True  # выкладке нечего отдать
+    for slot in range(5):
+        (packer.run / f"v{slot}.ts").write_bytes(b"x" * 1_000_000)
+
+    feed.sweep()
+
+    assert packer.halted, "несданное растёт, а прогон пишет дальше"
+    assert packer.pending() == 0, "память показу не вернулась"
+    assert any("несданных кусков 5 МБ" in line for line in said), "память съедена молча"
+
+
 def test_a_piece_finished_by_this_very_poll_is_not_mistaken_for_a_seek_back(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
