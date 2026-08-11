@@ -233,6 +233,40 @@ def test_an_empty_queue_is_an_honest_refusal_not_a_substitute() -> None:
     assert "выбери руками" not in msg and "--release" not in msg
 
 
+def test_an_empty_queue_without_kin_still_names_the_next_step() -> None:
+    """🔴 TC-447. Соседей по франшизе нет - а ход у отказа обязан быть всегда.
+
+    Пустая очередь без живых частей франшизы кончала строку перечнем причин, и хода в
+    ней не было - а отказ без хода это тупик. «Выбери руками» тут врал бы: раздачи
+    отвергнуты по известным признакам, номер этого не меняет. «Ничего не нашлось» врало
+    бы тоже: картина в каталоге есть, негодны её раздачи, - так и говорится.
+    """
+    game = [rel(name=f"игра {n}", size_gb=35.6, seeders=40 - n) for n in range(2)]
+
+    with pytest.raises(NotFoundError) as caught:
+        _resolve(cli._Bench(cast(Any, _FakeTorrServer())), game)
+
+    msg = str(caught.value)
+    assert "все до одной отсеял отбор (тяжелее потолка - 2)" in msg, msg
+    assert "в каталоге есть" not in msg, "соседей нет - и подсказки про них нет"
+    assert "картина есть, а раздачи её негодны" in msg, msg
+    assert "назови её иначе или зайди позже" in msg, msg
+    assert "выбери руками" not in msg and "--release" not in msg
+
+
+def test_an_out_of_range_hand_picked_number_names_its_picture() -> None:
+    """🔴 TC-446. Названный руками номер считается по выбранной картине, и отказ её
+    называет.
+
+    «релизов 2, номера 3 нет» без имени читалось как счёт всей выдачи, а считалось по
+    одной картине - той, что человек выбрал в меню или назвал флагом ``--pick``.
+    """
+    plan = _plan([rel(name="r1"), rel(name="r2")])
+
+    with pytest.raises(NotFoundError, match="у «Кино» релизов 2, номера 3 нет"):
+        plan.candidates(cli.Args(query=["кино"], release=3))
+
+
 def test_a_heavy_bonus_disc_with_a_plain_mark_is_turned_away() -> None:
     """🔴 TC-339. Однозначная метка судит без веса: тяжёлое приложение - не кандидат.
 

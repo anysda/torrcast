@@ -404,6 +404,21 @@ def test_releases_prints_the_old_table_and_exits(capsys: pytest.CaptureFixture[s
     assert "играю" not in printed, "releases ничего не запускает"
 
 
+def test_releases_ties_each_number_to_its_picture(capsys: pytest.CaptureFixture[str]) -> None:
+    """🔴 TC-446. Номер релиза относится к картине своей таблицы - и таблица это говорит.
+
+    Картин в выдаче несколько, нумерация релизов у каждой своя, и одним ``--release N``
+    картину не назвать: заголовки нумеруются тем же номером, что пункты меню `cast`
+    (и флаг ``--pick``), а строка-подсказка зовёт оба флага.
+    """
+    assert cli.main(["releases", "моана"]) == 0
+
+    printed = capsys.readouterr().out
+    assert "1. Moana (2016) - раздач" in printed, printed
+    assert "2. Моана 2 (2024) - раздач" in printed, printed
+    assert "--pick M --release N" in printed, printed
+
+
 def test_the_start_time_means_a_picture_on_the_screen(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
