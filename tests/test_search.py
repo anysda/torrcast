@@ -631,14 +631,23 @@ def test_yts_asked_in_its_own_short_budget() -> None:
     client = _swarm(yts=True, rows=2)
     client.search("barbie 2023")  # латиница с годом - не аниме, Nyaa вне круга
     budget = client._session.budget  # type: ignore[union-attr]
-    assert budget == {"1": _LATE_TIMEOUT, "2": _LATE_TIMEOUT, "4": _SHORT_TIMEOUT}
+    assert budget == {"1": _LATE_TIMEOUT, "2": 3.0, "4": _SHORT_TIMEOUT}
     assert _SHORT_TIMEOUT < _EXTRA_TIMEOUT, "короткий бюджет обязан быть заметно короче"
     # Судим по имени, а не по номеру: номер у индексера свой на каждой установке.
     # Короткий список только УРЕЗАЕТ роль (TC-226): YTS некворумный, его потолок и так
     # десять секунд, а короткий бюджет опускает до шести.
     assert indexer_budget("YTS") == _SHORT_TIMEOUT
     assert indexer_budget("Knaben") == _QUORUM_TIMEOUT
-    assert indexer_budget("Nyaa.si") == _EXTRA_TIMEOUT
+    assert indexer_budget("Nyaa.si") == 3.0
+
+
+def test_nyaa_mолчание_стоит_три_секунды() -> None:
+    """TC-498: один аниме-источник не вправе съесть всю цель продукта."""
+    from torrcast.search import GOAL, indexer_budget
+
+    budget = indexer_budget("Nyaa.si")
+    assert budget == 3.0
+    assert budget < GOAL / 2
 
 
 def test_silent_yts_costs_only_its_short_budget() -> None:
@@ -760,14 +769,25 @@ def test_ожидание_опоздавшего_не_длиннее_остат�
     assert time.monotonic() - began < 1.0
 
 
-def test_кворумного_индексера_круг_всё_же_дожидается() -> None:
-    """Кворум - это Knaben и RuTor: без них выдачи нет, и ждать их приходится. Отпустим
-    RuTor с задержкой - его раздачи обязаны попасть в тот же круг, а не в долив."""
-    client = _swarm(rows=2, hold={2})  # RuTor из кворума
+def test_rutor_дожидаемся_но_он_не_держит_каталог() -> None:
+    """TC-487: живому RuTor даём коротко доехать, но его смерть не убивает поиск."""
+    client = _swarm(rows=2, hold={2})
     threading.Timer(0.2, client._session.gate.set).start()  # type: ignore[union-attr]
     results = client.search("Naruto [TV]")
     assert len(results) == 6  # все трое: круг дождался кворумного
     assert client.late() == []  # опоздавших нет вовсе
+
+
+def test_мёртвый_rutor_деградирует_за_три_секунды() -> None:
+    """Остальные результаты доезжают, RuTor назван молчуном и не стоит общей цели."""
+    from torrcast.search import indexer_budget
+
+    client = _swarm(rows=2, mute=2)
+    results = client.search("матрица")
+    assert results
+    assert "idx.2" not in {row.indexer for row in results}
+    assert client.silent == ("RuTor",)
+    assert indexer_budget("RuTor") == 3.0
 
 
 def test_круг_без_кворумных_ждёт_всех() -> None:
@@ -786,8 +806,9 @@ def test_кворумного_ждём_дольше_остальных() -> None
     бюджет остаётся полным, а короткий достаётся тем, кого круг и так не ждёт."""
     from torrcast.search import indexer_budget, response_budget
 
-    assert indexer_budget("Knaben") == indexer_budget("RuTor") == 20.0
-    assert indexer_budget("Nyaa.si") == 10.0
+    assert indexer_budget("Knaben") == 20.0
+    assert indexer_budget("RuTor") == 3.0
+    assert indexer_budget("Nyaa.si") == 3.0
     assert response_budget("Knaben") > indexer_budget("Knaben"), "ответ живёт в фоне"
 
 

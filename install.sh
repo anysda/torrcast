@@ -128,6 +128,7 @@ INDEXERS=(
     "rutor|https://rutor.info/"        # русские раздачи и озвучки
     "nyaasi|https://nyaa.si/"          # аниме
     "anilibria|http://127.0.0.1:9697/" # аниме с русской озвучкой
+    "jacred|http://127.0.0.1:9698/"    # сменный открытый каталог русских озвучек
     # У YTS адрес API отдельной настройкой, и умолчание там - имя, которое в этой сети
     # угоняет DNS (чужой адрес с самоподписанным сертом). Живое имя одно, оба его адреса
     # отвечают 200 за 0.9-1.4 с, но тело рвётся на объёме - см. строку в SHIMS.
@@ -140,7 +141,7 @@ INDEXERS=(
 # НОЛЬ запросов, где он единственный источник играбельного HD (кириллицы у него нет,
 # сериалов нет). Ключевой индексер сюда не попадает никогда: его непроход обязан быть
 # виден в самой установке словами, а не найден потом в журнале.
-LATE_INDEXERS=("yts")
+LATE_INDEXERS=("yts" "jacred")
 # На этом индексере держится примерно половина каталога - весь западный хвост и аниме:
 # прямые трекеры из списка его не перекрывают, замены среди метапоисков в открытом пуле
 # нет. Поиск без него продолжает работать (деградируем, а не умираем), но выдача
@@ -1398,6 +1399,7 @@ seed_definitions() {
     local dir="$PREFIX/prowlarr-data/Definitions"
     install -d -m 0755 "$dir"
     install -m 0644 "$REPO_DIR/definitions/anilibria.yml" "$dir/anilibria.yml"
+    install -m 0644 "$REPO_DIR/definitions/jacred.yml" "$dir/jacred.yml"
     if [ "$(find "$dir" -maxdepth 1 -name '*.yml' 2>/dev/null | wc -l)" -gt 100 ]; then
         skip "определения индексеров ($(find "$dir" -maxdepth 1 -name '*.yml' | wc -l) шт.)"
         return
@@ -1475,13 +1477,25 @@ install_prowlarr() {
         "$PYTHON $PREFIX/anilibria-indexer.py 9697" ""
     wait_http "http://127.0.0.1:9697/ping" 15 \
         || info "⚠ AniLibria не поднялась - остальные индексеры продолжат работать"
+    if ! cmp -s "$REPO_DIR/scripts/jacred-indexer.py" "$PREFIX/jacred-indexer.py"; then
+        stop_service jacred-indexer "$PYTHON $PREFIX/jacred-indexer.py"
+        install -m 0755 "$REPO_DIR/scripts/jacred-indexer.py" "$PREFIX/jacred-indexer.py"
+    fi
+    run_service jacred-indexer "Открытый поиск русских раздач для Prowlarr" \
+        "$PYTHON $PREFIX/jacred-indexer.py 9698" ""
+    wait_http "http://127.0.0.1:9698/ping" 15 \
+        || info "⚠ JacRed не поднялся - остальные индексеры продолжат работать"
     install -d -m 0755 "$PREFIX/prowlarr-data/Definitions"
     if ! cmp -s "$REPO_DIR/definitions/anilibria.yml" \
-            "$PREFIX/prowlarr-data/Definitions/anilibria.yml"; then
+            "$PREFIX/prowlarr-data/Definitions/anilibria.yml" \
+            || ! cmp -s "$REPO_DIR/definitions/jacred.yml" \
+            "$PREFIX/prowlarr-data/Definitions/jacred.yml"; then
         stop_service prowlarr "$PREFIX/prowlarr/Prowlarr"
     fi
     install -m 0644 "$REPO_DIR/definitions/anilibria.yml" \
         "$PREFIX/prowlarr-data/Definitions/anilibria.yml"
+    install -m 0644 "$REPO_DIR/definitions/jacred.yml" \
+        "$PREFIX/prowlarr-data/Definitions/jacred.yml"
 
     # 🔴 Решаем про определения ДО первого старта Prowlarr, и потому здесь, а не в фазе
     # источников: прибитое имя должно лежать в /etc/hosts раньше, чем служба пойдёт за

@@ -1,0 +1,33 @@
+---
+id: jacred
+name: JacRed
+description: "Open torrent search with Russian releases"
+language: ru-RU
+type: public
+encoding: UTF-8
+links: [http://127.0.0.1:9698/]
+caps:
+  categorymappings:
+    - {id: 8000, cat: Other, desc: "All torrents"}
+  modes:
+    search: [q]
+    tv-search: [q, season, ep]
+    movie-search: [q]
+search:
+  paths:
+    - path: search
+      response: {type: json}
+  inputs:
+    q: "{{ .Keywords }}"
+  rows: {selector: results}
+  fields:
+    category: {text: 8000}
+    title: {selector: title}
+    details: {selector: magnet}
+    download: {selector: magnet}
+    size: {selector: size}
+    seeders: {selector: seeders}
+    leechers: {selector: leechers}
+    date: {selector: date}
+    downloadvolumefactor: {text: 0}
+    uploadvolumefactor: {text: 1}
