@@ -297,7 +297,8 @@ def test_an_anime_pack_is_not_called_dated_for_its_genre_bitrate() -> None:
     tv = RUNTIME_GUESS["tv"]
 
     assert pack.anime and pack.quiet, "имя аниме о качестве молчит - тем и жив признак"
-    assert 0.0 < bitrate_of(pack, tv) < SD_BITRATE, (
+    rate = bitrate_of(pack, tv)
+    assert rate is not None and 0.0 < rate < SD_BITRATE, (
         "битрейт по прикидке и правда ниже порога SD - спор именно о том, что это значит"
     )
     assert not is_dated(pack, tv), "жанровый битрейт старьём не делает"
@@ -340,7 +341,8 @@ def test_an_anime_mirrored_by_a_general_indexer_keeps_its_genre_bitrate() -> Non
     tv = RUNTIME_GUESS["tv"]
 
     assert release.anime, "аниме-индексер в группе - это аниме, кто бы ни выиграл имя"
-    assert 0.0 < bitrate_of(release, tv) < SD_BITRATE, "спор идёт именно о низком битрейте"
+    rate = bitrate_of(release, tv)
+    assert rate is not None and 0.0 < rate < SD_BITRATE, "спор идёт именно о низком битрейте"
     assert not is_dated(release, tv)
 
 
@@ -749,7 +751,8 @@ def test_a_heavy_remux_never_outranks_a_light_release_that_plays_as_is() -> None
     picture = Picture(title="Атака Титанов: Хроника", year=2020, releases=[remux, light])
     args = Args(query=["атака титанов хроника"])
 
-    assert bitrate_of(remux, RUNTIME) > Config().bitrate_hard_mbit
+    heavy = bitrate_of(remux, RUNTIME)
+    assert heavy is not None and heavy > Config().bitrate_hard_mbit
     plan = _plan_for(picture, args, Config())
 
     assert plan.ranked[0] is light, "лёгкий обязан быть дефолтом даже с меньшими сидами"

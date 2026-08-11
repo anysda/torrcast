@@ -1740,8 +1740,13 @@ def test_an_article_answer_does_not_parse_the_offline_map(monkeypatch: Any) -> N
     import threading
 
     parsed = threading.Event()
+
+    def _parse() -> dict[str, Any]:
+        parsed.set()
+        return {}
+
     monkeypatch.setattr(facts_mod, "get_json", lambda *a: _wiki_reply())
-    monkeypatch.setattr(facts_mod, "_ru_names", lambda: parsed.set() or {})
+    monkeypatch.setattr(facts_mod, "_ru_names", _parse)
 
     found = facts_mod.origin_now("Тачки", False, 1.0)
 

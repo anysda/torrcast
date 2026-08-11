@@ -729,9 +729,7 @@ def test_потолок_второго_круга_не_обрывает_живо
 
     monkeypatch.setattr(search, "_ASK_SLACK", 0.05)
     client = _swarm(rows=2, delay={3: 0.04})
-    got, error = client._circle(  # type: ignore[attr-defined]
-        [(3, "Nyaa.si")], "Naruto [TV]", 100, {}, {}, [], cap=0.02
-    )
+    got, error = client._circle([(3, "Nyaa.si")], "Naruto [TV]", 100, {}, {}, [], cap=0.02)
 
     assert error is None
     assert len(got) == 1 and len(got[0]) == 2

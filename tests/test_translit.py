@@ -489,6 +489,10 @@ def test_nothing_found_in_russian_is_searched_by_translit(
 class _SpentProwlarr(_FakeProwlarr):
     """Тот же каталог, но первый круг уже съел цель почти всю (TC-386)."""
 
+    #: Пол круга (:attr:`torrcast.search.Prowlarr.cap_floor`) ставит снаружи сам заход, а
+    #: не подделка: до первого круга поля нет вовсе, потому ниже и стоит ``getattr``.
+    cap_floor: float
+
     def __init__(self, catalog: dict[str, list[RawResult]], spare: float) -> None:
         super().__init__(catalog)
         self._spent = spare

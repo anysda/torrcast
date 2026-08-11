@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 import pytest
 
 from tests.test_cli import _FakeTorrServer, _plan, _probes, _resolve, rel
-from torrcast import InfraError, NotFoundError, cli
+from torrcast import InfraError, NotFoundError, SwarmError, cli
 from torrcast import stream as stream_mod
 from torrcast.parse import Release
 from torrcast.stream import Media, ServerDownError, swarm_pulse
@@ -393,7 +393,7 @@ def test_prewarm_cannot_judge_the_swarm_before_the_release_is_chosen(
 
     bench._ask(plan, prep, [1])
     assert prep.ready.wait(0.5), "после выбора обычная отсрочка не сработала"
-    assert isinstance(prep.failure, cli.SwarmError)
+    assert isinstance(prep.failure, SwarmError)
 
 
 def test_a_picture_whose_swarm_never_answers_is_refused_in_seconds_with_a_move(
@@ -658,7 +658,7 @@ def test_silence_is_named_as_our_expired_wait() -> None:
     prep = cli._Prep(
         number=1,
         release=rel(name="молчун"),
-        failure=cli.SwarmError("рой пуст - за 6 с ни одного пира"),
+        failure=SwarmError("рой пуст - за 6 с ни одного пира"),
     )
 
     assert cli._waiting_note(prep, str(prep.failure)) == "не дождались за 6 с"

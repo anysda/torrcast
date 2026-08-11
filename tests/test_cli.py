@@ -1520,9 +1520,11 @@ def test_a_series_pack_is_judged_by_the_size_of_one_episode() -> None:
     old, good = replace(old, size=int(2 * GB), seeders=900), replace(good, size=int(60 * GB))
 
     assert old.episode_count == 8 and good.episode_count == 8
-    assert cli.bitrate_of(good, runtime) == pytest.approx(
-        cli.bitrate_of(fat, runtime) * 0.75, rel=0.01
-    ), "битрейт считается на серию: 60 ГБ на восьмерых против 80 ГБ на восьмерых"
+    fat_rate = cli.bitrate_of(fat, runtime)
+    assert fat_rate is not None, "у раздачи с размером битрейт есть - иначе сравнивать нечего"
+    assert cli.bitrate_of(good, runtime) == pytest.approx(fat_rate * 0.75, rel=0.01), (
+        "битрейт считается на серию: 60 ГБ на восьмерых против 80 ГБ на восьмерых"
+    )
     assert cli.is_dated(old, runtime), "0.25 ГБ на серию - это SD, сколько бы сидов ни было"
     assert not cli.is_dated(good, runtime)
     assert rank_releases([old, good], runtime, 40.0)[0] is good
@@ -2661,7 +2663,7 @@ def test_the_menu_asks_without_a_default_when_another_part_would_answer(
 ) -> None:
     """Спрошенной части нет - Enter другую часть не включает: номер называет человек."""
     plans = _numbered_cars()[1:]
-    monkeypatch.setattr(cli.console, "stdin_is_tty", lambda: True)
+    monkeypatch.setattr(console, "stdin_is_tty", lambda: True)
     monkeypatch.setattr("builtins.input", lambda prompt="": "1")
 
     plan = cli._pick_plan(plans, asked="тачки")
@@ -2677,7 +2679,7 @@ def test_the_menu_default_stays_on_the_living_first_part(
 ) -> None:
     """Ограждение: первая часть жива - дефолт «первая живая часть» не тронут."""
     plans = _numbered_cars(first_dead=False)
-    monkeypatch.setattr(cli.console, "stdin_is_tty", lambda: True)
+    monkeypatch.setattr(console, "stdin_is_tty", lambda: True)
     monkeypatch.setattr("builtins.input", lambda prompt="": "")
 
     plan = cli._pick_plan(plans, asked="тачки")
@@ -2926,7 +2928,7 @@ def test_enter_picks_the_top_of_the_menu(
     )
     plans = [top, movie]
     assert cli.first_alive(plans) == 2, "условие расхождения воспроизведено"
-    monkeypatch.setattr(cli.console, "stdin_is_tty", lambda: True)
+    monkeypatch.setattr(console, "stdin_is_tty", lambda: True)
     monkeypatch.setattr("builtins.input", lambda prompt="": "")
 
     picked = cli._pick_plan(plans, asked="naruto")

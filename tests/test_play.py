@@ -762,11 +762,11 @@ def test_the_darkness_reason_follows_a_returning_source(tmp_path: Path) -> None:
     service = _Service(up=False)
     revival = cli._Revival(supply=_supply(service), clock=clock)
 
-    assert revival.resurrect(receiver, feed, warmer, 1200.0)
+    assert revival.resurrect(receiver, feed, warmer, 1200.0)  # type: ignore[arg-type]
     assert revival.why == "TorrServer не отвечает"
     service.up = True
 
-    assert revival.resurrect(receiver, feed, warmer, 1200.0)
+    assert revival.resurrect(receiver, feed, warmer, 1200.0)  # type: ignore[arg-type]
     assert revival.why == "источник вернулся - жду готовности потока"
 
 
