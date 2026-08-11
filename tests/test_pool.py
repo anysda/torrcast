@@ -320,6 +320,17 @@ def test_a_rejected_neighbour_is_named_with_its_verdict() -> None:
     assert "отбраковали (рой молчит)" in line
 
 
+def test_a_silent_neighbour_is_not_called_rejected() -> None:
+    """До ответа роя приговора релизу нет: кончилось только наше ожидание."""
+    picture, args = _stepdown_plan()
+    plan = _plan_for(picture, args, Config())
+
+    line = stepdown_note(plan, 1, Media(height=720, width=1280), [2, 1], {}, 2)
+
+    assert line.endswith("не ответил")
+    assert "отбраковали" not in line
+
+
 def test_a_dead_swarm_above_is_named_dead() -> None:
     """1080p в выдаче есть, а сидов у него ноль: это не «не дошли», это мёртвый рой."""
     top = named("Зелёная миля (1999) WEB-DL 720p | D", size_gb=4.0, seeders=38)

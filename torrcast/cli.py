@@ -93,6 +93,7 @@ from torrcast.stream import (
     PILOT_TIMEOUT,
     PROBE_TIMEOUT,
     AudioTrack,
+    ContactWait,
     Feed,
     Grid,
     HlsServer,
@@ -3522,6 +3523,7 @@ class _Prep:
     #: в очереди есть кого спросить. Когда спрашивать больше некого, платить отсрочкам
     #: нечем: терпеливо спрашивается один-единственный релиз (:meth:`_Bench._recheck`).
     patient: bool = False
+    contact_wait: ContactWait | None = None
     phase: str = "очередь"
     started: float = field(default_factory=time.monotonic)
     meta: float = 0.0
@@ -3560,6 +3562,19 @@ def _turned_down(judged: dict[int, str], number: int, why: str) -> None:
     """
     judged[number] = why
     trace.emit("select", "drop", release=number, why=why)
+
+
+def _did_not_answer(number: int, why: str) -> None:
+    """Записать осечку роя, не превращая наше ожидание в приговор раздаче."""
+    trace.emit("select", "drop", release=number, why=why)
+
+
+def _waiting_note(prep: _Prep, why: str) -> str:
+    """Назвать окончившееся терпение, а не объявлять неизвестный рой пустым."""
+    if not _silenced(prep):
+        return why
+    matched = re.search(r"за (\d+) с", why)
+    return f"не дождались за {matched.group(1)} с" if matched else "не дождались"
 
 
 def _silenced(prep: _Prep | None) -> bool:
@@ -3611,18 +3626,29 @@ class _Bench:
         """Начать (или вернуть уже начатую) подготовку релиза ``number`` этого плана.
 
         ``patient`` - спрашивать рой без отсрочек, по полным бюджетам фазы
-        (:attr:`_Prep.patient`). Уже начатому прогреву терпения не добавляет: отсрочки
-        задаются в момент вопроса, и передумать на середине нельзя.
+        (:attr:`_Prep.patient`). Обычный прогрев начинает работу сразу, но часы
+        отсрочки запускаются только когда релиз действительно дошёл до вопроса.
         """
         key = (plan.picture.key, number)
         found = self.preps.get(key)
         if found is not None:
             return found
         self._room()
-        prep = _Prep(number=number, release=plan.ranked[number - 1], patient=patient)
+        prep = _Prep(
+            number=number,
+            release=plan.ranked[number - 1],
+            patient=patient,
+            contact_wait=None if patient else ContactWait(PEER_GRACE),
+        )
         self.preps[key] = prep
         threading.Thread(target=self._work, args=(plan, prep), daemon=True).start()
         return prep
+
+    @staticmethod
+    def _ask(plan: _Plan, prep: _Prep, queue: list[int]) -> None:
+        """Запустить часы первого контакта, когда релиз дошёл до вопроса."""
+        if prep.contact_wait is not None:
+            prep.contact_wait.activate(peer_grace(plan, prep.number, queue))
 
     def live(self) -> list[_Prep]:
         """Прогревы, за которыми в TorrServer стоит (или вот-вот встанет) наша раздача."""
@@ -3848,6 +3874,7 @@ class _Bench:
             keep = (number, following, mute.number if mute is not None else None)
             self.needed = {(plan.picture.key, n) for n in keep if n is not None}
             prep = self.start(plan, number)
+            self._ask(plan, prep, queue)
             if following is not None:  # запасной греется, пока ждём этот
                 self.start(plan, following)
             # Секундомер стоит вокруг ОЖИДАНИЯ, а не вокруг работы потока: прогретая под
@@ -3882,9 +3909,12 @@ class _Bench:
                 prep = self._honest(plan, prep, queue, args, progress, judged)
                 self._announce(plan, prep, queue, judged, attempt)
                 return prep
-            why = trouble or "без русской озвучки"
+            why = _waiting_note(prep, trouble) if trouble else "без русской озвучки"
             tried.append(f"{number} - {why}")
-            _turned_down(judged, number, why)
+            if _silenced(prep):
+                _did_not_answer(number, why)
+            else:
+                _turned_down(judged, number, why)
             silents += 1 if _silenced(prep) else 0
             if not prep.error and prep.media is not None:  # ffprobe прочитал и осудил
                 verdicts += 1
@@ -4097,7 +4127,8 @@ class _Bench:
 
     def _wait(self, prep: _Prep, progress: Progress, prefix: str = "") -> None:
         """Дождаться подготовки, показывая фазу и бегущее время."""
-        deadline = prep.started + self.meta_budget + self.probe_budget + 5.0
+        asked = prep.contact_wait.activated_at if prep.contact_wait is not None else None
+        deadline = (asked or prep.started) + self.meta_budget + self.probe_budget + 5.0
         while not prep.ready.wait(0.2):
             progress.phase(f"{prefix}{prep.phase}")
             if time.monotonic() > deadline:  # поток сам не уложился - не ждём вечно
@@ -4203,6 +4234,7 @@ class _Bench:
             # спрашиваем сейчас. Проверенные и отвергнутые убираются тут же, ниже.
             self.needed = {(plan.picture.key, chosen.number), (plan.picture.key, number)}
             alt = self.start(plan, number)
+            self._ask(plan, alt, [number])
             phase = f"релиз {chosen.number} {why_look} - смотрю {number}"
             if not self._peek(alt, progress, deadline, phase):
                 progress.phase("")
@@ -4409,7 +4441,7 @@ class _Bench:
             files = self.torrserver.wait_files(
                 prep.torrent_hash,
                 timeout=self.meta_budget,
-                grace=0.0 if prep.patient else peer_grace(plan, prep.release),
+                grace=prep.contact_wait or 0.0,
             )
             prep.meta = time.monotonic() - prep.started
             mark("метаданные", релиз=prep.number, картина=plan.picture.key)
@@ -4426,7 +4458,11 @@ class _Bench:
             prep.media = probe(
                 source,
                 timeout=self.probe_budget,
-                alive=None if prep.patient else swarm_pulse(source, SWARM_GRACE),
+                alive=(
+                    None
+                    if prep.patient
+                    else swarm_pulse(source, SWARM_GRACE, wait=prep.contact_wait)
+                ),
             )
             prep.read = time.monotonic() - began
             mark("ffprobe", релиз=prep.number, картина=plan.picture.key)
@@ -7450,7 +7486,7 @@ def is_full_hd(release: Release, alive: int) -> bool:
     return release.seeders >= alive * FULL_HD_LIVENESS
 
 
-def peer_grace(plan: _Plan, release: Release) -> float:
+def peer_grace(plan: _Plan, number: int, queue: list[int]) -> float:
     """Сколько этой раздаче даётся на ПЕРВЫЙ КОНТАКТ роя, секунды.
 
     🔴 TC-387. Отсрочка назначается ценой ошибки, а не свойствами раздачи. Обычная
@@ -7464,25 +7500,15 @@ def peer_grace(plan: _Plan, release: Release) -> float:
     подтвердить его нечем, пока раздачу не подняли, и ровно так же его судит
     :func:`is_full_hd`.
 
-    Соседи считаются те, кем показ и правда мог бы заменить эту раздачу: годные
-    (:func:`is_candidate`) и с нужной серией (:func:`misses_episode`). Пул, где ниже
-    ступенью заменить нечем, отсрочки не удлиняет: терпение там ничего не защищает.
+    Соседи берутся из фактического хвоста ``queue`` после этой раздачи. Поэтому ручной
+    выбор, проверка по звуку и уже пройденный сосед отсрочку не удлиняют. Ворота и
+    нужная серия учтены при построении самой очереди (:meth:`_Plan.candidates`).
     """
-    if release.height < FULL_HEIGHT:
+    release = plan.ranked[number - 1]
+    if release.height < FULL_HEIGHT or number not in queue:
         return PEER_GRACE
-    lower = any(
-        other.height < FULL_HEIGHT
-        and not misses_episode(other, plan.want)
-        and is_candidate(
-            other,
-            plan.runtime,
-            plan.warn_mbit,
-            plan.loose,
-            plan.hard_mbit,
-            copy_hevc=plan.copy_hevc,
-        )
-        for other in plan.ranked
-    )
+    after = queue[queue.index(number) + 1 :]
+    lower = any(plan.ranked[other - 1].height < FULL_HEIGHT for other in after)
     return STEP_GRACE if lower else PEER_GRACE
 
 

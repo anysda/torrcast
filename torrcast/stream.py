@@ -41,6 +41,36 @@ if TYPE_CHECKING:
 
     from torrcast.state import Config
 
+
+class ContactWait(float):
+    """Отсрочка первого контакта, часы которой запускает выбор релиза."""
+
+    _seconds: float
+    _activated_at: float | None
+    _lock: threading.Lock
+
+    def __new__(cls, seconds: float) -> ContactWait:
+        wait = super().__new__(cls, seconds)
+        wait._seconds = seconds
+        wait._activated_at = None
+        wait._lock = threading.Lock()
+        return wait
+
+    @property
+    def activated_at(self) -> float | None:
+        return self._activated_at
+
+    @property
+    def seconds(self) -> float:
+        return self._seconds
+
+    def activate(self, seconds: float) -> None:
+        with self._lock:
+            if self._activated_at is None:
+                self._seconds = seconds
+                self._activated_at = time.monotonic()
+
+
 __all__ = [
     "COPY_DEPTH",
     "HLS_SEGMENT_SECONDS",
@@ -1183,7 +1213,10 @@ class TorrServer:
         return _file_stats(self.status(torrent_hash))
 
     def wait_files(
-        self, torrent_hash: str, timeout: float = 60.0, grace: float = 0.0
+        self,
+        torrent_hash: str,
+        timeout: float = 60.0,
+        grace: float | ContactWait = 0.0,
     ) -> list[TorrFile]:
         """Дождаться метаданных: пиры по DHT и ретрекерам; нет за ``timeout`` — ошибка.
 
@@ -1210,8 +1243,9 @@ class TorrServer:
         Здоровая раздача не платит за отсрочку ни миллисекунды: её метаданные приезжают
         первыми же опросами, то есть до всякой проверки контактов.
         """
-        deadline = time.monotonic() + timeout
-        hopeless = time.monotonic() + grace
+        began = time.monotonic()
+        deadline = began + timeout
+        hopeless = began + float(grace)
         step = META_STEP
         while True:
             status = self.status(torrent_hash)
@@ -1219,8 +1253,17 @@ class TorrServer:
             if files:
                 return files
             now = time.monotonic()
-            if grace > 0 and now >= hopeless and swarm_alive(status) is False:
-                raise SwarmError(f"рой пуст - за {grace:.0f} с ни одного пира")
+            if isinstance(grace, ContactWait):
+                activated = grace.activated_at
+                if activated is None:
+                    time.sleep(min(step, META_STEP_MAX))
+                    step = min(step * META_STEP_GROW, META_STEP_MAX)
+                    continue
+                deadline = activated + timeout
+                hopeless = activated + grace.seconds
+            seconds = grace.seconds if isinstance(grace, ContactWait) else grace
+            if seconds > 0 and now >= hopeless and swarm_alive(status) is False:
+                raise SwarmError(f"рой пуст - за {seconds:.0f} с ни одного пира")
             left = deadline - now
             if left <= 0:
                 raise SwarmError(f"раздача не отдала метаданные за {timeout:.0f} с - нет пиров")
@@ -1579,7 +1622,9 @@ def _run_ffprobe(command: list[str], timeout: float, alive: Any) -> str:
         return out
 
 
-def swarm_pulse(source_url: str, grace: float) -> Callable[[], bool]:
+def swarm_pulse(
+    source_url: str, grace: float, wait: ContactWait | None = None
+) -> Callable[[], bool]:
     """Признак жизни потока под ffprobe: тянет первые байты в фоне и отвечает, стоит ли
     ещё ждать. Пришёл хоть байт — раздача жива и читается (у «Моаны 2» заголовок едет
     17 с, это норма, и обрывать её нельзя). Ни байта за ``grace`` — рой молчит: пиров
@@ -1604,7 +1649,8 @@ def swarm_pulse(source_url: str, grace: float) -> Callable[[], bool]:
     threading.Thread(target=pull, daemon=True).start()
 
     def alive() -> bool:
-        return seen.is_set() or (time.monotonic() - started) < grace
+        began = wait.activated_at if wait is not None else started
+        return seen.is_set() or began is None or (time.monotonic() - began) < grace
 
     return alive
 

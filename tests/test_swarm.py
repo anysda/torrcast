@@ -378,6 +378,24 @@ class _Slow(_Offline):
         return {**about, "file_stats": [{"id": 0, "path": "film.mkv", "length": 8 << 30}]}
 
 
+def test_prewarm_cannot_judge_the_swarm_before_the_release_is_chosen(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Часы первого контакта не тикают, пока человек читает меню."""
+    ranked = [rel(name="полный", quality="1080p")]
+    monkeypatch.setattr(cli, "PEER_GRACE", 0.15)
+    bench = cli._Bench(cast(Any, _Empty()), meta_budget=1.0)
+    plan = _plan(ranked)
+
+    prep = bench.start(plan, 1)
+    time.sleep(0.25)
+    assert not prep.ready.is_set(), "прогрев вынес приговор до выбора"
+
+    bench._ask(plan, prep, [1])
+    assert prep.ready.wait(0.5), "после выбора обычная отсрочка не сработала"
+    assert isinstance(prep.failure, cli.SwarmError)
+
+
 def test_a_picture_whose_swarm_never_answers_is_refused_in_seconds_with_a_move(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -409,7 +427,7 @@ def test_a_picture_whose_swarm_never_answers_is_refused_in_seconds_with_a_move(
         f"отказ занял {spent:.1f} с: обход трёх раздач стоит отсрочек, а сверх него - "
         "один бюджет раздачи на терпеливый спрос, но не три бюджета"
     )
-    assert printed.count("рой пуст") == 3, "человеку не сказали, чем именно кончилась раздача"
+    assert printed.count("не дождались") == 3, "каждая осечка называет предел ожидания"
     assert "спрашиваю релиз 1 ещё раз" in printed, "последний спрос тоже громкий"
     assert "потрогали 3 (все)" in said, "спросили не всю очередь"
     assert "ни одна не отозвалась" in said and "числятся" in said
@@ -608,17 +626,42 @@ def test_the_grace_a_release_gets_is_the_price_of_dropping_it() -> None:
     twin = rel(name="второй", quality="1080p")
     four_k = rel(name="четыре кэ", quality="2160p")
 
-    assert cli.peer_grace(_plan([full, hd]), full) == cli.STEP_GRACE
-    assert cli.peer_grace(_plan([full, quiet]), full) == cli.STEP_GRACE, (
+    assert cli.peer_grace(_plan([full, hd]), 1, [1, 2]) == cli.STEP_GRACE
+    assert cli.peer_grace(_plan([full, quiet]), 1, [1, 2]) == cli.STEP_GRACE, (
         "имя, молчащее о разрешении, ступень не обещает - защищать её есть от кого"
     )
-    assert cli.peer_grace(_plan([full, twin]), full) == cli.PEER_GRACE, (
+    assert cli.peer_grace(_plan([full, twin]), 1, [1, 2]) == cli.PEER_GRACE, (
         "заменить ступенью ниже нечем - терпение ничего не защищает"
     )
-    assert cli.peer_grace(_plan([full, hd]), hd) == cli.PEER_GRACE
-    assert cli.peer_grace(_plan([four_k, hd]), four_k) == cli.STEP_GRACE, (
+    assert cli.peer_grace(_plan([full, hd]), 2, [1, 2]) == cli.PEER_GRACE
+    assert cli.peer_grace(_plan([four_k, hd]), 1, [1, 2]) == cli.STEP_GRACE, (
         "2160p - тоже честный HD, и ступень под ним та же"
     )
+
+
+def test_grace_follows_the_actual_route_and_only_the_untried_tail() -> None:
+    """Длинное ожидание защищает ступень только в фактической очереди захода."""
+    full = rel(name="полный", quality="1080p")
+    judged = rel(name="осуждённый", quality="720p")
+    sound = rel(name="сосед по звуку", quality="1080p")
+    lower = rel(name="запасной", quality="720p")
+    plan = _plan([full, judged, sound, lower])
+
+    assert cli.peer_grace(plan, 1, [1, 2, 3, 4]) == cli.STEP_GRACE
+    assert cli.peer_grace(plan, 1, [1]) == cli.PEER_GRACE, "--release N"
+    assert cli.peer_grace(plan, 3, [3]) == cli.PEER_GRACE, "вопрос про звук"
+    assert cli.peer_grace(plan, 1, [2, 1]) == cli.PEER_GRACE, "осуждённый сосед уже позади"
+
+
+def test_silence_is_named_as_our_expired_wait() -> None:
+    """Ответа роя нет: строка сообщает предел ожидания, а не выдуманный приговор."""
+    prep = cli._Prep(
+        number=1,
+        release=rel(name="молчун"),
+        failure=cli.SwarmError("рой пуст - за 6 с ни одного пира"),
+    )
+
+    assert cli._waiting_note(prep, str(prep.failure)) == "не дождались за 6 с"
 
 
 def test_a_full_hd_head_is_not_dropped_for_a_slow_minute_of_its_swarm(
@@ -658,4 +701,4 @@ def test_a_slow_head_still_yields_when_nothing_below_it_is_a_step_lower(
     prep = _resolve(cli._Bench(cast(Any, _LateHead(head, answers_in=0.6))), ranked)
 
     assert prep.number == 2, "ступени под верхом нет - ждать его дольше незачем"
-    assert "рой пуст" in capsys.readouterr().out
+    assert "не дождались" in capsys.readouterr().out
