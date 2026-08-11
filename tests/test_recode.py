@@ -24,6 +24,7 @@ from torrcast.recode import (
     Weights,
     level_for,
     preset_for,
+    whole_encode,
 )
 from torrcast.stream import (
     FilmKeys,
@@ -1808,6 +1809,119 @@ def test_a_scaled_down_4k_show_gets_its_grid_weighed_by_our_bitrate_too(
     # А по карте исходника та же сетка разрешила бы куски, в которые наш перекод не влез бы.
     naive = Grid.on_keyframes(keys.at, 595.0, Config().hls_segment, sizes=keys.offset)
     assert max(naive.span(k) * ours * 1e6 / 8 for k in range(naive.count - 1)) > 20e6
+
+
+def test_the_grid_is_told_the_encoders_ceiling_not_its_average_target() -> None:
+    """🔴 TC-501: вес куска предсказывается по ``maxrate``, а не по средней цели перекода.
+
+    Замер на стенде (1080p10 40 Мбит/с, сплошной перекод ultrafast, цель 9, 4 vCPU): на
+    трудном материале кодер сидит на своём мгновенном потолке, и насыщенный кусок уехал
+    на 10.22 Мбит/с при обещанных сеткой 9.47 - промах ровно в :data:`MAXRATE_GAIN` и
+    ровно вверх. На этом обещании сетка разрешала себе куски до 13.5 с: шесть из
+    двенадцати таких кусков родились 16.0-17.6 МБ при потолке приёмника 16 МБ - то есть
+    ЗА потолком и до всякой выкладки, которой их потом уже нечем ловить (на сплошном
+    перекоде ужатия на месте нет: перекодировать поверх перекода нечем).
+
+    Карта тут не ровная, и это существенно: у сетки должен быть выбор. Опорные кадры
+    стоят парами (+9.5 и +13.4 от границы), поэтому обещание решает, какой из двух взять,
+    - а не только то, признает ли сетка кусок тяжёлым.
+    """
+    from torrcast.cli import _layout
+    from torrcast.profile import CAUTIOUS
+    from torrcast.state import Config
+    from torrcast.stream import AUDIO_MBIT, TS_OVERHEAD
+
+    duration, period = 160.0, 13.4
+    at = sorted(
+        t
+        for k in range(int(duration / period) + 1)
+        for t in (round(k * period, 3), round(k * period + 9.5, 3))
+        if t < duration
+    )
+    keys = FilmKeys(duration=duration, at=at, offset=[int(t * 5.0e6) for t in at], kind="mkv")
+    monkey = pytest.MonkeyPatch()
+    monkey.setattr("torrcast.stream.film_keys", lambda url: keys)
+    try:
+        grid, whole = _layout(Config(), "http://ts/x", duration, "h264", 40.0, depth=10)
+    finally:
+        monkey.undo()
+
+    assert whole is not None, "десятибитный H.264 идёт сплошным перекодом"
+    # Сетке обещают потолок ЕЩЁ НЕ ужатой цели: она строится до того, как цель ужимают
+    # под самый длинный оставшийся кусок (о нём - соседний замер).
+    before = whole_encode(Config().recode_mbit, video_mbit=40.0)
+    assert before.mbit == 9.0
+    # Столько уедет на ТВ, когда кодер сидит на потолке: это и есть замеренные 10.22.
+    delivered = (before.maxrate + AUDIO_MBIT) * TS_OVERHEAD
+    assert delivered == pytest.approx(10.21, abs=0.02)
+
+    # Хвост в счёт не идёт: он такой, какой остался, и потолок веса на него не
+    # распространялся никогда (см. соседний замер про 4К).
+    worst = max(grid.span(k) * delivered * 1e6 / 8 for k in range(grid.count - 1))
+    assert worst <= CAUTIOUS.max_segment_bytes, "кусок обязан рождаться в потолок приёмника"
+
+    # А по средней цели сетка на той же карте берёт длинный кусок из пары - и он не влезает.
+    naive = Grid.on_keyframes(
+        keys.at, duration, Config().hls_segment,
+        sizes=keys.offset, fixed_mbit=(whole.mbit + AUDIO_MBIT) * TS_OVERHEAD,
+        cap=CAUTIOUS.max_segment_bytes,
+    )  # fmt: skip
+    assert naive.bounds != grid.bounds, "обещание сетке решает, где лягут границы"
+    assert max(naive.span(k) for k in range(naive.count - 1)) > 13.0, "по цели берётся длинный"
+    assert (
+        max(naive.span(k) * delivered * 1e6 / 8 for k in range(naive.count - 1))
+        > CAUTIOUS.max_segment_bytes
+    ), "замер подобран неверно: прежнее обещание обязано давать кусок за потолком"
+
+
+def test_a_gop_too_long_to_cut_pulls_the_whole_target_down() -> None:
+    """🔴 TC-501: честной сетки мало - там, где резать нечем, обязана падать цель.
+
+    Сетка режет только по опорным кадрам. Если один GOP сам по себе длиннее, чем влезает
+    в потолок приёмника, резать ей нечем, и она честно оставляет кусок длинным. Замер на
+    живом Q70D («Эксперименты Лэйн», BDRip hi10p, сплошной перекод): даже с честным
+    обещанием у сетки осталось два куска по 15.2 с, наши 9 Мбит/с положили в них 17 и
+    16 МБ при потолке 16, и показ встал ровно на них - 1:58 вместо пяти минут.
+
+    Прогон сплошного перекода один на весь показ и идёт одним ``-b:v``, поэтому судит его
+    худший кусок - ровно как заход посегментного кодировщика судит свой самый длинный
+    (TC-483). Чёткость тут и торгуется: гейт «ноль подгрузов» стоит выше неё.
+    """
+    from torrcast.cli import _layout
+    from torrcast.profile import CAUTIOUS
+    from torrcast.state import Config
+    from torrcast.stream import AUDIO_MBIT, TS_OVERHEAD
+
+    duration, gop = 200.0, 15.2  # опорные кадры редкие: между ними резать нечем
+    keys = _keys(duration=duration, gop=gop, rate=5.0e6)
+    monkey = pytest.MonkeyPatch()
+    monkey.setattr("torrcast.stream.film_keys", lambda url: keys)
+    try:
+        grid, whole = _layout(Config(), "http://ts/x", duration, "h264", 40.0, depth=10)
+    finally:
+        monkey.undo()
+
+    assert whole is not None
+    # Хвост в судьи не берётся ни тут, ни в коде: он такой, какой остался.
+    longest = max(grid.span(k) for k in range(grid.count - 1))
+    assert longest >= gop, "сетка честно оставила длинный кусок - резать его нечем"
+    assert whole.mbit < 9.0, "цель обязана была опуститься под этот кусок"
+
+    # Главное: с этой целью самый длинный кусок влезает в потолок - вместе со звуком,
+    # накладными mpegts и правом кодера идти до своего мгновенного потолка.
+    delivered = (whole.maxrate + AUDIO_MBIT) * TS_OVERHEAD
+    assert longest * delivered * 1e6 / 8 <= CAUTIOUS.max_segment_bytes
+
+    # И вниз без нужды не роняем: на той же карте с частыми опорными кадрами сетке есть
+    # где резать, и цель остаётся потолком настройки.
+    dense = _keys(duration=duration, gop=2.0, rate=5.0e6)
+    monkey = pytest.MonkeyPatch()
+    monkey.setattr("torrcast.stream.film_keys", lambda url: dense)
+    try:
+        _, easy = _layout(Config(), "http://ts/y", duration, "h264", 40.0, depth=10)
+    finally:
+        monkey.undo()
+    assert easy is not None and easy.mbit == 9.0, "есть где резать - чёткость не трогаем"
 
 
 # ------------------------------------------------------------- фактическая скорость
