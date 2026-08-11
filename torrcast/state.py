@@ -525,6 +525,27 @@ class State:
         """
         return {entry.torrent for entry in self.entries.values() if entry.torrent}
 
+    def showing(self) -> tuple[str, Entry] | None:
+        """Показ, который идёт на приёмнике прямо сейчас, или ``None``.
+
+        Признак тот же, что у :meth:`held`, - непустой :attr:`Entry.torrent`: отметку
+        ставит юнит показа в ту же секунду, когда поднял раздачу, и снимает, когда её
+        убрал. Двух живых показов не бывает по устройству, поэтому запись тут не больше
+        одной; на всякий случай берётся свежайшая.
+
+        🔴 Приёмник об этом НЕ спрашивается, и это правило, а не экономия: у всех
+        соединений pychromecast один ``source_id``, поэтому второй опрашивающий процесс
+        неотличим от владельца сессии и гасит живой показ
+        (:class:`torrcast.cast.ChromecastReceiver`). Занятость телевизора мы знаем из
+        своего состояния или не знаем вовсе.
+
+        ⚠️ Чего этот признак НЕ видит: показ, убитый ``SIGKILL``, оставляет хэш записанным
+        и выглядит отсюда живым. Разбирает такие сироты :func:`torrcast.cli._release_orphans`
+        (он спрашивает systemd, а не приёмник) - и зовётся он до этой проверки.
+        """
+        live = [(key, entry) for key, entry in self.entries.items() if entry.torrent]
+        return max(live, key=lambda item: item[1].updated) if live else None
+
     def put(self, key: str, entry: Entry) -> None:
         """Положить запись, обновив метку времени."""
         self.entries[key] = entry.touch()

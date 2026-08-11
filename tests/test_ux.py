@@ -857,3 +857,69 @@ def test_two_pictures_under_one_name_reach_the_last_line(
     printed = capsys.readouterr().out
     assert "под этим именем и годом картин две" in printed
     assert "«Моана (фильм, 2026)»" in printed
+
+
+def _live_show(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Состояние живого показа: юнит поднят и держит раздачу «Моаны»."""
+    state = State.load()
+    state.put(
+        OLD_KEY,
+        Entry(title="Moana", magnet="magnet:?xt=urn:btih:" + "a" * 40, pos=128.0, torrent="a" * 40),
+    )
+    state.save()
+    monkeypatch.setattr(cli, "unit_active", lambda *a, **k: True)
+
+
+def test_a_second_cast_says_the_tv_is_busy_with_our_show(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """🔴 TC-482. Один телевизор - один показ, и вторая команда говорит это словами зрителя.
+
+    Прежде вторая ``cast`` на занятый телевизор вела себя как первая: ни строки о том, что
+    на экране уже идёт фильм, ни слова о том, что выбор его оборвёт. Зритель узнавал об
+    этом по погасшей картинке.
+    """
+    _live_show(monkeypatch)
+    _answers(monkeypatch, "2", "")
+
+    assert cli.main(["моана", "--new"]) == 0
+
+    printed = capsys.readouterr().out
+    assert "на телевизоре сейчас идёт «Moana»" in printed, printed
+    assert "0:02:08" in printed, "видно и то, докуда досмотрели"
+    assert "этот показ прервётся" in printed, printed
+
+
+def test_the_menu_prewarm_stands_aside_while_our_show_is_on_air(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """🔴 TC-482. Пока идёт показ, прогрев под меню не поднимает ни одной раздачи.
+
+    Замер 10-08: рядом с живым показом шла вторая ``cast``, и её прогрев тянул из роя
+    чужие раздачи, писал их на тот же диск и читал ту же сеть - про показ он не знал
+    ничего и не притормаживал. Показ первичен: раздумья зрителя оплачивает скорость
+    нашего меню, а не его картинка.
+    """
+    added: list[str] = []
+
+    class _Counting(_FakeTorrServer):
+        def add(self, magnet: str) -> str:
+            added.append(magnet)
+            return f"hash-{magnet[:30]}"
+
+    monkeypatch.setattr(cli, "TorrServer", _Counting)
+    _live_show(monkeypatch)
+
+    under_question: list[int] = []
+
+    def ask(prompt: str = "") -> str:
+        if "Что смотрим?" in prompt:  # вопрос на экране, ответа ещё нет
+            time.sleep(0.5)  # прогрев успел бы поднять три раздачи вдесятеро быстрее
+            under_question.append(len(added))
+        return ""
+
+    monkeypatch.setattr("builtins.input", ask)
+
+    assert cli.main(["моана", "--new"]) == 0
+
+    assert under_question == [0], "под меню живого показа не поднято ни одной раздачи"

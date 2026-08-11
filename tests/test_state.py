@@ -66,6 +66,30 @@ def test_held_reports_only_hashes_a_show_still_holds() -> None:
     assert state.held() == {"aaa", "bbb"}
 
 
+def test_showing_names_the_entry_the_live_show_holds() -> None:
+    """🔴 TC-482. Занятость телевизора берётся из состояния, а не из опроса приёмника.
+
+    Живой показ - это запись с непустым хэшем раздачи: её ставит юнит показа и он же
+    снимает. Записи с одной позицией (досмотренное, брошенное) показом не считаются.
+    """
+    state = State()
+    state.put("movie:тачки:2006", Entry(title="Тачки", magnet="m1", pos=600.0))
+    state.put("movie:моана:2016", Entry(title="Моана", magnet="m2", pos=128.0, torrent="aaa"))
+
+    live = state.showing()
+
+    assert live is not None and live[0] == "movie:моана:2016"
+    assert live[1].pos == 128.0
+
+
+def test_showing_is_none_when_nothing_holds_a_torrent() -> None:
+    """Показа нет - и вопрос «занят ли телевизор» стоит одно чтение файла, без сети."""
+    state = State()
+    state.put("movie:тачки:2006", Entry(title="Тачки", magnet="m1", pos=600.0))
+
+    assert state.showing() is None
+
+
 def test_missing_state_file_is_empty_not_error() -> None:
     """Отсутствующий файл состояния — не ошибка."""
     assert not State.load().entries

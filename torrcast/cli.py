@@ -818,6 +818,30 @@ def _release_orphans(config: Config) -> None:
     state.save()
 
 
+def _say_showing(live: tuple[str, Entry] | None) -> None:
+    """Сказать зрителю, что телевизор уже занят НАШИМ показом, и что будет дальше.
+
+    Одна строка человеческими словами и без единого слова из машинного словаря: зритель
+    вправе знать, что он сейчас прервёт, ещё до того как ответит на вопрос меню. Раньше
+    вторая команда вела себя как первая - молча качала свои раздачи рядом с играющим
+    фильмом и обрывала его в момент выбора; ни того, ни другого на экране видно не было.
+
+    Занятость берётся из нашего состояния (:meth:`torrcast.state.State.showing`) и только
+    оттуда: спросить сам приёмник значит подключиться к нему вторым сендером и погасить
+    показ, который мы как раз и бережём (:class:`torrcast.cast.ChromecastReceiver`).
+    """
+    if live is None:
+        return
+    entry = live[1]
+    what = f"«{entry.title}»" + (f", {entry.label}" if entry.label else "")
+    where = f" на {_hms(entry.pos)}" if entry.pos > 0 else ""
+    print(
+        f"на телевизоре сейчас идёт {what}{where}. Выберешь картину - этот показ "
+        f"прервётся; пока выбираешь, он идёт как шёл.",
+        flush=True,
+    )
+
+
 def _held_by_show(torrent_hash: str) -> bool:
     """Правда ли, что раздачу держит показ: её хэш записан в состоянии хозяином.
 
@@ -1399,6 +1423,10 @@ def _cmd_play(args: Args) -> int:
     chosen = detect_profile(config)
     config = tune_profile(config, chosen.profile)
     state = State.load()
+    # Один телевизор - один показ. Сироты уже убраны выше, поэтому непустая отметка
+    # раздачи здесь значит ровно «на экране прямо сейчас идёт наш показ».
+    live = state.showing()
+    _say_showing(live)
     found_entry = state.find(args.title_query)
     # --new: прежний прогресс не продолжаем и выбираем заново, но запись пока цела.
     stale = found_entry[0] if found_entry is not None and args.new else None
@@ -1425,7 +1453,12 @@ def _cmd_play(args: Args) -> int:
         # голова ОЧЕРЕДИ, а не верх ранжира: верх мог не пройти ворота (TC-432), и
         # греть то, что отбор не возьмёт, - тянуть чужой вес из роя зря.
         order = warm_order(plans)
-        for plan in order[:PREWARM]:
+        # 🔴 Пока на экране идёт наш показ, прогрев под меню не поднимается вовсе: он
+        # тянет из роя чужие раздачи, пишет их на тот же диск и читает ту же сеть, а
+        # показ первичен. Человек ещё не выбрал картину, и платить за его раздумья
+        # обязаны мы скоростью своего меню, а не зритель - картинкой.
+        prewarm = [] if live is not None else order[:PREWARM]
+        for plan in prewarm:
             # Номер, названный руками, у каждой картины меню свой, и у части их столько
             # раздач не наберётся: спрос с той, которую человек выберет, - за отбором.
             if args.release is not None and not 1 <= args.release <= len(plan.ranked):
@@ -1434,8 +1467,9 @@ def _cmd_play(args: Args) -> int:
                 bench.start(plan, queue[0])
         # ...и запасной релиз той картины, в которую попадёт Enter: брак верха не должен
         # стоить человеку подъёма второй раздачи с нуля (:data:`PREWARM_SPARE`).
-        bench.spare(order[0], args)
-        mark("прогрев пущен")  # TC-108: замер
+        if live is None:
+            bench.spare(order[0], args)
+        mark("прогрев пущен", придержан=live is not None)  # TC-108: замер
         try:
             try:
                 plan = _pick_plan(plans, facts, pick=args.pick, asked=args.title_query)
