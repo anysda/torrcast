@@ -496,6 +496,13 @@ def test_a_whole_show_with_linear_episode_numbers_covers_later_seasons() -> None
     assert short_show.season is None
     assert short_show.covers_episode(Episode(5, 2))
 
+    long_season = parse_release_name(
+        "Мстители: Величайшие герои Земли / The Avengers / "
+        "S1E1-26 of 26 [2010-2011, WEB-DL 1080p] Dub"
+    )
+    assert long_season.season == 1
+    assert not long_season.covers(2)
+
 
 def test_named_seasons_do_not_turn_their_count_into_episode_count() -> None:
     """Диапазоны сезонов и сквозных серий читаются независимо."""

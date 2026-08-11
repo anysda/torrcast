@@ -1423,6 +1423,20 @@ def test_a_franchise_without_part_numbers_keeps_its_chronology() -> None:
     assert outside_numbering(whole) == set()
 
 
+def test_non_video_items_follow_the_asked_picture_without_part_numbers() -> None:
+    pictures = [
+        Picture("Черное зеркало", 2003, kind="other"),
+        Picture("Черное зеркало", 2009, kind="other"),
+        Picture("Черное зеркало", 2011, kind="other"),
+        Picture("Черное зеркало", 2011, kind="tv"),
+    ]
+
+    menu = menu_order(pictures)
+
+    assert [picture.kind for picture in menu] == ["tv", "other", "other", "other"]
+    assert [picture.year for picture in menu[1:]] == [2003, 2009, 2011]
+
+
 def test_plain_franchise_name_reaches_its_films_without_non_video() -> None:
     """Голое имя франшизы раскрывает фильмы с продолжением имени, но не игру."""
     releases = [
@@ -1622,6 +1636,16 @@ def test_a_3d_label_does_not_make_another_picture() -> None:
 
     assert len(pictures) == 1
     assert [r.stereoscopic for r in pictures[0].releases] == [False, True]
+
+
+def test_stereoscopic_label_describes_the_video_not_its_title_or_available_versions() -> None:
+    names = (
+        "Аватар / Avatar / 2009 / 2D, 3D / Blu-Ray Remux (1080p)",
+        "Hacking of the 3D Matrix (2012) WEB-DL 1080p",
+        "Аватар / Avatar / 2009 / 3D-Video / HSBS / BDRip 1080p",
+    )
+
+    assert [parse_release_name(name).stereoscopic for name in names] == [False, False, True]
 
 
 def test_a_glued_film_wears_the_year_of_the_majority_and_a_series_the_earliest() -> None:

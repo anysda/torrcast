@@ -81,9 +81,15 @@ _MPEG4_RE: Final = re.compile(
 _AV1_RE: Final = re.compile(r"\bav1\b", re.IGNORECASE)
 _HDR_RE: Final = re.compile(r"\b(hdr10\+?|hdr|dolby\s*vision|dv)\b", re.IGNORECASE)
 _STEREO_RE: Final = re.compile(
-    r"(?:\b3d\b|\b3д\b|\bhalf[ ._-]*(?:sideby-side|sbs|over-under)|стереопар\w*)",
+    r"(?:\b3d(?:[ ._-]*video)?\b|\b3д\b|стереопар\w*)",
     re.IGNORECASE,
 )
+_STEREO_LAYOUT_RE: Final = re.compile(
+    r"\b(?:h(?:alf)?|f(?:ull)?)[ ._-]*(?:sbs|ou)\b|"
+    r"\b(?:half|full)[ ._-]*(?:side[ ._-]*by[ ._-]*side|over[ ._-]*under)\b",
+    re.IGNORECASE,
+)
+_TWO_D_RE: Final = re.compile(r"\b2d\b|\b2д\b", re.IGNORECASE)
 #: Контейнер .avi в имени. Внутри .avi H.264 бывает, но на живой выдаче (36 раздач,
 #: у которых удалось достать .torrent и заглянуть в имена файлов) все восемь .avi
 #: оказались SD-рипами MPEG-4 - ни одного исключения.
@@ -612,8 +618,13 @@ class Release:
 
     @property
     def stereoscopic(self) -> bool:
-        """Раздача предназначена для стереоскопического показа."""
-        return bool(_STEREO_RE.search(self.raw_name))
+        """Видео может приехать половиной стереопары вместо обычного кадра."""
+        if _STEREO_LAYOUT_RE.search(self.raw_name):
+            return True
+        tail = self._untitled
+        return bool(re.search(r"\b3д\b", self.raw_name, re.IGNORECASE)) or (
+            not _TWO_D_RE.search(tail) and bool(_STEREO_RE.search(tail))
+        )
 
     @property
     def prime(self) -> bool:
@@ -2178,15 +2189,15 @@ def _numbered_line(pictures: list[Picture]) -> tuple[list[Picture], list[Picture
     Из хвоста не-видео при этом не исчезает: показать его - честно, давать ему номер
     части - нет.
 
-    ⚠️ Нумерованных частей нет вовсе («Матрица», «Гарри Поттер») - порядок не трогаем:
-    там хронология и есть нумерация, а любое «после линейки» было бы выдумкой.
+    ⚠️ Нумерованных частей нет вовсе («Матрица», «Гарри Поттер») - картины остаются
+    в хронологии, а не-видео уходит после них.
     """
     numbered = sorted(
         (p for p in pictures if p.part is not None and p.kind != "other"),
         key=lambda p: (p.part or 0, p.year is None, p.year or 0, p.title),
     )
     if not numbered:
-        return list(pictures), []
+        return sorted(pictures, key=lambda p: p.kind == "other"), []
     rest = [p for p in pictures if p.part is None or p.kind == "other"]
     free = _free_first(rest, numbered) if rest and all(p.part != 1 for p in numbered) else None
     first = [free] if free is not None else []
@@ -3110,8 +3121,16 @@ def _parse_series(
     if found is not None:
         # «S2E1-8 of 8» - это пак сезона, а не первая серия.
         pack = re.search(r"[eхx]\s*\d{1,3}\s*-\s*\d{1,3}", text, re.IGNORECASE)
-        # В длинном полном паке S1 - начало сквозной нумерации, не единственный сезон.
-        linear = bool(pack and found.season == 1 and len(episodes) > 24)
+        # В полном паке S1 - начало сквозной нумерации, а диапазон лет
+        # подтверждает, что серии выходили дольше одного сезона.
+        years = [int(year) for year in re.findall(r"\b(?:19|20)\d{2}\b", text)]
+        linear = bool(
+            pack
+            and found.season == 1
+            and len(episodes) > 24
+            and years
+            and max(years) - min(years) >= 2
+        )
         return None if linear else found.season, None if pack else found.episode, (), episodes, True
     number = int(fansub.group("episode")) if fansub else None
     for pattern in _SEASON_ONLY_RES:
