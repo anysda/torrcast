@@ -55,10 +55,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import runpass
 
 from torrcast.cli import (
+    OFF_SEASON,
     Args,
     _Plan,
     _plan_for,
     _season_asked,
+    drop_reason,
     first_alive,
     queue_drops,
     unfit_pool,
@@ -235,6 +237,34 @@ def verdicts(plan: _Plan, args: Args) -> tuple[list[int], dict[str, int]]:
     return queue, drops
 
 
+def release_verdicts(plan: _Plan, queue: list[int]) -> list[dict[str, Any]]:
+    """Сиды и приговор каждой раздачи картины, без молчаливого остатка."""
+    places = {number: place for place, number in enumerate(queue, start=1)}
+    ranked = {id(release): number for number, release in enumerate(plan.ranked, start=1)}
+    out: list[dict[str, Any]] = []
+    for release in plan.picture.releases:
+        number = ranked.get(id(release))
+        place = places.get(number) if number is not None else None
+        reason = None
+        if number is None:
+            reason = OFF_SEASON
+        elif place is None:
+            reason = drop_reason(release, plan)
+        out.append(
+            {
+                "name": release.raw_name,
+                "seeders": release.seeders,
+                "size": release.size,
+                "indexer": release.indexer,
+                "queue": place,
+                "drop_reason": reason,
+            }
+        )
+    if sum(item["queue"] is not None for item in out) != len(queue):
+        raise ReplayMismatchError(f"«{plan.picture.title}»: пораздачная очередь не сошлась с общей")
+    return out
+
+
 def size_of(release: Release) -> str:
     return f"{release.size / 1024**3:.1f} ГБ" if release.size else "размер не назван"
 
@@ -341,6 +371,7 @@ def as_json(item: Replay) -> dict[str, Any]:
                 "loose": plan.loose,
                 "last_resort": plan.last_resort,
                 "drops": drops,
+                "release_verdicts": release_verdicts(plan, queue),
                 "default": None
                 if chosen is None
                 else {

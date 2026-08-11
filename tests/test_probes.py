@@ -139,6 +139,26 @@ def test_щуп_прогоняет_отбор_по_сохранённой_выд
     assert "тяжелее потолка" in drops, "2160p-ремукс обязан быть отсеян по битрейту"
 
 
+def test_щуп_сохраняет_сиды_и_приговор_каждой_раздачи() -> None:
+    """JSONL позволяет пересчитать очередь по строкам, а не только по общей сумме."""
+    replay = probe("poolreplay")
+    record = gates_pool()
+    item = replay.replay(
+        record["query"], replay.batches_of(record), tune(Config(), CAUTIOUS), CAUTIOUS
+    )
+
+    saved = replay.as_json(item)["plans"][0]
+    releases = saved["release_verdicts"]
+    assert len(releases) == saved["releases"] == 4
+    assert {release["seeders"] for release in releases} == {9, 25, 40, 60}
+    assert sum(release["queue"] is not None for release in releases) == saved["queue"]
+    assert all(
+        (release["queue"] is None) != (release["drop_reason"] is None) for release in releases
+    )
+    heavy = next(release for release in releases if release["seeders"] == 9)
+    assert heavy["queue"] is None and heavy["drop_reason"] == "тяжелее потолка"
+
+
 def test_щуп_называет_склейку_двух_имён() -> None:
     """Сколько кучек свелось в картину, видно щупу - иначе «три в одной» не сосчитать."""
     replay = probe("poolreplay")
