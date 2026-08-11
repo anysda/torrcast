@@ -24,7 +24,7 @@ import tempfile
 import threading
 import time
 import urllib.request
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Final, NamedTuple
 from urllib.parse import quote
@@ -186,6 +186,9 @@ HLS_SEGMENT_SECONDS: Final = CAUTIOUS.segment_seconds
 #:   опорный кадр), и этот огрызок ffmpeg кладёт под именем предыдущего сегмента. Отдать
 #:   его наружу нельзя: под этим именем уже может лежать честный сегмент прошлого прогона.
 PACK_DIR: Final = "pack"
+#: Каталог одноразового прогона «ужатия на месте» внутри каталога перекода
+#: (:meth:`Feed._shrink`): свой, чтобы не задеть рабочий каталог кодировщика.
+SHRINK_DIR: Final = "shrink"
 
 #: Каталог перекодированных кусков (:mod:`torrcast.recode`). Лежит рядом с
 #: :data:`PACK_DIR` внутри каталога показа, поэтому уборка сегментов (`v*.ts` верхнего
@@ -2641,7 +2644,8 @@ class Packer:
     #: текущий прогон, они отношения не имеют. Глоб путал одно с другим в обе стороны:
     #: «край» уезжал вперёд на чужие куски (запрос далеко назад считался ожиданием и
     #: висел до 404) и назад на свежий каталог (замер: 20 ложных перезапусков
-    #: за 100 с показа). Здесь край растёт только там, где мы сами переименовали файл.
+    #: за 100 с показа). Здесь край растёт только там, где мы сами переименовали файл, -
+    #: и там, где прогон честно решил, что куска не будет никогда (:attr:`shrink`).
     edge: int = -1
     log: Any = None
     #: Упаковку погасили намеренно (пауза на пульте) - смерть процесса не авария.
@@ -2700,6 +2704,17 @@ class Packer:
     #: срока. Ждать при этом безопасно только там, докуда показу ещё далеко, - за этим
     #: следит спрашиваемый (:meth:`torrcast.recode.Recoder.holding`).
     hold: Any = None
+    #: Кого позвать на последнем гейте, когда кусок тяжелее потолка приёмника, а ждать
+    #: перекод уже не стали: ``(слот, вес копии) -> bool``. ``True`` - в :attr:`spare`
+    #: лежит свежий перекод под потолок, и наружу идёт он. ``False`` - ужать не вышло:
+    #: место честно пропускается, но выкладка идёт дальше. ``None`` - решать некому,
+    #: выкладка встаёт на таком куске (поведение до TC-467).
+    #:
+    #: Без этого звонка тяжёлая копия останавливала выкладку навсегда: ``break`` не
+    #: двигал край и не удалял саму копию, а всё за ней копилось в памяти до потолка
+    #: несданного; потолок гасил прогон, запрос приёмника поднимал его заново - и круг
+    #: повторялся, потому что тяжёлый кусок детерминирован.
+    shrink: Any = None
 
     def __post_init__(self) -> None:
         # Прогон, который ещё ничего не выложил, стоит ровно перед своим первым сегментом:
@@ -2716,6 +2731,7 @@ class Packer:
         spare: Path | None = None,
         told: Any = None,
         hold: Any = None,
+        shrink: Any = None,
         last: int = -1,
         at: float = 0.0,
         rate: float = 0.0,
@@ -2738,6 +2754,7 @@ class Packer:
             spare=spare,
             told=told,
             hold=hold,
+            shrink=shrink,
             last=last,
             began=began,
             at=at,
@@ -2841,9 +2858,35 @@ class Packer:
                 if safe_recode:
                     source, how = better, "перекод"
                     oversized = False
+            # Наружу такой кусок отдавать нельзя, но и вставать на нём навсегда нельзя:
+            # прежний ``break`` тут не двигал край и не удалял копию, всё за ней копилось
+            # в памяти до потолка несданного, потолок гасил прогон, запрос приёмника
+            # поднимал его заново - и круг повторялся, потому что тяжёлый кусок
+            # детерминирован. Поэтому сначала одна попытка ужать кусок прямо сейчас
+            # (:attr:`shrink`) - перекод под потолок ложится в spare, и наружу идёт он,
+            # как есть: его звук - та же дорожка AAC, что у копии.
+            shrunk = oversized and self.shrink is not None and self.shrink(slot, size)
+            if shrunk and better is not None:
+                try:
+                    oversized = better.stat().st_size > MAX_SEGMENT_BYTES
+                except OSError:
+                    oversized = True
+                if not oversized:
+                    source, how = better, "перекод"
             if oversized:
                 if how == "склейка":
                     source.unlink(missing_ok=True)
+                if self.shrink is not None:
+                    # Ужать не вышло - честный пропуск: кусок не отдаём никому, но и
+                    # не стоим на нём. Пропуск - тоже решение выкладки, и край двигает
+                    # именно оно: иначе это место встречало бы каждый следующий прогон,
+                    # а его запрос крутил бы перепаковку вечно. Приёмнику про пропуск
+                    # отвечает показ (:attr:`Feed.skipped`), одной строкой и один раз.
+                    path.unlink(missing_ok=True)
+                    if better is not None:
+                        better.unlink(missing_ok=True)
+                    self.edge = max(self.edge, slot)
+                    continue
                 break
             moved = False
             with contextlib.suppress(OSError):
@@ -3180,6 +3223,16 @@ class Feed:
     #: ждёт возврата сети. Пусто - всё в порядке. Это НЕ :attr:`fatal`: умирать, пока на
     #: диске лежит фильм, нельзя, а молчать об этом - тем более.
     offline: str = ""
+    #: Места, которых в показе не будет никогда: кусок тяжелее потолка приёмника, а
+    #: ужать его не вышло (:meth:`_shrink`). Запрос такого места - честный 404 сразу,
+    #: а не ожидание до потолка и не перепаковка: ждать там нечего. Помнится на весь
+    #: показ, переживая перезапуски упаковки: тяжёлый кусок детерминирован, и второй
+    #: прогон над ним получит ровно ту же копию.
+    skipped: set[int] = field(default_factory=set)
+    #: Ужатие на месте одно на весь показ: зовётся оно из выкладки, а выкладку дёргают
+    #: и запрос приёмника, и часы показа (:meth:`sweep`) - двум ffmpeg на один и тот же
+    #: кусок тут не место.
+    shrink_lock: Any = field(default_factory=threading.Lock)
 
     @property
     def duration(self) -> float:
@@ -3274,6 +3327,11 @@ class Feed:
             # стоит ПЕРВОЙ намеренно: на стыке серий сюда приходит приёмник, оставшийся
             # на живом keep-alive прошлой серии, и раньше он получал в журнал «упаковка
             # оборвалась» про наш же намеренно снятый ffmpeg.
+            return False
+        if slot in self.skipped:
+            # Место честно пропущено (:meth:`_shrink` уже сказал об этом один раз):
+            # файла не будет никогда, и ждать тут нечего - честный 404 вместо
+            # ожидания до потолка и вечной перепаковки детерминированно тяжёлого куска.
             return False
         packer = self.packer
         if packer is not None and not packer.halted:
@@ -3430,6 +3488,7 @@ class Feed:
             spare=None if self.recoder is None else self.recoder.spare,
             told=None if self.recoder is None else self.recoder.note,
             hold=None if self.recoder is None else self.recoder.holding,
+            shrink=self._shrink,
             at=at,
             rate=self.readrate,
             burst=self.burst,
@@ -3439,6 +3498,112 @@ class Feed:
             f"упаковка с {self.grid.start(slot):.1f} с"
             + (f" (докатка {drop:.1f} с)" if drop > SPLIT_SLACK else "")
         )
+
+    def _shrink(self, slot: int, size: int = 0) -> bool:
+        """Ужать кусок, который не влез в потолок приёмника, прямо сейчас; ``False`` - пропуск.
+
+        Зовётся из :meth:`Packer.publish` с последнего гейта: копия тяжелее потолка
+        (или перекод, который и сам не влез), а ждать кодировщика уже не стали -
+        предохранитель ожидания её отпустил (:meth:`torrcast.recode.Recoder.holding`).
+        Без этого звонка выкладка вставала на таком куске навсегда: край не двигался,
+        сама копия не удалялась, а всё за ней копилось в памяти до потолка несданного;
+        потолок гасил прогон, запрос приёмника поднимал его заново - и круг
+        повторялся каждые несколько минут, потому что тяжёлый кусок детерминирован.
+
+        Ужатие - один короткий прогон ffmpeg ровно на этот сегмент, самым быстрым
+        пресетом и с битрейтом, посчитанным под потолок. Обычная цель кодировщика
+        на длинном куске сетки за потолком не следит: 20 секунд по 9 Мбит/с - это
+        23 МБ при потолке 16. Здесь потолок - условие задачи, поэтому битрейт берётся
+        из него: сколько секунд в куске, столько мегабит в секунду и позволено, с
+        запасом на мгновенный пик кодера (:attr:`torrcast.recode.Encode.maxrate`),
+        звук и накладные расходы mpegts.
+
+        Ждать можно: запрос этого места и так держится до :attr:`wait`, а секунда
+        фильма самым быстрым пресетом стоит заметно дешевле секунды стены. Потолок
+        ожидания тот же, что у предохранителя кодировщика
+        (:attr:`torrcast.recode.Recoder.over_wait`).
+        """
+        recoder = self.recoder
+        if slot in self.skipped:
+            return False  # решение по этому месту принято и сказано ровно один раз
+        if recoder is None:
+            # Ужимать нечем: перекод выключен настройкой или профиль тяжести не построился.
+            return self._skip(slot, size, "ужимать нечем")
+        if self.encode is not None:
+            # На сплошном перекоде чужой заход в середину потока - это смена SPS на
+            # ходу, а её приёмник не переживает (:data:`RECODE_CODECS`).
+            return self._skip(slot, size, "ужать нельзя")
+        with self.shrink_lock:
+            if slot in self.skipped:
+                return False
+            ready = recoder.ready(slot)
+            if ready is not None:
+                with contextlib.suppress(OSError):
+                    if 0 < ready.stat().st_size <= MAX_SEGMENT_BYTES:
+                        return True  # пока ждали замок, перекод доехал сам
+            span = self.grid.span(slot)
+            # Худший случай - мгновенный потолок кодера (maxrate) на всём куске плюс
+            # звук и накладные расходы mpegts; от потолка отступаем ещё на десятину.
+            ratio = recoder.encode.maxrate / max(recoder.encode.mbit, 0.1)
+            fit = (MAX_SEGMENT_BYTES * 8 / (span * 1e6) / TS_OVERHEAD - AUDIO_MBIT) / ratio
+            mbit = max(1.0, min(recoder.encode.mbit, fit * 0.9))
+            encode = replace(recoder.encode, preset=recoder.pace.table()[-1][0], mbit=mbit)
+            run = recoder.spare / SHRINK_DIR
+            weight = f" ({size / 1e6:.0f} МБ)" if size > 0 else ""
+            self._say(f"v{slot} тяжелее потолка{weight} - ужимаю на месте до {mbit:.1f} Мбит/с")
+            mark("ужатие на месте", слот=slot, мбит=round(mbit, 2))
+            command = ffmpeg_pack_command(
+                self.source,
+                self.audio,
+                str(run),
+                self.grid,
+                slot,
+                self.grid.start(slot),
+                0.0,
+                0.0,
+                encode=encode,
+                until=slot,
+            )
+            packer: Packer | None = None
+            try:
+                packer = Packer.start(command, recoder.spare, run, slot, last=slot)
+                deadline = time.monotonic() + recoder.over_wait
+                while packer.edge < slot and packer.poll() is None and time.monotonic() < deadline:
+                    packer.publish()
+                    time.sleep(0.2)
+                packer.publish()
+            except Exception:  # не поднялся ffmpeg, не открылся вход - честный пропуск
+                packer = None
+            finally:
+                if packer is not None:
+                    packer.stop(keep_files=True, reason="ужатие на месте окончено")
+        ready = recoder.ready(slot)
+        fits = False
+        if ready is not None:
+            with contextlib.suppress(OSError):
+                fits = 0 < ready.stat().st_size <= MAX_SEGMENT_BYTES
+        if fits:
+            return True
+        return self._skip(slot, size, "ужать не вышло")
+
+    def _skip(self, slot: int, size: int, reason: str) -> bool:
+        """Честный пропуск места, которое нельзя отдать приёмнику: один раз и вслух.
+
+        Возвращает ``False`` - выкладка выбросит копию и пойдёт дальше
+        (:meth:`Packer.publish`). Само место запоминается (:attr:`skipped`): запрос
+        его - честный 404 сразу, а не ожидание до потолка и не перепаковка.
+        """
+        self.skipped.add(slot)
+        if self.recoder is not None:
+            with contextlib.suppress(Exception):
+                self.recoder.done.add(slot)  # кодировщику за это место браться уже незачем
+        weight = f" ({size / 1e6:.0f} МБ)" if size > 0 else ""
+        self._say(
+            f"⚠️ v{slot} пропускаю: кусок тяжелее потолка{weight}, а {reason} - "
+            "этого места в показе не будет"
+        )
+        mark("пропуск тяжёлого куска", слот=slot, мб=round(size / 1e6))
+        return False
 
     def sweep(self) -> None:
         """Сдать всё, что упаковка успела, и не дать несданному расти без предела.
@@ -3450,11 +3615,11 @@ class Feed:
         минут показа, рост без предела и без единой строки о нём.
 
         Потолок (:data:`PACK_PENDING_BYTES`) нужен и сверх этого. Выкладка встаёт на
-        куске, который отдать не может - придержан под перекод или тяжелее потолка
-        приёмника, - и всё, что за ним, копится в памяти, сколько бы её ни было. Дойдя до
-        потолка, показ гасит прогон одной честной строкой: куски, которых никто не
-        забирает, стоят памяти и не дают приёмнику ничего, а снятый прогон отдаёт её
-        обратно (:meth:`Packer.stop`).
+        куске, придержанном под перекод, - и всё, что за ним, копится в памяти, сколько
+        бы её ни было. (Тяжёлая копия выкладку больше не держит: она ужимается на месте
+        или честно пропускается - :meth:`_shrink`.) Дойдя до потолка, показ гасит прогон
+        одной честной строкой: куски, которых никто не забирает, стоят памяти и не дают
+        приёмнику ничего, а снятый прогон отдаёт её обратно (:meth:`Packer.stop`).
 
         Подгруза это не добавляет: гасится то, что и так никуда не шло, уже выложенное
         остаётся лежать, а запрос следующего сегмента поднимает упаковку заново

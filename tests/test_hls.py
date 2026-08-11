@@ -609,6 +609,131 @@ def test_a_run_in_is_thrown_away_and_never_overwrites_an_honest_segment(
     assert not (out / "v6.ts").exists(), "последний кусок ещё пишется"
 
 
+# --- TC-467: тяжёлая копия не имеет права остановить выкладку навсегда ---
+# ``break`` на куске тяжелее потолка приёмника оставлял выкладку стоять вечно: край
+# не двигался, сама копия не удалялась, а всё за ней копилось в памяти до потолка
+# несданного. Потолок гасил прогон, запрос приёмника поднимал его заново - и круг
+# повторялся каждые ~3.6 минуты, потому что тяжёлый кусок детерминирован.
+
+
+def _packer_with_a_heavy_copy(out: Path) -> Packer:
+    """Прогон, честно дописавший два куска, первый из которых тяжелее потолка."""
+    spare = out / "recode"
+    spare.mkdir(parents=True)
+    packer = fake_packer(out, first=0, code=0)  # код 0: дописан и последний кусок
+    packer.spare = spare
+    packer.run.mkdir(parents=True, exist_ok=True)
+    (packer.run / segment_name(0)).write_bytes(b"x" * (MAX_SEGMENT_BYTES + 1))
+    (packer.run / segment_name(1)).write_bytes(b"next")
+    return packer
+
+
+def test_a_too_heavy_copy_is_shrunk_on_the_spot_and_the_publish_moves_on(
+    tmp_path: Path,
+) -> None:
+    """Копия тяжелее потолка, перекода нет: кусок ужимается прямо на месте, выкладка идёт
+    дальше. Прежний ``break`` на этом месте останавливал выкладку навсегда (проверено
+    откатом: без починки край так и остаётся ``-1``, наружу не выходит ни одного куска).
+    """
+    out = hls_dir(str(tmp_path / "hls"))
+    packer = _packer_with_a_heavy_copy(out)
+    asked: list[int] = []
+
+    def shrink(slot: int, size: int) -> bool:
+        asked.append(slot)
+        (packer.spare / segment_name(slot)).write_bytes(b"recode")  # type: ignore[operator]
+        return True
+
+    packer.shrink = shrink
+    packer.publish()
+
+    assert (out / segment_name(0)).read_bytes() == b"recode"
+    assert (out / segment_name(1)).read_bytes() == b"next"
+    assert packer.edge == 1, "выкладка обязана пройти тяжёлое место, а не встать на нём"
+    assert asked == [0], "ужатие спрашивается один раз и только про тяжёлый кусок"
+
+
+def test_a_copy_that_cannot_be_shrunk_is_skipped_honestly_not_stalled_on(
+    tmp_path: Path,
+) -> None:
+    """Ужать не вышло: место честно пропускается, память не копится, край двигается.
+
+    Пропуск - это тоже решение выкладки, и край двигает именно оно: иначе запрос
+    этого места выглядел бы перемоткой назад и крутил бы перепаковку вечно.
+    """
+    out = hls_dir(str(tmp_path / "hls"))
+    packer = _packer_with_a_heavy_copy(out)
+    packer.shrink = lambda slot, size: False
+    packer.publish()
+
+    assert not (out / segment_name(0)).exists(), "тяжёлый кусок наружу не вышел"
+    assert not (packer.run / segment_name(0)).exists(), "копия выброшена - память не копится"
+    assert (out / segment_name(1)).read_bytes() == b"next"
+    assert packer.edge == 1, "пропуск двигает край: выкладка идёт дальше тяжёлого места"
+
+
+def test_a_skipped_place_is_answered_right_away_not_waited_out(tmp_path: Path) -> None:
+    """Запрос честно пропущенного места - быстрый 404, а не ожидание до потолка
+    и не перепаковка: ждать там нечего, файла не будет никогда."""
+    out = hls_dir(str(tmp_path / "hls"))
+    feed = Feed(source="u", audio=0, out=out, grid=Grid.uniform(600.0), wait=0.3)
+    feed.skipped.add(5)
+    began = time.monotonic()
+    assert feed.segment(5) is None
+    assert time.monotonic() - began < 0.3, "ждать пропущенное место - врать приёмнику"
+    assert feed.packer is None, "пропущенное место не имеет права поднимать упаковку"
+
+
+def test_the_spot_shrink_packs_the_piece_under_the_cap(clip: str, tmp_path: Path) -> None:
+    """Ужатие на месте - настоящий прогон ffmpeg: перекод ложится в ``spare``,
+    влезает в потолок, и решение сказано одной честной строкой."""
+    from torrcast.recode import Encode, Pace
+
+    class _Recoder:
+        """Кодировщик-заглушка: ровно то, что спрашивает ужатие."""
+
+        def __init__(self, spare: Path) -> None:
+            self.spare = spare
+            self.encode = Encode()
+            self.pace = Pace()
+            self.over_wait = 60.0
+            self.done: set[int] = set()
+
+        def ready(self, slot: int) -> Path | None:
+            path = self.spare / segment_name(slot)
+            return path if path.exists() else None
+
+    out = hls_dir(str(tmp_path / "hls"))
+    spare = out / "recode"
+    spare.mkdir(parents=True)
+    said: list[str] = []
+    feed = Feed(
+        source=clip,
+        audio=0,
+        out=out,
+        grid=Grid.uniform(float(CLIP_SECONDS)),
+        log=said.append,
+        recoder=_Recoder(spare),
+    )
+    assert feed._shrink(0, MAX_SEGMENT_BYTES + 1) is True
+    made = spare / segment_name(0)
+    assert made.exists(), "ужатие обязано положить перекод туда, откуда его возьмёт выкладка"
+    assert 0 < made.stat().st_size <= MAX_SEGMENT_BYTES
+    assert len(said) == 1 and "ужимаю" in said[0], "одно авто-решение - одна честная строка"
+
+
+def test_the_spot_shrink_without_a_recoder_skips_the_place_once(tmp_path: Path) -> None:
+    """Ужимать нечем (перекод выключен) - честный пропуск, сказанный один раз."""
+    out = hls_dir(str(tmp_path / "hls"))
+    said: list[str] = []
+    feed = Feed(source="u", audio=0, out=out, grid=Grid.uniform(600.0), log=said.append)
+    assert feed._shrink(5, MAX_SEGMENT_BYTES + 1) is False
+    assert 5 in feed.skipped
+    assert len(said) == 1 and "пропускаю" in said[0]
+    assert feed._shrink(5, MAX_SEGMENT_BYTES + 1) is False
+    assert len(said) == 1, "решение принято один раз - строки не разводим"
+
+
 def test_what_was_actually_cut_is_checked_against_the_manifest(tmp_path: Path) -> None:
     """``drift`` — единственный способ поймать враньё манифеста, не глядя на ТВ.
 
