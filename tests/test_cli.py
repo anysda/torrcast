@@ -3007,6 +3007,24 @@ def test_cropped_widescreen_is_not_a_liar() -> None:
     assert cli.understated(rel(quality=None), liar) != ""
 
 
+def test_an_interlaced_file_is_named_what_it_is() -> None:
+    """Названный «1080p» чересстрочник печатается «1080i»: гребёнку не подписывают прогрессивом.
+
+    Развёртка читается из потока (:attr:`torrcast.stream.Media.field_order`), а не из имени:
+    по имени такой релиз не поймать вовсе - «1080p» в заголовке и ``tb`` внутри.
+    """
+    inter = Media(5977.0, (), "h264", 1080, 1920, field_order="tb")
+    assert cli.quality_text(rel(quality="1080p"), inter) == "1080i"
+    assert cli.quality_text(rel(quality="1080i"), inter) == "1080i"
+    assert cli.understated(rel(quality="1080p"), inter) == "назван 1080p, на деле 1080i"
+    assert cli.understated(rel(quality="1080i"), inter) == "", "имя и так говорило правду"
+    prog = Media(5977.0, (), "h264", 1080, 1920, field_order="progressive")
+    assert cli.quality_text(rel(quality="1080p"), prog) == "1080p"
+    assert cli.understated(rel(quality="1080p"), prog) == ""
+    # Паспорт о развёртке молчит - решаем как раньше: занизить по догадке - та же ложь.
+    assert cli.quality_text(rel(quality="1080p"), Media(5977.0, (), "h264", 1080, 1920)) == "1080p"
+
+
 def test_a_top_that_turns_out_to_be_sd_gives_way_to_a_confirmed_1080p(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

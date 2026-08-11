@@ -1243,6 +1243,76 @@ def test_a_passport_from_the_old_shelf_is_not_believed_about_the_picture(tmp_pat
     assert _read_media(cache) is None, "паспорт прежней версии - как будто его нет"
 
 
+def test_the_scan_type_is_a_fact_of_the_file_not_of_the_name() -> None:
+    """Буква развёртки ставится по потоку: чересстрочный «1080p» внутри - это «1080i».
+
+    Имя раздачи про развёртку молчит или врёт, а гребёнку на экране даёт сам файл.
+    Молчание паспорта читается как прогрессив: звать кадр чересстрочным по догадке -
+    та же неправда, только в другую сторону.
+    """
+    from torrcast.stream import Media
+
+    assert Media(height=1080, width=1920, field_order="tb").quality == "1080i"
+    assert Media(height=1080, width=1920, field_order="bt").interlaced
+    assert Media(height=576, width=720, field_order="bb").quality == "576i", "SD тоже честно"
+    assert Media(height=1080, width=1920, field_order="progressive").quality == "1080p"
+    assert Media(height=1080, width=1920).quality == "1080p", "паспорт молчит - как раньше"
+    assert Media(height=0, field_order="tb").quality == "?", "кадра нет - и развёртки нет"
+
+
+def test_probe_reads_the_scan_type_from_the_stream(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``field_order`` берётся тем же одним запросом к ffprobe и переживает полку.
+
+    Проверено на настоящих файлах: x264 с ``tff=1`` ffprobe отвечает ``bt``, mpeg2video
+    с ``-top 1`` - ``tb``, прогрессивному - ``progressive``; то есть значение стоит в
+    потоке, а не в догадке по кодеку.
+    """
+    import json
+
+    from torrcast import stream as stream_mod
+    from torrcast.stream import probe
+
+    payload = json.dumps(
+        {
+            "format": {"duration": "3600.0"},
+            "streams": [
+                {
+                    "index": 0,
+                    "codec_name": "h264",
+                    "codec_type": "video",
+                    "width": 1920,
+                    "height": 1080,
+                    "field_order": "tb",
+                },
+                {
+                    "index": 1,
+                    "codec_name": "aac",
+                    "codec_type": "audio",
+                    "channels": 2,
+                    "tags": {"language": "rus"},
+                },
+            ],
+        }
+    )
+    asked: list[list[str]] = []
+
+    def fake_probe(command: list[str], timeout: float, alive: object) -> str:
+        asked.append(command)
+        return payload
+
+    monkeypatch.setattr(stream_mod, "_run_ffprobe", fake_probe)
+    media = probe("http://torr/stream/hash-1/2")
+    assert media.interlaced and media.quality == "1080i"
+    assert any("field_order" in flag for flag in asked[0]), "спросили тем же одним запросом"
+
+    def boom(*a: object) -> str:
+        raise AssertionError("паспорт обязан прийти с полки, а не от ffprobe")
+
+    monkeypatch.setattr(stream_mod, "_run_ffprobe", boom)
+    cached = probe("http://torr/stream/hash-1/2")
+    assert cached.interlaced and cached.quality == "1080i", "полка развёртку хранит"
+
+
 def test_only_what_the_receiver_has_passed_is_swept_out_of_ram(tmp_path: Path) -> None:
     """Фильм целиком в tmpfs не влезает, поэтому позади показа держим окно ``keep``.
 

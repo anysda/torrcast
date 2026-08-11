@@ -826,6 +826,14 @@ class Media:
     #: паспорт молчит. Из неё считается :attr:`hdr`, а больше ни из чего её не сосчитать:
     #: ни кодек, ни глубина цвета, ни ширина кадра про HDR не говорят ничего.
     color_trc: str | None = None
+    #: Развёртка кадра из потока (``progressive``, ``tt``, ``bb``, ``tb``, ``bt``);
+    #: ``None`` - паспорт молчит.
+    #:
+    #: Имя раздачи про развёртку врёт или молчит (релиз, названный «1080p», бывает
+    #: чересстрочным внутри), а гребёнку на экране даёт сам файл - значит спрашивать
+    #: надо ffprobe, и только его. Молчание читается как прогрессив: звать кадр
+    #: чересстрочным по догадке - та же неправда, только в другую сторону.
+    field_order: str | None = None
 
     @property
     def delivered_mbit(self) -> float:
@@ -867,16 +875,30 @@ class Media:
         return max(self.height, self.width * 9 // 16)
 
     @property
+    def interlaced(self) -> bool:
+        """Кадр чересстрочный: поедет на экран гребёнкой, и об этом нельзя молчать.
+
+        Значения ``tt``/``bb``/``tb``/``bt`` - порядок полей, который ffprobe читает
+        из самого потока; ``progressive`` и молчание паспорта - обычный кадр.
+        """
+        return (self.field_order or "") in {"tt", "bb", "tb", "bt"}
+
+    @property
     def quality(self) -> str:
         """Качество словами: ``1080p``; ноль высоты — честный ``?``.
 
         Ступени лестницы называются как принято (2160p/1080p/720p), всё, что ниже, —
         своей высотой: «574p» у «Моаны 2» и есть ответ на вопрос «что уехало на ТВ».
+
+        Буква в конце - развёртка ПО ФАЙЛУ (:attr:`interlaced`), а не по имени раздачи:
+        чересстрочный релиз, названный «1080p», называется «1080i», потому что именно
+        гребёнка уедет на экран.
         """
+        scan = "i" if self.interlaced else "p"
         for step in (2160, 1080, 720):
             if self.frame >= step * 0.95:
-                return f"{step}p"
-        return f"{self.height}p" if self.height else "?"
+                return f"{step}{scan}"
+        return f"{self.height}{scan}" if self.height else "?"
 
     @property
     def depth(self) -> int:
@@ -1521,8 +1543,8 @@ def shelf_weight(directory: Path) -> tuple[int, int]:
 #: Версия формата паспорта на полке (:func:`_read_media`). Растёт, когда в паспорт
 #: добавляется поле, от которого зависит РЕШЕНИЕ показа: старая запись такого поля не
 #: несёт, и молчание в ней неотличимо от честного ответа. ``2`` - формат кадра и профиль,
-#: ``3`` - кривая яркости (:attr:`Media.hdr`).
-_MEDIA_VERSION: Final = 3
+#: ``3`` - кривая яркости (:attr:`Media.hdr`), ``4`` - развёртка (:attr:`Media.interlaced`).
+_MEDIA_VERSION: Final = 4
 
 
 def _media_cache(source_url: str) -> Path:
@@ -1559,6 +1581,7 @@ def _read_media(cache: Path) -> Media | None:
             profile=_opt_str(saved.get("profile")),
             pix_fmt=_opt_str(saved.get("pix_fmt")),
             color_trc=_opt_str(saved.get("color_trc")),
+            field_order=_opt_str(saved.get("field_order")),
             height=int(saved.get("height") or 0),
             width=int(saved.get("width") or 0),
             video_bps=float(saved.get("video_bps") or 0.0),
@@ -1588,6 +1611,7 @@ def _keep_media(cache: Path, media: Media) -> None:
                     "profile": media.profile,
                     "pix_fmt": media.pix_fmt,
                     "color_trc": media.color_trc,
+                    "field_order": media.field_order,
                     "height": media.height,
                     "width": media.width,
                     "video_bps": media.video_bps,
@@ -1689,7 +1713,9 @@ def probe(url: str, timeout: float = 90.0, alive: Any = None) -> Media:
         # них показ не отличает Hi10P от обычного H.264 (:func:`recodes_whole`).
         "stream=index,codec_name,codec_type,channels,width,height,bit_rate,profile,pix_fmt,"
         # ``color_transfer`` - оттуда же и даром, а без него HDR не отличить от SDR вовсе.
-        "color_transfer:"
+        # ``field_order`` - единственное место, откуда видна развёртка самого файла:
+        # имя раздачи про неё молчит или врёт, а гребёнку на экране даёт поток.
+        "color_transfer,field_order:"
         # Теги дорожки берутся ЦЕЛИКОМ, а не списком: mkvmerge пишет вес дорожки то как
         # ``BPS``, то как ``BPS-eng``/``BPS-rus`` - суффикс языковой и заранее неизвестен.
         "stream_tags"
@@ -1724,6 +1750,7 @@ def probe(url: str, timeout: float = 90.0, alive: Any = None) -> Media:
         profile=_opt_str(video[0].get("profile")) if video else None,
         pix_fmt=_opt_str(video[0].get("pix_fmt")) if video else None,
         color_trc=_opt_str(video[0].get("color_transfer")) if video else None,
+        field_order=_opt_str(video[0].get("field_order")) if video else None,
         height=int(video[0].get("height") or 0) if video else 0,
         width=int(video[0].get("width") or 0) if video else 0,
         video_bps=_video_bps(video[0], duration) if video else 0.0,

@@ -6779,6 +6779,9 @@ def quality_text(release: Release, media: Media) -> str:
     не отдал (экзотика, битый заголовок) — заявка из имени. Раньше было наоборот, и
     «Моана 2» печаталась 1080p при 1150×574 внутри: заявка выигрывала у факта, то есть
     ровно та молчаливая подмена, которой быть не должно.
+
+    Буква развёртки тоже из потока (:attr:`torrcast.stream.Media.quality`): названный
+    «1080p» чересстрочник печатается «1080i» - гребёнку нельзя подписать прогрессивом.
     """
     return media.quality if media.height else (release.quality or "?")
 
@@ -6793,6 +6796,10 @@ def understated(release: Release, media: Media) -> str:
        верхний кандидат «Моаны 2»: ``WEB-DL-AVC`` без единой цифры в заголовке, 3.14 ГБ,
        140 сидов, а на деле 1150×574.
 
+    И третья, про развёртку: имя обещает прогрессивный кадр, а поток чересстрочный
+    (:attr:`~torrcast.stream.Media.interlaced`). Разрешение тут не врёт, поэтому
+    высотой её не поймать - ловится только буквой.
+
     Возвращает кусок фразы, а не флаг: строка про подмену обязана назвать обе цифры,
     иначе она ничего не объясняет.
     """
@@ -6800,6 +6807,8 @@ def understated(release: Release, media: Media) -> str:
         return ""
     if release.height:
         if media.frame < release.height * HONEST_RATIO:
+            return f"назван {release.quality}, на деле {media.quality}"
+        if media.interlaced and not release.interlaced:
             return f"назван {release.quality}, на деле {media.quality}"
         return ""
     return f"на деле {media.quality}" if media.frame < HD_HEIGHT else ""
