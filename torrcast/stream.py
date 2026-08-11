@@ -1239,6 +1239,19 @@ class TorrServer:
             raise ServerDownError("TorrServer вернул неожиданный ответ на список файлов")
         return payload
 
+    def cache(self, torrent_hash: str) -> dict[str, Any]:
+        """Счётчик запаса, который служба ведёт сама: ёмкость кэша и набитое сейчас.
+
+        Отдельный запрос (``POST /cache``), а не поле в ответе :meth:`status`: про кэш
+        служба рассказывает только здесь и только про конкретную раздачу - без хэша
+        ответ пуст (замер, MatriX.142). Зовётся из ``cast status`` - горячий путь
+        показа его не видит, и лишних походов к службе он не добавляет.
+        """
+        payload = self._post("/cache", {"action": "get", "hash": torrent_hash})
+        if not isinstance(payload, dict):
+            raise ServerDownError("TorrServer вернул неожиданный ответ на счётчик кэша")
+        return payload
+
     def files(self, torrent_hash: str) -> list[TorrFile]:
         """Список файлов раздачи; пуст, пока метаданные не приехали по DHT."""
         return _file_stats(self.status(torrent_hash))
