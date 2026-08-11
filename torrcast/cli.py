@@ -3950,6 +3950,16 @@ class _Bench:
             revived = self._recheck(plan, queue, args, progress, judged, deadline)
             if revived is not None:
                 return revived
+            # Повторный полный спрос может не промолчать, а вынести приговор: например,
+            # метаданные приехали, но нужной серии в раздаче нет. Тогда итог обязан
+            # говорить о приговоре, а не обещать, что молчавший рой позже оживёт.
+            retried = next((number for number in queue if number in judged), None)
+            if retried is not None:
+                tried = [
+                    f"{retried} - {judged[retried]}" if row.startswith(f"{retried} - ") else row
+                    for row in tried
+                ]
+                silents -= 1
         shown = "; ".join(tried[:MAX_TRIES])
         more = f" и ещё {len(tried) - MAX_TRIES}" if len(tried) > MAX_TRIES else ""
         offer = kin_line(plan.kin)
@@ -4052,8 +4062,13 @@ class _Bench:
             hard_mbit=plan.hard_mbit,
         )
         if trouble:
-            _turned_down(judged, number, trouble)
-            print(f"релиз {number} молчит и в одиночку ({trouble})")
+            silent = _silenced(prep)
+            if silent:
+                _did_not_answer(number, trouble)
+            else:
+                _turned_down(judged, number, trouble)
+            result = "молчит и в одиночку" if silent else "ответил в одиночку, но не годится"
+            print(f"релиз {number} {result} ({trouble})")
             self._forget(prep)
             return None
         if not args.pinned and prep.found.foreign:

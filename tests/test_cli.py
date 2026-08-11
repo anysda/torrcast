@@ -895,6 +895,22 @@ def test_a_queue_that_went_silent_to_the_end_gets_one_patient_ask_and_reaches_th
     )
 
 
+def test_a_patient_ask_that_gets_a_verdict_does_not_report_silent_swarm(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Полный второй спрос ответил приговором - рой уже нельзя называть молчащим."""
+    ranked = [rel(name="r0", seeders=100)]
+    _probes(monkeypatch, ranked, "av1")
+    monkeypatch.setattr(Release, "magnet", property(lambda self: f"magnet-{self.raw_name}"))
+
+    with pytest.raises(NotFoundError) as caught:
+        _resolve(cli._Bench(cast(Any, _Impatient())), ranked, recode_at=0.0)
+
+    msg = str(caught.value)
+    assert "годного релиза нет" in msg and "av1" in msg
+    assert "рой" not in msg and "зайди позже" not in msg
+
+
 def test_the_patient_ask_is_not_made_when_the_phase_budget_cannot_cover_it(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
