@@ -1111,6 +1111,48 @@ def test_a_bare_franchise_name_is_answered_by_the_franchise_or_by_nothing() -> N
     assert facts_mod.read_origin(parts[:1], "гарри поттер").title.startswith("Harry Potter and")
 
 
+TERMINATOR = (
+    "«Термина́тор» (англ. The Terminator) — американский научно-фантастический фильм "
+    "1984 года режиссёра Джеймса Кэмерона."
+)
+JUDGMENT = (
+    "«Термина́тор 2: Су́дный день» (англ. Terminator 2: Judgment Day) — американский "
+    "научно-фантастический фильм 1991 года режиссёра Джеймса Кэмерона."
+)
+FELLOWSHIP = (
+    "«Властели́н коле́ц» (англ. The Lord of the Rings) — кинотрилогия режиссёра Питера "
+    "Джексона, фильм 2001 года и два его продолжения."
+)
+
+
+def test_a_numbered_part_is_never_answered_by_the_whole_franchise() -> None:
+    """🔴 TC-480. Спросили часть N, отвечает имя франшизы - это догадка, и года у неё нет.
+
+    Сверка заголовка принимает запрос, который продолжает имя статьи, и номер части
+    выглядит для неё ровно как подзаголовок. На «трансформеры 3» отвечала статья
+    «Трансформеры» и приносила паспорт первой картины 2007 года вместо третьей 2011-го,
+    причём паспорт твёрдый: гейту добора спорить было нечем.
+    """
+    whole = _page("Терминатор (фильм)", TERMINATOR, english="The Terminator")
+
+    found = facts_mod.read_origin([whole], "терминатор 2", series=False)
+
+    assert found.title == "The Terminator", "имя латиницей годится: номер части у него отрезан"
+    assert found.year is None, "год ПЕРВОЙ картины спрошенной части не паспорт"
+    assert found.guessed, "статья названа не тем, что спросили - так и говорим вслух"
+
+    # Спрошенная часть в той же выдаче побеждает франшизу целиком, и она уже не догадка.
+    part = _page("Терминатор 2: Судный день", JUDGMENT, english="Terminator 2: Judgment Day")
+    exact = facts_mod.read_origin([whole, part], "терминатор 2", series=False)
+    assert (exact.title, exact.year, exact.guessed) == ("Terminator 2: Judgment Day", 1991, False)
+
+    # Подзаголовок номером части не является: «Властелин колец» за «Братство кольца» отвечает.
+    rings = _page("Властелин колец (фильм)", FELLOWSHIP, english="The Lord of the Rings")
+    named = facts_mod.read_origin([rings], "Властелин колец: Братство кольца", series=False)
+    assert named.title == "The Lord of the Rings"
+    assert not named.guessed, "имя без номера части статья носит целиком"
+
+
 def test_a_franchise_article_passes_the_cinema_gate_but_a_biography_still_does_not() -> None:
     """Поблажка «серия фильмов» ровно одна и косвенный падеж вообще не открывает.
 
@@ -1336,6 +1378,124 @@ def test_a_stranger_one_word_away_is_not_offered_at_all(monkeypatch: Any) -> Non
     assert not found.title, "чужой оригинал уводит добор к чужой картине"
     assert not found.name
     assert not found.guessed
+
+
+LAIN = (
+    "«Эксперименты Лэйн» (англ. Serial Experiments Lain) — японский аниме-сериал "
+    "режиссёра Рютаро Накамуры, вышедший на экраны в 1998 году."
+)
+
+
+def test_a_name_spelled_otherwise_is_answered_within_the_same_budget(monkeypatch: Any) -> None:
+    """🔴 TC-493. Написание имени не решает, доедет ли оригинал: кругов по сети два, не три.
+
+    Живой заход: «Эксперименты Лэйн» лежат ровно под своим заголовком, прямая выборка
+    отвечает первым же кругом, и добор по ``Serial Experiments Lain`` приносит 48 раздач.
+    То же аниме, набранное строчными и через «лейн», под заголовком не лежит: выборка
+    молчит, поиск Википедии молчит тоже, и знает ответ только разбор описки. Пока он шёл
+    ТРЕТЬИМ кругом, в потолок справки эта очередь не влезала - человек читал «ничего не
+    нашлось» о картине, которую справка отлично знает.
+
+    Здесь каждый круг стоит треть потолка: очередь из трёх не уложится, волна из двух
+    уложится. Проверяется именно результат в срок, а не порядок вызовов: порядок доверия
+    прежний, и поиск по-прежнему сильнее догадки по сходству.
+    """
+    round_trip = 0.3
+    lain = _page("Эксперименты Лэйн", LAIN, english="Serial Experiments Lain")
+
+    def wiki(
+        host: str, path: str, params: dict[str, str], headers: dict[str, str], timeout: float
+    ) -> Any:
+        time.sleep(round_trip)
+        if params.get("generator") == "prefixsearch":  # подсказчик знает написание
+            return {"query": {"pages": [lain]}}
+        return {"query": {"pages": []}}
+
+    monkeypatch.setattr(facts_mod, "get_json", wiki)
+    monkeypatch.setattr(facts_mod, "_cached_origin", lambda title, series: None)
+    monkeypatch.setattr(facts_mod, "_remember_origin", lambda *a: None)
+    monkeypatch.setattr(facts_mod, "_imdb_ru", lambda title, series: facts_mod.Origin())
+
+    found = facts_mod.origin("эксперименты лейн", True, budget=round_trip * 2.5)
+
+    assert found.title == "Serial Experiments Lain", "имя знает подсказчик, и оно обязано доехать"
+    assert found.guessed, "имя лишь признано похожим - паспорт обязан это сказать"
+
+
+def test_a_guessed_name_is_not_given_a_year_from_the_offline_map(monkeypatch: Any) -> None:
+    """🔴 TC-493. Догадке справки год из карты не подставляется - и карта за неё не читается.
+
+    Карта отвечает на ТОЧНОЕ имя, а догадка означает ровно обратное: имя, которым спросили,
+    статья не носит. Сложи их в один паспорт - выйдет имя одной картины с годом другой, а
+    год объявлен сильнее выдачи. Заодно это возвращает потолку смысл потолка: разбор карты
+    стоит полсекунды на первое обращение, и ложились они поверх уже потраченного - дороже
+    всего именно там, где имя написано не как в статье и ищется дольше всего.
+
+    Статья без года, но названная своим именем, карту спрашивает ровно как спрашивала.
+    """
+    asked: list[str] = []
+
+    def map_lookup(title: str, series: bool) -> Any:
+        asked.append(title)
+        return facts_mod.Origin(title="Serial Experiments Lain", year=1998)
+
+    monkeypatch.setattr(facts_mod, "_cached_origin", lambda title, series: None)
+    monkeypatch.setattr(facts_mod, "_remember_origin", lambda *a: None)
+    monkeypatch.setattr(facts_mod, "_imdb_ru", map_lookup)
+    monkeypatch.setattr(
+        facts_mod,
+        "origin_now",
+        lambda title, series, timeout: facts_mod.Origin(
+            title="Serial Experiments Lain", name="Эксперименты Лэйн", guessed=True
+        ),
+    )
+    guess = facts_mod.origin("эксперименты лейн", True, budget=1.0)
+
+    assert guess.title == "Serial Experiments Lain"
+    assert guess.year is None, "год точного имени не годится картине, названной по сходству"
+    assert not asked, "за годом для догадки в карту не ходят вовсе"
+
+    monkeypatch.setattr(
+        facts_mod,
+        "origin_now",
+        lambda title, series, timeout: facts_mod.Origin(
+            title="Serial Experiments Lain", name="Эксперименты Лэйн"
+        ),
+    )
+    sure = facts_mod.origin("Эксперименты Лэйн", True, budget=1.0)
+
+    assert sure.year == 1998, "своё имя статья носит - год карты ему годится"
+    assert asked == ["Эксперименты Лэйн"]
+
+
+def test_a_slow_offline_map_never_pushes_the_passport_past_the_budget(monkeypatch: Any) -> None:
+    """🔴 TC-493. Год из карты дописывается только в остаток срока, а не поверх него.
+
+    Разбор карты стоит полсекунды на первое обращение, и лежала она поверх уже
+    потраченного: статью находили в срок, а паспорт с её годом приезжал после потолка -
+    и режим «оба типа» успевал сдаться. Пока карта единственный источник, ждать её стоит;
+    когда паспорт уже есть и речь лишь о годе, опоздавший паспорт не нужен никому.
+    """
+    monkeypatch.setattr(facts_mod, "_cached_origin", lambda title, series: None)
+    monkeypatch.setattr(facts_mod, "_remember_origin", lambda *a: None)
+    monkeypatch.setattr(
+        facts_mod,
+        "origin_now",
+        lambda title, series, timeout: facts_mod.Origin(title="Serial Experiments Lain"),
+    )
+
+    def slow_map(title: str, series: bool) -> Any:
+        time.sleep(0.5)  # первое чтение файла
+        return facts_mod.Origin(year=1998)
+
+    monkeypatch.setattr(facts_mod, "_imdb_ru", slow_map)
+
+    start = time.monotonic()
+    found = facts_mod.origin("Эксперименты Лэйн", True, budget=0.15)
+    took = time.monotonic() - start
+
+    assert found.title == "Serial Experiments Lain", "готовый паспорт карта отнять не вправе"
+    assert took < 0.4, f"потолок обещан, а справка шла {took:.2f} с"
 
 
 def test_the_likeness_mark_survives_the_cache_and_the_both_types_mode(

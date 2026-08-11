@@ -60,7 +60,13 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final
 from urllib.parse import urlencode
 
-from torrcast.parse import same_word, same_words, slugify, transliterate
+from torrcast.parse import (
+    same_word,
+    same_words,
+    slugify,
+    split_franchise_index,
+    transliterate,
+)
 from torrcast.state import state_path
 
 if TYPE_CHECKING:
@@ -472,8 +478,33 @@ def origin(title: str, series: bool | None = False, budget: float = FACTS_BUDGET
 
 
 def _origin_typed(title: str, series: bool, budget: float, *, remember: bool) -> Origin:
-    """Паспорт для внутренней типизированной пробы без подмены ключа запроса."""
+    """Паспорт для внутренней типизированной пробы без подмены ключа запроса.
+
+    🔴 TC-493. Год из офлайн-карты ДОГАДКЕ справки не подставляется, и на то две причины.
+
+    Первая - она про правду. Карта отвечает на ТОЧНОЕ имя (:func:`_imdb_ru` ищет по слагу
+    запроса), а догадка (:attr:`Origin.guessed`) означает, что имя, которым спросили,
+    статья не носит. Сложить их в один паспорт - значит выдать имя одной картины вместе с
+    годом другой, а год объявлен сильнее выдачи: им гейт добора молча выбрасывает всю
+    картину. Ровно поэтому :func:`_misremembered` и сам отвечает без года.
+
+    Вторая - про срок. Разбор карты это 150 тысяч строк и полсекунды на первое обращение,
+    а `cast` живёт один запрос, так что платит их каждый показ. Ложилась она поверх уже
+    потраченного, и потолок в :data:`FACTS_BUDGET` переставал быть потолком: статью
+    находили в срок, а паспорт приезжал позже - режим «оба типа» (:func:`origin_either`)
+    успевал сдаться и отдать пустоту. Дороже всего это стоило именно догадке: имя,
+    написанное не так, как подписана статья, ищется дольше всего, и полсекунды сверху
+    отнимали у него ответ целиком. Живой замер, по одному заходу на процесс (как в жизни):
+    «эксперименты лейн» - оригинал 0 раз из 6 при здоровой сети, «Эксперименты Лэйн» -
+    6 из 6. Написание имени решало не «найдётся ли статья», а «влезет ли ответ вместе с
+    чтением файла».
+
+    Читать карту там, где её слово годится, никто не мешает: пустой паспорт и статья без
+    года спрашивают её ровно как спрашивали - только уже не сверх срока
+    (:func:`_catalogued`).
+    """
     box: list[Origin] = []
+    deadline = time.monotonic() + budget
 
     def work() -> None:
         with contextlib.suppress(Exception):
@@ -483,11 +514,14 @@ def _origin_typed(title: str, series: bool, budget: float, *, remember: bool) ->
     thread.start()
     thread.join(budget)
     found = box[0] if box else Origin()
-    # После страницы значений сетевому пути нужен второй запрос. Офлайн-каталог
-    # ``origin_now`` уже греет параллельно, и тот успевает дать поиску имя с годом в тот
-    # же срок. Для коротких имён это решающий признак: один транслит не разводит старую
-    # картину и свежую тёзку.
-    offline = _imdb_ru(title, series) if not found or found.year is None else Origin()
+    # После страницы значений сетевому пути нужен второй запрос, и года у него нет.
+    # Офлайн-каталог этот год и даёт. Для коротких имён это решающий признак: один
+    # транслит не разводит старую картину и свежую тёзку.
+    offline = Origin()
+    if not found:
+        offline = _imdb_ru(title, series)  # источник единственный - его и ждём
+    elif found.year is None and not found.guessed:
+        offline = _catalogued(title, series, max(0.0, deadline - time.monotonic()))
     if not found:
         found = offline
     elif found.year is None and offline.year is not None:
@@ -502,6 +536,31 @@ def _origin_typed(title: str, series: bool, budget: float, *, remember: bool) ->
     if found and remember:
         _remember_origin(title, series, found)
     return found
+
+
+def _catalogued(title: str, series: bool, budget: float) -> Origin:
+    """Офлайн-карта в отдельном потоке: ДОПОЛНЕНИЕ к паспорту не выходит за срок.
+
+    🔴 TC-493. Разбор карты - 150 тысяч строк и полсекунды на первое обращение, и лежала
+    она поверх уже потраченного: статью находили в срок, а паспорт с её годом приезжал
+    после. Пока карта была единственным источником, платить это стоило - её и ждут без
+    ограничения (:func:`_origin_typed`). Но когда паспорт уже есть и речь лишь о том,
+    чтобы дописать в него год, за потолок ради этого выходить не за что: год приятен, а
+    опоздавший паспорт не нужен никому.
+
+    Файл читается один раз на процесс, так что не уложившийся поток дочитает его сам и
+    следующему спросившему карта достанется уже готовой.
+    """
+    box: list[Origin] = []
+
+    def look() -> None:
+        with contextlib.suppress(Exception):
+            box.append(_imdb_ru(title, series))
+
+    thread = threading.Thread(target=look, daemon=True)
+    thread.start()
+    thread.join(budget)
+    return box[0] if box else Origin()
 
 
 def origin_either(title: str, budget: float = FACTS_BUDGET) -> Origin:
@@ -656,11 +715,13 @@ def origin_now(title: str, series: bool = False, timeout: float = HTTP_TIMEOUT) 
     подписана латиницей («Kingsman: Секретная служба»), и никаким перебором уточнений в
     неё не попасть. Тогда спрашиваем поиском самой Википедии — он эти случаи и разводит.
 
-    Третий шаг (:func:`_misremembered`) — для имени, названного НЕ ТАК, как подписана
-    статья: он стоит денег и идёт только на пустом месте, когда первые два уже промолчали.
+    Разбор описки (:func:`_misremembered`) - для имени, названного НЕ ТАК, как подписана
+    статья. Он идёт не следом за поиском, а ВМЕСТЕ с ним, одной волной
+    (:func:`_asked_otherwise`): очереди из трёх кругов по сети бюджет справки не вмещает.
 
-    Четвёртый (:func:`_imdb_ru`) — офлайн-карта русских прокатных имён IMDb, для картины
-    без русской статьи вовсе: сеть тут уже ответила «не знаю», и дальше слово за файлом.
+    Последний шаг (:func:`_imdb_ru`) - офлайн-карта русских прокатных имён IMDb, для
+    картины без русской статьи вовсе: сеть тут уже ответила «не знаю», и дальше слово за
+    файлом.
     """
     kind = "сериал" if series else "фильм"
     names = titles_for(title, None)
@@ -674,9 +735,51 @@ def origin_now(title: str, series: bool = False, timeout: float = HTTP_TIMEOUT) 
     found = redirected_name(names, hops, pages, title)
     if found:
         return found
-    payload = get_json(_WIKI_HOST, _WIKI_PATH, _search_params(f"{title} {kind}"), {}, timeout)
-    found = read_origin(_ranked(payload), title, series=series)
-    return found or _misremembered(title, series, timeout) or _imdb_ru(title, series)
+    return _asked_otherwise(title, series, kind, timeout) or _imdb_ru(title, series)
+
+
+def _asked_otherwise(title: str, series: bool, kind: str, timeout: float) -> Origin:
+    """Поиск Википедии и разбор описки - одной волной, а не друг за другом.
+
+    🔴 TC-493. Оба шага нужны там, где прямая выборка по имени промолчала, и оба стоят по
+    кругу сети. Пока они шли очередью, ответ на имя, написанное НЕ ТАК, как подписана
+    статья, приезжал третьим кругом, - а третьего круга в бюджете справки нет. Замер на
+    живой Википедии, «Эксперименты Лэйн» против «эксперименты лейн»: выборка 0.42 с, поиск
+    0.59 с, разбор описки 0.43 с, итого 1.44 с при потолке 1.5 с и потолке одного запроса
+    1.2 с: очередь из трёх кругов в обещанное не влезает ПО ПОСТРОЕНИЮ, а не по
+    невезению. Человек читал это как «картины нет»: то же аниме, набранное как подписана
+    статья, отвечало за 0.35 с и находилось сорока восемью раздачами.
+
+    Волной кругов остаётся два, и написание имени перестаёт решать, доедет ли оригинал.
+
+    Порядок доверия прежний: слово поиска сильнее догадки по сходству, и разбор описки
+    отдаётся только тогда, когда поиск промолчал. Меняется цена: там, где поиск ответил,
+    запросы разбора описки всё равно ушли. Платится это лишь на пути, где прямая выборка
+    УЖЕ промахнулась (счастливый путь сюда не заходит вовсе), а на нём поиск и так
+    собирается на второй круг по индексерам.
+
+    Молчание любого из двух - не беда всей справки: ошибка одного шага не должна отнимать
+    ответ у другого, поэтому каждый идёт своим потоком и своё исключение глотает сам.
+    """
+    box: dict[str, Origin] = {}
+
+    def by_search() -> None:
+        with contextlib.suppress(Exception):
+            params = _search_params(f"{title} {kind}")
+            payload = get_json(_WIKI_HOST, _WIKI_PATH, params, {}, timeout)
+            box["search"] = read_origin(_ranked(payload), title, series=series)
+
+    def by_spelling() -> None:
+        with contextlib.suppress(Exception):
+            box["spelling"] = _misremembered(title, series, timeout)
+
+    deadline = time.monotonic() + timeout
+    wave = [threading.Thread(target=work, daemon=True) for work in (by_search, by_spelling)]
+    for thread in wave:
+        thread.start()
+    for thread in wave:
+        thread.join(max(0.0, deadline - time.monotonic()))
+    return box.get("search") or box.get("spelling") or Origin()
 
 
 def _own_name_first(pages: list[Any], title: str) -> list[Any]:
@@ -1155,9 +1258,13 @@ def read_origin(
     ⚠️ Голое имя франшизы частью франшизы не отвечается (:func:`_crowded`): «гарри поттер»
     приносил паспорт ПЯТОГО фильма, добор уходил по его оригиналу и приводил 79 чужих
     раздач одной части. Либо статья самой франшизы, либо ничего.
+
+    🔴 TC-480. Зеркальный случай - спросили ЧАСТЬ, а отвечает имя франшизы
+    (:func:`_other_part`): такой паспорт отдаётся догадкой и без года.
     """
     crowd = _crowded(title, pages)
     shortened = Origin()
+    whole = Origin()
     for page in pages:
         if page is None:
             continue
@@ -1170,6 +1277,18 @@ def read_origin(
             or english_title(page)
             or ("" if _CYRILLIC.search(heading) else heading)
         )
+        if _other_part(title, heading):
+            # 🔴 TC-480. Спрошена часть N, а статья названа именем франшизы: её паспорт -
+            # паспорт ПЕРВОЙ картины, и год у неё чужой. Имя латиницей годится (номер
+            # части у него всё равно отрезан), год - нет, и догадкой это называется вслух.
+            if not whole:
+                whole = Origin(
+                    title=latin,
+                    name=_TAIL_RE.sub("", heading) if _CYRILLIC.search(heading) else "",
+                    entity=str((page.get("pageprops") or {}).get("wikibase_item") or ""),
+                    guessed=True,
+                )
+            continue
         if (
             not trusted
             and not akin(title, heading, longer=not crowd)
@@ -1192,7 +1311,37 @@ def read_origin(
         )
         if found:
             return found
-    return shortened
+    return shortened or whole
+
+
+def _other_part(title: str, heading: str) -> bool:
+    """Спрошена часть франшизы, а статья названа самой франшизой - то есть первой картиной.
+
+    🔴 TC-480. Сверка заголовка (:func:`akin`) принимает запрос, который ПРОДОЛЖАЕТ имя
+    статьи: «Властелин колец: Братство кольца» и статья «Властелин колец» - одна вещь,
+    подзаголовок имени не меняет. Но ровно так же выглядит и номер части, а он меняет всё:
+    на «трансформеры 3» отвечала статья «Трансформеры» и приносила паспорт первой картины
+    2007 года вместо третьей 2011-го - причём паспорт ТВЁРДЫЙ, без всякой оговорки.
+
+    Замер по корпусу (12 запросов с номером части): запасной путь справки отвечал не про
+    ту часть в пяти, и во всех пяти это была первая картина франшизы с её годом -
+    «История игрушек» 1995 вместо 2010, «Ледниковый период» 2002 вместо 2009,
+    «Трансформеры» 2007 вместо 2011, «Стражи Галактики» 2014 вместо 2017, «Кунг-фу панда».
+
+    Беззубым это выглядит только в номерном потоке: там год справки и так отбрасывается
+    (:func:`~torrcast.cli._second_language`). А в потоке, где каталог объявил хвостовую
+    цифру частью НАЗВАНИЯ, год справки - опора гейта, и опора эта чужая: ровно тот
+    механизм подмены, который гейт обязан ловить.
+
+    Отличается это от подзаголовка одним признаком, и он объявлен самим запросом: хвостовой
+    номер части (:func:`~torrcast.parse.split_franchise_index`). Есть он, а заголовок - это
+    голое имя франшизы без номера, значит спрошенной части статья не носит.
+    """
+    base, index = split_franchise_index(title)
+    if index is None:
+        return False
+    name = slugify(heading.split(" (")[0])
+    return bool(name) and name in {slugify(base), slugify(transliterate(base))}
 
 
 def namesake(pages: list[Any], heading: str, year: int | None) -> str:
