@@ -10,6 +10,12 @@ import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
+# One origin, and that is measured, not overlooked: the catalog's other public names are
+# not a second edge. One family serves an incomplete certificate chain and then tears the
+# body mid-answer, another never answers, the rest no longer resolve. So the second way in
+# is a second ROUTE to this same address rather than a second name - the shim row in
+# install.sh carries it, because without a name in the handshake the address returns the
+# very same answer.
 ORIGINS = ("https://api.jacred.su",)
 TIMEOUT = 3.0
 LIMIT = 100
@@ -35,7 +41,12 @@ def search(query: str) -> list[dict[str, Any]]:
     for origin in ORIGINS:
         try:
             answer = _json(origin, query)
-        except (OSError, ValueError):
+        # SubprocessError belongs here as much as OSError: a hung upstream leaves
+        # `subprocess.run` in its own TimeoutExpired, which is NOT an OSError. Uncaught it
+        # would leave the handler through a dropped connection, and Prowlarr answers a
+        # dropped connection with a ban ladder - a stall of the source would cost the
+        # catalog far more than the source itself is worth.
+        except (OSError, subprocess.SubprocessError, ValueError):
             continue
         found = answer.get("results") if isinstance(answer, dict) else None
         if not isinstance(found, list):

@@ -1,6 +1,7 @@
 """The optional Russian catalog source degrades to an empty result."""
 
 import importlib.util
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -36,6 +37,22 @@ def test_public_rows_become_cardigann_rows(monkeypatch: pytest.MonkeyPatch) -> N
 
 def test_dead_api_is_an_empty_optional_source(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(adapter, "_json", lambda *_a: (_ for _ in ()).throw(OSError()))
+    assert adapter.search("матрица") == []
+
+
+def test_a_hung_api_is_an_empty_source_and_not_a_dropped_connection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A stall is how this API usually dies, and it does not arrive as OSError:
+    `subprocess.run` raises its own TimeoutExpired, which descends from SubprocessError.
+    Uncaught it leaves the handler as a dropped connection, and Prowlarr answers a dropped
+    connection with a ban ladder - one dead source would then cost the whole search
+    instead of narrowing the catalog."""
+    monkeypatch.setattr(
+        adapter,
+        "_json",
+        lambda *_a: (_ for _ in ()).throw(subprocess.TimeoutExpired("curl", 4.0)),
+    )
     assert adapter.search("матрица") == []
 
 

@@ -641,7 +641,7 @@ def test_yts_asked_in_its_own_short_budget() -> None:
     assert indexer_budget("Nyaa.si") == 3.0
 
 
-def test_nyaa_mолчание_стоит_три_секунды() -> None:
+def test_nyaa_молчание_стоит_три_секунды() -> None:
     """TC-498: один аниме-источник не вправе съесть всю цель продукта."""
     from torrcast.search import GOAL, indexer_budget
 

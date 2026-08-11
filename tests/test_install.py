@@ -32,6 +32,12 @@ def test_anilibria_is_a_regular_indexer_with_a_shim_route() -> None:
     assert '"$REPO_DIR/definitions/anilibria.yml"' in SCRIPT
 
 
+def test_jacred_is_a_regular_indexer_with_a_shim_route() -> None:
+    assert '"jacred|http://127.0.0.1:9698/"' in SCRIPT
+    assert "'api.jacred.su|/api/search?query=matrix&sort=sid&limit=100||" in SCRIPT
+    assert '"$REPO_DIR/definitions/jacred.yml"' in SCRIPT
+
+
 def test_install_removes_its_login_notice_without_a_motd_phase() -> None:
     phases = SCRIPT.split('PHASES="', 1)[1].split('"', 1)[0]
     assert "cleanup_login_notice() {" in SCRIPT
