@@ -10,6 +10,7 @@ import pytest
 from torrcast.recode import (
     DEADLINE_MARGIN,
     FULL_PRESET,
+    MAXRATE_GAIN,
     NEIGHBOUR_TOLL,
     PRESETS,
     RECODE_HEIGHT,
@@ -116,6 +117,57 @@ def test_the_preset_ladder_is_walked_from_slow_to_fast() -> None:
     seconds = 60.0
     slack = seconds / PRESETS[1][1] / DEADLINE_MARGIN + 0.1
     assert preset_for(seconds, slack) == PRESETS[1][0]
+
+
+# ------------------------------------------------------------------------- цель перекода
+
+
+def _went(mbit: float) -> float:
+    """Сколько Мбит/с получит приёмник в худшем случае кодера: пик, звук, mpegts."""
+    from torrcast.stream import AUDIO_MBIT, TS_OVERHEAD
+
+    return (mbit * MAXRATE_GAIN + AUDIO_MBIT) * TS_OVERHEAD
+
+
+def test_the_target_of_a_long_piece_is_counted_from_its_length_not_pinned() -> None:
+    """🔴 TC-483: 9 Мбит/с на 20-секундном куске - это 23 МБ при потолке 16.
+
+    Длина куска сетки задаётся картой опорных кадров и доходит до 20 с, а цель
+    кодировщика была константой. Не влезал САМ ПЕРЕКОД, а не только копия: ловушка на
+    выходе (:meth:`torrcast.stream.Packer.publish`) ловила это уже после того, как
+    процессор был потрачен на кусок, который заведомо не влезал.
+    """
+    cap = 16_000_000
+    pinned = 9.0 * 20.0 / 8 * 1e6
+    assert pinned > cap * 1.4, "прибитые 9 Мбит/с кладут в 20 с около 23 МБ"
+
+    fitted = Encode(mbit=9.0).fit(20.0, cap)
+    assert _went(fitted.mbit) * 20.0 / 8 <= cap / 1e6, "кусок обязан влезать по весу"
+    # А короткому куску ронять качество не за что: там те же 16 МБ терпят все девять.
+    assert Encode(mbit=9.0).fit(10.0, cap).mbit == 9.0
+
+
+def test_the_target_never_rises_above_the_one_already_standing() -> None:
+    """Вверх не перекодируем: потолок умеет только опустить цель, но не поднять её."""
+    cap = 16_000_000
+    assert Encode(mbit=4.0).fit(2.0, cap).mbit == 4.0, "короткий кусок не повод разгоняться"
+    assert Encode(mbit=9.0).fit(2.0, cap).mbit == 9.0
+
+
+def test_the_target_fits_the_receivers_bitrate_ceiling_too_when_asked() -> None:
+    """🔴 TC-495: потолка два, и по весу кусок может влезать, а по битрейту - нет.
+
+    Живой показ 11-08: ужатие на месте отдало кусок длиной 9.55 с на 10.94 Мбит/с при
+    потолке приёмника около десяти. По весу те же 13 МБ влезали с запасом - чем короче
+    кусок, тем больше мегабит в секунду помещается в одни и те же 16 МБ.
+    """
+    cap, rate = 16_000_000, 10.0
+    by_weight = Encode(mbit=9.0).fit(9.55, cap)
+    assert _went(by_weight.mbit) > rate, "один вес приёмник от подгруза не спасает"
+
+    both = Encode(mbit=9.0).fit(9.55, cap, rate)
+    assert _went(both.mbit) <= rate, "кусок обязан влезать и в битрейт приёмника"
+    assert _went(both.mbit) * 9.55 / 8 <= cap / 1e6, "и по весу он влезать не перестал"
 
 
 # -------------------------------------------------------------- команда перекодирования
@@ -770,6 +822,40 @@ def test_the_head_run_is_not_niced_behind_the_packer(tmp_path, monkeypatch) -> N
     assert seen[1][:3] == ["nice", "-n", "15"]
 
 
+def test_a_run_takes_its_target_from_its_longest_piece(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """🔴 TC-483: заход идёт одним ``-b:v`` на все куски, значит судит самый длинный.
+
+    Куски сетки по опорным кадрам разной длины, и прибитая цель не влезала в потолок веса
+    ровно на длинных. Взять среднюю по заходу нельзя: короткие соседи её вытянут вверх, и
+    длинный кусок снова уедет за потолок - а ловить это на выходе поздно, процессор уже
+    потрачен.
+    """
+    from torrcast import stream
+
+    grid = Grid(bounds=(0.0, 6.0, 26.0, 32.0), duration=45.0, on_keys=True)
+    weights = Weights.of(_keys(rate=4.0e6), grid)
+    assert weights is not None
+    recoder = Recoder(
+        source="src", audio=0, grid=grid, spare=tmp_path, weights=weights, threshold=10.0
+    )
+    seen: list[list[str]] = []
+
+    def _remember(cls: object, command: list[str], /, *a: object, **k: object) -> Packer:
+        seen.append(command)
+        return fake_packer(tmp_path)
+
+    monkeypatch.setattr(stream.Packer, "start", classmethod(_remember))
+    recoder.stopped = True
+
+    recoder._run(0, 2)  # куски 6, 20 и 6 с - судит двадцатисекундный
+    long_target = float(seen[-1][seen[-1].index("-b:v") + 1].rstrip("M"))
+    assert long_target == pytest.approx(Encode(mbit=9.0).fit(20.0, recoder.cap).mbit, abs=0.01)
+    assert _went(long_target) * 20.0 / 8 <= recoder.cap / 1e6, "20 с обязаны влезть в потолок"
+
+    recoder._run(0, 0)  # а сам по себе шестисекундный кусок качества не теряет
+    assert float(seen[-1][seen[-1].index("-b:v") + 1].rstrip("M")) == pytest.approx(9.0)
+
+
 def test_a_run_is_counted_by_what_it_published_not_by_what_is_left(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
     """Готовый кусок из каталога уже мог забрать показ — глоб объявлял бы заход провальным.
 
@@ -965,6 +1051,29 @@ def test_a_copy_heavier_than_the_cap_is_never_released_on_a_deadline(tmp_path) -
     # И даже под самым носом у показа: подгруз в 2 с дешевле срыва приёмника на 8.
     recoder.played = grid.start(5)
     assert recoder.holding(5)
+
+
+def test_the_encoder_weighs_pieces_by_the_receivers_cap_not_its_own(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """Потолок веса куска - свойство ПРИЁМНИКА, и мерка у показа с каталогом перекода одна.
+
+    Раньше каталог перекода судил по осторожному умолчанию
+    (:data:`torrcast.stream.MAX_SEGMENT_BYTES`), а показ - по потолку своего приёмника
+    (:attr:`torrcast.stream.Feed.cap`): приёмник с другой меркой получал от кодировщика не
+    свою. Пока приёмник один, числа совпадают, и разницы не видно - ровно поэтому её и
+    надо закрыть числом, а не глазами.
+    """
+    grid = _grid()
+    weights = Weights.of(_keys(rate=1.5e6), grid)  # 12 Мбит/с: 10 с весят 15 МБ
+    assert weights is not None
+    spacious = Recoder(source="src", audio=0, grid=grid, spare=tmp_path, weights=weights)
+    assert not spacious.oversize(5), "в 16 МБ этот кусок влезает"
+    assert 5 not in spacious.targets
+
+    tight = Recoder(
+        source="src", audio=0, grid=grid, spare=tmp_path, weights=weights, cap=12_000_000
+    )
+    assert tight.oversize(5), "у приёмника с потолком 12 МБ тот же кусок уже за потолком"
+    assert 5 in tight.targets, "и кодировщик обязан взять его заранее"
 
 
 def test_the_weight_of_a_copy_is_taken_from_the_file_when_it_exists(tmp_path) -> None:  # type: ignore[no-untyped-def]

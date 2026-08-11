@@ -43,9 +43,10 @@ from __future__ import annotations
 import contextlib
 import threading
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any, Final
 
+from torrcast.profile import CAUTIOUS
 from torrcast.timing import mark
 
 if TYPE_CHECKING:
@@ -55,9 +56,12 @@ if TYPE_CHECKING:
 
 __all__ = [
     "DEADLINE_MARGIN",
+    "FIT_FLOOR",
+    "FIT_SLACK",
     "FULL_FLOOR",
     "FULL_GAIN",
     "FULL_PRESET",
+    "MAXRATE_GAIN",
     "NEIGHBOUR_TOLL",
     "PRESETS",
     "RECODE_DIR",
@@ -104,6 +108,23 @@ FULL_GAIN: Final = 2.5
 
 #: Ниже этого 1080p на ``ultrafast`` разваливается на блоки, сколько бы ни весил источник.
 FULL_FLOOR: Final = 3.0
+
+#: Во сколько раз мгновенный потолок кодера выше цели (:attr:`Encode.maxrate`). Всё, что
+#: считает вес куска заранее, обязано брать именно его: цель - это средний битрейт, а
+#: положить в кусок кодер вправе вплоть до этого потолка.
+MAXRATE_GAIN: Final = 1.08
+
+#: Отступ от потолка приёмника, с которым считается цель под кусок (:meth:`Encode.fit`).
+#:
+#: Не осторожность на глаз, а замер живого показа 11-08: ужатие просило 8.87, 7.32 и
+#: 9.00 Мбит/с видео, а наружу уехало 9.65, 8.33 и 10.94 Мбит/с сегмента - до 21 % выше
+#: предсказанного по цели. Промах тем больше, чем короче кусок: принудительный опорный
+#: кадр на границе сетки стоит одинаково, а амортизируется разной длиной.
+FIT_SLACK: Final = 0.9
+
+#: Ниже этого цель не опускаем даже под самый длинный кусок, Мбит/с: смотреть на такое
+#: всё равно нельзя, а пропуск места честнее каши на экране.
+FIT_FLOOR: Final = 1.0
 
 #: Потолок высоты кадра, который сплошной перекод успевает в реальном времени.
 #:
@@ -275,7 +296,43 @@ class Encode:
     @property
     def maxrate(self) -> float:
         """Потолок мгновенного битрейта. Выше цели на 8 % — иначе кап душит движение."""
-        return self.mbit * 1.08
+        return self.mbit * MAXRATE_GAIN
+
+    def fit(self, span: float, cap: float, cap_mbit: float = 0.0) -> Encode:
+        """Тот же перекод, но с целью, посчитанной под потолки ПРИЁМНИКА.
+
+        🔴 Единственное место, где цель перекода считается из потолков. Спрашивают его
+        двое - фоновый кодировщик (:meth:`Recoder._run`) и ужатие на месте
+        (:meth:`torrcast.stream.Feed._shrink`), - и разойдись они хоть в одном знаке, в
+        проекте появился бы третий источник правды о потолке.
+
+        Потолков два, и они разной природы. ``cap`` - **вес** куска в байтах
+        (:attr:`torrcast.profile.Profile.max_segment_bytes`): сегмент тяжелее его приёмник
+        не доигрывает, а выбрасывает буфер и качает заново. Сколько мегабит в секунду в
+        такой вес влезает, зависит от ДЛИНЫ куска, а она у сетки по опорным кадрам
+        доходит до 20 секунд: прибитые 9 Мбит/с кладут в такой кусок 23 МБ при потолке 16,
+        и не влезает сам перекод, а не только копия (TC-483). ``cap_mbit`` - **битрейт**,
+        который приёмник тянет (:attr:`torrcast.profile.Profile.recode_at_mbit`): выше него
+        он спотыкается независимо от веса. Ноль - про этот потолок не спрашивали.
+
+        Считается от того, что получит приёмник, а не от голого видео: сверху лягут наш
+        AAC (:data:`torrcast.stream.AUDIO_MBIT`) и оверхед mpegts
+        (:data:`torrcast.stream.TS_OVERHEAD`), а сам кодер вправе идти до
+        :attr:`maxrate`. Отсюда же и запас :data:`FIT_SLACK`.
+
+        Вверх не перекодируем: цель не может стать выше той, что уже стоит
+        (:attr:`mbit`), - потолок умеет только опустить её.
+        """
+        from torrcast.stream import AUDIO_MBIT, TS_OVERHEAD
+
+        def room(delivered: float) -> float:
+            """Сколько Мбит/с ВИДЕО просить, чтобы сегмент не вышел за ``delivered``."""
+            return max(0.0, (delivered / TS_OVERHEAD - AUDIO_MBIT) / MAXRATE_GAIN)
+
+        want = room(cap * 8 / (max(span, 0.1) * 1e6))
+        if cap_mbit > 0:
+            want = min(want, room(cap_mbit))
+        return replace(self, mbit=max(FIT_FLOOR, min(self.mbit, want * FIT_SLACK)))
 
     @property
     def scaled(self) -> bool:
@@ -584,6 +641,13 @@ class Recoder:
     spare: Path
     weights: Weights
     threshold: float = 15.0
+    #: Потолок веса одного куска - свойство ПРИЁМНИКА
+    #: (:attr:`torrcast.profile.Profile.max_segment_bytes`), то же число, которым меряет
+    #: показ (:attr:`torrcast.stream.Feed.cap`). Раньше каталог перекода судил по
+    #: :data:`torrcast.stream.MAX_SEGMENT_BYTES` - осторожному умолчанию, - и приёмник с
+    #: другим потолком получал от кодировщика не свою мерку. Умолчание тут то же
+    #: осторожное, так что для Q70D не меняется ничего.
+    cap: int = CAUTIOUS.max_segment_bytes
     encode: Encode = field(default_factory=Encode)
     #: Горизонт: дальше этого места фильма впрок не работаем. Ограничение не по времени, а
     #: по tmpfs - готовые куски лежат в памяти. Модель показа «Моаны 2»: 300 с горизонта
@@ -669,15 +733,13 @@ class Recoder:
 
         Две мерки, и они не совпадают. Первая — битрейт: приёмник не тянет
         ``threshold`` Мбит/с и выше как есть. Вторая — вес куска: сегмент тяжелее
-        :data:`torrcast.stream.MAX_SEGMENT_BYTES` роняет приёмник независимо от битрейта,
+        :attr:`cap` роняет приёмник независимо от битрейта,
         а такой кусок бывает и на скромных 12 Мбит/с, если он длинный. Замер по
         картам: «Моана» 2016 — лёгкое кино, тяжёлых кусков нет вовсе, а увесистых семь,
         самый большой 18.3 МБ при замеренной границе срыва 19.4 МБ.
         """
-        from torrcast.stream import MAX_SEGMENT_BYTES
-
         heavy = self.weights.heavy(self.threshold)
-        bulky = self.weights.bulky(self.grid, MAX_SEGMENT_BYTES)
+        bulky = self.weights.bulky(self.grid, self.cap)
         return heavy if not bulky else tuple(sorted(set(heavy) | set(bulky)))
 
     def oversize(self, slot: int, size: int = 0) -> bool:
@@ -687,11 +749,9 @@ class Recoder:
         знает его точно, один ``stat``); ноль — копии ещё нет, берём предсказание по карте
         (:meth:`Weights.size`), оно завышает на 12 % и промахивается в безопасную сторону.
         """
-        from torrcast.stream import MAX_SEGMENT_BYTES
-
         if size > 0:
-            return size > MAX_SEGMENT_BYTES
-        return self.weights.size(slot, self.grid.span(slot)) > MAX_SEGMENT_BYTES
+            return size > self.cap
+        return self.weights.size(slot, self.grid.span(slot)) > self.cap
 
     def start(self) -> None:
         """Поднять поток кодировщика. Тяжёлых кусков нет — не поднимать вовсе."""
@@ -703,7 +763,7 @@ class Recoder:
         self._say(
             f"тяжёлых кусков {len(heavy)} из {self.grid.count} "
             f"({share * 100:.0f}% фильма, порог {self.threshold:.0f} Мбит/с) - "
-            f"перекодирую заранее в {self.encode.mbit:.0f} Мбит/с"
+            f"перекодирую заранее не выше {self.encode.mbit:.0f} Мбит/с"
         )
         self.spare.mkdir(parents=True, exist_ok=True)
         self.began = time.monotonic()
@@ -846,8 +906,6 @@ class Recoder:
         вовсе. Что делать с отпущенной копией, решает выкладка: ужимает её на месте
         или честно пропускает (:meth:`torrcast.stream.Feed._shrink`).
         """
-        from torrcast.stream import MAX_SEGMENT_BYTES
-
         if self.stopped or slot in self.done or slot not in set(self.targets):
             return False
         since = self.stuck.get(slot)
@@ -856,7 +914,7 @@ class Recoder:
             self.blocked = slot
             mark("держу тяжёлую копию", слот=slot, мбит=round(self.weights.at(slot), 1))
             self._say(
-                f"v{slot} копией тяжелее {MAX_SEGMENT_BYTES / 1e6:.0f} МБ - жду перекод: "
+                f"v{slot} копией тяжелее {self.cap / 1e6:.0f} МБ - жду перекод: "
                 "такой кусок приёмник не доигрывает"
             )
         if now - since < self.over_wait:
@@ -1094,15 +1152,22 @@ class Recoder:
         # другого. Срок у такого захода нулевой по определению.
         if first <= self.blocked <= last:
             preset = PRESETS[-1][0]
+        # 🔴 Цель считается от ДЛИНЫ куска, а не берётся константой (TC-483). Заход идёт
+        # одним ``-b:v`` на все свои куски, поэтому судит самый длинный из них: на нём
+        # прибитые 9 Мбит/с давали 23 МБ при потолке 16, и не влезал сам перекод. Ловить
+        # это на выходе (:meth:`torrcast.stream.Packer.publish`) поздно - процессор уже
+        # потрачен на кусок, который заведомо не влезал, и потрачен на критическом пути.
+        longest = max(self.grid.span(s) for s in range(first, last + 1))
+        encode = replace(self.encode, preset=preset).fit(longest, self.cap)
         mark(
             "заход",
             первый=first,
             последний=last,
             пресет=preset,
+            мбит=round(encode.mbit, 2),
             срок=round(self.slack(last), 1),
             срочный=round(self.slack(first), 1),
         )
-        encode = Encode(preset=preset, mbit=self.encode.mbit)
         # ⚠️ Пробного прогона тут нет и быть не должно: перекодирующий ffmpeg встаёт по
         # ``-ss`` точно, докатки не делает, и ``at`` равен границе сетки ровно.
         command = ffmpeg_pack_command(

@@ -696,6 +696,7 @@ def test_the_spot_shrink_packs_the_piece_under_the_cap(clip: str, tmp_path: Path
             self.spare = spare
             self.encode = Encode()
             self.pace = Pace()
+            self.threshold = 10.0
             self.over_wait = 60.0
             self.done: set[int] = set()
 
@@ -720,6 +721,58 @@ def test_the_spot_shrink_packs_the_piece_under_the_cap(clip: str, tmp_path: Path
     assert made.exists(), "ужатие обязано положить перекод туда, откуда его возьмёт выкладка"
     assert 0 < made.stat().st_size <= MAX_SEGMENT_BYTES
     assert len(said) == 1 and "ужимаю" in said[0], "одно авто-решение - одна честная строка"
+
+
+def test_the_spot_shrink_aims_under_both_ceilings_of_the_receiver(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """🔴 TC-495: у приёмника ДВА потолка, а ужатие считало цель по одному - по весу.
+
+    Живой показ 11-08 (сеанс на Q70D): ужатие сработало на слотах 0, 2 и 4, попросив
+    8.87, 7.32 и 9.00 Мбит/с, а наружу уехало 9.65, 8.33 и **10.94** Мбит/с при потолке
+    битрейта около десяти. Четыре подгруза в первую минуту, и ранние места ровно эти.
+    Кусок был короткий, поэтому по весу влезал с запасом: чем короче кусок, тем больше
+    мегабит в секунду помещается в одни и те же 16 МБ.
+
+    Сам ffmpeg тут не нужен и не зовётся: проверяется РЕШЕНИЕ, а оно принимается и
+    называется вслух до всякого прогона.
+    """
+    from torrcast.recode import MAXRATE_GAIN, Encode, Pace
+
+    class _Recoder:
+        """Кодировщик-заглушка: ровно то, что спрашивает ужатие."""
+
+        def __init__(self, spare: Path) -> None:
+            self.spare = spare
+            self.encode = Encode()
+            self.pace = Pace()
+            self.threshold = 10.0  # потолок битрейта приёмника, ``recode_at_mbit``
+            self.over_wait = 60.0
+            self.done: set[int] = set()
+
+        def ready(self, slot: int) -> Path | None:
+            return None
+
+    out = hls_dir(str(tmp_path / "hls"))
+    said: list[str] = []
+    recoder = _Recoder(out / "recode")
+    # Тот самый слот 4 того самого сеанса: 9.55 с фильма.
+    feed = Feed(
+        source="u",
+        audio=0,
+        out=out,
+        grid=Grid(bounds=(0.0, 9.55), duration=19.1),
+        log=said.append,
+        recoder=recoder,
+    )
+    monkeypatch.setattr(
+        stream.Packer, "start", classmethod(lambda cls, *a, **k: (_ for _ in ()).throw(OSError()))
+    )
+    assert feed._shrink(0, MAX_SEGMENT_BYTES + 1) is False  # ffmpeg не поднялся - это не важно
+    asked = float(said[0].split(" до ")[1].split()[0])
+    went = (asked * MAXRATE_GAIN + stream.AUDIO_MBIT) * stream.TS_OVERHEAD
+    assert went <= recoder.threshold, "ужатие обязано укладываться в потолок битрейта"
+    assert went * 9.55 / 8 <= feed.cap / 1e6, "и в потолок веса оно укладываться не перестало"
 
 
 def test_the_spot_shrink_without_a_recoder_skips_the_place_once(tmp_path: Path) -> None:

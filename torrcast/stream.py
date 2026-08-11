@@ -3566,12 +3566,16 @@ class Feed:
         повторялся каждые несколько минут, потому что тяжёлый кусок детерминирован.
 
         Ужатие - один короткий прогон ffmpeg ровно на этот сегмент, самым быстрым
-        пресетом и с битрейтом, посчитанным под потолок. Обычная цель кодировщика
-        на длинном куске сетки за потолком не следит: 20 секунд по 9 Мбит/с - это
-        23 МБ при потолке 16. Здесь потолок - условие задачи, поэтому битрейт берётся
-        из него: сколько секунд в куске, столько мегабит в секунду и позволено, с
-        запасом на мгновенный пик кодера (:attr:`torrcast.recode.Encode.maxrate`),
-        звук и накладные расходы mpegts.
+        пресетом и с целью, посчитанной под потолки приёмника
+        (:meth:`torrcast.recode.Encode.fit`).
+
+        🔴 Потолков ДВА, и они разной природы (TC-495). Вес куска - один; битрейт,
+        который приёмник тянет (:attr:`torrcast.recode.Recoder.threshold`), - второй, и
+        первая версия ужатия смотрела только на вес. Живой показ 11-08: ужатие сработало
+        на трёх ранних кусках и отдало наружу 9.65, 8.33 и **10.94** Мбит/с при потолке
+        около десяти - четыре подгруза в первую минуту, и ранние места ровно эти. Кусок,
+        влезающий по весу, роняет показ по битрейту: чем короче кусок, тем больше
+        мегабит в секунду в те же 16 МБ помещается.
 
         Ждать можно: запрос этого места и так держится до :attr:`wait`, а секунда
         фильма самым быстрым пресетом стоит заметно дешевле секунды стены. Потолок
@@ -3594,15 +3598,16 @@ class Feed:
             ready = recoder.ready(slot)
             if ready is not None:
                 with contextlib.suppress(OSError):
-                    if 0 < ready.stat().st_size <= MAX_SEGMENT_BYTES:
+                    if 0 < ready.stat().st_size <= self.cap:
                         return True  # пока ждали замок, перекод доехал сам
             span = self.grid.span(slot)
-            # Худший случай - мгновенный потолок кодера (maxrate) на всём куске плюс
-            # звук и накладные расходы mpegts; от потолка отступаем ещё на десятину.
-            ratio = recoder.encode.maxrate / max(recoder.encode.mbit, 0.1)
-            fit = (MAX_SEGMENT_BYTES * 8 / (span * 1e6) / TS_OVERHEAD - AUDIO_MBIT) / ratio
-            mbit = max(1.0, min(recoder.encode.mbit, fit * 0.9))
-            encode = replace(recoder.encode, preset=recoder.pace.table()[-1][0], mbit=mbit)
+            # Оба потолка приёмника разом: вес куска (:attr:`cap`) и битрейт, который он
+            # тянет (порог кодировщика - то же число). Считает их одно место на весь
+            # проект, иначе о потолке появился бы третий источник правды.
+            encode = replace(recoder.encode, preset=recoder.pace.table()[-1][0]).fit(
+                span, self.cap, recoder.threshold
+            )
+            mbit = encode.mbit
             run = recoder.spare / SHRINK_DIR
             weight = f" ({size / 1e6:.0f} МБ)" if size > 0 else ""
             self._say(f"v{slot} тяжелее потолка{weight} - ужимаю на месте до {mbit:.1f} Мбит/с")
@@ -3636,7 +3641,7 @@ class Feed:
         fits = False
         if ready is not None:
             with contextlib.suppress(OSError):
-                fits = 0 < ready.stat().st_size <= MAX_SEGMENT_BYTES
+                fits = 0 < ready.stat().st_size <= self.cap
         if fits:
             return True
         return self._skip(slot, size, "ужать не вышло")

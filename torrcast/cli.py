@@ -4812,6 +4812,7 @@ def _recoder(
     spare: Path,
     config: Config,
     video_mbit: float = 0.0,
+    profile: Profile = CAUTIOUS,
 ) -> Recoder | None:
     """Кодировщик тяжёлых кусков или ``None``, если он не нужен и не может помочь.
 
@@ -4856,6 +4857,9 @@ def _recoder(
         spare=spare,
         weights=weights,
         threshold=config.recode_at_mbit,
+        # Потолок веса куска - тот же, которым меряет показ: у каждого приёмника свой
+        # (:attr:`torrcast.profile.Profile.max_segment_bytes`).
+        cap=profile.max_segment_bytes,
         encode=Encode(preset=config.recode_preset, mbit=config.recode_mbit),
         ahead=config.recode_ahead,
         cache_mb=config.recode_cache_mb,
@@ -5039,6 +5043,7 @@ def _next_warmer(
             hls_dir(config.hls_dir) / RECODE_DIR,
             config,
             video_mbit=video_mbit,
+            profile=profile,
         )
     )
     title = " ".join(filter(None, (following.title, following.label)))
@@ -5228,6 +5233,7 @@ def _play(
             out / RECODE_DIR,
             config,
             video_mbit=video_mbit,
+            profile=profile,
         )
     )
     # Прогрев поднимается ПОСЛЕ старта показа (ниже), а собирается здесь: ему нужны и
