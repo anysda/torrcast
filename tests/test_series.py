@@ -508,6 +508,28 @@ def test_named_seasons_do_not_turn_their_count_into_episode_count() -> None:
     assert release.covers_episode(Episode(8, 1))
 
 
+def test_a_colon_after_the_season_word_does_not_invent_a_season_range() -> None:
+    """«5 сезон: 1-3 серии из 3» - это серии пятого сезона, а не сезоны 1-3.
+
+    Двоеточие после слова «сезон» на трекере чаще открывает перечень СЕРИЙ, чем
+    диапазон сезонов, и разводит их только то, назван ли сезон ДО слова
+    (:data:`~torrcast.parse._SEASON_SPAN_RES`). Без этой границы полный пак «Сезоны: 1-8
+    из 8» читался правильно, а каждое обычное имя сезона теряло свой номер.
+    """
+    one = parse_release_name(
+        "Чёрное зеркало (5 сезон: 1-3 серии из 3) / Black Mirror / 2019 / ПД / WEBRip (720p)"
+    )
+    assert one.season == 5
+    assert one.seasons == ()
+    assert one.episode_count == 3
+
+    whole = parse_release_name(
+        "Клан Сопрано (1-6 сезоны: 1-86 серии из 86) / The Sopranos / 1999-2004 / АП / WEB-DL"
+    )
+    assert whole.seasons == tuple(range(1, 7))
+    assert whole.episode_count == 86
+
+
 def test_year_gate_lets_one_numbering_line_through() -> None:
     """TC-169: гейт года сшивает куски, продолжающие нумерацию, и держит ремейки.
 
