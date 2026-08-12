@@ -18,19 +18,12 @@
 
 from __future__ import annotations
 
+# fmt: off
 __all__ = [
-    "THIN_POOL",
-    "TYPE_CHECKING",
-    "VIDEO_EXT",
-    "_ALTERNATIVE_PICTURE_RE",
-    "_ALTERNATIVE_TITLE_RE",
-    "_ANIME_INDEXERS",
-    "_ANIME_RE",
-    "_AV1_RE",
-    "_AVI_RE",
-    "_BRACKETS_RE",
-    "_CHANNEL_RE",
-    "_CHAPTER_RE",
+    "THIN_POOL", "TYPE_CHECKING", "VIDEO_EXT",
+    "_ALTERNATIVE_PICTURE_RE", "_ALTERNATIVE_TITLE_RE", "_ANIME_INDEXERS",
+    "_ANIME_RE", "_AV1_RE", "_AVI_RE",
+    "_BRACKETS_RE", "_CHANNEL_RE", "_CHAPTER_RE",
     "_CODEC_TOKEN_RE",
     "_COLLECTION_CUT_RE",
     "_COLLECTION_LATIN",
@@ -127,6 +120,7 @@ __all__ = [
     "unswap_layout",
     "wire_query",
 ]
+# fmt: on
 
 from typing import TYPE_CHECKING
 
