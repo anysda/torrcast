@@ -85,6 +85,8 @@ MACHINE_TESTS = frozenset(
         "tests/test_trace.py::test_a_nudge_is_a_record_with_numbers_not_a_line_of_text",
         "tests/test_trace.py::test_a_reload_of_a_dead_receiver_is_logged",
         "tests/test_trace.py::test_a_seek_carries_where_to_and_how_long_the_picture_took",
+        "tests/test_trace.py::test_a_seek_is_measured_to_the_moving_pointer_not_to_the_word_playing",
+        "tests/test_trace.py::test_a_seek_that_never_showed_a_picture_is_a_record_and_not_a_silence",
         "tests/test_trace.py::test_our_own_nudge_is_not_counted_as_a_seek_by_the_viewer",
         "tests/test_trace.py::test_a_dark_screen_and_its_revival_are_records_with_numbers",
         "tests/test_trace.py::test_an_eviction_says_who_was_thrown_out_and_how_much_it_freed",

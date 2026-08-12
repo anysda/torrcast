@@ -429,6 +429,70 @@ def test_a_seek_carries_where_to_and_how_long_the_picture_took(
     assert "перемоток 1" in text
 
 
+def test_a_seek_is_measured_to_the_moving_pointer_not_to_the_word_playing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Ожидание после перемотки меряется до КАДРА, а не до слова приёмника.
+
+    ``PLAYING`` приходит раньше первого кадра: указатель после прыжка стоит на месте
+    приземления, пока приёмник не наберёт буфер. Метрика, верившая слову, записала в ленту
+    0.0 с у всех трёх прыжков подряд - при том что картинка возвращалась за 6.0, 5.9 и
+    9.9 с, и «перемотка стала быстрее» после этого измеряло бы не то.
+    """
+    from torrcast.cast import ChromecastReceiver
+
+    monkeypatch.setattr(ChromecastReceiver, "_device", lambda self: _FakeDevice([]))
+    clock = {"now": 0.0}
+    monkeypatch.setattr("torrcast.cast.time.monotonic", lambda: clock["now"])
+    receiver = ChromecastReceiver("10.0.0.50")
+    # Все пробы в PLAYING нарочно: ровно так и врал приёмник на живом Q70D.
+    script = [
+        _Reported(600.0),  # смотрим 10:00
+        _Reported(1891.0),  # пультом на 31:31: слово есть, кадра нет
+        _Reported(1891.0),  # указатель стоит - экран всё ещё чёрный
+        _Reported(1891.0),
+        _Reported(1893.0),  # тронулся - вот он, первый кадр
+    ]
+    monkeypatch.setattr(ChromecastReceiver, "_status", lambda self: script.pop(0))
+    for tick in range(5):
+        clock["now"] = 2.0 * tick
+        receiver.position(front=1e6)
+    trace.shutdown()
+
+    rec = _only(_read_lines(tmp_path), "seek")
+    assert rec["to"] == 1891.0
+    assert rec["wait"] == 6.0, "ожидание отмерено от слова приёмника, а не от сдвига указателя"
+
+
+def test_a_seek_that_never_showed_a_picture_is_a_record_and_not_a_silence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Перемотка, после которой кадра не случилось вовсе, пишется отдельным исходом.
+
+    Ждать сдвига указателя вечно нельзя, а молчать о таком прыжке нельзя тем более:
+    «нет строки в ленте» пришлось бы читать как «перемотки не было». Нулём же его писала
+    ровно та метрика, которую чинят, - и худший исход выглядел бы как лучший.
+    """
+    from torrcast.cast import ChromecastReceiver
+
+    monkeypatch.setattr(ChromecastReceiver, "_device", lambda self: _FakeDevice([]))
+    receiver = ChromecastReceiver("10.0.0.50")
+    script = [
+        _Reported(600.0),
+        _Reported(1891.0, "BUFFERING"),  # прыжок принят, картинки ждём
+        _Reported(0.0, "IDLE"),  # сессия умерла, ждать больше некого
+    ]
+    monkeypatch.setattr(ChromecastReceiver, "_status", lambda self: script.pop(0))
+    for _ in range(3):
+        receiver.position(front=1e6)
+    trace.shutdown()
+
+    rec = _only(_read_lines(tmp_path), "seek")
+    assert rec["to"] == 1891.0
+    assert rec["wait"] is None
+    assert "картинки так и не было" in trace.digest(trace.records())
+
+
 def test_our_own_nudge_is_not_counted_as_a_seek_by_the_viewer(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

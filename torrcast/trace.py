@@ -413,9 +413,23 @@ def revive(pos: float, tries: int, waited: float, ok: bool) -> None:
     emit("play", "revive", pos=round(pos, 1), tries=tries, waited=round(waited, 1), ok=ok)
 
 
-def seek(frm: float, to: float, wait: float) -> None:
-    """Перемотка: откуда, куда и сколько секунд ждали картинку после неё."""
-    emit("play", "seek", frm=round(frm, 1), to=round(to, 1), wait=round(wait, 2))
+def seek(frm: float, to: float, wait: float | None, why: str = "") -> None:
+    """Перемотка: откуда, куда и сколько секунд ждали КАРТИНКУ после неё.
+
+    Ожидание меряется до сдвига указателя с места приземления, а не до слова ``PLAYING``:
+    приёмник говорит его раньше первого кадра (:attr:`torrcast.cast.ChromecastReceiver.
+    PICTURE_STEP`). ``wait=None`` - картинки после этой перемотки не случилось вовсе, и
+    ``why`` называет, чем всё кончилось.
+    """
+    extra = {"why": why} if why else {}
+    emit(
+        "play",
+        "seek",
+        frm=round(frm, 1),
+        to=round(to, 1),
+        wait=None if wait is None else round(wait, 2),
+        **extra,
+    )
 
 
 def evict(key: str, freed: int, need: int, title: str = "") -> None:
@@ -772,10 +786,17 @@ def _event_line(rec: dict[str, Any], began: float, seam: bool = False) -> str:
             f" темнота {float(rec.get('waited', 0.0)):.0f} с)"
         )
     if event == "seek":
+        wait = rec.get("wait")
+        # Картинки не было вовсе - это отдельный исход, а не нулевое ожидание: нулём его
+        # печатала как раз старая метрика, верившая слову приёмника.
+        back = (
+            f" картинка через {float(wait):.1f} с"
+            if wait is not None
+            else f" картинки так и не было: {rec.get('why', 'причина не названа')}"
+        )
         return (
             f"{stamp}перемотка {_hms(float(rec.get('frm', 0.0)))}"
-            f" -> {_hms(float(rec.get('to', 0.0)))},"
-            f" картинка через {float(rec.get('wait', 0.0)):.1f} с"
+            f" -> {_hms(float(rec.get('to', 0.0)))},{back}"
         )
     if event == "evict":
         who = rec.get("title") or rec.get("key", "?")
