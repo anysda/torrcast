@@ -132,7 +132,8 @@ class _Writer:
     """
 
     def __init__(self) -> None:
-        self._q: queue.Queue[dict[str, Any] | None] = queue.Queue(maxsize=_QUEUE_MAX)
+        #: В очереди лежит не запись, а ПАРА «файл ленты, запись»: см. :meth:`put`.
+        self._q: queue.Queue[tuple[Path, dict[str, Any]] | None] = queue.Queue(maxsize=_QUEUE_MAX)
         self._thread: threading.Thread | None = None
         self._lock = threading.Lock()
         self._pruned = ""
@@ -149,11 +150,18 @@ class _Writer:
         в ленту отдельной записью (``lost``), которую печатает и ``cast log``. Но и запись о
         потере не всесильна: сами потерянные события не восстановимы, и «в ленте нет строки»
         рядом с ``lost`` значит «строка могла быть съедена очередью», а не «события не было».
+
+        Файл ленты выбирается ЗДЕСЬ и едет в очереди вместе с записью. Место записи - это
+        свойство МОМЕНТА СОБЫТИЯ, а не момента, когда до диска дошли руки: писатель
+        фоновый, между укладкой и записью проходит сколько угодно времени, и за это время
+        каталог ленты (:data:`LOG_ENV`, файл состояния) может смениться, а сутки -
+        перевалить за полночь. Выбирай файл писатель у себя, отставший хвост уезжал бы в
+        чужую ленту. Диска это не касается: :func:`log_path` только считает путь.
         """
         if self._thread is None:
             self._start()
         try:
-            self._q.put_nowait(record)
+            self._q.put_nowait((log_path(), record))
         except queue.Full:
             self._lost += 1
 
@@ -170,7 +178,7 @@ class _Writer:
             first = self._q.get()
             if first is None:
                 return
-            batch = [first]
+            batch: list[tuple[Path, dict[str, Any]]] = [first]
             with contextlib.suppress(queue.Empty):
                 while len(batch) < _BATCH:
                     nxt = self._q.get_nowait()
@@ -182,7 +190,7 @@ class _Writer:
 
     def drain(self) -> None:
         """Синхронно записать всё, что уже в очереди. Для :func:`shutdown` и тестов."""
-        batch: list[dict[str, Any]] = []
+        batch: list[tuple[Path, dict[str, Any]]] = []
         with contextlib.suppress(queue.Empty):
             while True:
                 item = self._q.get_nowait()
@@ -200,35 +208,42 @@ class _Writer:
         thread.join(timeout=2.0)
         self._thread = None
 
-    def _flush(self, batch: list[dict[str, Any]]) -> None:
-        path = log_path()
+    def _flush(self, batch: list[tuple[Path, dict[str, Any]]]) -> None:
         lost, self._lost = self._lost, 0
         if lost:
             # Переполнение очереди - единственный способ потерять решение уже ПОСЛЕ того,
             # как о нём сказали человеку. Признаваться в этом обязана сама лента: иначе
-            # разбор недели уверенно прочитает пропуск как «события не было».
-            batch = [
-                {
-                    "at": round(time.time(), 3),
-                    "sid": session_id(),
-                    "pid": os.getpid(),
-                    "phase": "trace",
-                    "event": "lost",
-                    "count": lost,
-                },
-                *batch,
-            ]
-        blob = "".join(json.dumps(rec, ensure_ascii=False) + "\n" for rec in batch)
-        with contextlib.suppress(OSError):
-            path.parent.mkdir(parents=True, exist_ok=True)
-            # O_APPEND и одна запись на пакет: две ноги (команда и юнит) пишут в тот же файл,
-            # атомарная дозапись держит строки целыми - как в секундомере старта.
-            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
-            try:
-                os.write(fd, blob.encode("utf-8"))
-            finally:
-                os.close(fd)
-        self._prune(path.parent)
+            # разбор недели уверенно прочитает пропуск как «события не было». Своего файла
+            # у признания нет - потерянные записи в очередь не попали, - поэтому оно
+            # ложится к первой записи пакета, то есть к соседям по потерянному месту.
+            confession = {
+                "at": round(time.time(), 3),
+                "sid": session_id(),
+                "pid": os.getpid(),
+                "phase": "trace",
+                "event": "lost",
+                "count": lost,
+            }
+            batch = [(batch[0][0] if batch else log_path(), confession), *batch]
+        # Обычно файл у всего пакета один и запись выходит одна, как раньше. Разные файлы
+        # в одном пакете - это смена каталога ленты на ходу: тогда каждая запись едет
+        # туда, куда собиралась, а не туда, где писателя застала эта смена.
+        pending: dict[Path, list[dict[str, Any]]] = {}
+        for path, record in batch:
+            pending.setdefault(path, []).append(record)
+        for path, records_ in pending.items():
+            blob = "".join(json.dumps(rec, ensure_ascii=False) + "\n" for rec in records_)
+            with contextlib.suppress(OSError):
+                path.parent.mkdir(parents=True, exist_ok=True)
+                # O_APPEND и одна запись на файл: две ноги (команда и юнит) пишут в тот же
+                # файл, атомарная дозапись держит строки целыми - как в секундомере старта.
+                fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
+                try:
+                    os.write(fd, blob.encode("utf-8"))
+                finally:
+                    os.close(fd)
+        for directory in dict.fromkeys(path.parent for path in pending):
+            self._prune(directory)
 
     def _prune(self, directory: Path) -> None:
         """Ротация: старше семи суток - снести, свыше потолка места - снести самые старые.
@@ -476,10 +491,16 @@ def records(since: float = 0.0) -> list[dict[str, Any]]:
         for path in sorted(log_dir().glob(f"{_PREFIX}*{_SUFFIX}")):
             with contextlib.suppress(OSError):
                 for raw in path.read_text("utf-8").splitlines():
-                    with contextlib.suppress(ValueError):
+                    # Нечитаемая строка значит «этой строки нет» и ничего больше. Разбор и
+                    # проверка стоят под одним suppress намеренно: врозь неразобранная
+                    # строка оставляла в `rec` ПРЕДЫДУЩУЮ запись, и та уходила в выдачу
+                    # вторым разом, а битая первая строка роняла `cast log` целиком. Хвост
+                    # ленты рвётся законно: писатель - демон, и последняя запись может
+                    # оборваться на середине вместе с погашенным показом.
+                    with contextlib.suppress(TypeError, ValueError):
                         rec = json.loads(raw)
-                    if isinstance(rec, dict) and float(rec.get("at", 0.0)) >= since:
-                        found.append(rec)
+                        if isinstance(rec, dict) and float(rec.get("at", 0.0)) >= since:
+                            found.append(rec)
     return sorted(found, key=lambda e: float(e.get("at", 0.0)))
 
 

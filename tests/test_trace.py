@@ -132,6 +132,35 @@ def test_size_ceiling(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     assert f"trace-{days[0]}.jsonl" not in left
 
 
+def test_оборванная_строка_ленты_не_задваивает_соседнюю(tmp_path: Path) -> None:
+    """Строка, которую не разобрать, значит «этой строки нет» - и ничего больше.
+
+    Хвост ленты рвётся законно: писатель - демон, и последняя запись обрывается
+    на середине вместе с погашенным показом. Читатель обязан молча пройти мимо -
+    а он подсовывал вместо неё ПРЕДЫДУЩУЮ запись вторым разом (и падал целиком,
+    если рваной оказывалась первая строка). Задвоенное решение в разборе недели
+    хуже пропущенного: пропуск видно, а повтор читается как «так и было».
+    """
+    whole = [
+        {"at": 100.0, "sid": "s", "phase": "search", "event": "query", "query": "матрица"},
+        {"at": 200.0, "sid": "s", "phase": "select", "event": "select", "release": 2},
+    ]
+    lines = [json.dumps(rec, ensure_ascii=False) for rec in whole]
+    torn = lines[0][:20]  # запись, оборванная на полуслове
+
+    (tmp_path / "trace-20250101.jsonl").write_text("\n".join([*lines, torn]) + "\n", "utf-8")
+    assert trace.records() == whole, "оборванный хвост задвоил соседнюю запись"
+
+    (tmp_path / "trace-20250101.jsonl").write_text("\n".join([torn, *lines]) + "\n", "utf-8")
+    assert trace.records() == whole, "рваная ПЕРВАЯ строка уронила чтение ленты"
+
+    # Мусор на месте времени - тот же случай: строка нечитаемая, лента - нет.
+    (tmp_path / "trace-20250101.jsonl").write_text(
+        "\n".join([json.dumps({"at": "никогда", "event": "query"}), *lines]) + "\n", "utf-8"
+    )
+    assert trace.records() == whole
+
+
 # --- ГЛАВНЫЙ ИНВАРИАНТ: горячий путь не ждёт журнал --------------------------
 
 
@@ -173,7 +202,7 @@ def test_flush_runs_off_the_caller_thread(tmp_path: Path, monkeypatch: pytest.Mo
     flusher: list[int] = []
     real_flush = trace._Writer._flush
 
-    def spy(self: trace._Writer, batch: list[dict[str, object]]) -> None:
+    def spy(self: trace._Writer, batch: list[tuple[Path, dict[str, object]]]) -> None:
         flusher.append(threading.get_ident())
         real_flush(self, batch)
 
@@ -215,6 +244,45 @@ def test_segment_emit_no_disk(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
     assert writes == [], "укладка сегмента сделала синхронный write - это регресс инварианта"
     writer.stop()  # thread не поднимался - stop дожимает синхронно через drain
     assert writes, "после дожатия хвост так и не записался"
+
+
+def test_отставший_хвост_не_дописывается_в_чужую_ленту(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Запись едет в ту ленту, на которую журнал смотрел в МОМЕНТ СОБЫТИЯ.
+
+    Обратная сторона неблокирующей укладки: между ``emit`` и попаданием записи на диск
+    проходит сколько угодно времени, а каталог ленты за это время может смениться
+    (:data:`trace.LOG_ENV`, файл состояния) или наступить новые сутки. Выбирай писатель
+    файл у себя, отставший хвост дописывался бы в ленту, которую переменная показывает
+    СЕЙЧАС, - в чужую. Дыра нашлась на полном прогоне: хвост соседнего теста попадал
+    в каталог следующего, и тот находил у себя запись, которой взяться неоткуда.
+
+    Писатель тут придержан на первой записи не ради скорости, а чтобы окно гонки было
+    ровно тем самым: запись уже у писателя, но ещё не на диске.
+    """
+    first, second = tmp_path / "первая", tmp_path / "вторая"
+    took, hold = threading.Event(), threading.Event()
+    real_flush = trace._Writer._flush
+
+    def held(self: trace._Writer, batch: list[tuple[Path, dict[str, object]]]) -> None:
+        took.set()
+        hold.wait(5.0)
+        real_flush(self, batch)
+
+    monkeypatch.setattr(trace._Writer, "_flush", held)
+    monkeypatch.setenv(trace.LOG_ENV, str(first))
+    trace.emit("search", "query", query="первая")
+    assert took.wait(5.0), "писатель так и не взял запись - окно гонки не воспроизведено"
+    monkeypatch.setenv(trace.LOG_ENV, str(second))
+    trace.emit("search", "query", query="вторая")
+    hold.set()
+    trace.shutdown()
+
+    assert [rec["query"] for rec in _read_lines(first)] == ["первая"]
+    assert [rec["query"] for rec in _read_lines(second)] == ["вторая"], (
+        "хвост отставшего писателя дописался в чужую ленту"
+    )
 
 
 def test_digest_summarises_session(tmp_path: Path) -> None:
