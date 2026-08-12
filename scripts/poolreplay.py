@@ -168,6 +168,18 @@ class Replay:
         """Что играет по Enter: верхняя картина меню, для которой построен план."""
         return self.plans[0].picture if self.plans else None
 
+    @property
+    def any_picture_playable(self) -> bool:
+        """Есть ли хоть какая-нибудь картина, которую Enter сможет запустить."""
+        return self.default is not None
+
+    @property
+    def requested_picture_playable(self) -> bool:
+        """Запустит ли Enter верхнюю, то есть спрошенную, картину, а не соседнюю."""
+        return (
+            self.top is not None and self.default is not None and self.top.key == self.default.key
+        )
+
 
 def batches_of(record: dict[str, Any]) -> list[list[RawResult]]:
     """Сохранённые строки индексеров → пачки :class:`RawResult`, битые строки прочь."""
@@ -388,6 +400,8 @@ def as_json(item: Replay) -> dict[str, Any]:
         ],
         "thin": item.thin,
         "unfit": item.unfit,
+        "any_picture_playable": item.any_picture_playable,
+        "requested_picture_playable": item.requested_picture_playable,
         "top": None
         if top is None
         else {

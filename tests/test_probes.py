@@ -203,6 +203,26 @@ def test_щуп_называет_кого_не_пустил_в_меню() -> Non
     assert [p.title for p in item.missed] == ["Криминальное чтиво"]
 
 
+def test_доступность_не_засчитывает_соседнюю_картину() -> None:
+    """«Сыграло что-нибудь» остаётся отдельно и не выдаётся за ответ на запрос."""
+    report = probe("runreport")
+    rows = [
+        {
+            "query": "дюна",
+            "views": {
+                "ВСЕ (эталон)": {"playable": True, "default": ["Дюна 2", 2024, "movie"]},
+                "без источника": {"playable": True, "default": ["Дюна", 2021, "movie"]},
+            },
+        }
+    ]
+    counts = report.availability(rows, "ВСЕ (эталон)")
+    changed = counts[1]
+    assert changed["any_picture_playable"] == 1
+    assert changed["requested_picture_playable"] == 0
+    text = "\n".join(report.report(rows, 0, []))
+    assert "| без источника | 1 | 1 | 0 | 1 |" in text
+
+
 def written(path: Path) -> dict[str, Any]:
     """Паспорт, положенный щупом рядом с его выводом."""
     card = path.with_name(path.name + ".passport.json")

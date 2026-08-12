@@ -135,7 +135,76 @@ def grouped(rows: list[dict[str, Any]], field: str) -> dict[str, list[dict[str, 
     return dict(sorted(groups.items()))
 
 
+def picture_id(view: dict[str, Any]) -> tuple[Any, ...] | None:
+    """Устойчивая личность выбранной картины из старого или нового JSONL."""
+    value = view.get("default")
+    if isinstance(value, list) and len(value) >= 2:
+        return tuple(value[:3])
+    if isinstance(value, dict) and value.get("title") is not None:
+        return (value.get("title"), value.get("year"), value.get("kind"))
+    return None
+
+
+def availability(rows: list[dict[str, Any]], base: str) -> list[dict[str, Any]]:
+    """Честный счёт доступности: осталась ли выбрана картина эталонного запроса."""
+    labels = list(rows[0].get("views", {})) if rows else []
+    out: list[dict[str, Any]] = []
+    for label in labels:
+        asked = any_picture = requested_picture = 0
+        for row in rows:
+            views = row.get("views")
+            if not isinstance(views, dict):
+                continue
+            baseline, current = views.get(base), views.get(label)
+            if not isinstance(baseline, dict) or not isinstance(current, dict):
+                continue
+            wanted = picture_id(baseline)
+            if wanted is None:
+                continue
+            asked += 1
+            any_picture += bool(current.get("any_picture_playable", current.get("playable")))
+            exact = current.get("requested_picture_playable")
+            requested_picture += (
+                bool(exact) if isinstance(exact, bool) else picture_id(current) == wanted
+            )
+        out.append(
+            {
+                "label": label,
+                "asked": asked,
+                "any_picture_playable": any_picture,
+                "requested_picture_playable": requested_picture,
+            }
+        )
+    return out
+
+
+def availability_report(rows: list[dict[str, Any]]) -> list[str]:
+    """Таблица двух разных вопросов, чтобы подмена не считалась доступностью."""
+    if not rows or not isinstance(rows[0].get("views"), dict):
+        return []
+    labels = list(rows[0]["views"])
+    base = "ВСЕ (эталон)" if "ВСЕ (эталон)" in labels else labels[0]
+    out = [
+        "\n### Доступность спрошенной картины\n",
+        "| набор | запросов | сыграло что-нибудь | сыграла спрошенная картина | потерь |",
+        "|---|---:|---:|---:|---:|",
+    ]
+    for item in availability(rows, base):
+        lost = item["asked"] - item["requested_picture_playable"]
+        out.append(
+            f"| {item['label']} | {item['asked']} | {item['any_picture_playable']} | "
+            f"{item['requested_picture_playable']} | {lost} |"
+        )
+    return out
+
+
 def report(rows: list[dict[str, Any]], repeats: int, fields: list[str]) -> list[str]:
+    availability_lines = availability_report(rows)
+    if availability_lines:
+        return [
+            f"Запросов: **{len(rows)}**" + (f" (свернуто повторов: {repeats})" if repeats else ""),
+            *availability_lines,
+        ]
     verdicts = verdicts_in(rows)
     counts = tally(rows, verdicts)
     n = len(rows)
