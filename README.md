@@ -95,6 +95,8 @@ TorrServer и Prowlarr ставятся не «последние какие е�
 
 ## Команды
 
+Гейт целиком: `scripts/test-gate`; только тесты, задетые правкой: `pytest --testmon`.
+
 ```
 cast <запрос> [sNeM] [--voice N] [--new] [--dry] [--pick N] [--release N] [--file N]
 cast                 # то же, что cast status

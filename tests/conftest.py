@@ -24,6 +24,19 @@ if TYPE_CHECKING:
 #: и «продолжить с середины» на нём проверять уже нечего.
 CLIP_SECONDS = 60
 
+# Любой тест из этой группы получает настоящий медиафайл, собранный ffmpeg. Маркер
+# ставится по замыканию фикстур: так зависимость не потеряется, когда тест начнёт брать
+# не ``clip`` напрямую, а производный mp4 или общую фикстуру поверх него.
+FFMPEG_FIXTURES = frozenset({"clip", "clip_hevc", "clip_mp4", "clip_mp4_tail", "clip_mp4_bframes"})
+
+
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+    """Отделить тесты настоящего медиатракта от быстрых тестов с заглушками."""
+    marker = pytest.mark.ffmpeg
+    for item in items:
+        if isinstance(item, pytest.Function) and FFMPEG_FIXTURES.intersection(item.fixturenames):
+            item.add_marker(marker)
+
 
 def free_port() -> int:
     """Свободный порт спрашивается у ядра, а не пишется константой в тесте.

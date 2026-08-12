@@ -27,6 +27,8 @@ cast = "torrcast.cli:main"
 dev = [
     "mypy>=1.11",
     "pytest>=8.3",
+    "pytest-testmon>=2.1",
+    "pytest-xdist>=3.8",
     "ruff==0.16.1",
     "types-requests>=2.32",
 ]
@@ -57,4 +59,7 @@ pretty = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q"
+addopts = "-q --strict-markers"
+markers = [
+    "ffmpeg: интеграционный тест с настоящими ffmpeg/ffprobe (гоняется последовательно)",
+]
