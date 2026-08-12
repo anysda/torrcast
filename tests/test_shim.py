@@ -560,8 +560,31 @@ def _drop_then_third(tls: tuple[str, str], sick_port: int) -> float:
     занимает и третий уходит на хост сразу (один таймаут к больному). Если нет - мёртвый
     держит слот весь таймаут, и третий ждёт ещё столько же (два таймаута).
     """
+    class ObservedGate:
+        """Семафор, который сообщает тесту о входе обработчика в очередь."""
+
+        def __init__(self) -> None:
+            self.semaphore = threading.BoundedSemaphore(1)
+            self.changed = threading.Condition()
+            self.waiters: set[int] = set()
+
+        def acquire(self, blocking: bool = True, timeout: float | None = None) -> bool:
+            if blocking and timeout is not None:
+                with self.changed:
+                    self.waiters.add(threading.get_ident())
+                    self.changed.notify_all()
+            return self.semaphore.acquire(blocking=blocking, timeout=timeout)
+
+        def release(self) -> None:
+            self.semaphore.release()
+
+        def wait_for(self, count: int) -> None:
+            with self.changed:
+                assert self.changed.wait_for(lambda: len(self.waiters) >= count, timeout=5)
+
     route = shim.Route("sick.test", [f"https://127.0.0.1:{sick_port}"])
-    route.gate = threading.BoundedSemaphore(1)
+    gate = ObservedGate()
+    route.gate = gate
     server = _shim(tls, {"sick.test": route})
     front = server.server_address[1]
     spent: dict[str, float] = {}
@@ -573,12 +596,11 @@ def _drop_then_third(tls: tuple[str, str], sick_port: int) -> float:
     try:
         assert route.gate.acquire(blocking=False), "слот занять руками"
         dropped = _open_and_send(front, "sick.test")  # первый в очереди
-        time.sleep(0.5)  # обработчик доходит до ожидания в очереди
+        gate.wait_for(1)
         dropped.close()  # клиент бросает соединение, стоя в очереди
-        time.sleep(0.2)  # FIN доезжает до шима
         worker = threading.Thread(target=third)
         worker.start()
-        time.sleep(0.3)  # третий успевает встать в очередь вторым
+        gate.wait_for(2)
         route.gate.release()  # ручной слот отпущен - очередь оживает
         worker.join(timeout=shim._TIMEOUT * 3 + 5)
         return spent["took"]

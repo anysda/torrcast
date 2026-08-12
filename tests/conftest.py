@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+import ast
+import inspect
 import socket
 import subprocess
 import time
@@ -32,7 +34,7 @@ FFMPEG_FIXTURES = frozenset({"clip", "clip_hevc", "clip_mp4", "clip_mp4_tail", "
 # Эти проверки намеренно меряют настоящий планировщик, TCP/TLS или ожидание потока.
 # Их нельзя честно распараллеливать с быстрым набором: под CPU-нагрузкой пауза потока
 # становится частью замера. Список по nodeid оставляет логические тесты тех же модулей
-# быстрыми и заставляет каждую машинную зависимость быть названной отдельно.
+# быстрыми; сторож ниже не даёт забыть внести сюда новый прямой машинный вызов.
 MACHINE_TESTS = frozenset(
     {
         # Локальные HTTP/TLS-серверы и настоящий TCP blackhole.
@@ -70,6 +72,57 @@ MACHINE_TESTS = frozenset(
         "tests/test_console.py::test_progress_names_every_phase_and_its_time",
         "tests/test_console.py::test_the_running_clock_survives_an_empty_phase",
         "tests/test_trace.py::test_records_reads_and_orders",
+        "tests/test_trace.py::test_size_ceiling",
+        "tests/test_trace.py::test_emit_schema",
+        "tests/test_trace.py::test_two_show_sessions_are_unambiguously_selected_in_one_log",
+        "tests/test_trace.py::test_bad_field_dropped_not_raised",
+        "tests/test_trace.py::test_rotation_drops_old_days",
+        "tests/test_trace.py::test_digest_summarises_session",
+        "tests/test_trace.py::test_a_nudge_is_a_record_with_numbers_not_a_line_of_text",
+        "tests/test_trace.py::test_a_reload_of_a_dead_receiver_is_logged",
+        "tests/test_trace.py::test_a_seek_carries_where_to_and_how_long_the_picture_took",
+        "tests/test_trace.py::test_our_own_nudge_is_not_counted_as_a_seek_by_the_viewer",
+        "tests/test_trace.py::test_a_dark_screen_and_its_revival_are_records_with_numbers",
+        "tests/test_trace.py::test_an_eviction_says_who_was_thrown_out_and_how_much_it_freed",
+        "tests/test_trace.py::test_a_piece_laid_off_the_grid_is_a_record_with_numbers",
+        "tests/test_trace.py::test_the_share_of_the_warmed_movie_is_a_field",
+        "tests/test_trace.py::test_cast_log_shows_the_new_events",
+        "tests/test_trace.py::test_doctor_says_whether_the_journal_is_alive",
+        "tests/test_trace.py::test_a_served_piece_says_which_producer_made_it",
+        "tests/test_trace.py::test_the_plan_says_how_both_producers_encode",
+        "tests/test_trace.py::test_cast_log_shows_the_timeline_and_the_query",
+        "tests/test_trace.py::test_an_event_this_version_does_not_know_is_printed_anyway",
+        "tests/test_anime.py::test_the_catalogue_hole_lands_in_the_weekly_trace",
+        "tests/test_facts.py::test_the_map_answers_when_wikipedia_misses_the_deadline",
+        "tests/test_pool.py::test_without_a_reference_the_guess_stays_but_says_so",
+        "tests/test_search.py::test_след_отличает_опоздавшего_от_молчуна",
+        "tests/test_warm.py::test_a_piece_laid_off_the_grid_never_reaches_the_show",
+        "tests/test_ux.py::test_the_spare_release_warms_under_the_menu_not_after_the_first_one_fails",
+        "tests/test_ux.py::test_a_dry_run_takes_even_the_chosen_torrent_back",
+        "tests/test_ux.py::test_an_instant_answer_is_no_worse_than_before",
+        "tests/test_ux.py::test_the_menu_prewarm_stands_aside_while_our_show_is_on_air",
+        "tests/test_ux.py::test_prewarmed_torrents_are_dropped_when_the_show_never_starts",
+        "tests/test_voices.py::test_a_voice_torrent_is_handed_to_the_show_and_not_pulled_from_under_it",
+        "tests/test_play.py::test_a_source_the_receiver_cannot_decode_is_recoded_from_the_first_segment",
+        "tests/test_play.py::test_packing_torn_off_again_and_again_is_an_honest_infra_error",
+        "tests/test_hls.py::test_the_key_lock_stays_alive_while_its_holder_works",
+        "tests/test_hls.py::test_two_writers_of_one_key_map_do_not_share_a_draft",
+        "tests/test_hls.py::test_segments_are_never_cached_by_the_receiver",
+        "tests/test_hls.py::test_cors_is_on_every_answer_including_404_and_preflight",
+        "tests/test_hls.py::test_content_types_are_what_the_receiver_expects",
+        "tests/test_hls.py::test_segments_answer_range_requests",
+        "tests/test_hls.py::test_nothing_but_the_stream_is_reachable",
+        "tests/test_hls.py::test_a_stopped_show_stops_answering_even_on_a_live_connection",
+        "tests/test_hls.py::test_the_default_transport_is_plain_http_by_ip",
+        "tests/test_hls.py::test_https_stays_a_working_but_switched_off_option",
+        "tests/test_hls.py::test_the_playback_address_is_our_own_leg_toward_the_tv",
+        "tests/test_hls.py::test_the_position_is_warmed_by_its_byte_offset_not_by_a_proportion",
+        "tests/test_hls.py::test_a_space_in_the_run_directory_does_not_quietly_kill_the_packing",
+        "tests/test_hls.py::test_the_head_warmed_under_the_question_is_sized_by_the_container",
+        "tests/test_hls.py::test_an_old_key_cache_takes_the_container_from_the_file_name",
+        "tests/test_warm.py::test_warming_lays_the_whole_clip_on_disk_and_reports_it",
+        "tests/test_warm.py::test_warming_does_not_even_start_a_run_while_the_recoder_works",
+        "tests/test_warm.py::test_the_warmed_film_is_homogeneous_and_its_heavy_piece_is_recoded",
         "tests/test_swarm.py::test_run_ffprobe_returns_the_moment_the_probe_exits",
         "tests/test_swarm.py::test_run_ffprobe_bails_at_once_on_a_swarm_declared_dead",
         "tests/test_swarm.py::test_run_ffprobe_keeps_the_full_budget_while_the_stream_is_alive",
@@ -101,6 +154,31 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
             item.add_marker(ffmpeg)
         if item.nodeid in MACHINE_TESTS:
             item.add_marker(machine)
+        if item.get_closest_marker("machine") or item.get_closest_marker("ffmpeg"):
+            continue
+        if not isinstance(item, pytest.Function):
+            continue
+        tree = ast.parse(inspect.getsource(item.function))
+        calls = {
+            ast.unparse(node.func)
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+        }
+        mechanisms = {
+            "time.sleep": "стенные часы",
+            "socket.socket": "настоящий сокет",
+            "socket.socketpair": "настоящий сокет",
+            "subprocess.run": "настоящий подпроцесс",
+            "subprocess.Popen": "настоящий подпроцесс",
+            "threading.Thread": "настоящий поток",
+            "trace.shutdown": "настоящий фоновый поток журнала",
+        }
+        leaked = sorted({label for call, label in mechanisms.items() if call in calls})
+        if leaked:
+            raise pytest.UsageError(
+                f"{item.nodeid}: быстрый тест использует {', '.join(leaked)}; "
+                "возьми маркер `machine`"
+            )
 
 
 def free_port() -> int:
