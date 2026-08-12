@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-# Логические процессоры делят независимые тесты; живой медиатракт не конкурирует сам
-# с собой за CPU и часы. Две команды вместе покрывают всю коллекцию.
-.venv/bin/python -m pytest -m 'not ffmpeg' -n logical
-.venv/bin/python -m pytest -m ffmpeg -n 0
+# Логические процессоры делят независимые тесты; настоящие часы, сокеты, подпроцессы
+# и живой медиатракт не конкурируют за машину. Две команды покрывают всю коллекцию.
+.venv/bin/python -m pytest -m 'not ffmpeg and not machine' -n logical
+.venv/bin/python -m pytest -m 'ffmpeg or machine' -n 0
