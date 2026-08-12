@@ -2471,3 +2471,126 @@ def test_the_mock_never_asks_for_the_pieces_left_behind_the_entry_point(
         f"v{slot}.ts" for slot in (1, 2, 3, 4, 5)
     ], "спрошено ровно то, что впереди захода"
     assert mock.report.gaps == 0, "начало сверки с середины - не дыра в нумерации"
+
+
+def test_the_mock_tells_the_credits_from_a_source_that_died_under_the_show() -> None:
+    """Заглушка отличает конец фильма от смерти источника, а не зовёт титрами любой ноль.
+
+    🔴 Замер TC-314: источник пропал под показом, ffmpeg закрыл вход нулём на 0:04:42 из
+    2:46:55, и сухой прогон записал это «фильм доигран» - в журнале ``экран: 0:04:42`` с
+    пустым состоянием. Пока это считалось титрами, ни один замер досмотра заглушкой не
+    доказывался: авария на пятой минуте читалась успехом.
+    """
+    from torrcast.state import WATCHED_RATIO
+
+    whole = 10015.0  # 2:46:55 - длина того самого фильма
+
+    died = MockReceiver()
+    died._proc = FakeProc(0)  # type: ignore[assignment]
+    died.report.duration = whole
+    died._pos = Position(282.0, whole, False)  # 0:04:42, декодер уже вышел
+
+    assert not died._over(), "ноль на пятой минуте - это оборванный источник, а не титры"
+    seen = died.position()
+    assert (seen.state, seen.playing) == ("BUFFERING", True), (
+        "смерть источника уходит в терпение приёмника, как оборванная картинка на ТВ"
+    )
+
+    ended = MockReceiver()
+    ended._proc = FakeProc(0)  # type: ignore[assignment]
+    ended.report.duration = whole
+    ended._pos = Position(whole * WATCHED_RATIO, whole, False)
+
+    assert ended._over(), "вышел нулём за порогом досмотра - вот это титры"
+    assert ended.position().state == "", "титры показ узнаёт по пустому состоянию"
+
+    blind = MockReceiver()
+    blind._proc = FakeProc(0)  # type: ignore[assignment]
+    blind._pos = Position(282.0, 0.0, False)
+    assert blind._over(), "длины фильма ещё не знаем - судить не по чему, правило прежнее"
+
+
+def test_the_diagnostic_remote_steers_the_mock_receiver(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Пульт (``TORRCAST_CTL``) доезжает до заглушки: пауза, снятие паузы, перемотка.
+
+    🔴 Заглушка не реализовывала ни одного из трёх методов, не проходила проверку «этим
+    можно рулить» (:class:`torrcast.cli._Steerable`) - и команда пульта на сухом прогоне
+    молча оставалась лежать файлом. То есть перемотку и паузу заглушкой проверить было
+    нечем вовсе: «на mock перемотка работает» доказывалось ничем.
+
+    Пауза тут не бутафория: декодер умолкает по-настоящему (упаковке на паузе класть
+    некому), показ при этом жив и стоит ровно на своём месте, а снятая пауза продолжает
+    его оттуда же.
+    """
+    from torrcast import cli
+
+    mock = MockReceiver()
+    assert isinstance(mock, cli._Steerable), "заглушкой обязано быть можно рулить"
+
+    opens: list[float] = []
+    monkeypatch.setattr(MockReceiver, "_open", lambda self, url, at=0.0: opens.append(at))
+    mock._url = "http://127.0.0.1:9/hls/index.m3u8"
+    mock._proc = FakeProc()  # type: ignore[assignment]
+    mock._pos = Position(600.0, 7200.0, True)
+    mock.report.duration = 7200.0
+    ctl = tmp_path / "ctl"
+    monkeypatch.setenv(cli.CTL_ENV, str(ctl))
+
+    ctl.write_text("pause", "utf-8")
+    cli._ctl(mock)
+
+    decoder = mock._proc
+    assert decoder is not None and decoder.poll() == -15, (
+        "декодер умолк - сегментов приёмник больше не берёт"
+    )
+    held = mock.position()
+    assert (held.state, held.pos, held.playing) == ("PAUSED", 600.0, True), (
+        "на паузе показ жив и стоит на месте, а не считается погасшим"
+    )
+    assert opens == [], "пауза - не LOAD"
+
+    ctl.write_text("play", "utf-8")
+    cli._ctl(mock)
+
+    assert opens == [600.0], "снятая пауза продолжает показ ровно с того места, где он стоял"
+    assert not mock._paused and mock.position().state != "PAUSED"
+
+    ctl.write_text("seek 1200.5", "utf-8")
+    cli._ctl(mock)
+
+    assert opens == [600.0, 1200.5], "перемотка доехала до заглушки тем же местом, что и на ТВ"
+
+
+class _Silent:
+    """Поток, которого нет: заглушку тут проверяют без её же фоновых читателей."""
+
+    def start(self) -> None:
+        pass
+
+    def join(self, timeout: float | None = None) -> None:
+        pass
+
+
+def test_the_mock_never_rewinds_the_show_to_the_head_of_the_film(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Приёмник, посланный на 0:20:00, до первого слова декодера стоит ТАМ, а не в начале.
+
+    🔴 Замер TC-350: на возобновлении показа заглушка отматывала позицию назад (в статусе
+    0:00:52 → 0:00:09), и в состояние уходило место, где зритель не был. Закладку сухим
+    прогоном проверить было нечем: продолжение с середины читалось как старт с нуля.
+    Живой Q70D держит указатель ровно на месте захода, пока копит фильм до первого кадра.
+    """
+    monkeypatch.setattr(MockReceiver, "_probe", lambda self, url: "")
+    monkeypatch.setattr(subprocess, "Popen", lambda *args, **kwargs: FakeProc())
+    monkeypatch.setattr(threading, "Thread", lambda *args, **kwargs: _Silent())
+
+    mock = MockReceiver()
+    mock.play("http://127.0.0.1:9/hls/index.m3u8", at=1200.0)
+    mock.report.duration = 7200.0
+
+    seen = mock.position(front=1260.0)
+    assert seen.pos == 1200.0, "показ продолжается с 0:20:00, а не с головы фильма"
+    assert mock.position(front=1260.0).pos == 1200.0, "и на следующем опросе тоже"

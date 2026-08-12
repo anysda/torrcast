@@ -34,6 +34,7 @@ from typing import IO, Any, Literal, Protocol, runtime_checkable
 
 from torrcast import InfraError, trace, why
 from torrcast.profile import CAUTIOUS, Profile
+from torrcast.state import WATCHED_RATIO
 from torrcast.stream import parse_manifest
 from torrcast.timing import CLOCK, Clock
 
@@ -982,12 +983,63 @@ class MockReceiver:
         #: Первый кадр этого показа уже был на экране. До него приёмник копит фильм
         #: (:attr:`torrcast.profile.Profile.start_buffer`), после - идёт как шёл.
         self._shown = False
+        #: Показ стоит на паузе с пульта (:meth:`pause`): декодер заморожен, сессия жива.
+        self._paused = False
 
     def play(self, url: str, title: str = "", at: float = 0.0) -> None:
         self._url = url
         self._seen, self._still, self._loads, self._dead = -1.0, 0.0, 0, False
-        self._shown = False
+        self._shown, self._paused = False, False
         self._open(url, at)
+
+    def seek(self, pos: float) -> None:
+        """Перемотка с диагностического пульта (:data:`torrcast.cli.CTL_ENV`).
+
+        Пульт для того и заведён, что кнопку нажать может только человек, а сухому
+        прогону перемотку проверять больше нечем. Без этих трёх методов заглушка не
+        проходила :class:`torrcast.cli._Steerable`, и команда пульта молча оставалась
+        лежать файлом: «на mock перемотка работает» доказывалось ничем.
+
+        ⚠️ Чем это отличается от живого приёмника, и отличие не убирается: ТВ мотает
+        внутри той же медиасессии, а заглушке декодер приходится открывать заново
+        (:meth:`_open`) - у неё нет ничего другого. Снаружи разница видна: после
+        перемотки заглушка ненадолго уходит в ``BUFFERING``, как после LOAD. Что накоплено
+        до первого кадра, заново не разыгрывается: копит приёмник один раз, на заходе
+        (:meth:`_buffered`), а перемотка - не заход.
+        """
+        self._paused = False
+        self._open(self._url, pos)
+        self._seen, self._still, self._loads = pos, 0.0, 0
+
+    def pause(self) -> None:
+        """Пауза с пульта: декодер умолкает, а сессия и место на экране остаются.
+
+        Приёмник на паузе перестаёт брать сегменты - и заглушка перестаёт, поэтому
+        упаковка гаснет по той же причине и на той же секунде
+        (:data:`torrcast.cli.PAUSE_SECONDS`), а показ считается живым.
+
+        ⚠️ Отличие от ТВ, которое не убрать: там пауза не трогает медиасессию, а тут
+        декодер приходится остановить и на :meth:`resume` открыть заново. Держать его
+        замороженным сигналом нельзя: ``SIGSTOP`` в коде показа запрещён - под ним
+        приёмник намертво вис в ``BUFFERING`` при живых сегментах на диске
+        (tests/test_hls.py). Снаружи разница видна одним: снятая пауза стоит заглушке
+        того же ожидания картинки, что и LOAD.
+        """
+        self._paused = True
+        self._quiet()
+
+    def resume(self) -> None:
+        """Снять паузу: показ продолжается ровно с того места, где стоял.
+
+        Счётчики стоящей картинки сбрасываются нарочно: пауза - не пропавший источник, и
+        зачесть её приёмнику в терпение (:meth:`_wait`) значило бы гасить показ за то,
+        что зритель нажал кнопку.
+        """
+        if not self._paused:
+            return
+        self._paused = False
+        self._seen, self._still, self._loads = self._pos.pos, 0.0, 0
+        self._open(self._url, self._pos.pos)
 
     def _open(self, url: str, at: float = 0.0) -> None:
         """Открыть поток с секунды ``at``: проверка ответа, декодер, счётчики приёмки.
@@ -1023,7 +1075,12 @@ class MockReceiver:
         except FileNotFoundError as exc:
             self._close_log()
             raise InfraError("ffmpeg не установлен") from exc
-        self._pos = Position(0.0, 0.0, True)
+        # 🔴 Место захода, а не ноль: до первого слова декодера приёмник стоит ТАМ, КУДА
+        # его послали, и живой Q70D отвечает ровно так (указатель держится на месте захода,
+        # пока приёмник копит фильм). С нулём заглушка на первом же опросе отматывала показ
+        # в начало фильма - продолжение с 0:20:00 читалось как 0:00:00, и закладку сухим
+        # прогоном проверить было нельзя вовсе.
+        self._pos = Position(at, 0.0, True)
         self._follower = None
         for target in (self._follow, self._audit):
             thread = threading.Thread(target=target, args=(url,), daemon=True)
@@ -1150,6 +1207,10 @@ class MockReceiver:
             # Ровно так отвечает и живой Q70D, бросив показ; на этом нуле сторож обязан
             # держать своё место сам (:class:`torrcast.cli._Revival`).
             return Position(0.0, dur, False, "IDLE")
+        if self._paused:
+            # Пауза с пульта: картинка стоит нарочно, и стоящей её считать нельзя -
+            # терпение приёмника тут не тратится, показ жив, место прежнее.
+            return Position(self._pos.pos, dur, True, "PAUSED")
         pos, moving = self._pos.pos, self._pos.pos > self._seen
         self._seen = pos
         if self._pos.playing and moving and self._buffered(pos, front):
@@ -1179,8 +1240,27 @@ class MockReceiver:
         return self._shown or front <= pos or front - pos >= self.profile.start_buffer
 
     def _over(self) -> bool:
-        """Кончился ли вход честно: декодер вышел нулём, значит фильм доигран, а не оборван."""
-        return self._proc is not None and self._proc.poll() == 0
+        """Кончились ли титры: декодер вышел нулём ТАМ, где фильму и положено кончиться.
+
+        🔴 Нулевой выход сам по себе титрами не является. Замер TC-314: источник пропал
+        под показом, ffmpeg честно закрыл вход нулём на 0:04:42 из 2:46:55 - и сухой
+        прогон записал это как «фильм доигран» (в журнале ``экран: 0:04:42`` с пустым
+        состоянием). Так любая смерть источника на пятой минуте читалась успехом, и ни
+        один замер досмотра сухим прогоном не доказывался.
+
+        Мерка взята не своя, а та же, по которой показ отличает титры от аварии:
+        :data:`torrcast.state.WATCHED_RATIO` (:meth:`torrcast.cli._Revival.resurrect`).
+        Не дошли до неё - это обрыв, и дальше он проходит через терпение приёмника
+        (:meth:`_wait`) ровно как оборванная картинка на ТВ.
+
+        ⚠️ Длину фильма приёмник знает не всегда: ``report.duration`` набирает
+        :meth:`_audit` по манифесту, и до первого его ответа там ноль. Судить не по чему -
+        работает прежнее правило, иначе конец фильма не опознавался бы вовсе.
+        """
+        if self._proc is None or self._proc.poll() != 0:
+            return False
+        whole = self.report.duration
+        return whole <= 0 or self._pos.pos >= whole * WATCHED_RATIO
 
     def _wait(self, pos: float) -> bool:
         """Терпение приёмника к стоящей картинке; ``False`` - оно кончилось, показ брошен.

@@ -29,6 +29,7 @@ import argparse
 import functools
 import http.server
 import shutil
+import socket
 import socketserver
 import sys
 import threading
@@ -53,10 +54,19 @@ from torrcast.stream import (
     segment_name,
 )
 
-#: Порт локальной раздачи HLS: слушаем только петлю.
-HLS_PORT = 18099
-#: Порт мини-раздачи исходного файла (``--file``): keymap ходит за индексом Range-ами.
-SRC_PORT = 18098
+#: Во сколько раз кусок вправе быть длиннее заказанного шага, прежде чем сетка перестанет
+#: быть сеткой.
+#:
+#: 🔴 Фикстура ``tape.mkv``, лежавшая на стенде как «лёгкий материал», опорных кадров почти
+#: не несёт: на шаге 10 с карта дала 9 сегментов, первый длиной 2901.8 с. Сеточный замер на
+#: ней меряет один кусок в полчаса вместо сетки - и МОЛЧА, потому что сама сетка построена
+#: честно (:func:`torrcast.stream.grid_for` ругается только на карту, не похожую на видео).
+#: Порог с запасом: нарезка по опорным кадрам законно перебирает шаг на длину GOP (у
+#: замеренного материала - до 1.5 шага), вчетверо - это уже не она.
+GRID_FACTOR = 4.0
+#: Меньше этого числа кусков сеточному замеру не хватит: перемотка вперёд, назад и заход с
+#: середины требуют разных мест фильма, а не одного.
+GRID_LEAST = 8
 
 
 class _RangeHandler(http.server.SimpleHTTPRequestHandler):
@@ -102,12 +112,48 @@ class _QuietTCP(socketserver.ThreadingTCPServer):
         pass
 
 
+def free_port() -> int:
+    """Свободный порт спрашивается у ядра, а не пишется в щупе константой.
+
+    🔴 Порты 18098/18099 стояли тут числами, и два замера рядом на одном стенде падали с
+    ``Address already in use``: параллельные прогоны были невозможны вовсе, а второй
+    падал не по делу - и это уже стоило времени. ``bind`` на порт 0 отдаёт номер, который
+    свободен сейчас; соединений на сокете не было, поэтому TIME_WAIT ему не грозит и
+    раздача встаёт на то же место.
+    """
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
+
+
+def unfit_grid(grid: Any, step: float) -> str:
+    """Чем сетка негодна для сеточного замера; пусто - годна.
+
+    Смотрит не на фикстуру, а на то, что из неё вышло: сетка строится по опорным кадрам,
+    и материал без них даёт «сетку» из нескольких получасовых кусков. Замер на такой
+    сетке меряет что угодно, только не перемотку, и молчать об этом нельзя
+    (:data:`GRID_FACTOR`).
+    """
+    if grid.count < GRID_LEAST:
+        return f"в сетке всего {grid.count} сегментов - меньше {GRID_LEAST}"
+    spans = [grid.span(k) for k in range(grid.count)]
+    worst = max(spans)
+    if worst > step * GRID_FACTOR:
+        where = spans.index(worst)
+        return (
+            f"кусок v{where} длиной {worst:.1f} с при шаге {step:g} с "
+            f"(в {worst / step:.0f} раз длиннее заказанного)"
+        )
+    return ""
+
+
 def serve_file(path: Path) -> str:
     """Поднять мини-раздачу исходника на петле и вернуть его URL."""
     handler = type("_Bound", (_RangeHandler,), {"path_on_disk": path})
-    server = _QuietTCP(("127.0.0.1", SRC_PORT), handler)
+    port = free_port()
+    server = _QuietTCP(("127.0.0.1", port), handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
-    return f"http://127.0.0.1:{SRC_PORT}/{path.name}"
+    return f"http://127.0.0.1:{port}/{path.name}"
 
 
 def get(url: str, timeout: float) -> tuple[int, int, float]:
@@ -295,6 +341,15 @@ def main() -> int:
         fixed_mbit=(whole.mbit + AUDIO_MBIT) * TS_OVERHEAD if whole is not None else 0.0,
         cap=CAUTIOUS.max_segment_bytes,
     )
+    unfit = unfit_grid(grid, args.step)
+    if unfit:
+        print(
+            f"🔴 материал негоден для сеточного замера: {unfit}.\n"
+            "   Опорных кадров в нём почти нет, и мерить перемотку по такой сетке "
+            "нечего - возьми другой материал.",
+            file=sys.stderr,
+        )
+        return 2
 
     out = hls_dir(args.out)
     feed = Feed(
@@ -309,9 +364,10 @@ def main() -> int:
         log=functools.partial(print, "  упаковка:"),
         encode=whole,
     )
-    server = HlsServer(out, host="127.0.0.1", port=HLS_PORT, feed=feed)
+    port = free_port()
+    server = HlsServer(out, host="127.0.0.1", port=port, feed=feed)
     server.start()
-    base = f"http://127.0.0.1:{HLS_PORT}"
+    base = f"http://127.0.0.1:{port}"
     user = Consumer(base, feed, timeout=args.wait + 30.0)
     began = time.monotonic()
     try:

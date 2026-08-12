@@ -14,6 +14,15 @@ from __future__ import annotations
 
 import json
 import sys
+from pathlib import Path
+
+# 🔴 Свой корень впереди всего: без этой строки щуп брал ``torrcast`` из того дерева, на
+# которое смотрит editable-установка венва, а не из того, в котором запущен. Замерено:
+# с ``.pth`` на соседний клон щуп импортировал чужой пакет, а паспорт прогона (:mod:`runpass`)
+# честно называл при этом коммит и отпечаток СВОЕГО дерева - то есть замер был снят одним
+# кодом, а подписан другим. В параллельной волне соседний клон меняют соседи, и повторить
+# такой замер нельзя вовсе.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from torrcast.cli import Args, _Bench, _file_picker, _search
 from torrcast.console import Progress

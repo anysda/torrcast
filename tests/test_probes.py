@@ -7,8 +7,10 @@
 
 from __future__ import annotations
 
+import ast
 import importlib.util
 import json
+import socket
 import sys
 from pathlib import Path
 from types import ModuleType
@@ -309,3 +311,72 @@ def test_щуп_не_считает_картинкой_слово_приёмни
     assert not tv.shown(300.1, 300.0)  # дрожание на месте кадром не считаем
     assert tv.shown(0.5, 0.0)
     assert tv.shown(300.5, 300.0)
+
+
+def test_щуп_перемотки_ловит_негодную_фикстуру_вслух() -> None:
+    """Материал без опорных кадров щуп называет сам, а не мерит на нём бессмыслицу.
+
+    🔴 Фикстура ``tape.mkv`` со стенда: на шаге 10 с карта дала 9 сегментов, первый длиной
+    2901.8 с. Сетка при этом построена честно, ругаться :func:`torrcast.stream.grid_for`
+    не на что, - и щуп молча мерил перемотку по одному получасовому куску. Кто брал эту
+    фикстуру, получал числа ни о чём и не знал об этом.
+    """
+    from torrcast.stream import Grid
+
+    seek = probe("seekcheck")
+    bounds = (0.0, 2901.8, *(2901.8 + 10.0 * k for k in range(1, 8)))
+    tape = Grid(bounds, 2981.8, True)
+
+    assert tape.count == 9, "та самая сетка: девять кусков, первый - в полчаса"
+    unfit = seek.unfit_grid(tape, 10.0)
+    assert "v0" in unfit and "2901.8" in unfit, f"негодность обязана быть названа числами: {unfit}"
+
+    assert not seek.unfit_grid(Grid.uniform(600.0, 10.0), 10.0), "ровная сетка годна"
+    short = Grid((0.0, 10.0, 20.0), 30.0, True)
+    assert "3 сегментов" in seek.unfit_grid(short, 10.0), "трёх кусков сеточному замеру мало"
+
+
+@pytest.mark.machine
+def test_щуп_перемотки_берёт_порт_у_ядра() -> None:
+    """Два замера рядом на одном стенде - не ``Address already in use``.
+
+    🔴 Порты 18098/18099 стояли в щупе числами, и параллельные прогоны были невозможны
+    вовсе: второй падал на ``bind``, причём не по делу замера.
+    """
+    seek = probe("seekcheck")
+    source = Path(seek.__file__ or "").read_text(encoding="utf-8")
+    # Номер порта ищем в КОДЕ, а не в тексте: в докстринге прежние 18098/18099 названы
+    # нарочно - чтобы следующий не завёл их снова.
+    numbers = {
+        node.value
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.Constant) and isinstance(node.value, int)
+    }
+
+    assert not [n for n in numbers if 1024 <= n <= 65535], "порт снова прибит числом"
+    port = seek.free_port()
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", port))  # ядро отдало свободный - его и занимаем
+        assert sock.getsockname()[1] == port
+
+
+def test_щуп_берёт_код_из_своего_дерева() -> None:
+    """Каждый щуп, зовущий продукт, кладёт впереди путей СВОЙ корень - и не чужой.
+
+    🔴 Замер: ``voicedump.py`` этой строки не имел и брал ``torrcast`` из того дерева, на
+    которое смотрит editable-установка венва (соседний клон), а паспорт прогона называл
+    при этом коммит и отпечаток своего. Замер, снятый одним кодом и подписанный другим,
+    невоспроизводим: соседний клон в параллельной волне меняют соседи.
+    """
+    root = "sys.path.insert(0, str(Path(__file__).resolve().parent.parent))"
+    guilty = []
+    for path in sorted(SCRIPTS.glob("*.py")):
+        source = path.read_text(encoding="utf-8")
+        calls = any(
+            line.strip().startswith(("from torrcast", "import torrcast"))
+            for line in source.splitlines()
+        )
+        if calls and root not in source:
+            guilty.append(path.name)
+
+    assert not guilty, f"щуп берёт продукт из чужого дерева: {', '.join(guilty)}"
