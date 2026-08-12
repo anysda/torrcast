@@ -1486,6 +1486,9 @@ def test_resume_starts_from_the_offset_and_ends_as_watched(
     decoded = float(printed.split("декодировано ")[1].split(" ")[0])
     assert decoded >= CLIP_SECONDS - HLS_SEGMENT_SECONDS, "показ оборвался"
     assert f"упаковка с {offset:.1f} с" in printed, "показ начался с позиции, а не сначала"
+    # 🔴 Заход упаковки на голову фильма тут - брак ЗАГЛУШКИ, а не показа: живой Q70D
+    # первого сегмента при старте с середины не просит вовсе (:meth:`MockReceiver._from`).
+    assert printed.count("упаковка с ") == 1, "упаковка сходила на голову плейлиста"
     assert "досмотрено" in printed
     saved = State.load().get(key)
     assert saved is not None and saved.done and saved.pos == 0.0
@@ -2365,3 +2368,106 @@ def test_the_mock_waits_for_as_much_film_as_the_receiver_gathers_before_the_firs
     assert mock.position(front=316.0).state == "PLAYING", "16 с - приёмник трогается"
     mock._pos = Position(301.0, 0.0, True)
     assert mock.position(front=303.0).state == "PLAYING", "копит он один раз, на заходе"
+
+
+def _manifest(spans: list[float]) -> str:
+    lines = ["#EXTM3U", "#EXT-X-PLAYLIST-TYPE:VOD"]
+    for slot, span in enumerate(spans):
+        lines += [f"#EXTINF:{span:.6f},", f"v{slot}.ts"]
+    return "\n".join([*lines, "#EXT-X-ENDLIST", ""])
+
+
+def test_the_mock_starts_from_the_piece_it_aims_at_and_never_from_the_head() -> None:
+    """Заход с середины не тащит декодер через голову плейлиста.
+
+    🔴 ``ffmpeg -ss`` по адресу манифеста сперва открывает вход первым сегментом и только
+    потом мотает - раздача видит запрос куска 0 и уходит паковать с нуля. Живой Q70D
+    (три прогона) головы не просит вовсе, и это отличие уже родило ложный дефект «показ
+    пакует голову плейлиста при старте с середины»: выигрыш, которого не существует.
+    """
+    from torrcast.cast import MockReceiver
+
+    spans = [10.023222, *[10.0] * 5]
+    body = _manifest(spans)
+    mock = MockReceiver()
+    url = "http://127.0.0.1:9/hls/index.m3u8"
+
+    assert mock._from(url, body, 0.0) == (url, 0.0), "с начала резать нечего"
+    assert mock._from(url, body, 5.0) == (url, 5.0), "заход в первый кусок и так с головы"
+
+    cut, offset = mock._from(url, body, 25.0)
+    assert cut != url and offset == pytest.approx(4.976778), "-ss остаётся остатком в кусок"
+    lines = Path(cut).read_text("utf-8").splitlines()
+    assert [line for line in lines if not line.startswith("#")] == [
+        f"http://127.0.0.1:9/hls/v{slot}.ts" for slot in (2, 3, 4, 5)
+    ], "декодеру отданы куски с нужного, адресами на ту же раздачу"
+    assert "#EXT-X-MEDIA-SEQUENCE:2" in lines and "#EXT-X-ENDLIST" in lines
+
+    # Граница куска: сумма EXTINF не совпадает с ней бит в бит, и без допуска заход
+    # съезжал бы на кусок назад - то есть тащил бы упаковку за собой, чего и добиваемся.
+    boundary, rest = mock._from(url, body, 40.023222)
+    assert rest == 0.0, "заход ровно на границу куска обходится без -ss"
+    ahead = [line for line in Path(boundary).read_text("utf-8").splitlines() if "v" in line]
+    assert ahead[0].endswith("/v4.ts"), "первым идёт кусок, в который целится заход"
+    assert not Path(cut).exists(), "плейлист прошлого захода ушёл вместе с заходом"
+
+    mock._close_log()
+    assert not Path(boundary).exists(), "срезанный плейлист живёт ровно один заход декодера"
+
+    growing = body.replace("#EXT-X-ENDLIST\n", "")
+    assert mock._from(url, growing, 25.0) == (url, 25.0), "растущий манифест резать нельзя"
+
+
+class _Served:
+    """Ответ раздачи на бумаге: CORS на месте, размер назван, кода ошибки нет."""
+
+    status_code = 200
+    headers: Final = {"Access-Control-Allow-Origin": "*", "Content-Length": "1024"}
+
+    def __init__(self, text: str = "") -> None:
+        self.text = text
+
+    def raise_for_status(self) -> None:
+        return None
+
+
+class _Answers:
+    """Раздача на бумаге: манифест на GET, размер на HEAD, и список всего, что спросили."""
+
+    def __init__(self, body: str) -> None:
+        self.body = body
+        self.asked: list[str] = []
+
+    def get(self, url: str, timeout: float = 0.0) -> _Served:
+        self.asked.append(f"GET {url}")
+        return _Served(self.body)
+
+    def head(self, url: str, timeout: float = 0.0) -> _Served:
+        self.asked.append(f"HEAD {url}")
+        return _Served()
+
+
+def test_the_mock_never_asks_for_the_pieces_left_behind_the_entry_point(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Кусок, который кончается ровно на месте захода, приёмнику не нужен - он весь позади.
+
+    🔴 Сверка сегментов спрашивала его: «кончился раньше захода» на сетке по 10 с и заходе
+    на 10.0 с - неправда, кусок кончается ровно там. Один ``HEAD`` на нулевой кусок уводил
+    упаковку на голову фильма, и в сухом замере продолжения появлялся лишний заход -
+    ровно тот ложный дефект, из-за которого сюда и пришли.
+    """
+    spans = [10.0] * 6
+    mock = MockReceiver()
+    answers = _Answers(_manifest(spans))
+    monkeypatch.setattr(MockReceiver, "_session", lambda self: answers)
+    mock._start = 10.0
+    mock._pos = Position(1e6, 0.0, True)  # декодер далеко впереди - сверка не ждёт его
+    mock._done = threading.Event()
+
+    mock._audit("http://127.0.0.1:9/hls/index.m3u8")
+
+    assert [name.rsplit("/", 1)[1] for name in answers.asked if name.startswith("HEAD")] == [
+        f"v{slot}.ts" for slot in (1, 2, 3, 4, 5)
+    ], "спрошено ровно то, что впереди захода"
+    assert mock.report.gaps == 0, "начало сверки с середины - не дыра в нумерации"

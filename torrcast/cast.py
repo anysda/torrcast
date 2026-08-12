@@ -21,6 +21,8 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import math
+import os
 import re
 import subprocess
 import tempfile
@@ -62,6 +64,16 @@ _LOST_RE = re.compile(r"Failed to open segment|Error opening|Cannot reload|skipp
 _CORS_HEADER = "Access-Control-Allow-Origin"
 #: На сколько секунд вперёд декодера mock позволяет себе спрашивать сегменты.
 _AUDIT_AHEAD = 8.0
+#: Допуск, с которым место захода ложится на сетку манифеста (:meth:`MockReceiver._from`).
+#: ``EXTINF`` округлён до шести знаков, и сумма таких длительностей не совпадает с границей
+#: сетки бит в бит: 10.023222 + 10 + 10 + 10 + 10 даёт 50.02322200000001, и заход ровно на
+#: эту границу съезжал бы на кусок НАЗАД - то есть тащил бы за собой упаковку, ради чего
+#: голова плейлиста и срезается.
+_GRID_SLACK = 0.001
+#: Что разрешено декодеру, когда плейлист подан ему файлом (:meth:`MockReceiver._from`):
+#: сам файл и сеть, в которой лежат сегменты. Без списка ffmpeg отказывается ходить с
+#: диска наружу («Protocol 'http' not on whitelist») и не открывает вход вовсе.
+_PROTOCOLS = "file,http,https,tcp,tls,crypto,data"
 
 #: Логгер pychromecast, на котором живёт единственная приглушаемая строка (:class:`_Cosmetic`).
 _DIAL_LOGGER = "pychromecast.dial"
@@ -914,6 +926,9 @@ class MockReceiver:
         self._dead = False
         #: Докуда приёмник не берёт LOAD после пойманного 404 (:attr:`SULK`).
         self._sulk = 0.0
+        #: Временный плейлист со срезанной головой (:meth:`_from`); пусто - декодер
+        #: открывается по адресу раздачи, резать было нечего.
+        self._list = ""
         #: Первый кадр этого показа уже был на экране. До него приёмник копит фильм
         #: (:attr:`torrcast.profile.Profile.start_buffer`), после - идёт как шёл.
         self._shown = False
@@ -931,21 +946,25 @@ class MockReceiver:
         (:meth:`replay`). Порядок обязателен: сперва спрашиваем источник и только потом
         рушим прошлый декодер, иначе неудачный повтор гасил бы ещё живую картинку.
         """
-        self._probe(url)  # первый ответ проверяем сами: TLS, доступность, CORS
+        body = self._probe(url)  # первый ответ проверяем сами: TLS, доступность, CORS
         self._quiet()
         self._done = threading.Event()  # прошлые потоки остановлены, у этого показа свой
         self._last = -1  # нумерация сегментов пойдёт с места подъёма, а не подряд с прошлой
         self._err = tempfile.TemporaryFile()  # noqa: SIM115 - живёт всё воспроизведение
         self._start = at
-        # ⚠️ Опции TLS ставятся только под https-адрес: на http ffmpeg не «игнорирует
-        # лишнее», а падает с «Option tls_verify not found» ещё до открытия входа -
-        # то есть на дефолтном транспорте mock не декодировал бы ничего.
-        tls = ["-tls_verify", "1", *(["-ca_file", self.ca] if self.ca else [])]
+        source, offset = self._from(url, body, at)
+        head: list[str] = []
+        if source != url:
+            head = ["-protocol_whitelist", _PROTOCOLS]
+        elif url.startswith("https://"):
+            # ⚠️ Опции TLS ставятся только под https-адрес: на http ffmpeg не «игнорирует
+            # лишнее», а падает с «Option tls_verify not found» ещё до открытия входа -
+            # то есть на дефолтном транспорте mock не декодировал бы ничего.
+            head = ["-tls_verify", "1", *(["-ca_file", self.ca] if self.ca else [])]
         command = [
-            "ffmpeg", "-hide_banner", "-nostats", "-loglevel", "warning",
-            *(tls if url.startswith("https://") else []),
-            *(["-ss", f"{at:.3f}"] if at > 0 else []),
-            "-i", url, "-progress", "pipe:1", "-f", "null", "-",
+            "ffmpeg", "-hide_banner", "-nostats", "-loglevel", "warning", *head,
+            *(["-ss", f"{offset:.3f}"] if offset > 0 else []),
+            "-i", source, "-progress", "pipe:1", "-f", "null", "-",
         ]  # fmt: skip
         try:
             self._proc = subprocess.Popen(
@@ -962,11 +981,86 @@ class MockReceiver:
             if target is self._follow:
                 self._follower = thread
 
+    def _from(self, url: str, body: str, at: float) -> tuple[str, float]:
+        """Чем кормить декодер, чтобы он начал ровно там, откуда начинает приёмник.
+
+        🔴 ``ffmpeg -ss`` по адресу плейлиста сперва ОТКРЫВАЕТ вход - забирает самый
+        первый сегмент, чтобы опознать дорожки, - и только потом перематывается. Раздача
+        видит запрос первого куска и уходит паковать с нуля, поэтому в сухом замере
+        продолжения с середины всегда виден лишний заход упаковки на слот 0. Живой Q70D
+        (три прогона, ноль запросов первого сегмента) головы плейлиста не трогает вовсе:
+        LOAD с ``current_time`` спрашивает тот кусок, в который целится, и дальше идёт
+        вперёд. Ложный дефект «показ пакует голову плейлиста при старте с середины»
+        родился ровно на этом отличии заглушки и стоил живого замера.
+
+        Поэтому декодеру достаётся не адрес плейлиста, а плейлист со срезанной головой:
+        те же куски начиная с нужного, адресами на ту же раздачу. Открывается ffmpeg тем
+        самым куском, остаток забирает по сети подряд, как ТВ, а ``-ss`` остаётся ровно
+        остатком ВНУТРЬ куска - позиция не разъезжается с запрошенной.
+
+        Резать нечего - вход остаётся прежним: заход в первый же кусок и так начинается с
+        головы, а манифест без ``ENDLIST`` (растущий) обрезать нельзя - там ещё не
+        известно, что будет дальше. Показ раздаёт манифест VOD на весь фильм
+        (:meth:`torrcast.stream.Grid.manifest`), так что срезать есть что всегда.
+
+        ⚠️ Опции TLS с таким входом ffmpeg не принимает вовсе («Option tls_verify not
+        found»), и потерять с ними нечего: замерено, что в запросы сегментов ffmpeg их не
+        передаёт ни на каком входе - плейлист с сертом одного CA и сегменты с сертом
+        другого декодируются молча. Единственную настоящую проверку серта раздачи делает
+        не декодер, а :meth:`_probe` (и :meth:`_audit`) через ``requests``, и она остаётся
+        на месте при любом заходе.
+
+        ⚠️ Что от живого приёмника всё же отличается, и это НЕ дефект показа: заход в
+        середину куска стоит заглушке ДВУХ запросов одного и того же куска - ffmpeg
+        открывает им вход и, домотав внутрь, забирает его снова. Ложного захода упаковки
+        из этого не выходит: оба запроса приходятся на кусок, который показ уже пакует, и
+        никуда её не двигают. Заход ровно на границу куска обходится одним запросом.
+        """
+        if at <= 0:
+            return url, at
+        segments, ended = parse_manifest(body)
+        if not ended or not segments:
+            return url, at
+        starts: list[float] = []
+        clock = 0.0
+        for _, seconds in segments:
+            starts.append(clock)
+            clock += seconds
+        first = max((s for s, start in enumerate(starts) if start <= at + _GRID_SLACK), default=0)
+        if first == 0:
+            return url, at
+        base = url.rsplit("/", 1)[0]
+        lines = [
+            "#EXTM3U",
+            "#EXT-X-VERSION:3",
+            f"#EXT-X-TARGETDURATION:{max(1, math.ceil(max(s for _, s in segments)))}",
+            f"#EXT-X-MEDIA-SEQUENCE:{first}",
+            "#EXT-X-PLAYLIST-TYPE:VOD",
+        ]
+        for name, seconds in segments[first:]:
+            lines += [f"#EXTINF:{seconds:.6f},", f"{base}/{name}"]
+        lines.append("#EXT-X-ENDLIST")
+        self._drop_list()  # плейлист живёт один заход, и прошлый уходит вместе с ним
+        handle, self._list = tempfile.mkstemp(suffix=".m3u8")
+        with os.fdopen(handle, "w", encoding="utf-8") as playlist:
+            playlist.write("\n".join(lines) + "\n")
+        return self._list, max(0.0, at - starts[first])
+
     def _close_log(self) -> None:
-        """Закрыть журнал ffmpeg. Зовётся с двух сторон, поэтому забирает файл себе."""
+        """Закрыть журнал ffmpeg и убрать срезанный плейлист (:meth:`_from`) - оба живут
+        ровно один заход декодера. Зовётся с двух сторон, поэтому забирает файлы себе.
+        """
         err, self._err = self._err, None
         if err is not None:
             err.close()
+        self._drop_list()
+
+    def _drop_list(self) -> None:
+        """Убрать срезанный плейлист прошлого захода; забирает путь себе, зовут с двух сторон."""
+        cut, self._list = self._list, ""
+        if cut:
+            with contextlib.suppress(OSError):
+                os.unlink(cut)
 
     def stop(self, quit_app: bool = False) -> None:
         """Снять каст. Приложения у mock нет, поэтому ``quit_app`` ему нечего закрывать —
@@ -1097,7 +1191,10 @@ class MockReceiver:
         session.verify = self.ca or True
         return session
 
-    def _probe(self, url: str) -> None:
+    def _probe(self, url: str) -> str:
+        """Первый ответ раздачи: TLS, доступность, CORS. Манифест отдаётся зовущему -
+        по нему :meth:`_from` и считает, с какого куска приёмник начнёт.
+        """
         import requests
 
         try:
@@ -1108,6 +1205,7 @@ class MockReceiver:
             raise InfraError(f"приёмник не забрал манифест: {why(exc)}") from exc
         if response.headers.get(_CORS_HEADER) != "*":
             raise InfraError(f"в ответе нет {_CORS_HEADER}: * - Chromecast такое молча не играет")
+        return str(response.text)  # сессия нетипизирована - тело забираем строкой явно
 
     def _follow(self, url: str) -> None:
         """Позиция из ``-progress`` декодера: ровно то, что ТВ отдал бы сторожу."""
@@ -1138,6 +1236,13 @@ class MockReceiver:
         появляются там, где показ идёт прямо сейчас. Спросить всё разом —
         значит потребовать упаковать фильм целиком, чего tmpfs и не выдержит. Поэтому
         mock, как и живой приёмник, спрашивает только то, до чего дошёл декодер.
+
+        🔴 Кусок, который КОНЧАЕТСЯ на месте захода, приёмнику не нужен: он весь позади.
+        Строгое «кончился раньше» оставляло его в списке (на сетке по 10 с заход на 10.0 с
+        честно спрашивал нулевой кусок), и раздача уходила паковать с нуля - тот самый
+        лишний заход упаковки, ради которого декодеру срезают голову плейлиста
+        (:meth:`_from`). Сравнение тут с тем же допуском: границы сетки складываются из
+        округлённых ``EXTINF`` и на секунду захода бит в бит не ложатся.
         """
         session, base = self._session(), url.rsplit("/", 1)[0]
         try:
@@ -1152,7 +1257,7 @@ class MockReceiver:
         for name, seconds in segments:
             end = at + seconds
             at = end
-            if end < self._start:  # до этого места показ и не доходил
+            if end <= self._start + _GRID_SLACK:  # кусок весь позади захода - он не нужен
                 continue
             while not self._done.is_set() and self._pos.pos + _AUDIT_AHEAD < end:
                 self._done.wait(0.5)
