@@ -162,11 +162,7 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
         if not isinstance(item, pytest.Function):
             continue
         tree = ast.parse(inspect.getsource(item.function))
-        calls = {
-            ast.unparse(node.func)
-            for node in ast.walk(tree)
-            if isinstance(node, ast.Call)
-        }
+        calls = {ast.unparse(node.func) for node in ast.walk(tree) if isinstance(node, ast.Call)}
         mechanisms = {
             "time.sleep": "стенные часы",
             "socket.socket": "настоящий сокет",
