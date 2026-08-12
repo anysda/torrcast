@@ -22,6 +22,7 @@ git (код копируют каталогом). Поэтому код назы
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 import subprocess
 import sys
@@ -105,12 +106,19 @@ def code_stamp() -> dict[str, Any]:
     """Чем считали: коммит с датой, если git под рукой, и отпечаток - всегда."""
     mark, count = fingerprint()
     dirty = git("status", "--porcelain", "--", CODE_GLOB.split("/")[0])
+    spec = importlib.util.find_spec("torrcast")
+    package = (
+        str(Path(spec.origin).resolve().parent)
+        if spec is not None and spec.origin is not None
+        else None
+    )
     return {
         "commit": git("rev-parse", "HEAD"),
         "date": git("log", "-1", "--format=%cI"),
         "dirty": bool(dirty) if dirty is not None else None,
         "fingerprint": mark,
         "files": count,
+        "package": package,
     }
 
 
@@ -141,6 +149,7 @@ def told(card: dict[str, Any]) -> str:
     code = card["code"]
     who = code["commit"][:12] if code["commit"] else "не из git"
     mark = code["fingerprint"][:12] if code["fingerprint"] else "кода рядом нет"
+    package = code.get("package") or "пакет не найден"
     dirty = " + несохранённые правки" if code["dirty"] else ""
     corpus = ", ".join(
         f"{Path(item['path']).name} ({item['lines']} строк, {item['sha256'][:12]})"
@@ -148,5 +157,5 @@ def told(card: dict[str, Any]) -> str:
     )
     return (
         f"Паспорт прогона: {card['tool']}, {card['made']}; код {who}{dirty}, "
-        f"отпечаток {mark}; сырьё: {corpus}"
+        f"отпечаток {mark}, пакет {package}; сырьё: {corpus}"
     )

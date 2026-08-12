@@ -16,6 +16,7 @@ from typing import Any
 
 import pytest
 
+import torrcast
 from torrcast.cli import Args
 from torrcast.profile import CAUTIOUS, tune
 from torrcast.state import Config
@@ -222,6 +223,15 @@ def test_отпечаток_кода_меняется_вместе_с_кодом
     assert count == 1 and before is not None
     (tmp_path / "torrcast" / "parse.py").write_text("x = 2\n", encoding="utf-8")
     assert runpass.fingerprint(tmp_path)[0] != before, "правка кода не изменила отпечаток"
+
+
+def test_паспорт_называет_путь_импортированного_пакета() -> None:
+    """Запуск по пути не скрывает, если Python взял пакет из другого дерева."""
+    runpass = probe("runpass")
+    card = runpass.passport("runreport", [], [])
+    package = str(Path(torrcast.__file__).resolve().parent)
+    assert card["code"]["package"] == package
+    assert f"пакет {package}" in runpass.told(card)
 
 
 def test_счёт_кладёт_паспорт_рядом_со_сводкой(tmp_path: Path) -> None:
