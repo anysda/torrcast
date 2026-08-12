@@ -52,6 +52,24 @@ STALL = 3.0
 #: Как часто подкладывать ядовитый кусок на место здорового (:func:`spoil`).
 POISON_STEP = 0.1
 
+#: Насколько указатель обязан уйти от места захода, чтобы считать это КАДРОМ.
+#:
+#: 🔴 Замер на живом Q70D: приёмник отвечает ``PLAYING``, ещё ничего не показав, и держит
+#: указатель на месте захода, пока не накопит около десяти секунд фильма
+#: (:attr:`torrcast.profile.Profile.start_buffer`). Щуп, печатавший «картинку» по слову
+#: приёмника, занижал старт на 0-6 с - шесть прогонов подряд, и эти числа успели разойтись
+#: по отчётам. Порог взят с запасом от одного кадра (41.7 мс у 23.976 к/с) и от шага опроса.
+PICTURE_STEP = 0.4
+
+
+def shown(pos: float, at: float) -> bool:
+    """Есть ли КАДР на экране: указатель ушёл от места захода дальше :data:`PICTURE_STEP`.
+
+    ⚠️ Состояние приёмника тут не спрашивается нарочно: ``PLAYING`` со стоящим указателем
+    картинкой не является, а ``BUFFERING`` с едущим - как раз является.
+    """
+    return pos >= at + PICTURE_STEP
+
 
 def brew_poison(url: str, grid: Grid, slot: int, audio: int, where: Path) -> Path:
     """Сварить кусок, который приёмник ЗАВЕДОМО не покажет: то же место, но ``yuv444p``.
@@ -263,6 +281,7 @@ def main() -> None:
         poisoner.start()
 
     lowest, stalls, buffering = args.at, [], 0
+    picture: float | None = None
     try:
         server.start()
         if recoder is not None:
@@ -271,7 +290,9 @@ def main() -> None:
         feed.restart(slot)
         began = time.monotonic()
         receiver.play(url, args.title, at=args.at)
-        print(f"картинка через {time.monotonic() - began:.1f} с, смотрю {args.watch:.0f} с")
+        word = time.monotonic() - began
+        print(f"приёмник сказал «играю» через {word:.1f} с (кадра это ещё не значит)")
+        print(f"смотрю {args.watch:.0f} с")
         watch_from = time.monotonic()
         seen, since, worst = -1.0, 0.0, 0.0
         jumps = [(float(a), float(b)) for a, b in (p.split(":") for p in args.seek.split(",") if p)]
@@ -288,6 +309,12 @@ def main() -> None:
                 f"· запас {front - position.pos:6.1f} · {position.state}",
                 flush=True,
             )
+            if picture is None and shown(position.pos, args.at):
+                picture = time.monotonic() - began
+                print(
+                    f"  КАРТИНКА через {picture:.1f} с "
+                    f"(слово опередило её на {picture - word:.1f} с)"
+                )
             if position.state == "BUFFERING":
                 buffering += 1
             if recoder is not None:
@@ -310,6 +337,11 @@ def main() -> None:
         server.stop()
 
     print(f"опросов в BUFFERING за прогон: {buffering}")
+    print(
+        f"старт до КАДРА: {picture:.1f} с"
+        if picture is not None
+        else "старт до КАДРА: указатель так и не сошёл с места захода - картинки не было"
+    )
     if recoder is not None:
         print(f"кодировщик: {recoder.report()}")
     if stalls:
