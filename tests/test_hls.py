@@ -217,8 +217,8 @@ def test_the_manifest_promises_the_whole_film_so_the_tv_has_a_timeline() -> None
     assert Grid.uniform(5978.5).count == int(5978.5 // step) + 1, "целые куски и хвост"
 
 
-def test_a_keyframe_grid_never_cuts_a_segment_shorter_than_the_step() -> None:
-    """Следующая граница — первый опорный кадр не раньше, чем через шаг.
+def test_a_keyframe_grid_never_cuts_a_segment_shorter_than_half_the_step() -> None:
+    """Следующая граница — ближайший опорный кадр, но не раньше половины шага.
 
     Иначе на сцене-вспышке (два десятка опорных кадров за полсекунды) манифест распух бы
     на пустом месте, а приёмник получил бы очередь огрызков вместо сегментов. Хвост —
@@ -229,12 +229,27 @@ def test_a_keyframe_grid_never_cuts_a_segment_shorter_than_the_step() -> None:
     grid = Grid.on_keyframes(_keyframes(), 600.0, step)
 
     spans = [grid.span(k) for k in range(grid.count)]
-    assert min(spans[:-1]) >= step, "сегмент короче шага - сетка рассыпалась на огрызки"
+    assert min(spans[:-1]) >= step / 2, "сетка рассыпалась на огрызки"
     assert spans[-1] >= step / 2, "хвост прилипает к последнему куску, а не висит огрызком"
     assert max(spans) < step + 3.0, "GOP около 2 с - длиннее шага плюс GOP сегмента не бывает"
 
     flash = [b for b in grid.bounds if 300.0 <= b < 300.5]
     assert len(flash) <= 1, "из пачки опорных кадров вспышки в сетку идёт не больше одного"
+
+
+def test_the_sparse_head_uses_the_nearest_keyframe_not_the_late_one() -> None:
+    """Голова с GOP около 5 с не превращается в два куска почти по 15 с.
+
+    На живом Q70D два первых куска «Моаны» по 14.890 с давали ``IDLE/ERROR`` без кода
+    в 11 из 19 показов. Опорный кадр 9.927 с был ближе цели, но прежняя сетка брала
+    только первый кадр после десятой секунды - 14.890.
+    """
+    gop = 4.963
+    keys = [round(gop * n, 3) for n in range(30)]
+    grid = Grid.on_keyframes(keys, 140.0, 10.0)
+
+    assert grid.bounds[:3] == (0.0, 9.926, 19.852)
+    assert max(grid.span(k) for k in range(2)) < 10.0
 
 
 def test_the_target_duration_covers_the_longest_segment() -> None:

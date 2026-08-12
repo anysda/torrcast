@@ -1914,13 +1914,15 @@ class Grid:
         fixed_mbit: float = 0.0,
     ) -> Grid:
         """Сетка по опорным кадрам: следующая граница — первый опорный кадр не раньше,
-        чем через ``step`` секунд после предыдущей, **и не тяжелее** :data:`MAX_SEGMENT_BYTES`.
+        чем через ``step`` секунд после предыдущей, **и не тяжелее**
+        :data:`MAX_SEGMENT_BYTES`. Для первых двух границ берётся ближайший кадр с
+        любой стороны от ``step``.
 
-        Длина сегмента получается от ``step`` до ``step + GOP``: на «Моане» 2016
-        (GOP до 4.96 с) это 10.0–14.9 с, на «Моане 2» (GOP до 11.5 с) — до 21.5 с.
-        Короче ``step`` в середине фильма сегментов не бывает — иначе на сценах-вспышках
-        (24 опорных кадра за полсекунды) манифест распух бы на пустом месте. Хвост —
-        исключение: он такой, какой остался, но не короче половины шага.
+        Голова - исключение из общего правила: на «Моане» 2016 прежняя сетка выбирала
+        14.890 вместо ближайших 9.927 с дважды подряд; живой Q70D молча закрывал
+        медиасессию после этой головы. Дальше остаётся первый кадр после ``step``: так
+        сцена-вспышка (много опорных кадров подряд) не дробит весь манифест, а правила
+        весового потолка сохраняют прежний выбор.
 
         **Потолок байт** — вторая половина правила, и она главная:
         приёмник Q70D срывается в BUFFERING на сегменте тяжелее ~19 МБ, сколько бы секунд
@@ -1954,7 +1956,7 @@ class Grid:
         while True:
             prev = bounds[-1]
             index = bisect.bisect_right(keys, prev, lo=index)
-            fits = first = None
+            fits = before = first = None
             for key in keys[index:]:
                 if key >= limit:
                     break
@@ -1963,9 +1965,21 @@ class Grid:
                 if key >= prev + step:
                     first = key
                     break
+                if key - prev >= step / 2 and weigh(prev, key) <= cap:
+                    before = key
             if first is None:
                 break  # дальше только хвост короче половины шага - он прилипает к последнему
-            if weigh(prev, first) <= cap or fits is None:
+            first_fits = weigh(prev, first) <= cap
+            nearest_head = (
+                len(bounds) <= 2
+                and before is not None
+                and first_fits
+                and prev + step - before < first - prev - step
+            )
+            if nearest_head:
+                assert before is not None  # условие nearest_head уже доказало границу
+                bounds.append(before)
+            elif first_fits or fits is None:
                 bounds.append(first)  # влез - или один GOP тяжелее потолка, резать нечем
             else:
                 bounds.append(fits)
