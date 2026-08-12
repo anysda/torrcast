@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import ast
+import functools
 import inspect
 import socket
 import subprocess
@@ -35,6 +36,8 @@ FFMPEG_FIXTURES = frozenset({"clip", "clip_hevc", "clip_mp4", "clip_mp4_tail", "
 # Их нельзя честно распараллеливать с быстрым набором: под CPU-нагрузкой пауза потока
 # становится частью замера. Список по nodeid оставляет логические тесты тех же модулей
 # быстрыми; сторож ниже не даёт забыть внести сюда новый прямой машинный вызов.
+# Это намеренно неглубокая проверка: вызовы в фикстурах и вынесенных хелперах она
+# не видит, поэтому их машинную природу по-прежнему надо отмечать при ревью.
 MACHINE_TESTS = frozenset(
     {
         # Локальные HTTP/TLS-серверы и настоящий TCP blackhole.
@@ -175,10 +178,19 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
         }
         leaked = sorted({label for call, label in mechanisms.items() if call in calls})
         if leaked:
-            raise pytest.UsageError(
+            message = (
                 f"{item.nodeid}: быстрый тест использует {', '.join(leaked)}; "
                 "возьми маркер `machine`"
             )
+
+            @functools.wraps(item.obj)
+            def missing_machine_marker(*, _message: str = message, **_kwargs: object) -> None:
+                pytest.fail(_message, pytrace=False)
+
+            # Ошибка коллекции ломает сверку коллекций xdist и маскируется его
+            # INTERNALERROR. Обычный красный test item одинаково виден с -n 0
+            # и с воркерами; уже найденные фикстуры остаются у исходного item.
+            item.obj = missing_machine_marker
 
 
 def free_port() -> int:
