@@ -2,39 +2,63 @@
 
 from __future__ import annotations
 
-__all__ = ['TYPE_CHECKING', 'Callable', 'EpisodeFile', 'FileLike', 'Protocol', 'Sequence',
-    '_bare_episode_span', '_base', '_collect', '_drop_small', '_read_bare', '_read_episode_only',
-    '_read_order', '_read_sne', '_season_of', 'dataclass', 'map_episodes', 'parse_episode',
-    'parse_release_name', 're', 'split_episode', 'statistics']
+__all__ = [
+    "TYPE_CHECKING",
+    "Callable",
+    "EpisodeFile",
+    "FileLike",
+    "Protocol",
+    "Sequence",
+    "_bare_episode_span",
+    "_base",
+    "_collect",
+    "_drop_small",
+    "_read_bare",
+    "_read_episode_only",
+    "_read_order",
+    "_read_sne",
+    "_season_of",
+    "dataclass",
+    "map_episodes",
+    "parse_episode",
+    "parse_release_name",
+    "re",
+    "split_episode",
+    "statistics",
+]
 
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from torrcast.catalog import _find_year as _find_year
-    from torrcast.catalog import _is_non_video as _is_non_video
-    from torrcast.catalog import _normalize as _normalize
-    from torrcast.catalog import _normalize_quality as _normalize_quality
-    from torrcast.catalog import _parse_codec as _parse_codec
-    from torrcast.catalog import _parse_series as _parse_series
-    from torrcast.catalog import _parse_source as _parse_source
-    from torrcast.catalog import _parse_voices as _parse_voices
-    from torrcast.catalog import _split_titles as _split_titles
-    from torrcast.catalog import _title_zone as _title_zone
-    from torrcast.parse_name import _BRACKETS_RE as _BRACKETS_RE
-    from torrcast.parse_name import _CYRILLIC as _CYRILLIC
-    from torrcast.parse_name import _EPISODE_ONLY_RES as _EPISODE_ONLY_RES
-    from torrcast.parse_name import _HDR_RE as _HDR_RE
-    from torrcast.parse_name import _JUNK_RE as _JUNK_RE
-    from torrcast.parse_name import _LATIN as _LATIN
-    from torrcast.parse_name import _QUALITY_RE as _QUALITY_RE
-    from torrcast.parse_name import _SEASON_EPISODE_RES as _SEASON_EPISODE_RES
-    from torrcast.parse_name import _SEASON_ONLY_RES as _SEASON_ONLY_RES
-    from torrcast.parse_name import _SMALL_RATIO as _SMALL_RATIO
-    from torrcast.parse_name import _TECH_TOKEN_RE as _TECH_TOKEN_RE
-    from torrcast.parse_name import VIDEO_EXT as VIDEO_EXT
-    from torrcast.parse_name import Episode as Episode
-    from torrcast.parse_name import Kind as Kind
-    from torrcast.parse_name import Release as Release
+    from torrcast.catalog import (
+        _find_year,
+        _is_non_video,
+        _normalize,
+        _normalize_quality,
+        _parse_codec,
+        _parse_series,
+        _parse_source,
+        _parse_voices,
+        _split_titles,
+        _title_zone,
+    )
+    from torrcast.parse_name import (
+        _BRACKETS_RE,
+        _CYRILLIC,
+        _EPISODE_ONLY_RES,
+        _HDR_RE,
+        _JUNK_RE,
+        _LATIN,
+        _QUALITY_RE,
+        _SEASON_EPISODE_RES,
+        _SEASON_ONLY_RES,
+        _SMALL_RATIO,
+        _TECH_TOKEN_RE,
+        VIDEO_EXT,
+        Episode,
+        Kind,
+        Release,
+    )
 
 
 import re

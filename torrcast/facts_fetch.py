@@ -2,52 +2,99 @@
 
 from __future__ import annotations
 
-__all__ = ['BLURB_CAP', 'FACTS_BUDGET', 'HTTP_TIMEOUT', 'TYPE_CHECKING', 'Any', 'Facts', 'Path',
-    '_about_cinema', '_article', '_cache_path', '_cached', '_cached_origin', '_crowded',
-    '_ends_phrase', '_extract_params', '_fits_type', '_key', '_localized_short_name',
-    '_origin_key', '_other_part', '_pages', '_ranked', '_read_cache', '_read_pages', '_remember',
-    '_remember_origin', '_same_latin', '_search_params', '_write_cache', 'akin', 'english_title',
-    'fetch', 'json', 'latin_title', 'namesake', 'picture_year', 'ratings', 're', 'read_origin',
-    'read_sparql', 'same_words', 'sentence', 'shorten', 'slugify', 'split_franchise_index',
-    'state_path', 'threading', 'time', 'transliterate', 'wiki_extracts', 'wikidata_ids']
+__all__ = [
+    "BLURB_CAP",
+    "FACTS_BUDGET",
+    "HTTP_TIMEOUT",
+    "TYPE_CHECKING",
+    "Any",
+    "Facts",
+    "Path",
+    "_about_cinema",
+    "_article",
+    "_cache_path",
+    "_cached",
+    "_cached_origin",
+    "_crowded",
+    "_ends_phrase",
+    "_extract_params",
+    "_fits_type",
+    "_key",
+    "_localized_short_name",
+    "_origin_key",
+    "_other_part",
+    "_pages",
+    "_ranked",
+    "_read_cache",
+    "_read_pages",
+    "_remember",
+    "_remember_origin",
+    "_same_latin",
+    "_search_params",
+    "_write_cache",
+    "akin",
+    "english_title",
+    "fetch",
+    "json",
+    "latin_title",
+    "namesake",
+    "picture_year",
+    "ratings",
+    "re",
+    "read_origin",
+    "read_sparql",
+    "same_words",
+    "sentence",
+    "shorten",
+    "slugify",
+    "split_franchise_index",
+    "state_path",
+    "threading",
+    "time",
+    "transliterate",
+    "wiki_extracts",
+    "wikidata_ids",
+]
 
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from torrcast.facts_origin import _ABBREV as _ABBREV
-    from torrcast.facts_origin import _CINEMA_RE as _CINEMA_RE
-    from torrcast.facts_origin import _CJK as _CJK
-    from torrcast.facts_origin import _CYRILLIC as _CYRILLIC
-    from torrcast.facts_origin import _DEFAULT_CACHE_PATH as _DEFAULT_CACHE_PATH
-    from torrcast.facts_origin import _EXCHARS as _EXCHARS
-    from torrcast.facts_origin import _EXLIMIT as _EXLIMIT
-    from torrcast.facts_origin import _FILM_WORD_RE as _FILM_WORD_RE
-    from torrcast.facts_origin import _GENRE_RE as _GENRE_RE
-    from torrcast.facts_origin import _HATNOTE_RE as _HATNOTE_RE
-    from torrcast.facts_origin import _LAST_WORD_RE as _LAST_WORD_RE
-    from torrcast.facts_origin import _MADE_RE as _MADE_RE
-    from torrcast.facts_origin import _ORIGINAL_RE as _ORIGINAL_RE
-    from torrcast.facts_origin import _SCREEN_RE as _SCREEN_RE
-    from torrcast.facts_origin import _SEARCH_HITS as _SEARCH_HITS
-    from torrcast.facts_origin import _SENTENCE_START_RE as _SENTENCE_START_RE
-    from torrcast.facts_origin import _SERIES_WORD_RE as _SERIES_WORD_RE
-    from torrcast.facts_origin import _TAIL_RE as _TAIL_RE
-    from torrcast.facts_origin import _TITLED_RE as _TITLED_RE
-    from torrcast.facts_origin import _WIKI_HOST as _WIKI_HOST
-    from torrcast.facts_origin import _WIKI_PATH as _WIKI_PATH
-    from torrcast.facts_origin import _WIKIDATA_HOST as _WIKIDATA_HOST
-    from torrcast.facts_origin import _WIKIDATA_PATH as _WIKIDATA_PATH
-    from torrcast.facts_origin import _YEAR_RE as _YEAR_RE
-    from torrcast.facts_origin import CACHE_PATH as CACHE_PATH
-    from torrcast.facts_origin import EMPTY_TTL as EMPTY_TTL
-    from torrcast.facts_origin import RATINGS_PATH as RATINGS_PATH
-    from torrcast.facts_origin import TOPUP_LIMIT as TOPUP_LIMIT
-    from torrcast.facts_origin import Fact as Fact
-    from torrcast.facts_origin import Origin as Origin
-    from torrcast.facts_origin import confirms as confirms
-    from torrcast.facts_origin import get_json as get_json
-    from torrcast.facts_origin import hms as hms
-    from torrcast.facts_origin import titles_for as titles_for
+    from torrcast.facts_origin import (
+        _ABBREV,
+        _CINEMA_RE,
+        _CJK,
+        _CYRILLIC,
+        _DEFAULT_CACHE_PATH,
+        _EXCHARS,
+        _EXLIMIT,
+        _FILM_WORD_RE,
+        _GENRE_RE,
+        _HATNOTE_RE,
+        _LAST_WORD_RE,
+        _MADE_RE,
+        _ORIGINAL_RE,
+        _SCREEN_RE,
+        _SEARCH_HITS,
+        _SENTENCE_START_RE,
+        _SERIES_WORD_RE,
+        _TAIL_RE,
+        _TITLED_RE,
+        _WIKI_HOST,
+        _WIKI_PATH,
+        _WIKIDATA_HOST,
+        _WIKIDATA_PATH,
+        _YEAR_RE,
+        CACHE_PATH,
+        EMPTY_TTL,
+        RATINGS_PATH,
+        TOPUP_LIMIT,
+        Fact,
+        Origin,
+        confirms,
+        get_json,
+        hms,
+        titles_for,
+    )
 
 import json
 import re
@@ -62,6 +109,7 @@ from torrcast.state import state_path
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
+
 
 def read_origin(
     pages: list[Any], title: str, trusted: bool = False, series: bool | None = None

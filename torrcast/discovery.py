@@ -2,38 +2,76 @@
 
 from __future__ import annotations
 
-__all__ = ['CAUTIOUS', 'CIRCLE_SHARE', 'FACTS_BUDGET', 'GOAL', 'KIN_SHOWN', 'SECOND_LEAST',
-    'TYPE_CHECKING', 'Config', 'Episode', 'Final', 'InfraError', 'NotFoundError', 'Origin',
-    'Picture', 'Profile', 'Progress', 'Prowlarr', 'RawResult', 'Release', '_ask', '_asked_kind',
-    '_kin', '_no_budget', '_nothing', '_query_note', '_search', '_second_language', '_vouched',
-    'kin_line', 'mark', 'menu_order', 'merge', 'origin', 'other_words', 'replace', 'same_name',
-    'season_gaps', 'silent_swarm', 'slugify', 'split_franchise_index', 'to_releases', 'trace',
-    'transliterate', 'unfit_line', 'unfit_pool', 'worth_asking_original']
+__all__ = [
+    "CAUTIOUS",
+    "CIRCLE_SHARE",
+    "FACTS_BUDGET",
+    "GOAL",
+    "KIN_SHOWN",
+    "SECOND_LEAST",
+    "TYPE_CHECKING",
+    "Config",
+    "Episode",
+    "Final",
+    "InfraError",
+    "NotFoundError",
+    "Origin",
+    "Picture",
+    "Profile",
+    "Progress",
+    "Prowlarr",
+    "RawResult",
+    "Release",
+    "_ask",
+    "_asked_kind",
+    "_kin",
+    "_no_budget",
+    "_nothing",
+    "_query_note",
+    "_search",
+    "_second_language",
+    "_vouched",
+    "kin_line",
+    "mark",
+    "menu_order",
+    "merge",
+    "origin",
+    "other_words",
+    "replace",
+    "same_name",
+    "season_gaps",
+    "silent_swarm",
+    "slugify",
+    "split_franchise_index",
+    "to_releases",
+    "trace",
+    "transliterate",
+    "unfit_line",
+    "unfit_pool",
+    "worth_asking_original",
+]
 
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from torrcast.choice import fitness as fitness
-    from torrcast.commands import Args as Args
-    from torrcast.play_command import _relayout as _relayout
-    from torrcast.play_command import _season_asked as _season_asked
-    from torrcast.play_command import _titled_number as _titled_number
-    from torrcast.ranking import misses_episode as misses_episode
-    from torrcast.ranking import over_ceiling as over_ceiling
-    from torrcast.reinforce import _as_is as _as_is
-    from torrcast.reinforce import _ceiling_hides_name as _ceiling_hides_name
-    from torrcast.reinforce import _ceiling_reinforce as _ceiling_reinforce
-    from torrcast.reinforce import _lacks_season as _lacks_season
-    from torrcast.reinforce import _leading as _leading
-    from torrcast.reinforce import _plan_for as _plan_for
-    from torrcast.reinforce import _season_reinforce as _season_reinforce
-    from torrcast.reinforce import _twin as _twin
-    from torrcast.reinforce import _voice_reinforce as _voice_reinforce
-    from torrcast.reinforce import same_picture as same_picture
-    from torrcast.reinforce import voiceless_pool as voiceless_pool
-    from torrcast.selection import _Plan as _Plan
-
-
+    from torrcast.choice import fitness
+    from torrcast.commands import Args
+    from torrcast.play_command import _relayout, _season_asked, _titled_number
+    from torrcast.ranking import misses_episode, over_ceiling
+    from torrcast.reinforce import (
+        _as_is,
+        _ceiling_hides_name,
+        _ceiling_reinforce,
+        _lacks_season,
+        _leading,
+        _plan_for,
+        _season_reinforce,
+        _twin,
+        _voice_reinforce,
+        same_picture,
+        voiceless_pool,
+    )
+    from torrcast.selection import _Plan
 
 
 from dataclasses import replace
@@ -919,7 +957,6 @@ def _vouched(theirs: list[Picture], about: Origin, proven: bool) -> bool:
     if not proven or lead is None:
         return False
     return about.year is None or lead.year is None or abs(lead.year - about.year) <= 1
-
 
 
 __all__ = [name for name in globals() if not name.startswith("__")]

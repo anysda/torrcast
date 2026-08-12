@@ -2,32 +2,80 @@
 
 from __future__ import annotations
 
-__all__ = ['TYPE_CHECKING', '_BLURB_INDENT', 'Config', 'Fact', 'Facts', 'NotFoundError', 'Origin',
-    'Path', 'Picture', 'Profile', 'Progress', 'Protocol', 'Receiver', 'Release', '_Passport',
-    '_Revivable', '_Steerable', '_ctl', '_first_alive', '_is_default', '_named', '_namesake',
-    '_passed_why', '_passport', '_pick_plan', '_played', '_rival', '_same_name', '_why_refused',
-    'alive_numbers', 'ask', 'asked_kind', 'backed', 'console', 'contextlib', 'default_line',
-    'default_note', 'first_alive', 'fitness', 'franchise_key', 'last_hope_note', 'liveliest',
-    'liveliness', 'menu_lines', 'namesake_note', 'origin', 'os', 'outside_numbering',
-    'part_one_swap', 'playable', 'runtime_checkable', 'shorten', 'shutil', 'slugify',
-    'split_franchise_index', 'swap_note', 'textwrap', 'threading', 'trace', 'understudy',
-    'understudy_note', 'warm_order', 'warned', 'year_note']
+__all__ = [
+    "TYPE_CHECKING",
+    "_BLURB_INDENT",
+    "Config",
+    "Fact",
+    "Facts",
+    "NotFoundError",
+    "Origin",
+    "Path",
+    "Picture",
+    "Profile",
+    "Progress",
+    "Protocol",
+    "Receiver",
+    "Release",
+    "_Passport",
+    "_Revivable",
+    "_Steerable",
+    "_ctl",
+    "_first_alive",
+    "_is_default",
+    "_named",
+    "_namesake",
+    "_passed_why",
+    "_passport",
+    "_pick_plan",
+    "_played",
+    "_rival",
+    "_same_name",
+    "_why_refused",
+    "alive_numbers",
+    "ask",
+    "asked_kind",
+    "backed",
+    "console",
+    "contextlib",
+    "default_line",
+    "default_note",
+    "first_alive",
+    "fitness",
+    "franchise_key",
+    "last_hope_note",
+    "liveliest",
+    "liveliness",
+    "menu_lines",
+    "namesake_note",
+    "origin",
+    "os",
+    "outside_numbering",
+    "part_one_swap",
+    "playable",
+    "runtime_checkable",
+    "shorten",
+    "shutil",
+    "slugify",
+    "split_franchise_index",
+    "swap_note",
+    "textwrap",
+    "threading",
+    "trace",
+    "understudy",
+    "understudy_note",
+    "warm_order",
+    "warned",
+    "year_note",
+]
 
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from torrcast.commands import ALIVE_SEEDERS as ALIVE_SEEDERS
-    from torrcast.commands import CTL_ENV as CTL_ENV
-    from torrcast.commands import Args as Args
-    from torrcast.ranking import _cut as _cut
-    from torrcast.ranking import bitrate_of as bitrate_of
-    from torrcast.ranking import hevc_hope as hevc_hope
-    from torrcast.ranking import is_candidate as is_candidate
-    from torrcast.ranking import is_dated as is_dated
-    from torrcast.reinforce import _timed as _timed
-    from torrcast.selection import _Bench as _Bench
-    from torrcast.selection import _Plan as _Plan
-    from torrcast.selection import _Prep as _Prep
+    from torrcast.commands import ALIVE_SEEDERS, CTL_ENV, Args
+    from torrcast.ranking import _cut, bitrate_of, hevc_hope, is_candidate, is_dated
+    from torrcast.reinforce import _timed
+    from torrcast.selection import _Bench, _Plan, _Prep
 
 
 import contextlib
@@ -971,7 +1019,6 @@ def last_hope_note(plan: _Plan, release: Release) -> str:
         return ""
     what = f"серии {plan.want}" if plan.want else "картины"
     return f"живой раздачи {what} без HEVC нет - беру HEVC последней надеждой"
-
 
 
 __all__ = [name for name in globals() if not name.startswith("__")]

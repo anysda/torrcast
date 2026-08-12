@@ -2,51 +2,102 @@
 
 from __future__ import annotations
 
-__all__ = ['CAUTIOUS', 'COPY', 'EXIT_OK', 'META_BUDGET', 'PROBE_BUDGET', 'RECODE_HEIGHT',
-    'REFUSE', 'TYPE_CHECKING', 'Callable', 'Config', 'ContactWait', 'Entry', 'Episode',
-    'EpisodeFile', 'InfraError', 'Media', 'NotFoundError', 'Picture', 'Profile', 'Progress',
-    'RawResult', 'Release', 'ServerDownError', 'State', 'SwarmError', 'TorrcastError', 'TorrFile',
-    'TorrServer', '_Bench', '_Plan', '_Prep', '_Series', '_Voiced', '_about', '_continue',
-    '_did_not_answer', '_nothing_late', '_remembered', '_revoice', '_silenced', '_turned_down',
-    '_voiced', '_waiting_note', 'ask_line', 'contextlib', 'dataclass', 'field', 'map_episodes',
-    'mark', 'probe', 're', 'recode_note', 'swarm_pulse', 'threading', 'time', 'trace', 'warm_file']
+__all__ = [
+    "CAUTIOUS",
+    "COPY",
+    "EXIT_OK",
+    "META_BUDGET",
+    "PROBE_BUDGET",
+    "RECODE_HEIGHT",
+    "REFUSE",
+    "TYPE_CHECKING",
+    "Callable",
+    "Config",
+    "ContactWait",
+    "Entry",
+    "Episode",
+    "EpisodeFile",
+    "InfraError",
+    "Media",
+    "NotFoundError",
+    "Picture",
+    "Profile",
+    "Progress",
+    "RawResult",
+    "Release",
+    "ServerDownError",
+    "State",
+    "SwarmError",
+    "TorrcastError",
+    "TorrFile",
+    "TorrServer",
+    "_Bench",
+    "_Plan",
+    "_Prep",
+    "_Series",
+    "_Voiced",
+    "_about",
+    "_continue",
+    "_did_not_answer",
+    "_nothing_late",
+    "_remembered",
+    "_revoice",
+    "_silenced",
+    "_turned_down",
+    "_voiced",
+    "_waiting_note",
+    "ask_line",
+    "contextlib",
+    "dataclass",
+    "field",
+    "map_episodes",
+    "mark",
+    "probe",
+    "re",
+    "recode_note",
+    "swarm_pulse",
+    "threading",
+    "time",
+    "trace",
+    "warm_file",
+]
 
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from torrcast.choice import last_hope_note as last_hope_note
-    from torrcast.commands import HONEST_BUDGET as HONEST_BUDGET
-    from torrcast.commands import MAX_LIVE as MAX_LIVE
-    from torrcast.commands import MAX_TRIES as MAX_TRIES
-    from torrcast.commands import PEER_GRACE as PEER_GRACE
-    from torrcast.commands import PICK_BUDGET as PICK_BUDGET
-    from torrcast.commands import PREWARM_SPARE as PREWARM_SPARE
-    from torrcast.commands import SWARM_GRACE as SWARM_GRACE
-    from torrcast.commands import VERDICT_BUDGET as VERDICT_BUDGET
-    from torrcast.commands import Args as Args
-    from torrcast.commands import _Clock as _Clock
-    from torrcast.commands import _held_by_show as _held_by_show
-    from torrcast.commands import _release_torrents as _release_torrents
-    from torrcast.discovery import kin_line as kin_line
-    from torrcast.discovery import silent_swarm as silent_swarm
-    from torrcast.discovery import unfit_line as unfit_line
-    from torrcast.playback import _default_file as _default_file
-    from torrcast.playback import _launch as _launch
-    from torrcast.playback import _resume as _resume
-    from torrcast.ranking import _cut as _cut
-    from torrcast.ranking import _hms as _hms
-    from torrcast.ranking import heard as heard
-    from torrcast.ranking import honest_shot as honest_shot
-    from torrcast.ranking import is_candidate as is_candidate
-    from torrcast.ranking import misses_episode as misses_episode
-    from torrcast.ranking import peer_grace as peer_grace
-    from torrcast.ranking import pick_voice as pick_voice
-    from torrcast.ranking import promises_more as promises_more
-    from torrcast.ranking import quality_text as quality_text
-    from torrcast.ranking import queue_drops as queue_drops
-    from torrcast.ranking import stepdown_note as stepdown_note
-    from torrcast.ranking import understated as understated
-    from torrcast.ranking import voice_unproven as voice_unproven
+    from torrcast.choice import last_hope_note
+    from torrcast.commands import (
+        HONEST_BUDGET,
+        MAX_LIVE,
+        MAX_TRIES,
+        PEER_GRACE,
+        PICK_BUDGET,
+        PREWARM_SPARE,
+        SWARM_GRACE,
+        VERDICT_BUDGET,
+        Args,
+        _Clock,
+        _held_by_show,
+        _release_torrents,
+    )
+    from torrcast.discovery import kin_line, silent_swarm, unfit_line
+    from torrcast.playback import _default_file, _launch, _resume
+    from torrcast.ranking import (
+        _cut,
+        _hms,
+        heard,
+        honest_shot,
+        is_candidate,
+        misses_episode,
+        peer_grace,
+        pick_voice,
+        promises_more,
+        quality_text,
+        queue_drops,
+        stepdown_note,
+        understated,
+        voice_unproven,
+    )
 
 
 import contextlib
@@ -1452,7 +1503,6 @@ class _Bench:
             prep.ready.set()
             if prep.dropped:  # пока грелись, показ ушёл к другому релизу
                 self._forget(prep)
-
 
 
 __all__ = [name for name in globals() if not name.startswith("__")]

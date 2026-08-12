@@ -2,31 +2,59 @@
 
 from __future__ import annotations
 
-__all__ = ['CAUTIOUS', 'TYPE_CHECKING', 'Config', 'Episode', 'Fact', 'Facts', 'Origin', 'Picture',
-    'Profile', 'Progress', 'Prowlarr', 'RawResult', 'Release', '_as_is', '_ceiling_hides_name',
-    '_ceiling_reinforce', '_foreign_note', '_lacks_season', '_leading', '_nothing_late',
-    '_plan_for', '_season_reinforce', '_timed', '_topup', '_twin', '_voice_reinforce',
-    'catalog_has_name', 'franchise_key', 'menu_order', 'merge', 'minutes_of', 'origin',
-    'recodes_whole', 'replace', 'same_name', 'same_picture', 'slugify', 'split_franchise_index',
-    'to_releases', 'trace', 'transliterate', 'voiceless_pool']
+__all__ = [
+    "CAUTIOUS",
+    "TYPE_CHECKING",
+    "Config",
+    "Episode",
+    "Fact",
+    "Facts",
+    "Origin",
+    "Picture",
+    "Profile",
+    "Progress",
+    "Prowlarr",
+    "RawResult",
+    "Release",
+    "_as_is",
+    "_ceiling_hides_name",
+    "_ceiling_reinforce",
+    "_foreign_note",
+    "_lacks_season",
+    "_leading",
+    "_nothing_late",
+    "_plan_for",
+    "_season_reinforce",
+    "_timed",
+    "_topup",
+    "_twin",
+    "_voice_reinforce",
+    "catalog_has_name",
+    "franchise_key",
+    "menu_order",
+    "merge",
+    "minutes_of",
+    "origin",
+    "recodes_whole",
+    "replace",
+    "same_name",
+    "same_picture",
+    "slugify",
+    "split_franchise_index",
+    "to_releases",
+    "trace",
+    "transliterate",
+    "voiceless_pool",
+]
 
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from torrcast.choice import first_alive as first_alive
-    from torrcast.choice import fitness as fitness
-    from torrcast.commands import Args as Args
-    from torrcast.discovery import KIN_SHOWN as KIN_SHOWN
-    from torrcast.discovery import _ask as _ask
-    from torrcast.discovery import _asked_kind as _asked_kind
-    from torrcast.discovery import _no_budget as _no_budget
-    from torrcast.ranking import gate_open as gate_open
-    from torrcast.ranking import last_hope as last_hope
-    from torrcast.ranking import rank_releases as rank_releases
-    from torrcast.selection import _Plan as _Plan
-    from torrcast.selection import _Series as _Series
-
-
+    from torrcast.choice import first_alive, fitness
+    from torrcast.commands import Args
+    from torrcast.discovery import KIN_SHOWN, _ask, _asked_kind, _no_budget
+    from torrcast.ranking import gate_open, last_hope, rank_releases
+    from torrcast.selection import _Plan, _Series
 
 
 from dataclasses import replace
@@ -741,7 +769,6 @@ def _foreign_note(foreign: list[Release], menu: frozenset[str], progress: Progre
 def _nothing_late() -> list[RawResult]:
     """Долива нет: план собран не поиском (тесты, отладочные ручки) - доливать нечего."""
     return []
-
 
 
 __all__ = [name for name in globals() if not name.startswith("__")]

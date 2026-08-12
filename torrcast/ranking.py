@@ -2,40 +2,101 @@
 
 from __future__ import annotations
 
-__all__ = ['OFF_SEASON', 'RECODE_HEIGHT', 'STEP_RATIO', 'TABLE_LIMIT', 'TYPE_CHECKING',
-    '_AUDIO_FILE_EXT', '_CODEC', '_DISC', '_EXTRAS', '_HEAVY', '_HEVC', '_NO_EPISODE', '_PINNED',
-    '_QUIET', '_RU_FILE_RE', '_SMALL', '_SOURCE', '_SPOKEN', 'AudioTrack', 'Episode', 'Final',
-    'InfraError', 'Media', 'NotFoundError', 'Path', 'Release', 'Sequence', 'TorrFile',
-    '_ask_voice', '_cut', '_gb', '_hms', '_pad', '_russian_audio_file', '_voice_number', 'ask',
-    'bitrate_mbit', 'bitrate_of', 'drop_reason', 'gate_open', 'heard', 'hevc_hope', 'honest_shot',
-    'is_candidate', 'is_dated', 'is_dead', 'is_disc', 'is_extra', 'is_full_hd', 'last_hope',
-    'misses_episode', 'needs_whole_recode', 'over_ceiling', 'pack_mbit', 'peer_grace',
-    'pick_voice', 'promises_more', 'quality_text', 'queue_drops', 'rank_releases', 're',
-    'render_table', 'sound_note', 'sound_step', 'spoken', 'stepdown_note', 'understated',
-    'voice_note', 'voice_unproven', 'voices_table']
+__all__ = [
+    "OFF_SEASON",
+    "RECODE_HEIGHT",
+    "STEP_RATIO",
+    "TABLE_LIMIT",
+    "TYPE_CHECKING",
+    "_AUDIO_FILE_EXT",
+    "_CODEC",
+    "_DISC",
+    "_EXTRAS",
+    "_HEAVY",
+    "_HEVC",
+    "_NO_EPISODE",
+    "_PINNED",
+    "_QUIET",
+    "_RU_FILE_RE",
+    "_SMALL",
+    "_SOURCE",
+    "_SPOKEN",
+    "AudioTrack",
+    "Episode",
+    "Final",
+    "InfraError",
+    "Media",
+    "NotFoundError",
+    "Path",
+    "Release",
+    "Sequence",
+    "TorrFile",
+    "_ask_voice",
+    "_cut",
+    "_gb",
+    "_hms",
+    "_pad",
+    "_russian_audio_file",
+    "_voice_number",
+    "ask",
+    "bitrate_mbit",
+    "bitrate_of",
+    "drop_reason",
+    "gate_open",
+    "heard",
+    "hevc_hope",
+    "honest_shot",
+    "is_candidate",
+    "is_dated",
+    "is_dead",
+    "is_disc",
+    "is_extra",
+    "is_full_hd",
+    "last_hope",
+    "misses_episode",
+    "needs_whole_recode",
+    "over_ceiling",
+    "pack_mbit",
+    "peer_grace",
+    "pick_voice",
+    "promises_more",
+    "quality_text",
+    "queue_drops",
+    "rank_releases",
+    "re",
+    "render_table",
+    "sound_note",
+    "sound_step",
+    "spoken",
+    "stepdown_note",
+    "understated",
+    "voice_note",
+    "voice_unproven",
+    "voices_table",
+]
 
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from torrcast.choice import warned as warned
-    from torrcast.commands import _DISC_RE as _DISC_RE
-    from torrcast.commands import ALIVE_SEEDERS as ALIVE_SEEDERS
-    from torrcast.commands import EXTRAS_MBIT as EXTRAS_MBIT
-    from torrcast.commands import FULL_HD_LIVENESS as FULL_HD_LIVENESS
-    from torrcast.commands import FULL_HEIGHT as FULL_HEIGHT
-    from torrcast.commands import GATE_LIVENESS as GATE_LIVENESS
-    from torrcast.commands import HD_HEIGHT as HD_HEIGHT
-    from torrcast.commands import HONEST_RATIO as HONEST_RATIO
-    from torrcast.commands import PEER_GRACE as PEER_GRACE
-    from torrcast.commands import SD_BITRATE as SD_BITRATE
-    from torrcast.commands import SEASON_EPISODES as SEASON_EPISODES
-    from torrcast.commands import SOUND_LIVENESS as SOUND_LIVENESS
-    from torrcast.commands import STEP_GRACE as STEP_GRACE
-    from torrcast.commands import VOICE_MENU as VOICE_MENU
-    from torrcast.commands import Args as Args
-    from torrcast.selection import _Plan as _Plan
-
-
+    from torrcast.choice import warned
+    from torrcast.commands import (
+        _DISC_RE,
+        ALIVE_SEEDERS,
+        EXTRAS_MBIT,
+        FULL_HD_LIVENESS,
+        FULL_HEIGHT,
+        GATE_LIVENESS,
+        HD_HEIGHT,
+        HONEST_RATIO,
+        PEER_GRACE,
+        SD_BITRATE,
+        SEASON_EPISODES,
+        SOUND_LIVENESS,
+        STEP_GRACE,
+        VOICE_MENU,
+        Args,
+    )
+    from torrcast.selection import _Plan
 
 
 import re

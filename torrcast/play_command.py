@@ -2,46 +2,53 @@
 
 from __future__ import annotations
 
-__all__ = ['EXIT_OK', 'TYPE_CHECKING', 'Entry', 'Facts', 'Picture', 'Progress', 'Prowlarr',
-    'RawResult', 'State', 'TorrServer', '_cmd_play', '_forget_progress', '_relayout',
-    '_season_asked', '_titled_number', 'bitrate_mbit', 'detect_profile', 'load_config', 'mark',
-    'merge', 'slugify', 'split_franchise_index', 'to_releases', 'trace', 'tune_profile']
+__all__ = [
+    "EXIT_OK",
+    "TYPE_CHECKING",
+    "Entry",
+    "Facts",
+    "Picture",
+    "Progress",
+    "Prowlarr",
+    "RawResult",
+    "State",
+    "TorrServer",
+    "_cmd_play",
+    "_forget_progress",
+    "_relayout",
+    "_season_asked",
+    "_titled_number",
+    "bitrate_mbit",
+    "detect_profile",
+    "load_config",
+    "mark",
+    "merge",
+    "slugify",
+    "split_franchise_index",
+    "to_releases",
+    "trace",
+    "tune_profile",
+]
 
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from torrcast.choice import _is_default as _is_default
-    from torrcast.choice import _passport as _passport
-    from torrcast.choice import _pick_plan as _pick_plan
-    from torrcast.choice import _played as _played
-    from torrcast.choice import namesake_note as namesake_note
-    from torrcast.choice import swap_note as swap_note
-    from torrcast.choice import warm_order as warm_order
-    from torrcast.choice import year_note as year_note
-    from torrcast.commands import PREWARM as PREWARM
-    from torrcast.commands import Args as Args
-    from torrcast.commands import _Clock as _Clock
-    from torrcast.commands import _release_orphans as _release_orphans
-    from torrcast.commands import _say_showing as _say_showing
-    from torrcast.discovery import _ask as _ask
-    from torrcast.discovery import _no_budget as _no_budget
-    from torrcast.discovery import _search as _search
-    from torrcast.playback import _file_picker as _file_picker
-    from torrcast.playback import _launch as _launch
-    from torrcast.ranking import _gb as _gb
-    from torrcast.ranking import _hms as _hms
-    from torrcast.ranking import pick_voice as pick_voice
-    from torrcast.ranking import quality_text as quality_text
-    from torrcast.ranking import sound_note as sound_note
-    from torrcast.ranking import voice_note as voice_note
-    from torrcast.reinforce import _timed as _timed
-    from torrcast.reinforce import _topup as _topup
-    from torrcast.selection import _Bench as _Bench
-    from torrcast.selection import _continue as _continue
-    from torrcast.selection import _remembered as _remembered
-
-
-
+    from torrcast.choice import (
+        _is_default,
+        _passport,
+        _pick_plan,
+        _played,
+        namesake_note,
+        swap_note,
+        warm_order,
+        year_note,
+    )
+    from torrcast.commands import PREWARM, Args, _Clock, _release_orphans, _say_showing
+    from torrcast.discovery import _ask, _no_budget, _search
+    from torrcast.playback import _file_picker, _launch
+    from torrcast.ranking import _gb, _hms, pick_voice, quality_text, sound_note, voice_note
+    from torrcast.reinforce import _timed, _topup
+    from torrcast.selection import _Bench, _continue, _remembered
 
 
 from torrcast import (
@@ -389,7 +396,6 @@ def _season_asked(found: list[Picture], name: str, pictures: list[Picture]) -> b
     if not found or any(picture.kind != "tv" for picture in found):
         return False
     return reads_season(pick_franchise(name, pictures))
-
 
 
 __all__ = [name for name in globals() if not name.startswith("__")]

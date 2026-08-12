@@ -2,40 +2,114 @@
 
 from __future__ import annotations
 
-__all__ = ['CAUTIOUS', 'CLOCK', 'EXIT_OK', 'REVIVE_DROP', 'REVIVE_LIMIT', 'REVIVE_LIVED',
-    'REVIVE_PAUSE', 'REVIVE_TRIES', 'START_BUDGET', 'TYPE_CHECKING', 'VIDEO_EXT', 'WATCHED_RATIO',
-    'Any', 'Callable', 'ChromecastReceiver', 'Clock', 'Config', 'Encode', 'Entry', 'Feed', 'Grid',
-    'HlsServer', 'InfraError', 'NoReturn', 'NotFoundError', 'Path', 'Profile', 'Progress',
-    'Receiver', 'Recoder', 'Release', 'State', 'Supply', 'TorrcastError', 'TorrFile', 'TorrServer',
-    'Vault', 'Warmer', '_Resume', '_Revival', '_asked', '_await_playing', '_blame_the_end',
-    '_blamed', '_default_file', '_encode_all', '_file_picker', '_handover', '_hold', '_launch',
-    '_layout', '_next_warmer', '_play', '_recoder', '_refuse_hopeless', '_resume', '_warmer',
-    'ask_line', 'codec_name', 'contextlib', 'dataclass', 'detect_profile', 'forget_playing',
-    'hls_base', 'make_receiver', 'mark', 'mark_playing', 'os', 'pick_video_file', 'playing_flag',
-    'probe', 'recode_note', 'recodes_whole', 'start_play_unit', 'stop_play_unit', 'threading',
-    'time', 'trace', 'unit_active', 'unit_why', 'warm_file', 'warm_key', 'warm_root',
-    'whole_encode', 'why']
+__all__ = [
+    "CAUTIOUS",
+    "CLOCK",
+    "EXIT_OK",
+    "REVIVE_DROP",
+    "REVIVE_LIMIT",
+    "REVIVE_LIVED",
+    "REVIVE_PAUSE",
+    "REVIVE_TRIES",
+    "START_BUDGET",
+    "TYPE_CHECKING",
+    "VIDEO_EXT",
+    "WATCHED_RATIO",
+    "Any",
+    "Callable",
+    "ChromecastReceiver",
+    "Clock",
+    "Config",
+    "Encode",
+    "Entry",
+    "Feed",
+    "Grid",
+    "HlsServer",
+    "InfraError",
+    "NoReturn",
+    "NotFoundError",
+    "Path",
+    "Profile",
+    "Progress",
+    "Receiver",
+    "Recoder",
+    "Release",
+    "State",
+    "Supply",
+    "TorrcastError",
+    "TorrFile",
+    "TorrServer",
+    "Vault",
+    "Warmer",
+    "_Resume",
+    "_Revival",
+    "_asked",
+    "_await_playing",
+    "_blame_the_end",
+    "_blamed",
+    "_default_file",
+    "_encode_all",
+    "_file_picker",
+    "_handover",
+    "_hold",
+    "_launch",
+    "_layout",
+    "_next_warmer",
+    "_play",
+    "_recoder",
+    "_refuse_hopeless",
+    "_resume",
+    "_warmer",
+    "ask_line",
+    "codec_name",
+    "contextlib",
+    "dataclass",
+    "detect_profile",
+    "forget_playing",
+    "hls_base",
+    "make_receiver",
+    "mark",
+    "mark_playing",
+    "os",
+    "pick_video_file",
+    "playing_flag",
+    "probe",
+    "recode_note",
+    "recodes_whole",
+    "start_play_unit",
+    "stop_play_unit",
+    "threading",
+    "time",
+    "trace",
+    "unit_active",
+    "unit_why",
+    "warm_file",
+    "warm_key",
+    "warm_root",
+    "whole_encode",
+    "why",
+]
 
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from torrcast.choice import _ctl as _ctl
-    from torrcast.choice import _Revivable as _Revivable
-    from torrcast.commands import PAUSE_LIMIT as PAUSE_LIMIT
-    from torrcast.commands import PAUSE_SECONDS as PAUSE_SECONDS
-    from torrcast.commands import SAY_SECONDS as SAY_SECONDS
-    from torrcast.commands import SOURCE_PAUSE as SOURCE_PAUSE
-    from torrcast.commands import SOURCE_TRIES as SOURCE_TRIES
-    from torrcast.commands import TRACE_ENV as TRACE_ENV
-    from torrcast.commands import WORKER_DUR as WORKER_DUR
-    from torrcast.commands import Args as Args
-    from torrcast.commands import Watch as Watch
-    from torrcast.commands import _Clock as _Clock
-    from torrcast.commands import _following as _following
-    from torrcast.commands import _held_by_show as _held_by_show
-    from torrcast.ranking import _hms as _hms
-    from torrcast.selection import _about as _about
-    from torrcast.selection import _Plan as _Plan
+    from torrcast.choice import _ctl, _Revivable
+    from torrcast.commands import (
+        PAUSE_LIMIT,
+        PAUSE_SECONDS,
+        SAY_SECONDS,
+        SOURCE_PAUSE,
+        SOURCE_TRIES,
+        TRACE_ENV,
+        WORKER_DUR,
+        Args,
+        Watch,
+        _Clock,
+        _following,
+        _held_by_show,
+    )
+    from torrcast.ranking import _hms
+    from torrcast.selection import _about, _Plan
 
 
 import contextlib
@@ -1470,7 +1544,6 @@ def _hold(
                 feed.recoder.played = position.pos
             feed.prune(position.pos)
         clock.sleep(2.0)
-
 
 
 __all__ = [name for name in globals() if not name.startswith("__")]

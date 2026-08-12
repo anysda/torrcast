@@ -2,60 +2,92 @@
 
 from __future__ import annotations
 
-__all__ = ['TYPE_CHECKING', '_SUBTITLE_RE', 'Final', '_both_languages', '_both_words',
-    '_by_alias', '_by_both_names', '_by_subtitle', '_episode_span', '_fansub_episode',
-    '_find_year', '_is_non_video', '_kindred', '_living_part', '_normalize', '_normalize_quality',
-    '_numbered', '_one_name_is_enough', '_parse_codec', '_parse_series', '_parse_source',
-    '_parse_voices', '_season_span', '_split_titles', '_subtitles', '_title_zone',
-    '_with_subtitled', 'catalog_has_name', 'pick_franchise', 're', 'reads_season', 'unicodedata']
+__all__ = [
+    "TYPE_CHECKING",
+    "_SUBTITLE_RE",
+    "Final",
+    "_both_languages",
+    "_both_words",
+    "_by_alias",
+    "_by_both_names",
+    "_by_subtitle",
+    "_episode_span",
+    "_fansub_episode",
+    "_find_year",
+    "_is_non_video",
+    "_kindred",
+    "_living_part",
+    "_normalize",
+    "_normalize_quality",
+    "_numbered",
+    "_one_name_is_enough",
+    "_parse_codec",
+    "_parse_series",
+    "_parse_source",
+    "_parse_voices",
+    "_season_span",
+    "_split_titles",
+    "_subtitles",
+    "_title_zone",
+    "_with_subtitled",
+    "catalog_has_name",
+    "pick_franchise",
+    "re",
+    "reads_season",
+    "unicodedata",
+]
 
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from torrcast.episodes import parse_episode as parse_episode
-    from torrcast.franchise import _aliases as _aliases
-    from torrcast.franchise import _by_words as _by_words
-    from torrcast.franchise import _franchise_item_key as _franchise_item_key
-    from torrcast.franchise import _group_weight as _group_weight
-    from torrcast.franchise import _numbered_line as _numbered_line
-    from torrcast.franchise import _words as _words
-    from torrcast.franchise import franchises as franchises
-    from torrcast.parse_name import _ALTERNATIVE_PICTURE_RE as _ALTERNATIVE_PICTURE_RE
-    from torrcast.parse_name import _ALTERNATIVE_TITLE_RE as _ALTERNATIVE_TITLE_RE
-    from torrcast.parse_name import _AV1_RE as _AV1_RE
-    from torrcast.parse_name import _BRACKETS_RE as _BRACKETS_RE
-    from torrcast.parse_name import _CODEC_TOKEN_RE as _CODEC_TOKEN_RE
-    from torrcast.parse_name import _COLLECTION_CUT_RE as _COLLECTION_CUT_RE
-    from torrcast.parse_name import _CYRILLIC as _CYRILLIC
-    from torrcast.parse_name import _EPISODE_COUNT_RE as _EPISODE_COUNT_RE
-    from torrcast.parse_name import _EPISODE_SPAN_RES as _EPISODE_SPAN_RES
-    from torrcast.parse_name import _FANSUB_EPISODE_RE as _FANSUB_EPISODE_RE
-    from torrcast.parse_name import _H264_RE as _H264_RE
-    from torrcast.parse_name import _HEVC_RE as _HEVC_RE
-    from torrcast.parse_name import _LATIN as _LATIN
-    from torrcast.parse_name import _MPEG4_RE as _MPEG4_RE
-    from torrcast.parse_name import _NON_VIDEO_RE as _NON_VIDEO_RE
-    from torrcast.parse_name import _NUMERO_RE as _NUMERO_RE
-    from torrcast.parse_name import _OPEN_BRACKET_RE as _OPEN_BRACKET_RE
-    from torrcast.parse_name import _RU_CUT_WORDS as _RU_CUT_WORDS
-    from torrcast.parse_name import _SEASON_ONLY_RES as _SEASON_ONLY_RES
-    from torrcast.parse_name import _SEASON_SPAN_RES as _SEASON_SPAN_RES
-    from torrcast.parse_name import _SERIES_HINT_RE as _SERIES_HINT_RE
-    from torrcast.parse_name import _SOURCES as _SOURCES
-    from torrcast.parse_name import _TAG_ONLY_RE as _TAG_ONLY_RE
-    from torrcast.parse_name import _TAG_VOICES as _TAG_VOICES
-    from torrcast.parse_name import _TITLE_CUT_RE as _TITLE_CUT_RE
-    from torrcast.parse_name import _TITLE_TAIL_RE as _TITLE_TAIL_RE
-    from torrcast.parse_name import _UKRAINIAN as _UKRAINIAN
-    from torrcast.parse_name import _VIDEO_MARKER_RE as _VIDEO_MARKER_RE
-    from torrcast.parse_name import _VOICES as _VOICES
-    from torrcast.parse_name import _YEAR_PATTERNS as _YEAR_PATTERNS
-    from torrcast.parse_name import Picture as Picture
-    from torrcast.parse_name import franchise_key as franchise_key
-    from torrcast.parse_name import in_digits as in_digits
-    from torrcast.parse_name import slugify as slugify
-    from torrcast.parse_name import spell as spell
-    from torrcast.parse_name import split_franchise_index as split_franchise_index
+    from torrcast.episodes import parse_episode
+    from torrcast.franchise import (
+        _aliases,
+        _by_words,
+        _franchise_item_key,
+        _group_weight,
+        _numbered_line,
+        _words,
+        franchises,
+    )
+    from torrcast.parse_name import (
+        _ALTERNATIVE_PICTURE_RE,
+        _ALTERNATIVE_TITLE_RE,
+        _AV1_RE,
+        _BRACKETS_RE,
+        _CODEC_TOKEN_RE,
+        _COLLECTION_CUT_RE,
+        _CYRILLIC,
+        _EPISODE_COUNT_RE,
+        _EPISODE_SPAN_RES,
+        _FANSUB_EPISODE_RE,
+        _H264_RE,
+        _HEVC_RE,
+        _LATIN,
+        _MPEG4_RE,
+        _NON_VIDEO_RE,
+        _NUMERO_RE,
+        _OPEN_BRACKET_RE,
+        _RU_CUT_WORDS,
+        _SEASON_ONLY_RES,
+        _SEASON_SPAN_RES,
+        _SERIES_HINT_RE,
+        _SOURCES,
+        _TAG_ONLY_RE,
+        _TAG_VOICES,
+        _TITLE_CUT_RE,
+        _TITLE_TAIL_RE,
+        _UKRAINIAN,
+        _VIDEO_MARKER_RE,
+        _VOICES,
+        _YEAR_PATTERNS,
+        Picture,
+        franchise_key,
+        in_digits,
+        slugify,
+        spell,
+        split_franchise_index,
+    )
 
 
 import re

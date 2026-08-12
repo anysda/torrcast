@@ -2,29 +2,58 @@
 
 from __future__ import annotations
 
-__all__ = ['TYPE_CHECKING', 'Callable', 'Counter', '_alias_slugs', '_aliases', '_by_words',
-    '_chapter_of', '_compose', '_continued', '_franchise_item_key', '_free_first', '_glued_year',
-    '_group_weight', '_link', '_numbered_line', '_picture_season_span', '_run_span', '_sorted',
-    '_unchaptered', '_word_list', '_words', 'by_majority', 'cluster', 'franchises', 'glue',
-    'menu_order', 'other_words', 'outside_numbering', 're', 'seasons_named']
+__all__ = [
+    "TYPE_CHECKING",
+    "Callable",
+    "Counter",
+    "_alias_slugs",
+    "_aliases",
+    "_by_words",
+    "_chapter_of",
+    "_compose",
+    "_continued",
+    "_franchise_item_key",
+    "_free_first",
+    "_glued_year",
+    "_group_weight",
+    "_link",
+    "_numbered_line",
+    "_picture_season_span",
+    "_run_span",
+    "_sorted",
+    "_unchaptered",
+    "_word_list",
+    "_words",
+    "by_majority",
+    "cluster",
+    "franchises",
+    "glue",
+    "menu_order",
+    "other_words",
+    "outside_numbering",
+    "re",
+    "seasons_named",
+]
 
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from torrcast.parse_name import _ALTERNATIVE_PICTURE_RE as _ALTERNATIVE_PICTURE_RE
-    from torrcast.parse_name import _ALTERNATIVE_TITLE_RE as _ALTERNATIVE_TITLE_RE
-    from torrcast.parse_name import _CHAPTER_RE as _CHAPTER_RE
-    from torrcast.parse_name import _CYRILLIC as _CYRILLIC
-    from torrcast.parse_name import _PART_NUMBER_RE as _PART_NUMBER_RE
-    from torrcast.parse_name import _ROMAN as _ROMAN
-    from torrcast.parse_name import Kind as Kind
-    from torrcast.parse_name import Picture as Picture
-    from torrcast.parse_name import Release as Release
-    from torrcast.parse_name import _paired as _paired
-    from torrcast.parse_name import franchise_key as franchise_key
-    from torrcast.parse_name import in_digits as in_digits
-    from torrcast.parse_name import part_number as part_number
-    from torrcast.parse_name import slugify as slugify
+    from torrcast.parse_name import (
+        _ALTERNATIVE_PICTURE_RE,
+        _ALTERNATIVE_TITLE_RE,
+        _CHAPTER_RE,
+        _CYRILLIC,
+        _PART_NUMBER_RE,
+        _ROMAN,
+        Kind,
+        Picture,
+        Release,
+        _paired,
+        franchise_key,
+        in_digits,
+        part_number,
+        slugify,
+    )
 
 
 import re

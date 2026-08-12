@@ -2,6 +2,187 @@
 
 from __future__ import annotations
 
+# Статический список нужен mypy для реэкспортов; внизу сохраняется runtime-список.
+__all__ = [
+    "AUDIO_BITRATE",
+    "AUDIO_CHANNELS",
+    "AUDIO_CODEC",
+    "AUDIO_MBIT",
+    "CAUTIOUS",
+    "COPY",
+    "COPY_DEPTH",
+    "HEAD_OPEN",
+    "HEAD_OPEN_DEFAULT",
+    "HEAD_WARM",
+    "HLS_SEGMENT_SECONDS",
+    "KEYS_KEPT",
+    "KEYS_LOCK",
+    "KEYS_WAIT",
+    "MAX_SEGMENT_BYTES",
+    "META_GRACE",
+    "META_STEP",
+    "META_STEP_GROW",
+    "META_STEP_MAX",
+    "MIXED_PREFIX",
+    "MPEGTS_MUX_DELAY",
+    "MUTE_SECONDS",
+    "PACK_DIR",
+    "PACK_LIST",
+    "PACK_PENDING_BYTES",
+    "PILOT_TIMEOUT",
+    "PLAYING_FLAG",
+    "PROBE_KEPT",
+    "PROBE_TIMEOUT",
+    "RECODE_CODECS",
+    "RECODE_DIR",
+    "RUNTIME_GUESS",
+    "SEEK_SHIFT",
+    "SHRINK_DIR",
+    "SPLIT_SLACK",
+    "STEP_FOREIGN",
+    "STEP_ORIGINAL",
+    "STEP_RU_PLAIN",
+    "STEP_SERVICE",
+    "STUDIOS",
+    "TIMELINE_ENV",
+    "TRACE",
+    "TS_OVERHEAD",
+    "TYPE_CHECKING",
+    "VIDEO_EXT",
+    "VOICE_KINDS",
+    "WARM_TIMEOUT",
+    "_ASSET_RE",
+    "_DEPTH_FMT",
+    "_DEPTH_PROFILE",
+    "_FOREIGN_TITLE_RE",
+    "_MEDIA_VERSION",
+    "_ORIGINAL_RE",
+    "_PASS_ENV",
+    "_RANGE_RE",
+    "_RU_LANG",
+    "_RU_TITLE_RE",
+    "_SEEK_LOCK",
+    "_SEEK_OK",
+    "_SEGMENT_RE",
+    "_SERVICE_RE",
+    "_TECH_RE",
+    "_TIMEOUT",
+    "_TYPES",
+    "_UNIT_NAME",
+    "_UNIT_TAG",
+    "_VAGUE_LANG",
+    "_VOICE_STEPS",
+    "_WORDS_RE",
+    "AudioTrack",
+    "ClassVar",
+    "ContactWait",
+    "Feed",
+    "FilmKeys",
+    "Final",
+    "Grid",
+    "HlsServer",
+    "InfraError",
+    "Media",
+    "NamedTuple",
+    "NotFoundError",
+    "Packer",
+    "Path",
+    "Profile",
+    "ServerDownError",
+    "Studio",
+    "Supply",
+    "SwarmError",
+    "TorrFile",
+    "TorrServer",
+    "Warmup",
+    "_Handler",
+    "_Server",
+    "_extra_mbit",
+    "_fetching",
+    "_file_stats",
+    "_hold_keys_lock",
+    "_keep_media",
+    "_keys_cache",
+    "_keys_draft",
+    "_media_cache",
+    "_mtime",
+    "_names",
+    "_opt_str",
+    "_paths",
+    "_pilot_start",
+    "_read_keys",
+    "_read_media",
+    "_run_ffprobe",
+    "_scope",
+    "_systemd",
+    "_touch",
+    "_track",
+    "_trim",
+    "_video_bps",
+    "_weigher",
+    "asdict",
+    "bisect",
+    "bitrate_mbit",
+    "codec_name",
+    "color_depth",
+    "container_of",
+    "contextlib",
+    "dataclass",
+    "ffmpeg_pack_command",
+    "field",
+    "film_keys",
+    "forget_playing",
+    "grid_for",
+    "hashlib",
+    "head_open",
+    "hls_base",
+    "hls_dir",
+    "http",
+    "json",
+    "mapped_start",
+    "mark",
+    "mark_playing",
+    "math",
+    "merge_tracks",
+    "os",
+    "our_address",
+    "pack_start",
+    "parse_manifest",
+    "pick_video_file",
+    "playing_flag",
+    "probe",
+    "pull_head",
+    "quote",
+    "re",
+    "recode_note",
+    "recodes_whole",
+    "replace",
+    "segment_name",
+    "segment_slot",
+    "shelf_weight",
+    "shutil",
+    "socket",
+    "ssl",
+    "start_play_unit",
+    "stop_play_unit",
+    "studio_of",
+    "subprocess",
+    "swarm_alive",
+    "swarm_pulse",
+    "tempfile",
+    "threading",
+    "time",
+    "timeline_shift",
+    "unit_active",
+    "unit_key",
+    "unit_why",
+    "urllib",
+    "voice_order",
+    "warm_at",
+    "warm_file",
+    "why",
+]
+
 import sys
 from types import ModuleType
 from typing import Any
@@ -12,360 +193,209 @@ from torrcast import stream_pack as _stream_pack
 from torrcast import stream_probe as _stream_probe
 from torrcast import stream_serve as _stream_serve
 from torrcast.stream_core import (
-    _DEPTH_FMT as _DEPTH_FMT,
-)
-from torrcast.stream_core import (
-    _DEPTH_PROFILE as _DEPTH_PROFILE,
-)
-from torrcast.stream_core import (
-    _FOREIGN_TITLE_RE as _FOREIGN_TITLE_RE,
-)
-from torrcast.stream_core import (
-    _ORIGINAL_RE as _ORIGINAL_RE,
-)
-from torrcast.stream_core import (
-    _PASS_ENV as _PASS_ENV,
-)
-from torrcast.stream_core import (
-    _RU_LANG as _RU_LANG,
-)
-from torrcast.stream_core import (
-    _RU_TITLE_RE as _RU_TITLE_RE,
-)
-from torrcast.stream_core import (
-    _SEEK_LOCK as _SEEK_LOCK,
-)
-from torrcast.stream_core import (
-    _SEEK_OK as _SEEK_OK,
-)
-from torrcast.stream_core import (
-    _SEGMENT_RE as _SEGMENT_RE,
-)
-from torrcast.stream_core import (
-    _SERVICE_RE as _SERVICE_RE,
-)
-from torrcast.stream_core import (
-    _TECH_RE as _TECH_RE,
-)
-from torrcast.stream_core import (
-    _UNIT_TAG as _UNIT_TAG,
-)
-from torrcast.stream_core import (
-    _VAGUE_LANG as _VAGUE_LANG,
-)
-from torrcast.stream_core import (
-    _VOICE_STEPS as _VOICE_STEPS,
-)
-from torrcast.stream_core import (
-    _WORDS_RE as _WORDS_RE,
-)
-from torrcast.stream_core import AUDIO_BITRATE as AUDIO_BITRATE
-from torrcast.stream_core import AUDIO_CHANNELS as AUDIO_CHANNELS
-from torrcast.stream_core import AUDIO_CODEC as AUDIO_CODEC
-from torrcast.stream_core import AUDIO_MBIT as AUDIO_MBIT
-from torrcast.stream_core import (
-    COPY as COPY,
-)
-from torrcast.stream_core import COPY_DEPTH as COPY_DEPTH
-from torrcast.stream_core import HEAD_OPEN as HEAD_OPEN
-from torrcast.stream_core import HEAD_OPEN_DEFAULT as HEAD_OPEN_DEFAULT
-from torrcast.stream_core import HEAD_WARM as HEAD_WARM
-from torrcast.stream_core import HLS_SEGMENT_SECONDS as HLS_SEGMENT_SECONDS
-from torrcast.stream_core import KEYS_KEPT as KEYS_KEPT
-from torrcast.stream_core import KEYS_LOCK as KEYS_LOCK
-from torrcast.stream_core import KEYS_WAIT as KEYS_WAIT
-from torrcast.stream_core import MAX_SEGMENT_BYTES as MAX_SEGMENT_BYTES
-from torrcast.stream_core import META_GRACE as META_GRACE
-from torrcast.stream_core import META_STEP as META_STEP
-from torrcast.stream_core import META_STEP_GROW as META_STEP_GROW
-from torrcast.stream_core import META_STEP_MAX as META_STEP_MAX
-from torrcast.stream_core import MIXED_PREFIX as MIXED_PREFIX
-from torrcast.stream_core import MPEGTS_MUX_DELAY as MPEGTS_MUX_DELAY
-from torrcast.stream_core import MUTE_SECONDS as MUTE_SECONDS
-from torrcast.stream_core import PACK_DIR as PACK_DIR
-from torrcast.stream_core import PACK_LIST as PACK_LIST
-from torrcast.stream_core import PACK_PENDING_BYTES as PACK_PENDING_BYTES
-from torrcast.stream_core import PILOT_TIMEOUT as PILOT_TIMEOUT
-from torrcast.stream_core import PLAYING_FLAG as PLAYING_FLAG
-from torrcast.stream_core import PROBE_KEPT as PROBE_KEPT
-from torrcast.stream_core import PROBE_TIMEOUT as PROBE_TIMEOUT
-from torrcast.stream_core import RECODE_CODECS as RECODE_CODECS
-from torrcast.stream_core import RECODE_DIR as RECODE_DIR
-from torrcast.stream_core import RUNTIME_GUESS as RUNTIME_GUESS
-from torrcast.stream_core import SEEK_SHIFT as SEEK_SHIFT
-from torrcast.stream_core import SHRINK_DIR as SHRINK_DIR
-from torrcast.stream_core import SPLIT_SLACK as SPLIT_SLACK
-from torrcast.stream_core import STEP_FOREIGN as STEP_FOREIGN
-from torrcast.stream_core import STEP_ORIGINAL as STEP_ORIGINAL
-from torrcast.stream_core import STEP_RU_PLAIN as STEP_RU_PLAIN
-from torrcast.stream_core import STEP_SERVICE as STEP_SERVICE
-from torrcast.stream_core import STUDIOS as STUDIOS
-from torrcast.stream_core import (
-    TIMELINE_ENV as TIMELINE_ENV,
-)
-from torrcast.stream_core import TS_OVERHEAD as TS_OVERHEAD
-from torrcast.stream_core import VOICE_KINDS as VOICE_KINDS
-from torrcast.stream_core import WARM_TIMEOUT as WARM_TIMEOUT
-from torrcast.stream_core import AudioTrack as AudioTrack
-from torrcast.stream_core import ContactWait as ContactWait
-from torrcast.stream_core import Media as Media
-from torrcast.stream_core import (
-    Profile as Profile,
-)
-from torrcast.stream_core import ServerDownError as ServerDownError
-from torrcast.stream_core import Studio as Studio
-from torrcast.stream_core import TorrFile as TorrFile
-from torrcast.stream_core import TorrServer as TorrServer
-from torrcast.stream_core import Warmup as Warmup
-from torrcast.stream_core import (
-    _file_stats as _file_stats,
-)
-from torrcast.stream_core import bitrate_mbit as bitrate_mbit
-from torrcast.stream_core import codec_name as codec_name
-from torrcast.stream_core import color_depth as color_depth
-from torrcast.stream_core import (
-    quote as quote,
-)
-from torrcast.stream_core import recode_note as recode_note
-from torrcast.stream_core import recodes_whole as recodes_whole
-from torrcast.stream_core import studio_of as studio_of
-from torrcast.stream_core import swarm_alive as swarm_alive
-from torrcast.stream_core import voice_order as voice_order
-from torrcast.stream_feed import (
-    _TIMEOUT as _TIMEOUT,
+    _DEPTH_FMT,
+    _DEPTH_PROFILE,
+    _FOREIGN_TITLE_RE,
+    _ORIGINAL_RE,
+    _PASS_ENV,
+    _RU_LANG,
+    _RU_TITLE_RE,
+    _SEEK_LOCK,
+    _SEEK_OK,
+    _SEGMENT_RE,
+    _SERVICE_RE,
+    _TECH_RE,
+    _UNIT_TAG,
+    _VAGUE_LANG,
+    _VOICE_STEPS,
+    _WORDS_RE,
+    AUDIO_BITRATE,
+    AUDIO_CHANNELS,
+    AUDIO_CODEC,
+    AUDIO_MBIT,
+    COPY,
+    COPY_DEPTH,
+    HEAD_OPEN,
+    HEAD_OPEN_DEFAULT,
+    HEAD_WARM,
+    HLS_SEGMENT_SECONDS,
+    KEYS_KEPT,
+    KEYS_LOCK,
+    KEYS_WAIT,
+    MAX_SEGMENT_BYTES,
+    META_GRACE,
+    META_STEP,
+    META_STEP_GROW,
+    META_STEP_MAX,
+    MIXED_PREFIX,
+    MPEGTS_MUX_DELAY,
+    MUTE_SECONDS,
+    PACK_DIR,
+    PACK_LIST,
+    PACK_PENDING_BYTES,
+    PILOT_TIMEOUT,
+    PLAYING_FLAG,
+    PROBE_KEPT,
+    PROBE_TIMEOUT,
+    RECODE_CODECS,
+    RECODE_DIR,
+    RUNTIME_GUESS,
+    SEEK_SHIFT,
+    SHRINK_DIR,
+    SPLIT_SLACK,
+    STEP_FOREIGN,
+    STEP_ORIGINAL,
+    STEP_RU_PLAIN,
+    STEP_SERVICE,
+    STUDIOS,
+    TIMELINE_ENV,
+    TS_OVERHEAD,
+    VOICE_KINDS,
+    WARM_TIMEOUT,
+    AudioTrack,
+    ContactWait,
+    Media,
+    Profile,
+    ServerDownError,
+    Studio,
+    TorrFile,
+    TorrServer,
+    Warmup,
+    _file_stats,
+    bitrate_mbit,
+    codec_name,
+    color_depth,
+    quote,
+    recode_note,
+    recodes_whole,
+    studio_of,
+    swarm_alive,
+    voice_order,
 )
 from torrcast.stream_feed import (
-    CAUTIOUS as CAUTIOUS,
-)
-from torrcast.stream_feed import Feed as Feed
-from torrcast.stream_feed import Packer as Packer
-from torrcast.stream_feed import (
-    _names as _names,
-)
-from torrcast.stream_feed import (
-    _paths as _paths,
-)
-from torrcast.stream_feed import (
-    dataclass as dataclass,
-)
-from torrcast.stream_feed import (
-    field as field,
-)
-from torrcast.stream_feed import (
-    mark as mark,
-)
-from torrcast.stream_feed import merge_tracks as merge_tracks
-from torrcast.stream_feed import (
-    replace as replace,
-)
-from torrcast.stream_feed import (
-    shutil as shutil,
-)
-from torrcast.stream_feed import (
-    tempfile as tempfile,
-)
-from torrcast.stream_feed import timeline_shift as timeline_shift
-from torrcast.stream_pack import FilmKeys as FilmKeys
-from torrcast.stream_pack import Grid as Grid
-from torrcast.stream_pack import (
-    NamedTuple as NamedTuple,
+    _TIMEOUT,
+    CAUTIOUS,
+    Feed,
+    Packer,
+    _names,
+    _paths,
+    dataclass,
+    field,
+    mark,
+    merge_tracks,
+    replace,
+    shutil,
+    tempfile,
+    timeline_shift,
 )
 from torrcast.stream_pack import (
-    _extra_mbit as _extra_mbit,
-)
-from torrcast.stream_pack import (
-    _fetching as _fetching,
-)
-from torrcast.stream_pack import (
-    _hold_keys_lock as _hold_keys_lock,
-)
-from torrcast.stream_pack import (
-    _keys_cache as _keys_cache,
-)
-from torrcast.stream_pack import (
-    _keys_draft as _keys_draft,
-)
-from torrcast.stream_pack import (
-    _pilot_start as _pilot_start,
-)
-from torrcast.stream_pack import (
-    _read_keys as _read_keys,
-)
-from torrcast.stream_pack import (
-    _weigher as _weigher,
-)
-from torrcast.stream_pack import (
-    bisect as bisect,
-)
-from torrcast.stream_pack import container_of as container_of
-from torrcast.stream_pack import ffmpeg_pack_command as ffmpeg_pack_command
-from torrcast.stream_pack import film_keys as film_keys
-from torrcast.stream_pack import forget_playing as forget_playing
-from torrcast.stream_pack import grid_for as grid_for
-from torrcast.stream_pack import (
-    hashlib as hashlib,
-)
-from torrcast.stream_pack import head_open as head_open
-from torrcast.stream_pack import hls_dir as hls_dir
-from torrcast.stream_pack import (
-    json as json,
-)
-from torrcast.stream_pack import mapped_start as mapped_start
-from torrcast.stream_pack import mark_playing as mark_playing
-from torrcast.stream_pack import (
-    math as math,
-)
-from torrcast.stream_pack import pack_start as pack_start
-from torrcast.stream_pack import parse_manifest as parse_manifest
-from torrcast.stream_pack import playing_flag as playing_flag
-from torrcast.stream_pack import pull_head as pull_head
-from torrcast.stream_pack import (
-    urllib as urllib,
-)
-from torrcast.stream_pack import warm_at as warm_at
-from torrcast.stream_pack import warm_file as warm_file
-from torrcast.stream_probe import (
-    _MEDIA_VERSION as _MEDIA_VERSION,
+    FilmKeys,
+    Grid,
+    NamedTuple,
+    _extra_mbit,
+    _fetching,
+    _hold_keys_lock,
+    _keys_cache,
+    _keys_draft,
+    _pilot_start,
+    _read_keys,
+    _weigher,
+    bisect,
+    container_of,
+    ffmpeg_pack_command,
+    film_keys,
+    forget_playing,
+    grid_for,
+    hashlib,
+    head_open,
+    hls_dir,
+    json,
+    mapped_start,
+    mark_playing,
+    math,
+    pack_start,
+    parse_manifest,
+    playing_flag,
+    pull_head,
+    urllib,
+    warm_at,
+    warm_file,
 )
 from torrcast.stream_probe import (
-    VIDEO_EXT as VIDEO_EXT,
-)
-from torrcast.stream_probe import (
-    NotFoundError as NotFoundError,
-)
-from torrcast.stream_probe import Supply as Supply
-from torrcast.stream_probe import (
-    SwarmError as SwarmError,
-)
-from torrcast.stream_probe import (
-    _keep_media as _keep_media,
-)
-from torrcast.stream_probe import (
-    _media_cache as _media_cache,
-)
-from torrcast.stream_probe import (
-    _mtime as _mtime,
-)
-from torrcast.stream_probe import (
-    _read_media as _read_media,
-)
-from torrcast.stream_probe import (
-    _run_ffprobe as _run_ffprobe,
-)
-from torrcast.stream_probe import (
-    _touch as _touch,
-)
-from torrcast.stream_probe import (
-    _track as _track,
-)
-from torrcast.stream_probe import (
-    _trim as _trim,
-)
-from torrcast.stream_probe import (
-    _video_bps as _video_bps,
-)
-from torrcast.stream_probe import (
-    asdict as asdict,
-)
-from torrcast.stream_probe import pick_video_file as pick_video_file
-from torrcast.stream_probe import probe as probe
-from torrcast.stream_probe import segment_name as segment_name
-from torrcast.stream_probe import segment_slot as segment_slot
-from torrcast.stream_probe import shelf_weight as shelf_weight
-from torrcast.stream_probe import swarm_pulse as swarm_pulse
-from torrcast.stream_serve import (
-    _ASSET_RE as _ASSET_RE,
+    _MEDIA_VERSION,
+    VIDEO_EXT,
+    NotFoundError,
+    Supply,
+    SwarmError,
+    _keep_media,
+    _media_cache,
+    _mtime,
+    _read_media,
+    _run_ffprobe,
+    _touch,
+    _track,
+    _trim,
+    _video_bps,
+    asdict,
+    pick_video_file,
+    probe,
+    segment_name,
+    segment_slot,
+    shelf_weight,
+    swarm_pulse,
 )
 from torrcast.stream_serve import (
-    _RANGE_RE as _RANGE_RE,
-)
-from torrcast.stream_serve import (
-    _TYPES as _TYPES,
-)
-from torrcast.stream_serve import (
-    _UNIT_NAME as _UNIT_NAME,
-)
-from torrcast.stream_serve import TRACE as TRACE
-from torrcast.stream_serve import (
-    TYPE_CHECKING as TYPE_CHECKING,
-)
-from torrcast.stream_serve import (
-    ClassVar as ClassVar,
-)
-from torrcast.stream_serve import (
-    Final as Final,
-)
-from torrcast.stream_serve import HlsServer as HlsServer
-from torrcast.stream_serve import (
-    InfraError as InfraError,
-)
-from torrcast.stream_serve import (
-    Path as Path,
-)
-from torrcast.stream_serve import (
-    _Handler as _Handler,
-)
-from torrcast.stream_serve import (
-    _opt_str as _opt_str,
-)
-from torrcast.stream_serve import (
-    _scope as _scope,
-)
-from torrcast.stream_serve import (
-    _Server as _Server,
-)
-from torrcast.stream_serve import (
-    _systemd as _systemd,
-)
-from torrcast.stream_serve import (
-    contextlib as contextlib,
-)
-from torrcast.stream_serve import hls_base as hls_base
-from torrcast.stream_serve import (
-    http as http,
-)
-from torrcast.stream_serve import (
-    os as os,
-)
-from torrcast.stream_serve import our_address as our_address
-from torrcast.stream_serve import (
-    re as re,
-)
-from torrcast.stream_serve import (
-    socket as socket,
-)
-from torrcast.stream_serve import (
-    ssl as ssl,
-)
-from torrcast.stream_serve import start_play_unit as start_play_unit
-from torrcast.stream_serve import stop_play_unit as stop_play_unit
-from torrcast.stream_serve import (
-    subprocess as subprocess,
-)
-from torrcast.stream_serve import (
-    threading as threading,
-)
-from torrcast.stream_serve import (
-    time as time,
-)
-from torrcast.stream_serve import unit_active as unit_active
-from torrcast.stream_serve import unit_key as unit_key
-from torrcast.stream_serve import unit_why as unit_why
-from torrcast.stream_serve import (
-    why as why,
+    _ASSET_RE,
+    _RANGE_RE,
+    _TYPES,
+    _UNIT_NAME,
+    TRACE,
+    TYPE_CHECKING,
+    ClassVar,
+    Final,
+    HlsServer,
+    InfraError,
+    Path,
+    _Handler,
+    _opt_str,
+    _scope,
+    _Server,
+    _systemd,
+    contextlib,
+    hls_base,
+    http,
+    os,
+    our_address,
+    re,
+    socket,
+    ssl,
+    start_play_unit,
+    stop_play_unit,
+    subprocess,
+    threading,
+    time,
+    unit_active,
+    unit_key,
+    unit_why,
+    why,
 )
 
-_PARTS = (_stream_core, _stream_probe, _stream_pack, _stream_feed, _stream_serve,)
+_PARTS = (
+    _stream_core,
+    _stream_probe,
+    _stream_pack,
+    _stream_feed,
+    _stream_serve,
+)
 _namespace: dict[str, Any] = {}
 for _part in _PARTS:
     _namespace.update(
-        (name, value)
-        for name, value in vars(_part).items()
-        if not name.startswith("__")
+        (name, value) for name, value in vars(_part).items() if not name.startswith("__")
     )
 globals().update(_namespace)
 for _part in _PARTS:
     vars(_part).update(_namespace)
+
 
 class _StreamModule(ModuleType):
     def __setattr__(self, name: str, value: Any) -> None:
@@ -374,6 +404,7 @@ class _StreamModule(ModuleType):
             for part in _PARTS:
                 if name in vars(part):
                     setattr(part, name, value)
+
 
 sys.modules[__name__].__class__ = _StreamModule
 __all__ = [name for name in globals() if not name.startswith("_")]

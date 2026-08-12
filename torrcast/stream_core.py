@@ -7,21 +7,99 @@ TorrServer (кэш в RAM, на диск не пишем), пакует ffmpeg. 
 
 from __future__ import annotations
 
-__all__ = ['AUDIO_BITRATE', 'AUDIO_CHANNELS', 'AUDIO_CODEC', 'AUDIO_MBIT', 'CAUTIOUS', 'COPY',
-    'COPY_DEPTH', 'HEAD_OPEN', 'HEAD_OPEN_DEFAULT', 'HEAD_WARM', 'HLS_SEGMENT_SECONDS',
-    'KEYS_KEPT', 'KEYS_LOCK', 'KEYS_WAIT', 'MAX_SEGMENT_BYTES', 'META_GRACE', 'META_STEP',
-    'META_STEP_GROW', 'META_STEP_MAX', 'MIXED_PREFIX', 'MPEGTS_MUX_DELAY', 'MUTE_SECONDS',
-    'PACK_DIR', 'PACK_LIST', 'PACK_PENDING_BYTES', 'PILOT_TIMEOUT', 'PLAYING_FLAG', 'PROBE_KEPT',
-    'PROBE_TIMEOUT', 'RECODE_CODECS', 'RECODE_DIR', 'RUNTIME_GUESS', 'SEEK_SHIFT', 'SHRINK_DIR',
-    'SPLIT_SLACK', 'STEP_FOREIGN', 'STEP_ORIGINAL', 'STEP_RU_PLAIN', 'STEP_SERVICE', 'STUDIOS',
-    'TIMELINE_ENV', 'TS_OVERHEAD', 'TYPE_CHECKING', 'VOICE_KINDS', 'WARM_TIMEOUT', '_DEPTH_FMT',
-    '_DEPTH_PROFILE', '_FOREIGN_TITLE_RE', '_ORIGINAL_RE', '_PASS_ENV', '_RU_LANG',
-    '_RU_TITLE_RE', '_SEEK_LOCK', '_SEEK_OK', '_SEGMENT_RE', '_SERVICE_RE', '_TECH_RE',
-    '_TIMEOUT', '_UNIT_NAME', '_UNIT_TAG', '_VAGUE_LANG', '_VOICE_STEPS', '_WORDS_RE', 'Any',
-    'AudioTrack', 'ContactWait', 'Final', 'InfraError', 'Media', 'Profile', 'ServerDownError',
-    'Studio', 'SwarmError', 'TorrFile', 'TorrServer', 'Warmup', '_file_stats', 'bitrate_mbit',
-    'codec_name', 'color_depth', 'dataclass', 'quote', 're', 'recode_note', 'recodes_whole',
-    'studio_of', 'swarm_alive', 'threading', 'time', 'voice_order', 'why']
+__all__ = [
+    "AUDIO_BITRATE",
+    "AUDIO_CHANNELS",
+    "AUDIO_CODEC",
+    "AUDIO_MBIT",
+    "CAUTIOUS",
+    "COPY",
+    "COPY_DEPTH",
+    "HEAD_OPEN",
+    "HEAD_OPEN_DEFAULT",
+    "HEAD_WARM",
+    "HLS_SEGMENT_SECONDS",
+    "KEYS_KEPT",
+    "KEYS_LOCK",
+    "KEYS_WAIT",
+    "MAX_SEGMENT_BYTES",
+    "META_GRACE",
+    "META_STEP",
+    "META_STEP_GROW",
+    "META_STEP_MAX",
+    "MIXED_PREFIX",
+    "MPEGTS_MUX_DELAY",
+    "MUTE_SECONDS",
+    "PACK_DIR",
+    "PACK_LIST",
+    "PACK_PENDING_BYTES",
+    "PILOT_TIMEOUT",
+    "PLAYING_FLAG",
+    "PROBE_KEPT",
+    "PROBE_TIMEOUT",
+    "RECODE_CODECS",
+    "RECODE_DIR",
+    "RUNTIME_GUESS",
+    "SEEK_SHIFT",
+    "SHRINK_DIR",
+    "SPLIT_SLACK",
+    "STEP_FOREIGN",
+    "STEP_ORIGINAL",
+    "STEP_RU_PLAIN",
+    "STEP_SERVICE",
+    "STUDIOS",
+    "TIMELINE_ENV",
+    "TS_OVERHEAD",
+    "TYPE_CHECKING",
+    "VOICE_KINDS",
+    "WARM_TIMEOUT",
+    "_DEPTH_FMT",
+    "_DEPTH_PROFILE",
+    "_FOREIGN_TITLE_RE",
+    "_ORIGINAL_RE",
+    "_PASS_ENV",
+    "_RU_LANG",
+    "_RU_TITLE_RE",
+    "_SEEK_LOCK",
+    "_SEEK_OK",
+    "_SEGMENT_RE",
+    "_SERVICE_RE",
+    "_TECH_RE",
+    "_TIMEOUT",
+    "_UNIT_NAME",
+    "_UNIT_TAG",
+    "_VAGUE_LANG",
+    "_VOICE_STEPS",
+    "_WORDS_RE",
+    "Any",
+    "AudioTrack",
+    "ContactWait",
+    "Final",
+    "InfraError",
+    "Media",
+    "Profile",
+    "ServerDownError",
+    "Studio",
+    "SwarmError",
+    "TorrFile",
+    "TorrServer",
+    "Warmup",
+    "_file_stats",
+    "bitrate_mbit",
+    "codec_name",
+    "color_depth",
+    "dataclass",
+    "quote",
+    "re",
+    "recode_note",
+    "recodes_whole",
+    "studio_of",
+    "swarm_alive",
+    "threading",
+    "time",
+    "voice_order",
+    "why",
+]
 
 import re
 import threading
@@ -35,9 +113,7 @@ from torrcast.profile import CAUTIOUS, COPY, Profile
 from torrcast.timing import TIMELINE_ENV
 
 if TYPE_CHECKING:
-
     import requests
-
 
 
 class ContactWait(float):
@@ -67,7 +143,6 @@ class ContactWait(float):
             if self._activated_at is None:
                 self._seconds = seconds
                 self._activated_at = time.monotonic()
-
 
 
 #: Шаг сетки сегментов, секунды. Было 4 - стало 10, и это не вкусовщина, а

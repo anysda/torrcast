@@ -16,47 +16,147 @@
 
 from __future__ import annotations
 
-__all__ = ['ALIVE_SEEDERS', 'CTL_ENV', 'EXIT_INFRA', 'EXIT_NOT_FOUND', 'EXIT_OK', 'EXTRAS_MBIT',
-    'FULL_HD_LIVENESS', 'FULL_HEIGHT', 'GATE_LIVENESS', 'HD_HEIGHT', 'HONEST_BUDGET',
-    'HONEST_RATIO', 'KEYS_WAIT', 'MAX_LIVE', 'MAX_TRIES', 'META_BUDGET', 'PAUSE_LIMIT',
-    'PAUSE_SECONDS', 'PEER_GRACE', 'PICK_BUDGET', 'PILOT_TIMEOUT', 'PREWARM', 'PREWARM_DUB',
-    'PREWARM_SPARE', 'PROBE_BUDGET', 'PROBE_TIMEOUT', 'REVIVE_DROP', 'REVIVE_LIMIT',
-    'REVIVE_LIVED', 'REVIVE_PAUSE', 'REVIVE_TRIES', 'SAY_SECONDS', 'SD_BITRATE',
-    'SEASON_EPISODES', 'SOUND_LIVENESS', 'SOURCE_PAUSE', 'SOURCE_TRIES', 'START_BUDGET',
-    'START_SLACK', 'STEP_GRACE', 'SWARM_GRACE', 'TABLE_LIMIT', 'TRACE_ENV', 'TV_MENU',
-    'TYPE_CHECKING', 'VERDICT_BUDGET', 'VOICE_MENU', 'WARMED_RATIO', 'WATCH_SECONDS',
-    'WORKER_DUR', 'WORKER_META', '_BTIH', '_DISC_RE', 'Args', 'ChromecastReceiver', 'Config',
-    'Device', 'Entry', 'Episode', 'Facts', 'Final', 'InfraError', 'NotFoundError', 'Profile',
-    'Progress', 'Receiver', 'Sequence', 'State', 'Supply', 'TorrcastError', 'TorrServer', 'Watch',
-    '_Clock', '_Stopped', '__version__', '_cache_reserve', '_cmd_configure', '_cmd_doctor',
-    '_cmd_log', '_cmd_releases', '_cmd_status', '_cmd_stop', '_cmd_voices', '_cmd_worker',
-    '_darkness', '_duration', '_following', '_held_by_show', '_on_term', '_own_torrent',
-    '_release_orphans', '_release_torrents', '_say_showing', '_shown', '_since_seconds',
-    '_torrent_hash', '_worker_loop', 'argparse', 'ask', 'console', 'contextlib', 'dataclass',
-    'detect_profile', 'field', 'found_tv', 'hls_base', 'io', 'load_config', 'main',
-    'make_receiver', 'mark', 'parse_args', 'partial', 'probe', 're', 'save_config', 'scan',
-    'signal', 'split_episode', 'stop_play_unit', 'sys', 'terminal', 'time', 'trace',
-    'tune_profile', 'tv_lines', 'unit_active', 'unit_key']
+__all__ = [
+    "ALIVE_SEEDERS",
+    "CTL_ENV",
+    "EXIT_INFRA",
+    "EXIT_NOT_FOUND",
+    "EXIT_OK",
+    "EXTRAS_MBIT",
+    "FULL_HD_LIVENESS",
+    "FULL_HEIGHT",
+    "GATE_LIVENESS",
+    "HD_HEIGHT",
+    "HONEST_BUDGET",
+    "HONEST_RATIO",
+    "KEYS_WAIT",
+    "MAX_LIVE",
+    "MAX_TRIES",
+    "META_BUDGET",
+    "PAUSE_LIMIT",
+    "PAUSE_SECONDS",
+    "PEER_GRACE",
+    "PICK_BUDGET",
+    "PILOT_TIMEOUT",
+    "PREWARM",
+    "PREWARM_DUB",
+    "PREWARM_SPARE",
+    "PROBE_BUDGET",
+    "PROBE_TIMEOUT",
+    "REVIVE_DROP",
+    "REVIVE_LIMIT",
+    "REVIVE_LIVED",
+    "REVIVE_PAUSE",
+    "REVIVE_TRIES",
+    "SAY_SECONDS",
+    "SD_BITRATE",
+    "SEASON_EPISODES",
+    "SOUND_LIVENESS",
+    "SOURCE_PAUSE",
+    "SOURCE_TRIES",
+    "START_BUDGET",
+    "START_SLACK",
+    "STEP_GRACE",
+    "SWARM_GRACE",
+    "TABLE_LIMIT",
+    "TRACE_ENV",
+    "TV_MENU",
+    "TYPE_CHECKING",
+    "VERDICT_BUDGET",
+    "VOICE_MENU",
+    "WARMED_RATIO",
+    "WATCH_SECONDS",
+    "WORKER_DUR",
+    "WORKER_META",
+    "_BTIH",
+    "_DISC_RE",
+    "Args",
+    "ChromecastReceiver",
+    "Config",
+    "Device",
+    "Entry",
+    "Episode",
+    "Facts",
+    "Final",
+    "InfraError",
+    "NotFoundError",
+    "Profile",
+    "Progress",
+    "Receiver",
+    "Sequence",
+    "State",
+    "Supply",
+    "TorrcastError",
+    "TorrServer",
+    "Watch",
+    "_Clock",
+    "_Stopped",
+    "__version__",
+    "_cache_reserve",
+    "_cmd_configure",
+    "_cmd_doctor",
+    "_cmd_log",
+    "_cmd_releases",
+    "_cmd_status",
+    "_cmd_stop",
+    "_cmd_voices",
+    "_cmd_worker",
+    "_darkness",
+    "_duration",
+    "_following",
+    "_held_by_show",
+    "_on_term",
+    "_own_torrent",
+    "_release_orphans",
+    "_release_torrents",
+    "_say_showing",
+    "_shown",
+    "_since_seconds",
+    "_torrent_hash",
+    "_worker_loop",
+    "argparse",
+    "ask",
+    "console",
+    "contextlib",
+    "dataclass",
+    "detect_profile",
+    "field",
+    "found_tv",
+    "hls_base",
+    "io",
+    "load_config",
+    "main",
+    "make_receiver",
+    "mark",
+    "parse_args",
+    "partial",
+    "probe",
+    "re",
+    "save_config",
+    "scan",
+    "signal",
+    "split_episode",
+    "stop_play_unit",
+    "sys",
+    "terminal",
+    "time",
+    "trace",
+    "tune_profile",
+    "tv_lines",
+    "unit_active",
+    "unit_key",
+]
 
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from torrcast.choice import _named as _named
-    from torrcast.choice import _pick_plan as _pick_plan
-    from torrcast.discovery import _search as _search
-    from torrcast.play_command import _cmd_play as _cmd_play
-    from torrcast.playback import _file_picker as _file_picker
-    from torrcast.playback import _next_warmer as _next_warmer
-    from torrcast.playback import _play as _play
-    from torrcast.ranking import _cut as _cut
-    from torrcast.ranking import _hms as _hms
-    from torrcast.ranking import render_table as render_table
-    from torrcast.ranking import voices_table as voices_table
-    from torrcast.reinforce import _timed as _timed
-    from torrcast.selection import _Bench as _Bench
-    from torrcast.selection import _remembered as _remembered
-
-
+    from torrcast.choice import _named, _pick_plan
+    from torrcast.discovery import _search
+    from torrcast.play_command import _cmd_play
+    from torrcast.playback import _file_picker, _next_warmer, _play
+    from torrcast.ranking import _cut, _hms, render_table, voices_table
+    from torrcast.reinforce import _timed
+    from torrcast.selection import _Bench, _remembered
 
 
 import argparse
@@ -1344,7 +1444,6 @@ class _Clock:
     @property
     def total(self) -> float:
         return time.monotonic() - self.start
-
 
 
 __all__ = [name for name in globals() if not name.startswith("__")]

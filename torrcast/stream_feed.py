@@ -2,28 +2,48 @@
 
 from __future__ import annotations
 
-__all__ = ['CAUTIOUS', 'PACK_PENDING_BYTES', 'TYPE_CHECKING', '_TIMEOUT', 'Any', 'Feed',
-    'InfraError', 'Packer', 'Path', '_names', '_paths', 'contextlib', 'dataclass', 'field',
-    'mark', 'merge_tracks', 'os', 'replace', 'shutil', 'subprocess', 'tempfile', 'threading',
-    'time', 'timeline_shift']
+__all__ = [
+    "CAUTIOUS",
+    "PACK_PENDING_BYTES",
+    "TYPE_CHECKING",
+    "_TIMEOUT",
+    "Any",
+    "Feed",
+    "InfraError",
+    "Packer",
+    "Path",
+    "_names",
+    "_paths",
+    "contextlib",
+    "dataclass",
+    "field",
+    "mark",
+    "merge_tracks",
+    "os",
+    "replace",
+    "shutil",
+    "subprocess",
+    "tempfile",
+    "threading",
+    "time",
+    "timeline_shift",
+]
 
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from torrcast.stream_core import MAX_SEGMENT_BYTES as MAX_SEGMENT_BYTES
-    from torrcast.stream_core import MIXED_PREFIX as MIXED_PREFIX
-    from torrcast.stream_core import MUTE_SECONDS as MUTE_SECONDS
-    from torrcast.stream_core import PACK_DIR as PACK_DIR
-    from torrcast.stream_core import PACK_LIST as PACK_LIST
-    from torrcast.stream_core import RECODE_DIR as RECODE_DIR
-    from torrcast.stream_core import SHRINK_DIR as SHRINK_DIR
-    from torrcast.stream_core import SPLIT_SLACK as SPLIT_SLACK
-    from torrcast.stream_pack import Grid as Grid
-    from torrcast.stream_pack import ffmpeg_pack_command as ffmpeg_pack_command
-    from torrcast.stream_pack import forget_playing as forget_playing
-    from torrcast.stream_pack import pack_start as pack_start
-    from torrcast.stream_probe import segment_name as segment_name
-    from torrcast.stream_probe import segment_slot as segment_slot
+    from torrcast.stream_core import (
+        MAX_SEGMENT_BYTES,
+        MIXED_PREFIX,
+        MUTE_SECONDS,
+        PACK_DIR,
+        PACK_LIST,
+        RECODE_DIR,
+        SHRINK_DIR,
+        SPLIT_SLACK,
+    )
+    from torrcast.stream_pack import Grid, ffmpeg_pack_command, forget_playing, pack_start
+    from torrcast.stream_probe import segment_name, segment_slot
 
 
 import contextlib
@@ -43,9 +63,8 @@ from torrcast.stream_core import _TIMEOUT, PACK_PENDING_BYTES
 from torrcast.timing import mark
 
 if TYPE_CHECKING:
-
-
     pass
+
 
 @dataclass(slots=True)
 class Packer:
