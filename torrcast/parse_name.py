@@ -18,6 +18,26 @@
 
 from __future__ import annotations
 
+__all__ = ['THIN_POOL', 'TYPE_CHECKING', 'VIDEO_EXT', '_ALTERNATIVE_PICTURE_RE',
+    '_ALTERNATIVE_TITLE_RE', '_ANIME_INDEXERS', '_ANIME_RE', '_AV1_RE', '_AVI_RE', '_BRACKETS_RE',
+    '_CHANNEL_RE', '_CHAPTER_RE', '_CODEC_TOKEN_RE', '_COLLECTION_CUT_RE', '_COLLECTION_LATIN',
+    '_COLLECTION_RUSSIAN', '_CYRILLIC', '_DUBBED', '_ENDING', '_EPISODE_BRACKET_RE',
+    '_EPISODE_COUNT_RE', '_EPISODE_ONLY_RES', '_EPISODE_SPAN_RES', '_EXTRAS_RE',
+    '_EXTRAS_SURE_RE', '_FANSUB_EPISODE_RE', '_FOREIGN_DUB_RE', '_FOREIGN_LANG', '_FRANCHISE_MIN',
+    '_GLUE', '_H264_RE', '_HDR_RE', '_HD_SOURCES', '_HEVC_RE', '_JUNK_RE', '_LATIN', '_LAYOUT',
+    '_MERGED_TAIL', '_MPEG4_RE', '_NON_VIDEO_RE', '_NUMERALS', '_NUMERO_RE', '_OPEN_BRACKET_RE',
+    '_PART_NUMBER_RE', '_QUALITY_RE', '_ROMAN', '_RU_AUDIO_RE', '_RU_CUT_WORDS', '_RU_EXT_RE',
+    '_RU_STUDIO_RE', '_SD_SOURCES', '_SEASON_EPISODE_RES', '_SEASON_ONLY_RES', '_SEASON_SPAN_RES',
+    '_SERIES_HINT_RE', '_SMALL_RATIO', '_SOURCES', '_SPELL_X', '_STEM', '_STEREO_LAYOUT_RE',
+    '_STEREO_RE', '_SUB_MENTION_RE', '_TAG_ONLY_RE', '_TAG_VOICES', '_TECH_TOKEN_RE',
+    '_TITLE_CUT_RE', '_TITLE_NUMBER_RE', '_TITLE_TAIL_RE', '_TRANSLIT', '_TWO_D_RE', '_UKRAINIAN',
+    '_VIDEO_MARKER_RE', '_VOICES', '_WITH_EXTRAS_RE', '_YEAR_PATTERNS', 'Counter', 'Episode',
+    'Final', 'Iterable', 'Kind', 'Literal', 'Picture', 'Release', 'Sequence', '_akin', '_paired',
+    '_unbranded', 'alt_query', 'anime_indexer', 'dataclass', 'field', 'franchise_key',
+    'franchise_name', 'in_digits', 'looks_anime', 'os', 'part_number', 're', 'same_word',
+    'same_words', 'slugify', 'spell', 'split_franchise_index', 'transliterate', 'unicodedata',
+    'unswap_layout', 'wire_query']
+
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -1392,5 +1412,3 @@ def split_franchise_index(query: str) -> tuple[str, int | None]:
     if _TITLE_NUMBER_RE.search(name):
         return query.strip(), None
     return name, int(match.group("index"))
-
-

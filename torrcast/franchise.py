@@ -2,6 +2,12 @@
 
 from __future__ import annotations
 
+__all__ = ['TYPE_CHECKING', 'Callable', 'Counter', '_alias_slugs', '_aliases', '_by_words',
+    '_chapter_of', '_compose', '_continued', '_franchise_item_key', '_free_first', '_glued_year',
+    '_group_weight', '_link', '_numbered_line', '_picture_season_span', '_run_span', '_sorted',
+    '_unchaptered', '_word_list', '_words', 'by_majority', 'cluster', 'franchises', 'glue',
+    'menu_order', 'other_words', 'outside_numbering', 're', 'seasons_named']
+
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -816,5 +822,3 @@ def _aliases(groups: dict[str, list[Picture]]) -> dict[str, str]:
                 if name and weight[key] > weight.get(aliases.get(name, ""), 0):
                     aliases[name] = key
     return aliases
-
-

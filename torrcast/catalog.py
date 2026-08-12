@@ -2,6 +2,13 @@
 
 from __future__ import annotations
 
+__all__ = ['TYPE_CHECKING', '_SUBTITLE_RE', 'Final', '_both_languages', '_both_words',
+    '_by_alias', '_by_both_names', '_by_subtitle', '_episode_span', '_fansub_episode',
+    '_find_year', '_is_non_video', '_kindred', '_living_part', '_normalize', '_normalize_quality',
+    '_numbered', '_one_name_is_enough', '_parse_codec', '_parse_series', '_parse_source',
+    '_parse_voices', '_season_span', '_split_titles', '_subtitles', '_title_zone',
+    '_with_subtitled', 'catalog_has_name', 'pick_franchise', 're', 'reads_season', 'unicodedata']
+
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:

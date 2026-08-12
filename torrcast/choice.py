@@ -2,6 +2,17 @@
 
 from __future__ import annotations
 
+__all__ = ['TYPE_CHECKING', '_BLURB_INDENT', 'Config', 'Fact', 'Facts', 'NotFoundError', 'Origin',
+    'Path', 'Picture', 'Profile', 'Progress', 'Protocol', 'Receiver', 'Release', '_Passport',
+    '_Revivable', '_Steerable', '_ctl', '_first_alive', '_is_default', '_named', '_namesake',
+    '_passed_why', '_passport', '_pick_plan', '_played', '_rival', '_same_name', '_why_refused',
+    'alive_numbers', 'ask', 'asked_kind', 'backed', 'console', 'contextlib', 'default_line',
+    'default_note', 'first_alive', 'fitness', 'franchise_key', 'last_hope_note', 'liveliest',
+    'liveliness', 'menu_lines', 'namesake_note', 'origin', 'os', 'outside_numbering',
+    'part_one_swap', 'playable', 'runtime_checkable', 'shorten', 'shutil', 'slugify',
+    'split_franchise_index', 'swap_note', 'textwrap', 'threading', 'trace', 'understudy',
+    'understudy_note', 'warm_order', 'warned', 'year_note']
+
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:

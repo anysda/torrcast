@@ -3,5 +3,7 @@ set -eu
 
 # Логические процессоры делят независимые тесты; настоящие часы, сокеты, подпроцессы
 # и живой медиатракт не конкурируют за машину. Две команды покрывают всю коллекцию.
+.venv/bin/ruff check
+.venv/bin/mypy
 .venv/bin/python -m pytest -m 'not ffmpeg and not machine' -n logical
 .venv/bin/python -m pytest -m 'ffmpeg or machine' -n 0

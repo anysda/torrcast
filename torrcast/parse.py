@@ -10,6 +10,7 @@ from torrcast import catalog as _catalog
 from torrcast import episodes as _episodes
 from torrcast import franchise as _franchise
 from torrcast import parse_name as _parse_name
+from torrcast.catalog import _both_languages as _both_languages
 from torrcast.catalog import (
     catalog_has_name as catalog_has_name,
 )
@@ -55,6 +56,7 @@ from torrcast.franchise import (
 from torrcast.franchise import (
     seasons_named as seasons_named,
 )
+from torrcast.parse_name import _EXTRAS_RE as _EXTRAS_RE
 from torrcast.parse_name import (
     THIN_POOL as THIN_POOL,
 )
@@ -64,6 +66,7 @@ from torrcast.parse_name import (
 from torrcast.parse_name import (
     Episode as Episode,
 )
+from torrcast.parse_name import Kind as Kind
 from torrcast.parse_name import (
     Picture as Picture,
 )

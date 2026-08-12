@@ -2,6 +2,13 @@
 
 from __future__ import annotations
 
+__all__ = ['TYPE_CHECKING', 'VIDEO_EXT', '_MEDIA_VERSION', 'Any', 'Final', 'InfraError',
+    'NotFoundError', 'Path', 'Supply', 'SwarmError', '_keep_media', '_media_cache', '_mtime',
+    '_read_media', '_run_ffprobe', '_touch', '_track', '_trim', '_video_bps', 'asdict',
+    'contextlib', 'dataclass', 'hashlib', 'json', 'os', 'pick_video_file', 'probe',
+    'segment_name', 'segment_slot', 'shelf_weight', 'subprocess', 'swarm_pulse', 'threading',
+    'time', 'urllib']
+
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -497,5 +504,3 @@ def segment_slot(name: str) -> int:
     """Слот по имени файла; ``-1`` — имя не наше."""
     found = _SEGMENT_RE.fullmatch(name)
     return int(found.group(1)) if found else -1
-
-
