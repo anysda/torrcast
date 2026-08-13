@@ -23,6 +23,7 @@ __all__ = [
     "load_config",
     "mark",
     "merge",
+    "season_reread",
     "slugify",
     "split_franchise_index",
     "to_releases",
@@ -30,6 +31,7 @@ __all__ = [
     "tune_profile",
 ]
 
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -396,6 +398,26 @@ def _season_asked(found: list[Picture], name: str, pictures: list[Picture]) -> b
     if not found or any(picture.kind != "tv" for picture in found):
         return False
     return reads_season(pick_franchise(name, pictures))
+
+
+def season_reread(
+    args: Args, name: str, index: int | None, found: list[Picture], pictures: list[Picture]
+) -> Args | None:
+    """Перечитать номер запроса сезоном: запрос «имя N» → «имя sNe1» (TC-363).
+
+    Само правило - в :func:`_season_asked`; тут второй его половина: во что именно
+    переписывается запрос, когда правило сработало. ``None`` - номер остался номером
+    части, запрос не трогаем.
+
+    Обе половины стоят рядом и зовутся ОДНОЙ функцией не для красоты. Читателей у выдачи
+    двое - показ (:func:`~torrcast.cli._search`) и офлайн-переигровка
+    (``scripts/poolreplay.py``, TC-397), - и пока прочтение было переписано в щупе своей
+    копией, он строил планы по первому сезону там, где показ строил их по второму. Щуп,
+    который меряет собственную копию правила, не меряет ничего.
+    """
+    if index is None or not _season_asked(found, name, pictures):
+        return None
+    return replace(args, query=[*name.split(), f"s{index}e1"])
 
 
 __all__ = [name for name in globals() if not name.startswith("__")]

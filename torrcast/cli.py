@@ -322,6 +322,7 @@ __all__ = [
     "save_config",
     "scan",
     "season_gaps",
+    "season_reread",
     "shorten",
     "shutil",
     "signal",
@@ -558,6 +559,7 @@ from torrcast.play_command import (
     _season_asked,
     _titled_number,
     load_config,
+    season_reread,
     tune_profile,
 )
 from torrcast.playback import (

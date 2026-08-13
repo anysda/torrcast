@@ -56,7 +56,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from torrcast.choice import fitness
     from torrcast.commands import Args
-    from torrcast.play_command import _relayout, _season_asked, _titled_number
+    from torrcast.play_command import _relayout, _titled_number, season_reread
     from torrcast.ranking import misses_episode, over_ceiling
     from torrcast.reinforce import (
         _as_is,
@@ -144,14 +144,14 @@ def _search(
     # Номер в запросе - позиция во франшизе, а не в общей выдаче.
     found = pick_franchise(query, pictures)
     titled = False
-    if index is not None and _season_asked(found, name, pictures):
+    if (reread := season_reread(args, name, index, found, pictures)) is not None:
         # 🔴 TC-363. У сериала номер это сезон, а не часть франшизы
         # (:func:`~torrcast.parse.reads_season`), и дальше по строке он идёт ровно тем же
         # путём, что и явное `sNeM`: своей сезонной машинерией, вплоть до честного
         # «раздач с сезоном N нет». Молчать о таком прочтении нельзя - номер человек
         # написал сам, и он вправе знать, чем мы его сочли.
         progress.note(f"«{name}» - это сериал: номер {index} читаю сезоном, а не частью")
-        args = replace(args, query=[*name.split(), f"s{index}e1"])
+        args = reread
         query, index = name, None
     if index is not None and not found:
         # Цифра оказалась частью названия, и обрубок увёз поиск не туда

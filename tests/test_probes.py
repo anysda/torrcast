@@ -205,6 +205,97 @@ def test_щуп_называет_кого_не_пустил_в_меню() -> Non
     assert [p.title for p in item.missed] == ["Криминальное чтиво"]
 
 
+def franchise_pool() -> dict[str, Any]:
+    """Две части одной франшизы: обе с планом, обе в меню."""
+    return pool(
+        "матрица",
+        RuTor=[
+            [
+                "Матрица / The Matrix [1999, США, фантастика, BDRip 1080p] MVO",
+                "a" * 40,
+                int(9.0 * GB),
+                90,
+                "RuTor",
+            ],
+            [
+                "Матрица: Перезагрузка / The Matrix Reloaded [2003, США, BDRip 1080p] MVO",
+                "b" * 40,
+                int(9.4 * GB),
+                70,
+                "RuTor",
+            ],
+        ],
+    )
+
+
+def test_верх_меню_это_то_что_видит_человек() -> None:
+    """Картина без плана в меню не печатается - и «верхом меню» её звать нельзя."""
+    replay = probe("poolreplay")
+    record = franchise_pool()
+    item = replay.replay(
+        record["query"], replay.batches_of(record), tune(Config(), CAUTIOUS), CAUTIOUS
+    )
+    assert [p.title for p in item.menu] == ["Матрица", "Матрица: Перезагрузка"]
+    assert len(item.plans) == 2 and not item.above_default
+
+    # У первой картины меню пул отбора пуст: человек увидит списком одну «Перезагрузку».
+    empty = replay.Replay(
+        query=item.query,
+        raw_rows=item.raw_rows,
+        results=item.results,
+        catalog=item.catalog,
+        menu=item.menu,
+        plans=item.plans[1:],
+    )
+    assert [p.title for p in empty.above_default] == ["Матрица"]
+    said = replay.brief(empty)
+    assert said.index("Матрица: Перезагрузка") < said.index("без плана и не в меню")
+    assert "→ Enter" not in said, "щуп обещает выбор там, где человек списка не увидит"
+
+    told = "\n".join(replay.detail(empty, 5, 3))
+    assert "[-] Матрица (1999" in told, "беспланная картина не вправе носить номер меню"
+    assert "[1] Матрица: Перезагрузка" in told, "номер пункта считается по планам"
+
+
+def test_щуп_спрашивает_пул_другим_запросом() -> None:
+    """«Тот же пул, другой номер части» - флагом, а не обвязкой вокруг щупа."""
+    replay = probe("poolreplay")
+    assert replay.asks_of("матрица", []) == ["матрица"]
+    assert replay.asks_of("матрица", ["{}", "{} 2", "дюна"]) == ["матрица", "матрица 2", "дюна"]
+
+    record = franchise_pool()
+    config = tune(Config(), CAUTIOUS)
+    asked = replay.replay("матрица 2", replay.batches_of(record), config, CAUTIOUS, pool="матрица")
+    # Пул тот же, вопрос другой - и ответ другой: в меню осталась одна вторая часть.
+    assert asked.pool == "матрица" and asked.query == "матрица 2"
+    assert [p.title for p in asked.menu] == ["Матрица: Перезагрузка"]
+    assert replay.as_json(asked)["pool"] == "матрица"
+
+
+def test_щуп_называет_ступени_за_первым_кругом() -> None:
+    """Гейт добора сработал - щуп говорит об этом, а не выдаёт первый круг за весь поиск."""
+    replay = probe("poolreplay")
+    record = gates_pool()
+    item = replay.replay(
+        record["query"], replay.batches_of(record), tune(Config(), CAUTIOUS), CAUTIOUS
+    )
+    # Пул тощий, и боевой поиск ушёл бы за вторым именем в справку - щуп туда не ходит.
+    assert item.beyond == ["паспорт"]
+    assert replay.as_json(item)["beyond"] == ["паспорт"]
+    told = "\n".join(replay.beyond_report([item]))
+    assert "паспорт            1 из 1" in told
+    assert "опоздавшая выдача" in told, "путь, которого не видно вовсе, обязан быть назван"
+
+
+def test_щуп_помнит_кто_отдал_полную_страницу() -> None:
+    """Гейт потолка спрашивает у клиента полные страницы - и в пуле они сохранились."""
+    replay = probe("poolreplay")
+    page = [["Девять ярдов / The Whole Nine Yards", "f" * 40, GB, 5, "RuTor"]]
+    assert replay.capped_of(pool("девять", RuTor=page * 100, Knaben=page)) == ("RuTor",)
+    assert replay.capped_of(pool("девять", RuTor=page * 99)) == ()
+    assert replay.asked_nobody(("RuTor",)).capped == ("RuTor",)
+
+
 def test_доступность_не_засчитывает_соседнюю_картину() -> None:
     """«Сыграло что-нибудь» остаётся отдельно и не выдаётся за ответ на запрос."""
     report = probe("runreport")
