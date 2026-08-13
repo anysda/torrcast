@@ -379,9 +379,11 @@ from torrcast import commands as _commands_module
 from torrcast import discovery as _discovery_module
 from torrcast import play_command as _play_command_module
 from torrcast import playback as _playback_module
+from torrcast import playback_revival as _playback_revival_module
 from torrcast import ranking as _ranking_module
 from torrcast import reinforce as _reinforce_module
 from torrcast import selection as _selection_module
+from torrcast import selection_bench as _selection_bench_module
 from torrcast.choice import (
     _BLURB_INDENT,
     Config,
@@ -765,7 +767,9 @@ _PARTS = (
     _discovery_module,
     _reinforce_module,
     _selection_module,
+    _selection_bench_module,
     _playback_module,
+    _playback_revival_module,
     _choice_module,
     _ranking_module,
 )

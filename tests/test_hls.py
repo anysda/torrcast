@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import math
 import subprocess
+import threading
 import time
 from pathlib import Path
 from typing import IO, Any
@@ -694,6 +695,45 @@ def _packer_with_a_heavy_copy(out: Path) -> Packer:
     (packer.run / segment_name(0)).write_bytes(b"x" * (MAX_SEGMENT_BYTES + 1))
     (packer.run / segment_name(1)).write_bytes(b"next")
     return packer
+
+
+@pytest.mark.machine
+def test_two_publishers_never_decide_the_same_piece_at_once(tmp_path: Path) -> None:
+    """Запрос приёмника и подметание могут одновременно позвать выкладку.
+
+    Решение по куску включает удержание, склейку, ужатие и удаление исходников, поэтому
+    два живых захода не имеют права исполнять его над одним файлом. Второй заход при
+    этом не ждёт первый: горячий путь вернётся и проверит кусок следующим оборотом.
+    """
+    out = hls_dir(str(tmp_path / "hls"))
+    packer = fake_packer(out, first=0, code=0)
+    packer.run.mkdir(parents=True)
+    (packer.run / segment_name(0)).write_bytes(b"done")
+
+    entered = threading.Event()
+    release = threading.Event()
+    visits: list[int] = []
+
+    def hold(slot: int, size: int) -> bool:
+        visits.append(slot)
+        entered.set()
+        assert release.wait(1.0), "первый заход не отпущен"
+        return False
+
+    packer.hold = hold
+    first = threading.Thread(target=packer.publish)
+    second = threading.Thread(target=packer.publish)
+    first.start()
+    assert entered.wait(1.0), "первый заход не дошёл до решения"
+    second.start()
+    second.join(0.2)
+    release.set()
+    first.join(1.0)
+    second.join(1.0)
+
+    assert not first.is_alive() and not second.is_alive()
+    assert visits == [0], "два потока одновременно решали судьбу одного куска"
+    assert (out / segment_name(0)).read_bytes() == b"done"
 
 
 def test_a_too_heavy_copy_is_shrunk_on_the_spot_and_the_publish_moves_on(

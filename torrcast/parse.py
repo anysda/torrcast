@@ -54,6 +54,7 @@ from torrcast import catalog as _catalog
 from torrcast import episodes as _episodes
 from torrcast import franchise as _franchise
 from torrcast import parse_name as _parse_name
+from torrcast import parse_name_query as _parse_name_query
 from torrcast.catalog import (
     _both_languages,
     catalog_has_name,
@@ -103,7 +104,7 @@ from torrcast.parse_name import (
     wire_query,
 )
 
-_PARTS = (_parse_name, _episodes, _franchise, _catalog)
+_PARTS = (_parse_name, _parse_name_query, _episodes, _franchise, _catalog)
 _namespace: dict[str, Any] = {}
 for _part in _PARTS:
     _namespace.update(

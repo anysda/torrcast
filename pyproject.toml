@@ -59,7 +59,7 @@ pretty = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q --strict-markers"
+addopts = "--strict-markers"
 markers = [
     "ffmpeg: интеграционный тест с настоящими ffmpeg/ffprobe (гоняется последовательно)",
     "machine: тест с настоящими часами, сокетом или подпроцессом (гоняется последовательно)",
