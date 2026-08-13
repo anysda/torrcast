@@ -313,7 +313,103 @@ def test_доступность_не_засчитывает_соседнюю_к�
     assert changed["any_picture_playable"] == 1
     assert changed["requested_picture_playable"] == 0
     text = "\n".join(report.report(rows, 0, []))
-    assert "| без источника | 1 | 1 | 0 | 1 |" in text
+    assert "| без источника | 1 | 1 | 0 | 1 | 0 |" in text
+
+
+def test_эталонная_строка_не_теряет_картин_по_построению() -> None:
+    """Эталон сравнивают сам с собой: потерь там нет, чем бы ни кончился отбор.
+
+    🔴 Прежде счёт верил полю прогона `requested_picture_playable`, а оно отвечало на
+    вопрос «дефолт совпал с верхом меню» - и эталон показывал 23 потери из 99 (TC-529).
+    Все 23 были законным «первая ЖИВАЯ часть»: у верха меню мёртвый рой или нет
+    спрошенной серии. Прибором, который врёт на собственном нуле, мерить нельзя.
+    """
+    report = probe("runreport")
+    views: dict[str, dict[str, Any]] = {
+        # дефолт пришёл не с верха меню (там Титаник 1943 с мёртвым роем)
+        "ВСЕ (эталон)": {
+            "any_picture_playable": True,
+            "requested_picture_playable": False,
+            "default": ["Титаник", 1997, "movie"],
+        },
+        "без источника": {
+            "any_picture_playable": True,
+            "default": ["Титаник", 1997, "movie"],
+        },
+    }
+    rows = [{"query": "титаник", "views": views}]
+    base, other = report.availability(rows, "ВСЕ (эталон)")
+    assert base["asked"] - base["requested_picture_playable"] == 0, "эталон потерял картину"
+    assert base["default_off_top"] == 1, "расхождение с верхом меню спрятано, а не отделено"
+    assert other["asked"] - other["requested_picture_playable"] == 0
+
+    # Играть было нечего: дефолта нет, расходиться с верхом меню нечему.
+    views["всё мертво"] = {
+        "any_picture_playable": False,
+        "requested_picture_playable": False,
+        "default": None,
+    }
+    empty = report.availability(rows, "ВСЕ (эталон)")[2]
+    assert empty["asked"] - empty["requested_picture_playable"] == 1, "мёртвая строка не потеря"
+    assert empty["default_off_top"] == 0, "мёртвая строка сочтена расхождением с верхом меню"
+
+
+def test_картина_узнаётся_в_любой_форме_записи() -> None:
+    """Список щупа и словарь `as_json` - одна картина, а не две.
+
+    🔴 Прежде список отдавал ``(имя, год, вид)``, а словарь свой кортеж без вида, и при
+    смешении форм ВНУТРИ одной строки картины не совпадали НИКОГДА (TC-529): счёт
+    записывал в потери всё подряд, молча и стопроцентно. Вид сверяется, только когда его
+    назвали обе стороны, иначе строки старого формата теряются целиком.
+    """
+    report = probe("runreport")
+    listed = report.picture_id({"default": ["Дюна", 2021, "movie"]})
+    dictated = report.picture_id({"default": {"title": "Дюна", "year": 2021, "releases": 7}})
+    kinded = report.picture_id({"default": {"title": "Дюна", "year": 2021, "kind": "movie"}})
+    short = report.picture_id({"default": ["Дюна", 2021]})
+    assert len(listed) == len(dictated) == len(short) == 3, "формы дают кортежи разной длины"
+    assert report.same_picture(listed, dictated), "вид без пары не должен разводить картины"
+    assert report.same_picture(listed, kinded) and report.same_picture(listed, short)
+    assert not report.same_picture(listed, report.picture_id({"default": ["Дюна", 2021, "tv"]}))
+    assert not report.same_picture(listed, report.picture_id({"default": ["Дюна", 1984, "movie"]}))
+
+    rows = [
+        {
+            "query": "дюна",
+            "views": {
+                "ВСЕ (эталон)": {"any_picture_playable": True, "default": ["Дюна", 2021, "movie"]},
+                "без источника": {
+                    "any_picture_playable": True,
+                    "default": {"title": "Дюна", "year": 2021, "releases": 3},
+                },
+            },
+        }
+    ]
+    changed = report.availability(rows, "ВСЕ (эталон)")[1]
+    assert changed["requested_picture_playable"] == 1, (
+        "та же картина в другой форме сочтена потерей"
+    )
+
+
+def test_сводка_на_строках_с_видами_не_теряет_остальных_разделов() -> None:
+    """Строка несёт и вердикт, и виды - сводка обязана дать оба раздела, а не выбрать.
+
+    🔴 Прежде ключ ``views`` у ПЕРВОЙ строки возвращал одну таблицу доступности, а
+    вердикты, разрезы ``--by`` и причины отказов молча пропадали (TC-529). Замер, который
+    показывает половину правды и не говорит об этом, хуже замера, которого нет.
+    """
+    report = probe("runreport")
+    views = {"ВСЕ (эталон)": {"playable": True, "default": ["Дюна", 2021, "movie"]}}
+    rows = [
+        {"query": "дюна", "verdict": "ok", "res": 1080, "seg": "кино", "views": views},
+        {"query": "арракис", "verdict": "notfound", "why": "пусто", "seg": "кино"},
+    ]
+    text = "\n".join(report.report(rows, 0, ["seg"]))
+    assert "### Доступность спрошенной картины" in text
+    assert "играбельно (`ok`): **1**" in text, "вердикты выброшены"
+    assert "Честный HD" in text, "честный HD выброшен"
+    assert "### По полю «seg»" in text, "разрез --by выброшен"
+    assert "### Причины отказов" in text, "таблица причин выброшена"
 
 
 def written(path: Path) -> dict[str, Any]:

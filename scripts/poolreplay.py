@@ -224,8 +224,17 @@ class Replay:
         return self.default is not None
 
     @property
-    def requested_picture_playable(self) -> bool:
-        """Запустит ли Enter верхнюю, то есть спрошенную, картину, а не соседнюю."""
+    def default_is_menu_top(self) -> bool:
+        """Совпал ли дефолт с ПЕРВОЙ СТРОКОЙ меню - и только это.
+
+        🔴 Мерой подмены это не является, и звать её «сыграла спрошенная» нельзя: дефолт
+        франшизы это первая ЖИВАЯ часть, и она законно бывает не первой строкой (TC-529).
+        Спросили «титаник» - верх меню Титаник 1943 года, а поедет на ТВ Титаник 1997-го,
+        потому что у первого рой мёртв; спросили «фарго s3e1» - верх меню фильм 1996 года,
+        у которого такой серии нет вовсе. Ложь тут ровно одна: назвать это потерей.
+        Отвечает на вопрос «сыграла ли спрошенная картина» только СРАВНЕНИЕ С ЭТАЛОНОМ,
+        и живёт оно в счёте (:func:`runreport.availability`), а не в одиночном прогоне.
+        """
         return (
             self.top is not None and self.default is not None and self.top.key == self.default.key
         )
@@ -559,7 +568,7 @@ def as_json(item: Replay) -> dict[str, Any]:
         "thin": item.thin,
         "unfit": item.unfit,
         "any_picture_playable": item.any_picture_playable,
-        "requested_picture_playable": item.requested_picture_playable,
+        "default_is_menu_top": item.default_is_menu_top,
         "top": None
         if top is None
         else {
@@ -568,9 +577,17 @@ def as_json(item: Replay) -> dict[str, Any]:
             "also": top.also,
             "releases": len(top.releases),
         },
+        # Вид картины называется наравне с именем и годом: без него фильм и сериал
+        # одного имени и года неразличимы, и счёт доступности сверяет их вслепую
+        # (:func:`runreport.same_picture`).
         "default": None
         if default is None
-        else {"title": default.title, "year": default.year, "releases": len(default.releases)},
+        else {
+            "title": default.title,
+            "year": default.year,
+            "kind": default.kind,
+            "releases": len(default.releases),
+        },
         "merges": [
             {
                 "into": picture.title,

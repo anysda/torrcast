@@ -8,7 +8,9 @@
 
 Сырьё прогона в репе не лежит: снимается отдельно, путь передаётся аргументом. Одна
 строка файла - один запрос; обязательны ``query`` и ``verdict``, остальное
-(``why``, ``kind``, ``epoch``, ``src``, ``res``) считается по наличию.
+(``why``, ``kind``, ``epoch``, ``src``, ``res``, ``views``) считается по наличию.
+Разделы СКЛАДЫВАЮТСЯ, а не выбираются: строка с ``views`` добавляет таблицу
+доступности и ничего не отменяет (:func:`report`).
 
 Первой строкой сводки идёт ПАСПОРТ: коммит и отпечаток кода, отпечаток сырья, дата,
 версия щупа (:mod:`runpass`); с ``--out`` он же ложится рядом отдельным файлом
@@ -135,22 +137,75 @@ def grouped(rows: list[dict[str, Any]], field: str) -> dict[str, list[dict[str, 
     return dict(sorted(groups.items()))
 
 
-def picture_id(view: dict[str, Any]) -> tuple[Any, ...] | None:
-    """Устойчивая личность выбранной картины из старого или нового JSONL."""
+def picture_id(view: dict[str, Any]) -> tuple[Any, Any, Any] | None:
+    """Личность выбранной картины ОДНОЙ формы - ``(имя, год, вид)`` - из любого JSONL.
+
+    Форм у поля ``default`` две: список ``[имя, год, вид]`` у щупов замера и словарь у
+    :func:`poolreplay.as_json`. Возвращать их как есть нельзя: список давал 3-кортеж, а
+    словарь - свой, и вид в них стоял на разных местах или отсутствовал вовсе, так что
+    смешение форм ВНУТРИ одной строки не совпадало никогда, молча и стопроцентно.
+    Неназванный вид - это ``None``, а не отсутствие члена: длину кортежа задаёт код,
+    а не то, сколько полей случилось в сырье.
+    """
     value = view.get("default")
-    if isinstance(value, list) and len(value) >= 2:
-        return tuple(value[:3])
+    if isinstance(value, list | tuple) and len(value) >= 2:
+        parts = (*value[:3], None, None)
+        return (parts[0], parts[1], parts[2])
     if isinstance(value, dict) and value.get("title") is not None:
         return (value.get("title"), value.get("year"), value.get("kind"))
     return None
 
 
+def same_picture(one: tuple[Any, Any, Any] | None, other: tuple[Any, Any, Any] | None) -> bool:
+    """Одна ли это картина; вид сверяется, только если его назвали ОБЕ стороны.
+
+    Вид знает не всякая форма (``as_json`` до TC-529 его не писал вовсе), и требовать
+    его от обеих значило бы записать в потери каждую строку старого формата. Расплата
+    названа: пока вид не назван, фильм и сериал одного имени и года неразличимы.
+    """
+    if one is None or other is None:
+        return False
+    if one[:2] != other[:2]:
+        return False
+    return one[2] is None or other[2] is None or one[2] == other[2]
+
+
+def off_top(view: dict[str, Any]) -> bool:
+    """Сказал ли сам прогон, что дефолт пришёл НЕ с первой строки меню.
+
+    Старые выдачи звали это поле ``requested_picture_playable`` - имя было неверным
+    (см. :func:`availability`), а считало оно ровно это, поэтому читаем оба ключа.
+
+    Строки, где играть было нечего вовсе, сюда не идут: где дефолта нет, там нечему
+    расходиться с верхом меню, а щуп пишет в это поле ``False`` и на них тоже - иначе
+    мёртвая строка показывала бы 99 расхождений из 99 на пустом месте.
+    """
+    if not view.get("any_picture_playable", view.get("playable")):
+        return False
+    told = view.get("default_is_menu_top", view.get("requested_picture_playable"))
+    return told is False
+
+
 def availability(rows: list[dict[str, Any]], base: str) -> list[dict[str, Any]]:
-    """Честный счёт доступности: осталась ли выбрана картина эталонного запроса."""
+    """Честный счёт доступности: осталась ли играть ТА КАРТИНА, что выбрал эталон.
+
+    🔴 Спрошенная картина - это выбор ЭТАЛОННОЙ строки, а не верх меню, и меряется он
+    только сравнением строк между собой. Прежде счёт верил полю самого прогона, а поле
+    отвечало на другой вопрос - «совпал ли дефолт с первой строкой меню», - и эталон
+    показывал 23 потери из 99 там, где их не может быть по построению: эталон сравнивают
+    сам с собой. Все 23 оказались законным правилом «первая ЖИВАЯ часть» (TC-529): верх
+    меню Титаник 1943 года при мёртвом рое, фильм «Фарго» 1996-го на запрос про третий
+    сезон. Ноль на эталонной строке теперь не совпадение, а свойство счёта.
+
+    Расхождение дефолта с верхом меню при этом не прячется: оно считается отдельно
+    (:func:`off_top`) и стоит в таблице своей колонкой. Законно оно или нет - вопрос уже
+    не к доступности, а к тому, ту ли картину вообще выбрал эталон; на это нужен корпус
+    с размеченным правильным ответом, которого нет.
+    """
     labels = list(rows[0].get("views", {})) if rows else []
     out: list[dict[str, Any]] = []
     for label in labels:
-        asked = any_picture = requested_picture = 0
+        asked = any_picture = requested_picture = default_off_top = 0
         for row in rows:
             views = row.get("views")
             if not isinstance(views, dict):
@@ -163,48 +218,53 @@ def availability(rows: list[dict[str, Any]], base: str) -> list[dict[str, Any]]:
                 continue
             asked += 1
             any_picture += bool(current.get("any_picture_playable", current.get("playable")))
-            exact = current.get("requested_picture_playable")
-            requested_picture += (
-                bool(exact) if isinstance(exact, bool) else picture_id(current) == wanted
-            )
+            requested_picture += same_picture(picture_id(current), wanted)
+            default_off_top += off_top(current)
         out.append(
             {
                 "label": label,
                 "asked": asked,
                 "any_picture_playable": any_picture,
                 "requested_picture_playable": requested_picture,
+                "default_off_top": default_off_top,
             }
         )
     return out
 
 
 def availability_report(rows: list[dict[str, Any]]) -> list[str]:
-    """Таблица двух разных вопросов, чтобы подмена не считалась доступностью."""
+    """Таблица трёх разных вопросов, чтобы ни один не выдавался за другой."""
     if not rows or not isinstance(rows[0].get("views"), dict):
         return []
     labels = list(rows[0]["views"])
     base = "ВСЕ (эталон)" if "ВСЕ (эталон)" in labels else labels[0]
     out = [
         "\n### Доступность спрошенной картины\n",
-        "| набор | запросов | сыграло что-нибудь | сыграла спрошенная картина | потерь |",
-        "|---|---:|---:|---:|---:|",
+        f"Спрошенная картина - выбор строки «{base}»; на ней самой потерь ноль по построению.",
+        "Колонка «дефолт не с верха меню» - не потери: дефолт франшизы это первая ЖИВАЯ часть.\n",
+        "| набор | запросов | сыграло что-нибудь | сыграла спрошенная картина | потерь "
+        "| дефолт не с верха меню |",
+        "|---|---:|---:|---:|---:|---:|",
     ]
     for item in availability(rows, base):
         lost = item["asked"] - item["requested_picture_playable"]
         out.append(
             f"| {item['label']} | {item['asked']} | {item['any_picture_playable']} | "
-            f"{item['requested_picture_playable']} | {lost} |"
+            f"{item['requested_picture_playable']} | {lost} | {item['default_off_top']} |"
         )
     return out
 
 
 def report(rows: list[dict[str, Any]], repeats: int, fields: list[str]) -> list[str]:
-    availability_lines = availability_report(rows)
-    if availability_lines:
-        return [
-            f"Запросов: **{len(rows)}**" + (f" (свернуто повторов: {repeats})" if repeats else ""),
-            *availability_lines,
-        ]
+    """Сводка сырья: КАЖДЫЙ раздел, который по нему считается, и ни одним меньше.
+
+    🔴 Раздел, который сырьё не кормит, выходит пустым и молча пропадает - раздел,
+    который кормит, обязан быть. Прежде наличие ключа ``views`` у ПЕРВОЙ строки
+    возвращало одну лишь таблицу доступности, а вердикты, честный HD, разрезы ``--by``
+    и причины отказов выбрасывались молча; строка с обоими видами полей сразу показала
+    бы половину правды и ничем бы об этом не сообщила (TC-529). Форма сырья тут не
+    переключатель, а набор слагаемых: два вида полей в одной строке дают два раздела.
+    """
     verdicts = verdicts_in(rows)
     counts = tally(rows, verdicts)
     n = len(rows)
@@ -216,6 +276,7 @@ def report(rows: list[dict[str, Any]], repeats: int, fields: list[str]) -> list[
             f"**{counts[verdict]}** ({share(counts[verdict], n)}){mark}"
         )
     out.append(f"\nСверка: сумма колонок {sum(counts.values())} = строк {n}.\n")
+    out.extend(availability_report(rows))
 
     known = [r for r in rows if isinstance(r.get("res"), int)]
     oks = [r for r in rows if verdict_of(r) == GOOD]
