@@ -36,19 +36,18 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from dataclasses import replace
 from pathlib import Path
-from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from torrcast.cli import _layout
 from torrcast.profile import CAUTIOUS
-from torrcast.recode import FULL_FLOOR, FULL_GAIN, FULL_PRESET, Encode
+from torrcast.state import load_config
 from torrcast.stream import (
-    AUDIO_MBIT,
-    TS_OVERHEAD,
     Feed,
+    Grid,
     HlsServer,
-    grid_for,
     hls_dir,
     probe,
     segment_name,
@@ -126,7 +125,7 @@ def free_port() -> int:
         return int(sock.getsockname()[1])
 
 
-def unfit_grid(grid: Any, step: float) -> str:
+def unfit_grid(grid: Grid, step: float) -> str:
     """Чем сетка негодна для сеточного замера; пусто - годна.
 
     Смотрит не на фикстуру, а на то, что из неё вышло: сетка строится по опорным кадрам,
@@ -257,25 +256,6 @@ def case_fwd(user: Consumer) -> None:
     print(f"  ⇒ первый кусок за {waited:.1f} с, префетч подхватился")
 
 
-def whole_encode(media: Any, mbit: float, tonemap: bool = False) -> Encode:
-    """Сплошной перекод ровно тем, чем его собирает показ (:func:`torrcast.cli._encode_all`).
-
-    Повторять сборку в щупе приходится потому, что от неё зависит и вес сегмента, и
-    скорость первого куска: замер по чужим настройкам мерил бы не тот тракт. ``tonemap``
-    выключен по умолчанию - ровно как :attr:`torrcast.state.Config.recode_tonemap`.
-    """
-    want = mbit
-    if media.video_bps > 0:
-        want = min(want, max(FULL_FLOOR, media.video_bps / 1e6 * FULL_GAIN))
-    return Encode(
-        preset=FULL_PRESET,
-        mbit=want,
-        frame=media.frame,
-        ceiling=CAUTIOUS.recode_frame,
-        hdr=media.hdr and tonemap,
-    )
-
-
 def _slots(feed: Feed) -> list[int]:
     from torrcast.stream import segment_slot
 
@@ -324,23 +304,34 @@ def main() -> int:
     url = args.source or serve_file(Path(args.file).resolve())
     media = probe(url)
     print(f"источник: {url}\nдлительность {media.duration:.1f} с, видео {media.video}")
-    whole = whole_encode(media, args.mbit) if args.whole else None
-    if whole is not None:
-        print(
-            f"сплошной перекод: {whole.preset}, {whole.mbit:.2f} Мбит/с, "
-            f"кадр {whole.out_frame}, тонемап {whole.hdr}"
-        )
-    grid = grid_for(
+    # 🔴 Сетка и решение о сплошном перекоде берутся ОДНИМ вызовом того же места, которым
+    # их считает показ, а не собираются здесь заново. Пока щуп собирал их сам, он мерил
+    # не тот тракт: на стенде (1080p10, потолок 9) показ пакует в цель 8.12 Мбит/с при
+    # потолке кодера 8.77, а щуп паковал в 9.00 и 9.72 - на 10.8% мимо, потому что не
+    # знал ни про ``fit`` от самого длинного куска, ни про то, что сетке обещают
+    # ``maxrate``, а не цель.
+    config = replace(load_config(), recode=True, recode_mbit=args.mbit, hls_segment=args.step)
+    if args.whole:
+        # Порог «тяжёл каждый кусок» опущен ниже любого веса: щуп меряет ИМЕННО сплошной
+        # перекод, но решение о нём всё равно принимает показ, а не щуп.
+        config = replace(config, bitrate_hard_mbit=-1.0)
+    grid, whole = _layout(
+        config,
         url,
         media.duration,
-        args.step,
-        True,
+        media.video or "",
+        max(0.0, media.video_bps / 1e6),
         say=print,
-        delivered_mbit=media.delivered_mbit,
-        # Сплошной перекод: вес куска задаём мы сами, карта источника тут не судья.
-        fixed_mbit=(whole.mbit + AUDIO_MBIT) * TS_OVERHEAD if whole is not None else 0.0,
-        cap=CAUTIOUS.max_segment_bytes,
+        depth=media.depth,
+        profile=CAUTIOUS,
+        frame=media.frame,
+        hdr=media.hdr,
     )
+    if whole is not None:
+        print(
+            f"сплошной перекод: {whole.preset}, цель {whole.mbit:.2f} Мбит/с, "
+            f"потолок кодера {whole.maxrate:.2f}, кадр {whole.out_frame}, тонемап {whole.hdr}"
+        )
     unfit = unfit_grid(grid, args.step)
     if unfit:
         print(
