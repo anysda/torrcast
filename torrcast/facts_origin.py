@@ -54,6 +54,10 @@ __all__ = [
     "HTTP_TIMEOUT",
     "RATINGS_PATH",
     "RU_NAMES_PATH",
+    "SOURCE_JOIN",
+    "SOURCE_MAP",
+    "SOURCE_WIKI",
+    "SOURCE_WIKIDATA",
     "TOPUP_LIMIT",
     "TYPE_CHECKING",
     "USER_AGENT",
@@ -141,12 +145,15 @@ __all__ = [
     "same_word",
     "slugify",
     "socket",
+    "sourced",
     "ssl",
     "threading",
     "time",
     "titles_for",
     "transliterate",
     "urlencode",
+    "with_source",
+    "without_source",
 ]
 
 from typing import TYPE_CHECKING
@@ -173,7 +180,7 @@ import socket
 import ssl
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final
 from urllib.parse import urlencode
@@ -195,6 +202,16 @@ RATINGS_PATH: Final = Path("/var/lib/torrcast/imdb-ratings.tsv")
 #: Собирает `install.sh` из выгрузок ``title.akas`` и ``title.basics``; нет файла -
 #: картина без русской статьи остаётся без паспорта, и это не сбой.
 RU_NAMES_PATH: Final = Path("/var/lib/torrcast/imdb-ru-names.tsv")
+#: Чем отвечена справка: русская Википедия. Сюда же попадают все её обходы - выборка по
+#: имени, поиск, подсказки написания, перенаправление: источник у них один.
+SOURCE_WIKI: Final = "wiki"
+#: Чем отвечена справка: офлайн-карта русских прокатных имён IMDb (:data:`RU_NAMES_PATH`).
+SOURCE_MAP: Final = "map"
+#: Чем подтверждён год одинокого ответа: Wikidata P577 (:func:`_second_source_year`).
+SOURCE_WIKIDATA: Final = "wikidata"
+#: Разделитель, когда паспорт собран из двух источников («wiki+map»): имя дала статья, год
+#: дописала карта. Порядок - в котором источники отвечали, и он значащий.
+SOURCE_JOIN: Final = "+"
 #: Найденная справка ложится сюда, чтобы второй показ той же франшизы не ходил в сеть.
 CACHE_PATH: Final = Path("/var/lib/torrcast/facts.json")
 _DEFAULT_CACHE_PATH: Final = CACHE_PATH
@@ -555,9 +572,57 @@ class Origin:
     #: (:func:`namesake`). Не паспорт, а повод для честной строки: развести такую пару
     #: разбору нечем, и человек обязан о ней прочитать (:func:`~torrcast.cli.namesake_note`).
     namesake: str = ""
+    #: 🔴 TC-450. ЧЕМ отвечена справка: :data:`SOURCE_WIKI`, :data:`SOURCE_MAP` или их
+    #: сумма («wiki+map» - имя дала статья, год дописала карта), плюс
+    #: :data:`SOURCE_WIKIDATA` у года, подтверждённого вторым источником.
+    #:
+    #: В паспорт картины поле не входит и в :meth:`__bool__` не участвует: на показ оно не
+    #: влияет никак. Нужно оно ровно для одного - чтобы по сохранённому прогону можно было
+    #: СОСЧИТАТЬ, чего стоит каждый источник. Карта имён - отдельная фаза установки, свой
+    #: греющий поток и сотни мегабайт промежуточных файлов, а без этой отметки «карта
+    #: помогла N раз» оставалось догадкой: валовое покрытие не говорит, скольким запросам
+    #: оригинал уже дала бы одна Википедия.
+    #:
+    #: Пустая строка - источник не записан. Так выглядят ряды кэша, снятые до этой отметки:
+    #: старый кэш читается как читался, и «неизвестно» не выдаётся за «Википедия».
+    source: str = ""
 
     def __bool__(self) -> bool:
         return bool(self.title or self.year or self.name)
+
+
+def sourced(found: Origin, source: str) -> Origin:
+    """Отметить, чем отвечена справка, - если она вообще ответила и ещё не подписана.
+
+    Подписывает тот, кто ЗНАЕТ источник, то есть место вызова: сам по себе паспорт
+    рассказать этого не может. Уже подписанное не переподписывается - иначе ответ карты,
+    пришедший из :func:`origin_now` последним шагом, выдал бы себя за Википедию.
+    """
+    if not found or found.source:
+        return found
+    return replace(found, source=source)
+
+
+def with_source(found: Origin, added: str) -> Origin:
+    """Дописать второй источник: «wiki» + «map» = «wiki+map». Пустое и повтор не пишутся."""
+    parts = [part for part in found.source.split(SOURCE_JOIN) if part]
+    if not added or added in parts:
+        return found
+    return replace(found, source=SOURCE_JOIN.join([*parts, added]))
+
+
+def without_source(found: Origin, dropped: str) -> Origin:
+    """Вычеркнуть источник, который в отданный паспорт так и не попал.
+
+    Отметка описывает ОТДАННЫЙ ответ, а не путь, которым его собирали: источник, чей вклад
+    по дороге отбросили, в ней остаться не вправе - иначе счёт припишет ему чужую заслугу.
+    Последний оставшийся источник не вычёркивается: ответ откуда-то всё же взялся.
+    """
+    parts = [part for part in found.source.split(SOURCE_JOIN) if part]
+    left = [part for part in parts if part != dropped]
+    if not left or len(left) == len(parts):
+        return found
+    return replace(found, source=SOURCE_JOIN.join(left))
 
 
 def origin(title: str, series: bool | None = False, budget: float = FACTS_BUDGET) -> Origin:
@@ -627,7 +692,9 @@ def _origin_typed(title: str, series: bool, budget: float, *, remember: bool) ->
     thread = threading.Thread(target=work, daemon=True)
     thread.start()
     thread.join(budget)
-    found = box[0] if box else Origin()
+    # Ответ сетевого пути подписан Википедией, если он сам не сказал иначе: последним шагом
+    # :func:`origin_now` спрашивает ту же карту, и её ответ подписан :data:`SOURCE_MAP`.
+    found = sourced(box[0] if box else Origin(), SOURCE_WIKI)
     # После страницы значений сетевому пути нужен второй запрос, и года у него нет.
     # Офлайн-каталог этот год и даёт. Для коротких имён это решающий признак: один
     # транслит не разводит старую картину и свежую тёзку.
@@ -636,16 +703,21 @@ def _origin_typed(title: str, series: bool, budget: float, *, remember: bool) ->
         offline = _imdb_ru(title, series)  # источник единственный - его и ждём
     elif found.year is None and not found.guessed:
         offline = _catalogued(title, series, max(0.0, deadline - time.monotonic()))
+    offline = sourced(offline, SOURCE_MAP)
     if not found:
         found = offline
     elif found.year is None and offline.year is not None:
-        found = Origin(
-            title=found.title or offline.title,
-            year=offline.year,
-            name=found.name or offline.name,
-            entity=found.entity,
-            guessed=found.guessed or offline.guessed,
-            namesake=found.namesake,
+        found = with_source(
+            Origin(
+                title=found.title or offline.title,
+                year=offline.year,
+                name=found.name or offline.name,
+                entity=found.entity,
+                guessed=found.guessed or offline.guessed,
+                namesake=found.namesake,
+                source=found.source,
+            ),
+            offline.source,
         )
     if found and remember:
         _remember_origin(title, series, found)
@@ -727,9 +799,22 @@ def origin_either(title: str, budget: float = FACTS_BUDGET) -> Origin:
         return movie if _same_picture_origin(movie, show) else Origin()
     lone = movie or show
     year = _second_source_year(lone, max(0.0, deadline - time.monotonic()))
-    return Origin(
-        title=lone.title, year=year, name=lone.name, entity=lone.entity, guessed=lone.guessed
+    alone = Origin(
+        title=lone.title,
+        year=year,
+        name=lone.name,
+        entity=lone.entity,
+        guessed=lone.guessed,
+        source=lone.source,
     )
+    if year is None:
+        # Поверх статьи карта даёт ровно одно - год (:func:`_origin_typed`). Одинокий
+        # ответ год теряет, и вместе с ним теряется весь вклад карты: оставить её в
+        # отметке значило бы записать ей заслугу, которой в отданном паспорте нет.
+        return without_source(alone, SOURCE_MAP)
+    # Год тут не просто взят у статьи, а подтверждён вторым источником: это его и надо
+    # называть, иначе по прогону не отличить подтверждённый год от одинокого.
+    return with_source(alone, SOURCE_WIKIDATA)
 
 
 def _second_source_year(lone: Origin, budget: float) -> int | None:
@@ -1140,7 +1225,7 @@ def _imdb_ru(title: str, series: bool) -> Origin:
     _tconst, _kind, original, raw_year, name = typed[0]
     year = int(raw_year) if raw_year.isdigit() else None
     latin = "" if _CYRILLIC.search(original) else original
-    return Origin(title=latin, year=year, name=name, guessed=guessed)
+    return Origin(title=latin, year=year, name=name, guessed=guessed, source=SOURCE_MAP)
 
 
 def _suggested(query: str, timeout: float) -> list[Any]:

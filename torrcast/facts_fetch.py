@@ -872,6 +872,9 @@ def _cached_origin(title: str, series: bool | None) -> Origin | None:
         entity=str(row.get("entity", "")),
         guessed=bool(row.get("guessed")),
         namesake=str(row.get("namesake", "")),
+        # Ряды, записанные до TC-450, отметки об источнике не носят: пустая строка честно
+        # значит «неизвестно», и выдавать её за Википедию нельзя.
+        source=str(row.get("source", "")),
     )
 
 
@@ -890,6 +893,10 @@ def _remember_origin(title: str, series: bool | None, found: Origin) -> None:
         # Тёзка того же года (TC-371) - тоже на диск: со второго показа справку не
         # спрашивают вовсе, и честная строка про двусмысленность иначе пропадала бы.
         "namesake": found.namesake,
+        # 🔴 TC-450. ЧЕМ отвечено - на диск вместе с ответом, иначе сохранённый прогон
+        # умеет сказать только «оригинал есть», а «его дала карта, а не Википедия» - уже
+        # нет, и пользу карты нечем сосчитать. На показ поле не влияет.
+        "source": found.source,
     }
     _write_cache(raw)
 

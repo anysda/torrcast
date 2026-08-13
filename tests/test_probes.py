@@ -256,6 +256,62 @@ def test_паспорт_называет_путь_импортированног
     assert f"пакет {package}" in runpass.told(card)
 
 
+def test_паспорт_выписывается_щупу_вне_scripts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Разовый щуп живёт рядом с сырьём, а не в репе, - и паспорт нужен как раз ему."""
+    runpass = probe("runpass")
+    one_off = tmp_path / "oneoff.py"
+    one_off.write_text("# разовый щуп\n", encoding="utf-8")
+    monkeypatch.setattr(sys, "argv", [str(one_off)])
+
+    card = runpass.passport("oneoff", [], [])
+    assert card["probe"] == {"name": "oneoff.py", "sha256": runpass.digest(one_off)}
+    assert runpass.passport("названный", [], [], probe=one_off)["probe"]["sha256"] == (
+        runpass.digest(one_off)
+    )
+
+
+def test_паспорт_молчит_об_отпечатке_щупа_а_не_падает(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Щупа не нашлось нигде: паспорт без одной отметки читается, упавший - нет."""
+    runpass = probe("runpass")
+    monkeypatch.setattr(sys, "argv", [str(tmp_path / "нет-такого.py")])
+    card = runpass.passport("нет-такого", [], [])
+    assert card["probe"] == {"name": "нет-такого.py", "sha256": None}
+    assert card["code"]["fingerprint"] == runpass.fingerprint()[0]
+
+
+def test_восстановленный_паспорт_называет_себя_и_своё_незнание(tmp_path: Path) -> None:
+    """🔴 TC-431. Прогон снят без паспорта: восстановленный не выдаёт себя за снятый.
+
+    Форма та же, что у снятого, - иначе каждый обход опять заведёт свой формат, а ровно
+    из-за этого счётчик вердиктов и заводили. Отличие ровно одно и оно вслух: что
+    восстановлено по описи, а что осталось неизвестным.
+    """
+    runpass = probe("runpass")
+    run = tmp_path / "res.jsonl"
+    run.write_text('{"query": "дюна"}\n{"query": "тачки"}\n', encoding="utf-8")
+
+    card = runpass.restore(run, told_by="опись архива, строка про замер 09-08")
+    assert set(card) == {*runpass.passport("runpass", [], []), "restored"}, "форма та же"
+    assert card["output"] == runpass.about(run), "сам прогон опознаётся по файлу, а не по вере"
+    assert card["output"]["lines"] == 2
+    assert card["code"]["fingerprint"] is None, "кода по описи не назвать - и не выдумываем"
+    assert card["restored"]["how"] == runpass.RESTORED
+    assert card["restored"]["told_by"] == "опись архива, строка про замер 09-08"
+    assert "code.commit" in card["restored"]["unknown"], "незнание перечислено, а не умолчано"
+    assert "inputs" in card["restored"]["unknown"]
+    assert runpass.told(card).startswith("Паспорт прогона (восстановлен): щуп не назван")
+
+    named = runpass.restore(run, told_by="опись", tool="run142", made="2026-08-09")
+    assert named["probe"] == {"name": "run142.py", "sha256": None}
+    assert "tool" not in named["restored"]["unknown"]
+    assert "made" not in named["restored"]["unknown"]
+    assert runpass.told(named).startswith("Паспорт прогона (восстановлен): run142, 2026-08-09")
+
+
 def test_счёт_кладёт_паспорт_рядом_со_сводкой(tmp_path: Path) -> None:
     """Сводка называет код и сырьё - иначе её нечем пересчитать."""
     report = probe("runreport")

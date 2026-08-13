@@ -11,6 +11,10 @@ __all__ = [
     "HTTP_TIMEOUT",
     "RATINGS_PATH",
     "RU_NAMES_PATH",
+    "SOURCE_JOIN",
+    "SOURCE_MAP",
+    "SOURCE_WIKI",
+    "SOURCE_WIKIDATA",
     "TOPUP_LIMIT",
     "TYPE_CHECKING",
     "USER_AGENT",
@@ -132,6 +136,7 @@ __all__ = [
     "shorten",
     "slugify",
     "socket",
+    "sourced",
     "split_franchise_index",
     "ssl",
     "state_path",
@@ -142,6 +147,8 @@ __all__ = [
     "urlencode",
     "wiki_extracts",
     "wikidata_ids",
+    "with_source",
+    "without_source",
 ]
 
 import sys
@@ -245,6 +252,10 @@ from torrcast.facts_origin import (
     FACTS_BUDGET,
     RATINGS_PATH,
     RU_NAMES_PATH,
+    SOURCE_JOIN,
+    SOURCE_MAP,
+    SOURCE_WIKI,
+    SOURCE_WIKIDATA,
     TOPUP_LIMIT,
     USER_AGENT,
     Fact,
@@ -288,9 +299,12 @@ from torrcast.facts_origin import (
     same_name,
     same_word,
     socket,
+    sourced,
     ssl,
     titles_for,
     urlencode,
+    with_source,
+    without_source,
 )
 
 _PARTS = (_origin, _fetch)

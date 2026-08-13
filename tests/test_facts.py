@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import time
+from dataclasses import replace
 from typing import Any
 
 from torrcast import cli
@@ -1468,6 +1469,125 @@ def test_a_guessed_name_is_not_given_a_year_from_the_offline_map(monkeypatch: An
     assert asked == ["Эксперименты Лэйн"]
 
 
+def test_справка_называет_источник_каждого_ответа(monkeypatch: Any) -> None:
+    """🔴 TC-450. Ответ есть - видно и КЕМ он дан: иначе пользу карты нечем сосчитать.
+
+    Валовое покрытие («у стольких-то запросов оригинал нашёлся») не отвечает на вопрос,
+    ради которого карта имён и заведена: скольким из них тот же оригинал уже дала бы одна
+    Википедия. Отметка источника разводит три случая, и они стоят разного.
+    """
+    monkeypatch.setattr(facts_mod, "_cached_origin", lambda title, series: None)
+    monkeypatch.setattr(facts_mod, "_remember_origin", lambda *a: None)
+
+    def answers(paper: Any, catalogue: Any) -> None:
+        monkeypatch.setattr(facts_mod, "origin_now", lambda title, series, timeout: paper)
+        monkeypatch.setattr(facts_mod, "_imdb_ru", lambda title, series: catalogue)
+
+    answers(facts_mod.Origin(title="Psycho", year=1960, name="Психо"), facts_mod.Origin())
+    assert facts_mod.origin("Психо", False, 1.0).source == facts_mod.SOURCE_WIKI
+
+    answers(facts_mod.Origin(), facts_mod.Origin(title="Cars", year=2006, name="Тачки"))
+    only_map = facts_mod.origin("Тачки", False, 1.0)
+    assert only_map.title == "Cars"
+    assert only_map.source == facts_mod.SOURCE_MAP, "статьи нет вовсе - это заслуга карты"
+
+    answers(
+        facts_mod.Origin(title="Serial Experiments Lain", name="Эксперименты Лэйн"),
+        facts_mod.Origin(year=1998),
+    )
+    both = facts_mod.origin("Эксперименты Лэйн", True, 1.0)
+    assert both.year == 1998
+    assert both.source == "wiki+map", "имя дала статья, год дописала карта - названы оба"
+
+
+def test_отброшенный_год_карты_не_числится_за_ней_в_отметке(monkeypatch: Any) -> None:
+    """🔴 TC-450. Отметка описывает ОТДАННЫЙ паспорт, а не путь, которым его собирали.
+
+    Вскрылось живым прогоном по 101 имени: у трёх ответов стояло «wiki+map», а года в них
+    не было вовсе. Поверх статьи карта даёт ровно год, и режим «оба типа» у одинокого
+    ответа этот год отбирает (:func:`~torrcast.facts.origin_either`) - вклад карты
+    обнулялся, а в отметке она оставалась. Счёт пользы карты завышался ровно на такие
+    случаи, то есть мерил бы себя сам.
+    """
+    monkeypatch.setattr(facts_mod, "_cached_origin", lambda title, series: None)
+    monkeypatch.setattr(facts_mod, "_remember_origin", lambda *a: None)
+    # статья назвала имя, но не год; год дала карта, второго источника у него нет
+    monkeypatch.setattr(
+        facts_mod,
+        "origin_now",
+        lambda title, series, timeout: (
+            facts_mod.Origin() if series else facts_mod.Origin(title="The Hobbit", name="Хоббит")
+        ),
+    )
+    monkeypatch.setattr(
+        facts_mod,
+        "_imdb_ru",
+        lambda title, series: facts_mod.Origin() if series else facts_mod.Origin(year=1977),
+    )
+
+    lone = facts_mod.origin("хоббит", None, 1.0)
+    assert lone.title == "The Hobbit"
+    assert lone.year is None, "одинокий ответ год отдаёт только со вторым источником"
+    assert lone.source == facts_mod.SOURCE_WIKI, "года нет - и заслуги карты в ответе нет"
+
+    # а вот когда карта ОДНА и назвала имя, её из отметки не вычёркивает и потеря года
+    monkeypatch.setattr(facts_mod, "origin_now", lambda title, series, timeout: facts_mod.Origin())
+    monkeypatch.setattr(
+        facts_mod,
+        "_imdb_ru",
+        lambda title, series: (
+            facts_mod.Origin()
+            if series
+            else facts_mod.Origin(title="Brat 2", year=2000, name="Брат 2")
+        ),
+    )
+    only_map = facts_mod.origin("брат 2", None, 1.0)
+    assert only_map.title == "Brat 2"
+    assert only_map.source == facts_mod.SOURCE_MAP, "имя дала карта - она и источник"
+
+
+def test_источник_ответа_доезжает_до_диска_и_считается_числом(
+    monkeypatch: Any, tmp_path: Any
+) -> None:
+    """🔴 TC-450. Отметка живёт в кэше рядом с ответом - по нему и считают пользу карты.
+
+    Считать не по чему, если отметка теряется при записи: со второго показа справку не
+    спрашивают вовсе, и сохранённый прогон - это ровно то, что легло на диск. Ряды, снятые
+    до этой отметки, читаются как читались и честно значат «источник неизвестен», а не
+    «Википедия»: догадка вместо числа - та самая болезнь, от которой карточку и завели.
+    """
+    monkeypatch.setattr(facts_mod, "CACHE_PATH", tmp_path / "facts.json")
+    paper = facts_mod.Origin
+    saved = {
+        "Психо": paper(title="Psycho", year=1960, source=facts_mod.SOURCE_WIKI),
+        "Тачки": paper(title="Cars", year=2006, source=facts_mod.SOURCE_MAP),
+        "Эксперименты Лэйн": paper(title="Serial Experiments Lain", year=1998, source="wiki+map"),
+    }
+    for title, found in saved.items():
+        facts_mod._remember_origin(title, False, found)
+    facts_mod._write_cache(
+        {
+            **facts_mod._read_cache(),
+            # ряд, записанный до отметки: поля "source" в нём нет вовсе
+            facts_mod._origin_key("Дюна", False): {"title": "Dune", "year": 2021},
+        }
+    )
+
+    rows = {title: facts_mod._cached_origin(title, False) for title in [*saved, "Дюна"]}
+    assert all(found is not None for found in rows.values()), "все четыре ряда на диске есть"
+    read = {title: found for title, found in rows.items() if found is not None}
+    assert {title: found.source for title, found in read.items()} == {
+        "Психо": "wiki",
+        "Тачки": "map",
+        "Эксперименты Лэйн": "wiki+map",
+        "Дюна": "",
+    }
+
+    helped = [title for title, found in read.items() if facts_mod.SOURCE_MAP in found.source]
+    assert sorted(helped) == ["Тачки", "Эксперименты Лэйн"], "польза карты - это число, а не вера"
+    assert [title for title, found in read.items() if not found.source] == ["Дюна"]
+
+
 def test_a_slow_offline_map_never_pushes_the_passport_past_the_budget(monkeypatch: Any) -> None:
     """🔴 TC-493. Год из карты дописывается только в остаток срока, а не поверх него.
 
@@ -1518,7 +1638,8 @@ def test_the_likeness_mark_survives_the_cache_and_the_both_types_mode(
     lone = facts_mod.origin("Все мы незнакомцы", None, 1.0)
     assert lone.guessed, "режим «оба типа» отметку не теряет"
 
-    assert facts_mod._cached_origin("Все мы незнакомцы", None) == guess
+    stored = facts_mod._cached_origin("Все мы незнакомцы", None)
+    assert stored == replace(guess, source=facts_mod.SOURCE_WIKI)
 
 
 def test_the_both_types_mode_uses_only_its_own_cache_key(monkeypatch: Any, tmp_path: Any) -> None:
@@ -1529,8 +1650,9 @@ def test_the_both_types_mode_uses_only_its_own_cache_key(monkeypatch: Any, tmp_p
     found = Origin(title="Serial Experiments Lain", year=1998, name="Эксперименты Лэйн")
     monkeypatch.setattr(facts_mod, "origin_now", lambda title, series, timeout: found)
 
-    assert facts_mod.origin("Эксперименты Лэйн", None, budget=1.0) == found
-    assert facts_mod._cached_origin("Эксперименты Лэйн", None) == found
+    wiki = replace(found, source=facts_mod.SOURCE_WIKI)
+    assert facts_mod.origin("Эксперименты Лэйн", None, budget=1.0) == wiki
+    assert facts_mod._cached_origin("Эксперименты Лэйн", None) == wiki
     assert facts_mod._cached_origin("Эксперименты Лэйн", False) is None
     assert facts_mod._cached_origin("Эксперименты Лэйн", True) is None
 

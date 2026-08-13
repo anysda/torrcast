@@ -122,18 +122,111 @@ def code_stamp() -> dict[str, Any]:
     }
 
 
-def passport(tool: str, inputs: list[Path], argv: list[str]) -> dict[str, Any]:
-    """Собрать паспорт прогона: чем считали и по какому сырью. Вывод добавит :func:`write`."""
+def probe_file(tool: str, probe: Path | None = None) -> Path | None:
+    """Где лежит сам щуп: названный путь, свой ``scripts/`` или файл запущенной команды.
+
+    🔴 TC-430. Разовый щуп пишется под один замер и живёт на стенде рядом с сырьём, а не в
+    ``scripts/`` репы, - и паспорт требуется как раз ему: ради таких прогонов щупы и
+    заводят. Пока файл искали только в ``scripts/``, такой вызов падал ``FileNotFoundError``,
+    и паспорт собирали руками из тех же кирпичей - каждый по-своему.
+
+    Нашлось ничего - ``None``, и отпечаток щупа в паспорте будет пустым. Паспорт без одной
+    отметки читается, а упавший паспорт не читается вовсе.
+    """
+    guesses = [probe] if probe is not None else []
+    guesses.append(ROOT / "scripts" / f"{tool}.py")
+    # argv[0] - это и есть запущенный щуп; чужие точки входа (pytest, python -c) сюда не
+    # попадают: у них нет расширения .py, и выдавать их за щуп нельзя.
+    running = Path(sys.argv[0]) if sys.argv and sys.argv[0] else None
+    if running is not None and running.suffix == ".py":
+        guesses.append(running)
+    for path in guesses:
+        if path.is_file():
+            return path.resolve()
+    return None
+
+
+def probe_stamp(tool: str, probe: Path | None = None) -> dict[str, Any]:
+    """Чем мерили: имя щупа и его отпечаток. Файла не нашлось - имя по названию, без sha."""
+    found = probe_file(tool, probe)
+    if found is None:
+        return {"name": f"{tool}.py", "sha256": None}
+    return {"name": found.name, "sha256": digest(found)}
+
+
+def passport(
+    tool: str, inputs: list[Path], argv: list[str], probe: Path | None = None
+) -> dict[str, Any]:
+    """Собрать паспорт прогона: чем считали и по какому сырью. Вывод добавит :func:`write`.
+
+    ``probe`` - путь к самому щупу, если он лежит не в ``scripts/`` (разовый щуп на стенде).
+    Не назвали - :func:`probe_file` найдёт его сам.
+    """
     return {
         "tool": tool,
         "made": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "python": ".".join(str(part) for part in sys.version_info[:3]),
         "argv": argv,
-        "probe": {"name": f"{tool}.py", "sha256": digest(ROOT / "scripts" / f"{tool}.py")},
+        "probe": probe_stamp(tool, probe),
         "code": code_stamp(),
         "inputs": [about(path) for path in inputs],
         "output": None,
     }
+
+
+#: Чем восстановленный паспорт отличается от снятого: его собрали задним числом по описи,
+#: а не написал щуп в момент прогона. Отметка стоит в самом паспорте, чтобы это отличие
+#: нельзя было потерять при копировании.
+RESTORED = "восстановлен по описи, не снят вместе с прогоном"
+
+
+def restore(
+    output: Path,
+    told_by: str,
+    tool: str | None = None,
+    made: str | None = None,
+    inputs: list[Path] | None = None,
+) -> dict[str, Any]:
+    """Паспорт задним числом для прогона, снятого БЕЗ паспорта.
+
+    🔴 TC-431. Правило «паспорт рядом с каждым прогоном» появилось позже самих прогонов, и
+    архив ему не соответствует. Прогон без паспорта нельзя привязать ни к коду, ни к
+    сырью: его числа приходится либо перепроверять целиком, либо брать на веру.
+
+    Восстановить можно не всё, и это главное свойство такого паспорта. Отпечаток и число
+    строк САМОГО прогона считаются по файлу и потому честны - ими прогон и опознаётся
+    после любого копирования. Код, которым считали, по описи чаще всего назвать нечем -
+    он и остаётся пустым, а не выдуманным: неизвестное перечислено списком ``unknown``.
+
+    ``told_by`` - откуда взято остальное (строка описи, каталог замера). Форма паспорта та
+    же, что у снятого: старые глаза читают его без оговорок, а отметка :data:`RESTORED`
+    не даёт спутать восстановленное со снятым.
+    """
+    card: dict[str, Any] = {
+        "tool": tool,
+        "made": made,
+        "python": None,
+        "argv": None,
+        "probe": {"name": f"{tool}.py" if tool else None, "sha256": None},
+        "code": {
+            "commit": None,
+            "date": None,
+            "dirty": None,
+            "fingerprint": None,
+            "files": 0,
+            "package": None,
+        },
+        "inputs": [about(path) for path in inputs or []],
+        "output": about(output),
+        "restored": {"how": RESTORED, "told_by": told_by},
+    }
+    blank = [name for name, value in card.items() if value is None]
+    blank += [f"code.{name}" for name, value in card["code"].items() if value is None]
+    blank += [f"probe.{name}" for name, value in card["probe"].items() if value is None]
+    if not card["inputs"]:
+        blank.append("inputs")
+    card["restored"]["unknown"] = sorted(blank)
+    return card
 
 
 def write(card: dict[str, Any], output: Path) -> Path:
@@ -145,17 +238,25 @@ def write(card: dict[str, Any], output: Path) -> Path:
 
 
 def told(card: dict[str, Any]) -> str:
-    """Одна строка паспорта для человека: чем считали и по какому сырью."""
+    """Одна строка паспорта для человека: чем считали и по какому сырью.
+
+    У восстановленного паспорта (:func:`restore`) это сказано первым же словом: пустое в
+    нём значит «неизвестно», а не «нечего сказать», и путать их нельзя.
+    """
     code = card["code"]
     who = code["commit"][:12] if code["commit"] else "не из git"
-    mark = code["fingerprint"][:12] if code["fingerprint"] else "кода рядом нет"
-    package = code.get("package") or "пакет не найден"
+    # Подпись и её пустой случай складываются в ОДНУ фразу: «отпечаток кода рядом нет» и
+    # «пакет пакет не найден» человек читает как опечатку, а не как «неизвестно».
+    mark = code["fingerprint"][:12] if code["fingerprint"] else "не посчитан (кода рядом нет)"
+    package = code.get("package") or "не найден"
     dirty = " + несохранённые правки" if code["dirty"] else ""
     corpus = ", ".join(
         f"{Path(item['path']).name} ({item['lines']} строк, {item['sha256'][:12]})"
         for item in card["inputs"]
     )
+    head = "Паспорт прогона (восстановлен)" if card.get("restored") else "Паспорт прогона"
     return (
-        f"Паспорт прогона: {card['tool']}, {card['made']}; код {who}{dirty}, "
-        f"отпечаток {mark}, пакет {package}; сырьё: {corpus}"
+        f"{head}: {card['tool'] or 'щуп не назван'}, {card['made'] or 'дата не записана'}; "
+        f"код {who}{dirty}, отпечаток {mark}, пакет {package}; "
+        f"сырьё: {corpus or 'не записано'}"
     )
