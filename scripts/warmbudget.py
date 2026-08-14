@@ -55,8 +55,12 @@ class _Row:
     thin: float
     #: Байты, которые прогрев просит у бюджета перед заходом.
     ask: float
-    #: Сколько кусков копией вышло тяжелее потолка.
+    #: Сколько кусков копией вышло тяжелее потолка веса.
     heavy: int
+    #: Сколько кусков идут выше битрейта приёмника, то есть тяжелы ему сами по себе.
+    over: int
+    #: Сколько кусков поздний заход берёт в работу вообще: тяжёлые ИЛИ увесистые.
+    touched: int
 
 
 def main() -> int:
@@ -65,6 +69,12 @@ def main() -> int:
     ap.add_argument("--probe", required=True, help="каталог паспортов ffprobe")
     ap.add_argument("--step", type=float, default=10.0, help="шаг сетки, секунды")
     ap.add_argument("--ceiling", type=float, default=9.0, help="потолок перекодирования, Мбит/с")
+    ap.add_argument(
+        "--recode-at",
+        type=float,
+        default=10.0,
+        help="битрейт приёмника, выше которого кусок перекодируется, Мбит/с",
+    )
     ap.add_argument("--cap", type=int, default=MAX_SEGMENT_BYTES, help="потолок куска, байты")
     ap.add_argument("--budget", type=float, default=WARM_BUDGET / 1e9, help="бюджет прогрева, ГБ")
     args = ap.parse_args()
@@ -100,7 +110,18 @@ def main() -> int:
         copy = _weigher(keys.at, keys.offset, extra, 0.0)
         weigh = _weigher(keys.at, keys.offset, extra, args.ceiling)
         sizes = [copy(grid.start(k), grid.end(k)) for k in range(grid.count)]
-        thin = [weigh(grid.start(k), grid.end(k)) for k in range(grid.count)]
+        spans = [max(0.0, grid.end(k) - grid.start(k)) for k in range(grid.count)]
+        # Битрейт куска - тот же, которым меряет отбор тяжёлых мест: байты копии на длину.
+        mbits = [sizes[k] * 8 / spans[k] / 1e6 if spans[k] > 0 else 0.0 for k in range(grid.count)]
+        # Поздний заход берёт кусок по ДВУМ меркам сразу, и они не совпадают: битрейт выше
+        # приёмника ИЛИ копия тяжелее потолка веса. Мерки разведены по приёмникам порознь:
+        # битрейт у смелого приёмника втрое выше, а потолок веса у обоих один и тот же,
+        # поэтому увесистые куски перекодируются даже там, где по битрейту никто не тяжёл.
+        # Кусок, который заход не берёт, остаётся копией навсегда - его вес и есть ответ.
+        taken = [mbits[k] >= args.recode_at or sizes[k] > args.cap for k in range(grid.count)]
+        thin = [
+            weigh(grid.start(k), grid.end(k)) if taken[k] else sizes[k] for k in range(grid.count)
+        ]
         # Запрос - то, что прогрев просит у бюджета перед заходом на весь фильм
         # копией. Зовём сам предсказатель, а не его пересказ: щуп обязан мерять бой.
         warmer = Warmer(
@@ -117,6 +138,8 @@ def main() -> int:
                 thin=sum(thin),
                 ask=warmer._forecast(0, grid.count - 1),
                 heavy=sum(1 for s in sizes if s > args.cap),
+                over=sum(1 for m in mbits if m >= args.recode_at),
+                touched=sum(1 for t in taken if t),
             )
         )
 
@@ -124,13 +147,22 @@ def main() -> int:
         print("считать нечего: карт с паспортом и битрейтом не нашлось")
         return 1
     budget = args.budget * 1e9
-    print(f"файлов с картой и паспортом: {len(rows)}; бюджет {args.budget:g} ГБ")
-    print("высота  часы  Мбит/с  кусков  копией_ГБ  после_ГБ  запрос_ГБ  тяжелее_потолка")
+    print(
+        f"файлов с картой и паспортом: {len(rows)}; бюджет {args.budget:g} ГБ; "
+        f"приёмник: перекод выше {args.recode_at:g} Мбит/с, потолок куска "
+        f"{args.cap / 1e6:g} МБ, ужимаем до {args.ceiling:g} Мбит/с"
+    )
+    print(
+        "высота  часы  Мбит/с  кусков  копией_ГБ  после_ГБ  запрос_ГБ  "
+        "тяжелее_потолка  выше_битрейта  взято_заходом"
+    )
     for row in sorted(rows, key=lambda r: -r.real)[:15]:
         print(
             f"{row.height:6d}  {row.hours:4.2f}  {row.mbit:6.2f}  {row.pieces:6d}  "
             f"{row.real / 1e9:9.2f}  {row.thin / 1e9:8.2f}  {row.ask / 1e9:9.2f}  "
-            f"{row.heavy * 100 / row.pieces:13.0f} %"
+            f"{row.heavy * 100 / row.pieces:13.0f} %  "
+            f"{row.over * 100 / row.pieces:11.0f} %  "
+            f"{row.touched * 100 / row.pieces:11.0f} %"
         )
     films = [r for r in rows if r.height >= 1000 and r.hours >= 1.2]
     parts = [r for r in rows if r.hours <= 0.6]
@@ -152,6 +184,39 @@ def main() -> int:
         print(
             f"кусков тяжелее потолка копией: {min(heavy):.0f}-{max(heavy):.0f} %, "
             f"медиана {statistics.median(heavy):.0f} %"
+        )
+        over = [r.over * 100 / r.pieces for r in films]
+        print(
+            f"кусков выше битрейта приёмника: {min(over):.0f}-{max(over):.0f} %, "
+            f"медиана {statistics.median(over):.0f} %"
+        )
+        taken = [r.touched * 100 / r.pieces for r in films]
+        print(
+            f"кусков берёт поздний заход: {min(taken):.0f}-{max(taken):.0f} %, "
+            f"медиана {statistics.median(taken):.0f} %"
+        )
+        # Место возвращается ровно на разнице «копия минус то, что осталось после захода».
+        # Заход не трогал ни одного куска - разница ноль, и место не вернётся никогда.
+        back = [r.real - r.thin for r in films]
+        rest = [r.thin for r in films]
+        print(
+            f"заход возвращает: {min(back) / 1e9:.1f}-{max(back) / 1e9:.1f} ГБ "
+            f"(медиана {statistics.median(back) / 1e9:.1f}); остаётся лежать "
+            f"{min(rest) / 1e9:.1f}-{max(rest) / 1e9:.1f} ГБ "
+            f"(медиана {statistics.median(rest) / 1e9:.1f})"
+        )
+        print(
+            f"фильмов, не влезающих в бюджет в одиночку: "
+            f"{sum(1 for r in films if r.real > budget)} из {len(films)} копией, "
+            f"{sum(1 for r in films if r.thin > budget)} после захода"
+        )
+        # Второй фильм за вечер. Первый к этому времени уже прошёл поздний заход и лежит
+        # ужатым, второй ложится копией: пик задаёт эта сумма, а не любая из них порознь.
+        two = statistics.median(rest) + statistics.median(real)
+        two_worst = max(rest) + max(real)
+        print(
+            f"два фильма подряд: медиана {two / 1e9:.1f} ГБ, худший "
+            f"{two_worst / 1e9:.1f} ГБ при бюджете {args.budget:g} ГБ"
         )
     if parts:
         short = [r.real for r in parts]
