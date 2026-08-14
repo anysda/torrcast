@@ -7,9 +7,12 @@
 
 from __future__ import annotations
 
+import socket
 import subprocess
+import time
 from typing import TYPE_CHECKING, Any
 
+import pytest
 import requests
 
 from torrcast import doctor
@@ -17,7 +20,7 @@ from torrcast.doctor import KEY_INDEXER
 from torrcast.state import Config
 
 if TYPE_CHECKING:
-    import pytest
+    pass
 
 
 def _config() -> Config:
@@ -126,6 +129,36 @@ def test_live_probe_allows_a_slow_indexer_to_answer(monkeypatch: pytest.MonkeyPa
     assert doctor._probe_indexer(_config(), 1, "RuTor") == "answered"
     assert timeouts == [doctor._INDEXER_TIMEOUT]
     assert doctor._INDEXER_TIMEOUT > doctor._TIMEOUT
+
+
+@pytest.mark.machine
+def test_a_closed_port_still_turns_the_indexer_line_red() -> None:
+    """Мёртвый индексер краснеет НАСТОЯЩИМ отказом порта, а не подменённой пробой.
+
+    Остальные проверки живой пробы подменяют :func:`torrcast.doctor._probe_indexer`
+    целиком, поэтому честности доктора они не доказывают: под заглушкой красным
+    становится ровно то, что заглушке велели вернуть. Здесь порт закрыт по-настоящему,
+    запрос уходит настоящий, и красной строку делает сам отказ соединения.
+
+    Заодно снимается срок. У живого поиска терпение своё и длинное
+    (:data:`torrcast.doctor._INDEXER_TIMEOUT`), а идут пробы теперь по одной - и
+    закрытый порт не имеет права выесть это терпение целиком, иначе доктор на десятке
+    мёртвых индексеров встал бы на минуты вместо мгновенного отказа.
+    """
+    spare = socket.socket()
+    spare.bind(("127.0.0.1", 0))
+    dead = spare.getsockname()[1]
+    spare.close()  # порт освобождён и больше никем не занят - соединение получит отказ
+    config = Config(prowlarr_url=f"http://127.0.0.1:{dead}", prowlarr_apikey="x" * 32)
+
+    began = time.monotonic()
+    lines = list(doctor._live_indexers(config, [{"id": 7, "name": "RuTor", "enable": True}]))
+    spent = time.monotonic() - began
+
+    assert lines, "мёртвый индексер обязан оставить строку, а не промолчать"
+    assert all(not good for _, good in lines), f"закрытый порт прошёл как здоровый: {lines}"
+    assert "индексер RuTor не ответил на живой поиск" in lines[0][0]
+    assert spent < doctor._INDEXER_TIMEOUT, f"отказ порта ждали {spent:.1f} с вместо мгновенного"
 
 
 def test_key_indexer_present(monkeypatch: pytest.MonkeyPatch) -> None:
