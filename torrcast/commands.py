@@ -187,6 +187,7 @@ from torrcast.facts import (
 )
 from torrcast.parse import (
     Episode,
+    Release,
     split_episode,
 )
 from torrcast.profile import Profile
@@ -589,6 +590,9 @@ class Args:
     #: приёмники в сети и спросить, какой из них телевизор.
     tv: str | None = None
     release: int | None = None
+    #: Инфохэш под номером из последнего ``cast releases``. Внутреннее поле: поздняя
+    #: выдача меняет места, но не имеет права менять явно названную раздачу.
+    release_hash: str = ""
     #: ``--pick N`` - картина N из меню, вопрос «Что смотрим?» не задаётся. Номер называет
     #: человек по списку на экране: молчаливой подмены тут не бывает, а без терминала это
     #: единственный способ назвать картину неинтерактивному запуску.
@@ -1097,8 +1101,10 @@ def _cmd_releases(args: Args) -> int:
     facts.start()
     try:
         print(f"профиль приёмника: {chosen.profile.title} - {chosen.how}")
+        shown: dict[str, list[Release]] = {}
         for number, plan in enumerate(plans, start=1):
             plan = _timed(plan, facts, inner, config, chosen.profile)
+            shown[plan.picture.key] = plan.ranked
             print()
             head = f"{_named(plan.picture)} - раздач {len(plan.ranked)}"
             # Номер картины тот же, что у пункта меню в `cast <запрос>` и у --pick:
@@ -1113,6 +1119,9 @@ def _cmd_releases(args: Args) -> int:
                     hard_mbit=plan.hard_mbit,
                 )
             )
+        from torrcast.release_pin import remember
+
+        remember(inner.title_query, shown)
         print()
         if len(plans) > 1:
             print(

@@ -175,6 +175,23 @@ class _Plan:
         отказ с перечнем причин печатает :meth:`_Bench.resolve` (:func:`unfit_line`).
         """
         if args.release is not None:
+            if args.release_hash:
+                from torrcast.release_pin import info_hash
+
+                number = next(
+                    (
+                        number
+                        for number, release in enumerate(self.ranked, start=1)
+                        if info_hash(release) == args.release_hash
+                    ),
+                    None,
+                )
+                if number is None:
+                    raise NotFoundError(
+                        f"показанного релиза {args.release} у «{self.picture.title}» "
+                        "в новой выдаче нет"
+                    )
+                return [number]
             if not 1 <= args.release <= len(self.ranked):
                 # 🔴 TC-446. Номер относится к ЭТОЙ картине - той, что человек выбрал в
                 # меню или назвал флагом --pick, - и отказ её называет. Безымянный счёт

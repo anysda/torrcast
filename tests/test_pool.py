@@ -25,6 +25,7 @@ from torrcast import trace
 from torrcast.cli import (
     Args,
     _Bench,
+    _Plan,
     _plan_for,
     _Prep,
     _timed,
@@ -186,6 +187,48 @@ def test_a_hand_picked_release_keeps_the_number_the_table_showed() -> None:
         "номер из таблицы означает ту же раздачу на показе"
     )
     assert played.runtime == shown.runtime, "длительность у таблицы и у показа одна"
+
+
+def test_a_hand_picked_release_survives_a_late_reorder(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Номер таблицы означает её инфохэш, даже если поздняя выдача сдвинула места."""
+    from torrcast.release_pin import info_hash, recalled, remember
+    from torrcast.search import magnet_for
+
+    monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
+    shown = replace(
+        named("Кино / Movie (1999) BDRip 1080p | D", size_gb=8.0, seeders=40),
+        magnet=magnet_for("a" * 40),
+    )
+    neighbour = replace(
+        named("Кино / Movie (1999) WEB-DL 720p | D", size_gb=4.0, seeders=30),
+        magnet=magnet_for("b" * 40),
+    )
+    late = replace(
+        named("Кино / Movie (1999) BDRip 1080p x264 | D", size_gb=7.0, seeders=900),
+        magnet=magnet_for("c" * 40),
+    )
+    picture = Picture(title="Кино", year=1999, releases=[shown, neighbour])
+    before = _Plan(picture, [shown, neighbour], 7200.0, 20.0)
+    selected = 1
+    remember("кино", {picture.key: before.ranked})
+
+    after = _Plan(
+        replace(picture, releases=[shown, neighbour, late]),
+        [late, shown, neighbour],
+        7200.0,
+        20.0,
+    )
+    args = Args(
+        query=["кино"],
+        release=selected,
+        release_hash=recalled("кино", picture.key, selected),
+    )
+    picked = after.ranked[after.candidates(args)[0] - 1]
+
+    assert after.ranked.index(shown) != before.ranked.index(shown), "опоздавший сдвинул номер"
+    assert info_hash(picked) == info_hash(shown), "сыграна раздача, показанная под номером"
 
 
 # --- TC-186: счёт отсева сходится с пулом -----------------------------------

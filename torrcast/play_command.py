@@ -155,6 +155,10 @@ def _cmd_play(args: Args) -> int:
             try:
                 plan = _pick_plan(plans, facts, pick=args.pick, asked=args.title_query)
                 mark("картина выбрана")  # TC-108: замер
+                if args.release is not None:
+                    from torrcast.release_pin import recalled
+
+                    args.release_hash = recalled(args.title_query, plan.picture.key, args.release)
                 # Опоздавший индексер: круг ушёл по кворуму, и его выдача доехала, пока
                 # человек читал меню. Доливаем ЗДЕСЬ - список уже прочитан и отвечен,
                 # менять под курсором нечего (:func:`_topup`). Ключи меню ему нужны,
