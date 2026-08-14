@@ -34,9 +34,8 @@
 его завести: пока обвязку к сохранённым пулам писали заново под каждый замер, у
 каждого замера получался свой счёт групп, и два замера нельзя было сравнить между собой.
 
-Отбор судит осторожный профиль приёмника (:data:`~torrcast.profile.CAUTIOUS`) поверх
-умолчаний настроек - никакой машины конкретного стенда в числах нет, и один и тот же
-пул даёт один и тот же ответ где угодно.
+Профиль приёмника выбирается по его паспорту, как в показе; ``--profile`` позволяет
+назвать его руками. Выбранный профиль и причина выбора печатаются перед разбором.
 """
 
 from __future__ import annotations
@@ -54,6 +53,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import runpass
+from probeprofile import add_argument as add_profile_argument
+from probeprofile import choose as choose_profile
 
 from torrcast.cli import (
     OFF_SEASON,
@@ -78,9 +79,9 @@ from torrcast.parse import (
     pick_franchise,
     split_franchise_index,
 )
-from torrcast.profile import CAUTIOUS, Profile, tune
+from torrcast.profile import Profile
 from torrcast.search import _INDEXER_PAGE, Prowlarr, RawResult, merge, to_releases
-from torrcast.state import Config
+from torrcast.state import Config, load_config
 
 #: Что склеили и во что: список исходных кучек и получившаяся из них картина.
 Merge = tuple[list[Picture], Picture]
@@ -639,10 +640,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--menu", type=int, default=5, help="сколько картин меню расписывать")
     ap.add_argument("--releases", type=int, default=3, help="сколько релизов очереди печатать")
     ap.add_argument("--jsonl", type=Path, help="куда положить разбор построчно")
+    add_profile_argument(ap)
     args = ap.parse_args(argv)
     cmdline = list(argv) if argv is not None else sys.argv[1:]
 
-    config = tune(Config(), CAUTIOUS)
+    config, choice = choose_profile(load_config(), args.profile)
     items: list[Replay] = []
     for line in args.pools.read_text(encoding="utf-8").splitlines():
         if not line.strip():
@@ -651,7 +653,7 @@ def main(argv: list[str] | None = None) -> int:
         query = str(record.get("query", ""))
         batches, capped = batches_of(record), capped_of(record)
         for asked in asks_of(query, args.ask):
-            items.append(replay(asked, batches, config, CAUTIOUS, capped, pool=query))
+            items.append(replay(asked, batches, config, choice.profile, capped, pool=query))
 
     picked = (
         [

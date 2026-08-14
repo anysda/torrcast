@@ -40,9 +40,12 @@ from dataclasses import replace
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from probeprofile import add_argument as add_profile_argument
+from probeprofile import choose as choose_profile
 
 from torrcast.cli import _layout
-from torrcast.profile import CAUTIOUS
 from torrcast.state import load_config
 from torrcast.stream import (
     Feed,
@@ -296,6 +299,7 @@ def main() -> int:
     parser.add_argument("--trace", action="store_true", help="печатать решения об упаковке")
     parser.add_argument("--whole", action="store_true", help="перекодировать фильм целиком")
     parser.add_argument("--mbit", type=float, default=9.0, help="во сколько перекодировать")
+    add_profile_argument(parser)
     args = parser.parse_args()
 
     if args.trace:
@@ -310,7 +314,8 @@ def main() -> int:
     # потолке кодера 8.77, а щуп паковал в 9.00 и 9.72 - на 10.8% мимо, потому что не
     # знал ни про ``fit`` от самого длинного куска, ни про то, что сетке обещают
     # ``maxrate``, а не цель.
-    config = replace(load_config(), recode=True, recode_mbit=args.mbit, hls_segment=args.step)
+    config, choice = choose_profile(load_config(), args.profile)
+    config = replace(config, recode=True, recode_mbit=args.mbit, hls_segment=args.step)
     if args.whole:
         # Порог «тяжёл каждый кусок» опущен ниже любого веса: щуп меряет ИМЕННО сплошной
         # перекод, но решение о нём всё равно принимает показ, а не щуп.
@@ -323,7 +328,7 @@ def main() -> int:
         max(0.0, media.video_bps / 1e6),
         say=print,
         depth=media.depth,
-        profile=CAUTIOUS,
+        profile=choice.profile,
         frame=media.frame,
         hdr=media.hdr,
     )

@@ -18,7 +18,7 @@
     границам сетки, ужатие кадра и тонемап. 🔴 Ради этого режима щуп и написан: цену
     сплошного перекода до сих пор мерили одноразовыми скриптами, и каждый мерил своё.
 
-``--profile ХЕШ``
+``--profile --film ХЕШ``
     Профиль тяжести фильма по карте опорных кадров: сколько сегментов сетки приёмник не
     потянет, где они стоят и какими сериями идут. Ни одного упакованного сегмента для
     этого не нужно — всё считается из карты.
@@ -53,13 +53,14 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from probeprofile import choose as choose_profile
 from seekcheck import serve_file
 
 from torrcast.cli import _layout
-from torrcast.profile import CAUTIOUS
+from torrcast.profile import Profile
 from torrcast.recode import Encode, Weights
 from torrcast.search import magnet_for
-from torrcast.state import load_config
+from torrcast.state import Config, load_config
 from torrcast.stream import (
     Grid,
     Packer,
@@ -147,7 +148,9 @@ def _cpu_seconds() -> float:
     return spent.ru_utime + spent.ru_stime
 
 
-def price(source: str, slot: int, count: int, where: Path, mbit: float) -> None:
+def price(
+    source: str, slot: int, count: int, where: Path, mbit: float, config: Config, profile: Profile
+) -> None:
     """Цена боевого тракта: та же пара «сетка + сплошной перекод», которой пакует показ.
 
     Собирается она ровно одним вызовом :func:`torrcast.cli._layout` — не повторяется здесь
@@ -163,7 +166,6 @@ def price(source: str, slot: int, count: int, where: Path, mbit: float) -> None:
     """
     from torrcast.stream import AUDIO_MBIT, TS_OVERHEAD
 
-    config = load_config()
     if mbit > 0:
         config = replace(config, recode_mbit=mbit)
     media = probe(source)
@@ -181,7 +183,7 @@ def price(source: str, slot: int, count: int, where: Path, mbit: float) -> None:
         video_mbit,
         say=lambda t: print(f"  {t}"),
         depth=media.depth,
-        profile=CAUTIOUS,
+        profile=profile,
         frame=media.frame,
         hdr=media.hdr,
     )
@@ -193,7 +195,7 @@ def price(source: str, slot: int, count: int, where: Path, mbit: float) -> None:
         f"сплошной перекод: {whole.preset}, цель {whole.mbit:.2f} Мбит/с, "
         f"потолок кодера {whole.maxrate:.2f}, кадр {whole.out_frame}p, тонемап {whole.hdr}\n"
         f"сетке обещано {promise:.2f} Мбит/с доставленных; "
-        f"потолок приёмника {CAUTIOUS.max_segment_bytes / 2**20:.1f} МБ"
+        f"потолок приёмника {profile.max_segment_bytes / 2**20:.1f} МБ"
     )
 
     until = min(slot + count - 1, grid.count - 1)
@@ -233,7 +235,7 @@ def price(source: str, slot: int, count: int, where: Path, mbit: float) -> None:
         tail = number >= grid.count - 1
         miss = got / due - 1 if due > 0 else 0.0
         if not tail:
-            worst = max(worst, got / CAUTIOUS.max_segment_bytes)
+            worst = max(worst, got / profile.max_segment_bytes)
         print(
             f"v{number:<7}{span:>7.2f}{got / 2**20:>8.2f}{due / 2**20:>12.2f}"
             f"{got * 8 / span / 1e6:>9.2f}{miss * 100:>8.1f}%{' хвост' if tail else ''}"
@@ -247,7 +249,9 @@ def price(source: str, slot: int, count: int, where: Path, mbit: float) -> None:
     )
 
 
-def calibrate(url: str, slot: int, count: int, where: Path, step: float) -> None:
+def calibrate(
+    url: str, slot: int, count: int, where: Path, step: float, config: Config, profile: Profile
+) -> None:
     """Чем врёт ранняя прикидка тяжести: предсказание против выложенной копии, кусок за куском.
 
     Профиль тяжести (:class:`torrcast.recode.Weights`) считается по карте опорных кадров до
@@ -265,7 +269,6 @@ def calibrate(url: str, slot: int, count: int, where: Path, step: float) -> None
     """
     media = probe(url)
     keys = film_keys(url)
-    config = load_config()
     grid = grid_for(
         url,
         media.duration,
@@ -274,7 +277,7 @@ def calibrate(url: str, slot: int, count: int, where: Path, step: float) -> None
         say=lambda t: print(f"  {t}"),
         delivered_mbit=media.delivered_mbit,
         ceiling_mbit=config.recode_mbit if config.recode else 0.0,
-        cap=CAUTIOUS.max_segment_bytes,
+        cap=profile.max_segment_bytes,
     )
     weights = Weights.of(keys, grid, delivered=media.delivered_mbit)
     if weights is None:
@@ -448,7 +451,14 @@ def main() -> int:
     parser.add_argument("--speed", type=Path, help="замер скорости пресетов на готовом куске")
     parser.add_argument("--price", action="store_true", help="цена боевого тракта на источнике")
     parser.add_argument("--calibrate", action="store_true", help="прикидка тяжести против копии")
-    parser.add_argument("--profile", action="store_true", help="профиль тяжести источника")
+    parser.add_argument(
+        "--profile",
+        action="append",
+        nargs="?",
+        const="",
+        metavar="КЛЮЧ",
+        help="без ключа - профиль тяжести источника; с ключом - профиль приёмника; можно повторить",
+    )
     parser.add_argument("--plan", action="store_true", help="модель показа для источника")
     parser.add_argument("--dump", action="store_true", help="выложить сегменты на диск")
     parser.add_argument("--film", help="источник - раздача в TorrServer (хеш)")
@@ -464,7 +474,11 @@ def main() -> int:
     parser.add_argument("--horizon", type=float, default=300.0)
     parser.add_argument("--json", type=Path, help="куда сложить профиль машиночитаемо")
     args = parser.parse_args()
-    wants_source = args.price or args.calibrate or args.profile or args.plan or args.dump
+    profiles = args.profile or []
+    source_profile = "" in profiles
+    receiver_profile = next((key for key in reversed(profiles) if key), None)
+    config, choice = choose_profile(load_config(), receiver_profile)
+    wants_source = args.price or args.calibrate or source_profile or args.plan or args.dump
     if wants_source and not (args.film or args.file):
         parser.error("нужен источник: --film ХЕШ или --file ПУТЬ")
     if args.speed:
@@ -472,10 +486,10 @@ def main() -> int:
     elif wants_source:
         url, size = _source(args.film, args.file)
         if args.price:
-            price(url, args.slot, args.count, args.where, args.mbit)
+            price(url, args.slot, args.count, args.where, args.mbit, config, choice.profile)
         elif args.calibrate:
-            calibrate(url, args.slot, args.count, args.where, args.step)
-        elif args.profile:
+            calibrate(url, args.slot, args.count, args.where, args.step, config, choice.profile)
+        elif source_profile:
             profile(url, size, args.step, args.threshold, args.extra)
         elif args.plan:
             plan(url, args.step, args.threshold, args.extra, args.at, args.horizon)

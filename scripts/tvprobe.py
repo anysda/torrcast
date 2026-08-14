@@ -27,9 +27,13 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from probeprofile import add_argument as add_profile_argument
+from probeprofile import choose as choose_profile
 
 from torrcast.cast import ChromecastReceiver
-from torrcast.profile import CAUTIOUS
+from torrcast.profile import Profile
 from torrcast.recode import RECODE_DIR, Encode, Recoder, Weights, whole_encode
 from torrcast.state import load_config
 from torrcast.stream import (
@@ -101,7 +105,10 @@ def spoil(ready: Path, target: Path, stop: threading.Event) -> None:
 
 
 def make_grid(
-    args: argparse.Namespace, delivered: float = 0.0, whole: Encode | None = None
+    args: argparse.Namespace,
+    profile: Profile,
+    delivered: float = 0.0,
+    whole: Encode | None = None,
 ) -> Grid:
     """Сетка смока: явный список границ, ровная или по опорным кадрам.
 
@@ -130,7 +137,7 @@ def make_grid(
             ceiling_mbit=(args.ceiling or args.mbit) if args.recode else 0.0,
             # Сплошной перекод: вес куска задаём мы сами, карта источника тут не судья.
             fixed_mbit=(whole.mbit + AUDIO_MBIT) * TS_OVERHEAD if whole is not None else 0.0,
-            cap=CAUTIOUS.max_segment_bytes,
+            cap=profile.max_segment_bytes,
         )
     drop = {float(x) for x in args.drop.split(",") if x}
     extra = {float(x) for x in args.add.split(",") if x}
@@ -163,6 +170,7 @@ def main() -> None:
     parser.add_argument("--threshold", type=float, default=15.0, help="порог тяжести, Мбит/с")
     parser.add_argument("--preset", default="veryfast")
     parser.add_argument("--mbit", type=float, default=12.0, help="во сколько перекодировать")
+    add_profile_argument(parser)
     parser.add_argument(
         "--ceiling",
         type=float,
@@ -181,7 +189,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    config = load_config()
+    config, choice = choose_profile(load_config(), args.profile)
     out = hls_dir(config.hls_dir)
     # ⚠️ Паспорт нужен и на явной сетке, если перекодируем целиком: из него берутся кадр,
     # HDR и вес видеодорожки, а без них ``--whole`` молча выродился бы в копию - и щуп
@@ -201,14 +209,14 @@ def main() -> None:
             args.mbit,
             video_mbit=media.video_bps / 1e6,
             frame=media.frame,
-            ceiling=CAUTIOUS.recode_frame,
+            ceiling=choice.profile.recode_frame,
             hdr=media.hdr and args.tonemap,
         )
         print(
             f"сплошной перекод: {whole.preset}, {whole.mbit:.2f} Мбит/с, "
             f"кадр {whole.out_frame}, тонемап {whole.hdr}"
         )
-    grid = make_grid(args, delivered, whole)
+    grid = make_grid(args, choice.profile, delivered, whole)
     slot = grid.slot_at(args.at)
     print(
         f"сетка: {grid.count} сегментов; место {args.at:.1f} с - это v{slot} "
@@ -260,7 +268,7 @@ def main() -> None:
         encode=whole,
     )
     server = HlsServer(out, port=config.hls_port, feed=feed)
-    receiver = ChromecastReceiver(config.tv or "")
+    receiver = ChromecastReceiver(config.tv or "", profile=choice.profile)
     # Сторож подвиса меряет прыжок сеткой, а не абсолютной секундой: без этого он
     # приземляется в тот же кусок, на котором приёмник и споткнулся.
     receiver.next_cut = grid.after

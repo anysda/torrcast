@@ -39,11 +39,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import poolreplay
+from probeprofile import add_argument as add_profile_argument
+from probeprofile import choose as choose_profile
 
 from torrcast.cli import HD_HEIGHT, Args, _Plan, bitrate_of, is_dated, is_extra
 from torrcast.parse import _EXTRAS_RE, Release
-from torrcast.profile import CAUTIOUS, tune
-from torrcast.state import Config
+from torrcast.state import load_config
 
 
 def live_hd_below(plan: _Plan, queue: list[int]) -> list[int]:
@@ -89,16 +90,19 @@ def unambiguous_extra(release: Release) -> bool:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="щуп ворот отбора по сохранённым выдачам")
     ap.add_argument("pools", type=Path, help="pools.jsonl со снятыми выдачами индексеров")
+    add_profile_argument(ap)
     args = ap.parse_args(argv)
 
-    config = tune(Config(), CAUTIOUS)
+    config, choice = choose_profile(load_config(), args.profile)
     items = []
     for line in args.pools.read_text(encoding="utf-8").splitlines():
         if not line.strip():
             continue
         record = json.loads(line)
         batches = poolreplay.batches_of(record)
-        items.append(poolreplay.replay(str(record.get("query", "")), batches, config, CAUTIOUS))
+        items.append(
+            poolreplay.replay(str(record.get("query", "")), batches, config, choice.profile)
+        )
 
     plans = [plan for item in items for plan in item.plans]
 

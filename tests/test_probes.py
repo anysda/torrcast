@@ -20,7 +20,7 @@ import pytest
 
 import torrcast
 from torrcast.cli import Args
-from torrcast.profile import CAUTIOUS, tune
+from torrcast.profile import ANDROID_TV, CAUTIOUS, Choice, forget, tune
 from torrcast.state import Config
 
 SCRIPTS = Path(__file__).resolve().parent.parent / "scripts"
@@ -53,6 +53,30 @@ def probe(name: str) -> ModuleType:
 
 def rows_of(*verdicts: str) -> list[dict[str, Any]]:
     return [{"query": f"q{i}", "verdict": v, "kind": "movie"} for i, v in enumerate(verdicts)]
+
+
+def test_щуп_выбирает_профиль_как_показ_и_называет_причину(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Паспорт действует по умолчанию, а ``--profile`` сильнее него и виден в отчёте."""
+    replay = probe("poolreplay")
+    pools = tmp_path / "pools.jsonl"
+    pools.write_text("", encoding="utf-8")
+    monkeypatch.setattr(replay, "load_config", lambda: Config(tv="receiver.local"))
+    monkeypatch.setattr(
+        "torrcast.profile._asked", lambda _address: Choice(ANDROID_TV, "по паспорту: Android TV")
+    )
+
+    forget()
+    assert replay.main([str(pools)]) == 0
+    said = capsys.readouterr().out
+    assert "профиль приёмника: androidtv" in said and "по паспорту: Android TV" in said
+
+    forget()
+    assert replay.main([str(pools), "--profile", "q70d"]) == 0
+    said = capsys.readouterr().out
+    assert "профиль приёмника: q70d" in said and "назван руками" in said
+    forget()
 
 
 def test_счёт_разносит_все_вердикты_прогона() -> None:

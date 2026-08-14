@@ -40,12 +40,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import poolreplay
+from probeprofile import add_argument as add_profile_argument
+from probeprofile import choose as choose_profile
 
 from torrcast import parse
 from torrcast.cli import Args
 from torrcast.parse import Picture, split_franchise_index
-from torrcast.profile import CAUTIOUS, tune
-from torrcast.state import Config
+from torrcast.state import load_config
 
 Groups = dict[str, list[Picture]]
 
@@ -82,9 +83,10 @@ def continuations(key: str, groups: Groups) -> tuple[Groups, Groups]:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0] if __doc__ else None)
     ap.add_argument("pools", type=Path, help="pools.jsonl со снятыми выдачами индексеров")
+    add_profile_argument(ap)
     args = ap.parse_args(argv)
 
-    config = tune(Config(), CAUTIOUS)
+    config, choice = choose_profile(load_config(), args.profile)
     no_key = with_index = and_two = and_one_lost = and_one_kept = other_lost = 0
     total = 0
     for line in args.pools.read_text(encoding="utf-8").splitlines():
@@ -94,7 +96,7 @@ def main(argv: list[str] | None = None) -> int:
         record = json.loads(line)
         query = str(record.get("query", ""))
         calls.clear()
-        item = poolreplay.replay(query, poolreplay.batches_of(record), config, CAUTIOUS)
+        item = poolreplay.replay(query, poolreplay.batches_of(record), config, choice.profile)
         _name, index = split_franchise_index(Args(query=query.split()).title_query)
         if not calls:
             no_key += 1
