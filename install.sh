@@ -93,12 +93,13 @@ TS_MEM_RESERVE=1792
 #: МиБ памяти службе, когда кэш лежит НА ДИСКЕ. Замер: 104 МиБ при кэше 3.2 ГиБ и 111 МиБ
 #: при 12 ГиБ, то есть от размера кэша это число не зависит вовсе; запас - вчетверо.
 TS_DISK_MEM=512
-#: МиБ диска, которые кэшу не отдаём ни при каких обстоятельствах: рядом на том же разделе
-#: живёт прогрев со своим бюджетом (``torrcast.warm.WARM_BUDGET`` = 20 ГБ плюс
-#: ``FREE_FLOOR`` = 3 ГиБ), состояние и сама система. Кэш обязан помещаться СВЕРХ них,
-#: иначе прогрев и кэш будут выедать друг друга и обещание «показ переживает обрыв»
-#: сломают оба сразу.
-TS_DISK_RESERVE=26624
+#: Байты раздела, которые не трогаем ни при каких обстоятельствах: тут живут состояние и
+#: сама система. Это только неприкосновенный запас; полный резерв кэша складывает
+#: `ts_cache_disk` - к нему добавляется бюджет прогрева, вычитанный из
+#: ``torrcast.warm.WARM_BUDGET`` (то же слагаемое берёт ``torrcast.doctor``:
+#: ``CACHE_DISK_RESERVE``). Кэш обязан помещаться СВЕРХ них, иначе прогрев и кэш будут
+#: выедать друг друга и обещание «показ переживает обрыв» сломают оба сразу.
+TS_DISK_FLOOR=$((3 * 1024 * 1024 * 1024))
 #: Нижняя и верхняя границы кэша. Нижняя - чтобы на самой тесной машине осталось чем
 #: кормить показ; верхняя - потому что дальше расти незачем: запас на обрыв уже часовой.
 TS_CACHE_MIN=268435456
@@ -447,10 +448,26 @@ disk_free() {  # $1 каталог
 # состояние и систему. Кэш тут гость, а не хозяин: раздел, выеденный кэшем в ноль,
 # убьёт прогрев, то есть ровно то, ради чего запас и нужен.
 ts_cache_disk() {
-    local free cache
+    local free cache reserve
     free="$(disk_free "$TS_CACHE_DIR")"
     case "$free" in ''|*[!0-9]*) printf '0'; return 0 ;; esac
-    cache=$(( free - TS_DISK_RESERVE * 1024 * 1024 ))
+    pick_python
+    reserve="$("$PYTHON" - "$REPO_DIR/torrcast/warm.py" <<'PY'
+import ast
+import pathlib
+import sys
+
+tree = ast.parse(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+for node in tree.body:
+    if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+        if node.target.id == "WARM_BUDGET" and node.value is not None:
+            print(ast.literal_eval(node.value))
+            break
+else:
+    raise SystemExit("WARM_BUDGET не найден в torrcast/warm.py")
+PY
+)"
+    cache=$(( free - reserve - TS_DISK_FLOOR ))
     [ "$cache" -gt "$TS_CACHE_MAX" ] && cache="$TS_CACHE_MAX"
     [ "$cache" -lt 0 ] && cache=0
     printf '%s' "$cache"

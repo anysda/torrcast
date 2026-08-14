@@ -28,6 +28,7 @@ from torrcast.console import iutf8 as _iutf8
 from torrcast.console import stdin_is_tty
 from torrcast.scan import CAST_PORT
 from torrcast.state import Config
+from torrcast.warm import FREE_FLOOR, WARM_BUDGET
 
 __all__ = ["CAST_PORT", "checkup"]
 
@@ -57,8 +58,9 @@ CACHE_RESERVE = 1792 * 1024 * 1024
 CACHE_ON_DISK_MEMORY = 512 * 1024 * 1024
 #: Байты диска, которые кэшу на диске не отдают: рядом на том же разделе живёт прогрев со
 #: своим бюджетом и запасом (``torrcast.warm``: ``WARM_BUDGET`` + ``FREE_FLOOR``), а также
-#: состояние и система (``install.sh``: ``TS_DISK_RESERVE``).
-CACHE_DISK_RESERVE = 26 * 1024**3
+#: состояние и система. То же число складывает установка (``install.sh``: тот же
+#: ``WARM_BUDGET`` плюс ``TS_DISK_FLOOR``) - слагаемые общие, чтобы числа не разъезжались.
+CACHE_DISK_RESERVE = WARM_BUDGET + FREE_FLOOR
 
 
 def checkup(config: Config) -> Iterator[Line]:

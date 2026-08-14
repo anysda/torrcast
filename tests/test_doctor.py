@@ -253,9 +253,9 @@ def test_cache_on_disk_without_room_for_warmup_is_bad(monkeypatch: pytest.Monkey
     его ровно так же, как отсутствие кэша.
     """
     _sets(monkeypatch, 4 * 1024**3, disk=True)
-    monkeypatch.setattr(doctor, "disk_free", lambda path: 10 * 1024**3)
+    monkeypatch.setattr(doctor, "disk_free", lambda path: 30 * 1024**3)
     line, good = doctor._cache(_config())
-    assert not good, f"10 ГиБ на раздел под кэш и прогрев - этого не хватает: {line}"
+    assert not good, f"30 ГиБ на раздел под кэш и прогрев - этого не хватает: {line}"
     assert "прогреву места не остаётся" in line, line
 
 
