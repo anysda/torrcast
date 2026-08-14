@@ -244,6 +244,38 @@ def test_find_takes_the_entry_by_the_users_query() -> None:
     assert state.find("") is None
 
 
+def test_find_does_not_answer_a_franchise_name_with_another_part() -> None:
+    """Запись отвечает «где я остановился», а не «какую картину я прошу».
+
+    Под запросом «тачки» осталась запись «Тачек 3»: их когда-то выбрали в меню, а рядом с
+    позицией лежит текст запроса, а не имя картины. Имя франшизы без номера такой записи
+    больше не достаётся - номер части называет человек. Названная своим номером картина
+    находится как раньше, на каком бы языке ни было записано её имя.
+    """
+    state = State()
+    state.put("movie:тачки-3:2017", Entry(title="Тачки 3", magnet="m", query="тачки", pos=2512))
+    state.put("movie:тачки-2:2011", Entry(title="Cars 2", magnet="m", query="тачки-2", pos=311))
+    state.put(
+        "tv:кухня-6:2016",
+        Entry(
+            title="Кухня 6",
+            magnet="m",
+            kind="tv",
+            query="кухня-6",
+            pos=300,
+            season=6,
+            episode=2,
+            episodes=[[6, 1, 0], [6, 2, 1], [6, 3, 2]],
+        ),
+    )
+
+    assert state.find("тачки") is None
+    assert state.find("тачки 3")[1].title == "Тачки 3"  # type: ignore[index]
+    assert state.find("тачки 2")[1].title == "Cars 2"  # type: ignore[index]
+    # Сериал зовут коротко нарочно, и число в его названии - сезон, а не соседняя картина.
+    assert state.find("кухня")[1].title == "Кухня 6"  # type: ignore[index]
+
+
 def test_find_lets_a_series_be_called_by_a_short_name() -> None:
     """Сериал ищут коротко: «киберпанк» вместо «киберпанк бегущие по краю».
     Фильму такое нельзя: «матрица» — запрос франшизы, а не «Матрица: Перезагрузка».

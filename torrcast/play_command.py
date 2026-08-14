@@ -50,7 +50,7 @@ if TYPE_CHECKING:
     from torrcast.playback import _file_picker, _launch
     from torrcast.ranking import _gb, _hms, pick_voice, quality_text, sound_note, voice_note
     from torrcast.reinforce import _timed, _topup
-    from torrcast.selection import _Bench, _continue, _remembered
+    from torrcast.selection import _Bench, _continue, _Plan, _remembered
 
 
 from torrcast import (
@@ -74,7 +74,7 @@ from torrcast.search import (
     merge,
     to_releases,
 )
-from torrcast.state import Entry, State, load_config
+from torrcast.state import Config, Entry, State, load_config
 from torrcast.stream import (
     TorrServer,
     bitrate_mbit,
@@ -155,6 +155,11 @@ def _cmd_play(args: Args) -> int:
             try:
                 plan = _pick_plan(plans, facts, pick=args.pick, asked=args.title_query)
                 mark("картина выбрана")  # TC-108: замер
+                # Картина названа - вот теперь очередь закладки: она про место ВНУТРИ
+                # картины, и спрашивают о ней после того, как картина выбрана.
+                code = _continue_picked(config, state, plan, bench, args=args, clock=clock)
+                if code is not None:
+                    return code
                 if args.release is not None:
                     from torrcast.release_pin import recalled
 
@@ -293,6 +298,40 @@ def _cmd_play(args: Args) -> int:
     if stale is not None:  # точка невозврата пройдена - вот теперь --new вправе забывать
         _forget_progress(stale)
     return _launch(config, plan.picture.key, entry, about, clock)
+
+
+def _continue_picked(
+    config: Config, state: State, plan: _Plan, bench: _Bench, *, args: Args, clock: _Clock
+) -> int | None:
+    """Закладка выбранной картины: «Продолжить?» - после «Что смотрим?», а не вместо него.
+
+    🔴 Сохранённая позиция отвечает на вопрос «где я остановился», а не «какую картину я
+    прошу». По имени франшизы без номера она и не спрашивается вовсе
+    (:func:`torrcast.state._other_part`): такой запрос зовёт первую часть, а меню называет
+    остальные. Потерять её при этом нельзя - продолжение с места и есть то, ради чего
+    закладка живёт, - поэтому здесь у неё своя очередь: картина уже названа, ключ её
+    известен, и запись берётся по ключу картины, а не по тексту запроса.
+
+    Вопрос остаётся ОДИН и тот же самый: «Продолжить?» у начатой картины
+    (:func:`torrcast.cli._resume`). Второго диалога тут не заводится - на счастливом пути
+    вопросов по-прежнему не больше двух, и оба про намерение: какое кино и с какого места.
+
+    Условие повторяет ту ветку :func:`_continue`, которая точно отвечает показом: фильм,
+    начатый и не досмотренный. Так и задумано - прогретое под меню убирается ДО вопроса
+    (раздача продолжения записана, и рой этих секунд нужен прогреву по сохранённому
+    месту), а значит обратной дороги в общий путь отсюда нет.
+
+    Названный руками релиз (``--release N`` / ``--file N``) сюда не заходит: там человек
+    выбирает раздачу сам, а продолжение играет записанную. ``--new`` не заходит тоже - он
+    ровно про то, чтобы прежнее место не поднимать.
+    """
+    started = state.get(plan.picture.key)
+    if args.new or args.pinned or started is None:
+        return None
+    if started.serial or not started.resumable:
+        return None
+    bench.drop_all()
+    return _continue(config, plan.picture.key, started, args=args, clock=clock)
 
 
 def _forget_progress(key: str) -> None:

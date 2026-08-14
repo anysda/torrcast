@@ -471,7 +471,7 @@ def test_the_start_time_means_a_picture_on_the_screen(
 def test_resume_keeps_asking_the_only_question_that_is_about_intent(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Вопрос «Продолжить? [Да/сначала]» остаётся — он про намерение, а не про технику."""
+    """Вопрос «Продолжить? [Y/n]» остаётся — он про намерение, а не про технику."""
     state = State()
     state.put(
         "movie:моана-2:2024",
@@ -482,8 +482,99 @@ def test_resume_keeps_asking_the_only_question_that_is_about_intent(
 
     assert cli.main(["моана", "2"]) == 0
 
-    assert len(asked) == 1 and "Продолжить? [Да/сначала]" in asked[0]
+    assert len(asked) == 1 and "Продолжить? [Y/n]" in asked[0]
     assert "ищу" not in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    ("answer", "start"),
+    [
+        ("", 2467.0),
+        ("y", 2467.0),
+        ("Y", 2467.0),
+        ("да", 2467.0),
+        ("д", 2467.0),
+        ("n", 0.0),
+        ("N", 0.0),
+        ("н", 0.0),
+        ("нет", 0.0),
+        ("с", 0.0),
+        ("s", 0.0),
+        ("сначала", 0.0),
+    ],
+)
+def test_the_prompt_promises_exactly_the_answers_that_are_taken(
+    answer: str, start: float, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Надпись у вопроса и разбор ответа - одно и то же, иначе надпись врёт.
+
+    Пара ``[Y/n]`` читается привычно: Enter и «да» продолжают с сохранённого места,
+    «нет» играет тот же фильм с начала. Оба языка и оба регистра значат одно и то же.
+    """
+    state = State()
+    state.put(
+        "movie:моана-2:2024",
+        Entry(title="Моана 2", magnet="magnet:?xt=1", pos=2467.0, dur=5978.0, query="моана-2"),
+    )
+    state.save()
+    asked = _answers(monkeypatch, answer)
+
+    assert cli.main(["моана", "2"]) == 0
+
+    assert "Продолжить? [Y/n]" in asked[0], asked
+    assert State.load().entries["movie:моана-2:2024"].pos == start
+
+
+def test_a_bookmark_of_a_sequel_does_not_answer_which_picture_was_asked(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Имя франшизы без номера зовёт первую часть, а не ту, на которой стоит закладка.
+
+    Запись под запросом «моана» осталась от «Моаны 2»: её когда-то выбрали в меню, а в
+    записи лежит текст запроса, а не имя картины. Продолжение по такой записи включало
+    другое кино той же франшизы молча - и вопрос про картину не задавался вовсе.
+    """
+    state = State()
+    state.put(
+        "movie:моана-2:2024",
+        Entry(title="Моана 2", magnet="magnet:?xt=1", pos=2467.0, dur=5978.0, query="моана"),
+    )
+    state.save()
+    asked = _answers(monkeypatch, "")  # Enter в меню - дефолт франшизы
+
+    assert cli.main(["моана"]) == 0
+
+    printed = capsys.readouterr().out
+    assert [q.split("[")[0].strip() for q in asked] == ["Что смотрим?"]
+    assert "  1. Moana (2016)" in printed and "  2. Моана 2 (2024)" in printed
+    assert "играю «Moana» (2016)" in printed, printed
+    assert State.load().entries["movie:моана-2:2024"].pos == 2467.0, "закладка цела"
+
+
+def test_the_bookmark_is_offered_inside_the_picture_that_was_chosen(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Закладка не выброшена: её предлагают той картине, которую человек выбрал.
+
+    Сначала вопрос про картину, потом - про место в ней; вопросов по-прежнему два, и
+    второй остаётся тем же самым «Продолжить?».
+    """
+    state = State()
+    state.put(
+        "movie:моана-2:2024",
+        Entry(title="Моана 2", magnet="magnet:?xt=1", pos=2467.0, dur=5978.0, query="моана"),
+    )
+    state.save()
+    asked = _answers(monkeypatch, "2", "")  # вторая картина меню, продолжить с места
+
+    assert cli.main(["моана"]) == 0
+
+    printed = capsys.readouterr().out
+    assert len(asked) == 2, asked
+    assert asked[0].split("[")[0].strip() == "Что смотрим?", asked
+    assert "«Моана 2» остановились на 0:41:07. Продолжить?" in asked[1], asked
+    assert "играю «Моана 2»" in printed and "с 0:41:07" in printed, printed
+    assert State.load().entries["movie:моана-2:2024"].pos == 2467.0, "продолжаем с места"
 
 
 def test_a_legacy_record_of_a_film_written_as_a_series_behaves_as_a_film(
@@ -515,7 +606,7 @@ def test_a_legacy_record_of_a_film_written_as_a_series_behaves_as_a_film(
     assert cli.main(["моана", "2"]) == 0
 
     printed = capsys.readouterr().out
-    assert len(asked) == 1 and "Продолжить? [Да/сначала]" in asked[0]
+    assert len(asked) == 1 and "Продолжить? [Y/n]" in asked[0]
     assert "s1e1" not in printed and "Серии" not in printed
     assert State.load().entries["tv:moana-2:2024"].pos == 2566.0, "позиция пользователя цела"
 

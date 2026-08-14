@@ -62,7 +62,7 @@ def test_a_question_without_a_terminal_takes_the_default_instead_of_hanging(
     monkeypatch.setattr("builtins.input", refuse)
 
     assert console.ask("Что смотрим?", 3, default=2) == 2
-    assert console.ask_line("Продолжить? [Да/сначала]") == ""
+    assert console.ask_line("Продолжить? [Y/n]") == ""
     assert "терминала нет" in capsys.readouterr().out
 
 
@@ -97,7 +97,7 @@ def test_russian_answer_survives_the_question(monkeypatch: pytest.MonkeyPatch) -
     """Русский ввод допустим, но никогда не обязателен."""
     monkeypatch.setattr(console, "stdin_is_tty", lambda: True)
     monkeypatch.setattr("builtins.input", lambda prompt="": "Сначала")
-    assert console.ask_line("Продолжить? [Да/сначала]") == "сначала"
+    assert console.ask_line("Продолжить? [Y/n]") == "сначала"
 
 
 def test_progress_names_every_phase_and_its_time() -> None:

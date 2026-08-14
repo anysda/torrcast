@@ -109,7 +109,7 @@ def test_resume_asks_once_and_starts_from_the_saved_position(
     assert cli.main(["моана", "2"]) == 0
 
     printed = capsys.readouterr().out
-    assert asked == ["«Моана 2» остановились на 0:41:07. Продолжить? [Да/сначала]: "]
+    assert asked == ["«Моана 2» остановились на 0:41:07. Продолжить? [Y/n]: "]
     assert "- на ТВ" in printed
     assert "ищу" not in printed, "resume не ходит в Prowlarr"
     assert started == [KEY]

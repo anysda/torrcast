@@ -223,10 +223,16 @@ def _resume(config: Config, key: str, entry: Entry, clock: _Clock, dry: bool = F
 
     Пока задаётся вопрос, раздача уже поднята в TorrServer, а рой прогрет по месту
     сохранённой позиции (:class:`_Resume`): к Enter'у критический путь чаще всего пуст.
+
+    Приглашение - привычная пара ``[Y/n]``, и означает она ровно то, что означает везде:
+    Enter или «да» продолжают с сохранённого места, «нет» играет тот же фильм с начала.
+    Третьего намерения у этого вопроса нет: не продолжать - это и есть «сначала». Буквы
+    читаются в обоих языках и в любом регистре (:func:`~torrcast.console.ask_line`
+    приводит ответ к нижнему), поэтому под надписью ``n`` живут и ``н``, и «сначала».
     """
     warm = _Resume(TorrServer(config.torrserver_url), entry)
     warm.start()
-    question = f"«{entry.title}» остановились на {_hms(entry.pos)}. Продолжить? [Да/сначала]"
+    question = f"«{entry.title}» остановились на {_hms(entry.pos)}. Продолжить? [Y/n]"
     try:
         answer = ask_line(question)
     except BaseException:  # Ctrl-C на вопросе - показа не будет, а раздача уже поднята
@@ -234,7 +240,7 @@ def _resume(config: Config, key: str, entry: Entry, clock: _Clock, dry: bool = F
         raise
     warm.enough()
     mark("рой прогрет")  # TC-108: замер
-    if answer[:1] in {"с", "s", "н", "n"}:  # «сначала» / «с начала» / «нет»
+    if answer[:1] in {"с", "s", "н", "n"}:  # «нет» / «сначала» / «с начала» / no / start
         entry.pos = 0.0
     if dry:  # показа не будет: своё поднятое убираем сами, чужого не трогаем
         warm.discard()
