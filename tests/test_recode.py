@@ -254,6 +254,21 @@ def test_the_encoder_keeps_the_codec_and_caps_the_bitrate() -> None:
     assert "-vf" not in args and "-s" not in args  # разрешение не трогаем
 
 
+def test_the_encoder_is_not_allowed_to_bank_bits_for_a_burst() -> None:
+    """Сколько кодер вправе высыпать за секунду, видно прямо из аргументов.
+
+    Буфер VBV - это накопленный кредит: за любую секунду наружу уходит не больше
+    ``bufsize + maxrate``. Пока буфер был «две секунды цели», это давало почти ТРИ
+    потолка в одной секунде, и приёмник спотыкался о неё, хотя средний битрейт куска
+    честно стоял под потолком. Дешёвая половина проверки; дорогая, на настоящем
+    потоке - :func:`test_a_quiet_opening_does_not_let_the_encoder_burst`.
+    """
+    encode = Encode(preset="ultrafast", mbit=9.0)
+    args = encode.args(_grid(), 0, 1)
+    banked = float(args[args.index("-bufsize") + 1].rstrip("M"))
+    assert (banked + encode.maxrate) < 2 * encode.maxrate, "за секунду уедет больше двух потолков"
+
+
 # ------------------------------------------------------------------ выкладка и приоритет
 
 
@@ -454,6 +469,69 @@ def test_a_recoded_piece_lands_on_the_same_place_with_the_same_stamps(clip, tmp_
         assert abs(began - copied[number][0]) < 0.1, f"v{number}: метки разъехались"
         assert abs(ended - copied[number][1]) < 0.1, f"v{number}: длина разъехалась"
         assert keyed, f"v{number}: первый кадр не опорный - независимость сегмента враньё"
+
+
+@pytest.mark.ffmpeg
+def test_a_quiet_opening_does_not_let_the_encoder_burst(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """Настоящий ffmpeg: после тихого начала кусок не выстреливает секундой втрое выше.
+
+    Улика, ради которой это написано. Показ тяжёлого фильма С НАЧАЛА рвался
+    детерминированно, на 1.5-2.4 секунде, пятью прогонами из пяти, а тот же фильм с
+    середины шёл чисто. Первый кусок при этом был законен по обоим потолкам приёмника:
+    12.2 МБ при потолке 16 и 9.4 Мбит/с в среднем при потолке около десяти. Но фильм
+    открывается заставкой: полторы секунды почти чёрного кадра стоят 0.2 Мбит/с, кодер
+    их не тратит, а копит в буфере VBV - и в первый настоящий кадр высыпает накопленное.
+    Замер того самого куска: 25 Мбит за одну секунду ровно на 1.9-й, пиковый кадр
+    54 Мбит/с. Куски того же фильма из середины давали 10-17 Мбит за худшую секунду и
+    игрались без запинки.
+
+    Поэтому проверяется не средний битрейт (он и был честным), а ХУДШАЯ СЕКУНДА, и
+    источник нарочно устроен как начало фильма: тихий кадр, потом сразу тяжёлый.
+    """
+    source = tmp_path / "opening.mkv"
+    subprocess.run(
+        ["ffmpeg", "-hide_banner", "-loglevel", "error",
+         "-f", "lavfi", "-i", "color=c=black:s=640x360:r=25:d=2",
+         "-f", "lavfi", "-i", "testsrc2=s=640x360:r=25:d=10",
+         "-f", "lavfi", "-i", "sine=frequency=440:d=12",
+         "-filter_complex", "[0:v][1:v]concat=n=2:v=1:a=0[v]", "-map", "[v]", "-map", "2:a",
+         "-c:v", "libx264", "-preset", "ultrafast", "-qp", "16", "-c:a", "ac3", "-ac", "2",
+         "-t", "12", "-y", str(source)],
+        check=True, capture_output=True,
+    )  # fmt: skip
+    grid = Grid.uniform(12.0, 6.0)
+    encode = Encode(preset="ultrafast", mbit=1.5)
+    run = tmp_path / "run"
+    run.mkdir()
+    subprocess.run(
+        ffmpeg_pack_command(str(source), 0, str(run), grid, 0, 0.0,
+                            readrate=0.0, encode=encode, until=0),
+        check=True, capture_output=True, timeout=180,
+    )  # fmt: skip
+    piece = run / segment_name(0)
+    probe = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "packet=pts_time,size",
+         "-of", "csv=p=0", str(piece)],
+        capture_output=True, text=True, check=True,
+    )  # fmt: skip
+    packets = sorted(
+        (float(row[0]), int(row[1]))
+        for row in (line.split(",") for line in probe.stdout.splitlines())
+        if len(row) >= 2
+    )
+    # Худшая секунда - скользящим окном по ВСЕМУ, что уезжает на приёмник, звук вместе
+    # с видео: приёмник получает поток, а не одну дорожку.
+    worst = 0.0
+    for start, _ in packets:
+        window = sum(size for at, size in packets if start <= at < start + 1.0)
+        worst = max(worst, window * 8 / 1e6)
+    span = packets[-1][0] - packets[0][0]
+    average = piece.stat().st_size * 8 / 1e6 / span
+    assert average > encode.mbit * 0.8, f"источник не насытил цель ({average:.2f} Мбит/с)"
+    assert worst < 2 * encode.maxrate, (
+        f"худшая секунда {worst:.2f} Мбит при потолке {encode.maxrate:.2f} - "
+        "кодер скопил на тихом начале и высыпал разом"
+    )
 
 
 @pytest.mark.usefixtures("clip")
