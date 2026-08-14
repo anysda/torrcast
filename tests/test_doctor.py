@@ -10,6 +10,8 @@ from __future__ import annotations
 import subprocess
 from typing import TYPE_CHECKING, Any
 
+import requests
+
 from torrcast import doctor
 from torrcast.doctor import KEY_INDEXER
 from torrcast.state import Config
@@ -73,6 +75,57 @@ def test_live_probe_names_an_unrelated_answer(monkeypatch: pytest.MonkeyPatch) -
     text = "\n".join(line for line, _ in lines)
     assert "AniLibria ответил мимо контрольного запроса" in text
     assert any(not good for _, good in lines)
+
+
+def test_live_probes_do_not_overlap(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Проверка сама не должна перегружать общий путь индексеров параллельным залпом."""
+    workers: list[int] = []
+
+    class Pool:
+        def __init__(self, max_workers: int) -> None:
+            workers.append(max_workers)
+
+        def __enter__(self) -> Pool:
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+        def map(self, function: Any, pairs: list[tuple[int, str]]) -> list[str]:
+            return [function(pair) for pair in pairs]
+
+    monkeypatch.setattr(doctor, "ThreadPoolExecutor", Pool)
+    monkeypatch.setattr(doctor, "_probe_indexer", lambda config, indexer, name: "answered")
+    indexers = [
+        {"id": indexer, "name": f"Indexer {indexer}", "enable": True} for indexer in range(1, 4)
+    ]
+
+    lines = list(doctor._live_indexers(_config(), indexers))
+
+    assert all(good for _, good in lines)
+    assert workers == [1]
+
+
+def test_live_probe_allows_a_slow_indexer_to_answer(monkeypatch: pytest.MonkeyPatch) -> None:
+    """У живого поиска свой бюджет: общий короткий таймаут отрезал измеренный ответ."""
+    timeouts: list[float] = []
+
+    class Response:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> list[dict[str, str]]:
+            return [{"title": "The Matrix"}]
+
+    def get(*args: object, timeout: float, **kwargs: object) -> Response:
+        timeouts.append(timeout)
+        return Response()
+
+    monkeypatch.setattr(requests, "get", get)
+
+    assert doctor._probe_indexer(_config(), 1, "RuTor") == "answered"
+    assert timeouts == [doctor._INDEXER_TIMEOUT]
+    assert doctor._INDEXER_TIMEOUT > doctor._TIMEOUT
 
 
 def test_key_indexer_present(monkeypatch: pytest.MonkeyPatch) -> None:

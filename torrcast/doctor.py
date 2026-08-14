@@ -40,6 +40,9 @@ KEY_INDEXER = "Knaben"
 #: Ручка, которой Prowlarr запрещено ходить по IPv6 (TC-311). Её же ставит установка.
 IPV4_ONLY = "DOTNET_SYSTEM_NET_DISABLEIPV6=1"
 _TIMEOUT = 5.0
+#: Живой поиск иногда отвечает дольше обычных проверок: даже без параллельного залпа
+#: измеренный медленный ответ выходил за десять секунд.
+_INDEXER_TIMEOUT = 15.0
 #: Во сколько раз память службы раздачи больше кэша, который она держит В ПАМЯТИ. Замер:
 #: кэш лежит в куче Go, и рядом с каждым куском живёт его копия в работе плюс мусор,
 #: который сборщик забирает уже потом. Тот же множитель считает размер кэша в
@@ -206,7 +209,7 @@ def _indexer_status(indexers: object, statuses: object) -> Iterator[Line]:
 
 
 def _live_indexers(config: Config, payload: object) -> Iterator[Line]:
-    """По одному настоящему поиску на индексер, не больше трёх одновременно."""
+    """По одному настоящему поиску на индексер без одновременного залпа."""
     if not isinstance(payload, list):
         return
     pairs = [
@@ -217,7 +220,7 @@ def _live_indexers(config: Config, payload: object) -> Iterator[Line]:
         and str(entry.get("id", "")).isdigit()
         and isinstance(entry.get("name"), str)
     ]
-    with ThreadPoolExecutor(max_workers=3) as pool:
+    with ThreadPoolExecutor(max_workers=1) as pool:
         answers = list(pool.map(lambda pair: _probe_indexer(config, *pair), pairs))
     for (_, name), answer in zip(pairs, answers, strict=True):
         if answer == "answered":
@@ -243,7 +246,7 @@ def _probe_indexer(config: Config, indexer: int, name: str) -> str:
                 "indexerIds": str(indexer),
                 "limit": "1",
             },
-            timeout=_TIMEOUT,
+            timeout=_INDEXER_TIMEOUT,
         )
         response.raise_for_status()
         payload = response.json()
