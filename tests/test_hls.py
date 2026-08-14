@@ -632,7 +632,8 @@ def test_a_half_written_segment_never_leaves_the_run_directory(tmp_path: Path) -
 
     Сегментный муксер, в отличие от hls, не пишет через временный файл: файл появляется
     пустым и наполняется. Дописан тот, за которым муксер открыл следующий, — а последний
-    становится дописанным только когда ffmpeg сам дошёл до конца входа (код 0).
+    становится дописанным только когда прогон дочитал вход до конца
+    (:meth:`Packer.finished`).
     """
     out = hls_dir(str(tmp_path / "hls"))
     packer = fake_packer(out)
@@ -650,6 +651,61 @@ def test_a_half_written_segment_never_leaves_the_run_directory(tmp_path: Path) -
     packer.publish()
     assert sorted(p.name for p in out.glob("v*.ts")) == ["v0.ts", "v1.ts", "v2.ts"]
     assert not list(packer.run.glob("v*.ts")), "в каталоге прогона ничего не осталось"
+
+
+def _pack_to_the_end(source: str, out: Path, grid: Grid) -> Packer:
+    """Упаковать ``source`` с начала и дождаться конца прогона."""
+    run = out / PACK_DIR
+    command = ffmpeg_pack_command(source, 0, str(run), grid, 0, 0.0, readrate=0.0)
+    packer = Packer.start(command, out, run, 0, grid=grid)
+    deadline = time.monotonic() + 120
+    while packer.poll() is None and time.monotonic() < deadline:
+        packer.publish()
+        time.sleep(0.2)
+    packer.publish()
+    return packer
+
+
+def test_an_input_that_died_midway_does_not_hand_out_its_last_piece(
+    clip: str, tmp_path: Path
+) -> None:
+    """Вход кончился на середине, ffmpeg вышел нулём - недописанный кусок остаётся внутри.
+
+    🔴 Ноль от ffmpeg не значит «дочитал вход». Оборванный вход он отмечает строкой в
+    журнале и **выходит нулём**: здесь это оборванный на середине файл (12 прогонов из
+    12 - код 0), в живом показе - раздача, переставшая отдавать байты. Признак готовности
+    стоял ровно на этом нуле, поэтому недописанный кусок уезжал зрителю как готовый, и в
+    журнале это выглядело успешной упаковкой.
+
+    Проверяется настоящим прогоном ffmpeg и по его же списку нарезки: наружу не имеет
+    права выйти кусок короче обещанного манифестом, а тот, что дописан, выйти обязан.
+    Целый вход тем же прогоном отдаёт **все** куски, включая последний, - допуск не
+    должен съедать честный хвост фильма.
+    """
+    whole = Path(clip).read_bytes()
+    torn = tmp_path / "torn.mkv"
+    torn.write_bytes(whole[: len(whole) * 45 // 100])
+    grid = Grid.uniform(float(CLIP_SECONDS))
+
+    out = hls_dir(str(tmp_path / "torn-hls"))
+    packer = _pack_to_the_end(str(torn), out, grid)
+    assert packer.poll() == 0, "воспроизведения нет: оборванный вход дал ненулевой код"
+    ends = {slot: end for slot, _began, end in packer.cuts()}
+    short = [slot for slot, end in ends.items() if end < grid.end(slot) - SPLIT_SLACK]
+    assert short == [max(ends)], f"оборваться обязан ровно хвост прогона: {packer.cuts()}"
+
+    tail = max(ends)
+    assert not (out / segment_name(tail)).exists(), (
+        f"обрезок в {ends[tail] - grid.start(tail):.2f} с вместо {grid.span(tail):.2f} "
+        "уехал зрителю как готовый кусок"
+    )
+    assert (out / segment_name(tail - 1)).exists(), "дописанные куски выложить всё равно надо"
+    assert not packer.finished(), "прогон оборвался на середине входа, а не дочитал его"
+
+    full = hls_dir(str(tmp_path / "full-hls"))
+    honest = _pack_to_the_end(clip, full, grid)
+    assert honest.finished(), f"целый вход дочитан до конца: {honest.why()}"
+    assert (full / segment_name(grid.count - 1)).exists(), "хвост целого фильма обязан выйти"
 
 
 def test_a_run_in_is_thrown_away_and_never_overwrites_an_honest_segment(

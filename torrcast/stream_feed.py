@@ -38,6 +38,7 @@ if TYPE_CHECKING:
         MUTE_SECONDS,
         PACK_DIR,
         PACK_LIST,
+        PACK_SHORT_SECONDS,
         RECODE_DIR,
         SHRINK_DIR,
         SPLIT_SLACK,
@@ -145,6 +146,12 @@ class Packer:
     #: ``-readrate`` и ``-readrate_initial_burst`` этого прогона; ноль - читаем без темпа.
     rate: float = 0.0
     burst: float = 0.0
+    #: Сетка показа: по ней прогон паковали, по ней же сверяется, дописан ли последний
+    #: кусок (:meth:`finished`). ``None`` - сверять не с чем, и слово ffmpeg остаётся
+    #: единственным признаком.
+    grid: Grid | None = None
+    #: Ответ :meth:`finished`, посчитанный один раз; ``None`` - ещё не считали.
+    whole: bool | None = None
     #: Кого спросить «этот кусок сейчас перекодируют, подожди»: ``(слот, вес копии) -> bool``.
     #:
     #: Нужно ровно против одной гонки, найденной живым прогоном: упаковщик на
@@ -187,6 +194,7 @@ class Packer:
         at: float = 0.0,
         rate: float = 0.0,
         burst: float = 0.0,
+        grid: Grid | None = None,
     ) -> Packer:
         log = tempfile.TemporaryFile()  # noqa: SIM115 - живёт всё воспроизведение
         shutil.rmtree(run, ignore_errors=True)
@@ -211,6 +219,7 @@ class Packer:
             at=at,
             rate=rate,
             burst=burst,
+            grid=grid,
         )
 
     def eta(self, film: float) -> float:
@@ -235,6 +244,56 @@ class Packer:
         reach = self.at + self.burst + (time.monotonic() - self.began) * self.rate
         return max(0.0, (film - reach) / self.rate)
 
+    def finished(self) -> bool:
+        """Прогон дочитал вход до конца - а не просто вышел из процесса.
+
+        🔴 Ноль от ffmpeg этого не доказывает. Вход, умерший на середине, ffmpeg
+        отмечает строкой ``Error during demuxing: Input/output error`` - и **выходит
+        нулём**. Замер: 108 обрывов на 108 местах файла, ноль вышел 4 раза, и трижды
+        последний кусок оказался дописан не до конца. На одном и том же месте исход не
+        повторяется - это гонка между концом чтения и концом записи, поэтому редкость
+        тут ничего не значит: по одному коду возврата обрезок (замер: от нуля до 9.4 с
+        вместо обещанных 10) уезжает зрителю как готовый кусок, тихо и без единой жалобы
+        в журнале. А оборванный файл - вход не рвётся, а кончается - даёт ноль всегда:
+        12 прогонов из 12.
+
+        Поэтому спрашивается не код, а обещание сетки. Где кончился последний кусок,
+        говорит сам ffmpeg в своём списке нарезки (:meth:`cuts`); где он обязан был
+        кончиться - :meth:`Grid.end`. Недобор больше :data:`PACK_SHORT_SECONDS` - прогон
+        оборвался, каким бы кодом он ни вышел.
+
+        Куски за пределом захода (:attr:`last`) в счёт не идут: заход кодировщика
+        ограничен ``-to`` с запасом в секунду, и огрызок за этим пределом короче своего
+        места по замыслу, а не по аварии.
+
+        Считается один раз на прогон: у мёртвого процесса ни файлы, ни список уже не
+        меняются, а спрашивают отсюда и выкладка, и горячий путь показа.
+        """
+        if self.whole is None:
+            if self.proc.poll() != 0:
+                return False
+            self.whole = self._reached()
+        return self.whole
+
+    def _reached(self) -> bool:
+        grid = self.grid
+        if grid is None:
+            return True
+        mine = [
+            slot
+            for slot in map(segment_slot, _names(self.run))
+            if slot >= 0 and (self.last < 0 or slot <= self.last)
+        ]
+        if not mine:
+            return True  # прогон не написал ни одного своего куска - обрываться нечему
+        tail = max(mine)
+        ends = {slot: end for slot, _began, end in self.cuts()}
+        if tail not in ends:
+            # Кусок закрыт, а строки о нём нет: список ведёт тот же ffmpeg и пишет её
+            # ровно на закрытии (``-segment_list_flags +live``). Верить тут нечему.
+            return False
+        return ends[tail] >= grid.end(tail) - PACK_SHORT_SECONDS
+
     def publish(self) -> None:
         """Выложить готовое одним заходом, не удерживая конкурирующий горячий путь."""
         if not self.publish_lock.acquire(blocking=False):
@@ -248,16 +307,17 @@ class Packer:
         """Выложить наружу куски, которые ffmpeg уже дописал.
 
         Дописан тот, за которым появился следующий: сегментный муксер открывает новый
-        файл ровно тогда, когда закрыл прошлый. Мёртвый ffmpeg дописал всё, что успел.
+        файл ровно тогда, когда закрыл прошлый. Последний кусок такого соседа не получит
+        никогда, поэтому за него отвечает отдельный признак (:meth:`finished`).
         Докатка (номер меньше ``first``) не выкладывается никогда — она короче своего
         места в манифесте и под её именем может лежать честный сегмент прошлого прогона.
         """
         slots = sorted(s for s in map(segment_slot, _names(self.run)) if s >= 0)
         if not slots:
             return
-        # Код 0 - ffmpeg дошёл до конца входа сам, дописан и последний кусок. Любой
-        # другой исход (жив, убит, оборвался) последний кусок дописанным не делает.
-        done = slots if self.proc.poll() == 0 else slots[:-1]
+        # Прогон дочитал вход до конца - дописан и последний кусок (:meth:`finished`).
+        # Любой другой исход (жив, убит, оборвался) последний кусок дописанным не делает.
+        done = slots if self.finished() else slots[:-1]
         for slot in done:
             path = self.run / segment_name(slot)
             # Ниже своего первого - докатка, выше последнего - обрезок за ``-to``
@@ -835,7 +895,7 @@ class Feed:
                 # перезапуск на каждом четвёртом сегменте.
                 return True
             code, edge = packer.poll(), packer.edge
-            if code == 0 and slot > edge:
+            if packer.finished() and slot > edge:
                 return False  # упаковка честно дошла до конца входа - файла не будет
             if code is None and edge < slot <= edge + self.ahead:
                 # ⚠️ «Вот-вот» - это про ВРЕМЯ, а не про номер сегмента, и разница стоила
@@ -856,7 +916,10 @@ class Feed:
             # Всё остальное при живой упаковке - перемотка. Вперёд (дальше `ahead` за
             # краем) и назад (ниже края, а файла нет - значит выметен окном или паковал
             # его не этот прогон) лечатся одинаково: перепаковкой с этого места.
-            if code not in (None, 0) and not self._survive(packer):
+            # Оборвался - это и «умер с кодом», и «вышел нулём на недописанном куске»
+            # (:meth:`Packer.finished`): второе выглядит концом фильма, а на деле обрыв
+            # входа, и лечится он тем же перезапуском с нужного места.
+            if code is not None and not packer.finished() and not self._survive(packer):
                 return False
         # Пока источник не читается, толкаться незачем: подъём ffmpeg на мёртвую сеть
         # стоит секунды и не даёт ничего, а показ в это время идёт с диска.
@@ -972,6 +1035,7 @@ class Feed:
             at=at,
             rate=self.readrate,
             burst=self.burst,
+            grid=self.grid,
         )
         drop = self.grid.start(slot) - at
         self._say(
@@ -1051,7 +1115,7 @@ class Feed:
             )
             packer: Packer | None = None
             try:
-                packer = Packer.start(command, recoder.spare, run, slot, last=slot)
+                packer = Packer.start(command, recoder.spare, run, slot, last=slot, grid=self.grid)
                 deadline = time.monotonic() + recoder.over_wait
                 while packer.edge < slot and packer.poll() is None and time.monotonic() < deadline:
                     packer.publish()

@@ -643,7 +643,7 @@ class _LayingPacker:
 
     @classmethod
     def start(
-        cls, command: list[str], out: Path, run: Path, first: int, last: int = -1
+        cls, command: list[str], out: Path, run: Path, first: int, last: int = -1, **rest: Any
     ) -> _LayingPacker:
         return cls(out, first, last)
 

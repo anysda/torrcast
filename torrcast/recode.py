@@ -1348,7 +1348,7 @@ class Recoder:
             # вместо десяти) лёг бы в каталог перекода как готовый кусок и уехал бы на ТВ
             # вместо честной копии (:attr:`torrcast.stream.Packer.last`).
             self.packer = packer = Packer.start(
-                command, self.spare, self.spare / "run", first, last=last
+                command, self.spare, self.spare / "run", first, last=last, grid=self.grid
             )
             self.job = (first, last, began + seconds / speed * 2.0 + 10.0, began, speed)
         try:

@@ -767,7 +767,7 @@ class Warmer:
         )
         with self.lock:
             self.packer = packer = Packer.start(
-                command, self.vault.dir, self.vault.dir / RUN_DIR, first, last=last
+                command, self.vault.dir, self.vault.dir / RUN_DIR, first, last=last, grid=self.grid
             )
         self.misgrid = -1
         laid = first - 1

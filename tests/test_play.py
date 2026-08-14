@@ -1424,7 +1424,8 @@ def test_a_finished_packer_is_not_a_crash_but_a_serial_one_gives_up(
     feed.packer.proc.code = 0  # type: ignore[attr-defined]
     assert feed.segment(70) is None and feed.trouble() == "", "дошли до конца фильма"
 
-    feed.packer.proc.code = -9  # type: ignore[attr-defined]
+    # Оборвался - это уже другой прогон: из кода 0 в убитый один и тот же процесс не ходит.
+    feed.packer = fake_packer(feed.out, first=0, code=-9)
     monkeypatch.setattr(Feed, "restart", again)
     for _ in range(feed.limit):
         feed.restarted = 0.0  # прогоны идут не подряд: защита «не толкаемся» тут не при чём
