@@ -1146,6 +1146,50 @@ def test_the_receivers_detailed_error_survives_pychromecast_parsing() -> None:
     assert receiver._error_code is None, "отказ без кода не наследует прошлую причину"
 
 
+def test_the_receivers_detailed_error_is_taken_from_a_refused_load_too() -> None:
+    """Код отказа снимается и со второго ответа приёмника - отказа самой загрузки."""
+    from torrcast.cast import ChromecastReceiver
+
+    seen: list[dict[str, Any]] = []
+
+    class _Controller:
+        def _process_media_status(self, data: dict[str, Any]) -> None:
+            seen.append(data)
+
+        def _process_load_failed(self, data: dict[str, Any]) -> None:
+            seen.append(data)
+
+    receiver = ChromecastReceiver("10.0.0.50")
+    controller = _Controller()
+    receiver._catch_media_error(controller)
+
+    controller._process_load_failed({"type": "LOAD_FAILED", "detailedErrorCode": 905})
+
+    assert receiver._error_code == 905, "код отказа загрузки не потерян"
+    assert len(seen) == 1, "обычный разбор отказа продолжился"
+
+    controller._process_load_failed({"type": "LOAD_FAILED"})
+    assert receiver._error_code == 905, "отказ без кода не стирает уже названную причину"
+
+
+def test_a_receiver_without_load_failure_parsing_still_gets_its_error_hook() -> None:
+    """Приёмник, у которого разбора отказа загрузки нет, снимается прежним путём."""
+    from torrcast.cast import ChromecastReceiver
+
+    class _Controller:
+        def _process_media_status(self, data: dict[str, Any]) -> None:
+            return None
+
+    receiver = ChromecastReceiver("10.0.0.50")
+    controller = _Controller()
+    receiver._catch_media_error(controller)
+
+    controller._process_media_status(
+        {"status": [{"playerState": "IDLE", "idleReason": "ERROR", "detailedErrorCode": 301}]}
+    )
+    assert receiver._error_code == 301, "код сетевого отказа снят и без второго канала"
+
+
 class _Source:
     """Источник под показом на заглушке: моргает, а заглушка видит только картинку.
 

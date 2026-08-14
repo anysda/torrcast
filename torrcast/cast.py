@@ -327,9 +327,11 @@ class ChromecastReceiver:
         #: Сторож сдался: лестница нуджей не показала ни кадра, и показ считается
         #: погасшим - дальше его поднимает воскрешение (:class:`torrcast.cli._Revival`).
         self._gone = False
-        #: Последняя подробная причина отказа из сырого ``MEDIA_STATUS``. pychromecast
+        #: Последняя подробная причина отказа из сырого ответа приёмника. pychromecast
         #: это поле не переносит в :class:`MediaStatus`, поэтому снимаем его до разбора
-        #: ответа (:meth:`_catch_media_error`). ``None`` означает именно ответ без кода.
+        #: ответа (:meth:`_catch_media_error`). ``None`` - за этот LOAD кода не называли:
+        #: каждый новый LOAD начинает с чистого (:meth:`_load`), чтобы причина не
+        #: переезжала с одной загрузки на следующую.
         self._error_code: int | None = None
         #: Где кончается сегмент, накрывающий эту секунду фильма
         #: (:meth:`torrcast.stream.Grid.after`); ``None`` - сетки не назвали.
@@ -843,7 +845,20 @@ class ChromecastReceiver:
         return f"{why}, код {self._error_code}" if self._error_code is not None else why
 
     def _catch_media_error(self, controller: Any) -> None:
-        """Сохранить ``detailedErrorCode``, который pychromecast обычно выбрасывает."""
+        """Сохранить ``detailedErrorCode``, который pychromecast обычно выбрасывает.
+
+        Приёмник называет код ДВУМЯ разными ответами, и оба обязаны быть сняты:
+        ``MEDIA_STATUS`` с мёртвой сессией - это показ, умерший на ходу, а
+        ``LOAD_FAILED`` - отказ на самой загрузке, то есть отказ повтора после смерти.
+        Снимать только первый мало: у показа, который умер и не поднялся, вся причина
+        уходит именно во второй ответ, и в журнале остаётся «без кода» при названном коде.
+
+        ⚠️ Ответ без кода два канала обрабатывают ПО-РАЗНОМУ, и это намеренно. Мёртвая
+        сессия без кода причину сбрасывает: это новый отказ, и приписывать ему прошлый код
+        нельзя. Отказ загрузки без кода не сбрасывает ничего: приёмник называет им тот же
+        отказ вторым ответом, и снятый код терять не на чем. Общий ноль ставит только
+        новый LOAD (:meth:`_load`).
+        """
         original = controller._process_media_status
 
         def process(data: dict[str, Any]) -> None:
@@ -856,6 +871,19 @@ class ChromecastReceiver:
             original(data)
 
         controller._process_media_status = process
+        rejected = getattr(controller, "_process_load_failed", None)
+        if rejected is None:  # разбора отказа загрузки в этой версии нет - снимать нечего
+            return
+
+        def failed(data: dict[str, Any]) -> None:
+            code = data.get("detailedErrorCode")
+            # Отказ без кода прежнюю причину не стирает: это тот же отказ, названный
+            # вторым ответом, и терять уже снятый код на нём нельзя.
+            if isinstance(code, int):
+                self._error_code = code
+            rejected(data)
+
+        controller._process_load_failed = failed
 
     def _device(self) -> Any:
         if self._cast is None:
