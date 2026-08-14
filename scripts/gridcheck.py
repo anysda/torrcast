@@ -56,7 +56,7 @@ def pack(url: str, grid: Grid, slot: int, upto: int, audio: int) -> tuple[Path, 
     began = time.monotonic()
     at = pack_start(url, grid.start(slot))
     command = ffmpeg_pack_command(url, audio, str(out / "pack"), grid, slot, at, readrate=0.0)
-    packer = Packer.start(command, out, out / "pack", slot)
+    packer = Packer.start(command, out, out / "pack", slot, grid=grid)
     while packer.frontier() < upto and packer.poll() is None:
         time.sleep(0.5)
     packer.stop(keep_files=True)

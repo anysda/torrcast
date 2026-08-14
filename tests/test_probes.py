@@ -51,6 +51,27 @@ def probe(name: str) -> ModuleType:
     return module
 
 
+def test_упаковщики_щупов_сверяют_хвост_с_сеткой() -> None:
+    """Щуп не вправе принимать код возврата ffmpeg за готовность куска."""
+    for name in ("gridcheck", "recodebench"):
+        tree = ast.parse((SCRIPTS / f"{name}.py").read_text(encoding="utf-8"))
+        starts = [
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == "Packer"
+            and node.func.attr == "start"
+        ]
+        assert starts, f"{name}: не найден ни один запуск упаковщика"
+        for call in starts:
+            grids = [word.value for word in call.keywords if word.arg == "grid"]
+            assert len(grids) == 1 and isinstance(grids[0], ast.Name) and grids[0].id == "grid", (
+                f"{name}:{call.lineno}: упаковщик не получил сетку щупа"
+            )
+
+
 def rows_of(*verdicts: str) -> list[dict[str, Any]]:
     return [{"query": f"q{i}", "verdict": v, "kind": "movie"} for i, v in enumerate(verdicts)]
 

@@ -209,7 +209,7 @@ def price(
     print(f"\nпакуем v{slot}..v{until} тем же ffmpeg, что и показ:\n  {' '.join(command)}\n")
     was_cpu = _cpu_seconds()
     began = time.monotonic()
-    packer = Packer.start(command, out, run, slot, last=until)
+    packer = Packer.start(command, out, run, slot, last=until, grid=grid)
     # Ждём, пока ffmpeg выйдет САМ: заход ограничен ``-to``, и код возврата тут - его
     # собственный. Сними мы прогон по достижении края (``edge``), в отчёте стоял бы наш
     # же SIGTERM, то есть замер расписывался бы в успехе, которого не проверял.
@@ -301,7 +301,7 @@ def calibrate(
     print(
         f"\nпакуем КОПИЕЙ v{slot}..v{until} (заход встанет на {at:.3f} с):\n  {' '.join(command)}"
     )
-    packer = Packer.start(command, out, run, slot, last=until, at=at)
+    packer = Packer.start(command, out, run, slot, last=until, at=at, grid=grid)
     began = time.monotonic()
     while packer.poll() is None and time.monotonic() - began < 1800:
         time.sleep(0.5)
@@ -430,7 +430,7 @@ def dump(url: str, step: float, slot: int, count: int, where: Path) -> None:
 
     at = pack_start(url, grid.start(slot))
     command = ffmpeg_pack_command(url, 0, str(where / "run"), grid, slot, at, readrate=0.0)
-    packer = Packer.start(command, where, where / "run", slot)
+    packer = Packer.start(command, where, where / "run", slot, grid=grid)
     began = time.monotonic()
     while time.monotonic() - began < 900:
         packer.publish()
