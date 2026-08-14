@@ -13,6 +13,10 @@
 
     python scripts/warmbudget.py --keys /var/lib/torrcast/keys --probe /var/lib/torrcast/probe
 
+Мерки приёмника (шаг сетки, порог перекода, потолок веса куска и во сколько ужимаем)
+берутся из его профиля - тем же выбором, что и у показа; ``--profile`` называет профиль
+руками, а каждый из ключей ниже перебивает своё число поимённо.
+
 Инструмент разработчика: в устанавливаемый пакет не входит.
 """
 
@@ -26,10 +30,14 @@ from dataclasses import dataclass
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from probeprofile import add_argument as add_profile_argument
+from probeprofile import choose as choose_profile
+
+from torrcast.state import load_config
 from torrcast.stream import (
     AUDIO_MBIT,
-    MAX_SEGMENT_BYTES,
     TS_OVERHEAD,
     Grid,
     _extra_mbit,
@@ -67,17 +75,26 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--keys", required=True, help="каталог снятых карт опорных кадров")
     ap.add_argument("--probe", required=True, help="каталог паспортов ffprobe")
-    ap.add_argument("--step", type=float, default=10.0, help="шаг сетки, секунды")
-    ap.add_argument("--ceiling", type=float, default=9.0, help="потолок перекодирования, Мбит/с")
+    ap.add_argument("--step", type=float, help="шаг сетки, секунды")
+    ap.add_argument("--ceiling", type=float, help="потолок перекодирования, Мбит/с")
     ap.add_argument(
         "--recode-at",
         type=float,
-        default=10.0,
         help="битрейт приёмника, выше которого кусок перекодируется, Мбит/с",
     )
-    ap.add_argument("--cap", type=int, default=MAX_SEGMENT_BYTES, help="потолок куска, байты")
+    ap.add_argument("--cap", type=int, help="потолок куска, байты")
     ap.add_argument("--budget", type=float, default=WARM_BUDGET / 1e9, help="бюджет прогрева, ГБ")
+    add_profile_argument(ap)
     args = ap.parse_args()
+
+    # Все четыре мерки - про ПРИЁМНИК, и берутся они его профилем, а не константой: у
+    # смелого приёмника порог перекода втрое выше, и щуп с зашитой десяткой мерил бы
+    # чужой вечер. Названное ключом сильнее профиля - как ``--profile`` сильнее паспорта.
+    config, choice = choose_profile(load_config(), args.profile)
+    step = args.step if args.step is not None else config.hls_segment
+    ceiling = args.ceiling if args.ceiling is not None else config.recode_mbit
+    recode_at = args.recode_at if args.recode_at is not None else config.recode_at_mbit
+    cap = args.cap if args.cap is not None else choice.profile.max_segment_bytes
 
     rows: list[_Row] = []
     for path in sorted(Path(args.keys).glob("*.json")):
@@ -98,17 +115,17 @@ def main() -> int:
         grid = Grid.on_keyframes(
             keys.at,
             duration,
-            args.step,
+            step,
             sizes=keys.offset,
             extra_mbit=extra,
-            ceiling_mbit=args.ceiling,
-            cap=args.cap,
+            ceiling_mbit=ceiling,
+            cap=cap,
         )
         # Два веса на один и тот же кусок. Копия - то, что прогрев кладёт на диск сразу
         # и чем занимает бюджет всё время показа; перекод - то, во что тяжёлые места
         # приводятся поздним заходом (:meth:`torrcast.warm.Warmer._spots_left`).
         copy = _weigher(keys.at, keys.offset, extra, 0.0)
-        weigh = _weigher(keys.at, keys.offset, extra, args.ceiling)
+        weigh = _weigher(keys.at, keys.offset, extra, ceiling)
         sizes = [copy(grid.start(k), grid.end(k)) for k in range(grid.count)]
         spans = [max(0.0, grid.end(k) - grid.start(k)) for k in range(grid.count)]
         # Битрейт куска - тот же, которым меряет отбор тяжёлых мест: байты копии на длину.
@@ -118,7 +135,7 @@ def main() -> int:
         # битрейт у смелого приёмника втрое выше, а потолок веса у обоих один и тот же,
         # поэтому увесистые куски перекодируются даже там, где по битрейту никто не тяжёл.
         # Кусок, который заход не берёт, остаётся копией навсегда - его вес и есть ответ.
-        taken = [mbits[k] >= args.recode_at or sizes[k] > args.cap for k in range(grid.count)]
+        taken = [mbits[k] >= recode_at or sizes[k] > cap for k in range(grid.count)]
         thin = [
             weigh(grid.start(k), grid.end(k)) if taken[k] else sizes[k] for k in range(grid.count)
         ]
@@ -137,8 +154,8 @@ def main() -> int:
                 real=sum(sizes),
                 thin=sum(thin),
                 ask=warmer._forecast(0, grid.count - 1),
-                heavy=sum(1 for s in sizes if s > args.cap),
-                over=sum(1 for m in mbits if m >= args.recode_at),
+                heavy=sum(1 for s in sizes if s > cap),
+                over=sum(1 for m in mbits if m >= recode_at),
                 touched=sum(1 for t in taken if t),
             )
         )
@@ -149,8 +166,8 @@ def main() -> int:
     budget = args.budget * 1e9
     print(
         f"файлов с картой и паспортом: {len(rows)}; бюджет {args.budget:g} ГБ; "
-        f"приёмник: перекод выше {args.recode_at:g} Мбит/с, потолок куска "
-        f"{args.cap / 1e6:g} МБ, ужимаем до {args.ceiling:g} Мбит/с"
+        f"приёмник: перекод выше {recode_at:g} Мбит/с, потолок куска "
+        f"{cap / 1e6:g} МБ, ужимаем до {ceiling:g} Мбит/с"
     )
     print(
         "высота  часы  Мбит/с  кусков  копией_ГБ  после_ГБ  запрос_ГБ  "
@@ -190,10 +207,13 @@ def main() -> int:
             f"кусков выше битрейта приёмника: {min(over):.0f}-{max(over):.0f} %, "
             f"медиана {statistics.median(over):.0f} %"
         )
-        taken = [r.touched * 100 / r.pieces for r in films]
+        # Имя своё, не ``taken``: там выше - флаги по кускам одного фильма, тут проценты
+        # по фильмам. Пока пороги приходили из ``argparse``, обе строки были нетипизованы,
+        # и подмена смысла под одним именем не читалась ни глазом, ни проверкой типов.
+        touched = [r.touched * 100 / r.pieces for r in films]
         print(
-            f"кусков берёт поздний заход: {min(taken):.0f}-{max(taken):.0f} %, "
-            f"медиана {statistics.median(taken):.0f} %"
+            f"кусков берёт поздний заход: {min(touched):.0f}-{max(touched):.0f} %, "
+            f"медиана {statistics.median(touched):.0f} %"
         )
         # Место возвращается ровно на разнице «копия минус то, что осталось после захода».
         # Заход не трогал ни одного куска - разница ноль, и место не вернётся никогда.
