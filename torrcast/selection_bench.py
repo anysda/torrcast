@@ -442,13 +442,21 @@ class _Bench:
         if mute is not None:
             return self._mute_fallback(plan, mute, queue, judged, reached, len(tried))
         if verdicts == 0 and exhausted and tried:
+            judged_before_recheck = set(judged)
             revived = self._recheck(plan, queue, args, progress, judged, deadline)
             if revived is not None:
                 return revived
             # Повторный полный спрос может не промолчать, а вынести приговор: например,
             # метаданные приехали, но нужной серии в раздаче нет. Тогда итог обязан
             # говорить о приговоре, а не обещать, что молчавший рой позже оживёт.
-            retried = next((number for number in queue if number in judged), None)
+            retried = next(
+                (
+                    number
+                    for number in queue
+                    if number in judged and number not in judged_before_recheck
+                ),
+                None,
+            )
             if retried is not None:
                 tried = [
                     f"{retried} - {judged[retried]}" if row.startswith(f"{retried} - ") else row
@@ -479,10 +487,16 @@ class _Bench:
             raise NotFoundError(
                 silent_swarm(plan, queue, len(tried), f"{shown}{more}", picked=args.release) + tail
             )
+        refused = f"годного релиза нет ({shown}{more})"
+        if exhausted and len(set(queue)) == len(plan.ranked):
+            if offer:
+                raise NotFoundError(refused + tail)
+            raise NotFoundError(
+                refused + ": назови картину иначе - другой запрос соберёт другую выдачу"
+            )
         move = "выбери другой релиз" if args.release is not None else "выбери руками"
         raise NotFoundError(
-            f"годного релиза нет ({shown}{more}): {move} - "
-            "cast releases <запрос>, потом cast <запрос> --release N" + tail
+            f"{refused}: {move} - cast releases <запрос>, потом cast <запрос> --release N" + tail
         )
 
     def _recheck(

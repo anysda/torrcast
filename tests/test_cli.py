@@ -993,6 +993,22 @@ def test_a_patient_ask_that_gets_a_verdict_does_not_report_silent_swarm(
     assert "рой" not in msg and "зайди позже" not in msg
 
 
+def test_an_exhausted_queue_does_not_offer_a_release_that_was_already_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Все номера проверены и отвергнуты - ручной выбор не является ходом."""
+    ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(2)]
+    _probes(monkeypatch, ranked, "av1", "av1")
+
+    with pytest.raises(NotFoundError) as caught:
+        _resolve(cli._Bench(cast(Any, _FakeTorrServer())), ranked, recode_at=0.0)
+
+    msg = str(caught.value)
+    assert "годного релиза нет" in msg and "av1" in msg
+    assert "выбери руками" not in msg and "--release" not in msg
+    assert "назови картину иначе" in msg
+
+
 def test_the_patient_ask_is_not_made_when_the_phase_budget_cannot_cover_it(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -1050,6 +1066,35 @@ def test_the_patient_ask_goes_to_the_release_the_swarm_silenced_not_to_a_judged_
     assert prep.number == 2, "терпеливо спросили того, кого оборвал рой"
     assert "спрашиваю релиз 2 ещё раз" in printed
     assert "спрашиваю релиз 1" not in printed, "про верх известно всё - терпеть тут нечего"
+
+
+def test_a_patient_verdict_rewrites_the_reason_of_the_release_that_was_reasked(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Повторный спрос исправляет строку именно того релиза, которому он достался."""
+    ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(2)]
+    _probes(monkeypatch, ranked, "h264", "av1")
+    monkeypatch.setattr(Release, "magnet", property(lambda self: f"magnet-{self.raw_name}"))
+
+    class _Mixed(_Impatient):
+        def wait_files(
+            self, torrent_hash: str, timeout: float = 60.0, grace: float = 0.0
+        ) -> list[TorrFile]:
+            if torrent_hash == "hash-magnet-r0":
+                return self.files
+            return super().wait_files(torrent_hash, timeout, grace)
+
+    def choose(plan: Any, release: Release, files: list[TorrFile]) -> TorrFile:
+        if release.raw_name == "r0":
+            raise NotFoundError("серии s1e1 в этой раздаче нет")
+        return files[0]
+
+    with pytest.raises(NotFoundError) as caught:
+        _resolve(cli._Bench(cast(Any, _Mixed()), choose=choose), ranked, recode_at=0.0)
+
+    msg = str(caught.value)
+    assert "1 - серии s1e1 в этой раздаче нет" in msg
+    assert "2 - av1" in msg, msg
 
 
 @pytest.mark.parametrize(

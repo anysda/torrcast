@@ -1745,6 +1745,34 @@ def test_the_map_matches_despite_case_and_punctuation(monkeypatch: Any, tmp_path
     assert found.title == "American Factory"
 
 
+def test_the_map_repairs_latin_homoglyphs_inside_a_russian_name(
+    monkeypatch: Any, tmp_path: Any
+) -> None:
+    """Латинские ``B`` и ``y`` из выгрузки не делают русское прокатное имя мёртвым."""
+    _ru_map(
+        monkeypatch,
+        tmp_path,
+        rows="B двyх шагах от славы\ttt9351980\tmovie\tTwenty Feet from Stardom\t2013\n",
+    )
+
+    found = facts_mod._imdb_ru("В двух шагах от славы", False)
+
+    assert found.title == "Twenty Feet from Stardom"
+    assert found.name == "В двух шагах от славы"
+
+
+def test_the_map_keeps_intentional_mixed_script_names(monkeypatch: Any, tmp_path: Any) -> None:
+    """Брендовая игра алфавитами - не опечатка, если буквы не одни омоглифы."""
+    _ru_map(
+        monkeypatch,
+        tmp_path,
+        rows="SuperПерцы\ttt0829482\tmovie\tSuperbad\t2007\n",
+    )
+
+    assert facts_mod._imdb_ru("SuperПерцы", False).title == "Superbad"
+    assert not facts_mod._imdb_ru("Суперперцы", False)
+
+
 def test_the_map_honors_the_spelled_out_type(monkeypatch: Any, tmp_path: Any) -> None:
     """Фильм и сериал под одним русским именем разводятся подсказанным типом."""
     _ru_map(monkeypatch, tmp_path)

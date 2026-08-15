@@ -1138,6 +1138,36 @@ _RU_LOCK: Final = threading.Lock()
 #: когда на одно русское имя претендуют несколько картин. ``None`` - ещё не читали.
 _VOTES: dict[str, int] | None = None
 
+#: Латинские буквы, которыми выгрузка изредка подменяет похожие кириллические внутри
+#: русского слова. Применяем только когда ВСЕ латинские буквы фрагмента входят в карту:
+#: так ``B двyх`` чинится, а намеренные ``SuperПерцы``, ``COVID'а`` и римские цифры нет.
+_RU_HOMOGLYPHS: Final = str.maketrans(
+    "ABCEHKMOPTXYaceopxy",
+    "АВСЕНКМОРТХУасеорху",
+)
+
+
+def _repair_ru_name(name: str) -> str:
+    """Исправить латинские омоглифы внутри русского непробельного фрагмента."""
+
+    russian_name = bool(_CYRILLIC.search(name))
+
+    def repair(match: re.Match[str]) -> str:
+        word = match.group()
+        latin = [char for char in word if "A" <= char <= "Z" or "a" <= char <= "z"]
+        mixed = bool(_CYRILLIC.search(word))
+        # В выгрузке латинская B встречается и отдельным русским предлогом «В».
+        if (
+            latin
+            and russian_name
+            and (mixed or word == "B")
+            and all(ord(char) in _RU_HOMOGLYPHS for char in latin)
+        ):
+            return word.translate(_RU_HOMOGLYPHS)
+        return word
+
+    return re.sub(r"\S+", repair, name)
+
 
 def _read_ru_names(path: Path) -> dict[str, list[_RuName]]:
     """Файл карты → словарь по нормализованному имени; нет файла - пусто, и это не сбой."""
@@ -1149,6 +1179,7 @@ def _read_ru_names(path: Path) -> dict[str, list[_RuName]]:
                 name, tconst, kind, original, year = [*fields, "", "", "", "", ""][:5]
                 if not name or not tconst:
                     continue
+                name = _repair_ru_name(name)
                 candidates = out.setdefault(slugify(name), [])
                 if all(tconst != known[0] for known in candidates):
                     candidates.append((tconst, kind, original, year, name))
