@@ -753,6 +753,28 @@ def _packer_with_a_heavy_copy(out: Path) -> Packer:
     return packer
 
 
+def test_publish_uses_the_receivers_segment_cap(tmp_path: Path) -> None:
+    """Последний гейт мерит итоговый файл потолком именно этого приёмника."""
+    size = 14_000_000
+
+    tight_out = hls_dir(str(tmp_path / "tight"))
+    tight = fake_packer(tight_out, first=0, code=0)
+    tight.cap = 12_000_000
+    tight.run.mkdir(parents=True)
+    (tight.run / segment_name(0)).write_bytes(b"x" * size)
+    tight.publish()
+
+    roomy_out = hls_dir(str(tmp_path / "roomy"))
+    roomy = fake_packer(roomy_out, first=0, code=0)
+    roomy.cap = 16_000_000
+    roomy.run.mkdir(parents=True)
+    (roomy.run / segment_name(0)).write_bytes(b"x" * size)
+    roomy.publish()
+
+    assert not (tight_out / segment_name(0)).exists(), "14 МБ не влезают в потолок 12 МБ"
+    assert (roomy_out / segment_name(0)).stat().st_size == size, "в потолок 16 МБ они входят"
+
+
 @pytest.mark.machine
 def test_two_publishers_never_decide_the_same_piece_at_once(tmp_path: Path) -> None:
     """Запрос приёмника и подметание могут одновременно позвать выкладку.

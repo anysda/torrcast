@@ -33,7 +33,6 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from torrcast.stream_core import (
-        MAX_SEGMENT_BYTES,
         MIXED_PREFIX,
         MUTE_SECONDS,
         PACK_DIR,
@@ -173,6 +172,9 @@ class Packer:
     #: несданного; потолок гасил прогон, запрос приёмника поднимал его заново - и круг
     #: повторялся, потому что тяжёлый кусок детерминирован.
     shrink: Any = None
+    #: Потолок веса куска этого приёмника. Последний гейт обязан мерить ровно им:
+    #: здесь уже известен вес файла после склейки, которого не видел каталог перекода.
+    cap: int = CAUTIOUS.max_segment_bytes
 
     def __post_init__(self) -> None:
         # Прогон, который ещё ничего не выложил, стоит ровно перед своим первым сегментом:
@@ -195,6 +197,7 @@ class Packer:
         rate: float = 0.0,
         burst: float = 0.0,
         grid: Grid | None = None,
+        cap: int = CAUTIOUS.max_segment_bytes,
     ) -> Packer:
         log = tempfile.TemporaryFile()  # noqa: SIM115 - живёт всё воспроизведение
         shutil.rmtree(run, ignore_errors=True)
@@ -220,6 +223,7 @@ class Packer:
             rate=rate,
             burst=burst,
             grid=grid,
+            cap=cap,
         )
 
     def eta(self, film: float) -> float:
@@ -351,7 +355,7 @@ class Packer:
                 shift = timeline_shift(path, better)
                 if merge_tracks(better, path, mixed, shift=shift or 0.0):
                     source, how = mixed, "склейка"
-                elif shift and size and size <= MAX_SEGMENT_BYTES:
+                elif shift and size and size <= self.cap:
                     # Лента прогона сдвинута, а склейки нет: перекод как есть - это
                     # гарантированный разрыв на кадр, и копия своего же прогона
                     # тут меньшее зло. Но только пока она не тяжелее потолка: кусок,
@@ -366,13 +370,13 @@ class Packer:
             # выходит ничего. Так же здесь остаётся тяжёлая копия, которую предохранитель
             # ожидания отпустил после срыва кодировщика.
             try:
-                oversized = source.stat().st_size > MAX_SEGMENT_BYTES
+                oversized = source.stat().st_size > self.cap
             except OSError:
                 oversized = False
             if oversized and how == "склейка" and better is not None:
                 source.unlink(missing_ok=True)
                 try:
-                    safe_recode = better.stat().st_size <= MAX_SEGMENT_BYTES
+                    safe_recode = better.stat().st_size <= self.cap
                 except OSError:
                     safe_recode = False
                 if safe_recode:
@@ -388,7 +392,7 @@ class Packer:
             shrunk = oversized and self.shrink is not None and self.shrink(slot, size)
             if shrunk and better is not None:
                 try:
-                    oversized = better.stat().st_size > MAX_SEGMENT_BYTES
+                    oversized = better.stat().st_size > self.cap
                 except OSError:
                     oversized = True
                 if not oversized:
@@ -1036,6 +1040,7 @@ class Feed:
             rate=self.readrate,
             burst=self.burst,
             grid=self.grid,
+            cap=self.cap,
         )
         drop = self.grid.start(slot) - at
         self._say(
@@ -1113,7 +1118,15 @@ class Feed:
             )
             packer: Packer | None = None
             try:
-                packer = Packer.start(command, recoder.spare, run, slot, last=slot, grid=self.grid)
+                packer = Packer.start(
+                    command,
+                    recoder.spare,
+                    run,
+                    slot,
+                    last=slot,
+                    grid=self.grid,
+                    cap=self.cap,
+                )
                 deadline = time.monotonic() + recoder.over_wait
                 while packer.edge < slot and packer.poll() is None and time.monotonic() < deadline:
                     packer.publish()
