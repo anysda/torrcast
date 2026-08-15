@@ -1069,3 +1069,54 @@ def test_a_hand_named_release_weighs_the_same_on_both_early_exits(
 
     assert played[0] == played[1], "флаг решает исход одинаково на обоих путях"
     assert played[0] == "magnet:?xt=urn:btih:dddd", played  # названный релиз, не записанный
+
+
+def test_a_hand_named_release_says_out_loud_that_it_drops_the_bookmark(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Названный релиз играется с начала - и сохранённое место теряется НЕ молча.
+
+    Стартовая запись показа ложится под тот же ключ картины, то есть 41:07 после такого
+    запуска не восстановить ниоткуда. `--release N` человек набирает про раздачу, а не
+    про закладку, и узнать о её пропаже он обязан строкой до старта.
+    """
+    state = State()
+    state.put(
+        "movie:моана-2:2024",
+        Entry(title="Моана 2", magnet="magnet:?xt=1", pos=2467.0, dur=5978.0, query="моана-2"),
+    )
+    state.save()
+    _answers(monkeypatch, "2", "")
+
+    assert cli.main(["моана", "2", "--release", "2"]) == 0
+
+    said = capsys.readouterr().out
+    assert "не поднимаю" in said, said
+    assert "41:07" in said, "место названо тем же временем, что и в вопросе «Продолжить?»"
+    assert State.load().entries["movie:моана-2:2024"].pos == 0.0, "играли с начала"
+
+
+def test_continuing_without_a_flag_keeps_the_bookmark_and_stays_silent(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Обычный `cast моана 2` по-прежнему продолжает начатое, и лишней строки нет.
+
+    Условие раннего выхода выросло на ``not args.pinned``, и цена ошибки тут - потерянное
+    место просмотра у того, кто никаких флагов не набирал.
+    """
+    state = State()
+    state.put(
+        "movie:моана-2:2024",
+        Entry(title="Моана 2", magnet="magnet:?xt=1", pos=2467.0, dur=5978.0, query="моана-2"),
+    )
+    state.save()
+    asked = _answers(monkeypatch, "")  # Enter на «Продолжить?»
+
+    assert cli.main(["моана", "2"]) == 0
+
+    said = capsys.readouterr().out
+    assert any("Продолжить?" in prompt for prompt in asked), asked
+    assert "не поднимаю" not in said, said
+    kept = State.load().entries["movie:моана-2:2024"]
+    assert kept.pos == 2467.0, "место осталось на 41:07"
+    assert kept.magnet == "magnet:?xt=1", "играли записанную раздачу, а не выбранную заново"

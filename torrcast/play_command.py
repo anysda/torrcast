@@ -330,9 +330,23 @@ def _continue_picked(
     Названный руками релиз (``--release N`` / ``--file N``) сюда не заходит: там человек
     выбирает раздачу сам, а продолжение играет записанную. ``--new`` не заходит тоже - он
     ровно про то, чтобы прежнее место не поднимать.
+
+    🔴 Но молча мимо закладки такой показ не проходит. Названный релиз играется с начала,
+    и стартовая запись показа (:func:`torrcast.playback._launch`) кладётся под тот же ключ
+    картины - сохранённое место после этого не восстановить ниоткуда. ``--new`` про потерю
+    места говорит сам собой, а ``--release N`` значит «другая раздача», а не «забудь, где
+    я остановился», и разницу эту человек обязан увидеть строкой до старта, а не следующим
+    запуском. Строка одна и только когда терять правда есть что (:attr:`Entry.resumable`).
     """
     started = state.get(plan.picture.key)
-    if args.new or args.pinned or started is None:
+    if started is None:
+        return None
+    if args.pinned and not args.new and started.resumable:
+        print(
+            f"«{started.title}» - релиз назван руками, играю с начала; "
+            f"сохранённое место {_hms(started.pos)} не поднимаю"
+        )
+    if args.new or args.pinned:
         return None
     if started.serial or not started.resumable:
         return None
