@@ -111,7 +111,13 @@ def _cmd_play(args: Args) -> int:
     found_entry = state.find(args.title_query)
     # --new: прежний прогресс не продолжаем и выбираем заново, но запись пока цела.
     stale = found_entry[0] if found_entry is not None and args.new else None
-    if found_entry is not None and not args.new:
+    # 🔴 Названный руками релиз весит здесь ровно столько же, сколько на втором раннем
+    # выходе (:func:`_continue_picked`): человек выбирает раздачу сам, и продолжение
+    # записанной на этот путь не заходит. Пока условия у двух выходов расходились, один и
+    # тот же `--release N` то уважался, то пропадал молча, и решал это лишь текст запроса:
+    # совпал с записью - выход был здесь, и флаг выбрасывался, не назвав себя ни строкой;
+    # не совпал - картина выбиралась в меню, и тот же флаг работал.
+    if found_entry is not None and not args.new and not args.pinned:
         code = _continue(config, *found_entry, args=args, clock=clock)
         if code is not None:
             return code

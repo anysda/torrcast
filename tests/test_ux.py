@@ -1037,3 +1037,35 @@ def test_the_menu_prewarm_stands_aside_while_our_show_is_on_air(
     assert cli.main(["моана", "--new"]) == 0
 
     assert under_question == [0], "под меню живого показа не поднято ни одной раздачи"
+
+
+def test_a_hand_named_release_weighs_the_same_on_both_early_exits(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Один и тот же ``--release N`` не может зависеть от того, совпал ли текст запроса.
+
+    Ранних выхода по закладке два: один находит запись по тексту запроса, другой
+    предлагает её внутри выбранной картины. Названный руками релиз на второй не заходит -
+    раздачу там выбирает человек, - и на первый теперь тоже: иначе `cast моана 2` с
+    флагом играл записанную раздачу, выбросив флаг молча, а `cast моана` с тем же флагом
+    его уважал.
+    """
+    played = []
+    for saved_query in ("моана-2", "моана"):  # текст запроса совпал с записью - и нет
+        state = State()
+        state.put(
+            "movie:моана-2:2024",
+            Entry(
+                title="Моана 2", magnet="magnet:?xt=1", pos=2467.0, dur=5978.0, query=saved_query
+            ),
+        )
+        state.save()
+        _answers(monkeypatch, "2", "")  # вторая картина меню, если о ней спросят
+
+        assert cli.main(["моана", "2", "--release", "2"]) == 0
+
+        capsys.readouterr()
+        played.append(State.load().entries["movie:моана-2:2024"].magnet[:24])
+
+    assert played[0] == played[1], "флаг решает исход одинаково на обоих путях"
+    assert played[0] == "magnet:?xt=urn:btih:dddd", played  # названный релиз, не записанный
