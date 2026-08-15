@@ -49,6 +49,7 @@ if TYPE_CHECKING:
         _group_weight,
         _numbered_line,
         _words,
+        confirmed_continuations,
         franchises,
         seasons_named,
     )
@@ -209,6 +210,20 @@ def pick_franchise(query: str, pictures: list[Picture]) -> list[Picture]:
 
     franchise_items = _both_languages(groups, aliases, key)
     if index is None:
+        # Продолжения с подзаголовком без двоеточия лежат под своими ключами, и раскрытие
+        # их не берёт. Кого из них подписал сам каталог, решает вторая подпись - оригинал
+        # (:func:`~torrcast.franchise.confirmed_continuations`). Номер части это выключает:
+        # номер отсчитывается по линейке, и добавленная картина сдвинула бы нумерацию.
+        seen = {p.key for p in franchise_items}
+        franchise_items = sorted(
+            franchise_items
+            + [
+                p
+                for p in confirmed_continuations(groups, key, franchise_items)
+                if p.key not in seen
+            ],
+            key=_franchise_item_key,
+        )
         continuation_groups = {
             grouped_key: [p for p in grouped_items if p.kind != "other"]
             for grouped_key, grouped_items in groups.items()

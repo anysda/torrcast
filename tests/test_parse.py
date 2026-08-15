@@ -627,6 +627,87 @@ def test_a_catalog_part_number_is_not_read_as_a_season() -> None:
     assert not reads_season(pick_franchise("кухня", many)), "сезонов много - число не ручается"
 
 
+def test_continuation_without_a_colon_joins_the_menu_when_the_original_vouches() -> None:
+    """Продолжение с подзаголовком без двоеточия доезжает до меню (TC-476).
+
+    Имена дословные, с сохранённой выдачи. «Наруто - Хранители Лунной страны» подписаны
+    тире, а не двоеточием, поэтому у картины СВОЙ ключ франшизы, и раскрытие её не брало:
+    человек читал меню «Наруто» без половины полного метра. За пару ручается вторая
+    подпись каталога - корень оригинала ``naruto-the-movie`` у неё тот же, что у картины,
+    уже стоящей во франшизе.
+    """
+    pictures = cluster(
+        [
+            _release("Наруто", 2002, original="Naruto", seeders=50),
+            _release(
+                "Наруто",
+                2004,
+                original="Naruto the Movie: Ninja Clash in the Land of Snow",
+                seeders=8,
+            ),
+            _release(
+                "Наруто - Хранители Лунной страны",
+                2006,
+                original="Naruto the Movie 3: Guardians of the Crescent Moon Kingdom",
+                seeders=4,
+            ),
+        ]
+    )
+    found = [p.title for p in pick_franchise("наруто", pictures)]
+
+    assert "Наруто - Хранители Лунной страны" in found
+    # Дефолт остаётся первой живой частью: пополнение меню его не двигает.
+    assert menu_order(pick_franchise("наруто", pictures))[0].year == 2002
+    # Номер части это выключает: номер отсчитывается по линейке, и добавленная картина
+    # сдвинула бы нумерацию.
+    assert [p.year for p in pick_franchise("наруто 2", pictures)] == [2004]
+
+
+def test_a_namesake_older_than_the_franchise_is_not_a_continuation() -> None:
+    """Картина СТАРШЕ франшизы продолжением не бывает, даже если корень сошёлся (TC-476).
+
+    Имена дословные, с сохранённой выдачи. «Шерлок Бонд: Пес-детектив» - фильм про пса на
+    одну раздачу, и его оригинал ``Sherlock: Undercover Dog`` даёт ровно тот же корень
+    ``sherlock``, что и сериал. Разводит их год: продолжения раньше начала франшизы не
+    бывает. Без этого условия пёс-детектив вставал бы в меню первой строкой и забирал
+    себе дефолт.
+    """
+    pictures = cluster(
+        [
+            _release("Шерлок", 2010, original="Sherlock", seeders=70),
+            _release(
+                "Шерлок: Безобразная невеста",
+                2016,
+                original="Sherlock: The Abominable Bride",
+                seeders=20,
+            ),
+            _release("Шерлок Бонд: Пес-детектив", 1994, original="Sherlock: Undercover Dog"),
+        ]
+    )
+
+    assert [p.title for p in pick_franchise("шерлок", pictures)] == [
+        "Шерлок",
+        "Шерлок: Безобразная невеста",
+    ]
+
+
+def test_a_continuation_is_vouched_by_the_whole_original_not_by_a_substring() -> None:
+    """Корень оригинала сверяется ЦЕЛИКОМ, а не вхождением (TC-476).
+
+    Имена дословные, с сохранённой выдачи. ``it`` входит подстрокой в ``it-comes-at-night``,
+    и нестрогая ступень привела бы в меню «Оно» четыре чужих фильма - «Оно приходит ночью»
+    на девять раздач громче всех.
+    """
+    pictures = cluster(
+        [
+            _release("Оно", 2017, original="It", seeders=80),
+            _release("Оно приходит ночью", 2017, original="It Comes at Night", seeders=9),
+        ]
+    )
+
+    assert [p.title for p in pick_franchise("оно", pictures)] == ["Оно"]
+
+
 def test_a_number_stays_a_part_when_the_series_is_not_the_franchise_root() -> None:
     """Сериал в хвосте киношной франшизы номер сезоном не делает (TC-363).
 
