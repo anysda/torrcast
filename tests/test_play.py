@@ -1639,8 +1639,16 @@ def test_a_segment_that_keeps_killing_the_show_is_stepped_over(
     assert receiver._reload() is True
     assert loads == [127.2, 127.2], "первые смерти возвращают человека туда, где он смотрел"
 
-    assert receiver.replay(127.2) is True
-    assert loads[-1] == 137.095 + ChromecastReceiver.CUT_SLACK, "третья смерть - кусок перешагнут"
+    picture = 127.2
+    pressure = picture + receiver.profile.start_buffer
+    assert _MOANA.slot_at(picture) + 1 == _MOANA.slot_at(pressure), (
+        "замер: декодер давится на кусок впереди картинки"
+    )
+
+    assert receiver.replay(picture) is True
+    assert loads[-1] == 148.940 + ChromecastReceiver.CUT_SLACK, (
+        "третья смерть - перешагнут кусок декодера, а не картинки"
+    )
     assert "перешагиваю" in capsys.readouterr().out, "решение сказано вслух"
 
 

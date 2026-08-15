@@ -482,7 +482,12 @@ class ChromecastReceiver:
         """
         if self.next_cut is None:
             return at
-        cut = self.next_cut(at)
+        # ``at`` отмерен показанным кадром, а декодер уже читает свой стартовый запас
+        # впереди него. Считать смерти по ``at`` значит обвинять предыдущий кусок и на
+        # третьей смерти приземляться ровно ПЕРЕД тем, который декодер не переварил.
+        # Запас не угадываем здесь: профиль приёмника хранит его живой замер.
+        pressure = at + self.profile.start_buffer
+        cut = self.next_cut(pressure)
         died = self._deaths[cut] = self._deaths.get(cut, 0) + 1
         if died < self.DEADLY_TRIES:
             return at
