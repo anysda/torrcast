@@ -562,6 +562,10 @@ class _Spent:
 
     def __init__(self, spare: float) -> None:
         self._spare = spare
+        #: Частный бюджет за целью ещё не выдан - как у свежего клиента поиска
+        #: (:attr:`torrcast.search.Prowlarr.over_goal`). Подделка обязана обещать это
+        #: поле: без него охранник читал бы у настоящего клиента то, чего у неё нет.
+        self.over_goal = False
 
     def spare(self) -> float:
         return self._spare
@@ -577,18 +581,62 @@ def _budget(spare: float) -> tuple[float | None, str]:
     return left, out.getvalue()
 
 
-def test_второй_заход_без_остатка_цели_честно_не_делается(
+def test_дешёвый_добор_не_снимается_молчуном_съевшим_цель(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """🔴 TC-228. Первый круг съел цель (хвост Knaben - 10-20 с) - захода, у которого
-    есть честный отступ (уточнение, сезонная или голосовая строка), не будет, и человек
-    об этом читает. Молча съесть ещё один круг было бы хуже всего: он ждал бы вдвое
-    дольше обещанного и не узнал бы, за что."""
+    """🔴 TC-512. Первый круг съел цель молчанием Knaben, но дешёвый добор не исчезает:
+    ему остаются измеренные 1.5 с справки и 1 с круга, а выход за цель назван."""
     monkeypatch.setenv("TORRCAST_LOG", "")
     left, said = _budget(0.3)
 
-    assert left is None
-    assert "не делаю: поиск уже съел цель в 10 с" in said
+    from torrcast.facts import FACTS_BUDGET
+
+    assert left == FACTS_BUDGET
+    assert "всё равно делаю в свои 2.5 с" in said
+    assert "поиск уже съел цель в 10 с" in said
+
+
+def test_частный_бюджет_за_целью_выдаётся_один_раз_за_поиск(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """🔴 TC-512. Превышение цели терпится ОДНО, а не по одному на каждый заход.
+
+    Пол круга - это потолок одного индексера, а не цена круга: замер на молчащих опорных
+    дал 2.0 с при одном и 4.0 с при двух, то есть добор стоит до 5.5 с вместо расчётных
+    2.5. Охраняемых заходов на пути до трёх (переспрос строкой или уточнение, сезонная и
+    голосовая строки), и раздать бюджет каждому значило бы дописать к уже съеденной цели
+    до пятнадцати секунд - молчун перестал бы сужать каталог и начал тормозить путь.
+    Поэтому за целью проходит первый заход, а следующим отвечает то, что уже найдено.
+    """
+    monkeypatch.setenv("TORRCAST_LOG", "")
+    from torrcast.facts import FACTS_BUDGET
+
+    client = cast(Any, _Spent(0.3))
+    out = io.StringIO()
+    with Progress(out=out) as progress:
+        first = cli._no_budget(client, "добор по «кино»", progress)
+        second = cli._no_budget(client, "добор сезона 2", progress)
+        third = cli._no_budget(client, "добор по «Kino»", progress)
+    said = out.getvalue()
+
+    assert first == FACTS_BUDGET, "первый заход за целью получает свой частный бюджет"
+    assert second is None and third is None, "второе превышение цели уже не оплачивается"
+    assert "добор по «кино» всё равно делаю" in said
+    assert "добор сезона 2 не делаю: поиск уже съел цель в 10 с" in said
+    assert "добор по «Kino» не делаю" in said, "отказ сказан вслух каждому, а не молча"
+
+
+def test_целый_остаток_цели_частный_бюджет_не_тратит(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Пока цель цела, заходы идут из общего остатка и превышения не занимают: частный
+    бюджет ждёт того единственного захода, который упрётся в съеденную цель."""
+    monkeypatch.setenv("TORRCAST_LOG", "")
+    from torrcast.facts import FACTS_BUDGET
+
+    client = cast(Any, _Spent(9.0))
+    with Progress(out=io.StringIO()) as progress:
+        assert cli._no_budget(client, "уточнение", progress) == FACTS_BUDGET
+        assert cli._no_budget(client, "добор сезона 2", progress) == FACTS_BUDGET
+    assert client.over_goal is False, "остатка хватало - превышения не было"
 
 
 def test_остаток_цели_делится_между_справкой_и_кругом(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -602,7 +650,7 @@ def test_остаток_цели_делится_между_справкой_и_�
     assert SECOND_LEAST == FACTS_BUDGET + CIRCLE_SHARE, "порог = потолок справки плюс круг"
     assert _budget(10.0)[0] == FACTS_BUDGET, "цела вся цель - справке её полный потолок"
     assert _budget(SECOND_LEAST)[0] == pytest.approx(FACTS_BUDGET), "в обрез - потолок тот же"
-    assert _budget(SECOND_LEAST - 0.01)[0] is None, "на волос меньше - второго захода нет"
+    assert _budget(SECOND_LEAST - 0.01)[0] == FACTS_BUDGET, "общий остаток добор не снимает"
 
 
 def test_добор_вторым_именем_не_отменяется_съеденной_целью(
