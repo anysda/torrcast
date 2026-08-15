@@ -663,6 +663,37 @@ def test_continuation_without_a_colon_joins_the_menu_when_the_original_vouches()
     assert [p.year for p in pick_franchise("наруто 2", pictures)] == [2004]
 
 
+def test_menu_continuations_do_not_overrule_the_season_reading() -> None:
+    """🔴 Пополнение меню не отменяет сезонного признака (TC-476 против TC-363).
+
+    Имена дословные, форма самая частая у продолжения, подписанного тире. Ограждение
+    «номер части это выключает» держится на ``index is None``, а номер снимает с имени сам
+    зовущий (:func:`~torrcast.cli._season_asked` отдаёт в разбор голое «токийский гуль»).
+    Пополненная линейка приезжала в :func:`reads_season` с картиной, которой каталог
+    назвал номер части, условие «ни одну не подписал номером» падало - и «токийский гуль
+    2» переставал просить второй СЕЗОН, отвечая полным метром. Ровно тот отказ, что
+    закрыт в TC-363, только заходящий с другого конца.
+    """
+    pictures = cluster(
+        [
+            parse_release_name(name)
+            for name in (
+                "Токийский гуль / Tokyo Ghoul [S01] (2014) BDRip 1080p | D | AniLibria",
+                "Токийский гуль / Tokyo Ghoul [S01] (2014) WEB-DL 720p | D | AniDub",
+                "Токийский гуль - Резня 2 / Tokyo Ghoul: Root A (2015) BDRip 1080p | D | AniLibria",
+                "Токийский гуль - Резня 2 / Tokyo Ghoul: Root A (2015) WEB-DL 720p | D | AniDub",
+            )
+        ]
+    )
+
+    # Меню пополняется как задумано: продолжение с тире до человека доезжает.
+    assert "Токийский гуль - Резня 2" in [
+        p.title for p in pick_franchise("токийский гуль", pictures)
+    ]
+    # А нумерацию читают по линейке каталога, и там номер по-прежнему сезон.
+    assert reads_season(pick_franchise("токийский гуль", pictures, join_continuations=False))
+
+
 def test_a_namesake_older_than_the_franchise_is_not_a_continuation() -> None:
     """Картина СТАРШЕ франшизы продолжением не бывает, даже если корень сошёлся (TC-476).
 

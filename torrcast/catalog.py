@@ -98,11 +98,22 @@ import unicodedata
 from typing import Final
 
 
-def pick_franchise(query: str, pictures: list[Picture]) -> list[Picture]:
+def pick_franchise(
+    query: str, pictures: list[Picture], *, join_continuations: bool = True
+) -> list[Picture]:
     """``«матрица 2»`` → [«Матрица: Перезагрузка»]; без номера — вся франшиза. Ищем по
     каноническому ключу (русскому или оригинальному), затем по вхождению подстроки, а
     в последнюю очередь по словам (:func:`_by_words`); номер — индекс в хронологии, а не
     часть названия.
+
+    🔴 ``join_continuations`` выключает пополнение меню продолжениями без двоеточия
+    (:func:`~torrcast.franchise.confirmed_continuations`) - и спрашивает его тот, кто читает
+    не МЕНЮ, а НУМЕРАЦИЮ. Пополнение и правда стоит под ``index is None``, но безопасности
+    это не даёт: номер снимает с имени сам зовущий (:func:`~torrcast.cli._season_asked`
+    отдаёт сюда голое имя), и до этой ветки доходит запрос, у которого номер БЫЛ. Пополнить
+    ему линейку значит переспорить :func:`reads_season`: пришедшая с номером части картина
+    роняет условие «ни одну каталог не подписал номером», и «токийский гуль 2» переставал
+    просить второй СЕЗОН, отвечая полным метром, - ровно тот отказ, что закрыт в TC-363.
     """
     groups = franchises(pictures)
     aliases = _aliases(groups)
@@ -209,11 +220,13 @@ def pick_franchise(query: str, pictures: list[Picture]) -> list[Picture]:
         return _numbered(items, index)
 
     franchise_items = _both_languages(groups, aliases, key)
-    if index is None:
+    if index is None and join_continuations:
         # Продолжения с подзаголовком без двоеточия лежат под своими ключами, и раскрытие
         # их не берёт. Кого из них подписал сам каталог, решает вторая подпись - оригинал
         # (:func:`~torrcast.franchise.confirmed_continuations`). Номер части это выключает:
         # номер отсчитывается по линейке, и добавленная картина сдвинула бы нумерацию.
+        # ⚠️ Одного ``index is None`` мало: номер мог снять с имени сам зовущий, и тогда
+        # линейку читают уже пополненной (``join_continuations``, :func:`reads_season`).
         seen = {p.key for p in franchise_items}
         franchise_items = sorted(
             franchise_items

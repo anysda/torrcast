@@ -482,7 +482,9 @@ def _season_asked(found: list[Picture], name: str, pictures: list[Picture]) -> b
 
     if not found or any(picture.kind != "tv" for picture in found):
         return False
-    return reads_season(pick_franchise(name, pictures))
+    # Голое имя: номер снят выше, поэтому пополнение меню продолжениями сюда доехало бы
+    # молча и переспорило бы разбор (:func:`~torrcast.parse.pick_franchise`).
+    return reads_season(pick_franchise(name, pictures, join_continuations=False))
 
 
 def season_reread(
