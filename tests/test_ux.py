@@ -1120,3 +1120,53 @@ def test_continuing_without_a_flag_keeps_the_bookmark_and_stays_silent(
     kept = State.load().entries["movie:моана-2:2024"]
     assert kept.pos == 2467.0, "место осталось на 41:07"
     assert kept.magnet == "magnet:?xt=1", "играли записанную раздачу, а не выбранную заново"
+
+
+#: Выдача «Кухни 6», сведённая к сути: все раздачи подписаны ОДНИМ сезоном, и число
+#: стоит в самом имени картины - ровно та форма, на которой показ отказывал (TC-564).
+KITCHEN = [
+    RawResult(
+        "Кухня 6 / Kuhnya 6 (2017) WEB-DL 1080p | 6 сезон, 1-20 из 20", "e" * 40, 20 * GB, 44
+    ),
+    RawResult("Кухня 6 / Kuhnya 6 (2017) SATRip | 6 сезон [1-20 из 20]", "f" * 40, 6 * GB, 11),
+]
+
+
+class _KitchenProwlarr(_FakeProwlarr):
+    def search(self, query: str) -> list[RawResult]:
+        return list(KITCHEN)
+
+
+class _KitchenTorrServer(_FakeTorrServer):
+    def wait_files(
+        self, torrent_hash: str, timeout: float = 60.0, grace: float = 0.0
+    ) -> list[TorrFile]:
+        return [TorrFile(n - 1, f"Кухня 6/Kuhnya.s06e{n:02d}.mkv", 1 * GB) for n in range(1, 21)]
+
+
+def test_a_series_named_by_its_only_season_still_plays(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """🔴 TC-564. «Кухня 6», когда ВСЕ раздачи подписаны «6 сезон», включается.
+
+    Форма выдачи дословная и самая частая у сериала, снятого целым сезоном: число стоит
+    и в имени картины, и в подписи сезона. Каталог заводил такую картину с ``part=6``,
+    номер запроса читался номером ЧАСТИ, план просил `s1e1` - и накрыть его не могла ни
+    одна раздача. Человек получал `rc=1` и «раздач 2, но сезона 1 среди них нет - названы
+    6» при живой картине: показа не было вовсе.
+
+    Тест берёт именно эту форму. Возьми он раздачу, молчащую о сезоне, или «Кухня (6
+    сезон)» - прошёл бы мимо дефекта: обе эти формы играли и до починки.
+    """
+    monkeypatch.setattr(cli, "Prowlarr", _KitchenProwlarr)
+    monkeypatch.setattr(cli, "TorrServer", _KitchenTorrServer)
+    _answers(monkeypatch, "", "")
+
+    assert cli.main(["кухня", "6"]) == 0, "картина живая, раздачи живые - это показ"
+
+    printed = capsys.readouterr().out
+    assert "играю «Кухня 6»" in printed, printed
+    # Молчаливого прочтения не бывает: номер человек написал сам и вправе знать, чем
+    # мы его сочли.
+    assert "номер 6 читаю сезоном, а не частью" in printed, printed
+    assert "сезона 1 среди них нет" not in printed, "отказа больше нет"

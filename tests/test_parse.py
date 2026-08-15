@@ -571,6 +571,62 @@ def test_a_number_after_a_series_name_is_a_season_not_a_part() -> None:
     assert len(pick_franchise("chainsaw man", pictures)) == 2
 
 
+def test_a_number_glued_to_a_series_name_is_still_a_season() -> None:
+    """🔴 TC-564. Все раздачи подписаны одним сезоном - номер остаётся СЕЗОНОМ.
+
+    Имена дословные, форма самая частая у сериала, снятого целым сезоном: число стоит и в
+    имени картины, и в подписи сезона. Каталог заводит такую картину с ``part=6``, и
+    условие «ни одну картину каталог не подписал номером части» закрывалось само на себе:
+    номер прилипал к названию, правило про сезон выключалось, план просил `s1e1`, накрыть
+    его не могла ни одна раздача - и `cast кухня 6` отказывал совсем.
+
+    Поручительство даёт не догадка, а сами раздачи: сериал, один названный сезон, и он же
+    равен прилипшему числу.
+    """
+    pictures = cluster(
+        [
+            parse_release_name(name)
+            for name in (
+                "Кухня 6 / Kuhnya 6 (2017) WEB-DL 1080p | 6 сезон, 1-20 из 20",
+                "Кухня 6 / Kuhnya 6 (2017) SATRip | 6 сезон [1-20 из 20]",
+            )
+        ]
+    )
+
+    (picture,) = pictures
+    assert (picture.title, picture.kind, picture.part) == ("Кухня 6", "tv", 6)
+    assert reads_season(pick_franchise("кухня", pictures)), "число назвали сезоном сами раздачи"
+    assert [p.title for p in pick_franchise("кухня 6", pictures)] == ["Кухня 6"]
+
+
+def test_a_catalog_part_number_is_not_read_as_a_season() -> None:
+    """Ограждение к TC-564: подписанный каталогом номер ЧАСТИ сезоном не становится.
+
+    Признак поручительства спрашивает три вещи сразу, и «Форсаж 5» не проходит уже по
+    первой - у фильма сезонов не бывает. Сериал, чьи раздачи назвали много сезонов, не
+    проходит по третьей: сезонов много, а число в имени одно, и за сезон оно не ручается.
+    """
+    pictures = cluster(
+        [
+            _release("Форсаж", 2001, seeders=30),
+            _release("Форсаж 5", 2011, seeders=60),
+        ]
+    )
+    assert not reads_season(pick_franchise("форсаж", pictures))
+    assert [p.title for p in pick_franchise("форсаж 5", pictures)] == ["Форсаж 5"]
+
+    many = cluster(
+        [
+            parse_release_name(name)
+            for name in (
+                "Кухня 2 / Kuhnya 2 (2013) WEB-DL 1080p | 1-2 сезон, 1-40 из 40",
+                "Кухня 2 / Kuhnya 2 (2013) SATRip | 2 сезон [1-20 из 20]",
+            )
+        ]
+    )
+    assert not reads_season(pick_franchise("кухня", many)), "сезонов много - число не ручается"
+
+
 def test_a_number_stays_a_part_when_the_series_is_not_the_franchise_root() -> None:
     """Сериал в хвосте киношной франшизы номер сезоном не делает (TC-363).
 
