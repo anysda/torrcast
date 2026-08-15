@@ -864,6 +864,8 @@ def test_a_promised_place_is_never_answered_with_a_404(tmp_path: Path) -> None:
 def test_the_spot_shrink_packs_the_piece_under_the_cap(clip: str, tmp_path: Path) -> None:
     """Ужатие на месте - настоящий прогон ffmpeg: перекод ложится в ``spare``,
     влезает в потолок, и решение сказано одной честной строкой."""
+    from dataclasses import replace
+
     from torrcast.recode import Encode, Pace
 
     class _Recoder:
@@ -874,6 +876,7 @@ def test_the_spot_shrink_packs_the_piece_under_the_cap(clip: str, tmp_path: Path
             self.encode = Encode()
             self.pace = Pace()
             self.threshold = 10.0
+            self.cap = MAX_SEGMENT_BYTES
             self.over_wait = 60.0
             self.done: set[int] = set()
 
@@ -882,7 +885,11 @@ def test_the_spot_shrink_packs_the_piece_under_the_cap(clip: str, tmp_path: Path
             return path if path.exists() else None
 
         def fit(self, span: float, preset: str) -> Encode:
-            return Encode(preset=preset).fit(span, MAX_SEGMENT_BYTES, self.threshold)
+            # Тело - копия :meth:`torrcast.recode.Recoder.fit`, знак в знак. Заглушка,
+            # считающая ПО-СВОЕМУ, зелена при любом контракте: собери она цель из
+            # чистого ``Encode()``, и потеря кадра с HDR по дороге в ужатие прошла бы
+            # молча - ``ceiling``, ``frame`` и ``hdr`` живут именно в ``self.encode``.
+            return replace(self.encode, preset=preset).fit(span, self.cap, self.threshold)
 
     out = hls_dir(str(tmp_path / "hls"))
     spare = out / "recode"
@@ -917,6 +924,8 @@ def test_the_spot_shrink_aims_under_both_ceilings_of_the_receiver(
     Сам ffmpeg тут не нужен и не зовётся: проверяется РЕШЕНИЕ, а оно принимается и
     называется вслух до всякого прогона.
     """
+    from dataclasses import replace
+
     from torrcast.recode import MAXRATE_GAIN, Encode, Pace
 
     class _Recoder:
@@ -927,6 +936,7 @@ def test_the_spot_shrink_aims_under_both_ceilings_of_the_receiver(
             self.encode = Encode()
             self.pace = Pace()
             self.threshold = 10.0  # потолок битрейта приёмника, ``recode_at_mbit``
+            self.cap = MAX_SEGMENT_BYTES  # потолок веса, тот же, которым меряет показ
             self.over_wait = 60.0
             self.done: set[int] = set()
 
@@ -934,7 +944,9 @@ def test_the_spot_shrink_aims_under_both_ceilings_of_the_receiver(
             return None
 
         def fit(self, span: float, preset: str) -> Encode:
-            return Encode(preset=preset).fit(span, MAX_SEGMENT_BYTES, self.threshold)
+            # Тело - копия :meth:`torrcast.recode.Recoder.fit`, знак в знак (см. соседний
+            # тест): заглушка со своим расчётом зелена при любом контракте.
+            return replace(self.encode, preset=preset).fit(span, self.cap, self.threshold)
 
     out = hls_dir(str(tmp_path / "hls"))
     said: list[str] = []
