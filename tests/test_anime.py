@@ -42,6 +42,7 @@ from torrcast.parse import Picture, Release, parse_release_name
 from torrcast.search import RawResult, merge, to_releases
 from torrcast.state import Config
 from torrcast.stream import RUNTIME_GUESS, AudioTrack, Media
+from torrcast.voice_origin import native_picture
 
 RUNTIME = RUNTIME_GUESS["movie"]
 GB = 1024**3
@@ -1202,3 +1203,51 @@ def test_a_native_picture_still_plays_its_only_unnamed_track(
 
     assert prep.number == 1, "своя картина: пустой тег языка - это и есть русский звук"
     assert "без русской озвучки" not in capsys.readouterr().out
+
+
+def test_a_native_passport_reaches_the_voice_gate_without_a_second_search(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Полицейский с Рублёвки: ответ справки относится и к обычному первому кругу."""
+    ranked = [
+        rel(name="Полицейский с Рублёвки 1080p", seeders=116),
+        rel(name="Полицейский с Рублёвки 720p", quality="720p", seeders=80),
+    ]
+    _tracks(monkeypatch, ranked, "und", "rus")
+    picture = Picture(title="Полицейский с Рублёвки", year=2016, kind="tv", releases=ranked)
+    native_picture(
+        picture,
+        "полицейский с рублёвки",
+        cli.Origin(name="Полицейский с Рублёвки"),
+    )
+    plan = cli._Plan(
+        picture=picture, ranked=ranked, runtime=RUNTIME, warn_mbit=20.0, recode_at=10.0
+    )
+
+    with Progress(out=io.StringIO()) as progress:
+        prep = cli._Bench(cast(Any, _FakeTorrServer())).resolve(
+            plan, cli.Args(query=["полицейский", "с", "рублёвки"]), progress
+        )
+
+    assert prep.number == 1 and prep.release.quality == "1080p"
+    assert "без русской озвучки" not in capsys.readouterr().out
+
+
+def test_a_mute_fallback_does_not_dispute_its_own_release_name(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Отказ и косвенная улика живут в одном непротиворечивом вердикте."""
+    ranked = [
+        rel(name="Кино 1080p | D", seeders=120),
+        rel(name="Кино 720p", quality="720p", seeders=80),
+    ]
+    _tracks(monkeypatch, ranked, "und", "eng")
+
+    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer())), ranked)
+
+    verdicts = [line for line in capsys.readouterr().out.splitlines() if "включаю релиз" in line]
+    assert prep.number == 1
+    assert verdicts == [
+        "русская озвучка не подтверждена ни в одной из проверенных раздач (2) - "
+        "включаю релиз 1: звук без метки языка, имя релиза обещает русский"
+    ]

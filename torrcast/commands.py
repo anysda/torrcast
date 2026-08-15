@@ -208,6 +208,7 @@ from torrcast.stream import (
     unit_key,
 )
 from torrcast.timing import mark
+from torrcast.voice_origin import native_picture as _native_picture
 
 EXIT_OK, EXIT_NOT_FOUND, EXIT_INFRA = 0, 1, 2
 #: Сколько строк таблицы релизов показываем: ниже начинаются раздачи без сидов.
@@ -1146,14 +1147,15 @@ def _cmd_voices(args: Args) -> int:
     TorrServer, как и на всяком пути мимо показа (:meth:`_Bench.drop_all`).
     """
     config = load_config()
-    inner = Args(query=list(args.query[1:]), release=args.release, file=args.file)
+    inner = Args(query=list(args.query[1:]), release=args.release, pick=args.pick, file=args.file)
     if not inner.query:
         raise NotFoundError("что искать? cast voices <запрос>")
     with Progress() as progress:
         plans = _search(config, inner, progress)
         bench = _Bench(TorrServer(config.torrserver_url), choose=_file_picker(inner))
         try:
-            plan = _pick_plan(plans, asked=inner.title_query)
+            plan = _pick_plan(plans, pick=inner.pick, asked=inner.title_query)
+            _native_picture(plan.picture, inner.title_query)
             prep = bench.resolve(plan, inner, progress)
         finally:
             bench.drop_all()

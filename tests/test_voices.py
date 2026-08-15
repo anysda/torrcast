@@ -538,6 +538,29 @@ def test_the_voices_command_lists_and_exits(
     assert "играю" not in printed
 
 
+def test_the_voices_command_passes_a_noninteractive_picture_number(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``cast voices`` понимает тот же ``--pick M``, что показ и таблица релизов."""
+    seen: list[int | None] = []
+    original = cli._pick_plan
+
+    def pick(
+        plans: list[cli._Plan],
+        facts: object = None,
+        pick: int | None = None,
+        asked: str = "",
+    ) -> cli._Plan:
+        seen.append(pick)
+        return original(plans, pick=1, asked=asked)
+
+    monkeypatch.setattr(cli, "_pick_plan", pick)
+    monkeypatch.setattr("builtins.input", lambda prompt="": pytest.fail("меню не спрашиваем"))
+
+    assert cli.main(["voices", "моана 2", "--pick", "2"]) == 0
+    assert seen == [2]
+
+
 def test_a_record_with_nothing_to_continue_does_not_wake_the_swarm(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

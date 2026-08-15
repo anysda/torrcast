@@ -45,12 +45,27 @@ if TYPE_CHECKING:
         warm_order,
         year_note,
     )
-    from torrcast.commands import PREWARM, Args, _Clock, _release_orphans, _say_showing
+    from torrcast.commands import (
+        PREWARM,
+        Args,
+        _Clock,
+        _release_orphans,
+        _say_showing,
+    )
     from torrcast.discovery import _ask, _no_budget, _search
     from torrcast.playback import _file_picker, _launch
-    from torrcast.ranking import _gb, _hms, pick_voice, quality_text, sound_note, voice_note
+    from torrcast.ranking import (
+        _gb,
+        _hms,
+        pick_voice,
+        quality_text,
+        sound_note,
+        voice_note,
+        voice_unproven,
+    )
     from torrcast.reinforce import _timed, _topup
     from torrcast.selection import _Bench, _continue, _Plan, _remembered
+    from torrcast.voice_origin import native_picture
 
 
 from torrcast import (
@@ -80,6 +95,7 @@ from torrcast.stream import (
     bitrate_mbit,
 )
 from torrcast.timing import mark
+from torrcast.voice_origin import native_picture
 
 
 def _cmd_play(args: Args) -> int:
@@ -191,6 +207,7 @@ def _cmd_play(args: Args) -> int:
                 # пересобирается на настоящих числах. Прогретое при этом не пропадает:
                 # номера релизов переезжают вместе с порядком (:meth:`_Bench.reorder`).
                 plan = bench.reorder(plan, _timed(plan, facts, args, config, chosen.profile))
+                native_picture(plan.picture, args.title_query)
                 # Прогретые кандидаты ДРУГИХ картин с этой секунды - мусор: они тянут
                 # куски у той раздачи, которую сейчас будем показывать, и всё это время
                 # стоят в TorrServer лишними (:meth:`_Bench.keep_plan`).
@@ -236,14 +253,19 @@ def _cmd_play(args: Args) -> int:
     # Молчаливого японского не бывает: перевода в файле нет - человек слышит об этом
     # строкой, а не на слух через минуту показа.
     playable = [plan.ranked[number - 1] for number in plan.candidates(args)]
-    if note := sound_note(
-        media,
-        audio,
-        playable,
-        release,
-        prep.files,
-        native=plan.picture.native,
-    ):
+    fallback_spoken = (
+        not args.pinned
+        and voice_unproven(media, native=plan.picture.native)
+        and bool(media.tracks)
+        and not media.tracks[media.default_track()].named
+        and release.dubbed
+    )
+    note = (
+        ""
+        if fallback_spoken
+        else sound_note(media, audio, playable, release, prep.files, native=plan.picture.native)
+    )
+    if note:
         print(note)
     # Русских дорожек было несколько - говорим, сколько и что взяли: подпись дорожки
     # отвечает «что играет», а эта строка - «почему это, а не соседняя».

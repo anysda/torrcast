@@ -665,10 +665,22 @@ class _Bench:
         """
         lang = heard(mute.found)
         trace.emit("select", "mute", release=mute.number, lang=lang, checked=tried)
-        print(
-            f"русской озвучки нет ни в одной из проверенных раздач ({tried}) - "
-            f"включаю релиз {mute.number}, звук {lang}"
+        unnamed_promise = (
+            bool(mute.found.tracks)
+            and not mute.found.tracks[mute.found.default_track()].named
+            and mute.release.dubbed
         )
+        if unnamed_promise:
+            print(
+                f"русская озвучка не подтверждена ни в одной из проверенных раздач "
+                f"({tried}) - включаю релиз {mute.number}: звук без метки языка, "
+                "имя релиза обещает русский"
+            )
+        else:
+            print(
+                f"русской озвучки нет ни в одной из проверенных раздач ({tried}) - "
+                f"включаю релиз {mute.number}, звук {lang}"
+            )
         self._announce(plan, mute, queue, judged, reached)
         return mute
 
