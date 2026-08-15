@@ -1652,6 +1652,43 @@ def test_a_segment_that_keeps_killing_the_show_is_stepped_over(
     assert "перешагиваю" in capsys.readouterr().out, "решение сказано вслух"
 
 
+def test_deaths_are_counted_where_the_show_died_and_not_where_the_jump_aims(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Подросший между смертями кадр обязан попадать в ТОТ ЖЕ счётчик.
+
+    Замер на «Моане» 2016: за сеанс позиция подросла со 125.4 на 127.8 с - все четыре
+    смерти легли в один и тот же кусок ``[124.583..137.095)``. Счёт по месту ПРИЦЕЛА
+    (кадр + запас декодера) пересекает границу сетки на 127.095, то есть внутри этого
+    самого дрейфа: смерти разъезжаются по двум счётчикам, ни один не добирает
+    :attr:`~torrcast.cast.ChromecastReceiver.DEADLY_TRIES`, и перешагивание опаздывает на
+    целый круг восстановления. Цель прыжка при этом остаётся у декодера.
+    """
+    from torrcast.cast import ChromecastReceiver
+
+    loads: list[float] = []
+    monkeypatch.setattr(ChromecastReceiver, "_restart_app", lambda self: None)
+    monkeypatch.setattr(ChromecastReceiver, "_load", lambda self, at=0.0: loads.append(at))
+    monkeypatch.setattr(ChromecastReceiver, "_free", lambda self: True)
+    monkeypatch.setattr(ChromecastReceiver, "_settle", lambda self, budget: True)
+    receiver = ChromecastReceiver("10.0.0.50")
+    receiver.next_cut = _MOANA.after
+
+    drift = (125.4, 127.2, 127.8)
+    assert len({_MOANA.slot_at(at) for at in drift}) == 1, "замер: дрейф не выходит из куска"
+    assert len({_MOANA.slot_at(at + receiver.profile.start_buffer) for at in drift}) == 2, (
+        "и ровно на этом дрейфе прицел меняет кусок - иначе тест ничего не сторожит"
+    )
+
+    for at in drift:
+        assert receiver.replay(at) is True
+
+    assert loads[:2] == [125.4, 127.2], "первые смерти возвращают человека туда, где он смотрел"
+    assert loads[-1] == 148.940 + ChromecastReceiver.CUT_SLACK, (
+        "третья смерть на том же куске перешагивает его, а не начинает счёт заново"
+    )
+
+
 class _Reported:
     """MEDIA_STATUS, как его отдаёт живой приёмник: позиция, состояние, длительность."""
 
