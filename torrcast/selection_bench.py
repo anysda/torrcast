@@ -270,6 +270,10 @@ class _Bench:
         (:data:`PICK_BUDGET`). Бесконечно это не длится и молчаливым не бывает: потолок
         фазы прежний, каждая осечка стоит строки, а очередь конечна.
 
+        🔴 TC-436. Потолок фазы держит и ОЖИДАНИЕ внутри попытки (:meth:`_wait`), а не
+        только переход к следующей: свежий прогрев, начатый на 179-й секунде, тянул ещё до
+        65 с сверх потолка, и объявленные 180 с обходились человеку в 245.
+
         🔴 TC-300. А кончившаяся очередь, в которой промолчали ВСЕ, кончается не отказом:
         лучший из промолчавших спрашивается ещё раз - один и без отсрочек, в остаток того
         же бюджета фазы (:meth:`_recheck`). Замер: такие отказы не упирались ни в
@@ -368,7 +372,7 @@ class _Bench:
             voice_search = (
                 "" if args.pinned else f"ищу русскую озвучку: релиз {attempt} из {len(queue)} - "
             )
-            self._wait(prep, progress, prefix=voice_search)
+            self._wait(prep, progress, prefix=voice_search, limit=deadline)
             # Ошибка самой службы раздачи относится ко всей очереди, а не к одному
             # рою. Перебирать остальные релизы бессмысленно: они пойдут через тот же
             # мёртвый порт и лишь размножат одну строку, после чего итог ещё и свалит
@@ -545,7 +549,10 @@ class _Bench:
         number = next((n for n in queue if _silenced(self.preps.get((key, n)))), None)
         if number is None:  # молчал не рой, а сами раздачи - им терпение не поможет
             return None
-        if time.monotonic() + self.meta_budget + self.probe_budget > deadline:
+        # Спрашивается по ПОЛНОМУ сроку одной раздачи (:meth:`_wait`), поэтому и место под
+        # него считается по полному: те же +5 с, иначе второй спрос уносил обход за потолок
+        # фазы на пять секунд - тот же промах, что и в :meth:`resolve` (TC-436).
+        if time.monotonic() + self.meta_budget + self.probe_budget + 5.0 > deadline:
             return None  # честный второй спрос в остаток бюджета фазы уже не влезает
         print(
             f"промолчала вся очередь ({len(queue)}) - спрашиваю релиз {number} "
@@ -665,10 +672,25 @@ class _Bench:
         self._announce(plan, mute, queue, judged, reached)
         return mute
 
-    def _wait(self, prep: _Prep, progress: Progress, prefix: str = "") -> None:
-        """Дождаться подготовки, показывая фазу и бегущее время."""
+    def _wait(self, prep: _Prep, progress: Progress, prefix: str = "", limit: float = 0.0) -> None:
+        """Дождаться подготовки, показывая фазу и бегущее время.
+
+        ``limit`` - потолок ФАЗЫ отбора (:data:`PICK_BUDGET`), а срок выше - потолок одной
+        раздачи. Ждём до ближайшего из двух.
+
+        🔴 TC-436. Без ``limit`` потолок фазы проверялся только МЕЖДУ попытками
+        (:meth:`resolve`), а ожидание внутри попытки шло по своему сроку до конца: свежий
+        прогрев, начатый на 179-й секунде, тянул ещё до 65 с (метаданные плюс проба плюс
+        5), и худший обход стоил человеку около 245 с вместо объявленных 180.
+
+        Срезается ровно ожидание сверх потолка, и ни секундой раньше: раздача, прогретая
+        под меню (:data:`PREWARM_SPARE`), отвечает мгновенно, и спросить её мы обязаны
+        хоть на 179-й секунде - потолки роя тут не режутся, режется выход за потолок фазы.
+        """
         asked = prep.contact_wait.activated_at if prep.contact_wait is not None else None
         deadline = (asked or prep.started) + self.meta_budget + self.probe_budget + 5.0
+        if limit:
+            deadline = min(deadline, limit)
         while not prep.ready.wait(0.2):
             progress.phase(f"{prefix}{prep.phase}")
             if time.monotonic() > deadline:  # поток сам не уложился - не ждём вечно

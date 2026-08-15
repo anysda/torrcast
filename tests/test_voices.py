@@ -744,10 +744,14 @@ def test_a_japanese_top_release_steps_aside_for_a_russian_one_below_it(
     wait = cli._Bench._wait
 
     def watched_wait(
-        self: cli._Bench, prep: cli._Prep, progress: Progress, prefix: str = ""
+        self: cli._Bench,
+        prep: cli._Prep,
+        progress: Progress,
+        prefix: str = "",
+        limit: float = 0.0,
     ) -> None:
         prefixes.append(prefix)
-        wait(self, prep, progress, prefix)
+        wait(self, prep, progress, prefix, limit)
 
     monkeypatch.setattr(cli._Bench, "_wait", watched_wait)
     _answers(monkeypatch)

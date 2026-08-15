@@ -868,6 +868,62 @@ def test_the_walk_down_the_queue_stops_when_the_start_budget_is_out(
     assert capsys.readouterr().out.count("не дождались") == 1, "бюджет вышел - второго похода нет"
 
 
+class _FakeClock:
+    """Поддельные монотонные часы: время двигают ожидания, а не настоящий сон."""
+
+    def __init__(self, now: float = 1000.0) -> None:
+        self.now = now
+
+    def __call__(self) -> float:
+        return self.now
+
+
+class _Sleeper:
+    """Подготовка, которая не будет готова никогда, - вместо :class:`threading.Event`.
+
+    Каждый заход ожидания двигает поддельные часы ровно на свой срок: цикл идёт как
+    настоящий, а секунды не тратятся.
+    """
+
+    def __init__(self, clock: _FakeClock) -> None:
+        self.clock = clock
+
+    def wait(self, timeout: float | None = None) -> bool:
+        self.clock.now += timeout or 0.0
+        return False
+
+
+def test_the_pick_budget_cuts_the_wait_it_has_already_started(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """🔴 TC-436. Потолок фазы отбора держит и ожидание ВНУТРИ попытки, а не только переход.
+
+    Замер TC-424: потолок (:data:`~torrcast.cli.PICK_BUDGET`, 180 с) проверялся ровно между
+    попытками, поэтому свежий прогрев, начатый на 179-й секунде, ждал своего по СВОЕМУ сроку
+    - метаданные плюс проба плюс 5, то есть до 65 с, - и худший обход стоил человеку около
+    245 с вместо объявленных 180. Платит за это зритель ожиданием картинки.
+
+    Проверяется тут ровно ожидание: раздача не отвечает никогда, часы поддельные, а срок
+    фазы кончается через секунду после того, как ожидание началось.
+    """
+    clock = _FakeClock()
+    monkeypatch.setattr(cli.time, "monotonic", clock)
+    bench = cli._Bench(cast(Any, _FakeTorrServer()))
+    prep = cli._Prep(number=1, release=rel(), started=clock.now, phase="метаданные")
+    prep.ready = cast(Any, _Sleeper(clock))
+
+    began = clock.now
+    with Progress(out=io.StringIO()) as progress:
+        bench._wait(prep, progress, limit=clock.now + 1.0)
+    waited = clock.now - began
+
+    assert waited < bench.meta_budget + bench.probe_budget, (
+        f"ждали {waited:.1f} с - это срок раздачи, а потолок фазы кончился через секунду"
+    )
+    assert waited <= 1.5, f"ждали {waited:.1f} с сверх потолка фазы"
+    assert prep.error, "недождавшаяся подготовка обязана назваться неудачей, а не тишиной"
+
+
 def test_a_timed_out_walk_does_not_speak_for_the_queue_it_never_reached(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
