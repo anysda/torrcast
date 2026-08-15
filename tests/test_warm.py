@@ -1281,3 +1281,141 @@ def test_the_guard_checks_every_laid_piece_not_just_the_first(clip: str, tmp_pat
     warmer._inspect(first - 1, last)
     assert sorted(warmer.skews) == laid, f"сторож проверил не всю пачку: {warmer.skews}"
     assert vault.slots() == set(), f"мимо сетки, а в показе лежит: {sorted(vault.slots())}"
+
+
+# --- TC-254: прогрев стоит на месте, пока ffmpeg честно пакует ------------------------
+# Замер на живой раздаче (BDRip 1080p 12.3 Мбит/с, сетка 10 с, темп x4): за 421 с каталог
+# прогона набрал 140 кусков - ровно 24 в минуту, то есть темп держался, - а прогретым стал
+# один-единственный ``v0`` на 2.3 МБ. Держал полку последний гейт выкладки: ``v1`` весил
+# 19.8 МБ при потолке приёмника 16 МБ, а прогрев не давал выкладке никого, кто решит про
+# тяжёлый кусок, - и она вставала на нём навсегда (``shrink`` не задан, поведение до
+# TC-467). Полка эта не про голодание сторожа: запас показа всё это время держался выше
+# GUARD_HIGH, и прогрев ни разу не замирал.
+
+
+class _AliveProc:
+    """Живой процесс упаковки: последний кусок ещё пишется и наружу не идёт."""
+
+    def poll(self) -> int | None:
+        return None
+
+
+def test_a_piece_over_the_receiver_ceiling_never_stops_the_warm_publishing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Кусок тяжелее потолка приёмника ложится на диск и выкладку прогрева не останавливает.
+
+    Две половины одной работы. Первая - проводка: прогрев обязан отдать выкладке того, кто
+    решает про тяжёлый кусок, иначе она встаёт на нём навсегда. Вторая - само решение: на
+    диск кусок ложится (иначе :meth:`Warmer._missing` вернётся на это место следующим
+    прогоном и тяжёлое место перекладывалось бы вечно), но запасом не считается - его не
+    видит ни :attr:`Warmer.warmed`, ни :attr:`Warmer.done`.
+    """
+    from torrcast import stream
+    from torrcast.stream import MAX_SEGMENT_BYTES
+
+    seen: dict[str, Any] = {}
+
+    class _Recorder:
+        """Упаковка-заглушка: запоминает, с чем её подняли, и сразу доходит до края."""
+
+        def __init__(self, last: int) -> None:
+            self.proc = _AliveProc()
+            self.edge = last
+            self.last = last
+
+        @classmethod
+        def start(
+            cls, command: list[str], out: Path, run: Path, first: int, last: int = -1, **rest: Any
+        ) -> _Recorder:
+            seen.update(rest)
+            return cls(last)
+
+        def publish(self) -> None:
+            return None
+
+        def poll(self) -> int | None:
+            return None
+
+        def stop(self, keep_files: bool = True, reason: str = "") -> None:
+            return None
+
+    monkeypatch.setattr(stream, "Packer", _Recorder)
+    monkeypatch.setattr(stream, "pack_start", lambda url, at, timeout=0.0: at)
+    grid = _grid()
+    warmer = Warmer(source="нет", audio=0, grid=grid, vault=_vault(tmp_path), slack=1e6)
+    warmer._run(0, grid.count - 1)
+    assert seen.get("shrink") is not None, (
+        "прогрев поднял упаковку без решателя про тяжёлый кусок - выкладка встанет на первом же"
+    )
+
+    # А теперь - настоящая выкладка с этим самым решателем: тяжёлый кусок посередине.
+    heavy = MAX_SEGMENT_BYTES + 1
+    run = warmer.vault.dir / RUN_DIR
+    run.mkdir(parents=True, exist_ok=True)
+    weights = {0: 1024, 1: heavy, 2: 1024, 3: 1024}
+    for slot, size in weights.items():
+        (run / segment_name(slot)).write_bytes(b"x" * size)
+    packer = Packer(
+        proc=_AliveProc(),  # type: ignore[arg-type]
+        out=warmer.vault.dir,
+        run=run,
+        first=0,
+        last=3,
+        shrink=warmer._lay_heavy,
+    )
+
+    packer.publish()
+
+    assert warmer.vault.slots() == {0, 1, 2}, (
+        f"выкладка прогрева встала на тяжёлом куске: на диске {sorted(warmer.vault.slots())}"
+    )
+    assert packer.edge == 2, f"край не дошёл до последнего дописанного куска: {packer.edge}"
+    assert warmer.vault.path(1).stat().st_size == heavy, "тяжёлый кусок лёг не как есть"
+    assert warmer.vault.slots(warmer.cap) == {0, 2}, (
+        "тяжёлая копия сосчиталась запасом показа, а показ её не возьмёт"
+    )
+
+
+# --- TC-563: журнал прогрева не говорит, копией он идёт или перекодом -----------------
+# Режим выводился косвенно - по соседней метке «пробный прогон прогрева», которой у
+# перекодирующего захода нет вовсе, - и на этой недоговорённости срывался разбор живого
+# показа: цену соседства с прогревом (:data:`torrcast.recode.NEIGHBOUR_TOLL`, 33 %) искали
+# там, где прогрев шёл копией, а копия стоит соседу 2-3 %.
+
+
+def test_the_warm_journal_says_whether_it_copies_or_recodes(
+    clip: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Заход прогрева называет свой режим словом - и в ленте меток, и человеку в показ.
+
+    Настоящие заходы обоими режимами, а не разбор аргументов ffmpeg: сказать про режим
+    обязана та самая строка, которую читают при разборе, а не та, которую можно вывести.
+    """
+    from torrcast import timing
+    from torrcast.recode import Encode
+
+    lane = tmp_path / "лента.jsonl"
+    monkeypatch.setenv(timing.TIMELINE_ENV, str(lane))
+    grid = _grid()
+
+    copied: list[str] = []
+    Warmer(
+        source=clip, audio=0, grid=grid, vault=_vault(tmp_path, key="копия"),
+        rate=0.0, slack=1e6, log=copied.append,
+    )._run(0, 0)  # fmt: skip
+
+    recoded: list[str] = []
+    Warmer(
+        source=clip, audio=0, grid=grid, vault=_vault(tmp_path, key="перекод"),
+        rate=0.0, slack=1e6, encode=Encode(preset="ultrafast", mbit=1.0), log=recoded.append,
+    )._run(0, 0)  # fmt: skip
+
+    ways = [m.get("режим") for m in timing.read(lane) if m.get("name") == "прогрев пошёл"]
+    assert ways == ["копия", "перекод"], f"журнал не назвал режим захода прогрева: {ways}"
+    assert any("копией" in line for line in copied), (
+        f"копирующий заход не назвал себя человеку: {copied}"
+    )
+    assert any("перекодом" in line for line in recoded), (
+        f"перекодирующий заход не назвал себя человеку: {recoded}"
+    )

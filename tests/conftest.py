@@ -129,6 +129,7 @@ MACHINE_TESTS = frozenset(
         "tests/test_warm.py::test_warming_lays_the_whole_clip_on_disk_and_reports_it",
         "tests/test_warm.py::test_warming_does_not_even_start_a_run_while_the_recoder_works",
         "tests/test_warm.py::test_the_warmed_film_is_homogeneous_and_its_heavy_piece_is_recoded",
+        "tests/test_warm.py::test_the_warm_journal_says_whether_it_copies_or_recodes",
         "tests/test_swarm.py::test_run_ffprobe_returns_the_moment_the_probe_exits",
         "tests/test_swarm.py::test_run_ffprobe_bails_at_once_on_a_swarm_declared_dead",
         "tests/test_swarm.py::test_run_ffprobe_keeps_the_full_budget_while_the_stream_is_alive",
