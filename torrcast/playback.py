@@ -512,6 +512,7 @@ def _layout(
     чем труднее материал, - и на сплошном перекоде обещание промахивалось на все восемь
     процентов ``MAXRATE_GAIN``, ровно вверх, ровно на длинных кусках.
     """
+    from torrcast.recode import MAXRATE_GAIN
     from torrcast.stream import AUDIO_MBIT, TS_OVERHEAD, grid_for
 
     whole = _encode_all(config, codec, video_mbit, depth, profile, frame, hdr)
@@ -522,7 +523,9 @@ def _layout(
         config.hls_keyframes,
         say=say,
         delivered_mbit=(video_mbit + AUDIO_MBIT) * TS_OVERHEAD if video_mbit > 0 else 0.0,
-        ceiling_mbit=config.recode_mbit if config.recode else 0.0,
+        ceiling_mbit=(
+            (config.recode_mbit * MAXRATE_GAIN + AUDIO_MBIT) * TS_OVERHEAD if config.recode else 0.0
+        ),
         # Сплошной перекод: вес куска задаём мы сами, карта источника тут не судья.
         # 🔴 TC-501. Задаём его МГНОВЕННЫМ потолком кодера (:attr:`torrcast.recode.Encode.maxrate`),
         # а не целью: цель - это средний битрейт по прогону, а в отдельный кусок кодер

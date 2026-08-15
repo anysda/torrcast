@@ -797,6 +797,10 @@ class Recoder:
     packer: Any = None
     lock: Any = field(default_factory=threading.Lock)
 
+    def fit(self, span: float, preset: str) -> Encode:
+        """Цель одного куска по обоим потолкам этого приёмника."""
+        return replace(self.encode, preset=preset).fit(span, self.cap, self.threshold)
+
     @property
     def working(self) -> bool:
         """Идёт ли заход прямо сейчас. По этому и уступает прогрев (:class:`torrcast.warm.Warmer`).
@@ -1350,7 +1354,7 @@ class Recoder:
         # это на выходе (:meth:`torrcast.stream.Packer.publish`) поздно - процессор уже
         # потрачен на кусок, который заведомо не влезал, и потрачен на критическом пути.
         longest = max(self.grid.span(s) for s in range(first, last + 1))
-        encode = replace(self.encode, preset=preset).fit(longest, self.cap)
+        encode = self.fit(longest, preset)
         mark(
             "заход",
             первый=first,

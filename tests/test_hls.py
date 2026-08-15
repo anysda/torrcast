@@ -881,6 +881,9 @@ def test_the_spot_shrink_packs_the_piece_under_the_cap(clip: str, tmp_path: Path
             path = self.spare / segment_name(slot)
             return path if path.exists() else None
 
+        def fit(self, span: float, preset: str) -> Encode:
+            return Encode(preset=preset).fit(span, MAX_SEGMENT_BYTES, self.threshold)
+
     out = hls_dir(str(tmp_path / "hls"))
     spare = out / "recode"
     spare.mkdir(parents=True)
@@ -929,6 +932,9 @@ def test_the_spot_shrink_aims_under_both_ceilings_of_the_receiver(
 
         def ready(self, slot: int) -> Path | None:
             return None
+
+        def fit(self, span: float, preset: str) -> Encode:
+            return Encode(preset=preset).fit(span, MAX_SEGMENT_BYTES, self.threshold)
 
     out = hls_dir(str(tmp_path / "hls"))
     said: list[str] = []
@@ -1983,6 +1989,19 @@ def test_the_grid_never_hands_the_receiver_a_segment_heavier_than_the_cap() -> N
     assert capped.bounds != heavy.bounds, "сетка обязана была измениться"
     assert all(b in keys or b == 0.0 for b in capped.bounds), "границы остались на опорных кадрах"
     assert capped.count == heavy.count + 1, "лишний рез ровно один - в пустыне, а не по всему кино"
+
+
+def test_the_last_segment_obeys_the_weight_cap_too() -> None:
+    """Хвост прилипает только пока итоговый кусок остаётся в потолке веса."""
+    delivered = 10.21
+    duration = 595.0
+    keys = [round(k * 8.5, 3) for k in range(70)]
+
+    grid = Grid.on_keyframes(keys, duration, 10.0, fixed_mbit=delivered)
+    weights = [grid.span(k) * delivered * 1e6 / 8 for k in range(grid.count)]
+
+    assert max(weights) <= MAX_SEGMENT_BYTES
+    assert grid.span(grid.count - 1) < 16.5
 
 
 def test_the_cap_counts_what_leaves_for_the_tv_not_what_lies_in_the_container() -> None:

@@ -1093,9 +1093,7 @@ class Feed:
             # Оба потолка приёмника разом: вес куска (:attr:`cap`) и битрейт, который он
             # тянет (порог кодировщика - то же число). Считает их одно место на весь
             # проект, иначе о потолке появился бы третий источник правды.
-            encode = replace(recoder.encode, preset=recoder.pace.table()[-1][0]).fit(
-                span, self.cap, recoder.threshold
-            )
+            encode = recoder.fit(span, recoder.pace.table()[-1][0])
             mbit = encode.mbit
             run = recoder.spare / SHRINK_DIR
             weight = f" ({size / 1e6:.0f} МБ)" if size > 0 else ""

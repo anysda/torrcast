@@ -197,6 +197,20 @@ def test_the_target_fits_the_receivers_bitrate_ceiling_too_when_asked() -> None:
     assert _went(both.mbit) * 9.55 / 8 <= cap / 1e6, "и по весу он влезать не перестал"
 
 
+def test_the_recoder_counts_one_target_for_a_run_and_an_emergency_shrink(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """Оба пути спрашивают потолки у одного расчёта кодировщика."""
+    grid = _grid()
+    weights = Weights.of(_keys(rate=4.0e6), grid)
+    assert weights is not None
+    recoder = Recoder(
+        source="src", audio=0, grid=grid, spare=tmp_path, weights=weights, threshold=10.0
+    )
+
+    fitted = recoder.fit(6.0, recoder.pace.table()[-1][0])
+    assert fitted.mbit == pytest.approx(7.93, abs=0.01)
+    assert _went(fitted.mbit) <= recoder.threshold
+
+
 # -------------------------------------------------------------- команда перекодирования
 
 
@@ -991,11 +1005,15 @@ def test_a_run_takes_its_target_from_its_longest_piece(tmp_path, monkeypatch) ->
 
     recoder._run(0, 2)  # куски 6, 20 и 6 с - судит двадцатисекундный
     long_target = float(seen[-1][seen[-1].index("-b:v") + 1].rstrip("M"))
-    assert long_target == pytest.approx(Encode(mbit=9.0).fit(20.0, recoder.cap).mbit, abs=0.01)
+    assert long_target == pytest.approx(
+        Encode(mbit=9.0).fit(20.0, recoder.cap, recoder.threshold).mbit, abs=0.01
+    )
     assert _went(long_target) * 20.0 / 8 <= recoder.cap / 1e6, "20 с обязаны влезть в потолок"
 
-    recoder._run(0, 0)  # а сам по себе шестисекундный кусок качества не теряет
-    assert float(seen[-1][seen[-1].index("-b:v") + 1].rstrip("M")) == pytest.approx(9.0)
+    recoder._run(0, 0)
+    short_target = float(seen[-1][seen[-1].index("-b:v") + 1].rstrip("M"))
+    assert short_target == pytest.approx(7.93, abs=0.01)
+    assert _went(short_target) <= recoder.threshold
 
 
 def test_a_run_is_counted_by_what_it_published_not_by_what_is_left(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
@@ -1987,6 +2005,36 @@ def test_the_grid_is_told_the_encoders_ceiling_not_its_average_target() -> None:
         max(naive.span(k) * delivered * 1e6 / 8 for k in range(naive.count - 1))
         > CAUTIOUS.max_segment_bytes
     ), "замер подобран неверно: прежнее обещание обязано давать кусок за потолком"
+
+
+def test_the_spot_recode_ceiling_is_delivered_bitrate_not_bare_video() -> None:
+    """Сетка считает тот же поток, который получит приёмник: видео, AAC и mpegts."""
+    from torrcast.cli import _layout
+    from torrcast.profile import CAUTIOUS
+    from torrcast.state import Config
+    from torrcast.stream import AUDIO_MBIT, TS_OVERHEAD
+
+    duration, period = 80.0, 13.4
+    at = sorted(
+        t
+        for k in range(int(duration / period) + 1)
+        for t in (round(k * period, 3), round(k * period + 9.5, 3))
+        if t < duration
+    )
+    keys = FilmKeys(duration, at, [int(t * 20.0e6 / 8) for t in at], "mkv")
+    monkey = pytest.MonkeyPatch()
+    monkey.setattr("torrcast.stream.film_keys", lambda url: keys)
+    try:
+        grid, whole = _layout(Config(), "http://ts/x", duration, "h264", 20.0, depth=8)
+    finally:
+        monkey.undo()
+
+    assert whole is None, "обычный H.264 перекодируется только в тяжёлых местах"
+    delivered = (Config().recode_mbit * MAXRATE_GAIN + AUDIO_MBIT) * TS_OVERHEAD
+    assert delivered == pytest.approx(10.21, abs=0.02)
+    assert max(grid.span(k) * delivered * 1e6 / 8 for k in range(grid.count)) <= (
+        CAUTIOUS.max_segment_bytes
+    )
 
 
 def test_a_gop_too_long_to_cut_pulls_the_whole_target_down() -> None:

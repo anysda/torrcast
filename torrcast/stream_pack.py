@@ -217,7 +217,14 @@ class Grid:
                 if key - prev >= step / 2 and weigh(prev, key) <= cap:
                     before = key
             if first is None:
-                break  # дальше только хвост короче половины шага - он прилипает к последнему
+                if weigh(prev, duration) <= cap:
+                    break  # короткий хвост влезает и по-прежнему прилипает к последнему
+                tail = [key for key in keys[index:] if prev < key < duration]
+                tail_fits = [key for key in tail if weigh(prev, key) <= cap]
+                if not tail:
+                    break  # последний GOP тяжелее потолка, резать его нечем
+                bounds.append(tail_fits[-1] if tail_fits else tail[0])
+                continue
             first_fits = weigh(prev, first) <= cap
             nearest_head = (
                 len(bounds) <= 2
