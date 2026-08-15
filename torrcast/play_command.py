@@ -57,6 +57,7 @@ if TYPE_CHECKING:
     from torrcast.ranking import (
         _gb,
         _hms,
+        default_unnamed,
         pick_voice,
         quality_text,
         sound_note,
@@ -256,8 +257,7 @@ def _cmd_play(args: Args) -> int:
     fallback_spoken = (
         not args.pinned
         and voice_unproven(media, native=plan.picture.native)
-        and bool(media.tracks)
-        and not media.tracks[media.default_track()].named
+        and default_unnamed(media)
         and release.dubbed
     )
     note = (

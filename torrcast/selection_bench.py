@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     from torrcast.playback import _default_file
     from torrcast.ranking import (
         _cut,
+        default_unnamed,
         heard,
         honest_shot,
         peer_grace,
@@ -665,11 +666,7 @@ class _Bench:
         """
         lang = heard(mute.found)
         trace.emit("select", "mute", release=mute.number, lang=lang, checked=tried)
-        unnamed_promise = (
-            bool(mute.found.tracks)
-            and not mute.found.tracks[mute.found.default_track()].named
-            and mute.release.dubbed
-        )
+        unnamed_promise = default_unnamed(mute.found) and mute.release.dubbed
         if unnamed_promise:
             print(
                 f"русская озвучка не подтверждена ни в одной из проверенных раздач "
