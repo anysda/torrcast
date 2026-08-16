@@ -28,7 +28,7 @@ from typing import IO, Any
 from torrcast import InfraError, why
 from torrcast.cast_core import Position
 from torrcast.profile import CAUTIOUS, Profile
-from torrcast.state import WATCHED_RATIO
+from torrcast.state import ENDING_RATIO
 from torrcast.stream import parse_manifest
 from torrcast.timing import CLOCK, Clock
 
@@ -459,7 +459,7 @@ class MockReceiver:
         один замер досмотра сухим прогоном не доказывался.
 
         Мерка взята не своя, а та же, по которой показ отличает титры от аварии:
-        :data:`torrcast.state.WATCHED_RATIO` (:meth:`torrcast.cli._Revival.resurrect`).
+        :data:`torrcast.state.ENDING_RATIO` (:meth:`torrcast.cli._Revival.resurrect`).
         Не дошли до неё - это обрыв, и дальше он проходит через терпение приёмника
         (:meth:`_wait`) ровно как оборванная картинка на ТВ.
 
@@ -470,7 +470,7 @@ class MockReceiver:
         if self._proc is None or self._proc.poll() != 0:
             return False
         whole = self.report.duration
-        return whole <= 0 or self._pos.pos >= whole * WATCHED_RATIO
+        return whole <= 0 or self._pos.pos >= whole * ENDING_RATIO
 
     def _wait(self, pos: float) -> bool:
         """Терпение приёмника к стоящей картинке; ``False`` - оно кончилось, показ брошен.

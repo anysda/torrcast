@@ -206,16 +206,28 @@ def test_new_jumps_to_the_named_episode_in_the_saved_release(
     assert restarted.magnet == "magnet:?xt=series"
 
 
-def test_record_over_watched_ratio_still_resumes_as_before(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Доля длительности не меняет старый контракт ``resumable``."""
+def test_watched_movie_restarts_without_a_question(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     remember(pos=950.0, dur=1000.0)
     started: list[str] = []
+    asked: list[str] = []
+
+    def ask(prompt: str = "") -> str:
+        asked.append(prompt)
+        return ""
+
     monkeypatch.setattr(cli, "start_play_unit", started.append)
     monkeypatch.setattr(cli, "_await_playing", lambda config, progress, timeout=120.0: None)
+    monkeypatch.setattr("builtins.input", ask)
 
     assert cli.main(["моана", "2"]) == 0
     assert started == [KEY]
-    assert saved().pos == 950.0
+    assert asked == []
+    assert saved().pos == 0.0 and not saved().done
+    said = capsys.readouterr().out
+    assert said.count("досмотрено") == 1
+    assert "досмотрено на 0:15:50 из 0:16:40 - играю с начала" in said
 
 
 def test_dry_resume_does_not_touch_the_unit(

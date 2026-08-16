@@ -341,6 +341,42 @@ def test_a_watched_episode_is_followed_by_the_next_one_without_questions(
     assert "s1e3" in capsys.readouterr().out
 
 
+def test_an_episode_stopped_at_96_percent_starts_the_next_one(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    remember(episode=2, file_idx=1, pos=1382.4, dur=MINUTES_24)
+    _no_questions(monkeypatch)
+    _no_unit(monkeypatch)
+
+    assert cli.main(["киберпанк"]) == 0
+
+    said = capsys.readouterr().out
+    assert "s1e2 досмотрено" in said and "играю s1e3" in said
+    assert "с 0:23:02" not in said
+    assert saved().episode == 3 and saved().file_idx == 2 and saved().pos == 0.0
+
+
+def test_the_last_episode_does_not_promise_an_automatic_restart(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    remember(episode=3, file_idx=2, pos=1382.4, dur=MINUTES_24)
+    asked: list[str] = []
+
+    def answer(prompt: str = "") -> str:
+        asked.append(prompt)
+        return "нет"
+
+    monkeypatch.setattr("builtins.input", answer)
+
+    assert cli.main(["киберпанк", "--dry"]) == 0
+
+    said = capsys.readouterr().out
+    assert said.count("была последней в раздаче") == 1
+    assert "играю с начала" not in said
+    assert asked == ["Смотреть сначала? [Да/нет]: "]
+    assert saved().done and saved().episode == 3 and saved().pos == 0.0
+
+
 def test_an_explicit_episode_jumps_inside_the_cached_release(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

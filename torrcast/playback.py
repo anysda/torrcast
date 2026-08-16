@@ -4,10 +4,10 @@ from __future__ import annotations
 
 # fmt: off
 __all__ = [
-    "CAUTIOUS", "CLOCK", "EXIT_OK",
+    "CAUTIOUS", "CLOCK", "ENDING_RATIO", "EXIT_OK",
     "REVIVE_DROP", "REVIVE_LIMIT", "REVIVE_LIVED",
     "REVIVE_PAUSE", "REVIVE_TRIES", "START_BUDGET",
-    "TYPE_CHECKING", "VIDEO_EXT", "WATCHED_RATIO",
+    "TYPE_CHECKING", "VIDEO_EXT",
     "Any", "Callable", "ChromecastReceiver",
     "Clock", "Config", "Encode",
     "Entry", "Feed", "Grid",
@@ -86,7 +86,7 @@ from torrcast.parse import (
 from torrcast.profile import CAUTIOUS, Profile
 from torrcast.profile import detect as detect_profile
 from torrcast.recode import Encode, Recoder, whole_encode
-from torrcast.state import WATCHED_RATIO, Config, Entry, State
+from torrcast.state import ENDING_RATIO, Config, Entry, State
 from torrcast.stream import (
     Feed,
     Grid,

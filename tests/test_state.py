@@ -139,6 +139,13 @@ def test_watched_movie_is_marked_and_rewound() -> None:
     assert done.magnet == "m" and done.audio == entry.audio  # выбор релиза сохраняется
 
 
+def test_watched_bookkeeping_uses_the_whole_picture_duration() -> None:
+    assert Entry(title="x", magnet="m", pos=950.0, dur=1000.0).watched
+    assert not Entry(title="x", magnet="m", pos=949.999, dur=1000.0).watched
+    assert not Entry(title="x", magnet="m", pos=950.0, dur=0.0).watched
+    assert not Entry(title="x", magnet="m", pos=0.0, dur=1000.0).watched
+
+
 def series(episode: int = 3, **fields: object) -> Entry:
     """Сериал с выбранной раздачей: три серии, у каждой свой файл."""
     return Entry(

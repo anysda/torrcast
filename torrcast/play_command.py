@@ -125,6 +125,9 @@ def _cmd_play(args: Args) -> int:
     live = state.showing()
     _say_showing(live)
     found_entry = state.find(args.title_query)
+    watched = False
+    if found_entry is not None and not args.from_start and not args.pinned:
+        found_entry, watched = _account_watched(state, found_entry)
     # --new поднимает сохранённый выбор лишь когда он действительно отвечает на
     # весь запрос. Явная серия сперва прыгает внутри сохранённой раздачи, а ручной
     # релиз/файл выбирается обычным путём: эти ручки нельзя выбросить молча.
@@ -139,6 +142,10 @@ def _cmd_play(args: Args) -> int:
     # совпал с записью - выход был здесь, и флаг выбрасывался, не назвав себя ни строкой;
     # не совпал - картина выбиралась в меню, и тот же флаг работал.
     if found_entry is not None and not args.pinned:
+        if watched and not found_entry[1].serial:
+            code = _from_start(config, *found_entry, args=args, clock=clock)
+            if code is not None:
+                return code
         code = _continue(config, *found_entry, args=args, clock=clock)
         if code is not None:
             return code
@@ -399,7 +406,7 @@ def _from_start(config: Config, key: str, entry: Entry, *, args: Args, clock: _C
             return None
         entry = jumped
     else:
-        entry = replace(entry, pos=0.0)
+        entry = replace(entry, pos=0.0, done=False)
     own = _Voiced()
     try:
         entry = _voiced(config, entry, args, own)
@@ -408,6 +415,29 @@ def _from_start(config: Config, key: str, entry: Entry, *, args: Args, clock: _C
         return code
     finally:
         own.drop(config)
+
+
+def _account_watched(state: State, found: tuple[str, Entry]) -> tuple[tuple[str, Entry], bool]:
+    """На следующем ``cast`` превратить закладку >= 95 % в «досмотрено».
+
+    Это бухгалтерия сохранённого места, не переход играющего сериала: живой юнит
+    по-прежнему берёт следующую серию только после естественного конца потока.
+    """
+    key, entry = found
+    if entry.done or not entry.watched:
+        return found, False
+    stopped, label = entry.pos, entry.label
+    following = entry.advance()
+    state.put(key, following)
+    state.save()
+    if following.serial and following.done:
+        return (key, following), True  # строку и выбор перезапуска ведёт ``_continue``
+    what = f" {label}" if label else ""
+    decision = (
+        f"играю {following.label}" if following.serial and not following.done else "играю с начала"
+    )
+    print(f"«{entry.title}»{what} досмотрено на {_hms(stopped)} из {_hms(entry.dur)} - {decision}")
+    return (key, following), True
 
 
 def _relayout(

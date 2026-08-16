@@ -2815,7 +2815,7 @@ def test_the_mock_tells_the_credits_from_a_source_that_died_under_the_show() -> 
     пустым состоянием. Пока это считалось титрами, ни один замер досмотра заглушкой не
     доказывался: авария на пятой минуте читалась успехом.
     """
-    from torrcast.state import WATCHED_RATIO
+    from torrcast.state import ENDING_RATIO
 
     whole = 10015.0  # 2:46:55 - длина того самого фильма
 
@@ -2833,7 +2833,7 @@ def test_the_mock_tells_the_credits_from_a_source_that_died_under_the_show() -> 
     ended = MockReceiver()
     ended._proc = FakeProc(0)  # type: ignore[assignment]
     ended.report.duration = whole
-    ended._pos = Position(whole * WATCHED_RATIO, whole, False)
+    ended._pos = Position(whole * ENDING_RATIO, whole, False)
 
     assert ended._over(), "вышел нулём за порогом досмотра - вот это титры"
     assert ended.position().state == "", "титры показ узнаёт по пустому состоянию"
