@@ -23,6 +23,7 @@ from typing import Any, cast
 
 import pytest
 
+from tests.fakes.media_probe import FakeMediaProbe
 from tests.test_cli import _FakeTorrServer, _resolve, rel
 from torrcast import cli, trace
 from torrcast.cli import (
@@ -1007,30 +1008,25 @@ def test_a_native_codec_does_not_weaken_the_quality_gate() -> None:
 # --- 🔴 TC-178: русская дорожка как условие ГОДНОСТИ релиза ---------------------------
 
 
-def _tracks(monkeypatch: pytest.MonkeyPatch, ranked: list[Release], *langs: str) -> list[str]:
-    """Подсунуть ffprobe: по языку дорожки на релиз, считая от верха. Отдаёт список
-    спрошенных потоков - по нему видно, сколько раз мы ходили к паспорту и за кем.
+def _tracks(ranked: list[Release], *langs: str) -> FakeMediaProbe:
+    """ffprobe стенда: по языку дорожки на релиз, считая от верха. Отдаёт сам фейк -
+    по его :attr:`~tests.fakes.media_probe.FakeMediaProbe.asked` видно, сколько раз мы
+    ходили к паспорту и за кем.
 
     Язык привязан к САМОЙ раздаче (её магнит виден в адресе потока), а не к порядку
     вызовов: запасной релиз греется параллельно с верхом, и кто дошёл до ffprobe первым -
     дело случая.
     """
-    asked: list[str] = []
-
-    def read(url: str, timeout: float = 90.0, alive: object = None) -> Media:
-        asked.append(url)
-        for number, release in enumerate(ranked):
-            if f"hash-{release.magnet}/" in url and number < len(langs):
-                track = AudioTrack(index=0, language=langs[number])
-                return Media(3600.0, (track,), "h264", 1080, 1920)
-        return Media(3600.0, (AudioTrack(index=0, language="rus"),), "h264", 1080, 1920)
-
-    monkeypatch.setattr(cli, "probe", read)
-    return asked
+    return FakeMediaProbe(
+        {
+            f"hash-{release.magnet}/": language
+            for release, language in zip(ranked, langs, strict=False)
+        }
+    )
 
 
 def test_a_release_without_a_russian_track_is_not_good_enough_and_the_search_goes_on(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     """🔴 TC-178. «Включилось» значит «включилось с русской озвучкой».
 
@@ -1040,10 +1036,10 @@ def test_a_release_without_a_russian_track_is_not_good_enough_and_the_search_goe
     результат, а признание, что мы не дотянулись.
     """
     ranked = [rel(name="r0", seeders=100), rel(name="r1", seeders=90)]
-    _tracks(monkeypatch, ranked, "jpn", "rus")
+    probe = _tracks(ranked, "jpn", "rus")
     torrserver = _FakeTorrServer()
 
-    prep = _resolve(cli._Bench(cast(Any, torrserver)), ranked)
+    prep = _resolve(cli._Bench(cast(Any, torrserver), prober=probe), ranked)
 
     printed = capsys.readouterr().out
     assert prep.number == 2, "японский релиз годным не считается - идём дальше по очереди"
@@ -1052,7 +1048,7 @@ def test_a_release_without_a_russian_track_is_not_good_enough_and_the_search_goe
 
 
 def test_the_gate_costs_no_extra_probe_when_the_top_release_speaks_russian(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Скорость - часть продукта: на счастливом пути гейт не стоит ни одного лишнего шага.
 
@@ -1061,19 +1057,20 @@ def test_the_gate_costs_no_extra_probe_when_the_top_release_speaks_russian(
     раздачи мы обращаемся ровно один раз.
     """
     ranked = [rel(name="r0", seeders=100), rel(name="r1", seeders=90), rel(name="r2", seeders=80)]
-    asked = _tracks(monkeypatch, ranked, "rus", "rus", "rus")
+    probe = _tracks(ranked, "rus", "rus", "rus")
 
-    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer())), ranked)
+    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer()), prober=probe), ranked)
 
     printed = capsys.readouterr().out
     assert prep.number == 1
+    asked = probe.asked
     assert len(asked) == len(set(asked)), "за один и тот же паспорт дважды не платим"
     assert len(asked) <= 2, "верх и греющийся ему на смену запасной - больше никого не трогали"
     assert "без русской озвучки" not in printed, "счастливый путь лишних строк не печатает"
 
 
 def test_when_nobody_has_a_russian_track_the_show_still_happens_and_says_so(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     """🔴 TC-178. Гейт не слепой: русской нет ни у кого - человек всё равно получает картину.
 
@@ -1082,9 +1079,9 @@ def test_when_nobody_has_a_russian_track_the_show_still_happens_and_says_so(
     называет и то, что искали, и то, что в итоге включили.
     """
     ranked = [rel(name="r0", seeders=100), rel(name="r1", seeders=90)]
-    _tracks(monkeypatch, ranked, "jpn", "jpn")
+    probe = _tracks(ranked, "jpn", "jpn")
 
-    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer())), ranked)
+    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer()), prober=probe), ranked)
 
     printed = capsys.readouterr().out
     assert prep.number == 1, "лучший из того, что есть, а не отказ"
@@ -1094,19 +1091,17 @@ def test_when_nobody_has_a_russian_track_the_show_still_happens_and_says_so(
 
 
 def test_the_catalogue_hole_lands_in_the_weekly_trace(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Any, capsys: pytest.CaptureFixture[str]
+    journal: Any, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """🔴 TC-178. «Русской нет ни у кого» обязано попадать в след, а не тонуть в строке.
 
     По этим записям замер и считает, у скольких картин русской дорожки нет вовсе: экран
     гаснет вместе с сеансом, а недельная лента лежит и читается ``cast log``.
     """
-    monkeypatch.setenv(trace.LOG_ENV, str(tmp_path))
-    monkeypatch.setenv(trace.SID_ENV, "test-mute")
     ranked = [rel(name="r0", seeders=100), rel(name="r1", seeders=90)]
-    _tracks(monkeypatch, ranked, "jpn", "jpn")
+    probe = _tracks(ranked, "jpn", "jpn")
 
-    _resolve(cli._Bench(cast(Any, _FakeTorrServer())), ranked)
+    _resolve(cli._Bench(cast(Any, _FakeTorrServer()), prober=probe), ranked)
     trace.shutdown()
     capsys.readouterr()
 
@@ -1118,13 +1113,13 @@ def test_the_catalogue_hole_lands_in_the_weekly_trace(
 
 
 def test_a_hand_picked_release_is_never_judged_for_its_language(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     """``--release N`` - человек выбрал сам, и спорить с ним про язык звука не наше дело."""
     ranked = [rel(name="r0", seeders=100), rel(name="r1", seeders=90)]
-    _tracks(monkeypatch, ranked, "jpn", "rus")
+    probe = _tracks(ranked, "jpn", "rus")
 
-    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer())), ranked, release=1)
+    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer()), prober=probe), ranked, release=1)
 
     assert prep.number == 1
     assert "без русской озвучки" not in capsys.readouterr().out
@@ -1134,7 +1129,7 @@ def test_a_hand_picked_release_is_never_judged_for_its_language(
 
 
 def test_an_unnamed_language_no_longer_ends_the_queue(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     """🔴 TC-492. Переигровка сеанса «Эксперименты Лэйн» (11-08, очередь из восьми).
 
@@ -1149,9 +1144,9 @@ def test_an_unnamed_language_no_longer_ends_the_queue(
     :data:`VERDICT_BUDGET`), а не согласие играть неизвестно что.
     """
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(8)]
-    _tracks(monkeypatch, ranked, "jpn", "jpn", "jpn", "und", "jpn", "rus", "jpn", "jpn")
+    probe = _tracks(ranked, "jpn", "jpn", "jpn", "und", "jpn", "rus", "jpn", "jpn")
 
-    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer())), ranked)
+    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer()), prober=probe), ranked)
 
     printed = capsys.readouterr().out
     assert prep.number == 6, "русская дорожка нашлась ниже по очереди - её и играем"
@@ -1160,7 +1155,7 @@ def test_an_unnamed_language_no_longer_ends_the_queue(
 
 
 def test_when_the_queue_runs_out_the_unnamed_release_plays_by_the_mute_move(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     """🔴 TC-492. Русской не нашлось ни у кого - играет отложенный, ходом TC-178.
 
@@ -1170,9 +1165,9 @@ def test_when_the_queue_runs_out_the_unnamed_release_plays_by_the_mute_move(
     может оказаться русским, а названный японским русским уже не станет.
     """
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
-    _tracks(monkeypatch, ranked, "jpn", "und", "jpn")
+    probe = _tracks(ranked, "jpn", "und", "jpn")
 
-    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer())), ranked)
+    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer()), prober=probe), ranked)
 
     printed = capsys.readouterr().out
     assert prep.number == 2, "незнание лучше знания «нет»: японский русским не станет"
@@ -1182,7 +1177,7 @@ def test_when_the_queue_runs_out_the_unnamed_release_plays_by_the_mute_move(
 
 
 def test_a_native_picture_still_plays_its_only_unnamed_track(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     """У отечественной картины безымянная дорожка - паспорт происхождения, а не пробел.
 
@@ -1190,14 +1185,14 @@ def test_a_native_picture_still_plays_its_only_unnamed_track(
     озвучки значило бы искать перевод русского фильма на русский.
     """
     ranked = [rel(name="r0", seeders=100), rel(name="r1", seeders=90)]
-    _tracks(monkeypatch, ranked, "und", "rus")
+    probe = _tracks(ranked, "und", "rus")
     picture = Picture(title="Бригада", year=2002, releases=ranked, native=True)
     plan = cli._Plan(
         picture=picture, ranked=ranked, runtime=RUNTIME, warn_mbit=20.0, recode_at=10.0
     )
 
     with Progress(out=io.StringIO()) as progress:
-        prep = cli._Bench(cast(Any, _FakeTorrServer())).resolve(
+        prep = cli._Bench(cast(Any, _FakeTorrServer()), prober=probe).resolve(
             plan, cli.Args(query=["бригада"]), progress
         )
 
@@ -1206,14 +1201,14 @@ def test_a_native_picture_still_plays_its_only_unnamed_track(
 
 
 def test_a_native_passport_reaches_the_voice_gate_without_a_second_search(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Полицейский с Рублёвки: ответ справки относится и к обычному первому кругу."""
     ranked = [
         rel(name="Полицейский с Рублёвки 1080p", seeders=116),
         rel(name="Полицейский с Рублёвки 720p", quality="720p", seeders=80),
     ]
-    _tracks(monkeypatch, ranked, "und", "rus")
+    probe = _tracks(ranked, "und", "rus")
     picture = Picture(title="Полицейский с Рублёвки", year=2016, kind="tv", releases=ranked)
     native_picture(
         picture,
@@ -1225,7 +1220,7 @@ def test_a_native_passport_reaches_the_voice_gate_without_a_second_search(
     )
 
     with Progress(out=io.StringIO()) as progress:
-        prep = cli._Bench(cast(Any, _FakeTorrServer())).resolve(
+        prep = cli._Bench(cast(Any, _FakeTorrServer()), prober=probe).resolve(
             plan, cli.Args(query=["полицейский", "с", "рублёвки"]), progress
         )
 
@@ -1234,16 +1229,16 @@ def test_a_native_passport_reaches_the_voice_gate_without_a_second_search(
 
 
 def test_a_mute_fallback_does_not_dispute_its_own_release_name(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Отказ и косвенная улика живут в одном непротиворечивом вердикте."""
     ranked = [
         rel(name="Кино 1080p | D", seeders=120),
         rel(name="Кино 720p", quality="720p", seeders=80),
     ]
-    _tracks(monkeypatch, ranked, "und", "eng")
+    probe = _tracks(ranked, "und", "eng")
 
-    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer())), ranked)
+    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer()), prober=probe), ranked)
 
     verdicts = [line for line in capsys.readouterr().out.splitlines() if "включаю релиз" in line]
     assert prep.number == 1

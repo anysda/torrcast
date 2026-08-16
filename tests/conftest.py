@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from torrcast import cli, console
+from torrcast import cli, console, trace
 from torrcast.facts import Origin
 
 if TYPE_CHECKING:
@@ -223,6 +223,17 @@ def _silent_facts(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """
     monkeypatch.setattr(cli, "origin", lambda title, series=False, budget=0.0: Origin())
     monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
+
+
+@pytest.fixture
+def journal(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
+    """Своя лента следа на один тест: пустой каталог и свой идентификатор сеанса.
+
+    Без неё записи теста уехали бы в настоящую ленту хозяина, а чужие - в проверку.
+    """
+    monkeypatch.setenv(trace.LOG_ENV, str(tmp_path))
+    monkeypatch.setenv(trace.SID_ENV, "test-sid")
+    return tmp_path
 
 
 @pytest.fixture(autouse=True)
