@@ -1,4 +1,6 @@
-"""Часть CLI; публичный фасад — :mod:`torrcast.cli`."""
+"""Сценарий оживления погасшего показа."""
+
+# ruff: noqa: F821
 
 from __future__ import annotations
 
@@ -7,43 +9,34 @@ __all__: list[str] = []
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from torrcast.choice import _ctl, _Revivable
-    from torrcast.commands import (
-        PAUSE_LIMIT,
-        PAUSE_SECONDS,
-        SAY_SECONDS,
-        TRACE_ENV,
-        Watch,
-    )
-    from torrcast.playback import _asked, _blamed
-    from torrcast.ranking import _hms
+    pass
 
 
 import os
-import time
 from dataclasses import dataclass
 
-from torrcast import (
-    InfraError,
-    trace,
-)
-from torrcast.cast import Receiver
-from torrcast.commands import (
-    REVIVE_DROP,
-    REVIVE_LIMIT,
-    REVIVE_LIVED,
-    REVIVE_PAUSE,
-    REVIVE_TRIES,
-)
-from torrcast.profile import CAUTIOUS, Profile
-from torrcast.state import ENDING_RATIO
-from torrcast.stream import (
-    Feed,
-    Supply,
-    mark_playing,
-)
-from torrcast.timing import CLOCK, Clock
-from torrcast.warm import Warmer
+from torrcast.ports.module import module
+
+clock_port = module("time")
+time = clock_port
+for _module_name, _names in {
+    "torrcast": ("InfraError", "trace"),
+    "torrcast.cast": ("Receiver",),
+    "torrcast.commands": (
+        "REVIVE_DROP",
+        "REVIVE_LIMIT",
+        "REVIVE_LIVED",
+        "REVIVE_PAUSE",
+        "REVIVE_TRIES",
+    ),
+    "torrcast.profile": ("CAUTIOUS", "Profile"),
+    "torrcast.state": ("ENDING_RATIO",),
+    "torrcast.stream": ("Feed", "Supply", "mark_playing"),
+    "torrcast.timing": ("CLOCK", "Clock"),
+    "torrcast.warm": ("Warmer",),
+}.items():
+    _dependency = module(_module_name)
+    globals().update({name: getattr(_dependency, name) for name in _names})
 
 #: Сколько терпим НЕПОДВИЖНЫЙ указатель за долей длительности, прежде чем считать сеанс
 #: доигранным (:func:`_hold`). Страховка перехода: конец потока приёмник называет не
@@ -227,7 +220,7 @@ class _Revival:
         if not self.since:
             self.since, self.warmed = now, warmer.warmed if warmer is not None else 0.0
             why = self._why(feed)
-            self.began, self.why = time.time(), why
+            self.began, self.why = clock_port.time(), why
             trace.dark(pos=pos, why=why, shown=shown)
             said = (
                 f"показ погас на {_hms(pos)}"

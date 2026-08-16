@@ -4,8 +4,8 @@
 
 import sys
 
-from torrcast import _playback_impl as _implementation
-from torrcast._playback_impl import *
+from torrcast.usecases import playback as _implementation
+from torrcast.usecases.playback import *
 
 __all__ = [
     "CAUTIOUS",

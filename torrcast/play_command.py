@@ -4,8 +4,8 @@
 
 import sys
 
-from torrcast import _play_command_impl as _implementation
-from torrcast._play_command_impl import *
+from torrcast.usecases import cast_command as _implementation
+from torrcast.usecases.cast_command import *
 
 __all__ = [
     "EXIT_OK",

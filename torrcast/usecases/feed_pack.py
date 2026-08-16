@@ -1,4 +1,6 @@
-"""Часть медиатракта; публичный фасад — :mod:`torrcast.stream`."""
+"""Сценарии упаковки и подачи медиапотока."""
+
+# ruff: noqa: F821
 
 from __future__ import annotations
 
@@ -32,35 +34,28 @@ __all__ = [
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from torrcast.stream_core import (
-        MIXED_PREFIX,
-        MUTE_SECONDS,
-        PACK_DIR,
-        PACK_LIST,
-        PACK_SHORT_SECONDS,
-        RECODE_DIR,
-        SHRINK_DIR,
-        SPLIT_SLACK,
-    )
-    from torrcast.stream_pack import Grid, ffmpeg_pack_command, forget_playing, pack_start
-    from torrcast.stream_probe import segment_name, segment_slot
+    pass
 
 
 import contextlib
 import os
-import shutil
-import subprocess
-import tempfile
 import threading
-import time
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from torrcast import InfraError
-from torrcast.profile import CAUTIOUS
-from torrcast.stream_core import _TIMEOUT, PACK_PENDING_BYTES
-from torrcast.timing import mark
+from torrcast.ports.module import module
+
+shutil = module("shutil")
+subprocess = module("subprocess")
+tempfile = module("tempfile")
+clock_port = module("time")
+time = clock_port
+InfraError = module("torrcast").InfraError
+CAUTIOUS = module("torrcast.profile").CAUTIOUS
+_stream_core = module("torrcast.stream_core")
+_TIMEOUT, PACK_PENDING_BYTES = _stream_core._TIMEOUT, _stream_core.PACK_PENDING_BYTES
+mark = module("torrcast.timing").mark
 
 if TYPE_CHECKING:
     pass
@@ -199,10 +194,10 @@ class Packer:
         grid: Grid | None = None,
         cap: int = CAUTIOUS.max_segment_bytes,
     ) -> Packer:
-        log = tempfile.TemporaryFile()  # noqa: SIM115 - живёт всё воспроизведение
+        log = tempfile.TemporaryFile()
         shutil.rmtree(run, ignore_errors=True)
         run.mkdir(parents=True, exist_ok=True)
-        began = time.monotonic()
+        began = clock_port.monotonic()
         try:
             proc = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=log)
         except FileNotFoundError as exc:
@@ -245,7 +240,7 @@ class Packer:
         """
         if self.rate <= 0:
             return 0.0
-        reach = self.at + self.burst + (time.monotonic() - self.began) * self.rate
+        reach = self.at + self.burst + (clock_port.monotonic() - self.began) * self.rate
         return max(0.0, (film - reach) / self.rate)
 
     def finished(self) -> bool:
@@ -743,7 +738,7 @@ class Feed:
     #: Часы принадлежат ПОКАЗУ, а не прогону, и это существенно: на молчащем источнике
     #: прогон перезапускается каждые пару секунд, и часы, привязанные к прогону,
     #: обнулялись бы вечно - ровно так молчание и оставалось незамеченным.
-    moved: float = field(default_factory=time.monotonic)
+    moved: float = field(default_factory=clock_port.monotonic)
     #: Источник не читается (сеть пропала), а прогретое ещё есть: показ идёт с диска и
     #: ждёт возврата сети. Пусто - всё в порядке. Это НЕ :attr:`fatal`: умирать, пока на
     #: диске лежит фильм, нельзя, а молчать об этом - тем более.
@@ -787,7 +782,7 @@ class Feed:
         принимают», и правильный ход тут - ждать файл, а не очередь.
         """
         path = self.out / segment_name(slot)
-        deadline = time.monotonic() + self.wait
+        deadline = clock_port.monotonic() + self.wait
         while True:
             if path.exists():
                 return path
@@ -807,9 +802,9 @@ class Feed:
                     return path
                 if not hope:
                     return None
-            if time.monotonic() >= deadline:
+            if clock_port.monotonic() >= deadline:
                 return None
-            time.sleep(0.2)
+            clock_port.sleep(0.2)
 
     def _warm(self, slot: int) -> Path | None:
         """Прогретый на диске кусок этого места или ``None``.
@@ -888,7 +883,7 @@ class Feed:
             # 100 с. Работает только честный край: он растёт ровно на publish.
             packer.publish()
             if packer.edge >= packer.first:
-                self.moved = time.monotonic()
+                self.moved = clock_port.monotonic()
                 self.offline = ""  # прогон что-то выложил - значит источник снова читается
             else:
                 self._mute()
@@ -928,9 +923,9 @@ class Feed:
                 return False
         # Пока источник не читается, толкаться незачем: подъём ffmpeg на мёртвую сеть
         # стоит секунды и не даёт ничего, а показ в это время идёт с диска.
-        if time.monotonic() - self.restarted < (5.0 if self.offline else 2.0):
+        if clock_port.monotonic() - self.restarted < (5.0 if self.offline else 2.0):
             return True  # соседний запрос уже перезапустил упаковку - не толкаемся
-        self.restarted = time.monotonic()
+        self.restarted = clock_port.monotonic()
         self.restart(slot)
         return True
 
@@ -953,7 +948,7 @@ class Feed:
             # Без прогретого «молчит» неотличимо от «медленный рой на старте», а идти
             # показу всё равно некуда: тут работает прежний счёт обрывов, а не часы.
             return
-        if time.monotonic() - self.moved <= MUTE_SECONDS:
+        if clock_port.monotonic() - self.moved <= MUTE_SECONDS:
             return
         self.offline = f"источник молчит дольше {MUTE_SECONDS:.0f} с"
         self._say(f"источник не читается ({self.offline}) - иду с прогретого, жду возврата сети")
@@ -1041,7 +1036,7 @@ class Feed:
             self.burst,
             encode=self.encode,
         )
-        self.restarted = time.monotonic()
+        self.restarted = clock_port.monotonic()
         self.packer = Packer.start(
             command,
             self.out,
@@ -1142,10 +1137,14 @@ class Feed:
                     grid=self.grid,
                     cap=self.cap,
                 )
-                deadline = time.monotonic() + recoder.over_wait
-                while packer.edge < slot and packer.poll() is None and time.monotonic() < deadline:
+                deadline = clock_port.monotonic() + recoder.over_wait
+                while (
+                    packer.edge < slot
+                    and packer.poll() is None
+                    and clock_port.monotonic() < deadline
+                ):
                     packer.publish()
-                    time.sleep(0.2)
+                    clock_port.sleep(0.2)
                 packer.publish()
             except Exception:  # не поднялся ffmpeg, не открылся вход - честный пропуск
                 packer = None

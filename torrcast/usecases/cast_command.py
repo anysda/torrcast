@@ -1,4 +1,6 @@
-"""Часть CLI; публичный фасад — :mod:`torrcast.cli`."""
+"""Сценарий команды показа: поиск, выбор и запуск картины."""
+
+# ruff: noqa: F821, F822
 
 from __future__ import annotations
 
@@ -34,68 +36,27 @@ from dataclasses import replace
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from torrcast.choice import (
-        _is_default,
-        _passport,
-        _pick_plan,
-        _played,
-        namesake_note,
-        swap_note,
-        warm_order,
-        year_note,
-    )
-    from torrcast.commands import (
-        PREWARM,
-        Args,
-        _Clock,
-        _release_orphans,
-        _say_showing,
-    )
-    from torrcast.discovery import _ask, _no_budget, _search
-    from torrcast.playback import _file_picker, _launch
-    from torrcast.ranking import (
-        _gb,
-        _hms,
-        default_unnamed,
-        pick_voice,
-        quality_text,
-        sound_note,
-        voice_note,
-        voice_unproven,
-    )
-    from torrcast.reinforce import _timed, _topup
-    from torrcast.selection import _about, _Bench, _continue, _Plan, _remembered, _Voiced, _voiced
-    from torrcast.voice_origin import native_picture
+    pass
 
 
-from torrcast import (
-    trace,
-)
-from torrcast.commands import EXIT_OK
-from torrcast.console import Progress
-from torrcast.facts import (
-    Facts,
-)
-from torrcast.parse import (
-    Picture,
-    slugify,
-    split_franchise_index,
-)
-from torrcast.profile import detect as detect_profile
-from torrcast.profile import tune as tune_profile
-from torrcast.search import (
-    Prowlarr,
-    RawResult,
-    merge,
-    to_releases,
-)
-from torrcast.state import Config, Entry, State, load_config
-from torrcast.stream import (
-    TorrServer,
-    bitrate_mbit,
-)
-from torrcast.timing import mark
-from torrcast.voice_origin import native_picture
+from torrcast.ports.module import module
+
+for _module_name, _names in {
+    "torrcast": ("trace",),
+    "torrcast.commands": ("EXIT_OK",),
+    "torrcast.console": ("Progress",),
+    "torrcast.facts": ("Facts",),
+    "torrcast.parse": ("Picture", "slugify", "split_franchise_index"),
+    "torrcast.search": ("Prowlarr", "RawResult", "merge", "to_releases"),
+    "torrcast.state": ("Config", "Entry", "State", "load_config"),
+    "torrcast.stream": ("TorrServer", "bitrate_mbit"),
+    "torrcast.timing": ("mark",),
+    "torrcast.voice_origin": ("native_picture",),
+}.items():
+    _dependency = module(_module_name)
+    globals().update({name: getattr(_dependency, name) for name in _names})
+detect_profile = module("torrcast.profile").detect
+tune_profile = module("torrcast.profile").tune
 
 
 def _cmd_play(args: Args) -> int:
@@ -199,9 +160,9 @@ def _cmd_play(args: Args) -> int:
                 if code is not None:
                     return code
                 if args.release is not None:
-                    from torrcast.release_pin import recalled
-
-                    args.release_hash = recalled(args.title_query, plan.picture.key, args.release)
+                    args.release_hash = module("torrcast.release_pin").recalled(
+                        args.title_query, plan.picture.key, args.release
+                    )
                 # Опоздавший индексер: круг ушёл по кворуму, и его выдача доехала, пока
                 # человек читал меню. Доливаем ЗДЕСЬ - список уже прочитан и отвечен,
                 # менять под курсором нечего (:func:`_topup`). Ключи меню ему нужны,
@@ -462,7 +423,7 @@ def _relayout(
     остаться в имени. Подмена не молчаливая: строка про раскладку печатается до меню -
     человек видит, ЧТО именно за него прочитали.
     """
-    from torrcast.parse import unswap_layout
+    unswap_layout = module("torrcast.parse").unswap_layout
 
     swapped = unswap_layout(query)
     if swapped == query.casefold():
@@ -505,7 +466,8 @@ def _titled_number(
     нумерацию франшизы (о том же :func:`_second_language`), и честное «номера N нет»
     стало бы неправдой про другую линейку.
     """
-    from torrcast.parse import cluster, pick_franchise
+    cluster = module("torrcast.parse").cluster
+    pick_franchise = module("torrcast.parse").pick_franchise
 
     if _no_budget(client, f"поиск «{query}» целиком", progress) is None:
         return raw, cluster(to_releases(raw)), []
@@ -530,7 +492,8 @@ def _season_asked(found: list[Picture], name: str, pictures: list[Picture]) -> b
     правил тут нет - есть одно, и cli лишь читает, чем оно кончилось: номер должен
     доехать до сезонной машинерии, а знает про сезоны она, а не разбор.
     """
-    from torrcast.parse import pick_franchise, reads_season
+    pick_franchise = module("torrcast.parse").pick_franchise
+    reads_season = module("torrcast.parse").reads_season
 
     if not found or any(picture.kind != "tv" for picture in found):
         return False

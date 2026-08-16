@@ -1,4 +1,6 @@
-"""Часть CLI; публичный фасад — :mod:`torrcast.cli`."""
+"""Сценарий запуска и сопровождения выбранного показа."""
+
+# ruff: noqa: F821, F822, N806
 
 from __future__ import annotations
 
@@ -40,78 +42,67 @@ __all__ = [
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from torrcast.commands import (
-        SOURCE_PAUSE,
-        SOURCE_TRIES,
-        WORKER_DUR,
-        Args,
-        Watch,
-        _Clock,
-        _following,
-    )
-    from torrcast.selection import _about, _Plan
+    pass
 
 
 import contextlib
 import os
 import sys
-import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
 from typing import Any, NoReturn
 
-from torrcast import (
-    InfraError,
-    NotFoundError,
-    TorrcastError,
-    trace,
-    why,
-)
-from torrcast.cast import ChromecastReceiver, Receiver, StartRefusedError, make_receiver
-from torrcast.commands import (
-    EXIT_OK,
-    REVIVE_DROP,
-    REVIVE_LIMIT,
-    REVIVE_LIVED,
-    REVIVE_PAUSE,
-    REVIVE_TRIES,
-    START_BUDGET,
-)
-from torrcast.console import Progress, ask_line
-from torrcast.parse import (
-    VIDEO_EXT,
-    Release,
-)
-from torrcast.profile import CAUTIOUS, Profile
-from torrcast.profile import detect as detect_profile
-from torrcast.recode import Encode, Recoder, whole_encode
-from torrcast.state import ENDING_RATIO, Config, Entry, State
-from torrcast.stream import (
-    Feed,
-    Grid,
-    HlsServer,
-    Supply,
-    TorrFile,
-    TorrServer,
-    codec_name,
-    forget_playing,
-    hls_base,
-    mark_playing,
-    pick_video_file,
-    playing_flag,
-    probe,
-    recode_note,
-    recodes_whole,
-    start_play_unit,
-    stop_play_unit,
-    unit_active,
-    unit_why,
-    warm_file,
-)
-from torrcast.timing import CLOCK, Clock, mark
-from torrcast.warm import Vault, Warmer, warm_key, warm_root
+from torrcast.ports.module import module
+
+clock_port = module("time")
+time = clock_port
+for _module_name, _names in {
+    "torrcast": ("InfraError", "NotFoundError", "TorrcastError", "trace", "why"),
+    "torrcast.cast": ("ChromecastReceiver", "Receiver", "StartRefusedError", "make_receiver"),
+    "torrcast.commands": (
+        "EXIT_OK",
+        "REVIVE_DROP",
+        "REVIVE_LIMIT",
+        "REVIVE_LIVED",
+        "REVIVE_PAUSE",
+        "REVIVE_TRIES",
+        "START_BUDGET",
+    ),
+    "torrcast.console": ("Progress", "ask_line"),
+    "torrcast.parse": ("VIDEO_EXT", "Release"),
+    "torrcast.profile": ("CAUTIOUS", "Profile"),
+    "torrcast.recode": ("Encode", "Recoder", "whole_encode"),
+    "torrcast.state": ("ENDING_RATIO", "Config", "Entry", "State"),
+    "torrcast.stream": (
+        "Feed",
+        "Grid",
+        "HlsServer",
+        "Supply",
+        "TorrFile",
+        "TorrServer",
+        "codec_name",
+        "forget_playing",
+        "hls_base",
+        "mark_playing",
+        "pick_video_file",
+        "playing_flag",
+        "probe",
+        "recode_note",
+        "recodes_whole",
+        "start_play_unit",
+        "stop_play_unit",
+        "unit_active",
+        "unit_why",
+        "warm_file",
+    ),
+    "torrcast.timing": ("CLOCK", "Clock", "mark"),
+    "torrcast.warm": ("Vault", "Warmer", "warm_key", "warm_root"),
+}.items():
+    _dependency = module(_module_name)
+    globals().update({name: getattr(_dependency, name) for name in _names})
+detect_profile = module("torrcast.profile").detect
 
 
 def _default_file(plan: _Plan, release: Release, files: list[TorrFile]) -> TorrFile:
@@ -217,9 +208,9 @@ def _await_playing(config: Config, progress: Progress, timeout: float = START_BU
     """
     out = Path(config.hls_dir)
     flag = playing_flag(out)
-    deadline = time.monotonic() + timeout
+    deadline = clock_port.monotonic() + timeout
     packed = False
-    while time.monotonic() < deadline:
+    while clock_port.monotonic() < deadline:
         if flag.exists():
             mark("картинка")
             progress.phase("")
@@ -233,7 +224,7 @@ def _await_playing(config: Config, progress: Progress, timeout: float = START_BU
         if not unit_active():
             progress.phase("")
             raise InfraError(f"показ не запустился: {unit_why()}")
-        time.sleep(0.2)
+        clock_port.sleep(0.2)
     progress.phase("")
     stop_play_unit()
     raise InfraError(f"показ не начался за {timeout:.0f} с - {unit_why()}")
@@ -255,8 +246,13 @@ def _recoder(
     выключено настройкой, сетка не по кадрам (тогда границы не совпадут с картой), карта
     снята прошлой версией и смещений не несёт, — и о нём говорится вслух.
     """
-    from torrcast.recode import Encode, Recoder, Weights
-    from torrcast.stream import AUDIO_MBIT, TS_OVERHEAD, film_keys
+    Encode, Recoder, Weights = (
+        getattr(module("torrcast.recode"), name) for name in ("Encode", "Recoder", "Weights")
+    )
+    AUDIO_MBIT, TS_OVERHEAD, film_keys = (
+        getattr(module("torrcast.stream"), name)
+        for name in ("AUDIO_MBIT", "TS_OVERHEAD", "film_keys")
+    )
 
     if not config.recode:
         return None
@@ -409,8 +405,11 @@ def _layout(
     чем труднее материал, - и на сплошном перекоде обещание промахивалось на все восемь
     процентов ``MAXRATE_GAIN``, ровно вверх, ровно на длинных кусках.
     """
-    from torrcast.recode import MAXRATE_GAIN
-    from torrcast.stream import AUDIO_MBIT, TS_OVERHEAD, grid_for
+    MAXRATE_GAIN = module("torrcast.recode").MAXRATE_GAIN
+    AUDIO_MBIT, TS_OVERHEAD, grid_for = (
+        getattr(module("torrcast.stream"), name)
+        for name in ("AUDIO_MBIT", "TS_OVERHEAD", "grid_for")
+    )
 
     whole = _encode_all(config, codec, video_mbit, depth, profile, frame, hdr)
     grid = grid_for(
@@ -484,8 +483,8 @@ def _next_warmer(
 
     ``None`` - греть нечего: фильм, последняя серия раздачи или запись без списка серий.
     """
-    from torrcast.recode import RECODE_DIR
-    from torrcast.stream import hls_dir
+    RECODE_DIR = module("torrcast.recode").RECODE_DIR
+    hls_dir = module("torrcast.stream").hls_dir
 
     following = entry.advance()
     if following.done or not following.label:
@@ -639,8 +638,8 @@ def _play(
     ``profile`` - пороги ПРИЁМНИКА (:mod:`torrcast.profile`): вес куска, терпение, сторож
     нуджей, удержание запроса вместо 404. Умолчание осторожное - тот же Q70D, что и был.
     """
-    from torrcast.recode import RECODE_DIR
-    from torrcast.stream import hls_dir
+    RECODE_DIR = module("torrcast.recode").RECODE_DIR
+    hls_dir = module("torrcast.stream").hls_dir
 
     out = hls_dir(config.hls_dir)
     start = watch.entry.pos if watch else 0.0
@@ -946,8 +945,8 @@ def _asked(supply: Supply | None) -> str:
 
 # Восстановление погасшего сеанса — отдельный автомат, но этот модуль остаётся
 # совместимым местом импорта и передаёт ему диагностические подмены.
-from torrcast import playback_revival as _playback_revival  # noqa: E402
-from torrcast.playback_revival import _hold, _Revival  # noqa: E402
+_playback_revival = module("torrcast.playback_revival")
+_hold, _Revival = _playback_revival._hold, _playback_revival._Revival
 
 _playback_namespace = {
     name: value for name, value in globals().items() if not name.startswith("__")

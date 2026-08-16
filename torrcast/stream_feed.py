@@ -4,8 +4,8 @@
 
 import sys
 
-from torrcast import _stream_feed_impl as _implementation
-from torrcast._stream_feed_impl import *
+from torrcast.usecases import feed_pack as _implementation
+from torrcast.usecases.feed_pack import *
 
 __all__ = [
     "CAUTIOUS",

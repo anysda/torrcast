@@ -4,9 +4,9 @@
 
 import sys
 
-from torrcast import _playback_revival_impl as _implementation
-from torrcast._playback_revival_impl import *
-from torrcast._playback_revival_impl import _hold, _Revival
+from torrcast.usecases import revive_playback as _implementation
+from torrcast.usecases.revive_playback import *
+from torrcast.usecases.revive_playback import _hold, _Revival
 
 __all__ = [
     "CAUTIOUS",
