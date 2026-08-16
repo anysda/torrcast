@@ -90,7 +90,13 @@ globals().update(
 
 
 def _search(
-    config: Config, args: Args, progress: Progress, profile: Profile = CAUTIOUS
+    config: Config,
+    args: Args,
+    progress: Progress,
+    profile: Profile = CAUTIOUS,
+    *,
+    indexer: Callable[[str, str], Prowlarr] | None = None,
+    passport: Callable[..., Origin] | None = None,
 ) -> list[_Plan]:
     """Поиск и разбор выдачи: запрос → картины франшизы, каждая со своим пулом релизов.
 
@@ -101,6 +107,10 @@ def _search(
     пользуются им только ручки вроде ``cast voices``: ``cast releases`` передаёт
     обнаруженный профиль явно - таблица обязана судить про тот приёмник, на который
     поедет показ (TC-241).
+
+    ``indexer`` и ``passport`` - откуда берутся клиент индексеров и справка. Умолчание
+    боевое (:class:`~torrcast.search.Prowlarr`, :func:`~torrcast.facts.origin`); называют
+    их те, у кого своих служб нет, - тесты и щупы.
     """
     cluster, pick_franchise = legacy_namespace(
         torrcast__parse=("cluster", "pick_franchise")
@@ -110,7 +120,7 @@ def _search(
         raise InfraError("не настроен Prowlarr: apikey пуст, перезапусти ./install.sh")
     query = args.title_query
     name, index = split_franchise_index(query)
-    client = Prowlarr(config.prowlarr_url, config.prowlarr_apikey)
+    client = (indexer or Prowlarr)(config.prowlarr_url, config.prowlarr_apikey)
     progress.phase(f"поиск «{name}»")
     raw = _ask(client, name, progress)
     if not raw:
@@ -141,17 +151,21 @@ def _search(
         if titled:
             name, index = query, None
     if worth_asking_original(found, args, config, profile):
-        raw, pictures, found = _second_language(client, query, args, raw, found, progress, titled)
+        raw, pictures, found = _second_language(
+            client, query, args, raw, found, progress, titled, passport=passport
+        )
     elif index is None and not titled and _ceiling_hides_name(client, name, pictures, found):
         # Номер части и «цифра - часть названия» уточнению не подчиняются: запрос «имя +
         # год» строится по голому имени, и смысл номера в нём теряется.
         raw, pictures, found = _ceiling_reinforce(
-            client, name, args, raw, pictures, found, progress
+            client, name, args, raw, pictures, found, progress, passport=passport
         )
     # Сериал есть, а раздач нужного сезона в нём нет - добрать сезонной строкой по
     # оригиналу, прежде чем честно отказать (:func:`_season_reinforce`).
     if _lacks_season(found, args):
-        raw, pictures, found = _season_reinforce(client, query, args, raw, found, progress, titled)
+        raw, pictures, found = _season_reinforce(
+            client, query, args, raw, found, progress, titled, passport=passport
+        )
     # Картина есть, а русской дорожки не обещает ни одна её играбельная раздача - добрать
     # точной строкой «оригинал + год» (:func:`_voice_reinforce`).
     if (voiceless := voiceless_pool(found, args, config, profile)) is not None:
@@ -616,6 +630,8 @@ def _second_language(
     found: list[Picture],
     progress: Progress,
     titled: bool = False,
+    *,
+    passport: Callable[..., Origin] | None = None,
 ) -> tuple[list[RawResult], list[Picture], list[Picture]]:
     """Русский запрос дал пусто или тощий пул - переспросить тем же названием на латинице.
 
@@ -749,7 +765,8 @@ def _second_language(
     # и сверять станет нечего. Тип картины - другое дело, у сериала и фильма разные статьи.
     # Сети нет - паспорт пуст, и всё дальше работает ровно так, как работало.
     kind = _asked_kind(lead, args)
-    about = origin(name, series=kind, budget=budget)
+    ask = passport or origin
+    about = ask(name, series=kind, budget=budget)
     if not about and kind is not None:
         # 🔴 TC-399. Тип подсказал вожак тощего пула, и под ним справка промолчала.
         # Подсказка эта слабая: единственная строка тощего пула бывает не картиной
@@ -758,7 +775,7 @@ def _second_language(
         # есть статья о сериале «Serial Experiments Lain». Переспрос без типа
         # (:func:`~torrcast.facts.origin_either`) спрашивает обе статьи разом и верит
         # лишь согласию - подмену он не родит, а молчание разводит.
-        about = origin(name, series=None, budget=budget)
+        about = ask(name, series=None, budget=budget)
     if index is not None:
         # 🔴 Спросили номер части - год справки к делу не относится. Справку зовут по имени
         # франшизы, и отвечает она про её ПЕРВУЮ картину: у «тачек» это 2006 год, а человек

@@ -182,6 +182,8 @@ def _ceiling_reinforce(
     pictures: list[Picture],
     found: list[Picture],
     progress: Progress,
+    *,
+    passport: Any = None,
 ) -> tuple[list[RawResult], list[Picture], list[Picture]]:
     """Второй круг с УТОЧНЁННЫМ запросом «имя + год из справки». Не помогло - как было.
 
@@ -215,7 +217,7 @@ def _ceiling_reinforce(
 
     if (spare := _no_budget(client, f"уточнение по «{name}»", progress)) is None:
         return raw, pictures, found
-    about = origin(name, series=_asked_kind(_leading(found), args), budget=spare)
+    about = (passport or origin)(name, series=_asked_kind(_leading(found), args), budget=spare)
     if about.guessed or about.year is None:
         return raw, pictures, found
     refined = f"{name} {about.year}"
@@ -265,6 +267,8 @@ def _season_reinforce(
     found: list[Picture],
     progress: Progress,
     titled: bool = False,
+    *,
+    passport: Any = None,
 ) -> tuple[list[RawResult], list[Picture], list[Picture]]:
     """Добрать сезон-пак сезонной строкой по оригиналу, прежде чем честно отказать.
 
@@ -315,7 +319,7 @@ def _season_reinforce(
     # транслит: свои слова запроса чужой картины не принесут.
     hint = ""
     if not lead.original:
-        about = origin(name, series=True, budget=spare)
+        about = (passport or origin)(name, series=True, budget=spare)
         if about.title and (not about.guessed or (about.name and same_name(name, about.name))):
             hint = about.title
     base = (lead.original or hint or transliterate(name)).strip()

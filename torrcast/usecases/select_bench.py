@@ -50,9 +50,13 @@ class _Bench:
         meta_budget: float = META_BUDGET,
         probe_budget: float = PROBE_BUDGET,
         profile: Profile = CAUTIOUS,
+        prober: Callable[..., object] | None = None,
     ) -> None:
         self.torrserver = torrserver
         self.choose = choose or _default_file
+        #: Чем читаются дорожки поднятой раздачи. Боевое умолчание - ffprobe
+        #: (:func:`~torrcast.stream.probe`); называют его те, у кого ffprobe нет.
+        self.prober = prober or probe
         #: Чей декодер судит релизы: что играется копией, а что не играется вовсе.
         self.profile = profile
         self.meta_budget = meta_budget
@@ -945,7 +949,7 @@ class _Bench:
             # и вопросам человека. Показ потом либо берёт готовое, либо
             # дожидается этого же чтения, а не начинает своё вторым потоком.
             warm_file(source, alive=lambda: not prep.dropped, name=prep.want.name)
-            prep.media = probe(
+            prep.media = self.prober(
                 source,
                 timeout=self.probe_budget,
                 alive=(
