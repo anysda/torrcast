@@ -10,7 +10,9 @@ from torrcast.domain.process_result import ProcessResult
 class FakeProcessRunner:
     result: ProcessResult = field(default_factory=lambda: ProcessResult(0))
     commands: list[tuple[str, ...]] = field(default_factory=list)
+    timeouts: list[float | None] = field(default_factory=list)
 
-    def run(self, command: Sequence[str]) -> ProcessResult:
+    def run(self, command: Sequence[str], timeout: float | None = None) -> ProcessResult:
         self.commands.append(tuple(command))
+        self.timeouts.append(timeout)
         return self.result
