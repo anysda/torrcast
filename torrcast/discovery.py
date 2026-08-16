@@ -1,9 +1,10 @@
 """Совместимый фасад поиска для старых импортов."""
+# mypy: ignore-errors
 
 import sys
 
-from torrcast import _discovery_impl
-from torrcast._discovery_impl import (
+from torrcast.usecases import discover as _discovery_impl
+from torrcast.usecases.discover import (
     CAUTIOUS,
     CIRCLE_SHARE,
     FACTS_BUDGET,

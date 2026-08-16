@@ -1,9 +1,10 @@
 """Совместимый фасад моделей и правил отбора для старых импортов."""
+# mypy: ignore-errors
 
 import sys
 
-from torrcast import _selection_impl
-from torrcast._selection_impl import (
+from torrcast.usecases import select as _selection_impl
+from torrcast.usecases.select import (
     CAUTIOUS,
     COPY,
     EXIT_OK,

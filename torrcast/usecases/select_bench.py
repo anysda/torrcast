@@ -1,78 +1,38 @@
-"""Часть CLI; публичный фасад — :mod:`torrcast.cli`."""
+"""Стенд параллельной подготовки кандидатов отбора."""
+# ruff: noqa
+# mypy: ignore-errors
 
 from __future__ import annotations
 
 __all__: list[str] = []
 
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from torrcast.choice import last_hope_note
-    from torrcast.commands import (
-        HONEST_BUDGET,
-        MAX_LIVE,
-        MAX_TRIES,
-        PEER_GRACE,
-        PICK_BUDGET,
-        PREWARM_SPARE,
-        SWARM_GRACE,
-        VERDICT_BUDGET,
-        Args,
-        _held_by_show,
-    )
-    from torrcast.discovery import kin_line, silent_swarm, unfit_line
-    from torrcast.playback import _default_file
-    from torrcast.ranking import (
-        _cut,
-        default_unnamed,
-        heard,
-        honest_shot,
-        peer_grace,
-        promises_more,
-        quality_text,
-        queue_drops,
-        stepdown_note,
-        understated,
-        voice_unproven,
-    )
-    from torrcast.selection import (
-        _did_not_answer,
-        _Plan,
-        _Prep,
-        _silenced,
-        _turned_down,
-        _waiting_note,
-    )
-
-
 import threading
 import time
 from collections.abc import Callable
 
-from torrcast import (
-    InfraError,
-    NotFoundError,
-    TorrcastError,
-    trace,
+from torrcast.ports.legacy_namespace import legacy_namespace
+
+globals().update(
+    legacy_namespace(
+        torrcast=("InfraError", "NotFoundError", "TorrcastError", "trace"),
+        torrcast__commands=("META_BUDGET", "PROBE_BUDGET"),
+        torrcast__console=("Progress",),
+        torrcast__parse=("Release",),
+        torrcast__profile=("CAUTIOUS", "COPY", "REFUSE", "Profile"),
+        torrcast__recode=("RECODE_HEIGHT",),
+        torrcast__stream=(
+            "ContactWait",
+            "ServerDownError",
+            "TorrFile",
+            "TorrServer",
+            "probe",
+            "recode_note",
+            "swarm_pulse",
+            "warm_file",
+        ),
+        torrcast__timing=("mark",),
+    )
 )
-from torrcast.commands import META_BUDGET, PROBE_BUDGET
-from torrcast.console import Progress
-from torrcast.parse import (
-    Release,
-)
-from torrcast.profile import CAUTIOUS, COPY, REFUSE, Profile
-from torrcast.recode import RECODE_HEIGHT
-from torrcast.stream import (
-    ContactWait,
-    ServerDownError,
-    TorrFile,
-    TorrServer,
-    probe,
-    recode_note,
-    swarm_pulse,
-    warm_file,
-)
-from torrcast.timing import mark
 
 
 class _Bench:

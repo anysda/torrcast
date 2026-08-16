@@ -70,7 +70,7 @@
 | `DURATION` | константа | `torrcast/domain/frames/mkv.py` | 32 |
 | `Device` | класс | `torrcast/adapters/chromecast/scan.py` | 78 |
 | `DirectoryHttpServer` | класс | `torrcast/adapters/http_server/directory_http_server.py` | 23 |
-| `Discover` | класс | `torrcast/usecases/discover.py` | 10 |
+| `Discover` | класс | `torrcast/usecases/discover.py` | 979 |
 | `Doctor` | класс | `torrcast/usecases/doctor.py` | 8 |
 | `EMPTY_TTL` | константа | `torrcast/facts_origin.py` | 237 |
 | `ENDING_RATIO` | константа | `torrcast/adapters/filesystem/state.py` | 48 |
@@ -151,7 +151,7 @@
 | `KEYS_WAIT` | константа | `torrcast/adapters/stream_pack.py` | 94 |
 | `KEYS_WAIT` | константа | `torrcast/stream_core.py` | 267 |
 | `KEY_INDEXER` | константа | `torrcast/doctor_checks.py` | 40 |
-| `KIN_SHOWN` | константа | `torrcast/_discovery_impl.py` | 300 |
+| `KIN_SHOWN` | константа | `torrcast/usecases/discover.py` | 278 |
 | `KIN_SHOWN` | константа | `torrcast/usecases/reinforce.py` | 87 |
 | `KeyMap` | класс | `torrcast/domain/frames/keymap.py` | 64 |
 | `LOG_ENV` | константа | `torrcast/trace.py` | 63 |
@@ -322,7 +322,7 @@
 | `STUDIOS` | константа | `torrcast/domain/studio.py` | 34 |
 | `STUDIOS` | константа | `torrcast/stream_core.py` | 525 |
 | `SWARM_GRACE` | константа | `torrcast/commands_legacy.py` | 315 |
-| `Select` | класс | `torrcast/usecases/select.py` | 10 |
+| `Select` | класс | `torrcast/usecases/select.py` | 611 |
 | `ServerAddress` | класс | `torrcast/domain/server_address.py` | 7 |
 | `ServerDownError` | класс | `torrcast/domain/server_down_error.py` | 6 |
 | `Settings` | класс | `torrcast/domain/settings.py` | 8 |
@@ -483,10 +483,11 @@
 | `iutf8` | функция | `torrcast/adapters/console/console.py` | 49 |
 | `keys` | функция | `torrcast/domain/frames/mkv.py` | 138 |
 | `keys` | функция | `torrcast/domain/frames/mp4.py` | 345 |
-| `kin_line` | функция | `torrcast/_discovery_impl.py` | 356 |
+| `kin_line` | функция | `torrcast/usecases/discover.py` | 336 |
 | `last_hope` | функция | `torrcast/usecases/rank.py` | 566 |
 | `last_hope_note` | функция | `torrcast/usecases/choice.py` | 937 |
 | `latin_title` | функция | `torrcast/facts_fetch.py` | 473 |
+| `legacy_namespace` | функция | `torrcast/ports/legacy_namespace.py` | 6 |
 | `level_for` | функция | `torrcast/adapters/recode.py` | 309 |
 | `liveliest` | функция | `torrcast/usecases/choice.py` | 198 |
 | `liveliness` | функция | `torrcast/usecases/choice.py` | 97 |
@@ -572,7 +573,7 @@
 | `same_word` | функция | `torrcast/domain/same_word.py` | 11 |
 | `same_words` | функция | `torrcast/domain/same_words.py` | 8 |
 | `save_config` | функция | `torrcast/adapters/filesystem/state.py` | 278 |
-| `season_gaps` | функция | `torrcast/_discovery_impl.py` | 303 |
+| `season_gaps` | функция | `torrcast/usecases/discover.py` | 281 |
 | `season_reread` | функция | `torrcast/_play_command_impl.py` | 542 |
 | `seasons_named` | функция | `torrcast/domain/seasons_named.py` | 8 |
 | `seek` | функция | `torrcast/trace.py` | 421 |
@@ -585,7 +586,7 @@
 | `shelf_weight` | функция | `torrcast/adapters/stream_probe.py` | 229 |
 | `shorten` | функция | `torrcast/facts_fetch.py` | 545 |
 | `shutdown` | функция | `torrcast/trace.py` | 302 |
-| `silent_swarm` | функция | `torrcast/_discovery_impl.py` | 370 |
+| `silent_swarm` | функция | `torrcast/usecases/discover.py` | 350 |
 | `skew` | функция | `torrcast/trace.py` | 445 |
 | `skipped` | функция | `torrcast/adapters/chromecast/scan.py` | 199 |
 | `slugify` | функция | `torrcast/domain/slugify.py` | 11 |
@@ -620,8 +621,8 @@
 | `understated` | функция | `torrcast/usecases/rank.py` | 144 |
 | `understudy` | функция | `torrcast/usecases/choice.py` | 655 |
 | `understudy_note` | функция | `torrcast/usecases/choice.py` | 733 |
-| `unfit_line` | функция | `torrcast/_discovery_impl.py` | 478 |
-| `unfit_pool` | функция | `torrcast/_discovery_impl.py` | 285 |
+| `unfit_line` | функция | `torrcast/usecases/discover.py` | 458 |
+| `unfit_pool` | функция | `torrcast/usecases/discover.py` | 263 |
 | `unit_active` | функция | `torrcast/adapters/http_server/stream_serve.py` | 123 |
 | `unit_key` | функция | `torrcast/adapters/http_server/stream_serve.py` | 128 |
 | `unit_why` | функция | `torrcast/adapters/http_server/stream_serve.py` | 136 |
@@ -646,5 +647,5 @@
 | `wire_query` | функция | `torrcast/domain/wire_query.py` | 8 |
 | `with_source` | функция | `torrcast/facts_origin.py` | 550 |
 | `without_source` | функция | `torrcast/facts_origin.py` | 558 |
-| `worth_asking_original` | функция | `torrcast/_discovery_impl.py` | 219 |
+| `worth_asking_original` | функция | `torrcast/usecases/discover.py` | 197 |
 | `year_note` | функция | `torrcast/usecases/choice.py` | 456 |
