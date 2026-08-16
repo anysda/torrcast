@@ -43,8 +43,11 @@
 | `CUE_TRACK_POSITIONS` | константа | `torrcast/mkv.py` | 36 |
 | `Choice` | класс | `torrcast/domain/choice.py` | 11 |
 | `ChromecastReceiver` | класс | `torrcast/cast.py` | 92 |
+| `Clock` | класс | `torrcast/ports/clock.py` | 6 |
 | `Clock` | класс | `torrcast/timing.py` | 34 |
 | `Config` | класс | `torrcast/state.py` | 59 |
+| `ConfigurationSource` | класс | `torrcast/ports/configuration_source.py` | 8 |
+| `Console` | класс | `torrcast/ports/console.py` | 6 |
 | `ContactWait` | класс | `torrcast/stream_core.py` | 134 |
 | `DEADLINE_MARGIN` | константа | `torrcast/recode.py` | 218 |
 | `DEFAULT_CONFIG_PATH` | константа | `torrcast/state.py` | 36 |
@@ -69,6 +72,7 @@
 | `FULL_PRESET` | константа | `torrcast/recode.py` | 104 |
 | `Fact` | класс | `torrcast/facts_origin.py` | 452 |
 | `Facts` | класс | `torrcast/facts_fetch.py` | 575 |
+| `FactsSource` | класс | `torrcast/ports/facts_source.py` | 8 |
 | `Feed` | класс | `torrcast/stream_feed.py` | 644 |
 | `FileLike` | класс | `torrcast/domain/file_like.py` | 8 |
 | `FilmKeys` | класс | `torrcast/stream_pack.py` | 388 |
@@ -94,6 +98,7 @@
 | `HONEST_RATIO` | константа | `torrcast/commands.py` | 434 |
 | `HTTP_TIMEOUT` | константа | `torrcast/facts_origin.py` | 224 |
 | `HlsServer` | класс | `torrcast/stream_serve.py` | 377 |
+| `HttpServer` | класс | `torrcast/ports/http_server.py` | 8 |
 | `INFO` | константа | `torrcast/mkv.py` | 29 |
 | `IPV4_ONLY` | константа | `torrcast/doctor.py` | 42 |
 | `InfraError` | класс | `torrcast/domain/infra_error.py` | 6 |
@@ -125,6 +130,7 @@
 | `Mdns` | класс | `torrcast/scan.py` | 119 |
 | `Media` | класс | `torrcast/domain/media.py` | 17 |
 | `MockReceiver` | класс | `torrcast/cast_mock.py` | 89 |
+| `MovieFacts` | класс | `torrcast/domain/movie_facts.py` | 7 |
 | `NAME_TIMEOUT` | константа | `torrcast/scan.py` | 63 |
 | `NEIGHBOUR_TOLL` | константа | `torrcast/recode.py` | 239 |
 | `NICE` | константа | `torrcast/recode.py` | 181 |
@@ -162,8 +168,12 @@
 | `Pace` | класс | `torrcast/recode.py` | 533 |
 | `Packer` | класс | `torrcast/stream_feed.py` | 70 |
 | `Picture` | класс | `torrcast/domain/picture.py` | 14 |
+| `PlaybackState` | класс | `torrcast/domain/playback_state.py` | 7 |
 | `Point` | класс | `torrcast/keymap.py` | 60 |
 | `Position` | класс | `torrcast/domain/position.py` | 7 |
+| `Prober` | класс | `torrcast/ports/prober.py` | 8 |
+| `ProcessResult` | класс | `torrcast/domain/process_result.py` | 7 |
+| `ProcessRunner` | класс | `torrcast/ports/process_runner.py` | 9 |
 | `Profile` | класс | `torrcast/domain/profile.py` | 24 |
 | `Progress` | класс | `torrcast/console.py` | 136 |
 | `Prowlarr` | класс | `torrcast/search.py` | 443 |
@@ -190,6 +200,9 @@
 | `Reader` | класс | `torrcast/keymap.py` | 82 |
 | `RealClock` | класс | `torrcast/timing.py` | 52 |
 | `Receiver` | класс | `torrcast/domain/receiver.py` | 9 |
+| `Receiver` | класс | `torrcast/ports/receiver.py` | 8 |
+| `ReceiverFinder` | класс | `torrcast/ports/receiver_finder.py` | 8 |
+| `ReceiverInfo` | класс | `torrcast/domain/receiver_info.py` | 7 |
 | `Recoder` | класс | `torrcast/recode.py` | 703 |
 | `Release` | класс | `torrcast/domain/release.py` | 35 |
 | `Report` | класс | `torrcast/cast_mock.py` | 60 |
@@ -233,9 +246,12 @@
 | `STUDIOS` | константа | `torrcast/domain/studio.py` | 34 |
 | `STUDIOS` | константа | `torrcast/stream_core.py` | 555 |
 | `SWARM_GRACE` | константа | `torrcast/commands.py` | 315 |
+| `ServerAddress` | класс | `torrcast/domain/server_address.py` | 7 |
 | `ServerDownError` | класс | `torrcast/domain/server_down_error.py` | 6 |
+| `Settings` | класс | `torrcast/domain/settings.py` | 8 |
 | `StartRefusedError` | класс | `torrcast/domain/start_refused_error.py` | 6 |
 | `State` | класс | `torrcast/state.py` | 540 |
+| `StateStore` | класс | `torrcast/ports/state_store.py` | 8 |
 | `Studio` | класс | `torrcast/domain/studio.py` | 8 |
 | `Supply` | класс | `torrcast/stream_probe.py` | 81 |
 | `SwarmError` | класс | `torrcast/domain/swarm_error.py` | 6 |
@@ -256,6 +272,10 @@
 | `TorrcastError` | класс | `torrcast/domain/torrcast_error.py` | 4 |
 | `TorrFile` | класс | `torrcast/domain/torr_file.py` | 7 |
 | `TorrServer` | класс | `torrcast/stream_core.py` | 680 |
+| `TorrentEngine` | класс | `torrcast/ports/torrent_engine.py` | 8 |
+| `TorrentIndex` | класс | `torrcast/ports/torrent_index.py` | 8 |
+| `TranscodeJob` | класс | `torrcast/domain/transcode_job.py` | 7 |
+| `Transcoder` | класс | `torrcast/ports/transcoder.py` | 8 |
 | `USER_AGENT` | константа | `torrcast/facts_origin.py` | 233 |
 | `VBV_SECONDS` | константа | `torrcast/recode.py` | 137 |
 | `VERDICT_BUDGET` | константа | `torrcast/commands.py` | 232 |
