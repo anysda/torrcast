@@ -100,6 +100,8 @@ MACHINE_TESTS = frozenset(
         "tests/test_trace.py::test_cast_log_shows_the_timeline_and_the_query",
         "tests/test_trace.py::test_an_event_this_version_does_not_know_is_printed_anyway",
         "tests/test_anime.py::test_the_catalogue_hole_lands_in_the_weekly_trace",
+        "tests/test_anime.py::test_the_gate_costs_no_extra_probe_when_the_top_release_speaks_russian",
+        "tests/test_trace.py::test_the_source_field_costs_the_hot_path_nothing",
         "tests/test_facts.py::test_the_map_answers_when_wikipedia_misses_the_deadline",
         "tests/test_pool.py::test_without_a_reference_the_guess_stays_but_says_so",
         "tests/test_search.py::test_след_отличает_опоздавшего_от_молчуна",

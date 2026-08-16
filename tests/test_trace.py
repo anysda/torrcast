@@ -783,6 +783,7 @@ def test_the_source_field_costs_the_hot_path_nothing(
     """Врезка источника не имеет права трогать диск: :func:`trace.segment` - тот же put."""
     monkeypatch.setenv(trace.LOG_ENV, str(tmp_path))
     monkeypatch.setenv(trace.SID_ENV, "hot")
+    trace.shutdown()
     import os as _os
 
     writes: list[int] = []

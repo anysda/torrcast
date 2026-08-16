@@ -718,28 +718,28 @@ def test_a_release_that_turns_out_not_to_be_h264_is_swapped_out_loudly(
 
 
 @pytest.mark.machine
-def test_three_release_passports_start_together_before_verdicts(
+def test_two_release_passports_start_together_before_verdicts(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Третий ffprobe не ждёт двух приговоров: решения всё ещё читаются по очереди."""
+    """Запасной ffprobe не ждёт первого приговора; третий счастливый путь не оплачивает."""
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
-    third_started = threading.Event()
-    first_saw_third = False
+    second_started = threading.Event()
+    first_saw_second = False
 
     def read(url: str, timeout: float = 90.0, alive: object = None) -> Media:
-        nonlocal first_saw_third
-        if f"hash-{ranked[2].magnet}/" in url:
-            third_started.set()
-            return Media(3600.0, (), "h264")
+        nonlocal first_saw_second
+        if f"hash-{ranked[1].magnet}/" in url:
+            second_started.set()
         if f"hash-{ranked[0].magnet}/" in url:
-            first_saw_third = third_started.wait(0.5)
-        return Media(3600.0, (), "av1")
+            first_saw_second = second_started.wait(0.5)
+        codec = "h264" if f"hash-{ranked[2].magnet}/" in url else "av1"
+        return Media(3600.0, (), codec)
 
     monkeypatch.setattr(cli, "probe", read)
     prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer())), ranked)
 
     assert prep.number == 3
-    assert first_saw_third, "третий паспорт поднят до готовности первого приговора"
+    assert first_saw_second, "запасной паспорт поднят до готовности первого приговора"
 
 
 def test_hevc_release_plays_and_says_so_instead_of_being_refused(
