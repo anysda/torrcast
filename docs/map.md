@@ -555,6 +555,7 @@
 | `parse_episode` | функция | `torrcast/domain/parse_episode.py` | 42 |
 | `parse_manifest` | функция | `torrcast/adapters/stream_pack.py` | 1097 |
 | `parse_media` | функция | `torrcast/adapters/ffprobe/parse_media.py` | 51 |
+| `parse_release_name` | функция | `torrcast/domain/parse_release_name.py` | 34 |
 | `part_number` | функция | `torrcast/domain/part_number.py` | 10 |
 | `part_one_swap` | функция | `torrcast/usecases/choice.py` | 593 |
 | `peer_grace` | функция | `torrcast/usecases/rank.py` | 939 |
