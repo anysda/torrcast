@@ -2859,7 +2859,7 @@ def test_a_receiver_frozen_on_the_last_chunk_still_hands_the_show_over(
     feed = _feed_with_segments(tmp_path)
     receiver = _Stuck(at=7100.0)
 
-    ended = cli._hold(receiver, feed, watch, None, clock=clock)  # type: ignore[arg-type]
+    ended = cli._hold(receiver, feed, watch, None, clock=clock)
 
     assert ended, "неподвижный конец - это конец, а не авария: винить упаковку не в чем"
     assert "считаю доигранным" in capsys.readouterr().out, "молча показ не кончают"

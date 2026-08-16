@@ -12,7 +12,6 @@ if TYPE_CHECKING:
         PAUSE_LIMIT,
         PAUSE_SECONDS,
         SAY_SECONDS,
-        TAIL_LIMIT,
         TRACE_ENV,
         Watch,
     )
@@ -45,6 +44,11 @@ from torrcast.stream import (
 )
 from torrcast.timing import CLOCK, Clock
 from torrcast.warm import Warmer
+
+#: Сколько терпим НЕПОДВИЖНЫЙ указатель за долей длительности, прежде чем считать сеанс
+#: доигранным (:func:`_hold`). Страховка перехода: конец потока приёмник называет не
+#: всегда, а переход дороже хвоста.
+TAIL_LIMIT = 60.0
 
 
 @dataclass(slots=True)
