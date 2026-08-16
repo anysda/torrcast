@@ -46,22 +46,28 @@ import hashlib
 import json
 import math
 import os
-import shutil
 import signal
 import threading
-import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final
 
-from torrcast import trace
-from torrcast.profile import CAUTIOUS
-from torrcast.timing import mark
+from torrcast.domain.profile import CAUTIOUS
+from torrcast.ports.warm_environment import WarmEnvironment
 
 if TYPE_CHECKING:
     from torrcast.stream import Grid
 
 __all__ = ["Vault", "Warmer", "segment_start", "warm_key", "warm_root"]
+
+_environment: WarmEnvironment
+
+
+def configure(environment: WarmEnvironment) -> None:
+    """Передать сценарию часы, файловую операцию и телеметрию."""
+    global _environment
+    _environment = environment
+
 
 #: Каталог прогретого по умолчанию. Диск, не tmpfs - и это весь смысл модуля.
 WARM_DIR: Final = "/var/lib/torrcast/warm"
@@ -315,7 +321,7 @@ class Vault:
     def touch(self) -> None:
         with contextlib.suppress(OSError):
             (self.dir / META).write_text(
-                json.dumps({"key": self.key, "title": self.title, "at": time.time()}),
+                json.dumps({"key": self.key, "title": self.title, "at": _environment.epoch()}),
                 encoding="utf-8",
             )
 
@@ -324,7 +330,7 @@ class Vault:
 
     def clear(self) -> None:
         """Показ досмотрен (или брошен насовсем) — прогретое стирается целиком."""
-        shutil.rmtree(self.dir, ignore_errors=True)
+        _environment.remove_tree(self.dir)
 
     def free(self) -> int:
         """Сколько байт свободно на разделе прогрева."""
@@ -355,8 +361,10 @@ class Vault:
             gone = others.pop(0)
             # Вес и имя снимаем ДО сноса: после ``rmtree`` сказать, что именно и на сколько
             # освободили, уже не по чему, а в ленте это и есть вся ценность записи.
-            trace.evict(key=gone.name, freed=_weigh(gone), need=int(need), title=_title(gone))
-            shutil.rmtree(gone, ignore_errors=True)
+            _environment.emit(
+                "evict", key=gone.name, freed=_weigh(gone), need=int(need), title=_title(gone)
+            )
+            _environment.remove_tree(gone)
         if need > self.budget - _weigh(self.root):
             return f"бюджет диска {self.budget / 1e9:.0f} ГБ исчерпан"
         if need + self.floor > self.free():
@@ -600,9 +608,9 @@ class Warmer:
         показе. Потолок ожидания нужен на случай, когда запас не меряют вовсе (mock,
         приёмник молчит): тогда прогрев всё равно начнётся, просто позже.
         """
-        deadline = time.monotonic() + START_GRACE
-        while not self.stopped and self.slack < GUARD_HIGH and time.monotonic() < deadline:
-            time.sleep(0.5)
+        deadline = _environment.monotonic() + START_GRACE
+        while not self.stopped and self.slack < GUARD_HIGH and _environment.monotonic() < deadline:
+            _environment.sleep(0.5)
 
     def _work(self) -> None:
         self._wait_for_picture()
@@ -620,7 +628,7 @@ class Warmer:
                     # секунде, а сам прогрев замер через миллисекунду после старта - то
                     # есть весь процессор, который прогрев в ту минуту отобрал, был
                     # процессором пробного прогона.
-                    time.sleep(0.5)
+                    _environment.sleep(0.5)
                     continue
                 job = self._missing()
                 if job is None:
@@ -633,7 +641,7 @@ class Warmer:
                     if not self.trouble:
                         if self.done:
                             self._say(self.line())
-                            mark("прогрев готов", секунд=round(self.warmed))
+                            _environment.mark("прогрев готов", секунд=round(self.warmed))
                             self._trace("ready")
                         else:
                             # Лежит всё, что прогрев в силах положить, но часть мест -
@@ -654,7 +662,7 @@ class Warmer:
                 self._run(*job)
             except Exception as exc:  # прогрев не имеет права ронять показ
                 self._say(f"прогрев сорвался ({exc}) - показ идёт как обычно")
-                time.sleep(5.0)
+                _environment.sleep(5.0)
 
     def _chain(self) -> None:
         """Серия легла на диск целиком - взяться за следующую (:attr:`follow`).
@@ -685,7 +693,7 @@ class Warmer:
         # цепочка: прогрев следующей серии жжёт тот же процессор, что и прогрев этой.
         following.rival = self.rival
         following.start()
-        mark("прогрев следующей серии")
+        _environment.mark("прогрев следующей серии")
 
     def _ask_follow(self) -> Warmer | None:
         """Собрать прогрев следующей серии, дожидаясь сети; ``None`` - собирать нечего.
@@ -737,12 +745,12 @@ class Warmer:
         Сон в цепочке измеряется десятками секунд (:data:`CHAIN_RETRY`), а :meth:`stop`
         обязан срабатывать сразу: показ кончился - прогреву спать незачем.
         """
-        end = time.monotonic() + seconds
+        end = _environment.monotonic() + seconds
         while not self.stopped:
-            left = end - time.monotonic()
+            left = end - _environment.monotonic()
             if left <= 0:
                 return
-            time.sleep(min(0.5, left))
+            _environment.sleep(min(0.5, left))
 
     def _forecast(self, first: int, last: int) -> float:
         """Во сколько байт обойдётся этот участок. Считаем по нашему же битрейту, когда
@@ -768,7 +776,7 @@ class Warmer:
     def _stall(self, why: str) -> None:
         self.trouble = why
         self._say(self.line())
-        mark("прогрев встал", причина=why, секунд=round(self.warmed))
+        _environment.mark("прогрев встал", причина=why, секунд=round(self.warmed))
         self._trace("stall", why)
 
     def _trace(self, event: str, why: str = "") -> None:
@@ -778,8 +786,13 @@ class Warmer:
         врозь: секунды на диске, длина фильма и вес каталога. По ним и через неделю видно,
         сколько успел прогрев, - без разбора текста.
         """
-        trace.warmth(
-            event, secs=self.warmed, dur=self.grid.duration, size=self.vault.size(), why=why
+        _environment.emit(
+            "warmth",
+            event,
+            secs=self.warmed,
+            dur=self.grid.duration,
+            size=self.vault.size(),
+            why=why,
         )
 
     def _run(self, first: int, last: int, spot: bool = False) -> None:
@@ -818,7 +831,7 @@ class Warmer:
         at = self.grid.start(first)
         if encode is None:
             at = pack_start(self.source, at)
-            mark("пробный прогон прогрева", слот=first, встали=round(at, 3))
+            _environment.mark("пробный прогон прогрева", слот=first, встали=round(at, 3))
         command = ffmpeg_pack_command(
             self.source,
             self.audio,
@@ -832,14 +845,16 @@ class Warmer:
             until=last,
         )
         command = ["nice", "-n", str(self.nice), *command]
-        began = time.monotonic()
+        began = _environment.monotonic()
         # Копией заход идёт или перекодом - в журнале обязано стоять словом, а не выводиться
         # из соседней метки «пробный прогон прогрева». Разбор живого показа на этой
         # недоговорённости уже срывался: гипотезу «перекод не успевает, потому что делит
         # процессор с прогревом» проверяли там, где прогрев шёл копией, а копия соседу стоит
         # 2-3 % вместо 33 % (:data:`torrcast.recode.NEIGHBOUR_TOLL`).
         way, by = ("перекод", "перекодом") if encode is not None else ("копия", "копией")
-        mark("прогрев пошёл", первый=first, последний=last, темп=self.rate, точечно=spot, режим=way)
+        _environment.mark(
+            "прогрев пошёл", первый=first, последний=last, темп=self.rate, точечно=spot, режим=way
+        )
         self._say(
             f"тяжёлый v{first} на диске кладу перекодом - тем же, каким его отдаёт показ"
             if spot
@@ -876,7 +891,7 @@ class Warmer:
                         self._stall(tight)
                         break
                 self._throttle(packer)
-                time.sleep(0.5)
+                _environment.sleep(0.5)
             if self.misgrid < 0:
                 # Мёртвый ffmpeg дописал последний кусок, но выложить его успевает уже
                 # не цикл (:meth:`torrcast.stream.Packer.publish`) - и сверить тоже.
@@ -893,7 +908,7 @@ class Warmer:
             # до конца значит намолотить ещё сотню таких же кусков.
             return
         got = max(0, min(last, packer.edge) - first + 1)
-        spent = time.monotonic() - began
+        spent = _environment.monotonic() - began
         if spot and got:
             # Метка ставится ПОСЛЕ выкладки: оборвался прогон - на месте куска осталась
             # копия, и следующий круг возьмётся за него снова.
@@ -904,10 +919,10 @@ class Warmer:
             # следующий круг начнёт с первого непрогретого куска, когда сеть вернётся.
             self.breaks += 1
             self._say(f"прогрев оборвался на {self.grid.end(packer.edge) / 60:.0f}-й минуте")
-            time.sleep(5.0)
+            _environment.sleep(5.0)
         elif not got:
             self._say(f"прогрев не дал ни куска за {spent:.0f} с - жду и пробую снова")
-            time.sleep(10.0)
+            _environment.sleep(10.0)
 
     def _lay_heavy(self, slot: int, size: int) -> bool:
         """Кусок тяжелее потолка приёмника: уложить на диск и не вставать на нём.
@@ -1005,8 +1020,10 @@ class Warmer:
         with contextlib.suppress(OSError):
             self.vault.path(slot).unlink(missing_ok=True)
             self.vault.spot(slot).unlink(missing_ok=True)
-        trace.skew(slot=slot, want=want, got=began, hole=hole)
-        mark("кусок прогрева мимо сетки", слот=slot, сдвиг=round(began - want, 3), дыра=hole)
+        _environment.emit("skew", slot=slot, want=want, got=began, hole=hole)
+        _environment.mark(
+            "кусок прогрева мимо сетки", слот=slot, сдвиг=round(began - want, 3), дыра=hole
+        )
         where = f"v{slot} на {want / 60:.0f}-й минуте лёг мимо сетки ({began - want:+.2f} с)"
         if hole:
             self._stall(f"{where} - это место осталось непрогретым")
@@ -1050,7 +1067,9 @@ class Warmer:
                 self.healthy_since = 0.0
                 with contextlib.suppress(OSError, ProcessLookupError):
                     packer.proc.send_signal(signal.SIGSTOP)
-                mark("прогрев замер", запас=round(self.slack), перекод=self._busy_rival())
+                _environment.mark(
+                    "прогрев замер", запас=round(self.slack), перекод=self._busy_rival()
+                )
             return
         if self.idle and self._may_resume():
             self._resume(packer)
@@ -1073,7 +1092,7 @@ class Warmer:
         if self.slack < GUARD_LOW:
             self.healthy_since = 0.0
             return False
-        now = time.monotonic()
+        now = _environment.monotonic()
         if self.healthy_since == 0.0:
             self.healthy_since = now
             return False

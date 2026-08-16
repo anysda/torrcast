@@ -3,7 +3,7 @@
 # ruff: noqa: I001
 
 import sys
-
+from torrcast.adapters.warm_environment import environment
 from torrcast.usecases import warm as _implementation
 from torrcast.usecases.warm import *  # noqa: F403
 from torrcast.usecases.warm import (
@@ -18,6 +18,9 @@ from torrcast.usecases.warm import (
     STARVE_GRACE as STARVE_GRACE,
     WARM_BUDGET as WARM_BUDGET,
 )
+
+
+_implementation.configure(environment)
 
 __all__ = _implementation.__all__
 

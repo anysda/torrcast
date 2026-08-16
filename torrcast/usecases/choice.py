@@ -2,114 +2,44 @@
 
 from __future__ import annotations
 
-__all__ = [
-    "TYPE_CHECKING",
-    "_BLURB_INDENT",
-    "Config",
-    "Fact",
-    "Facts",
-    "NotFoundError",
-    "Origin",
-    "Path",
-    "Picture",
-    "Profile",
-    "Progress",
-    "Protocol",
-    "Receiver",
-    "Release",
-    "_Passport",
-    "_Revivable",
-    "_Steerable",
-    "_ctl",
-    "_first_alive",
-    "_is_default",
-    "_named",
-    "_namesake",
-    "_passed_why",
-    "_passport",
-    "_pick_plan",
-    "_played",
-    "_rival",
-    "_same_name",
-    "_why_refused",
-    "alive_numbers",
-    "ask",
-    "asked_kind",
-    "backed",
-    "console",
-    "contextlib",
-    "default_line",
-    "default_note",
-    "first_alive",
-    "fitness",
-    "franchise_key",
-    "last_hope_note",
-    "liveliest",
-    "liveliness",
-    "menu_lines",
-    "namesake_note",
-    "origin",
-    "os",
-    "outside_numbering",
-    "part_one_swap",
-    "playable",
-    "runtime_checkable",
-    "shorten",
-    "shutil",
-    "slugify",
-    "split_franchise_index",
-    "swap_note",
-    "textwrap",
-    "threading",
-    "trace",
-    "understudy",
-    "understudy_note",
-    "warm_order",
-    "warned",
-    "year_note",
-]
-
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from torrcast.commands import ALIVE_SEEDERS, CTL_ENV, Args
-    from torrcast.ranking import _cut, bitrate_of, hevc_hope, is_candidate, is_dated
-    from torrcast.reinforce import _timed
-    from torrcast.selection import _Bench, _Plan, _Prep
+    from torrcast.ports.choice_types import (
+        Args,
+        Config,
+        Facts,
+        Origin,
+        Progress,
+        Receiver,
+        _Bench,
+        _Plan,
+        _Prep,
+    )
 
 
 import contextlib
-import os
-import shutil
 import textwrap
 import threading
-from pathlib import Path
 from typing import Protocol, runtime_checkable
 
-from torrcast import (
-    NotFoundError,
-    console,  # через модуль: терминал спрашиваем там же, где и сами вопросы
-    trace,
-)
-from torrcast.cast import Receiver
-from torrcast.console import Progress, ask
-from torrcast.facts import (
-    Fact,
-    Facts,
-    Origin,
-    origin,
-    shorten,
-)
-from torrcast.parse import (
-    Picture,
-    Release,
-    franchise_key,
-    outside_numbering,
-    slugify,
-    split_franchise_index,
-)
-from torrcast.profile import Profile
-from torrcast.state import Config
+from torrcast.domain.franchise_key import franchise_key
+from torrcast.domain.numbered_line import _numbered_line
+from torrcast.domain.outside_numbering import outside_numbering
+from torrcast.domain.picture import Picture
+from torrcast.domain.profile import Profile
+from torrcast.domain.release import Release
+from torrcast.domain.slugify import slugify
+from torrcast.domain.split_franchise_index import split_franchise_index
+from torrcast.ports.choice_environment import ChoiceEnvironment
+
+_environment: ChoiceEnvironment
+
+
+def configure(environment: ChoiceEnvironment) -> None:
+    """Передать сценарию правила соседних сценариев и ввод-вывод."""
+    global _environment
+    _environment = environment
 
 
 @runtime_checkable
@@ -148,19 +78,13 @@ def _ctl(receiver: Receiver) -> None:
     Файл съедается до исполнения: команда одноразовая, и повторить её на следующем опросе
     нельзя даже при осечке приёмника — иначе одна опечатка мотала бы фильм вечно.
     """
-    name = os.environ.get(CTL_ENV)
-    if not name or not isinstance(receiver, _Steerable):
+    line = _environment.read_command()
+    if line is None or not isinstance(receiver, _Steerable):
         return
-    path = Path(name)
-    try:
-        line = path.read_text("utf-8").strip()
-    except OSError:
-        return
-    path.unlink(missing_ok=True)
     if not line:
         return
     word, _, rest = line.partition(" ")
-    print(f"пульт: {line}", flush=True)
+    _environment.write(f"пульт: {line}")
     with contextlib.suppress(Exception):
         if word == "seek":
             receiver.seek(float(rest))
@@ -211,7 +135,7 @@ def liveliness(plan: _Plan) -> int:
         (
             release.seeders
             for release in plan.ranked
-            if is_candidate(
+            if _environment.is_candidate(
                 release,
                 plan.runtime,
                 plan.warn_mbit,
@@ -255,9 +179,9 @@ def fitness(plan: _Plan, dubbed: bool = False) -> int:
         (
             release.seeders
             for release in plan.ranked
-            if release.seeders >= ALIVE_SEEDERS
+            if release.seeders >= _environment.alive_seeders
             and (release.dubbed or not dubbed)
-            and is_candidate(
+            and _environment.is_candidate(
                 release,
                 plan.runtime,
                 plan.warn_mbit,
@@ -265,7 +189,7 @@ def fitness(plan: _Plan, dubbed: bool = False) -> int:
                 plan.hard_mbit,
                 copy_hevc=plan.copy_hevc,
             )
-            and not is_dated(release, plan.runtime)
+            and not _environment.is_dated(release, plan.runtime)
         ),
         default=0,
     )
@@ -332,7 +256,7 @@ def alive_numbers(plans: list[_Plan], numbers: list[int]) -> list[int]:
     франшизе в этот вопрос не входят вовсе: «есть чем играть» - свойство самой картины,
     и чужой рой его ни подтвердить, ни отменить не может.
     """
-    return [n for n in numbers if liveliness(plans[n - 1]) >= ALIVE_SEEDERS]
+    return [n for n in numbers if liveliness(plans[n - 1]) >= _environment.alive_seeders]
 
 
 def playable(plans: list[_Plan], alive: list[int]) -> list[int]:
@@ -623,13 +547,16 @@ class _Passport:
         # Тип картины известен из выдачи (:attr:`Picture.kind`), и его подсказать надо:
         # у сериала и фильма разные статьи. Год выдачи - нет: см. :func:`year_note`.
         with contextlib.suppress(Exception):
-            self._box.append(origin(self._picture.title, series=self._picture.kind == "tv"))  # type: ignore[union-attr]
+            picture = self._picture
+            if picture is None:
+                return
+            self._box.append(_environment.origin(picture.title, series=picture.kind == "tv"))
 
     def get(self) -> Origin:
         thread = self._thread
         if thread is not None:
             thread.join()
-        return self._box[0] if self._box else Origin()
+        return self._box[0] if self._box else _environment.empty_origin()
 
 
 def _passport(plans: list[_Plan]) -> _Passport:
@@ -691,8 +618,6 @@ def part_one_swap(plans: list[_Plan], asked: str) -> str:
     Часть I») - это глава, а не часть франшизы: если «первая часть» линейки младше другой
     картины меню, перед нами семья однофамильцев, и там дефолт честен.
     """
-    from torrcast.parse import _numbered_line
-
     name, index = split_franchise_index(asked)
     if index is not None or len(plans) < 2:
         return ""
@@ -787,20 +712,20 @@ def _played(
     """
     try:
         return plan, bench.resolve(plan, args, progress)
-    except NotFoundError as refusal:
+    except _environment.not_found_error as refusal:
         spare = understudy(plans, plan)
         if spare is None:
             raise
         why = _why_refused(refusal)
-        print(understudy_note(plan, spare, why))
-        trace.emit(
+        _environment.write(understudy_note(plan, spare, why))
+        _environment.emit(
             "select",
             "switch",
             **{"from": plan.picture.title, "to": spare.picture.title, "why": why},
         )
     # Тёзке достаётся ровно то же, что досталось бы ей после меню: своя длительность из
     # справки и свой порядок прогретого (:func:`_timed`, :meth:`_Bench.reorder`).
-    spare = bench.reorder(spare, _timed(spare, facts, args, config, profile))
+    spare = bench.reorder(spare, _environment.timed(spare, facts, args, config, profile))
     bench.keep_plan(spare)
     return spare, bench.resolve(spare, args, progress)
 
@@ -819,7 +744,7 @@ def understudy_note(failed: _Plan, spare: _Plan, why: str) -> str:
     )
 
 
-def _why_refused(refusal: NotFoundError) -> str:
+def _why_refused(refusal: Exception) -> str:
     """Голова отказа - без списка приговоров и без подсказки про соседей.
 
     В отказе есть всё: перечень осуждённых релизов, совет выбрать руками, строка
@@ -827,7 +752,7 @@ def _why_refused(refusal: NotFoundError) -> str:
     «выбери руками» после автоматического ухода уже неправда.
     """
     head = str(refusal).splitlines()[0]
-    return _cut(head.split(":")[0].strip(), 60)
+    return _environment.cut(head.split(":")[0].strip(), 60)
 
 
 def _namesake(plans: list[_Plan], number: int, picked: int) -> bool:
@@ -879,15 +804,15 @@ def _pick_plan(
     назвать картину точно.
     """
     if pick is not None and not 1 <= pick <= len(plans):
-        raise NotFoundError(f"подходит картин: {len(plans)}, номера {pick} нет")
-    print(menu_lines(plans, facts))
+        raise _environment.not_found_error(f"подходит картин: {len(plans)}, номера {pick} нет")
+    _environment.write(menu_lines(plans, facts))
     if pick is not None:  # номер назвал сам человек - ни вопроса, ни подмены
         return plans[pick - 1]
     if len(plans) == 1:
         return plans[0]
     default = 1
-    if not console.stdin_is_tty():
-        raise NotFoundError(
+    if not _environment.stdin_is_tty():
+        raise _environment.not_found_error(
             f"подходит картин: {len(plans)}, а терминала нет - вслепую не выбираю; "
             f"назови картину точно (например «{plans[default - 1].picture.title}») "
             f"или её номер (--pick N), либо запусти cast в терминале"
@@ -895,10 +820,10 @@ def _pick_plan(
     if note := part_one_swap(plans, asked):
         # Дефолт подменил бы спрошенную часть другой - тогда его нет вовсе: строка
         # называет, что с первой частью, список на экране, номер зовёт человек.
-        print(note)
-        return plans[ask("Что смотрим?", len(plans), default=None) - 1]
-    print(default_line(plans, default))
-    return plans[ask("Что смотрим?", len(plans), default=default) - 1]
+        _environment.write(note)
+        return plans[_environment.ask("Что смотрим?", len(plans), default=None) - 1]
+    _environment.write(default_line(plans, default))
+    return plans[_environment.ask("Что смотрим?", len(plans), default=default) - 1]
 
 
 def default_line(plans: list[_Plan], default: int) -> str:
@@ -953,19 +878,19 @@ def menu_lines(plans: list[_Plan], facts: Facts | None = None, width: int = 0) -
     Справки нет (не приехала, сети нет, картины нет в Википедии) — печатается ровно та
     строка, что печаталась раньше, без пустых разделителей и без «не нашёл».
     """
-    columns = width or shutil.get_terminal_size((80, 24)).columns
+    columns = width or _environment.columns()
     aside = outside_numbering([plan.picture for plan in plans])
     rows: list[str] = []
     for number, plan in enumerate(plans, start=1):
         picture = plan.picture
-        fact = facts.get(picture.title, picture.year) if facts else Fact()
+        fact = facts.get(picture.title, picture.year) if facts else _environment.fact()
         head = " · ".join(
             x for x in (_named(picture, picture.key in aside), fact.rating, fact.runtime) if x
         )
         rows.append(f"  {number}. {head}")
         if fact.about:
             rows += textwrap.wrap(
-                shorten(fact.about),
+                _environment.shorten(fact.about),
                 width=max(40, columns - 1),
                 initial_indent=_BLURB_INDENT,
                 subsequent_indent=_BLURB_INDENT,
@@ -991,7 +916,7 @@ def warned(
     иначе такой релиз играет, перекодированный целиком, и таблица обязана говорить то же,
     что и показ (:func:`_encode_all`).
     """
-    peak = bitrate_of(release, runtime)
+    peak = _environment.bitrate_of(release, runtime)
     marks: list[str] = []
     if release.is_hevc:
         marks += ["перекодирую целиком" if recode_at > 0 else "не берём"]
@@ -1021,10 +946,60 @@ def last_hope_note(plan: _Plan, release: Release) -> str:
     Строка одна, без числа: считать тут нечего — это не размен качества, а
     единственный оставшийся носитель серии.
     """
-    if not (plan.last_resort and hevc_hope(release, plan.last_resort)):
+    if not (plan.last_resort and _environment.hevc_hope(release, plan.last_resort)):
         return ""
     what = f"серии {plan.want}" if plan.want else "картины"
     return f"живой раздачи {what} без HEVC нет - беру HEVC последней надеждой"
 
 
-__all__ = [name for name in globals() if not name.startswith("__")]
+__all__ = [
+    "_BLURB_INDENT",
+    "Picture",
+    "Profile",
+    "Protocol",
+    "Release",
+    "_Passport",
+    "_Revivable",
+    "_Steerable",
+    "_ctl",
+    "_first_alive",
+    "_is_default",
+    "_named",
+    "_namesake",
+    "_passed_why",
+    "_passport",
+    "_pick_plan",
+    "_played",
+    "_rival",
+    "_same_name",
+    "_why_refused",
+    "alive_numbers",
+    "asked_kind",
+    "backed",
+    "configure",
+    "contextlib",
+    "default_line",
+    "default_note",
+    "first_alive",
+    "fitness",
+    "franchise_key",
+    "last_hope_note",
+    "liveliest",
+    "liveliness",
+    "menu_lines",
+    "namesake_note",
+    "outside_numbering",
+    "part_one_swap",
+    "playable",
+    "runtime_checkable",
+    "slugify",
+    "split_franchise_index",
+    "swap_note",
+    "textwrap",
+    "threading",
+    "understudy",
+    "understudy_note",
+    "warm_order",
+    "warned",
+    "year_note",
+]

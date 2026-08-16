@@ -1,0 +1,19 @@
+"""Среда прогрева: часы, файловая операция и телеметрия."""
+
+from typing import Protocol
+
+
+class WarmEnvironment(Protocol):
+    """Побочные эффекты, которыми сценарий прогрева сам не владеет."""
+
+    def epoch(self) -> float: ...
+
+    def monotonic(self) -> float: ...
+
+    def sleep(self, seconds: float) -> None: ...
+
+    def remove_tree(self, path: object) -> None: ...
+
+    def emit(self, event: str, *args: object, **facts: object) -> None: ...
+
+    def mark(self, name: str, **facts: object) -> None: ...

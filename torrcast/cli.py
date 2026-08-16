@@ -368,12 +368,15 @@ __all__ = [
     "year_note",
 ]
 
+import os
+import shutil
 import sys
 from types import ModuleType
 from typing import Any
 
 from torrcast import choice as _choice_module
 from torrcast import commands as _commands_module
+from torrcast import console, trace
 from torrcast import discovery as _discovery_module
 from torrcast import play_command as _play_command_module
 from torrcast import playback as _playback_module
@@ -382,17 +385,12 @@ from torrcast import ranking as _ranking_module
 from torrcast import reinforce as _reinforce_module
 from torrcast import selection as _selection_module
 from torrcast import selection_bench as _selection_bench_module
+from torrcast.cast import Receiver
 from torrcast.choice import (
     _BLURB_INDENT,
-    Config,
-    Fact,
-    Facts,
-    Origin,
     Picture,
     Profile,
-    Progress,
     Protocol,
-    Receiver,
     _ctl,
     _first_alive,
     _is_default,
@@ -411,7 +409,6 @@ from torrcast.choice import (
     alive_numbers,
     asked_kind,
     backed,
-    console,
     contextlib,
     default_line,
     default_note,
@@ -423,20 +420,15 @@ from torrcast.choice import (
     liveliness,
     menu_lines,
     namesake_note,
-    origin,
-    os,
     outside_numbering,
     part_one_swap,
     playable,
     runtime_checkable,
-    shorten,
-    shutil,
     slugify,
     split_franchise_index,
     swap_note,
     textwrap,
     threading,
-    trace,
     understudy,
     understudy_note,
     warm_order,
@@ -529,6 +521,7 @@ from torrcast.commands import (
     tv_lines,
     unit_key,
 )
+from torrcast.console import Progress
 from torrcast.discovery import (
     CIRCLE_SHARE,
     FACTS_BUDGET,
@@ -552,6 +545,7 @@ from torrcast.discovery import (
     unfit_pool,
     worth_asking_original,
 )
+from torrcast.facts import Fact, Facts, Origin, origin, shorten
 from torrcast.play_command import (
     _cmd_play,
     _relayout,
@@ -756,6 +750,7 @@ from torrcast.selection import (
     map_episodes,
     swarm_pulse,
 )
+from torrcast.state import Config
 
 _PARTS = (
     _commands_module,
