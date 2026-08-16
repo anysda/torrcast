@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-# Статический список нужен mypy для реэкспортов; внизу сохраняется runtime-список.
+# Статический список реэкспортов: и mypy, и человек читают его, а не собранный на лету.
 __all__ = [
     "THIN_POOL",
     "VIDEO_EXT",
@@ -46,15 +46,6 @@ __all__ = [
     "wire_query",
 ]
 
-import sys
-from types import ModuleType
-from typing import Any
-
-from torrcast import catalog as _catalog
-from torrcast import episodes as _episodes
-from torrcast import franchise as _franchise
-from torrcast import parse_name as _parse_name
-from torrcast import parse_name_query as _parse_name_query
 from torrcast.catalog import (
     _both_languages,
     catalog_has_name,
@@ -103,26 +94,3 @@ from torrcast.parse_name import (
     unswap_layout,
     wire_query,
 )
-
-_PARTS = (_parse_name, _parse_name_query, _episodes, _franchise, _catalog)
-_namespace: dict[str, Any] = {}
-for _part in _PARTS:
-    _namespace.update(
-        (name, value) for name, value in vars(_part).items() if not name.startswith("__")
-    )
-globals().update(_namespace)
-for _part in _PARTS:
-    vars(_part).update(_namespace)
-
-
-class _ParseModule(ModuleType):
-    def __setattr__(self, name: str, value: Any) -> None:
-        super().__setattr__(name, value)
-        if not name.startswith("__"):
-            for part in _PARTS:
-                if name in vars(part):
-                    setattr(part, name, value)
-
-
-sys.modules[__name__].__class__ = _ParseModule
-__all__ = [name for name in globals() if not name.startswith("_")]
