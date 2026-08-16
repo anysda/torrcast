@@ -16,7 +16,10 @@ done
 
 .venv/bin/ruff check
 .venv/bin/ruff format --check
-.venv/bin/mypy
+# Без --no-incremental mypy отвечает из .mypy_cache и пропускает поломку, которую
+# сам же нашёл бы на чистом дереве: 16-08-2026 гейт так держался зелёным на
+# отсутствующем модуле. Гейт обязан мерить дерево, а не кэш.
+.venv/bin/mypy --no-incremental
 .venv/bin/python -m pytest -m 'not ffmpeg and not machine' -n logical
 
 # Сторож использует ffmpeg, поэтому живёт в ffmpeg-овой стадии. Без аргументов он
