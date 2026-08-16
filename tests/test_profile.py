@@ -8,7 +8,9 @@
 from __future__ import annotations
 
 import dataclasses
+import json
 import time
+from pathlib import Path
 from typing import ClassVar
 
 import pytest
@@ -201,6 +203,38 @@ def test_a_hand_written_setting_beats_the_profile() -> None:
     mine = Config(bitrate_warn_mbit=12.0, recode_at_mbit=7.0)
     tuned = profile.tune(mine, profile.ANDROID_TV)
     assert (tuned.bitrate_warn_mbit, tuned.recode_at_mbit) == (12.0, 7.0)
+
+
+def test_effective_thresholds_name_every_source() -> None:
+    """След различает профиль, написанный ключ и неявное умолчание конфига."""
+    raw = Config(hls_segment=8.0, bitrate_recode_mbit=35.0)
+    tuned = profile.tune(raw, profile.ANDROID_TV)
+    values, sources = profile.thresholds(
+        raw, tuned, profile.ANDROID_TV, frozenset({"hls_segment", "bitrate_recode_mbit"})
+    )
+
+    assert values["hls_segment"] == 8.0 and sources["hls_segment"] == "конфиг стенда"
+    assert values["recode_at_mbit"] == 28.0
+    assert sources["recode_at_mbit"] == "профиль androidtv"
+    assert sources["bitrate_recode_mbit"] == "конфиг стенда"
+    assert sources["recode_head_wait"] == "умолчание конфига"
+    assert values["patience"] == 577.0 and sources["patience"] == "профиль androidtv"
+
+
+def test_trace_snapshot_keeps_the_named_profile_and_explicit_config_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "config.json"
+    path.write_text(
+        json.dumps({"receiver_profile": "androidtv", "recode_head_wait": 7.0}), encoding="utf-8"
+    )
+    monkeypatch.setenv("TORRCAST_CONFIG", str(path))
+    raw = Config.from_json(json.loads(path.read_text("utf-8")))
+    snapshot = profile.trace_thresholds(profile.tune(raw, profile.ANDROID_TV), profile.ANDROID_TV)
+
+    assert snapshot["profile_source"] == "назван руками: receiver_profile=androidtv"
+    assert snapshot["threshold_sources"]["recode_head_wait"] == "конфиг стенда"  # type: ignore[index]
+    assert snapshot["thresholds"]["recode_at_mbit"] == 28.0  # type: ignore[index]
 
 
 def test_the_receiver_takes_its_thresholds_from_the_profile() -> None:

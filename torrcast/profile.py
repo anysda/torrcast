@@ -56,6 +56,8 @@ __all__ = [
     "by_key",
     "detect",
     "for_passport",
+    "thresholds",
+    "trace_thresholds",
     "tune",
 ]
 
@@ -528,6 +530,97 @@ def tune(config: Config, profile: Profile) -> Config:
         ),
         recode_mbit=_said(config.recode_mbit, CAUTIOUS.recode_mbit, profile.recode_mbit),
     )
+
+
+_TUNED: Final = {
+    "hls_segment": "segment_seconds",
+    "hls_burst": "burst",
+    "bitrate_warn_mbit": "warn_mbit",
+    "recode_at_mbit": "recode_at_mbit",
+    "recode_mbit": "recode_mbit",
+}
+
+# Настройки, способные изменить решение о релизе или байты/сроки живого показа. Сетевые
+# адреса, каталоги и размеры фонового диска сюда намеренно не входят: это не пороги
+# приёмника и не ответ на вопрос, какой продукт мерялся.
+_CONFIG_THRESHOLDS: Final = (
+    "hls_segment",
+    "hls_keyframes",
+    "hls_burst",
+    "bitrate_warn_mbit",
+    "bitrate_hard_mbit",
+    "bitrate_recode_mbit",
+    "recode",
+    "recode_at_mbit",
+    "recode_mbit",
+    "recode_head_wait",
+    "recode_tonemap",
+)
+
+_PROFILE_THRESHOLDS: Final = (
+    "recode_codecs",
+    "copy_depth",
+    "copy_codecs",
+    "recode_frame",
+    "max_segment_bytes",
+    "start_buffer",
+    "hold_seconds",
+    "patience",
+    "app_patience",
+    "dead_url_seconds",
+    "load_retries",
+    "segment_retries",
+    "sulk",
+    "revive_timeout",
+    "revive_pause",
+    "revive_drop",
+    "stall_seconds",
+    "ready_ahead",
+    "stall_skip",
+    "blind_nudges",
+)
+
+
+def thresholds(
+    raw: Config, tuned: Config, profile: Profile, configured: frozenset[str]
+) -> tuple[dict[str, object], dict[str, str]]:
+    """Действующие пороги и источник каждого для записи начала показа."""
+    values: dict[str, object] = {}
+    sources: dict[str, str] = {}
+    for key in _CONFIG_THRESHOLDS:
+        values[key] = getattr(tuned, key)
+        if key in _TUNED:
+            stock = getattr(CAUTIOUS, _TUNED[key])
+            sources[key] = (
+                "конфиг стенда" if getattr(raw, key) != stock else f"профиль {profile.key}"
+            )
+        else:
+            sources[key] = "конфиг стенда" if key in configured else "умолчание конфига"
+    for key in _PROFILE_THRESHOLDS:
+        value = getattr(profile, key)
+        values[key] = sorted(value) if isinstance(value, frozenset) else value
+        sources[key] = f"профиль {profile.key}"
+    return values, sources
+
+
+def trace_thresholds(config: Config, profile: Profile) -> dict[str, object]:
+    """Готовый снимок для ``session_start``, включая безопасное происхождение профиля."""
+    from torrcast.state import config_keys, load_config
+
+    raw = load_config()
+    chosen = detect(raw)
+    values, sources = thresholds(raw, config, profile, config_keys())
+    if raw.receiver_profile:
+        profile_source = f"назван руками: receiver_profile={profile.key}"
+    elif chosen.how.startswith("по паспорту:"):
+        profile_source = "паспорт приёмника"
+    else:
+        profile_source = chosen.how
+    return {
+        "profile_source": profile_source,
+        "thresholds": values,
+        "threshold_sources": sources,
+    }
 
 
 def _said(mine: float, stock: float, wanted: float) -> float:

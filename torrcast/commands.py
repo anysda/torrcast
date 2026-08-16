@@ -186,7 +186,7 @@ from torrcast.parse import (
     Release,
     split_episode,
 )
-from torrcast.profile import Profile
+from torrcast.profile import Profile, trace_thresholds
 from torrcast.profile import detect as detect_profile
 from torrcast.profile import tune as tune_profile
 from torrcast.scan import Device
@@ -1320,6 +1320,7 @@ def _worker_loop(
             title=title,
             pos=round(entry.pos, 1),
             profile=profile.key,
+            **trace_thresholds(config, profile),
         )
         print(f"{journal} показ «{title}» с {_hms(entry.pos)}", flush=True)
         code = _play(

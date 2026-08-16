@@ -79,6 +79,7 @@ MACHINE_TESTS = frozenset(
         "tests/test_trace.py::test_emit_schema",
         "tests/test_trace.py::test_отставший_хвост_не_дописывается_в_чужую_ленту",
         "tests/test_trace.py::test_two_show_sessions_are_unambiguously_selected_in_one_log",
+        "tests/test_trace.py::test_show_start_prints_effective_thresholds_and_their_sources",
         "tests/test_trace.py::test_bad_field_dropped_not_raised",
         "tests/test_trace.py::test_rotation_drops_old_days",
         "tests/test_trace.py::test_digest_summarises_session",

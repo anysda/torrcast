@@ -19,7 +19,16 @@ from torrcast import TorrcastError
 from torrcast.profile import CAUTIOUS
 from torrcast.warm import WARM_BUDGET, WARM_DIR
 
-__all__ = ["Config", "Entry", "State", "config_path", "load_config", "save_config", "state_path"]
+__all__ = [
+    "Config",
+    "Entry",
+    "State",
+    "config_keys",
+    "config_path",
+    "load_config",
+    "save_config",
+    "state_path",
+]
 
 Kind = Literal["movie", "tv"]
 
@@ -239,6 +248,25 @@ def load_config() -> Config:
     if not isinstance(raw, dict):
         raise TorrcastError(f"битый конфиг {path}: ожидался объект JSON")
     return Config.from_json(raw)
+
+
+def config_keys() -> frozenset[str]:
+    """Ключи, действительно написанные в JSON, в отличие от умолчаний :class:`Config`.
+
+    Вызывается после :func:`load_config`, поэтому повторная короткая читка не вводит
+    второй способ разбирать настройки. Она нужна следу: одинаковое число может прийти
+    из файла стенда или из умолчания, а задним числом по одному значению их не отличить.
+    """
+    path = config_path()
+    if not path.exists():
+        return frozenset()
+    try:
+        raw: Any = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return frozenset()
+    if not isinstance(raw, dict):
+        return frozenset()
+    return frozenset(key for key in raw if key in Config.__dataclass_fields__)
 
 
 def save_config(config: Config) -> None:

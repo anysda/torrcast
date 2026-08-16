@@ -74,6 +74,28 @@ def test_two_show_sessions_are_unambiguously_selected_in_one_log(tmp_path: Path)
     assert digest.count("итог: ребуферов 1; досмотрено") == 2
 
 
+def test_show_start_prints_effective_thresholds_and_their_sources(tmp_path: Path) -> None:
+    trace.emit(
+        "session",
+        "session_start",
+        title="проверка",
+        pos=0.0,
+        profile="androidtv",
+        profile_source="паспорт приёмника",
+        thresholds={"recode_at_mbit": 28.0, "recode_head_wait": 12.0},
+        threshold_sources={
+            "recode_at_mbit": "профиль androidtv",
+            "recode_head_wait": "конфиг стенда",
+        },
+    )
+    trace.shutdown()
+
+    text = trace.digest(trace.records())
+    assert "профиль androidtv (паспорт приёмника)" in text
+    assert "recode_at_mbit=28.0 [профиль androidtv]" in text
+    assert "recode_head_wait=12.0 [конфиг стенда]" in text
+
+
 def test_records_reads_and_orders(tmp_path: Path) -> None:
     """`records` собирает ленту по каталогу и сортирует по времени, фильтруя по `since`."""
     trace.emit("play", "segment", slot=1)

@@ -828,7 +828,19 @@ def _event_line(rec: dict[str, Any], began: float, seam: bool = False) -> str:
         # его нет вовсе - тогда и в строке о нём молчим, а не пишем «профиль ?».
         profile = str(rec.get("profile", ""))
         head = f"{stamp}показ «{rec.get('title', '')}» с {_hms(float(rec.get('pos', 0.0)))}"
-        return f"{head} · профиль {profile}" if profile else head
+        if not profile:
+            return head
+        source = str(rec.get("profile_source", ""))
+        thresholds = rec.get("thresholds", {})
+        origins = rec.get("threshold_sources", {})
+        profile_text = f" · профиль {profile}" + (f" ({source})" if source else "")
+        if not isinstance(thresholds, dict) or not thresholds:
+            return f"{head}{profile_text}"
+        origins = origins if isinstance(origins, dict) else {}
+        details = ", ".join(
+            f"{key}={value} [{origins.get(key, '?')}]" for key, value in thresholds.items()
+        )
+        return f"{head}{profile_text} · пороги: {details}"
     if event == "session_end":
         return ""  # конец сеанса печатает итоговая строка блока, второй раз незачем
     if event == "lost":
