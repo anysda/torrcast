@@ -653,6 +653,36 @@ def test_правка_сетки_щупом_не_теряет_ленту_и_ве
     assert changed.origin == 0.103, "щуп потерял общее смещение ленты"
 
 
+def test_явные_границы_щупа_берут_начало_ленты(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Бисект границ режет ту же ленту фильма, что и штатная сетка."""
+    tv = probe("tvprobe")
+    asked: list[str] = []
+
+    def origin(url: str) -> float:
+        asked.append(url)
+        return 0.103
+
+    monkeypatch.setattr(tv, "pack_origin", origin)
+    args = SimpleNamespace(
+        bounds="10,20",
+        url="film",
+        duration=30.0,
+        step=10.0,
+        uniform=False,
+        ceiling=0.0,
+        mbit=0.0,
+        recode=False,
+        drop="",
+        add="",
+    )
+
+    grid = tv.make_grid(args, CAUTIOUS)
+
+    assert asked == ["film"]
+    assert grid.bounds == (0.0, 10.0, 20.0)
+    assert grid.origin == 0.103, "явная сетка потеряла начало общей ленты фильма"
+
+
 @pytest.mark.machine
 def test_щуп_перемотки_берёт_порт_у_ядра() -> None:
     """Два замера рядом на одном стенде - не ``Address already in use``.

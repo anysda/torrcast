@@ -97,7 +97,7 @@ for name in sys.argv[1:]:
         groups.append([])
     else:
         groups[-1].append(Path(name))
-for pieces in groups:
+for leg, pieces in zip(("упаковка копией", "непрерывность перекода"), groups):
     if len(pieces) < 2:
         raise SystemExit("сторожу стыков нужно хотя бы два куска")
     timeline = [packets(piece) for piece in pieces]
@@ -107,7 +107,7 @@ for pieces in groups:
                 continue
             rollback = max(left[stream]) - min(right[stream])
             if rollback >= 0:
-                print(f"стык {seam}: {label}, откат {rollback:.3f} с", file=sys.stderr)
+                print(f"{leg}, стык {seam}: {label}, откат {rollback:.3f} с", file=sys.stderr)
                 broken = True
 if broken:
     raise SystemExit(1)

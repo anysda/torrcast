@@ -49,6 +49,7 @@ from torrcast.stream import (
     probe,
     segment_name,
 )
+from torrcast.stream_pack import pack_origin
 
 #: Позиция не двигается дольше этого при живом запасе упаковки - это подвис.
 STALL = 3.0
@@ -125,7 +126,12 @@ def make_grid(
     """
     if args.bounds:
         given = tuple(float(x) for x in args.bounds.split(","))
-        base = Grid((0.0, *given) if given[0] > 0 else given, args.duration, False)
+        base = Grid(
+            (0.0, *given) if given[0] > 0 else given,
+            args.duration,
+            False,
+            origin=pack_origin(args.url),
+        )
     else:
         base = grid_for(
             args.url,
