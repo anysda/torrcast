@@ -138,7 +138,9 @@ def test_dead_torrserver_stops_before_the_next_release() -> None:
     assert str(caught.value) == (
         "TorrServer не отвечает (http://127.0.0.1:8090): connection refused"
     )
-    assert torrserver.calls <= 2, "после пары прогрева очередь продолжаться не должна"
+    assert torrserver.calls <= cli.MAX_TRIES, (
+        "параллельная тройка уже могла стартовать, но дальше неё общий отказ не идёт"
+    )
 
 
 def test_the_same_words_without_the_type_do_not_stop_the_queue(
