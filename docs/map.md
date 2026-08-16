@@ -47,6 +47,7 @@
 | `CUE_TIME` | константа | `torrcast/domain/frames/mkv.py` | 36 |
 | `CUE_TRACK` | константа | `torrcast/domain/frames/mkv.py` | 38 |
 | `CUE_TRACK_POSITIONS` | константа | `torrcast/domain/frames/mkv.py` | 37 |
+| `Cast` | класс | `torrcast/usecases/cast.py` | 10 |
 | `Choice` | класс | `torrcast/domain/choice.py` | 11 |
 | `ChromecastReceiver` | класс | `torrcast/adapters/chromecast/cast.py` | 101 |
 | `Clock` | класс | `torrcast/ports/clock.py` | 6 |
@@ -86,7 +87,8 @@
 | `Fact` | класс | `torrcast/facts_origin.py` | 390 |
 | `Facts` | класс | `torrcast/facts_fetch.py` | 576 |
 | `FactsSource` | класс | `torrcast/ports/facts_source.py` | 8 |
-| `Feed` | класс | `torrcast/stream_feed.py` | 644 |
+| `Feed` | класс | `torrcast/_stream_feed_impl.py` | 644 |
+| `Feed` | класс | `torrcast/usecases/feed.py` | 10 |
 | `FfprobeProber` | класс | `torrcast/adapters/ffprobe/ffprobe_prober.py` | 12 |
 | `FileLike` | класс | `torrcast/domain/file_like.py` | 8 |
 | `FilmKeys` | класс | `torrcast/adapters/stream_pack.py` | 385 |
@@ -209,7 +211,8 @@
 | `PROFILES` | константа | `torrcast/domain/profile.py` | 91 |
 | `PUBLIC_TRACKERS` | константа | `torrcast/search.py` | 218 |
 | `Pace` | класс | `torrcast/adapters/recode.py` | 527 |
-| `Packer` | класс | `torrcast/stream_feed.py` | 70 |
+| `Pack` | класс | `torrcast/usecases/pack.py` | 10 |
+| `Packer` | класс | `torrcast/_stream_feed_impl.py` | 70 |
 | `Picture` | класс | `torrcast/domain/picture.py` | 14 |
 | `PlaybackSession` | класс | `torrcast/ports/playback_session.py` | 8 |
 | `PlaybackSnapshot` | класс | `torrcast/domain/playback_snapshot.py` | 7 |
@@ -254,6 +257,7 @@
 | `Recoder` | класс | `torrcast/adapters/recode.py` | 697 |
 | `Release` | класс | `torrcast/domain/release.py` | 35 |
 | `Report` | класс | `torrcast/cast_mock.py` | 60 |
+| `Revive` | класс | `torrcast/usecases/revive.py` | 10 |
 | `SAY_SECONDS` | константа | `torrcast/commands_legacy.py` | 472 |
 | `SD_BITRATE` | константа | `torrcast/commands_legacy.py` | 555 |
 | `SEASON_EPISODES` | константа | `torrcast/commands_legacy.py` | 570 |
@@ -312,7 +316,7 @@
 | `SwarmError` | класс | `torrcast/domain/swarm_error.py` | 6 |
 | `SystemdService` | класс | `torrcast/adapters/systemd/systemd_service.py` | 13 |
 | `TABLE_LIMIT` | константа | `torrcast/commands_legacy.py` | 205 |
-| `TAIL_LIMIT` | константа | `torrcast/playback_revival.py` | 51 |
+| `TAIL_LIMIT` | константа | `torrcast/_playback_revival_impl.py` | 51 |
 | `THIN_POOL` | константа | `torrcast/domain/_name_data/data_3.py` | 114 |
 | `TIMELINE_ENV` | константа | `torrcast/timing.py` | 30 |
 | `TIMESTAMP_SCALE` | константа | `torrcast/domain/frames/mkv.py` | 31 |
@@ -468,7 +472,7 @@
 | `menu_lines` | функция | `torrcast/usecases/choice.py` | 939 |
 | `menu_order` | функция | `torrcast/domain/menu_order.py` | 10 |
 | `merge` | функция | `torrcast/search.py` | 969 |
-| `merge_tracks` | функция | `torrcast/stream_feed.py` | 584 |
+| `merge_tracks` | функция | `torrcast/_stream_feed_impl.py` | 584 |
 | `minutes_of` | функция | `torrcast/facts_origin.py` | 417 |
 | `misses_episode` | функция | `torrcast/usecases/rank.py` | 733 |
 | `named` | функция | `torrcast/adapters/chromecast/scan.py` | 245 |
@@ -536,7 +540,7 @@
 | `same_words` | функция | `torrcast/domain/same_words.py` | 8 |
 | `save_config` | функция | `torrcast/adapters/filesystem/state.py` | 278 |
 | `season_gaps` | функция | `torrcast/_discovery_impl.py` | 303 |
-| `season_reread` | функция | `torrcast/play_command.py` | 542 |
+| `season_reread` | функция | `torrcast/_play_command_impl.py` | 542 |
 | `seasons_named` | функция | `torrcast/domain/seasons_named.py` | 8 |
 | `seek` | функция | `torrcast/trace.py` | 421 |
 | `segment` | функция | `torrcast/trace.py` | 338 |
@@ -572,7 +576,7 @@
 | `swarm_pulse` | функция | `torrcast/adapters/stream_probe.py` | 362 |
 | `terminal` | функция | `torrcast/adapters/console/console.py` | 67 |
 | `thresholds` | функция | `torrcast/domain/thresholds.py` | 57 |
-| `timeline_shift` | функция | `torrcast/stream_feed.py` | 548 |
+| `timeline_shift` | функция | `torrcast/_stream_feed_impl.py` | 548 |
 | `titles_for` | функция | `torrcast/facts_origin.py` | 436 |
 | `to_releases` | функция | `torrcast/search.py` | 1067 |
 | `trace_thresholds` | функция | `torrcast/profile.py` | 81 |
