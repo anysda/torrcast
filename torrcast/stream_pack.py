@@ -21,6 +21,8 @@ __all__ = [
     "_keys_draft",
     "_pilot_start",
     "_read_keys",
+    "_reorder_slack",
+    "_seconds",
     "_weigher",
     "bisect",
     "container_of",
@@ -39,10 +41,12 @@ __all__ = [
     "mark_playing",
     "math",
     "os",
+    "pack_origin",
     "pack_start",
     "parse_manifest",
     "playing_flag",
     "pull_head",
+    "replace",
     "subprocess",
     "tempfile",
     "threading",
@@ -86,12 +90,15 @@ import tempfile
 import threading
 import time
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, NamedTuple
 
 from torrcast import InfraError
 from torrcast.stream_core import (
+    _ORIGIN,
+    _ORIGIN_LOCK,
+    AUDIO_PRIMING,
     HEAD_WARM,
     HLS_SEGMENT_SECONDS,
     MAX_SEGMENT_BYTES,
@@ -136,6 +143,15 @@ class Grid:
     #: что карта известна ровно в момент её постройки, а нужна позже и в другом месте:
     #: прогрев проверяет по ней бюджет диска (:meth:`torrcast.warm.Warmer._forecast`).
     weigh: Callable[[float, float], float] | None = None
+    #: Начало ленты: на столько секунд вперёд сдвинуты ВСЕ метки, которые мы пакуем из
+    #: этого файла (:func:`pack_origin`). Ноль - метки и есть время фильма.
+    #:
+    #: Число живёт в сетке ровно по той же причине, что и :attr:`weigh`: оно одно на весь
+    #: фильм, известно в момент постройки сетки, а нужно позже и в трёх разных местах -
+    #: живой упаковке, прогреву и перекоду. Отдельным параметром его пришлось бы протащить
+    #: до каждого из них, и первый же забытый вызов вернул бы дефект: заход, упаковавший
+    #: без сдвига, ставит на стыке с чужим ход меток НАЗАД.
+    origin: float = 0.0
 
     @classmethod
     def uniform(cls, duration: float, step: float = HLS_SEGMENT_SECONDS) -> Grid:
@@ -161,6 +177,7 @@ class Grid:
         ceiling_mbit: float = 0.0,
         cap: float = MAX_SEGMENT_BYTES,
         fixed_mbit: float = 0.0,
+        origin: float = 0.0,
     ) -> Grid:
         """Сетка по опорным кадрам: следующая граница — первый опорный кадр не раньше,
         чем через ``step`` секунд после предыдущей, **и не тяжелее**
@@ -239,7 +256,7 @@ class Grid:
                 bounds.append(first)  # влез - или один GOP тяжелее потолка, резать нечем
             else:
                 bounds.append(fits)
-        return cls(tuple(bounds), duration, True, copy)
+        return cls(tuple(bounds), duration, True, copy, origin)
 
     @property
     def count(self) -> int:
@@ -628,21 +645,24 @@ def grid_for(
     весит столько, сколько мы в него положили.
     """
     began = time.monotonic()
+    # Начало ленты - свойство файла, а не способа его нарезать: считается до всякой развилки
+    # и уезжает в любую сетку, какой бы из путей ниже ни выбрался (:func:`pack_origin`).
+    origin = pack_origin(source_url)
     if not on_keys:
         if say:
             say(f"сетка ровно по {step:g} с - так велено настройкой")
-        return Grid.uniform(duration, step)
+        return replace(Grid.uniform(duration, step), origin=origin)
     try:
         found = film_keys(source_url)
     except InfraError as exc:
         if say:
             say(f"сетка ровно по {step:g} с: {exc}")
-        return Grid.uniform(duration, step)
+        return replace(Grid.uniform(duration, step), origin=origin)
     length = duration or found.duration
     if len(found.at) < 3 or found.at[-1] < length * 0.5:
         if say:
             say(f"сетка ровно по {step:g} с: карта опорных кадров не похожа на видео")
-        return Grid.uniform(length, step)
+        return replace(Grid.uniform(length, step), origin=origin)
     grid = Grid.on_keyframes(
         found.at,
         length,
@@ -652,6 +672,7 @@ def grid_for(
         ceiling_mbit=ceiling_mbit,
         fixed_mbit=fixed_mbit,
         cap=cap,
+        origin=origin,
     )
     if say:
         spans = [grid.span(k) for k in range(grid.count)]
@@ -796,6 +817,128 @@ def _pilot_start(source_url: str, at: float, timeout: float = PILOT_TIMEOUT) -> 
             return at
 
 
+def pack_origin(source_url: str, timeout: float = PILOT_TIMEOUT) -> float:
+    """На сколько вперёд сдвигается вся лента этого фильма, секунды. Считается раз на файл.
+
+    🔴 Ровно тут рождался обратный ход меток на ПЕРВОМ стыке - тот, на котором приёмник
+    бросал разбор (``Parsed buffers not in DTS sequence`` → ``pipeline_error 16``) и показ
+    умирал молча, два запуска из пяти.
+
+    Механизм (замерено, а не выведено). Начало фильма лежит НИЖЕ нуля: у релиза с
+    B-кадрами первый пакет видео идёт с ``dts = pts - задержка перестановки`` (замер на
+    ролике: pts 0.000, dts -0.083), а наш звук вдобавок начинается на набивку кодировщика
+    раньше (:data:`AUDIO_PRIMING`). Отрицательных меток mpegts не выражает, и муксер
+    двигает их сам - но двигает **каждый файл отдельно**, потому что сегментный муксер
+    открывает под каждый кусок свой mpegts. Первому куску сдвиг нужен, соседнему уже нет:
+    v0 уезжает на ленте «время фильма + сдвиг», v1 - на честном времени фильма, и на их
+    стыке метки идут НАЗАД. Дальше все стыки чистые, поэтому дефект и жил только на первом.
+    Замер на ролике: v0 DTS 0.000..7.958 против v1 DTS 7.917.., откат -0.042 с; куски при
+    этом честные, ни одного общего кадра у них нет - назад идут только метки.
+
+    ``-avoid_negative_ts disabled`` от этого не спасает и никогда не спасал: он снимает
+    сдвиг с ВНЕШНЕГО, сегментного муксера, а внутренние mpegts его не наследуют вовсе
+    (сегментный копирует им ``max_delay``, но не ``avoid_negative_ts``) - и сдвиг просто
+    переезжает внутрь, из «одного на прогон» становясь «своим у каждого куска».
+
+    Лечится это единственным способом: **лента фильма одна на все заходы**. Сдвиг
+    называется явно (``-output_ts_offset``), считается один раз на файл и уезжает в каждый
+    заход - живой упаковки, прогрева, перекода. Тогда ни одному муксеру двигать нечего
+    (метки уже выше нуля), первый кусок ничем не отличается от прочих, а заход из середины
+    после ``-ss`` встаёт с тем же началом ленты, что и заход от нуля. Проверено обоими
+    концами: заход с нуля и заход после ``-ss`` дают на одном и том же куске
+    **побайтово те же метки**.
+
+    Считается сдвиг с запасом и намеренно: переоценка стоит нескольких лишних миллисекунд
+    начала на всей ленте разом (ни один потребитель абсолютных меток такой разницы не
+    видит), недооценка возвращает дефект целиком. Слагаемых два - задержка перестановки
+    видео и набивка нашего звука, - и берётся не большее из них, а сумма: какое из двух
+    окажется ниже нуля первым, решает порядок чередования потоков, а не мы.
+
+    Не прочли (файл не открылся, ffprobe не дожил) - остаётся набивка звука: гадать про
+    видео нечем, а мёртвый вход всё равно не упакуется.
+    """
+    with _ORIGIN_LOCK:
+        ready = _ORIGIN.get(source_url)
+    if ready is not None:
+        return ready
+    delay = _reorder_slack(source_url, timeout)
+    # Вверх до миллисекунды: в команду сдвиг уезжает с тремя знаками, и округление вниз
+    # оставило бы метки на доли миллисекунды ниже нуля - то есть вернуло бы муксеру повод
+    # сдвинуть первый кусок самому.
+    origin = math.ceil(((delay or 0.0) + AUDIO_PRIMING) * 1000.0) / 1000.0
+    with _ORIGIN_LOCK:
+        origin = _ORIGIN.setdefault(source_url, origin)
+    mark("начало ленты", сдвиг=origin, померено=delay is not None)
+    return origin
+
+
+def _reorder_slack(source_url: str, timeout: float = PILOT_TIMEOUT) -> float | None:
+    """На сколько метки начала фильма уходят ниже нуля, секунды; ``None`` - не прочли.
+
+    Спрашивается ОДИН ffprobe и сразу тремя способами, потому что ни один из трёх не
+    работает на всех контейнерах:
+
+    * ``pts - dts`` первых пакетов - прямой ответ там, где dts в файле есть (mp4: замер на
+      ролике - pts 0.000 при dts -0.080);
+    * ``-dts`` тех же пакетов - на случай, когда лента начинается ниже нуля сама по себе,
+      а не из-за перестановки;
+    * ``has_b_frames / кадров в секунду`` - **единственный** ответ для mkv, где dts не
+      хранится вовсе. Замер на живой раздаче: у первых двух пакетов ``dts_time`` = ``N/A``,
+      и первые два способа молчат, а ffmpeg тем временем достраивает те же dts сам и
+      уводит начало ниже нуля ровно на эту величину.
+
+    Берётся наибольшее из трёх: переоценка стоит миллисекунд, недооценка возвращает дефект
+    (:func:`pack_origin`). Читается голова файла и только она (``-read_intervals``) - то,
+    что к этому времени уже прогрето (:func:`pull_head`).
+    """
+    command = [
+        "ffprobe", "-v", "error", "-select_streams", "v:0", "-read_intervals", "%+#4",
+        "-show_entries", "stream=has_b_frames,avg_frame_rate:packet=pts_time,dts_time",
+        "-of", "json", source_url,
+    ]  # fmt: skip
+    try:
+        found = subprocess.run(command, capture_output=True, text=True, timeout=timeout, check=True)
+        payload = json.loads(found.stdout)
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    slack = [0.0]
+    for number, packet in enumerate(payload.get("packets") or []):
+        if not isinstance(packet, dict):
+            continue
+        pts, dts = _seconds(packet.get("pts_time")), _seconds(packet.get("dts_time"))
+        if dts is None:
+            continue
+        slack.append(-dts)
+        # ⚠️ ``pts - dts`` считается ТОЛЬКО у первого пакета: ниже нуля лента уходит ровно
+        # на его перестановку. У пакетов в середине эта разница - глубина перестановки
+        # вообще (замер на живой раздаче: 0.167 с у третьего пакета против 0.083 у начала,
+        # а по фильму она доходит до 0.417), и брать её значило бы сдвигать ленту фильма
+        # на полсекунды там, где хватает двух кадров.
+        if number == 0 and pts is not None:
+            slack.append(pts - dts)
+    for stream in payload.get("streams") or []:
+        if not isinstance(stream, dict):
+            continue
+        rate = _seconds(stream.get("avg_frame_rate", "0/0"))
+        depth = stream.get("has_b_frames")
+        if rate and rate > 0 and isinstance(depth, int) and depth > 0:
+            slack.append(depth / rate)
+    return max(slack)
+
+
+def _seconds(raw: Any) -> float | None:
+    """Число из поля ffprobe: секунды или дробь ``24/1``; ``None`` - поля нет или ``N/A``."""
+    if not isinstance(raw, str):
+        return None
+    head, _, tail = raw.partition("/")
+    try:
+        return float(head) / float(tail) if tail else float(head)
+    except (ValueError, ZeroDivisionError):
+        return None
+
+
 def ffmpeg_pack_command(
     source_url: str,
     audio_index: int,
@@ -828,9 +971,16 @@ def ffmpeg_pack_command(
       опорных кадров сверяли с метками готовых сегментов, видели ровно +1.400 с на каждой
       границе и записали это в «карта врёт про этот релиз». Карта не врала — врал муксер,
       и :func:`pack_start` эти же два флага ставил с самого начала, то есть пробный прогон
-      мерил время фильма, а настоящий писал время фильма плюс 1.4 с. Последний флаг не
-      даёт муксеру отдельно сдвинуть заход с нуля на 2 B-кадра ради отрицательного DTS:
-      иначе следующий заход после ``-ss`` возвращает ленту на 80 мс назад.
+      мерил время фильма, а настоящий писал время фильма плюс 1.4 с.
+    * ``-avoid_negative_ts disabled`` **вместе с** ``-output_ts_offset`` (:attr:`Grid.origin`)
+      — и порознь они не работают. Первый запрещает двигать метки внешнему, сегментному
+      муксеру; сам по себе он ничего не лечит, потому что внутренние mpegts (по одному на
+      кусок!) его не наследуют и двигают начало каждый за себя — сдвинутым оказывается
+      ровно первый кусок, и на стыке со вторым метки идут НАЗАД
+      (🔴 :func:`pack_origin`, разбор целиком там же). Второй поднимает всю ленту фильма
+      выше нуля заранее и одинаково во всех заходах, так что двигать становится нечего
+      никому: и заход от нуля, и заход после ``-ss`` пишут на одном и том же куске
+      побайтово те же метки.
     * ``-break_non_keyframes`` — резать ли посреди GOP. На сетке по опорным кадрам этого
       не нужно и нельзя: муксер сам дождётся опорного кадра, и граница встанет ровно туда,
       куда обещал манифест. На ровной сетке — наоборот, иначе куски разъедутся с сеткой.
@@ -890,6 +1040,14 @@ def ffmpeg_pack_command(
     # через ``TORRCAST_STATE``), и ffmpeg получал вместо имени списка два огрызка: список
     # нарезки не появлялся вовсе, :meth:`Packer.publish` не выкладывал наружу ничего, а
     # показ видел только «ни куска» - без причины.
+    if grid.origin > 0:
+        # 🔴 Начало ленты - одно на все заходы фильма (:func:`pack_origin`). Без него метки
+        # начала уходят ниже нуля, mpegts их не выражает, и муксер двигает их сам - но у
+        # сегментного муксера свой mpegts на КАЖДЫЙ кусок, поэтому сдвигается ровно первый,
+        # а на стыке со вторым метки идут назад. Сдвиг стоит ЗДЕСЬ, а не в резах: резы
+        # муксер меряет от первого пакета прогона, то есть на них он не влияет вовсе, а
+        # ``-to`` считается в метках входа, до сдвига.
+        command += ["-output_ts_offset", f"{grid.origin:.3f}"]
     command += [
         "-c:a", AUDIO_CODEC, "-ac", f"{AUDIO_CHANNELS}", "-b:a", AUDIO_BITRATE,
         "-muxdelay", "0", "-muxpreload", "0", "-avoid_negative_ts", "disabled",

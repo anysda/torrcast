@@ -31,6 +31,7 @@ from torrcast.stream import (
     Grid,
     Packer,
     ffmpeg_pack_command,
+    grid_for,
     hls_dir,
     pack_start,
     segment_name,
@@ -75,7 +76,9 @@ def _warm_clip_for_show(clip: str, tmp_path: Path) -> Grid:
     копия, без точечных перекодов - решение лёгкого ролика. Возвращает сетку, по ней
     тест сверяет, что состояние увидело ровно столько, сколько лежит на диске.
     """
-    grid = _grid()
+    # Сетку строит та же фабрика, что и показ: в ключ каталога входит начало ленты
+    # (:func:`torrcast.stream.pack_origin`), а его знает только она.
+    grid = grid_for(clip, float(CLIP_SECONDS), 10.0, False)
     vault = Vault(
         root=warm_root(str(tmp_path / "warm")),
         key=warm_key(clip, 0, grid, None, ()),

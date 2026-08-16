@@ -152,7 +152,9 @@ def segment_start(path: Path) -> float:
     кадре, а карта опорных кадров (:mod:`torrcast.keymap`) хранит их ВРЕМЯ ПОКАЗА. У релиза
     с B-кадрами DTS того же кадра лежит на кадр-другой раньше PTS, и сверка по DTS видела
     бы этот зазор как расхождение. Метки абсолютные - это ``-copyts`` у обоих упаковщиков
-    (:func:`torrcast.stream.ffmpeg_pack_command`), поэтому PTS и есть время фильма.
+    (:func:`torrcast.stream.ffmpeg_pack_command`), поэтому PTS - это время фильма плюс
+    начало ленты, одно на все заходы (:func:`torrcast.stream.pack_origin`); прибавляет его
+    к границе сама сверка (:meth:`Warmer._verify`).
 
     PCR - запасной ответ: если в голове файла пакета видео с меткой не нашлось, начало
     берётся по часам транспорта. Он на преролл муксера раньше PTS, и порог
@@ -227,7 +229,13 @@ def warm_key(
     parts = [
         source,
         f"a{audio}",
-        f"g{grid.count}:{grid.duration:.3f}:{grid.on_keys:d}",
+        # Начало ленты - тоже содержимое куска, и притом то самое, из-за которого
+        # карточка и написана (:func:`torrcast.stream.pack_origin`). Прогретое прошлой
+        # сборкой лежит на другой ленте, а показ берёт куски из ДВУХ производителей
+        # вперемешку: не разойдись тут ключ, старый кусок с диска встал бы рядом со
+        # свежим из упаковки, и на их стыке метки пошли бы назад - ровно тот отказ,
+        # который тут и лечится.
+        f"g{grid.count}:{grid.duration:.3f}:{grid.on_keys:d}:{grid.origin:.3f}",
         "" if encode is None else f"e{encode.preset}:{encode.mbit:.2f}{encode.mark}",
         # Точечно перекодированные куски - тоже содержимое каталога: сменился список
         # тяжёлых мест (другой порог, другой профиль тяжести) - каталог другой.
@@ -980,7 +988,10 @@ class Warmer:
         404 → приёмник просит снова, :meth:`torrcast.stream._Handler._read`).
         """
         began = segment_start(self.vault.path(slot))
-        want = self.grid.start(slot)
+        # Метка куска - это время фильма ПЛЮС начало ленты, одно на все заходы
+        # (:attr:`torrcast.stream.Grid.origin`): сверять надо с тем же числом, иначе порог
+        # сдвига у релизов с B-кадрами съеден на треть ещё до всякого промаха.
+        want = self.grid.start(slot) + self.grid.origin
         if math.isnan(began) or began > want - SKEW_MAX:
             return True
         tries = self.skews.get(slot, 0) + 1

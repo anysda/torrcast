@@ -456,11 +456,15 @@ class Packer:
         Ноль (точнее, доли кадра) — манифест не врёт: ``EXTINF`` совпадает с фактом.
         Больше кадра — повод не верить нарезке и сказать об этом в журнал: значит, карта
         опорных кадров разошлась с потоком.
+
+        Начало ленты (:attr:`torrcast.stream.Grid.origin`) вычитается: ffmpeg пишет в свой
+        список уже сдвинутые метки, и без этого вычитания «расхождение с манифестом» на
+        каждом фильме с B-кадрами показывало бы ровно этот сдвиг вместо нуля.
         """
         worst = 0.0
         for slot, began, _ in self.cuts()[1:]:
             if slot >= self.first:
-                worst = max(worst, abs(began - grid.start(slot)))
+                worst = max(worst, abs(began - grid.origin - grid.start(slot)))
         return worst
 
     def pending(self) -> int:

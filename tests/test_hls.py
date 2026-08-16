@@ -16,6 +16,7 @@ https проверяется отдельно: это выключенная о�
 
 from __future__ import annotations
 
+import itertools
 import json
 import math
 import subprocess
@@ -44,6 +45,7 @@ from torrcast.stream import (
     HlsServer,
     Packer,
     ffmpeg_pack_command,
+    grid_for,
     hls_dir,
     mapped_start,
     pack_start,
@@ -365,6 +367,62 @@ def test_a_new_packaging_run_does_not_turn_timestamps_back(
         )
 
 
+def _dts_edges(path: Path, stream_name: str) -> tuple[float, float]:
+    """Первая и последняя метка декодирования потока в куске, секунды."""
+    done = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", stream_name,
+         "-show_entries", "packet=dts_time", "-of", "csv=p=0", str(path)],
+        check=True, capture_output=True, text=True, timeout=60,
+    )  # fmt: skip
+    marks = [
+        float(line.strip().rstrip(","))
+        for line in done.stdout.splitlines()
+        if line.strip() and "N/A" not in line
+    ]
+    assert marks, f"ffprobe не нашёл пакетов {stream_name} в {path.name}"
+    return min(marks), max(marks)
+
+
+def test_the_very_first_seam_of_a_run_is_as_monotone_as_all_the_others(
+    clip_mp4_bframes: str, offline_keys: None, tmp_path: Path
+) -> None:
+    """🔴 TC-574. Первый стык одного прогона не имеет права идти назад.
+
+    Механизм. Начало фильма лежит ниже нуля: у релиза с B-кадрами первый пакет идёт с
+    ``dts = pts - задержка перестановки``, а наш звук вдобавок начинается на набивку
+    кодировщика раньше. Отрицательных меток mpegts не выражает, и муксер двигает их сам -
+    но у сегментного муксера свой mpegts на КАЖДЫЙ кусок, поэтому сдвинутым оказывался
+    ровно первый: v0 уезжал на ленте «время фильма + сдвиг», v1 - на честном времени
+    фильма, и на их стыке метки шли НАЗАД. Приёмник требует неубывающего DTS: ловил откат,
+    бросал разбор (``Parsed buffers not in DTS sequence`` → ``pipeline_error 16``) и гасил
+    показ целиком. У владельца это было два чёрных экрана из пяти запусков; те же четыре
+    куска по плоскому HTTP давали 3 смерти из 3, а со снятым откатом - 3 чистых прогона.
+    Дальше все стыки были чистыми, поэтому дефект и жил ровно на первом.
+    ``-avoid_negative_ts disabled`` тут не помогал никогда: внутренние mpegts его не
+    наследуют, и он лишь переносил сдвиг с прогона на отдельный кусок.
+
+    Проверяется настоящим прогоном ffmpeg и настоящими метками отданных кусков - и видео,
+    и звука: между соседями метки обязаны расти на КАЖДОМ стыке, включая первый. Проверено
+    откатом: без начала ленты (:func:`torrcast.stream.pack_origin`) первый стык уходит назад
+    на кадр, и тест падает ровно на нём.
+    """
+    grid = grid_for(clip_mp4_bframes, float(CLIP_SECONDS))
+    assert grid.on_keys and grid.count >= 3, "нужна сетка по опорным кадрам и хотя бы три куска"
+    assert grid.origin > 0, "начало ленты обязано быть измерено, иначе проверять нечего"
+
+    out = hls_dir(str(tmp_path / "hls"))
+    packer = _pack_to_the_end(clip_mp4_bframes, out, grid)
+    assert packer.finished(), f"прогон не дочитал вход: {packer.why()}"
+
+    for stream_name in ("v", "a"):
+        edges = [_dts_edges(out / segment_name(slot), stream_name) for slot in range(grid.count)]
+        for slot, (before, after) in enumerate(itertools.pairwise(edges)):
+            assert after[0] > before[1], (
+                f"{stream_name}: стык v{slot}→v{slot + 1} идёт назад на "
+                f"{1000 * (before[1] - after[0]):.1f} мс - приёмник бросит разбор"
+            )
+
+
 def test_segment_numbers_mean_the_same_place_wherever_the_run_started() -> None:
     """Границы в ``-segment_times`` абсолютные — вот главная проверка.
 
@@ -618,12 +676,14 @@ def test_an_unreadable_keyframe_map_falls_back_to_a_flat_grid_out_loud() -> None
     said: list[str] = []
     # Порт 1 никем не слушается: карта не читается, и это не авария показа.
     grid = grid_for("http://127.0.0.1:1/film.mkv", 600.0, 10.0, True, say=said.append)
-    assert grid == Grid.uniform(600.0, 10.0) and not grid.on_keys
+    # Начало ленты у мёртвого входа не мерится вовсе (:func:`pack_origin`), поэтому
+    # сверяется сама сетка, а не сетка вместе с ним.
+    assert grid.bounds == Grid.uniform(600.0, 10.0).bounds and not grid.on_keys
     assert said and "ровно по 10 с" in said[0], "о подмене нарезки показ обязан сказать вслух"
 
     said.clear()
     told = grid_for("http://127.0.0.1:1/film.mkv", 600.0, 10.0, False, say=said.append)
-    assert told == Grid.uniform(600.0, 10.0)
+    assert told.bounds == Grid.uniform(600.0, 10.0).bounds
     assert said and "так велено настройкой" in said[0]
 
 
