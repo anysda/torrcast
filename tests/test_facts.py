@@ -2028,16 +2028,25 @@ def test_кандидаты_картин_уезжают_несколькими_�
 
 
 def test_молчание_всех_пакетов_это_отказ_сети_а_не_отсутствие_статьи(monkeypatch: Any) -> None:
-    """Пустой ответ лёг бы в кэш на неделю и накрыл бы картину, известную Википедии."""
+    """Пустой ответ лёг бы в кэш на неделю и накрыл бы картину, известную Википедии.
+
+    Спрашиваем меню на несколько пакетов: отказ КАЖДОГО из них гасится поодиночке
+    (:func:`wiki_extracts` не вправе уронить показ из-за одного молчащего запроса), и
+    ровно поэтому итог обязан отличать «никто не ответил» от «статьи нет».
+    """
+    tries: list[int] = []
 
     def broken(host: str, path: str, params: Any, headers: Any, timeout: float) -> Any:
+        tries.append(len(params["titles"].split("|")))
         raise OSError("сеть молчит")
 
     monkeypatch.setattr(facts_mod, "get_json", broken)
+    wanted: list[tuple[str, int | None]] = [(f"Картина {number}", 2000) for number in range(12)]
 
     try:
-        wiki_extracts([("Тачки", 2006)], 1.0)
+        wiki_extracts(wanted, 1.0)
     except OSError:
+        assert len(tries) > 1, "молчание должно быть проверено на нескольких пакетах"
         return
     raise AssertionError("отказ сети обязан быть исключением, а не пустым ответом")
 
