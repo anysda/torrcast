@@ -14,8 +14,9 @@ __all__ = [
     "HlsServer", "InfraError", "NoReturn",
     "NotFoundError", "Path", "Profile",
     "Progress", "Receiver", "Recoder",
-    "Release", "State", "Supply",
-    "TorrcastError", "TorrFile", "TorrServer",
+    "Release", "StartRefusedError", "State",
+    "Supply", "TorrcastError", "TorrFile",
+    "TorrServer",
     "Vault", "Warmer",
     "_Revival", "_asked", "_await_playing",
     "_blame_the_end", "_blamed", "_default_file",
@@ -68,7 +69,7 @@ from torrcast import (
     trace,
     why,
 )
-from torrcast.cast import ChromecastReceiver, Receiver, make_receiver
+from torrcast.cast import ChromecastReceiver, Receiver, StartRefusedError, make_receiver
 from torrcast.commands import (
     EXIT_OK,
     REVIVE_DROP,
@@ -768,15 +769,39 @@ def _play(
             recoder.start()
         feed.restart(grid.slot_at(start))
         mark("упаковка пошла")
-        receiver.play(url, about, at=start)
-        mark("LOAD взят")
-        print(f"{journal} играю {about} - на ТВ   (старт {clock.total:.0f} с)", flush=True)
+        raised = True
+        try:
+            receiver.play(url, about, at=start)
+        except StartRefusedError as exc:
+            # 🔴 Отказ на первом LOAD показ больше не хоронит. Приёмник в сети, фильм на
+            # месте, упаковка идёт - и единственное, чего не хватает, это ещё одного
+            # захода в чистое приложение. Ровно это умеет лестница воскрешения, и она же
+            # чинит такой отвал посреди фильма (:meth:`_Revival.resurrect`): показ,
+            # которого не было, поднимается тем же путём, что и погасший.
+            # ⚠️ Ловится именно отказ ЗАГРУЗКИ, а не любая авария: приёмника нет в сети -
+            # это другая беда и другой класс (:class:`torrcast.cast_core.StartRefusedError`),
+            # и висеть с ней перед пустым экраном весь бюджет старта незачем.
+            raised = False
+            print(f"{journal} {why(exc)} - поднимаю показ сам", flush=True)
+        else:
+            mark("LOAD взят")
+            print(f"{journal} играю {about} - на ТВ   (старт {clock.total:.0f} с)", flush=True)
         # ⚠️ Прогрев стартует ровно ЗДЕСЬ и ни строкой выше: путь до картинки он не
         # удлиняет ни на секунду - ни своим ffmpeg, ни чтением каталога. Всё, что он
         # делает, происходит уже при играющем показе и на остатке процессора.
         if warmer is not None:
             warmer.start()
-        expected_end = _hold(receiver, feed, watch, warmer, supply, profile, journal=journal)
+        expected_end = _hold(
+            receiver,
+            feed,
+            watch,
+            warmer,
+            supply,
+            profile,
+            journal=journal,
+            start=start,
+            raised=raised,
+        )
     finally:
         # Позиция фиксируется при любом исходе, включая SIGTERM, и делается это ПЕРВЫМ
         # делом: показ, доигранный до конца файла, отмечает «досмотрено» ровно здесь, а
@@ -813,9 +838,19 @@ def _play(
         server.stop()
 
     report = getattr(receiver, "report", None)
+    if report is not None:
+        print(f"{journal} {report.line()}")
+    # 🔴 Показ, не давший НИ ОДНОГО кадра, обязан назвать себя вслух - и раньше всего
+    # прочего. Лестница воскрешения к этой строке уже отработала своё
+    # (:meth:`_Revival.resurrect`), и раз кадра всё равно нет, молчаливый выход юнита -
+    # это чёрный экран без единого слова. На стыке серий он же и самый дорогой: консоли
+    # там нет вовсе, а сеанс до сих пор кончался кодом 0 и пустотой в журнале.
+    # ⚠️ Живой приёмник цифр приёмки не считает (``report`` есть только у сухого), так
+    # что до этой правды путь показа на живом ТВ не доходил вообще ничем.
+    if watch is not None and not watch.seen and not watch.done:
+        _blame_the_end(supply, shown=False)
     if report is None:
         return EXIT_OK
-    print(f"{journal} {report.line()}")
     # Досмотренный показ виноватого не ищет: хвост упаковки декодеру отдали, а недобор
     # сегментов на самом конце - это конец файла, а не авария.
     if not report.ok and not expected_end and not (watch is not None and watch.done):
@@ -833,15 +868,18 @@ def _handover(watch: Watch | None) -> bool:
     return watch is not None and watch.done and _following(watch.key) is not None
 
 
-def _blame_the_end(supply: Supply | None) -> NoReturn:
+def _blame_the_end(supply: Supply | None, shown: bool = True) -> NoReturn:
     """Показ кончился недосмотренным - назвать виноватого, и назвать верно. Всегда бросает.
 
-    🔴 Последняя строка показа - последняя возможность сказать правду. Досюда доходит и
-    показ, который не успел сдвинуться с нуля: поднимать его некому и неоткуда
-    (:class:`_Revival` без позиции не работает), - и раньше он кончался обвинением
-    «приёмник не досмотрел поток» при живом приёмнике и мёртвой службе раздач. Замерено на
-    стенде: перезапуск службы под показом давал ровно эту строку, и про источник в ней не
-    было ни слова.
+    🔴 Последняя строка показа - последняя возможность сказать правду. Раньше показ
+    кончался обвинением «приёмник не досмотрел поток» при живом приёмнике и мёртвой
+    службе раздач. Замерено на стенде: перезапуск службы под показом давал ровно эту
+    строку, и про источник в ней не было ни слова.
+
+    ``shown`` - видел ли зритель хоть один кадр. Разница не косметическая: «не досмотрел»
+    и «не увидел вовсе» - это две разные аварии для того, кто сидит перед экраном, и
+    вторая стоит выше на лестнице цели. Сюда она доходит только исчерпав лестницу
+    воскрешения: показ, не давший кадра, сперва поднимают, и лишь потом хоронят.
 
     Спросить источник тут можно спокойно: показ уже кончился, горячего пути нет, а
     человеку и следу уходит одна и та же причина.
@@ -849,7 +887,11 @@ def _blame_the_end(supply: Supply | None) -> NoReturn:
     why_source = _blamed(supply)
     if why_source:
         trace.offline(why=why_source, asked=True)
+        if not shown:
+            raise InfraError(f"картинки не было ни разу: источник не читается ({why_source})")
         raise InfraError(f"источник не читается ({why_source}) - показ оборван, цифры выше")
+    if not shown:
+        raise InfraError("картинки не было ни разу: приёмник не взял показ - поднять не удалось")
     raise InfraError("приёмник не досмотрел поток - цифры выше")
 
 

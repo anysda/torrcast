@@ -980,12 +980,17 @@ def _cmd_status() -> int:
     playing = unit_active()
     found = _shown(State.load(), unit_key() if playing else "")
     if not playing or found is None:
+        if found is not None and found[1].dark:  # темнота переживает юнит нарочно
+            gone = found[1]
+            was = f"на {_hms(gone.pos)}" if gone.pos else "картинки не было ни кадра"
+            print(f"показ оборвался: {gone.shown_as} - {was} ({gone.dark_why})")
+            return EXIT_OK
         print("ничего не играет")
         if found is not None and found[1].resumable:
             print(f"последнее: «{found[1].title}» на {_hms(found[1].pos)} / {_hms(found[1].dur)}")
         return EXIT_OK
     key, entry = found
-    what = f"«{entry.title}»" + (f" {entry.label}" if entry.label else "")
+    what = entry.shown_as
     # Разрешение - подтверждённое ffprobe у играющего файла, а не заявка имени.
     what += f" · {entry.quality}" if entry.quality else ""
     if entry.dark:

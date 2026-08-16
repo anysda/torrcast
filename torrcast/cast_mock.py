@@ -26,7 +26,7 @@ from dataclasses import dataclass
 from typing import IO, Any
 
 from torrcast import InfraError, why
-from torrcast.cast_core import Position
+from torrcast.cast_core import NOT_RAISED, Position
 from torrcast.profile import CAUTIOUS, Profile
 from torrcast.state import ENDING_RATIO
 from torrcast.stream import parse_manifest
@@ -500,8 +500,8 @@ class MockReceiver:
         Тот же договор, что и у :meth:`torrcast.cast.ChromecastReceiver.replay`: позиция
         приходит снаружи (у мёртвой сессии её нет), исключения наружу не выпускаются, а
         место подъёма называется только про действительно вернувшуюся картинку, а не про
-        отправленный LOAD; ``0.0`` - её нет. Ждать её дольше :attr:`WAKE_TIMEOUT`
-        незачем: попытка тут не одна.
+        отправленный LOAD; :data:`torrcast.cast_core.NOT_RAISED` - её нет. Ждать её дольше
+        :attr:`WAKE_TIMEOUT` незачем: попытка тут не одна.
 
         Своей сетки заглушка не знает и куски не перешагивает, поэтому пошла она ровно
         оттуда, откуда просили. Это и есть разница с живым приёмником, а не упрощение.
@@ -511,11 +511,11 @@ class MockReceiver:
         живом ТВ.
         """
         if not self._url or self.clock.monotonic() < self._sulk:
-            return 0.0  # приёмник поймал 404 и ближайшие минуты не берёт LOAD вовсе
+            return NOT_RAISED  # приёмник поймал 404 и ближайшие минуты не берёт LOAD вовсе
         try:
             self._open(self._url, at)
         except (InfraError, OSError):
-            return 0.0  # источника всё ещё нет - зовущий попробует ещё раз или погасит
+            return NOT_RAISED  # источника всё ещё нет - зовущий попробует ещё или погасит
         self._seen, self._still, self._loads = at, 0.0, 0
         deadline = self.clock.monotonic() + self.WAKE_TIMEOUT
         while self.clock.monotonic() < deadline:
@@ -526,7 +526,7 @@ class MockReceiver:
             if not self._pos.playing:
                 break  # декодер лёг, не начав: показа нет, и врать о нём нельзя
         self._quiet()
-        return 0.0
+        return NOT_RAISED
 
     def _session(self) -> Any:
         import requests

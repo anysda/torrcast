@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+import json
+import subprocess
 import time
 from pathlib import Path
 
@@ -255,6 +257,29 @@ def test_status_is_honest_when_nothing_plays(
     printed = capsys.readouterr().out
     assert printed.startswith("ничего не играет")
     assert "последнее: «Моана 2» на 0:41:07" in printed
+
+
+def test_status_tells_about_a_show_that_died_without_a_single_frame(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Показ умер, не показав ничего, - `cast status` обязан сказать об этом.
+
+    🔴 Замер 16-08-2026 на живой приставке: показ не дал ни кадра, юнит вышел, и статус
+    отвечал «ничего не играет» - ровно то же, что и после спокойного конца фильма. На
+    стыке серий консоли рядом нет вовсе, и это была единственная дверь к правде: позиции
+    у такого показа нет (ноль), «последнее» про него не печатается, а журнал юнита ушёл
+    вместе с юнитом. Отметку темноты снимает только следующий запуск - до тех пор она и
+    есть ответ на вопрос «почему экран чёрный».
+    """
+    remember(pos=0.0, dur=5978.0, dark=time.time(), dark_why="приёмник бросил показ")
+    monkeypatch.setattr(cli, "unit_active", lambda: False)
+
+    assert cli.main(["status"]) == 0
+
+    printed = capsys.readouterr().out
+    assert "показ оборвался: «Моана 2» - картинки не было ни кадра" in printed
+    assert "(приёмник бросил показ)" in printed
+    assert "ничего не играет" not in printed, "молчаливого «всё в порядке» тут быть не должно"
 
 
 def test_status_shows_what_is_playing_and_from_where(
@@ -554,3 +579,28 @@ def test_systemd_plumbing_answers_about_a_unit_that_does_not_exist() -> None:
     """Разговор с systemd настоящий: несуществующий юнит — не «активен» и не исключение."""
     assert unit_active("torrcast-not-a-unit") is False
     assert isinstance(unit_why("torrcast-not-a-unit"), str)
+
+
+def test_the_reason_the_show_is_gone_is_not_systemd_bookkeeping(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Причина отсутствия картинки берётся у показа, а не у systemd.
+
+    🔴 Замер 16-08-2026 на живой приставке: показ умер, не дав ни кадра, и человек у
+    консоли получил «показ не запустился: torrcast-play.service: Consumed 5.884s CPU time,
+    175.4M memory peak». Последним в журнал юнита пишет не показ, а systemd - о запуске,
+    остановке и потраченном процессоре, - и «последняя строка» всегда доставалась ему.
+    """
+    from torrcast import stream_serve
+
+    journal = [
+        {"SYSLOG_IDENTIFIER": "python3.13", "MESSAGE": "картинки не было ни разу"},
+        {"SYSLOG_IDENTIFIER": "systemd", "MESSAGE": "torrcast-play.service: Deactivated."},
+        {"SYSLOG_IDENTIFIER": "systemd", "MESSAGE": "Consumed 5.884s CPU time, 175.4M peak."},
+    ]
+    answer = subprocess.CompletedProcess(
+        args=[], returncode=0, stdout="\n".join(json.dumps(row) for row in journal), stderr=""
+    )
+    monkeypatch.setattr(stream_serve, "_systemd", lambda *args: answer)
+
+    assert unit_why() == "картинки не было ни разу"

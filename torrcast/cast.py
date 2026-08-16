@@ -21,7 +21,7 @@ from collections.abc import Callable
 from typing import Any, Literal
 
 from torrcast import InfraError, trace, why
-from torrcast.cast_core import Position, Receiver, trust_anchor
+from torrcast.cast_core import NOT_RAISED, Position, Receiver, StartRefusedError, trust_anchor
 from torrcast.cast_mock import MockReceiver, Report
 from torrcast.profile import CAUTIOUS, Profile
 
@@ -30,11 +30,13 @@ from torrcast.profile import CAUTIOUS, Profile
 __all__ = [
     "HLS_HINTS",
     "HLS_TYPE",
+    "NOT_RAISED",
     "ChromecastReceiver",
     "MockReceiver",
     "Position",
     "Receiver",
     "Report",
+    "StartRefusedError",
     "hush_cosmetic_noise",
     "make_receiver",
     "trust_anchor",
@@ -289,7 +291,10 @@ class ChromecastReceiver:
         self._load(at)
         if self._settle(budget):
             return
-        raise InfraError(f"ТВ {self.address} не начал показ: {self._why()}")
+        # ⚠️ Отказ загрузки - не конец показа, а его первая смерть (:class:`StartRefusedError`):
+        # приёмник в сети, и поднимать его есть чем. Хоронить показ здесь значит оставить
+        # зрителя перед чёрным экраном при живом ТВ.
+        raise StartRefusedError(f"ТВ {self.address} не начал показ: {self._why()}")
 
     def stop(self, quit_app: bool = False) -> None:
         """Снять каст, а по ``quit_app`` — ещё и закрыть приложение приёмника.
@@ -475,9 +480,14 @@ class ChromecastReceiver:
     def replay(self, at: float) -> float:
         """Поднять СВОЙ погасший показ с секунды ``at``; вернуть секунду, С КОТОРОЙ он пошёл.
 
-        ``0.0`` - картинки нет: приёмник занят чужим показом, не взял LOAD или взял, но
-        кадра так и не дал. Ноль здесь не место фильма, а «не поднялся»: поднимать с нуля
-        показ, у которого позиция есть, никто не просит (:meth:`_Revival.resurrect`).
+        :data:`NOT_RAISED` - картинки нет: приёмник занят чужим показом, не взял LOAD или
+        взял, но кадра так и не дал.
+
+        🔴 Отказ отвечает отрицательной секундой, а не нулём, и это не педантизм. Ноль -
+        законное место фильма: показ, умерший на 0:00, поднимают ровно с начала картины
+        (:meth:`torrcast.playback_revival._Revival.resurrect`), и такой подъём - удача, а
+        не отказ. Пока оба ответа были нулём, различить их было нечем: удачный подъём с
+        нуля уходил в ленту как «приёмник показ не взял» - при идущей картинке.
 
         🔴 Вернувшаяся секунда - НЕ та, о которой просили: показ, умирающий на одном
         куске, поднимают уже за ним (:meth:`_past_deadly`), и это до пятнадцати секунд
@@ -513,7 +523,7 @@ class ChromecastReceiver:
         невоспроизводимый кусок от невезучей минуты.
         """
         if not self._free():
-            return 0.0
+            return NOT_RAISED
         at = self._past_deadly(at)
         # Сторож начинает счёт заново: сессия новая, и её подвисы к прошлой отношения не
         # имеют. ``_peak`` - это ``at``: именно с него приёмник и поедет.
@@ -526,9 +536,9 @@ class ChromecastReceiver:
         try:
             self._restart_app()
             self._load(at)
-            return at if self._settle(self.WAKE_TIMEOUT) else 0.0
+            return at if self._settle(self.WAKE_TIMEOUT) else NOT_RAISED
         except Exception:
-            return 0.0
+            return NOT_RAISED
 
     def _free(self) -> bool:
         """Свободен ли приёмник под воскрешение нашего показа.

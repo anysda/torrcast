@@ -29,7 +29,7 @@ import pytest
 
 from tests.conftest import CLIP_SECONDS, FakeProc, fake_packer, free_port
 from torrcast import InfraError
-from torrcast.cast import MockReceiver, Position
+from torrcast.cast import NOT_RAISED, MockReceiver, Position, StartRefusedError
 from torrcast.cli import Watch as _Watch
 from torrcast.cli import _Clock, _play
 from torrcast.state import Config, Entry, State
@@ -570,7 +570,7 @@ class _Fading:
     def replay(self, at: float) -> float:
         self.replays.append(at)
         if not self.takes:
-            return 0.0
+            return NOT_RAISED
         # Показ поднялся и доехал до титров - дальше приёмник гаснет уже законно.
         self.at, self.left = self.dur * 0.96, 2
         return at
@@ -643,6 +643,163 @@ def test_a_restored_source_spends_a_try_only_after_the_first_piece_is_ready(
 
     assert receiver.replays == [1200.0], "готовый кусок получил одну попытку подъёма"
     assert clock.now >= ready_at, "ответ службы сам по себе попытку не потратил"
+
+
+class _Stillborn:
+    """Приёмник, не давший НИ ОДНОГО кадра: LOAD взят, а указатель остался на нуле.
+
+    🔴 Замер 16-08-2026 на живой приставке Xiaomi TV Stick («Харли Квинн» s1e1, 1080p
+    5.6 Мбит/с, копия): LOAD взят на 4-й секунде, ``PLAYING`` на 0:00, через 2.0 с
+    ``IDLE/ERROR`` без кода, два повтора LOAD - и всё. Позиция за весь сеанс не сдвинулась
+    ни на десятую, и до правки на этом месте выходил рабочий юнит: зритель картины не
+    видел вовсе. Тем и отличается от :class:`_Fading`, где показ БЫЛ.
+    """
+
+    def __init__(self, clock: _Ticker, dur: float = 7200.0, back: float = 0.0, takes: bool = True):
+        self.clock, self.dur, self.back, self.takes = clock, dur, back, takes
+        self.left = 1  # один опрос приёмник рапортует PLAYING - на нуле и без кадра
+        self.pos = 0.0
+        #: Насколько указатель уезжает за опрос. До подъёма - ноль, и это не мелочь:
+        #: неподвижный указатель при слове ``PLAYING`` и есть «кадра не было».
+        self.step = 0.0
+        self.replays: list[float] = []
+
+    def play(self, url: str, title: str = "", at: float = 0.0) -> None:
+        pass
+
+    def stop(self, quit_app: bool = False) -> None:
+        pass
+
+    def position(self, front: float = 0.0) -> Any:
+        from torrcast.cast import Position
+
+        if self.left > 0:
+            self.left -= 1
+            pos, self.pos = self.pos, self.pos + self.step
+            return Position(pos, self.dur, True, "PLAYING")
+        return Position(0.0, self.dur, False, "IDLE")
+
+    def replay(self, at: float) -> float:
+        self.replays.append(at)
+        if not self.takes:
+            return NOT_RAISED
+        # Поднялся - и доиграл до титров: дальше приёмник гаснет уже законно.
+        self.pos, self.left, self.step = self.dur * 0.96, 3, 30.0
+        return self.back
+
+
+def test_a_show_that_never_gave_a_frame_is_raised_from_the_start_of_the_picture(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Отвал на 0:00 поднимается тем же путём, что и отвал посреди фильма.
+
+    🔴 Живые прогоны владельца 15-08-2026 на приставке: пять стартов, две смерти на 0:00,
+    и разница между «фильм досмотрен целиком» и «зритель не увидел ничего» была ровно
+    одна - успел ли сдвинуться указатель. Успел (0:02) - лестница поднимала показ; остался
+    на нуле - рабочий юнит выходил, а перед человеком оставался чёрный экран. Лестница
+    чинила показ, который БЫЛ, и не чинила показа, которого не было.
+
+    Ноль здесь - законное место картины, а не «поднимать неоткуда»: показ, умерший на
+    первой секунде, обязан подниматься с первой секунды. Ответ о подъёме от этого не
+    портится - отказ у приёмника свой (:data:`torrcast.cast_core.NOT_RAISED`), и подъём с
+    начала фильма больше не читается как «приёмник показ не взял».
+    """
+    from torrcast import cli
+
+    clock = _Ticker()
+    feed = _feed_with_segments(tmp_path)
+    receiver = _Stillborn(clock)
+
+    cli._hold(receiver, feed, None, None, clock=clock)
+
+    assert receiver.replays == [0.0], "показ подняли ровно с того места, где он умер"
+    printed = capsys.readouterr().out
+    assert "показа не было ни кадра (заводили с 0:00:00)" in printed, (
+        "«показ погас» тут враньё: гаснуть было нечему"
+    )
+    assert "показ поднят с 0:00:00" in printed, "подъём с начала картины - это удача"
+    assert "приёмник показ не взял" not in printed, "нельзя звать отказом поднятый показ"
+
+
+def test_a_resumed_show_that_never_gave_a_frame_goes_back_to_its_own_middle(
+    tmp_path: Path,
+) -> None:
+    """Кадра не было, но фильм смотрят с 20-й минуты - туда показ и поднимают.
+
+    ⚠️ Закладка в этот момент пуста (зритель не видел ничего), и брать её за место
+    подъёма нельзя: ноль отправил бы человека в начало картины, которую он смотрит с
+    середины. Место захода показ помнит сам.
+    """
+    from torrcast import cli
+
+    clock = _Ticker()
+    feed = _feed_with_segments(tmp_path)
+    receiver = _Stillborn(clock, back=1200.0)
+
+    cli._hold(receiver, feed, None, None, clock=clock, start=1200.0)
+
+    assert receiver.replays == [1200.0], "подъём идёт в место захода, а не в начало фильма"
+
+
+def test_a_show_that_never_gave_a_frame_gives_up_out_loud(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Лестница исчерпана, кадра так и нет - и это сказано, а не проглочено.
+
+    Молчание тут дороже всего на стыке серий: консоли рядом нет, и кроме журнала показа
+    сказать о беде некому (:func:`torrcast.cli._blame_the_end`, ``cast status``).
+    """
+    from torrcast import cli
+
+    clock = _Ticker()
+    feed = _feed_with_segments(tmp_path)
+    receiver = _Stillborn(clock, takes=False)
+
+    cli._hold(receiver, feed, None, None, clock=clock)
+
+    assert receiver.replays == [0.0] * cli.REVIVE_TRIES, "попытки конечны и все - с нуля"
+    printed = capsys.readouterr().out
+    assert "приёмник показ не взял" in printed and "показ поднять не удалось" in printed
+
+
+def test_a_start_the_receiver_refused_is_handed_to_the_ladder_not_to_the_grave(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Приёмник не взял первый LOAD вовсе - показ ведёт лестница, а юнит не выходит.
+
+    Отказ загрузки - не конец показа (:class:`torrcast.cast.StartRefusedError`): приёмник в
+    сети, фильм на месте, упаковка идёт, и не хватает ровно одного захода в чистое
+    приложение. Картинка, добытая лестницей, называется вслух - иначе в журнале показа не
+    осталось бы ни строки о том, что чёрный экран кончился.
+    """
+    from torrcast import cli
+
+    clock = _Ticker()
+    feed = _feed_with_segments(tmp_path)
+    receiver = _Stillborn(clock)
+    receiver.left = 0  # старт не взят вовсе: приёмник молчит с самого первого опроса
+
+    cli._hold(receiver, feed, None, None, clock=clock, raised=False)
+
+    assert receiver.replays == [0.0], "показ подняли, а не похоронили"
+    assert "картинка пошла с" in capsys.readouterr().out
+
+
+def test_a_show_that_never_gave_a_frame_names_that_and_not_undershown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Последнее слово показа: «картинки не было ни разу», а не «не досмотрел поток».
+
+    Для того, кто сидит перед экраном, это две разные аварии, и вторая дороже: «включил и
+    не включилось» стоит выше на лестнице цели, чем оборванный на середине показ.
+    """
+    from torrcast import cli
+
+    monkeypatch.setattr(time, "sleep", lambda seconds: None)
+    with pytest.raises(InfraError, match="картинки не было ни разу: приёмник не взял показ"):
+        cli._blame_the_end(_supply(_Service()), shown=False)
+    with pytest.raises(InfraError, match="картинки не было ни разу: источник не читается"):
+        cli._blame_the_end(_supply(_Service(up=False)), shown=False)
 
 
 def test_a_dark_show_gives_up_after_a_limited_number_of_tries(
@@ -847,7 +1004,7 @@ class _Nudged:
 
     def replay(self, at: float) -> float:
         self.replays.append(at)
-        return 0.0  # приёмник так и не вернулся: показ кончится честной темнотой
+        return NOT_RAISED  # приёмник так и не вернулся: показ кончится честной темнотой
 
 
 def test_the_bookmark_holds_the_last_frame_seen_not_where_the_watchdog_drove(
@@ -935,9 +1092,9 @@ class _Blinking:
         self.when.append(self.clock.now)
         if self.refuses:
             self.refuses -= 1
-            return 0.0  # 404 ещё не отпустил: LOAD приёмник не берёт
+            return NOT_RAISED  # 404 ещё не отпустил: LOAD приёмник не берёт
         if not self.revives:
-            return 0.0
+            return NOT_RAISED
         self.revives -= 1
         self.refuses = 1 if self.revives else 0  # следующий обрыв начнётся так же
         self.at, self.until, self.died = at, self.clock.now + self.live, 0.0
@@ -1033,7 +1190,7 @@ def test_the_dark_show_is_revived_only_on_a_free_receiver(
         _FakeCast(content="http://10.0.0.20:8010/cast.m3u8"),
     ]
     for alien in aliens:
-        assert _receiver_on(alien).replay(1200.0) == 0.0, "чужой показ неприкосновенен"
+        assert _receiver_on(alien).replay(1200.0) == NOT_RAISED, "чужой показ неприкосновенен"
     assert loads == [], "в чужой показ не ушло ни одного LOAD"
     assert all(alien.log == [] for alien in aliens), "и приложение чужому не закрывали"
 
@@ -1110,7 +1267,7 @@ def test_a_release_that_never_plays_stops_at_the_profile_not_at_eleven(
     # лента LOAD, а считаем именно её длину.
     monkeypatch.setattr(ChromecastReceiver, "_restart_app", lambda self: None)
 
-    with pytest.raises(InfraError) as err:
+    with pytest.raises(StartRefusedError) as err:
         receiver.play("http://10.0.0.10:8443/index.m3u8", "кино", at=1200.0)
 
     assert receiver.profile.load_retries == 2, "осторожный профиль - замер Q70D"
@@ -1396,7 +1553,7 @@ def test_the_mock_receiver_takes_a_load_right_after_a_404(
 
     receiver._caught(_Answer(404))
     assert MockReceiver.SULK == 0.0, "наказания за 404 нет - замер снял его трижды"
-    assert receiver.replay(1200.0) == 0.0, "картинки нет - врать о поднятом показе нельзя"
+    assert receiver.replay(1200.0) == NOT_RAISED, "картинки нет - врать о поднятом показе нельзя"
     assert opens == [1200.0], "но попытку приёмник принял сразу, не выжидая ни секунды"
 
     # Что наказание всё ещё СТАВИТСЯ числом профиля - проверяется отдельно

@@ -395,13 +395,18 @@ def resupply(torrent: str, ok: bool) -> None:
     emit("play", "resupply", torrent=torrent, ok=ok)
 
 
-def dark(pos: float, why: str) -> None:
+def dark(pos: float, why: str, shown: bool = True) -> None:
     """Показ погас: приёмник бросил его насовсем, на экране пусто.
 
     ``pos`` - место фильма, где это случилось (оно же сохранено в состоянии), ``why`` -
     что показ знал о беде в тот момент (обрыв источника или молчаливый отказ приёмника).
+
+    ``shown`` - видел ли зритель хоть один кадр ДО этой темноты. Две разные аварии, и
+    считать их одной нельзя: погасший показ человек успел посмотреть, а показ, не давший
+    ни кадра, - это «включил и не включилось», самая дорогая беда лестницы цели. По этому
+    полю они и разделяются в недельном разборе.
     """
-    emit("play", "dark", pos=round(pos, 1), why=why)
+    emit("play", "dark", pos=round(pos, 1), why=why, shown=shown)
 
 
 def revive(pos: float, tries: int, waited: float, ok: bool) -> None:
