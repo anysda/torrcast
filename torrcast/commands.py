@@ -178,14 +178,8 @@ from torrcast import (
 )
 from torrcast.cast import ChromecastReceiver, Receiver, make_receiver
 from torrcast.console import Progress, ask, terminal
-from torrcast.facts import (
-    Facts,
-)
-from torrcast.parse import (
-    Episode,
-    Release,
-    split_episode,
-)
+from torrcast.facts import Facts
+from torrcast.parse import Episode, Release, split_episode
 from torrcast.profile import Profile, trace_thresholds
 from torrcast.profile import detect as detect_profile
 from torrcast.profile import tune as tune_profile
