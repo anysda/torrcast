@@ -65,6 +65,7 @@ if TYPE_CHECKING:
         _CJK,
         _CYRILLIC,
         _DEFAULT_CACHE_PATH,
+        _EXBATCHES,
         _EXCHARS,
         _EXLIMIT,
         _FILM_WORD_RE,
@@ -96,6 +97,7 @@ if TYPE_CHECKING:
         titles_for,
     )
 
+import contextlib
 import json
 import re
 import threading
@@ -108,7 +110,7 @@ from torrcast.parse import same_words, slugify, split_franchise_index, translite
 from torrcast.state import state_path
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Callable, Iterable
 
 
 def read_origin(
@@ -627,20 +629,41 @@ class Facts:
 
     def _work(self) -> None:
         try:
-            fresh = fetch(self.wanted)
+            # Спрашиваем только ненайденное: лежащее в кэше уже полное, и переспрашивать
+            # его - значит занимать его именами место в пакете (:func:`wiki_extracts`) и
+            # рисковать записать поверх полной справки её обеднённый повтор.
+            missing = [key for key in self.wanted if key not in self.found]
+            fresh = fetch(missing, ready=self._ready)
             # Дописываем к тому, что уже лежало в кэше, а не заменяем: сеть отвечает только
             # про ненайденное, и присваиванием мы выбрасывали справку, которая у нас была.
             self.found = {**self.found, **fresh}
             # Пустой ответ тоже запоминаем - иначе поход за ним повторяется каждое меню.
-            _remember(fresh, [key for key in self.wanted if key not in self.found])
+            _remember(fresh, [key for key in missing if key not in fresh])
         except Exception:
             pass
         finally:
             self._done.set()
 
+    def _ready(self, part: dict[tuple[str, int | None], Fact]) -> None:
+        """Описания - в меню, не дожидаясь украшений (:func:`fetch`).
+
+        🔴 TC-561. Меню и так ждёт свои полторы секунды - вопрос лишь в том, получает ли
+        оно за них хоть что-нибудь. Описание приезжает первым шагом, рейтинг и хронометраж
+        - вторым, вдвое более медленным; складывать их было незачем: пока ждали второй,
+        пропадал и первый. Теперь дошедшее до дедлайна печатается, а опоздавшее дописывает
+        кэш (:meth:`finish`) и достаётся следующему показу целиком.
+
+        В кэш отсюда не пишем: на диск ложится итог, а не полуфабрикат - иначе описание
+        без рейтинга закрыло бы дорогу полной справке на неделю вперёд. И уже добытое
+        полуфабрикатом не накрываем: лежащее слева уступает тому, что уже есть.
+        """
+        self.found = {**part, **self.found}
+
 
 def fetch(
-    wanted: list[tuple[str, int | None]], timeout: float = HTTP_TIMEOUT
+    wanted: list[tuple[str, int | None]],
+    timeout: float = HTTP_TIMEOUT,
+    ready: Callable[[dict[tuple[str, int | None], Fact]], None] | None = None,
 ) -> dict[tuple[str, int | None], Fact]:
     """Собрать справку по картинам: Википедия → Wikidata → выгрузка рейтингов.
 
@@ -649,6 +672,19 @@ def fetch(
     сетью не связанный ничем; читалась она третьим шагом, и её сотня тысяч строк ложилась
     на те же полторы секунды дедлайна, что и оба запроса. Теперь она читается ПОКА идёт
     первый запрос и к моменту нужды уже готова.
+
+    🔴 TC-561. Два шага стоят разного и значат разное. Первый несёт то, ради чего справку
+    и зовут, - о чём кино; второй лишь украшает его рейтингом и хронометражем. А платят
+    они одинаково: замер по ста меню - Википедия 0.73 с, Wikidata 0.89 с в середине и
+    1.5 с на девятом дециле, то есть в сумме мимо потолка в полторы секунды чаще, чем в
+    него. Раньше опоздание или отказ ВТОРОГО шага отменяли ПЕРВЫЙ целиком: исключение
+    улетало наверх, добытое описание пропадало вместе с ним, и в кэш не ложилось ничего -
+    следующее меню шло за тем же самым заново и снова печаталось голым (38 прогонов из
+    ста не сохранили ни строки).
+
+    Теперь порядок соответствует цене: описания отдаются ``ready`` сразу, как приехали, -
+    меню печатает их, не дожидаясь украшений. Отказ Wikidata гасится: справка выходит без
+    рейтинга и хронометража, но с тем, что уже добыто, и ложится в кэш.
     """
     scores: dict[str, str] = {}
 
@@ -659,7 +695,12 @@ def fetch(
     reader = threading.Thread(target=load, daemon=True)
     reader.start()
     about, entities = wiki_extracts(wanted, timeout)
-    ids = wikidata_ids(sorted(set(entities.values())), timeout) if entities else {}
+    if ready is not None:
+        ready({key: Fact(about=text) for key, text in about.items() if text})
+    ids: dict[str, tuple[str, int]] = {}
+    if entities:
+        with contextlib.suppress(Exception):
+            ids = wikidata_ids(sorted(set(entities.values())), timeout)
     reader.join(timeout)
     out: dict[tuple[str, int | None], Fact] = {}
     for key in wanted:
@@ -679,20 +720,63 @@ def wiki_extracts(
 ) -> tuple[dict[tuple[str, int | None], str], dict[tuple[str, int | None], str]]:
     """Одним запросом: описания по-русски и Q-идентификаторы Wikidata для второго шага.
 
-    Кандидатов на статью у картины несколько (:func:`titles_for`), и все они уезжают в
-    один и тот же запрос — API берёт до :data:`_EXLIMIT` статей за раз. Побеждает первый
-    кандидат, который оказался статьёй (не страницей значений, не пустышкой) и подтвердил
-    год (:func:`confirms`).
+    Кандидатов на статью у картины около десятка (:func:`titles_for`), а в один запрос их
+    влезает :data:`_EXLIMIT`. Побеждает первый кандидат, который оказался статьёй (не
+    страницей значений, не пустышкой) и подтвердил год (:func:`confirms`).
+
+    🔴 TC-561. Пока запрос был один, лишние кандидаты просто отбрасывались - и это стоило
+    не времени, а самой справки: в меню из семи картин до Википедии доезжало по два-три
+    имени из двенадцати, то есть без уточнения «(мультфильм)», под которым и лежит
+    «Моана». Замер на корпусе из ста настоящих меню (503 картины): спрошенные по одной,
+    статью имеют 49% картин, а пакетом из двадцати имён справку получали 14%.
+
+    Поэтому имена режутся на пакеты по :data:`_EXLIMIT` и уезжают РАЗОМ (:data:`_EXBATCHES`
+    штук): запросы ждут сеть, а не друг друга. Замер там же: один пакет 0.78 с, три
+    очередью 2.14 с, три разом 0.83 с - втрое больше имён за семь сотых секунды.
     """
     candidates = {key: titles_for(*key) for key in wanted}
     names: list[str] = []
+    room = _EXLIMIT * _EXBATCHES
     for depth in range(max((len(c) for c in candidates.values()), default=0)):
         for key in wanted:
-            if depth < len(candidates[key]) and len(names) < _EXLIMIT:
+            if depth < len(candidates[key]) and len(names) < room:
                 names.append(candidates[key][depth])
-    return _read_pages(
-        get_json(_WIKI_HOST, _WIKI_PATH, _extract_params(names), {}, timeout), candidates
-    )
+    answers: list[Any] = []
+    lock = threading.Lock()
+
+    def ask(part: list[str]) -> None:
+        with contextlib.suppress(Exception):
+            payload = get_json(_WIKI_HOST, _WIKI_PATH, _extract_params(part), {}, timeout)
+            with lock:
+                answers.append(payload)
+
+    parts = [names[at : at + _EXLIMIT] for at in range(0, len(names), _EXLIMIT)]
+    deadline = time.monotonic() + timeout
+    wave = [threading.Thread(target=ask, args=(part,), daemon=True) for part in parts]
+    for thread in wave:
+        thread.start()
+    for thread in wave:
+        thread.join(max(0.0, deadline - time.monotonic()))
+    if not answers:
+        # Ни один пакет не ответил - это отказ сети, а не «статьи нет». Разница дорогая:
+        # пустой ответ лёг бы в кэш на неделю (:func:`_remember`) и накрыл бы картину,
+        # про которую Википедия прекрасно знает.
+        raise OSError("Википедия не ответила ни на один запрос")
+    return _read_pages(_merged(answers), candidates)
+
+
+def _merged(answers: list[Any]) -> dict[str, Any]:
+    """Несколько ответов Википедии - в один: разбор кандидатов о пакетах знать не должен.
+
+    Склеиваются ровно те три списка, которыми отвечает API: сами статьи и оба обратных
+    пути имени - нормализация регистра и перенаправления (:func:`_pages`).
+    """
+    query: dict[str, list[Any]] = {"pages": [], "normalized": [], "redirects": []}
+    for payload in answers:
+        part = payload.get("query", {}) if isinstance(payload, dict) else {}
+        for kind, rows in query.items():
+            rows.extend(part.get(kind) or [])
+    return {"query": query}
 
 
 def _extract_params(names: list[str]) -> dict[str, str]:

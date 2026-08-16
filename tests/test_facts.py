@@ -618,7 +618,7 @@ def test_an_empty_answer_is_remembered_so_the_walk_is_not_repeated(
     monkeypatch.setattr(facts_mod, "CACHE_PATH", tmp_path / "facts.json")
     walks: list[Any] = []
 
-    def once(wanted: Any, timeout: float = 0.0) -> Any:
+    def once(wanted: Any, timeout: float = 0.0, ready: Any = None) -> Any:
         walks.append(list(wanted))
         return {("Тачки", 2006): Fact(rating="IMDb 7.2")}
 
@@ -650,7 +650,7 @@ def test_a_stale_empty_answer_is_asked_again(monkeypatch: Any, tmp_path: Any) ->
     )
     walks: list[Any] = []
 
-    def once(wanted: Any, timeout: float = 0.0) -> Any:
+    def once(wanted: Any, timeout: float = 0.0, ready: Any = None) -> Any:
         walks.append(list(wanted))
         return {("Моана", 2016): Fact(about=MOANA)}
 
@@ -686,7 +686,9 @@ def test_the_network_answer_does_not_throw_away_what_the_cache_had(
         facts_mod, "_cached", lambda wanted: {("Тачки", 2006): Fact(rating="IMDb 7.2")}
     )
     monkeypatch.setattr(
-        facts_mod, "fetch", lambda wanted, timeout=0.0: {("Тачки 2", 2011): Fact(rating="IMDb 6.2")}
+        facts_mod,
+        "fetch",
+        lambda wanted, timeout=0.0, ready=None: {("Тачки 2", 2011): Fact(rating="IMDb 6.2")},
     )
     facts = Facts([("Тачки", 2006), ("Тачки 2", 2011)], budget=5.0)
     facts.start()
@@ -1985,3 +1987,106 @@ def test_a_namesake_is_not_read_from_a_non_cinema_article() -> None:
     ]
 
     assert not facts_mod.read_origin(pages, "Девять", trusted=True, series=False).namesake
+
+
+def test_кандидаты_картин_уезжают_несколькими_пакетами_а_не_обрезаются(
+    monkeypatch: Any,
+) -> None:
+    """🔴 TC-561. В запрос влезает двадцать имён, а у меню их под сотню.
+
+    Лишние кандидаты просто отбрасывались, и это стоило не времени, а самой справки:
+    «Моана» лежит под уточнением «(мультфильм)», а до Википедии доезжало по два-три
+    имени на картину. Замер на корпусе из ста настоящих меню: спрошенные по одной,
+    статью имеют 49% картин, пакетом из двадцати имён справку получали 14%.
+    """
+    asked: list[list[str]] = []
+
+    def answer(host: str, path: str, params: Any, headers: Any, timeout: float) -> Any:
+        names = params["titles"].split("|")
+        asked.append(names)
+        # Википедия отвечает только про то, о чём спросили: не уехало имя - нет и статьи.
+        pages = [
+            {
+                "title": "Моана (мультфильм)",
+                "extract": MOANA,
+                "pageprops": {"wikibase_item": "Q1183953"},
+            }
+        ]
+        return {"query": {"pages": [page for page in pages if page["title"] in names]}}
+
+    monkeypatch.setattr(facts_mod, "get_json", answer)
+    # Меню, в котором уточнение «Моаны» стоит за двадцатым именем: двенадцать соседей
+    # занимают собой оба первых круга перебора.
+    wanted: list[tuple[str, int | None]] = [(f"Картина {number}", 2000) for number in range(12)]
+    wanted.append(("Моана", 2016))
+    about, entities = wiki_extracts(wanted, 1.0)
+
+    assert len(asked) > 1, "имена должны уезжать несколькими пакетами"
+    assert sum(len(part) for part in asked) > facts_mod._EXLIMIT
+    assert about[("Моана", 2016)] == MOANA, "уточнение «(мультфильм)» обязано быть спрошено"
+    assert entities[("Моана", 2016)] == "Q1183953"
+
+
+def test_молчание_всех_пакетов_это_отказ_сети_а_не_отсутствие_статьи(monkeypatch: Any) -> None:
+    """Пустой ответ лёг бы в кэш на неделю и накрыл бы картину, известную Википедии."""
+
+    def broken(host: str, path: str, params: Any, headers: Any, timeout: float) -> Any:
+        raise OSError("сеть молчит")
+
+    monkeypatch.setattr(facts_mod, "get_json", broken)
+
+    try:
+        wiki_extracts([("Тачки", 2006)], 1.0)
+    except OSError:
+        return
+    raise AssertionError("отказ сети обязан быть исключением, а не пустым ответом")
+
+
+def test_отказ_украшений_не_отнимает_уже_добытое_описание(monkeypatch: Any) -> None:
+    """🔴 TC-561. Wikidata несёт рейтинг и хронометраж, описание несёт Википедия.
+
+    Платят они одинаково (0.73 с против 0.89 с в середине по ста меню), а стоят разного:
+    опоздание украшений отменяло описание целиком - исключение улетало наверх, и в кэш не
+    ложилось ничего. Тридцать восемь прогонов из ста не сохранили ни строки.
+    """
+    monkeypatch.setattr(
+        facts_mod,
+        "wiki_extracts",
+        lambda wanted, timeout: ({("Тачки", 2006): CARS}, {("Тачки", 2006): "Q182153"}),
+    )
+
+    def broken(items: Any, timeout: float) -> Any:
+        raise OSError("Wikidata молчит")
+
+    monkeypatch.setattr(facts_mod, "wikidata_ids", broken)
+    monkeypatch.setattr(facts_mod, "ratings", lambda path=None: {})
+
+    out = facts_mod.fetch([("Тачки", 2006)], timeout=1.0)
+
+    assert out[("Тачки", 2006)].about == CARS, "описание добыто и отменять его нечем"
+    assert not out[("Тачки", 2006)].rating, "украшений нет - и это законный исход"
+
+
+def test_описание_отдаётся_меню_до_того_как_спрошены_украшения(monkeypatch: Any) -> None:
+    """Меню печатает то, что уже добыто, а не ждёт второго, более медленного шага."""
+    order: list[str] = []
+    monkeypatch.setattr(
+        facts_mod,
+        "wiki_extracts",
+        lambda wanted, timeout: ({("Тачки", 2006): CARS}, {("Тачки", 2006): "Q182153"}),
+    )
+
+    def ornaments(items: Any, timeout: float) -> Any:
+        order.append("украшения")
+        return {}
+
+    monkeypatch.setattr(facts_mod, "wikidata_ids", ornaments)
+    monkeypatch.setattr(facts_mod, "ratings", lambda path=None: {})
+
+    def ready(part: dict[tuple[str, int | None], Fact]) -> None:
+        order.append("описание")
+        assert part[("Тачки", 2006)].about == CARS
+
+    facts_mod.fetch([("Тачки", 2006)], timeout=1.0, ready=ready)
+
+    assert order == ["описание", "украшения"], "описание отдаётся первым, а не после всего"
