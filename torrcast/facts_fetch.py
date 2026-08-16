@@ -105,9 +105,13 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from torrcast.adapters.wiki.json_file_store import JsonFileStore
+from torrcast.adapters.wiki.text_file_source import TextFileSource
 from torrcast.facts_origin import BLURB_CAP, FACTS_BUDGET, HTTP_TIMEOUT
 from torrcast.parse import same_words, slugify, split_franchise_index, transliterate
 from torrcast.state import state_path
+
+_TEXT_SOURCE = TextFileSource()
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
@@ -560,15 +564,12 @@ def ratings(path: Path | None = None) -> dict[str, str]:
     которую ставит `install.sh`, это ~2 МБ и сотня тысяч строк — чтение на глаз мгновенное.
     """
     out: dict[str, str] = {}
-    try:
-        with (path or RATINGS_PATH).open(encoding="utf-8") as handle:
-            next(handle, None)  # шапка «tconst averageRating numVotes»
-            for line in handle:
-                parts = line.split("\t")
-                if len(parts) >= 2:
-                    out[parts[0]] = parts[1].strip()
-    except OSError:
-        return {}
+    lines = iter(_TEXT_SOURCE.lines(path or RATINGS_PATH))
+    next(lines, None)  # шапка «tconst averageRating numVotes»
+    for line in lines:
+        parts = line.split("\t")
+        if len(parts) >= 2:
+            out[parts[0]] = parts[1].strip()
     return out
 
 
@@ -917,23 +918,12 @@ def _origin_key(title: str, series: bool | None) -> str:
 
 def _read_cache() -> dict[str, Any]:
     """Кэш с диска. Битый или отсутствующий — пустой: перечитаем из сети."""
-    try:
-        raw = json.loads(_cache_path().read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {}
-    return raw if isinstance(raw, dict) else {}
+    return JsonFileStore(_cache_path()).read()
 
 
 def _write_cache(raw: dict[str, Any]) -> None:
     """Дописать кэш. Не вышло записать — молчим: это не путь показа."""
-    try:
-        path = _cache_path()
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
-        tmp.replace(path)
-    except OSError:
-        pass
+    JsonFileStore(_cache_path()).write(raw)
 
 
 def _cache_path() -> Path:

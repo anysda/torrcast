@@ -173,12 +173,9 @@ if TYPE_CHECKING:
     )
 
 import contextlib
-import http.client
 import json
 import os.path
 import re
-import socket
-import ssl
 import threading
 import time
 from dataclasses import dataclass, replace
@@ -186,6 +183,15 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final
 from urllib.parse import urlencode
 
+from torrcast.adapters.wiki.http_json_client import (
+    _RESOLVE_TTL,
+    HttpJsonClient,
+    _IPv4Connection,
+    http,
+    socket,
+    ssl,
+)
+from torrcast.adapters.wiki.text_file_source import TextFileSource
 from torrcast.parse import (
     same_word,
     slugify,
@@ -231,6 +237,8 @@ TOPUP_LIMIT: Final = 3.0
 EMPTY_TTL: Final = 7 * 24 * 3600
 #: Кем представляемся Wikimedia: у них это требование к автоматике, а не вежливость.
 USER_AGENT: Final = "torrcast/1.0 (https://github.com/anysda/torrcast)"
+_HTTP_JSON = HttpJsonClient(USER_AGENT)
+_TEXT_SOURCE = TextFileSource()
 _WIKI_HOST: Final = "ru.wikipedia.org"
 _WIKI_PATH: Final = "/w/api.php"
 _WIKIDATA_HOST: Final = "query.wikidata.org"
@@ -367,85 +375,15 @@ _SEARCH_HITS: Final = 6
 
 #: Разрешённые адреса храним, пока живёт процесс: у справки два-три статических хоста, и
 #: спрашивать их у DNS повторно незачем. Срок конечный - IP хоста может и смениться.
-_RESOLVED: dict[str, tuple[float, str]] = {}
-_RESOLVE_LOCK: Final = threading.Lock()
-_RESOLVE_TTL: Final = 600.0
-
-
-def _resolve(host: str, timeout: float) -> str:
-    """IPv4-адрес хоста - со своим таймаутом и памятью на процесс.
-
-    ``socket.getaddrinfo`` таймауту сокета не подчиняется: под бурей параллельных резолвов
-    (её поднимает прогрев раздач, пока справка едет фоном) он залипает НАДОЛГО, дольше
-    всего бюджета справки, и та не приезжает вовсе - хотя сам HTTP уложился бы в 0.7 с.
-    Стек залипшего потока упирался ровно сюда: ``getaddrinfo`` <- ``connect`` <-
-    ``get_json``. Поэтому, во-первых, резолвим в отдельном потоке с ``join`` по таймауту -
-    залипший ``getaddrinfo`` держит демона, а не справку. Во-вторых, помним найденное: у
-    справки два-три статических хоста, разрешить их надо однажды, а не на каждый запрос,
-    и раз разрешённый адрес переживает бурю мимо DNS. IPv4-only намеренно: v6-адрес висит
-    в SYN-SENT (см. :class:`_IPv4Connection`).
-    """
-    now = time.monotonic()
-    with _RESOLVE_LOCK:
-        hit = _RESOLVED.get(host)
-        if hit is not None and now - hit[0] < _RESOLVE_TTL:
-            return hit[1]
-    box: list[str] = []
-
-    def look() -> None:
-        with contextlib.suppress(OSError):
-            info = socket.getaddrinfo(host, None, socket.AF_INET, socket.SOCK_STREAM)
-            if info:
-                box.append(str(info[0][4][0]))
-
-    worker = threading.Thread(target=look, daemon=True)
-    worker.start()
-    worker.join(timeout)
-    if not box:
-        raise OSError(f"{host}: адрес не разрешён за {timeout:.1f} с")
-    address = box[0]
-    with _RESOLVE_LOCK:
-        _RESOLVED[host] = (time.monotonic(), address)
-    return address
-
-
-class _IPv4Connection(http.client.HTTPSConnection):
-    """HTTPS строго по IPv4.
-
-    Не придирка: на хосте с прописанным, но нерабочим IPv6-выходом (типовая история за
-    NAT и на VPS без v6-маршрута) обычный клиент сначала честно висит в SYN-SENT по
-    AAAA-адресу и только потом падает на IPv4. Замер на таком хосте: 5.4 с против 0.33 с
-    на тот же запрос. Бюджет справки — полторы секунды, то есть при v6 её не бывает
-    никогда. Показу это не мешает (пусто — норма), но и терять её на ровном месте незачем.
-
-    Адрес берём у :func:`_resolve` - со своим таймаутом и памятью: голый ``getaddrinfo``
-    таймауту сокета не подчиняется и под DNS-бурей прогрева топил справку насмерть.
-    """
-
-    #: Контекст TLS: проверка серта и имени - обычная, ничего тут не ослаблено.
-    context: ssl.SSLContext = ssl.create_default_context()
-
-    def connect(self) -> None:
-        budget = self.timeout if isinstance(self.timeout, int | float) else HTTP_TIMEOUT
-        address = _resolve(self.host, budget)
-        raw = socket.create_connection((address, self.port), self.timeout)
-        self.sock = self.context.wrap_socket(raw, server_hostname=self.host)
+_RESOLVED = _HTTP_JSON._resolved
+_RESOLVE_LOCK = _HTTP_JSON._lock
+_resolve = _HTTP_JSON._resolve
 
 
 def get_json(host: str, path: str, params: dict[str, str], headers: dict[str, str],
              timeout: float) -> Any:  # fmt: skip
     """GET с разбором JSON. Любая неудача — исключение: ловит его :meth:`Facts._work`."""
-    conn = _IPv4Connection(host, timeout=timeout)
-    try:
-        conn.request(
-            "GET", f"{path}?{urlencode(params)}", headers={"User-Agent": USER_AGENT, **headers}
-        )
-        response = conn.getresponse()
-        if response.status != 200:
-            raise OSError(f"{host} ответил {response.status}")
-        return json.loads(response.read())
-    finally:
-        conn.close()
+    return _HTTP_JSON.get(host, path, params, headers, timeout)
 
 
 @dataclass(frozen=True, slots=True)
@@ -1179,17 +1117,16 @@ def _read_ru_names(path: Path) -> dict[str, list[_RuName]]:
     """Файл карты → словарь по нормализованному имени; нет файла - пусто, и это не сбой."""
     out: dict[str, list[_RuName]] = {}
     try:
-        with path.open(encoding="utf-8") as handle:
-            for line in handle:
-                fields = line.rstrip("\n").split("\t")
-                name, tconst, kind, original, year = [*fields, "", "", "", "", ""][:5]
-                if not name or not tconst:
-                    continue
-                name = _repair_ru_name(name)
-                candidates = out.setdefault(slugify(name), [])
-                if all(tconst != known[0] for known in candidates):
-                    candidates.append((tconst, kind, original, year, name))
-    except (OSError, ValueError):  # нет файла или он битый - карты нет, и это не сбой
+        for line in _TEXT_SOURCE.lines(path):
+            fields = line.rstrip("\n").split("\t")
+            name, tconst, kind, original, year = [*fields, "", "", "", "", ""][:5]
+            if not name or not tconst:
+                continue
+            name = _repair_ru_name(name)
+            candidates = out.setdefault(slugify(name), [])
+            if all(tconst != known[0] for known in candidates):
+                candidates.append((tconst, kind, original, year, name))
+    except ValueError:  # битая карта равна отсутствующей
         pass
     return out
 
@@ -1216,13 +1153,13 @@ def _votes() -> dict[str, int]:
         if _VOTES is None:
             _VOTES = {}
             try:
-                with RATINGS_PATH.open(encoding="utf-8") as handle:
-                    next(handle, None)  # шапка «tconst averageRating numVotes»
-                    for line in handle:
-                        parts = line.split("\t")
-                        if len(parts) >= 3 and parts[2].strip().isdigit():
-                            _VOTES[parts[0]] = int(parts[2])
-            except (OSError, ValueError):
+                lines = iter(_TEXT_SOURCE.lines(RATINGS_PATH))
+                next(lines, None)  # шапка «tconst averageRating numVotes»
+                for line in lines:
+                    parts = line.split("\t")
+                    if len(parts) >= 3 and parts[2].strip().isdigit():
+                        _VOTES[parts[0]] = int(parts[2])
+            except ValueError:
                 pass
         return _VOTES
 
