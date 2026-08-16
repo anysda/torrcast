@@ -460,6 +460,78 @@ def test_the_next_episode_starts_warming_only_when_this_one_is_on_disk(tmp_path:
     assert nxt.stopped, "снятие показа обязано снимать и прогрев следующей серии"
 
 
+def test_the_chain_waits_out_a_break_instead_of_giving_up_on_the_next_episode(
+    tmp_path: Path,
+) -> None:
+    """Сеть пропала ровно в миг сборки следующей серии - ждём её и спрашиваем снова.
+
+    Сборка следующей серии - два вопроса к раздаче (паспорт и карта опорных кадров), и
+    приходятся они на тот самый миг, когда текущая серия дописала последний кусок. Раньше
+    обрыв в этот миг кончал цепочку НАВСЕГДА: ``follow`` спрашивали один раз, ошибку
+    писали в журнал, и следующую серию не начинал греть никто.
+
+    Замер на стенде, ради которого правка и сделана: обрыв на 10-й секунде, сеть
+    вернулась на 194-й, прогон шёл до 720-й - 526 с здоровой сети, - и следующая серия
+    получила ноль кусков при ста семи на здоровой сети. Теряется вся следующая серия, то
+    есть ровно тот стык, ради которого прогрев впрок и заведён.
+    """
+    grid = _grid()
+    mine = _vault(tmp_path, key="эта")
+    for slot in range(grid.count):
+        _lay(mine, slot)
+    nxt = Warmer(source="s2", audio=0, grid=grid, vault=_vault(tmp_path, key="следующая"))
+    tries: list[int] = []
+    said: list[str] = []
+
+    def follow() -> Warmer:
+        tries.append(1)
+        if len(tries) < 3:  # два вопроса пришлись на обрыв, третий - на вернувшуюся сеть
+            raise OSError("ffprobe не дождался потока")
+        return nxt
+
+    warmer = Warmer(
+        source="s1",
+        audio=0,
+        grid=grid,
+        vault=mine,
+        follow=follow,
+        slack=999.0,
+        log=said.append,
+    )
+    warmer.chain_retry = 0.0  # проверяем повтор, а не ожидание
+    warmer._work()
+
+    assert warmer.after is nxt, "цепочка сдалась на первом же обрыве - следующей серии нет"
+    assert len(tries) == 3, f"следующую серию спросили {len(tries)} раз, а не до успеха"
+    assert sum("не собрался" in line for line in said) == 1, said
+    warmer.stop()
+    assert nxt.stopped, "снятие показа обязано снимать и прогрев следующей серии"
+
+
+def test_the_chain_gives_up_at_once_when_there_is_no_next_episode(tmp_path: Path) -> None:
+    """«Собирать нечего» - это не обрыв: ждать сети тут незачем никогда.
+
+    Фильм, последняя серия раздачи и запись без списка серий отвечают ``None``, и повтор
+    на них обязан не наступать вовсе - иначе поток прогрева до конца показа крутил бы
+    вопрос, ответ на который не изменится.
+    """
+    grid = _grid()
+    mine = _vault(tmp_path, key="эта")
+    for slot in range(grid.count):
+        _lay(mine, slot)
+    tries: list[int] = []
+
+    def follow() -> Warmer | None:
+        tries.append(1)
+        return None
+
+    warmer = Warmer(source="s1", audio=0, grid=grid, vault=mine, follow=follow, slack=999.0)
+    warmer.chain_retry = 0.0
+    warmer._work()
+
+    assert warmer.after is None and tries == [1], f"пустой ответ переспросили: {len(tries)}"
+
+
 def test_the_next_episode_is_not_warmed_while_this_one_is_not_done(tmp_path: Path) -> None:
     """Недогретая серия ни при каких условиях не уступает место следующей."""
     grid = _grid()
