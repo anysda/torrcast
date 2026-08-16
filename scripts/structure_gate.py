@@ -1,0 +1,345 @@
+"""Проверяет соответствие пакета torrcast целевой слоистой структуре."""
+
+from __future__ import annotations
+
+import argparse
+import ast
+import re
+import sys
+from collections import Counter
+from collections.abc import Iterable
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Final
+
+import symbolmap
+
+RULES: Final = (
+    "длина",
+    "единица",
+    "имя",
+    "слои",
+    "циклы",
+    "докстрока",
+    "зеркало",
+    "ввод-вывод",
+    "карта",
+)
+LAYERS: Final = frozenset({"domain", "ports", "usecases", "adapters", "cli", "runtime"})
+ALLOWED: Final = {
+    "domain": frozenset({"domain"}),
+    "ports": frozenset({"domain", "ports"}),
+    "usecases": frozenset({"domain", "ports", "usecases"}),
+    "adapters": frozenset({"domain", "ports", "adapters"}),
+    "cli": frozenset({"domain", "ports", "usecases", "cli"}),
+    "runtime": LAYERS,
+}
+BANNED_IO: Final = frozenset(
+    {
+        "requests",
+        "urllib",
+        "socket",
+        "subprocess",
+        "http",
+        "shutil",
+        "tempfile",
+        "pychromecast",
+        "zeroconf",
+    }
+)
+
+
+@dataclass(frozen=True)
+class Violation:
+    """Одно нарушение правила структуры."""
+
+    rule: str
+    path: str
+    line: int
+    message: str
+
+
+@dataclass(frozen=True)
+class Module:
+    """Разобранный модуль с метаданными о его месте в пакете."""
+
+    path: Path
+    relative: str
+    name: str
+    layer: str
+    tree: ast.Module
+    lines: int
+
+
+def _module_name(relative: Path) -> str:
+    parts = list(relative.with_suffix("").parts)
+    if parts[-1] == "__init__":
+        parts.pop()
+    return ".".join(parts)
+
+
+def _load_modules(root: Path) -> list[Module]:
+    result: list[Module] = []
+    for path in sorted((root / "torrcast").rglob("*.py")):
+        relative_path = path.relative_to(root)
+        source = path.read_text(encoding="utf-8")
+        parts = relative_path.parts
+        layer = parts[1] if len(parts) > 2 and parts[1] in LAYERS else "не разложено"
+        result.append(
+            Module(
+                path,
+                relative_path.as_posix(),
+                _module_name(relative_path),
+                layer,
+                ast.parse(source, filename=str(path)),
+                len(source.splitlines()),
+            )
+        )
+    return result
+
+
+def _snake_case(name: str) -> str:
+    first = re.sub(r"(.)([A-Z][a-z]+)", r"\1_\2", name)
+    return re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", first).lower()
+
+
+def _public_units(tree: ast.Module) -> list[ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef]:
+    return [
+        node
+        for node in tree.body
+        if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
+        and not node.name.startswith("_")
+    ]
+
+
+def _imports(module: Module) -> list[tuple[str, int]]:
+    found: list[tuple[str, int]] = []
+    package = module.name.rsplit(".", 1)[0] if module.path.name != "__init__.py" else module.name
+    for node in ast.walk(module.tree):
+        if isinstance(node, ast.Import):
+            found.extend((alias.name, node.lineno) for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            if node.level:
+                base = package.split(".")
+                keep = max(0, len(base) - node.level + 1)
+                prefix = base[:keep]
+                name = ".".join(prefix + ([node.module] if node.module else []))
+            else:
+                name = node.module or ""
+            if (
+                name.startswith("torrcast")
+                and all(alias.name != "*" for alias in node.names)
+                and (name.count(".") == 0 or (node.level and node.module is None))
+            ):
+                # ``from torrcast import legacy`` зависит от дочернего модуля,
+                # а ``from torrcast.foo import Name`` - от самого ``torrcast.foo``.
+                found.extend((f"{name}.{alias.name}", node.lineno) for alias in node.names)
+                continue
+            found.append((name, node.lineno))
+    return found
+
+
+def _target_module(name: str, known: set[str]) -> str | None:
+    candidate = name
+    while candidate:
+        if candidate in known:
+            return candidate
+        candidate = candidate.rpartition(".")[0]
+    return None
+
+
+def _layer_violations(module: Module, imports: list[tuple[str, int]]) -> list[Violation]:
+    failures: list[Violation] = []
+    for name, line in imports:
+        if not name.startswith("torrcast."):
+            continue
+        parts = name.split(".")
+        imported_layer = parts[1] if len(parts) > 2 and parts[1] in LAYERS else "не разложено"
+        if module.layer != "не разложено" and (
+            imported_layer == "не разложено" or imported_layer not in ALLOWED[module.layer]
+        ):
+            failures.append(
+                Violation("слои", module.relative, line, f"слой {module.layer} импортирует {name}")
+            )
+    if module.relative == "torrcast/__init__.py":
+        for index, node in enumerate(module.tree.body):
+            docstring = (
+                index == 0
+                and isinstance(node, ast.Expr)
+                and isinstance(node.value, ast.Constant)
+                and isinstance(node.value.value, str)
+            )
+            export_assignment = isinstance(node, (ast.Assign, ast.AnnAssign)) and any(
+                isinstance(target, ast.Name) and target.id == "__all__"
+                for target in (node.targets if isinstance(node, ast.Assign) else [node.target])
+            )
+            if not (
+                docstring or export_assignment or isinstance(node, (ast.Import, ast.ImportFrom))
+            ):
+                failures.append(
+                    Violation(
+                        "слои",
+                        module.relative,
+                        node.lineno,
+                        "корневой __init__.py должен только реэкспортировать",
+                    )
+                )
+    return failures
+
+
+def _io_violations(module: Module, imports: list[tuple[str, int]]) -> list[Violation]:
+    if module.layer in {"adapters", "не разложено"}:
+        return []
+    failures: list[Violation] = []
+    aliases: dict[str, str] = {}
+    for node in ast.walk(module.tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                aliases[alias.asname or alias.name.split(".")[0]] = alias.name
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            for alias in node.names:
+                aliases[alias.asname or alias.name] = f"{node.module}.{alias.name}"
+    for name, line in imports:
+        if name.split(".")[0] in BANNED_IO:
+            failures.append(
+                Violation(
+                    "ввод-вывод", module.relative, line, f"прямой импорт ввода-вывода: {name}"
+                )
+            )
+    for node in ast.walk(module.tree):
+        if not isinstance(node, ast.Call):
+            continue
+        call = ast.unparse(node.func)
+        expanded = (
+            aliases.get(call.split(".")[0], call.split(".")[0]) + call[len(call.split(".")[0]) :]
+        )
+        if call == "open" or expanded == "builtins.open":
+            failures.append(
+                Violation("ввод-вывод", module.relative, node.lineno, "прямой вызов open")
+            )
+        elif expanded == "time.sleep":
+            failures.append(
+                Violation("ввод-вывод", module.relative, node.lineno, "прямой вызов time.sleep")
+            )
+    return failures
+
+
+def _cycle_violations(modules: list[Module], edges: dict[str, set[str]]) -> list[Violation]:
+    by_name = {module.name: module for module in modules}
+    failures: list[Violation] = []
+    visiting: list[str] = []
+    done: set[str] = set()
+
+    def visit(name: str) -> None:
+        if name in done:
+            return
+        if name in visiting:
+            cycle = [*visiting[visiting.index(name) :], name]
+            module = by_name[name]
+            message = "цикл импортов: " + " -> ".join(cycle)
+            if not any(item.rule == "циклы" and item.message == message for item in failures):
+                failures.append(Violation("циклы", module.relative, 1, message))
+            return
+        visiting.append(name)
+        for target in sorted(edges.get(name, set())):
+            visit(target)
+        visiting.pop()
+        done.add(name)
+
+    for name in sorted(by_name):
+        visit(name)
+    return failures
+
+
+def check(root: Path) -> list[Violation]:
+    """Возвращает все нарушения структуры внутри корня репозитория."""
+    modules = _load_modules(root)
+    known = {module.name for module in modules}
+    edges: dict[str, set[str]] = {}
+    failures: list[Violation] = []
+    for module in modules:
+        if module.lines > 200:
+            failures.append(
+                Violation("длина", module.relative, 201, f"{module.lines} строк, порог 200")
+            )
+        units = _public_units(module.tree)
+        if len(units) > 1:
+            failures.append(
+                Violation(
+                    "единица", module.relative, units[1].lineno, f"публичных единиц: {len(units)}"
+                )
+            )
+        if len(units) == 1 and module.path.name != "__init__.py":
+            expected = _snake_case(units[0].name) + ".py"
+            if module.path.name != expected:
+                failures.append(
+                    Violation(
+                        "имя",
+                        module.relative,
+                        units[0].lineno,
+                        f"для {units[0].name} ожидается {expected}",
+                    )
+                )
+        if ast.get_docstring(module.tree, clean=False) is None:
+            failures.append(Violation("докстрока", module.relative, 1, "нет докстроки модуля"))
+        if module.path.name != "__init__.py":
+            mirror = (
+                root
+                / "tests"
+                / Path(*Path(module.relative).parts[1:]).with_name(f"test_{module.path.name}")
+            )
+            if not mirror.exists():
+                failures.append(
+                    Violation(
+                        "зеркало", module.relative, 1, f"нет {mirror.relative_to(root).as_posix()}"
+                    )
+                )
+        imports = _imports(module)
+        failures.extend(_layer_violations(module, imports))
+        failures.extend(_io_violations(module, imports))
+        edges[module.name] = {
+            target
+            for name, _line in imports
+            if (target := _target_module(name, known)) is not None and target != module.name
+        }
+    failures.extend(_cycle_violations(modules, edges))
+    expected_map = symbolmap.render(root)
+    map_path = root / "docs" / "map.md"
+    actual_map = map_path.read_text(encoding="utf-8") if map_path.exists() else ""
+    if actual_map != expected_map:
+        failures.append(Violation("карта", "docs/map.md", 1, "карта публичных символов устарела"))
+    order = {rule: index for index, rule in enumerate(RULES)}
+    return sorted(failures, key=lambda item: (order[item.rule], item.path, item.line, item.message))
+
+
+def report(violations: Iterable[Violation]) -> None:
+    """Печатает ограниченный по размеру человекочитаемый отчёт."""
+    items = list(violations)
+    counts = Counter(item.rule for item in items)
+    print("Сводка нарушений:")
+    for rule in RULES:
+        print(f"{rule} — {counts[rule]}")
+    print("\nНарушения:")
+    for rule in RULES:
+        group = [item for item in items if item.rule == rule]
+        for item in group[:10]:
+            print(f"{item.path}:{item.line} — [{item.rule}] {item.message}")
+        if len(group) > 10:
+            print(f"[{rule}] и ещё {len(group) - 10}")
+    if not items:
+        print("нет")
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Запускает гейт в режиме отчёта или строгом режиме с ошибкой."""
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("root", nargs="?", type=Path, default=Path.cwd())
+    parser.add_argument("--strict", action="store_true")
+    arguments = parser.parse_args(argv)
+    violations = check(arguments.root.resolve())
+    report(violations)
+    return int(arguments.strict and bool(violations))
+
+
+if __name__ == "__main__":
+    sys.exit(main())
