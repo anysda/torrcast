@@ -20,7 +20,6 @@ Jackett, у Prowlarr 404 (Torznab-XML отдаётся по индексеру `
 
 from __future__ import annotations
 
-import contextlib
 import re
 import threading
 import time
@@ -28,16 +27,18 @@ from collections import Counter
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Final
+from typing import Any, Final
 from urllib.parse import quote
 from xml.etree import ElementTree
 
-from torrcast import InfraError, NotFoundError, why
+from torrcast import InfraError, NotFoundError
+from torrcast.adapters.prowlarr.prowlarr_http_client import (
+    ProwlarrHttpClient,
+    _HttpSession,
+    _IndexersUnavailableError,
+)
 from torrcast.parse import Release, anime_indexer, by_majority, looks_anime, parse_release_name
 from torrcast.timing import mark
-
-if TYPE_CHECKING:
-    import requests
 
 __all__ = [
     "CIRCLE_SHARE",
@@ -47,6 +48,7 @@ __all__ = [
     "SECOND_LEAST",
     "Prowlarr",
     "RawResult",
+    "_IndexersUnavailableError",
     "anime_query",
     "from_torznab",
     "magnet_for",
@@ -463,7 +465,8 @@ class Prowlarr:
         #: единственное право на отказ: пока хоть кто-то отвечал, пустота это урезанный
         #: каталог, а не отсутствие каталога.
         self.answered: set[str] = set()
-        self._session: requests.Session | None = None
+        self._session: _HttpSession | None = None
+        self._http = ProwlarrHttpClient()
         self._indexers: tuple[tuple[int, str], ...] | None = None
         #: Опоздавшие: круг ушёл по кворуму, а эти ещё в пути (TC-118).
         self._late: list[_Ask] = []
@@ -924,20 +927,16 @@ class Prowlarr:
         и есть та причина, по которой Prowlarr раздаёт баны (Nyaa отвечает на них 504).
         Лечить бан способом, которым он ставится, - худшее, что можно придумать.
         """
-        import requests
-
         session = self._session or self._new_session()
         for num in nums:
-            with contextlib.suppress(requests.RequestException, InfraError, ValueError):
-                body = self._get_json(
-                    f"{self.base_url}{_INDEXERS_PATH}/{num}?apikey={quote(self.apikey)}",
-                    _LIST_TIMEOUT,
-                )
-                session.post(
-                    f"{self.base_url}{_TEST_PATH}?apikey={quote(self.apikey)}",
-                    json=body,
-                    timeout=_EXTRA_TIMEOUT,
-                )
+            self._http.probe(
+                session,
+                f"{self.base_url}{_INDEXERS_PATH}/{num}?apikey={quote(self.apikey)}",
+                f"{self.base_url}{_TEST_PATH}?apikey={quote(self.apikey)}",
+                _LIST_TIMEOUT,
+                _EXTRA_TIMEOUT,
+                self.base_url,
+            )
 
     def _known(self) -> tuple[tuple[int, str], ...]:
         """Включённые индексеры (номер, имя); пусто - спрашивать придётся общим запросом."""
@@ -957,34 +956,14 @@ class Prowlarr:
             )
         return self._indexers
 
-    def _new_session(self) -> requests.Session:
+    def _new_session(self) -> _HttpSession:
         """Сессия, поднятая ДО потоков: ленивая её сборка внутри них - гонка."""
-        import requests
-
-        return requests.Session()
+        return self._http.new_session()
 
     def _get_json(self, url: str, timeout: float | None = None) -> Any:
-        import requests
-
         if self._session is None:
             self._session = self._new_session()
-        try:
-            response = self._session.get(url, timeout=timeout or self.timeout)
-            response.raise_for_status()
-            return response.json()
-        except requests.RequestException as exc:
-            body = str(getattr(exc.response, "text", "") or "").casefold()
-            if "all selected indexers being unavailable" in body:
-                raise _IndexersUnavailableError(
-                    "Prowlarr: выбранные индексеры не отвечают"
-                ) from exc
-            raise InfraError(f"Prowlarr не отвечает ({self.base_url}): {why(exc)}") from exc
-        except ValueError as exc:
-            raise InfraError("Prowlarr вернул не JSON") from exc
-
-
-class _IndexersUnavailableError(InfraError):
-    """Prowlarr жив, но спрятал отказ всех выбранных индексеров за HTTP 400."""
+        return self._http.get_json(self._session, url, timeout or self.timeout, self.base_url)
 
 
 def merge(*batches: list[RawResult]) -> list[RawResult]:
