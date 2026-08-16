@@ -1987,8 +1987,93 @@ def test_a_finished_movie_hands_nothing_over(
 
     assert not cli._handover(watch), "`cast stop`: сторож не досматривал - передавать нечего"
 
-    watch.flush()  # порог 95 %: фильму это «досмотрено», а не следующая серия
+    watch.see(95.0)  # приёмник досчитал до титров
+    watch.close()  # конец сеанса на титрах: фильму это «досмотрено», а не следующая серия
     assert watch.done and not cli._handover(watch), "титры кончились - закрываем приложение"
+
+
+def test_the_series_hands_over_at_the_end_of_the_stream_and_not_a_moment_earlier(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """🔴 Стык серий живёт на конце потока, а не на доле длительности.
+
+    Серия обязана доиграть до самого конца: пока приёмник считает, показ никуда не уводят
+    - ни на 95 %, ни за секунду до конца. Следующую серию записывает конец сеанса, и
+    записывает всегда: потерять переход страшнее, чем потерять хвост.
+    """
+    monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
+    key = "tv:киберпанк:2022"
+    entry = Entry(
+        title="Киберпанк",
+        magnet="magnet:?xt=1",
+        kind="tv",
+        season=1,
+        episode=2,
+        episodes=[[1, 2, 5], [1, 3, 6]],
+        dur=2700.0,
+    )
+    state = State()
+    state.put(key, entry)
+    state.save()
+    watch = _Watch(key=key, entry=entry, every=0.0)
+
+    watch.see(2698.6)  # 1.4 с до конца - серия ещё играет
+    held = State.load().get(key)
+    assert held is not None and (held.season, held.episode) == (1, 2), (
+        "пока приёмник считает, показ остаётся на этой серии"
+    )
+
+    watch.close()  # приёмник доиграл файл, сеанс кончился
+
+    saved = State.load().get(key)
+    assert saved is not None
+    assert (saved.season, saved.episode) == (1, 3), "в состоянии следующая серия раздачи"
+    assert saved.file_idx == 6 and saved.pos == 0 and not saved.done
+
+
+def test_a_movie_finished_by_the_receiver_is_always_marked_watched(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Пометка «досмотрено» у фильма приезжает всегда, даже когда последний опрос лёг за
+    полторы секунды до конца: иначе закладка звала бы продолжить с титров, а прогретое
+    осталось бы лежать на диске навсегда.
+    """
+    monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
+    key = "movie:ролик:2026"
+    entry = Entry(title="ролик", magnet="magnet:?xt=1", dur=100.0)
+    state = State()
+    state.put(key, entry)
+    state.save()
+    watch = _Watch(key=key, entry=entry, every=0.0)
+
+    watch.see(98.6)
+    watch.close()
+
+    assert watch.done
+    saved = State.load().get(key)
+    assert saved is not None and saved.done and saved.pos == 0
+
+
+def test_a_show_cut_in_the_middle_is_not_watched_and_keeps_its_bookmark(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Оборванный посреди картины показ досмотренным не становится ни от какого конца
+    сеанса: закладка остаётся на месте, и `cast` продолжит с неё.
+    """
+    monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
+    key = "movie:ролик:2026"
+    entry = Entry(title="ролик", magnet="magnet:?xt=1", dur=100.0)
+    state = State()
+    state.put(key, entry)
+    state.save()
+    watch = _Watch(key=key, entry=entry, every=0.0)
+
+    watch.see(41.0)
+    watch.close()
+
+    assert not watch.done
+    saved = State.load().get(key)
+    assert saved is not None and not saved.done and saved.pos == 41.0 and saved.resumable
 
 
 def test_a_closed_show_never_starts_ffmpeg_again(
@@ -2684,3 +2769,30 @@ def test_the_mock_never_rewinds_the_show_to_the_head_of_the_film(
     seen = mock.position(front=1260.0)
     assert seen.pos == 1200.0, "показ продолжается с 0:20:00, а не с головы фильма"
     assert mock.position(front=1260.0).pos == 1200.0, "и на следующем опросе тоже"
+
+
+def test_a_show_that_never_started_is_not_marked_watched(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """🔴 Показ, которого не было, досмотренным не становится - и закладку не теряет.
+
+    Замер на живой приставке: фильм продолжали с 2:14:15 из 2:16:15, источник под показом
+    умер, приёмник не взял LOAD ни разу («LOAD не взяли (IDLE)», два повтора). Позиция при
+    этом стояла на закладке, то есть за щедрой долей конца, - и конец сеанса записывал
+    «досмотрено: 2:16:15 из 2:16:15», не показав ни кадра. Заодно стиралось прогретое:
+    человек терял и место, и диск, а вернуться ему было некуда.
+    """
+    monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
+    key = "movie:матрица:1999"
+    entry = Entry(title="Матрица", magnet="magnet:?xt=1", pos=8055.5, dur=8175.5)
+    state = State()
+    state.put(key, entry)
+    state.save()
+    watch = _Watch(key=key, entry=entry, every=0.0)
+
+    watch.close()  # приёмник не назвал ни одной живой позиции
+
+    assert not watch.done, "ни кадра не показали - досматривать было нечего"
+    saved = State.load().get(key)
+    assert saved is not None and not saved.done
+    assert saved.pos == 8055.5 and saved.resumable, "закладка осталась на месте"

@@ -658,3 +658,32 @@ def test_same_named_different_shows_are_not_stitched_by_season_numbers() -> None
     # Метка сборника на своём месте - в конце куска - режет имя, как и раньше.
     pack = parse_release_name("Матрица: Трилогия / The Matrix (1999) BDRip 1080p")
     assert pack.title == "Матрица"
+
+
+def test_the_episode_table_belongs_to_the_release_being_played() -> None:
+    """🔴 Список серий в состоянии - у ТОЙ раздачи, которую играют.
+
+    Один ``_Series`` живёт на всю картину, а спрашивают его параллельно: подготовка
+    поднимает запасные раздачи, и каждая зовёт :meth:`_Series.choose` из своего потока.
+    Пока разбор ложился полем на объект, список серий картины оставляла ПОСЛЕДНЯЯ
+    ответившая раздача. В живом показе это стоило автоперехода целиком: у пака «Рик и
+    Морти» (21 серия) в состояние уезжал пустой список от соседней раздачи, сериал
+    переставал быть сериалом (:attr:`torrcast.state.Entry.serial`), и следующая серия не
+    поднималась вовсе.
+    """
+    pack = parse_release_name("Рик и Морти / Rick and Morty [S01-02] (2013) BDRip 1080p")
+    played = numbered("Rick/Rick.and.Morty.S01E{n:02d}.1080p.BDRip.mkv", 11)
+    series = _Series(want=Episode(1, 1))
+
+    chosen = series.choose(pack, played)
+    assert "S01E01" in chosen.name
+
+    # Соседняя раздача той же картины отвечает позже и своей серии не находит: её разбор
+    # обязан умереть вместе с её же отказом.
+    other = parse_release_name("Рик и Морти / Rick and Morty [S09] (2026) WEB-DL 1080p")
+    with pytest.raises(NotFoundError, match="серии s1e1 в этой раздаче нет"):
+        series.choose(other, numbered("Rick/Rick.and.Morty.S09E{n:02d}.1080p.WEB-DL.mkv", 10))
+
+    table = series.table(played, pack.season)
+    assert len(table) == 11, "в состоянии серии сыгранной раздачи, а не соседней"
+    assert table[0] == [1, 1, 1] and table[-1] == [1, 11, 11]

@@ -321,7 +321,10 @@ def _cmd_play(args: Args) -> int:
         query=slugify(args.title_query),
         season=series.want.season if series else None,
         episode=series.want.episode if series else None,
-        episodes=series.table if series else [],
+        # Список серий берётся у ТОЙ раздачи, которую играем, и разбирается здесь заново:
+        # подготовка спрашивает соседние раздачи параллельно, и общего места, где список
+        # мог бы полежать, у них нет (:meth:`torrcast.selection._Series.choose`).
+        episodes=series.table(prep.files, release.season) if series else [],
     )
     if stale is not None:  # точка невозврата пройдена - вот теперь --new вправе забывать
         _forget_progress(stale)

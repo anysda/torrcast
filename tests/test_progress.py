@@ -73,20 +73,26 @@ def test_watchdog_takes_the_position_as_absolute_film_time() -> None:
     assert saved().pos == 2465.0, "нулём с непрогретого приёмника позицию не теряем"
 
 
-def test_watchdog_marks_the_movie_watched_at_95_percent() -> None:
-    """Порог 95 %: запись «досмотрено», позиция сброшена, повторные тики её не
-    воскрешают — иначе следующий `cast` спросил бы «продолжить?» о досмотренном фильме.
+def test_watchdog_marks_the_movie_watched_only_at_the_end_of_the_show() -> None:
+    """Пометка «досмотрено» приезжает концом сеанса, а не долей длительности.
+
+    Пока картина играет, сторож пишет только позицию: ни 95 %, ни «минус секунда» показ
+    больше никуда не уводят. Конец сеанса ставит пометку и сбрасывает позицию, а повторные
+    тики её не воскрешают - иначе следующий `cast` спросил бы «продолжить?» о досмотренном.
     """
     entry = remember(pos=0.0, dur=1000.0)
     watch = cli.Watch(key=KEY, entry=entry, every=0.0)
 
-    watch.see(949.0)
-    assert not saved().done and saved().pos == 949.0
-
     watch.see(950.0)
+    assert not saved().done and saved().pos == 950.0, "95 % - это ещё картина, а не титры"
+
+    watch.see(999.2)
+    assert not saved().done and saved().pos == 999.2, "и последняя секунда - тоже ещё картина"
+
+    watch.close()
     assert saved().done and saved().pos == 0.0
 
-    watch.see(960.0)
+    watch.see(1000.0)
     assert saved().done and saved().pos == 0.0
 
 

@@ -36,10 +36,14 @@ def test_roundtrip_creates_parent_dirs_and_keeps_utf8(
     assert reloaded.updated  # метку времени ставит put()
 
 
-def test_watched_threshold_is_95_percent() -> None:
-    """Позиция ≥ 95 % длительности = досмотрено → следующая серия."""
-    assert not Entry(title="x", magnet="m", pos=940, dur=1000).watched
-    assert Entry(title="x", magnet="m", pos=950, dur=1000).watched
+def test_the_end_of_the_show_stays_a_generous_ratio() -> None:
+    """Мерка «это был конец, а не авария» осталась щедрой: сузить её значит начать
+    воскрешать доигранное. Титры на 95 % - конец показа, середина картины - обрыв.
+    """
+    assert Entry(title="x", magnet="m", pos=950, dur=1000).ending
+    assert not Entry(title="x", magnet="m", pos=940, dur=1000).ending
+    assert not Entry(title="x", magnet="m", pos=500, dur=1000).ending
+    assert not Entry(title="x", magnet="m", pos=950, dur=0).ending
 
 
 def test_drop_forgets_entry() -> None:
@@ -126,8 +130,8 @@ def test_watched_movie_is_marked_and_rewound() -> None:
     """Фильм досмотрен: пометка «досмотрено» и сброс позиции — следующий cast начнёт
     с начала и вопроса «продолжить?» не задаст.
     """
-    entry = Entry(title="Моана 2", magnet="m", pos=5700, dur=5978)
-    assert entry.watched and entry.resumable
+    entry = Entry(title="Моана 2", magnet="m", pos=5977.5, dur=5978)
+    assert entry.ending and entry.resumable
 
     done = entry.advance()
 
@@ -154,8 +158,8 @@ def test_watched_episode_moves_to_the_next_file_of_the_release() -> None:
     Следующая — это следующий ФАЙЛ раздачи, а не «номер + 1»: в раздаче может не быть
     ни первой серии, ни сплошной нумерации.
     """
-    entry = series(episode=3, pos=1400, dur=1440)
-    assert entry.watched and entry.label == "s1e3"
+    entry = series(episode=3, pos=1439.2, dur=1440)
+    assert entry.ending and entry.label == "s1e3"
 
     following = entry.advance()
 

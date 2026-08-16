@@ -141,7 +141,8 @@ def test_the_unit_plays_the_whole_release_by_itself(monkeypatch: pytest.MonkeyPa
     ) -> int:
         played.append((about, int(source.rsplit("/", 1)[-1])))
         receivers.append(receiver)
-        watch.see(watch.entry.dur)  # серия доиграна до конца
+        watch.see(watch.entry.dur)
+        watch.close()  # серия доиграна до конца - конец сеанса берёт следующую
         return 0
 
     monkeypatch.setattr(cli, "TorrServer", _FakeTorrServer)
@@ -186,8 +187,9 @@ def test_the_next_episode_learns_its_own_duration(monkeypatch: pytest.MonkeyPatc
         "_play",
         lambda config, source, audio, about, clock, watch=None, **rest: (
             watch.see(watch.entry.dur),
+            watch.close(),
             0,
-        )[1],
+        )[2],
     )
 
     assert cli._cmd_worker(KEY) == 0
@@ -221,6 +223,7 @@ def test_a_record_from_before_the_ten_bit_era_asks_the_passport_once(
     ) -> int:
         seen.append(int(rest.get("depth") or 0))
         watch.see(watch.entry.dur)
+        watch.close()
         return 0
 
     monkeypatch.setattr(cli, "_play", play)
@@ -258,6 +261,7 @@ def test_a_record_from_before_the_frame_era_asks_the_passport_once(
     ) -> int:
         seen.append(int(rest.get("frame") or 0))
         watch.see(watch.entry.dur)
+        watch.close()
         return 0
 
     monkeypatch.setattr(cli, "_play", play)
@@ -287,7 +291,8 @@ def test_the_unit_signs_its_torrent_in_the_state_and_unsigns_it_on_the_way_out(
     def play(
         config: Any, source: str, audio: int, about: str, clock: Any, watch: Any = None, **rest: Any
     ) -> int:
-        watch.see(watch.entry.dur)  # заодно и сторож кладёт запись на диск
+        watch.see(watch.entry.dur)
+        watch.close()  # заодно и сторож кладёт запись на диск
         entry = State.load().get(KEY)
         signed.append(entry.torrent if entry else "")
         return 0

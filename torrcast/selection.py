@@ -275,17 +275,25 @@ class _Series:
     """
 
     want: Episode
-    files: list[EpisodeFile] = field(default_factory=list)
 
     def choose(self, release: Release, files: list[TorrFile]) -> TorrFile:
-        """Файл нужной серии; такой серии в раздаче нет — честная строка со списком."""
-        self.files = map_episodes(files, release.season)
-        found = next((f for f in self.files if f.at == self.want), None)
+        """Файл нужной серии; такой серии в раздаче нет — честная строка со списком.
+
+        🔴 Разбор серий тут НИЧЕГО не запоминает на себе. Один и тот же ``_Series`` живёт
+        на всю картину, а спрашивают его параллельно: подготовка греет впрок и запасные
+        раздачи (:meth:`torrcast.selection_bench._Bench.spare`), и каждая зовёт этот же
+        метод из своего потока. Стоило разбору лечь полем на объект - список серий
+        картины оставляла ПОСЛЕДНЯЯ ответившая раздача, а не та, которую играют. У пака
+        «Рик и Морти» (21 серия) в состояние уезжал пустой список от запасной раздачи, и
+        сериал переставал быть сериалом: автоперехода на следующую серию не было вовсе.
+        """
+        found_files = map_episodes(files, release.season)
+        found = next((f for f in found_files if f.at == self.want), None)
         if found is None:
-            raise NotFoundError(self._miss_reason(release))
+            raise NotFoundError(self._miss_reason(release, found_files))
         return next(f for f in files if f.index == found.index)
 
-    def _miss_reason(self, release: Release) -> str:
+    def _miss_reason(self, release: Release, files: list[EpisodeFile]) -> str:
         """Текст отказа: серии правда нет — или раздача считает в ДРУГОЙ системе.
 
         🔴 TC-182. У одного сериала сосуществуют ДВЕ нумерации: у «Гинтамы» 38 раздач
@@ -313,26 +321,31 @@ class _Series:
             return (
                 f"нумерации разные: {self.want} - это счёт по сезонам, а раздача считает "
                 f"серии насквозь через весь сериал ({span}), не называя сезонов "
-                f"({self.summary()}) - нужна раздача, подписанная сезоном: "
+                f"({self.summary(files)}) - нужна раздача, подписанная сезоном: "
                 "cast <запрос> --release N"
             )
         return (
-            f"серии {self.want} в этой раздаче нет ({self.summary()}) - "
+            f"серии {self.want} в этой раздаче нет ({self.summary(files)}) - "
             "возьми другую раздачу: cast <запрос> --release N"
         )
 
-    @property
-    def table(self) -> list[list[int]]:
-        """Список серий для состояния: по нему идут автопереход и прыжки."""
-        return [[f.season, f.episode, f.index] for f in self.files]
+    @staticmethod
+    def table(files: list[TorrFile], season: int | None) -> list[list[int]]:
+        """Список серий раздачи для состояния: по нему идут автопереход и прыжки.
 
-    def summary(self) -> str:
+        Спрашивается у той раздачи, которую играют, и разбирается заново - держать его
+        на объекте нельзя (см. :meth:`choose`).
+        """
+        return [[f.season, f.episode, f.index] for f in map_episodes(files, season)]
+
+    @staticmethod
+    def summary(files: list[EpisodeFile]) -> str:
         """«серий 10: s1e1…s1e10», для пака — ещё и диапазон сезонов."""
-        if not self.files:
+        if not files:
             return "серий не нашлось"
-        seasons = {f.season for f in self.files}
+        seasons = {f.season for f in files}
         span = f"сезоны {min(seasons)}-{max(seasons)} · " if len(seasons) > 1 else ""
-        return f"{span}серий {len(self.files)}: {self.files[0].at}...{self.files[-1].at}"
+        return f"{span}серий {len(files)}: {files[0].at}...{files[-1].at}"
 
 
 def _continue(config: Config, key: str, entry: Entry, args: Args, clock: _Clock) -> int | None:

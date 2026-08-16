@@ -512,8 +512,6 @@ def _hold(
             if (watch.entry.dark, watch.entry.dark_why) != (revival.began, revival.why):
                 watch.entry.dark, watch.entry.dark_why = revival.began, revival.why
                 watch.flush()
-            if watch.done and watch.entry.serial:
-                return False  # серия досмотрена - освобождаем показ под следующую
         if position.state == "PAUSED":
             paused = paused or clock.monotonic()
             if clock.monotonic() - paused > PAUSE_LIMIT:
