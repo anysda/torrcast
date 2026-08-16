@@ -592,10 +592,10 @@ def thresholds(
         if key in _TUNED:
             stock = getattr(CAUTIOUS, _TUNED[key])
             sources[key] = (
-                "конфиг стенда" if getattr(raw, key) != stock else f"профиль {profile.key}"
+                "написан в конфиге" if getattr(raw, key) != stock else f"профиль {profile.key}"
             )
         else:
-            sources[key] = "конфиг стенда" if key in configured else "умолчание конфига"
+            sources[key] = "написан в конфиге" if key in configured else "умолчание конфига"
     for key in _PROFILE_THRESHOLDS:
         value = getattr(profile, key)
         values[key] = sorted(value) if isinstance(value, frozenset) else value

@@ -85,7 +85,7 @@ def test_show_start_prints_effective_thresholds_and_their_sources(tmp_path: Path
         thresholds={"recode_at_mbit": 28.0, "recode_head_wait": 12.0},
         threshold_sources={
             "recode_at_mbit": "профиль androidtv",
-            "recode_head_wait": "конфиг стенда",
+            "recode_head_wait": "написан в конфиге",
         },
     )
     trace.shutdown()
@@ -93,7 +93,7 @@ def test_show_start_prints_effective_thresholds_and_their_sources(tmp_path: Path
     text = trace.digest(trace.records())
     assert "профиль androidtv (паспорт приёмника)" in text
     assert "recode_at_mbit=28.0 [профиль androidtv]" in text
-    assert "recode_head_wait=12.0 [конфиг стенда]" in text
+    assert "recode_head_wait=12.0 [написан в конфиге]" in text
 
 
 def test_records_reads_and_orders(tmp_path: Path) -> None:
