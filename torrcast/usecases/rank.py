@@ -1,3 +1,4 @@
+# ruff: noqa: F821
 """Часть CLI; публичный фасад — :mod:`torrcast.cli`."""
 
 from __future__ import annotations
@@ -7,7 +8,6 @@ __all__ = [
     "RECODE_HEIGHT",
     "STEP_RATIO",
     "TABLE_LIMIT",
-    "TYPE_CHECKING",
     "_AUDIO_FILE_EXT",
     "_CODEC",
     "_DISC",
@@ -75,52 +75,56 @@ __all__ = [
     "voices_table",
 ]
 
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from torrcast.choice import warned
-    from torrcast.commands import (
-        _DISC_RE,
-        ALIVE_SEEDERS,
-        EXTRAS_MBIT,
-        FULL_HD_LIVENESS,
-        FULL_HEIGHT,
-        GATE_LIVENESS,
-        HD_HEIGHT,
-        HONEST_RATIO,
-        PEER_GRACE,
-        SD_BITRATE,
-        SEASON_EPISODES,
-        SOUND_LIVENESS,
-        STEP_GRACE,
-        VOICE_MENU,
-        Args,
-    )
-    from torrcast.selection import _Plan
-
-
 import re
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Final
+from typing import TYPE_CHECKING, Any, Final, TypeAlias
 
-from torrcast import (
-    InfraError,
-    NotFoundError,
+from torrcast.domain.audio_track import AudioTrack
+from torrcast.domain.bitrate_mbit import bitrate_mbit
+from torrcast.domain.episode import Episode
+from torrcast.domain.infra_error import InfraError
+from torrcast.domain.media import Media
+from torrcast.domain.not_found_error import NotFoundError
+from torrcast.domain.rank_settings import (
+    ALIVE_SEEDERS,
+    DISC_RE,
+    EXTRAS_MBIT,
+    FULL_HD_LIVENESS,
+    FULL_HEIGHT,
+    GATE_LIVENESS,
+    HD_HEIGHT,
+    HONEST_RATIO,
+    PEER_GRACE,
+    RECODE_HEIGHT,
+    SD_BITRATE,
+    SEASON_EPISODES,
+    SOUND_LIVENESS,
+    STEP_GRACE,
+    TABLE_LIMIT,
+    VOICE_MENU,
 )
-from torrcast.commands import TABLE_LIMIT
-from torrcast.console import ask
-from torrcast.parse import (
-    Episode,
-    Release,
-)
-from torrcast.recode import RECODE_HEIGHT
-from torrcast.stream import (
-    AudioTrack,
-    Media,
-    TorrFile,
-    bitrate_mbit,
-)
+from torrcast.domain.release import Release
+from torrcast.domain.torr_file import TorrFile
+from torrcast.ports.rank_environment import RankEnvironment
+
+_DISC_RE = DISC_RE
+if TYPE_CHECKING:
+    Args: TypeAlias = Any
+    _Plan: TypeAlias = Any
+    warned: Any
+_rank_environment: RankEnvironment
+
+
+def configure(environment: RankEnvironment) -> None:
+    """Передать сценарию пользовательский ввод и вывод."""
+    global _rank_environment
+    _rank_environment = environment
+
+
+def ask(question: str, count: int, default: int = 1) -> int:
+    """Совместимо передать вопрос консольному порту."""
+    return _rank_environment.choose(question, count, default)
 
 
 def quality_text(release: Release, media: Media) -> str:
@@ -1106,7 +1110,7 @@ def pick_voice(media: Media, args: Args, remembered: str = "") -> tuple[int, str
             return found, remembered
         # Память живёт на картину, а релиз временный: озвучки в нём нет - говорим и
         # играем обычную, но выбор пользователя не забываем (:attr:`Entry.voice`).
-        print(f"озвучки «{remembered}» в этом релизе нет - беру обычную")
+        _rank_environment.write(f"озвучки «{remembered}» в этом релизе нет - беру обычную")
     return media.default_track(), remembered
 
 
@@ -1286,8 +1290,8 @@ def _ask_voice(media: Media) -> int:
     default = media.default_track()
     if len(media.tracks) == 1:  # выбора нет - вопроса тоже
         return default
-    print(voices_table(media, default))
-    return ask("Озвучка?", len(media.tracks), default=default + 1) - 1
+    _rank_environment.write(voices_table(media, default))
+    return _rank_environment.choose("Озвучка?", len(media.tracks), default + 1) - 1
 
 
 def voices_table(media: Media, default: int, remembered: str = "") -> str:

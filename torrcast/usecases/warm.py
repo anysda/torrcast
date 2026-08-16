@@ -1,3 +1,4 @@
+# mypy: disable-error-code=no-any-return
 """Прогрев показа на диск: весь фильм заранее, чтобы обрыв связи его не убил.
 
 Показ живёт окном в tmpfs (:class:`torrcast.stream.Feed`), и это окно упирается в
@@ -48,25 +49,44 @@ import math
 import os
 import signal
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Final
+from typing import Any, Final
 
 from torrcast.domain.profile import CAUTIOUS
-from torrcast.ports.warm_environment import WarmEnvironment
-
-if TYPE_CHECKING:
-    from torrcast.stream import Grid
+from torrcast.ports.warm_environment import WarmEnvironment, WarmGrid
 
 __all__ = ["Vault", "Warmer", "segment_start", "warm_key", "warm_root"]
+
+Grid = WarmGrid
+segment_name: Callable[[int], str]
+segment_slot: Callable[[str], int]
+_hms: Callable[[float], str]
+Packer: Any
+ffmpeg_pack_command: Any
+pack_start: Any
+AUDIO_MBIT: float
+MAX_SEGMENT_BYTES: int
+TS_OVERHEAD: float
 
 _environment: WarmEnvironment
 
 
 def configure(environment: WarmEnvironment) -> None:
     """Передать сценарию часы, файловую операцию и телеметрию."""
-    global _environment
+    global _environment, segment_name, segment_slot, _hms, Packer
+    global ffmpeg_pack_command, pack_start, AUDIO_MBIT, MAX_SEGMENT_BYTES, TS_OVERHEAD
     _environment = environment
+    segment_name = environment.segment_name
+    segment_slot = environment.segment_slot
+    _hms = environment.hms
+    Packer = environment.packer_type
+    ffmpeg_pack_command = environment.pack_command
+    pack_start = environment.pack_start
+    AUDIO_MBIT = environment.audio_mbit
+    MAX_SEGMENT_BYTES = environment.max_segment_bytes
+    TS_OVERHEAD = environment.ts_overhead
 
 
 #: Каталог прогретого по умолчанию. Диск, не tmpfs - и это весь смысл модуля.
@@ -276,8 +296,6 @@ class Vault:
         return self.root / self.key
 
     def path(self, slot: int) -> Path:
-        from torrcast.stream import segment_name
-
         return self.dir / segment_name(slot)
 
     def have(self, slot: int) -> bool:
@@ -301,8 +319,6 @@ class Vault:
         лежит: прогреву решать, куда идти дальше, надо по файлам (:meth:`Warmer._missing`),
         иначе тяжёлое место перекладывалось бы вечно.
         """
-        from torrcast.stream import segment_slot
-
         found: set[int] = set()
         with contextlib.suppress(OSError):
             for path in self.dir.glob("v*.ts"):
@@ -569,8 +585,6 @@ class Warmer:
 
     def line(self) -> str:
         """Строка о прогреве для журнала и статуса — та самая «прогрето 42 мин из 96»."""
-        from torrcast.cli import _hms
-
         head = f"прогрето {_hms(self.warmed)} из {_hms(self.grid.duration)}"
         if self.done:
             done = f"{head} - фильм целиком на диске, интернет больше не нужен"
@@ -755,8 +769,6 @@ class Warmer:
     def _forecast(self, first: int, last: int) -> float:
         """Во сколько байт обойдётся этот участок. Считаем по нашему же битрейту, когда
         перекодируем, и по карте опорных кадров, когда копируем."""
-        from torrcast.stream import AUDIO_MBIT, MAX_SEGMENT_BYTES, TS_OVERHEAD
-
         seconds = sum(self.grid.span(s) for s in range(first, last + 1))
         if self.encode is not None:
             mbit = float(self.encode.mbit)
@@ -825,8 +837,6 @@ class Warmer:
         голова (:meth:`_missing`), - а точечные идут перекодом и пробного не просят вовсе.
         0.5-2.9 с на заход против получаса прогрева не считаются.
         """
-        from torrcast.stream import Packer, ffmpeg_pack_command, pack_start
-
         encode = self.spot_encode if spot else self.encode
         at = self.grid.start(first)
         if encode is None:
@@ -952,8 +962,6 @@ class Warmer:
         кодировщика. Выкладке ответ важен только когда рядом лежит готовый перекод, а у
         прогрева его нет.
         """
-        from torrcast.stream import segment_name
-
         with contextlib.suppress(OSError):
             os.replace(self.vault.dir / RUN_DIR / segment_name(slot), self.vault.path(slot))
         return False

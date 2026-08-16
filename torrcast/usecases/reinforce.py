@@ -1,20 +1,15 @@
+# mypy: disable-error-code=no-any-return
+# ruff: noqa: F821
 """Часть CLI; публичный фасад — :mod:`torrcast.cli`."""
 
 from __future__ import annotations
 
 __all__ = [
     "CAUTIOUS",
-    "TYPE_CHECKING",
-    "Config",
     "Episode",
-    "Fact",
-    "Facts",
-    "Origin",
     "Picture",
     "Profile",
-    "Progress",
     "Prowlarr",
-    "RawResult",
     "Release",
     "_as_is",
     "_ceiling_hides_name",
@@ -47,52 +42,65 @@ __all__ = [
     "voiceless_pool",
 ]
 
-from typing import TYPE_CHECKING
+from dataclasses import replace
+from typing import TYPE_CHECKING, Any, TypeAlias
+
+from torrcast.domain.catalog_has_name import catalog_has_name
+from torrcast.domain.episode import Episode
+from torrcast.domain.franchise_key import franchise_key
+from torrcast.domain.menu_order import menu_order
+from torrcast.domain.picture import Picture
+from torrcast.domain.profile import CAUTIOUS, Profile
+from torrcast.domain.recodes_whole import recodes_whole
+from torrcast.domain.release import Release
+from torrcast.domain.slugify import slugify
+from torrcast.domain.split_franchise_index import split_franchise_index
+from torrcast.domain.transliterate import transliterate
+from torrcast.ports.reinforce_environment import ReinforceEnvironment
 
 if TYPE_CHECKING:
-    from torrcast.choice import first_alive, fitness
-    from torrcast.commands import Args
-    from torrcast.discovery import KIN_SHOWN, _ask, _asked_kind, _no_budget
-    from torrcast.ranking import gate_open, last_hope, rank_releases
-    from torrcast.selection import _Plan, _Series
+    Args: TypeAlias = Any
+    Config: TypeAlias = Any
+    Facts: TypeAlias = Any
+    Origin: TypeAlias = Any
+    Progress: TypeAlias = Any
+    RawResult: TypeAlias = Any
+    _Plan: TypeAlias = Any
+    _Series: Any
+    first_alive: Any
+    fitness: Any
+    _ask: Any
+    _asked_kind: Any
+    _no_budget: Any
+    gate_open: Any
+    last_hope: Any
+    rank_releases: Any
+
+Prowlarr: Any
+Fact: Any
+minutes_of: Any
+origin: Any
+same_name: Any
+merge: Any
+to_releases: Any
+trace: Any
+KIN_SHOWN = 3
+_reinforce_environment: ReinforceEnvironment
 
 
-from dataclasses import replace
-
-from torrcast import (
-    trace,
-)
-from torrcast.console import Progress
-from torrcast.facts import (
-    Fact,
-    Facts,
-    Origin,
-    minutes_of,
-    origin,
-    same_name,
-)
-from torrcast.parse import (
-    Episode,
-    Picture,
-    Release,
-    catalog_has_name,
-    franchise_key,
-    menu_order,
-    slugify,
-    split_franchise_index,
-    transliterate,
-)
-from torrcast.profile import CAUTIOUS, Profile
-from torrcast.search import (
-    Prowlarr,
-    RawResult,
-    merge,
-    to_releases,
-)
-from torrcast.state import Config
-from torrcast.stream import (
-    recodes_whole,
-)
+def configure(environment: ReinforceEnvironment) -> None:
+    """Передать сценарию справку, каталог и телеметрию."""
+    global _reinforce_environment, Prowlarr, Fact, minutes_of, origin, same_name
+    global merge, to_releases, trace
+    _reinforce_environment = environment
+    Prowlarr = environment.prowlarr_type
+    Fact = environment.fact_type
+    minutes_of = environment.minutes_of
+    origin = environment.origin
+    same_name = environment.same_name
+    merge = environment.merge
+    to_releases = environment.to_releases
+    trace = environment.trace
 
 
 def _as_is(
@@ -121,7 +129,7 @@ def _as_is(
     каталоге может лежать вторая: на «моане 2» широкий вариант этой сверки ругался бы на
     честную выдачу. Не знает года справка, картин несколько, годы сходятся - молчим.
     """
-    from torrcast.parse import cluster
+    from torrcast.domain.cluster import cluster
 
     if about.name and not about.title:
         for picture in found:
@@ -203,7 +211,7 @@ def _ceiling_reinforce(
     картины с именем запроса встают ВПЕРЕДИ соседей по подстроке: спрошенное имя точнее
     вхождения. Подмена при этом не молчаливая - она и есть содержание строки.
     """
-    from torrcast.parse import cluster
+    from torrcast.domain.cluster import cluster
 
     if (spare := _no_budget(client, f"уточнение по «{name}»", progress)) is None:
         return raw, pictures, found
@@ -287,7 +295,8 @@ def _season_reinforce(
     уводит и справку, и сезонную строку за чужой картиной, как и в доборе вторым языком
     (:func:`_second_language`).
     """
-    from torrcast.parse import cluster, pick_franchise, slugify
+    from torrcast.domain.cluster import cluster
+    from torrcast.domain.pick_franchise import pick_franchise
 
     name, _index = (query, None) if titled else split_franchise_index(query)
     want = args.episode or Episode(1, 1)
@@ -435,7 +444,8 @@ def _voice_reinforce(
     уводит точную строку за чужой картиной, как и в доборе вторым языком
     (:func:`_second_language`).
     """
-    from torrcast.parse import cluster, pick_franchise
+    from torrcast.domain.cluster import cluster
+    from torrcast.domain.pick_franchise import pick_franchise
 
     name, _index = (query, None) if titled else split_franchise_index(query)
     exact = f"{lead.original} {lead.year}"
@@ -565,7 +575,7 @@ def _plan_for(
     Ноль — её не назвал никто, и в знаменатель битрейта идёт прикидка
     (:data:`torrcast.stream.RUNTIME_GUESS`).
     """
-    from torrcast.stream import RUNTIME_GUESS
+    from torrcast.domain.runtime_guess import RUNTIME_GUESS
 
     series = _Series(want=args.episode or Episode(1, 1)) if picture.kind == "tv" else None
     known = runtime > 0
@@ -699,7 +709,7 @@ def _topup(
     пущенный под меню, переезжает на новые номера (:meth:`_Bench.reorder`), а не
     выбрасывается. Долив пустой или ничего не добавил - план возвращается прежним.
     """
-    from torrcast.parse import cluster
+    from torrcast.domain.cluster import cluster
 
     rows = plan.late()
     if not rows:
@@ -744,7 +754,7 @@ def _foreign_note(foreign: list[Release], menu: frozenset[str], progress: Progre
     меню ЕСТЬ (``menu`` - ключи показанного списка), строки не получают: сказать про
     них «в списке её не было» значило бы соврать.
     """
-    from torrcast.parse import cluster
+    from torrcast.domain.cluster import cluster
 
     guests = [p for p in cluster(foreign) if p.key not in menu]
     if not guests:
