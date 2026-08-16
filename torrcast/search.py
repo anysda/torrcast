@@ -24,7 +24,7 @@ import re
 import threading
 import time
 from collections import Counter
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import datetime
 from typing import Any, Final
@@ -443,10 +443,23 @@ def from_torznab(xml: str) -> list[RawResult]:
 
 
 class Prowlarr:
-    def __init__(self, base_url: str, apikey: str, timeout: float = _TIMEOUT) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        apikey: str,
+        timeout: float = _TIMEOUT,
+        *,
+        slack: float = _ASK_SLACK,
+        budget_of: Callable[[str], float] = indexer_budget,
+    ) -> None:
         self.base_url = base_url.rstrip("/")
         self.apikey = apikey
         self.timeout = timeout
+        #: Запас поверх личного бюджета индексера (:data:`_ASK_SLACK`) и то, чем этот
+        #: бюджет считается (:func:`indexer_budget`). Называют их те, кому нужен круг
+        #: короче настоящего, - тесты сроков.
+        self.slack = slack
+        self.budget_of = budget_of
         #: Индексеры, не уложившиеся в личный бюджет последнего поиска - по именам.
         self.silent: tuple[str, ...] = ()
         #: Индексеры, отдавшие полную страницу последнего поиска, - по именам.
@@ -718,7 +731,7 @@ class Prowlarr:
         if lost:
             # Бюджет теперь у каждого свой (TC-226), и в фазе он назван поимённо: иначе
             # «молчит YTS, бюджет 20 с» врало бы про то, сколько круг на нём простоял.
-            budgets = {name: indexer_budget(name) for name in lost}
+            budgets = {name: self.budget_of(name) for name in lost}
             mark("индексеры", молчат=lost, бюджет=budgets)
         if not got and self.answered:
             # 🔴 TC-510. Круг пуст, но в этом поиске нам уже отвечали: значит молчит не
@@ -794,7 +807,7 @@ class Prowlarr:
         asked = [self._spawn(query, limit, num, name, cap) for num, name in pairs]
         core = [ask for ask in asked if _wait_indexer(ask.name)] or asked
         for ask in core:
-            ask.done.wait(ask.budget + _ASK_SLACK)
+            ask.done.wait(ask.budget + self.slack)
         got: list[list[RawResult]] = []
         why_lost: InfraError | None = None
         for ask in asked:
@@ -831,7 +844,7 @@ class Prowlarr:
 
     def _spawn(self, query: str, limit: int, num: int, name: str, cap: float = 0.0) -> _Ask:
         """Пустить один индексер отдельным потоком и вернуть место под его ответ."""
-        budget = indexer_budget(name)
+        budget = self.budget_of(name)
         ask = _Ask(name=name, budget=min(budget, cap) if cap else budget)
 
         def work() -> None:

@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import threading
 import time
+from collections.abc import Callable, Sequence
 from datetime import UTC, datetime, timedelta
 from itertools import permutations
 from pathlib import Path
@@ -289,8 +290,16 @@ class _Swarm:
         ]
 
 
-def _swarm(**kwargs: object) -> Prowlarr:
-    client = Prowlarr("http://127.0.0.1:9696/", "KEY")
+def _swarm(
+    slack: float | None = None, budget_of: Callable[[str], float] | None = None, **kwargs: object
+) -> Prowlarr:
+    """Клиент с подставным кругом индексеров; сроки круга задаются конструктором."""
+    dependencies: dict[str, object] = {}
+    if slack is not None:
+        dependencies["slack"] = slack
+    if budget_of is not None:
+        dependencies["budget_of"] = budget_of
+    client = Prowlarr("http://127.0.0.1:9696/", "KEY", **dependencies)  # type: ignore[arg-type]
     client._session = _Swarm(**kwargs)  # type: ignore[assignment,arg-type]
     return client
 
@@ -350,7 +359,7 @@ def test_slow_extra_indexer_does_not_hold_the_ready_catalog() -> None:
 
 
 def test_trace_carries_per_indexer_milliseconds(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    journal: Path,
 ) -> None:
     """Событие круга несёт время КАЖДОГО индексера - и ответившего, и молчуна.
 
@@ -360,8 +369,6 @@ def test_trace_carries_per_indexer_milliseconds(
     """
     from torrcast import trace
 
-    monkeypatch.setenv(trace.LOG_ENV, str(tmp_path))
-    monkeypatch.setenv(trace.SID_ENV, "test-sid")
     client = _swarm(mute=2)
     client.search("матрица")
     trace.shutdown()
@@ -397,20 +404,29 @@ def test_prowlarr_400_names_unavailable_indexers_not_prowlarr() -> None:
     assert "Prowlarr не отвечает" not in message
 
 
-def test_unavailable_indexers_are_recognized_by_type_not_message(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Отказ выбранных индексеров остаётся узнаваемым при любом тексте для человека."""
-    from torrcast.search import _IndexersUnavailableError
+class _UnavailableCircle(Prowlarr):
+    """Клиент, у которого круг по индексерам всегда кончается их недоступностью."""
 
-    client = _swarm()
+    def _circle(
+        self,
+        pairs: Sequence[tuple[int, str]],
+        query: str,
+        limit: int,
+        counts: dict[str, int],
+        spent: dict[str, int],
+        lost: list[str],
+        cap: float = 0.0,
+    ) -> tuple[list[list[RawResult]], InfraError | None]:
+        from torrcast.search import _IndexersUnavailableError
 
-    def unavailable(*args: object, **kwargs: object) -> tuple[list[list[object]], InfraError]:
-        lost: list[str] = args[5]  # type: ignore[assignment]
         lost.extend(("Knaben", "RuTor"))
         return [], _IndexersUnavailableError("каталог временно недоступен")
 
-    monkeypatch.setattr(client, "_circle", unavailable)
+
+def test_unavailable_indexers_are_recognized_by_type_not_message() -> None:
+    """Отказ выбранных индексеров остаётся узнаваемым при любом тексте для человека."""
+    client = _UnavailableCircle("http://127.0.0.1:9696/", "KEY")
+    client._session = _Swarm()  # type: ignore[assignment]
 
     with pytest.raises(InfraError, match=r"^индексеры не отвечают: Knaben, RuTor$"):
         client.search("матрица")
@@ -637,13 +653,11 @@ def test_anime_query_calls_nyaa_in_the_main_circle() -> None:
     assert len(results) == 6
 
 
-def test_thin_pool_falls_back_to_nyaa(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_thin_pool_falls_back_to_nyaa(journal: Path) -> None:
     """Не-аниме запрос, но пул без анимешных вышел тощим - фолбэком зовём и Nyaa.
     В след это событие пишется флагом ``fallback`` (TC-229)."""
     from torrcast import trace
 
-    monkeypatch.setenv(trace.LOG_ENV, str(tmp_path))
-    monkeypatch.setenv(trace.SID_ENV, "test-sid")
     client = _swarm()  # rows=1: Knaben + RuTor = две раздачи, ниже порога
     results = client.search("матрица")
     trace.shutdown()
@@ -735,24 +749,20 @@ def test_опоздавший_доливается_после_круга_а_не
     assert client.late() == []  # долив разовый: второй раз брать нечего
 
 
-def test_поздний_ответ_живёт_дольше_бюджета_круга(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_поздний_ответ_живёт_дольше_бюджета_круга() -> None:
     """TC-454: бюджет круга выпускает меню, но не обрывает честный поздний ответ.
 
     Knaben здесь отвечает после своего искусственно короткого бюджета. Круг обязан
     оставить запрос в доливе, а долив - получить строки из того же запроса.
     """
-    from torrcast import search
+    from torrcast.search import indexer_budget
 
-    original = search.indexer_budget
-    monkeypatch.setattr(
-        search,
-        "indexer_budget",
-        lambda name: 0.02 if name == "Knaben" else original(name),
+    client = _swarm(
+        slack=0.0,
+        budget_of=lambda name: 0.02 if name == "Knaben" else indexer_budget(name),
+        rows=2,
+        delay={1: 0.06},
     )
-    monkeypatch.setattr(search, "_ASK_SLACK", 0.0)
-    client = _swarm(rows=2, delay={1: 0.06})
 
     results = client.search("матрица")
 
@@ -763,14 +773,9 @@ def test_поздний_ответ_живёт_дольше_бюджета_кру
     assert client._session.budget["1"] > 0.06  # type: ignore[union-attr]
 
 
-def test_потолок_второго_круга_не_обрывает_живой_ответ(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_потолок_второго_круга_не_обрывает_живой_ответ() -> None:
     """TC-455: малый остаток цели ограничивает круг, но не срок HTTP-ответа."""
-    from torrcast import search
-
-    monkeypatch.setattr(search, "_ASK_SLACK", 0.05)
-    client = _swarm(rows=2, delay={3: 0.04})
+    client = _swarm(slack=0.05, rows=2, delay={3: 0.04})
     got, error = client._circle([(3, "Nyaa.si")], "Naruto [TV]", 100, {}, {}, [], cap=0.02)
 
     assert error is None
@@ -895,14 +900,12 @@ def test_пол_второго_круга_поднимается_добором_
 
 
 def test_след_отличает_опоздавшего_от_молчуна(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    journal: Path,
 ) -> None:
     """Опоздавший и молчун - разные причины хвоста, и в следе они врозь: иначе `cast log`
     объяснял бы задержку кругом, которого не было."""
     from torrcast import trace
 
-    monkeypatch.setenv(trace.LOG_ENV, str(tmp_path))
-    monkeypatch.setenv(trace.SID_ENV, "test-sid")
     client = _swarm(rows=2, hold={3})
     client.search("Naruto [TV]")
     trace.shutdown()

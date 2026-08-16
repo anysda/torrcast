@@ -528,7 +528,7 @@
 | `mark_playing` | функция | `torrcast/adapters/stream_pack.py` | 1126 |
 | `menu_lines` | функция | `torrcast/usecases/choice.py` | 864 |
 | `menu_order` | функция | `torrcast/domain/menu_order.py` | 10 |
-| `merge` | функция | `torrcast/search.py` | 969 |
+| `merge` | функция | `torrcast/search.py` | 982 |
 | `merge_tracks` | функция | `torrcast/usecases/feed_pack.py` | 579 |
 | `minutes_of` | функция | `torrcast/facts_origin.py` | 417 |
 | `misses_episode` | функция | `torrcast/usecases/rank.py` | 737 |
@@ -640,7 +640,7 @@
 | `thresholds` | функция | `torrcast/domain/thresholds.py` | 57 |
 | `timeline_shift` | функция | `torrcast/usecases/feed_pack.py` | 543 |
 | `titles_for` | функция | `torrcast/facts_origin.py` | 436 |
-| `to_releases` | функция | `torrcast/search.py` | 1067 |
+| `to_releases` | функция | `torrcast/search.py` | 1080 |
 | `trace_thresholds` | функция | `torrcast/profile.py` | 81 |
 | `transliterate` | функция | `torrcast/domain/transliterate.py` | 11 |
 | `trust_anchor` | функция | `torrcast/domain/trust_anchor.py` | 4 |
