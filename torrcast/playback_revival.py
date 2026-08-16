@@ -238,11 +238,17 @@ class _Revival:
         self.tries, self.last = self.tries + 1, now
         came = "приёмник отмолчался" if self.dropped else "сеть вернулась"
         print(f"{came} - поднимаю показ с {_hms(pos)} (попытка {self.tries})", flush=True)
-        ok = receiver.replay(pos)
-        trace.revive(pos=pos, tries=self.tries, waited=dark, ok=ok)
+        # 🔴 Отвечает приёмник МЕСТОМ, а не согласием, и место это бывает не тем, о котором
+        # просили: кусок, на котором показ уже умирал, ему больше не отдаётся
+        # (:meth:`torrcast.cast.ChromecastReceiver._past_deadly`), и подъём уезжает за него
+        # - до пятнадцати секунд фильма. Пока эта строка называла ``pos``, она называла
+        # место, где показ как раз НЕ пошёл, - ровно поверх честной строки о перешагнутом
+        # куске. Двух мнений о том, откуда идёт фильм, у зрителя быть не должно.
+        back = receiver.replay(pos)
+        trace.revive(pos=back or pos, tries=self.tries, waited=dark, ok=bool(back))
         print(
-            f"показ поднят с {_hms(pos)}"
-            if ok
+            f"показ поднят с {_hms(back)}"
+            if back
             else "приёмник показ не взял - жду ещё (или он занят чужим показом)",
             flush=True,
         )

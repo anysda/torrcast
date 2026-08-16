@@ -567,13 +567,13 @@ class _Fading:
             return Position(self.at, self.dur, True, "PLAYING")
         return Position(0.0, self.dur, False, "IDLE")
 
-    def replay(self, at: float) -> bool:
+    def replay(self, at: float) -> float:
         self.replays.append(at)
         if not self.takes:
-            return False
+            return 0.0
         # Показ поднялся и доехал до титров - дальше приёмник гаснет уже законно.
         self.at, self.left = self.dur * 0.96, 2
-        return True
+        return at
 
 
 def _dark(
@@ -845,9 +845,9 @@ class _Nudged:
             return Position(self.pos, 7200.0, True, "BUFFERING")
         return Position(0.0, 7200.0, False, "IDLE")
 
-    def replay(self, at: float) -> bool:
+    def replay(self, at: float) -> float:
         self.replays.append(at)
-        return False  # приёмник так и не вернулся: показ кончится честной темнотой
+        return 0.0  # приёмник так и не вернулся: показ кончится честной темнотой
 
 
 def test_the_bookmark_holds_the_last_frame_seen_not_where_the_watchdog_drove(
@@ -930,19 +930,19 @@ class _Blinking:
         self.died = self.died or self.clock.now
         return Position(0.0, 7200.0, False, "IDLE")
 
-    def replay(self, at: float) -> bool:
+    def replay(self, at: float) -> float:
         self.replays.append(at)
         self.when.append(self.clock.now)
         if self.refuses:
             self.refuses -= 1
-            return False  # 404 ещё не отпустил: LOAD приёмник не берёт
+            return 0.0  # 404 ещё не отпустил: LOAD приёмник не берёт
         if not self.revives:
-            return False
+            return 0.0
         self.revives -= 1
         self.refuses = 1 if self.revives else 0  # следующий обрыв начнётся так же
         self.at, self.until, self.died = at, self.clock.now + self.live, 0.0
         self.revived.append(at)
-        return True
+        return at
 
 
 def test_a_receiver_that_dropped_the_show_gets_it_back_in_seconds_not_in_a_minute(
@@ -1033,13 +1033,13 @@ def test_the_dark_show_is_revived_only_on_a_free_receiver(
         _FakeCast(content="http://10.0.0.20:8010/cast.m3u8"),
     ]
     for alien in aliens:
-        assert _receiver_on(alien).replay(1200.0) is False, "чужой показ неприкосновенен"
+        assert _receiver_on(alien).replay(1200.0) == 0.0, "чужой показ неприкосновенен"
     assert loads == [], "в чужой показ не ушло ни одного LOAD"
     assert all(alien.log == [] for alien in aliens), "и приложение чужому не закрывали"
 
     for free in (_FakeCast(app_id=None), _FakeCast(app_id=ChromecastReceiver.BACKDROP_APP)):
         receiver = _receiver_on(free)
-        assert receiver.replay(1200.0) is True, "экран свободен - показ поднимаем"
+        assert receiver.replay(1200.0) == 1200.0, "экран свободен - показ поднимаем"
         assert receiver._peak == 1200.0, "сторож считает с того места, куда грузили"
     assert loads == [1200.0, 1200.0], "по одному LOAD на свободный приёмник"
 
@@ -1396,7 +1396,7 @@ def test_the_mock_receiver_takes_a_load_right_after_a_404(
 
     receiver._caught(_Answer(404))
     assert MockReceiver.SULK == 0.0, "наказания за 404 нет - замер снял его трижды"
-    assert receiver.replay(1200.0) is False, "картинки нет - врать о поднятом показе нельзя"
+    assert receiver.replay(1200.0) == 0.0, "картинки нет - врать о поднятом показе нельзя"
     assert opens == [1200.0], "но попытку приёмник принял сразу, не выжидая ни секунды"
 
     # Что наказание всё ещё СТАВИТСЯ числом профиля - проверяется отдельно
@@ -1479,6 +1479,47 @@ def test_a_finished_packer_is_not_a_crash_but_a_serial_one_gives_up(
     feed.restarted = 0.0
     feed.segment(70)
     assert feed.trouble() == "убит сигналом 9"
+
+
+def test_a_torn_input_tells_the_viewer_the_film_has_not_ended(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Оборванный вход и доигранный фильм для зрителя выглядят одинаково - паузой.
+
+    Вход, умерший на середине, ffmpeg отмечает НУЛЁМ (:meth:`torrcast.stream.Packer.finished`),
+    и «упаковка оборвалась (молча, код 0)» говорит человеку о нашем коде возврата, а не о
+    его кино: он видит паузу и решает, что фильм кончился. Замер 15-08-2026, 80 обрывов
+    входа на живом ffmpeg (457 прогонов): код 0 вышел во ВСЕХ 457 - по коду эти два
+    исхода не различаются вовсе.
+
+    Обещать починку строка при этом не имеет права. Тот же замер развёл два мира начисто:
+    вернулся источник - заново пакуется 76 раз из 76; не вернулся - 1 из 76 на второй
+    попытке и 0 из 76 на третьей. На первом обрыве неизвестно, который из них перед нами,
+    поэтому сказан факт, а не прогноз.
+    """
+    from torrcast.stream import Packer
+
+    said: list[str] = []
+    feed = _feed_with_segments(tmp_path)
+    feed.log = said.append
+    monkeypatch.setattr(Feed, "restart", lambda self, slot: None)
+    monkeypatch.setattr(Packer, "finished", lambda self: False)
+
+    feed.packer = fake_packer(feed.out, first=0, code=0)  # вход умер, ffmpeg вышел нулём
+    feed.restarted = 0.0
+    feed.segment(70)
+    assert said == ["вход оборвался на середине, фильм не кончился - начинаю заново, попытка 1"], (
+        f"зрителю сказали не о фильме, а о коде возврата: {said}"
+    )
+
+    # Прогон, убитый сигналом, - это не оборванный вход, и выдавать его за него нельзя.
+    said.clear()
+    feed.packer = fake_packer(feed.out, first=0, code=-9)
+    feed.restarted = 0.0
+    feed.segment(70)
+    assert said == ["упаковка оборвалась (убит сигналом 9) - начинаю заново, попытка 2"], (
+        f"чужая беда названа обрывом входа: {said}"
+    )
 
 
 def test_one_dead_run_is_blamed_once_and_not_on_every_request(
@@ -1645,7 +1686,9 @@ def test_a_segment_that_keeps_killing_the_show_is_stepped_over(
         "замер: декодер давится на кусок впереди картинки"
     )
 
-    assert receiver.replay(picture) is True
+    assert receiver.replay(picture) == 148.940 + ChromecastReceiver.CUT_SLACK, (
+        "подъём отвечает МЕСТОМ, с которого пошёл показ, а не согласием"
+    )
     assert loads[-1] == 148.940 + ChromecastReceiver.CUT_SLACK, (
         "третья смерть - перешагнут кусок декодера, а не картинки"
     )
@@ -1681,7 +1724,7 @@ def test_deaths_are_counted_where_the_show_died_and_not_where_the_jump_aims(
     )
 
     for at in drift:
-        assert receiver.replay(at) is True
+        assert receiver.replay(at) > 0.0
 
     assert loads[:2] == [125.4, 127.2], "первые смерти возвращают человека туда, где он смотрел"
     assert loads[-1] == 148.940 + ChromecastReceiver.CUT_SLACK, (
@@ -1815,6 +1858,122 @@ def test_a_single_nudge_still_pulls_the_receiver_out(monkeypatch: pytest.MonkeyP
 
     assert len(gone.jumps) == 5, "сторож остался на месте - лечить подвисы больше некому"
     assert receiver._blind == 0 and not receiver._gone
+
+
+#: Сетка живого сеанса 11-08-2026 вокруг места, где показ встал: границы взяты у него же.
+_TORN = Grid((0.0, 40.0, 80.0, 100.0, 118.7, 133.0), 5977.0, True)
+
+
+def test_the_film_a_nudge_stepped_over_is_named_to_the_viewer(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Прыжок сторожа стоит зрителю плёнки, и цену обязан назвать показ, а не догадка.
+
+    Замер на живом Q70D 11-08-2026 (сеанс 1786444563-199339.1): показ встал на 103.6 с,
+    сторож прыгнул за границу куска на 119.2 с - и 15.6 с фильма человек не увидел и не
+    услышал. Строки об этом не было ни одной: владелец слышал пропавший звук и сказал
+    «не знаю, файл ли это». Размен «кусок мимо вместо смерти показа» правильный, но
+    молчать о нём - то же самое подменённое кино, только тише.
+
+    Цена считается ОТ КАДРА, на котором остался зритель, и ДО кадра, на котором показ
+    ожил: прицел сторожа тут не число - приёмник вправе приземлиться и не туда.
+    """
+    from torrcast.cast import ChromecastReceiver
+
+    gone = _Gone(103.6)
+    receiver = _watched(monkeypatch, gone)
+    receiver.next_cut = _TORN.after
+    assert _TORN.after(103.6) == 118.7, "замер: кусок зрителя кончается ровно здесь"
+
+    receiver.position(front=1e6)  # первый неподвижный тик - ещё не зависание
+    receiver._stall_since -= ChromecastReceiver.STALL_SECONDS
+    receiver.position(front=1e6)
+    assert gone.jumps == [118.7 + ChromecastReceiver.CUT_SLACK], "прыжок ушёл за кусок"
+    assert capsys.readouterr().out == "", "в момент прыжка называть ещё нечего"
+
+    gone.show(119.2)  # приёмник ожил ровно там, куда прыгнули
+    assert receiver.position(front=1e6).state == "PLAYING"
+    said = capsys.readouterr().out
+    assert "перешагнул 16 с фильма" in said, f"пропуск не назван числом: {said!r}"
+    assert said.count("\n") == 1, f"одна честная строка, а не простыня: {said!r}"
+
+    gone.show(121.2)
+    receiver.position(front=1e6)
+    assert capsys.readouterr().out == "", "об одном пропуске говорят один раз"
+
+
+def test_a_show_raised_from_the_last_shown_frame_reports_no_gap(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Подъём с кадра зрителя плёнки не стоил - и придумывать пропуск нельзя.
+
+    Лестница нуджей уводит указатель по фильму, ничего при этом не показывая, и после неё
+    показ поднимают с ПОСЛЕДНЕГО ПОКАЗАННОГО кадра, а не с места, куда уехал указатель.
+    Плёнки такой круг не съедает ни секунды, и назвать его пропуском значило бы напугать
+    зрителя потерей, которой не было. Счёт снимает сам подъём - потому что ровно он и
+    знает, что вернул человека туда, где тот остался.
+
+    ⚠️ По :attr:`~torrcast.cast.ChromecastReceiver._gone` этот счёт снимать нельзя, и тест
+    сторожит именно подъём: ушедший приёмник иногда оживает сам, на том месте, куда его
+    увела лестница, - и вот там пропуск настоящий.
+    """
+    from torrcast.cast import ChromecastReceiver
+
+    gone = _Gone(103.6)
+    receiver = _watched(monkeypatch, gone)
+    monkeypatch.setattr(ChromecastReceiver, "_restart_app", lambda self: None)
+    monkeypatch.setattr(ChromecastReceiver, "_load", lambda self, at=0.0: None)
+    monkeypatch.setattr(ChromecastReceiver, "_free", lambda self: True)
+    monkeypatch.setattr(ChromecastReceiver, "_settle", lambda self, budget: True)
+
+    receiver.position(front=1e6)
+    for _ in range(30):  # минута показа при опросе раз в 2 с
+        receiver._stall_since -= ChromecastReceiver.STALL_SECONDS
+        if not receiver.position(front=1e6).playing:
+            break
+    assert receiver._gone, "лестница кончилась - эстафета воскрешению"
+    assert gone.jumps[-1] > 103.6 + 8.0, "указатель уехал по фильму - было бы что назвать"
+    capsys.readouterr()
+
+    assert receiver.replay(103.6) == 103.6, "поднимаем с кадра, на котором остался зритель"
+    gone.show(110.0)  # показ пошёл и идёт
+    assert receiver.position(front=1e6).state == "PLAYING"
+    assert capsys.readouterr().out == "", "потери не было - и говорить о ней не о чем"
+
+
+def test_the_revival_names_the_place_the_show_actually_came_back_from(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """«Показ поднят с 1:43» на месте, с которого показ НЕ пошёл, - это то же враньё.
+
+    Кусок, на котором показ уже умирал, приёмнику больше не отдаётся
+    (:meth:`torrcast.cast.ChromecastReceiver._past_deadly`), и подъём уезжает за него - на
+    живом замере 11-08-2026 это 15.6 с фильма. Пока подъём отвечал «да/нет», строку о нём
+    печатал тот, кто ПРОСИЛ, - и печатал ровно поверх честной строки о перешагнутом
+    куске. Двух мнений о том, откуда идёт фильм, у зрителя быть не должно.
+    """
+    from torrcast.cli import _Revival
+
+    class _Stepping:
+        """Приёмник, который поднял показ ЗА куском, а не там, где его просили."""
+
+        def play(self, url: str, title: str = "", at: float = 0.0) -> None: ...
+
+        def stop(self, quit_app: bool = False) -> None: ...
+
+        def position(self, front: float = 0.0) -> Position:
+            return Position(119.2, 7200.0, True, "PLAYING")
+
+        def replay(self, at: float) -> float:
+            return 119.2
+
+    revival = _Revival(clock=_Ticker(), drop=0.0, pause=0.0)
+    revival.dropped = True  # темноту устроил приёмник: ждать источник тут нечего
+
+    assert revival.resurrect(_Stepping(), _feed_with_segments(tmp_path), None, 103.6) is True
+    said = capsys.readouterr().out
+    assert "показ поднят с 0:01:59" in said, f"названо не то место: {said!r}"
+    assert "показ поднят с 0:01:43" not in said, "строка называет место, где показа нет"
 
 
 def test_only_the_cosmetic_pychromecast_line_is_hushed(caplog: pytest.LogCaptureFixture) -> None:
