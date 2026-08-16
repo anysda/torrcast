@@ -237,6 +237,33 @@ def test_trace_snapshot_keeps_the_named_profile_and_explicit_config_key(
     assert snapshot["thresholds"]["recode_at_mbit"] == 28.0  # type: ignore[index]
 
 
+def test_trace_snapshot_does_not_name_a_profile_the_config_never_named(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Ключ написан с ошибкой: играет осторожный, и в ленте стоит это, а не «q70d»."""
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps({"receiver_profile": "bogus"}), encoding="utf-8")
+    monkeypatch.setenv("TORRCAST_CONFIG", str(path))
+    raw = Config(receiver_profile="bogus")
+    chosen = profile.detect(raw)
+    snapshot = profile.trace_thresholds(profile.tune(raw, chosen.profile), chosen.profile)
+
+    assert snapshot["profile_source"] == "профиля «bogus» нет - беру осторожный"
+
+
+def test_a_config_broken_by_hand_mid_show_does_not_kill_the_session(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Снимок берётся на КАЖДОЙ серии: битый файл - молчание, а не погасший юнит."""
+    path = tmp_path / "config.json"
+    path.write_text('{"receiver_profile": "androidtv",}', encoding="utf-8")
+    monkeypatch.setenv("TORRCAST_CONFIG", str(path))
+
+    assert profile.trace_thresholds(Config(), profile.ANDROID_TV) == {
+        "profile_source": "конфиг не прочитан"
+    }
+
+
 def test_the_receiver_takes_its_thresholds_from_the_profile() -> None:
     """Пороги приёмника едут из профиля, а не из констант класса.
 

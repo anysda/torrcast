@@ -604,20 +604,31 @@ def thresholds(
 
 
 def trace_thresholds(config: Config, profile: Profile) -> dict[str, object]:
-    """Готовый снимок для ``session_start``, включая безопасное происхождение профиля."""
+    """Готовый снимок для ``session_start``, включая безопасное происхождение профиля.
+
+    ⚠️ Файл настроек читается ЗАНОВО, а зовут снимок на старте КАЖДОЙ серии. Значит
+    конфиг, поправленный руками посреди сериала с опечаткой, прилетел бы в цикл показа
+    обычным :class:`~torrcast.TorrcastError` и погасил юнит на стыке серий - а правят его
+    руками ровно там, где эту запись и читают. Диагностика не имеет права ронять показ:
+    непрочитанный файл - это молчание о происхождении, а не конец сеанса.
+    """
+    from torrcast import TorrcastError
     from torrcast.state import config_keys, load_config
 
-    raw = load_config()
+    try:
+        raw = load_config()
+    except TorrcastError:
+        return {"profile_source": "конфиг не прочитан"}
     chosen = detect(raw)
     values, sources = thresholds(raw, config, profile, config_keys())
-    if raw.receiver_profile:
-        profile_source = f"назван руками: receiver_profile={profile.key}"
-    elif chosen.how.startswith("по паспорту:"):
-        profile_source = "паспорт приёмника"
-    else:
-        profile_source = chosen.how
+    # Происхождение называет сам выбор профиля, а не имя того, кто в итоге играет: в
+    # конфиге ключ может быть написан с ошибкой, и тогда играет осторожный - строка
+    # «назван руками: receiver_profile=q70d» приписала бы файлу профиль, которого в нём
+    # нет, ровно в том случае, ради которого запись и заводилась.
     return {
-        "profile_source": profile_source,
+        "profile_source": (
+            "паспорт приёмника" if chosen.how.startswith("по паспорту:") else chosen.how
+        ),
         "thresholds": values,
         "threshold_sources": sources,
     }
