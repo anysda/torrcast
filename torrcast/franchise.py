@@ -7,7 +7,7 @@ from torrcast.domain.aliases import _aliases
 from torrcast.domain.by_majority import by_majority
 from torrcast.domain.by_words import _by_words
 from torrcast.domain.chapter_of import _chapter_of
-from torrcast.domain.cluster import cluster as _cluster
+from torrcast.domain.cluster import cluster
 from torrcast.domain.compose import _compose
 from torrcast.domain.confirmed_continuations import confirmed_continuations
 from torrcast.domain.continued import _continued
@@ -22,9 +22,7 @@ from torrcast.domain.menu_order import menu_order
 from torrcast.domain.numbered_line import _numbered_line
 from torrcast.domain.other_words import other_words
 from torrcast.domain.outside_numbering import outside_numbering
-from torrcast.domain.picture import Picture
 from torrcast.domain.picture_season_span import _picture_season_span
-from torrcast.domain.release import Release
 from torrcast.domain.run_span import _run_span
 from torrcast.domain.seasons_named import seasons_named
 from torrcast.domain.sorted import _sorted
@@ -61,11 +59,3 @@ __all__ = [
     "outside_numbering",
     "seasons_named",
 ]
-
-
-def _cluster_facade(releases: list[Release]) -> list[Picture]:
-    """Сохраняет наблюдаемость склейки через старый фасад."""
-    return _cluster(releases, glue_rule=glue)
-
-
-cluster = _cluster_facade

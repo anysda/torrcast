@@ -43,8 +43,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from collections.abc import Iterator
-from contextlib import contextmanager
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -75,6 +74,7 @@ from torrcast.parse import (
     Picture,
     Release,
     cluster,
+    glue,
     menu_order,
     pick_franchise,
     split_franchise_index,
@@ -110,23 +110,20 @@ class ReplayMismatchError(RuntimeError):
     """Счёт раздач не сошёлся: очередь плюс отсев не равны пулу картины."""
 
 
-@contextmanager
-def watching_glue() -> Iterator[list[Merge]]:
-    """Подсмотреть склейку внутри :func:`~torrcast.parse.cluster`, не трогая разбор.
+def watching_glue() -> tuple[Callable[[list[Picture]], list[Picture]], list[Merge]]:
+    """Правило склейки, попутно считающее слитые кучки, и список этого счёта.
 
     Другого способа увидеть, СКОЛЬКО кучек свелось в одну картину, у щупа нет: наружу
     :func:`~torrcast.parse.glue` отдаёт уже готовые картины, а второе имя
     (``Picture.also``) называет ровно одну из слитых - «три в одной» от «двух в одной»
     по нему не отличить. Переписывать разбор ради счёта нельзя: мерить надо то, что
-    работает, а не его копию.
+    работает, а не его копию, - поэтому счётчик оборачивает боевое правило и уезжает
+    в :func:`~torrcast.parse.cluster` её же параметром ``glue_rule``.
     """
-    from torrcast import parse
-
     merges: list[Merge] = []
-    original = parse.glue
 
     def spy(pictures: list[Picture]) -> list[Picture]:
-        out = original(pictures)
+        out = glue(pictures)
         source = {id(r): p for p in pictures for r in p.releases}
         kept = {id(p) for p in pictures}
         for picture in out:
@@ -140,11 +137,7 @@ def watching_glue() -> Iterator[list[Merge]]:
             merges.append((members, picture))
         return out
 
-    parse.glue = spy
-    try:
-        yield merges
-    finally:
-        parse.glue = original
+    return spy, merges
 
 
 @dataclass(slots=True)
@@ -275,8 +268,8 @@ def replay(
     """
     args = Args(query=query.split())
     raw = merge(*batches) if batches else []
-    with watching_glue() as merges:
-        pictures = cluster(to_releases(raw))
+    spy, merges = watching_glue()
+    pictures = cluster(to_releases(raw), glue_rule=spy)
     found = menu_order(pick_franchise(args.title_query, pictures))
     # Номер при имени сериала - сезон, и читает его тут ТА ЖЕ функция, что и показ
     # (:func:`~torrcast.cli.season_reread`, TC-363): иначе планы строились бы по первому
