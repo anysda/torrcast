@@ -18,6 +18,7 @@ class PlaybackSnapshot:
     warm: float = 0.0
     file_index: int = 0
     audio_index: int = 0
+    #: Хэш раздачи из магнита записи: им ``cast stop`` сносит пережившую юнит раздачу.
     torrent_hash: str = ""
     video_bitrate_mbit: float = 0.0
     done: bool = False

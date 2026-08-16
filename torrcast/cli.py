@@ -168,7 +168,6 @@ __all__ = [
     "_continue",
     "_ctl",
     "_cut",
-    "_darkness",
     "_default_file",
     "_did_not_answer",
     "_duration",
@@ -220,7 +219,6 @@ __all__ = [
     "_season_asked",
     "_season_reinforce",
     "_second_language",
-    "_shown",
     "_silenced",
     "_since_seconds",
     "_timed",
@@ -258,7 +256,6 @@ __all__ = [
     "first_alive",
     "fitness",
     "forget_playing",
-    "found_tv",
     "franchise_key",
     "gate_open",
     "heard",
@@ -344,7 +341,6 @@ __all__ = [
     "trace",
     "transliterate",
     "tune_profile",
-    "tv_lines",
     "understated",
     "understudy",
     "understudy_note",
@@ -493,7 +489,6 @@ from torrcast.commands import (
     _cmd_stop,
     _cmd_voices,
     _cmd_worker,
-    _darkness,
     _duration,
     _following,
     _held_by_show,
@@ -502,13 +497,11 @@ from torrcast.commands import (
     _release_orphans,
     _release_torrents,
     _say_showing,
-    _shown,
     _since_seconds,
     _Stopped,
     _torrent_hash,
     _worker_loop,
     argparse,
-    found_tv,
     io,
     main,
     parse_args,
@@ -518,7 +511,6 @@ from torrcast.commands import (
     signal,
     split_episode,
     terminal,
-    tv_lines,
     unit_key,
 )
 from torrcast.console import Progress
@@ -751,9 +743,31 @@ from torrcast.selection import (
     swarm_pulse,
 )
 from torrcast.state import Config
+from torrcast.usecases import cache_reserve as _cache_reserve_module
+from torrcast.usecases import doctor_command as _doctor_command_module
+from torrcast.usecases import episode_duration as _episode_duration_module
+from torrcast.usecases import log_command as _log_command_module
+from torrcast.usecases import releases_command as _releases_command_module
+from torrcast.usecases import say_showing as _say_showing_module
+from torrcast.usecases import torrents as _torrents_module
+from torrcast.usecases import voices_command as _voices_command_module
+from torrcast.usecases import watch as _watch_module
+from torrcast.usecases import worker as _worker_module
+from torrcast.usecases import worker_loop as _worker_loop_module
 
 _PARTS = (
     _commands_module,
+    _cache_reserve_module,
+    _torrents_module,
+    _watch_module,
+    _say_showing_module,
+    _episode_duration_module,
+    _worker_loop_module,
+    _worker_module,
+    _releases_command_module,
+    _voices_command_module,
+    _log_command_module,
+    _doctor_command_module,
     _play_command_module,
     _discovery_module,
     _reinforce_module,

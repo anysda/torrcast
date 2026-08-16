@@ -10,6 +10,9 @@ class _RealClock:
     def monotonic(self) -> float:
         return time.monotonic()
 
+    def wall(self) -> float:
+        return time.time()
+
     def sleep(self, seconds: float) -> None:
         time.sleep(seconds)
 

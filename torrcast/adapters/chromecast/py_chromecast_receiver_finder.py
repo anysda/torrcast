@@ -35,3 +35,7 @@ class PyChromecastReceiverFinder:
             return found
         finally:
             browser.stop_discovery()
+
+    def notes(self) -> list[str]:
+        """Штатный discovery про пропущенное молчит: пояснять ему нечего."""
+        return []

@@ -73,7 +73,6 @@ __all__ = [
     "Entry",
     "Episode",
     "Facts",
-    "Final",
     "InfraError",
     "NotFoundError",
     "Profile",
@@ -97,7 +96,6 @@ __all__ = [
     "_cmd_stop",
     "_cmd_voices",
     "_cmd_worker",
-    "_darkness",
     "_duration",
     "_following",
     "_held_by_show",
@@ -106,7 +104,6 @@ __all__ = [
     "_release_orphans",
     "_release_torrents",
     "_say_showing",
-    "_shown",
     "_since_seconds",
     "_torrent_hash",
     "_worker_loop",
@@ -116,8 +113,6 @@ __all__ = [
     "contextlib",
     "dataclass",
     "detect_profile",
-    "field",
-    "found_tv",
     "hls_base",
     "io",
     "load_config",
@@ -135,10 +130,9 @@ __all__ = [
     "stop_play_unit",
     "sys",
     "terminal",
-    "time",
     "trace",
+    "trace_thresholds",
     "tune_profile",
-    "tv_lines",
     "unit_active",
     "unit_key",
 ]
@@ -146,13 +140,7 @@ __all__ = [
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from torrcast.choice import _named, _pick_plan
-    from torrcast.discovery import _search
     from torrcast.play_command import _cmd_play
-    from torrcast.playback import _file_picker, _next_warmer, _play
-    from torrcast.ranking import _cut, _hms, render_table, voices_table
-    from torrcast.reinforce import _timed
-    from torrcast.selection import _Bench, _remembered
 
 import argparse
 import contextlib
@@ -160,11 +148,9 @@ import io
 import re
 import signal
 import sys
-import time
 from collections.abc import Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from functools import partial
-from typing import Final
 
 from torrcast import (
     InfraError,
@@ -177,11 +163,15 @@ from torrcast import (
 )
 from torrcast.cast import ChromecastReceiver, Receiver, make_receiver
 from torrcast.console import Progress, ask, terminal
+from torrcast.domain.exit_codes import EXIT_INFRA, EXIT_NOT_FOUND, EXIT_OK
 from torrcast.facts import Facts
-from torrcast.parse import Episode, Release, split_episode
+from torrcast.parse import Episode, split_episode
 from torrcast.profile import Profile, trace_thresholds
 from torrcast.profile import detect as detect_profile
 from torrcast.profile import tune as tune_profile
+from torrcast.runtime.configure_command import configure_command as _cmd_configure
+from torrcast.runtime.status_command import status_command as _cmd_status
+from torrcast.runtime.stop_command import stop_command as _cmd_stop
 from torrcast.scan import Device
 from torrcast.state import Config, Entry, State, load_config, save_config
 from torrcast.stream import (
@@ -197,11 +187,24 @@ from torrcast.stream import (
     unit_key,
 )
 from torrcast.timing import mark
-from torrcast.voice_origin import native_picture as _native_picture
+from torrcast.usecases.cache_reserve import _cache_reserve
+from torrcast.usecases.episode_duration import WORKER_DUR, _duration
+from torrcast.usecases.say_showing import _say_showing
+from torrcast.usecases.start_clock import _Clock
+from torrcast.usecases.status import WARMED_RATIO
+from torrcast.usecases.stopped import _on_term, _Stopped
+from torrcast.usecases.torrents import (
+    _BTIH,
+    _held_by_show,
+    _own_torrent,
+    _release_orphans,
+    _release_torrents,
+    _torrent_hash,
+)
+from torrcast.usecases.watch import WATCH_SECONDS, Watch
+from torrcast.usecases.worker import _cmd_worker
+from torrcast.usecases.worker_loop import WORKER_META, _following, _worker_loop
 
-sys.modules.setdefault("torrcast.commands_legacy", sys.modules[__name__])
-
-EXIT_OK, EXIT_NOT_FOUND, EXIT_INFRA = 0, 1, 2
 #: Сколько строк таблицы релизов показываем: ниже начинаются раздачи без сидов.
 TABLE_LIMIT = 12
 #: Сколько ПРИГОВОРОВ терпим заведомо, прежде чем начать считать деньги: подмены не
@@ -433,13 +436,6 @@ ALIVE_SEEDERS = 5
 #: чёрных полей: у 1080p-широкоформатника реальная высота 800-816, и релиз честен. А
 #: 574 против 1080 - это уже другая ступень лестницы, а не кадрирование.
 HONEST_RATIO = 0.9
-#: Потолок ожидания метаданных раздачи **в юните**, секунды. Здесь это не «бюджет фазы
-#: под меню» (:data:`META_BUDGET`), а последний рубеж: магнит юниту уже дали, и если
-#: метаданные не приехали, показывать нечего.
-WORKER_META = 60.0
-#: Потолок ffprobe длительности в юните: своей длительности следующая серия не знает, и
-#: читается она из потока (:func:`_duration`).
-WORKER_DUR = 90.0
 #: Прочее на пути юнита до картинки, у чего своего потолка нет: запуск transient-юнита,
 #: чтение состояния, подъём раздачи. Секунды, но считать их нулём - врать себе.
 START_SLACK = 10.0
@@ -462,12 +458,6 @@ START_BUDGET = (
     + START_SLACK
     + ChromecastReceiver.START_TIMEOUT
 )
-#: Как часто сторож кладёт позицию в state, секунды.
-WATCH_SECONDS = 10.0
-#: Доля фильма, с которой прогрев считается полным в статусе. Не единица: хвост сетки
-#: короче шага, и последний кусок доезжает позже всех - а «интернет не нужен» верно уже
-#: тогда, когда впереди лежит всё, что зритель успеет посмотреть.
-WARMED_RATIO = 0.99
 #: Как часто показ пишет в журнал, что видит приёмник: позиция и общее время -
 #: единственное доказательство того, что на экране есть таймлайн.
 SAY_SECONDS = 30.0
@@ -574,6 +564,13 @@ _DISC_RE = re.compile(
     r"\b(?:video_?ts|bdmv|dvd[- ]?video|dvd[59]|iso|blu-?ray\s*(?:disc|cee)|avc\+?\s*iso)\b",
     re.IGNORECASE,
 )
+
+# Разложенные по слоям сценарии читают пороги отсюда прямо на своём импорте, поэтому
+# стоят они ниже порогов, а не в общей шапке.
+from torrcast.usecases.doctor_command import _cmd_doctor  # noqa: E402
+from torrcast.usecases.log_command import _cmd_log, _since_seconds  # noqa: E402
+from torrcast.usecases.releases_command import _cmd_releases  # noqa: E402
+from torrcast.usecases.voices_command import _cmd_voices  # noqa: E402
 
 
 @dataclass(slots=True)
@@ -690,7 +687,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         # без него ssh-сессия ломает кириллицу в вопросах.
         with terminal():
             if command == "configure":
-                return _cmd_configure(args)
+                # ``--tv`` без адреса - это меню: приёмники ищет сам сценарий настройки.
+                return _cmd_configure(None if args.tv == TV_MENU else str(args.tv))
             if command == "stop":
                 return _cmd_stop()
             if command == "status":
@@ -725,776 +723,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     finally:
         # Дожать хвост следа: фоновый писатель - демон, штатный выход обязан его дождаться.
         trace.shutdown()
-
-
-def _cmd_configure(args: Args) -> int:
-    """``cast --tv`` - единственная настройка: адрес телевизора.
-
-    Без адреса приёмники ищутся сами (:func:`found_tv`), с адресом - берётся сказанное:
-    кто свой IP помнит, тому лишний поиск ни к чему. Пишется в конфиг в обоих случаях
-    одинаково, разница ровно в том, откуда взялась строка.
-
-    Отдельное значение ``mock`` включает headless-приёмник: так torrcast проверяется без
-    телевизора, и адрес ТВ в конфиге при этом отсутствует физически.
-    """
-    device = found_tv() if args.tv == TV_MENU else Device(address=str(args.tv))
-    config = load_config()
-    config.tv = device.address
-    config.receiver = "mock" if device.address == "mock" else "chromecast"
-    save_config(config)
-    note = " (headless-приёмник, каста наружу нет)" if device.address == "mock" else ""
-    name = f"{device.name} - " if device.name else ""
-    print(f"ТВ: {name}{config.tv}{note}")
-    return EXIT_OK
-
-
-def found_tv() -> Device:
-    """``cast --tv`` без адреса: найти приёмники в сети и спросить, который из них ТВ.
-
-    Это последний шаг установки, и человек на нём знает про свой дом ровно одно - как
-    телевизор называется. Поэтому список из имён и адресов, ответ номером, а единственный
-    найденный подтверждается пустым Enter.
-
-    Никого не нашли - не «ошибка сети», а понятная причина: телевизор выключен или стоит
-    в другой сети. Нашли несколько, а терминала нет - отказываемся вслух, ровно как в
-    меню картин: выбрать вслепую тут значит записать в конфиг чужое устройство.
-    """
-    with Progress() as progress:
-        progress.phase("ищу приёмники в сети")
-        found = scan.find()
-    for note in found.notes:
-        print(note)
-    if not found.devices:
-        raise NotFoundError(
-            "приёмников в сети не нашёл - телевизор включён и в той же сети? "
-            "адрес можно задать и руками: cast --tv <ip>"
-        )
-    print(tv_lines(found.devices))
-    if len(found.devices) > 1 and not console.stdin_is_tty():
-        raise NotFoundError(
-            f"нашёл приёмников: {len(found.devices)}, а терминала нет - вслепую не выбираю; "
-            "назови адрес сам: cast --tv <ip>"
-        )
-    return found.devices[ask("Какой телевизор?", len(found.devices)) - 1]
-
-
-def tv_lines(devices: list[Device]) -> str:
-    """Список найденных приёмников: номер, имя, адрес - по строке на устройство.
-
-    Формат тот же, что у меню картин: глаз уже знает, что отвечать надо номером слева.
-    Адрес печатается всегда, даже когда имя есть: имён вида «Гостиная» в доме бывает
-    два, а адрес различает их наверняка.
-    """
-    return "\n".join(
-        f"  {number}. {device.title} - {device.address}"
-        for number, device in enumerate(devices, start=1)
-    )
-
-
-#: Хэш раздачи внутри магнита: ровно сорок шестнадцатеричных знаков и ничего другого.
-#: Base32-форма (32 знака) сюда намеренно не попадает: TorrServer знает раздачу по hex, и
-#: снос «похожей строки» был бы сносом наугад - а сносим мы только по ТОЧНОМУ своему хэшу.
-_BTIH: Final = re.compile(r"xt=urn:btih:([0-9a-fA-F]{40})")
-
-
-def _torrent_hash(magnet: str) -> str:
-    """Хэш раздачи прямо из магнита, без похода в TorrServer; не разобрали — пусто.
-
-    Нужен там, где хозяин раздачи уже умер и спросить у него нечего (``cast stop`` после
-    убитого юнита): хэш - это часть самого магнита, и знать его можно, не поднимая ничего.
-    """
-    found = _BTIH.search(magnet)
-    return found.group(1).lower() if found else ""
-
-
-def _release_torrents(config: Config, hashes: Sequence[str]) -> list[str]:
-    """Убрать свои раздачи по ЯВНЫМ хэшам; возвращает те, которых в службе больше нет.
-
-    🔴 Именно по хэшам, а не «всё, что видно в списке службы»: в списке лежат и ЧУЖИЕ
-    раздачи, и «снести всё из list» уже сносило их. Здесь список не спрашивается ни разу.
-
-    ⚠️ Обоснование у правила именно это, а не «своих в списке всё равно не видно»:
-    проверено на TorrServer MatriX.142.2 - наша раздача видна в ``action:list`` весь
-    показ. Пропадает она из списка только ПОСЛЕ перезапуска службы (``save_to_db:false``),
-    и это отдельный довод за явный хэш, а не за чистку списком.
-
-    Срок службе даётся короткий (:data:`torrcast.stream.PROBE_TIMEOUT`), а молчание не
-    считается бедой: уборка идёт на выходе, в том числе по SIGTERM от ``cast stop``, и
-    задерживать выход из-за неотвечающей службы она права не имеет. Повторный снос
-    несуществующей раздачи - не ошибка (:meth:`torrcast.stream.TorrServer.drop`).
-
-    🔴 Но молчание - и не уборка, а разница между ними видна только отсюда. Зовущие по
-    этому ответу решают, забывать ли хэш: забытый хэш нечем снести, а раздача переживает
-    свой процесс и живёт в службе до её перезапуска.
-    """
-    gone: list[str] = []
-    if not hashes:
-        return gone
-    torrserver = TorrServer(config.torrserver_url, timeout=PROBE_TIMEOUT)
-    for torrent_hash in dict.fromkeys(h for h in hashes if h):
-        with contextlib.suppress(TorrcastError):
-            if torrserver.drop(torrent_hash):
-                gone.append(torrent_hash)
-    return gone
-
-
-def _own_torrent(key: str, torrent_hash: str) -> None:
-    """Отметить в состоянии хэш раздачи, которую держит показ; пусто - снять отметку.
-
-    Записывается в тот же момент, когда юнит раздачу поднял, и снимается тогда, когда он
-    её убрал: между этими двумя секундами запись и есть единственный след того, кому
-    раздача принадлежит (:attr:`torrcast.state.Entry.torrent`).
-
-    Состояние перечитывается: рядом мог писать сторож позиции.
-    """
-    state = State.load()
-    entry = state.get(key)
-    if entry is None or entry.torrent == torrent_hash:
-        return
-    entry.torrent = torrent_hash
-    state.put(key, entry)
-    state.save()
-
-
-def _release_orphans(config: Config) -> None:
-    """Убрать раздачу, чей хозяин умер не по-людски: SIGKILL по таймауту, паника, ребут.
-
-    Юнит убирает своё сам на любом штатном выходе, но SIGKILL не спрашивает, и хэш умирал
-    вместе с процессом: раздача оставалась в TorrServer навсегда - до его перезапуска, - а
-    убрать её было нечем («снести всё из list» снесло бы чужое). Теперь хэш лежит в
-    состоянии, и сирота живёт максимум до следующего запуска.
-
-    🔴 Мёртвым хозяин считается по ЖИВОСТИ юнита, а не по наличию записи: идёт показ -
-    раздача его, и трогать её нельзя. Убирается только то, что записано явным хэшем,
-    повторный снос уже убранной - не ошибка (:meth:`torrcast.stream.TorrServer.drop`).
-
-    🔴 Забывается хэш только вместе с раздачей. Служба, которая не ответила, ничего не
-    убрала, а запись - единственное, чем эту раздачу вообще можно снести: стерев её за
-    молчание, мы делали сироту вечной. Не убралось - не забываем, попробуем в другой раз.
-    """
-    state = State.load()
-    orphans = {key: entry.torrent for key, entry in state if entry.torrent}
-    if not orphans:  # обычный случай, и он не стоит ни одного вопроса systemd
-        return
-    if unit_active():  # показ идёт - раздача под ним живая, и она не сирота
-        return
-    gone = set(_release_torrents(config, list(orphans.values())))
-    if not gone:  # службы нет - сироты остались сиротами, и запись о них тоже
-        return
-    for key, torrent_hash in orphans.items():
-        if torrent_hash in gone:  # не через put: уборка мусора не делает запись «свежей»
-            state.entries[key].torrent = ""
-    state.save()
-
-
-def _say_showing(live: tuple[str, Entry] | None) -> None:
-    """Сказать зрителю, что телевизор уже занят НАШИМ показом, и что будет дальше.
-
-    Одна строка человеческими словами и без единого слова из машинного словаря: зритель
-    вправе знать, что он сейчас прервёт, ещё до того как ответит на вопрос меню. Раньше
-    вторая команда вела себя как первая - молча качала свои раздачи рядом с играющим
-    фильмом и обрывала его в момент выбора; ни того, ни другого на экране видно не было.
-
-    Занятость берётся из нашего состояния (:meth:`torrcast.state.State.showing`) и только
-    оттуда: спросить сам приёмник значит подключиться к нему вторым сендером и погасить
-    показ, который мы как раз и бережём (:class:`torrcast.cast.ChromecastReceiver`).
-    """
-    if live is None:
-        return
-    entry = live[1]
-    what = f"«{entry.title}»" + (f", {entry.label}" if entry.label else "")
-    where = f" на {_hms(entry.pos)}" if entry.pos > 0 else ""
-    print(
-        f"на телевизоре сейчас идёт {what}{where}. Выберешь картину - этот показ "
-        f"прервётся; пока выбираешь, он идёт как шёл.",
-        flush=True,
-    )
-
-
-def _held_by_show(torrent_hash: str) -> bool:
-    """Правда ли, что раздачу держит показ: её хэш записан в состоянии хозяином.
-
-    Параллельный ``cast`` греет раздачи той же выдачи, что стоит на экране (досмотр
-    сериала из той же раздачи, ``cast voices`` на играющий фильм), а ``add`` в TorrServer
-    идемпотентен - и раздача живого показа оказывается среди прогретых. Снести её на
-    уборке прогрева - выдернуть источник из-под экрана, поэтому каждый такой снос
-    спрашивает состояние.
-
-    Счётчика владения тут не нужно: двух держателей не бывает по устройству
-    (:meth:`torrcast.state.State.held`). А systemd нарочно не спрашивается: так нет ни окна
-    гонки на старте юнита (``is-active`` отвечает «active» не в первую же секунду), ни
-    цены на счастливом пути - одно чтение файла на снос, а сносы не горячий путь.
-
-    Цена консервативности: хэш, забытый убитым юнитом (SIGKILL), прогрев сносить не
-    станет - за него уберёт :func:`_release_orphans` при следующем запуске показа.
-    """
-    return bool(torrent_hash) and torrent_hash in State.load().held()
-
-
-def _cmd_stop() -> int:
-    """``cast stop`` — снять каст и зафиксировать позицию. Позицию пишет сам
-    юнит: ``systemctl stop`` шлёт ему SIGTERM и ждёт, сторож на выходе дописывает state.
-
-    Раздачу за собой убирает сам юнит (:func:`_cmd_worker`), и к этой строке он уже мёртв:
-    ``systemctl stop`` его дождался. Но умереть он мог и не по-людски - SIGKILL по
-    таймауту, паника, перезагрузка, - а раздача переживает свой процесс: она живёт в
-    TorrServer до его перезапуска. Поэтому тот же хэш сносится ещё раз, уже отсюда: он
-    берётся из магнита остановленной записи (:func:`_torrent_hash`), снос идемпотентен, и
-    ничего, кроме этого хэша, не трогается. Когда ничего не играло, не трогается и он:
-    раздачу с тем же магнитом в этот момент может греть чужой ход.
-    """
-    played = unit_active()
-    key = unit_key()  # спрашиваем, пока юнит жив: у мёртвого описания уже не узнать
-    stop_play_unit()
-    found = _shown(State.load(), key)
-    if not played or found is None:
-        print("ничего не играет")
-        return EXIT_OK
-    _, entry = found
-    with contextlib.suppress(TorrcastError):  # уборка не вправе провалить саму остановку
-        _release_torrents(load_config(), [_torrent_hash(entry.magnet)])
-    print(f"остановлено: «{entry.title}» на {_hms(entry.pos)} / {_hms(entry.dur)}")
-    return EXIT_OK
-
-
-def _shown(state: State, key: str) -> tuple[str, Entry] | None:
-    """Запись играющего показа: ключ берём из ``--description`` юнита, а не «самую свежую».
-    Рядом мог писать другой ход — тогда свежайшая запись не та, что играет.
-    """
-    entry = state.get(key) if key else None
-    return (key, entry) if entry is not None else state.latest()
-
-
-def _cmd_status() -> int:
-    """``cast status`` — что играет, позиция/длительность, источник. Живой юнит —
-    источник правды о том, что показ ЗАВЕДЁН, позиция — из state, куда её кладёт сторож.
-
-    🔴 Живой юнит не доказывает картинку на экране. Юнит переживает смерть источника
-    нарочно - прогретое досматривается без сети, а вернувшийся источник поднимает показ
-    сам (:class:`_Revival`), - и всё это время играть может быть нечем. Замер: с мёртвым
-    источником юнит жил 902 с, `cast status` все эти минуты отвечал «играю», и человек
-    смотрел в чёрный экран, которому инструмент выдавал справку о здоровье. Поэтому
-    отдельный вопрос - не «жив ли юнит», а «есть ли кадр»: ответ на него показ кладёт в
-    ту же запись (:attr:`torrcast.state.Entry.dark`).
-    """
-    config = load_config()
-    playing = unit_active()
-    found = _shown(State.load(), unit_key() if playing else "")
-    if not playing or found is None:
-        if found is not None and found[1].dark:  # темнота переживает юнит нарочно
-            gone = found[1]
-            was = f"на {_hms(gone.pos)}" if gone.pos else "картинки не было ни кадра"
-            print(f"показ оборвался: {gone.shown_as} - {was} ({gone.dark_why})")
-            return EXIT_OK
-        print("ничего не играет")
-        if found is not None and found[1].resumable:
-            print(f"последнее: «{found[1].title}» на {_hms(found[1].pos)} / {_hms(found[1].dur)}")
-        return EXIT_OK
-    key, entry = found
-    what = entry.shown_as
-    # Разрешение - подтверждённое ffprobe у играющего файла, а не заявка имени.
-    what += f" · {entry.quality}" if entry.quality else ""
-    if entry.dark:
-        print(f"показ погас: {what} - {_hms(entry.pos)} / {_hms(entry.dur)}")
-        print(f"   {_darkness(entry)} ({entry.dark_why}) - жду возврата, подниму сам")
-    else:
-        print(f"играю {what} - {_hms(entry.pos)} / {_hms(entry.dur)}")
-    if entry.warm > 0:
-        # Прогрев - это и есть ответ на вопрос «переживёт ли показ обрыв связи», поэтому
-        # он стоит в статусе, а не в отладочной ручке.
-        whole = entry.dur > 0 and entry.warm >= entry.dur * WARMED_RATIO
-        print(
-            f"   прогрето {_hms(entry.warm)} из {_hms(entry.dur)}"
-            + (" - весь фильм на диске, интернет не нужен" if whole else "")
-        )
-    reserve = _cache_reserve(config, entry)
-    if reserve:
-        print(f"   {reserve}")
-    where = "адрес раздачи не определён"
-    with contextlib.suppress(TorrcastError):  # адреса нет - статус показа это не отменяет
-        where = hls_base(config)
-    print(
-        f"   {key} · файл #{entry.file_idx} · дорожка {entry.audio + 1} · "
-        f"раздача {where}, приёмник {config.receiver}"
-    )
-    return EXIT_OK
-
-
-def _cache_reserve(config: Config, entry: Entry) -> str:
-    """Сколько минут показа лежит в кэше службы прямо сейчас, языком зрителя.
-
-    Число считается из того, что уже есть: набитое в кэше спрашивает сама служба
-    (:meth:`TorrServer.cache`), битрейт лежит в записи (:attr:`Entry.vbps`). Спросить
-    - один запрос к местной службе, и только из ``cast status``: горячий путь показа
-    сюда не ходит.
-
-    Минуты - частное от битрейта ЭТОГО файла, а не константа: замер показал, что одни
-    и те же гигабайты кэша - это 32 минуты тяжёлого релиза и вдвое больше лёгкого.
-    Звук источника в записи не хранится и потому не учитывается - оценка чуть щедрая,
-    и число читается как «примерно столько».
-
-    Любое звено может умереть, и каждая смерть - честная строка, а не исключение и не
-    молчание: нет хэша раздачи (запись прежней версии) - спросить нечего и строки нет,
-    служба не отвечает или молчит про кэш - «неизвестно», битрейт не спрошен - минуты
-    не перевести, кэш пуст - запаса нет.
-    """
-    if not entry.torrent:
-        return ""
-    try:
-        payload = TorrServer(config.torrserver_url, timeout=PROBE_TIMEOUT).cache(entry.torrent)
-    except InfraError:
-        return "запас в кэше службы неизвестен - служба раздач не отвечает"
-    filled = payload.get("Filled")
-    if not isinstance(filled, int) or isinstance(filled, bool) or filled < 0:
-        return "запас в кэше службы неизвестен - служба про него молчит"
-    if filled == 0:
-        return "кэш службы пуст, запаса показа в нём нет"
-    if entry.vbps <= 0:
-        return "запас в кэше службы есть, в минуты не перевести - битрейт файла неизвестен"
-    minutes = filled * 8 / (entry.vbps * 1e6 * 60)
-    if minutes < 1:
-        return "в кэше службы запас меньше минуты показа"
-    return f"в кэше службы запас ещё на {minutes:.0f} мин показа"
-
-
-def _darkness(entry: Entry) -> str:
-    """Сколько на экране темно, для человека.
-
-    Отметку ставил показ, а читает её ``cast status`` - это два процесса и, вообще
-    говоря, два взгляда на часы. Поэтому отрицательная разница тут не сбой измерения, а
-    сдвинутые часы: про число тогда молчим, про саму темноту - нет.
-    """
-    dark = time.time() - entry.dark
-    return f"темнота {_hms(dark)}" if dark > 0 else "темнота"
-
-
-def _cmd_releases(args: Args) -> int:
-    """``cast releases <запрос>`` — отладочная ручка: таблица и выход.
-
-    На счастливом пути таблицы нет вовсе: релиз выбирается сам. Но посмотреть, из чего
-    он выбирал, иногда надо — и тогда рядом лежит ``cast <запрос> --release N``.
-
-    Таблица спрашивает настоящую длительность, чтобы битрейт (а значит, и порядок
-    раздач, и номера ``N``) совпал с тем, что сыграет ``cast`` по этому номеру.
-
-    🔴 TC-446. Номер релиза относится к КАРТИНЕ своей таблицы, а не к выдаче целиком:
-    нумерация в каждой таблице своя. Картин несколько - одним номером релиза картину не
-    назвать, и таблица обязана это говорить: картины нумеруются (тем же номером, что в
-    меню ``cast <запрос>`` и у ``--pick``), а строка-подсказка зовёт оба флага.
-
-    🔴 TC-241. Судит таблица по ОБНАРУЖЕННОМУ профилю приёмника - тому самому, на
-    который поедет показ: по осторожному умолчанию пометка «перекодируем» врала,
-    обещая перекод там, где приставка играет копией. Определение профиля - то же, что
-    на пути показа (:func:`~torrcast.profile.detect`), и оно не молчаливое: строка про
-    профиль печатается всегда, и приёмника может не быть вовсе - тогда строка честно
-    говорит, по какому профилю судим.
-    """
-    config = load_config()
-    inner = Args(query=list(args.query[1:]))
-    if not inner.query:
-        raise NotFoundError("что искать? cast releases <запрос>")
-    chosen = detect_profile(config)
-    config = tune_profile(config, chosen.profile)
-    with Progress() as progress:
-        plans = _search(config, inner, progress, chosen.profile)
-    facts = Facts([(p.picture.title, p.picture.year) for p in plans])
-    facts.start()
-    try:
-        print(f"профиль приёмника: {chosen.profile.title} - {chosen.how}")
-        shown: dict[str, list[Release]] = {}
-        for number, plan in enumerate(plans, start=1):
-            plan = _timed(plan, facts, inner, config, chosen.profile)
-            shown[plan.picture.key] = plan.ranked
-            print()
-            head = f"{_named(plan.picture)} - раздач {len(plan.ranked)}"
-            # Номер картины тот же, что у пункта меню в `cast <запрос>` и у --pick:
-            # порядок таблиц - порядок меню (:func:`_search` в обеих командах).
-            print(f"{number}. {head}" if len(plans) > 1 else head)
-            print(
-                render_table(
-                    plan.ranked,
-                    plan.runtime,
-                    plan.warn_mbit,
-                    recode_at=plan.recode_at,
-                    hard_mbit=plan.hard_mbit,
-                )
-            )
-        from torrcast.release_pin import remember
-
-        remember(inner.title_query, shown)
-        print()
-        if len(plans) > 1:
-            print(
-                "играть конкретный: cast <запрос> --pick M --release N [--file N] - "
-                "M это номер картины выше, N номер релиза в её таблице"
-            )
-        else:
-            print("играть конкретный: cast <запрос> --release N [--file N]")
-        return EXIT_OK
-    finally:
-        facts.finish()
-
-
-def _cmd_voices(args: Args) -> int:
-    """``cast voices <запрос>`` — какие озвучки есть у релиза, который поедет на ТВ.
-
-    Отладочная ручка того же рода, что ``cast releases``: на счастливом пути озвучка
-    выбирается сама, а посмотреть, из чего она выбрана, — сюда. Играть конкретную:
-    ``cast <запрос> --voice N``.
-
-    Показ отсюда не начинается и состояние не пишется; прогретые раздачи убираются из
-    TorrServer, как и на всяком пути мимо показа (:meth:`_Bench.drop_all`).
-    """
-    config = load_config()
-    inner = Args(query=list(args.query[1:]), release=args.release, pick=args.pick, file=args.file)
-    if not inner.query:
-        raise NotFoundError("что искать? cast voices <запрос>")
-    with Progress() as progress:
-        plans = _search(config, inner, progress)
-        bench = _Bench(TorrServer(config.torrserver_url), choose=_file_picker(inner))
-        try:
-            plan = _pick_plan(plans, pick=inner.pick, asked=inner.title_query)
-            _native_picture(plan.picture, inner.title_query)
-            prep = bench.resolve(plan, inner, progress)
-        finally:
-            bench.drop_all()
-    media = prep.found
-    remembered = _remembered(State.load(), plan.picture.key, None)
-    print()
-    print(f"{_named(plan.picture)} - релиз {prep.number}: {_cut(prep.release.title, 60)}")
-    print(voices_table(media, media.default_track(), remembered))
-    print()
-    print("играть конкретную: cast <запрос> --voice N   (выбор запомнится на эту картину)")
-    return EXIT_OK
-
-
-def _cmd_doctor() -> int:
-    """``cast doctor`` — самопроверка окружения по-русски.
-
-    Один вызов отвечает на все вопросы, которые иначе приходится проверять руками: терминал и
-    локаль (кириллица в вопросах), Prowlarr и TorrServer (есть чем искать и чем
-    раздавать), адрес ТВ и его порт 8009 (есть кому играть), ffmpeg с ``readrate``.
-    """
-    from torrcast.doctor import checkup
-
-    bad = 0
-    for line, ok in checkup(load_config()):
-        print(line)
-        bad += 0 if ok else 1
-    print()
-    print("всё в порядке" if not bad else f"проблем: {bad} - смотри строки «плохо» выше")
-    return EXIT_OK if not bad else EXIT_INFRA
-
-
-def _cmd_log(args: Args) -> int:
-    """``cast log [--since]`` — выжимка недельного диагностического следа.
-
-    По умолчанию - последние три сеанса; ``--since`` двигает границу (``2d``/``12h``/``30m``
-    или дата ``ГГГГ-ММ-ДД``) и снимает потолок числа сеансов. Читает ту же ленту, что ведут
-    поиск, отбор и показ, - никаких внешних систем, всё лежит рядом с состоянием.
-    """
-    since = _since_seconds(args.since)
-    rows = trace.records(since)
-    limit = 0 if args.since else 3
-    print(trace.digest(rows, limit=limit))
-    return EXIT_OK
-
-
-def _since_seconds(since: str | None) -> float:
-    """``--since`` в абсолютное время: ``2d``/``12h``/``30m`` от сейчас или дата ГГГГ-ММ-ДД."""
-    if not since:
-        return 0.0
-    units = {"d": 86400.0, "h": 3600.0, "m": 60.0}
-    tail = since[-1].lower()
-    if tail in units and since[:-1].isdigit():
-        return time.time() - int(since[:-1]) * units[tail]
-    with contextlib.suppress(ValueError, OverflowError):
-        return time.mktime(time.strptime(since, "%Y-%m-%d"))  # локальная дата, как и весь след
-    return 0.0
-
-
-def _cmd_worker(key: str) -> int:
-    """Показ внутри transient-юнита: своей раздачей, своей упаковкой и своим сторожем.
-
-    Руками не зовётся — это ``ExecStart`` юнита ``torrcast-play``. Всё, что нужно знать о
-    показе, лежит в записи состояния: magnet, файл, дорожка и позиция.
-
-    Сериал юнит доигрывает сам: серия дошла до конца — сторож записал в
-    состояние следующую, и цикл берёт её же раздачу и следующий файл, не спрашивая CLI.
-    Серия была последней — состояние отмечает конец, цикл выходит, юнит гаснет чисто.
-
-    ⚠️ **Приёмник один на весь юнит, а не на серию.** Соединение с ТВ живёт здесь и
-    достаётся каждой серии готовым. Иначе получалось два сендера сразу: на стыке серий
-    приложение приёмника намеренно не закрывается (:func:`_handover`), поэтому и сокет
-    прошлой серии оставался жив, а следующая поднимала себе новый. Для приёмника оба —
-    один и тот же ``sender-0`` (докстринг :class:`torrcast.cast.ChromecastReceiver`), и он
-    отвечает новому пустым статусом. Замер на живом Q70D, стык s1e5→s1e6: два
-    соединения в ``ss``, «LOAD не взяли (IDLE/ERROR)», «приёмник залип — закрываю
-    приложение и соединение», экран пустой **15.3 с**.
-
-    ⚠️ **Раздача уезжает вместе с показом.** Юнит - единственный её хозяин: он её поднял,
-    он один из неё читает, и кроме него о ней не знает никто - в списке службы она, к
-    слову, видна весь показ (проверено на TorrServer MatriX.142.2), но своей её там
-    ничто не называет. Пока уборки тут не было, каждый сеанс оставлял по раздаче
-    навсегда - до перезапуска TorrServer, - и они копились ровно в той службе, которая
-    падает по таймеру тем вероятнее, чем их больше (:data:`MAX_LIVE`). Убирается своё и
-    только своё, по хэшам, которые юнит завёл сам, и на любом выходе: штатный конец,
-    ошибка и SIGTERM от ``cast stop`` (он приходит как :class:`_Stopped` и раскручивает
-    ``finally`` наравне с прочими). Прогрев следующей серии тут не жертва: он идёт по этой
-    же раздаче и кончается вместе с юнитом.
-    """
-    mark("процесс показа")
-    config = load_config()
-    # Профиль приёмника юнит выбирает себе сам, а не получает от CLI: юнит переживает
-    # смену серии и живёт своей жизнью, а опрос паспорта стоит одного HTTP к устройству.
-    chosen = detect_profile(config)
-    config = tune_profile(config, chosen.profile)
-    print(f"профиль приёмника: {chosen.profile.title} - {chosen.how}", flush=True)
-    # SIGTERM от `cast stop` обязан пройти через finally: иначе позиция не запишется.
-    signal.signal(signal.SIGTERM, _on_term)
-    torrserver = TorrServer(config.torrserver_url)
-    receiver = make_receiver(
-        config.receiver,
-        config.tv or "",
-        config.hls_cert if config.transport == "https" else "",
-        profile=chosen.profile,
-    )
-    supply = Supply(TorrServer(config.torrserver_url, timeout=PROBE_TIMEOUT))
-    #: Хэши, которые подняли МЫ, - по ним и только по ним пойдёт уборка на выходе.
-    mine: list[str] = []
-    try:
-        return _worker_loop(config, key, torrserver, receiver, supply, mine, chosen.profile)
-    finally:
-        gone = _release_torrents(config, mine)
-        # Раздачи больше нет - и записи о ней тоже: следующему запуску убирать нечего.
-        # А вот если служба смолчала, раздача жива, и запись о ней - единственное, чем её
-        # потом снести (:func:`_release_orphans`): такой хэш забывать нельзя.
-        if not mine or mine[-1] in gone:
-            with contextlib.suppress(TorrcastError):  # не вправе провалить сам выход
-                _own_torrent(key, "")
-
-
-def _worker_loop(
-    config: Config,
-    key: str,
-    torrserver: TorrServer,
-    receiver: Receiver,
-    supply: Supply,
-    mine: list[str],
-    profile: Profile,
-) -> int:
-    """Сам цикл показа: серия за серией, пока сериал не кончится. Раздачи, которые он
-    поднял, складываются в ``mine`` — их убирает :func:`_cmd_worker` на выходе.
-    """
-    magnet, torrent_hash = "", ""
-    while True:
-        entry = State.load().get(key)
-        if entry is None:
-            raise InfraError(f"в состоянии нет записи {key}")
-        if entry.magnet != magnet:  # раздача та же - метаданные второй раз не ждём
-            magnet = entry.magnet
-            torrent_hash = torrserver.add(magnet)
-            mine.append(torrent_hash)  # с этой секунды у раздачи есть хозяин - этот юнит
-            # ...и с этой же секунды имя хозяина знает состояние: умри мы по SIGKILL,
-            # хэш - единственное, чем раздачу потом убрать (:func:`_release_orphans`).
-            # Поле правится и в своей копии записи: её кладёт на диск сторож позиции.
-            entry.torrent = torrent_hash
-            _own_torrent(key, torrent_hash)
-            torrserver.wait_files(torrent_hash, timeout=WORKER_META)
-            # Тот же магнит, но живёт он теперь и у сторожа: URL потока несёт только хэш,
-            # и вернуть раздачу с трекерами после аварии источника может лишь он
-            # (:class:`torrcast.stream.Supply`). За магнитом в индексеры мы не ходим - он
-            # лежит в записи картины.
-            supply.torrent_hash, supply.magnet, supply.lost = torrent_hash, magnet, ""
-        source = torrserver.stream_url(torrent_hash, entry.file_idx)
-        entry = _duration(key, entry, source)
-        watch = Watch(key=key, entry=entry)
-        title = " ".join(filter(None, (entry.title, entry.label)))
-        sid = trace.start_session()
-        journal = f"[сеанс {sid}]"
-        # Профиль идёт в след каждой серией: по какому набору порогов играли - вопрос,
-        # который иначе снова пришлось бы выяснять с гипервизора.
-        trace.emit(
-            "session",
-            "session_start",
-            title=title,
-            pos=round(entry.pos, 1),
-            profile=profile.key,
-            **trace_thresholds(config, profile),
-        )
-        print(f"{journal} показ «{title}» с {_hms(entry.pos)}", flush=True)
-        code = _play(
-            config,
-            source,
-            entry.audio,
-            title,
-            _Clock(),
-            watch,
-            receiver=receiver,
-            codec=entry.codec,
-            # Кодек без глубины цвета - половина паспорта: Hi10P зовётся тем же h264.
-            depth=entry.depth,
-            # И кадр туда же: 2160p приёмник не берёт ни в каком кодеке, его ужимает
-            # перекод (TC-221/TC-222). HDR - чем красить ужатое (TC-223).
-            frame=entry.frame,
-            hdr=entry.hdr,
-            # Прогрев следующей серии впрок: собирается лениво, когда текущая уже на
-            # диске (:meth:`torrcast.warm.Warmer._chain`). Раздача та же, файл - соседний.
-            follow=partial(_next_warmer, config, torrserver, torrent_hash, entry, profile),
-            supply=supply,
-            profile=profile,
-            journal=journal,
-        )
-        following = _following(key) if watch.done else None
-        if following is None:
-            return code
-        print(f"следующая серия: {following.label}", flush=True)
-
-
-def _following(key: str) -> Entry | None:
-    """Серия, которую юнит доиграет следом за только что досмотренной.
-
-    ``None`` — показ на этом кончается: фильм, последняя серия сезона или запись, которую
-    сериалом и не считали. Отсюда же знают, закрывать ли приложение приёмника: между
-    сериями оно живёт дальше, а на конце показа — гаснет (см. :func:`_play`).
-    """
-    entry = State.load().get(key)
-    if entry is None or entry.done or not entry.label:
-        return None
-    return entry
-
-
-def _duration(key: str, entry: Entry, source: str) -> Entry:
-    """Длительность серии для порога перехода: следующая серия своей ещё не знает —
-    её длительность лежит в её же файле, и читается она из потока, как дорожки.
-
-    Тем же ffprobe берётся и вес видеодорожки (:attr:`Entry.vbps`): у следующей серии
-    он свой, а профиль тяжести показа считается по нему.
-
-    ⚠️ Ради одного только веса дорожки ffprobe тут не зовётся. Записи прежних версий его
-    не несут, и спрашивать за них при каждом запуске значило бы платить секундами старта
-    (у «Моаны 2» ffprobe стоит до 17 с) за то, что показ и так доберёт по факту
-    (:meth:`torrcast.recode.Weights.calibrate`). Своё число такая запись получит на первом
-    же обычном запуске через выбор релиза.
-
-    🔴 Ради глубины цвета (:attr:`Entry.depth`) ffprobe зовётся и у записи с известной
-    длительностью - ровно один раз на запись. Записи прежних версий её не несут вовсе, а
-    молчание тут читается как «восемь бит», то есть как «уезжай копией»: на десятибитном
-    H.264 это вечная петля на экране (:func:`torrcast.stream.recodes_whole`). Один ffprobe
-    против неиграющего показа - цена, которую платить стоит, и платится она однажды.
-
-    🔴 TC-251. Тем же одним ffprobe добирается и кадр (:attr:`Entry.frame`) - ровно по
-    той же причине. Запись прежней версии его не несёт, а молчание тут читается
-    :func:`torrcast.recode.level_for` как «4.1»: на 4К это враньё в поток (у 2160p 32400
-    макроблоков против потолка 8192), и окно у вранья ровно одно - первое продолжение
-    старой записи. Лишнего запроса это не стоит: паспорт и так читается один раз на
-    запись ради глубины, кадр лежит в нём же.
-    """
-    if entry.dur > 0 and entry.depth > 0 and entry.frame > 0:
-        return entry
-    media = probe(source, timeout=WORKER_DUR)
-    entry.dur = media.duration or entry.dur
-    # Ноль - «ещё не спрашивали», минус - «спросили, паспорт промолчал» (mp4 без тегов).
-    entry.vbps = media.video_bps / 1e6 or -1.0
-    # Кодек следующей серии тоже свой: в раздаче аниме нередко лежат и HEVC, и H.264,
-    # а решение «перекодировать целиком» принимается по файлу, который играем сейчас.
-    entry.codec = media.video or ""
-    # Глубина цвета оттуда же и той же ценой: без неё Hi10P неотличим от обычного H.264.
-    entry.depth = media.depth
-    # И кадр тем же паспортом: без него 4К-запись прежней версии уезжала бы с уровнем
-    # «4.1» в потоке - заведомым враньём (TC-251).
-    entry.frame = media.frame
-    state = State.load()
-    state.put(key, entry)
-    state.save()
-    return entry
-
-
-class _Stopped(KeyboardInterrupt):
-    """``cast stop``: SIGTERM пришёл, показ окончен штатно — это не авария.
-
-    Наследуемся от ``KeyboardInterrupt`` намеренно: раскрутка обязана пройти ровно так
-    же, как проходила, — через ``finally`` в :func:`_play`, где пишется позиция, гаснет
-    упаковка и снимается каст. Меняется только вывеска на выходе: ``cast stop`` — это
-    успех, и юнит обязан умереть кодом 0, иначе systemd помечает его ``failed`` и после
-    каждой штатной остановки в `systemctl` краснеет `● torrcast-play … failed`.
-    """
-
-
-def _on_term(_signal: int, _frame: object) -> None:
-    raise _Stopped
-
-
-@dataclass(slots=True)
-class Watch:
-    """Сторож: раз в :data:`WATCH_SECONDS` кладёт позицию приёмника в state.
-
-    Позиция приходит абсолютной: манифест описывает весь фильм, а ``-copyts`` оставляет
-    в сегментах исходные метки времени, поэтому приёмник считает время от начала фильма
-    независимо от того, с какого места идёт упаковка. Пересчитывать смещение показу
-    больше не нужно — раньше это была отдельная строчка возможной лжи. Про конец показа и
-    стык серий - :meth:`close`.
-    """
-
-    key: str
-    entry: Entry
-    every: float = WATCH_SECONDS
-    done: bool = False
-    sealed: bool = False  # «досмотрено» уже легло на диск - тиками не переписываем
-    seen: bool = False  # приёмник назвал живую позицию: без этого досмотра не бывает
-    last: float = field(default_factory=time.monotonic)
-
-    def see(self, pos: float) -> None:
-        """Позиция; на диск не чаще раза в ``every`` с. Порога перехода тут нет."""
-        if pos <= 0:  # приёмник ещё не начал считать - нулём позицию не затираем
-            return
-        self.entry.pos, self.seen = pos, True
-        if time.monotonic() - self.last >= self.every:
-            self.flush()
-
-    def close(self) -> None:
-        """Конец сеанса: картина доиграна - «досмотрено», а сериалу следующая серия.
-
-        🔴 Путь перехода один и привязан к концу потока, а не к доле длительности. Терять
-        его нельзя ни при каком поведении приёмника, поэтому «конец» опознаётся щедро
-        (:attr:`torrcast.state.Entry.ending`). И ни при каком раскладе - показу, которого не
-        было: закладка у конца плюс сдохший источник дают сеанс без единого LOAD, и фильм
-        помечался досмотренным, не показав ни кадра. Отсюда :attr:`seen`.
-        """
-        if not self.sealed and self.seen and self.entry.ending:
-            self.entry.pos = self.entry.dur
-            self.done = True
-        self.flush()
-
-    def flush(self) -> None:
-        """Записать состояние атомарно (tmp + rename в :mod:`torrcast.state`)."""
-        if self.sealed:  # досмотренную запись повторными тиками не портим
-            return
-        self.last = time.monotonic()
-        state = State.load()  # перечитываем: рядом мог писать другой ход
-        state.put(self.key, self.entry.advance() if self.done else self.entry)
-        state.save()
-        if self.done:
-            self.sealed = True
-            what = f" {self.entry.label}" if self.entry.label else ""
-            print(f"досмотрено{what}: {_hms(self.entry.pos)} из {_hms(self.entry.dur)}", flush=True)
-
-
-@dataclass(slots=True)
-class _Clock:
-    """Фазы старта: холодный старт стоит 15–30 с, и цифры должны быть видны глазами."""
-
-    start: float = field(default_factory=time.monotonic)
-    last: float = field(default_factory=time.monotonic)
-
-    def lap(self) -> str:
-        now = time.monotonic()
-        gap, self.last = now - self.last, now
-        return f"{gap:.1f} с"
-
-    @property
-    def total(self) -> float:
-        return time.monotonic() - self.start
 
 
 __all__ = [name for name in globals() if not name.startswith("__")]

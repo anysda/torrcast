@@ -1,8 +1,9 @@
-"""Даёт сценариям монотонное время и ожидание."""
+"""Даёт сценариям монотонное время, стенные часы и ожидание."""
 
 from typing import Protocol
 
 
 class Clock(Protocol):
     def monotonic(self) -> float: ...
+    def wall(self) -> float: ...
     def sleep(self, seconds: float) -> None: ...
