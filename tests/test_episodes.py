@@ -377,6 +377,24 @@ def test_the_last_episode_does_not_promise_an_automatic_restart(
     assert saved().done and saved().episode == 3 and saved().pos == 0.0
 
 
+def test_a_named_episode_is_not_shadowed_by_the_watched_bookkeeping(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """🔴 Названная серия сильнее бухгалтерии досмотра: закладка стоит на s1e2 за долей,
+    но человек попросил s1e1 - и обещать ему s1e3 нельзя. Пока бухгалтерия шла раньше
+    прыжка, зритель получал две строки подряд: «играю s1e3» и следом «играю s1e1».
+    """
+    remember(episode=2, file_idx=1, pos=1382.4, dur=MINUTES_24)
+    _no_questions(monkeypatch)
+    _no_unit(monkeypatch)
+
+    assert cli.main(["киберпанк", "s1e1"]) == 0
+
+    said = capsys.readouterr().out
+    assert "досмотрено" not in said and "s1e3" not in said
+    assert saved().episode == 1 and saved().file_idx == 0 and saved().pos == 0.0
+
+
 def test_an_explicit_episode_jumps_inside_the_cached_release(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

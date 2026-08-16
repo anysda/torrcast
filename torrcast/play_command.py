@@ -126,7 +126,11 @@ def _cmd_play(args: Args) -> int:
     _say_showing(live)
     found_entry = state.find(args.title_query)
     watched = False
-    if found_entry is not None and not args.from_start and not args.pinned:
+    # Бухгалтерия досмотра трогает только тот путь, который сам решает, что играть дальше.
+    # Названная руками серия, `--new` и ручной релиз решают это за неё, и обещать им
+    # следующую серию нельзя: строка «играю s1e3» перед честным «играю s1e1» - подмена.
+    named = args.episode is not None
+    if found_entry is not None and not (args.from_start or args.pinned or named):
         found_entry, watched = _account_watched(state, found_entry)
     # --new поднимает сохранённый выбор лишь когда он действительно отвечает на
     # весь запрос. Явная серия сперва прыгает внутри сохранённой раздачи, а ручной
