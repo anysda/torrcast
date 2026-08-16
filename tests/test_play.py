@@ -2796,3 +2796,75 @@ def test_a_show_that_never_started_is_not_marked_watched(
     saved = State.load().get(key)
     assert saved is not None and not saved.done
     assert saved.pos == 8055.5 and saved.resumable, "закладка осталась на месте"
+
+
+class _Stuck:
+    """Приёмник, залипший на последнем куске: указатель стоит, а живым себя считает.
+
+    Ровно так выглядит конец картины у приёмника, который не сказал о нём чисто: сессию
+    он не закрывает, в IDLE не уходит, ``current_time`` не двигает. Счётчик опросов тут
+    не украшение: без страховки показ висел бы на этом месте вечно, и тест не падал бы, а
+    не кончался.
+    """
+
+    def __init__(self, at: float, limit: int = 200) -> None:
+        self.at, self.limit, self.asked = at, limit, 0
+
+    def play(self, url: str, title: str = "", at: float = 0.0) -> None:
+        pass
+
+    def stop(self, quit_app: bool = False) -> None:
+        pass
+
+    def position(self, front: float = 0.0) -> Any:
+        from torrcast.cast import Position
+
+        self.asked += 1
+        if self.asked > self.limit:
+            raise AssertionError("показ висит на залипшем приёмнике и сеанс не кончается")
+        state = "PLAYING" if self.asked <= 2 else "BUFFERING"
+        return Position(self.at, 0.0, True, state)
+
+
+def test_a_receiver_frozen_on_the_last_chunk_still_hands_the_show_over(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """🔴 Страховка перехода: конец потока приёмник называет не всегда.
+
+    Залипший на последнем куске рапортует BUFFERING и живым быть не перестаёт, а сторож
+    подвиса на нём молчит по своему же правилу: впереди честно пусто, потому что картина
+    кончилась, и неподвижность он читает как законное ожидание упаковки. Своего конца у
+    такого сеанса нет вовсе - показ висел бы до утра, а следующая серия не начиналась бы.
+    Терять тут нечего, кроме хвоста, а приобретается переход - он дороже.
+    """
+    from torrcast import cli
+
+    monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
+    key = "tv:киберпанк:2022"
+    entry = Entry(
+        title="Киберпанк",
+        magnet=MAGNET,
+        kind="tv",
+        season=1,
+        episode=2,
+        episodes=[[1, 2, 5], [1, 3, 6]],
+        pos=7100.0,
+        dur=7200.0,
+    )
+    state = State()
+    state.put(key, entry)
+    state.save()
+    watch = _Watch(key=key, entry=entry, every=0.0)
+    clock = _Ticker()
+    feed = _feed_with_segments(tmp_path)
+    receiver = _Stuck(at=7100.0)
+
+    ended = cli._hold(receiver, feed, watch, None, clock=clock)  # type: ignore[arg-type]
+
+    assert ended, "неподвижный конец - это конец, а не авария: винить упаковку не в чем"
+    assert "считаю доигранным" in capsys.readouterr().out, "молча показ не кончают"
+    watch.close()
+    saved = State.load().get(key)
+    assert saved is not None and (saved.season, saved.episode) == (1, 3), (
+        "переход обязан случиться и на приёмнике, не сказавшем о конце"
+    )

@@ -12,6 +12,7 @@ if TYPE_CHECKING:
         PAUSE_LIMIT,
         PAUSE_SECONDS,
         SAY_SECONDS,
+        TAIL_LIMIT,
         TRACE_ENV,
         Watch,
     )
@@ -365,6 +366,9 @@ def _hold(
     still_at = -1.0
     show_trace = bool(os.environ.get(TRACE_ENV))
     buffering = was_offline = False
+    #: Указатель, на котором приёмник стоит у самого конца картины, и с каких пор
+    #: (страховка перехода, см. ниже по циклу). ``-1`` - стоять ещё не начинал.
+    tail_at, tail_since = -1.0, 0.0
     # Обе выдержки воскрешения - мера молчания ПРИЁМНИКА, поэтому приходят из его профиля,
     # а не из общей константы: приставка после отказа берёт LOAD не так, как телевизор.
     revival = _Revival(
@@ -512,6 +516,26 @@ def _hold(
             if (watch.entry.dark, watch.entry.dark_why) != (revival.began, revival.why):
                 watch.entry.dark, watch.entry.dark_why = revival.began, revival.why
                 watch.flush()
+        # 🔴 Страховка перехода. Конец потока приёмник называет не всегда: залипший на
+        # последнем куске рапортует BUFFERING и живым себя считать не перестаёт, а сторож
+        # подвиса на нём молчит по своему же правилу - впереди честно пусто, потому что
+        # картина кончилась, и неподвижность он читает как законное ожидание упаковки
+        # (:meth:`torrcast.cast.ChromecastReceiver._nudge`). Сеанс в этом месте не кончался
+        # вовсе: показ висел до утра, следующая серия не начиналась, и терялся именно
+        # переход - то, что дороже хвоста. Поэтому неподвижный указатель ЗА долей
+        # длительности сам кончает сеанс: дальше конец разбирает :meth:`Watch.close`.
+        if watch is not None and position.playing and watch.entry.ending:
+            if position.pos != tail_at:
+                tail_at, tail_since = position.pos, clock.monotonic()
+            elif clock.monotonic() - tail_since > TAIL_LIMIT:
+                print(
+                    f"конец картины: указатель стоит на {_hms(position.pos)} уже "
+                    f"{TAIL_LIMIT:.0f} с - считаю доигранным",
+                    flush=True,
+                )
+                return True
+        else:
+            tail_at, tail_since = -1.0, 0.0
         if position.state == "PAUSED":
             paused = paused or clock.monotonic()
             if clock.monotonic() - paused > PAUSE_LIMIT:
