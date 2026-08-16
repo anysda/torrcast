@@ -23,6 +23,7 @@ import subprocess
 import threading
 import time
 from pathlib import Path
+from types import SimpleNamespace
 from typing import IO, Any
 
 import pytest
@@ -52,9 +53,33 @@ from torrcast.stream import (
     parse_manifest,
     segment_name,
 )
+from torrcast.stream_pack import _reorder_slack
 
 #: Ровная сетка на два часа: примерно столько и играет полнометражный фильм.
 FILM = 7200.0
+
+
+def test_reorder_slack_distinguishes_measured_zero_from_no_measurement(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Успешный ffprobe без DTS и частоты - не измеренный ноль."""
+    answers = iter(
+        (
+            {
+                "packets": [{"pts_time": "0.000", "dts_time": "N/A"}],
+                "streams": [{"has_b_frames": 3, "avg_frame_rate": "0/0"}],
+            },
+            {"packets": [{"pts_time": "0.000", "dts_time": "0.000"}], "streams": []},
+        )
+    )
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *_args, **_kwargs: SimpleNamespace(stdout=json.dumps(next(answers))),
+    )
+
+    assert _reorder_slack("unknown") is None
+    assert _reorder_slack("zero") == 0.0
 
 
 def _keyframes(duration: float = 600.0, gop: float = 2.08) -> list[float]:

@@ -13,7 +13,7 @@ import json
 import socket
 import sys
 from pathlib import Path
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 from typing import Any
 
 import pytest
@@ -622,6 +622,35 @@ def test_щуп_перемотки_ловит_негодную_фикстуру_
     assert not seek.unfit_grid(Grid.uniform(600.0, 10.0), 10.0), "ровная сетка годна"
     short = Grid((0.0, 10.0, 20.0), 30.0, True)
     assert "3 сегментов" in seek.unfit_grid(short, 10.0), "трёх кусков сеточному замеру мало"
+
+
+def test_правка_сетки_щупом_не_теряет_ленту_и_вес(monkeypatch: pytest.MonkeyPatch) -> None:
+    """🔴 Щуп обязан мерить ту же упаковку после ручной правки границ."""
+    tv = probe("tvprobe")
+
+    def weigh(_a: float, _b: float) -> float:
+        return 42.0
+
+    base = tv.Grid((0.0, 10.0, 20.0), 30.0, True, weigh, 0.103)
+    monkeypatch.setattr(tv, "grid_for", lambda *_args, **_kwargs: base)
+    args = SimpleNamespace(
+        bounds="",
+        url="film",
+        duration=30.0,
+        step=10.0,
+        uniform=False,
+        ceiling=0.0,
+        mbit=0.0,
+        recode=False,
+        drop="10",
+        add="11",
+    )
+
+    changed = tv.make_grid(args, CAUTIOUS)
+
+    assert changed.bounds == (0.0, 11.0, 20.0)
+    assert changed.weigh is weigh, "щуп потерял предсказатель веса"
+    assert changed.origin == 0.103, "щуп потерял общее смещение ленты"
 
 
 @pytest.mark.machine

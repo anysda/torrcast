@@ -24,35 +24,31 @@ seam_dir=
 if [ "$#" -eq 0 ]; then
     seam_dir=$(mktemp -d)
     trap 'rm -rf "$seam_dir"' EXIT HUP INT TERM
-    # Секунда запаса перед первой границей сохраняет задержку AAC: без неё muxer прижимает первый
-    # отрицательный пакет к нулю и сам создаёт ложный нахлёст на первом стыке.
     ffmpeg -hide_banner -loglevel error -y \
-        -f lavfi -i testsrc=size=64x64:rate=25:duration=28.8 \
-        -f lavfi -i sine=frequency=1000:sample_rate=48000:duration=28.8 \
-        -map 0:v -map 1:a -pix_fmt yuv420p -c:v libx264 -preset ultrafast -g 240 \
-        -c:a ac3 -ac 2 -output_ts_offset 1 \
-        "$seam_dir/source.mkv"
+        -f lavfi -i testsrc2=size=320x180:rate=25 \
+        -f lavfi -i sine=frequency=440 -t 60 \
+        -c:v libx264 -preset ultrafast -g 50 -bf 3 \
+        -c:a aac -movflags +faststart "$seam_dir/source.mp4"
     .venv/bin/python - "$seam_dir" <<'PY'
 from pathlib import Path
 import subprocess
 import sys
 
 from torrcast.recode import Encode, FULL_PRESET
-from torrcast.stream import Grid, ffmpeg_pack_command
+from torrcast.stream import ffmpeg_pack_command, grid_for
 
 
 root = Path(sys.argv[1])
-source = root / "source.mkv"
-grid = Grid((0.0, 9.6, 19.2), 28.8, on_keys=True)
-# Прогон встаёт на 1.0: ровно там стоит первый пакет запаса. Соврать здесь нулём -
-# развалить перекодирующий путь: время реза муксер считает от начала прогона, а опорные
-# кадры кодировщик ставит по абсолютному времени, и эта секунда разницы уводит границы
-# с сетки (замер: куски 19.2 / 10.0 / 0.6 с вместо 9.6 / 9.6 / 10.6).
+source = root / "source.mp4"
+source_url = source.as_uri()
+grid = grid_for(source_url, 60.0)
+if not grid.on_keys or grid.origin <= 0:
+    raise SystemExit("сторожу нужна сетка по опорным кадрам и начало ленты ниже нуля")
 for name, encode in (("copy", None), ("recode", Encode(preset=FULL_PRESET, mbit=1.0))):
     run = root / name
     run.mkdir()
     command = ffmpeg_pack_command(
-        str(source), 0, str(run), grid, 0, 1.0, readrate=0.0, encode=encode
+        source_url, 0, str(run), grid, 0, 0.0, readrate=0.0, encode=encode, until=0
     )
     subprocess.run(command, check=True)
 PY

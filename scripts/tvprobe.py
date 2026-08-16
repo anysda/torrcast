@@ -145,7 +145,7 @@ def make_grid(
         return base
     bounds = sorted({b for b in base.bounds if not any(abs(b - d) < 0.001 for d in drop)} | extra)
     print(f"правка сетки: убрано {sorted(drop)}, добавлено {sorted(extra)}")
-    return Grid(tuple(bounds), base.duration, base.on_keys)
+    return Grid(tuple(bounds), base.duration, base.on_keys, base.weigh, base.origin)
 
 
 def main() -> None:
