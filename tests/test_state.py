@@ -1,4 +1,4 @@
-"""Тесты состояния: атомарная запись, порог «досмотрено», сброс по --new."""
+"""Тесты состояния: атомарная запись, порог «досмотрено», удаление записи."""
 
 from __future__ import annotations
 
@@ -47,7 +47,7 @@ def test_the_end_of_the_show_stays_a_generous_ratio() -> None:
 
 
 def test_drop_forgets_entry() -> None:
-    """`--new` сбрасывает запись и проходит выбор с нуля."""
+    """Запись можно удалить по ключу."""
     state = State()
     state.put("movie:тачки:2006", Entry(title="Тачки", magnet="m"))
     state.drop("movie:тачки:2006")

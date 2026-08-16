@@ -8,14 +8,12 @@
 
 from __future__ import annotations
 
-import threading
 import time
 from pathlib import Path
-from typing import Any
 
 import pytest
 
-from torrcast import InfraError, cli
+from torrcast import cli
 from torrcast.search import RawResult
 from torrcast.state import Config, Entry, State, save_config
 from torrcast.stream import AudioTrack, Media, TorrFile
@@ -25,8 +23,6 @@ from torrcast.stream import AudioTrack, Media, TorrFile
 AWAIT_PLAYING = cli._await_playing
 
 GB = 1024**3
-#: Ключ сохранённой «Moana (2016)» - записи, которую находит запрос «моана».
-OLD_KEY = "movie:moana:2016"
 #: Выдача «моаны», сведённая к сути: две картины франшизы, у каждой по два релиза.
 FOUND = [
     RawResult("Moana 2016 1080p DSNP WEB-DL DDP5 1 Atmos H 264-BLOOM", "a" * 40, 5 * GB, 22),
@@ -289,31 +285,6 @@ def test_the_film_with_a_number_in_the_title_is_a_film(
     assert (key, entry.kind, entry.episodes) == ("movie:моана-2:2024", "movie", [])
 
 
-def test_without_a_terminal_an_ambiguous_franchise_is_refused_not_guessed(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """Без терминала «дефолт» на вопросе про франшизу — это чужой фильм, пущенный молча.
-
-    Ровно так и вышло на прогоне без tty: вопрос взял первый пункт вслепую, а `--new` к
-    тому времени уже снёс сохранённую запись. Теперь ни того, ни другого: висеть на
-    вопросе нельзя — мы и не висим, но отказываемся вслух и подсказываем, как назвать
-    картину точно. Сохранённое место при этом цело.
-    """
-    from torrcast import console
-
-    monkeypatch.setattr(console, "stdin_is_tty", lambda: False)
-    monkeypatch.setattr(cli, "start_play_unit", lambda key: pytest.fail("вслепую не кастим"))
-    _remember_moana()
-
-    assert cli.main(["моана", "--new"]) == 1
-
-    printed = capsys.readouterr()
-    assert "1. Moana (2016)" in printed.out and "2. Моана 2 (2024)" in printed.out
-    assert "вслепую не выбираю" in printed.err and "Moana" in printed.err
-    kept = State.load().get(OLD_KEY)
-    assert kept is not None and kept.pos == 2467.0, "сохранённую позицию не трогаем никогда"
-
-
 def test_a_pick_names_the_film_without_a_question(monkeypatch: pytest.MonkeyPatch) -> None:
     """Картину можно назвать флагом - тогда вопроса «Что смотрим?» нет вовсе.
 
@@ -355,34 +326,6 @@ def test_a_pick_outside_the_menu_is_an_honest_error(
 
     assert cli.main(["моана", "--pick", "7"]) == 1
     assert "номера 7 нет" in capsys.readouterr().err
-
-
-def test_new_forgets_the_old_record_only_when_the_show_really_starts(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Обещание `--new` («забыть прогресс») в силе — но платим по нему в момент старта.
-
-    До старта стирать нечего и незачем: свежую запись всё равно кладёт запуск показа, а
-    любой обрыв раньше него оставил бы пользователя без позиции.
-    """
-    _answers(monkeypatch, "2", "")
-    _remember_moana()
-
-    assert cli.main(["моана", "--new"]) == 0
-
-    left = State.load()
-    assert left.get(OLD_KEY) is None, "показ пошёл - прежний прогресс забыт, как и просили"
-    assert left.entries["movie:моана-2:2024"].pos == 0.0
-
-
-def _remember_moana() -> None:
-    """Недосмотренная «Moana» в состоянии: её и находит запрос «моана»."""
-    state = State()
-    state.put(
-        OLD_KEY,
-        Entry(title="Moana", magnet="magnet:?xt=1", query="моана", pos=2467.0, dur=5978.0),
-    )
-    state.save()
 
 
 def test_release_and_file_are_debug_handles_and_show_the_insides(
@@ -468,10 +411,10 @@ def test_the_start_time_means_a_picture_on_the_screen(
         AWAIT_PLAYING(config, progress, timeout=0.6)
 
 
-def test_resume_keeps_asking_the_only_question_that_is_about_intent(
+def test_resume_is_silent_and_only_reports_position_in_the_show_line(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Вопрос «Продолжить? [Y/n]» остаётся — он про намерение, а не про технику."""
+    """Продолжение не спрашивает; место называет обычная строка показа."""
     state = State()
     state.put(
         "movie:моана-2:2024",
@@ -482,47 +425,81 @@ def test_resume_keeps_asking_the_only_question_that_is_about_intent(
 
     assert cli.main(["моана", "2"]) == 0
 
-    assert len(asked) == 1 and "Продолжить? [Y/n]" in asked[0]
-    assert "ищу" not in capsys.readouterr().out
+    printed = capsys.readouterr().out
+    assert asked == []
+    assert "с 0:41:07" in printed and "ищу" not in printed
 
 
-@pytest.mark.parametrize(
-    ("answer", "start"),
-    [
-        ("", 2467.0),
-        ("y", 2467.0),
-        ("Y", 2467.0),
-        ("да", 2467.0),
-        ("д", 2467.0),
-        ("n", 0.0),
-        ("N", 0.0),
-        ("н", 0.0),
-        ("нет", 0.0),
-        ("с", 0.0),
-        ("s", 0.0),
-        ("сначала", 0.0),
-    ],
-)
-def test_the_prompt_promises_exactly_the_answers_that_are_taken(
-    answer: str, start: float, monkeypatch: pytest.MonkeyPatch
+def test_new_plays_the_saved_choice_from_zero_without_questions(
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Надпись у вопроса и разбор ответа - одно и то же, иначе надпись врёт.
-
-    Пара ``[Y/n]`` читается привычно: Enter и «да» продолжают с сохранённого места,
-    «нет» играет тот же фильм с начала. Оба языка и оба регистра значат одно и то же.
-    """
+    """Флаг обнуляет только позицию сохранённого выбора."""
     state = State()
     state.put(
         "movie:моана-2:2024",
-        Entry(title="Моана 2", magnet="magnet:?xt=1", pos=2467.0, dur=5978.0, query="моана-2"),
+        Entry(
+            title="Моана 2",
+            magnet="magnet:?xt=1",
+            file_idx=7,
+            audio=2,
+            pos=2467.0,
+            dur=5978.0,
+            query="моана-2",
+        ),
     )
     state.save()
-    asked = _answers(monkeypatch, answer)
+    asked = _answers(monkeypatch, "")
 
-    assert cli.main(["моана", "2"]) == 0
+    assert cli.main(["моана", "2", "--new"]) == 0
 
-    assert "Продолжить? [Y/n]" in asked[0], asked
-    assert State.load().entries["movie:моана-2:2024"].pos == start
+    saved = State.load().entries["movie:моана-2:2024"]
+    assert asked == []
+    assert (saved.pos, saved.file_idx, saved.audio, saved.magnet) == (0.0, 7, 2, "magnet:?xt=1")
+
+
+def test_new_without_a_bookmark_uses_the_normal_search(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Новая картина с нуля - обычный поиск, а не ошибка про отсутствующую запись."""
+    asked = _answers(monkeypatch)
+
+    assert cli.main(["моана", "2", "--new"]) == 0
+
+    saved = State.load().entries["movie:моана-2:2024"]
+    assert asked == []
+    assert saved.magnet.startswith("magnet:?xt=urn:btih:") and saved.pos == 0.0
+
+
+def test_new_restarts_the_saved_choice_of_the_picture_picked_in_the_menu(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """После выбора картины закладка ищется по её ключу и не переискивает релиз."""
+    state = State()
+    state.put(
+        "movie:моана-2:2024",
+        Entry(
+            title="Моана 2",
+            magnet="magnet:?xt=saved-picked",
+            file_idx=7,
+            audio=1,
+            pos=2467.0,
+            dur=5978.0,
+            query="моана",
+        ),
+    )
+    state.save()
+    asked = _answers(monkeypatch, "2")
+
+    assert cli.main(["моана", "--new"]) == 0
+
+    saved = State.load().entries["movie:моана-2:2024"]
+    assert len(asked) == 1 and "Что смотрим?" in asked[0]
+    assert (saved.magnet, saved.file_idx, saved.audio, saved.pos) == (
+        "magnet:?xt=saved-picked",
+        7,
+        1,
+        0.0,
+    )
 
 
 def test_a_bookmark_of_a_sequel_does_not_answer_which_picture_was_asked(
@@ -551,13 +528,12 @@ def test_a_bookmark_of_a_sequel_does_not_answer_which_picture_was_asked(
     assert State.load().entries["movie:моана-2:2024"].pos == 2467.0, "закладка цела"
 
 
-def test_the_bookmark_is_offered_inside_the_picture_that_was_chosen(
+def test_the_bookmark_is_resumed_inside_the_picture_that_was_chosen(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Закладка не выброшена: её предлагают той картине, которую человек выбрал.
 
-    Сначала вопрос про картину, потом - про место в ней; вопросов по-прежнему два, и
-    второй остаётся тем же самым «Продолжить?».
+    Вопрос только про картину; после выбора сохранённое место поднимается молча.
     """
     state = State()
     state.put(
@@ -570,9 +546,8 @@ def test_the_bookmark_is_offered_inside_the_picture_that_was_chosen(
     assert cli.main(["моана"]) == 0
 
     printed = capsys.readouterr().out
-    assert len(asked) == 2, asked
+    assert len(asked) == 1, asked
     assert asked[0].split("[")[0].strip() == "Что смотрим?", asked
-    assert "«Моана 2» остановились на 0:41:07. Продолжить?" in asked[1], asked
     assert "играю «Моана 2»" in printed and "с 0:41:07" in printed, printed
     assert State.load().entries["movie:моана-2:2024"].pos == 2467.0, "продолжаем с места"
 
@@ -583,7 +558,7 @@ def test_a_legacy_record_of_a_film_written_as_a_series_behaves_as_a_film(
     """Старая ошибка разбора живёт в сохранённом состоянии: «Moana 2» записана ``tv`` с s1e1.
 
     Парсер починен, но запись живёт и позиция в ней настоящая — терять её нельзя.
-    Одна серия в списке сериалом не считается: вопрос «Продолжить?» и ни слова про серии.
+    Одна серия в списке сериалом не считается: продолжение молчит и не говорит про серии.
     """
     state = State()
     state.put(
@@ -606,7 +581,7 @@ def test_a_legacy_record_of_a_film_written_as_a_series_behaves_as_a_film(
     assert cli.main(["моана", "2"]) == 0
 
     printed = capsys.readouterr().out
-    assert len(asked) == 1 and "Продолжить? [Y/n]" in asked[0]
+    assert asked == []
     assert "s1e1" not in printed and "Серии" not in printed
     assert State.load().entries["tv:moana-2:2024"].pos == 2566.0, "позиция пользователя цела"
 
@@ -723,7 +698,7 @@ def test_the_unused_spare_leaves_torrserver_by_its_own_hash(
 
 
 def _started_film(monkeypatch: pytest.MonkeyPatch, pos: float = 2467.0) -> None:
-    """Начатый фильм в состоянии — единственный вход на путь «Продолжить?»."""
+    """Начатый фильм в состоянии - единственный вход на путь resume."""
     state = State()
     state.put(
         "movie:моана-2:2024",
@@ -733,121 +708,23 @@ def _started_film(monkeypatch: pytest.MonkeyPatch, pos: float = 2467.0) -> None:
     monkeypatch.setattr(cli, "warm_file", lambda *a, **k: None)
 
 
-def test_the_swarm_goes_up_while_the_question_is_still_unanswered(
+def test_silent_resume_does_not_start_a_competing_position_warmer(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Раздача поднимается при ПЕЧАТИ вопроса, а не по ответу.
-
-    Самая дорогая фаза продолжения — метаданные раздачи по DHT, и это секунды. Ровно
-    столько же человек читает вопрос и тянется к клавише, поэтому подъём и уходит вперёд
-    вопроса: к Enter'у метаданные чаще всего уже приехали. Ждать ответа, чтобы начать, —
-    значит выбросить эту паузу целиком.
-    """
-    _started_film(monkeypatch)
-    raised = threading.Event()
-
-    class _Timed(_FakeTorrServer):
-        def add(self, magnet: str) -> str:
-            raised.set()
-            return f"hash-{magnet[:30]}"
-
-    monkeypatch.setattr(cli, "TorrServer", _Timed)
-    under_question: list[bool] = []
-
-    def ask(prompt: str = "") -> str:
-        under_question.append(raised.wait(5.0))  # вопрос на экране, ответа ещё нет
-        return ""
-
-    monkeypatch.setattr("builtins.input", ask)
-
-    assert cli.main(["моана", "2"]) == 0
-    assert under_question == [True], "раздача поднята, пока вопрос ещё не отвечен"
-
-
-def test_the_position_warmer_dies_on_the_answer(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Грелка позиции гаснет на Enter'е и ни секундой позже.
-
-    Прогрев, доигрывающий после ответа, — это второй читатель того же места через
-    TorrServer, и он отбирает у показа ровно ту полосу, ради которой затевался
-    (:meth:`torrcast.cli._Resume.enough`). Смысл прогрева весь в секундах ДО ответа.
-    """
-    _started_film(monkeypatch)
-    warming = threading.Event()
-    alive_of: list[Any] = []
-
-    def warm_file(source: str, at: float = 0.0, alive: Any = None, name: str = "") -> None:
-        alive_of.append(alive)
-        warming.set()
-
-    monkeypatch.setattr(cli, "warm_file", warm_file)
-
-    def ask(prompt: str = "") -> str:
-        assert warming.wait(5.0), "грелка успевает встать под вопросом"
-        return ""
-
-    monkeypatch.setattr("builtins.input", ask)
-
-    assert cli.main(["моана", "2"]) == 0
-    assert alive_of and alive_of[0]() is False, "после ответа грелка себя считает мёртвой"
-
-
-def test_a_failed_background_raise_is_not_a_failed_command(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """Не поднялась раздача фоном — просто ждём как раньше, молча и не падая.
-
-    Фоновый подъём — ускорение, а не источник правды: то же самое сделает сам показ в
-    юните, только на своём времени. Ошибке отсюда нечего сказать человеку.
-    """
-    _started_film(monkeypatch)
-    started: list[str] = []
-
-    class _Dead(_FakeTorrServer):
-        def add(self, magnet: str) -> str:
-            raise InfraError("TorrServer не отвечает")
-
-    monkeypatch.setattr(cli, "TorrServer", _Dead)
-    monkeypatch.setattr(cli, "start_play_unit", lambda key: started.append(key))
-    _answers(monkeypatch, "")
-
-    assert cli.main(["моана", "2"]) == 0
-    assert started == ["movie:моана-2:2024"], "показ идёт своим ходом"
-    assert "TorrServer" not in capsys.readouterr().out, "фоновая осечка человека не касается"
-
-
-def test_a_run_that_never_starts_takes_its_torrent_back(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Показа не будет (``--dry``) — поднятая раздача убирается по ЕЁ хэшу.
-
-    Раздача с ``save_to_db: false`` в списке TorrServer не видна, поэтому «снести всё из
-    list» тут не годится вдвойне: и своё не найдёт, и чужое снесёт. Хэш известен ровно
-    один — тот, что подняли сами.
-    """
+    """После удаления вопроса рой принадлежит только владельцу показа."""
     _started_film(monkeypatch)
     added: list[str] = []
-    dropped: list[str] = []
-    raised = threading.Event()
 
     class _Counting(_FakeTorrServer):
         def add(self, magnet: str) -> str:
             added.append(magnet)
-            raised.set()
             return f"hash-{magnet[:30]}"
 
-        def drop(self, torrent_hash: str) -> bool:
-            dropped.append(torrent_hash)
-            return True
-
     monkeypatch.setattr(cli, "TorrServer", _Counting)
+    monkeypatch.setattr(cli, "warm_file", lambda *a, **k: pytest.fail("грелки быть не должно"))
 
-    def ask(prompt: str = "") -> str:
-        raised.wait(5.0)
-        return ""
-
-    monkeypatch.setattr("builtins.input", ask)
-
-    assert cli.main(["моана", "2", "--dry"]) == 0
-    assert added == ["magnet:?xt=1"]
-    assert dropped == ["hash-magnet:?xt=1"], "убрано ровно поднятое, по явному хэшу"
+    assert cli.main(["моана", "2"]) == 0
+    assert added == [], "CLI не поднимает второго читателя раздачи"
 
 
 def test_a_dry_run_takes_even_the_chosen_torrent_back(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -974,11 +851,16 @@ def test_two_pictures_under_one_name_reach_the_last_line(
 
 
 def _live_show(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Состояние живого показа: юнит поднят и держит раздачу «Моаны»."""
+    """Состояние живого показа: юнит поднят и держит другую картину."""
     state = State.load()
     state.put(
-        OLD_KEY,
-        Entry(title="Moana", magnet="magnet:?xt=urn:btih:" + "a" * 40, pos=128.0, torrent="a" * 40),
+        "movie:матрица:1999",
+        Entry(
+            title="Матрица",
+            magnet="magnet:?xt=urn:btih:" + "a" * 40,
+            pos=128.0,
+            torrent="a" * 40,
+        ),
     )
     state.save()
     monkeypatch.setattr(cli, "unit_active", lambda *a, **k: True)
@@ -996,10 +878,10 @@ def test_a_second_cast_says_the_tv_is_busy_with_our_show(
     _live_show(monkeypatch)
     _answers(monkeypatch, "2", "")
 
-    assert cli.main(["моана", "--new"]) == 0
+    assert cli.main(["моана"]) == 0
 
     printed = capsys.readouterr().out
-    assert "на телевизоре сейчас идёт «Moana»" in printed, printed
+    assert "на телевизоре сейчас идёт «Матрица»" in printed, printed
     assert "0:02:08" in printed, "видно и то, докуда досмотрели"
     assert "этот показ прервётся" in printed, printed
 
@@ -1034,7 +916,7 @@ def test_the_menu_prewarm_stands_aside_while_our_show_is_on_air(
 
     monkeypatch.setattr("builtins.input", ask)
 
-    assert cli.main(["моана", "--new"]) == 0
+    assert cli.main(["моана"]) == 0
 
     assert under_question == [0], "под меню живого показа не поднято ни одной раздачи"
 
@@ -1092,8 +974,37 @@ def test_a_hand_named_release_says_out_loud_that_it_drops_the_bookmark(
 
     said = capsys.readouterr().out
     assert "не поднимаю" in said, said
-    assert "41:07" in said, "место названо тем же временем, что и в вопросе «Продолжить?»"
+    assert "41:07" in said, "потерянное место названо точным временем"
     assert State.load().entries["movie:моана-2:2024"].pos == 0.0, "играли с начала"
+
+
+@pytest.mark.parametrize(
+    ("flag", "number", "named", "torrent"),
+    [("--release", "2", "релиз", "d"), ("--file", "1", "файл", "c")],
+)
+def test_a_hand_named_choice_beats_new_and_says_so(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    flag: str,
+    number: str,
+    named: str,
+    torrent: str,
+) -> None:
+    """Явный релиз или файл выбирается заново; ``--new`` не глотает его молча."""
+    state = State()
+    state.put(
+        "movie:моана-2:2024",
+        Entry(title="Моана 2", magnet="magnet:?xt=saved", pos=2467.0, query="моана-2"),
+    )
+    state.save()
+    _answers(monkeypatch)
+
+    assert cli.main(["моана", "2", "--new", flag, number]) == 0
+
+    played = State.load().entries["movie:моана-2:2024"]
+    said = capsys.readouterr().out
+    assert played.magnet.startswith(f"magnet:?xt=urn:btih:{torrent * 4}")
+    assert f"{named} назван руками" in said and "сохранённый выбор не поднимаю" in said
 
 
 def test_continuing_without_a_flag_keeps_the_bookmark_and_stays_silent(
@@ -1110,12 +1021,12 @@ def test_continuing_without_a_flag_keeps_the_bookmark_and_stays_silent(
         Entry(title="Моана 2", magnet="magnet:?xt=1", pos=2467.0, dur=5978.0, query="моана-2"),
     )
     state.save()
-    asked = _answers(monkeypatch, "")  # Enter на «Продолжить?»
+    asked = _answers(monkeypatch, "")
 
     assert cli.main(["моана", "2"]) == 0
 
     said = capsys.readouterr().out
-    assert any("Продолжить?" in prompt for prompt in asked), asked
+    assert asked == []
     assert "не поднимаю" not in said, said
     kept = State.load().entries["movie:моана-2:2024"]
     assert kept.pos == 2467.0, "место осталось на 41:07"

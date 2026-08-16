@@ -453,7 +453,7 @@ def test_the_next_run_takes_the_remembered_voice_without_a_question(
     capsys.readouterr()
 
     asked = _answers(monkeypatch)
-    assert cli.main(["моана", "2", "--new"]) == 0
+    assert cli.main(["моана", "2"]) == 0
 
     printed = capsys.readouterr().out
     assert asked == [], "вопросов нет: и картина одна, и озвучка выбрана в прошлый раз"
@@ -461,7 +461,7 @@ def test_the_next_run_takes_the_remembered_voice_without_a_question(
     assert State.load().entries[KEY].audio == 5
 
 
-def test_a_new_flag_overwrites_the_memory(
+def test_new_with_a_voice_overwrites_the_memory(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Явный флаг сильнее памяти и переписывает её."""
@@ -472,29 +472,6 @@ def test_a_new_flag_overwrites_the_memory(
 
     saved = State.load().entries[KEY]
     assert (saved.audio, saved.voice) == (2, "rus · Дубляж. (Jaskier)")
-
-
-def test_a_remembered_voice_missing_from_the_release_is_said_out_loud(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """Озвучки нет в этом релизе — говорим и играем обычную, но выбор не забываем.
-
-    Память живёт на картину, а релиз временный: сегодня верх отбора один, завтра другой.
-    Стирать выбор пользователя из-за раздачи, которая до него не доехала, — та же
-    молчаливая подмена, только наоборот.
-    """
-    state = State()
-    state.put(KEY, Entry(title="Моана 2", magnet="m", query="моана-2", voice="rus · Кубик в кубе"))
-    state.save()
-    _answers(monkeypatch)
-
-    assert cli.main(["моана", "2", "--new"]) == 0
-
-    printed = capsys.readouterr().out
-    assert "озвучки «rus · Кубик в кубе» в этом релизе нет - беру обычную" in printed
-    assert "rus · Дубляж. (MovieDalen)" in printed
-    saved = State.load().entries[KEY]
-    assert (saved.audio, saved.voice) == (0, "rus · Кубик в кубе"), "память цела"
 
 
 def test_a_wrong_number_is_a_polite_refusal(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -625,6 +602,19 @@ def test_a_series_remembers_the_voice_for_the_whole_show(
     assert cli.main(["киберпанк"]) == 0
     assert asked == [], "повторный запуск ничего не спрашивает"
     assert "rus · MVO (TVShows)" in capsys.readouterr().out
+
+
+def test_new_applies_the_named_voice_to_the_saved_release(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``--new`` не имеет права молча выбросить соседний ``--voice``."""
+    key = _serial()
+    _answers(monkeypatch)
+
+    assert cli.main(["киберпанк", "--new", "--voice", "5"]) == 0
+
+    saved = State.load().entries[key]
+    assert (saved.audio, saved.voice, saved.pos) == (4, "rus · MVO (TVShows)", 0.0)
 
 
 def _serial(key: str = "tv:киберпанк:2022") -> str:

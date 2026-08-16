@@ -96,10 +96,10 @@ def test_watchdog_marks_the_movie_watched_only_at_the_end_of_the_show() -> None:
     assert saved().done and saved().pos == 0.0
 
 
-def test_resume_asks_once_and_starts_from_the_saved_position(
+def test_resume_is_silent_and_starts_from_the_saved_position(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Один вопрос, Enter — продолжаем; релиз и дорожка из состояния, поиска нет."""
+    """Продолжаем молча; релиз и дорожка из состояния, поиска нет."""
     remember(pos=2467.0, dur=5978.0, audio=1)
     started: list[str] = []
     asked: list[str] = []
@@ -115,44 +115,107 @@ def test_resume_asks_once_and_starts_from_the_saved_position(
     assert cli.main(["моана", "2"]) == 0
 
     printed = capsys.readouterr().out
-    assert asked == ["«Моана 2» остановились на 0:41:07. Продолжить? [Y/n]: "]
+    assert asked == []
     assert "- на ТВ" in printed
     assert "ищу" not in printed, "resume не ходит в Prowlarr"
     assert started == [KEY]
     assert saved().pos == 2467.0 and saved().audio == 1
 
 
-def test_resume_from_the_beginning_keeps_the_release_but_drops_the_position(
+def test_new_keeps_the_release_but_drops_the_position(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """«сначала» — та же раздача и дорожка, позиция ноль."""
+    """``--new`` - та же раздача и дорожка, позиция ноль."""
     remember(pos=2467.0, dur=5978.0, audio=1)
     monkeypatch.setattr(cli, "start_play_unit", lambda key: None)
     monkeypatch.setattr(cli, "_await_playing", lambda config, progress, timeout=120.0: None)
-    monkeypatch.setattr("builtins.input", lambda prompt="": "сначала")
+    monkeypatch.setattr("builtins.input", lambda prompt="": pytest.fail("меню не нужно"))
 
-    assert cli.main(["моана", "2"]) == 0
+    assert cli.main(["моана", "2", "--new"]) == 0
     assert saved().pos == 0.0 and saved().audio == 1
 
 
-def test_new_goes_through_the_search_and_keeps_the_position_of_a_run_that_never_started(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+def test_new_restarts_the_recorded_episode_not_the_series(
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """`--new` проходит выбор заново: вопроса «продолжить?» нет, дальше обычный путь
-    с поиском (тут он упирается в ненастроенный Prowlarr).
+    """Сериал остаётся на записанной серии, меняется только её позиция."""
+    key = "tv:сериал:2024"
+    state = State()
+    state.put(
+        key,
+        Entry(
+            title="Сериал",
+            magnet="magnet:?xt=series",
+            kind="tv",
+            file_idx=9,
+            audio=2,
+            pos=1234.0,
+            dur=2400.0,
+            query="сериал",
+            season=2,
+            episode=5,
+            episodes=[[1, 1, 1], [2, 5, 9], [2, 6, 10]],
+        ),
+    )
+    state.save()
+    monkeypatch.setattr(cli, "start_play_unit", lambda key: None)
+    monkeypatch.setattr(cli, "_await_playing", lambda config, progress, timeout=120.0: None)
+    monkeypatch.setattr("builtins.input", lambda prompt="": pytest.fail("меню не нужно"))
 
-    А вот стирать сохранённое место наперёд ему нечем: показ не начался — позиция цела.
-    Раньше запись сносилась первой же строкой команды, и любой обрыв после этого уносил
-    её насовсем.
-    """
-    remember(pos=2467.0, dur=5978.0)
-    monkeypatch.setattr("builtins.input", lambda prompt="": "")
+    assert cli.main(["сериал", "--new"]) == 0
 
-    assert cli.main(["моана", "2", "--new"]) == 2
+    restarted = saved(key)
+    episode = (restarted.season, restarted.episode, restarted.file_idx, restarted.pos)
+    assert episode == (2, 5, 9, 0.0)
+    assert (restarted.magnet, restarted.audio) == ("magnet:?xt=series", 2)
 
-    kept = State.load().get(KEY)
-    assert kept is not None and kept.pos == 2467.0, "показ не начался - позиция на месте"
-    assert "остановились" not in capsys.readouterr().out
+
+def test_new_jumps_to_the_named_episode_in_the_saved_release(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Явно названная серия сильнее записанной, но раздача остаётся прежней."""
+    key = "tv:сериал:2024"
+    state = State()
+    state.put(
+        key,
+        Entry(
+            title="Сериал",
+            magnet="magnet:?xt=series",
+            kind="tv",
+            file_idx=9,
+            pos=1234.0,
+            query="сериал",
+            season=2,
+            episode=5,
+            episodes=[[2, 5, 9], [2, 6, 10]],
+        ),
+    )
+    state.save()
+    monkeypatch.setattr(cli, "start_play_unit", lambda key: None)
+    monkeypatch.setattr(cli, "_await_playing", lambda config, progress, timeout=120.0: None)
+
+    assert cli.main(["сериал", "s2e6", "--new"]) == 0
+
+    restarted = saved(key)
+    assert (restarted.season, restarted.episode, restarted.file_idx, restarted.pos) == (
+        2,
+        6,
+        10,
+        0.0,
+    )
+    assert restarted.magnet == "magnet:?xt=series"
+
+
+def test_record_over_watched_ratio_still_resumes_as_before(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Доля длительности не меняет старый контракт ``resumable``."""
+    remember(pos=950.0, dur=1000.0)
+    started: list[str] = []
+    monkeypatch.setattr(cli, "start_play_unit", started.append)
+    monkeypatch.setattr(cli, "_await_playing", lambda config, progress, timeout=120.0: None)
+
+    assert cli.main(["моана", "2"]) == 0
+    assert started == [KEY]
+    assert saved().pos == 950.0
 
 
 def test_dry_resume_does_not_touch_the_unit(
@@ -301,9 +364,7 @@ class _Torrents:
         return self
 
     def add(self, magnet: str) -> str:
-        """Прогрев под вопросом «Продолжить?» тут не проверяется: пусть служба молчит -
-        это штатная ветка, и на уборку она не влияет.
-        """
+        """Пусть служба молчит: это штатная ветка, и на уборку она не влияет."""
         raise InfraError("TorrServer не отвечает")
 
     def drop(self, torrent_hash: str) -> bool:

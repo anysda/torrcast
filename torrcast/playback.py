@@ -16,7 +16,7 @@ __all__ = [
     "Progress", "Receiver", "Recoder",
     "Release", "State", "Supply",
     "TorrcastError", "TorrFile", "TorrServer",
-    "Vault", "Warmer", "_Resume",
+    "Vault", "Warmer",
     "_Revival", "_asked", "_await_playing",
     "_blame_the_end", "_blamed", "_default_file",
     "_encode_all", "_file_picker", "_handover",
@@ -29,7 +29,7 @@ __all__ = [
     "mark_playing", "os", "pick_video_file",
     "playing_flag", "probe", "recode_note",
     "recodes_whole", "start_play_unit", "stop_play_unit",
-    "threading", "time", "trace",
+    "time", "trace",
     "unit_active", "unit_why", "warm_file",
     "warm_key", "warm_root", "whole_encode",
     "why",
@@ -47,16 +47,13 @@ if TYPE_CHECKING:
         Watch,
         _Clock,
         _following,
-        _held_by_show,
     )
-    from torrcast.ranking import _hms
     from torrcast.selection import _about, _Plan
 
 
 import contextlib
 import os
 import sys
-import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -136,115 +133,14 @@ def _file_picker(args: Args) -> Callable[[_Plan, Release, list[TorrFile]], TorrF
     return chosen
 
 
-@dataclass(slots=True)
-class _Resume:
-    """Прогрев под вопросом «Продолжить?» — то же, что прогрев под меню, но для позиции.
-
-    Продолжение с середины упирается не в поиск (его тут нет вовсе), а в рой: показу
-    нужны заголовок файла и то место, где лежит сохранённая позиция, а холодная раздача
-    отдаёт новое место секундами. Единственная свободная секунда на этом пути — та, пока
-    человек читает вопрос, и она тут и тратится.
-
-    Смещение позиции в байтах берётся из карты опорных кадров
-    (:meth:`torrcast.stream.FilmKeys.byte_at`) — той же самой, по которой строится сетка.
-    Пропорция «доля фильма от размера файла» сюда не годится: битрейт по фильму гуляет
-    вдвое, и промах в проценте — это десятки мегабайт, то есть прогрев не того места.
-    """
-
-    torrserver: TorrServer
-    entry: Entry
-    source: str = ""
-    cancelled: bool = False
-    #: Хэш поднятой раздачи. Нужен ровно затем, чтобы её было чем убрать: в списке
-    #: TorrServer лежат и ЧУЖИЕ раздачи, а «снести всё из list» снесло бы их вместе со
-    #: своими; сверх того после перезапуска службы своих в списке не остаётся вовсе
-    #: (``save_to_db: false``) - и тогда убрать их нечем, кроме сохранённого хэша
-    #: (:meth:`_Bench.drop_all` убирает своё по тем же явным хэшам).
-    torrent_hash: str = ""
-    #: Показа не будет: поднятое надо убрать, даже если подъём ещё в пути.
-    discarded: bool = False
-
-    def start(self) -> None:
-        threading.Thread(target=self._work, daemon=True).start()
-
-    def _work(self) -> None:
-        with contextlib.suppress(TorrcastError):
-            self.torrent_hash = torrent_hash = self.torrserver.add(self.entry.magnet)
-            if self.discarded:  # отказались, пока раздача поднималась - убираем её сами
-                if not _held_by_show(torrent_hash):  # ...но не из-под живого показа
-                    self.torrserver.drop(torrent_hash)
-                return
-            files = self.torrserver.wait_files(torrent_hash)
-            self.source = self.torrserver.stream_url(torrent_hash, self.entry.file_idx)
-            # Имя файла - подсказка о контейнере для грелки головы: карта, снятая прошлой
-            # версией, лежит в кэше без него (:func:`torrcast.stream.container_of`).
-            name = next((f.name for f in files if f.index == self.entry.file_idx), "")
-            warm_file(self.source, at=self.entry.pos, alive=lambda: not self.cancelled, name=name)
-
-    def enough(self) -> None:
-        """Ответ получен — прогрев прекращается, дальше те же байты читает сам показ.
-
-        ⚠️ Это не мелочь и не гигиена, а замер. Прогрев, доигрывающий после Enter'а, —
-        это **второй** читатель того же места через TorrServer, и он отбирает у показа
-        ровно то, ради чего затевался: в замере пробный прогон вырос с 0.56
-        до 1.92 с, а готовность LOAD — с 3.5 до 4.8 с. Смысл прогрева весь в секундах
-        ДО ответа; после ответа лучший потребитель полосы — ffmpeg.
-
-        «Сначала» отменяет прогрев по той же причине, только резче: середина фильма
-        больше не нужна вовсе.
-        """
-        self.cancelled = True
-
-    def discard(self) -> None:
-        """Показа не будет вовсе — поднятую раздачу убрать по ЕЁ хэшу.
-
-        Ровно два таких выхода: Ctrl-C на вопросе и ``--dry`` (он и заведён затем, чтобы
-        ничего не начиналось и следов не оставалось). Раздача при этом уже поднята, а
-        живёт она не в нашем процессе: наш умрёт, а она останется качать метаданные в
-        чужой RAM до перезапуска TorrServer — та же беда, что у прогрева под меню
-        (:meth:`_Bench.drop_all`).
-
-        ⚠️ Ответ «сначала» сюда не относится: раздача та же самая, меняется только место,
-        с которого играем, — убрать её значило бы сломать показ.
-
-        И ту же раздачу, что держит параллельный живой показ (та же выдача, тот же
-        infohash), тоже не трогаем: снос выдернул бы источник из-под экрана
-        (:func:`_held_by_show`). Гонку с ещё не завершённым ``add`` ловит :meth:`_work`.
-        """
-        self.cancelled = True
-        self.discarded = True
-        if self.torrent_hash and not _held_by_show(self.torrent_hash):
-            self.torrserver.drop(self.torrent_hash)
-
-
 def _resume(config: Config, key: str, entry: Entry, clock: _Clock, dry: bool = False) -> int:
-    """Возобновление: один вопрос и сразу показ. Релиз, файл и дорожка берутся из
-    состояния — ни поиска, ни меню, поэтому старт укладывается в 5–15 с.
+    """Молча продолжить с записанных релиза, файла, дорожки и позиции.
 
-    Пока задаётся вопрос, раздача уже поднята в TorrServer, а рой прогрет по месту
-    сохранённой позиции (:class:`_Resume`): к Enter'у критический путь чаще всего пуст.
-
-    Приглашение - привычная пара ``[Y/n]``, и означает она ровно то, что означает везде:
-    Enter или «да» продолжают с сохранённого места, «нет» играет тот же фильм с начала.
-    Третьего намерения у этого вопроса нет: не продолжать - это и есть «сначала». Буквы
-    читаются в обоих языках и в любом регистре (:func:`~torrcast.console.ask_line`
-    приводит ответ к нижнему), поэтому под надписью ``n`` живут и ``н``, и «сначала».
+    Прежний прогрев позиции имел полезное время только пока человек отвечал на теперь
+    удалённый вопрос. После запуска он конкурировал бы с ffmpeg за тот же рой, поэтому
+    молчаливое продолжение сразу передаётся владельцу показа.
     """
-    warm = _Resume(TorrServer(config.torrserver_url), entry)
-    warm.start()
-    question = f"«{entry.title}» остановились на {_hms(entry.pos)}. Продолжить? [Y/n]"
-    try:
-        answer = ask_line(question)
-    except BaseException:  # Ctrl-C на вопросе - показа не будет, а раздача уже поднята
-        warm.discard()
-        raise
-    warm.enough()
-    mark("рой прогрет")  # TC-108: замер
-    if answer[:1] in {"с", "s", "н", "n"}:  # «нет» / «сначала» / «с начала» / no / start
-        entry.pos = 0.0
-    if dry:  # показа не будет: своё поднятое убираем сами, чужого не трогаем
-        warm.discard()
-    mark("ответы")  # ноль секундомера: Enter после последнего вопроса
+    mark("ответы")  # ноль секундомера: на этом пути вопросов нет
     return _launch(config, key, entry, _about(entry), clock, dry)
 
 

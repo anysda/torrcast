@@ -14,7 +14,6 @@ __all__ = [
     "State",
     "TorrServer",
     "_cmd_play",
-    "_forget_progress",
     "_relayout",
     "_season_asked",
     "_titled_number",
@@ -65,7 +64,7 @@ if TYPE_CHECKING:
         voice_unproven,
     )
     from torrcast.reinforce import _timed, _topup
-    from torrcast.selection import _Bench, _continue, _Plan, _remembered
+    from torrcast.selection import _about, _Bench, _continue, _Plan, _remembered, _Voiced, _voiced
     from torrcast.voice_origin import native_picture
 
 
@@ -106,8 +105,8 @@ def _cmd_play(args: Args) -> int:
     отвечает на вопрос про франшизу, топ-3 кандидата уже греются в TorrServer и читаются
     ffprobe: к моменту ответа критический путь чаще всего пуст.
 
-    ``--new`` здесь ничего не стирает: сохранённая позиция уходит в расход только тогда,
-    когда показ уже точно начинается (:func:`_forget_progress`). Почему так — там же.
+    ``--new`` играет сохранённую раздачу, файл и дорожку с нулевой позиции. Если записи
+    нет, команда идёт обычным путём поиска.
     """
     mark("команда")
     clock = _Clock()
@@ -126,15 +125,20 @@ def _cmd_play(args: Args) -> int:
     live = state.showing()
     _say_showing(live)
     found_entry = state.find(args.title_query)
-    # --new: прежний прогресс не продолжаем и выбираем заново, но запись пока цела.
-    stale = found_entry[0] if found_entry is not None and args.new else None
+    # --new поднимает сохранённый выбор лишь когда он действительно отвечает на
+    # весь запрос. Явная серия сперва прыгает внутри сохранённой раздачи, а ручной
+    # релиз/файл выбирается обычным путём: эти ручки нельзя выбросить молча.
+    if args.from_start and found_entry is not None and not args.pinned:
+        code = _from_start(config, *found_entry, args=args, clock=clock)
+        if code is not None:
+            return code
     # 🔴 Названный руками релиз весит здесь ровно столько же, сколько на втором раннем
     # выходе (:func:`_continue_picked`): человек выбирает раздачу сам, и продолжение
     # записанной на этот путь не заходит. Пока условия у двух выходов расходились, один и
     # тот же `--release N` то уважался, то пропадал молча, и решал это лишь текст запроса:
     # совпал с записью - выход был здесь, и флаг выбрасывался, не назвав себя ни строкой;
     # не совпал - картина выбиралась в меню, и тот же флаг работал.
-    if found_entry is not None and not args.new and not args.pinned:
+    if found_entry is not None and not args.pinned:
         code = _continue(config, *found_entry, args=args, clock=clock)
         if code is not None:
             return code
@@ -326,15 +330,13 @@ def _cmd_play(args: Args) -> int:
         # мог бы полежать, у них нет (:meth:`torrcast.selection._Series.choose`).
         episodes=series.table(prep.files, release.season) if series else [],
     )
-    if stale is not None:  # точка невозврата пройдена - вот теперь --new вправе забывать
-        _forget_progress(stale)
     return _launch(config, plan.picture.key, entry, about, clock)
 
 
 def _continue_picked(
     config: Config, state: State, plan: _Plan, bench: _Bench, *, args: Args, clock: _Clock
 ) -> int | None:
-    """Закладка выбранной картины: «Продолжить?» - после «Что смотрим?», а не вместо него.
+    """Закладка выбранной картины поднимается после «Что смотрим?», а не вместо него.
 
     🔴 Сохранённая позиция отвечает на вопрос «где я остановился», а не «какую картину я
     прошу». По имени франшизы без номера она и не спрашивается вовсе
@@ -343,56 +345,69 @@ def _continue_picked(
     закладка живёт, - поэтому здесь у неё своя очередь: картина уже названа, ключ её
     известен, и запись берётся по ключу картины, а не по тексту запроса.
 
-    Вопрос остаётся ОДИН и тот же самый: «Продолжить?» у начатой картины
-    (:func:`torrcast.cli._resume`). Второго диалога тут не заводится - на счастливом пути
-    вопросов по-прежнему не больше двух, и оба про намерение: какое кино и с какого места.
+    Начатая картина после выбора продолжается молча (:func:`torrcast.cli._resume`), поэтому
+    единственный возможный диалог на этом пути - выбор самой картины.
 
     Условие повторяет ту ветку :func:`_continue`, которая точно отвечает показом: фильм,
-    начатый и не досмотренный. Так и задумано - прогретое под меню убирается ДО вопроса
-    (раздача продолжения записана, и рой этих секунд нужен прогреву по сохранённому
-    месту), а значит обратной дороги в общий путь отсюда нет.
+    начатый и не досмотренный. Прогретое под меню убирается до продолжения: записанная
+    раздача известна, а конкурирующий читатель отнял бы полосу у показа.
 
     Названный руками релиз (``--release N`` / ``--file N``) сюда не заходит: там человек
-    выбирает раздачу сам, а продолжение играет записанную. ``--new`` не заходит тоже - он
-    ровно про то, чтобы прежнее место не поднимать.
+    выбирает раздачу сам, а продолжение играет записанную.
 
     🔴 Но молча мимо закладки такой показ не проходит. Названный релиз играется с начала,
     и стартовая запись показа (:func:`torrcast.playback._launch`) кладётся под тот же ключ
-    картины - сохранённое место после этого не восстановить ниоткуда. ``--new`` про потерю
-    места говорит сам собой, а ``--release N`` значит «другая раздача», а не «забудь, где
+    картины - сохранённое место после этого не восстановить ниоткуда. ``--release N``
+    значит «другая раздача», а не «забудь, где
     я остановился», и разницу эту человек обязан увидеть строкой до старта, а не следующим
     запуском. Строка одна и только когда терять правда есть что (:attr:`Entry.resumable`).
     """
     started = state.get(plan.picture.key)
     if started is None:
         return None
-    if args.pinned and not args.new and started.resumable:
+    if args.pinned and args.from_start:
+        named = "релиз" if args.release is not None else "файл"
+        print(
+            f"«{started.title}» - {named} назван руками, играю выбранное с начала; "
+            "сохранённый выбор не поднимаю"
+        )
+    elif args.pinned and started.resumable:
         print(
             f"«{started.title}» - релиз назван руками, играю с начала; "
             f"сохранённое место {_hms(started.pos)} не поднимаю"
         )
-    if args.new or args.pinned:
+    if args.pinned:
         return None
+    if args.from_start:
+        bench.drop_all()
+        return _from_start(config, plan.picture.key, started, args=args, clock=clock)
     if started.serial or not started.resumable:
         return None
     bench.drop_all()
     return _continue(config, plan.picture.key, started, args=args, clock=clock)
 
 
-def _forget_progress(key: str) -> None:
-    """Забыть прежний прогресс по ``--new`` — в момент, когда показ уже точно начинается.
+def _from_start(config: Config, key: str, entry: Entry, *, args: Args, clock: _Clock) -> int | None:
+    """Сохранённая раздача с нуля; ``None`` - запрос требует обычного поиска.
 
-    Раньше запись стиралась первым же действием команды, до единого вопроса. Любой обрыв
-    после этого — «ничего не разобралось», Ctrl-C, упавший ffprobe, а на прогоне без
-    терминала ещё и выбор вслепую — оставлял пользователя без сохранённого места, и взять
-    его было неоткуда: state уже перезаписан (ровно так и терялась запись фильма).
-
-    Раннее стирание при этом ничего не давало: свежую запись с нулевой позицией всё равно
-    кладёт :func:`_launch`. То есть у него была одна цена и ни одной пользы.
+    Названная серия ищется в таблице той же раздачи. Дорожку, названную ``--voice``,
+    перечитываем тем же путём, что продолжение, и передаём поднятую раздачу показу.
     """
-    state = State.load()  # перечитываем: рядом мог писать другой ход
-    state.drop(key)
-    state.save()
+    if args.episode is not None:
+        jumped = entry.jump(args.episode.season, args.episode.episode)
+        if jumped is None:
+            return None
+        entry = jumped
+    else:
+        entry = replace(entry, pos=0.0)
+    own = _Voiced()
+    try:
+        entry = _voiced(config, entry, args, own)
+        code = _launch(config, key, entry, _about(entry), clock, args.dry)
+        own.handed = not args.dry
+        return code
+    finally:
+        own.drop(config)
 
 
 def _relayout(

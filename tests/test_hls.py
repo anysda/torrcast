@@ -1914,7 +1914,7 @@ def test_two_writers_of_one_key_map_do_not_share_a_draft(tmp_path: Path) -> None
 def test_the_head_warmed_under_the_question_is_sized_by_the_container(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Голова под «Продолжить?» меряется контейнером, а не запасом под ``moov``.
+    """Голова прогрева меряется контейнером, а не запасом под ``moov``.
 
     У mp4 в голове лежит ``moov`` (у «Моаны 2» от YTS — 5.3 МБ), и без него ffmpeg вход
     не откроет. У mkv там EBML-заголовок, SeekHead, Info и Tracks — килобайты, а восемь

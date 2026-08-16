@@ -1608,32 +1608,6 @@ def test_voice_cleanup_spares_a_release_a_parallel_show_holds(
     assert dropped == ["hash-cold"], "свою неиспользованную раздачу убираем как прежде"
 
 
-def test_resume_discard_spares_a_release_a_parallel_show_holds(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    """Ctrl-C на «Продолжить?», пока рядом идёт показ той же раздачи: свою поднятую
-    раздачу убрали бы, но она же держит живой показ - не трогаем.
-    """
-    from torrcast.state import Entry, State
-
-    monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
-    torrserver = _FakeTorrServer()
-
-    state = State()
-    state.put("movie:кино:2022", Entry(title="Кино", magnet="m", torrent="hash-live"))
-    state.save()
-
-    warm = cli._Resume(cast(Any, torrserver), Entry(title="Кино", magnet="m"))
-    warm.torrent_hash = "hash-live"
-    warm.discard()
-    assert torrserver.dropped == [], "раздачу живого показа resume не сносит"
-
-    cold = cli._Resume(cast(Any, torrserver), Entry(title="Кино2", magnet="m2"))
-    cold.torrent_hash = "hash-cold"
-    cold.discard()
-    assert torrserver.dropped == ["hash-cold"], "свою поднятую раздачу убираем как прежде"
-
-
 def test_a_seeded_avi_no_longer_wins_the_top() -> None:
     """Живая выдача по «Моане 2»: 221 сид против 140 — и всё равно не дефолт.
 

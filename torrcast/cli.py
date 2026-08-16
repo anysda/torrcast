@@ -137,7 +137,6 @@ __all__ = [
     "_Passport",
     "_Plan",
     "_Prep",
-    "_Resume",
     "_Revivable",
     "_Revival",
     "_Series",
@@ -178,7 +177,6 @@ __all__ = [
     "_first_alive",
     "_following",
     "_foreign_note",
-    "_forget_progress",
     "_gb",
     "_handover",
     "_held_by_show",
@@ -556,7 +554,6 @@ from torrcast.discovery import (
 )
 from torrcast.play_command import (
     _cmd_play,
-    _forget_progress,
     _relayout,
     _season_asked,
     _titled_number,
@@ -606,7 +603,6 @@ from torrcast.playback import (
     _play,
     _recoder,
     _refuse_hopeless,
-    _Resume,
     _resume,
     _Revival,
     _warmer,
