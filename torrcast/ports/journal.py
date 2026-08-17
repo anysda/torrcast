@@ -22,6 +22,9 @@ class Journal(Protocol):
     def emit(self, phase: str, event: str, **fields: Any) -> None:
         """Положить произвольное событие в ленту."""
 
+    def mark(self, name: str, **facts: Any) -> None:
+        """Отметить фазу критического пути старта: где именно ушли секунды."""
+
     def shutdown(self) -> None:
         """Дождаться, пока фоновый писатель допишет хвост."""
 
@@ -78,6 +81,9 @@ class _Silent:
     """След, которого нет: прогон без композиционного корня ничего не пишет."""
 
     def emit(self, phase: str, event: str, **fields: Any) -> None:
+        return None
+
+    def mark(self, name: str, **facts: Any) -> None:
         return None
 
     def shutdown(self) -> None:

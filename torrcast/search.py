@@ -32,13 +32,13 @@ from urllib.parse import quote
 from xml.etree import ElementTree
 
 from torrcast import InfraError, NotFoundError
+from torrcast.adapters.filesystem.stopwatch import mark
 from torrcast.adapters.prowlarr.prowlarr_http_client import (
     ProwlarrHttpClient,
     _HttpSession,
     _IndexersUnavailableError,
 )
 from torrcast.parse import Release, anime_indexer, by_majority, looks_anime, parse_release_name
-from torrcast.timing import mark
 
 __all__ = [
     "CIRCLE_SHARE",

@@ -55,7 +55,6 @@ __all__ = [
     "_second_language",
     "_vouched",
     "kin_line",
-    "mark",
     "menu_order",
     "merge",
     "origin",
@@ -91,7 +90,6 @@ globals().update(
             "merge",
             "to_releases",
         ),
-        torrcast__timing=("mark",),
     )
 )
 
@@ -134,7 +132,7 @@ def _search(
         # Ни одной строки - повод заподозрить забытую раскладку (:func:`unswap_layout`).
         # Проверка стоит один заход к индексерам и только там, где иначе был бы отказ.
         query, name, index, raw = _relayout(client, query, name, index, progress)
-    mark("индексеры ответили", строк=len(raw))  # TC-108: замер
+    journal().mark("индексеры ответили", строк=len(raw))  # TC-108: замер
     pictures = cluster(to_releases(raw))
     # Номер в запросе - позиция во франшизе, а не в общей выдаче.
     found = pick_franchise(query, pictures)
@@ -179,7 +177,7 @@ def _search(
         raw, pictures, found = _voice_reinforce(
             client, query, voiceless, raw, found, progress, titled
         )
-    mark("поиск", найдено=len(raw))
+    journal().mark("поиск", найдено=len(raw))
     journal().emit("search", "query", query=query, raw=len(raw), pictures=len(pictures))
     if not raw:
         raise NotFoundError(f"по запросу «{name}» ничего не нашлось")

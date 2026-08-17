@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from torrcast.domain.trace_digest import digest
+from torrcast.domain.digest import digest
 from torrcast.ports.journal import journal
 
 __all__ = ["EXIT_OK", "Args", "_cmd_log", "_since_seconds", "contextlib", "time", "trace"]

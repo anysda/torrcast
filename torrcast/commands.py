@@ -118,7 +118,6 @@ __all__ = [
     "io",
     "load_config",
     "make_receiver",
-    "mark",
     "parse_args",
     "partial",
     "probe",
@@ -231,7 +230,6 @@ from torrcast.stream import (
     unit_active,
     unit_key,
 )
-from torrcast.timing import mark
 from torrcast.usecases.cache_reserve import _cache_reserve
 from torrcast.usecases.doctor_command import _cmd_doctor
 from torrcast.usecases.episode_duration import WORKER_DUR, _duration

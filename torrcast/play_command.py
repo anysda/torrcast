@@ -25,7 +25,6 @@ __all__ = [
     "bitrate_mbit",
     "detect_profile",
     "load_config",
-    "mark",
     "merge",
     "season_reread",
     "slugify",

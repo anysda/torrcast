@@ -46,7 +46,6 @@ globals().update(
             "swarm_pulse",
             "warm_file",
         ),
-        torrcast__timing=("mark",),
     )
 )
 
@@ -963,7 +962,7 @@ class _Bench:
             )
             prep.files = files
             prep.meta = self.clock() - prep.started
-            mark("метаданные", релиз=prep.number, картина=plan.picture.key)
+            journal().mark("метаданные", релиз=prep.number, картина=plan.picture.key)
             prep.video = self.choose(plan, prep.release, files)
             prep.phase = "дорожки"
             began = self.clock()
@@ -984,7 +983,7 @@ class _Bench:
                 ),
             )
             prep.read = self.clock() - began
-            mark("ffprobe", релиз=prep.number, картина=plan.picture.key)
+            journal().mark("ffprobe", релиз=prep.number, картина=plan.picture.key)
             prep.phase = "готово"
         except TorrcastError as exc:
             prep.error = str(exc)

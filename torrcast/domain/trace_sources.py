@@ -2,7 +2,7 @@
 
 Имена короткие, потому что поле идёт в КАЖДОЙ записи сегмента. Пишет их сама лента
 (:mod:`torrcast.adapters.filesystem.trace_journal`), читает разбор
-(:mod:`torrcast.domain.trace_digest`).
+(:mod:`torrcast.domain.digest`).
 """
 
 from typing import Final

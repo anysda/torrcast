@@ -6,6 +6,8 @@ import time
 from importlib import import_module
 from typing import Any
 
+from torrcast.ports.journal import journal
+
 
 class _LazyPacker:
     """Откладывает импорт упаковщика до настоящего запуска прогрева."""
@@ -60,7 +62,7 @@ class _SystemWarmEnvironment:
 
     @staticmethod
     def mark(name: str, **facts: object) -> None:
-        import_module("torrcast.timing").mark(name, **facts)
+        journal().mark(name, **facts)
 
 
 environment = _SystemWarmEnvironment()

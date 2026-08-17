@@ -15,7 +15,7 @@ import pytest
 from tests.fakes.clock import FakeClock
 from torrcast import trace
 from torrcast.adapters.filesystem import trace_journal
-from torrcast.domain.trace_digest import _seams
+from torrcast.domain.digest import _seams
 
 
 @pytest.fixture(autouse=True)
@@ -827,7 +827,7 @@ def test_cast_log_shows_the_timeline_and_the_query(
     """Фазы критического пути и запрос пишутся в ленту всегда - и обязаны печататься.
 
     🔴 TC-194. До этого `cast log` не рендерил их вовсе: своей ветки у события нет,
-    :func:`torrcast.domain.trace_digest._event_line` возвращала пустую строку, и целый
+    :func:`torrcast.domain.digest._event_line` возвращала пустую строку, и целый
     класс записей, лежащих в
     ``jsonl``, человек не видел. Это ровно та ловушка, ради которой след и заведён: «в
     журнале нет строки» читалось как «события не было».

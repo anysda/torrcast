@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from torrcast.domain.torrcast_error import TorrcastError
+from torrcast.ports.journal import journal
 
 __all__ = [
     "Supply",
@@ -20,7 +21,6 @@ __all__ = [
     "contextlib",
     "detect_profile",
     "make_receiver",
-    "mark",
     "signal",
     "tune_profile",
 ]
@@ -41,7 +41,6 @@ for _module_name, _names in {
         "Supply",
         "TorrServer",
     ),
-    "torrcast.timing": ("mark",),
 }.items():
     _dependency = module(_module_name)
     globals().update({name: getattr(_dependency, name) for name in _names})
@@ -80,7 +79,7 @@ def _cmd_worker(key: str) -> int:
     прочими). Прогрев следующей серии тут не жертва: он идёт по этой же раздаче и
     кончается вместе с юнитом.
     """
-    mark("процесс показа")
+    journal().mark("процесс показа")
     config = load_config()
     # Профиль приёмника юнит выбирает себе сам, а не получает от CLI: юнит переживает
     # смену серии и живёт своей жизнью, а опрос паспорта стоит одного HTTP к устройству.

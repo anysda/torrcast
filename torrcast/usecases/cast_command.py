@@ -57,7 +57,6 @@ __all__ = [
     "bitrate_mbit",
     "detect_profile",
     "load_config",
-    "mark",
     "merge",
     "season_reread",
     "slugify",
@@ -89,7 +88,6 @@ for _module_name, _names in {
         "load_config",
     ),
     "torrcast.stream": ("TorrServer",),
-    "torrcast.timing": ("mark",),
     "torrcast.voice_origin": ("native_picture",),
 }.items():
     _dependency = module(_module_name)
@@ -108,7 +106,7 @@ def _cmd_play(args: Args) -> int:
     ``--new`` играет сохранённую раздачу, файл и дорожку с нулевой позиции. Если записи
     нет, команда идёт обычным путём поиска.
     """
-    mark("команда")
+    journal().mark("команда")
     clock = _Clock()
     config = load_config()
     # Раздача показа, убитого не по-людски, - первое, что убирается: она держит рой и
@@ -188,11 +186,11 @@ def _cmd_play(args: Args) -> int:
         # стоить человеку подъёма второй раздачи с нуля (:data:`PREWARM_SPARE`).
         if live is None:
             bench.spare(order[0], args)
-        mark("прогрев пущен", придержан=live is not None)  # TC-108: замер
+        journal().mark("прогрев пущен", придержан=live is not None)  # TC-108: замер
         try:
             try:
                 plan = _pick_plan(plans, facts, pick=args.pick, asked=args.title_query)
-                mark("картина выбрана")  # TC-108: замер
+                journal().mark("картина выбрана")  # TC-108: замер
                 # Картина названа - вот теперь очередь закладки: она про место ВНУТРИ
                 # картины, и спрашивают о ней после того, как картина выбрана.
                 code = _continue_picked(config, state, plan, bench, args=args, clock=clock)
@@ -234,7 +232,7 @@ def _cmd_play(args: Args) -> int:
                 # отношения не имеет, а к моменту ответа поток обычно давно закончил.
                 facts.finish()
             plan, prep = _played(bench, plans, plan, args, progress, facts, config, chosen.profile)
-            mark("отбор релиза", релиз=prep.number)  # TC-108: замер
+            journal().mark("отбор релиза", релиз=prep.number)  # TC-108: замер
         except BaseException:  # Ctrl-C, «картин много, а терминала нет», «годного нет»
             bench.drop_all()  # прогретое без показа - мусор в рое и кэш в чужой RAM
             raise
@@ -242,7 +240,7 @@ def _cmd_play(args: Args) -> int:
 
     release, video, media = prep.release, prep.want, prep.found
     audio, voice = pick_voice(media, args, _remembered(state, plan.picture.key, found_entry))
-    mark("ответы")  # ноль секундомера: Enter после последнего вопроса
+    journal().mark("ответы")  # ноль секундомера: Enter после последнего вопроса
     label = media.tracks[audio].label if audio < len(media.tracks) else "-"
     series = plan.series
     what = f"«{plan.picture.title}»" + (

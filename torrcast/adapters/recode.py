@@ -52,8 +52,7 @@ from typing import TYPE_CHECKING, Any, Final
 from torrcast.adapters.ffmpeg.encode_args import encode_args
 from torrcast.domain.profile import CAUTIOUS
 from torrcast.domain.recode_settings import RECODE_HEIGHT
-
-mark = import_module("torrcast.timing").mark
+from torrcast.ports.journal import journal
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -994,7 +993,7 @@ class Recoder:
         if since is None:
             self.stuck[slot] = since = now
             self.blocked = slot
-            mark("держу тяжёлую копию", слот=slot, мбит=round(self.weights.at(slot), 1))
+            journal().mark("держу тяжёлую копию", слот=slot, мбит=round(self.weights.at(slot), 1))
             self._say(
                 f"v{slot} копией тяжелее {self.cap / 1e6:.0f} МБ - жду перекод: "
                 "такой кусок приёмник не доигрывает"
@@ -1072,7 +1071,7 @@ class Recoder:
         slot = self.shrinking[0] if self.shrinking is not None else -1
         with contextlib.suppress(OSError, ProcessLookupError, AttributeError):
             packer.proc.send_signal(signal.SIGSTOP)
-        mark("заход уступил ужатию", слот=slot)
+        journal().mark("заход уступил ужатию", слот=slot)
         try:
             while not self.stopped and self._shrink_running():
                 time.sleep(0.2)
@@ -1151,7 +1150,7 @@ class Recoder:
         with contextlib.suppress(OSError):
             size = (self.spare.parent / f"v{slot}.ts").stat().st_size
             went = size * 8 / span / 1e6 if span > 0 else 0.0
-        mark(
+        journal().mark(
             "сегмент",
             слот=slot,
             перекод=recoded,
@@ -1334,7 +1333,7 @@ class Recoder:
         # потрачен на кусок, который заведомо не влезал, и потрачен на критическом пути.
         longest = max(self.grid.span(s) for s in range(first, last + 1))
         encode = self.fit(longest, preset)
-        mark(
+        journal().mark(
             "заход",
             первый=first,
             последний=last,
@@ -1437,7 +1436,7 @@ class Recoder:
             # подъёмом ffmpeg, чтением из раздачи и соседями (:class:`Pace`).
             made = sum(self.grid.span(s) for s in got)
             ratio = self.pace.record(preset, made, spent)
-            mark(
+            journal().mark(
                 "темп перекода",
                 пресет=preset,
                 секунд=round(made, 1),

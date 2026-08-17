@@ -572,6 +572,10 @@ class _Ticker:
     def monotonic(self) -> float:
         return self.now
 
+    def wall(self) -> float:
+        """Стенное время подделке не нужно: показ считает им только подписи меток."""
+        return self.now
+
 
 class _Warm:
     """Прогрев глазами показа: сколько секунд легло на диск и лёг ли фильм целиком."""

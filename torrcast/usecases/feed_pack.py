@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.profile import CAUTIOUS
+from torrcast.ports.journal import journal
 
 __all__ = [
     "CAUTIOUS",
@@ -22,7 +23,6 @@ __all__ = [
     "contextlib",
     "dataclass",
     "field",
-    "mark",
     "merge_tracks",
     "os",
     "replace",
@@ -56,7 +56,6 @@ clock_port = module("time")
 time = clock_port
 _stream_core = module("torrcast.stream_core")
 _TIMEOUT, PACK_PENDING_BYTES = _stream_core._TIMEOUT, _stream_core.PACK_PENDING_BYTES
-mark = module("torrcast.timing").mark
 
 if TYPE_CHECKING:
     pass
@@ -909,7 +908,7 @@ class Feed:
                 # перезапуск с нужного места (:meth:`Packer.eta`).
                 if packer.eta(self.grid.start(slot)) <= self.jump:
                     return True  # обычный ход показа: кусок вот-вот допакуется
-                mark(
+                journal().mark(
                     "перемотка внутри прогона",
                     слот=slot,
                     ждать=round(packer.eta(self.grid.start(slot)), 1),
@@ -1025,7 +1024,7 @@ class Feed:
             # запасным путём и сверкой: он идёт один раз на файл (:func:`pack_start`).
             # Дороже всего это на перемотке - там прогон был на пути к картинке каждый раз.
             at = pack_start(self.source, self.grid.start(slot))
-            mark("заход упаковки", слот=slot, встали=round(at, 3))
+            journal().mark("заход упаковки", слот=slot, встали=round(at, 3))
         command = ffmpeg_pack_command(
             self.source,
             self.audio,
@@ -1114,7 +1113,7 @@ class Feed:
             run = recoder.spare / SHRINK_DIR
             weight = f" ({size / 1e6:.0f} МБ)" if size > 0 else ""
             self._say(f"v{slot} тяжелее потолка{weight} - ужимаю на месте до {mbit:.1f} Мбит/с")
-            mark("ужатие на месте", слот=slot, мбит=round(mbit, 2))
+            journal().mark("ужатие на месте", слот=slot, мбит=round(mbit, 2))
             command = ffmpeg_pack_command(
                 self.source,
                 self.audio,
@@ -1179,7 +1178,7 @@ class Feed:
             f"⚠️ v{slot} пропускаю: кусок тяжелее потолка{weight}, а {reason} - "
             "этого места в показе не будет"
         )
-        mark("пропуск тяжёлого куска", слот=slot, мб=round(size / 1e6))
+        journal().mark("пропуск тяжёлого куска", слот=slot, мб=round(size / 1e6))
         return False
 
     def sweep(self) -> None:
@@ -1213,7 +1212,7 @@ class Feed:
             f"несданных кусков {pending / 1e6:.0f} МБ в памяти - упаковку гашу, "
             "подниму её по запросу приёмника"
         )
-        mark("несданное копится", мб=round(pending / 1e6), край=packer.edge)
+        journal().mark("несданное копится", мб=round(pending / 1e6), край=packer.edge)
         packer.halt(reason=f"несданного {pending / 1e6:.0f} МБ в памяти")
 
     def prune(self, played: float) -> None:

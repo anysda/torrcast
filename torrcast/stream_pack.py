@@ -1,7 +1,6 @@
 """Совместимый фасад адаптера упаковки потока."""
 
 # ruff: noqa: F403, F405
-
 import sys
 
 from torrcast.adapters import stream_pack as _implementation
@@ -42,7 +41,6 @@ __all__ = [
     "hls_dir",
     "json",
     "mapped_start",
-    "mark",
     "mark_playing",
     "math",
     "os",

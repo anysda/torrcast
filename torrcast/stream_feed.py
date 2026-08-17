@@ -1,7 +1,6 @@
 """Совместимый фасад сценария подачи потока."""
 
 # ruff: noqa: F403, F405
-
 import sys
 
 from torrcast.usecases import feed_pack as _implementation
@@ -22,7 +21,6 @@ __all__ = [
     "contextlib",
     "dataclass",
     "field",
-    "mark",
     "merge_tracks",
     "os",
     "replace",

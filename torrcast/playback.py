@@ -73,7 +73,6 @@ __all__ = [
     "forget_playing",
     "hls_base",
     "make_receiver",
-    "mark",
     "mark_playing",
     "os",
     "pick_video_file",

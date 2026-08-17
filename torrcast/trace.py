@@ -2,7 +2,7 @@
 
 Сама лента - файлы и фоновый писатель - живёт в
 :mod:`torrcast.adapters.filesystem.trace_journal`, разбор её записей в человеческий
-текст - в :mod:`torrcast.domain.trace_digest`, а слои зовут след через порт
+текст - в :mod:`torrcast.domain.digest`, а слои зовут след через порт
 :mod:`torrcast.ports.journal`. Отсюда его берут щупы и прежние импорты.
 """
 
@@ -108,6 +108,6 @@ from torrcast.adapters.filesystem.trace_journal import (
 from torrcast.adapters.filesystem.trace_journal import (
     warmth as warmth,
 )
-from torrcast.domain.trace_digest import digest as digest
+from torrcast.domain.digest import digest as digest
 from torrcast.domain.trace_sources import PACKED as PACKED
 from torrcast.domain.trace_sources import WARMED as WARMED

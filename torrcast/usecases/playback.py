@@ -59,7 +59,7 @@ __all__ = [
     "_refuse_hopeless", "_resume", "_warmer",
     "ask_line", "codec_name", "contextlib",
     "dataclass", "detect_profile", "forget_playing",
-    "hls_base", "make_receiver", "mark",
+    "hls_base", "make_receiver",
     "mark_playing", "os", "pick_video_file",
     "playing_flag", "probe", "recode_note",
     "recodes_whole", "start_play_unit", "stop_play_unit",
@@ -128,7 +128,6 @@ for _module_name, _names in {
     "torrcast.timing": (
         "CLOCK",
         "Clock",
-        "mark",
     ),
 }.items():
     _dependency = module(_module_name)
@@ -163,7 +162,7 @@ def _resume(config: Config, key: str, entry: Entry, clock: _Clock, dry: bool = F
     удалённый вопрос. После запуска он конкурировал бы с ffmpeg за тот же рой, поэтому
     молчаливое продолжение сразу передаётся владельцу показа.
     """
-    mark("ответы")  # ноль секундомера: на этом пути вопросов нет
+    journal().mark("ответы")  # ноль секундомера: на этом пути вопросов нет
     return _launch(config, key, entry, _about(entry), clock, dry)
 
 
@@ -188,7 +187,7 @@ def _launch(
     state.save()
     forget_playing(Path(config.hls_dir))  # флажок прошлого показа нам не доказательство
     start_play_unit(key)
-    mark("юнит")
+    journal().mark("юнит")
     with Progress() as progress:
         _await_playing(config, progress)
     print(f"играю {about} - на ТВ   (старт {clock.total:.0f} с)")
@@ -272,14 +271,14 @@ def _await_playing(
     packed = False
     while clock.monotonic() < deadline:
         if flag.exists():
-            mark("картинка")
+            journal().mark("картинка")
             progress.phase("")
             return
         if not packed:
             with contextlib.suppress(OSError):
                 packed = any(out.glob("v*.ts"))
             if packed:
-                mark("первый сегмент")
+                journal().mark("первый сегмент")
         progress.phase("жду телевизор" if packed else "упаковка")
         if not unit.active():
             progress.phase("")
@@ -730,7 +729,7 @@ def _play(
         frame=frame,
         hdr=hdr,
     )
-    mark("сетка", сегментов=grid.count, покадрам=grid.on_keys)
+    journal().mark("сетка", сегментов=grid.count, покадрам=grid.on_keys)
     if whole is not None:
         # Причина перекода называется вслух: кодек с глубиной - или вес, и тогда с числом.
         # А вместе с ней и ужатый кадр: 2160p наружу уезжает как 1080p (TC-222).
@@ -744,7 +743,7 @@ def _play(
             ),
             flush=True,
         )
-        mark(
+        journal().mark(
             "сплошной перекод",
             кодек=name,
             пресет=whole.preset,
@@ -820,14 +819,14 @@ def _play(
     url = f"{hls_base(config)}/index.m3u8"
     try:
         server.start()
-        mark("раздача")
+        journal().mark("раздача")
         # Упаковку начинаем сами, не дожидаясь первого запроса: ресиверу нужен готовый
         # кусок сразу, иначе LOAD упирается в ожидание ffmpeg и старт растёт на глазах.
         if recoder is not None:
             recoder.played = start
             recoder.start()
         feed.restart(grid.slot_at(start))
-        mark("упаковка пошла")
+        journal().mark("упаковка пошла")
         raised = True
         try:
             receiver.play(url, about, at=start)
@@ -843,7 +842,7 @@ def _play(
             raised = False
             print(f"{session_tag} {why(exc)} - поднимаю показ сам", flush=True)
         else:
-            mark("LOAD взят")
+            journal().mark("LOAD взят")
             print(f"{session_tag} играю {about} - на ТВ   (старт {clock.total:.0f} с)", flush=True)
         # ⚠️ Прогрев стартует ровно ЗДЕСЬ и ни строкой выше: путь до картинки он не
         # удлиняет ни на секунду - ни своим ffmpeg, ни чтением каталога. Всё, что он

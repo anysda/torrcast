@@ -23,6 +23,7 @@ from torrcast.domain.warm_open import (
     SEEK_SHIFT,
     WARM_TIMEOUT,
 )
+from torrcast.ports.journal import journal
 
 # mypy: ignore-errors
 
@@ -61,7 +62,6 @@ __all__ = [
     "hls_dir",
     "json",
     "mapped_start",
-    "mark",
     "mark_playing",
     "math",
     "os",
@@ -105,7 +105,6 @@ _ORIGIN = _core._ORIGIN
 _ORIGIN_LOCK = _core._ORIGIN_LOCK
 _SEEK_LOCK = _core._SEEK_LOCK
 _SEEK_OK = _core._SEEK_OK
-mark = import_module("torrcast.timing").mark
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -464,7 +463,7 @@ def film_keys(source_url: str) -> FilmKeys:
 
     cache = _keys_cache(source_url)
     if (ready := _read_keys(cache)) is not None:
-        mark("карта: из кэша")
+        journal().mark("карта: из кэша")
         return ready
     lock = cache.with_suffix(".lock")
     deadline = time.monotonic() + KEYS_WAIT
@@ -472,12 +471,12 @@ def film_keys(source_url: str) -> FilmKeys:
     while _fetching(lock) and time.monotonic() < deadline:
         time.sleep(0.2)
         if (ready := _read_keys(cache)) is not None:
-            mark("карта: дождались прогрева", ждали=round(time.monotonic() - waited, 2))
+            journal().mark("карта: дождались прогрева", ждали=round(time.monotonic() - waited, 2))
             return ready
     with contextlib.suppress(OSError):
         lock.parent.mkdir(parents=True, exist_ok=True)
         lock.touch()
-    mark("карта: чтение")
+    journal().mark("карта: чтение")
     # Замок живёт по mtime (:func:`_fetching`), поэтому его надо освежать, пока держим:
     # чтение хвоста у холодного роя стоит 2-6 с, но разбор карты добавляет к ним секунды,
     # и на длинном фильме замок протух бы прямо под работающим читателем - а сосед,
@@ -491,7 +490,7 @@ def film_keys(source_url: str) -> FilmKeys:
     # разбирали одну и ту же карту параллельно).
     try:
         found = keyframes(source_url)
-        mark("карта: снята", кадров=len(found.points), байт=found.taken)
+        journal().mark("карта: снята", кадров=len(found.points), байт=found.taken)
         # ⚠️ Дорожку видео выбираем ОДИН раз. Пока этот вызов стоял внутри списка, он
         # считался на каждую точку Cues, а сам он линейный по всем точкам - то есть карта
         # разбиралась квадратично. Цена замерена: «Моана 2», 7274
@@ -548,7 +547,7 @@ def warm_at(source_url: str, offset: int, upto: int = HEAD_WARM, alive: Any = No
             taken += len(chunk)
             if alive is not None and not alive():
                 break
-    mark("прогрето", смещение=offset, байт=taken, за=round(time.monotonic() - began, 2))
+    journal().mark("прогрето", смещение=offset, байт=taken, за=round(time.monotonic() - began, 2))
     return taken
 
 
@@ -778,14 +777,14 @@ def pack_start(
         with _SEEK_LOCK:
             trusted = _SEEK_OK.get(source_url)
         if trusted:
-            mark("заход по карте", просили=round(at, 3), встали=round(guess, 3))
+            journal().mark("заход по карте", просили=round(at, 3), встали=round(guess, 3))
             return guess
     found = _pilot_start(source_url, at, timeout)
     if not math.isnan(guess) and _SEEK_OK.get(source_url) is None:
         agreed = abs(found - guess) <= SPLIT_SLACK
         with _SEEK_LOCK:
             _SEEK_OK[source_url] = agreed
-        mark(
+        journal().mark(
             "сверка карты с прогоном",
             сошлось=agreed,
             карта=round(guess, 3),
@@ -870,7 +869,7 @@ def pack_origin(source_url: str, timeout: float = PILOT_TIMEOUT) -> float:
     origin = math.ceil(((delay or 0.0) + AUDIO_PRIMING) * 1000.0) / 1000.0
     with _ORIGIN_LOCK:
         origin = _ORIGIN.setdefault(source_url, origin)
-    mark("начало ленты", сдвиг=origin, померено=delay is not None)
+    journal().mark("начало ленты", сдвиг=origin, померено=delay is not None)
     return origin
 
 

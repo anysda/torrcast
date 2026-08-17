@@ -35,7 +35,8 @@ import time
 from pathlib import Path
 from typing import Any, Final
 
-from torrcast.domain.trace_digest import digest
+from torrcast.adapters.filesystem.stopwatch import mark as _mark
+from torrcast.domain.digest import digest
 from torrcast.domain.trace_sources import WARMED
 
 __all__ = [
@@ -530,6 +531,7 @@ class FileJournal:
     """
 
     emit = staticmethod(emit)
+    mark = staticmethod(_mark)
     shutdown = staticmethod(shutdown)
     records = staticmethod(records)
     session_id = staticmethod(session_id)
