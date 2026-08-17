@@ -42,7 +42,9 @@ _MOVED_NAMES = {"_cmd_status": ("torrcast.cli.main", "status")}
 _COMPOSED_NAMES = {
     "TorrServer": (
         ("torrcast.usecases.cache_reserve", "_reserve_engines"),
+        ("torrcast.usecases.cast_command", "_play_engines"),
         ("torrcast.usecases.torrents", "_cleanup_engines"),
+        ("torrcast.usecases.voices_command", "_voices_engines"),
         ("torrcast.usecases.worker", "_worker_engines"),
     ),
     "make_receiver": (("torrcast.usecases.worker", "_worker_receivers"),),

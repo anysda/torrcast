@@ -1,45 +1,50 @@
 """Отладочная ручка ``cast releases <запрос>``: таблица релизов каждой картины и выход.
-Зовёт её :func:`torrcast.commands.main`, показ отсюда не начинается.
+Зовёт её :func:`torrcast.cli.releases.releases`, показ отсюда не начинается.
 """
-
-# ruff: noqa: F821, F822
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
+
+from torrcast.domain.choice import Choice
+from torrcast.domain.config import Config
+from torrcast.domain.exit_codes import EXIT_OK
 from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.release import Release
+from torrcast.domain.tune import tune as tune_profile
 from torrcast.ports.progress import progress as progress_bar
 from torrcast.usecases.choice import _named
 from torrcast.usecases.discover import _search
 from torrcast.usecases.rank import render_table
 from torrcast.usecases.reinforce import _timed
 
-__all__ = [
-    "EXIT_OK",
-    "Args",
-    "Facts",
-    "NotFoundError",
-    "Release",
-    "_cmd_releases",
-    "detect_profile",
-    "load_config",
-    "tune_profile",
-]
+if TYPE_CHECKING:
+    from torrcast.ports.choice_types import Args, Facts
 
-from collections.abc import Callable
-from typing import Any
+#: Внешний мир таблицы: настройки, справка о картинах, паспорт приёмника и память
+#: показанного порядка. Кладёт их композиционный корень (:mod:`torrcast.runtime.wire`) -
+#: файл, сеть и опрос устройства сценарию не назвать. Имена длиннее очевидных нарочно:
+#: плоский namespace прежнего монолита (:mod:`torrcast.cli`) вписывает globals каждой
+#: своей части в каждую другую, и короткий тёзка молча затирает функцию соседа.
+_releases_settings: Callable[[], Config]
+_releases_facts: Callable[[list[tuple[str, int | None]]], Facts]
+_releases_detect: Callable[[Config], Choice]
+_releases_remember: Callable[[str, dict[str, list[Release]]], None]
 
-from torrcast.domain.exit_codes import EXIT_OK
-from torrcast.ports.module import module
 
-for _module_name, _names in {
-    "torrcast.facts": ("Facts",),
-    "torrcast.state": ("load_config",),
-}.items():
-    _dependency = module(_module_name)
-    globals().update({name: getattr(_dependency, name) for name in _names})
-detect_profile = module("torrcast.profile").detect
-tune_profile = module("torrcast.profile").tune
+def _configure_releases_command(
+    settings: Callable[[], Config],
+    facts: Callable[[list[tuple[str, int | None]]], Facts],
+    detect: Callable[[Config], Choice],
+    remember: Callable[[str, dict[str, list[Release]]], None],
+) -> None:
+    """Назначить таблице релизов её внешний мир."""
+    global _releases_settings, _releases_facts, _releases_detect, _releases_remember
+    _releases_settings = settings
+    _releases_facts = facts
+    _releases_detect = detect
+    _releases_remember = remember
 
 
 def _cmd_releases(
@@ -72,11 +77,14 @@ def _cmd_releases(
     #: Внешние соседи таблицы: поиск, конфиг, справка и паспорт приёмника. Подделке
     #: отбора хватает её собственных ответов, в бою это сеть, диск и опрос устройства.
     search = search or _search
-    settings = settings or load_config
-    facts_source = facts_source or Facts
-    profile_choice = profile_choice or detect_profile
+    settings = settings or _releases_settings
+    facts_source = facts_source or _releases_facts
+    profile_choice = profile_choice or _releases_detect
     config = settings()
-    inner = Args(query=list(args.query[1:]))
+    # Внутренний запрос той же формы, что пришёл: команда снимает с него своё слово
+    # («releases») и играет остатком. Класс берётся у самого аргумента - разбор
+    # командной строки живёт слоем выше, и сценарию его не назвать.
+    inner = type(args)(query=list(args.query[1:]))
     if not inner.query:
         raise NotFoundError("что искать? cast releases <запрос>")
     chosen = profile_choice(config)
@@ -105,7 +113,7 @@ def _cmd_releases(
                     hard_mbit=plan.hard_mbit,
                 )
             )
-        module("torrcast.release_pin").remember(inner.title_query, shown)
+        _releases_remember(inner.title_query, shown)
         print()
         if len(plans) > 1:
             print(

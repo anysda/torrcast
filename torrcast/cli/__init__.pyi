@@ -219,6 +219,7 @@ __all__ = [
     "_search",
     "_season_asked",
     "_season_reinforce",
+    "_season_reread",
     "_second_language",
     "_silenced",
     "_since_seconds",
@@ -318,7 +319,6 @@ __all__ = [
     "save_config",
     "scan",
     "season_gaps",
-    "season_reread",
     "shorten",
     "shutil",
     "signal",
@@ -493,12 +493,14 @@ from torrcast.commands import (
     _worker_loop,
     argparse,
     io,
+    load_config,
     partial,
     save_config,
     scan,
     signal,
     split_episode,
     terminal,
+    tune_profile,
     unit_key,
 )
 from torrcast.console import Progress
@@ -530,10 +532,8 @@ from torrcast.play_command import (
     _cmd_play,
     _relayout,
     _season_asked,
+    _season_reread,
     _titled_number,
-    load_config,
-    season_reread,
-    tune_profile,
 )
 from torrcast.playback import (
     CAUTIOUS,

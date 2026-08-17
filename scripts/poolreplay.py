@@ -62,9 +62,9 @@ from torrcast.cli import (
     _lacks_season,
     _Plan,
     _plan_for,
+    _season_reread,
     drop_reason,
     queue_drops,
-    season_reread,
     unfit_pool,
     voiceless_pool,
     worth_asking_original,
@@ -273,10 +273,10 @@ def replay(
     pictures = cluster(to_releases(raw), glue_rule=spy)
     found = menu_order(pick_franchise(args.title_query, pictures))
     # Номер при имени сериала - сезон, и читает его тут ТА ЖЕ функция, что и показ
-    # (:func:`~torrcast.cli.season_reread`, TC-363): иначе планы строились бы по первому
+    # (:func:`~torrcast.cli._season_reread`, TC-363): иначе планы строились бы по первому
     # сезону там, где спрошен второй, - и разошлись бы молча.
     name, index = split_franchise_index(args.title_query)
-    if (reread := season_reread(args, name, index, found, pictures)) is not None:
+    if (reread := _season_reread(args, name, index, found, pictures)) is not None:
         args, index = reread, None
     plans = [p for p in (_plan_for(pic, args, config, profile) for pic in found) if p.ranked]
     return Replay(

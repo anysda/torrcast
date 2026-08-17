@@ -1,19 +1,35 @@
-"""Сценарий команды показа: поиск, выбор и запуск картины."""
-
-# ruff: noqa: F821, F822
+"""Сценарий команды показа: поиск, выбор и запуск картины.
+Зовёт его :func:`torrcast.cli.play.play`, внешний мир кладёт композиционный корень.
+"""
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from dataclasses import replace
+from typing import TYPE_CHECKING
+
 from torrcast.domain.bitrate_mbit import bitrate_mbit
+from torrcast.domain.choice import Choice
+from torrcast.domain.cluster import cluster
 from torrcast.domain.config import Config
 from torrcast.domain.entry import Entry
 from torrcast.domain.exit_codes import EXIT_OK
+from torrcast.domain.pick_franchise import pick_franchise
 from torrcast.domain.picture import Picture
+from torrcast.domain.prewarm_settings import PREWARM
+from torrcast.domain.reads_season import reads_season
+from torrcast.domain.release import Release
 from torrcast.domain.slugify import slugify
 from torrcast.domain.split_franchise_index import split_franchise_index
+from torrcast.domain.tune import tune as tune_profile
+from torrcast.domain.unswap_layout import unswap_layout
+from torrcast.domain.watch_state import WatchState
 from torrcast.ports.journal import journal
 from torrcast.ports.progress import Progress
 from torrcast.ports.progress import progress as progress_bar
+from torrcast.ports.state_store import store as watch_store
+from torrcast.ports.torrent_catalogue import IndexerClient, RawRow
+from torrcast.ports.torrent_engines import TorrentEngines
 from torrcast.usecases.choice import (
     _is_default,
     _passport,
@@ -27,6 +43,8 @@ from torrcast.usecases.choice import (
 from torrcast.usecases.discover import _ask, _no_budget, _search
 from torrcast.usecases.playback import _file_picker, _launch
 from torrcast.usecases.rank import (
+    _gb,
+    _hms,
     default_unnamed,
     pick_voice,
     quality_text,
@@ -36,64 +54,54 @@ from torrcast.usecases.rank import (
 )
 from torrcast.usecases.reinforce import _timed, _topup
 from torrcast.usecases.say_showing import _say_showing
-from torrcast.usecases.select import _about, _continue, _Plan, _remembered, _Voiced, _voiced
+from torrcast.usecases.select import _about, _continue, _remembered, _Voiced, _voiced
 from torrcast.usecases.select_bench import _Bench
 from torrcast.usecases.start_clock import _Clock
 from torrcast.usecases.torrents import _release_orphans
 
-__all__ = [
-    "EXIT_OK",
-    "TYPE_CHECKING",
-    "Entry",
-    "Facts",
-    "Picture",
-    "Prowlarr",
-    "RawResult",
-    "State",
-    "TorrServer",
-    "_cmd_play",
-    "_relayout",
-    "_season_asked",
-    "_titled_number",
-    "bitrate_mbit",
-    "detect_profile",
-    "load_config",
-    "merge",
-    "season_reread",
-    "slugify",
-    "split_franchise_index",
-    "to_releases",
-    "tune_profile",
-]
-
-from dataclasses import replace
-from typing import TYPE_CHECKING
-
 if TYPE_CHECKING:
-    pass
+    from torrcast.ports.choice_types import Args, Facts, _Plan
+
+#: Внешний мир команды показа. Всё это кладёт композиционный корень
+#: (:mod:`torrcast.runtime.wire`): сценарий знает, ЧТО ему нужно - служба раздач, файл
+#: настроек, паспорт приёмника, справка о картинах, происхождение картины, порядок
+#: последней таблицы релизов и разбор сырой выдачи каталога, - а КТО за этим стоит, не
+#: его дело. До слова корня имён тут нет вовсе: молчаливой подделки у сети не бывает.
+#:
+#: ⚠️ Имена длиннее очевидных нарочно. Плоский namespace прежнего монолита
+#: (:mod:`torrcast.cli`) вписывает в КАЖДУЮ свою часть globals всех остальных, и короткий
+#: тёзка молча затирает функцию соседа.
+_play_engines: TorrentEngines
+_play_settings: Callable[[], Config]
+_play_detect: Callable[[Config], Choice]
+_play_facts: Callable[[list[tuple[str, int | None]]], Facts]
+_play_native: Callable[[Picture, str], None]
+_play_pinned: Callable[[str, str, int], str]
+_play_merge: Callable[..., list[RawRow]]
+_play_releases: Callable[[list[RawRow]], list[Release]]
 
 
-from torrcast.ports.module import module
-
-for _module_name, _names in {
-    "torrcast.facts": ("Facts",),
-    "torrcast.search": (
-        "Prowlarr",
-        "RawResult",
-        "merge",
-        "to_releases",
-    ),
-    "torrcast.state": (
-        "State",
-        "load_config",
-    ),
-    "torrcast.stream": ("TorrServer",),
-    "torrcast.voice_origin": ("native_picture",),
-}.items():
-    _dependency = module(_module_name)
-    globals().update({name: getattr(_dependency, name) for name in _names})
-detect_profile = module("torrcast.profile").detect
-tune_profile = module("torrcast.profile").tune
+def _configure_cast_command(
+    engines: TorrentEngines,
+    settings: Callable[[], Config],
+    detect: Callable[[Config], Choice],
+    facts: Callable[[list[tuple[str, int | None]]], Facts],
+    native: Callable[[Picture, str], None],
+    pinned: Callable[[str, str, int], str],
+    merge: Callable[..., list[RawRow]],
+    releases: Callable[[list[RawRow]], list[Release]],
+) -> None:
+    """Назначить команде показа её внешний мир."""
+    global _play_engines, _play_settings, _play_detect, _play_facts
+    global _play_native, _play_pinned, _play_merge, _play_releases
+    _play_engines = engines
+    _play_settings = settings
+    _play_detect = detect
+    _play_facts = facts
+    _play_native = native
+    _play_pinned = pinned
+    _play_merge = merge
+    _play_releases = releases
 
 
 def _cmd_play(args: Args) -> int:
@@ -108,16 +116,16 @@ def _cmd_play(args: Args) -> int:
     """
     journal().mark("команда")
     clock = _Clock()
-    config = load_config()
+    config = _play_settings()
     # Раздача показа, убитого не по-людски, - первое, что убирается: она держит рой и
     # место в TorrServer, а хозяина у неё нет. Пустое состояние это не стоит ни секунды.
     _release_orphans(config)
     # Профиль приёмника - до всего остального: от него зависят и потолки отбора, и то,
     # какой кодек считается играбельным. Спрашивать о нём человека нечего: он выбирается
     # по паспорту устройства, а незнакомому приёмнику достаётся осторожный набор.
-    chosen = detect_profile(config)
+    chosen = _play_detect(config)
     config = tune_profile(config, chosen.profile)
-    state = State.load()
+    state = watch_store().load()
     # Один телевизор - один показ. Сироты уже убраны выше, поэтому непустая отметка
     # раздачи здесь значит ровно «на экране прямо сейчас идёт наш показ».
     live = state.showing()
@@ -156,7 +164,7 @@ def _cmd_play(args: Args) -> int:
         plans = _search(config, args, progress, chosen.profile)
         # Справка к меню (рейтинг, хронометраж, о чём кино) едет фоном - ровно в те
         # секунды, что уходят на подъём прогрева. Меню её не ждёт: см. torrcast.facts.
-        facts = Facts([(p.picture.title, p.picture.year) for p in plans])
+        facts = _play_facts([(p.picture.title, p.picture.year) for p in plans])
         facts.start()
         # 🔴 TC-199/TC-200. Год картины, которая встанет дефолтом, сверяется со справкой -
         # так же, как добор сверяет свой (:func:`year_note`). Справку зовём вслепую и фоном,
@@ -164,7 +172,7 @@ def _cmd_play(args: Args) -> int:
         # последней строке перед стартом паспорт уже приехал. Год выдачи ей НЕ сообщаем -
         # иначе подстроится под подмену и сверять станет нечего.
         passport = _passport(plans)
-        torrserver = TorrServer(config.torrserver_url)
+        torrserver = _play_engines(config.torrserver_url)
         bench = _Bench(torrserver, choose=_file_picker(args), profile=chosen.profile)
         # Прогрев под меню: пока идёт вопрос, раздачи уже качают метаданные. Греется
         # голова ОЧЕРЕДИ, а не верх ранжира: верх мог не пройти ворота (TC-432), и
@@ -197,7 +205,7 @@ def _cmd_play(args: Args) -> int:
                 if code is not None:
                     return code
                 if args.release is not None:
-                    args.release_hash = module("torrcast.release_pin").recalled(
+                    args.release_hash = _play_pinned(
                         args.title_query, plan.picture.key, args.release
                     )
                 # Опоздавший индексер: круг ушёл по кворуму, и его выдача доехала, пока
@@ -221,7 +229,7 @@ def _cmd_play(args: Args) -> int:
                 # пересобирается на настоящих числах. Прогретое при этом не пропадает:
                 # номера релизов переезжают вместе с порядком (:meth:`_Bench.reorder`).
                 plan = bench.reorder(plan, _timed(plan, facts, args, config, chosen.profile))
-                native_picture(plan.picture, args.title_query)
+                _play_native(plan.picture, args.title_query)
                 # Прогретые кандидаты ДРУГИХ картин с этой секунды - мусор: они тянут
                 # куски у той раздачи, которую сейчас будем показывать, и всё это время
                 # стоят в TorrServer лишними (:meth:`_Bench.keep_plan`).
@@ -343,7 +351,7 @@ def _cmd_play(args: Args) -> int:
 
 
 def _continue_picked(
-    config: Config, state: State, plan: _Plan, bench: _Bench, *, args: Args, clock: _Clock
+    config: Config, state: WatchState, plan: _Plan, bench: _Bench, *, args: Args, clock: _Clock
 ) -> int | None:
     """Закладка выбранной картины поднимается после «Что смотрим?», а не вместо него.
 
@@ -419,7 +427,7 @@ def _from_start(config: Config, key: str, entry: Entry, *, args: Args, clock: _C
         own.drop(config)
 
 
-def _account_watched(state: State, found: tuple[str, Entry]) -> tuple[tuple[str, Entry], bool]:
+def _account_watched(state: WatchState, found: tuple[str, Entry]) -> tuple[tuple[str, Entry], bool]:
     """На следующем ``cast`` превратить закладку >= 95 % в «досмотрено».
 
     Это бухгалтерия сохранённого места, не переход играющего сериала: живой юнит
@@ -431,7 +439,7 @@ def _account_watched(state: State, found: tuple[str, Entry]) -> tuple[tuple[str,
     stopped, label = entry.pos, entry.label
     following = entry.advance()
     state.put(key, following)
-    state.save()
+    watch_store().save(state)
     if following.serial and following.done:
         return (key, following), True  # строку и выбор перезапуска ведёт ``_continue``
     what = f" {label}" if label else ""
@@ -443,8 +451,8 @@ def _account_watched(state: State, found: tuple[str, Entry]) -> tuple[tuple[str,
 
 
 def _relayout(
-    client: Prowlarr, query: str, name: str, index: int | None, progress: Progress
-) -> tuple[str, str, int | None, list[RawResult]]:
+    client: IndexerClient, query: str, name: str, index: int | None, progress: Progress
+) -> tuple[str, str, int | None, list[RawRow]]:
     """Второй заход той же строкой, прочитанной как забытая раскладка. Пусто - как было.
 
     `cast nfxrb` - это «тачки»: запрос, набранный не переключив раскладку. Отказ по
@@ -460,8 +468,6 @@ def _relayout(
     остаться в имени. Подмена не молчаливая: строка про раскладку печатается до меню -
     человек видит, ЧТО именно за него прочитали.
     """
-    unswap_layout = module("torrcast.parse").unswap_layout
-
     swapped = unswap_layout(query)
     if swapped == query.casefold():
         return query, name, index, []
@@ -475,8 +481,8 @@ def _relayout(
 
 
 def _titled_number(
-    client: Prowlarr, query: str, name: str, raw: list[RawResult], progress: Progress
-) -> tuple[list[RawResult], list[Picture], list[Picture]]:
+    client: IndexerClient, query: str, name: str, raw: list[RawRow], progress: Progress
+) -> tuple[list[RawRow], list[Picture], list[Picture]]:
     """Второй заход ВСЕЙ строкой: цифра оказалась частью названия. Не помогло - как было.
 
     🔴 TC-296. `cast «бен 10»` уезжал искать «Бен-Гур». Хвостовая цифра читается номером
@@ -503,20 +509,17 @@ def _titled_number(
     нумерацию франшизы (о том же :func:`_second_language`), и честное «номера N нет»
     стало бы неправдой про другую линейку.
     """
-    cluster = module("torrcast.parse").cluster
-    pick_franchise = module("torrcast.parse").pick_franchise
-
     if _no_budget(client, f"поиск «{query}» целиком", progress) is None:
-        return raw, cluster(to_releases(raw)), []
+        return raw, cluster(_play_releases(raw)), []
     progress.phase(f"поиск «{query}»")
-    merged = merge(raw, _ask(client, query, progress))
+    merged = _play_merge(raw, _ask(client, query, progress))
     progress.phase("")
     if len(merged) == len(raw):
-        return raw, cluster(to_releases(raw)), []
-    pictures = cluster(to_releases(merged))
+        return raw, cluster(_play_releases(raw)), []
+    pictures = cluster(_play_releases(merged))
     found = pick_franchise(query, pictures)
     if not found:
-        return raw, cluster(to_releases(raw)), []
+        return raw, cluster(_play_releases(raw)), []
     progress.note(f"по «{name}» картины не нашлось - искал «{query}» целиком")
     return merged, pictures, found
 
@@ -529,9 +532,6 @@ def _season_asked(found: list[Picture], name: str, pictures: list[Picture]) -> b
     правил тут нет - есть одно, и cli лишь читает, чем оно кончилось: номер должен
     доехать до сезонной машинерии, а знает про сезоны она, а не разбор.
     """
-    pick_franchise = module("torrcast.parse").pick_franchise
-    reads_season = module("torrcast.parse").reads_season
-
     if not found or any(picture.kind != "tv" for picture in found):
         return False
     # Голое имя: номер снят выше, поэтому пополнение меню продолжениями сюда доехало бы
@@ -539,7 +539,7 @@ def _season_asked(found: list[Picture], name: str, pictures: list[Picture]) -> b
     return reads_season(pick_franchise(name, pictures, join_continuations=False))
 
 
-def season_reread(
+def _season_reread(
     args: Args, name: str, index: int | None, found: list[Picture], pictures: list[Picture]
 ) -> Args | None:
     """Перечитать номер запроса сезоном: запрос «имя N» → «имя sNe1» (TC-363).
@@ -559,4 +559,11 @@ def season_reread(
     return replace(args, query=[*name.split(), f"s{index}e1"])
 
 
-__all__ = [name for name in globals() if not name.startswith("__")]
+__all__ = [
+    "_cmd_play",
+    "_configure_cast_command",
+    "_relayout",
+    "_season_asked",
+    "_season_reread",
+    "_titled_number",
+]

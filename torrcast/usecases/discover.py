@@ -137,7 +137,7 @@ def _search(
     # Номер в запросе - позиция во франшизе, а не в общей выдаче.
     found = pick_franchise(query, pictures)
     titled = False
-    if (reread := season_reread(args, name, index, found, pictures)) is not None:
+    if (reread := _season_reread(args, name, index, found, pictures)) is not None:
         # 🔴 TC-363. У сериала номер это сезон, а не часть франшизы
         # (:func:`~torrcast.parse.reads_season`), и дальше по строке он идёт ровно тем же
         # путём, что и явное `sNeM`: своей сезонной машинерией, вплоть до честного

@@ -10,9 +10,12 @@ from torrcast.adapters.chromecast.cast import make_receiver
 from torrcast.adapters.chromecast.profile_detector import detector
 from torrcast.adapters.console.console import Progress
 from torrcast.adapters.console.print_console import PrintConsole
+from torrcast.adapters.filesystem.release_pins import pins
 from torrcast.adapters.filesystem.state import FileStateStore, load_config
 from torrcast.adapters.filesystem.trace_journal import FileJournal
 from torrcast.adapters.health.system_health_environment import SystemHealthEnvironment
+from torrcast.adapters.prowlarr.merge import merge
+from torrcast.adapters.prowlarr.to_releases import to_releases
 from torrcast.adapters.stream_probe import Supply, probe
 from torrcast.adapters.systemd.transient_show_unit import TransientShowUnit
 from torrcast.adapters.torrserver.torr_server import TorrServer
@@ -21,14 +24,19 @@ from torrcast.ports.journal import install as install_journal
 from torrcast.ports.progress import install as install_progress
 from torrcast.ports.show_unit import install as install_unit
 from torrcast.ports.state_store import install as install_state
+from torrcast.runtime.menu_facts import MenuFacts
+from torrcast.runtime.native_picture import native_picture
 from torrcast.runtime.trace_thresholds import trace_thresholds
 from torrcast.usecases.cache_reserve import _configure_cache_reserve
+from torrcast.usecases.cast_command import _configure_cast_command
 from torrcast.usecases.choice import configure as configure_choice
 from torrcast.usecases.doctor import _configure as configure_checks
 from torrcast.usecases.doctor_command import _configure as configure_doctor
 from torrcast.usecases.episode_duration import _configure_episode_duration
 from torrcast.usecases.rank import configure as configure_rank
+from torrcast.usecases.releases_command import _configure_releases_command
 from torrcast.usecases.torrents import _configure_torrents
+from torrcast.usecases.voices_command import _configure_voices_command
 from torrcast.usecases.warm import configure as configure_warm
 from torrcast.usecases.worker import _configure_worker
 from torrcast.usecases.worker_loop import _configure_worker_loop
@@ -68,3 +76,18 @@ def wire() -> None:
     # целиком, иначе показ узнавал бы имя `TorrServer` из строки уже внутри юнита.
     _configure_worker(TorrServer, make_receiver, Supply, load_config, detector.detect)
     _configure_worker_loop(trace_thresholds)
+    # Команды ``cast`` берут свой внешний мир тем же порядком: службу раздач, настройки,
+    # паспорт приёмника, справку о картинах, происхождение картины, память показанной
+    # таблицы и разбор сырой выдачи каталога. Имён этих в сценариях больше нет ни строкой.
+    _configure_cast_command(
+        TorrServer,
+        load_config,
+        detector.detect,
+        MenuFacts,
+        native_picture,
+        pins.recalled,
+        merge,
+        to_releases,
+    )
+    _configure_releases_command(load_config, MenuFacts, detector.detect, pins.remember)
+    _configure_voices_command(load_config, TorrServer, native_picture)
