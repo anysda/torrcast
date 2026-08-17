@@ -55,6 +55,7 @@ from types import ModuleType
 from typing import Any, NoReturn
 
 from torrcast.ports.module import module
+from torrcast.ports.show_unit import ShowUnit
 
 clock_port = module("time")
 time = clock_port
@@ -197,7 +198,30 @@ def _refuse_hopeless(config: Config, entry: Entry) -> None:
     )
 
 
-def _await_playing(config: Config, progress: Progress, timeout: float = START_BUDGET) -> None:
+class _SystemdShowUnit:
+    """Юнит показа поверх прежних функций systemd - боевое умолчание ожидания картинки.
+
+    Имена берутся из глобалей модуля в момент вызова: так подмена одного звена
+    (диагностика, сухой прогон соседнего теста) доезжает до ожидания целиком.
+    """
+
+    def active(self) -> bool:
+        return bool(unit_active())
+
+    def why(self) -> str:
+        return str(unit_why())
+
+    def stop(self) -> None:
+        stop_play_unit()
+
+
+def _await_playing(
+    config: Config,
+    progress: Progress,
+    timeout: float = START_BUDGET,
+    clock: Clock = CLOCK,
+    unit: ShowUnit | None = None,
+) -> None:
     """Дождаться **картинки на экране**, а не «упаковка пошла».
 
     Две разные вещи, которые легко счесть одной: первый сегмент в tmpfs — это упаковка, а
@@ -205,12 +229,18 @@ def _await_playing(config: Config, progress: Progress, timeout: float = START_BU
     сендер к нему должен быть ровно один, и он живёт в юните (см. :mod:`torrcast.cast`).
     Поэтому юнит кладёт флажок (:func:`mark_playing`), а CLI его ждёт — и печатает
     «старт NN с» ровно в тот момент, когда на экране появилось изображение.
+
+    ``clock`` и ``unit`` - выдержка ожидания и сам юнит показа
+    (:class:`torrcast.ports.show_unit.ShowUnit`). Боевой путь ждёт настоящими секундами и
+    спрашивает systemd; сухому прогону дают свои часы и свой юнит, иначе тест выжидал бы
+    весь бюджет старта по-настоящему.
     """
+    unit = unit if unit is not None else _SystemdShowUnit()
     out = Path(config.hls_dir)
     flag = playing_flag(out)
-    deadline = clock_port.monotonic() + timeout
+    deadline = clock.monotonic() + timeout
     packed = False
-    while clock_port.monotonic() < deadline:
+    while clock.monotonic() < deadline:
         if flag.exists():
             mark("картинка")
             progress.phase("")
@@ -221,13 +251,13 @@ def _await_playing(config: Config, progress: Progress, timeout: float = START_BU
             if packed:
                 mark("первый сегмент")
         progress.phase("жду телевизор" if packed else "упаковка")
-        if not unit_active():
+        if not unit.active():
             progress.phase("")
-            raise InfraError(f"показ не запустился: {unit_why()}")
-        clock_port.sleep(0.2)
+            raise InfraError(f"показ не запустился: {unit.why()}")
+        clock.sleep(0.2)
     progress.phase("")
-    stop_play_unit()
-    raise InfraError(f"показ не начался за {timeout:.0f} с - {unit_why()}")
+    unit.stop()
+    raise InfraError(f"показ не начался за {timeout:.0f} с - {unit.why()}")
 
 
 def _recoder(
@@ -867,7 +897,7 @@ def _handover(watch: Watch | None) -> bool:
     return watch is not None and watch.done and _following(watch.key) is not None
 
 
-def _blame_the_end(supply: Supply | None, shown: bool = True) -> NoReturn:
+def _blame_the_end(supply: Supply | None, shown: bool = True, clock: Clock = CLOCK) -> NoReturn:
     """Показ кончился недосмотренным - назвать виноватого, и назвать верно. Всегда бросает.
 
     🔴 Последняя строка показа - последняя возможность сказать правду. Раньше показ
@@ -883,7 +913,7 @@ def _blame_the_end(supply: Supply | None, shown: bool = True) -> NoReturn:
     Спросить источник тут можно спокойно: показ уже кончился, горячего пути нет, а
     человеку и следу уходит одна и та же причина.
     """
-    why_source = _blamed(supply)
+    why_source = _blamed(supply, clock)
     if why_source:
         trace.offline(why=why_source, asked=True)
         if not shown:

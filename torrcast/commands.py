@@ -107,6 +107,7 @@ __all__ = [
     "_since_seconds",
     "_torrent_hash",
     "_worker_loop",
+    "answered",
     "argparse",
     "ask",
     "console",
@@ -148,7 +149,7 @@ import io
 import re
 import signal
 import sys
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from functools import partial
 
@@ -680,30 +681,19 @@ def main(argv: Sequence[str] | None = None) -> int:
     # Прогресс идёт вперемешку с ошибками в stderr: без построчного сброса врёт порядок.
     if isinstance(sys.stdout, io.TextIOWrapper):
         sys.stdout.reconfigure(line_buffering=True)
+    return answered(lambda: _dispatch(argv))
+
+
+def answered(run: Callable[[], int]) -> int:
+    """Ответ командной строки: код возврата вместо трейсбека, чем бы команда ни кончилась.
+
+    🔴 SIGTERM от ``cast stop`` поднимает исключение - иначе показ не прошёл бы через
+    ``finally`` и не записал позицию, - но исход у него штатный: выйди мы кодом 2, и
+    systemd пометил бы юнит ``failed`` после каждой нормальной остановки. Ctrl-C на
+    вопросе при этом отказом быть не перестаёт, и разводит их тип исключения.
+    """
     try:
-        args = parse_args(argv)
-        command = args.command
-        # IUTF8 на stdin включаем на всё время команды и возвращаем режим как было:
-        # без него ssh-сессия ломает кириллицу в вопросах.
-        with terminal():
-            if command == "configure":
-                # ``--tv`` без адреса - это меню: приёмники ищет сам сценарий настройки.
-                return _cmd_configure(None if args.tv == TV_MENU else str(args.tv))
-            if command == "stop":
-                return _cmd_stop()
-            if command == "status":
-                return _cmd_status()
-            if command == "doctor":
-                return _cmd_doctor()
-            if command == "log":
-                return _cmd_log(args)
-            if command == "releases":
-                return _cmd_releases(args)
-            if command == "voices":
-                return _cmd_voices(args)
-            if command == "worker":
-                return _cmd_worker(str(args.play_key))
-            return _cmd_play(args)
+        return run()
     except NotFoundError as exc:
         trace.emit("error", "error", text=str(exc)[:200])
         print(str(exc), file=sys.stderr)
@@ -723,6 +713,33 @@ def main(argv: Sequence[str] | None = None) -> int:
     finally:
         # Дожать хвост следа: фоновый писатель - демон, штатный выход обязан его дождаться.
         trace.shutdown()
+
+
+def _dispatch(argv: Sequence[str] | None) -> int:
+    """Разобрать аргументы и позвать команду, которую они называют."""
+    args = parse_args(argv)
+    command = args.command
+    # IUTF8 на stdin включаем на всё время команды и возвращаем режим как было:
+    # без него ssh-сессия ломает кириллицу в вопросах.
+    with terminal():
+        if command == "configure":
+            # ``--tv`` без адреса - это меню: приёмники ищет сам сценарий настройки.
+            return _cmd_configure(None if args.tv == TV_MENU else str(args.tv))
+        if command == "stop":
+            return _cmd_stop()
+        if command == "status":
+            return _cmd_status()
+        if command == "doctor":
+            return _cmd_doctor()
+        if command == "log":
+            return _cmd_log(args)
+        if command == "releases":
+            return _cmd_releases(args)
+        if command == "voices":
+            return _cmd_voices(args)
+        if command == "worker":
+            return _cmd_worker(str(args.play_key))
+        return _cmd_play(args)
 
 
 __all__ = [name for name in globals() if not name.startswith("__")]

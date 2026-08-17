@@ -28,8 +28,10 @@ from typing import Any, Final
 import pytest
 
 from tests.conftest import CLIP_SECONDS, FakeProc, fake_packer, free_port
+from tests.fakes.clock import FakeClock
+from tests.fakes.show_unit import FakeShowUnit
 from torrcast import InfraError
-from torrcast.cast import NOT_RAISED, MockReceiver, Position, StartRefusedError
+from torrcast.cast import NOT_RAISED, ChromecastReceiver, MockReceiver, Position, StartRefusedError
 from torrcast.cli import Watch as _Watch
 from torrcast.cli import _Clock, _play
 from torrcast.state import Config, Entry, State
@@ -39,6 +41,7 @@ from torrcast.stream import (
     Feed,
     Grid,
     Packer,
+    Supply,
     ffmpeg_pack_command,
     hls_base,
     hls_dir,
@@ -47,6 +50,72 @@ from torrcast.stream import (
     playing_flag,
     segment_name,
 )
+
+
+class _Wired(ChromecastReceiver):
+    """Живой приёмник, у которого вместо сети - подставное устройство.
+
+    Всё остальное в нём настоящее: сторож подвиса, счёт смертей, перешагивание куска -
+    ровно то, что и проверяется. Подменять их у общего класса нельзя: подмена дожила бы
+    до соседнего теста, а зависимость эта - конструкторская.
+    """
+
+    def __init__(self, device: Any, address: str = "10.0.0.50", **rest: Any) -> None:
+        super().__init__(address, **rest)
+        self.device = device
+
+    def _device(self) -> Any:
+        return self.device
+
+
+class _Reporting(_Wired):
+    """Тот же приёмник, но статус берётся у подставного устройства, а не по сети."""
+
+    def _status(self) -> Any:
+        return self.device.status
+
+
+class _Silenced(ChromecastReceiver):
+    """Приёмник без сети: LOAD, перезапуск приложения и ожидание картинки - записи."""
+
+    def __init__(self, address: str = "10.0.0.50", **rest: Any) -> None:
+        super().__init__(address, **rest)
+        self.loads: list[float] = []
+        self.restarts = 0
+
+    def _restart_app(self) -> None:
+        self.restarts += 1
+
+    def _load(self, at: float = 0.0) -> None:
+        self.loads.append(at)
+
+    def _settle(self, budget: float) -> bool:
+        return True
+
+
+class _Free(_Silenced):
+    """То же самое, но экран всегда свободен: чужой показ тут не проверяется."""
+
+    def _free(self) -> bool:
+        return True
+
+
+class _Opening(MockReceiver):
+    """Заглушка, которая заход только записывает: проверяется решение, а не декодер."""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.opens: list[float] = []
+
+    def _open(self, url: str, at: float = 0.0) -> None:
+        self.opens.append(at)
+
+
+class _Quiet(Feed):
+    """Раздача, которая упаковку не поднимает: проверяется учёт обрывов, а не ffmpeg."""
+
+    def restart(self, slot: int) -> None:
+        return None
 
 
 def test_a_release_without_a_video_file_is_a_verdict_not_an_infra_error() -> None:
@@ -381,19 +450,21 @@ class _FakeReceiver:
         return Position(pos, 0.0, state in {"PLAYING", "BUFFERING"}, state)
 
 
-def _feed_with_segments(tmp_path: Path) -> Feed:
-    """Упаковка на 60 готовых сегментов ровной сетки; ffmpeg за ней настоящий не стоит."""
+def _feed_with_segments(tmp_path: Path, kind: type[Feed] = Feed) -> Feed:
+    """Упаковка на 60 готовых сегментов ровной сетки; ffmpeg за ней настоящий не стоит.
+
+    ``kind`` - какой раздачей притвориться: наследник нужен там, где проверяется решение
+    показа, а перезапуск упаковки должен остаться записью, а не ffmpeg.
+    """
     out = hls_dir(str(tmp_path / "hls"))
     for slot in range(60):
         (out / f"v{slot}.ts").write_bytes(b"x")
-    feed = Feed(source="", audio=0, out=out, grid=Grid.uniform(7200.0), keep=40.0, wait=0.0)
+    feed = kind(source="", audio=0, out=out, grid=Grid.uniform(7200.0), keep=40.0, wait=0.0)
     feed.packer = fake_packer(out, first=0)
     return feed
 
 
-def test_the_show_sweeps_ram_behind_the_receiver_while_it_plays(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_the_show_sweeps_ram_behind_the_receiver_while_it_plays(tmp_path: Path) -> None:
     """Показ следит ровно за двумя вещами: жива ли упаковка и что убрать из tmpfs.
 
     Перемотку он больше не ловит вовсе — приёмник видит весь фильм и мотает сам,
@@ -401,11 +472,10 @@ def test_the_show_sweeps_ram_behind_the_receiver_while_it_plays(
     """
     from torrcast import cli
 
-    monkeypatch.setattr(time, "sleep", lambda seconds: None)
     feed = _feed_with_segments(tmp_path)
     receiver = _FakeReceiver([(200.0, "PLAYING"), (0.0, "IDLE")])
 
-    cli._hold(receiver, feed)
+    cli._hold(receiver, feed, clock=FakeClock(1000.0))
 
     edge = feed.grid.slot_at(160.0)
     left = sorted(int(path.name[1:-3]) for path in feed.out.glob("v*.ts"))
@@ -413,21 +483,24 @@ def test_the_show_sweeps_ram_behind_the_receiver_while_it_plays(
 
 
 def test_a_pause_on_the_remote_stops_packing(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Пауза пультом: упаковку гасим (иначе tmpfs набивается впрок), показ остаётся жив.
 
     Возобновлять её показу не нужно: человек снимет паузу, приёмник попросит следующий
     сегмент, и раздача начнёт паковать с этого самого места сама.
+
+    Пауза тут выдерживается настоящая - дольше :data:`torrcast.cli.PAUSE_SECONDS`, - но
+    не выжидается: часы показа свои (:class:`torrcast.timing.Clock`), и опрос раз в 2 с
+    двигает их сам.
     """
     from torrcast import cli
 
-    monkeypatch.setattr(cli, "PAUSE_SECONDS", 0.0)
-    monkeypatch.setattr(time, "sleep", lambda seconds: None)
     feed = _feed_with_segments(tmp_path)
-    receiver = _FakeReceiver([(42.0, "PAUSED"), (42.0, "PAUSED"), (0.0, "IDLE")])
+    held = int(cli.PAUSE_SECONDS / 2.0) + 2  # опрос показа идёт раз в 2 с
+    receiver = _FakeReceiver([*[(42.0, "PAUSED")] * held, (0.0, "IDLE")])
 
-    cli._hold(receiver, feed)
+    cli._hold(receiver, feed, clock=FakeClock(1000.0))
 
     assert feed.halted() and feed.packer is not None and feed.packer.poll() == -15, (
         "ffmpeg завершён, а не остановлен сигналом"
@@ -435,9 +508,7 @@ def test_a_pause_on_the_remote_stops_packing(
     assert "пауза на пульте" in capsys.readouterr().out
 
 
-def test_the_diagnostic_remote_reaches_the_receiver_once(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_the_diagnostic_remote_reaches_the_receiver_once(tmp_path: Path, remote: Path) -> None:
     """Диагностический пульт (``TORRCAST_CTL``): команда доезжает до приёмника ровно раз.
 
     Проверяется то, ради чего он написан: seek идёт **владеющим сендером** (тот же объект,
@@ -446,7 +517,6 @@ def test_the_diagnostic_remote_reaches_the_receiver_once(
     """
     from torrcast import cli
 
-    monkeypatch.setattr(time, "sleep", lambda seconds: None)
     seen: list[tuple[str, float]] = []
 
     class _Remote(_FakeReceiver):
@@ -459,31 +529,25 @@ def test_the_diagnostic_remote_reaches_the_receiver_once(
         def resume(self) -> None:
             seen.append(("play", 0.0))
 
-    ctl = tmp_path / "ctl"
-    ctl.write_text("seek 1200.5", "utf-8")
-    monkeypatch.setenv(cli.CTL_ENV, str(ctl))
+    remote.write_text("seek 1200.5", "utf-8")
     feed = _feed_with_segments(tmp_path)
     receiver = _Remote([(200.0, "PLAYING"), (210.0, "PLAYING"), (0.0, "IDLE")])
 
-    cli._hold(receiver, feed)
+    cli._hold(receiver, feed, clock=FakeClock(1000.0))
 
     assert seen == [("seek", 1200.5)], "команда исполнена один раз и владеющим сендером"
-    assert not ctl.exists(), "команда одноразовая - файл съеден"
+    assert not remote.exists(), "команда одноразовая - файл съеден"
 
 
-def test_the_diagnostic_remote_is_absent_without_the_variable(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_the_diagnostic_remote_is_absent_without_the_variable(tmp_path: Path) -> None:
     """Без ``TORRCAST_CTL`` пульта нет вовсе: на счастливом пути этот код не работает."""
     from torrcast import cli
 
-    monkeypatch.delenv(cli.CTL_ENV, raising=False)
-    monkeypatch.setattr(time, "sleep", lambda seconds: None)
     ctl = tmp_path / "ctl"
     ctl.write_text("seek 1200.5", "utf-8")
     feed = _feed_with_segments(tmp_path)
 
-    cli._hold(_FakeReceiver([(200.0, "PLAYING"), (0.0, "IDLE")]), feed)
+    cli._hold(_FakeReceiver([(200.0, "PLAYING"), (0.0, "IDLE")]), feed, clock=FakeClock(1000.0))
 
     assert ctl.read_text("utf-8") == "seek 1200.5", "файл не читается и не съедается"
 
@@ -590,7 +654,7 @@ def _dark(
 
 
 def test_an_outage_longer_than_the_receivers_patience_does_not_end_the_show(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Обрыв длиннее терпения приёмника: экран погас - показ поднимается сам и с места.
 
@@ -785,9 +849,7 @@ def test_a_start_the_receiver_refused_is_handed_to_the_ladder_not_to_the_grave(
     assert "картинка пошла с" in capsys.readouterr().out
 
 
-def test_a_show_that_never_gave_a_frame_names_that_and_not_undershown(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_a_show_that_never_gave_a_frame_names_that_and_not_undershown() -> None:
     """Последнее слово показа: «картинки не было ни разу», а не «не досмотрел поток».
 
     Для того, кто сидит перед экраном, это две разные аварии, и вторая дороже: «включил и
@@ -795,15 +857,14 @@ def test_a_show_that_never_gave_a_frame_names_that_and_not_undershown(
     """
     from torrcast import cli
 
-    monkeypatch.setattr(time, "sleep", lambda seconds: None)
     with pytest.raises(InfraError, match="картинки не было ни разу: приёмник не взял показ"):
-        cli._blame_the_end(_supply(_Service()), shown=False)
+        cli._blame_the_end(_supply(_Service()), shown=False, clock=FakeClock())
     with pytest.raises(InfraError, match="картинки не было ни разу: источник не читается"):
-        cli._blame_the_end(_supply(_Service(up=False)), shown=False)
+        cli._blame_the_end(_supply(_Service(up=False)), shown=False, clock=FakeClock())
 
 
 def test_a_dark_show_gives_up_after_a_limited_number_of_tries(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Попыток конечное число, и между ними держится выдержка.
 
@@ -826,7 +887,7 @@ def test_a_dark_show_gives_up_after_a_limited_number_of_tries(
 
 
 def test_a_network_that_never_returns_ends_the_show_exactly_as_before(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Сеть так и не вернулась - фолбэк: гаснем честно, ни одного LOAD в приёмник.
 
@@ -848,7 +909,7 @@ def test_a_network_that_never_returns_ends_the_show_exactly_as_before(
 
 
 def test_the_darkness_is_named_in_the_state_and_not_called_a_show(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Пока экран чёрный, это видно снаружи: отметка темноты с причиной уходит в состояние.
 
@@ -863,7 +924,6 @@ def test_the_darkness_is_named_in_the_state_and_not_called_a_show(
     """
     from torrcast import cli
 
-    monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
     clock, feed, warmer, receiver = _dark(tmp_path, offline="")
     warmer.warmed = 0.0  # прогретого нет - в темноте играть нечем
     entry = Entry(title="ролик", magnet=MAGNET, pos=0.0, dur=7200.0)
@@ -887,9 +947,7 @@ def test_the_darkness_is_named_in_the_state_and_not_called_a_show(
     assert "показ обеспечен до" not in printed, "обеспечивать в темноте уже нечего"
 
 
-def test_the_darkness_mark_goes_away_with_the_picture(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_the_darkness_mark_goes_away_with_the_picture(tmp_path: Path) -> None:
     """Сеть вернулась, показ поднят - отметки темноты в состоянии больше нет.
 
     Иначе ``cast status`` звал бы погасшим показ, который давно идёт: отметка обязана
@@ -897,7 +955,6 @@ def test_the_darkness_mark_goes_away_with_the_picture(
     """
     from torrcast import cli
 
-    monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
     clock, feed, warmer, receiver = _dark(tmp_path, back_at=300.0)
     entry = Entry(title="ролик", magnet=MAGNET, pos=0.0, dur=7200.0)
     watch = _Watch(key="movie:ролик:2026", entry=entry, every=0.0)
@@ -933,9 +990,7 @@ def _dark_mark(key: str) -> tuple[float, str]:
     return (entry.dark, entry.dark_why) if entry is not None else (0.0, "")
 
 
-def test_a_warmed_movie_is_revived_without_waiting_for_the_network(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_a_warmed_movie_is_revived_without_waiting_for_the_network(tmp_path: Path) -> None:
     """Фильм лёг на диск целиком - воскрешение не ждёт сети ни секунды: смотреть есть что."""
     from torrcast import cli
 
@@ -947,9 +1002,7 @@ def test_a_warmed_movie_is_revived_without_waiting_for_the_network(
     assert clock.now - 1000.0 < cli.REVIVE_PAUSE, "ждать возврата сети было незачем"
 
 
-def test_a_finished_movie_is_not_resurrected(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_a_finished_movie_is_not_resurrected(tmp_path: Path) -> None:
     """Титры - не авария: досмотренный фильм гаснет и остаётся погашенным."""
     from torrcast import cli
 
@@ -1008,7 +1061,7 @@ class _Nudged:
 
 
 def test_the_bookmark_holds_the_last_frame_seen_not_where_the_watchdog_drove(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
 ) -> None:
     """Сторож подвиса увёл указатель на 1:36 вперёд - воскресаем с последнего КАДРА.
 
@@ -1024,7 +1077,6 @@ def test_the_bookmark_holds_the_last_frame_seen_not_where_the_watchdog_drove(
     from torrcast import cli
 
     clock = _Ticker()
-    monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
     feed = _feed_with_segments(tmp_path)
     feed.offline = "источник молчит дольше 45 с"
     warmer = _Warm()
@@ -1103,7 +1155,7 @@ class _Blinking:
 
 
 def test_a_receiver_that_dropped_the_show_gets_it_back_in_seconds_not_in_a_minute(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
 ) -> None:
     """Показ бросил приёмник, источник цел - поднимаем через секунды, а не через минуту.
 
@@ -1139,7 +1191,7 @@ def test_a_receiver_that_dropped_the_show_gets_it_back_in_seconds_not_in_a_minut
 
 
 def test_two_short_outages_do_not_eat_the_whole_stock_of_tries(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Два коротких обрыва подряд - и оба показ переживает: запас отмерян обрыву.
 
@@ -1168,29 +1220,23 @@ def test_two_short_outages_do_not_eat_the_whole_stock_of_tries(
     assert printed.count("показ поднят с ") == 2, "и человек увидел оба подъёма"
 
 
-def test_the_dark_show_is_revived_only_on_a_free_receiver(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_the_dark_show_is_revived_only_on_a_free_receiver() -> None:
     """Воскрешаем только СВОЙ показ - той же аккуратностью, что и закрываем приложение.
 
     Пока нас не было, на том же ТВ могли начать смотреть другое: чужое приложение, чужая
     сессия в том же Default Media Receiver, чужой ``content_id`` в нашей. Перебивать такое
     нельзя ничем - ни LOAD, ни ``quit_app`` перед ним; показу остаётся честно погаснуть.
     """
-    from torrcast.cast import ChromecastReceiver
-
     loads: list[float] = []
-    monkeypatch.setattr(ChromecastReceiver, "_restart_app", lambda self: None)
-    monkeypatch.setattr(ChromecastReceiver, "_load", lambda self, at=0.0: loads.append(at))
-    monkeypatch.setattr(ChromecastReceiver, "_settle", lambda self, budget: True)
-
     aliens = [
         _FakeCast(app_id="Netflix"),
         _FakeCast(session="чужая"),
         _FakeCast(content="http://10.0.0.20:8010/cast.m3u8"),
     ]
     for alien in aliens:
-        assert _receiver_on(alien).replay(1200.0) == NOT_RAISED, "чужой показ неприкосновенен"
+        receiver = _receiver_on(alien)
+        assert receiver.replay(1200.0) == NOT_RAISED, "чужой показ неприкосновенен"
+        loads += receiver.loads
     assert loads == [], "в чужой показ не ушло ни одного LOAD"
     assert all(alien.log == [] for alien in aliens), "и приложение чужому не закрывали"
 
@@ -1198,12 +1244,11 @@ def test_the_dark_show_is_revived_only_on_a_free_receiver(
         receiver = _receiver_on(free)
         assert receiver.replay(1200.0) == 1200.0, "экран свободен - показ поднимаем"
         assert receiver._peak == 1200.0, "сторож считает с того места, куда грузили"
+        loads += receiver.loads
     assert loads == [1200.0, 1200.0], "по одному LOAD на свободный приёмник"
 
 
-def test_a_release_that_never_plays_stops_at_the_profile_not_at_eleven(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_a_release_that_never_plays_stops_at_the_profile_not_at_eleven() -> None:
     """Неигравший релиз: ровно столько повторов LOAD, сколько заявил профиль, - и честная
     строка вместо зависания в лестнице ожидания.
 
@@ -1213,22 +1258,6 @@ def test_a_release_that_never_plays_stops_at_the_profile_not_at_eleven(
     счётчик повторов LOAD один на весь показ, потолок ему - ``load_retries`` приёмника, и
     исчерпав его, показ возвращает управление честной строкой.
     """
-    from torrcast.cast import ChromecastReceiver
-
-    class _FakeClock:
-        def __init__(self) -> None:
-            self.now = 0.0
-
-        def monotonic(self) -> float:
-            return self.now
-
-        def sleep(self, seconds: float) -> None:
-            self.now += seconds
-
-    clock = _FakeClock()
-    monkeypatch.setattr("torrcast.cast.time.monotonic", clock.monotonic)
-    monkeypatch.setattr("torrcast.cast.time.sleep", clock.sleep)
-
     loads: list[float] = []
 
     class _Silent:
@@ -1261,11 +1290,14 @@ def test_a_release_that_never_plays_stops_at_the_profile_not_at_eleven(
         def disconnect(self) -> None:
             pass
 
-    receiver = ChromecastReceiver("10.0.0.50")
+    class _Kept(ChromecastReceiver):
+        """Чистое приложение под повтор тут не поднимается: та же лента LOAD, её и считаем."""
+
+        def _restart_app(self) -> None:
+            return None
+
+    receiver = _Kept("10.0.0.50", clock=FakeClock())
     receiver._cast = _Silent()
-    # Чистое приложение под повтор здесь не поднимаем заново: тот же приёмник и та же
-    # лента LOAD, а считаем именно её длину.
-    monkeypatch.setattr(ChromecastReceiver, "_restart_app", lambda self: None)
 
     with pytest.raises(StartRefusedError) as err:
         receiver.play("http://10.0.0.10:8443/index.m3u8", "кино", at=1200.0)
@@ -1423,9 +1455,21 @@ class _Source:
         self.receiver._pos = Position(self.dur * 0.96, self.dur, False)
 
 
+class _Piped(MockReceiver):
+    """Заглушка, у которой поток открывает подставной источник, а не ffmpeg.
+
+    Источнику нужен сам приёмник (он двигает его указатель), поэтому связываются они
+    после сборки: приёмник заводится первым и получает источник полем.
+    """
+
+    source: Any = None
+
+    def _open(self, url: str, at: float = 0.0) -> None:
+        self.source.open(url, at)
+
+
 def _blinking(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
     patience: float = 6.0,
     **kwargs: Any,
 ) -> tuple[_Ticker, Feed, _Warm, MockReceiver, _Source]:
@@ -1440,15 +1484,14 @@ def _blinking(
     clock = _Ticker()
     feed = _feed_with_segments(tmp_path)
     warmer = _Warm(warmed=600.0)
-    receiver = MockReceiver(patience=patience, clock=clock)
-    source = _Source(clock, receiver, feed, warmer, **kwargs)
-    monkeypatch.setattr(MockReceiver, "_open", lambda self, url, at=0.0: source.open(url, at))
+    receiver = _Piped(patience=patience, clock=clock)
+    source = receiver.source = _Source(clock, receiver, feed, warmer, **kwargs)
     receiver.play("http://127.0.0.1:8010/index.m3u8", at=1200.0)
     return clock, feed, warmer, receiver, source
 
 
 def test_a_blinking_source_takes_the_mock_receiver_dark_and_the_show_comes_back(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Источник моргнул - показ погас - источник вернулся - показ поднялся. На заглушке.
 
@@ -1463,7 +1506,7 @@ def test_a_blinking_source_takes_the_mock_receiver_dark_and_the_show_comes_back(
     """
     from torrcast import cli
 
-    clock, feed, warmer, receiver, source = _blinking(tmp_path, monkeypatch, back_at=120.0)
+    clock, feed, warmer, receiver, source = _blinking(tmp_path, back_at=120.0)
 
     cli._hold(receiver, feed, None, warmer, clock=clock)  # type: ignore[arg-type]
 
@@ -1477,16 +1520,14 @@ def test_a_blinking_source_takes_the_mock_receiver_dark_and_the_show_comes_back(
     assert "показ поднят с 0:20:08" in printed, "картинка вернулась, и заглушка это подтвердила"
 
 
-def test_the_mock_receiver_burns_its_patience_before_it_drops_the_show(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_the_mock_receiver_burns_its_patience_before_it_drops_the_show(tmp_path: Path) -> None:
     """Терпение заглушки - не бутафория: пока оно идёт, показ живой и воскрешать нечего.
 
     Живой приёмник на стоящей картинке уходит в ``BUFFERING`` и держится примерно четыре
     минуты. Заглушка, гаснущая на первом же неподвижном опросе, звала бы воскрешение там,
     где настоящий ТВ ещё показывает фильм, - то есть врала бы в другую сторону.
     """
-    clock, _, _, receiver, source = _blinking(tmp_path, monkeypatch, dark_at=0.0)
+    clock, _, _, receiver, source = _blinking(tmp_path, dark_at=0.0)
 
     # ⚠️ Числа переписаны по замеру 09-08-2026 (живой Q70D, рапорт приёмника + tcpdump):
     # прежние «240 с» склеивали два РАЗНЫХ срока - смерть медиасессии (23.5 с) и уход
@@ -1510,7 +1551,7 @@ def test_the_mock_receiver_burns_its_patience_before_it_drops_the_show(
 
 
 def test_a_source_that_never_returns_ends_the_show_on_the_mock_too(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Источник не вернулся - гаснем честно: попытки конечны, LOAD в приёмник не летит.
 
@@ -1519,7 +1560,7 @@ def test_a_source_that_never_returns_ends_the_show_on_the_mock_too(
     """
     from torrcast import cli
 
-    clock, feed, warmer, receiver, source = _blinking(tmp_path, monkeypatch)
+    clock, feed, warmer, receiver, source = _blinking(tmp_path)
 
     cli._hold(receiver, feed, None, warmer, clock=clock)  # type: ignore[arg-type]
 
@@ -1530,9 +1571,7 @@ def test_a_source_that_never_returns_ends_the_show_on_the_mock_too(
     assert "показ поднять не удалось" in printed and "cast продолжит с 0:20:08" in printed
 
 
-def test_the_mock_receiver_takes_a_load_right_after_a_404(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_the_mock_receiver_takes_a_load_right_after_a_404() -> None:
     """404 заглушка наказывает ровно столько, сколько сказано в профиле, - то есть нисколько.
 
     🔴 Ожидание переписано по замеру 09-08-2026 (живой Q70D, рапорт приёмника + tcpdump):
@@ -1546,15 +1585,13 @@ def test_the_mock_receiver_takes_a_load_right_after_a_404(
     На решение «держать запрос вместо 404» этот ноль не влияет: там своя причина.
     """
     clock = _Ticker()
-    opens: list[float] = []
-    receiver = MockReceiver(clock=clock)
+    receiver = _Opening(clock=clock)
     receiver._url = "http://127.0.0.1:8010/index.m3u8"
-    monkeypatch.setattr(MockReceiver, "_open", lambda self, url, at=0.0: opens.append(at))
 
     receiver._caught(_Answer(404))
     assert MockReceiver.SULK == 0.0, "наказания за 404 нет - замер снял его трижды"
     assert receiver.replay(1200.0) == NOT_RAISED, "картинки нет - врать о поднятом показе нельзя"
-    assert opens == [1200.0], "но попытку приёмник принял сразу, не выжидая ни секунды"
+    assert receiver.opens == [1200.0], "но попытку приёмник принял сразу, не выжидая ни секунды"
 
     # Что наказание всё ещё СТАВИТСЯ числом профиля - проверяется отдельно
     # (tests/test_profile.py): механизм жив, изменилась только замеренная величина.
@@ -1603,9 +1640,7 @@ def test_a_repack_in_the_middle_keeps_the_proof_of_the_picture(tmp_path: Path) -
     assert sorted(feed.out.glob("v*.ts")), "упакованное перезапуск не выбрасывает"
 
 
-def test_a_finished_packer_is_not_a_crash_but_a_serial_one_gives_up(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_a_finished_packer_is_not_a_crash_but_a_serial_one_gives_up(tmp_path: Path) -> None:
     """Конец входа и обрыв — разные вещи, и показ обязан их различать.
 
     Код 0 — фильм упакован до конца, падать не с чего. Обрыв — повод начать заново с того
@@ -1616,18 +1651,21 @@ def test_a_finished_packer_is_not_a_crash_but_a_serial_one_gives_up(
     процесс, и наказывать за обрыв надо его, а не считать заново тот же труп на каждом
     запросе сегмента (их приходит по пять в секунду).
     """
-    feed = _feed_with_segments(tmp_path)
-    assert feed.packer is not None
 
-    def again(self: Feed, slot: int) -> None:  # перезапуск = новый процесс упаковки
-        self.packer = fake_packer(self.out, first=0, code=-9)
+    class _Again(Feed):
+        """Раздача, у которой перезапуск - это новый процесс упаковки, и снова мёртвый."""
+
+        def restart(self, slot: int) -> None:
+            self.packer = fake_packer(self.out, first=0, code=-9)
+
+    feed = _feed_with_segments(tmp_path, kind=_Again)
+    assert feed.packer is not None
 
     feed.packer.proc.code = 0  # type: ignore[attr-defined]
     assert feed.segment(70) is None and feed.trouble() == "", "дошли до конца фильма"
 
     # Оборвался - это уже другой прогон: из кода 0 в убитый один и тот же процесс не ходит.
     feed.packer = fake_packer(feed.out, first=0, code=-9)
-    monkeypatch.setattr(Feed, "restart", again)
     for _ in range(feed.limit):
         feed.restarted = 0.0  # прогоны идут не подряд: защита «не толкаемся» тут не при чём
         feed.segment(70)
@@ -1638,9 +1676,7 @@ def test_a_finished_packer_is_not_a_crash_but_a_serial_one_gives_up(
     assert feed.trouble() == "убит сигналом 9"
 
 
-def test_a_torn_input_tells_the_viewer_the_film_has_not_ended(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_a_torn_input_tells_the_viewer_the_film_has_not_ended(tmp_path: Path) -> None:
     """Оборванный вход и доигранный фильм для зрителя выглядят одинаково - паузой.
 
     Вход, умерший на середине, ffmpeg отмечает НУЛЁМ (:meth:`torrcast.stream.Packer.finished`),
@@ -1654,15 +1690,19 @@ def test_a_torn_input_tells_the_viewer_the_film_has_not_ended(
     попытке и 0 из 76 на третьей. На первом обрыве неизвестно, который из них перед нами,
     поэтому сказан факт, а не прогноз.
     """
-    from torrcast.stream import Packer
+
+    class _Torn(Packer):
+        """Прогон, у которого вход умер на середине: ffmpeg вышел нулём, а фильм - нет."""
+
+        def finished(self) -> bool:
+            return False
 
     said: list[str] = []
-    feed = _feed_with_segments(tmp_path)
+    feed = _feed_with_segments(tmp_path, kind=_Quiet)
     feed.log = said.append
-    monkeypatch.setattr(Feed, "restart", lambda self, slot: None)
-    monkeypatch.setattr(Packer, "finished", lambda self: False)
 
-    feed.packer = fake_packer(feed.out, first=0, code=0)  # вход умер, ffmpeg вышел нулём
+    # вход умер, ffmpeg вышел нулём
+    feed.packer = fake_packer(feed.out, first=0, code=0, kind=_Torn)
     feed.restarted = 0.0
     feed.segment(70)
     assert said == ["вход оборвался на середине, фильм не кончился - начинаю заново, попытка 1"], (
@@ -1679,9 +1719,7 @@ def test_a_torn_input_tells_the_viewer_the_film_has_not_ended(
     )
 
 
-def test_one_dead_run_is_blamed_once_and_not_on_every_request(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_one_dead_run_is_blamed_once_and_not_on_every_request(tmp_path: Path) -> None:
     """Один труп упаковки не съедает все попытки за полсекунды.
 
     Живой сценарий: TorrServer выронил раздачу посреди показа, вход мёртв, ffmpeg умирает
@@ -1689,9 +1727,8 @@ def test_one_dead_run_is_blamed_once_and_not_on_every_request(
     Пока обрыв считался на каждый запрос сегмента, три попытки сгорали за 0.8 с и показ
     умирал, ни разу по-настоящему не перезапустив упаковку.
     """
-    feed = _feed_with_segments(tmp_path)
+    feed = _feed_with_segments(tmp_path, kind=_Quiet)
     assert feed.packer is not None
-    monkeypatch.setattr(Feed, "restart", lambda self, slot: None)
 
     feed.packer.proc.code = -9  # type: ignore[attr-defined]
     feed.restarted = time.monotonic()  # перезапуск только что был - второй не нужен
@@ -1702,13 +1739,11 @@ def test_one_dead_run_is_blamed_once_and_not_on_every_request(
 
 
 def test_resume_starts_from_the_offset_and_ends_as_watched(
-    clip: str, tls: tuple[str, str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:  # fmt: skip
+    clip: str, tls: tuple[str, str], tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """Тот же показ, но с середины: ffmpeg стартует с `-ss`, приёмник декодирует остаток,
     сторож кладёт в state абсолютную позицию, а на 95 % пишет «досмотрено».
     """
-    monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
     # Длительность занижена на сегмент - хвост HLS у клиента может отвалиться, а проверяем
     # мы тут переход «досмотрено», а не хвост. Сетку показа считаем той же арифметикой,
     # что и он сам: позиция берётся на границе, иначе упаковка законно начнётся с начала
@@ -1750,9 +1785,7 @@ class _FakeDevice:
         self.media_controller = _FakeController(jumps)
 
 
-def test_a_stuck_receiver_is_nudged_only_when_the_packing_is_ahead(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_a_stuck_receiver_is_nudged_only_when_the_packing_is_ahead() -> None:
     """Неподвижный BUFFERING — это две разные беды, и лечатся они по-разному.
 
     Замерено на живом Q70D: на 1:24 фильма приёмник встал намертво при 60 с
@@ -1760,11 +1793,8 @@ def test_a_stuck_receiver_is_nudged_only_when_the_packing_is_ahead(
     ровно так же выглядит приёмник, который честно ждёт упаковку, — и вот его трогать
     нельзя: прыжок уведёт показ в неупакованное место и заставит паковать заново.
     """
-    from torrcast.cast import ChromecastReceiver
-
     jumps: list[float] = []
-    monkeypatch.setattr(ChromecastReceiver, "_device", lambda self: _FakeDevice(jumps))
-    receiver = ChromecastReceiver("10.0.0.50")
+    receiver = _Wired(_FakeDevice(jumps))
     receiver._peak = 84.0
 
     receiver._nudge(84.0, front=144.0)
@@ -1782,9 +1812,7 @@ def test_a_stuck_receiver_is_nudged_only_when_the_packing_is_ahead(
 _MOANA = Grid((0.0, 112.905, 124.583, 137.095, 148.940, 161.037), 6500.285, True)
 
 
-def test_a_nudge_lands_past_the_segment_and_not_eight_seconds_ahead(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_a_nudge_lands_past_the_segment_and_not_eight_seconds_ahead() -> None:
     """Прыжок мимо застрявшего куска обязан быть длиннее самого куска.
 
     Замер на «Моане» 2016: показ встал на 127.2 с внутри сегмента
@@ -1792,11 +1820,8 @@ def test_a_nudge_lands_past_the_segment_and_not_eight_seconds_ahead(
     и прыгал. Оба нуджа сеанса приземлились туда же, и застрявший кусок так и остался
     впереди: 5 мин 48 с показа сдвинули картинку на 2.4 с.
     """
-    from torrcast.cast import ChromecastReceiver
-
     jumps: list[float] = []
-    monkeypatch.setattr(ChromecastReceiver, "_device", lambda self: _FakeDevice(jumps))
-    receiver = ChromecastReceiver("10.0.0.50")
+    receiver = _Wired(_FakeDevice(jumps))
     receiver.next_cut = _MOANA.after
     receiver._peak = 127.2
 
@@ -1813,7 +1838,7 @@ def test_a_nudge_lands_past_the_segment_and_not_eight_seconds_ahead(
 
 
 def test_a_segment_that_keeps_killing_the_show_is_stepped_over(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Показ, умирающий на одном куске, обязан однажды перешагнуть его, а не ходить кругом.
 
@@ -1822,14 +1847,8 @@ def test_a_segment_that_keeps_killing_the_show_is_stepped_over(
     конца сеанса. Первые смерти при этом законны: моргнувшую сеть от невоспроизводимого
     куска отличает только счёт.
     """
-    from torrcast.cast import ChromecastReceiver
-
-    loads: list[float] = []
-    monkeypatch.setattr(ChromecastReceiver, "_restart_app", lambda self: None)
-    monkeypatch.setattr(ChromecastReceiver, "_load", lambda self, at=0.0: loads.append(at))
-    monkeypatch.setattr(ChromecastReceiver, "_free", lambda self: True)
-    monkeypatch.setattr(ChromecastReceiver, "_settle", lambda self, budget: True)
-    receiver = ChromecastReceiver("10.0.0.50")
+    receiver = _Free()
+    loads = receiver.loads
     receiver.next_cut = _MOANA.after
     receiver._peak = 127.2
 
@@ -1852,9 +1871,7 @@ def test_a_segment_that_keeps_killing_the_show_is_stepped_over(
     assert "перешагиваю" in capsys.readouterr().out, "решение сказано вслух"
 
 
-def test_deaths_are_counted_where_the_show_died_and_not_where_the_jump_aims(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_deaths_are_counted_where_the_show_died_and_not_where_the_jump_aims() -> None:
     """Подросший между смертями кадр обязан попадать в ТОТ ЖЕ счётчик.
 
     Замер на «Моане» 2016: за сеанс позиция подросла со 125.4 на 127.8 с - все четыре
@@ -1864,14 +1881,8 @@ def test_deaths_are_counted_where_the_show_died_and_not_where_the_jump_aims(
     :attr:`~torrcast.cast.ChromecastReceiver.DEADLY_TRIES`, и перешагивание опаздывает на
     целый круг восстановления. Цель прыжка при этом остаётся у декодера.
     """
-    from torrcast.cast import ChromecastReceiver
-
-    loads: list[float] = []
-    monkeypatch.setattr(ChromecastReceiver, "_restart_app", lambda self: None)
-    monkeypatch.setattr(ChromecastReceiver, "_load", lambda self, at=0.0: loads.append(at))
-    monkeypatch.setattr(ChromecastReceiver, "_free", lambda self: True)
-    monkeypatch.setattr(ChromecastReceiver, "_settle", lambda self, budget: True)
-    receiver = ChromecastReceiver("10.0.0.50")
+    receiver = _Free()
+    loads = receiver.loads
     receiver.next_cut = _MOANA.after
 
     drift = (125.4, 127.2, 127.8)
@@ -1900,7 +1911,7 @@ class _Reported:
         self.player_is_playing = state in {"PLAYING", "BUFFERING"}
 
 
-def test_the_peak_follows_the_viewer_back_after_a_rewind(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_peak_follows_the_viewer_back_after_a_rewind() -> None:
     """После перемотки назад нудж обязан целиться туда, где человек СЕЙЧАС.
 
     Замерено на живом Q70D дважды подряд: откат с 31:31 на 10:00, показ шёл
@@ -1909,14 +1920,20 @@ def test_the_peak_follows_the_viewer_back_after_a_rewind(monkeypatch: pytest.Mon
     опускался: прыгаем мы только вперёд, поэтому уехавшая назад позиция может значить
     ровно одно — перемотку человека, и максимум обязан пойти за ним.
     """
-    from torrcast.cast import ChromecastReceiver
+
+    class _Scripted(_Wired):
+        """Приёмник, чьи ответы заданы лентой замера, а не сетью."""
+
+        def __init__(self, device: Any, script: list[_Reported]) -> None:
+            super().__init__(device)
+            self.script = script
+
+        def _status(self) -> Any:
+            return self.script.pop(0)
 
     jumps: list[float] = []
-    monkeypatch.setattr(ChromecastReceiver, "_device", lambda self: _FakeDevice(jumps))
-    receiver = ChromecastReceiver("10.0.0.50")
-    monkeypatch.setattr(ChromecastReceiver, "_status", lambda self: self.script.pop(0))
     stall = [_Reported(619.0, "BUFFERING")] * 2
-    receiver.script = [_Reported(1891.0), _Reported(600.0), *stall]  # type: ignore[attr-defined]
+    receiver = _Scripted(_FakeDevice(jumps), [_Reported(1891.0), _Reported(600.0), *stall])
 
     receiver.position(front=1951.0)  # шли на 31:31
     receiver.position(front=600.0)  # пульт: откат на 10:00
@@ -1955,17 +1972,12 @@ class _Gone:
         self.status = _Reported(pos, "PLAYING")
 
 
-def _watched(monkeypatch: pytest.MonkeyPatch, gone: _Gone) -> Any:
-    from torrcast.cast import ChromecastReceiver
-
-    monkeypatch.setattr(ChromecastReceiver, "_device", lambda self: gone)
-    monkeypatch.setattr(ChromecastReceiver, "_status", lambda self: gone.status)
-    return ChromecastReceiver("10.0.0.50")
+def _watched(gone: _Gone) -> _Reporting:
+    """Приёмник поверх ушедшего устройства: и статус, и прыжки берутся у него."""
+    return _Reporting(gone)
 
 
-def test_a_blind_ladder_of_nudges_gives_up_instead_of_walking_the_movie(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_a_blind_ladder_of_nudges_gives_up_instead_of_walking_the_movie() -> None:
     """Лестница нуджей без единого показанного кадра обязана кончиться - и передать
     показ воскрешению.
 
@@ -1974,10 +1986,8 @@ def test_a_blind_ladder_of_nudges_gives_up_instead_of_walking_the_movie(
     приёмник: прыжки его не лечат, а только шагают по фильму - те 12 нуджей увели
     указатель на 96 с впустую, и каждый стоил 8 с неподвижной картинки и до 8 с плёнки.
     """
-    from torrcast.cast import ChromecastReceiver
-
     gone = _Gone(84.0)
-    receiver = _watched(monkeypatch, gone)
+    receiver = _watched(gone)
 
     result = receiver.position(front=1e6)
     for _ in range(30):  # минута показа при опросе раз в 2 с
@@ -1994,16 +2004,14 @@ def test_a_blind_ladder_of_nudges_gives_up_instead_of_walking_the_movie(
     assert gone.jumps[-1] - 84.0 == 8.0 * limit, "по фильму прошагано ровно на лестницу"
 
 
-def test_a_single_nudge_still_pulls_the_receiver_out(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_single_nudge_still_pulls_the_receiver_out() -> None:
     """Штатный случай - подвис, вылеченный ОДНИМ нуджем, - счётчик лестницы не трогает.
 
     Пять разных подвисов за показ, каждый вылечен одним прыжком: показ всё это время
     живой, сторож всё это время на месте. Обнуляет счёт именно показанный кадр.
     """
-    from torrcast.cast import ChromecastReceiver
-
     gone = _Gone(84.0)
-    receiver = _watched(monkeypatch, gone)
+    receiver = _watched(gone)
 
     for _ in range(5):
         gone.freeze()
@@ -2022,7 +2030,7 @@ _TORN = Grid((0.0, 40.0, 80.0, 100.0, 118.7, 133.0), 5977.0, True)
 
 
 def test_the_film_a_nudge_stepped_over_is_named_to_the_viewer(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Прыжок сторожа стоит зрителю плёнки, и цену обязан назвать показ, а не догадка.
 
@@ -2035,10 +2043,8 @@ def test_the_film_a_nudge_stepped_over_is_named_to_the_viewer(
     Цена считается ОТ КАДРА, на котором остался зритель, и ДО кадра, на котором показ
     ожил: прицел сторожа тут не число - приёмник вправе приземлиться и не туда.
     """
-    from torrcast.cast import ChromecastReceiver
-
     gone = _Gone(103.6)
-    receiver = _watched(monkeypatch, gone)
+    receiver = _watched(gone)
     receiver.next_cut = _TORN.after
     assert _TORN.after(103.6) == 118.7, "замер: кусок зрителя кончается ровно здесь"
 
@@ -2060,7 +2066,7 @@ def test_the_film_a_nudge_stepped_over_is_named_to_the_viewer(
 
 
 def test_a_show_raised_from_the_last_shown_frame_reports_no_gap(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Подъём с кадра зрителя плёнки не стоил - и придумывать пропуск нельзя.
 
@@ -2074,14 +2080,24 @@ def test_a_show_raised_from_the_last_shown_frame_reports_no_gap(
     сторожит именно подъём: ушедший приёмник иногда оживает сам, на том месте, куда его
     увела лестница, - и вот там пропуск настоящий.
     """
-    from torrcast.cast import ChromecastReceiver
+
+    class _Raised(_Reporting):
+        """Ушедший приёмник, у которого подъём проходит: сеть тут не при чём."""
+
+        def _restart_app(self) -> None:
+            return None
+
+        def _load(self, at: float = 0.0) -> None:
+            return None
+
+        def _free(self) -> bool:
+            return True
+
+        def _settle(self, budget: float) -> bool:
+            return True
 
     gone = _Gone(103.6)
-    receiver = _watched(monkeypatch, gone)
-    monkeypatch.setattr(ChromecastReceiver, "_restart_app", lambda self: None)
-    monkeypatch.setattr(ChromecastReceiver, "_load", lambda self, at=0.0: None)
-    monkeypatch.setattr(ChromecastReceiver, "_free", lambda self: True)
-    monkeypatch.setattr(ChromecastReceiver, "_settle", lambda self, budget: True)
+    receiver = _Raised(gone)
 
     receiver.position(front=1e6)
     for _ in range(30):  # минута показа при опросе раз в 2 с
@@ -2198,10 +2214,9 @@ class _FakeMedia:
         self._cast.log.append("stop")
 
 
-def _receiver_on(cast: _FakeCast, url: str = "http://10.0.0.10:8443/index.m3u8") -> Any:
-    from torrcast.cast import ChromecastReceiver
-
-    receiver = ChromecastReceiver("10.0.0.50")
+def _receiver_on(cast: _FakeCast, url: str = "http://10.0.0.10:8443/index.m3u8") -> _Silenced:
+    """Приёмник поверх подставного устройства: LOAD записывается, свобода экрана живая."""
+    receiver = _Silenced()
     receiver._cast, receiver._url, receiver._session = cast, url, "наша"
     return receiver
 
@@ -2242,7 +2257,7 @@ def test_the_receiver_app_is_closed_only_on_our_own_session() -> None:
 
 
 def test_the_show_end_closes_the_app_and_the_episode_seam_does_not(
-    clip: str, tls: tuple[str, str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    clip: str, tls: tuple[str, str], tmp_path: Path
 ) -> None:
     """Стык серий и конец показа — для приёмника разные события.
 
@@ -2250,20 +2265,17 @@ def test_the_show_end_closes_the_app_and_the_episode_seam_does_not(
     95 %, показ кончился — и только запись состояния решает, закрывать ли приложение.
     Серия не последняя — оно достаётся следующей; последняя — гаснет, как у фильма.
     """
-    from torrcast import cli
     from torrcast.cast import MockReceiver
 
-    monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
     quits: list[bool] = []
 
     class _Recorder(MockReceiver):
+        """Заглушка, помнящая, закрывали ли ей приложение на выходе."""
+
         def stop(self, quit_app: bool = False) -> None:
             quits.append(quit_app)
             super().stop()
 
-    monkeypatch.setattr(
-        cli, "make_receiver", lambda kind, address="", ca="", profile=None: _Recorder()
-    )
     config = config_for(tmp_path, tls)
     key = "tv:сериал:2026"
     length = float(CLIP_SECONDS)
@@ -2276,7 +2288,15 @@ def test_the_show_end_closes_the_app_and_the_episode_seam_does_not(
         state = State()
         state.put(key, entry)
         state.save()
-        _play(config, clip, 0, "тест", _Clock(), watch=_Watch(key=key, entry=entry, every=0.0))
+        _play(
+            config,
+            clip,
+            0,
+            "тест",
+            _Clock(),
+            watch=_Watch(key=key, entry=entry, every=0.0),
+            receiver=_Recorder(),
+        )
 
     run(episode=1)
     assert quits == [False], "серия досмотрена, впереди s1e2 - приложение не трогаем"
@@ -2285,15 +2305,12 @@ def test_the_show_end_closes_the_app_and_the_episode_seam_does_not(
     assert quits == [False, True], "последняя серия - показ окончен, приложение закрываем"
 
 
-def test_a_finished_movie_hands_nothing_over(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_a_finished_movie_hands_nothing_over(tmp_path: Path) -> None:
     """Конец фильма (титры) и `cast stop` посреди — оба раза передавать показ некому,
     значит приложение приёмника закрывается.
     """
     from torrcast import cli
 
-    monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
     key = "movie:ролик:2026"
     entry = Entry(title="ролик", magnet="magnet:?xt=1", pos=95.0, dur=100.0)
     state = State()
@@ -2309,7 +2326,7 @@ def test_a_finished_movie_hands_nothing_over(
 
 
 def test_the_series_hands_over_at_the_end_of_the_stream_and_not_a_moment_earlier(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
 ) -> None:
     """🔴 Стык серий живёт на конце потока, а не на доле длительности.
 
@@ -2317,7 +2334,6 @@ def test_the_series_hands_over_at_the_end_of_the_stream_and_not_a_moment_earlier
     - ни на 95 %, ни за секунду до конца. Следующую серию записывает конец сеанса, и
     записывает всегда: потерять переход страшнее, чем потерять хвост.
     """
-    monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
     key = "tv:киберпанк:2022"
     entry = Entry(
         title="Киберпанк",
@@ -2347,14 +2363,11 @@ def test_the_series_hands_over_at_the_end_of_the_stream_and_not_a_moment_earlier
     assert saved.file_idx == 6 and saved.pos == 0 and not saved.done
 
 
-def test_a_movie_finished_by_the_receiver_is_always_marked_watched(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_a_movie_finished_by_the_receiver_is_always_marked_watched(tmp_path: Path) -> None:
     """Пометка «досмотрено» у фильма приезжает всегда, даже когда последний опрос лёг за
     полторы секунды до конца: иначе закладка звала бы продолжить с титров, а прогретое
     осталось бы лежать на диске навсегда.
     """
-    monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
     key = "movie:ролик:2026"
     entry = Entry(title="ролик", magnet="magnet:?xt=1", dur=100.0)
     state = State()
@@ -2370,13 +2383,10 @@ def test_a_movie_finished_by_the_receiver_is_always_marked_watched(
     assert saved is not None and saved.done and saved.pos == 0
 
 
-def test_a_show_cut_in_the_middle_is_not_watched_and_keeps_its_bookmark(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_a_show_cut_in_the_middle_is_not_watched_and_keeps_its_bookmark(tmp_path: Path) -> None:
     """Оборванный посреди картины показ досмотренным не становится ни от какого конца
     сеанса: закладка остаётся на месте, и `cast` продолжит с неё.
     """
-    monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
     key = "movie:ролик:2026"
     entry = Entry(title="ролик", magnet="magnet:?xt=1", dur=100.0)
     state = State()
@@ -2392,34 +2402,39 @@ def test_a_show_cut_in_the_middle_is_not_watched_and_keeps_its_bookmark(
     assert saved is not None and not saved.done and saved.pos == 41.0 and saved.resumable
 
 
-def test_a_closed_show_never_starts_ffmpeg_again(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_a_closed_show_never_starts_ffmpeg_again(tmp_path: Path) -> None:
     """Показ окончен — поток раздачи, проснувшийся в segment(), не поднимает упаковку.
 
     На стыке серий следующая серия уже чистит каталог и пакует своё; осиротевший ffmpeg
     прошлой серии выкладывал бы туда её сегменты под теми же именами.
     """
     asked: list[int] = []
-    feed = _feed_with_segments(tmp_path)
-    monkeypatch.setattr(Feed, "restart", lambda self, slot: asked.append(slot))
+
+    class _Noting(Feed):
+        """Раздача, которая запоминает просьбы поднять упаковку, а не исполняет их."""
+
+        def restart(self, slot: int) -> None:
+            asked.append(slot)
+
+    feed = _feed_with_segments(tmp_path, kind=_Noting)
 
     feed.stop()
 
     assert feed.segment(70) is None and asked == [], "после stop упаковку не поднимаем"
 
 
-def test_a_planned_stop_of_the_show_is_a_success_not_a_failure(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_a_planned_stop_of_the_show_is_a_success_not_a_failure() -> None:
     """`cast stop` обязан оставлять юнит кодом 0.
 
     SIGTERM от `cast stop` поднимает исключение — иначе показ не пройдёт через ``finally``
     и не запишет позицию. Но исключение это штатное, и выходить на нём кодом 2 нельзя:
     systemd помечает юнит ``failed``, и после каждой нормальной остановки пользователь видит
     красную строку в статусе. Ctrl-C на вопросе отказом при этом быть не перестаёт.
+
+    Команда сюда приходит аргументом (:func:`torrcast.commands.answered`) - тем же путём,
+    каким её отдаёт разбор аргументов боевого запуска.
     """
-    from torrcast import cli
+    from torrcast import cli, commands
 
     caught: list[BaseException] = []
 
@@ -2429,18 +2444,19 @@ def test_a_planned_stop_of_the_show_is_a_success_not_a_failure(
         except BaseException as exc:  # ловим ровно затем, чтобы посмотреть на него
             caught.append(exc)
             raise
-        return cli.EXIT_OK
+        return int(cli.EXIT_OK)
 
-    monkeypatch.setattr(cli, "_cmd_status", terminated)
-    assert cli.main(["status"]) == cli.EXIT_OK, "`cast stop` - это успех показа, а не отказ"
+    assert commands.answered(terminated) == cli.EXIT_OK, "`cast stop` - успех показа, а не отказ"
     assert isinstance(caught[0], KeyboardInterrupt), "раскрутка обязана идти как прежде"
 
-    monkeypatch.setattr(cli, "_cmd_status", lambda: (_ for _ in ()).throw(KeyboardInterrupt()))
-    assert cli.main(["status"]) == cli.EXIT_INFRA, "Ctrl-C остаётся отказом"
+    def interrupted() -> int:
+        raise KeyboardInterrupt
+
+    assert commands.answered(interrupted) == cli.EXIT_INFRA, "Ctrl-C остаётся отказом"
 
 
 def test_the_cli_never_kills_a_show_that_is_still_inside_the_units_budget(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
 ) -> None:
     """Ожидание картинки согласовано с бюджетами юнита, а не взято «побольше».
 
@@ -2463,20 +2479,20 @@ def test_the_cli_never_kills_a_show_that_is_still_inside_the_units_budget(
     )
     assert phases <= cli.START_BUDGET, "CLI сдаётся раньше, чем юнит исчерпал своё право"
 
-    now, stopped = [0.0], []
-    monkeypatch.setattr(time, "monotonic", lambda: now[0])
-    monkeypatch.setattr(time, "sleep", lambda seconds: now.__setitem__(0, now[0] + seconds))
-    monkeypatch.setattr(cli, "unit_active", lambda: True)
-    monkeypatch.setattr(cli, "unit_why", lambda: "юнит ещё идёт к картинке")
-    monkeypatch.setattr(cli, "stop_play_unit", lambda: stopped.append(now[0]))
+    clock, unit = FakeClock(), FakeShowUnit()
 
     class _Mute:
         def phase(self, text: str) -> None: ...
 
     with pytest.raises(InfraError):
-        cli._await_playing(Config(hls_dir=str(tmp_path)), _Mute())  # type: ignore[arg-type]
+        cli._await_playing(
+            Config(hls_dir=str(tmp_path)),
+            _Mute(),  # type: ignore[arg-type]
+            clock=clock,
+            unit=unit,
+        )
 
-    assert stopped and stopped[0] >= phases, "показ погашен внутри бюджета юнита"
+    assert unit.stops == [1] and clock.monotonic() >= phases, "показ погашен внутри бюджета юнита"
 
 
 class _Service:
@@ -2541,7 +2557,7 @@ def _events(directory: Path) -> list[dict[str, Any]]:
 
 
 def test_a_dead_source_is_named_instead_of_blaming_the_receiver(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path, journal: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Показ гаснет при мёртвом источнике - и виноватым называется ИСТОЧНИК.
 
@@ -2552,10 +2568,8 @@ def test_a_dead_source_is_named_instead_of_blaming_the_receiver(
     прежде, чем признать показ погасшим, спрашивается сам источник - и его ответ уходит
     одной и той же строкой и человеку, и в недельный след.
     """
-    from torrcast import cli, trace
+    from torrcast import cli
 
-    monkeypatch.setenv(trace.LOG_ENV, str(tmp_path / "trace"))
-    (tmp_path / "trace").mkdir()
     clock, feed, warmer, receiver = _dark(tmp_path, offline="")
     service = _Service(up=False)
 
@@ -2565,7 +2579,7 @@ def test_a_dead_source_is_named_instead_of_blaming_the_receiver(
     assert "показ погас на 0:20:00 (TorrServer не отвечает)" in printed, (
         "человеку сказано про источник, а не про приёмник"
     )
-    rows = _events(tmp_path / "trace")
+    rows = _events(journal)
     dark = next(r for r in rows if r["event"] == "dark")
     offline = next(r for r in rows if r["event"] == "offline")
     assert dark["why"] == "TorrServer не отвечает" == offline["why"], "след и строка совпадают"
@@ -2574,7 +2588,7 @@ def test_a_dead_source_is_named_instead_of_blaming_the_receiver(
 
 
 def test_the_returning_source_gets_the_torrent_back_by_magnet(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path, journal: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Служба вернулась - раздачу добавляем МАГНИТОМ, и только потом поднимаем показ.
 
@@ -2584,10 +2598,8 @@ def test_the_returning_source_gets_the_torrent_back_by_magnet(
     записи картины, и возвращает их этот вызов - ровно один, идемпотентный и только по
     нашему хэшу.
     """
-    from torrcast import cli, trace
+    from torrcast import cli
 
-    monkeypatch.setenv(trace.LOG_ENV, str(tmp_path / "trace"))
-    (tmp_path / "trace").mkdir()
     clock, feed, warmer, receiver = _dark(tmp_path, offline="")
     warmer.warmed = 0.0  # прогрева нет: возврат показа держится только на источнике
     service = _Service(up=False)
@@ -2607,12 +2619,12 @@ def test_the_returning_source_gets_the_torrent_back_by_magnet(
     assert receiver.replays == [1200.0], "показ поднят с того места, где смотрели"
     printed = capsys.readouterr().out
     assert "источник вернулся - раздачу добавил магнитом заново" in printed
-    rows = _events(tmp_path / "trace")
+    rows = _events(journal)
     back = next(r for r in rows if r["event"] == "resupply")
     assert back["torrent"] == MAGNET_HASH and back["ok"] is True
 
 
-def test_a_torrent_left_as_a_bare_hash_is_a_source_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_torrent_left_as_a_bare_hash_is_a_source_failure() -> None:
     """Раздача есть, а метаданных нет - это раздача, заведённая по голому хэшу.
 
     Так она и появляется: наш же URL потока просит службу о хэше, та заводит раздачу без
@@ -2629,9 +2641,7 @@ def test_a_torrent_left_as_a_bare_hash_is_a_source_failure(monkeypatch: pytest.M
     assert supply.check() == "" and service.added == [MAGNET], "второй раз добавлять нечего"
 
 
-def test_a_healthy_source_is_never_blamed_and_never_re_added(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_a_healthy_source_is_never_blamed_and_never_re_added() -> None:
     """Источник в порядке - он и молчит: ни строки обвинения, ни лишнего добавления."""
     service = _Service()
     supply = _supply(service)
@@ -2641,7 +2651,7 @@ def test_a_healthy_source_is_never_blamed_and_never_re_added(
 
 
 def test_a_dead_source_does_not_kill_the_show_when_packing_gives_up(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path, journal: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Упаковка сдалась, а виноват источник - показ не умирает, а ждёт его возврата.
 
@@ -2649,10 +2659,8 @@ def test_a_dead_source_does_not_kill_the_show_when_packing_gives_up(
     Служба раздач, которую перезапустили, рвёт вход точно так же, и старый показ хоронил
     себя строкой «упаковка оборвалась» - про наш ffmpeg, а не про причину.
     """
-    from torrcast import cli, trace
+    from torrcast import cli
 
-    monkeypatch.setenv(trace.LOG_ENV, str(tmp_path / "trace"))
-    (tmp_path / "trace").mkdir()
     clock, feed, warmer, receiver = _dark(tmp_path, offline="")
     feed.fatal = "ffmpeg сдался: Input/output error"
     service = _Service(up=False)
@@ -2663,13 +2671,11 @@ def test_a_dead_source_does_not_kill_the_show_when_packing_gives_up(
     assert "источник не читается (TorrServer не отвечает) - жду его возврата" in printed
     assert "упаковка оборвалась" not in printed, "показ не хоронит себя чужой виной"
     assert feed.offline == "TorrServer не отвечает", "приговор упаковке снят, показ ждёт"
-    rows = _events(tmp_path / "trace")
+    rows = _events(journal)
     assert [r["asked"] for r in rows if r["event"] == "offline"] == [True]
 
 
-def test_a_packing_failure_on_a_healthy_source_still_ends_the_show(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_a_packing_failure_on_a_healthy_source_still_ends_the_show(tmp_path: Path) -> None:
     """Источник в порядке, а упаковка сдалась - это по-прежнему конец показа с ошибкой."""
     from torrcast import cli
 
@@ -2681,9 +2687,7 @@ def test_a_packing_failure_on_a_healthy_source_still_ends_the_show(
         cli._hold(receiver, feed, None, warmer, _supply(service), clock=clock)  # type: ignore[arg-type]
 
 
-def test_the_source_is_never_asked_while_the_picture_is_alive(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_the_source_is_never_asked_while_the_picture_is_alive(tmp_path: Path) -> None:
     """Пока идёт картинка, источник не спрашивают ни разу.
 
     Ограждение горячего пути: показ не имеет права ждать ни журнал, ни лишний запрос -
@@ -2693,27 +2697,25 @@ def test_the_source_is_never_asked_while_the_picture_is_alive(
     """
     from torrcast import cli
 
-    monkeypatch.setattr(time, "sleep", lambda seconds: None)
+    class _Counted(Supply):
+        """Источник, который считает, сколько раз его спросили."""
+
+        asked = 0
+
+        def check(self) -> str:
+            self.asked += 1
+            return ""
+
     feed = _feed_with_segments(tmp_path)
-    service = _Service()
-    asked: list[str] = []
-    supply = _supply(service)
-
-    def spy(_self: Any) -> str:
-        asked.append("?")
-        return ""
-
-    monkeypatch.setattr(type(supply), "check", spy)
+    supply = _Counted(_Service(), torrent_hash=MAGNET_HASH, magnet=MAGNET)  # type: ignore[arg-type]
     receiver = _FakeReceiver([(200.0, "PLAYING"), (210.0, "PLAYING"), (220.0, "PLAYING")])
 
-    cli._hold(receiver, feed, None, None, supply)
+    cli._hold(receiver, feed, None, None, supply, clock=FakeClock(1000.0))
 
-    assert asked == [], "живой показ источник не спрашивает"
+    assert supply.asked == 0, "живой показ источник не спрашивает"
 
 
-def test_a_show_that_never_started_still_names_the_dead_source(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_a_show_that_never_started_still_names_the_dead_source() -> None:
     """Показ, не сдвинувшийся с нуля, кончается строкой про ИСТОЧНИК, а не про приёмник.
 
     Сюда приходит самый обидный случай: картинка так и не поехала, поднимать нечего и
@@ -2723,27 +2725,23 @@ def test_a_show_that_never_started_still_names_the_dead_source(
     """
     from torrcast import cli
 
-    monkeypatch.setattr(time, "sleep", lambda seconds: None)
     service = _Service(up=False)
     supply = _supply(service)
 
     with pytest.raises(InfraError, match="источник не читается \\(TorrServer не отвечает\\)"):
-        cli._blame_the_end(supply)
+        cli._blame_the_end(supply, clock=FakeClock())
 
 
-def test_a_show_that_never_started_blames_the_receiver_when_the_source_is_fine(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_a_show_that_never_started_blames_the_receiver_when_the_source_is_fine() -> None:
     """Источник в порядке - строка остаётся прежней, и это правильно."""
     from torrcast import cli
 
-    monkeypatch.setattr(time, "sleep", lambda seconds: None)
     with pytest.raises(InfraError, match="приёмник не досмотрел поток"):
-        cli._blame_the_end(_supply(_Service()))
+        cli._blame_the_end(_supply(_Service()), clock=FakeClock())
 
 
 def test_a_source_that_came_back_by_itself_is_still_the_one_to_blame(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path, journal: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Служба поднялась за три секунды - и всё равно виновата она, а не приёмник.
 
@@ -2752,10 +2750,8 @@ def test_a_source_that_came_back_by_itself_is_still_the_one_to_blame(
     вопрос «сейчас всё хорошо?» сам по себе оправдал бы её. Доказательство аварии - в том,
     что раздачу пришлось возвращать магнитом: без падения службы её никто не терял бы.
     """
-    from torrcast import cli, trace
+    from torrcast import cli
 
-    monkeypatch.setenv(trace.LOG_ENV, str(tmp_path / "trace"))
-    (tmp_path / "trace").mkdir()
     clock, feed, warmer, receiver = _dark(tmp_path, offline="")
     service = _Service(listed=False, files=False)  # служба уже поднялась, но список пуст
 
@@ -2764,15 +2760,13 @@ def test_a_source_that_came_back_by_itself_is_still_the_one_to_blame(
     printed = capsys.readouterr().out
     assert "показ погас на 0:20:00 (TorrServer перезапускался - раздачу вернул магнитом)" in printed
     assert service.added == [MAGNET], "раздача вернулась магнитом, а не голым хэшем"
-    rows = _events(tmp_path / "trace")
+    rows = _events(journal)
     assert next(r for r in rows if r["event"] == "dark")["why"] == (
         "TorrServer перезапускался - раздачу вернул магнитом"
     )
 
 
-def test_the_source_is_asked_more_than_once_before_it_is_believed(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_the_source_is_asked_more_than_once_before_it_is_believed() -> None:
     """Один вопрос источнику - мало: умирающая служба отвечает как живая.
 
     Замер на живой службе (05:37:48.3 - 05:37:51.5): все три секунды своей остановки
@@ -2782,28 +2776,28 @@ def test_the_source_is_asked_more_than_once_before_it_is_believed(
     """
     from torrcast import cli
 
-    monkeypatch.setattr(time, "sleep", lambda seconds: None)
-    service = _Service()
-    asked: list[int] = []
-    real = type(service).listed
+    class _SlowDeath(_Service):
+        """Служба, умирающая на третьем вопросе: первые два она отвечает как живая."""
 
-    def slow_death(self: _Service, torrent_hash: str) -> bool:
-        asked.append(1)
-        if len(asked) >= 3:
-            self._listed = False
-        return bool(real(self, torrent_hash))
+        asked = 0
 
-    monkeypatch.setattr(_Service, "listed", slow_death)
+        def listed(self, torrent_hash: str) -> bool:
+            self.asked += 1
+            if self.asked >= 3:
+                self._listed = False
+            return super().listed(torrent_hash)
+
+    service = _SlowDeath()
 
     with pytest.raises(InfraError, match="источник не читается"):
-        cli._blame_the_end(_supply(service))
+        cli._blame_the_end(_supply(service), clock=FakeClock())
 
-    assert len(asked) >= 3, "источник спрошен несколько раз, а не единожды"
+    assert service.asked >= 3, "источник спрошен несколько раз, а не единожды"
     assert service.added == [MAGNET], "заметив пропажу, раздачу вернули магнитом"
 
 
 def test_the_picture_is_proved_by_a_moving_pointer_not_by_the_word_playing(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
 ) -> None:
     """``PLAYING`` при стоящем указателе - это ещё не картинка, и флажок ему не полагается.
 
@@ -2815,26 +2809,23 @@ def test_the_picture_is_proved_by_a_moving_pointer_not_by_the_word_playing(
     from torrcast import cli
     from torrcast.stream import playing_flag
 
-    monkeypatch.setattr(time, "sleep", lambda seconds: None)
     feed = _feed_with_segments(tmp_path)
     # Приёмник говорит «играю», не двигая указатель, и только потом трогается с места.
     stuck = _FakeReceiver([(300.0, "PLAYING"), (300.0, "PLAYING"), (0.0, "IDLE")])
 
-    cli._hold(stuck, feed)
+    cli._hold(stuck, feed, clock=FakeClock(1000.0))
 
     assert not playing_flag(feed.out).exists(), "указатель стоял - картинки не было"
 
     feed = _feed_with_segments(tmp_path)
     moved = _FakeReceiver([(300.0, "PLAYING"), (300.5, "PLAYING"), (0.0, "IDLE")])
 
-    cli._hold(moved, feed)
+    cli._hold(moved, feed, clock=FakeClock(1000.0))
 
     assert playing_flag(feed.out).exists(), "указатель пошёл - вот это и есть картинка"
 
 
-def test_the_mock_waits_for_as_much_film_as_the_receiver_gathers_before_the_first_frame(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_the_mock_waits_for_as_much_film_as_the_receiver_gathers_before_the_first_frame() -> None:
     """Заглушка не показывает кадр раньше, чем показ набрал запас живого приёмника.
 
     🔴 Замер на живом Q70D (:attr:`torrcast.profile.Profile.start_buffer`): на сетке по 8 с
@@ -2846,10 +2837,15 @@ def test_the_mock_waits_for_as_much_film_as_the_receiver_gathers_before_the_firs
     from torrcast.cast import MockReceiver, Position
     from torrcast.profile import CAUTIOUS
 
+    class _Endless(MockReceiver):
+        """Заглушка, у которой фильм не кончается: проверяется запас, а не титры."""
+
+        def _over(self) -> bool:
+            return False
+
     assert CAUTIOUS.start_buffer == 10.0, "замер: столько фильма Q70D копит до первого кадра"
 
-    mock = MockReceiver()
-    monkeypatch.setattr(MockReceiver, "_over", lambda self: False)
+    mock = _Endless()
     mock._pos = Position(300.0, 0.0, True)
 
     # Один кусок по 8 с впереди - живой приёмник тут ещё копит и кадра не показывает.
@@ -2938,9 +2934,7 @@ class _Answers:
         return _Served()
 
 
-def test_the_mock_never_asks_for_the_pieces_left_behind_the_entry_point(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_the_mock_never_asks_for_the_pieces_left_behind_the_entry_point() -> None:
     """Кусок, который кончается ровно на месте захода, приёмнику не нужен - он весь позади.
 
     🔴 Сверка сегментов спрашивала его: «кончился раньше захода» на сетке по 10 с и заходе
@@ -2948,10 +2942,18 @@ def test_the_mock_never_asks_for_the_pieces_left_behind_the_entry_point(
     упаковку на голову фильма, и в сухом замере продолжения появлялся лишний заход -
     ровно тот ложный дефект, из-за которого сюда и пришли.
     """
+
+    class _Asking(MockReceiver):
+        """Заглушка, спрашивающая раздачу на бумаге: сеть тут не проверяется."""
+
+        answers: _Answers
+
+        def _session(self) -> Any:
+            return self.answers
+
     spans = [10.0] * 6
-    mock = MockReceiver()
-    answers = _Answers(_manifest(spans))
-    monkeypatch.setattr(MockReceiver, "_session", lambda self: answers)
+    mock = _Asking()
+    answers = mock.answers = _Answers(_manifest(spans))
     mock._start = 10.0
     mock._pos = Position(1e6, 0.0, True)  # декодер далеко впереди - сверка не ждёт его
     mock._done = threading.Event()
@@ -3001,9 +3003,7 @@ def test_the_mock_tells_the_credits_from_a_source_that_died_under_the_show() -> 
     assert blind._over(), "длины фильма ещё не знаем - судить не по чему, правило прежнее"
 
 
-def test_the_diagnostic_remote_steers_the_mock_receiver(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_the_diagnostic_remote_steers_the_mock_receiver(remote: Path) -> None:
     """Пульт (``TORRCAST_CTL``) доезжает до заглушки: пауза, снятие паузы, перемотка.
 
     🔴 Заглушка не реализовывала ни одного из трёх методов, не проходила проверку «этим
@@ -3017,19 +3017,16 @@ def test_the_diagnostic_remote_steers_the_mock_receiver(
     """
     from torrcast import cli
 
-    mock = MockReceiver()
+    mock = _Opening()
     assert isinstance(mock, cli._Steerable), "заглушкой обязано быть можно рулить"
 
-    opens: list[float] = []
-    monkeypatch.setattr(MockReceiver, "_open", lambda self, url, at=0.0: opens.append(at))
+    opens = mock.opens
     mock._url = "http://127.0.0.1:9/hls/index.m3u8"
     mock._proc = FakeProc()  # type: ignore[assignment]
     mock._pos = Position(600.0, 7200.0, True)
     mock.report.duration = 7200.0
-    ctl = tmp_path / "ctl"
-    monkeypatch.setenv(cli.CTL_ENV, str(ctl))
 
-    ctl.write_text("pause", "utf-8")
+    remote.write_text("pause", "utf-8")
     cli._ctl(mock)
 
     decoder = mock._proc
@@ -3042,13 +3039,13 @@ def test_the_diagnostic_remote_steers_the_mock_receiver(
     )
     assert opens == [], "пауза - не LOAD"
 
-    ctl.write_text("play", "utf-8")
+    remote.write_text("play", "utf-8")
     cli._ctl(mock)
 
     assert opens == [600.0], "снятая пауза продолжает показ ровно с того места, где он стоял"
     assert not mock._paused and mock.position().state != "PAUSED"
 
-    ctl.write_text("seek 1200.5", "utf-8")
+    remote.write_text("seek 1200.5", "utf-8")
     cli._ctl(mock)
 
     assert opens == [600.0, 1200.5], "перемотка доехала до заглушки тем же местом, что и на ТВ"
@@ -3064,9 +3061,7 @@ class _Silent:
         pass
 
 
-def test_the_mock_never_rewinds_the_show_to_the_head_of_the_film(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_the_mock_never_rewinds_the_show_to_the_head_of_the_film() -> None:
     """Приёмник, посланный на 0:20:00, до первого слова декодера стоит ТАМ, а не в начале.
 
     🔴 Замер TC-350: на возобновлении показа заглушка отматывала позицию назад (в статусе
@@ -3074,11 +3069,17 @@ def test_the_mock_never_rewinds_the_show_to_the_head_of_the_film(
     прогоном проверить было нечем: продолжение с середины читалось как старт с нуля.
     Живой Q70D держит указатель ровно на месте захода, пока копит фильм до первого кадра.
     """
-    monkeypatch.setattr(MockReceiver, "_probe", lambda self, url: "")
-    monkeypatch.setattr(subprocess, "Popen", lambda *args, **kwargs: FakeProc())
-    monkeypatch.setattr(threading, "Thread", lambda *args, **kwargs: _Silent())
 
-    mock = MockReceiver()
+    class _Answered(MockReceiver):
+        """Заглушка, которой раздача отвечает пустым манифестом: проверяется учёт места."""
+
+        def _probe(self, url: str) -> str:
+            return ""
+
+    mock = _Answered(
+        spawn=lambda *args, **kwargs: FakeProc(),
+        thread=lambda *args, **kwargs: _Silent(),
+    )
     mock.play("http://127.0.0.1:9/hls/index.m3u8", at=1200.0)
     mock.report.duration = 7200.0
 
@@ -3087,9 +3088,7 @@ def test_the_mock_never_rewinds_the_show_to_the_head_of_the_film(
     assert mock.position(front=1260.0).pos == 1200.0, "и на следующем опросе тоже"
 
 
-def test_a_show_that_never_started_is_not_marked_watched(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_a_show_that_never_started_is_not_marked_watched(tmp_path: Path) -> None:
     """🔴 Показ, которого не было, досмотренным не становится - и закладку не теряет.
 
     Замер на живой приставке: фильм продолжали с 2:14:15 из 2:16:15, источник под показом
@@ -3098,7 +3097,6 @@ def test_a_show_that_never_started_is_not_marked_watched(
     «досмотрено: 2:16:15 из 2:16:15», не показав ни кадра. Заодно стиралось прогретое:
     человек терял и место, и диск, а вернуться ему было некуда.
     """
-    monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
     key = "movie:матрица:1999"
     entry = Entry(title="Матрица", magnet="magnet:?xt=1", pos=8055.5, dur=8175.5)
     state = State()
@@ -3143,7 +3141,7 @@ class _Stuck:
 
 
 def test_a_receiver_frozen_on_the_last_chunk_still_hands_the_show_over(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """🔴 Страховка перехода: конец потока приёмник называет не всегда.
 
@@ -3155,7 +3153,6 @@ def test_a_receiver_frozen_on_the_last_chunk_still_hands_the_show_over(
     """
     from torrcast import cli
 
-    monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
     key = "tv:киберпанк:2022"
     entry = Entry(
         title="Киберпанк",

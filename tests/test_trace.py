@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from tests.fakes.clock import FakeClock
 from torrcast import trace
 
 
@@ -464,9 +465,8 @@ def test_a_seek_is_measured_to_the_moving_pointer_not_to_the_word_playing(
     from torrcast.cast import ChromecastReceiver
 
     monkeypatch.setattr(ChromecastReceiver, "_device", lambda self: _FakeDevice([]))
-    clock = {"now": 0.0}
-    monkeypatch.setattr("torrcast.cast.time.monotonic", lambda: clock["now"])
-    receiver = ChromecastReceiver("10.0.0.50")
+    clock = FakeClock()
+    receiver = ChromecastReceiver("10.0.0.50", clock=clock)
     # Все пробы в PLAYING нарочно: ровно так и врал приёмник на живом Q70D.
     script = [
         _Reported(600.0),  # смотрим 10:00
@@ -477,7 +477,7 @@ def test_a_seek_is_measured_to_the_moving_pointer_not_to_the_word_playing(
     ]
     monkeypatch.setattr(ChromecastReceiver, "_status", lambda self: script.pop(0))
     for tick in range(5):
-        clock["now"] = 2.0 * tick
+        clock.now = 2.0 * tick
         receiver.position(front=1e6)
     trace.shutdown()
 

@@ -31,6 +31,7 @@ import requests
 
 from tests.conftest import CLIP_SECONDS, fake_packer, free_port
 from torrcast import stream
+from torrcast import stream_pack as stream_pack_module
 from torrcast.cast import Report
 from torrcast.keymap import Reader, keyframes, video_track
 from torrcast.stream import (
@@ -603,7 +604,8 @@ def test_the_map_is_believed_only_after_the_pilot_has_confirmed_it(
     даром. Дёшево поверить карте сразу проект уже дважды не смог: резы захода муксер
     отмеряет от первого пакета, и заход, вставший не туда, кладёт мимо сетки весь участок.
     """
-    monkeypatch.setattr(stream, "_SEEK_OK", {})
+    trusted: dict[str, bool] = {}
+    monkeypatch.setattr(stream_pack_module, "_SEEK_OK", trusted)
     keys = _map_of(clip)
     asked: list[float] = []
     honest = stream._pilot_start
@@ -612,12 +614,12 @@ def test_the_map_is_believed_only_after_the_pilot_has_confirmed_it(
         asked.append(at)
         return honest(url, at)
 
-    monkeypatch.setattr(stream, "_pilot_start", counted)
+    monkeypatch.setattr(stream_pack_module, "_pilot_start", counted)
     first, second = keys.at[6], keys.at[9]
     assert pack_start(clip, first, keys=keys) == pytest.approx(mapped_start(keys, first))
     assert pack_start(clip, second, keys=keys) == pytest.approx(mapped_start(keys, second))
     assert asked == [first], f"пробных прогонов {len(asked)}, а карта сверяется один раз"
-    assert stream._SEEK_OK[clip] is True
+    assert trusted[clip] is True
 
 
 def test_a_lying_map_is_caught_by_the_pilot_and_never_believed_again(
@@ -629,14 +631,15 @@ def test_a_lying_map_is_caught_by_the_pilot_and_never_believed_again(
     полкадра. Показ обязан этого не заметить - заход всё равно начинается там, где ffmpeg
     встал на самом деле.
     """
-    monkeypatch.setattr(stream, "_SEEK_OK", {})
+    trusted: dict[str, bool] = {}
+    monkeypatch.setattr(stream_pack_module, "_SEEK_OK", trusted)
     keys = _map_of(clip)
     lying = keys._replace(at=[second + 0.7 for second in keys.at])
     for at in (keys.at[6], keys.at[9]):
         assert pack_start(clip, at, keys=lying) == pytest.approx(
             stream._pilot_start(clip, at), abs=SPLIT_SLACK
         ), "заход ушёл туда, куда показала врущая карта"
-    assert stream._SEEK_OK[clip] is False, "враньё карты запоминается: второй раз не спрашиваем"
+    assert trusted[clip] is False, "враньё карты запоминается: второй раз не спрашиваем"
 
 
 def test_the_map_keeps_quiet_where_the_rule_does_not_hold() -> None:
@@ -1624,7 +1627,7 @@ def test_probe_reads_the_scan_type_from_the_stream(monkeypatch: pytest.MonkeyPat
     """
     import json
 
-    from torrcast import stream as stream_mod
+    from torrcast import stream_probe as stream_probe_mod
     from torrcast.stream import probe
 
     payload = json.dumps(
@@ -1655,7 +1658,7 @@ def test_probe_reads_the_scan_type_from_the_stream(monkeypatch: pytest.MonkeyPat
         asked.append(command)
         return payload
 
-    monkeypatch.setattr(stream_mod, "_run_ffprobe", fake_probe)
+    monkeypatch.setattr(stream_probe_mod, "_run_ffprobe", fake_probe)
     media = probe("http://torr/stream/hash-1/2")
     assert media.interlaced and media.quality == "1080i"
     assert any("field_order" in flag for flag in asked[0]), "спросили тем же одним запросом"
@@ -1663,7 +1666,7 @@ def test_probe_reads_the_scan_type_from_the_stream(monkeypatch: pytest.MonkeyPat
     def boom(*a: object) -> str:
         raise AssertionError("паспорт обязан прийти с полки, а не от ffprobe")
 
-    monkeypatch.setattr(stream_mod, "_run_ffprobe", boom)
+    monkeypatch.setattr(stream_probe_mod, "_run_ffprobe", boom)
     cached = probe("http://torr/stream/hash-1/2")
     assert cached.interlaced and cached.quality == "1080i", "полка развёртку хранит"
 
@@ -1779,7 +1782,6 @@ def test_mock_receiver_closes_its_ffmpeg_log(monkeypatch: pytest.MonkeyPatch) ->
     Приёмник живёт весь юнит, а сериал зовёт ``play`` на каждую серию: журнал прошлой
     оставался открытым до сборки мусора, и ``stop`` его не закрывал вовсе.
     """
-    import subprocess
     import tempfile
 
     from torrcast import InfraError
@@ -1790,7 +1792,7 @@ def test_mock_receiver_closes_its_ffmpeg_log(monkeypatch: pytest.MonkeyPatch) ->
     def err_of(r: MockReceiver) -> IO[bytes] | None:
         return r._err
 
-    receiver = MockReceiver()
+    receiver = MockReceiver(spawn=_no_ffmpeg)
     first = tempfile.TemporaryFile()  # noqa: SIM115 - закрыть его и есть предмет проверки
     receiver._err = first
     receiver.stop()
@@ -1798,7 +1800,6 @@ def test_mock_receiver_closes_its_ffmpeg_log(monkeypatch: pytest.MonkeyPatch) ->
 
     receiver._err = second = tempfile.TemporaryFile()  # noqa: SIM115 - то же самое
     monkeypatch.setattr(MockReceiver, "_probe", lambda self, url: None)
-    monkeypatch.setattr(subprocess, "Popen", _no_ffmpeg)
     with pytest.raises(InfraError):
         receiver.play("http://127.0.0.1/index.m3u8")
     assert second.closed, "новый показ бросил журнал прошлого открытым"
@@ -1889,13 +1890,13 @@ def test_the_position_is_warmed_by_its_byte_offset_not_by_a_proportion(
     assert keys.byte_at(0.0) == 0 and keys.byte_at(-5.0) == 0
 
     asked: list[tuple[int, int]] = []
-    monkeypatch.setattr(stream_module, "film_keys", lambda url: keys)
+    monkeypatch.setattr(stream_pack_module, "film_keys", lambda url: keys)
 
     def note(url: str, offset: int, upto: int = 0, alive: Any = None) -> int:
         asked.append((offset, upto))
         return 0
 
-    monkeypatch.setattr(stream_module, "warm_at", note)
+    monkeypatch.setattr(stream_pack_module, "warm_at", note)
     warm_file("http://127.0.0.1:1/film.mp4", at=240.0)
     for _ in range(200):
         if len(asked) >= 2:
@@ -1941,11 +1942,10 @@ def test_the_key_lock_stays_alive_while_its_holder_works(
     читать тот же хвост вторым потоком: ровно то, ради чего замок и заведён.
     """
     import torrcast.keymap as keymap_module
-    from torrcast import stream as stream_module
     from torrcast.stream import _fetching, _keys_cache, film_keys
 
     monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
-    monkeypatch.setattr(stream_module, "KEYS_LOCK", 0.3)  # 60 с в проде: столько не ждём
+    monkeypatch.setattr(stream_pack_module, "KEYS_LOCK", 0.3)  # 60 с в проде: столько не ждём
     url = "http://127.0.0.1:8090/stream?link=hash&index=1"
     lock = _keys_cache(url).with_suffix(".lock")
     alive: list[bool] = []
@@ -2018,11 +2018,11 @@ def test_the_head_warmed_under_the_question_is_sized_by_the_container(
         asked.append((offset, upto))
         return 0
 
-    monkeypatch.setattr(stream_module, "warm_at", note)
+    monkeypatch.setattr(stream_pack_module, "warm_at", note)
     for kind in ("mkv", "mp4"):
         asked.clear()
         keys = FilmKeys(600.0, [0.0, 200.0], [0, 500 << 20], kind)
-        monkeypatch.setattr(stream_module, "film_keys", lambda url, k=keys: k)
+        monkeypatch.setattr(stream_pack_module, "film_keys", lambda url, k=keys: k)
         warm_file(f"http://127.0.0.1:1/film.{kind}", at=240.0)
         for _ in range(200):
             if len(asked) >= 2:
@@ -2039,7 +2039,6 @@ def test_an_old_key_cache_takes_the_container_from_the_file_name(
     Без этой подсказки продолжение по уже игранному фильму грело бы восемь мегабайт
     головы вечно: кэш карт живёт долго, а переснимать его ради одного поля незачем.
     """
-    from torrcast import stream as stream_module
     from torrcast.stream import HEAD_OPEN, FilmKeys, container_of, warm_file
 
     assert (container_of("Moana.2.2024.mkv"), container_of("Moana.mp4")) == ("mkv", "mp4")
@@ -2052,8 +2051,8 @@ def test_an_old_key_cache_takes_the_container_from_the_file_name(
         return 0
 
     keys = FilmKeys(600.0, [0.0, 200.0], [0, 500 << 20], "")  # кэш прошлой версии
-    monkeypatch.setattr(stream_module, "warm_at", note)
-    monkeypatch.setattr(stream_module, "film_keys", lambda url: keys)
+    monkeypatch.setattr(stream_pack_module, "warm_at", note)
+    monkeypatch.setattr(stream_pack_module, "film_keys", lambda url: keys)
     warm_file("http://127.0.0.1:1/stream?link=hash&index=1", at=240.0, name="Moana.2.2024.mkv")
     for _ in range(200):
         if len(asked) >= 2:

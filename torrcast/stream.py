@@ -184,8 +184,6 @@ __all__ = [
     "why",
 ]
 
-import sys
-from types import ModuleType
 from typing import Any
 
 from torrcast import stream_core as _stream_core
@@ -398,15 +396,4 @@ globals().update(_namespace)
 for _part in _PARTS:
     vars(_part).update(_namespace)
 
-
-class _StreamModule(ModuleType):
-    def __setattr__(self, name: str, value: Any) -> None:
-        super().__setattr__(name, value)
-        if not name.startswith("__"):
-            for part in _PARTS:
-                if name in vars(part):
-                    setattr(part, name, value)
-
-
-sys.modules[__name__].__class__ = _StreamModule
 __all__ = [name for name in globals() if not name.startswith("_")]

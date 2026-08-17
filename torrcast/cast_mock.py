@@ -157,6 +157,8 @@ class MockReceiver:
         patience: float = 0.0,
         profile: Profile = CAUTIOUS,
         clock: Clock = CLOCK,
+        spawn: Any = subprocess.Popen,
+        thread: Any = threading.Thread,
     ) -> None:
         self.ca = ca
         #: Чей приёмник изображаем: у профиля своё терпение, свои повторы и своя обида
@@ -167,6 +169,10 @@ class MockReceiver:
         #: время; сухому прогону сюда дают свои часы, чтобы не выжидать эти секунды и не
         #: зависеть от загрузки машины (:class:`torrcast.timing.Clock`).
         self.clock = clock
+        #: Чем поднимаются декодер и его фоновые читатели. Умолчание боевое - настоящий
+        #: ffmpeg и настоящие потоки; тесту, который проверяет не приёмку, а сам учёт
+        #: позиции, сюда дают заглушки, чтобы не поднимать ни того, ни другого.
+        self.spawn, self.thread = spawn, thread
         self.report = Report()
         self._proc: subprocess.Popen[str] | None = None
         self._err: IO[bytes] | None = None
@@ -279,9 +285,7 @@ class MockReceiver:
             "-i", source, "-progress", "pipe:1", "-f", "null", "-",
         ]  # fmt: skip
         try:
-            self._proc = subprocess.Popen(
-                command, stdout=subprocess.PIPE, stderr=self._err, text=True
-            )
+            self._proc = self.spawn(command, stdout=subprocess.PIPE, stderr=self._err, text=True)
         except FileNotFoundError as exc:
             self._close_log()
             raise InfraError("ffmpeg не установлен") from exc
@@ -293,7 +297,7 @@ class MockReceiver:
         self._pos = Position(at, 0.0, True)
         self._follower = None
         for target in (self._follow, self._audit):
-            thread = threading.Thread(target=target, args=(url,), daemon=True)
+            thread = self.thread(target=target, args=(url,), daemon=True)
             thread.start()
             if target is self._follow:
                 self._follower = thread

@@ -22,6 +22,8 @@ import pytest
 from tests.test_cli import _FakeTorrServer, _plan, _probes, _resolve, rel
 from torrcast import InfraError, NotFoundError, SwarmError, cli
 from torrcast import stream as stream_mod
+from torrcast import stream_pack as stream_pack_mod
+from torrcast import stream_probe as stream_probe_mod
 from torrcast.parse import Release
 from torrcast.stream import Media, ServerDownError, swarm_pulse
 
@@ -494,7 +496,7 @@ def test_the_key_shelf_is_trimmed_and_what_was_asked_today_survives(
     from torrcast.stream import _keys_cache, film_keys
 
     monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
-    monkeypatch.setattr(stream_mod, "KEYS_KEPT", 8)
+    monkeypatch.setattr(stream_pack_mod, "KEYS_KEPT", 8)
     _fake_map(monkeypatch)
 
     for number in range(8):  # полка ровно под потолок, и вся она «старая»
@@ -523,7 +525,7 @@ def test_the_probe_shelf_is_trimmed_by_the_same_rule(
     from torrcast.stream import _keep_media, _media_cache, _read_media
 
     monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
-    monkeypatch.setattr(stream_mod, "PROBE_KEPT", 8)
+    monkeypatch.setattr(stream_probe_mod, "PROBE_KEPT", 8)
     passport = Media(3600.0, (stream_mod.AudioTrack(0, "rus", "", "aac", 2),), "h264")
 
     for number in range(8):
@@ -551,7 +553,7 @@ def test_junk_on_the_shelf_is_ignored_and_never_crashes_the_start(
     from torrcast.stream import _keys_cache, film_keys
 
     monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
-    monkeypatch.setattr(stream_mod, "KEYS_KEPT", 4)
+    monkeypatch.setattr(stream_pack_mod, "KEYS_KEPT", 4)
     _fake_map(monkeypatch)
 
     cache = _keys_cache(_url(0))

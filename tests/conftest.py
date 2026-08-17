@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from tests.fakes.cast_world import CastWorld
 from torrcast import cli, console, trace
 from torrcast.facts import Origin
 
@@ -248,6 +249,41 @@ def _pretend_tty(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(console, "stdin_is_tty", lambda: True)
 
 
+@pytest.fixture
+def world(monkeypatch: pytest.MonkeyPatch) -> CastWorld:
+    """Стенд команды показа: внешний мир объектом, а не подменами по месту."""
+    stand = CastWorld()
+    stand.install(monkeypatch)
+    return stand
+
+
+@pytest.fixture(autouse=True)
+def _no_remote(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Диагностического пульта (``TORRCAST_CTL``) у теста нет, пока он его не попросит.
+
+    Переменная живёт в окружении прогона, а показ читает её на каждом опросе: чужой
+    пульт, забытый в среде, рулил бы показом посреди чужого теста.
+    """
+    monkeypatch.delenv(cli.CTL_ENV, raising=False)
+
+
+@pytest.fixture
+def remote(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Файл диагностического пульта: тест пишет в него команду, показ её съедает."""
+    path = tmp_path / "ctl"
+    monkeypatch.setenv(cli.CTL_ENV, str(path))
+    return path
+
+
+@pytest.fixture
+def journal(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Каталог недельного следа: события уходят в своё место, а не в боевое."""
+    path = tmp_path / "trace"
+    path.mkdir()
+    monkeypatch.setenv(trace.LOG_ENV, str(path))
+    return path
+
+
 @pytest.fixture(scope="session")
 def tls(tmp_path_factory: pytest.TempPathFactory) -> tuple[str, str]:
     """Self-signed для dev. В бою на это место встанут файлы LE — меняется только путь."""
@@ -383,6 +419,7 @@ def fake_packer(
     rate: float = 0.0,
     burst: float = 0.0,
     began: float = 0.0,
+    kind: type[Packer] | None = None,
 ) -> Packer:
     """Прогон упаковки без ffmpeg: сегменты в ``out`` кладёт сам тест.
 
@@ -403,13 +440,17 @@ def fake_packer(
 
     ``run`` и ``last`` нужны там, где проверяется сама выкладка: каталог прогона со
     своими кусками и предел захода кодировщика (:attr:`torrcast.stream.Packer.last`).
+
+    ``kind`` - каким прогоном притвориться. Умолчание - настоящий :class:`Packer`; свой
+    наследник нужен там, где проверяется поведение показа на прогоне с иным исходом
+    (оборванный вход, чужой код возврата), а подменять метод у общего класса нельзя.
     """
     from torrcast.stream import PACK_DIR, Packer, segment_slot
 
     if edge is None:
         made = [s for s in (segment_slot(p.name) for p in out.glob("v*.ts")) if s >= first]
         edge = max(made, default=first - 1)
-    return Packer(
+    return (kind or Packer)(
         proc=FakeProc(code),  # type: ignore[arg-type]
         out=out,
         run=out / PACK_DIR if run is None else run,

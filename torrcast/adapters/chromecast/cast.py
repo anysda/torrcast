@@ -16,11 +16,11 @@ from __future__ import annotations
 
 import contextlib
 import logging
-import time
 from collections.abc import Callable
 from importlib import import_module
 from typing import Any, Literal, cast
 
+from torrcast.adapters.system_clock import SystemClock
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.not_raised import NOT_RAISED
 from torrcast.domain.position import Position
@@ -28,6 +28,7 @@ from torrcast.domain.profile import CAUTIOUS, Profile
 from torrcast.domain.receiver import Receiver
 from torrcast.domain.start_refused_error import StartRefusedError
 from torrcast.domain.trust_anchor import trust_anchor
+from torrcast.ports.clock import Clock
 
 _package = import_module("torrcast")
 trace, why = _package.trace, _package.why
@@ -213,13 +214,19 @@ class ChromecastReceiver:
     #: что мельче, - это разрешение замера, а не потерянная плёнка.
     SKIP_FLOOR = 2.0
 
-    def __init__(self, address: str, profile: Profile = CAUTIOUS) -> None:
+    def __init__(
+        self, address: str, profile: Profile = CAUTIOUS, clock: Clock | None = None
+    ) -> None:
         if not address:
             raise InfraError("адрес ТВ не задан: cast --tv - найдёт телевизоры в сети")
         self.address = address
         #: Профиль этого приёмника: его терпение, его повторы LOAD, его сторож нуджей.
         #: Умолчание осторожное - показ без выбранного профиля ведёт себя как раньше.
         self.profile = profile
+        #: Чем меряются выдержки приёмника: ожидание картинки после LOAD, пауза перед
+        #: повтором, часы сторожа подвиса. Умолчание - настоящее время; сухому прогону
+        #: сюда дают свои часы, чтобы не выжидать эти минуты (:class:`torrcast.timing.Clock`).
+        self.clock: Clock = clock if clock is not None else SystemClock()
         self._cast: Any = None
         self._url = ""
         self._title = ""
@@ -609,7 +616,7 @@ class ChromecastReceiver:
         воскрешения (:class:`torrcast.cli._Revival`), которое поднимает сессию с последнего
         показанного кадра, а не гонит указатель дальше по фильму.
         """
-        now = time.monotonic()
+        now = self.clock.monotonic()
         if pos != self._stall_at:
             self._stall_at, self._stall_since = pos, now
             return
@@ -681,7 +688,7 @@ class ChromecastReceiver:
             trace.seek(
                 frm=self._seek_from,
                 to=self._seek_to,
-                wait=time.monotonic() - self._seek_since,
+                wait=self.clock.monotonic() - self._seek_since,
             )
             self._seek_since = 0.0
         if not jumped:
@@ -691,7 +698,7 @@ class ChromecastReceiver:
             return
         self._drop_seek("следом пришла ещё одна перемотка")
         self._seek_from, self._seek_to = seen, pos
-        self._seek_since = time.monotonic()
+        self._seek_since = self.clock.monotonic()
 
     def _drop_seek(self, why: str) -> None:
         """Закрыть перемотку, у которой картинки так и не случилось, - записью, а не молчанием.
@@ -767,21 +774,21 @@ class ChromecastReceiver:
         Любая повторная попытка идёт в чистое приложение: залипший Default Media Receiver
         молчит на все LOAD подряд, а `quit_app` лечит сразу.
         """
-        deadline = time.monotonic() + budget
-        tried = time.monotonic()
-        while time.monotonic() < deadline:
-            time.sleep(1.0)
+        deadline = self.clock.monotonic() + budget
+        tried = self.clock.monotonic()
+        while self.clock.monotonic() < deadline:
+            self.clock.sleep(1.0)
             status = self._status()
             if status.player_state in ("PLAYING", "BUFFERING"):
                 return True
-            waited = time.monotonic() - tried
+            waited = self.clock.monotonic() - tried
             refused = status.idle_reason == "ERROR" and waited >= self.LOAD_PAUSE
             if refused or waited >= self.STUCK_SECONDS:
                 if self._reloads >= self.profile.load_retries:
                     return False  # повторы LOAD исчерпаны - показ не начался, гаснем честно
                 self._reloads += 1
                 trace.reload(pos=self._peak, tries=self._reloads)
-                tried = time.monotonic()
+                tried = self.clock.monotonic()
                 print(
                     f"LOAD не взяли ({self._why()}) - повтор {self._reloads} "
                     f"из {self.profile.load_retries}",
@@ -808,7 +815,7 @@ class ChromecastReceiver:
             with contextlib.suppress(Exception):
                 self._cast.disconnect()
         self._cast = None  # следующий _device() поднимет соединение заново
-        time.sleep(self.LOAD_PAUSE)
+        self.clock.sleep(self.LOAD_PAUSE)
 
     def _status(self) -> Any:
         """Свежий статус приёмника. ``update_status`` обязателен: без него pychromecast
