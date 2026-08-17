@@ -2,42 +2,33 @@
 Спрашивает его ``cast status`` через сеанс показа; горячий путь показа сюда не ходит.
 """
 
-# ruff: noqa: F821, F822
-
 from __future__ import annotations
 
 from torrcast.domain.config import Config
 from torrcast.domain.entry import Entry
 from torrcast.domain.infra_error import InfraError
+from torrcast.domain.probe_settings import PROBE_TIMEOUT
+from torrcast.ports.torrent_engines import TorrentEngines
 
-__all__ = [
-    "PROBE_TIMEOUT",
-    "Config",
-    "Entry",
-    "InfraError",
-    "TorrServer",
-    "_cache_reserve",
-]
+#: Чем сценарий берёт службу раздач: адрес и срок ответа - его, сама служба - не его.
+#: Кладёт сюда композиционный корень (:mod:`torrcast.runtime.wire`), и до его слова имени
+#: тут нет вовсе: молчаливой подделки у службы раздач не бывает.
+_reserve_engines: TorrentEngines
 
-from torrcast.ports.module import module
 
-for _module_name, _names in {
-    "torrcast.stream": (
-        "PROBE_TIMEOUT",
-        "TorrServer",
-    ),
-}.items():
-    _dependency = module(_module_name)
-    globals().update({name: getattr(_dependency, name) for name in _names})
+def _configure_cache_reserve(engines: TorrentEngines) -> None:
+    """Назначить, чем сценарий берёт службу раздач."""
+    global _reserve_engines
+    _reserve_engines = engines
 
 
 def _cache_reserve(config: Config, entry: Entry) -> str:
     """Сколько минут показа лежит в кэше службы прямо сейчас, языком зрителя.
 
     Число считается из того, что уже есть: набитое в кэше спрашивает сама служба
-    (:meth:`TorrServer.cache`), битрейт лежит в записи (:attr:`Entry.vbps`). Спросить
-    - один запрос к местной службе, и только из ``cast status``: горячий путь показа
-    сюда не ходит.
+    (:meth:`torrcast.ports.torrent_engine.TorrentEngine.cache`), битрейт лежит в записи
+    (:attr:`Entry.vbps`). Спросить - один запрос к местной службе, и только из ``cast
+    status``: горячий путь показа сюда не ходит.
 
     Минуты - частное от битрейта ЭТОГО файла, а не константа: замер показал, что одни
     и те же гигабайты кэша - это 32 минуты тяжёлого релиза и вдвое больше лёгкого.
@@ -52,7 +43,9 @@ def _cache_reserve(config: Config, entry: Entry) -> str:
     if not entry.torrent:
         return ""
     try:
-        payload = TorrServer(config.torrserver_url, timeout=PROBE_TIMEOUT).cache(entry.torrent)
+        payload = _reserve_engines(config.torrserver_url, timeout=PROBE_TIMEOUT).cache(
+            entry.torrent
+        )
     except InfraError:
         return "запас в кэше службы неизвестен - служба раздач не отвечает"
     filled = payload.get("Filled")

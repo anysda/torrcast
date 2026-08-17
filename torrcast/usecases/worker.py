@@ -2,50 +2,50 @@
 Зовёт его ``ExecStart`` юнита ``torrcast-play`` через :func:`torrcast.commands.main`.
 """
 
-# ruff: noqa: F821, F822
-
 from __future__ import annotations
-
-from torrcast.domain.torrcast_error import TorrcastError
-from torrcast.ports.journal import journal
-
-__all__ = [
-    "Supply",
-    "TorrcastError",
-    "TorrServer",
-    "_cmd_worker",
-    "_on_term",
-    "_own_torrent",
-    "_release_torrents",
-    "_worker_loop",
-    "contextlib",
-    "detect_profile",
-    "make_receiver",
-    "signal",
-    "tune_profile",
-]
 
 import contextlib
 import signal
+from collections.abc import Callable
 
-from torrcast.ports.module import module
+from torrcast.domain.choice import Choice
+from torrcast.domain.config import Config
+from torrcast.domain.probe_settings import PROBE_TIMEOUT
+from torrcast.domain.torrcast_error import TorrcastError
+from torrcast.domain.tune import tune
+from torrcast.ports.journal import journal
+from torrcast.ports.receivers import Receivers
+from torrcast.ports.stream_source import StreamSource
+from torrcast.ports.torrent_engine import TorrentEngine
+from torrcast.ports.torrent_engines import TorrentEngines
 from torrcast.usecases.stopped import _on_term
 from torrcast.usecases.torrents import _own_torrent, _release_torrents
 from torrcast.usecases.worker_loop import _worker_loop
 
-for _module_name, _names in {
-    "torrcast.cast": ("make_receiver",),
-    "torrcast.state": ("load_config",),
-    "torrcast.stream": (
-        "PROBE_TIMEOUT",
-        "Supply",
-        "TorrServer",
-    ),
-}.items():
-    _dependency = module(_module_name)
-    globals().update({name: getattr(_dependency, name) for name in _names})
-detect_profile = module("torrcast.profile").detect
-tune_profile = module("torrcast.profile").tune
+#: Внешний мир юнита показа. Всё это кладёт композиционный корень
+#: (:mod:`torrcast.runtime.wire`): юнит поднимает systemd, и до слова корня у него нет ни
+#: службы раздач, ни приёмника, ни настроек.
+_worker_engines: TorrentEngines
+_worker_receivers: Receivers
+_worker_sources: Callable[[TorrentEngine], StreamSource]
+_worker_configs: Callable[[], Config]
+_worker_detect: Callable[[Config], Choice]
+
+
+def _configure_worker(
+    engines: TorrentEngines,
+    receivers: Receivers,
+    sources: Callable[[TorrentEngine], StreamSource],
+    configs: Callable[[], Config],
+    detect: Callable[[Config], Choice],
+) -> None:
+    """Назначить юниту показа его внешний мир."""
+    global _worker_engines, _worker_receivers, _worker_sources, _worker_configs, _worker_detect
+    _worker_engines = engines
+    _worker_receivers = receivers
+    _worker_sources = sources
+    _worker_configs = configs
+    _worker_detect = detect
 
 
 def _cmd_worker(key: str) -> int:
@@ -80,22 +80,22 @@ def _cmd_worker(key: str) -> int:
     кончается вместе с юнитом.
     """
     journal().mark("процесс показа")
-    config = load_config()
+    config = _worker_configs()
     # Профиль приёмника юнит выбирает себе сам, а не получает от CLI: юнит переживает
     # смену серии и живёт своей жизнью, а опрос паспорта стоит одного HTTP к устройству.
-    chosen = detect_profile(config)
-    config = tune_profile(config, chosen.profile)
+    chosen = _worker_detect(config)
+    config = tune(config, chosen.profile)
     print(f"профиль приёмника: {chosen.profile.title} - {chosen.how}", flush=True)
     # SIGTERM от `cast stop` обязан пройти через finally: иначе позиция не запишется.
     signal.signal(signal.SIGTERM, _on_term)
-    torrserver = TorrServer(config.torrserver_url)
-    receiver = make_receiver(
+    torrserver = _worker_engines(config.torrserver_url)
+    receiver = _worker_receivers(
         config.receiver,
         config.tv or "",
         config.hls_cert if config.transport == "https" else "",
         profile=chosen.profile,
     )
-    supply = Supply(TorrServer(config.torrserver_url, timeout=PROBE_TIMEOUT))
+    supply = _worker_sources(_worker_engines(config.torrserver_url, timeout=PROBE_TIMEOUT))
     #: Хэши, которые подняли МЫ, - по ним и только по ним пойдёт уборка на выходе.
     mine: list[str] = []
     try:

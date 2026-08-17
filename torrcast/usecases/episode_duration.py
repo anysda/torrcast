@@ -2,23 +2,22 @@
 Зовёт цикл юнита показа перед каждой серией.
 """
 
-# ruff: noqa: F821, F822
-
 from __future__ import annotations
 
 from torrcast.domain.entry import Entry
 from torrcast.domain.worker_settings import WORKER_DUR
+from torrcast.ports.prober import Prober
+from torrcast.ports.state_store import store
 
-__all__ = ["WORKER_DUR", "Entry", "State", "_duration", "probe"]
+#: Чем читается паспорт потока. Кладёт сюда композиционный корень
+#: (:mod:`torrcast.runtime.wire`): без него следующая серия не узнала бы своей длительности.
+_episode_prober: Prober
 
-from torrcast.ports.module import module
 
-for _module_name, _names in {
-    "torrcast.state": ("State",),
-    "torrcast.stream": ("probe",),
-}.items():
-    _dependency = module(_module_name)
-    globals().update({name: getattr(_dependency, name) for name in _names})
+def _configure_episode_duration(prober: Prober) -> None:
+    """Назначить, чем сценарий читает паспорт следующей серии."""
+    global _episode_prober
+    _episode_prober = prober
 
 
 def _duration(key: str, entry: Entry, source: str) -> Entry:
@@ -49,7 +48,7 @@ def _duration(key: str, entry: Entry, source: str) -> Entry:
     """
     if entry.dur > 0 and entry.depth > 0 and entry.frame > 0:
         return entry
-    media = probe(source, timeout=WORKER_DUR)
+    media = _episode_prober(source, timeout=WORKER_DUR)
     entry.dur = media.duration or entry.dur
     # Ноль - «ещё не спрашивали», минус - «спросили, паспорт промолчал» (mp4 без тегов).
     entry.vbps = media.video_bps / 1e6 or -1.0
@@ -61,7 +60,7 @@ def _duration(key: str, entry: Entry, source: str) -> Entry:
     # И кадр тем же паспортом: без него 4К-запись прежней версии уезжала бы с уровнем
     # «4.1» в потоке - заведомым враньём (TC-251).
     entry.frame = media.frame
-    state = State.load()
+    state = store().load()
     state.put(key, entry)
-    state.save()
+    store().save(state)
     return entry

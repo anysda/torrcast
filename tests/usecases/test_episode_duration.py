@@ -1,7 +1,8 @@
 """Зеркально проверяет чтение паспорта следующей серии."""
 
+from torrcast.domain.worker_settings import WORKER_DUR
 from torrcast.state import Entry
-from torrcast.usecases.episode_duration import WORKER_DUR, _duration
+from torrcast.usecases.episode_duration import _duration
 
 
 def test_a_full_passport_is_not_asked_for_twice() -> None:

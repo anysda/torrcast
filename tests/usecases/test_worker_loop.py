@@ -1,6 +1,8 @@
 """Зеркально проверяет цикл серий внутри юнита показа."""
 
-from torrcast.usecases.worker_loop import WORKER_META, _following, _worker_loop
+from torrcast.domain.worker_settings import WORKER_META
+from torrcast.usecases.following import _following
+from torrcast.usecases.worker_loop import _worker_loop
 
 
 def test_metadata_budget_of_the_unit_stays_where_it_was() -> None:

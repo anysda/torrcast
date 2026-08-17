@@ -2,40 +2,20 @@
 Крутит его :func:`torrcast.usecases.worker._cmd_worker`.
 """
 
-# ruff: noqa: F821, F822
-
 from __future__ import annotations
 
+from collections.abc import Callable
+from functools import partial
+
 from torrcast.domain.config import Config
-from torrcast.domain.entry import Entry
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.profile import Profile
 from torrcast.domain.worker_settings import WORKER_META
 from torrcast.ports.journal import journal
-
-__all__ = [
-    "WORKER_META",
-    "Config",
-    "Entry",
-    "InfraError",
-    "Profile",
-    "Receiver",
-    "State",
-    "Supply",
-    "TorrServer",
-    "Watch",
-    "_Clock",
-    "_duration",
-    "_following",
-    "_own_torrent",
-    "_worker_loop",
-    "partial",
-    "trace_thresholds",
-]
-
-from functools import partial
-
-from torrcast.ports.module import module
+from torrcast.ports.receiver import Receiver
+from torrcast.ports.state_store import store
+from torrcast.ports.stream_source import StreamSource
+from torrcast.ports.torrent_engine import TorrentEngine
 from torrcast.usecases.episode_duration import _duration
 from torrcast.usecases.following import _following
 from torrcast.usecases.playback import _next_warmer, _play
@@ -44,25 +24,24 @@ from torrcast.usecases.start_clock import _Clock
 from torrcast.usecases.torrents import _own_torrent
 from torrcast.usecases.watch import Watch
 
-for _module_name, _names in {
-    "torrcast.cast": ("Receiver",),
-    "torrcast.state": ("State",),
-    "torrcast.stream": (
-        "Supply",
-        "TorrServer",
-    ),
-    "torrcast.profile": ("trace_thresholds",),
-}.items():
-    _dependency = module(_module_name)
-    globals().update({name: getattr(_dependency, name) for name in _names})
+#: Чем снимается снимок порогов серии: какими числами играем и откуда взято каждое.
+#: Собрать его может только тот, кто видит и настройки, и приёмник, поэтому кладёт сюда
+#: композиционный корень (:mod:`torrcast.runtime.wire`).
+_worker_thresholds: Callable[[Config, Profile], dict[str, object]]
+
+
+def _configure_worker_loop(thresholds: Callable[[Config, Profile], dict[str, object]]) -> None:
+    """Назначить, чем цикл снимает пороги начала серии."""
+    global _worker_thresholds
+    _worker_thresholds = thresholds
 
 
 def _worker_loop(
     config: Config,
     key: str,
-    torrserver: TorrServer,
+    torrserver: TorrentEngine,
     receiver: Receiver,
-    supply: Supply,
+    supply: StreamSource,
     mine: list[str],
     profile: Profile,
 ) -> int:
@@ -71,7 +50,7 @@ def _worker_loop(
     """
     magnet, torrent_hash = "", ""
     while True:
-        entry = State.load().get(key)
+        entry = store().load().get(key)
         if entry is None:
             raise InfraError(f"в состоянии нет записи {key}")
         if entry.magnet != magnet:  # раздача та же - метаданные второй раз не ждём
@@ -86,8 +65,8 @@ def _worker_loop(
             torrserver.wait_files(torrent_hash, timeout=WORKER_META)
             # Тот же магнит, но живёт он теперь и у сторожа: URL потока несёт только хэш,
             # и вернуть раздачу с трекерами после аварии источника может лишь он
-            # (:class:`torrcast.stream.Supply`). За магнитом в индексеры мы не ходим - он
-            # лежит в записи картины.
+            # (:class:`torrcast.ports.stream_source.StreamSource`). За магнитом в индексеры
+            # мы не ходим - он лежит в записи картины.
             supply.torrent_hash, supply.magnet, supply.lost = torrent_hash, magnet, ""
         source = torrserver.stream_url(torrent_hash, entry.file_idx)
         entry = _duration(key, entry, source)
@@ -103,7 +82,7 @@ def _worker_loop(
             title=title,
             pos=round(entry.pos, 1),
             profile=profile.key,
-            **trace_thresholds(config, profile),
+            **_worker_thresholds(config, profile),
         )
         print(f"{session_tag} показ «{title}» с {_hms(entry.pos)}", flush=True)
         code = _play(

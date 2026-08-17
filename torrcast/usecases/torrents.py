@@ -2,42 +2,27 @@
 Зовут отсюда показ, отбор и ``cast stop``; сеть и диск приходят готовыми зависимостями.
 """
 
-# ruff: noqa: F821, F822
-
 from __future__ import annotations
-
-from torrcast.domain.config import Config
-from torrcast.domain.torrcast_error import TorrcastError
-
-__all__ = [
-    "PROBE_TIMEOUT",
-    "_BTIH",
-    "Config",
-    "Sequence",
-    "TorrcastError",
-    "TorrServer",
-    "_held_by_show",
-    "_own_torrent",
-    "_release_orphans",
-    "_release_torrents",
-    "_torrent_hash",
-    "contextlib",
-]
 
 import contextlib
 from collections.abc import Sequence
 
+from torrcast.domain.config import Config
 from torrcast.domain.probe_settings import PROBE_TIMEOUT
-from torrcast.domain.torrent_hash import _BTIH, _torrent_hash
-from torrcast.ports.module import module
+from torrcast.domain.torrcast_error import TorrcastError
 from torrcast.ports.show_unit import unit
 from torrcast.ports.state_store import store
+from torrcast.ports.torrent_engines import TorrentEngines
 
-# Служба раздач своего порта пока не имеет: он идёт вместе с медиатрактом. Здесь остался
-# ровно он один - остальное разошлось по домам выше.
-for _module_name, _names in {"torrcast.stream": ("TorrServer",)}.items():
-    _dependency = module(_module_name)
-    globals().update({name: getattr(_dependency, name) for name in _names})
+#: Чем сценарий берёт службу раздач: адрес и срок ответа знает он, саму службу - корень
+#: (:mod:`torrcast.runtime.wire`).
+_cleanup_engines: TorrentEngines
+
+
+def _configure_torrents(engines: TorrentEngines) -> None:
+    """Назначить, чем сценарий берёт службу раздач."""
+    global _cleanup_engines
+    _cleanup_engines = engines
 
 
 def _release_torrents(config: Config, hashes: Sequence[str]) -> list[str]:
@@ -51,10 +36,10 @@ def _release_torrents(config: Config, hashes: Sequence[str]) -> list[str]:
     показ. Пропадает она из списка только ПОСЛЕ перезапуска службы (``save_to_db:false``),
     и это отдельный довод за явный хэш, а не за чистку списком.
 
-    Срок службе даётся короткий (:data:`torrcast.stream.PROBE_TIMEOUT`), а молчание не
+    Срок службе даётся короткий (:data:`torrcast.domain.probe_settings.PROBE_TIMEOUT`), а молчание не
     считается бедой: уборка идёт на выходе, в том числе по SIGTERM от ``cast stop``, и
     задерживать выход из-за неотвечающей службы она права не имеет. Повторный снос
-    несуществующей раздачи - не ошибка (:meth:`torrcast.stream.TorrServer.drop`).
+    несуществующей раздачи - не ошибка (:meth:`torrcast.ports.torrent_engine.TorrentEngine.drop`).
 
     🔴 Но молчание - и не уборка, а разница между ними видна только отсюда. Зовущие по
     этому ответу решают, забывать ли хэш: забытый хэш нечем снести, а раздача переживает
@@ -63,7 +48,7 @@ def _release_torrents(config: Config, hashes: Sequence[str]) -> list[str]:
     gone: list[str] = []
     if not hashes:
         return gone
-    torrserver = TorrServer(config.torrserver_url, timeout=PROBE_TIMEOUT)
+    torrserver = _cleanup_engines(config.torrserver_url, timeout=PROBE_TIMEOUT)
     for torrent_hash in dict.fromkeys(h for h in hashes if h):
         with contextlib.suppress(TorrcastError):
             if torrserver.drop(torrent_hash):
@@ -86,7 +71,7 @@ def _own_torrent(key: str, torrent_hash: str) -> None:
         return
     entry.torrent = torrent_hash
     state.put(key, entry)
-    state.save()
+    store().save(state)
 
 
 def _release_orphans(config: Config) -> None:
@@ -94,12 +79,13 @@ def _release_orphans(config: Config) -> None:
 
     Юнит убирает своё сам на любом штатном выходе, но SIGKILL не спрашивает, и хэш умирал
     вместе с процессом: раздача оставалась в TorrServer навсегда - до его перезапуска, - а
-    убрать её было нечем («снести всё из list» снесло бы чужое). Теперь хэш лежит в
-    состоянии, и сирота живёт максимум до следующего запуска.
+    убрать её было нечем («снести всё из list» снесло бы чужое). Теперь хэш лежит
+    в состоянии, и сирота живёт максимум до следующего запуска.
 
     🔴 Мёртвым хозяин считается по ЖИВОСТИ юнита, а не по наличию записи: идёт показ -
     раздача его, и трогать её нельзя. Убирается только то, что записано явным хэшем,
-    повторный снос уже убранной - не ошибка (:meth:`torrcast.stream.TorrServer.drop`).
+    повторный снос уже убранной - не ошибка
+    (:meth:`torrcast.ports.torrent_engine.TorrentEngine.drop`).
 
     🔴 Забывается хэш только вместе с раздачей. Служба, которая не ответила, ничего не
     убрала, а запись - единственное, чем эту раздачу вообще можно снести: стерев её за
@@ -117,7 +103,7 @@ def _release_orphans(config: Config) -> None:
     for key, torrent_hash in orphans.items():
         if torrent_hash in gone:  # не через put: уборка мусора не делает запись «свежей»
             state.entries[key].torrent = ""
-    state.save()
+    store().save(state)
 
 
 def _held_by_show(torrent_hash: str) -> bool:

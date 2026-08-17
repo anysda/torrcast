@@ -208,6 +208,8 @@ from torrcast.domain.start_settings import (
     SAY_SECONDS,
     START_SLACK,
 )
+from torrcast.domain.torrent_hash import _BTIH, _torrent_hash
+from torrcast.domain.worker_settings import WORKER_DUR, WORKER_META
 from torrcast.facts import Facts
 from torrcast.parse import Episode, split_episode
 from torrcast.profile import Profile, trace_thresholds
@@ -232,7 +234,8 @@ from torrcast.stream import (
 )
 from torrcast.usecases.cache_reserve import _cache_reserve
 from torrcast.usecases.doctor_command import _cmd_doctor
-from torrcast.usecases.episode_duration import WORKER_DUR, _duration
+from torrcast.usecases.episode_duration import _duration
+from torrcast.usecases.following import _following
 from torrcast.usecases.log_command import _cmd_log, _since_seconds
 from torrcast.usecases.releases_command import _cmd_releases
 from torrcast.usecases.say_showing import _say_showing
@@ -241,16 +244,14 @@ from torrcast.usecases.start_clock import _Clock
 from torrcast.usecases.status import WARMED_RATIO
 from torrcast.usecases.stopped import _on_term, _Stopped
 from torrcast.usecases.torrents import (
-    _BTIH,
     _held_by_show,
     _own_torrent,
     _release_orphans,
     _release_torrents,
-    _torrent_hash,
 )
 from torrcast.usecases.voices_command import _cmd_voices
 from torrcast.usecases.watch import WATCH_SECONDS, Watch
 from torrcast.usecases.worker import _cmd_worker
-from torrcast.usecases.worker_loop import WORKER_META, _following, _worker_loop
+from torrcast.usecases.worker_loop import _worker_loop
 
 __all__ = [name for name in globals() if not name.startswith("__")]

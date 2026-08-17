@@ -33,6 +33,7 @@ from torrcast.parse import Release as Release
 from torrcast.playback_revival import _hold as _hold
 from torrcast.playback_revival import _Revival as _Revival
 from torrcast.ports.show_unit import ShowUnit as ShowUnit
+from torrcast.ports.stream_source import StreamSource as Supply
 from torrcast.profile import CAUTIOUS as CAUTIOUS
 from torrcast.profile import Profile as Profile
 from torrcast.profile import detect as detect_profile
@@ -47,7 +48,6 @@ from torrcast.state import State as State
 from torrcast.stream import Feed as Feed
 from torrcast.stream import Grid as Grid
 from torrcast.stream import HlsServer as HlsServer
-from torrcast.stream import Supply as Supply
 from torrcast.stream import TorrFile as TorrFile
 from torrcast.stream import TorrServer as TorrServer
 from torrcast.stream import codec_name as codec_name

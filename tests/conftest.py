@@ -35,6 +35,19 @@ if TYPE_CHECKING:
 
 #: Имена, уехавшие из плоского фасада в свои модули: куда доводить подмену прежнего имени.
 _MOVED_NAMES = {"_cmd_status": ("torrcast.cli.main", "status")}
+#: Имена, которые сценарий больше не держит у себя, а получает от композиционного корня:
+#: куда класть подмену, чтобы она осталась той же силы. Ключ - прежнее имя из плоского
+#: фасада, значение - слоты, которые заполняет :func:`torrcast.runtime.wire.wire`.
+#: Наборы, которые дошли до подачи зависимости самим сценарием, сюда не заглядывают.
+_COMPOSED_NAMES = {
+    "TorrServer": (
+        ("torrcast.usecases.cache_reserve", "_reserve_engines"),
+        ("torrcast.usecases.torrents", "_cleanup_engines"),
+        ("torrcast.usecases.worker", "_worker_engines"),
+    ),
+    "make_receiver": (("torrcast.usecases.worker", "_worker_receivers"),),
+    "probe": (("torrcast.usecases.episode_duration", "_episode_prober"),),
+}
 
 
 class _LegacyCliPatches(ModuleType):
@@ -58,6 +71,8 @@ class _LegacyCliPatches(ModuleType):
         moved = _MOVED_NAMES.get(name)
         if moved is not None:
             setattr(importlib.import_module(moved[0]), moved[1], value)
+        for where, slot in _COMPOSED_NAMES.get(name, ()):
+            setattr(importlib.import_module(where), slot, value)
 
 
 sys.modules[cli.__name__].__class__ = _LegacyCliPatches

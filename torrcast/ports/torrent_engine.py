@@ -1,12 +1,42 @@
-"""Даёт сценариям метаданные торрента и доступ к потоку байтов."""
+"""Даёт сценариям метаданные торрента и доступ к потоку байтов.
 
-from typing import Protocol
+Договор снят с настоящих обращений медиатракта, а не придуман коротким: показ поднимает
+раздачу, дожидается её метаданных, берёт URL файла и убирает её за собой, а ``cast
+status`` спрашивает счётчик кэша. Кто отвечает - служба раздач или подделка стенда, -
+решает композиционный корень (:mod:`torrcast.runtime.wire`).
+"""
+
+from typing import Any, Protocol
 
 from torrcast.domain.torr_file import TorrFile
 
 
 class TorrentEngine(Protocol):
-    def add(self, magnet: str) -> str: ...
-    def files(self, torrent_hash: str) -> list[TorrFile]: ...
-    def stream_url(self, torrent_hash: str, index: int) -> str: ...
-    def remove(self, torrent_hash: str) -> bool: ...
+    """Что сценариям нужно от службы раздач - и ничего сверх того."""
+
+    def add(self, magnet: str) -> str:
+        """Поднять раздачу и вернуть её хэш; повторный вызов тем же магнитом безопасен."""
+
+    def cache(self, torrent_hash: str) -> dict[str, Any]:
+        """Счётчики кэша раздачи: сколько байт набито прямо сейчас."""
+
+    def drop(self, torrent_hash: str) -> bool:
+        """Убрать раздачу; молчание службы - ``False``, а не исключение."""
+
+    def files(self, torrent_hash: str) -> list[TorrFile]:
+        """Файлы раздачи, какими их видит служба сейчас."""
+
+    def remove(self, torrent_hash: str) -> bool:
+        """Убрать раздачу; то же, что :meth:`drop`, именем зовущего."""
+
+    def stream_url(self, torrent_hash: str, index: int) -> str:
+        """Адрес, по которому читается файл раздачи под номером ``index``."""
+
+    def wait_files(
+        self, torrent_hash: str, timeout: float = 60.0, grace: float = 0.0
+    ) -> list[TorrFile]:
+        """Дождаться метаданных раздачи.
+
+        ``grace`` - отсрочка приговора «рой пуст»: до неё пустой рой ещё не беда. Часы
+        отсрочки может вести сам зовущий, поэтому сюда приходит значение, а не число.
+        """

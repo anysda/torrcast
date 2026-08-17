@@ -91,6 +91,7 @@ from torrcast.domain.entry import ENDING_RATIO
 from torrcast.ports.module import module
 from torrcast.ports.show_unit import ShowUnit
 from torrcast.ports.show_unit import unit as show_unit
+from torrcast.ports.stream_source import StreamSource
 
 clock_port = module("time")
 time = clock_port
@@ -654,7 +655,7 @@ def _play(
     codec: str = "",
     depth: int = 0,
     follow: Any = None,
-    supply: Supply | None = None,
+    supply: StreamSource | None = None,
     profile: Profile = CAUTIOUS,
     frame: int = 0,
     hdr: bool = False,
@@ -670,7 +671,7 @@ def _play(
     ``follow`` - чем прогреву заняться, когда эта серия ляжет на диск целиком
     (:attr:`torrcast.warm.Warmer.follow`); у фильма его нет и быть не может.
 
-    ``supply`` - источник показа (:class:`torrcast.stream.Supply`): служба раздач и наша
+    ``supply`` - источник показа (:class:`torrcast.ports.stream_source.StreamSource`): служба и наша
     раздача в ней. Спрашивают его только на краю показа, зато прежде, чем объявить показ
     погасшим, - иначе за аварию источника отвечает приёмник, который ни при чём.
 
@@ -906,7 +907,9 @@ def _handover(watch: Watch | None) -> bool:
     return watch is not None and watch.done and _following(watch.key) is not None
 
 
-def _blame_the_end(supply: Supply | None, shown: bool = True, clock: Clock = CLOCK) -> NoReturn:
+def _blame_the_end(
+    supply: StreamSource | None, shown: bool = True, clock: Clock = CLOCK
+) -> NoReturn:
     """Показ кончился недосмотренным - назвать виноватого, и назвать верно. Всегда бросает.
 
     🔴 Последняя строка показа - последняя возможность сказать правду. Раньше показ
@@ -933,7 +936,7 @@ def _blame_the_end(supply: Supply | None, shown: bool = True, clock: Clock = CLO
     raise InfraError("приёмник не досмотрел поток - цифры выше")
 
 
-def _blamed(supply: Supply | None, clock: Clock = CLOCK) -> str:
+def _blamed(supply: StreamSource | None, clock: Clock = CLOCK) -> str:
     """Причина аварии ИСТОЧНИКА для строки человеку; пусто - источник тут ни при чём.
 
     ⚠️ Отличается от :func:`_asked` двумя вещами, и обе - из замеров на живой службе.
@@ -961,7 +964,7 @@ def _blamed(supply: Supply | None, clock: Clock = CLOCK) -> str:
     return ""
 
 
-def _asked(supply: Supply | None) -> str:
+def _asked(supply: StreamSource | None) -> str:
     """Спросить ИСТОЧНИК: что с ним не так; пусто - он в порядке (и раздача при трекерах).
 
     Единственное место, где показ обращается к источнику, и зовут его только с края
