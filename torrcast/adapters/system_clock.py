@@ -6,6 +6,9 @@
 """
 
 import time
+from typing import Final
+
+from torrcast.ports.clock import Clock
 
 
 class SystemClock:
@@ -22,3 +25,7 @@ class SystemClock:
     def sleep(self, seconds: float) -> None:
         """Подождать ``seconds`` секунд."""
         time.sleep(seconds)
+
+
+#: Часы боевого пути. Заводить свои незачем - объект без состояния.
+CLOCK: Final[Clock] = SystemClock()

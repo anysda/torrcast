@@ -2,8 +2,15 @@
 
 from __future__ import annotations
 
-from torrcast.adapters.system_clock import SystemClock
+from torrcast.adapters.system_clock import CLOCK, SystemClock
 from torrcast.ports.clock import Clock
+
+
+def test_the_process_shares_one_pair_of_real_clocks() -> None:
+    """Часы боевого пути заводятся один раз: у объекта без состояния копий не бывает."""
+    assert isinstance(CLOCK, SystemClock)
+    assert CLOCK.monotonic() > 0
+    assert CLOCK.wall() > 1_600_000_000
 
 
 def test_the_real_clock_satisfies_the_port() -> None:

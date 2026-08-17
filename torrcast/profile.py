@@ -1,6 +1,10 @@
-"""Совместимый фасад профиля приёмника и обвязка внешнего состояния."""
+"""Совместимый фасад профиля приёмника и обвязка внешнего состояния.
 
-from typing import TYPE_CHECKING
+Правила выбора живут в :mod:`torrcast.domain.profile`, опрос устройства и память о нём -
+в :class:`~torrcast.adapters.chromecast.profile_detector.ProfileDetector`, снимок порогов
+для ленты - в :mod:`torrcast.runtime.trace_thresholds`. Наружу отдаются методы ОДНОГО
+экземпляра детектора: кэш паспортов у прежних имён и у проб ``cast doctor`` общий.
+"""
 
 from torrcast.adapters.chromecast.profile_detector import detector
 from torrcast.domain.by_key import by_key
@@ -18,9 +22,7 @@ from torrcast.domain.profile import (
 )
 from torrcast.domain.thresholds import thresholds
 from torrcast.domain.tune import tune
-
-if TYPE_CHECKING:
-    from torrcast.state import Config
+from torrcast.runtime.trace_thresholds import trace_thresholds
 
 __all__ = [
     "ANDROID_TV",
@@ -41,36 +43,7 @@ __all__ = [
     "tune",
 ]
 
-
-def detect(config: "Config") -> Choice:
-    """Выбрать профиль: ручной ключ, затем сохранённый или опрошенный паспорт.
-
-    Сам выбор - опрос живого устройства, то есть адаптер. Фасад только зовёт ОДИН его
-    экземпляр: кэш паспортов у прежних имён и у проб ``cast doctor`` обязан быть общим.
-    """
-    return detector.detect(config)
-
-
-def forget() -> None:
-    """Очистить кэш паспортов приёмников."""
-    detector.forget()
-
-
-def trace_thresholds(config: "Config", profile: Profile) -> dict[str, object]:
-    """Прочитать сохранённые настройки и собрать снимок порогов начала серии."""
-    from torrcast import TorrcastError
-    from torrcast.state import config_keys, load_config
-
-    try:
-        raw = load_config()
-    except TorrcastError:
-        return {"profile_source": "конфиг не прочитан"}
-    chosen = detect(raw)
-    values, sources = thresholds(raw, config, profile, config_keys())
-    return {
-        "profile_source": (
-            "паспорт приёмника" if chosen.how.startswith("по паспорту:") else chosen.how
-        ),
-        "thresholds": values,
-        "threshold_sources": sources,
-    }
+#: Выбрать профиль: ручной ключ, затем сохранённый или опрошенный паспорт.
+detect = detector.detect
+#: Очистить кэш паспортов приёмников.
+forget = detector.forget

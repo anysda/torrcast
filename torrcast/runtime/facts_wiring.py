@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from pathlib import Path
+from typing import Final
 
 from torrcast.adapters.filesystem.state import state_path
 from torrcast.adapters.wiki.facts_file_cache import FactsFileCache
@@ -43,3 +44,8 @@ class FactsWiring:
         self.passport = Passport(
             self.articles, self.catalogue, self.cache, WikidataDates(self.client)
         )
+
+
+#: Проводка справки на весь процесс: один HTTPS-клиент со своей памятью адресов, один
+#: кэш рядом с состоянием и разобранные однажды выгрузки IMDb.
+FACTS: Final = FactsWiring()

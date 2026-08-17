@@ -1,9 +1,9 @@
-"""Фасад справки: собранная проводка и её работа в живом меню франшизы.
+"""Фасад справки: прежние имена ведут в новые дома и работают в живом меню.
 
 Правила разбора статьи проверяет ``tests/domain/facts``, сеть и файлы -
-``tests/adapters/wiki``, сценарии - ``tests/usecases``. Здесь остаётся то, ради чего
-фасад и существует: прежние имена на месте, справка собрана из настоящих адаптеров и
-меню печатает её ровно так, как печатало.
+``tests/adapters/wiki``, сценарии - ``tests/usecases``, проводку и справку меню -
+``tests/runtime``. Здесь остаётся то, ради чего фасад и существует: прежние имена на
+месте и меню печатает справку ровно так, как печатало.
 
 ⚠️ В сеть отсюда не ходят: всё, что спрашивается у фасада, заранее лежит в его кэше, а
 кэш разведён по каталогам состояния (``TORRCAST_STATE`` ставит общая фикстура).
@@ -14,55 +14,31 @@ from __future__ import annotations
 from tests.articles import MOANA
 from torrcast import cli
 from torrcast import facts as facts_mod
-from torrcast.adapters.wiki.facts_file_cache import FactsFileCache
-from torrcast.adapters.wiki.imdb_names import ImdbNames
-from torrcast.adapters.wiki.wiki_articles import WikiArticles
-from torrcast.adapters.wiki.wiki_blurbs import WikiBlurbs
 from torrcast.facts import Fact, Facts, Origin, origin, shorten
-from torrcast.usecases.facts import Facts as MenuFacts
-from torrcast.usecases.passport import Passport
+from torrcast.runtime.facts_wiring import FACTS
+from torrcast.runtime.menu_facts import MenuFacts
 
 
-def test_the_facade_hands_out_the_wired_up_reference() -> None:
-    """Единственное место, где сценарии справки видят свои адаптеры, - проводка."""
-    assert isinstance(facts_mod.FACTS.passport, Passport)
-    assert isinstance(facts_mod.FACTS.articles, WikiArticles)
-    assert isinstance(facts_mod.FACTS.blurbs, WikiBlurbs)
-    assert isinstance(facts_mod.FACTS.catalogue, ImdbNames)
-    assert isinstance(facts_mod.FACTS.cache, FactsFileCache)
-
-
-def test_the_menu_reference_is_the_scenario_on_the_real_adapters() -> None:
-    """``Facts(...)`` прежней сигнатуры - тот же сценарий, только уже проведённый."""
-    facts = Facts([("Моана", 2016)], budget=0.0)
-
-    assert isinstance(facts, MenuFacts)
-    assert facts.store is facts_mod.FACTS.cache
-    assert facts.source is facts_mod.FACTS.blurbs
-    assert facts.wanted == [("Моана", 2016)]
-    assert facts.budget == 0.0
-
-
-def test_a_franchise_already_in_the_cache_never_walks_anywhere() -> None:
-    """Второй показ той же франшизы мгновенный: сети на этом пути нет вовсе."""
-    facts_mod.FACTS.cache.remember({("Моана", 2016): Fact(about=MOANA, rating="IMDb 7.6")})
-
-    facts = Facts([("Моана", 2016)], budget=0.0)
-    facts.start()
-
-    assert facts.get("Моана", 2016) == Fact(about=MOANA, rating="IMDb 7.6")
+def test_every_exported_name_is_the_one_from_its_home() -> None:
+    """Фасад отдаёт те же объекты, а не свои копии."""
+    assert facts_mod.FACTS is FACTS
+    assert Facts is MenuFacts
+    assert origin == FACTS.passport.of
+    assert facts_mod.origin_either == FACTS.passport.either.of
+    assert facts_mod.get_json == FACTS.client.get
+    assert all(hasattr(facts_mod, name) for name in facts_mod.__all__)
 
 
 def test_the_passport_entry_point_answers_from_the_same_cache() -> None:
     """``origin`` - тонкий вход в тот же сценарий, а не вторая реализация."""
     stored = Origin(title="Cars", year=2006, name="Тачки", source=facts_mod.SOURCE_WIKI)
-    facts_mod.FACTS.cache.write("Тачки", False, stored)
-    facts_mod.FACTS.cache.write("Тачки", None, stored)
+    FACTS.cache.write("Тачки", False, stored)
+    FACTS.cache.write("Тачки", None, stored)
 
     assert origin("Тачки", False, budget=0.0) == stored
     assert origin("Тачки", None, budget=0.0) == stored, "режим «оба типа» - свой ряд ключей"
-    assert facts_mod._cached_origin("Тачки", False) == stored
-    assert facts_mod._cached_origin("Тачки", True) is None
+    assert FACTS.cache.read("Тачки", False) == stored
+    assert FACTS.cache.read("Тачки", True) is None
 
 
 def test_menu_prints_the_old_line_when_there_is_no_help() -> None:

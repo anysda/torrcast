@@ -16,6 +16,13 @@ def test_a_named_key_is_the_last_word() -> None:
     assert chosen.profile is ANDROID_TV and "руками" in chosen.how
 
 
+def test_an_unknown_name_in_the_config_is_not_a_crash() -> None:
+    """Опечатка в ``receiver_profile`` - осторожный профиль и честная строка, а не отказ."""
+    chosen = ProfileDetector().detect(Config(tv="10.0.0.50", receiver_profile="q70"))
+
+    assert chosen.profile is CAUTIOUS and "q70" in chosen.how
+
+
 def test_without_an_address_nobody_is_asked(monkeypatch: pytest.MonkeyPatch) -> None:
     """Без адреса ТВ спрашивать не у кого - осторожный профиль, а не поход в сеть."""
 
@@ -24,6 +31,18 @@ def test_without_an_address_nobody_is_asked(monkeypatch: pytest.MonkeyPatch) -> 
 
     monkeypatch.setattr("torrcast.adapters.chromecast.scan.named", refuse)
     assert ProfileDetector().detect(Config()).profile is CAUTIOUS
+
+
+def test_a_receiver_without_a_passport_is_not_asked_either(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Заглушка показа паспорта не отдаёт: у неё и адрес свой, и спрашивать некого."""
+
+    def refuse(address: str, timeout: float = 0.0) -> Device:
+        raise AssertionError("паспорт спрашивать было не у кого")
+
+    monkeypatch.setattr("torrcast.adapters.chromecast.scan.named", refuse)
+    assert ProfileDetector().detect(Config(tv="mock", receiver="mock")).profile is CAUTIOUS
 
 
 def test_the_passport_is_asked_once_per_address(monkeypatch: pytest.MonkeyPatch) -> None:

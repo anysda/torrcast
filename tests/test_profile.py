@@ -8,14 +8,14 @@
 from __future__ import annotations
 
 import dataclasses
-import json
 import time
-from pathlib import Path
 from typing import ClassVar
 
 import pytest
 
 from torrcast import cast, profile, stream
+from torrcast.adapters.chromecast.profile_detector import detector
+from torrcast.runtime.trace_thresholds import trace_thresholds
 from torrcast.state import Config
 
 
@@ -126,68 +126,19 @@ def test_the_stick_is_bold_only_where_it_was_measured() -> None:
     assert stick.load_retries == cautious.load_retries, "свои повторы LOAD замер не отменяет"
 
 
-def test_a_named_profile_beats_the_passport() -> None:
-    """Ручное переопределение работает и не спрашивает устройство вовсе.
+def test_the_facade_hands_out_the_one_detector_everybody_shares() -> None:
+    """Кэш паспортов у прежних имён и у проб ``cast doctor`` обязан быть общим.
 
-    Ключ в настройках - последнее слово: приёмник может врать паспортом, а пороги уже
-    известны. Опрос при этом не делается ни одного - иначе выключенный ТВ стоил бы
-    секунд там, где человек всё сказал сам.
+    Выбор профиля - опрос живого устройства, и второй экземпляр детектора означал бы
+    второй опрос: выключенный ТВ стоит секунд на каждом.
     """
+    assert profile.detect == detector.detect
+    assert profile.forget == detector.forget
+    assert profile.trace_thresholds is trace_thresholds
+
     profile.forget()
-    asked: list[str] = []
     chosen = profile.detect(Config(tv="10.0.0.50", receiver_profile="androidtv"))
-    assert chosen.profile is profile.ANDROID_TV
-    assert "руками" in chosen.how and not asked
-
-
-def test_an_unknown_name_in_the_config_is_not_a_crash() -> None:
-    """Опечатка в ``receiver_profile`` - осторожный профиль и честная строка, а не отказ."""
-    chosen = profile.detect(Config(tv="10.0.0.50", receiver_profile="q70"))
-    assert chosen.profile is profile.CAUTIOUS and "q70" in chosen.how
-
-
-def test_without_an_address_nobody_is_asked(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Заглушка и показ без адреса ТВ паспорт не спрашивают: спрашивать не у кого."""
-    profile.forget()
-
-    def refuse(address: str, timeout: float = 0.0) -> None:
-        raise AssertionError("паспорт спрашивать было не у кого")
-
-    monkeypatch.setattr("torrcast.adapters.chromecast.scan.named", refuse)
-    assert profile.detect(Config()).profile is profile.CAUTIOUS
-    assert profile.detect(Config(tv="mock", receiver="mock")).profile is profile.CAUTIOUS
-
-
-def test_the_passport_is_asked_once_per_address(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Паспорт спрашивается один раз на процесс: показ зовёт профиль в нескольких местах."""
-    from torrcast.scan import Device
-
-    profile.forget()
-    asked: list[str] = []
-
-    def once(address: str, timeout: float = 0.0) -> Device:
-        asked.append(address)
-        return Device(address=address, maker="Xiaomi")
-
-    monkeypatch.setattr("torrcast.adapters.chromecast.scan.named", once)
-    config = Config(tv="10.0.0.50")
-    assert profile.detect(config).profile is profile.ANDROID_TV
-    assert profile.detect(config).profile is profile.ANDROID_TV
-    assert asked == ["10.0.0.50"], "второй раз устройство не дёргаем"
-    profile.forget()
-
-
-def test_a_silent_receiver_gets_the_cautious_profile(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Приёмник не ответил (спит, сети нет) - осторожный профиль, а не авария показа."""
-    profile.forget()
-
-    def dead(address: str, timeout: float = 0.0) -> None:
-        raise OSError("сети нет")
-
-    monkeypatch.setattr("torrcast.adapters.chromecast.scan.named", dead)
-    chosen = profile.detect(Config(tv="10.0.0.50"))
-    assert chosen.profile is profile.CAUTIOUS and "не ответил" in chosen.how
-    profile.forget()
+    assert chosen.profile is profile.ANDROID_TV and "руками" in chosen.how
 
 
 def test_the_profile_moves_the_config_thresholds() -> None:
@@ -219,49 +170,6 @@ def test_effective_thresholds_name_every_source() -> None:
     assert sources["bitrate_recode_mbit"] == "написан в конфиге"
     assert sources["recode_head_wait"] == "умолчание конфига"
     assert values["patience"] == 577.0 and sources["patience"] == "профиль androidtv"
-
-
-def test_trace_snapshot_keeps_the_named_profile_and_explicit_config_key(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    path = tmp_path / "config.json"
-    path.write_text(
-        json.dumps({"receiver_profile": "androidtv", "recode_head_wait": 7.0}), encoding="utf-8"
-    )
-    monkeypatch.setenv("TORRCAST_CONFIG", str(path))
-    raw = Config.from_json(json.loads(path.read_text("utf-8")))
-    snapshot = profile.trace_thresholds(profile.tune(raw, profile.ANDROID_TV), profile.ANDROID_TV)
-
-    assert snapshot["profile_source"] == "назван руками: receiver_profile=androidtv"
-    assert snapshot["threshold_sources"]["recode_head_wait"] == "написан в конфиге"  # type: ignore[index]
-    assert snapshot["thresholds"]["recode_at_mbit"] == 28.0  # type: ignore[index]
-
-
-def test_trace_snapshot_does_not_name_a_profile_the_config_never_named(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Ключ написан с ошибкой: играет осторожный, и в ленте стоит это, а не «q70d»."""
-    path = tmp_path / "config.json"
-    path.write_text(json.dumps({"receiver_profile": "bogus"}), encoding="utf-8")
-    monkeypatch.setenv("TORRCAST_CONFIG", str(path))
-    raw = Config(receiver_profile="bogus")
-    chosen = profile.detect(raw)
-    snapshot = profile.trace_thresholds(profile.tune(raw, chosen.profile), chosen.profile)
-
-    assert snapshot["profile_source"] == "профиля «bogus» нет - беру осторожный"
-
-
-def test_a_config_broken_by_hand_mid_show_does_not_kill_the_session(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Снимок берётся на КАЖДОЙ серии: битый файл - молчание, а не погасший юнит."""
-    path = tmp_path / "config.json"
-    path.write_text('{"receiver_profile": "androidtv",}', encoding="utf-8")
-    monkeypatch.setenv("TORRCAST_CONFIG", str(path))
-
-    assert profile.trace_thresholds(Config(), profile.ANDROID_TV) == {
-        "profile_source": "конфиг не прочитан"
-    }
 
 
 def test_the_receiver_takes_its_thresholds_from_the_profile() -> None:

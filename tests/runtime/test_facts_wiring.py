@@ -2,11 +2,25 @@
 
 from pathlib import Path
 
+from torrcast.adapters.wiki.facts_file_cache import FactsFileCache
 from torrcast.adapters.wiki.imdb_names import ImdbNames
+from torrcast.adapters.wiki.wiki_articles import WikiArticles
+from torrcast.adapters.wiki.wiki_blurbs import WikiBlurbs
 from torrcast.domain.facts.fact import Fact
 from torrcast.domain.facts.origin import Origin
 from torrcast.domain.facts.settings import USER_AGENT
-from torrcast.runtime.facts_wiring import FactsWiring
+from torrcast.runtime.facts_wiring import FACTS, FactsWiring
+from torrcast.usecases.passport import Passport
+
+
+def test_the_process_gets_one_assembled_reference() -> None:
+    """Единственное место, где сценарии справки видят свои адаптеры, - эта проводка."""
+    assert isinstance(FACTS, FactsWiring)
+    assert isinstance(FACTS.passport, Passport)
+    assert isinstance(FACTS.articles, WikiArticles)
+    assert isinstance(FACTS.blurbs, WikiBlurbs)
+    assert isinstance(FACTS.catalogue, ImdbNames)
+    assert isinstance(FACTS.cache, FactsFileCache)
 
 
 def test_one_client_and_one_catalogue_serve_every_step(tmp_path: Path) -> None:

@@ -50,9 +50,6 @@ __all__ = [
     "without_source",
 ]
 
-from collections.abc import Iterable
-from typing import Any
-
 from torrcast.domain.facts.akin import akin
 from torrcast.domain.facts.confirms import confirms
 from torrcast.domain.facts.english_title import english_title
@@ -89,40 +86,13 @@ from torrcast.domain.facts.sourced import sourced
 from torrcast.domain.facts.titles_for import titles_for
 from torrcast.domain.facts.with_source import with_source
 from torrcast.domain.facts.without_source import without_source
-from torrcast.runtime.facts_wiring import FactsWiring
-from torrcast.usecases.facts import Facts as _MenuFacts
+from torrcast.runtime.facts_wiring import FACTS as FACTS
+from torrcast.runtime.menu_facts import MenuFacts as Facts
 
-#: Проводка справки на весь процесс: один HTTPS-клиент со своей памятью адресов, один
-#: кэш рядом с состоянием и разобранные однажды выгрузки IMDb.
-FACTS = FactsWiring()
-
-
-class Facts(_MenuFacts):
-    """Справка к меню франшизы на действующих адаптерах; всё прочее - в сценарии."""
-
-    def __init__(
-        self, pictures: Iterable[tuple[str, int | None]], budget: float = FACTS_BUDGET
-    ) -> None:
-        super().__init__(pictures, budget, store=FACTS.cache, source=FACTS.blurbs)
-
-
-def origin(title: str, series: bool | None = False, budget: float = FACTS_BUDGET) -> Origin:
-    """Паспорт картины из справки; см. :meth:`torrcast.usecases.passport.Passport.of`."""
-    return FACTS.passport.of(title, series, budget)
-
-
-def origin_either(title: str, budget: float = FACTS_BUDGET) -> Origin:
-    """Паспорт, когда тип картины неизвестен; см. :class:`PassportEither`."""
-    return FACTS.passport.either.of(title, budget)
-
-
-def _cached_origin(title: str, series: bool | None) -> Origin | None:
-    """Что лежит в кэше паспортов; ``None`` - про эту картину не спрашивали."""
-    return FACTS.cache.read(title, series)
-
-
-def get_json(
-    host: str, path: str, params: dict[str, str], headers: dict[str, str], timeout: float
-) -> Any:
-    """GET с разбором JSON тем же клиентом, которым ходит справка."""
-    return FACTS.client.get(host, path, params, headers, timeout)
+#: Паспорт картины: :meth:`torrcast.usecases.passport.Passport.of` уже проведённого сценария.
+origin = FACTS.passport.of
+#: Паспорт, когда тип картины неизвестен: :class:`~torrcast.usecases.passport_either.
+#: PassportEither` того же сценария.
+origin_either = FACTS.passport.either.of
+#: GET с разбором JSON тем же клиентом, которым ходит справка.
+get_json = FACTS.client.get
