@@ -1,12 +1,12 @@
-"""Карта опорных кадров: mkv по ``Cues``, mp4 по ``stss``, и обе — одинаковая правда.
+"""Карта опорных кадров: mkv по ``Cues``, mp4 по ``stss``, и обе - одинаковая правда.
 
 Проверяется не «работает вообще», а три вещи, каждая из которых уже стоила проекту суток:
 
-* **цена**. У холодной раздачи каждый лишний Range-запрос и каждый лишний мегабайт —
+* **цена**. У холодной раздачи каждый лишний Range-запрос и каждый лишний мегабайт -
   это секунды старта, поэтому тесты считают запросы и байты, а не точки.
 * **правда**. Карта сверяется с ``ffprobe``, который читает тот же файл честным перебором
   пакетов. Расходиться им нельзя: по карте режутся сегменты.
-* **одинаковость**. Один и тот же битстрим в mkv и в mp4 обязан дать одну и ту же карту —
+* **одинаковость**. Один и тот же битстрим в mkv и в mp4 обязан дать одну и ту же карту -
   иначе «сетка по опорным кадрам» значит разное в зависимости от контейнера.
 """
 
@@ -42,7 +42,7 @@ def served(monkeypatch: pytest.MonkeyPatch) -> dict[str, list[tuple[int, int]]]:
 
 
 def probe_keys(path: str) -> list[float]:
-    """Опорные кадры честным перебором пакетов — то, с чем карта обязана совпасть."""
+    """Опорные кадры честным перебором пакетов - то, с чем карта обязана совпасть."""
     done = subprocess.run(
         ["ffprobe", "-v", "error", "-select_streams", "v", "-skip_frame", "nokey",
          "-show_entries", "frame=pts_time", "-of", "csv=p=0", path],
@@ -52,7 +52,7 @@ def probe_keys(path: str) -> list[float]:
 
 
 def probe_offsets(path: str) -> list[int]:
-    """Где опорные кадры лежат в файле — по мнению ffprobe."""
+    """Где опорные кадры лежат в файле - по мнению ffprobe."""
     done = subprocess.run(
         ["ffprobe", "-v", "error", "-select_streams", "v", "-skip_frame", "nokey",
          "-show_entries", "frame=pkt_pos", "-of", "csv=p=0", path],
@@ -76,7 +76,7 @@ def test_mkv_two_requests_and_small_head(
 def test_mkv_falls_back_to_full_head(
     served: dict[str, list[tuple[int, int]]], clip: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Маленького куска не хватило — берём полную голову, а не сдаёмся."""
+    """Маленького куска не хватило - берём полную голову, а не сдаёмся."""
     monkeypatch.setattr("torrcast.adapters.frames.keyframes.HEAD_PEEK", 64)
     keyframes(clip)
     assert [size for _, size in served[clip]][:2] == [64, HEAD_BYTES]
@@ -85,7 +85,7 @@ def test_mkv_falls_back_to_full_head(
 def test_unknown_container_is_infra_error(
     served: dict[str, list[tuple[int, int]]], tmp_path: Path
 ) -> None:
-    """Ни mkv, ни mp4 — честная ошибка, по которой показ берёт ровную сетку."""
+    """Ни mkv, ни mp4 - честная ошибка, по которой показ берёт ровную сетку."""
     junk = tmp_path / "junk.bin"
     junk.write_bytes(b"\x00" * (1 << 16))
     with pytest.raises(InfraError):
@@ -93,7 +93,7 @@ def test_unknown_container_is_infra_error(
 
 
 def test_mp4_map_matches_ffprobe(served: dict[str, list[tuple[int, int]]], clip_mp4: str) -> None:
-    """Карта mp4 — те же кадры и те же байты, что видит ffprobe, читающий файл целиком."""
+    """Карта mp4 - те же кадры и те же байты, что видит ffprobe, читающий файл целиком."""
     found = keyframes(clip_mp4)
     assert [round(p.at, 3) for p in found.points] == [round(x, 3) for x in probe_keys(clip_mp4)]
     assert [p.offset for p in found.points] == probe_offsets(clip_mp4)
@@ -102,9 +102,9 @@ def test_mp4_map_matches_ffprobe(served: dict[str, list[tuple[int, int]]], clip_
 def test_mp4_with_b_frames_and_edit_list(
     served: dict[str, list[tuple[int, int]]], clip_mp4_bframes: str
 ) -> None:
-    """B-кадры и список правок: ``ctts`` и ``elst`` учтены — иначе карта уедет на кадры.
+    """B-кадры и список правок: ``ctts`` и ``elst`` учтены - иначе карта уедет на кадры.
 
-    Без ``ctts`` времена получились бы временами декодирования, без ``elst`` — сдвинутыми
+    Без ``ctts`` времена получились бы временами декодирования, без ``elst`` - сдвинутыми
     на пару кадров вперёд. И то и другое ломает сетку молча: границы просто перестают
     попадать на опорные кадры, а виден этот брак только на живом ТВ.
     """
@@ -117,7 +117,7 @@ def test_mp4_with_b_frames_and_edit_list(
 def test_mp4_moov_in_tail_costs_no_mdat(
     served: dict[str, list[tuple[int, int]]], clip_mp4_tail: str
 ) -> None:
-    """``moov`` в хвосте — карта снимается, но ``mdat`` не читается ни одним куском.
+    """``moov`` в хвосте - карта снимается, но ``mdat`` не читается ни одним куском.
 
     Иначе «взять карту» означало бы скачать фильм: у раздачи в 2 ГБ это и есть ``mdat``.
     """
@@ -129,11 +129,11 @@ def test_mp4_moov_in_tail_costs_no_mdat(
 def test_the_same_film_gives_the_same_map(
     served: dict[str, list[tuple[int, int]]], clip: str, clip_mp4: str
 ) -> None:
-    """Один битстрим, два контейнера — одна карта GOP: сетка не зависит от упаковки.
+    """Один битстрим, два контейнера - одна карта GOP: сетка не зависит от упаковки.
 
     ⚠️ Секунда в секунду карты НЕ совпадают, и это правда файла, а не брак разбора:
     ремукс mkv в mp4 вставляет перед видео пустую правку в 6 мс, чтобы выровнять его со
-    звуком, и ffprobe в каждом контейнере называет свои числа — те же, что и мы. Одинаково
+    звуком, и ffprobe в каждом контейнере называет свои числа - те же, что и мы. Одинаково
     в них другое: длины GOP, то есть ровно то, из чего строятся границы сегментов.
     """
     inside = keyframes(clip)

@@ -86,9 +86,9 @@ class Prowlarr:
         return self._circle.answered
 
     def search(self, query: str, limit: int = 100) -> list[RawResult]:
-        """Найти раздачи во всех подключённых индексерах: :class:`InfraError` — Prowlarr
+        """Найти раздачи во всех подключённых индексерах: :class:`InfraError` - Prowlarr
         недоступен или ответил не тем, :class:`~torrcast.domain.not_found_error.
-        NotFoundError` — пригодных раздач нет.
+        NotFoundError` - пригодных раздач нет.
 
         Спрашиваем КАЖДЫЙ индексер отдельным запросом (:meth:`_apart`). Список индексеров
         не отдали - остаётся прежний общий запрос, один на всех.
