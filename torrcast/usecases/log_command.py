@@ -6,17 +6,18 @@
 
 from __future__ import annotations
 
+from torrcast.domain.trace_digest import digest
+from torrcast.ports.journal import journal
+
 __all__ = ["EXIT_OK", "Args", "_cmd_log", "_since_seconds", "contextlib", "time", "trace"]
 
 import contextlib
 import time
 
 from torrcast.domain.exit_codes import EXIT_OK
-from torrcast.ports.module import module
 
 # Лента спрашивается своим полным именем: атрибут ``torrcast.trace`` появляется только
 # после того, как подмодуль кто-то уже импортировал, а порядок импортов тут не наш.
-trace = module("torrcast.trace")
 
 
 def _cmd_log(args: Args) -> int:
@@ -27,9 +28,9 @@ def _cmd_log(args: Args) -> int:
     поиск, отбор и показ, - никаких внешних систем, всё лежит рядом с состоянием.
     """
     since = _since_seconds(args.since)
-    rows = trace.records(since)
+    rows = journal().records(since)
     limit = 0 if args.since else 3
-    print(trace.digest(rows, limit=limit))
+    print(digest(rows, limit=limit))
     return EXIT_OK
 
 

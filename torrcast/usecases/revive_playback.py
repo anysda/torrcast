@@ -13,8 +13,8 @@ from torrcast.domain.revive_settings import (
     REVIVE_PAUSE,
     REVIVE_TRIES,
 )
+from torrcast.ports.journal import journal
 from torrcast.usecases.choice import _ctl, _Revivable
-from torrcast.usecases.log_command import trace
 from torrcast.usecases.playback import _blamed
 from torrcast.usecases.warm import Warmer
 from torrcast.usecases.watch import Watch
@@ -233,7 +233,7 @@ class _Revival:
             self.since, self.warmed = now, warmer.warmed if warmer is not None else 0.0
             why = self._why(feed)
             self.began, self.why = clock_port.time(), why
-            trace.dark(pos=pos, why=why, shown=shown)
+            journal().dark(pos=pos, why=why, shown=shown)
             said = (
                 f"показ погас на {_hms(pos)}"
                 if shown
@@ -276,7 +276,7 @@ class _Revival:
         # нулём, и он же - законное место (:data:`torrcast.cast_core.NOT_RAISED`).
         back = receiver.replay(pos)
         raised = back >= 0
-        trace.revive(pos=back if raised else pos, tries=self.tries, waited=dark, ok=raised)
+        journal().revive(pos=back if raised else pos, tries=self.tries, waited=dark, ok=raised)
         print(
             f"показ поднят с {_hms(back)}"
             if raised
@@ -302,7 +302,7 @@ class _Revival:
         if why_source:
             self.blamed = True
             if why_source != str(feed.offline):  # об одной аварии след пишет один раз
-                trace.offline(why=why_source, asked=True)
+                journal().offline(why=why_source, asked=True)
             # Показ узнаёт причину от нас: дальше по ней живёт и упаковка (пробовать
             # реже, не умирать), и сам :class:`_Revival` (:meth:`_may`).
             feed.offline = why_source
@@ -351,7 +351,7 @@ def _hold(
     supply: Supply | None = None,
     profile: Profile = CAUTIOUS,
     clock: Clock = CLOCK,
-    journal: str = "",
+    session_tag: str = "",
     start: float = 0.0,
     raised: bool = True,
 ) -> bool:
@@ -380,7 +380,7 @@ def _hold(
     поднимается тем же путём, что и смерть посреди показа.
     """
     paused, said, seen = 0.0, 0.0, False
-    journal = journal or f"[сеанс {trace.session_id()}]"
+    session_tag = session_tag or f"[сеанс {journal().session_id()}]"
     #: Позиция приёмника с прошлого опроса - от неё считается запас показа. Прошлая, а не
     #: сегодняшняя, потому что запас нужен раньше, чем приходит ответ приёмника, и взять
     #: его больше неоткуда. На решение сторожа это не влияет: нудж срабатывает только
@@ -454,7 +454,7 @@ def _hold(
                 feed.stall(why_source)  # показ не умирает, а ждёт возврата источника
                 if not was_offline:  # говорим об аварии один раз, а не каждые две секунды
                     was_offline = True
-                    trace.offline(why=why_source, asked=True)
+                    journal().offline(why=why_source, asked=True)
                     print(
                         f"источник не читается ({why_source}) - жду его возврата, "
                         "показ подниму сам",
@@ -497,22 +497,22 @@ def _hold(
                     # флажку, а в журнале показа иначе не осталось бы ни строки о том,
                     # что чёрный экран кончился.
                     raised = True
-                    print(f"{journal} картинка пошла с {_hms(position.pos)}", flush=True)
+                    print(f"{session_tag} картинка пошла с {_hms(position.pos)}", flush=True)
         # Ребуфер - только вход в BUFFERING, а не каждый опрос: иначе счётчик считал бы
         # секунды подвиса, а не сами подвисы. Сеть - на переходе в offline и обратно.
         if position.state == "BUFFERING" and not buffering:
-            trace.emit("play", "buffering", pos=round(position.pos, 1))
+            journal().emit("play", "buffering", pos=round(position.pos, 1))
         buffering = position.state == "BUFFERING"
         if bool(feed.offline) != was_offline:
             was_offline = bool(feed.offline)
             if was_offline:
                 # Догадка, а не ответ источника: сюда приходят обрывы, замеченные самой
                 # упаковкой (:meth:`torrcast.stream.Feed._survive`, :meth:`_mute`).
-                trace.offline(why=str(feed.offline), asked=False)
+                journal().offline(why=str(feed.offline), asked=False)
         if show_trace:
             front = feed.front(position.pos)
             print(
-                f"{journal} запас: показ {position.pos:.0f} · упаковано {front:.0f} · "
+                f"{session_tag} запас: показ {position.pos:.0f} · упаковано {front:.0f} · "
                 f"впереди {front - position.pos:.0f} с · {feed.weight() / 1e6:.0f} МБ · "
                 f"расхождение с манифестом {feed.drift():.3f} с · {position.state}",
                 flush=True,
@@ -546,7 +546,7 @@ def _hold(
                     else "источник не вернулся - приёмник не трогаю"
                 )
                 print(
-                    f"{journal} темнота {_hms(dark)} ({revival.why}) - картинки нет; "
+                    f"{session_tag} темнота {_hms(dark)} ({revival.why}) - картинки нет; "
                     f"{spent}, погашу через {_hms(REVIVE_LIMIT - dark)}",
                     flush=True,
                 )
@@ -555,7 +555,7 @@ def _hold(
                 # ровно ``duration`` и ``current_time`` из MEDIA_STATUS, снятые владеющим
                 # сендером. Другого доказательства «на ТВ есть таймлайн» у нас нет.
                 print(
-                    f"{journal} экран: {_hms(position.pos)} из {_hms(position.dur)} · "
+                    f"{session_tag} экран: {_hms(position.pos)} из {_hms(position.dur)} · "
                     f"{position.state}",
                     flush=True,
                 )

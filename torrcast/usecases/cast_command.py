@@ -11,6 +11,7 @@ from torrcast.domain.exit_codes import EXIT_OK
 from torrcast.domain.picture import Picture
 from torrcast.domain.slugify import slugify
 from torrcast.domain.split_franchise_index import split_franchise_index
+from torrcast.ports.journal import journal
 from torrcast.usecases.choice import (
     _is_default,
     _passport,
@@ -22,7 +23,6 @@ from torrcast.usecases.choice import (
     year_note,
 )
 from torrcast.usecases.discover import _ask, _no_budget, _search
-from torrcast.usecases.log_command import trace
 from torrcast.usecases.playback import _file_picker, _launch
 from torrcast.usecases.rank import (
     default_unnamed,
@@ -63,7 +63,6 @@ __all__ = [
     "slugify",
     "split_franchise_index",
     "to_releases",
-    "trace",
     "tune_profile",
 ]
 
@@ -250,7 +249,7 @@ def _cmd_play(args: Args) -> int:
         f" {series.want}" if series else f" ({plan.picture.year or '?'})"
     )
     about = f"{what} · {quality_text(release, media)} · {label}"
-    trace.emit(
+    journal().emit(
         "select",
         "select",
         release=prep.number,

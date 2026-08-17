@@ -1,8 +1,9 @@
 """Совместимый фасад поиска для старых импортов."""
-# mypy: ignore-errors
 
+# mypy: ignore-errors
 import sys
 
+from torrcast import trace as trace
 from torrcast.usecases import discover as _discovery_impl
 from torrcast.usecases.discover import (
     CAUTIOUS,
@@ -44,7 +45,6 @@ from torrcast.usecases.discover import (
     slugify,
     split_franchise_index,
     to_releases,
-    trace,
     transliterate,
     unfit_line,
     unfit_pool,

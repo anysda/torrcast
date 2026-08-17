@@ -26,9 +26,9 @@ from torrcast.domain.start_refused_error import StartRefusedError
 from torrcast.domain.torrcast_error import TorrcastError
 from torrcast.domain.torr_file import TorrFile
 from torrcast.domain.why import why
+from torrcast.ports.journal import journal
 from torrcast.usecases.episode_duration import WORKER_DUR
 from torrcast.usecases.following import _following
-from torrcast.usecases.log_command import trace
 from torrcast.usecases.select import _about, _Plan
 from torrcast.usecases.start_budget import START_BUDGET
 from torrcast.usecases.start_clock import _Clock
@@ -63,7 +63,7 @@ __all__ = [
     "mark_playing", "os", "pick_video_file",
     "playing_flag", "probe", "recode_note",
     "recodes_whole", "start_play_unit", "stop_play_unit",
-    "time", "trace",
+    "time",
     "unit_active", "unit_why", "warm_file",
     "warm_key", "warm_root", "whole_encode",
     "why",
@@ -636,7 +636,7 @@ def _warmer(
         title=title,
     )
     spot_encode = getattr(recoder, "encode", None) if spots else None
-    trace.plan(
+    journal().plan(
         pack="recode" if encode is not None else "copy",
         warm="recode" if encode is not None else "copy",
         spots=len(spots),
@@ -679,7 +679,7 @@ def _play(
     profile: Profile = CAUTIOUS,
     frame: int = 0,
     hdr: bool = False,
-    journal: str = "",
+    session_tag: str = "",
 ) -> int:
     """Упаковка → раздача по http на голом IP → приёмник. Своих демонов нет: и ffmpeg,
     и раздача живут ровно на время показа и гасятся вместе с ним, что бы ни случилось.
@@ -706,7 +706,7 @@ def _play(
     length = watch.entry.dur if watch else duration
     tls = config.transport == "https"
     video_mbit = max(0.0, watch.entry.vbps) if watch else 0.0
-    journal = journal or f"[сеанс {trace.session_id()}]"
+    session_tag = session_tag or f"[сеанс {journal().session_id()}]"
     # Сетка сегментов снимается с самого файла и дальше не меняется: она же в манифесте,
     # она же в команде ffmpeg. Всё, что показ говорит о времени, считается по ней.
     #
@@ -841,10 +841,10 @@ def _play(
             # это другая беда и другой класс (:class:`torrcast.cast_core.StartRefusedError`),
             # и висеть с ней перед пустым экраном весь бюджет старта незачем.
             raised = False
-            print(f"{journal} {why(exc)} - поднимаю показ сам", flush=True)
+            print(f"{session_tag} {why(exc)} - поднимаю показ сам", flush=True)
         else:
             mark("LOAD взят")
-            print(f"{journal} играю {about} - на ТВ   (старт {clock.total:.0f} с)", flush=True)
+            print(f"{session_tag} играю {about} - на ТВ   (старт {clock.total:.0f} с)", flush=True)
         # ⚠️ Прогрев стартует ровно ЗДЕСЬ и ни строкой выше: путь до картинки он не
         # удлиняет ни на секунду - ни своим ffmpeg, ни чтением каталога. Всё, что он
         # делает, происходит уже при играющем показе и на остатке процессора.
@@ -857,7 +857,7 @@ def _play(
             warmer,
             supply,
             profile,
-            journal=journal,
+            session_tag=session_tag,
             start=start,
             raised=raised,
         )
@@ -868,7 +868,7 @@ def _play(
         # показа или стык серий.
         if watch is not None:
             watch.close()
-            trace.emit(
+            journal().emit(
                 "session",
                 "session_end",
                 pos=round(watch.entry.pos, 1),
@@ -898,7 +898,7 @@ def _play(
 
     report = getattr(receiver, "report", None)
     if report is not None:
-        print(f"{journal} {report.line()}")
+        print(f"{session_tag} {report.line()}")
     # 🔴 Показ, не давший НИ ОДНОГО кадра, обязан назвать себя вслух - и раньше всего
     # прочего. Лестница воскрешения к этой строке уже отработала своё
     # (:meth:`_Revival.resurrect`), и раз кадра всё равно нет, молчаливый выход юнита -
@@ -945,7 +945,7 @@ def _blame_the_end(supply: Supply | None, shown: bool = True, clock: Clock = CLO
     """
     why_source = _blamed(supply, clock)
     if why_source:
-        trace.offline(why=why_source, asked=True)
+        journal().offline(why=why_source, asked=True)
         if not shown:
             raise InfraError(f"картинки не было ни разу: источник не читается ({why_source})")
         raise InfraError(f"источник не читается ({why_source}) - показ оборван, цифры выше")
@@ -998,7 +998,7 @@ def _asked(supply: Supply | None) -> str:
         return ""
     why_source = supply.check()
     if supply.restored:
-        trace.resupply(torrent=supply.torrent_hash, ok=True)
+        journal().resupply(torrent=supply.torrent_hash, ok=True)
         print("источник вернулся - раздачу добавил магнитом заново", flush=True)
     return why_source
 

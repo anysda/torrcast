@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+from torrcast.ports.journal import journal
+
 from torrcast.domain.torrcast_error import TorrcastError
 
 from torrcast.domain.infra_error import InfraError
@@ -17,7 +19,6 @@ from torrcast.domain.pick_settings import (
     PROBE_BUDGET,
     VERDICT_BUDGET,
 )
-from torrcast.usecases.log_command import trace
 
 from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.profile import Profile, REFUSE
@@ -305,7 +306,7 @@ class _Bench:
         # Сумма очереди и причин сходится с пулом картины: раздача, не доехавшая до
         # каста, больше не исчезает молча (:func:`queue_drops`).
         drops = queue_drops(plan, queue, pinned=args.release is not None)
-        trace.emit(
+        journal().emit(
             "select",
             "queue",
             pool=len(plan.picture.releases),
@@ -659,7 +660,7 @@ class _Bench:
         проверенных, и второй круг ffprobe стоил бы секунд ровно за то же самое.
         """
         lang = heard(mute.found)
-        trace.emit("select", "mute", release=mute.number, lang=lang, checked=tried)
+        journal().emit("select", "mute", release=mute.number, lang=lang, checked=tried)
         unnamed_promise = default_unnamed(mute.found) and mute.release.dubbed
         if unnamed_promise:
             print(

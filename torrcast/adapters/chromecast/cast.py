@@ -29,10 +29,11 @@ from torrcast.domain.start_refused_error import StartRefusedError
 from torrcast.domain.start_timeout import START_TIMEOUT
 from torrcast.domain.trust_anchor import trust_anchor
 from torrcast.ports.clock import Clock
+from torrcast.ports.journal import journal
 from torrcast.ports.receiver import Receiver
 
 _package = import_module("torrcast")
-trace, why = _package.trace, _package.why
+why = _package.why
 _mock = import_module("torrcast.cast_mock")
 MockReceiver, Report = _mock.MockReceiver, _mock.Report
 
@@ -478,7 +479,7 @@ class ChromecastReceiver:
             return False
         self._reloads += 1
         at = self._past_deadly(self._peak)
-        trace.reload(pos=self._peak, tries=self._reloads, error=self._error_code)
+        journal().reload(pos=self._peak, tries=self._reloads, error=self._error_code)
         reason = f", код {self._error_code}" if self._error_code is not None else ", без кода"
         print(f"приёмник отвалился на {self._peak:.0f} с{reason} - повтор LOAD", flush=True)
         try:
@@ -649,7 +650,7 @@ class ChromecastReceiver:
         # Дальше указатель уедет от нашего же прыжка, и приписать этот сдвиг перемотке
         # человека значило бы записать её удачной ровно там, где она не удалась.
         self._drop_seek("сторож перебил нуджем")
-        trace.nudge(pos=pos, to=target, hit=self._stall_hits, stuck=stuck, front=front)
+        journal().nudge(pos=pos, to=target, hit=self._stall_hits, stuck=stuck, front=front)
         with contextlib.suppress(Exception):
             self._device().media_controller.seek(target)
 
@@ -683,7 +684,7 @@ class ChromecastReceiver:
         # Картинку засчитываем только на опросе БЕЗ нового прыжка: иначе вторая перемотка
         # подряд сошла бы за возвращение картинки после первой - указатель-то уехал.
         if self._seek_since and not jumped and pos >= self._seek_to + self.PICTURE_STEP:
-            trace.seek(
+            journal().seek(
                 frm=self._seek_from,
                 to=self._seek_to,
                 wait=self.clock.monotonic() - self._seek_since,
@@ -708,7 +709,7 @@ class ChromecastReceiver:
         """
         if not self._seek_since:
             return
-        trace.seek(frm=self._seek_from, to=self._seek_to, wait=None, why=why)
+        journal().seek(frm=self._seek_from, to=self._seek_to, wait=None, why=why)
         self._seek_since = 0.0
 
     def seek(self, pos: float) -> None:
@@ -785,7 +786,7 @@ class ChromecastReceiver:
                 if self._reloads >= self.profile.load_retries:
                     return False  # повторы LOAD исчерпаны - показ не начался, гаснем честно
                 self._reloads += 1
-                trace.reload(pos=self._peak, tries=self._reloads)
+                journal().reload(pos=self._peak, tries=self._reloads)
                 tried = self.clock.monotonic()
                 print(
                     f"LOAD не взяли ({self._why()}) - повтор {self._reloads} "

@@ -20,6 +20,7 @@ import pytest
 from tests.fakes.cast_world import CastWorld
 from torrcast import cli, console, trace
 from torrcast.facts import Origin
+from torrcast.runtime.wire import wire
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -310,6 +311,17 @@ def remote(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     path = tmp_path / "ctl"
     monkeypatch.setenv(cli.CTL_ENV, str(path))
     return path
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _wired() -> None:
+    """Тесты собирают приложение так же, как боевой запуск: через композиционный корень.
+
+    Без этого след молчал бы (:class:`torrcast.ports.journal._Silent`), и проверки,
+    которые читают ленту, доказывали бы не поведение показа, а собственную тишину.
+    Каталог ленты у каждого теста свой - его даёт фикстура ``journal``.
+    """
+    wire()
 
 
 @pytest.fixture

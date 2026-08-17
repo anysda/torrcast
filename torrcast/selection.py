@@ -1,8 +1,9 @@
 """Совместимый фасад моделей и правил отбора для старых импортов."""
-# mypy: ignore-errors
 
+# mypy: ignore-errors
 import sys
 
+from torrcast import trace as trace
 from torrcast.usecases import select as _selection_impl
 from torrcast.usecases.select import (
     CAUTIOUS,
@@ -53,7 +54,6 @@ from torrcast.usecases.select import (
     probe,
     recode_note,
     swarm_pulse,
-    trace,
     warm_file,
 )
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from torrcast.domain.unit_naming import _UNIT_NAME
+from torrcast.ports.journal import journal
 
 __all__ = [
     "TRACE",
@@ -327,9 +328,8 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         """
         if not name.endswith(".ts"):
             return
-        trace = import_module("torrcast").trace
 
-        trace.segment(
+        journal().segment(
             slot=segment_slot(name),
             mb=size / 1e6,
             sent=took,

@@ -4,11 +4,12 @@
 
 from __future__ import annotations
 
+from torrcast.ports.journal import journal
+
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.profile import CAUTIOUS
 
 from torrcast.domain.facts.same_name import same_name
-from torrcast.usecases.log_command import trace
 
 from torrcast.domain.config import Config
 from torrcast.domain.episode import Episode
@@ -66,7 +67,6 @@ __all__ = [
     "slugify",
     "split_franchise_index",
     "to_releases",
-    "trace",
     "transliterate",
     "unfit_line",
     "unfit_pool",
@@ -180,7 +180,7 @@ def _search(
             client, query, voiceless, raw, found, progress, titled
         )
     mark("поиск", найдено=len(raw))
-    trace.emit("search", "query", query=query, raw=len(raw), pictures=len(pictures))
+    journal().emit("search", "query", query=query, raw=len(raw), pictures=len(pictures))
     if not raw:
         raise NotFoundError(f"по запросу «{name}» ничего не нашлось")
     if not pictures:

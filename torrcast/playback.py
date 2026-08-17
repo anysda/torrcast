@@ -1,9 +1,9 @@
 """Совместимый фасад сценария показа."""
 
 # ruff: noqa: F403, F405
-
 import sys
 
+from torrcast import trace as trace
 from torrcast.usecases import playback as _implementation
 from torrcast.usecases.playback import *
 

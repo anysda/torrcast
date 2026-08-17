@@ -4,7 +4,8 @@ import os
 import shutil
 import sys
 
-from torrcast import console, trace
+from torrcast import console
+from torrcast import trace as trace
 from torrcast.adapters.choice_environment import environment
 from torrcast.cast import Receiver
 from torrcast.console import Progress

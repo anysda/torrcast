@@ -12,7 +12,7 @@ from collections.abc import Callable
 from torrcast.domain.exit_codes import EXIT_INFRA, EXIT_NOT_FOUND, EXIT_OK
 from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.torrcast_error import TorrcastError
-from torrcast.ports.module import module
+from torrcast.ports.journal import journal
 from torrcast.usecases.stopped import _Stopped
 
 
@@ -30,16 +30,14 @@ def answered(run: Callable[[], int]) -> int:
     # Прогресс идёт вперемешку с ошибками в stderr: без построчного сброса врёт порядок.
     if isinstance(sys.stdout, io.TextIOWrapper):
         sys.stdout.reconfigure(line_buffering=True)
-    # Лента следа - внешний мир, и слой команд зовёт её по имени, а не импортом.
-    trace = module("torrcast.trace")
     try:
         return run()
     except NotFoundError as exc:
-        trace.emit("error", "error", text=str(exc)[:200])
+        journal().emit("error", "error", text=str(exc)[:200])
         print(str(exc), file=sys.stderr)
         return EXIT_NOT_FOUND
     except TorrcastError as exc:  # InfraError и всё прочее наше
-        trace.emit("error", "error", text=str(exc)[:200])
+        journal().emit("error", "error", text=str(exc)[:200])
         print(str(exc), file=sys.stderr)
         return EXIT_INFRA
     except _Stopped:  # `cast stop` - штатный конец показа, а не отказ
@@ -52,4 +50,4 @@ def answered(run: Callable[[], int]) -> int:
         return EXIT_OK
     finally:
         # Дожать хвост следа: фоновый писатель - демон, штатный выход обязан его дождаться.
-        trace.shutdown()
+        journal().shutdown()

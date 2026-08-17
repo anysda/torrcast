@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from torrcast.domain._series import _Series
+from torrcast.ports.journal import journal
 from torrcast.usecases.choice import first_alive, fitness
 from torrcast.usecases.discover import _ask, _asked_kind, _no_budget
 from torrcast.usecases.rank import gate_open, last_hope, rank_releases
@@ -40,7 +41,6 @@ __all__ = [
     "slugify",
     "split_franchise_index",
     "to_releases",
-    "trace",
     "transliterate",
     "voiceless_pool",
 ]
@@ -663,13 +663,13 @@ def _timed(
     fact = facts.get(plan.picture.title, plan.picture.year) if facts is not None else Fact()
     minutes = minutes_of(fact.runtime)
     if minutes <= 0:
-        trace.emit(
+        journal().emit(
             "select", "runtime", secs=round(plan.runtime), src="guess", title=plan.picture.title
         )
         return plan
     fresh = _plan_for(plan.picture, args, config, profile, runtime=minutes * 60.0)
     fresh.kin = plan.kin
-    trace.emit(
+    journal().emit(
         "select",
         "runtime",
         secs=round(fresh.runtime),

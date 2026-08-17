@@ -11,7 +11,7 @@ from torrcast.domain.entry import Entry
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.profile import Profile
 from torrcast.domain.worker_settings import WORKER_META
-from torrcast.usecases.log_command import trace
+from torrcast.ports.journal import journal
 
 __all__ = [
     "WORKER_META",
@@ -30,7 +30,6 @@ __all__ = [
     "_own_torrent",
     "_worker_loop",
     "partial",
-    "trace",
     "trace_thresholds",
 ]
 
@@ -94,11 +93,11 @@ def _worker_loop(
         entry = _duration(key, entry, source)
         watch = Watch(key=key, entry=entry)
         title = " ".join(filter(None, (entry.title, entry.label)))
-        sid = trace.start_session()
-        journal = f"[сеанс {sid}]"
+        sid = journal().start_session()
+        session_tag = f"[сеанс {sid}]"
         # Профиль идёт в след каждой серией: по какому набору порогов играли - вопрос,
         # который иначе снова пришлось бы выяснять с гипервизора.
-        trace.emit(
+        journal().emit(
             "session",
             "session_start",
             title=title,
@@ -106,7 +105,7 @@ def _worker_loop(
             profile=profile.key,
             **trace_thresholds(config, profile),
         )
-        print(f"{journal} показ «{title}» с {_hms(entry.pos)}", flush=True)
+        print(f"{session_tag} показ «{title}» с {_hms(entry.pos)}", flush=True)
         code = _play(
             config,
             source,
@@ -127,7 +126,7 @@ def _worker_loop(
             follow=partial(_next_warmer, config, torrserver, torrent_hash, entry, profile),
             supply=supply,
             profile=profile,
-            journal=journal,
+            session_tag=session_tag,
         )
         following = _following(key) if watch.done else None
         if following is None:

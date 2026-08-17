@@ -12,6 +12,8 @@
 
 from __future__ import annotations
 
+from torrcast import trace as trace
+
 __all__ = [
     "ALIVE_SEEDERS",
     "CTL_ENV",
@@ -152,7 +154,6 @@ from torrcast import (
     __version__,
     console,  # через модуль: терминал спрашиваем там же, где и сами вопросы
     scan,  # через модуль: поиск приёмников тесты подменяют целиком
-    trace,
 )
 from torrcast.cast import ChromecastReceiver, Receiver, make_receiver
 

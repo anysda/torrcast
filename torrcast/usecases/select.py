@@ -4,13 +4,14 @@
 
 from __future__ import annotations
 
+from torrcast.ports.journal import journal
+
 from torrcast.domain.media import Media
 from torrcast.domain.torrcast_error import TorrcastError
 
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.profile import CAUTIOUS, COPY
 
-from torrcast.usecases.log_command import trace
 
 from torrcast.domain.pick_settings import META_BUDGET, PROBE_BUDGET
 
@@ -52,7 +53,7 @@ __all__ = [
     "dataclass", "field", "map_episodes",
     "mark", "probe", "re",
     "recode_note", "swarm_pulse", "threading",
-    "time", "trace", "warm_file",
+    "time", "warm_file",
 ]
 # fmt: on
 
@@ -493,12 +494,12 @@ def _turned_down(judged: dict[int, str], number: int, why: str) -> None:
     а не «не дошли».
     """
     judged[number] = why
-    trace.emit("select", "drop", release=number, why=why)
+    journal().emit("select", "drop", release=number, why=why)
 
 
 def _did_not_answer(number: int, why: str) -> None:
     """Записать осечку роя, не превращая наше ожидание в приговор раздаче."""
-    trace.emit("select", "drop", release=number, why=why)
+    journal().emit("select", "drop", release=number, why=why)
 
 
 def _waiting_note(prep: _Prep, why: str) -> str:

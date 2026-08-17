@@ -21,7 +21,7 @@ dependencies = [
 ]
 
 [project.scripts]
-cast = "torrcast.cli:main"
+cast = "torrcast.runtime.main:main"
 
 [dependency-groups]
 dev = [

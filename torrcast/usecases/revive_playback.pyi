@@ -44,7 +44,7 @@ def _hold(
     supply: Supply | None = None,
     profile: Profile = ...,
     clock: Clock = ...,
-    journal: str = "",
+    session_tag: str = "",
     start: float = 0.0,
     raised: bool = True,
 ) -> bool: ...

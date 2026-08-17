@@ -1,9 +1,9 @@
 """Совместимый фасад оживления показа."""
 
 # ruff: noqa: F403, F405, RUF022
-
 import sys
 
+from torrcast import trace as trace
 from torrcast.usecases import revive_playback as _implementation
 from torrcast.usecases.revive_playback import *
 from torrcast.usecases.revive_playback import _hold, _Revival
