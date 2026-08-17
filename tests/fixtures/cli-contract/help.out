@@ -1,0 +1,22 @@
+usage: cast [-h] [--tv [IP]] [--release N] [--pick N] [--file N] [--voice [N]]
+            [--new] [--dry] [--since СРОК] [--version]
+            [query ...]
+
+torrcast - найти релиз и кастить его на ТВ без скачивания
+
+positional arguments:
+  query         название, либо stop / status
+
+options:
+  -h, --help    show this help message and exit
+  --tv [IP]     настройка ТВ: без адреса - найти приёмники в сети и выбрать из
+                списка
+  --release N   отладка: релиз N выбранной картины; номера - из cast releases
+                с тем же запросом
+  --pick N      картина N из меню, без вопроса
+  --file N      отладка: взять файл N раздачи
+  --voice [N]   озвучка: N - взять дорожку N и запомнить, без номера - меню
+  --new         та же раздача, файл и дорожка с начала
+  --dry         весь резолв без каста
+  --since СРОК  cast log: с какого момента (2d / 12h / 30m / ГГГГ-ММ-ДД)
+  --version     show program's version number and exit

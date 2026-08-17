@@ -1,0 +1,83 @@
+#!/bin/sh
+# Договор командной строки: вывод и коды возврата команд, которые не меняются никогда.
+#
+#   scripts/cli-contract           сверить текущее дерево с эталоном в репозитории
+#   scripts/cli-contract --save    перезаписать эталон текущим деревом
+#
+# Эталон лежит в `tests/fixtures/cli-contract/` и от машины не зависит: справка, версия и
+# состояние путей в себе не держат. Перезаписывать его - отдельное решение: если вывод
+# изменился намеренно, это видно в diff'е коммита, а не растворяется в правке.
+#
+# Зачем отдельно от тестов: перестройка раскладки обязана не менять продукт ни на шаг, а
+# доказывать это словами «вроде тот же» нельзя. Здесь сверка ПОБАЙТОВАЯ и вместе с кодом
+# возврата: `cast doctor` штатно отвечает 2, и потерять эту двойку так же плохо, как
+# потерять строку вывода.
+#
+# Файлы владельца не трогаются: конфиг, состояние и лента уводятся в свой каталог.
+set -eu
+
+mode=сверить
+if [ "${1:-}" = "--save" ]; then
+    mode=снять
+    shift
+fi
+reference=${1:-tests/fixtures/cli-contract}
+
+work=$(mktemp -d)
+trap 'rm -rf "$work"' EXIT HUP INT TERM
+TORRCAST_CONFIG="$work/config.json"
+TORRCAST_STATE="$work/state.json"
+TORRCAST_LOG="$work/log"
+export TORRCAST_CONFIG TORRCAST_STATE TORRCAST_LOG
+
+# Команды без внешнего мира: справка, версия, состояние и осмотр хозяйства. Показа тут
+# нет намеренно - он ходит в сеть и к телевизору, его держат тесты и живой стенд.
+run() {
+    name=$1
+    shift
+    ".venv/bin/cast" "$@" > "$work/$name.out" 2>&1 && code=0 || code=$?
+    echo "$code" > "$work/$name.rc"
+}
+
+run help --help
+run version --version
+run status status
+run doctor doctor
+
+if [ "$mode" = снять ]; then
+    mkdir -p "$reference"
+    cp "$work"/*.rc "$reference/"
+    # Вывод осмотра в эталон не кладётся: он держит пути рабочего каталога и ответ живой
+    # сети, то есть на другой машине разошёлся бы сам собой. Сверяется только его код.
+    for name in help version status; do
+        cp "$work/$name.out" "$reference/$name.out"
+    done
+    rm -f "$reference/doctor.out"
+    echo "эталон снят: $reference"
+    exit 0
+fi
+
+failed=0
+# Вывод сверяется побайтово только у команд, которые внешнего мира не касаются.
+# `cast doctor` меряет живое хозяйство - маршрут до телевизора, ответ mDNS, место на
+# диске, - и пришить его вывод к эталону значило бы объявить поломкой выключенный
+# телевизор. От него берётся код возврата: двойка на нездоровом хозяйстве - это
+# договор, а содержимое строк держат тесты `tests/test_doctor.py`.
+for name in help version status; do
+    if ! cmp -s "$work/$name.out" "$reference/$name.out"; then
+        echo "разошёлся вывод: $name" >&2
+        diff -u "$reference/$name.out" "$work/$name.out" | head -40 >&2
+        failed=1
+    fi
+done
+for name in help version status doctor; do
+    if ! cmp -s "$work/$name.rc" "$reference/$name.rc"; then
+        echo "разошёлся код возврата: $name - было $(cat "$reference/$name.rc"), стало $(cat "$work/$name.rc")" >&2
+        failed=1
+    fi
+done
+if [ "$failed" -ne 0 ]; then
+    echo "договор командной строки нарушен" >&2
+    exit 1
+fi
+echo "договор командной строки соблюдён: вывод трёх команд побайтово, коды возврата всех четырёх"
