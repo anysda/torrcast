@@ -69,6 +69,7 @@ from torrcast.cli import (
     voiceless_pool,
     worth_asking_original,
 )
+from torrcast.domain.capped_indexers import INDEXER_PAGE
 from torrcast.parse import (
     THIN_POOL,
     Picture,
@@ -80,7 +81,7 @@ from torrcast.parse import (
     split_franchise_index,
 )
 from torrcast.profile import Profile
-from torrcast.search import _INDEXER_PAGE, Prowlarr, RawResult, merge, to_releases
+from torrcast.search import Prowlarr, RawResult, merge, to_releases
 from torrcast.state import Config, load_config
 
 #: Что склеили и во что: список исходных кучек и получившаяся из них картина.
@@ -299,14 +300,14 @@ def capped_of(record: dict[str, Any]) -> tuple[str, ...]:
     """Кто из индексеров отдал полную страницу - по сохранённой выдаче.
 
     Это НЕ переписанная ступень, а восстановленное свойство клиента: боевой круг считает
-    его ровно так же и той же меркой (:data:`~torrcast.search._INDEXER_PAGE`), просто
+    его ровно так же и той же меркой (:data:`~torrcast.domain.capped_indexers.INDEXER_PAGE`), просто
     считает по своим строкам, а тут они лежат на диске, разложенные по индексерам.
     Опоздавших в счёте нет ни там, ни тут: их строк никто не считал.
     """
     rows = record.get("rows")
     if not isinstance(rows, dict):
         return ()
-    return tuple(name for name, lines in rows.items() if len(lines or ()) >= _INDEXER_PAGE)
+    return tuple(name for name, lines in rows.items() if len(lines or ()) >= INDEXER_PAGE)
 
 
 def beyond_first_circle(

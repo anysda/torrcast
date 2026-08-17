@@ -10,6 +10,6 @@ class FakeTorrentIndex:
     results: list[Release] = field(default_factory=list)
     queries: list[str] = field(default_factory=list)
 
-    def search(self, query: str) -> list[Release]:
+    def search(self, query: str, limit: int = 100) -> list[Release]:
         self.queries.append(query)
-        return list(self.results)
+        return list(self.results)[:limit]
