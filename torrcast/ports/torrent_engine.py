@@ -26,9 +26,6 @@ class TorrentEngine(Protocol):
     def files(self, torrent_hash: str) -> list[TorrFile]:
         """Файлы раздачи, какими их видит служба сейчас."""
 
-    def remove(self, torrent_hash: str) -> bool:
-        """Убрать раздачу; то же, что :meth:`drop`, именем зовущего."""
-
     def stream_url(self, torrent_hash: str, index: int) -> str:
         """Адрес, по которому читается файл раздачи под номером ``index``."""
 

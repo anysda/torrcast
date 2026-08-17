@@ -12,7 +12,6 @@ class FakeTorrentEngine:
     torrent_files: list[TorrFile] = field(default_factory=list)
     cached: dict[str, Any] = field(default_factory=dict)
     added: list[str] = field(default_factory=list)
-    removed: list[str] = field(default_factory=list)
     dropped: list[str] = field(default_factory=list)
     awaited: list[tuple[str, float, float]] = field(default_factory=list)
     stream_requests: list[tuple[str, int]] = field(default_factory=list)
@@ -32,10 +31,6 @@ class FakeTorrentEngine:
 
     def files(self, torrent_hash: str) -> list[TorrFile]:
         return list(self.torrent_files)
-
-    def remove(self, torrent_hash: str) -> bool:
-        self.removed.append(torrent_hash)
-        return True
 
     def stream_url(self, torrent_hash: str, index: int) -> str:
         self.stream_requests.append((torrent_hash, index))

@@ -154,9 +154,6 @@ class TorrServer:
             return False
         return True
 
-    def remove(self, torrent_hash: str) -> bool:
-        return self.drop(torrent_hash)
-
     def _post(self, path: str, body: dict[str, Any], json_body: bool = True) -> Any:
         import requests
 
