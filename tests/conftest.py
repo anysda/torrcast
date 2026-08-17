@@ -34,7 +34,19 @@ if TYPE_CHECKING:
     from torrcast.stream import Packer
 
 #: Имена, уехавшие из плоского фасада в свои модули: куда доводить подмену прежнего имени.
-_MOVED_NAMES = {"_cmd_status": ("torrcast.cli.main", "status")}
+#: Адресов у имени бывает несколько: порог отсрочки читают и стенд отбора, и правило,
+#: которое эту отсрочку назначает, - а живут они уже в разных файлах.
+#:
+#: ⚠️ Молчаливой эта дыра не бывает наполовину. Подмена, не доехавшая до модуля, оставляет
+#: боевое число, и тест либо честно падает, либо проходит на боевом пороге, ничего не
+#: померив: `PEER_GRACE` 6.0 вместо 0.2 держит зелёным ровно тот случай, где ступень и
+#: должна была уступить. Поэтому имя вносится сюда вместе с переездом, а не после первого
+#: красного.
+_MOVED_NAMES = {
+    "_cmd_status": (("torrcast.cli.main", "status"),),
+    "PEER_GRACE": (("torrcast.usecases.rank.peer_grace", "PEER_GRACE"),),
+    "STEP_GRACE": (("torrcast.usecases.rank.peer_grace", "STEP_GRACE"),),
+}
 #: Имена, которые сценарий больше не держит у себя, а получает от композиционного корня:
 #: куда класть подмену, чтобы она осталась той же силы. Ключ - прежнее имя из плоского
 #: фасада, значение - слоты, которые заполняет :func:`torrcast.runtime.wire.wire`.
@@ -83,9 +95,8 @@ class _LegacyCliPatches(ModuleType):
         for part in cli._PARTS:
             if name in vars(part):
                 setattr(part, name, value)
-        moved = _MOVED_NAMES.get(name)
-        if moved is not None:
-            setattr(importlib.import_module(moved[0]), moved[1], value)
+        for where, moved in _MOVED_NAMES.get(name, ()):
+            setattr(importlib.import_module(where), moved, value)
         for where, slot in _COMPOSED_NAMES.get(name, ()):
             setattr(importlib.import_module(where), slot, value)
 

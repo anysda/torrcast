@@ -29,7 +29,7 @@ def test_wiring_puts_the_real_journal_on_the_port() -> None:
 #: о картинах (:mod:`torrcast.facts`) по слоям ещё не разложены, и назвать их вправе
 #: только модуль вне слоёв (докстрока `torrcast/reinforce.py`). Переедет в корень вместе
 #: с ними, TC-632. Список именной намеренно: молчаливый пропуск неотличим от дыры.
-_BOUND_BY_FACADE = {"torrcast.usecases.reinforce"}
+_BOUND_BY_FACADE = {"torrcast.usecases.reinforce.configure"}
 
 #: Вопрос задаётся СВЕЖЕМУ процессу и по одному модулю за раз, потому что оба соседа
 #: покупают ответ. Общий прогон покупает его чужим импортом: сосед по набору втянул
