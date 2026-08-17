@@ -260,8 +260,7 @@
 | `RatingDump` | класс | `torrcast/ports/rating_dump.py` | 6 |
 | `RawResult` | класс | `torrcast/search.py` | 369 |
 | `RealClock` | класс | `torrcast/timing.py` | 51 |
-| `Receiver` | класс | `torrcast/domain/receiver.py` | 9 |
-| `Receiver` | класс | `torrcast/ports/receiver.py` | 8 |
+| `Receiver` | класс | `torrcast/ports/receiver.py` | 9 |
 | `ReceiverFinder` | класс | `torrcast/ports/receiver_finder.py` | 8 |
 | `ReceiverHealth` | класс | `torrcast/domain/receiver_health.py` | 9 |
 | `ReceiverInfo` | класс | `torrcast/domain/receiver_info.py` | 7 |

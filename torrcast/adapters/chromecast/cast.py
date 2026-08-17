@@ -25,11 +25,11 @@ from torrcast.domain.infra_error import InfraError
 from torrcast.domain.not_raised import NOT_RAISED
 from torrcast.domain.position import Position
 from torrcast.domain.profile import CAUTIOUS, Profile
-from torrcast.domain.receiver import Receiver
 from torrcast.domain.start_refused_error import StartRefusedError
 from torrcast.domain.start_timeout import START_TIMEOUT
 from torrcast.domain.trust_anchor import trust_anchor
 from torrcast.ports.clock import Clock
+from torrcast.ports.receiver import Receiver
 
 _package = import_module("torrcast")
 trace, why = _package.trace, _package.why

@@ -12,3 +12,8 @@ def test_fake_records_receiver_control() -> None:
     assert port.position(8).pos == 5
     port.stop(True)
     assert (fake.plays, fake.fronts, fake.stops) == ([("url", "title", 3)], [8], [True])
+
+
+def test_protocol_is_runtime_checkable() -> None:
+    """Договор спрашивается `isinstance`: показ проверяет им подставленный приёмник."""
+    assert isinstance(object(), Receiver) is False

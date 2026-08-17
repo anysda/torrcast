@@ -11,9 +11,9 @@ from __future__ import annotations
 
 from torrcast.domain.not_raised import NOT_RAISED
 from torrcast.domain.position import Position
-from torrcast.domain.receiver import Receiver
 from torrcast.domain.start_refused_error import StartRefusedError
 from torrcast.domain.trust_anchor import trust_anchor
+from torrcast.ports.receiver import Receiver
 
 __all__ = [
     "NOT_RAISED",
