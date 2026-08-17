@@ -14,7 +14,9 @@ import time
 from torrcast.domain.exit_codes import EXIT_OK
 from torrcast.ports.module import module
 
-trace = module("torrcast").trace
+# Лента спрашивается своим полным именем: атрибут ``torrcast.trace`` появляется только
+# после того, как подмодуль кто-то уже импортировал, а порядок импортов тут не наш.
+trace = module("torrcast.trace")
 
 
 def _cmd_log(args: Args) -> int:

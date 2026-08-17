@@ -399,12 +399,15 @@ class _Voiced:
     #: Показ принял эту раздачу: юнит играет тот же магнит и уберёт её за собой сам.
     handed: bool = False
 
-    def drop(self, config: Config) -> None:
+    def drop(self, config: Config, release: Callable[..., None] | None = None) -> None:
         """Убрать, если так и не пригодилась. Повторный вызов и пустой хэш безвредны.
 
         Кроме одного случая: ту же раздачу держит живой показ - ``cast --voice`` на
         играющий фильм поднимает её же (``add`` идемпотентен), и снос выдернул бы её
         из-под экрана (:func:`_held_by_show`). Уберёт её хозяин показа сам.
+
+        ``release`` - чем сносить: подделке отбора хватает списка хэшей, в бою это
+        поход в TorrServer.
         """
         if self.handed or not self.torrent_hash:
             return
@@ -412,7 +415,7 @@ class _Voiced:
         if _held_by_show(torrent_hash):
             return
         with contextlib.suppress(TorrcastError):
-            _release_torrents(config, [torrent_hash])
+            (release or _release_torrents)(config, [torrent_hash])
 
 
 def _voiced(config: Config, entry: Entry, args: Args, own: _Voiced | None = None) -> Entry:

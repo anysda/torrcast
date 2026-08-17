@@ -1,12 +1,13 @@
-"""Командная строка torrcast и совместимый фасад её предметных частей.
+"""Типы совместимого плоского фасада :mod:`torrcast.cli`.
 
-Точка входа намеренно остаётся здесь. Имена прежнего монолита также доступны
-отсюда: ими пользуются тесты и внешние диагностические сценарии.
+Сам namespace собирается на импорте (``globals().update``), а ``mypy`` такой сборки
+принципиально не видит - поэтому имена прежнего монолита перечислены здесь явно.
+Стаб уходит вместе с фасадом, когда последняя часть разложится по слоям.
 """
 
 from __future__ import annotations
 
-# Статический список нужен mypy для реэкспортов; внизу сохраняется runtime-список.
+# Перечень реэкспортов: то же, что фасад собирает в runtime своим плоским namespace.
 __all__ = [
     "ALIVE_SEEDERS",
     "CAUTIOUS",
@@ -366,21 +367,9 @@ __all__ = [
 
 import os
 import shutil
-import sys
 from types import ModuleType
-from typing import Any
 
-from torrcast import choice as _choice_module
-from torrcast import commands as _commands_module
 from torrcast import console, trace
-from torrcast import discovery as _discovery_module
-from torrcast import play_command as _play_command_module
-from torrcast import playback as _playback_module
-from torrcast import playback_revival as _playback_revival_module
-from torrcast import ranking as _ranking_module
-from torrcast import reinforce as _reinforce_module
-from torrcast import selection as _selection_module
-from torrcast import selection_bench as _selection_bench_module
 from torrcast.cast import Receiver
 from torrcast.choice import (
     _BLURB_INDENT,
@@ -431,6 +420,9 @@ from torrcast.choice import (
     warned,
     year_note,
 )
+from torrcast.cli.args import Args
+from torrcast.cli.main import main
+from torrcast.cli.parse_args import TV_MENU, parse_args
 from torrcast.commands import (
     _BTIH,
     _DISC_RE,
@@ -468,14 +460,12 @@ from torrcast.commands import (
     STEP_GRACE,
     SWARM_GRACE,
     TRACE_ENV,
-    TV_MENU,
     VERDICT_BUDGET,
     VOICE_MENU,
     WARMED_RATIO,
     WATCH_SECONDS,
     WORKER_DUR,
     WORKER_META,
-    Args,
     Device,
     Watch,
     __version__,
@@ -503,8 +493,6 @@ from torrcast.commands import (
     _worker_loop,
     argparse,
     io,
-    main,
-    parse_args,
     partial,
     save_config,
     scan,
@@ -743,69 +731,6 @@ from torrcast.selection import (
     swarm_pulse,
 )
 from torrcast.state import Config
-from torrcast.usecases import cache_reserve as _cache_reserve_module
-from torrcast.usecases import doctor_command as _doctor_command_module
-from torrcast.usecases import episode_duration as _episode_duration_module
-from torrcast.usecases import log_command as _log_command_module
-from torrcast.usecases import releases_command as _releases_command_module
-from torrcast.usecases import say_showing as _say_showing_module
-from torrcast.usecases import torrents as _torrents_module
-from torrcast.usecases import voices_command as _voices_command_module
-from torrcast.usecases import watch as _watch_module
-from torrcast.usecases import worker as _worker_module
-from torrcast.usecases import worker_loop as _worker_loop_module
 
-_PARTS = (
-    _commands_module,
-    _cache_reserve_module,
-    _torrents_module,
-    _watch_module,
-    _say_showing_module,
-    _episode_duration_module,
-    _worker_loop_module,
-    _worker_module,
-    _releases_command_module,
-    _voices_command_module,
-    _log_command_module,
-    _doctor_command_module,
-    _play_command_module,
-    _discovery_module,
-    _reinforce_module,
-    _selection_module,
-    _selection_bench_module,
-    _playback_module,
-    _playback_revival_module,
-    _choice_module,
-    _ranking_module,
-)
-
-# Функции в перенесённых частях разрешают глобальные имена в своём модуле.
-# Доводим до каждой части полный namespace после завершения цепочки импортов.
-_namespace: dict[str, Any] = {}
-for _part in _PARTS:
-    _namespace.update(
-        (name, value) for name, value in vars(_part).items() if not name.startswith("__")
-    )
-globals().update(_namespace)
-for _part in _PARTS:
-    vars(_part).update(_namespace)
-
-
-class _CliModule(ModuleType):
-    """Передаёт тестовые/диагностические подмены в модули реализации."""
-
-    def __setattr__(self, name: str, value: Any) -> None:
-        super().__setattr__(name, value)
-        if not name.startswith("__"):
-            for part in _PARTS:
-                if name in vars(part):
-                    setattr(part, name, value)
-
-
-sys.modules[__name__].__class__ = _CliModule
-
-__all__ = [name for name in globals() if not name.startswith("_")]
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
+#: Части прежнего монолита, в которые фасад доводит собранный namespace.
+_PARTS: tuple[ModuleType, ...]

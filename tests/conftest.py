@@ -6,11 +6,14 @@ from __future__ import annotations
 
 import ast
 import functools
+import importlib
 import inspect
 import socket
 import subprocess
+import sys
 import time
-from typing import TYPE_CHECKING
+from types import ModuleType
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
@@ -22,6 +25,35 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from torrcast.stream import Packer
+
+#: Имена, уехавшие из плоского фасада в свои модули: куда доводить подмену прежнего имени.
+_MOVED_NAMES = {"_cmd_status": ("torrcast.cli.main", "status")}
+
+
+class _LegacyCliPatches(ModuleType):
+    """Мост на время разреза: подмена ``torrcast.cli.X`` доезжает до модулей реализации.
+
+    Прежде такой хук стоял в самом продукте (``_CliModule`` в ``torrcast/cli.py``) - то есть
+    боевой код носил в себе крючок для тестов. Здесь он на своём месте: держат его ровно те
+    наборы, которые ещё патчат атрибут модуля вместо того, чтобы подавать зависимость
+    конструктором сценария (``test_ux``, ``test_voices``, ``test_play``, ``test_progress``,
+    ``test_episodes``, ``test_translit``, ``test_facts``). Когда последний такой патч
+    исчезнет, вместе с ним уходит и мост.
+    """
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        super().__setattr__(name, value)
+        if name.startswith("__"):
+            return
+        for part in cli._PARTS:
+            if name in vars(part):
+                setattr(part, name, value)
+        moved = _MOVED_NAMES.get(name)
+        if moved is not None:
+            setattr(importlib.import_module(moved[0]), moved[1], value)
+
+
+sys.modules[cli.__name__].__class__ = _LegacyCliPatches
 
 #: Длина синтетического ролика. Держим её кратной сетке HLS и с запасом в несколько
 #: сегментов: на сетке 10 с двадцатисекундный ролик - это всего два сегмента,
@@ -235,6 +267,22 @@ def journal(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
     monkeypatch.setenv(trace.LOG_ENV, str(tmp_path))
     monkeypatch.setenv(trace.SID_ENV, "test-sid")
     return tmp_path
+
+
+@pytest.fixture(autouse=True)
+def _own_files(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Конфиг и лента следа - свои на каждый тест, а не хозяйские.
+
+    Унаследованные ``TORRCAST_CONFIG`` и ``TORRCAST_LOG`` увели бы прогон в настоящие файлы
+    владельца: конфиг тесты переписывают, а лента копила бы их записи рядом с боевыми.
+    Пустая лента - это не «никуда»: путь тогда считается от файла состояния, а он уже
+    свой (:func:`torrcast.trace.log_dir`).
+    """
+    monkeypatch.setenv("TORRCAST_CONFIG", str(tmp_path / "config.json"))
+    monkeypatch.setenv("TORRCAST_LOG", "")
+    # Идентификатор сеанса лента заводит лениво и кэширует В ОКРУЖЕНИИ: без своего он
+    # утёк бы из теста в тест и подписал бы чужие записи (:func:`torrcast.trace.session_id`).
+    monkeypatch.setenv("TORRCAST_SID", tmp_path.name)
 
 
 @pytest.fixture(autouse=True)

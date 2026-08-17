@@ -1,3 +1,6 @@
+from collections.abc import Callable
+from typing import Any
+
 from torrcast import NotFoundError as NotFoundError
 from torrcast.commands import Args
 from torrcast.console import Progress as Progress
@@ -21,4 +24,10 @@ __all__ = [
     "tune_profile",
 ]
 
-def _cmd_releases(args: Args) -> int: ...
+def _cmd_releases(
+    args: Args,
+    search: Callable[..., Any] | None = None,
+    settings: Callable[[], Any] | None = None,
+    facts_source: Callable[..., Any] | None = None,
+    profile_choice: Callable[..., Any] | None = None,
+) -> int: ...

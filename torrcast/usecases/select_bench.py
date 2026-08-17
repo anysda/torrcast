@@ -15,7 +15,14 @@ from torrcast.ports.legacy_namespace import legacy_namespace
 globals().update(
     legacy_namespace(
         torrcast=("InfraError", "NotFoundError", "TorrcastError", "trace"),
-        torrcast__commands=("META_BUDGET", "PROBE_BUDGET"),
+        torrcast__commands=(
+            "HONEST_BUDGET",
+            "MAX_TRIES",
+            "META_BUDGET",
+            "PICK_BUDGET",
+            "PROBE_BUDGET",
+            "VERDICT_BUDGET",
+        ),
         torrcast__console=("Progress",),
         torrcast__parse=("Release",),
         torrcast__profile=("CAUTIOUS", "COPY", "REFUSE", "Profile"),
@@ -50,17 +57,26 @@ class _Bench:
         meta_budget: float = META_BUDGET,
         probe_budget: float = PROBE_BUDGET,
         profile: Profile = CAUTIOUS,
-        prober: Callable[..., object] | None = None,
+        prober: Callable[..., Media] | None = None,
+        pick_budget: float | None = None,
+        verdict_budget: float | None = None,
+        honest_budget: float | None = None,
+        clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self.torrserver = torrserver
         self.choose = choose or _default_file
-        #: Чем читаются дорожки поднятой раздачи. Боевое умолчание - ffprobe
-        #: (:func:`~torrcast.stream.probe`); называют его те, у кого ffprobe нет.
+        #: Чем читаются дорожки раздачи: подделке отбора хватает и её собственного ответа.
         self.prober = prober or probe
         #: Чей декодер судит релизы: что играется копией, а что не играется вовсе.
         self.profile = profile
         self.meta_budget = meta_budget
         self.probe_budget = probe_budget
+        #: Потолки фазы отбора: обход очереди, приговоры и ожидание честного запасного.
+        self.pick_budget = PICK_BUDGET if pick_budget is None else pick_budget
+        self.verdict_budget = VERDICT_BUDGET if verdict_budget is None else verdict_budget
+        self.honest_budget = HONEST_BUDGET if honest_budget is None else honest_budget
+        #: Часы отбора: все его сроки меряются отсюда, а не стенными часами напрямую.
+        self.clock = clock
         self.preps: dict[tuple[str, int], _Prep] = {}
         #: Прогревы, которые прямо сейчас кому-то нужны и потолком не убираются: тот, чьего
         #: ответа ждут, и тот, который греется ему на смену. Пусто под меню - там нужны все.
@@ -324,7 +340,7 @@ class _Bench:
         mute: _Prep | None = None
         #: Докуда дошла очередь - для строки о снижении ступени на запасном ходу.
         reached = 0
-        deadline = time.monotonic() + PICK_BUDGET
+        deadline = self.clock() + self.pick_budget
         for attempt, number in enumerate(queue, start=1):
             reached = attempt
             following = queue[attempt] if attempt < len(queue) else None
@@ -339,7 +355,7 @@ class _Bench:
                 self.start(plan, following)
             # Секундомер стоит вокруг ОЖИДАНИЯ, а не вокруг работы потока: прогретая под
             # меню раздача отвечает мгновенно, и её приговор человеку ничего не стоил.
-            entered = time.monotonic()
+            entered = self.clock()
             voice_search = (
                 "" if args.pinned else f"ищу русскую озвучку: релиз {attempt} из {len(queue)} - "
             )
@@ -386,7 +402,7 @@ class _Bench:
             silents += 1 if _silenced(prep) else 0
             if not prep.error and prep.media is not None:  # ffprobe прочитал и осудил
                 verdicts += 1
-                priced += time.monotonic() - entered
+                priced += self.clock() - entered
             # Запасной ход держит ОДНОГО отложенного, и это лучший из безрусских. Лучший
             # тут - тот, про кого меньше известно плохого: паспорт, промолчавший про язык,
             # ещё может оказаться русским, а названный японским русским уже не станет
@@ -401,8 +417,8 @@ class _Bench:
             progress.phase("")
             # Три приговора - пол, дальше решают секунды: дешёвые приговоры (SD-рип,
             # vp9) места следующей раздаче больше не занимают, дорогие занимают.
-            affordable = verdicts < MAX_TRIES or priced < VERDICT_BUDGET
-            goes_on = following is not None and affordable and time.monotonic() < deadline
+            affordable = verdicts < MAX_TRIES or priced < self.verdict_budget
+            goes_on = following is not None and affordable and self.clock() < deadline
             tail = f" - беру {following}" if goes_on else ""
             head = (
                 f"релиз {number} без русской озвучки ({heard(prep.found)})"
@@ -523,7 +539,7 @@ class _Bench:
         # Спрашивается по ПОЛНОМУ сроку одной раздачи (:meth:`_wait`), поэтому и место под
         # него считается по полному: те же +5 с, иначе второй спрос уносил обход за потолок
         # фазы на пять секунд - тот же промах, что и в :meth:`resolve` (TC-436).
-        if time.monotonic() + self.meta_budget + self.probe_budget + 5.0 > deadline:
+        if self.clock() + self.meta_budget + self.probe_budget + 5.0 > deadline:
             return None  # честный второй спрос в остаток бюджета фазы уже не влезает
         print(
             f"промолчала вся очередь ({len(queue)}) - спрашиваю релиз {number} "
@@ -672,7 +688,7 @@ class _Bench:
             deadline = min(deadline, limit)
         while not prep.ready.wait(0.2):
             progress.phase(f"{prefix}{prep.phase}")
-            if time.monotonic() > deadline:  # поток сам не уложился - не ждём вечно
+            if self.clock() > deadline:  # поток сам не уложился - не ждём вечно
                 prep.error = prep.error or f"фаза «{prep.phase}» не уложилась в бюджет"
                 return
 
@@ -685,7 +701,7 @@ class _Bench:
         """
         while not prep.ready.wait(0.2):
             progress.phase(phase)
-            if time.monotonic() > deadline:
+            if self.clock() > deadline:
                 return False
         return True
 
@@ -745,7 +761,7 @@ class _Bench:
             and n not in judged
             and promises_more(plan.ranked[n - 1], chosen.found)
         ][:MAX_TRIES]
-        deadline = time.monotonic() + HONEST_BUDGET
+        deadline = self.clock() + self.honest_budget
         for number in rest:
             # Нужны двое: тот, кого играем, если проверка ничего не найдёт, и тот, кого
             # спрашиваем сейчас. Проверенные и отвергнутые убираются тут же, ниже.
@@ -937,11 +953,11 @@ class _Bench:
                 grace=prep.contact_wait or 0.0,
             )
             prep.files = files
-            prep.meta = time.monotonic() - prep.started
+            prep.meta = self.clock() - prep.started
             mark("метаданные", релиз=prep.number, картина=plan.picture.key)
             prep.video = self.choose(plan, prep.release, files)
             prep.phase = "дорожки"
-            began = time.monotonic()
+            began = self.clock()
             source = self.torrserver.stream_url(prep.torrent_hash, prep.want.index)
             # Всё, что показ прочитает из роя первым, читается здесь и сейчас: карта
             # опорных кадров (без неё нет сетки) и начало файла (его читает ffmpeg). Это
@@ -958,7 +974,7 @@ class _Bench:
                     else swarm_pulse(source, SWARM_GRACE, wait=prep.contact_wait)
                 ),
             )
-            prep.read = time.monotonic() - began
+            prep.read = self.clock() - began
             mark("ffprobe", релиз=prep.number, картина=plan.picture.key)
             prep.phase = "готово"
         except TorrcastError as exc:

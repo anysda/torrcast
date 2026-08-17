@@ -55,7 +55,7 @@ __all__ = [
 
 from dataclasses import replace
 from collections.abc import Callable
-from typing import Final, Generic, TypeVar
+from typing import Any, Final, Generic, TypeVar
 from torrcast.ports.legacy_namespace import legacy_namespace
 
 globals().update(

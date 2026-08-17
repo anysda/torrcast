@@ -42,6 +42,7 @@ __all__ = [
     "voiceless_pool",
 ]
 
+from collections.abc import Callable
 from dataclasses import replace
 from typing import TYPE_CHECKING, Any, TypeAlias
 
@@ -183,7 +184,7 @@ def _ceiling_reinforce(
     found: list[Picture],
     progress: Progress,
     *,
-    passport: Any = None,
+    passport: Callable[..., Any] | None = None,
 ) -> tuple[list[RawResult], list[Picture], list[Picture]]:
     """Второй круг с УТОЧНЁННЫМ запросом «имя + год из справки». Не помогло - как было.
 

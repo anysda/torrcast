@@ -772,7 +772,11 @@ def warm_order(plans: list[_Plan]) -> list[_Plan]:
 
 
 def _pick_plan(
-    plans: list[_Plan], facts: Facts | None = None, pick: int | None = None, asked: str = ""
+    plans: list[_Plan],
+    facts: Facts | None = None,
+    pick: int | None = None,
+    asked: str = "",
+    environment: ChoiceEnvironment | None = None,
 ) -> _Plan:
     """Вопрос «какой фильм франшизы?»; один вариант — без вопроса.
 
@@ -803,16 +807,17 @@ def _pick_plan(
     без терминала видеть его некому. Поэтому отказываемся вслух и подсказываем, как
     назвать картину точно.
     """
+    env = environment or _environment
     if pick is not None and not 1 <= pick <= len(plans):
-        raise _environment.not_found_error(f"подходит картин: {len(plans)}, номера {pick} нет")
-    _environment.write(menu_lines(plans, facts))
+        raise env.not_found_error(f"подходит картин: {len(plans)}, номера {pick} нет")
+    env.write(menu_lines(plans, facts))
     if pick is not None:  # номер назвал сам человек - ни вопроса, ни подмены
         return plans[pick - 1]
     if len(plans) == 1:
         return plans[0]
     default = 1
-    if not _environment.stdin_is_tty():
-        raise _environment.not_found_error(
+    if not env.stdin_is_tty():
+        raise env.not_found_error(
             f"подходит картин: {len(plans)}, а терминала нет - вслепую не выбираю; "
             f"назови картину точно (например «{plans[default - 1].picture.title}») "
             f"или её номер (--pick N), либо запусти cast в терминале"
@@ -820,10 +825,10 @@ def _pick_plan(
     if note := part_one_swap(plans, asked):
         # Дефолт подменил бы спрошенную часть другой - тогда его нет вовсе: строка
         # называет, что с первой частью, список на экране, номер зовёт человек.
-        _environment.write(note)
-        return plans[_environment.ask("Что смотрим?", len(plans), default=None) - 1]
-    _environment.write(default_line(plans, default))
-    return plans[_environment.ask("Что смотрим?", len(plans), default=default) - 1]
+        env.write(note)
+        return plans[env.ask("Что смотрим?", len(plans), default=None) - 1]
+    env.write(default_line(plans, default))
+    return plans[env.ask("Что смотрим?", len(plans), default=default) - 1]
 
 
 def default_line(plans: list[_Plan], default: int) -> str:

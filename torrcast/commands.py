@@ -57,7 +57,6 @@ __all__ = [
     "TABLE_LIMIT",
     "TRACE_ENV",
     "TV_MENU",
-    "TYPE_CHECKING",
     "VERDICT_BUDGET",
     "VOICE_MENU",
     "WARMED_RATIO",
@@ -107,7 +106,6 @@ __all__ = [
     "_since_seconds",
     "_torrent_hash",
     "_worker_loop",
-    "answered",
     "argparse",
     "ask",
     "console",
@@ -117,7 +115,6 @@ __all__ = [
     "hls_base",
     "io",
     "load_config",
-    "main",
     "make_receiver",
     "mark",
     "parse_args",
@@ -138,18 +135,13 @@ __all__ = [
     "unit_key",
 ]
 
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from torrcast.play_command import _cmd_play
-
 import argparse
 import contextlib
 import io
 import re
 import signal
 import sys
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
 from functools import partial
 
@@ -238,10 +230,6 @@ VERDICT_BUDGET = 15.0
 #: ``--voice`` без номера: показать меню озвучек. Ноль тут свободен - дорожки для
 #: человека нумеруются с единицы.
 VOICE_MENU = 0
-FROM_START_FLAG, FROM_START_HELP = "--new", "та же раздача, файл и дорожка с начала"
-#: ``--tv`` без адреса: найти приёмники в сети и показать список. Адресом такое значение
-#: не бывает никогда, поэтому путь «адрес назвали руками» остаётся ровно прежним.
-TV_MENU = "?"
 #: Сколько картин франшизы греем под меню: топ-2-3 релиза уходят в TorrServer фоном,
 #: пока человек отвечает на вопросы.
 PREWARM = 3
@@ -567,179 +555,13 @@ _DISC_RE = re.compile(
 )
 
 # Разложенные по слоям сценарии читают пороги отсюда прямо на своём импорте, поэтому
-# стоят они ниже порогов, а не в общей шапке.
+# стоят они ниже порогов, а не в общей шапке. Разбор аргументов уехал в слой команд,
+# и реэкспорт его имён стоит там же: на них ссылаются .pyi перенесённых сценариев.
+from torrcast.cli.args import Args  # noqa: E402
+from torrcast.cli.parse_args import TV_MENU, parse_args  # noqa: E402
 from torrcast.usecases.doctor_command import _cmd_doctor  # noqa: E402
 from torrcast.usecases.log_command import _cmd_log, _since_seconds  # noqa: E402
 from torrcast.usecases.releases_command import _cmd_releases  # noqa: E402
 from torrcast.usecases.voices_command import _cmd_voices  # noqa: E402
-
-
-@dataclass(slots=True)
-class Args:
-    query: list[str]
-    #: ``--tv <ip>`` - запомнить адрес; ``--tv`` без адреса (:data:`TV_MENU`) - найти
-    #: приёмники в сети и спросить, какой из них телевизор.
-    tv: str | None = None
-    release: int | None = None
-    #: Инфохэш под номером из последнего ``cast releases``. Внутреннее поле: поздняя
-    #: выдача меняет места, но не имеет права менять явно названную раздачу.
-    release_hash: str = ""
-    #: ``--pick N`` - картина N из меню, вопрос «Что смотрим?» не задаётся. Номер называет
-    #: человек по списку на экране: молчаливой подмены тут не бывает, а без терминала это
-    #: единственный способ назвать картину неинтерактивному запуску.
-    pick: int | None = None
-    file: int | None = None
-    #: ``--voice N`` - играть дорожку N; ``--voice`` без номера (:data:`VOICE_MENU`) -
-    #: показать меню озвучек и спросить. На счастливом пути обоих нет: озвучка
-    #: выбирается сама.
-    voice: int | None = None
-    from_start: bool = False
-    dry: bool = False
-    #: ``cast log --since 2d|12h|30m|ГГГГ-ММ-ДД`` - с какого момента показывать след.
-    since: str | None = None
-    #: Внутреннее: показ внутри transient-юнита, руками не зовётся.
-    play_key: str | None = None
-
-    @property
-    def command(self) -> str:
-        """``stop`` / ``status`` / ``doctor`` / ``releases`` / ``voices`` / ``play`` /
-        ``configure`` / ``worker``.
-        """
-        if self.play_key:
-            return "worker"
-        words = {"stop", "status", "doctor", "releases", "voices", "log"}
-        if self.query and self.query[0] in words:
-            return self.query[0]
-        if not self.query:
-            return "configure" if self.tv else "status"
-        return "play"
-
-    @property
-    def episode(self) -> Episode | None:
-        """Явно указанная серия: ``cast киберпанк s2e5``, ``2x5``, «2 сезон 5 серия»."""
-        return split_episode(" ".join(self.query))[1]
-
-    @property
-    def title_query(self) -> str:
-        """Запрос без указания серии: искать надо «киберпанк», а не «киберпанк 2x5»."""
-        return split_episode(" ".join(self.query))[0]
-
-    @property
-    def pinned(self) -> bool:
-        """Релиз или файл названы руками — отладочный путь, подмен в нём не бывает."""
-        return self.release is not None or self.file is not None
-
-
-def parse_args(argv: Sequence[str] | None = None) -> Args:
-    """Разобрать argv по контракту CLI."""
-    about = "torrcast - найти релиз и кастить его на ТВ без скачивания"
-    parser = argparse.ArgumentParser(prog="cast", description=about, allow_abbrev=False)
-    parser.add_argument("query", nargs="*", help="название, либо stop / status")
-    parser.add_argument(
-        "--tv",
-        nargs="?",
-        const=TV_MENU,
-        metavar="IP",
-        help="настройка ТВ: без адреса - найти приёмники в сети и выбрать из списка",
-    )
-    # Номер релиза имеет смысл только вместе с запросом и выбранной картиной: другой
-    # запрос - другой список, а у каждой картины в нём - свои номера (TC-446).
-    parser.add_argument(
-        "--release",
-        type=int,
-        metavar="N",
-        help="отладка: релиз N выбранной картины; номера - из cast releases с тем же запросом",
-    )
-    parser.add_argument("--pick", type=int, metavar="N", help="картина N из меню, без вопроса")
-    parser.add_argument("--file", type=int, metavar="N", help="отладка: взять файл N раздачи")
-    parser.add_argument(
-        "--voice",
-        type=int,
-        nargs="?",
-        const=VOICE_MENU,
-        metavar="N",
-        help="озвучка: N - взять дорожку N и запомнить, без номера - меню",
-    )
-    # Прежнее имя того же флага: ломать чужие пальцы и историю оболочки незачем.
-    parser.add_argument(
-        "--audio", type=int, nargs="?", const=VOICE_MENU, dest="voice", help=argparse.SUPPRESS
-    )
-    parser.add_argument(
-        FROM_START_FLAG, dest="from_start", action="store_true", help=FROM_START_HELP
-    )
-    parser.add_argument("--dry", action="store_true", help="весь резолв без каста")
-    parser.add_argument(
-        "--since", metavar="СРОК", help="cast log: с какого момента (2d / 12h / 30m / ГГГГ-ММ-ДД)"
-    )
-    parser.add_argument("--play-key", metavar="KEY", help=argparse.SUPPRESS)
-    parser.add_argument("--version", action="version", version=f"torrcast {__version__}")
-    return Args(**vars(parser.parse_args(argv)))
-
-
-def main(argv: Sequence[str] | None = None) -> int:
-    """Точка входа console-script ``cast``."""
-    # Прогресс идёт вперемешку с ошибками в stderr: без построчного сброса врёт порядок.
-    if isinstance(sys.stdout, io.TextIOWrapper):
-        sys.stdout.reconfigure(line_buffering=True)
-    return answered(lambda: _dispatch(argv))
-
-
-def answered(run: Callable[[], int]) -> int:
-    """Ответ командной строки: код возврата вместо трейсбека, чем бы команда ни кончилась.
-
-    🔴 SIGTERM от ``cast stop`` поднимает исключение - иначе показ не прошёл бы через
-    ``finally`` и не записал позицию, - но исход у него штатный: выйди мы кодом 2, и
-    systemd пометил бы юнит ``failed`` после каждой нормальной остановки. Ctrl-C на
-    вопросе при этом отказом быть не перестаёт, и разводит их тип исключения.
-    """
-    try:
-        return run()
-    except NotFoundError as exc:
-        trace.emit("error", "error", text=str(exc)[:200])
-        print(str(exc), file=sys.stderr)
-        return EXIT_NOT_FOUND
-    except TorrcastError as exc:  # InfraError и всё прочее наше
-        trace.emit("error", "error", text=str(exc)[:200])
-        print(str(exc), file=sys.stderr)
-        return EXIT_INFRA
-    except _Stopped:  # `cast stop` - штатный конец показа, а не отказ
-        return EXIT_OK
-    except KeyboardInterrupt:
-        return EXIT_INFRA
-    except BrokenPipeError:  # `cast status | head` - не повод показывать трейсбек
-        with contextlib.suppress(OSError):
-            sys.stdout.close()
-        return EXIT_OK
-    finally:
-        # Дожать хвост следа: фоновый писатель - демон, штатный выход обязан его дождаться.
-        trace.shutdown()
-
-
-def _dispatch(argv: Sequence[str] | None) -> int:
-    """Разобрать аргументы и позвать команду, которую они называют."""
-    args = parse_args(argv)
-    command = args.command
-    # IUTF8 на stdin включаем на всё время команды и возвращаем режим как было:
-    # без него ssh-сессия ломает кириллицу в вопросах.
-    with terminal():
-        if command == "configure":
-            # ``--tv`` без адреса - это меню: приёмники ищет сам сценарий настройки.
-            return _cmd_configure(None if args.tv == TV_MENU else str(args.tv))
-        if command == "stop":
-            return _cmd_stop()
-        if command == "status":
-            return _cmd_status()
-        if command == "doctor":
-            return _cmd_doctor()
-        if command == "log":
-            return _cmd_log(args)
-        if command == "releases":
-            return _cmd_releases(args)
-        if command == "voices":
-            return _cmd_voices(args)
-        if command == "worker":
-            return _cmd_worker(str(args.play_key))
-        return _cmd_play(args)
-
 
 __all__ = [name for name in globals() if not name.startswith("__")]

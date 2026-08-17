@@ -19,6 +19,9 @@ __all__ = [
     "tune_profile",
 ]
 
+from collections.abc import Callable
+from typing import Any
+
 from torrcast.domain.exit_codes import EXIT_OK
 from torrcast.ports.module import module
 
@@ -35,7 +38,13 @@ detect_profile = module("torrcast.profile").detect
 tune_profile = module("torrcast.profile").tune
 
 
-def _cmd_releases(args: Args) -> int:
+def _cmd_releases(
+    args: Args,
+    search: Callable[..., Any] | None = None,
+    settings: Callable[[], Any] | None = None,
+    facts_source: Callable[..., Any] | None = None,
+    profile_choice: Callable[..., Any] | None = None,
+) -> int:
     """``cast releases <запрос>`` — отладочная ручка: таблица и выход.
 
     На счастливом пути таблицы нет вовсе: релиз выбирается сам. Но посмотреть, из чего
@@ -56,15 +65,21 @@ def _cmd_releases(args: Args) -> int:
     профиль печатается всегда, и приёмника может не быть вовсе - тогда строка честно
     говорит, по какому профилю судим.
     """
-    config = load_config()
+    #: Внешние соседи таблицы: поиск, конфиг, справка и паспорт приёмника. Подделке
+    #: отбора хватает её собственных ответов, в бою это сеть, диск и опрос устройства.
+    search = search or _search
+    settings = settings or load_config
+    facts_source = facts_source or Facts
+    profile_choice = profile_choice or detect_profile
+    config = settings()
     inner = Args(query=list(args.query[1:]))
     if not inner.query:
         raise NotFoundError("что искать? cast releases <запрос>")
-    chosen = detect_profile(config)
+    chosen = profile_choice(config)
     config = tune_profile(config, chosen.profile)
     with Progress() as progress:
-        plans = _search(config, inner, progress, chosen.profile)
-    facts = Facts([(p.picture.title, p.picture.year) for p in plans])
+        plans = search(config, inner, progress, chosen.profile)
+    facts = facts_source([(p.picture.title, p.picture.year) for p in plans])
     facts.start()
     try:
         print(f"профиль приёмника: {chosen.profile.title} - {chosen.how}")

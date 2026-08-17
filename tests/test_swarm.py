@@ -677,12 +677,13 @@ def test_a_full_hd_head_is_not_dropped_for_a_slow_minute_of_its_swarm(
     от этого зависит ступень на экране.
     """
     ranked = [rel(name="полный", quality="1080p"), rel(name="обычный", quality="720p")]
-    _probes(monkeypatch, ranked, "h264", "h264")
+    prober = _probes(ranked, "h264", "h264")
     monkeypatch.setattr(cli, "PEER_GRACE", 0.2)
     monkeypatch.setattr(cli, "STEP_GRACE", 1.2)
     head = f"hash-{ranked[0].magnet}"
 
-    prep = _resolve(cli._Bench(cast(Any, _LateHead(head, answers_in=0.6))), ranked)
+    bench = cli._Bench(cast(Any, _LateHead(head, answers_in=0.6)), prober=prober)
+    prep = _resolve(bench, ranked)
 
     assert prep.number == 1, "ступень отдали не рою, а собственному нетерпению"
     assert prep.meta >= 0.6, f"метаданные пришли за {prep.meta:.2f} с - ждали не рой"
@@ -697,12 +698,13 @@ def test_a_slow_head_still_yields_when_nothing_below_it_is_a_step_lower(
     и каждый пустой рой снова стоил бы человеку лишних секунд.
     """
     ranked = [rel(name="полный", quality="1080p"), rel(name="второй", quality="1080p")]
-    _probes(monkeypatch, ranked, "h264", "h264")
+    prober = _probes(ranked, "h264", "h264")
     monkeypatch.setattr(cli, "PEER_GRACE", 0.2)
     monkeypatch.setattr(cli, "STEP_GRACE", 1.2)
     head = f"hash-{ranked[0].magnet}"
 
-    prep = _resolve(cli._Bench(cast(Any, _LateHead(head, answers_in=0.6))), ranked)
+    bench = cli._Bench(cast(Any, _LateHead(head, answers_in=0.6)), prober=prober)
+    prep = _resolve(bench, ranked)
 
     assert prep.number == 2, "ступени под верхом нет - ждать его дольше незачем"
     assert "не дождались" in capsys.readouterr().out

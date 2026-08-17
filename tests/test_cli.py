@@ -6,13 +6,15 @@ import io
 import re
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, cast
 
 import pytest
 
-from torrcast import InfraError, NotFoundError, SwarmError, cli, console, scan
+from tests.fakes.choice_environment import FakeChoiceEnvironment
+from torrcast import InfraError, NotFoundError, SwarmError, cli
 from torrcast.cli import TABLE_LIMIT, is_candidate, is_disc, rank_releases, render_table, warned
 from torrcast.console import Progress
 from torrcast.parse import (
@@ -52,7 +54,7 @@ def rel(
         seeders=seeders,
         # Свой magnet на релиз: без него раздачи неразличимы, а подготовка их греет
         # параллельно - и тест не может сказать, про какую именно раздача ffprobe.
-        magnet=f"magnet:?xt=urn:btih:{abs(hash(name)):x}",
+        magnet=f"magnet-{name}",
     )
 
 
@@ -139,7 +141,7 @@ def _named(name: str, size_gb: float, seeders: int) -> Release:
         parse_release_name(name),
         size=int(size_gb * GB),
         seeders=seeders,
-        magnet=f"magnet:?xt=urn:btih:{abs(hash(name)):x}",
+        magnet=f"magnet-{name}",
     )
 
 
@@ -417,7 +419,11 @@ class _FakeTorrServer:
         return True
 
 
-def _probes(monkeypatch: pytest.MonkeyPatch, releases: list[Release], *codecs: str) -> None:
+#: Подделка ffprobe: адрес потока, потолок ожидания и признак живого роя - в :class:`Media`.
+_Prober = Callable[..., Media]
+
+
+def _probes(releases: list[Release], *codecs: str) -> _Prober:
     """Подсунуть ffprobe: по кодеку на релиз, считая от лучшего.
 
     ⚠️ Раздавать кодеки по порядку ВЫЗОВОВ нельзя: прогрев греет запасной релиз
@@ -433,7 +439,7 @@ def _probes(monkeypatch: pytest.MonkeyPatch, releases: list[Release], *codecs: s
                 return Media(3600.0, (), codecs[number])
         return Media(3600.0, (), "h264")
 
-    monkeypatch.setattr(cli, "probe", read)
+    return read
 
 
 def _plan(ranked: list[Release], recode_at: float = 10.0) -> Any:
@@ -466,12 +472,9 @@ def _topup(plan: Any, rows: list[Any], menu: frozenset[str] = frozenset()) -> tu
     return fresh, out.getvalue()
 
 
-def test_долив_опоздавшего_пополняет_пул_выбранной_картины(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_долив_опоздавшего_пополняет_пул_выбранной_картины() -> None:
     """🔴 TC-118. Круг ушёл по кворуму, Nyaa доехал, пока человек читал меню. Его раздачи
     доливаются в пул ВЫБРАННОЙ картины - иначе опоздавший терялся бы вовсе."""
-    monkeypatch.setenv("TORRCAST_LOG", "")
     plan = _plan([rel(name="Кино / Movie (1999) BDRip 1080p", seeders=100)])
     fresh, said = _topup(plan, [_raw("Кино / Movie (1999) BDRip 2160p", "b", 900)])
 
@@ -480,10 +483,9 @@ def test_долив_опоздавшего_пополняет_пул_выбра�
     assert "доехал после списка: раздач 2 вместо 1" in said
 
 
-def test_долив_называет_вслух_смену_верха_отбора(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_долив_называет_вслух_смену_верха_отбора() -> None:
     """Верх отбора долив поменять вправе - выбирали картину, а не раздачу, - но не молча:
     строка называет и опоздавшего, и то, что верх теперь другой."""
-    monkeypatch.setenv("TORRCAST_LOG", "")
     plan = _plan([rel(name="Кино / Movie (1999) BDRip 1080p", seeders=100)])
     fresh, said = _topup(plan, [_raw("Кино / Movie (1999) BDRip 1080p x264", "c", 900)])
 
@@ -491,14 +493,11 @@ def test_долив_называет_вслух_смену_верха_отбор
     assert "верх отбора другой" in said
 
 
-def test_долив_не_вносит_в_список_картину_которой_в_меню_не_было(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_долив_не_вносит_в_список_картину_которой_в_меню_не_было() -> None:
     """Меню уже напечатано, и человек по нему ответил. Картина, приехавшая с опоздавшим,
     в него попасть не может - предложить её уже некому, а подменить выбранную нельзя.
     Но и молча она пропадать не должна (TC-238): молчаливых пропаж не бывает, и человек
     узнаёт одной строкой, что опоздавший источник привёз ещё одну картину."""
-    monkeypatch.setenv("TORRCAST_LOG", "")
     plan = _plan([rel(name="Кино / Movie (1999) BDRip 1080p", seeders=100)])
     fresh, said = _topup(plan, [_raw("Другое / Other (2001) BDRip 1080p", "d", 900)])
 
@@ -507,13 +506,10 @@ def test_долив_не_вносит_в_список_картину_котор�
     assert "в списке её не было, в отбор она не пойдёт" in said
 
 
-def test_долив_молчит_про_картину_которая_в_меню_есть(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_долив_молчит_про_картину_которая_в_меню_есть() -> None:
     """Раздача ДРУГОЙ картины из меню тоже не доливается - долив пополняет только пул
     выбранной, - но сказать про такую «в списке её не было» значило бы соврать: она там
     есть, человек её видел. Поэтому соседняя по меню строки не получает."""
-    monkeypatch.setenv("TORRCAST_LOG", "")
     from torrcast.parse import cluster
     from torrcast.search import to_releases
 
@@ -527,12 +523,9 @@ def test_долив_молчит_про_картину_которая_в_мен�
     assert said == "", "про картину из меню говорить «её не было» - соврать"
 
 
-def test_чужая_картина_не_глушит_долив_в_свою(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_чужая_картина_не_глушит_долив_в_свою() -> None:
     """Опоздавший привёз и раздачу ВЫБРАННОЙ картины, и картину вне списка: пул растёт,
     и печатаются обе строки - про долив и про ту, что в отбор не пойдёт."""
-    monkeypatch.setenv("TORRCAST_LOG", "")
     plan = _plan([rel(name="Кино / Movie (1999) BDRip 1080p", seeders=100)])
     fresh, said = _topup(
         plan,
@@ -547,9 +540,8 @@ def test_чужая_картина_не_глушит_долив_в_свою(
     assert "привёз «Другое» (2001)" in said
 
 
-def test_пустой_долив_оставляет_план_прежним(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_пустой_долив_оставляет_план_прежним() -> None:
     """Опоздавший так и не доехал - план прежний, и ни одной лишней строки."""
-    monkeypatch.setenv("TORRCAST_LOG", "")
     plan = _plan([rel(name="Кино / Movie (1999) BDRip 1080p", seeders=100)])
     fresh, said = _topup(plan, [])
 
@@ -581,12 +573,9 @@ def _budget(spare: float) -> tuple[float | None, str]:
     return left, out.getvalue()
 
 
-def test_дешёвый_добор_не_снимается_молчуном_съевшим_цель(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_дешёвый_добор_не_снимается_молчуном_съевшим_цель() -> None:
     """🔴 TC-512. Первый круг съел цель молчанием Knaben, но дешёвый добор не исчезает:
     ему остаются измеренные 1.5 с справки и 1 с круга, а выход за цель назван."""
-    monkeypatch.setenv("TORRCAST_LOG", "")
     left, said = _budget(0.3)
 
     from torrcast.facts import FACTS_BUDGET
@@ -596,9 +585,7 @@ def test_дешёвый_добор_не_снимается_молчуном_съ
     assert "поиск уже съел цель в 10 с" in said
 
 
-def test_частный_бюджет_за_целью_выдаётся_один_раз_за_поиск(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_частный_бюджет_за_целью_выдаётся_один_раз_за_поиск() -> None:
     """🔴 TC-512. Превышение цели терпится ОДНО, а не по одному на каждый заход.
 
     Пол круга - это потолок одного индексера, а не цена круга: замер на молчащих опорных
@@ -608,7 +595,6 @@ def test_частный_бюджет_за_целью_выдаётся_один_�
     до пятнадцати секунд - молчун перестал бы сужать каталог и начал тормозить путь.
     Поэтому за целью проходит первый заход, а следующим отвечает то, что уже найдено.
     """
-    monkeypatch.setenv("TORRCAST_LOG", "")
     from torrcast.facts import FACTS_BUDGET
 
     client = cast(Any, _Spent(0.3))
@@ -626,10 +612,9 @@ def test_частный_бюджет_за_целью_выдаётся_один_�
     assert "добор по «Kino» не делаю" in said, "отказ сказан вслух каждому, а не молча"
 
 
-def test_целый_остаток_цели_частный_бюджет_не_тратит(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_целый_остаток_цели_частный_бюджет_не_тратит() -> None:
     """Пока цель цела, заходы идут из общего остатка и превышения не занимают: частный
     бюджет ждёт того единственного захода, который упрётся в съеденную цель."""
-    monkeypatch.setenv("TORRCAST_LOG", "")
     from torrcast.facts import FACTS_BUDGET
 
     client = cast(Any, _Spent(9.0))
@@ -639,11 +624,10 @@ def test_целый_остаток_цели_частный_бюджет_не_т�
     assert client.over_goal is False, "остатка хватало - превышения не было"
 
 
-def test_остаток_цели_делится_между_справкой_и_кругом(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_остаток_цели_делится_между_справкой_и_кругом() -> None:
     """Справка на пути добора учтена честно: ей достаётся остаток за вычетом доли самого
     круга, и её потолок она не переходит. Порог второго захода из этих двух частей и
     сложен - иначе полторы секунды справки съедали бы круг целиком, а он уже оплачен."""
-    monkeypatch.setenv("TORRCAST_LOG", "")
     from torrcast.facts import FACTS_BUDGET
     from torrcast.search import CIRCLE_SHARE, SECOND_LEAST
 
@@ -653,9 +637,7 @@ def test_остаток_цели_делится_между_справкой_и_�
     assert _budget(SECOND_LEAST - 0.01)[0] == FACTS_BUDGET, "общий остаток добор не снимает"
 
 
-def test_добор_вторым_именем_не_отменяется_съеденной_целью(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_добор_вторым_именем_не_отменяется_съеденной_целью() -> None:
     """🔴 TC-386. Остатка цели на добор по второму имени нет - а добор всё равно делается.
 
     Отмена тут стоила картины: живой замер TC-372 - «тачки» при медленном Knaben (7.0 с
@@ -664,14 +646,13 @@ def test_добор_вторым_именем_не_отменяется_съед
     этом пути достаётся её обычный потолок (отдавать весь остаток уже нечего - он
     съеден), а круг идёт с полом в целую цель (:attr:`Prowlarr.cap_floor`).
     """
-    monkeypatch.setenv("TORRCAST_LOG", "")
     from torrcast.facts import FACTS_BUDGET
 
-    empty = _asked_reference(monkeypatch, [], cli.Args(query=["клиника", "s1e1"]), spare=0.3)
+    empty = _asked_reference([], cli.Args(query=["клиника", "s1e1"]), spare=0.3)
     assert empty == ("клиника", True, FACTS_BUDGET), "картины нет - справку спросили всерьёз"
 
     lean = Picture(title="Клиника", year=2001, kind="tv", releases=[rel(name="Клиника s01e01")])
-    thin = _asked_reference(monkeypatch, [lean], cli.Args(query=["клиника", "s1e1"]), spare=0.3)
+    thin = _asked_reference([lean], cli.Args(query=["клиника", "s1e1"]), spare=0.3)
     assert thin == ("клиника", True, FACTS_BUDGET), "и на тощем пуле - её обычный потолок"
 
 
@@ -701,15 +682,15 @@ def _resolve(bench: Any, ranked: list[Release], recode_at: float = 10.0, **flags
 
 
 def test_a_release_that_turns_out_not_to_be_h264_is_swapped_out_loudly(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Имя раздачи о кодеке молчит, а видео мы отдаём copy: настоящий кодек решает.
     Не h264 — честная строка и следующий кандидат, молчаливых подмен не бывает.
     """
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
-    _probes(monkeypatch, ranked, "av1", "h264")
+    prober = _probes(ranked, "av1", "h264")
     torrserver = _FakeTorrServer()
-    prep = _resolve(cli._Bench(cast(Any, torrserver)), ranked)
+    prep = _resolve(cli._Bench(cast(Any, torrserver), prober=prober), ranked)
 
     assert (prep.number, prep.found.video) == (2, "h264")
     assert prep.want.name == "movie.mkv"
@@ -718,9 +699,7 @@ def test_a_release_that_turns_out_not_to_be_h264_is_swapped_out_loudly(
 
 
 @pytest.mark.machine
-def test_two_release_passports_start_together_before_verdicts(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_two_release_passports_start_together_before_verdicts() -> None:
     """Запасной ffprobe не ждёт первого приговора; третий счастливый путь не оплачивает."""
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
     second_started = threading.Event()
@@ -735,15 +714,14 @@ def test_two_release_passports_start_together_before_verdicts(
         codec = "h264" if f"hash-{ranked[2].magnet}/" in url else "av1"
         return Media(3600.0, (), codec)
 
-    monkeypatch.setattr(cli, "probe", read)
-    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer())), ranked)
+    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer()), prober=read), ranked)
 
     assert prep.number == 3
     assert first_saw_second, "запасной паспорт поднят до готовности первого приговора"
 
 
 def test_hevc_release_plays_and_says_so_instead_of_being_refused(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     """HEVC — не отказ, а сплошной перекод: аниме иначе не играет вовсе.
 
@@ -752,10 +730,10 @@ def test_hevc_release_plays_and_says_so_instead_of_being_refused(
     Теперь такой релиз играет, перекодированный целиком, и об этом говорится вслух.
     """
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
-    _probes(monkeypatch, ranked, "hevc", "h264")
+    prober = _probes(ranked, "hevc", "h264")
     torrserver = _FakeTorrServer()
 
-    prep = _resolve(cli._Bench(cast(Any, torrserver)), ranked)
+    prep = _resolve(cli._Bench(cast(Any, torrserver), prober=prober), ranked)
 
     printed = capsys.readouterr().out
     assert (prep.number, prep.found.video) == (1, "hevc"), "HEVC-релиз играет, а не отказывает"
@@ -764,7 +742,7 @@ def test_hevc_release_plays_and_says_so_instead_of_being_refused(
 
 
 def test_hevc_is_still_refused_when_recoding_is_switched_off(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Перекодирование выключено — играть HEVC нечем, и отказ остаётся честным.
 
@@ -772,16 +750,16 @@ def test_hevc_is_still_refused_when_recoding_is_switched_off(
     показать HEVC на этом приёмнике, поэтому без него релиз годным не становится.
     """
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
-    _probes(monkeypatch, ranked, "hevc", "h264")
+    prober = _probes(ranked, "hevc", "h264")
 
-    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer())), ranked, recode_at=0.0)
+    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked, recode_at=0.0)
 
     assert prep.number == 2, "без перекодирования HEVC остаётся отказом"
     assert "релиз 1 не годится (hevc) - беру 2" in capsys.readouterr().out
 
 
 def test_mpeg4_release_plays_through_the_same_whole_recode_instead_of_being_refused(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     """XviD/DivX - не отказ, а сплошной перекод: на старом кино другого носителя нет.
 
@@ -790,10 +768,10 @@ def test_mpeg4_release_plays_through_the_same_whole_recode_instead_of_being_refu
     вслух; цена перекода замерена (:attr:`torrcast.profile.Profile.recode_codecs`).
     """
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
-    _probes(monkeypatch, ranked, "mpeg4", "h264")
+    prober = _probes(ranked, "mpeg4", "h264")
     torrserver = _FakeTorrServer()
 
-    prep = _resolve(cli._Bench(cast(Any, torrserver)), ranked)
+    prep = _resolve(cli._Bench(cast(Any, torrserver), prober=prober), ranked)
 
     printed = capsys.readouterr().out
     assert (prep.number, prep.found.video) == (1, "mpeg4"), "mpeg4-релиз играет, а не отказывает"
@@ -802,20 +780,20 @@ def test_mpeg4_release_plays_through_the_same_whole_recode_instead_of_being_refu
 
 
 def test_mpeg4_is_still_refused_when_recoding_is_switched_off(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Перекодирование выключено - играть mpeg4 нечем, и отказ остаётся честным."""
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
-    _probes(monkeypatch, ranked, "mpeg4", "h264")
+    prober = _probes(ranked, "mpeg4", "h264")
 
-    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer())), ranked, recode_at=0.0)
+    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked, recode_at=0.0)
 
     assert prep.number == 2, "без перекодирования mpeg4 остаётся отказом"
     assert "релиз 1 не годится (mpeg4) - беру 2" in capsys.readouterr().out
 
 
 def test_a_dead_swarm_is_not_a_hang_but_the_next_release(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Так выглядел худший из багов: «Дорожки: читаю поток…» и тишина навсегда.
 
@@ -823,11 +801,10 @@ def test_a_dead_swarm_is_not_a_hang_but_the_next_release(
     а не молчаливого зависания без прогресса и без таймаута.
     """
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
-    _probes(monkeypatch, ranked, "h264")
+    prober = _probes(ranked, "h264")
     torrserver = _FakeTorrServer(dead={"hash-magnet-r0"})
-    monkeypatch.setattr(Release, "magnet", property(lambda self: f"magnet-{self.raw_name}"))
 
-    prep = _resolve(cli._Bench(cast(Any, torrserver)), ranked)
+    prep = _resolve(cli._Bench(cast(Any, torrserver), prober=prober), ranked)
 
     printed = capsys.readouterr().out
     assert prep.number == 2, "мёртвая раздача не останавливает показ"
@@ -836,7 +813,7 @@ def test_a_dead_swarm_is_not_a_hang_but_the_next_release(
 
 
 def test_silent_swarms_do_not_burn_the_tries_meant_for_verdicts(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     """«Нет пиров» четыре раза подряд — это не повод сдаться: живые ждут ниже в очереди.
 
@@ -850,11 +827,10 @@ def test_silent_swarms_do_not_burn_the_tries_meant_for_verdicts(
     Попытку жжёт только первое.
     """
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(6)]
-    _probes(monkeypatch, ranked, "h264")
-    monkeypatch.setattr(Release, "magnet", property(lambda self: f"magnet-{self.raw_name}"))
+    prober = _probes(ranked, "h264")
     torrserver = _FakeTorrServer(dead={f"hash-magnet-r{i}" for i in range(4)})
 
-    prep = _resolve(cli._Bench(cast(Any, torrserver)), ranked)
+    prep = _resolve(cli._Bench(cast(Any, torrserver), prober=prober), ranked)
 
     printed = capsys.readouterr().out
     assert prep.number == 5, "четыре молчаливых роя подряд - и всё же дошли до живого"
@@ -863,7 +839,7 @@ def test_silent_swarms_do_not_burn_the_tries_meant_for_verdicts(
 
 
 def test_the_walk_down_the_queue_stops_when_the_start_budget_is_out(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Упорство упорством, а человек сидит у консоли: бюджет фазы отбора конечен.
 
@@ -875,13 +851,11 @@ def test_the_walk_down_the_queue_stops_when_the_start_budget_is_out(
     очереди мы не знаем ничего (:func:`~torrcast.cli.silent_swarm`).
     """
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(6)]
-    _probes(monkeypatch, ranked, "h264")
-    monkeypatch.setattr(Release, "magnet", property(lambda self: f"magnet-{self.raw_name}"))
-    monkeypatch.setattr(cli, "PICK_BUDGET", 0.0)
+    prober = _probes(ranked, "h264")
     torrserver = _FakeTorrServer(dead={f"hash-magnet-r{i}" for i in range(4)})
 
     with pytest.raises(NotFoundError) as caught:
-        _resolve(cli._Bench(cast(Any, torrserver)), ranked)
+        _resolve(cli._Bench(cast(Any, torrserver), prober=prober, pick_budget=0.0), ranked)
 
     msg = str(caught.value)
     assert "раздач в выдаче 6, потрогали 1 из очереди 6" in msg, msg
@@ -918,9 +892,7 @@ class _Sleeper:
         return False
 
 
-def test_the_pick_budget_cuts_the_wait_it_has_already_started(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_the_pick_budget_cuts_the_wait_it_has_already_started() -> None:
     """🔴 TC-436. Потолок фазы отбора держит и ожидание ВНУТРИ попытки, а не только переход.
 
     Замер TC-424: потолок (:data:`~torrcast.cli.PICK_BUDGET`, 180 с) проверялся ровно между
@@ -932,8 +904,7 @@ def test_the_pick_budget_cuts_the_wait_it_has_already_started(
     фазы кончается через секунду после того, как ожидание началось.
     """
     clock = _FakeClock()
-    monkeypatch.setattr(cli.time, "monotonic", clock)
-    bench = cli._Bench(cast(Any, _FakeTorrServer()))
+    bench = cli._Bench(cast(Any, _FakeTorrServer()), clock=clock)
     prep = cli._Prep(number=1, release=rel(), started=clock.now, phase="метаданные")
     prep.ready = cast(Any, _Sleeper(clock))
 
@@ -949,9 +920,7 @@ def test_the_pick_budget_cuts_the_wait_it_has_already_started(
     assert prep.error, "недождавшаяся подготовка обязана назваться неудачей, а не тишиной"
 
 
-def test_a_timed_out_walk_does_not_speak_for_the_queue_it_never_reached(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_a_timed_out_walk_does_not_speak_for_the_queue_it_never_reached() -> None:
     """🔴 TC-435. Встали по часам - молчание приписывается только тронутым.
 
     Замер TC-424: обход «Дюны» (пул 134, очередь 89) встал по потолку фазы на 60-й
@@ -963,13 +932,11 @@ def test_a_timed_out_walk_does_not_speak_for_the_queue_it_never_reached(
     alive = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
     heavy = [rel(name=f"жирный{i}", size_gb=40.0, seeders=10 - i) for i in range(2)]
     ranked = alive + heavy
-    _probes(monkeypatch, ranked, "h264")
-    monkeypatch.setattr(Release, "magnet", property(lambda self: f"magnet-{self.raw_name}"))
-    monkeypatch.setattr(cli, "PICK_BUDGET", 0.0)
+    prober = _probes(ranked, "h264")
     torrserver = _FakeTorrServer(dead={f"hash-magnet-r{i}" for i in range(3)})
 
     with pytest.raises(NotFoundError) as caught:
-        _resolve(cli._Bench(cast(Any, torrserver)), ranked)
+        _resolve(cli._Bench(cast(Any, torrserver), prober=prober, pick_budget=0.0), ranked)
 
     msg = str(caught.value)
     assert "раздач в выдаче 5, потрогали 1 из очереди 3" in msg, msg
@@ -979,7 +946,7 @@ def test_a_timed_out_walk_does_not_speak_for_the_queue_it_never_reached(
 
 
 def test_a_fully_walked_queue_of_dead_swarms_is_an_honest_dead_swarm(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Очередь пройдена до конца, а ни одна раздача не отозвалась - это не «годного нет».
 
@@ -998,12 +965,11 @@ def test_a_fully_walked_queue_of_dead_swarms_is_an_honest_dead_swarm(
     остаётся ровно тем же, что был, вместе со всеми своими числами.
     """
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
-    _probes(monkeypatch, ranked, "h264")
-    monkeypatch.setattr(Release, "magnet", property(lambda self: f"magnet-{self.raw_name}"))
+    prober = _probes(ranked, "h264")
     torrserver = _FakeTorrServer(dead={f"hash-magnet-r{i}" for i in range(3)})
 
     with pytest.raises(NotFoundError) as caught:
-        _resolve(cli._Bench(cast(Any, torrserver)), ranked)
+        _resolve(cli._Bench(cast(Any, torrserver), prober=prober), ranked)
 
     msg = str(caught.value)
     assert "раздач в выдаче 3, потрогали 3 (все)" in msg and "ни одна не отозвалась" in msg
@@ -1034,7 +1000,7 @@ class _Impatient(_FakeTorrServer):
 
 
 def test_a_queue_that_went_silent_to_the_end_gets_one_patient_ask_and_reaches_the_living(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     """🔴 TC-300. Промолчавшая целиком очередь - не приговор картине: спрашиваем ещё раз.
 
@@ -1044,11 +1010,10 @@ def test_a_queue_that_went_silent_to_the_end_gets_one_patient_ask_and_reaches_th
     спрашивается ещё раз, один и по полному бюджету раздачи.
     """
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
-    _probes(monkeypatch, ranked, "h264")
-    monkeypatch.setattr(Release, "magnet", property(lambda self: f"magnet-{self.raw_name}"))
+    prober = _probes(ranked, "h264")
     torrserver = _Impatient()
 
-    prep = _resolve(cli._Bench(cast(Any, torrserver)), ranked)
+    prep = _resolve(cli._Bench(cast(Any, torrserver), prober=prober), ranked)
 
     printed = capsys.readouterr().out
     assert prep.number == 1, "терпеливый второй спрос дошёл до живой раздачи"
@@ -1059,31 +1024,26 @@ def test_a_queue_that_went_silent_to_the_end_gets_one_patient_ask_and_reaches_th
     )
 
 
-def test_a_patient_ask_that_gets_a_verdict_does_not_report_silent_swarm(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_a_patient_ask_that_gets_a_verdict_does_not_report_silent_swarm() -> None:
     """Полный второй спрос ответил приговором - рой уже нельзя называть молчащим."""
     ranked = [rel(name="r0", seeders=100)]
-    _probes(monkeypatch, ranked, "av1")
-    monkeypatch.setattr(Release, "magnet", property(lambda self: f"magnet-{self.raw_name}"))
+    prober = _probes(ranked, "av1")
 
     with pytest.raises(NotFoundError) as caught:
-        _resolve(cli._Bench(cast(Any, _Impatient())), ranked, recode_at=0.0)
+        _resolve(cli._Bench(cast(Any, _Impatient()), prober=prober), ranked, recode_at=0.0)
 
     msg = str(caught.value)
     assert "годного релиза нет" in msg and "av1" in msg
     assert "рой" not in msg and "зайди позже" not in msg
 
 
-def test_an_exhausted_queue_does_not_offer_a_release_that_was_already_rejected(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_an_exhausted_queue_does_not_offer_a_release_that_was_already_rejected() -> None:
     """Все номера проверены и отвергнуты - ручной выбор не является ходом."""
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(2)]
-    _probes(monkeypatch, ranked, "av1", "av1")
+    prober = _probes(ranked, "av1", "av1")
 
     with pytest.raises(NotFoundError) as caught:
-        _resolve(cli._Bench(cast(Any, _FakeTorrServer())), ranked, recode_at=0.0)
+        _resolve(cli._Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked, recode_at=0.0)
 
     msg = str(caught.value)
     assert "годного релиза нет" in msg and "av1" in msg
@@ -1092,7 +1052,7 @@ def test_an_exhausted_queue_does_not_offer_a_release_that_was_already_rejected(
 
 
 def test_the_patient_ask_is_not_made_when_the_phase_budget_cannot_cover_it(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Второй спрос живёт внутри прежнего потолка фазы, а не сверх него.
 
@@ -1100,13 +1060,12 @@ def test_the_patient_ask_is_not_made_when_the_phase_budget_cannot_cover_it(
     Остатка меньше худшей цены спроса - спроса и нет, отказ приходит как приходил.
     """
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
-    _probes(monkeypatch, ranked, "h264")
-    monkeypatch.setattr(Release, "magnet", property(lambda self: f"magnet-{self.raw_name}"))
-    monkeypatch.setattr(cli, "PICK_BUDGET", 1.0)  # на обход хватает, на второй спрос нет
+    prober = _probes(ranked, "h264")
     torrserver = _Impatient()
 
     with pytest.raises(NotFoundError) as caught:
-        _resolve(cli._Bench(cast(Any, torrserver)), ranked)
+        # На обход часов фазы хватает, а на второй спрос - уже нет.
+        _resolve(cli._Bench(cast(Any, torrserver), prober=prober, pick_budget=1.0), ranked)
 
     printed = capsys.readouterr().out
     assert "потрогали 3 (все)" in str(caught.value)
@@ -1114,7 +1073,7 @@ def test_the_patient_ask_is_not_made_when_the_phase_budget_cannot_cover_it(
 
 
 def test_the_patient_ask_goes_to_the_release_the_swarm_silenced_not_to_a_judged_one(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Терпение достаётся тому, про кого мы ничего не узнали, а не тому, про кого узнали всё.
 
@@ -1123,8 +1082,7 @@ def test_the_patient_ask_goes_to_the_release_the_swarm_silenced_not_to_a_judged_
     из тех, кого оборвал рой.
     """
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
-    _probes(monkeypatch, ranked, "h264")
-    monkeypatch.setattr(Release, "magnet", property(lambda self: f"magnet-{self.raw_name}"))
+    prober = _probes(ranked, "h264")
 
     class _Mixed(_Impatient):
         """Верх метаданные отдаёт мгновенно, остальные молчат до полного бюджета."""
@@ -1142,7 +1100,7 @@ def test_the_patient_ask_goes_to_the_release_the_swarm_silenced_not_to_a_judged_
         return files[0]
 
     torrserver = _Mixed()
-    prep = _resolve(cli._Bench(cast(Any, torrserver), choose=choose), ranked)
+    prep = _resolve(cli._Bench(cast(Any, torrserver), choose=choose, prober=prober), ranked)
 
     printed = capsys.readouterr().out
     assert prep.number == 2, "терпеливо спросили того, кого оборвал рой"
@@ -1150,13 +1108,10 @@ def test_the_patient_ask_goes_to_the_release_the_swarm_silenced_not_to_a_judged_
     assert "спрашиваю релиз 1" not in printed, "про верх известно всё - терпеть тут нечего"
 
 
-def test_a_patient_verdict_rewrites_the_reason_of_the_release_that_was_reasked(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_a_patient_verdict_rewrites_the_reason_of_the_release_that_was_reasked() -> None:
     """Повторный спрос исправляет строку именно того релиза, которому он достался."""
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(2)]
-    _probes(monkeypatch, ranked, "h264", "av1")
-    monkeypatch.setattr(Release, "magnet", property(lambda self: f"magnet-{self.raw_name}"))
+    prober = _probes(ranked, "h264", "av1")
 
     class _Mixed(_Impatient):
         def wait_files(
@@ -1172,7 +1127,9 @@ def test_a_patient_verdict_rewrites_the_reason_of_the_release_that_was_reasked(
         return files[0]
 
     with pytest.raises(NotFoundError) as caught:
-        _resolve(cli._Bench(cast(Any, _Mixed()), choose=choose), ranked, recode_at=0.0)
+        _resolve(
+            cli._Bench(cast(Any, _Mixed()), choose=choose, prober=prober), ranked, recode_at=0.0
+        )
 
     msg = str(caught.value)
     assert "1 - серии s1e1 в этой раздаче нет" in msg
@@ -1197,9 +1154,7 @@ def test_a_failure_explicitly_names_whether_the_swarm_was_silent(
     assert cli._silenced(prep) is silenced
 
 
-def test_a_disc_image_verdict_is_not_asked_twice(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_a_disc_image_verdict_is_not_asked_twice(capsys: pytest.CaptureFixture[str]) -> None:
     """Приговор «образ диска» - не молчание роя: второй спрос дал бы ровно тот же ответ.
 
     Раздача, у которой метаданные приехали целиком и видеофайла в ней не оказалось,
@@ -1209,7 +1164,7 @@ def test_a_disc_image_verdict_is_not_asked_twice(
     его на пути настоящего прогрева, без всякого подставного ``choose``).
     """
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(2)]
-    _probes(monkeypatch, ranked, "h264")
+    prober = _probes(ranked, "h264")
     # Рой у верха ЖИВОЙ: метаданные приехали, а внутри - образ диска, видеофайла нет.
     disc = _FakeTorrServer(files=[TorrFile(0, "movie.iso", 25 * GB)])
 
@@ -1224,7 +1179,7 @@ def test_a_disc_image_verdict_is_not_asked_twice(
 
     torrserver = _HalfDead(files=disc.files)
     with pytest.raises(NotFoundError):
-        _resolve(cli._Bench(cast(Any, torrserver)), ranked)
+        _resolve(cli._Bench(cast(Any, torrserver), prober=prober), ranked)
 
     printed = capsys.readouterr().out
     assert "релиз 1 не годится (в раздаче нет отдельного видеофайла" in printed
@@ -1233,9 +1188,7 @@ def test_a_disc_image_verdict_is_not_asked_twice(
     assert printed.count("отдельного видеофайла") == 1, "приговор звучит ровно один раз"
 
 
-def test_a_disc_image_verdict_is_not_reported_as_a_silent_swarm(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_a_disc_image_verdict_is_not_reported_as_a_silent_swarm() -> None:
     """🔴 TC-399. «В раздаче нет видеофайла» - приговор, а не молчание роя.
 
     По запросу «lain» выдача состояла из одной раздачи - самиздатовского журнала
@@ -1245,14 +1198,14 @@ def test_a_disc_image_verdict_is_not_reported_as_a_silent_swarm(
     назвать причину, а не роем её прикрывать.
     """
     ranked = [rel(name="r0", seeders=100)]
-    _probes(monkeypatch, ranked, "h264")
+    prober = _probes(ranked, "h264")
 
     def choose(plan: Any, release: Release, files: list[TorrFile]) -> TorrFile:
         raise NotFoundError("в раздаче нет отдельного видеофайла (похоже на образ диска)")
 
     torrserver = _FakeTorrServer()
     with pytest.raises(NotFoundError) as caught:
-        _resolve(cli._Bench(cast(Any, torrserver), choose=choose), ranked)
+        _resolve(cli._Bench(cast(Any, torrserver), choose=choose, prober=prober), ranked)
 
     msg = str(caught.value)
     assert "годного релиза нет" in msg and "нет отдельного видеофайла" in msg
@@ -1261,7 +1214,7 @@ def test_a_disc_image_verdict_is_not_reported_as_a_silent_swarm(
 
 
 def test_an_explicitly_named_release_is_played_as_asked_with_a_loud_warning(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     """`--release N` неприкосновенен: проверка кодека его не подменяет. Не h264 — громкая
     строка и показ того, что просили.
@@ -1273,10 +1226,10 @@ def test_an_explicitly_named_release_is_played_as_asked_with_a_loud_warning(
     сплошным перекодом, и об этом сказано вслух.
     """
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
-    _probes(monkeypatch, ranked, "av1")
+    prober = _probes(ranked, "av1")
     torrserver = _FakeTorrServer()
 
-    prep = _resolve(cli._Bench(cast(Any, torrserver)), ranked, release=1)
+    prep = _resolve(cli._Bench(cast(Any, torrserver), prober=prober), ranked, release=1)
 
     printed = capsys.readouterr().out
     assert (prep.number, prep.found.video) == (1, "av1"), "названный релиз не подменяется"
@@ -1286,7 +1239,7 @@ def test_an_explicitly_named_release_is_played_as_asked_with_a_loud_warning(
 
 
 def test_a_named_hevc_release_is_not_a_warning_but_a_promise_to_recode(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     """`--release N` с HEVC внутри: обещание перекода, а не «мы не перекодируем».
 
@@ -1295,9 +1248,9 @@ def test_a_named_hevc_release_is_not_a_warning_but_a_promise_to_recode(
     вставал намертво на границе первого такого куска.
     """
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
-    _probes(monkeypatch, ranked, "hevc")
+    prober = _probes(ranked, "hevc")
 
-    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer())), ranked, release=1)
+    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked, release=1)
 
     printed = capsys.readouterr().out
     assert prep.number == 1
@@ -1313,20 +1266,20 @@ REFUSED = ("av1", "mpeg2video", "vc1", "vp9", "av1")
 
 
 def test_a_queue_of_failed_probes_ends_with_an_honest_exit(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Ни один релиз очереди не дал играбельного видео - код 1 с объяснением."""
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(5)]
-    _probes(monkeypatch, ranked, *REFUSED)
+    prober = _probes(ranked, *REFUSED)
     with pytest.raises(NotFoundError) as caught:
-        _resolve(cli._Bench(cast(Any, _FakeTorrServer())), ranked)
+        _resolve(cli._Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked)
     assert "годного релиза нет" in str(caught.value)
     assert "1 - av1" in str(caught.value) and "3 - vc1" in str(caught.value)
     assert len(re.findall(r"беру \d", capsys.readouterr().out)) == 4  # очередь пройдена
 
 
 def test_cheap_verdicts_do_not_eat_the_place_of_the_living_release_below(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     """🔴 TC-188. Живой 1080p за тремя заведомо худшими: до него обязаны дойти.
 
@@ -1345,10 +1298,10 @@ def test_cheap_verdicts_do_not_eat_the_place_of_the_living_release_below(
         rel(name="av1", seeders=70),
         rel(name="честный 1080p", seeders=60),
     ]
-    _probes(monkeypatch, ranked, "vp9", "vp9", "av1", "h264")
+    prober = _probes(ranked, "vp9", "vp9", "av1", "h264")
 
     began = time.monotonic()
-    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer())), ranked)
+    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked)
     spent = time.monotonic() - began
 
     printed = capsys.readouterr().out
@@ -1358,7 +1311,7 @@ def test_cheap_verdicts_do_not_eat_the_place_of_the_living_release_below(
 
 
 def test_expensive_verdicts_still_stop_the_walk_at_three(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Потолок не снят, а переведён в секунды: дорогие приговоры держат прежние три.
 
@@ -1366,19 +1319,20 @@ def test_expensive_verdicts_still_stop_the_walk_at_three(
     как до TC-188: три приговора и честный отказ, даже когда ниже стоит играбельный.
     Иначе правка была бы не «считаем цену», а «подняли потолок».
     """
-    monkeypatch.setattr(cli, "VERDICT_BUDGET", 0.0)
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(5)]
-    _probes(monkeypatch, ranked, "av1", "mpeg2video", "vc1")
+    prober = _probes(ranked, "av1", "mpeg2video", "vc1")
 
     with pytest.raises(NotFoundError) as caught:
-        _resolve(cli._Bench(cast(Any, _FakeTorrServer())), ranked)
+        # Бюджет приговоров обнулён - каждый из них «дорогой».
+        bench = cli._Bench(cast(Any, _FakeTorrServer()), prober=prober, verdict_budget=0.0)
+        _resolve(bench, ranked)
 
     assert "годного релиза нет" in str(caught.value)
     assert len(re.findall(r"беру \d", capsys.readouterr().out)) == 2, "не больше MAX_TRIES"
 
 
 def test_the_healthy_case_pays_nothing_for_the_deeper_walk(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Верх годен - очередь не трогается вовсе, и путь к картинке той же длины.
 
@@ -1386,10 +1340,10 @@ def test_the_healthy_case_pays_nothing_for_the_deeper_walk(
     считает только ожидание осуждённых, а годный верх не осуждается.
     """
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(5)]
-    _probes(monkeypatch, ranked, "h264")
+    prober = _probes(ranked, "h264")
 
     began = time.monotonic()
-    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer())), ranked)
+    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked)
     spent = time.monotonic() - began
 
     assert prep.number == 1
@@ -1398,7 +1352,7 @@ def test_the_healthy_case_pays_nothing_for_the_deeper_walk(
 
 
 def test_vp9_is_refused_at_the_pick_like_av1_and_never_reaches_the_packer(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     """🔴 VP9 - честный отказ отбора, а не молчаливая копия в mpegts.
 
@@ -1407,137 +1361,24 @@ def test_vp9_is_refused_at_the_pick_like_av1_and_never_reaches_the_packer(
     приёмник как есть - ``LOAD`` не взят, ``IDLE/ERROR``, чёрный экран.
     """
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
-    _probes(monkeypatch, ranked, "vp9", "h264")
+    prober = _probes(ranked, "vp9", "h264")
 
-    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer())), ranked)
+    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked)
 
     assert (prep.number, prep.found.video) == (2, "h264"), "берём тот, про который знаем всё"
     assert "релиз 1 не годится (vp9) - беру 2" in capsys.readouterr().out
 
 
-def test_tv_mock_switches_the_receiver_and_leaves_no_tv_address(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """`cast --tv mock` — команда установки на машине без телевизора.
-
-    Она обязана переключить приёмник, иначе такая машина полезла бы кастить на Chromecast.
-    И обратно тоже: адрес ТВ возвращает штатный приёмник, а от прежнего значения в
-    конфиге не остаётся и следа.
-    """
-    monkeypatch.setenv("TORRCAST_CONFIG", str(tmp_path / "config.json"))
-
-    assert cli.main(["--tv", "mock"]) == 0
-    config = load_config()
-    assert (config.tv, config.receiver) == ("mock", "mock")
-    assert "10.0.0." not in (tmp_path / "config.json").read_text()
-    assert "headless" in capsys.readouterr().out
-
-    assert cli.main(["--tv", "10.0.0.50"]) == 0
-    assert (load_config().tv, load_config().receiver) == ("10.0.0.50", "chromecast")
-
-
-def test_tv_without_an_address_offers_the_receivers_it_found(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """`cast --tv` без адреса - финал установки: список приёмников и ответ номером.
-
-    Адрес телевизора человеку взять негде: в меню ТВ он спрятан через три экрана, а в
-    роутер пускают не всех. Поэтому спрашиваем не адрес, а «какой из этих телевизоров
-    твой», и в состояние уезжает ровно то же поле, что и при заданном руками адресе.
-    """
-    monkeypatch.setenv("TORRCAST_CONFIG", str(tmp_path / "config.json"))
-    monkeypatch.setattr(
-        scan,
-        "find",
-        lambda: scan.Found(
-            devices=[
-                scan.Device("10.0.0.50", name="Samsung Q70D", how="mdns"),
-                scan.Device("10.0.0.60", model="Chromecast", how="скан"),
-            ]
-        ),
-    )
-    monkeypatch.setattr("builtins.input", lambda _prompt: "2")
-
-    assert cli.main(["--tv"]) == 0
-
-    out = capsys.readouterr().out
-    assert "  1. Samsung Q70D - 10.0.0.50" in out
-    assert "  2. Chromecast - 10.0.0.60" in out
-    assert (load_config().tv, load_config().receiver) == ("10.0.0.60", "chromecast")
-
-
-def test_the_only_receiver_found_is_taken_by_enter(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """Нашёлся один - вопрос остаётся, но отвечается пустым Enter: номер тут не нужен."""
-    monkeypatch.setenv("TORRCAST_CONFIG", str(tmp_path / "config.json"))
-    monkeypatch.setattr(
-        scan,
-        "find",
-        lambda: scan.Found(devices=[scan.Device("10.0.0.50", name="Samsung Q70D", how="mdns")]),
-    )
-    monkeypatch.setattr("builtins.input", lambda _prompt: "")
-
-    assert cli.main(["--tv"]) == 0
-    assert load_config().tv == "10.0.0.50"
-    assert "ТВ: Samsung Q70D - 10.0.0.50" in capsys.readouterr().out
-
-
-def test_finding_nobody_says_why_and_keeps_the_manual_way(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """Пустой список - не «ошибка сети», а причина и выход: ТВ выключен либо не в той сети.
-
-    Заодно вслух говорится о подсети, которую мы не обходили: умолчать о ней - значит
-    оставить человека гадать, почему его телевизор не нашёлся.
-    """
-    monkeypatch.setenv("TORRCAST_CONFIG", str(tmp_path / "config.json"))
-    monkeypatch.setattr(
-        scan, "find", lambda: scan.Found(notes=["подсеть 10.5.0.0/16 на 65534 адресов"])
-    )
-
-    assert cli.main(["--tv"]) == 1
-
-    done = capsys.readouterr()
-    assert "10.5.0.0/16" in done.out
-    assert "включён" in done.err and "той же сети" in done.err
-    assert "cast --tv <ip>" in done.err
-    assert not (tmp_path / "config.json").exists(), "неудачный поиск конфиг не трогает"
-
-
-def test_several_receivers_without_a_terminal_are_not_picked_blindly(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    """Спросить некого, а найдено несколько - молча записать первый попавшийся нельзя.
-
-    Это ровно тот же отказ, что и в меню картин: любой дефолт тут означает чужое
-    устройство в конфиге, а не оттенок выбора.
-    """
-    monkeypatch.setenv("TORRCAST_CONFIG", str(tmp_path / "config.json"))
-    monkeypatch.setattr(console, "stdin_is_tty", lambda: False)
-    monkeypatch.setattr(
-        scan,
-        "find",
-        lambda: scan.Found(
-            devices=[scan.Device("10.0.0.50"), scan.Device("10.0.0.60", name="Гостиная")]
-        ),
-    )
-
-    assert cli.main(["--tv"]) == 1
-    assert not (tmp_path / "config.json").exists()
-
-
-def test_warmup_leaves_in_torrserver_only_what_we_play(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_warmup_leaves_in_torrserver_only_what_we_play() -> None:
     """Прогрев греет лишнее по определению — лишнее убирается до старта показа.
 
     Иначе две-три чужие раздачи продолжали бы качаться в RAM-кэш TorrServer рядом с
     показом и отъедать у него полосу.
     """
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
-    _probes(monkeypatch, ranked, "h264")
-    monkeypatch.setattr(Release, "magnet", property(lambda self: f"magnet-{self.raw_name}"))
+    prober = _probes(ranked, "h264")
     torrserver = _FakeTorrServer()
-    bench = cli._Bench(cast(Any, torrserver))
+    bench = cli._Bench(cast(Any, torrserver), prober=prober)
 
     prep = _resolve(bench, ranked)
     # Запасной релиз греется в своём потоке, и resolve на подделках отвечает за
@@ -1556,16 +1397,13 @@ def test_warmup_leaves_in_torrserver_only_what_we_play(monkeypatch: pytest.Monke
     assert prep.torrent_hash not in torrserver.dropped
 
 
-def test_warmup_spares_a_release_a_parallel_show_holds(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_warmup_spares_a_release_a_parallel_show_holds(tmp_path: Path) -> None:
     """Рядом идёт показ, а параллельный ``cast`` греет ту же выдачу: ``add`` идемпотентен,
     и раздача живого показа попадает в прогрев. Уборка прогрева обязана её пощадить -
     снос выдернул бы источник из-под экрана. Хозяина видно по записи состояния.
     """
     from torrcast.state import Entry, State
 
-    monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
     torrserver = _FakeTorrServer()
     bench = cli._Bench(cast(Any, torrserver))
@@ -1584,27 +1422,27 @@ def test_warmup_spares_a_release_a_parallel_show_holds(
     assert torrserver.dropped == ["hash-cold"], "холодный прогрев убираем как прежде"
 
 
-def test_voice_cleanup_spares_a_release_a_parallel_show_holds(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_voice_cleanup_spares_a_release_a_parallel_show_holds() -> None:
     """``cast --voice`` на играющий фильм поднимает ту же раздачу (``add`` идемпотентен).
     Не пригодилась - убираем свою, но не ту, что держит живой показ.
     """
     from torrcast.state import Entry, State
 
-    monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
     dropped: list[str] = []
-    monkeypatch.setattr(cli, "_release_torrents", lambda config, hashes: dropped.extend(hashes))
+
+    def release(_config: Any, hashes: list[str]) -> None:
+        dropped.extend(hashes)
+
     config = load_config()
 
     state = State()
     state.put("movie:кино:2022", Entry(title="Кино", magnet="m", torrent="hash-live"))
     state.save()
 
-    cli._Voiced(torrent_hash="hash-live").drop(config)
+    cli._Voiced(torrent_hash="hash-live").drop(config, release)
     assert dropped == [], "раздачу живого показа cast --voice не трогает"
 
-    cli._Voiced(torrent_hash="hash-cold").drop(config)
+    cli._Voiced(torrent_hash="hash-cold").drop(config, release)
     assert dropped == ["hash-cold"], "свою неиспользованную раздачу убираем как прежде"
 
 
@@ -2808,14 +2646,15 @@ def test_a_numbered_book_series_is_not_a_franchise_line() -> None:
 
 
 def test_the_menu_asks_without_a_default_when_another_part_would_answer(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Спрошенной части нет - Enter другую часть не включает: номер называет человек."""
     plans = _numbered_cars()[1:]
-    monkeypatch.setattr(console, "stdin_is_tty", lambda: True)
-    monkeypatch.setattr("builtins.input", lambda prompt="": "1")
+    environment = FakeChoiceEnvironment(answers=[1])
 
-    plan = cli._pick_plan(plans, asked="тачки")
+    plan = cli._pick_plan(plans, asked="тачки", environment=cast(Any, environment))
+
+    assert environment.questions == [("Что смотрим?", 2, None)], "дефолта у вопроса нет"
 
     out = capsys.readouterr().out
     assert "первой части в выдаче нет" in out
@@ -2824,14 +2663,12 @@ def test_the_menu_asks_without_a_default_when_another_part_would_answer(
 
 
 def test_the_menu_default_stays_on_the_living_first_part(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Ограждение: первая часть жива - дефолт «первая живая часть» не тронут."""
     plans = _numbered_cars(first_dead=False)
-    monkeypatch.setattr(console, "stdin_is_tty", lambda: True)
-    monkeypatch.setattr("builtins.input", lambda prompt="": "")
 
-    plan = cli._pick_plan(plans, asked="тачки")
+    plan = cli._pick_plan(plans, asked="тачки", environment=cast(Any, FakeChoiceEnvironment()))
 
     assert "Enter - «Тачки (2006)»" in capsys.readouterr().out
     assert plan.picture.title == "Тачки"
@@ -3062,9 +2899,7 @@ def test_prewarm_follows_the_visible_menu() -> None:
     assert [p.picture.year for p in cli.warm_order(plans)] == [1926, 2016, 2024]
 
 
-def test_enter_picks_the_top_of_the_menu(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_enter_picks_the_top_of_the_menu(capsys: pytest.CaptureFixture[str]) -> None:
     """Enter выбирает видимый верх, даже когда соседняя картина раздаётся лучше."""
     top = _franchise_plan("Наруто", 2002, [rel(name="Naruto 001-220", seeders=4)])
     movie = _franchise_plan(
@@ -3077,17 +2912,15 @@ def test_enter_picks_the_top_of_the_menu(
     )
     plans = [top, movie]
     assert cli.first_alive(plans) == 2, "условие расхождения воспроизведено"
-    monkeypatch.setattr(console, "stdin_is_tty", lambda: True)
-    monkeypatch.setattr("builtins.input", lambda prompt="": "")
 
-    picked = cli._pick_plan(plans, asked="naruto")
+    picked = cli._pick_plan(plans, asked="naruto", environment=cast(Any, FakeChoiceEnvironment()))
 
     assert cli.menu_lines(plans).splitlines()[0].startswith("  1. Наруто (2002)")
     assert "Enter - «Наруто (2002)», пункт 1 из 2" in capsys.readouterr().out
     assert picked is top
 
 
-def test_the_spare_release_goes_up_next_to_the_first_one(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_spare_release_goes_up_next_to_the_first_one() -> None:
     """Запасной релиз выбранной картины греется вместе с верхом, а не после его брака.
 
     Номер у него ровно тот же, который возьмёт :meth:`~torrcast.cli._Bench.resolve`, -
@@ -3095,8 +2928,8 @@ def test_the_spare_release_goes_up_next_to_the_first_one(monkeypatch: pytest.Mon
     раньше он поднимался в отборе, теперь - пока на экране висит меню.
     """
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
-    _probes(monkeypatch, ranked, "h264")
-    bench = cli._Bench(cast(Any, _FakeTorrServer()))
+    prober = _probes(ranked, "h264")
+    bench = cli._Bench(cast(Any, _FakeTorrServer()), prober=prober)
     plan = _plan(ranked)
 
     bench.start(plan, plan.candidates(cli.Args(query=["кино"]))[0])
@@ -3106,12 +2939,12 @@ def test_the_spare_release_goes_up_next_to_the_first_one(monkeypatch: pytest.Mon
     assert sorted(number for _, number in bench.preps) == [1, 2]
 
 
-def test_a_release_named_by_hand_has_no_spare(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_release_named_by_hand_has_no_spare() -> None:
     """``--release N`` - выбор человека: подменять нечем, и лишней раздачи не поднимаем."""
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
-    _probes(monkeypatch, ranked, "h264")
+    prober = _probes(ranked, "h264")
     torrserver = _FakeTorrServer()
-    bench = cli._Bench(cast(Any, torrserver))
+    bench = cli._Bench(cast(Any, torrserver), prober=prober)
 
     assert bench.spare(_plan(ranked), cli.Args(query=["кино"], release=2)) == []
     assert not bench.preps
@@ -3120,7 +2953,7 @@ def test_a_release_named_by_hand_has_no_spare(monkeypatch: pytest.MonkeyPatch) -
 # --- Честное качество: заявка имени против того, что прочитал ffprobe -----------------
 
 
-def _reads(monkeypatch: pytest.MonkeyPatch, releases: list[Release], *media: Media) -> None:
+def _reads(releases: list[Release], *media: Media) -> _Prober:
     """Подсунуть ffprobe: по :class:`Media` на релиз, считая от лучшего.
 
     То же, что :func:`_probes`, только с высотой кадра: тут проверяется не кодек, а
@@ -3133,7 +2966,7 @@ def _reads(monkeypatch: pytest.MonkeyPatch, releases: list[Release], *media: Med
                 return media[number]
         return Media(3600.0, (), "h264", 1080, 1920)
 
-    monkeypatch.setattr(cli, "probe", read)
+    return read
 
 
 def test_launch_line_shows_the_confirmed_resolution_not_the_claim() -> None:
@@ -3177,7 +3010,7 @@ def test_an_interlaced_file_is_named_what_it_is() -> None:
 
 
 def test_a_top_that_turns_out_to_be_sd_gives_way_to_a_confirmed_1080p(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Живая выдача по «Моане 2»: верх ``WEB-DL-AVC`` 3.14 ГБ / 140 сидов — 1150×574,
     а вторым лежит настоящий 1080p 13.3 ГБ со 121 сидом. Играть обязан второй, и вслух.
@@ -3186,15 +3019,14 @@ def test_a_top_that_turns_out_to_be_sd_gives_way_to_a_confirmed_1080p(
         rel(name="Моана 2 [WEB-DL-AVC] 2x Dub", quality=None, size_gb=3.14, seeders=140),
         rel(name="Моана 2 [WEB-DL 1080p] Dub", codec=None, size_gb=13.33, seeders=121),
     ]
-    _reads(
-        monkeypatch,
+    prober = _reads(
         ranked,
         Media(5977.0, (), "h264", 574, 1150),
         Media(5977.0, (), "h264", 1080, 1920),
     )
     torrserver = _FakeTorrServer()
 
-    prep = _resolve(cli._Bench(cast(Any, torrserver)), ranked)
+    prep = _resolve(cli._Bench(cast(Any, torrserver), prober=prober), ranked)
 
     printed = capsys.readouterr().out
     assert prep.number == 2, "среди честных обсиженность решает, но 574p - не честный 1080p"
@@ -3202,9 +3034,7 @@ def test_a_top_that_turns_out_to_be_sd_gives_way_to_a_confirmed_1080p(
     assert torrserver.dropped, "отвергнутый верх не доедает полосу роя"
 
 
-def test_an_honest_top_is_played_without_a_word(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_an_honest_top_is_played_without_a_word(capsys: pytest.CaptureFixture[str]) -> None:
     """Верх подтвердил своё имя — никаких проверок соседей и никаких лишних строк.
 
     Обсиженность остаётся главным критерием среди честных: 1080p со 140
@@ -3214,35 +3044,33 @@ def test_an_honest_top_is_played_without_a_word(
         rel(name="Кино [WEB-DL 1080p] a", size_gb=3.14, seeders=140),
         rel(name="Кино [BDRemux 1080p] b", size_gb=13.33, seeders=121),
     ]
-    _reads(
-        monkeypatch,
+    prober = _reads(
         ranked,
         Media(5977.0, (), "h264", 1080, 1920),
         Media(5977.0, (), "h264", 1080, 1920),
     )
 
-    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer())), ranked)
+    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked)
 
     assert prep.number == 1
     assert not re.search(r"беру \d", capsys.readouterr().out)
 
 
 def test_when_the_neighbour_lies_too_we_play_the_truth_out_loud(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Сосед обещал 1080p, а внутри такой же SD: подмены нет — но и молчания тоже нет."""
     ranked = [
         rel(name="Кино [WEB-DL] a", quality=None, size_gb=3.14, seeders=140),
         rel(name="Кино [WEB-DL 1080p] b", codec=None, size_gb=3.20, seeders=121),
     ]
-    _reads(
-        monkeypatch,
+    prober = _reads(
         ranked,
         Media(5977.0, (), "h264", 574, 1150),
         Media(5977.0, (), "h264", 576, 1024),
     )
 
-    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer())), ranked)
+    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked)
 
     printed = capsys.readouterr().out
     assert prep.number == 1, "лучше 574p рядом нет - играем то, что есть"
@@ -3251,29 +3079,26 @@ def test_when_the_neighbour_lies_too_we_play_the_truth_out_loud(
 
 
 def test_a_named_release_is_never_second_guessed_for_quality(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     """``--release N`` неприкосновенен и здесь: человек выбрал сам."""
     ranked = [
         rel(name="Кино [WEB-DL] a", quality=None, size_gb=3.14, seeders=140),
         rel(name="Кино [WEB-DL 1080p] b", codec=None, size_gb=13.33, seeders=121),
     ]
-    _reads(
-        monkeypatch,
+    prober = _reads(
         ranked,
         Media(5977.0, (), "h264", 574, 1150),
         Media(5977.0, (), "h264", 1080, 1920),
     )
 
-    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer())), ranked, release=1)
+    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked, release=1)
 
     assert prep.number == 1
     assert not re.search(r"беру \d", capsys.readouterr().out)
 
 
-def test_a_slow_neighbour_does_not_hold_up_the_show(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_a_slow_neighbour_does_not_hold_up_the_show(capsys: pytest.CaptureFixture[str]) -> None:
     """Честный сосед не ответил за бюджет — играем то, что готово, и говорим об этом.
 
     Лишние секунды старта хуже, чем 574p, а молчаливо ждать «а вдруг» — это ровно тот
@@ -3291,11 +3116,9 @@ def test_a_slow_neighbour_does_not_hold_up_the_show(
             return Media(5977.0, (), "h264", 1080, 1920)
         return Media(5977.0, (), "h264", 574, 1150)
 
-    monkeypatch.setattr(cli, "probe", read)
-    monkeypatch.setattr(cli, "HONEST_BUDGET", 0.3)
-
     try:
-        prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer())), ranked)
+        bench = cli._Bench(cast(Any, _FakeTorrServer()), prober=read, honest_budget=0.3)
+        prep = _resolve(bench, ranked)
     finally:
         slow.set()  # поток прогрева отпускаем, чтобы не висел до конца прогона
 
@@ -3316,7 +3139,7 @@ FOREIGN = (AudioTrack(0, "eng", "Original", "ac3", 6),)
 
 
 def test_an_unnamed_language_does_not_stop_the_queue_at_the_top(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     """🔴 TC-492. Верх про язык звука не сказал ничего - идём дальше по очереди.
 
@@ -3331,15 +3154,14 @@ def test_an_unnamed_language_does_not_stop_the_queue_at_the_top(
         rel(name="Кино [WEB-DL 1080p] тихий", voices=(), seeders=140),
         rel(name="Кино [BDRip 1080p] от Scarabey | D", seeders=121),
     ]
-    _reads(
-        monkeypatch,
+    prober = _reads(
         ranked,
         Media(5977.0, UNNAMED, "h264", 1080, 1920),
         Media(5977.0, RUSSIAN, "h264", 1080, 1920),
     )
     torrserver = _FakeTorrServer()
 
-    prep = _resolve(cli._Bench(cast(Any, torrserver)), ranked)
+    prep = _resolve(cli._Bench(cast(Any, torrserver), prober=prober), ranked)
 
     printed = capsys.readouterr().out
     assert prep.number == 2, "незнание меняем на знание, а не на догадку"
@@ -3351,7 +3173,7 @@ def test_an_unnamed_language_does_not_stop_the_queue_at_the_top(
 
 
 def test_an_unnamed_language_falls_back_to_the_existing_mute_move(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     """🔴 TC-492. Русской не нашлось ни у кого - играет отложенный, и это ЗАПАСНОЙ ХОД.
 
@@ -3368,14 +3190,13 @@ def test_an_unnamed_language_falls_back_to_the_existing_mute_move(
         rel(name="Кино [WEB-DL 1080p] тихий", voices=(), seeders=140),
         rel(name="Кино [BDRip 1080p] обещал | D", seeders=121),
     ]
-    _reads(
-        monkeypatch,
+    prober = _reads(
         ranked,
         Media(5977.0, UNNAMED, "h264", 1080, 1920),
         Media(5977.0, FOREIGN, "h264", 1080, 1920),
     )
 
-    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer())), ranked)
+    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked)
 
     printed = capsys.readouterr().out
     assert prep.number == 1
@@ -3386,9 +3207,7 @@ def test_an_unnamed_language_falls_back_to_the_existing_mute_move(
     assert "играю его" not in printed, "второй строки под тот же случай не заводится"
 
 
-def test_a_confirmed_russian_track_asks_nobody(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_a_confirmed_russian_track_asks_nobody(capsys: pytest.CaptureFixture[str]) -> None:
     """Паспорт назвал русскую - вопросов нет, лишних секунд тоже.
 
     И обратная половина того же (🔴 TC-492): раздача, обещавшая русскую своим ИМЕНЕМ,
@@ -3399,13 +3218,12 @@ def test_a_confirmed_russian_track_asks_nobody(
         rel(name="Кино [WEB-DL 1080p] a", seeders=140),
         rel(name="Кино [BDRip 1080p] b | D", seeders=121),
     ]
-    _reads(
-        monkeypatch,
+    prober = _reads(
         ranked,
         Media(5977.0, RUSSIAN, "h264", 1080, 1920),
         Media(5977.0, RUSSIAN, "h264", 1080, 1920),
     )
-    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer())), ranked)
+    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked)
     assert prep.number == 1
     assert not re.search(r"беру \d", capsys.readouterr().out)
 
@@ -3413,13 +3231,12 @@ def test_a_confirmed_russian_track_asks_nobody(
         rel(name="Аниме [TV] [RUS(int), JAP+Sub] [1080p] a", seeders=140),
         rel(name="Аниме [TV] [RUS(int)] [1080p] b", seeders=121),
     ]
-    _reads(
-        monkeypatch,
+    prober = _reads(
         promised,
         Media(5977.0, UNNAMED, "h264", 1080, 1920),
         Media(5977.0, RUSSIAN, "h264", 1080, 1920),
     )
-    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer())), promised)
+    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer()), prober=prober), promised)
     assert prep.number == 2, "обещание имени русской дорожкой не становится"
 
 
@@ -3434,9 +3251,7 @@ def test_the_passport_has_three_answers_about_the_language() -> None:
 # --- Прогрев соседа по звуку: обещавшая русскую раздача греется под меню (TC-309) ------
 
 
-def test_a_dubbed_neighbour_warms_under_the_menu_when_the_top_promises_nothing(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_a_dubbed_neighbour_warms_under_the_menu_when_the_top_promises_nothing() -> None:
     """🔴 TC-309. Верх именем русскую не обещает - ближайший обещавший греется заодно.
 
     Проверка честности спросит этого соседа первым же вопросом, если дорожка верха
@@ -3450,17 +3265,15 @@ def test_a_dubbed_neighbour_warms_under_the_menu_when_the_top_promises_nothing(
         rel(name="Кино [WEB-DL 1080p] запасной", voices=(), seeders=130),
         rel(name="Кино [BDRip 1080p] от Scarabey | D", seeders=121),
     ]
-    _reads(monkeypatch, ranked, *([Media(5977.0, (), "h264", 1080, 1920)] * 3))
-    bench = cli._Bench(cast(Any, _FakeTorrServer()))
+    prober = _reads(ranked, *([Media(5977.0, (), "h264", 1080, 1920)] * 3))
+    bench = cli._Bench(cast(Any, _FakeTorrServer()), prober=prober)
 
     preps = bench.spare(_plan(ranked), cli.Args(query=["кино"]))
 
     assert {prep.number for prep in preps} == {2, 3}, "запасной и обещавший русскую сосед"
 
 
-def test_a_dubbed_neighbour_warms_when_a_front_candidate_promises_nothing(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_a_dubbed_neighbour_warms_when_a_front_candidate_promises_nothing() -> None:
     """Верх обещал, но второй кандидат молчит - сосед по звуку греется всё равно.
 
     Проверка честности спрашивает того, кого отбор реально взял, а это не обязан быть
@@ -3473,17 +3286,15 @@ def test_a_dubbed_neighbour_warms_when_a_front_candidate_promises_nothing(
         rel(name="Кино [WEB-DL 1080p] тихий", voices=(), seeders=130),
         rel(name="Кино [BDRip 1080p] от Scarabey | D", seeders=121),
     ]
-    _reads(monkeypatch, ranked, *([Media(5977.0, (), "h264", 1080, 1920)] * 3))
-    bench = cli._Bench(cast(Any, _FakeTorrServer()))
+    prober = _reads(ranked, *([Media(5977.0, (), "h264", 1080, 1920)] * 3))
+    bench = cli._Bench(cast(Any, _FakeTorrServer()), prober=prober)
 
     preps = bench.spare(_plan(ranked), cli.Args(query=["кино"]))
 
     assert {prep.number for prep in preps} == {2, 3}
 
 
-def test_a_picture_whose_front_candidates_all_promise_russian_warms_no_sound_neighbour(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_a_picture_whose_front_candidates_all_promise_russian_warms_no_sound_neighbour() -> None:
     """Все первые кандидаты обещали русскую - вопроса о звуке не будет, раздачи лишней нет.
 
     Прогрев обещавшего соседа - это ещё одна раздача в рое, и платить её надо ровно за
@@ -3491,8 +3302,8 @@ def test_a_picture_whose_front_candidates_all_promise_russian_warms_no_sound_nei
     русскую своим именем, не задаётся вовсе (:func:`voice_unproven`).
     """
     ranked = [rel(name=f"Кино [BDRip 1080p] р{i} | D", seeders=100 - i) for i in range(3)]
-    _reads(monkeypatch, ranked, *([Media(5977.0, (), "h264", 1080, 1920)] * 3))
-    bench = cli._Bench(cast(Any, _FakeTorrServer()))
+    prober = _reads(ranked, *([Media(5977.0, (), "h264", 1080, 1920)] * 3))
+    bench = cli._Bench(cast(Any, _FakeTorrServer()), prober=prober)
 
     preps = bench.spare(_plan(ranked), cli.Args(query=["кино"]))
 
@@ -3500,13 +3311,11 @@ def test_a_picture_whose_front_candidates_all_promise_russian_warms_no_sound_nei
     assert len(bench.preps) == 1, "и лишней раздачи в TorrServer нет"
 
 
-def test_no_dubbed_neighbour_in_the_pool_means_nothing_extra_to_warm(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_no_dubbed_neighbour_in_the_pool_means_nothing_extra_to_warm() -> None:
     """Обещанной русской в очереди нет вовсе - греть нечего, лишней раздачи не появляется."""
     ranked = [rel(name=f"Кино [WEB-DL 1080p] р{i}", voices=(), seeders=100 - i) for i in range(3)]
-    _reads(monkeypatch, ranked, *([Media(5977.0, (), "h264", 1080, 1920)] * 3))
-    bench = cli._Bench(cast(Any, _FakeTorrServer()))
+    prober = _reads(ranked, *([Media(5977.0, (), "h264", 1080, 1920)] * 3))
+    bench = cli._Bench(cast(Any, _FakeTorrServer()), prober=prober)
 
     preps = bench.spare(_plan(ranked), cli.Args(query=["кино"]))
 
@@ -3514,16 +3323,14 @@ def test_no_dubbed_neighbour_in_the_pool_means_nothing_extra_to_warm(
     assert len(bench.preps) == 1
 
 
-def test_a_dubbed_spare_is_not_warmed_twice(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_a_dubbed_spare_is_not_warmed_twice() -> None:
     """Ближайший обещавший русскую - это и есть обычный запасной: одна раздача, а не две."""
     ranked = [
         rel(name="Кино [WEB-DL 1080p] тихий", voices=(), seeders=140),
         rel(name="Кино [BDRip 1080p] от Scarabey | D", seeders=121),
     ]
-    _reads(monkeypatch, ranked, *([Media(5977.0, (), "h264", 1080, 1920)] * 2))
-    bench = cli._Bench(cast(Any, _FakeTorrServer()))
+    prober = _reads(ranked, *([Media(5977.0, (), "h264", 1080, 1920)] * 2))
+    bench = cli._Bench(cast(Any, _FakeTorrServer()), prober=prober)
 
     preps = bench.spare(_plan(ranked), cli.Args(query=["кино"]))
 
@@ -3531,14 +3338,14 @@ def test_a_dubbed_spare_is_not_warmed_twice(
     assert len(bench.preps) == 1, "та же подготовка, а не вторая раздача того же релиза"
 
 
-def test_a_named_release_still_has_no_spare_at_all(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_named_release_still_has_no_spare_at_all() -> None:
     """``--release N``: человек выбрал сам, и ни запасного, ни соседа по звуку не греется."""
     ranked = [
         rel(name="Кино [WEB-DL 1080p] тихий", voices=(), seeders=140),
         rel(name="Кино [BDRip 1080p] от Scarabey | D", seeders=121),
     ]
-    _reads(monkeypatch, ranked, *([Media(5977.0, (), "h264", 1080, 1920)] * 2))
-    bench = cli._Bench(cast(Any, _FakeTorrServer()))
+    prober = _reads(ranked, *([Media(5977.0, (), "h264", 1080, 1920)] * 2))
+    bench = cli._Bench(cast(Any, _FakeTorrServer()), prober=prober)
 
     assert bench.spare(_plan(ranked), cli.Args(query=["кино"], release=2)) == []
     assert not bench.preps
@@ -3574,7 +3381,7 @@ def test_a_foreign_picture_does_not_call_its_only_unnamed_track_russian() -> Non
 
 
 def test_a_refusal_names_the_living_parts_of_the_franchise(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Годного релиза нет - но соседки по франшизе в каталоге живые, и о них говорят.
 
@@ -3585,7 +3392,7 @@ def test_a_refusal_names_the_living_parts_of_the_franchise(
     from torrcast.parse import Picture
 
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(5)]
-    _probes(monkeypatch, ranked, *REFUSED)
+    prober = _probes(ranked, *REFUSED)
     plan = _plan(ranked)
     plan.kin = [
         Picture(title="Тачки 2", year=2011, releases=[rel(name="c2", seeders=30)]),
@@ -3593,7 +3400,7 @@ def test_a_refusal_names_the_living_parts_of_the_franchise(
     ]
     args = cli.Args(query=["тачки"])
     with pytest.raises(NotFoundError) as caught, Progress(out=io.StringIO()) as progress:
-        cli._Bench(cast(Any, _FakeTorrServer())).resolve(plan, args, progress)
+        cli._Bench(cast(Any, _FakeTorrServer()), prober=prober).resolve(plan, args, progress)
 
     assert "годного релиза нет" in str(caught.value)
     assert "в каталоге есть Тачки 2 (2011), Тачки 3 (2017) - cast тачки 2" in str(caught.value)
@@ -3601,13 +3408,13 @@ def test_a_refusal_names_the_living_parts_of_the_franchise(
 
 
 def test_a_refusal_stays_silent_when_the_franchise_has_no_other_parts(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Предлагать нечего - и строки нет: пустой подсказки человек не заслужил."""
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(5)]
-    _probes(monkeypatch, ranked, *REFUSED)
+    prober = _probes(ranked, *REFUSED)
     with pytest.raises(NotFoundError) as caught:
-        _resolve(cli._Bench(cast(Any, _FakeTorrServer())), ranked)
+        _resolve(cli._Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked)
 
     assert "в каталоге есть" not in str(caught.value)
     capsys.readouterr()
@@ -3651,9 +3458,7 @@ def _named_release(title: str, year: int) -> Release:
 # --- Потолок одновременных раздач (TC-145) -------------------------------------------
 
 
-def test_a_picture_we_did_not_choose_stops_being_warmed_the_moment_we_choose(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_a_picture_we_did_not_choose_stops_being_warmed_the_moment_we_choose() -> None:
     """Картина выбрана - прогревы ОСТАЛЬНЫХ картин убираются сразу, а не после отбора.
 
     Раньше они доживали до :meth:`~torrcast.cli._Bench.keep_only`, то есть до конца
@@ -3682,9 +3487,7 @@ def test_a_picture_we_did_not_choose_stops_being_warmed_the_moment_we_choose(
     assert torrserver.dropped, "чужая картина убрана по своему хэшу, а не «всё из списка»"
 
 
-def test_we_never_hold_more_torrents_at_once_than_the_ceiling(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_we_never_hold_more_torrents_at_once_than_the_ceiling() -> None:
     """Жёсткий потолок: сколько бы ни длился перебор, одновременно держим не больше
     :data:`~torrcast.cli.MAX_LIVE` раздач.
 
@@ -3693,9 +3496,9 @@ def test_we_never_hold_more_torrents_at_once_than_the_ceiling(
     всё разом только перед стартом показа.
     """
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(12)]
-    _probes(monkeypatch, ranked, *(["h264"] * 11), "h264")
+    prober = _probes(ranked, *(["h264"] * 11), "h264")
     torrserver = _FakeTorrServer()
-    bench = cli._Bench(cast(Any, torrserver))
+    bench = cli._Bench(cast(Any, torrserver), prober=prober)
     plan = _plan(ranked)
     peak = 0
 
@@ -3714,17 +3517,15 @@ def test_we_never_hold_more_torrents_at_once_than_the_ceiling(
     assert len(bench.preps) == len(ranked), "греть перестали не потому, что не начинали"
 
 
-def test_the_ceiling_never_kills_the_warmup_someone_is_waiting_for(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_the_ceiling_never_kills_the_warmup_someone_is_waiting_for() -> None:
     """Потолок убирает самый СТАРЫЙ ненужный прогрев и никогда - нужный.
 
     Запасной релиз греется параллельно верху намеренно (замеренный выигрыш 5 с), и
     убить его потолком значило бы вернуть человеку полную цену подъёма второй раздачи.
     """
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(6)]
-    _probes(monkeypatch, ranked, *(["h264"] * 6))
-    bench = cli._Bench(cast(Any, _FakeTorrServer()))
+    prober = _probes(ranked, *(["h264"] * 6))
+    bench = cli._Bench(cast(Any, _FakeTorrServer()), prober=prober)
     plan = _plan(ranked)
     for number in (1, 2, 3, 4, 5):
         bench.start(plan, number)
@@ -3739,7 +3540,7 @@ def test_the_ceiling_never_kills_the_warmup_someone_is_waiting_for(
 
 
 def test_a_neighbour_asked_about_honesty_is_dropped_once_it_has_answered(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Проверка «честного HD» спрашивает соседей по одному - и отпускает их сразу.
 
@@ -3750,15 +3551,14 @@ def test_a_neighbour_asked_about_honesty_is_dropped_once_it_has_answered(
         rel(name="Кино [WEB-DL] a", quality=None, size_gb=3.14, seeders=140),
         rel(name="Кино [WEB-DL 1080p] b", codec=None, size_gb=3.20, seeders=121),
     ]
-    _reads(
-        monkeypatch,
+    prober = _reads(
         ranked,
         Media(5977.0, (), "h264", 574, 1150),
         Media(5977.0, (), "h264", 576, 1024),
     )
     torrserver = _FakeTorrServer()
 
-    prep = _resolve(cli._Bench(cast(Any, torrserver)), ranked)
+    prep = _resolve(cli._Bench(cast(Any, torrserver), prober=prober), ranked)
 
     assert prep.number == 1, "лучше 574p рядом нет - играем то, что есть"
     assert "не лучше" in capsys.readouterr().out
@@ -3766,7 +3566,7 @@ def test_a_neighbour_asked_about_honesty_is_dropped_once_it_has_answered(
 
 
 def test_a_neighbour_that_missed_its_budget_is_let_go_too(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Сосед не успел ответить за свой бюджет - раздача его тоже больше не нужна.
 
@@ -3787,11 +3587,9 @@ def test_a_neighbour_that_missed_its_budget_is_let_go_too(
             return Media(5977.0, (), "h264", 1080, 1920)
         return honest
 
-    monkeypatch.setattr(cli, "probe", read)
-    monkeypatch.setattr(cli, "HONEST_BUDGET", 0.05)
     torrserver = _FakeTorrServer()
 
-    prep = _resolve(cli._Bench(cast(Any, torrserver)), ranked)
+    prep = _resolve(cli._Bench(cast(Any, torrserver), prober=read, honest_budget=0.05), ranked)
 
     assert prep.number == 1, "ответа не дождались - играем то, что уже прочитано"
     assert "не успел ответить" in capsys.readouterr().out
@@ -3930,7 +3728,7 @@ def test_a_4k_entry_is_refused_before_the_unit_only_when_there_is_nothing_to_shr
 
 
 def test_releases_table_uses_true_duration_and_matches_explicit_release(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     """У картины с длительностью сильно больше двух часов таблица cast releases
     и последующий --release N дают одну и ту же раздачу под одним и тем же номером.
@@ -3957,9 +3755,6 @@ def test_releases_table_uses_true_duration_and_matches_explicit_release(
     def fake_search(*args: Any, **kwargs: Any) -> list[cli._Plan]:
         return [plan]
 
-    monkeypatch.setattr(cli, "_search", fake_search)
-    monkeypatch.setattr(cli, "load_config", lambda: config)
-
     class FakeFacts:
         def __init__(self, *args: Any, **kwargs: Any) -> None:
             pass
@@ -3973,9 +3768,12 @@ def test_releases_table_uses_true_duration_and_matches_explicit_release(
         def get(self, *args: Any, **kwargs: Any) -> Fact:
             return Fact(runtime="3 ч")
 
-    monkeypatch.setattr(cli, "Facts", FakeFacts)
-
-    cli._cmd_releases(cli.Args(query=["releases", "кино"]))
+    cli._cmd_releases(
+        cli.Args(query=["releases", "кино"]),
+        search=fake_search,
+        settings=lambda: config,
+        facts_source=FakeFacts,
+    )
     printed = capsys.readouterr().out
 
     # Таблица должна перестроить план на 3 часах и показать heavy первым,
@@ -4012,7 +3810,7 @@ class _Facts3h:
         return Fact(runtime="3 ч")
 
 
-def _releases_output(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> str:
+def _releases_output(capsys: pytest.CaptureFixture[str], profile_choice: Any = None) -> str:
     """Прогон ``cast releases`` над одной раздачей 18 ГБ; отдаёт напечатанное.
 
     Поиск и справка подменены, а вот определение профиля и сборка таблицы - настоящие:
@@ -4029,25 +3827,27 @@ def _releases_output(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixt
         runtime=RUNTIME,
         warn_mbit=16.0,
     )
-    monkeypatch.setattr(cli, "_search", lambda *args: [plan])
-    monkeypatch.setattr(cli, "load_config", Config)
-    monkeypatch.setattr(cli, "Facts", _Facts3h)
-    cli._cmd_releases(cli.Args(query=["releases", "кино"]))
+    cli._cmd_releases(
+        cli.Args(query=["releases", "кино"]),
+        search=lambda *args: [plan],
+        settings=Config,
+        facts_source=_Facts3h,
+        profile_choice=profile_choice,
+    )
     return capsys.readouterr().out
 
 
 def test_releases_table_judges_by_the_detected_receiver_profile(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     """🔴 TC-241. Таблица обязана судить по тому приёмнику, на который поедет показ:
     обнаруженной приставке Android TV раздача на 18 ГБ едет копией, и пометка
     «перекодируем» рядом с ней - ложь, которой в таблице быть не должно."""
     from torrcast.profile import ANDROID_TV, Choice
 
-    monkeypatch.setattr(
-        cli, "detect_profile", lambda config: Choice(ANDROID_TV, "по паспорту: Xiaomi TV Stick")
+    printed = _releases_output(
+        capsys, lambda config: Choice(ANDROID_TV, "по паспорту: Xiaomi TV Stick")
     )
-    printed = _releases_output(monkeypatch, capsys)
 
     assert "профиль приёмника: приставка Android TV" in printed, (
         "человек видит, по какому профилю судит таблица"
@@ -4056,11 +3856,11 @@ def test_releases_table_judges_by_the_detected_receiver_profile(
 
 
 def test_releases_table_says_by_which_profile_it_judges_without_a_receiver(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Приёмника нет вовсе - таблица не молчит, по какому профилю судит: она говорит,
     что судит по осторожному, и тогда та же раздача честно подписана «перекодируем»."""
-    printed = _releases_output(monkeypatch, capsys)
+    printed = _releases_output(capsys)
 
     assert "профиль приёмника: осторожный" in printed
     assert "перекодируем" in printed, "осторожный профиль такие куски перекодирует"
@@ -4087,15 +3887,8 @@ def _turned_down_in_trace() -> list[str]:
     return [str(rec.get("release")) for rec in trace.records() if rec.get("event") == "drop"]
 
 
-def _own_trace(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, sid: str) -> None:
-    from torrcast import trace
-
-    monkeypatch.setenv(trace.LOG_ENV, str(tmp_path))
-    monkeypatch.setenv(trace.SID_ENV, sid)
-
-
 def test_a_release_already_judged_is_not_turned_down_twice_on_screen(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+    capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:
     """🔴 TC-194. Кого забраковала очередь отбора, того проверка честности не судит заново.
 
@@ -4106,19 +3899,17 @@ def test_a_release_already_judged_is_not_turned_down_twice_on_screen(
     же порогами. Приговор выходил тот же, строка печаталась вторая, а записи не было ни
     одной новой: экран и лента расходились ровно на этот дубль.
     """
-    _own_trace(monkeypatch, tmp_path, "сталкер")
     ranked = [
         rel(name="Кино [WEB-DL 1080p] a", size_gb=3.20, seeders=140),
         rel(name="Кино [WEB-DL] b", quality=None, size_gb=3.14, seeders=121),
     ]
-    _reads(
-        monkeypatch,
+    prober = _reads(
         ranked,
         Media(5977.0, (), "av1", 1080, 1920),  # верх обещает 1080p, а внутри av1
         Media(5977.0, (), "h264", 574, 1150),  # годен, но занижен - зовётся проверка честности
     )
 
-    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer())), ranked)
+    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked)
 
     printed = capsys.readouterr().out
     assert prep.number == 2, "годным оказался второй - его и играем"
@@ -4127,7 +3918,7 @@ def test_a_release_already_judged_is_not_turned_down_twice_on_screen(
 
 
 def test_a_release_turned_down_by_the_honesty_check_is_written_to_the_trace(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+    capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:
     """🔴 TC-194. Отказ проверки честности - решение, и в ленте оно обязано лежать.
 
@@ -4135,19 +3926,17 @@ def test_a_release_turned_down_by_the_honesty_check_is_written_to_the_trace(
     следу выходило, что отбор прошёл без единой осечки. Запись рождалась только в очереди
     отбора, а :meth:`~torrcast.cli._Bench._honest` печатал свои отказы мимо неё.
     """
-    _own_trace(monkeypatch, tmp_path, "наруто")
     ranked = [
         rel(name="Кино [WEB-DL] a", quality=None, size_gb=3.14, seeders=140),
         rel(name="Кино [WEB-DL 1080p] b", size_gb=3.20, seeders=121),
     ]
-    _reads(
-        monkeypatch,
+    prober = _reads(
         ranked,
         Media(5977.0, (), "h264", 574, 1150),  # верх годен, но занижен
         Media(5977.0, (), "av1", 1080, 1920),  # сосед обещает больше, а внутри av1
     )
 
-    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer())), ranked)
+    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked)
 
     printed = capsys.readouterr().out
     assert prep.number == 1, "сосед не годится - играем то, что есть"
@@ -4156,26 +3945,24 @@ def test_a_release_turned_down_by_the_honesty_check_is_written_to_the_trace(
 
 
 def test_a_neighbour_that_is_no_better_is_a_record_of_the_trace_too(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+    capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:
     """🔴 TC-194. «Не лучше» - тоже отказ: сосед поднят, прочитан и отвергнут.
 
     Отличие от негодного только в причине: этот релиз играбелен, просто врёт именем так
     же, как верх. Для разбора недели разницы нет - раздачу трогали и от неё отказались.
     """
-    _own_trace(monkeypatch, tmp_path, "не-лучше")
     ranked = [
         rel(name="Кино [WEB-DL] a", quality=None, size_gb=3.14, seeders=140),
         rel(name="Кино [WEB-DL 1080p] b", codec=None, size_gb=3.20, seeders=121),
     ]
-    _reads(
-        monkeypatch,
+    prober = _reads(
         ranked,
         Media(5977.0, (), "h264", 574, 1150),
         Media(5977.0, (), "h264", 576, 1024),  # обещал 1080p, а внутри такой же SD
     )
 
-    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer())), ranked)
+    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked)
 
     printed = capsys.readouterr().out
     assert prep.number == 1 and "релиз 2 не лучше" in printed
@@ -4189,9 +3976,7 @@ class _Silent(_Spent):
         return []
 
 
-def _asked_reference(
-    monkeypatch: pytest.MonkeyPatch, found: list[Picture], args: cli.Args, spare: float = 9.0
-) -> tuple[Any, ...]:
+def _asked_reference(found: list[Picture], args: cli.Args, spare: float = 9.0) -> tuple[Any, ...]:
     """Чем и с каким потолком добор спросил справку. Круг при этом пустой."""
     from torrcast.facts import Origin
 
@@ -4201,13 +3986,14 @@ def _asked_reference(
         calls.append((name, series, budget))
         return Origin()
 
-    monkeypatch.setattr(cli, "origin", _spy)
     with Progress(out=io.StringIO()) as progress:
-        cli._second_language(cast(Any, _Silent(spare)), "клиника", args, [], found, progress)
+        cli._second_language(
+            cast(Any, _Silent(spare)), "клиника", args, [], found, progress, reference=_spy
+        )
     return calls[0]
 
 
-def test_добор_без_картины_спрашивает_справку_всерьёз(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_добор_без_картины_спрашивает_справку_всерьёз() -> None:
     """🔴 TC-243. Картины не нашлось - тут справка единственная опора, и зовут её всерьёз.
 
     Две наши причины разом. Первая: тип картины брать было неоткуда, и справка шла самым
@@ -4218,15 +4004,14 @@ def test_добор_без_картины_спрашивает_справку_в
 
     Счастливый путь не удлиняется: картина найдена - потолок прежний, а тип берётся у неё.
     """
-    monkeypatch.setenv("TORRCAST_LOG", "")
     from torrcast.facts import FACTS_BUDGET
     from torrcast.search import CIRCLE_SHARE
 
-    empty = _asked_reference(monkeypatch, [], cli.Args(query=["клиника", "s1e1"]))
+    empty = _asked_reference([], cli.Args(query=["клиника", "s1e1"]))
     assert empty == ("клиника", True, pytest.approx(9.0 - CIRCLE_SHARE))
 
     lean = Picture(title="Клиника", year=2001, kind="tv", releases=[rel(name="Клиника s01e01")])
-    thin = _asked_reference(monkeypatch, [lean], cli.Args(query=["клиника", "s1e1"]))
+    thin = _asked_reference([lean], cli.Args(query=["клиника", "s1e1"]))
     assert thin == ("клиника", True, FACTS_BUDGET), "картина есть - потолок прежний, тип от неё"
 
 
@@ -4257,9 +4042,7 @@ class _LateSecond(_Ceiling):
         return rows
 
 
-def test_добор_учитывает_готовую_опоздавшую_выдачу(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_добор_учитывает_готовую_опоздавшую_выдачу() -> None:
     """TC-410. Хвост первого круга участвует в отборе до показа списка.
 
     У раздачи нет латинской подписи, поэтому пустой второй круг её не повторит. Она уже
@@ -4270,9 +4053,6 @@ def test_добор_учитывает_готовую_опоздавшую_вы�
 
     late = [RawResult("Клиника S01 1080p", "e" * 40, 15 * 1024**3, 30)]
     client = _LateSecond(late)
-    monkeypatch.setattr(
-        cli, "origin", lambda *a, **k: Origin(title="Scrubs", year=2001, name="Клиника")
-    )
 
     with Progress(out=io.StringIO()) as progress:
         raw, _pictures, found = cli._second_language(
@@ -4282,6 +4062,7 @@ def test_добор_учитывает_готовую_опоздавшую_вы�
             [],
             [],
             progress,
+            reference=lambda *a, **k: Origin(title="Scrubs", year=2001, name="Клиника"),
         )
 
     assert client.asked == ["Scrubs"], "добор вторым именем действительно состоялся"
@@ -4290,9 +4071,7 @@ def test_добор_учитывает_готовую_опоздавшую_вы�
     assert client.late() == [], "готовый хвост забирается один раз"
 
 
-def test_короткое_имя_берёт_картину_из_первого_пула_по_паспорту(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_короткое_имя_берёт_картину_из_первого_пула_по_паспорту() -> None:
     """TC-411. Полное паспортное имя выбирает уже приехавшую картину без нового круга.
 
     Короткое ``lain`` само указывает на журнал, поэтому вес выдачи не может быть
@@ -4310,17 +4089,17 @@ def test_короткое_имя_берёт_картину_из_первого_�
     pictures = cluster(to_releases(raw))
     found = pick_franchise("lain", pictures)
     client = _Ceiling(9.0, [])
-    monkeypatch.setattr(
-        cli,
-        "origin",
-        lambda *a, **k: Origin(
-            title="Serial Experiments Lain", year=1998, name="Эксперименты Лэйн"
-        ),
-    )
+    passport = Origin(title="Serial Experiments Lain", year=1998, name="Эксперименты Лэйн")
 
     with Progress(out=io.StringIO()) as progress:
         _raw, _pictures, rescued = cli._second_language(
-            cast(Any, client), "lain", cli.Args(query=["lain"]), raw, found, progress
+            cast(Any, client),
+            "lain",
+            cli.Args(query=["lain"]),
+            raw,
+            found,
+            progress,
+            reference=lambda *a, **k: passport,
         )
 
     assert [picture.title for picture in found] == ["lainzine 1-5"], "короткое имя неоднозначно"
@@ -4330,9 +4109,7 @@ def test_короткое_имя_берёт_картину_из_первого_�
     assert client.asked == [], "картина уже в первом пуле - новый круг не нужен"
 
 
-def test_паспортное_имя_не_подменяет_картину_при_споре_года(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_паспортное_имя_не_подменяет_картину_при_споре_года() -> None:
     """Короткое имя не получает права выбрать тёзку с годом вопреки паспорту."""
     from torrcast.facts import Origin
     from torrcast.parse import cluster, pick_franchise
@@ -4344,9 +4121,7 @@ def test_паспортное_имя_не_подменяет_картину_пр
     ]
     pictures = cluster(to_releases(raw))
     client = _Ceiling(9.0, [])
-    monkeypatch.setattr(
-        cli, "origin", lambda *a, **k: Origin(title="Serial Experiments Lain", year=1998)
-    )
+    passport = Origin(title="Serial Experiments Lain", year=1998)
 
     with Progress(out=io.StringIO()) as progress:
         _raw, _pictures, found = cli._second_language(
@@ -4356,6 +4131,7 @@ def test_паспортное_имя_не_подменяет_картину_пр
             raw,
             pick_franchise("lain", pictures),
             progress,
+            reference=lambda *a, **k: passport,
         )
 
     assert [picture.title for picture in found] == ["lainzine 1-5"], (
@@ -4378,22 +4154,27 @@ def _nine_yards_pool() -> tuple[list[Any], list[Picture], list[Picture]]:
 
 
 def _refined(
-    monkeypatch: pytest.MonkeyPatch,
     about: Any,
     rows: list[Any],
 ) -> tuple[_Ceiling, io.StringIO, tuple[list[Any], list[Picture], list[Picture]]]:
     raw, pictures, found = _nine_yards_pool()
     client = _Ceiling(9.0, rows)
-    monkeypatch.setattr(cli, "origin", lambda *a, **k: about)
     out = io.StringIO()
     with Progress(out=out) as progress:
         result = cli._ceiling_reinforce(
-            cast(Any, client), "девять", cli.Args(query=["девять"]), raw, pictures, found, progress
+            cast(Any, client),
+            "девять",
+            cli.Args(query=["девять"]),
+            raw,
+            pictures,
+            found,
+            progress,
+            reference=lambda *a, **k: about,
         )
     return client, out, result
 
 
-def test_потолок_прячет_картину_и_добор_её_достаёт(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_потолок_прячет_картину_и_добор_её_достаёт() -> None:
     """🔴 TC-331. Выдача упёрлась в потолок, самой картины в ней нет - уточняем запрос.
 
     Живой случай: по запросу «девять» 21 раздача картины «Девять» (2009) лежит за
@@ -4407,7 +4188,7 @@ def test_потолок_прячет_картину_и_добор_её_дост�
 
     rows = [RawResult("Девять / Nine (2009) BDRip 1080p | D", "b" * 40, 9 * 1024**3, 7)]
     client, out, (_raw, _pictures, found) = _refined(
-        monkeypatch, Origin(title="Nine", year=2009, name="Девять"), rows
+        Origin(title="Nine", year=2009, name="Девять"), rows
     )
 
     assert client.asked == ["девять 2009"], "второй круг - уточнённым запросом"
@@ -4418,35 +4199,33 @@ def test_потолок_прячет_картину_и_добор_её_дост�
     assert "упёрлась в потолок" in out.getvalue(), "подмена не молчаливая"
 
 
-def test_уточнение_не_идёт_за_именем_без_поручительства(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_уточнение_не_идёт_за_именем_без_поручительства() -> None:
     """🔴 Гейт TC-253: имя, лишь признанное похожим, второго круга не заказывает."""
     from torrcast.facts import Origin
     from torrcast.search import RawResult
 
     rows = [RawResult("Девять / Nine (2009) BDRip 1080p | D", "b" * 40, 9 * 1024**3, 7)]
     about = Origin(title="Nine", year=2009, name="Девять", guessed=True)
-    client, _out, (raw, _pictures, found) = _refined(monkeypatch, about, rows)
+    client, _out, (raw, _pictures, found) = _refined(about, rows)
 
     assert client.asked == [], "имени без поручительства второй круг не достаётся"
     assert [p.title for p in found] == ["Девять ярдов"], "выдача остаётся прежней"
     assert len(raw) == 1
 
 
-def test_уточнению_нужен_год_справки(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_уточнению_нужен_год_справки() -> None:
     """Года у справки нет - уточнять нечем, и второго круга нет вовсе."""
     from torrcast.facts import Origin
     from torrcast.search import RawResult
 
     rows = [RawResult("Девять / Nine (2009) BDRip 1080p | D", "b" * 40, 9 * 1024**3, 7)]
-    client, _out, (_raw, _pictures, found) = _refined(
-        monkeypatch, Origin(title="Nine", name="Девять"), rows
-    )
+    client, _out, (_raw, _pictures, found) = _refined(Origin(title="Nine", name="Девять"), rows)
 
     assert client.asked == []
     assert [p.title for p in found] == ["Девять ярдов"]
 
 
-def test_уточнение_не_берёт_картину_с_чужим_именем_и_годом(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_уточнение_не_берёт_картину_с_чужим_именем_и_годом() -> None:
     """Уточнённый круг привёз соседей - прежняя выдача остаётся, подмены нет."""
     from torrcast.facts import Origin
     from torrcast.search import RawResult
@@ -4457,7 +4236,7 @@ def test_уточнение_не_берёт_картину_с_чужим_име�
         )
     ]
     about = Origin(title="Nine", year=2009, name="Девять")
-    client, out, (_raw, _pictures, found) = _refined(monkeypatch, about, rows)
+    client, out, (_raw, _pictures, found) = _refined(about, rows)
 
     assert client.asked == ["девять 2009"], "круг был - но ничего подписанного «девять»"
     assert [p.title for p in found] == ["Девять ярдов"], "соседи добором не считаются"
