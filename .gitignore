@@ -9,3 +9,4 @@ build/
 .ruff_cache/
 .pytest_cache/
 uv.lock
+docs/
