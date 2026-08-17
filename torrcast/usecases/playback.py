@@ -23,7 +23,9 @@ from torrcast.domain.revive_settings import (
     REVIVE_TRIES,
 )
 from torrcast.domain.start_refused_error import StartRefusedError
+from torrcast.domain.torrcast_error import TorrcastError
 from torrcast.domain.torr_file import TorrFile
+from torrcast.domain.why import why
 from torrcast.usecases.episode_duration import WORKER_DUR
 from torrcast.usecases.following import _following
 from torrcast.usecases.log_command import trace
@@ -90,10 +92,6 @@ from torrcast.ports.show_unit import ShowUnit
 clock_port = module("time")
 time = clock_port
 for _module_name, _names in {
-    "torrcast": (
-        "TorrcastError",
-        "why",
-    ),
     "torrcast.cast": (
         "ChromecastReceiver",
         "Receiver",

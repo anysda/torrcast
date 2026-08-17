@@ -1,12 +1,19 @@
 """Системное окружение сценария выбора."""
 
 # mypy: disable-error-code="no-any-return,no-untyped-def"
-
 import os
 import shutil
 from importlib import import_module
 from pathlib import Path
 from typing import Any
+
+from torrcast.adapters.console import console
+from torrcast.domain.debug_handles import CTL_ENV
+from torrcast.domain.facts.fact import Fact
+from torrcast.domain.facts.origin import Origin
+from torrcast.domain.facts.shorten import shorten
+from torrcast.domain.not_found_error import NotFoundError
+from torrcast.domain.rank_settings import ALIVE_SEEDERS
 
 
 class _SystemChoiceEnvironment:
@@ -14,15 +21,15 @@ class _SystemChoiceEnvironment:
 
     @property
     def alive_seeders(self) -> int:
-        return import_module("torrcast.commands").ALIVE_SEEDERS
+        return ALIVE_SEEDERS
 
     @property
     def ctl_env(self) -> str:
-        return import_module("torrcast.commands").CTL_ENV
+        return CTL_ENV
 
     @property
     def not_found_error(self) -> type[Exception]:
-        return import_module("torrcast").NotFoundError
+        return NotFoundError
 
     def read_command(self) -> str | None:
         name = os.environ.get(self.ctl_env)
@@ -42,11 +49,11 @@ class _SystemChoiceEnvironment:
 
     @staticmethod
     def stdin_is_tty() -> bool:
-        return import_module("torrcast.console").stdin_is_tty()
+        return console.stdin_is_tty()
 
     @staticmethod
     def ask(question: str, count: int, default: int | None = 1) -> int:
-        return import_module("torrcast.console").ask(question, count, default)
+        return console.ask(question, count, default)
 
     @staticmethod
     def columns() -> int:
@@ -54,11 +61,11 @@ class _SystemChoiceEnvironment:
 
     @staticmethod
     def fact():
-        return import_module("torrcast.facts").Fact()
+        return Fact()
 
     @staticmethod
     def empty_origin():
-        return import_module("torrcast.facts").Origin()
+        return Origin()
 
     @staticmethod
     def origin(title: str, series: bool):
@@ -66,7 +73,7 @@ class _SystemChoiceEnvironment:
 
     @staticmethod
     def shorten(text: str) -> str:
-        return import_module("torrcast.facts").shorten(text)
+        return shorten(text)
 
     @staticmethod
     def emit(event: str, action: str, **facts: object) -> None:

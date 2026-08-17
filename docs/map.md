@@ -307,7 +307,7 @@
 | `STEP_SERVICE` | константа | `torrcast/domain/audio_track.py` | 57 |
 | `STUDIOS` | константа | `torrcast/domain/studio.py` | 50 |
 | `SWARM_GRACE` | константа | `torrcast/domain/pick_settings.py` | 70 |
-| `Select` | класс | `torrcast/usecases/select.py` | 557 |
+| `Select` | класс | `torrcast/usecases/select.py` | 558 |
 | `ServeHealth` | класс | `torrcast/domain/serve_health.py` | 13 |
 | `ServerAddress` | класс | `torrcast/domain/server_address.py` | 7 |
 | `ServerDownError` | класс | `torrcast/domain/server_down_error.py` | 6 |

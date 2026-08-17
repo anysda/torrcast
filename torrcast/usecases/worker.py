@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+from torrcast.domain.torrcast_error import TorrcastError
+
 __all__ = [
     "Supply",
     "TorrcastError",
@@ -32,10 +34,13 @@ from torrcast.usecases.torrents import _own_torrent, _release_torrents
 from torrcast.usecases.worker_loop import _worker_loop
 
 for _module_name, _names in {
-    "torrcast": ("TorrcastError",),
     "torrcast.cast": ("make_receiver",),
     "torrcast.state": ("load_config",),
-    "torrcast.stream": ("PROBE_TIMEOUT", "Supply", "TorrServer"),
+    "torrcast.stream": (
+        "PROBE_TIMEOUT",
+        "Supply",
+        "TorrServer",
+    ),
     "torrcast.timing": ("mark",),
 }.items():
     _dependency = module(_module_name)

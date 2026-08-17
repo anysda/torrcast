@@ -4,6 +4,9 @@
 
 from __future__ import annotations
 
+from torrcast.domain.media import Media
+from torrcast.domain.torrcast_error import TorrcastError
+
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.profile import CAUTIOUS, COPY
 
@@ -68,7 +71,6 @@ from torrcast.ports.legacy_namespace import legacy_namespace
 
 globals().update(
     legacy_namespace(
-        torrcast=("TorrcastError",),
         torrcast__console=(
             "Progress",
             "ask_line",
@@ -77,7 +79,6 @@ globals().update(
         torrcast__state=("State",),
         torrcast__stream=(
             "ContactWait",
-            "Media",
             "TorrServer",
             "probe",
             "swarm_pulse",

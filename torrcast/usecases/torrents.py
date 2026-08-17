@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from torrcast.domain.config import Config
+from torrcast.domain.torrcast_error import TorrcastError
 
 __all__ = [
     "PROBE_TIMEOUT",
@@ -32,7 +33,6 @@ from torrcast.domain.torrent_hash import _BTIH, _torrent_hash
 from torrcast.ports.module import module
 
 for _module_name, _names in {
-    "torrcast": ("TorrcastError",),
     "torrcast.state": ("State",),
     "torrcast.stream": (
         "PROBE_TIMEOUT",
