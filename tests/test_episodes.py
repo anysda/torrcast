@@ -12,6 +12,7 @@ from typing import Any, ClassVar
 
 import pytest
 
+from tests.fakes.show_unit import FakeShowUnit
 from torrcast import cli
 from torrcast.state import Entry, State
 from torrcast.stream import Media, TorrFile
@@ -86,16 +87,19 @@ def _no_questions(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("builtins.input", refuse)
 
 
-def _no_unit(monkeypatch: pytest.MonkeyPatch, order: list[str] | None = None) -> list[str]:
+def _no_unit(
+    show_unit: FakeShowUnit, monkeypatch: pytest.MonkeyPatch, order: list[str] | None = None
+) -> list[str]:
     started: list[str] = []
     monkeypatch.setattr(cli, "start_play_unit", lambda key: started.append(key))
     monkeypatch.setattr(cli, "_await_playing", lambda config, progress, timeout=120.0: None)
     if order is not None:
-        monkeypatch.setattr(cli, "stop_play_unit", lambda: order.append("stop"))
+        show_unit.on_stop = lambda: order.append("stop")
     return started
 
 
 def test_the_previous_show_is_stopped_before_the_new_record_is_written(
+    show_unit: FakeShowUnit,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """🔴 Прыжок на серию затирался: умирающий юнит по SIGTERM дописывает СВОЮ позицию,
@@ -105,7 +109,7 @@ def test_the_previous_show_is_stopped_before_the_new_record_is_written(
     remember(episode=1, pos=600.0, dur=MINUTES_24)
     order: list[str] = []
     _no_questions(monkeypatch)
-    _no_unit(monkeypatch, order)
+    _no_unit(show_unit, monkeypatch, order)
     monkeypatch.setattr(State, "save", lambda self: order.append("save"))
 
     assert cli.main(["киберпанк", "s1e3"]) == 0
@@ -310,14 +314,14 @@ def test_the_unit_signs_its_torrent_in_the_state_and_unsigns_it_on_the_way_out(
 
 
 def test_a_series_continues_the_right_episode_from_the_right_place(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    show_unit: FakeShowUnit, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """`cast киберпанк` без аргументов: продолжает недосмотренную серию с позиции,
     вопросов не задаёт вовсе — релиз, дорожка и список серий уже выбраны.
     """
     remember(episode=2, file_idx=1, pos=300.0, dur=MINUTES_24)
     _no_questions(monkeypatch)
-    started = _no_unit(monkeypatch)
+    started = _no_unit(show_unit, monkeypatch)
 
     assert cli.main(["киберпанк"]) == 0
 
@@ -329,12 +333,12 @@ def test_a_series_continues_the_right_episode_from_the_right_place(
 
 
 def test_a_watched_episode_is_followed_by_the_next_one_without_questions(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    show_unit: FakeShowUnit, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Серия досмотрена до порога — `cast киберпанк` играет следующую с нуля."""
     remember(episode=3, file_idx=2, pos=0.0, dur=0.0)  # так выглядит запись после стыка
     _no_questions(monkeypatch)
-    _no_unit(monkeypatch)
+    _no_unit(show_unit, monkeypatch)
 
     assert cli.main(["киберпанк"]) == 0
 
@@ -342,11 +346,11 @@ def test_a_watched_episode_is_followed_by_the_next_one_without_questions(
 
 
 def test_an_episode_stopped_at_96_percent_starts_the_next_one(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    show_unit: FakeShowUnit, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     remember(episode=2, file_idx=1, pos=1382.4, dur=MINUTES_24)
     _no_questions(monkeypatch)
-    _no_unit(monkeypatch)
+    _no_unit(show_unit, monkeypatch)
 
     assert cli.main(["киберпанк"]) == 0
 
@@ -378,7 +382,7 @@ def test_the_last_episode_does_not_promise_an_automatic_restart(
 
 
 def test_a_named_episode_is_not_shadowed_by_the_watched_bookkeeping(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    show_unit: FakeShowUnit, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """🔴 Названная серия сильнее бухгалтерии досмотра: закладка стоит на s1e2 за долей,
     но человек попросил s1e1 - и обещать ему s1e3 нельзя. Пока бухгалтерия шла раньше
@@ -386,7 +390,7 @@ def test_a_named_episode_is_not_shadowed_by_the_watched_bookkeeping(
     """
     remember(episode=2, file_idx=1, pos=1382.4, dur=MINUTES_24)
     _no_questions(monkeypatch)
-    _no_unit(monkeypatch)
+    _no_unit(show_unit, monkeypatch)
 
     assert cli.main(["киберпанк", "s1e1"]) == 0
 
@@ -396,12 +400,12 @@ def test_a_named_episode_is_not_shadowed_by_the_watched_bookkeeping(
 
 
 def test_an_explicit_episode_jumps_inside_the_cached_release(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    show_unit: FakeShowUnit, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """`cast киберпанк s1e3`: прыжок по кэшу раздачи — ни поиска, ни вопросов."""
     remember(episode=1, pos=600.0, dur=MINUTES_24)
     _no_questions(monkeypatch)
-    _no_unit(monkeypatch)
+    _no_unit(show_unit, monkeypatch)
 
     assert cli.main(["киберпанк", "s1e3"]) == 0
 
@@ -438,12 +442,12 @@ def test_the_end_of_the_release_is_the_end(
 
 
 def test_the_finished_release_can_be_started_over(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    show_unit: FakeShowUnit, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """…а Enter на том же вопросе начинает раздачу сначала: выбор релиза не повторяется."""
     remember(episode=3, file_idx=2, done=True, dur=MINUTES_24)
     monkeypatch.setattr("builtins.input", lambda prompt="": "")
-    _no_unit(monkeypatch)
+    _no_unit(show_unit, monkeypatch)
 
     assert cli.main(["киберпанк"]) == 0
 
@@ -452,12 +456,12 @@ def test_the_finished_release_can_be_started_over(
 
 
 def test_status_names_the_episode(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    show_unit: FakeShowUnit, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """`cast status` о сериале говорит серией, а не только названием."""
     remember(episode=2, file_idx=1, pos=310.0, dur=MINUTES_24)
-    monkeypatch.setattr(cli, "unit_active", lambda: True)
-    monkeypatch.setattr(cli, "unit_key", lambda: KEY)
+    show_unit.alive = True
+    show_unit.playing = KEY
 
     assert cli.main(["status"]) == 0
 

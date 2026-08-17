@@ -2,25 +2,17 @@
 Заводит его цикл юнита (:func:`torrcast.usecases.worker._cmd_worker`).
 """
 
-# ruff: noqa: F821, F822
-
 from __future__ import annotations
 
 from torrcast.domain.entry import Entry
 
-__all__ = ["WATCH_SECONDS", "Entry", "State", "Watch", "dataclass", "field", "time"]
+__all__ = ["WATCH_SECONDS", "Entry", "Watch", "dataclass", "field", "time"]
 
 import time
 from dataclasses import dataclass, field
 
-from torrcast.ports.module import module
+from torrcast.ports.state_store import store
 from torrcast.usecases.rank import _hms
-
-for _module_name, _names in {
-    "torrcast.state": ("State",),
-}.items():
-    _dependency = module(_module_name)
-    globals().update({name: getattr(_dependency, name) for name in _names})
 
 #: Как часто сторож кладёт позицию в state, секунды.
 WATCH_SECONDS = 10.0
@@ -72,9 +64,10 @@ class Watch:
         if self.sealed:  # досмотренную запись повторными тиками не портим
             return
         self.last = time.monotonic()
-        state = State.load()  # перечитываем: рядом мог писать другой ход
+        keeper = store()
+        state = keeper.load()  # перечитываем: рядом мог писать другой ход
         state.put(self.key, self.entry.advance() if self.done else self.entry)
-        state.save()
+        keeper.save(state)
         if self.done:
             self.sealed = True
             what = f" {self.entry.label}" if self.entry.label else ""

@@ -350,7 +350,6 @@ def _env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         cli, "probe", lambda url, timeout=90.0, alive=None: Media(5978.0, MOANA2, "h264", 1080)
     )
     monkeypatch.setattr(cli, "start_play_unit", lambda key: None)
-    monkeypatch.setattr(cli, "stop_play_unit", lambda: None)
     monkeypatch.setattr(cli, "_await_playing", lambda config, progress, timeout=120.0: None)
 
 

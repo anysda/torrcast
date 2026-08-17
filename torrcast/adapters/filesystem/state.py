@@ -10,20 +10,18 @@ import json
 import os
 import tempfile
 from dataclasses import asdict, dataclass
-from importlib import import_module
 from pathlib import Path
 from typing import Any
 
 from torrcast.domain.config import Config
 from torrcast.domain.entry import Entry
+from torrcast.domain.torrcast_error import TorrcastError
 from torrcast.domain.watch_state import WatchState
-
-_package = import_module("torrcast")
-TorrcastError = _package.TorrcastError
 
 __all__ = [
     "Config",
     "Entry",
+    "FileStateStore",
     "State",
     "config_keys",
     "config_path",
@@ -122,3 +120,25 @@ def _write_atomic(path: Path, payload: dict[str, Any]) -> None:
     except OSError as exc:
         tmp.unlink(missing_ok=True)
         raise TorrcastError(f"не смог записать {path}: {exc}") from exc
+
+
+class FileStateStore:
+    """Состояние просмотра в файле: за портом :class:`~torrcast.ports.state_store.StateStore`.
+
+    Своего кода тут нет ни строчки - чтение и атомарная запись живут в :class:`State`,
+    а этот класс только называет их именами договора. Заводится он один на процесс и
+    состояния в себе не держит: каждый :meth:`load` перечитывает файл, потому что рядом
+    пишет другой ход показа.
+    """
+
+    def load(self) -> WatchState:
+        """Прочитать состояние целиком."""
+        return State.load()
+
+    def save(self, state: WatchState) -> None:
+        """Записать состояние целиком, атомарно.
+
+        Пишет его :meth:`State.save`, а не своя раскладка того же файла: две раскладки
+        разошлись бы молча, и половина показа читала бы одно, а половина писала другое.
+        """
+        State(state.entries).save()

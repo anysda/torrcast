@@ -7,24 +7,29 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
+from torrcast.adapters.filesystem.state import load_config
+from torrcast.adapters.http_server.stream_serve import hls_base
 from torrcast.adapters.unit_playback_session import UnitPlaybackSession
-from torrcast.ports.module import module
+from torrcast.ports.show_unit import unit
+from torrcast.ports.state_store import store
+from torrcast.usecases.cache_reserve import _cache_reserve
+from torrcast.usecases.torrents import _release_torrents
 
 
 def playback_session(configuration: Callable[[], Any] | None = None) -> UnitPlaybackSession:
-    """Сеанс показа с зависимостями, взятыми у неразложенного модуля команд.
+    """Сеанс показа со звеньями, взятыми из их настоящих домов.
 
-    Имена спрашиваются у модуля в момент сборки, а не связываются на импорте: так
-    диагностическая или тестовая подмена одного звена доезжает до сценария целиком.
+    Собирает его корень - единственный слой, которому разрешено видеть адаптеры разом.
+    Состояние приходит не адаптером, а портом: кто его хранит, решено выше по сборке
+    (:func:`torrcast.runtime.wire.wire`), и здесь это уже не забота сеанса.
     """
-    legacy = module("torrcast.commands")
     return UnitPlaybackSession(
-        configuration=configuration if configuration is not None else legacy.load_config,
-        state=legacy.State.load,
-        active=legacy.unit_active,
-        unit_key=legacy.unit_key,
-        stop_unit=legacy.stop_play_unit,
-        release_torrents=legacy._release_torrents,
-        cache_reserve=legacy._cache_reserve,
-        stream_address=legacy.hls_base,
+        configuration=configuration if configuration is not None else load_config,
+        state=lambda: store().load(),
+        active=lambda: unit().active(),
+        unit_key=lambda: unit().key(),
+        stop_unit=lambda: unit().stop(),
+        release_torrents=_release_torrents,
+        cache_reserve=_cache_reserve,
+        stream_address=hls_base,
     )

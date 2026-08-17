@@ -1,17 +1,16 @@
-"""Сборка сеанса показа берёт звенья у модуля команд в момент вызова, а не на импорте."""
+"""Сборка сеанса показа: звенья из их настоящих домов, а юнит - с порта."""
 
 from typing import Any
 
-import pytest
-
-from torrcast import commands
+from tests.fakes.show_unit import FakeShowUnit
 from torrcast.adapters.unit_playback_session import UnitPlaybackSession
 from torrcast.runtime.playback_session import playback_session
 
 
-def test_the_session_is_built_from_the_command_module(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(commands, "unit_active", lambda: True)
-    monkeypatch.setattr(commands, "unit_key", lambda: "movie:моана-2")
+def test_the_session_asks_the_unit_that_the_root_installed(show_unit: FakeShowUnit) -> None:
+    """Живость и ключ показа сеанс спрашивает у назначенного юнита, а не у systemd."""
+    show_unit.alive = True
+    show_unit.playing = "movie:моана-2"
 
     session = playback_session()
 

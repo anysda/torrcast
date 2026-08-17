@@ -18,10 +18,13 @@ from typing import TYPE_CHECKING, Any
 import pytest
 
 from tests.fakes.cast_world import CastWorld
+from tests.fakes.show_unit import FakeShowUnit
 from torrcast import cli, console, trace
 from torrcast.facts import Origin
 from torrcast.ports import journal as journal_port
 from torrcast.ports import progress as progress_port
+from torrcast.ports import show_unit as unit_port
+from torrcast.ports import state_store as state_port
 from torrcast.runtime.wire import wire
 
 if TYPE_CHECKING:
@@ -341,9 +344,28 @@ def _ports_restored() -> Iterator[None]:
     """
     saved_journal = journal_port.journal()
     saved_progress = progress_port.factory()
+    saved_state = state_port.store()
+    saved_unit = unit_port.unit()
     yield
     journal_port.install(saved_journal)
     progress_port.install(saved_progress)
+    state_port.install(saved_state)
+    unit_port.install(saved_unit)
+
+
+@pytest.fixture(autouse=True)
+def show_unit(_ports_restored: None) -> FakeShowUnit:
+    """Юнит показа под тестом - подделка, и это не удобство, а запрет.
+
+    Настоящий (:class:`torrcast.adapters.systemd.transient_show_unit.TransientShowUnit`)
+    зовёт ``systemctl`` хозяйской машины: спрашивает живой показ, читает journald и гасит
+    юнит. Прогон не имеет права этого делать ни разу, поэтому подделка ставится ВСЕМ
+    тестам, а не тем, кто про неё вспомнил. По умолчанию не играет ничего; тесту, которому
+    нужен идущий показ, достаточно ``show_unit.alive = True``.
+    """
+    fake = FakeShowUnit()
+    unit_port.install(fake)
+    return fake
 
 
 @pytest.fixture

@@ -5,7 +5,7 @@ from torrcast.ports.show_unit import ShowUnit
 
 
 def test_a_stopped_unit_is_not_alive_any_more() -> None:
-    fake = FakeShowUnit()
+    fake = FakeShowUnit(alive=True)
     port: ShowUnit = fake
 
     assert port.active() and port.why() == "юнит ещё идёт к картинке"

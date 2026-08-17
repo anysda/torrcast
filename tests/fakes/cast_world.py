@@ -4,6 +4,9 @@
 неё ещё не дошёл. Поэтому стенд один раз ставит на их место переходники, которые в момент
 вызова спрашивают ЭТОТ объект, - и тест собирает мир полями, а не подменами по месту.
 Когда у команды появится композиционный корень, менять придётся только этот файл.
+
+Юнит показа - уже не подмена: он ставится на свой порт (:mod:`torrcast.ports.show_unit`),
+и это видно по единственному звену, которое стенд отдаёт объектом, а не именем модуля.
 """
 
 from __future__ import annotations
@@ -15,6 +18,31 @@ from typing import Any
 import pytest
 
 from torrcast import cli, console
+from torrcast.ports import show_unit as unit_port
+
+
+@dataclass
+class _WorldShowUnit:
+    """Юнит показа этого стенда: отвечает полями мира, а не systemd.
+
+    Ставится он на порт (:mod:`torrcast.ports.show_unit`), а не подменой имени в модуле:
+    у юнита разрез уже прошёл, и стенду незачем знать, каким именем показ спрашивал бы
+    systemd. Возвращает порт на место фикстура ``_ports_restored``.
+    """
+
+    world: CastWorld
+
+    def active(self) -> bool:
+        return self.world.playing
+
+    def why(self) -> str:
+        return "юнита на стенде нет"
+
+    def stop(self) -> None:
+        self.world.stops += 1
+
+    def key(self) -> str:
+        return self.world.key
 
 
 @dataclass
@@ -55,9 +83,7 @@ class CastWorld:
         patch.setattr(cli, "TorrServer", self._torrents)
         patch.setattr(cli, "probe", self._probe)
         patch.setattr(cli, "start_play_unit", self._start)
-        patch.setattr(cli, "stop_play_unit", self._stop)
-        patch.setattr(cli, "unit_active", self._active)
-        patch.setattr(cli, "unit_key", self._key)
+        unit_port.install(_WorldShowUnit(self))
         patch.setattr(cli, "_await_playing", self._await)
         patch.setattr(cli, "warm_file", self._warm)
         patch.setattr(console, "stdin_is_tty", lambda: self.tty)
@@ -89,15 +115,6 @@ class CastWorld:
         иначе второй запуск подряд видел бы юнит, которого на стенде нет.
         """
         self.started.append(key)
-
-    def _stop(self) -> None:
-        self.stops += 1
-
-    def _active(self, *args: object, **kwargs: object) -> bool:
-        return self.playing
-
-    def _key(self, *args: object, **kwargs: object) -> str:
-        return self.key
 
     def _await(self, config: Any, progress: Any, timeout: float = 120.0) -> None:
         self.awaited += 1

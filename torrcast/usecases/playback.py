@@ -64,9 +64,9 @@ __all__ = [
     "hls_base", "make_receiver",
     "mark_playing", "os", "pick_video_file",
     "playing_flag", "probe", "recode_note",
-    "recodes_whole", "start_play_unit", "stop_play_unit",
+    "recodes_whole", "start_play_unit",
     "time",
-    "unit_active", "unit_why", "warm_file",
+    "warm_file",
     "warm_key", "warm_root", "whole_encode",
     "why",
 ]
@@ -90,6 +90,7 @@ from typing import Any, NoReturn
 from torrcast.domain.entry import ENDING_RATIO
 from torrcast.ports.module import module
 from torrcast.ports.show_unit import ShowUnit
+from torrcast.ports.show_unit import unit as show_unit
 
 clock_port = module("time")
 time = clock_port
@@ -119,9 +120,6 @@ for _module_name, _names in {
         "playing_flag",
         "probe",
         "start_play_unit",
-        "stop_play_unit",
-        "unit_active",
-        "unit_why",
         "warm_file",
     ),
     "torrcast.timing": (
@@ -175,7 +173,7 @@ def _launch(
     _refuse_hopeless(config, entry)
     # Сначала гасим прошлый показ и только потом пишем свою запись: умирающий юнит по
     # SIGTERM дописывает СВОЮ позицию, и записанный раньше прыжок на s1e5 он бы затёр.
-    stop_play_unit()
+    show_unit().stop()
     state = State.load()
     # Темнота прошлого показа новому не наследуется. Снимает отметку тот же сторож, что
     # её ставит (:attr:`torrcast.state.Entry.dark`), но у убитого по SIGKILL юнита сторожа
@@ -226,23 +224,6 @@ def _refuse_hopeless(config: Config, entry: Entry) -> None:
     )
 
 
-class _SystemdShowUnit:
-    """Юнит показа поверх прежних функций systemd - боевое умолчание ожидания картинки.
-
-    Имена берутся из глобалей модуля в момент вызова: так подмена одного звена
-    (диагностика, сухой прогон соседнего теста) доезжает до ожидания целиком.
-    """
-
-    def active(self) -> bool:
-        return bool(unit_active())
-
-    def why(self) -> str:
-        return str(unit_why())
-
-    def stop(self) -> None:
-        stop_play_unit()
-
-
 def _await_playing(
     config: Config,
     progress: Progress,
@@ -260,10 +241,10 @@ def _await_playing(
 
     ``clock`` и ``unit`` - выдержка ожидания и сам юнит показа
     (:class:`torrcast.ports.show_unit.ShowUnit`). Боевой путь ждёт настоящими секундами и
-    спрашивает systemd; сухому прогону дают свои часы и свой юнит, иначе тест выжидал бы
-    весь бюджет старта по-настоящему.
+    спрашивает тот юнит, что поставил композиционный корень; сухому прогону дают свои
+    часы и свой юнит прямо здесь, иначе тест выжидал бы весь бюджет старта по-настоящему.
     """
-    unit = unit if unit is not None else _SystemdShowUnit()
+    unit = unit if unit is not None else show_unit()
     out = Path(config.hls_dir)
     flag = playing_flag(out)
     deadline = clock.monotonic() + timeout

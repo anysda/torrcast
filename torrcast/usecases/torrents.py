@@ -14,7 +14,6 @@ __all__ = [
     "_BTIH",
     "Config",
     "Sequence",
-    "State",
     "TorrcastError",
     "TorrServer",
     "_held_by_show",
@@ -23,23 +22,20 @@ __all__ = [
     "_release_torrents",
     "_torrent_hash",
     "contextlib",
-    "unit_active",
 ]
 
 import contextlib
 from collections.abc import Sequence
 
+from torrcast.domain.probe_settings import PROBE_TIMEOUT
 from torrcast.domain.torrent_hash import _BTIH, _torrent_hash
 from torrcast.ports.module import module
+from torrcast.ports.show_unit import unit
+from torrcast.ports.state_store import store
 
-for _module_name, _names in {
-    "torrcast.state": ("State",),
-    "torrcast.stream": (
-        "PROBE_TIMEOUT",
-        "TorrServer",
-        "unit_active",
-    ),
-}.items():
+# Служба раздач своего порта пока не имеет: он идёт вместе с медиатрактом. Здесь остался
+# ровно он один - остальное разошлось по домам выше.
+for _module_name, _names in {"torrcast.stream": ("TorrServer",)}.items():
     _dependency = module(_module_name)
     globals().update({name: getattr(_dependency, name) for name in _names})
 
@@ -84,7 +80,7 @@ def _own_torrent(key: str, torrent_hash: str) -> None:
 
     Состояние перечитывается: рядом мог писать сторож позиции.
     """
-    state = State.load()
+    state = store().load()
     entry = state.get(key)
     if entry is None or entry.torrent == torrent_hash:
         return
@@ -109,11 +105,11 @@ def _release_orphans(config: Config) -> None:
     убрала, а запись - единственное, чем эту раздачу вообще можно снести: стерев её за
     молчание, мы делали сироту вечной. Не убралось - не забываем, попробуем в другой раз.
     """
-    state = State.load()
+    state = store().load()
     orphans = {key: entry.torrent for key, entry in state if entry.torrent}
     if not orphans:  # обычный случай, и он не стоит ни одного вопроса systemd
         return
-    if unit_active():  # показ идёт - раздача под ним живая, и она не сирота
+    if unit().active():  # показ идёт - раздача под ним живая, и она не сирота
         return
     gone = set(_release_torrents(config, list(orphans.values())))
     if not gone:  # службы нет - сироты остались сиротами, и запись о них тоже
@@ -134,11 +130,12 @@ def _held_by_show(torrent_hash: str) -> bool:
     спрашивает состояние.
 
     Счётчика владения тут не нужно: двух держателей не бывает по устройству
-    (:meth:`torrcast.state.State.held`). А systemd нарочно не спрашивается: так нет ни окна
-    гонки на старте юнита (``is-active`` отвечает «active» не в первую же секунду), ни
-    цены на счастливом пути - одно чтение файла на снос, а сносы не горячий путь.
+    (:meth:`torrcast.domain.watch_state.WatchState.held`). А systemd нарочно не спрашивается:
+    так нет ни окна гонки на старте юнита (``is-active`` отвечает «active» не в первую же
+    секунду), ни цены на счастливом пути - одно чтение файла на снос, а сносы не горячий
+    путь.
 
     Цена консервативности: хэш, забытый убитым юнитом (SIGKILL), прогрев сносить не
     станет - за него уберёт :func:`_release_orphans` при следующем запуске показа.
     """
-    return bool(torrent_hash) and torrent_hash in State.load().held()
+    return bool(torrent_hash) and torrent_hash in store().load().held()

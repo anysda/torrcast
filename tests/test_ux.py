@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pytest
 
+from tests.fakes.show_unit import FakeShowUnit
 from torrcast import cli
 from torrcast.search import RawResult
 from torrcast.state import Config, Entry, State, save_config
@@ -48,7 +49,6 @@ def _env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         cli, "probe", lambda url, timeout=90.0, alive=None: Media(5978.0, TRACKS, "h264", 1080)
     )
     monkeypatch.setattr(cli, "start_play_unit", lambda key: None)
-    monkeypatch.setattr(cli, "stop_play_unit", lambda: None)
     monkeypatch.setattr(cli, "_await_playing", lambda config, progress, timeout=120.0: None)
 
 
@@ -386,7 +386,7 @@ def test_releases_ties_each_number_to_its_picture(capsys: pytest.CaptureFixture[
 
 
 def test_the_start_time_means_a_picture_on_the_screen(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    show_unit: FakeShowUnit, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """«Старт NN с» обязан означать картинку, а не «упаковка пошла».
 
@@ -399,7 +399,7 @@ def test_the_start_time_means_a_picture_on_the_screen(
     out = tmp_path / "hls"
     out.mkdir(parents=True, exist_ok=True)
     forget_playing(out)
-    monkeypatch.setattr(cli, "unit_active", lambda: True)
+    show_unit.alive = True  # юнит жив: ждать нам мешает только отсутствие картинки
     config = Config(hls_dir=str(out))
 
     with pytest.raises(Exception, match="показ не начался"), Progress() as progress:
@@ -850,7 +850,7 @@ def test_two_pictures_under_one_name_reach_the_last_line(
     assert "«Моана (фильм, 2026)»" in printed
 
 
-def _live_show(monkeypatch: pytest.MonkeyPatch) -> None:
+def _live_show(show_unit: FakeShowUnit) -> None:
     """Состояние живого показа: юнит поднят и держит другую картину."""
     state = State.load()
     state.put(
@@ -863,11 +863,11 @@ def _live_show(monkeypatch: pytest.MonkeyPatch) -> None:
         ),
     )
     state.save()
-    monkeypatch.setattr(cli, "unit_active", lambda *a, **k: True)
+    show_unit.alive = True
 
 
 def test_a_second_cast_says_the_tv_is_busy_with_our_show(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    show_unit: FakeShowUnit, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """🔴 TC-482. Один телевизор - один показ, и вторая команда говорит это словами зрителя.
 
@@ -875,7 +875,7 @@ def test_a_second_cast_says_the_tv_is_busy_with_our_show(
     на экране уже идёт фильм, ни слова о том, что выбор его оборвёт. Зритель узнавал об
     этом по погасшей картинке.
     """
-    _live_show(monkeypatch)
+    _live_show(show_unit)
     _answers(monkeypatch, "2", "")
 
     assert cli.main(["моана"]) == 0
@@ -887,6 +887,7 @@ def test_a_second_cast_says_the_tv_is_busy_with_our_show(
 
 
 def test_the_menu_prewarm_stands_aside_while_our_show_is_on_air(
+    show_unit: FakeShowUnit,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """🔴 TC-482. Пока идёт показ, прогрев под меню не поднимает ни одной раздачи.
@@ -904,7 +905,7 @@ def test_the_menu_prewarm_stands_aside_while_our_show_is_on_air(
             return f"hash-{magnet[:30]}"
 
     monkeypatch.setattr(cli, "TorrServer", _Counting)
-    _live_show(monkeypatch)
+    _live_show(show_unit)
 
     under_question: list[int] = []
 

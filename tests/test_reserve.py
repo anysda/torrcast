@@ -12,6 +12,7 @@ from typing import Any, ClassVar
 
 import pytest
 
+from tests.fakes.show_unit import FakeShowUnit
 from torrcast import cli
 from torrcast.state import Config, Entry, State
 from torrcast.stream import ServerDownError
@@ -126,15 +127,15 @@ def test_tiny_reserve_is_honest(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_status_prints_the_reserve(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    show_unit: FakeShowUnit, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """`cast status` во время показа говорит запас кэша рядом с позицией."""
     _server(monkeypatch, {"Capacity": 8 * 1024**3, "Filled": 500_000_000})
     state = State()
     state.put(KEY, _entry())
     state.save()
-    monkeypatch.setattr(cli, "unit_active", lambda: True)
-    monkeypatch.setattr(cli, "unit_key", lambda: KEY)
+    show_unit.alive = True
+    show_unit.playing = KEY
 
     assert cli.main(["status"]) == 0
 
@@ -144,15 +145,15 @@ def test_status_prints_the_reserve(
 
 
 def test_status_survives_dead_service(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    show_unit: FakeShowUnit, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Мёртвая служба сужает статус до «не знаю», сам статус работает."""
     _server(monkeypatch, None)
     state = State()
     state.put(KEY, _entry())
     state.save()
-    monkeypatch.setattr(cli, "unit_active", lambda: True)
-    monkeypatch.setattr(cli, "unit_key", lambda: KEY)
+    show_unit.alive = True
+    show_unit.playing = KEY
 
     assert cli.main(["status"]) == 0
 

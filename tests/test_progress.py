@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pytest
 
+from tests.fakes.show_unit import FakeShowUnit
 from torrcast import InfraError, cli
 from torrcast.state import Entry, State, load_config
 from torrcast.stream import unit_active, unit_why
@@ -233,7 +234,7 @@ def test_watched_movie_restarts_without_a_question(
 
 
 def test_dry_resume_does_not_touch_the_unit(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    show_unit: FakeShowUnit, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     remember(pos=2467.0, dur=5978.0)
     monkeypatch.setattr("builtins.input", lambda prompt="": "")
@@ -243,14 +244,15 @@ def test_dry_resume_does_not_touch_the_unit(
 
     assert cli.main(["моана", "2", "--dry"]) == 0
     assert "каста нет" in capsys.readouterr().out
+    assert show_unit.stops == [], "--dry не поднимает юнит, но и чужой показ не гасит"
 
 
 def test_status_is_honest_when_nothing_plays(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    show_unit: FakeShowUnit, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Юнита нет — «ничего не играет», но недосмотренное кино назвать не грех."""
     remember(pos=2467.0, dur=5978.0)
-    monkeypatch.setattr(cli, "unit_active", lambda: False)
+    show_unit.alive = False
 
     assert cli.main(["status"]) == 0
 
@@ -260,7 +262,7 @@ def test_status_is_honest_when_nothing_plays(
 
 
 def test_status_tells_about_a_show_that_died_without_a_single_frame(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    show_unit: FakeShowUnit, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Показ умер, не показав ничего, - `cast status` обязан сказать об этом.
 
@@ -272,7 +274,7 @@ def test_status_tells_about_a_show_that_died_without_a_single_frame(
     есть ответ на вопрос «почему экран чёрный».
     """
     remember(pos=0.0, dur=5978.0, dark=time.time(), dark_why="приёмник бросил показ")
-    monkeypatch.setattr(cli, "unit_active", lambda: False)
+    show_unit.alive = False
 
     assert cli.main(["status"]) == 0
 
@@ -283,11 +285,11 @@ def test_status_tells_about_a_show_that_died_without_a_single_frame(
 
 
 def test_status_shows_what_is_playing_and_from_where(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    show_unit: FakeShowUnit, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Живой юнит: что играет, позиция/длительность, источник."""
     remember(pos=2467.0, dur=5978.0, audio=1, file_idx=2)
-    monkeypatch.setattr(cli, "unit_active", lambda: True)
+    show_unit.alive = True
 
     assert cli.main(["status"]) == 0
 
@@ -297,7 +299,7 @@ def test_status_shows_what_is_playing_and_from_where(
 
 
 def test_status_does_not_call_a_black_screen_a_show(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    show_unit: FakeShowUnit, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Юнит жив, а картинки нет - статус говорит про темноту, а не «играю».
 
@@ -307,7 +309,7 @@ def test_status_does_not_call_a_black_screen_a_show(
     чёрный экран, которому инструмент выдавал справку о здоровье.
     """
     remember(pos=2467.0, dur=5978.0, dark=time.time() - 200.0, dark_why="TorrServer не отвечает")
-    monkeypatch.setattr(cli, "unit_active", lambda: True)
+    show_unit.alive = True
 
     assert cli.main(["status"]) == 0
 
@@ -318,7 +320,7 @@ def test_status_does_not_call_a_black_screen_a_show(
 
 
 def test_status_names_the_unit_key_not_the_freshest_record(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    show_unit: FakeShowUnit, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Играющее определяется по ``--description`` юнита: рядом мог писать другой запуск,
     и «самая свежая запись» назвала бы чужую картину.
@@ -327,8 +329,8 @@ def test_status_names_the_unit_key_not_the_freshest_record(
     state = State.load()  # запись свежее, но она НЕ играет
     state.put("movie:чужое-кино:2020", Entry(title="Чужое кино", magnet="magnet:?xt=2", pos=10.0))
     state.save()
-    monkeypatch.setattr(cli, "unit_active", lambda: True)
-    monkeypatch.setattr(cli, "unit_key", lambda: KEY)
+    show_unit.alive = True
+    show_unit.playing = KEY
 
     assert cli.main(["status"]) == 0
 
@@ -337,7 +339,7 @@ def test_status_names_the_unit_key_not_the_freshest_record(
 
 
 def test_stop_reports_the_playing_record_and_asks_the_unit_before_killing_it(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    show_unit: FakeShowUnit, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """У мёртвого юнита описания уже не спросишь — ключ снимается до `systemctl stop`."""
     remember(pos=660.0, dur=5978.0)
@@ -347,9 +349,9 @@ def test_stop_reports_the_playing_record_and_asks_the_unit_before_killing_it(
         order.append("key")
         return KEY
 
-    monkeypatch.setattr(cli, "unit_active", lambda: True)
-    monkeypatch.setattr(cli, "unit_key", ask_the_unit)
-    monkeypatch.setattr(cli, "stop_play_unit", lambda: order.append("stop"))
+    show_unit.alive = True
+    show_unit.on_key = ask_the_unit
+    show_unit.on_stop = lambda: order.append("stop")
 
     assert cli.main(["stop"]) == 0
 
@@ -358,13 +360,13 @@ def test_stop_reports_the_playing_record_and_asks_the_unit_before_killing_it(
 
 
 def test_stop_kills_the_unit_and_reports_the_fixed_position(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    show_unit: FakeShowUnit, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """`cast stop`: юнит гасится, позицию в state дописывает сам юнит по SIGTERM."""
     remember(pos=660.0, dur=5978.0)
     stopped: list[bool] = []
-    monkeypatch.setattr(cli, "unit_active", lambda: True)
-    monkeypatch.setattr(cli, "stop_play_unit", lambda: stopped.append(True))
+    show_unit.alive = True
+    show_unit.on_stop = lambda: stopped.append(True)
 
     assert cli.main(["stop"]) == 0
 
@@ -373,10 +375,9 @@ def test_stop_kills_the_unit_and_reports_the_fixed_position(
 
 
 def test_stop_without_playback_says_so(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    show_unit: FakeShowUnit, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    monkeypatch.setattr(cli, "unit_active", lambda: False)
-    monkeypatch.setattr(cli, "stop_play_unit", lambda: None)
+    show_unit.alive = False
 
     assert cli.main(["stop"]) == 0
     assert capsys.readouterr().out.strip() == "ничего не играет"
@@ -412,6 +413,7 @@ class _Torrents:
 
 
 def test_stop_takes_the_torrent_down_with_the_show(
+    show_unit: FakeShowUnit,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """🔴 `cast stop` гасил юнит, а раздача оставалась жить в TorrServer до его перезапуска.
@@ -424,9 +426,8 @@ def test_stop_takes_the_torrent_down_with_the_show(
     """
     remember(pos=660.0, dur=5978.0, magnet=PLAYED)
     torrents = _Torrents()
-    monkeypatch.setattr(cli, "unit_active", lambda: True)
-    monkeypatch.setattr(cli, "unit_key", lambda: KEY)
-    monkeypatch.setattr(cli, "stop_play_unit", lambda: None)
+    show_unit.alive = True
+    show_unit.playing = KEY
     monkeypatch.setattr(cli, "TorrServer", torrents)
 
     assert cli.main(["stop"]) == 0
@@ -434,15 +435,16 @@ def test_stop_takes_the_torrent_down_with_the_show(
     assert torrents.dropped == [HASH], "снят ровно свой хэш, в нижнем регистре и один раз"
 
 
-def test_stop_with_nothing_playing_touches_no_torrent(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_stop_with_nothing_playing_touches_no_torrent(
+    show_unit: FakeShowUnit, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Ничего не играло - ничего и не сносим: ту же раздачу может прямо сейчас греть
     чужой ход, и «на всякий случай» её убирать нельзя.
     """
     remember(pos=660.0, dur=5978.0, magnet=PLAYED)
     torrents = _Torrents()
-    monkeypatch.setattr(cli, "unit_active", lambda: False)
-    monkeypatch.setattr(cli, "unit_key", lambda: "")
-    monkeypatch.setattr(cli, "stop_play_unit", lambda: None)
+    show_unit.alive = False
+    show_unit.playing = ""
     monkeypatch.setattr(cli, "TorrServer", torrents)
 
     assert cli.main(["stop"]) == 0
@@ -455,6 +457,7 @@ ORPHAN = "aa11bb22cc33dd44ee55ff6677889900aabbccdd"
 
 
 def test_the_next_cast_takes_down_the_torrent_of_a_killed_unit(
+    show_unit: FakeShowUnit,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """🔴 Юнит, убитый SIGKILL, оставлял раздачу в TorrServer навсегда: хэш знал только
@@ -467,7 +470,7 @@ def test_the_next_cast_takes_down_the_torrent_of_a_killed_unit(
     remember(pos=2467.0, dur=5978.0, torrent=ORPHAN)
     torrents = _Torrents()
     monkeypatch.setattr(cli, "TorrServer", torrents)
-    monkeypatch.setattr(cli, "unit_active", lambda: False)
+    show_unit.alive = False
     monkeypatch.setattr(cli, "start_play_unit", lambda key: None)
     monkeypatch.setattr(cli, "_await_playing", lambda config, progress, timeout=120.0: None)
     monkeypatch.setattr("builtins.input", lambda prompt="": "")
@@ -482,7 +485,9 @@ def test_the_next_cast_takes_down_the_torrent_of_a_killed_unit(
     assert torrents.dropped == [], "второй раз убирать нечего, и это не ошибка"
 
 
-def test_a_live_show_keeps_its_torrent(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_live_show_keeps_its_torrent(
+    show_unit: FakeShowUnit, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Запись есть, а юнит ЖИВ - раздача его: трогать её нельзя, иначе показ на экране
     останется без источника. Мёртвым хозяин считается по живости процесса, а не по факту
     записи.
@@ -490,7 +495,7 @@ def test_a_live_show_keeps_its_torrent(monkeypatch: pytest.MonkeyPatch) -> None:
     remember(pos=2467.0, dur=5978.0, torrent=ORPHAN)
     torrents = _Torrents()
     monkeypatch.setattr(cli, "TorrServer", torrents)
-    monkeypatch.setattr(cli, "unit_active", lambda: True)
+    show_unit.alive = True
 
     cli._release_orphans(load_config())
 
@@ -499,6 +504,7 @@ def test_a_live_show_keeps_its_torrent(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_a_torrent_the_service_did_not_take_down_is_not_forgotten(
+    show_unit: FakeShowUnit,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """🔴 Молчание службы - не уборка, а хэш забывался всё равно, и раздача становилась
@@ -512,7 +518,7 @@ def test_a_torrent_the_service_did_not_take_down_is_not_forgotten(
     remember(pos=2467.0, dur=5978.0, torrent=ORPHAN)
     torrents = _Torrents(up=False)
     monkeypatch.setattr(cli, "TorrServer", torrents)
-    monkeypatch.setattr(cli, "unit_active", lambda: False)
+    show_unit.alive = False
 
     cli._release_orphans(load_config())
 

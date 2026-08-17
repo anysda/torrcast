@@ -2451,7 +2451,7 @@ def test_the_cli_never_kills_a_show_that_is_still_inside_the_units_budget(
     )
     assert phases <= cli.START_BUDGET, "CLI сдаётся раньше, чем юнит исчерпал своё право"
 
-    clock, unit = FakeClock(), FakeShowUnit()
+    clock, unit = FakeClock(), FakeShowUnit(alive=True)
 
     class _Mute:
         def phase(self, text: str) -> None: ...
