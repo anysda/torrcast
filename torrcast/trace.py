@@ -7,18 +7,6 @@
 """
 
 from torrcast.adapters.filesystem.trace_journal import (
-    _BATCH as _BATCH,
-)
-from torrcast.adapters.filesystem.trace_journal import (
-    _PREFIX as _PREFIX,
-)
-from torrcast.adapters.filesystem.trace_journal import (
-    _QUEUE_MAX as _QUEUE_MAX,
-)
-from torrcast.adapters.filesystem.trace_journal import (
-    _SUFFIX as _SUFFIX,
-)
-from torrcast.adapters.filesystem.trace_journal import (
     LOG_ENV as LOG_ENV,
 )
 from torrcast.adapters.filesystem.trace_journal import (
@@ -32,21 +20,6 @@ from torrcast.adapters.filesystem.trace_journal import (
 )
 from torrcast.adapters.filesystem.trace_journal import (
     FileJournal as FileJournal,
-)
-from torrcast.adapters.filesystem.trace_journal import (
-    _last_session as _last_session,
-)
-from torrcast.adapters.filesystem.trace_journal import (
-    _session_root as _session_root,
-)
-from torrcast.adapters.filesystem.trace_journal import (
-    _session_seq as _session_seq,
-)
-from torrcast.adapters.filesystem.trace_journal import (
-    _Writer as _Writer,
-)
-from torrcast.adapters.filesystem.trace_journal import (
-    _writer as _writer,
 )
 from torrcast.adapters.filesystem.trace_journal import (
     dark as dark,
@@ -107,6 +80,33 @@ from torrcast.adapters.filesystem.trace_journal import (
 )
 from torrcast.adapters.filesystem.trace_journal import (
     warmth as warmth,
+)
+from torrcast.adapters.filesystem.trace_journal.log_path import (
+    _PREFIX as _PREFIX,
+)
+from torrcast.adapters.filesystem.trace_journal.log_path import (
+    _SUFFIX as _SUFFIX,
+)
+from torrcast.adapters.filesystem.trace_journal.start_session import (
+    _last_session as _last_session,
+)
+from torrcast.adapters.filesystem.trace_journal.start_session import (
+    _session_root as _session_root,
+)
+from torrcast.adapters.filesystem.trace_journal.start_session import (
+    _session_seq as _session_seq,
+)
+from torrcast.adapters.filesystem.trace_journal.writer import (
+    _BATCH as _BATCH,
+)
+from torrcast.adapters.filesystem.trace_journal.writer import (
+    _QUEUE_MAX as _QUEUE_MAX,
+)
+from torrcast.adapters.filesystem.trace_journal.writer import (
+    _Writer as _Writer,
+)
+from torrcast.adapters.filesystem.trace_journal.writer import (
+    _writer as _writer,
 )
 from torrcast.domain.digest import digest as digest
 from torrcast.domain.trace_sources import PACKED as PACKED

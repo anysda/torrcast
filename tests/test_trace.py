@@ -14,7 +14,8 @@ import pytest
 
 from tests.fakes.clock import FakeClock
 from torrcast import trace
-from torrcast.adapters.filesystem import trace_journal
+from torrcast.adapters.filesystem.trace_journal import prune as _prune_module
+from torrcast.adapters.filesystem.trace_journal import writer as _writer_module
 from torrcast.domain.digest import _seams
 
 
@@ -142,7 +143,7 @@ def test_rotation_drops_old_days(tmp_path: Path) -> None:
 
 def test_size_ceiling(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Свыше потолка места самые старые сутки сносятся, свежие - остаются."""
-    monkeypatch.setattr(trace_journal, "MAX_BYTES", 100)
+    monkeypatch.setattr(_prune_module, "MAX_BYTES", 100)
     now = time.time()
     days = [time.strftime("%Y%m%d", time.localtime(now - n * 86400)) for n in (5, 4, 3, 2, 1)]
     for day in days:
@@ -197,7 +198,7 @@ def test_put_does_no_synchronous_io(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     Диск трогается только по явному drain, то есть в фоне.
     """
     monkeypatch.setenv(trace.LOG_ENV, str(tmp_path))
-    monkeypatch.setattr(trace_journal._Writer, "_start", lambda self: None)  # поток не поднимаем
+    monkeypatch.setattr(_writer_module._Writer, "_start", lambda self: None)  # поток не поднимаем
     import os as _os
 
     touched: list[str] = []
@@ -213,7 +214,7 @@ def test_put_does_no_synchronous_io(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr(_os, "open", fake_open)
     monkeypatch.setattr(_os, "write", fake_write)
 
-    writer = trace_journal._Writer()
+    writer = _writer_module._Writer()
     for i in range(500):
         writer.put({"phase": "play", "event": "segment", "slot": i})
     assert touched == [], "укладка записи сделала синхронный I/O - инвариант нарушен"
@@ -225,14 +226,14 @@ def test_flush_runs_off_the_caller_thread(tmp_path: Path, monkeypatch: pytest.Mo
     monkeypatch.setenv(trace.LOG_ENV, str(tmp_path))
     caller = threading.get_ident()
     flusher: list[int] = []
-    real_flush = trace_journal._Writer._flush
+    real_flush = _writer_module._Writer._flush
 
-    def spy(self: trace_journal._Writer, batch: list[tuple[Path, dict[str, object]]]) -> None:
+    def spy(self: _writer_module._Writer, batch: list[tuple[Path, dict[str, object]]]) -> None:
         flusher.append(threading.get_ident())
         real_flush(self, batch)
 
-    monkeypatch.setattr(trace_journal._Writer, "_flush", spy)
-    writer = trace_journal._Writer()
+    monkeypatch.setattr(_writer_module._Writer, "_flush", spy)
+    writer = _writer_module._Writer()
     began = time.perf_counter()
     for i in range(200):
         writer.put({"phase": "play", "event": "segment", "slot": i})
@@ -262,8 +263,8 @@ def test_segment_emit_no_disk(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
         return real_write(fd, data)
 
     monkeypatch.setattr(_os, "write", counting_write)
-    monkeypatch.setattr(trace_journal._Writer, "_start", lambda self: None)  # поток не поднимаем
-    writer = trace_journal._Writer()
+    monkeypatch.setattr(_writer_module._Writer, "_start", lambda self: None)  # поток не поднимаем
+    writer = _writer_module._Writer()
     for slot in range(50):
         writer.put({"phase": "play", "event": "segment", "slot": slot, "mb": 3.1})
     assert writes == [], "укладка сегмента сделала синхронный write - это регресс инварианта"
@@ -288,14 +289,14 @@ def test_отставший_хвост_не_дописывается_в_чужу
     """
     first, second = tmp_path / "первая", tmp_path / "вторая"
     took, hold = threading.Event(), threading.Event()
-    real_flush = trace_journal._Writer._flush
+    real_flush = _writer_module._Writer._flush
 
-    def held(self: trace_journal._Writer, batch: list[tuple[Path, dict[str, object]]]) -> None:
+    def held(self: _writer_module._Writer, batch: list[tuple[Path, dict[str, object]]]) -> None:
         took.set()
         hold.wait(5.0)
         real_flush(self, batch)
 
-    monkeypatch.setattr(trace_journal._Writer, "_flush", held)
+    monkeypatch.setattr(_writer_module._Writer, "_flush", held)
     monkeypatch.setenv(trace.LOG_ENV, str(first))
     trace.emit("search", "query", query="первая")
     assert took.wait(5.0), "писатель так и не взял запись - окно гонки не воспроизведено"
@@ -796,7 +797,7 @@ def test_the_source_field_costs_the_hot_path_nothing(
         return real_write(fd, data)
 
     monkeypatch.setattr(_os, "write", counting_write)
-    monkeypatch.setattr(trace_journal._Writer, "_start", lambda self: None)  # поток не поднимаем
+    monkeypatch.setattr(_writer_module._Writer, "_start", lambda self: None)  # поток не поднимаем
     for slot in range(200):
         trace.segment(slot=slot, mb=3.0, sent=0.1, wait=0.0, src=trace.WARMED)
 
@@ -879,9 +880,9 @@ def test_records_eaten_by_a_full_queue_are_confessed_and_not_hidden(
     Записи при этом теряются, и восстановить их нечем; но молчать о самой потере нельзя -
     иначе разбор недели уверенно прочитает дыру как «решений не было».
     """
-    monkeypatch.setattr(trace_journal, "_QUEUE_MAX", 2)
-    monkeypatch.setattr(trace_journal._Writer, "_start", lambda self: None)  # поток не поднимаем
-    writer = trace_journal._Writer()
+    monkeypatch.setattr(_writer_module, "_QUEUE_MAX", 2)
+    monkeypatch.setattr(_writer_module._Writer, "_start", lambda self: None)  # поток не поднимаем
+    writer = _writer_module._Writer()
     for slot in range(10):
         writer.put({"phase": "play", "event": "segment", "slot": slot, "sid": "test-sid"})
     writer.stop()  # thread не поднимался - stop дожимает синхронно через drain
