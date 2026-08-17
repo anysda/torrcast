@@ -1785,21 +1785,22 @@ def test_mock_receiver_closes_its_ffmpeg_log(monkeypatch: pytest.MonkeyPatch) ->
     import tempfile
 
     from torrcast import InfraError
+    from torrcast.adapters.chromecast.mock.hls_fetch import HlsFetch
     from torrcast.cast import MockReceiver
 
-    # mypy сужает тип receiver._err по присваиванию и не сбрасывает сужение на
-    # вызовах методов - смотреть на атрибут через функцию, а не напрямую
+    # mypy сужает тип журнала по присваиванию и не сбрасывает сужение на вызовах
+    # методов - смотреть на атрибут через функцию, а не напрямую
     def err_of(r: MockReceiver) -> IO[bytes] | None:
-        return r._err
+        return r.decoder.err
 
     receiver = MockReceiver(spawn=_no_ffmpeg)
     first = tempfile.TemporaryFile()  # noqa: SIM115 - закрыть его и есть предмет проверки
-    receiver._err = first
+    receiver.decoder.err = first
     receiver.stop()
     assert first.closed and err_of(receiver) is None, "stop не закрыл журнал"
 
-    receiver._err = second = tempfile.TemporaryFile()  # noqa: SIM115 - то же самое
-    monkeypatch.setattr(MockReceiver, "_probe", lambda self, url: None)
+    receiver.decoder.err = second = tempfile.TemporaryFile()  # noqa: SIM115 - то же самое
+    monkeypatch.setattr(HlsFetch, "manifest", lambda self, url: "")
     with pytest.raises(InfraError):
         receiver.play("http://127.0.0.1/index.m3u8")
     assert second.closed, "новый показ бросил журнал прошлого открытым"

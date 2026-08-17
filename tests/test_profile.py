@@ -331,13 +331,19 @@ def test_the_mock_receiver_sulks_by_the_profile(monkeypatch: pytest.MonkeyPatch)
         headers: ClassVar[dict[str, str]] = {}
 
     stick = cast.MockReceiver(profile=profile.ANDROID_TV)
-    stick._caught(_Answer())
-    assert stick._sulk <= time.monotonic(), "приставка на 404 не обижается - LOAD берётся сразу"
+    stick.fetch.caught(_Answer())
+    assert stick.fetch.sulk_until <= time.monotonic(), (
+        "приставка на 404 не обижается - LOAD берётся сразу"
+    )
 
     q70d = cast.MockReceiver()
-    q70d._caught(_Answer())
-    assert q70d._sulk <= time.monotonic(), "и Q70D тоже: замер 09-08 снял наказание трижды"
+    q70d.fetch.caught(_Answer())
+    assert q70d.fetch.sulk_until <= time.monotonic(), (
+        "и Q70D тоже: замер 09-08 снял наказание трижды"
+    )
 
     sulky = cast.MockReceiver(profile=dataclasses.replace(profile.CAUTIOUS, sulk=150.0))
-    sulky._caught(_Answer())
-    assert sulky._sulk - time.monotonic() > 100.0, "механизм жив: наказание ставится числом"
+    sulky.fetch.caught(_Answer())
+    assert sulky.fetch.sulk_until - time.monotonic() > 100.0, (
+        "механизм жив: наказание ставится числом"
+    )

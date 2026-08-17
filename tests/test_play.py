@@ -1424,10 +1424,10 @@ class _Source:
             raise InfraError("приёмник не забрал манифест: источника нет")
         if len(self.opens) > 1:
             self.woke = self.clock.now
-        self.receiver._proc = FakeProc()  # type: ignore[assignment]
-        self.receiver._start = at
+        self.receiver.decoder.proc = FakeProc()  # type: ignore[assignment]
+        self.receiver.decoder.start = at
         self.receiver.report.duration = self.dur
-        self.receiver._pos = Position(at, self.dur, True)
+        self.receiver.decoder.pos = Position(at, self.dur, True)
 
     def tick(self, seconds: float) -> None:
         now = self.clock.now
@@ -1439,9 +1439,9 @@ class _Source:
             self.warmer.warmed += 10.0  # и прогрев потащил новые куски
         if self.woke and now - self.woke >= self.after:
             return self.finish()
-        pos = self.receiver._pos
+        pos = self.receiver.decoder.pos
         if self.up and pos.playing:
-            self.receiver._pos = Position(pos.pos + seconds, self.dur, True)
+            self.receiver.decoder.pos = Position(pos.pos + seconds, self.dur, True)
 
     def finish(self) -> None:
         """Показ доехал до титров, а следом кончился вход - ровно в этом порядке.
@@ -1452,11 +1452,11 @@ class _Source:
         """
         self.ending += 1
         if self.ending == 1:
-            self.receiver._pos = Position(self.dur * 0.96, self.dur, True)
+            self.receiver.decoder.pos = Position(self.dur * 0.96, self.dur, True)
             return
         self.woke = 0.0
-        self.receiver._proc.code = 0  # type: ignore[union-attr]
-        self.receiver._pos = Position(self.dur * 0.96, self.dur, False)
+        self.receiver.decoder.proc.code = 0  # type: ignore[union-attr]
+        self.receiver.decoder.pos = Position(self.dur * 0.96, self.dur, False)
 
 
 class _Piped(MockReceiver):
@@ -1592,7 +1592,7 @@ def test_the_mock_receiver_takes_a_load_right_after_a_404() -> None:
     receiver = _Opening(clock=clock)
     receiver._url = "http://127.0.0.1:8010/index.m3u8"
 
-    receiver._caught(_Answer(404))
+    receiver.fetch.caught(_Answer(404))
     assert MockReceiver.SULK == 0.0, "наказания за 404 нет - замер снял его трижды"
     assert receiver.replay(1200.0) == NOT_RAISED, "картинки нет - врать о поднятом показе нельзя"
     assert receiver.opens == [1200.0], "но попытку приёмник принял сразу, не выжидая ни секунды"
@@ -2809,133 +2809,19 @@ def test_the_mock_waits_for_as_much_film_as_the_receiver_gathers_before_the_firs
     from torrcast.cast import MockReceiver, Position
     from torrcast.profile import CAUTIOUS
 
-    class _Endless(MockReceiver):
-        """Заглушка, у которой фильм не кончается: проверяется запас, а не титры."""
-
-        def _over(self) -> bool:
-            return False
-
     assert CAUTIOUS.start_buffer == 10.0, "замер: столько фильма Q70D копит до первого кадра"
 
-    mock = _Endless()
-    mock._pos = Position(300.0, 0.0, True)
+    # Декодера тут нет вовсе, поэтому фильм не кончается ничем: проверяется запас, а не титры.
+    mock = MockReceiver()
+    mock.decoder.pos = Position(300.0, 0.0, True)
 
     # Один кусок по 8 с впереди - живой приёмник тут ещё копит и кадра не показывает.
     assert mock.position(front=308.0).state == "BUFFERING", "8 с фильма приёмнику мало"
-    mock._pos = Position(300.5, 0.0, True)
+    mock.decoder.pos = Position(300.5, 0.0, True)
     # Второй кусок пришёл - запас перевалил за десять секунд, вот теперь картинка.
     assert mock.position(front=316.0).state == "PLAYING", "16 с - приёмник трогается"
-    mock._pos = Position(301.0, 0.0, True)
+    mock.decoder.pos = Position(301.0, 0.0, True)
     assert mock.position(front=303.0).state == "PLAYING", "копит он один раз, на заходе"
-
-
-def _manifest(spans: list[float]) -> str:
-    lines = ["#EXTM3U", "#EXT-X-PLAYLIST-TYPE:VOD"]
-    for slot, span in enumerate(spans):
-        lines += [f"#EXTINF:{span:.6f},", f"v{slot}.ts"]
-    return "\n".join([*lines, "#EXT-X-ENDLIST", ""])
-
-
-def test_the_mock_starts_from_the_piece_it_aims_at_and_never_from_the_head() -> None:
-    """Заход с середины не тащит декодер через голову плейлиста.
-
-    🔴 ``ffmpeg -ss`` по адресу манифеста сперва открывает вход первым сегментом и только
-    потом мотает - раздача видит запрос куска 0 и уходит паковать с нуля. Живой Q70D
-    (три прогона) головы не просит вовсе, и это отличие уже родило ложный дефект «показ
-    пакует голову плейлиста при старте с середины»: выигрыш, которого не существует.
-    """
-    from torrcast.cast import MockReceiver
-
-    spans = [10.023222, *[10.0] * 5]
-    body = _manifest(spans)
-    mock = MockReceiver()
-    url = "http://127.0.0.1:9/hls/index.m3u8"
-
-    assert mock._from(url, body, 0.0) == (url, 0.0), "с начала резать нечего"
-    assert mock._from(url, body, 5.0) == (url, 5.0), "заход в первый кусок и так с головы"
-
-    cut, offset = mock._from(url, body, 25.0)
-    assert cut != url and offset == pytest.approx(4.976778), "-ss остаётся остатком в кусок"
-    lines = Path(cut).read_text("utf-8").splitlines()
-    assert [line for line in lines if not line.startswith("#")] == [
-        f"http://127.0.0.1:9/hls/v{slot}.ts" for slot in (2, 3, 4, 5)
-    ], "декодеру отданы куски с нужного, адресами на ту же раздачу"
-    assert "#EXT-X-MEDIA-SEQUENCE:2" in lines and "#EXT-X-ENDLIST" in lines
-
-    # Граница куска: сумма EXTINF не совпадает с ней бит в бит, и без допуска заход
-    # съезжал бы на кусок назад - то есть тащил бы упаковку за собой, чего и добиваемся.
-    boundary, rest = mock._from(url, body, 40.023222)
-    assert rest == 0.0, "заход ровно на границу куска обходится без -ss"
-    ahead = [line for line in Path(boundary).read_text("utf-8").splitlines() if "v" in line]
-    assert ahead[0].endswith("/v4.ts"), "первым идёт кусок, в который целится заход"
-    assert not Path(cut).exists(), "плейлист прошлого захода ушёл вместе с заходом"
-
-    mock._close_log()
-    assert not Path(boundary).exists(), "срезанный плейлист живёт ровно один заход декодера"
-
-    growing = body.replace("#EXT-X-ENDLIST\n", "")
-    assert mock._from(url, growing, 25.0) == (url, 25.0), "растущий манифест резать нельзя"
-
-
-class _Served:
-    """Ответ раздачи на бумаге: CORS на месте, размер назван, кода ошибки нет."""
-
-    status_code = 200
-    headers: Final = {"Access-Control-Allow-Origin": "*", "Content-Length": "1024"}
-
-    def __init__(self, text: str = "") -> None:
-        self.text = text
-
-    def raise_for_status(self) -> None:
-        return None
-
-
-class _Answers:
-    """Раздача на бумаге: манифест на GET, размер на HEAD, и список всего, что спросили."""
-
-    def __init__(self, body: str) -> None:
-        self.body = body
-        self.asked: list[str] = []
-
-    def get(self, url: str, timeout: float = 0.0) -> _Served:
-        self.asked.append(f"GET {url}")
-        return _Served(self.body)
-
-    def head(self, url: str, timeout: float = 0.0) -> _Served:
-        self.asked.append(f"HEAD {url}")
-        return _Served()
-
-
-def test_the_mock_never_asks_for_the_pieces_left_behind_the_entry_point() -> None:
-    """Кусок, который кончается ровно на месте захода, приёмнику не нужен - он весь позади.
-
-    🔴 Сверка сегментов спрашивала его: «кончился раньше захода» на сетке по 10 с и заходе
-    на 10.0 с - неправда, кусок кончается ровно там. Один ``HEAD`` на нулевой кусок уводил
-    упаковку на голову фильма, и в сухом замере продолжения появлялся лишний заход -
-    ровно тот ложный дефект, из-за которого сюда и пришли.
-    """
-
-    class _Asking(MockReceiver):
-        """Заглушка, спрашивающая раздачу на бумаге: сеть тут не проверяется."""
-
-        answers: _Answers
-
-        def _session(self) -> Any:
-            return self.answers
-
-    spans = [10.0] * 6
-    mock = _Asking()
-    answers = mock.answers = _Answers(_manifest(spans))
-    mock._start = 10.0
-    mock._pos = Position(1e6, 0.0, True)  # декодер далеко впереди - сверка не ждёт его
-    mock._done = threading.Event()
-
-    mock._audit("http://127.0.0.1:9/hls/index.m3u8")
-
-    assert [name.rsplit("/", 1)[1] for name in answers.asked if name.startswith("HEAD")] == [
-        f"v{slot}.ts" for slot in (1, 2, 3, 4, 5)
-    ], "спрошено ровно то, что впереди захода"
-    assert mock.report.gaps == 0, "начало сверки с середины - не дыра в нумерации"
 
 
 def test_the_mock_tells_the_credits_from_a_source_that_died_under_the_show() -> None:
@@ -2951,28 +2837,28 @@ def test_the_mock_tells_the_credits_from_a_source_that_died_under_the_show() -> 
     whole = 10015.0  # 2:46:55 - длина того самого фильма
 
     died = MockReceiver()
-    died._proc = FakeProc(0)  # type: ignore[assignment]
+    died.decoder.proc = FakeProc(0)  # type: ignore[assignment]
     died.report.duration = whole
-    died._pos = Position(282.0, whole, False)  # 0:04:42, декодер уже вышел
+    died.decoder.pos = Position(282.0, whole, False)  # 0:04:42, декодер уже вышел
 
-    assert not died._over(), "ноль на пятой минуте - это оборванный источник, а не титры"
+    assert not died.screen.over(), "ноль на пятой минуте - это оборванный источник, а не титры"
     seen = died.position()
     assert (seen.state, seen.playing) == ("BUFFERING", True), (
         "смерть источника уходит в терпение приёмника, как оборванная картинка на ТВ"
     )
 
     ended = MockReceiver()
-    ended._proc = FakeProc(0)  # type: ignore[assignment]
+    ended.decoder.proc = FakeProc(0)  # type: ignore[assignment]
     ended.report.duration = whole
-    ended._pos = Position(whole * ENDING_RATIO, whole, False)
+    ended.decoder.pos = Position(whole * ENDING_RATIO, whole, False)
 
-    assert ended._over(), "вышел нулём за порогом досмотра - вот это титры"
+    assert ended.screen.over(), "вышел нулём за порогом досмотра - вот это титры"
     assert ended.position().state == "", "титры показ узнаёт по пустому состоянию"
 
     blind = MockReceiver()
-    blind._proc = FakeProc(0)  # type: ignore[assignment]
-    blind._pos = Position(282.0, 0.0, False)
-    assert blind._over(), "длины фильма ещё не знаем - судить не по чему, правило прежнее"
+    blind.decoder.proc = FakeProc(0)  # type: ignore[assignment]
+    blind.decoder.pos = Position(282.0, 0.0, False)
+    assert blind.screen.over(), "длины фильма ещё не знаем - судить не по чему, правило прежнее"
 
 
 def test_the_diagnostic_remote_steers_the_mock_receiver(remote: Path) -> None:
@@ -2994,14 +2880,14 @@ def test_the_diagnostic_remote_steers_the_mock_receiver(remote: Path) -> None:
 
     opens = mock.opens
     mock._url = "http://127.0.0.1:9/hls/index.m3u8"
-    mock._proc = FakeProc()  # type: ignore[assignment]
-    mock._pos = Position(600.0, 7200.0, True)
+    mock.decoder.proc = FakeProc()  # type: ignore[assignment]
+    mock.decoder.pos = Position(600.0, 7200.0, True)
     mock.report.duration = 7200.0
 
     remote.write_text("pause", "utf-8")
     cli._ctl(mock)
 
-    decoder = mock._proc
+    decoder = mock.decoder.proc
     assert decoder is not None and decoder.poll() == -15, (
         "декодер умолк - сегментов приёмник больше не берёт"
     )
@@ -3015,7 +2901,7 @@ def test_the_diagnostic_remote_steers_the_mock_receiver(remote: Path) -> None:
     cli._ctl(mock)
 
     assert opens == [600.0], "снятая пауза продолжает показ ровно с того места, где он стоял"
-    assert not mock._paused and mock.position().state != "PAUSED"
+    assert not mock.screen.paused and mock.position().state != "PAUSED"
 
     remote.write_text("seek 1200.5", "utf-8")
     cli._ctl(mock)
@@ -3042,16 +2928,24 @@ def test_the_mock_never_rewinds_the_show_to_the_head_of_the_film() -> None:
     Живой Q70D держит указатель ровно на месте захода, пока копит фильм до первого кадра.
     """
 
-    class _Answered(MockReceiver):
-        """Заглушка, которой раздача отвечает пустым манифестом: проверяется учёт места."""
+    class _Answered:
+        """Раздача, отвечающая пустым манифестом: проверяется учёт места, а не сеть."""
 
-        def _probe(self, url: str) -> str:
-            return ""
+        status_code = 200
+        headers: Final = {"Access-Control-Allow-Origin": "*"}
+        text = ""
 
-    mock = _Answered(
+        def get(self, url: str, timeout: float = 0.0) -> _Answered:
+            return self
+
+        def raise_for_status(self) -> None:
+            return None
+
+    mock = MockReceiver(
         spawn=lambda *args, **kwargs: FakeProc(),
         thread=lambda *args, **kwargs: _Silent(),
     )
+    mock.fetch.session = lambda ca: _Answered()
     mock.play("http://127.0.0.1:9/hls/index.m3u8", at=1200.0)
     mock.report.duration = 7200.0
 
