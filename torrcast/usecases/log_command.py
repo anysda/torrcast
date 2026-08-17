@@ -2,25 +2,30 @@
 Зовёт её :func:`torrcast.commands.main`; внешних систем на пути нет.
 """
 
-# ruff: noqa: F821, F822
-
 from __future__ import annotations
-
-from torrcast.domain.digest import digest
-from torrcast.ports.journal import journal
-
-__all__ = ["EXIT_OK", "Args", "_cmd_log", "_since_seconds", "contextlib", "time", "trace"]
 
 import contextlib
 import time
+from typing import Protocol
 
+from torrcast.domain.digest import digest
 from torrcast.domain.exit_codes import EXIT_OK
+from torrcast.ports.journal import journal
 
-# Лента спрашивается своим полным именем: атрибут ``torrcast.trace`` появляется только
-# после того, как подмодуль кто-то уже импортировал, а порядок импортов тут не наш.
+__all__ = ["EXIT_OK", "_cmd_log", "_since_seconds"]
 
 
-def _cmd_log(args: Args) -> int:
+class _Asked(Protocol):
+    """Разобранная строка запуска в объёме, который нужен команде: одна ручка ``--since``.
+
+    Полный :class:`torrcast.cli.args.Args` сюда не приходит нарочно: команда живёт слоем
+    ниже разбора аргументов, и знать ей о нём нечего.
+    """
+
+    since: str | None
+
+
+def _cmd_log(args: _Asked) -> int:
     """``cast log [--since]`` — выжимка недельного диагностического следа.
 
     По умолчанию - последние три сеанса; ``--since`` двигает границу (``2d``/``12h``/``30m``

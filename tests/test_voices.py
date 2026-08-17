@@ -32,6 +32,7 @@ from torrcast.stream import (
     TorrFile,
     voice_order,
 )
+from torrcast.usecases import playback
 
 GB = 1024**3
 KEY = "movie:моана-2:2024"
@@ -349,7 +350,7 @@ def _env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         cli, "probe", lambda url, timeout=90.0, alive=None: Media(5978.0, MOANA2, "h264", 1080)
     )
-    monkeypatch.setattr(cli, "start_play_unit", lambda key: None)
+    monkeypatch.setattr(playback, "start_play_unit", lambda key: None)
     monkeypatch.setattr(cli, "_await_playing", lambda config, progress, timeout=120.0: None)
 
 
@@ -475,7 +476,7 @@ def test_new_with_a_voice_overwrites_the_memory(
 
 def test_a_wrong_number_is_a_polite_refusal(monkeypatch: pytest.MonkeyPatch) -> None:
     """Дорожки с таким номером нет — честная строка и код «не нашли», а не показ."""
-    monkeypatch.setattr(cli, "start_play_unit", lambda key: pytest.fail("вслепую не кастим"))
+    monkeypatch.setattr(playback, "start_play_unit", lambda key: pytest.fail("вслепую не кастим"))
     _answers(monkeypatch)
 
     assert cli.main(["моана", "2", "--voice", "42"]) == 1
@@ -503,7 +504,9 @@ def test_the_voices_command_lists_and_exits(
     state = State()
     state.put(KEY, Entry(title="Моана 2", magnet="m", query="моана-2", voice="rus · MVO (TVShows)"))
     state.save()
-    monkeypatch.setattr(cli, "start_play_unit", lambda key: pytest.fail("voices ничего не играет"))
+    monkeypatch.setattr(
+        playback, "start_play_unit", lambda key: pytest.fail("voices ничего не играет")
+    )
 
     assert cli.main(["voices", "моана 2"]) == 0
 
@@ -645,7 +648,9 @@ def test_a_dry_run_with_a_voice_leaves_no_torrent_behind(monkeypatch: pytest.Mon
     """
     _serial()
     _answers(monkeypatch)
-    monkeypatch.setattr(cli, "start_play_unit", lambda key: pytest.fail("сухой прогон не кастит"))
+    monkeypatch.setattr(
+        playback, "start_play_unit", lambda key: pytest.fail("сухой прогон не кастит")
+    )
 
     assert cli.main(["киберпанк", "--voice", "5", "--dry"]) == 0
 
@@ -665,7 +670,7 @@ def test_a_voice_torrent_is_handed_to_the_show_and_not_pulled_from_under_it(
     key = _serial()
     _answers(monkeypatch)
     started: list[str] = []
-    monkeypatch.setattr(cli, "start_play_unit", lambda name: started.append(name))
+    monkeypatch.setattr(playback, "start_play_unit", lambda name: started.append(name))
 
     assert cli.main(["киберпанк", "--voice", "5"]) == 0
 
@@ -687,7 +692,7 @@ def test_a_voice_torrent_dies_with_the_show_that_never_started(
     def refuse(key: str) -> None:
         raise InfraError("не запустился юнит torrcast-play")
 
-    monkeypatch.setattr(cli, "start_play_unit", refuse)
+    monkeypatch.setattr(playback, "start_play_unit", refuse)
 
     assert cli.main(["киберпанк", "--voice", "5"]) == 2
 

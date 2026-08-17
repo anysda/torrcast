@@ -1,15 +1,20 @@
 """Сценарий запуска и сопровождения выбранного показа."""
 
-# ruff: noqa: F821, F822, N806
-
 from __future__ import annotations
 
+import contextlib
+from collections.abc import Callable
+from pathlib import Path
+from typing import Any, NoReturn, Protocol, runtime_checkable
+
 from torrcast.domain._name_data.data_3 import VIDEO_EXT
+from torrcast.domain.choice import Choice
 from torrcast.domain.codec_name import codec_name
 from torrcast.domain.config import Config
-from torrcast.domain.entry import Entry
+from torrcast.domain.entry import ENDING_RATIO, Entry
 from torrcast.domain.exit_codes import EXIT_OK
 from torrcast.domain.infra_error import InfraError
+from torrcast.domain.media import AUDIO_MBIT, TS_OVERHEAD
 from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.profile import CAUTIOUS, Profile
 from torrcast.domain.recode_note import recode_note
@@ -26,10 +31,19 @@ from torrcast.domain.start_refused_error import StartRefusedError
 from torrcast.domain.torrcast_error import TorrcastError
 from torrcast.domain.torr_file import TorrFile
 from torrcast.domain.why import why
+from torrcast.domain.worker_settings import WORKER_DUR
+from torrcast.ports.clock import Clock
 from torrcast.ports.journal import journal
+from torrcast.ports.prober import Prober
 from torrcast.ports.progress import Progress
 from torrcast.ports.progress import progress as progress_bar
-from torrcast.usecases.episode_duration import WORKER_DUR
+from torrcast.ports.receiver import Receiver
+from torrcast.ports.receivers import Receivers
+from torrcast.ports.show_unit import ShowUnit
+from torrcast.ports.show_unit import unit as show_unit
+from torrcast.ports.state_store import store
+from torrcast.ports.stream_source import StreamSource
+from torrcast.usecases.feed_pack import Feed
 from torrcast.usecases.following import _following
 from torrcast.usecases.revive_playback import _hold, _Revival
 from torrcast.usecases.select import _about, _Plan
@@ -41,96 +55,132 @@ from torrcast.usecases.watch import Watch
 
 # fmt: off
 __all__ = [
-    "CAUTIOUS", "CLOCK", "ENDING_RATIO", "EXIT_OK",
-    "REVIVE_DROP", "REVIVE_LIMIT", "REVIVE_LIVED",
-    "REVIVE_PAUSE", "REVIVE_TRIES", "START_BUDGET",
-    "TYPE_CHECKING", "VIDEO_EXT",
-    "Any", "Callable", "ChromecastReceiver",
-    "Clock", "Config", "Encode",
-    "Entry", "Feed", "Grid",
-    "HlsServer", "InfraError", "NoReturn",
-    "NotFoundError", "Path", "Profile",
-    "Progress", "Receiver", "Recoder",
-    "Release", "StartRefusedError", "State",
-    "Supply", "TorrcastError", "TorrFile",
-    "TorrServer",
-    "Vault", "Warmer",
-    "_Revival", "_asked", "_await_playing",
-    "_blame_the_end", "_blamed", "_default_file",
-    "_encode_all", "_file_picker", "_handover",
-    "_hold", "_launch", "_layout",
-    "_next_warmer", "_play", "_recoder",
-    "_refuse_hopeless", "_resume", "_warmer",
-    "ask_line", "codec_name", "contextlib",
-    "dataclass", "detect_profile", "forget_playing",
-    "hls_base", "make_receiver",
-    "mark_playing", "os", "pick_video_file",
-    "playing_flag", "probe", "recode_note",
-    "recodes_whole", "start_play_unit",
-    "time",
-    "warm_file",
-    "warm_key", "warm_root", "whole_encode",
+    "AUDIO_MBIT", "CAUTIOUS", "ENDING_RATIO",
+    "EXIT_OK", "REVIVE_DROP", "REVIVE_LIMIT",
+    "REVIVE_LIVED", "REVIVE_PAUSE", "REVIVE_TRIES",
+    "START_BUDGET", "TS_OVERHEAD", "VIDEO_EXT",
+    "Any", "Callable", "Choice",
+    "Clock", "Config", "Entry",
+    "Feed", "InfraError", "NoReturn",
+    "NotFoundError", "Path", "Prober",
+    "Profile", "Progress", "Receiver",
+    "Receivers", "Release", "ShowUnit",
+    "StartRefusedError", "StreamSource", "TorrcastError",
+    "TorrFile", "Vault", "Warmer",
+    "Watch", "_Revival", "_asked",
+    "_await_playing", "_blame_the_end", "_blamed",
+    "_configure_playback", "_default_file", "_encode_all",
+    "_file_picker", "_handover", "_hold",
+    "_launch", "_layout", "_next_warmer",
+    "_play", "_recoder", "_refuse_hopeless",
+    "_resume", "_warmer", "codec_name",
+    "contextlib", "journal", "progress_bar",
+    "recode_note", "recodes_whole", "show_unit",
+    "store", "warm_key", "warm_root",
     "why",
 ]
 # fmt: on
 
-from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    pass
+@runtime_checkable
+class _Cuttable(Protocol):
+    """Приёмник, который спотыкается о СЕТКУ, а не о секунды.
+
+    Отдельно от :class:`torrcast.ports.receiver.Receiver` намеренно, и ровно по той же
+    причине, что и :class:`torrcast.usecases.choice._Revivable`: и прыжок сторожа подвиса,
+    и подъём после отказа обязаны мерить кусками (:meth:`torrcast.cast.ChromecastReceiver.
+    _nudge`), а у приёмника, который так не умеет, границ сетки нет и спрашивать их
+    незачем. Сетка у каждой серии своя, поэтому её называют каждой.
+    """
+
+    next_cut: Callable[[float], float] | None
 
 
-import contextlib
-import os
-from collections.abc import Callable
-from dataclasses import dataclass
-from pathlib import Path
-from typing import Any, NoReturn
+class _Numbered(Protocol):
+    """Разобранная строка запуска в объёме, который нужен показу: ручка ``--file N``.
 
-from torrcast.domain.entry import ENDING_RATIO
-from torrcast.ports.module import module
-from torrcast.ports.show_unit import ShowUnit
-from torrcast.ports.show_unit import unit as show_unit
-from torrcast.ports.stream_source import StreamSource
+    Полный :class:`torrcast.cli.args.Args` сюда не приходит: разбор аргументов стоит слоем
+    выше сценариев, а показу от него нужен один отладочный номер файла.
+    """
 
-clock_port = module("time")
-time = clock_port
-for _module_name, _names in {
-    "torrcast.cast": (
-        "ChromecastReceiver",
-        "Receiver",
-        "make_receiver",
-    ),
-    "torrcast.console": ("ask_line",),
-    "torrcast.recode": (
-        "Encode",
-        "Recoder",
-        "whole_encode",
-    ),
-    "torrcast.state": ("State",),
-    "torrcast.stream": (
-        "Feed",
-        "Grid",
-        "HlsServer",
-        "Supply",
-        "TorrServer",
-        "forget_playing",
-        "hls_base",
-        "mark_playing",
-        "pick_video_file",
-        "playing_flag",
-        "probe",
-        "start_play_unit",
-        "warm_file",
-    ),
-    "torrcast.timing": (
-        "CLOCK",
-        "Clock",
-    ),
-}.items():
-    _dependency = module(_module_name)
-    globals().update({name: getattr(_dependency, name) for name in _names})
-detect_profile = module("torrcast.profile").detect
+    file: int | None
+
+
+#: Внешний мир показа. Всё это кладёт композиционный корень
+#: (:mod:`torrcast.runtime.wire`): медиатракт, приёмник, часы и юнит показа - это сеть,
+#: диск и подпроцессы, и называть их модули слою сценариев нечем. Имена оставлены теми
+#: же, какими показ звал их всегда: меняется не вызов, а то, откуда берётся зависимость.
+CLOCK: Clock
+make_receiver: Receivers
+probe: Prober
+detect_profile: Callable[[Config], Choice]
+pick_video_file: Callable[[list[TorrFile]], TorrFile]
+hls_dir: Callable[[str], Path]
+hls_base: Callable[[Config], str]
+playing_flag: Callable[[Path], Path]
+forget_playing: Callable[[Path], None]
+start_play_unit: Callable[[str], None]
+film_keys: Callable[[str], Any]
+grid_for: Callable[..., Any]
+#: Раздача по http (:class:`torrcast.stream.HlsServer`), оба кодировщика
+#: (:class:`torrcast.recode.Encode`, :class:`torrcast.recode.Recoder`), профиль тяжести
+#: (:class:`torrcast.recode.Weights`) и сплошной перекод: классы адаптеров, у которых в
+#: слое сценариев есть только имя.
+HlsServer: Any
+Encode: Any
+Recoder: Any
+Weights: Any
+whole_encode: Callable[..., Any]
+#: Мгновенный потолок кодера сверх цели (:data:`torrcast.recode.MAXRATE_GAIN`) и имя
+#: каталога перекодированных кусков (:data:`torrcast.recode.RECODE_DIR`).
+MAXRATE_GAIN: float
+RECODE_DIR: str
+
+
+def _configure_playback(
+    clock: Clock,
+    receivers: Receivers,
+    prober: Prober,
+    detect: Callable[[Config], Choice],
+    video_pick: Callable[[list[TorrFile]], TorrFile],
+    out_dir: Callable[[str], Path],
+    base_url: Callable[[Config], str],
+    flag: Callable[[Path], Path],
+    forget_flag: Callable[[Path], None],
+    start_unit: Callable[[str], None],
+    keys: Callable[[str], Any],
+    grid: Callable[..., Any],
+    server: Any,
+    encode: Any,
+    recoder: Any,
+    weights: Any,
+    whole: Callable[..., Any],
+    maxrate_gain: float,
+    recode_dir: str,
+) -> None:
+    """Назначить показу его внешний мир: медиатракт, приёмник, часы и юнит."""
+    global CLOCK, make_receiver, probe, detect_profile, pick_video_file, hls_dir, hls_base
+    global playing_flag, forget_playing, start_play_unit, film_keys, grid_for, HlsServer
+    global Encode, Recoder, Weights, whole_encode, MAXRATE_GAIN, RECODE_DIR
+    CLOCK = clock
+    make_receiver = receivers
+    probe = prober
+    detect_profile = detect
+    pick_video_file = video_pick
+    hls_dir = out_dir
+    hls_base = base_url
+    playing_flag = flag
+    forget_playing = forget_flag
+    start_play_unit = start_unit
+    film_keys = keys
+    grid_for = grid
+    HlsServer = server
+    Encode = encode
+    Recoder = recoder
+    Weights = weights
+    whole_encode = whole
+    MAXRATE_GAIN = maxrate_gain
+    RECODE_DIR = recode_dir
 
 
 def _default_file(plan: _Plan, release: Release, files: list[TorrFile]) -> TorrFile:
@@ -138,7 +188,7 @@ def _default_file(plan: _Plan, release: Release, files: list[TorrFile]) -> TorrF
     return plan.series.choose(release, files) if plan.series else pick_video_file(files)
 
 
-def _file_picker(args: Args) -> Callable[[_Plan, Release, list[TorrFile]], TorrFile]:
+def _file_picker(args: _Numbered) -> Callable[[_Plan, Release, list[TorrFile]], TorrFile]:
     """``--file N`` — отладочная ручка: взять N-й видеофайл раздачи."""
     if args.file is None:
         return _default_file
@@ -175,14 +225,14 @@ def _launch(
     # Сначала гасим прошлый показ и только потом пишем свою запись: умирающий юнит по
     # SIGTERM дописывает СВОЮ позицию, и записанный раньше прыжок на s1e5 он бы затёр.
     show_unit().stop()
-    state = State.load()
+    state = store().load()
     # Темнота прошлого показа новому не наследуется. Снимает отметку тот же сторож, что
     # её ставит (:attr:`torrcast.state.Entry.dark`), но у убитого по SIGKILL юнита сторожа
     # не было вовсе, а у нового она снимается только с первого опроса приёмника - и до
     # него `cast status` звал бы погасшим показ, который прямо сейчас поднимается.
     entry.dark, entry.dark_why = 0.0, ""
     state.put(key, entry)
-    state.save()
+    store().save(state)
     forget_playing(Path(config.hls_dir))  # флажок прошлого показа нам не доказательство
     start_play_unit(key)
     journal().mark("юнит")
@@ -229,7 +279,7 @@ def _await_playing(
     config: Config,
     progress: Progress,
     timeout: float = START_BUDGET,
-    clock: Clock = CLOCK,
+    clock: Clock | None = None,
     unit: ShowUnit | None = None,
 ) -> None:
     """Дождаться **картинки на экране**, а не «упаковка пошла».
@@ -246,6 +296,7 @@ def _await_playing(
     часы и свой юнит прямо здесь, иначе тест выжидал бы весь бюджет старта по-настоящему.
     """
     unit = unit if unit is not None else show_unit()
+    clock = clock if clock is not None else CLOCK
     out = Path(config.hls_dir)
     flag = playing_flag(out)
     deadline = clock.monotonic() + timeout
@@ -273,12 +324,12 @@ def _await_playing(
 def _recoder(
     source: str,
     audio: int,
-    grid: Grid,
+    grid: Any,
     spare: Path,
     config: Config,
     video_mbit: float = 0.0,
     profile: Profile = CAUTIOUS,
-) -> Recoder | None:
+) -> Any:
     """Кодировщик тяжёлых кусков или ``None``, если он не нужен и не может помочь.
 
     Профиль тяжести считается из уже снятой карты опорных кадров: байты и секунды каждого
@@ -286,14 +337,6 @@ def _recoder(
     выключено настройкой, сетка не по кадрам (тогда границы не совпадут с картой), карта
     снята прошлой версией и смещений не несёт, — и о нём говорится вслух.
     """
-    Encode, Recoder, Weights = (
-        getattr(module("torrcast.recode"), name) for name in ("Encode", "Recoder", "Weights")
-    )
-    AUDIO_MBIT, TS_OVERHEAD, film_keys = (
-        getattr(module("torrcast.stream"), name)
-        for name in ("AUDIO_MBIT", "TS_OVERHEAD", "film_keys")
-    )
-
     if not config.recode:
         return None
     if not grid.on_keys:
@@ -346,7 +389,7 @@ def _encode_all(
     profile: Profile = CAUTIOUS,
     frame: int = 0,
     hdr: bool = False,
-) -> Encode | None:
+) -> Any:
     """Чем перекодировать ВЕСЬ файл или ``None`` — если видео уезжает копией, как всегда.
 
     Решение файл-уровневое и принимается один раз, по паспорту ffprobe: приёмник либо
@@ -418,7 +461,7 @@ def _layout(
     profile: Profile = CAUTIOUS,
     frame: int = 0,
     hdr: bool = False,
-) -> tuple[Grid, Encode | None]:
+) -> tuple[Any, Any]:
     """Сетка сегментов и решение «перекодировать файл целиком» - одной парой.
 
     Отдельной функцией потому, что считать это приходится дважды и обязательно
@@ -445,12 +488,6 @@ def _layout(
     чем труднее материал, - и на сплошном перекоде обещание промахивалось на все восемь
     процентов ``MAXRATE_GAIN``, ровно вверх, ровно на длинных кусках.
     """
-    MAXRATE_GAIN = module("torrcast.recode").MAXRATE_GAIN
-    AUDIO_MBIT, TS_OVERHEAD, grid_for = (
-        getattr(module("torrcast.stream"), name)
-        for name in ("AUDIO_MBIT", "TS_OVERHEAD", "grid_for")
-    )
-
     whole = _encode_all(config, codec, video_mbit, depth, profile, frame, hdr)
     grid = grid_for(
         source,
@@ -523,9 +560,6 @@ def _next_warmer(
 
     ``None`` - греть нечего: фильм, последняя серия раздачи или запись без списка серий.
     """
-    RECODE_DIR = module("torrcast.recode").RECODE_DIR
-    hls_dir = module("torrcast.stream").hls_dir
-
     following = entry.advance()
     if following.done or not following.label:
         return None
@@ -576,7 +610,7 @@ def _warmer(
     config: Config,
     source: str,
     audio: int,
-    grid: Grid,
+    grid: Any,
     start: float,
     title: str,
     whole: Any = None,
@@ -678,9 +712,6 @@ def _play(
     ``profile`` - пороги ПРИЁМНИКА (:mod:`torrcast.profile`): вес куска, терпение, сторож
     нуджей, удержание запроса вместо 404. Умолчание осторожное - тот же Q70D, что и был.
     """
-    RECODE_DIR = module("torrcast.recode").RECODE_DIR
-    hls_dir = module("torrcast.stream").hls_dir
-
     out = hls_dir(config.hls_dir)
     start = watch.entry.pos if watch else 0.0
     length = watch.entry.dur if watch else duration
@@ -795,7 +826,7 @@ def _play(
     # отказа обязаны мерить кусками, а не секундами
     # (:meth:`torrcast.cast.ChromecastReceiver._nudge`). Приёмник живёт весь юнит и
     # достаётся следующей серии - сетка у неё своя, и назвать её надо каждой.
-    if isinstance(receiver, ChromecastReceiver):
+    if isinstance(receiver, _Cuttable):
         receiver.next_cut = grid.after
     url = f"{hls_base(config)}/index.m3u8"
     try:
@@ -908,7 +939,7 @@ def _handover(watch: Watch | None) -> bool:
 
 
 def _blame_the_end(
-    supply: StreamSource | None, shown: bool = True, clock: Clock = CLOCK
+    supply: StreamSource | None, shown: bool = True, clock: Clock | None = None
 ) -> NoReturn:
     """Показ кончился недосмотренным - назвать виноватого, и назвать верно. Всегда бросает.
 
@@ -925,7 +956,7 @@ def _blame_the_end(
     Спросить источник тут можно спокойно: показ уже кончился, горячего пути нет, а
     человеку и следу уходит одна и та же причина.
     """
-    why_source = _blamed(supply, clock)
+    why_source = _blamed(supply, clock if clock is not None else CLOCK)
     if why_source:
         journal().offline(why=why_source, asked=True)
         if not shown:

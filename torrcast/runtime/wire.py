@@ -16,11 +16,29 @@ from torrcast.adapters.filesystem.release_pins import pins
 from torrcast.adapters.filesystem.state import FileStateStore, load_config
 from torrcast.adapters.filesystem.trace_journal import FileJournal
 from torrcast.adapters.health.system_health_environment import SystemHealthEnvironment
+from torrcast.adapters.http_server.stream_serve import HlsServer, hls_base, start_play_unit
 from torrcast.adapters.prowlarr.merge import merge
 from torrcast.adapters.prowlarr.prowlarr import Prowlarr
 from torrcast.adapters.prowlarr.to_releases import to_releases
-from torrcast.adapters.stream_pack import warm_file
-from torrcast.adapters.stream_probe import Supply, probe, swarm_pulse
+from torrcast.adapters.recode import (
+    MAXRATE_GAIN,
+    RECODE_DIR,
+    Encode,
+    Recoder,
+    Weights,
+    whole_encode,
+)
+from torrcast.adapters.stream_pack import (
+    film_keys,
+    forget_playing,
+    grid_for,
+    hls_dir,
+    mark_playing,
+    playing_flag,
+    warm_file,
+)
+from torrcast.adapters.stream_probe import Supply, pick_video_file, probe, swarm_pulse
+from torrcast.adapters.system_clock import CLOCK
 from torrcast.adapters.systemd.transient_show_unit import TransientShowUnit
 from torrcast.adapters.torrserver.contact_wait import ContactWait
 from torrcast.adapters.torrserver.torr_server import TorrServer
@@ -40,6 +58,7 @@ from torrcast.usecases.discover import _configure_discover
 from torrcast.usecases.doctor import _configure as configure_checks
 from torrcast.usecases.doctor_command import _configure as configure_doctor
 from torrcast.usecases.episode_duration import _configure_episode_duration
+from torrcast.usecases.playback import _configure_playback
 from torrcast.usecases.rank import (
     _cut,
     bitrate_of,
@@ -52,6 +71,7 @@ from torrcast.usecases.rank import (
 )
 from torrcast.usecases.reinforce import _timed
 from torrcast.usecases.releases_command import _configure_releases_command
+from torrcast.usecases.revive_playback import _configure_revive_playback
 from torrcast.usecases.select import _configure_select
 from torrcast.usecases.select_bench import _configure_select_bench
 from torrcast.usecases.torrents import _configure_torrents
@@ -127,3 +147,30 @@ def wire() -> None:
     )
     _configure_releases_command(load_config, MenuFacts, detector.detect, pins.remember)
     _configure_voices_command(load_config, TorrServer, native_picture)
+    # Оживление погасшего показа меряет темноту настоящими секундами и кладёт флажок
+    # картинки настоящим файлом. Обоих сценарий не знает: часы и отметку даёт корень.
+    _configure_revive_playback(CLOCK, mark_playing)
+    # Весь медиатракт показа - упаковка, раздача, оба кодировщика и приёмник - это сеть,
+    # диск и подпроцессы. Сценарий их только зовёт, а КЕМ они будут, знает корень: пока
+    # эти имена приходили строкой с именем модуля, слой показа ходил в адаптеры сам.
+    _configure_playback(
+        CLOCK,
+        make_receiver,
+        probe,
+        detector.detect,
+        pick_video_file,
+        hls_dir,
+        hls_base,
+        playing_flag,
+        forget_playing,
+        start_play_unit,
+        film_keys,
+        grid_for,
+        HlsServer,
+        Encode,
+        Recoder,
+        Weights,
+        whole_encode,
+        MAXRATE_GAIN,
+        RECODE_DIR,
+    )

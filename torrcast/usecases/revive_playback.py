@@ -1,10 +1,15 @@
 """Сценарий оживления погасшего показа."""
 
-# ruff: noqa: F821
-
 from __future__ import annotations
 
+import os
+import time
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from pathlib import Path
+
 from torrcast.domain.debug_handles import TRACE_ENV
+from torrcast.domain.entry import ENDING_RATIO
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.profile import CAUTIOUS, Profile
 from torrcast.domain.revive_settings import (
@@ -15,43 +20,31 @@ from torrcast.domain.revive_settings import (
     REVIVE_TRIES,
 )
 from torrcast.domain.start_settings import PAUSE_LIMIT, PAUSE_SECONDS, SAY_SECONDS
+from torrcast.ports.clock import Clock
 from torrcast.ports.journal import journal
+from torrcast.ports.receiver import Receiver
+from torrcast.ports.stream_source import StreamSource
 from torrcast.usecases.choice import _ctl, _Revivable
+from torrcast.usecases.feed_pack import Feed
 from torrcast.usecases.rank import _hms
 from torrcast.usecases.source_blame import _asked, _blamed
 from torrcast.usecases.warm import Warmer
 from torrcast.usecases.watch import Watch
 
-__all__: list[str] = []
+#: Внешний мир оживления показа. Всё это кладёт композиционный корень
+#: (:mod:`torrcast.runtime.wire`): часы боевого пути и флажок картинки - это настоящее
+#: время и настоящий файл, а сценарию о них знать нечего. До слова корня оживление
+#: обходится теми часами, которые ему подали аргументом.
+_revive_clock: Clock
+_revive_playing_mark: Callable[[Path], None]
 
-from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    pass
+def _configure_revive_playback(clock: Clock, playing_mark: Callable[[Path], None]) -> None:
+    """Назначить оживлению показа его внешний мир: часы и отметку о картинке."""
+    global _revive_clock, _revive_playing_mark
+    _revive_clock = clock
+    _revive_playing_mark = playing_mark
 
-
-import os
-from dataclasses import dataclass
-
-from torrcast.domain.entry import ENDING_RATIO
-from torrcast.ports.module import module
-
-clock_port = module("time")
-time = clock_port
-for _module_name, _names in {
-    "torrcast.cast": ("Receiver",),
-    "torrcast.stream": (
-        "Feed",
-        "Supply",
-        "mark_playing",
-    ),
-    "torrcast.timing": (
-        "CLOCK",
-        "Clock",
-    ),
-}.items():
-    _dependency = module(_module_name)
-    globals().update({name: getattr(_dependency, name) for name in _names})
 
 #: Сколько терпим НЕПОДВИЖНЫЙ указатель за долей длительности, прежде чем считать сеанс
 #: доигранным (:func:`_hold`). Страховка перехода: конец потока приёмник называет не
@@ -78,8 +71,9 @@ class _Revival:
     * фильм лёг на диск целиком - сети не нужно вовсе, поднимаем сразу;
     * прогрев принёс новые куски - источник ожил, значит и сеть вернулась;
     * раздача снова читается (:attr:`Feed.offline` пуст) - то же самое;
-    * источник, которого мы СПРОСИЛИ (:class:`torrcast.stream.Supply`), снова отвечает и
-      снова знает нашу раздачу - её мы к этому моменту уже вернули магнитом.
+    * источник, которого мы СПРОСИЛИ (:class:`torrcast.ports.stream_source.StreamSource`),
+      снова отвечает и снова знает нашу раздачу - её мы к этому моменту уже вернули
+      магнитом.
 
     🔴 Все эти факты - про ИСТОЧНИК, и годятся они только для темноты, в которой источник
     виноват. Когда показ бросил сам приёмник (:attr:`dropped`), они выполнены с самого
@@ -130,7 +124,7 @@ class _Revival:
     warmed: float = 0.0
     #: Источник показа или ``None`` (показ не из раздачи либо старый вызов). Спрашивается
     #: только отсюда и только в темноте: пока картинка идёт, вопросов источнику нет.
-    supply: Supply | None = None
+    supply: StreamSource | None = None
     #: Правда ли темнота случилась из-за ИСТОЧНИКА, а не приёмника: тогда и возврата ждём
     #: от источника, а не от :attr:`Feed.offline`, который в этом случае может быть пуст.
     blamed: bool = False
@@ -162,9 +156,10 @@ class _Revival:
     #: Сколько показ должен идти живым, чтобы запас попыток снова считался полным.
     #: Меньше :attr:`pause` брать нельзя - см. :data:`REVIVE_LIVED`.
     lived: float = REVIVE_LIVED
-    #: Чем меряется темнота и выдержка между попытками. Умолчание - настоящее время;
-    #: сухой прогон подаёт свои часы (:class:`torrcast.timing.Clock`).
-    clock: Clock = CLOCK
+    #: Чем меряется темнота и выдержка между попытками. Умолчание - часы боевого пути,
+    #: которые положил композиционный корень; сухой прогон подаёт свои
+    #: (:class:`torrcast.ports.clock.Clock`).
+    clock: Clock = field(default_factory=lambda: _revive_clock)
 
     def alive(self, shown: bool = True) -> None:
         """Показ идёт - темноте конец, а пережитый обрыв возвращает потраченный запас.
@@ -235,7 +230,7 @@ class _Revival:
         if not self.since:
             self.since, self.warmed = now, warmer.warmed if warmer is not None else 0.0
             why = self._why(feed)
-            self.began, self.why = clock_port.time(), why
+            self.began, self.why = time.time(), why
             journal().dark(pos=pos, why=why, shown=shown)
             said = (
                 f"показ погас на {_hms(pos)}"
@@ -351,9 +346,9 @@ def _hold(
     feed: Feed,
     watch: Watch | None = None,
     warmer: Warmer | None = None,
-    supply: Supply | None = None,
+    supply: StreamSource | None = None,
     profile: Profile = CAUTIOUS,
-    clock: Clock = CLOCK,
+    clock: Clock | None = None,
     session_tag: str = "",
     start: float = 0.0,
     raised: bool = True,
@@ -369,9 +364,10 @@ def _hold(
     сам ffmpeg (``-readrate`` + ``-readrate_initial_burst``), а под паузой процесс
     именно завершается — под SIGSTOP'ом приёмник намертво вис в BUFFERING.
 
-    ``clock`` - чем меряются все выдержки показа (:class:`torrcast.timing.Clock`). Боевой
-    путь ходит по настоящему времени; сухому прогону нужны свои часы, иначе тест выжидал
-    бы терпение приёмника и выдержки между попытками подъёма по-настоящему.
+    ``clock`` - чем меряются все выдержки показа (:class:`torrcast.ports.clock.Clock`).
+    Боевой путь молчит и берёт часы, которые положил композиционный корень; сухому
+    прогону нужны свои, иначе тест выжидал бы терпение приёмника и выдержки между
+    попытками подъёма по-настоящему.
 
     ``start`` - место, с которого показ заводили. Пока приёмник не назвал ни одной живой
     позиции, поднимать его надо именно отсюда: у мёртвой сессии позиции нет вовсе, и ноль
@@ -382,6 +378,7 @@ def _hold(
     опросом им займётся лестница воскрешения (:meth:`_Revival.resurrect`): смерть на 0:00
     поднимается тем же путём, что и смерть посреди показа.
     """
+    clock = clock if clock is not None else _revive_clock
     paused, said, seen = 0.0, 0.0, False
     session_tag = session_tag or f"[сеанс {journal().session_id()}]"
     #: Позиция приёмника с прошлого опроса - от неё считается запас показа. Прошлая, а не
@@ -493,7 +490,7 @@ def _hold(
                 still_at = position.pos
             elif position.pos > still_at:
                 seen = True
-                mark_playing(feed.out)
+                _revive_playing_mark(feed.out)
                 if not raised:
                     # Старт приёмник не взял, картинку добыла лестница - и сказать об этом
                     # обязаны мы: ``cast`` в этот момент печатает своё «старт NN с» по

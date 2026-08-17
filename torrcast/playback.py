@@ -1,9 +1,44 @@
-"""Совместимый фасад сценария показа."""
+"""Совместимый фасад сценария показа.
+
+Прежние имена показа - те, что сам сценарий больше не разрешает у себя: медиатракт,
+приёмник и часы приходят ему из композиционного корня, а плоскому namespace прежнего
+монолита они по-прежнему нужны под старыми именами. Держит их здесь фасад, которому
+называть модули вне слоёв не запрещено.
+"""
 
 # ruff: noqa: F403, F405
+import os as os
 import sys
+import time as time
+from dataclasses import dataclass as dataclass
+from typing import TYPE_CHECKING as TYPE_CHECKING
 
 from torrcast import trace as trace
+from torrcast.cast import ChromecastReceiver as ChromecastReceiver
+from torrcast.cast import make_receiver as make_receiver
+from torrcast.console import ask_line as ask_line
+from torrcast.profile import detect as detect_profile
+from torrcast.recode import Encode as Encode
+from torrcast.recode import Recoder as Recoder
+from torrcast.recode import whole_encode as whole_encode
+from torrcast.state import State as State
+from torrcast.stream import Grid as Grid
+from torrcast.stream import HlsServer as HlsServer
+from torrcast.stream import Supply as Supply
+from torrcast.stream import TorrServer as TorrServer
+from torrcast.stream import forget_playing as forget_playing
+from torrcast.stream import hls_base as hls_base
+from torrcast.stream import mark_playing as mark_playing
+from torrcast.stream import pick_video_file as pick_video_file
+from torrcast.stream import playing_flag as playing_flag
+from torrcast.stream import probe as probe
+from torrcast.stream import start_play_unit as start_play_unit
+from torrcast.stream import stop_play_unit as stop_play_unit
+from torrcast.stream import unit_active as unit_active
+from torrcast.stream import unit_why as unit_why
+from torrcast.stream import warm_file as warm_file
+from torrcast.timing import CLOCK as CLOCK
+from torrcast.timing import mark as mark
 from torrcast.usecases import playback as _implementation
 from torrcast.usecases.playback import *
 
