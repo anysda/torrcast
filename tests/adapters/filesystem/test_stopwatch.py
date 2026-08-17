@@ -30,7 +30,6 @@ def test_a_mark_reaches_the_journal_without_a_file(monkeypatch: pytest.MonkeyPat
     mark("поиск", раздач=3)
 
     assert spy.marks == ["timeline/поиск"]
-    install(_Silent())
 
 
 def test_the_named_file_gets_the_phase_with_its_facts(

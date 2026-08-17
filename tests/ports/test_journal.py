@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from torrcast.adapters.filesystem.trace_journal import FileJournal
 from torrcast.ports.journal import Journal, _Silent, install, journal
 
 
@@ -37,4 +38,15 @@ def test_an_installed_sink_gets_every_event() -> None:
     journal().dark(pos=1.0, why="источник умер")
 
     assert spy.seen == [("play", "start"), ("play", "dark")]
-    install(_Silent())
+
+
+def test_the_sink_of_the_previous_test_does_not_outlive_it() -> None:
+    """Отрицательная проба возврата: два теста выше ставили своё - здесь снова боевая лента.
+
+    Проба стоит ИМЕННО здесь и ИМЕННО после них: порт - это модульная переменная процесса,
+    и утечка видна только следующему тесту. Раньше её ловила лишь раскладка xdist, да и то
+    через раз, - четыре теста показа падали на пустой ленте, а выглядело это как плавающий
+    тест. Если проба покраснела, значит фикстура ``_ports_restored`` перестала возвращать
+    чужое, и красным станет случайный тест где-то далеко отсюда.
+    """
+    assert isinstance(journal(), FileJournal)

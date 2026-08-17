@@ -48,4 +48,3 @@ def test_every_call_gets_its_own_bar() -> None:
     bar.phase("поиск")
     assert _Spy.seen == ["поиск"]
     _Spy.seen.clear()
-    install(_Quiet)

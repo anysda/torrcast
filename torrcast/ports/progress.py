@@ -61,6 +61,11 @@ def progress() -> Progress:
     return _factory()
 
 
+def factory() -> Callable[[], Progress]:
+    """Чем сейчас рисуется ход: нужно тому, кто ставит своё и обязан вернуть чужое."""
+    return _factory
+
+
 def install(factory: Callable[[], Progress]) -> None:
     """Назначить, чем показывать ход. Зовёт это композиционный корень и тесты."""
     global _factory

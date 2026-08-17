@@ -20,9 +20,12 @@ import pytest
 from tests.fakes.cast_world import CastWorld
 from torrcast import cli, console, trace
 from torrcast.facts import Origin
+from torrcast.ports import journal as journal_port
+from torrcast.ports import progress as progress_port
 from torrcast.runtime.wire import wire
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
     from pathlib import Path
 
     from torrcast.stream import Packer
@@ -322,6 +325,25 @@ def _wired() -> None:
     Каталог ленты у каждого теста свой - его даёт фикстура ``journal``.
     """
     wire()
+
+
+@pytest.fixture(autouse=True)
+def _ports_restored() -> Iterator[None]:
+    """Порт - глобальное состояние ПРОЦЕССА: кто поставил своё, тому вернуть чужое.
+
+    Без этого один тест портов гасил ленту всему прогону: :func:`torrcast.ports.journal.
+    install` меняет модульную переменную, а не поле объекта, и следующие тесты читали
+    молчание вместо своих записей. Ловилось это не всегда - только когда раскладка xdist
+    заводила молчание раньше читателей ленты, то есть выглядело плавающим тестом при
+    ошибке совершенно определённой. Возврат делает фикстура, а не дисциплина: полагаться
+    на то, что каждый автор допишет ``install`` обратно, - значит ждать той же ошибки
+    снова.
+    """
+    saved_journal = journal_port.journal()
+    saved_progress = progress_port.factory()
+    yield
+    journal_port.install(saved_journal)
+    progress_port.install(saved_progress)
 
 
 @pytest.fixture

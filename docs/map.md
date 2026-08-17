@@ -434,6 +434,7 @@
 | `encode_args` | функция | `torrcast/adapters/ffmpeg/encode_args.py` | 6 |
 | `english_title` | функция | `torrcast/domain/facts/english_title.py` | 10 |
 | `evict` | функция | `torrcast/adapters/filesystem/trace_journal.py` | 438 |
+| `factory` | функция | `torrcast/ports/progress.py` | 64 |
 | `ffmpeg_pack_command` | функция | `torrcast/adapters/stream_pack.py` | 1068 |
 | `film_keys` | функция | `torrcast/adapters/stream_pack.py` | 455 |
 | `find` | функция | `torrcast/adapters/chromecast/scan.py` | 388 |
@@ -465,7 +466,7 @@
 | `indexer_budget` | функция | `torrcast/search.py` | 237 |
 | `info_hash` | функция | `torrcast/release_pin.py` | 14 |
 | `install` | функция | `torrcast/ports/journal.py` | 117 |
-| `install` | функция | `torrcast/ports/progress.py` | 64 |
+| `install` | функция | `torrcast/ports/progress.py` | 69 |
 | `interfaces` | функция | `torrcast/adapters/chromecast/scan.py` | 138 |
 | `is_candidate` | функция | `torrcast/usecases/rank.py` | 288 |
 | `is_dated` | функция | `torrcast/usecases/rank.py` | 638 |
