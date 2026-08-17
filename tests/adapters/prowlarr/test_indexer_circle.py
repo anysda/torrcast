@@ -5,6 +5,8 @@ from __future__ import annotations
 import time
 from typing import Any
 
+import pytest
+
 from torrcast.adapters.prowlarr.indexer_circle import IndexerCircle
 from torrcast.adapters.prowlarr.prowlarr_api import ProwlarrApi
 from torrcast.domain.infra_error import InfraError
@@ -100,6 +102,7 @@ def test_молчание_опорного_названо_а_находки_ос
     assert isinstance(error, InfraError)
 
 
+@pytest.mark.machine
 def test_круг_уходит_по_опорным_а_опоздавший_не_молчун() -> None:
     """🔴 TC-118. Некворумный круг не держал вовсе, поэтому раньше личного срока
     молчуном он не зовётся: его поток живёт дальше, а выдачу забирает долив."""
@@ -113,6 +116,7 @@ def test_круг_уходит_по_опорным_а_опоздавший_не_
     assert circle.waiting() == ("Nyaa.si",)
 
 
+@pytest.mark.machine
 def test_долив_забирает_опоздавшего_ровно_один_раз() -> None:
     circle, _http = _circle(rows=2, delay={3: 0.15})
     circle.run([_KNABEN, _NYAA], "Naruto [TV]", 100)
@@ -123,6 +127,7 @@ def test_долив_забирает_опоздавшего_ровно_один_
     assert circle.waiting() == ()
 
 
+@pytest.mark.machine
 def test_долив_без_ожидания_ничего_не_обещает() -> None:
     """Ждать по умолчанию значило бы не уходить по опорным вовсе."""
     circle, http = _circle(rows=2, delay={3: 0.5})
@@ -132,6 +137,7 @@ def test_долив_без_ожидания_ничего_не_обещает() -
     del http
 
 
+@pytest.mark.machine
 def test_потолок_круга_режет_бюджет_но_не_срок_ответа() -> None:
     """TC-455: малый остаток цели ограничивает круг, но не срок HTTP-ответа."""
     circle, http = _circle(rows=2, delay={3: 0.04})
@@ -141,6 +147,7 @@ def test_потолок_круга_режет_бюджет_но_не_срок_о
     assert http.budget[3] > 0.04, "запрос живёт в личный срок индексера"
 
 
+@pytest.mark.machine
 def test_круг_без_опорных_дожидается_всех() -> None:
     """Фолбэк по анимешным идёт без опорных вовсе - ждать в нём некого, иначе он
     возвращался бы пустым."""
