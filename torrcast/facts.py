@@ -1,8 +1,14 @@
-"""Совместимый фасад справки о картинах."""
+"""Совместимый фасад справки о картинах: прежние имена и проводка её сценариев.
+
+Правила разбора статьи живут в :mod:`torrcast.domain.facts`, сеть и файлы - в
+:mod:`torrcast.adapters.wiki`, а собирает их :class:`~torrcast.runtime.facts_wiring.
+FactsWiring`. Отсюда берут справку прежние потребители: меню франшизы, гейт добора и
+диагностические сценарии.
+"""
 
 from __future__ import annotations
 
-# Статический список нужен mypy для реэкспортов; внизу сохраняется runtime-список.
+# Статический список нужен mypy для реэкспортов.
 __all__ = [
     "BLURB_CAP",
     "CACHE_PATH",
@@ -16,242 +22,59 @@ __all__ = [
     "SOURCE_WIKI",
     "SOURCE_WIKIDATA",
     "TOPUP_LIMIT",
-    "TYPE_CHECKING",
     "USER_AGENT",
-    "_ABBREV",
-    "_CINEMA_RE",
-    "_CJK",
-    "_CYRILLIC",
-    "_DEFAULT_CACHE_PATH",
-    "_EXBATCHES",
-    "_EXCHARS",
-    "_EXLIMIT",
-    "_FILM_WORD_RE",
-    "_GENRE_RE",
-    "_HATNOTE_RE",
-    "_LAST_WORD_RE",
-    "_MADE_RE",
-    "_NEAR_LETTERS",
-    "_ODD_WEIGHT",
-    "_ORIGINAL_RE",
-    "_PHRASE_WORDS",
-    "_QUALIFIERS",
-    "_RESOLVED",
-    "_RESOLVE_LOCK",
-    "_RESOLVE_TTL",
-    "_RUNTIME_RE",
-    "_RU_LOCK",
-    "_RU_NAMES",
-    "_SCREEN_RE",
-    "_SEARCH_HITS",
-    "_SENTENCE_START_RE",
-    "_SERIES_WORD_RE",
-    "_SUGGEST_HITS",
-    "_TAIL_RE",
-    "_TITLED_RE",
-    "_TV_KINDS",
-    "_VOTES",
-    "_WIKIDATA_HOST",
-    "_WIKIDATA_PATH",
-    "_WIKI_HOST",
-    "_WIKI_PATH",
-    "_WORK_RE",
-    "_YEAR_RE",
     "Fact",
     "Facts",
-    "Final",
     "Origin",
-    "Path",
-    "_IPv4Connection",
-    "_RuName",
-    "_about_cinema",
-    "_article",
-    "_asked_otherwise",
-    "_by_phrase",
-    "_cache_path",
-    "_cached",
-    "_cached_origin",
-    "_catalogued",
-    "_crowded",
-    "_digit_edit",
-    "_ends_phrase",
-    "_extract_params",
-    "_fits_type",
-    "_imdb_ru",
-    "_key",
-    "_localized_short_name",
-    "_misremembered",
-    "_near_name",
-    "_one_edit",
-    "_origin_key",
-    "_origin_typed",
-    "_other_part",
-    "_outweighed",
-    "_own_name_first",
-    "_pages",
-    "_ranked",
-    "_read_cache",
-    "_read_pages",
-    "_read_ru_names",
-    "_remember",
-    "_remember_origin",
-    "_resolve",
-    "_ru_names",
-    "_same_latin",
-    "_same_picture_origin",
-    "_search_params",
-    "_second_source_year",
-    "_suggested",
-    "_votes",
-    "_write_cache",
     "akin",
-    "confirmed_year",
     "confirms",
-    "contextlib",
-    "dataclass",
     "english_title",
-    "fetch",
     "get_json",
     "hms",
-    "http",
-    "json",
     "latin_title",
     "minutes_of",
     "namesake",
     "origin",
     "origin_either",
-    "origin_now",
-    "os",
     "picture_year",
-    "published_year",
-    "ratings",
-    "re",
     "read_origin",
     "read_published",
     "read_sparql",
     "redirected_name",
     "same_name",
-    "same_word",
-    "same_words",
     "sentence",
     "shorten",
-    "slugify",
-    "socket",
     "sourced",
-    "split_franchise_index",
-    "ssl",
-    "state_path",
-    "threading",
-    "time",
     "titles_for",
-    "transliterate",
-    "urlencode",
-    "wiki_extracts",
-    "wikidata_ids",
     "with_source",
     "without_source",
 ]
 
-import sys
-from types import ModuleType
+from collections.abc import Iterable
 from typing import Any
 
-from torrcast import facts_fetch as _fetch
-from torrcast import facts_origin as _origin
-from torrcast.facts_fetch import (
+from torrcast.domain.facts.akin import akin
+from torrcast.domain.facts.confirms import confirms
+from torrcast.domain.facts.english_title import english_title
+from torrcast.domain.facts.fact import Fact
+from torrcast.domain.facts.hms import hms
+from torrcast.domain.facts.latin_title import latin_title
+from torrcast.domain.facts.minutes_of import minutes_of
+from torrcast.domain.facts.namesake import namesake
+from torrcast.domain.facts.origin import Origin
+from torrcast.domain.facts.picture_year import picture_year
+from torrcast.domain.facts.read_origin import read_origin
+from torrcast.domain.facts.read_published import read_published
+from torrcast.domain.facts.read_sparql import read_sparql
+from torrcast.domain.facts.redirected_name import redirected_name
+from torrcast.domain.facts.same_name import same_name
+from torrcast.domain.facts.sentence import sentence
+from torrcast.domain.facts.settings import (
     BLURB_CAP,
-    HTTP_TIMEOUT,
-    TYPE_CHECKING,
-    Facts,
-    Path,
-    _about_cinema,
-    _article,
-    _cache_path,
-    _cached,
-    _cached_origin,
-    _crowded,
-    _ends_phrase,
-    _extract_params,
-    _fits_type,
-    _key,
-    _localized_short_name,
-    _origin_key,
-    _other_part,
-    _pages,
-    _ranked,
-    _read_cache,
-    _read_pages,
-    _remember,
-    _remember_origin,
-    _same_latin,
-    _search_params,
-    _write_cache,
-    akin,
-    english_title,
-    fetch,
-    json,
-    latin_title,
-    namesake,
-    picture_year,
-    ratings,
-    re,
-    read_origin,
-    read_sparql,
-    same_words,
-    sentence,
-    shorten,
-    slugify,
-    split_franchise_index,
-    state_path,
-    threading,
-    time,
-    transliterate,
-    wiki_extracts,
-    wikidata_ids,
-)
-from torrcast.facts_origin import (
-    _ABBREV,
-    _CINEMA_RE,
-    _CJK,
-    _CYRILLIC,
-    _DEFAULT_CACHE_PATH,
-    _EXBATCHES,
-    _EXCHARS,
-    _EXLIMIT,
-    _FILM_WORD_RE,
-    _GENRE_RE,
-    _HATNOTE_RE,
-    _LAST_WORD_RE,
-    _MADE_RE,
-    _NEAR_LETTERS,
-    _ODD_WEIGHT,
-    _ORIGINAL_RE,
-    _PHRASE_WORDS,
-    _QUALIFIERS,
-    _RESOLVE_LOCK,
-    _RESOLVE_TTL,
-    _RESOLVED,
-    _RU_LOCK,
-    _RU_NAMES,
-    _RUNTIME_RE,
-    _SCREEN_RE,
-    _SEARCH_HITS,
-    _SENTENCE_START_RE,
-    _SERIES_WORD_RE,
-    _SUGGEST_HITS,
-    _TAIL_RE,
-    _TITLED_RE,
-    _TV_KINDS,
-    _VOTES,
-    _WIKI_HOST,
-    _WIKI_PATH,
-    _WIKIDATA_HOST,
-    _WIKIDATA_PATH,
-    _WORK_RE,
-    _YEAR_RE,
     CACHE_PATH,
     EMPTY_TTL,
     FACTS_BUDGET,
+    HTTP_TIMEOUT,
     RATINGS_PATH,
     RU_NAMES_PATH,
     SOURCE_JOIN,
@@ -260,74 +83,46 @@ from torrcast.facts_origin import (
     SOURCE_WIKIDATA,
     TOPUP_LIMIT,
     USER_AGENT,
-    Fact,
-    Final,
-    Origin,
-    _asked_otherwise,
-    _by_phrase,
-    _catalogued,
-    _digit_edit,
-    _imdb_ru,
-    _IPv4Connection,
-    _misremembered,
-    _near_name,
-    _one_edit,
-    _origin_typed,
-    _outweighed,
-    _own_name_first,
-    _read_ru_names,
-    _resolve,
-    _ru_names,
-    _RuName,
-    _same_picture_origin,
-    _second_source_year,
-    _suggested,
-    _votes,
-    confirmed_year,
-    confirms,
-    contextlib,
-    dataclass,
-    get_json,
-    hms,
-    http,
-    minutes_of,
-    origin,
-    origin_either,
-    origin_now,
-    os,
-    published_year,
-    read_published,
-    redirected_name,
-    same_name,
-    same_word,
-    socket,
-    sourced,
-    ssl,
-    titles_for,
-    urlencode,
-    with_source,
-    without_source,
 )
+from torrcast.domain.facts.shorten import shorten
+from torrcast.domain.facts.sourced import sourced
+from torrcast.domain.facts.titles_for import titles_for
+from torrcast.domain.facts.with_source import with_source
+from torrcast.domain.facts.without_source import without_source
+from torrcast.runtime.facts_wiring import FactsWiring
+from torrcast.usecases.facts import Facts as _MenuFacts
 
-_PARTS = (_origin, _fetch)
-_namespace: dict[str, Any] = {}
-for _part in _PARTS:
-    _namespace.update(
-        (name, value) for name, value in vars(_part).items() if not name.startswith("__")
-    )
-globals().update(_namespace)
-for _part in _PARTS:
-    vars(_part).update(_namespace)
-
-
-class _FactsModule(ModuleType):
-    def __setattr__(self, name: str, value: Any) -> None:
-        super().__setattr__(name, value)
-        if not name.startswith("__"):
-            for part in _PARTS:
-                if name in vars(part):
-                    setattr(part, name, value)
+#: Проводка справки на весь процесс: один HTTPS-клиент со своей памятью адресов, один
+#: кэш рядом с состоянием и разобранные однажды выгрузки IMDb.
+FACTS = FactsWiring()
 
 
-sys.modules[__name__].__class__ = _FactsModule
-__all__ = [name for name in globals() if not name.startswith("_")]
+class Facts(_MenuFacts):
+    """Справка к меню франшизы на действующих адаптерах; всё прочее - в сценарии."""
+
+    def __init__(
+        self, pictures: Iterable[tuple[str, int | None]], budget: float = FACTS_BUDGET
+    ) -> None:
+        super().__init__(pictures, budget, store=FACTS.cache, source=FACTS.blurbs)
+
+
+def origin(title: str, series: bool | None = False, budget: float = FACTS_BUDGET) -> Origin:
+    """Паспорт картины из справки; см. :meth:`torrcast.usecases.passport.Passport.of`."""
+    return FACTS.passport.of(title, series, budget)
+
+
+def origin_either(title: str, budget: float = FACTS_BUDGET) -> Origin:
+    """Паспорт, когда тип картины неизвестен; см. :class:`PassportEither`."""
+    return FACTS.passport.either.of(title, budget)
+
+
+def _cached_origin(title: str, series: bool | None) -> Origin | None:
+    """Что лежит в кэше паспортов; ``None`` - про эту картину не спрашивали."""
+    return FACTS.cache.read(title, series)
+
+
+def get_json(
+    host: str, path: str, params: dict[str, str], headers: dict[str, str], timeout: float
+) -> Any:
+    """GET с разбором JSON тем же клиентом, которым ходит справка."""
+    return FACTS.client.get(host, path, params, headers, timeout)

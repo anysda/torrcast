@@ -1,0 +1,111 @@
+"""Политика кэша справки: чем ряд становится на диске и когда он ещё свежий.
+
+Зовёт её хранилище справки (:mod:`torrcast.adapters.wiki.facts_file_cache`): само оно
+умеет только читать и писать словарь, а что в этом словаре значит «спрашивали, и нет
+ответа» и когда такой ряд протух, решают правила отсюда.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+from torrcast.domain.facts.fact import Fact
+from torrcast.domain.facts.origin import Origin
+from torrcast.domain.facts.settings import EMPTY_TTL
+
+
+def _key(title: str, year: int | None) -> str:
+    return f"{title}|{year if year is not None else ''}"
+
+
+def _origin_key(title: str, series: bool | None) -> str:
+    """Паспорта лежат в том же файле, что и справка, но в своём ряду ключей."""
+    kind = "either" if series is None else "tv" if series else "movie"
+    return f"origin|{kind}|{title}"
+
+
+def _row_origin(row: Any) -> Origin | None:
+    """Ряд кэша в паспорт. ``None`` — не спрашивали; пустой паспорт — спрашивали, нет его."""
+    if not isinstance(row, dict):
+        return None
+    shown = row.get("year")
+    return Origin(
+        title=str(row.get("title", "")),
+        year=shown if isinstance(shown, int) else None,
+        name=str(row.get("name", "")),
+        entity=str(row.get("entity", "")),
+        guessed=bool(row.get("guessed")),
+        namesake=str(row.get("namesake", "")),
+        # Ряды, записанные до TC-450, отметки об источнике не носят: пустая строка честно
+        # значит «неизвестно», и выдавать её за Википедию нельзя.
+        source=str(row.get("source", "")),
+    )
+
+
+def _origin_row(found: Origin) -> dict[str, Any]:
+    """Паспорт в ряд кэша: на диск едет всё, чего второму показу иначе не узнать."""
+    return {
+        "title": found.title,
+        "year": found.year,
+        "name": found.name,
+        # Q-идентификатор нужен на диске, иначе одинокий год (:func:`origin_either`) на
+        # втором показе терял бы второй источник и ронял год, подтверждённый на первом.
+        "entity": found.entity,
+        # Отметка «имя лишь похоже» тоже нужна на диске: без неё гейт добора на втором
+        # показе той же картины поверил бы догадке как доказанному имени.
+        "guessed": found.guessed,
+        # Тёзка того же года (TC-371) - тоже на диск: со второго показа справку не
+        # спрашивают вовсе, и честная строка про двусмысленность иначе пропадала бы.
+        "namesake": found.namesake,
+        # 🔴 TC-450. ЧЕМ отвечено - на диск вместе с ответом, иначе сохранённый прогон
+        # умеет сказать только «оригинал есть», а «его дала карта, а не Википедия» - уже
+        # нет, и пользу карты нечем сосчитать. На показ поле не влияет.
+        "source": found.source,
+    }
+
+
+def _cached_facts(
+    raw: dict[str, Any], wanted: list[tuple[str, int | None]], now: float
+) -> dict[tuple[str, int | None], Fact]:
+    """Что из лежащего на диске годится сейчас. Битый ряд — как пустой: спросим сеть.
+
+    Ряд с отметкой ``empty`` — это записанное «справки нет»: картина отдаётся пустой, и в
+    сеть за ней не идут. Отметка со сроком (:data:`EMPTY_TTL`): вышел — ряда как не было.
+    """
+    out: dict[tuple[str, int | None], Fact] = {}
+    for key in wanted:
+        row = raw.get(_key(*key))
+        if not isinstance(row, dict):
+            continue
+        blank = row.get("empty")
+        if isinstance(blank, int | float) and now - blank > EMPTY_TTL:
+            continue
+        fact = Fact(
+            about=str(row.get("about", "")),
+            rating=str(row.get("rating", "")),
+            runtime=str(row.get("runtime", "")),
+        )
+        if not fact and not isinstance(blank, int | float):
+            continue
+        out[key] = fact
+    return out
+
+
+def _fact_rows(
+    found: dict[tuple[str, int | None], Fact],
+    misses: list[tuple[str, int | None]],
+    now: int,
+) -> dict[str, Any]:
+    """Итог похода в ряды кэша; ничего не добыто и не опровергнуто — писать нечего.
+
+    ``misses`` — картины, про которые источник ответил, но сказать ему нечего. Раньше они
+    в кэш не попадали вовсе, и каждое меню шло за ними в сеть заново: поход не успевал к
+    дедлайну, меню печаталось голым, следующее — точно так же. Пустой ответ — тоже ответ,
+    и он тоже помнится, только со сроком (:data:`EMPTY_TTL`).
+    """
+    rows: dict[str, Any] = {}
+    for key, fact in found.items():
+        rows[_key(*key)] = {"about": fact.about, "rating": fact.rating, "runtime": fact.runtime}
+    for key in misses:
+        rows[_key(*key)] = {"about": "", "rating": "", "runtime": "", "empty": now}
+    return rows

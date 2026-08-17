@@ -8,17 +8,28 @@ import socket as socket
 import ssl as ssl
 import threading
 import time
+from collections.abc import Callable
 from typing import Any, Final
 from urllib.parse import urlencode
 
 _RESOLVE_TTL: Final = 600.0
 
 
-class HttpJsonClient:
-    """HTTPS-клиент с прежней памятью IPv4-адресов на процесс."""
+def _getaddrinfo(host: str) -> list[Any]:
+    """Спросить у системы адреса хоста строго по IPv4."""
+    return list(socket.getaddrinfo(host, None, socket.AF_INET, socket.SOCK_STREAM))
 
-    def __init__(self, user_agent: str) -> None:
+
+class HttpJsonClient:
+    """HTTPS-клиент с прежней памятью IPv4-адресов на процесс.
+
+    ``lookup`` - чем спрашиваются адреса. Умолчание ходит в систему; тест подставляет
+    свой и получает ту же память и тот же собственный таймаут без похода в DNS.
+    """
+
+    def __init__(self, user_agent: str, lookup: Callable[[str], list[Any]] = _getaddrinfo) -> None:
         self.user_agent = user_agent
+        self.lookup = lookup
         self._resolved: dict[str, tuple[float, str]] = {}
         self._lock = threading.Lock()
 
@@ -55,7 +66,7 @@ class HttpJsonClient:
 
         def look() -> None:
             with contextlib.suppress(OSError):
-                info = socket.getaddrinfo(host, None, socket.AF_INET, socket.SOCK_STREAM)
+                info = self.lookup(host)
                 if info:
                     box.append(str(info[0][4][0]))
 

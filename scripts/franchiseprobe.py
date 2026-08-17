@@ -44,6 +44,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import runpass
 
 from torrcast import facts
+from torrcast.adapters.wiki.endpoints import (
+    _WIKI_HOST,
+    _WIKI_PATH,
+    _WIKIDATA_HOST,
+    _WIKIDATA_PATH,
+)
+from torrcast.domain.facts.wiki_params import _extract_params, _search_params
+from torrcast.domain.facts.wiki_reply import _pages, _ranked
 from torrcast.parse import slugify, split_franchise_index
 
 #: Курируемый набор: (запрос, заголовок статьи, номер части в запросе, обязан ли
@@ -84,8 +92,8 @@ def sparql(query: str) -> dict[str, Any]:
     for attempt in range(_SPARQL_TRIES):
         try:
             payload = facts.get_json(
-                facts._WIKIDATA_HOST,
-                facts._WIKIDATA_PATH,
+                _WIKIDATA_HOST,
+                _WIKIDATA_PATH,
                 {"query": query},
                 {"Accept": "application/sparql-results+json"},
                 _SPARQL_TIMEOUT,
@@ -176,10 +184,8 @@ def confirmed_parts(
 
 def entity_of(heading: str) -> str:
     """Q-идентификатор статьи ru.wikipedia по заголовку; пусто - статьи нет."""
-    payload = facts.get_json(
-        facts._WIKI_HOST, facts._WIKI_PATH, facts._extract_params([heading]), {}, 8.0
-    )
-    _hops, pages = facts._pages(payload)
+    payload = facts.get_json(_WIKI_HOST, _WIKI_PATH, _extract_params([heading]), {}, 8.0)
+    _hops, pages = _pages(payload)
     for page in pages.values():
         if page is not None:
             return str((page.get("pageprops") or {}).get("wikibase_item") or "")
@@ -188,10 +194,8 @@ def entity_of(heading: str) -> str:
 
 def search_pages(query: str) -> list[Any]:
     """Запасной путь справки: выдача поиска «запрос фильм», как в origin_now."""
-    payload = facts.get_json(
-        facts._WIKI_HOST, facts._WIKI_PATH, facts._search_params(f"{query} фильм"), {}, 8.0
-    )
-    return facts._ranked(payload)
+    payload = facts.get_json(_WIKI_HOST, _WIKI_PATH, _search_params(f"{query} фильм"), {}, 8.0)
+    return _ranked(payload)
 
 
 def numbered_queries(pools: Path | None) -> list[str]:
