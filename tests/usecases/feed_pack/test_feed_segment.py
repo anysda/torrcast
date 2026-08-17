@@ -1,0 +1,126 @@
+"""Ответ на запрос сегмента: готовый файл, прогретое с диска или честное «не будет»."""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+from tests.usecases.feed_pack.world import clock, feed, grid, lay, vault
+from torrcast.usecases.feed_pack.feed_segment import _have, _segment, _warm
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+    from pathlib import Path
+
+    import pytest
+
+
+def _yes(slot: int) -> bool:
+    return True
+
+
+def _noting(asked: list[int]) -> Callable[[int], bool]:
+    """Решение об упаковке, которое только запоминает просьбы и ничего не поднимает."""
+
+    def steer(slot: int) -> bool:
+        asked.append(slot)
+        return True
+
+    return steer
+
+
+def test_a_ready_piece_is_answered_at_once_without_touching_the_packing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Файл на месте - разбираться с упаковкой незачем: это обычный ход показа."""
+    clock(monkeypatch)
+    asked: list[int] = []
+    show = feed(tmp_path)
+    lay(show.out, 2)
+
+    answer = _segment(show, 2, _noting(asked))
+
+    assert answer == show.out / "v2.ts" and asked == []
+
+
+def test_a_name_the_manifest_never_promised_goes_nowhere_near_the_packing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """🔴 TC-622. Номер за сеткой не спорит с упаковкой: ждать по манифесту нечего.
+
+    Раньше он шёл в решение как есть, а там сетка зажимала его в границы - и один GET
+    давал 61 перезапуск упаковки с конца фильма.
+    """
+    fake = clock(monkeypatch)
+    asked: list[int] = []
+    show = feed(tmp_path, grid=grid(60.0, 10.0), wait=120.0)
+
+    assert _segment(show, 99999, _noting(asked)) is None
+    assert asked == [] and fake.slept == [], "за сеткой ждали, вместо того чтобы ответить сразу"
+
+    lay(show.out, 99999)
+    assert _segment(show, 99999, _yes) == show.out / "v99999.ts", "лежащий файл отдаётся всегда"
+
+
+def test_the_warmed_piece_answers_before_any_argument_with_the_packing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """В этом весь смысл прогрева: перемотка в прогретое отвечает файлом, не поднимая ffmpeg."""
+    clock(monkeypatch)
+    asked: list[int] = []
+    store = vault(tmp_path)
+    show = feed(tmp_path, vault=store)
+    lay(store.dir, 3)
+
+    answer = _segment(show, 3, _noting(asked))
+
+    assert answer == store.dir / "v3.ts" and asked == []
+
+
+def test_a_warmed_piece_over_the_ceiling_is_not_warmed_at_all(tmp_path: Path) -> None:
+    """Прогретое идёт мимо обоих потолков веса, поэтому тяжёлая копия прогретой не считается.
+
+    Замер («Тачки» 2006, 39% фильма тяжелее потолка): 32 BUFFERING и 20 пинков за
+    14 минут, пока показ брал с диска копии по 17-44 МБ.
+    """
+    store = vault(tmp_path)
+    show = feed(tmp_path, vault=store, cap=100)
+    lay(store.dir, 3, size=101)
+
+    assert _warm(show, 3) is None
+
+    lay(store.dir, 3, size=100)
+    assert _warm(show, 3) == store.dir / "v3.ts", "кусок ровно по потолку показу годится"
+
+
+def test_a_hopeless_place_is_answered_the_moment_the_packing_says_so(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """«Файла не будет» - ответ сразу: держать поток раздачи после приговора незачем."""
+    fake = clock(monkeypatch)
+    show = feed(tmp_path, wait=120.0)
+
+    assert _segment(show, 1, lambda slot: False) is None
+    assert fake.slept == [], "после приговора показ всё равно ждал"
+
+
+def test_a_busy_decision_is_waited_out_by_the_file_and_not_by_the_queue(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Замок занят - сосед ждёт свой файл, а не очередь: решение стоит до минуты."""
+    fake = clock(monkeypatch)
+    asked: list[int] = []
+    show = feed(tmp_path, wait=1.0)
+    show.lock.acquire()
+
+    assert _segment(show, 1, _noting(asked)) is None
+    assert asked == [] and fake.slept == [0.2] * 5
+
+
+def test_a_piece_is_ours_whether_it_lies_in_the_window_or_on_the_disk(tmp_path: Path) -> None:
+    """Запас показа считает и окно, и прогретое: приёмнику всё равно, откуда кусок."""
+    store = vault(tmp_path)
+    show = feed(tmp_path, vault=store)
+    lay(show.out, 1)
+    lay(store.dir, 2)
+
+    assert _have(show, 1) and _have(show, 2) and not _have(show, 3)

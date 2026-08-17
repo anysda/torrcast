@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+import torrcast.usecases.feed_pack.packer_publish as packer_publish
 from torrcast.recode import (
     DEADLINE_MARGIN,
     FULL_PRESET,
@@ -924,7 +925,8 @@ def test_the_packer_tells_the_encoder_where_the_run_begins(monkeypatch, tmp_path
 
     Иначе он начинает голову позже упаковщика, и придерживать её копию нечем.
     """
-    from torrcast import stream, stream_feed
+    import torrcast.usecases.feed_pack._state as feed_state
+    from torrcast import stream
 
     grid = _grid()
     seen: list[tuple[str, int]] = []
@@ -946,7 +948,7 @@ def test_the_packer_tells_the_encoder_where_the_run_begins(monkeypatch, tmp_path
         seen.append(("проба", 0))
         return 0.0
 
-    monkeypatch.setattr(stream_feed, "pack_start", _probe)
+    monkeypatch.setattr(feed_state, "pack_start", _probe)
     monkeypatch.setattr(
         stream.Packer, "start", classmethod(lambda cls, *a, **k: fake_packer(tmp_path))
     )
@@ -1538,7 +1540,7 @@ def test_the_recoded_piece_goes_out_with_the_copy_s_sound(tmp_path, monkeypatch)
         dst.write_bytes(b"mixed")
         return True
 
-    monkeypatch.setattr("torrcast.stream_feed.merge_tracks", merge)
+    monkeypatch.setattr(packer_publish, "merge_tracks", merge)
     packer.publish()
     assert seen == [(segment_name(0), segment_name(0))]  # картинка из перекода, звук из копии
     assert (out / segment_name(0)).read_bytes() == b"mixed"
@@ -1559,8 +1561,8 @@ def test_a_failed_merge_still_sends_the_recoded_piece(tmp_path, monkeypatch) -> 
     (packer.run / segment_name(0)).write_bytes(b"heavy copy")
     (packer.run / segment_name(1)).write_bytes(b"next")
     (spare / segment_name(0)).write_bytes(b"recode")
-    monkeypatch.setattr("torrcast.stream_feed.merge_tracks", lambda *a, **k: False)
-    monkeypatch.setattr("torrcast.stream_feed.timeline_shift", lambda *a, **k: None)
+    monkeypatch.setattr(packer_publish, "merge_tracks", lambda *a, **k: False)
+    monkeypatch.setattr(packer_publish, "timeline_shift", lambda *a, **k: None)
     packer.publish()
     assert (out / segment_name(0)).read_bytes() == b"recode"
     assert packer.edge == 0
@@ -1587,8 +1589,8 @@ def test_the_recoded_picture_lies_on_the_run_s_own_timeline(tmp_path, monkeypatc
         dst.write_bytes(b"mixed")
         return True
 
-    monkeypatch.setattr("torrcast.stream_feed.merge_tracks", merge)
-    monkeypatch.setattr("torrcast.stream_feed.timeline_shift", lambda *a, **k: 0.0417)
+    monkeypatch.setattr(packer_publish, "merge_tracks", merge)
+    monkeypatch.setattr(packer_publish, "timeline_shift", lambda *a, **k: 0.0417)
     packer.publish()
     assert seen == [0.0417]
     assert (out / segment_name(0)).read_bytes() == b"mixed"
@@ -1614,8 +1616,8 @@ def test_a_failed_merge_on_a_shifted_run_sends_the_copy(tmp_path, monkeypatch) -
     (spare / segment_name(0)).write_bytes(b"recode")
     told: list[tuple[int, str]] = []
     packer.told = lambda slot, how: told.append((slot, how))
-    monkeypatch.setattr("torrcast.stream_feed.merge_tracks", lambda *a, **k: False)
-    monkeypatch.setattr("torrcast.stream_feed.timeline_shift", lambda *a, **k: 0.0417)
+    monkeypatch.setattr(packer_publish, "merge_tracks", lambda *a, **k: False)
+    monkeypatch.setattr(packer_publish, "timeline_shift", lambda *a, **k: 0.0417)
     packer.publish()
     assert (out / segment_name(0)).read_bytes() == b"copy"
     assert not (spare / segment_name(0)).exists()  # перекод этому месту больше не нужен
@@ -1638,8 +1640,8 @@ def test_a_too_heavy_copy_loses_even_to_a_broken_seam(tmp_path, monkeypatch) -> 
     (spare / segment_name(0)).write_bytes(b"recode")
     told: list[tuple[int, str]] = []
     packer.told = lambda slot, how: told.append((slot, how))
-    monkeypatch.setattr("torrcast.stream_feed.merge_tracks", lambda *a, **k: False)
-    monkeypatch.setattr("torrcast.stream_feed.timeline_shift", lambda *a, **k: 0.0417)
+    monkeypatch.setattr(packer_publish, "merge_tracks", lambda *a, **k: False)
+    monkeypatch.setattr(packer_publish, "timeline_shift", lambda *a, **k: 0.0417)
     packer.publish()
     assert (out / segment_name(0)).read_bytes() == b"recode"
     assert told == [(0, "перекод")]
@@ -1663,7 +1665,7 @@ def test_a_merge_heavier_than_the_cap_is_not_sent_to_the_receiver(tmp_path, monk
         dst.write_bytes(b"x" * (MAX_SEGMENT_BYTES + 1))
         return True
 
-    monkeypatch.setattr("torrcast.stream_feed.merge_tracks", merge)
+    monkeypatch.setattr(packer_publish, "merge_tracks", merge)
     packer.publish()
     assert (out / segment_name(0)).read_bytes() == b"recode"
     assert (out / segment_name(0)).stat().st_size <= MAX_SEGMENT_BYTES
@@ -1696,7 +1698,7 @@ def test_the_merged_piece_is_not_mistaken_for_a_packed_segment(tmp_path, monkeyp
         dst.write_bytes(b"mixed")
         return True
 
-    monkeypatch.setattr("torrcast.stream_feed.merge_tracks", merge)
+    monkeypatch.setattr(packer_publish, "merge_tracks", merge)
     packer.publish()
     assert (out / segment_name(0)).read_bytes() == b"mixed"
     # Кусок v2 не дописан (следующего за ним нет) и наружу не ушёл - а ушёл бы, если бы
@@ -1763,7 +1765,8 @@ def test_full_recode_packing_skips_the_pilot_run(tmp_path, monkeypatch) -> None:
     грабля стоила отладки ещё кодировщику), а сам он стоит 0.5-1.7 с пути старта — тех
     самых, которыми сплошной перекод оплачивает свою голову.
     """
-    from torrcast import stream, stream_feed
+    import torrcast.usecases.feed_pack._state as feed_state
+    from torrcast import stream
 
     grid = _grid()
     seen: list[list[str]] = []
@@ -1775,7 +1778,7 @@ def test_full_recode_packing_skips_the_pilot_run(tmp_path, monkeypatch) -> None:
         seen.append(command)
         return fake_packer(tmp_path)
 
-    monkeypatch.setattr(stream_feed, "pack_start", _pilot)
+    monkeypatch.setattr(feed_state, "pack_start", _pilot)
     monkeypatch.setattr(stream.Packer, "start", classmethod(_remember))
     feed = stream.Feed(
         source="src", audio=0, out=tmp_path, grid=grid, encode=Encode(preset=FULL_PRESET)

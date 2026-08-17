@@ -29,15 +29,24 @@ from torrcast.adapters.recode import (
     whole_encode,
 )
 from torrcast.adapters.stream_pack import (
+    ffmpeg_pack_command,
     film_keys,
     forget_playing,
     grid_for,
     hls_dir,
     mark_playing,
+    pack_start,
     playing_flag,
     warm_file,
 )
-from torrcast.adapters.stream_probe import Supply, pick_video_file, probe, swarm_pulse
+from torrcast.adapters.stream_probe import (
+    Supply,
+    pick_video_file,
+    probe,
+    segment_name,
+    segment_slot,
+    swarm_pulse,
+)
 from torrcast.adapters.system_clock import CLOCK
 from torrcast.adapters.systemd.transient_show_unit import TransientShowUnit
 from torrcast.adapters.torrserver.contact_wait import ContactWait
@@ -58,6 +67,7 @@ from torrcast.usecases.discover import _configure_discover
 from torrcast.usecases.doctor import _configure as configure_checks
 from torrcast.usecases.doctor_command import _configure as configure_doctor
 from torrcast.usecases.episode_duration import _configure_episode_duration
+from torrcast.usecases.feed_pack import configure as configure_feed
 from torrcast.usecases.playback import _configure_playback
 from torrcast.usecases.rank import (
     _cut,
@@ -93,6 +103,13 @@ def wire() -> None:
     # (NameError: _environment) - сразу после того, как первые куски уже уехали на ТВ.
     # Раздаёт композиция, а не то, кого случайно втянул чей-то импорт.
     configure_warm(warm_environment)
+    # 🔴 Тем же порядком получает свой внешний мир и лента показа: имена сегментов,
+    # пробный прогон, сборку команды ffmpeg, снятие флажка картинки и каталог перекода.
+    # Прежде они появлялись в сценарии из побочного эффекта импорта совместимого фасада
+    # `torrcast.stream`, который вписывал их в чужие модули через `globals().update`.
+    configure_feed(
+        segment_name, segment_slot, pack_start, ffmpeg_pack_command, forget_playing, RECODE_DIR
+    )
     # Само окружение выбора - адаптер, и правила соседних сценариев ему не назвать
     # импортом: ранжирование, добор и справка лежат слоем выше адаптеров. Прежде оно
     # доставало их строкой с именем модуля прямо в вызове; называет их теперь корень.

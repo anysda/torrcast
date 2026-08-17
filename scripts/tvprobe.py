@@ -35,6 +35,7 @@ from probeprofile import choose as choose_profile
 from torrcast.cast import ChromecastReceiver
 from torrcast.profile import Profile
 from torrcast.recode import RECODE_DIR, Encode, Recoder, Weights, whole_encode
+from torrcast.runtime.wire import wire
 from torrcast.state import load_config
 from torrcast.stream import (
     AUDIO_MBIT,
@@ -155,6 +156,9 @@ def make_grid(
 
 
 def main() -> None:
+    # Медиатракт сценарию раздаёт композиционный корень: без него лента показа не
+    # знает ни имён сегментов, ни чем паковать.
+    wire()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("url", help="поток TorrServer")
     parser.add_argument("--at", type=float, required=True, help="с какой секунды грузить показ")

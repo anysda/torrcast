@@ -20,10 +20,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from torrcast.runtime.wire import wire
 from torrcast.stream import Feed, Grid, hls_dir
 
 
 def main() -> int:
+    # Медиатракт сценарию раздаёт композиционный корень: без него лента показа не
+    # знает ни имён сегментов, ни чем паковать.
+    wire()
     ap = argparse.ArgumentParser()
     ap.add_argument("--clip", required=True, help="файл, который пакуем")
     ap.add_argument("--seconds", type=float, required=True, help="длительность файла")

@@ -46,6 +46,7 @@ from probeprofile import add_argument as add_profile_argument
 from probeprofile import choose as choose_profile
 
 from torrcast.cli import _layout
+from torrcast.runtime.wire import wire
 from torrcast.state import load_config
 from torrcast.stream import (
     Feed,
@@ -284,6 +285,9 @@ def trace_steer() -> None:
 
 
 def main() -> int:
+    # Медиатракт сценарию раздаёт композиционный корень: без него лента показа не
+    # знает ни имён сегментов, ни чем паковать.
+    wire()
     parser = argparse.ArgumentParser(description=__doc__)
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument("--source", help="URL потока (TorrServer)")
