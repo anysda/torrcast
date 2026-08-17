@@ -54,6 +54,7 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any, NoReturn
 
+from torrcast.domain.entry import ENDING_RATIO
 from torrcast.ports.module import module
 from torrcast.ports.show_unit import ShowUnit
 
@@ -75,7 +76,7 @@ for _module_name, _names in {
     "torrcast.parse": ("VIDEO_EXT", "Release"),
     "torrcast.profile": ("CAUTIOUS", "Profile"),
     "torrcast.recode": ("Encode", "Recoder", "whole_encode"),
-    "torrcast.state": ("ENDING_RATIO", "Config", "Entry", "State"),
+    "torrcast.state": ("Config", "Entry", "State"),
     "torrcast.stream": (
         "Feed",
         "Grid",

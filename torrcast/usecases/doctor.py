@@ -23,6 +23,7 @@ from torrcast.domain.cache_health import CacheHealth
 from torrcast.domain.health_verdict import HealthLine
 from torrcast.domain.indexer_health import IPV4_ONLY, KEY_INDEXER, IndexerHealth
 from torrcast.domain.receiver_health import ReceiverHealth
+from torrcast.domain.warm_settings import WARM_BUDGET
 from torrcast.ports.configuration_source import ConfigurationSource
 from torrcast.ports.console import Console
 from torrcast.ports.health_checks import HealthChecks
@@ -30,7 +31,7 @@ from torrcast.ports.health_config import HealthConfig
 from torrcast.ports.health_environment import HealthEnvironment
 from torrcast.usecases.host_checkup import HostCheckup
 from torrcast.usecases.show_checkup import ShowCheckup
-from torrcast.usecases.warm import FREE_FLOOR, WARM_BUDGET
+from torrcast.usecases.warm import FREE_FLOOR
 
 __all__ = ["CAST_PORT", "IPV4_ONLY", "KEY_INDEXER", "Doctor", "checkup"]
 

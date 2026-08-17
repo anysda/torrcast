@@ -2942,7 +2942,7 @@ def test_the_mock_tells_the_credits_from_a_source_that_died_under_the_show() -> 
     пустым состоянием. Пока это считалось титрами, ни один замер досмотра заглушкой не
     доказывался: авария на пятой минуте читалась успехом.
     """
-    from torrcast.state import ENDING_RATIO
+    from torrcast.domain.entry import ENDING_RATIO
 
     whole = 10015.0  # 2:46:55 - длина того самого фильма
 

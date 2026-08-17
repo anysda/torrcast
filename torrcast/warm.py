@@ -4,6 +4,8 @@
 
 import sys
 from torrcast.adapters.warm_environment import environment
+from torrcast.domain.warm_settings import WARM_BUDGET as WARM_BUDGET
+from torrcast.domain.warm_settings import WARM_DIR as WARM_DIR
 from torrcast.usecases import warm as _implementation
 from torrcast.usecases.warm import *  # noqa: F403
 from torrcast.usecases.warm import (
@@ -16,12 +18,11 @@ from torrcast.usecases.warm import (
     SKEW_MAX as SKEW_MAX,
     SKEW_TRIES as SKEW_TRIES,
     STARVE_GRACE as STARVE_GRACE,
-    WARM_BUDGET as WARM_BUDGET,
 )
 
 
 _implementation.configure(environment)
 
-__all__ = _implementation.__all__
+__all__ = [*_implementation.__all__, "WARM_BUDGET", "WARM_DIR"]
 
 sys.modules[__name__] = _implementation

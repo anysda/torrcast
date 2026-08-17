@@ -55,6 +55,7 @@ from pathlib import Path
 from typing import Any, Final
 
 from torrcast.domain.profile import CAUTIOUS
+from torrcast.domain.warm_settings import WARM_BUDGET, WARM_DIR
 from torrcast.ports.warm_environment import WarmEnvironment, WarmGrid
 
 __all__ = ["Vault", "Warmer", "segment_start", "warm_key", "warm_root"]
@@ -89,16 +90,10 @@ def configure(environment: WarmEnvironment) -> None:
     TS_OVERHEAD = environment.ts_overhead
 
 
-#: Каталог прогретого по умолчанию. Диск, не tmpfs - и это весь смысл модуля.
-WARM_DIR: Final = "/var/lib/torrcast/warm"
 #: ``TORRCAST_WARM=<каталог>`` - куда греть вместо настроенного места. Того же рода
 #: переопределение, что ``TORRCAST_STATE`` и ``TORRCAST_CONFIG``: тестовый прогон не имеет
 #: права ни писать в боевое хранилище, ни вытеснять из него чужое по бюджету.
 WARM_ENV: Final = "TORRCAST_WARM"
-#: Бюджет диска под всё прогретое, байты. Худший замеренный вечер требует 28 ГБ;
-#: оставшиеся 2 ГБ - запас ошибки прогноза. Это десятичные ГБ, как в конфиге, щупе и
-#: сообщениях :meth:`Vault.fit`.
-WARM_BUDGET: Final = 30_000_000_000
 #: Сколько места на диске не трогаем ни при каких обстоятельствах, байты. Бюджет считается
 #: по нашим же файлам, а рядом живут чужие: упереть раздел в ноль прогревом нельзя.
 FREE_FLOOR: Final = 3 << 30

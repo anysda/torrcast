@@ -15,6 +15,7 @@ if TYPE_CHECKING:
 import os
 from dataclasses import dataclass
 
+from torrcast.domain.entry import ENDING_RATIO
 from torrcast.ports.module import module
 
 clock_port = module("time")
@@ -30,7 +31,6 @@ for _module_name, _names in {
         "REVIVE_TRIES",
     ),
     "torrcast.profile": ("CAUTIOUS", "Profile"),
-    "torrcast.state": ("ENDING_RATIO",),
     "torrcast.stream": ("Feed", "Supply", "mark_playing"),
     "torrcast.timing": ("CLOCK", "Clock"),
     "torrcast.warm": ("Warmer",),

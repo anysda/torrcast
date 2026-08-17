@@ -27,8 +27,8 @@ from typing import IO, Any
 
 from torrcast import InfraError, why
 from torrcast.cast_core import NOT_RAISED, Position
+from torrcast.domain.entry import ENDING_RATIO
 from torrcast.profile import CAUTIOUS, Profile
-from torrcast.state import ENDING_RATIO
 from torrcast.stream import parse_manifest
 from torrcast.timing import CLOCK, Clock
 

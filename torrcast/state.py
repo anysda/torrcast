@@ -4,7 +4,6 @@ import sys
 from importlib import import_module
 
 from torrcast.adapters.filesystem.state import (
-    ENDING_RATIO,
     Config,
     Entry,
     State,
@@ -15,6 +14,7 @@ from torrcast.adapters.filesystem.state import (
     save_config,
     state_path,
 )
+from torrcast.domain.entry import ENDING_RATIO
 
 __all__ = [
     "ENDING_RATIO",
