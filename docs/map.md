@@ -447,6 +447,7 @@
 | `alt_query` | функция | `torrcast/domain/alt_query.py` | 16 |
 | `anime_indexer` | функция | `torrcast/domain/anime_indexer.py` | 8 |
 | `anime_query` | функция | `torrcast/search.py` | 269 |
+| `answered` | функция | `torrcast/cli/answered.py` | 19 |
 | `ask` | функция | `torrcast/adapters/console/console.py` | 116 |
 | `ask` | функция | `torrcast/usecases/rank.py` | 125 |
 | `ask_line` | функция | `torrcast/adapters/console/console.py` | 97 |
@@ -542,7 +543,7 @@
 | `looks_anime` | функция | `torrcast/domain/looks_anime.py` | 8 |
 | `machine_memory` | функция | `torrcast/usecases/doctor.py` | 120 |
 | `magnet_for` | функция | `torrcast/search.py` | 228 |
-| `main` | функция | `torrcast/cli/main.py` | 44 |
+| `main` | функция | `torrcast/cli/main.py` | 38 |
 | `make_receiver` | функция | `torrcast/adapters/chromecast/cast.py` | 901 |
 | `map_episodes` | функция | `torrcast/domain/map_episodes.py` | 37 |
 | `mapped_start` | функция | `torrcast/adapters/stream_pack.py` | 701 |

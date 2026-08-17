@@ -258,17 +258,6 @@ def _silent_facts(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
 
 
-@pytest.fixture
-def journal(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
-    """Своя лента следа на один тест: пустой каталог и свой идентификатор сеанса.
-
-    Без неё записи теста уехали бы в настоящую ленту хозяина, а чужие - в проверку.
-    """
-    monkeypatch.setenv(trace.LOG_ENV, str(tmp_path))
-    monkeypatch.setenv(trace.SID_ENV, "test-sid")
-    return tmp_path
-
-
 @pytest.fixture(autouse=True)
 def _own_files(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Конфиг и лента следа - свои на каждый тест, а не хозяйские.
@@ -325,10 +314,16 @@ def remote(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 @pytest.fixture
 def journal(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """Каталог недельного следа: события уходят в своё место, а не в боевое."""
+    """Своя лента следа на один тест: пустой каталог и свой идентификатор сеанса.
+
+    Без неё записи теста уехали бы в настоящую ленту хозяина, а чужие - в проверку.
+    Каталог отдельный от ``tmp_path``: тесты кладут туда и свои файлы, а лента обязана
+    начинаться пустой.
+    """
     path = tmp_path / "trace"
     path.mkdir()
     monkeypatch.setenv(trace.LOG_ENV, str(path))
+    monkeypatch.setenv(trace.SID_ENV, "test-sid")
     return path
 
 

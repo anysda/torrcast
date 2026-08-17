@@ -3988,7 +3988,7 @@ def _asked_reference(found: list[Picture], args: cli.Args, spare: float = 9.0) -
 
     with Progress(out=io.StringIO()) as progress:
         cli._second_language(
-            cast(Any, _Silent(spare)), "клиника", args, [], found, progress, reference=_spy
+            cast(Any, _Silent(spare)), "клиника", args, [], found, progress, passport=_spy
         )
     return calls[0]
 
@@ -4062,7 +4062,7 @@ def test_добор_учитывает_готовую_опоздавшую_вы�
             [],
             [],
             progress,
-            reference=lambda *a, **k: Origin(title="Scrubs", year=2001, name="Клиника"),
+            passport=lambda *a, **k: Origin(title="Scrubs", year=2001, name="Клиника"),
         )
 
     assert client.asked == ["Scrubs"], "добор вторым именем действительно состоялся"
@@ -4099,7 +4099,7 @@ def test_короткое_имя_берёт_картину_из_первого_�
             raw,
             found,
             progress,
-            reference=lambda *a, **k: passport,
+            passport=lambda *a, **k: passport,
         )
 
     assert [picture.title for picture in found] == ["lainzine 1-5"], "короткое имя неоднозначно"
@@ -4131,7 +4131,7 @@ def test_паспортное_имя_не_подменяет_картину_пр
             raw,
             pick_franchise("lain", pictures),
             progress,
-            reference=lambda *a, **k: passport,
+            passport=lambda *a, **k: passport,
         )
 
     assert [picture.title for picture in found] == ["lainzine 1-5"], (
@@ -4169,7 +4169,7 @@ def _refined(
             pictures,
             found,
             progress,
-            reference=lambda *a, **k: about,
+            passport=lambda *a, **k: about,
         )
     return client, out, result
 
