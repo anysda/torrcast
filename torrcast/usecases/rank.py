@@ -107,24 +107,24 @@ from torrcast.domain.rank_settings import (
 from torrcast.domain.recode_settings import RECODE_HEIGHT
 from torrcast.domain.release import Release
 from torrcast.domain.torr_file import TorrFile
-from torrcast.ports.rank_environment import RankEnvironment
+from torrcast.ports.console import Console
 
 _DISC_RE = DISC_RE
 if TYPE_CHECKING:
     Args: TypeAlias = Any
     _Plan: TypeAlias = Any
-_rank_environment: RankEnvironment
+_console: Console
 
 
-def configure(environment: RankEnvironment) -> None:
+def configure(console: Console) -> None:
     """Передать сценарию пользовательский ввод и вывод."""
-    global _rank_environment
-    _rank_environment = environment
+    global _console
+    _console = console
 
 
 def ask(question: str, count: int, default: int = 1) -> int:
     """Совместимо передать вопрос консольному порту."""
-    return _rank_environment.choose(question, count, default)
+    return _console.choose(question, count, default)
 
 
 def quality_text(release: Release, media: Media) -> str:
@@ -1110,7 +1110,7 @@ def pick_voice(media: Media, args: Args, remembered: str = "") -> tuple[int, str
             return found, remembered
         # Память живёт на картину, а релиз временный: озвучки в нём нет - говорим и
         # играем обычную, но выбор пользователя не забываем (:attr:`Entry.voice`).
-        _rank_environment.write(f"озвучки «{remembered}» в этом релизе нет - беру обычную")
+        _console.write(f"озвучки «{remembered}» в этом релизе нет - беру обычную")
     return media.default_track(), remembered
 
 
@@ -1290,8 +1290,8 @@ def _ask_voice(media: Media) -> int:
     default = media.default_track()
     if len(media.tracks) == 1:  # выбора нет - вопроса тоже
         return default
-    _rank_environment.write(voices_table(media, default))
-    return _rank_environment.choose("Озвучка?", len(media.tracks), default + 1) - 1
+    _console.write(voices_table(media, default))
+    return _console.choose("Озвучка?", len(media.tracks), default + 1) - 1
 
 
 def voices_table(media: Media, default: int, remembered: str = "") -> str:

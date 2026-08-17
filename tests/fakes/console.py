@@ -14,10 +14,10 @@ class FakeConsole:
         self.questions.append((question, default))
         return self.answers.pop(0) if self.answers else default
 
-    def choose(self, question: str, count: int) -> int:
-        """Ответ номером: без заготовленного ответа берётся первый пункт, как пустой Enter."""
-        answer = self.ask(question, "1")
-        return int(answer) if answer.isdigit() and 1 <= int(answer) <= count else 1
+    def choose(self, question: str, count: int, default: int = 1) -> int:
+        """Ответ номером: без заготовленного ответа берётся дефолт, как пустой Enter."""
+        answer = self.ask(question, str(default))
+        return int(answer) if answer.isdigit() and 1 <= int(answer) <= count else default
 
     def interactive(self) -> bool:
         return self.tty

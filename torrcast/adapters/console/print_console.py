@@ -17,9 +17,9 @@ class PrintConsole:
     def ask(self, question: str, default: str = "") -> str:
         return _console.ask_line(question, default)
 
-    def choose(self, question: str, count: int) -> int:
-        """Вопрос с номерами: ответ - номер от 1 до ``count``, пустой Enter берёт первый."""
-        return _console.ask(question, count)
+    def choose(self, question: str, count: int, default: int = 1) -> int:
+        """Вопрос с номерами: ответ - номер от 1 до ``count``, пустой Enter берёт дефолт."""
+        return _console.ask(question, count, default)
 
     def interactive(self) -> bool:
         return _console.stdin_is_tty()

@@ -1,4 +1,3 @@
-# mypy: disable-error-code=no-any-return
 """Часть CLI; публичный фасад — :mod:`torrcast.cli`."""
 
 from __future__ import annotations
@@ -14,7 +13,6 @@ __all__ = [
     "Episode",
     "Picture",
     "Profile",
-    "Prowlarr",
     "Release",
     "_as_is",
     "_ceiling_hides_name",
@@ -31,26 +29,26 @@ __all__ = [
     "catalog_has_name",
     "franchise_key",
     "menu_order",
-    "merge",
     "minutes_of",
-    "origin",
     "recodes_whole",
     "replace",
     "same_name",
     "same_picture",
     "slugify",
     "split_franchise_index",
-    "to_releases",
     "transliterate",
     "voiceless_pool",
 ]
 
-from collections.abc import Callable
 from dataclasses import replace
 from typing import TYPE_CHECKING, Any, TypeAlias
 
 from torrcast.domain.catalog_has_name import catalog_has_name
 from torrcast.domain.episode import Episode
+from torrcast.domain.facts.fact import Fact
+from torrcast.domain.facts.minutes_of import minutes_of
+from torrcast.domain.facts.origin import Origin
+from torrcast.domain.facts.same_name import same_name
 from torrcast.domain.franchise_key import franchise_key
 from torrcast.domain.menu_order import menu_order
 from torrcast.domain.picture import Picture
@@ -60,47 +58,39 @@ from torrcast.domain.release import Release
 from torrcast.domain.slugify import slugify
 from torrcast.domain.split_franchise_index import split_franchise_index
 from torrcast.domain.transliterate import transliterate
-from torrcast.ports.reinforce_environment import ReinforceEnvironment
+from torrcast.ports.passport_source import PassportSource
+from torrcast.ports.torrent_catalogue import IndexerClient, RawRow, TorrentCatalogue
 
 if TYPE_CHECKING:
     Args: TypeAlias = Any
     Config: TypeAlias = Any
     Facts: TypeAlias = Any
-    Origin: TypeAlias = Any
     Progress: TypeAlias = Any
-    RawResult: TypeAlias = Any
     _Plan: TypeAlias = Any
 
-Prowlarr: Any
-Fact: Any
-minutes_of: Any
-origin: Any
-same_name: Any
-merge: Any
-to_releases: Any
-trace: Any
 KIN_SHOWN = 3
-_reinforce_environment: ReinforceEnvironment
+#: Каталог раздач и справка о картинах - единственное, что у добора снаружи. Ставит их
+#: фасад :mod:`torrcast.reinforce`: только он видит и :mod:`torrcast.search`, и
+#: :mod:`torrcast.facts`, которые по слоям ещё не разложены.
+#:
+#: ⚠️ Имена тут длиннее очевидных нарочно. Плоский namespace прежнего монолита
+#: (:mod:`torrcast.cli`) вписывает в КАЖДУЮ свою часть globals всех остальных, и короткое
+#: ``_passport`` тут же затирается одноимённой функцией отбора
+#: (:func:`torrcast.usecases.choice._passport`) - справка молча превращается в чужую
+#: функцию, и добор падает на первом же вопросе о годе.
+_catalogue: TorrentCatalogue
+_passport_source: PassportSource
 
 
-def configure(environment: ReinforceEnvironment) -> None:
-    """Передать сценарию справку, каталог и телеметрию."""
-    global _reinforce_environment, Prowlarr, Fact, minutes_of, origin, same_name
-    global merge, to_releases, trace
-    _reinforce_environment = environment
-    Prowlarr = environment.prowlarr_type
-    Fact = environment.fact_type
-    minutes_of = environment.minutes_of
-    origin = environment.origin
-    same_name = environment.same_name
-    merge = environment.merge
-    to_releases = environment.to_releases
-    trace = environment.trace
+def configure(catalogue: TorrentCatalogue, passport: PassportSource) -> None:
+    """Передать сценарию каталог раздач и справку о картинах."""
+    global _catalogue, _passport_source
+    _catalogue, _passport_source = catalogue, passport
 
 
 def _as_is(
-    raw: list[RawResult], found: list[Picture], about: Origin, progress: Progress
-) -> tuple[list[RawResult], list[Picture], list[Picture]]:
+    raw: list[RawRow], found: list[Picture], about: Origin, progress: Progress
+) -> tuple[list[RawRow], list[Picture], list[Picture]]:
     """Добора не было - остаётся то, что нашёл русский запрос. И сказать, если год спорит.
 
     🔴 **Право у гейта года ровно одно - не ДОБАВИТЬ своё. ОТНЯТЬ найденное русским
@@ -130,7 +120,7 @@ def _as_is(
         for picture in found:
             if same_name(picture.title, about.name):
                 picture.native = True
-    stays = (raw, cluster(to_releases(raw)), found)
+    stays = (raw, cluster(_catalogue.to_releases(raw)), found)
     if about.year is None or len(found) != 1 or found[0].year is None:
         return stays
     if abs(found[0].year - about.year) <= 1:
@@ -148,7 +138,7 @@ def _as_is(
 
 
 def _ceiling_hides_name(
-    client: Prowlarr, name: str, pictures: list[Picture], found: list[Picture]
+    client: IndexerClient, name: str, pictures: list[Picture], found: list[Picture]
 ) -> bool:
     """Выдача упёрлась в потолок индексера, а картины с именем запроса в ней нет.
 
@@ -170,16 +160,16 @@ def _ceiling_hides_name(
 
 
 def _ceiling_reinforce(
-    client: Prowlarr,
+    client: IndexerClient,
     name: str,
     args: Args,
-    raw: list[RawResult],
+    raw: list[RawRow],
     pictures: list[Picture],
     found: list[Picture],
     progress: Progress,
     *,
-    passport: Callable[..., Any] | None = None,
-) -> tuple[list[RawResult], list[Picture], list[Picture]]:
+    passport: PassportSource | None = None,
+) -> tuple[list[RawRow], list[Picture], list[Picture]]:
     """Второй круг с УТОЧНЁННЫМ запросом «имя + год из справки». Не помогло - как было.
 
     Голое имя индексер закрыл потолком, поэтому спрашиваем точнее: год сужает выдачу
@@ -212,16 +202,18 @@ def _ceiling_reinforce(
 
     if (spare := _no_budget(client, f"уточнение по «{name}»", progress)) is None:
         return raw, pictures, found
-    about = (passport or origin)(name, series=_asked_kind(_leading(found), args), budget=spare)
+    about = (passport or _passport_source)(
+        name, series=_asked_kind(_leading(found), args), budget=spare
+    )
     if about.guessed or about.year is None:
         return raw, pictures, found
     refined = f"{name} {about.year}"
     progress.phase(f"поиск «{refined}»")
-    merged = merge(raw, _ask(client, refined, progress))
+    merged = _catalogue.merge(raw, _ask(client, refined, progress))
     progress.phase("")
     if len(merged) == len(raw):
         return raw, pictures, found
-    wider = cluster(to_releases(merged))
+    wider = cluster(_catalogue.to_releases(merged))
     vouched = [
         p
         for p in wider
@@ -255,16 +247,16 @@ def _lacks_season(found: list[Picture], args: Args) -> bool:
 
 
 def _season_reinforce(
-    client: Prowlarr,
+    client: IndexerClient,
     query: str,
     args: Args,
-    raw: list[RawResult],
+    raw: list[RawRow],
     found: list[Picture],
     progress: Progress,
     titled: bool = False,
     *,
-    passport: Any = None,
-) -> tuple[list[RawResult], list[Picture], list[Picture]]:
+    passport: PassportSource | None = None,
+) -> tuple[list[RawRow], list[Picture], list[Picture]]:
     """Добрать сезон-пак сезонной строкой по оригиналу, прежде чем честно отказать.
 
     Родня транслит-добору (:func:`_second_language`), но повод другой: там пул тощий и
@@ -301,11 +293,11 @@ def _season_reinforce(
     want = args.episode or Episode(1, 1)
     lead = max((p for p in found if p.kind == "tv"), key=lambda p: len(p.releases), default=None)
     if lead is None:
-        return raw, cluster(to_releases(raw)), found
+        return raw, cluster(_catalogue.to_releases(raw)), found
     # Сезонная строка - такой же второй круг, как и добор вторым языком, и цель тратит
     # так же (TC-228). Остатка нет - честнее отказать сразу, чем платить полный круг.
     if (spare := _no_budget(client, f"добор сезона {want.season}", progress)) is None:
-        return raw, cluster(to_releases(raw)), found
+        return raw, cluster(_catalogue.to_releases(raw)), found
     # 🔴 Оригинала у вожака нет - опора только справка, и её догадка (Origin.guessed)
     # ключом фильтра быть не вправе: имя, лишь признанное похожим, бывает чужой
     # картиной под тем же русским словом. Второй признак тот же, что у гейта добора
@@ -314,7 +306,7 @@ def _season_reinforce(
     # транслит: свои слова запроса чужой картины не принесут.
     hint = ""
     if not lead.original:
-        about = (passport or origin)(name, series=True, budget=spare)
+        about = (passport or _passport_source)(name, series=True, budget=spare)
         if about.title and (not about.guessed or (about.name and same_name(name, about.name))):
             hint = about.title
     base = (lead.original or hint or transliterate(name)).strip()
@@ -322,7 +314,7 @@ def _season_reinforce(
     # Тем же именем второй раз ходить незачем: если оригинала нет и транслит совпал с
     # запросом, сезонная строка это тот же круг по индексерам ради той же выдачи.
     if not base or slugify(season_query) == slugify(name):
-        return raw, cluster(to_releases(raw)), found
+        return raw, cluster(_catalogue.to_releases(raw)), found
     progress.phase(f"поиск «{season_query}»")
     extra = _ask(client, season_query, progress)
     progress.phase("")
@@ -331,13 +323,13 @@ def _season_reinforce(
     # (аниме «The Angel Next Door») по оригиналу не проходит.
     keep = [
         row
-        for row, rel in zip(extra, to_releases(extra), strict=True)
+        for row, rel in zip(extra, _catalogue.to_releases(extra), strict=True)
         if rel.original and slugify(rel.original) == want_orig and rel.covers(want.season)
     ]
-    merged = merge(raw, keep) if keep else raw
+    merged = _catalogue.merge(raw, keep) if keep else raw
     if len(merged) == len(raw):
-        return raw, cluster(to_releases(raw)), found
-    pictures = cluster(to_releases(merged))
+        return raw, cluster(_catalogue.to_releases(raw)), found
+    pictures = cluster(_catalogue.to_releases(merged))
     wider = pick_franchise(query, pictures)
     progress.note(f"сезона {want.season} в выдаче не было - добрал по «{season_query}»")
     return merged, pictures, wider
@@ -389,22 +381,27 @@ def voiceless_pool(
     if not plans:
         return None
     plan = plans[first_alive(plans) - 1]
-    if plan.picture.kind == "tv" or not plan.picture.original or not plan.picture.year:
+    # Тип самого плана назвать пока нечем: у отбора он свой в каждом из двух фасадов
+    # (`torrcast.selection` и `torrcast.usecases.select`), и до их сведения `_Plan`
+    # остаётся `Any`. А вот картина у плана - обычная доменная :class:`Picture`, и
+    # наружу она уходит под своим именем, а не безымянной.
+    picture: Picture = plan.picture
+    if picture.kind == "tv" or not picture.original or not picture.year:
         return None
     if fitness(plan, dubbed=True) or not any(r.dubbed for r in plan.ranked):
         return None
-    return plan.picture
+    return picture
 
 
 def _voice_reinforce(
-    client: Prowlarr,
+    client: IndexerClient,
     query: str,
     lead: Picture,
-    raw: list[RawResult],
+    raw: list[RawRow],
     found: list[Picture],
     progress: Progress,
     titled: bool = False,
-) -> tuple[list[RawResult], list[Picture], list[Picture]]:
+) -> tuple[list[RawRow], list[Picture], list[Picture]]:
     """Добрать точной строкой «оригинал + год», когда русской дорожки нет ни у кого.
 
     🔴 Третий добор, и повод у него свой. Тощий пул добирают вторым языком
@@ -450,32 +447,32 @@ def _voice_reinforce(
     exact = f"{lead.original} {lead.year}"
     # Тем же именем второй раз ходить незачем: это тот же круг ради той же выдачи.
     if slugify(exact) == slugify(name):
-        return raw, cluster(to_releases(raw)), found
+        return raw, cluster(_catalogue.to_releases(raw)), found
     if _no_budget(client, f"добор по «{exact}»", progress) is None:
-        return raw, cluster(to_releases(raw)), found
+        return raw, cluster(_catalogue.to_releases(raw)), found
     progress.phase(f"поиск «{exact}»")
     extra = _ask(client, exact, progress)
     progress.phase("")
     want_orig = slugify(lead.original or "")
     keep = [
         row
-        for row, rel in zip(extra, to_releases(extra), strict=True)
+        for row, rel in zip(extra, _catalogue.to_releases(extra), strict=True)
         if rel.original
         and slugify(rel.original) == want_orig
         and rel.year is not None
         and lead.year is not None
         and abs(rel.year - lead.year) <= 1
     ]
-    merged = merge(raw, keep) if keep else raw
+    merged = _catalogue.merge(raw, keep) if keep else raw
     if len(merged) == len(raw):
-        return raw, cluster(to_releases(raw)), found
-    pictures = cluster(to_releases(merged))
+        return raw, cluster(_catalogue.to_releases(raw)), found
+    pictures = cluster(_catalogue.to_releases(merged))
     wider = pick_franchise(query, pictures)
     was = sum(len(p.releases) for p in found)
     now = sum(len(p.releases) for p in wider)
     if now <= was:
         # Прибавка ушла мимо картины - тогда второго захода как будто и не было.
-        return raw, cluster(to_releases(raw)), found
+        return raw, cluster(_catalogue.to_releases(raw)), found
     progress.note(
         f"«{lead.title}» по-русски есть только там, где играть нечем - "
         f"добрал по «{exact}»: раздач стало {now}"
@@ -713,7 +710,7 @@ def _topup(
     rows = plan.late()
     if not rows:
         return plan
-    extra = to_releases(rows)
+    extra = _catalogue.to_releases(rows)
     have = {r.magnet for r in plan.picture.releases}
     # Кластер тут - судья принадлежности, а не сборщик: спрашиваем у него, какие из
     # приехавших раздач относятся к ТОЙ ЖЕ картине, и берём только их. Сам пул собираем

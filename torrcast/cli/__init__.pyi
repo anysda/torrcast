@@ -677,7 +677,6 @@ from torrcast.ranking import (
     voices_table,
 )
 from torrcast.reinforce import (
-    Prowlarr,
     _as_is,
     _ceiling_hides_name,
     _ceiling_reinforce,
@@ -692,15 +691,14 @@ from torrcast.reinforce import (
     _voice_reinforce,
     catalog_has_name,
     menu_order,
-    merge,
     minutes_of,
     replace,
     same_name,
     same_picture,
-    to_releases,
     transliterate,
     voiceless_pool,
 )
+from torrcast.search import Prowlarr, merge, to_releases
 from torrcast.selection import (
     COPY,
     META_BUDGET,
