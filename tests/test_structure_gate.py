@@ -107,6 +107,68 @@ def test_io_rule_turns_red(tmp_path: Path) -> None:
     assert "ввод-вывод" in _rules(root)
 
 
+def _layered(root: Path, name: str, source: str) -> None:
+    """Кладёт модуль в слой сценариев вместе с его зеркальным тестом."""
+    (root / "torrcast" / "usecases").mkdir(exist_ok=True)
+    (root / "tests" / "usecases").mkdir(exist_ok=True)
+    (root / "torrcast" / "usecases" / f"{name}.py").write_text(source, encoding="utf-8")
+    (root / "tests" / "usecases" / f"test_{name}.py").write_text("", encoding="utf-8")
+
+
+def test_bypass_rule_turns_red_on_a_dependency_named_by_a_string(tmp_path: Path) -> None:
+    """Правило `обход` своей отрицательной пробы не имело - вот она."""
+    root = _tree(tmp_path)
+    _layered(
+        root,
+        "pull",
+        '"""Модуль."""\nfrom importlib import import_module\n'
+        "def pull(): return import_module('torrcast.good')\n",
+    )
+    _refresh_map(root)
+    assert "обход" in _rules(root)
+
+
+def test_bypass_rule_turns_red_on_a_stub_beside_a_package_init(tmp_path: Path) -> None:
+    """Заглушка рядом с `__init__.py` - такая же ложь компилятору, как и рядом с модулем."""
+    root = _tree(tmp_path)
+    (root / "torrcast" / "usecases").mkdir()
+    (root / "tests" / "usecases").mkdir()
+    (root / "torrcast" / "usecases" / "__init__.py").write_text('"""Пакет."""\n', encoding="utf-8")
+    (root / "torrcast" / "usecases" / "__init__.pyi").write_text(
+        "from torrcast.good import Good as Good\n", encoding="utf-8"
+    )
+    _refresh_map(root)
+    assert "обход" in _rules(root)
+
+
+def test_silencer_rule_turns_red_when_the_typechecker_is_switched_off(tmp_path: Path) -> None:
+    """Файл, снятый с тайпчека целиком, выглядит проверенным - и не проверен."""
+    root = _tree(tmp_path)
+    _layered(root, "loose", '"""Модуль."""\n# mypy: ignore-errors\ndef loose(): pass\n')
+    _refresh_map(root)
+    assert "глушитель" in _rules(root)
+
+
+def test_silencer_rule_turns_red_when_undeclared_names_are_hushed(tmp_path: Path) -> None:
+    """`F821`/`F822` - единственная проверка на имена из `globals()`; глушить её нельзя."""
+    root = _tree(tmp_path)
+    _layered(root, "hushed", '"""Модуль."""\n# ruff: noqa: F821, F822\ndef hushed(): pass\n')
+    _refresh_map(root)
+    assert "глушитель" in _rules(root)
+
+
+def test_silencer_rule_leaves_a_narrow_exception_alone(tmp_path: Path) -> None:
+    """Точечное исключение по делу - не глушитель: правило бьёт по выключению ЦЕЛИКОМ.
+
+    Иначе правило запретило бы всякое подавление и его начали бы обходить обратно - уже
+    построчными `# noqa`, которые гейт не видит вовсе.
+    """
+    root = _tree(tmp_path)
+    _layered(root, "narrow", '"""Модуль."""\n# ruff: noqa: RUF001\ndef narrow(): pass\n')
+    _refresh_map(root)
+    assert "глушитель" not in _rules(root)
+
+
 def test_map_rule_turns_red(tmp_path: Path) -> None:
     root = _tree(tmp_path)
     (root / "docs" / "map.md").write_text("устарела\n", encoding="utf-8")

@@ -24,8 +24,15 @@ RULES: Final = (
     "зеркало",
     "ввод-вывод",
     "обход",
+    "глушитель",
     "карта",
 )
+#: Шапки, которыми файл целиком снимают с тайпчека.
+_MYPY_OFF: Final = re.compile(r"^#\s*mypy:\s*(ignore-errors|disable-error-code)")
+#: Шапка, которой файл целиком снимают с линтера; группа - список кодов, если он назван.
+_RUFF_OFF: Final = re.compile(r"^#\s*ruff:\s*noqa(?::(?P<codes>.*))?$")
+#: Коды ruff про необъявленное имя: ими глушат ровно ту проверку, что ловит `globals()`.
+_NAME_CHECKS: Final = frozenset({"F821", "F822"})
 #: Ручки, которыми модуль достаёт зависимость по СТРОКЕ с именем. Правило слоёв читает
 #: граф импортов, а строку прочитать нечем: `module("torrcast.cast")` из сценария
 #: выглядит для гейта чистым, хотя это ровно тот импорт адаптера, который запрещён.
@@ -253,11 +260,47 @@ def _bypass_violations(module: Module) -> list[Violation]:
             failures.append(
                 Violation("обход", module.relative, node.lineno, "имена вписываются в globals")
             )
+    # Заглушка рядом с `__init__.py` - такая же ложь компилятору, как и рядом с обычным
+    # модулем, и по объёму крупнейшая в пакете: `torrcast/cli/__init__.pyi` объявляет 736
+    # строк имён, которых в самом `__init__.py` нет. Исключение для `__init__` тут
+    # держалось не по смыслу, а потому что правило писалось на примере одного файла.
     stub = module.path.with_suffix(".pyi")
-    if module.path.name != "__init__.py" and stub.exists():
+    if stub.exists():
         failures.append(
             Violation("обход", module.relative, 1, f"заглушка вместо честных имён: {stub.name}")
         )
+    return failures
+
+
+def _silencer_violations(module: Module) -> list[Violation]:
+    """Ищет файлы, где проверку выключили целиком, а не разобрались с местом.
+
+    `mypy --strict` и `ruff check` зелены ровно настолько, насколько им дали смотреть.
+    Строка `# mypy: ignore-errors` в шапке снимает тайпчек со всего файла, `# ruff: noqa`
+    - все правила линтера, а `# ruff: noqa: F821, F822` бьёт прицельно по «имя не
+    объявлено» - то есть по единственной проверке, которая ловит имена, вписанные в
+    модуль через `globals().update`. Такой глушитель не оставляет следа ни в одном
+    отчёте: файл выглядит проверенным.
+    """
+    if module.layer == "не разложено":
+        return []
+    failures: list[Violation] = []
+    source = module.path.read_text(encoding="utf-8").splitlines()
+    for number, line in enumerate(source, start=1):
+        text = line.strip()
+        if not text.startswith("#"):
+            continue
+        if _MYPY_OFF.match(text):
+            failures.append(
+                Violation("глушитель", module.relative, number, f"тайпчек выключен: {text}")
+            )
+        elif (found := _RUFF_OFF.match(text)) is not None:
+            codes = found.group("codes") or ""
+            hidden = {code.strip() for code in codes.split(",") if code.strip()}
+            if not hidden or hidden & _NAME_CHECKS:
+                failures.append(
+                    Violation("глушитель", module.relative, number, f"линтер выключен: {text}")
+                )
     return failures
 
 
@@ -335,6 +378,7 @@ def check(root: Path) -> list[Violation]:
         failures.extend(_layer_violations(module, imports))
         failures.extend(_io_violations(module, imports))
         failures.extend(_bypass_violations(module))
+        failures.extend(_silencer_violations(module))
         edges[module.name] = {
             target
             for name, _line in imports
