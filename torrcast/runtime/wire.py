@@ -5,9 +5,11 @@
 которым нужен настоящий, а не молчащий след.
 """
 
+from torrcast.adapters.choice_environment import environment as choice_environment
 from torrcast.adapters.chromecast.cast import make_receiver
 from torrcast.adapters.chromecast.profile_detector import detector
 from torrcast.adapters.console.console import Progress
+from torrcast.adapters.console.print_console import PrintConsole
 from torrcast.adapters.filesystem.state import FileStateStore, load_config
 from torrcast.adapters.filesystem.trace_journal import FileJournal
 from torrcast.adapters.health.system_health_environment import SystemHealthEnvironment
@@ -21,9 +23,11 @@ from torrcast.ports.show_unit import install as install_unit
 from torrcast.ports.state_store import install as install_state
 from torrcast.runtime.trace_thresholds import trace_thresholds
 from torrcast.usecases.cache_reserve import _configure_cache_reserve
+from torrcast.usecases.choice import configure as configure_choice
 from torrcast.usecases.doctor import _configure as configure_checks
 from torrcast.usecases.doctor_command import _configure as configure_doctor
 from torrcast.usecases.episode_duration import _configure_episode_duration
+from torrcast.usecases.rank import configure as configure_rank
 from torrcast.usecases.torrents import _configure_torrents
 from torrcast.usecases.warm import configure as configure_warm
 from torrcast.usecases.worker import _configure_worker
@@ -42,6 +46,13 @@ def wire() -> None:
     # (NameError: _environment) - сразу после того, как первые куски уже уехали на ТВ.
     # Раздаёт композиция, а не то, кого случайно втянул чей-то импорт.
     configure_warm(warm_environment)
+    # 🔴 То же самое и у выбора раздачи, только фасад-смертник `torrcast.choice` пока
+    # кем-то импортируется, и потому беда прячется. Держится она на порядке импортов, а
+    # не на корне: снесёт разрез фасад - и выбор упадёт `NameError` на живом запуске, а
+    # не на гейте. Раздаём отсюда, пока фасад ещё есть (TC-630).
+    configure_choice(choice_environment)
+    # И у ранжирования то же: печать ему раздавал импорт фасада `torrcast.ranking`.
+    configure_rank(PrintConsole())
     # Самопроверка окружения - два разных внешних мира: чем узнавать (системная среда
     # проб) и что проверять (файл настроек). Оба приходят отсюда, а не из строки с
     # именем модуля внутри самой команды.
