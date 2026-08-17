@@ -19,6 +19,11 @@ def rebuffer(sid: str, at: float) -> dict[str, Any]:
     return {"at": at, "sid": sid, "phase": "show", "event": "buffering"}
 
 
+def segment(sid: str, at: float, source: str) -> dict[str, Any]:
+    """Отданный приёмнику кусок с названным источником: из упаковки или из прогретого."""
+    return {"at": at, "sid": sid, "phase": "show", "event": "segment", "src": source}
+
+
 def test_each_session_gets_its_own_block_instead_of_one_running_tape() -> None:
     """Сеанс - это все записи с одним идентификатором, и в выжимке он свой блок.
 
@@ -35,6 +40,30 @@ def test_each_session_gets_its_own_block_instead_of_one_running_tape() -> None:
     assert any("сегодня" in head for head in by_sid)
     older = next(block for head, block in by_sid.items() if "вчера" in head)
     assert "ребуферов 2" in older, "итог сеанса считается по его собственным записям"
+
+
+def test_a_change_of_source_is_counted_in_the_summary_and_a_steady_one_is_not() -> None:
+    """Стык источника - это СМЕНА, а не всякий кусок: считается переход, а не лента.
+
+    Стыки читают затем, что ребуфер на границе прогретого и упакованного - отдельная
+    болезнь показа. Посчитай вместо переходов сами куски - и любой ровный показ обвинялся
+    бы в десятках стыков; не считай вовсе - и настоящая склейка терялась бы в итоге. Первый
+    кусок сеанса переходом не считается: у него нет предыдущего источника.
+    """
+    steady = digest([segment("ровный", 1.0, "warm"), segment("ровный", 2.0, "warm")])
+    once = digest([segment("склейка", 1.0, "warm"), segment("склейка", 2.0, "pack")])
+    twice = digest(
+        [
+            segment("метания", 1.0, "warm"),
+            segment("метания", 2.0, "pack"),
+            segment("метания", 3.0, "pack"),
+            segment("метания", 4.0, "warm"),
+        ]
+    )
+
+    assert "стыков источника" not in steady, "источник не менялся - и стыка не было"
+    assert "стыков источника 1" in once
+    assert "стыков источника 2" in twice, "считаются все переходы, а не факт того, что был"
 
 
 def test_the_freshest_session_is_the_one_a_human_reads_first() -> None:

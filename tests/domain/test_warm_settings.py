@@ -38,3 +38,16 @@ def test_the_budget_covers_the_worst_measured_evening_with_room_for_a_wrong_fore
     """
     assert WARM_BUDGET >= WORST_EVENING_BYTES
     assert WARM_BUDGET - WORST_EVENING_BYTES >= 2_000_000_000
+
+
+def test_the_room_for_a_wrong_forecast_stays_a_reserve_and_not_a_second_budget() -> None:
+    """Запас сверх замера обязан остаться ЗАПАСОМ: меньше того, что он страхует.
+
+    Запас существует ради ошибки прогноза, а не ради «побольше на всякий случай». Стань он
+    больше самого замеренного вечера - и число перестало бы опираться на замер вовсе:
+    прогрев занимал бы под себя десятки лишних гигабайт диска, которые ни один вечер не
+    просил, и вытеснял бы чужое по бюджету, которого никто не мерил.
+    """
+    reserve = WARM_BUDGET - WORST_EVENING_BYTES
+
+    assert reserve < WORST_EVENING_BYTES, "запас больше замера - это уже не запас, а догадка"

@@ -10,6 +10,7 @@ from __future__ import annotations
 from torrcast.domain.pick_settings import META_BUDGET
 from torrcast.domain.probe_settings import COPY_DEPTH, META_GRACE, PROBE_TIMEOUT, RECODE_CODECS
 from torrcast.domain.profile import CAUTIOUS
+from torrcast.domain.worker_settings import WORKER_META
 
 
 def test_asking_a_dying_show_costs_far_less_than_asking_the_same_service_under_the_menu() -> None:
@@ -31,6 +32,17 @@ def test_a_returning_torrent_gets_more_time_than_a_single_ask_takes() -> None:
     считал бы её раздачей по голому хэшу и добавлял магнит поверх едущих метаданных.
     """
     assert META_GRACE >= 5 * PROBE_TIMEOUT
+
+
+def test_the_grace_ends_before_the_unit_itself_stops_waiting_for_metadata() -> None:
+    """Отсрочка обязана кончиться раньше, чем ждать метаданные перестаёт сам юнит.
+
+    Отсрочка говорит «раздача ещё собирает рой, не считай её пустышкой». Юнит же ждёт
+    метаданные до своего последнего рубежа, и дальше показывать нечего. Дай отсрочке
+    пережить этот рубеж - и раздача числилась бы «ещё едущей» уже после того, как показ
+    сдался: магнит добавлялся бы поверх того, чего никто не ждёт.
+    """
+    assert META_GRACE < WORKER_META
 
 
 def test_the_codec_measurements_are_the_receivers_profile_and_not_a_copy_beside_it() -> None:

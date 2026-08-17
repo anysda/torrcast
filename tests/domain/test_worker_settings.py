@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from torrcast.domain.pick_settings import META_BUDGET, PROBE_BUDGET
 from torrcast.domain.worker_settings import WORKER_DUR, WORKER_META
+from torrcast.usecases.start_budget import START_BUDGET
 
 
 def test_the_unit_waits_longer_than_the_menu_because_it_has_nowhere_to_step_aside() -> None:
@@ -20,6 +21,19 @@ def test_the_unit_waits_longer_than_the_menu_because_it_has_nowhere_to_step_asid
     """
     assert WORKER_META > META_BUDGET
     assert WORKER_DUR > PROBE_BUDGET
+
+
+def test_neither_ceiling_inside_the_unit_outweighs_the_whole_path_to_the_picture() -> None:
+    """Ни один рубеж юнита не смеет перевесить все остальные фазы старта вместе взятые.
+
+    Оба срока - слагаемые бюджета старта, то есть того, сколько CLI ждёт картинку. Дай
+    одному из них перевалить за половину суммы - и он один стоил бы человеку больше, чем
+    метаданные, карта, пробный прогон и терпение приёмника целиком: ждать «ещё немного»
+    пришлось бы там, где показывать давно нечего, а бюджет перестал бы быть суммой
+    сравнимых фаз и стал бы одним сроком с придатками.
+    """
+    assert WORKER_META < START_BUDGET / 2
+    assert WORKER_DUR < START_BUDGET / 2
 
 
 def test_reading_the_duration_is_given_more_room_than_waiting_for_the_metadata() -> None:

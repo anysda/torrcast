@@ -11,17 +11,21 @@ from __future__ import annotations
 from torrcast.adapters.recode import RUN_MAX
 from torrcast.domain.hls_settings import (
     _SEGMENT_RE,
+    AUDIO_BITRATE,
     AUDIO_CHANNELS,
     AUDIO_CODEC,
     AUDIO_PRIMING,
     HLS_SEGMENT_SECONDS,
     MAX_SEGMENT_BYTES,
     MIXED_PREFIX,
+    MPEGTS_MUX_DELAY,
     MUTE_SECONDS,
+    PACK_DIR,
     PACK_LIST,
     PACK_PENDING_BYTES,
     PACK_SHORT_SECONDS,
     PLAYING_FLAG,
+    SHRINK_DIR,
     SPLIT_SLACK,
 )
 from torrcast.domain.profile import CAUTIOUS
@@ -34,6 +38,10 @@ FIRST_DEADLY_BYTES = 19_400_000
 
 #: Чем ffmpeg зовут «отдать дорожку как есть»: ровно это тут и запрещено.
 PASSTHROUGH_CODECS = frozenset({"copy"})
+
+#: Умолчания мультиплексора mpegts, из которых и складывается его сдвиг меток времени.
+FFMPEG_MUXDELAY_SECONDS = 0.7
+FFMPEG_MUXPRELOAD_SECONDS = 0.7
 
 
 def test_the_segment_cap_stays_under_the_weight_that_killed_the_show() -> None:
@@ -92,6 +100,28 @@ def test_the_tolerances_stay_tolerances_and_never_become_a_second_threshold() ->
     assert SPLIT_SLACK * 100 < HLS_SEGMENT_SECONDS
 
 
+def test_the_mpegts_shift_names_the_two_ffmpeg_defaults_it_stands_for() -> None:
+    """Число обязано оставаться суммой обоих умолчаний, которые глушим, а не одного.
+
+    Сдвиг ко всем меткам выходного потока даёт ``muxdelay`` плюс ``muxpreload``, и глушить
+    надо оба: заглуши один - и лента уехала бы на оставшиеся 0.7 с. Именно этим дефект и
+    был дважды: :func:`pack_start` глушил сдвиг с самого начала, а
+    :func:`ffmpeg_pack_command` - нет, и сегменты уезжали на ТВ со временем фильма плюс
+    1.4 с. Обнули число - и расследовать стало бы нечего: имя перестало бы называть цену.
+    """
+    assert MPEGTS_MUX_DELAY == FFMPEG_MUXDELAY_SECONDS + FFMPEG_MUXPRELOAD_SECONDS
+
+
+def test_the_mpegts_shift_dwarfs_the_tolerance_a_segment_boundary_is_allowed() -> None:
+    """Сдвиг не косметика: он на два порядка больше допуска, в который метим границей.
+
+    Границу сегмента мы кладём в карту с точностью :data:`SPLIT_SLACK` - меньше кадра.
+    Незаглушенный сдвиг больше этого допуска в десятки раз, то есть уводит кусок мимо
+    карты целиком, а не «немного не туда»: потому его и глушат, а не терпят.
+    """
+    assert MPEGTS_MUX_DELAY > SPLIT_SLACK * 10
+
+
 def test_the_audio_priming_covers_the_measured_head_start_of_the_first_packet() -> None:
     """Первый пакет нашего AAC приходит ниже нуля на 0.021 с - лента обязана это покрыть.
 
@@ -116,6 +146,35 @@ def test_nothing_service_shaped_inside_a_run_looks_like_a_ready_segment() -> Non
     assert _SEGMENT_RE.fullmatch("v17.ts"), "настоящий сегмент обязан узнаваться"
 
 
+def test_the_name_of_a_segment_carries_its_slot_as_a_number_and_nothing_else() -> None:
+    """Имя куска несёт НОМЕР слота, и узнаётся кусок только вместе с ним.
+
+    По этому имени показ и узнаёт слот (:func:`segment_slot` берёт группу и делает из неё
+    число). Расширь узнавание до любого хвоста - и служебный файл вида ``vtmp.ts`` внутри
+    каталога прогона сошёл бы за наш кусок, а попытка прочесть его слот кончилась бы не
+    честным «имя не наше», а падением на разборе числа.
+    """
+    found = _SEGMENT_RE.fullmatch("v17.ts")
+    assert found is not None
+    assert int(found.group(1)) == 17, "из имени обязан доставаться сам номер слота"
+    assert _SEGMENT_RE.fullmatch("vtmp.ts") is None, "без номера это не наш кусок"
+    assert _SEGMENT_RE.fullmatch("v.ts") is None
+
+
+def test_the_run_directories_never_collapse_into_one_another() -> None:
+    """Каталог нарезки и каталог ужатия - РАЗНЫЕ места, и в этом весь смысл второго.
+
+    Ужатие на месте заводит себе свой каталог ровно затем, чтобы не задеть рабочий каталог
+    кодировщика. Слейся они в одно имя - одноразовый прогон вычищал бы куски, которые
+    прямо сейчас нарезаются и вот-вот уедут на ТВ. То же и с остальными именами прогона:
+    каждое названо своим делом, и совпадение любых двух - это молчаливая потеря одного
+    из них.
+    """
+    names = [PACK_DIR, SHRINK_DIR, MIXED_PREFIX, PACK_LIST, PLAYING_FLAG]
+
+    assert len(set(names)) == len(names), f"имена внутри прогона обязаны различаться: {names}"
+
+
 def test_the_audio_is_always_recoded_and_never_passed_through() -> None:
     """Passthrough AC3/DTS запрещён: приёмник их не берёт, а ``copy`` пустил бы их как есть.
 
@@ -124,3 +183,19 @@ def test_the_audio_is_always_recoded_and_never_passed_through() -> None:
     """
     assert AUDIO_CODEC not in PASSTHROUGH_CODECS
     assert AUDIO_CHANNELS == 2, "стерео: многоканальное приёмник сводить не обязан"
+
+
+def test_the_audio_rate_is_a_rate_ffmpeg_understands_and_a_sliver_of_the_segment() -> None:
+    """Битрейт звука назван так, как его читает ffmpeg, и весит малую долю куска.
+
+    Вес куска - главный потолок показа: перевесь его звук, и на картинку осталось бы
+    меньше, чем нарезано под неё, а потолок сегмента упирался бы в дорожку вместо видео.
+    Звук у нас стерео и всегда перекодируется, то есть его вес мы назначаем сами.
+    """
+    assert AUDIO_BITRATE.endswith("k"), "ffmpeg читает ставку в своей k-нотации"
+    kbit = int(AUDIO_BITRATE.removesuffix("k"))
+    assert kbit > 0
+
+    audio_bytes = kbit * 1000 / 8 * HLS_SEGMENT_SECONDS
+
+    assert audio_bytes < MAX_SEGMENT_BYTES / 10, "звук - доля куска, а не его половина"

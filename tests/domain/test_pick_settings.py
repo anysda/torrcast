@@ -20,6 +20,14 @@ from torrcast.domain.pick_settings import (
 #: Верхняя замеренная цена одного приговора: столько отбор простаивал на тяжёлом ремуксе.
 DEAREST_VERDICT_SECONDS = 5.0
 
+#: Разброс прихода ПЕРВОГО БАЙТА потока по замеру 240 подъёмов: три четверти и
+#: девятнадцать двадцатых. Ими и поставлена отсрочка молчащего роя.
+FIRST_BYTE_P75_SECONDS = 3.9
+FIRST_BYTE_P95_SECONDS = 19.7
+
+#: Замеренный подъём раздачи с нуля: столько едут метаданные роя по DHT.
+SWARM_METADATA_SECONDS = 6.0
+
 
 def test_the_phase_budget_is_assembled_from_the_budgets_of_one_release() -> None:
     """Потолок фазы - это прежние три полных раздачи, а не отдельно выбранное число.
@@ -40,6 +48,28 @@ def test_the_swarm_grace_cuts_a_dead_release_short_of_the_full_probe() -> None:
     """
     assert SWARM_GRACE < PROBE_BUDGET
     assert PROBE_BUDGET - SWARM_GRACE >= 25.0, "экономия на молчащей раздаче меньше замеренной"
+
+
+def test_the_swarm_grace_stands_at_the_edge_of_the_measured_spread_and_not_inside_it() -> None:
+    """Отсрочка стоит на КРАЮ разброса прихода первого байта, а не в его середине.
+
+    Замер 240 подъёмов: первый байт приходит за 3.9 с у трёх четвертей раздач и за 19.7 с у
+    девятнадцати двадцатых. Опусти отсрочку внутрь разброса - и живые раздачи начали бы
+    получать приговор «рой молчит» пачками, просто потому что их первый байт обычный, а не
+    быстрый. Подними за край - и молчащая раздача снова стоила бы человеку тех секунд, ради
+    экономии которых отсрочка и заведена.
+    """
+    assert FIRST_BYTE_P75_SECONDS < SWARM_GRACE < FIRST_BYTE_P95_SECONDS
+
+
+def test_the_metadata_budget_outlives_the_measured_rise_of_a_release_from_nothing() -> None:
+    """Бюджет метаданных обязан пережить замеренный подъём раздачи с нуля.
+
+    Метаданные роя по DHT едут 3-6 с у раздачи, поднятой с нуля. Опусти бюджет к этому
+    замеру или ниже - и отбор бракевал бы по таймауту ровно те раздачи, которые ведут себя
+    штатно, а очередь уходила бы вниз к худшим при живом верхе.
+    """
+    assert META_BUDGET > SWARM_METADATA_SECONDS
 
 
 def test_the_verdict_budget_is_not_a_relaxation_below_the_old_floor() -> None:

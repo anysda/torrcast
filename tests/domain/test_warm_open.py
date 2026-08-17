@@ -76,6 +76,7 @@ def test_the_shelves_are_capped_where_they_stop_growing_and_not_where_they_are_f
     """
     assert KEYS_KEPT * AVERAGE_KEYMAP_BYTES < 10_000_000
     assert PROBE_KEPT > KEYS_KEPT
+    assert PROBE_KEPT == 2 * KEYS_KEPT, "полка паспортов названа вдвое большей, а не просто большей"
 
 
 def test_a_lock_is_never_declared_abandoned_while_someone_is_still_waiting_for_it() -> None:

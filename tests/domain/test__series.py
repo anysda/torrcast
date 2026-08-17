@@ -122,3 +122,89 @@ def test_the_episode_table_is_a_plain_list_of_numbers_for_the_state() -> None:
     table = _Series.table(season_files(1, 3), 1)
 
     assert table == [[1, 1, 1], [1, 2, 2], [1, 3, 3]]
+
+
+def crosswise_release() -> Release:
+    """Раздача со СКВОЗНЫМ счётом: серии перечислены, а сезон не назван ни один."""
+    return Release(
+        raw_name="Сериал [202-252]",
+        title="Сериал",
+        kind="tv",
+        episodes=tuple(range(202, 253)),
+    )
+
+
+def crosswise_files() -> list[TorrFile]:
+    """Файлы сквозного куска: в именах сквозные номера, сезона в них нет."""
+    return [
+        TorrFile(index, f"Сериал/Сериал.E{n:03d}.mkv", GB)
+        for index, n in enumerate(range(202, 253), start=1)
+    ]
+
+
+def test_a_release_counting_straight_through_names_both_numberings_instead_of_denying() -> None:
+    """У раздачи со сквозным счётом серия, скорее всего, ЕСТЬ - под другим номером.
+
+    🔴 TC-182. У одного сериала сосуществуют две нумерации: часть раздач подписана
+    сезонами, часть считает серии насквозь через весь сериал. Ответь такая раздача «серии
+    нет» - это была бы неправда дважды: и про наличие, и про причину, - и человек ушёл бы
+    искать то, что лежит перед ним. Пересчитать сезон в сквозной номер честно нельзя:
+    границ сезонов не назвало ни одно имя. Поэтому называются ОБЕ системы и сам диапазон.
+    """
+    with pytest.raises(NotFoundError) as refusal:
+        _Series(want=Episode(5, 1)).choose(crosswise_release(), crosswise_files())
+
+    said = str(refusal.value)
+    assert "нумерации разные" in said
+    assert "202-252" in said, "диапазон сквозного счёта обязан быть назван"
+    assert "--release" in said, "человеку сказано, чем это лечится"
+
+
+def test_the_first_season_is_never_explained_by_a_second_numbering() -> None:
+    """Про ПЕРВЫЙ сезон разговора о двух нумерациях нет: там пересчитывать нечего.
+
+    Сквозной счёт расходится с посезонным начиная со второго сезона - первый у обеих
+    систем начинается с одного места. Объясни промах первого сезона чужой нумерацией - и
+    человек искал бы другую раздачу вместо того, чтобы узнать, что серии правда нет.
+    """
+    with pytest.raises(NotFoundError) as refusal:
+        _Series(want=Episode(1, 999)).choose(crosswise_release(), crosswise_files())
+
+    assert "нумерации разные" not in str(refusal.value)
+
+
+def test_a_release_that_named_its_season_is_never_accused_of_counting_straight() -> None:
+    """Раздача, назвавшая сезон, считает по сезонам - и промах у неё обычный.
+
+    Признак сквозного счёта - молчание про сезон, а не наличие списка серий. Спутай их -
+    и подписанная сезоном раздача отправляла бы человека искать «раздачу, подписанную
+    сезоном», то есть ровно ту, которую он уже держит.
+    """
+    named = Release(
+        raw_name="Сериал S05 1080p", title="Сериал", kind="tv", season=5, episodes=(1, 2, 3)
+    )
+
+    with pytest.raises(NotFoundError) as refusal:
+        _Series(want=Episode(5, 99)).choose(named, season_files(5, 3))
+
+    assert "нумерации разные" not in str(refusal.value)
+
+
+def test_a_release_that_listed_its_seasons_is_never_accused_of_counting_straight() -> None:
+    """Пак, перечисливший сезоны, тоже считает по сезонам, даже не назвав один главный.
+
+    Сезоны, перечисленные именем, - такое же называние системы, как и один сезон. Оставь
+    его без внимания - и пак сезонов объяснял бы промах чужой нумерацией.
+    """
+    pack_of_seasons = Release(
+        raw_name="Сериал S01-S03 1080p",
+        title="Сериал",
+        kind="tv",
+        seasons=(1, 2, 3),
+        episodes=tuple(range(202, 253)),
+    )
+
+    with pytest.raises(NotFoundError) as refusal:
+        _Series(want=Episode(5, 1)).choose(pack_of_seasons, crosswise_files())
+
+    assert "нумерации разные" not in str(refusal.value)

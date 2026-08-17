@@ -1,20 +1,26 @@
-"""Зеркало :mod:`torrcast.usecases.choice`: чем сценарий выбора объясняется человеку.
+"""Зеркало :mod:`torrcast.usecases.choice`: чем сценарий выбора мерит и объясняет картины.
 
-Отбор дефолта, меню и подмены сторожит большой набор CLI. Здесь - та строка, которой
-таблица объясняет, почему релиз не дефолт. Строка обязана говорить ровно то, что сделает
-показ: обещай она отказ там, где показ состоится, - человек обошёл бы стороной живое, а
-обещай показ там, где его не будет, - выбрал бы чёрный экран.
+Меню, подмены и порядок вопросов сторожит большой набор CLI. Здесь - две вещи, которые
+решает сам сценарий: чем он ВЕСИТ картину, выбирая дефолт, и той строкой, которой таблица
+объясняет, почему релиз не дефолт. Строка обязана говорить ровно то, что сделает показ:
+обещай она отказ там, где показ состоится, - человек обошёл бы стороной живое, а обещай
+показ там, где его не будет, - выбрал бы чёрный экран.
 
 Веса тут настоящие: раздачу взвешивает то же ранжирование, что и на живом запуске, поэтому
-вес задаётся размером раздачи и длительностью картины, а не подсунутым числом.
+вес задаётся размером раздачи и длительностью картины, а не подсунутым числом. Правила
+отбора и порог живости тоже настоящие: сценарий спрашивает их у собранного окружения, того
+же, что и на живом запуске.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
+from torrcast.domain.picture import Picture
+from torrcast.domain.rank_settings import ALIVE_SEEDERS
 from torrcast.domain.release import Release
-from torrcast.usecases.choice import warned
+from torrcast.selection import _Plan
+from torrcast.usecases.choice import fitness, liveliness, warned
 
 #: Десятичный гигабайт: в них считают размер раздачи и трекеры, и наша прикидка веса.
 GB = 1000**3
@@ -39,6 +45,59 @@ def film(gigabytes: float, **fields: Any) -> Release:
     )
 
 
+def picture_of(*releases: Release) -> _Plan:
+    """План по одной картине: пул раздач и та же длительность, что и во взвешивании."""
+    return _Plan(
+        picture=Picture(title="Кино", year=2020),
+        ranked=list(releases),
+        runtime=RUNTIME,
+        warn_mbit=WARN_MBIT,
+    )
+
+
+def test_a_picture_is_worth_nothing_when_its_only_release_has_no_swarm_behind_it() -> None:
+    """«Стоит смотреть» требует ЖИВОЙ раздачи, а не просто годной по правилам отбора.
+
+    Обе мерки картины считают сиды годных раздач, и различает их ровно порог живости.
+    Раздача под порогом годна по правилам, но играть ею нечем: рой не отдаст куски. Пропусти
+    такую в вес - и дефолт меню садился бы на картину, у которой показ обречён, вместо
+    соседней с живым роем: человек нажимал бы Enter в чёрный экран.
+    """
+    dying = picture_of(film(6, seeders=ALIVE_SEEDERS - 1))
+
+    assert liveliness(dying) == ALIVE_SEEDERS - 1, "годность правилам отбора мерка видит"
+    assert fitness(dying) == 0, "а смотреть картину нечем: живой раздачи у неё нет"
+
+
+def test_a_release_exactly_at_the_liveliness_threshold_counts_as_alive() -> None:
+    """Порог живости включающий: ровно на нём раздача ещё живая, а не «почти».
+
+    Число одно на весь инструмент, и второго значения у слова «живая» тут нет: тем же
+    порогом считает живые картины :func:`alive_numbers`. Сделай сравнение строгим - и
+    картина ровно на пороге пропадала бы из меню у одной мерки и оставалась у другой.
+    """
+    at_threshold = picture_of(film(6, seeders=ALIVE_SEEDERS))
+
+    assert fitness(at_threshold) == ALIVE_SEEDERS
+
+
+def test_the_weight_of_a_picture_is_its_liveliest_release_and_not_the_top_of_the_queue() -> None:
+    """Вес картины берётся у САМОЙ ЖИВОЙ годной раздачи, а не у первой в очереди.
+
+    Очередь сортируется не сидами: наверху стоит то, что лучше СМОТРЕТЬ. Считай вес по
+    верху - и картина с 22 раздачами весила бы пятью сидами своего верха при 97 у годного
+    соседа ниже, то есть проигрывала бы однораздачной тёзке (живой случай «Мальтийского
+    сокола»). Мёртвый сосед при этом вес не тянет: он в счёт не идёт вовсе.
+    """
+    queue = picture_of(
+        film(6, seeders=ALIVE_SEEDERS),
+        film(7, seeders=97),
+        film(6, seeders=ALIVE_SEEDERS - 1),
+    )
+
+    assert fitness(queue) == 97
+
+
 def test_a_light_release_is_not_marked_at_all() -> None:
     """Лёгкому релизу сказать нечего, и молчание тут - правильный ответ.
 
@@ -55,6 +114,37 @@ def test_a_release_over_the_receivers_ceiling_is_called_heavy() -> None:
     каждый подвис стоит секунд пропущенного фильма.
     """
     assert warned(film(18), RUNTIME, WARN_MBIT, RECODE_AT_MBIT, HARD_MBIT) == "тяжёлый"
+
+
+def test_a_release_sitting_exactly_on_a_line_is_still_on_the_good_side_of_it() -> None:
+    """Потолок и планка - это последнее ДОПУСТИМОЕ значение, а не первое запрещённое.
+
+    Обе черты названы «выше этого», и ровно на черте релиз ещё чист: потолок приёмника -
+    то, что он тянет, а планка перекода - то, что уезжает копией. Сдвинь любую из них на
+    включающую - и таблица начала бы ругать ровно ту раздачу, которая играет как надо:
+    сперва предупреждением о перекоде там, где его не будет, а потом и «тяжёлый» на том,
+    что приёмник берёт без единого ребуфера.
+    """
+    at_ceiling = film(14.4)
+    at_recode_line = film(9)
+
+    assert warned(at_ceiling, RUNTIME, WARN_MBIT, RECODE_AT_MBIT, HARD_MBIT) != "тяжёлый"
+    assert warned(at_recode_line, RUNTIME, WARN_MBIT, RECODE_AT_MBIT, HARD_MBIT) == ""
+
+
+def test_above_the_lower_of_the_two_ceilings_the_whole_file_is_promised_to_be_recoded() -> None:
+    """Когда потолок сплошного перекода НИЖЕ практического, он и решает - и это не отказ.
+
+    У высокого кадра потолком становится меньшая из двух черт (``min(warn, hard)``): такой
+    релиз приёмник копией не тянет, но сплошной перекод его спасает. Назови его «тяжёлым» -
+    и человек обошёл бы стороной то, что играет; промолчи - и он ждал бы копию там, где
+    уедет перекод. Ровно на черте файл ещё копийный, поэтому обещания перекода на ней нет.
+    """
+    above = warned(film(18), RUNTIME, warn_mbit=25.0, recode_at=10.0, hard_mbit=16.0)
+    at_line = warned(film(14.4), RUNTIME, warn_mbit=25.0, recode_at=10.0, hard_mbit=16.0)
+
+    assert above == "перекодирую целиком"
+    assert at_line == "перекодируем", "ровно на черте сплошного перекода ещё нет"
 
 
 def test_a_release_over_the_recode_line_promises_a_recode_and_not_a_refusal() -> None:

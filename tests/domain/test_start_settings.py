@@ -11,6 +11,9 @@ from torrcast.domain.start_settings import PAUSE_LIMIT, PAUSE_SECONDS, SAY_SECON
 from torrcast.domain.start_timeout import START_TIMEOUT
 from torrcast.domain.worker_settings import WORKER_DUR, WORKER_META
 
+#: Как часто показ опрашивает приёмник: на этом такте и держится всё, что он говорит.
+POLL_SECONDS = 2.0
+
 
 def test_the_short_pause_is_shorter_than_the_one_that_ends_the_show() -> None:
     """Пауза на пульте и пауза, кончающая показ, - разные сроки, и порядок у них один.
@@ -30,6 +33,17 @@ def test_the_show_speaks_about_the_timeline_before_a_pause_can_stop_the_packing(
     единой отметки о том, что до неё показывали.
     """
     assert SAY_SECONDS < PAUSE_SECONDS
+
+
+def test_the_show_speaks_on_a_throttle_and_not_on_every_single_poll() -> None:
+    """Строка про таймлайн выходит РЕЖЕ опроса: это придержка, а не эхо опроса.
+
+    Приёмник опрашивается раз в две секунды (:data:`TRACE_ENV` объясняет это прямым
+    текстом). Сравняй срок с опросом или опусти ниже - и придержки не осталось бы вовсе:
+    журнал заполнился бы той самой строкой, ради разрежения которой срок и заведён, а
+    редкие важные записи утонули бы среди неё.
+    """
+    assert SAY_SECONDS > POLL_SECONDS
 
 
 def test_the_slack_is_counted_as_a_real_cost_but_never_as_a_phase_of_its_own() -> None:
