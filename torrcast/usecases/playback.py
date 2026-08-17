@@ -27,6 +27,8 @@ from torrcast.domain.torrcast_error import TorrcastError
 from torrcast.domain.torr_file import TorrFile
 from torrcast.domain.why import why
 from torrcast.ports.journal import journal
+from torrcast.ports.progress import Progress
+from torrcast.ports.progress import progress as progress_bar
 from torrcast.usecases.episode_duration import WORKER_DUR
 from torrcast.usecases.following import _following
 from torrcast.usecases.select import _about, _Plan
@@ -97,10 +99,7 @@ for _module_name, _names in {
         "Receiver",
         "make_receiver",
     ),
-    "torrcast.console": (
-        "Progress",
-        "ask_line",
-    ),
+    "torrcast.console": ("ask_line",),
     "torrcast.recode": (
         "Encode",
         "Recoder",
@@ -188,7 +187,7 @@ def _launch(
     forget_playing(Path(config.hls_dir))  # флажок прошлого показа нам не доказательство
     start_play_unit(key)
     journal().mark("юнит")
-    with Progress() as progress:
+    with progress_bar() as progress:
         _await_playing(config, progress)
     print(f"играю {about} - на ТВ   (старт {clock.total:.0f} с)")
     return EXIT_OK

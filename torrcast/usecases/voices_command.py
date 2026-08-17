@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from torrcast.domain.not_found_error import NotFoundError
+from torrcast.ports.progress import progress as progress_bar
 from torrcast.usecases.choice import _named, _pick_plan
 from torrcast.usecases.discover import _search
 from torrcast.usecases.playback import _file_picker
@@ -18,7 +19,6 @@ __all__ = [
     "EXIT_OK",
     "Args",
     "NotFoundError",
-    "Progress",
     "State",
     "TorrServer",
     "_cmd_voices",
@@ -30,7 +30,6 @@ from torrcast.domain.exit_codes import EXIT_OK
 from torrcast.ports.module import module
 
 for _module_name, _names in {
-    "torrcast.console": ("Progress",),
     "torrcast.state": (
         "State",
         "load_config",
@@ -56,7 +55,7 @@ def _cmd_voices(args: Args) -> int:
     inner = Args(query=list(args.query[1:]), release=args.release, pick=args.pick, file=args.file)
     if not inner.query:
         raise NotFoundError("что искать? cast voices <запрос>")
-    with Progress() as progress:
+    with progress_bar() as progress:
         plans = _search(config, inner, progress)
         bench = _Bench(TorrServer(config.torrserver_url), choose=_file_picker(inner))
         try:

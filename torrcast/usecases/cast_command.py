@@ -12,6 +12,8 @@ from torrcast.domain.picture import Picture
 from torrcast.domain.slugify import slugify
 from torrcast.domain.split_franchise_index import split_franchise_index
 from torrcast.ports.journal import journal
+from torrcast.ports.progress import Progress
+from torrcast.ports.progress import progress as progress_bar
 from torrcast.usecases.choice import (
     _is_default,
     _passport,
@@ -45,7 +47,6 @@ __all__ = [
     "Entry",
     "Facts",
     "Picture",
-    "Progress",
     "Prowlarr",
     "RawResult",
     "State",
@@ -75,7 +76,6 @@ if TYPE_CHECKING:
 from torrcast.ports.module import module
 
 for _module_name, _names in {
-    "torrcast.console": ("Progress",),
     "torrcast.facts": ("Facts",),
     "torrcast.search": (
         "Prowlarr",
@@ -152,7 +152,7 @@ def _cmd_play(args: Args) -> int:
         if code is not None:
             return code
 
-    with Progress() as progress:
+    with progress_bar() as progress:
         plans = _search(config, args, progress, chosen.profile)
         # Справка к меню (рейтинг, хронометраж, о чём кино) едет фоном - ровно в те
         # секунды, что уходят на подъём прогрева. Меню её не ждёт: см. torrcast.facts.

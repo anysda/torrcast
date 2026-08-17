@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.release import Release
+from torrcast.ports.progress import progress as progress_bar
 from torrcast.usecases.choice import _named
 from torrcast.usecases.discover import _search
 from torrcast.usecases.rank import render_table
@@ -18,7 +19,6 @@ __all__ = [
     "Args",
     "Facts",
     "NotFoundError",
-    "Progress",
     "Release",
     "_cmd_releases",
     "detect_profile",
@@ -33,7 +33,6 @@ from torrcast.domain.exit_codes import EXIT_OK
 from torrcast.ports.module import module
 
 for _module_name, _names in {
-    "torrcast.console": ("Progress",),
     "torrcast.facts": ("Facts",),
     "torrcast.state": ("load_config",),
 }.items():
@@ -82,7 +81,7 @@ def _cmd_releases(
         raise NotFoundError("что искать? cast releases <запрос>")
     chosen = profile_choice(config)
     config = tune_profile(config, chosen.profile)
-    with Progress() as progress:
+    with progress_bar() as progress:
         plans = search(config, inner, progress, chosen.profile)
     facts = facts_source([(p.picture.title, p.picture.year) for p in plans])
     facts.start()

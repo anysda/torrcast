@@ -5,10 +5,13 @@
 которым нужен настоящий, а не молчащий след.
 """
 
+from torrcast.adapters.console.console import Progress
 from torrcast.adapters.filesystem.trace_journal import FileJournal
-from torrcast.ports.journal import install
+from torrcast.ports.journal import install as install_journal
+from torrcast.ports.progress import install as install_progress
 
 
 def wire() -> None:
     """Поставить боевых исполнителей на все порты."""
-    install(FileJournal())
+    install_journal(FileJournal())
+    install_progress(Progress)

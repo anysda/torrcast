@@ -234,6 +234,7 @@
 | `ProcessRunner` | класс | `torrcast/ports/process_runner.py` | 9 |
 | `Profile` | класс | `torrcast/domain/profile.py` | 24 |
 | `Progress` | класс | `torrcast/adapters/console/console.py` | 137 |
+| `Progress` | класс | `torrcast/ports/progress.py` | 15 |
 | `Prowlarr` | класс | `torrcast/search.py` | 445 |
 | `ProwlarrHttpClient` | класс | `torrcast/adapters/prowlarr/prowlarr_http_client.py` | 18 |
 | `PyChromecastReceiverFinder` | класс | `torrcast/adapters/chromecast/py_chromecast_receiver_finder.py` | 12 |
@@ -306,7 +307,7 @@
 | `STEP_SERVICE` | константа | `torrcast/domain/audio_track.py` | 57 |
 | `STUDIOS` | константа | `torrcast/domain/studio.py` | 50 |
 | `SWARM_GRACE` | константа | `torrcast/domain/pick_settings.py` | 70 |
-| `Select` | класс | `torrcast/usecases/select.py` | 559 |
+| `Select` | класс | `torrcast/usecases/select.py` | 558 |
 | `ServeHealth` | класс | `torrcast/domain/serve_health.py` | 13 |
 | `ServerAddress` | класс | `torrcast/domain/server_address.py` | 7 |
 | `ServerDownError` | класс | `torrcast/domain/server_down_error.py` | 6 |
@@ -464,6 +465,7 @@
 | `indexer_budget` | функция | `torrcast/search.py` | 237 |
 | `info_hash` | функция | `torrcast/release_pin.py` | 14 |
 | `install` | функция | `torrcast/ports/journal.py` | 117 |
+| `install` | функция | `torrcast/ports/progress.py` | 64 |
 | `interfaces` | функция | `torrcast/adapters/chromecast/scan.py` | 138 |
 | `is_candidate` | функция | `torrcast/usecases/rank.py` | 288 |
 | `is_dated` | функция | `torrcast/usecases/rank.py` | 638 |
@@ -540,6 +542,7 @@
 | `playing_flag` | функция | `torrcast/adapters/stream_pack.py` | 1124 |
 | `preset_for` | функция | `torrcast/adapters/recode.py` | 493 |
 | `probe` | функция | `torrcast/adapters/stream_probe.py` | 394 |
+| `progress` | функция | `torrcast/ports/progress.py` | 59 |
 | `promises_more` | функция | `torrcast/usecases/rank.py` | 172 |
 | `pull_head` | функция | `torrcast/adapters/stream_pack.py` | 554 |
 | `quality_text` | функция | `torrcast/usecases/rank.py` | 130 |
@@ -643,7 +646,7 @@
 | `warned` | функция | `torrcast/usecases/choice.py` | 908 |
 | `whole_encode` | функция | `torrcast/adapters/recode.py` | 474 |
 | `why` | функция | `torrcast/domain/why.py` | 11 |
-| `wire` | функция | `torrcast/runtime/wire.py` | 12 |
+| `wire` | функция | `torrcast/runtime/wire.py` | 14 |
 | `wire_query` | функция | `torrcast/domain/wire_query.py` | 8 |
 | `with_source` | функция | `torrcast/domain/facts/with_source.py` | 11 |
 | `without_source` | функция | `torrcast/domain/facts/without_source.py` | 11 |

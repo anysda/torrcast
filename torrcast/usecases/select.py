@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+from torrcast.ports.progress import Progress, progress as progress_bar
+
 from torrcast.ports.journal import journal
 
 from torrcast.domain.media import Media
@@ -41,7 +43,7 @@ __all__ = [
     "Config", "ContactWait", "Entry",
     "Episode", "EpisodeFile", "InfraError",
     "Media", "NotFoundError", "Picture",
-    "Profile", "Progress", "RawResult",
+    "Profile", "RawResult",
     "Release", "ServerDownError", "State",
     "SwarmError", "TorrcastError", "TorrFile",
     "TorrServer", "_Bench", "_Plan",
@@ -72,10 +74,7 @@ from torrcast.ports.legacy_namespace import legacy_namespace
 
 globals().update(
     legacy_namespace(
-        torrcast__console=(
-            "Progress",
-            "ask_line",
-        ),
+        torrcast__console=("ask_line",),
         torrcast__search=("RawResult",),
         torrcast__state=("State",),
         torrcast__stream=(
@@ -404,7 +403,7 @@ def _revoice(config: Config, entry: Entry, args: Args, own: _Voiced) -> Entry:
     ни при сухом прогоне, ни когда показ до старта так и не доходил.
     """
     torrserver = TorrServer(config.torrserver_url)
-    with Progress() as progress:
+    with progress_bar() as progress:
         progress.phase("дорожки")
         own.torrent_hash = torrent_hash = torrserver.add(entry.magnet)
         torrserver.wait_files(torrent_hash, timeout=META_BUDGET)

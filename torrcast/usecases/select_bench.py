@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+from torrcast.ports.progress import Progress, progress as progress_bar
+
 from torrcast.ports.journal import journal
 
 from torrcast.domain.torrcast_error import TorrcastError
@@ -38,7 +40,6 @@ from torrcast.ports.legacy_namespace import legacy_namespace
 
 globals().update(
     legacy_namespace(
-        torrcast__console=("Progress",),
         torrcast__stream=(
             "ContactWait",
             "TorrServer",

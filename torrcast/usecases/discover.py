@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+from torrcast.ports.progress import Progress, progress as progress_bar
+
 from torrcast.ports.journal import journal
 
 from torrcast.domain.infra_error import InfraError
@@ -41,7 +43,6 @@ __all__ = [
     "Origin",
     "Picture",
     "Profile",
-    "Progress",
     "Prowlarr",
     "RawResult",
     "Release",
@@ -79,7 +80,6 @@ from torrcast.ports.legacy_namespace import legacy_namespace
 
 globals().update(
     legacy_namespace(
-        torrcast__console=("Progress",),
         torrcast__facts=("origin",),
         torrcast__search=(
             "CIRCLE_SHARE",
