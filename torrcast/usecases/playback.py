@@ -31,7 +31,9 @@ from torrcast.ports.progress import Progress
 from torrcast.ports.progress import progress as progress_bar
 from torrcast.usecases.episode_duration import WORKER_DUR
 from torrcast.usecases.following import _following
+from torrcast.usecases.revive_playback import _hold, _Revival
 from torrcast.usecases.select import _about, _Plan
+from torrcast.usecases.source_blame import _asked, _blamed
 from torrcast.usecases.start_budget import START_BUDGET
 from torrcast.usecases.start_clock import _Clock
 from torrcast.usecases.warm import Vault, Warmer, warm_key, warm_root
@@ -80,11 +82,9 @@ if TYPE_CHECKING:
 
 import contextlib
 import os
-import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from types import ModuleType
 from typing import Any, NoReturn
 
 from torrcast.domain.entry import ENDING_RATIO
@@ -934,76 +934,3 @@ def _blame_the_end(
     if not shown:
         raise InfraError("картинки не было ни разу: приёмник не взял показ - поднять не удалось")
     raise InfraError("приёмник не досмотрел поток - цифры выше")
-
-
-def _blamed(supply: StreamSource | None, clock: Clock = CLOCK) -> str:
-    """Причина аварии ИСТОЧНИКА для строки человеку; пусто - источник тут ни при чём.
-
-    ⚠️ Отличается от :func:`_asked` двумя вещами, и обе - из замеров на живой службе.
-
-    Первая: служба, которую перезапустили, поднимается за три секунды, и к тому мгновению,
-    когда показ признан погасшим, она уже отвечает. Спросить её «сейчас всё хорошо?» мало -
-    хорошо стало потому, что мы сами вернули ей раздачу магнитом, а это и есть
-    доказательство того, что источник падал. Такую темноту вешать на приёмник нельзя.
-
-    Вторая: спрашивать надо не один раз. Замер (05:37:48.3 - 05:37:51.5): все три секунды
-    своей остановки старая служба продолжала отвечать на ``/echo`` и отдавать список
-    раздач - «мёртвой» она не выглядит НИ РАЗУ, а показ умирает как раз внутри этого окна.
-    Один вопрос в момент смерти застаёт источник здоровым и врёт. Поэтому вопросов
-    несколько (:data:`SOURCE_TRIES`) и растянуты они на пару выдержек: показ к этому
-    моменту уже кончился, и шесть секунд на правду - куда меньшая цена, чем ложь.
-    """
-    for left in range(SOURCE_TRIES, 0, -1):
-        why_source = _asked(supply)
-        if why_source:
-            return why_source
-        if supply is not None and supply.restored:
-            return "TorrServer перезапускался - раздачу вернул магнитом"
-        if left > 1 and supply is not None:
-            clock.sleep(SOURCE_PAUSE)
-    return ""
-
-
-def _asked(supply: StreamSource | None) -> str:
-    """Спросить ИСТОЧНИК: что с ним не так; пусто - он в порядке (и раздача при трекерах).
-
-    Единственное место, где показ обращается к источнику, и зовут его только с края
-    показа: упаковка объявила себя мёртвой либо приёмник погасил экран. В горячем пути
-    этих вопросов нет и быть не может - раздача сегментов не ждёт ни журнал, ни лишний
-    запрос.
-
-    Возврат раздачи магнитом говорится вслух ровно здесь, одной строкой и одним событием
-    следа: два разных мнения о том, что сделано с источником, - это то же самое, что
-    молчание.
-    """
-    if supply is None:
-        return ""
-    why_source = supply.check()
-    if supply.restored:
-        journal().resupply(torrent=supply.torrent_hash, ok=True)
-        print("источник вернулся - раздачу добавил магнитом заново", flush=True)
-    return why_source
-
-
-# Восстановление погасшего сеанса — отдельный автомат, но этот модуль остаётся
-# совместимым местом импорта и передаёт ему диагностические подмены.
-_playback_revival = module("torrcast.playback_revival")
-_hold, _Revival = _playback_revival._hold, _playback_revival._Revival
-
-_playback_namespace = {
-    name: value for name, value in globals().items() if not name.startswith("__")
-}
-vars(_playback_revival).update(_playback_namespace)
-globals().update(
-    (name, value) for name, value in vars(_playback_revival).items() if not name.startswith("__")
-)
-
-
-class _PlaybackModule(ModuleType):
-    def __setattr__(self, name: str, value: Any) -> None:
-        super().__setattr__(name, value)
-        if not name.startswith("__") and name in vars(_playback_revival):
-            setattr(_playback_revival, name, value)
-
-
-sys.modules[__name__].__class__ = _PlaybackModule
