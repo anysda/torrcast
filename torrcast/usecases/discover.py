@@ -43,8 +43,7 @@ __all__ = [
     "Origin",
     "Picture",
     "Profile",
-    "Prowlarr",
-    "RawResult",
+    "RawRow",
     "Release",
     "_ask",
     "_asked_kind",
@@ -57,8 +56,6 @@ __all__ = [
     "_vouched",
     "kin_line",
     "menu_order",
-    "merge",
-    "origin",
     "other_words",
     "replace",
     "same_name",
@@ -66,7 +63,6 @@ __all__ = [
     "silent_swarm",
     "slugify",
     "split_franchise_index",
-    "to_releases",
     "transliterate",
     "unfit_line",
     "unfit_pool",
@@ -76,22 +72,40 @@ __all__ = [
 from dataclasses import replace
 from collections.abc import Callable
 from typing import Any, Final, Generic, TypeVar
-from torrcast.ports.legacy_namespace import legacy_namespace
 
-globals().update(
-    legacy_namespace(
-        torrcast__facts=("origin",),
-        torrcast__search=(
-            "CIRCLE_SHARE",
-            "GOAL",
-            "SECOND_LEAST",
-            "Prowlarr",
-            "RawResult",
-            "merge",
-            "to_releases",
-        ),
-    )
-)
+from torrcast.domain._name_data import THIN_POOL
+from torrcast.domain.alt_query import alt_query
+from torrcast.domain.cluster import cluster
+from torrcast.domain.franchise_name import franchise_name
+from torrcast.domain.goal_spare import CIRCLE_SHARE, GOAL, SECOND_LEAST
+from torrcast.domain.pick_franchise import pick_franchise
+from torrcast.domain.seasons_named import seasons_named
+from torrcast.ports.passport_source import PassportSource
+from torrcast.ports.torrent_catalogue import IndexerClient, RawRow, TorrentCatalogue
+
+#: Каталог раздач, справка о картинах и завод клиента индексеров - всё, что у поиска
+#: снаружи. Кладёт это композиционный корень (:mod:`torrcast.runtime.wire`): и сырая
+#: выдача, и статья справки приезжают из сети, а слою сценариев сеть не назвать.
+#:
+#: ⚠️ Имена длиннее очевидных нарочно - ровно по той же причине, что и у добора
+#: (:mod:`torrcast.usecases.reinforce`): плоский namespace прежнего монолита
+#: (:mod:`torrcast.cli`) вписывает в КАЖДУЮ свою часть globals всех остальных, и короткое
+#: имя тут же затирается чужой одноимённой функцией.
+_search_catalogue: TorrentCatalogue
+_search_passport: PassportSource
+_search_indexers: Callable[[str, str], IndexerClient]
+
+
+def _configure_discover(
+    catalogue: TorrentCatalogue,
+    passport: PassportSource,
+    indexers: Callable[[str, str], IndexerClient],
+) -> None:
+    """Передать поиску каталог раздач, справку о картинах и завод клиента индексеров."""
+    global _search_catalogue, _search_passport, _search_indexers
+    _search_catalogue = catalogue
+    _search_passport = passport
+    _search_indexers = indexers
 
 
 def _search(
@@ -100,7 +114,7 @@ def _search(
     progress: Progress,
     profile: Profile = CAUTIOUS,
     *,
-    indexer: Callable[[str, str], Prowlarr] | None = None,
+    indexer: Callable[[str, str], IndexerClient] | None = None,
     passport: Callable[..., Origin] | None = None,
 ) -> list[_Plan]:
     """Поиск и разбор выдачи: запрос → картины франшизы, каждая со своим пулом релизов.
@@ -117,15 +131,11 @@ def _search(
     боевое (:class:`~torrcast.search.Prowlarr`, :func:`~torrcast.facts.origin`); называют
     их те, у кого своих служб нет, - тесты и щупы.
     """
-    cluster, pick_franchise = legacy_namespace(
-        torrcast__parse=("cluster", "pick_franchise")
-    ).values()
-
     if not config.prowlarr_apikey:  # без Prowlarr искать нечем - это инфра-ошибка
         raise InfraError("не настроен Prowlarr: apikey пуст, перезапусти ./install.sh")
     query = args.title_query
     name, index = split_franchise_index(query)
-    client = (indexer or Prowlarr)(config.prowlarr_url, config.prowlarr_apikey)
+    client = (indexer or _search_indexers)(config.prowlarr_url, config.prowlarr_apikey)
     progress.phase(f"поиск «{name}»")
     raw = _ask(client, name, progress)
     if not raw:
@@ -133,7 +143,7 @@ def _search(
         # Проверка стоит один заход к индексерам и только там, где иначе был бы отказ.
         query, name, index, raw = _relayout(client, query, name, index, progress)
     journal().mark("индексеры ответили", строк=len(raw))  # TC-108: замер
-    pictures = cluster(to_releases(raw))
+    pictures = cluster(_search_catalogue.to_releases(raw))
     # Номер в запросе - позиция во франшизе, а не в общей выдаче.
     found = pick_franchise(query, pictures)
     titled = False
@@ -272,8 +282,6 @@ def worth_asking_original(
     (:func:`_ceiling_hides_name`). Он срабатывает лишь когда эти два молчат: тощий или
     негодный пул важнее обрезанного хвоста.
     """
-    THIN_POOL = legacy_namespace(torrcast__parse=("THIN_POOL",))["THIN_POOL"]
-
     if max((p.rows for p in found), default=0) < THIN_POOL:
         return True
     return unfit_pool(found, args, config, profile)
@@ -318,8 +326,6 @@ def season_gaps(found: list[Picture], shown: set[str], want: Episode | None) -> 
     значило бы соврать. Такая картина в план и так попадает: молчание имени -
     «может быть», а не «нет».
     """
-    seasons_named = legacy_namespace(torrcast__parse=("seasons_named",))["seasons_named"]
-
     asked = (want or Episode(1, 1)).season
     lines = []
     for picture in found:
@@ -342,10 +348,6 @@ def _kin(picture: Picture | None, pictures: list[Picture], shown: set[str]) -> l
     или у картины не осталось ни одного релиза, прошедшего отбор. Обещать за них ничего
     нельзя - поэтому строка отказа говорит ровно «в каталоге есть», а не «возьми это».
     """
-    franchise_name, pick_franchise = legacy_namespace(
-        torrcast__parse=("franchise_name", "pick_franchise")
-    ).values()
-
     if picture is None:
         return []
     whole = pick_franchise(franchise_name(picture.title), pictures)
@@ -528,8 +530,6 @@ def _nothing(name: str, index: int | None, pictures: list[Picture]) -> str:
       плюс перечень того, что в ней есть, - молчаливого отказа быть не должно (TC-373);
     * во всём остальном → честное «ничего не нашлось», то есть «назови другими словами».
     """
-    pick_franchise = legacy_namespace(torrcast__parse=("pick_franchise",))["pick_franchise"]
-
     whole = pick_franchise(name, pictures) if index is not None else []
     if whole:
         have = ", ".join(f"{p.title} ({p.year or '?'})" for p in whole[:5])
@@ -538,7 +538,7 @@ def _nothing(name: str, index: int | None, pictures: list[Picture]) -> str:
     return f"по запросу «{name}» ничего не нашлось"
 
 
-def _ask(client: Prowlarr, query: str, progress: Progress) -> list[RawResult]:
+def _ask(client: IndexerClient, query: str, progress: Progress) -> list[RawRow]:
     """Один запрос к индексерам; пусто - это не ошибка, а повод переспросить иначе.
 
     🔴 TC-510. Выпавший источник называется вслух ОДНОЙ строкой и ровно один раз за
@@ -572,7 +572,7 @@ def _ask(client: Prowlarr, query: str, progress: Progress) -> list[RawResult]:
     return rows
 
 
-def _no_budget(client: Prowlarr, what: str, progress: Progress) -> float | None:
+def _no_budget(client: IndexerClient, what: str, progress: Progress) -> float | None:
     """Бюджет дешёвого добора: остаток цели либо его собственные 2.5 секунды.
 
     🔴 TC-228. Второй круг зовётся в 18 запросах из 100 и удваивает цену поиска: сквозной
@@ -628,16 +628,16 @@ def _no_budget(client: Prowlarr, what: str, progress: Progress) -> float | None:
 
 
 def _second_language(
-    client: Prowlarr,
+    client: IndexerClient,
     query: str,
     args: Args,
-    raw: list[RawResult],
+    raw: list[RawRow],
     found: list[Picture],
     progress: Progress,
     titled: bool = False,
     *,
     passport: Callable[..., Origin] | None = None,
-) -> tuple[list[RawResult], list[Picture], list[Picture]]:
+) -> tuple[list[RawRow], list[Picture], list[Picture]]:
     """Русский запрос дал пусто или тощий пул - переспросить тем же названием на латинице.
 
     Индексер ищет по имени раздачи, поэтому «Психо» приносит десяток русских имён, а
@@ -737,10 +737,6 @@ def _second_language(
     добора: по нему справка отвечает про «Бен-Гур», и второй заход уходит за чужой
     картиной. Спрашиваем всей строкой - справка знает «Бен 10» и отдаёт ``Ben 10``.
     """
-    alt_query, cluster, pick_franchise = legacy_namespace(
-        torrcast__parse=("alt_query", "cluster", "pick_franchise")
-    ).values()
-
     name, index = (query, None) if titled else split_franchise_index(query)
     spare = client.spare()
     if spare >= SECOND_LEAST:
@@ -764,13 +760,13 @@ def _second_language(
             "картину ищут оба её имени"
         )
         budget = FACTS_BUDGET
-    pool = [r for p in found for r in p.releases] or to_releases(raw)
+    pool = [r for p in found for r in p.releases] or _search_catalogue.to_releases(raw)
     lead = _leading(found)
     # Справку спрашиваем вслепую: год выдачи ей не сообщаем, иначе она подстроится под него
     # и сверять станет нечего. Тип картины - другое дело, у сериала и фильма разные статьи.
     # Сети нет - паспорт пуст, и всё дальше работает ровно так, как работало.
     kind = _asked_kind(lead, args)
-    ask = passport or origin
+    ask = passport or _search_passport
     about = ask(name, series=kind, budget=budget)
     if not about and kind is not None:
         # 🔴 TC-399. Тип подсказал вожак тощего пула, и под ним справка промолчала.
@@ -819,7 +815,7 @@ def _second_language(
     # уже имеющуюся картину другим именем. Паспортное имя применяем прямо к первому пулу,
     # но только когда оно однозначно указывает на одну картину и её год не спорит со
     # справкой. Сам короткий запрос права голоса не получает.
-    first_pictures = cluster(to_releases(raw))
+    first_pictures = cluster(_search_catalogue.to_releases(raw))
     passport_hits: dict[str, Picture] = {}
     for passport_name in (about.title, about.name):
         for picture in pick_franchise(passport_name, first_pictures):
@@ -862,7 +858,7 @@ def _second_language(
         # Список картин человеку ещё не показан, поэтому готовый хвост можно включить в
         # тот же отбор без ожидания и без подмены уже прочитанного меню. Особенно важен
         # хвост первого круга: картина без латинской подписи по имени добора не найдётся.
-        merged = merge(raw, second, client.late())
+        merged = _search_catalogue.merge(raw, second, client.late())
     finally:
         client.cap_floor = CIRCLE_SHARE
     # Круг кончился - закрываем его строку прямо здесь. Всё, что скажем дальше, это его
@@ -874,7 +870,7 @@ def _second_language(
         outcome = f"добор по «{alt}» ничего не дал"
         progress.note(f"{said}; {outcome}" if said else outcome)
         return _as_is(raw, found, about, progress)
-    pictures = cluster(to_releases(merged))
+    pictures = cluster(_search_catalogue.to_releases(merged))
     # Транслит - это сами слова запроса, чужого фильма он принести не может; оригинал из
     # справки отвечает про ту самую картину. А вот оригинал из выдачи ничем не подтверждён.
     proven = bool(about.title) or alt == about.name or alt == transliterate(name)
@@ -955,8 +951,6 @@ def _query_note(name: str, alt: str, pool: list[Release], about: Origin) -> str:
     ушёл бы другим именем (транслитом или оригиналом из выдачи). Совпали - говорить не о
     чем, и строки нет: справка тут ничего не решила.
     """
-    alt_query = legacy_namespace(torrcast__parse=("alt_query",))["alt_query"]
-
     if not alt or not about.title:
         return ""
     blind = alt_query(name, pool)  # чем бы искали, не будь справки

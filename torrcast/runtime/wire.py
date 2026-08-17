@@ -5,36 +5,55 @@
 которым нужен настоящий, а не молчащий след.
 """
 
+import torrcast.adapters.prowlarr as torrent_catalogue
+from torrcast.adapters.choice_environment import _configure_choice_environment
 from torrcast.adapters.choice_environment import environment as choice_environment
 from torrcast.adapters.chromecast.cast import make_receiver
 from torrcast.adapters.chromecast.profile_detector import detector
-from torrcast.adapters.console.console import Progress
+from torrcast.adapters.console.console import Progress, ask_line
 from torrcast.adapters.console.print_console import PrintConsole
 from torrcast.adapters.filesystem.release_pins import pins
 from torrcast.adapters.filesystem.state import FileStateStore, load_config
 from torrcast.adapters.filesystem.trace_journal import FileJournal
 from torrcast.adapters.health.system_health_environment import SystemHealthEnvironment
 from torrcast.adapters.prowlarr.merge import merge
+from torrcast.adapters.prowlarr.prowlarr import Prowlarr
 from torrcast.adapters.prowlarr.to_releases import to_releases
-from torrcast.adapters.stream_probe import Supply, probe
+from torrcast.adapters.stream_pack import warm_file
+from torrcast.adapters.stream_probe import Supply, probe, swarm_pulse
 from torrcast.adapters.systemd.transient_show_unit import TransientShowUnit
+from torrcast.adapters.torrserver.contact_wait import ContactWait
 from torrcast.adapters.torrserver.torr_server import TorrServer
 from torrcast.adapters.warm_environment import environment as warm_environment
 from torrcast.ports.journal import install as install_journal
 from torrcast.ports.progress import install as install_progress
 from torrcast.ports.show_unit import install as install_unit
 from torrcast.ports.state_store import install as install_state
+from torrcast.runtime.facts_wiring import FACTS
 from torrcast.runtime.menu_facts import MenuFacts
 from torrcast.runtime.native_picture import native_picture
 from torrcast.runtime.trace_thresholds import trace_thresholds
 from torrcast.usecases.cache_reserve import _configure_cache_reserve
 from torrcast.usecases.cast_command import _configure_cast_command
 from torrcast.usecases.choice import configure as configure_choice
+from torrcast.usecases.discover import _configure_discover
 from torrcast.usecases.doctor import _configure as configure_checks
 from torrcast.usecases.doctor_command import _configure as configure_doctor
 from torrcast.usecases.episode_duration import _configure_episode_duration
-from torrcast.usecases.rank import configure as configure_rank
+from torrcast.usecases.rank import (
+    _cut,
+    bitrate_of,
+    hevc_hope,
+    is_candidate,
+    is_dated,
+)
+from torrcast.usecases.rank import (
+    configure as configure_rank,
+)
+from torrcast.usecases.reinforce import _timed
 from torrcast.usecases.releases_command import _configure_releases_command
+from torrcast.usecases.select import _configure_select
+from torrcast.usecases.select_bench import _configure_select_bench
 from torrcast.usecases.torrents import _configure_torrents
 from torrcast.usecases.voices_command import _configure_voices_command
 from torrcast.usecases.warm import configure as configure_warm
@@ -54,6 +73,12 @@ def wire() -> None:
     # (NameError: _environment) - сразу после того, как первые куски уже уехали на ТВ.
     # Раздаёт композиция, а не то, кого случайно втянул чей-то импорт.
     configure_warm(warm_environment)
+    # Само окружение выбора - адаптер, и правила соседних сценариев ему не назвать
+    # импортом: ранжирование, добор и справка лежат слоем выше адаптеров. Прежде оно
+    # доставало их строкой с именем модуля прямо в вызове; называет их теперь корень.
+    _configure_choice_environment(
+        FACTS.passport.of, _cut, bitrate_of, hevc_hope, is_candidate, is_dated, _timed
+    )
     # 🔴 То же самое и у выбора раздачи, только фасад-смертник `torrcast.choice` пока
     # кем-то импортируется, и потому беда прячется. Держится она на порядке импортов, а
     # не на корне: снесёт разрез фасад - и выбор упадёт `NameError` на живом запуске, а
@@ -72,6 +97,17 @@ def wire() -> None:
     _configure_cache_reserve(TorrServer)
     _configure_torrents(TorrServer)
     _configure_episode_duration(probe)
+    # Стенд отбора греет раздачи параллельно: чтение паспорта, прогрев файла, признак
+    # жизни роя и отсрочка первого контакта - четыре разных внешних мира, и все четыре
+    # приходят отсюда. Прежде стенд доставал их строкой с именем прежнего фасада.
+    _configure_select_bench(probe, warm_file, swarm_pulse, ContactWait)
+    # Сам отбор ходит в службу раздач ровно один раз - за дорожками названного
+    # вручную релиза, - и спрашивает человека о начале сериала заново. Служба,
+    # чтение паспорта и вопрос приходят отсюда, а не из строки с именем фасада.
+    _configure_select(TorrServer, probe, ask_line)
+    # Поиск: сырая выдача каталога, справка о картинах и завод клиента индексеров.
+    # Всё трое ходят в сеть, и слою сценариев их не назвать - только корню.
+    _configure_discover(torrent_catalogue, FACTS.passport.of, Prowlarr)
     # Юнит показа поднимает systemd, а не CLI: свой внешний мир он получает здесь же и
     # целиком, иначе показ узнавал бы имя `TorrServer` из строки уже внутри юнита.
     _configure_worker(TorrServer, make_receiver, Supply, load_config, detector.detect)

@@ -40,27 +40,26 @@ __all__ = [
     "CAUTIOUS", "COPY", "EXIT_OK",
     "META_BUDGET", "PROBE_BUDGET", "RECODE_HEIGHT",
     "REFUSE", "TYPE_CHECKING", "Callable",
-    "Config", "ContactWait", "Entry",
+    "Config", "Entry",
     "Episode", "EpisodeFile", "InfraError",
     "Media", "NotFoundError", "Picture",
-    "Profile", "RawResult",
-    "Release", "ServerDownError", "State",
+    "Profile", "RawRow",
+    "Release", "ServerDownError", "WatchState",
     "SwarmError", "TorrcastError", "TorrFile",
-    "TorrServer", "_Bench", "_Plan",
+    "_Bench", "_Plan",
     "_Prep", "_Series", "_Voiced",
     "_about", "_continue", "_did_not_answer",
     "_nothing_late", "_remembered", "_revoice",
     "_silenced", "_turned_down", "_voiced",
-    "_waiting_note", "ask_line", "contextlib",
-    "dataclass", "field", "map_episodes",
-    "mark", "probe", "re",
-    "recode_note", "swarm_pulse", "threading",
-    "time", "warm_file",
+    "_waiting_note", "contextlib",
+    "dataclass", "field", "info_hash", "map_episodes",
+    "re",
+    "recode_note", "threading",
+    "time",
 ]
 # fmt: on
 
 import contextlib
-from importlib import import_module
 import re
 import sys
 import threading
@@ -70,26 +69,31 @@ from dataclasses import dataclass, field
 from types import ModuleType
 from typing import Any, Generic, TypeVar
 
-from torrcast.ports.legacy_namespace import legacy_namespace
+from torrcast.domain.info_hash import info_hash
+from torrcast.domain.watch_state import WatchState
+from torrcast.ports.prober import Prober
+from torrcast.ports.torrent_catalogue import RawRow
+from torrcast.ports.torrent_engines import TorrentEngines
 
-globals().update(
-    legacy_namespace(
-        torrcast__console=("ask_line",),
-        torrcast__search=("RawResult",),
-        torrcast__state=("State",),
-        torrcast__stream=(
-            "ContactWait",
-            "TorrServer",
-            "probe",
-            "swarm_pulse",
-            "warm_file",
-        ),
-        torrcast__timing=("mark",),
-    )
-)
+#: Внешний мир отбора: чем заводится служба раздач, чем читается паспорт потока и чем
+#: спрашивается свободный ответ человека. Адрес службы и её сроки знает сам отбор, а
+#: КЕМ она заводится - композиционный корень (:mod:`torrcast.runtime.wire`).
+_select_engines: TorrentEngines
+_select_prober: Prober
+_select_ask_line: Callable[..., str]
 
 
-def _nothing_late() -> list[RawResult]:
+def _configure_select(
+    engines: TorrentEngines, prober: Prober, ask_line: Callable[..., str]
+) -> None:
+    """Назначить отбору его внешний мир."""
+    global _select_engines, _select_prober, _select_ask_line
+    _select_engines = engines
+    _select_prober = prober
+    _select_ask_line = ask_line
+
+
+def _nothing_late() -> list[RawRow]:
     """Долива нет: план собран не поиском (тесты, отладочные ручки) - доливать нечего."""
     return []
 
@@ -137,7 +141,7 @@ class _Plan:
     off_season: int = 0
     #: Выдача опоздавших индексеров: круг ушёл по кворуму, а эти доехали позже (TC-118).
     #: Зовётся ОДИН раз и только после ответа на меню - :func:`_topup`.
-    late: Callable[[], list[RawResult]] = _nothing_late
+    late: Callable[[], list[RawRow]] = _nothing_late
 
     def candidates(self, args: Args) -> list[int]:
         """Очередь релизов: прошедшие ворота, в порядке ранжира - **все, сколько есть**.
@@ -179,8 +183,6 @@ class _Plan:
         """
         if args.release is not None:
             if args.release_hash:
-                info_hash = legacy_namespace(torrcast__release_pin=("info_hash",))["info_hash"]
-
                 number = next(
                     (
                         number
@@ -302,7 +304,7 @@ def _continue(config: Config, key: str, entry: Entry, args: Args, clock: _Clock)
             return code
         if entry.done:  # конец раздачи: сама собой следующая серия не появится
             print(f"«{entry.title}» - {entry.label} была последней в раздаче")
-            if ask_line("Смотреть сначала? [Да/нет]")[:1] in {"н", "n"}:
+            if _select_ask_line("Смотреть сначала? [Да/нет]")[:1] in {"н", "n"}:
                 return EXIT_OK
             first = entry.episodes[0]
             entry = entry.jump(first[0], first[1]) or entry
@@ -313,7 +315,7 @@ def _continue(config: Config, key: str, entry: Entry, args: Args, clock: _Clock)
         own.drop(config)
 
 
-def _remembered(state: State, key: str, found: tuple[str, Entry] | None) -> str:
+def _remembered(state: WatchState, key: str, found: tuple[str, Entry] | None) -> str:
     """Озвучка, которую пользователь выбирал для этой картины.
 
     Смотрим по каноническому ключу картины — под ним показ и пишет запись. Запись,
@@ -402,12 +404,14 @@ def _revoice(config: Config, entry: Entry, args: Args, own: _Voiced) -> Entry:
     (``own``) сразу же, той же строкой, что и поднимается. Раньше её не убирал никто -
     ни при сухом прогоне, ни когда показ до старта так и не доходил.
     """
-    torrserver = TorrServer(config.torrserver_url)
+    torrserver = _select_engines(config.torrserver_url)
     with progress_bar() as progress:
         progress.phase("дорожки")
         own.torrent_hash = torrent_hash = torrserver.add(entry.magnet)
         torrserver.wait_files(torrent_hash, timeout=META_BUDGET)
-        media = probe(torrserver.stream_url(torrent_hash, entry.file_idx), timeout=PROBE_BUDGET)
+        media = _select_prober(
+            torrserver.stream_url(torrent_hash, entry.file_idx), timeout=PROBE_BUDGET
+        )
         progress.phase("")
     entry.audio, entry.voice = pick_voice(media, args, entry.voice)
     return entry
@@ -455,7 +459,9 @@ class _Prep:
     #: в очереди есть кого спросить. Когда спрашивать больше некого, платить отсрочкам
     #: нечем: терпеливо спрашивается один-единственный релиз (:meth:`_Bench._recheck`).
     patient: bool = False
-    contact_wait: ContactWait | None = None
+    #: Отсрочка первого контакта с роем; заводит её стенд
+    #: (:class:`torrcast.adapters.torrserver.contact_wait.ContactWait`).
+    contact_wait: Any = None
     phase: str = "очередь"
     started: float = field(default_factory=time.monotonic)
     meta: float = 0.0
@@ -529,16 +535,13 @@ def _silenced(prep: _Prep | None) -> bool:
 
 # Оркестратор параллельных прогревов отделён от построения плана и его состояния.
 # Старое место импорта сохраняет полный namespace и тестовые подмены.
-_selection_bench = import_module("torrcast.usecases.select_bench")
+import torrcast.usecases.select_bench as _selection_bench  # noqa: E402
 from torrcast.usecases.select_bench import _Bench  # noqa: E402
 
 _selection_namespace = {
     name: value for name, value in globals().items() if not name.startswith("__")
 }
 vars(_selection_bench).update(_selection_namespace)
-globals().update(
-    (name, value) for name, value in vars(_selection_bench).items() if not name.startswith("__")
-)
 
 
 class _SelectionModule(ModuleType):

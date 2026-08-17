@@ -43,12 +43,25 @@ _COMPOSED_NAMES = {
     "TorrServer": (
         ("torrcast.usecases.cache_reserve", "_reserve_engines"),
         ("torrcast.usecases.cast_command", "_play_engines"),
+        ("torrcast.usecases.select", "_select_engines"),
         ("torrcast.usecases.torrents", "_cleanup_engines"),
         ("torrcast.usecases.voices_command", "_voices_engines"),
         ("torrcast.usecases.worker", "_worker_engines"),
     ),
+    "Prowlarr": (("torrcast.usecases.discover", "_search_indexers"),),
+    "ask_line": (("torrcast.usecases.select", "_select_ask_line"),),
     "make_receiver": (("torrcast.usecases.worker", "_worker_receivers"),),
-    "probe": (("torrcast.usecases.episode_duration", "_episode_prober"),),
+    "origin": (
+        ("torrcast.adapters.choice_environment", "_passport"),
+        ("torrcast.usecases.discover", "_search_passport"),
+    ),
+    "probe": (
+        ("torrcast.usecases.episode_duration", "_episode_prober"),
+        ("torrcast.usecases.select", "_select_prober"),
+        ("torrcast.usecases.select_bench", "_bench_prober"),
+    ),
+    "swarm_pulse": (("torrcast.usecases.select_bench", "_bench_swarm_pulse"),),
+    "warm_file": (("torrcast.usecases.select_bench", "_bench_warm_file"),),
 }
 
 
@@ -78,6 +91,25 @@ class _LegacyCliPatches(ModuleType):
 
 
 sys.modules[cli.__name__].__class__ = _LegacyCliPatches
+
+
+def _seed_composed_names() -> None:
+    """Вернуть плоскому фасаду имена, которые остались только слотами корня.
+
+    Разрез уносит имя из последней части монолита, где оно ещё лежало, - и подмена
+    ``monkeypatch.setattr(cli, ...)`` падает ``AttributeError`` ещё до тела теста:
+    подменять стало нечего. Мост и так знает, куда такую подмену вести
+    (:data:`_COMPOSED_NAMES`), поэтому он же кладёт на фасад боевое значение из слота:
+    тест подменяет ровно то, что поставил корень, а откат возвращает то же самое.
+    Класть надо мимо самого моста (``ModuleType.__setattr__``) - иначе одно значение
+    разъехалось бы по всем слотам имени, а их у него бывает несколько разных.
+    """
+    for name, slots in _COMPOSED_NAMES.items():
+        if hasattr(cli, name):
+            continue
+        where, slot = slots[0]
+        ModuleType.__setattr__(cli, name, getattr(importlib.import_module(where), slot))
+
 
 #: Длина синтетического ролика. Держим её кратной сетке HLS и с запасом в несколько
 #: сегментов: на сетке 10 с двадцатисекундный ролик - это всего два сегмента,
@@ -341,6 +373,7 @@ def _wired() -> None:
     Каталог ленты у каждого теста свой - его даёт фикстура ``journal``.
     """
     wire()
+    _seed_composed_names()
 
 
 @pytest.fixture(autouse=True)

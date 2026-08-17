@@ -35,20 +35,33 @@ __all__: list[str] = []
 import threading
 import time
 from collections.abc import Callable
+from typing import Any
 
-from torrcast.ports.legacy_namespace import legacy_namespace
+from torrcast.ports.prober import Prober
+from torrcast.ports.torrent_engine import TorrentEngine
 
-globals().update(
-    legacy_namespace(
-        torrcast__stream=(
-            "ContactWait",
-            "TorrServer",
-            "probe",
-            "swarm_pulse",
-            "warm_file",
-        ),
-    )
-)
+#: Внешний мир стенда: чем читается паспорт потока, чем греется файл, чем спрашивается
+#: признак жизни роя и чем заводится отсрочка первого контакта. Ни сети, ни диска у
+#: самого стенда нет - всё это кладёт композиционный корень (:mod:`torrcast.runtime.wire`).
+#: Отсрочка приезжает заводом, а не значением: часы у каждого прогрева свои.
+_bench_prober: Prober
+_bench_warm_file: Callable[..., None]
+_bench_swarm_pulse: Callable[..., Callable[[], bool]]
+_bench_contact_wait: Callable[[float], Any]
+
+
+def _configure_select_bench(
+    prober: Prober,
+    warm_file: Callable[..., None],
+    swarm_pulse: Callable[..., Callable[[], bool]],
+    contact_wait: Callable[[float], Any],
+) -> None:
+    """Назначить стенду отбора его внешний мир."""
+    global _bench_prober, _bench_warm_file, _bench_swarm_pulse, _bench_contact_wait
+    _bench_prober = prober
+    _bench_warm_file = warm_file
+    _bench_swarm_pulse = swarm_pulse
+    _bench_contact_wait = contact_wait
 
 
 class _Bench:
@@ -61,7 +74,7 @@ class _Bench:
 
     def __init__(
         self,
-        torrserver: TorrServer,
+        torrserver: TorrentEngine,
         choose: Callable[[_Plan, Release, list[TorrFile]], TorrFile] | None = None,
         meta_budget: float = META_BUDGET,
         probe_budget: float = PROBE_BUDGET,
@@ -75,7 +88,7 @@ class _Bench:
         self.torrserver = torrserver
         self.choose = choose or _default_file
         #: Чем читаются дорожки раздачи: подделке отбора хватает и её собственного ответа.
-        self.prober = prober or probe
+        self.prober = prober or _bench_prober
         #: Чей декодер судит релизы: что играется копией, а что не играется вовсе.
         self.profile = profile
         self.meta_budget = meta_budget
@@ -107,7 +120,7 @@ class _Bench:
             number=number,
             release=plan.ranked[number - 1],
             patient=patient,
-            contact_wait=None if patient else ContactWait(PEER_GRACE),
+            contact_wait=None if patient else _bench_contact_wait(PEER_GRACE),
         )
         self.preps[key] = prep
         threading.Thread(target=self._work, args=(plan, prep), daemon=True).start()
@@ -973,14 +986,14 @@ class _Bench:
             # самая ранняя секунда, когда известен файл, - то есть параллельно и ffprobe,
             # и вопросам человека. Показ потом либо берёт готовое, либо
             # дожидается этого же чтения, а не начинает своё вторым потоком.
-            warm_file(source, alive=lambda: not prep.dropped, name=prep.want.name)
+            _bench_warm_file(source, alive=lambda: not prep.dropped, name=prep.want.name)
             prep.media = self.prober(
                 source,
                 timeout=self.probe_budget,
                 alive=(
                     None
                     if prep.patient
-                    else swarm_pulse(source, SWARM_GRACE, wait=prep.contact_wait)
+                    else _bench_swarm_pulse(source, SWARM_GRACE, wait=prep.contact_wait)
                 ),
             )
             prep.read = self.clock() - began

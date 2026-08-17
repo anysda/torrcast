@@ -1,19 +1,53 @@
-"""Системное окружение сценария выбора."""
+"""Системное окружение сценария выбора: консоль, терминал, файл-команда и след."""
 
-# mypy: disable-error-code="no-any-return,no-untyped-def"
+from __future__ import annotations
+
 import os
 import shutil
-from importlib import import_module
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 from torrcast.adapters.console import console
+from torrcast.adapters.filesystem.trace_journal import emit
 from torrcast.domain.debug_handles import CTL_ENV
 from torrcast.domain.facts.fact import Fact
 from torrcast.domain.facts.origin import Origin
 from torrcast.domain.facts.shorten import shorten
 from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.rank_settings import ALIVE_SEEDERS
+
+#: Правила соседних сценариев, которых адаптеру не назвать импортом: ранжирование, добор
+#: и справка лежат слоем выше. Кладёт их сюда композиционный корень
+#: (:mod:`torrcast.runtime.wire`) - до его слова у окружения их нет. Читаются они на
+#: каждом обращении, поэтому подмена одного имени на стенде остаётся той же силы.
+_passport: Callable[..., Origin]
+_cut: Callable[[str, int], str]
+_bitrate_of: Callable[..., float | None]
+_hevc_hope: Callable[..., bool]
+_is_candidate: Callable[..., bool]
+_is_dated: Callable[..., bool]
+_timed: Callable[..., Any]
+
+
+def _configure_choice_environment(
+    passport: Callable[..., Origin],
+    cut: Callable[[str, int], str],
+    bitrate_of: Callable[..., float | None],
+    hevc_hope: Callable[..., bool],
+    is_candidate: Callable[..., bool],
+    is_dated: Callable[..., bool],
+    timed: Callable[..., Any],
+) -> None:
+    """Назначить окружению выбора правила, лежащие слоем выше адаптеров."""
+    global _passport, _cut, _bitrate_of, _hevc_hope, _is_candidate, _is_dated, _timed
+    _passport = passport
+    _cut = cut
+    _bitrate_of = bitrate_of
+    _hevc_hope = hevc_hope
+    _is_candidate = is_candidate
+    _is_dated = is_dated
+    _timed = timed
 
 
 class _SystemChoiceEnvironment:
@@ -60,16 +94,16 @@ class _SystemChoiceEnvironment:
         return shutil.get_terminal_size((80, 24)).columns
 
     @staticmethod
-    def fact():
+    def fact() -> Fact:
         return Fact()
 
     @staticmethod
-    def empty_origin():
+    def empty_origin() -> Origin:
         return Origin()
 
     @staticmethod
-    def origin(title: str, series: bool):
-        return import_module("torrcast.choice").origin(title, series=series)
+    def origin(title: str, series: bool) -> Origin:
+        return _passport(title, series=series)
 
     @staticmethod
     def shorten(text: str) -> str:
@@ -77,31 +111,31 @@ class _SystemChoiceEnvironment:
 
     @staticmethod
     def emit(event: str, action: str, **facts: object) -> None:
-        import_module("torrcast.trace").emit(event, action, **facts)
+        emit(event, action, **facts)
 
     @staticmethod
     def cut(text: str, limit: int) -> str:
-        return import_module("torrcast.ranking")._cut(text, limit)
+        return _cut(text, limit)
 
     @staticmethod
     def bitrate_of(release: Any, duration: float) -> float | None:
-        return import_module("torrcast.ranking").bitrate_of(release, duration)
+        return _bitrate_of(release, duration)
 
     @staticmethod
     def hevc_hope(release: Any, last: bool) -> bool:
-        return import_module("torrcast.ranking").hevc_hope(release, last)
+        return _hevc_hope(release, last)
 
     @staticmethod
     def is_candidate(release: Any, *args: Any, **kwargs: Any) -> bool:
-        return import_module("torrcast.ranking").is_candidate(release, *args, **kwargs)
+        return _is_candidate(release, *args, **kwargs)
 
     @staticmethod
     def is_dated(release: Any, runtime: float) -> bool:
-        return import_module("torrcast.ranking").is_dated(release, runtime)
+        return _is_dated(release, runtime)
 
     @staticmethod
     def timed(*args: Any) -> Any:
-        return import_module("torrcast.reinforce")._timed(*args)
+        return _timed(*args)
 
 
 environment = _SystemChoiceEnvironment()
