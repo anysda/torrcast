@@ -1,4 +1,4 @@
-"""Строит карту публичных символов пакета :mod:`torrcast`."""
+"""Печатает карту публичных символов пакета :mod:`torrcast`."""
 
 from __future__ import annotations
 
@@ -9,11 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
 
-MAP_HEADER: Final = """# Карта публичных символов `torrcast`
-
-Файл сгенерирован командой `scripts/symbolmap.py`; не правьте его вручную.
-
-| Символ | Вид | Файл | Строка |
+MAP_HEADER: Final = """| Символ | Вид | Файл | Строка |
 |---|---|---|---:|
 """
 
@@ -65,21 +61,17 @@ def render(root: Path) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Записывает карту или сравнивает существующую карту с исходниками."""
+    """Печатает карту в стандартный вывод.
+
+    Файлом она больше не лежит: хранимая копия устаревала на каждой правке, конфликтовала
+    в каждом мерже и требовала отдельного правила гейта, чтобы сторожить саму себя. Дом
+    символа виден и так - по имени файла, это правило раскладки; карта нужна изредка и
+    строится за доли секунды.
+    """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("root", nargs="?", type=Path, default=Path.cwd())
-    parser.add_argument("--check", action="store_true")
     arguments = parser.parse_args(argv)
-    expected = render(arguments.root)
-    destination = arguments.root / "docs" / "map.md"
-    if arguments.check:
-        actual = destination.read_text(encoding="utf-8") if destination.exists() else ""
-        if actual != expected:
-            print(f"карта символов устарела: {destination}", file=sys.stderr)
-            return 1
-        return 0
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    destination.write_text(expected, encoding="utf-8")
+    sys.stdout.write(render(arguments.root))
     return 0
 
 

@@ -12,8 +12,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
 
-import symbolmap
-
 RULES: Final = (
     "длина",
     "единица",
@@ -25,7 +23,6 @@ RULES: Final = (
     "ввод-вывод",
     "обход",
     "глушитель",
-    "карта",
 )
 #: Шапки, которыми файл целиком снимают с тайпчека.
 _MYPY_OFF: Final = re.compile(r"^#\s*mypy:\s*(ignore-errors|disable-error-code)")
@@ -385,11 +382,6 @@ def check(root: Path) -> list[Violation]:
             if (target := _target_module(name, known)) is not None and target != module.name
         }
     failures.extend(_cycle_violations(modules, edges))
-    expected_map = symbolmap.render(root)
-    map_path = root / "docs" / "map.md"
-    actual_map = map_path.read_text(encoding="utf-8") if map_path.exists() else ""
-    if actual_map != expected_map:
-        failures.append(Violation("карта", "docs/map.md", 1, "карта публичных символов устарела"))
     order = {rule: index for index, rule in enumerate(RULES)}
     return sorted(failures, key=lambda item: (order[item.rule], item.path, item.line, item.message))
 
