@@ -1127,17 +1127,25 @@ def test_a_request_for_an_unpacked_place_repacks_instead_of_404(
     Запрос сегмента, которого нет, — это и есть перемотка, и единственный правильный
     ответ на неё — начать паковать оттуда. 404 тут запрещён: ресивер, поймавший его,
     отказывается брать LOAD ещё пару минут (замерено на живом ТВ).
+
+    ⚠️ Место берётся внутри фильма (7000-я секунда двухчасового), и это существенно:
+    перемотка - это прыжок по ТОМУ фильму, который играет. Имя за концом сетки к этому
+    тесту отношения не имеет и лечится ровно наоборот
+    (:func:`test_a_segment_outside_the_grid_never_moves_the_packer`, 🔴 TC-622): его
+    манифест не обещал, паковать там нечего, и упаковку такой запрос двигать не смеет.
     """
     root = hls_dir(str(tmp_path / "hls"))
     started: list[int] = []
     monkeypatch.setattr(Feed, "restart", lambda self, slot: started.append(slot))
-    feed = Feed(source="", audio=0, out=root, grid=Grid.uniform(FILM), wait=0.0)
+    grid = Grid.uniform(FILM)
+    feed = Feed(source="", audio=0, out=root, grid=grid, wait=0.0)
 
-    assert feed.segment(900) is None, "файла нет и упаковка мгновенной не бывает"
-    assert started == [900], "перемотка на 9000-ю секунду = упаковка с сегмента 900"
+    assert grid.count > 700, "место перемотки обязано быть внутри фильма"
+    assert feed.segment(700) is None, "файла нет и упаковка мгновенной не бывает"
+    assert started == [700], "перемотка на 7000-ю секунду = упаковка с сегмента 700"
 
-    (root / "v900.ts").write_bytes(b"x")
-    assert feed.segment(900) == root / "v900.ts", "готовый кусок отдаём не думая"
+    (root / "v700.ts").write_bytes(b"x")
+    assert feed.segment(700) == root / "v700.ts", "готовый кусок отдаём не думая"
 
 
 def test_a_burst_of_requests_after_a_seek_restarts_packing_only_once(
@@ -1289,6 +1297,57 @@ def test_pieces_of_past_runs_never_move_the_edge_of_the_current_run(
     started.clear()
     assert feed.segment(900) == out / "v900.ts", "кусок прошлого прогона честен: сетка одна"
     assert started == [], "и перепаковывать место, которое уже лежит в tmpfs, незачем"
+
+
+def test_a_segment_outside_the_grid_never_moves_the_packer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """🔴 TC-622. Посторонний GET имени, которого в сетке нет, не стоит зрителю сеанса.
+
+    Раздача открыта в сеть, и постучать в неё может кто угодно: сосед по адресу, второй
+    сендер, ошибочный повтор. Приёмник таких имён не просит - манифест их не обещал, - но
+    раньше показу это было безразлично: номер сегмента шёл в упаковку как есть.
+
+    Дальше ломалось всё сразу. :meth:`Grid.start` **зажимает** номер в границы сетки, и
+    ``v99999`` на двухчасовом фильме получал место последнего сегмента: упаковка
+    перезапускалась с конца фильма (замер живой приёмкой: ``заход упаковки {слот: 99999,
+    встали: 7778.899}``). Резы при этом не появлялись вовсе - ``-segment_times`` строится
+    по ``range(slot + 1, grid.count)``, а он для номера за сеткой пуст, - так что прогон
+    писал один нерезаный кусок до конца фильма. А поток раздачи, державший этот запрос,
+    возвращался в :meth:`Feed._steer` каждые 0.2 с и перезапускал упаковку снова, пока
+    зритель перезапускал её на своё место: показ вставал насмерть и сам объявлял
+    ``dark``. Один чужой ``curl`` - и сеанса нет.
+
+    Мерка тут - сетка, а не край прогона: имени за её границами не было и не будет ни
+    на диске, ни в упаковке, поэтому ответ честен сразу и стоит ноль. Уже лежащий кусок
+    так и отдаётся файлом (соседний тест): читать то, что есть, упаковку не двигает.
+    """
+    grid = Grid.uniform(FILM)
+    out = hls_dir(str(tmp_path / "hls"))
+    for slot in range(5):
+        (out / f"v{slot}.ts").write_bytes(b"x")
+    started: list[int] = []
+
+    def repack(self: Feed, slot: int) -> None:  # упаковка с места и доходит до него
+        started.append(slot)
+        (out / f"v{slot}.ts").write_bytes(b"x")
+
+    monkeypatch.setattr(Feed, "restart", repack)
+    # `wait` заведомо больше, чем тест готов ждать: ответ обязан прийти сразу, а не
+    # после того, как поток раздачи высидит своё окно, толкая упаковку каждые 0.2 с.
+    feed = Feed(source="", audio=0, out=out, grid=grid, wait=120.0, ahead=7)
+    feed.packer = fake_packer(out, first=0, edge=4)
+
+    assert grid.count < 99999, "сетка обязана быть короче запрошенного имени - иначе проба пустая"
+    began = time.monotonic()
+    answer = feed.segment(99999)
+
+    assert answer is None, "имени за сеткой нет и не будет: честный отказ, а не ожидание"
+    assert started == [], "чужой GET увёл упаковщика - ровно так и умирал сеанс (TC-622)"
+    assert time.monotonic() - began < 2.0, "запрос вне сетки высиживает окно и толкает упаковку"
+
+    feed.segment(20)
+    assert started == [20], "после чужого запроса показ обязан перематываться как ни в чём"
 
 
 def test_pieces_nobody_asked_for_are_handed_over_by_the_clock_of_the_show(tmp_path: Path) -> None:
