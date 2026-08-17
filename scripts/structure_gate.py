@@ -7,7 +7,7 @@ import ast
 import re
 import sys
 from collections import Counter
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
@@ -23,6 +23,7 @@ RULES: Final = (
     "ввод-вывод",
     "обход",
     "глушитель",
+    "размен",
 )
 #: Шапки, которыми файл целиком снимают с тайпчека.
 _MYPY_OFF: Final = re.compile(r"^#\s*mypy:\s*(ignore-errors|disable-error-code)")
@@ -35,6 +36,9 @@ _NAME_CHECKS: Final = frozenset({"F821", "F822"})
 #: выглядит для гейта чистым, хотя это ровно тот импорт адаптера, который запрещён.
 #: Отсюда отдельное правило: внутри слоёв зависимость называется импортом и только им.
 DYNAMIC_IMPORTS: Final = frozenset({"module", "legacy_namespace", "import_module", "__import__"})
+#: Слои, где `Any` в договоре считается разменом. `adapters` сюда не входит намеренно:
+#: там договор держит чужая библиотека, а не мы (см. `_trade_violations`).
+TYPED_LAYERS: Final = frozenset({"domain", "ports", "usecases", "cli", "runtime"})
 LAYERS: Final = frozenset({"domain", "ports", "usecases", "adapters", "cli", "runtime"})
 ALLOWED: Final = {
     "domain": frozenset({"domain"}),
@@ -301,6 +305,122 @@ def _silencer_violations(module: Module) -> list[Violation]:
     return failures
 
 
+def _mentions_any(node: ast.expr | None, *, typed: bool = True) -> bool:
+    """Правда ли внутри выражения типа где-то стоит `Any`, хоть на самом дне.
+
+    Смотрится вглубь, а не по верхнему имени: `Callable[..., Any]`, `dict[str, Any]` и
+    `Any | None` разменивают договор ровно так же, как голое `Any`. Строковая запись
+    разбирается тем же разбором - иначе правило покупалось бы кавычками, а гейт,
+    купленный строкой, у нас уже был, - но только там, где строка и правда означает тип
+    (`typed`). В обычном присваивании строка это данные: `"Any"` в `__all__` называет
+    реэкспорт имени, а не размен договора.
+    """
+    if node is None:
+        return False
+    for inner in ast.walk(node):
+        if isinstance(inner, ast.Name) and inner.id == "Any":
+            return True
+        if isinstance(inner, ast.Attribute) and inner.attr == "Any":
+            return True
+        if typed and isinstance(inner, ast.Constant) and isinstance(inner.value, str):
+            try:
+                quoted = ast.parse(inner.value, mode="eval").body
+            except SyntaxError:
+                continue
+            if _mentions_any(quoted):
+                return True
+    return False
+
+
+def _is_alias(node: ast.expr | None) -> bool:
+    """Правда ли это пометка `TypeAlias`: у неё договор лежит не в аннотации, а в значении."""
+    if isinstance(node, ast.Name):
+        return node.id == "TypeAlias"
+    return isinstance(node, ast.Attribute) and node.attr == "TypeAlias"
+
+
+def _contract_sites(body: list[ast.stmt], owner: str) -> Iterator[tuple[int, str, str]]:
+    """Обходит объявленный договор модуля и отдаёт места, где он назван `Any`.
+
+    Договор - это то, что видно снаружи тела: слоты модуля, поля классов, псевдонимы имён
+    и подписи единиц. В тела функций обход не заходит: локальная переменная договором ни
+    для кого не является, и `Any` там - дело одного места. Зато заходит внутрь
+    `if TYPE_CHECKING:` и `try/except ImportError`, потому что объявление оттуда тайпчек
+    читает наравне с голым, а спрятать за таким `if` можно что угодно.
+    """
+    for node in body:
+        if isinstance(node, ast.If):
+            yield from _contract_sites(node.body, owner)
+            yield from _contract_sites(node.orelse, owner)
+        elif isinstance(node, ast.Try):
+            for branch in (node.body, node.orelse, node.finalbody):
+                yield from _contract_sites(branch, owner)
+            for handler in node.handlers:
+                yield from _contract_sites(handler.body, owner)
+        elif isinstance(node, ast.ClassDef):
+            yield from _contract_sites(node.body, f"{owner}{node.name}.")
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            arguments = node.args
+            named = [
+                *arguments.posonlyargs,
+                *arguments.args,
+                *arguments.kwonlyargs,
+                *(item for item in (arguments.vararg, arguments.kwarg) if item is not None),
+            ]
+            for argument in named:
+                if _mentions_any(argument.annotation):
+                    yield (
+                        argument.lineno,
+                        "тип параметра не назван",
+                        f"{owner}{node.name}({argument.arg})",
+                    )
+            if _mentions_any(node.returns):
+                yield node.lineno, "тип возврата не назван", f"{owner}{node.name}"
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            name = f"{owner}{node.target.id}"
+            if _is_alias(node.annotation):
+                if _mentions_any(node.value):
+                    yield node.lineno, "имя подменено на Any", name
+            elif _mentions_any(node.annotation):
+                what = "тип поля не назван" if owner else "тип слота не назван"
+                yield node.lineno, what, f"{name}: {ast.unparse(node.annotation)}"
+        elif isinstance(node, ast.Assign) and _mentions_any(node.value, typed=False):
+            names = [target.id for target in node.targets if isinstance(target, ast.Name)]
+            for name in names:
+                yield node.lineno, "имя подменено на Any", f"{owner}{name}"
+
+
+def _trade_violations(module: Module) -> list[Violation]:
+    """Ищет договор, размененный на `Any` там, где его обязаны были назвать.
+
+    Правило слоёв читает импорты, а `Any` импорта не требует: если зависимость увести из
+    строки с именем модуля в слот композиционного корня, счётчик `обход` падает, а имя
+    класса адаптера слою всё равно не назвать - и слот объявляют `Any`. Договора не стало
+    ни на грамм больше, но ни одно из прежних правил этого не считает: `HlsServer: Any` в
+    сценарии для гейта выглядит честным объявлением, а для mypy - разрешением на всё.
+    Поэтому размен считается отдельно, как и любой другой способ убрать проверку.
+
+    Считается только объявленный ДОГОВОР: слоты модуля, псевдонимы имён, поля классов и
+    протоколов, параметры и возвраты единиц. Внутрь тел правило не смотрит - локальная
+    переменная договором не является. Приватное имя от публичного тут не отличается: в
+    слое сценариев `_recoder` зовут из соседних модулей и он назван в `__all__`, так что
+    его подпись - такой же договор, как у любой публичной единицы.
+
+    Законный `Any` ровно один, и он вынесен целым слоем: `adapters`. Там договор держит
+    не пакет, а чужая библиотека - ответ ffprobe, JSON индексера, объект pychromecast, -
+    и назвать её типы честнее нечем; ради этой границы адаптеры и заведены. Всё, что
+    приехало через границу дальше в слои, обязано быть уже названным. Нераскладанные
+    файлы пропускаются наравне с правилами `обход` и `глушитель`: это старые фасады под
+    снос, их считают волнами разреза, а не этой мерой.
+    """
+    if module.layer not in TYPED_LAYERS:
+        return []
+    return [
+        Violation("размен", module.relative, line, f"{what}: {name}")
+        for line, what, name in _contract_sites(module.tree.body, "")
+    ]
+
+
 def _cycle_violations(modules: list[Module], edges: dict[str, set[str]]) -> list[Violation]:
     by_name = {module.name: module for module in modules}
     failures: list[Violation] = []
@@ -376,6 +496,7 @@ def check(root: Path) -> list[Violation]:
         failures.extend(_io_violations(module, imports))
         failures.extend(_bypass_violations(module))
         failures.extend(_silencer_violations(module))
+        failures.extend(_trade_violations(module))
         edges[module.name] = {
             target
             for name, _line in imports

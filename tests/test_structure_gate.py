@@ -138,6 +138,107 @@ def test_silencer_rule_turns_red_when_undeclared_names_are_hushed(tmp_path: Path
     assert "глушитель" in _rules(root)
 
 
+def _in_layer(root: Path, layer: str, name: str, source: str) -> None:
+    """Кладёт модуль в названный слой вместе с его зеркальным тестом."""
+    (root / "torrcast" / layer).mkdir(exist_ok=True)
+    (root / "tests" / layer).mkdir(exist_ok=True)
+    (root / "torrcast" / layer / f"{name}.py").write_text(source, encoding="utf-8")
+    (root / "tests" / layer / f"test_{name}.py").write_text("", encoding="utf-8")
+
+
+def test_trade_rule_turns_red_on_a_slot_typed_any(tmp_path: Path) -> None:
+    """Слот композиционного корня, объявленный `Any`, - тот же необъявленный договор."""
+    root = _tree(tmp_path)
+    _layered(root, "show", '"""Модуль."""\nfrom typing import Any\n\nHlsServer: Any\n')
+    assert "размен" in _rules(root)
+
+
+def test_trade_rule_turns_red_on_a_signature(tmp_path: Path) -> None:
+    """Параметр и возврат единицы слоя - договор, и `Any` в них считается тоже."""
+    root = _tree(tmp_path)
+    _layered(
+        root,
+        "pack",
+        '"""Модуль."""\nfrom typing import Any\n\n\ndef pack(grid: Any) -> Any:\n    return grid\n',
+    )
+    assert len([item for item in structure_gate.check(root) if item.rule == "размен"]) == 2
+
+
+def test_trade_rule_turns_red_on_a_type_alias_in_a_port(tmp_path: Path) -> None:
+    """У порта договор и есть всё содержимое: `RawRow: TypeAlias = Any` не называет ничего."""
+    root = _tree(tmp_path)
+    _in_layer(
+        root,
+        "ports",
+        "raw_row",
+        '"""Модуль."""\nfrom typing import Any, TypeAlias\n\nRawRow: TypeAlias = Any\n',
+    )
+    assert "размен" in _rules(root)
+
+
+def test_trade_rule_counts_any_hidden_inside_a_generic(tmp_path: Path) -> None:
+    """`Callable[..., Any]` разменивает договор ровно так же, как голое `Any`."""
+    root = _tree(tmp_path)
+    _layered(
+        root,
+        "grid",
+        '"""Модуль."""\nfrom collections.abc import Callable\nfrom typing import Any\n\n'
+        "grid_for: Callable[..., Any]\n",
+    )
+    assert "размен" in _rules(root)
+
+
+def test_trade_rule_reads_through_quotes(tmp_path: Path) -> None:
+    """Кавычки правило не покупают: строковая аннотация разбирается тем же разбором."""
+    root = _tree(tmp_path)
+    _layered(root, "quoted", '"""Модуль."""\n\n\ndef quoted() -> "Any":\n    return 1\n')
+    assert "размен" in _rules(root)
+
+
+def test_trade_rule_looks_inside_a_type_checking_block(tmp_path: Path) -> None:
+    """Объявление под `if TYPE_CHECKING:` тайпчек читает наравне с голым - значит и мы."""
+    root = _tree(tmp_path)
+    _layered(
+        root,
+        "planned",
+        '"""Модуль."""\nfrom typing import TYPE_CHECKING, Any, TypeAlias\n\n'
+        "if TYPE_CHECKING:\n    Plan: TypeAlias = Any\n",
+    )
+    assert "размен" in _rules(root)
+
+
+def test_trade_rule_leaves_the_adapter_boundary_alone(tmp_path: Path) -> None:
+    """Законный `Any` вынесен целым слоем: на границе с чужой библиотекой типов у нас нет."""
+    root = _tree(tmp_path)
+    _in_layer(
+        root,
+        "adapters",
+        "probe",
+        '"""Модуль."""\nfrom typing import Any\n\n\ndef probe(reply: Any) -> Any:\n'
+        "    return reply\n",
+    )
+    assert "размен" not in _rules(root)
+
+
+def test_trade_rule_leaves_a_local_variable_alone(tmp_path: Path) -> None:
+    """Правило считает договор, а не тела: `Any` у локальной переменной - дело одного места."""
+    root = _tree(tmp_path)
+    _layered(
+        root,
+        "local",
+        '"""Модуль."""\nfrom typing import Any\n\n\ndef local() -> int:\n'
+        "    seen: dict[str, Any] = {}\n    return len(seen)\n",
+    )
+    assert "размен" not in _rules(root)
+
+
+def test_trade_rule_leaves_a_reexported_name_alone(tmp_path: Path) -> None:
+    """`"Any"` в `__all__` называет реэкспорт имени, а не размен договора."""
+    root = _tree(tmp_path)
+    _layered(root, "facade", '"""Модуль."""\n\n__all__ = ["Any"]\n')
+    assert "размен" not in _rules(root)
+
+
 def test_silencer_rule_leaves_a_narrow_exception_alone(tmp_path: Path) -> None:
     """Точечное исключение по делу - не глушитель: правило бьёт по выключению ЦЕЛИКОМ.
 
