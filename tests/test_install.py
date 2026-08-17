@@ -96,7 +96,7 @@ def test_the_warm_budget_probe_still_resolves_after_the_split() -> None:
     from torrcast.domain.warm_settings import WARM_BUDGET
 
     env = {**os.environ, "PYTHONPATH": str(REPO)}
-    done = subprocess.run(  # noqa: S603
+    done = subprocess.run(
         [sys.executable, "-c", _warm_budget_probe()],
         capture_output=True,
         text=True,
