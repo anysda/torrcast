@@ -380,6 +380,7 @@
 | `Warmer` | класс | `torrcast/usecases/warm.py` | 428 |
 | `Warmup` | класс | `torrcast/adapters/torrserver/warmup.py` | 11 |
 | `Watch` | класс | `torrcast/usecases/watch.py` | 30 |
+| `WatchState` | класс | `torrcast/domain/watch_state.py` | 18 |
 | `Weights` | класс | `torrcast/adapters/recode.py` | 573 |
 | `WikiArticles` | класс | `torrcast/adapters/wiki/wiki_articles.py` | 23 |
 | `WikiBlurbs` | класс | `torrcast/adapters/wiki/wiki_blurbs.py` | 30 |
