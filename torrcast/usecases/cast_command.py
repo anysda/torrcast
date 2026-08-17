@@ -4,6 +4,41 @@
 
 from __future__ import annotations
 
+from torrcast.domain.bitrate_mbit import bitrate_mbit
+from torrcast.domain.config import Config
+from torrcast.domain.entry import Entry
+from torrcast.domain.exit_codes import EXIT_OK
+from torrcast.domain.picture import Picture
+from torrcast.domain.slugify import slugify
+from torrcast.domain.split_franchise_index import split_franchise_index
+from torrcast.usecases.choice import (
+    _is_default,
+    _passport,
+    _pick_plan,
+    _played,
+    namesake_note,
+    swap_note,
+    warm_order,
+    year_note,
+)
+from torrcast.usecases.discover import _ask, _no_budget, _search
+from torrcast.usecases.log_command import trace
+from torrcast.usecases.playback import _file_picker, _launch
+from torrcast.usecases.rank import (
+    default_unnamed,
+    pick_voice,
+    quality_text,
+    sound_note,
+    voice_note,
+    voice_unproven,
+)
+from torrcast.usecases.reinforce import _timed, _topup
+from torrcast.usecases.say_showing import _say_showing
+from torrcast.usecases.select import _about, _continue, _Plan, _remembered, _Voiced, _voiced
+from torrcast.usecases.select_bench import _Bench
+from torrcast.usecases.start_clock import _Clock
+from torrcast.usecases.torrents import _release_orphans
+
 __all__ = [
     "EXIT_OK",
     "TYPE_CHECKING",
@@ -42,14 +77,19 @@ if TYPE_CHECKING:
 from torrcast.ports.module import module
 
 for _module_name, _names in {
-    "torrcast": ("trace",),
-    "torrcast.commands": ("EXIT_OK",),
     "torrcast.console": ("Progress",),
     "torrcast.facts": ("Facts",),
-    "torrcast.parse": ("Picture", "slugify", "split_franchise_index"),
-    "torrcast.search": ("Prowlarr", "RawResult", "merge", "to_releases"),
-    "torrcast.state": ("Config", "Entry", "State", "load_config"),
-    "torrcast.stream": ("TorrServer", "bitrate_mbit"),
+    "torrcast.search": (
+        "Prowlarr",
+        "RawResult",
+        "merge",
+        "to_releases",
+    ),
+    "torrcast.state": (
+        "State",
+        "load_config",
+    ),
+    "torrcast.stream": ("TorrServer",),
     "torrcast.timing": ("mark",),
     "torrcast.voice_origin": ("native_picture",),
 }.items():

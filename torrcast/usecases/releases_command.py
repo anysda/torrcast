@@ -6,6 +6,13 @@
 
 from __future__ import annotations
 
+from torrcast.domain.not_found_error import NotFoundError
+from torrcast.domain.release import Release
+from torrcast.usecases.choice import _named
+from torrcast.usecases.discover import _search
+from torrcast.usecases.rank import render_table
+from torrcast.usecases.reinforce import _timed
+
 __all__ = [
     "EXIT_OK",
     "Args",
@@ -26,10 +33,8 @@ from torrcast.domain.exit_codes import EXIT_OK
 from torrcast.ports.module import module
 
 for _module_name, _names in {
-    "torrcast": ("NotFoundError",),
     "torrcast.console": ("Progress",),
     "torrcast.facts": ("Facts",),
-    "torrcast.parse": ("Release",),
     "torrcast.state": ("load_config",),
 }.items():
     _dependency = module(_module_name)

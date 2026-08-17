@@ -36,6 +36,7 @@ from torrcast.domain.audio_track import (
 from torrcast.domain.bitrate_mbit import bitrate_mbit
 from torrcast.domain.codec_name import codec_name
 from torrcast.domain.color_depth import _DEPTH_FMT, _DEPTH_PROFILE, color_depth
+from torrcast.domain.hls_wait import KEYS_WAIT, PILOT_TIMEOUT
 from torrcast.domain.media import AUDIO_MBIT, TS_OVERHEAD, Media
 from torrcast.domain.recode_note import recode_note
 from torrcast.domain.recodes_whole import recodes_whole
@@ -256,11 +257,6 @@ HEAD_OPEN: Final = {"mkv": 1 << 20, "mp4": 8 << 20}
 HEAD_OPEN_DEFAULT: Final = 8 << 20
 #: Потолок ожидания прогрева: дальше это уже не прогрев, а висящий поток.
 WARM_TIMEOUT: Final = 120.0
-#: Потолок пробного прогона в один кадр (:func:`pack_start`). Обычная цена - 0.5-1.7 с,
-#: но на холодном рое это чтение нового места, и оно упирается в раздачу. Число
-#: вынесено сюда не ради красоты: из него и из соседних потолков складывается бюджет
-#: старта юнита, который ждёт CLI (``torrcast.cli.START_BUDGET``).
-PILOT_TIMEOUT: Final = 60.0
 #: Куда ``-ss`` уводит ffmpeg, если целиться ровно в опорный кадр карты, - **по демуксеру**.
 #: Число - это сдвиг по карте от кадра, в который целятся: ``mkv`` встаёт на предыдущий
 #: («через один»), ``mp4`` - ровно в него. Замер (180-секундный ролик, 90 опорных кадров,
@@ -282,8 +278,6 @@ SEEK_SHIFT: Final = {"mkv": -1, "mp4": 0}
 #: разошлась, и дальше по этому файлу заходим только пробным прогоном.
 _SEEK_OK: dict[str, bool] = {}
 _SEEK_LOCK: Final = threading.Lock()
-#: Сколько ждём чужого снятия карты опорных кадров, прежде чем снимать самим.
-KEYS_WAIT: Final = 40.0
 #: Замок снятия карты считается живым столько секунд: дальше это брошенный хвост.
 KEYS_LOCK: Final = 60.0
 #: Допуск при сравнении времени границы с меткой кадра: границы сетки стоят на опорных

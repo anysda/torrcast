@@ -6,6 +6,14 @@
 
 from __future__ import annotations
 
+from torrcast.domain.not_found_error import NotFoundError
+from torrcast.usecases.choice import _named, _pick_plan
+from torrcast.usecases.discover import _search
+from torrcast.usecases.playback import _file_picker
+from torrcast.usecases.rank import _cut, voices_table
+from torrcast.usecases.select import _remembered
+from torrcast.usecases.select_bench import _Bench
+
 __all__ = [
     "EXIT_OK",
     "Args",
@@ -22,9 +30,11 @@ from torrcast.domain.exit_codes import EXIT_OK
 from torrcast.ports.module import module
 
 for _module_name, _names in {
-    "torrcast": ("NotFoundError",),
     "torrcast.console": ("Progress",),
-    "torrcast.state": ("State", "load_config"),
+    "torrcast.state": (
+        "State",
+        "load_config",
+    ),
     "torrcast.stream": ("TorrServer",),
     "torrcast.voice_origin": ("native_picture",),
 }.items():

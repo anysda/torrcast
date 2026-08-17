@@ -4,6 +4,24 @@
 
 from __future__ import annotations
 
+from torrcast.domain.pick_settings import (
+    HONEST_BUDGET,
+    MAX_TRIES,
+    META_BUDGET,
+    PICK_BUDGET,
+    PROBE_BUDGET,
+    VERDICT_BUDGET,
+)
+from torrcast.usecases.log_command import trace
+
+from torrcast.domain.not_found_error import NotFoundError
+from torrcast.domain.profile import Profile, REFUSE
+from torrcast.domain.recode_note import recode_note
+from torrcast.domain.recode_settings import RECODE_HEIGHT
+from torrcast.domain.release import Release
+from torrcast.domain.server_down_error import ServerDownError
+from torrcast.domain.torr_file import TorrFile
+
 __all__: list[str] = []
 
 import threading
@@ -14,26 +32,19 @@ from torrcast.ports.legacy_namespace import legacy_namespace
 
 globals().update(
     legacy_namespace(
-        torrcast=("InfraError", "NotFoundError", "TorrcastError", "trace"),
-        torrcast__commands=(
-            "HONEST_BUDGET",
-            "MAX_TRIES",
-            "META_BUDGET",
-            "PICK_BUDGET",
-            "PROBE_BUDGET",
-            "VERDICT_BUDGET",
+        torrcast=(
+            "InfraError",
+            "TorrcastError",
         ),
         torrcast__console=("Progress",),
-        torrcast__parse=("Release",),
-        torrcast__profile=("CAUTIOUS", "COPY", "REFUSE", "Profile"),
-        torrcast__recode=("RECODE_HEIGHT",),
+        torrcast__profile=(
+            "CAUTIOUS",
+            "COPY",
+        ),
         torrcast__stream=(
             "ContactWait",
-            "ServerDownError",
-            "TorrFile",
             "TorrServer",
             "probe",
-            "recode_note",
             "swarm_pulse",
             "warm_file",
         ),

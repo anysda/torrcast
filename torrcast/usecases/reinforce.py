@@ -1,8 +1,12 @@
 # mypy: disable-error-code=no-any-return
-# ruff: noqa: F821
 """Часть CLI; публичный фасад — :mod:`torrcast.cli`."""
 
 from __future__ import annotations
+
+from torrcast.domain._series import _Series
+from torrcast.usecases.choice import first_alive, fitness
+from torrcast.usecases.discover import _ask, _asked_kind, _no_budget
+from torrcast.usecases.rank import gate_open, last_hope, rank_releases
 
 __all__ = [
     "CAUTIOUS",
@@ -17,7 +21,6 @@ __all__ = [
     "_foreign_note",
     "_lacks_season",
     "_leading",
-    "_nothing_late",
     "_plan_for",
     "_season_reinforce",
     "_timed",
@@ -67,15 +70,6 @@ if TYPE_CHECKING:
     Progress: TypeAlias = Any
     RawResult: TypeAlias = Any
     _Plan: TypeAlias = Any
-    _Series: Any
-    first_alive: Any
-    fitness: Any
-    _ask: Any
-    _asked_kind: Any
-    _no_budget: Any
-    gate_open: Any
-    last_hope: Any
-    rank_releases: Any
 
 Prowlarr: Any
 Fact: Any
@@ -779,11 +773,6 @@ def _foreign_note(foreign: list[Release], menu: frozenset[str], progress: Progre
             else "в списке их не было, в отбор они не пойдут"
         )
     )
-
-
-def _nothing_late() -> list[RawResult]:
-    """Долива нет: план собран не поиском (тесты, отладочные ручки) - доливать нечего."""
-    return []
 
 
 __all__ = [name for name in globals() if not name.startswith("__")]

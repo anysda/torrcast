@@ -4,6 +4,20 @@
 
 from __future__ import annotations
 
+from torrcast.domain.profile import Profile
+from torrcast.domain.revive_settings import (
+    REVIVE_DROP,
+    REVIVE_LIMIT,
+    REVIVE_LIVED,
+    REVIVE_PAUSE,
+    REVIVE_TRIES,
+)
+from torrcast.usecases.choice import _ctl, _Revivable
+from torrcast.usecases.log_command import trace
+from torrcast.usecases.playback import _blamed
+from torrcast.usecases.warm import Warmer
+from torrcast.usecases.watch import Watch
+
 __all__: list[str] = []
 
 from typing import TYPE_CHECKING
@@ -21,19 +35,18 @@ from torrcast.ports.module import module
 clock_port = module("time")
 time = clock_port
 for _module_name, _names in {
-    "torrcast": ("InfraError", "trace"),
+    "torrcast": ("InfraError",),
     "torrcast.cast": ("Receiver",),
-    "torrcast.commands": (
-        "REVIVE_DROP",
-        "REVIVE_LIMIT",
-        "REVIVE_LIVED",
-        "REVIVE_PAUSE",
-        "REVIVE_TRIES",
+    "torrcast.profile": ("CAUTIOUS",),
+    "torrcast.stream": (
+        "Feed",
+        "Supply",
+        "mark_playing",
     ),
-    "torrcast.profile": ("CAUTIOUS", "Profile"),
-    "torrcast.stream": ("Feed", "Supply", "mark_playing"),
-    "torrcast.timing": ("CLOCK", "Clock"),
-    "torrcast.warm": ("Warmer",),
+    "torrcast.timing": (
+        "CLOCK",
+        "Clock",
+    ),
 }.items():
     _dependency = module(_module_name)
     globals().update({name: getattr(_dependency, name) for name in _names})

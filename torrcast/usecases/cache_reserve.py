@@ -6,6 +6,9 @@
 
 from __future__ import annotations
 
+from torrcast.domain.config import Config
+from torrcast.domain.entry import Entry
+
 __all__ = [
     "PROBE_TIMEOUT",
     "Config",
@@ -19,8 +22,10 @@ from torrcast.ports.module import module
 
 for _module_name, _names in {
     "torrcast": ("InfraError",),
-    "torrcast.state": ("Config", "Entry"),
-    "torrcast.stream": ("PROBE_TIMEOUT", "TorrServer"),
+    "torrcast.stream": (
+        "PROBE_TIMEOUT",
+        "TorrServer",
+    ),
 }.items():
     _dependency = module(_module_name)
     globals().update({name: getattr(_dependency, name) for name in _names})

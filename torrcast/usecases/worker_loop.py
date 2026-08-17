@@ -6,6 +6,12 @@
 
 from __future__ import annotations
 
+from torrcast.domain.config import Config
+from torrcast.domain.entry import Entry
+from torrcast.domain.profile import Profile
+from torrcast.domain.worker_settings import WORKER_META
+from torrcast.usecases.log_command import trace
+
 __all__ = [
     "WORKER_META",
     "Config",
@@ -31,25 +37,25 @@ from functools import partial
 
 from torrcast.ports.module import module
 from torrcast.usecases.episode_duration import _duration
+from torrcast.usecases.following import _following
+from torrcast.usecases.playback import _next_warmer, _play
 from torrcast.usecases.rank import _hms
 from torrcast.usecases.start_clock import _Clock
 from torrcast.usecases.torrents import _own_torrent
 from torrcast.usecases.watch import Watch
 
 for _module_name, _names in {
-    "torrcast": ("InfraError", "trace"),
+    "torrcast": ("InfraError",),
     "torrcast.cast": ("Receiver",),
-    "torrcast.state": ("Config", "Entry", "State"),
-    "torrcast.stream": ("Supply", "TorrServer"),
-    "torrcast.profile": ("Profile", "trace_thresholds"),
+    "torrcast.state": ("State",),
+    "torrcast.stream": (
+        "Supply",
+        "TorrServer",
+    ),
+    "torrcast.profile": ("trace_thresholds",),
 }.items():
     _dependency = module(_module_name)
     globals().update({name: getattr(_dependency, name) for name in _names})
-
-#: Потолок ожидания метаданных раздачи **в юните**, секунды. Здесь это не «бюджет фазы
-#: под меню» (:data:`torrcast.commands.META_BUDGET`), а последний рубеж: магнит юниту уже
-#: дали, и если метаданные не приехали, показывать нечего.
-WORKER_META = 60.0
 
 
 def _worker_loop(
@@ -127,16 +133,3 @@ def _worker_loop(
         if following is None:
             return code
         print(f"следующая серия: {following.label}", flush=True)
-
-
-def _following(key: str) -> Entry | None:
-    """Серия, которую юнит доиграет следом за только что досмотренной.
-
-    ``None`` — показ на этом кончается: фильм, последняя серия сезона или запись, которую
-    сериалом и не считали. Отсюда же знают, закрывать ли приложение приёмника: между
-    сериями оно живёт дальше, а на конце показа — гаснет (см. :func:`_play`).
-    """
-    entry = State.load().get(key)
-    if entry is None or entry.done or not entry.label:
-        return None
-    return entry

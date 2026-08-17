@@ -2,18 +2,13 @@
 Зовёт её команда показа перед меню картин (:func:`torrcast.usecases.cast_command._cmd_play`).
 """
 
-# ruff: noqa: F821, F822
-
 from __future__ import annotations
+
+from torrcast.domain.entry import Entry
 
 __all__ = ["Entry", "_say_showing"]
 
-from torrcast.ports.module import module
 from torrcast.usecases.rank import _hms
-
-for _module_name, _names in {"torrcast.state": ("Entry",)}.items():
-    _dependency = module(_module_name)
-    globals().update({name: getattr(_dependency, name) for name in _names})
 
 
 def _say_showing(live: tuple[str, Entry] | None) -> None:

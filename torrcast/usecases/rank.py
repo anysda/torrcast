@@ -1,7 +1,8 @@
-# ruff: noqa: F821
 """Часть CLI; публичный фасад — :mod:`torrcast.cli`."""
 
 from __future__ import annotations
+
+from torrcast.usecases.choice import warned
 
 __all__ = [
     "OFF_SEASON",
@@ -112,7 +113,6 @@ _DISC_RE = DISC_RE
 if TYPE_CHECKING:
     Args: TypeAlias = Any
     _Plan: TypeAlias = Any
-    warned: Any
 _rank_environment: RankEnvironment
 
 

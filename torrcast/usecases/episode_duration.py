@@ -6,20 +6,19 @@
 
 from __future__ import annotations
 
+from torrcast.domain.entry import Entry
+from torrcast.domain.worker_settings import WORKER_DUR
+
 __all__ = ["WORKER_DUR", "Entry", "State", "_duration", "probe"]
 
 from torrcast.ports.module import module
 
 for _module_name, _names in {
-    "torrcast.state": ("Entry", "State"),
+    "torrcast.state": ("State",),
     "torrcast.stream": ("probe",),
 }.items():
     _dependency = module(_module_name)
     globals().update({name: getattr(_dependency, name) for name in _names})
-
-#: Потолок ffprobe длительности в юните: своей длительности следующая серия не знает, и
-#: читается она из потока (:func:`_duration`).
-WORKER_DUR = 90.0
 
 
 def _duration(key: str, entry: Entry, source: str) -> Entry:

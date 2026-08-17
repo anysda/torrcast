@@ -27,6 +27,7 @@ from torrcast.domain.position import Position
 from torrcast.domain.profile import CAUTIOUS, Profile
 from torrcast.domain.receiver import Receiver
 from torrcast.domain.start_refused_error import StartRefusedError
+from torrcast.domain.start_timeout import START_TIMEOUT
 from torrcast.domain.trust_anchor import trust_anchor
 from torrcast.ports.clock import Clock
 
@@ -120,11 +121,8 @@ class ChromecastReceiver:
     позиция и так лежит в state.json, а забор сегментов виден в ``ss``.
     """
 
-    #: Пока показ ни разу не начался, ``IDLE`` - это «ещё грузится», а не отказ: ресивер
-    #: сначала тянет манифест и первый сегмент, и до этого статус остаётся IDLE. Замерено
-    #: на живом Q70D: ``play_media`` возвращается через 0.03 с, а PLAYING
-    #: приходит через 0.7-1.5 с - то есть «сразу после LOAD» приёмник всегда не играет.
-    START_TIMEOUT = 90.0
+    #: Терпение до первой картинки живёт в домене: его же складывает бюджет старта.
+    START_TIMEOUT = START_TIMEOUT
     #: Сколько ждём картинку, когда показ **возобновляют** (перепаковка после перемотки
     #: назад за окно, возврат с паузы).
     #:

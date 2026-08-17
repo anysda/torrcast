@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+from torrcast.domain.entry import Entry
+
 __all__ = ["WATCH_SECONDS", "Entry", "State", "Watch", "dataclass", "field", "time"]
 
 import time
@@ -14,7 +16,9 @@ from dataclasses import dataclass, field
 from torrcast.ports.module import module
 from torrcast.usecases.rank import _hms
 
-for _module_name, _names in {"torrcast.state": ("Entry", "State")}.items():
+for _module_name, _names in {
+    "torrcast.state": ("State",),
+}.items():
     _dependency = module(_module_name)
     globals().update({name: getattr(_dependency, name) for name in _names})
 
