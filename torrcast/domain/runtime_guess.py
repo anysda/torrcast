@@ -2,4 +2,5 @@
 
 from typing import Final
 
+#: Типовая длительность до ffprobe (фильм 2 ч, серия 45 мин): только для прикидки битрейта.
 RUNTIME_GUESS: Final = {"movie": 7200.0, "tv": 2700.0, "other": 7200.0}

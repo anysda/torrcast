@@ -23,8 +23,14 @@ RULES: Final = (
     "докстрока",
     "зеркало",
     "ввод-вывод",
+    "обход",
     "карта",
 )
+#: Ручки, которыми модуль достаёт зависимость по СТРОКЕ с именем. Правило слоёв читает
+#: граф импортов, а строку прочитать нечем: `module("torrcast.cast")` из сценария
+#: выглядит для гейта чистым, хотя это ровно тот импорт адаптера, который запрещён.
+#: Отсюда отдельное правило: внутри слоёв зависимость называется импортом и только им.
+DYNAMIC_IMPORTS: Final = frozenset({"module", "legacy_namespace", "import_module", "__import__"})
 LAYERS: Final = frozenset({"domain", "ports", "usecases", "adapters", "cli", "runtime"})
 ALLOWED: Final = {
     "domain": frozenset({"domain"}),
@@ -224,6 +230,37 @@ def _io_violations(module: Module, imports: list[tuple[str, int]]) -> list[Viola
     return failures
 
 
+def _bypass_violations(module: Module) -> list[Violation]:
+    """Ищет зависимости, названные строкой в обход правила слоёв.
+
+    Разложенному модулю разрешён ровно один способ назвать чужой символ - импорт.
+    Строка с именем модуля обходит и гейт, и mypy, а `globals().update` довершает дело:
+    имя появляется в модуле ниоткуда, читатель ищет его глазами по всему пакету, а
+    `.pyi` рядом врёт компилятору, что имя объявлено честно.
+    """
+    if module.layer == "не разложено":
+        return []
+    failures: list[Violation] = []
+    for node in ast.walk(module.tree):
+        if not isinstance(node, ast.Call):
+            continue
+        call = ast.unparse(node.func)
+        if call.rpartition(".")[2] in DYNAMIC_IMPORTS:
+            failures.append(
+                Violation("обход", module.relative, node.lineno, f"зависимость строкой: {call}")
+            )
+        elif call in {"globals().update", "vars().update"}:
+            failures.append(
+                Violation("обход", module.relative, node.lineno, "имена вписываются в globals")
+            )
+    stub = module.path.with_suffix(".pyi")
+    if module.path.name != "__init__.py" and stub.exists():
+        failures.append(
+            Violation("обход", module.relative, 1, f"заглушка вместо честных имён: {stub.name}")
+        )
+    return failures
+
+
 def _cycle_violations(modules: list[Module], edges: dict[str, set[str]]) -> list[Violation]:
     by_name = {module.name: module for module in modules}
     failures: list[Violation] = []
@@ -297,6 +334,7 @@ def check(root: Path) -> list[Violation]:
         imports = _imports(module)
         failures.extend(_layer_violations(module, imports))
         failures.extend(_io_violations(module, imports))
+        failures.extend(_bypass_violations(module))
         edges[module.name] = {
             target
             for name, _line in imports

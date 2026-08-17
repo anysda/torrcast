@@ -96,7 +96,6 @@ from torrcast.domain.rank_settings import (
     HD_HEIGHT,
     HONEST_RATIO,
     PEER_GRACE,
-    RECODE_HEIGHT,
     SD_BITRATE,
     SEASON_EPISODES,
     SOUND_LIVENESS,
@@ -104,6 +103,7 @@ from torrcast.domain.rank_settings import (
     TABLE_LIMIT,
     VOICE_MENU,
 )
+from torrcast.domain.recode_settings import RECODE_HEIGHT
 from torrcast.domain.release import Release
 from torrcast.domain.torr_file import TorrFile
 from torrcast.ports.rank_environment import RankEnvironment

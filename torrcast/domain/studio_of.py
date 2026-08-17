@@ -5,6 +5,8 @@ from typing import Final
 
 from torrcast.domain.studio import STUDIOS, Studio
 
+#: Всё, что не буква и не цифра, - разделитель слов: «[TVShows][MVO]», «AVO-Сербин»,
+#: «Дубляж. (MovieDalen)» подписаны одной и той же студией, а разделены по-разному.
 _WORDS_RE: Final = re.compile("[^0-9a-zа-яё]+", re.IGNORECASE)
 
 

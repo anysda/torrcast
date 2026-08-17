@@ -10,16 +10,32 @@ from __future__ import annotations
 from torrcast.adapters.torrserver.contact_wait import ContactWait
 from torrcast.adapters.torrserver.torr_server import TorrServer, _file_stats
 from torrcast.adapters.torrserver.warmup import Warmup
-from torrcast.domain.audio_track import AudioTrack
+from torrcast.domain.audio_track import (
+    _FOREIGN_TITLE_RE,
+    _ORIGINAL_RE,
+    _RU_LANG,
+    _RU_TITLE_RE,
+    _SERVICE_RE,
+    _TECH_RE,
+    _VAGUE_LANG,
+    _VOICE_STEPS,
+    STEP_FOREIGN,
+    STEP_ORIGINAL,
+    STEP_RU_PLAIN,
+    STEP_SERVICE,
+    VOICE_KINDS,
+    AudioTrack,
+)
 from torrcast.domain.bitrate_mbit import bitrate_mbit
 from torrcast.domain.codec_name import codec_name
-from torrcast.domain.color_depth import color_depth
-from torrcast.domain.media import Media
+from torrcast.domain.color_depth import _DEPTH_FMT, _DEPTH_PROFILE, color_depth
+from torrcast.domain.media import AUDIO_MBIT, TS_OVERHEAD, Media
 from torrcast.domain.recode_note import recode_note
 from torrcast.domain.recodes_whole import recodes_whole
+from torrcast.domain.runtime_guess import RUNTIME_GUESS
 from torrcast.domain.server_down_error import ServerDownError
-from torrcast.domain.studio import Studio
-from torrcast.domain.studio_of import studio_of
+from torrcast.domain.studio import STUDIOS, Studio
+from torrcast.domain.studio_of import _WORDS_RE, studio_of
 from torrcast.domain.swarm_alive import swarm_alive
 from torrcast.domain.torr_file import TorrFile
 from torrcast.domain.voice_order import voice_order
@@ -304,18 +320,6 @@ PLAYING_FLAG: Final = "playing.flag"
 AUDIO_CODEC: Final = "aac"
 AUDIO_BITRATE: Final = "192k"
 AUDIO_CHANNELS: Final = 2
-#: Сколько Мбит/с занимает наша звуковая дорожка в том, что уезжает на ТВ.
-#:
-#: ⚠️ Дорожка ИСХОДНИКА тут ни при чём, сколько бы она ни весила: показ всегда
-#: перекодирует звук в AAC (см. :func:`ffmpeg_pack_command`), поэтому в сегмент уезжает
-#: ровно :data:`AUDIO_BITRATE`, а не 1.5 Мбит/с DTS «Тачек 3». Считать «видео + выбранная
-#: дорожка» было бы враньём в полтора мегабита.
-AUDIO_MBIT: Final = 0.192
-#: Во сколько раз mpegts тяжелее того, что в него упаковано: заголовки 4 байта на 188,
-#: PAT/PMT/PCR и набивка на границах PES. Замер на восьми сегментах-копиях
-#: «Моаны 2» подряд: поправка «контейнер → ТВ» сходилась к 4.10...4.26 Мбит/с при
-#: контейнере 19.16 и видеодорожке 14.33 - то есть уезжало (14.33 + 0.19) × 1.03.
-TS_OVERHEAD: Final = 1.03
 #: Потолок веса ОДНОГО сегмента: сколько байт разрешено уехать на ТВ одним куском.
 #:
 #: 🔴 Это и есть механизм подвиса, найденный замером.
@@ -374,8 +378,6 @@ RECODE_CODECS: Final = CAUTIOUS.recode_codecs
 #: 🔴 Как и набор кодеков, это свойство приёмника и живёт в его профиле
 #: (:attr:`torrcast.profile.Profile.copy_depth`); здесь остаётся умолчание.
 COPY_DEPTH: Final = CAUTIOUS.copy_depth
-#: Типовая длительность до ffprobe (фильм 2 ч, серия 45 мин): только для прикидки битрейта.
-RUNTIME_GUESS: Final = {"movie": 7200.0, "tv": 2700.0, "other": 7200.0}
 #: Сколько упаковка имеет право не выложить ни куска, прежде чем это признают обрывом
 #: связи (:meth:`Feed._mute`), секунды.
 #:
@@ -454,162 +456,3 @@ _PASS_ENV: Final = (
     "TORRCAST_LOG",
     "TORRCAST_SID",
 )
-
-
-#: Языковые коды, которые ffprobe отдаёт для русской дорожки.
-_RU_LANG: Final = frozenset({"rus", "ru", "russian", "рус"})
-#: Коды, которые языка не называют: дорожка без тега или тег-заглушка. Тогда язык
-#: приходится читать из заголовка - у половины живых раздач он там и написан.
-_VAGUE_LANG: Final = frozenset({"", "und", "unk", "unknown", "mul", "mis", "zxx", "qaa"})
-#: Заголовок называет НЕ русскую озвучку. Нужен ровно потому, что «Дубляж» пишут
-#: кириллицей и для казахской, и для украинской дорожки («Тачки 3»: rus/ukr/kaz - у
-#: всех трёх заголовок «Дубляж», и различает их только тег языка).
-_FOREIGN_TITLE_RE: Final = re.compile(
-    r"укр|ukr|каз|kaz|қаз|беларус|bel\b|eng\b|англ|original|ориг", re.IGNORECASE
-)
-#: Заголовок называет русскую озвучку: либо прямо, либо маркером перевода.
-_RU_TITLE_RE: Final = re.compile(
-    r"\brus?\b|русск|дубляж|дублир|многоголос|закадр|двухголос|одноголос|перевод|авторск",
-    re.IGNORECASE,
-)
-#: Служебные дорожки: тифлокомментарий и комментарии съёмочной группы. Русские,
-#: осмысленные и совершенно не то, что человек хочет услышать. Живой случай -
-#: «Тачки 3»: дорожка 2 «Дубляж для слабовидящих» стоит сразу за нормальным дубляжом.
-_SERVICE_RE: Final = re.compile(
-    r"слабовидящ|тифлокоммент|коммент|commentary|audio\s*descr|described",
-    re.IGNORECASE,
-)
-#: Оригинальная дорожка - последняя ступень лестницы, но выше чужого дубляжа.
-_ORIGINAL_RE: Final = re.compile(r"original|\borig\b|ориг", re.IGNORECASE)
-#: Вид перевода по заголовку → ступень. Порядок здравого смысла:
-#: дубляж → многоголосый/закадровый → прочий русский → оригинал.
-#: Регексы писаны по живой выдаче: «Дубляж. (MovieDalen)», «MVO (LostFilm)»,
-#: «[TVShows][MVO]», «DUB-Blu-ray CEE», «MVO-студия «Омикрон»», «AVO-Сербин», «VO-Есарев».
-_VOICE_STEPS: Final[tuple[tuple[str, re.Pattern[str]], ...]] = (
-    (
-        "дубляж",
-        re.compile(
-            r"дубляж|дублир|\bdub(?:bed|bing)?\b|\bдб\b|лицензи|itunes|professional\s*dub",
-            re.IGNORECASE,
-        ),
-    ),
-    ("многоголосый", re.compile(r"многоголос|закадр|\bmvo\b|\bпм\b|\bлм\b", re.IGNORECASE)),
-    ("двухголосый", re.compile(r"двухголос|\bdvo\b|\bдвг\b", re.IGNORECASE)),
-    ("одноголосый", re.compile(r"одноголос|авторск|\bavo\b|\bvo\b|\bло\b|\bап\b", re.IGNORECASE)),
-)
-#: Имена ступеней в порядке лестницы - для таблицы студий и строк человеку.
-VOICE_KINDS: Final[tuple[str, ...]] = tuple(name for name, _ in _VOICE_STEPS)
-#: Ступени, на которые встаёт нерусская дорожка и служебная.
-STEP_RU_PLAIN: Final = len(_VOICE_STEPS)  #: русская без маркера перевода
-STEP_ORIGINAL: Final = STEP_RU_PLAIN + 1  #: оригинал
-STEP_FOREIGN: Final = STEP_RU_PLAIN + 2  #: чужой дубляж: украинский, казахский
-STEP_SERVICE: Final = STEP_RU_PLAIN + 3  #: тифлокомментарий и комментарии
-
-
-#: 🔴 ЖИВАЯ таблица студий: подпись в заголовке дорожки → ступень лестницы. Правится
-#: здесь и только здесь.
-#:
-#: Нужна затем, что половина раздач подписывает дорожки НЕ ступенью, а студией: у
-#: «Барби» все русские дорожки - «LostFilm», «TVShows», «Bravo Records Georgia», и ни
-#: слова про дубляж. Без таблицы все они вставали на одну ступень «русская без метки», и
-#: выбор сводился к порядку дорожек в файле - то есть к случайности.
-#:
-#: ⚠️ Таблица заведомо неполная и будет протухать: студии появляются и переименовываются
-#: быстрее, чем правится код. Поэтому НЕЗНАКОМАЯ студия не роняет выбор и ничего не
-#: ломает - она просто не поднимает дорожку выше «русской без метки». Цена ошибки в
-#: одну сторону (не узнали хорошую студию) - прежнее поведение; в другую (записали не в
-#: ту ступень) - слышимая подмена, поэтому вписывать сюда наугад нельзя.
-#:
-#: Ключ - имя студии в нижнем регистре, сравнение по словам (:func:`studio_of`), так что
-#: «MVO (LostFilm)», «[TVShows][MVO]» и «Дубляж. (MovieDalen)» попадают все.
-STUDIOS: Final[dict[str, Studio]] = {
-    # --- полный дубляж ---
-    "невафильм": Studio("дубляж", "Невафильм"),
-    "nevafilm": Studio("дубляж", "Невафильм"),
-    "мосфильм": Studio("дубляж", "Мосфильм-мастер"),
-    "пифагор": Studio("дубляж", "Пифагор"),
-    "кириллица": Studio("дубляж", "Кириллица"),
-    "sdi media": Studio("дубляж", "SDI Media"),
-    "iyuno": Studio("дубляж", "Iyuno"),
-    "русский дубляж": Studio("дубляж", "Русский дубляж"),
-    "moviedalen": Studio("дубляж", "MovieDalen"),
-    "movie dubbing": Studio("дубляж", "Movie Dubbing"),
-    "amazing dubbing": Studio("дубляж", "Amazing Dubbing"),
-    "red head sound": Studio("дубляж", "Red Head Sound"),
-    "flarrow films": Studio("дубляж", "Flarrow Films"),
-    "jaskier": Studio("дубляж", "Jaskier"),
-    "timecraft": Studio("дубляж", "Timecraft"),
-    "реанимедиа": Studio("дубляж", "Реанимедиа"),
-    "reanimedia": Studio("дубляж", "Реанимедиа"),
-    # --- многоголосый закадровый ---
-    "lostfilm": Studio("многоголосый", "LostFilm"),
-    "tvshows": Studio("многоголосый", "TVShows"),
-    "hdrezka": Studio("многоголосый", "HDRezka Studio"),
-    "hdrezka studio": Studio("многоголосый", "HDRezka Studio"),
-    "newstudio": Studio("многоголосый", "NewStudio"),
-    "alexfilm": Studio("многоголосый", "AlexFilm"),
-    "baibako": Studio("многоголосый", "BaibaKo"),
-    "байбако": Studio("многоголосый", "BaibaKo"),
-    "coldfilm": Studio("многоголосый", "ColdFilm"),
-    "novafilm": Studio("многоголосый", "NovaFilm"),
-    "амедиа": Studio("многоголосый", "Амедиа"),
-    "viruseproject": Studio("многоголосый", "ViruseProject"),
-    "1win": Studio("многоголосый", "1win Studio"),
-    "студийная банда": Studio("многоголосый", "Студийная банда"),
-    "studio band": Studio("многоголосый", "Студийная банда"),
-    "shiza": Studio("многоголосый", "SHIZA Project"),
-    "anilibria": Studio("многоголосый", "AniLibria"),
-    # AniDub встраивает рекламу ставок прямо в файл: «Фрирен» s1e1 у AniLibria 26:00,
-    # у AniDub 26:21 - лишние 21 с это вклеенная реклама, которую мы вырезать не можем.
-    # Детект по длительности не делаем (лишний ffprobe), просто держим их ниже всех
-    # в ступени. Если AniDub - единственный русский, всё равно берётся он: реклама лучше
-    # японского без перевода.
-    "anidub": Studio("многоголосый", "AniDub", fame=-5),
-    "animevost": Studio("многоголосый", "AnimeVost"),
-    "anifilm": Studio("многоголосый", "AniFilm"),
-    # --- двухголосый закадровый ---
-    # «Кубик в Кубе» - двухголосые, и вслух мы это так и называем, но судим их по
-    # многоголосой ступени с большим весом: они крутее LostFilm и большинства соседей
-    # по ней. Это единственное место, где ступень отбора расходится с видом перевода.
-    "кубик в кубе": Studio("двухголосый", "Кубик в Кубе", fame=10, ranks="многоголосый"),
-    # Дядюшка Шурик и Gears Media остаются здесь: они реально двухголосые и не известны
-    # как особо крутые - место в «двухголосом» их не обижает.
-    "дядюшка шурик": Studio("двухголосый", "Дядюшка Шурик"),
-    "gears media": Studio("двухголосый", "Gears Media"),
-    # --- одноголосый и авторский ---
-    "гоблин": Studio("одноголосый", "Гоблин"),
-    "пучков": Studio("одноголосый", "Гоблин"),
-    "кураж бамбей": Studio("одноголосый", "Кураж-Бамбей"),
-    "сыендук": Studio("одноголосый", "Сыендук"),
-    "гаврилов": Studio("одноголосый", "Гаврилов"),
-    "володарский": Studio("одноголосый", "Володарский"),
-    "михалёв": Studio("одноголосый", "Михалёв"),
-    "михалев": Studio("одноголосый", "Михалёв"),
-    "живов": Studio("одноголосый", "Живов"),
-    "сербин": Studio("одноголосый", "Сербин"),
-    "визгунов": Studio("одноголосый", "Визгунов"),
-    "есарев": Studio("одноголосый", "Есарев"),
-    "ancord": Studio("одноголосый", "Ancord"),
-}
-#: Всё, что не буква и не цифра, - разделитель слов: «[TVShows][MVO]», «AVO-Сербин»,
-#: «Дубляж. (MovieDalen)» подписаны одной и той же студией, а разделены по-разному.
-_WORDS_RE: Final = re.compile(r"[^0-9a-zа-яё]+", re.IGNORECASE)
-
-
-#: Технический хвост заголовка: «DUB (Rus) / AC3 / 6 ch / 384 kbps / 48 kHz». Человеку
-#: в строке запуска он не нужен, а подписью озвучки (она же ключ памяти) быть мешает.
-_TECH_RE: Final = re.compile(
-    r"^(?:ac3|eac3|dts(?:-hd)?(?:\s*ma)?|aac|mp3|flac|opus|truehd|pcm|lpcm|dd\+?|ddp"
-    r"|\d+\s*ch|\d+\s*kbps|\d+(?:[.,]\d+)?\s*k?hz|\d+\s*bit|\d\.\d)\b",
-    re.IGNORECASE,
-)
-
-
-#: Сколько бит на цвет обещает ``pix_fmt``: ``yuv420p10le`` → 10, ``p010le`` → 10,
-#: ``yuv420p`` → ничего (значит, обычные 8). Суффикс порядка байт к делу не относится,
-#: одна цифра после ``p`` - тоже не глубина (``yuv420p`` кончается на ``p``, а не на число).
-_DEPTH_FMT: Final = re.compile(r"p(\d{2,3})(?:[lb]e)?$")
-#: То же число, но из имени профиля - на случай, когда ``pix_fmt`` не спросили или он
-#: пуст: ``High 10``, ``High 10 Intra``, ``Main 10``. Отдельно стоящее число, а не любое:
-#: ``High 4:4:4 Predictive`` десятибитным от цифр в имени не становится.
-_DEPTH_PROFILE: Final = re.compile(r"(?<!\d)(\d{1,2})(?!\d)")

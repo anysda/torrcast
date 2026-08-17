@@ -7,41 +7,59 @@ from typing import Final
 from torrcast.domain.studio import Studio
 from torrcast.domain.studio_of import studio_of
 
+#: Языковые коды, которые ffprobe отдаёт для русской дорожки.
 _RU_LANG: Final = frozenset({"rus", "ru", "russian", "рус"})
+#: Коды, которые языка не называют: дорожка без тега или тег-заглушка. Тогда язык
+#: приходится читать из заголовка - у половины живых раздач он там и написан.
 _VAGUE_LANG: Final = frozenset({"", "und", "unk", "unknown", "mul", "mis", "zxx", "qaa"})
+#: Заголовок называет НЕ русскую озвучку. Нужен ровно потому, что «Дубляж» пишут
+#: кириллицей и для казахской, и для украинской дорожки («Тачки 3»: rus/ukr/kaz - у
+#: всех трёх заголовок «Дубляж», и различает их только тег языка).
 _FOREIGN_TITLE_RE: Final = re.compile(
-    "укр|ukr|каз|kaz|қаз|беларус|bel\\b|eng\\b|англ|original|ориг", re.IGNORECASE
+    r"укр|ukr|каз|kaz|қаз|беларус|bel\b|eng\b|англ|original|ориг", re.IGNORECASE
 )
+#: Заголовок называет русскую озвучку: либо прямо, либо маркером перевода.
 _RU_TITLE_RE: Final = re.compile(
-    "\\brus?\\b|русск|дубляж|дублир|многоголос|закадр|двухголос|одноголос|перевод|авторск",
+    r"\brus?\b|русск|дубляж|дублир|многоголос|закадр|двухголос|одноголос|перевод|авторск",
     re.IGNORECASE,
 )
+#: Служебные дорожки: тифлокомментарий и комментарии съёмочной группы. Русские,
+#: осмысленные и совершенно не то, что человек хочет услышать. Живой случай -
+#: «Тачки 3»: дорожка 2 «Дубляж для слабовидящих» стоит сразу за нормальным дубляжом.
 _SERVICE_RE: Final = re.compile(
-    "слабовидящ|тифлокоммент|коммент|commentary|audio\\s*descr|described", re.IGNORECASE
+    r"слабовидящ|тифлокоммент|коммент|commentary|audio\s*descr|described",
+    re.IGNORECASE,
 )
+#: Оригинальная дорожка - последняя ступень лестницы, но выше чужого дубляжа.
 _ORIGINAL_RE: Final = re.compile("original|\\borig\\b|ориг", re.IGNORECASE)
+#: Вид перевода по заголовку → ступень. Порядок здравого смысла:
+#: дубляж → многоголосый/закадровый → прочий русский → оригинал.
+#: Регексы писаны по живой выдаче: «Дубляж. (MovieDalen)», «MVO (LostFilm)»,
+#: «[TVShows][MVO]», «DUB-Blu-ray CEE», «MVO-студия «Омикрон»», «AVO-Сербин», «VO-Есарев».
 _VOICE_STEPS: Final[tuple[tuple[str, re.Pattern[str]], ...]] = (
     (
         "дубляж",
         re.compile(
-            "дубляж|дублир|\\bdub(?:bed|bing)?\\b|\\bдб\\b|лицензи|itunes|professional\\s*dub",
+            r"дубляж|дублир|\bdub(?:bed|bing)?\b|\bдб\b|лицензи|itunes|professional\s*dub",
             re.IGNORECASE,
         ),
     ),
-    ("многоголосый", re.compile("многоголос|закадр|\\bmvo\\b|\\bпм\\b|\\bлм\\b", re.IGNORECASE)),
-    ("двухголосый", re.compile("двухголос|\\bdvo\\b|\\bдвг\\b", re.IGNORECASE)),
-    (
-        "одноголосый",
-        re.compile("одноголос|авторск|\\bavo\\b|\\bvo\\b|\\bло\\b|\\bап\\b", re.IGNORECASE),
-    ),
+    ("многоголосый", re.compile(r"многоголос|закадр|\bmvo\b|\bпм\b|\bлм\b", re.IGNORECASE)),
+    ("двухголосый", re.compile(r"двухголос|\bdvo\b|\bдвг\b", re.IGNORECASE)),
+    ("одноголосый", re.compile(r"одноголос|авторск|\bavo\b|\bvo\b|\bло\b|\bап\b", re.IGNORECASE)),
 )
+#: Имена ступеней в порядке лестницы - для таблицы студий и строк человеку.
 VOICE_KINDS: Final[tuple[str, ...]] = tuple((name for name, _ in _VOICE_STEPS))
+#: Ступени, на которые встаёт нерусская дорожка и служебная.
 STEP_RU_PLAIN: Final = len(_VOICE_STEPS)
 STEP_ORIGINAL: Final = STEP_RU_PLAIN + 1
 STEP_FOREIGN: Final = STEP_RU_PLAIN + 2
 STEP_SERVICE: Final = STEP_RU_PLAIN + 3
+#: Технический хвост заголовка: «DUB (Rus) / AC3 / 6 ch / 384 kbps / 48 kHz». Человеку
+#: в строке запуска он не нужен, а подписью озвучки (она же ключ памяти) быть мешает.
 _TECH_RE: Final = re.compile(
-    "^(?:ac3|eac3|dts(?:-hd)?(?:\\s*ma)?|aac|mp3|flac|opus|truehd|pcm|lpcm|dd\\+?|ddp|\\d+\\s*ch|\\d+\\s*kbps|\\d+(?:[.,]\\d+)?\\s*k?hz|\\d+\\s*bit|\\d\\.\\d)\\b",
+    r"^(?:ac3|eac3|dts(?:-hd)?(?:\s*ma)?|aac|mp3|flac|opus|truehd|pcm|lpcm|dd\+?|ddp"
+    r"|\d+\s*ch|\d+\s*kbps|\d+(?:[.,]\d+)?\s*k?hz|\d+\s*bit|\d\.\d)\b",
     re.IGNORECASE,
 )
 
