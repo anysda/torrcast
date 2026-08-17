@@ -7,11 +7,11 @@ import locale
 import os
 import sys
 import time
-from importlib import import_module
 from pathlib import Path
 from typing import Any
 
 from torrcast.adapters.console import console
+from torrcast.adapters.filesystem import trace_journal
 from torrcast.adapters.filesystem.state import state_path
 from torrcast.adapters.stream_probe import shelf_weight
 from torrcast.domain.warm_open import KEYS_KEPT, PROBE_KEPT
@@ -116,18 +116,18 @@ class MachineProbe:
     @staticmethod
     def trace_health() -> tuple[bool, float, int]:
         """Здоровье недельной ленты: есть ли, когда писали последний раз, сколько весит."""
-        found, newest, total = import_module("torrcast.trace").health()
+        found, newest, total = trace_journal.health()
         return bool(found), float(newest), int(total)
 
     @staticmethod
     def trace_dir() -> str:
         """Каталог, в котором лента живёт."""
-        return str(import_module("torrcast.trace").log_dir())
+        return str(trace_journal.log_dir())
 
     @staticmethod
     def retain_days() -> int:
         """Сколько суток лента хранится: старше этого - уже протухла."""
-        return int(import_module("torrcast.trace").RETAIN_DAYS)
+        return int(trace_journal.RETAIN_DAYS)
 
     @staticmethod
     def now() -> float:

@@ -6,7 +6,7 @@
 """
 
 from torrcast.adapters.console.console import Progress
-from torrcast.adapters.filesystem.state import FileStateStore
+from torrcast.adapters.filesystem.state import FileStateStore, load_config
 from torrcast.adapters.filesystem.trace_journal import FileJournal
 from torrcast.adapters.health.system_health_environment import SystemHealthEnvironment
 from torrcast.adapters.systemd.transient_show_unit import TransientShowUnit
@@ -16,6 +16,7 @@ from torrcast.ports.progress import install as install_progress
 from torrcast.ports.show_unit import install as install_unit
 from torrcast.ports.state_store import install as install_state
 from torrcast.usecases.doctor import _configure as configure_checks
+from torrcast.usecases.doctor_command import _configure as configure_doctor
 from torrcast.usecases.warm import configure as configure_warm
 
 
@@ -31,4 +32,8 @@ def wire() -> None:
     # (NameError: _environment) - сразу после того, как первые куски уже уехали на ТВ.
     # Раздаёт композиция, а не то, кого случайно втянул чей-то импорт.
     configure_warm(warm_environment)
+    # Самопроверка окружения - два разных внешних мира: чем узнавать (системная среда
+    # проб) и что проверять (файл настроек). Оба приходят отсюда, а не из строки с
+    # именем модуля внутри самой команды.
     configure_checks(SystemHealthEnvironment())
+    configure_doctor(load_config)

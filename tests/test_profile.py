@@ -153,7 +153,7 @@ def test_without_an_address_nobody_is_asked(monkeypatch: pytest.MonkeyPatch) -> 
     def refuse(address: str, timeout: float = 0.0) -> None:
         raise AssertionError("паспорт спрашивать было не у кого")
 
-    monkeypatch.setattr("torrcast.scan.named", refuse)
+    monkeypatch.setattr("torrcast.adapters.chromecast.scan.named", refuse)
     assert profile.detect(Config()).profile is profile.CAUTIOUS
     assert profile.detect(Config(tv="mock", receiver="mock")).profile is profile.CAUTIOUS
 
@@ -169,7 +169,7 @@ def test_the_passport_is_asked_once_per_address(monkeypatch: pytest.MonkeyPatch)
         asked.append(address)
         return Device(address=address, maker="Xiaomi")
 
-    monkeypatch.setattr("torrcast.scan.named", once)
+    monkeypatch.setattr("torrcast.adapters.chromecast.scan.named", once)
     config = Config(tv="10.0.0.50")
     assert profile.detect(config).profile is profile.ANDROID_TV
     assert profile.detect(config).profile is profile.ANDROID_TV
@@ -184,7 +184,7 @@ def test_a_silent_receiver_gets_the_cautious_profile(monkeypatch: pytest.MonkeyP
     def dead(address: str, timeout: float = 0.0) -> None:
         raise OSError("сети нет")
 
-    monkeypatch.setattr("torrcast.scan.named", dead)
+    monkeypatch.setattr("torrcast.adapters.chromecast.scan.named", dead)
     chosen = profile.detect(Config(tv="10.0.0.50"))
     assert chosen.profile is profile.CAUTIOUS and "не ответил" in chosen.how
     profile.forget()

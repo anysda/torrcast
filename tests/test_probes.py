@@ -85,7 +85,8 @@ def test_щуп_выбирает_профиль_как_показ_и_назыв�
     pools.write_text("", encoding="utf-8")
     monkeypatch.setattr(replay, "load_config", lambda: Config(tv="receiver.local"))
     monkeypatch.setattr(
-        "torrcast.profile._asked", lambda _address: Choice(ANDROID_TV, "по паспорту: Android TV")
+        "torrcast.adapters.chromecast.profile_detector.ProfileDetector._asked",
+        lambda _self, _address: Choice(ANDROID_TV, "по паспорту: Android TV"),
     )
 
     forget()

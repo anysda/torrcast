@@ -22,8 +22,9 @@ import threading
 import time
 import unicodedata
 from collections.abc import Iterator
-from importlib import import_module
 from typing import Any, Final, TextIO
+
+from torrcast.adapters.filesystem import trace_journal
 
 __all__ = ["Progress", "ask", "ask_line", "clean", "iutf8", "stdin_is_tty", "terminal"]
 
@@ -180,9 +181,7 @@ class Progress:
         склейка картин, честный отказ), и знать о нём при разборе сеанса надо. Отдельных
         вызовов журнала в местах решений это не заводит - их подбирает сам ``note``.
         """
-        trace = import_module("torrcast").trace
-
-        trace.emit("note", "note", text=text)
+        trace_journal.emit("note", "note", text=text)
         with self._lock:
             keep, since = self._text, self._since
             self._erase()

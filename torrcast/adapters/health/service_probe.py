@@ -5,14 +5,15 @@
 
 import socket
 import subprocess
-from importlib import import_module
 from typing import cast
 
 import requests
 
 from torrcast.adapters.chromecast import scan
+from torrcast.adapters.chromecast.profile_detector import detector
 from torrcast.adapters.filesystem.state import Config
 from torrcast.adapters.http_server.stream_serve import hls_base, our_address
+from torrcast.domain.profile import CAUTIOUS
 from torrcast.domain.torrcast_error import TorrcastError
 from torrcast.ports.health_config import HealthConfig
 
@@ -163,9 +164,8 @@ class ServiceProbe:
     @staticmethod
     def receiver_profile(config: HealthConfig) -> tuple[str, str, bool]:
         """Имя выбранного профиля приёмника, откуда он взялся и осторожный ли он."""
-        profile = import_module("torrcast.profile")
-        chosen = profile.detect(config)
-        return str(chosen.profile.title), str(chosen.how), bool(chosen.profile is profile.CAUTIOUS)
+        chosen = detector.detect(config)
+        return str(chosen.profile.title), str(chosen.how), bool(chosen.profile is CAUTIOUS)
 
     @staticmethod
     def hls_base(config: HealthConfig) -> tuple[str, str]:
