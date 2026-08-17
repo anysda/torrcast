@@ -50,9 +50,9 @@ from importlib import import_module
 from typing import TYPE_CHECKING, Any, Final
 
 from torrcast.adapters.ffmpeg.encode_args import encode_args
+from torrcast.domain.profile import CAUTIOUS
 from torrcast.domain.recode_settings import RECODE_HEIGHT
 
-CAUTIOUS = import_module("torrcast.profile").CAUTIOUS
 mark = import_module("torrcast.timing").mark
 
 if TYPE_CHECKING:

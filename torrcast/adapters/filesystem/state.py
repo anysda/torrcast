@@ -20,7 +20,6 @@ from torrcast.domain.entry import Entry
 
 _package = import_module("torrcast")
 TorrcastError = _package.TorrcastError
-CAUTIOUS = import_module("torrcast.profile").CAUTIOUS
 
 __all__ = [
     "Config",

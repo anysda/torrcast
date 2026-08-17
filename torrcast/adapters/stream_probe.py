@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from torrcast.domain._name_data.data_3 import VIDEO_EXT
+
 # mypy: ignore-errors
 
 __all__ = [
@@ -60,7 +62,6 @@ from torrcast.domain.infra_error import InfraError
 from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.swarm_error import SwarmError
 
-VIDEO_EXT = import_module("torrcast.parse").VIDEO_EXT
 _core = import_module("torrcast.stream_core")
 _SEGMENT_RE = _core._SEGMENT_RE
 HEAD_WARM = _core.HEAD_WARM

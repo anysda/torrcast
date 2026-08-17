@@ -1,68 +1,53 @@
 """Решает, нужно ли перекодировать видео целиком."""
 
-from typing import Protocol
-
-COPY = "copy"
+from torrcast.domain.profile import CAUTIOUS, COPY, Profile
 
 
-class _RecodeProfile(Protocol):
-    def verdict(self, codec: str, depth: int = 0, frame: int = 0) -> str: ...
-
-
-class _Cautious:
-    def verdict(self, codec: str, depth: int = 0, frame: int = 0) -> str:
-        name = codec or "h264"
-        if name in {"hevc", "mpeg4"}:
-            return "recode"
-        if name != "h264":
-            return "refuse"
-        return "recode" if depth > 8 or frame > 1080 else "copy"
-
-
-CAUTIOUS: _RecodeProfile = _Cautious()
-
-
-def recodes_whole(
-    codec: str, depth: int = 0, profile: _RecodeProfile = CAUTIOUS, frame: int = 0
-) -> bool:
+def recodes_whole(codec: str, depth: int = 0, profile: Profile = CAUTIOUS, frame: int = 0) -> bool:
     """Пойдёт ли этот файл ЦЕЛИКОМ через перекод - единственный ответ на этот вопрос.
 
     🔴 Вопрос упаковки задан НАОБОРОТ к тому, как он задавался раньше: не «перечислен ли
     этот кодек среди перекодируемых», а «разрешено ли ему уехать копией»
-    (:meth:`torrcast.profile.Profile.verdict`). Разница не косметическая. Пока список был
+    (:meth:`torrcast.domain.profile.Profile.verdict`). Разница не косметическая. Пока список был
     чёрным, всё, о чём никто не подумал, уезжало на приёмник как есть: VP9-раздача
     отбраковывалась на отборе, но названная руками (``--release N``) или поднятая из
     записи возобновления доезжала до упаковки, получала ``-c:v copy`` в mpegts - и
     приставка не начинала показ вовсе (``LOAD`` не взят, ``IDLE/ERROR``). Белый список
     такого пропустить не может: копия достаётся только тому, что в нём названо.
 
-    Отказ отбора (:const:`torrcast.profile.REFUSE`) для упаковки означает ровно то же, что
+    Отказ отбора (:const:`torrcast.domain.profile.REFUSE`) для упаковки означает ровно то же, что
     и перекод: раз мы всё-таки играем этот файл, копия - гарантированный чёрный экран, а
     сплошной перекод - хотя бы шанс. Отбраковывает такое отбор, и делает это раньше
-    (:meth:`torrcast.cli._Bench._trouble`).
+    (:meth:`torrcast.usecases.select_bench._Bench._trouble`).
 
     🔴 Функция одна на весь код намеренно. Решение принимается дважды - показом
-    (:func:`torrcast.cli._play`) и прогревом следующей серии впрок
-    (:func:`torrcast.cli._next_warmer`), - и разойтись они не имеют права: прогретое лежит
-    под ключом, в который входит перекод (:func:`torrcast.warm.warm_key`), и стоит одному
+    (:func:`torrcast.usecases.playback._play`) и прогревом следующей серии впрок
+    (:func:`torrcast.usecases.playback._next_warmer`), - и разойтись они не имеют права:
+    прогретое лежит под ключом, в который входит перекод
+    (:func:`torrcast.usecases.warm.warm_key`), и стоит одному
     месту решить иначе, как показ своего же прогретого не найдёт. Ровно так и вышло с
     десятибитным H.264: показ мешал в одном потоке копию и перекод, SPS не совпадал ни
     одним байтом, а приёмник вставал намертво.
 
+    🔴 Приговор спрашивается у САМОГО профиля, а не повторяется здесь вторым списком
+    кодеков. Своя копия правила тут стояла и расходилась с профилем молча: пороги
+    приёмника меняются в одном месте, а решала копия - в другом.
+
     Поводов ровно четыре, и все - свойство файла, а не куска:
 
-    * кодек, который мы берём на себя целиком (:data:`RECODE_CODECS`);
-    * глубина цвета выше :data:`COPY_DEPTH` - десятибитный H.264 (Hi10P), которым собрана
-      добрая половина аниме-BDRip. Имя кодека у него то же самое ``h264``, поэтому по
-      имени он и проходил как обычный - до замера на живом ТВ;
-    * кадр выше :attr:`torrcast.profile.Profile.recode_frame` - 2160p приёмник не берёт и в
+    * кодек, который мы берём на себя целиком
+      (:attr:`~torrcast.domain.profile.Profile.recode_codecs`);
+    * глубина цвета выше :attr:`~torrcast.domain.profile.Profile.copy_depth` - десятибитный
+      H.264 (Hi10P), которым собрана добрая половина аниме-BDRip. Имя кодека у него то же
+      самое ``h264``, поэтому по имени он и проходил как обычный - до замера на живом ТВ;
+    * кадр выше :attr:`torrcast.domain.profile.Profile.recode_frame` - 2160p приёмник не берёт и в
       посильном кодеке (TC-157), и перекод его ужимает вниз;
     * кодек, которого нет в белом списке копии вовсе (vp9, av1, vc1, mpeg2video).
 
     ``depth`` ноль - глубину не спрашивали (запись прежней версии): тогда решаем по
     кодеку, как решали раньше. ``frame`` ноль - то же самое про кадр.
 
-    ``profile`` - чей это декодер (:mod:`torrcast.profile`). Умолчание осторожное: кто
+    ``profile`` - чей это декодер (:mod:`torrcast.domain.profile`). Умолчание осторожное: кто
     профиля не назвал, судится по Q70D, то есть ровно как раньше.
     """
     return profile.verdict(codec, depth, frame) != COPY

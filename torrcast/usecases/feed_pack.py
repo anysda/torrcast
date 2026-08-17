@@ -4,6 +4,9 @@
 
 from __future__ import annotations
 
+from torrcast.domain.infra_error import InfraError
+from torrcast.domain.profile import CAUTIOUS
+
 __all__ = [
     "CAUTIOUS",
     "PACK_PENDING_BYTES",
@@ -51,8 +54,6 @@ subprocess = module("subprocess")
 tempfile = module("tempfile")
 clock_port = module("time")
 time = clock_port
-InfraError = module("torrcast").InfraError
-CAUTIOUS = module("torrcast.profile").CAUTIOUS
 _stream_core = module("torrcast.stream_core")
 _TIMEOUT, PACK_PENDING_BYTES = _stream_core._TIMEOUT, _stream_core.PACK_PENDING_BYTES
 mark = module("torrcast.timing").mark
