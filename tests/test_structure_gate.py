@@ -207,6 +207,69 @@ def test_trade_rule_looks_inside_a_type_checking_block(tmp_path: Path) -> None:
     assert "размен" in _rules(root)
 
 
+def test_trade_rule_reads_any_under_a_borrowed_name(tmp_path: Path) -> None:
+    """Имя `Any` в файле любое: `from typing import Any as A` не покупает меру."""
+    root = _tree(tmp_path)
+    _layered(root, "show", '"""Модуль."""\nfrom typing import Any as A\n\nHlsServer: A\n')
+    traded = [item for item in structure_gate.check(root) if item.rule == "размен"]
+    assert [(item.line, item.message) for item in traded] == [
+        (4, "тип слота не назван: HlsServer: A")
+    ]
+
+
+def test_trade_rule_follows_a_chain_of_aliases(tmp_path: Path) -> None:
+    """Псевдоним псевдонима - тот же `Any`: цепочка `A` -> `B` разбирается до дна.
+
+    Подпись зовёт оба имени намеренно: список имён не должен зависеть от того, что мера
+    успела встретить раньше по файлу. Одно только `grid: B` проглядело бы подмену списка
+    именами очередного присваивания.
+    """
+    root = _tree(tmp_path)
+    _layered(
+        root,
+        "pack",
+        '"""Модуль."""\nfrom typing import Any as A\n\nB = A\n\n\n'
+        "def pack(grid: B, raw: A) -> int:\n    return len(grid) + len(raw)\n",
+    )
+    traded = [item for item in structure_gate.check(root) if item.rule == "размен"]
+    assert [item.message for item in traded] == [
+        "имя подменено на Any: B",
+        "тип параметра не назван: pack(grid)",
+        "тип параметра не назван: pack(raw)",
+    ]
+
+
+def test_trade_rule_reads_any_by_its_full_name(tmp_path: Path) -> None:
+    """`import typing as t` с `t.Any` - тот же размен: имя ловится по последней части."""
+    root = _tree(tmp_path)
+    _layered(root, "probe", '"""Модуль."""\nimport typing as t\n\nreply: t.Any\n')
+    assert "размен" in _rules(root)
+
+
+def test_trade_rule_reads_a_renamed_type_alias(tmp_path: Path) -> None:
+    """Переименованный `TypeAlias` тоже не покупает меру: договор лежит в значении."""
+    root = _tree(tmp_path)
+    _in_layer(
+        root,
+        "ports",
+        "raw_row",
+        '"""Модуль."""\nfrom typing import Any, TypeAlias as TA\n\nRawRow: TA = Any\n',
+    )
+    assert "размен" in _rules(root)
+
+
+def test_trade_rule_leaves_a_borrowed_name_in_the_adapter_alone(tmp_path: Path) -> None:
+    """Исключение слоя адаптеров намеренное: под чужим именем оно остаётся тем же."""
+    root = _tree(tmp_path)
+    _in_layer(
+        root,
+        "adapters",
+        "probe",
+        '"""Модуль."""\nfrom typing import Any as A\n\nB = A\n\nreply: B\n',
+    )
+    assert "размен" not in _rules(root)
+
+
 def test_trade_rule_leaves_the_adapter_boundary_alone(tmp_path: Path) -> None:
     """Законный `Any` вынесен целым слоем: на границе с чужой библиотекой типов у нас нет."""
     root = _tree(tmp_path)

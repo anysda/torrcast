@@ -39,6 +39,8 @@ DYNAMIC_IMPORTS: Final = frozenset({"module", "legacy_namespace", "import_module
 #: Слои, где `Any` в договоре считается разменом. `adapters` сюда не входит намеренно:
 #: там договор держит чужая библиотека, а не мы (см. `_trade_violations`).
 TYPED_LAYERS: Final = frozenset({"domain", "ports", "usecases", "cli", "runtime"})
+#: Дома, откуда `Any` и `TypeAlias` приезжают под любым именем: `from typing import Any as A`.
+TYPING_HOMES: Final = frozenset({"typing", "typing_extensions"})
 LAYERS: Final = frozenset({"domain", "ports", "usecases", "adapters", "cli", "runtime"})
 ALLOWED: Final = {
     "domain": frozenset({"domain"}),
@@ -305,20 +307,69 @@ def _silencer_violations(module: Module) -> list[Violation]:
     return failures
 
 
-def _mentions_any(node: ast.expr | None, *, typed: bool = True) -> bool:
+def _local_names(tree: ast.Module, wanted: str) -> frozenset[str]:
+    """Имена, которыми в ЭТОМ модуле назван `typing.<wanted>`.
+
+    Мера обязана читать смысл имени, а не его буквы. `from typing import Any as A` с
+    последующим `HlsServer: A` разменивает договор ровно так же, как голое `Any`, но по
+    буквальному имени не находится: одной строкой импорта правило покупалось бы целиком -
+    ровно тем же приёмом, каким когда-то покупались `слои` и `циклы`. Поэтому имя ищется
+    по объявлению: сюда попадает и `Any as A`, и цепочка псевдонимов `B = A`, `C = B`,
+    объявленная где угодно, включая `if TYPE_CHECKING:` и `try/except ImportError`.
+
+    Само `wanted` в списке всегда: строковую аннотацию `-> "Any"` пишут и там, где импорта
+    в файле нет вовсе. Полное имя (`typing.Any`, `t.Any` после `import typing as t`)
+    ловится не тут, а по последней части имени в `_mentions_any` и `_is_alias`.
+
+    Имена собираются по всему файлу, без оглядки на вложенность: если внутри модуля имя
+    хоть где-то значит `Any`, мера считает его таким везде. Это намеренно щедро - мера
+    ошибается в сторону «договор не назван», а не в сторону зелёного счётчика.
+    """
+    names = {wanted}
+    chains: list[tuple[list[str], ast.expr]] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and (node.module or "").split(".")[0] in TYPING_HOMES:
+            names.update(alias.asname or alias.name for alias in node.names if alias.name == wanted)
+        elif isinstance(node, ast.Assign):
+            chains.append(
+                ([item.id for item in node.targets if isinstance(item, ast.Name)], node.value)
+            )
+        elif (
+            isinstance(node, ast.AnnAssign)
+            and isinstance(node.target, ast.Name)
+            and node.value is not None
+        ):
+            chains.append(([node.target.id], node.value))
+    growing = True
+    while growing:
+        growing = False
+        for targets, value in chains:
+            named = isinstance(value, ast.Name) and value.id in names
+            full = isinstance(value, ast.Attribute) and value.attr == wanted
+            if (named or full) and not set(targets) <= names:
+                names.update(targets)
+                growing = True
+    return frozenset(names)
+
+
+def _mentions_any(node: ast.expr | None, names: frozenset[str], *, typed: bool = True) -> bool:
     """Правда ли внутри выражения типа где-то стоит `Any`, хоть на самом дне.
 
     Смотрится вглубь, а не по верхнему имени: `Callable[..., Any]`, `dict[str, Any]` и
-    `Any | None` разменивают договор ровно так же, как голое `Any`. Строковая запись
-    разбирается тем же разбором - иначе правило покупалось бы кавычками, а гейт,
-    купленный строкой, у нас уже был, - но только там, где строка и правда означает тип
-    (`typed`). В обычном присваивании строка это данные: `"Any"` в `__all__` называет
-    реэкспорт имени, а не размен договора.
+    `Any | None` разменивают договор ровно так же, как голое `Any`. Имя берётся не
+    буквой, а списком `names` из объявлений модуля (`_local_names`), так что `Слот: A`
+    после `from typing import Any as A` считается наравне с голым. Полное имя ловится по
+    последней части: `typing.Any` и `t.Any` - тот же размен.
+
+    Строковая запись разбирается тем же разбором - иначе правило покупалось бы кавычками,
+    а гейт, купленный строкой, у нас уже был, - но только там, где строка и правда
+    означает тип (`typed`). В обычном присваивании строка это данные: `"Any"` в `__all__`
+    называет реэкспорт имени, а не размен договора.
     """
     if node is None:
         return False
     for inner in ast.walk(node):
-        if isinstance(inner, ast.Name) and inner.id == "Any":
+        if isinstance(inner, ast.Name) and inner.id in names:
             return True
         if isinstance(inner, ast.Attribute) and inner.attr == "Any":
             return True
@@ -327,19 +378,26 @@ def _mentions_any(node: ast.expr | None, *, typed: bool = True) -> bool:
                 quoted = ast.parse(inner.value, mode="eval").body
             except SyntaxError:
                 continue
-            if _mentions_any(quoted):
+            if _mentions_any(quoted, names):
                 return True
     return False
 
 
-def _is_alias(node: ast.expr | None) -> bool:
-    """Правда ли это пометка `TypeAlias`: у неё договор лежит не в аннотации, а в значении."""
+def _is_alias(node: ast.expr | None, names: frozenset[str]) -> bool:
+    """Правда ли это пометка `TypeAlias`: у неё договор лежит не в аннотации, а в значении.
+
+    Имя пометки берётся из объявлений модуля по той же причине, что и имя `Any`: иначе
+    `from typing import TypeAlias as TA` увело бы `RawRow: TA = Any` мимо меры - значение
+    псевдонима читалось бы как обычная аннотация, которой `Any` не назван.
+    """
     if isinstance(node, ast.Name):
-        return node.id == "TypeAlias"
+        return node.id in names
     return isinstance(node, ast.Attribute) and node.attr == "TypeAlias"
 
 
-def _contract_sites(body: list[ast.stmt], owner: str) -> Iterator[tuple[int, str, str]]:
+def _contract_sites(
+    body: list[ast.stmt], owner: str, names: frozenset[str], aliases: frozenset[str]
+) -> Iterator[tuple[int, str, str]]:
     """Обходит объявленный договор модуля и отдаёт места, где он назван `Any`.
 
     Договор - это то, что видно снаружи тела: слоты модуля, поля классов, псевдонимы имён
@@ -350,15 +408,15 @@ def _contract_sites(body: list[ast.stmt], owner: str) -> Iterator[tuple[int, str
     """
     for node in body:
         if isinstance(node, ast.If):
-            yield from _contract_sites(node.body, owner)
-            yield from _contract_sites(node.orelse, owner)
+            yield from _contract_sites(node.body, owner, names, aliases)
+            yield from _contract_sites(node.orelse, owner, names, aliases)
         elif isinstance(node, ast.Try):
             for branch in (node.body, node.orelse, node.finalbody):
-                yield from _contract_sites(branch, owner)
+                yield from _contract_sites(branch, owner, names, aliases)
             for handler in node.handlers:
-                yield from _contract_sites(handler.body, owner)
+                yield from _contract_sites(handler.body, owner, names, aliases)
         elif isinstance(node, ast.ClassDef):
-            yield from _contract_sites(node.body, f"{owner}{node.name}.")
+            yield from _contract_sites(node.body, f"{owner}{node.name}.", names, aliases)
         elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             arguments = node.args
             named = [
@@ -368,25 +426,25 @@ def _contract_sites(body: list[ast.stmt], owner: str) -> Iterator[tuple[int, str
                 *(item for item in (arguments.vararg, arguments.kwarg) if item is not None),
             ]
             for argument in named:
-                if _mentions_any(argument.annotation):
+                if _mentions_any(argument.annotation, names):
                     yield (
                         argument.lineno,
                         "тип параметра не назван",
                         f"{owner}{node.name}({argument.arg})",
                     )
-            if _mentions_any(node.returns):
+            if _mentions_any(node.returns, names):
                 yield node.lineno, "тип возврата не назван", f"{owner}{node.name}"
         elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
             name = f"{owner}{node.target.id}"
-            if _is_alias(node.annotation):
-                if _mentions_any(node.value):
+            if _is_alias(node.annotation, aliases):
+                if _mentions_any(node.value, names):
                     yield node.lineno, "имя подменено на Any", name
-            elif _mentions_any(node.annotation):
+            elif _mentions_any(node.annotation, names):
                 what = "тип поля не назван" if owner else "тип слота не назван"
                 yield node.lineno, what, f"{name}: {ast.unparse(node.annotation)}"
-        elif isinstance(node, ast.Assign) and _mentions_any(node.value, typed=False):
-            names = [target.id for target in node.targets if isinstance(target, ast.Name)]
-            for name in names:
+        elif isinstance(node, ast.Assign) and _mentions_any(node.value, names, typed=False):
+            assigned = [target.id for target in node.targets if isinstance(target, ast.Name)]
+            for name in assigned:
                 yield node.lineno, "имя подменено на Any", f"{owner}{name}"
 
 
@@ -412,12 +470,17 @@ def _trade_violations(module: Module) -> list[Violation]:
     приехало через границу дальше в слои, обязано быть уже названным. Нераскладанные
     файлы пропускаются наравне с правилами `обход` и `глушитель`: это старые фасады под
     снос, их считают волнами разреза, а не этой мерой.
+
+    Имя `Any` в файле может быть любым, и мера берёт его из объявлений модуля
+    (`_local_names`), а не из буквы: `from typing import Any as A` не покупает счётчик.
     """
     if module.layer not in TYPED_LAYERS:
         return []
+    names = _local_names(module.tree, "Any")
+    aliases = _local_names(module.tree, "TypeAlias")
     return [
         Violation("размен", module.relative, line, f"{what}: {name}")
-        for line, what, name in _contract_sites(module.tree.body, "")
+        for line, what, name in _contract_sites(module.tree.body, "", names, aliases)
     ]
 
 
