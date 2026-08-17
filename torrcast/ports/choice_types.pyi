@@ -1,8 +1,8 @@
 from torrcast.cast import Receiver as Receiver
 from torrcast.commands import Args as Args
-from torrcast.ports.progress import Progress as Progress
 from torrcast.facts import Facts as Facts
 from torrcast.facts import Origin as Origin
+from torrcast.ports.progress import Progress as Progress
 from torrcast.selection import _Bench as _Bench
 from torrcast.selection import _Plan as _Plan
 from torrcast.selection import _Prep as _Prep
