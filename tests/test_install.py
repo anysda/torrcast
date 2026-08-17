@@ -4,9 +4,19 @@
 добавление индексеров не уходит в фон, а отказ Prowlarr остаётся виден.
 """
 
+import os
+import subprocess
+import sys
 from pathlib import Path
 
-SCRIPT = (Path(__file__).parents[1] / "install.sh").read_text(encoding="utf-8")
+import pytest
+
+REPO = Path(__file__).parents[1]
+SCRIPT = (REPO / "install.sh").read_text(encoding="utf-8")
+
+
+def _body(name: str) -> str:
+    return SCRIPT.split(f"{name}() {{", 1)[1].split("\n}", 1)[0]
 
 
 def _install_indexers() -> str:
@@ -59,3 +69,50 @@ def test_name_map_intermediates_stay_beside_the_result() -> None:
     assert 'local names="$IMDB_NAMES_PATH.akas.part"' in body
     assert 'local basics="$IMDB_NAMES_PATH.basics.part"' in body
     assert "mktemp" not in body
+
+
+def _warm_budget_probe() -> str:
+    """Ровно тот питон, который установщик выполняет, - вынутый из его же текста."""
+    body = _body("warm_budget")
+    # Сам сниппет одинарных кавычек не содержит, поэтому его границы - первая пара.
+    return body.split("'", 1)[1].split("'", 1)[0]
+
+
+def test_the_installer_asks_the_package_for_the_warm_budget() -> None:
+    """🔴 TC-621. Проба обязана быть импортом: он идёт за именем и переживает переезд."""
+    body = _body("warm_budget")
+    assert "import ast" not in body
+    assert "torrcast/warm.py" not in body
+    assert "from torrcast" in body and "import WARM_BUDGET" in body
+
+
+@pytest.mark.machine
+def test_the_warm_budget_probe_still_resolves_after_the_split() -> None:
+    """🔴 TC-621. Мера меряет ЦЕЛЬ: гоняем команду установщика и ждём то самое число.
+
+    Разбор файла по пути молчал, когда разрез увёз константу. Этот тест краснеет в
+    гейте на СЛЕДУЮЩЕМ же переезде, а не на живой установке у человека.
+    """
+    from torrcast.domain.warm_settings import WARM_BUDGET
+
+    env = {**os.environ, "PYTHONPATH": str(REPO)}
+    done = subprocess.run(  # noqa: S603
+        [sys.executable, "-c", _warm_budget_probe()],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+    assert done.returncode == 0, done.stderr
+    assert int(done.stdout.strip()) == WARM_BUDGET
+
+
+def test_a_failed_warm_budget_probe_reaches_the_installer_as_a_failure() -> None:
+    """🔴 TC-621. Тонувший код возврата и был причиной «не найден» при RC=0.
+
+    Фазу заводит `job_start`, а там тело идёт под ``|| rc=$?`` - контекст, который
+    гасит errexit на всю глубину вызова. Значит провал несём наверх руками.
+    """
+    assert 'reserve="$(warm_budget)" || return 1' in _body("ts_cache_disk")
+    assert 'disk="$(ts_cache_disk)" || return 1' in _body("ts_cache_place")
+    assert 'place="$(ts_cache_place)" || die' in _body("install_torrserver")
