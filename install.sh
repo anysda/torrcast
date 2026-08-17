@@ -96,7 +96,8 @@ TS_DISK_MEM=512
 #: Байты раздела, которые не трогаем ни при каких обстоятельствах: тут живут состояние и
 #: сама система. Это только неприкосновенный запас; полный резерв кэша складывает
 #: `ts_cache_disk` - к нему добавляется бюджет прогрева, вычитанный из
-#: ``torrcast.warm.WARM_BUDGET`` (то же слагаемое берёт ``torrcast.doctor``:
+#: ``torrcast.domain.warm_settings.WARM_BUDGET`` (то же слагаемое берёт
+#: ``torrcast.usecases.doctor``:
 #: ``CACHE_DISK_RESERVE``). Кэш обязан помещаться СВЕРХ них, иначе прогрев и кэш будут
 #: выедать друг друга и обещание «показ переживает обрыв» сломают оба сразу.
 TS_DISK_FLOOR=$((3 * 1024 * 1024 * 1024))
@@ -447,26 +448,40 @@ disk_free() {  # $1 каталог
 # Кэш раздачи НА ДИСКЕ, байты: свободное место минус то, что диску нужно на прогрев,
 # состояние и систему. Кэш тут гость, а не хозяин: раздел, выеденный кэшем в ноль,
 # убьёт прогрев, то есть ровно то, ради чего запас и нужен.
+# Бюджет прогрева, байты. Спрашиваем ПАКЕТ, а не файл по пути: импорт идёт за ИМЕНЕМ и
+# переживает переезд модуля, разбор файла по пути - нет.
+#
+# 🔴 TC-621. Раньше тут разбирался AST у `torrcast/warm.py`. Разрез увёз константу в
+# `torrcast/domain/warm_settings.py`, и проба стала печатать «не найден» - молча: её
+# ненулевой код тонул (см. ⚠️ в `ts_cache_disk`), пустую строку арифметика ниже читала
+# как ноль, резерв прогрева пропадал из расчёта кэша, а установка объявляла успех.
+# Установщик называет по именам ещё и `facts.py`, `search.py`, `state.py` - те переедут
+# следующими волнами, и правка одного пути просто отложила бы ту же беду.
+#
+# ⚠️ Спрашиваем ИСХОДНИК репы (PYTHONPATH), а не venv: расчёт кэша идёт до того, как в
+# venv что-либо разложено, и на чистой машине импорт из venv не удался бы вовсе.
+# Поэтому же берём модуль без сторонних зависимостей - голого интерпретатора хватает.
+warm_budget() {
+    local budget
+    pick_python
+    budget="$(PYTHONPATH="$REPO_DIR${PYTHONPATH:+:$PYTHONPATH}" "$PYTHON" -c \
+        'from torrcast.domain.warm_settings import WARM_BUDGET; print(WARM_BUDGET)' 2>&1)" \
+        || { loud "пакет torrcast не отдал WARM_BUDGET: $budget"; return 1; }
+    case "$budget" in
+        ''|*[!0-9]*) loud "WARM_BUDGET не целое число байт: $budget"; return 1 ;;
+    esac
+    printf '%s' "$budget"
+}
+
 ts_cache_disk() {
     local free cache reserve
     free="$(disk_free "$TS_CACHE_DIR")"
     case "$free" in ''|*[!0-9]*) printf '0'; return 0 ;; esac
-    pick_python
-    reserve="$("$PYTHON" - "$REPO_DIR/torrcast/warm.py" <<'PY'
-import ast
-import pathlib
-import sys
-
-tree = ast.parse(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
-for node in tree.body:
-    if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
-        if node.target.id == "WARM_BUDGET" and node.value is not None:
-            print(ast.literal_eval(node.value))
-            break
-else:
-    raise SystemExit("WARM_BUDGET не найден в torrcast/warm.py")
-PY
-)"
+    # ⚠️ Провал пробы возвращаем ЯВНО, до самого `install_torrserver`. Полагаться тут на
+    # `set -e` нельзя: фаза запускается через `job_start`, где тело идёт под `|| rc=$?`, а
+    # такой контекст выключает errexit на ВСЮ глубину вызова - вместе со всеми вложенными
+    # функциями. Ровно поэтому провалившаяся проверка и возвращала ноль.
+    reserve="$(warm_budget)" || return 1
     cache=$(( free - reserve - TS_DISK_FLOOR ))
     [ "$cache" -gt "$TS_CACHE_MAX" ] && cache="$TS_CACHE_MAX"
     [ "$cache" -lt 0 ] && cache=0
@@ -483,7 +498,7 @@ PY
 ts_cache_place() {
     local ram disk
     ram="$(ts_cache_ram)"
-    disk="$(ts_cache_disk)"
+    disk="$(ts_cache_disk)" || return 1
     if [ "$disk" -ge "$ram" ] && [ "$disk" -ge "$TS_CACHE_MIN" ]; then
         printf 'disk %s' "$disk"
     elif [ "$ram" -ge "$TS_CACHE_MIN" ]; then
@@ -995,7 +1010,7 @@ verify_torrcast() {
 # --- 3. TorrServer ----------------------------------------------------------
 install_torrserver() {
     local budget place where
-    place="$(ts_cache_place)"
+    place="$(ts_cache_place)" || die "не рассчитался размер кэша TorrServer - причина выше"
     TS_DISK="${place%% *}"
     TS_CACHE="${TORRCAST_TS_CACHE:-${place#* }}"
     if [ "$TS_DISK" = disk ]; then
