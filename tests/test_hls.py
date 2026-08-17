@@ -29,9 +29,8 @@ from typing import IO, Any
 import pytest
 import requests
 
-from tests.conftest import CLIP_SECONDS, fake_packer, free_port
+from tests.conftest import CLIP_SECONDS, fake_packer, free_port, module_of
 from torrcast import stream
-from torrcast import stream_pack as stream_pack_module
 from torrcast.cast import Report
 from torrcast.keymap import Reader, keyframes, video_track
 from torrcast.stream import (
@@ -55,6 +54,13 @@ from torrcast.stream import (
     segment_name,
 )
 from torrcast.stream_pack import _reorder_slack
+
+#: Модуль, а не одноимённая единица из пакета: правки для проб ставятся туда, откуда
+#: их читает сам код.
+film_keys_module = module_of("torrcast.adapters.stream_pack.film_keys")
+pack_start_module = module_of("torrcast.adapters.stream_pack.pack_start")
+pull_head_module = module_of("torrcast.adapters.stream_pack.pull_head")
+warm_file_module = module_of("torrcast.adapters.stream_pack.warm_file")
 
 #: Ровная сетка на два часа: примерно столько и играет полнометражный фильм.
 FILM = 7200.0
@@ -605,7 +611,7 @@ def test_the_map_is_believed_only_after_the_pilot_has_confirmed_it(
     отмеряет от первого пакета, и заход, вставший не туда, кладёт мимо сетки весь участок.
     """
     trusted: dict[str, bool] = {}
-    monkeypatch.setattr(stream_pack_module, "_SEEK_OK", trusted)
+    monkeypatch.setattr(pack_start_module, "_SEEK_OK", trusted)
     keys = _map_of(clip)
     asked: list[float] = []
     honest = stream._pilot_start
@@ -614,7 +620,7 @@ def test_the_map_is_believed_only_after_the_pilot_has_confirmed_it(
         asked.append(at)
         return honest(url, at)
 
-    monkeypatch.setattr(stream_pack_module, "_pilot_start", counted)
+    monkeypatch.setattr(pack_start_module, "_pilot_start", counted)
     first, second = keys.at[6], keys.at[9]
     assert pack_start(clip, first, keys=keys) == pytest.approx(mapped_start(keys, first))
     assert pack_start(clip, second, keys=keys) == pytest.approx(mapped_start(keys, second))
@@ -632,7 +638,7 @@ def test_a_lying_map_is_caught_by_the_pilot_and_never_believed_again(
     встал на самом деле.
     """
     trusted: dict[str, bool] = {}
-    monkeypatch.setattr(stream_pack_module, "_SEEK_OK", trusted)
+    monkeypatch.setattr(pack_start_module, "_SEEK_OK", trusted)
     keys = _map_of(clip)
     lying = keys._replace(at=[second + 0.7 for second in keys.at])
     for at in (keys.at[6], keys.at[9]):
@@ -1954,13 +1960,16 @@ def test_the_position_is_warmed_by_its_byte_offset_not_by_a_proportion(
     assert keys.byte_at(0.0) == 0 and keys.byte_at(-5.0) == 0
 
     asked: list[tuple[int, int]] = []
-    monkeypatch.setattr(stream_pack_module, "film_keys", lambda url: keys)
+    monkeypatch.setattr(warm_file_module, "film_keys", lambda url: keys)
 
     def note(url: str, offset: int, upto: int = 0, alive: Any = None) -> int:
         asked.append((offset, upto))
         return 0
 
-    monkeypatch.setattr(stream_pack_module, "warm_at", note)
+    # Голову греет pull_head, место позиции - сам warm_file: подмена нужна обоим,
+    # иначе половина прогрева пройдёт мимо счётчика.
+    monkeypatch.setattr(warm_file_module, "warm_at", note)
+    monkeypatch.setattr(pull_head_module, "warm_at", note)
     warm_file("http://127.0.0.1:1/film.mp4", at=240.0)
     for _ in range(200):
         if len(asked) >= 2:
@@ -2009,7 +2018,7 @@ def test_the_key_lock_stays_alive_while_its_holder_works(
     from torrcast.stream import _fetching, _keys_cache, film_keys
 
     monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
-    monkeypatch.setattr(stream_pack_module, "KEYS_LOCK", 0.3)  # 60 с в проде: столько не ждём
+    monkeypatch.setattr(film_keys_module, "KEYS_LOCK", 0.3)  # 60 с в проде: столько не ждём
     url = "http://127.0.0.1:8090/stream?link=hash&index=1"
     lock = _keys_cache(url).with_suffix(".lock")
     alive: list[bool] = []
@@ -2020,7 +2029,7 @@ def test_the_key_lock_stays_alive_while_its_holder_works(
             alive.append(_fetching(lock))
         return keymap_module.KeyMap(60.0, (keymap_module.Point(0.0, 0, 0),), 0, 0, "mkv")
 
-    monkeypatch.setattr(keymap_module, "keyframes", slow_keyframes)
+    monkeypatch.setattr(film_keys_module, "keyframes", slow_keyframes)
     film_keys(url)
     assert all(alive), f"замок протух под работающим читателем: {alive}"
     assert not lock.exists(), "замок обязан сниматься после записи кэша"
@@ -2082,11 +2091,14 @@ def test_the_head_warmed_under_the_question_is_sized_by_the_container(
         asked.append((offset, upto))
         return 0
 
-    monkeypatch.setattr(stream_pack_module, "warm_at", note)
+    # Голову греет pull_head, место позиции - сам warm_file: подмена нужна обоим,
+    # иначе половина прогрева пройдёт мимо счётчика.
+    monkeypatch.setattr(warm_file_module, "warm_at", note)
+    monkeypatch.setattr(pull_head_module, "warm_at", note)
     for kind in ("mkv", "mp4"):
         asked.clear()
         keys = FilmKeys(600.0, [0.0, 200.0], [0, 500 << 20], kind)
-        monkeypatch.setattr(stream_pack_module, "film_keys", lambda url, k=keys: k)
+        monkeypatch.setattr(warm_file_module, "film_keys", lambda url, k=keys: k)
         warm_file(f"http://127.0.0.1:1/film.{kind}", at=240.0)
         for _ in range(200):
             if len(asked) >= 2:
@@ -2115,8 +2127,11 @@ def test_an_old_key_cache_takes_the_container_from_the_file_name(
         return 0
 
     keys = FilmKeys(600.0, [0.0, 200.0], [0, 500 << 20], "")  # кэш прошлой версии
-    monkeypatch.setattr(stream_pack_module, "warm_at", note)
-    monkeypatch.setattr(stream_pack_module, "film_keys", lambda url: keys)
+    # Голову греет pull_head, место позиции - сам warm_file: подмена нужна обоим,
+    # иначе половина прогрева пройдёт мимо счётчика.
+    monkeypatch.setattr(warm_file_module, "warm_at", note)
+    monkeypatch.setattr(pull_head_module, "warm_at", note)
+    monkeypatch.setattr(warm_file_module, "film_keys", lambda url: keys)
     warm_file("http://127.0.0.1:1/stream?link=hash&index=1", at=240.0, name="Moana.2.2024.mkv")
     for _ in range(200):
         if len(asked) >= 2:

@@ -35,7 +35,11 @@ from torrcast.stream import (
     segment_name,
 )
 
-from .conftest import fake_packer
+from .conftest import fake_packer, module_of
+
+#: Модуль, а не одноимённая единица из пакета: подмена ставится туда, откуда её
+#: читает сам код.
+grid_for_module = module_of("torrcast.adapters.stream_pack.grid_for")
 
 
 def _keys(duration: float = 300.0, gop: float = 2.0, rate: float = 2.0e6) -> FilmKeys:
@@ -1931,7 +1935,7 @@ def test_a_scaled_down_4k_show_gets_its_grid_weighed_by_our_bitrate_too(
     from torrcast.stream import AUDIO_MBIT, TS_OVERHEAD
 
     keys = _keys(duration=595.0, gop=8.5, rate=0.5e6)  # 4 Мбит/с - для карты это лёгкий файл
-    monkeypatch.setattr("torrcast.stream_pack.film_keys", lambda url: keys)
+    monkeypatch.setattr(grid_for_module, "film_keys", lambda url: keys)
 
     grid, whole = _layout(Config(), "http://ts/x", 595.0, "h264", 4.0, depth=8, frame=2160)
     assert whole is not None and whole.mbit == 9.0, "4К поехало сплошным перекодом"
@@ -1975,7 +1979,7 @@ def test_the_grid_is_told_the_encoders_ceiling_not_its_average_target() -> None:
     )
     keys = FilmKeys(duration=duration, at=at, offset=[int(t * 5.0e6) for t in at], kind="mkv")
     monkey = pytest.MonkeyPatch()
-    monkey.setattr("torrcast.stream_pack.film_keys", lambda url: keys)
+    monkey.setattr(grid_for_module, "film_keys", lambda url: keys)
     try:
         grid, whole = _layout(Config(), "http://ts/x", duration, "h264", 40.0, depth=10)
     finally:
@@ -2025,7 +2029,7 @@ def test_the_spot_recode_ceiling_is_delivered_bitrate_not_bare_video() -> None:
     )
     keys = FilmKeys(duration, at, [int(t * 20.0e6 / 8) for t in at], "mkv")
     monkey = pytest.MonkeyPatch()
-    monkey.setattr("torrcast.stream_pack.film_keys", lambda url: keys)
+    monkey.setattr(grid_for_module, "film_keys", lambda url: keys)
     try:
         grid, whole = _layout(Config(), "http://ts/x", duration, "h264", 20.0, depth=8)
     finally:
@@ -2060,7 +2064,7 @@ def test_a_gop_too_long_to_cut_pulls_the_whole_target_down() -> None:
     duration, gop = 200.0, 15.2  # опорные кадры редкие: между ними резать нечем
     keys = _keys(duration=duration, gop=gop, rate=5.0e6)
     monkey = pytest.MonkeyPatch()
-    monkey.setattr("torrcast.stream_pack.film_keys", lambda url: keys)
+    monkey.setattr(grid_for_module, "film_keys", lambda url: keys)
     try:
         grid, whole = _layout(Config(), "http://ts/x", duration, "h264", 40.0, depth=10)
     finally:
@@ -2081,7 +2085,7 @@ def test_a_gop_too_long_to_cut_pulls_the_whole_target_down() -> None:
     # где резать, и цель остаётся потолком настройки.
     dense = _keys(duration=duration, gop=2.0, rate=5.0e6)
     monkey = pytest.MonkeyPatch()
-    monkey.setattr("torrcast.stream_pack.film_keys", lambda url: dense)
+    monkey.setattr(grid_for_module, "film_keys", lambda url: dense)
     try:
         _, easy = _layout(Config(), "http://ts/y", duration, "h264", 40.0, depth=10)
     finally:

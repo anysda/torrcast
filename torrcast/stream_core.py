@@ -7,6 +7,7 @@ TorrServer (кэш в RAM, на диск не пишем), пакует ffmpeg. 
 
 from __future__ import annotations
 
+from torrcast.adapters.pack_memory import _SEEK_LOCK, _SEEK_OK
 from torrcast.adapters.recode import RECODE_DIR
 from torrcast.adapters.torrserver.contact_wait import ContactWait
 from torrcast.adapters.torrserver.torr_server import (
@@ -189,14 +190,3 @@ from urllib.parse import quote
 from torrcast import InfraError, SwarmError, why
 from torrcast.profile import CAUTIOUS, COPY, Profile
 from torrcast.timing import TIMELINE_ENV
-
-#: Правило сверено с фактом на этом файле - пробный прогон (:func:`pack_start`) ему больше
-#: не нужен. Ключ - URL потока, как и у кэша карты. Значение ``False`` - карта с фактом
-#: разошлась, и дальше по этому файлу заходим только пробным прогоном.
-_SEEK_OK: dict[str, bool] = {}
-_SEEK_LOCK: Final = threading.Lock()
-#: Начало ленты по фильмам: ``URL -> сдвиг`` (:func:`pack_origin`). Считается один раз на
-#: файл, потому что заходов на него много (старт, перемотка, прогрев, перекод), а сдвиг
-#: у них обязан быть ОДИН.
-_ORIGIN: dict[str, float] = {}
-_ORIGIN_LOCK: Final = threading.Lock()

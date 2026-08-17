@@ -7,7 +7,7 @@ import sys
 
 import pytest
 
-from torrcast.adapters.http_server import stream_serve
+from torrcast.adapters.systemd import start_play_unit as start_play_unit_module
 
 
 @pytest.mark.machine
@@ -15,8 +15,9 @@ def test_the_command_the_show_unit_starts_really_starts(monkeypatch: pytest.Monk
     """Берём argv у самого запуска юнита и заводим по нему настоящий процесс.
 
     Проверять отдельно «есть ``__main__``» было бы мимо цели: ломается не наличие файла,
-    а расхождение между строкой в :func:`~torrcast.adapters.http_server.stream_serve.
-    start_play_unit` и тем, что этой строкой запускается. Ровно так каст и слёг: пакет
+    а расхождение между строкой в
+    :func:`~torrcast.adapters.systemd.start_play_unit.start_play_unit` и тем, что этой
+    строкой запускается. Ровно так каст и слёг: пакет
     команд развернули из модуля в каталог, а ``-m torrcast.cli`` остался - показ падал
     строкой «No module named torrcast.cli.__main__», и сухой набор молчал, потому что
     процесс поднимает systemd, а не тест.
@@ -27,8 +28,8 @@ def test_the_command_the_show_unit_starts_really_starts(monkeypatch: pytest.Monk
         seen.append((tool, args))
         return subprocess.CompletedProcess([tool, *args], 0, "", "")
 
-    monkeypatch.setattr(stream_serve, "_systemd", remember)
-    stream_serve.start_play_unit("проба")
+    monkeypatch.setattr(start_play_unit_module, "_systemd", remember)
+    start_play_unit_module.start_play_unit("проба")
 
     started = [args for tool, args in seen if tool == "systemd-run"]
     assert started, "запуск юнита не позвал systemd-run"

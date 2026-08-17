@@ -281,6 +281,16 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
             item.obj = missing_machine_marker
 
 
+def module_of(name: str) -> ModuleType:
+    """Модуль по полному имени, а не одноимённая единица из его пакета.
+
+    В пакете упаковщика имя файла - это имя его единицы, и после сбора пакета
+    ``from torrcast.adapters.stream_pack import film_keys`` отдаёт функцию, а не модуль.
+    Подмену для пробы надо ставить туда, откуда её читает сам код, - в модуль.
+    """
+    return importlib.import_module(name)
+
+
 def free_port() -> int:
     """Свободный порт спрашивается у ядра, а не пишется константой в тесте.
 

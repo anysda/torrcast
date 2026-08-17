@@ -19,15 +19,19 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 
 import pytest
 
+from tests.conftest import module_of
 from tests.test_cli import _FakeTorrServer, _plan, _probes, _resolve, rel
 from torrcast import InfraError, NotFoundError, SwarmError, cli
 from torrcast import stream as stream_mod
-from torrcast import stream_pack as stream_pack_mod
 from torrcast.parse import Release
 from torrcast.stream import Media, ServerDownError, swarm_pulse
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+#: Модуль, а не одноимённая единица из пакета: правки для проб ставятся туда, откуда
+#: их читает сам код.
+film_keys_module = module_of("torrcast.adapters.stream_pack.film_keys")
 
 
 def test_run_ffprobe_returns_the_moment_the_probe_exits() -> None:
@@ -476,7 +480,7 @@ def _fake_map(monkeypatch: pytest.MonkeyPatch) -> None:
     def keyframes(_: str) -> Any:
         return keymap_mod.KeyMap(60.0, (keymap_mod.Point(0.0, 0, 0),), 0, 0, "mkv")
 
-    monkeypatch.setattr(keymap_mod, "keyframes", keyframes)
+    monkeypatch.setattr(film_keys_module, "keyframes", keyframes)
 
 
 def _url(number: int) -> str:
@@ -495,7 +499,7 @@ def test_the_key_shelf_is_trimmed_and_what_was_asked_today_survives(
     from torrcast.stream import _keys_cache, film_keys
 
     monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
-    monkeypatch.setattr(stream_pack_mod, "KEYS_KEPT", 8)
+    monkeypatch.setattr(film_keys_module, "KEYS_KEPT", 8)
     _fake_map(monkeypatch)
 
     for number in range(8):  # полка ровно под потолок, и вся она «старая»
@@ -554,7 +558,7 @@ def test_junk_on_the_shelf_is_ignored_and_never_crashes_the_start(
     from torrcast.stream import _keys_cache, film_keys
 
     monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
-    monkeypatch.setattr(stream_pack_mod, "KEYS_KEPT", 4)
+    monkeypatch.setattr(film_keys_module, "KEYS_KEPT", 4)
     _fake_map(monkeypatch)
 
     cache = _keys_cache(_url(0))

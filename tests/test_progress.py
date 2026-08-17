@@ -598,7 +598,7 @@ def test_the_reason_the_show_is_gone_is_not_systemd_bookkeeping(
     175.4M memory peak». Последним в журнал юнита пишет не показ, а systemd - о запуске,
     остановке и потраченном процессоре, - и «последняя строка» всегда доставалась ему.
     """
-    from torrcast import stream_serve
+    from torrcast.adapters.systemd import unit_why as unit_why_module
 
     journal = [
         {"SYSLOG_IDENTIFIER": "python3.13", "MESSAGE": "картинки не было ни разу"},
@@ -608,6 +608,6 @@ def test_the_reason_the_show_is_gone_is_not_systemd_bookkeeping(
     answer = subprocess.CompletedProcess(
         args=[], returncode=0, stdout="\n".join(json.dumps(row) for row in journal), stderr=""
     )
-    monkeypatch.setattr(stream_serve, "_systemd", lambda *args: answer)
+    monkeypatch.setattr(unit_why_module, "_systemd", lambda *args: answer)
 
     assert unit_why() == "картинки не было ни разу"
