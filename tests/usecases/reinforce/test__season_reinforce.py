@@ -56,6 +56,23 @@ def test_a_namesake_with_another_original_is_not_sewn_to_ours() -> None:
     assert said.notes == [], "не добрали - и говорить не о чем"
 
 
+def test_another_season_of_our_own_series_is_not_counted_as_the_asked_one() -> None:
+    """🔴 Своё имя ещё не свой сезон: строка «Angel S01» возвращает и соседние паки.
+
+    Гейт по оригиналу тут пропускает всё - сериал и правда наш, - и без проверки на
+    спрошенный сезон третий пак поехал бы в выдачу, а показ сказал бы «добрал сезон 1»
+    про сезон, которого так и нет.
+    """
+    client = Indexer([row("Ангел / Angel S03 1080p", "b", seeders=40)])
+
+    said, (merged, _pictures, wider) = _asked(client)
+
+    assert client.asked == ["Angel S01"], "круг был"
+    assert merged is _FIFTH, "а спрошенного сезона в нём нет"
+    assert [(p.title, len(p.releases)) for p in wider] == [("Ангел", 1)]
+    assert said.notes == [], "хвастаться нечем"
+
+
 def test_a_spent_goal_cancels_the_circle_and_says_so() -> None:
     """Сезонная строка - такой же второй круг, и цель она тратит так же (TC-228)."""
     client = Indexer([row("Ангел / Angel S01 1080p", "b")], spare=0.0)

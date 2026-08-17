@@ -56,6 +56,26 @@ def test_an_empty_late_batch_leaves_the_plan_as_it_was() -> None:
     assert said.notes == []
 
 
+def test_a_topup_that_reaches_no_selection_at_all_is_not_boasted_about() -> None:
+    """Долив мимо отбора плану ничего не даёт, и строки про него быть не должно.
+
+    Спрошен первый сезон, а выдача принесла пятый: в отбор не попадает ни одна раздача -
+    ни прежняя, ни доехавшая. Без проверки на пустой отбор показ сказал бы «раздач стало
+    больше», а выбирать из них по-прежнему нечего.
+    """
+    args = Args(query=["ангел", "s01e01"])
+    picture = pictures([row("Ангел / Angel S05 1080p", "a", seeders=100)])[0]
+    plan = _plan_for(picture, args, Config())
+    plan.late = lambda: [row("Ангел / Angel S05 720p", "b", seeders=900)]
+    said = Said()
+
+    fresh = _topup(plan, args, Config(), CAUTIOUS, said, frozenset())
+
+    assert not plan.ranked, "в отборе и до долива не было ничего"
+    assert fresh is plan
+    assert said.notes == []
+
+
 def test_the_old_releases_stay_the_very_same_objects() -> None:
     """Прогрев, пущенный под меню, ищет по ним своё новое место, а не заводится заново."""
     plan, fresh, _said = _poured([row("Кино / Movie (1999) BDRip 2160p", "b", seeders=900)])
