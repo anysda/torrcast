@@ -7,12 +7,6 @@ import sys
 from torrcast.adapters import recode as _implementation
 from torrcast.adapters.recode import *
 
-HEAD_LIMIT = _implementation.HEAD_LIMIT
-REALTIME = _implementation.REALTIME
-SHRINK_FRESH = _implementation.SHRINK_FRESH
-TONEMAP = _implementation.TONEMAP
-level_for = _implementation.level_for
-
 __all__ = [
     "DEADLINE_MARGIN",
     "FIT_FLOOR",
@@ -20,16 +14,26 @@ __all__ = [
     "FULL_FLOOR",
     "FULL_GAIN",
     "FULL_PRESET",
+    "HEAD_LIMIT",
+    "HEAD_NICE",
     "MAXRATE_GAIN",
     "NEIGHBOUR_TOLL",
+    "NICE",
+    "PACE_MEMORY",
+    "PASSPORT_WEIGHT",
     "PRESETS",
+    "REALTIME",
     "RECODE_DIR",
     "RECODE_HEIGHT",
+    "RUN_MAX",
+    "SHRINK_FRESH",
+    "TONEMAP",
     "VBV_SECONDS",
     "Encode",
     "Pace",
     "Recoder",
     "Weights",
+    "level_for",
     "preset_for",
     "whole_encode",
 ]

@@ -23,7 +23,6 @@ from tests.test_cli import _FakeTorrServer, _plan, _probes, _resolve, rel
 from torrcast import InfraError, NotFoundError, SwarmError, cli
 from torrcast import stream as stream_mod
 from torrcast import stream_pack as stream_pack_mod
-from torrcast import stream_probe as stream_probe_mod
 from torrcast.parse import Release
 from torrcast.stream import Media, ServerDownError, swarm_pulse
 
@@ -522,10 +521,12 @@ def test_the_probe_shelf_is_trimmed_by_the_same_rule(
     Паспортов заводится больше, чем карт: их снимают и на релизы, которые показом так и
     не стали. Потому и потолок отдельный.
     """
+    from torrcast.adapters.stream_probe import media_shelf
     from torrcast.stream import _keep_media, _media_cache, _read_media
 
     monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
-    monkeypatch.setattr(stream_probe_mod, "PROBE_KEPT", 8)
+    # Потолок полки читает та же запись паспорта, которую здесь и зовут.
+    monkeypatch.setattr(media_shelf, "PROBE_KEPT", 8)
     passport = Media(3600.0, (stream_mod.AudioTrack(0, "rus", "", "aac", 2),), "h264")
 
     for number in range(8):

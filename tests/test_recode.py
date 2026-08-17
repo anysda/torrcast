@@ -632,7 +632,9 @@ def test_a_run_never_promises_more_than_it_can_deliver_in_time(  # type: ignore[
     На обычной машине эта защита почти не срабатывает (даже ``ultrafast`` идёт вчетверо
     быстрее реального времени), поэтому здесь кодировщику назначается медленная машина.
     """
-    import torrcast.recode as module
+    # Медленную машину назначаем там, где таблицу читает замер темпа: срок захода
+    # считается по :meth:`Pace.table`, а не по общему имени пакета.
+    from torrcast.adapters.recode import pace as module
 
     monkeypatch.setattr(module, "PRESETS", (("medium", 0.5), ("veryfast", 0.6)))
     grid = _grid()

@@ -1685,9 +1685,13 @@ def test_probe_reads_the_scan_type_from_the_stream(monkeypatch: pytest.MonkeyPat
     потоке, а не в догадке по кодеку.
     """
     import json
+    from importlib import import_module
 
-    from torrcast import stream_probe as stream_probe_mod
     from torrcast.stream import probe
+
+    # Модуль щупа зовётся так же, как сама функция, поэтому берём его по имени: точка
+    # `torrcast.adapters.stream_probe.probe` - это уже функция, а подменить надо её сосед.
+    stream_probe_mod = import_module("torrcast.adapters.stream_probe.probe")
 
     payload = json.dumps(
         {
