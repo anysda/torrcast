@@ -4,6 +4,9 @@
 
 from __future__ import annotations
 
+from torrcast.domain.infra_error import InfraError
+from torrcast.domain.profile import CAUTIOUS, COPY
+
 from torrcast.domain.pick_settings import (
     HONEST_BUDGET,
     MAX_TRIES,
@@ -32,15 +35,8 @@ from torrcast.ports.legacy_namespace import legacy_namespace
 
 globals().update(
     legacy_namespace(
-        torrcast=(
-            "InfraError",
-            "TorrcastError",
-        ),
+        torrcast=("TorrcastError",),
         torrcast__console=("Progress",),
-        torrcast__profile=(
-            "CAUTIOUS",
-            "COPY",
-        ),
         torrcast__stream=(
             "ContactWait",
             "TorrServer",

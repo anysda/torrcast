@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from torrcast.domain.config import Config
 from torrcast.domain.entry import Entry
+from torrcast.domain.infra_error import InfraError
 from torrcast.domain.profile import Profile
 from torrcast.domain.worker_settings import WORKER_META
 from torrcast.usecases.log_command import trace
@@ -45,7 +46,6 @@ from torrcast.usecases.torrents import _own_torrent
 from torrcast.usecases.watch import Watch
 
 for _module_name, _names in {
-    "torrcast": ("InfraError",),
     "torrcast.cast": ("Receiver",),
     "torrcast.state": ("State",),
     "torrcast.stream": (

@@ -24,10 +24,9 @@ import time
 from pathlib import Path
 from typing import Any, Final, Protocol, runtime_checkable
 
-__all__ = ["CLOCK", "TIMELINE_ENV", "Clock", "RealClock", "mark", "read", "report"]
+from torrcast.domain.timeline_env import TIMELINE_ENV
 
-#: Куда писать ленту меток. Пусто - секундомера нет.
-TIMELINE_ENV: Final = "TORRCAST_TIMELINE"
+__all__ = ["CLOCK", "TIMELINE_ENV", "Clock", "RealClock", "mark", "read", "report"]
 
 
 @runtime_checkable

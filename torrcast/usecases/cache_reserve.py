@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from torrcast.domain.config import Config
 from torrcast.domain.entry import Entry
+from torrcast.domain.infra_error import InfraError
 
 __all__ = [
     "PROBE_TIMEOUT",
@@ -21,7 +22,6 @@ __all__ = [
 from torrcast.ports.module import module
 
 for _module_name, _names in {
-    "torrcast": ("InfraError",),
     "torrcast.stream": (
         "PROBE_TIMEOUT",
         "TorrServer",

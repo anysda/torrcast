@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 from torrcast.domain._name_data.data_3 import VIDEO_EXT
+from torrcast.domain.hls_settings import _SEGMENT_RE
+from torrcast.domain.probe_settings import META_GRACE
+from torrcast.domain.warm_open import HEAD_WARM, PROBE_KEPT, WARM_TIMEOUT
 
 # mypy: ignore-errors
 
@@ -63,11 +66,6 @@ from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.swarm_error import SwarmError
 
 _core = import_module("torrcast.stream_core")
-_SEGMENT_RE = _core._SEGMENT_RE
-HEAD_WARM = _core.HEAD_WARM
-META_GRACE = _core.META_GRACE
-PROBE_KEPT = _core.PROBE_KEPT
-WARM_TIMEOUT = _core.WARM_TIMEOUT
 AudioTrack = _core.AudioTrack
 Media = _core.Media
 

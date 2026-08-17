@@ -4,6 +4,9 @@
 
 from __future__ import annotations
 
+from torrcast.domain.infra_error import InfraError
+from torrcast.domain.profile import CAUTIOUS, COPY
+
 from torrcast.usecases.log_command import trace
 
 from torrcast.domain.pick_settings import META_BUDGET, PROBE_BUDGET
@@ -65,17 +68,10 @@ from torrcast.ports.legacy_namespace import legacy_namespace
 
 globals().update(
     legacy_namespace(
-        torrcast=(
-            "InfraError",
-            "TorrcastError",
-        ),
+        torrcast=("TorrcastError",),
         torrcast__console=(
             "Progress",
             "ask_line",
-        ),
-        torrcast__profile=(
-            "CAUTIOUS",
-            "COPY",
         ),
         torrcast__search=("RawResult",),
         torrcast__state=("State",),

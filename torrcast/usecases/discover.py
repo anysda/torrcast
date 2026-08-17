@@ -4,6 +4,9 @@
 
 from __future__ import annotations
 
+from torrcast.domain.infra_error import InfraError
+from torrcast.domain.profile import CAUTIOUS
+
 from torrcast.domain.facts.same_name import same_name
 from torrcast.usecases.log_command import trace
 
@@ -77,10 +80,8 @@ from torrcast.ports.legacy_namespace import legacy_namespace
 
 globals().update(
     legacy_namespace(
-        torrcast=("InfraError",),
         torrcast__console=("Progress",),
         torrcast__facts=("origin",),
-        torrcast__profile=("CAUTIOUS",),
         torrcast__search=(
             "CIRCLE_SHARE",
             "GOAL",

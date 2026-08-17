@@ -4,12 +4,14 @@
 
 from __future__ import annotations
 
+from torrcast.domain._name_data.data_3 import VIDEO_EXT
 from torrcast.domain.codec_name import codec_name
 from torrcast.domain.config import Config
 from torrcast.domain.entry import Entry
 from torrcast.domain.exit_codes import EXIT_OK
+from torrcast.domain.infra_error import InfraError
 from torrcast.domain.not_found_error import NotFoundError
-from torrcast.domain.profile import Profile
+from torrcast.domain.profile import CAUTIOUS, Profile
 from torrcast.domain.recode_note import recode_note
 from torrcast.domain.recodes_whole import recodes_whole
 from torrcast.domain.release import Release
@@ -89,7 +91,6 @@ clock_port = module("time")
 time = clock_port
 for _module_name, _names in {
     "torrcast": (
-        "InfraError",
         "TorrcastError",
         "why",
     ),
@@ -102,8 +103,6 @@ for _module_name, _names in {
         "Progress",
         "ask_line",
     ),
-    "torrcast.parse": ("VIDEO_EXT",),
-    "torrcast.profile": ("CAUTIOUS",),
     "torrcast.recode": (
         "Encode",
         "Recoder",

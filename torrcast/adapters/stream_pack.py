@@ -2,6 +2,28 @@
 
 from __future__ import annotations
 
+from torrcast.domain.hls_settings import (
+    AUDIO_BITRATE,
+    AUDIO_CHANNELS,
+    AUDIO_CODEC,
+    AUDIO_PRIMING,
+    HLS_SEGMENT_SECONDS,
+    MAX_SEGMENT_BYTES,
+    PACK_LIST,
+    PLAYING_FLAG,
+    SPLIT_SLACK,
+)
+from torrcast.domain.hls_wait import KEYS_WAIT, PILOT_TIMEOUT
+from torrcast.domain.warm_open import (
+    HEAD_OPEN,
+    HEAD_OPEN_DEFAULT,
+    HEAD_WARM,
+    KEYS_KEPT,
+    KEYS_LOCK,
+    SEEK_SHIFT,
+    WARM_TIMEOUT,
+)
+
 # mypy: ignore-errors
 
 __all__ = [
@@ -81,24 +103,6 @@ from torrcast.domain.infra_error import InfraError
 _core = import_module("torrcast.stream_core")
 _ORIGIN = _core._ORIGIN
 _ORIGIN_LOCK = _core._ORIGIN_LOCK
-AUDIO_BITRATE = _core.AUDIO_BITRATE
-AUDIO_CHANNELS = _core.AUDIO_CHANNELS
-AUDIO_CODEC = _core.AUDIO_CODEC
-AUDIO_PRIMING = _core.AUDIO_PRIMING
-HEAD_WARM = _core.HEAD_WARM
-HEAD_OPEN = _core.HEAD_OPEN
-HEAD_OPEN_DEFAULT = _core.HEAD_OPEN_DEFAULT
-HLS_SEGMENT_SECONDS = _core.HLS_SEGMENT_SECONDS
-KEYS_KEPT = _core.KEYS_KEPT
-KEYS_LOCK = _core.KEYS_LOCK
-KEYS_WAIT = _core.KEYS_WAIT
-MAX_SEGMENT_BYTES = _core.MAX_SEGMENT_BYTES
-PACK_LIST = _core.PACK_LIST
-PILOT_TIMEOUT = _core.PILOT_TIMEOUT
-PLAYING_FLAG = _core.PLAYING_FLAG
-SEEK_SHIFT = _core.SEEK_SHIFT
-SPLIT_SLACK = _core.SPLIT_SLACK
-WARM_TIMEOUT = _core.WARM_TIMEOUT
 _SEEK_LOCK = _core._SEEK_LOCK
 _SEEK_OK = _core._SEEK_OK
 mark = import_module("torrcast.timing").mark

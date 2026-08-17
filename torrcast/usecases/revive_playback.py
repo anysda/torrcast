@@ -4,7 +4,8 @@
 
 from __future__ import annotations
 
-from torrcast.domain.profile import Profile
+from torrcast.domain.infra_error import InfraError
+from torrcast.domain.profile import CAUTIOUS, Profile
 from torrcast.domain.revive_settings import (
     REVIVE_DROP,
     REVIVE_LIMIT,
@@ -35,9 +36,7 @@ from torrcast.ports.module import module
 clock_port = module("time")
 time = clock_port
 for _module_name, _names in {
-    "torrcast": ("InfraError",),
     "torrcast.cast": ("Receiver",),
-    "torrcast.profile": ("CAUTIOUS",),
     "torrcast.stream": (
         "Feed",
         "Supply",

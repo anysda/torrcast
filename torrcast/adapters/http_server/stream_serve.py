@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from torrcast.domain.unit_naming import _UNIT_NAME
+
 __all__ = [
     "TRACE",
     "TYPE_CHECKING",
@@ -80,7 +82,6 @@ class _Feed(Protocol):
 
 _package = import_module("torrcast")
 why = _package.why
-_UNIT_NAME = import_module("torrcast.stream_core")._UNIT_NAME
 
 
 def _scope() -> list[str]:
