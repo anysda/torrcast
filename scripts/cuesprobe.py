@@ -18,6 +18,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from torrcast.adapters.frames.http_range_reader import HttpRangeReader as Reader
+from torrcast.adapters.stream_probe.pick_video_file import pick_video_file
+from torrcast.adapters.torrserver.torr_server import TorrServer
 from torrcast.domain.frames.mkv import (
     CLUSTER,
     CUES,
@@ -32,7 +34,6 @@ from torrcast.domain.frames.mkv import (
     _uint,
     _walk,
 )
-from torrcast.stream import TorrServer, pick_video_file
 
 
 def head_scan(buf: bytes) -> tuple[int | None, int, float]:

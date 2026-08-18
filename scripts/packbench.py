@@ -20,8 +20,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from torrcast.adapters.stream_pack.grid import Grid
+from torrcast.adapters.stream_pack.hls_dir import hls_dir
 from torrcast.runtime.wire import wire
-from torrcast.stream import Feed, Grid, hls_dir
+from torrcast.usecases.feed_pack.feed import Feed
 
 
 def main() -> int:

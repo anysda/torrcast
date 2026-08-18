@@ -36,10 +36,11 @@ from torrcast.cli import (
     stepdown_note,
 )
 from torrcast.domain.json_value import JsonValue
+from torrcast.domain.media import Media
+from torrcast.domain.runtime_guess import RUNTIME_GUESS
 from torrcast.facts import Fact, Facts, hms, minutes_of
 from torrcast.parse import Picture, Release, parse_release_name
 from torrcast.state import Config
-from torrcast.stream import RUNTIME_GUESS, Media
 
 GB = 1024**3
 GUESS = RUNTIME_GUESS["movie"]

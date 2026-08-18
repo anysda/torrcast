@@ -1,7 +1,7 @@
 """Раздача упакованного по http в объёме, который нужен показу.
 
 Поднимает её показ (:func:`_play`) на время показа и гасит вместе с ним: своих демонов
-у нас нет. Строит её медиатракт (:class:`torrcast.stream.HlsServer`).
+у нас нет. Строит её медиатракт (:class:`torrcast.adapters.http_server.hls_server.HlsServer`).
 """
 
 from __future__ import annotations

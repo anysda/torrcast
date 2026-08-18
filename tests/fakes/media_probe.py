@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from torrcast.stream import AudioTrack, Media
+from torrcast.domain.audio_track import AudioTrack
+from torrcast.domain.media import Media
 
 #: Паспорт, которым отвечает фейк: длительность, кодек и кадр обычной раздачи 1080p.
 RUNTIME = 3600.0

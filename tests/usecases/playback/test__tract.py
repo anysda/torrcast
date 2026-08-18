@@ -10,10 +10,11 @@ import pytest
 
 import torrcast.usecases.playback._show_state as _state
 from tests.usecases.playback.world import film_keys, grid
+from torrcast.adapters.http_server.hls_server import HlsServer
+from torrcast.adapters.stream_pack.hls_dir import hls_dir
 from torrcast.domain.config import Config
 from torrcast.domain.position import Position
 from torrcast.recode import Encode, Recoder, Weights, whole_encode
-from torrcast.stream import HlsServer, hls_dir
 from torrcast.usecases.playback._tract import _tract
 
 

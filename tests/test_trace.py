@@ -635,7 +635,7 @@ def test_the_share_of_the_warmed_movie_is_a_field(tmp_path: Path) -> None:
     Строка остаётся человеку в живом показе; недельному разбору нужны секунды, длина
     фильма, доля и вес каталога - по ним видно, докуда дошёл прогрев и почему встал.
     """
-    from torrcast.stream import Grid
+    from torrcast.adapters.stream_pack.grid import Grid
     from torrcast.usecases.warm import Vault, Warmer
 
     grid = Grid.uniform(100.0)

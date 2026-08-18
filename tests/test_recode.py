@@ -11,6 +11,11 @@ from typing import cast
 import pytest
 
 import torrcast.usecases.feed_pack.packer_publish as packer_publish
+from torrcast.adapters.stream_pack.ffmpeg_pack_command import ffmpeg_pack_command
+from torrcast.adapters.stream_pack.grid import Grid
+from torrcast.adapters.stream_pack.pack_start import pack_start
+from torrcast.adapters.stream_probe.segment_name import segment_name
+from torrcast.domain.film_keys import FilmKeys
 from torrcast.recode import (
     DEADLINE_MARGIN,
     FULL_PRESET,
@@ -28,14 +33,8 @@ from torrcast.recode import (
     preset_for,
     whole_encode,
 )
-from torrcast.stream import (
-    FilmKeys,
-    Grid,
-    Packer,
-    ffmpeg_pack_command,
-    pack_start,
-    segment_name,
-)
+from torrcast.usecases.feed_pack.feed import Feed
+from torrcast.usecases.feed_pack.packer import Packer
 
 from .conftest import fake_packer, module_of
 
@@ -157,7 +156,7 @@ def test_the_preset_ladder_is_walked_from_slow_to_fast() -> None:
 
 def _went(mbit: float) -> float:
     """Сколько Мбит/с получит приёмник в худшем случае кодера: пик, звук, mpegts."""
-    from torrcast.stream import AUDIO_MBIT, TS_OVERHEAD
+    from torrcast.domain.delivered_mbit import AUDIO_MBIT, TS_OVERHEAD
 
     return (mbit * MAXRATE_GAIN + AUDIO_MBIT) * TS_OVERHEAD
 
@@ -167,7 +166,7 @@ def test_the_target_of_a_long_piece_is_counted_from_its_length_not_pinned() -> N
 
     Длина куска сетки задаётся картой опорных кадров и доходит до 20 с, а цель
     кодировщика была константой. Не влезал САМ ПЕРЕКОД, а не только копия: ловушка на
-    выходе (:meth:`torrcast.stream.Packer.publish`) ловила это уже после того, как
+    выходе (:meth:`torrcast.Packer.publish`) ловила это уже после того, как
     процессор был потрачен на кусок, который заведомо не влезал.
     """
     cap = 16_000_000
@@ -927,7 +926,6 @@ def test_the_packer_tells_the_encoder_where_the_run_begins(monkeypatch, tmp_path
     Иначе он начинает голову позже упаковщика, и придерживать её копию нечем.
     """
     import torrcast.usecases.feed_pack._state as feed_state
-    from torrcast import stream
 
     grid = _grid()
     seen: list[tuple[str, int]] = []
@@ -964,10 +962,8 @@ def test_the_packer_tells_the_encoder_where_the_run_begins(monkeypatch, tmp_path
         return 0.0
 
     monkeypatch.setattr(feed_state, "pack_start", _probe)
-    monkeypatch.setattr(
-        stream.Packer, "start", classmethod(lambda cls, *a, **k: fake_packer(tmp_path))
-    )
-    feed = stream.Feed(source="src", audio=0, out=tmp_path, grid=grid, recoder=recoder)
+    monkeypatch.setattr(Packer, "start", classmethod(lambda cls, *a, **k: fake_packer(tmp_path)))
+    feed = Feed(source="src", audio=0, out=tmp_path, grid=grid, recoder=recoder)
     feed.restart(5)
     assert seen == [("голова", 5), ("проба", 0)]
 
@@ -978,8 +974,6 @@ def test_the_head_run_is_not_niced_behind_the_packer(tmp_path, monkeypatch) -> N
     Замер («Моана 2» 13.3 ГБ, v0 длиной 19.96 с, ultrafast): ``nice 15`` — 8.05 с,
     ``nice 0`` — 5.84 с.
     """
-    from torrcast import stream
-
     grid = _grid()
     weights = Weights.of(_keys(rate=2.0e6), grid)
     assert weights is not None
@@ -992,7 +986,7 @@ def test_the_head_run_is_not_niced_behind_the_packer(tmp_path, monkeypatch) -> N
         seen.append(command)
         return fake_packer(tmp_path)
 
-    monkeypatch.setattr(stream.Packer, "start", classmethod(_remember))
+    monkeypatch.setattr(Packer, "start", classmethod(_remember))
     recoder.opening(3)
     recoder.stopped = True  # один круг: ждать реального ffmpeg тут нечего
     recoder._run(3, 3)
@@ -1009,8 +1003,6 @@ def test_a_run_takes_its_target_from_its_longest_piece(tmp_path, monkeypatch) ->
     длинный кусок снова уедет за потолок - а ловить это на выходе поздно, процессор уже
     потрачен.
     """
-    from torrcast import stream
-
     grid = Grid(bounds=(0.0, 6.0, 26.0, 32.0), duration=45.0, on_keys=True)
     weights = Weights.of(_keys(rate=4.0e6), grid)
     assert weights is not None
@@ -1023,7 +1015,7 @@ def test_a_run_takes_its_target_from_its_longest_piece(tmp_path, monkeypatch) ->
         seen.append(command)
         return fake_packer(tmp_path)
 
-    monkeypatch.setattr(stream.Packer, "start", classmethod(_remember))
+    monkeypatch.setattr(Packer, "start", classmethod(_remember))
     recoder.stopped = True
 
     recoder._run(0, 2)  # куски 6, 20 и 6 с - судит двадцатисекундный
@@ -1044,8 +1036,6 @@ def test_a_run_is_counted_by_what_it_published_not_by_what_is_left(tmp_path, mon
 
     Ровно так «перекодировал v0» печаталось как «не дало ни куска за 7 с».
     """
-    from torrcast import stream
-
     grid = _grid()
     weights = Weights.of(_keys(rate=2.0e6), grid)
     assert weights is not None
@@ -1053,7 +1043,7 @@ def test_a_run_is_counted_by_what_it_published_not_by_what_is_left(tmp_path, mon
         source="src", audio=0, grid=grid, spare=tmp_path, weights=weights, threshold=15.0
     )
     monkeypatch.setattr(
-        stream.Packer,
+        Packer,
         "start",
         classmethod(lambda cls, *a, **k: fake_packer(tmp_path, first=3, code=0, edge=4)),
     )
@@ -1069,8 +1059,6 @@ def test_the_head_preempts_a_run_that_works_ahead(tmp_path, monkeypatch) -> None
     Живой замер: заход за ``v0`` (7 с) съедал ровно столько же от ожидания ``v358``,
     и голова не успевала к сроку, хотя сама кодируется 9 с.
     """
-    from torrcast import stream
-
     grid = _grid()
     weights = Weights.of(_keys(rate=2.0e6), grid)
     assert weights is not None
@@ -1078,7 +1066,7 @@ def test_the_head_preempts_a_run_that_works_ahead(tmp_path, monkeypatch) -> None
         source="src", audio=0, grid=grid, spare=tmp_path, weights=weights, threshold=15.0
     )
     packer = fake_packer(tmp_path, first=0, edge=-1)
-    monkeypatch.setattr(stream.Packer, "start", classmethod(lambda cls, *a, **k: packer))
+    monkeypatch.setattr(Packer, "start", classmethod(lambda cls, *a, **k: packer))
     recoder.opening(0)
     recoder.played = grid.start(12)  # показ ушёл вперёд, кодировщик работает впрок за ним
     recoder.opening(3)  # перемотали НАЗАД - голова теперь позади захода
@@ -1240,10 +1228,10 @@ def test_the_encoder_weighs_pieces_by_the_receivers_cap_not_its_own(tmp_path) ->
     """Потолок веса куска - свойство ПРИЁМНИКА, и мерка у показа с каталогом перекода одна.
 
     Раньше каталог перекода судил по осторожному умолчанию
-    (:data:`torrcast.stream.MAX_SEGMENT_BYTES`), а показ - по потолку своего приёмника
-    (:attr:`torrcast.stream.Feed.cap`): приёмник с другой меркой получал от кодировщика не
-    свою. Пока приёмник один, числа совпадают, и разницы не видно - ровно поэтому её и
-    надо закрыть числом, а не глазами.
+    (:data:`torrcast.domain.hls_settings.MAX_SEGMENT_BYTES`), а показ - по потолку своего приёмника
+    (:attr:`torrcast.usecases.feed_pack.feed.Feed.cap`): приёмник с другой меркой получал от
+    кодировщика не свою. Пока приёмник один, числа совпадают, и разницы не видно - ровно поэтому её
+    и надо закрыть числом, а не глазами.
     """
     grid = _grid()
     weights = Weights.of(_keys(rate=1.5e6), grid)  # 12 Мбит/с: 10 с весят 15 МБ
@@ -1389,7 +1377,7 @@ def test_the_run_steps_aside_while_the_feed_shrinks_a_piece_in_place(tmp_path) -
     """
     import time as clock
 
-    from torrcast.stream import SHRINK_DIR
+    from torrcast.domain.hls_settings import SHRINK_DIR
 
     class Signalled:
         def __init__(self) -> None:
@@ -1454,7 +1442,7 @@ def test_a_ready_shrink_does_not_keep_the_run_frozen(tmp_path) -> None:  # type:
     """
     import time as clock
 
-    from torrcast.stream import SHRINK_DIR
+    from torrcast.domain.hls_settings import SHRINK_DIR
 
     grid = _grid()
     weights = Weights.of(_keys(rate=4.0e6), grid)
@@ -1618,7 +1606,7 @@ def test_a_failed_merge_on_a_shifted_run_sends_the_copy(tmp_path, monkeypatch) -
     Перекод как есть тут не «сегодняшнее поведение», а гарантированный разрыв: на голове
     захода приёмник получил бы кадр с меткой назад, а на хвосте — дыру в кадр.
     Копия своего прогона стыкуется с соседями точно, и пока она не тяжелее потолка
-    (:data:`torrcast.stream.MAX_SEGMENT_BYTES`), она меньшее зло.
+    (:data:`torrcast.domain.hls_settings.MAX_SEGMENT_BYTES`), она меньшее зло.
     """
     out = tmp_path / "out"
     spare = out / "recode"
@@ -1642,7 +1630,7 @@ def test_a_failed_merge_on_a_shifted_run_sends_the_copy(tmp_path, monkeypatch) -
 def test_a_too_heavy_copy_loses_even_to_a_broken_seam(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
     """Копия тяжелее потолка не выходит наружу даже ради стыка: кусок, который приёмник
     не доигрывает вовсе (19.4 МБ дают стоп 8 с), хуже разрыва в один кадр."""
-    from torrcast.stream import MAX_SEGMENT_BYTES
+    from torrcast.domain.hls_settings import MAX_SEGMENT_BYTES
 
     out = tmp_path / "out"
     spare = out / "recode"
@@ -1664,7 +1652,7 @@ def test_a_too_heavy_copy_loses_even_to_a_broken_seam(tmp_path, monkeypatch) -> 
 
 def test_a_merge_heavier_than_the_cap_is_not_sent_to_the_receiver(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
     """Потолок проверяет готовую склейку, а не её части до запуска ffmpeg."""
-    from torrcast.stream import MAX_SEGMENT_BYTES
+    from torrcast.domain.hls_settings import MAX_SEGMENT_BYTES
 
     out = tmp_path / "out"
     spare = out / "recode"
@@ -1688,7 +1676,7 @@ def test_a_merge_heavier_than_the_cap_is_not_sent_to_the_receiver(tmp_path, monk
 
 def test_the_timeline_shift_of_garbage_is_unknown(tmp_path) -> None:  # type: ignore[no-untyped-def]
     """Сверить ленту не по чему — так и говорим: ``None``, а не «сдвига нет»."""
-    from torrcast.stream import timeline_shift
+    from torrcast.usecases.feed_pack.timeline_shift import timeline_shift
 
     copy, recode = tmp_path / "c.ts", tmp_path / "r.ts"
     copy.write_bytes(b"not a stream")
@@ -1724,7 +1712,7 @@ def test_the_merged_piece_is_not_mistaken_for_a_packed_segment(tmp_path, monkeyp
 
 def test_merge_of_garbage_leaves_no_file_and_says_so(tmp_path) -> None:  # type: ignore[no-untyped-def]
     """Не вышло — значит не вышло: ни файла-огрызка, ни ``True``."""
-    from torrcast.stream import merge_tracks
+    from torrcast.usecases.feed_pack.merge_tracks import merge_tracks
 
     video, audio, dst = tmp_path / "v.ts", tmp_path / "a.ts", tmp_path / "mix.ts"
     video.write_bytes(b"not a stream")
@@ -1781,7 +1769,6 @@ def test_full_recode_packing_skips_the_pilot_run(tmp_path, monkeypatch) -> None:
     самых, которыми сплошной перекод оплачивает свою голову.
     """
     import torrcast.usecases.feed_pack._state as feed_state
-    from torrcast import stream
 
     grid = _grid()
     seen: list[list[str]] = []
@@ -1794,10 +1781,8 @@ def test_full_recode_packing_skips_the_pilot_run(tmp_path, monkeypatch) -> None:
         return fake_packer(tmp_path)
 
     monkeypatch.setattr(feed_state, "pack_start", _pilot)
-    monkeypatch.setattr(stream.Packer, "start", classmethod(_remember))
-    feed = stream.Feed(
-        source="src", audio=0, out=tmp_path, grid=grid, encode=Encode(preset=FULL_PRESET)
-    )
+    monkeypatch.setattr(Packer, "start", classmethod(_remember))
+    feed = Feed(source="src", audio=0, out=tmp_path, grid=grid, encode=Encode(preset=FULL_PRESET))
     feed.restart(5)
 
     command = seen[0]
@@ -1837,9 +1822,9 @@ def test_a_frame_above_the_receivers_ceiling_is_scaled_down_instead_of_refused()
     получает вчетверо меньше пикселей. Поэтому «нет 1080p» перестало значить «показа нет».
     """
     from torrcast.cli import _encode_all
+    from torrcast.domain.recode_note import recode_note
     from torrcast.profile import CAUTIOUS
     from torrcast.state import Config
-    from torrcast.stream import recode_note
 
     whole = cast(Encode | None, _encode_all(Config(), "hevc", 20.0, 10, CAUTIOUS, frame=2160))
     assert whole is not None and whole.scaled, "4К обязано ужиматься, а не ехать как есть"
@@ -1923,7 +1908,7 @@ def test_the_grid_weighs_a_fully_recoded_file_by_our_bitrate_not_the_source() ->
     и правда лёгкие. После перекода вес куска задаём мы, и сетка обязана знать об этом
     ДО первого сегмента — иначе потолок 16 МБ не сработает ни разу.
     """
-    from torrcast.stream import MAX_SEGMENT_BYTES
+    from torrcast.domain.hls_settings import MAX_SEGMENT_BYTES
 
     keys = _keys(duration=300.0, gop=7.0, rate=0.16e6)  # 1.3 Мбит/с - лёгкое аниме
     naive = Grid.on_keyframes(keys.at, 300.0, 10.0, sizes=keys.offset, ceiling_mbit=9.0)
@@ -1948,9 +1933,9 @@ def test_a_scaled_down_4k_show_gets_its_grid_weighed_by_our_bitrate_too(
     подменена только карта опорных кадров, чтобы не ходить в рой.
     """
     from torrcast.cli import _layout
+    from torrcast.domain.delivered_mbit import AUDIO_MBIT, TS_OVERHEAD
     from torrcast.profile import CAUTIOUS
     from torrcast.state import Config
-    from torrcast.stream import AUDIO_MBIT, TS_OVERHEAD
 
     keys = _keys(duration=595.0, gop=8.5, rate=0.5e6)  # 4 Мбит/с - для карты это лёгкий файл
     monkeypatch.setattr(grid_for_module, "film_keys", lambda url: keys)
@@ -1984,9 +1969,9 @@ def test_the_grid_is_told_the_encoders_ceiling_not_its_average_target() -> None:
     - а не только то, признает ли сетка кусок тяжёлым.
     """
     from torrcast.cli import _layout
+    from torrcast.domain.delivered_mbit import AUDIO_MBIT, TS_OVERHEAD
     from torrcast.profile import CAUTIOUS
     from torrcast.state import Config
-    from torrcast.stream import AUDIO_MBIT, TS_OVERHEAD
 
     duration, period = 160.0, 13.4
     at = sorted(
@@ -2034,9 +2019,9 @@ def test_the_grid_is_told_the_encoders_ceiling_not_its_average_target() -> None:
 def test_the_spot_recode_ceiling_is_delivered_bitrate_not_bare_video() -> None:
     """Сетка считает тот же поток, который получит приёмник: видео, AAC и mpegts."""
     from torrcast.cli import _layout
+    from torrcast.domain.delivered_mbit import AUDIO_MBIT, TS_OVERHEAD
     from torrcast.profile import CAUTIOUS
     from torrcast.state import Config
-    from torrcast.stream import AUDIO_MBIT, TS_OVERHEAD
 
     duration, period = 80.0, 13.4
     at = sorted(
@@ -2075,9 +2060,9 @@ def test_a_gop_too_long_to_cut_pulls_the_whole_target_down() -> None:
     (TC-483). Чёткость тут и торгуется: гейт «ноль подгрузов» стоит выше неё.
     """
     from torrcast.cli import _layout
+    from torrcast.domain.delivered_mbit import AUDIO_MBIT, TS_OVERHEAD
     from torrcast.profile import CAUTIOUS
     from torrcast.state import Config
-    from torrcast.stream import AUDIO_MBIT, TS_OVERHEAD
 
     duration, gop = 200.0, 15.2  # опорные кадры редкие: между ними резать нечем
     keys = _keys(duration=duration, gop=gop, rate=5.0e6)

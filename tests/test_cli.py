@@ -19,7 +19,12 @@ from tests.fakes.choice_environment import FakeChoiceEnvironment
 from torrcast import InfraError, NotFoundError, SwarmError, cli
 from torrcast.cli import TABLE_LIMIT, is_candidate, is_disc, rank_releases, render_table, warned
 from torrcast.console import Progress
+from torrcast.domain.audio_track import AudioTrack
 from torrcast.domain.facts.fact import Fact
+from torrcast.domain.media import Media
+from torrcast.domain.runtime_guess import RUNTIME_GUESS
+from torrcast.domain.server_down_error import ServerDownError
+from torrcast.domain.torr_file import TorrFile
 from torrcast.parse import (
     Episode,
     Kind,
@@ -31,7 +36,6 @@ from torrcast.parse import (
 )
 from torrcast.profile import CAUTIOUS
 from torrcast.state import load_config
-from torrcast.stream import RUNTIME_GUESS, AudioTrack, Media, ServerDownError, TorrFile
 from torrcast.usecases.facts import Facts
 
 RUNTIME = RUNTIME_GUESS["movie"]
@@ -1164,8 +1168,9 @@ def test_a_disc_image_verdict_is_not_asked_twice(capsys: pytest.CaptureFixture[s
     Раздача, у которой метаданные приехали целиком и видеофайла в ней не оказалось,
     осуждена, а не промолчала: про неё известно всё, и терпение её ответа не изменит.
     Опознаётся это ТИПОМ отказа (:func:`torrcast.cli._silenced`), а типом тут обязан быть
-    тот же, что у «нужной серии нет» (:func:`torrcast.stream.pick_video_file` поднимает
-    его на пути настоящего прогрева, без всякого подставного ``choose``).
+    тот же, что у «нужной серии нет»
+    (:func:`torrcast.adapters.stream_probe.pick_video_file.pick_video_file` поднимает его на пути
+    настоящего прогрева, без всякого подставного ``choose``).
     """
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(2)]
     prober = _probes(ranked, "h264")
@@ -1263,8 +1268,8 @@ def test_a_named_hevc_release_is_not_a_warning_but_a_promise_to_recode(
 
 
 #: Кодеки, которых мы не берём на себя, по одному на релиз: перекод целиком замерен для
-#: HEVC (:data:`torrcast.stream.RECODE_CODECS`), а av1/vc1/vp9/mpeg2video остаются честным
-#: отказом. Раздаются на ВСЮ очередь: играбельный релиз ниже по списку отбор теперь
+#: HEVC (:data:`torrcast.domain.probe_settings.RECODE_CODECS`), а av1/vc1/vp9/mpeg2video остаются
+#: честным отказом. Раздаются на ВСЮ очередь: играбельный релиз ниже по списку отбор теперь
 #: дочерпывает (TC-188), и «годного нет» обязано означать, что годного правда нет.
 REFUSED = ("av1", "mpeg2video", "vc1", "vp9", "av1")
 
@@ -1704,7 +1709,8 @@ def test_the_ceiling_is_checked_again_by_the_file_not_by_the_torrent_size() -> N
     17.8 Мбит/с, на которых Q70D встаёт в ребуфер. Названный руками
     (``--release N``) берётся по-прежнему: там человек выбрал сам.
     """
-    from torrcast.stream import Media, TorrFile
+    from torrcast.domain.media import Media
+    from torrcast.domain.torr_file import TorrFile
 
     heavy = rel(size_gb=13.3 * 1e9 / GB)  # 13.3 ГБ по-магазинному, как их считает трекер
     assert is_candidate(heavy, RUNTIME, 16.0), "прикидка по раздаче потолок не превышает"
@@ -1730,7 +1736,8 @@ def test_the_ceiling_weighs_the_video_track_not_the_ten_dubs_around_it() -> None
     Числа живые: у «Моаны 2» контейнер 19.2 Мбит/с, а видеодорожка — 14.3.
     Паспорт молчит — считаем по размеру, как раньше, иначе 4K-ремукс проедет насквозь.
     """
-    from torrcast.stream import Media, TorrFile
+    from torrcast.domain.media import Media
+    from torrcast.domain.torr_file import TorrFile
 
     bench = cli._Bench(cast(Any, _FakeTorrServer()))
     prep = cli._Prep(number=1, release=rel(size_gb=13.3 * 1e9 / GB))
@@ -2998,7 +3005,7 @@ def test_cropped_widescreen_is_not_a_liar() -> None:
 def test_an_interlaced_file_is_named_what_it_is() -> None:
     """Названный «1080p» чересстрочник печатается «1080i»: гребёнку не подписывают прогрессивом.
 
-    Развёртка читается из потока (:attr:`torrcast.stream.Media.field_order`), а не из имени:
+    Развёртка читается из потока (:attr:`torrcast.domain.media.Media.field_order`), а не из имени:
     по имени такой релиз не поймать вовсе - «1080p» в заголовке и ``tb`` внутри.
     """
     inter = Media(5977.0, (), "h264", 1080, 1920, field_order="tb")

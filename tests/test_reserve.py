@@ -14,8 +14,8 @@ import pytest
 
 from tests.fakes.show_unit import FakeShowUnit
 from torrcast import cli
+from torrcast.domain.server_down_error import ServerDownError
 from torrcast.state import Config, Entry, State
-from torrcast.stream import ServerDownError
 
 KEY = "movie:моана-2:2024"
 HASH = "a" * 40

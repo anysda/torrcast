@@ -6,6 +6,7 @@ import pytest
 
 from torrcast.adapters import warm_environment
 from torrcast.adapters.warm_environment import environment
+from torrcast.usecases.feed_pack import packer as packer_module
 
 
 def test_warm_environment_has_monotonic_clock() -> None:
@@ -30,24 +31,23 @@ def test_the_media_tract_is_taken_from_its_slot_at_every_call(
     мерой, а не договорённостью.
 
     Упаковщик (:class:`Packer`) живёт в слое сценариев, и адаптеру он по имени недоступен
-    (правило слоёв), поэтому его адрес - прежний фасад; мера сторожит и его.
+    (правило слоёв), поэтому его адрес - модуль сценария строкой; мера сторожит и его.
     """
-    from torrcast import stream
 
     class _Sentinel:
         @classmethod
         def start(cls, *args: object, **kwargs: object) -> str:
-            return "упаковка с фасада"
+            return "упаковка из сценария"
 
     monkeypatch.setattr(warm_environment, "_pack_start", lambda url, at: 42.5)
     monkeypatch.setattr(warm_environment, "_segment_name", lambda slot: "имя из слота")
     monkeypatch.setattr(warm_environment, "_segment_slot", lambda name: 77)
     monkeypatch.setattr(warm_environment, "_pack_command", lambda *a, **k: ["команда из слота"])
-    monkeypatch.setattr(stream, "Packer", _Sentinel)
+    monkeypatch.setattr(packer_module, "Packer", _Sentinel)
     packer: Any = environment.packer_type
 
     assert environment.pack_start("нет", 0.0) == 42.5
     assert environment.segment_name(0) == "имя из слота"
     assert environment.segment_slot("нет") == 77
     assert environment.pack_command() == ["команда из слота"]
-    assert packer.start() == "упаковка с фасада"
+    assert packer.start() == "упаковка из сценария"

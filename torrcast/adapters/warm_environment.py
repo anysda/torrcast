@@ -36,7 +36,8 @@ class _LazyPacker:
 
     @classmethod
     def start(cls, *args: object, **kwargs: object) -> WarmPack:
-        started: WarmPack = import_module("torrcast.stream").Packer.start(*args, **kwargs)
+        packer = import_module("torrcast.usecases.feed_pack.packer").Packer
+        started: WarmPack = packer.start(*args, **kwargs)
         return started
 
 

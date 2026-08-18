@@ -14,7 +14,7 @@ def quality_text(release: Release, media: Media) -> str:
     «Моана 2» печаталась 1080p при 1150×574 внутри: заявка выигрывала у факта, то есть
     ровно та молчаливая подмена, которой быть не должно.
 
-    Буква развёртки тоже из потока (:attr:`torrcast.stream.Media.quality`): названный
+    Буква развёртки тоже из потока (:attr:`torrcast.domain.media.Media.quality`): названный
     «1080p» чересстрочник печатается «1080i» - гребёнку нельзя подписать прогрессивом.
     """
     return media.quality if media.height else (release.quality or "?")

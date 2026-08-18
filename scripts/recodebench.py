@@ -12,11 +12,11 @@
 ``--price`` (``--file ФАЙЛ`` или ``--film ХЕШ``)
     Цена **боевого** тракта: ровно та пара «сетка и решение о сплошном перекоде», которую
     собирает показ (:func:`torrcast.cli._layout`), и ровно та команда, которой он пакует
-    (:func:`torrcast.stream.ffmpeg_pack_command`). Отличие от ``--speed`` не косметическое:
-    там меряется чистая скорость кодека на готовом куске, а тут — секунда показа со всеми
-    её слагаемыми, включая подъём ffmpeg, чтение источника, ``-force_key_frames`` по
-    границам сетки, ужатие кадра и тонемап. 🔴 Ради этого режима щуп и написан: цену
-    сплошного перекода до сих пор мерили одноразовыми скриптами, и каждый мерил своё.
+    (:func:`torrcast.adapters.stream_pack.ffmpeg_pack_command.ffmpeg_pack_command`). Отличие от
+    ``--speed`` не косметическое: там меряется чистая скорость кодека на готовом куске, а тут —
+    секунда показа со всеми её слагаемыми, включая подъём ffmpeg, чтение источника,
+    ``-force_key_frames`` по границам сетки, ужатие кадра и тонемап. 🔴 Ради этого режима щуп и
+    написан: цену сплошного перекода до сих пор мерили одноразовыми скриптами, и каждый мерил своё.
 
 ``--profile --film ХЕШ``
     Профиль тяжести фильма по карте опорных кадров: сколько сегментов сетки приёмник не
@@ -33,9 +33,9 @@
 
 Источник у режимов, которым нужен файл, задаётся двояко: ``--film ХЕШ`` поднимает раздачу
 в TorrServer, ``--file ПУТЬ`` берёт файл с диска. Второе — не удобство: карта опорных
-кадров снимается Range-запросами (:func:`torrcast.stream.film_keys`), и локальному файлу
-поэтому поднимается своя мини-раздача (:func:`seekcheck.serve_file`). Без неё замер на
-собственном материале был невозможен вовсе, и цену перекода мерили на чём придётся.
+кадров снимается Range-запросами (:func:`torrcast.adapters.stream_pack.film_keys.film_keys`), и
+локальному файлу поэтому поднимается своя мини-раздача (:func:`seekcheck.serve_file`). Без неё замер
+на собственном материале был невозможен вовсе, и цену перекода мерили на чём придётся.
 """
 
 from __future__ import annotations
@@ -57,23 +57,21 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from probeprofile import choose as choose_profile
 from seekcheck import serve_file
 
+from torrcast.adapters.stream_pack.ffmpeg_pack_command import ffmpeg_pack_command
+from torrcast.adapters.stream_pack.film_keys import film_keys
+from torrcast.adapters.stream_pack.grid import Grid
+from torrcast.adapters.stream_pack.grid_for import grid_for
+from torrcast.adapters.stream_pack.hls_dir import hls_dir
+from torrcast.adapters.stream_probe.pick_video_file import pick_video_file
+from torrcast.adapters.stream_probe.probe import probe
+from torrcast.adapters.stream_probe.segment_slot import segment_slot
+from torrcast.adapters.torrserver.torr_server import TorrServer
 from torrcast.cli import _layout
 from torrcast.profile import Profile
 from torrcast.recode import Encode, Weights
 from torrcast.search import magnet_for
 from torrcast.state import Config, load_config
-from torrcast.stream import (
-    Grid,
-    Packer,
-    TorrServer,
-    ffmpeg_pack_command,
-    film_keys,
-    grid_for,
-    hls_dir,
-    pick_video_file,
-    probe,
-    segment_slot,
-)
+from torrcast.usecases.feed_pack.packer import Packer
 
 PRESET_LADDER = ("ultrafast", "superfast", "veryfast", "faster", "fast", "medium")
 
@@ -163,9 +161,9 @@ def price(
     * не родился ли кусок за потолком приёмника ещё до всякой выкладки.
 
     ⚠️ Хвост сетки в судьи не берётся: он склеивается с последним куском и на потолок веса
-    не проверялся никогда (:meth:`torrcast.stream.Grid.on_keyframes`).
+    не проверялся никогда (:meth:`torrcast.adapters.stream_pack.grid.Grid.on_keyframes`).
     """
-    from torrcast.stream import AUDIO_MBIT, TS_OVERHEAD
+    from torrcast.domain.delivered_mbit import AUDIO_MBIT, TS_OVERHEAD
 
     if mbit > 0:
         config = replace(config, recode_mbit=mbit)
@@ -203,7 +201,7 @@ def price(
     out = hls_dir(str(where))
     run = where / "run"
     # ⚠️ Пробного захода тут нет и быть не может: у перекодирующего прогона докатки нет,
-    # ``-ss`` точен (:func:`torrcast.stream.ffmpeg_pack_command`).
+    # ``-ss`` точен (:func:`torrcast.adapters.stream_pack.ffmpeg_pack_command.ffmpeg_pack_command`).
     command = ffmpeg_pack_command(
         source,
         0,
@@ -267,8 +265,8 @@ def calibrate(
     первого сегмента, и на нём стоит решение «класть копией или перекодировать». Байты
     карты — контейнер целиком, поэтому из них вычитается поправка «контейнер → ТВ»
     (:attr:`~torrcast.recode.Weights.extra`), а она до первой калибровки известна только
-    паспортом ffprobe (:func:`torrcast.stream._extra_mbit`) — и известна **одним числом на
-    весь фильм**.
+    паспортом ffprobe (:func:`torrcast.adapters.stream_pack.grid_for._extra_mbit`) — и известна
+    **одним числом на весь фильм**.
 
     Щуп пакует первые куски КОПИЕЙ — ровно тем, чем их положил бы показ, — и печатает три
     вещи на кусок: что обещала прикидка, что уехало на самом деле и куда после этого куска
@@ -303,7 +301,7 @@ def calibrate(
     until = min(slot + count - 1, grid.count - 2)  # хвост в судьи не берём
     out = hls_dir(str(where))
     run = where / "run"
-    from torrcast.stream import pack_start
+    from torrcast.adapters.stream_pack.pack_start import pack_start
 
     at = pack_start(url, grid.start(slot))
     command = ffmpeg_pack_command(url, 0, str(run), grid, slot, at, readrate=0.0, until=until)
@@ -316,9 +314,10 @@ def calibrate(
         time.sleep(0.5)
     code = packer.poll()
     # 🔴 Взвешивается то, что ffmpeg НАПИСАЛ, а не то, что выкладка отдала наружу.
-    # Разница не педантизм: тяжелее :data:`torrcast.stream.MAX_SEGMENT_BYTES` копия наружу
-    # не выходит вовсе (:meth:`torrcast.stream.Packer.publish`), а щупу нужен именно её
-    # вес - иначе ровно тот случай, ради которого щуп и заведён, из замера и выпадает.
+    # Разница не педантизм: тяжелее :data:`torrcast.domain.hls_settings.MAX_SEGMENT_BYTES` копия
+    # наружу не выходит вовсе (:meth:`torrcast.usecases.feed_pack.packer.Packer.publish`), а щупу
+    # нужен именно её вес - иначе ровно тот случай, ради которого щуп и заведён, из замера и
+    # выпадает.
     weighed = {s: p for p in run.glob("v*.ts") if slot <= (s := segment_slot(p.name)) <= until}
     print(f"копия v{slot}..v{until}: код возврата ffmpeg {code}, слово прогона: {packer.why()}")
     print(f"написано ffmpeg: {sorted(weighed) or 'ничего'}")
@@ -435,7 +434,7 @@ def dump(url: str, step: float, slot: int, count: int, where: Path) -> None:
     grid, _ = _grid_of(url, step)
     shutil.rmtree(where, ignore_errors=True)
     (where / "run").mkdir(parents=True)
-    from torrcast.stream import pack_start
+    from torrcast.adapters.stream_pack.pack_start import pack_start
 
     at = pack_start(url, grid.start(slot))
     command = ffmpeg_pack_command(url, 0, str(where / "run"), grid, slot, at, readrate=0.0)

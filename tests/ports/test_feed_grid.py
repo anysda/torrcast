@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+from torrcast.adapters.stream_pack.grid import Grid
 from torrcast.ports.feed_grid import FeedGrid
-from torrcast.stream import Grid
 
 ASKED = ("count", "duration", "origin", "start", "end", "span", "slot_at", "manifest")
 

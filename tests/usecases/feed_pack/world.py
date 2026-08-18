@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 import torrcast.usecases.feed_pack._state as _state
-from torrcast.stream import Grid
+from torrcast.adapters.stream_pack.grid import Grid
 from torrcast.usecases.feed_pack.feed import Feed
 from torrcast.usecases.feed_pack.packer import Packer
 

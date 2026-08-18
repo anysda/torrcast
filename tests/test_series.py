@@ -13,6 +13,8 @@ import pytest
 
 from torrcast import NotFoundError
 from torrcast.cli import Args, _plan_for, _Series, rank_releases
+from torrcast.domain.runtime_guess import RUNTIME_GUESS
+from torrcast.domain.torr_file import TorrFile
 from torrcast.parse import (
     Episode,
     EpisodeFile,
@@ -23,7 +25,6 @@ from torrcast.parse import (
     split_episode,
 )
 from torrcast.state import Config
-from torrcast.stream import RUNTIME_GUESS, TorrFile
 
 GB = 1024**3
 

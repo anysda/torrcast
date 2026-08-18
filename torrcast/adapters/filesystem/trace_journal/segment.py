@@ -16,8 +16,9 @@ def segment(slot: int, mb: float, sent: float, wait: float, src: str) -> None:
     :func:`digest`, поэтому поле стоит в каждой записи, а не только на переходах: по одним
     переходам нельзя сказать, чем шёл показ между ними.
 
-    🔴 Зовётся из горячего пути отдачи (:meth:`torrcast.stream._Handler._log_segment`):
-    только :func:`emit`, то есть только укладка в очередь.
+    🔴 Зовётся из горячего пути отдачи
+    (:meth:`torrcast.adapters.http_server._handler._Handler._log_segment`): только :func:`emit`, то
+    есть только укладка в очередь.
     """
     emit(
         "play",

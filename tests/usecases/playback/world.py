@@ -9,8 +9,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from torrcast.adapters.stream_pack.grid import Grid
 from torrcast.domain.film_keys import FilmKeys
-from torrcast.stream import Grid
 
 
 def grid(duration: float = 300.0, gop: float = 2.0, step: float = 10.0) -> Grid:

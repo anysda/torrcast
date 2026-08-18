@@ -38,10 +38,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from torrcast import TorrcastError, cli
+from torrcast.adapters.torrserver.torr_server import TorrServer
 from torrcast.console import Progress
 from torrcast.parse import Picture, Release
 from torrcast.state import load_config, state_path
-from torrcast.stream import TorrServer
 
 #: Каталог замера: своё состояние и свой кэш карт, рабочие не трогаются.
 BENCH = Path("/root/tc120")
@@ -105,7 +105,8 @@ def once(url: str, order: list[cli._Plan], think: float, spare: bool) -> tuple[f
 
 def weigh(url: str, magnet: str) -> str:
     """Настоящий вес релиза: что скажет ffprobe о файле, который поднят из этого magnet."""
-    from torrcast.stream import pick_video_file, probe
+    from torrcast.adapters.stream_probe.pick_video_file import pick_video_file
+    from torrcast.adapters.stream_probe.probe import probe
 
     torrserver = TorrServer(url)
     torrent_hash = torrserver.add(magnet)

@@ -31,7 +31,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
     from pathlib import Path
 
-    from torrcast.stream import Packer
+    from torrcast.usecases.feed_pack.packer import Packer
 
 #: Имена, уехавшие из плоского фасада в свои модули: куда доводить подмену прежнего имени.
 #: Адресов у имени бывает несколько: порог отсрочки читают и стенд отбора, и правило,
@@ -489,9 +489,10 @@ def clip(tmp_path_factory: pytest.TempPathFactory) -> str:
 def clip_hevc(tmp_path_factory: pytest.TempPathFactory) -> str:
     """Ролик-источник в HEVC — то, чего приёмник не декодирует вовсе.
 
-    Такой файл показ обязан перекодировать ЦЕЛИКОМ (:data:`torrcast.stream.RECODE_CODECS`),
-    а не посегментно по весу: смешанный поток H.264 и HEVC живой Q70D не доигрывает.
-    Кадр мелкий и ``ultrafast`` — ролик собирается за секунды.
+    Такой файл показ обязан перекодировать ЦЕЛИКОМ
+    (:data:`torrcast.domain.probe_settings.RECODE_CODECS`), а не посегментно по весу: смешанный поток
+    H.264 и HEVC живой Q70D не доигрывает. Кадр мелкий и ``ultrafast`` — ролик собирается за
+    секунды.
     """
     path = tmp_path_factory.mktemp("src-hevc") / "clip.mkv"
     subprocess.run(
@@ -597,12 +598,12 @@ def fake_packer(
     Каталог прогона (``out/pack``) не создаётся: значит :meth:`Packer.publish` выкладывать
     нечего, и наружу остаётся ровно то, что тест положил своими руками.
 
-    ``edge`` — честный край прогона (:attr:`torrcast.stream.Packer.edge`), то есть докуда
-    **этот** прогон выложил. Без ffmpeg двигать его некому, поэтому фикстура спрашивает
-    об этом тест. Умолчание — «выложил всё, что лежит в каталоге на момент создания»:
-    так читается обычный случай «тест положил куски руками, они и есть работа прогона».
-    Куски, положенные ПОСЛЕ создания, краем уже не считаются — ровно этим отличается
-    честный край от глоба каталога, и на этом различии держится расчёт запаса показа.
+    ``edge`` — честный край прогона (:attr:`torrcast.usecases.feed_pack.packer.Packer.edge`), то есть
+    докуда **этот** прогон выложил. Без ffmpeg двигать его некому, поэтому фикстура спрашивает об
+    этом тест. Умолчание — «выложил всё, что лежит в каталоге на момент создания»: так читается
+    обычный случай «тест положил куски руками, они и есть работа прогона». Куски, положенные ПОСЛЕ
+    создания, краем уже не считаются — ровно этим отличается честный край от глоба каталога, и на
+    этом различии держится расчёт запаса показа.
 
     ``at``/``rate``/``burst``/``began`` — планка чтения ffmpeg (:meth:`Packer.eta`): с
     какой секунды фильма прогон читает вход, в каком темпе, сколько секунд читал на полной
@@ -610,13 +611,16 @@ def fake_packer(
     никогда: так читаются все тесты, где вопрос не про темп.
 
     ``run`` и ``last`` нужны там, где проверяется сама выкладка: каталог прогона со
-    своими кусками и предел захода кодировщика (:attr:`torrcast.stream.Packer.last`).
+    своими кусками и предел захода кодировщика
+    (:attr:`torrcast.usecases.feed_pack.packer.Packer.last`).
 
     ``kind`` - каким прогоном притвориться. Умолчание - настоящий :class:`Packer`; свой
     наследник нужен там, где проверяется поведение показа на прогоне с иным исходом
     (оборванный вход, чужой код возврата), а подменять метод у общего класса нельзя.
     """
-    from torrcast.stream import PACK_DIR, Packer, segment_slot
+    from torrcast.adapters.stream_probe.segment_slot import segment_slot
+    from torrcast.domain.hls_settings import PACK_DIR
+    from torrcast.usecases.feed_pack.packer import Packer
 
     if edge is None:
         made = [s for s in (segment_slot(p.name) for p in out.glob("v*.ts")) if s >= first]

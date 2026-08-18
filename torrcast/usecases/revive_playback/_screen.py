@@ -51,7 +51,7 @@ def _note_transitions(screen: _Screen, feed: Feed, position: Position) -> None:
         screen.was_offline = bool(feed.offline)
         if screen.was_offline:
             # Догадка, а не ответ источника: сюда приходят обрывы, замеченные самой
-            # упаковкой (:meth:`torrcast.stream.Feed._survive`, :meth:`_mute`).
+            # упаковкой (:meth:`torrcast.usecases.feed_pack.feed.Feed._survive`, :meth:`_mute`).
             journal().offline(why=str(feed.offline), asked=False)
 
 

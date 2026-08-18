@@ -7,8 +7,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from torrcast.adapters._legacy_stream_types import Grid
     from torrcast.adapters.recode.weights import Weights
+    from torrcast.adapters.stream_pack.grid import Grid
 
 
 def _targets(weights: Weights, grid: Grid, threshold: float, cap: int) -> tuple[int, ...]:

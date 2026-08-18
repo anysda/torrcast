@@ -8,11 +8,11 @@ import pytest
 
 import torrcast.usecases.playback._show_state as _state
 from tests.usecases.playback.world import film_keys, grid
+from torrcast.adapters.stream_pack.grid import Grid
 from torrcast.domain.config import Config
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.profile import CAUTIOUS
 from torrcast.recode import Encode, Recoder, Weights
-from torrcast.stream import Grid
 from torrcast.usecases.playback._recoder import _recoder
 
 

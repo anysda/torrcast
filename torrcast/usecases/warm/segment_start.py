@@ -32,9 +32,10 @@ def segment_start(path: Path) -> float:
     ПОКАЗА. У релиза с B-кадрами DTS того же кадра лежит на кадр-другой раньше PTS, и
     сверка по DTS видела бы этот зазор как расхождение. Метки абсолютные - это ``-copyts``
     у обоих упаковщиков
-    (:func:`torrcast.stream.ffmpeg_pack_command`), поэтому PTS - это время фильма плюс
-    начало ленты, одно на все заходы (:func:`torrcast.stream.pack_origin`); прибавляет его
-    к границе сама сверка (:meth:`Warmer._verify`).
+    (:func:`torrcast.adapters.stream_pack.ffmpeg_pack_command.ffmpeg_pack_command`), поэтому PTS -
+    это время фильма плюс начало ленты, одно на все заходы
+    (:func:`torrcast.adapters.stream_pack.pack_origin.pack_origin`); прибавляет его к границе сама
+    сверка (:meth:`Warmer._verify`).
 
     PCR - запасной ответ: если в голове файла пакета видео с меткой не нашлось, начало
     берётся по часам транспорта. Он на преролл муксера раньше PTS, и порог

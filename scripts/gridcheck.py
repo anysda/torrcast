@@ -27,13 +27,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from torrcast.stream import (
-    Grid,
-    Packer,
-    ffmpeg_pack_command,
-    grid_for,
-    pack_start,
-)
+from torrcast.adapters.stream_pack.ffmpeg_pack_command import ffmpeg_pack_command
+from torrcast.adapters.stream_pack.grid import Grid
+from torrcast.adapters.stream_pack.grid_for import grid_for
+from torrcast.adapters.stream_pack.pack_start import pack_start
+from torrcast.usecases.feed_pack.packer import Packer
 
 WORK = Path("/dev/shm/torrcast-gridcheck")
 

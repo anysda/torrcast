@@ -12,6 +12,7 @@ from torrcast.adapters.recode.presets import PRESETS
 from torrcast.adapters.recode.recoder_state import _State
 from torrcast.adapters.recode.run import HEAD_NICE, NICE, _run
 from torrcast.adapters.recode.weights import Weights
+from torrcast.usecases.feed_pack.packer import Packer
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -27,15 +28,13 @@ def _state(spare: Path) -> _State:
 
 
 def _commands(spare: Path, monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
-    from torrcast import stream
-
     seen: list[list[str]] = []
 
     def _remember(cls: object, command: list[str], /, *a: object, **k: object) -> Any:
         seen.append(command)
         return fake_packer(spare)
 
-    monkeypatch.setattr(stream.Packer, "start", classmethod(_remember))
+    monkeypatch.setattr(Packer, "start", classmethod(_remember))
     return seen
 
 
@@ -83,7 +82,7 @@ def test_the_target_is_taken_from_the_longest_piece_of_the_run(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """🔴 TC-483: заход идёт одним ``-b:v`` на все куски, значит судит самый длинный."""
-    from torrcast.stream import Grid
+    from torrcast.adapters.stream_pack.grid import Grid
 
     lines = Grid(bounds=(0.0, 6.0, 26.0, 32.0), duration=45.0, on_keys=True)
     weights = Weights.of(keys(rate=4.0e6), lines)
@@ -123,8 +122,6 @@ def test_a_run_that_delivered_is_counted_by_its_own_packer_edge(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Считаем по краю СВОЕГО упаковщика: готовый кусок из каталога уже мог забрать показ."""
-    from torrcast import stream
-
     state = _state(tmp_path)
     said: list[str] = []
     state.log = said.append
@@ -132,7 +129,7 @@ def test_a_run_that_delivered_is_counted_by_its_own_packer_edge(
     def _remember(cls: object, command: list[str], /, *a: object, **k: object) -> Any:
         return fake_packer(tmp_path, first=4, edge=5)
 
-    monkeypatch.setattr(stream.Packer, "start", classmethod(_remember))
+    monkeypatch.setattr(Packer, "start", classmethod(_remember))
 
     _run(state, 4, 6)
 

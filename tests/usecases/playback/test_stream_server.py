@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from torrcast.stream import HlsServer
+from torrcast.adapters.http_server.hls_server import HlsServer
 from torrcast.usecases.playback.stream_server import StreamServer
 
 

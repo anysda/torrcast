@@ -19,25 +19,23 @@ from typing import Any
 
 import pytest
 
-from tests.conftest import CLIP_SECONDS, free_port
+from tests.conftest import CLIP_SECONDS, free_port, module_of
 from torrcast import cli, trace
 from torrcast.adapters import warm_environment
+from torrcast.adapters.stream_pack.ffmpeg_pack_command import ffmpeg_pack_command
+from torrcast.adapters.stream_pack.grid import Grid
+from torrcast.adapters.stream_pack.grid_for import grid_for
+from torrcast.adapters.stream_pack.hls_dir import hls_dir
+from torrcast.adapters.stream_pack.pack_start import pack_start
+from torrcast.adapters.stream_probe.segment_name import segment_name
 from torrcast.cast import MockReceiver, Position, trust_anchor
 from torrcast.cli import Watch as _Watch
 from torrcast.cli import _Clock, _play, _Stopped
+from torrcast.domain.hls_settings import SPLIT_SLACK
 from torrcast.domain.warm_settings import WARM_BUDGET
 from torrcast.state import Config, Entry, State
-from torrcast.stream import (
-    SPLIT_SLACK,
-    Feed,
-    Grid,
-    Packer,
-    ffmpeg_pack_command,
-    grid_for,
-    hls_dir,
-    pack_start,
-    segment_name,
-)
+from torrcast.usecases.feed_pack.feed import Feed
+from torrcast.usecases.feed_pack.packer import Packer
 from torrcast.usecases.warm import (
     FREE_FLOOR,
     GUARD_HIGH,
@@ -54,6 +52,10 @@ from torrcast.usecases.warm import (
     warm_key,
     warm_root,
 )
+
+#: Модуль сценария, а не одноимённая единица: адаптер прогрева идёт за упаковщиком
+#: строкой ровно туда, и подмена для пробы обязана лечь в тот же модуль.
+packer_module = module_of("torrcast.usecases.feed_pack.packer")
 
 
 def _vault(tmp_path: Path, key: str = "k", budget: int = 1 << 30, floor: int = 0) -> Vault:
@@ -78,7 +80,7 @@ def _warm_clip_for_show(clip: str, tmp_path: Path) -> Grid:
     тест сверяет, что состояние увидело ровно столько, сколько лежит на диске.
     """
     # Сетку строит та же фабрика, что и показ: в ключ каталога входит начало ленты
-    # (:func:`torrcast.stream.pack_origin`), а его знает только она.
+    # (:func:`torrcast.adapters.stream_pack.pack_origin.pack_origin`), а его знает только она.
     grid = grid_for(clip, float(CLIP_SECONDS), 10.0, False)
     vault = Vault(
         root=warm_root(str(tmp_path / "warm")),
@@ -153,7 +155,7 @@ def test_a_warmed_copy_heavier_than_the_ceiling_is_not_a_warmed_piece(tmp_path: 
     Прогрев кладёт фильм на диск копией, а тяжёлые места приводит к перекоду отдельным,
     поздним заходом (:meth:`torrcast.usecases.warm.Warmer._spots_left`). До него на месте тяжёлого
     куска лежит копия во весь свой вес, а показ берёт прогретое напрямую с диска - мимо
-    обоих мест, где вес зажат потолком (:meth:`torrcast.stream.Packer.publish`,
+    обоих мест, где вес зажат потолком (:meth:`torrcast.usecases.feed_pack.packer.Packer.publish`,
     :meth:`torrcast.recode.Recoder.holding`).
 
     Замер на живом Q70D («Тачки» 2006, 1080p, 39% фильма тяжелее потолка): прогрев обгонял
@@ -178,10 +180,10 @@ def test_a_warmed_copy_heavier_than_the_ceiling_is_not_a_warmed_piece(tmp_path: 
 def test_the_warmed_counter_names_only_what_the_show_can_take(tmp_path: Path) -> None:
     """«Прогрето NN» называет то, что показ возьмёт с диска, а не то, что просто лежит.
 
-    Копия тяжелее потолка приёмника наружу не идёт (:meth:`torrcast.stream.Feed._warm`):
-    под таким местом работает живая упаковка, и обрыва связи оно не переживёт. Замер
-    («Тачки» 2006, 1080p): тяжелее потолка 38 % кусков - ровно на столько человеку и
-    приписывался запас, которого у него нет.
+    Копия тяжелее потолка приёмника наружу не идёт
+    (:meth:`torrcast.usecases.feed_pack.feed.Feed._warm`): под таким местом работает живая упаковка,
+    и обрыва связи оно не переживёт. Замер («Тачки» 2006, 1080p): тяжелее потолка 38 % кусков -
+    ровно на столько человеку и приписывался запас, которого у него нет.
 
     Заодно сверяется, что честный счёт не сдвинул укладку: прогреву тяжёлое место
     по-прежнему видно уложенным, иначе он перекладывал бы его вечно.
@@ -665,7 +667,7 @@ def _warmer(tmp_path: Path) -> Warmer:
 def test_the_forecast_weighs_pieces_by_the_keyframe_map(tmp_path: Path) -> None:
     """Прикидка веса захода взвешивает каждый кусок по карте опорных кадров - по той же,
     по которой показ строит сетку и профиль тяжести, - а не «кусок равен потолку»."""
-    from torrcast.stream import MAX_SEGMENT_BYTES
+    from torrcast.domain.hls_settings import MAX_SEGMENT_BYTES
 
     keys = [float(k * 2) for k in range(31)]
 
@@ -694,7 +696,7 @@ def test_the_forecast_weighs_pieces_by_the_keyframe_map(tmp_path: Path) -> None:
 
 def test_the_forecast_falls_back_to_the_ceiling_without_a_map(tmp_path: Path) -> None:
     """Карты нет - вес куска неизвестен, и прикидка остаётся прежней: по потолку."""
-    from torrcast.stream import MAX_SEGMENT_BYTES
+    from torrcast.domain.hls_settings import MAX_SEGMENT_BYTES
 
     grid = _grid()
     assert grid.weigh is None, "ровная сетка не должна нести предсказателя веса"
@@ -746,9 +748,7 @@ def test_the_budget_is_rechecked_as_the_run_lays_pieces(
     место под заход было (20 + 5x16 = 100 МБ из 105), а после третьего куска прогрев
     обязан встать с честной причиной, а не доложить остаток сверх бюджета.
     """
-    from torrcast import stream
-
-    monkeypatch.setattr(stream, "Packer", _LayingPacker)
+    monkeypatch.setattr(packer_module, "Packer", _LayingPacker)
     monkeypatch.setattr(warm_environment, "_pack_start", lambda url, at: at)
     grid = _grid()
     said: list[str] = []
@@ -966,7 +966,7 @@ def test_the_recoder_reaches_the_next_episode_warmer_too(tmp_path: Path) -> None
 
 # --- TC-106: прогретый кусок и живой обязаны быть однородны ---------------------
 # Куски одного показа приходят приёмнику из двух мест - из окна живой упаковки и с диска
-# (:meth:`torrcast.stream.Feed.segment`), - и для приёмника это ОДНА лента. Если два
+# (:meth:`torrcast.usecases.feed_pack.feed.Feed.segment`), - и для приёмника это ОДНА лента. Если два
 # производителя решают про кодирование по-разному, на стыке меняется SPS: другой профиль,
 # другая энтропийная кодировка, другая глубина буфера кадров. Тесты ниже проверяют не
 # аргументы ffmpeg, а выданные байты.
@@ -1122,11 +1122,12 @@ def test_warming_enters_the_run_exactly_where_the_live_packing_enters_it(
     """Прогретый кусок побайтово равен живому НА ВСЁМ заходе, а не местами.
 
     Улика, ради которой тест написан: прогрев называл ffmpeg задуманное сеткой начало
-    (``grid.start``), а живая упаковка - измеренное (:func:`torrcast.stream.pack_start`).
-    ffmpeg вставал раньше, резы захода уезжали на всю докатку, и первый кусок прогрева
-    начинался на 1.7 с раньше своей границы: PCR и метки видео шли НАЗАД на стыке с живым
-    куском. Там, где в сдвинутом окне не оказывалось опорного кадра, рез вставал верно и
-    кусок совпадал с живым - поэтому сравниваются все куски захода, а не один.
+    (``grid.start``), а живая упаковка - измеренное
+    (:func:`torrcast.adapters.stream_pack.pack_start.pack_start`). ffmpeg вставал раньше, резы захода
+    уезжали на всю докатку, и первый кусок прогрева начинался на 1.7 с раньше своей границы: PCR и
+    метки видео шли НАЗАД на стыке с живым куском. Там, где в сдвинутом окне не оказывалось опорного
+    кадра, рез вставал верно и кусок совпадал с живым - поэтому сравниваются все куски захода, а не
+    один.
     """
     grid = _offkey_grid()
     first, last = 2, grid.count - 1
@@ -1161,8 +1162,9 @@ def test_the_recoding_run_of_the_warming_never_asks_the_pilot(
     """У перекодирующего захода ``-ss`` точен, и пробный прогон ему вреден.
 
     Измеренное начало увело бы такой заход на сегмент назад: докатки он не делает вовсе
-    (:func:`torrcast.stream.ffmpeg_pack_command`). Пробный прогон тут подменён заведомо
-    неверным ответом - если прогрев его спросит и послушает, кусок ляжет не на своё место.
+    (:func:`torrcast.adapters.stream_pack.ffmpeg_pack_command.ffmpeg_pack_command`). Пробный прогон
+    тут подменён заведомо неверным ответом - если прогрев его спросит и послушает, кусок ляжет не на
+    своё место.
     """
     from torrcast.recode import Encode
 
@@ -1406,8 +1408,7 @@ def test_a_piece_over_the_receiver_ceiling_never_stops_the_warm_publishing(
     прогоном и тяжёлое место перекладывалось бы вечно), но запасом не считается - его не
     видит ни :attr:`Warmer.warmed`, ни :attr:`Warmer.done`.
     """
-    from torrcast import stream
-    from torrcast.stream import MAX_SEGMENT_BYTES
+    from torrcast.domain.hls_settings import MAX_SEGMENT_BYTES
 
     seen: dict[str, Any] = {}
 
@@ -1435,7 +1436,7 @@ def test_a_piece_over_the_receiver_ceiling_never_stops_the_warm_publishing(
         def stop(self, keep_files: bool = True, reason: str = "") -> None:
             return None
 
-    monkeypatch.setattr(stream, "Packer", _Recorder)
+    monkeypatch.setattr(packer_module, "Packer", _Recorder)
     monkeypatch.setattr(warm_environment, "_pack_start", lambda url, at: at)
     grid = _grid()
     warmer = Warmer(source="нет", audio=0, grid=grid, vault=_vault(tmp_path), slack=1e6)

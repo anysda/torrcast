@@ -22,9 +22,14 @@ import pytest
 from tests.conftest import module_of
 from tests.test_cli import _FakeTorrServer, _plan, _probes, _resolve, rel
 from torrcast import InfraError, NotFoundError, SwarmError, cli
-from torrcast import stream as stream_mod
+from torrcast.adapters.stream_probe.run_ffprobe import _run_ffprobe
+from torrcast.adapters.stream_probe.swarm_pulse import swarm_pulse
+from torrcast.adapters.torrserver.torr_server import META_STEP_MAX, TorrServer
+from torrcast.domain.audio_track import AudioTrack
+from torrcast.domain.media import Media
+from torrcast.domain.server_down_error import ServerDownError
+from torrcast.domain.warm_open import KEYS_KEPT
 from torrcast.parse import Release
-from torrcast.stream import Media, ServerDownError, swarm_pulse
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -37,7 +42,7 @@ film_keys_module = module_of("torrcast.adapters.stream_pack.film_keys")
 def test_run_ffprobe_returns_the_moment_the_probe_exits() -> None:
     """Живой релиз не ждёт бюджета: как только ffprobe вышел, отдаём его вывод."""
     began = time.monotonic()
-    out = stream_mod._run_ffprobe(["printf", "hello"], timeout=40.0, alive=lambda: True)
+    out = _run_ffprobe(["printf", "hello"], timeout=40.0, alive=lambda: True)
     assert out == "hello"
     assert time.monotonic() - began < 2.0
 
@@ -46,7 +51,7 @@ def test_run_ffprobe_bails_at_once_on_a_swarm_declared_dead() -> None:
     """Рой признан мёртвым — обрываем ffprobe сразу, а не досиживаем весь timeout."""
     began = time.monotonic()
     with pytest.raises(InfraError, match="рой молчит"):
-        stream_mod._run_ffprobe(["sleep", "40"], timeout=40.0, alive=lambda: False)
+        _run_ffprobe(["sleep", "40"], timeout=40.0, alive=lambda: False)
     assert time.monotonic() - began < 3.0
 
 
@@ -54,7 +59,7 @@ def test_run_ffprobe_keeps_the_full_budget_while_the_stream_is_alive() -> None:
     """Пока поток жив, бюджет тратится полностью и таймаут остаётся прежним."""
     began = time.monotonic()
     with pytest.raises(subprocess.TimeoutExpired):
-        stream_mod._run_ffprobe(["sleep", "40"], timeout=0.5, alive=lambda: True)
+        _run_ffprobe(["sleep", "40"], timeout=0.5, alive=lambda: True)
     assert 0.4 <= time.monotonic() - began < 4.0
 
 
@@ -188,15 +193,15 @@ def test_the_same_words_without_the_type_do_not_stop_the_queue(
 # старте мы досыпали уже поверх готовых метаданных.
 
 
-class _Late(stream_mod.TorrServer):
+class _Late(TorrServer):
     """Клиент TorrServer, у которого метаданные приезжают в назначенный момент времени.
 
     Именно по времени, а не «на N-м опросе»: шаг опроса как раз и меняет число опросов,
     и счётчик мерил бы не то. Единственный поход по сети подменён, остальной
-    :meth:`~torrcast.stream.TorrServer.wait_files` живой.
+    :meth:`~torrcast.adapters.torrserver.torr_server.TorrServer.wait_files` живой.
 
     ``peers`` - что служба отвечает про рой: ``None`` значит «не сказала ничего», и это
-    не то же самое, что «пиров нет» (:func:`~torrcast.stream.swarm_alive`).
+    не то же самое, что «пиров нет» (:func:`~torrcast.domain.swarm_alive.swarm_alive`).
     """
 
     def __init__(self, ready_after: float, peers: int | None = None) -> None:
@@ -222,14 +227,14 @@ def test_metadata_are_taken_up_within_a_step_not_within_a_second() -> None:
     began = time.monotonic()
     assert client.wait_files("hash", timeout=5.0), "метаданные всё-таки приехали"
     late = time.monotonic() - began - 0.3
-    assert late <= stream_mod.META_STEP_MAX + 0.05, f"метаданные пролежали лишние {late:.2f} с"
+    assert late <= META_STEP_MAX + 0.05, f"метаданные пролежали лишние {late:.2f} с"
 
 
 def test_the_poll_never_turns_into_a_flood() -> None:
     """Мелкий шаг - не повод долбить TorrServer: частота опроса имеет потолок."""
     client = _Late(0.5)
     client.wait_files("hash", timeout=5.0)
-    ceiling = 0.5 / stream_mod.META_STEP_MAX + 4  # +4 - разгон лестницы с мелкого шага
+    ceiling = 0.5 / META_STEP_MAX + 4  # +4 - разгон лестницы с мелкого шага
     assert client.polls <= ceiling, f"{client.polls} опросов за полсекунды - это долбёжка"
 
 
@@ -314,7 +319,7 @@ def test_swarm_alive_counts_contacts_and_not_addresses_from_dht() -> None:
     сработала бы ни разу, и отказ по-прежнему стоил бы полный бюджет.
     """
     from torrcast.domain.json_value import JsonValue
-    from torrcast.stream import swarm_alive
+    from torrcast.domain.swarm_alive import swarm_alive
 
     dead: dict[str, JsonValue] = {
         "stat": 1,
@@ -341,7 +346,7 @@ def test_swarm_alive_counts_contacts_and_not_addresses_from_dht() -> None:
     assert swarm_alive({"file_stats": [], "torrent_size": 8 << 30}) is None
 
 
-class _Offline(stream_mod.TorrServer):
+class _Offline(TorrServer):
     """Клиент службы без сети: хэш берётся из магнита, снос копится списком.
 
     Что именно отвечает раздача - дело наследника: тут проверяется отбор, а не разбор
@@ -497,7 +502,8 @@ def test_the_key_shelf_is_trimmed_and_what_was_asked_today_survives(
     смотрят каждый вечер, снимается один раз, и возраст сделал бы её первой кандидаткой
     на вылет - то есть кэш выбрасывал бы ровно то, ради чего он заведён.
     """
-    from torrcast.stream import _keys_cache, film_keys
+    from torrcast.adapters.stream_pack._keys_shelf import _keys_cache
+    from torrcast.adapters.stream_pack.film_keys import film_keys
 
     monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
     monkeypatch.setattr(film_keys_module, "KEYS_KEPT", 8)
@@ -527,12 +533,12 @@ def test_the_probe_shelf_is_trimmed_by_the_same_rule(
     не стали. Потому и потолок отдельный.
     """
     from torrcast.adapters.stream_probe import media_shelf
-    from torrcast.stream import _keep_media, _media_cache, _read_media
+    from torrcast.adapters.stream_probe.media_shelf import _keep_media, _media_cache, _read_media
 
     monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
     # Потолок полки читает та же запись паспорта, которую здесь и зовут.
     monkeypatch.setattr(media_shelf, "PROBE_KEPT", 8)
-    passport = Media(3600.0, (stream_mod.AudioTrack(0, "rus", "", "aac", 2),), "h264")
+    passport = Media(3600.0, (AudioTrack(0, "rus", "", "aac", 2),), "h264")
 
     for number in range(8):
         _keep_media(_media_cache(_url(number)), passport)
@@ -556,7 +562,8 @@ def test_junk_on_the_shelf_is_ignored_and_never_crashes_the_start(
     Полка - ускорение, а не источник правды. Заодно проверяется, что подрезка не трогает
     чужого: черновики и замки соседних писателей не её дело.
     """
-    from torrcast.stream import _keys_cache, film_keys
+    from torrcast.adapters.stream_pack._keys_shelf import _keys_cache
+    from torrcast.adapters.stream_pack.film_keys import film_keys
 
     monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
     monkeypatch.setattr(film_keys_module, "KEYS_KEPT", 4)
@@ -585,20 +592,22 @@ def test_trimming_does_not_hold_up_the_start(
     Полная полка, худший случай - тот показ, на котором подрезка и случается: он платит
     полный обход со ``stat``. Всё остальное время это один ``scandir``.
     """
-    from torrcast.stream import _keys_cache, _trim, film_keys
+    from torrcast.adapters.stream_pack._keys_shelf import _keys_cache
+    from torrcast.adapters.stream_pack.film_keys import film_keys
+    from torrcast.adapters.stream_probe.shelf import _trim
 
     monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
     _fake_map(monkeypatch)
     film_keys(_url(0))
     shelf = _keys_cache(_url(0)).parent
-    for number in range(stream_mod.KEYS_KEPT + 1):
+    for number in range(KEYS_KEPT + 1):
         (shelf / f"{number:016x}.json").write_text("{}", "utf-8")
 
     began = time.monotonic()
-    _trim(shelf, stream_mod.KEYS_KEPT)  # перебор потолка: полный обход и удаление
+    _trim(shelf, KEYS_KEPT)  # перебор потолка: полный обход и удаление
     worst = time.monotonic() - began
     began = time.monotonic()
-    _trim(shelf, stream_mod.KEYS_KEPT)  # полка под потолком: один scandir
+    _trim(shelf, KEYS_KEPT)  # полка под потолком: один scandir
     usual = time.monotonic() - began
     assert worst < 0.1, f"подрезка полной полки стоила {worst * 1000:.1f} мс"
     assert usual < 0.02, f"обычная проверка полки стоила {usual * 1000:.1f} мс"

@@ -20,7 +20,7 @@ from torrcast.domain.profile import CAUTIOUS
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from torrcast.adapters._legacy_stream_types import Grid
+    from torrcast.adapters.stream_pack.grid import Grid
 
 
 @dataclass(slots=True)
@@ -35,8 +35,8 @@ class _State:
     threshold: float = 15.0
     #: Потолок веса одного куска - свойство ПРИЁМНИКА
     #: (:attr:`torrcast.profile.Profile.max_segment_bytes`), то же число, которым меряет
-    #: показ (:attr:`torrcast.stream.Feed.cap`). Раньше каталог перекода судил по
-    #: :data:`torrcast.stream.MAX_SEGMENT_BYTES` - осторожному умолчанию, - и приёмник с
+    #: показ (:attr:`torrcast.usecases.feed_pack.feed.Feed.cap`). Раньше каталог перекода судил по
+    #: :data:`torrcast.domain.hls_settings.MAX_SEGMENT_BYTES` - осторожному умолчанию, - и приёмник с
     #: другим потолком получал от кодировщика не свою мерку. Умолчание тут то же
     #: осторожное, так что для Q70D не меняется ничего.
     cap: int = CAUTIOUS.max_segment_bytes
@@ -62,7 +62,7 @@ class _State:
     head_wait: float = 12.0
     #: Сколько ЖДЁМ перекод куска, копия которого тяжелее потолка (:meth:`_hold_bulky`),
     #: секунды. Это не срок «успеет ли», а предохранитель от вечного ожидания: копию
-    #: тяжелее :data:`torrcast.stream.MAX_SEGMENT_BYTES` по сроку не отпускают вовсе, и
+    #: тяжелее :data:`torrcast.domain.hls_settings.MAX_SEGMENT_BYTES` по сроку не отпускают вовсе, и
     #: без потолка сдохший кодировщик держал бы показ до 404.
     #:
     #: 45 с - с запасом впятеро: самый длинный кусок сетки (20 с фильма) ultrafast'ом
@@ -140,9 +140,10 @@ class _State:
     def oversize(self, slot: int, size: int = 0) -> bool:
         """Копия этого куска тяжелее потолка, то есть наружу её отдавать нельзя.
 
-        ``size`` — вес копии, уже лежащей на диске (:meth:`torrcast.stream.Packer.publish`
-        знает его точно, один ``stat``); ноль — копии ещё нет, берём предсказание по карте
-        (:meth:`Weights.size`), оно завышает на 12 % и промахивается в безопасную сторону.
+        ``size`` — вес копии, уже лежащей на диске
+        (:meth:`torrcast.usecases.feed_pack.packer.Packer.publish` знает его точно, один ``stat``);
+        ноль — копии ещё нет, берём предсказание по карте (:meth:`Weights.size`), оно завышает на 12
+        % и промахивается в безопасную сторону.
         """
         if size > 0:
             return size > self.cap

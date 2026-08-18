@@ -25,7 +25,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from torrcast.stream import Grid
+from torrcast.adapters.stream_pack.grid import Grid
 from torrcast.usecases.warm import GUARD_HIGH, GUARD_LOW, Vault, Warmer
 
 

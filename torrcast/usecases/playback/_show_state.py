@@ -39,7 +39,7 @@ forget_playing: Callable[[Path], None]
 start_play_unit: Callable[[str], None]
 film_keys: Callable[[str], FilmKeys]
 grid_for: MediaGrids
-#: Раздача по http (:class:`torrcast.stream.HlsServer`), оба кодировщика
+#: Раздача по http (:class:`torrcast.adapters.http_server.hls_server.HlsServer`), оба кодировщика
 #: (:class:`torrcast.recode.Encode`, :class:`torrcast.recode.Recoder`), профиль тяжести
 #: (:class:`torrcast.recode.Weights`) и сплошной перекод: классы адаптеров, у которых в
 #: слое сценариев есть только имя.

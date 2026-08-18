@@ -15,9 +15,11 @@ import pytest
 
 from tests.fakes.show_unit import FakeShowUnit
 from torrcast import cli
+from torrcast.domain.audio_track import AudioTrack
+from torrcast.domain.media import Media
+from torrcast.domain.torr_file import TorrFile
 from torrcast.search import RawResult
 from torrcast.state import Config, Entry, State, save_config
-from torrcast.stream import AudioTrack, Media, TorrFile
 from torrcast.usecases.playback import _show_state as playback_state
 
 #: Настоящее ожидание картинки: фикстура окружения подменяет его заглушкой, а один тест
@@ -394,8 +396,10 @@ def test_the_start_time_means_a_picture_on_the_screen(
     Доказательство картинки одно: показ увидел ``PLAYING`` и положил флажок. Пока
     флажка нет, CLI честно стоит в фазе «жду телевизор».
     """
+    from torrcast.adapters.stream_pack.forget_playing import forget_playing
+    from torrcast.adapters.stream_pack.mark_playing import mark_playing
+    from torrcast.adapters.stream_pack.playing_flag import playing_flag
     from torrcast.console import Progress
-    from torrcast.stream import forget_playing, mark_playing, playing_flag
 
     out = tmp_path / "hls"
     out.mkdir(parents=True, exist_ok=True)

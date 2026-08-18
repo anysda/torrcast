@@ -13,10 +13,15 @@ from typing import ClassVar
 
 import pytest
 
-from torrcast import cast, profile, stream
+from torrcast import cast, profile
 from torrcast.adapters.chromecast.profile_detector import detector
+from torrcast.domain.hls_settings import MAX_SEGMENT_BYTES
+from torrcast.domain.media import Media
+from torrcast.domain.probe_settings import COPY_DEPTH, RECODE_CODECS
+from torrcast.domain.recodes_whole import recodes_whole
 from torrcast.runtime.trace_thresholds import trace_thresholds
 from torrcast.state import Config
+from torrcast.usecases.feed_pack.feed import Feed
 
 
 def test_the_stock_config_is_the_cautious_profile() -> None:
@@ -38,11 +43,11 @@ def test_the_stock_config_is_the_cautious_profile() -> None:
 def test_the_stream_constants_are_the_cautious_profile() -> None:
     """Константы упаковки - тот же осторожный профиль, а не своя копия чисел."""
     cautious = profile.CAUTIOUS
-    assert stream.MAX_SEGMENT_BYTES == cautious.max_segment_bytes == 16_000_000
-    assert stream.RECODE_CODECS == cautious.recode_codecs == frozenset({"hevc", "mpeg4"})
-    assert stream.COPY_DEPTH == cautious.copy_depth == 8
-    assert dataclasses.fields(stream.Feed)  # slots-датакласс: умолчание берём из поля
-    holds = {f.name: f.default for f in dataclasses.fields(stream.Feed)}
+    assert MAX_SEGMENT_BYTES == cautious.max_segment_bytes == 16_000_000
+    assert RECODE_CODECS == cautious.recode_codecs == frozenset({"hevc", "mpeg4"})
+    assert COPY_DEPTH == cautious.copy_depth == 8
+    assert dataclasses.fields(Feed)  # slots-датакласс: умолчание берём из поля
+    holds = {f.name: f.default for f in dataclasses.fields(Feed)}
     assert holds["wait"] == cautious.hold_seconds == 120.0
     assert holds["burst"] == cautious.burst == 60.0
     assert cast.MockReceiver.PATIENCE == cautious.patience == 23.5
@@ -188,9 +193,9 @@ def test_the_receiver_takes_its_thresholds_from_the_profile() -> None:
 
 def test_the_codec_verdict_follows_the_profile() -> None:
     """«Играем только h264» - тоже свойство приёмника, а не показа."""
-    assert stream.recodes_whole("hevc", 8, profile.CAUTIOUS)
-    assert stream.recodes_whole("h264", 10, profile.CAUTIOUS), "Hi10P Q70D не берёт"
-    assert not stream.recodes_whole("h264", 8, profile.CAUTIOUS)
+    assert recodes_whole("hevc", 8, profile.CAUTIOUS)
+    assert recodes_whole("h264", 10, profile.CAUTIOUS), "Hi10P Q70D не берёт"
+    assert not recodes_whole("h264", 8, profile.CAUTIOUS)
     assert profile.CAUTIOUS.plays_copy("h264") and not profile.CAUTIOUS.plays_copy("av1")
     assert profile.CAUTIOUS.plays_copy(""), "паспорта нет - играем копией, как прежде"
 
@@ -245,9 +250,9 @@ def test_a_frame_the_receiver_cannot_take_never_leaves_as_a_copy_either() -> Non
     assert q70d.verdict("vp9", 0, 2160) == profile.REFUSE, "большой кадр не отменяет отказа"
 
     # ...и то же самое всеми, кто спрашивает: упаковка, ключ прогретого и сборка перекода.
-    assert stream.recodes_whole("h264", 8, q70d, 2160)
-    assert not stream.recodes_whole("h264", 8, q70d, 1080)
-    assert stream.Media(video="h264", width=3840, height=2160, duration=1.0).recoded_whole
+    assert recodes_whole("h264", 8, q70d, 2160)
+    assert not recodes_whole("h264", 8, q70d, 1080)
+    assert Media(video="h264", width=3840, height=2160, duration=1.0).recoded_whole
     assert _encode_all(Config(), "h264", depth=8, profile=q70d, frame=2160) is not None
     assert _encode_all(Config(), "h264", depth=8, profile=q70d, frame=1080) is None
 
@@ -265,10 +270,10 @@ def test_an_unmeasured_codec_never_leaves_for_the_receiver_as_a_copy(codec: str)
     from torrcast.cli import _encode_all
     from torrcast.state import Config
 
-    assert stream.recodes_whole(codec, 0, profile.CAUTIOUS), "копией такое не отдаём"
+    assert recodes_whole(codec, 0, profile.CAUTIOUS), "копией такое не отдаём"
     assert _encode_all(Config(), codec, profile=profile.CAUTIOUS) is not None
-    assert not stream.Media(video=codec).video_warning.startswith("внимание: видео h264")
-    assert stream.Media(video=codec, duration=1.0).recoded_whole, "ключ прогретого тот же"
+    assert not Media(video=codec).video_warning.startswith("внимание: видео h264")
+    assert Media(video=codec, duration=1.0).recoded_whole, "ключ прогретого тот же"
 
 
 def test_the_hevc_path_is_untouched_and_plain_h264_still_goes_as_a_copy() -> None:
@@ -280,7 +285,7 @@ def test_the_hevc_path_is_untouched_and_plain_h264_still_goes_as_a_copy() -> Non
     assert _encode_all(Config(), "h264", depth=10, profile=profile.CAUTIOUS) is not None
     assert _encode_all(Config(), "h264", depth=8, profile=profile.CAUTIOUS) is None
     assert _encode_all(Config(), "", profile=profile.CAUTIOUS) is None
-    assert not stream.recodes_whole("h264", 8, profile.CAUTIOUS)
+    assert not recodes_whole("h264", 8, profile.CAUTIOUS)
 
 
 class _FakeDevice:

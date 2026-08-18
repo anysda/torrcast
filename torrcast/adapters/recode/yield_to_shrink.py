@@ -38,7 +38,7 @@ def _shrink_running(state: _State) -> bool:
 
     Заявку ставит :meth:`_hold_bulky` (:attr:`shrinking`), а живость подтверждает
     факт, а не таймер: ужатие пишет свой сегмент в ``spare/<SHRINK_DIR>``
-    (:meth:`torrcast.stream.Feed._shrink`), и пока метка времени файла свежее
+    (:meth:`torrcast.usecases.feed_pack.feed.Feed._shrink`), и пока метка времени файла свежее
     :data:`SHRINK_FRESH`, второй кодировщик на машине работает. Один таймер тут врал
     бы в обе стороны: ужатие бывает и мгновенным (перекод доехал сам, пока ждали
     замок), и долгим до :attr:`over_wait`.

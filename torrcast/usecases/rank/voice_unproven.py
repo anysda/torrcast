@@ -9,10 +9,10 @@ def voice_unproven(media: Media, *, native: bool = False) -> bool:
     """Русская дорожка в этом файле НЕ ПОДТВЕРЖДЕНА: паспорт либо отрицает, либо молчит.
 
     🔴 TC-301. У паспорта три ответа, а не два. «Русская есть»
-    (:attr:`~torrcast.stream.Media.russian`) - играем. «Русской нет»
-    (:attr:`~torrcast.stream.Media.foreign`) - гейт бракует релиз и очередь идёт дальше
+    (:attr:`~torrcast.domain.media.Media.russian`) - играем. «Русской нет»
+    (:attr:`~torrcast.domain.media.Media.foreign`) - гейт бракует релиз и очередь идёт дальше
     (:meth:`_Bench.resolve`). А между ними лежит третий: дорожка БЕЗ ТЕГА ЯЗЫКА
-    (:attr:`~torrcast.stream.AudioTrack.named`), и по замеру паспортов таких файлов 28%.
+    (:attr:`~torrcast.domain.audio_track.AudioTrack.named`), и по замеру паспортов таких файлов 28%.
 
     🔴 TC-492. Третий ответ засчитывался за первый, и стоило это зрителю картины:
     «Эксперименты Лэйн» уехали с нерусской дорожкой ровно потому, что язык её никто не
@@ -33,7 +33,7 @@ def voice_unproven(media: Media, *, native: bool = False) -> bool:
     ⚠️ Граница проведена по ДОРОЖКЕ, а не по паспорту целиком: файл, у которого ffprobe не
     отдал ни одной звуковой дорожки, сюда не относится. Это не «язык не назван», а «звук
     не прочитан» - паспорт, дочитанный до половины, и бракует он не релиз, а нашу спешку
-    (:attr:`~torrcast.stream.Media.foreign` о том же). В замере паспортов таких файлов нет
+    (:attr:`~torrcast.domain.media.Media.foreign` о том же). В замере паспортов таких файлов нет
     ни одного из 92, а стоила бы такая строгость всей выдачи разом.
     """
     if media.russian or not media.tracks:

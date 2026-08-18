@@ -12,6 +12,7 @@ from torrcast.adapters.recode.hold_head import _head_pending
 from torrcast.adapters.recode.preset_for import preset_for
 from torrcast.adapters.recode.presets import PRESETS
 from torrcast.adapters.recode.yield_to_shrink import _yield_to_shrink
+from torrcast.adapters.stream_pack.ffmpeg_pack_command import ffmpeg_pack_command
 from torrcast.ports.journal import journal
 
 if TYPE_CHECKING:
@@ -32,15 +33,10 @@ HEAD_NICE: Final = 0
 
 def _run(state: _State, first: int, last: int) -> None:
     """Заход кодировщика: пресет по сроку, цель по длине куска, ffmpeg и замер темпа."""
-    # ⚠️ Команда упаковки зовётся по имени, но внутри захода: пакет перекодирования и
-    # адаптер упаковки замкнуты в кольцо через совместимый слой (:mod:`torrcast.stream_core`
-    # импортирует отсюда :data:`RECODE_DIR`), и на входе в модуль этот импорт не проходит.
-    from torrcast.adapters.stream_pack import ffmpeg_pack_command
-
-    # ⚠️ А упаковщик зовётся строкой не по лени: :class:`Packer` объявлен в слое сценариев
+    # ⚠️ Упаковщик зовётся строкой не по лени: :class:`Packer` объявлен в слое сценариев
     # (:mod:`torrcast.usecases.feed_pack`), а адаптеру импортировать сценарий нельзя -
     # правило слоёв. Пока он не переедет в адаптеры, честного имени у него тут нет.
-    Packer = import_module("torrcast.stream").Packer  # noqa: N806
+    Packer = import_module("torrcast.usecases.feed_pack.packer").Packer  # noqa: N806
 
     seconds = sum(state.grid.span(s) for s in range(first, last + 1))
     # Срок - у ПОСЛЕДНЕГО куска захода: до него кодировщик доберётся позже всех, и
@@ -56,8 +52,8 @@ def _run(state: _State, first: int, last: int) -> None:
     # 🔴 Цель считается от ДЛИНЫ куска, а не берётся константой (TC-483). Заход идёт
     # одним ``-b:v`` на все свои куски, поэтому судит самый длинный из них: на нём
     # прибитые 9 Мбит/с давали 23 МБ при потолке 16, и не влезал сам перекод. Ловить
-    # это на выходе (:meth:`torrcast.stream.Packer.publish`) поздно - процессор уже
-    # потрачен на кусок, который заведомо не влезал, и потрачен на критическом пути.
+    # это на выходе (:meth:`torrcast.usecases.feed_pack.packer.Packer.publish`) поздно - процессор
+    # уже потрачен на кусок, который заведомо не влезал, и потрачен на критическом пути.
     longest = max(state.grid.span(s) for s in range(first, last + 1))
     encode = state.fit(longest, preset)
     journal().mark(
@@ -93,7 +89,7 @@ def _run(state: _State, first: int, last: int) -> None:
     with state.lock:
         # ``last`` тут не украшение: без него огрызок за ``-to`` (секунда фильма
         # вместо десяти) лёг бы в каталог перекода как готовый кусок и уехал бы на ТВ
-        # вместо честной копии (:attr:`torrcast.stream.Packer.last`).
+        # вместо честной копии (:attr:`torrcast.usecases.feed_pack.packer.Packer.last`).
         state.packer = packer = Packer.start(
             command,
             state.spare,

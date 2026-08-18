@@ -6,10 +6,11 @@ from torrcast.adapters.systemd.start_play_unit import start_play_unit
 
 
 def test_every_promised_name_really_lives_here() -> None:
-    """Обещанное в ``__all__`` обязано разрешаться: по этому списку читает :mod:`torrcast.stream`.
+    """Обещанное в ``__all__`` обязано разрешаться: по этому списку модуль читают зовущие.
 
     Разъехавшиеся единицы собираются здесь заново, и пропавшее имя ломает не этот
-    модуль, а :mod:`torrcast.stream` - на импорте, то есть весь показ разом.
+    модуль, а того, кто берёт внешнюю часть медиатракта целиком, - на импорте, то есть
+    весь показ разом.
     """
     missing = [name for name in stream_serve.__all__ if not hasattr(stream_serve, name)]
     assert not missing, f"прежний путь потерял: {missing}"

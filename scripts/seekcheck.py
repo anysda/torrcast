@@ -1,8 +1,9 @@
 """Локальный потребитель HLS: доказательство перемотки без 404 и без минут тишины.
 
-Гоняет **настоящий** тракт показа — :class:`~torrcast.stream.Feed` и
-:class:`~torrcast.stream.HlsServer` — и ходит в него по http на ``127.0.0.1``, как ходил
-бы приёмник. Телевизора в этом скрипте нет и быть не может: ни одного пакета наружу.
+Гоняет **настоящий** тракт показа — :class:`~torrcast.usecases.feed_pack.feed.Feed` и
+:class:`~torrcast.adapters.http_server.hls_server.HlsServer` — и ходит в него по http на
+``127.0.0.1``, как ходил бы приёмник. Телевизора в этом скрипте нет и быть не может: ни одного
+пакета наружу.
 
 Что меряется на каждом запросе: код ответа, сколько ждали тела и сколько байт приехало.
 404 в отчёте — провал: живой ресивер, поймав его, не берёт LOAD ещё пару минут, поэтому
@@ -46,17 +47,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from probeprofile import add_argument as add_profile_argument
 from probeprofile import choose as choose_profile
 
+from torrcast.adapters.http_server.hls_server import HlsServer
+from torrcast.adapters.stream_pack.grid import Grid
+from torrcast.adapters.stream_pack.hls_dir import hls_dir
+from torrcast.adapters.stream_probe.probe import probe
+from torrcast.adapters.stream_probe.segment_name import segment_name
 from torrcast.cli import _layout
 from torrcast.runtime.wire import wire
 from torrcast.state import load_config
-from torrcast.stream import (
-    Feed,
-    Grid,
-    HlsServer,
-    hls_dir,
-    probe,
-    segment_name,
-)
+from torrcast.usecases.feed_pack.feed import Feed
 
 #: Во сколько раз кусок вправе быть длиннее заказанного шага, прежде чем сетка перестанет
 #: быть сеткой.
@@ -64,9 +63,9 @@ from torrcast.stream import (
 #: 🔴 Фикстура ``tape.mkv``, лежавшая на стенде как «лёгкий материал», опорных кадров почти
 #: не несёт: на шаге 10 с карта дала 9 сегментов, первый длиной 2901.8 с. Сеточный замер на
 #: ней меряет один кусок в полчаса вместо сетки - и МОЛЧА, потому что сама сетка построена
-#: честно (:func:`torrcast.stream.grid_for` ругается только на карту, не похожую на видео).
-#: Порог с запасом: нарезка по опорным кадрам законно перебирает шаг на длину GOP (у
-#: замеренного материала - до 1.5 шага), вчетверо - это уже не она.
+#: честно (:func:`torrcast.adapters.stream_pack.grid_for.grid_for` ругается только на карту, не
+#: похожую на видео). Порог с запасом: нарезка по опорным кадрам законно перебирает шаг на длину GOP
+#: (у замеренного материала - до 1.5 шага), вчетверо - это уже не она.
 GRID_FACTOR = 4.0
 #: Меньше этого числа кусков сеточному замеру не хватит: перемотка вперёд, назад и заход с
 #: середины требуют разных мест фильма, а не одного.
@@ -262,7 +261,7 @@ def case_fwd(user: Consumer) -> None:
 
 
 def _slots(feed: Feed) -> list[int]:
-    from torrcast.stream import segment_slot
+    from torrcast.adapters.stream_probe.segment_slot import segment_slot
 
     return [s for s in (segment_slot(p.name) for p in feed.out.glob("v*.ts")) if s >= 0]
 

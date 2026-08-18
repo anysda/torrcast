@@ -38,7 +38,7 @@ def last_hope(
 
     ⚠️ Про приёмник тут не спрашивается: «тяжёлый ли для него HEVC» — вопрос профиля, и
     задаёт его :func:`_plan_for` перед этой ступенью, одним и тем же
-    :func:`torrcast.stream.recodes_whole` на весь код.
+    :func:`torrcast.domain.recodes_whole.recodes_whole` на весь код.
     """
     return not any(
         release.seeders > 0

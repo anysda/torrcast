@@ -8,7 +8,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Final
 
 if TYPE_CHECKING:
-    from torrcast.adapters._legacy_stream_types import FilmKeys, Grid
+    from torrcast.adapters.stream_pack.grid import Grid
+    from torrcast.domain.film_keys import FilmKeys
 
 
 #: Вес паспорта ffprobe в скользящем среднем :meth:`Weights.calibrate`. Паспорт - это
@@ -42,7 +43,7 @@ class Weights:
         """Профиль по карте и сетке. Карта без смещений (кэш прошлой версии) — ``None``.
 
         ``delivered`` — сколько Мбит/с уедет на ТВ в среднем по фильму, по паспорту
-        ffprobe (:attr:`torrcast.stream.Media.delivered_mbit`). Дан — поправка «контейнер
+        ffprobe (:attr:`torrcast.domain.media.Media.delivered_mbit`). Дан — поправка «контейнер
         → ТВ» известна сразу и точно: это разница между средним по карте и им. Не дан
         (mp4 без тегов, паспорт молчит) — поправка набирается вслепую по первым
         выложенным копиям (:meth:`calibrate`).
@@ -82,9 +83,9 @@ class Weights:
         """Сколько байт весит **копия** этого куска — предсказание по карте, без потолка.
 
         ⚠️ Это не то же число, которым сетка проверяет потолок веса
-        (:func:`torrcast.stream._weigher`): там вес зажат ``ceiling_mbit`` в предположении,
-        что тяжёлый кусок перекодируют. Здесь — честный вес того, что лежит в файле, и
-        именно он решает, можно ли отпустить копию наружу (:meth:`Recoder.oversize`).
+        (:func:`torrcast.adapters.stream_pack._weigher._weigher`): там вес зажат ``ceiling_mbit`` в
+        предположении, что тяжёлый кусок перекодируют. Здесь — честный вес того, что лежит в файле,
+        и именно он решает, можно ли отпустить копию наружу (:meth:`Recoder.oversize`).
 
         Точность замерена на «Тачках 3»: предсказание 57.8 МБ против 51.4 МБ уехавших
         на самом деле (+12 %, в безопасную сторону). То есть картой предсказывать вес

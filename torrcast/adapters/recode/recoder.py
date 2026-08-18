@@ -58,7 +58,7 @@ class Recoder(_State):
 
         ⚠️ Сначала снять паузу, и только потом гасить. Заход мог замереть, уступая ужатию
         (:meth:`_yield_to_shrink`), а замерший процесс SIGTERM не обрабатывает вовсе:
-        :meth:`torrcast.stream.Packer.stop` честно ждёт его пять секунд и добивает
+        :meth:`torrcast.usecases.feed_pack.packer.Packer.stop` честно ждёт его пять секунд и добивает
         SIGKILL - пять секунд на конце показа за счёт человека. Оживить стоит один сигнал.
         """
         self.stopped = True
@@ -70,7 +70,8 @@ class Recoder(_State):
             packer.stop(keep_files=True, reason="показ окончен")
 
     def opening(self, slot: int) -> None:
-        """Упаковка начинается заново с сегмента ``slot`` (:meth:`torrcast.stream.Feed.restart`).
+        """Упаковка начинается заново с сегмента ``slot``
+        (:meth:`torrcast.usecases.feed_pack.feed.Feed.restart`).
 
         Зовётся на старте показа, на возврате с паузы и на каждой перемотке. Делает три
         вещи, и все три нужны ровно ради первого сегмента:

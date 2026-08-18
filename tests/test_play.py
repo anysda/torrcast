@@ -31,25 +31,22 @@ from tests.conftest import CLIP_SECONDS, FakeProc, fake_packer, free_port
 from tests.fakes.clock import FakeClock
 from tests.fakes.show_unit import FakeShowUnit
 from torrcast import InfraError
+from torrcast.adapters.http_server.hls_base import hls_base
+from torrcast.adapters.stream_pack.ffmpeg_pack_command import ffmpeg_pack_command
+from torrcast.adapters.stream_pack.grid import Grid
+from torrcast.adapters.stream_pack.hls_dir import hls_dir
+from torrcast.adapters.stream_pack.mark_playing import mark_playing
+from torrcast.adapters.stream_pack.pack_start import pack_start
+from torrcast.adapters.stream_pack.playing_flag import playing_flag
+from torrcast.adapters.stream_probe.segment_name import segment_name
+from torrcast.adapters.stream_probe.supply import Supply
 from torrcast.cast import NOT_RAISED, ChromecastReceiver, MockReceiver, Position, StartRefusedError
 from torrcast.cli import Watch as _Watch
 from torrcast.cli import _Clock, _play
+from torrcast.domain.hls_settings import HLS_SEGMENT_SECONDS, PACK_DIR
 from torrcast.state import Config, Entry, State
-from torrcast.stream import (
-    HLS_SEGMENT_SECONDS,
-    PACK_DIR,
-    Feed,
-    Grid,
-    Packer,
-    Supply,
-    ffmpeg_pack_command,
-    hls_base,
-    hls_dir,
-    mark_playing,
-    pack_start,
-    playing_flag,
-    segment_name,
-)
+from torrcast.usecases.feed_pack.feed import Feed
+from torrcast.usecases.feed_pack.packer import Packer
 
 
 class _Wired(ChromecastReceiver):
@@ -126,7 +123,8 @@ def test_a_release_without_a_video_file_is_a_verdict_not_an_infra_error() -> Non
     числилась бы неотозвавшейся, хотя про неё известно всё.
     """
     from torrcast import NotFoundError
-    from torrcast.stream import TorrFile, pick_video_file
+    from torrcast.adapters.stream_probe.pick_video_file import pick_video_file
+    from torrcast.domain.torr_file import TorrFile
 
     with pytest.raises(NotFoundError, match="нет отдельного видеофайла"):
         pick_video_file([TorrFile(0, "VIDEO_TS.VOB", 4 * 1024**3), TorrFile(1, "cover.jpg", 1)])
@@ -1685,11 +1683,11 @@ def test_a_finished_packer_is_not_a_crash_but_a_serial_one_gives_up(tmp_path: Pa
 def test_a_torn_input_tells_the_viewer_the_film_has_not_ended(tmp_path: Path) -> None:
     """Оборванный вход и доигранный фильм для зрителя выглядят одинаково - паузой.
 
-    Вход, умерший на середине, ffmpeg отмечает НУЛЁМ (:meth:`torrcast.stream.Packer.finished`),
-    и «упаковка оборвалась (молча, код 0)» говорит человеку о нашем коде возврата, а не о
-    его кино: он видит паузу и решает, что фильм кончился. Замер 15-08-2026, 80 обрывов
-    входа на живом ffmpeg (457 прогонов): код 0 вышел во ВСЕХ 457 - по коду эти два
-    исхода не различаются вовсе.
+    Вход, умерший на середине, ffmpeg отмечает НУЛЁМ
+    (:meth:`torrcast.usecases.feed_pack.packer.Packer.finished`), и «упаковка оборвалась (молча, код
+    0)» говорит человеку о нашем коде возврата, а не о его кино: он видит паузу и решает, что фильм
+    кончился. Замер 15-08-2026, 80 обрывов входа на живом ffmpeg (457 прогонов): код 0 вышел во ВСЕХ
+    457 - по коду эти два исхода не различаются вовсе.
 
     Обещать починку строка при этом не имеет права. Тот же замер развёл два мира начисто:
     вернулся источник - заново пакуется 76 раз из 76; не вернулся - 1 из 76 на второй
@@ -2442,7 +2440,7 @@ def test_the_cli_never_kills_a_show_that_is_still_inside_the_units_budget(
     """
     from torrcast import cli
     from torrcast.cast import ChromecastReceiver
-    from torrcast.stream import KEYS_WAIT, PILOT_TIMEOUT
+    from torrcast.domain.hls_wait import KEYS_WAIT, PILOT_TIMEOUT
 
     phases = (
         cli.WORKER_META  # метаданные раздачи по DHT
@@ -2473,8 +2471,8 @@ class _Service:
     """Служба раздач глазами показа: жива ли, что у неё в списке и что она знает о файлах.
 
     Ровно те три вопроса, из которых складывается ответ «виноват источник»
-    (:meth:`torrcast.stream.Supply.check`), плюс счётчик добавлений: возврат раздачи
-    магнитом обязан быть идемпотентным и не трогать ничего, кроме нашего хэша.
+    (:meth:`torrcast.adapters.stream_probe.supply.Supply.check`), плюс счётчик добавлений: возврат
+    раздачи магнитом обязан быть идемпотентным и не трогать ничего, кроме нашего хэша.
     """
 
     def __init__(self, up: bool = True, listed: bool = True, files: bool = True) -> None:
@@ -2514,7 +2512,7 @@ MAGNET: Final = f"magnet:?xt=urn:btih:{MAGNET_HASH}&tr=udp%3A%2F%2Ftracker.examp
 
 
 def _supply(service: _Service) -> Any:
-    from torrcast.stream import Supply
+    from torrcast.adapters.stream_probe.supply import Supply
 
     return Supply(service, torrent_hash=MAGNET_HASH, magnet=MAGNET)
 
@@ -2781,7 +2779,7 @@ def test_the_picture_is_proved_by_a_moving_pointer_not_by_the_word_playing(
     на 5-6 с ровно там, где человеку хуже всего. Здесь показ дожидается сдвига указателя.
     """
     from torrcast import cli
-    from torrcast.stream import playing_flag
+    from torrcast.adapters.stream_pack.playing_flag import playing_flag
 
     feed = _feed_with_segments(tmp_path)
     # Приёмник говорит «играю», не двигая указатель, и только потом трогается с места.

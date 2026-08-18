@@ -15,8 +15,9 @@ import pytest
 
 from tests.fakes.show_unit import FakeShowUnit
 from torrcast import InfraError, cli
+from torrcast.adapters.systemd.unit_active import unit_active
+from torrcast.adapters.systemd.unit_why import unit_why
 from torrcast.state import Entry, State, load_config
-from torrcast.stream import unit_active, unit_why
 from torrcast.usecases.playback import _show_state as playback_state
 
 KEY = "movie:моана-2:2024"
@@ -562,7 +563,7 @@ def test_the_service_answers_whether_it_took_the_torrent_down() -> None:
     «служба вернула не JSON», снос НИКОГДА не выглядел удавшимся - даже когда раздачу
     честно убрали.
     """
-    from torrcast.stream import TorrServer
+    from torrcast.adapters.torrserver.torr_server import TorrServer
 
     assert TorrServer("http://127.0.0.1:1").drop(ORPHAN) is False, "службы нет - и уборки нет"
 

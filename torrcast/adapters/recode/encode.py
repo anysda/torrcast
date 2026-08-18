@@ -20,14 +20,14 @@ from torrcast.adapters.recode.level_for import level_for
 from torrcast.domain.media import AUDIO_MBIT, TS_OVERHEAD
 
 if TYPE_CHECKING:
-    from torrcast.adapters._legacy_stream_types import Grid
+    from torrcast.adapters.stream_pack.grid import Grid
 
 
 def _scale_to(frame: int) -> str:
     """Фильтр, ужимающий кадр в габарит ступени лестницы, - и ни пикселя вверх.
 
     🔴 Габарит, а не одна высота. Прямое ``scale=-2:1080`` судит по высоте, а высота
-    ступени не задаёт: скоуп 3840×1600 - это тот же 2160p (:attr:`torrcast.stream.Media.frame`
+    ступени не задаёт: скоуп 3840×1600 - это тот же 2160p (:attr:`torrcast.domain.media.Media.frame`
     считает по 16:9-габариту), и ``-2:1080`` развернул бы его в 2592×1080 - кадр, который
     ШИРЕ 1080p и приёмнику по-прежнему не по зубам. Габарит 1920×1080 с сохранением
     пропорций даёт из него честные 1920×800.
@@ -52,7 +52,7 @@ class Encode:
     preset: str = "veryfast"
     #: Целевой битрейт, Мбит/с. Умолчание и его замер - :attr:`torrcast.state.Config.recode_mbit`.
     mbit: float = 9.0
-    #: Ступень кадра ИСТОЧНИКА (:attr:`torrcast.stream.Media.frame`); ``0`` - не спрашивали.
+    #: Ступень кадра ИСТОЧНИКА (:attr:`torrcast.domain.media.Media.frame`); ``0`` - не спрашивали.
     frame: int = 0
     #: Потолок кадра НАРУЖУ - самый большой кадр, который берёт приёмник
     #: (:attr:`torrcast.profile.Profile.recode_frame`); ``0`` - потолка нет.
@@ -83,8 +83,8 @@ class Encode:
 
         🔴 Единственное место, где цель перекода считается из потолков. Спрашивают его
         двое - фоновый кодировщик (:meth:`Recoder._run`) и ужатие на месте
-        (:meth:`torrcast.stream.Feed._shrink`), - и разойдись они хоть в одном знаке, в
-        проекте появился бы третий источник правды о потолке.
+        (:meth:`torrcast.usecases.feed_pack.feed.Feed._shrink`), - и разойдись они хоть в одном
+        знаке, в проекте появился бы третий источник правды о потолке.
 
         Потолков два, и они разной природы. ``cap`` - **вес** куска в байтах
         (:attr:`torrcast.profile.Profile.max_segment_bytes`): сегмент тяжелее его приёмник
@@ -96,8 +96,8 @@ class Encode:
         он спотыкается независимо от веса. Ноль - про этот потолок не спрашивали.
 
         Считается от того, что получит приёмник, а не от голого видео: сверху лягут наш
-        AAC (:data:`torrcast.stream.AUDIO_MBIT`) и оверхед mpegts
-        (:data:`torrcast.stream.TS_OVERHEAD`), а сам кодер вправе идти до
+        AAC (:data:`torrcast.domain.delivered_mbit.AUDIO_MBIT`) и оверхед mpegts
+        (:data:`torrcast.domain.delivered_mbit.TS_OVERHEAD`), а сам кодер вправе идти до
         :attr:`maxrate`. Отсюда же и запас :data:`FIT_SLACK`.
 
         Вверх не перекодируем: цель не может стать выше той, что уже стоит
@@ -148,7 +148,8 @@ class Encode:
         return ",".join(chain)
 
     def args(self, grid: Grid, slot: int, until: int) -> list[str]:
-        """Аргументы видео для :func:`torrcast.stream.ffmpeg_pack_command`.
+        """Аргументы видео для
+        :func:`torrcast.adapters.stream_pack.ffmpeg_pack_command.ffmpeg_pack_command`.
 
         Принудительные опорные кадры стоят на границах сетки — без них сегментный муксер
         с ``-break_non_keyframes 0`` ждал бы ближайший кадр кодировщика и резал бы куда

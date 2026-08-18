@@ -19,19 +19,19 @@ import pytest
 
 from torrcast import InfraError, cli
 from torrcast.console import Progress
-from torrcast.search import RawResult
-from torrcast.state import Config, Entry, State, save_config
-from torrcast.stream import (
+from torrcast.domain.audio_track import (
     STEP_FOREIGN,
     STEP_RU_PLAIN,
     STEP_SERVICE,
-    STUDIOS,
     VOICE_KINDS,
     AudioTrack,
-    Media,
-    TorrFile,
-    voice_order,
 )
+from torrcast.domain.media import Media
+from torrcast.domain.studio import STUDIOS
+from torrcast.domain.torr_file import TorrFile
+from torrcast.domain.voice_order import voice_order
+from torrcast.search import RawResult
+from torrcast.state import Config, Entry, State, save_config
 from torrcast.usecases.playback import _show_state as playback_state
 
 GB = 1024**3

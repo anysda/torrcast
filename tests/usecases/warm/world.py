@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import torrcast.usecases.warm._state as _state
-from torrcast.stream import Grid
+from torrcast.adapters.stream_pack.grid import Grid
 from torrcast.usecases.warm.vault import Vault
 from torrcast.usecases.warm.warmer import Warmer
 

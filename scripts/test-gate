@@ -40,7 +40,8 @@ import subprocess
 import sys
 
 from torrcast.recode import Encode, FULL_PRESET
-from torrcast.stream import ffmpeg_pack_command, grid_for
+from torrcast.adapters.stream_pack.ffmpeg_pack_command import ffmpeg_pack_command
+from torrcast.adapters.stream_pack.grid_for import grid_for
 
 
 root = Path(sys.argv[1])

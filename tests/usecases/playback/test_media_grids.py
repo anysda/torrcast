@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from torrcast.stream import grid_for
+from torrcast.adapters.stream_pack.grid_for import grid_for
 from torrcast.usecases.playback.media_grid import MediaGrid
 from torrcast.usecases.playback.media_grids import MediaGrids
 

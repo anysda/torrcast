@@ -39,11 +39,13 @@ from torrcast.cli import (
     sound_note,
 )
 from torrcast.console import Progress
+from torrcast.domain.audio_track import AudioTrack
+from torrcast.domain.media import Media
+from torrcast.domain.runtime_guess import RUNTIME_GUESS
 from torrcast.parse import Picture, Release, parse_release_name
 from torrcast.runtime.native_picture import native_picture
 from torrcast.search import RawResult, merge, to_releases
 from torrcast.state import Config
-from torrcast.stream import RUNTIME_GUESS, AudioTrack, Media
 
 RUNTIME = RUNTIME_GUESS["movie"]
 GB = 1024**3
@@ -530,7 +532,7 @@ def test_a_dub_that_exists_only_as_a_separate_file_is_named_as_such() -> None:
 
 def test_a_separate_russian_audio_file_is_read_from_the_torrent_contents() -> None:
     """Имя релиза молчит, но уже полученный список файлов прямо называет русский звук."""
-    from torrcast.stream import TorrFile
+    from torrcast.domain.torr_file import TorrFile
 
     release = named("Anime BDRip 720p | L2, L1", size_gb=8, seeders=20)
     files = [
@@ -618,7 +620,8 @@ TITAN_MOVIE = (
 def _prep(name: str, *, video_bps: float, height: int, size_gb: float, dur: float) -> object:
     """Прочитанный ffprobe релиз: ровно то, чем судит отбор после похода в рой."""
     from torrcast.cli import _Prep
-    from torrcast.stream import Media, TorrFile
+    from torrcast.domain.media import Media
+    from torrcast.domain.torr_file import TorrFile
 
     prep = _Prep(number=1, release=named(name, size_gb=size_gb, seeders=17))
     prep.video = TorrFile(0, "anime.mkv", int(size_gb * GB))
@@ -719,8 +722,8 @@ def test_the_show_and_the_warmer_decide_the_recode_the_same_way() -> None:
     приёмник встаёт.
     """
     from torrcast.cli import _encode_all
+    from torrcast.domain.media import Media
     from torrcast.state import Entry
-    from torrcast.stream import Media
 
     config = Config()
     media = Media(1366.0, (), "h264", profile="High 10", pix_fmt="yuv420p10le")
@@ -798,7 +801,7 @@ def test_a_4k_remux_stays_refused_because_a_whole_file_recode_does_not_keep_up()
 
 def test_the_recode_line_names_the_weight_and_the_reason() -> None:
     """Одна честная строка: тяжесть названа вслух и числом, а не подменена молчком."""
-    from torrcast.stream import recode_note
+    from torrcast.domain.recode_note import recode_note
 
     assert recode_note("h264", 36.4) == (
         "видео h264 36 Мбит/с - тяжело приёмнику, перекодирую целиком"

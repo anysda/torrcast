@@ -1,8 +1,8 @@
 """Формат потока, сетка сегментов и раздача HLS: то, на чём ресивер молча ломается.
 
 Проверяется ровно то, что телевизоры прощать отказываются: TS-сегменты по сетке
-:class:`~torrcast.stream.Grid`, один вариант, видео copy, аудио всегда AAC stereo 192k,
-VOD-манифест на весь фильм, CORS на всех ответах (включая 404 и preflight) и Range на
+:class:`~torrcast.adapters.stream_pack.grid.Grid`, один вариант, видео copy, аудио всегда AAC stereo
+192k, VOD-манифест на весь фильм, CORS на всех ответах (включая 404 и preflight) и Range на
 сегментах.
 
 Отдельная тема здесь — **абсолютность** сетки. Раньше ffmpeg резал каждые N секунд от
@@ -30,32 +30,33 @@ import pytest
 import requests
 
 from tests.conftest import CLIP_SECONDS, fake_packer, free_port, module_of
-from torrcast import stream
 from torrcast.adapters.frames.http_range_reader import HttpRangeReader as Reader
 from torrcast.adapters.frames.keyframes import keyframes
+from torrcast.adapters.http_server.hls_server import HlsServer
+from torrcast.adapters.stream_pack._pilot_start import _pilot_start
+from torrcast.adapters.stream_pack.ffmpeg_pack_command import ffmpeg_pack_command
+from torrcast.adapters.stream_pack.grid import Grid
+from torrcast.adapters.stream_pack.grid_for import grid_for
+from torrcast.adapters.stream_pack.hls_dir import hls_dir
+from torrcast.adapters.stream_pack.mapped_start import mapped_start
+from torrcast.adapters.stream_pack.pack_origin import _reorder_slack
+from torrcast.adapters.stream_pack.pack_start import pack_start
+from torrcast.adapters.stream_pack.parse_manifest import parse_manifest
+from torrcast.adapters.stream_probe.segment_name import segment_name
 from torrcast.cast import Report
+from torrcast.domain.delivered_mbit import AUDIO_MBIT, TS_OVERHEAD
+from torrcast.domain.film_keys import FilmKeys
 from torrcast.domain.frames.keymap import video_track
-from torrcast.stream import (
+from torrcast.domain.hls_settings import (
     HLS_SEGMENT_SECONDS,
     MAX_SEGMENT_BYTES,
     MPEGTS_MUX_DELAY,
     PACK_DIR,
     PACK_LIST,
     SPLIT_SLACK,
-    Feed,
-    FilmKeys,
-    Grid,
-    HlsServer,
-    Packer,
-    ffmpeg_pack_command,
-    grid_for,
-    hls_dir,
-    mapped_start,
-    pack_start,
-    parse_manifest,
-    segment_name,
 )
-from torrcast.stream_pack import _reorder_slack
+from torrcast.usecases.feed_pack.feed import Feed
+from torrcast.usecases.feed_pack.packer import Packer
 
 #: Модуль, а не одноимённая единица из пакета: правки для проб ставятся туда, откуда
 #: их читает сам код.
@@ -197,8 +198,9 @@ def test_the_playback_address_is_our_own_leg_toward_the_tv(tmp_path: Path) -> No
     остаётся запасным выходом и перебивает вычисленный адрес.
     """
     from torrcast import InfraError
+    from torrcast.adapters.http_server.hls_base import hls_base
+    from torrcast.adapters.http_server.our_address import our_address
     from torrcast.state import Config
-    from torrcast.stream import hls_base, our_address
 
     assert our_address("127.0.0.1") == "127.0.0.1", "адрес берём у ядра, по маршруту"
     assert our_address("") == ""
@@ -437,8 +439,8 @@ def test_the_very_first_seam_of_a_run_is_as_monotone_as_all_the_others(
 
     Проверяется настоящим прогоном ffmpeg и настоящими метками отданных кусков - и видео,
     и звука: между соседями метки обязаны расти на КАЖДОМ стыке, включая первый. Проверено
-    откатом: без начала ленты (:func:`torrcast.stream.pack_origin`) первый стык уходит назад
-    на кадр, и тест падает ровно на нём.
+    откатом: без начала ленты (:func:`torrcast.adapters.stream_pack.pack_origin.pack_origin`) первый
+    стык уходит назад на кадр, и тест падает ровно на нём.
     """
     grid = grid_for(clip_mp4_bframes, float(CLIP_SECONDS))
     assert grid.on_keys and grid.count >= 3, "нужна сетка по опорным кадрам и хотя бы три куска"
@@ -571,7 +573,10 @@ def offline_keys(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _map_of(path: str) -> FilmKeys:
-    """Карта файла в том виде, в каком её видит показ (:func:`torrcast.stream.film_keys`)."""
+    """Карта файла в том виде, в каком её видит показ.
+
+    То же, что снимает :func:`torrcast.adapters.stream_pack.film_keys.film_keys`.
+    """
     found = keyframes(path)
     track = video_track(found.points)
     video = [p for p in found.points if p.track == track]
@@ -596,7 +601,7 @@ def test_the_entry_point_from_the_map_is_where_ffmpeg_actually_lands(
     for at in keys.at[2:12]:
         guess = mapped_start(keys, at)
         assert not math.isnan(guess), f"карта молчит про свою же границу {at:.3f}"
-        measured = stream._pilot_start(path, at)
+        measured = _pilot_start(path, at)
         assert guess == pytest.approx(measured, abs=SPLIT_SLACK), (
             f"{container}: карта обещает {guess:.3f} на границе {at:.3f}, а ffmpeg встал "
             f"на {measured:.3f}"
@@ -616,7 +621,7 @@ def test_the_map_is_believed_only_after_the_pilot_has_confirmed_it(
     monkeypatch.setattr(pack_start_module, "_SEEK_OK", trusted)
     keys = _map_of(clip)
     asked: list[float] = []
-    honest = stream._pilot_start
+    honest = _pilot_start
 
     def counted(url: str, at: float, timeout: float = 0.0) -> float:
         asked.append(at)
@@ -645,7 +650,7 @@ def test_a_lying_map_is_caught_by_the_pilot_and_never_believed_again(
     lying = keys._replace(at=[second + 0.7 for second in keys.at])
     for at in (keys.at[6], keys.at[9]):
         assert pack_start(clip, at, keys=lying) == pytest.approx(
-            stream._pilot_start(clip, at), abs=SPLIT_SLACK
+            _pilot_start(clip, at), abs=SPLIT_SLACK
         ), "заход ушёл туда, куда показала врущая карта"
     assert trusted[clip] is False, "враньё карты запоминается: второй раз не спрашиваем"
 
@@ -682,7 +687,7 @@ def test_the_initial_burst_replaces_pausing_the_packer() -> None:
     """
     from torrcast import cast as cast_module
     from torrcast import cli as cli_module
-    from torrcast import stream as stream_module
+    from torrcast.usecases.feed_pack import packer as packer_module
 
     grid = Grid.uniform(100.0)
     command = ffmpeg_pack_command("u", 0, "/run", grid, 0, 0.0, readrate=1.0, burst=60.0)
@@ -692,7 +697,7 @@ def test_the_initial_burst_replaces_pausing_the_packer() -> None:
     assert "-readrate_initial_burst" not in quiet
 
     # В доках про SIGSTOP написано - важно, чтобы его не осталось в КОДЕ показа.
-    for module in (stream_module, cli_module, cast_module):
+    for module in (packer_module, cli_module, cast_module):
         source = Path(str(module.__file__)).read_text(encoding="utf-8")
         assert "send_signal" not in source, f"{module.__name__}: показ шлёт сигналы упаковке"
 
@@ -704,8 +709,8 @@ def test_an_unreadable_keyframe_map_falls_back_to_a_flat_grid_out_loud() -> None
     снаружи «сетка по кадрам» и «ровная сетка» выглядят одинаково, а ведут себя по-разному.
     Настройка ``hls_keyframes=false`` — тот же путь, но по своей воле.
     """
+    from torrcast.adapters.stream_pack.grid_for import grid_for
     from torrcast.state import Config
-    from torrcast.stream import grid_for
 
     assert Config().hls_segment == 10.0 and Config().hls_keyframes is True
 
@@ -1099,11 +1104,11 @@ def test_the_spot_shrink_aims_under_both_ceilings_of_the_receiver(
         recoder=recoder,
     )
     monkeypatch.setattr(
-        stream.Packer, "start", classmethod(lambda cls, *a, **k: (_ for _ in ()).throw(OSError()))
+        Packer, "start", classmethod(lambda cls, *a, **k: (_ for _ in ()).throw(OSError()))
     )
     assert feed._shrink(0, MAX_SEGMENT_BYTES + 1) is False  # ffmpeg не поднялся - это не важно
     asked = float(said[0].split(" до ")[1].split()[0])
-    went = (asked * MAXRATE_GAIN + stream.AUDIO_MBIT) * stream.TS_OVERHEAD
+    went = (asked * MAXRATE_GAIN + AUDIO_MBIT) * TS_OVERHEAD
     assert went <= recoder.threshold, "ужатие обязано укладываться в потолок битрейта"
     assert went * 9.55 / 8 <= feed.cap / 1e6, "и в потолок веса оно укладываться не перестало"
 
@@ -1629,7 +1634,7 @@ def test_acceptance_verdict_needs_no_gaps_no_missing_cors_and_a_full_decode() ->
 
 def test_the_real_video_codec_comes_from_the_stream_not_the_name() -> None:
     """Имя раздачи о кодеке чаще молчит, а видео уходит на ТВ как есть."""
-    from torrcast.stream import Media
+    from torrcast.domain.media import Media
 
     assert Media(video="h264").video_warning == ""
     assert "hevc" in Media(video="hevc").video_warning
@@ -1644,7 +1649,8 @@ def test_ten_bit_h264_is_not_the_same_picture_as_plain_h264() -> None:
     доигрывал буфер до 70 с и вставал в вечную петлю LOAD/BUFFERING. По имени кодека такой
     файл неотличим от обычного, поэтому решает глубина цвета.
     """
-    from torrcast.stream import Media, color_depth
+    from torrcast.domain.color_depth import color_depth
+    from torrcast.domain.media import Media
 
     assert color_depth("yuv420p10le") == 10
     assert color_depth("yuv420p") == 8, "обычная картинка - восемь бит"
@@ -1674,8 +1680,9 @@ def test_a_passport_from_the_old_shelf_is_not_believed_about_the_picture(tmp_pat
     """
     import json
 
-    from torrcast.stream import AudioTrack, _keep_media, _read_media
-    from torrcast.stream import Media as Passport
+    from torrcast.adapters.stream_probe.media_shelf import _keep_media, _read_media
+    from torrcast.domain.audio_track import AudioTrack
+    from torrcast.domain.media import Media as Passport
 
     cache = tmp_path / "probe.json"
     fresh = Passport(duration=1366.0, tracks=(AudioTrack(0, "rus"),), video="h264")
@@ -1695,7 +1702,7 @@ def test_the_scan_type_is_a_fact_of_the_file_not_of_the_name() -> None:
     Молчание паспорта читается как прогрессив: звать кадр чересстрочным по догадке -
     та же неправда, только в другую сторону.
     """
-    from torrcast.stream import Media
+    from torrcast.domain.media import Media
 
     assert Media(height=1080, width=1920, field_order="tb").quality == "1080i"
     assert Media(height=1080, width=1920, field_order="bt").interlaced
@@ -1715,7 +1722,7 @@ def test_probe_reads_the_scan_type_from_the_stream(monkeypatch: pytest.MonkeyPat
     import json
     from importlib import import_module
 
-    from torrcast.stream import probe
+    from torrcast.adapters.stream_probe.probe import probe
 
     # Модуль щупа зовётся так же, как сама функция, поэтому берём его по имени: точка
     # `torrcast.adapters.stream_probe.probe` - это уже функция, а подменить надо её сосед.
@@ -1972,8 +1979,9 @@ def test_the_position_is_warmed_by_its_byte_offset_not_by_a_proportion(
     фильму гуляет вдвое, и промах в один процент двухгигабайтного файла — это 20 МБ, то
     есть прогрев чужого места и отобранная у показа полоса.
     """
-    from torrcast import stream as stream_module
-    from torrcast.stream import HEAD_OPEN, FilmKeys, warm_file
+    from torrcast.adapters.stream_pack.warm_file import warm_file
+    from torrcast.domain.film_keys import FilmKeys
+    from torrcast.domain.warm_open import HEAD_OPEN, HEAD_WARM
 
     keys = FilmKeys(600.0, [0.0, 100.0, 200.0, 300.0], [0, 90 << 20, 500 << 20, 505 << 20], "mp4")
     # 200-я секунда - ровно половина фильма, а лежит она на 500 МБ из 505: пропорция
@@ -1997,7 +2005,7 @@ def test_the_position_is_warmed_by_its_byte_offset_not_by_a_proportion(
         if len(asked) >= 2:
             break
         time.sleep(0.01)
-    assert asked == [(0, HEAD_OPEN["mp4"]), (500 << 20, stream_module.HEAD_WARM)], (
+    assert asked == [(0, HEAD_OPEN["mp4"]), (500 << 20, HEAD_WARM)], (
         "с середины греется заголовок файла и место позиции, а не 32 МБ чужого начала"
     )
 
@@ -2007,7 +2015,7 @@ def test_the_position_is_warmed_by_its_byte_offset_not_by_a_proportion(
         if asked:
             break
         time.sleep(0.01)
-    assert asked == [(0, stream_module.HEAD_WARM)], "с нуля греется начало, и только оно"
+    assert asked == [(0, HEAD_WARM)], "с нуля греется начало, и только оно"
 
 
 def test_an_old_key_cache_without_offsets_still_builds_the_grid(tmp_path: Path) -> None:
@@ -2019,7 +2027,7 @@ def test_an_old_key_cache_without_offsets_still_builds_the_grid(tmp_path: Path) 
     """
     import json
 
-    from torrcast.stream import _read_keys
+    from torrcast.adapters.stream_pack._keys_shelf import _read_keys
 
     cache = tmp_path / "keys.json"
     cache.write_text(json.dumps({"duration": 600.0, "keys": [0.0, 10.0, 20.0]}), "utf-8")
@@ -2036,8 +2044,9 @@ def test_the_key_lock_stays_alive_while_its_holder_works(
     Иначе сосед, заглянувший на середине долгого разбора, увидит протухший замок и полезет
     читать тот же хвост вторым потоком: ровно то, ради чего замок и заведён.
     """
+    from torrcast.adapters.stream_pack._keys_shelf import _keys_cache
+    from torrcast.adapters.stream_pack.film_keys import _fetching, film_keys
     from torrcast.domain.frames import keymap as keymap_module
-    from torrcast.stream import _fetching, _keys_cache, film_keys
 
     monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
     monkeypatch.setattr(film_keys_module, "KEYS_LOCK", 0.3)  # 60 с в проде: столько не ждём
@@ -2065,7 +2074,7 @@ def test_two_writers_of_one_key_map_do_not_share_a_draft(tmp_path: Path) -> None
     """
     import threading
 
-    from torrcast.stream import _keys_draft
+    from torrcast.adapters.stream_pack.film_keys import _keys_draft
 
     cache = tmp_path / "abcdef0123456789.json"
     drafts: list[Path] = []
@@ -2101,11 +2110,13 @@ def test_the_head_warmed_under_the_question_is_sized_by_the_container(
     мегабайт чужого начала на холодном рое съедали весь бюджет раздумья: до места позиции
     дело не доходило вовсе.
     """
-    from torrcast import stream as stream_module
-    from torrcast.stream import HEAD_OPEN, FilmKeys, head_open, warm_file
+    from torrcast.adapters.stream_pack.head_open import head_open
+    from torrcast.adapters.stream_pack.warm_file import warm_file
+    from torrcast.domain.film_keys import FilmKeys
+    from torrcast.domain.warm_open import HEAD_OPEN, HEAD_OPEN_DEFAULT
 
     assert head_open("mkv") < head_open("mp4"), "у mkv голова меньше - это и есть правка"
-    assert head_open("") == stream_module.HEAD_OPEN_DEFAULT, "контейнер не известен - с запасом"
+    assert head_open("") == HEAD_OPEN_DEFAULT, "контейнер не известен - с запасом"
 
     asked: list[tuple[int, int]] = []
 
@@ -2137,7 +2148,10 @@ def test_an_old_key_cache_takes_the_container_from_the_file_name(
     Без этой подсказки продолжение по уже игранному фильму грело бы восемь мегабайт
     головы вечно: кэш карт живёт долго, а переснимать его ради одного поля незачем.
     """
-    from torrcast.stream import HEAD_OPEN, FilmKeys, container_of, warm_file
+    from torrcast.adapters.stream_pack.container_of import container_of
+    from torrcast.adapters.stream_pack.warm_file import warm_file
+    from torrcast.domain.film_keys import FilmKeys
+    from torrcast.domain.warm_open import HEAD_OPEN
 
     assert (container_of("Moana.2.2024.mkv"), container_of("Moana.mp4")) == ("mkv", "mp4")
     assert container_of("Moana.avi") == "" and container_of("Moana") == ""

@@ -3,8 +3,8 @@
 
 Считается по снятым картам опорных кадров и паспортам ffprobe, лежащим в кэше состояния:
 раздача не спрашивается, показ не поднимается. По каждому файлу берётся та же сетка, что
-построил бы показ (:func:`torrcast.stream.grid_for`), и тот же предсказатель веса куска -
-поэтому число «сколько лягет на диск» тут не оценка на глаз, а расчёт показа.
+построил бы показ (:func:`torrcast.adapters.stream_pack.grid_for.grid_for`), и тот же предсказатель
+веса куска - поэтому число «сколько лягет на диск» тут не оценка на глаз, а расчёт показа.
 
 Рядом печатается ``запрос`` - то, на что прогрев просит места у бюджета перед заходом
 (:meth:`torrcast.usecases.warm.Warmer._forecast`): зовётся сам предсказатель, а не переписанная
@@ -35,16 +35,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from probeprofile import add_argument as add_profile_argument
 from probeprofile import choose as choose_profile
 
+from torrcast.adapters.stream_pack._keys_shelf import _read_keys
+from torrcast.adapters.stream_pack._weigher import _weigher
+from torrcast.adapters.stream_pack.grid import Grid
+from torrcast.adapters.stream_pack.grid_for import _extra_mbit
+from torrcast.domain.delivered_mbit import AUDIO_MBIT, TS_OVERHEAD
 from torrcast.domain.warm_settings import WARM_BUDGET
 from torrcast.state import load_config
-from torrcast.stream import (
-    AUDIO_MBIT,
-    TS_OVERHEAD,
-    Grid,
-    _extra_mbit,
-    _read_keys,
-    _weigher,
-)
 from torrcast.usecases.warm import Vault, Warmer
 
 
