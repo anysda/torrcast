@@ -10,6 +10,7 @@ from torrcast.domain.picture import Picture
 from torrcast.domain.release import Release
 from torrcast.domain.swarm_error import SwarmError
 from torrcast.domain.torr_file import TorrFile
+from torrcast.ports.contact_wait import ContactWait
 from torrcast.ports.json_value import JsonValue
 from torrcast.usecases.select._plan import _Plan
 
@@ -82,7 +83,7 @@ class Torrents:
         return self.known
 
     def wait_files(
-        self, torrent_hash: str, timeout: float = 60.0, grace: float = 0.0
+        self, torrent_hash: str, timeout: float = 60.0, grace: float | ContactWait = 0.0
     ) -> list[TorrFile]:
         if torrent_hash in self.dead:  # раздача с мёртвым роем: пиров нет и не будет
             raise SwarmError(f"раздача не отдала метаданные за {timeout:.0f} с - нет пиров")

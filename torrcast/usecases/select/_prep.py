@@ -5,13 +5,13 @@ from __future__ import annotations
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import Any
 
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.media import Media
 from torrcast.domain.release import Release
 from torrcast.domain.torrcast_error import TorrcastError
 from torrcast.domain.torr_file import TorrFile
+from torrcast.ports.contact_wait import ContactWait
 
 
 @dataclass(slots=True)
@@ -47,9 +47,9 @@ class _Prep:
     #: в очереди есть кого спросить. Когда спрашивать больше некого, платить отсрочкам
     #: нечем: терпеливо спрашивается один-единственный релиз (:meth:`_Bench._recheck`).
     patient: bool = False
-    #: Отсрочка первого контакта с роем; заводит её стенд
-    #: (:class:`torrcast.adapters.torrserver.contact_wait.ContactWait`).
-    contact_wait: Any = None
+    #: Отсрочка первого контакта с роем (:class:`torrcast.ports.contact_wait.ContactWait`);
+    #: заводит её стенд, а часы пускает вопрос к этому релизу.
+    contact_wait: ContactWait | None = None
     phase: str = "очередь"
     started: float = field(default_factory=time.monotonic)
     meta: float = 0.0

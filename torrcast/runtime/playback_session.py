@@ -5,18 +5,18 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any
 
 from torrcast.adapters.filesystem.state import load_config
 from torrcast.adapters.http_server.stream_serve import hls_base
 from torrcast.adapters.unit_playback_session import UnitPlaybackSession
+from torrcast.domain.config import Config
 from torrcast.ports.show_unit import unit
 from torrcast.ports.state_store import store
 from torrcast.usecases.cache_reserve import _cache_reserve
 from torrcast.usecases.torrents import _release_torrents
 
 
-def playback_session(configuration: Callable[[], Any] | None = None) -> UnitPlaybackSession:
+def playback_session(configuration: Callable[[], Config] | None = None) -> UnitPlaybackSession:
     """Сеанс показа со звеньями, взятыми из их настоящих домов.
 
     Собирает его корень - единственный слой, которому разрешено видеть адаптеры разом.

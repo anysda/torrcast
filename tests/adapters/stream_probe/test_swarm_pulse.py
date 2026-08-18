@@ -9,6 +9,7 @@ from typing import Any
 import pytest
 
 from torrcast.adapters.stream_probe.swarm_pulse import swarm_pulse
+from torrcast.adapters.torrserver.contact_wait import ContactWait
 
 
 class _Answer:
@@ -88,9 +89,7 @@ def test_the_wait_that_has_not_started_yet_is_not_counted_against_the_swarm(
     """Отсрочку отсчитывают от того момента, когда ожидание метаданных и правда началось."""
     _served(b"", monkeypatch)
 
-    class _Wait:
-        activated_at = None
-
-    alive = swarm_pulse("http://torr/stream/hash-1/2", grace=0.0, wait=_Wait())
+    # Настоящая отсрочка, которую ещё не пускали: часов у неё нет, а договор весь на месте.
+    alive = swarm_pulse("http://torr/stream/hash-1/2", grace=0.0, wait=ContactWait(0.0))
 
     assert alive(), "ожидание ещё не начиналось - винить рой не в чем"

@@ -8,14 +8,13 @@ import contextlib
 import threading
 import time
 import urllib.request
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from torrcast.domain.warm_open import HEAD_WARM, WARM_TIMEOUT
+from torrcast.ports.contact_wait import ContactWait
 
 if TYPE_CHECKING:
     from collections.abc import Callable
-
-    ContactWait = Any
 
 
 def swarm_pulse(

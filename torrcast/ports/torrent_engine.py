@@ -9,6 +9,7 @@ status`` спрашивает счётчик кэша. Кто отвечает -
 from typing import Protocol
 
 from torrcast.domain.torr_file import TorrFile
+from torrcast.ports.contact_wait import ContactWait
 from torrcast.ports.json_value import JsonValue
 
 
@@ -31,10 +32,11 @@ class TorrentEngine(Protocol):
         """Адрес, по которому читается файл раздачи под номером ``index``."""
 
     def wait_files(
-        self, torrent_hash: str, timeout: float = 60.0, grace: float = 0.0
+        self, torrent_hash: str, timeout: float = 60.0, grace: float | ContactWait = 0.0
     ) -> list[TorrFile]:
         """Дождаться метаданных раздачи.
 
         ``grace`` - отсрочка приговора «рой пуст»: до неё пустой рой ещё не беда. Часы
-        отсрочки может вести сам зовущий, поэтому сюда приходит значение, а не число.
+        отсрочки может вести сам зовущий, поэтому сюда приходит значение
+        (:class:`torrcast.ports.contact_wait.ContactWait`), а не число.
         """

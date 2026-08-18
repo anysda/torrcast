@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from torrcast.domain.torr_file import TorrFile
+from torrcast.ports.contact_wait import ContactWait
 
 
 @dataclass
@@ -37,7 +38,7 @@ class FakeTorrentEngine:
         return f"http://fake/{torrent_hash}/{index}"
 
     def wait_files(
-        self, torrent_hash: str, timeout: float = 60.0, grace: float = 0.0
+        self, torrent_hash: str, timeout: float = 60.0, grace: float | ContactWait = 0.0
     ) -> list[TorrFile]:
         self.awaited.append((torrent_hash, timeout, float(grace)))
         return list(self.torrent_files)

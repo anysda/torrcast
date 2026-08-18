@@ -15,6 +15,11 @@ from torrcast.domain.torr_file import TorrFile
 from torrcast.domain.why import why
 from torrcast.ports.clock import Clock
 
+# Договор отсрочки берётся портом, а не своим классом: службе раздач она приходит от
+# сценария, и знать здесь надо ровно то, что обещано порту. Часы же ведёт наша ContactWait
+# выше по импорту, и по ней же отличается «отсрочка с часами» от голого числа секунд.
+from torrcast.ports.contact_wait import ContactWait as ContactWaitPort
+
 if TYPE_CHECKING:
     import requests
 
@@ -93,7 +98,7 @@ class TorrServer:
         return _file_stats(self.status(torrent_hash))
 
     def wait_files(
-        self, torrent_hash: str, timeout: float = 60.0, grace: float | ContactWait = 0.0
+        self, torrent_hash: str, timeout: float = 60.0, grace: float | ContactWaitPort = 0.0
     ) -> list[TorrFile]:
         began = self.clock.monotonic()
         deadline = began + timeout
@@ -113,7 +118,7 @@ class TorrServer:
                     continue
                 deadline = activated + timeout
                 hopeless = activated + grace.seconds
-            seconds = grace.seconds if isinstance(grace, ContactWait) else grace
+            seconds = grace.seconds if isinstance(grace, ContactWait) else float(grace)
             if seconds > 0 and now >= hopeless and swarm_alive(status) is False:
                 raise SwarmError(f"рой пуст - за {seconds:.0f} с ни одного пира")
             left = deadline - now
