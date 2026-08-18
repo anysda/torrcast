@@ -6,17 +6,18 @@ from typing import Any
 
 import pytest
 
+from tests.fakes import composition
+from tests.fakes.tape import FakeTape
 from torrcast.adapters.filesystem.trace_journal.emit import emit
-from torrcast.adapters.filesystem.trace_journal.writer import _Writer
 
 
 @pytest.fixture
 def queued(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
     """Записи ловятся там, где они уходят в очередь: диска этот путь не касается вовсе."""
-    seen: list[dict[str, Any]] = []
-    monkeypatch.setattr(_Writer, "put", lambda _self, record: seen.append(record))
+    tape = FakeTape()
+    composition.use_tape(monkeypatch, tape.put)
     monkeypatch.setenv("TORRCAST_SID", "запуск")
-    return seen
+    return tape.records
 
 
 def test_every_record_carries_the_envelope_that_makes_a_week_readable(

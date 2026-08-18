@@ -5,9 +5,6 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-import pytest
-
-from torrcast.adapters.filesystem.trace_journal import prune as prune_module
 from torrcast.adapters.filesystem.trace_journal.prune import MAX_BYTES, RETAIN_DAYS, _prune
 
 
@@ -37,18 +34,15 @@ def test_a_week_is_kept_and_everything_older_goes(tmp_path: Path) -> None:
     assert young.exists()
 
 
-def test_over_the_ceiling_the_oldest_days_go_first(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_over_the_ceiling_the_oldest_days_go_first(tmp_path: Path) -> None:
     """Потолок места считается с новых суток к старым: свежее важнее.
 
     Считай ротация с другого конца - и переполненный каталог сносил бы ровно ту ленту,
     ради которой её и держат: сегодняшнюю.
     """
-    monkeypatch.setattr(prune_module, "MAX_BYTES", 100)
     tapes = [_tape(tmp_path, back, 80) for back in (3, 2, 1)]
 
-    _prune("", tmp_path)
+    _prune("", tmp_path, ceiling=100)
 
     assert [path.exists() for path in tapes] == [False, False, True]
 

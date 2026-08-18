@@ -1,21 +1,21 @@
-"""Недельный след: схема записей, ротация, потолок места и главный инвариант -
-запись сегмента не делает синхронного I/O в горячем пути отдачи.
+"""Недельный след целиком: событие ложится на диск и читается ``cast log`` обратно.
+
+Каждое звено меряется своим зеркалом рядом с ним
+(``tests/adapters/filesystem/trace_journal/``); здесь остаётся то, что зеркалу одного
+звена не принадлежит - сквозной путь от вызова до напечатанной выжимки.
 """
 
 from __future__ import annotations
 
 import json
 import os
-import threading
 import time
 from pathlib import Path
 
 import pytest
 
-from tests.fakes.clock import FakeClock
 from torrcast.adapters.filesystem.trace_journal import (
     LOG_ENV,
-    MAX_BYTES,
     SID_ENV,
     dark,
     emit,
@@ -31,8 +31,6 @@ from torrcast.adapters.filesystem.trace_journal import (
     start_session,
     warmth,
 )
-from torrcast.adapters.filesystem.trace_journal import prune as _prune_module
-from torrcast.adapters.filesystem.trace_journal import writer as _writer_module
 from torrcast.cli.main import main
 from torrcast.domain.digest import _seams, digest
 from torrcast.domain.trace_sources import PACKED, WARMED
@@ -160,23 +158,6 @@ def test_rotation_drops_old_days(tmp_path: Path) -> None:
     assert young.exists()
 
 
-def test_size_ceiling(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Свыше потолка места самые старые сутки сносятся, свежие - остаются."""
-    monkeypatch.setattr(_prune_module, "MAX_BYTES", 100)
-    now = time.time()
-    days = [time.strftime("%Y%m%d", time.localtime(now - n * 86400)) for n in (5, 4, 3, 2, 1)]
-    for day in days:
-        (tmp_path / f"trace-{day}.jsonl").write_text("x" * 80, encoding="utf-8")
-    emit("search", "query")  # запишет сегодняшний файл и запустит ротацию
-    shutdown()
-    left = sorted(p.name for p in tmp_path.glob("trace-*.jsonl"))
-    total = sum(p.stat().st_size for p in tmp_path.glob("trace-*.jsonl"))
-    assert total <= MAX_BYTES
-    # Сегодняшний (самый свежий) обязан уцелеть, самые старые - уйти.
-    assert f"trace-{time.strftime('%Y%m%d', time.localtime(now))}.jsonl" in left
-    assert f"trace-{days[0]}.jsonl" not in left
-
-
 def test_оборванная_строка_ленты_не_задваивает_соседнюю(tmp_path: Path) -> None:
     """Строка, которую не разобрать, значит «этой строки нет» - и ничего больше.
 
@@ -207,128 +188,6 @@ def test_оборванная_строка_ленты_не_задваивает_
 
 
 # --- ГЛАВНЫЙ ИНВАРИАНТ: горячий путь не ждёт журнал --------------------------
-
-
-def test_put_does_no_synchronous_io(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """`put` в горячем пути не трогает диск: ни ``os.open``, ни ``os.write``.
-
-    Прямое доказательство инварианта. Глушим запуск фонового потока, чтобы всё, что делает
-    put, было именно тем, что делает горячий путь, - и считаем обращения к диску: их ноль.
-    Диск трогается только по явному drain, то есть в фоне.
-    """
-    monkeypatch.setenv(LOG_ENV, str(tmp_path))
-    monkeypatch.setattr(_writer_module._Writer, "_start", lambda self: None)  # поток не поднимаем
-    import os as _os
-
-    touched: list[str] = []
-
-    def fake_open(*_a: object, **_k: object) -> int:
-        touched.append("open")
-        return 3
-
-    def fake_write(*_a: object, **_k: object) -> int:
-        touched.append("write")
-        return 0
-
-    monkeypatch.setattr(_os, "open", fake_open)
-    monkeypatch.setattr(_os, "write", fake_write)
-
-    writer = _writer_module._Writer()
-    for i in range(500):
-        writer.put({"phase": "play", "event": "segment", "slot": i})
-    assert touched == [], "укладка записи сделала синхронный I/O - инвариант нарушен"
-    assert writer._q.qsize() == 500  # всё лежит в очереди, а не на диске
-
-
-def test_flush_runs_off_the_caller_thread(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Запись на диск идёт в другом потоке, а не в том, что зовёт emit из горячего цикла."""
-    monkeypatch.setenv(LOG_ENV, str(tmp_path))
-    caller = threading.get_ident()
-    flusher: list[int] = []
-    real_flush = _writer_module._Writer._flush
-
-    def spy(self: _writer_module._Writer, batch: list[tuple[Path, dict[str, object]]]) -> None:
-        flusher.append(threading.get_ident())
-        real_flush(self, batch)
-
-    monkeypatch.setattr(_writer_module._Writer, "_flush", spy)
-    writer = _writer_module._Writer()
-    began = time.perf_counter()
-    for i in range(200):
-        writer.put({"phase": "play", "event": "segment", "slot": i})
-    hot_cost = time.perf_counter() - began
-    writer.stop()  # дожать хвост
-    assert flusher, "писатель ни разу не слил batch"
-    assert all(tid != caller for tid in flusher), "слив шёл в потоке, зовущем put"
-    # Горячий путь на 200 укладок обязан быть дешёвым: это очередь, а не диск.
-    assert hot_cost < 0.5
-
-
-def test_segment_emit_no_disk(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Врезка в отдачу сегмента ходит через тот же неблокирующий emit.
-
-    Считаем синхронные ``os.write`` за время самого emit: их должно быть ноль - диск
-    трогает только фоновый поток, дожатый затем shutdown.
-    """
-    monkeypatch.setenv(LOG_ENV, str(tmp_path))
-    monkeypatch.setenv(SID_ENV, "seg")
-    import os as _os
-
-    writes: list[int] = []
-    real_write = _os.write
-
-    def counting_write(fd: int, data: bytes) -> int:
-        writes.append(fd)
-        return real_write(fd, data)
-
-    monkeypatch.setattr(_os, "write", counting_write)
-    monkeypatch.setattr(_writer_module._Writer, "_start", lambda self: None)  # поток не поднимаем
-    writer = _writer_module._Writer()
-    for slot in range(50):
-        writer.put({"phase": "play", "event": "segment", "slot": slot, "mb": 3.1})
-    assert writes == [], "укладка сегмента сделала синхронный write - это регресс инварианта"
-    writer.stop()  # thread не поднимался - stop дожимает синхронно через drain
-    assert writes, "после дожатия хвост так и не записался"
-
-
-def test_отставший_хвост_не_дописывается_в_чужую_ленту(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Запись едет в ту ленту, на которую журнал смотрел в МОМЕНТ СОБЫТИЯ.
-
-    Обратная сторона неблокирующей укладки: между ``emit`` и попаданием записи на диск
-    проходит сколько угодно времени, а каталог ленты за это время может смениться
-    (:data:`~torrcast.adapters.filesystem.trace_journal.LOG_ENV`, файл состояния) или
-    наступить новые сутки. Выбирай писатель файл у себя, отставший хвост дописывался бы
-    в ленту, которую переменная показывает
-    СЕЙЧАС, - в чужую. Дыра нашлась на полном прогоне: хвост соседнего теста попадал
-    в каталог следующего, и тот находил у себя запись, которой взяться неоткуда.
-
-    Писатель тут придержан на первой записи не ради скорости, а чтобы окно гонки было
-    ровно тем самым: запись уже у писателя, но ещё не на диске.
-    """
-    first, second = tmp_path / "первая", tmp_path / "вторая"
-    took, hold = threading.Event(), threading.Event()
-    real_flush = _writer_module._Writer._flush
-
-    def held(self: _writer_module._Writer, batch: list[tuple[Path, dict[str, object]]]) -> None:
-        took.set()
-        hold.wait(5.0)
-        real_flush(self, batch)
-
-    monkeypatch.setattr(_writer_module._Writer, "_flush", held)
-    monkeypatch.setenv(LOG_ENV, str(first))
-    emit("search", "query", query="первая")
-    assert took.wait(5.0), "писатель так и не взял запись - окно гонки не воспроизведено"
-    monkeypatch.setenv(LOG_ENV, str(second))
-    emit("search", "query", query="вторая")
-    hold.set()
-    shutdown()
-
-    assert [rec["query"] for rec in _read_lines(first)] == ["первая"]
-    assert [rec["query"] for rec in _read_lines(second)] == ["вторая"], (
-        "хвост отставшего писателя дописался в чужую ленту"
-    )
 
 
 def test_digest_summarises_session(tmp_path: Path) -> None:
@@ -365,207 +224,6 @@ def _only(rows: list[dict[str, object]], event: str) -> dict[str, object]:
     found = [rec for rec in rows if rec.get("event") == event]
     assert len(found) == 1, f"событий «{event}» в ленте {len(found)}, а не одно"
     return found[0]
-
-
-class _FakeController:
-    def __init__(self, jumps: list[float]) -> None:
-        self.jumps = jumps
-
-    def seek(self, pos: float) -> None:
-        self.jumps.append(pos)
-
-
-class _FakeDevice:
-    def __init__(self, jumps: list[float]) -> None:
-        self.media_controller = _FakeController(jumps)
-
-
-class _Reported:
-    """MEDIA_STATUS, как его отдаёт приёмник: позиция, состояние, длительность."""
-
-    def __init__(self, pos: float, state: str = "PLAYING") -> None:
-        self.current_time = pos
-        self.player_state = state
-        self.idle_reason = None
-        self.duration = 5977.0
-        self.player_is_playing = state in {"PLAYING", "BUFFERING"}
-
-
-def test_a_nudge_is_a_record_with_numbers_not_a_line_of_text(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Нудж сторожа виден в ленте полями: где стоял, куда прыгнул, каким по счёту.
-
-    До этого о нудже можно было узнать только по косвенным признакам - ребуфер в ленте
-    есть, а лечили его или нет, не сказано. Разбор недельного следа обязан отвечать на
-    «сколько раз приёмник пришлось расшевелить и на каких местах фильма».
-    """
-    from torrcast.adapters.chromecast.cast import ChromecastReceiver
-
-    monkeypatch.setattr(ChromecastReceiver, "_device", lambda self: _FakeDevice([]))
-    receiver = ChromecastReceiver("10.0.0.50")
-    receiver._peak = 84.0
-    receiver._nudge(84.0, front=144.0)  # первый неподвижный тик - ещё не зависание
-    receiver._stall_since -= ChromecastReceiver.STALL_SECONDS
-    receiver._nudge(84.0, front=144.0)
-    shutdown()
-
-    rec = _only(_read_lines(tmp_path), "nudge")
-    assert rec["phase"] == "play"
-    assert rec["pos"] == 84.0
-    assert rec["to"] == 84.0 + ChromecastReceiver.STALL_SKIP
-    assert rec["hit"] == 1
-    assert rec["front"] == 144.0
-    assert float(str(rec["stuck"])) >= ChromecastReceiver.STALL_SECONDS
-    text = digest(records())
-    assert "нудж сторожа 1" in text and "1:24 -> 1:32" in text
-    assert "нуджей сторожа 1" in text
-
-
-def test_a_reload_of_a_dead_receiver_is_logged(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Повтор LOAD - тоже событие показа: на какой секунде отвалились и какая это попытка."""
-    from torrcast.adapters.chromecast.cast import ChromecastReceiver
-
-    receiver = ChromecastReceiver("10.0.0.50")
-    receiver._peak = 4355.0
-    monkeypatch.setattr(ChromecastReceiver, "_restart_app", lambda self: None)
-    monkeypatch.setattr(ChromecastReceiver, "_load", lambda self, at=0.0: None)
-    assert receiver._reload()
-    shutdown()
-
-    rec = _only(_read_lines(tmp_path), "reload")
-    assert rec["pos"] == 4355.0
-    assert rec["tries"] == 1
-    assert "повтор LOAD 1" in digest(records())
-
-
-def test_a_seek_carries_where_to_and_how_long_the_picture_took(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Перемотка - событие с полями, а не фаза таймлайна.
-
-    Приёмник мотает сам, команды нам при этом не приходит, поэтому перемотку видно только
-    по прыжку позиции. Ценность записи - в том, что было ПОСЛЕ: сколько человек смотрел на
-    чёрный экран, пока показ снова не поехал.
-    """
-    from torrcast.adapters.chromecast.cast import ChromecastReceiver
-
-    monkeypatch.setattr(ChromecastReceiver, "_device", lambda self: _FakeDevice([]))
-    receiver = ChromecastReceiver("10.0.0.50")
-    script = [
-        _Reported(600.0),  # смотрим 10:00
-        _Reported(1891.0, "BUFFERING"),  # пультом на 31:31 - картинки ещё нет
-        _Reported(1891.0, "BUFFERING"),
-        _Reported(1893.0),  # поехало
-    ]
-    monkeypatch.setattr(ChromecastReceiver, "_status", lambda self: script.pop(0))
-    for _ in range(4):
-        receiver.position(front=1e6)
-    shutdown()
-
-    rec = _only(_read_lines(tmp_path), "seek")
-    assert rec["frm"] == 600.0
-    assert rec["to"] == 1891.0
-    assert float(str(rec["wait"])) >= 0.0
-    text = digest(records())
-    assert "перемотка 10:00 -> 31:31" in text
-    assert "картинка через" in text
-    assert "перемоток 1" in text
-
-
-def test_a_seek_is_measured_to_the_moving_pointer_not_to_the_word_playing(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Ожидание после перемотки меряется до КАДРА, а не до слова приёмника.
-
-    ``PLAYING`` приходит раньше первого кадра: указатель после прыжка стоит на месте
-    приземления, пока приёмник не наберёт буфер. Метрика, верившая слову, записала в ленту
-    0.0 с у всех трёх прыжков подряд - при том что картинка возвращалась за 6.0, 5.9 и
-    9.9 с, и «перемотка стала быстрее» после этого измеряло бы не то.
-    """
-    from torrcast.adapters.chromecast.cast import ChromecastReceiver
-
-    monkeypatch.setattr(ChromecastReceiver, "_device", lambda self: _FakeDevice([]))
-    clock = FakeClock()
-    receiver = ChromecastReceiver("10.0.0.50", clock=clock)
-    # Все пробы в PLAYING нарочно: ровно так и врал приёмник на живом Q70D.
-    script = [
-        _Reported(600.0),  # смотрим 10:00
-        _Reported(1891.0),  # пультом на 31:31: слово есть, кадра нет
-        _Reported(1891.0),  # указатель стоит - экран всё ещё чёрный
-        _Reported(1891.0),
-        _Reported(1893.0),  # тронулся - вот он, первый кадр
-    ]
-    monkeypatch.setattr(ChromecastReceiver, "_status", lambda self: script.pop(0))
-    for tick in range(5):
-        clock.now = 2.0 * tick
-        receiver.position(front=1e6)
-    shutdown()
-
-    rec = _only(_read_lines(tmp_path), "seek")
-    assert rec["to"] == 1891.0
-    assert rec["wait"] == 6.0, "ожидание отмерено от слова приёмника, а не от сдвига указателя"
-
-
-def test_a_seek_that_never_showed_a_picture_is_a_record_and_not_a_silence(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Перемотка, после которой кадра не случилось вовсе, пишется отдельным исходом.
-
-    Ждать сдвига указателя вечно нельзя, а молчать о таком прыжке нельзя тем более:
-    «нет строки в ленте» пришлось бы читать как «перемотки не было». Нулём же его писала
-    ровно та метрика, которую чинят, - и худший исход выглядел бы как лучший.
-    """
-    from torrcast.adapters.chromecast.cast import ChromecastReceiver
-
-    monkeypatch.setattr(ChromecastReceiver, "_device", lambda self: _FakeDevice([]))
-    receiver = ChromecastReceiver("10.0.0.50")
-    script = [
-        _Reported(600.0),
-        _Reported(1891.0, "BUFFERING"),  # прыжок принят, картинки ждём
-        _Reported(0.0, "IDLE"),  # сессия умерла, ждать больше некого
-    ]
-    monkeypatch.setattr(ChromecastReceiver, "_status", lambda self: script.pop(0))
-    for _ in range(3):
-        receiver.position(front=1e6)
-    shutdown()
-
-    rec = _only(_read_lines(tmp_path), "seek")
-    assert rec["to"] == 1891.0
-    assert rec["wait"] is None
-    assert "картинки так и не было" in digest(records())
-
-
-def test_our_own_nudge_is_not_counted_as_a_seek_by_the_viewer(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Прыжок сторожа - не перемотка человека, и в ленте он ровно один раз, как нудж.
-
-    Иначе разбор недели врёт дважды: каждый нудж считается ещё и перемоткой, а «человек
-    мотает» перестаёт что-либо значить.
-    """
-    from torrcast.adapters.chromecast.cast import ChromecastReceiver
-
-    monkeypatch.setattr(ChromecastReceiver, "_device", lambda self: _FakeDevice([]))
-    receiver = ChromecastReceiver("10.0.0.50")
-    stuck = [_Reported(84.0, "BUFFERING") for _ in range(4)]
-    # Прыжок сторожа растёт с каждой попыткой (8 · hits) и на третьей перерастает порог
-    # перемотки - ровно тот случай, в котором нудж и мог сойти за человека с пультом.
-    script = [*stuck, _Reported(108.0, "BUFFERING"), _Reported(110.0)]
-    monkeypatch.setattr(ChromecastReceiver, "_status", lambda self: script.pop(0))
-    receiver.position(front=1e6)  # первый неподвижный тик
-    for _ in range(3):
-        receiver._stall_since -= ChromecastReceiver.STALL_SECONDS
-        receiver.position(front=1e6)  # нудж: 92, 100, 108
-    receiver.position(front=1e6)  # приёмник доехал туда, куда его послал сторож
-    receiver.position(front=1e6)
-    shutdown()
-
-    rows = _read_lines(tmp_path)
-    events = [r["event"] for r in rows if r["event"] in {"nudge", "seek"}]
-    assert events == ["nudge", "nudge", "nudge"], "свой же прыжок записан как перемотка"
 
 
 def test_a_dark_screen_and_its_revival_are_records_with_numbers(tmp_path: Path) -> None:
@@ -799,30 +457,6 @@ def test_a_served_piece_says_which_producer_made_it(tmp_path: Path) -> None:
     assert "источник сменился на прогретое" in digest(rows), "стык не назван"
 
 
-def test_the_source_field_costs_the_hot_path_nothing(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Врезка источника не имеет права трогать диск: :func:`segment` - тот же put."""
-    monkeypatch.setenv(LOG_ENV, str(tmp_path))
-    monkeypatch.setenv(SID_ENV, "hot")
-    shutdown()
-    import os as _os
-
-    writes: list[int] = []
-    real_write = _os.write
-
-    def counting_write(fd: int, data: bytes) -> int:
-        writes.append(fd)
-        return real_write(fd, data)
-
-    monkeypatch.setattr(_os, "write", counting_write)
-    monkeypatch.setattr(_writer_module._Writer, "_start", lambda self: None)  # поток не поднимаем
-    for slot in range(200):
-        segment(slot=slot, mb=3.0, sent=0.1, wait=0.0, src=WARMED)
-
-    assert writes == [], "запись источника сделала синхронный write - регресс инварианта"
-
-
 def test_the_plan_says_how_both_producers_encode(tmp_path: Path) -> None:
     """Решение о кодировании - строка ленты, а не разбор аргументов ffmpeg постфактум."""
     monkey = pytest.MonkeyPatch()
@@ -885,28 +519,3 @@ def test_an_event_this_version_does_not_know_is_printed_anyway(
 
     assert main(["log"]) == 0
     assert "play/нечто (чего_мы_не_знаем=1)" in capsys.readouterr().out
-
-
-def test_records_eaten_by_a_full_queue_are_confessed_and_not_hidden(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Слепая зона названа вслух: переполненная очередь роняет записи и говорит сколько.
-
-    Плата за то, что показ не ждёт диск, - конечная очередь
-    (:data:`~torrcast.adapters.filesystem.trace_journal._QUEUE_MAX`).
-    Записи при этом теряются, и восстановить их нечем; но молчать о самой потере нельзя -
-    иначе разбор недели уверенно прочитает дыру как «решений не было».
-    """
-    monkeypatch.setattr(_writer_module, "_QUEUE_MAX", 2)
-    monkeypatch.setattr(_writer_module._Writer, "_start", lambda self: None)  # поток не поднимаем
-    writer = _writer_module._Writer()
-    for slot in range(10):
-        writer.put({"phase": "play", "event": "segment", "slot": slot, "sid": "test-sid"})
-    writer.stop()  # thread не поднимался - stop дожимает синхронно через drain
-
-    rows = _read_lines(tmp_path)
-    lost = [rec for rec in rows if rec.get("event") == "lost"]
-    assert len(lost) == 1, "о потере сказано ровно один раз на пакет"
-    assert lost[0]["count"] == 8, "восемь записей очередь не приняла - столько и признано"
-    assert len([r for r in rows if r.get("event") == "segment"]) == 2
-    assert "потеряно записей 8" in digest(records())

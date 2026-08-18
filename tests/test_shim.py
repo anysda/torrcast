@@ -931,7 +931,7 @@ def test_shim_takes_the_systemd_socket_only_from_its_own_activation(
     assert seen == [3]
 
 
-def test_one_dns_blip_does_not_empty_the_only_route(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_one_dns_blip_does_not_empty_the_only_route() -> None:
     """🔴 TC-267. У кого один кандидат, у того адрес и есть весь маршрут.
 
     Замер на живой машине: DNS не ответил пять секунд, и шим отдал `502 маршрут пуст`
@@ -945,9 +945,8 @@ def test_one_dns_blip_does_not_empty_the_only_route(monkeypatch: pytest.MonkeyPa
             raise OSError("DNS молчит")
         return answers.pop()
 
-    monkeypatch.setattr(shim, "_nameservers", lambda: ["192.0.2.53"])
-    monkeypatch.setattr(shim, "_query", flaky)
-    resolver = shim.Resolver(ttl=0)  # свежесть тут не при чём: спрашиваем каждый раз
+    # свежесть тут не при чём: спрашиваем каждый раз, а спрашиваем - подставленный DNS
+    resolver = shim.Resolver(ttl=0, servers=lambda: ["192.0.2.53"], ask=flaky)
     route = shim.Route("tracker.test", ["direct"])
 
     first = [target.base for target in route.targets(resolver)]

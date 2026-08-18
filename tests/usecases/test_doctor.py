@@ -1,10 +1,16 @@
 """Сценарий doctor сообщает все проверки и итог."""
 
-from dataclasses import dataclass
+import socket
+import threading
+import time
+from dataclasses import dataclass, field
+
+import pytest
 
 from tests.fakes.configuration_source import FakeConfigurationSource
 from tests.fakes.console import FakeConsole
 from tests.fakes.health_environment import FakeHealthEnvironment
+from torrcast.domain.indexer_health import KEY_INDEXER
 from torrcast.domain.settings import Settings
 from torrcast.usecases.doctor import (
     _INDEXER_TIMEOUT,
@@ -12,6 +18,7 @@ from torrcast.usecases.doctor import (
     Doctor,
     _cache,
     _live_indexers,
+    _mdns,
     _probe_indexer,
     _prowlarr,
 )
@@ -146,3 +153,145 @@ def test_a_cache_on_disk_without_a_path_never_touches_the_disk() -> None:
     line, ok = _cache(_config(), environment)
     assert not ok and "путь не задан" in line, line
     assert environment.urls == []
+
+
+def test_a_pause_and_a_silent_live_probe_both_reach_the_answer() -> None:
+    """Флаг ``enable`` не здоровье: пауза Prowlarr и пустая живая проба обе краснят ответ.
+
+    Строки эти приходят из разных источников - одна из статусов службы, другая из
+    настоящего поиска, - и потерять любую значит объявить мёртвый индексер здоровым.
+    """
+    environment = FakeHealthEnvironment(
+        payloads={
+            "health": [],
+            "indexer": [{"id": 7, "name": KEY_INDEXER, "enable": True}],
+            "indexerstatus": [{"indexerId": 7, "disabledTill": "2026-08-09T12:30:00Z"}],
+        },
+        titles=None,
+    )
+
+    lines = list(_prowlarr(_config(), environment))
+
+    text = "\n".join(line for line, _ in lines)
+    assert f"индексер {KEY_INDEXER} отключён Prowlarr до 2026-08-09 12:30:00" in text
+    assert f"индексер {KEY_INDEXER} не ответил на живой поиск - выдача неполная" in text
+    assert any(not good for _, good in lines)
+
+
+def test_zero_indexers_ends_the_prowlarr_leg_right_there() -> None:
+    """Индексеров ноль - дальше спрашивать нечего и некого: строка одна и красная."""
+    environment = FakeHealthEnvironment(payloads={"health": [], "indexer": []})
+
+    lines = list(_prowlarr(_config(), environment))
+
+    assert len(lines) == 1 and lines[0][1] is False
+    assert [url.rsplit("/", 1)[-1] for url in environment.urls] == ["health", "indexer"]
+
+
+@pytest.mark.machine
+def test_the_live_probes_never_run_as_one_volley() -> None:
+    """Проверка сама не имеет права перегружать общий путь индексеров залпом.
+
+    Prowlarr отвечает третьему одновременному запросу 504 на шестнадцатой секунде, а
+    после серии таких уводит индексер в бан на три часа: залп доктора лечился бы потом
+    сутки. Меряется тут не число рабочих, а то, ради чего оно названо, - сколько проб
+    оказалось в воздухе разом.
+    """
+
+    @dataclass
+    class Counting(FakeHealthEnvironment):
+        """Среда, считающая, сколько живых проб шло одновременно."""
+
+        peak: int = 0
+        inflight: int = 0
+        guard: threading.Lock = field(default_factory=threading.Lock)
+
+        def search_titles(
+            self, url: str, apikey: str, indexer: int, query: str, timeout: float
+        ) -> list[str] | None:
+            with self.guard:
+                self.inflight += 1
+                self.peak = max(self.peak, self.inflight)
+            time.sleep(0.05)
+            with self.guard:
+                self.inflight -= 1
+            return super().search_titles(url, apikey, indexer, query, timeout)
+
+    environment = Counting()
+    payload = [{"id": number, "name": f"Indexer {number}", "enable": True} for number in (1, 2, 3)]
+
+    lines = list(_live_indexers(_config(), payload, environment))
+
+    assert len(lines) == 3
+    assert environment.peak == 1, f"в воздухе оказалось проб разом: {environment.peak}"
+
+
+def test_an_unreadable_torrserver_does_not_fail_the_checkup() -> None:
+    """Молчащий TorrServer - это «внимание»: про него уже сказала строка выше.
+
+    Красной строкой тут доктор жаловался бы дважды на одну и ту же беду.
+    """
+    line, ok = _cache(_config(), FakeHealthEnvironment(settings=None))
+
+    assert ok and "неизвестен" in line, line
+
+
+def test_a_cache_that_leaves_no_room_for_the_warmup_is_bad() -> None:
+    """Раздел, где кэшу место есть, а прогреву уже нет, - это «плохо».
+
+    Обещание «показ переживает обрыв» держат оба сразу, и кэш, съевший раздел, ломает
+    его ровно так же, как отсутствие кэша: место под прогрев считается сверх кэша.
+    """
+    environment = FakeHealthEnvironment(
+        settings={"CacheSize": 4 * 1024**3, "UseDisk": True, "TorrentsSavePath": "/кэш"},
+        free=30 * 1024**3,
+    )
+
+    line, ok = _cache(_config(), environment)
+
+    assert not ok, f"30 ГиБ на раздел под кэш и прогрев - этого не хватает: {line}"
+    assert "прогреву места не остаётся" in line, line
+
+
+def test_the_receivers_heard_in_the_air_are_named_in_the_line() -> None:
+    """Эфир ответил - в строке имена: они и есть весь смысл mDNS.
+
+    Адреса найдёт и обход подсетей; имён взять больше неоткуда, и без них человек
+    выбирает телевизор по номеру в сети.
+    """
+    environment = FakeHealthEnvironment(heard=(["Samsung Q70D"], "", ""))
+
+    line, ok = _mdns(environment)
+
+    assert ok and line.startswith("ок"), line
+    assert "Samsung Q70D" in line
+
+
+@pytest.mark.machine
+def test_a_closed_port_still_turns_the_indexer_line_red() -> None:
+    """Мёртвый индексер краснеет НАСТОЯЩИМ отказом порта, а не подделанной средой.
+
+    Остальные проверки живой пробы отвечают за индексер подделкой, поэтому честности
+    доктора они не доказывают: под подделкой красным становится ровно то, что ей велели
+    вернуть. Здесь порт закрыт по-настоящему, запрос уходит настоящий, и красной строку
+    делает сам отказ соединения.
+
+    Заодно снимается срок. У живого поиска терпение своё и длинное
+    (:data:`torrcast.usecases.doctor._INDEXER_TIMEOUT`), а идут пробы по одной - и
+    закрытый порт не имеет права выесть это терпение целиком, иначе доктор на десятке
+    мёртвых индексеров встал бы на минуты вместо мгновенного отказа.
+    """
+    spare = socket.socket()
+    spare.bind(("127.0.0.1", 0))
+    dead = spare.getsockname()[1]
+    spare.close()  # порт освобождён и больше никем не занят - соединение получит отказ
+    settings = Settings(prowlarr_url=f"http://127.0.0.1:{dead}", prowlarr_apikey="x" * 32)
+
+    began = time.monotonic()
+    lines = list(_live_indexers(settings, [{"id": 7, "name": "RuTor", "enable": True}]))
+    spent = time.monotonic() - began
+
+    assert lines, "мёртвый индексер обязан оставить строку, а не промолчать"
+    assert all(not good for _, good in lines), f"закрытый порт прошёл как здоровый: {lines}"
+    assert "индексер RuTor не ответил на живой поиск" in lines[0][0]
+    assert spent < _INDEXER_TIMEOUT, f"отказ порта ждали {spent:.1f} с вместо мгновенного"

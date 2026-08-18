@@ -237,7 +237,16 @@ class Resolver:
     оставаться без маршрута.
     """
 
-    def __init__(self, ttl: float = _DNS_TTL) -> None:
+    def __init__(
+        self,
+        ttl: float = _DNS_TTL,
+        servers: Callable[[], list[str]] = _nameservers,
+        ask: Callable[[str, str, int], list[str]] = _query,
+    ) -> None:
+        #: Откуда берутся резолверы и чем их спрашивают. Боевая пара стоит умолчанием;
+        #: подставленная нужна там, где мерят поведение при молчащем DNS.
+        self._servers = servers
+        self._ask = ask
         self._ttl = ttl
         self._cache: dict[str, tuple[float, list[str]]] = {}
         #: Последнее, что DNS вообще успел про имя сказать. Срока годности нет нарочно.
@@ -257,9 +266,9 @@ class Resolver:
             if fresh and fresh[0] > time.monotonic():
                 return fresh[1]
         found: list[str] = []
-        for server in _nameservers():
+        for server in self._servers():
             try:
-                found = [a for a in _query(host, server) if not a.startswith("127.")]
+                found = [a for a in self._ask(host, server, 1) if not a.startswith("127.")]
             except (OSError, struct.error, IndexError):
                 continue
             if found:
@@ -286,9 +295,9 @@ class Resolver:
         если отвечают ВСЕ семейства: клиент выбирает не наше мнение, а своё.
         """
         out = self.addresses(host)[:1]
-        for server in _nameservers():
+        for server in self._servers():
             try:
-                sixth = [a for a in _query(host, server, 28) if ":" in a]
+                sixth = [a for a in self._ask(host, server, 28) if ":" in a]
             except (OSError, struct.error, IndexError):
                 continue
             if sixth:

@@ -7,11 +7,11 @@ import sys
 
 import pytest
 
-from torrcast.adapters.systemd import start_play_unit as start_play_unit_module
+from torrcast.adapters.systemd.start_play_unit import start_play_unit
 
 
 @pytest.mark.machine
-def test_the_command_the_show_unit_starts_really_starts(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_command_the_show_unit_starts_really_starts() -> None:
     """Берём argv у самого запуска юнита и заводим по нему настоящий процесс.
 
     Проверять отдельно «есть ``__main__``» было бы мимо цели: ломается не наличие файла,
@@ -28,8 +28,7 @@ def test_the_command_the_show_unit_starts_really_starts(monkeypatch: pytest.Monk
         seen.append((tool, args))
         return subprocess.CompletedProcess([tool, *args], 0, "", "")
 
-    monkeypatch.setattr(start_play_unit_module, "_systemd", remember)
-    start_play_unit_module.start_play_unit("проба")
+    start_play_unit("проба", systemd=remember)
 
     started = [args for tool, args in seen if tool == "systemd-run"]
     assert started, "запуск юнита не позвал systemd-run"

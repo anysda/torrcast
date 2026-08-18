@@ -24,6 +24,7 @@ from types import ModuleType
 import pytest
 
 from torrcast.adapters import choice_environment
+from torrcast.adapters.filesystem.trace_journal import writer as _tape_slot
 from torrcast.ports.clock import Clock
 from torrcast.usecases import (
     cache_reserve,
@@ -61,6 +62,16 @@ def _home(unit: object) -> ModuleType:
 #: Правило отсрочки первого контакта и запуск показа: оба - тёзки своих модулей.
 _grace_rule = _home(peer_grace)
 _launch_show = _home(_await_playing)
+
+
+def use_tape(patch: pytest.MonkeyPatch, put: StandIn) -> None:
+    """Приёмник записей ленты: его знает единственная дверь в след (:func:`emit`).
+
+    Слот лежит у фонового писателя, потому что схема события ловится ровно там, где
+    запись уходит в очередь: файл ленты пишет отдельный поток, и его расписание к схеме
+    отношения не имеет.
+    """
+    patch.setattr(_tape_slot, "_tape", put)
 
 
 def use_engines(patch: pytest.MonkeyPatch, engines: StandIn) -> None:

@@ -14,7 +14,8 @@
 (:meth:`torrcast.adapters.http_server._handler._Handler._serve`) зовёт :func:`emit`, а он только
 кладёт запись в очередь без единого обращения к диску: пишет её на диск отдельный фоновый поток
 (:class:`_Writer`). Показ не ждёт ни ``open``, ни
-``write``, ни ``flush`` - это проверяется тестом (``tests/test_trace.py``).
+``write``, ни ``flush`` - это проверяется зеркалом писателя
+(``tests/adapters/filesystem/trace_journal/test_writer.py``).
 
 Всё локально: лента лежит там же, где состояние, никакой внешней системы. Разбор - команда
 ``cast log`` (:func:`digest`), она же читает :func:`records`.

@@ -5,7 +5,6 @@ from pathlib import Path
 import pytest
 
 from tests.fakes.show_unit import FakeShowUnit
-from torrcast.runtime import status_command as status_module
 from torrcast.runtime.status_command import status_command
 
 
@@ -25,9 +24,10 @@ def test_nothing_plays_and_nothing_was_watched(
 
 
 def test_the_configuration_is_read_once_for_the_whole_answer(
-    show_unit: FakeShowUnit, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    show_unit: FakeShowUnit, capsys: pytest.CaptureFixture[str]
 ) -> None:
     from torrcast.adapters.filesystem.state import State, load_config
+    from torrcast.domain.config import Config
     from torrcast.domain.entry import Entry
 
     state = State()
@@ -35,14 +35,12 @@ def test_the_configuration_is_read_once_for_the_whole_answer(
     state.save()
     reads: list[int] = []
 
-    def counted() -> object:
+    def counted() -> Config:
         reads.append(1)
         return load_config()
 
     show_unit.alive = True
     show_unit.playing = "movie:моана-2"
-    monkeypatch.setattr(status_module, "load_config", counted)
-
-    assert status_command() == 0
+    assert status_command(counted) == 0
     assert reads == [1], "конфиг у команды один на все три вопроса сеанса"
     assert "играю «Моана 2» - 0:10:00 / 2:00:00" in capsys.readouterr().out

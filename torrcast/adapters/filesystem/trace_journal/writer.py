@@ -7,6 +7,7 @@ from __future__ import annotations
 import contextlib
 import queue
 import threading
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, Final
 
 from torrcast.adapters.filesystem.trace_journal.flush import _flush
@@ -18,6 +19,18 @@ if TYPE_CHECKING:
 #: Очередь ограничена: если фоновый писатель отстаёт, запись роняется, но показ - никогда.
 _QUEUE_MAX: Final = 4096
 _BATCH: Final = 256
+#: Чем поднимается фоновый поток. ``None`` в ответе значит «не поднялся»: следующая
+#: запись попробует снова, а стенду так достаётся писатель без живого демона за спиной.
+_Spawn = Callable[[Callable[[], None]], "threading.Thread | None"]
+#: Куда кладётся запись ленты.
+_Put = Callable[[dict[str, Any]], None]
+
+
+def _daemon(run: Callable[[], None]) -> threading.Thread | None:
+    """Боевой подъём фонового потока: демон, потому что хвост ленты показа не переживёт."""
+    thread = threading.Thread(target=run, name="torrcast-trace", daemon=True)
+    thread.start()
+    return thread
 
 
 class _Writer:
@@ -28,9 +41,10 @@ class _Writer:
     санный хвост ленты значения не имеет, а :func:`shutdown` при штатном выходе его дожимает.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, depth: int = _QUEUE_MAX, spawn: _Spawn = _daemon) -> None:
         #: В очереди лежит не запись, а ПАРА «файл ленты, запись»: см. :meth:`put`.
-        self._q: queue.Queue[tuple[Path, dict[str, Any]] | None] = queue.Queue(maxsize=_QUEUE_MAX)
+        self._q: queue.Queue[tuple[Path, dict[str, Any]] | None] = queue.Queue(maxsize=depth)
+        self._spawn = spawn
         self._thread: threading.Thread | None = None
         self._lock = threading.Lock()
         self._pruned = ""
@@ -66,9 +80,7 @@ class _Writer:
         with self._lock:
             if self._thread is not None:
                 return
-            thread = threading.Thread(target=self._run, name="torrcast-trace", daemon=True)
-            thread.start()
-            self._thread = thread
+            self._thread = self._spawn(self._run)
 
     def _run(self) -> None:
         while True:
@@ -112,3 +124,13 @@ class _Writer:
 
 
 _writer = _Writer()
+#: Куда кладутся записи ленты в этом процессе. Пусто - значит в боевого писателя выше;
+#: стенд ставит сюда подделку (``tests/fakes/composition.use_tape``). Схема события
+#: ловится там, где запись уходит в очередь, а не на файле: файл пишет фоновый поток, и
+#: его расписание к схеме отношения не имеет.
+_tape: _Put | None = None
+
+
+def _put(record: dict[str, Any]) -> None:
+    """Положить запись туда, куда в этом процессе пишется лента."""
+    (_writer.put if _tape is None else _tape)(record)

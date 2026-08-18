@@ -6,14 +6,14 @@ from __future__ import annotations
 
 import contextlib
 import sys
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 
 from torrcast.adapters.console import console as _console
 from torrcast.adapters.console.console.iutf8 import iutf8
 
 
 @contextlib.contextmanager
-def terminal() -> Iterator[None]:
+def terminal(tty: Callable[[], bool] | None = None) -> Iterator[None]:
     """Включить ``IUTF8`` на stdin и вернуть режим как было.
 
     Без него ssh-сессия ведёт себя так: русская буква занимает два байта, а
@@ -21,8 +21,10 @@ def terminal() -> Iterator[None]:
     Флаг ставится ядром на драйвер pty, поэтому чинит и эхо, и забой разом.
 
     Без терминала (юнит, пайп, тесты) — честный no-op, а не попытка чинить трубу.
+    Кто отвечает на «есть ли терминал», можно назвать параметром: no-op меряется тем,
+    что режим никто не трогал, а не подменой имени в соседнем модуле.
     """
-    if not _console.stdin_is_tty():
+    if not (_console.stdin_is_tty if tty is None else tty)():
         yield
         return
     import termios

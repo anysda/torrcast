@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import io
 import time
-from typing import Any
 
 import pytest
 
+from tests.fakes import composition
+from tests.fakes.tape import FakeTape
 from torrcast.adapters.console.console.progress import _TICK, Progress
-from torrcast.adapters.filesystem.trace_journal.writer import _Writer
 
 
 class _Tty(io.StringIO):
@@ -72,8 +72,9 @@ def test_a_note_reaches_both_the_screen_and_the_weekly_trace(
 
     Отдельных вызовов журнала в местах решений это не заводит: их подбирает сам ``note``.
     """
-    queued: list[dict[str, Any]] = []
-    monkeypatch.setattr(_Writer, "put", lambda _self, record: queued.append(record))
+    tape = FakeTape()
+    composition.use_tape(monkeypatch, tape.put)
+    queued = tape.records
     out = io.StringIO()
     progress = Progress(out=out, tick=0.01)
 

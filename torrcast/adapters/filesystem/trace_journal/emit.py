@@ -10,7 +10,7 @@ import time
 from typing import Any
 
 from torrcast.adapters.filesystem.trace_journal.session_id import session_id
-from torrcast.adapters.filesystem.trace_journal.writer import _writer
+from torrcast.adapters.filesystem.trace_journal.writer import _put
 
 
 def emit(phase: str, event: str, **fields: Any) -> None:
@@ -33,4 +33,4 @@ def emit(phase: str, event: str, **fields: Any) -> None:
         json.dumps(record, ensure_ascii=False)
     except (TypeError, ValueError):
         return
-    _writer.put(record)
+    _put(record)
