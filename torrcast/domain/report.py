@@ -6,25 +6,28 @@
 
 from __future__ import annotations
 
-from typing import Any
+from collections.abc import Mapping, Sequence
+
+from torrcast.domain.json_number import json_number
+from torrcast.domain.json_value import JsonValue
 
 
-def report(marks: list[dict[str, Any]], zero: str = "") -> str:
+def report(marks: Sequence[Mapping[str, JsonValue]], zero: str = "") -> str:
     """Лента как таблица: время от нуля и цена каждой фазы.
 
     ``zero`` — метка, от которой считать ноль (обычно ``ответы``: старт меряется от
     Enter'а после последнего вопроса). Пусто — от первой метки.
     """
-    marks = list(marks)
-    if not marks:
+    rows = list(marks)
+    if not rows:
         return "меток нет"
-    base = next((float(m["at"]) for m in marks if m.get("name") == zero), None)
+    base = next((json_number(m["at"]) for m in rows if m.get("name") == zero), None)
     if base is None:
-        base = float(marks[0]["at"])
+        base = json_number(rows[0]["at"])
     lines = [f"{'фаза':<28}{'от нуля':>9}{'цена':>8}  {'pid':>7}"]
     previous = base
-    for entry in marks:
-        at = float(entry["at"])
+    for entry in rows:
+        at = json_number(entry["at"])
         facts = {k: v for k, v in entry.items() if k not in {"at", "name", "pid"}}
         tail = ("  " + " ".join(f"{k}={v}" for k, v in facts.items())) if facts else ""
         lines.append(

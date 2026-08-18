@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Any
+from collections.abc import Sequence
 
+from torrcast.domain.json_map import json_map
+from torrcast.domain.json_value import JsonValue
 from torrcast.domain.slugify import slugify
 
 
-def _own_name_first(pages: list[Any], title: str) -> list[Any]:
+def _own_name_first(pages: Sequence[JsonValue], title: str) -> list[JsonValue]:
     """Кандидаты прямой выборки: сначала статьи, названные ИМЕНЕМ запроса.
 
     Уточнение в скобках порядка не задаёт: «девять (мультфильм)» стоит в перечне раньше
@@ -24,8 +26,8 @@ def _own_name_first(pages: list[Any], title: str) -> list[Any]:
     """
     wanted = slugify(title)
 
-    def own(page: Any) -> bool:
-        heading = str((page or {}).get("title") or "")
+    def own(page: JsonValue) -> bool:
+        heading = str(json_map(page).get("title") or "")
         return bool(wanted) and slugify(heading.split(" (")[0]) == wanted
 
     return sorted(pages, key=lambda page: not own(page))

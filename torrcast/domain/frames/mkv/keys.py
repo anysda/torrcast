@@ -1,13 +1,7 @@
-"""Карта опорных кадров mkv: индекс ``Cues``.
+"""Карта опорных кадров mkv: разбор индекса ``Cues`` и матрёшки EBML.
 
-Общее для всех контейнеров — в :mod:`torrcast.keymap`, там же и вход
-(:func:`torrcast.keymap.keyframes`). Здесь только матрёшка EBML.
-
-В mkv есть собственный индекс перемотки — элемент ``Cues``. В нём для каждого опорного
-кадра лежат время и позиция кластера в байтах, то есть готовая карта GOP: длительность —
-разница времён, вес — разница позиций. Лежит он в хвосте файла, а его адрес — в
-``SeekHead`` в голове. Замер: «Моана 2» (3.4 ГБ, 1119 опорных кадров) — 0.45 МБ и
-4.3 с холодным роем, «Моана» 2016 (4.5 ГБ, 2830 опорных) — 2.1 с.
+Что это за индекс и чем он взят - в докстроке пакета
+(:mod:`torrcast.domain.frames.mkv`); здесь сам разбор.
 """
 
 from __future__ import annotations
@@ -18,8 +12,6 @@ from typing import Final
 from torrcast.domain.frames.keymap import KeyMap, Point
 from torrcast.domain.frames.range_reader import RangeReader as Reader
 from torrcast.domain.infra_error import InfraError
-
-__all__ = ["CUES_CHUNK", "HEAD_BYTES", "keys"]
 
 #: EBML-идентификаторы, которые нам нужны (вместе с маркером длины, как в файле).
 SEGMENT: Final = 0x18538067

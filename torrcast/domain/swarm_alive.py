@@ -1,9 +1,13 @@
 """Чистое правило swarm_alive для потокового фасада."""
 
-from typing import Any
+from __future__ import annotations
+
+from collections.abc import Mapping
+
+from torrcast.domain.json_value import JsonValue
 
 
-def swarm_alive(status: dict[str, Any]) -> bool | None:
+def swarm_alive(status: Mapping[str, JsonValue]) -> bool | None:
     """Есть ли у раздачи хоть один контакт по мнению самой службы. ``None`` — она молчит.
 
     Это тот же приём, что :func:`swarm_pulse`, только для фазы, где потока ещё нет.

@@ -8,10 +8,11 @@
 from __future__ import annotations
 
 from torrcast.domain.digest import _seams, digest
+from torrcast.domain.json_value import JsonValue
 from torrcast.domain.trace_sources import PACKED, WARMED
 
 
-def _segment(sid: str, at: float, src: str) -> dict[str, object]:
+def _segment(sid: str, at: float, src: str) -> dict[str, JsonValue]:
     """Запись отданного куска - ровно то, что пишет лента про один сегмент."""
     return {"at": at, "sid": sid, "phase": "show", "event": "segment", "slot": int(at), "src": src}
 

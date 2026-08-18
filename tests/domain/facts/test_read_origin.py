@@ -159,7 +159,7 @@ def test_a_bare_franchise_name_is_answered_by_the_franchise_or_by_nothing() -> N
     # Статьи о серии нет - молчание: выбрать часть за человека справка не вправе.
     assert not read_origin(parts, "гарри поттер")
     # Продолжение одно - это уточнение имени, а не выбор части: так находится «Кингсман».
-    assert read_origin(parts[:1], "гарри поттер").title.startswith("Harry Potter and")
+    assert read_origin(list(parts[:1]), "гарри поттер").title.startswith("Harry Potter and")
 
 
 def test_a_numbered_part_is_never_answered_by_the_whole_franchise() -> None:

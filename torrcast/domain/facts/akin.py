@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-from typing import Any
 
+from torrcast.domain.json_map import json_map
+from torrcast.domain.json_value import JsonValue
 from torrcast.domain.same_words import same_words
 from torrcast.domain.slugify import slugify
 from torrcast.domain.transliterate import transliterate
@@ -51,7 +52,7 @@ def akin(title: str, heading: str, longer: bool = True) -> bool:
     )
 
 
-def _crowded(title: str, pages: Iterable[Any]) -> bool:
+def _crowded(title: str, pages: Iterable[JsonValue]) -> bool:
     """Продолжают ли запрошенное имя сразу несколько статей выдачи.
 
     Так выглядит запрос голым именем франшизы: «гарри поттер» продолжают «Гарри Поттер и
@@ -67,7 +68,7 @@ def _crowded(title: str, pages: Iterable[Any]) -> bool:
         base
         for page in pages
         if page is not None
-        for base in (slugify(str(page.get("title") or "").split(" (")[0]),)
+        for base in (slugify(str(json_map(page).get("title") or "").split(" (")[0]),)
         if base and any(base.startswith(f"{want}-") for want in wants)
     }
     return len(seen) > 1

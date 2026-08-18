@@ -2,16 +2,15 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 from torrcast.domain.facts.origin import Origin
 from torrcast.domain.facts.patterns import _CYRILLIC, _TAIL_RE, _WORK_RE
 from torrcast.domain.facts.wiki_reply import _article
+from torrcast.domain.json_value import JsonValue
 from torrcast.domain.slugify import slugify
 
 
 def redirected_name(
-    names: list[str], hops: dict[str, str], pages: dict[str, Any], title: str
+    names: list[str], hops: dict[str, str], pages: dict[str, JsonValue], title: str
 ) -> Origin:
     """Русское имя, которое сама Википедия перенаправляет на латинский заголовок.
 

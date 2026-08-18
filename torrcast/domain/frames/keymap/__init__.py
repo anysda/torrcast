@@ -40,58 +40,8 @@ mp4          ``stss``/``stts`` в ``moov``, обычно в      :mod:`torrcast.
 
 from __future__ import annotations
 
-import itertools
-from typing import Final, NamedTuple
+from torrcast.domain.frames.keymap.key_map import KeyMap as KeyMap
+from torrcast.domain.frames.keymap.point import Point as Point
+from torrcast.domain.frames.keymap.video_track import video_track as video_track
 
 __all__ = ["KeyMap", "Point", "video_track"]
-
-#: Сколько головы читаем сначала. Этого куска хватает и на то, чтобы узнать контейнер,
-#: и на то, чтобы найти индекс: у mkv в первых килобайтах лежат SeekHead и Info, у mp4 -
-#: заголовок ``moov``. У роя это не вопрос байтов, а вопрос **очереди**: пока не приехала
-#: голова, запрос к любому другому месту даже не отправлен. Замер:
-#: 4 МиБ головы стоят 1.5-5.2 с, 256 КиБ - 0.2-0.6 с.
-HEAD_PEEK: Final = 256 << 10
-
-
-class Point(NamedTuple):
-    """Опорный кадр: время от начала фильма, абсолютное смещение в байтах, номер дорожки."""
-
-    at: float
-    offset: int
-    track: int
-
-
-class KeyMap(NamedTuple):
-    """Карта опорных кадров файла и цена её снятия."""
-
-    duration: float
-    points: tuple[Point, ...]
-    taken: int
-    requests: int
-    #: Контейнер, ``mkv`` или ``mp4``. Он уже известен по первым байтам головы, и знать
-    #: его дальше по пути стоит ноль запросов, а решает многое: сколько головы греть,
-    #: чтобы ffmpeg открыл вход, - у mp4 там ``moov`` на мегабайты, у mkv хватает
-    #: килобайт.
-    kind: str = ""
-
-
-def video_track(points: tuple[Point, ...]) -> int:
-    """Дорожка видео: та, чьи точки покрывают фильм без длинных пробелов.
-
-    Нужно это ради mkv: Cues пишутся и для звука с субтитрами (у «Моаны 2» их шесть), а
-    нас интересует ровно та дорожка, по которой ffmpeg будет резать сегменты.
-    ⚠️ «Больше всего точек» — неверный признак: у той же «Моаны 2» самая многочисленная
-    дорожка (1786 точек) это звук, и пробелы в ней до 65 с, тогда как у видео (1119
-    точек) — не больше 10.4 с. Поэтому берём по самому короткому наибольшему пробелу: у
-    видео опорный кадр обязан быть регулярным, у звука точки ставятся как придётся.
-
-    У mp4 гадать не приходится вовсе: ``hdlr`` называет тип дорожки прямо, и разбор
-    отдаёт точки одной дорожки — тогда эта функция просто возвращает её номер.
-    """
-
-    def widest(track: int) -> tuple[float, int]:
-        at = [p.at for p in points if p.track == track]
-        gaps = [b - a for a, b in itertools.pairwise(at)]
-        return (max(gaps, default=float("inf")), -len(at))
-
-    return min({p.track for p in points}, key=widest)

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from collections.abc import Sequence
 
 from torrcast.domain.facts.akin import _crowded, akin
 from torrcast.domain.facts.article_gate import _about_cinema, _fits_type
@@ -12,13 +12,15 @@ from torrcast.domain.facts.namesake import namesake
 from torrcast.domain.facts.origin import Origin
 from torrcast.domain.facts.patterns import _CYRILLIC, _TAIL_RE
 from torrcast.domain.facts.picture_year import picture_year
+from torrcast.domain.json_map import json_map
+from torrcast.domain.json_value import JsonValue
 from torrcast.domain.slugify import slugify
 from torrcast.domain.split_franchise_index import split_franchise_index
 from torrcast.domain.transliterate import transliterate
 
 
 def read_origin(
-    pages: list[Any], title: str, trusted: bool = False, series: bool | None = None
+    pages: Sequence[JsonValue], title: str, trusted: bool = False, series: bool | None = None
 ) -> Origin:
     """Статьи-кандидаты → паспорт. Побеждает первая, которая про кино и про то самое.
 
@@ -58,8 +60,9 @@ def read_origin(
     for page in pages:
         if page is None:
             continue
-        heading = str(page.get("title") or "")
-        extract = str(page.get("extract") or "")
+        article = json_map(page)
+        heading = str(article.get("title") or "")
+        extract = str(article.get("extract") or "")
         if not _about_cinema(heading, extract) or not _fits_type(series, heading, extract):
             continue
         latin = (
@@ -75,7 +78,7 @@ def read_origin(
                 whole = Origin(
                     title=latin,
                     name=_TAIL_RE.sub("", heading) if _CYRILLIC.search(heading) else "",
-                    entity=str((page.get("pageprops") or {}).get("wikibase_item") or ""),
+                    entity=str(json_map(article.get("pageprops")).get("wikibase_item") or ""),
                     guessed=True,
                 )
             continue
@@ -88,7 +91,7 @@ def read_origin(
                 shortened = Origin(
                     title=latin,
                     name=_TAIL_RE.sub("", heading),
-                    entity=str((page.get("pageprops") or {}).get("wikibase_item") or ""),
+                    entity=str(json_map(article.get("pageprops")).get("wikibase_item") or ""),
                     guessed=True,
                 )
             continue
@@ -96,7 +99,7 @@ def read_origin(
             title=latin,
             year=picture_year(extract),
             name=_TAIL_RE.sub("", heading) if _CYRILLIC.search(heading) else "",
-            entity=str((page.get("pageprops") or {}).get("wikibase_item") or ""),
+            entity=str(json_map(article.get("pageprops")).get("wikibase_item") or ""),
             namesake=namesake(pages, heading, picture_year(extract)),
         )
         if found:

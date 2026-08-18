@@ -52,6 +52,7 @@ from torrcast.adapters.wiki.endpoints import (
 )
 from torrcast.domain.facts.wiki_params import _extract_params, _search_params
 from torrcast.domain.facts.wiki_reply import _pages, _ranked
+from torrcast.domain.json_map import json_map
 from torrcast.parse import slugify, split_franchise_index
 
 #: Курируемый набор: (запрос, заголовок статьи, номер части в запросе, обязан ли
@@ -188,7 +189,7 @@ def entity_of(heading: str) -> str:
     _hops, pages = _pages(payload)
     for page in pages.values():
         if page is not None:
-            return str((page.get("pageprops") or {}).get("wikibase_item") or "")
+            return str(json_map(json_map(page).get("pageprops")).get("wikibase_item") or "")
     return ""
 
 

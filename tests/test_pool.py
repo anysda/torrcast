@@ -35,6 +35,7 @@ from torrcast.cli import (
     queue_drops,
     stepdown_note,
 )
+from torrcast.domain.json_value import JsonValue
 from torrcast.facts import Fact, Facts, hms, minutes_of
 from torrcast.parse import Picture, Release, parse_release_name
 from torrcast.state import Config
@@ -308,7 +309,7 @@ def test_releases_without_the_asked_season_are_counted_too() -> None:
 
 def test_the_drop_summary_is_readable_in_the_log() -> None:
     """`cast log` показывает пул, очередь и отсев одной строкой, а не сотней событий."""
-    rows = [
+    rows: list[dict[str, JsonValue]] = [
         {
             "at": 1.0,
             "sid": "s",

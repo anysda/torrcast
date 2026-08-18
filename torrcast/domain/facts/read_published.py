@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import re
-from typing import Any
+
+from torrcast.domain.json_map import json_map
+from torrcast.domain.json_rows import json_rows
+from torrcast.domain.json_value import JsonValue
 
 
-def read_published(payload: Any) -> int | None:
+def read_published(payload: JsonValue) -> int | None:
     """Ответ SPARQL на P577 → самый ранний год; ни одной даты - ``None``.
 
     Дата приезжает ISO-строкой («2016-11-14T00:00:00Z», у старого кино с точностью до года
@@ -14,10 +17,10 @@ def read_published(payload: Any) -> int | None:
     """
     if not isinstance(payload, dict):
         return None
-    rows = (payload.get("results", {}) or {}).get("bindings", [])
+    rows = json_rows(json_map(payload.get("results")).get("bindings"))
     years: list[int] = []
     for row in rows:
-        value = row.get("date", {}).get("value", "")
+        value = str(json_map(json_map(row).get("date")).get("value", ""))
         match = re.match(r"(\d{4})-", value)
         if match:
             years.append(int(match.group(1)))

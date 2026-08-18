@@ -6,21 +6,11 @@ from torrcast.domain.audio_track import AudioTrack
 from torrcast.domain.bitrate_mbit import bitrate_mbit
 from torrcast.domain.codec_name import codec_name
 from torrcast.domain.color_depth import color_depth
+from torrcast.domain.delivered_mbit import AUDIO_MBIT, TS_OVERHEAD, delivered_mbit
 from torrcast.domain.recodes_whole import recodes_whole
 from torrcast.domain.voice_order import voice_order
 
-#: Сколько Мбит/с занимает наша звуковая дорожка в том, что уезжает на ТВ.
-#:
-#: ⚠️ Дорожка ИСХОДНИКА тут ни при чём, сколько бы она ни весила: показ всегда
-#: перекодирует звук в AAC (см. :func:`ffmpeg_pack_command`), поэтому в сегмент уезжает
-#: ровно :data:`AUDIO_BITRATE`, а не 1.5 Мбит/с DTS «Тачек 3». Считать «видео + выбранная
-#: дорожка» было бы враньём в полтора мегабита.
-AUDIO_MBIT = 0.192
-#: Во сколько раз mpegts тяжелее того, что в него упаковано: заголовки 4 байта на 188,
-#: PAT/PMT/PCR и набивка на границах PES. Замер на восьми сегментах-копиях
-#: «Моаны 2» подряд: поправка «контейнер → ТВ» сходилась к 4.10...4.26 Мбит/с при
-#: контейнере 19.16 и видеодорожке 14.33 - то есть уезжало (14.33 + 0.19) × 1.03.
-TS_OVERHEAD = 1.03
+__all__ = ["AUDIO_MBIT", "TS_OVERHEAD", "Media"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,10 +30,8 @@ class Media:
 
     @property
     def delivered_mbit(self) -> float:
-        """Сколько Мбит/с уедет на ТВ в среднем; ``0`` — паспорт не сказал."""
-        if self.video_bps <= 0:
-            return 0.0
-        return (self.video_bps / 1000000.0 + AUDIO_MBIT) * TS_OVERHEAD
+        """Сколько Мбит/с уедет на ТВ в среднем (:func:`delivered_mbit`)."""
+        return delivered_mbit(self.video_bps)
 
     def weight_mbit(self, size: int) -> float:
         """Вес видеодорожки; при молчании паспорта — размер на длительность."""

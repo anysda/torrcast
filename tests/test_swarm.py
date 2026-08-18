@@ -313,15 +313,16 @@ def test_swarm_alive_counts_contacts_and_not_addresses_from_dht() -> None:
     состоявшийся контакт у неё нет вовсе. Считай мы кандидатов жизнью, отсрочка не
     сработала бы ни разу, и отказ по-прежнему стоил бы полный бюджет.
     """
+    from torrcast.domain.json_value import JsonValue
     from torrcast.stream import swarm_alive
 
-    dead = {
+    dead: dict[str, JsonValue] = {
         "stat": 1,
         "stat_string": "Torrent getting info",
         "total_peers": 9,
         "half_open_peers": 9,
     }
-    live = {
+    live: dict[str, JsonValue] = {
         "stat": 3,
         "stat_string": "Torrent working",
         "total_peers": 379,

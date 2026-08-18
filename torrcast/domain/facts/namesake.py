@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
-from typing import Any
+from collections.abc import Sequence
 
 from torrcast.domain.facts.article_gate import _about_cinema
 from torrcast.domain.facts.picture_year import picture_year
+from torrcast.domain.json_map import json_map
+from torrcast.domain.json_value import JsonValue
 
 
-def namesake(pages: list[Any], heading: str, year: int | None) -> str:
+def namesake(pages: Sequence[JsonValue], heading: str, year: int | None) -> str:
     """Заголовок ДРУГОЙ картины того же года, которую справка знает под тем же именем.
 
     🔴 TC-371. Двусмысленность бывает не в отборе, а в самих источниках: именем «Девять» и
@@ -37,8 +39,9 @@ def namesake(pages: list[Any], heading: str, year: int | None) -> str:
     for page in pages:
         if page is None:
             continue
-        other = str(page.get("title") or "")
-        extract = str(page.get("extract") or "")
+        article = json_map(page)
+        other = str(article.get("title") or "")
+        extract = str(article.get("extract") or "")
         if other == heading or not _about_cinema(other, extract):
             continue
         if picture_year(extract) == year:

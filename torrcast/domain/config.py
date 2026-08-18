@@ -7,8 +7,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Literal
 
+from torrcast.domain.json_model import json_model
+from torrcast.domain.json_value import JsonValue
 from torrcast.domain.profile import CAUTIOUS
 from torrcast.domain.warm_settings import WARM_BUDGET, WARM_DIR
 
@@ -193,6 +195,6 @@ class Config:
     warm_rate: float = 4.0
 
     @classmethod
-    def from_json(cls, data: dict[str, Any]) -> Config:
+    def from_json(cls, data: dict[str, JsonValue]) -> Config:
         """Собрать конфиг из словаря, молча игнорируя незнакомые ключи."""
-        return cls(**{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
+        return json_model(cls, data, cls.__dataclass_fields__)

@@ -14,6 +14,7 @@ from torrcast.domain.facts.cache_rows import (
 from torrcast.domain.facts.fact import Fact
 from torrcast.domain.facts.origin import Origin
 from torrcast.domain.facts.settings import EMPTY_TTL, SOURCE_MAP
+from torrcast.domain.json_map import json_map
 
 
 def test_the_passport_rows_live_beside_the_blurbs_but_under_their_own_keys() -> None:
@@ -78,7 +79,7 @@ def test_the_walk_writes_both_what_it_found_and_what_it_did_not() -> None:
     """Пустой ответ — тоже ответ, и он тоже помнится, только со сроком."""
     rows = _fact_rows({("Тачки", 2006): Fact(rating="IMDb 7.2")}, [("Моана", 2016)], 1000)
     assert rows["Тачки|2006"] == {"about": "", "rating": "IMDb 7.2", "runtime": ""}
-    assert rows["Моана|2016"]["empty"] == 1000
+    assert json_map(rows["Моана|2016"])["empty"] == 1000
     assert _fact_rows({}, [], 1000) == {}
 
 

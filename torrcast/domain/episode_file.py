@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 
-from torrcast.domain.parse_episode import _Episode
+from torrcast.domain.episode import Episode
 
 __all__ = ["EpisodeFile"]
 
@@ -18,5 +18,5 @@ class EpisodeFile:
     size: int = 0
 
     @property
-    def at(self) -> _Episode:
-        return _Episode(self.season, self.episode)
+    def at(self) -> Episode:
+        return Episode(self.season, self.episode)

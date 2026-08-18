@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+from torrcast.domain.json_value import JsonValue
 from torrcast.domain.report import report
 
 
-def _marks() -> list[dict[str, object]]:
+def _marks() -> list[dict[str, JsonValue]]:
     """Три фазы подряд: ответы, юнит, картинка."""
     return [
         {"at": 100.0, "name": "ответы", "pid": 1},

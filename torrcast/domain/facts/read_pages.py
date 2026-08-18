@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 from torrcast.domain.facts.confirms import confirms
 from torrcast.domain.facts.wiki_reply import _article, _pages
+from torrcast.domain.json_map import json_map
+from torrcast.domain.json_value import JsonValue
 
 
 def _read_pages(
-    payload: Any, candidates: dict[tuple[str, int | None], list[str]]
+    payload: JsonValue, candidates: dict[tuple[str, int | None], list[str]]
 ) -> tuple[dict[tuple[str, int | None], str], dict[tuple[str, int | None], str]]:
     """Разобрать ответ Википедии: кандидат → статья → описание и Q-идентификатор.
 
@@ -25,12 +25,12 @@ def _read_pages(
             page = _article(name, hops, pages)
             if page is None:
                 continue
-            extract = page.get("extract") or ""
+            extract = str(page.get("extract") or "")
             if not confirms(extract, key[1]):
                 continue
             about[key] = extract
-            props = page.get("pageprops") or {}
+            props = json_map(page.get("pageprops"))
             if props.get("wikibase_item"):
-                entities[key] = props["wikibase_item"]
+                entities[key] = str(props["wikibase_item"])
             break
     return about, entities

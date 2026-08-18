@@ -7,11 +7,12 @@
 
 from __future__ import annotations
 
-from typing import Any
+from collections.abc import Mapping
 
 from torrcast.domain.facts.fact import Fact
 from torrcast.domain.facts.origin import Origin
 from torrcast.domain.facts.settings import EMPTY_TTL
+from torrcast.domain.json_value import JsonValue
 
 
 def _key(title: str, year: int | None) -> str:
@@ -24,7 +25,7 @@ def _origin_key(title: str, series: bool | None) -> str:
     return f"origin|{kind}|{title}"
 
 
-def _row_origin(row: Any) -> Origin | None:
+def _row_origin(row: JsonValue) -> Origin | None:
     """Ряд кэша в паспорт. ``None`` — не спрашивали; пустой паспорт — спрашивали, нет его."""
     if not isinstance(row, dict):
         return None
@@ -42,7 +43,7 @@ def _row_origin(row: Any) -> Origin | None:
     )
 
 
-def _origin_row(found: Origin) -> dict[str, Any]:
+def _origin_row(found: Origin) -> dict[str, JsonValue]:
     """Паспорт в ряд кэша: на диск едет всё, чего второму показу иначе не узнать."""
     return {
         "title": found.title,
@@ -65,7 +66,7 @@ def _origin_row(found: Origin) -> dict[str, Any]:
 
 
 def _cached_facts(
-    raw: dict[str, Any], wanted: list[tuple[str, int | None]], now: float
+    raw: Mapping[str, JsonValue], wanted: list[tuple[str, int | None]], now: float
 ) -> dict[tuple[str, int | None], Fact]:
     """Что из лежащего на диске годится сейчас. Битый ряд — как пустой: спросим сеть.
 
@@ -95,7 +96,7 @@ def _fact_rows(
     found: dict[tuple[str, int | None], Fact],
     misses: list[tuple[str, int | None]],
     now: int,
-) -> dict[str, Any]:
+) -> dict[str, JsonValue]:
     """Итог похода в ряды кэша; ничего не добыто и не опровергнуто — писать нечего.
 
     ``misses`` — картины, про которые источник ответил, но сказать ему нечего. Раньше они
@@ -103,7 +104,7 @@ def _fact_rows(
     дедлайну, меню печаталось голым, следующее — точно так же. Пустой ответ — тоже ответ,
     и он тоже помнится, только со сроком (:data:`EMPTY_TTL`).
     """
-    rows: dict[str, Any] = {}
+    rows: dict[str, JsonValue] = {}
     for key, fact in found.items():
         rows[_key(*key)] = {"about": fact.about, "rating": fact.rating, "runtime": fact.runtime}
     for key in misses:
