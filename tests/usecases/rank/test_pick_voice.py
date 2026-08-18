@@ -3,20 +3,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from importlib import import_module
 
 import pytest
 
+from tests.fakes.composition import use_rank_console
 from tests.fakes.console import FakeConsole
 from tests.usecases.rank.releases import media, track
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.rank_settings import VOICE_MENU
 from torrcast.usecases.rank.pick_voice import pick_voice
-
-#: ⚠️ Модулем, а не атрибутом пакета: у пакета имя `configure` занято одноимённой
-#: единицей, и подмена на функции ставится в никуда - молча.
-_slot = import_module("torrcast.usecases.rank.configure")
 
 
 @dataclass
@@ -33,7 +29,7 @@ ORIG = track(1, "eng", "Original")
 @pytest.fixture
 def console(monkeypatch: pytest.MonkeyPatch) -> FakeConsole:
     fake = FakeConsole()
-    monkeypatch.setattr(_slot, "_console", fake, raising=False)
+    use_rank_console(monkeypatch, fake)
     return fake
 
 

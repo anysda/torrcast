@@ -28,6 +28,7 @@ from torrcast.adapters.filesystem.trace_journal import writer as _tape_slot
 from torrcast.ports.clock import Clock
 from torrcast.usecases import (
     cache_reserve,
+    doctor_environment,
     episode_duration,
     releases_command,
     torrents,
@@ -38,6 +39,7 @@ from torrcast.usecases.cast_command import _play_state
 from torrcast.usecases.discover import _search_state
 from torrcast.usecases.playback import _show_state
 from torrcast.usecases.playback._launch import _await_playing
+from torrcast.usecases.rank.configure import configure as _rank_configure
 from torrcast.usecases.rank.peer_grace import peer_grace
 from torrcast.usecases.reinforce.configure import configure as _reinforce_configure
 from torrcast.usecases.revive_playback import _revive_state
@@ -227,3 +229,44 @@ def blank_reinforce_ports(patch: pytest.MonkeyPatch) -> None:
     for name in ("_catalogue", "_passport_source"):
         assert name in _reinforce_ports.__annotations__, f"слот {name} переименован"
         patch.setattr(_reinforce_ports, name, None, raising=False)
+
+
+#: Слот консольного порта правил ранжирования: тот же трюк с домом, что у отсрочки и у
+#: добора - пакет ``rank`` переэкспортирует ``configure`` ПОД ИМЕНЕМ ЕЁ МОДУЛЯ.
+_rank_ports = _home(_rank_configure)
+
+
+def _slot(patch: pytest.MonkeyPatch, home: ModuleType, name: str, put: object) -> None:
+    """Поставить слот по имени, назвав промах вслух.
+
+    ⚠️ Ставится с ``raising=False``: до слова корня имени в модуле нет вовсе - слот там
+    только объявлен типом. Поэтому промах имени молчал бы, и зеркало осталось бы зелёным
+    на пустом слоте. Ловит его сверка с объявлением модуля: переименуйся слот -
+    подстановка упадёт громко и в одном месте, а не разойдётся по зеркалам.
+    """
+    assert name in home.__annotations__, f"слот {name} переименован в {home.__name__}"
+    patch.setattr(home, name, put, raising=False)
+
+
+def use_rank_console(patch: pytest.MonkeyPatch, console: StandIn) -> None:
+    """Консольный порт правил ранжирования: его ставит корень, и он один на весь пакет.
+
+    Спрашивают его вопрос про озвучку (:func:`~torrcast.usecases.rank.ask.ask`) и меню
+    дорожек (:func:`~torrcast.usecases.rank.pick_voice.pick_voice`) - оба через
+    :func:`~torrcast.usecases.rank.configure._console_port`.
+    """
+    _slot(patch, _rank_ports, "_console", console)
+
+
+def blank_rank_console(patch: pytest.MonkeyPatch) -> None:
+    """Слот консольного порта - пустым: зеркало самого слова корня обязано начинать с
+    чистого, иначе оно мерило бы порт, оставленный соседом."""
+    _slot(patch, _rank_ports, "_console", None)
+
+
+def use_health_environment(patch: pytest.MonkeyPatch, environment: StandIn) -> None:
+    """Системная среда самопроверки: её кладёт композиция
+    (:func:`torrcast.usecases.doctor._configure`), а читают пробы и обе мерки машины -
+    место у среды одно на всех (:mod:`torrcast.usecases.doctor_environment`).
+    """
+    _slot(patch, doctor_environment, "environment", environment)
