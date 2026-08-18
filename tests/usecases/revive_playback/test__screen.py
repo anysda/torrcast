@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-import torrcast.usecases.revive_playback._revive_state as _state
+from tests.fakes import composition
 from tests.fakes.clock import FakeClock
 from tests.usecases.revive_playback.world import feed_with_segments
 from torrcast.domain.entry import Entry
@@ -31,7 +31,7 @@ def test_the_word_playing_alone_is_not_a_picture(
 ) -> None:
     """Приёмник объявил себя играющим, а указатель стоит - кадра ещё не было."""
     marked: list[Path] = []
-    monkeypatch.setattr(_state, "_revive_playing_mark", marked.append)
+    composition.use_playing_mark(monkeypatch, marked.append)
     screen, feed = _Screen(), feed_with_segments(tmp_path)
 
     _first_frame(screen, feed, _at(120.0, "PLAYING"), "[сеанс]")
@@ -45,7 +45,7 @@ def test_a_moved_pointer_proves_the_picture_and_raises_the_flag(
 ) -> None:
     """Указатель сдвинулся - это и есть кадр: флажок ставится, а не взятый старт называется."""
     marked: list[Path] = []
-    monkeypatch.setattr(_state, "_revive_playing_mark", marked.append)
+    composition.use_playing_mark(monkeypatch, marked.append)
     screen, feed = _Screen(raised=False), feed_with_segments(tmp_path)
 
     _first_frame(screen, feed, _at(120.0, "PLAYING"), "[сеанс]")

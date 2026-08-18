@@ -6,8 +6,6 @@
 
 from __future__ import annotations
 
-import json
-import subprocess
 import time
 from pathlib import Path
 
@@ -17,12 +15,9 @@ from tests.fakes import composition
 from tests.fakes.show_unit import FakeShowUnit
 from torrcast import InfraError
 from torrcast.adapters.filesystem.state import State, load_config
-from torrcast.adapters.systemd.unit_active import unit_active
-from torrcast.adapters.systemd.unit_why import unit_why
 from torrcast.cli.main import main
 from torrcast.domain.entry import Entry
 from torrcast.domain.torrent_hash import _torrent_hash
-from torrcast.usecases.playback import _show_state as playback_state
 from torrcast.usecases.torrents import _release_orphans
 from torrcast.usecases.watch import Watch
 
@@ -119,7 +114,7 @@ def test_resume_is_silent_and_starts_from_the_saved_position(
         asked.append(prompt)
         return ""
 
-    monkeypatch.setattr(playback_state, "start_play_unit", lambda key: started.append(key))
+    composition.use_start_unit(monkeypatch, started.append)
     composition.use_await_playing(monkeypatch, lambda config, progress, timeout=120.0: None)
     monkeypatch.setattr("builtins.input", ask)
 
@@ -138,7 +133,7 @@ def test_new_keeps_the_release_but_drops_the_position(
 ) -> None:
     """``--new`` - та же раздача и дорожка, позиция ноль."""
     remember(pos=2467.0, dur=5978.0, audio=1)
-    monkeypatch.setattr(playback_state, "start_play_unit", lambda key: None)
+    composition.use_start_unit(monkeypatch, lambda key: None)
     composition.use_await_playing(monkeypatch, lambda config, progress, timeout=120.0: None)
     monkeypatch.setattr("builtins.input", lambda prompt="": pytest.fail("меню не нужно"))
 
@@ -169,7 +164,7 @@ def test_new_restarts_the_recorded_episode_not_the_series(
         ),
     )
     state.save()
-    monkeypatch.setattr(playback_state, "start_play_unit", lambda key: None)
+    composition.use_start_unit(monkeypatch, lambda key: None)
     composition.use_await_playing(monkeypatch, lambda config, progress, timeout=120.0: None)
     monkeypatch.setattr("builtins.input", lambda prompt="": pytest.fail("меню не нужно"))
 
@@ -202,7 +197,7 @@ def test_new_jumps_to_the_named_episode_in_the_saved_release(
         ),
     )
     state.save()
-    monkeypatch.setattr(playback_state, "start_play_unit", lambda key: None)
+    composition.use_start_unit(monkeypatch, lambda key: None)
     composition.use_await_playing(monkeypatch, lambda config, progress, timeout=120.0: None)
 
     assert main(["сериал", "s2e6", "--new"]) == 0
@@ -228,7 +223,7 @@ def test_watched_movie_restarts_without_a_question(
         asked.append(prompt)
         return ""
 
-    monkeypatch.setattr(playback_state, "start_play_unit", started.append)
+    composition.use_start_unit(monkeypatch, started.append)
     composition.use_await_playing(monkeypatch, lambda config, progress, timeout=120.0: None)
     monkeypatch.setattr("builtins.input", ask)
 
@@ -246,9 +241,7 @@ def test_dry_resume_does_not_touch_the_unit(
 ) -> None:
     remember(pos=2467.0, dur=5978.0)
     monkeypatch.setattr("builtins.input", lambda prompt="": "")
-    monkeypatch.setattr(
-        playback_state, "start_play_unit", lambda key: pytest.fail("--dry юнитов не поднимает")
-    )
+    composition.use_start_unit(monkeypatch, lambda key: pytest.fail("--dry юнитов не поднимает"))
 
     assert main(["моана", "2", "--dry"]) == 0
     assert "каста нет" in capsys.readouterr().out
@@ -479,7 +472,7 @@ def test_the_next_cast_takes_down_the_torrent_of_a_killed_unit(
     torrents = _Torrents()
     composition.use_engines(monkeypatch, torrents)
     show_unit.alive = False
-    monkeypatch.setattr(playback_state, "start_play_unit", lambda key: None)
+    composition.use_start_unit(monkeypatch, lambda key: None)
     composition.use_await_playing(monkeypatch, lambda config, progress, timeout=120.0: None)
     monkeypatch.setattr("builtins.input", lambda prompt="": "")
 
@@ -587,34 +580,3 @@ def test_a_magnet_gives_up_its_hash_without_asking_anyone() -> None:
     assert _torrent_hash(PLAYED) == HASH
     assert _torrent_hash("magnet:?xt=urn:btih:MFRGGZDFMZTWQ2LKNNWG23TP&dn=x") == ""
     assert _torrent_hash("magnet:?xt=1") == "" and _torrent_hash("") == ""
-
-
-def test_systemd_plumbing_answers_about_a_unit_that_does_not_exist() -> None:
-    """Разговор с systemd настоящий: несуществующий юнит — не «активен» и не исключение."""
-    assert unit_active("torrcast-not-a-unit") is False
-    assert isinstance(unit_why("torrcast-not-a-unit"), str)
-
-
-def test_the_reason_the_show_is_gone_is_not_systemd_bookkeeping(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Причина отсутствия картинки берётся у показа, а не у systemd.
-
-    🔴 Замер 16-08-2026 на живой приставке: показ умер, не дав ни кадра, и человек у
-    консоли получил «показ не запустился: torrcast-play.service: Consumed 5.884s CPU time,
-    175.4M memory peak». Последним в журнал юнита пишет не показ, а systemd - о запуске,
-    остановке и потраченном процессоре, - и «последняя строка» всегда доставалась ему.
-    """
-    from torrcast.adapters.systemd import unit_why as unit_why_module
-
-    journal = [
-        {"SYSLOG_IDENTIFIER": "python3.13", "MESSAGE": "картинки не было ни разу"},
-        {"SYSLOG_IDENTIFIER": "systemd", "MESSAGE": "torrcast-play.service: Deactivated."},
-        {"SYSLOG_IDENTIFIER": "systemd", "MESSAGE": "Consumed 5.884s CPU time, 175.4M peak."},
-    ]
-    answer = subprocess.CompletedProcess(
-        args=[], returncode=0, stdout="\n".join(json.dumps(row) for row in journal), stderr=""
-    )
-    monkeypatch.setattr(unit_why_module, "_systemd", lambda *args: answer)
-
-    assert unit_why() == "картинки не было ни разу"

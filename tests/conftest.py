@@ -67,9 +67,7 @@ MACHINE_TESTS = frozenset(
         "tests/test_shim.py::test_молчащий_клиент_не_запирает_шим_целиком",
         "tests/test_shim.py::test_client_gone_before_the_answer_is_one_line_not_a_traceback",
         "tests/test_shim.py::test_a_real_shim_failure_still_screams",
-        "tests/test_tvfind.py::test_an_open_port_is_not_a_receiver_yet",
-        "tests/test_tvfind.py::test_a_tls_speaking_port_is_a_receiver",
-        "tests/test_tvfind.py::test_a_dead_address_does_not_hold_the_search",
+        "tests/adapters/systemd/test__systemd_call.py::test_the_plumbing_answers_about_a_unit_that_does_not_exist",
         # Потоки с настоящими сроками: поведение состоит именно в возврате до deadline.
         "tests/test_hls.py::test_a_promised_place_is_never_answered_with_a_404",
         "tests/test_hls.py::test_a_seek_back_behind_the_run_repacks_instead_of_waiting_out_the_clock",

@@ -7,7 +7,7 @@ from typing import cast
 
 import pytest
 
-import torrcast.usecases.revive_playback._revive_state as _state
+from tests.fakes import composition
 from tests.fakes.clock import FakeClock
 from tests.usecases.revive_playback.world import (
     FakeReceiver,
@@ -26,7 +26,7 @@ from torrcast.usecases.watch import Watch
 @pytest.fixture(autouse=True)
 def _silent_mark(monkeypatch: pytest.MonkeyPatch) -> None:
     """Флажок картинки в зеркале никуда не пишется: меряем решение, а не файл."""
-    monkeypatch.setattr(_state, "_revive_playing_mark", lambda _path: None)
+    composition.use_playing_mark(monkeypatch, lambda _path: None)
 
 
 def test_a_show_that_cannot_be_raised_ends_by_itself(tmp_path: Path) -> None:

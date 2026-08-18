@@ -9,6 +9,8 @@ from typing import Any
 import pytest
 
 from torrcast.adapters.systemd import _systemd_call
+from torrcast.adapters.systemd.unit_active import unit_active
+from torrcast.adapters.systemd.unit_why import unit_why
 
 
 def test_the_scope_is_the_user_one_unless_we_are_root(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -47,3 +49,13 @@ def test_the_call_carries_the_scope_and_never_raises_on_a_bad_return_code(
     assert kwargs["check"] is False, "чужой код возврата не наша авария"
     assert kwargs["text"] is True and kwargs["capture_output"] is True
     assert kwargs["timeout"] > 0, "без потолка повисший systemctl вешает команду навсегда"
+
+
+def test_the_plumbing_answers_about_a_unit_that_does_not_exist() -> None:
+    """Разговор с systemd тут настоящий: несуществующий юнит - не «активен» и не исключение.
+
+    Соседи выше меряют разбор ответа на подделке, и подделка не докажет, что
+    ``systemctl`` вообще зовётся тем именем и с теми ключами, какие он понимает.
+    """
+    assert unit_active("torrcast-not-a-unit") is False
+    assert isinstance(unit_why("torrcast-not-a-unit"), str)
