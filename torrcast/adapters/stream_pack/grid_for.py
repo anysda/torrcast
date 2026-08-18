@@ -36,7 +36,7 @@ def grid_for(
 
     ``delivered_mbit`` — сколько Мбит/с уедет на ТВ в среднем по фильму (паспорт ffprobe,
     :attr:`Media.delivered_mbit`), ``ceiling_mbit`` — потолок перекодирования
-    (:attr:`torrcast.state.Config.recode_mbit`, ноль — перекодирование выключено). Из них
+    (:attr:`torrcast.domain.config.Config.recode_mbit`, ноль — перекодирование выключено). Из них
     считается поправка «контейнер → ТВ» и работает потолок веса сегмента
     (:data:`MAX_SEGMENT_BYTES`) — без них правило потолка вырождается в прежнее.
 

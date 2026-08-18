@@ -25,7 +25,12 @@ import pytest
 
 from tests.fakes.media_probe import FakeMediaProbe
 from tests.test_cli import _FakeTorrServer, _resolve, rel
-from torrcast import cli, trace
+from torrcast import cli
+from torrcast.adapters.console.console import Progress
+from torrcast.adapters.filesystem.trace_journal import records, shutdown
+from torrcast.adapters.prowlarr.merge import merge
+from torrcast.adapters.prowlarr.raw_result import RawResult
+from torrcast.adapters.prowlarr.to_releases import to_releases
 from torrcast.cli import (
     SD_BITRATE,
     Args,
@@ -38,16 +43,15 @@ from torrcast.cli import (
     rank_releases,
     sound_note,
 )
-from torrcast.console import Progress
 from torrcast.domain.audio_track import AudioTrack
+from torrcast.domain.config import Config
+from torrcast.domain.digest import digest
 from torrcast.domain.media import Media
 from torrcast.domain.parse_release_name import parse_release_name
 from torrcast.domain.picture import Picture
 from torrcast.domain.release import Release
 from torrcast.domain.runtime_guess import RUNTIME_GUESS
 from torrcast.runtime.native_picture import native_picture
-from torrcast.search import RawResult, merge, to_releases
-from torrcast.state import Config
 
 RUNTIME = RUNTIME_GUESS["movie"]
 GB = 1024**3
@@ -724,8 +728,8 @@ def test_the_show_and_the_warmer_decide_the_recode_the_same_way() -> None:
     приёмник встаёт.
     """
     from torrcast.cli import _encode_all
+    from torrcast.domain.entry import Entry
     from torrcast.domain.media import Media
-    from torrcast.state import Entry
 
     config = Config()
     media = Media(1366.0, (), "h264", profile="High 10", pix_fmt="yuv420p10le")
@@ -1107,14 +1111,14 @@ def test_the_catalogue_hole_lands_in_the_weekly_trace(
     probe = _tracks(ranked, "jpn", "jpn")
 
     _resolve(cli._Bench(cast(Any, _FakeTorrServer()), prober=probe), ranked)
-    trace.shutdown()
+    shutdown()
     capsys.readouterr()
 
-    rows = trace.records()
+    rows = records()
     mute = [r for r in rows if r.get("event") == "mute"]
     assert mute, "дыра каталога обязана быть в ленте"
     assert (mute[-1]["release"], mute[-1]["lang"], mute[-1]["checked"]) == (1, "японский", 2)
-    assert "русской озвучки нет ни у кого (проверено 2)" in trace.digest(rows)
+    assert "русской озвучки нет ни у кого (проверено 2)" in digest(rows)
 
 
 def test_a_hand_picked_release_is_never_judged_for_its_language(

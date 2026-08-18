@@ -2,7 +2,7 @@
 
 import pytest
 
-from torrcast.state import Entry
+from torrcast.domain.entry import Entry
 from torrcast.usecases.say_showing import _say_showing
 
 

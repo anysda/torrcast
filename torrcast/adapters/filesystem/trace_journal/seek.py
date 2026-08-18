@@ -11,9 +11,10 @@ def seek(frm: float, to: float, wait: float | None, why: str = "") -> None:
     """Перемотка: откуда, куда и сколько секунд ждали КАРТИНКУ после неё.
 
     Ожидание меряется до сдвига указателя с места приземления, а не до слова ``PLAYING``:
-    приёмник говорит его раньше первого кадра (:attr:`torrcast.cast.ChromecastReceiver.
-    PICTURE_STEP`). ``wait=None`` - картинки после этой перемотки не случилось вовсе, и
-    ``why`` называет, чем всё кончилось.
+    приёмник говорит его раньше первого кадра
+    (:attr:`torrcast.adapters.chromecast.cast.ChromecastReceiver.PICTURE_STEP`).
+    ``wait=None`` - картинки после этой перемотки не случилось вовсе, и ``why`` называет,
+    чем всё кончилось.
     """
     extra = {"why": why} if why else {}
     emit(

@@ -27,7 +27,8 @@ def test_a_dead_unit_is_reported_as_silence(
 def test_the_stopped_show_is_named_with_its_position(
     show_unit: FakeShowUnit, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    from torrcast.state import Entry, State
+    from torrcast.adapters.filesystem.state import State
+    from torrcast.domain.entry import Entry
 
     state = State()
     state.put("movie:моана-2", Entry(title="Моана 2", magnet="magnet:?x=1", pos=660.0, dur=5978.0))

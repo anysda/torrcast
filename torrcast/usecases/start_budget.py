@@ -17,7 +17,8 @@ from torrcast.domain.worker_settings import WORKER_DUR, WORKER_META
 #: приёмника к молчаливому ``IDLE``. Пока CLI ждал меньше суммы (120 с против 60 + 90 +
 #: 60), он гасил `stop_play_unit`'ом показ, который вот-вот начался бы.
 #:
-#: Ждать так долго не страшно и не молчаливо: :class:`~torrcast.console.Progress` всё это
-#: время показывает живую фазу, а любая честная неудача убивает юнит раньше - CLI видит
+#: Ждать так долго не страшно и не молчаливо:
+#: :class:`~torrcast.adapters.console.console.Progress` всё это время показывает живую
+#: фазу, а любая честная неудача убивает юнит раньше - CLI видит
 #: это по :func:`unit_active` и печатает причину из журнала, не досиживая до конца.
 START_BUDGET = WORKER_META + WORKER_DUR + KEYS_WAIT + PILOT_TIMEOUT + START_SLACK + START_TIMEOUT

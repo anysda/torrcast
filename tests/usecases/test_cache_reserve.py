@@ -1,6 +1,7 @@
 """Зеркально проверяет строку о запасе показа в кэше службы."""
 
-from torrcast.state import Config, Entry
+from torrcast.domain.config import Config
+from torrcast.domain.entry import Entry
 from torrcast.usecases.cache_reserve import _cache_reserve
 
 

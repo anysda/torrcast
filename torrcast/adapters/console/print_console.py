@@ -8,7 +8,7 @@ from torrcast.adapters.console import console as _console
 
 
 class PrintConsole:
-    """Реализация консольного порта поверх прежнего диалога :mod:`torrcast.console`.
+    """Реализация консольного порта поверх прежнего диалога :mod:`torrcast.adapters.console.console`.
 
     Модуль зовётся по имени, а не по связанной функции: подмену вопросов на стенде
     ставят именно на него, и связывание при сборке эту подмену бы потеряло.

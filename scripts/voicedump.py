@@ -24,10 +24,10 @@ from pathlib import Path
 # такой замер нельзя вовсе.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from torrcast.adapters.console.console import Progress
+from torrcast.adapters.filesystem.state import load_config
 from torrcast.adapters.torrserver.torr_server import TorrServer
 from torrcast.cli import Args, _Bench, _file_picker, _search
-from torrcast.console import Progress
-from torrcast.state import load_config
 
 
 def main(argv: list[str]) -> int:

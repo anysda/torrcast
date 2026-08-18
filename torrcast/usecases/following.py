@@ -10,7 +10,7 @@ from torrcast.domain.entry import Entry
 from torrcast.ports.module import module
 
 #: Состояние показа - внешний мир, и сценарий зовёт его по имени, а не импортом.
-State = module("torrcast.state").State
+State = module("torrcast.adapters.filesystem.state").State
 
 
 def _following(key: str) -> Entry | None:

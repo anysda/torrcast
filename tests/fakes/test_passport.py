@@ -1,7 +1,7 @@
 """Зеркало :mod:`tests.fakes.passport`."""
 
 from tests.fakes.passport import FakePassport
-from torrcast.facts import Origin
+from torrcast.domain.facts.origin import Origin
 
 
 def test_fake_answers_the_known_title_and_records_the_question() -> None:

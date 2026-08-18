@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from tests.usecases.discover.world import franchise, row
+from torrcast.adapters.prowlarr.raw_result import RawResult
 from torrcast.cli.args import Args
 from torrcast.domain.config import Config
-from torrcast.search import RawResult
 from torrcast.usecases.discover.silent_swarm import silent_swarm
 from torrcast.usecases.reinforce._plan_for import _plan_for
 from torrcast.usecases.select import _Plan

@@ -15,7 +15,7 @@ import time
 
 import pytest
 
-from torrcast import console
+from torrcast.adapters.console import console
 
 
 def test_broken_input_never_reaches_the_parser() -> None:

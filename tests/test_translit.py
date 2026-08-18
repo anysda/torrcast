@@ -20,18 +20,19 @@ import pytest
 from tests.fakes.passport import FakePassport
 from tests.fakes.prowlarr import FakeProwlarr
 from torrcast import NotFoundError, cli
-from torrcast.console import Progress
+from torrcast.adapters.console.console import Progress
+from torrcast.adapters.prowlarr.merge import merge
+from torrcast.adapters.prowlarr.raw_result import RawResult
 from torrcast.domain._name_data import THIN_POOL
 from torrcast.domain.alt_query import alt_query
+from torrcast.domain.config import Config
+from torrcast.domain.facts.origin import Origin
 from torrcast.domain.parse_release_name import parse_release_name
 from torrcast.domain.picture import Picture
 from torrcast.domain.release import Release
 from torrcast.domain.slugify import slugify
 from torrcast.domain.transliterate import transliterate
 from torrcast.domain.unswap_layout import unswap_layout
-from torrcast.facts import Origin
-from torrcast.search import RawResult, merge
-from torrcast.state import Config
 
 GB = 1024**3
 
@@ -460,7 +461,7 @@ def test_thin_pool_is_topped_up_even_when_the_goal_is_spent() -> None:
     «не включилось» сильнее «дольше 10 секунд»: круг добора идёт с полом в целую цель,
     человек читает про превышение строкой, а после захода пол возвращён обычному.
     """
-    from torrcast.search import CIRCLE_SHARE, GOAL
+    from torrcast.domain.goal_spare import CIRCLE_SHARE, GOAL
 
     client = _SpentProwlarr(
         {

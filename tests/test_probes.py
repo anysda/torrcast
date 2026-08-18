@@ -22,9 +22,9 @@ import torrcast
 from torrcast.adapters.chromecast.profile_detector import detector
 from torrcast.cli import Args
 from torrcast.domain.choice import Choice
+from torrcast.domain.config import Config
 from torrcast.domain.profile import ANDROID_TV, CAUTIOUS
 from torrcast.domain.tune import tune
-from torrcast.state import Config
 
 SCRIPTS = Path(__file__).resolve().parent.parent / "scripts"
 GB = 1024**3

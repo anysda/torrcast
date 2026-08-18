@@ -122,7 +122,7 @@ def _report(
 def _note_watch(watch: Watch, warmer: Warmer | None, held: float, revival: _Revival) -> None:
     """Наружу, через состояние: прогрев, показанный кадр и правда о чёрном экране."""
     # Прогрев виден снаружи только через состояние: живой показ из другого
-    # процесса не спросишь (:attr:`torrcast.state.Entry.warm`).
+    # процесса не спросишь (:attr:`torrcast.domain.entry.Entry.warm`).
     if warmer is not None:
         watch.entry.warm = warmer.warmed
     # В закладку уходит показанный кадр, а не указатель приёмника: пока экран
@@ -130,7 +130,7 @@ def _note_watch(watch: Watch, warmer: Warmer | None, held: float, revival: _Revi
     # где человек не был (см. ``held``).
     watch.see(held)
     # Тем же каналом наружу уходит и правда о чёрном экране: живой юнит показа не
-    # доказывает (:attr:`torrcast.state.Entry.dark`). Пишется она не по тику
+    # доказывает (:attr:`torrcast.domain.entry.Entry.dark`). Пишется она не по тику
     # сторожа, а сразу на переходе - врать «играю» лишние десять секунд не за что.
     if (watch.entry.dark, watch.entry.dark_why) != (revival.began, revival.why):
         watch.entry.dark, watch.entry.dark_why = revival.began, revival.why

@@ -13,17 +13,35 @@ from pathlib import Path
 import pytest
 
 from tests.fakes.clock import FakeClock
-from torrcast import trace
+from torrcast.adapters.filesystem.trace_journal import (
+    LOG_ENV,
+    MAX_BYTES,
+    SID_ENV,
+    dark,
+    emit,
+    evict,
+    nudge,
+    plan,
+    records,
+    revive,
+    seek,
+    segment,
+    shutdown,
+    skew,
+    start_session,
+    warmth,
+)
 from torrcast.adapters.filesystem.trace_journal import prune as _prune_module
 from torrcast.adapters.filesystem.trace_journal import writer as _writer_module
-from torrcast.domain.digest import _seams
+from torrcast.domain.digest import _seams, digest
+from torrcast.domain.trace_sources import PACKED, WARMED
 
 
 @pytest.fixture(autouse=True)
 def _isolate(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Каждый тест - свой каталог следа и свой sid: ленты тестов не смешиваются."""
-    monkeypatch.setenv(trace.LOG_ENV, str(tmp_path))
-    monkeypatch.setenv(trace.SID_ENV, "test-sid")
+    monkeypatch.setenv(LOG_ENV, str(tmp_path))
+    monkeypatch.setenv(SID_ENV, "test-sid")
 
 
 def _read_lines(directory: Path) -> list[dict[str, object]]:
@@ -36,8 +54,8 @@ def _read_lines(directory: Path) -> list[dict[str, object]]:
 
 def test_emit_schema(tmp_path: Path) -> None:
     """Запись несёт обязательный конверт и переданные поля, читается как JSON."""
-    trace.emit("search", "query", query="матрица", raw=17)
-    trace.shutdown()
+    emit("search", "query", query="матрица", raw=17)
+    shutdown()
     rows = _read_lines(tmp_path)
     assert len(rows) == 1
     rec = rows[0]
@@ -52,17 +70,17 @@ def test_emit_schema(tmp_path: Path) -> None:
 
 def test_two_show_sessions_are_unambiguously_selected_in_one_log(tmp_path: Path) -> None:
     """Две серии одного вызова получают разные метки и не смешиваются при отборе."""
-    first = trace.start_session()
-    trace.emit("session", "session_start", title="первая", pos=0.0)
-    trace.emit("play", "buffering", pos=12.0)
-    trace.emit("session", "session_end", pos=60.0, dur=60.0, watched=True)
-    second = trace.start_session()
-    trace.emit("session", "session_start", title="вторая", pos=0.0)
-    trace.emit("play", "buffering", pos=34.0)
-    trace.emit("session", "session_end", pos=50.0, dur=50.0, watched=True)
-    trace.shutdown()
+    first = start_session()
+    emit("session", "session_start", title="первая", pos=0.0)
+    emit("play", "buffering", pos=12.0)
+    emit("session", "session_end", pos=60.0, dur=60.0, watched=True)
+    second = start_session()
+    emit("session", "session_start", title="вторая", pos=0.0)
+    emit("play", "buffering", pos=34.0)
+    emit("session", "session_end", pos=50.0, dur=50.0, watched=True)
+    shutdown()
 
-    rows = trace.records()
+    rows = records()
     selected = [row for row in rows if row["sid"] == first]
     journal = [
         f"[сеанс {first}] экран: 0:12 из 1:00 · BUFFERING",
@@ -73,13 +91,13 @@ def test_two_show_sessions_are_unambiguously_selected_in_one_log(tmp_path: Path)
     assert [row["event"] for row in selected] == ["session_start", "buffering", "session_end"]
     assert {row["sid"] for row in selected} == {first}
     assert shown == [f"[сеанс {first}] экран: 0:12 из 1:00 · BUFFERING"]
-    digest = trace.digest(rows, limit=0)
-    assert f"сеанс {first}" in digest and f"сеанс {second}" in digest
-    assert digest.count("итог: ребуферов 1; досмотрено") == 2
+    text = digest(rows, limit=0)
+    assert f"сеанс {first}" in text and f"сеанс {second}" in text
+    assert text.count("итог: ребуферов 1; досмотрено") == 2
 
 
 def test_show_start_prints_effective_thresholds_and_their_sources(tmp_path: Path) -> None:
-    trace.emit(
+    emit(
         "session",
         "session_start",
         title="проверка",
@@ -92,9 +110,9 @@ def test_show_start_prints_effective_thresholds_and_their_sources(tmp_path: Path
             "recode_head_wait": "написан в конфиге",
         },
     )
-    trace.shutdown()
+    shutdown()
 
-    text = trace.digest(trace.records())
+    text = digest(records())
     assert "профиль androidtv (паспорт приёмника)" in text
     assert "recode_at_mbit=28.0 [профиль androidtv]" in text
     assert "recode_head_wait=12.0 [написан в конфиге]" in text
@@ -102,23 +120,23 @@ def test_show_start_prints_effective_thresholds_and_their_sources(tmp_path: Path
 
 def test_records_reads_and_orders(tmp_path: Path) -> None:
     """`records` собирает ленту по каталогу и сортирует по времени, фильтруя по `since`."""
-    trace.emit("play", "segment", slot=1)
-    trace.emit("play", "segment", slot=2)
-    trace.shutdown()
+    emit("play", "segment", slot=1)
+    emit("play", "segment", slot=2)
+    shutdown()
     time.sleep(0.05)  # больше миллисекундного округления времени записи
     cut = time.time()
     time.sleep(0.05)
-    trace.emit("play", "segment", slot=3)
-    trace.shutdown()
-    assert [r["slot"] for r in trace.records()] == [1, 2, 3]
-    recent = trace.records(since=cut)
+    emit("play", "segment", slot=3)
+    shutdown()
+    assert [r["slot"] for r in records()] == [1, 2, 3]
+    recent = records(since=cut)
     assert [r["slot"] for r in recent] == [3]
 
 
 def test_bad_field_dropped_not_raised(tmp_path: Path) -> None:
     """Несериализуемое поле роняет запись, но не показ: emit не бросает."""
-    trace.emit("play", "segment", bad=object())
-    trace.shutdown()
+    emit("play", "segment", bad=object())
+    shutdown()
     assert _read_lines(tmp_path) == []
 
 
@@ -135,8 +153,8 @@ def test_rotation_drops_old_days(tmp_path: Path) -> None:
         f"trace-{time.strftime('%Y%m%d', time.localtime(time.time() - 2 * 86400))}.jsonl"
     )
     young.write_text('{"x":1}\n', encoding="utf-8")
-    trace.emit("search", "query")
-    trace.shutdown()
+    emit("search", "query")
+    shutdown()
     assert not old.exists()
     assert young.exists()
 
@@ -148,11 +166,11 @@ def test_size_ceiling(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     days = [time.strftime("%Y%m%d", time.localtime(now - n * 86400)) for n in (5, 4, 3, 2, 1)]
     for day in days:
         (tmp_path / f"trace-{day}.jsonl").write_text("x" * 80, encoding="utf-8")
-    trace.emit("search", "query")  # запишет сегодняшний файл и запустит ротацию
-    trace.shutdown()
+    emit("search", "query")  # запишет сегодняшний файл и запустит ротацию
+    shutdown()
     left = sorted(p.name for p in tmp_path.glob("trace-*.jsonl"))
     total = sum(p.stat().st_size for p in tmp_path.glob("trace-*.jsonl"))
-    assert total <= trace.MAX_BYTES
+    assert total <= MAX_BYTES
     # Сегодняшний (самый свежий) обязан уцелеть, самые старые - уйти.
     assert f"trace-{time.strftime('%Y%m%d', time.localtime(now))}.jsonl" in left
     assert f"trace-{days[0]}.jsonl" not in left
@@ -175,16 +193,16 @@ def test_оборванная_строка_ленты_не_задваивает_
     torn = lines[0][:20]  # запись, оборванная на полуслове
 
     (tmp_path / "trace-20250101.jsonl").write_text("\n".join([*lines, torn]) + "\n", "utf-8")
-    assert trace.records() == whole, "оборванный хвост задвоил соседнюю запись"
+    assert records() == whole, "оборванный хвост задвоил соседнюю запись"
 
     (tmp_path / "trace-20250101.jsonl").write_text("\n".join([torn, *lines]) + "\n", "utf-8")
-    assert trace.records() == whole, "рваная ПЕРВАЯ строка уронила чтение ленты"
+    assert records() == whole, "рваная ПЕРВАЯ строка уронила чтение ленты"
 
     # Мусор на месте времени - тот же случай: строка нечитаемая, лента - нет.
     (tmp_path / "trace-20250101.jsonl").write_text(
         "\n".join([json.dumps({"at": "никогда", "event": "query"}), *lines]) + "\n", "utf-8"
     )
-    assert trace.records() == whole
+    assert records() == whole
 
 
 # --- ГЛАВНЫЙ ИНВАРИАНТ: горячий путь не ждёт журнал --------------------------
@@ -197,7 +215,7 @@ def test_put_does_no_synchronous_io(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     put, было именно тем, что делает горячий путь, - и считаем обращения к диску: их ноль.
     Диск трогается только по явному drain, то есть в фоне.
     """
-    monkeypatch.setenv(trace.LOG_ENV, str(tmp_path))
+    monkeypatch.setenv(LOG_ENV, str(tmp_path))
     monkeypatch.setattr(_writer_module._Writer, "_start", lambda self: None)  # поток не поднимаем
     import os as _os
 
@@ -223,7 +241,7 @@ def test_put_does_no_synchronous_io(tmp_path: Path, monkeypatch: pytest.MonkeyPa
 
 def test_flush_runs_off_the_caller_thread(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Запись на диск идёт в другом потоке, а не в том, что зовёт emit из горячего цикла."""
-    monkeypatch.setenv(trace.LOG_ENV, str(tmp_path))
+    monkeypatch.setenv(LOG_ENV, str(tmp_path))
     caller = threading.get_ident()
     flusher: list[int] = []
     real_flush = _writer_module._Writer._flush
@@ -251,8 +269,8 @@ def test_segment_emit_no_disk(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
     Считаем синхронные ``os.write`` за время самого emit: их должно быть ноль - диск
     трогает только фоновый поток, дожатый затем shutdown.
     """
-    monkeypatch.setenv(trace.LOG_ENV, str(tmp_path))
-    monkeypatch.setenv(trace.SID_ENV, "seg")
+    monkeypatch.setenv(LOG_ENV, str(tmp_path))
+    monkeypatch.setenv(SID_ENV, "seg")
     import os as _os
 
     writes: list[int] = []
@@ -279,8 +297,9 @@ def test_отставший_хвост_не_дописывается_в_чужу
 
     Обратная сторона неблокирующей укладки: между ``emit`` и попаданием записи на диск
     проходит сколько угодно времени, а каталог ленты за это время может смениться
-    (:data:`trace.LOG_ENV`, файл состояния) или наступить новые сутки. Выбирай писатель
-    файл у себя, отставший хвост дописывался бы в ленту, которую переменная показывает
+    (:data:`~torrcast.adapters.filesystem.trace_journal.LOG_ENV`, файл состояния) или
+    наступить новые сутки. Выбирай писатель файл у себя, отставший хвост дописывался бы
+    в ленту, которую переменная показывает
     СЕЙЧАС, - в чужую. Дыра нашлась на полном прогоне: хвост соседнего теста попадал
     в каталог следующего, и тот находил у себя запись, которой взяться неоткуда.
 
@@ -297,13 +316,13 @@ def test_отставший_хвост_не_дописывается_в_чужу
         real_flush(self, batch)
 
     monkeypatch.setattr(_writer_module._Writer, "_flush", held)
-    monkeypatch.setenv(trace.LOG_ENV, str(first))
-    trace.emit("search", "query", query="первая")
+    monkeypatch.setenv(LOG_ENV, str(first))
+    emit("search", "query", query="первая")
     assert took.wait(5.0), "писатель так и не взял запись - окно гонки не воспроизведено"
-    monkeypatch.setenv(trace.LOG_ENV, str(second))
-    trace.emit("search", "query", query="вторая")
+    monkeypatch.setenv(LOG_ENV, str(second))
+    emit("search", "query", query="вторая")
     hold.set()
-    trace.shutdown()
+    shutdown()
 
     assert [rec["query"] for rec in _read_lines(first)] == ["первая"]
     assert [rec["query"] for rec in _read_lines(second)] == ["вторая"], (
@@ -313,22 +332,22 @@ def test_отставший_хвост_не_дописывается_в_чужу
 
 def test_digest_summarises_session(tmp_path: Path) -> None:
     """Выжимка сводит сеанс: запрос, взятый релиз, ребуферы, обрывы, итог."""
-    trace.emit("search", "query", query="матрица")
-    trace.emit(
+    emit("search", "query", query="матрица")
+    emit(
         "search",
         "indexers",
         got={"rutor": 40, "nnm": 12},
         silent=["kinozal"],
         ms={"rutor": 412, "nnm": 890, "kinozal": 20031},
     )
-    trace.emit("select", "drop", release=1, why="av1")
-    trace.emit("select", "select", release=2, quality="1080p", track="Дубляж", mbit=11.0)
-    trace.emit("play", "buffering", pos=120.0)
-    trace.emit("play", "buffering", pos=300.0)
-    trace.emit("play", "offline", why="источник молчит")
-    trace.emit("session", "session_end", pos=5400.0, dur=6000.0, watched=False)
-    trace.shutdown()
-    text = trace.digest(trace.records(), limit=3)
+    emit("select", "drop", release=1, why="av1")
+    emit("select", "select", release=2, quality="1080p", track="Дубляж", mbit=11.0)
+    emit("play", "buffering", pos=120.0)
+    emit("play", "buffering", pos=300.0)
+    emit("play", "offline", why="источник молчит")
+    emit("session", "session_end", pos=5400.0, dur=6000.0, watched=False)
+    shutdown()
+    text = digest(records(), limit=3)
     assert "матрица" in text
     assert "rutor:40 за 0.4 с" in text and "kinozal за 20.0 с" in text
     assert "av1" in text
@@ -380,7 +399,7 @@ def test_a_nudge_is_a_record_with_numbers_not_a_line_of_text(
     есть, а лечили его или нет, не сказано. Разбор недельного следа обязан отвечать на
     «сколько раз приёмник пришлось расшевелить и на каких местах фильма».
     """
-    from torrcast.cast import ChromecastReceiver
+    from torrcast.adapters.chromecast.cast import ChromecastReceiver
 
     monkeypatch.setattr(ChromecastReceiver, "_device", lambda self: _FakeDevice([]))
     receiver = ChromecastReceiver("10.0.0.50")
@@ -388,7 +407,7 @@ def test_a_nudge_is_a_record_with_numbers_not_a_line_of_text(
     receiver._nudge(84.0, front=144.0)  # первый неподвижный тик - ещё не зависание
     receiver._stall_since -= ChromecastReceiver.STALL_SECONDS
     receiver._nudge(84.0, front=144.0)
-    trace.shutdown()
+    shutdown()
 
     rec = _only(_read_lines(tmp_path), "nudge")
     assert rec["phase"] == "play"
@@ -397,7 +416,7 @@ def test_a_nudge_is_a_record_with_numbers_not_a_line_of_text(
     assert rec["hit"] == 1
     assert rec["front"] == 144.0
     assert float(str(rec["stuck"])) >= ChromecastReceiver.STALL_SECONDS
-    text = trace.digest(trace.records())
+    text = digest(records())
     assert "нудж сторожа 1" in text and "1:24 -> 1:32" in text
     assert "нуджей сторожа 1" in text
 
@@ -406,19 +425,19 @@ def test_a_reload_of_a_dead_receiver_is_logged(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Повтор LOAD - тоже событие показа: на какой секунде отвалились и какая это попытка."""
-    from torrcast.cast import ChromecastReceiver
+    from torrcast.adapters.chromecast.cast import ChromecastReceiver
 
     receiver = ChromecastReceiver("10.0.0.50")
     receiver._peak = 4355.0
     monkeypatch.setattr(ChromecastReceiver, "_restart_app", lambda self: None)
     monkeypatch.setattr(ChromecastReceiver, "_load", lambda self, at=0.0: None)
     assert receiver._reload()
-    trace.shutdown()
+    shutdown()
 
     rec = _only(_read_lines(tmp_path), "reload")
     assert rec["pos"] == 4355.0
     assert rec["tries"] == 1
-    assert "повтор LOAD 1" in trace.digest(trace.records())
+    assert "повтор LOAD 1" in digest(records())
 
 
 def test_a_seek_carries_where_to_and_how_long_the_picture_took(
@@ -430,7 +449,7 @@ def test_a_seek_carries_where_to_and_how_long_the_picture_took(
     по прыжку позиции. Ценность записи - в том, что было ПОСЛЕ: сколько человек смотрел на
     чёрный экран, пока показ снова не поехал.
     """
-    from torrcast.cast import ChromecastReceiver
+    from torrcast.adapters.chromecast.cast import ChromecastReceiver
 
     monkeypatch.setattr(ChromecastReceiver, "_device", lambda self: _FakeDevice([]))
     receiver = ChromecastReceiver("10.0.0.50")
@@ -443,13 +462,13 @@ def test_a_seek_carries_where_to_and_how_long_the_picture_took(
     monkeypatch.setattr(ChromecastReceiver, "_status", lambda self: script.pop(0))
     for _ in range(4):
         receiver.position(front=1e6)
-    trace.shutdown()
+    shutdown()
 
     rec = _only(_read_lines(tmp_path), "seek")
     assert rec["frm"] == 600.0
     assert rec["to"] == 1891.0
     assert float(str(rec["wait"])) >= 0.0
-    text = trace.digest(trace.records())
+    text = digest(records())
     assert "перемотка 10:00 -> 31:31" in text
     assert "картинка через" in text
     assert "перемоток 1" in text
@@ -465,7 +484,7 @@ def test_a_seek_is_measured_to_the_moving_pointer_not_to_the_word_playing(
     0.0 с у всех трёх прыжков подряд - при том что картинка возвращалась за 6.0, 5.9 и
     9.9 с, и «перемотка стала быстрее» после этого измеряло бы не то.
     """
-    from torrcast.cast import ChromecastReceiver
+    from torrcast.adapters.chromecast.cast import ChromecastReceiver
 
     monkeypatch.setattr(ChromecastReceiver, "_device", lambda self: _FakeDevice([]))
     clock = FakeClock()
@@ -482,7 +501,7 @@ def test_a_seek_is_measured_to_the_moving_pointer_not_to_the_word_playing(
     for tick in range(5):
         clock.now = 2.0 * tick
         receiver.position(front=1e6)
-    trace.shutdown()
+    shutdown()
 
     rec = _only(_read_lines(tmp_path), "seek")
     assert rec["to"] == 1891.0
@@ -498,7 +517,7 @@ def test_a_seek_that_never_showed_a_picture_is_a_record_and_not_a_silence(
     «нет строки в ленте» пришлось бы читать как «перемотки не было». Нулём же его писала
     ровно та метрика, которую чинят, - и худший исход выглядел бы как лучший.
     """
-    from torrcast.cast import ChromecastReceiver
+    from torrcast.adapters.chromecast.cast import ChromecastReceiver
 
     monkeypatch.setattr(ChromecastReceiver, "_device", lambda self: _FakeDevice([]))
     receiver = ChromecastReceiver("10.0.0.50")
@@ -510,12 +529,12 @@ def test_a_seek_that_never_showed_a_picture_is_a_record_and_not_a_silence(
     monkeypatch.setattr(ChromecastReceiver, "_status", lambda self: script.pop(0))
     for _ in range(3):
         receiver.position(front=1e6)
-    trace.shutdown()
+    shutdown()
 
     rec = _only(_read_lines(tmp_path), "seek")
     assert rec["to"] == 1891.0
     assert rec["wait"] is None
-    assert "картинки так и не было" in trace.digest(trace.records())
+    assert "картинки так и не было" in digest(records())
 
 
 def test_our_own_nudge_is_not_counted_as_a_seek_by_the_viewer(
@@ -526,7 +545,7 @@ def test_our_own_nudge_is_not_counted_as_a_seek_by_the_viewer(
     Иначе разбор недели врёт дважды: каждый нудж считается ещё и перемоткой, а «человек
     мотает» перестаёт что-либо значить.
     """
-    from torrcast.cast import ChromecastReceiver
+    from torrcast.adapters.chromecast.cast import ChromecastReceiver
 
     monkeypatch.setattr(ChromecastReceiver, "_device", lambda self: _FakeDevice([]))
     receiver = ChromecastReceiver("10.0.0.50")
@@ -541,7 +560,7 @@ def test_our_own_nudge_is_not_counted_as_a_seek_by_the_viewer(
         receiver.position(front=1e6)  # нудж: 92, 100, 108
     receiver.position(front=1e6)  # приёмник доехал туда, куда его послал сторож
     receiver.position(front=1e6)
-    trace.shutdown()
+    shutdown()
 
     rows = _read_lines(tmp_path)
     events = [r["event"] for r in rows if r["event"] in {"nudge", "seek"}]
@@ -555,20 +574,20 @@ def test_a_dark_screen_and_its_revival_are_records_with_numbers(tmp_path: Path) 
     консоли. Ответ обязан лежать полями: где погас, что показ знал о беде, сколько длилась
     темнота и взял ли приёмник LOAD с какой попытки.
     """
-    trace.dark(pos=4355.0, why="источник молчит дольше 45 с")
-    trace.revive(pos=4355.0, tries=1, waited=312.0, ok=False)
-    trace.revive(pos=4355.0, tries=2, waited=374.0, ok=True)
-    trace.shutdown()
+    dark(pos=4355.0, why="источник молчит дольше 45 с")
+    revive(pos=4355.0, tries=1, waited=312.0, ok=False)
+    revive(pos=4355.0, tries=2, waited=374.0, ok=True)
+    shutdown()
 
     rows = _read_lines(tmp_path)
-    dark = _only(rows, "dark")
-    assert dark["phase"] == "play"
-    assert dark["pos"] == 4355.0 and dark["why"] == "источник молчит дольше 45 с"
+    blackout = _only(rows, "dark")
+    assert blackout["phase"] == "play"
+    assert blackout["pos"] == 4355.0 and blackout["why"] == "источник молчит дольше 45 с"
     ups = [r for r in rows if r["event"] == "revive"]
     assert [r["tries"] for r in ups] == [1, 2]
     assert [r["ok"] for r in ups] == [False, True]
     assert ups[1]["waited"] == 374.0
-    text = trace.digest(trace.records())
+    text = digest(records())
     assert "показ погас на 1:12:35: источник молчит дольше 45 с" in text
     assert "приёмник показ не взял с 1:12:35 (попытка 1, темнота 312 с)" in text
     assert "показ поднят с 1:12:35 (попытка 2, темнота 374 с)" in text
@@ -593,7 +612,7 @@ def test_an_eviction_says_who_was_thrown_out_and_how_much_it_freed(tmp_path: Pat
     mine.path(0).write_bytes(b"x" * 400)
 
     assert mine.fit(300) == "", "место обязано найтись за счёт чужого"
-    trace.shutdown()
+    shutdown()
 
     rec = _only(_read_lines(tmp_path), "evict")
     assert rec["phase"] == "warm"
@@ -601,7 +620,7 @@ def test_an_eviction_says_who_was_thrown_out_and_how_much_it_freed(tmp_path: Pat
     assert rec["title"] == "Тачки 3"
     assert rec["freed"] == 400
     assert rec["need"] == 300
-    assert "вытеснил «Тачки 3»" in trace.digest(trace.records())
+    assert "вытеснил «Тачки 3»" in digest(records())
 
 
 def test_a_piece_laid_off_the_grid_is_a_record_with_numbers(tmp_path: Path) -> None:
@@ -613,8 +632,8 @@ def test_a_piece_laid_off_the_grid_is_a_record_with_numbers(tmp_path: Path) -> N
     обязан лежать числами - границей, фактическим началом и разницей между ними, - а не
     печататься в журнал показа, который гаснет вместе с ним.
     """
-    trace.skew(slot=7, want=88.0, got=86.29, hole=True)
-    trace.shutdown()
+    skew(slot=7, want=88.0, got=86.29, hole=True)
+    shutdown()
 
     rec = _only(_read_lines(tmp_path), "skew")
     assert rec["phase"] == "warm"
@@ -623,8 +642,8 @@ def test_a_piece_laid_off_the_grid_is_a_record_with_numbers(tmp_path: Path) -> N
     assert rec["got"] == 86.29
     assert rec["off"] == -1.71, "разница обязана лежать полем, а не считаться читателем"
     assert rec["hole"] is True
-    assert rec["src"] == trace.WARMED, "источник куска назван не так, как в записи отдачи"
-    text = trace.digest(trace.records())
+    assert rec["src"] == WARMED, "источник куска назван не так, как в записи отдачи"
+    text = digest(records())
     assert "v7 лёг мимо сетки" in text and "место осталось непрогретым" in text
     assert "кусков мимо сетки 1" in text
 
@@ -645,7 +664,7 @@ def test_the_share_of_the_warmed_movie_is_a_field(tmp_path: Path) -> None:
         vault.path(slot).write_bytes(b"x" * 1024)
     warmer = Warmer(source="clip", audio=0, grid=grid, vault=vault, log=lambda _line: None)
     warmer._stall("бюджет диска 20 ГБ исчерпан")
-    trace.shutdown()
+    shutdown()
 
     rec = _only(_read_lines(tmp_path), "stall")
     assert rec["phase"] == "warm"
@@ -654,7 +673,7 @@ def test_the_share_of_the_warmed_movie_is_a_field(tmp_path: Path) -> None:
     assert rec["share"] == round(warmer.warmed / 100.0, 3)
     assert rec["size"] == 3 * 1024
     assert rec["why"] == "бюджет диска 20 ГБ исчерпан"
-    assert "прогрев встал: бюджет диска 20 ГБ исчерпан" in trace.digest(trace.records())
+    assert "прогрев встал: бюджет диска 20 ГБ исчерпан" in digest(records())
 
 
 def test_the_new_fields_never_break_an_old_journal(
@@ -722,12 +741,12 @@ def test_cast_log_shows_the_new_events(tmp_path: Path, capsys: pytest.CaptureFix
     """Сквозная проверка: события легли в ленту - и `cast log` их напечатал."""
     from torrcast import cli
 
-    trace.emit("search", "query", query="тачки")
-    trace.nudge(pos=84.0, to=92.0, hit=1, stuck=9.0, front=144.0)
-    trace.seek(frm=600.0, to=1891.0, wait=3.2)
-    trace.evict(key="k", freed=4_200_000_000, need=1_000_000_000, title="Тачки 3")
-    trace.warmth("ready", secs=2520.0, dur=5760.0, size=6_000_000_000)
-    trace.shutdown()
+    emit("search", "query", query="тачки")
+    nudge(pos=84.0, to=92.0, hit=1, stuck=9.0, front=144.0)
+    seek(frm=600.0, to=1891.0, wait=3.2)
+    evict(key="k", freed=4_200_000_000, need=1_000_000_000, title="Тачки 3")
+    warmth("ready", secs=2520.0, dur=5760.0, size=6_000_000_000)
+    shutdown()
 
     assert cli.main(["log"]) == 0
     text = capsys.readouterr().out
@@ -750,8 +769,8 @@ def test_doctor_says_whether_the_journal_is_alive(tmp_path: Path) -> None:
     assert ok, "отсутствие следа - не отказ показа"
     assert "следа нет" in line
 
-    trace.emit("search", "query", query="матрица")
-    trace.shutdown()
+    emit("search", "query", query="матрица")
+    shutdown()
     line, ok = _trace()
     assert ok
     assert "след" in line and "МБ" in line and "последняя запись" in line
@@ -765,29 +784,29 @@ def test_a_served_piece_says_which_producer_made_it(tmp_path: Path) -> None:
     расхождение между ними приёмник ловит именно на стыке.
     """
     monkey = pytest.MonkeyPatch()
-    monkey.setenv(trace.LOG_ENV, str(tmp_path))
-    monkey.setenv(trace.SID_ENV, "src")
-    trace.segment(slot=40, mb=3.1, sent=0.4, wait=0.02, src=trace.PACKED)
-    trace.segment(slot=41, mb=2.9, sent=0.3, wait=0.01, src=trace.WARMED)
-    trace.shutdown()
-    rows = [r for r in trace.records() if r.get("event") == "segment"]
+    monkey.setenv(LOG_ENV, str(tmp_path))
+    monkey.setenv(SID_ENV, "src")
+    segment(slot=40, mb=3.1, sent=0.4, wait=0.02, src=PACKED)
+    segment(slot=41, mb=2.9, sent=0.3, wait=0.01, src=WARMED)
+    shutdown()
+    rows = [r for r in records() if r.get("event") == "segment"]
     monkey.undo()
 
     assert [r["src"] for r in rows] == ["pack", "warm"], "источник куска в ленту не попал"
     assert rows[0]["slot"] == 40 and rows[0]["mb"] == 3.1, "прежние поля записи потерялись"
     seams = _seams(rows)
     assert [r["slot"] for r in seams] == [41], "смена производителя посреди показа не видна"
-    assert "стыков источника 1" in trace.digest(rows), "выжимка молчит про стык источников"
-    assert "источник сменился на прогретое" in trace.digest(rows), "стык не назван"
+    assert "стыков источника 1" in digest(rows), "выжимка молчит про стык источников"
+    assert "источник сменился на прогретое" in digest(rows), "стык не назван"
 
 
 def test_the_source_field_costs_the_hot_path_nothing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Врезка источника не имеет права трогать диск: :func:`trace.segment` - тот же put."""
-    monkeypatch.setenv(trace.LOG_ENV, str(tmp_path))
-    monkeypatch.setenv(trace.SID_ENV, "hot")
-    trace.shutdown()
+    """Врезка источника не имеет права трогать диск: :func:`segment` - тот же put."""
+    monkeypatch.setenv(LOG_ENV, str(tmp_path))
+    monkeypatch.setenv(SID_ENV, "hot")
+    shutdown()
     import os as _os
 
     writes: list[int] = []
@@ -800,7 +819,7 @@ def test_the_source_field_costs_the_hot_path_nothing(
     monkeypatch.setattr(_os, "write", counting_write)
     monkeypatch.setattr(_writer_module._Writer, "_start", lambda self: None)  # поток не поднимаем
     for slot in range(200):
-        trace.segment(slot=slot, mb=3.0, sent=0.1, wait=0.0, src=trace.WARMED)
+        segment(slot=slot, mb=3.0, sent=0.1, wait=0.0, src=WARMED)
 
     assert writes == [], "запись источника сделала синхронный write - регресс инварианта"
 
@@ -808,16 +827,16 @@ def test_the_source_field_costs_the_hot_path_nothing(
 def test_the_plan_says_how_both_producers_encode(tmp_path: Path) -> None:
     """Решение о кодировании - строка ленты, а не разбор аргументов ffmpeg постфактум."""
     monkey = pytest.MonkeyPatch()
-    monkey.setenv(trace.LOG_ENV, str(tmp_path))
-    monkey.setenv(trace.SID_ENV, "plan")
-    trace.plan(pack="copy", warm="copy", spots=5, preset="veryfast", mbit=9.0)
-    trace.shutdown()
-    rows = [r for r in trace.records() if r.get("event") == "plan"]
+    monkey.setenv(LOG_ENV, str(tmp_path))
+    monkey.setenv(SID_ENV, "plan")
+    plan(pack="copy", warm="copy", spots=5, preset="veryfast", mbit=9.0)
+    shutdown()
+    rows = [r for r in records() if r.get("event") == "plan"]
     monkey.undo()
 
     assert rows[0]["pack"] == "copy" and rows[0]["warm"] == "copy", "решения в ленте нет"
     assert rows[0]["spots"] == 5, "точечный перекод не сосчитан"
-    assert "упаковка - копия, прогрев - копия" in trace.digest(rows), "выжимка молчит о решении"
+    assert "упаковка - копия, прогрев - копия" in digest(rows), "выжимка молчит о решении"
 
 
 # --- 🔴 TC-194: в выжимке видны ВСЕ классы записанных событий -----------------
@@ -837,12 +856,12 @@ def test_cast_log_shows_the_timeline_and_the_query(
     from torrcast import cli
     from torrcast.adapters.filesystem.stopwatch import mark
 
-    trace.emit("search", "query", query="сталкер", raw=41, pictures=3)
+    emit("search", "query", query="сталкер", raw=41, pictures=3)
     mark("отбор релиза", релиз=2)
     mark("упаковка пошла")
     mark("упаковка пошла")  # фаза повторяется: у показа их бывают десятки
-    trace.emit("session", "session_end", pos=60.0, dur=120.0, watched=False)
-    trace.shutdown()
+    emit("session", "session_end", pos=60.0, dur=120.0, watched=False)
+    shutdown()
 
     assert cli.main(["log"]) == 0
     text = capsys.readouterr().out
@@ -864,8 +883,8 @@ def test_an_event_this_version_does_not_know_is_printed_anyway(
     """
     from torrcast import cli
 
-    trace.emit("play", "нечто", чего_мы_не_знаем=1)
-    trace.shutdown()
+    emit("play", "нечто", чего_мы_не_знаем=1)
+    shutdown()
 
     assert cli.main(["log"]) == 0
     assert "play/нечто (чего_мы_не_знаем=1)" in capsys.readouterr().out
@@ -893,4 +912,4 @@ def test_records_eaten_by_a_full_queue_are_confessed_and_not_hidden(
     assert len(lost) == 1, "о потере сказано ровно один раз на пакет"
     assert lost[0]["count"] == 8, "восемь записей очередь не приняла - столько и признано"
     assert len([r for r in rows if r.get("event") == "segment"]) == 2
-    assert "потеряно записей 8" in trace.digest(trace.records())
+    assert "потеряно записей 8" in digest(records())

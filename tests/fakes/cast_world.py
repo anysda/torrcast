@@ -17,7 +17,8 @@ from typing import Any
 
 import pytest
 
-from torrcast import cli, console
+from torrcast import cli
+from torrcast.adapters.console import console
 from torrcast.ports import show_unit as unit_port
 from torrcast.usecases.playback import _show_state as playback_state
 

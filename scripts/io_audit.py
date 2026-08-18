@@ -5,8 +5,8 @@
 ловит — правило `ввод-вывод` освобождает слой «не разложено», то есть ровно те
 плоские модули, которые и режутся. Отсюда отдельный счётчик.
 
-    io-audit torrcast/search.py torrcast/commands.py
-    io-audit --strict torrcast/search.py
+    io-audit torrcast/commands.py
+    io-audit --strict torrcast/commands.py
 
 Жёсткие — сеть, подпроцессы, файлы и сон: их в неразложенном модуле быть не должно.
 Мягкие — работа с путями как со значениями: их наличие само по себе не нарушение.

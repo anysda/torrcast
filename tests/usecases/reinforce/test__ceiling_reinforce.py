@@ -5,10 +5,10 @@ from __future__ import annotations
 from typing import Any
 
 from tests.usecases.reinforce.stand import Indexer, Said, franchise, pictures, row
+from torrcast.adapters.prowlarr.raw_result import RawResult
 from torrcast.cli.args import Args
 from torrcast.domain.facts.origin import Origin
 from torrcast.domain.picture import Picture
-from torrcast.search import RawResult
 from torrcast.usecases.reinforce._ceiling_reinforce import _ceiling_reinforce
 
 #: Выдача запроса «девять»: сотня строк про соседей по подстроке, самой картины нет.

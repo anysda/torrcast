@@ -50,7 +50,7 @@ class Watch:
 
         🔴 Путь перехода один и привязан к концу потока, а не к доле длительности. Терять
         его нельзя ни при каком поведении приёмника, поэтому «конец» опознаётся щедро
-        (:attr:`torrcast.state.Entry.ending`). И ни при каком раскладе - показу, которого не
+        (:attr:`torrcast.domain.entry.Entry.ending`). И ни при каком раскладе - показу, которого не
         было: закладка у конца плюс сдохший источник дают сеанс без единого LOAD, и фильм
         помечался досмотренным, не показав ни кадра. Отсюда :attr:`seen`.
         """
@@ -60,7 +60,7 @@ class Watch:
         self.flush()
 
     def flush(self) -> None:
-        """Записать состояние атомарно (tmp + rename в :mod:`torrcast.state`)."""
+        """Записать состояние атомарно (tmp + rename в :mod:`torrcast.adapters.filesystem.state`)."""
         if self.sealed:  # досмотренную запись повторными тиками не портим
             return
         self.last = time.monotonic()

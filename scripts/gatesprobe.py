@@ -42,10 +42,10 @@ import poolreplay
 from probeprofile import add_argument as add_profile_argument
 from probeprofile import choose as choose_profile
 
+from torrcast.adapters.filesystem.state import load_config
 from torrcast.cli import HD_HEIGHT, Args, _Plan, bitrate_of, is_dated, is_extra
 from torrcast.domain._name_data import _EXTRAS_RE
 from torrcast.domain.release import Release
-from torrcast.state import load_config
 
 
 def live_hd_below(plan: _Plan, queue: list[int]) -> list[int]:

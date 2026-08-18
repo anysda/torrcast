@@ -15,7 +15,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from torrcast.search import PUBLIC_TRACKERS
+from torrcast.adapters.prowlarr.magnet_for import PUBLIC_TRACKERS
 
 
 def connect(address: str, timeout: float = 4.0) -> dict[str, Any]:

@@ -22,8 +22,8 @@
      "rows": {"Knaben": [[имя, инфохэш, размер, сиды, индексер], ...], "RuTor": [...]}}
 
 Ключ ``rows`` - выдача КАЖДОГО индексера отдельно, ровно так, как её отдал Prowlarr:
-склейку врозь-выдач делает :func:`~torrcast.search.merge`, и делает её тут тот же код,
-что и на живом пути.
+склейку врозь-выдач делает :func:`~torrcast.adapters.prowlarr.merge.merge`, и делает её тут тот же
+код, что и на живом пути.
 
 Прогоняется ровно боевой тракт отбора и ровно его функциями::
 
@@ -55,6 +55,11 @@ import runpass
 from probeprofile import add_argument as add_profile_argument
 from probeprofile import choose as choose_profile
 
+from torrcast.adapters.filesystem.state import load_config
+from torrcast.adapters.prowlarr.merge import merge
+from torrcast.adapters.prowlarr.prowlarr import Prowlarr
+from torrcast.adapters.prowlarr.raw_result import RawResult
+from torrcast.adapters.prowlarr.to_releases import to_releases
 from torrcast.cli import (
     OFF_SEASON,
     Args,
@@ -72,6 +77,7 @@ from torrcast.cli import (
 from torrcast.domain._name_data import THIN_POOL
 from torrcast.domain.capped_indexers import INDEXER_PAGE
 from torrcast.domain.cluster import cluster
+from torrcast.domain.config import Config
 from torrcast.domain.glue import glue
 from torrcast.domain.menu_order import menu_order
 from torrcast.domain.pick_franchise import pick_franchise
@@ -79,8 +85,6 @@ from torrcast.domain.picture import Picture
 from torrcast.domain.profile import Profile
 from torrcast.domain.release import Release
 from torrcast.domain.split_franchise_index import split_franchise_index
-from torrcast.search import Prowlarr, RawResult, merge, to_releases
-from torrcast.state import Config, load_config
 
 #: Что склеили и во что: список исходных кучек и получившаяся из них картина.
 Merge = tuple[list[Picture], Picture]
@@ -146,7 +150,7 @@ class Replay:
     query: str
     #: Строк в сохранённой выдаче, до склейки врозь-выдач по инфохэшу.
     raw_rows: int
-    #: Раздач после :func:`~torrcast.search.merge`.
+    #: Раздач после :func:`~torrcast.adapters.prowlarr.merge.merge`.
     results: int
     #: Каким запросом пул СНЯТ, если спрашивали его другим (``--ask``). Без этого пары
     #: «тот же пул, другой вопрос» не свести обратно: в выводе стоит вопрос, а не пул.

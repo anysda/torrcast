@@ -15,9 +15,10 @@ import pytest
 
 from tests.fakes.show_unit import FakeShowUnit
 from torrcast import InfraError, cli
+from torrcast.adapters.filesystem.state import State, load_config
 from torrcast.adapters.systemd.unit_active import unit_active
 from torrcast.adapters.systemd.unit_why import unit_why
-from torrcast.state import Entry, State, load_config
+from torrcast.domain.entry import Entry
 from torrcast.usecases.playback import _show_state as playback_state
 
 KEY = "movie:моана-2:2024"

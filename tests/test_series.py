@@ -14,6 +14,7 @@ import pytest
 from torrcast import NotFoundError
 from torrcast.cli import Args, _plan_for, _Series, rank_releases
 from torrcast.domain.cluster import cluster
+from torrcast.domain.config import Config
 from torrcast.domain.episode import Episode
 from torrcast.domain.episode_file import EpisodeFile
 from torrcast.domain.map_episodes import map_episodes
@@ -22,7 +23,6 @@ from torrcast.domain.picture import Picture
 from torrcast.domain.runtime_guess import RUNTIME_GUESS
 from torrcast.domain.split_episode import split_episode
 from torrcast.domain.torr_file import TorrFile
-from torrcast.state import Config
 
 GB = 1024**3
 
@@ -602,8 +602,8 @@ def test_a_stitched_show_is_dated_by_its_first_season() -> None:
     «Игра престолов» - «(2019)», «Чёрное зеркало» - «(2019)».
 
     Врёт при этом не только строка меню. Справку ищут по паре «имя + год» и сверяют год
-    по первым фразам статьи (:func:`torrcast.facts.confirms`), а статья открывается годом
-    начала сериала. С чужим годом справки не будет вовсе - ни рейтинга, ни описания, ни
+    по первым фразам статьи (:func:`torrcast.domain.facts.confirms.confirms`), а статья открывается
+    годом начала сериала. С чужим годом справки не будет вовсе - ни рейтинга, ни описания, ни
     хронометража, по которому считается битрейт.
     """
     show = [
@@ -671,7 +671,7 @@ def test_the_episode_table_belongs_to_the_release_being_played() -> None:
     Пока разбор ложился полем на объект, список серий картины оставляла ПОСЛЕДНЯЯ
     ответившая раздача. В живом показе это стоило автоперехода целиком: у пака «Рик и
     Морти» (21 серия) в состояние уезжал пустой список от соседней раздачи, сериал
-    переставал быть сериалом (:attr:`torrcast.state.Entry.serial`), и следующая серия не
+    переставал быть сериалом (:attr:`torrcast.domain.entry.Entry.serial`), и следующая серия не
     поднималась вовсе.
     """
     pack = parse_release_name("Рик и Морти / Rick and Morty [S01-02] (2013) BDRip 1080p")

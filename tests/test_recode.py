@@ -1733,7 +1733,7 @@ def test_a_codec_the_receiver_cannot_decode_is_a_decision_about_the_file() -> No
     HEVC-куска. Поэтому признак файла — паспорт ffprobe, и ничего больше.
     """
     from torrcast.cli import _encode_all
-    from torrcast.state import Config
+    from torrcast.domain.config import Config
 
     config = Config(recode=True, recode_mbit=9.0)
     whole = _encode_all(config, "hevc")
@@ -1801,7 +1801,7 @@ def test_a_light_source_is_not_blown_up_to_the_ceiling() -> None:
     """
     from torrcast.adapters.recode import FULL_FLOOR, FULL_GAIN
     from torrcast.cli import _encode_all
-    from torrcast.state import Config
+    from torrcast.domain.config import Config
 
     config = Config(recode=True, recode_mbit=9.0)
     light = _encode_all(config, "hevc", 1.28)
@@ -1822,9 +1822,9 @@ def test_a_frame_above_the_receivers_ceiling_is_scaled_down_instead_of_refused()
     получает вчетверо меньше пикселей. Поэтому «нет 1080p» перестало значить «показа нет».
     """
     from torrcast.cli import _encode_all
+    from torrcast.domain.config import Config
     from torrcast.domain.profile import CAUTIOUS
     from torrcast.domain.recode_note import recode_note
-    from torrcast.state import Config
 
     whole = cast(Encode | None, _encode_all(Config(), "hevc", 20.0, 10, CAUTIOUS, frame=2160))
     assert whole is not None and whole.scaled, "4К обязано ужиматься, а не ехать как есть"
@@ -1884,7 +1884,7 @@ def test_the_tonemap_is_a_conversion_not_a_relabel_and_it_is_measured() -> None:
     настройка по умолчанию выключена, а порядок в цепочке - скейл первым.
     """
     from torrcast.adapters.recode import TONEMAP
-    from torrcast.state import Config
+    from torrcast.domain.config import Config
 
     assert not Config().recode_tonemap, "по умолчанию выключен: 1.00x - это ноль запаса"
 
@@ -1933,9 +1933,9 @@ def test_a_scaled_down_4k_show_gets_its_grid_weighed_by_our_bitrate_too(
     подменена только карта опорных кадров, чтобы не ходить в рой.
     """
     from torrcast.cli import _layout
+    from torrcast.domain.config import Config
     from torrcast.domain.delivered_mbit import AUDIO_MBIT, TS_OVERHEAD
     from torrcast.domain.profile import CAUTIOUS
-    from torrcast.state import Config
 
     keys = _keys(duration=595.0, gop=8.5, rate=0.5e6)  # 4 Мбит/с - для карты это лёгкий файл
     monkeypatch.setattr(grid_for_module, "film_keys", lambda url: keys)
@@ -1969,9 +1969,9 @@ def test_the_grid_is_told_the_encoders_ceiling_not_its_average_target() -> None:
     - а не только то, признает ли сетка кусок тяжёлым.
     """
     from torrcast.cli import _layout
+    from torrcast.domain.config import Config
     from torrcast.domain.delivered_mbit import AUDIO_MBIT, TS_OVERHEAD
     from torrcast.domain.profile import CAUTIOUS
-    from torrcast.state import Config
 
     duration, period = 160.0, 13.4
     at = sorted(
@@ -2019,9 +2019,9 @@ def test_the_grid_is_told_the_encoders_ceiling_not_its_average_target() -> None:
 def test_the_spot_recode_ceiling_is_delivered_bitrate_not_bare_video() -> None:
     """Сетка считает тот же поток, который получит приёмник: видео, AAC и mpegts."""
     from torrcast.cli import _layout
+    from torrcast.domain.config import Config
     from torrcast.domain.delivered_mbit import AUDIO_MBIT, TS_OVERHEAD
     from torrcast.domain.profile import CAUTIOUS
-    from torrcast.state import Config
 
     duration, period = 80.0, 13.4
     at = sorted(
@@ -2060,9 +2060,9 @@ def test_a_gop_too_long_to_cut_pulls_the_whole_target_down() -> None:
     (TC-483). Чёткость тут и торгуется: гейт «ноль подгрузов» стоит выше неё.
     """
     from torrcast.cli import _layout
+    from torrcast.domain.config import Config
     from torrcast.domain.delivered_mbit import AUDIO_MBIT, TS_OVERHEAD
     from torrcast.domain.profile import CAUTIOUS
-    from torrcast.state import Config
 
     duration, gop = 200.0, 15.2  # опорные кадры редкие: между ними резать нечем
     keys = _keys(duration=duration, gop=gop, rate=5.0e6)

@@ -2,7 +2,7 @@
 
 import pytest
 
-from torrcast import console
+from torrcast.adapters.console import console
 from torrcast.adapters.console.print_console import PrintConsole
 
 

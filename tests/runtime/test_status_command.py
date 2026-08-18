@@ -27,7 +27,8 @@ def test_nothing_plays_and_nothing_was_watched(
 def test_the_configuration_is_read_once_for_the_whole_answer(
     show_unit: FakeShowUnit, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    from torrcast.state import Entry, State, load_config
+    from torrcast.adapters.filesystem.state import State, load_config
+    from torrcast.domain.entry import Entry
 
     state = State()
     state.put("movie:моана-2", Entry(title="Моана 2", magnet="magnet:?x=1", pos=600.0, dur=7200.0))

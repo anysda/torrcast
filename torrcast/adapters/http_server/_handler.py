@@ -38,8 +38,10 @@ class _Handler(http.server.BaseHTTPRequestHandler):
     server_version = "torrcast"
     root: Path = Path()
     feed: ClassVar[_Feed | None] = None
-    #: Откуда взят кусок, который сейчас отдаём (:data:`torrcast.trace.PACKED` /
-    #: :data:`torrcast.trace.WARMED`). Ставит :meth:`_read`, читает :meth:`_log_segment`.
+    #: Откуда взят кусок, который сейчас отдаём
+    #: (:data:`torrcast.domain.trace_sources.PACKED` /
+    #: :data:`torrcast.domain.trace_sources.WARMED`). Ставит :meth:`_read`, читает
+    #: :meth:`_log_segment`.
     _src: str = "pack"
 
     def do_GET(self) -> None:
@@ -168,8 +170,9 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         споткнулся вот здесь» упирался в то, что по записи нельзя сказать, чей это был
         кусок и не сменился ли производитель ровно на этом месте.
 
-        🔴 Это горячий путь. :func:`torrcast.trace.emit` только кладёт запись в очередь -
-        ни ``open``, ни ``write``, ни ``flush`` тут не случается, показ не ждёт журнал.
+        🔴 Это горячий путь. :func:`torrcast.adapters.filesystem.trace_journal.emit`
+        только кладёт запись в очередь - ни ``open``, ни ``write``, ни ``flush`` тут не
+        случается, показ не ждёт журнал.
         Отдельно от ``TORRCAST_TRACE`` (:meth:`_sent`): тот пишет в консоль по требованию, а
         след ведётся всегда. Манифест не пишем - он не сегмент и дёргается на каждый опрос.
         """

@@ -40,7 +40,7 @@ def _ceiling_reinforce(
     Ограждения - те же, что у добора вторым языком (:func:`_second_language`):
 
     * круг платится из остатка цели (:func:`_no_budget`);
-    * имя, за которое справка не ручается (:attr:`~torrcast.facts.Origin.guessed`),
+    * имя, за которое справка не ручается (:attr:`~torrcast.domain.facts.origin.Origin.guessed`),
       ничего не решает - уточнения не бывает (гейт TC-253);
     * берутся только картины, подписанные ТОЧНО спрошенным именем
       (:func:`~torrcast.domain.catalog_has_name.catalog_has_name`), и только тех, чей год не спорит

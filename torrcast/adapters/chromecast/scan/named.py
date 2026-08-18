@@ -30,7 +30,8 @@ def named(address: str, timeout: float = NAME_TIMEOUT) -> Device:
     except ImportError:  # pragma: no cover - pychromecast стоит зависимостью
         return Device(address=address, how="скан")
     # Опрос устройства идёт и по 8443, которого у телевизора нет: жалоба на это -
-    # косметика, а поиск и без неё честно скажет, что нашёл (:class:`torrcast.cast._Cosmetic`).
+    # косметика, а поиск и без неё честно скажет, что нашёл
+    # (:class:`torrcast.adapters.chromecast.cast.hush_cosmetic_noise._Cosmetic`).
     hush_cosmetic_noise()
     status = None
     with suppress(Exception):

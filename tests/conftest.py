@@ -19,8 +19,10 @@ import pytest
 
 from tests.fakes.cast_world import CastWorld
 from tests.fakes.show_unit import FakeShowUnit
-from torrcast import cli, console, trace
-from torrcast.facts import Origin
+from torrcast import cli
+from torrcast.adapters.console import console
+from torrcast.adapters.filesystem.trace_journal import LOG_ENV, SID_ENV
+from torrcast.domain.facts.origin import Origin
 from torrcast.ports import journal as journal_port
 from torrcast.ports import progress as progress_port
 from torrcast.ports import show_unit as unit_port
@@ -176,6 +178,11 @@ MACHINE_TESTS = frozenset(
         "tests/test_cli.py::test_a_neighbour_that_missed_its_budget_is_let_go_too",
         "tests/test_console.py::test_progress_names_every_phase_and_its_time",
         "tests/test_console.py::test_the_running_clock_survives_an_empty_phase",
+        # Дожим хвоста ленты - настоящий фоновый писатель и настоящий файл. Сторож
+        # их не видел, пока звали через снесённый фасад (``trace.shutdown``): имя
+        # вызова не совпадало с механизмом.
+        "tests/adapters/filesystem/trace_journal/test_shutdown.py::test_the_tail_of_the_tape_is_pressed_out_on_a_normal_exit",
+        "tests/adapters/filesystem/trace_journal/test_shutdown.py::test_shutting_down_twice_is_not_an_error",
         "tests/test_trace.py::test_records_reads_and_orders",
         "tests/test_trace.py::test_size_ceiling",
         "tests/test_trace.py::test_emit_schema",
@@ -278,7 +285,7 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
             "subprocess.run": "настоящий подпроцесс",
             "subprocess.Popen": "настоящий подпроцесс",
             "threading.Thread": "настоящий поток",
-            "trace.shutdown": "настоящий фоновый поток журнала",
+            "shutdown": "настоящий фоновый поток журнала",
         }
         leaked = sorted({label for call, label in mechanisms.items() if call in calls})
         if leaked:
@@ -343,12 +350,13 @@ def _own_files(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     Унаследованные ``TORRCAST_CONFIG`` и ``TORRCAST_LOG`` увели бы прогон в настоящие файлы
     владельца: конфиг тесты переписывают, а лента копила бы их записи рядом с боевыми.
     Пустая лента - это не «никуда»: путь тогда считается от файла состояния, а он уже
-    свой (:func:`torrcast.trace.log_dir`).
+    свой (:func:`torrcast.adapters.filesystem.trace_journal.log_dir`).
     """
     monkeypatch.setenv("TORRCAST_CONFIG", str(tmp_path / "config.json"))
     monkeypatch.setenv("TORRCAST_LOG", "")
     # Идентификатор сеанса лента заводит лениво и кэширует В ОКРУЖЕНИИ: без своего он
-    # утёк бы из теста в тест и подписал бы чужие записи (:func:`torrcast.trace.session_id`).
+    # утёк бы из теста в тест и подписал бы чужие записи
+    # (:func:`torrcast.adapters.filesystem.trace_journal.session_id`).
     monkeypatch.setenv("TORRCAST_SID", tmp_path.name)
 
 
@@ -450,8 +458,8 @@ def journal(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """
     path = tmp_path / "trace"
     path.mkdir()
-    monkeypatch.setenv(trace.LOG_ENV, str(path))
-    monkeypatch.setenv(trace.SID_ENV, "test-sid")
+    monkeypatch.setenv(LOG_ENV, str(path))
+    monkeypatch.setenv(SID_ENV, "test-sid")
     return path
 
 

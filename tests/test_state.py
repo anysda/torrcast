@@ -7,7 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from torrcast.state import Entry, State, load_config, save_config
+from torrcast.adapters.filesystem.state import State, load_config, save_config
+from torrcast.domain.entry import Entry
 
 
 @pytest.fixture(autouse=True)

@@ -1,8 +1,8 @@
 """Tests for the effective receiver-threshold snapshot."""
 
+from torrcast.domain.config import Config
 from torrcast.domain.profile import ANDROID_TV
 from torrcast.domain.thresholds import thresholds
-from torrcast.state import Config
 
 
 def test_snapshot_names_profile_and_explicit_configuration() -> None:

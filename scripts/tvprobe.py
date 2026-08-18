@@ -2,8 +2,9 @@
 
 Отвечает на вопрос «какая именно граница убивает показ». Работает **тем же кодом**,
 что и показ (:class:`torrcast.usecases.feed_pack.feed.Feed`,
-:class:`torrcast.cast.ChromecastReceiver`), меняется ровно одно: сетка сегментов, которую задают
-снаружи. Поэтому разница в поведении ТВ — это разница в нарезке, а не в обвязке.
+:class:`torrcast.adapters.chromecast.cast.ChromecastReceiver`), меняется ровно одно: сетка
+сегментов, которую задают снаружи. Поэтому разница в поведении ТВ — это разница в нарезке,
+а не в обвязке.
 
     python3 scripts/tvprobe.py <url> --at 76 --watch 25 --step 4 --uniform
     python3 scripts/tvprobe.py <url> --at 76 --watch 25 --bounds 60,70,80,84,90,100
@@ -32,6 +33,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from probeprofile import add_argument as add_profile_argument
 from probeprofile import choose as choose_profile
 
+from torrcast.adapters.chromecast.cast import ChromecastReceiver
+from torrcast.adapters.filesystem.state import load_config
 from torrcast.adapters.http_server.hls_base import hls_base
 from torrcast.adapters.http_server.hls_server import HlsServer
 from torrcast.adapters.recode import RECODE_DIR, Encode, Recoder, Weights, whole_encode
@@ -42,11 +45,9 @@ from torrcast.adapters.stream_pack.hls_dir import hls_dir
 from torrcast.adapters.stream_pack.pack_origin import pack_origin
 from torrcast.adapters.stream_probe.probe import probe
 from torrcast.adapters.stream_probe.segment_name import segment_name
-from torrcast.cast import ChromecastReceiver
 from torrcast.domain.delivered_mbit import AUDIO_MBIT, TS_OVERHEAD
 from torrcast.domain.profile import Profile
 from torrcast.runtime.wire import wire
-from torrcast.state import load_config
 from torrcast.usecases.feed_pack.feed import Feed
 
 #: Позиция не двигается дольше этого при живом запасе упаковки - это подвис.

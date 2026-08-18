@@ -1,11 +1,11 @@
-"""Фасад справки: прежние имена ведут в новые дома и работают в живом меню.
+"""Справка в живом меню: паспорт отвечает из общего кэша, а меню печатает его строкой.
 
 Правила разбора статьи проверяет ``tests/domain/facts``, сеть и файлы -
 ``tests/adapters/wiki``, сценарии - ``tests/usecases``, проводку и справку меню -
-``tests/runtime``. Здесь остаётся то, ради чего фасад и существует: прежние имена на
-месте и меню печатает справку ровно так, как печатало.
+``tests/runtime``. Здесь остаётся стык: собранная проводка отвечает меню, и меню
+печатает справку ровно так, как печатало.
 
-⚠️ В сеть отсюда не ходят: всё, что спрашивается у фасада, заранее лежит в его кэше, а
+⚠️ В сеть отсюда не ходят: всё, что спрашивается у паспорта, заранее лежит в его кэше, а
 кэш разведён по каталогам состояния (``TORRCAST_STATE`` ставит общая фикстура).
 """
 
@@ -13,30 +13,24 @@ from __future__ import annotations
 
 from tests.articles import MOANA
 from torrcast import cli
-from torrcast import facts as facts_mod
-from torrcast.facts import Fact, Facts, Origin, origin, shorten
+from torrcast.domain.facts.fact import Fact
+from torrcast.domain.facts.origin import Origin
+from torrcast.domain.facts.settings import SOURCE_WIKI
+from torrcast.domain.facts.shorten import shorten
 from torrcast.runtime.facts_wiring import FACTS
-from torrcast.runtime.menu_facts import MenuFacts
-
-
-def test_every_exported_name_is_the_one_from_its_home() -> None:
-    """Фасад отдаёт те же объекты, а не свои копии."""
-    assert facts_mod.FACTS is FACTS
-    assert Facts is MenuFacts
-    assert origin == FACTS.passport.of
-    assert facts_mod.origin_either == FACTS.passport.either.of
-    assert facts_mod.get_json == FACTS.client.get
-    assert all(hasattr(facts_mod, name) for name in facts_mod.__all__)
+from torrcast.runtime.menu_facts import MenuFacts as Facts
 
 
 def test_the_passport_entry_point_answers_from_the_same_cache() -> None:
-    """``origin`` - тонкий вход в тот же сценарий, а не вторая реализация."""
-    stored = Origin(title="Cars", year=2006, name="Тачки", source=facts_mod.SOURCE_WIKI)
+    """Паспорт проводки - тонкий вход в тот же сценарий, а не вторая реализация."""
+    stored = Origin(title="Cars", year=2006, name="Тачки", source=SOURCE_WIKI)
     FACTS.cache.write("Тачки", False, stored)
     FACTS.cache.write("Тачки", None, stored)
 
-    assert origin("Тачки", False, budget=0.0) == stored
-    assert origin("Тачки", None, budget=0.0) == stored, "режим «оба типа» - свой ряд ключей"
+    assert FACTS.passport.of("Тачки", False, budget=0.0) == stored
+    assert FACTS.passport.of("Тачки", None, budget=0.0) == stored, (
+        "режим «оба типа» - свой ряд ключей"
+    )
     assert FACTS.cache.read("Тачки", False) == stored
     assert FACTS.cache.read("Тачки", True) is None
 
@@ -82,5 +76,5 @@ def test_the_description_wraps_by_words_under_the_terminal() -> None:
 
 
 def test_the_blurb_of_the_menu_is_the_first_sentence_of_the_article() -> None:
-    """Фасад отдаёт ту же обрезку, которой меню печатает описание."""
+    """Обрезка описания - та же, которой меню печатает строку."""
     assert shorten(MOANA).endswith("Walt Disney Pictures.")

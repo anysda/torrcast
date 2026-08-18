@@ -6,7 +6,7 @@ from typing import Final
 
 #: Раздачи картины, отсеянные до очереди, по причинам (:func:`drop_reason`). Порядок
 #: слов один на весь код: причина называется там, где считается, и печатается в
-#: `cast log` теми же словами (:func:`torrcast.trace._event_line`).
+#: `cast log` теми же словами (:func:`torrcast.domain.digest._event_line`).
 OFF_SEASON: Final = "нужного сезона нет"
 _NO_EPISODE: Final = "нужной серии нет по имени"
 _DISC: Final = "образ диска"

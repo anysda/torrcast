@@ -19,9 +19,11 @@ def _say_showing(live: tuple[str, Entry] | None) -> None:
     вторая команда вела себя как первая - молча качала свои раздачи рядом с играющим
     фильмом и обрывала его в момент выбора; ни того, ни другого на экране видно не было.
 
-    Занятость берётся из нашего состояния (:meth:`torrcast.state.State.showing`) и только
-    оттуда: спросить сам приёмник значит подключиться к нему вторым сендером и погасить
-    показ, который мы как раз и бережём (:class:`torrcast.cast.ChromecastReceiver`).
+    Занятость берётся из нашего состояния
+    (:meth:`torrcast.adapters.filesystem.state.state.State.showing`) и только оттуда:
+    спросить сам приёмник значит подключиться к нему вторым сендером и погасить
+    показ, который мы как раз и бережём
+    (:class:`torrcast.adapters.chromecast.cast.ChromecastReceiver`).
     """
     if live is None:
         return

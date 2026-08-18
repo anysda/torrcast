@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from torrcast import NotFoundError
-from torrcast.search import RawResult
+from torrcast.adapters.prowlarr.raw_result import RawResult
 
 
 class FakeProwlarr:
@@ -38,6 +38,6 @@ class FakeProwlarr:
 
     def spare(self) -> float:
         """Остаток цели: тут поиск мгновенный, поэтому цела вся (TC-228)."""
-        from torrcast.search import GOAL
+        from torrcast.domain.goal_spare import GOAL
 
         return GOAL

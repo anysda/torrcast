@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from tests.usecases.discover.world import Indexer, Said, row
+from torrcast.adapters.prowlarr.raw_result import RawResult
 from torrcast.domain.not_found_error import NotFoundError
-from torrcast.search import RawResult
 from torrcast.usecases.discover._ask import _ask
 
 

@@ -21,7 +21,12 @@ from typing import Any, cast
 
 import pytest
 
-from torrcast import trace
+from torrcast.adapters.filesystem.trace_journal import (
+    LOG_ENV,
+    SID_ENV,
+    records,
+    shutdown,
+)
 from torrcast.cli import (
     Args,
     _Bench,
@@ -35,14 +40,18 @@ from torrcast.cli import (
     queue_drops,
     stepdown_note,
 )
+from torrcast.domain.config import Config
+from torrcast.domain.digest import digest
+from torrcast.domain.facts.fact import Fact
+from torrcast.domain.facts.hms import hms
+from torrcast.domain.facts.minutes_of import minutes_of
 from torrcast.domain.json_value import JsonValue
 from torrcast.domain.media import Media
 from torrcast.domain.parse_release_name import parse_release_name
 from torrcast.domain.picture import Picture
 from torrcast.domain.release import Release
 from torrcast.domain.runtime_guess import RUNTIME_GUESS
-from torrcast.facts import Fact, Facts, hms, minutes_of
-from torrcast.state import Config
+from torrcast.runtime.menu_facts import MenuFacts as Facts
 
 GB = 1024**3
 GUESS = RUNTIME_GUESS["movie"]
@@ -116,8 +125,8 @@ def test_without_a_reference_the_guess_stays_but_says_so(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Справка молчит - план остаётся на прикидке, и это видно в следе, а не молча."""
-    monkeypatch.setenv(trace.LOG_ENV, str(tmp_path))
-    monkeypatch.setenv(trace.SID_ENV, "test-runtime")
+    monkeypatch.setenv(LOG_ENV, str(tmp_path))
+    monkeypatch.setenv(SID_ENV, "test-runtime")
     picture = Picture(
         title="Нелюбовь",
         year=2017,
@@ -127,14 +136,14 @@ def test_without_a_reference_the_guess_stays_but_says_so(
     before = _plan_for(picture, args, Config())
 
     plan = _timed(before, facts_with("Нелюбовь", 2017, ""), args, Config())
-    trace.shutdown()
+    shutdown()
 
     assert plan is before, "пересобирать план не на чем"
     assert not plan.runtime_known
-    rows = trace.records()
+    rows = records()
     runtime = [r for r in rows if r.get("event") == "runtime"]
     assert runtime and runtime[-1]["src"] == "guess"
-    assert "прикидка" in trace.digest(rows)
+    assert "прикидка" in digest(rows)
 
 
 def test_already_warmed_releases_move_with_the_new_order() -> None:
@@ -198,8 +207,8 @@ def test_a_hand_picked_release_survives_a_late_reorder(
 ) -> None:
     """Номер таблицы означает её инфохэш, даже если поздняя выдача сдвинула места."""
     from torrcast.adapters.filesystem.release_pins import pins
+    from torrcast.adapters.prowlarr.magnet_for import magnet_for
     from torrcast.domain.info_hash import info_hash
-    from torrcast.search import magnet_for
 
     monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
     shown = replace(
@@ -325,7 +334,7 @@ def test_the_drop_summary_is_readable_in_the_log() -> None:
         }
     ]
 
-    text = trace.digest(rows)
+    text = digest(rows)
 
     assert "пул 41: в очереди 12, выкинуто 29" in text
     assert "образ диска 4" in text

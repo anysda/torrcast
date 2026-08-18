@@ -45,7 +45,7 @@ def main(
         args = parse_args(argv)
         # IUTF8 на stdin включаем на всё время команды и возвращаем режим как было:
         # без него ssh-сессия ломает кириллицу в вопросах.
-        with module("torrcast.console").terminal():
+        with module("torrcast.adapters.console.console").terminal():
             return commands[args.command](args)
 
     # Коды возврата и хвост следа - на общем ответе командной строки, а не тут.

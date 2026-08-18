@@ -35,13 +35,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from probeprofile import add_argument as add_profile_argument
 from probeprofile import choose as choose_profile
 
+from torrcast.adapters.filesystem.state import load_config
 from torrcast.adapters.stream_pack._keys_shelf import _read_keys
 from torrcast.adapters.stream_pack._weigher import _weigher
 from torrcast.adapters.stream_pack.grid import Grid
 from torrcast.adapters.stream_pack.grid_for import _extra_mbit
 from torrcast.domain.delivered_mbit import AUDIO_MBIT, TS_OVERHEAD
 from torrcast.domain.warm_settings import WARM_BUDGET
-from torrcast.state import load_config
 from torrcast.usecases.warm import Vault, Warmer
 
 

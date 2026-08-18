@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
+from torrcast.adapters.filesystem.state import load_config
 from torrcast.runtime.configure_command import configure_command
-from torrcast.state import load_config
 
 
 @pytest.fixture(autouse=True)

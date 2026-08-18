@@ -2,13 +2,13 @@
 
 from tests.fakes.passport import FakePassport
 from torrcast.domain.facts.origin import Origin
-from torrcast.facts import origin
 from torrcast.ports.passport_source import PassportSource
+from torrcast.runtime.facts_wiring import FACTS
 
 
 def test_live_origin_fits_the_port() -> None:
-    """Договор порта выполняет сама :func:`torrcast.facts.origin` - переходника нет."""
-    port: PassportSource = origin
+    """Договор порта выполняет сам паспорт проводки - переходника нет."""
+    port: PassportSource = FACTS.passport.of
     assert callable(port)
 
 

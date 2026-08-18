@@ -15,9 +15,10 @@ class _Cuttable(Protocol):
 
     Отдельно от :class:`torrcast.ports.receiver.Receiver` намеренно, и ровно по той же
     причине, что и :class:`torrcast.usecases.choice._Revivable`: и прыжок сторожа подвиса,
-    и подъём после отказа обязаны мерить кусками (:meth:`torrcast.cast.ChromecastReceiver.
-    _nudge`), а у приёмника, который так не умеет, границ сетки нет и спрашивать их
-    незачем. Сетка у каждой серии своя, поэтому её называют каждой.
+    и подъём после отказа обязаны мерить кусками
+    (:meth:`torrcast.adapters.chromecast.cast.ChromecastReceiver._nudge`), а у приёмника,
+    который так не умеет, границ сетки нет и спрашивать их незачем. Сетка у каждой серии
+    своя, поэтому её называют каждой.
     """
 
     next_cut: Callable[[float], float] | None

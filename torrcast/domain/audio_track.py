@@ -76,7 +76,7 @@ class AudioTrack:
     def label(self) -> str:
         """Человеческая подпись озвучки: «rus · Дубляж (MovieDalen)».
 
-        Она же ключ памяти (:attr:`torrcast.state.Entry.voice`), поэтому технический
+        Она же ключ памяти (:attr:`torrcast.domain.entry.Entry.voice`), поэтому технический
         хвост из неё убран: «DUB (Rus) / AC3 / 6 ch / 384 kbps / 48 kHz» — это одна и та
         же озвучка что с битрейтом в имени, что без.
         """

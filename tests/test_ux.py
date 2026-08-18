@@ -15,11 +15,13 @@ import pytest
 
 from tests.fakes.show_unit import FakeShowUnit
 from torrcast import cli
+from torrcast.adapters.filesystem.state import State, save_config
+from torrcast.adapters.prowlarr.raw_result import RawResult
 from torrcast.domain.audio_track import AudioTrack
+from torrcast.domain.config import Config
+from torrcast.domain.entry import Entry
 from torrcast.domain.media import Media
 from torrcast.domain.torr_file import TorrFile
-from torrcast.search import RawResult
-from torrcast.state import Config, Entry, State, save_config
 from torrcast.usecases.playback import _show_state as playback_state
 
 #: Настоящее ожидание картинки: фикстура окружения подменяет его заглушкой, а один тест
@@ -68,7 +70,7 @@ class _FakeProwlarr:
 
     def spare(self) -> float:
         """Остаток цели: тут поиск мгновенный, поэтому цела вся (TC-228)."""
-        from torrcast.search import GOAL
+        from torrcast.domain.goal_spare import GOAL
 
         return GOAL
 
@@ -309,7 +311,7 @@ def test_a_pick_works_where_a_menu_cannot_be_asked(monkeypatch: pytest.MonkeyPat
     Это и есть назначение флага: любой неинтерактивный сценарий (ssh без pty, скрипт)
     называет номер заранее и не упирается в вопрос, на который некому ответить.
     """
-    from torrcast import console
+    from torrcast.adapters.console import console
 
     monkeypatch.setattr(console, "stdin_is_tty", lambda: False)
     _answers(monkeypatch)
@@ -396,10 +398,10 @@ def test_the_start_time_means_a_picture_on_the_screen(
     Доказательство картинки одно: показ увидел ``PLAYING`` и положил флажок. Пока
     флажка нет, CLI честно стоит в фазе «жду телевизор».
     """
+    from torrcast.adapters.console.console import Progress
     from torrcast.adapters.stream_pack.forget_playing import forget_playing
     from torrcast.adapters.stream_pack.mark_playing import mark_playing
     from torrcast.adapters.stream_pack.playing_flag import playing_flag
-    from torrcast.console import Progress
 
     out = tmp_path / "hls"
     out.mkdir(parents=True, exist_ok=True)
@@ -839,7 +841,7 @@ def test_two_pictures_under_one_name_reach_the_last_line(
     и каталог сводит их в одну кучку. Значит слово остаётся за справкой, а место строки -
     последнее перед стартом, рядом с гейтом года: решение о КАРТИНЕ человек уносит с собой.
     """
-    from torrcast.facts import Origin
+    from torrcast.domain.facts.origin import Origin
 
     monkeypatch.setattr(
         cli,

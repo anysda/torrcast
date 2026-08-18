@@ -8,13 +8,15 @@ from __future__ import annotations
 
 from typing import Any
 
+from torrcast.adapters.prowlarr.merge import merge
+from torrcast.adapters.prowlarr.raw_result import RawResult
+from torrcast.adapters.prowlarr.to_releases import to_releases
 from torrcast.domain.cluster import cluster
 from torrcast.domain.facts.origin import Origin
 from torrcast.domain.pick_franchise import pick_franchise
 from torrcast.domain.picture import Picture
 from torrcast.domain.release import Release
 from torrcast.ports.torrent_catalogue import RawRow
-from torrcast.search import RawResult, merge, to_releases
 from torrcast.usecases.discover._search_state import _configure_discover
 
 GB = 1024**3

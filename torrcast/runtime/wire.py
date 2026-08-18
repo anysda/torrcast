@@ -139,8 +139,8 @@ def wire() -> None:
     # Поиск: сырая выдача каталога, справка о картинах и завод клиента индексеров. Все
     # трое ходят в сеть, и слою сценариев их не назвать - только корню. Добор берёт первые
     # два тем же порядком: прежде их раздавал импорт фасада-смертника `torrcast.reinforce`,
-    # единственного, кто видел сразу `torrcast.search` и `torrcast.facts` (TC-632). Слот -
-    # снова именем из модуля, по причине выше.
+    # единственного, кто видел сразу `torrcast.adapters.prowlarr` и `torrcast.runtime.facts_wiring`
+    # (TC-632). Слот - снова именем из модуля, по причине выше.
     _configure_discover(torrent_catalogue, FACTS.passport.of, Prowlarr)
     configure_reinforce(torrent_catalogue, FACTS.passport.of)
     # Юнит показа поднимает systemd, а не CLI: свой внешний мир он получает здесь же и

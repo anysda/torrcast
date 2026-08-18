@@ -14,9 +14,10 @@ import pytest
 
 from tests.fakes.show_unit import FakeShowUnit
 from torrcast import cli
+from torrcast.adapters.filesystem.state import State
+from torrcast.domain.entry import Entry
 from torrcast.domain.media import Media
 from torrcast.domain.torr_file import TorrFile
-from torrcast.state import Entry, State
 from torrcast.usecases.playback import _show_state as playback_state
 
 KEY = "tv:киберпанк-бегущие-по-краю:2022"

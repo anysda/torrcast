@@ -38,11 +38,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from torrcast import TorrcastError, cli
+from torrcast.adapters.console.console import Progress
+from torrcast.adapters.filesystem.state import load_config, state_path
 from torrcast.adapters.torrserver.torr_server import TorrServer
-from torrcast.console import Progress
 from torrcast.domain.picture import Picture
 from torrcast.domain.release import Release
-from torrcast.state import load_config, state_path
 
 #: Каталог замера: своё состояние и свой кэш карт, рабочие не трогаются.
 BENCH = Path("/root/tc120")

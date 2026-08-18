@@ -5,10 +5,10 @@ from __future__ import annotations
 from typing import Any
 
 from tests.usecases.reinforce.stand import Said, pictures, row
+from torrcast.adapters.prowlarr.raw_result import RawResult
 from torrcast.cli.args import Args
 from torrcast.domain.config import Config
 from torrcast.domain.profile import CAUTIOUS
-from torrcast.search import RawResult
 from torrcast.usecases.reinforce._plan_for import _plan_for
 from torrcast.usecases.reinforce._topup import _topup
 

@@ -50,12 +50,12 @@ import poolreplay
 from probeprofile import add_argument as add_profile_argument
 from probeprofile import choose as choose_profile
 
+from torrcast.adapters.filesystem.state import load_config
 from torrcast.cli import Args
 from torrcast.domain import pick_franchise as pick_franchise_home
 from torrcast.domain.both_languages import _both_languages
 from torrcast.domain.picture import Picture
 from torrcast.domain.split_franchise_index import split_franchise_index
-from torrcast.state import load_config
 
 Groups = dict[str, list[Picture]]
 

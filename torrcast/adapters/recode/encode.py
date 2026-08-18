@@ -50,7 +50,8 @@ class Encode:
     """Чем перекодировать тяжёлый кусок: то же разрешение, тот же кодек, ниже битрейт."""
 
     preset: str = "veryfast"
-    #: Целевой битрейт, Мбит/с. Умолчание и его замер - :attr:`torrcast.state.Config.recode_mbit`.
+    #: Целевой битрейт, Мбит/с. Умолчание и его замер -
+    #: :attr:`torrcast.domain.config.Config.recode_mbit`.
     mbit: float = 9.0
     #: Ступень кадра ИСТОЧНИКА (:attr:`torrcast.domain.media.Media.frame`); ``0`` - не спрашивали.
     frame: int = 0

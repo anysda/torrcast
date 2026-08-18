@@ -43,7 +43,6 @@ from torrcast.adapters.stream_pack.pack_origin import _reorder_slack
 from torrcast.adapters.stream_pack.pack_start import pack_start
 from torrcast.adapters.stream_pack.parse_manifest import parse_manifest
 from torrcast.adapters.stream_probe.segment_name import segment_name
-from torrcast.cast import Report
 from torrcast.domain.delivered_mbit import AUDIO_MBIT, TS_OVERHEAD
 from torrcast.domain.film_keys import FilmKeys
 from torrcast.domain.frames.keymap import video_track
@@ -55,6 +54,7 @@ from torrcast.domain.hls_settings import (
     PACK_LIST,
     SPLIT_SLACK,
 )
+from torrcast.domain.reception_report import ReceptionReport
 from torrcast.usecases.feed_pack.feed import Feed
 from torrcast.usecases.feed_pack.packer import Packer
 
@@ -154,7 +154,7 @@ def test_the_default_transport_is_plain_http_by_ip(tmp_path: Path) -> None:
     Сервер поднимается **без единого пути к серту** — то есть выключенный https не
     оставляет по себе обязательного файла, который некому положить.
     """
-    from torrcast.state import Config
+    from torrcast.domain.config import Config
 
     assert Config().transport == "http"
     assert Config().hls_base_url == "", "имя в базе URL = DNS в пути показа"
@@ -200,7 +200,7 @@ def test_the_playback_address_is_our_own_leg_toward_the_tv(tmp_path: Path) -> No
     from torrcast import InfraError
     from torrcast.adapters.http_server.hls_base import hls_base
     from torrcast.adapters.http_server.our_address import our_address
-    from torrcast.state import Config
+    from torrcast.domain.config import Config
 
     assert our_address("127.0.0.1") == "127.0.0.1", "адрес берём у ядра, по маршруту"
     assert our_address("") == ""
@@ -685,8 +685,8 @@ def test_the_initial_burst_replaces_pausing_the_packer() -> None:
     стоит до ``-i``, а сигналов остановки в коде показа не осталось вовсе — именно под
     SIGSTOP'ом приёмник намертво вис в BUFFERING при живых сегментах на диске.
     """
-    from torrcast import cast as cast_module
     from torrcast import cli as cli_module
+    from torrcast.adapters.chromecast import cast as cast_module
     from torrcast.usecases.feed_pack import packer as packer_module
 
     grid = Grid.uniform(100.0)
@@ -710,7 +710,7 @@ def test_an_unreadable_keyframe_map_falls_back_to_a_flat_grid_out_loud() -> None
     Настройка ``hls_keyframes=false`` — тот же путь, но по своей воле.
     """
     from torrcast.adapters.stream_pack.grid_for import grid_for
-    from torrcast.state import Config
+    from torrcast.domain.config import Config
 
     assert Config().hls_segment == 10.0 and Config().hls_keyframes is True
 
@@ -969,7 +969,7 @@ def test_a_promised_place_is_never_answered_with_a_404(tmp_path: Path) -> None:
     показа: на 404 приёмник гасит НЕДОИГРАННЫЙ буфер и уходит в круг «встал - погас -
     поднялся - попросил снова», 24 запроса подряд; на тишине тот же буфер доигрывается до
     конца, а дыру перешагивает его собственный сторож
-    (:meth:`torrcast.cast.ChromecastReceiver._nudge`) - сеткой и через 8 с.
+    (:meth:`torrcast.adapters.chromecast.cast.ChromecastReceiver._nudge`) - сеткой и через 8 с.
 
     Чего ожидание при этом не делает - так это не поднимает упаковку: тяжёлый кусок
     детерминирован, второй прогон над ним получит ровно ту же копию, и перепаковка
@@ -1624,12 +1624,14 @@ def test_a_run_we_stopped_ourselves_is_never_reported_as_a_crash(tmp_path: Path)
 
 
 def test_acceptance_verdict_needs_no_gaps_no_missing_cors_and_a_full_decode() -> None:
-    full = Report(segments=1800, duration=7200.0, decoded=7199.0)
+    full = ReceptionReport(segments=1800, duration=7200.0, decoded=7199.0)
     assert full.ok
-    assert not Report(segments=1800, duration=7200.0, decoded=7199.0, gaps=1).ok
-    assert not Report(segments=1800, duration=7200.0, decoded=7199.0, no_cors=1).ok
-    assert not Report(segments=1800, duration=7200.0, decoded=3000.0).ok, "оборвался посередине"
-    assert not Report().ok, "приёмник вообще ничего не увидел"
+    assert not ReceptionReport(segments=1800, duration=7200.0, decoded=7199.0, gaps=1).ok
+    assert not ReceptionReport(segments=1800, duration=7200.0, decoded=7199.0, no_cors=1).ok
+    assert not ReceptionReport(segments=1800, duration=7200.0, decoded=3000.0).ok, (
+        "оборвался посередине"
+    )
+    assert not ReceptionReport().ok, "приёмник вообще ничего не увидел"
 
 
 def test_the_real_video_codec_comes_from_the_stream_not_the_name() -> None:
@@ -1884,7 +1886,7 @@ def test_mock_receiver_closes_its_ffmpeg_log(monkeypatch: pytest.MonkeyPatch) ->
 
     from torrcast import InfraError
     from torrcast.adapters.chromecast.mock.hls_fetch import HlsFetch
-    from torrcast.cast import MockReceiver
+    from torrcast.adapters.chromecast.mock.mock_receiver import MockReceiver
 
     # mypy сужает тип журнала по присваиванию и не сбрасывает сужение на вызовах
     # методов - смотреть на атрибут через функцию, а не напрямую
@@ -1918,7 +1920,9 @@ def test_a_real_ca_signed_cert_is_verified_against_the_system_store(
     принимать системное хранилище — иначе «проверка» вырождается в пиннинг к
     промежуточному серту из того же файла, и подмена self-signed'ом прошла бы незаметно.
     """
-    from torrcast.cast import MockReceiver, make_receiver, trust_anchor
+    from torrcast.adapters.chromecast.cast import make_receiver
+    from torrcast.adapters.chromecast.mock.mock_receiver import MockReceiver
+    from torrcast.domain.trust_anchor import trust_anchor
 
     assert trust_anchor(tls[0]) == tls[0], "self-signed: доверяем ему самому"
 

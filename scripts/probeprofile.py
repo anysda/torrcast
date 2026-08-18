@@ -11,8 +11,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from torrcast.adapters.chromecast.profile_detector import detector
 from torrcast.domain.choice import Choice
+from torrcast.domain.config import Config
 from torrcast.domain.tune import tune
-from torrcast.state import Config
 
 
 def add_argument(parser: argparse.ArgumentParser) -> None:

@@ -31,6 +31,9 @@ from tests.conftest import CLIP_SECONDS, FakeProc, fake_packer, free_port
 from tests.fakes.clock import FakeClock
 from tests.fakes.show_unit import FakeShowUnit
 from torrcast import InfraError
+from torrcast.adapters.chromecast.cast import ChromecastReceiver
+from torrcast.adapters.chromecast.mock.mock_receiver import MockReceiver
+from torrcast.adapters.filesystem.state import State
 from torrcast.adapters.http_server.hls_base import hls_base
 from torrcast.adapters.stream_pack.ffmpeg_pack_command import ffmpeg_pack_command
 from torrcast.adapters.stream_pack.grid import Grid
@@ -40,11 +43,14 @@ from torrcast.adapters.stream_pack.pack_start import pack_start
 from torrcast.adapters.stream_pack.playing_flag import playing_flag
 from torrcast.adapters.stream_probe.segment_name import segment_name
 from torrcast.adapters.stream_probe.supply import Supply
-from torrcast.cast import NOT_RAISED, ChromecastReceiver, MockReceiver, Position, StartRefusedError
 from torrcast.cli import Watch as _Watch
 from torrcast.cli import _Clock, _play
+from torrcast.domain.config import Config
+from torrcast.domain.entry import Entry
 from torrcast.domain.hls_settings import HLS_SEGMENT_SECONDS, PACK_DIR
-from torrcast.state import Config, Entry, State
+from torrcast.domain.not_raised import NOT_RAISED
+from torrcast.domain.position import Position
+from torrcast.domain.start_refused_error import StartRefusedError
 from torrcast.usecases.feed_pack.feed import Feed
 from torrcast.usecases.feed_pack.packer import Packer
 
@@ -444,7 +450,7 @@ class _FakeReceiver:
         pass
 
     def position(self, front: float = 0.0) -> Any:
-        from torrcast.cast import Position
+        from torrcast.domain.position import Position
 
         pos, state = self.script.pop(0) if self.script else (0.0, "IDLE")
         return Position(pos, 0.0, state in {"PLAYING", "BUFFERING"}, state)
@@ -625,7 +631,7 @@ class _Fading:
         pass
 
     def position(self, front: float = 0.0) -> Any:
-        from torrcast.cast import Position
+        from torrcast.domain.position import Position
 
         if self.back_at and self.clock.now - self.began >= self.back_at:
             self.feed.offline = ""  # раздача снова читается
@@ -739,7 +745,7 @@ class _Stillborn:
         pass
 
     def position(self, front: float = 0.0) -> Any:
-        from torrcast.cast import Position
+        from torrcast.domain.position import Position
 
         if self.left > 0:
             self.left -= 1
@@ -835,10 +841,11 @@ def test_a_start_the_receiver_refused_is_handed_to_the_ladder_not_to_the_grave(
 ) -> None:
     """Приёмник не взял первый LOAD вовсе - показ ведёт лестница, а юнит не выходит.
 
-    Отказ загрузки - не конец показа (:class:`torrcast.cast.StartRefusedError`): приёмник в
-    сети, фильм на месте, упаковка идёт, и не хватает ровно одного захода в чистое
-    приложение. Картинка, добытая лестницей, называется вслух - иначе в журнале показа не
-    осталось бы ни строки о том, что чёрный экран кончился.
+    Отказ загрузки - не конец показа
+    (:class:`torrcast.domain.start_refused_error.StartRefusedError`): приёмник в сети, фильм на
+    месте, упаковка идёт, и не хватает ровно одного захода в чистое приложение. Картинка, добытая
+    лестницей, называется вслух - иначе в журнале показа не осталось бы ни строки о том, что чёрный
+    экран кончился.
     """
     from torrcast import cli
 
@@ -1022,11 +1029,11 @@ class _Nudged:
     """Приёмник, застрявший в BUFFERING: сторож подвиса гонит указатель вперёд по 8 с.
 
     Ровно замер живого Q70D: картинка стоит на 2:39, а сторож
-    (:meth:`torrcast.cast.ChromecastReceiver._nudge`) двенадцать раз прыгает вперёд, вытаскивая
-    приёмник из зависания, и уводит позицию на 4:15 - на 1:36 впереди последнего кадра,
-    который человек видел. Картинки всё это время нет: состояние остаётся ``BUFFERING``,
-    и только его отличие от ``PLAYING`` и говорит, где кончился показ, а где начался
-    указатель. Потом приёмник бросает показ насовсем.
+    (:meth:`torrcast.adapters.chromecast.cast.ChromecastReceiver._nudge`) двенадцать раз прыгает
+    вперёд, вытаскивая приёмник из зависания, и уводит позицию на 4:15 - на 1:36 впереди последнего
+    кадра, который человек видел. Картинки всё это время нет: состояние остаётся ``BUFFERING``, и
+    только его отличие от ``PLAYING`` и говорит, где кончился показ, а где начался указатель. Потом
+    приёмник бросает показ насовсем.
     """
 
     def __init__(self, clock: _Ticker, feed: Feed, warmer: _Warm, back_at: float = 0.0) -> None:
@@ -1045,7 +1052,7 @@ class _Nudged:
         pass
 
     def position(self, front: float = 0.0) -> Any:
-        from torrcast.cast import Position
+        from torrcast.domain.position import Position
 
         if self.back_at and self.clock.now - self.began >= self.back_at:
             self.feed.offline = ""
@@ -1134,7 +1141,7 @@ class _Blinking:
         pass
 
     def position(self, front: float = 0.0) -> Any:
-        from torrcast.cast import Position
+        from torrcast.domain.position import Position
 
         self.warmer.warmed += 5.0  # служба раздач жива весь показ - куски идут всегда
         if self.clock.now < self.until:
@@ -1316,7 +1323,7 @@ def test_a_release_that_never_plays_stops_at_the_profile_not_at_eleven() -> None
 
 def test_the_receivers_detailed_error_survives_pychromecast_parsing() -> None:
     """Код отказа снимается с сырого ответа, пока библиотека его не выбросила."""
-    from torrcast.cast import ChromecastReceiver
+    from torrcast.adapters.chromecast.cast import ChromecastReceiver
 
     seen: list[dict[str, Any]] = []
 
@@ -1341,7 +1348,7 @@ def test_the_receivers_detailed_error_survives_pychromecast_parsing() -> None:
 
 def test_the_receivers_detailed_error_is_taken_from_a_refused_load_too() -> None:
     """Код отказа снимается и со второго ответа приёмника - отказа самой загрузки."""
-    from torrcast.cast import ChromecastReceiver
+    from torrcast.adapters.chromecast.cast import ChromecastReceiver
 
     seen: list[dict[str, Any]] = []
 
@@ -1367,7 +1374,7 @@ def test_the_receivers_detailed_error_is_taken_from_a_refused_load_too() -> None
 
 def test_a_receiver_without_load_failure_parsing_still_gets_its_error_hook() -> None:
     """Приёмник, у которого разбора отказа загрузки нет, снимается прежним путём."""
-    from torrcast.cast import ChromecastReceiver
+    from torrcast.adapters.chromecast.cast import ChromecastReceiver
 
     class _Controller:
         def _process_media_status(self, data: dict[str, Any]) -> None:
@@ -1882,8 +1889,8 @@ def test_deaths_are_counted_where_the_show_died_and_not_where_the_jump_aims() ->
     смерти легли в один и тот же кусок ``[124.583..137.095)``. Счёт по месту ПРИЦЕЛА
     (кадр + запас декодера) пересекает границу сетки на 127.095, то есть внутри этого
     самого дрейфа: смерти разъезжаются по двум счётчикам, ни один не добирает
-    :attr:`~torrcast.cast.ChromecastReceiver.DEADLY_TRIES`, и перешагивание опаздывает на
-    целый круг восстановления. Цель прыжка при этом остаётся у декодера.
+    :attr:`~torrcast.adapters.chromecast.cast.ChromecastReceiver.DEADLY_TRIES`, и перешагивание
+    опаздывает на целый круг восстановления. Цель прыжка при этом остаётся у декодера.
     """
     receiver = _Free()
     loads = receiver.loads
@@ -2080,9 +2087,9 @@ def test_a_show_raised_from_the_last_shown_frame_reports_no_gap(
     зрителя потерей, которой не было. Счёт снимает сам подъём - потому что ровно он и
     знает, что вернул человека туда, где тот остался.
 
-    ⚠️ По :attr:`~torrcast.cast.ChromecastReceiver._gone` этот счёт снимать нельзя, и тест
-    сторожит именно подъём: ушедший приёмник иногда оживает сам, на том месте, куда его
-    увела лестница, - и вот там пропуск настоящий.
+    ⚠️ По :attr:`~torrcast.adapters.chromecast.cast.ChromecastReceiver._gone` этот счёт снимать
+    нельзя, и тест сторожит именно подъём: ушедший приёмник иногда оживает сам, на том месте, куда
+    его увела лестница, - и вот там пропуск настоящий.
     """
 
     class _Raised(_Reporting):
@@ -2124,10 +2131,10 @@ def test_the_revival_names_the_place_the_show_actually_came_back_from(
     """«Показ поднят с 1:43» на месте, с которого показ НЕ пошёл, - это то же враньё.
 
     Кусок, на котором показ уже умирал, приёмнику больше не отдаётся
-    (:meth:`torrcast.cast.ChromecastReceiver._past_deadly`), и подъём уезжает за него - на
-    живом замере 11-08-2026 это 15.6 с фильма. Пока подъём отвечал «да/нет», строку о нём
-    печатал тот, кто ПРОСИЛ, - и печатал ровно поверх честной строки о перешагнутом
-    куске. Двух мнений о том, откуда идёт фильм, у зрителя быть не должно.
+    (:meth:`torrcast.adapters.chromecast.cast.ChromecastReceiver._past_deadly`), и подъём уезжает за
+    него - на живом замере 11-08-2026 это 15.6 с фильма. Пока подъём отвечал «да/нет», строку о нём
+    печатал тот, кто ПРОСИЛ, - и печатал ровно поверх честной строки о перешагнутом куске. Двух
+    мнений о том, откуда идёт фильм, у зрителя быть не должно.
     """
     from torrcast.cli import _Revival
 
@@ -2162,7 +2169,7 @@ def test_only_the_cosmetic_pychromecast_line_is_hushed(caplog: pytest.LogCapture
     ``port=8009`` в её тексте - распечатка списка сервисов, а не отказавший порт; на этом
     уже строилась ложная гипотеза «телевизор выпадает по 8009».
     """
-    from torrcast import cast
+    from torrcast.adapters.chromecast import cast
 
     cast.hush_cosmetic_noise()
     cast.hush_cosmetic_noise()  # второй вызов второго фильтра не вешает
@@ -2269,7 +2276,7 @@ def test_the_show_end_closes_the_app_and_the_episode_seam_does_not(
     95 %, показ кончился — и только запись состояния решает, закрывать ли приложение.
     Серия не последняя — оно достаётся следующей; последняя — гаснет, как у фильма.
     """
-    from torrcast.cast import MockReceiver
+    from torrcast.adapters.chromecast.mock.mock_receiver import MockReceiver
 
     quits: list[bool] = []
 
@@ -2439,7 +2446,7 @@ def test_the_cli_never_kills_a_show_that_is_still_inside_the_units_budget(
     первого ``PLAYING``.
     """
     from torrcast import cli
-    from torrcast.cast import ChromecastReceiver
+    from torrcast.adapters.chromecast.cast import ChromecastReceiver
     from torrcast.domain.hls_wait import KEYS_WAIT, PILOT_TIMEOUT
 
     phases = (
@@ -2518,9 +2525,9 @@ def _supply(service: _Service) -> Any:
 
 
 def _events(directory: Path) -> list[dict[str, Any]]:
-    from torrcast import trace
+    from torrcast.adapters.filesystem.trace_journal import shutdown
 
-    trace.shutdown()
+    shutdown()
     rows: list[dict[str, Any]] = []
     for path in sorted(directory.glob("trace-*.jsonl")):
         for raw in path.read_text("utf-8").splitlines():
@@ -2806,7 +2813,8 @@ def test_the_mock_waits_for_as_much_film_as_the_receiver_gathers_before_the_firs
     первому же сдвигу своего декодера, то есть сухой прогон был бодрее живого ТВ на те
     самые секунды, из-за которых старт и меряют.
     """
-    from torrcast.cast import MockReceiver, Position
+    from torrcast.adapters.chromecast.mock.mock_receiver import MockReceiver
+    from torrcast.domain.position import Position
     from torrcast.domain.profile import CAUTIOUS
 
     assert CAUTIOUS.start_buffer == 10.0, "замер: столько фильма Q70D копит до первого кадра"
@@ -2997,7 +3005,7 @@ class _Stuck:
         pass
 
     def position(self, front: float = 0.0) -> Any:
-        from torrcast.cast import Position
+        from torrcast.domain.position import Position
 
         self.asked += 1
         if self.asked > self.limit:

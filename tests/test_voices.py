@@ -18,7 +18,9 @@ from typing import ClassVar
 import pytest
 
 from torrcast import InfraError, cli
-from torrcast.console import Progress
+from torrcast.adapters.console.console import Progress
+from torrcast.adapters.filesystem.state import State, save_config
+from torrcast.adapters.prowlarr.raw_result import RawResult
 from torrcast.domain.audio_track import (
     STEP_FOREIGN,
     STEP_RU_PLAIN,
@@ -26,12 +28,12 @@ from torrcast.domain.audio_track import (
     VOICE_KINDS,
     AudioTrack,
 )
+from torrcast.domain.config import Config
+from torrcast.domain.entry import Entry
 from torrcast.domain.media import Media
 from torrcast.domain.studio import STUDIOS
 from torrcast.domain.torr_file import TorrFile
 from torrcast.domain.voice_order import voice_order
-from torrcast.search import RawResult
-from torrcast.state import Config, Entry, State, save_config
 from torrcast.usecases.playback import _show_state as playback_state
 
 GB = 1024**3
@@ -367,7 +369,7 @@ class _FakeProwlarr:
 
     def spare(self) -> float:
         """Остаток цели: тут поиск мгновенный, поэтому цела вся (TC-228)."""
-        from torrcast.search import GOAL
+        from torrcast.domain.goal_spare import GOAL
 
         return GOAL
 

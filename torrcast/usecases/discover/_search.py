@@ -60,8 +60,9 @@ def _search(
     поедет показ (TC-241).
 
     ``indexer`` и ``passport`` - откуда берутся клиент индексеров и справка. Умолчание
-    боевое (:class:`~torrcast.search.Prowlarr`, :func:`~torrcast.facts.origin`); называют
-    их те, у кого своих служб нет, - тесты и щупы.
+    боевое (:class:`~torrcast.adapters.prowlarr.prowlarr.Prowlarr`,
+    :func:`~torrcast.usecases.passport.Passport.of`); называют их те, у кого своих служб нет, - тесты
+    и щупы.
     """
     if not config.prowlarr_apikey:  # без Prowlarr искать нечем - это инфра-ошибка
         raise InfraError("не настроен Prowlarr: apikey пуст, перезапусти ./install.sh")

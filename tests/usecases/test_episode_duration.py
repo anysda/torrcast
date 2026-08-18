@@ -1,7 +1,7 @@
 """Зеркально проверяет чтение паспорта следующей серии."""
 
+from torrcast.domain.entry import Entry
 from torrcast.domain.worker_settings import WORKER_DUR
-from torrcast.state import Entry
 from torrcast.usecases.episode_duration import _duration
 
 

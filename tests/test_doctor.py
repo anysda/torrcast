@@ -15,8 +15,8 @@ from typing import TYPE_CHECKING, Any
 import pytest
 import requests
 
+from torrcast.domain.config import Config
 from torrcast.domain.indexer_health import KEY_INDEXER
-from torrcast.state import Config
 from torrcast.usecases import doctor
 
 if TYPE_CHECKING:

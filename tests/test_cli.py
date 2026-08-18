@@ -17,8 +17,9 @@ from tests.fakes.blurb_source import FakeBlurbSource
 from tests.fakes.blurb_store import FakeBlurbStore
 from tests.fakes.choice_environment import FakeChoiceEnvironment
 from torrcast import InfraError, NotFoundError, SwarmError, cli
+from torrcast.adapters.console.console import Progress
+from torrcast.adapters.filesystem.state import load_config
 from torrcast.cli import TABLE_LIMIT, is_candidate, is_disc, rank_releases, render_table, warned
-from torrcast.console import Progress
 from torrcast.domain.audio_track import AudioTrack
 from torrcast.domain.cluster import cluster
 from torrcast.domain.episode import Episode
@@ -33,7 +34,6 @@ from torrcast.domain.release import Release
 from torrcast.domain.runtime_guess import RUNTIME_GUESS
 from torrcast.domain.server_down_error import ServerDownError
 from torrcast.domain.torr_file import TorrFile
-from torrcast.state import load_config
 from torrcast.usecases.facts import Facts
 
 RUNTIME = RUNTIME_GUESS["movie"]
@@ -389,7 +389,7 @@ def test_the_ceiling_is_sixteen_because_the_tv_rebuffers_at_eighteen() -> None:
     пиковой чёткости. Руками (``--release N``) тяжёлый релиз берётся по-прежнему, и
     молчком это не делается — в таблице он помечен «тяжёлый».
     """
-    from torrcast.state import Config
+    from torrcast.domain.config import Config
 
     assert Config().bitrate_warn_mbit == 16.0
     fat = rel(size_gb=17.8 * RUNTIME / 8 / 1024**3 * 1e6)  # ровно 17.8 Мбит/с
@@ -462,7 +462,7 @@ def _plan(ranked: list[Release], recode_at: float = 10.0) -> Any:
 
 def _raw(name: str, tag: str, seeders: int) -> Any:
     """Одна строка выдачи опоздавшего индексера; хэш подделываем из тега."""
-    from torrcast.search import RawResult
+    from torrcast.adapters.prowlarr.raw_result import RawResult
 
     return RawResult(
         title=name, info_hash=tag * 40, size=int(8 * GB), seeders=seeders, indexer="Nyaa.si"
@@ -516,8 +516,8 @@ def test_долив_молчит_про_картину_которая_в_мен�
     """Раздача ДРУГОЙ картины из меню тоже не доливается - долив пополняет только пул
     выбранной, - но сказать про такую «в списке её не было» значило бы соврать: она там
     есть, человек её видел. Поэтому соседняя по меню строки не получает."""
+    from torrcast.adapters.prowlarr.to_releases import to_releases
     from torrcast.domain.cluster import cluster
-    from torrcast.search import to_releases
 
     plan = _plan([rel(name="Кино / Movie (1999) BDRip 1080p", seeders=100)])
     rows = [_raw("Другое / Other (2001) BDRip 1080p", "d", 900)]
@@ -561,8 +561,8 @@ class _Spent:
     def __init__(self, spare: float) -> None:
         self._spare = spare
         #: Частный бюджет за целью ещё не выдан - как у свежего клиента поиска
-        #: (:attr:`torrcast.search.Prowlarr.over_goal`). Подделка обязана обещать это
-        #: поле: без него охранник читал бы у настоящего клиента то, чего у неё нет.
+        #: (:attr:`torrcast.adapters.prowlarr.prowlarr.Prowlarr.over_goal`). Подделка обязана обещать
+        #: это поле: без него охранник читал бы у настоящего клиента то, чего у неё нет.
         self.over_goal = False
 
     def spare(self) -> float:
@@ -584,7 +584,7 @@ def test_дешёвый_добор_не_снимается_молчуном_съ
     ему остаются измеренные 1.5 с справки и 1 с круга, а выход за цель назван."""
     left, said = _budget(0.3)
 
-    from torrcast.facts import FACTS_BUDGET
+    from torrcast.domain.facts.settings import FACTS_BUDGET
 
     assert left == FACTS_BUDGET
     assert "всё равно делаю в свои 2.5 с" in said
@@ -601,7 +601,7 @@ def test_частный_бюджет_за_целью_выдаётся_один_�
     до пятнадцати секунд - молчун перестал бы сужать каталог и начал тормозить путь.
     Поэтому за целью проходит первый заход, а следующим отвечает то, что уже найдено.
     """
-    from torrcast.facts import FACTS_BUDGET
+    from torrcast.domain.facts.settings import FACTS_BUDGET
 
     client = cast(Any, _Spent(0.3))
     out = io.StringIO()
@@ -621,7 +621,7 @@ def test_частный_бюджет_за_целью_выдаётся_один_�
 def test_целый_остаток_цели_частный_бюджет_не_тратит() -> None:
     """Пока цель цела, заходы идут из общего остатка и превышения не занимают: частный
     бюджет ждёт того единственного захода, который упрётся в съеденную цель."""
-    from torrcast.facts import FACTS_BUDGET
+    from torrcast.domain.facts.settings import FACTS_BUDGET
 
     client = cast(Any, _Spent(9.0))
     with Progress(out=io.StringIO()) as progress:
@@ -634,8 +634,8 @@ def test_остаток_цели_делится_между_справкой_и_�
     """Справка на пути добора учтена честно: ей достаётся остаток за вычетом доли самого
     круга, и её потолок она не переходит. Порог второго захода из этих двух частей и
     сложен - иначе полторы секунды справки съедали бы круг целиком, а он уже оплачен."""
-    from torrcast.facts import FACTS_BUDGET
-    from torrcast.search import CIRCLE_SHARE, SECOND_LEAST
+    from torrcast.domain.facts.settings import FACTS_BUDGET
+    from torrcast.domain.goal_spare import CIRCLE_SHARE, SECOND_LEAST
 
     assert SECOND_LEAST == FACTS_BUDGET + CIRCLE_SHARE, "порог = потолок справки плюс круг"
     assert _budget(10.0)[0] == FACTS_BUDGET, "цела вся цель - справке её полный потолок"
@@ -652,7 +652,7 @@ def test_добор_вторым_именем_не_отменяется_съед
     этом пути достаётся её обычный потолок (отдавать весь остаток уже нечего - он
     съеден), а круг идёт с полом в целую цель (:attr:`Prowlarr.cap_floor`).
     """
-    from torrcast.facts import FACTS_BUDGET
+    from torrcast.domain.facts.settings import FACTS_BUDGET
 
     empty = _asked_reference([], cli.Args(query=["клиника", "s1e1"]), spare=0.3)
     assert empty == ("клиника", True, FACTS_BUDGET), "картины нет - справку спросили всерьёз"
@@ -1409,7 +1409,8 @@ def test_warmup_spares_a_release_a_parallel_show_holds(tmp_path: Path) -> None:
     и раздача живого показа попадает в прогрев. Уборка прогрева обязана её пощадить -
     снос выдернул бы источник из-под экрана. Хозяина видно по записи состояния.
     """
-    from torrcast.state import Entry, State
+    from torrcast.adapters.filesystem.state import State
+    from torrcast.domain.entry import Entry
 
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
     torrserver = _FakeTorrServer()
@@ -1433,7 +1434,8 @@ def test_voice_cleanup_spares_a_release_a_parallel_show_holds() -> None:
     """``cast --voice`` на играющий фильм поднимает ту же раздачу (``add`` идемпотентен).
     Не пригодилась - убираем свою, но не ту, что держит живой показ.
     """
-    from torrcast.state import Entry, State
+    from torrcast.adapters.filesystem.state import State
+    from torrcast.domain.entry import Entry
 
     dropped: list[str] = []
 
@@ -2320,7 +2322,7 @@ def test_the_default_pictures_year_is_checked_against_the_reference() -> None:
     фильме 2017-го, «Медведь» - 2026-го. Гейт подмены сверял год только вокруг добора, а у
     картины, вставшей дефолтом, год не сверялся нигде - и человек молча получал не тот год.
     """
-    from torrcast.facts import Origin
+    from torrcast.domain.facts.origin import Origin
 
     plan = _franchise_plan("Оно", 2014, [rel(name="Оно 2014 BDRip 1080p")])
     note = cli.year_note(plan, Origin(title="It", year=2017), asked="оно")
@@ -2337,7 +2339,7 @@ def test_the_year_gate_stays_silent_where_it_should() -> None:
     вправе. Молчим в трёх случаях: справка пуста/неуверенна (не подменять её молчанием год
     из имени), год картины неизвестен (опровергать нечего), год сошёлся или это ремейк.
     """
-    from torrcast.facts import Origin
+    from torrcast.domain.facts.origin import Origin
 
     plan = _franchise_plan("Оно", 2017, [rel(name="a")])
     assert cli.year_note(plan, Origin()) == "", "справка пуста - молчим и НЕ блокируем"
@@ -2382,7 +2384,7 @@ def test_the_year_gate_catches_a_fresh_namesake_hiding_under_an_old_name() -> No
     свежим годом - и остаток подмены ловится ровно там же, где «Оно» и «Медведь»: вторым
     независимым словом справки. Переделывать под этот случай нечего, случай фиксируется.
     """
-    from torrcast.facts import Origin
+    from torrcast.domain.facts.origin import Origin
 
     plan = _franchise_plan("Брат 2", 2025, [rel(name="Брат 2 (2025) WEB-DL 1080p")])
     note = cli.year_note(plan, Origin(title="Brat 2", year=2000), asked="брат 2")
@@ -3718,7 +3720,7 @@ def test_a_4k_entry_is_refused_before_the_unit_only_when_there_is_nothing_to_shr
     случае - ``recode: false``, где ужимать нечем. Отказ по-прежнему стоит ДО юнита:
     ни ffmpeg, ни раздача не поднимаются, человек читает строку за доли секунды.
     """
-    from torrcast.state import Entry
+    from torrcast.domain.entry import Entry
 
     config = load_config()
     uhd = Entry(title="Матрица", magnet="m", codec="hevc", depth=10, frame=2160, quality="2160p")
@@ -3743,7 +3745,7 @@ def test_releases_table_uses_true_duration_and_matches_explicit_release(
     """У картины с длительностью сильно больше двух часов таблица cast releases
     и последующий --release N дают одну и ту же раздачу под одним и тем же номером.
     """
-    from torrcast.state import Config
+    from torrcast.domain.config import Config
 
     lighter = rel(name="lighter", size_gb=10, seeders=50)
     heavy = rel(name="heavy", size_gb=20, seeders=100)
@@ -3815,7 +3817,7 @@ def _releases_output(capsys: pytest.CaptureFixture[str], profile_choice: Any = N
     осторожный профиль (порог перекода 10) подписывает такую «перекодируем», а приставка
     Android TV (порог 28) играет её копией - ровно случай TC-241.
     """
-    from torrcast.state import Config
+    from torrcast.domain.config import Config
 
     heavy = rel(name="Кино / Movie (1999) BDRip 1080p", size_gb=18, seeders=100)
     plan = cli._Plan(
@@ -3879,10 +3881,10 @@ def _turned_down_on_screen(printed: str) -> list[str]:
 
 def _turned_down_in_trace() -> list[str]:
     """Те же отказы, как их видит недельная лента (`cast log` печатает эти же записи)."""
-    from torrcast import trace
+    from torrcast.adapters.filesystem.trace_journal import records, shutdown
 
-    trace.shutdown()
-    return [str(rec.get("release")) for rec in trace.records() if rec.get("event") == "drop"]
+    shutdown()
+    return [str(rec.get("release")) for rec in records() if rec.get("event") == "drop"]
 
 
 def test_a_release_already_judged_is_not_turned_down_twice_on_screen(
@@ -3976,7 +3978,7 @@ class _Silent(_Spent):
 
 def _asked_reference(found: list[Picture], args: cli.Args, spare: float = 9.0) -> tuple[Any, ...]:
     """Чем и с каким потолком добор спросил справку. Круг при этом пустой."""
-    from torrcast.facts import Origin
+    from torrcast.domain.facts.origin import Origin
 
     calls: list[tuple[Any, ...]] = []
 
@@ -4002,8 +4004,8 @@ def test_добор_без_картины_спрашивает_справку_в
 
     Счастливый путь не удлиняется: картина найдена - потолок прежний, а тип берётся у неё.
     """
-    from torrcast.facts import FACTS_BUDGET
-    from torrcast.search import CIRCLE_SHARE
+    from torrcast.domain.facts.settings import FACTS_BUDGET
+    from torrcast.domain.goal_spare import CIRCLE_SHARE
 
     empty = _asked_reference([], cli.Args(query=["клиника", "s1e1"]))
     assert empty == ("клиника", True, pytest.approx(9.0 - CIRCLE_SHARE))
@@ -4046,8 +4048,8 @@ def test_добор_учитывает_готовую_опоздавшую_вы�
     У раздачи нет латинской подписи, поэтому пустой второй круг её не повторит. Она уже
     доехала к окончанию добора - ждать сверх бюджета не требуется.
     """
-    from torrcast.facts import Origin
-    from torrcast.search import RawResult
+    from torrcast.adapters.prowlarr.raw_result import RawResult
+    from torrcast.domain.facts.origin import Origin
 
     late = [RawResult("Клиника S01 1080p", "e" * 40, 15 * 1024**3, 30)]
     client = _LateSecond(late)
@@ -4076,10 +4078,11 @@ def test_короткое_имя_берёт_картину_из_первого_�
     разрешением на подмену. Паспорт независимо называет сериал и его год - только эта
     пара даёт право выбрать сериал из того же пула.
     """
+    from torrcast.adapters.prowlarr.raw_result import RawResult
+    from torrcast.adapters.prowlarr.to_releases import to_releases
     from torrcast.domain.cluster import cluster
+    from torrcast.domain.facts.origin import Origin
     from torrcast.domain.pick_franchise import pick_franchise
-    from torrcast.facts import Origin
-    from torrcast.search import RawResult, to_releases
 
     raw = [
         RawResult("lainzine 1-5 (2024) PDF", "a" * 40, 100 * 1024**2, 2),
@@ -4110,10 +4113,11 @@ def test_короткое_имя_берёт_картину_из_первого_�
 
 def test_паспортное_имя_не_подменяет_картину_при_споре_года() -> None:
     """Короткое имя не получает права выбрать тёзку с годом вопреки паспорту."""
+    from torrcast.adapters.prowlarr.raw_result import RawResult
+    from torrcast.adapters.prowlarr.to_releases import to_releases
     from torrcast.domain.cluster import cluster
+    from torrcast.domain.facts.origin import Origin
     from torrcast.domain.pick_franchise import pick_franchise
-    from torrcast.facts import Origin
-    from torrcast.search import RawResult, to_releases
 
     raw = [
         RawResult("lainzine 1-5 (2024) PDF", "c" * 40, 100 * 1024**2, 2),
@@ -4141,9 +4145,10 @@ def test_паспортное_имя_не_подменяет_картину_пр
 
 def _nine_yards_pool() -> tuple[list[Any], list[Picture], list[Picture]]:
     """Пул запроса «девять»: сотня строк про соседей, самой «Девять» в ней нет."""
+    from torrcast.adapters.prowlarr.raw_result import RawResult
+    from torrcast.adapters.prowlarr.to_releases import to_releases
     from torrcast.domain.cluster import cluster
     from torrcast.domain.pick_franchise import pick_franchise
-    from torrcast.search import RawResult, to_releases
 
     raw = [
         RawResult(
@@ -4184,8 +4189,8 @@ def test_потолок_прячет_картину_и_добор_её_дост�
     выдачу так, что картина влезает под потолок, и встаёт в меню ВПЕРЕДИ соседей по
     подстроке - с честной строкой о том, что произошло.
     """
-    from torrcast.facts import Origin
-    from torrcast.search import RawResult
+    from torrcast.adapters.prowlarr.raw_result import RawResult
+    from torrcast.domain.facts.origin import Origin
 
     rows = [RawResult("Девять / Nine (2009) BDRip 1080p | D", "b" * 40, 9 * 1024**3, 7)]
     client, out, (_raw, _pictures, found) = _refined(
@@ -4202,8 +4207,8 @@ def test_потолок_прячет_картину_и_добор_её_дост�
 
 def test_уточнение_не_идёт_за_именем_без_поручительства() -> None:
     """🔴 Гейт TC-253: имя, лишь признанное похожим, второго круга не заказывает."""
-    from torrcast.facts import Origin
-    from torrcast.search import RawResult
+    from torrcast.adapters.prowlarr.raw_result import RawResult
+    from torrcast.domain.facts.origin import Origin
 
     rows = [RawResult("Девять / Nine (2009) BDRip 1080p | D", "b" * 40, 9 * 1024**3, 7)]
     about = Origin(title="Nine", year=2009, name="Девять", guessed=True)
@@ -4216,8 +4221,8 @@ def test_уточнение_не_идёт_за_именем_без_поручи�
 
 def test_уточнению_нужен_год_справки() -> None:
     """Года у справки нет - уточнять нечем, и второго круга нет вовсе."""
-    from torrcast.facts import Origin
-    from torrcast.search import RawResult
+    from torrcast.adapters.prowlarr.raw_result import RawResult
+    from torrcast.domain.facts.origin import Origin
 
     rows = [RawResult("Девять / Nine (2009) BDRip 1080p | D", "b" * 40, 9 * 1024**3, 7)]
     client, _out, (_raw, _pictures, found) = _refined(Origin(title="Nine", name="Девять"), rows)
@@ -4228,8 +4233,8 @@ def test_уточнению_нужен_год_справки() -> None:
 
 def test_уточнение_не_берёт_картину_с_чужим_именем_и_годом() -> None:
     """Уточнённый круг привёз соседей - прежняя выдача остаётся, подмены нет."""
-    from torrcast.facts import Origin
-    from torrcast.search import RawResult
+    from torrcast.adapters.prowlarr.raw_result import RawResult
+    from torrcast.domain.facts.origin import Origin
 
     rows = [
         RawResult(
@@ -4280,7 +4285,7 @@ def test_two_pictures_under_one_name_and_year_are_named_out_loud() -> None:
     каталог: больше в раздачах не сказано ничего. Молчаливой подмены тут быть не должно, а
     развести пару может только независимый источник - справка знает обе картины.
     """
-    from torrcast.facts import Origin
+    from torrcast.domain.facts.origin import Origin
 
     plan = _franchise_plan("Девять", 2009, [rel(name="Девять / Nine (2009) BDRip 1080p")])
     about = Origin(title="Nine", year=2009, namesake="9 (мультфильм, 2009)")
@@ -4297,7 +4302,7 @@ def test_the_namesake_line_stays_silent_where_it_should() -> None:
     картину, и её тёзка к выбранной отношения не имеет. Про сам разъезд человек читает
     своей строкой (:func:`~torrcast.cli.year_note`), и валить их в кучу нельзя.
     """
-    from torrcast.facts import Origin
+    from torrcast.domain.facts.origin import Origin
 
     plan = _franchise_plan("Девять", 2009, [rel(name="Девять / Nine (2009) BDRip 1080p")])
     assert cli.namesake_note(plan, Origin(title="Nine", year=2009)) == "", "тёзки нет - молчим"

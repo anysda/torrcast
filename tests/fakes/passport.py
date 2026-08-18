@@ -2,14 +2,14 @@
 
 from dataclasses import dataclass, field
 
-from torrcast.facts import Origin
+from torrcast.domain.facts.origin import Origin
 
 
 @dataclass
 class FakePassport:
     """Справка с подложенными ответами: о чём не сказано, о том она молчит.
 
-    Зовётся так же, как боевая :func:`~torrcast.facts.origin`, и подаётся сценарию
+    Зовётся так же, как боевая :func:`~torrcast.usecases.passport.Passport.of`, и подаётся сценарию
     поиска параметром ``passport``.
     """
 

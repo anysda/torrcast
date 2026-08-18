@@ -23,8 +23,8 @@ def _second_origin(
         # вовсе - по запросу «lain» приехал самиздатовский журнал «lainzine 1-5», он
         # назвал тип «фильм», и справка честно молчала: статьи о фильме «Lain» нет,
         # есть статья о сериале «Serial Experiments Lain». Переспрос без типа
-        # (:func:`~torrcast.facts.origin_either`) спрашивает обе статьи разом и верит
-        # лишь согласию - подмену он не родит, а молчание разводит.
+        # (:func:`~torrcast.usecases.passport_either.PassportEither.of`) спрашивает обе статьи разом
+        # и верит лишь согласию - подмену он не родит, а молчание разводит.
         about = ask(name, series=None, budget=budget)
     if index is None:
         return about

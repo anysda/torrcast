@@ -3,12 +3,12 @@
 
 Инструмент разработчика: в устанавливаемый пакет не входит. Живой Prowlarr не
 нужен и не трогается: ходят только Википедия и Wikidata, тем же IPv4-клиентом,
-что и боевая справка (:mod:`torrcast.facts`).
+что и боевая справка (:mod:`torrcast.runtime.facts_wiring`).
 
     python scripts/franchiseprobe.py
     python scripts/franchiseprobe.py pools.jsonl --jsonl out.jsonl
 
-Повод. Строгая мерка :func:`~torrcast.facts.same_name` отклоняет заголовок вида
+Повод. Строгая мерка :func:`~torrcast.domain.facts.same_name.same_name` отклоняет заголовок вида
 «Терминатор 2: Судный день» против запроса «терминатор 2»: заголовок длиннее
 спрошенного имени, и по одному имени «подзаголовок спрошенной части» от «другой
 картины под знакомым именем» не отличить (TC-338). Вопрос щупа: даёт ли справка
@@ -21,7 +21,7 @@
   обязаны), соседние части тех же франшиз, мокбастеры без статьи, голое имя
   франшизы (TC-338) и «Бен 10: Инопланетная сила» (все обязаны молчать);
 * **корпус** - запросы с номером части из сохранённых выдач: боевой
-  :func:`~torrcast.facts.origin` против запасного пути (поиск Википедии, который
+  :func:`~torrcast.usecases.passport.Passport.of` против запасного пути (поиск Википедии, который
   отвечает, когда прямого перенаправления «X N» -> статья части нет), и кого из
   той же выдачи подтвердил бы признак.
 
@@ -43,18 +43,19 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import runpass
 
-from torrcast import facts
 from torrcast.adapters.wiki.endpoints import (
     _WIKI_HOST,
     _WIKI_PATH,
     _WIKIDATA_HOST,
     _WIKIDATA_PATH,
 )
+from torrcast.domain.facts.read_origin import read_origin
 from torrcast.domain.facts.wiki_params import _extract_params, _search_params
 from torrcast.domain.facts.wiki_reply import _pages, _ranked
 from torrcast.domain.json_map import json_map
 from torrcast.domain.slugify import slugify
 from torrcast.domain.split_franchise_index import split_franchise_index
+from torrcast.runtime.facts_wiring import FACTS
 
 #: Курируемый набор: (запрос, заголовок статьи, номер части в запросе, обязан ли
 #: признак подтвердить). Позитивы - четыре запроса класса из сохранённого
@@ -93,7 +94,7 @@ def sparql(query: str) -> dict[str, Any]:
     """SPARQL к Wikidata с повторами; не ответила - пусто, и это честный «не знаю»."""
     for attempt in range(_SPARQL_TRIES):
         try:
-            payload = facts.get_json(
+            payload = FACTS.client.get(
                 _WIKIDATA_HOST,
                 _WIKIDATA_PATH,
                 {"query": query},
@@ -186,7 +187,7 @@ def confirmed_parts(
 
 def entity_of(heading: str) -> str:
     """Q-идентификатор статьи ru.wikipedia по заголовку; пусто - статьи нет."""
-    payload = facts.get_json(_WIKI_HOST, _WIKI_PATH, _extract_params([heading]), {}, 8.0)
+    payload = FACTS.client.get(_WIKI_HOST, _WIKI_PATH, _extract_params([heading]), {}, 8.0)
     _hops, pages = _pages(payload)
     for page in pages.values():
         if page is not None:
@@ -196,7 +197,7 @@ def entity_of(heading: str) -> str:
 
 def search_pages(query: str) -> list[Any]:
     """Запасной путь справки: выдача поиска «запрос фильм», как в origin_now."""
-    payload = facts.get_json(_WIKI_HOST, _WIKI_PATH, _search_params(f"{query} фильм"), {}, 8.0)
+    payload = FACTS.client.get(_WIKI_HOST, _WIKI_PATH, _search_params(f"{query} фильм"), {}, 8.0)
     return _ranked(payload)
 
 
@@ -227,10 +228,10 @@ def main(argv: list[str] | None = None) -> int:
     runs: list[dict[str, Any]] = []
     for query in numbered_queries(args.pools):
         base, number = split_franchise_index(query)
-        live = facts.origin(query, series=False, budget=10.0)
+        live = FACTS.passport.of(query, series=False, budget=10.0)
         time.sleep(_PAUSE)
         pages = search_pages(query)
-        current = facts.read_origin(pages, query, series=False)
+        current = read_origin(pages, query, series=False)
         candidates = [
             (
                 str(page.get("title") or ""),

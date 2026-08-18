@@ -12,7 +12,6 @@
 
 from __future__ import annotations
 
-from torrcast import trace as trace
 from torrcast.adapters.chromecast.profile_detector import detector
 
 __all__ = [
@@ -130,7 +129,6 @@ __all__ = [
     "stop_play_unit",
     "sys",
     "terminal",
-    "trace",
     "trace_thresholds",
     "tune_profile",
     "unit_active",
@@ -147,17 +145,17 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from functools import partial
 
-from torrcast import (
-    InfraError,
-    NotFoundError,
-    TorrcastError,
-    __version__,
-    console,  # через модуль: терминал спрашиваем там же, где и сами вопросы
-)
+from torrcast import InfraError, NotFoundError, TorrcastError, __version__
 
 # Через модуль: поиск приёмников тесты подменяют целиком.
 from torrcast.adapters.chromecast import scan
+from torrcast.adapters.chromecast.cast import ChromecastReceiver, make_receiver
 from torrcast.adapters.chromecast.scan import Device
+
+# Через модуль: терминал спрашиваем там же, где и сами вопросы.
+from torrcast.adapters.console import console
+from torrcast.adapters.console.console import Progress, ask, terminal
+from torrcast.adapters.filesystem.state import State, load_config, save_config
 from torrcast.adapters.http_server.hls_base import hls_base
 from torrcast.adapters.stream_probe.probe import probe
 from torrcast.adapters.stream_probe.supply import Supply
@@ -165,15 +163,15 @@ from torrcast.adapters.systemd.stop_play_unit import stop_play_unit
 from torrcast.adapters.systemd.unit_active import unit_active
 from torrcast.adapters.systemd.unit_key import unit_key
 from torrcast.adapters.torrserver.torr_server import TorrServer
-from torrcast.cast import ChromecastReceiver, Receiver, make_receiver
 
 # Разложенные по слоям сценарии читают пороги отсюда прямо на своём импорте, поэтому
 # стоят они ниже порогов, а не в общей шапке. Разбор аргументов уехал в слой команд,
 # и реэкспорт его имён стоит там же: на них ссылаются .pyi перенесённых сценариев.
 from torrcast.cli.args import Args
 from torrcast.cli.parse_args import TV_MENU, parse_args
-from torrcast.console import Progress, ask, terminal
+from torrcast.domain.config import Config
 from torrcast.domain.debug_handles import CTL_ENV, TRACE_ENV
+from torrcast.domain.entry import Entry
 from torrcast.domain.episode import Episode
 from torrcast.domain.exit_codes import EXIT_INFRA, EXIT_NOT_FOUND, EXIT_OK
 from torrcast.domain.hls_wait import KEYS_WAIT, PILOT_TIMEOUT
@@ -227,12 +225,12 @@ from torrcast.domain.start_settings import (
 from torrcast.domain.torrent_hash import _BTIH, _torrent_hash
 from torrcast.domain.tune import tune as tune_profile
 from torrcast.domain.worker_settings import WORKER_DUR, WORKER_META
-from torrcast.facts import Facts
+from torrcast.ports.receiver import Receiver
 from torrcast.runtime.configure_command import configure_command as _cmd_configure
+from torrcast.runtime.menu_facts import MenuFacts as Facts
 from torrcast.runtime.status_command import status_command as _cmd_status
 from torrcast.runtime.stop_command import stop_command as _cmd_stop
 from torrcast.runtime.trace_thresholds import trace_thresholds
-from torrcast.state import Config, Entry, State, load_config, save_config
 from torrcast.usecases.cache_reserve import _cache_reserve
 from torrcast.usecases.doctor_command import _cmd_doctor
 from torrcast.usecases.episode_duration import _duration

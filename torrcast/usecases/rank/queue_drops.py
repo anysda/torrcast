@@ -26,7 +26,7 @@ def queue_drops(plan: _Counted, queue: list[int], pinned: bool = False) -> dict[
 
     Свёрткой, а не событием на раздачу, — намеренно: 895 событий на один запрос это не
     диагностика, а способ переполнить очередь записи, из которой события теряются молча
-    (:class:`torrcast.trace._Writer`).
+    (:class:`torrcast.adapters.filesystem.trace_journal.writer._Writer`).
 
     ``pinned`` — релиз назван руками (``--release N``), и остальные не «выкинуты», а не
     спрошены: причин отбора у них нет.

@@ -15,7 +15,7 @@
 
 Сухой приёмник живёт в :mod:`torrcast.adapters.chromecast.mock.mock_receiver`, договор
 приёмника - в :mod:`torrcast.ports.receiver`; оба реэкспортируются отсюда, потому что
-звать их привычно именно из ``torrcast.cast``.
+приёмник в одном месте зовут обоими именами.
 """
 
 from torrcast.adapters.chromecast.cast.chromecast_receiver import ChromecastReceiver
@@ -30,8 +30,8 @@ from torrcast.domain.start_refused_error import StartRefusedError
 from torrcast.domain.trust_anchor import trust_anchor
 from torrcast.ports.receiver import Receiver
 
-#: Статический список нужен mypy для реэкспортов: :mod:`torrcast.cast` остаётся тем
-#: именем, из которого приёмники зовут и показ, и тесты.
+#: Статический список нужен mypy для реэкспортов: этот пакет и есть то имя, из которого
+#: приёмники зовут и показ, и тесты.
 __all__ = [
     "HLS_HINTS",
     "HLS_TYPE",

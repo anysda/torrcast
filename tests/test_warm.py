@@ -20,20 +20,25 @@ from typing import Any
 import pytest
 
 from tests.conftest import CLIP_SECONDS, free_port, module_of
-from torrcast import cli, trace
+from torrcast import cli
 from torrcast.adapters import warm_environment
+from torrcast.adapters.chromecast.mock.mock_receiver import MockReceiver
+from torrcast.adapters.filesystem.state import State
+from torrcast.adapters.filesystem.trace_journal import LOG_ENV, SID_ENV, shutdown
 from torrcast.adapters.stream_pack.ffmpeg_pack_command import ffmpeg_pack_command
 from torrcast.adapters.stream_pack.grid import Grid
 from torrcast.adapters.stream_pack.grid_for import grid_for
 from torrcast.adapters.stream_pack.hls_dir import hls_dir
 from torrcast.adapters.stream_pack.pack_start import pack_start
 from torrcast.adapters.stream_probe.segment_name import segment_name
-from torrcast.cast import MockReceiver, Position, trust_anchor
 from torrcast.cli import Watch as _Watch
 from torrcast.cli import _Clock, _play, _Stopped
+from torrcast.domain.config import Config
+from torrcast.domain.entry import Entry
 from torrcast.domain.hls_settings import SPLIT_SLACK
+from torrcast.domain.position import Position
+from torrcast.domain.trust_anchor import trust_anchor
 from torrcast.domain.warm_settings import WARM_BUDGET
-from torrcast.state import Config, Entry, State
 from torrcast.usecases.feed_pack.feed import Feed
 from torrcast.usecases.feed_pack.packer import Packer
 from torrcast.usecases.warm import (
@@ -1311,8 +1316,8 @@ def test_a_piece_laid_off_the_grid_never_reaches_the_show(
     измеренного), и заход честно уезжает на всю докатку. Первый промах - кусок вон и
     заново; второй на том же месте - место честно объявлено непрогретым.
     """
-    monkeypatch.setenv(trace.LOG_ENV, str(tmp_path / "след"))
-    monkeypatch.setenv(trace.SID_ENV, "tc-125")
+    monkeypatch.setenv(LOG_ENV, str(tmp_path / "след"))
+    monkeypatch.setenv(SID_ENV, "tc-125")
     monkeypatch.setattr(warm_environment, "_pack_start", lambda url, at: at)
     grid = _offkey_grid()
     vault = _vault(tmp_path, key="кривой")
@@ -1335,7 +1340,7 @@ def test_a_piece_laid_off_the_grid_never_reaches_the_show(
     assert "непрогрет" in warmer.line(), f"дыра не названа дырой: {warmer.line()}"
     assert not warmer.done, "«прогрето целиком» при дыре в прогретом"
 
-    trace.shutdown()
+    shutdown()
     rows = [
         json.loads(raw)
         for path in sorted((tmp_path / "след").glob("trace-*.jsonl"))

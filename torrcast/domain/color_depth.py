@@ -25,7 +25,7 @@ def color_depth(pix_fmt: str | None, profile: str | None = None) -> int:
     Умолчание тут - именно 8, а не «неизвестно»: показ обязан на что-то решиться, и без
     единого признака десятибитности решаться он должен так же, как решался всегда -
     копией. Отличать «не спрашивали» от «спросили и там восемь» - дело не паспорта, а
-    записи состояния (:attr:`torrcast.state.Entry.depth`).
+    записи состояния (:attr:`torrcast.domain.entry.Entry.depth`).
     """
     if pix_fmt and (found := _DEPTH_FMT.search(pix_fmt.strip().casefold())):
         return int(found.group(1).lstrip("0") or COPY_DEPTH)

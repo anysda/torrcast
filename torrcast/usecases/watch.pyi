@@ -2,8 +2,8 @@ import time as time
 from dataclasses import dataclass as dataclass
 from dataclasses import field as field
 
-from torrcast.state import Entry as Entry
-from torrcast.state import State as State
+from torrcast.adapters.filesystem.state import State as State
+from torrcast.domain.entry import Entry as Entry
 
 __all__ = ["WATCH_SECONDS", "Entry", "State", "Watch", "dataclass", "field", "time"]
 
