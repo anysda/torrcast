@@ -11,19 +11,13 @@ from typing import cast
 import pytest
 
 import torrcast.usecases.feed_pack.packer_publish as packer_publish
-from torrcast.adapters.stream_pack.ffmpeg_pack_command import ffmpeg_pack_command
-from torrcast.adapters.stream_pack.grid import Grid
-from torrcast.adapters.stream_pack.pack_start import pack_start
-from torrcast.adapters.stream_probe.segment_name import segment_name
-from torrcast.domain.film_keys import FilmKeys
-from torrcast.recode import (
+from torrcast.adapters.recode import (
     DEADLINE_MARGIN,
     FULL_PRESET,
     MAXRATE_GAIN,
     NEIGHBOUR_TOLL,
     PRESETS,
     REALTIME,
-    RECODE_HEIGHT,
     SHRINK_FRESH,
     Encode,
     Pace,
@@ -33,6 +27,12 @@ from torrcast.recode import (
     preset_for,
     whole_encode,
 )
+from torrcast.adapters.stream_pack.ffmpeg_pack_command import ffmpeg_pack_command
+from torrcast.adapters.stream_pack.grid import Grid
+from torrcast.adapters.stream_pack.pack_start import pack_start
+from torrcast.adapters.stream_probe.segment_name import segment_name
+from torrcast.domain.film_keys import FilmKeys
+from torrcast.domain.recode_settings import RECODE_HEIGHT
 from torrcast.usecases.feed_pack.feed import Feed
 from torrcast.usecases.feed_pack.packer import Packer
 
@@ -1181,7 +1181,7 @@ def test_the_head_wait_has_a_hard_ceiling_even_while_encoding(tmp_path) -> None:
     """Кодировщик, который не кончает, не имеет права держать чёрный экран без предела."""
     import time as clock
 
-    from torrcast.recode import HEAD_LIMIT
+    from torrcast.adapters.recode import HEAD_LIMIT
 
     grid = _grid()
     weights = Weights.of(_keys(rate=1.5e6), grid)
@@ -1799,8 +1799,8 @@ def test_a_light_source_is_not_blown_up_to_the_ceiling() -> None:
     21.4 МБ при потолке 16 и замеренной границе срыва 19.4 — то есть сплошной перекод
     сам себе сделал ровно тот тяжёлый кусок, ради которого всё это затевалось.
     """
+    from torrcast.adapters.recode import FULL_FLOOR, FULL_GAIN
     from torrcast.cli import _encode_all
-    from torrcast.recode import FULL_FLOOR, FULL_GAIN
     from torrcast.state import Config
 
     config = Config(recode=True, recode_mbit=9.0)
@@ -1822,8 +1822,8 @@ def test_a_frame_above_the_receivers_ceiling_is_scaled_down_instead_of_refused()
     получает вчетверо меньше пикселей. Поэтому «нет 1080p» перестало значить «показа нет».
     """
     from torrcast.cli import _encode_all
+    from torrcast.domain.profile import CAUTIOUS
     from torrcast.domain.recode_note import recode_note
-    from torrcast.profile import CAUTIOUS
     from torrcast.state import Config
 
     whole = cast(Encode | None, _encode_all(Config(), "hevc", 20.0, 10, CAUTIOUS, frame=2160))
@@ -1855,7 +1855,7 @@ def test_the_level_in_the_stream_matches_the_frame_that_actually_leaves() -> Non
     вчетверо. Прибитая строка «4.1» на 4К-кадре была прямым враньём в поток и держалась
     ровно на том, что 4К до кодировщика не доходило.
     """
-    from torrcast.profile import CAUTIOUS
+    from torrcast.domain.profile import CAUTIOUS
 
     assert level_for(1080) == "4.1", "1080p влезает в 4.1 - на нём не меняется ничего"
     assert level_for(720) == "4.1", "ниже 4.1 не опускаемся: уровень потолок, а не заявка"
@@ -1883,7 +1883,7 @@ def test_the_tonemap_is_a_conversion_not_a_relabel_and_it_is_measured() -> None:
     тонемапом - 1.00x, тонемап до скейла (на 4К) - 0.37x. Запас съеден целиком, поэтому
     настройка по умолчанию выключена, а порядок в цепочке - скейл первым.
     """
-    from torrcast.recode import TONEMAP
+    from torrcast.adapters.recode import TONEMAP
     from torrcast.state import Config
 
     assert not Config().recode_tonemap, "по умолчанию выключен: 1.00x - это ноль запаса"
@@ -1934,7 +1934,7 @@ def test_a_scaled_down_4k_show_gets_its_grid_weighed_by_our_bitrate_too(
     """
     from torrcast.cli import _layout
     from torrcast.domain.delivered_mbit import AUDIO_MBIT, TS_OVERHEAD
-    from torrcast.profile import CAUTIOUS
+    from torrcast.domain.profile import CAUTIOUS
     from torrcast.state import Config
 
     keys = _keys(duration=595.0, gop=8.5, rate=0.5e6)  # 4 Мбит/с - для карты это лёгкий файл
@@ -1970,7 +1970,7 @@ def test_the_grid_is_told_the_encoders_ceiling_not_its_average_target() -> None:
     """
     from torrcast.cli import _layout
     from torrcast.domain.delivered_mbit import AUDIO_MBIT, TS_OVERHEAD
-    from torrcast.profile import CAUTIOUS
+    from torrcast.domain.profile import CAUTIOUS
     from torrcast.state import Config
 
     duration, period = 160.0, 13.4
@@ -2020,7 +2020,7 @@ def test_the_spot_recode_ceiling_is_delivered_bitrate_not_bare_video() -> None:
     """Сетка считает тот же поток, который получит приёмник: видео, AAC и mpegts."""
     from torrcast.cli import _layout
     from torrcast.domain.delivered_mbit import AUDIO_MBIT, TS_OVERHEAD
-    from torrcast.profile import CAUTIOUS
+    from torrcast.domain.profile import CAUTIOUS
     from torrcast.state import Config
 
     duration, period = 80.0, 13.4
@@ -2061,7 +2061,7 @@ def test_a_gop_too_long_to_cut_pulls_the_whole_target_down() -> None:
     """
     from torrcast.cli import _layout
     from torrcast.domain.delivered_mbit import AUDIO_MBIT, TS_OVERHEAD
-    from torrcast.profile import CAUTIOUS
+    from torrcast.domain.profile import CAUTIOUS
     from torrcast.state import Config
 
     duration, gop = 200.0, 15.2  # опорные кадры редкие: между ними резать нечем

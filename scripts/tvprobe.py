@@ -34,6 +34,7 @@ from probeprofile import choose as choose_profile
 
 from torrcast.adapters.http_server.hls_base import hls_base
 from torrcast.adapters.http_server.hls_server import HlsServer
+from torrcast.adapters.recode import RECODE_DIR, Encode, Recoder, Weights, whole_encode
 from torrcast.adapters.stream_pack.film_keys import film_keys
 from torrcast.adapters.stream_pack.grid import Grid
 from torrcast.adapters.stream_pack.grid_for import grid_for
@@ -43,8 +44,7 @@ from torrcast.adapters.stream_probe.probe import probe
 from torrcast.adapters.stream_probe.segment_name import segment_name
 from torrcast.cast import ChromecastReceiver
 from torrcast.domain.delivered_mbit import AUDIO_MBIT, TS_OVERHEAD
-from torrcast.profile import Profile
-from torrcast.recode import RECODE_DIR, Encode, Recoder, Weights, whole_encode
+from torrcast.domain.profile import Profile
 from torrcast.runtime.wire import wire
 from torrcast.state import load_config
 from torrcast.usecases.feed_pack.feed import Feed
@@ -59,7 +59,7 @@ POISON_STEP = 0.1
 #:
 #: 🔴 Замер на живом Q70D: приёмник отвечает ``PLAYING``, ещё ничего не показав, и держит
 #: указатель на месте захода, пока не накопит около десяти секунд фильма
-#: (:attr:`torrcast.profile.Profile.start_buffer`). Щуп, печатавший «картинку» по слову
+#: (:attr:`torrcast.domain.profile.Profile.start_buffer`). Щуп, печатавший «картинку» по слову
 #: приёмника, занижал старт на 0-6 с - шесть прогонов подряд, и эти числа успели разойтись
 #: по отчётам. Порог взят с запасом от одного кадра (41.7 мс у 23.976 к/с) и от шага опроса.
 PICTURE_STEP = 0.4

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from torrcast.adapters.recode import Encode
 from torrcast.ports.recode.encoding_rate import EncodingRate
-from torrcast.recode import Encode
 
 
 @dataclass(frozen=True)

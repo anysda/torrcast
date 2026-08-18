@@ -13,13 +13,15 @@ from typing import ClassVar
 
 import pytest
 
-from torrcast import cast, profile
-from torrcast.adapters.chromecast.profile_detector import detector
+from torrcast import cast
+from torrcast.domain.for_passport import for_passport
 from torrcast.domain.hls_settings import MAX_SEGMENT_BYTES
 from torrcast.domain.media import Media
 from torrcast.domain.probe_settings import COPY_DEPTH, RECODE_CODECS
+from torrcast.domain.profile import ANDROID_TV, CAUTIOUS, COPY, RECODE, REFUSE
 from torrcast.domain.recodes_whole import recodes_whole
-from torrcast.runtime.trace_thresholds import trace_thresholds
+from torrcast.domain.thresholds import thresholds
+from torrcast.domain.tune import tune
 from torrcast.state import Config
 from torrcast.usecases.feed_pack.feed import Feed
 
@@ -32,7 +34,7 @@ def test_the_stock_config_is_the_cautious_profile() -> None:
     другие пороги, и никто бы этого не заметил до первого подвиса.
     """
     stock = Config()
-    cautious = profile.CAUTIOUS
+    cautious = CAUTIOUS
     assert stock.hls_segment == cautious.segment_seconds == 10.0
     assert stock.hls_burst == cautious.burst == 60.0
     assert stock.bitrate_warn_mbit == cautious.warn_mbit == 16.0
@@ -42,7 +44,7 @@ def test_the_stock_config_is_the_cautious_profile() -> None:
 
 def test_the_stream_constants_are_the_cautious_profile() -> None:
     """Константы упаковки - тот же осторожный профиль, а не своя копия чисел."""
-    cautious = profile.CAUTIOUS
+    cautious = CAUTIOUS
     assert MAX_SEGMENT_BYTES == cautious.max_segment_bytes == 16_000_000
     assert RECODE_CODECS == cautious.recode_codecs == frozenset({"hevc", "mpeg4"})
     assert COPY_DEPTH == cautious.copy_depth == 8
@@ -59,14 +61,14 @@ def test_the_stream_constants_are_the_cautious_profile() -> None:
 def test_the_revival_waits_are_the_cautious_profile() -> None:
     """Обе выдержки воскрешения - из профиля приёмника, и они про РАЗНОЕ.
 
-    :attr:`torrcast.profile.Profile.revive_drop` - через сколько приёмник снова берёт LOAD
-    (замер: 3-4 с), :attr:`torrcast.profile.Profile.revive_pause` - как редко жечь
+    :attr:`torrcast.domain.profile.Profile.revive_drop` - через сколько приёмник снова берёт LOAD
+    (замер: 3-4 с), :attr:`torrcast.domain.profile.Profile.revive_pause` - как редко жечь
     оставшиеся попытки, чтобы их хватило на всё окно возврата. Сложи их в одно число - и
     темнота по вине приёмника снова станет минутой чёрного экрана впустую.
     """
     from torrcast import cli
 
-    cautious = profile.CAUTIOUS
+    cautious = CAUTIOUS
     assert cli.REVIVE_PAUSE == cautious.revive_pause == 60.0
     assert cli.REVIVE_DROP == cautious.revive_drop == 4.0
     assert cautious.revive_drop < cautious.revive_pause, "приёмника ждут секунды, а не минуту"
@@ -89,12 +91,12 @@ def test_an_unknown_receiver_gets_the_cautious_profile(maker: str, model: str, n
     Chromecast Ultra в списке нарочно: он ближайший родственник измеренной приставки, и
     похожесть тут не довод - профиль даётся за замер, а не за фамилию.
     """
-    assert profile.for_passport(maker, model, name) is profile.CAUTIOUS
+    assert for_passport(maker, model, name) is CAUTIOUS
 
 
 def test_the_android_stick_is_recognised_by_its_maker_alone() -> None:
     """Приставка узнаётся по производителю: имя и модель она отдаёт пустыми (замер)."""
-    assert profile.for_passport("Xiaomi", "", "") is profile.ANDROID_TV
+    assert for_passport("Xiaomi", "", "") is ANDROID_TV
 
 
 def test_the_stick_is_bold_only_where_it_was_measured() -> None:
@@ -107,7 +109,7 @@ def test_the_stick_is_bold_only_where_it_was_measured() -> None:
     говорит НИЧЕГО, а HEVC через наш mpegts на ней ещё не проходил - значит, эти пороги
     обязаны остаться осторожными.
     """
-    stick, cautious = profile.ANDROID_TV, profile.CAUTIOUS
+    stick, cautious = ANDROID_TV, CAUTIOUS
     assert stick.warn_mbit > cautious.warn_mbit and stick.recode_at_mbit > cautious.recode_at_mbit
     assert stick.segment_retries == 0, "приставка кусок не перезабирает - замер"
     assert stick.dead_url_seconds == 4.0, "мёртвый URL - IDLE/ERROR на 4-й секунде, замер"
@@ -131,42 +133,27 @@ def test_the_stick_is_bold_only_where_it_was_measured() -> None:
     assert stick.load_retries == cautious.load_retries, "свои повторы LOAD замер не отменяет"
 
 
-def test_the_facade_hands_out_the_one_detector_everybody_shares() -> None:
-    """Кэш паспортов у прежних имён и у проб ``cast doctor`` обязан быть общим.
-
-    Выбор профиля - опрос живого устройства, и второй экземпляр детектора означал бы
-    второй опрос: выключенный ТВ стоит секунд на каждом.
-    """
-    assert profile.detect == detector.detect
-    assert profile.forget == detector.forget
-    assert profile.trace_thresholds is trace_thresholds
-
-    profile.forget()
-    chosen = profile.detect(Config(tv="10.0.0.50", receiver_profile="androidtv"))
-    assert chosen.profile is profile.ANDROID_TV and "руками" in chosen.how
-
-
 def test_the_profile_moves_the_config_thresholds() -> None:
     """Профиль перебивает умолчания настроек - те, у которых есть свой ключ в конфиге."""
-    tuned = profile.tune(Config(), profile.ANDROID_TV)
-    assert tuned.bitrate_warn_mbit == profile.ANDROID_TV.warn_mbit == 28.0
-    assert tuned.recode_at_mbit == profile.ANDROID_TV.recode_at_mbit == 28.0
-    assert profile.tune(Config(), profile.CAUTIOUS) == Config(), "осторожный ничего не меняет"
+    tuned = tune(Config(), ANDROID_TV)
+    assert tuned.bitrate_warn_mbit == ANDROID_TV.warn_mbit == 28.0
+    assert tuned.recode_at_mbit == ANDROID_TV.recode_at_mbit == 28.0
+    assert tune(Config(), CAUTIOUS) == Config(), "осторожный ничего не меняет"
 
 
 def test_a_hand_written_setting_beats_the_profile() -> None:
     """Написанное в конфиг руками сильнее профиля: иначе настройку было бы не удержать."""
     mine = Config(bitrate_warn_mbit=12.0, recode_at_mbit=7.0)
-    tuned = profile.tune(mine, profile.ANDROID_TV)
+    tuned = tune(mine, ANDROID_TV)
     assert (tuned.bitrate_warn_mbit, tuned.recode_at_mbit) == (12.0, 7.0)
 
 
 def test_effective_thresholds_name_every_source() -> None:
     """След различает профиль, написанный ключ и неявное умолчание конфига."""
     raw = Config(hls_segment=8.0, bitrate_recode_mbit=35.0)
-    tuned = profile.tune(raw, profile.ANDROID_TV)
-    values, sources = profile.thresholds(
-        raw, tuned, profile.ANDROID_TV, frozenset({"hls_segment", "bitrate_recode_mbit"})
+    tuned = tune(raw, ANDROID_TV)
+    values, sources = thresholds(
+        raw, tuned, ANDROID_TV, frozenset({"hls_segment", "bitrate_recode_mbit"})
     )
 
     assert values["hls_segment"] == 8.0 and sources["hls_segment"] == "написан в конфиге"
@@ -183,36 +170,36 @@ def test_the_receiver_takes_its_thresholds_from_the_profile() -> None:
     Проверка именно на объекте: класс держит осторожные числа умолчанием, и легко было бы
     оставить показ читать их напрямую - тогда профиль не менял бы ровно ничего.
     """
-    stick = cast.ChromecastReceiver("10.0.0.50", profile=profile.ANDROID_TV)
+    stick = cast.ChromecastReceiver("10.0.0.50", profile=ANDROID_TV)
     assert stick.profile.revive_timeout == 577.0 != cast.ChromecastReceiver.REVIVE_TIMEOUT
-    mock = cast.MockReceiver(profile=profile.ANDROID_TV)
-    assert mock.patience == profile.ANDROID_TV.patience
+    mock = cast.MockReceiver(profile=ANDROID_TV)
+    assert mock.patience == ANDROID_TV.patience
     assert mock.profile.segment_retries == 0 != cast.MockReceiver.SEGMENT_RETRIES
     assert mock.profile.sulk == 0.0, "приставка на 404 не обижается - замер"
 
 
 def test_the_codec_verdict_follows_the_profile() -> None:
     """«Играем только h264» - тоже свойство приёмника, а не показа."""
-    assert recodes_whole("hevc", 8, profile.CAUTIOUS)
-    assert recodes_whole("h264", 10, profile.CAUTIOUS), "Hi10P Q70D не берёт"
-    assert not recodes_whole("h264", 8, profile.CAUTIOUS)
-    assert profile.CAUTIOUS.plays_copy("h264") and not profile.CAUTIOUS.plays_copy("av1")
-    assert profile.CAUTIOUS.plays_copy(""), "паспорта нет - играем копией, как прежде"
+    assert recodes_whole("hevc", 8, CAUTIOUS)
+    assert recodes_whole("h264", 10, CAUTIOUS), "Hi10P Q70D не берёт"
+    assert not recodes_whole("h264", 8, CAUTIOUS)
+    assert CAUTIOUS.plays_copy("h264") and not CAUTIOUS.plays_copy("av1")
+    assert CAUTIOUS.plays_copy(""), "паспорта нет - играем копией, как прежде"
 
 
 @pytest.mark.parametrize(
     "codec,depth,want",
     [
-        ("h264", 8, profile.COPY),
-        ("h264", 0, profile.COPY),
-        ("", 0, profile.COPY),  # запись прежней версии: кодека не спрашивали
-        ("h264", 10, profile.RECODE),  # Hi10P зовётся тем же именем
-        ("hevc", 8, profile.RECODE),
-        ("hevc", 10, profile.RECODE),
-        ("vp9", 0, profile.REFUSE),
-        ("av1", 0, profile.REFUSE),
-        ("vc1", 0, profile.REFUSE),
-        ("mpeg2video", 0, profile.REFUSE),
+        ("h264", 8, COPY),
+        ("h264", 0, COPY),
+        ("", 0, COPY),  # запись прежней версии: кодека не спрашивали
+        ("h264", 10, RECODE),  # Hi10P зовётся тем же именем
+        ("hevc", 8, RECODE),
+        ("hevc", 10, RECODE),
+        ("vp9", 0, REFUSE),
+        ("av1", 0, REFUSE),
+        ("vc1", 0, REFUSE),
+        ("mpeg2video", 0, REFUSE),
     ],
 )
 def test_the_verdict_is_the_only_place_where_a_codec_is_judged(
@@ -223,8 +210,8 @@ def test_the_verdict_is_the_only_place_where_a_codec_is_judged(
     Раньше ответов было два разных в двух местах - белый список копии на отборе и чёрный
     список перекода в упаковке, - и между ними была щель ровно в размер VP9.
     """
-    assert profile.CAUTIOUS.verdict(codec, depth) == want
-    assert profile.ANDROID_TV.verdict(codec, depth) == want, "замер на приставке был нативный"
+    assert CAUTIOUS.verdict(codec, depth) == want
+    assert ANDROID_TV.verdict(codec, depth) == want, "замер на приставке был нативный"
 
 
 def test_a_frame_the_receiver_cannot_take_never_leaves_as_a_copy_either() -> None:
@@ -242,12 +229,12 @@ def test_a_frame_the_receiver_cannot_take_never_leaves_as_a_copy_either() -> Non
     from torrcast.cli import _encode_all
     from torrcast.state import Config
 
-    q70d = profile.CAUTIOUS
+    q70d = CAUTIOUS
     assert q70d.recode_frame == 1080, "потолок кадра - свойство приёмника, отсюда и берётся"
-    assert q70d.verdict("h264", 8, 1080) == profile.COPY, "на 1080p не поменялось ничего"
-    assert q70d.verdict("h264", 8, 2160) == profile.RECODE, "4К - только перекодом вниз"
+    assert q70d.verdict("h264", 8, 1080) == COPY, "на 1080p не поменялось ничего"
+    assert q70d.verdict("h264", 8, 2160) == RECODE, "4К - только перекодом вниз"
     assert not q70d.plays_copy("h264", 8, 2160)
-    assert q70d.verdict("vp9", 0, 2160) == profile.REFUSE, "большой кадр не отменяет отказа"
+    assert q70d.verdict("vp9", 0, 2160) == REFUSE, "большой кадр не отменяет отказа"
 
     # ...и то же самое всеми, кто спрашивает: упаковка, ключ прогретого и сборка перекода.
     assert recodes_whole("h264", 8, q70d, 2160)
@@ -270,8 +257,8 @@ def test_an_unmeasured_codec_never_leaves_for_the_receiver_as_a_copy(codec: str)
     from torrcast.cli import _encode_all
     from torrcast.state import Config
 
-    assert recodes_whole(codec, 0, profile.CAUTIOUS), "копией такое не отдаём"
-    assert _encode_all(Config(), codec, profile=profile.CAUTIOUS) is not None
+    assert recodes_whole(codec, 0, CAUTIOUS), "копией такое не отдаём"
+    assert _encode_all(Config(), codec, profile=CAUTIOUS) is not None
     assert not Media(video=codec).video_warning.startswith("внимание: видео h264")
     assert Media(video=codec, duration=1.0).recoded_whole, "ключ прогретого тот же"
 
@@ -281,11 +268,11 @@ def test_the_hevc_path_is_untouched_and_plain_h264_still_goes_as_a_copy() -> Non
     from torrcast.cli import _encode_all
     from torrcast.state import Config
 
-    assert _encode_all(Config(), "hevc", profile=profile.CAUTIOUS) is not None
-    assert _encode_all(Config(), "h264", depth=10, profile=profile.CAUTIOUS) is not None
-    assert _encode_all(Config(), "h264", depth=8, profile=profile.CAUTIOUS) is None
-    assert _encode_all(Config(), "", profile=profile.CAUTIOUS) is None
-    assert not recodes_whole("h264", 8, profile.CAUTIOUS)
+    assert _encode_all(Config(), "hevc", profile=CAUTIOUS) is not None
+    assert _encode_all(Config(), "h264", depth=10, profile=CAUTIOUS) is not None
+    assert _encode_all(Config(), "h264", depth=8, profile=CAUTIOUS) is None
+    assert _encode_all(Config(), "", profile=CAUTIOUS) is None
+    assert not recodes_whole("h264", 8, CAUTIOUS)
 
 
 class _FakeDevice:
@@ -306,7 +293,7 @@ def test_the_watchdog_jumps_by_the_profile_step(monkeypatch: pytest.MonkeyPatch)
     умолчаниями, и код, читающий их напрямую, выглядел бы рабочим ровно до второго
     приёмника - на нём профиль не менял бы ничего.
     """
-    mine = dataclasses.replace(profile.CAUTIOUS, stall_seconds=30.0, stall_skip=25.0)
+    mine = dataclasses.replace(CAUTIOUS, stall_seconds=30.0, stall_skip=25.0)
     jumps: list[float] = []
     monkeypatch.setattr(cast.ChromecastReceiver, "_device", lambda self: _FakeDevice(jumps))
     receiver = cast.ChromecastReceiver("10.0.0.50", profile=mine)
@@ -335,7 +322,7 @@ def test_the_mock_receiver_sulks_by_the_profile(monkeypatch: pytest.MonkeyPatch)
         status_code = 404
         headers: ClassVar[dict[str, str]] = {}
 
-    stick = cast.MockReceiver(profile=profile.ANDROID_TV)
+    stick = cast.MockReceiver(profile=ANDROID_TV)
     stick.fetch.caught(_Answer())
     assert stick.fetch.sulk_until <= time.monotonic(), (
         "приставка на 404 не обижается - LOAD берётся сразу"
@@ -347,7 +334,7 @@ def test_the_mock_receiver_sulks_by_the_profile(monkeypatch: pytest.MonkeyPatch)
         "и Q70D тоже: замер 09-08 снял наказание трижды"
     )
 
-    sulky = cast.MockReceiver(profile=dataclasses.replace(profile.CAUTIOUS, sulk=150.0))
+    sulky = cast.MockReceiver(profile=dataclasses.replace(CAUTIOUS, sulk=150.0))
     sulky.fetch.caught(_Answer())
     assert sulky.fetch.sulk_until - time.monotonic() > 100.0, (
         "механизм жив: наказание ставится числом"

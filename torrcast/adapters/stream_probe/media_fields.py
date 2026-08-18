@@ -25,7 +25,7 @@ def _video_bps(stream: dict[str, Any], duration: float) -> float:
       дорожки, но не её битрейт.
 
     Не нашлось ничего — ноль, и профиль тяжести честно возвращается к слепой калибровке
-    по первым выложенным сегментам (:meth:`torrcast.recode.Weights.calibrate`).
+    по первым выложенным сегментам (:meth:`torrcast.adapters.recode.Weights.calibrate`).
     """
     raw = stream.get("tags")
     tags: dict[str, Any] = raw if isinstance(raw, dict) else {}

@@ -989,7 +989,7 @@ def test_the_spot_shrink_packs_the_piece_under_the_cap(clip: str, tmp_path: Path
     влезает в потолок, и решение сказано одной честной строкой."""
     from dataclasses import replace
 
-    from torrcast.recode import Encode, Pace
+    from torrcast.adapters.recode import Encode, Pace
 
     class _Recoder:
         """Кодировщик-заглушка: ровно то, что спрашивает ужатие."""
@@ -1018,7 +1018,7 @@ def test_the_spot_shrink_packs_the_piece_under_the_cap(clip: str, tmp_path: Path
             return path if path.exists() else None
 
         def fit(self, span: float, preset: str) -> Encode:
-            # Тело - копия :meth:`torrcast.recode.Recoder.fit`, знак в знак. Заглушка,
+            # Тело - копия :meth:`torrcast.adapters.recode.Recoder.fit`, знак в знак. Заглушка,
             # считающая ПО-СВОЕМУ, зелена при любом контракте: собери она цель из
             # чистого ``Encode()``, и потеря кадра с HDR по дороге в ужатие прошла бы
             # молча - ``ceiling``, ``frame`` и ``hdr`` живут именно в ``self.encode``.
@@ -1059,7 +1059,7 @@ def test_the_spot_shrink_aims_under_both_ceilings_of_the_receiver(
     """
     from dataclasses import replace
 
-    from torrcast.recode import MAXRATE_GAIN, Encode, Pace
+    from torrcast.adapters.recode import MAXRATE_GAIN, Encode, Pace
 
     class _Recoder:
         """Кодировщик-заглушка: ровно то, что спрашивает ужатие."""
@@ -1087,7 +1087,7 @@ def test_the_spot_shrink_aims_under_both_ceilings_of_the_receiver(
             return None
 
         def fit(self, span: float, preset: str) -> Encode:
-            # Тело - копия :meth:`torrcast.recode.Recoder.fit`, знак в знак (см. соседний
+            # Тело - копия :meth:`torrcast.adapters.recode.Recoder.fit`, знак в знак (см. соседний
             # тест): заглушка со своим расчётом зелена при любом контракте.
             return replace(self.encode, preset=preset).fit(span, self.cap, self.threshold)
 

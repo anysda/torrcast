@@ -6,7 +6,10 @@ import random
 from typing import Any
 
 from torrcast.cli import rank_releases
-from torrcast.parse import Release, cluster, menu_order, pick_franchise
+from torrcast.domain.cluster import cluster
+from torrcast.domain.menu_order import menu_order
+from torrcast.domain.pick_franchise import pick_franchise
+from torrcast.domain.release import Release
 
 
 def test_deterministic_ties() -> None:

@@ -67,13 +67,13 @@ class _Playing:
     #:
     #: 🔴 Лежит рядом с кодеком и глубиной по той же причине: решение «перекодировать файл
     #: целиком» принимается ДО первого сегмента, а кадр в этом решении - последнее слово
-    #: (:attr:`torrcast.profile.Profile.recode_frame`). Без него запись, обошедшая отбор
+    #: (:attr:`torrcast.domain.profile.Profile.recode_frame`). Без него запись, обошедшая отбор
     #: (``--release N``, ``--file N``), уезжала на ТВ и вставала там намертво.
     #:
     #: Ноль - кадр не спрашивали (записи прежних версий). Такая запись своё число
     #: получает на первом же продолжении (:func:`torrcast.cli._duration`) - тем же одним
     #: ffprobe, что и глубину цвета: без него 4К уезжало бы в поток с уровнем «4.1»
-    #: (:func:`torrcast.recode.level_for`, TC-251).
+    #: (:func:`torrcast.adapters.recode.level_for`, TC-251).
     frame: int = 0
     #: Картинка в HDR по паспорту ffprobe (:attr:`torrcast.domain.media.Media.hdr`): её при
     #: сплошном перекоде надо ещё и привести к SDR (:attr:`Config.recode_tonemap`).

@@ -5,8 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from tests.usecases.playback.world import film_keys, grid
+from torrcast.adapters.recode import Encode, Recoder, Weights
 from torrcast.ports.recode.spot_rival import SpotRival
-from torrcast.recode import Encode, Recoder, Weights
 
 _ENCODE = Encode(preset="ultrafast", mbit=9.0)
 

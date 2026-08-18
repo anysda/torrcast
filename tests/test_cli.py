@@ -20,21 +20,19 @@ from torrcast import InfraError, NotFoundError, SwarmError, cli
 from torrcast.cli import TABLE_LIMIT, is_candidate, is_disc, rank_releases, render_table, warned
 from torrcast.console import Progress
 from torrcast.domain.audio_track import AudioTrack
+from torrcast.domain.cluster import cluster
+from torrcast.domain.episode import Episode
 from torrcast.domain.facts.fact import Fact
+from torrcast.domain.kind import Kind
 from torrcast.domain.media import Media
+from torrcast.domain.parse_release_name import parse_release_name
+from torrcast.domain.pick_franchise import pick_franchise
+from torrcast.domain.picture import Picture
+from torrcast.domain.profile import CAUTIOUS
+from torrcast.domain.release import Release
 from torrcast.domain.runtime_guess import RUNTIME_GUESS
 from torrcast.domain.server_down_error import ServerDownError
 from torrcast.domain.torr_file import TorrFile
-from torrcast.parse import (
-    Episode,
-    Kind,
-    Picture,
-    Release,
-    cluster,
-    parse_release_name,
-    pick_franchise,
-)
-from torrcast.profile import CAUTIOUS
 from torrcast.state import load_config
 from torrcast.usecases.facts import Facts
 
@@ -124,7 +122,7 @@ def test_fat_release_stays_in_the_table_but_never_becomes_the_default() -> None:
 
     ⚠️ Число тут аргумент теста, а не свойство приёмника: рабочий потолок битрейта
     Samsung Q70D - ~10 Мбит/с (замер; «~20» было легендой), и живёт он в его профиле
-    (:attr:`torrcast.profile.Profile.recode_at_mbit`).
+    (:attr:`torrcast.domain.profile.Profile.recode_at_mbit`).
     """
     fat = rel(name="remux", size_gb=28, seeders=900)
     thin = rel(name="1080p", size_gb=8, seeders=30)
@@ -451,7 +449,7 @@ def _probes(releases: list[Release], *codecs: str) -> _Prober:
 
 
 def _plan(ranked: list[Release], recode_at: float = 10.0) -> Any:
-    from torrcast.parse import Picture
+    from torrcast.domain.picture import Picture
 
     picture = Picture(title="Кино", year=1999, releases=ranked)
     # ``recode_at`` не украшение: в бою перекодирование включено (:class:`Config`), и
@@ -518,7 +516,7 @@ def test_долив_молчит_про_картину_которая_в_мен�
     """Раздача ДРУГОЙ картины из меню тоже не доливается - долив пополняет только пул
     выбранной, - но сказать про такую «в списке её не было» значило бы соврать: она там
     есть, человек её видел. Поэтому соседняя по меню строки не получает."""
-    from torrcast.parse import cluster
+    from torrcast.domain.cluster import cluster
     from torrcast.search import to_releases
 
     plan = _plan([rel(name="Кино / Movie (1999) BDRip 1080p", seeders=100)])
@@ -773,7 +771,7 @@ def test_mpeg4_release_plays_through_the_same_whole_recode_instead_of_being_refu
 
     Мультклассика и советская документалка лежат в единственной раздаче, и внутри у неё
     ``mpeg4``. Такой релиз играет тем же механизмом, что и HEVC, и говорит об этом
-    вслух; цена перекода замерена (:attr:`torrcast.profile.Profile.recode_codecs`).
+    вслух; цена перекода замерена (:attr:`torrcast.domain.profile.Profile.recode_codecs`).
     """
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
     prober = _probes(ranked, "mpeg4", "h264")
@@ -1231,7 +1229,7 @@ def test_an_explicitly_named_release_is_played_as_asked_with_a_loud_warning(
     🔴 Строка изменилась вместе с решением: раньше тут печаталось «внимание: видео av1 -
     ресивер может не взять, а мы не перекодируем», и это было ровно то враньё, из-за
     которого AV1 и VP9 уезжали на приёмник копией в mpegts. Копией их не отдаём вовсе
-    (:meth:`torrcast.profile.Profile.verdict`): раз человек назвал релиз руками, он идёт
+    (:meth:`torrcast.domain.profile.Profile.verdict`): раз человек назвал релиз руками, он идёт
     сплошным перекодом, и об этом сказано вслух.
     """
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
@@ -3400,7 +3398,7 @@ def test_a_refusal_names_the_living_parts_of_the_franchise(
     зная, что в той же выдаче лежат другие части с живыми раздачами. Подсказка - строка,
     и только: сама она ничего не запускает, подмена картины была бы обманом.
     """
-    from torrcast.parse import Picture
+    from torrcast.domain.picture import Picture
 
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(5)]
     prober = _probes(ranked, *REFUSED)
@@ -3438,7 +3436,8 @@ def test_only_parts_that_stayed_out_of_the_menu_are_offered() -> None:
     франшизы либо у картины не осталось прошедших отбор релизов), - ровно то новое, что
     отказу есть сказать. Мёртвую, без единой раздачи, не предлагаем и её.
     """
-    from torrcast.parse import Picture, cluster
+    from torrcast.domain.cluster import cluster
+    from torrcast.domain.picture import Picture
 
     pictures = cluster(
         [
@@ -3461,7 +3460,7 @@ def test_only_parts_that_stayed_out_of_the_menu_are_offered() -> None:
 
 def _named_release(title: str, year: int) -> Release:
     """Раздача с настоящим именем картины: кластеру нужно именно оно, а не «Кино»."""
-    from torrcast.parse import parse_release_name
+    from torrcast.domain.parse_release_name import parse_release_name
 
     return parse_release_name(f"{title} ({year}) BDRip 1080p")
 
@@ -3615,7 +3614,7 @@ def test_a_neighbour_that_missed_its_budget_is_let_go_too(
 
 def _series_release(name: str, size_gb: float, seeders: int) -> Release:
     """Раздача сериала прямо из живой выдачи «Чёрных парусов» - именем и размером."""
-    from torrcast.parse import parse_release_name
+    from torrcast.domain.parse_release_name import parse_release_name
 
     return replace(
         parse_release_name(name), size=int(size_gb * 1e9), seeders=seeders, magnet=f"magnet:{name}"
@@ -3753,7 +3752,7 @@ def test_releases_table_uses_true_duration_and_matches_explicit_release(
     # На 2 часах heavy (20 ГБ) улетает за потолок 16 Мбит/с.
     ranked_guess = cli.rank_releases([lighter, heavy], 120.0 * 60.0, config.bitrate_warn_mbit)
 
-    from torrcast.parse import Picture
+    from torrcast.domain.picture import Picture
 
     plan = cli._Plan(
         picture=Picture(title="Кино", year=1999, releases=[lighter, heavy]),
@@ -3841,7 +3840,8 @@ def test_releases_table_judges_by_the_detected_receiver_profile(
     """🔴 TC-241. Таблица обязана судить по тому приёмнику, на который поедет показ:
     обнаруженной приставке Android TV раздача на 18 ГБ едет копией, и пометка
     «перекодируем» рядом с ней - ложь, которой в таблице быть не должно."""
-    from torrcast.profile import ANDROID_TV, Choice
+    from torrcast.domain.choice import Choice
+    from torrcast.domain.profile import ANDROID_TV
 
     printed = _releases_output(
         capsys, lambda config: Choice(ANDROID_TV, "по паспорту: Xiaomi TV Stick")
@@ -4076,8 +4076,9 @@ def test_короткое_имя_берёт_картину_из_первого_�
     разрешением на подмену. Паспорт независимо называет сериал и его год - только эта
     пара даёт право выбрать сериал из того же пула.
     """
+    from torrcast.domain.cluster import cluster
+    from torrcast.domain.pick_franchise import pick_franchise
     from torrcast.facts import Origin
-    from torrcast.parse import cluster, pick_franchise
     from torrcast.search import RawResult, to_releases
 
     raw = [
@@ -4109,8 +4110,9 @@ def test_короткое_имя_берёт_картину_из_первого_�
 
 def test_паспортное_имя_не_подменяет_картину_при_споре_года() -> None:
     """Короткое имя не получает права выбрать тёзку с годом вопреки паспорту."""
+    from torrcast.domain.cluster import cluster
+    from torrcast.domain.pick_franchise import pick_franchise
     from torrcast.facts import Origin
-    from torrcast.parse import cluster, pick_franchise
     from torrcast.search import RawResult, to_releases
 
     raw = [
@@ -4139,7 +4141,8 @@ def test_паспортное_имя_не_подменяет_картину_пр
 
 def _nine_yards_pool() -> tuple[list[Any], list[Picture], list[Picture]]:
     """Пул запроса «девять»: сотня строк про соседей, самой «Девять» в ней нет."""
-    from torrcast.parse import cluster, pick_franchise
+    from torrcast.domain.cluster import cluster
+    from torrcast.domain.pick_franchise import pick_franchise
     from torrcast.search import RawResult, to_releases
 
     raw = [

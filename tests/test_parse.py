@@ -14,26 +14,24 @@ from typing import NamedTuple
 import pytest
 
 from torrcast.cli import is_full_hd
-from torrcast.parse import (
-    Picture,
-    Release,
-    alt_query,
-    catalog_has_name,
-    cluster,
-    franchise_key,
-    franchise_name,
-    in_digits,
-    menu_order,
-    other_words,
-    outside_numbering,
-    parse_episode,
-    parse_release_name,
-    part_number,
-    pick_franchise,
-    reads_season,
-    slugify,
-    split_franchise_index,
-)
+from torrcast.domain.alt_query import alt_query
+from torrcast.domain.catalog_has_name import catalog_has_name
+from torrcast.domain.cluster import cluster
+from torrcast.domain.franchise_key import franchise_key
+from torrcast.domain.franchise_name import franchise_name
+from torrcast.domain.in_digits import in_digits
+from torrcast.domain.menu_order import menu_order
+from torrcast.domain.other_words import other_words
+from torrcast.domain.outside_numbering import outside_numbering
+from torrcast.domain.parse_episode import parse_episode
+from torrcast.domain.parse_release_name import parse_release_name
+from torrcast.domain.part_number import part_number
+from torrcast.domain.pick_franchise import pick_franchise
+from torrcast.domain.picture import Picture
+from torrcast.domain.reads_season import reads_season
+from torrcast.domain.release import Release
+from torrcast.domain.slugify import slugify
+from torrcast.domain.split_franchise_index import split_franchise_index
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -1465,7 +1463,7 @@ def test_a_franchise_of_twins_costs_one_pass_not_a_square(monkeypatch: pytest.Mo
     """
     import builtins
 
-    from torrcast.parse import _both_languages
+    from torrcast.domain.both_languages import _both_languages
 
     size = 200
     groups = {"дюна": [_picture("Дюна", 2021)]}
@@ -2323,7 +2321,7 @@ def test_brother_two_is_the_year_two_thousand_and_not_a_fresh_namesake() -> None
 
     В выдаче рядом лежат три картины под двумя именами, и в меню они отличаются одним
     годом в скобках. Номер части, названный вслух самим каталогом, сильнее позиции в
-    хронологии (:func:`~torrcast.parse._numbered`) - им картина и выбирается; год же
+    хронологии (:func:`~torrcast.domain.numbered._numbered`) - им картина и выбирается; год же
     выбранной картины сверяет со справкой уже гейт года (TC-199/TC-200), потому что имя
     раздачи врёт и про него.
     """
@@ -2350,7 +2348,7 @@ def test_seasons_named_reads_only_what_names_said() -> None:
     Молчащая о сезоне раздача сюда не попадает - она накрывает любой сезон, и называть
     её сезон было бы выдумкой.
     """
-    from torrcast.parse import seasons_named
+    from torrcast.domain.seasons_named import seasons_named
 
     picture = Picture(
         title="Гинтама",

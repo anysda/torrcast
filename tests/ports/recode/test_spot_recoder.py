@@ -5,8 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from tests.usecases.playback.world import film_keys, grid
+from torrcast.adapters.recode import Encode, Recoder, Weights
 from torrcast.ports.recode.spot_recoder import SpotRecoder
-from torrcast.recode import Encode, Recoder, Weights
 
 
 def _recoder(tmp_path: Path, threshold: float = 0.0) -> Recoder:

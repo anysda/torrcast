@@ -66,7 +66,7 @@ def drop_reason(release: Release, plan: _Judged) -> str:
         return ""
     if release.is_hevc and not (plan.last_resort or plan.copy_hevc):
         return _HEVC
-    # Дальше раздача не прошла ворота (:attr:`~torrcast.parse.Release.prime`), и причина
+    # Дальше раздача не прошла ворота (:attr:`~torrcast.domain.release.Release.prime`), и причина
     # у ворот ровно та, чем имя о себе сказало: назван чужой кодек, назван мелкий кадр,
     # назван не-HD-источник. Не сказало ничего - это молчание, и оно отдельная причина:
     # молчаливую раздачу судит ffprobe, когда ворота открыты (:attr:`_Plan.loose`).

@@ -21,7 +21,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from torrcast.parse import Release, parse_release_name
+from torrcast.domain.parse_release_name import parse_release_name
+from torrcast.domain.release import Release
 
 #: Источники, по которым спрашивают кино и сериалы, - на них и держим целевые ≥95 %.
 CINEMA_SOURCES = frozenset({"rutor", "kinozal", "knaben:RuTracker.org", "megapeer"})

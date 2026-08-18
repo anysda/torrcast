@@ -67,7 +67,7 @@ def _recoder(
         weights=weights,
         threshold=config.recode_at_mbit,
         # Потолок веса куска - тот же, которым меряет показ: у каждого приёмника свой
-        # (:attr:`torrcast.profile.Profile.max_segment_bytes`).
+        # (:attr:`torrcast.domain.profile.Profile.max_segment_bytes`).
         cap=profile.max_segment_bytes,
         encode=_state.Encode(preset=config.recode_preset, mbit=config.recode_mbit),
         ahead=config.recode_ahead,

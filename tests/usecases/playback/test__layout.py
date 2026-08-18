@@ -5,10 +5,10 @@ from __future__ import annotations
 import pytest
 
 import torrcast.usecases.playback._show_state as _state
+from torrcast.adapters.recode import MAXRATE_GAIN, whole_encode
 from torrcast.adapters.stream_pack.grid_for import grid_for
 from torrcast.domain.config import Config
 from torrcast.domain.profile import CAUTIOUS
-from torrcast.recode import MAXRATE_GAIN, whole_encode
 from torrcast.usecases.playback._layout import _layout
 
 

@@ -25,24 +25,24 @@ class _State:
     audio: int
     grid: Grid
     vault: Vault
-    #: Чем кодировать видео (:class:`torrcast.recode.Encode`); ``None`` - копия.
+    #: Чем кодировать видео (:class:`torrcast.adapters.recode.Encode`); ``None`` - копия.
     #:
     #: 🔴 Ставится ТЕМ ЖЕ решением, что у живой упаковки (:func:`torrcast.cli._warmer`).
     #: Прогретый кусок и живой - это одна лента для приёмника, и если они закодированы
     #: по-разному, на стыке источников у него меняется SPS.
     encode: EncodingKey | None = None
     #: Слоты, которые живой показ отдаёт перекодированными поштучно (тяжёлые куски,
-    #: :attr:`torrcast.recode.Recoder.targets`). Прогрев обязан положить на диск их же и
+    #: :attr:`torrcast.adapters.recode.Recoder.targets`). Прогрев обязан положить на диск их же и
     #: такими же: копия тяжёлого куска приёмнику не по зубам, а перекод всего фильма ради
     #: пяти кусков расходится с живой упаковкой во всём остальном.
     spots: tuple[int, ...] = ()
-    #: Чем перекодировать :attr:`spots` - тот же :class:`torrcast.recode.Encode`, которым
+    #: Чем перекодировать :attr:`spots` - тот же :class:`torrcast.adapters.recode.Encode`, которым
     #: их берёт живой кодировщик.
     spot_encode: EncodingKey | None = None
     #: С какого места смотрим: прогрев идёт отсюда вперёд, голова - потом.
     began_at: int = 0
     #: Потолок веса одного куска у приёмника, байты
-    #: (:attr:`torrcast.profile.Profile.max_segment_bytes`). Прогреву он нужен не для
+    #: (:attr:`torrcast.domain.profile.Profile.max_segment_bytes`). Прогреву он нужен не для
     #: укладки, а для счёта: тяжелее потолка показ прогретое с диска не берёт
     #: (:meth:`torrcast.usecases.feed_pack.feed.Feed._warm`), и запасом такой кусок не является.
     cap: int = CAUTIOUS.max_segment_bytes
@@ -51,7 +51,7 @@ class _State:
     log: Callable[[str], None] | None = None
     #: Запас живого показа, секунды; кладёт :func:`torrcast.cli._hold` на каждом опросе.
     slack: float = 0.0
-    #: Кодировщик живых кусков (:class:`torrcast.recode.Recoder`) или ``None``. Пока у него
+    #: Кодировщик живых кусков (:class:`torrcast.adapters.recode.Recoder`) или ``None``. Пока у него
     #: идёт заход, прогрев замирает: см. :meth:`_must_yield`.
     rival: RecodeRival | None = None
     #: Прогрев замер под просевшим запасом (:data:`GUARD_LOW`).

@@ -139,7 +139,7 @@ def _lay_out(state: _State, finished: Callable[[], bool]) -> None:
             moved = True
         # Выложили одно из трёх - остальные две копии этого места больше не нужны
         # никому: tmpfs не резиновая, а лишний файл в каталоге перекода ещё и выглядел
-        # бы для кодировщика готовым куском (:meth:`torrcast.recode.Recoder.ready`).
+        # бы для кодировщика готовым куском (:meth:`torrcast.adapters.recode.Recoder.ready`).
         if moved and source is not path:
             path.unlink(missing_ok=True)
         if moved and better is not None and source is not better:

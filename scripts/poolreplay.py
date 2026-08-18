@@ -69,18 +69,16 @@ from torrcast.cli import (
     voiceless_pool,
     worth_asking_original,
 )
+from torrcast.domain._name_data import THIN_POOL
 from torrcast.domain.capped_indexers import INDEXER_PAGE
-from torrcast.parse import (
-    THIN_POOL,
-    Picture,
-    Release,
-    cluster,
-    glue,
-    menu_order,
-    pick_franchise,
-    split_franchise_index,
-)
-from torrcast.profile import Profile
+from torrcast.domain.cluster import cluster
+from torrcast.domain.glue import glue
+from torrcast.domain.menu_order import menu_order
+from torrcast.domain.pick_franchise import pick_franchise
+from torrcast.domain.picture import Picture
+from torrcast.domain.profile import Profile
+from torrcast.domain.release import Release
+from torrcast.domain.split_franchise_index import split_franchise_index
 from torrcast.search import Prowlarr, RawResult, merge, to_releases
 from torrcast.state import Config, load_config
 
@@ -115,11 +113,11 @@ def watching_glue() -> tuple[Callable[[list[Picture]], list[Picture]], list[Merg
     """Правило склейки, попутно считающее слитые кучки, и список этого счёта.
 
     Другого способа увидеть, СКОЛЬКО кучек свелось в одну картину, у щупа нет: наружу
-    :func:`~torrcast.parse.glue` отдаёт уже готовые картины, а второе имя
+    :func:`~torrcast.domain.glue.glue` отдаёт уже готовые картины, а второе имя
     (``Picture.also``) называет ровно одну из слитых - «три в одной» от «двух в одной»
     по нему не отличить. Переписывать разбор ради счёта нельзя: мерить надо то, что
     работает, а не его копию, - поэтому счётчик оборачивает боевое правило и уезжает
-    в :func:`~torrcast.parse.cluster` её же параметром ``glue_rule``.
+    в :func:`~torrcast.domain.cluster.cluster` её же параметром ``glue_rule``.
     """
     merges: list[Merge] = []
 
@@ -201,7 +199,7 @@ class Replay:
         Человек их не видит вовсе: список ему печатается по планам
         (:func:`~torrcast.cli.menu_lines`), а не по всем картинам франшизы, и первым
         пунктом у него стоит дефолт. Пока щуп звал «верхом меню» первую картину
-        :func:`~torrcast.parse.menu_order`, колонка врала ровно про них - печатала
+        :func:`~torrcast.domain.menu_order.menu_order`, колонка врала ровно про них - печатала
         название и приписывала «→ Enter: другая» там, где никакого выбора человеку
         не показывали.
         """

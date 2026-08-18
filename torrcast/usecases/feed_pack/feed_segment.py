@@ -80,7 +80,7 @@ def _warm(state: _State, slot: int) -> Path | None:
 
     ⚠️ Прогретое идёт наружу мимо упаковки, а значит и мимо обоих мест, где вес куска
     зажат потолком приёмника (:meth:`Packer.publish`,
-    :meth:`torrcast.recode.Recoder.holding`). Прогрев же кладёт фильм на диск копией,
+    :meth:`torrcast.adapters.recode.Recoder.holding`). Прогрев же кладёт фильм на диск копией,
     а тяжёлые места приводит к перекоду отдельным, ПОЗДНИМ заходом
     (:meth:`torrcast.usecases.warm.Warmer._spots_left`) - до него на месте тяжёлого куска лежит
     копия во весь свой вес.

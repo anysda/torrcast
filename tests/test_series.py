@@ -13,17 +13,15 @@ import pytest
 
 from torrcast import NotFoundError
 from torrcast.cli import Args, _plan_for, _Series, rank_releases
+from torrcast.domain.cluster import cluster
+from torrcast.domain.episode import Episode
+from torrcast.domain.episode_file import EpisodeFile
+from torrcast.domain.map_episodes import map_episodes
+from torrcast.domain.parse_release_name import parse_release_name
+from torrcast.domain.picture import Picture
 from torrcast.domain.runtime_guess import RUNTIME_GUESS
+from torrcast.domain.split_episode import split_episode
 from torrcast.domain.torr_file import TorrFile
-from torrcast.parse import (
-    Episode,
-    EpisodeFile,
-    Picture,
-    cluster,
-    map_episodes,
-    parse_release_name,
-    split_episode,
-)
 from torrcast.state import Config
 
 GB = 1024**3
@@ -158,7 +156,7 @@ def test_two_numbering_systems_are_named_aloud_instead_of_a_plain_miss() -> None
     (``[01-201]``, ``[202-252]``, ``[253-265]``). Это разные номера, и свести их честно
     нельзя: границ сезонов не назвало ни одно имя. Признак системы — из имени раздачи:
     сезон назван (``season``/``seasons``) или серии перечислены без сезона (сквозная
-    линейка, как у :func:`torrcast.parse._run_span`). Сквозная раздача на просьбу о
+    линейка, как у :func:`torrcast.domain.run_span._run_span`). Сквозная раздача на просьбу о
     сезоне отвечает про РАЗНЫЕ нумерации и показывает обе, а не «серии нет» — серия
     там, скорее всего, есть, только под сквозным номером.
     """
@@ -422,7 +420,9 @@ def test_season_gaps_speaks_instead_of_dropping_picture() -> None:
     основной сериал. Молчаливых отказов у нас не бывает.
     """
     from torrcast.cli import season_gaps
-    from torrcast.parse import Episode, Picture, parse_release_name
+    from torrcast.domain.episode import Episode
+    from torrcast.domain.parse_release_name import parse_release_name
+    from torrcast.domain.picture import Picture
 
     gintama = Picture(
         title="Гинтама",
@@ -456,7 +456,8 @@ def test_cross_season_episode_range_is_read() -> None:
     не читалось никак - ни серий, ни сериальности, - и раздача с ПЕРВОЙ серией
     становилась «фильмом» мимо разбора по сериям.
     """
-    from torrcast.parse import Episode, parse_release_name
+    from torrcast.domain.episode import Episode
+    from torrcast.domain.parse_release_name import parse_release_name
 
     first = parse_release_name("Гинтама / Gintama TV-1 [01-201] (2006) BDRip-HEVC  720p | L1")
     assert first.kind == "tv"
@@ -521,7 +522,7 @@ def test_a_colon_after_the_season_word_does_not_invent_a_season_range() -> None:
 
     Двоеточие после слова «сезон» на трекере чаще открывает перечень СЕРИЙ, чем
     диапазон сезонов, и разводит их только то, назван ли сезон ДО слова
-    (:data:`~torrcast.parse._SEASON_SPAN_RES`). Без этой границы полный пак «Сезоны: 1-8
+    (:data:`~torrcast.domain._name_data._SEASON_SPAN_RES`). Без этой границы полный пак «Сезоны: 1-8
     из 8» читался правильно, а каждое обычное имя сезона теряло свой номер.
     """
     one = parse_release_name(
@@ -546,7 +547,8 @@ def test_year_gate_lets_one_numbering_line_through() -> None:
     той, где лежали остальные 200. Ремейк при этом начинает счёт заново - по этому его
     и отличаем.
     """
-    from torrcast.parse import glue, parse_release_name
+    from torrcast.domain.glue import glue
+    from torrcast.domain.parse_release_name import parse_release_name
 
     def picture(name: str, year: int | None) -> Picture:
         return Picture(title="Гинтама", year=year, kind="tv", releases=[parse_release_name(name)])

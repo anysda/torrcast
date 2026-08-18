@@ -21,17 +21,15 @@ from tests.fakes.passport import FakePassport
 from tests.fakes.prowlarr import FakeProwlarr
 from torrcast import NotFoundError, cli
 from torrcast.console import Progress
+from torrcast.domain._name_data import THIN_POOL
+from torrcast.domain.alt_query import alt_query
+from torrcast.domain.parse_release_name import parse_release_name
+from torrcast.domain.picture import Picture
+from torrcast.domain.release import Release
+from torrcast.domain.slugify import slugify
+from torrcast.domain.transliterate import transliterate
+from torrcast.domain.unswap_layout import unswap_layout
 from torrcast.facts import Origin
-from torrcast.parse import (
-    THIN_POOL,
-    Picture,
-    Release,
-    alt_query,
-    parse_release_name,
-    slugify,
-    transliterate,
-    unswap_layout,
-)
 from torrcast.search import RawResult, merge
 from torrcast.state import Config
 
@@ -257,7 +255,7 @@ def test_a_fat_pool_of_living_old_rips_still_asks_the_original() -> None:
     медиане (:func:`~torrcast.cli.worth_asking_original`).
 
     Пул тут ровно такой: DVDRip'ы названы кодеком, а значит ворота отбора проходят
-    (:attr:`~torrcast.parse.Release.prime`), сидов под ними полно, - и всё равно
+    (:attr:`~torrcast.domain.release.Release.prime`), сидов под ними полно, - и всё равно
     спрашиваем оригинал. От соседнего теста отличается именно этим: там старьё до
     очереди не доезжает, здесь доезжает и играется.
     """

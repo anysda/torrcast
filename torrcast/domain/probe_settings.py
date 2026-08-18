@@ -40,7 +40,7 @@ META_GRACE: Final = 30.0
 #: декодирует. Поэтому спрашивать надо :func:`recodes_whole`, а не членство в наборе.
 #:
 #: 🔴 Набор - свойство ПРИЁМНИКА и живёт в его профиле
-#: (:attr:`torrcast.profile.Profile.recode_codecs`); здесь он остаётся умолчанием.
+#: (:attr:`torrcast.domain.profile.Profile.recode_codecs`); здесь он остаётся умолчанием.
 RECODE_CODECS: Final = CAUTIOUS.recode_codecs
 
 #: Глубина цвета, которую приёмник берёт копией. Выше - перекод целиком.
@@ -57,5 +57,5 @@ RECODE_CODECS: Final = CAUTIOUS.recode_codecs
 #: (``High 10``, ``High 10 Intra``), а ``pix_fmt`` один и честен.
 #:
 #: 🔴 Как и набор кодеков, это свойство приёмника и живёт в его профиле
-#: (:attr:`torrcast.profile.Profile.copy_depth`); здесь остаётся умолчание.
+#: (:attr:`torrcast.domain.profile.Profile.copy_depth`); здесь остаётся умолчание.
 COPY_DEPTH: Final = CAUTIOUS.copy_depth

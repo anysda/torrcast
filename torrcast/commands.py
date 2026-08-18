@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 from torrcast import trace as trace
+from torrcast.adapters.chromecast.profile_detector import detector
 
 __all__ = [
     "ALIVE_SEEDERS",
@@ -173,6 +174,7 @@ from torrcast.cli.args import Args
 from torrcast.cli.parse_args import TV_MENU, parse_args
 from torrcast.console import Progress, ask, terminal
 from torrcast.domain.debug_handles import CTL_ENV, TRACE_ENV
+from torrcast.domain.episode import Episode
 from torrcast.domain.exit_codes import EXIT_INFRA, EXIT_NOT_FOUND, EXIT_OK
 from torrcast.domain.hls_wait import KEYS_WAIT, PILOT_TIMEOUT
 from torrcast.domain.pick_settings import (
@@ -186,6 +188,7 @@ from torrcast.domain.pick_settings import (
 )
 from torrcast.domain.prewarm_settings import MAX_LIVE, PREWARM, PREWARM_DUB, PREWARM_SPARE
 from torrcast.domain.probe_settings import PROBE_TIMEOUT
+from torrcast.domain.profile import Profile
 from torrcast.domain.rank_settings import (
     ALIVE_SEEDERS,
     EXTRAS_MBIT,
@@ -214,6 +217,7 @@ from torrcast.domain.revive_settings import (
     SOURCE_PAUSE,
     SOURCE_TRIES,
 )
+from torrcast.domain.split_episode import split_episode
 from torrcast.domain.start_settings import (
     PAUSE_LIMIT,
     PAUSE_SECONDS,
@@ -221,15 +225,13 @@ from torrcast.domain.start_settings import (
     START_SLACK,
 )
 from torrcast.domain.torrent_hash import _BTIH, _torrent_hash
+from torrcast.domain.tune import tune as tune_profile
 from torrcast.domain.worker_settings import WORKER_DUR, WORKER_META
 from torrcast.facts import Facts
-from torrcast.parse import Episode, split_episode
-from torrcast.profile import Profile, trace_thresholds
-from torrcast.profile import detect as detect_profile
-from torrcast.profile import tune as tune_profile
 from torrcast.runtime.configure_command import configure_command as _cmd_configure
 from torrcast.runtime.status_command import status_command as _cmd_status
 from torrcast.runtime.stop_command import stop_command as _cmd_stop
+from torrcast.runtime.trace_thresholds import trace_thresholds
 from torrcast.state import Config, Entry, State, load_config, save_config
 from torrcast.usecases.cache_reserve import _cache_reserve
 from torrcast.usecases.doctor_command import _cmd_doctor
@@ -252,5 +254,13 @@ from torrcast.usecases.voices_command import _cmd_voices
 from torrcast.usecases.watch import WATCH_SECONDS, Watch
 from torrcast.usecases.worker import _cmd_worker
 from torrcast.usecases.worker_loop import _worker_loop
+
+#: Профиль приёмника прежнее имя берёт методом единственного детектора: кэш паспортов
+#: у показа, у `cast doctor` и у прежних имён обязан быть общим.
+#:
+#: ⚠️ Сам детектор тут не остаётся. Плоский namespace (:mod:`torrcast.cli`) забирает у
+#: этого модуля КАЖДОЕ имя, поэтому лишний импорт молча стал бы частью общей поверхности.
+detect_profile = detector.detect
+del detector
 
 __all__ = [name for name in globals() if not name.startswith("__")]

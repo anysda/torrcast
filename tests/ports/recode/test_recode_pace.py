@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+from torrcast.adapters.recode import Pace
 from torrcast.ports.recode.recode_pace import RecodePace
-from torrcast.recode import Pace
 
 
 def test_the_real_pace_answers_the_named_contract() -> None:

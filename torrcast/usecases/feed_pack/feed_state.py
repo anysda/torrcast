@@ -40,7 +40,7 @@ class _State:
     grid: Grid
     readrate: float = 1.0
     #: Запас упаковки впереди показа: свойство приёмника, живёт в его профиле
-    #: (:attr:`torrcast.profile.Profile.burst`). Здесь умолчание - осторожное.
+    #: (:attr:`torrcast.domain.profile.Profile.burst`). Здесь умолчание - осторожное.
     burst: float = CAUTIOUS.burst
     #: Сколько секунд позади показа держим сегменты - глубина «бесплатной» перемотки назад.
     keep: float = 120.0
@@ -68,10 +68,10 @@ class _State:
     #: которого мы избегаем. Ждать почти бесплатно (это один поток раздачи), а зря
     #: ждать не придётся: безнадёжные случаи :meth:`_steer` отличает и говорит об этом.
     #: 🔴 Сколько именно держать - свойство приёмника: у приставки Android TV обиды на
-    #: 404 нет вовсе (:data:`torrcast.profile.ANDROID_TV`), а у Q70D она стоит минут.
+    #: 404 нет вовсе (:data:`torrcast.domain.profile.ANDROID_TV`), а у Q70D она стоит минут.
     wait: float = CAUTIOUS.hold_seconds
     #: Потолок веса одного куска - тоже свойство приёмника
-    #: (:attr:`torrcast.profile.Profile.max_segment_bytes`). Здесь он нужен не сетке, а
+    #: (:attr:`torrcast.domain.profile.Profile.max_segment_bytes`). Здесь он нужен не сетке, а
     #: раздаче: прогретое на диске мимо упаковки не проходит, и проверить его вес больше
     #: негде (:meth:`_warm`). Умолчание осторожное, как и у соседей.
     cap: int = CAUTIOUS.max_segment_bytes
@@ -90,10 +90,10 @@ class _State:
     crashes: int = 0
     fatal: str = ""
     log: Callable[[str], None] | None = None
-    #: Кодировщик тяжёлых кусков (:class:`torrcast.recode.Recoder`) или ``None``, если
+    #: Кодировщик тяжёлых кусков (:class:`torrcast.adapters.recode.Recoder`) или ``None``, если
     #: динамический битрейт выключен либо тяжёлых кусков в фильме нет.
     recoder: FeedRecoder | None = None
-    #: Чем перекодировать ВЕСЬ фильм (:class:`torrcast.recode.Encode`); ``None`` - видео
+    #: Чем перекодировать ВЕСЬ фильм (:class:`torrcast.adapters.recode.Encode`); ``None`` - видео
     #: уезжает копией, как обычно.
     #:
     #: Ставится ровно на один случай: кодек, который приёмник не декодирует

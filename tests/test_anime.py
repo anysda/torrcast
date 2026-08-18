@@ -41,8 +41,10 @@ from torrcast.cli import (
 from torrcast.console import Progress
 from torrcast.domain.audio_track import AudioTrack
 from torrcast.domain.media import Media
+from torrcast.domain.parse_release_name import parse_release_name
+from torrcast.domain.picture import Picture
+from torrcast.domain.release import Release
 from torrcast.domain.runtime_guess import RUNTIME_GUESS
-from torrcast.parse import Picture, Release, parse_release_name
 from torrcast.runtime.native_picture import native_picture
 from torrcast.search import RawResult, merge, to_releases
 from torrcast.state import Config
@@ -955,7 +957,7 @@ def test_the_heavy_path_says_so_out_loud_in_one_line() -> None:
 def test_the_last_hope_asks_the_receiver_profile_not_a_module_constant() -> None:
     """«Тяжёлый ли HEVC» — вопрос ПРОФИЛЯ приёмника, и задан он там же, где всегда.
 
-    Пороги приёмника живут в :mod:`torrcast.profile`, и набор кодеков на сплошной перекод
+    Пороги приёмника живут в :mod:`torrcast.domain.profile`, и набор кодеков на сплошной перекод
     у профилей может разойтись. Последняя надежда стоит ровно на том, что HEVC — путь
     дорогой: процессор занят до титров, старт медленнее. Приёмнику, который берёт HEVC
     копией, ничего этого не грозит, и ворота ему не нужны.
@@ -963,9 +965,9 @@ def test_the_last_hope_asks_the_receiver_profile_not_a_module_constant() -> None
     🔴 Оба живых профиля сегодня перекодируют HEVC (у приставки набор оставлен прежним
     до замера через наш mpegts), поэтому ступень работает на обоих одинаково. Приёмник,
     который HEVC копирует, остаётся БЕЗ такой раздачи вовсе: держит её не эта ступень, а
-    ворота (:attr:`~torrcast.parse.Release.prime`), и ослаблять их — отдельная карточка.
+    ворота (:attr:`~torrcast.domain.release.Release.prime`), и ослаблять их — отдельная карточка.
     """
-    from torrcast.profile import ANDROID_TV, CAUTIOUS
+    from torrcast.domain.profile import ANDROID_TV, CAUTIOUS
 
     hevc = named(GINTAMA_HEVC, size_gb=30.2, seeders=4)
     dead = named(GINTAMA_DEAD, size_gb=99.2, seeders=0)
@@ -990,7 +992,7 @@ def test_the_last_hope_asks_the_receiver_profile_not_a_module_constant() -> None
 
 def test_a_native_codec_does_not_weaken_the_quality_gate() -> None:
     """Профиль снимает только запрет кодека, но не потолок качества и веса."""
-    from torrcast.profile import CAUTIOUS
+    from torrcast.domain.profile import CAUTIOUS
 
     native = replace(
         CAUTIOUS, key="native", recode_codecs=frozenset(), copy_codecs=frozenset({"h264", "hevc"})

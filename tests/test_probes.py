@@ -19,8 +19,11 @@ from typing import Any
 import pytest
 
 import torrcast
+from torrcast.adapters.chromecast.profile_detector import detector
 from torrcast.cli import Args
-from torrcast.profile import ANDROID_TV, CAUTIOUS, Choice, forget, tune
+from torrcast.domain.choice import Choice
+from torrcast.domain.profile import ANDROID_TV, CAUTIOUS
+from torrcast.domain.tune import tune
 from torrcast.state import Config
 
 SCRIPTS = Path(__file__).resolve().parent.parent / "scripts"
@@ -89,16 +92,16 @@ def test_щуп_выбирает_профиль_как_показ_и_назыв�
         lambda _self, _address: Choice(ANDROID_TV, "по паспорту: Android TV"),
     )
 
-    forget()
+    detector.forget()
     assert replay.main([str(pools)]) == 0
     said = capsys.readouterr().out
     assert "профиль приёмника: androidtv" in said and "по паспорту: Android TV" in said
 
-    forget()
+    detector.forget()
     assert replay.main([str(pools), "--profile", "q70d"]) == 0
     said = capsys.readouterr().out
     assert "профиль приёмника: q70d" in said and "назван руками" in said
-    forget()
+    detector.forget()
 
 
 def test_счёт_разносит_все_вердикты_прогона() -> None:

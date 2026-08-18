@@ -53,7 +53,8 @@ from torrcast.adapters.wiki.endpoints import (
 from torrcast.domain.facts.wiki_params import _extract_params, _search_params
 from torrcast.domain.facts.wiki_reply import _pages, _ranked
 from torrcast.domain.json_map import json_map
-from torrcast.parse import slugify, split_franchise_index
+from torrcast.domain.slugify import slugify
+from torrcast.domain.split_franchise_index import split_franchise_index
 
 #: Курируемый набор: (запрос, заголовок статьи, номер части в запросе, обязан ли
 #: признак подтвердить). Позитивы - четыре запроса класса из сохранённого

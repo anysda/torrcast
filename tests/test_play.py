@@ -1584,7 +1584,7 @@ def test_the_mock_receiver_takes_a_load_right_after_a_404() -> None:
     значило бы держать в сухом прогоне выдуманную аварию.
 
     Что от него осталось и почему: сам механизм наказания жив и берётся из профиля
-    (:attr:`torrcast.profile.Profile.sulk`) - мерили чистый 404 в здоровой сессии, и
+    (:attr:`torrcast.domain.profile.Profile.sulk`) - мерили чистый 404 в здоровой сессии, и
     приёмник, который всё-таки обижается, должен настраиваться числом, а не правкой кода.
     На решение «держать запрос вместо 404» этот ноль не влияет: там своя причина.
     """
@@ -2800,14 +2800,14 @@ def test_the_picture_is_proved_by_a_moving_pointer_not_by_the_word_playing(
 def test_the_mock_waits_for_as_much_film_as_the_receiver_gathers_before_the_first_frame() -> None:
     """Заглушка не показывает кадр раньше, чем показ набрал запас живого приёмника.
 
-    🔴 Замер на живом Q70D (:attr:`torrcast.profile.Profile.start_buffer`): на сетке по 8 с
+    🔴 Замер на живом Q70D (:attr:`torrcast.domain.profile.Profile.start_buffer`): на сетке по 8 с
     указатель тронулся только со ВТОРЫМ куском (16 с фильма), на сетке по 2.5 с - с
     четвёртым (10 с), а на третьем (7.5 с) ещё стоял. Заглушка объявляла картинку по
     первому же сдвигу своего декодера, то есть сухой прогон был бодрее живого ТВ на те
     самые секунды, из-за которых старт и меряют.
     """
     from torrcast.cast import MockReceiver, Position
-    from torrcast.profile import CAUTIOUS
+    from torrcast.domain.profile import CAUTIOUS
 
     assert CAUTIOUS.start_buffer == 10.0, "замер: столько фильма Q70D копит до первого кадра"
 

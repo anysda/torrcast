@@ -41,7 +41,7 @@ def grid_for(
     (:data:`MAX_SEGMENT_BYTES`) — без них правило потолка вырождается в прежнее.
 
     ``cap`` — потолок веса одного куска: он у каждого приёмника свой
-    (:attr:`torrcast.profile.Profile.max_segment_bytes`), и умолчание тут осторожное.
+    (:attr:`torrcast.domain.profile.Profile.max_segment_bytes`), и умолчание тут осторожное.
 
     ``fixed_mbit`` — сплошной перекод (:data:`RECODE_CODECS`): вес сегмента больше не
     зависит от карты вовсе, потому что на ТВ уезжает не файл, а наш поток с известным
@@ -92,7 +92,7 @@ def grid_for(
 def _extra_mbit(keys: FilmKeys, delivered_mbit: float) -> float:
     """Что в контейнере есть, а на ТВ не уезжает, Мбит/с — по карте и паспорту.
 
-    Ровно то же число, что набирает :meth:`torrcast.recode.Weights.calibrate` по факту, но
+    Ровно то же число, что набирает :meth:`torrcast.adapters.recode.Weights.calibrate` по факту, но
     известное до первого куска. Паспорт молчит (mp4 без тегов) — ноль: тогда потолок веса
     считает по контейнеру целиком, то есть режет с запасом. Запас безопасен, недооценка нет.
     """

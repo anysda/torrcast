@@ -27,9 +27,9 @@ from torrcast.adapters.stream_probe.swarm_pulse import swarm_pulse
 from torrcast.adapters.torrserver.torr_server import META_STEP_MAX, TorrServer
 from torrcast.domain.audio_track import AudioTrack
 from torrcast.domain.media import Media
+from torrcast.domain.release import Release
 from torrcast.domain.server_down_error import ServerDownError
 from torrcast.domain.warm_open import KEYS_KEPT
-from torrcast.parse import Release
 
 if TYPE_CHECKING:
     from pathlib import Path

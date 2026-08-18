@@ -121,7 +121,7 @@ def test_the_key_changes_with_everything_that_changes_the_bytes() -> None:
     Иначе прогретое прошлого прогона подсунется под чужими именами: та же ``v7.ts``, но
     другая дорожка или другой битрейт перекода — и показ отдаст приёмнику не то кино.
     """
-    from torrcast.recode import Encode
+    from torrcast.adapters.recode import Encode
 
     grid = _grid()
     base = warm_key("http://ts/stream?link=abc&index=1", 0, grid)
@@ -155,8 +155,9 @@ def test_a_warmed_copy_heavier_than_the_ceiling_is_not_a_warmed_piece(tmp_path: 
     Прогрев кладёт фильм на диск копией, а тяжёлые места приводит к перекоду отдельным,
     поздним заходом (:meth:`torrcast.usecases.warm.Warmer._spots_left`). До него на месте тяжёлого
     куска лежит копия во весь свой вес, а показ берёт прогретое напрямую с диска - мимо
-    обоих мест, где вес зажат потолком (:meth:`torrcast.usecases.feed_pack.packer.Packer.publish`,
-    :meth:`torrcast.recode.Recoder.holding`).
+    обоих мест, где вес зажат потолком
+    (:meth:`torrcast.usecases.feed_pack.packer.Packer.publish`,
+    :meth:`torrcast.adapters.recode.Recoder.holding`).
 
     Замер на живом Q70D («Тачки» 2006, 1080p, 39% фильма тяжелее потолка): прогрев обгонял
     показ вчетверо, наружу уезжали прогретые копии по 17-44 МБ, и приёмник вставал на
@@ -999,8 +1000,8 @@ def test_a_light_film_is_warmed_by_the_very_copy_the_live_packing_gives(tmp_path
     упаковка отдавала копию релиза, а прогрев клал на диск сплошной ``ultrafast`` - другой
     профиль, другая энтропийная кодировка. Решение обязано быть одно на обоих.
     """
+    from torrcast.adapters.recode import Encode
     from torrcast.cli import _warmer
-    from torrcast.recode import Encode
 
     class _Heavy:
         targets = (1, 4)
@@ -1025,8 +1026,8 @@ def test_a_light_film_is_warmed_by_the_very_copy_the_live_packing_gives(tmp_path
 
 def test_an_undecodable_codec_still_recodes_both_the_show_and_the_warming(tmp_path: Path) -> None:
     """Обратная сторона того же правила: показ идёт сплошным перекодом - и прогрев тоже."""
+    from torrcast.adapters.recode import Encode
     from torrcast.cli import _warmer
-    from torrcast.recode import Encode
 
     whole = Encode(preset="ultrafast", mbit=6.0)
     config = Config(warm=True, warm_dir=str(tmp_path / "warm"))
@@ -1046,7 +1047,7 @@ def test_the_warmed_film_is_homogeneous_and_its_heavy_piece_is_recoded(
     ``-c:v copy``, каким его кладёт живая упаковка. Тяжёлый кусок - единственное место,
     где SPS меняется, и меняется он ровно там же и в живом показе.
     """
-    from torrcast.recode import Encode
+    from torrcast.adapters.recode import Encode
 
     grid = _grid()
     vault = _vault(tmp_path)
@@ -1166,7 +1167,7 @@ def test_the_recoding_run_of_the_warming_never_asks_the_pilot(
     тут подменён заведомо неверным ответом - если прогрев его спросит и послушает, кусок ляжет не на
     своё место.
     """
-    from torrcast.recode import Encode
+    from torrcast.adapters.recode import Encode
 
     asked: list[float] = []
 
@@ -1476,7 +1477,7 @@ def test_a_piece_over_the_receiver_ceiling_never_stops_the_warm_publishing(
 # --- TC-563: журнал прогрева не говорит, копией он идёт или перекодом -----------------
 # Режим выводился косвенно - по соседней метке «пробный прогон прогрева», которой у
 # перекодирующего захода нет вовсе, - и на этой недоговорённости срывался разбор живого
-# показа: цену соседства с прогревом (:data:`torrcast.recode.NEIGHBOUR_TOLL`, 33 %) искали
+# показа: цену соседства с прогревом (:data:`torrcast.adapters.recode.NEIGHBOUR_TOLL`, 33 %) искали
 # там, где прогрев шёл копией, а копия стоит соседу 2-3 %.
 
 
@@ -1489,8 +1490,8 @@ def test_the_warm_journal_says_whether_it_copies_or_recodes(
     обязана та самая строка, которую читают при разборе, а не та, которую можно вывести.
     """
     from torrcast.adapters.filesystem.stopwatch import read
+    from torrcast.adapters.recode import Encode
     from torrcast.domain.timeline_env import TIMELINE_ENV
-    from torrcast.recode import Encode
 
     lane = tmp_path / "лента.jsonl"
     monkeypatch.setenv(TIMELINE_ENV, str(lane))

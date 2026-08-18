@@ -9,7 +9,7 @@ from typing import Final
 from torrcast.adapters.recode.encode import Encode
 
 #: Пресет сплошного перекода - того, которым идёт ВЕСЬ файл, который не разрешено отдать
-#: копией (:meth:`torrcast.profile.Profile.verdict`). Выбирать тут не из чего, и это
+#: копией (:meth:`torrcast.domain.profile.Profile.verdict`). Выбирать тут не из чего, и это
 #: замер, а не осторожность: на стенде (4 vCPU) декод HEVC вместе с ``ultrafast`` даёт
 #: ~2× реального времени - двукратный запас, - а уже ``veryfast`` падает до 1.0-1.3×,
 #: то есть упаковка идёт вровень с показом и первый же трудный кусок её обгоняет.

@@ -40,7 +40,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from torrcast import TorrcastError, cli
 from torrcast.adapters.torrserver.torr_server import TorrServer
 from torrcast.console import Progress
-from torrcast.parse import Picture, Release
+from torrcast.domain.picture import Picture
+from torrcast.domain.release import Release
 from torrcast.state import load_config, state_path
 
 #: Каталог замера: своё состояние и свой кэш карт, рабочие не трогаются.

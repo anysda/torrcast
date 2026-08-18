@@ -51,9 +51,9 @@ def _search(
 ) -> list[_Plan]:
     """Поиск и разбор выдачи: запрос → картины франшизы, каждая со своим пулом релизов.
 
-    ``profile`` - чей декодер судит релизы (:mod:`torrcast.profile`). Пороги битрейта до
+    ``profile`` - чей декодер судит релизы (:mod:`torrcast.domain.profile`). Пороги битрейта до
     отбора доезжают сами - профиль накладывается на настройки ещё в ``_cmd_play``
-    (:func:`torrcast.profile.tune`), - а вот НАБОР КОДЕКОВ в настройках ключа не имеет, и
+    (:func:`torrcast.domain.tune.tune`), - а вот НАБОР КОДЕКОВ в настройках ключа не имеет, и
     спросить о нём можно только сам профиль (:func:`last_hope`). Умолчание осторожное, и
     пользуются им только ручки вроде ``cast voices``: ``cast releases`` передаёт
     обнаруженный профиль явно - таблица обязана судить про тот приёмник, на который
@@ -83,10 +83,10 @@ def _search(
     titled = False
     if (reread := _season_reread(args, name, index, found, pictures)) is not None:
         # 🔴 TC-363. У сериала номер это сезон, а не часть франшизы
-        # (:func:`~torrcast.parse.reads_season`), и дальше по строке он идёт ровно тем же
-        # путём, что и явное `sNeM`: своей сезонной машинерией, вплоть до честного
-        # «раздач с сезоном N нет». Молчать о таком прочтении нельзя - номер человек
-        # написал сам, и он вправе знать, чем мы его сочли.
+        # (:func:`~torrcast.domain.reads_season.reads_season`), и дальше по строке он идёт ровно тем
+        # же путём, что и явное `sNeM`: своей сезонной машинерией, вплоть до честного «раздач с
+        # сезоном N нет». Молчать о таком прочтении нельзя - номер человек написал сам, и он вправе
+        # знать, чем мы его сочли.
         progress.note(f"«{name}» - это сериал: номер {index} читаю сезоном, а не частью")
         args = reread
         query, index = name, None
@@ -133,12 +133,12 @@ def _search(
     if other := other_words(name, lead):
         progress.note(f"«{name}» - в каталоге это «{other}»")
     if lead is not None and lead.also:
-        # Склейка картин (:func:`~torrcast.parse.glue`) - решение автоматическое, и молчать
+        # Склейка картин (:func:`~torrcast.domain.glue.glue`) - решение автоматическое, и молчать
         # о нём нельзя: человек спросил одно имя, а в меню и в отборе теперь оба.
         progress.note(f"«{lead.also}» и «{lead.title}» - одна картина, раздач {len(lead.releases)}")
     progress.phase("")
     # Номер пункта меню человек читает как номер части и им же отвечает: «Тачки 2» обязаны
-    # стоять вторыми, а безномерные - после линейки (:func:`~torrcast.parse.menu_order`).
+    # стоять вторыми, а безномерные - после линейки (:func:`~torrcast.domain.menu_order.menu_order`).
     found = menu_order(found)
     plans = [plan for plan in (_plan_for(p, args, config, profile) for p in found) if plan.ranked]
     for line in season_gaps(found, {plan.picture.key for plan in plans}, args.episode):

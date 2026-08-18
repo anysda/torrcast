@@ -33,9 +33,9 @@ def _replay(rcv: _Talk, at: float) -> float:
 
     Терпение приёмника конечно и меньше нашего. Замер 09-08-2026 на живом Samsung
     Q70D развёл два срока, которые раньше слипались в «~4 минуты»: медиасессия
-    умирает через 23.5 с стоящей картинки (:attr:`torrcast.profile.Profile.patience`),
+    умирает через 23.5 с стоящей картинки (:attr:`torrcast.domain.profile.Profile.patience`),
     а приложение висит на экране ещё 301 с после её смерти
-    (:attr:`torrcast.profile.Profile.app_patience`). Пока сессия жива, приёмник сам
+    (:attr:`torrcast.domain.profile.Profile.app_patience`). Пока сессия жива, приёмник сам
     перезабирает пропавший кусок по HTTP - два раза с шагом ~11 с; повторами LOAD это
     не было никогда, ``media_session_id`` при этом не меняется. Дальше повторять LOAD
     изнутри :meth:`position` уже некому - сессии нет, - и без этого метода обрыв

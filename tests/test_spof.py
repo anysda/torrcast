@@ -11,7 +11,7 @@
 * убери ``contextlib.suppress`` / поток в :class:`~torrcast.usecases.passport.Passport` -
   тест на мёртвую справку начнёт видеть исключение или зависание (он живёт в
   ``tests/usecases/test_passport.py``);
-* урежь транслит-ветку :func:`~torrcast.parse.alt_query` - тест на второй язык потеряет
+* урежь транслит-ветку :func:`~torrcast.domain.alt_query.alt_query` - тест на второй язык потеряет
   «brat» и вернёт пусто, то есть второй заход поиска умрёт вместе со справкой.
 """
 
@@ -21,8 +21,9 @@ from tests.fakes.article_source import FakeArticleSource
 from tests.fakes.date_source import FakeDateSource
 from tests.fakes.name_catalogue import FakeNameCatalogue
 from tests.fakes.origin_store import FakeOriginStore
+from torrcast.domain.alt_query import alt_query
 from torrcast.domain.facts.origin import Origin
-from torrcast.parse import alt_query, transliterate
+from torrcast.domain.transliterate import transliterate
 from torrcast.usecases.passport import Passport
 
 

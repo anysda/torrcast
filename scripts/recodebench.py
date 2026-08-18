@@ -29,7 +29,7 @@
     доедет до показа неготовыми.
 
 ⚠️ Замер скорости не переносится на машину с другим числом ядер: числа в
-:data:`torrcast.recode.PRESETS` сняты на одной машине и на такой же должны пересниматься.
+:data:`torrcast.adapters.recode.PRESETS` сняты на одной машине и на такой же должны пересниматься.
 
 Источник у режимов, которым нужен файл, задаётся двояко: ``--film ХЕШ`` поднимает раздачу
 в TorrServer, ``--file ПУТЬ`` берёт файл с диска. Второе — не удобство: карта опорных
@@ -57,6 +57,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from probeprofile import choose as choose_profile
 from seekcheck import serve_file
 
+from torrcast.adapters.recode import Encode, Weights
 from torrcast.adapters.stream_pack.ffmpeg_pack_command import ffmpeg_pack_command
 from torrcast.adapters.stream_pack.film_keys import film_keys
 from torrcast.adapters.stream_pack.grid import Grid
@@ -67,8 +68,7 @@ from torrcast.adapters.stream_probe.probe import probe
 from torrcast.adapters.stream_probe.segment_slot import segment_slot
 from torrcast.adapters.torrserver.torr_server import TorrServer
 from torrcast.cli import _layout
-from torrcast.profile import Profile
-from torrcast.recode import Encode, Weights
+from torrcast.domain.profile import Profile
 from torrcast.search import magnet_for
 from torrcast.state import Config, load_config
 from torrcast.usecases.feed_pack.packer import Packer
@@ -261,16 +261,17 @@ def calibrate(
 ) -> None:
     """Чем врёт ранняя прикидка тяжести: предсказание против выложенной копии, кусок за куском.
 
-    Профиль тяжести (:class:`torrcast.recode.Weights`) считается по карте опорных кадров до
+    Профиль тяжести (:class:`torrcast.adapters.recode.Weights`) считается по карте опорных кадров до
     первого сегмента, и на нём стоит решение «класть копией или перекодировать». Байты
     карты — контейнер целиком, поэтому из них вычитается поправка «контейнер → ТВ»
-    (:attr:`~torrcast.recode.Weights.extra`), а она до первой калибровки известна только
-    паспортом ffprobe (:func:`torrcast.adapters.stream_pack.grid_for._extra_mbit`) — и известна
-    **одним числом на весь фильм**.
+    (:attr:`~torrcast.adapters.recode.Weights.extra`), а она до первой калибровки известна
+    только паспортом ffprobe
+    (:func:`torrcast.adapters.stream_pack.grid_for._extra_mbit`) — и известна **одним
+    числом на весь фильм**.
 
     Щуп пакует первые куски КОПИЕЙ — ровно тем, чем их положил бы показ, — и печатает три
     вещи на кусок: что обещала прикидка, что уехало на самом деле и куда после этого куска
-    сдвинулась бы поправка (:meth:`torrcast.recode.Weights.calibrate`). Отсюда и виден
+    сдвинулась бы поправка (:meth:`torrcast.adapters.recode.Weights.calibrate`). Отсюда и виден
     ответ на оба вопроса карточки: врёт ли прикидка одинаково по всему фильму и на каком
     по счёту куске поправка перестаёт ходить.
     """

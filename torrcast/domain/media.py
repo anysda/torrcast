@@ -126,7 +126,7 @@ class Media:
         туда же: без перекодирования его не ужать, а копией приёмник его не берёт (TC-157).
 
         Спрашивается тот же единственный судья, что и у показа
-        (:meth:`torrcast.profile.Profile.verdict`): строка и решение обязаны говорить об
+        (:meth:`torrcast.domain.profile.Profile.verdict`): строка и решение обязаны говорить об
         одном файле одно и то же.
         """
         if not recodes_whole(self.video or "", self.depth, frame=self.frame):

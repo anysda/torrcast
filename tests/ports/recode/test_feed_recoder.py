@@ -6,9 +6,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from tests.usecases.playback.world import film_keys, grid
+from torrcast.adapters.recode import Encode, Recoder, Weights
 from torrcast.ports.recode.encoding_rate import EncodingRate
 from torrcast.ports.recode.feed_recoder import FeedRecoder
-from torrcast.recode import Encode, Recoder, Weights
 
 
 @dataclass

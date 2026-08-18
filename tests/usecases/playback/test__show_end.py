@@ -8,11 +8,11 @@ from typing import cast
 import pytest
 
 from tests.usecases.revive_playback.world import FakeSupply, feed_with_segments
+from torrcast.adapters.recode import whole_encode
 from torrcast.domain.entry import Entry
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.profile import CAUTIOUS
 from torrcast.ports.stream_source import StreamSource
-from torrcast.recode import whole_encode
 from torrcast.usecases.playback._show_end import _blame_the_end, _close_show, _handover, _say_whole
 from torrcast.usecases.playback.stream_server import StreamServer
 from torrcast.usecases.watch import Watch

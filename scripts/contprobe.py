@@ -7,7 +7,7 @@
 
     python scripts/contprobe.py pools.jsonl
 
-Раскрытие франшизы в :func:`torrcast.parse.pick_franchise` держится на ключах вида
+Раскрытие франшизы в :func:`torrcast.domain.pick_franchise.pick_franchise` держится на ключах вида
 ``<франшиза>-и-<подзаголовок>``: таких групп-продолжений должно быть не меньше двух.
 Щуп считает два класса потерь вокруг этого правила:
 
@@ -20,9 +20,15 @@
   мимо меню.
 
 Ключ, который нашёл боевой разбор, щуп не угадывает: он подсматривает вызов
-:func:`torrcast.parse._both_languages` внутри :func:`~torrcast.parse.pick_franchise`
-(тот же приём, что :func:`poolreplay.watching_glue`), так что счёт идёт ровно по тому
-ключу и ровно по тем группам, с которыми работал продукт.
+:func:`torrcast.domain.both_languages._both_languages` внутри
+:func:`~torrcast.domain.pick_franchise.pick_franchise` (тот же приём, что
+:func:`poolreplay.watching_glue`), так что счёт идёт ровно по тому ключу и ровно по тем
+группам, с которыми работал продукт.
+
+⚠️ Подмена ставится в модуле, который имя ЧИТАЕТ. Раньше щуп подменял его в плоском
+фасаде разбора, а :func:`~torrcast.domain.pick_franchise.pick_franchise` берёт имя из
+своих глобалей - шпион не срабатывал НИ РАЗУ, и каждый запрос уходил в счёт «ключа
+не нашлось».
 
 Оба класса соседствуют с однофамильцами (``arcane-sorcerer`` рядом с ``arcane``), и щуп
 нарочно не отличает своих от чужих: он считает сырой класс, а читать список случаев -
@@ -35,6 +41,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -43,9 +50,11 @@ import poolreplay
 from probeprofile import add_argument as add_profile_argument
 from probeprofile import choose as choose_profile
 
-from torrcast import parse
 from torrcast.cli import Args
-from torrcast.parse import Picture, split_franchise_index
+from torrcast.domain import pick_franchise as pick_franchise_home
+from torrcast.domain.both_languages import _both_languages
+from torrcast.domain.picture import Picture
+from torrcast.domain.split_franchise_index import split_franchise_index
 from torrcast.state import load_config
 
 Groups = dict[str, list[Picture]]
@@ -54,15 +63,13 @@ Groups = dict[str, list[Picture]]
 #: (найденный ключ франшизы, группы каталога).
 calls: list[tuple[str, Groups]] = []
 
-_orig = parse._both_languages
-
 
 def _spy(groups: Groups, aliases: dict[str, str], key: str) -> list[Picture]:
     calls.append((key, groups))
-    return _orig(groups, aliases, key)
+    return _both_languages(groups, aliases, key)
 
 
-parse._both_languages = _spy
+patch.object(pick_franchise_home, "_both_languages", _spy).start()
 
 
 def continuations(key: str, groups: Groups) -> tuple[Groups, Groups]:

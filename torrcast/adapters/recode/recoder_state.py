@@ -34,9 +34,10 @@ class _State:
     weights: Weights
     threshold: float = 15.0
     #: Потолок веса одного куска - свойство ПРИЁМНИКА
-    #: (:attr:`torrcast.profile.Profile.max_segment_bytes`), то же число, которым меряет
-    #: показ (:attr:`torrcast.usecases.feed_pack.feed.Feed.cap`). Раньше каталог перекода судил по
-    #: :data:`torrcast.domain.hls_settings.MAX_SEGMENT_BYTES` - осторожному умолчанию, - и приёмник с
+    #: (:attr:`torrcast.domain.profile.Profile.max_segment_bytes`), то же число, которым
+    #: меряет показ (:attr:`torrcast.usecases.feed_pack.feed.Feed.cap`). Раньше каталог
+    #: перекода судил по :data:`torrcast.domain.hls_settings.MAX_SEGMENT_BYTES` -
+    #: осторожному умолчанию, - и приёмник с
     #: другим потолком получал от кодировщика не свою мерку. Умолчание тут то же
     #: осторожное, так что для Q70D не меняется ничего.
     cap: int = CAUTIOUS.max_segment_bytes

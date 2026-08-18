@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+from torrcast.adapters.recode import whole_encode
 from torrcast.ports.recode.encoding import Encoding
-from torrcast.recode import whole_encode
 from torrcast.usecases.playback.whole_encodings import WholeEncodings
 
 

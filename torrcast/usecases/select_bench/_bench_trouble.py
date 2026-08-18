@@ -45,7 +45,7 @@ class _BenchTrouble(_BenchWork):
         достаётся ровно тем релизам, у которых альтернативы нет.
 
         🔴 TC-221/TC-222. Кадр выше того, что берёт приёмник, здесь больше НЕ отказ:
-        сплошной перекод ужимает его вниз (:attr:`torrcast.profile.Profile.recode_frame`),
+        сплошной перекод ужимает его вниз (:attr:`torrcast.domain.profile.Profile.recode_frame`),
         и 2160p играется в 1080p. Прежний отказ стоял на объяснении «перекод 4К не
         успевает», а замер TC-157 его перевернул: со скейлом до 1080p тот же перекод идёт
         1.53x реального времени против 1.03x без скейла. Отказ остаётся ровно там, где
@@ -76,14 +76,14 @@ class _BenchTrouble(_BenchWork):
             if peak > ceiling:
                 return f"{reason}, ~{peak:.0f} Мбит/с"
         # ⚠️ Имя кодека тут не последнее слово: Hi10P зовётся ``h264``, а приёмник его не
-        # берёт (:meth:`torrcast.profile.Profile.verdict`). При выключенном перекодировании
+        # берёт (:meth:`torrcast.domain.profile.Profile.verdict`). При выключенном перекодировании
         # такой релиз - честный отказ отбора наравне с HEVC, и назван он своим именем:
         # «h264» в строке «не подошёл» человека бы только запутало.
         codec = prep.media.video_name or "h264"
         # 🔴 Судьба картинки решается ОДНИМ вызовом и в одном месте на весь код: копия,
-        # сплошной перекод или честный отказ (:meth:`torrcast.profile.Profile.verdict`).
+        # сплошной перекод или честный отказ (:meth:`torrcast.domain.profile.Profile.verdict`).
         # Белый список кодеков и глубина цвета - свойство ПРИЁМНИКА, а не показа: они
-        # приходят из его профиля (:mod:`torrcast.profile`).
+        # приходят из его профиля (:mod:`torrcast.domain.profile`).
         call = self.profile.verdict(prep.media.video or "", prep.media.depth, prep.media.frame)
         if pinned or call == COPY:
             return ""

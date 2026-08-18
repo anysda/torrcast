@@ -1,7 +1,4 @@
-"""Разбирает имя раздачи в :class:`~torrcast.domain.release.Release`.
-
-Зовут поиск и щупы через совместимый фасад :mod:`torrcast.parse`.
-"""
+"""Разбирает имя раздачи в :class:`~torrcast.domain.release.Release`."""
 
 from __future__ import annotations
 
