@@ -581,7 +581,7 @@ def test_an_eviction_says_who_was_thrown_out_and_how_much_it_freed(tmp_path: Pat
     Это единственный случай, когда прогрев трогает ЧУЖОЕ, и через неделю вопрос будет
     ровно один: почему вчерашний фильм не открылся с диска. Ответ обязан лежать полями.
     """
-    from torrcast.warm import META, Vault
+    from torrcast.usecases.warm import META, Vault
 
     root = tmp_path / "warm"
     old = Vault(root=root, key="старый", budget=1000, floor=0, title="Тачки 3")
@@ -607,7 +607,8 @@ def test_an_eviction_says_who_was_thrown_out_and_how_much_it_freed(tmp_path: Pat
 def test_a_piece_laid_off_the_grid_is_a_record_with_numbers(tmp_path: Path) -> None:
     """Промах укладки мимо сетки - поля, а не строка: где, на сколько, чем кончилось.
 
-    Дефект укладки мимо сетки прожил незамеченным неделями (:meth:`torrcast.warm.Warmer._verify`),
+    Дефект укладки мимо сетки прожил незамеченным неделями
+    (:meth:`torrcast.usecases.warm.Warmer._verify`),
     и вопрос через неделю будет ровно один: срабатывал ли сторож и на каких местах. Ответ
     обязан лежать числами - границей, фактическим началом и разницей между ними, - а не
     печататься в журнал показа, который гаснет вместе с ним.
@@ -635,7 +636,7 @@ def test_the_share_of_the_warmed_movie_is_a_field(tmp_path: Path) -> None:
     фильма, доля и вес каталога - по ним видно, докуда дошёл прогрев и почему встал.
     """
     from torrcast.stream import Grid
-    from torrcast.warm import Vault, Warmer
+    from torrcast.usecases.warm import Vault, Warmer
 
     grid = Grid.uniform(100.0)
     vault = Vault(root=tmp_path / "warm", key="k", budget=1 << 30, floor=0)
@@ -743,7 +744,7 @@ def test_doctor_says_whether_the_journal_is_alive(tmp_path: Path) -> None:
     Пустая лента ломает не показ, а разбор: узнать, что писать было некуда, надо до того,
     как понадобится вчерашний сеанс, - поэтому «внимание», а не «плохо».
     """
-    from torrcast.doctor import _trace
+    from torrcast.usecases.doctor import _trace
 
     line, ok = _trace()
     assert ok, "отсутствие следа - не отказ показа"
@@ -834,7 +835,7 @@ def test_cast_log_shows_the_timeline_and_the_query(
     журнале нет строки» читалось как «события не было».
     """
     from torrcast import cli
-    from torrcast.timing import mark
+    from torrcast.adapters.filesystem.stopwatch import mark
 
     trace.emit("search", "query", query="сталкер", raw=41, pictures=3)
     mark("отбор релиза", релиз=2)

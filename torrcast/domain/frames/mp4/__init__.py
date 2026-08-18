@@ -1,7 +1,7 @@
 """Карта опорных кадров mp4: таблицы ``stss``/``stts``/``ctts`` из ``moov``.
 
-Общее для всех контейнеров — в :mod:`torrcast.keymap`, там же и вход
-(:func:`torrcast.keymap.keyframes`). Здесь только боксы ISO BMFF.
+Общее для всех контейнеров — в :mod:`torrcast.domain.frames.keymap`, вход - в
+:func:`torrcast.adapters.frames.keyframes.keyframes`. Здесь только боксы ISO BMFF.
 
 Индекс mp4 устроен не как ``Cues`` mkv: одной таблицы «время → байт» в файле нет, она
 собирается из пяти.

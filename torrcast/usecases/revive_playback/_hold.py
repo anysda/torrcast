@@ -111,7 +111,8 @@ def _hold(
             _trace_line(session_tag, feed, position)
         if warmer is not None:
             # Приоритет живого окна держится ровно здесь: прогрев видит тот же запас, что
-            # и сторож приёмника, и на просевшем замирает (:meth:`torrcast.warm.Warmer._throttle`).
+            # и сторож приёмника, и на просевшем замирает
+            # (:meth:`torrcast.usecases.warm.Warmer._throttle`).
             warmer.feed(feed.front(position.pos) - position.pos)
             if warmer.done and feed.rest():
                 print("прогрето целиком - живую упаковку гашу, показ идёт с диска", flush=True)

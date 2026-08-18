@@ -143,8 +143,8 @@ def config_for(tmp_path: Path, tls: tuple[str, str]) -> Config:
     bind. Номер порта ни одному тесту ниже не интересен - он спрашивается у конфига.
 
     ``hls_keyframes=False``: карта опорных кадров снимается Range-запросами по HTTP
-    (:mod:`torrcast.mkv`), а источник у этих тестов — файл на диске, читать который тем же
-    способом неоткуда. Сетка по кадрам проверяется отдельно, ffmpeg'ом, в
+    (:mod:`torrcast.domain.frames.mkv`), а источник у этих тестов — файл на диске, читать
+    который тем же способом неоткуда. Сетка по кадрам проверяется отдельно, ffmpeg'ом, в
     :func:`test_the_same_name_holds_the_same_piece_wherever_packing_started`.
     """
     return Config(
@@ -163,7 +163,9 @@ def config_for(tmp_path: Path, tls: tuple[str, str]) -> Config:
 
 
 def _keys_of(clip: str) -> list[float]:
-    """Опорные кадры ролика — то же, что показ берёт из индекса mkv (:mod:`torrcast.mkv`).
+    """Опорные кадры ролика — то же, что показ берёт из индекса mkv.
+
+    Индекс разбирает :mod:`torrcast.domain.frames.mkv`.
 
     Здесь их можно взять честным перебором пакетов: ролик короткий и лежит на диске. На
     фильме через рой так делать нельзя — ради этого и написан разбор Cues.
@@ -491,7 +493,7 @@ def test_a_pause_on_the_remote_stops_packing(
     сегмент, и раздача начнёт паковать с этого самого места сама.
 
     Пауза тут выдерживается настоящая - дольше :data:`torrcast.cli.PAUSE_SECONDS`, - но
-    не выжидается: часы показа свои (:class:`torrcast.timing.Clock`), и опрос раз в 2 с
+    не выжидается: часы показа свои (:class:`torrcast.ports.clock.Clock`), и опрос раз в 2 с
     двигает их сам.
     """
     from torrcast import cli
@@ -769,7 +771,7 @@ def test_a_show_that_never_gave_a_frame_is_raised_from_the_start_of_the_picture(
 
     Ноль здесь - законное место картины, а не «поднимать неоткуда»: показ, умерший на
     первой секунде, обязан подниматься с первой секунды. Ответ о подъёме от этого не
-    портится - отказ у приёмника свой (:data:`torrcast.cast_core.NOT_RAISED`), и подъём с
+    портится - отказ у приёмника свой (:data:`torrcast.domain.not_raised.NOT_RAISED`), и подъём с
     начала фильма больше не читается как «приёмник показ не взял».
     """
     from torrcast import cli
@@ -1482,7 +1484,7 @@ def _blinking(
     Терпение приёмника задаётся, а не выжидается: живьём медиасессия Samsung Q70D живёт
     23.5 с стоящей картинки, а его приложение - ещё 301 с после этого, и тест, честно
     простоявший их, никто гонять не станет. Часы у показа и у заглушки одни и свои
-    (:class:`torrcast.timing.Clock`): настоящий :mod:`time` тут не трогают вовсе, потому и
+    (:class:`torrcast.ports.clock.Clock`): настоящий :mod:`time` тут не трогают вовсе, потому и
     исход не зависит от того, чем занята машина.
     """
     clock = _Ticker()

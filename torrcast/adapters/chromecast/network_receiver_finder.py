@@ -13,7 +13,7 @@ from torrcast.ports.progress import progress as progress_bar
 
 
 class NetworkReceiverFinder:
-    """Реализация порта поиска поверх :func:`torrcast.scan.find`.
+    """Реализация порта поиска поверх :func:`torrcast.adapters.chromecast.scan.find`.
 
     Про подсети, которые обойти не удалось, поиск молчать не вправе - их объяснение
     едет отдельно от списка (:meth:`notes`) и печатается сценарием перед меню.

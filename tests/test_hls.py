@@ -31,8 +31,10 @@ import requests
 
 from tests.conftest import CLIP_SECONDS, fake_packer, free_port, module_of
 from torrcast import stream
+from torrcast.adapters.frames.http_range_reader import HttpRangeReader as Reader
+from torrcast.adapters.frames.keyframes import keyframes
 from torrcast.cast import Report
-from torrcast.keymap import Reader, keyframes, video_track
+from torrcast.domain.frames.keymap import video_track
 from torrcast.stream import (
     HLS_SEGMENT_SECONDS,
     MAX_SEGMENT_BYTES,
@@ -2034,7 +2036,7 @@ def test_the_key_lock_stays_alive_while_its_holder_works(
     Иначе сосед, заглянувший на середине долгого разбора, увидит протухший замок и полезет
     читать тот же хвост вторым потоком: ровно то, ради чего замок и заведён.
     """
-    import torrcast.keymap as keymap_module
+    from torrcast.domain.frames import keymap as keymap_module
     from torrcast.stream import _fetching, _keys_cache, film_keys
 
     monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))

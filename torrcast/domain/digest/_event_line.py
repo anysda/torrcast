@@ -36,7 +36,8 @@ def _event_line(rec: Mapping[str, JsonValue], began: float, seam: bool = False) 
     if told is not None:
         return told
     if str(rec.get("phase", "")) == "timeline":
-        # Фазы критического пути (:func:`torrcast.timing.mark`) уходят в ленту ВСЕГДА, а до
+        # Фазы критического пути (:func:`torrcast.adapters.filesystem.stopwatch.mark`)
+        # уходят в ленту ВСЕГДА, а до
         # TC-194 не печатались НИКОГДА: своей ветки у них нет, и они выпадали в общий
         # «вернуть пусто» - целый класс событий, которого человек в `cast log` не видел,
         # хотя в jsonl он лежит. Имя фазы и её числа уже по-русски («отбор релиза

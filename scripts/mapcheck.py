@@ -26,9 +26,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from torrcast import TorrcastError
-from torrcast.keymap import HEAD_PEEK, Point, Reader, keyframes, video_track
-from torrcast.mkv import CLUSTER, _uint, _vint, _walk
-from torrcast.mkv import _Head as MkvHead
+from torrcast.adapters.frames.http_range_reader import HttpRangeReader as Reader
+from torrcast.adapters.frames.keyframes import HEAD_PEEK, keyframes
+from torrcast.domain.frames.keymap import Point, video_track
+from torrcast.domain.frames.mkv import CLUSTER, _uint, _vint, _walk
+from torrcast.domain.frames.mkv import _Head as MkvHead
 
 #: EBML-идентификаторы кластера, которые нужны сверке.
 TIMESTAMP = 0xE7

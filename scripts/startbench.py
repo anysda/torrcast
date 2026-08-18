@@ -30,7 +30,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from torrcast.timing import mark, read, report
+from torrcast.adapters.filesystem.stopwatch import mark, read
+from torrcast.adapters.filesystem.stopwatch_report import stopwatch_report as report
 
 BENCH = Path("/root/bench")
 CAST = "/opt/torrcast/venv/bin/cast"

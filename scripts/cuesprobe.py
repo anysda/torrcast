@@ -1,7 +1,8 @@
 """Секундомер снятия карты опорных кадров: где именно уходят 13–24 с холодного роя.
 
-Не часть продукта — измерительный щуп. Раскладывает :func:`torrcast.keymap.keyframes` на
-отдельные Range-запросы и печатает цену каждого: сколько байт и сколько секунд.
+Не часть продукта — измерительный щуп. Раскладывает снятие карты
+(:func:`torrcast.adapters.frames.keyframes.keyframes`) на отдельные Range-запросы и
+печатает цену каждого: сколько байт и сколько секунд.
 
     python3 scripts/cuesprobe.py --magnet 'magnet:?...' [--head 262144]
 """
@@ -16,8 +17,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from torrcast.keymap import Reader
-from torrcast.mkv import (
+from torrcast.adapters.frames.http_range_reader import HttpRangeReader as Reader
+from torrcast.domain.frames.mkv import (
     CLUSTER,
     CUES,
     DURATION,

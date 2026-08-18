@@ -1,7 +1,7 @@
 """Карта опорных кадров mkv: индекс ``Cues``.
 
-Общее для всех контейнеров — в :mod:`torrcast.keymap`, там же и вход
-(:func:`torrcast.keymap.keyframes`). Здесь только матрёшка EBML.
+Общее для всех контейнеров — в :mod:`torrcast.domain.frames.keymap`, вход - в
+:func:`torrcast.adapters.frames.keyframes.keyframes`. Здесь только матрёшка EBML.
 
 В mkv есть собственный индекс перемотки — элемент ``Cues``. В нём для каждого опорного
 кадра лежат время и позиция кластера в байтах, то есть готовая карта GOP: длительность —

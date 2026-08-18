@@ -13,9 +13,9 @@
 Подмену на стенде ставят именно на :class:`_Talk`, поэтому эти четыре ручки и стоят
 одним слоем.
 
-Сухой приёмник живёт в :mod:`torrcast.cast_mock`, общий договор - в
-:mod:`torrcast.cast_core`; оба реэкспортируются отсюда, потому что звать их привычно
-именно из ``torrcast.cast``.
+Сухой приёмник живёт в :mod:`torrcast.adapters.chromecast.mock.mock_receiver`, договор
+приёмника - в :mod:`torrcast.ports.receiver`; оба реэкспортируются отсюда, потому что
+звать их привычно именно из ``torrcast.cast``.
 """
 
 from torrcast.adapters.chromecast.cast.chromecast_receiver import ChromecastReceiver

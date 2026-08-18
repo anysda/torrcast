@@ -1,7 +1,7 @@
 """Системная среда самопроверки: обе половины проб под одним портом.
 
-Собирается композицией в фасаде :mod:`torrcast.doctor` и отдаётся сценарию
-:mod:`torrcast.usecases.doctor` целиком.
+Собирается композиционным корнем (:func:`torrcast.runtime.wire.wire`) и отдаётся
+сценарию :mod:`torrcast.usecases.doctor` целиком.
 """
 
 from torrcast.adapters.health.machine_probe import MachineProbe

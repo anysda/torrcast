@@ -43,7 +43,9 @@ def _hold_keys_lock(lock: Path, done: threading.Event) -> None:
 
 
 def film_keys(source_url: str) -> FilmKeys:
-    """Карта опорных кадров видео: из кэша или из индекса контейнера (:mod:`torrcast.keymap`).
+    """Карта опорных кадров видео: из кэша или из индекса контейнера.
+
+    Индекс снимает :mod:`torrcast.adapters.frames.keyframes`.
 
     Если карту уже снимает прогрев (:func:`warm_file`), ждём его, а не читаем индекс
     файла вторым потоком: рой от этого быстрее не станет, а старт показа удвоится.

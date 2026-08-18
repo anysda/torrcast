@@ -15,9 +15,9 @@ from typing import TYPE_CHECKING, Any
 import pytest
 import requests
 
-from torrcast import doctor
-from torrcast.doctor import KEY_INDEXER
+from torrcast.domain.indexer_health import KEY_INDEXER
 from torrcast.state import Config
+from torrcast.usecases import doctor
 
 if TYPE_CHECKING:
     pass
@@ -135,13 +135,13 @@ def test_live_probe_allows_a_slow_indexer_to_answer(monkeypatch: pytest.MonkeyPa
 def test_a_closed_port_still_turns_the_indexer_line_red() -> None:
     """Мёртвый индексер краснеет НАСТОЯЩИМ отказом порта, а не подменённой пробой.
 
-    Остальные проверки живой пробы подменяют :func:`torrcast.doctor._probe_indexer`
+    Остальные проверки живой пробы подменяют :func:`torrcast.usecases.doctor._probe_indexer`
     целиком, поэтому честности доктора они не доказывают: под заглушкой красным
     становится ровно то, что заглушке велели вернуть. Здесь порт закрыт по-настоящему,
     запрос уходит настоящий, и красной строку делает сам отказ соединения.
 
     Заодно снимается срок. У живого поиска терпение своё и длинное
-    (:data:`torrcast.doctor._INDEXER_TIMEOUT`), а идут пробы теперь по одной - и
+    (:data:`torrcast.usecases.doctor._INDEXER_TIMEOUT`), а идут пробы теперь по одной - и
     закрытый порт не имеет права выесть это терпение целиком, иначе доктор на десятке
     мёртвых индексеров встал бы на минуты вместо мгновенного отказа.
     """
@@ -274,14 +274,14 @@ def test_cache_unreadable_settings_do_not_fail_checkup(monkeypatch: pytest.Monke
 
 
 def _mdns_result(monkeypatch: pytest.MonkeyPatch, result: object) -> None:
-    from torrcast import scan
+    from torrcast.adapters.chromecast import scan
 
     monkeypatch.setattr(scan, "by_mdns", lambda *_a, **_k: result)
 
 
 def test_mdns_heard_receivers_is_ok(monkeypatch: pytest.MonkeyPatch) -> None:
     """Эфир ответил: строка зелёная, и в ней имена - они и есть смысл mDNS."""
-    from torrcast import scan
+    from torrcast.adapters.chromecast import scan
 
     _mdns_result(monkeypatch, scan.Mdns(devices=[scan.Device("10.0.0.50", name="Samsung Q70D")]))
     line, good = doctor._mdns()
@@ -291,7 +291,7 @@ def test_mdns_heard_receivers_is_ok(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_mdns_missing_module_is_bad(monkeypatch: pytest.MonkeyPatch) -> None:
     """Нет zeroconf - это сломанная установка (системный python), а не свойство сети."""
-    from torrcast import scan
+    from torrcast.adapters.chromecast import scan
 
     _mdns_result(monkeypatch, scan.Mdns(reason="module", note="mDNS не слушаю: нет zeroconf"))
     line, good = doctor._mdns()
@@ -301,7 +301,7 @@ def test_mdns_missing_module_is_bad(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_mdns_silence_is_a_warning_not_a_failure(monkeypatch: pytest.MonkeyPatch) -> None:
     """Тишина в эфире - «внимание»: адреса найдёт обход подсетей, теряются только имена."""
-    from torrcast import scan
+    from torrcast.adapters.chromecast import scan
 
     _mdns_result(monkeypatch, scan.Mdns(reason="silence", note="mDNS слушал 4 сек - тишина"))
     line, good = doctor._mdns()

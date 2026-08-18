@@ -29,7 +29,7 @@ class _State(_Settings):
         self.profile = profile
         #: Чем меряются выдержки приёмника: ожидание картинки после LOAD, пауза перед
         #: повтором, часы сторожа подвиса. Умолчание - настоящее время; сухому прогону
-        #: сюда дают свои часы, чтобы не выжидать эти минуты (:class:`torrcast.timing.Clock`).
+        #: сюда дают свои часы, чтобы не выжидать эти минуты (:class:`torrcast.ports.clock.Clock`).
         self.clock: Clock = clock if clock is not None else SystemClock()
         self._cast: Any = None
         self._url = ""

@@ -14,6 +14,8 @@ from dataclasses import dataclass as dataclass
 from typing import TYPE_CHECKING as TYPE_CHECKING
 
 from torrcast import trace as trace
+from torrcast.adapters.filesystem.stopwatch import mark as mark
+from torrcast.adapters.system_clock import CLOCK as CLOCK
 from torrcast.cast import ChromecastReceiver as ChromecastReceiver
 from torrcast.cast import make_receiver as make_receiver
 from torrcast.console import ask_line as ask_line
@@ -37,8 +39,6 @@ from torrcast.stream import stop_play_unit as stop_play_unit
 from torrcast.stream import unit_active as unit_active
 from torrcast.stream import unit_why as unit_why
 from torrcast.stream import warm_file as warm_file
-from torrcast.timing import CLOCK as CLOCK
-from torrcast.timing import mark as mark
 from torrcast.usecases import playback as _implementation
 from torrcast.usecases.playback import *
 

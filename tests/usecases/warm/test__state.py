@@ -32,9 +32,11 @@ def test_the_grid_of_the_warming_is_the_port_protocol() -> None:
 
 
 def test_the_slots_are_wired_by_the_application() -> None:
-    """Живое приложение уже заполнило слоты: имена кусков и потолки на месте."""
-    import torrcast.warm  # noqa: F401  побочный эффект: композиция зовёт configure
+    """Живое приложение уже заполнило слоты: имена кусков и потолки на месте.
 
+    Заполняет их композиционный корень (:func:`torrcast.runtime.wire.wire`) - его зовёт
+    ``tests.conftest._wired`` на весь прогон.
+    """
     assert _state.segment_name(3) == "v3.ts"
     assert _state.segment_slot("v3.ts") == 3
     assert _state.MAX_SEGMENT_BYTES > 0 and _state.TS_OVERHEAD > 1.0

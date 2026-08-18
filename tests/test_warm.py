@@ -1,4 +1,4 @@
-"""Прогрев показа на диск (:mod:`torrcast.warm`): что греется, как это читает показ,
+"""Прогрев показа на диск (:mod:`torrcast.usecases.warm`): что греется, как это читает показ,
 как убирается и почему обрыв связи перестал быть смертью.
 
 Живьём это проверяется на телевизоре с реально выключенным интернетом; здесь — регрессия
@@ -25,6 +25,7 @@ from torrcast.adapters import warm_environment
 from torrcast.cast import MockReceiver, Position, trust_anchor
 from torrcast.cli import Watch as _Watch
 from torrcast.cli import _Clock, _play, _Stopped
+from torrcast.domain.warm_settings import WARM_BUDGET
 from torrcast.state import Config, Entry, State
 from torrcast.stream import (
     SPLIT_SLACK,
@@ -37,7 +38,7 @@ from torrcast.stream import (
     pack_start,
     segment_name,
 )
-from torrcast.warm import (
+from torrcast.usecases.warm import (
     FREE_FLOOR,
     GUARD_HIGH,
     GUARD_LOW,
@@ -47,7 +48,6 @@ from torrcast.warm import (
     SKEW_MAX,
     SKEW_TRIES,
     STARVE_GRACE,
-    WARM_BUDGET,
     Vault,
     Warmer,
     segment_start,
@@ -151,7 +151,7 @@ def test_a_warmed_copy_heavier_than_the_ceiling_is_not_a_warmed_piece(tmp_path: 
     """Прогретая копия тяжелее потолка приёмника наружу не идёт и запасом не считается.
 
     Прогрев кладёт фильм на диск копией, а тяжёлые места приводит к перекоду отдельным,
-    поздним заходом (:meth:`torrcast.warm.Warmer._spots_left`). До него на месте тяжёлого
+    поздним заходом (:meth:`torrcast.usecases.warm.Warmer._spots_left`). До него на месте тяжёлого
     куска лежит копия во весь свой вес, а показ берёт прогретое напрямую с диска - мимо
     обоих мест, где вес зажат потолком (:meth:`torrcast.stream.Packer.publish`,
     :meth:`torrcast.recode.Recoder.holding`).
@@ -1487,11 +1487,12 @@ def test_the_warm_journal_says_whether_it_copies_or_recodes(
     Настоящие заходы обоими режимами, а не разбор аргументов ffmpeg: сказать про режим
     обязана та самая строка, которую читают при разборе, а не та, которую можно вывести.
     """
-    from torrcast import timing
+    from torrcast.adapters.filesystem.stopwatch import read
+    from torrcast.domain.timeline_env import TIMELINE_ENV
     from torrcast.recode import Encode
 
     lane = tmp_path / "лента.jsonl"
-    monkeypatch.setenv(timing.TIMELINE_ENV, str(lane))
+    monkeypatch.setenv(TIMELINE_ENV, str(lane))
     grid = _grid()
 
     copied: list[str] = []
@@ -1506,7 +1507,7 @@ def test_the_warm_journal_says_whether_it_copies_or_recodes(
         rate=0.0, slack=1e6, encode=Encode(preset="ultrafast", mbit=1.0), log=recoded.append,
     )._run(0, 0)  # fmt: skip
 
-    ways = [m.get("режим") for m in timing.read(lane) if m.get("name") == "прогрев пошёл"]
+    ways = [m.get("режим") for m in read(lane) if m.get("name") == "прогрев пошёл"]
     assert ways == ["копия", "перекод"], f"журнал не назвал режим захода прогрева: {ways}"
     assert any("копией" in line for line in copied), (
         f"копирующий заход не назвал себя человеку: {copied}"

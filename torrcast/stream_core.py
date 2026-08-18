@@ -188,5 +188,5 @@ from typing import TYPE_CHECKING, Any, Final
 from urllib.parse import quote
 
 from torrcast import InfraError, SwarmError, why
+from torrcast.domain.timeline_env import TIMELINE_ENV
 from torrcast.profile import CAUTIOUS, COPY, Profile
-from torrcast.timing import TIMELINE_ENV

@@ -15,8 +15,8 @@ import time
 
 import pytest
 
-from torrcast import scan
-from torrcast.scan import Device, Net
+from torrcast.adapters.chromecast import scan
+from torrcast.adapters.chromecast.scan import Device, Net
 
 
 def test_an_open_port_is_not_a_receiver_yet() -> None:

@@ -77,7 +77,7 @@ class _RangeHandler(http.server.SimpleHTTPRequestHandler):
     """Отдача файла с поддержкой Range: без неё карту опорных кадров не снять.
 
     ``SimpleHTTPRequestHandler`` Range не умеет вовсе и отвечает на него всем файлом —
-    для :mod:`torrcast.keymap` это значит «тянем весь фильм ради индекса в хвосте».
+    для :mod:`torrcast.domain.frames.keymap` это значит «тянем весь фильм ради индекса в хвосте».
     """
 
     path_on_disk: Path

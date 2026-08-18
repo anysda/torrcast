@@ -30,7 +30,7 @@ CUE_TRACK_POSITIONS: Final = 0xB7
 CUE_TRACK: Final = 0xF7
 CUE_CLUSTER_POSITION: Final = 0xF1
 
-#: Запасной размер головы: :data:`~torrcast.keymap.HEAD_PEEK` не хватило (длинный
+#: Запасной размер головы: :data:`~torrcast.adapters.frames.keyframes.HEAD_PEEK` не хватило (длинный
 #: SeekHead, толстые теги).
 HEAD_BYTES: Final = 4 << 20
 #: Сколько берём с места Cues одним куском. Тело Cues - сотни килобайт (замерено: 163,
@@ -130,9 +130,10 @@ class _Head:
 def keys(reader: Reader, head: bytes) -> KeyMap:
     """Карта опорных кадров mkv. ``head`` — уже прочитанные :data:`HEAD_PEEK` байт.
 
-    Заходов к рою ровно два (:data:`~torrcast.keymap.HEAD_PEEK` и :data:`CUES_CHUNK`), и
-    оба — минимально возможного размера: у холодной раздачи цена карты — это не байты, а
-    сколько раз мы заставили рой отдать новое место и сколько ждали перед следующим
+    Заходов к рою ровно два (:data:`~torrcast.adapters.frames.keyframes.HEAD_PEEK` и
+    :data:`CUES_CHUNK`), и оба — минимально возможного размера: у холодной раздачи цена
+    карты — это не байты, а сколько раз мы заставили рой отдать новое место и сколько ждали
+    перед следующим
     запросом.
     """
     facts = _Head(head)

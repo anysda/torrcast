@@ -13,7 +13,8 @@ def hush_cosmetic_noise() -> None:
     """Повесить :class:`_Cosmetic` на логгер pychromecast; звать можно сколько угодно.
 
     Зовётся отовсюду, где поднимается pychromecast: и перед показом
-    (:meth:`ChromecastReceiver._device`), и при поиске приёмников (:mod:`torrcast.scan`).
+    (:meth:`ChromecastReceiver._device`), и при поиске приёмников
+    (:mod:`torrcast.adapters.chromecast.scan`).
     """
     logger = logging.getLogger(_DIAL_LOGGER)
     if not any(isinstance(one, _Cosmetic) for one in logger.filters):

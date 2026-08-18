@@ -7,7 +7,7 @@
 поэтому число «сколько лягет на диск» тут не оценка на глаз, а расчёт показа.
 
 Рядом печатается ``запрос`` - то, на что прогрев просит места у бюджета перед заходом
-(:meth:`torrcast.warm.Warmer._forecast`): зовётся сам предсказатель, а не переписанная
+(:meth:`torrcast.usecases.warm.Warmer._forecast`): зовётся сам предсказатель, а не переписанная
 тут арифметика, поэтому расхождение «запроса» с «копией» - это и есть ошибка прогрева,
 а не ошибка щупа.
 
@@ -35,6 +35,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from probeprofile import add_argument as add_profile_argument
 from probeprofile import choose as choose_profile
 
+from torrcast.domain.warm_settings import WARM_BUDGET
 from torrcast.state import load_config
 from torrcast.stream import (
     AUDIO_MBIT,
@@ -44,7 +45,7 @@ from torrcast.stream import (
     _read_keys,
     _weigher,
 )
-from torrcast.warm import WARM_BUDGET, Vault, Warmer
+from torrcast.usecases.warm import Vault, Warmer
 
 
 @dataclass(frozen=True)
@@ -123,7 +124,7 @@ def main() -> int:
         )
         # Два веса на один и тот же кусок. Копия - то, что прогрев кладёт на диск сразу
         # и чем занимает бюджет всё время показа; перекод - то, во что тяжёлые места
-        # приводятся поздним заходом (:meth:`torrcast.warm.Warmer._spots_left`).
+        # приводятся поздним заходом (:meth:`torrcast.usecases.warm.Warmer._spots_left`).
         copy = _weigher(keys.at, keys.offset, extra, 0.0)
         weigh = _weigher(keys.at, keys.offset, extra, ceiling)
         sizes = [copy(grid.start(k), grid.end(k)) for k in range(grid.count)]

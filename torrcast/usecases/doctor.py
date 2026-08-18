@@ -10,9 +10,9 @@ ffmpeg с ``-readrate_initial_burst`` и серт, если кто-то вклю
 живёт правилами в :mod:`torrcast.domain`, КАК УЗНАТЬ - за портом
 :class:`torrcast.ports.health_environment.HealthEnvironment`; здесь только порядок проб.
 
-⚠️ Среда приходит полем модуля, а не конструктором: её кладёт композиция (фасад
-:mod:`torrcast.doctor`). Так у проб остаются прежние подписи, а тест подменяет среду
-одной пробе аргументом, не трогая соседние.
+⚠️ Среда приходит полем модуля, а не конструктором: её кладёт композиционный корень
+(:func:`torrcast.runtime.wire.wire`). Так у проб остаются прежние подписи, а тест
+подменяет среду одной пробе аргументом, не трогая соседние.
 """
 
 from collections.abc import Iterator
@@ -49,8 +49,8 @@ _INDEXER_TIMEOUT = 15.0
 #: своим бюджетом и запасом, а также состояние и система. То же число складывает
 #: установка (``install.sh``: тот же ``WARM_BUDGET`` плюс ``TS_DISK_FLOOR``).
 CACHE_DISK_RESERVE = WARM_BUDGET + FREE_FLOOR
-#: Порт приёмника кладёт композиция при импорте фасада ``torrcast.doctor``; сама среда
-#: лежит одна на всех её читателей (:mod:`torrcast.usecases.doctor_environment`).
+#: Порт приёмника кладёт композиционный корень (:func:`torrcast.runtime.wire.wire`); сама
+#: среда лежит одна на всех её читателей (:mod:`torrcast.usecases.doctor_environment`).
 CAST_PORT: int
 
 

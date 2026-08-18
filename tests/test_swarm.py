@@ -476,7 +476,7 @@ def test_a_slow_swarm_is_not_mistaken_for_an_empty_one_by_the_pick(
 
 def _fake_map(monkeypatch: pytest.MonkeyPatch) -> None:
     """Снятие карты без роя и без файла: тут проверяется полка, а не разбор Cues."""
-    import torrcast.keymap as keymap_mod
+    from torrcast.domain.frames import keymap as keymap_mod
 
     def keyframes(_: str) -> Any:
         return keymap_mod.KeyMap(60.0, (keymap_mod.Point(0.0, 0, 0),), 0, 0, "mkv")

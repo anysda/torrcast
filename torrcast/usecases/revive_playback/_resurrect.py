@@ -47,7 +47,7 @@ def _resurrect(
     0:02 - лестница поднимала показ и дальше он шёл как ни в чём не бывало; остался
     на нуле - рабочий юнит выходил, а перед человеком оставался чёрный экран.
     Место у такого показа есть, и оно законное: начало картины. Отрицательного места
-    у фильма не бывает - вот его и держим отказом (:data:`torrcast.cast_core.NOT_RAISED`).
+    у фильма не бывает - вот его и держим отказом (:data:`torrcast.domain.not_raised.NOT_RAISED`).
     """
     now = state.clock.monotonic()
     if not isinstance(receiver, _Revivable) or pos < 0:
@@ -98,7 +98,7 @@ def _resurrect(
     # место, где показ как раз НЕ пошёл, - ровно поверх честной строки о перешагнутом
     # куске. Двух мнений о том, откуда идёт фильм, у зрителя быть не должно.
     # ⚠️ Удачу отличает знак, а не «непусто»: поднятый с начала картины показ отвечает
-    # нулём, и он же - законное место (:data:`torrcast.cast_core.NOT_RAISED`).
+    # нулём, и он же - законное место (:data:`torrcast.domain.not_raised.NOT_RAISED`).
     back = receiver.replay(pos)
     raised = back >= 0
     journal().revive(pos=back if raised else pos, tries=state.tries, waited=dark, ok=raised)

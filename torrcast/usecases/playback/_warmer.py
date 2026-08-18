@@ -88,7 +88,7 @@ def _warmer(
         began_at=grid.slot_at(start),
         # Потолок веса куска - свойство приёмника, и прогреву он нужен ровно затем, чтобы
         # «прогрето NN» называло то, что показ и правда возьмёт с диска
-        # (:attr:`torrcast.warm.Warmer.warmed`, :meth:`torrcast.stream.Feed._warm`).
+        # (:attr:`torrcast.usecases.warm.Warmer.warmed`, :meth:`torrcast.stream.Feed._warm`).
         cap=profile.max_segment_bytes,
         rate=config.warm_rate,
         follow=follow,
@@ -107,7 +107,7 @@ def _next_warmer(
     """Прогрев СЛЕДУЮЩЕЙ серии - тем же механизмом, каким грелась текущая.
 
     Зовётся лениво и ровно один раз: когда текущая серия уже лежит на диске целиком и
-    больше не нуждается ни в одном байте раздачи (:meth:`torrcast.warm.Warmer._chain`).
+    больше не нуждается ни в одном байте раздачи (:meth:`torrcast.usecases.warm.Warmer._chain`).
     Раньше этого момента следующая серия не имеет права ни на полосу, ни на процессор.
 
     ⚠️ Побочный смысл этой сборки не меньше самого прогрева. Автопереход на следующую
@@ -126,7 +126,7 @@ def _next_warmer(
     media = _state.probe(source, timeout=WORKER_DUR)
     video_mbit = max(0.0, media.video_bps / 1e6)
     # 🔴 Профиль тот же, что у показа: разойдись они - прогретое ляжет под другим ключом
-    # (:func:`torrcast.warm.warm_key`), и показ своего же прогретого не найдёт.
+    # (:func:`torrcast.usecases.warm.warm_key`), и показ своего же прогретого не найдёт.
     grid, whole = _layout(
         config,
         source,

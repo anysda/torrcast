@@ -152,8 +152,11 @@ from torrcast import (
     TorrcastError,
     __version__,
     console,  # через модуль: терминал спрашиваем там же, где и сами вопросы
-    scan,  # через модуль: поиск приёмников тесты подменяют целиком
 )
+
+# Через модуль: поиск приёмников тесты подменяют целиком.
+from torrcast.adapters.chromecast import scan
+from torrcast.adapters.chromecast.scan import Device
 from torrcast.cast import ChromecastReceiver, Receiver, make_receiver
 
 # Разложенные по слоям сценарии читают пороги отсюда прямо на своём импорте, поэтому
@@ -218,7 +221,6 @@ from torrcast.profile import tune as tune_profile
 from torrcast.runtime.configure_command import configure_command as _cmd_configure
 from torrcast.runtime.status_command import status_command as _cmd_status
 from torrcast.runtime.stop_command import stop_command as _cmd_stop
-from torrcast.scan import Device
 from torrcast.state import Config, Entry, State, load_config, save_config
 from torrcast.stream import (
     KEYS_WAIT,

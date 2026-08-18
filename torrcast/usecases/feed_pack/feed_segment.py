@@ -82,7 +82,7 @@ def _warm(state: _State, slot: int) -> Path | None:
     зажат потолком приёмника (:meth:`Packer.publish`,
     :meth:`torrcast.recode.Recoder.holding`). Прогрев же кладёт фильм на диск копией,
     а тяжёлые места приводит к перекоду отдельным, ПОЗДНИМ заходом
-    (:meth:`torrcast.warm.Warmer._spots_left`) - до него на месте тяжёлого куска лежит
+    (:meth:`torrcast.usecases.warm.Warmer._spots_left`) - до него на месте тяжёлого куска лежит
     копия во весь свой вес.
 
     Замер, ради которого правило написано («Тачки» 2006, 1080p, 39% фильма тяжелее

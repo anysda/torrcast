@@ -14,7 +14,7 @@ _PASS_ENV: Final = (
     "TORRCAST_CONFIG",
     "TORRCAST_STATE",
     # Каталог прогретого - такое же переопределение путей, как состояние и конфиг
-    # (:data:`torrcast.warm.WARM_ENV`). Без него юнит грел бы в боевое хранилище и
+    # (:data:`torrcast.usecases.warm.WARM_ENV`). Без него юнит грел бы в боевое хранилище и
     # вытеснял из него чужое по бюджету, пока снаружи шёл заведомо тестовый показ.
     "TORRCAST_WARM",
     "TORRCAST_TRACE",
