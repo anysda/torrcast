@@ -69,9 +69,12 @@ def _read_media(cache: Path) -> Media | None:
     return None
 
 
-def _keep_media(cache: Path, media: Media) -> None:
+def _keep_media(cache: Path, media: Media, kept: int = PROBE_KEPT) -> None:
     """Положить паспорт в кэш. Осечка записи молча игнорируется: кэш - ускорение, а не
-    источник правды, и показ обязан идти и без него."""
+    источник правды, и показ обязан идти и без него.
+
+    ``kept`` - сколько паспортов остаётся на полке. Умолчание боевое (512); называет своё
+    только стенд, которому нужен потолок в несколько файлов, а не в пять сотен."""
     if media.duration <= 0 or not media.tracks:
         # Паспорт без длительности и дорожек - это не паспорт, а недочитанный заголовок:
         # такой в кэш класть нельзя, иначе осечка одного запуска станет вечной.
@@ -98,4 +101,4 @@ def _keep_media(cache: Path, media: Media) -> None:
             encoding="utf-8",
         )
         tmp.replace(cache)
-    _trim(cache.parent, PROBE_KEPT)
+    _trim(cache.parent, kept)

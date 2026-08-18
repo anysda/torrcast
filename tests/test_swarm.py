@@ -19,7 +19,6 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 
 import pytest
 
-from tests.conftest import module_of
 from tests.fakes import composition
 from tests.test_cli import _FakeTorrServer, _plan, _probes, _resolve, rel
 from torrcast import InfraError, NotFoundError, SwarmError
@@ -38,10 +37,6 @@ from torrcast.usecases.select_bench import Bench
 
 if TYPE_CHECKING:
     from pathlib import Path
-
-#: Модуль, а не одноимённая единица из пакета: правки для проб ставятся туда, откуда
-#: их читает сам код.
-film_keys_module = module_of("torrcast.adapters.stream_pack.film_keys")
 
 
 def test_run_ffprobe_returns_the_moment_the_probe_exits() -> None:
@@ -507,16 +502,16 @@ def test_the_key_shelf_is_trimmed_and_what_was_asked_today_survives(
     from torrcast.adapters.stream_pack.film_keys import film_keys
 
     monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
-    monkeypatch.setattr(film_keys_module, "KEYS_KEPT", 8)
     keys_of = _fake_map()
 
     for number in range(8):  # полка ровно под потолок, и вся она «старая»
-        film_keys(_url(number), keys_of=keys_of)
+        film_keys(_url(number), keys_of=keys_of, kept=8)
         os.utime(_keys_cache(_url(number)), (number, number))
-    assert film_keys(_url(0), keys_of=keys_of).duration == 60.0, "старейшую карту взяли с полки"
+    got = film_keys(_url(0), keys_of=keys_of, kept=8)
+    assert got.duration == 60.0, "старейшую карту взяли с полки"
 
     for number in range(100, 104):  # четыре новых фильма выдавливают полку за потолок
-        film_keys(_url(number), keys_of=keys_of)
+        film_keys(_url(number), keys_of=keys_of, kept=8)
     shelf = _keys_cache(_url(0)).parent
     left = {path.stem for path in shelf.glob("*.json")}
     assert len(left) <= 8, f"полка переросла потолок: {len(left)} карт"
@@ -533,21 +528,19 @@ def test_the_probe_shelf_is_trimmed_by_the_same_rule(
     Паспортов заводится больше, чем карт: их снимают и на релизы, которые показом так и
     не стали. Потому и потолок отдельный.
     """
-    from torrcast.adapters.stream_probe import media_shelf
     from torrcast.adapters.stream_probe.media_shelf import _keep_media, _media_cache, _read_media
 
     monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
-    # Потолок полки читает та же запись паспорта, которую здесь и зовут.
-    monkeypatch.setattr(media_shelf, "PROBE_KEPT", 8)
     passport = Media(3600.0, (AudioTrack(0, "rus", "", "aac", 2),), "h264")
 
+    # Потолок полки держит та же запись паспорта, которую здесь и зовут.
     for number in range(8):
-        _keep_media(_media_cache(_url(number)), passport)
+        _keep_media(_media_cache(_url(number)), passport, kept=8)
         os.utime(_media_cache(_url(number)), (number, number))
     assert _read_media(_media_cache(_url(0))) is not None, "старейший паспорт спросили"
 
     for number in range(100, 104):
-        _keep_media(_media_cache(_url(number)), passport)
+        _keep_media(_media_cache(_url(number)), passport, kept=8)
     shelf = _media_cache(_url(0)).parent
     left = {path.stem for path in shelf.glob("*.json")}
     assert len(left) <= 8, f"полка паспортов переросла потолок: {len(left)}"
@@ -567,7 +560,6 @@ def test_junk_on_the_shelf_is_ignored_and_never_crashes_the_start(
     from torrcast.adapters.stream_pack.film_keys import film_keys
 
     monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
-    monkeypatch.setattr(film_keys_module, "KEYS_KEPT", 4)
     keys_of = _fake_map()
 
     cache = _keys_cache(_url(0))
@@ -576,12 +568,13 @@ def test_junk_on_the_shelf_is_ignored_and_never_crashes_the_start(
     alien.write_text("не наше дело", "utf-8")
     for junk in ('{"duration": 60.0, "keys": [0.0, 1', "", '{"keys": []}', "[1, 2, 3]"):
         cache.write_text(junk, "utf-8")
-        assert film_keys(_url(0), keys_of=keys_of).duration == 60.0, f"мусор {junk!r} уронил старт"
+        got = film_keys(_url(0), keys_of=keys_of, kept=4)
+        assert got.duration == 60.0, f"мусор {junk!r} уронил старт"
         assert cache.read_text("utf-8") != junk, "мусор перезаписан снятой картой"
 
     for number in range(20):  # подрезка обязана пережить мусор рядом
         cache.with_name(f"{number:016x}.json").write_text("не json", "utf-8")
-        film_keys(_url(number + 1), keys_of=keys_of)
+        film_keys(_url(number + 1), keys_of=keys_of, kept=4)
     assert alien.exists(), "подрезка тронула чужой файл"
 
 
