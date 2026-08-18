@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from torrcast.usecases.feed_pack._segment_files import _names, _paths
+from torrcast.adapters.stream_pack._segment_files import _names, _paths
 
 if TYPE_CHECKING:
     from pathlib import Path

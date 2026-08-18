@@ -6,9 +6,9 @@
 from __future__ import annotations
 
 import contextlib
+import subprocess
 from pathlib import Path
 
-import torrcast.usecases.feed_pack._state as _state
 from torrcast.domain.probe_settings import _TIMEOUT
 
 
@@ -34,8 +34,8 @@ def timeline_shift(copy: Path, recode: Path, timeout: float = _TIMEOUT) -> float
             "-show_entries", "packet=pts_time", "-of", "csv=p=0", str(path),
         ]  # fmt: skip
         try:
-            done = _state.subprocess.run(command, capture_output=True, timeout=timeout, check=False)
-        except (OSError, _state.subprocess.SubprocessError):
+            done = subprocess.run(command, capture_output=True, timeout=timeout, check=False)
+        except (OSError, subprocess.SubprocessError):
             return None
         found = []
         for line in done.stdout.decode("utf-8", "replace").splitlines():

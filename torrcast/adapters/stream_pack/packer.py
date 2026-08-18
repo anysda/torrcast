@@ -5,18 +5,21 @@
 
 from __future__ import annotations
 
+import shutil
+import subprocess
+import tempfile
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
-import torrcast.usecases.feed_pack._state as _state
+from torrcast.adapters.stream_pack.packer_finished import _cuts, _drift, _finished
+from torrcast.adapters.stream_pack.packer_measure import _eta, _frontier, _pending
+from torrcast.adapters.stream_pack.packer_publish import _lay_out
+from torrcast.adapters.stream_pack.packer_state import _Asked, _State, _Told
+from torrcast.adapters.stream_pack.packer_stop import _stop, _why
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.profile import CAUTIOUS
-from torrcast.usecases.feed_pack._state import Grid
-from torrcast.usecases.feed_pack.packer_finished import _cuts, _drift, _finished
-from torrcast.usecases.feed_pack.packer_measure import _eta, _frontier, _pending
-from torrcast.usecases.feed_pack.packer_publish import _lay_out
-from torrcast.usecases.feed_pack.packer_state import _Asked, _State, _Told
-from torrcast.usecases.feed_pack.packer_stop import _stop, _why
+from torrcast.ports.feed_grid import FeedGrid
 
 
 @dataclass(slots=True)
@@ -43,15 +46,15 @@ class Packer(_State):
         at: float = 0.0,
         rate: float = 0.0,
         burst: float = 0.0,
-        grid: Grid | None = None,
+        grid: FeedGrid | None = None,
         cap: int = CAUTIOUS.max_segment_bytes,
     ) -> Packer:
-        log = _state.tempfile.TemporaryFile()
-        _state.shutil.rmtree(run, ignore_errors=True)
+        log = tempfile.TemporaryFile()  # noqa: SIM115 - живёт весь прогон упаковки
+        shutil.rmtree(run, ignore_errors=True)
         run.mkdir(parents=True, exist_ok=True)
-        began = _state.clock_port.monotonic()
+        began = time.monotonic()
         try:
-            proc = _state.subprocess.Popen(command, stdout=_state.subprocess.DEVNULL, stderr=log)
+            proc = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=log)
         except FileNotFoundError as exc:
             raise InfraError("ffmpeg не установлен") from exc
         return cls(
@@ -98,7 +101,7 @@ class Packer(_State):
         """Что ffmpeg нарезал на самом деле, по его же списку (:func:`_cuts`)."""
         return _cuts(self)
 
-    def drift(self, grid: Grid) -> float:
+    def drift(self, grid: FeedGrid) -> float:
         """Насколько нарезанное разошлось с манифестом, секунды (:func:`_drift`)."""
         return _drift(self, grid)
 

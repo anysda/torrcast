@@ -10,7 +10,6 @@ from typing import TYPE_CHECKING
 import torrcast.usecases.feed_pack._state as _state
 from torrcast.domain.hls_settings import PACK_DIR, SPLIT_SLACK
 from torrcast.ports.journal import journal
-from torrcast.usecases.feed_pack.packer import Packer
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -56,7 +55,7 @@ def _restart(state: _State, slot: int, shrink: Callable[[int, int], bool]) -> No
         encode=state.encode,
     )
     state.restarted = _state.clock_port.monotonic()
-    state.packer = Packer.start(
+    state.packer = _state.Packer.start(
         command,
         state.out,
         state.out / PACK_DIR,

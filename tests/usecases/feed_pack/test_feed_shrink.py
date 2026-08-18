@@ -6,7 +6,6 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 import torrcast.usecases.feed_pack._state as _state
-import torrcast.usecases.feed_pack.feed_shrink as shrink_module
 from tests.usecases.feed_pack.world import clock, feed, grid, lay, packer
 from torrcast.usecases.feed_pack.feed_shrink import _shrink, _skip
 
@@ -55,7 +54,7 @@ def _tract(monkeypatch: pytest.MonkeyPatch, laid: list[int]) -> None:
         run.mkdir(parents=True, exist_ok=True)
         return packer(run.parent, out=out, run=run, first=first, edge=first)
 
-    monkeypatch.setattr(shrink_module, "Packer", type("Fake", (), {"start": staticmethod(_start)}))
+    monkeypatch.setattr(_state, "Packer", type("Fake", (), {"start": staticmethod(_start)}))
 
 
 def _recoder(tmp_path: Path, **kwargs: Any) -> _Recoder:
@@ -131,7 +130,7 @@ def test_a_shrunk_piece_that_fits_the_ceiling_saves_the_place(
         recoder.fits = True
         return packer(run.parent, out=out, run=run, first=first, edge=first)
 
-    monkeypatch.setattr(shrink_module, "Packer", type("Fake", (), {"start": staticmethod(_start)}))
+    monkeypatch.setattr(_state, "Packer", type("Fake", (), {"start": staticmethod(_start)}))
 
     assert _shrink(show, 4, 20_000_000) is True
     assert laid == [4] and show.skipped == set()

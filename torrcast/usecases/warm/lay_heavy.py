@@ -1,7 +1,7 @@
 """Укладка куска, который тяжелее потолка приёмника: на диск он всё равно обязан лечь.
 
-Зовёт выкладка прогона прогрева (:attr:`torrcast.usecases.feed_pack.packer.Packer.shrink`) на каждом
-таком куске.
+Зовёт выкладка прогона прогрева
+(:attr:`torrcast.adapters.stream_pack.packer.Packer.shrink`) на каждом таком куске.
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ def _lay_heavy(state: _State, slot: int, size: int) -> bool:
     """Кусок тяжелее потолка приёмника: уложить на диск и не вставать на нём.
 
     Зовётся выкладкой на последнем гейте, где вес куска зажат потолком приёмника
-    (:attr:`torrcast.usecases.feed_pack.packer.Packer.shrink`). Гейт этот про ЖИВУЮ отдачу: тяжёлую
+    (:attr:`torrcast.adapters.stream_pack.packer.Packer.shrink`). Гейт этот про ЖИВУЮ отдачу: тяжёлую
     копию приёмник не доигрывает, и наружу она идти не имеет права. У прогрева адресат другой -
     диск, - и там тяжёлая копия обязана лежать:
 

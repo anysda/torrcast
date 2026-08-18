@@ -5,8 +5,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from tests.usecases.feed_pack.world import FakeProc, grid, lay, packer
+from torrcast.adapters.stream_pack.packer_finished import _cuts, _drift, _finished
 from torrcast.domain.hls_settings import PACK_LIST
-from torrcast.usecases.feed_pack.packer_finished import _cuts, _drift, _finished
 
 if TYPE_CHECKING:
     from pathlib import Path

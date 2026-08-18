@@ -1,7 +1,7 @@
 """Идущий заход упаковки: настоящий заход отвечает на все вопросы прогрева."""
 
+from torrcast.adapters.stream_pack.packer import Packer
 from torrcast.ports.warm_environment import WarmPack
-from torrcast.usecases.feed_pack.packer import Packer
 
 
 def test_the_real_run_of_the_packer_answers_everything_the_warming_asks() -> None:

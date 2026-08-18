@@ -142,7 +142,7 @@ class _State:
         """Копия этого куска тяжелее потолка, то есть наружу её отдавать нельзя.
 
         ``size`` — вес копии, уже лежащей на диске
-        (:meth:`torrcast.usecases.feed_pack.packer.Packer.publish` знает его точно, один ``stat``);
+        (:meth:`torrcast.adapters.stream_pack.packer.Packer.publish` знает его точно, один ``stat``);
         ноль — копии ещё нет, берём предсказание по карте (:meth:`Weights.size`), оно завышает на 12
         % и промахивается в безопасную сторону.
         """

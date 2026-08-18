@@ -41,6 +41,7 @@ from torrcast.adapters.stream_pack.hls_dir import hls_dir
 from torrcast.adapters.stream_pack.mapped_start import mapped_start
 from torrcast.adapters.stream_pack.pack_origin import _reorder_slack
 from torrcast.adapters.stream_pack.pack_start import pack_start
+from torrcast.adapters.stream_pack.packer import Packer
 from torrcast.adapters.stream_pack.parse_manifest import parse_manifest
 from torrcast.adapters.stream_probe.segment_name import segment_name
 from torrcast.domain.delivered_mbit import AUDIO_MBIT, TS_OVERHEAD
@@ -56,7 +57,6 @@ from torrcast.domain.hls_settings import (
 )
 from torrcast.domain.reception_report import ReceptionReport
 from torrcast.usecases.feed_pack.feed import Feed
-from torrcast.usecases.feed_pack.packer import Packer
 
 #: Модуль, а не одноимённая единица из пакета: правки для проб ставятся туда, откуда
 #: их читает сам код.
@@ -686,8 +686,8 @@ def test_the_initial_burst_replaces_pausing_the_packer() -> None:
     SIGSTOP'ом приёмник намертво вис в BUFFERING при живых сегментах на диске.
     """
     from torrcast.adapters.chromecast import cast as cast_module
+    from torrcast.adapters.stream_pack import packer as packer_module
     from torrcast.usecases import playback as playback_package
-    from torrcast.usecases.feed_pack import packer as packer_module
 
     grid = Grid.uniform(100.0)
     command = ffmpeg_pack_command("u", 0, "/run", grid, 0, 0.0, readrate=1.0, burst=60.0)

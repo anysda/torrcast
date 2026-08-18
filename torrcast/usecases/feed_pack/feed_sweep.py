@@ -9,7 +9,6 @@ from typing import TYPE_CHECKING
 
 import torrcast.usecases.feed_pack._state as _state
 from torrcast.ports.journal import journal
-from torrcast.usecases.feed_pack._segment_files import _paths
 
 if TYPE_CHECKING:
     from torrcast.usecases.feed_pack.feed_state import _State
@@ -72,7 +71,7 @@ def _prune(state: _State, played: float) -> None:
     if packer is not None:
         keep_upto = max(state.grid.slot_at(played), packer.edge) + state.ahead
     behind = state.grid.slot_at(played - state.keep) if played - state.keep > 0 else 0
-    for path in _paths(state.out):
+    for path in _state.segment_paths(state.out):
         slot = _state.segment_slot(path.name)
         if slot < 0:
             continue

@@ -6,8 +6,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-import torrcast.usecases.feed_pack._state as _state
-from torrcast.usecases.feed_pack.merge_tracks import merge_tracks
+import torrcast.adapters.stream_pack.merge_tracks as _module
+from torrcast.adapters.stream_pack.merge_tracks import merge_tracks
 
 if TYPE_CHECKING:
     import pytest
@@ -39,7 +39,7 @@ class _Subprocess:
 
 def _ffmpeg(monkeypatch: pytest.MonkeyPatch, **kwargs: Any) -> _Subprocess:
     fake = _Subprocess(**kwargs)
-    monkeypatch.setattr(_state, "subprocess", fake)
+    monkeypatch.setattr(_module, "subprocess", fake)
     return fake
 
 

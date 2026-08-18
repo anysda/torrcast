@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Final
 
 #: Каталог перекодированных кусков внутри каталога показа. Наружу они попадают не отсюда,
-#: а через :meth:`torrcast.usecases.feed_pack.packer.Packer.publish` - выкладка сегментов остаётся
+#: а через :meth:`torrcast.adapters.stream_pack.packer.Packer.publish` - выкладка сегментов остаётся
 #: ровно в одном месте кода, и инвариант «край двигает только состоявшееся переименование» не
 #: размывается вторым выкладывающим.
 RECODE_DIR: Final = "recode"

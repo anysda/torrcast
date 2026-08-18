@@ -9,6 +9,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import torrcast.usecases.feed_pack._state as _state
+from torrcast.ports.pack_run import PackFactory
 
 
 def configure(
@@ -16,13 +17,19 @@ def configure(
     segment_slot: Callable[[str], int],
     pack_start: Callable[..., float],
     pack_command: Callable[..., list[str]],
+    packer: PackFactory,
     forget_flag: Callable[[Path], None],
     recode_dir: str,
+    remove_tree: Callable[[Path], None],
+    segment_paths: Callable[[Path], list[Path]],
 ) -> None:
-    """Передать сценарию имена сегментов, пробный прогон, упаковку и каталог перекода."""
+    """Передать сценарию имена сегментов, медиатракт упаковки и уборку на диске."""
     _state.segment_name = segment_name
     _state.segment_slot = segment_slot
     _state.pack_start = pack_start
     _state.ffmpeg_pack_command = pack_command
+    _state.Packer = packer
     _state.forget_playing = forget_flag
     _state.RECODE_DIR = recode_dir
+    _state.remove_tree = remove_tree
+    _state.segment_paths = segment_paths

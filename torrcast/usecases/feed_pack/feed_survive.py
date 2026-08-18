@@ -11,8 +11,8 @@ import torrcast.usecases.feed_pack._state as _state
 from torrcast.domain.hls_settings import MUTE_SECONDS
 
 if TYPE_CHECKING:
+    from torrcast.ports.pack_run import PackRun
     from torrcast.usecases.feed_pack.feed_state import _State
-    from torrcast.usecases.feed_pack.packer import Packer
 
 
 def _mute(state: _State) -> None:
@@ -40,7 +40,7 @@ def _mute(state: _State) -> None:
     state._say(f"источник не читается ({state.offline}) - иду с прогретого, жду возврата сети")
 
 
-def _survive(state: _State, packer: Packer) -> bool:
+def _survive(state: _State, packer: PackRun) -> bool:
     """Упаковка оборвалась сама: пробуем ещё или сдаёмся честной ошибкой.
 
     ⚠️ Считаются ПРОГОНЫ, а не опросы. Пока держит защита «не толкаемся» (2 с),

@@ -8,13 +8,13 @@ from __future__ import annotations
 import contextlib
 from typing import TYPE_CHECKING
 
-import torrcast.usecases.feed_pack._state as _state
+from torrcast.adapters.stream_pack._segment_files import _names
+from torrcast.adapters.stream_probe.segment_slot import segment_slot
 from torrcast.domain.hls_settings import PACK_LIST, PACK_SHORT_SECONDS
-from torrcast.usecases.feed_pack._segment_files import _names
 
 if TYPE_CHECKING:
-    from torrcast.usecases.feed_pack._state import Grid
-    from torrcast.usecases.feed_pack.packer_state import _State
+    from torrcast.adapters.stream_pack.packer_state import _State
+    from torrcast.ports.feed_grid import FeedGrid
 
 
 def _finished(state: _State) -> bool:
@@ -55,7 +55,7 @@ def _reached(state: _State) -> bool:
         return True
     mine = [
         slot
-        for slot in map(_state.segment_slot, _names(state.run))
+        for slot in map(segment_slot, _names(state.run))
         if slot >= 0 and (state.last < 0 or slot <= state.last)
     ]
     if not mine:
@@ -84,13 +84,13 @@ def _cuts(state: _State) -> list[tuple[int, float, float]]:
         parts = line.strip().rstrip(",").split(",")
         if len(parts) < 3:
             continue
-        slot = _state.segment_slot(parts[0].rsplit("/", 1)[-1])
+        slot = segment_slot(parts[0].rsplit("/", 1)[-1])
         with contextlib.suppress(ValueError):
             found.append((slot, float(parts[1]), float(parts[2])))
     return found
 
 
-def _drift(state: _State, grid: Grid) -> float:
+def _drift(state: _State, grid: FeedGrid) -> float:
     """Насколько нарезанное разошлось с обещанным в манифесте, секунды.
 
     Ноль (точнее, доли кадра) — манифест не врёт: ``EXTINF`` совпадает с фактом.

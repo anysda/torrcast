@@ -8,7 +8,7 @@ from __future__ import annotations
 import contextlib
 from typing import TYPE_CHECKING
 
-from torrcast.usecases.feed_pack._segment_files import _paths
+import torrcast.usecases.feed_pack._state as _state
 from torrcast.usecases.feed_pack.feed_segment import _have
 
 if TYPE_CHECKING:
@@ -53,7 +53,7 @@ def _weight(state: _State) -> int:
     называло только первую.
     """
     total = 0
-    for path in _paths(state.out):
+    for path in _state.segment_paths(state.out):
         with contextlib.suppress(OSError):  # вычистило окном прямо сейчас
             total += path.stat().st_size
     return total + (0 if state.packer is None else state.packer.pending())

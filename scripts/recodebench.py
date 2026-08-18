@@ -65,13 +65,13 @@ from torrcast.adapters.stream_pack.film_keys import film_keys
 from torrcast.adapters.stream_pack.grid import Grid
 from torrcast.adapters.stream_pack.grid_for import grid_for
 from torrcast.adapters.stream_pack.hls_dir import hls_dir
+from torrcast.adapters.stream_pack.packer import Packer
 from torrcast.adapters.stream_probe.pick_video_file import pick_video_file
 from torrcast.adapters.stream_probe.probe import probe
 from torrcast.adapters.stream_probe.segment_slot import segment_slot
 from torrcast.adapters.torrserver.torr_server import TorrServer
 from torrcast.domain.config import Config
 from torrcast.domain.profile import Profile
-from torrcast.usecases.feed_pack.packer import Packer
 from torrcast.usecases.playback import _layout
 
 PRESET_LADDER = ("ultrafast", "superfast", "veryfast", "faster", "fast", "medium")
@@ -317,7 +317,7 @@ def calibrate(
     code = packer.poll()
     # 🔴 Взвешивается то, что ffmpeg НАПИСАЛ, а не то, что выкладка отдала наружу.
     # Разница не педантизм: тяжелее :data:`torrcast.domain.hls_settings.MAX_SEGMENT_BYTES` копия
-    # наружу не выходит вовсе (:meth:`torrcast.usecases.feed_pack.packer.Packer.publish`), а щупу
+    # наружу не выходит вовсе (:meth:`torrcast.adapters.stream_pack.packer.Packer.publish`), а щупу
     # нужен именно её вес - иначе ровно тот случай, ради которого щуп и заведён, из замера и
     # выпадает.
     weighed = {s: p for p in run.glob("v*.ts") if slot <= (s := segment_slot(p.name)) <= until}

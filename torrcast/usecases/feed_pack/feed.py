@@ -8,6 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from torrcast.ports.pack_run import PackRun
 from torrcast.usecases.feed_pack.feed_front import _front, _weight
 from torrcast.usecases.feed_pack.feed_restart import _restart
 from torrcast.usecases.feed_pack.feed_segment import _have, _segment, _warm
@@ -17,7 +18,6 @@ from torrcast.usecases.feed_pack.feed_steer import _steer
 from torrcast.usecases.feed_pack.feed_stop import _rest, _stop
 from torrcast.usecases.feed_pack.feed_survive import _mute, _survive
 from torrcast.usecases.feed_pack.feed_sweep import _prune, _sweep
-from torrcast.usecases.feed_pack.packer import Packer
 
 
 @dataclass(slots=True)
@@ -66,7 +66,7 @@ class Feed(_State):
         """Источник молчит дольше срока - это тоже обрыв (:func:`_mute`)."""
         _mute(self)
 
-    def _survive(self, packer: Packer) -> bool:
+    def _survive(self, packer: PackRun) -> bool:
         """Упаковка оборвалась сама: пробуем ещё или сдаёмся (:func:`_survive`)."""
         return _survive(self, packer)
 

@@ -7,10 +7,10 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
-import torrcast.usecases.feed_pack._state as _state
+import torrcast.adapters.stream_pack.packer as packer_module
 from tests.usecases.feed_pack.world import FakeProc, clock, packer, signals
+from torrcast.adapters.stream_pack.packer import Packer
 from torrcast.domain.infra_error import InfraError
-from torrcast.usecases.feed_pack.packer import Packer
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -45,8 +45,8 @@ class _Tempfile:
 def _outer(monkeypatch: pytest.MonkeyPatch, boom: bool = False) -> _Subprocess:
     """Подставить подъёму прогона поддельные подпроцессы, временный файл и часы."""
     fake = _Subprocess(boom=boom)
-    monkeypatch.setattr(_state, "subprocess", fake)
-    monkeypatch.setattr(_state, "tempfile", _Tempfile())
+    monkeypatch.setattr(packer_module, "subprocess", fake)
+    monkeypatch.setattr(packer_module, "tempfile", _Tempfile())
     clock(monkeypatch, now=555.0)
     return fake
 
@@ -88,7 +88,7 @@ def test_a_busy_publish_is_skipped_and_never_queued(
     """Второй заход выкладки не ждёт первый: горячий путь важнее лишнего опроса."""
     laid: list[int] = []
     monkeypatch.setattr(
-        "torrcast.usecases.feed_pack.packer._lay_out", lambda state, finished: laid.append(1)
+        "torrcast.adapters.stream_pack.packer._lay_out", lambda state, finished: laid.append(1)
     )
     run = packer(tmp_path)
 

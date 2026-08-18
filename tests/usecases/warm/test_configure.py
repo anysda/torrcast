@@ -72,9 +72,11 @@ def test_every_slot_takes_its_value_from_the_environment(monkeypatch: pytest.Mon
     assert _state.segment_name(4) == "кусок4"
     assert _state.segment_slot("v4.ts") == -7
     assert _state._hms(0.0) == "часы"
-    assert _state.Packer == "упаковщик"
-    assert _state.ffmpeg_pack_command() == "команда"
-    assert _state.pack_start() == "пробный"
+    # Три слота медиатракта названы договорами порта, поэтому сверяются они не значением
+    # («команда» списком строк не является), а тем, что в слот встала ручка ЭТОЙ среды.
+    assert _state.Packer is environment.packer_type
+    assert _state.ffmpeg_pack_command is environment.pack_command
+    assert _state.pack_start is environment.pack_start
     assert (_state.AUDIO_MBIT, _state.MAX_SEGMENT_BYTES, _state.TS_OVERHEAD) == (0.5, 123, 1.5)
 
 

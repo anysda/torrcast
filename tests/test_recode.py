@@ -10,7 +10,7 @@ from typing import cast
 
 import pytest
 
-import torrcast.usecases.feed_pack.packer_publish as packer_publish
+import torrcast.adapters.stream_pack.packer_publish as packer_publish
 from torrcast.adapters.recode import (
     DEADLINE_MARGIN,
     FULL_PRESET,
@@ -30,11 +30,11 @@ from torrcast.adapters.recode import (
 from torrcast.adapters.stream_pack.ffmpeg_pack_command import ffmpeg_pack_command
 from torrcast.adapters.stream_pack.grid import Grid
 from torrcast.adapters.stream_pack.pack_start import pack_start
+from torrcast.adapters.stream_pack.packer import Packer
 from torrcast.adapters.stream_probe.segment_name import segment_name
 from torrcast.domain.film_keys import FilmKeys
 from torrcast.domain.recode_settings import RECODE_HEIGHT
 from torrcast.usecases.feed_pack.feed import Feed
-from torrcast.usecases.feed_pack.packer import Packer
 
 from .conftest import fake_packer, module_of
 
@@ -1676,7 +1676,7 @@ def test_a_merge_heavier_than_the_cap_is_not_sent_to_the_receiver(tmp_path, monk
 
 def test_the_timeline_shift_of_garbage_is_unknown(tmp_path) -> None:  # type: ignore[no-untyped-def]
     """Сверить ленту не по чему — так и говорим: ``None``, а не «сдвига нет»."""
-    from torrcast.usecases.feed_pack.timeline_shift import timeline_shift
+    from torrcast.adapters.stream_pack.timeline_shift import timeline_shift
 
     copy, recode = tmp_path / "c.ts", tmp_path / "r.ts"
     copy.write_bytes(b"not a stream")
@@ -1712,7 +1712,7 @@ def test_the_merged_piece_is_not_mistaken_for_a_packed_segment(tmp_path, monkeyp
 
 def test_merge_of_garbage_leaves_no_file_and_says_so(tmp_path) -> None:  # type: ignore[no-untyped-def]
     """Не вышло — значит не вышло: ни файла-огрызка, ни ``True``."""
-    from torrcast.usecases.feed_pack.merge_tracks import merge_tracks
+    from torrcast.adapters.stream_pack.merge_tracks import merge_tracks
 
     video, audio, dst = tmp_path / "v.ts", tmp_path / "a.ts", tmp_path / "mix.ts"
     video.write_bytes(b"not a stream")

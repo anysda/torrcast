@@ -40,6 +40,7 @@ from torrcast.adapters.stream_pack.grid import Grid
 from torrcast.adapters.stream_pack.hls_dir import hls_dir
 from torrcast.adapters.stream_pack.mark_playing import mark_playing
 from torrcast.adapters.stream_pack.pack_start import pack_start
+from torrcast.adapters.stream_pack.packer import Packer
 from torrcast.adapters.stream_pack.playing_flag import playing_flag
 from torrcast.adapters.stream_probe.segment_name import segment_name
 from torrcast.adapters.stream_probe.supply import Supply
@@ -54,7 +55,6 @@ from torrcast.domain.start_settings import PAUSE_SECONDS
 from torrcast.domain.worker_settings import WORKER_DUR, WORKER_META
 from torrcast.usecases.choice import _ctl, _Steerable
 from torrcast.usecases.feed_pack.feed import Feed
-from torrcast.usecases.feed_pack.packer import Packer
 from torrcast.usecases.playback import _await_playing, _blame_the_end, _handover, _play
 from torrcast.usecases.revive_playback import _hold, _Revival
 from torrcast.usecases.start_budget import START_BUDGET
@@ -1675,7 +1675,8 @@ def test_a_torn_input_tells_the_viewer_the_film_has_not_ended(tmp_path: Path) ->
     """Оборванный вход и доигранный фильм для зрителя выглядят одинаково - паузой.
 
     Вход, умерший на середине, ffmpeg отмечает НУЛЁМ
-    (:meth:`torrcast.usecases.feed_pack.packer.Packer.finished`), и «упаковка оборвалась (молча, код
+    (:meth:`torrcast.adapters.stream_pack.packer.Packer.finished`), и «упаковка оборвалась
+    (молча, код
     0)» говорит человеку о нашем коде возврата, а не о его кино: он видит паузу и решает, что фильм
     кончился. Замер 15-08-2026, 80 обрывов входа на живом ffmpeg (457 прогонов): код 0 вышел во ВСЕХ
     457 - по коду эти два исхода не различаются вовсе.

@@ -58,7 +58,8 @@ class Recoder(_State):
 
         ⚠️ Сначала снять паузу, и только потом гасить. Заход мог замереть, уступая ужатию
         (:meth:`_yield_to_shrink`), а замерший процесс SIGTERM не обрабатывает вовсе:
-        :meth:`torrcast.usecases.feed_pack.packer.Packer.stop` честно ждёт его пять секунд и добивает
+        :meth:`torrcast.adapters.stream_pack.packer.Packer.stop` честно ждёт его пять секунд
+        и добивает
         SIGKILL - пять секунд на конце показа за счёт человека. Оживить стоит один сигнал.
         """
         self.stopped = True

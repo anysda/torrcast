@@ -9,7 +9,6 @@ from typing import TYPE_CHECKING
 
 import torrcast.usecases.feed_pack._state as _state
 from torrcast.domain.hls_settings import PACK_DIR
-from torrcast.usecases.feed_pack._segment_files import _paths
 
 if TYPE_CHECKING:
     from torrcast.usecases.feed_pack.feed_state import _State
@@ -43,8 +42,8 @@ def _stop(state: _State) -> None:
         state.recoder.stop()
     if state.packer is not None:
         state.packer.stop()
-    for junk in _paths(state.out):
+    for junk in _state.segment_paths(state.out):
         junk.unlink(missing_ok=True)
-    _state.shutil.rmtree(state.out / PACK_DIR, ignore_errors=True)
-    _state.shutil.rmtree(state.out / _state.RECODE_DIR, ignore_errors=True)
+    _state.remove_tree(state.out / PACK_DIR)
+    _state.remove_tree(state.out / _state.RECODE_DIR)
     _state.forget_playing(state.out)

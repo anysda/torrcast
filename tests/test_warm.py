@@ -30,6 +30,7 @@ from torrcast.adapters.stream_pack.grid import Grid
 from torrcast.adapters.stream_pack.grid_for import grid_for
 from torrcast.adapters.stream_pack.hls_dir import hls_dir
 from torrcast.adapters.stream_pack.pack_start import pack_start
+from torrcast.adapters.stream_pack.packer import Packer
 from torrcast.adapters.stream_probe.segment_name import segment_name
 from torrcast.domain.config import Config
 from torrcast.domain.entry import Entry
@@ -38,7 +39,6 @@ from torrcast.domain.position import Position
 from torrcast.domain.trust_anchor import trust_anchor
 from torrcast.domain.warm_settings import WARM_BUDGET
 from torrcast.usecases.feed_pack.feed import Feed
-from torrcast.usecases.feed_pack.packer import Packer
 from torrcast.usecases.playback import _play
 from torrcast.usecases.rank import _hms
 from torrcast.usecases.start_clock import _Clock
@@ -61,9 +61,9 @@ from torrcast.usecases.warm import (
 )
 from torrcast.usecases.watch import Watch as _Watch
 
-#: Модуль сценария, а не одноимённая единица: адаптер прогрева идёт за упаковщиком
-#: строкой ровно туда, и подмена для пробы обязана лечь в тот же модуль.
-packer_module = module_of("torrcast.usecases.feed_pack.packer")
+#: Слот прогрева, а не модуль упаковщика: сценарий идёт за заводом прогона ровно
+#: сюда, и подмена для пробы обязана лечь в тот же слот.
+warm_slots = module_of("torrcast.usecases.warm._state")
 
 
 def _vault(tmp_path: Path, key: str = "k", budget: int = 1 << 30, floor: int = 0) -> Vault:
@@ -164,7 +164,7 @@ def test_a_warmed_copy_heavier_than_the_ceiling_is_not_a_warmed_piece(tmp_path: 
     поздним заходом (:meth:`torrcast.usecases.warm.Warmer._spots_left`). До него на месте тяжёлого
     куска лежит копия во весь свой вес, а показ берёт прогретое напрямую с диска - мимо
     обоих мест, где вес зажат потолком
-    (:meth:`torrcast.usecases.feed_pack.packer.Packer.publish`,
+    (:meth:`torrcast.adapters.stream_pack.packer.Packer.publish`,
     :meth:`torrcast.adapters.recode.Recoder.holding`).
 
     Замер на живом Q70D («Тачки» 2006, 1080p, 39% фильма тяжелее потолка): прогрев обгонял
@@ -757,7 +757,7 @@ def test_the_budget_is_rechecked_as_the_run_lays_pieces(
     место под заход было (20 + 5x16 = 100 МБ из 105), а после третьего куска прогрев
     обязан встать с честной причиной, а не доложить остаток сверх бюджета.
     """
-    monkeypatch.setattr(packer_module, "Packer", _LayingPacker)
+    monkeypatch.setattr(warm_slots, "Packer", _LayingPacker)
     monkeypatch.setattr(warm_environment, "_pack_start", lambda url, at: at)
     grid = _grid()
     said: list[str] = []
@@ -1445,7 +1445,7 @@ def test_a_piece_over_the_receiver_ceiling_never_stops_the_warm_publishing(
         def stop(self, keep_files: bool = True, reason: str = "") -> None:
             return None
 
-    monkeypatch.setattr(packer_module, "Packer", _Recorder)
+    monkeypatch.setattr(warm_slots, "Packer", _Recorder)
     monkeypatch.setattr(warm_environment, "_pack_start", lambda url, at: at)
     grid = _grid()
     warmer = Warmer(source="нет", audio=0, grid=grid, vault=_vault(tmp_path), slack=1e6)

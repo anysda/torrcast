@@ -1,6 +1,6 @@
 """Выкладка дописанного наружу: переименование, склейка со звуком копии и потолок веса.
 
-Зовёт её :meth:`torrcast.usecases.feed_pack.packer.Packer.publish`, и только он.
+Зовёт её :meth:`torrcast.adapters.stream_pack.packer.Packer.publish`, и только он.
 """
 
 from __future__ import annotations
@@ -9,16 +9,17 @@ import contextlib
 import os
 from typing import TYPE_CHECKING
 
-import torrcast.usecases.feed_pack._state as _state
+from torrcast.adapters.stream_pack._segment_files import _names
+from torrcast.adapters.stream_pack.merge_tracks import merge_tracks
+from torrcast.adapters.stream_pack.timeline_shift import timeline_shift
+from torrcast.adapters.stream_probe.segment_name import segment_name
+from torrcast.adapters.stream_probe.segment_slot import segment_slot
 from torrcast.domain.hls_settings import MIXED_PREFIX
-from torrcast.usecases.feed_pack._segment_files import _names
-from torrcast.usecases.feed_pack.merge_tracks import merge_tracks
-from torrcast.usecases.feed_pack.timeline_shift import timeline_shift
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from torrcast.usecases.feed_pack.packer_state import _State
+    from torrcast.adapters.stream_pack.packer_state import _State
 
 
 def _lay_out(state: _State, finished: Callable[[], bool]) -> None:
@@ -34,14 +35,14 @@ def _lay_out(state: _State, finished: Callable[[], bool]) -> None:
     его наследники прогона на стендах показа, а импортировать сюда сам класс нельзя -
     выкладка живёт внутри него.
     """
-    slots = sorted(s for s in map(_state.segment_slot, _names(state.run)) if s >= 0)
+    slots = sorted(s for s in map(segment_slot, _names(state.run)) if s >= 0)
     if not slots:
         return
     # Прогон дочитал вход до конца - дописан и последний кусок (:meth:`finished`).
     # Любой другой исход (жив, убит, оборвался) последний кусок дописанным не делает.
     done = slots if finished() else slots[:-1]
     for slot in done:
-        path = state.run / _state.segment_name(slot)
+        path = state.run / segment_name(slot)
         # Ниже своего первого - докатка, выше последнего - обрезок за ``-to``
         # (:attr:`last`). И то и другое короче своего места в манифесте, и наружу
         # такое отдавать нельзя ни при каких обстоятельствах.
@@ -63,7 +64,7 @@ def _lay_out(state: _State, finished: Callable[[], bool]) -> None:
             break
         # Перекодированный кусок этого же места лучше копии: то же разрешение и те же
         # метки, но битрейт, который приёмник тянет. Копия при этом выбрасывается.
-        better = state.spare / _state.segment_name(slot) if state.spare is not None else None
+        better = state.spare / segment_name(slot) if state.spare is not None else None
         source, how = path, "копия"
         if better is not None and better.exists():
             # Наружу идёт картинка перекода со звуком копии (:func:`merge_tracks`):
@@ -132,7 +133,7 @@ def _lay_out(state: _State, finished: Callable[[], bool]) -> None:
             break
         moved = False
         with contextlib.suppress(OSError):
-            os.replace(source, state.out / _state.segment_name(slot))
+            os.replace(source, state.out / segment_name(slot))
             # Край двигает только состоявшееся переименование: «выложил» - это факт
             # этой строки, а не наличие файла в каталоге (:attr:`edge`).
             state.edge = max(state.edge, slot)

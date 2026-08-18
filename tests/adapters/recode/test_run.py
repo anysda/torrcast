@@ -12,7 +12,7 @@ from torrcast.adapters.recode.presets import PRESETS
 from torrcast.adapters.recode.recoder_state import _State
 from torrcast.adapters.recode.run import HEAD_NICE, NICE, _run
 from torrcast.adapters.recode.weights import Weights
-from torrcast.usecases.feed_pack.packer import Packer
+from torrcast.adapters.stream_pack.packer import Packer
 
 if TYPE_CHECKING:
     from pathlib import Path

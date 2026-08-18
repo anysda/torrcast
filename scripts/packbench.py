@@ -17,11 +17,13 @@ import argparse
 import sys
 import time
 from pathlib import Path
+from typing import cast
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from torrcast.adapters.stream_pack.grid import Grid
 from torrcast.adapters.stream_pack.hls_dir import hls_dir
+from torrcast.adapters.stream_pack.packer import Packer
 from torrcast.runtime.wire import wire
 from torrcast.usecases.feed_pack.feed import Feed
 
@@ -61,7 +63,9 @@ def main() -> int:
     )
     feed.segment(0)  # единственное обращение к упаковке за весь замер
     if args.stuck and feed.packer is not None:
-        feed.packer.hold = lambda slot, size=0: True  # выкладке нечего отдать
+        # ``hold`` - поле самого прогона, а не договор ленты: щуп берёт его у класса
+        # медиатракта, потому что подпирает им ровно выкладку.
+        cast(Packer, feed.packer).hold = lambda slot, size=0: True  # нечего отдать
     began = time.monotonic()
     print("секунд_фильма  несдано_МБ  окно_МБ  край")
     try:

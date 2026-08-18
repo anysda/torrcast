@@ -1,6 +1,6 @@
 """Последний шанс тяжёлого куска: ужать его на месте или честно пропустить.
 
-Зовёт отсюда выкладка упаковщика (:attr:`torrcast.usecases.feed_pack.packer.Packer.shrink`).
+Зовёт отсюда выкладка упаковщика (:attr:`torrcast.adapters.stream_pack.packer.Packer.shrink`).
 """
 
 from __future__ import annotations
@@ -11,9 +11,9 @@ from typing import TYPE_CHECKING
 import torrcast.usecases.feed_pack._state as _state
 from torrcast.domain.hls_settings import SHRINK_DIR
 from torrcast.ports.journal import journal
-from torrcast.usecases.feed_pack.packer import Packer
 
 if TYPE_CHECKING:
+    from torrcast.ports.pack_run import PackRun
     from torrcast.usecases.feed_pack.feed_state import _State
 
 
@@ -85,9 +85,9 @@ def _shrink(state: _State, slot: int, size: int = 0) -> bool:
             encode=encode,
             until=slot,
         )
-        packer: Packer | None = None
+        packer: PackRun | None = None
         try:
-            packer = Packer.start(
+            packer = _state.Packer.start(
                 command,
                 recoder.spare,
                 run,

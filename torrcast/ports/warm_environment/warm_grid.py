@@ -3,9 +3,16 @@
 from collections.abc import Callable
 from typing import Protocol
 
+from torrcast.ports.feed_grid import FeedGrid
 
-class WarmGrid(Protocol):
-    """Границы кусков фильма: где начинается кусок, где кончается и сколько весит."""
+
+class WarmGrid(FeedGrid, Protocol):
+    """Границы кусков фильма: где начинается кусок, где кончается и сколько весит.
+
+    Договор ленты (:class:`torrcast.ports.feed_grid.FeedGrid`) входит сюда целиком не для
+    полноты: прогрев эту же сетку ОТДАЁТ заходу упаковки, и заход спрашивает у неё своё.
+    Сузь её тут - и сужение было бы неправдой ровно на границе, где сетка уходит дальше.
+    """
 
     @property
     def count(self) -> int: ...

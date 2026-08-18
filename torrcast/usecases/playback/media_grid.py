@@ -12,7 +12,7 @@ from torrcast.ports.feed_grid import FeedGrid
 from torrcast.ports.warm_environment import WarmGrid
 
 
-class MediaGrid(FeedGrid, WarmGrid, Protocol):
+class MediaGrid(WarmGrid, FeedGrid, Protocol):
     """Одна сетка на весь показ: та же в манифесте, та же в команде ffmpeg.
 
     Наследует оба узких договора нарочно. Показ - единственное место, где сетка ходит

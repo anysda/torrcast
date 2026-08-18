@@ -1,20 +1,21 @@
 """Конец прогона упаковки: почему он кончился и как его снять, ничего не потеряв.
 
-Зовёт их сам прогон (:mod:`torrcast.usecases.feed_pack.packer`), а через него - показ.
+Зовёт их сам прогон (:mod:`torrcast.adapters.stream_pack.packer`), а через него - показ.
 """
 
 from __future__ import annotations
 
 import contextlib
+import shutil
+import subprocess
 from typing import TYPE_CHECKING
 
-import torrcast.usecases.feed_pack._state as _state
-from torrcast.usecases.feed_pack._segment_files import _paths
+from torrcast.adapters.stream_pack._segment_files import _paths
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from torrcast.usecases.feed_pack.packer_state import _State
+    from torrcast.adapters.stream_pack.packer_state import _State
 
 
 def _why(state: _State) -> str:
@@ -49,12 +50,12 @@ def _stop(
     state.stopped = state.stopped or reason
     if state.proc.poll() is None:
         state.proc.terminate()
-        with contextlib.suppress(_state.subprocess.TimeoutExpired):
+        with contextlib.suppress(subprocess.TimeoutExpired):
             state.proc.wait(timeout=5)
         if state.proc.poll() is None:
             state.proc.kill()
     publish()  # дописанное этим прогоном остаётся показу: оно уже верное
-    _state.shutil.rmtree(state.run, ignore_errors=True)
+    shutil.rmtree(state.run, ignore_errors=True)
     if not keep_files:
         for junk in _paths(state.out):
             junk.unlink(missing_ok=True)

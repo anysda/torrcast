@@ -18,8 +18,11 @@ SLOTS = (
     "segment_slot",
     "pack_start",
     "ffmpeg_pack_command",
+    "Packer",
     "forget_playing",
     "RECODE_DIR",
+    "remove_tree",
+    "segment_paths",
 )
 
 
@@ -31,13 +34,17 @@ def _restore(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def _world() -> dict[str, Any]:
     forgotten: list[Path] = []
+    swept: list[Path] = []
     return {
         "segment_name": lambda slot: f"кусок{slot}",
         "segment_slot": lambda name: -7,
         "pack_start": lambda *a, **k: 4.5,
         "pack_command": lambda *a, **k: ["ffmpeg", "своя"],
+        "packer": type("Fake", (), {"start": staticmethod(lambda *a, **k: None)}),
         "forget_flag": forgotten.append,
         "recode_dir": "свой-перекод",
+        "remove_tree": swept.append,
+        "segment_paths": lambda where: [where / "свой.ts"],
     }
 
 
@@ -54,6 +61,9 @@ def test_every_slot_takes_its_value_from_the_composition(monkeypatch: pytest.Mon
     assert _state.ffmpeg_pack_command() == ["ffmpeg", "своя"]
     assert _state.forget_playing is world["forget_flag"]
     assert _state.RECODE_DIR == "свой-перекод"
+    assert _state.Packer is world["packer"]
+    assert _state.remove_tree is world["remove_tree"]
+    assert _state.segment_paths is world["segment_paths"]
 
 
 def test_a_second_call_replaces_the_world_and_does_not_mix_two(

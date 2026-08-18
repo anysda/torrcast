@@ -6,13 +6,14 @@
 from __future__ import annotations
 
 import contextlib
+import time
 from typing import TYPE_CHECKING
 
-import torrcast.usecases.feed_pack._state as _state
-from torrcast.usecases.feed_pack._segment_files import _names
+from torrcast.adapters.stream_pack._segment_files import _names
+from torrcast.adapters.stream_probe.segment_slot import segment_slot
 
 if TYPE_CHECKING:
-    from torrcast.usecases.feed_pack.packer_state import _State
+    from torrcast.adapters.stream_pack.packer_state import _State
 
 
 def _eta(state: _State, film: float) -> float:
@@ -34,9 +35,7 @@ def _eta(state: _State, film: float) -> float:
     """
     if state.rate <= 0:
         return 0.0
-    reach: float = (
-        state.at + state.burst + (_state.clock_port.monotonic() - state.began) * state.rate
-    )
+    reach: float = state.at + state.burst + (time.monotonic() - state.began) * state.rate
     return max(0.0, (film - reach) / state.rate)
 
 
@@ -65,5 +64,5 @@ def _frontier(state: _State) -> int:
     под :meth:`Feed.front` — запас показа для сторожа приёмника, который доказан на
     живом ТВ, и менять его без такой же живой проверки нельзя.
     """
-    slots = [s for s in map(_state.segment_slot, _names(state.out)) if s >= state.first]
+    slots = [s for s in map(segment_slot, _names(state.out)) if s >= state.first]
     return max(slots, default=state.first - 1)

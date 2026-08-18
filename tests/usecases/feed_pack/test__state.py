@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-import shutil
-import subprocess
-import tempfile
 import time
 
 import torrcast.usecases.feed_pack._state as _state
@@ -16,8 +13,11 @@ FILLED = (
     "segment_slot",
     "pack_start",
     "ffmpeg_pack_command",
+    "Packer",
     "forget_playing",
     "RECODE_DIR",
+    "remove_tree",
+    "segment_paths",
 )
 
 
@@ -40,16 +40,14 @@ def test_the_slots_are_wired_by_the_application() -> None:
     assert isinstance(_state.RECODE_DIR, str) and _state.RECODE_DIR
     assert callable(_state.pack_start) and callable(_state.ffmpeg_pack_command)
     assert callable(_state.forget_playing)
+    assert callable(_state.remove_tree) and callable(_state.segment_paths)
+    assert hasattr(_state.Packer, "start"), "завод прогона упаковки не встал в слот"
 
 
-def test_the_outer_world_of_the_packer_is_the_real_one() -> None:
-    """Подпроцессы, временный файл, дерево каталогов и часы - настоящие, не однофамильцы.
+def test_the_clock_of_the_feed_is_the_real_one() -> None:
+    """Часы названы импортом, а не слотом: поле ленты берёт ``monotonic`` на сборке.
 
-    Имя тут названо строкой (переезд :class:`Packer` в адаптеры - TC-625), и цена
-    ошибки в этой строке - молчаливая подмена всего внешнего мира прогона.
+    Слотом их не сделать: :class:`torrcast.usecases.feed_pack.feed_state._State` кладёт
+    ``monotonic`` в ``default_factory`` на импорте, то есть раньше любой композиции.
     """
-    assert _state.shutil is shutil
-    assert _state.subprocess is subprocess
-    assert _state.tempfile is tempfile
     assert _state.clock_port is time
-    assert _state.time is _state.clock_port

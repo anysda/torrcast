@@ -10,10 +10,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
+import torrcast.adapters.stream_pack.packer as packer_module
+import torrcast.adapters.stream_pack.packer_measure as measure_module
 import torrcast.usecases.feed_pack._state as _state
 from torrcast.adapters.stream_pack.grid import Grid
+from torrcast.adapters.stream_pack.packer import Packer
 from torrcast.usecases.feed_pack.feed import Feed
-from torrcast.usecases.feed_pack.packer import Packer
 
 if TYPE_CHECKING:
     import pytest
@@ -64,6 +66,9 @@ class FakeProc:
         self.signals.append("kill")
         self.code = -9
 
+    def send_signal(self, number: int) -> None:
+        self.signals.append(f"signal {number}")
+
 
 @dataclass
 class FakeVault:
@@ -76,9 +81,16 @@ class FakeVault:
 
 
 def clock(monkeypatch: pytest.MonkeyPatch, now: float = 1000.0) -> FakeClock:
-    """Подставить показу ручные часы на время одного теста."""
+    """Подставить показу ручные часы на время одного теста.
+
+    Часов у показа два места: лента держит их своим именем, а прогон упаковки - своим,
+    в медиатракте. Стенд подменяет оба разом: подмени одно - и зеркало мерило бы
+    получасы, где решение ленты идёт по ручной стрелке, а замер прогона по настоящей.
+    """
     fake = FakeClock(now=now)
     monkeypatch.setattr(_state, "clock_port", fake)
+    monkeypatch.setattr(packer_module, "time", fake)
+    monkeypatch.setattr(measure_module, "time", fake)
     return fake
 
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from tests.usecases.feed_pack.world import clock, lay, packer
-from torrcast.usecases.feed_pack.packer_measure import _eta, _frontier, _pending
+from torrcast.adapters.stream_pack.packer_measure import _eta, _frontier, _pending
 
 if TYPE_CHECKING:
     from pathlib import Path

@@ -31,7 +31,7 @@ from torrcast.adapters.stream_pack.ffmpeg_pack_command import ffmpeg_pack_comman
 from torrcast.adapters.stream_pack.grid import Grid
 from torrcast.adapters.stream_pack.grid_for import grid_for
 from torrcast.adapters.stream_pack.pack_start import pack_start
-from torrcast.usecases.feed_pack.packer import Packer
+from torrcast.adapters.stream_pack.packer import Packer
 
 WORK = Path("/dev/shm/torrcast-gridcheck")
 

@@ -116,7 +116,7 @@ def _run(state: _State, first: int, last: int, spot: bool = False) -> None:
             _state._environment.sleep(0.5)
         if state.misgrid < 0:
             # Мёртвый ffmpeg дописал последний кусок, но выложить его успевает уже
-            # не цикл (:meth:`torrcast.usecases.feed_pack.packer.Packer.publish`) - и сверить тоже.
+            # не цикл (:meth:`torrcast.adapters.stream_pack.packer.Packer.publish`) - и сверить тоже.
             packer.publish()
             _inspect(state, laid, min(packer.edge, last))
     finally:

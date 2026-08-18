@@ -1,13 +1,13 @@
 """Собирает сегмент из картинки перекода и звука копии.
 
-Зовёт её выкладка упаковщика (:mod:`torrcast.usecases.feed_pack.packer_publish`).
+Зовёт её выкладка упаковщика (:mod:`torrcast.adapters.stream_pack.packer_publish`).
 """
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
-import torrcast.usecases.feed_pack._state as _state
 from torrcast.domain.probe_settings import _TIMEOUT
 
 
@@ -52,8 +52,8 @@ def merge_tracks(
         "-muxdelay", "0", "-muxpreload", "0", "-f", "mpegts", "-y", str(dst),
     ]  # fmt: skip
     try:
-        done = _state.subprocess.run(command, capture_output=True, timeout=timeout, check=False)
-    except (OSError, _state.subprocess.SubprocessError):
+        done = subprocess.run(command, capture_output=True, timeout=timeout, check=False)
+    except (OSError, subprocess.SubprocessError):
         dst.unlink(missing_ok=True)
         return False
     if done.returncode != 0 or not dst.exists() or dst.stat().st_size <= 0:

@@ -14,10 +14,10 @@ from typing import Protocol
 import torrcast.usecases.feed_pack._state as _state
 from torrcast.domain.hls_settings import PACK_PENDING_BYTES
 from torrcast.domain.profile import CAUTIOUS
+from torrcast.ports.pack_run import PackRun
 from torrcast.ports.recode.encoding_rate import EncodingRate
 from torrcast.ports.recode.feed_recoder import FeedRecoder
 from torrcast.usecases.feed_pack._state import Grid
-from torrcast.usecases.feed_pack.packer import Packer
 
 
 class _Vault(Protocol):
@@ -83,7 +83,7 @@ class _State:
     #: авария, потому что паковать заново он умеет с любого места. Но молча повторять до
     #: бесконечности нельзя: битый источник крутил бы этот круг вечно.
     limit: int = 3
-    packer: Packer | None = None
+    packer: PackRun | None = None
     lock: threading.Lock = field(default_factory=threading.Lock)
     #: Когда последний раз перезапускали упаковку: защита от лавины на префетче.
     restarted: float = 0.0

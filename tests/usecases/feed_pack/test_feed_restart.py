@@ -6,7 +6,6 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 import torrcast.usecases.feed_pack._state as _state
-import torrcast.usecases.feed_pack.feed_restart as restart_module
 from tests.usecases.feed_pack.world import clock, feed, grid, packer, signals
 from torrcast.domain.hls_settings import PACK_DIR
 from torrcast.usecases.feed_pack.feed_restart import _restart
@@ -52,7 +51,7 @@ def _tract(
     monkeypatch.setattr(
         _state, "ffmpeg_pack_command", lambda *a, **k: ["ffmpeg", *map(str, a[4:6])]
     )
-    monkeypatch.setattr(restart_module, "Packer", type("Fake", (), {"start": staticmethod(_start)}))
+    monkeypatch.setattr(_state, "Packer", type("Fake", (), {"start": staticmethod(_start)}))
     return started
 
 

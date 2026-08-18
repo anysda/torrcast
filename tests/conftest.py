@@ -33,7 +33,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
     from pathlib import Path
 
-    from torrcast.usecases.feed_pack.packer import Packer
+    from torrcast.adapters.stream_pack.packer import Packer
 
 #: Длина синтетического ролика. Держим её кратной сетке HLS и с запасом в несколько
 #: сегментов: на сетке 10 с двадцатисекундный ролик - это всего два сегмента,
@@ -511,7 +511,8 @@ def fake_packer(
     Каталог прогона (``out/pack``) не создаётся: значит :meth:`Packer.publish` выкладывать
     нечего, и наружу остаётся ровно то, что тест положил своими руками.
 
-    ``edge`` — честный край прогона (:attr:`torrcast.usecases.feed_pack.packer.Packer.edge`), то есть
+    ``edge`` — честный край прогона
+    (:attr:`torrcast.adapters.stream_pack.packer.Packer.edge`), то есть
     докуда **этот** прогон выложил. Без ffmpeg двигать его некому, поэтому фикстура спрашивает об
     этом тест. Умолчание — «выложил всё, что лежит в каталоге на момент создания»: так читается
     обычный случай «тест положил куски руками, они и есть работа прогона». Куски, положенные ПОСЛЕ
@@ -525,15 +526,15 @@ def fake_packer(
 
     ``run`` и ``last`` нужны там, где проверяется сама выкладка: каталог прогона со
     своими кусками и предел захода кодировщика
-    (:attr:`torrcast.usecases.feed_pack.packer.Packer.last`).
+    (:attr:`torrcast.adapters.stream_pack.packer.Packer.last`).
 
     ``kind`` - каким прогоном притвориться. Умолчание - настоящий :class:`Packer`; свой
     наследник нужен там, где проверяется поведение показа на прогоне с иным исходом
     (оборванный вход, чужой код возврата), а подменять метод у общего класса нельзя.
     """
+    from torrcast.adapters.stream_pack.packer import Packer
     from torrcast.adapters.stream_probe.segment_slot import segment_slot
     from torrcast.domain.hls_settings import PACK_DIR
-    from torrcast.usecases.feed_pack.packer import Packer
 
     if edge is None:
         made = [s for s in (segment_slot(p.name) for p in out.glob("v*.ts")) if s >= first]

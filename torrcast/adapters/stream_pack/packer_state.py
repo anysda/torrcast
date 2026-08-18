@@ -1,6 +1,6 @@
 """Поля одного прогона упаковки и их цена.
 
-Наследует их :class:`torrcast.usecases.feed_pack.packer.Packer`, и только он.
+Наследует их :class:`torrcast.adapters.stream_pack.packer.Packer`, и только он.
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Protocol, TypeAlias
 
 from torrcast.domain.profile import CAUTIOUS
-from torrcast.usecases.feed_pack._state import Grid
+from torrcast.ports.feed_grid import FeedGrid
 
 #: Кого позвать, когда сегмент ушёл наружу: ``(слот, чем он ушёл)``.
 _Told: TypeAlias = Callable[[int, str], None]
@@ -21,12 +21,18 @@ _Asked: TypeAlias = Callable[[int, int], bool]
 
 
 class _Process(Protocol):
-    """Процесс ffmpeg в том объёме, в каком его знает прогон упаковки."""
+    """Процесс ffmpeg в том объёме, в каком его знает прогон упаковки.
+
+    ``send_signal`` тут не для самого прогона: сигналами процессу распоряжаются соседи -
+    прогрев (:func:`torrcast.usecases.warm.throttle._throttle`) и кодировщик, - и назван
+    он ровно затем, чтобы их договор не держался на `Any`.
+    """
 
     def poll(self) -> int | None: ...
     def wait(self, timeout: float | None = None) -> int: ...
     def terminate(self) -> None: ...
     def kill(self) -> None: ...
+    def send_signal(self, number: int) -> None: ...
 
 
 class _Spool(Protocol):
@@ -113,7 +119,7 @@ class _State:
     #: Сетка показа: по ней прогон паковали, по ней же сверяется, дописан ли последний
     #: кусок (:meth:`finished`). ``None`` - сверять не с чем, и слово ffmpeg остаётся
     #: единственным признаком.
-    grid: Grid | None = None
+    grid: FeedGrid | None = None
     #: Ответ :meth:`finished`, посчитанный один раз; ``None`` - ещё не считали.
     whole: bool | None = None
     #: Кого спросить «этот кусок сейчас перекодируют, подожди»: ``(слот, вес копии) -> bool``.

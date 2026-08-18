@@ -7,7 +7,7 @@ from io import BytesIO
 from typing import TYPE_CHECKING
 
 from tests.usecases.feed_pack.world import FakeProc, lay, packer, signals
-from torrcast.usecases.feed_pack.packer_stop import _stop, _why
+from torrcast.adapters.stream_pack.packer_stop import _stop, _why
 
 if TYPE_CHECKING:
     from pathlib import Path

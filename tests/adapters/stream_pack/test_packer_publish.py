@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-import torrcast.usecases.feed_pack.packer_publish as publish
+import torrcast.adapters.stream_pack.packer_publish as publish
 from tests.usecases.feed_pack.world import lay, packer
-from torrcast.usecases.feed_pack.packer_publish import _lay_out
+from torrcast.adapters.stream_pack.packer_publish import _lay_out
 
 if TYPE_CHECKING:
     from pathlib import Path
