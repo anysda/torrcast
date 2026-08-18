@@ -21,6 +21,7 @@ from torrcast.domain.media import Media
 from torrcast.domain.probe_settings import COPY_DEPTH, RECODE_CODECS
 from torrcast.domain.profile import ANDROID_TV, CAUTIOUS, COPY, RECODE, REFUSE
 from torrcast.domain.recodes_whole import recodes_whole
+from torrcast.domain.revive_settings import REVIVE_DROP, REVIVE_PAUSE
 from torrcast.domain.thresholds import thresholds
 from torrcast.domain.tune import tune
 from torrcast.usecases.feed_pack.feed import Feed
@@ -66,11 +67,10 @@ def test_the_revival_waits_are_the_cautious_profile() -> None:
     оставшиеся попытки, чтобы их хватило на всё окно возврата. Сложи их в одно число - и
     темнота по вине приёмника снова станет минутой чёрного экрана впустую.
     """
-    from torrcast import cli
 
     cautious = CAUTIOUS
-    assert cli.REVIVE_PAUSE == cautious.revive_pause == 60.0
-    assert cli.REVIVE_DROP == cautious.revive_drop == 4.0
+    assert REVIVE_PAUSE == cautious.revive_pause == 60.0
+    assert REVIVE_DROP == cautious.revive_drop == 4.0
     assert cautious.revive_drop < cautious.revive_pause, "приёмника ждут секунды, а не минуту"
 
 
@@ -226,8 +226,8 @@ def test_a_frame_the_receiver_cannot_take_never_leaves_as_a_copy_either() -> Non
     и повторится история десятибитного H.264: отбор судил бы по одному правилу, упаковка
     по другому, а прогретое легло бы под третьим ключом.
     """
-    from torrcast.cli import _encode_all
     from torrcast.domain.config import Config
+    from torrcast.usecases.playback import _encode_all
 
     q70d = CAUTIOUS
     assert q70d.recode_frame == 1080, "потолок кадра - свойство приёмника, отсюда и берётся"
@@ -254,8 +254,8 @@ def test_an_unmeasured_codec_never_leaves_for_the_receiver_as_a_copy(codec: str)
     упаковки и получала ``-c:v copy`` в mpegts: приёмник такой показ не начинает вовсе.
     AV1 при этом спасала отбраковка на отборе, VP9 не спасало ничто.
     """
-    from torrcast.cli import _encode_all
     from torrcast.domain.config import Config
+    from torrcast.usecases.playback import _encode_all
 
     assert recodes_whole(codec, 0, CAUTIOUS), "копией такое не отдаём"
     assert _encode_all(Config(), codec, profile=CAUTIOUS) is not None
@@ -265,8 +265,8 @@ def test_an_unmeasured_codec_never_leaves_for_the_receiver_as_a_copy(codec: str)
 
 def test_the_hevc_path_is_untouched_and_plain_h264_still_goes_as_a_copy() -> None:
     """Гейт обратной стороны: закрытому пути HEVC от белого списка ни жарко ни холодно."""
-    from torrcast.cli import _encode_all
     from torrcast.domain.config import Config
+    from torrcast.usecases.playback import _encode_all
 
     assert _encode_all(Config(), "hevc", profile=CAUTIOUS) is not None
     assert _encode_all(Config(), "h264", depth=10, profile=CAUTIOUS) is not None

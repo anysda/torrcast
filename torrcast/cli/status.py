@@ -7,13 +7,19 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from torrcast.ports.module import module
+#: Кем отвечает ``cast status``. Кладёт сюда композиционный корень
+#: (:mod:`torrcast.runtime.wire`): слой команд не вправе видеть адаптеры, которыми сеанс
+#: ходит в юнит, в состояние и в TorrServer. До слова корня имени тут нет вовсе - прежде
+#: команда доставала сеанс строкой с именем модуля, тем же обходом, что и плоский фасад.
+_SESSION: Callable[[], int]
 
-#: Композиционный корень зовётся по имени: слой команд не вправе видеть адаптеры,
-#: которыми сеанс ходит в юнит, в состояние и в TorrServer.
-_SESSION: Callable[[], int] = module("torrcast.runtime.status_command").status_command
+
+def _configure_status(session: Callable[[], int]) -> None:
+    """Назначить, каким сеансом отвечает ``cast status``."""
+    global _SESSION
+    _SESSION = session
 
 
-def status(command: Callable[[], int] = _SESSION) -> int:
+def status(command: Callable[[], int] | None = None) -> int:
     """``cast status`` — состояние текущего или последнего сеанса."""
-    return command()
+    return (_SESSION if command is None else command)()

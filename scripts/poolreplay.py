@@ -60,20 +60,7 @@ from torrcast.adapters.prowlarr.merge import merge
 from torrcast.adapters.prowlarr.prowlarr import Prowlarr
 from torrcast.adapters.prowlarr.raw_result import RawResult
 from torrcast.adapters.prowlarr.to_releases import to_releases
-from torrcast.cli import (
-    OFF_SEASON,
-    Args,
-    _ceiling_hides_name,
-    _lacks_season,
-    _Plan,
-    _plan_for,
-    _season_reread,
-    drop_reason,
-    queue_drops,
-    unfit_pool,
-    voiceless_pool,
-    worth_asking_original,
-)
+from torrcast.cli.args import Args
 from torrcast.domain._name_data import THIN_POOL
 from torrcast.domain.capped_indexers import INDEXER_PAGE
 from torrcast.domain.cluster import cluster
@@ -85,6 +72,10 @@ from torrcast.domain.picture import Picture
 from torrcast.domain.profile import Profile
 from torrcast.domain.release import Release
 from torrcast.domain.split_franchise_index import split_franchise_index
+from torrcast.usecases.discover import _season_reread, unfit_pool, worth_asking_original
+from torrcast.usecases.rank import OFF_SEASON, drop_reason, queue_drops
+from torrcast.usecases.reinforce import _ceiling_hides_name, _lacks_season, _plan_for, voiceless_pool
+from torrcast.usecases.select import _Plan
 
 #: Что склеили и во что: список исходных кучек и получившаяся из них картина.
 Merge = tuple[list[Picture], Picture]

@@ -12,13 +12,16 @@ from typing import Any, ClassVar
 
 import pytest
 
+from tests.fakes import composition
 from tests.fakes.show_unit import FakeShowUnit
-from torrcast import cli
 from torrcast.adapters.filesystem.state import State
+from torrcast.cli.main import main
 from torrcast.domain.entry import Entry
 from torrcast.domain.media import Media
 from torrcast.domain.torr_file import TorrFile
+from torrcast.usecases import worker_loop
 from torrcast.usecases.playback import _show_state as playback_state
+from torrcast.usecases.worker import _cmd_worker
 
 KEY = "tv:киберпанк-бегущие-по-краю:2022"
 #: Три серии раздачи: s1e1 → файл 0, s1e2 → файл 1, s1e3 → файл 2.
@@ -95,7 +98,7 @@ def _no_unit(
 ) -> list[str]:
     started: list[str] = []
     monkeypatch.setattr(playback_state, "start_play_unit", lambda key: started.append(key))
-    monkeypatch.setattr(cli, "_await_playing", lambda config, progress, timeout=120.0: None)
+    composition.use_await_playing(monkeypatch, lambda config, progress, timeout=120.0: None)
     if order is not None:
         show_unit.on_stop = lambda: order.append("stop")
     return started
@@ -115,7 +118,7 @@ def test_the_previous_show_is_stopped_before_the_new_record_is_written(
     _no_unit(show_unit, monkeypatch, order)
     monkeypatch.setattr(State, "save", lambda self: order.append("save"))
 
-    assert cli.main(["киберпанк", "s1e3"]) == 0
+    assert main(["киберпанк", "s1e3"]) == 0
 
     assert order == ["stop", "save"]
 
@@ -152,14 +155,14 @@ def test_the_unit_plays_the_whole_release_by_itself(monkeypatch: pytest.MonkeyPa
         watch.close()  # серия доиграна до конца - конец сеанса берёт следующую
         return 0
 
-    monkeypatch.setattr(cli, "TorrServer", _FakeTorrServer)
-    monkeypatch.setattr(
-        cli, "probe", lambda url, timeout=90.0, alive=None: Media(MINUTES_24, (), "h264")
+    composition.use_engines(monkeypatch, _FakeTorrServer)
+    composition.use_prober(
+        monkeypatch, lambda url, timeout=90.0, alive=None: Media(MINUTES_24, (), "h264")
     )
-    monkeypatch.setattr(cli, "make_receiver", lambda kind, address, cert, profile=None: tv)
-    monkeypatch.setattr(cli, "_play", play)
+    composition.use_receivers(monkeypatch, lambda kind, address, cert, profile=None: tv)
+    monkeypatch.setattr(worker_loop, "_play", play)
 
-    assert cli._cmd_worker(KEY) == 0
+    assert _cmd_worker(KEY) == 0
 
     assert receivers == [tv, tv, tv], (
         "приёмник один на весь юнит - второй сендер гасит показ на стыке серий"
@@ -186,11 +189,11 @@ def test_the_next_episode_learns_its_own_duration(monkeypatch: pytest.MonkeyPatc
         probed.append(url)
         return Media(MINUTES_24 + len(probed), (), "h264", pix_fmt="yuv420p")
 
-    monkeypatch.setattr(cli, "TorrServer", _FakeTorrServer)
-    monkeypatch.setattr(cli, "probe", probe)
-    monkeypatch.setattr(cli, "make_receiver", lambda kind, address, cert, profile=None: None)
+    composition.use_engines(monkeypatch, _FakeTorrServer)
+    composition.use_prober(monkeypatch, probe)
+    composition.use_receivers(monkeypatch, lambda kind, address, cert, profile=None: None)
     monkeypatch.setattr(
-        cli,
+        worker_loop,
         "_play",
         lambda config, source, audio, about, clock, watch=None, **rest: (
             watch.see(watch.entry.dur),
@@ -199,7 +202,7 @@ def test_the_next_episode_learns_its_own_duration(monkeypatch: pytest.MonkeyPatc
         )[2],
     )
 
-    assert cli._cmd_worker(KEY) == 0
+    assert _cmd_worker(KEY) == 0
 
     assert len(probed) == 2, "у первой серии длительность уже была, у двух следующих - нет"
 
@@ -221,9 +224,9 @@ def test_a_record_from_before_the_ten_bit_era_asks_the_passport_once(
         probed.append(url)
         return Media(MINUTES_24, (), "h264", profile="High 10", pix_fmt="yuv420p10le")
 
-    monkeypatch.setattr(cli, "TorrServer", _FakeTorrServer)
-    monkeypatch.setattr(cli, "probe", probe)
-    monkeypatch.setattr(cli, "make_receiver", lambda kind, address, cert, profile=None: None)
+    composition.use_engines(monkeypatch, _FakeTorrServer)
+    composition.use_prober(monkeypatch, probe)
+    composition.use_receivers(monkeypatch, lambda kind, address, cert, profile=None: None)
 
     def play(
         config: Any, source: str, audio: int, about: str, clock: Any, watch: Any = None, **rest: Any
@@ -233,9 +236,9 @@ def test_a_record_from_before_the_ten_bit_era_asks_the_passport_once(
         watch.close()
         return 0
 
-    monkeypatch.setattr(cli, "_play", play)
+    monkeypatch.setattr(worker_loop, "_play", play)
 
-    assert cli._cmd_worker(KEY) == 0
+    assert _cmd_worker(KEY) == 0
 
     assert seen[0] == 10, "показ обязан узнать глубину, а не решать по одному имени кодека"
     assert saved().depth == 10, "узнанное осталось в записи - второй раз спрашивать незачем"
@@ -259,9 +262,9 @@ def test_a_record_from_before_the_frame_era_asks_the_passport_once(
         probed.append(url)
         return Media(MINUTES_24, (), "h264", height=2160, width=3840, pix_fmt="yuv420p")
 
-    monkeypatch.setattr(cli, "TorrServer", _FakeTorrServer)
-    monkeypatch.setattr(cli, "probe", probe)
-    monkeypatch.setattr(cli, "make_receiver", lambda kind, address, cert, profile=None: None)
+    composition.use_engines(monkeypatch, _FakeTorrServer)
+    composition.use_prober(monkeypatch, probe)
+    composition.use_receivers(monkeypatch, lambda kind, address, cert, profile=None: None)
 
     def play(
         config: Any, source: str, audio: int, about: str, clock: Any, watch: Any = None, **rest: Any
@@ -271,9 +274,9 @@ def test_a_record_from_before_the_frame_era_asks_the_passport_once(
         watch.close()
         return 0
 
-    monkeypatch.setattr(cli, "_play", play)
+    monkeypatch.setattr(worker_loop, "_play", play)
 
-    assert cli._cmd_worker(KEY) == 0
+    assert _cmd_worker(KEY) == 0
 
     assert seen[0] == 2160, "показ обязан узнать кадр, а не писать в поток «4.1» на 4К"
     assert saved().frame == 2160, "узнанное осталось в записи - второй раз спрашивать незачем"
@@ -304,12 +307,12 @@ def test_the_unit_signs_its_torrent_in_the_state_and_unsigns_it_on_the_way_out(
         signed.append(entry.torrent if entry else "")
         return 0
 
-    monkeypatch.setattr(cli, "TorrServer", _FakeTorrServer)
-    monkeypatch.setattr(cli, "probe", lambda url, timeout=90.0, alive=None: Media(MINUTES_24, ()))
-    monkeypatch.setattr(cli, "make_receiver", lambda kind, address, cert, profile=None: None)
-    monkeypatch.setattr(cli, "_play", play)
+    composition.use_engines(monkeypatch, _FakeTorrServer)
+    composition.use_prober(monkeypatch, lambda url, timeout=90.0, alive=None: Media(MINUTES_24, ()))
+    composition.use_receivers(monkeypatch, lambda kind, address, cert, profile=None: None)
+    monkeypatch.setattr(worker_loop, "_play", play)
 
-    assert cli._cmd_worker(KEY) == 0
+    assert _cmd_worker(KEY) == 0
 
     assert signed == ["hash", "hash", "hash"], "пока показ идёт, хозяин раздачи назван"
     assert _FakeTorrServer.dropped == ["hash"], "раздача убрана на выходе, как и раньше"
@@ -326,7 +329,7 @@ def test_a_series_continues_the_right_episode_from_the_right_place(
     _no_questions(monkeypatch)
     started = _no_unit(show_unit, monkeypatch)
 
-    assert cli.main(["киберпанк"]) == 0
+    assert main(["киберпанк"]) == 0
 
     printed = capsys.readouterr().out
     assert "s1e2" in printed and "с 0:05:00" in printed
@@ -343,7 +346,7 @@ def test_a_watched_episode_is_followed_by_the_next_one_without_questions(
     _no_questions(monkeypatch)
     _no_unit(show_unit, monkeypatch)
 
-    assert cli.main(["киберпанк"]) == 0
+    assert main(["киберпанк"]) == 0
 
     assert "s1e3" in capsys.readouterr().out
 
@@ -355,7 +358,7 @@ def test_an_episode_stopped_at_96_percent_starts_the_next_one(
     _no_questions(monkeypatch)
     _no_unit(show_unit, monkeypatch)
 
-    assert cli.main(["киберпанк"]) == 0
+    assert main(["киберпанк"]) == 0
 
     said = capsys.readouterr().out
     assert "s1e2 досмотрено" in said and "играю s1e3" in said
@@ -375,7 +378,7 @@ def test_the_last_episode_does_not_promise_an_automatic_restart(
 
     monkeypatch.setattr("builtins.input", answer)
 
-    assert cli.main(["киберпанк", "--dry"]) == 0
+    assert main(["киберпанк", "--dry"]) == 0
 
     said = capsys.readouterr().out
     assert said.count("была последней в раздаче") == 1
@@ -395,7 +398,7 @@ def test_a_named_episode_is_not_shadowed_by_the_watched_bookkeeping(
     _no_questions(monkeypatch)
     _no_unit(show_unit, monkeypatch)
 
-    assert cli.main(["киберпанк", "s1e1"]) == 0
+    assert main(["киберпанк", "s1e1"]) == 0
 
     said = capsys.readouterr().out
     assert "досмотрено" not in said and "s1e3" not in said
@@ -410,7 +413,7 @@ def test_an_explicit_episode_jumps_inside_the_cached_release(
     _no_questions(monkeypatch)
     _no_unit(show_unit, monkeypatch)
 
-    assert cli.main(["киберпанк", "s1e3"]) == 0
+    assert main(["киберпанк", "s1e3"]) == 0
 
     assert "s1e3" in capsys.readouterr().out
     assert (saved().episode, saved().file_idx, saved().pos) == (3, 2, 0.0)
@@ -425,7 +428,7 @@ def test_an_episode_outside_the_release_goes_looking_for_it(
     remember(episode=1, pos=600.0, dur=MINUTES_24)
     monkeypatch.setattr(playback_state, "start_play_unit", lambda key: pytest.fail("играть нечего"))
 
-    assert cli.main(["киберпанк", "s2e5"]) == 2
+    assert main(["киберпанк", "s2e5"]) == 2
 
     assert "Prowlarr" in capsys.readouterr().err
     assert saved().episode == 1, "запись не тронута: серию не нашли"
@@ -439,7 +442,7 @@ def test_the_end_of_the_release_is_the_end(
     monkeypatch.setattr("builtins.input", lambda prompt="": "нет")
     monkeypatch.setattr(playback_state, "start_play_unit", lambda key: pytest.fail("играть нечего"))
 
-    assert cli.main(["киберпанк"]) == 0
+    assert main(["киберпанк"]) == 0
 
     assert "s1e3 была последней в раздаче" in capsys.readouterr().out
 
@@ -452,7 +455,7 @@ def test_the_finished_release_can_be_started_over(
     monkeypatch.setattr("builtins.input", lambda prompt="": "")
     _no_unit(show_unit, monkeypatch)
 
-    assert cli.main(["киберпанк"]) == 0
+    assert main(["киберпанк"]) == 0
 
     assert "s1e1" in capsys.readouterr().out
     assert (saved().episode, saved().file_idx, saved().done) == (1, 0, False)
@@ -466,6 +469,6 @@ def test_status_names_the_episode(
     show_unit.alive = True
     show_unit.playing = KEY
 
-    assert cli.main(["status"]) == 0
+    assert main(["status"]) == 0
 
     assert "играю «Киберпанк: Бегущие по краю» s1e2 - 0:05:10 / 0:24:00" in capsys.readouterr().out

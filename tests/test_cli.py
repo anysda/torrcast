@@ -16,10 +16,11 @@ import pytest
 from tests.fakes.blurb_source import FakeBlurbSource
 from tests.fakes.blurb_store import FakeBlurbStore
 from tests.fakes.choice_environment import FakeChoiceEnvironment
-from torrcast import InfraError, NotFoundError, SwarmError, cli
+from torrcast import InfraError, NotFoundError, SwarmError
 from torrcast.adapters.console.console import Progress
 from torrcast.adapters.filesystem.state import load_config
-from torrcast.cli import TABLE_LIMIT, is_candidate, is_disc, rank_releases, render_table, warned
+from torrcast.cli.args import Args
+from torrcast.domain._series import _Series
 from torrcast.domain.audio_track import AudioTrack
 from torrcast.domain.cluster import cluster
 from torrcast.domain.episode import Episode
@@ -28,13 +29,70 @@ from torrcast.domain.kind import Kind
 from torrcast.domain.media import Media
 from torrcast.domain.parse_release_name import parse_release_name
 from torrcast.domain.pick_franchise import pick_franchise
+from torrcast.domain.pick_settings import VERDICT_BUDGET
 from torrcast.domain.picture import Picture
+from torrcast.domain.prewarm_settings import MAX_LIVE, PREWARM
 from torrcast.domain.profile import CAUTIOUS
+from torrcast.domain.rank_settings import ALIVE_SEEDERS, FULL_HD_LIVENESS, TABLE_LIMIT
 from torrcast.domain.release import Release
 from torrcast.domain.runtime_guess import RUNTIME_GUESS
 from torrcast.domain.server_down_error import ServerDownError
 from torrcast.domain.torr_file import TorrFile
+from torrcast.usecases import reinforce
+from torrcast.usecases.choice import (
+    _is_default,
+    _pick_plan,
+    _played,
+    alive_numbers,
+    asked_kind,
+    backed,
+    default_line,
+    default_note,
+    first_alive,
+    fitness,
+    liveliest,
+    liveliness,
+    menu_lines,
+    namesake_note,
+    part_one_swap,
+    playable,
+    swap_note,
+    understudy,
+    understudy_note,
+    warm_order,
+    warned,
+    year_note,
+)
+from torrcast.usecases.discover import (
+    _asked_kind,
+    _kin,
+    _no_budget,
+    _nothing,
+    _second_language,
+    kin_line,
+    silent_swarm,
+)
 from torrcast.usecases.facts import Facts
+from torrcast.usecases.playback import _refuse_hopeless
+from torrcast.usecases.rank import (
+    bitrate_of,
+    is_candidate,
+    is_dated,
+    is_disc,
+    is_extra,
+    is_full_hd,
+    needs_whole_recode,
+    quality_text,
+    rank_releases,
+    render_table,
+    sound_note,
+    understated,
+    voice_unproven,
+)
+from torrcast.usecases.reinforce import _ceiling_hides_name, _ceiling_reinforce, _timed
+from torrcast.usecases.releases_command import _cmd_releases
+from torrcast.usecases.select import _Plan, _Prep, _silenced, _Voiced
+from torrcast.usecases.select_bench import _Bench
 
 RUNTIME = RUNTIME_GUESS["movie"]
 GB = 1024**3
@@ -209,15 +267,15 @@ def test_the_only_release_of_a_picture_is_not_shown_instead_of_it() -> None:
     only = _named(
         "Мандалорец / The Mandalorian [2019, фантастика, приключения, HDRip] Трейлер", 0.21, 1
     )
-    plan = cli._Plan(
+    plan = _Plan(
         picture=Picture(title="Мандалорец", year=2019, releases=[only]),
         ranked=rank_releases([only], RUNTIME, 16.0),
         runtime=RUNTIME,
         warn_mbit=16.0,
     )
     assert not is_candidate(only, RUNTIME, 16.0)
-    assert plan.candidates(cli.Args(query=["мандалорец"])) == [], "подмены картины нет"
-    assert plan.candidates(cli.Args(query=["мандалорец"], release=1)) == [1], (
+    assert plan.candidates(Args(query=["мандалорец"])) == [], "подмены картины нет"
+    assert plan.candidates(Args(query=["мандалорец"], release=1)) == [1], (
         "названный человеком номер в ворота не ходит"
     )
 
@@ -233,7 +291,7 @@ def test_an_empty_queue_is_an_honest_refusal_not_a_substitute() -> None:
     game = [rel(name=f"игра {n}", size_gb=35.6, seeders=40 - n) for n in range(2)]
 
     with pytest.raises(NotFoundError) as caught:
-        _resolve(cli._Bench(cast(Any, _FakeTorrServer())), game)
+        _resolve(_Bench(cast(Any, _FakeTorrServer())), game)
 
     msg = str(caught.value)
     assert "годного релиза нет: раздач в выдаче 2" in msg, msg
@@ -252,7 +310,7 @@ def test_an_empty_queue_without_kin_still_names_the_next_step() -> None:
     game = [rel(name=f"игра {n}", size_gb=35.6, seeders=40 - n) for n in range(2)]
 
     with pytest.raises(NotFoundError) as caught:
-        _resolve(cli._Bench(cast(Any, _FakeTorrServer())), game)
+        _resolve(_Bench(cast(Any, _FakeTorrServer())), game)
 
     msg = str(caught.value)
     assert "все до одной отсеял отбор (тяжелее потолка - 2)" in msg, msg
@@ -272,7 +330,7 @@ def test_an_out_of_range_hand_picked_number_names_its_picture() -> None:
     plan = _plan([rel(name="r1"), rel(name="r2")])
 
     with pytest.raises(NotFoundError, match="у «Кино» релизов 2, номера 3 нет"):
-        plan.candidates(cli.Args(query=["кино"], release=3))
+        plan.candidates(Args(query=["кино"], release=3))
 
 
 def test_a_heavy_bonus_disc_with_a_plain_mark_is_turned_away() -> None:
@@ -288,7 +346,7 @@ def test_a_heavy_bonus_disc_with_a_plain_mark_is_turned_away() -> None:
     Метка НЕоднозначная («трейлер» у ещё не вышедшей картины, «фильм о фильме» у
     документального кино) без веса не судится: такую носят и раздачи самой картины.
     """
-    from torrcast.cli import is_extra
+    from torrcast.usecases.rank import is_extra
 
     bonus = _named("Титаник / Titanic (1997) BDRip | Дополнительные материалы", 11.56, 12)
     disc = _named("Тачки 3 [Бонус-Диск] / Cars 3 [Bonus Disc] (2017) BDRip 720p", 2.7, 3)
@@ -321,7 +379,7 @@ def test_the_only_sure_marked_release_of_a_picture_is_not_shown_instead_of_it() 
         2.4,
         2,
     )
-    plan = cli._Plan(
+    plan = _Plan(
         picture=Picture(
             title="Властелин Колец: воссоединение актёрского состава", year=2021, releases=[only]
         ),
@@ -330,8 +388,8 @@ def test_the_only_sure_marked_release_of_a_picture_is_not_shown_instead_of_it() 
         warn_mbit=16.0,
     )
     assert only.extras_sure and not is_candidate(only, RUNTIME, 16.0)
-    assert plan.candidates(cli.Args(query=["властелин", "колец"])) == [], "подмены картины нет"
-    assert plan.candidates(cli.Args(query=["властелин", "колец"], release=1)) == [1], (
+    assert plan.candidates(Args(query=["властелин", "колец"])) == [], "подмены картины нет"
+    assert plan.candidates(Args(query=["властелин", "колец"], release=1)) == [1], (
         "названный человеком номер в ворота не ходит"
     )
 
@@ -455,7 +513,7 @@ def _plan(ranked: list[Release], recode_at: float = 10.0) -> Any:
     # ``recode_at`` не украшение: в бою перекодирование включено (:class:`Config`), и
     # именно от него зависит, отказ HEVC или сплошной перекод. Ноль - «перекодирование
     # выключено», и тогда поведение обязано остаться прежним.
-    return cli._Plan(
+    return _Plan(
         picture=picture, ranked=ranked, runtime=RUNTIME, warn_mbit=20.0, recode_at=recode_at
     )
 
@@ -474,7 +532,9 @@ def _topup(plan: Any, rows: list[Any], menu: frozenset[str] = frozenset()) -> tu
     plan.late = lambda: rows
     out = io.StringIO()
     with Progress(out=out) as progress:
-        fresh = cli._topup(plan, cli.Args(query=["кино"]), load_config(), CAUTIOUS, progress, menu)
+        fresh = reinforce._topup(
+            plan, Args(query=["кино"]), load_config(), CAUTIOUS, progress, menu
+        )
     return fresh, out.getvalue()
 
 
@@ -575,7 +635,7 @@ class _Spent:
 def _budget(spare: float) -> tuple[float | None, str]:
     out = io.StringIO()
     with Progress(out=out) as progress:
-        left = cli._no_budget(cast(Any, _Spent(spare)), "добор по «кино»", progress)
+        left = _no_budget(cast(Any, _Spent(spare)), "добор по «кино»", progress)
     return left, out.getvalue()
 
 
@@ -606,9 +666,9 @@ def test_частный_бюджет_за_целью_выдаётся_один_�
     client = cast(Any, _Spent(0.3))
     out = io.StringIO()
     with Progress(out=out) as progress:
-        first = cli._no_budget(client, "добор по «кино»", progress)
-        second = cli._no_budget(client, "добор сезона 2", progress)
-        third = cli._no_budget(client, "добор по «Kino»", progress)
+        first = _no_budget(client, "добор по «кино»", progress)
+        second = _no_budget(client, "добор сезона 2", progress)
+        third = _no_budget(client, "добор по «Kino»", progress)
     said = out.getvalue()
 
     assert first == FACTS_BUDGET, "первый заход за целью получает свой частный бюджет"
@@ -625,8 +685,8 @@ def test_целый_остаток_цели_частный_бюджет_не_т�
 
     client = cast(Any, _Spent(9.0))
     with Progress(out=io.StringIO()) as progress:
-        assert cli._no_budget(client, "уточнение", progress) == FACTS_BUDGET
-        assert cli._no_budget(client, "добор сезона 2", progress) == FACTS_BUDGET
+        assert _no_budget(client, "уточнение", progress) == FACTS_BUDGET
+        assert _no_budget(client, "добор сезона 2", progress) == FACTS_BUDGET
     assert client.over_goal is False, "остатка хватало - превышения не было"
 
 
@@ -654,11 +714,11 @@ def test_добор_вторым_именем_не_отменяется_съед
     """
     from torrcast.domain.facts.settings import FACTS_BUDGET
 
-    empty = _asked_reference([], cli.Args(query=["клиника", "s1e1"]), spare=0.3)
+    empty = _asked_reference([], Args(query=["клиника", "s1e1"]), spare=0.3)
     assert empty == ("клиника", True, FACTS_BUDGET), "картины нет - справку спросили всерьёз"
 
     lean = Picture(title="Клиника", year=2001, kind="tv", releases=[rel(name="Клиника s01e01")])
-    thin = _asked_reference([lean], cli.Args(query=["клиника", "s1e1"]), spare=0.3)
+    thin = _asked_reference([lean], Args(query=["клиника", "s1e1"]), spare=0.3)
     assert thin == ("клиника", True, FACTS_BUDGET), "и на тощем пуле - её обычный потолок"
 
 
@@ -674,15 +734,15 @@ def test_тип_картины_справке_называет_выдача_а_�
     show = Picture(title="Клиника", year=2001, kind="tv")
     film = Picture(title="Клиника", year=2001, kind="movie")
 
-    assert cli._asked_kind(show, cli.Args(query=["клиника"])) is True
-    assert cli._asked_kind(film, cli.Args(query=["клиника"])) is False
-    asked = cli._asked_kind(None, cli.Args(query=["клиника", "s1e1"]))
+    assert _asked_kind(show, Args(query=["клиника"])) is True
+    assert _asked_kind(film, Args(query=["клиника"])) is False
+    asked = _asked_kind(None, Args(query=["клиника", "s1e1"]))
     assert asked is True, "выдачи нет, но серию назвал сам человек - это сериал"
-    assert cli._asked_kind(None, cli.Args(query=["клиника"])) is None, "спросить не у кого"
+    assert _asked_kind(None, Args(query=["клиника"])) is None, "спросить не у кого"
 
 
 def _resolve(bench: Any, ranked: list[Release], recode_at: float = 10.0, **flags: Any) -> Any:
-    args = cli.Args(query=["кино"], **flags)
+    args = Args(query=["кино"], **flags)
     with Progress(out=io.StringIO()) as progress:
         return bench.resolve(_plan(ranked, recode_at), args, progress)
 
@@ -696,7 +756,7 @@ def test_a_release_that_turns_out_not_to_be_h264_is_swapped_out_loudly(
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
     prober = _probes(ranked, "av1", "h264")
     torrserver = _FakeTorrServer()
-    prep = _resolve(cli._Bench(cast(Any, torrserver), prober=prober), ranked)
+    prep = _resolve(_Bench(cast(Any, torrserver), prober=prober), ranked)
 
     assert (prep.number, prep.found.video) == (2, "h264")
     assert prep.want.name == "movie.mkv"
@@ -720,7 +780,7 @@ def test_two_release_passports_start_together_before_verdicts() -> None:
         codec = "h264" if f"hash-{ranked[2].magnet}/" in url else "av1"
         return Media(3600.0, (), codec)
 
-    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer()), prober=read), ranked)
+    prep = _resolve(_Bench(cast(Any, _FakeTorrServer()), prober=read), ranked)
 
     assert prep.number == 3
     assert first_saw_second, "запасной паспорт поднят до готовности первого приговора"
@@ -739,7 +799,7 @@ def test_hevc_release_plays_and_says_so_instead_of_being_refused(
     prober = _probes(ranked, "hevc", "h264")
     torrserver = _FakeTorrServer()
 
-    prep = _resolve(cli._Bench(cast(Any, torrserver), prober=prober), ranked)
+    prep = _resolve(_Bench(cast(Any, torrserver), prober=prober), ranked)
 
     printed = capsys.readouterr().out
     assert (prep.number, prep.found.video) == (1, "hevc"), "HEVC-релиз играет, а не отказывает"
@@ -758,7 +818,7 @@ def test_hevc_is_still_refused_when_recoding_is_switched_off(
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
     prober = _probes(ranked, "hevc", "h264")
 
-    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked, recode_at=0.0)
+    prep = _resolve(_Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked, recode_at=0.0)
 
     assert prep.number == 2, "без перекодирования HEVC остаётся отказом"
     assert "релиз 1 не годится (hevc) - беру 2" in capsys.readouterr().out
@@ -777,7 +837,7 @@ def test_mpeg4_release_plays_through_the_same_whole_recode_instead_of_being_refu
     prober = _probes(ranked, "mpeg4", "h264")
     torrserver = _FakeTorrServer()
 
-    prep = _resolve(cli._Bench(cast(Any, torrserver), prober=prober), ranked)
+    prep = _resolve(_Bench(cast(Any, torrserver), prober=prober), ranked)
 
     printed = capsys.readouterr().out
     assert (prep.number, prep.found.video) == (1, "mpeg4"), "mpeg4-релиз играет, а не отказывает"
@@ -792,7 +852,7 @@ def test_mpeg4_is_still_refused_when_recoding_is_switched_off(
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
     prober = _probes(ranked, "mpeg4", "h264")
 
-    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked, recode_at=0.0)
+    prep = _resolve(_Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked, recode_at=0.0)
 
     assert prep.number == 2, "без перекодирования mpeg4 остаётся отказом"
     assert "релиз 1 не годится (mpeg4) - беру 2" in capsys.readouterr().out
@@ -810,7 +870,7 @@ def test_a_dead_swarm_is_not_a_hang_but_the_next_release(
     prober = _probes(ranked, "h264")
     torrserver = _FakeTorrServer(dead={"hash-magnet-r0"})
 
-    prep = _resolve(cli._Bench(cast(Any, torrserver), prober=prober), ranked)
+    prep = _resolve(_Bench(cast(Any, torrserver), prober=prober), ranked)
 
     printed = capsys.readouterr().out
     assert prep.number == 2, "мёртвая раздача не останавливает показ"
@@ -836,7 +896,7 @@ def test_silent_swarms_do_not_burn_the_tries_meant_for_verdicts(
     prober = _probes(ranked, "h264")
     torrserver = _FakeTorrServer(dead={f"hash-magnet-r{i}" for i in range(4)})
 
-    prep = _resolve(cli._Bench(cast(Any, torrserver), prober=prober), ranked)
+    prep = _resolve(_Bench(cast(Any, torrserver), prober=prober), ranked)
 
     printed = capsys.readouterr().out
     assert prep.number == 5, "четыре молчаливых роя подряд - и всё же дошли до живого"
@@ -861,7 +921,7 @@ def test_the_walk_down_the_queue_stops_when_the_start_budget_is_out(
     torrserver = _FakeTorrServer(dead={f"hash-magnet-r{i}" for i in range(4)})
 
     with pytest.raises(NotFoundError) as caught:
-        _resolve(cli._Bench(cast(Any, torrserver), prober=prober, pick_budget=0.0), ranked)
+        _resolve(_Bench(cast(Any, torrserver), prober=prober, pick_budget=0.0), ranked)
 
     msg = str(caught.value)
     assert "раздач в выдаче 6, потрогали 1 из очереди 6" in msg, msg
@@ -910,8 +970,8 @@ def test_the_pick_budget_cuts_the_wait_it_has_already_started() -> None:
     фазы кончается через секунду после того, как ожидание началось.
     """
     clock = _FakeClock()
-    bench = cli._Bench(cast(Any, _FakeTorrServer()), clock=clock)
-    prep = cli._Prep(number=1, release=rel(), started=clock.now, phase="метаданные")
+    bench = _Bench(cast(Any, _FakeTorrServer()), clock=clock)
+    prep = _Prep(number=1, release=rel(), started=clock.now, phase="метаданные")
     prep.ready = cast(Any, _Sleeper(clock))
 
     began = clock.now
@@ -942,7 +1002,7 @@ def test_a_timed_out_walk_does_not_speak_for_the_queue_it_never_reached() -> Non
     torrserver = _FakeTorrServer(dead={f"hash-magnet-r{i}" for i in range(3)})
 
     with pytest.raises(NotFoundError) as caught:
-        _resolve(cli._Bench(cast(Any, torrserver), prober=prober, pick_budget=0.0), ranked)
+        _resolve(_Bench(cast(Any, torrserver), prober=prober, pick_budget=0.0), ranked)
 
     msg = str(caught.value)
     assert "раздач в выдаче 5, потрогали 1 из очереди 3" in msg, msg
@@ -975,7 +1035,7 @@ def test_a_fully_walked_queue_of_dead_swarms_is_an_honest_dead_swarm(
     torrserver = _FakeTorrServer(dead={f"hash-magnet-r{i}" for i in range(3)})
 
     with pytest.raises(NotFoundError) as caught:
-        _resolve(cli._Bench(cast(Any, torrserver), prober=prober), ranked)
+        _resolve(_Bench(cast(Any, torrserver), prober=prober), ranked)
 
     msg = str(caught.value)
     assert "раздач в выдаче 3, потрогали 3 (все)" in msg and "ни одна не отозвалась" in msg
@@ -1019,7 +1079,7 @@ def test_a_queue_that_went_silent_to_the_end_gets_one_patient_ask_and_reaches_th
     prober = _probes(ranked, "h264")
     torrserver = _Impatient()
 
-    prep = _resolve(cli._Bench(cast(Any, torrserver), prober=prober), ranked)
+    prep = _resolve(_Bench(cast(Any, torrserver), prober=prober), ranked)
 
     printed = capsys.readouterr().out
     assert prep.number == 1, "терпеливый второй спрос дошёл до живой раздачи"
@@ -1036,7 +1096,7 @@ def test_a_patient_ask_that_gets_a_verdict_does_not_report_silent_swarm() -> Non
     prober = _probes(ranked, "av1")
 
     with pytest.raises(NotFoundError) as caught:
-        _resolve(cli._Bench(cast(Any, _Impatient()), prober=prober), ranked, recode_at=0.0)
+        _resolve(_Bench(cast(Any, _Impatient()), prober=prober), ranked, recode_at=0.0)
 
     msg = str(caught.value)
     assert "годного релиза нет" in msg and "av1" in msg
@@ -1049,7 +1109,7 @@ def test_an_exhausted_queue_does_not_offer_a_release_that_was_already_rejected()
     prober = _probes(ranked, "av1", "av1")
 
     with pytest.raises(NotFoundError) as caught:
-        _resolve(cli._Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked, recode_at=0.0)
+        _resolve(_Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked, recode_at=0.0)
 
     msg = str(caught.value)
     assert "годного релиза нет" in msg and "av1" in msg
@@ -1071,7 +1131,7 @@ def test_the_patient_ask_is_not_made_when_the_phase_budget_cannot_cover_it(
 
     with pytest.raises(NotFoundError) as caught:
         # На обход часов фазы хватает, а на второй спрос - уже нет.
-        _resolve(cli._Bench(cast(Any, torrserver), prober=prober, pick_budget=1.0), ranked)
+        _resolve(_Bench(cast(Any, torrserver), prober=prober, pick_budget=1.0), ranked)
 
     printed = capsys.readouterr().out
     assert "потрогали 3 (все)" in str(caught.value)
@@ -1106,7 +1166,7 @@ def test_the_patient_ask_goes_to_the_release_the_swarm_silenced_not_to_a_judged_
         return files[0]
 
     torrserver = _Mixed()
-    prep = _resolve(cli._Bench(cast(Any, torrserver), choose=choose, prober=prober), ranked)
+    prep = _resolve(_Bench(cast(Any, torrserver), choose=choose, prober=prober), ranked)
 
     printed = capsys.readouterr().out
     assert prep.number == 2, "терпеливо спросили того, кого оборвал рой"
@@ -1133,9 +1193,7 @@ def test_a_patient_verdict_rewrites_the_reason_of_the_release_that_was_reasked()
         return files[0]
 
     with pytest.raises(NotFoundError) as caught:
-        _resolve(
-            cli._Bench(cast(Any, _Mixed()), choose=choose, prober=prober), ranked, recode_at=0.0
-        )
+        _resolve(_Bench(cast(Any, _Mixed()), choose=choose, prober=prober), ranked, recode_at=0.0)
 
     msg = str(caught.value)
     assert "1 - серии s1e1 в этой раздаче нет" in msg
@@ -1155,9 +1213,9 @@ def test_a_failure_explicitly_names_whether_the_swarm_was_silent(
     failure: InfraError | NotFoundError, silenced: bool
 ) -> None:
     """Новый вид инфраструктурного отказа не получает судьбу роя по наследованию."""
-    prep = cli._Prep(number=1, release=rel(), failure=failure)
+    prep = _Prep(number=1, release=rel(), failure=failure)
 
-    assert cli._silenced(prep) is silenced
+    assert _silenced(prep) is silenced
 
 
 def test_a_disc_image_verdict_is_not_asked_twice(capsys: pytest.CaptureFixture[str]) -> None:
@@ -1186,7 +1244,7 @@ def test_a_disc_image_verdict_is_not_asked_twice(capsys: pytest.CaptureFixture[s
 
     torrserver = _HalfDead(files=disc.files)
     with pytest.raises(NotFoundError):
-        _resolve(cli._Bench(cast(Any, torrserver), prober=prober), ranked)
+        _resolve(_Bench(cast(Any, torrserver), prober=prober), ranked)
 
     printed = capsys.readouterr().out
     assert "релиз 1 не годится (в раздаче нет отдельного видеофайла" in printed
@@ -1212,7 +1270,7 @@ def test_a_disc_image_verdict_is_not_reported_as_a_silent_swarm() -> None:
 
     torrserver = _FakeTorrServer()
     with pytest.raises(NotFoundError) as caught:
-        _resolve(cli._Bench(cast(Any, torrserver), choose=choose, prober=prober), ranked)
+        _resolve(_Bench(cast(Any, torrserver), choose=choose, prober=prober), ranked)
 
     msg = str(caught.value)
     assert "годного релиза нет" in msg and "нет отдельного видеофайла" in msg
@@ -1236,7 +1294,7 @@ def test_an_explicitly_named_release_is_played_as_asked_with_a_loud_warning(
     prober = _probes(ranked, "av1")
     torrserver = _FakeTorrServer()
 
-    prep = _resolve(cli._Bench(cast(Any, torrserver), prober=prober), ranked, release=1)
+    prep = _resolve(_Bench(cast(Any, torrserver), prober=prober), ranked, release=1)
 
     printed = capsys.readouterr().out
     assert (prep.number, prep.found.video) == (1, "av1"), "названный релиз не подменяется"
@@ -1257,7 +1315,7 @@ def test_a_named_hevc_release_is_not_a_warning_but_a_promise_to_recode(
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
     prober = _probes(ranked, "hevc")
 
-    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked, release=1)
+    prep = _resolve(_Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked, release=1)
 
     printed = capsys.readouterr().out
     assert prep.number == 1
@@ -1279,7 +1337,7 @@ def test_a_queue_of_failed_probes_ends_with_an_honest_exit(
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(5)]
     prober = _probes(ranked, *REFUSED)
     with pytest.raises(NotFoundError) as caught:
-        _resolve(cli._Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked)
+        _resolve(_Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked)
     assert "годного релиза нет" in str(caught.value)
     assert "1 - av1" in str(caught.value) and "3 - vc1" in str(caught.value)
     assert len(re.findall(r"беру \d", capsys.readouterr().out)) == 4  # очередь пройдена
@@ -1308,13 +1366,13 @@ def test_cheap_verdicts_do_not_eat_the_place_of_the_living_release_below(
     prober = _probes(ranked, "vp9", "vp9", "av1", "h264")
 
     began = time.monotonic()
-    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked)
+    prep = _resolve(_Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked)
     spent = time.monotonic() - began
 
     printed = capsys.readouterr().out
     assert prep.number == 4, "три дешёвых приговора - и всё же дошли до живого 1080p"
     assert printed.count("не годится") == 3, "каждый приговор стоит строки, молчаливых нет"
-    assert spent < cli.VERDICT_BUDGET, f"дошли за {spent:.1f} с при бюджете приговоров 15 с"
+    assert spent < VERDICT_BUDGET, f"дошли за {spent:.1f} с при бюджете приговоров 15 с"
 
 
 def test_expensive_verdicts_still_stop_the_walk_at_three(
@@ -1331,7 +1389,7 @@ def test_expensive_verdicts_still_stop_the_walk_at_three(
 
     with pytest.raises(NotFoundError) as caught:
         # Бюджет приговоров обнулён - каждый из них «дорогой».
-        bench = cli._Bench(cast(Any, _FakeTorrServer()), prober=prober, verdict_budget=0.0)
+        bench = _Bench(cast(Any, _FakeTorrServer()), prober=prober, verdict_budget=0.0)
         _resolve(bench, ranked)
 
     assert "годного релиза нет" in str(caught.value)
@@ -1350,7 +1408,7 @@ def test_the_healthy_case_pays_nothing_for_the_deeper_walk(
     prober = _probes(ranked, "h264")
 
     began = time.monotonic()
-    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked)
+    prep = _resolve(_Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked)
     spent = time.monotonic() - began
 
     assert prep.number == 1
@@ -1370,7 +1428,7 @@ def test_vp9_is_refused_at_the_pick_like_av1_and_never_reaches_the_packer(
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
     prober = _probes(ranked, "vp9", "h264")
 
-    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked)
+    prep = _resolve(_Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked)
 
     assert (prep.number, prep.found.video) == (2, "h264"), "берём тот, про который знаем всё"
     assert "релиз 1 не годится (vp9) - беру 2" in capsys.readouterr().out
@@ -1385,7 +1443,7 @@ def test_warmup_leaves_in_torrserver_only_what_we_play() -> None:
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
     prober = _probes(ranked, "h264")
     torrserver = _FakeTorrServer()
-    bench = cli._Bench(cast(Any, torrserver), prober=prober)
+    bench = _Bench(cast(Any, torrserver), prober=prober)
 
     prep = _resolve(bench, ranked)
     # Запасной релиз греется в своём потоке, и resolve на подделках отвечает за
@@ -1414,10 +1472,10 @@ def test_warmup_spares_a_release_a_parallel_show_holds(tmp_path: Path) -> None:
 
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
     torrserver = _FakeTorrServer()
-    bench = cli._Bench(cast(Any, torrserver))
-    chosen = cli._Prep(number=1, release=ranked[0], torrent_hash="hash-play")
-    held = cli._Prep(number=2, release=ranked[1], torrent_hash="hash-parallel")
-    cold = cli._Prep(number=3, release=ranked[2], torrent_hash="hash-cold")
+    bench = _Bench(cast(Any, torrserver))
+    chosen = _Prep(number=1, release=ranked[0], torrent_hash="hash-play")
+    held = _Prep(number=2, release=ranked[1], torrent_hash="hash-parallel")
+    cold = _Prep(number=3, release=ranked[2], torrent_hash="hash-cold")
     bench.preps = {("movie:кино:1999", p.number): p for p in (chosen, held, cold)}
 
     state = State()
@@ -1448,10 +1506,10 @@ def test_voice_cleanup_spares_a_release_a_parallel_show_holds() -> None:
     state.put("movie:кино:2022", Entry(title="Кино", magnet="m", torrent="hash-live"))
     state.save()
 
-    cli._Voiced(torrent_hash="hash-live").drop(config, release)
+    _Voiced(torrent_hash="hash-live").drop(config, release)
     assert dropped == [], "раздачу живого показа cast --voice не трогает"
 
-    cli._Voiced(torrent_hash="hash-cold").drop(config, release)
+    _Voiced(torrent_hash="hash-cold").drop(config, release)
     assert dropped == ["hash-cold"], "свою неиспользованную раздачу убираем как прежде"
 
 
@@ -1477,7 +1535,7 @@ def test_a_seeded_avi_no_longer_wins_the_top() -> None:
     ranked = rank_releases([avi, avc], RUNTIME, 20.0)
     assert ranked[0] is avc, "верх - годный WEB-DL-AVC"
     assert ranked[1] is avi, "и всё же не выкинут: судья по-прежнему ffprobe"
-    assert cli.is_dated(avi, RUNTIME) and not cli.is_dated(avc, RUNTIME)
+    assert is_dated(avi, RUNTIME) and not is_dated(avc, RUNTIME)
 
 
 def test_a_named_codec_no_longer_hides_an_sd_rip() -> None:
@@ -1488,7 +1546,7 @@ def test_a_named_codec_no_longer_hides_an_sd_rip() -> None:
     и у каждой рядом лежал названный 1080p. Про разрешение кодек не говорит ничего.
     """
     named = rel(name="BDRip-AVC", quality=None, size_gb=1.46, seeders=131)
-    assert cli.is_dated(named, RUNTIME)
+    assert is_dated(named, RUNTIME)
 
 
 def test_a_named_resolution_is_never_argued_with_by_size() -> None:
@@ -1498,7 +1556,7 @@ def test_a_named_resolution_is_never_argued_with_by_size() -> None:
     а если имя всё-таки соврало, подмену сделает :func:`understated` по факту кадра.
     """
     named = rel(name="BDRip-AVC 720p", quality="720p", size_gb=1.46, seeders=131)
-    assert not cli.is_dated(named, RUNTIME)
+    assert not is_dated(named, RUNTIME)
 
 
 def test_a_series_pack_is_judged_by_the_size_of_one_episode() -> None:
@@ -1516,13 +1574,13 @@ def test_a_series_pack_is_judged_by_the_size_of_one_episode() -> None:
     old, good = replace(old, size=int(2 * GB), seeders=900), replace(good, size=int(60 * GB))
 
     assert old.episode_count == 8 and good.episode_count == 8
-    fat_rate = cli.bitrate_of(fat, runtime)
+    fat_rate = bitrate_of(fat, runtime)
     assert fat_rate is not None, "у раздачи с размером битрейт есть - иначе сравнивать нечего"
-    assert cli.bitrate_of(good, runtime) == pytest.approx(fat_rate * 0.75, rel=0.01), (
+    assert bitrate_of(good, runtime) == pytest.approx(fat_rate * 0.75, rel=0.01), (
         "битрейт считается на серию: 60 ГБ на восьмерых против 80 ГБ на восьмерых"
     )
-    assert cli.is_dated(old, runtime), "0.25 ГБ на серию - это SD, сколько бы сидов ни было"
-    assert not cli.is_dated(good, runtime)
+    assert is_dated(old, runtime), "0.25 ГБ на серию - это SD, сколько бы сидов ни было"
+    assert not is_dated(good, runtime)
     assert rank_releases([old, good], runtime, 40.0)[0] is good
 
 
@@ -1537,9 +1595,9 @@ def test_a_film_collection_is_judged_by_the_part_that_will_play() -> None:
         size=int(28.6 * GB),
     )
     assert trilogy.collection_count == 3
-    assert cli.bitrate_of(trilogy, 120 * 60) == pytest.approx(11.4, abs=0.1)
-    assert cli.bitrate_of(collection, 120 * 60) is None
-    assert cli.is_candidate(collection, 120 * 60, 16.0)
+    assert bitrate_of(trilogy, 120 * 60) == pytest.approx(11.4, abs=0.1)
+    assert bitrate_of(collection, 120 * 60) is None
+    assert is_candidate(collection, 120 * 60, 16.0)
 
 
 def test_a_series_pack_that_does_not_count_its_episodes_is_left_to_ffprobe() -> None:
@@ -1555,9 +1613,9 @@ def test_a_series_pack_that_does_not_count_its_episodes_is_left_to_ffprobe() -> 
         parse_release_name("Локи / Loki [S01] (2021) WEB-DL"), size=int(8 * GB), seeders=24
     )
     assert silent.kind == "tv" and silent.episode_count == 0
-    assert cli.bitrate_of(silent, RUNTIME_GUESS["tv"]) is None
-    assert not cli.is_dated(silent, RUNTIME_GUESS["tv"])
-    assert cli.is_candidate(silent, RUNTIME_GUESS["tv"], 16.0), "не знаю - это не отказ"
+    assert bitrate_of(silent, RUNTIME_GUESS["tv"]) is None
+    assert not is_dated(silent, RUNTIME_GUESS["tv"])
+    assert is_candidate(silent, RUNTIME_GUESS["tv"], 16.0), "не знаю - это не отказ"
 
 
 def test_unknown_weight_is_not_light_weight_at_the_extras_gate() -> None:
@@ -1579,10 +1637,10 @@ def test_unknown_weight_is_not_light_weight_at_the_extras_gate() -> None:
         size=int(18 * GB),
         seeders=3,
     )
-    assert extra.extras and cli.bitrate_of(extra, tv) is None
-    assert not cli.is_extra(extra, tv), "вес молчит - ворота молчат, топит только порядок"
-    assert sure.extras_sure and cli.bitrate_of(sure, tv) is None
-    assert cli.is_extra(sure, tv), "однозначной метке вес не нужен ни в какую сторону"
+    assert extra.extras and bitrate_of(extra, tv) is None
+    assert not is_extra(extra, tv), "вес молчит - ворота молчат, топит только порядок"
+    assert sure.extras_sure and bitrate_of(sure, tv) is None
+    assert is_extra(sure, tv), "однозначной метке вес не нужен ни в какую сторону"
 
 
 def test_dated_sinks_below_candidates_but_above_hevc() -> None:
@@ -1611,7 +1669,7 @@ def test_a_name_that_admits_sd_sinks_below_any_hd() -> None:
     """
     sd = rel(name="WEB-DL 480p", codec=None, quality="480p", size_gb=1.2, seeders=400)
     hd = rel(name="WEB-DL 720p", codec=None, quality="720p", size_gb=4.0, seeders=12)
-    assert cli.is_dated(sd, RUNTIME) and not cli.is_dated(hd, RUNTIME)
+    assert is_dated(sd, RUNTIME) and not is_dated(hd, RUNTIME)
     assert rank_releases([sd, hd], RUNTIME, 25.0)[0] is hd
     assert rank_releases([sd], RUNTIME, 25.0)[0] is sd, "другого нет - играем что есть"
 
@@ -1635,7 +1693,7 @@ def test_a_live_1080p_beats_a_more_seeded_720p() -> None:
     hd = rel(name="WEB-DL 720p", codec=None, quality="720p", size_gb=3.43, seeders=146)
     full = rel(name="WEB-DL 1080p", codec=None, size_gb=7.14, seeders=59)
     assert rank_releases([hd, full], RUNTIME, 25.0)[0] is full
-    assert cli.is_full_hd(full, alive=146) and not cli.is_full_hd(hd, alive=146)
+    assert is_full_hd(full, alive=146) and not is_full_hd(hd, alive=146)
 
 
 def test_a_dead_1080p_does_not_buy_a_step_with_rebuffering() -> None:
@@ -1647,7 +1705,7 @@ def test_a_dead_1080p_does_not_buy_a_step_with_rebuffering() -> None:
     hd = rel(name="BDRip 720p", codec=None, quality="720p", size_gb=14.88, seeders=41)
     full = rel(name="BDRip 1080p", codec=None, size_gb=15.18, seeders=2)
     assert rank_releases([hd, full], RUNTIME, 25.0)[0] is hd
-    assert not cli.is_full_hd(full, alive=41)
+    assert not is_full_hd(full, alive=41)
 
 
 def test_a_live_1080p_is_not_priced_against_a_dated_pool_leader() -> None:
@@ -1661,7 +1719,7 @@ def test_a_live_1080p_is_not_priced_against_a_dated_pool_leader() -> None:
     dated = rel(name="BDRip-AVC", codec=None, quality=None, size_gb=1.5, seeders=126)
     hd = rel(name="BDRip 720p", codec=None, quality="720p", size_gb=5.3, seeders=55)
     full = rel(name="BDRip 1080p", codec=None, size_gb=7.2, seeders=30)
-    assert cli.is_dated(dated, RUNTIME), "лидер пула сидит на ступени старья"
+    assert is_dated(dated, RUNTIME), "лидер пула сидит на ступени старья"
     assert rank_releases([dated, hd, full], RUNTIME, 25.0)[0] is full
 
 
@@ -1675,7 +1733,7 @@ def test_a_barely_seeded_1080p_does_not_claim_the_step() -> None:
     full = rel(name="BDRip 1080p", codec=None, size_gb=7.2, seeders=3)
     hd = rel(name="BDRip 720p", codec=None, quality="720p", size_gb=5.3, seeders=5)
     assert rank_releases([full, hd], RUNTIME, 25.0)[0] is hd
-    assert not cli.is_full_hd(full, alive=5)
+    assert not is_full_hd(full, alive=5)
 
 
 def test_a_live_1080p_is_not_priced_against_a_pool_leader_on_the_recode_step() -> None:
@@ -1690,15 +1748,15 @@ def test_a_live_1080p_is_not_priced_against_a_pool_leader_on_the_recode_step() -
     heavy = rel(name="BDRemux 1080p", codec=None, size_gb=45.0, seeders=71)
     hd = rel(name="BDRip 720p", codec=None, quality="720p", size_gb=5.3, seeders=13)
     full = rel(name="BDRip 1080p", codec=None, size_gb=7.2, seeders=11)
-    assert cli.needs_whole_recode(heavy, RUNTIME, 25.0), "лидер пула сидит на ступени перекода"
+    assert needs_whole_recode(heavy, RUNTIME, 25.0), "лидер пула сидит на ступени перекода"
     assert rank_releases([heavy, hd, full], RUNTIME, 25.0)[0] is full
 
 
 def test_a_lying_1080p_is_still_swapped_by_ffprobe() -> None:
     """Ступень поднимает ОБЕЩАНИЕ, а судит по-прежнему кадр: 1080p в имени, 574p внутри."""
     liar = rel(name="BDRip 1080p", codec=None, size_gb=7.0, seeders=100)
-    assert cli.is_full_hd(liar, alive=100)
-    assert cli.understated(liar, Media(height=574, width=1150)) == "назван 1080p, на деле 574p"
+    assert is_full_hd(liar, alive=100)
+    assert understated(liar, Media(height=574, width=1150)) == "назван 1080p, на деле 574p"
 
 
 def test_the_ceiling_is_checked_again_by_the_file_not_by_the_torrent_size() -> None:
@@ -1715,8 +1773,8 @@ def test_the_ceiling_is_checked_again_by_the_file_not_by_the_torrent_size() -> N
     heavy = rel(size_gb=13.3 * 1e9 / GB)  # 13.3 ГБ по-магазинному, как их считает трекер
     assert is_candidate(heavy, RUNTIME, 16.0), "прикидка по раздаче потолок не превышает"
 
-    bench = cli._Bench(cast(Any, _FakeTorrServer()))
-    prep = cli._Prep(number=1, release=heavy)
+    bench = _Bench(cast(Any, _FakeTorrServer()))
+    prep = _Prep(number=1, release=heavy)
     prep.video = TorrFile(0, "moana2.mkv", 13_300_000_000)
     prep.media = Media(duration=5977.0, video="h264")
 
@@ -1739,8 +1797,8 @@ def test_the_ceiling_weighs_the_video_track_not_the_ten_dubs_around_it() -> None
     from torrcast.domain.media import Media
     from torrcast.domain.torr_file import TorrFile
 
-    bench = cli._Bench(cast(Any, _FakeTorrServer()))
-    prep = cli._Prep(number=1, release=rel(size_gb=13.3 * 1e9 / GB))
+    bench = _Bench(cast(Any, _FakeTorrServer()))
+    prep = _Prep(number=1, release=rel(size_gb=13.3 * 1e9 / GB))
     prep.video = TorrFile(0, "moana2.mkv", 13_300_000_000)
     prep.media = Media(duration=5977.0, video="h264", video_bps=14_333_000.0)
     assert bench._trouble(prep, pinned=False, warn_mbit=16.0) == "", "видео 14.3 - годится"
@@ -1762,7 +1820,7 @@ def _franchise_plan(
     title: str, year: int | None, releases: list[Release], kind: Kind = "movie"
 ) -> Any:
 
-    return cli._Plan(
+    return _Plan(
         picture=Picture(title=title, year=year, kind=kind, releases=releases),
         ranked=rank_releases(releases, RUNTIME, 20.0),
         runtime=RUNTIME,
@@ -1828,9 +1886,9 @@ def test_menu_default_is_the_first_living_picture_of_the_franchise() -> None:
     plans = _cars_franchise()
     # У «Тачек 2» вес нулевой: ремукс не проходит потолок, а «фильм о фильме» - ворота
     # (🔴 TC-290). Раньше он весил один сид, и картина держалась на ролике о съёмках.
-    assert [cli.liveliness(p) for p in plans] == [66, 0, 0, 121]
-    assert cli.liveliest(plans) == 4, "прежнее правило и правда уводило на третью часть"
-    assert cli.first_alive(plans) == 1
+    assert [liveliness(p) for p in plans] == [66, 0, 0, 121]
+    assert liveliest(plans) == 4, "прежнее правило и правда уводило на третью часть"
+    assert first_alive(plans) == 1
 
 
 def test_menu_default_steps_over_a_dead_first_picture() -> None:
@@ -1840,9 +1898,9 @@ def test_menu_default_steps_over_a_dead_first_picture() -> None:
     документальное кино, один VHS-рип на 5 сидов. Enter на ней не давал ничего.
     """
     plans = _moana_franchise()
-    assert [cli.liveliness(p) for p in plans] == [0, 222, 140]
-    assert cli.liveliest(plans) == 2
-    assert cli.first_alive(plans) == 2
+    assert [liveliness(p) for p in plans] == [0, 222, 140]
+    assert liveliest(plans) == 2
+    assert first_alive(plans) == 2
 
 
 def test_a_faint_swarm_does_not_count_as_alive() -> None:
@@ -1852,7 +1910,7 @@ def test_a_faint_swarm_does_not_count_as_alive() -> None:
     уходил бы на первую попавшуюся картину с хоть каким-то кандидатом.
     """
     plans = _cars_franchise()
-    assert cli.first_alive(plans[1:]) == 3, "«Мультачки» и «Тачки 2» мертвы, жива третья"
+    assert first_alive(plans[1:]) == 3, "«Мультачки» и «Тачки 2» мертвы, жива третья"
 
 
 def _parts(*parts: tuple[str, int, int]) -> list[Any]:
@@ -1949,10 +2007,10 @@ def test_the_franchise_default_is_the_first_playable_part(
     роем выбивал из живых всю классику: «мумия» давала дефолтом картину 2026 года десять
     прогонов из десяти, «хищник» - «Планету смерти», «дюна» - «Часть вторую».
     """
-    picked = cli.first_alive(plans)
+    picked = first_alive(plans)
     assert picked == expected, f"«{asked}»: дефолт обязан быть [{expected}], а не [{picked}]"
-    assert cli.liveliness(plans[picked - 1]) >= cli.ALIVE_SEEDERS or all(
-        cli.liveliness(p) < cli.ALIVE_SEEDERS for p in plans
+    assert liveliness(plans[picked - 1]) >= ALIVE_SEEDERS or all(
+        liveliness(p) < ALIVE_SEEDERS for p in plans
     ), "дефолт стоит на картине, которой нечем играть"
 
 
@@ -1968,9 +2026,9 @@ def test_the_old_share_of_the_liveliest_would_have_missed_the_first_part(
     поломку: у шести франшиз карточки первая часть не дотягивала до 0.25 от самой живой
     и дефолт уезжал, у «тачек» и «моаны» доля отвечала верно - их правка и не трогает.
     """
-    best = max(cli.liveliness(p) for p in plans)
+    best = max(liveliness(p) for p in plans)
     survivors = [
-        n for n, p in enumerate(plans, start=1) if cli.liveliness(p) >= best * cli.FULL_HD_LIVENESS
+        n for n, p in enumerate(plans, start=1) if liveliness(p) >= best * FULL_HD_LIVENESS
     ]
     was_wrong = expected not in survivors
     assert was_wrong == (asked not in {"тачки", "моана"}), (
@@ -1984,8 +2042,8 @@ def test_a_franchise_with_no_life_still_points_somewhere() -> None:
         _franchise_plan("Кино", 2001, [rel(name="dvd9 [DVD9]", quality=None, seeders=2)]),
         _franchise_plan("Кино 2", 2005, [rel(name="dvd5 [DVD5]", quality=None, seeders=1)]),
     ]
-    assert [cli.liveliness(p) for p in dead] == [0, 0]
-    assert cli.first_alive(dead) == 1
+    assert [liveliness(p) for p in dead] == [0, 0]
+    assert first_alive(dead) == 1
 
 
 def test_a_picture_with_nothing_playable_weighs_nothing() -> None:
@@ -1996,15 +2054,15 @@ def test_a_picture_with_nothing_playable_weighs_nothing() -> None:
     """
     fat = _franchise_plan("Тачки", 2006, [rel(name="uhd bdremux", size_gb=41.8, seeders=106)])
     live = _franchise_plan("Тачки 3", 2017, [rel(name="web-dl 1080p", size_gb=4.59, seeders=121)])
-    assert cli.liveliness(fat) == 0
-    assert cli.liveliest([fat, live]) == 2
+    assert liveliness(fat) == 0
+    assert liveliest([fat, live]) == 2
 
 
 def test_an_equal_race_is_won_by_chronology() -> None:
     """Ничья по сидам — берём раннюю картину: список и так хронологический."""
     first = _franchise_plan("Кино", 2001, [rel(name="a", seeders=100)])
     second = _franchise_plan("Кино 2", 2005, [rel(name="b", seeders=100)])
-    assert cli.liveliest([first, second]) == 1
+    assert liveliest([first, second]) == 1
 
 
 def test_a_half_walked_queue_is_not_a_dead_swarm() -> None:
@@ -2016,12 +2074,12 @@ def test_a_half_walked_queue_is_not_a_dead_swarm() -> None:
     """
     pool = [rel(name=f"r{n}", seeders=7 * n) for n in range(15)]
     plan = _plan(pool)
-    half = cli.silent_swarm(plan, [1, 2, 3], 3, "1 - тишина")
+    half = silent_swarm(plan, [1, 2, 3], 3, "1 - тишина")
     assert "раздач в выдаче 15, потрогали 3" in half
     assert "мёртв" not in half, "живой рой мёртвым не называем"
     assert "до 14 сид" in half and "cast releases" in half
 
-    whole = cli.silent_swarm(plan, list(range(1, 16)), 15, "1 - тишина")
+    whole = silent_swarm(plan, list(range(1, 16)), 15, "1 - тишина")
     assert "раздач в выдаче 15, потрогали 15 (все)" in whole
     assert "ни одна не отозвалась" in whole and "числятся" in whole
 
@@ -2035,7 +2093,7 @@ def test_a_walk_cut_by_the_clock_counts_the_queue_it_did_not_reach() -> None:
     бюджет фазы ушёл на тех, кто стоял выше.
     """
     pool = [rel(name=f"r{n}", seeders=7 * n) for n in range(15)]
-    said = cli.silent_swarm(_plan(pool), list(range(1, 13)), 3, "1 - тишина")
+    said = silent_swarm(_plan(pool), list(range(1, 13)), 3, "1 - тишина")
 
     assert "раздач в выдаче 15, потрогали 3 из очереди 12" in said
     assert "на остальных не хватило времени" in said
@@ -2052,8 +2110,8 @@ def test_a_pool_without_a_single_peer_says_so_plainly() -> None:
     """
     border = _plan([rel(name=f"r{n}", seeders=0) for n in range(2)])
     monkeys = _plan([rel(name=f"r{n}", seeders=3 + n) for n in range(30)])
-    dead = cli.silent_swarm(border, [1, 2], 2, "1 - тишина")
-    live = cli.silent_swarm(monkeys, [1, 2, 3], 3, "1 - тишина")
+    dead = silent_swarm(border, [1, 2], 2, "1 - тишина")
+    live = silent_swarm(monkeys, [1, 2, 3], 3, "1 - тишина")
     assert dead == (
         "раздач в выдаче 2, потрогали 2 - пиров нет ни у одной, показывать нечего: "
         "назови картину иначе или зайди позже - другой запрос соберёт другую выдачу, "
@@ -2072,12 +2130,12 @@ def test_every_refusal_leaves_the_person_a_move() -> None:
     """
     pool = [rel(name=f"r{n}", seeders=7 * n) for n in range(15)]
     plan = _plan(pool)
-    assert "cast releases" in cli.silent_swarm(plan, [1, 2, 3], 3, "1 - тишина"), (
+    assert "cast releases" in silent_swarm(plan, [1, 2, 3], 3, "1 - тишина"), (
         "нетронутые есть - выбор"
     )
     for said in (
-        cli.silent_swarm(plan, list(range(1, 16)), 15, "1 - тишина"),
-        cli.silent_swarm(_plan([rel(name="r", seeders=0)]), [1], 1, "1 - тишина"),
+        silent_swarm(plan, list(range(1, 16)), 15, "1 - тишина"),
+        silent_swarm(_plan([rel(name="r", seeders=0)]), [1], 1, "1 - тишина"),
     ):
         assert "назови картину иначе" in said and "зайди позже" in said
         assert "--release" not in said, "выбирать не из чего - надежду не предлагаем"
@@ -2094,7 +2152,7 @@ def test_the_seed_count_in_a_refusal_is_about_the_asked_not_the_listing() -> Non
     outsider = rel(name="молчун", quality=None, codec=None, seeders=25)
     plan = _plan([asked, outsider])
     assert not is_candidate(outsider, RUNTIME, 20.0), "молчуна в очередь не пустили"
-    said = cli.silent_swarm(plan, [1], 1, "1 - тишина")
+    said = silent_swarm(plan, [1], 1, "1 - тишина")
     assert "до 10 сид" in said and "25" not in said, "25 сид - не у тех, кого спрашивали"
     assert "cast releases" in said, "молчун пригоден по известным признакам - выбор есть"
 
@@ -2110,7 +2168,7 @@ def test_a_refusal_does_not_offer_a_pick_from_the_known_unplayable() -> None:
     pool = [rel(name="r1", seeders=9)]
     pool += [rel(name=f"remux {n}", size_gb=60, seeders=50) for n in range(3)]
     plan = _plan(pool)
-    said = cli.silent_swarm(plan, [1], 1, "1 - тишина")
+    said = silent_swarm(plan, [1], 1, "1 - тишина")
     assert "тяжелее потолка - 3" in said
     assert "cast releases" not in said and "--release" not in said
     assert "назови картину иначе" in said, "ход остаётся, но честный"
@@ -2121,8 +2179,8 @@ def test_a_refusal_names_the_missing_episode_instead_of_a_manual_pick() -> None:
     first = rel(name="s1 pack", seeders=9)
     strangers = [replace(rel(name=f"s2 pack {n}", seeders=12), season=2) for n in range(2)]
     plan = _plan([first, *strangers])
-    plan.series = cli._Series(want=Episode(1, 1))
-    said = cli.silent_swarm(plan, [1], 1, "1 - тишина")
+    plan.series = _Series(want=Episode(1, 1))
+    said = silent_swarm(plan, [1], 1, "1 - тишина")
     assert "нужной серии нет - 2" in said
     assert "cast releases" not in said and "--release" not in said
     assert "назови картину иначе" in said
@@ -2134,7 +2192,7 @@ def test_a_refusal_still_offers_a_pick_when_someone_untouched_is_playable() -> N
     heavy = rel(name="remux", size_gb=60, seeders=50)
     quiet = rel(name="молчун", quality=None, codec=None, seeders=25)
     plan = _plan([asked, heavy, quiet])
-    said = cli.silent_swarm(plan, [1], 1, "1 - тишина")
+    said = silent_swarm(plan, [1], 1, "1 - тишина")
     assert "cast releases" in said, "пригодный нетронутый есть - выбор предлагаем"
 
 
@@ -2144,7 +2202,7 @@ def test_a_refusal_after_a_manual_pick_offers_another_release() -> None:
     quiet = rel(name="молчун", quality=None, codec=None, seeders=25)
     plan = _plan([asked, quiet])
 
-    said = cli.silent_swarm(plan, [1], 1, "1 - тишина", picked=1)
+    said = silent_swarm(plan, [1], 1, "1 - тишина", picked=1)
 
     assert "выбери другой релиз" in said
     assert "выбери руками" not in said
@@ -2154,7 +2212,7 @@ def test_a_refusal_after_a_manual_pick_offers_another_release() -> None:
 def _series_plan(title: str, year: int, kind: Kind, releases: list[Release]) -> Any:
     """План картины, у которой запрос назвал серию: тип сказан вслух (``s1e1``)."""
 
-    return cli._Plan(
+    return _Plan(
         picture=Picture(title=title, year=year, kind=kind, releases=releases),
         ranked=rank_releases(releases, RUNTIME, 20.0),
         runtime=RUNTIME,
@@ -2179,7 +2237,7 @@ def test_liveliness_counts_the_best_playable_release_not_the_queue_top() -> None
         ],
     )
     assert falcon.ranked[0].seeders == 5, "наверху очереди - то, что лучше смотреть"
-    assert cli.liveliness(falcon) == 28, "а весит картина по лучшей ГОДНОЙ раздаче"
+    assert liveliness(falcon) == 28, "а весит картина по лучшей ГОДНОЙ раздаче"
 
 
 def test_default_steps_over_a_picture_backed_by_a_single_release() -> None:
@@ -2200,9 +2258,9 @@ def test_default_steps_over_a_picture_backed_by_a_single_release() -> None:
             rel(name="The Maltese Falcon BDRip 720p", quality="720p", size_gb=4.0, seeders=28),
         ],
     )
-    assert cli.alive_numbers([thin, deep], [1, 2]) == [1, 2], "по сидам живы обе"
-    assert cli.first_alive([thin, deep]) == 2
-    assert "всего одна раздача" in cli.default_note([thin, deep])
+    assert alive_numbers([thin, deep], [1, 2]) == [1, 2], "по сидам живы обе"
+    assert first_alive([thin, deep]) == 2
+    assert "всего одна раздача" in default_note([thin, deep])
 
 
 def _asked_parts(*parts: tuple[str, int, Kind, int]) -> list[Any]:
@@ -2280,7 +2338,7 @@ def test_a_swapped_picture_is_said_out_loud_in_one_line(
     ещё у четырёх строка была не про то: у «гарри поттера» человек читал про оригинальное
     имя и добор сезона, пока менялась часть франшизы.
     """
-    note = cli.default_note(plans, asked)
+    note = default_note(plans, asked)
     assert note, f"«{asked}»: смена картины прошла молча"
     assert "\n" not in note, "строка одна"
     assert note.startswith(f"спросили «{asked}» - беру "), note
@@ -2304,15 +2362,15 @@ def test_taking_exactly_what_was_asked_is_not_worth_a_line(asked: str, plans: li
     дефолтом встаёт первая часть, то есть та самая картина, чьё имя человек и назвал.
     Говорить о решении, которого не принимали, - такой же шум, как молчать о принятом.
     """
-    assert cli.default_note(plans, asked) == ""
+    assert default_note(plans, asked) == ""
 
 
 def test_the_line_belongs_to_the_default_not_to_the_human_choice() -> None:
     """Человек ответил на меню сам - подмены не было, и говорить ему «беру не то» нельзя."""
     plans = _parts(("Оно", 1990, 37), ("Оно", 2017, 214))
-    assert cli.swap_note(plans, plans[0], "оно"), "дефолт - строка есть"
-    assert cli.swap_note(plans, plans[1], "оно") == "", "выбрал человек - строки нет"
-    assert cli.swap_note(plans[:1], plans[0], "оно") == "", "картина одна - выбора не было"
+    assert swap_note(plans, plans[0], "оно"), "дефолт - строка есть"
+    assert swap_note(plans, plans[1], "оно") == "", "выбрал человек - строки нет"
+    assert swap_note(plans[:1], plans[0], "оно") == "", "картина одна - выбора не было"
 
 
 def test_the_default_pictures_year_is_checked_against_the_reference() -> None:
@@ -2325,7 +2383,7 @@ def test_the_default_pictures_year_is_checked_against_the_reference() -> None:
     from torrcast.domain.facts.origin import Origin
 
     plan = _franchise_plan("Оно", 2014, [rel(name="Оно 2014 BDRip 1080p")])
-    note = cli.year_note(plan, Origin(title="It", year=2017), asked="оно")
+    note = year_note(plan, Origin(title="It", year=2017), asked="оно")
     assert note, "год расходится со справкой - решение обязано прозвучать"
     assert "\n" not in note, "строка одна"
     assert note.startswith("спросили «оно» - "), note
@@ -2342,15 +2400,15 @@ def test_the_year_gate_stays_silent_where_it_should() -> None:
     from torrcast.domain.facts.origin import Origin
 
     plan = _franchise_plan("Оно", 2017, [rel(name="a")])
-    assert cli.year_note(plan, Origin()) == "", "справка пуста - молчим и НЕ блокируем"
-    assert cli.year_note(plan, Origin(title="It", year=None)) == "", "год справке неведом - молчим"
+    assert year_note(plan, Origin()) == "", "справка пуста - молчим и НЕ блокируем"
+    assert year_note(plan, Origin(title="It", year=None)) == "", "год справке неведом - молчим"
     unknown = _franchise_plan("Оно", None, [rel(name="a")])
-    assert cli.year_note(unknown, Origin(title="It", year=2017)) == "", "года картины нет - молчим"
-    assert cli.year_note(plan, Origin(title="It", year=2017)) == "", "год сошёлся - строки нет"
+    assert year_note(unknown, Origin(title="It", year=2017)) == "", "года картины нет - молчим"
+    assert year_note(plan, Origin(title="It", year=2017)) == "", "год сошёлся - строки нет"
     near = _franchise_plan("Оно", 2016, [rel(name="a")])
-    assert cli.year_note(near, Origin(title="It", year=2017)) == "", "±1 год (прокат) - не подмена"
+    assert year_note(near, Origin(title="It", year=2017)) == "", "±1 год (прокат) - не подмена"
     releases = [rel(name="a")]
-    remake = cli._Plan(
+    remake = _Plan(
         picture=Picture(
             title="Корзинка фруктов", year=2019, original="Fruits Basket", releases=releases
         ),
@@ -2358,9 +2416,7 @@ def test_the_year_gate_stays_silent_where_it_should() -> None:
         runtime=RUNTIME,
         warn_mbit=20.0,
     )
-    assert cli.year_note(remake, Origin(title="Fruits Basket", year=2006)) == "", (
-        "ремейк - та же вещь"
-    )
+    assert year_note(remake, Origin(title="Fruits Basket", year=2006)) == "", "ремейк - та же вещь"
 
 
 def test_the_year_line_belongs_to_the_default_not_to_the_human_choice() -> None:
@@ -2370,9 +2426,9 @@ def test_the_year_line_belongs_to_the_default_not_to_the_human_choice() -> None:
     было бы враньём (:func:`~torrcast.cli._is_default`, общий с :func:`~torrcast.cli.swap_note`).
     """
     plans = _parts(("Оно", 2014, 37), ("Оно", 2017, 214))
-    assert cli._is_default(plans, plans[0]), "первая часть по хронологии - дефолт"
-    assert not cli._is_default(plans, plans[1]), "вторую выбрал человек - не дефолт"
-    assert not cli._is_default(plans[:1], plans[0]), "картина одна - выбора не было"
+    assert _is_default(plans, plans[0]), "первая часть по хронологии - дефолт"
+    assert not _is_default(plans, plans[1]), "вторую выбрал человек - не дефолт"
+    assert not _is_default(plans[:1], plans[0]), "картина одна - выбора не было"
 
 
 def test_the_year_gate_catches_a_fresh_namesake_hiding_under_an_old_name() -> None:
@@ -2387,10 +2443,10 @@ def test_the_year_gate_catches_a_fresh_namesake_hiding_under_an_old_name() -> No
     from torrcast.domain.facts.origin import Origin
 
     plan = _franchise_plan("Брат 2", 2025, [rel(name="Брат 2 (2025) WEB-DL 1080p")])
-    note = cli.year_note(plan, Origin(title="Brat 2", year=2000), asked="брат 2")
+    note = year_note(plan, Origin(title="Brat 2", year=2000), asked="брат 2")
     assert note and "2025" in note and "2000" in note, note
     honest = _franchise_plan("Брат 2", 2000, [rel(name="Брат 2 (2000) BDRip 1080p")])
-    assert cli.year_note(honest, Origin(title="Brat 2", year=2000), asked="брат 2") == ""
+    assert year_note(honest, Origin(title="Brat 2", year=2000), asked="брат 2") == ""
 
 
 def test_a_film_is_not_swapped_for_a_same_name_series_with_a_deeper_queue() -> None:
@@ -2413,10 +2469,10 @@ def test_a_film_is_not_swapped_for_a_same_name_series_with_a_deeper_queue() -> N
         kind="tv",
     )
     plans = [film, series]
-    assert [cli.liveliness(p) for p in plans] == [40, 120], "рой у сериала и правда живее"
-    assert cli.backed(plans, [1, 2]) == [1, 2], "глубина сериала фильму не судья"
-    assert cli.first_alive(plans) == 1
-    assert "НЕлюбовь" in cli.default_note(plans, "нелюбовь"), "о тёзке другого типа - вслух"
+    assert [liveliness(p) for p in plans] == [40, 120], "рой у сериала и правда живее"
+    assert backed(plans, [1, 2]) == [1, 2], "глубина сериала фильму не судья"
+    assert first_alive(plans) == 1
+    assert "НЕлюбовь" in default_note(plans, "нелюбовь"), "о тёзке другого типа - вслух"
 
 
 def test_a_lone_release_still_yields_to_a_deeper_queue_of_its_own_kind() -> None:
@@ -2437,8 +2493,8 @@ def test_a_lone_release_still_yields_to_a_deeper_queue_of_its_own_kind() -> None
             rel(name="The Maltese Falcon BDRip 720p", quality="720p", size_gb=4.0, seeders=28),
         ],
     )
-    assert cli.backed([thin, deep], [1, 2]) == [2]
-    assert cli.first_alive([thin, deep]) == 2
+    assert backed([thin, deep], [1, 2]) == [2]
+    assert first_alive([thin, deep]) == 2
 
 
 def test_default_leaves_a_dead_end_picture_for_its_living_namesake() -> None:
@@ -2463,11 +2519,11 @@ def test_default_leaves_a_dead_end_picture_for_its_living_namesake() -> None:
     )
     plans = [stub, live]
 
-    assert cli.alive_numbers(plans, [1, 2]) == [1, 2], "по сидам жива и та, и другая"
-    assert cli.fitness(stub) == 0, "играть по-человечески тупику нечем"
-    assert cli.playable(plans, [1, 2]) == [2]
-    assert cli.first_alive(plans) == 2
-    assert "живого HD у неё нет" in cli.default_note(plans, "призраки"), "смена картины - вслух"
+    assert alive_numbers(plans, [1, 2]) == [1, 2], "по сидам жива и та, и другая"
+    assert fitness(stub) == 0, "играть по-человечески тупику нечем"
+    assert playable(plans, [1, 2]) == [2]
+    assert first_alive(plans) == 2
+    assert "живого HD у неё нет" in default_note(plans, "призраки"), "смена картины - вслух"
 
 
 def test_a_living_namesake_of_another_name_never_takes_the_default() -> None:
@@ -2485,9 +2541,9 @@ def test_a_living_namesake_of_another_name_never_takes_the_default() -> None:
     )
     plans = [first, third]
 
-    assert cli.fitness(first) == 0 and cli.fitness(third) == 121
-    assert cli.playable(plans, [1, 2]) == [1, 2], "это другая картина, а не тёзка"
-    assert cli.first_alive(plans) == 1
+    assert fitness(first) == 0 and fitness(third) == 121
+    assert playable(plans, [1, 2]) == [1, 2], "это другая картина, а не тёзка"
+    assert first_alive(plans) == 1
 
 
 def test_all_namesakes_in_a_dead_end_keep_their_places() -> None:
@@ -2500,9 +2556,9 @@ def test_all_namesakes_in_a_dead_end_keep_their_places() -> None:
     )
     plans = [early, late]
 
-    assert [cli.fitness(p) for p in plans] == [0, 0]
-    assert cli.playable(plans, [1, 2]) == [1, 2]
-    assert cli.first_alive(plans) == 1
+    assert [fitness(p) for p in plans] == [0, 0]
+    assert playable(plans, [1, 2]) == [1, 2]
+    assert first_alive(plans) == 1
 
 
 def _numbered_cars(first_dead: bool = True) -> list[Any]:
@@ -2551,30 +2607,30 @@ def test_the_default_never_switches_to_another_part_of_the_franchise() -> None:
     """
     plans = _numbered_cars()
 
-    note = cli.part_one_swap(plans, "тачки")
+    note = part_one_swap(plans, "тачки")
     assert "«Тачки (2006)» не играет" in note
     assert "другую часть сам не включаю" in note
 
-    assert cli.part_one_swap(plans, "тачки 2") == "", "номер назван явно - дефолт честен"
-    assert cli.part_one_swap(plans, "форсаж") == "", "запрос не про эту франшизу"
-    assert cli.part_one_swap(_moana_franchise(), "моана") == "", "франшиза без номеров"
+    assert part_one_swap(plans, "тачки 2") == "", "номер назван явно - дефолт честен"
+    assert part_one_swap(plans, "форсаж") == "", "запрос не про эту франшизу"
+    assert part_one_swap(_moana_franchise(), "моана") == "", "франшиза без номеров"
     alive = _numbered_cars(first_dead=False)
-    assert cli.part_one_swap(alive, "тачки") == "", "первая часть жива - дефолт на ней"
+    assert part_one_swap(alive, "тачки") == "", "первая часть жива - дефолт на ней"
 
 
 def test_the_original_name_of_the_franchise_reads_the_same() -> None:
     """Франшизу назвали оригинальным именем («cars») - правило то же, что для «тачки»."""
     plans = _numbered_cars()
 
-    assert "не играет" in cli.part_one_swap(plans, "cars")
-    assert "первой части в выдаче нет" in cli.part_one_swap(plans[1:], "cars")
+    assert "не играет" in part_one_swap(plans, "cars")
+    assert "первой части в выдаче нет" in part_one_swap(plans[1:], "cars")
 
 
 def test_the_default_is_no_default_when_the_first_part_is_absent() -> None:
     """Первой части нет в выдаче вовсе (добор за ней не состоялся) - об этом вслух."""
     plans = _numbered_cars()[1:]
 
-    assert "первой части в выдаче нет" in cli.part_one_swap(plans, "тачки")
+    assert "первой части в выдаче нет" in part_one_swap(plans, "тачки")
 
 
 def test_the_namesake_relaxation_stays() -> None:
@@ -2597,8 +2653,8 @@ def test_the_namesake_relaxation_stays() -> None:
     )
     second.picture.part = 2
 
-    assert cli.part_one_swap([first, twin, second], "оно") == "", "тёзка - та же вещь"
-    assert "не играет" in cli.part_one_swap([first, second], "оно"), "а часть - нет"
+    assert part_one_swap([first, twin, second], "оно") == "", "тёзка - та же вещь"
+    assert "не играет" in part_one_swap([first, second], "оно"), "а часть - нет"
 
 
 def test_a_chapter_of_one_picture_is_not_a_part_of_the_franchise() -> None:
@@ -2632,7 +2688,7 @@ def test_a_chapter_of_one_picture_is_not_a_part_of_the_franchise() -> None:
         [rel(name="Гарри Поттер История магии 2017 WEB-DL 1080p", size_gb=1.4, seeders=9)],
     )
 
-    assert cli.part_one_swap([stone, hallows_one, hallows_two, doc], "гарри поттер") == ""
+    assert part_one_swap([stone, hallows_one, hallows_two, doc], "гарри поттер") == ""
 
 
 def test_a_numbered_book_series_is_not_a_franchise_line() -> None:
@@ -2653,7 +2709,7 @@ def test_a_numbered_book_series_is_not_a_franchise_line() -> None:
         "Сталкер", 1979, [rel(name="Сталкер 1979 BDRip 1080p", size_gb=4.4, seeders=50)]
     )
 
-    assert cli.part_one_swap([book, film], "сталкер") == ""
+    assert part_one_swap([book, film], "сталкер") == ""
 
 
 def test_the_menu_asks_without_a_default_when_another_part_would_answer(
@@ -2663,7 +2719,7 @@ def test_the_menu_asks_without_a_default_when_another_part_would_answer(
     plans = _numbered_cars()[1:]
     environment = FakeChoiceEnvironment(answers=[1])
 
-    plan = cli._pick_plan(plans, asked="тачки", environment=cast(Any, environment))
+    plan = _pick_plan(plans, asked="тачки", environment=cast(Any, environment))
 
     assert environment.questions == [("Что смотрим?", 2, None)], "дефолта у вопроса нет"
 
@@ -2679,7 +2735,7 @@ def test_the_menu_default_stays_on_the_living_first_part(
     """Ограждение: первая часть жива - дефолт «первая живая часть» не тронут."""
     plans = _numbered_cars(first_dead=False)
 
-    plan = cli._pick_plan(plans, asked="тачки", environment=cast(Any, FakeChoiceEnvironment()))
+    plan = _pick_plan(plans, asked="тачки", environment=cast(Any, FakeChoiceEnvironment()))
 
     assert "Enter - «Тачки (2006)»" in capsys.readouterr().out
     assert plan.picture.title == "Тачки"
@@ -2692,7 +2748,7 @@ def test_a_missing_part_answer_lists_what_the_franchise_has() -> None:
         Picture(title="Тачки 3", year=2017, part=3, releases=[rel(name="c3", seeders=26)]),
     ]
 
-    text = cli._nothing("тачки", 1, pictures)
+    text = _nothing("тачки", 1, pictures)
 
     assert "картин во франшизе 2, номера 1 нет" in text
     assert "Тачки 2 (2011)" in text and "Тачки 3 (2017)" in text
@@ -2729,9 +2785,9 @@ def test_the_show_moves_to_a_live_namesake_when_the_chosen_picture_cannot_play()
     год при живой картине 2020-го - и отказ был честен про картину и неправдой про вечер.
     """
     plans = _invisible_man()
-    spare = cli.understudy(plans, plans[0])
+    spare = understudy(plans, plans[0])
     assert spare is not None and spare.picture.year == 2020
-    note = cli.understudy_note(plans[0], spare, "годного релиза нет")
+    note = understudy_note(plans[0], spare, "годного релиза нет")
     assert "\n" not in note, "строка одна"
     assert "1933" in note and "2020" in note, note
     assert "годного релиза нет" in note, "причина названа, а не «просто ухожу»"
@@ -2746,7 +2802,7 @@ def test_the_understudy_is_a_namesake_and_never_someone_elses_picture() -> None:
     Мёртвая тёзка дублёром не бывает: играть ею нечем ровно так же.
     """
     cars = _parts(("Тачки", 2006, 66), ("Тачки 3", 2017, 121))
-    assert cli.understudy(cars, cars[0]) is None, "соседка по франшизе - другое кино"
+    assert understudy(cars, cars[0]) is None, "соседка по франшизе - другое кино"
 
     film = _franchise_plan("Нелюбовь", 2017, [rel(name="кино", seeders=9)])
     series = _franchise_plan(
@@ -2755,11 +2811,11 @@ def test_the_understudy_is_a_namesake_and_never_someone_elses_picture() -> None:
         [rel(name="s01", seeders=120), rel(name="s02", seeders=60)],
         kind="tv",
     )
-    assert cli.understudy([film, series], film) is None, "сериал вместо фильма - подмена"
+    assert understudy([film, series], film) is None, "сериал вместо фильма - подмена"
 
     dead = _parts(("Мумия", 1999, 47), ("Мумия", 2017, 2))
-    assert cli.understudy(dead, dead[0]) is None, "тёзка мертва - уходить некуда"
-    assert cli.understudy(_invisible_man()[:1], _invisible_man()[0]) is None, "меню из одной"
+    assert understudy(dead, dead[0]) is None, "тёзка мертва - уходить некуда"
+    assert understudy(_invisible_man()[:1], _invisible_man()[0]) is None, "меню из одной"
 
 
 class _SwitchBench:
@@ -2796,9 +2852,9 @@ def test_the_switch_to_the_understudy_happens_by_itself_and_is_said_out_loud(
     """
     plans = _invisible_man()
     bench = _SwitchBench()
-    args = cli.Args(query=["человек-невидимка"])
+    args = Args(query=["человек-невидимка"])
 
-    plan, prep = cli._played(
+    plan, prep = _played(
         cast(Any, bench), plans, plans[0], args, cast(Any, None), None, load_config(), CAUTIOUS
     )
 
@@ -2824,11 +2880,11 @@ def test_without_a_live_namesake_the_refusal_stays_the_refusal(
     bench = _SwitchBench()
 
     with pytest.raises(NotFoundError, match="годного релиза нет"):
-        cli._played(
+        _played(
             cast(Any, bench),
             plans,
             plans[0],
-            cli.Args(query=["тачки"]),
+            Args(query=["тачки"]),
             cast(Any, None),
             None,
             load_config(),
@@ -2848,8 +2904,8 @@ def test_a_lone_release_still_wins_when_the_whole_franchise_is_lone() -> None:
     """
     first = _franchise_plan("Кино", 2001, [rel(name="a", seeders=100)])
     second = _franchise_plan("Кино 2", 2005, [rel(name="b", seeders=90), rel(name="c", seeders=80)])
-    assert cli.first_alive([first, second]) == 1
-    assert cli.default_note([first, second]) == "", "решения не принимали - и строки нет"
+    assert first_alive([first, second]) == 1
+    assert default_note([first, second]) == "", "решения не принимали - и строки нет"
 
 
 def test_asked_series_outweighs_a_namesake_film() -> None:
@@ -2870,8 +2926,8 @@ def test_asked_series_outweighs_a_namesake_film() -> None:
         "tv",
         [rel(name="s01", seeders=12), rel(name="s01 web", quality="720p", seeders=18)],
     )
-    assert cli.first_alive([film, show]) == 2
-    note = cli.default_note([film, show])
+    assert first_alive([film, show]) == 2
+    note = default_note([film, show])
     assert "спросили серию" in note and "2015" in note and "1987" in note
 
 
@@ -2879,9 +2935,9 @@ def test_a_film_only_catalogue_keeps_the_default_where_it_was() -> None:
     """Сериалов в выдаче нет вовсе - гейт типа молчит: он не судья тому, чего не видел."""
     first = _series_plan("Кино", 2001, "movie", [rel(name="a", seeders=100)])
     second = _series_plan("Кино 2", 2005, "movie", [rel(name="b", seeders=100)])
-    assert cli.asked_kind([first, second]) == [1, 2]
-    assert cli.first_alive([first, second]) == 1
-    assert cli.default_note([first, second]) == ""
+    assert asked_kind([first, second]) == [1, 2]
+    assert first_alive([first, second]) == 1
+    assert default_note([first, second]) == ""
 
 
 def test_the_default_names_itself_for_a_menu_that_does_not_fit_the_screen() -> None:
@@ -2895,11 +2951,11 @@ def test_the_default_names_itself_for_a_menu_that_does_not_fit_the_screen() -> N
         _franchise_plan("Ван Пис", 1990 + n, [rel(name=f"rip {n}", seeders=0 if n < 33 else 20)])
         for n in range(1, 36)
     ]
-    default = cli.first_alive(plans)
+    default = first_alive(plans)
 
     assert default == 33, "живой в этой выдаче стала только тридцать третья картина"
-    assert cli.default_line(plans, default) == "Enter - «Ван Пис (2023)», пункт 33 из 35"
-    assert cli.menu_lines(plans, width=80).splitlines()[0].startswith("  1. Ван Пис (1991)"), (
+    assert default_line(plans, default) == "Enter - «Ван Пис (2023)», пункт 33 из 35"
+    assert menu_lines(plans, width=80).splitlines()[0].startswith("  1. Ван Пис (1991)"), (
         "список не переупорядочивается: хронология - осознанное решение"
     )
 
@@ -2907,7 +2963,7 @@ def test_the_default_names_itself_for_a_menu_that_does_not_fit_the_screen() -> N
 def test_prewarm_follows_the_visible_menu() -> None:
     """Греем сверху вниз: Enter и первая строка меню указывают на одну картину."""
     plans = _moana_franchise()
-    assert [p.picture.year for p in cli.warm_order(plans)] == [1926, 2016, 2024]
+    assert [p.picture.year for p in warm_order(plans)] == [1926, 2016, 2024]
 
 
 def test_enter_picks_the_top_of_the_menu(capsys: pytest.CaptureFixture[str]) -> None:
@@ -2922,11 +2978,11 @@ def test_enter_picks_the_top_of_the_menu(capsys: pytest.CaptureFixture[str]) -> 
         ],
     )
     plans = [top, movie]
-    assert cli.first_alive(plans) == 2, "условие расхождения воспроизведено"
+    assert first_alive(plans) == 2, "условие расхождения воспроизведено"
 
-    picked = cli._pick_plan(plans, asked="naruto", environment=cast(Any, FakeChoiceEnvironment()))
+    picked = _pick_plan(plans, asked="naruto", environment=cast(Any, FakeChoiceEnvironment()))
 
-    assert cli.menu_lines(plans).splitlines()[0].startswith("  1. Наруто (2002)")
+    assert menu_lines(plans).splitlines()[0].startswith("  1. Наруто (2002)")
     assert "Enter - «Наруто (2002)», пункт 1 из 2" in capsys.readouterr().out
     assert picked is top
 
@@ -2940,13 +2996,13 @@ def test_the_spare_release_goes_up_next_to_the_first_one() -> None:
     """
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
     prober = _probes(ranked, "h264")
-    bench = cli._Bench(cast(Any, _FakeTorrServer()), prober=prober)
+    bench = _Bench(cast(Any, _FakeTorrServer()), prober=prober)
     plan = _plan(ranked)
 
-    bench.start(plan, plan.candidates(cli.Args(query=["кино"]))[0])
-    spare = bench.spare(plan, cli.Args(query=["кино"]))
+    bench.start(plan, plan.candidates(Args(query=["кино"]))[0])
+    spare = bench.spare(plan, Args(query=["кино"]))
 
-    assert [prep.number for prep in spare] == [plan.candidates(cli.Args(query=["кино"]))[1]]
+    assert [prep.number for prep in spare] == [plan.candidates(Args(query=["кино"]))[1]]
     assert sorted(number for _, number in bench.preps) == [1, 2]
 
 
@@ -2955,9 +3011,9 @@ def test_a_release_named_by_hand_has_no_spare() -> None:
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
     prober = _probes(ranked, "h264")
     torrserver = _FakeTorrServer()
-    bench = cli._Bench(cast(Any, torrserver), prober=prober)
+    bench = _Bench(cast(Any, torrserver), prober=prober)
 
-    assert bench.spare(_plan(ranked), cli.Args(query=["кино"], release=2)) == []
+    assert bench.spare(_plan(ranked), Args(query=["кино"], release=2)) == []
     assert not bench.preps
 
 
@@ -2982,11 +3038,11 @@ def _reads(releases: list[Release], *media: Media) -> _Prober:
 
 def test_launch_line_shows_the_confirmed_resolution_not_the_claim() -> None:
     """«Моана 2»: имя обещает 1080p, ffprobe читает 1150×574 — печатаем факт."""
-    assert cli.quality_text(rel(quality="1080p"), Media(5977.0, (), "h264", 574, 1150)) == "574p"
-    assert cli.quality_text(rel(quality="1080p"), Media(5977.0, (), "h264", 1080, 1920)) == "1080p"
+    assert quality_text(rel(quality="1080p"), Media(5977.0, (), "h264", 574, 1150)) == "574p"
+    assert quality_text(rel(quality="1080p"), Media(5977.0, (), "h264", 1080, 1920)) == "1080p"
     # ffprobe высоту не отдал - врать нечем, остаётся заявка имени и честный «?».
-    assert cli.quality_text(rel(quality="720p"), Media(5977.0, (), "h264", 0)) == "720p"
-    assert cli.quality_text(rel(quality=None), Media(5977.0, (), "h264", 0)) == "?"
+    assert quality_text(rel(quality="720p"), Media(5977.0, (), "h264", 0)) == "720p"
+    assert quality_text(rel(quality=None), Media(5977.0, (), "h264", 0)) == "?"
 
 
 def test_cropped_widescreen_is_not_a_liar() -> None:
@@ -2994,12 +3050,12 @@ def test_cropped_widescreen_is_not_a_liar() -> None:
     честен: судить по одной высоте нельзя, иначе каждый скоуп-фильм объявляется враньём.
     """
     scope = Media(5977.0, (), "h264", 800, 1920)
-    assert scope.quality == "1080p" and cli.understated(rel(quality="1080p"), scope) == ""
+    assert scope.quality == "1080p" and understated(rel(quality="1080p"), scope) == ""
     liar = Media(5977.0, (), "h264", 574, 1150)  # живая «Моана 2», верх выдачи
-    assert liar.quality == "574p" and cli.understated(rel(quality="1080p"), liar) != ""
+    assert liar.quality == "574p" and understated(rel(quality="1080p"), liar) != ""
     # Имя не назвало ничего, а внутри HD - придираться не к чему.
-    assert cli.understated(rel(quality=None), Media(5977.0, (), "h264", 720, 1280)) == ""
-    assert cli.understated(rel(quality=None), liar) != ""
+    assert understated(rel(quality=None), Media(5977.0, (), "h264", 720, 1280)) == ""
+    assert understated(rel(quality=None), liar) != ""
 
 
 def test_an_interlaced_file_is_named_what_it_is() -> None:
@@ -3009,15 +3065,15 @@ def test_an_interlaced_file_is_named_what_it_is() -> None:
     по имени такой релиз не поймать вовсе - «1080p» в заголовке и ``tb`` внутри.
     """
     inter = Media(5977.0, (), "h264", 1080, 1920, field_order="tb")
-    assert cli.quality_text(rel(quality="1080p"), inter) == "1080i"
-    assert cli.quality_text(rel(quality="1080i"), inter) == "1080i"
-    assert cli.understated(rel(quality="1080p"), inter) == "назван 1080p, на деле 1080i"
-    assert cli.understated(rel(quality="1080i"), inter) == "", "имя и так говорило правду"
+    assert quality_text(rel(quality="1080p"), inter) == "1080i"
+    assert quality_text(rel(quality="1080i"), inter) == "1080i"
+    assert understated(rel(quality="1080p"), inter) == "назван 1080p, на деле 1080i"
+    assert understated(rel(quality="1080i"), inter) == "", "имя и так говорило правду"
     prog = Media(5977.0, (), "h264", 1080, 1920, field_order="progressive")
-    assert cli.quality_text(rel(quality="1080p"), prog) == "1080p"
-    assert cli.understated(rel(quality="1080p"), prog) == ""
+    assert quality_text(rel(quality="1080p"), prog) == "1080p"
+    assert understated(rel(quality="1080p"), prog) == ""
     # Паспорт о развёртке молчит - решаем как раньше: занизить по догадке - та же ложь.
-    assert cli.quality_text(rel(quality="1080p"), Media(5977.0, (), "h264", 1080, 1920)) == "1080p"
+    assert quality_text(rel(quality="1080p"), Media(5977.0, (), "h264", 1080, 1920)) == "1080p"
 
 
 def test_a_top_that_turns_out_to_be_sd_gives_way_to_a_confirmed_1080p(
@@ -3037,7 +3093,7 @@ def test_a_top_that_turns_out_to_be_sd_gives_way_to_a_confirmed_1080p(
     )
     torrserver = _FakeTorrServer()
 
-    prep = _resolve(cli._Bench(cast(Any, torrserver), prober=prober), ranked)
+    prep = _resolve(_Bench(cast(Any, torrserver), prober=prober), ranked)
 
     printed = capsys.readouterr().out
     assert prep.number == 2, "среди честных обсиженность решает, но 574p - не честный 1080p"
@@ -3061,7 +3117,7 @@ def test_an_honest_top_is_played_without_a_word(capsys: pytest.CaptureFixture[st
         Media(5977.0, (), "h264", 1080, 1920),
     )
 
-    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked)
+    prep = _resolve(_Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked)
 
     assert prep.number == 1
     assert not re.search(r"беру \d", capsys.readouterr().out)
@@ -3081,7 +3137,7 @@ def test_when_the_neighbour_lies_too_we_play_the_truth_out_loud(
         Media(5977.0, (), "h264", 576, 1024),
     )
 
-    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked)
+    prep = _resolve(_Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked)
 
     printed = capsys.readouterr().out
     assert prep.number == 1, "лучше 574p рядом нет - играем то, что есть"
@@ -3103,7 +3159,7 @@ def test_a_named_release_is_never_second_guessed_for_quality(
         Media(5977.0, (), "h264", 1080, 1920),
     )
 
-    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked, release=1)
+    prep = _resolve(_Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked, release=1)
 
     assert prep.number == 1
     assert not re.search(r"беру \d", capsys.readouterr().out)
@@ -3128,7 +3184,7 @@ def test_a_slow_neighbour_does_not_hold_up_the_show(capsys: pytest.CaptureFixtur
         return Media(5977.0, (), "h264", 574, 1150)
 
     try:
-        bench = cli._Bench(cast(Any, _FakeTorrServer()), prober=read, honest_budget=0.3)
+        bench = _Bench(cast(Any, _FakeTorrServer()), prober=read, honest_budget=0.3)
         prep = _resolve(bench, ranked)
     finally:
         slow.set()  # поток прогрева отпускаем, чтобы не висел до конца прогона
@@ -3172,7 +3228,7 @@ def test_an_unnamed_language_does_not_stop_the_queue_at_the_top(
     )
     torrserver = _FakeTorrServer()
 
-    prep = _resolve(cli._Bench(cast(Any, torrserver), prober=prober), ranked)
+    prep = _resolve(_Bench(cast(Any, torrserver), prober=prober), ranked)
 
     printed = capsys.readouterr().out
     assert prep.number == 2, "незнание меняем на знание, а не на догадку"
@@ -3207,7 +3263,7 @@ def test_an_unnamed_language_falls_back_to_the_existing_mute_move(
         Media(5977.0, FOREIGN, "h264", 1080, 1920),
     )
 
-    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked)
+    prep = _resolve(_Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked)
 
     printed = capsys.readouterr().out
     assert prep.number == 1
@@ -3234,7 +3290,7 @@ def test_a_confirmed_russian_track_asks_nobody(capsys: pytest.CaptureFixture[str
         Media(5977.0, RUSSIAN, "h264", 1080, 1920),
         Media(5977.0, RUSSIAN, "h264", 1080, 1920),
     )
-    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked)
+    prep = _resolve(_Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked)
     assert prep.number == 1
     assert not re.search(r"беру \d", capsys.readouterr().out)
 
@@ -3247,16 +3303,16 @@ def test_a_confirmed_russian_track_asks_nobody(capsys: pytest.CaptureFixture[str
         Media(5977.0, UNNAMED, "h264", 1080, 1920),
         Media(5977.0, RUSSIAN, "h264", 1080, 1920),
     )
-    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer()), prober=prober), promised)
+    prep = _resolve(_Bench(cast(Any, _FakeTorrServer()), prober=prober), promised)
     assert prep.number == 2, "обещание имени русской дорожкой не становится"
 
 
 def test_the_passport_has_three_answers_about_the_language() -> None:
     """«Да», «нет» и «не знаю» - и годен только первый (:func:`voice_unproven`)."""
-    assert not cli.voice_unproven(Media(5977.0, RUSSIAN, "h264", 1080, 1920)), "паспорт: да"
-    assert cli.voice_unproven(Media(5977.0, FOREIGN, "h264", 1080, 1920)), "паспорт: нет"
-    assert cli.voice_unproven(Media(5977.0, UNNAMED, "h264", 1080, 1920)), "паспорт: не знаю"
-    assert not cli.voice_unproven(Media(5977.0, (), "h264", 1080, 1920)), "звук не прочитан вовсе"
+    assert not voice_unproven(Media(5977.0, RUSSIAN, "h264", 1080, 1920)), "паспорт: да"
+    assert voice_unproven(Media(5977.0, FOREIGN, "h264", 1080, 1920)), "паспорт: нет"
+    assert voice_unproven(Media(5977.0, UNNAMED, "h264", 1080, 1920)), "паспорт: не знаю"
+    assert not voice_unproven(Media(5977.0, (), "h264", 1080, 1920)), "звук не прочитан вовсе"
 
 
 # --- Прогрев соседа по звуку: обещавшая русскую раздача греется под меню (TC-309) ------
@@ -3277,9 +3333,9 @@ def test_a_dubbed_neighbour_warms_under_the_menu_when_the_top_promises_nothing()
         rel(name="Кино [BDRip 1080p] от Scarabey | D", seeders=121),
     ]
     prober = _reads(ranked, *([Media(5977.0, (), "h264", 1080, 1920)] * 3))
-    bench = cli._Bench(cast(Any, _FakeTorrServer()), prober=prober)
+    bench = _Bench(cast(Any, _FakeTorrServer()), prober=prober)
 
-    preps = bench.spare(_plan(ranked), cli.Args(query=["кино"]))
+    preps = bench.spare(_plan(ranked), Args(query=["кино"]))
 
     assert {prep.number for prep in preps} == {2, 3}, "запасной и обещавший русскую сосед"
 
@@ -3298,9 +3354,9 @@ def test_a_dubbed_neighbour_warms_when_a_front_candidate_promises_nothing() -> N
         rel(name="Кино [BDRip 1080p] от Scarabey | D", seeders=121),
     ]
     prober = _reads(ranked, *([Media(5977.0, (), "h264", 1080, 1920)] * 3))
-    bench = cli._Bench(cast(Any, _FakeTorrServer()), prober=prober)
+    bench = _Bench(cast(Any, _FakeTorrServer()), prober=prober)
 
-    preps = bench.spare(_plan(ranked), cli.Args(query=["кино"]))
+    preps = bench.spare(_plan(ranked), Args(query=["кино"]))
 
     assert {prep.number for prep in preps} == {2, 3}
 
@@ -3314,9 +3370,9 @@ def test_a_picture_whose_front_candidates_all_promise_russian_warms_no_sound_nei
     """
     ranked = [rel(name=f"Кино [BDRip 1080p] р{i} | D", seeders=100 - i) for i in range(3)]
     prober = _reads(ranked, *([Media(5977.0, (), "h264", 1080, 1920)] * 3))
-    bench = cli._Bench(cast(Any, _FakeTorrServer()), prober=prober)
+    bench = _Bench(cast(Any, _FakeTorrServer()), prober=prober)
 
-    preps = bench.spare(_plan(ranked), cli.Args(query=["кино"]))
+    preps = bench.spare(_plan(ranked), Args(query=["кино"]))
 
     assert {prep.number for prep in preps} == {2}, "только обычный запасной"
     assert len(bench.preps) == 1, "и лишней раздачи в TorrServer нет"
@@ -3326,9 +3382,9 @@ def test_no_dubbed_neighbour_in_the_pool_means_nothing_extra_to_warm() -> None:
     """Обещанной русской в очереди нет вовсе - греть нечего, лишней раздачи не появляется."""
     ranked = [rel(name=f"Кино [WEB-DL 1080p] р{i}", voices=(), seeders=100 - i) for i in range(3)]
     prober = _reads(ranked, *([Media(5977.0, (), "h264", 1080, 1920)] * 3))
-    bench = cli._Bench(cast(Any, _FakeTorrServer()), prober=prober)
+    bench = _Bench(cast(Any, _FakeTorrServer()), prober=prober)
 
-    preps = bench.spare(_plan(ranked), cli.Args(query=["кино"]))
+    preps = bench.spare(_plan(ranked), Args(query=["кино"]))
 
     assert {prep.number for prep in preps} == {2}
     assert len(bench.preps) == 1
@@ -3341,9 +3397,9 @@ def test_a_dubbed_spare_is_not_warmed_twice() -> None:
         rel(name="Кино [BDRip 1080p] от Scarabey | D", seeders=121),
     ]
     prober = _reads(ranked, *([Media(5977.0, (), "h264", 1080, 1920)] * 2))
-    bench = cli._Bench(cast(Any, _FakeTorrServer()), prober=prober)
+    bench = _Bench(cast(Any, _FakeTorrServer()), prober=prober)
 
-    preps = bench.spare(_plan(ranked), cli.Args(query=["кино"]))
+    preps = bench.spare(_plan(ranked), Args(query=["кино"]))
 
     assert {prep.number for prep in preps} == {2}
     assert len(bench.preps) == 1, "та же подготовка, а не вторая раздача того же релиза"
@@ -3356,9 +3412,9 @@ def test_a_named_release_still_has_no_spare_at_all() -> None:
         rel(name="Кино [BDRip 1080p] от Scarabey | D", seeders=121),
     ]
     prober = _reads(ranked, *([Media(5977.0, (), "h264", 1080, 1920)] * 2))
-    bench = cli._Bench(cast(Any, _FakeTorrServer()), prober=prober)
+    bench = _Bench(cast(Any, _FakeTorrServer()), prober=prober)
 
-    assert bench.spare(_plan(ranked), cli.Args(query=["кино"], release=2)) == []
+    assert bench.spare(_plan(ranked), Args(query=["кино"], release=2)) == []
     assert not bench.preps
 
 
@@ -3378,8 +3434,8 @@ def test_a_native_picture_accepts_its_only_unnamed_track(title: str) -> None:
     release = rel(name=f"{title} [WEB-DL 1080p]", voices=())
     media = Media(5977.0, UNNAMED, "h264", 1080, 1920)
 
-    assert not cli.voice_unproven(media, native=True)
-    assert cli.sound_note(media, 0, [release], release, native=True) == ""
+    assert not voice_unproven(media, native=True)
+    assert sound_note(media, 0, [release], release, native=True) == ""
 
 
 def test_a_foreign_picture_does_not_call_its_only_unnamed_track_russian() -> None:
@@ -3387,8 +3443,8 @@ def test_a_foreign_picture_does_not_call_its_only_unnamed_track_russian() -> Non
     release = rel(name="The Holdovers [WEB-DL 1080p]", voices=())
     media = Media(5977.0, UNNAMED, "h264", 1080, 1920)
 
-    assert cli.voice_unproven(media, native=False)
-    assert "русская" not in cli.sound_note(media, 0, [release], release, native=False)
+    assert voice_unproven(media, native=False)
+    assert "русская" not in sound_note(media, 0, [release], release, native=False)
 
 
 def test_a_refusal_names_the_living_parts_of_the_franchise(
@@ -3409,9 +3465,9 @@ def test_a_refusal_names_the_living_parts_of_the_franchise(
         Picture(title="Тачки 2", year=2011, releases=[rel(name="c2", seeders=30)]),
         Picture(title="Тачки 3", year=2017, releases=[rel(name="c3", seeders=40)]),
     ]
-    args = cli.Args(query=["тачки"])
+    args = Args(query=["тачки"])
     with pytest.raises(NotFoundError) as caught, Progress(out=io.StringIO()) as progress:
-        cli._Bench(cast(Any, _FakeTorrServer()), prober=prober).resolve(plan, args, progress)
+        _Bench(cast(Any, _FakeTorrServer()), prober=prober).resolve(plan, args, progress)
 
     assert "годного релиза нет" in str(caught.value)
     assert "в каталоге есть Тачки 2 (2011), Тачки 3 (2017) - cast тачки 2" in str(caught.value)
@@ -3425,7 +3481,7 @@ def test_a_refusal_stays_silent_when_the_franchise_has_no_other_parts(
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(5)]
     prober = _probes(ranked, *REFUSED)
     with pytest.raises(NotFoundError) as caught:
-        _resolve(cli._Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked)
+        _resolve(_Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked)
 
     assert "в каталоге есть" not in str(caught.value)
     capsys.readouterr()
@@ -3450,14 +3506,14 @@ def test_only_parts_that_stayed_out_of_the_menu_are_offered() -> None:
     )
     lead = next(p for p in pictures if p.year == 2006)
 
-    kin = cli._kin(lead, pictures, {lead.key})
+    kin = _kin(lead, pictures, {lead.key})
     assert [p.title for p in kin] == ["Тачки 2", "Тачки 3"]
     # Показанное в меню не повторяем.
     shown = {p.key for p in pictures if p.year != 2017}
-    assert [p.title for p in cli._kin(lead, pictures, shown)] == ["Тачки 3"]
+    assert [p.title for p in _kin(lead, pictures, shown)] == ["Тачки 3"]
     # Картина без раздач в каталоге не «живая» - о ней молчим.
-    assert cli._kin(lead, [*pictures, Picture(title="Тачки 4", year=2029)], {lead.key}) == kin
-    assert cli.kin_line([]) == ""
+    assert _kin(lead, [*pictures, Picture(title="Тачки 4", year=2029)], {lead.key}) == kin
+    assert kin_line([]) == ""
 
 
 def _named_release(title: str, year: int) -> Release:
@@ -3481,11 +3537,11 @@ def test_a_picture_we_did_not_choose_stops_being_warmed_the_moment_we_choose() -
     верху намеренно, и распорядиться им вправе только сам отбор.
     """
     torrserver = _FakeTorrServer()
-    bench = cli._Bench(cast(Any, torrserver))
+    bench = _Bench(cast(Any, torrserver))
     mine = _franchise_plan("Кино", 1999, [rel(name=f"a{i}", seeders=100 - i) for i in range(3)])
     other = _franchise_plan("Кино 2", 2005, [rel(name=f"b{i}", seeders=100 - i) for i in range(3)])
     bench.start(mine, 1)
-    bench.spare(mine, cli.Args(query=["кино"]))
+    bench.spare(mine, Args(query=["кино"]))
     bench.start(other, 1)
     assert len(bench.live()) == 3
 
@@ -3510,22 +3566,22 @@ def test_we_never_hold_more_torrents_at_once_than_the_ceiling() -> None:
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(12)]
     prober = _probes(ranked, *(["h264"] * 11), "h264")
     torrserver = _FakeTorrServer()
-    bench = cli._Bench(cast(Any, torrserver), prober=prober)
+    bench = _Bench(cast(Any, torrserver), prober=prober)
     plan = _plan(ranked)
     peak = 0
 
     # Прогрев под меню: три картины и запасной (первые кандидаты фикстуры русскую
     # обещают сами, поэтому соседа по звуку нет - :data:`PREWARM_DUB` тут не срабатывает).
-    for number in range(1, cli.PREWARM + 1):
+    for number in range(1, PREWARM + 1):
         bench.start(plan, number)
-    bench.spare(plan, cli.Args(query=["кино"]))
+    bench.spare(plan, Args(query=["кино"]))
     peak = max(peak, len(bench.live()))
-    for number in range(cli.PREWARM + 1, len(ranked) + 1):
+    for number in range(PREWARM + 1, len(ranked) + 1):
         bench.needed = {(plan.picture.key, number)}
         bench.start(plan, number)
         peak = max(peak, len(bench.live()))
 
-    assert peak == cli.MAX_LIVE == 5
+    assert peak == MAX_LIVE == 5
     assert len(bench.preps) == len(ranked), "греть перестали не потому, что не начинали"
 
 
@@ -3537,7 +3593,7 @@ def test_the_ceiling_never_kills_the_warmup_someone_is_waiting_for() -> None:
     """
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(6)]
     prober = _probes(ranked, *(["h264"] * 6))
-    bench = cli._Bench(cast(Any, _FakeTorrServer()), prober=prober)
+    bench = _Bench(cast(Any, _FakeTorrServer()), prober=prober)
     plan = _plan(ranked)
     for number in (1, 2, 3, 4, 5):
         bench.start(plan, number)
@@ -3570,7 +3626,7 @@ def test_a_neighbour_asked_about_honesty_is_dropped_once_it_has_answered(
     )
     torrserver = _FakeTorrServer()
 
-    prep = _resolve(cli._Bench(cast(Any, torrserver), prober=prober), ranked)
+    prep = _resolve(_Bench(cast(Any, torrserver), prober=prober), ranked)
 
     assert prep.number == 1, "лучше 574p рядом нет - играем то, что есть"
     assert "не лучше" in capsys.readouterr().out
@@ -3601,7 +3657,7 @@ def test_a_neighbour_that_missed_its_budget_is_let_go_too(
 
     torrserver = _FakeTorrServer()
 
-    prep = _resolve(cli._Bench(cast(Any, torrserver), prober=read, honest_budget=0.05), ranked)
+    prep = _resolve(_Bench(cast(Any, torrserver), prober=read, honest_budget=0.05), ranked)
 
     assert prep.number == 1, "ответа не дождались - играем то, что уже прочитано"
     assert "не успел ответить" in capsys.readouterr().out
@@ -3632,7 +3688,7 @@ def test_a_multi_season_pack_that_hides_its_bitrate_stops_outranking_the_live_on
     подряд - это три приговора ``mpeg4``, весь :data:`~torrcast.cli.MAX_TRIES` и 130
     секунд, после которых показ говорит «годного релиза нет» при живом каталоге.
     """
-    from torrcast.cli import is_dated, pack_mbit
+    from torrcast.usecases.rank import is_dated, pack_mbit
 
     tv = RUNTIME_GUESS["tv"]
     pda = _series_release(
@@ -3659,7 +3715,7 @@ def test_the_pack_ceiling_never_judges_a_release_only_orders_it() -> None:
     :func:`~torrcast.cli.is_candidate`, и потолок в воротах означал бы «слишком тяжёлый»,
     то есть отказ показывать честный 114-гигабайтный пак.
     """
-    from torrcast.cli import bitrate_of, is_candidate, pack_mbit
+    from torrcast.usecases.rank import bitrate_of, is_candidate, pack_mbit
 
     tv = RUNTIME_GUESS["tv"]
     honest = _series_release(
@@ -3726,17 +3782,17 @@ def test_a_4k_entry_is_refused_before_the_unit_only_when_there_is_nothing_to_shr
     uhd = Entry(title="Матрица", magnet="m", codec="hevc", depth=10, frame=2160, quality="2160p")
     assert config.recode, "умолчание - перекод включён"
     # Перекод включён - ужмём и сыграем, отказа нет ни на HEVC, ни на посильном h264.
-    cli._refuse_hopeless(config, uhd)
-    cli._refuse_hopeless(config, replace(uhd, codec="h264", depth=8))
+    _refuse_hopeless(config, uhd)
+    _refuse_hopeless(config, replace(uhd, codec="h264", depth=8))
 
     with pytest.raises(NotFoundError) as refusal:
-        cli._refuse_hopeless(replace(config, recode=False), uhd)
+        _refuse_hopeless(replace(config, recode=False), uhd)
     assert "2160p" in str(refusal.value) and "1080p" in str(refusal.value)
 
     # 1080p тем же кодеком - ровно то, ради чего сплошной перекод и заведён.
-    cli._refuse_hopeless(replace(config, recode=False), replace(uhd, frame=1080, quality="1080p"))
+    _refuse_hopeless(replace(config, recode=False), replace(uhd, frame=1080, quality="1080p"))
     # Кадра не спрашивали (запись прежней версии) - молчим и играем как раньше.
-    cli._refuse_hopeless(replace(config, recode=False), replace(uhd, frame=0))
+    _refuse_hopeless(replace(config, recode=False), replace(uhd, frame=0))
 
 
 def test_releases_table_uses_true_duration_and_matches_explicit_release(
@@ -3752,11 +3808,11 @@ def test_releases_table_uses_true_duration_and_matches_explicit_release(
 
     config = Config(bitrate_warn_mbit=16.0)
     # На 2 часах heavy (20 ГБ) улетает за потолок 16 Мбит/с.
-    ranked_guess = cli.rank_releases([lighter, heavy], 120.0 * 60.0, config.bitrate_warn_mbit)
+    ranked_guess = rank_releases([lighter, heavy], 120.0 * 60.0, config.bitrate_warn_mbit)
 
     from torrcast.domain.picture import Picture
 
-    plan = cli._Plan(
+    plan = _Plan(
         picture=Picture(title="Кино", year=1999, releases=[lighter, heavy]),
         ranked=ranked_guess,
         runtime=120.0 * 60.0,
@@ -3769,8 +3825,8 @@ def test_releases_table_uses_true_duration_and_matches_explicit_release(
     class FakeFacts(_Facts3h):
         """Та же справка «3 ч», но объявленная рядом с прогоном, который её зовёт."""
 
-    cli._cmd_releases(
-        cli.Args(query=["releases", "кино"]),
+    _cmd_releases(
+        Args(query=["releases", "кино"]),
         search=fake_search,
         settings=lambda: config,
         facts_source=FakeFacts,
@@ -3785,9 +3841,9 @@ def test_releases_table_uses_true_duration_and_matches_explicit_release(
         "таблица должна строиться на настоящей длительности"
     )
 
-    args = cli.Args(query=["кино"], release=1)
+    args = Args(query=["кино"], release=1)
     assert args.release is not None
-    fresh_plan = cli._timed(plan, cast(Any, FakeFacts([])), args, config)
+    fresh_plan = _timed(plan, cast(Any, FakeFacts([])), args, config)
     assert fresh_plan.ranked[args.release - 1].raw_name == "heavy", (
         "отбор не должен расходиться с таблицей"
     )
@@ -3820,14 +3876,14 @@ def _releases_output(capsys: pytest.CaptureFixture[str], profile_choice: Any = N
     from torrcast.domain.config import Config
 
     heavy = rel(name="Кино / Movie (1999) BDRip 1080p", size_gb=18, seeders=100)
-    plan = cli._Plan(
+    plan = _Plan(
         picture=Picture(title="Кино", year=1999, releases=[heavy]),
         ranked=[heavy],
         runtime=RUNTIME,
         warn_mbit=16.0,
     )
-    cli._cmd_releases(
-        cli.Args(query=["releases", "кино"]),
+    _cmd_releases(
+        Args(query=["releases", "кино"]),
         search=lambda *args: [plan],
         settings=Config,
         facts_source=_Facts3h,
@@ -3909,7 +3965,7 @@ def test_a_release_already_judged_is_not_turned_down_twice_on_screen(
         Media(5977.0, (), "h264", 574, 1150),  # годен, но занижен - зовётся проверка честности
     )
 
-    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked)
+    prep = _resolve(_Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked)
 
     printed = capsys.readouterr().out
     assert prep.number == 2, "годным оказался второй - его и играем"
@@ -3936,7 +3992,7 @@ def test_a_release_turned_down_by_the_honesty_check_is_written_to_the_trace(
         Media(5977.0, (), "av1", 1080, 1920),  # сосед обещает больше, а внутри av1
     )
 
-    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked)
+    prep = _resolve(_Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked)
 
     printed = capsys.readouterr().out
     assert prep.number == 1, "сосед не годится - играем то, что есть"
@@ -3962,7 +4018,7 @@ def test_a_neighbour_that_is_no_better_is_a_record_of_the_trace_too(
         Media(5977.0, (), "h264", 576, 1024),  # обещал 1080p, а внутри такой же SD
     )
 
-    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked)
+    prep = _resolve(_Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked)
 
     printed = capsys.readouterr().out
     assert prep.number == 1 and "релиз 2 не лучше" in printed
@@ -3976,7 +4032,7 @@ class _Silent(_Spent):
         return []
 
 
-def _asked_reference(found: list[Picture], args: cli.Args, spare: float = 9.0) -> tuple[Any, ...]:
+def _asked_reference(found: list[Picture], args: Args, spare: float = 9.0) -> tuple[Any, ...]:
     """Чем и с каким потолком добор спросил справку. Круг при этом пустой."""
     from torrcast.domain.facts.origin import Origin
 
@@ -3987,7 +4043,7 @@ def _asked_reference(found: list[Picture], args: cli.Args, spare: float = 9.0) -
         return Origin()
 
     with Progress(out=io.StringIO()) as progress:
-        cli._second_language(
+        _second_language(
             cast(Any, _Silent(spare)), "клиника", args, [], found, progress, passport=_spy
         )
     return calls[0]
@@ -4007,11 +4063,11 @@ def test_добор_без_картины_спрашивает_справку_в
     from torrcast.domain.facts.settings import FACTS_BUDGET
     from torrcast.domain.goal_spare import CIRCLE_SHARE
 
-    empty = _asked_reference([], cli.Args(query=["клиника", "s1e1"]))
+    empty = _asked_reference([], Args(query=["клиника", "s1e1"]))
     assert empty == ("клиника", True, pytest.approx(9.0 - CIRCLE_SHARE))
 
     lean = Picture(title="Клиника", year=2001, kind="tv", releases=[rel(name="Клиника s01e01")])
-    thin = _asked_reference([lean], cli.Args(query=["клиника", "s1e1"]))
+    thin = _asked_reference([lean], Args(query=["клиника", "s1e1"]))
     assert thin == ("клиника", True, FACTS_BUDGET), "картина есть - потолок прежний, тип от неё"
 
 
@@ -4055,10 +4111,10 @@ def test_добор_учитывает_готовую_опоздавшую_вы�
     client = _LateSecond(late)
 
     with Progress(out=io.StringIO()) as progress:
-        raw, _pictures, found = cli._second_language(
+        raw, _pictures, found = _second_language(
             cast(Any, client),
             "клиника",
-            cli.Args(query=["клиника", "s1e1"]),
+            Args(query=["клиника", "s1e1"]),
             [],
             [],
             progress,
@@ -4094,10 +4150,10 @@ def test_короткое_имя_берёт_картину_из_первого_�
     passport = Origin(title="Serial Experiments Lain", year=1998, name="Эксперименты Лэйн")
 
     with Progress(out=io.StringIO()) as progress:
-        _raw, _pictures, rescued = cli._second_language(
+        _raw, _pictures, rescued = _second_language(
             cast(Any, client),
             "lain",
-            cli.Args(query=["lain"]),
+            Args(query=["lain"]),
             raw,
             found,
             progress,
@@ -4128,10 +4184,10 @@ def test_паспортное_имя_не_подменяет_картину_пр
     passport = Origin(title="Serial Experiments Lain", year=1998)
 
     with Progress(out=io.StringIO()) as progress:
-        _raw, _pictures, found = cli._second_language(
+        _raw, _pictures, found = _second_language(
             cast(Any, client),
             "lain",
-            cli.Args(query=["lain"]),
+            Args(query=["lain"]),
             raw,
             pick_franchise("lain", pictures),
             progress,
@@ -4167,10 +4223,10 @@ def _refined(
     client = _Ceiling(9.0, rows)
     out = io.StringIO()
     with Progress(out=out) as progress:
-        result = cli._ceiling_reinforce(
+        result = _ceiling_reinforce(
             cast(Any, client),
             "девять",
-            cli.Args(query=["девять"]),
+            Args(query=["девять"]),
             raw,
             pictures,
             found,
@@ -4255,14 +4311,14 @@ def test_повод_потолка_узок() -> None:
     spare = cast(Any, _Spent(9.0))
     capped = cast(Any, _Ceiling(9.0, []))
 
-    assert not cli._ceiling_hides_name(spare, "девять", pictures, found), "нет потолка - нет повода"
-    assert not cli._ceiling_hides_name(capped, "девять", pictures, []), (
+    assert not _ceiling_hides_name(spare, "девять", pictures, found), "нет потолка - нет повода"
+    assert not _ceiling_hides_name(capped, "девять", pictures, []), (
         "пустая выдача - это тощий пул, а не потолок: там отвечает добор вторым языком"
     )
-    assert not cli._ceiling_hides_name(capped, "девять ярдов", pictures, found), (
+    assert not _ceiling_hides_name(capped, "девять ярдов", pictures, found), (
         "имя в каталоге есть - обрезан лишь хвост, и это не повод"
     )
-    assert cli._ceiling_hides_name(capped, "девять", pictures, found)
+    assert _ceiling_hides_name(capped, "девять", pictures, found)
 
 
 def test_потолок_не_принимает_сиквел_за_спрошенную_первую_часть() -> None:
@@ -4274,7 +4330,7 @@ def test_потолок_не_принимает_сиквел_за_спрошен
     )
     found = pick_franchise("лёд", pictures)
     capped = cast(Any, _Ceiling(9.0, []))
-    assert cli._ceiling_hides_name(capped, "лёд", pictures, found)
+    assert _ceiling_hides_name(capped, "лёд", pictures, found)
 
 
 def test_two_pictures_under_one_name_and_year_are_named_out_loud() -> None:
@@ -4289,7 +4345,7 @@ def test_two_pictures_under_one_name_and_year_are_named_out_loud() -> None:
 
     plan = _franchise_plan("Девять", 2009, [rel(name="Девять / Nine (2009) BDRip 1080p")])
     about = Origin(title="Nine", year=2009, namesake="9 (мультфильм, 2009)")
-    note = cli.namesake_note(plan, about)
+    note = namesake_note(plan, about)
 
     assert note and "\n" not in note, "строка одна"
     assert "«9 (мультфильм, 2009)»" in note and "2009" in note, note
@@ -4305,11 +4361,11 @@ def test_the_namesake_line_stays_silent_where_it_should() -> None:
     from torrcast.domain.facts.origin import Origin
 
     plan = _franchise_plan("Девять", 2009, [rel(name="Девять / Nine (2009) BDRip 1080p")])
-    assert cli.namesake_note(plan, Origin(title="Nine", year=2009)) == "", "тёзки нет - молчим"
-    assert cli.namesake_note(plan, Origin(namesake="9 (мультфильм, 2009)")) == "", (
+    assert namesake_note(plan, Origin(title="Nine", year=2009)) == "", "тёзки нет - молчим"
+    assert namesake_note(plan, Origin(namesake="9 (мультфильм, 2009)")) == "", (
         "года справка не назвала - сверять нечем"
     )
     other = Origin(title="Nine", year=1957, namesake="Девять дней одного года")
-    assert cli.namesake_note(plan, other) == "", "справка про другую картину - и тёзка её"
+    assert namesake_note(plan, other) == "", "справка про другую картину - и тёзка её"
     unknown = _franchise_plan("Девять", None, [rel(name="Девять BDRip")])
-    assert cli.namesake_note(unknown, Origin(title="Nine", year=2009, namesake="9")) == ""
+    assert namesake_note(unknown, Origin(title="Nine", year=2009, namesake="9")) == ""

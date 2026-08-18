@@ -20,7 +20,7 @@ import pytest
 
 import torrcast
 from torrcast.adapters.chromecast.profile_detector import detector
-from torrcast.cli import Args
+from torrcast.cli.args import Args
 from torrcast.domain.choice import Choice
 from torrcast.domain.config import Config
 from torrcast.domain.profile import ANDROID_TV, CAUTIOUS

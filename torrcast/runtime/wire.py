@@ -56,6 +56,7 @@ from torrcast.ports.journal import install as install_journal
 from torrcast.ports.progress import install as install_progress
 from torrcast.ports.show_unit import install as install_unit
 from torrcast.ports.state_store import install as install_state
+from torrcast.runtime.configure_cli import configure_cli
 from torrcast.runtime.facts_wiring import FACTS
 from torrcast.runtime.menu_facts import MenuFacts
 from torrcast.runtime.native_picture import native_picture
@@ -86,6 +87,9 @@ from torrcast.usecases.worker_loop import _configure_worker_loop
 
 def wire() -> None:
     """Поставить боевых исполнителей на все порты."""
+    # Слой команд не видит ни адаптеров, ни сборки сеансов: режим stdin и три собранные
+    # команды приходят к нему отсюда (:mod:`torrcast.runtime.configure_cli`).
+    configure_cli()
     install_journal(FileJournal())
     install_progress(Progress)
     install_state(FileStateStore())

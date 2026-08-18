@@ -43,16 +43,23 @@ from torrcast.adapters.stream_pack.pack_start import pack_start
 from torrcast.adapters.stream_pack.playing_flag import playing_flag
 from torrcast.adapters.stream_probe.segment_name import segment_name
 from torrcast.adapters.stream_probe.supply import Supply
-from torrcast.cli import Watch as _Watch
-from torrcast.cli import _Clock, _play
 from torrcast.domain.config import Config
 from torrcast.domain.entry import Entry
 from torrcast.domain.hls_settings import HLS_SEGMENT_SECONDS, PACK_DIR
 from torrcast.domain.not_raised import NOT_RAISED
 from torrcast.domain.position import Position
+from torrcast.domain.revive_settings import REVIVE_DROP, REVIVE_LIMIT, REVIVE_PAUSE, REVIVE_TRIES
 from torrcast.domain.start_refused_error import StartRefusedError
+from torrcast.domain.start_settings import PAUSE_SECONDS
+from torrcast.domain.worker_settings import WORKER_DUR, WORKER_META
+from torrcast.usecases.choice import _ctl, _Steerable
 from torrcast.usecases.feed_pack.feed import Feed
 from torrcast.usecases.feed_pack.packer import Packer
+from torrcast.usecases.playback import _await_playing, _blame_the_end, _handover, _play
+from torrcast.usecases.revive_playback import _hold, _Revival
+from torrcast.usecases.start_budget import START_BUDGET
+from torrcast.usecases.start_clock import _Clock
+from torrcast.usecases.watch import Watch as _Watch
 
 
 class _Wired(ChromecastReceiver):
@@ -476,12 +483,11 @@ def test_the_show_sweeps_ram_behind_the_receiver_while_it_plays(tmp_path: Path) 
     Перемотку он больше не ловит вовсе — приёмник видит весь фильм и мотает сам,
     а раздача пакует то место, которое он попросил.
     """
-    from torrcast import cli
 
     feed = _feed_with_segments(tmp_path)
     receiver = _FakeReceiver([(200.0, "PLAYING"), (0.0, "IDLE")])
 
-    cli._hold(receiver, feed, clock=FakeClock(1000.0))
+    _hold(receiver, feed, clock=FakeClock(1000.0))
 
     edge = feed.grid.slot_at(160.0)
     left = sorted(int(path.name[1:-3]) for path in feed.out.glob("v*.ts"))
@@ -500,13 +506,12 @@ def test_a_pause_on_the_remote_stops_packing(
     не выжидается: часы показа свои (:class:`torrcast.ports.clock.Clock`), и опрос раз в 2 с
     двигает их сам.
     """
-    from torrcast import cli
 
     feed = _feed_with_segments(tmp_path)
-    held = int(cli.PAUSE_SECONDS / 2.0) + 2  # опрос показа идёт раз в 2 с
+    held = int(PAUSE_SECONDS / 2.0) + 2  # опрос показа идёт раз в 2 с
     receiver = _FakeReceiver([*[(42.0, "PAUSED")] * held, (0.0, "IDLE")])
 
-    cli._hold(receiver, feed, clock=FakeClock(1000.0))
+    _hold(receiver, feed, clock=FakeClock(1000.0))
 
     assert feed.halted() and feed.packer is not None and feed.packer.poll() == -15, (
         "ffmpeg завершён, а не остановлен сигналом"
@@ -521,7 +526,6 @@ def test_the_diagnostic_remote_reaches_the_receiver_once(tmp_path: Path, remote:
     что держит показ), файл съедается, и повторно та же команда не исполняется — иначе
     одна опечатка мотала бы фильм на каждом опросе.
     """
-    from torrcast import cli
 
     seen: list[tuple[str, float]] = []
 
@@ -539,7 +543,7 @@ def test_the_diagnostic_remote_reaches_the_receiver_once(tmp_path: Path, remote:
     feed = _feed_with_segments(tmp_path)
     receiver = _Remote([(200.0, "PLAYING"), (210.0, "PLAYING"), (0.0, "IDLE")])
 
-    cli._hold(receiver, feed, clock=FakeClock(1000.0))
+    _hold(receiver, feed, clock=FakeClock(1000.0))
 
     assert seen == [("seek", 1200.5)], "команда исполнена один раз и владеющим сендером"
     assert not remote.exists(), "команда одноразовая - файл съеден"
@@ -547,13 +551,12 @@ def test_the_diagnostic_remote_reaches_the_receiver_once(tmp_path: Path, remote:
 
 def test_the_diagnostic_remote_is_absent_without_the_variable(tmp_path: Path) -> None:
     """Без ``TORRCAST_CTL`` пульта нет вовсе: на счастливом пути этот код не работает."""
-    from torrcast import cli
 
     ctl = tmp_path / "ctl"
     ctl.write_text("seek 1200.5", "utf-8")
     feed = _feed_with_segments(tmp_path)
 
-    cli._hold(_FakeReceiver([(200.0, "PLAYING"), (0.0, "IDLE")]), feed, clock=FakeClock(1000.0))
+    _hold(_FakeReceiver([(200.0, "PLAYING"), (0.0, "IDLE")]), feed, clock=FakeClock(1000.0))
 
     assert ctl.read_text("utf-8") == "seek 1200.5", "файл не читается и не съедается"
 
@@ -679,11 +682,10 @@ def test_an_outage_longer_than_the_receivers_patience_does_not_end_the_show(
     летит вовсе (терпение у него своё, и жечь его впустую нельзя), а как только куски
     пошли снова, показ грузится ровно с той секунды, на которой его смотрели.
     """
-    from torrcast import cli
 
     clock, feed, warmer, receiver = _dark(tmp_path, back_at=300.0)
 
-    cli._hold(receiver, feed, None, warmer, clock=clock)  # type: ignore[arg-type]
+    _hold(receiver, feed, None, warmer, clock=clock)  # type: ignore[arg-type]
 
     assert receiver.replays == [1200.0], "показ подняли, и ровно с той секунды, где смотрели"
     assert clock.now - 1000.0 >= 300.0, "до возврата сети приёмник не трогали ни разу"
@@ -696,7 +698,6 @@ def test_a_restored_source_spends_a_try_only_after_the_first_piece_is_ready(
     tmp_path: Path,
 ) -> None:
     """Ответившая служба ещё собирает метаданные и пиров - LOAD ждёт готового куска."""
-    from torrcast import cli
 
     clock, feed, warmer, receiver = _dark(tmp_path, warmed=0.0)
     for piece in feed.out.glob("v*.ts"):
@@ -713,7 +714,7 @@ def test_a_restored_source_spends_a_try_only_after_the_first_piece_is_ready(
 
     clock.ticks.append(source_progress)
 
-    cli._hold(receiver, feed, None, warmer, _supply(service), clock=clock)  # type: ignore[arg-type]
+    _hold(receiver, feed, None, warmer, _supply(service), clock=clock)  # type: ignore[arg-type]
 
     assert receiver.replays == [1200.0], "готовый кусок получил одну попытку подъёма"
     assert clock.now >= ready_at, "ответ службы сам по себе попытку не потратил"
@@ -778,13 +779,12 @@ def test_a_show_that_never_gave_a_frame_is_raised_from_the_start_of_the_picture(
     портится - отказ у приёмника свой (:data:`torrcast.domain.not_raised.NOT_RAISED`), и подъём с
     начала фильма больше не читается как «приёмник показ не взял».
     """
-    from torrcast import cli
 
     clock = _Ticker()
     feed = _feed_with_segments(tmp_path)
     receiver = _Stillborn(clock)
 
-    cli._hold(receiver, feed, None, None, clock=clock)
+    _hold(receiver, feed, None, None, clock=clock)
 
     assert receiver.replays == [0.0], "показ подняли ровно с того места, где он умер"
     printed = capsys.readouterr().out
@@ -804,13 +804,12 @@ def test_a_resumed_show_that_never_gave_a_frame_goes_back_to_its_own_middle(
     подъёма нельзя: ноль отправил бы человека в начало картины, которую он смотрит с
     середины. Место захода показ помнит сам.
     """
-    from torrcast import cli
 
     clock = _Ticker()
     feed = _feed_with_segments(tmp_path)
     receiver = _Stillborn(clock, back=1200.0)
 
-    cli._hold(receiver, feed, None, None, clock=clock, start=1200.0)
+    _hold(receiver, feed, None, None, clock=clock, start=1200.0)
 
     assert receiver.replays == [1200.0], "подъём идёт в место захода, а не в начало фильма"
 
@@ -823,15 +822,14 @@ def test_a_show_that_never_gave_a_frame_gives_up_out_loud(
     Молчание тут дороже всего на стыке серий: консоли рядом нет, и кроме журнала показа
     сказать о беде некому (:func:`torrcast.cli._blame_the_end`, ``cast status``).
     """
-    from torrcast import cli
 
     clock = _Ticker()
     feed = _feed_with_segments(tmp_path)
     receiver = _Stillborn(clock, takes=False)
 
-    cli._hold(receiver, feed, None, None, clock=clock)
+    _hold(receiver, feed, None, None, clock=clock)
 
-    assert receiver.replays == [0.0] * cli.REVIVE_TRIES, "попытки конечны и все - с нуля"
+    assert receiver.replays == [0.0] * REVIVE_TRIES, "попытки конечны и все - с нуля"
     printed = capsys.readouterr().out
     assert "приёмник показ не взял" in printed and "показ поднять не удалось" in printed
 
@@ -847,14 +845,13 @@ def test_a_start_the_receiver_refused_is_handed_to_the_ladder_not_to_the_grave(
     лестницей, называется вслух - иначе в журнале показа не осталось бы ни строки о том, что чёрный
     экран кончился.
     """
-    from torrcast import cli
 
     clock = _Ticker()
     feed = _feed_with_segments(tmp_path)
     receiver = _Stillborn(clock)
     receiver.left = 0  # старт не взят вовсе: приёмник молчит с самого первого опроса
 
-    cli._hold(receiver, feed, None, None, clock=clock, raised=False)
+    _hold(receiver, feed, None, None, clock=clock, raised=False)
 
     assert receiver.replays == [0.0], "показ подняли, а не похоронили"
     assert "картинка пошла с" in capsys.readouterr().out
@@ -866,12 +863,11 @@ def test_a_show_that_never_gave_a_frame_names_that_and_not_undershown() -> None:
     Для того, кто сидит перед экраном, это две разные аварии, и вторая дороже: «включил и
     не включилось» стоит выше на лестнице цели, чем оборванный на середине показ.
     """
-    from torrcast import cli
 
     with pytest.raises(InfraError, match="картинки не было ни разу: приёмник не взял показ"):
-        cli._blame_the_end(_supply(_Service()), shown=False, clock=FakeClock())
+        _blame_the_end(_supply(_Service()), shown=False, clock=FakeClock())
     with pytest.raises(InfraError, match="картинки не было ни разу: источник не читается"):
-        cli._blame_the_end(_supply(_Service(up=False)), shown=False, clock=FakeClock())
+        _blame_the_end(_supply(_Service(up=False)), shown=False, clock=FakeClock())
 
 
 def test_a_dark_show_gives_up_after_a_limited_number_of_tries(
@@ -884,14 +880,13 @@ def test_a_dark_show_gives_up_after_a_limited_number_of_tries(
     нет вовсе - ноль секунд). Сеть вернулась, а показ всё равно не встаёт - значит дело не
     в сети, и упираться дальше нечего: гаснем честно, `cast` продолжит с места.
     """
-    from torrcast import cli
 
     clock, feed, warmer, receiver = _dark(tmp_path, takes=False, back_at=300.0)
 
-    cli._hold(receiver, feed, None, warmer, clock=clock)  # type: ignore[arg-type]
+    _hold(receiver, feed, None, warmer, clock=clock)  # type: ignore[arg-type]
 
-    assert receiver.replays == [1200.0] * cli.REVIVE_TRIES, "попытки конечны и все - с места"
-    assert clock.now - 1000.0 >= 300.0 + 2 * cli.REVIVE_PAUSE, "между попытками выдержка"
+    assert receiver.replays == [1200.0] * REVIVE_TRIES, "попытки конечны и все - с места"
+    assert clock.now - 1000.0 >= 300.0 + 2 * REVIVE_PAUSE, "между попытками выдержка"
     printed = capsys.readouterr().out
     assert "приёмник показ не взял" in printed
     assert "показ поднять не удалось" in printed and "cast продолжит с 0:20:00" in printed
@@ -906,15 +901,14 @@ def test_a_network_that_never_returns_ends_the_show_exactly_as_before(
     в состоянии, `cast` продолжит с места. Ново здесь одно - показ не уходит молча в ту же
     секунду, а ждёт сеть, пока ждать есть смысл.
     """
-    from torrcast import cli
 
     clock, feed, warmer, receiver = _dark(tmp_path)
 
-    expected_end = cli._hold(receiver, feed, None, warmer, clock=clock)  # type: ignore[arg-type]
+    expected_end = _hold(receiver, feed, None, warmer, clock=clock)  # type: ignore[arg-type]
 
     assert receiver.replays == [], "мёртвая сеть - в приёмник не ушло ни одного LOAD"
     assert expected_end, "исчерпанные попытки - ожидаемый фолбэк, а не падение юнита"
-    assert clock.now - 1000.0 > cli.REVIVE_LIMIT, "ждали ровно столько, сколько обещали"
+    assert clock.now - 1000.0 > REVIVE_LIMIT, "ждали ровно столько, сколько обещали"
     printed = capsys.readouterr().out
     assert "показ погас на 0:20:00" in printed and "cast продолжит с 0:20:00" in printed
 
@@ -933,7 +927,6 @@ def test_the_darkness_is_named_in_the_state_and_not_called_a_show(
     Здесь играть нечем вовсе: источник мёртв, прогретого ноль. Проверяется, что отметка
     появляется не в конце, а в самой темноте, называет причину и уходит вместе с показом.
     """
-    from torrcast import cli
 
     clock, feed, warmer, receiver = _dark(tmp_path, offline="")
     warmer.warmed = 0.0  # прогретого нет - в темноте играть нечем
@@ -942,12 +935,12 @@ def test_the_darkness_is_named_in_the_state_and_not_called_a_show(
     seen: list[tuple[float, str]] = []
     clock.ticks.append(lambda _s: seen.append(_dark_mark(watch.key)))
 
-    cli._hold(receiver, feed, watch, warmer, _supply(_Service(up=False)), clock=clock)  # type: ignore[arg-type]
+    _hold(receiver, feed, watch, warmer, _supply(_Service(up=False)), clock=clock)  # type: ignore[arg-type]
 
     marked = [mark for mark in seen if mark[0]]
     assert marked, "темнота не названа темнотой ни разу за все 900 с"
     assert {why for _at, why in marked} == {"TorrServer не отвечает"}, "причина не та"
-    assert len(marked) * 2 > cli.REVIVE_LIMIT * 0.9, "отметка появилась не сразу, а под конец"
+    assert len(marked) * 2 > REVIVE_LIMIT * 0.9, "отметка появилась не сразу, а под конец"
     assert seen[0] == (0.0, ""), "у живой картинки отметки темноты нет"
     printed = capsys.readouterr().out
     assert "(TorrServer не отвечает) - картинки нет; источник не вернулся" in printed, (
@@ -964,7 +957,6 @@ def test_the_darkness_mark_goes_away_with_the_picture(tmp_path: Path) -> None:
     Иначе ``cast status`` звал бы погасшим показ, который давно идёт: отметка обязана
     сниматься тем же, чем ставится, и в ту же секунду.
     """
-    from torrcast import cli
 
     clock, feed, warmer, receiver = _dark(tmp_path, back_at=300.0)
     entry = Entry(title="ролик", magnet=MAGNET, pos=0.0, dur=7200.0)
@@ -972,7 +964,7 @@ def test_the_darkness_mark_goes_away_with_the_picture(tmp_path: Path) -> None:
     seen: list[tuple[float, str]] = []
     clock.ticks.append(lambda _s: seen.append(_dark_mark(watch.key)))
 
-    cli._hold(receiver, feed, watch, warmer, clock=clock)  # type: ignore[arg-type]
+    _hold(receiver, feed, watch, warmer, clock=clock)  # type: ignore[arg-type]
 
     assert receiver.replays == [1200.0], "показ подняли - иначе проверять нечего"
     assert [mark for mark in seen if mark[0]], "темнота была и отмечена"
@@ -981,11 +973,10 @@ def test_the_darkness_mark_goes_away_with_the_picture(tmp_path: Path) -> None:
 
 def test_the_darkness_reason_follows_a_returning_source(tmp_path: Path) -> None:
     """Источник уже отвечает - текущая строка больше не называет его мёртвым."""
-    from torrcast import cli
 
     clock, feed, warmer, receiver = _dark(tmp_path)
     service = _Service(up=False)
-    revival = cli._Revival(supply=_supply(service), clock=clock)
+    revival = _Revival(supply=_supply(service), clock=clock)
 
     assert revival.resurrect(receiver, feed, warmer, 1200.0)  # type: ignore[arg-type]
     assert revival.why == "TorrServer не отвечает"
@@ -1003,26 +994,24 @@ def _dark_mark(key: str) -> tuple[float, str]:
 
 def test_a_warmed_movie_is_revived_without_waiting_for_the_network(tmp_path: Path) -> None:
     """Фильм лёг на диск целиком - воскрешение не ждёт сети ни секунды: смотреть есть что."""
-    from torrcast import cli
 
     clock, feed, warmer, receiver = _dark(tmp_path, warmed=7200.0, done=True)
 
-    cli._hold(receiver, feed, None, warmer, clock=clock)  # type: ignore[arg-type]
+    _hold(receiver, feed, None, warmer, clock=clock)  # type: ignore[arg-type]
 
     assert receiver.replays == [1200.0], "подняли сразу и с сохранённого места"
-    assert clock.now - 1000.0 < cli.REVIVE_PAUSE, "ждать возврата сети было незачем"
+    assert clock.now - 1000.0 < REVIVE_PAUSE, "ждать возврата сети было незачем"
 
 
 def test_a_finished_movie_is_not_resurrected(tmp_path: Path) -> None:
     """Титры - не авария: досмотренный фильм гаснет и остаётся погашенным."""
-    from torrcast import cli
 
     clock, feed, warmer, receiver = _dark(tmp_path, offline="", at=7100.0)
 
-    cli._hold(receiver, feed, None, warmer, clock=clock)  # type: ignore[arg-type]
+    _hold(receiver, feed, None, warmer, clock=clock)  # type: ignore[arg-type]
 
     assert receiver.replays == [], "конец показа не воскрешают"
-    assert clock.now - 1000.0 < cli.REVIVE_PAUSE, "и не ждут на нём ни сети, ни выдержки"
+    assert clock.now - 1000.0 < REVIVE_PAUSE, "и не ждут на нём ни сети, ни выдержки"
 
 
 class _Nudged:
@@ -1085,7 +1074,6 @@ def test_the_bookmark_holds_the_last_frame_seen_not_where_the_watchdog_drove(
     есть чем только вперёд. Чинится закладка: место показа отмеряет глаз, а не указатель,
     то есть ``PLAYING``, а не ``BUFFERING``.
     """
-    from torrcast import cli
 
     clock = _Ticker()
     feed = _feed_with_segments(tmp_path)
@@ -1095,9 +1083,9 @@ def test_the_bookmark_holds_the_last_frame_seen_not_where_the_watchdog_drove(
     entry = Entry(title="ролик", magnet=MAGNET, pos=0.0, dur=7200.0)
     watch = _Watch(key="movie:ролик:2026", entry=entry, every=0.0)
 
-    cli._hold(receiver, feed, watch, warmer, clock=clock)  # type: ignore[arg-type]
+    _hold(receiver, feed, watch, warmer, clock=clock)  # type: ignore[arg-type]
 
-    assert receiver.replays == [159.0] * cli.REVIVE_TRIES, "поднимаем с показанного кадра"
+    assert receiver.replays == [159.0] * REVIVE_TRIES, "поднимаем с показанного кадра"
     assert entry.pos == 159.0, "и resume идёт туда же, а не на 4:15"
 
 
@@ -1181,7 +1169,6 @@ def test_a_receiver_that_dropped_the_show_gets_it_back_in_seconds_not_in_a_minut
     не делась - она сдвинулась на попытки со второй: не помогла самая быстрая, значит замер
     к этой аварии не подходит, и дальше снова минута (:data:`torrcast.cli.REVIVE_PAUSE`).
     """
-    from torrcast import cli
 
     clock = _Ticker()
     feed = _feed_with_segments(tmp_path)
@@ -1189,16 +1176,16 @@ def test_a_receiver_that_dropped_the_show_gets_it_back_in_seconds_not_in_a_minut
     warmer = _Warm()
     receiver = _Blinking(clock, warmer)
 
-    cli._hold(receiver, feed, None, warmer, _supply(_Service()), clock=clock)  # type: ignore[arg-type]
+    _hold(receiver, feed, None, warmer, _supply(_Service()), clock=clock)  # type: ignore[arg-type]
 
     assert receiver.replays, "показ всё-таки поднимали - попытки не пропали вовсе"
     waited = receiver.when[0] - receiver.died
-    assert waited >= cli.REVIVE_DROP, "приёмнику всё же дали те секунды, что он просит"
-    assert waited < cli.REVIVE_PAUSE / 2, f"минуты чёрного экрана больше нет ({waited:.0f} с)"
-    assert receiver.when[1] - receiver.when[0] >= cli.REVIVE_PAUSE, (
+    assert waited >= REVIVE_DROP, "приёмнику всё же дали те секунды, что он просит"
+    assert waited < REVIVE_PAUSE / 2, f"минуты чёрного экрана больше нет ({waited:.0f} с)"
+    assert receiver.when[1] - receiver.when[0] >= REVIVE_PAUSE, (
         "а вот вторая попытка ждёт как прежде: первая не помогла - осторожничаем"
     )
-    assert len(receiver.replays) == cli.REVIVE_TRIES, "и попытки остались конечными"
+    assert len(receiver.replays) == REVIVE_TRIES, "и попытки остались конечными"
 
 
 def test_two_short_outages_do_not_eat_the_whole_stock_of_tries(
@@ -1215,7 +1202,6 @@ def test_two_short_outages_do_not_eat_the_whole_stock_of_tries(
     минута настоящей картинки (:data:`torrcast.cli.REVIVE_LIVED`): мигающий показ так себе
     попытки не наотдаёт, и поток LOAD остаётся конечным.
     """
-    from torrcast import cli
 
     clock = _Ticker()
     feed = _feed_with_segments(tmp_path)
@@ -1223,7 +1209,7 @@ def test_two_short_outages_do_not_eat_the_whole_stock_of_tries(
     warmer = _Warm()
     receiver = _Blinking(clock, warmer, refuses=1, revives=2)
 
-    cli._hold(receiver, feed, None, warmer, _supply(_Service()), clock=clock)  # type: ignore[arg-type]
+    _hold(receiver, feed, None, warmer, _supply(_Service()), clock=clock)  # type: ignore[arg-type]
 
     assert len(receiver.revived) == 2, "оба обрыва показ пережил, а не только первый"
     assert receiver.revived[1] > receiver.revived[0], "второй раз поднялись дальше по фильму"
@@ -1515,11 +1501,10 @@ def test_a_blinking_source_takes_the_mock_receiver_dark_and_the_show_comes_back(
     своих перезабора куска по HTTP (повторами LOAD они не были никогда - сессия та же);
     кончилось - сессии нет, и позиция в ней читается нулём.
     """
-    from torrcast import cli
 
     clock, feed, warmer, receiver, source = _blinking(tmp_path, back_at=120.0)
 
-    cli._hold(receiver, feed, None, warmer, clock=clock)  # type: ignore[arg-type]
+    _hold(receiver, feed, None, warmer, clock=clock)  # type: ignore[arg-type]
 
     first, own, revival = source.opens[0], source.opens[1:3], source.opens[3:]
     assert first == 1200.0, "показ начался с 20-й минуты"
@@ -1569,14 +1554,13 @@ def test_a_source_that_never_returns_ends_the_show_on_the_mock_too(
     Отрицательная половина того же сценария. Заглушка обязана уметь и её: показ, который
     поднимается на сухом прогоне всегда, доказывал бы ровно ничего.
     """
-    from torrcast import cli
 
     clock, feed, warmer, receiver, source = _blinking(tmp_path)
 
-    cli._hold(receiver, feed, None, warmer, clock=clock)  # type: ignore[arg-type]
+    _hold(receiver, feed, None, warmer, clock=clock)  # type: ignore[arg-type]
 
     assert source.opens == [1200.0, 1208.0, 1208.0], "после своих двух повторов - ни одного LOAD"
-    assert clock.now - 1000.0 > cli.REVIVE_LIMIT, "ждали ровно столько, сколько обещали"
+    assert clock.now - 1000.0 > REVIVE_LIMIT, "ждали ровно столько, сколько обещали"
     printed = capsys.readouterr().out
     assert "показ погас на 0:20:08" in printed
     assert "показ поднять не удалось" in printed and "cast продолжит с 0:20:08" in printed
@@ -2136,7 +2120,7 @@ def test_the_revival_names_the_place_the_show_actually_came_back_from(
     печатал тот, кто ПРОСИЛ, - и печатал ровно поверх честной строки о перешагнутом куске. Двух
     мнений о том, откуда идёт фильм, у зрителя быть не должно.
     """
-    from torrcast.cli import _Revival
+    from torrcast.usecases.revive_playback import _Revival
 
     class _Stepping:
         """Приёмник, который поднял показ ЗА куском, а не там, где его просили."""
@@ -2320,7 +2304,6 @@ def test_a_finished_movie_hands_nothing_over(tmp_path: Path) -> None:
     """Конец фильма (титры) и `cast stop` посреди — оба раза передавать показ некому,
     значит приложение приёмника закрывается.
     """
-    from torrcast import cli
 
     key = "movie:ролик:2026"
     entry = Entry(title="ролик", magnet="magnet:?xt=1", pos=95.0, dur=100.0)
@@ -2329,11 +2312,11 @@ def test_a_finished_movie_hands_nothing_over(tmp_path: Path) -> None:
     state.save()
     watch = _Watch(key=key, entry=entry, every=0.0)
 
-    assert not cli._handover(watch), "`cast stop`: сторож не досматривал - передавать нечего"
+    assert not _handover(watch), "`cast stop`: сторож не досматривал - передавать нечего"
 
     watch.see(95.0)  # приёмник досчитал до титров
     watch.close()  # конец сеанса на титрах: фильму это «досмотрено», а не следующая серия
-    assert watch.done and not cli._handover(watch), "титры кончились - закрываем приложение"
+    assert watch.done and not _handover(watch), "титры кончились - закрываем приложение"
 
 
 def test_the_series_hands_over_at_the_end_of_the_stream_and_not_a_moment_earlier(
@@ -2445,18 +2428,17 @@ def test_the_cli_never_kills_a_show_that_is_still_inside_the_units_budget(
     здесь одно: ждать не меньше суммы потолков всех фаз, которые юнит проходит до
     первого ``PLAYING``.
     """
-    from torrcast import cli
     from torrcast.adapters.chromecast.cast import ChromecastReceiver
     from torrcast.domain.hls_wait import KEYS_WAIT, PILOT_TIMEOUT
 
     phases = (
-        cli.WORKER_META  # метаданные раздачи по DHT
-        + cli.WORKER_DUR  # ffprobe длительности серии
+        WORKER_META  # метаданные раздачи по DHT
+        + WORKER_DUR  # ffprobe длительности серии
         + KEYS_WAIT  # чужая карта опорных кадров снимается прямо сейчас
         + PILOT_TIMEOUT  # пробный прогон упаковки в один кадр
         + ChromecastReceiver.START_TIMEOUT  # молчаливый IDLE после LOAD
     )
-    assert phases <= cli.START_BUDGET, "CLI сдаётся раньше, чем юнит исчерпал своё право"
+    assert phases <= START_BUDGET, "CLI сдаётся раньше, чем юнит исчерпал своё право"
 
     clock, unit = FakeClock(), FakeShowUnit(alive=True)
 
@@ -2464,7 +2446,7 @@ def test_the_cli_never_kills_a_show_that_is_still_inside_the_units_budget(
         def phase(self, text: str) -> None: ...
 
     with pytest.raises(InfraError):
-        cli._await_playing(
+        _await_playing(
             Config(hls_dir=str(tmp_path)),
             _Mute(),  # type: ignore[arg-type]
             clock=clock,
@@ -2547,12 +2529,11 @@ def test_a_dead_source_is_named_instead_of_blaming_the_receiver(
     прежде, чем признать показ погасшим, спрашивается сам источник - и его ответ уходит
     одной и той же строкой и человеку, и в недельный след.
     """
-    from torrcast import cli
 
     clock, feed, warmer, receiver = _dark(tmp_path, offline="")
     service = _Service(up=False)
 
-    cli._hold(receiver, feed, None, warmer, _supply(service), clock=clock)  # type: ignore[arg-type]
+    _hold(receiver, feed, None, warmer, _supply(service), clock=clock)  # type: ignore[arg-type]
 
     printed = capsys.readouterr().out
     assert "показ погас на 0:20:00 (TorrServer не отвечает)" in printed, (
@@ -2577,7 +2558,6 @@ def test_the_returning_source_gets_the_torrent_back_by_magnet(
     записи картины, и возвращает их этот вызов - ровно один, идемпотентный и только по
     нашему хэшу.
     """
-    from torrcast import cli
 
     clock, feed, warmer, receiver = _dark(tmp_path, offline="")
     warmer.warmed = 0.0  # прогрева нет: возврат показа держится только на источнике
@@ -2591,7 +2571,7 @@ def test_the_returning_source_gets_the_torrent_back_by_magnet(
     clock.ticks.append(restore)
     service._listed = service._files = False  # перезапуск: своей раздачи она не помнит
 
-    cli._hold(receiver, feed, None, warmer, _supply(service), clock=clock)  # type: ignore[arg-type]
+    _hold(receiver, feed, None, warmer, _supply(service), clock=clock)  # type: ignore[arg-type]
 
     assert service.added == [MAGNET], "раздачу вернули магнитом ровно один раз"
     assert service.dropped == [], "чужих раздач и своей же не сносим - только добавляем"
@@ -2638,13 +2618,12 @@ def test_a_dead_source_does_not_kill_the_show_when_packing_gives_up(
     Служба раздач, которую перезапустили, рвёт вход точно так же, и старый показ хоронил
     себя строкой «упаковка оборвалась» - про наш ffmpeg, а не про причину.
     """
-    from torrcast import cli
 
     clock, feed, warmer, receiver = _dark(tmp_path, offline="")
     feed.fatal = "ffmpeg сдался: Input/output error"
     service = _Service(up=False)
 
-    cli._hold(receiver, feed, None, warmer, _supply(service), clock=clock)  # type: ignore[arg-type]
+    _hold(receiver, feed, None, warmer, _supply(service), clock=clock)  # type: ignore[arg-type]
 
     printed = capsys.readouterr().out
     assert "источник не читается (TorrServer не отвечает) - жду его возврата" in printed
@@ -2656,14 +2635,13 @@ def test_a_dead_source_does_not_kill_the_show_when_packing_gives_up(
 
 def test_a_packing_failure_on_a_healthy_source_still_ends_the_show(tmp_path: Path) -> None:
     """Источник в порядке, а упаковка сдалась - это по-прежнему конец показа с ошибкой."""
-    from torrcast import cli
 
     clock, feed, warmer, receiver = _dark(tmp_path, offline="")
     feed.fatal = "ffmpeg сдался: Invalid data found"
     service = _Service()
 
     with pytest.raises(InfraError, match="упаковка оборвалась"):
-        cli._hold(receiver, feed, None, warmer, _supply(service), clock=clock)  # type: ignore[arg-type]
+        _hold(receiver, feed, None, warmer, _supply(service), clock=clock)  # type: ignore[arg-type]
 
 
 def test_the_source_is_never_asked_while_the_picture_is_alive(tmp_path: Path) -> None:
@@ -2674,7 +2652,6 @@ def test_the_source_is_never_asked_while_the_picture_is_alive(tmp_path: Path) ->
     ровно так, как ему положено: приёмник играет, упаковка жива, - и ни один запрос к
     источнику не уходит.
     """
-    from torrcast import cli
 
     class _Counted(Supply):
         """Источник, который считает, сколько раз его спросили."""
@@ -2689,7 +2666,7 @@ def test_the_source_is_never_asked_while_the_picture_is_alive(tmp_path: Path) ->
     supply = _Counted(_Service(), torrent_hash=MAGNET_HASH, magnet=MAGNET)
     receiver = _FakeReceiver([(200.0, "PLAYING"), (210.0, "PLAYING"), (220.0, "PLAYING")])
 
-    cli._hold(receiver, feed, None, None, supply, clock=FakeClock(1000.0))
+    _hold(receiver, feed, None, None, supply, clock=FakeClock(1000.0))
 
     assert supply.asked == 0, "живой показ источник не спрашивает"
 
@@ -2702,21 +2679,19 @@ def test_a_show_that_never_started_still_names_the_dead_source() -> None:
     «приёмник не досмотрел поток» при живом приёмнике и мёртвой службе раздач. Спросить
     источник тут стоит тех же двух запросов, а показ уже кончился: горячего пути нет.
     """
-    from torrcast import cli
 
     service = _Service(up=False)
     supply = _supply(service)
 
     with pytest.raises(InfraError, match="источник не читается \\(TorrServer не отвечает\\)"):
-        cli._blame_the_end(supply, clock=FakeClock())
+        _blame_the_end(supply, clock=FakeClock())
 
 
 def test_a_show_that_never_started_blames_the_receiver_when_the_source_is_fine() -> None:
     """Источник в порядке - строка остаётся прежней, и это правильно."""
-    from torrcast import cli
 
     with pytest.raises(InfraError, match="приёмник не досмотрел поток"):
-        cli._blame_the_end(_supply(_Service()), clock=FakeClock())
+        _blame_the_end(_supply(_Service()), clock=FakeClock())
 
 
 def test_a_source_that_came_back_by_itself_is_still_the_one_to_blame(
@@ -2729,12 +2704,11 @@ def test_a_source_that_came_back_by_itself_is_still_the_one_to_blame(
     вопрос «сейчас всё хорошо?» сам по себе оправдал бы её. Доказательство аварии - в том,
     что раздачу пришлось возвращать магнитом: без падения службы её никто не терял бы.
     """
-    from torrcast import cli
 
     clock, feed, warmer, receiver = _dark(tmp_path, offline="")
     service = _Service(listed=False, files=False)  # служба уже поднялась, но список пуст
 
-    cli._hold(receiver, feed, None, warmer, _supply(service), clock=clock)  # type: ignore[arg-type]
+    _hold(receiver, feed, None, warmer, _supply(service), clock=clock)  # type: ignore[arg-type]
 
     printed = capsys.readouterr().out
     assert "показ погас на 0:20:00 (TorrServer перезапускался - раздачу вернул магнитом)" in printed
@@ -2753,7 +2727,6 @@ def test_the_source_is_asked_more_than_once_before_it_is_believed() -> None:
     внутри этого окна. Здесь служба тоже «здорова» на первых вопросах и теряет раздачу
     на третьем - и виноватым всё равно называется источник.
     """
-    from torrcast import cli
 
     class _SlowDeath(_Service):
         """Служба, умирающая на третьем вопросе: первые два она отвечает как живая."""
@@ -2769,7 +2742,7 @@ def test_the_source_is_asked_more_than_once_before_it_is_believed() -> None:
     service = _SlowDeath()
 
     with pytest.raises(InfraError, match="источник не читается"):
-        cli._blame_the_end(_supply(service), clock=FakeClock())
+        _blame_the_end(_supply(service), clock=FakeClock())
 
     assert service.asked >= 3, "источник спрошен несколько раз, а не единожды"
     assert service.added == [MAGNET], "заметив пропажу, раздачу вернули магнитом"
@@ -2785,21 +2758,20 @@ def test_the_picture_is_proved_by_a_moving_pointer_not_by_the_word_playing(
     пор, пока показ не выложил ВТОРОЙ кусок. То есть каждое «старт NN с» было занижено
     на 5-6 с ровно там, где человеку хуже всего. Здесь показ дожидается сдвига указателя.
     """
-    from torrcast import cli
     from torrcast.adapters.stream_pack.playing_flag import playing_flag
 
     feed = _feed_with_segments(tmp_path)
     # Приёмник говорит «играю», не двигая указатель, и только потом трогается с места.
     stuck = _FakeReceiver([(300.0, "PLAYING"), (300.0, "PLAYING"), (0.0, "IDLE")])
 
-    cli._hold(stuck, feed, clock=FakeClock(1000.0))
+    _hold(stuck, feed, clock=FakeClock(1000.0))
 
     assert not playing_flag(feed.out).exists(), "указатель стоял - картинки не было"
 
     feed = _feed_with_segments(tmp_path)
     moved = _FakeReceiver([(300.0, "PLAYING"), (300.5, "PLAYING"), (0.0, "IDLE")])
 
-    cli._hold(moved, feed, clock=FakeClock(1000.0))
+    _hold(moved, feed, clock=FakeClock(1000.0))
 
     assert playing_flag(feed.out).exists(), "указатель пошёл - вот это и есть картинка"
 
@@ -2881,10 +2853,9 @@ def test_the_diagnostic_remote_steers_the_mock_receiver(remote: Path) -> None:
     некому), показ при этом жив и стоит ровно на своём месте, а снятая пауза продолжает
     его оттуда же.
     """
-    from torrcast import cli
 
     mock = _Opening()
-    assert isinstance(mock, cli._Steerable), "заглушкой обязано быть можно рулить"
+    assert isinstance(mock, _Steerable), "заглушкой обязано быть можно рулить"
 
     opens = mock.opens
     mock._url = "http://127.0.0.1:9/hls/index.m3u8"
@@ -2893,7 +2864,7 @@ def test_the_diagnostic_remote_steers_the_mock_receiver(remote: Path) -> None:
     mock.report.duration = 7200.0
 
     remote.write_text("pause", "utf-8")
-    cli._ctl(mock)
+    _ctl(mock)
 
     decoder = mock.decoder.proc
     assert decoder is not None and decoder.poll() == -15, (
@@ -2906,13 +2877,13 @@ def test_the_diagnostic_remote_steers_the_mock_receiver(remote: Path) -> None:
     assert opens == [], "пауза - не LOAD"
 
     remote.write_text("play", "utf-8")
-    cli._ctl(mock)
+    _ctl(mock)
 
     assert opens == [600.0], "снятая пауза продолжает показ ровно с того места, где он стоял"
     assert not mock.screen.paused and mock.position().state != "PAUSED"
 
     remote.write_text("seek 1200.5", "utf-8")
-    cli._ctl(mock)
+    _ctl(mock)
 
     assert opens == [600.0, 1200.5], "перемотка доехала до заглушки тем же местом, что и на ТВ"
 
@@ -3025,7 +2996,6 @@ def test_a_receiver_frozen_on_the_last_chunk_still_hands_the_show_over(
     такого сеанса нет вовсе - показ висел бы до утра, а следующая серия не начиналась бы.
     Терять тут нечего, кроме хвоста, а приобретается переход - он дороже.
     """
-    from torrcast import cli
 
     key = "tv:киберпанк:2022"
     entry = Entry(
@@ -3046,7 +3016,7 @@ def test_a_receiver_frozen_on_the_last_chunk_still_hands_the_show_over(
     feed = _feed_with_segments(tmp_path)
     receiver = _Stuck(at=7100.0)
 
-    ended = cli._hold(receiver, feed, watch, None, clock=clock)
+    ended = _hold(receiver, feed, watch, None, clock=clock)
 
     assert ended, "неподвижный конец - это конец, а не авария: винить упаковку не в чем"
     assert "считаю доигранным" in capsys.readouterr().out, "молча показ не кончают"

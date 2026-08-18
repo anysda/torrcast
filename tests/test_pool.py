@@ -27,19 +27,7 @@ from torrcast.adapters.filesystem.trace_journal import (
     records,
     shutdown,
 )
-from torrcast.cli import (
-    Args,
-    _Bench,
-    _Plan,
-    _plan_for,
-    _Prep,
-    _timed,
-    bitrate_of,
-    drop_reason,
-    is_candidate,
-    queue_drops,
-    stepdown_note,
-)
+from torrcast.cli.args import Args
 from torrcast.domain.config import Config
 from torrcast.domain.digest import digest
 from torrcast.domain.facts.fact import Fact
@@ -52,6 +40,10 @@ from torrcast.domain.picture import Picture
 from torrcast.domain.release import Release
 from torrcast.domain.runtime_guess import RUNTIME_GUESS
 from torrcast.runtime.menu_facts import MenuFacts as Facts
+from torrcast.usecases.rank import bitrate_of, drop_reason, is_candidate, queue_drops, stepdown_note
+from torrcast.usecases.reinforce import _plan_for, _timed
+from torrcast.usecases.select import _Plan, _Prep
+from torrcast.usecases.select_bench import _Bench
 
 GB = 1024**3
 GUESS = RUNTIME_GUESS["movie"]

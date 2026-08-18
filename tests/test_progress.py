@@ -13,13 +13,18 @@ from pathlib import Path
 
 import pytest
 
+from tests.fakes import composition
 from tests.fakes.show_unit import FakeShowUnit
-from torrcast import InfraError, cli
+from torrcast import InfraError
 from torrcast.adapters.filesystem.state import State, load_config
 from torrcast.adapters.systemd.unit_active import unit_active
 from torrcast.adapters.systemd.unit_why import unit_why
+from torrcast.cli.main import main
 from torrcast.domain.entry import Entry
+from torrcast.domain.torrent_hash import _torrent_hash
 from torrcast.usecases.playback import _show_state as playback_state
+from torrcast.usecases.torrents import _release_orphans
+from torrcast.usecases.watch import Watch
 
 KEY = "movie:моана-2:2024"
 
@@ -50,7 +55,7 @@ def remember(**fields: object) -> Entry:
 def test_watchdog_writes_position_not_more_often_than_the_interval() -> None:
     """Раз в 10 с: между тиками состояние не переписывается на каждый опрос."""
     entry = remember(pos=0.0, dur=5978.0)
-    watch = cli.Watch(key=KEY, entry=entry, every=3600.0)
+    watch = Watch(key=KEY, entry=entry, every=3600.0)
 
     watch.see(120.0)  # интервал не вышел - на диске по-прежнему ноль
 
@@ -70,7 +75,7 @@ def test_watchdog_takes_the_position_as_absolute_film_time() -> None:
     затирать им честную позицию нельзя.
     """
     entry = remember(pos=2400.0, dur=5978.0)
-    watch = cli.Watch(key=KEY, entry=entry, every=0.0)
+    watch = Watch(key=KEY, entry=entry, every=0.0)
 
     watch.see(2465.0)
     assert saved().pos == 2465.0
@@ -87,7 +92,7 @@ def test_watchdog_marks_the_movie_watched_only_at_the_end_of_the_show() -> None:
     тики её не воскрешают - иначе следующий `cast` спросил бы «продолжить?» о досмотренном.
     """
     entry = remember(pos=0.0, dur=1000.0)
-    watch = cli.Watch(key=KEY, entry=entry, every=0.0)
+    watch = Watch(key=KEY, entry=entry, every=0.0)
 
     watch.see(950.0)
     assert not saved().done and saved().pos == 950.0, "95 % - это ещё картина, а не титры"
@@ -115,10 +120,10 @@ def test_resume_is_silent_and_starts_from_the_saved_position(
         return ""
 
     monkeypatch.setattr(playback_state, "start_play_unit", lambda key: started.append(key))
-    monkeypatch.setattr(cli, "_await_playing", lambda config, progress, timeout=120.0: None)
+    composition.use_await_playing(monkeypatch, lambda config, progress, timeout=120.0: None)
     monkeypatch.setattr("builtins.input", ask)
 
-    assert cli.main(["моана", "2"]) == 0
+    assert main(["моана", "2"]) == 0
 
     printed = capsys.readouterr().out
     assert asked == []
@@ -134,10 +139,10 @@ def test_new_keeps_the_release_but_drops_the_position(
     """``--new`` - та же раздача и дорожка, позиция ноль."""
     remember(pos=2467.0, dur=5978.0, audio=1)
     monkeypatch.setattr(playback_state, "start_play_unit", lambda key: None)
-    monkeypatch.setattr(cli, "_await_playing", lambda config, progress, timeout=120.0: None)
+    composition.use_await_playing(monkeypatch, lambda config, progress, timeout=120.0: None)
     monkeypatch.setattr("builtins.input", lambda prompt="": pytest.fail("меню не нужно"))
 
-    assert cli.main(["моана", "2", "--new"]) == 0
+    assert main(["моана", "2", "--new"]) == 0
     assert saved().pos == 0.0 and saved().audio == 1
 
 
@@ -165,10 +170,10 @@ def test_new_restarts_the_recorded_episode_not_the_series(
     )
     state.save()
     monkeypatch.setattr(playback_state, "start_play_unit", lambda key: None)
-    monkeypatch.setattr(cli, "_await_playing", lambda config, progress, timeout=120.0: None)
+    composition.use_await_playing(monkeypatch, lambda config, progress, timeout=120.0: None)
     monkeypatch.setattr("builtins.input", lambda prompt="": pytest.fail("меню не нужно"))
 
-    assert cli.main(["сериал", "--new"]) == 0
+    assert main(["сериал", "--new"]) == 0
 
     restarted = saved(key)
     episode = (restarted.season, restarted.episode, restarted.file_idx, restarted.pos)
@@ -198,9 +203,9 @@ def test_new_jumps_to_the_named_episode_in_the_saved_release(
     )
     state.save()
     monkeypatch.setattr(playback_state, "start_play_unit", lambda key: None)
-    monkeypatch.setattr(cli, "_await_playing", lambda config, progress, timeout=120.0: None)
+    composition.use_await_playing(monkeypatch, lambda config, progress, timeout=120.0: None)
 
-    assert cli.main(["сериал", "s2e6", "--new"]) == 0
+    assert main(["сериал", "s2e6", "--new"]) == 0
 
     restarted = saved(key)
     assert (restarted.season, restarted.episode, restarted.file_idx, restarted.pos) == (
@@ -224,10 +229,10 @@ def test_watched_movie_restarts_without_a_question(
         return ""
 
     monkeypatch.setattr(playback_state, "start_play_unit", started.append)
-    monkeypatch.setattr(cli, "_await_playing", lambda config, progress, timeout=120.0: None)
+    composition.use_await_playing(monkeypatch, lambda config, progress, timeout=120.0: None)
     monkeypatch.setattr("builtins.input", ask)
 
-    assert cli.main(["моана", "2"]) == 0
+    assert main(["моана", "2"]) == 0
     assert started == [KEY]
     assert asked == []
     assert saved().pos == 0.0 and not saved().done
@@ -245,7 +250,7 @@ def test_dry_resume_does_not_touch_the_unit(
         playback_state, "start_play_unit", lambda key: pytest.fail("--dry юнитов не поднимает")
     )
 
-    assert cli.main(["моана", "2", "--dry"]) == 0
+    assert main(["моана", "2", "--dry"]) == 0
     assert "каста нет" in capsys.readouterr().out
     assert show_unit.stops == [], "--dry не поднимает юнит, но и чужой показ не гасит"
 
@@ -257,7 +262,7 @@ def test_status_is_honest_when_nothing_plays(
     remember(pos=2467.0, dur=5978.0)
     show_unit.alive = False
 
-    assert cli.main(["status"]) == 0
+    assert main(["status"]) == 0
 
     printed = capsys.readouterr().out
     assert printed.startswith("ничего не играет")
@@ -279,7 +284,7 @@ def test_status_tells_about_a_show_that_died_without_a_single_frame(
     remember(pos=0.0, dur=5978.0, dark=time.time(), dark_why="приёмник бросил показ")
     show_unit.alive = False
 
-    assert cli.main(["status"]) == 0
+    assert main(["status"]) == 0
 
     printed = capsys.readouterr().out
     assert "показ оборвался: «Моана 2» - картинки не было ни кадра" in printed
@@ -294,7 +299,7 @@ def test_status_shows_what_is_playing_and_from_where(
     remember(pos=2467.0, dur=5978.0, audio=1, file_idx=2)
     show_unit.alive = True
 
-    assert cli.main(["status"]) == 0
+    assert main(["status"]) == 0
 
     printed = capsys.readouterr().out
     assert "играю «Моана 2» - 0:41:07 / 1:39:38" in printed
@@ -314,7 +319,7 @@ def test_status_does_not_call_a_black_screen_a_show(
     remember(pos=2467.0, dur=5978.0, dark=time.time() - 200.0, dark_why="TorrServer не отвечает")
     show_unit.alive = True
 
-    assert cli.main(["status"]) == 0
+    assert main(["status"]) == 0
 
     printed = capsys.readouterr().out
     assert "играю" not in printed, "чёрный экран назван показом"
@@ -335,7 +340,7 @@ def test_status_names_the_unit_key_not_the_freshest_record(
     show_unit.alive = True
     show_unit.playing = KEY
 
-    assert cli.main(["status"]) == 0
+    assert main(["status"]) == 0
 
     printed = capsys.readouterr().out
     assert "«Моана 2»" in printed and "Чужое кино" not in printed
@@ -356,7 +361,7 @@ def test_stop_reports_the_playing_record_and_asks_the_unit_before_killing_it(
     show_unit.on_key = ask_the_unit
     show_unit.on_stop = lambda: order.append("stop")
 
-    assert cli.main(["stop"]) == 0
+    assert main(["stop"]) == 0
 
     assert order == ["key", "stop"]
     assert "«Моана 2»" in capsys.readouterr().out
@@ -371,7 +376,7 @@ def test_stop_kills_the_unit_and_reports_the_fixed_position(
     show_unit.alive = True
     show_unit.on_stop = lambda: stopped.append(True)
 
-    assert cli.main(["stop"]) == 0
+    assert main(["stop"]) == 0
 
     assert stopped == [True]
     assert "остановлено: «Моана 2» на 0:11:00 / 1:39:38" in capsys.readouterr().out
@@ -382,7 +387,7 @@ def test_stop_without_playback_says_so(
 ) -> None:
     show_unit.alive = False
 
-    assert cli.main(["stop"]) == 0
+    assert main(["stop"]) == 0
     assert capsys.readouterr().out.strip() == "ничего не играет"
 
 
@@ -431,9 +436,9 @@ def test_stop_takes_the_torrent_down_with_the_show(
     torrents = _Torrents()
     show_unit.alive = True
     show_unit.playing = KEY
-    monkeypatch.setattr(cli, "TorrServer", torrents)
+    composition.use_engines(monkeypatch, torrents)
 
-    assert cli.main(["stop"]) == 0
+    assert main(["stop"]) == 0
 
     assert torrents.dropped == [HASH], "снят ровно свой хэш, в нижнем регистре и один раз"
 
@@ -448,9 +453,9 @@ def test_stop_with_nothing_playing_touches_no_torrent(
     torrents = _Torrents()
     show_unit.alive = False
     show_unit.playing = ""
-    monkeypatch.setattr(cli, "TorrServer", torrents)
+    composition.use_engines(monkeypatch, torrents)
 
-    assert cli.main(["stop"]) == 0
+    assert main(["stop"]) == 0
 
     assert torrents.dropped == []
 
@@ -472,19 +477,19 @@ def test_the_next_cast_takes_down_the_torrent_of_a_killed_unit(
     """
     remember(pos=2467.0, dur=5978.0, torrent=ORPHAN)
     torrents = _Torrents()
-    monkeypatch.setattr(cli, "TorrServer", torrents)
+    composition.use_engines(monkeypatch, torrents)
     show_unit.alive = False
     monkeypatch.setattr(playback_state, "start_play_unit", lambda key: None)
-    monkeypatch.setattr(cli, "_await_playing", lambda config, progress, timeout=120.0: None)
+    composition.use_await_playing(monkeypatch, lambda config, progress, timeout=120.0: None)
     monkeypatch.setattr("builtins.input", lambda prompt="": "")
 
-    assert cli.main(["моана", "2"]) == 0
+    assert main(["моана", "2"]) == 0
 
     assert torrents.dropped == [ORPHAN], "убрано ровно записанное, по явному хэшу"
     assert saved().torrent == "", "сирота убрана - и отметка о ней снята"
 
     torrents.dropped.clear()
-    assert cli.main(["моана", "2"]) == 0
+    assert main(["моана", "2"]) == 0
     assert torrents.dropped == [], "второй раз убирать нечего, и это не ошибка"
 
 
@@ -497,10 +502,10 @@ def test_a_live_show_keeps_its_torrent(
     """
     remember(pos=2467.0, dur=5978.0, torrent=ORPHAN)
     torrents = _Torrents()
-    monkeypatch.setattr(cli, "TorrServer", torrents)
+    composition.use_engines(monkeypatch, torrents)
     show_unit.alive = True
 
-    cli._release_orphans(load_config())
+    _release_orphans(load_config())
 
     assert torrents.dropped == []
     assert saved().torrent == ORPHAN, "хозяин жив - отметка остаётся его"
@@ -520,16 +525,16 @@ def test_a_torrent_the_service_did_not_take_down_is_not_forgotten(
     """
     remember(pos=2467.0, dur=5978.0, torrent=ORPHAN)
     torrents = _Torrents(up=False)
-    monkeypatch.setattr(cli, "TorrServer", torrents)
+    composition.use_engines(monkeypatch, torrents)
     show_unit.alive = False
 
-    cli._release_orphans(load_config())
+    _release_orphans(load_config())
 
     assert torrents.dropped == [], "службы нет - убирать было некому"
     assert saved().torrent == ORPHAN, "раздача жива, и хэш - единственное, чем её снести"
 
     torrents.up = True
-    cli._release_orphans(load_config())
+    _release_orphans(load_config())
 
     assert torrents.dropped == [ORPHAN], "служба вернулась - сироту убрал следующий запуск"
     assert saved().torrent == "", "вот теперь раздачи нет, и записи о ней тоже"
@@ -579,9 +584,9 @@ def test_a_magnet_gives_up_its_hash_without_asking_anyone() -> None:
     Разбирается только сорокознаковая hex-форма: base32 - другая запись того же хэша,
     TorrServer знает раздачу по hex, и снос «похожей строки» был бы сносом наугад.
     """
-    assert cli._torrent_hash(PLAYED) == HASH
-    assert cli._torrent_hash("magnet:?xt=urn:btih:MFRGGZDFMZTWQ2LKNNWG23TP&dn=x") == ""
-    assert cli._torrent_hash("magnet:?xt=1") == "" and cli._torrent_hash("") == ""
+    assert _torrent_hash(PLAYED) == HASH
+    assert _torrent_hash("magnet:?xt=urn:btih:MFRGGZDFMZTWQ2LKNNWG23TP&dn=x") == ""
+    assert _torrent_hash("magnet:?xt=1") == "" and _torrent_hash("") == ""
 
 
 def test_systemd_plumbing_answers_about_a_unit_that_does_not_exist() -> None:

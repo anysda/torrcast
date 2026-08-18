@@ -19,20 +19,25 @@ import pytest
 
 from tests.fakes.passport import FakePassport
 from tests.fakes.prowlarr import FakeProwlarr
-from torrcast import NotFoundError, cli
+from torrcast import NotFoundError
 from torrcast.adapters.console.console import Progress
 from torrcast.adapters.prowlarr.merge import merge
 from torrcast.adapters.prowlarr.raw_result import RawResult
+from torrcast.cli.args import Args
 from torrcast.domain._name_data import THIN_POOL
 from torrcast.domain.alt_query import alt_query
 from torrcast.domain.config import Config
 from torrcast.domain.facts.origin import Origin
 from torrcast.domain.parse_release_name import parse_release_name
 from torrcast.domain.picture import Picture
+from torrcast.domain.rank_settings import ALIVE_SEEDERS
 from torrcast.domain.release import Release
 from torrcast.domain.slugify import slugify
 from torrcast.domain.transliterate import transliterate
 from torrcast.domain.unswap_layout import unswap_layout
+from torrcast.usecases import discover
+from torrcast.usecases.choice import default_note, first_alive
+from torrcast.usecases.reinforce import same_picture
 
 GB = 1024**3
 
@@ -181,10 +186,10 @@ def _search(
 ) -> tuple[Any, str]:
     """План поиска и всё, что он сказал вслух."""
     config = Config(tv="127.0.0.1", prowlarr_apikey="KEY")
-    args = cli.Args(query=query.split())
+    args = Args(query=query.split())
     out = io.StringIO()
     with Progress(out=out) as progress:
-        found = cli._search(config, args, progress, indexer=client, passport=about)
+        found = discover._search(config, args, progress, indexer=client, passport=about)
         return found, out.getvalue()
 
 
@@ -232,7 +237,7 @@ def test_a_fat_but_dead_russian_pool_asks_the_original_too() -> None:
     client = FakeProwlarr(
         {
             "психо": [
-                raw(f"Психо / Psycho (1960) BDRip 1080p {i}", i, seeders=cli.ALIVE_SEEDERS - 3)
+                raw(f"Психо / Psycho (1960) BDRip 1080p {i}", i, seeders=ALIVE_SEEDERS - 3)
                 for i in range(THIN_POOL + 5)
             ],
             "psycho": [raw(f"Psycho.1960.1080p.BluRay.x264-GRP{i}", 100 + i) for i in range(40)],
@@ -887,9 +892,9 @@ def test_a_dead_namesake_no_longer_swallows_a_subtitle_query() -> None:
     plans, said = _search(client, "космическая одиссея")
 
     assert [p.picture.year for p in plans] == [1987, 1968], "в меню обе картины"
-    assert cli.first_alive(plans) == 2, "дефолт - живая, а не мёртвый огрызок"
+    assert first_alive(plans) == 2, "дефолт - живая, а не мёртвый огрызок"
     assert "«космическая одиссея» - в каталоге это «2001: Космическая одиссея»" in said
-    note = cli.default_note(plans, "космическая одиссея")
+    note = default_note(plans, "космическая одиссея")
     assert "«2001: Космическая одиссея (1968)»" in note and "«Космическая одиссея (1987)»" in note
 
 
@@ -1084,8 +1089,8 @@ def test_an_unproven_original_is_not_trusted_on_an_empty_result() -> None:
     """
     came = Picture(title="Незнакомцы", year=2008, releases=[])
 
-    assert cli.same_picture(None, came, Origin(), proven=True)
-    assert not cli.same_picture(None, came, Origin(), proven=False)
+    assert same_picture(None, came, Origin(), proven=True)
+    assert not same_picture(None, came, Origin(), proven=False)
 
 
 def test_the_reference_year_decides_who_is_who() -> None:
@@ -1093,10 +1098,10 @@ def test_the_reference_year_decides_who_is_who() -> None:
     ours = Picture(title="Восхождение", year=1977, releases=[])
     theirs = Picture(title="Восхождение", year=2019, releases=[])
 
-    assert cli.same_picture(ours, theirs, Origin(year=2019), proven=False)
-    assert not cli.same_picture(ours, theirs, Origin(year=1976), proven=True)
+    assert same_picture(ours, theirs, Origin(year=2019), proven=False)
+    assert not same_picture(ours, theirs, Origin(year=1976), proven=True)
     # Производство и прокат расходятся на год - это не подмена.
-    assert cli.same_picture(ours, ours, Origin(year=1976), proven=False)
+    assert same_picture(ours, ours, Origin(year=1976), proven=False)
 
 
 def test_a_remake_with_the_same_original_is_not_a_substitution() -> None:
@@ -1108,12 +1113,12 @@ def test_a_remake_with_the_same_original_is_not_a_substitution() -> None:
     """
     remake = Picture(title="Корзинка фруктов", year=2019, original="Fruits Basket", releases=[])
     about = Origin(title="Fruits Basket", year=2006, name="Корзинка фруктов")
-    assert cli.same_picture(None, remake, about, proven=True)
+    assert same_picture(None, remake, about, proven=True)
 
     # «Восхождение» Шепитько (The Ascent) против китайского (The Climbers) - разные оригиналы.
     alien = Picture(title="Восхождение", year=2019, original="The Climbers", releases=[])
     ascent = Origin(title="The Ascent", year=1976, name="Восхождение")
-    assert not cli.same_picture(None, alien, ascent, proven=True)
+    assert not same_picture(None, alien, ascent, proven=True)
 
 
 def test_the_gate_keeps_a_series_without_a_year() -> None:
@@ -1171,7 +1176,9 @@ def _refused(client: FakeProwlarr, query: str, about: Callable[..., Origin] | No
     config = Config(tv="127.0.0.1", prowlarr_apikey="KEY")
     out = io.StringIO()
     with Progress(out=out) as progress, pytest.raises(NotFoundError):
-        cli._search(config, cli.Args(query=query.split()), progress, indexer=client, passport=about)
+        discover._search(
+            config, Args(query=query.split()), progress, indexer=client, passport=about
+        )
     return out.getvalue()
 
 

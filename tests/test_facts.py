@@ -12,13 +12,13 @@
 from __future__ import annotations
 
 from tests.articles import MOANA
-from torrcast import cli
 from torrcast.domain.facts.fact import Fact
 from torrcast.domain.facts.origin import Origin
 from torrcast.domain.facts.settings import SOURCE_WIKI
 from torrcast.domain.facts.shorten import shorten
 from torrcast.runtime.facts_wiring import FACTS
 from torrcast.runtime.menu_facts import MenuFacts as Facts
+from torrcast.usecases.choice import menu_lines
 
 
 def test_the_passport_entry_point_answers_from_the_same_cache() -> None:
@@ -40,7 +40,7 @@ def test_menu_prints_the_old_line_when_there_is_no_help() -> None:
     from tests.test_cli import _moana_franchise
 
     plans = _moana_franchise()
-    assert cli.menu_lines(plans, None, width=80) == (
+    assert menu_lines(plans, None, width=80) == (
         "  1. Моана: романтика золотого века (1926)\n  2. Моана (2016)\n  3. Моана 2 (2024)"
     )
 
@@ -53,7 +53,7 @@ def test_menu_puts_rating_and_time_in_the_head_and_the_plot_below() -> None:
     facts = Facts([])
     facts.start()
     facts.found = {("Моана", 2016): Fact(about=MOANA, rating="IMDb 7.6", runtime="1 ч 47 мин")}
-    printed = cli.menu_lines(plans, facts, width=80).splitlines()
+    printed = menu_lines(plans, facts, width=80).splitlines()
     assert printed[0] == "  1. Моана: романтика золотого века (1926)"
     assert printed[1] == "  2. Моана (2016) · IMDb 7.6 · 1 ч 47 мин"
     assert printed[2].startswith("     «Моа́на» (англ. Moana) — американский")
@@ -67,7 +67,7 @@ def test_the_description_wraps_by_words_under_the_terminal() -> None:
     facts = Facts([])
     facts.start()
     facts.found = {("Моана", 2016): Fact(about=MOANA)}
-    printed = cli.menu_lines(_moana_franchise(), facts, width=60).splitlines()
+    printed = menu_lines(_moana_franchise(), facts, width=60).splitlines()
     blurb = [line for line in printed if line.startswith("     ")]
     assert len(blurb) > 1, "фраза не влезла в одну строку - значит, перенеслась"
     assert all(len(line) < 60 for line in blurb), "строка не должна вылезать за терминал"

@@ -17,10 +17,12 @@ from typing import ClassVar
 
 import pytest
 
-from torrcast import InfraError, cli
+from tests.fakes import composition
+from torrcast import InfraError
 from torrcast.adapters.console.console import Progress
 from torrcast.adapters.filesystem.state import State, save_config
 from torrcast.adapters.prowlarr.raw_result import RawResult
+from torrcast.cli.main import main
 from torrcast.domain.audio_track import (
     STEP_FOREIGN,
     STEP_RU_PLAIN,
@@ -34,7 +36,12 @@ from torrcast.domain.media import Media
 from torrcast.domain.studio import STUDIOS
 from torrcast.domain.torr_file import TorrFile
 from torrcast.domain.voice_order import voice_order
+from torrcast.usecases import voices_command
+from torrcast.usecases.choice import _pick_plan
 from torrcast.usecases.playback import _show_state as playback_state
+from torrcast.usecases.rank import voice_note
+from torrcast.usecases.select import _Plan, _Prep
+from torrcast.usecases.select_bench import _Bench
 
 GB = 1024**3
 KEY = "movie:моана-2:2024"
@@ -277,19 +284,19 @@ def test_voice_note_explains_non_default_choice() -> None:
 
     Например, Кубик в Кубе в Фарго: дубляжа нет, берётся лучшая доступная студия.
     """
-    note = cli.voice_note(Media(tracks=FARGO), Media(tracks=FARGO).default_track())
+    note = voice_note(Media(tracks=FARGO), Media(tracks=FARGO).default_track())
     assert "Кубик в Кубе" in note, "студия называется"
     assert "двухголосый" in note, "вид перевода называется честно"
 
 
 def test_the_note_explains_the_choice_only_when_there_was_one() -> None:
     """Строка про выбор: сколько было русских и что взяли; выбора не было - молчим."""
-    assert cli.voice_note(Media(tracks=BARBIE), 1) == "дорожек rus 3, беру многоголосый (LostFilm)"
-    assert cli.voice_note(Media(tracks=INSIDEOUT), 2) == "дорожек rus 3, беру дубляж (MovieDalen)"
-    assert cli.voice_note(Media(tracks=PULP), 1) == "дорожек rus 2, беру дубляж (Невафильм)"
-    assert cli.voice_note(Media(tracks=CYBERPUNK), 0) == "", "русская одна - выбора не было"
-    assert cli.voice_note(Media(tracks=()), 0) == "", "дорожек нет - и говорить не о чем"
-    assert "LostFilm" not in cli.voice_note(Media(tracks=INSIDEOUT), 2), "список студий не печатаем"
+    assert voice_note(Media(tracks=BARBIE), 1) == "дорожек rus 3, беру многоголосый (LostFilm)"
+    assert voice_note(Media(tracks=INSIDEOUT), 2) == "дорожек rus 3, беру дубляж (MovieDalen)"
+    assert voice_note(Media(tracks=PULP), 1) == "дорожек rus 2, беру дубляж (Невафильм)"
+    assert voice_note(Media(tracks=CYBERPUNK), 0) == "", "русская одна - выбора не было"
+    assert voice_note(Media(tracks=()), 0) == "", "дорожек нет - и говорить не о чем"
+    assert "LostFilm" not in voice_note(Media(tracks=INSIDEOUT), 2), "список студий не печатаем"
 
 
 def test_the_note_names_why_the_ladder_was_beaten_by_type() -> None:
@@ -301,7 +308,7 @@ def test_the_note_names_why_the_ladder_was_beaten_by_type() -> None:
     расхождения - нет и хвоста.
     """
     media = Media(tracks=FARGO)
-    assert cli.voice_note(media, media.default_track()) == (
+    assert voice_note(media, media.default_track()) == (
         "дорожек rus 2, беру двухголосый (Кубик в Кубе) - эта студия у нас на уровне «многоголосый»"
     )
     # Дорожка сама назвалась многоголосой - отборная ступень совпала с произносимой,
@@ -311,9 +318,7 @@ def test_the_note_names_why_the_ladder_was_beaten_by_type() -> None:
         AudioTrack(1, "rus", "MVO (LostFilm)", "ac3", 2),
         AudioTrack(2, "eng", "Original", "ac3", 6),
     )
-    assert cli.voice_note(Media(tracks=named), 0) == (
-        "дорожек rus 2, беру многоголосый (Кубик в Кубе)"
-    )
+    assert voice_note(Media(tracks=named), 0) == ("дорожек rus 2, беру многоголосый (Кубик в Кубе)")
 
 
 def test_the_label_drops_the_technical_tail() -> None:
@@ -347,13 +352,13 @@ def _env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("TORRCAST_CONFIG", str(tmp_path / "config.json"))
     save_config(Config(tv="mock", prowlarr_apikey="ключ", hls_dir=str(tmp_path / "hls")))
     _FakeTorrServer.added, _FakeTorrServer.dropped = [], []
-    monkeypatch.setattr(cli, "Prowlarr", _FakeProwlarr)
-    monkeypatch.setattr(cli, "TorrServer", _FakeTorrServer)
-    monkeypatch.setattr(
-        cli, "probe", lambda url, timeout=90.0, alive=None: Media(5978.0, MOANA2, "h264", 1080)
+    composition.use_indexers(monkeypatch, _FakeProwlarr)
+    composition.use_engines(monkeypatch, _FakeTorrServer)
+    composition.use_prober(
+        monkeypatch, lambda url, timeout=90.0, alive=None: Media(5978.0, MOANA2, "h264", 1080)
     )
     monkeypatch.setattr(playback_state, "start_play_unit", lambda key: None)
-    monkeypatch.setattr(cli, "_await_playing", lambda config, progress, timeout=120.0: None)
+    composition.use_await_playing(monkeypatch, lambda config, progress, timeout=120.0: None)
 
 
 class _FakeProwlarr:
@@ -424,7 +429,7 @@ def test_the_default_voice_is_named_in_the_launch_line_and_not_remembered(
     """Автовыбор говорит, что взял, но памяти не пишет: её пишет только человек."""
     _answers(monkeypatch)
 
-    assert cli.main(["моана", "2"]) == 0
+    assert main(["моана", "2"]) == 0
 
     printed = capsys.readouterr().out
     assert "rus · Дубляж. (MovieDalen)" in printed
@@ -439,7 +444,7 @@ def test_the_flag_picks_a_track_and_remembers_it_for_this_picture(
     """``--voice N`` — явный выбор: играем его и запоминаем за картиной."""
     _answers(monkeypatch)
 
-    assert cli.main(["моана", "2", "--voice", "6"]) == 0
+    assert main(["моана", "2", "--voice", "6"]) == 0
 
     assert "rus · MVO (LostFilm)" in capsys.readouterr().out
     saved = State.load().entries[KEY]
@@ -451,11 +456,11 @@ def test_the_next_run_takes_the_remembered_voice_without_a_question(
 ) -> None:
     """Следующий ``cast <тот же фильм>`` играет запомненной озвучкой и молчит про меню."""
     _answers(monkeypatch)
-    assert cli.main(["моана", "2", "--voice", "6"]) == 0
+    assert main(["моана", "2", "--voice", "6"]) == 0
     capsys.readouterr()
 
     asked = _answers(monkeypatch)
-    assert cli.main(["моана", "2"]) == 0
+    assert main(["моана", "2"]) == 0
 
     printed = capsys.readouterr().out
     assert asked == [], "вопросов нет: и картина одна, и озвучка выбрана в прошлый раз"
@@ -468,8 +473,8 @@ def test_new_with_a_voice_overwrites_the_memory(
 ) -> None:
     """Явный флаг сильнее памяти и переписывает её."""
     _answers(monkeypatch)
-    assert cli.main(["моана", "2", "--voice", "6"]) == 0
-    assert cli.main(["моана", "2", "--new", "--voice", "3"]) == 0
+    assert main(["моана", "2", "--voice", "6"]) == 0
+    assert main(["моана", "2", "--new", "--voice", "3"]) == 0
     capsys.readouterr()
 
     saved = State.load().entries[KEY]
@@ -483,7 +488,7 @@ def test_a_wrong_number_is_a_polite_refusal(monkeypatch: pytest.MonkeyPatch) -> 
     )
     _answers(monkeypatch)
 
-    assert cli.main(["моана", "2", "--voice", "42"]) == 1
+    assert main(["моана", "2", "--voice", "42"]) == 1
 
 
 def test_the_menu_comes_only_with_a_bare_flag(
@@ -492,7 +497,7 @@ def test_the_menu_comes_only_with_a_bare_flag(
     """``--voice`` без номера — то самое меню, убранное со счастливого пути."""
     asked = _answers(monkeypatch, "5")
 
-    assert cli.main(["моана", "2", "--voice"]) == 0
+    assert main(["моана", "2", "--voice"]) == 0
 
     printed = capsys.readouterr().out
     assert "Озвучка:" in printed and "  1. rus · Дубляж. (MovieDalen)   [дефолт]" in printed
@@ -512,7 +517,7 @@ def test_the_voices_command_lists_and_exits(
         playback_state, "start_play_unit", lambda key: pytest.fail("voices ничего не играет")
     )
 
-    assert cli.main(["voices", "моана 2"]) == 0
+    assert main(["voices", "моана 2"]) == 0
 
     printed = capsys.readouterr().out
     assert "  1. rus · Дубляж. (MovieDalen)   [дефолт]" in printed
@@ -526,21 +531,21 @@ def test_the_voices_command_passes_a_noninteractive_picture_number(
 ) -> None:
     """``cast voices`` понимает тот же ``--pick M``, что показ и таблица релизов."""
     seen: list[int | None] = []
-    original = cli._pick_plan
+    original = _pick_plan
 
     def pick(
-        plans: list[cli._Plan],
+        plans: list[_Plan],
         facts: object = None,
         pick: int | None = None,
         asked: str = "",
-    ) -> cli._Plan:
+    ) -> _Plan:
         seen.append(pick)
         return original(plans, pick=1, asked=asked)
 
-    monkeypatch.setattr(cli, "_pick_plan", pick)
+    monkeypatch.setattr(voices_command, "_pick_plan", pick)
     monkeypatch.setattr("builtins.input", lambda prompt="": pytest.fail("меню не спрашиваем"))
 
-    assert cli.main(["voices", "моана 2", "--pick", "2"]) == 0
+    assert main(["voices", "моана 2", "--pick", "2"]) == 0
     assert seen == [2]
 
 
@@ -563,10 +568,10 @@ def test_a_record_with_nothing_to_continue_does_not_wake_the_swarm(
                 pytest.fail("раздачу, которую никто не играет, поднимать незачем")
             return super().add(magnet)
 
-    monkeypatch.setattr(cli, "TorrServer", _Strict)
+    composition.use_engines(monkeypatch, _Strict)
     _answers(monkeypatch)
 
-    assert cli.main(["моана", "2", "--voice", "6"]) == 0
+    assert main(["моана", "2", "--voice", "6"]) == 0
 
     assert State.load().entries[KEY].voice == "rus · MVO (LostFilm)"
 
@@ -597,7 +602,7 @@ def test_a_series_remembers_the_voice_for_the_whole_show(
     state.save()
     _answers(monkeypatch)
 
-    assert cli.main(["киберпанк", "--voice", "5"]) == 0
+    assert main(["киберпанк", "--voice", "5"]) == 0
 
     saved = State.load().entries[key]
     assert (saved.audio, saved.voice) == (4, "rus · MVO (TVShows)")
@@ -605,7 +610,7 @@ def test_a_series_remembers_the_voice_for_the_whole_show(
 
     capsys.readouterr()
     asked = _answers(monkeypatch)
-    assert cli.main(["киберпанк"]) == 0
+    assert main(["киберпанк"]) == 0
     assert asked == [], "повторный запуск ничего не спрашивает"
     assert "rus · MVO (TVShows)" in capsys.readouterr().out
 
@@ -617,7 +622,7 @@ def test_new_applies_the_named_voice_to_the_saved_release(
     key = _serial()
     _answers(monkeypatch)
 
-    assert cli.main(["киберпанк", "--new", "--voice", "5"]) == 0
+    assert main(["киберпанк", "--new", "--voice", "5"]) == 0
 
     saved = State.load().entries[key]
     assert (saved.audio, saved.voice, saved.pos) == (4, "rus · MVO (TVShows)", 0.0)
@@ -656,7 +661,7 @@ def test_a_dry_run_with_a_voice_leaves_no_torrent_behind(monkeypatch: pytest.Mon
         playback_state, "start_play_unit", lambda key: pytest.fail("сухой прогон не кастит")
     )
 
-    assert cli.main(["киберпанк", "--voice", "5", "--dry"]) == 0
+    assert main(["киберпанк", "--voice", "5", "--dry"]) == 0
 
     assert _FakeTorrServer.added, "дорожки читаются из потока - раздачу поднять пришлось"
     assert _FakeTorrServer.left() == set(), "и всё поднятое убрано по своим хэшам"
@@ -676,7 +681,7 @@ def test_a_voice_torrent_is_handed_to_the_show_and_not_pulled_from_under_it(
     started: list[str] = []
     monkeypatch.setattr(playback_state, "start_play_unit", lambda name: started.append(name))
 
-    assert cli.main(["киберпанк", "--voice", "5"]) == 0
+    assert main(["киберпанк", "--voice", "5"]) == 0
 
     assert started == [key], "показ пошёл"
     assert _FakeTorrServer.dropped == [], "из-под начавшегося показа раздачу не выдёргиваем"
@@ -698,7 +703,7 @@ def test_a_voice_torrent_dies_with_the_show_that_never_started(
 
     monkeypatch.setattr(playback_state, "start_play_unit", refuse)
 
-    assert cli.main(["киберпанк", "--voice", "5"]) == 2
+    assert main(["киберпанк", "--voice", "5"]) == 2
 
     assert _FakeTorrServer.added, "раздачу подняли"
     assert _FakeTorrServer.left() == set(), "и убрали, раз показа не вышло"
@@ -708,7 +713,7 @@ def test_the_old_flag_still_works(monkeypatch: pytest.MonkeyPatch) -> None:
     """``--audio N`` — прежнее имя того же флага; ломать его незачем."""
     _answers(monkeypatch)
 
-    assert cli.main(["моана", "2", "--audio", "6"]) == 0
+    assert main(["моана", "2", "--audio", "6"]) == 0
 
     assert State.load().entries[KEY].voice == "rus · MVO (LostFilm)"
 
@@ -742,7 +747,7 @@ def _pool(
                 return Media(5978.0, tracks, "h264", 1080, 1920)
         return Media(5978.0, JAPANESE, "h264", 1080, 1920)
 
-    monkeypatch.setattr(cli, "probe", read)
+    composition.use_prober(monkeypatch, read)
 
 
 def test_a_japanese_top_release_steps_aside_for_a_russian_one_below_it(
@@ -762,11 +767,11 @@ def test_a_japanese_top_release_steps_aside_for_a_russian_one_below_it(
         ("Аниме / Anime (2020) WEB-DL 1080p [RUS(int)]", "d", RUSSIAN),
     )
     prefixes: list[str] = []
-    wait = cli._Bench._wait
+    wait = _Bench._wait
 
     def watched_wait(
-        self: cli._Bench,
-        prep: cli._Prep,
+        self: _Bench,
+        prep: _Prep,
         progress: Progress,
         prefix: str = "",
         limit: float = 0.0,
@@ -774,10 +779,10 @@ def test_a_japanese_top_release_steps_aside_for_a_russian_one_below_it(
         prefixes.append(prefix)
         wait(self, prep, progress, prefix, limit)
 
-    monkeypatch.setattr(cli._Bench, "_wait", watched_wait)
+    monkeypatch.setattr(_Bench, "_wait", watched_wait)
     _answers(monkeypatch)
 
-    assert cli.main(["аниме"]) == 0
+    assert main(["аниме"]) == 0
 
     printed = capsys.readouterr().out
     assert "релиз 1 без русской озвучки (японский) - беру 2" in printed
@@ -808,7 +813,7 @@ def test_a_dub_that_exists_only_next_to_the_video_is_named_out_loud(
     )
     _answers(monkeypatch)
 
-    assert cli.main(["аниме"]) == 0
+    assert main(["аниме"]) == 0
 
     printed = capsys.readouterr().out
     assert "релиз 1 без русской озвучки (японский) - беру 2" in printed
@@ -832,7 +837,7 @@ def test_a_picture_nobody_ever_dubbed_still_plays_and_says_why(
     )
     _answers(monkeypatch)
 
-    assert cli.main(["аниме"]) == 0
+    assert main(["аниме"]) == 0
 
     printed = capsys.readouterr().out
     assert "русской озвучки нет ни в одной из проверенных раздач (2)" in printed

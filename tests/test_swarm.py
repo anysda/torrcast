@@ -20,16 +20,22 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 import pytest
 
 from tests.conftest import module_of
+from tests.fakes import composition
 from tests.test_cli import _FakeTorrServer, _plan, _probes, _resolve, rel
-from torrcast import InfraError, NotFoundError, SwarmError, cli
+from torrcast import InfraError, NotFoundError, SwarmError
 from torrcast.adapters.stream_probe.run_ffprobe import _run_ffprobe
 from torrcast.adapters.stream_probe.swarm_pulse import swarm_pulse
 from torrcast.adapters.torrserver.torr_server import META_STEP_MAX, TorrServer
 from torrcast.domain.audio_track import AudioTrack
 from torrcast.domain.media import Media
+from torrcast.domain.pick_settings import MAX_TRIES, META_BUDGET, PROBE_BUDGET
+from torrcast.domain.rank_settings import PEER_GRACE, STEP_GRACE
 from torrcast.domain.release import Release
 from torrcast.domain.server_down_error import ServerDownError
 from torrcast.domain.warm_open import KEYS_KEPT
+from torrcast.usecases.rank import peer_grace
+from torrcast.usecases.select import _Prep, _waiting_note
+from torrcast.usecases.select_bench import _Bench
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -104,7 +110,7 @@ def test_a_silent_stream_is_dropped_before_the_full_probe_budget(
     """
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
     monkeypatch.setattr(Release, "magnet", property(lambda self: f"magnet-{self.raw_name}"))
-    monkeypatch.setattr(cli, "SWARM_GRACE", 0.3)
+    composition.use_swarm_grace(monkeypatch, 0.3)
 
     def read(url: str, timeout: float = 90.0, alive: Any = None) -> Media:
         if "hash-magnet-r0/" in url:  # верх: рой молчит потоком
@@ -116,16 +122,16 @@ def test_a_silent_stream_is_dropped_before_the_full_probe_budget(
             raise InfraError("рой молчит - за отсрочку не пришло ни байта потока")
         return Media(3600.0, (), "h264")
 
-    monkeypatch.setattr(cli, "probe", read)
+    composition.use_prober(monkeypatch, read)
 
     began = time.monotonic()
-    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer())), ranked)
+    prep = _resolve(_Bench(cast(Any, _FakeTorrServer())), ranked)
     elapsed = time.monotonic() - began
 
     printed = capsys.readouterr().out
     assert prep.number == 2, "молчащий поток не останавливает показ"
     assert "релиз 1 не годится (рой молчит" in printed and "беру 2" in printed
-    assert elapsed < cli.PROBE_BUDGET, "не сожгли весь бюджет на молчащем релизе"
+    assert elapsed < PROBE_BUDGET, "не сожгли весь бюджет на молчащем релизе"
 
 
 def test_dead_torrserver_stops_before_the_next_release() -> None:
@@ -143,12 +149,12 @@ def test_dead_torrserver_stops_before_the_next_release() -> None:
 
     torrserver = _Dead()
     with pytest.raises(InfraError) as caught:
-        _resolve(cli._Bench(cast(Any, torrserver)), ranked)
+        _resolve(_Bench(cast(Any, torrserver)), ranked)
 
     assert str(caught.value) == (
         "TorrServer не отвечает (http://127.0.0.1:8090): connection refused"
     )
-    assert torrserver.calls <= cli.MAX_TRIES, (
+    assert torrserver.calls <= MAX_TRIES, (
         "параллельная тройка уже могла стартовать, но дальше неё общий отказ не идёт"
     )
 
@@ -177,9 +183,9 @@ def test_the_same_words_without_the_type_do_not_stop_the_queue(
     def read(url: str, timeout: float = 90.0, alive: Any = None) -> Media:
         return Media(3600.0, (), "h264")
 
-    monkeypatch.setattr(cli, "probe", read)
+    composition.use_prober(monkeypatch, read)
 
-    prep = _resolve(cli._Bench(cast(Any, _Shaky())), ranked)
+    prep = _resolve(_Bench(cast(Any, _Shaky())), ranked)
 
     assert prep.number == 2, "чужая ошибка с теми же словами - не отказ инфраструктуры"
 
@@ -396,8 +402,8 @@ def test_prewarm_cannot_judge_the_swarm_before_the_release_is_chosen(
 ) -> None:
     """Часы первого контакта не тикают, пока человек читает меню."""
     ranked = [rel(name="полный", quality="1080p")]
-    monkeypatch.setattr(cli, "PEER_GRACE", 0.15)
-    bench = cli._Bench(cast(Any, _Empty()), meta_budget=1.0)
+    composition.use_graces(monkeypatch, peer=0.15)
+    bench = _Bench(cast(Any, _Empty()), meta_budget=1.0)
     plan = _plan(ranked)
 
     prep = bench.start(plan, 1)
@@ -426,17 +432,17 @@ def test_a_picture_whose_swarm_never_answers_is_refused_in_seconds_with_a_move(
     """
     ranked = [rel(name=f"r{i}", seeders=4 - i) for i in range(3)]
     monkeypatch.setattr(Release, "magnet", property(lambda self: f"magnet-{self.raw_name}"))
-    monkeypatch.setattr(cli, "PEER_GRACE", 0.3)
+    composition.use_graces(monkeypatch, peer=0.3)
     torrserver = _Empty()
 
     began = time.monotonic()
     with pytest.raises(NotFoundError) as refusal:
-        _resolve(cli._Bench(cast(Any, torrserver)), ranked)
+        _resolve(_Bench(cast(Any, torrserver)), ranked)
     spent = time.monotonic() - began
 
     said = str(refusal.value)
     printed = capsys.readouterr().out
-    assert spent < cli.META_BUDGET * 1.25, (
+    assert spent < META_BUDGET * 1.25, (
         f"отказ занял {spent:.1f} с: обход трёх раздач стоит отсрочек, а сверх него - "
         "один бюджет раздачи на терпеливый спрос, но не три бюджета"
     )
@@ -458,14 +464,14 @@ def test_a_slow_swarm_is_not_mistaken_for_an_empty_one_by_the_pick(
     """
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
     monkeypatch.setattr(Release, "magnet", property(lambda self: f"magnet-{self.raw_name}"))
-    monkeypatch.setattr(cli, "PEER_GRACE", 0.2)
+    composition.use_graces(monkeypatch, peer=0.2)
 
     def read(url: str, timeout: float = 90.0, alive: Any = None) -> Media:
         return Media(3600.0, (), "h264")
 
-    monkeypatch.setattr(cli, "probe", read)
+    composition.use_prober(monkeypatch, read)
 
-    prep = _resolve(cli._Bench(cast(Any, _Slow(0.6, peers=2))), ranked)
+    prep = _resolve(_Bench(cast(Any, _Slow(0.6, peers=2))), ranked)
 
     assert prep.number == 1, "медленный, но живой рой отбор бросать не имеет права"
     assert prep.meta >= 0.6, f"метаданные пришли за {prep.meta:.2f} с - ждали не рой"
@@ -645,15 +651,15 @@ def test_the_grace_a_release_gets_is_the_price_of_dropping_it() -> None:
     twin = rel(name="второй", quality="1080p")
     four_k = rel(name="четыре кэ", quality="2160p")
 
-    assert cli.peer_grace(_plan([full, hd]), 1, [1, 2]) == cli.STEP_GRACE
-    assert cli.peer_grace(_plan([full, quiet]), 1, [1, 2]) == cli.STEP_GRACE, (
+    assert peer_grace(_plan([full, hd]), 1, [1, 2]) == STEP_GRACE
+    assert peer_grace(_plan([full, quiet]), 1, [1, 2]) == STEP_GRACE, (
         "имя, молчащее о разрешении, ступень не обещает - защищать её есть от кого"
     )
-    assert cli.peer_grace(_plan([full, twin]), 1, [1, 2]) == cli.PEER_GRACE, (
+    assert peer_grace(_plan([full, twin]), 1, [1, 2]) == PEER_GRACE, (
         "заменить ступенью ниже нечем - терпение ничего не защищает"
     )
-    assert cli.peer_grace(_plan([full, hd]), 2, [1, 2]) == cli.PEER_GRACE
-    assert cli.peer_grace(_plan([four_k, hd]), 1, [1, 2]) == cli.STEP_GRACE, (
+    assert peer_grace(_plan([full, hd]), 2, [1, 2]) == PEER_GRACE
+    assert peer_grace(_plan([four_k, hd]), 1, [1, 2]) == STEP_GRACE, (
         "2160p - тоже честный HD, и ступень под ним та же"
     )
 
@@ -666,21 +672,21 @@ def test_grace_follows_the_actual_route_and_only_the_untried_tail() -> None:
     lower = rel(name="запасной", quality="720p")
     plan = _plan([full, judged, sound, lower])
 
-    assert cli.peer_grace(plan, 1, [1, 2, 3, 4]) == cli.STEP_GRACE
-    assert cli.peer_grace(plan, 1, [1]) == cli.PEER_GRACE, "--release N"
-    assert cli.peer_grace(plan, 3, [3]) == cli.PEER_GRACE, "вопрос про звук"
-    assert cli.peer_grace(plan, 1, [2, 1]) == cli.PEER_GRACE, "осуждённый сосед уже позади"
+    assert peer_grace(plan, 1, [1, 2, 3, 4]) == STEP_GRACE
+    assert peer_grace(plan, 1, [1]) == PEER_GRACE, "--release N"
+    assert peer_grace(plan, 3, [3]) == PEER_GRACE, "вопрос про звук"
+    assert peer_grace(plan, 1, [2, 1]) == PEER_GRACE, "осуждённый сосед уже позади"
 
 
 def test_silence_is_named_as_our_expired_wait() -> None:
     """Ответа роя нет: строка сообщает предел ожидания, а не выдуманный приговор."""
-    prep = cli._Prep(
+    prep = _Prep(
         number=1,
         release=rel(name="молчун"),
         failure=SwarmError("рой пуст - за 6 с ни одного пира"),
     )
 
-    assert cli._waiting_note(prep, str(prep.failure)) == "не дождались за 6 с"
+    assert _waiting_note(prep, str(prep.failure)) == "не дождались за 6 с"
 
 
 def test_a_full_hd_head_is_not_dropped_for_a_slow_minute_of_its_swarm(
@@ -693,11 +699,11 @@ def test_a_full_hd_head_is_not_dropped_for_a_slow_minute_of_its_swarm(
     """
     ranked = [rel(name="полный", quality="1080p"), rel(name="обычный", quality="720p")]
     prober = _probes(ranked, "h264", "h264")
-    monkeypatch.setattr(cli, "PEER_GRACE", 0.2)
-    monkeypatch.setattr(cli, "STEP_GRACE", 1.2)
+    composition.use_graces(monkeypatch, peer=0.2)
+    composition.use_graces(monkeypatch, step=1.2)
     head = f"hash-{ranked[0].magnet}"
 
-    bench = cli._Bench(cast(Any, _LateHead(head, answers_in=0.6)), prober=prober)
+    bench = _Bench(cast(Any, _LateHead(head, answers_in=0.6)), prober=prober)
     prep = _resolve(bench, ranked)
 
     assert prep.number == 1, "ступень отдали не рою, а собственному нетерпению"
@@ -714,11 +720,11 @@ def test_a_slow_head_still_yields_when_nothing_below_it_is_a_step_lower(
     """
     ranked = [rel(name="полный", quality="1080p"), rel(name="второй", quality="1080p")]
     prober = _probes(ranked, "h264", "h264")
-    monkeypatch.setattr(cli, "PEER_GRACE", 0.2)
-    monkeypatch.setattr(cli, "STEP_GRACE", 1.2)
+    composition.use_graces(monkeypatch, peer=0.2)
+    composition.use_graces(monkeypatch, step=1.2)
     head = f"hash-{ranked[0].magnet}"
 
-    bench = cli._Bench(cast(Any, _LateHead(head, answers_in=0.6)), prober=prober)
+    bench = _Bench(cast(Any, _LateHead(head, answers_in=0.6)), prober=prober)
     prep = _resolve(bench, ranked)
 
     assert prep.number == 2, "ступени под верхом нет - ждать его дольше незачем"

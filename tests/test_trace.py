@@ -33,6 +33,7 @@ from torrcast.adapters.filesystem.trace_journal import (
 )
 from torrcast.adapters.filesystem.trace_journal import prune as _prune_module
 from torrcast.adapters.filesystem.trace_journal import writer as _writer_module
+from torrcast.cli.main import main
 from torrcast.domain.digest import _seams, digest
 from torrcast.domain.trace_sources import PACKED, WARMED
 
@@ -685,7 +686,6 @@ def test_the_new_fields_never_break_an_old_journal(
     вчерашний сеанс пережил сегодняшнее обновление. Здесь - запись ровно того формата,
     который был до добора полей, плюс событие, о котором эта версия не знает вовсе.
     """
-    from torrcast import cli
 
     old = [
         {
@@ -729,7 +729,7 @@ def test_the_new_fields_never_break_an_old_journal(
         "".join(json.dumps(rec, ensure_ascii=False) + "\n" for rec in old), encoding="utf-8"
     )
 
-    assert cli.main(["log"]) == 0
+    assert main(["log"]) == 0
     text = capsys.readouterr().out
     assert "матрица" in text
     assert "ребуфер на 2:00" in text
@@ -739,7 +739,6 @@ def test_the_new_fields_never_break_an_old_journal(
 
 def test_cast_log_shows_the_new_events(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     """Сквозная проверка: события легли в ленту - и `cast log` их напечатал."""
-    from torrcast import cli
 
     emit("search", "query", query="тачки")
     nudge(pos=84.0, to=92.0, hit=1, stuck=9.0, front=144.0)
@@ -748,7 +747,7 @@ def test_cast_log_shows_the_new_events(tmp_path: Path, capsys: pytest.CaptureFix
     warmth("ready", secs=2520.0, dur=5760.0, size=6_000_000_000)
     shutdown()
 
-    assert cli.main(["log"]) == 0
+    assert main(["log"]) == 0
     text = capsys.readouterr().out
     assert "нудж сторожа 1: 1:24 -> 1:32 (стоял 9 с, готово впереди 60 с)" in text
     assert "перемотка 10:00 -> 31:31, картинка через 3.2 с" in text
@@ -853,7 +852,6 @@ def test_cast_log_shows_the_timeline_and_the_query(
     ``jsonl``, человек не видел. Это ровно та ловушка, ради которой след и заведён: «в
     журнале нет строки» читалось как «события не было».
     """
-    from torrcast import cli
     from torrcast.adapters.filesystem.stopwatch import mark
 
     emit("search", "query", query="сталкер", raw=41, pictures=3)
@@ -863,7 +861,7 @@ def test_cast_log_shows_the_timeline_and_the_query(
     emit("session", "session_end", pos=60.0, dur=120.0, watched=False)
     shutdown()
 
-    assert cli.main(["log"]) == 0
+    assert main(["log"]) == 0
     text = capsys.readouterr().out
     assert "запрос «сталкер»: строк 41, картин 3" in text
     assert "фаза «отбор релиза» (релиз=2)" in text
@@ -881,12 +879,11 @@ def test_an_event_this_version_does_not_know_is_printed_anyway(
     Лента живёт неделю и переживает обновления: запись соседней ветки или прошлой версии
     обязана быть видна хотя бы как есть. Молчание тут - худший из возможных ответов.
     """
-    from torrcast import cli
 
     emit("play", "нечто", чего_мы_не_знаем=1)
     shutdown()
 
-    assert cli.main(["log"]) == 0
+    assert main(["log"]) == 0
     assert "play/нечто (чего_мы_не_знаем=1)" in capsys.readouterr().out
 
 

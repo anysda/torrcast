@@ -8,38 +8,34 @@
 
 from __future__ import annotations
 
-from typing import Any, ClassVar
+from typing import Any
 
 import pytest
 
 from torrcast.domain.entry import Entry
-from torrcast.usecases import following as following_module
+from torrcast.ports.state_store import Ephemeral, install, store
 from torrcast.usecases.following import _following
 
 KEY = "tv:сериал:2020"
 
 
-class FakeState(dict[str, Entry]):
-    """Состояние как его видит сценарий: словарь записей, который умеет загрузиться."""
-
-    loaded: ClassVar[dict[str, Entry]] = {}
-
-    @classmethod
-    def load(cls) -> FakeState:
-        return cls(cls.loaded)
-
-
 @pytest.fixture(autouse=True)
-def _state(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Подменяет внешнее состояние, чтобы вопрос про следующую серию не трогал диск."""
-    FakeState.loaded = {}
-    monkeypatch.setattr(following_module, "State", FakeState)
+def _state() -> None:
+    """Состояние держит порт, а не файл: вопрос про следующую серию диска не трогает.
+
+    Возвращает порт на место общая фикстура ``_ports_restored``, поэтому своего отката
+    тут нет: два места, снимающие один и тот же порт, разошлись бы молча.
+    """
+    install(Ephemeral())
 
 
 def put(**fields: Any) -> Entry:
     """Кладёт в состояние запись под ключом показа и возвращает её."""
     entry = Entry(title="Сериал", magnet="m", **fields)
-    FakeState.loaded = {KEY: entry}
+    keeper = store()
+    state = keeper.load()
+    state.put(KEY, entry)
+    keeper.save(state)
     return entry
 
 
@@ -104,6 +100,4 @@ def test_an_unknown_key_is_an_empty_answer_and_not_a_crash() -> None:
     Упади единица здесь - юнит умирал бы на стыке серий вместо того, чтобы честно
     закончить показ.
     """
-    FakeState.loaded = {}
-
     assert _following("tv:такого-нет:1900") is None

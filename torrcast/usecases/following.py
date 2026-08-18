@@ -7,10 +7,7 @@
 from __future__ import annotations
 
 from torrcast.domain.entry import Entry
-from torrcast.ports.module import module
-
-#: Состояние показа - внешний мир, и сценарий зовёт его по имени, а не импортом.
-State = module("torrcast.adapters.filesystem.state").State
+from torrcast.ports.state_store import store
 
 
 def _following(key: str) -> Entry | None:
@@ -20,7 +17,7 @@ def _following(key: str) -> Entry | None:
     сериалом и не считали. Отсюда же знают, закрывать ли приложение приёмника: между
     сериями оно живёт дальше, а на конце показа — гаснет (см. :func:`_play`).
     """
-    entry: Entry | None = State.load().get(key)
+    entry: Entry | None = store().load().get(key)
     if entry is None or entry.done or not entry.label:
         return None
     return entry

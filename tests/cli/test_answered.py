@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from torrcast import cli
 from torrcast.cli.answered import answered
+from torrcast.domain.exit_codes import EXIT_INFRA, EXIT_OK
+from torrcast.usecases.stopped import _on_term
 
 
 def test_a_planned_stop_of_the_show_is_a_success_not_a_failure() -> None:
@@ -21,16 +22,16 @@ def test_a_planned_stop_of_the_show_is_a_success_not_a_failure() -> None:
 
     def terminated() -> int:
         try:
-            cli._on_term(15, None)
+            _on_term(15, None)
         except BaseException as exc:  # ловим ровно затем, чтобы посмотреть на него
             caught.append(exc)
             raise
-        return int(cli.EXIT_OK)
+        return int(EXIT_OK)
 
-    assert answered(terminated) == cli.EXIT_OK, "`cast stop` - успех показа, а не отказ"
+    assert answered(terminated) == EXIT_OK, "`cast stop` - успех показа, а не отказ"
     assert isinstance(caught[0], KeyboardInterrupt), "раскрутка обязана идти как прежде"
 
     def interrupted() -> int:
         raise KeyboardInterrupt
 
-    assert answered(interrupted) == cli.EXIT_INFRA, "Ctrl-C остаётся отказом"
+    assert answered(interrupted) == EXIT_INFRA, "Ctrl-C остаётся отказом"

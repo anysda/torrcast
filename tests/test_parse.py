@@ -13,7 +13,6 @@ from typing import NamedTuple
 
 import pytest
 
-from torrcast.cli import is_full_hd
 from torrcast.domain.alt_query import alt_query
 from torrcast.domain.catalog_has_name import catalog_has_name
 from torrcast.domain.cluster import cluster
@@ -32,6 +31,7 @@ from torrcast.domain.reads_season import reads_season
 from torrcast.domain.release import Release
 from torrcast.domain.slugify import slugify
 from torrcast.domain.split_franchise_index import split_franchise_index
+from torrcast.usecases.rank import is_full_hd
 
 FIXTURES = Path(__file__).parent / "fixtures"
 

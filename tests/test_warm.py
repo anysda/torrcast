@@ -20,7 +20,7 @@ from typing import Any
 import pytest
 
 from tests.conftest import CLIP_SECONDS, free_port, module_of
-from torrcast import cli
+from tests.fakes import composition
 from torrcast.adapters import warm_environment
 from torrcast.adapters.chromecast.mock.mock_receiver import MockReceiver
 from torrcast.adapters.filesystem.state import State
@@ -31,8 +31,6 @@ from torrcast.adapters.stream_pack.grid_for import grid_for
 from torrcast.adapters.stream_pack.hls_dir import hls_dir
 from torrcast.adapters.stream_pack.pack_start import pack_start
 from torrcast.adapters.stream_probe.segment_name import segment_name
-from torrcast.cli import Watch as _Watch
-from torrcast.cli import _Clock, _play, _Stopped
 from torrcast.domain.config import Config
 from torrcast.domain.entry import Entry
 from torrcast.domain.hls_settings import SPLIT_SLACK
@@ -41,6 +39,10 @@ from torrcast.domain.trust_anchor import trust_anchor
 from torrcast.domain.warm_settings import WARM_BUDGET
 from torrcast.usecases.feed_pack.feed import Feed
 from torrcast.usecases.feed_pack.packer import Packer
+from torrcast.usecases.playback import _play
+from torrcast.usecases.rank import _hms
+from torrcast.usecases.start_clock import _Clock
+from torrcast.usecases.stopped import _Stopped
 from torrcast.usecases.warm import (
     FREE_FLOOR,
     GUARD_HIGH,
@@ -57,6 +59,7 @@ from torrcast.usecases.warm import (
     warm_key,
     warm_root,
 )
+from torrcast.usecases.watch import Watch as _Watch
 
 #: Модуль сценария, а не одноимённая единица: адаптер прогрева идёт за упаковщиком
 #: строкой ровно туда, и подмена для пробы обязана лечь в тот же модуль.
@@ -204,7 +207,7 @@ def test_the_warmed_counter_names_only_what_the_show_can_take(tmp_path: Path) ->
 
     assert feed._warm(1) is None, "потолок показа изменился - счёт прогрева меряет не то"
     assert warmer.warmed == pytest.approx(grid.span(0)), "тяжёлая копия зачлась прогретой"
-    assert f"прогрето {cli._hms(grid.span(0))} из" in warmer.line(), "строка врёт про запас"
+    assert f"прогрето {_hms(grid.span(0))} из" in warmer.line(), "строка врёт про запас"
     assert vault.slots() == {0, 1}, "укладка потеряла кусок - прогрев переложит его заново"
     assert warmer._missing() == (2, grid.count - 1), "прогрев вернулся за уложенным куском"
 
@@ -409,7 +412,7 @@ def test_a_show_stopped_midway_leaves_the_warm_visible_outside(
         warm=True,
     )
     receiver = _TurnedOff(polls=2, ca=trust_anchor(tls[0]))
-    monkeypatch.setattr(cli, "make_receiver", lambda *args, **kwargs: receiver)
+    composition.use_receivers(monkeypatch, lambda *args, **kwargs: receiver)
     watch = _Watch(key=key, entry=entry, every=0.0)
     with pytest.raises(_Stopped):
         _play(config, clip, 0, "тест", _Clock(), watch=watch)
@@ -1006,7 +1009,7 @@ def test_a_light_film_is_warmed_by_the_very_copy_the_live_packing_gives(tmp_path
     профиль, другая энтропийная кодировка. Решение обязано быть одно на обоих.
     """
     from torrcast.adapters.recode import Encode
-    from torrcast.cli import _warmer
+    from torrcast.usecases.playback import _warmer
 
     class _Heavy:
         targets = (1, 4)
@@ -1032,7 +1035,7 @@ def test_a_light_film_is_warmed_by_the_very_copy_the_live_packing_gives(tmp_path
 def test_an_undecodable_codec_still_recodes_both_the_show_and_the_warming(tmp_path: Path) -> None:
     """Обратная сторона того же правила: показ идёт сплошным перекодом - и прогрев тоже."""
     from torrcast.adapters.recode import Encode
-    from torrcast.cli import _warmer
+    from torrcast.usecases.playback import _warmer
 
     whole = Encode(preset="ultrafast", mbit=6.0)
     config = Config(warm=True, warm_dir=str(tmp_path / "warm"))

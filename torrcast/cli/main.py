@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
+from contextlib import AbstractContextManager
 
 from torrcast.cli.answered import answered
 from torrcast.cli.args import Args
@@ -18,7 +19,18 @@ from torrcast.cli.status import status
 from torrcast.cli.stop import stop
 from torrcast.cli.voices import voices
 from torrcast.cli.worker import worker
-from torrcast.ports.module import module
+
+#: Режим stdin на время команды. Кладёт сюда композиционный корень
+#: (:mod:`torrcast.runtime.wire`): терминал - это адаптер, а слою команд адаптеры не
+#: назвать. Прежде имя приезжало сюда строкой - тем же обходом, что и плоский фасад.
+_TERMINAL: Callable[[], AbstractContextManager[None]]
+
+
+def _configure_main(terminal: Callable[[], AbstractContextManager[None]]) -> None:
+    """Назначить, чем точка входа держит режим stdin на время команды."""
+    global _TERMINAL
+    _TERMINAL = terminal
+
 
 #: Имя команды (:attr:`Args.command`) - в саму команду. Ключи покрывают все ответы
 #: разбора аргументов, поэтому промаха тут не бывает.
@@ -45,7 +57,7 @@ def main(
         args = parse_args(argv)
         # IUTF8 на stdin включаем на всё время команды и возвращаем режим как было:
         # без него ssh-сессия ломает кириллицу в вопросах.
-        with module("torrcast.adapters.console.console").terminal():
+        with _TERMINAL():
             return commands[args.command](args)
 
     # Коды возврата и хвост следа - на общем ответе командной строки, а не тут.

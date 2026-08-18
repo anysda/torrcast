@@ -1,11 +1,10 @@
 """Стенд команды показа: трекеры, служба раздач, юнит, прогрев и человек - одним объектом.
 
-Команда показа берёт эти зависимости из своего модуля, а не из конструктора: разрез до
-неё ещё не дошёл. Поэтому стенд один раз ставит на их место переходники, которые в момент
-вызова спрашивают ЭТОТ объект, - и тест собирает мир полями, а не подменами по месту.
-Когда у команды появится композиционный корень, менять придётся только этот файл.
+Внешний мир команда получает от композиционного корня (:func:`torrcast.runtime.wire.wire`),
+и стенд встаёт на те же слоты (:mod:`tests.fakes.composition`) переходниками, которые в
+момент вызова спрашивают ЭТОТ объект, - тест собирает мир полями, а не подменами по месту.
 
-Юнит показа - уже не подмена: он ставится на свой порт (:mod:`torrcast.ports.show_unit`),
+Юнит показа - не подмена вовсе: он ставится на свой порт (:mod:`torrcast.ports.show_unit`),
 и это видно по единственному звену, которое стенд отдаёт объектом, а не именем модуля.
 """
 
@@ -17,7 +16,7 @@ from typing import Any
 
 import pytest
 
-from torrcast import cli
+from tests.fakes import composition
 from torrcast.adapters.console import console
 from torrcast.ports import show_unit as unit_port
 from torrcast.usecases.playback import _show_state as playback_state
@@ -81,13 +80,13 @@ class CastWorld:
 
     def install(self, patch: pytest.MonkeyPatch) -> None:
         """Поставить переходники на место зависимостей команды показа."""
-        patch.setattr(cli, "Prowlarr", self._indexer)
-        patch.setattr(cli, "TorrServer", self._torrents)
-        patch.setattr(cli, "probe", self._probe)
+        composition.use_indexers(patch, self._indexer)
+        composition.use_engines(patch, self._torrents)
+        composition.use_prober(patch, self._probe)
         patch.setattr(playback_state, "start_play_unit", self._start)
         unit_port.install(_WorldShowUnit(self))
-        patch.setattr(cli, "_await_playing", self._await)
-        patch.setattr(cli, "warm_file", self._warm)
+        composition.use_await_playing(patch, self._await)
+        composition.use_warm_file(patch, self._warm)
         patch.setattr(console, "stdin_is_tty", lambda: self.tty)
         patch.setattr("builtins.input", self.ask)
 
@@ -108,7 +107,7 @@ class CastWorld:
         assert self.torrents is not None, "служба раздач стенду не задана"
         return self.torrents(url)
 
-    def _probe(self, url: str, timeout: float = 90.0, alive: Any = None) -> Any:
+    def _probe(self, url: str, /, timeout: float = 90.0, alive: Any = None) -> Any:
         assert self.passport is not None, "паспорт файла стенду не задан"
         return self.passport(url, timeout=timeout, alive=alive)
 

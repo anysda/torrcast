@@ -7,13 +7,18 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from torrcast.ports.module import module
+#: Кем отвечает ``cast stop``. Кладёт сюда композиционный корень
+#: (:mod:`torrcast.runtime.wire`): слой команд не вправе видеть адаптеры, которыми сеанс
+#: гасит юнит и убирает за собой раздачу.
+_SESSION: Callable[[], int]
 
-#: Композиционный корень зовётся по имени: слой команд не вправе видеть адаптеры,
-#: которыми сеанс гасит юнит и убирает за собой раздачу.
-_SESSION: Callable[[], int] = module("torrcast.runtime.stop_command").stop_command
+
+def _configure_stop(session: Callable[[], int]) -> None:
+    """Назначить, каким сеансом отвечает ``cast stop``."""
+    global _SESSION
+    _SESSION = session
 
 
-def stop(command: Callable[[], int] = _SESSION) -> int:
+def stop(command: Callable[[], int] | None = None) -> int:
     """``cast stop`` — остановить показ и сказать сохранённую позицию."""
-    return command()
+    return (_SESSION if command is None else command)()

@@ -25,17 +25,26 @@ import pytest
 
 from tests.fakes.media_probe import FakeMediaProbe
 from tests.test_cli import _FakeTorrServer, _resolve, rel
-from torrcast import cli
 from torrcast.adapters.console.console import Progress
 from torrcast.adapters.filesystem.trace_journal import records, shutdown
 from torrcast.adapters.prowlarr.merge import merge
 from torrcast.adapters.prowlarr.raw_result import RawResult
 from torrcast.adapters.prowlarr.to_releases import to_releases
-from torrcast.cli import (
-    SD_BITRATE,
-    Args,
-    _plan_for,
+from torrcast.cli.args import Args
+from torrcast.domain.audio_track import AudioTrack
+from torrcast.domain.config import Config
+from torrcast.domain.digest import digest
+from torrcast.domain.facts.origin import Origin
+from torrcast.domain.media import Media
+from torrcast.domain.parse_release_name import parse_release_name
+from torrcast.domain.picture import Picture
+from torrcast.domain.rank_settings import SD_BITRATE
+from torrcast.domain.release import Release
+from torrcast.domain.runtime_guess import RUNTIME_GUESS
+from torrcast.runtime.native_picture import native_picture
+from torrcast.usecases.rank import (
     bitrate_of,
+    drop_reason,
     gate_open,
     is_candidate,
     is_dated,
@@ -43,15 +52,9 @@ from torrcast.cli import (
     rank_releases,
     sound_note,
 )
-from torrcast.domain.audio_track import AudioTrack
-from torrcast.domain.config import Config
-from torrcast.domain.digest import digest
-from torrcast.domain.media import Media
-from torrcast.domain.parse_release_name import parse_release_name
-from torrcast.domain.picture import Picture
-from torrcast.domain.release import Release
-from torrcast.domain.runtime_guess import RUNTIME_GUESS
-from torrcast.runtime.native_picture import native_picture
+from torrcast.usecases.reinforce import _plan_for
+from torrcast.usecases.select import _Plan
+from torrcast.usecases.select_bench import _Bench
 
 RUNTIME = RUNTIME_GUESS["movie"]
 GB = 1024**3
@@ -625,9 +628,9 @@ TITAN_MOVIE = (
 
 def _prep(name: str, *, video_bps: float, height: int, size_gb: float, dur: float) -> object:
     """Прочитанный ffprobe релиз: ровно то, чем судит отбор после похода в рой."""
-    from torrcast.cli import _Prep
     from torrcast.domain.media import Media
     from torrcast.domain.torr_file import TorrFile
+    from torrcast.usecases.select import _Prep
 
     prep = _Prep(number=1, release=named(name, size_gb=size_gb, seeders=17))
     prep.video = TorrFile(0, "anime.mkv", int(size_gb * GB))
@@ -637,7 +640,7 @@ def _prep(name: str, *, video_bps: float, height: int, size_gb: float, dur: floa
 
 def _bench() -> Any:
     """Отбор без раздач: TorrServer тут ни о чём не спрашивают."""
-    from torrcast.cli import _Bench
+    from torrcast.usecases.select_bench import _Bench
 
     class _Nothing:
         def drop(self, torrent_hash: str) -> bool:
@@ -682,7 +685,7 @@ def test_a_whole_file_recode_is_chosen_by_weight_not_only_by_codec() -> None:
     Посегментный кодировщик на таком файле выродился бы в сотню коротких ffmpeg подряд;
     один длинный прогон дешевле и не даёт смешанного потока.
     """
-    from torrcast.cli import _encode_all
+    from torrcast.usecases.playback import _encode_all
 
     config = Config()
 
@@ -701,7 +704,7 @@ def test_ten_bit_h264_goes_through_a_whole_file_recode_like_hevc() -> None:
     «залип - LOAD - BUFFERING». Гейт смотрел только на имя кодека, а имя у Hi10P то же
     самое - ``h264``, - поэтому он и проходил как обычный.
     """
-    from torrcast.cli import _encode_all
+    from torrcast.usecases.playback import _encode_all
 
     config = Config()
 
@@ -727,9 +730,9 @@ def test_the_show_and_the_warmer_decide_the_recode_the_same_way() -> None:
     впустую, а на экран уехала бы смесь копии и перекода - ровно тот SPS, на котором
     приёмник встаёт.
     """
-    from torrcast.cli import _encode_all
     from torrcast.domain.entry import Entry
     from torrcast.domain.media import Media
+    from torrcast.usecases.playback import _encode_all
 
     config = Config()
     media = Media(1366.0, (), "h264", profile="High 10", pix_fmt="yuv420p10le")
@@ -874,7 +877,7 @@ def test_a_4k_release_never_lifts_over_a_live_1080p_however_many_seeders_it_has(
     по цене это тот же класс, что BD-ремукс. Ступень «играется только сплошным перекодом»
     стоит выше живости и выше качества, поэтому девятикратный перевес сидов 4К не спасает.
     """
-    from torrcast.cli import needs_whole_recode, rank_releases
+    from torrcast.usecases.rank import needs_whole_recode, rank_releases
 
     uhd = named("Аниме / Anime [TV] [01-12 из 12] (2019) BDRip-HEVC 2160p", size_gb=20.0, seeders=9)
     hd = named("Аниме / Anime [TV] [01-12 из 12] (2019) BDRip-HEVC 1080p", size_gb=8.0, seeders=1)
@@ -894,7 +897,7 @@ def test_the_last_hope_opens_for_a_4k_hevc_because_it_is_scaled_down_now() -> No
     1.03x без скейла. Отказывать тут значило бы отказывать в единственном носителе
     картины ради потолка, которого больше нет.
     """
-    from torrcast.cli import hevc_hope
+    from torrcast.usecases.rank import hevc_hope
 
     uhd = named("Аниме / Anime [TV] [01-12 из 12] (2019) BDRip-HEVC 2160p", size_gb=20.0, seeders=9)
     hd = named("Аниме / Anime [TV] [01-12 из 12] (2019) BDRip-HEVC 1080p", size_gb=8.0, seeders=1)
@@ -945,7 +948,7 @@ def test_a_light_4k_release_is_taken_and_scaled_down_instead_of_being_refused() 
 
 def test_the_heavy_path_says_so_out_loud_in_one_line() -> None:
     """Молчаливых подмен нет: взяли HEVC последней надеждой - сказали одной строкой."""
-    from torrcast.cli import last_hope_note
+    from torrcast.usecases.choice import last_hope_note
 
     hevc = named(GINTAMA_HEVC, size_gb=30.2, seeders=4)
     dead = named(GINTAMA_DEAD, size_gb=99.2, seeders=0)
@@ -991,7 +994,7 @@ def test_the_last_hope_asks_the_receiver_profile_not_a_module_constant() -> None
     assert plan.copy_hevc, "разрешение профиля доехало до обычных ворот"
     assert plan.ranked[0] is hevc, "живой HEVC собственного ресивера - обычный кандидат"
     assert plan.candidates(args)[0] == 1, "HEVC не потерялся между порядком и очередью"
-    assert cli.drop_reason(hevc, plan) == "", "счёт отсева не спорит с воротами"
+    assert drop_reason(hevc, plan) == "", "счёт отсева не спорит с воротами"
 
 
 def test_a_native_codec_does_not_weaken_the_quality_gate() -> None:
@@ -1048,7 +1051,7 @@ def test_a_release_without_a_russian_track_is_not_good_enough_and_the_search_goe
     probe = _tracks(ranked, "jpn", "rus")
     torrserver = _FakeTorrServer()
 
-    prep = _resolve(cli._Bench(cast(Any, torrserver), prober=probe), ranked)
+    prep = _resolve(_Bench(cast(Any, torrserver), prober=probe), ranked)
 
     printed = capsys.readouterr().out
     assert prep.number == 2, "японский релиз годным не считается - идём дальше по очереди"
@@ -1068,7 +1071,7 @@ def test_the_gate_costs_no_extra_probe_when_the_top_release_speaks_russian(
     ranked = [rel(name="r0", seeders=100), rel(name="r1", seeders=90), rel(name="r2", seeders=80)]
     probe = _tracks(ranked, "rus", "rus", "rus")
 
-    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer()), prober=probe), ranked)
+    prep = _resolve(_Bench(cast(Any, _FakeTorrServer()), prober=probe), ranked)
 
     printed = capsys.readouterr().out
     assert prep.number == 1
@@ -1090,7 +1093,7 @@ def test_when_nobody_has_a_russian_track_the_show_still_happens_and_says_so(
     ranked = [rel(name="r0", seeders=100), rel(name="r1", seeders=90)]
     probe = _tracks(ranked, "jpn", "jpn")
 
-    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer()), prober=probe), ranked)
+    prep = _resolve(_Bench(cast(Any, _FakeTorrServer()), prober=probe), ranked)
 
     printed = capsys.readouterr().out
     assert prep.number == 1, "лучший из того, что есть, а не отказ"
@@ -1110,7 +1113,7 @@ def test_the_catalogue_hole_lands_in_the_weekly_trace(
     ranked = [rel(name="r0", seeders=100), rel(name="r1", seeders=90)]
     probe = _tracks(ranked, "jpn", "jpn")
 
-    _resolve(cli._Bench(cast(Any, _FakeTorrServer()), prober=probe), ranked)
+    _resolve(_Bench(cast(Any, _FakeTorrServer()), prober=probe), ranked)
     shutdown()
     capsys.readouterr()
 
@@ -1128,7 +1131,7 @@ def test_a_hand_picked_release_is_never_judged_for_its_language(
     ranked = [rel(name="r0", seeders=100), rel(name="r1", seeders=90)]
     probe = _tracks(ranked, "jpn", "rus")
 
-    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer()), prober=probe), ranked, release=1)
+    prep = _resolve(_Bench(cast(Any, _FakeTorrServer()), prober=probe), ranked, release=1)
 
     assert prep.number == 1
     assert "без русской озвучки" not in capsys.readouterr().out
@@ -1155,7 +1158,7 @@ def test_an_unnamed_language_no_longer_ends_the_queue(
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(8)]
     probe = _tracks(ranked, "jpn", "jpn", "jpn", "und", "jpn", "rus", "jpn", "jpn")
 
-    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer()), prober=probe), ranked)
+    prep = _resolve(_Bench(cast(Any, _FakeTorrServer()), prober=probe), ranked)
 
     printed = capsys.readouterr().out
     assert prep.number == 6, "русская дорожка нашлась ниже по очереди - её и играем"
@@ -1176,7 +1179,7 @@ def test_when_the_queue_runs_out_the_unnamed_release_plays_by_the_mute_move(
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
     probe = _tracks(ranked, "jpn", "und", "jpn")
 
-    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer()), prober=probe), ranked)
+    prep = _resolve(_Bench(cast(Any, _FakeTorrServer()), prober=probe), ranked)
 
     printed = capsys.readouterr().out
     assert prep.number == 2, "незнание лучше знания «нет»: японский русским не станет"
@@ -1196,13 +1199,11 @@ def test_a_native_picture_still_plays_its_only_unnamed_track(
     ranked = [rel(name="r0", seeders=100), rel(name="r1", seeders=90)]
     probe = _tracks(ranked, "und", "rus")
     picture = Picture(title="Бригада", year=2002, releases=ranked, native=True)
-    plan = cli._Plan(
-        picture=picture, ranked=ranked, runtime=RUNTIME, warn_mbit=20.0, recode_at=10.0
-    )
+    plan = _Plan(picture=picture, ranked=ranked, runtime=RUNTIME, warn_mbit=20.0, recode_at=10.0)
 
     with Progress(out=io.StringIO()) as progress:
-        prep = cli._Bench(cast(Any, _FakeTorrServer()), prober=probe).resolve(
-            plan, cli.Args(query=["бригада"]), progress
+        prep = _Bench(cast(Any, _FakeTorrServer()), prober=probe).resolve(
+            plan, Args(query=["бригада"]), progress
         )
 
     assert prep.number == 1, "своя картина: пустой тег языка - это и есть русский звук"
@@ -1222,15 +1223,13 @@ def test_a_native_passport_reaches_the_voice_gate_without_a_second_search(
     native_picture(
         picture,
         "полицейский с рублёвки",
-        cli.Origin(name="Полицейский с Рублёвки"),
+        Origin(name="Полицейский с Рублёвки"),
     )
-    plan = cli._Plan(
-        picture=picture, ranked=ranked, runtime=RUNTIME, warn_mbit=20.0, recode_at=10.0
-    )
+    plan = _Plan(picture=picture, ranked=ranked, runtime=RUNTIME, warn_mbit=20.0, recode_at=10.0)
 
     with Progress(out=io.StringIO()) as progress:
-        prep = cli._Bench(cast(Any, _FakeTorrServer()), prober=probe).resolve(
-            plan, cli.Args(query=["полицейский", "с", "рублёвки"]), progress
+        prep = _Bench(cast(Any, _FakeTorrServer()), prober=probe).resolve(
+            plan, Args(query=["полицейский", "с", "рублёвки"]), progress
         )
 
     assert prep.number == 1 and prep.release.quality == "1080p"
@@ -1247,7 +1246,7 @@ def test_a_mute_fallback_does_not_dispute_its_own_release_name(
     ]
     probe = _tracks(ranked, "und", "eng")
 
-    prep = _resolve(cli._Bench(cast(Any, _FakeTorrServer()), prober=probe), ranked)
+    prep = _resolve(_Bench(cast(Any, _FakeTorrServer()), prober=probe), ranked)
 
     verdicts = [line for line in capsys.readouterr().out.splitlines() if "включаю релиз" in line]
     assert prep.number == 1

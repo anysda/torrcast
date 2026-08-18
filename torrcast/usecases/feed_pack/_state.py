@@ -7,10 +7,10 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from importlib import import_module
 from pathlib import Path
 
 from torrcast.ports.feed_grid import FeedGrid
-from torrcast.ports.module import module
 
 #: Сетка сегментов в том объёме, в каком её знают упаковщик и лента.
 Grid = FeedGrid
@@ -31,8 +31,8 @@ RECODE_DIR: str
 # честный ``import subprocess`` в сценарии не сделал бы код правильнее, он лишь
 # переписал бы одно нарушение раскладки в другое. Собраны они здесь, в одном месте, а не
 # рассыпаны по модулям пакета - чтобы переезд трогал ровно один файл.
-shutil = module("shutil")
-subprocess = module("subprocess")
-tempfile = module("tempfile")
-clock_port = module("time")
+shutil = import_module("shutil")
+subprocess = import_module("subprocess")
+tempfile = import_module("tempfile")
+clock_port = import_module("time")
 time = clock_port

@@ -13,20 +13,22 @@ from pathlib import Path
 
 import pytest
 
+from tests.fakes import composition
 from tests.fakes.show_unit import FakeShowUnit
-from torrcast import cli
 from torrcast.adapters.filesystem.state import State, save_config
 from torrcast.adapters.prowlarr.raw_result import RawResult
+from torrcast.cli.main import main
 from torrcast.domain.audio_track import AudioTrack
 from torrcast.domain.config import Config
 from torrcast.domain.entry import Entry
 from torrcast.domain.media import Media
 from torrcast.domain.torr_file import TorrFile
+from torrcast.usecases.playback import _await_playing
 from torrcast.usecases.playback import _show_state as playback_state
 
 #: Настоящее ожидание картинки: фикстура окружения подменяет его заглушкой, а один тест
 #: проверяет именно его.
-AWAIT_PLAYING = cli._await_playing
+AWAIT_PLAYING = _await_playing
 
 GB = 1024**3
 #: Выдача «моаны», сведённая к сути: две картины франшизы, у каждой по два релиза.
@@ -48,13 +50,13 @@ def _env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
     monkeypatch.setenv("TORRCAST_CONFIG", str(tmp_path / "config.json"))
     save_config(Config(tv="10.0.0.50", prowlarr_apikey="ключ", hls_dir=str(tmp_path / "hls")))
-    monkeypatch.setattr(cli, "Prowlarr", _FakeProwlarr)
-    monkeypatch.setattr(cli, "TorrServer", _FakeTorrServer)
-    monkeypatch.setattr(
-        cli, "probe", lambda url, timeout=90.0, alive=None: Media(5978.0, TRACKS, "h264", 1080)
+    composition.use_indexers(monkeypatch, _FakeProwlarr)
+    composition.use_engines(monkeypatch, _FakeTorrServer)
+    composition.use_prober(
+        monkeypatch, lambda url, timeout=90.0, alive=None: Media(5978.0, TRACKS, "h264", 1080)
     )
     monkeypatch.setattr(playback_state, "start_play_unit", lambda key: None)
-    monkeypatch.setattr(cli, "_await_playing", lambda config, progress, timeout=120.0: None)
+    composition.use_await_playing(monkeypatch, lambda config, progress, timeout=120.0: None)
 
 
 class _FakeProwlarr:
@@ -125,7 +127,7 @@ def test_the_happy_path_asks_about_the_film_and_nothing_else(
     """
     asked = _answers(monkeypatch, "2", "")
 
-    assert cli.main(["моана"]) == 0
+    assert main(["моана"]) == 0
 
     printed = capsys.readouterr().out
     assert [q.split("[")[0].strip() for q in asked] == ["Что смотрим?"]
@@ -152,10 +154,10 @@ def test_silent_indexer_is_named_once_during_search(
             super().__init__(url, apikey)
             self.reported_silent = set()
 
-    monkeypatch.setattr(cli, "Prowlarr", _SilentProwlarr)
+    composition.use_indexers(monkeypatch, _SilentProwlarr)
     _answers(monkeypatch, "2", "")
 
-    assert cli.main(["моана"]) == 0
+    assert main(["моана"]) == 0
     printed = capsys.readouterr().out
     line = "индексер Knaben не ответил - выдача может быть хуже"
     assert printed.count(line) == 1
@@ -176,10 +178,10 @@ def test_banned_indexer_is_named_too(
             super().__init__(url, apikey)
             self.reported_silent = set()
 
-    monkeypatch.setattr(cli, "Prowlarr", _BannedProwlarr)
+    composition.use_indexers(monkeypatch, _BannedProwlarr)
     _answers(monkeypatch, "2", "")
 
-    assert cli.main(["моана"]) == 0
+    assert main(["моана"]) == 0
     printed = capsys.readouterr().out
     assert printed.count("индексер Knaben недоступен - выдача может быть хуже") == 1
 
@@ -196,7 +198,7 @@ def test_the_question_says_out_loud_what_enter_will_start(
     """
     _answers(monkeypatch, "", "")  # Enter на вопросе - то самое, о чём строка и говорит
 
-    assert cli.main(["моана"]) == 0
+    assert main(["моана"]) == 0
 
     printed = capsys.readouterr().out
     enter = "Enter - «Moana (2016)», пункт 1 из 2"
@@ -213,12 +215,12 @@ def test_a_single_choice_is_not_a_question(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Меню франшизы пропускается, когда картина одна; озвучки нет вовсе."""
-    monkeypatch.setattr(
-        cli, "probe", lambda url, timeout=90.0, alive=None: Media(5978.0, TRACKS[:1], "h264")
+    composition.use_prober(
+        monkeypatch, lambda url, timeout=90.0, alive=None: Media(5978.0, TRACKS[:1], "h264")
     )
     asked = _answers(monkeypatch)
 
-    assert cli.main(["моана", "2"]) == 0
+    assert main(["моана", "2"]) == 0
 
     assert asked == [], "выбирать не из чего - спрашивать не о чем"
     assert "Озвучка:" not in capsys.readouterr().out
@@ -235,7 +237,7 @@ def test_a_bare_enter_is_enough_for_everything(
     """
     _answers(monkeypatch, "", "")
 
-    assert cli.main(["моана"]) == 0
+    assert main(["моана"]) == 0
     printed = capsys.readouterr().out
     assert "  1. Moana (2016)\n  2. Моана 2 (2024)" in printed, "список остался хронологией"
     assert "играю «Moana» (2016)" in printed
@@ -263,10 +265,10 @@ def test_the_swap_line_is_the_last_word_before_the_start(
         def search(self, query: str) -> list[RawResult]:
             return list(TWINS)
 
-    monkeypatch.setattr(cli, "Prowlarr", _Twins)
+    composition.use_indexers(monkeypatch, _Twins)
     _answers(monkeypatch, "", "")
 
-    assert cli.main(["мумия"]) == 0
+    assert main(["мумия"]) == 0
 
     lines = [line for line in capsys.readouterr().out.splitlines() if line.strip()]
     assert lines[-1].startswith("играю «Мумия» (1999)"), lines[-1]
@@ -282,7 +284,7 @@ def test_the_film_with_a_number_in_the_title_is_a_film(
     """Номер в названии не делает картину сериалом: «Моана 2» — фильм, строк про серии нет."""
     _answers(monkeypatch, "2", "")
 
-    assert cli.main(["моана"]) == 0
+    assert main(["моана"]) == 0
 
     printed = capsys.readouterr().out
     assert "сериал" not in printed and "s1e1" not in printed
@@ -298,7 +300,7 @@ def test_a_pick_names_the_film_without_a_question(monkeypatch: pytest.MonkeyPatc
     """
     asked = _answers(monkeypatch)
 
-    assert cli.main(["моана", "--pick", "2"]) == 0
+    assert main(["моана", "--pick", "2"]) == 0
 
     assert asked == [], "номер назван флагом - спрашивать нечего"
     key, _entry = next(iter(State.load()))
@@ -316,7 +318,7 @@ def test_a_pick_works_where_a_menu_cannot_be_asked(monkeypatch: pytest.MonkeyPat
     monkeypatch.setattr(console, "stdin_is_tty", lambda: False)
     _answers(monkeypatch)
 
-    assert cli.main(["моана", "--pick", "1"]) == 0
+    assert main(["моана", "--pick", "1"]) == 0
 
     key, _entry = next(iter(State.load()))
     assert key == "movie:moana:2016"
@@ -329,7 +331,7 @@ def test_a_pick_outside_the_menu_is_an_honest_error(
     monkeypatch.setattr(playback_state, "start_play_unit", lambda key: pytest.fail("не кастим"))
     _answers(monkeypatch)
 
-    assert cli.main(["моана", "--pick", "7"]) == 1
+    assert main(["моана", "--pick", "7"]) == 1
     assert "номера 7 нет" in capsys.readouterr().err
 
 
@@ -339,7 +341,7 @@ def test_release_and_file_are_debug_handles_and_show_the_insides(
     """`--release N` и `--file N` — отладочные ручки: внутренности показываем только им."""
     _answers(monkeypatch, "1", "")
 
-    assert cli.main(["моана", "2", "--release", "2", "--file", "1"]) == 0
+    assert main(["моана", "2", "--release", "2", "--file", "1"]) == 0
 
     printed = capsys.readouterr().out
     assert "файл: Moana.2016.1080p.mkv" in printed
@@ -360,14 +362,14 @@ def test_a_hand_picked_number_does_not_trip_the_neighbours_prewarm(
     monkeypatch.setattr(_FakeProwlarr, "search", lambda self, query: [*FOUND, extra])
     _answers(monkeypatch, "2", "")
 
-    assert cli.main(["моана", "--release", "3"]) == 0
+    assert main(["моана", "--release", "3"]) == 0
 
     assert "релизов 2" not in capsys.readouterr().out, "счёт соседки к выбору не относится"
 
 
 def test_releases_prints_the_old_table_and_exits(capsys: pytest.CaptureFixture[str]) -> None:
     """`cast releases <запрос>` — та самая таблица, но только по явной просьбе."""
-    assert cli.main(["releases", "моана"]) == 0
+    assert main(["releases", "моана"]) == 0
 
     printed = capsys.readouterr().out
     assert "Релизы:" in printed and "Качество" in printed
@@ -382,7 +384,7 @@ def test_releases_ties_each_number_to_its_picture(capsys: pytest.CaptureFixture[
     картину не назвать: заголовки нумеруются тем же номером, что пункты меню `cast`
     (и флаг ``--pick``), а строка-подсказка зовёт оба флага.
     """
-    assert cli.main(["releases", "моана"]) == 0
+    assert main(["releases", "моана"]) == 0
 
     printed = capsys.readouterr().out
     assert "1. Moana (2016) - раздач" in printed, printed
@@ -430,7 +432,7 @@ def test_resume_is_silent_and_only_reports_position_in_the_show_line(
     state.save()
     asked = _answers(monkeypatch, "")
 
-    assert cli.main(["моана", "2"]) == 0
+    assert main(["моана", "2"]) == 0
 
     printed = capsys.readouterr().out
     assert asked == []
@@ -457,7 +459,7 @@ def test_new_plays_the_saved_choice_from_zero_without_questions(
     state.save()
     asked = _answers(monkeypatch, "")
 
-    assert cli.main(["моана", "2", "--new"]) == 0
+    assert main(["моана", "2", "--new"]) == 0
 
     saved = State.load().entries["movie:моана-2:2024"]
     assert asked == []
@@ -470,7 +472,7 @@ def test_new_without_a_bookmark_uses_the_normal_search(
     """Новая картина с нуля - обычный поиск, а не ошибка про отсутствующую запись."""
     asked = _answers(monkeypatch)
 
-    assert cli.main(["моана", "2", "--new"]) == 0
+    assert main(["моана", "2", "--new"]) == 0
 
     saved = State.load().entries["movie:моана-2:2024"]
     assert asked == []
@@ -497,7 +499,7 @@ def test_new_restarts_the_saved_choice_of_the_picture_picked_in_the_menu(
     state.save()
     asked = _answers(monkeypatch, "2")
 
-    assert cli.main(["моана", "--new"]) == 0
+    assert main(["моана", "--new"]) == 0
 
     saved = State.load().entries["movie:моана-2:2024"]
     assert len(asked) == 1 and "Что смотрим?" in asked[0]
@@ -526,7 +528,7 @@ def test_a_bookmark_of_a_sequel_does_not_answer_which_picture_was_asked(
     state.save()
     asked = _answers(monkeypatch, "")  # Enter в меню - дефолт франшизы
 
-    assert cli.main(["моана"]) == 0
+    assert main(["моана"]) == 0
 
     printed = capsys.readouterr().out
     assert [q.split("[")[0].strip() for q in asked] == ["Что смотрим?"]
@@ -550,7 +552,7 @@ def test_the_bookmark_is_resumed_inside_the_picture_that_was_chosen(
     state.save()
     asked = _answers(monkeypatch, "2", "")  # вторая картина меню, продолжить с места
 
-    assert cli.main(["моана"]) == 0
+    assert main(["моана"]) == 0
 
     printed = capsys.readouterr().out
     assert len(asked) == 1, asked
@@ -585,7 +587,7 @@ def test_a_legacy_record_of_a_film_written_as_a_series_behaves_as_a_film(
     state.save()
     asked = _answers(monkeypatch, "")
 
-    assert cli.main(["моана", "2"]) == 0
+    assert main(["моана", "2"]) == 0
 
     printed = capsys.readouterr().out
     assert asked == []
@@ -615,12 +617,12 @@ def test_prewarmed_torrents_are_dropped_when_the_show_never_starts(
             dropped.append(torrent_hash)
             return True
 
-    monkeypatch.setattr(cli, "TorrServer", _Counting)
+    composition.use_engines(monkeypatch, _Counting)
     monkeypatch.setattr(
         "builtins.input", lambda prompt="": (_ for _ in ()).throw(KeyboardInterrupt)
     )
 
-    assert cli.main(["моана"]) != 0, "Ctrl-C на вопросе - не показ"
+    assert main(["моана"]) != 0, "Ctrl-C на вопросе - не показ"
 
     assert added, "прогрев под меню раздачи поднимает"
     assert len(dropped) == len(set(added)), "и все они убраны, раз показа не будет"
@@ -651,7 +653,7 @@ def test_the_spare_release_warms_under_the_menu_not_after_the_first_one_fails(
             added.append(magnet)
             return f"hash-{magnet[:30]}"
 
-    monkeypatch.setattr(cli, "TorrServer", _Counting)
+    composition.use_engines(monkeypatch, _Counting)
     under_question: list[set[str]] = []
 
     def ask(prompt: str = "") -> str:
@@ -664,7 +666,7 @@ def test_the_spare_release_warms_under_the_menu_not_after_the_first_one_fails(
 
     monkeypatch.setattr("builtins.input", ask)
 
-    assert cli.main(["моана"]) == 0
+    assert main(["моана"]) == 0
 
     assert under_question, "меню про франшизу спросили"
     assert set(SPARE_PICTURE) <= under_question[0], "обе раздачи выбранной картины уже греются"
@@ -691,10 +693,10 @@ def test_the_unused_spare_leaves_torrserver_by_its_own_hash(
             dropped.append(torrent_hash)
             return True
 
-    monkeypatch.setattr(cli, "TorrServer", _Counting)
+    composition.use_engines(monkeypatch, _Counting)
     _answers(monkeypatch, "", "")
 
-    assert cli.main(["моана"]) == 0
+    assert main(["моана"]) == 0
 
     raised = {f"hash-{magnet[:30]}" for magnet in added}
     played = f"hash-magnet:?xt=urn:btih:{SPARE_PICTURE[0][:10]}"
@@ -712,7 +714,7 @@ def _started_film(monkeypatch: pytest.MonkeyPatch, pos: float = 2467.0) -> None:
         Entry(title="Моана 2", magnet="magnet:?xt=1", pos=pos, dur=5978.0, query="моана-2"),
     )
     state.save()
-    monkeypatch.setattr(cli, "warm_file", lambda *a, **k: None)
+    composition.use_warm_file(monkeypatch, lambda *a, **k: None)
 
 
 def test_silent_resume_does_not_start_a_competing_position_warmer(
@@ -727,10 +729,10 @@ def test_silent_resume_does_not_start_a_competing_position_warmer(
             added.append(magnet)
             return f"hash-{magnet[:30]}"
 
-    monkeypatch.setattr(cli, "TorrServer", _Counting)
-    monkeypatch.setattr(cli, "warm_file", lambda *a, **k: pytest.fail("грелки быть не должно"))
+    composition.use_engines(monkeypatch, _Counting)
+    composition.use_warm_file(monkeypatch, lambda *a, **k: pytest.fail("грелки быть не должно"))
 
-    assert cli.main(["моана", "2"]) == 0
+    assert main(["моана", "2"]) == 0
     assert added == [], "CLI не поднимает второго читателя раздачи"
 
 
@@ -755,10 +757,10 @@ def test_a_dry_run_takes_even_the_chosen_torrent_back(monkeypatch: pytest.Monkey
             dropped.append(torrent_hash)
             return True
 
-    monkeypatch.setattr(cli, "TorrServer", _Counting)
+    composition.use_engines(monkeypatch, _Counting)
     _answers(monkeypatch, "")
 
-    assert cli.main(["моана", "--dry"]) == 0
+    assert main(["моана", "--dry"]) == 0
 
     # Чужие прогревы догорают в своих потоках и доносят свои сносы оттуда - дожидаемся,
     # но не дольше пяти секунд: на сломанном коде выбранная раздача не уходит никогда.
@@ -797,11 +799,11 @@ def test_a_dry_run_names_the_chosen_file_not_the_request_echo(
         ) -> list[TorrFile]:
             return [TorrFile(i, f"Cyberpunk.S01E0{i + 1}.mkv", 2 * GB) for i in range(3)]
 
-    monkeypatch.setattr(cli, "Prowlarr", _SeriesProwlarr)
-    monkeypatch.setattr(cli, "TorrServer", _SeriesTorrServer)
+    composition.use_indexers(monkeypatch, _SeriesProwlarr)
+    composition.use_engines(monkeypatch, _SeriesTorrServer)
     _answers(monkeypatch, "")
 
-    assert cli.main(["киберпанк", "s1e3", "--dry"]) == 0
+    assert main(["киберпанк", "s1e3", "--dry"]) == 0
 
     said = capsys.readouterr().out
     assert "Cyberpunk.S01E03.mkv" in said, "сухой прогон называет ВЫБРАННЫЙ файл"
@@ -822,11 +824,11 @@ def test_an_instant_answer_is_no_worse_than_before(monkeypatch: pytest.MonkeyPat
             time.sleep(0.3)  # человек успевает ответить раньше, чем раздача поднимется
             return f"hash-{magnet[:30]}"
 
-    monkeypatch.setattr(cli, "TorrServer", _Slow)
+    composition.use_engines(monkeypatch, _Slow)
     monkeypatch.setattr(playback_state, "start_play_unit", lambda key: started.append(key))
     _answers(monkeypatch, "")
 
-    assert cli.main(["моана", "2"]) == 0
+    assert main(["моана", "2"]) == 0
     assert started == ["movie:моана-2:2024"]
     kept = State.load().get("movie:моана-2:2024")
     assert kept is not None and kept.pos == 2467.0, "продолжаем с сохранённого места"
@@ -843,14 +845,13 @@ def test_two_pictures_under_one_name_reach_the_last_line(
     """
     from torrcast.domain.facts.origin import Origin
 
-    monkeypatch.setattr(
-        cli,
-        "origin",
+    composition.use_passport(
+        monkeypatch,
         lambda *a, **k: Origin(title="Moana", year=2016, namesake="Моана (фильм, 2026)"),
     )
     _answers(monkeypatch, "1", "")
 
-    assert cli.main(["моана"]) == 0
+    assert main(["моана"]) == 0
 
     printed = capsys.readouterr().out
     assert "под этим именем и годом картин две" in printed
@@ -885,7 +886,7 @@ def test_a_second_cast_says_the_tv_is_busy_with_our_show(
     _live_show(show_unit)
     _answers(monkeypatch, "2", "")
 
-    assert cli.main(["моана"]) == 0
+    assert main(["моана"]) == 0
 
     printed = capsys.readouterr().out
     assert "на телевизоре сейчас идёт «Матрица»" in printed, printed
@@ -911,7 +912,7 @@ def test_the_menu_prewarm_stands_aside_while_our_show_is_on_air(
             added.append(magnet)
             return f"hash-{magnet[:30]}"
 
-    monkeypatch.setattr(cli, "TorrServer", _Counting)
+    composition.use_engines(monkeypatch, _Counting)
     _live_show(show_unit)
 
     under_question: list[int] = []
@@ -924,7 +925,7 @@ def test_the_menu_prewarm_stands_aside_while_our_show_is_on_air(
 
     monkeypatch.setattr("builtins.input", ask)
 
-    assert cli.main(["моана"]) == 0
+    assert main(["моана"]) == 0
 
     assert under_question == [0], "под меню живого показа не поднято ни одной раздачи"
 
@@ -952,7 +953,7 @@ def test_a_hand_named_release_weighs_the_same_on_both_early_exits(
         state.save()
         _answers(monkeypatch, "2", "")  # вторая картина меню, если о ней спросят
 
-        assert cli.main(["моана", "2", "--release", "2"]) == 0
+        assert main(["моана", "2", "--release", "2"]) == 0
 
         capsys.readouterr()
         played.append(State.load().entries["movie:моана-2:2024"].magnet[:24])
@@ -978,7 +979,7 @@ def test_a_hand_named_release_says_out_loud_that_it_drops_the_bookmark(
     state.save()
     _answers(monkeypatch, "2", "")
 
-    assert cli.main(["моана", "2", "--release", "2"]) == 0
+    assert main(["моана", "2", "--release", "2"]) == 0
 
     said = capsys.readouterr().out
     assert "не поднимаю" in said, said
@@ -1007,7 +1008,7 @@ def test_a_hand_named_choice_beats_new_and_says_so(
     state.save()
     _answers(monkeypatch)
 
-    assert cli.main(["моана", "2", "--new", flag, number]) == 0
+    assert main(["моана", "2", "--new", flag, number]) == 0
 
     played = State.load().entries["movie:моана-2:2024"]
     said = capsys.readouterr().out
@@ -1031,7 +1032,7 @@ def test_continuing_without_a_flag_keeps_the_bookmark_and_stays_silent(
     state.save()
     asked = _answers(monkeypatch, "")
 
-    assert cli.main(["моана", "2"]) == 0
+    assert main(["моана", "2"]) == 0
 
     said = capsys.readouterr().out
     assert asked == []
@@ -1077,11 +1078,11 @@ def test_a_series_named_by_its_only_season_still_plays(
     Тест берёт именно эту форму. Возьми он раздачу, молчащую о сезоне, или «Кухня (6
     сезон)» - прошёл бы мимо дефекта: обе эти формы играли и до починки.
     """
-    monkeypatch.setattr(cli, "Prowlarr", _KitchenProwlarr)
-    monkeypatch.setattr(cli, "TorrServer", _KitchenTorrServer)
+    composition.use_indexers(monkeypatch, _KitchenProwlarr)
+    composition.use_engines(monkeypatch, _KitchenTorrServer)
     _answers(monkeypatch, "", "")
 
-    assert cli.main(["кухня", "6"]) == 0, "картина живая, раздачи живые - это показ"
+    assert main(["кухня", "6"]) == 0, "картина живая, раздачи живые - это показ"
 
     printed = capsys.readouterr().out
     assert "играю «Кухня 6»" in printed, printed

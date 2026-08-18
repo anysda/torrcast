@@ -10,18 +10,18 @@ import importlib
 import inspect
 import socket
 import subprocess
-import sys
 import time
 from types import ModuleType
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import pytest
 
+from tests.fakes import composition
 from tests.fakes.cast_world import CastWorld
 from tests.fakes.show_unit import FakeShowUnit
-from torrcast import cli
 from torrcast.adapters.console import console
 from torrcast.adapters.filesystem.trace_journal import LOG_ENV, SID_ENV
+from torrcast.domain.debug_handles import CTL_ENV
 from torrcast.domain.facts.origin import Origin
 from torrcast.ports import journal as journal_port
 from torrcast.ports import progress as progress_port
@@ -34,100 +34,6 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from torrcast.usecases.feed_pack.packer import Packer
-
-#: Имена, уехавшие из плоского фасада в свои модули: куда доводить подмену прежнего имени.
-#: Адресов у имени бывает несколько: порог отсрочки читают и стенд отбора, и правило,
-#: которое эту отсрочку назначает, - а живут они уже в разных файлах.
-#:
-#: ⚠️ Молчаливой эта дыра не бывает наполовину. Подмена, не доехавшая до модуля, оставляет
-#: боевое число, и тест либо честно падает, либо проходит на боевом пороге, ничего не
-#: померив: `PEER_GRACE` 6.0 вместо 0.2 держит зелёным ровно тот случай, где ступень и
-#: должна была уступить. Поэтому имя вносится сюда вместе с переездом, а не после первого
-#: красного.
-_MOVED_NAMES = {
-    "_cmd_status": (("torrcast.cli.main", "status"),),
-    "_await_playing": (("torrcast.usecases.playback._launch", "_await_playing"),),
-    "PEER_GRACE": (("torrcast.usecases.rank.peer_grace", "PEER_GRACE"),),
-    "STEP_GRACE": (("torrcast.usecases.rank.peer_grace", "STEP_GRACE"),),
-}
-#: Имена, которые сценарий больше не держит у себя, а получает от композиционного корня:
-#: куда класть подмену, чтобы она осталась той же силы. Ключ - прежнее имя из плоского
-#: фасада, значение - слоты, которые заполняет :func:`torrcast.runtime.wire.wire`.
-#: Наборы, которые дошли до подачи зависимости самим сценарием, сюда не заглядывают.
-_COMPOSED_NAMES = {
-    "TorrServer": (
-        ("torrcast.usecases.cache_reserve", "_reserve_engines"),
-        ("torrcast.usecases.cast_command._play_state", "_play_engines"),
-        ("torrcast.usecases.select._pick_state", "_select_engines"),
-        ("torrcast.usecases.torrents", "_cleanup_engines"),
-        ("torrcast.usecases.voices_command", "_voices_engines"),
-        ("torrcast.usecases.worker", "_worker_engines"),
-    ),
-    "Prowlarr": (("torrcast.usecases.discover._search_state", "_search_indexers"),),
-    "ask_line": (("torrcast.usecases.select._pick_state", "_select_ask_line"),),
-    "make_receiver": (
-        ("torrcast.usecases.playback._show_state", "make_receiver"),
-        ("torrcast.usecases.worker", "_worker_receivers"),
-    ),
-    "origin": (
-        ("torrcast.adapters.choice_environment", "_passport"),
-        ("torrcast.usecases.discover._search_state", "_search_passport"),
-    ),
-    "probe": (
-        ("torrcast.usecases.episode_duration", "_episode_prober"),
-        ("torrcast.usecases.playback._show_state", "probe"),
-        ("torrcast.usecases.select._pick_state", "_select_prober"),
-        ("torrcast.usecases.select_bench._bench_state", "_bench_prober"),
-    ),
-    "swarm_pulse": (("torrcast.usecases.select_bench._bench_state", "_bench_swarm_pulse"),),
-    "warm_file": (("torrcast.usecases.select_bench._bench_state", "_bench_warm_file"),),
-}
-
-
-class _LegacyCliPatches(ModuleType):
-    """Мост на время разреза: подмена ``torrcast.cli.X`` доезжает до модулей реализации.
-
-    Прежде такой хук стоял в самом продукте (``_CliModule`` в ``torrcast/cli.py``) - то есть
-    боевой код носил в себе крючок для тестов. Здесь он на своём месте: держат его ровно те
-    наборы, которые ещё патчат атрибут модуля вместо того, чтобы подавать зависимость
-    конструктором сценария (``test_ux``, ``test_voices``, ``test_play``, ``test_progress``,
-    ``test_episodes``, ``test_translit``, ``test_facts``). Когда последний такой патч
-    исчезнет, вместе с ним уходит и мост.
-    """
-
-    def __setattr__(self, name: str, value: Any) -> None:
-        super().__setattr__(name, value)
-        if name.startswith("__"):
-            return
-        for part in cli._PARTS:
-            if name in vars(part):
-                setattr(part, name, value)
-        for where, moved in _MOVED_NAMES.get(name, ()):
-            setattr(importlib.import_module(where), moved, value)
-        for where, slot in _COMPOSED_NAMES.get(name, ()):
-            setattr(importlib.import_module(where), slot, value)
-
-
-sys.modules[cli.__name__].__class__ = _LegacyCliPatches
-
-
-def _seed_composed_names() -> None:
-    """Вернуть плоскому фасаду имена, которые остались только слотами корня.
-
-    Разрез уносит имя из последней части монолита, где оно ещё лежало, - и подмена
-    ``monkeypatch.setattr(cli, ...)`` падает ``AttributeError`` ещё до тела теста:
-    подменять стало нечего. Мост и так знает, куда такую подмену вести
-    (:data:`_COMPOSED_NAMES`), поэтому он же кладёт на фасад боевое значение из слота:
-    тест подменяет ровно то, что поставил корень, а откат возвращает то же самое.
-    Класть надо мимо самого моста (``ModuleType.__setattr__``) - иначе одно значение
-    разъехалось бы по всем слотам имени, а их у него бывает несколько разных.
-    """
-    for name, slots in _COMPOSED_NAMES.items():
-        if hasattr(cli, name):
-            continue
-        where, slot = slots[0]
-        ModuleType.__setattr__(cli, name, getattr(importlib.import_module(where), slot))
-
 
 #: Длина синтетического ролика. Держим её кратной сетке HLS и с запасом в несколько
 #: сегментов: на сетке 10 с двадцатисекундный ролик - это всего два сегмента,
@@ -339,7 +245,7 @@ def _silent_facts(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     Тесты в сеть не ходят - ни за справкой, ни за чем-либо ещё. Заодно это и есть штатный
     случай «сети нет»: путь добора обязан работать и без справки.
     """
-    monkeypatch.setattr(cli, "origin", lambda title, series=False, budget=0.0: Origin())
+    composition.use_passport(monkeypatch, lambda title, series=False, budget=0.0: Origin())
     monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
 
 
@@ -387,14 +293,14 @@ def _no_remote(monkeypatch: pytest.MonkeyPatch) -> None:
     Переменная живёт в окружении прогона, а показ читает её на каждом опросе: чужой
     пульт, забытый в среде, рулил бы показом посреди чужого теста.
     """
-    monkeypatch.delenv(cli.CTL_ENV, raising=False)
+    monkeypatch.delenv(CTL_ENV, raising=False)
 
 
 @pytest.fixture
 def remote(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Файл диагностического пульта: тест пишет в него команду, показ её съедает."""
     path = tmp_path / "ctl"
-    monkeypatch.setenv(cli.CTL_ENV, str(path))
+    monkeypatch.setenv(CTL_ENV, str(path))
     return path
 
 
@@ -407,7 +313,6 @@ def _wired() -> None:
     Каталог ленты у каждого теста свой - его даёт фикстура ``journal``.
     """
     wire()
-    _seed_composed_names()
 
 
 @pytest.fixture(autouse=True)

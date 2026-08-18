@@ -1,7 +1,7 @@
 """Секундомер ФАЗЫ ОТБОРА: во что человеку обходится брак верхнего релиза (TC-120).
 
 Меряется ровно то, что видно глазами после ответа на меню: сколько идёт
-:meth:`torrcast.cli._Bench.resolve` - от «картина выбрана» до «отбор релиза». Индексеры при
+:meth:`torrcast._Bench.resolve` - от «картина выбрана» до «отбор релиза». Индексеры при
 этом не спрашиваются вовсе: план собирается из magnet-ссылок, названных в командной
 строке, поэтому замер не жжёт квоту трекеров и повторяется одинаково.
 
@@ -9,7 +9,7 @@
 
 ``--magnets`` - два релиза ОДНОЙ картины: первый пойдёт верхом, второй запасным.
 ``--filler`` - соседние картины франшизы: они занимают остальные места прогрева под меню
-(:data:`torrcast.cli.PREWARM`), то есть воспроизводят настоящую конкуренцию за рой.
+(:data:`torrcast.PREWARM`), то есть воспроизводят настоящую конкуренцию за рой.
 ``--ceiling`` - потолок отбраковки, Мбит/с: между настоящими битрейтами двух релизов он
 даёт сценарий «верх забракован», выше обоих - «верх годен».
 
@@ -37,12 +37,17 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from torrcast import TorrcastError, cli
+from torrcast import TorrcastError
 from torrcast.adapters.console.console import Progress
 from torrcast.adapters.filesystem.state import load_config, state_path
 from torrcast.adapters.torrserver.torr_server import TorrServer
+from torrcast.cli.args import Args
 from torrcast.domain.picture import Picture
+from torrcast.domain.prewarm_settings import PREWARM
 from torrcast.domain.release import Release
+from torrcast.usecases.choice import warm_order
+from torrcast.usecases.select import _Plan
+from torrcast.usecases.select_bench import _Bench
 
 #: Каталог замера: своё состояние и свой кэш карт, рабочие не трогаются.
 BENCH = Path("/root/tc120")
@@ -53,7 +58,7 @@ def release(magnet: str, number: int, seeders: int = 100) -> Release:
     """Синтетическое имя на настоящий magnet: разбор имён тут не проверяется.
 
     ⚠️ Размер тут - заявка ИМЕНИ, и нужен он ровно для того, чтобы релиз прошёл в очередь
-    (:func:`torrcast.cli.is_candidate` прикидывает битрейт по нему). Приговор выносится не
+    (:func:`torrcast.usecases.rank.is_candidate` прикидывает битрейт по нему). Приговор выносится не
     по нему, а по прочитанному файлу: настоящий вес считает ffprobe уже в отборе, и именно
     он решает, забракован верх или годен.
     """
@@ -69,23 +74,23 @@ def release(magnet: str, number: int, seeders: int = 100) -> Release:
     )
 
 
-def plans(magnets: list[str], filler: list[str], ceiling: float) -> list[cli._Plan]:
+def plans(magnets: list[str], filler: list[str], ceiling: float) -> list[_Plan]:
     """Картина под замером и её соседи по франшизе - ровно то, что греется под меню."""
-    made: list[cli._Plan] = []
+    made: list[_Plan] = []
     for spot, group in enumerate([magnets, *[[m] for m in filler]]):
         ranked = [release(m, n) for n, m in enumerate(group, start=1)]
         picture = Picture(title=f"Кино {spot + 1}", year=1999 + spot, releases=ranked)
-        made.append(cli._Plan(picture=picture, ranked=ranked, runtime=6000.0, warn_mbit=ceiling))
+        made.append(_Plan(picture=picture, ranked=ranked, runtime=6000.0, warn_mbit=ceiling))
     return made
 
 
-def once(url: str, order: list[cli._Plan], think: float, spare: bool) -> tuple[float, str]:
+def once(url: str, order: list[_Plan], think: float, spare: bool) -> tuple[float, str]:
     """Один прогон: прогрев под меню, пауза «человек читает», отбор. Всё убирается за собой."""
     shutil.rmtree(state_path().parent / "keys", ignore_errors=True)  # старт холодный
-    bench = cli._Bench(TorrServer(url))
-    args = cli.Args(query=["кино"])
-    warmed = cli.warm_order(order)
-    for plan in warmed[: cli.PREWARM]:
+    bench = _Bench(TorrServer(url))
+    args = Args(query=["кино"])
+    warmed = warm_order(order)
+    for plan in warmed[:PREWARM]:
         if queue := plan.candidates(args):  # голова очереди, как на боевом пути (TC-432)
             bench.start(plan, queue[0])
     if spare:  # правка TC-120: запасной релиз выбранной картины греется тут же

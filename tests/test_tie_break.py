@@ -5,11 +5,11 @@ from __future__ import annotations
 import random
 from typing import Any
 
-from torrcast.cli import rank_releases
 from torrcast.domain.cluster import cluster
 from torrcast.domain.menu_order import menu_order
 from torrcast.domain.pick_franchise import pick_franchise
 from torrcast.domain.release import Release
+from torrcast.usecases.rank import rank_releases
 
 
 def test_deterministic_ties() -> None:

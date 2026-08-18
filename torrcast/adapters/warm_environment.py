@@ -62,7 +62,12 @@ class _SystemWarmEnvironment:
         # (:mod:`torrcast.usecases.rank`) и адаптеру по имени недоступен. Похожая
         # :func:`torrcast.domain.digest._hms` НЕ подходит: она опускает часы у коротких
         # отрезков, а прогрев печатает их всегда.
-        text: str = import_module("torrcast.cli")._hms(seconds)
+        #
+        # 🔴 Строка тут раньше называла плоский namespace прежнего монолита
+        # (``torrcast.cli``), а не дом самой единицы: со сносом namespace прогрев уходил
+        # в `AttributeError` внутри фоновой нитки цепочки серий - молча и посреди показа.
+        # Строка обязана называть настоящий дом, даже пока она строка.
+        text: str = import_module("torrcast.usecases.rank")._hms(seconds)
         return text
 
     @property

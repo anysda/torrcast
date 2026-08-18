@@ -69,10 +69,10 @@ from torrcast.adapters.stream_probe.pick_video_file import pick_video_file
 from torrcast.adapters.stream_probe.probe import probe
 from torrcast.adapters.stream_probe.segment_slot import segment_slot
 from torrcast.adapters.torrserver.torr_server import TorrServer
-from torrcast.cli import _layout
 from torrcast.domain.config import Config
 from torrcast.domain.profile import Profile
 from torrcast.usecases.feed_pack.packer import Packer
+from torrcast.usecases.playback import _layout
 
 PRESET_LADDER = ("ultrafast", "superfast", "veryfast", "faster", "fast", "medium")
 

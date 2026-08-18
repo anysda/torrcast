@@ -685,8 +685,8 @@ def test_the_initial_burst_replaces_pausing_the_packer() -> None:
     стоит до ``-i``, а сигналов остановки в коде показа не осталось вовсе — именно под
     SIGSTOP'ом приёмник намертво вис в BUFFERING при живых сегментах на диске.
     """
-    from torrcast import cli as cli_module
     from torrcast.adapters.chromecast import cast as cast_module
+    from torrcast.usecases import playback as playback_package
     from torrcast.usecases.feed_pack import packer as packer_module
 
     grid = Grid.uniform(100.0)
@@ -696,10 +696,13 @@ def test_the_initial_burst_replaces_pausing_the_packer() -> None:
     quiet = ffmpeg_pack_command("u", 0, "/run", grid, 0, 0.0, readrate=0.0, burst=60.0)
     assert "-readrate_initial_burst" not in quiet
 
-    # В доках про SIGSTOP написано - важно, чтобы его не осталось в КОДЕ показа.
-    for module in (packer_module, cli_module, cast_module):
-        source = Path(str(module.__file__)).read_text(encoding="utf-8")
-        assert "send_signal" not in source, f"{module.__name__}: показ шлёт сигналы упаковке"
+    # В доках про SIGSTOP написано - важно, чтобы его не осталось в КОДЕ показа. Прежде
+    # весь показ лежал одним файлом и сверялся один файл; теперь он разложен пакетом, и
+    # сверяется пакет целиком - иначе проверка мерила бы пустой `__init__`.
+    show = sorted(Path(str(playback_package.__file__)).parent.rglob("*.py"))
+    for where in (Path(str(packer_module.__file__)), *show, Path(str(cast_module.__file__))):
+        source = where.read_text(encoding="utf-8")
+        assert "send_signal" not in source, f"{where.name}: показ шлёт сигналы упаковке"
 
 
 def test_an_unreadable_keyframe_map_falls_back_to_a_flat_grid_out_loud() -> None:

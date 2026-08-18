@@ -53,9 +53,9 @@ from torrcast.adapters.stream_pack.grid import Grid
 from torrcast.adapters.stream_pack.hls_dir import hls_dir
 from torrcast.adapters.stream_probe.probe import probe
 from torrcast.adapters.stream_probe.segment_name import segment_name
-from torrcast.cli import _layout
 from torrcast.runtime.wire import wire
 from torrcast.usecases.feed_pack.feed import Feed
+from torrcast.usecases.playback import _layout
 
 #: Во сколько раз кусок вправе быть длиннее заказанного шага, прежде чем сетка перестанет
 #: быть сеткой.
