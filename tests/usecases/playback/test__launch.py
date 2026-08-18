@@ -7,12 +7,13 @@ from typing import cast
 
 import pytest
 
-import torrcast.usecases.playback._show_state as _state
+from tests.fakes import composition
 from tests.fakes.clock import FakeClock
 from tests.usecases.playback.world import FakeProgress, FakeShow, touch_segment
 from torrcast.domain.choice import Choice
 from torrcast.domain.config import Config
 from torrcast.domain.entry import Entry
+from torrcast.domain.hls_settings import PLAYING_FLAG
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.profile import CAUTIOUS
@@ -24,7 +25,7 @@ def test_a_frame_the_receiver_never_takes_is_refused_before_the_unit(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """4К без перекода приёмник не берёт вовсе - отказ печатается до всякого ffmpeg."""
-    monkeypatch.setattr(_state, "detect_profile", lambda config: Choice(CAUTIOUS, "стенд"))
+    composition.use_profile(monkeypatch, lambda config: Choice(CAUTIOUS, "стенд"))
     config = Config(recode=False)
     entry = Entry(title="Кино", magnet="magnet:?xt=1", frame=2160, quality="2160p")
 
@@ -36,14 +37,14 @@ def test_the_same_record_plays_when_the_whole_recode_is_on(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Ужать кадр умеет сплошной перекод - значит отказывать тут нечему."""
-    monkeypatch.setattr(_state, "detect_profile", lambda config: Choice(CAUTIOUS, "стенд"))
+    composition.use_profile(monkeypatch, lambda config: Choice(CAUTIOUS, "стенд"))
 
     _refuse_hopeless(Config(recode=True), Entry(title="Кино", magnet="magnet:?xt=1", frame=2160))
 
 
 def test_a_record_of_an_older_version_plays_as_it_did(monkeypatch: pytest.MonkeyPatch) -> None:
     """Кадр ноль - запись прежней версии: молчим там, где не знаем."""
-    monkeypatch.setattr(_state, "detect_profile", lambda config: Choice(CAUTIOUS, "стенд"))
+    composition.use_profile(monkeypatch, lambda config: Choice(CAUTIOUS, "стенд"))
 
     _refuse_hopeless(Config(recode=False), Entry(title="Кино", magnet="magnet:?xt=1"))
 
@@ -54,8 +55,7 @@ def test_the_flag_of_the_picture_ends_the_waiting(
     """Ждут КАРТИНКУ: флажок кладёт юнит, и ровно по нему ожидание кончается."""
     out = tmp_path / "hls"
     out.mkdir()
-    (out / "playing").write_text("")
-    monkeypatch.setattr(_state, "playing_flag", lambda where: Path(where) / "playing")
+    (out / PLAYING_FLAG).write_text("")
     progress = FakeProgress()
 
     _await_playing(
@@ -75,7 +75,6 @@ def test_a_dead_unit_ends_the_waiting_with_its_own_reason(
     """Юнит выпал - ждать нечего, и причина берётся у него же, а не выдумывается."""
     out = tmp_path / "hls"
     touch_segment(out)
-    monkeypatch.setattr(_state, "playing_flag", lambda where: Path(where) / "playing")
 
     with pytest.raises(InfraError, match="показ не запустился: юнит выпал"):
         _await_playing(
@@ -93,7 +92,6 @@ def test_the_budget_of_the_start_is_not_endless(
     """Бюджет старта вышел - юнит гасится, а человеку называется срок, а не молчание."""
     out = tmp_path / "hls"
     out.mkdir()
-    monkeypatch.setattr(_state, "playing_flag", lambda where: Path(where) / "playing")
     unit = FakeShow()
 
     with pytest.raises(InfraError, match="показ не начался за 3 с"):

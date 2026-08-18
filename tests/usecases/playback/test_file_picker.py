@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import pytest
 
-import torrcast.usecases.playback._show_state as _state
 from torrcast.domain.args import Args
 from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.picture import Picture
@@ -32,10 +31,12 @@ def _plan() -> Plan:
     )
 
 
-def test_a_movie_takes_the_biggest_video_file(monkeypatch: pytest.MonkeyPatch) -> None:
-    """У фильма серии нет - берётся то, что назовёт медиатракт, а не первый попавшийся."""
-    monkeypatch.setattr(_state, "pick_video_file", lambda files: max(files, key=lambda f: f.size))
+def test_a_movie_takes_the_biggest_video_file() -> None:
+    """У фильма серии нет - берётся то, что назовёт медиатракт, а не первый попавшийся.
 
+    Медиатракт тут настоящий - тот, что положил корень: подделка на его месте
+    доказывала бы выбор теста, а не выбор показа.
+    """
     assert _default_file(_plan(), _plan().ranked[0], _files()).index == 2
 
 

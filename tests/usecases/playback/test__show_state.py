@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 import torrcast.usecases.playback._show_state as _state
+from tests.fakes import composition
 from torrcast.runtime.wire import wire
 from torrcast.usecases.playback._show_state import _configure_playback
 
@@ -21,7 +22,7 @@ def test_every_slot_of_the_show_is_filled_by_the_composition_root() -> None:
 def test_the_word_of_the_composition_reaches_the_slot(monkeypatch: pytest.MonkeyPatch) -> None:
     """Слот берёт то, что положил корень, и берёт это КАЖДЫЙ раз, а не на импорте."""
     started: list[str] = []
-    monkeypatch.setattr(_state, "start_play_unit", started.append)
+    composition.use_start_unit(monkeypatch, started.append)
 
     _state.start_play_unit("кино")
 
@@ -35,7 +36,7 @@ def test_a_second_word_replaces_the_first(monkeypatch: pytest.MonkeyPatch) -> No
     first: list[str] = []
     second: list[str] = []
     try:
-        monkeypatch.setattr(_state, "start_play_unit", first.append)
+        composition.use_start_unit(monkeypatch, first.append)
         _configure_playback(
             _state.CLOCK,
             _state.make_receiver,

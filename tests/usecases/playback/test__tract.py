@@ -8,10 +8,9 @@ from typing import cast
 
 import pytest
 
-import torrcast.usecases.playback._show_state as _state
+from tests.fakes import composition
 from tests.usecases.playback.world import film_keys, grid
-from torrcast.adapters.http_server.hls_server import HlsServer
-from torrcast.adapters.recode import Encode, Recoder, Weights, whole_encode
+from torrcast.adapters.recode import Recoder, whole_encode
 from torrcast.adapters.stream_pack.hls_dir import hls_dir
 from torrcast.domain.config import Config
 from torrcast.domain.position import Position
@@ -35,14 +34,13 @@ class _Cutting:
 
 @pytest.fixture(autouse=True)
 def _world(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(_state, "film_keys", lambda source: film_keys())
-    monkeypatch.setattr(_state, "weights_of", Weights.of)
-    monkeypatch.setattr(_state, "Recoder", Recoder)
-    monkeypatch.setattr(_state, "Encode", Encode)
-    monkeypatch.setattr(_state, "whole_encode", whole_encode)
-    monkeypatch.setattr(_state, "HlsServer", HlsServer)
-    monkeypatch.setattr(_state, "RECODE_DIR", "recode")
-    monkeypatch.setattr(_state, "hls_dir", lambda where: hls_dir(str(where)))
+    """Единственная подделка тракта - карта опорных кадров; остальное настоящее.
+
+    Раздача, оба кодировщика и каталог перекода приезжают от корня
+    (:func:`torrcast.runtime.wire.wire`) теми же, что стоят на боевом пути: договор
+    медиатракта зеркало сверяет с ними, а не с пересказом.
+    """
+    composition.use_film_keys(monkeypatch, lambda source: film_keys())
 
 
 def _config(tmp_path: Path) -> Config:

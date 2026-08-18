@@ -6,14 +6,9 @@ from pathlib import Path
 
 import pytest
 
-import torrcast.usecases.playback._show_state as _state
-import torrcast.usecases.revive_playback._revive_state as _revive
+from tests.fakes import composition
 from tests.fakes.clock import FakeClock
 from tests.usecases.playback.world import film_keys
-from torrcast.adapters.http_server.hls_server import HlsServer
-from torrcast.adapters.recode import Encode, Recoder, Weights, whole_encode
-from torrcast.adapters.stream_pack.grid_for import grid_for
-from torrcast.adapters.stream_pack.hls_dir import hls_dir
 from torrcast.domain.config import Config
 from torrcast.domain.exit_codes import EXIT_OK
 from torrcast.domain.position import Position
@@ -50,20 +45,16 @@ class _Screening:
 
 @pytest.fixture(autouse=True)
 def _world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(_state, "film_keys", lambda source: film_keys())
-    monkeypatch.setattr(_state, "weights_of", Weights.of)
-    monkeypatch.setattr(_state, "Recoder", Recoder)
-    monkeypatch.setattr(_state, "Encode", Encode)
-    monkeypatch.setattr(_state, "whole_encode", whole_encode)
-    monkeypatch.setattr(_state, "grid_for", grid_for)
-    monkeypatch.setattr(_state, "HlsServer", HlsServer)
-    monkeypatch.setattr(_state, "RECODE_DIR", "recode")
-    monkeypatch.setattr(_state, "hls_dir", lambda where: hls_dir(str(where)))
-    monkeypatch.setattr(_state, "hls_base", lambda config: "http://127.0.0.1:0")
-    # Часы держателя показа - ручные: зеркало меряет решение показа, а не терпеливость
-    # машины. С боевыми часами круг опроса ждал бы настоящие две секунды на каждый шаг.
-    monkeypatch.setattr(_revive, "_revive_clock", FakeClock(now=1000.0))
-    monkeypatch.setattr(_revive, "_revive_playing_mark", lambda where: None)
+    """Внешний мир показа - боевой; подделок ровно три, и каждая про машину.
+
+    Карта опорных кадров вместо ffprobe, свой адрес вместо опроса маршрута до ТВ и
+    ручные часы держателя: с боевыми круг опроса ждал бы настоящие две секунды на
+    каждом шаге, то есть зеркало меряло бы терпеливость машины, а не решение показа.
+    """
+    composition.use_film_keys(monkeypatch, lambda source: film_keys())
+    composition.use_hls_base(monkeypatch, lambda config: "http://127.0.0.1:0")
+    composition.use_revive_clock(monkeypatch, FakeClock(now=1000.0))
+    composition.use_playing_mark(monkeypatch, lambda where: None)
 
 
 def _config(tmp_path: Path) -> Config:

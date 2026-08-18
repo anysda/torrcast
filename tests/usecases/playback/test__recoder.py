@@ -6,9 +6,8 @@ from pathlib import Path
 
 import pytest
 
-import torrcast.usecases.playback._show_state as _state
+from tests.fakes import composition
 from tests.usecases.playback.world import film_keys, grid
-from torrcast.adapters.recode import Encode, Recoder, Weights
 from torrcast.adapters.stream_pack.grid import Grid
 from torrcast.domain.config import Config
 from torrcast.domain.infra_error import InfraError
@@ -18,10 +17,12 @@ from torrcast.usecases.playback._recoder import _recoder
 
 @pytest.fixture(autouse=True)
 def _tract(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(_state, "film_keys", lambda source: film_keys())
-    monkeypatch.setattr(_state, "weights_of", Weights.of)
-    monkeypatch.setattr(_state, "Recoder", Recoder)
-    monkeypatch.setattr(_state, "Encode", Encode)
+    """Карта опорных кадров - готовая: ffprobe за ней тут не стоит.
+
+    Профиль тяжести и оба кодировщика остаются теми, что положил корень: зеркало меряет
+    решение подъёма на настоящих классах адаптера, а не на пересказе их подделкой.
+    """
+    composition.use_film_keys(monkeypatch, lambda source: film_keys())
 
 
 def test_recoding_switched_off_needs_no_recoder(tmp_path: Path) -> None:
@@ -47,7 +48,7 @@ def test_a_keymap_that_never_came_is_a_spoken_refusal(
     def dead(_source: str) -> object:
         raise InfraError("рой молчит")
 
-    monkeypatch.setattr(_state, "film_keys", dead)
+    composition.use_film_keys(monkeypatch, dead)
 
     made = _recoder("http://ts", 0, grid(), tmp_path, Config(recode=True))
 
@@ -72,7 +73,7 @@ def test_a_map_without_offsets_is_a_spoken_refusal(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Карта прошлой версии смещений не несёт - профиля не построить, и это сказано."""
-    monkeypatch.setattr(_state, "film_keys", lambda source: film_keys()._replace(offset=[]))
+    composition.use_film_keys(monkeypatch, lambda source: film_keys()._replace(offset=[]))
 
     made = _recoder("http://ts", 0, grid(), tmp_path, Config(recode=True))
 

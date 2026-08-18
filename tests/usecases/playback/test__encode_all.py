@@ -2,18 +2,9 @@
 
 from __future__ import annotations
 
-import pytest
-
-import torrcast.usecases.playback._show_state as _state
-from torrcast.adapters.recode import whole_encode
 from torrcast.domain.config import Config
 from torrcast.domain.profile import CAUTIOUS
 from torrcast.usecases.playback._encode_all import _encode_all
-
-
-@pytest.fixture(autouse=True)
-def _factory(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(_state, "whole_encode", whole_encode)
 
 
 def test_a_codec_the_receiver_decodes_goes_by_copy() -> None:

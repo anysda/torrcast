@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-import torrcast.usecases.playback._show_state as _state
+from tests.fakes import composition
 from tests.usecases.playback.world import film_keys, grid
 from torrcast.adapters.recode import Encode, Recoder, Weights, whole_encode
 from torrcast.domain.config import Config
@@ -16,11 +16,8 @@ from torrcast.usecases.playback._warmer import _warmer
 
 @pytest.fixture(autouse=True)
 def _tract(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(_state, "film_keys", lambda source: film_keys())
-    monkeypatch.setattr(_state, "weights_of", Weights.of)
-    monkeypatch.setattr(_state, "Recoder", Recoder)
-    monkeypatch.setattr(_state, "Encode", Encode)
-    monkeypatch.setattr(_state, "whole_encode", whole_encode)
+    """Карта опорных кадров - готовая; решение о кодировании считают настоящие классы."""
+    composition.use_film_keys(monkeypatch, lambda source: film_keys())
 
 
 def test_warming_switched_off_means_no_warmer_at_all(tmp_path: Path) -> None:

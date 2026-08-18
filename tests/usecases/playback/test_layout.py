@@ -2,21 +2,9 @@
 
 from __future__ import annotations
 
-import pytest
-
-import torrcast.usecases.playback._show_state as _state
-from torrcast.adapters.recode import MAXRATE_GAIN, whole_encode
-from torrcast.adapters.stream_pack.grid_for import grid_for
 from torrcast.domain.config import Config
 from torrcast.domain.profile import CAUTIOUS
 from torrcast.usecases.playback.layout import layout
-
-
-@pytest.fixture(autouse=True)
-def _tract(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(_state, "whole_encode", whole_encode)
-    monkeypatch.setattr(_state, "grid_for", grid_for)
-    monkeypatch.setattr(_state, "MAXRATE_GAIN", MAXRATE_GAIN)
 
 
 def test_the_same_passport_gives_the_same_layout_twice() -> None:

@@ -24,12 +24,21 @@ from types import ModuleType
 import pytest
 
 from torrcast.adapters import choice_environment
-from torrcast.usecases import cache_reserve, episode_duration, torrents, voices_command, worker
+from torrcast.ports.clock import Clock
+from torrcast.usecases import (
+    cache_reserve,
+    episode_duration,
+    releases_command,
+    torrents,
+    voices_command,
+    worker,
+)
 from torrcast.usecases.cast_command import _play_state
 from torrcast.usecases.discover import _search_state
 from torrcast.usecases.playback import _show_state
 from torrcast.usecases.playback._launch import _await_playing
 from torrcast.usecases.rank.peer_grace import peer_grace
+from torrcast.usecases.revive_playback import _revive_state
 from torrcast.usecases.select import _pick_state
 from torrcast.usecases.select_bench import _bench_state, _bench_work
 
@@ -117,3 +126,61 @@ def use_graces(
 def use_swarm_grace(patch: pytest.MonkeyPatch, grace: float) -> None:
     """Отсрочка молчащего потока - стенду, который её и спрашивает у признака жизни роя."""
     patch.setattr(_bench_work, "SWARM_GRACE", grace)
+
+
+def use_profile(patch: pytest.MonkeyPatch, detect: StandIn) -> None:
+    """Паспорт приёмника - всем четырём сценариям, которым его даёт корень.
+
+    Спрашивают его показ, команда показа, список релизов и юнит показа: от профиля
+    зависят и потолки отбора, и то, какой кодек считается играбельным.
+    """
+    patch.setattr(_show_state, "detect_profile", detect)
+    patch.setattr(_play_state, "_play_detect", detect)
+    patch.setattr(releases_command, "_releases_detect", detect)
+    patch.setattr(worker, "_worker_detect", detect)
+
+
+def use_settings(patch: pytest.MonkeyPatch, settings: StandIn) -> None:
+    """Файл настроек - всем четырём сценариям, которым его даёт корень."""
+    patch.setattr(_play_state, "_play_settings", settings)
+    patch.setattr(releases_command, "_releases_settings", settings)
+    patch.setattr(voices_command, "_voices_settings", settings)
+    patch.setattr(worker, "_worker_configs", settings)
+
+
+def use_film_keys(patch: pytest.MonkeyPatch, film_keys: StandIn) -> None:
+    """Карта опорных кадров: её знает медиатракт показа, и только он.
+
+    Настоящую снимает ffprobe с живого источника, поэтому зеркала медиатракта дают
+    сюда готовую карту ровного материала - меряется решение о нарезке, а не ffprobe.
+    """
+    patch.setattr(_show_state, "film_keys", film_keys)
+
+
+def use_hls_base(patch: pytest.MonkeyPatch, base: StandIn) -> None:
+    """Свой адрес в сторону телевизора: его знает показ, и только он."""
+    patch.setattr(_show_state, "hls_base", base)
+
+
+def use_start_unit(patch: pytest.MonkeyPatch, start: StandIn) -> None:
+    """Запуск юнита показа: его зовёт старт показа, и только он.
+
+    Настоящий поднимает systemd на хозяйской машине, поэтому подделка тут не удобство,
+    а запрет - ровно как у порта юнита (фикстура ``show_unit``).
+    """
+    patch.setattr(_show_state, "start_play_unit", start)
+
+
+def use_revive_clock(patch: pytest.MonkeyPatch, clock: Clock) -> None:
+    """Часы оживления показа: по ним меряются темнота и круг опроса приёмника.
+
+    С боевыми часами зеркало ждало бы настоящие секунды на каждом шаге круга, то есть
+    меряло бы терпеливость машины вместо решения показа. Часы приходят сюда портом, а
+    не подделкой любой полноты: у них есть свой договор, и слабее он не становится.
+    """
+    patch.setattr(_revive_state, "_revive_clock", clock)
+
+
+def use_playing_mark(patch: pytest.MonkeyPatch, mark: StandIn) -> None:
+    """Отметка «картинка на экране»: её кладёт оживление показа, и только оно."""
+    patch.setattr(_revive_state, "_revive_playing_mark", mark)
