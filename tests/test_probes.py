@@ -19,9 +19,10 @@ from typing import Any
 import pytest
 
 import torrcast
-from torrcast.adapters.chromecast.profile_detector import detector
+from torrcast.adapters.chromecast.profile_detector import ProfileDetector, detector
+from torrcast.adapters.chromecast.scan.device import Device
+from torrcast.adapters.filesystem.state import save_config
 from torrcast.domain.args import Args
-from torrcast.domain.choice import Choice
 from torrcast.domain.config import Config
 from torrcast.domain.profile import ANDROID_TV, CAUTIOUS
 from torrcast.domain.tune import tune
@@ -79,29 +80,47 @@ def rows_of(*verdicts: str) -> list[dict[str, Any]]:
     return [{"query": f"q{i}", "verdict": v, "kind": "movie"} for i, v in enumerate(verdicts)]
 
 
-def test_щуп_выбирает_профиль_как_показ_и_называет_причину(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+def test_щуп_берёт_профиль_из_паспорта_приёмника_и_называет_причину(
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """Паспорт действует по умолчанию, а ``--profile`` сильнее него и виден в отчёте."""
+    """Паспорт действует по умолчанию: профиль щупа - тот же, что взял бы показ.
+
+    Паспорт спрашивается у устройства, а устройства тут нет, поэтому опрос приезжает
+    заводом приёмника (``ProfileDetector(ask=...)``) - тем же доводом, которым его
+    подменяет и зеркало самого паспорта.
+    """
+    choose = probe("probeprofile").choose
+
+    def answers(address: str, timeout: float = 0.0) -> Device:
+        return Device(address, maker="Sony", model="BRAVIA", name="Android TV")
+
+    tuned, choice = choose(Config(tv="receiver.local"), None, ProfileDetector(ask=answers).detect)
+    said = capsys.readouterr().out
+
+    assert choice.profile is ANDROID_TV
+    assert "профиль приёмника: androidtv" in said and "по паспорту:" in said
+    assert tuned == tune(Config(tv="receiver.local"), ANDROID_TV)
+
+
+def test_щуп_отдаёт_ручной_профиль_вперёд_паспорта_и_говорит_об_этом(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """``--profile`` сильнее паспорта и виден в отчёте прогона, а не только в коде.
+
+    Идёт это через настоящий вход щупа: назвать профиль руками и не увидеть его в
+    отчёте - ровно тот случай, когда сравнивают два прогона, снятых по разным правилам.
+    """
     replay = probe("poolreplay")
     pools = tmp_path / "pools.jsonl"
     pools.write_text("", encoding="utf-8")
-    monkeypatch.setattr(replay, "load_config", lambda: Config(tv="receiver.local"))
-    monkeypatch.setattr(
-        "torrcast.adapters.chromecast.profile_detector.ProfileDetector._asked",
-        lambda _self, _address: Choice(ANDROID_TV, "по паспорту: Android TV"),
-    )
-
-    detector.forget()
-    assert replay.main([str(pools)]) == 0
-    said = capsys.readouterr().out
-    assert "профиль приёмника: androidtv" in said and "по паспорту: Android TV" in said
+    save_config(Config(tv="receiver.local"))
 
     detector.forget()
     assert replay.main([str(pools), "--profile", "q70d"]) == 0
     said = capsys.readouterr().out
-    assert "профиль приёмника: q70d" in said and "назван руками" in said
     detector.forget()
+
+    assert "профиль приёмника: q70d" in said and "назван руками" in said
 
 
 def test_счёт_разносит_все_вердикты_прогона() -> None:
@@ -628,7 +647,7 @@ def test_щуп_перемотки_ловит_негодную_фикстуру_
     assert "3 сегментов" in seek.unfit_grid(short, 10.0), "трёх кусков сеточному замеру мало"
 
 
-def test_правка_сетки_щупом_не_теряет_ленту_и_вес(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_правка_сетки_щупом_не_теряет_ленту_и_вес() -> None:
     """🔴 Щуп обязан мерить ту же упаковку после ручной правки границ."""
     tv = probe("tvprobe")
 
@@ -636,7 +655,6 @@ def test_правка_сетки_щупом_не_теряет_ленту_и_ве
         return 42.0
 
     base = tv.Grid((0.0, 10.0, 20.0), 30.0, True, weigh, 0.103)
-    monkeypatch.setattr(tv, "grid_for", lambda *_args, **_kwargs: base)
     args = SimpleNamespace(
         bounds="",
         url="film",
@@ -650,14 +668,14 @@ def test_правка_сетки_щупом_не_теряет_ленту_и_ве
         add="11",
     )
 
-    changed = tv.make_grid(args, CAUTIOUS)
+    changed = tv.make_grid(args, CAUTIOUS, grid_for=lambda *_a, **_k: base)
 
     assert changed.bounds == (0.0, 11.0, 20.0)
     assert changed.weigh is weigh, "щуп потерял предсказатель веса"
     assert changed.origin == 0.103, "щуп потерял общее смещение ленты"
 
 
-def test_явные_границы_щупа_берут_начало_ленты(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_явные_границы_щупа_берут_начало_ленты() -> None:
     """Бисект границ режет ту же ленту фильма, что и штатная сетка."""
     tv = probe("tvprobe")
     asked: list[str] = []
@@ -666,7 +684,6 @@ def test_явные_границы_щупа_берут_начало_ленты(m
         asked.append(url)
         return 0.103
 
-    monkeypatch.setattr(tv, "pack_origin", origin)
     args = SimpleNamespace(
         bounds="10,20",
         url="film",
@@ -680,7 +697,7 @@ def test_явные_границы_щупа_берут_начало_ленты(m
         add="",
     )
 
-    grid = tv.make_grid(args, CAUTIOUS)
+    grid = tv.make_grid(args, CAUTIOUS, pack_origin=origin)
 
     assert asked == ["film"]
     assert grid.bounds == (0.0, 10.0, 20.0)

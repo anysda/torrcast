@@ -7,6 +7,7 @@ import sys
 
 import pytest
 
+from torrcast.adapters.systemd._systemd_call import SystemdCall
 from torrcast.adapters.systemd.start_play_unit import start_play_unit
 
 
@@ -28,7 +29,8 @@ def test_the_command_the_show_unit_starts_really_starts() -> None:
         seen.append((tool, args))
         return subprocess.CompletedProcess([tool, *args], 0, "", "")
 
-    start_play_unit("проба", systemd=remember)
+    call: SystemdCall = remember
+    start_play_unit("проба", call=call)
 
     started = [args for tool, args in seen if tool == "systemd-run"]
     assert started, "запуск юнита не позвал systemd-run"

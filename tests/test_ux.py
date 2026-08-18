@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.fakes import composition
+from tests.fakes import composition, terminal
 from tests.fakes.show_unit import FakeShowUnit
 from torrcast.adapters.filesystem.state import State, save_config
 from torrcast.cli.main import main
@@ -24,7 +24,6 @@ from torrcast.domain.media import Media
 from torrcast.domain.raw_result import RawResult
 from torrcast.domain.torr_file import TorrFile
 from torrcast.usecases.playback import _await_playing
-from torrcast.usecases.playback import _show_state as playback_state
 
 #: Настоящее ожидание картинки: фикстура окружения подменяет его заглушкой, а один тест
 #: проверяет именно его.
@@ -55,7 +54,7 @@ def _env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     composition.use_prober(
         monkeypatch, lambda url, timeout=90.0, alive=None: Media(5978.0, TRACKS, "h264", 1080)
     )
-    monkeypatch.setattr(playback_state, "start_play_unit", lambda key: None)
+    composition.use_start_unit(monkeypatch, lambda key: None)
     composition.use_await_playing(monkeypatch, lambda config, progress, timeout=120.0: None)
 
 
@@ -313,9 +312,7 @@ def test_a_pick_works_where_a_menu_cannot_be_asked(monkeypatch: pytest.MonkeyPat
     Это и есть назначение флага: любой неинтерактивный сценарий (ssh без pty, скрипт)
     называет номер заранее и не упирается в вопрос, на который некому ответить.
     """
-    from torrcast.adapters.console import console
-
-    monkeypatch.setattr(console, "stdin_is_tty", lambda: False)
+    terminal.use_tty(monkeypatch, tty=False)
     _answers(monkeypatch)
 
     assert main(["моана", "--pick", "1"]) == 0
@@ -328,7 +325,7 @@ def test_a_pick_outside_the_menu_is_an_honest_error(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Номер, которого нет в меню, - ошибка вслух, а не молчаливый первый пункт."""
-    monkeypatch.setattr(playback_state, "start_play_unit", lambda key: pytest.fail("не кастим"))
+    composition.use_start_unit(monkeypatch, lambda key: pytest.fail("не кастим"))
     _answers(monkeypatch)
 
     assert main(["моана", "--pick", "7"]) == 1
@@ -359,7 +356,12 @@ def test_a_hand_picked_number_does_not_trip_the_neighbours_prewarm(
     картины, которую человек выбрал.
     """
     extra = RawResult("Моана 2 / Moana 2 (2024) BDRip 1080p x264", "e" * 40, 4 * GB, 90)
-    monkeypatch.setattr(_FakeProwlarr, "search", lambda self, query: [*FOUND, extra])
+
+    class _WithSpare(_FakeProwlarr):
+        def search(self, query: str) -> list[RawResult]:
+            return [*FOUND, extra]
+
+    composition.use_indexers(monkeypatch, _WithSpare)
     _answers(monkeypatch, "2", "")
 
     assert main(["моана", "--release", "3"]) == 0
@@ -825,7 +827,7 @@ def test_an_instant_answer_is_no_worse_than_before(monkeypatch: pytest.MonkeyPat
             return f"hash-{magnet[:30]}"
 
     composition.use_engines(monkeypatch, _Slow)
-    monkeypatch.setattr(playback_state, "start_play_unit", lambda key: started.append(key))
+    composition.use_start_unit(monkeypatch, lambda key: started.append(key))
     _answers(monkeypatch, "")
 
     assert main(["моана", "2"]) == 0

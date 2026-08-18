@@ -9,6 +9,7 @@ import subprocess
 import sys
 import urllib.parse
 import urllib.request
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
@@ -46,14 +47,22 @@ def _json(origin: str, path: str) -> Any:
     return json.loads(done.stdout)
 
 
-def search(query: str) -> list[dict[str, Any]]:
-    """Return torrents; one dead origin or release narrows results instead of failing."""
+#: How a page is fetched: the live `_json` in production, a stand-in under test.
+Fetch = Callable[[str, str], Any]
+
+
+def search(query: str, fetch: Fetch = _json) -> list[dict[str, Any]]:
+    """Return torrents; one dead origin or release narrows results instead of failing.
+
+    `fetch` carries its production default, so the handler calls this with one argument
+    and the behaviour is unchanged; a stand can hand in answers without a network.
+    """
     releases: list[dict[str, Any]] = []
     origin = ""
     path = "/api/v1/app/search/releases?" + urllib.parse.urlencode({"query": query})
     for candidate in ORIGINS:
         try:
-            answer = _json(candidate, path)
+            answer = fetch(candidate, path)
             if isinstance(answer, list):
                 releases = [row for row in answer if isinstance(row, dict) and _matches(row, query)]
                 releases, origin = releases[:LIMIT], candidate
@@ -70,7 +79,7 @@ def search(query: str) -> list[dict[str, Any]]:
 
     def torrents(release: dict[str, Any]) -> list[dict[str, Any]]:
         try:
-            details = _json(origin, f"/api/v1/anime/torrents/release/{int(release['id'])}")
+            details = fetch(origin, f"/api/v1/anime/torrents/release/{int(release['id'])}")
         # The same TimeoutExpired reaches this call too, and here a stall is likelier: the
         # details of one release are asked for after the listing already answered.
         except (KeyError, TypeError, ValueError, OSError, subprocess.SubprocessError):

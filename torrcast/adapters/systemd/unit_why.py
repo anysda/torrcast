@@ -5,11 +5,11 @@ from __future__ import annotations
 import contextlib
 import json
 
-from torrcast.adapters.systemd._systemd_call import _systemd
+from torrcast.adapters.systemd._systemd_call import SystemdCall, _systemd
 from torrcast.domain.unit_naming import _UNIT_NAME
 
 
-def unit_why(unit: str = _UNIT_NAME) -> str:
+def unit_why(unit: str = _UNIT_NAME, *, call: SystemdCall = _systemd) -> str:
     """Последняя внятная строка САМОГО ПОКАЗА из journald — наружу без трейсбеков.
 
     🔴 Спрашивают отсюда одно: почему на экране нет картинки, - и отвечать на это
@@ -19,8 +19,10 @@ def unit_why(unit: str = _UNIT_NAME) -> str:
     последними в журнал юнита пишет не показ, а systemd - о запуске, остановке и
     потраченном процессоре. Поэтому свои строки отбираются по автору записи, а глубина
     поиска берётся с запасом на его послесловие.
+
+    ``call`` - чем звать systemd; боевое умолчание одно, и меняет его только стенд.
     """
-    done = _systemd(
+    done = call(
         "journalctl", "-u", unit, "-n", "30", "--no-pager",
         "-o", "json", "--output-fields=MESSAGE,SYSLOG_IDENTIFIER",
     )  # fmt: skip

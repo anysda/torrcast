@@ -8,6 +8,13 @@ from __future__ import annotations
 
 import os
 import subprocess
+from collections.abc import Callable
+from typing import TypeAlias
+
+#: Чем команда юнита зовёт systemd. Боевое умолчание у всех команд одно и то же
+#: (:func:`_systemd`), поэтому продукт про этот довод не знает вовсе; стенду он нужен,
+#: чтобы не лезть в модуль соседа за именем и не заводить настоящих юнитов на машине.
+SystemdCall: TypeAlias = Callable[..., subprocess.CompletedProcess[str]]
 
 
 def _scope() -> list[str]:

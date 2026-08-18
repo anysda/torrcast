@@ -17,8 +17,17 @@ from torrcast.adapters.stream_probe.run_ffprobe import _run_ffprobe
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.media import Media
 
+#: Чем читается поток: боевой запуск ffprobe (:func:`_run_ffprobe`) или подделка стенда.
+Runner = Callable[[list[str], float, Callable[[], bool] | None], str]
 
-def probe(url: str, timeout: float = 90.0, alive: Callable[[], bool] | None = None) -> Media:
+
+def probe(
+    url: str,
+    timeout: float = 90.0,
+    alive: Callable[[], bool] | None = None,
+    *,
+    run: Runner = _run_ffprobe,
+) -> Media:
     """Дорожки и длительность из HTTP-потока, не качая файл: ffprobe берёт заголовок mkv
     запросами Range — это и есть цена меню озвучек.
 
@@ -33,6 +42,9 @@ def probe(url: str, timeout: float = 90.0, alive: Callable[[], bool] | None = No
     уже в TorrServer), а содержимого не отдаёт вовсе: ffprobe на ней молча сидит весь
     ``timeout``. Признак жизни (:func:`swarm_pulse`) отличает такую от честно долгого
     заголовка и даёт оборвать ожидание рано, не жгя весь бюджет на молчащем релизе.
+
+    ``run`` - чем запускать ffprobe. Боевое умолчание одно (:func:`_run_ffprobe`), и
+    меняет его только стенд: настоящий запуск требует и ffprobe, и живой раздачи.
     """
     cache = _media_cache(url)
     if (ready := _read_media(cache)) is not None:
@@ -53,7 +65,7 @@ def probe(url: str, timeout: float = 90.0, alive: Callable[[], bool] | None = No
     flags = ["-v", "error", "-show_entries", entries, "-of", "json"]
     command = ["ffprobe", *flags, url]
     try:
-        stdout = _run_ffprobe(command, timeout, alive)
+        stdout = run(command, timeout, alive)
     except FileNotFoundError as exc:
         raise InfraError("ffprobe не установлен") from exc
     except subprocess.TimeoutExpired as exc:

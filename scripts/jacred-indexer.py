@@ -7,6 +7,7 @@ import json
 import subprocess
 import sys
 import urllib.parse
+from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
@@ -34,13 +35,21 @@ def _json(origin: str, query: str) -> Any:
     return json.loads(done.stdout)
 
 
-def search(query: str) -> list[dict[str, Any]]:
-    """Return usable magnets; an absent API is an empty optional source."""
+#: How the API is asked: the live `_json` in production, a stand-in under test.
+Fetch = Callable[[str, str], Any]
+
+
+def search(query: str, fetch: Fetch = _json) -> list[dict[str, Any]]:
+    """Return usable magnets; an absent API is an empty optional source.
+
+    `fetch` carries its production default, so the handler calls this with one argument
+    and the behaviour is unchanged; a stand can hand in answers without a network.
+    """
     if not query.strip():
         return []
     for origin in ORIGINS:
         try:
-            answer = _json(origin, query)
+            answer = fetch(origin, query)
         # SubprocessError belongs here as much as OSError: a hung upstream leaves
         # `subprocess.run` in its own TimeoutExpired, which is NOT an OSError. Uncaught it
         # would leave the handler through a dropped connection, and Prowlarr answers a

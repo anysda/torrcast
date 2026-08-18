@@ -25,6 +25,7 @@ import subprocess
 import sys
 import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -109,6 +110,9 @@ def make_grid(
     profile: Profile,
     delivered: float = 0.0,
     whole: Encode | None = None,
+    *,
+    grid_for: Callable[..., Grid] = grid_for,
+    pack_origin: Callable[[str], float] = pack_origin,
 ) -> Grid:
     """Сетка смока: явный список границ, ровная или по опорным кадрам.
 
@@ -122,6 +126,10 @@ def make_grid(
     ``--ceiling`` отвязывает потолок сетки от цели перекода. Без него два прогона с
     разной целью режут фильм по разным границам, и сравнивать в них нечего: «тот же
     слот» в них - разные куски фильма.
+
+    Сетка и начало ленты приезжают доводами с боевыми умолчаниями: щуп зовёт их так же,
+    как показ, а стенд подставляет готовые - иначе правку границ не проверить без
+    настоящего файла и ffprobe.
     """
     if args.bounds:
         given = tuple(float(x) for x in args.bounds.split(","))

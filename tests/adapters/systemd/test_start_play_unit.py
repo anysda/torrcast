@@ -7,12 +7,13 @@ import sys
 
 import pytest
 
-from torrcast.adapters.systemd import start_play_unit as module
+from torrcast.adapters.systemd._systemd_call import SystemdCall
+from torrcast.adapters.systemd.start_play_unit import start_play_unit
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.unit_naming import _PASS_ENV, _UNIT_NAME, _UNIT_TAG
 
 
-def _answers(seen: list[tuple[str, ...]], code: int = 0) -> object:
+def _answers(seen: list[tuple[str, ...]], code: int = 0) -> SystemdCall:
     def call(tool: str, *args: str) -> subprocess.CompletedProcess[str]:
         seen.append((tool, *args))
         return subprocess.CompletedProcess([tool, *args], code, "", "systemd-run: не вышло")
@@ -20,9 +21,7 @@ def _answers(seen: list[tuple[str, ...]], code: int = 0) -> object:
     return call
 
 
-def test_the_show_is_started_by_the_composition_root_of_the_same_interpreter(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_the_show_is_started_by_the_composition_root_of_the_same_interpreter() -> None:
     """🔴 Юнит поднимает ``-m torrcast.runtime``, а не пакет команд: показу нужны порты.
 
     Пакет команд разворачивали из модуля в каталог, а строка запуска осталась прежней -
@@ -30,8 +29,7 @@ def test_the_show_is_started_by_the_composition_root_of_the_same_interpreter(
     видел. Интерпретатор тоже обязан быть тем же самым: юнит не наследует ни venv, ни PATH.
     """
     seen: list[tuple[str, ...]] = []
-    monkeypatch.setattr(module, "_systemd", _answers(seen))
-    module.start_play_unit("бочи-1")
+    start_play_unit("бочи-1", call=_answers(seen))
 
     argv = list(seen[-1])
     assert argv[0] == "systemd-run"
@@ -49,38 +47,29 @@ def test_the_handles_of_this_run_are_passed_into_the_unit(monkeypatch: pytest.Mo
     ручка в ``--setenv`` перебила бы умолчание пустой строкой.
     """
     seen: list[tuple[str, ...]] = []
-    monkeypatch.setattr(module, "_systemd", _answers(seen))
     monkeypatch.setenv(_PASS_ENV[0], "/иное/место")
     for name in _PASS_ENV[1:]:
         monkeypatch.delenv(name, raising=False)
-    module.start_play_unit("ключ")
+    start_play_unit("ключ", call=_answers(seen))
 
     passed = [item for item in seen[-1] if item.startswith("--setenv=")]
     assert passed == [f"--setenv={_PASS_ENV[0]}=/иное/место"]
 
 
-def test_a_previous_show_is_put_out_before_the_new_one_starts(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Прошлый показ гасится ДО запуска нового: два показа в один телевизор не играют."""
-    order: list[str] = []
+def test_a_previous_show_is_put_out_before_the_new_one_starts() -> None:
+    """Прошлый показ гасится ДО запуска нового: два показа в один телевизор не играют.
 
-    def put_out(unit: str = "") -> None:
-        order.append("гасим")
+    Обе операции идут одним и тем же ходом к systemd, поэтому порядок виден целиком, а
+    не со слов подделки: сперва ``systemctl stop`` того же юнита, и только потом запуск.
+    """
+    seen: list[tuple[str, ...]] = []
+    start_play_unit("ключ", call=_answers(seen))
 
-    def run(tool: str, *args: str) -> subprocess.CompletedProcess[str]:
-        order.append(tool)
-        return subprocess.CompletedProcess([tool, *args], 0, "", "")
-
-    monkeypatch.setattr(module, "stop_play_unit", put_out)
-    monkeypatch.setattr(module, "_systemd", run)
-    module.start_play_unit("ключ")
-
-    assert order == ["гасим", "systemd-run"]
+    assert [row[0] for row in seen] == ["systemctl", "systemd-run"]
+    assert seen[0] == ("systemctl", "stop", _UNIT_NAME)
 
 
-def test_a_unit_that_did_not_start_is_told_about_out_loud(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_unit_that_did_not_start_is_told_about_out_loud() -> None:
     """Не поднялся юнит - беда наружу словами, а не молчаливый «показ пошёл»."""
-    monkeypatch.setattr(module, "_systemd", _answers([], code=1))
     with pytest.raises(InfraError, match="не запустился юнит"):
-        module.start_play_unit("ключ")
+        start_play_unit("ключ", call=_answers([], code=1))

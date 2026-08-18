@@ -20,14 +20,15 @@ HEAD_PEEK: Final = 256 << 10
 Source = Callable[[str], RangeReader]
 
 
-def keyframes(url: str, *, source: Source = HttpRangeReader) -> KeyMap:
+def keyframes(url: str, *, source: Source = HttpRangeReader, head_peek: int = HEAD_PEEK) -> KeyMap:
     """Читает индекс контейнера диапазонными HTTP-запросами.
 
-    ``source`` - чем брать байты. Умолчание боевое; называет своё только стенд, которому
-    нужен тот же контейнер, но с диска: настоящее чтение стоит Range-запросов в рой.
+    ``source`` - чем брать байты, ``head_peek`` - сколько взять первым куском. Оба с
+    боевым умолчанием: продукт зовёт с одним доводом, а стенд подсовывает файл с диска
+    и маленькую голову, чтобы проверить дочитывание.
     """
     reader = source(url)
-    head = reader.read(0, HEAD_PEEK)
+    head = reader.read(0, head_peek)
     if head[:4] == b"\x1a\x45\xdf\xa3":
         from torrcast.domain.frames.mkv import keys
 

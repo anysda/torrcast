@@ -1626,7 +1626,7 @@ def test_the_scan_type_is_a_fact_of_the_file_not_of_the_name() -> None:
     assert Media(height=0, field_order="tb").quality == "?", "кадра нет - и развёртки нет"
 
 
-def test_probe_reads_the_scan_type_from_the_stream(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_probe_reads_the_scan_type_from_the_stream() -> None:
     """``field_order`` берётся тем же одним запросом к ffprobe и переживает полку.
 
     Проверено на настоящих файлах: x264 с ``tff=1`` ffprobe отвечает ``bt``, mpeg2video
@@ -1634,13 +1634,8 @@ def test_probe_reads_the_scan_type_from_the_stream(monkeypatch: pytest.MonkeyPat
     потоке, а не в догадке по кодеку.
     """
     import json
-    from importlib import import_module
 
     from torrcast.adapters.stream_probe.probe import probe
-
-    # Модуль щупа зовётся так же, как сама функция, поэтому берём его по имени: точка
-    # `torrcast.adapters.stream_probe.probe` - это уже функция, а подменить надо её сосед.
-    stream_probe_mod = import_module("torrcast.adapters.stream_probe.probe")
 
     payload = json.dumps(
         {
@@ -1670,16 +1665,14 @@ def test_probe_reads_the_scan_type_from_the_stream(monkeypatch: pytest.MonkeyPat
         asked.append(command)
         return payload
 
-    monkeypatch.setattr(stream_probe_mod, "_run_ffprobe", fake_probe)
-    media = probe("http://torr/stream/hash-1/2")
+    media = probe("http://torr/stream/hash-1/2", run=fake_probe)
     assert media.interlaced and media.quality == "1080i"
     assert any("field_order" in flag for flag in asked[0]), "спросили тем же одним запросом"
 
     def boom(*a: object) -> str:
         raise AssertionError("паспорт обязан прийти с полки, а не от ffprobe")
 
-    monkeypatch.setattr(stream_probe_mod, "_run_ffprobe", boom)
-    cached = probe("http://torr/stream/hash-1/2")
+    cached = probe("http://torr/stream/hash-1/2", run=boom)
     assert cached.interlaced and cached.quality == "1080i", "полка развёртку хранит"
 
 

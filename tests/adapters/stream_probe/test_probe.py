@@ -4,20 +4,15 @@ from __future__ import annotations
 
 import json
 import subprocess
-from importlib import import_module
 from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from torrcast.adapters.stream_probe.probe import probe
+from torrcast.adapters.stream_probe.probe import Runner, probe
 from torrcast.domain.infra_error import InfraError
 
 if TYPE_CHECKING:
     from pathlib import Path
-
-# Модуль щупа зовётся так же, как сама функция: точка `...stream_probe.probe` - это уже
-# функция, а подменить надо её соседа по модулю.
-_module = import_module("torrcast.adapters.stream_probe.probe")
 
 _ANSWER = json.dumps(
     {
@@ -46,15 +41,14 @@ _ANSWER = json.dumps(
 )
 
 
-def _asked(monkeypatch: pytest.MonkeyPatch, answer: str = _ANSWER) -> list[list[str]]:
-    seen: list[list[str]] = []
+def _asked(seen: list[list[str]], answer: str = _ANSWER) -> Runner:
+    """Запуск ffprobe, который ничего не запускает: собирает команды и отвечает готовым."""
 
     def _run(command: list[str], timeout: float, alive: Any) -> str:
         seen.append(command)
         return answer
 
-    monkeypatch.setattr(_module, "_run_ffprobe", _run)
-    return seen
+    return _run
 
 
 def test_the_whole_passport_is_taken_by_one_request(
@@ -62,9 +56,9 @@ def test_the_whole_passport_is_taken_by_one_request(
 ) -> None:
     """Формат кадра, кривая яркости и развёртка берутся тем же одним запросом и даром."""
     monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
-    seen = _asked(monkeypatch)
+    seen: list[list[str]] = []
 
-    media = probe("http://torr/stream/hash-1/2")
+    media = probe("http://torr/stream/hash-1/2", run=_asked(seen))
 
     assert len(seen) == 1, "один ffprobe на файл, и только один"
     flags = " ".join(seen[0])
@@ -79,10 +73,11 @@ def test_the_second_ask_comes_from_the_shelf(
 ) -> None:
     """Первое чтение стоит роя - до 17 с; и без сети длительность серии всё равно нужна."""
     monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
-    seen = _asked(monkeypatch)
+    seen: list[list[str]] = []
+    run = _asked(seen)
 
-    first = probe("http://torr/stream/hash-1/2")
-    cached = probe("http://torr/stream/hash-1/2")
+    first = probe("http://torr/stream/hash-1/2", run=run)
+    cached = probe("http://torr/stream/hash-1/2", run=run)
 
     assert len(seen) == 1, "второй раз ffprobe не зовут"
     assert cached == first
@@ -97,10 +92,8 @@ def test_a_missing_ffprobe_is_named_not_traced(
     def _gone(command: list[str], timeout: float, alive: Any) -> str:
         raise FileNotFoundError(command[0])
 
-    monkeypatch.setattr(_module, "_run_ffprobe", _gone)
-
     with pytest.raises(InfraError, match="ffprobe не установлен"):
-        probe("http://torr/stream/hash-1/2")
+        probe("http://torr/stream/hash-1/2", run=_gone)
 
 
 def test_a_stream_that_never_came_is_told_apart_from_a_broken_one(
@@ -112,16 +105,14 @@ def test_a_stream_that_never_came_is_told_apart_from_a_broken_one(
     def _late(command: list[str], timeout: float, alive: Any) -> str:
         raise subprocess.TimeoutExpired(command, timeout)
 
-    monkeypatch.setattr(_module, "_run_ffprobe", _late)
     with pytest.raises(InfraError, match="не дождался потока"):
-        probe("http://torr/stream/hash-1/2")
+        probe("http://torr/stream/hash-1/2", run=_late)
 
     def _bad(command: list[str], timeout: float, alive: Any) -> str:
         raise subprocess.CalledProcessError(1, command, "", "moov atom not found")
 
-    monkeypatch.setattr(_module, "_run_ffprobe", _bad)
     with pytest.raises(InfraError, match="moov atom not found"):
-        probe("http://torr/stream/hash-1/3")
+        probe("http://torr/stream/hash-1/3", run=_bad)
 
 
 def test_a_failed_probe_leaves_no_record_on_the_shelf(
@@ -129,10 +120,10 @@ def test_a_failed_probe_leaves_no_record_on_the_shelf(
 ) -> None:
     """Осечка одного запуска не имеет права стать вечной."""
     monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
-    _asked(monkeypatch, answer=json.dumps({"format": {}, "streams": []}))
+    empty = _asked([], answer=json.dumps({"format": {}, "streams": []}))
 
-    probe("http://torr/stream/hash-1/2")
-    seen = _asked(monkeypatch)
-    probe("http://torr/stream/hash-1/2")
+    probe("http://torr/stream/hash-1/2", run=empty)
+    seen: list[list[str]] = []
+    probe("http://torr/stream/hash-1/2", run=_asked(seen))
 
     assert len(seen) == 1, "пустой паспорт на полку не лёг - спросили заново"
