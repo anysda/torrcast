@@ -20,7 +20,7 @@ from typing import Any
 
 import pytest
 
-from tests.conftest import CLIP_SECONDS, free_port, module_of
+from tests.conftest import CLIP_SECONDS, free_port
 from tests.fakes import composition
 from tests.usecases.warm.world import counting, live_tract
 from torrcast.adapters import warm_environment
@@ -63,10 +63,6 @@ from torrcast.usecases.warm import (
 )
 from torrcast.usecases.warm import configure as configure_warm
 from torrcast.usecases.watch import Watch as _Watch
-
-#: Слот прогрева, а не модуль упаковщика: сценарий идёт за заводом прогона ровно
-#: сюда, и подмена для пробы обязана лечь в тот же слот.
-warm_slots = module_of("torrcast.usecases.warm._state")
 
 
 @pytest.fixture(autouse=True)

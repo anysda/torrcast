@@ -29,7 +29,7 @@ from typing import IO, Any
 import pytest
 import requests
 
-from tests.conftest import CLIP_SECONDS, fake_packer, free_port, module_of
+from tests.conftest import CLIP_SECONDS, fake_packer, free_port
 from tests.fakes.disk_range_reader import DiskRangeReader
 from torrcast.adapters.frames.keyframes import keyframes
 from torrcast.adapters.http_server.hls_server import HlsServer
@@ -57,13 +57,6 @@ from torrcast.domain.hls_settings import (
 )
 from torrcast.domain.reception_report import ReceptionReport
 from torrcast.usecases.feed_pack.feed import Feed
-
-#: Модуль, а не одноимённая единица из пакета: правки для проб ставятся туда, откуда
-#: их читает сам код.
-film_keys_module = module_of("torrcast.adapters.stream_pack.film_keys")
-pack_start_module = module_of("torrcast.adapters.stream_pack.pack_start")
-pull_head_module = module_of("torrcast.adapters.stream_pack.pull_head")
-warm_file_module = module_of("torrcast.adapters.stream_pack.warm_file")
 
 #: Ровная сетка на два часа: примерно столько и играет полнометражный фильм.
 FILM = 7200.0
