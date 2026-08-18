@@ -53,6 +53,12 @@ def test_a_finished_episode_starts_the_next_one(
     following.stop()
 
 
+class _Rival:
+    """Кодировщик живых кусков под рукой зеркала: спрашивают у него ровно заход."""
+
+    working = False
+
+
 def test_the_chain_hands_over_the_reserve_and_the_rival(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -60,7 +66,7 @@ def test_the_chain_hands_over_the_reserve_and_the_rival(
     world(monkeypatch)
     warm = _whole(tmp_path)
     following = warmer(tmp_path, vault=vault(tmp_path, key="следующая"))
-    warm.slack, warm.rival = 42.0, object()
+    warm.slack, warm.rival = 42.0, _Rival()
     warm.follow = lambda: following
 
     _chain(warm)

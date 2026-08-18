@@ -63,11 +63,12 @@ def test_the_encoder_learns_about_the_new_place_before_the_pilot_run(
     clock(monkeypatch)
     seen: list[str] = []
     started = _tract(monkeypatch, seen)
-    show = feed(tmp_path, recoder=_Recoder(spare=tmp_path / "recode"))
+    recoder = _Recoder(spare=tmp_path / "recode")
+    show = feed(tmp_path, recoder=recoder)
 
     _restart(show, 5, lambda slot, size: False)
 
-    assert show.recoder.seen == ["голова 5"]
+    assert recoder.seen == ["голова 5"]
     assert seen == ["проба"], "пробный прогон обогнал кодировщика"
     assert started and started[0][3] == 5
 

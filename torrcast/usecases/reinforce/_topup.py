@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from typing import TYPE_CHECKING, Any, TypeAlias
+from typing import TYPE_CHECKING
 
 from torrcast.domain.profile import Profile
 from torrcast.usecases.reinforce._foreign_note import _foreign_note
@@ -11,10 +11,9 @@ from torrcast.usecases.reinforce._plan_for import _plan_for
 from torrcast.usecases.reinforce.configure import _catalogue_port
 
 if TYPE_CHECKING:
-    Args: TypeAlias = Any
-    Config: TypeAlias = Any
-    Progress: TypeAlias = Any
-    _Plan: TypeAlias = Any
+    from torrcast.domain.config import Config
+    from torrcast.ports.choice_types import Args, _Plan
+    from torrcast.ports.progress import Progress
 
 
 def _topup(

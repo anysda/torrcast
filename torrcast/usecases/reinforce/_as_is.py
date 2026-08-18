@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, TypeAlias
+from typing import TYPE_CHECKING
 
 from torrcast.domain.facts.origin import Origin
 from torrcast.domain.facts.same_name import same_name
@@ -12,7 +12,7 @@ from torrcast.ports.torrent_catalogue import RawRow
 from torrcast.usecases.reinforce.configure import _catalogue_port
 
 if TYPE_CHECKING:
-    Progress: TypeAlias = Any
+    from torrcast.ports.progress import Progress
 
 
 def _as_is(

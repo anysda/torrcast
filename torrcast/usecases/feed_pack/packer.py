@@ -7,7 +7,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 import torrcast.usecases.feed_pack._state as _state
 from torrcast.domain.infra_error import InfraError
@@ -16,7 +15,7 @@ from torrcast.usecases.feed_pack._state import Grid
 from torrcast.usecases.feed_pack.packer_finished import _cuts, _drift, _finished
 from torrcast.usecases.feed_pack.packer_measure import _eta, _frontier, _pending
 from torrcast.usecases.feed_pack.packer_publish import _lay_out
-from torrcast.usecases.feed_pack.packer_state import _State
+from torrcast.usecases.feed_pack.packer_state import _Asked, _State, _Told
 from torrcast.usecases.feed_pack.packer_stop import _stop, _why
 
 
@@ -37,9 +36,9 @@ class Packer(_State):
         run: Path,
         first: int = 0,
         spare: Path | None = None,
-        told: Any = None,
-        hold: Any = None,
-        shrink: Any = None,
+        told: _Told | None = None,
+        hold: _Asked | None = None,
+        shrink: _Asked | None = None,
         last: int = -1,
         at: float = 0.0,
         rate: float = 0.0,

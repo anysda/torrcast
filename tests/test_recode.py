@@ -933,14 +933,28 @@ def test_the_packer_tells_the_encoder_where_the_run_begins(monkeypatch, tmp_path
 
     class _Stub:
         spare = tmp_path / "recode"
+        over_wait = 60.0
+        played = 0.0
+        pace = Pace()
+
+        def __init__(self) -> None:
+            self.done: set[int] = set()
 
         def opening(self, slot: int) -> None:
             seen.append(("голова", slot))
 
-        def note(self, slot: int, recoded: bool) -> None: ...
+        def note(self, slot: int, how: str) -> None: ...
 
-        def holding(self, slot: int) -> bool:
+        def holding(self, slot: int, size: int = 0) -> bool:
             return False
+
+        def stop(self) -> None: ...
+
+        def ready(self, slot: int) -> Path | None:
+            return None
+
+        def fit(self, span: float, preset: str) -> Encode:
+            return Encode(preset=preset)
 
     recoder = _Stub()
 

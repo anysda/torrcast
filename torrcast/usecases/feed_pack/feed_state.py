@@ -6,15 +6,66 @@
 from __future__ import annotations
 
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Protocol
 
 import torrcast.usecases.feed_pack._state as _state
 from torrcast.domain.hls_settings import PACK_PENDING_BYTES
 from torrcast.domain.profile import CAUTIOUS
 from torrcast.usecases.feed_pack._state import Grid
 from torrcast.usecases.feed_pack.packer import Packer
+
+
+class _Encode(Protocol):
+    """Перекод в объёме, который нужен ленте: цель по битрейту, Мбит/с."""
+
+    @property
+    def mbit(self) -> float: ...
+
+
+class _Paced(Protocol):
+    """Лестница пресетов кодировщика: чем и с какой скоростью он умеет перекодировать."""
+
+    def table(self) -> tuple[tuple[str, float], ...]: ...
+
+
+class _Recoder(Protocol):
+    """Кодировщик тяжёлых кусков в объёме, в каком его знает лента показа.
+
+    Полный :class:`torrcast.recode.Recoder` сюда не приходит: он адаптер, а лента живёт
+    слоем сценариев и спрашивает у него ровно то, что перечислено ниже.
+    """
+
+    #: Каталог перекодированных кусков и его же корень для ужатия на месте.
+    spare: Path
+    #: Потолок ожидания перекода, секунды: тот же, что у предохранителя кодировщика.
+    over_wait: float
+    #: Где идёт показ, секунды фильма: по нему кодировщик решает, за что браться.
+    played: float
+    #: Слоты, за которые кодировщику браться уже незачем.
+    done: set[int]
+
+    @property
+    def pace(self) -> _Paced: ...
+
+    def stop(self) -> None: ...
+    def opening(self, slot: int) -> None: ...
+    def note(self, slot: int, how: str) -> None: ...
+    def holding(self, slot: int, size: int = 0) -> bool: ...
+    def ready(self, slot: int) -> Path | None: ...
+    def fit(self, span: float, preset: str) -> _Encode: ...
+
+
+class _Vault(Protocol):
+    """Хранилище прогретого в объёме, который нужен показу: путь куска на диске.
+
+    Полный :class:`torrcast.usecases.warm.vault.Vault` сюда не приходит: бюджет диска,
+    учёт каталогов и вытеснение - дело прогрева, а показу нужно одно имя файла.
+    """
+
+    def path(self, slot: int) -> Path: ...
 
 
 @dataclass(slots=True)
@@ -71,15 +122,15 @@ class _State:
     #: бесконечности нельзя: битый источник крутил бы этот круг вечно.
     limit: int = 3
     packer: Packer | None = None
-    lock: Any = field(default_factory=threading.Lock)
+    lock: threading.Lock = field(default_factory=threading.Lock)
     #: Когда последний раз перезапускали упаковку: защита от лавины на префетче.
     restarted: float = 0.0
     crashes: int = 0
     fatal: str = ""
-    log: Any = None
+    log: Callable[[str], None] | None = None
     #: Кодировщик тяжёлых кусков (:class:`torrcast.recode.Recoder`) или ``None``, если
     #: динамический битрейт выключен либо тяжёлых кусков в фильме нет.
-    recoder: Any = None
+    recoder: _Recoder | None = None
     #: Чем перекодировать ВЕСЬ фильм (:class:`torrcast.recode.Encode`); ``None`` - видео
     #: уезжает копией, как обычно.
     #:
@@ -92,14 +143,14 @@ class _State:
     #: ⚠️ Смешивать копию и перекод в одном показе НЕЛЬЗЯ (:data:`RECODE_CODECS`), поэтому
     #: признак живёт на :class:`Feed`, а не на сегменте: он один на весь файл и не зависит
     #: ни от места показа, ни от перемотки.
-    encode: Any = None
+    encode: _Encode | None = None
     #: Хранилище прогретого на диске (:class:`torrcast.warm.Vault`) или ``None``.
     #:
     #: Сетка детерминирована, поэтому прогретый кусок и живой - одно и то же место фильма
     #: под одним и тем же именем. Отсюда всё остальное: показ берёт прогретое напрямую с
     #: диска (:meth:`segment`), считает его своим запасом (:meth:`front`) и переживает на
     #: нём обрыв сети (:meth:`_survive`).
-    vault: Any = None
+    vault: _Vault | None = None
     #: Когда упаковка в последний раз что-то выложила (:data:`MUTE_SECONDS`).
     #:
     #: Часы принадлежат ПОКАЗУ, а не прогону, и это существенно: на молчащем источнике
@@ -126,7 +177,7 @@ class _State:
     #: Ужатие на месте одно на весь показ: зовётся оно из выкладки, а выкладку дёргают
     #: и запрос приёмника, и часы показа (:meth:`sweep`) - двум ffmpeg на один и тот же
     #: кусок тут не место.
-    shrink_lock: Any = field(default_factory=threading.Lock)
+    shrink_lock: threading.Lock = field(default_factory=threading.Lock)
 
     def _say(self, text: str) -> None:
         if self.log is not None:

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, TypeAlias
+from typing import TYPE_CHECKING
 
 from torrcast.domain.picture import Picture
 from torrcast.domain.slugify import slugify
@@ -12,7 +12,7 @@ from torrcast.usecases.discover import _ask, _no_budget
 from torrcast.usecases.reinforce.configure import _catalogue_port
 
 if TYPE_CHECKING:
-    Progress: TypeAlias = Any
+    from torrcast.ports.progress import Progress
 
 
 def _voice_reinforce(

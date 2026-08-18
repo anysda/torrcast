@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, TypeAlias
+from typing import TYPE_CHECKING
 
 from torrcast.domain.catalog_has_name import catalog_has_name
 from torrcast.domain.picture import Picture
@@ -13,8 +13,8 @@ from torrcast.usecases.reinforce._leading import _leading
 from torrcast.usecases.reinforce.configure import _catalogue_port, _passport_port
 
 if TYPE_CHECKING:
-    Args: TypeAlias = Any
-    Progress: TypeAlias = Any
+    from torrcast.ports.choice_types import Args
+    from torrcast.ports.progress import Progress
 
 
 def _ceiling_reinforce(

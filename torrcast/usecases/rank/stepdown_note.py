@@ -2,15 +2,19 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Final, TypeAlias
+from typing import Final, Protocol
 
 from torrcast.domain.media import Media
-from torrcast.usecases.rank.drop_reason import drop_reason
+from torrcast.domain.release import Release
+from torrcast.usecases.rank.drop_reason import _Judged, drop_reason
 from torrcast.usecases.rank.is_disc import is_disc
 from torrcast.usecases.rank.misses_episode import misses_episode
 
-if TYPE_CHECKING:
-    _Plan: TypeAlias = Any
+
+class _Stepped(_Judged, Protocol):
+    """План в объёме, который нужен строке про ступень: очередь отбора в ранжире."""
+
+    ranked: list[Release]
 
 
 #: Насколько чужое обещание должно превышать наш кадр, чтобы считаться ступенью выше.
@@ -19,7 +23,7 @@ STEP_RATIO: Final = 0.95
 
 
 def stepdown_note(
-    plan: _Plan,
+    plan: _Stepped,
     number: int,
     media: Media | None,
     queue: list[int],

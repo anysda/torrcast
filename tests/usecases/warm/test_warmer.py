@@ -128,7 +128,8 @@ def test_a_tight_budget_stops_the_work_before_the_run(
     world(monkeypatch)
     taken = _runs(monkeypatch)
     warm = warmer(tmp_path, vault=vault(tmp_path, budget=1), slack=GUARD_HIGH + 1.0)
-    warm.log = [].append
+    said: list[str] = []
+    warm.log = said.append
 
     warm._work()
 

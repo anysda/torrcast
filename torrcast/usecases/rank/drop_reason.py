@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, TypeAlias
+from typing import Protocol
 
+from torrcast.domain.episode import Episode
 from torrcast.domain.release import Release
 from torrcast.usecases.rank.drop_reasons import (
     _CODEC,
@@ -21,11 +22,26 @@ from torrcast.usecases.rank.is_extra import is_extra
 from torrcast.usecases.rank.misses_episode import misses_episode
 from torrcast.usecases.rank.over_ceiling import over_ceiling
 
-if TYPE_CHECKING:
-    _Plan: TypeAlias = Any
+
+class _Judged(Protocol):
+    """План в объёме, которым судят одну раздачу: цель сериала и потолки отбора.
+
+    Полный :class:`torrcast.usecases.select._Plan` сюда не приходит: правилу нужны шесть
+    его полей, и ровно они названы. Тем же объёмом план видят счёт отсева и снижение
+    ступени, которые это правило и зовут.
+    """
+
+    runtime: float
+    warn_mbit: float
+    hard_mbit: float
+    copy_hevc: bool
+    last_resort: bool
+
+    @property
+    def want(self) -> Episode | None: ...
 
 
-def drop_reason(release: Release, plan: _Plan) -> str:
+def drop_reason(release: Release, plan: _Judged) -> str:
     """Почему раздача не доехала до очереди отбора; пусто — доехала.
 
     🔴 TC-186. Пул картины и очередь отбора — не одно и то же: между ними стоят ворота

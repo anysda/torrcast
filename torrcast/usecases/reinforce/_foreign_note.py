@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, TypeAlias
+from typing import TYPE_CHECKING
 
 from torrcast.domain.release import Release
 
 if TYPE_CHECKING:
-    Progress: TypeAlias = Any
+    from torrcast.ports.progress import Progress
 
 
 KIN_SHOWN = 3

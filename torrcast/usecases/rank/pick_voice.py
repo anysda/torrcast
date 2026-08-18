@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, TypeAlias
+from typing import Protocol
 
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.media import Media
@@ -11,11 +11,18 @@ from torrcast.domain.rank_settings import VOICE_MENU
 from torrcast.usecases.rank.configure import _console_port
 from torrcast.usecases.rank.voices_table import voices_table
 
-if TYPE_CHECKING:
-    Args: TypeAlias = Any
+
+class _Voiced(Protocol):
+    """Разобранная строка запуска в объёме, который нужен выбору дорожки: ``--voice N``.
+
+    Полный :class:`torrcast.cli.args.Args` сюда не приходит: разбор аргументов стоит слоем
+    выше сценариев, а выбору дорожки от него нужна одна ручка.
+    """
+
+    voice: int | None
 
 
-def pick_voice(media: Media, args: Args, remembered: str = "") -> tuple[int, str]:
+def pick_voice(media: Media, args: _Voiced, remembered: str = "") -> tuple[int, str]:
     """Какую дорожку играем и что после этого лежит в памяти картины.
 
     **На счастливом пути вопроса про озвучку нет.** Дорожка выбирается сама

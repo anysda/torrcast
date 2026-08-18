@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, TypeAlias
+from typing import TYPE_CHECKING
 
 from torrcast.domain.episode import Episode
 from torrcast.domain.picture import Picture
 
 if TYPE_CHECKING:
-    Args: TypeAlias = Any
+    from torrcast.ports.choice_types import Args
 
 
 def _lacks_season(found: list[Picture], args: Args) -> bool:

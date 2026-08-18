@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, TypeAlias
+from typing import TYPE_CHECKING
 
 from torrcast.domain.menu_order import menu_order
 from torrcast.domain.picture import Picture
@@ -11,8 +11,8 @@ from torrcast.usecases.choice import first_alive, fitness
 from torrcast.usecases.reinforce._plan_for import _plan_for
 
 if TYPE_CHECKING:
-    Args: TypeAlias = Any
-    Config: TypeAlias = Any
+    from torrcast.domain.config import Config
+    from torrcast.ports.choice_types import Args
 
 
 def voiceless_pool(

@@ -2,16 +2,21 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, TypeAlias
+from typing import Protocol
 
-from torrcast.usecases.rank.drop_reason import drop_reason
+from torrcast.domain.release import Release
+from torrcast.usecases.rank.drop_reason import _Judged, drop_reason
 from torrcast.usecases.rank.drop_reasons import _PINNED, OFF_SEASON
 
-if TYPE_CHECKING:
-    _Plan: TypeAlias = Any
+
+class _Counted(_Judged, Protocol):
+    """План в объёме, который нужен счёту: пул в ранжире и отсев по именам сезонов."""
+
+    ranked: list[Release]
+    off_season: int
 
 
-def queue_drops(plan: _Plan, queue: list[int], pinned: bool = False) -> dict[str, int]:
+def queue_drops(plan: _Counted, queue: list[int], pinned: bool = False) -> dict[str, int]:
     """Сколько раздач картины выкинуто до очереди и по каким причинам.
 
     Считается ПО ПУЛУ КАРТИНЫ, а не по :attr:`_Plan.ranked`: раздачи, у которых нет

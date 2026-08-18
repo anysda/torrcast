@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
 
 import torrcast.usecases.warm._state as _state
 from torrcast.usecases.warm.chain import _ask_follow, _chain, _nap
@@ -16,7 +15,7 @@ from torrcast.usecases.warm.line import _line
 from torrcast.usecases.warm.missing import _missing, _pending
 from torrcast.usecases.warm.run import _run
 from torrcast.usecases.warm.stall import _stall, _trace
-from torrcast.usecases.warm.throttle import _may_resume, _resume, _throttle
+from torrcast.usecases.warm.throttle import _Frozen, _may_resume, _resume, _throttle
 from torrcast.usecases.warm.verify import _inspect, _verify
 from torrcast.usecases.warm.wait_for_picture import _wait_for_picture
 from torrcast.usecases.warm.warmer_state import _State
@@ -142,7 +141,7 @@ class Warmer(_State):
         """Кусок лёг на своё место сетки (:func:`_verify`)."""
         return _verify(self, slot)
 
-    def _throttle(self, packer: Any) -> None:
+    def _throttle(self, packer: _Frozen) -> None:
         """Замереть, пока показ просит процессор (:func:`_throttle`)."""
         _throttle(self, packer)
 
@@ -150,6 +149,6 @@ class Warmer(_State):
         """Пора ли оживлять замерший прогрев (:func:`_may_resume`)."""
         return _may_resume(self)
 
-    def _resume(self, packer: Any) -> None:
+    def _resume(self, packer: _Frozen) -> None:
         """Снять паузу с замершего прогона (:func:`_resume`)."""
         _resume(self, packer)

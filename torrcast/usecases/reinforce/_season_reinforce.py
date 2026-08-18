@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, TypeAlias
+from typing import TYPE_CHECKING
 
 from torrcast.domain.episode import Episode
 from torrcast.domain.facts.same_name import same_name
@@ -16,8 +16,8 @@ from torrcast.usecases.discover import _ask, _no_budget
 from torrcast.usecases.reinforce.configure import _catalogue_port, _passport_port
 
 if TYPE_CHECKING:
-    Args: TypeAlias = Any
-    Progress: TypeAlias = Any
+    from torrcast.ports.choice_types import Args
+    from torrcast.ports.progress import Progress
 
 
 def _season_reinforce(

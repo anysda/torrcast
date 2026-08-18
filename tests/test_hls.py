@@ -995,6 +995,16 @@ def test_the_spot_shrink_packs_the_piece_under_the_cap(clip: str, tmp_path: Path
             self.cap = MAX_SEGMENT_BYTES
             self.over_wait = 60.0
             self.done: set[int] = set()
+            self.played = 0.0
+
+        def stop(self) -> None: ...
+
+        def opening(self, slot: int) -> None: ...
+
+        def note(self, slot: int, how: str) -> None: ...
+
+        def holding(self, slot: int, size: int = 0) -> bool:
+            return False
 
         def ready(self, slot: int) -> Path | None:
             path = self.spare / segment_name(slot)
@@ -1055,6 +1065,16 @@ def test_the_spot_shrink_aims_under_both_ceilings_of_the_receiver(
             self.cap = MAX_SEGMENT_BYTES  # потолок веса, тот же, которым меряет показ
             self.over_wait = 60.0
             self.done: set[int] = set()
+            self.played = 0.0
+
+        def stop(self) -> None: ...
+
+        def opening(self, slot: int) -> None: ...
+
+        def note(self, slot: int, how: str) -> None: ...
+
+        def holding(self, slot: int, size: int = 0) -> bool:
+            return False
 
         def ready(self, slot: int) -> Path | None:
             return None

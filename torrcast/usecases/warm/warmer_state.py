@@ -6,13 +6,21 @@
 from __future__ import annotations
 
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Protocol
 
 from torrcast.domain.profile import CAUTIOUS
-from torrcast.usecases.warm._state import Grid
+from torrcast.usecases.warm._state import Grid, _Encode, _Run
 from torrcast.usecases.warm.settings import CHAIN_RETRY, GUARD_LOW, WARM_NICE, WARM_RATE
 from torrcast.usecases.warm.vault import Vault
+
+
+class _Rival(Protocol):
+    """Кодировщик живых кусков в объёме, в каком его знает прогрев: идёт ли заход."""
+
+    @property
+    def working(self) -> bool: ...
 
 
 @dataclass(slots=True)
@@ -28,7 +36,7 @@ class _State:
     #: 🔴 Ставится ТЕМ ЖЕ решением, что у живой упаковки (:func:`torrcast.cli._warmer`).
     #: Прогретый кусок и живой - это одна лента для приёмника, и если они закодированы
     #: по-разному, на стыке источников у него меняется SPS.
-    encode: Any = None
+    encode: _Encode | None = None
     #: Слоты, которые живой показ отдаёт перекодированными поштучно (тяжёлые куски,
     #: :attr:`torrcast.recode.Recoder.targets`). Прогрев обязан положить на диск их же и
     #: такими же: копия тяжёлого куска приёмнику не по зубам, а перекод всего фильма ради
@@ -36,7 +44,7 @@ class _State:
     spots: tuple[int, ...] = ()
     #: Чем перекодировать :attr:`spots` - тот же :class:`torrcast.recode.Encode`, которым
     #: их берёт живой кодировщик.
-    spot_encode: Any = None
+    spot_encode: _Encode | None = None
     #: С какого места смотрим: прогрев идёт отсюда вперёд, голова - потом.
     began_at: int = 0
     #: Потолок веса одного куска у приёмника, байты
@@ -46,12 +54,12 @@ class _State:
     cap: int = CAUTIOUS.max_segment_bytes
     rate: float = WARM_RATE
     nice: int = WARM_NICE
-    log: Any = None
+    log: Callable[[str], None] | None = None
     #: Запас живого показа, секунды; кладёт :func:`torrcast.cli._hold` на каждом опросе.
     slack: float = 0.0
     #: Кодировщик живых кусков (:class:`torrcast.recode.Recoder`) или ``None``. Пока у него
     #: идёт заход, прогрев замирает: см. :meth:`_must_yield`.
-    rival: Any = None
+    rival: _Rival | None = None
     #: Прогрев замер под просевшим запасом (:data:`GUARD_LOW`).
     idle: bool = False
     #: С какого момента (монотонные секунды) запас держится над :data:`GUARD_LOW`, пока
@@ -63,9 +71,9 @@ class _State:
     #: легло на сетку, тяжёлые места копией, которые перекодировать нечем. Пусто - идёт.
     trouble: str = ""
     stopped: bool = False
-    thread: Any = None
-    packer: Any = None
-    lock: Any = field(default_factory=threading.Lock)
+    thread: threading.Thread | None = None
+    packer: _Run | None = None
+    lock: threading.Lock = field(default_factory=threading.Lock)
     #: Сколько прогонов оборвалось само (сеть). Считается ради честной строки, не ради лимита.
     breaks: int = 0
     #: Чем продолжить, когда эта серия ляжет на диск целиком: фабрика прогрева следующей
@@ -74,7 +82,7 @@ class _State:
     #: Фабрика, а не готовый прогрев: следующей серии нужны и паспорт, и карта опорных
     #: кадров, а это запросы к рою, которые не имеют права идти, пока грузится текущая.
     #: Зовётся ровно один раз и ровно тогда, когда текущая серия уже не нуждается в сети.
-    follow: Any = None
+    follow: Callable[[], _State | None] | None = None
     #: Прогрев следующей серии, поднятый :meth:`_chain`; ``None`` - ещё не поднимали.
     after: _State | None = None
     #: Через сколько секунд спрашивать следующую серию заново, когда собрать её не вышло

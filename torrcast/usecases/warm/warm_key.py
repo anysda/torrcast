@@ -6,13 +6,12 @@
 from __future__ import annotations
 
 import hashlib
-from typing import Any
 
-from torrcast.usecases.warm._state import Grid
+from torrcast.usecases.warm._state import Grid, _Encode
 
 
 def warm_key(
-    source: str, audio: int, grid: Grid, encode: Any = None, spots: tuple[int, ...] = ()
+    source: str, audio: int, grid: Grid, encode: _Encode | None = None, spots: tuple[int, ...] = ()
 ) -> str:
     """Ключ каталога прогретого: один и тот же показ — один и тот же ключ.
 

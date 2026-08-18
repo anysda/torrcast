@@ -2,15 +2,19 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, TypeAlias
+from typing import Protocol
 
 from torrcast.domain.rank_settings import FULL_HEIGHT, PEER_GRACE, STEP_GRACE
-
-if TYPE_CHECKING:
-    _Plan: TypeAlias = Any
+from torrcast.domain.release import Release
 
 
-def peer_grace(plan: _Plan, number: int, queue: list[int]) -> float:
+class _Ranked(Protocol):
+    """План в объёме, который нужен отсрочке: очередь отбора в порядке ранжира."""
+
+    ranked: list[Release]
+
+
+def peer_grace(plan: _Ranked, number: int, queue: list[int]) -> float:
     """Сколько этой раздаче даётся на ПЕРВЫЙ КОНТАКТ роя, секунды.
 
     🔴 TC-387. Отсрочка назначается ценой ошибки, а не свойствами раздачи. Обычная

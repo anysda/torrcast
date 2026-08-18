@@ -6,12 +6,18 @@
 from __future__ import annotations
 
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Protocol, TypeAlias
 
 from torrcast.domain.profile import CAUTIOUS
 from torrcast.usecases.feed_pack._state import Grid
+
+#: Кого позвать, когда сегмент ушёл наружу: ``(слот, чем он ушёл)``.
+_Told: TypeAlias = Callable[[int, str], None]
+#: Кого спросить про кусок по его весу: ``(слот, вес копии) -> bool``.
+_Asked: TypeAlias = Callable[[int, int], bool]
 
 
 class _Process(Protocol):
@@ -21,6 +27,13 @@ class _Process(Protocol):
     def wait(self, timeout: float | None = None) -> int: ...
     def terminate(self) -> None: ...
     def kill(self) -> None: ...
+
+
+class _Spool(Protocol):
+    """Куда ffmpeg пишет свою ругань: временный файл этого прогона."""
+
+    def seek(self, offset: int) -> int: ...
+    def read(self) -> bytes: ...
 
 
 @dataclass(slots=True)
@@ -46,11 +59,11 @@ class _State:
     #: за 100 с показа). Здесь край растёт только там, где мы сами переименовали файл, -
     #: и там, где прогон честно решил, что куска не будет никогда (:attr:`shrink`).
     edge: int = -1
-    log: Any = None
+    log: _Spool | None = None
     #: Выкладка может прийти из запроса приёмника и из часов показа одновременно.
     #: Второй заход не ждёт первый: горячий путь проверит готовый файл следующим
     #: оборотом, а два решения над одними исходниками опаснее пропущенного опроса.
-    publish_lock: Any = field(default_factory=threading.Lock)
+    publish_lock: threading.Lock = field(default_factory=threading.Lock)
     #: Упаковку погасили намеренно (пауза на пульте) - смерть процесса не авария.
     halted: bool = False
     #: Зачем мы сами сняли этот прогон (:meth:`stop`); пусто - мы его не трогали.
@@ -77,7 +90,7 @@ class _State:
     #: ``перекод`` (склейка не вышла). Различать их обязательно: раньше в журнал шло
     #: одно слово «перекод» на два разных исхода, и «склейка молча не вышла» нельзя было
     #: ни увидеть, ни опровергнуть - три подвиса на сериале разбирались вслепую.
-    told: Any = None
+    told: _Told | None = None
     #: Последний сегмент, который этому прогону разрешено выложить; ``-1`` - без предела.
     #:
     #: ⚠️ Нужно ровно кодировщику и ровно против ОБРЕЗКА. Заход кодировщика ограничен
@@ -112,7 +125,7 @@ class _State:
     #: в каталоге прогона и выложится либо перекодированным, либо как есть по истечении
     #: срока. Ждать при этом безопасно только там, докуда показу ещё далеко, - за этим
     #: следит спрашиваемый (:meth:`torrcast.recode.Recoder.holding`).
-    hold: Any = None
+    hold: _Asked | None = None
     #: Кого позвать на последнем гейте, когда кусок тяжелее потолка приёмника, а ждать
     #: перекод уже не стали: ``(слот, вес копии) -> bool``. ``True`` - в :attr:`spare`
     #: лежит свежий перекод под потолок, и наружу идёт он. ``False`` - ужать не вышло:
@@ -123,7 +136,7 @@ class _State:
     #: двигал край и не удалял саму копию, а всё за ней копилось в памяти до потолка
     #: несданного; потолок гасил прогон, запрос приёмника поднимал его заново - и круг
     #: повторялся, потому что тяжёлый кусок детерминирован.
-    shrink: Any = None
+    shrink: _Asked | None = None
     #: Потолок веса куска этого приёмника. Последний гейт обязан мерить ровно им:
     #: здесь уже известен вес файла после склейки, которого не видел каталог перекода.
     cap: int = CAUTIOUS.max_segment_bytes

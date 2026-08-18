@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, TypeAlias
+from typing import TYPE_CHECKING, Protocol
 
 from torrcast.domain.facts.fact import Fact
 from torrcast.domain.facts.minutes_of import minutes_of
@@ -11,14 +11,22 @@ from torrcast.ports.journal import journal
 from torrcast.usecases.reinforce._plan_for import _plan_for
 
 if TYPE_CHECKING:
-    Args: TypeAlias = Any
-    Config: TypeAlias = Any
-    Facts: TypeAlias = Any
-    _Plan: TypeAlias = Any
+    from torrcast.domain.config import Config
+    from torrcast.ports.choice_types import Args, _Plan
+
+
+class _Told(Protocol):
+    """Справка о картинах в объёме, который нужен пересборке: один вопрос про одну.
+
+    Полная :class:`torrcast.usecases.facts.Facts` сюда не приходит: фоновый добор, его
+    бюджет и его поток - дело меню, а плану нужен готовый ответ про одну картину.
+    """
+
+    def get(self, title: str, year: int | None) -> Fact: ...
 
 
 def _timed(
-    plan: _Plan, facts: Facts | None, args: Args, config: Config, profile: Profile = CAUTIOUS
+    plan: _Plan, facts: _Told | None, args: Args, config: Config, profile: Profile = CAUTIOUS
 ) -> _Plan:
     """Пересобрать план на НАСТОЯЩЕЙ длительности картины, как только её назвала справка.
 

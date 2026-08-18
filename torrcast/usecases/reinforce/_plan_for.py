@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, TypeAlias
+from typing import TYPE_CHECKING
 
 from torrcast.domain._series import _Series
 from torrcast.domain.episode import Episode
@@ -14,9 +14,13 @@ from torrcast.usecases.rank.last_hope import last_hope
 from torrcast.usecases.rank.rank_releases import rank_releases
 
 if TYPE_CHECKING:
-    Args: TypeAlias = Any
-    Config: TypeAlias = Any
-    _Plan: TypeAlias = Any
+    from torrcast.domain.config import Config
+    from torrcast.ports.choice_types import Args, _Plan
+else:
+    # Договор плана называет порт, а сам класс живёт в сценарии выбора: тут план не
+    # только называют, но и строят, поэтому во время работы имя берётся оттуда, куда
+    # порт и указывает.
+    from torrcast.usecases.select import _Plan
 
 
 def _plan_for(
@@ -33,12 +37,6 @@ def _plan_for(
     (:data:`torrcast.stream.RUNTIME_GUESS`).
     """
     from torrcast.domain.runtime_guess import RUNTIME_GUESS
-
-    # 🔴 Сам план по слоям ещё не разложен: он живёт в сценарии выбора
-    # (:class:`torrcast.usecases.select._Plan`), а тот зовёт добор. Пока договор не назван
-    # (:mod:`torrcast.ports.choice_types`), имя берётся отложенным импортом - раньше оно
-    # приезжало сюда плоским namespace прежнего монолита, то есть вообще ниоткуда.
-    from torrcast.usecases.select import _Plan
 
     series = _Series(want=args.episode or Episode(1, 1)) if picture.kind == "tv" else None
     known = runtime > 0
