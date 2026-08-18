@@ -30,12 +30,13 @@ import pytest
 import requests
 
 from tests.conftest import CLIP_SECONDS, fake_packer, free_port, module_of
-from torrcast.adapters.frames.http_range_reader import HttpRangeReader as Reader
+from tests.fakes.disk_range_reader import DiskRangeReader
 from torrcast.adapters.frames.keyframes import keyframes
 from torrcast.adapters.http_server.hls_server import HlsServer
 from torrcast.adapters.pack_memory import _SEEK_OK
 from torrcast.adapters.stream_pack._pilot_start import _pilot_start
 from torrcast.adapters.stream_pack.ffmpeg_pack_command import ffmpeg_pack_command
+from torrcast.adapters.stream_pack.film_keys import film_keys
 from torrcast.adapters.stream_pack.grid import Grid
 from torrcast.adapters.stream_pack.grid_for import grid_for
 from torrcast.adapters.stream_pack.hls_dir import hls_dir
@@ -45,7 +46,7 @@ from torrcast.adapters.stream_pack.packer import Packer
 from torrcast.adapters.stream_pack.parse_manifest import parse_manifest
 from torrcast.adapters.stream_probe.segment_name import segment_name
 from torrcast.domain.film_keys import FilmKeys
-from torrcast.domain.frames.keymap import video_track
+from torrcast.domain.frames.keymap import KeyMap, video_track
 from torrcast.domain.hls_settings import (
     HLS_SEGMENT_SECONDS,
     MAX_SEGMENT_BYTES,
@@ -415,7 +416,7 @@ def _dts_edges(path: Path, stream_name: str) -> tuple[float, float]:
 
 
 def test_the_very_first_seam_of_a_run_is_as_monotone_as_all_the_others(
-    clip_mp4_bframes: str, offline_keys: None, tmp_path: Path
+    clip_mp4_bframes: str, tmp_path: Path
 ) -> None:
     """🔴 TC-574. Первый стык одного прогона не имеет права идти назад.
 
@@ -437,7 +438,7 @@ def test_the_very_first_seam_of_a_run_is_as_monotone_as_all_the_others(
     откатом: без начала ленты (:func:`torrcast.adapters.stream_pack.pack_origin.pack_origin`) первый
     стык уходит назад на кадр, и тест падает ровно на нём.
     """
-    grid = grid_for(clip_mp4_bframes, float(CLIP_SECONDS))
+    grid = grid_for(clip_mp4_bframes, float(CLIP_SECONDS), keys_of=_offline_map)
     assert grid.on_keys and grid.count >= 3, "нужна сетка по опорным кадрам и хотя бы три куска"
     assert grid.origin > 0, "начало ленты обязано быть измерено, иначе проверять нечего"
 
@@ -562,17 +563,14 @@ def _own_seek_memory() -> Iterator[None]:
     _SEEK_OK.clear()
 
 
-@pytest.fixture
-def offline_keys(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Карта снимается с локального файла: Range-запросы читают путь, а не сеть."""
+def _offline_keys(url: str) -> KeyMap:
+    """Индекс контейнера, снятый с диска: карта та же, а роя тут нет."""
+    return keyframes(url, source=DiskRangeReader)
 
-    def read(self: Reader, offset: int, size: int) -> bytes:
-        data = Path(self.url).read_bytes()[offset : offset + size]
-        self.taken += len(data)
-        self.requests += 1
-        return data
 
-    monkeypatch.setattr(Reader, "read", read)
+def _offline_map(url: str) -> FilmKeys:
+    """Карта файла целиком тем же путём, каким её снимает показ, но с диска."""
+    return film_keys(url, keys_of=_offline_keys)
 
 
 def _map_of(path: str) -> FilmKeys:
@@ -580,7 +578,7 @@ def _map_of(path: str) -> FilmKeys:
 
     То же, что снимает :func:`torrcast.adapters.stream_pack.film_keys.film_keys`.
     """
-    found = keyframes(path)
+    found = _offline_keys(path)
     track = video_track(found.points)
     video = [p for p in found.points if p.track == track]
     return FilmKeys(found.duration, [p.at for p in video], [p.offset for p in video], found.kind)
@@ -588,7 +586,7 @@ def _map_of(path: str) -> FilmKeys:
 
 @pytest.mark.parametrize("container", ["mkv", "mp4"])
 def test_the_entry_point_from_the_map_is_where_ffmpeg_actually_lands(
-    clip: str, clip_mp4: str, offline_keys: None, container: str
+    clip: str, clip_mp4: str, container: str
 ) -> None:
     """Предсказанное по карте место захода совпадает с измеренным - на каждой границе.
 
@@ -611,9 +609,7 @@ def test_the_entry_point_from_the_map_is_where_ffmpeg_actually_lands(
         )
 
 
-def test_the_map_is_believed_only_after_the_pilot_has_confirmed_it(
-    clip: str, offline_keys: None
-) -> None:
+def test_the_map_is_believed_only_after_the_pilot_has_confirmed_it(clip: str) -> None:
     """Пробный прогон - один на файл, а не один на заход, и он именно сверка.
 
     Первый заход платит прогон и сверяет им карту; дальше место захода считается по карте
@@ -638,9 +634,7 @@ def test_the_map_is_believed_only_after_the_pilot_has_confirmed_it(
     assert _SEEK_OK[clip] is True
 
 
-def test_a_lying_map_is_caught_by_the_pilot_and_never_believed_again(
-    clip: str, offline_keys: None
-) -> None:
+def test_a_lying_map_is_caught_by_the_pilot_and_never_believed_again(clip: str) -> None:
     """Карта разошлась с фактом - работает прежний пробный прогон, и место захода верное.
 
     Подсунута карта, сдвинутая на 0.7 с: предсказание расходится с измеренным больше чем на
@@ -1796,7 +1790,7 @@ def test_the_lead_is_counted_from_the_receiver_and_breaks_on_a_hole(tmp_path: Pa
     assert feed.front(grid.start(40)) == grid.end(41), "считаем от приёмника, а не от начала"
 
 
-def test_mock_receiver_closes_its_ffmpeg_log(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_mock_receiver_closes_its_ffmpeg_log() -> None:
     """Журнал ffmpeg - открытый временный файл, и закрывать его обязан сам приёмник.
 
     Приёмник живёт весь юнит, а сериал зовёт ``play`` на каждую серию: журнал прошлой
@@ -1807,6 +1801,12 @@ def test_mock_receiver_closes_its_ffmpeg_log(monkeypatch: pytest.MonkeyPatch) ->
     from torrcast import InfraError
     from torrcast.adapters.chromecast.mock.hls_fetch import HlsFetch
     from torrcast.adapters.chromecast.mock.mock_receiver import MockReceiver
+
+    class _Blank(HlsFetch):
+        """Раздача с пустым манифестом: показу от неё отказ, а не поток."""
+
+        def manifest(self, url: str) -> str:
+            return ""
 
     # mypy сужает тип журнала по присваиванию и не сбрасывает сужение на вызовах
     # методов - смотреть на атрибут через функцию, а не напрямую
@@ -1820,7 +1820,9 @@ def test_mock_receiver_closes_its_ffmpeg_log(monkeypatch: pytest.MonkeyPatch) ->
     assert first.closed and err_of(receiver) is None, "stop не закрыл журнал"
 
     receiver.decoder.err = second = tempfile.TemporaryFile()  # noqa: SIM115 - то же самое
-    monkeypatch.setattr(HlsFetch, "manifest", lambda self, url: "")
+    # Рот приёмника в сеть - его собственное поле: подделка ставится этому приёмнику, а
+    # не классу целиком, и соседний показ в том же прогоне её не увидит.
+    receiver.fetch = _Blank(receiver.ca, receiver.clock)
     with pytest.raises(InfraError):
         receiver.play("http://127.0.0.1/index.m3u8")
     assert second.closed, "новый показ бросил журнал прошлого открытым"

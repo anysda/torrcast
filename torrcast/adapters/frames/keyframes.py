@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Final
 
 from torrcast.adapters.frames.http_range_reader import HttpRangeReader
 from torrcast.domain.frames.keymap import KeyMap
+from torrcast.domain.frames.range_reader import RangeReader
 from torrcast.domain.infra_error import InfraError
 
 #: Сколько головы берём первым запросом. Кусок мал нарочно: у холодной раздачи каждый
@@ -14,10 +16,17 @@ from torrcast.domain.infra_error import InfraError
 #: (:data:`torrcast.domain.frames.mkv.HEAD_BYTES`), а не тянет файл.
 HEAD_PEEK: Final = 256 << 10
 
+#: Чем берутся байты по адресу: боевой HTTP-читатель или подделка стенда.
+Source = Callable[[str], RangeReader]
 
-def keyframes(url: str) -> KeyMap:
-    """Читает индекс контейнера диапазонными HTTP-запросами."""
-    reader = HttpRangeReader(url)
+
+def keyframes(url: str, *, source: Source = HttpRangeReader) -> KeyMap:
+    """Читает индекс контейнера диапазонными HTTP-запросами.
+
+    ``source`` - чем брать байты. Умолчание боевое; называет своё только стенд, которому
+    нужен тот же контейнер, но с диска: настоящее чтение стоит Range-запросов в рой.
+    """
+    reader = source(url)
     head = reader.read(0, HEAD_PEEK)
     if head[:4] == b"\x1a\x45\xdf\xa3":
         from torrcast.domain.frames.mkv import keys
