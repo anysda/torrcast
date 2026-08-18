@@ -40,10 +40,10 @@ from torrcast.cli import (
 )
 from torrcast.console import Progress
 from torrcast.parse import Picture, Release, parse_release_name
+from torrcast.runtime.native_picture import native_picture
 from torrcast.search import RawResult, merge, to_releases
 from torrcast.state import Config
 from torrcast.stream import RUNTIME_GUESS, AudioTrack, Media
-from torrcast.voice_origin import native_picture
 
 RUNTIME = RUNTIME_GUESS["movie"]
 GB = 1024**3

@@ -1,17 +1,12 @@
-"""Проверяет прежний путь к внешней части медиатракта и полноту его набора имён."""
+"""Проверяет полноту набора имён внешней части медиатракта."""
 
-import torrcast.stream_serve as facade
 from torrcast.adapters.http_server import stream_serve
 from torrcast.adapters.http_server.hls_server import HlsServer
 from torrcast.adapters.systemd.start_play_unit import start_play_unit
 
 
-def test_facade_points_to_adapter() -> None:
-    assert facade is stream_serve
-
-
 def test_every_promised_name_really_lives_here() -> None:
-    """Обещанное в ``__all__`` обязано разрешаться: по этому списку модуль читает фасад.
+    """Обещанное в ``__all__`` обязано разрешаться: по этому списку читает :mod:`torrcast.stream`.
 
     Разъехавшиеся единицы собираются здесь заново, и пропавшее имя ломает не этот
     модуль, а :mod:`torrcast.stream` - на импорте, то есть весь показ разом.

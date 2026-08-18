@@ -2514,7 +2514,7 @@ MAGNET: Final = f"magnet:?xt=urn:btih:{MAGNET_HASH}&tr=udp%3A%2F%2Ftracker.examp
 def _supply(service: _Service) -> Any:
     from torrcast.stream import Supply
 
-    return Supply(service, torrent_hash=MAGNET_HASH, magnet=MAGNET)  # type: ignore[arg-type]
+    return Supply(service, torrent_hash=MAGNET_HASH, magnet=MAGNET)
 
 
 def _events(directory: Path) -> list[dict[str, Any]]:
@@ -2679,7 +2679,7 @@ def test_the_source_is_never_asked_while_the_picture_is_alive(tmp_path: Path) ->
             return ""
 
     feed = _feed_with_segments(tmp_path)
-    supply = _Counted(_Service(), torrent_hash=MAGNET_HASH, magnet=MAGNET)  # type: ignore[arg-type]
+    supply = _Counted(_Service(), torrent_hash=MAGNET_HASH, magnet=MAGNET)
     receiver = _FakeReceiver([(200.0, "PLAYING"), (210.0, "PLAYING"), (220.0, "PLAYING")])
 
     cli._hold(receiver, feed, None, None, supply, clock=FakeClock(1000.0))

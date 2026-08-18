@@ -194,7 +194,8 @@ def test_a_hand_picked_release_survives_a_late_reorder(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Номер таблицы означает её инфохэш, даже если поздняя выдача сдвинула места."""
-    from torrcast.release_pin import info_hash, recalled, remember
+    from torrcast.adapters.filesystem.release_pins import pins
+    from torrcast.domain.info_hash import info_hash
     from torrcast.search import magnet_for
 
     monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
@@ -213,7 +214,7 @@ def test_a_hand_picked_release_survives_a_late_reorder(
     picture = Picture(title="Кино", year=1999, releases=[shown, neighbour])
     before = _Plan(picture, [shown, neighbour], 7200.0, 20.0)
     selected = 1
-    remember("кино", {picture.key: before.ranked})
+    pins.remember("кино", {picture.key: before.ranked})
 
     after = _Plan(
         replace(picture, releases=[shown, neighbour, late]),
@@ -224,7 +225,7 @@ def test_a_hand_picked_release_survives_a_late_reorder(
     args = Args(
         query=["кино"],
         release=selected,
-        release_hash=recalled("кино", picture.key, selected),
+        release_hash=pins.recalled("кино", picture.key, selected),
     )
     picked = after.ranked[after.candidates(args)[0] - 1]
 

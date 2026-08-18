@@ -28,15 +28,15 @@ _PART_NAMES = (
     "torrcast.usecases.voices_command",
     "torrcast.usecases.log_command",
     "torrcast.usecases.doctor_command",
-    "torrcast.play_command",
-    "torrcast.discovery",
+    "torrcast.usecases.cast_command",
+    "torrcast.usecases.discover",
     "torrcast.reinforce",
     "torrcast.selection",
     "torrcast.selection_bench",
     "torrcast.playback",
     "torrcast.playback_revival",
     "torrcast.choice",
-    "torrcast.ranking",
+    "torrcast.usecases.rank",
 )
 _PARTS = tuple(module(name) for name in _PART_NAMES)
 
