@@ -12,7 +12,6 @@ from torrcast.adapters.prowlarr.indexer_roster import IndexerRoster
 from torrcast.adapters.prowlarr.merge import merge
 from torrcast.adapters.prowlarr.prowlarr_api import TIMEOUT, ProwlarrApi
 from torrcast.adapters.prowlarr.prowlarr_http_client import _IndexersUnavailableError
-from torrcast.adapters.prowlarr.raw_result import RawResult
 from torrcast.adapters.prowlarr.search_url import search_url
 from torrcast.domain.anime_fallback import anime_fallback
 from torrcast.domain.capped_indexers import capped_indexers
@@ -21,6 +20,7 @@ from torrcast.domain.goal_spare import CIRCLE_SHARE, goal_spare
 from torrcast.domain.indexer_budget import indexer_budget
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.nothing_found import nothing_found
+from torrcast.domain.raw_result import RawResult
 
 
 class Prowlarr:

@@ -11,11 +11,11 @@ from typing import Final
 from torrcast.adapters.prowlarr.ask_indexer import ask_indexer
 from torrcast.adapters.prowlarr.merge import merge
 from torrcast.adapters.prowlarr.prowlarr_api import ProwlarrApi
-from torrcast.adapters.prowlarr.raw_result import RawResult
 from torrcast.adapters.prowlarr.search_url import search_url
 from torrcast.domain.circle_indexers import Indexer
 from torrcast.domain.indexer_budget import indexer_budget
 from torrcast.domain.infra_error import InfraError
+from torrcast.domain.raw_result import RawResult
 from torrcast.domain.response_budget import response_budget
 from torrcast.domain.wait_indexer import wait_indexer
 

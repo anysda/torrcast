@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from tests.usecases.discover.world import Indexer, Said, franchise, row, wire_catalogue
-from torrcast.adapters.prowlarr.raw_result import RawResult
 from torrcast.cli.args import Args
 from torrcast.domain.facts.origin import Origin
 from torrcast.domain.picture import Picture
+from torrcast.domain.raw_result import RawResult
 from torrcast.usecases.discover._second_language import _second_language
 
 #: Два русских DVDRip'а: пул тощий, и повод переспросить оригиналом есть.

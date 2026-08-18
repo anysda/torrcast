@@ -28,7 +28,6 @@ from tests.test_cli import _FakeTorrServer, _resolve, rel
 from torrcast.adapters.console.console import Progress
 from torrcast.adapters.filesystem.trace_journal import records, shutdown
 from torrcast.adapters.prowlarr.merge import merge
-from torrcast.adapters.prowlarr.raw_result import RawResult
 from torrcast.adapters.prowlarr.to_releases import to_releases
 from torrcast.cli.args import Args
 from torrcast.domain.audio_track import AudioTrack
@@ -39,6 +38,7 @@ from torrcast.domain.media import Media
 from torrcast.domain.parse_release_name import parse_release_name
 from torrcast.domain.picture import Picture
 from torrcast.domain.rank_settings import SD_BITRATE
+from torrcast.domain.raw_result import RawResult
 from torrcast.domain.release import Release
 from torrcast.domain.runtime_guess import RUNTIME_GUESS
 from torrcast.runtime.native_picture import native_picture

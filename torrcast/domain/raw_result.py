@@ -2,21 +2,26 @@
 
 from __future__ import annotations
 
-import re
-from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any, Final, TypeAlias
-
-from torrcast.adapters.prowlarr.magnet_for import magnet_for
-
-_HASH_RE: Final = re.compile(r"^[0-9a-fA-F]{40}$")
-#: Сырые поля одной строки выдачи в порядке :meth:`RawResult.build`.
-Row: TypeAlias = tuple[Any, Any, Any, Any, Any]
 
 
 @dataclass(frozen=True, slots=True)
 class RawResult:
-    """Раздача, как её назвал каталог: до разбора имени и до всякого отбора."""
+    """Раздача, как её назвал каталог: до разбора имени и до всякого отбора.
+
+    Строка живёт в домене, хотя приезжает из каталога, и причина не в удобстве. Её
+    называют трое сразу: адаптер, который её собирает
+    (:func:`~torrcast.adapters.prowlarr.collect_rows.collect_rows`), порт, который
+    договаривается о склейке и разборе
+    (:class:`~torrcast.ports.torrent_catalogue.TorrentCatalogue`), и сценарий добора,
+    который перекладывает строки между тем и другим. Пока класс лежал в адаптере, назвать
+    его могли не все, и договор порта стоял ``Any``: пустого договора-возчика хватило бы
+    одной строке, но строки ходят СПИСКАМИ, а список в типах неизменен - ``list`` от
+    класса под ``list`` от договора о нём не подставляется. Здесь же имя одно на всех.
+
+    Сама выдача каталога тут не разбирается: сборка строки из сырых полей ответа и её
+    magnet - дело адаптера, у которого есть и вид ответа, и список публичных трекеров.
+    """
 
     title: str
     info_hash: str
@@ -43,35 +48,5 @@ class RawResult:
     #: стоит в :attr:`title`.
     names: tuple[str, ...] = ()
 
-    @property
-    def magnet(self) -> str:
-        return magnet_for(self.info_hash, self.title)
 
-    @classmethod
-    def build(cls, title: Any, info_hash: Any, size: Any, seeders: Any, indexer: Any) -> RawResult:
-        """Собрать результат из сырых полей; без валидного hash строка бесполезна."""
-        text = str(info_hash or "").strip()
-        if not _HASH_RE.match(text) or not str(title or "").strip():
-            raise ValueError("нет hash или имени")
-        return cls(str(title), text, _int(size), _int(seeders), str(indexer or ""))
-
-    @classmethod
-    def collect(cls, rows: Iterable[Row]) -> list[RawResult]:
-        """Собрать строки выдачи, молча пропуская непригодные (без hash или имени)."""
-        out: list[RawResult] = []
-        for row in rows:
-            try:
-                out.append(cls.build(*row))
-            except ValueError:
-                continue
-        return out
-
-
-def _int(value: Any) -> int:
-    try:
-        return max(0, int(value))
-    except (TypeError, ValueError):
-        return 0
-
-
-__all__ = ["RawResult", "Row"]
+__all__ = ["RawResult"]

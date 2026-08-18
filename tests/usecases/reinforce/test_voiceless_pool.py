@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from tests.usecases.reinforce.stand import franchise, row
-from torrcast.adapters.prowlarr.raw_result import RawResult
 from torrcast.cli.args import Args
 from torrcast.domain.config import Config
 from torrcast.domain.picture import Picture
+from torrcast.domain.raw_result import RawResult
 from torrcast.usecases.reinforce.voiceless_pool import voiceless_pool
 
 #: Единственный кандидат «тачек» - англоязычный BluRay: играть его по-русски нечем.

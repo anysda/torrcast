@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from tests.usecases.discover.world import Indexer, Said, franchise, row, wire_catalogue
-from torrcast.adapters.prowlarr.raw_result import RawResult
 from torrcast.domain.facts.origin import Origin
 from torrcast.domain.goal_spare import CIRCLE_SHARE, GOAL
 from torrcast.domain.picture import Picture
+from torrcast.domain.raw_result import RawResult
 from torrcast.usecases.discover._second_circle import _second_circle
 
 _RU = [row("Психо / Psycho (1960) DVDRip", "a")]

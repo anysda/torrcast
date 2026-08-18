@@ -14,11 +14,12 @@ import torrcast.usecases.discover._search_state as _search_state
 from torrcast.domain.cluster import cluster
 from torrcast.domain.pick_franchise import pick_franchise
 from torrcast.domain.picture import Picture
+from torrcast.domain.raw_result import RawResult
 from torrcast.domain.reads_season import reads_season
 from torrcast.domain.split_franchise_index import split_franchise_index
 from torrcast.domain.unswap_layout import unswap_layout
 from torrcast.ports.progress import Progress
-from torrcast.ports.torrent_catalogue import IndexerClient, RawRow
+from torrcast.ports.torrent_catalogue import IndexerClient
 from torrcast.usecases.discover._ask import _ask
 from torrcast.usecases.discover._no_budget import _no_budget
 
@@ -28,7 +29,7 @@ if TYPE_CHECKING:
 
 def _relayout(
     client: IndexerClient, query: str, name: str, index: int | None, progress: Progress
-) -> tuple[str, str, int | None, list[RawRow]]:
+) -> tuple[str, str, int | None, list[RawResult]]:
     """Второй заход той же строкой, прочитанной как забытая раскладка. Пусто - как было.
 
     `cast nfxrb` - это «тачки»: запрос, набранный не переключив раскладку. Отказ по
@@ -58,8 +59,8 @@ def _relayout(
 
 
 def _titled_number(
-    client: IndexerClient, query: str, name: str, raw: list[RawRow], progress: Progress
-) -> tuple[list[RawRow], list[Picture], list[Picture]]:
+    client: IndexerClient, query: str, name: str, raw: list[RawResult], progress: Progress
+) -> tuple[list[RawResult], list[Picture], list[Picture]]:
     """Второй заход ВСЕЙ строкой: цифра оказалась частью названия. Не помогло - как было.
 
     🔴 TC-296. `cast «бен 10»` уезжал искать «Бен-Гур». Хвостовая цифра читается номером части

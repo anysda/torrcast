@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from tests.usecases.discover.world import franchise, pictures, row
-from torrcast.adapters.prowlarr.raw_result import RawResult
 from torrcast.cli.args import Args
 from torrcast.domain.config import Config
+from torrcast.domain.raw_result import RawResult
 from torrcast.usecases.discover.kin_line import _kin
 from torrcast.usecases.discover.unfit_line import unfit_line
 from torrcast.usecases.rank.queue_drops import queue_drops

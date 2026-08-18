@@ -7,8 +7,8 @@ from typing import TYPE_CHECKING
 from torrcast.domain.facts.origin import Origin
 from torrcast.domain.facts.same_name import same_name
 from torrcast.domain.picture import Picture
+from torrcast.domain.raw_result import RawResult
 from torrcast.domain.slugify import slugify
-from torrcast.ports.torrent_catalogue import RawRow
 from torrcast.usecases.reinforce.configure import _catalogue_port
 
 if TYPE_CHECKING:
@@ -16,8 +16,8 @@ if TYPE_CHECKING:
 
 
 def _as_is(
-    raw: list[RawRow], found: list[Picture], about: Origin, progress: Progress
-) -> tuple[list[RawRow], list[Picture], list[Picture]]:
+    raw: list[RawResult], found: list[Picture], about: Origin, progress: Progress
+) -> tuple[list[RawResult], list[Picture], list[Picture]]:
     """Добора не было - остаётся то, что нашёл русский запрос. И сказать, если год спорит.
 
     🔴 **Право у гейта года ровно одно - не ДОБАВИТЬ своё. ОТНЯТЬ найденное русским

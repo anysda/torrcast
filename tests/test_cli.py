@@ -520,7 +520,7 @@ def _plan(ranked: list[Release], recode_at: float = 10.0) -> Any:
 
 def _raw(name: str, tag: str, seeders: int) -> Any:
     """Одна строка выдачи опоздавшего индексера; хэш подделываем из тега."""
-    from torrcast.adapters.prowlarr.raw_result import RawResult
+    from torrcast.domain.raw_result import RawResult
 
     return RawResult(
         title=name, info_hash=tag * 40, size=int(8 * GB), seeders=seeders, indexer="Nyaa.si"
@@ -4104,8 +4104,8 @@ def test_добор_учитывает_готовую_опоздавшую_вы�
     У раздачи нет латинской подписи, поэтому пустой второй круг её не повторит. Она уже
     доехала к окончанию добора - ждать сверх бюджета не требуется.
     """
-    from torrcast.adapters.prowlarr.raw_result import RawResult
     from torrcast.domain.facts.origin import Origin
+    from torrcast.domain.raw_result import RawResult
 
     late = [RawResult("Клиника S01 1080p", "e" * 40, 15 * 1024**3, 30)]
     client = _LateSecond(late)
@@ -4134,11 +4134,11 @@ def test_короткое_имя_берёт_картину_из_первого_�
     разрешением на подмену. Паспорт независимо называет сериал и его год - только эта
     пара даёт право выбрать сериал из того же пула.
     """
-    from torrcast.adapters.prowlarr.raw_result import RawResult
     from torrcast.adapters.prowlarr.to_releases import to_releases
     from torrcast.domain.cluster import cluster
     from torrcast.domain.facts.origin import Origin
     from torrcast.domain.pick_franchise import pick_franchise
+    from torrcast.domain.raw_result import RawResult
 
     raw = [
         RawResult("lainzine 1-5 (2024) PDF", "a" * 40, 100 * 1024**2, 2),
@@ -4169,11 +4169,11 @@ def test_короткое_имя_берёт_картину_из_первого_�
 
 def test_паспортное_имя_не_подменяет_картину_при_споре_года() -> None:
     """Короткое имя не получает права выбрать тёзку с годом вопреки паспорту."""
-    from torrcast.adapters.prowlarr.raw_result import RawResult
     from torrcast.adapters.prowlarr.to_releases import to_releases
     from torrcast.domain.cluster import cluster
     from torrcast.domain.facts.origin import Origin
     from torrcast.domain.pick_franchise import pick_franchise
+    from torrcast.domain.raw_result import RawResult
 
     raw = [
         RawResult("lainzine 1-5 (2024) PDF", "c" * 40, 100 * 1024**2, 2),
@@ -4201,10 +4201,10 @@ def test_паспортное_имя_не_подменяет_картину_пр
 
 def _nine_yards_pool() -> tuple[list[Any], list[Picture], list[Picture]]:
     """Пул запроса «девять»: сотня строк про соседей, самой «Девять» в ней нет."""
-    from torrcast.adapters.prowlarr.raw_result import RawResult
     from torrcast.adapters.prowlarr.to_releases import to_releases
     from torrcast.domain.cluster import cluster
     from torrcast.domain.pick_franchise import pick_franchise
+    from torrcast.domain.raw_result import RawResult
 
     raw = [
         RawResult(
@@ -4245,8 +4245,8 @@ def test_потолок_прячет_картину_и_добор_её_дост�
     выдачу так, что картина влезает под потолок, и встаёт в меню ВПЕРЕДИ соседей по
     подстроке - с честной строкой о том, что произошло.
     """
-    from torrcast.adapters.prowlarr.raw_result import RawResult
     from torrcast.domain.facts.origin import Origin
+    from torrcast.domain.raw_result import RawResult
 
     rows = [RawResult("Девять / Nine (2009) BDRip 1080p | D", "b" * 40, 9 * 1024**3, 7)]
     client, out, (_raw, _pictures, found) = _refined(
@@ -4263,8 +4263,8 @@ def test_потолок_прячет_картину_и_добор_её_дост�
 
 def test_уточнение_не_идёт_за_именем_без_поручительства() -> None:
     """🔴 Гейт TC-253: имя, лишь признанное похожим, второго круга не заказывает."""
-    from torrcast.adapters.prowlarr.raw_result import RawResult
     from torrcast.domain.facts.origin import Origin
+    from torrcast.domain.raw_result import RawResult
 
     rows = [RawResult("Девять / Nine (2009) BDRip 1080p | D", "b" * 40, 9 * 1024**3, 7)]
     about = Origin(title="Nine", year=2009, name="Девять", guessed=True)
@@ -4277,8 +4277,8 @@ def test_уточнение_не_идёт_за_именем_без_поручи�
 
 def test_уточнению_нужен_год_справки() -> None:
     """Года у справки нет - уточнять нечем, и второго круга нет вовсе."""
-    from torrcast.adapters.prowlarr.raw_result import RawResult
     from torrcast.domain.facts.origin import Origin
+    from torrcast.domain.raw_result import RawResult
 
     rows = [RawResult("Девять / Nine (2009) BDRip 1080p | D", "b" * 40, 9 * 1024**3, 7)]
     client, _out, (_raw, _pictures, found) = _refined(Origin(title="Nine", name="Девять"), rows)
@@ -4289,8 +4289,8 @@ def test_уточнению_нужен_год_справки() -> None:
 
 def test_уточнение_не_берёт_картину_с_чужим_именем_и_годом() -> None:
     """Уточнённый круг привёз соседей - прежняя выдача остаётся, подмены нет."""
-    from torrcast.adapters.prowlarr.raw_result import RawResult
     from torrcast.domain.facts.origin import Origin
+    from torrcast.domain.raw_result import RawResult
 
     rows = [
         RawResult(

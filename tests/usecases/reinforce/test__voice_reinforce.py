@@ -5,8 +5,8 @@ from __future__ import annotations
 from typing import Any
 
 from tests.usecases.reinforce.stand import Indexer, Said, franchise, row
-from torrcast.adapters.prowlarr.raw_result import RawResult
 from torrcast.domain.picture import Picture
+from torrcast.domain.raw_result import RawResult
 from torrcast.usecases.reinforce._voice_reinforce import _voice_reinforce
 
 #: Единственный кандидат «тачек»: англоязычный BluRay на 66 сид, играть по-русски нечем.

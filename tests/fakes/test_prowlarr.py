@@ -4,8 +4,8 @@ import pytest
 
 from tests.fakes.prowlarr import FakeProwlarr
 from torrcast import NotFoundError
-from torrcast.adapters.prowlarr.raw_result import RawResult
 from torrcast.domain.goal_spare import GOAL
+from torrcast.domain.raw_result import RawResult
 
 
 def test_fake_answers_the_known_query_and_records_every_ask() -> None:

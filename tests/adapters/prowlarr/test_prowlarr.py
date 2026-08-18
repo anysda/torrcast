@@ -20,11 +20,11 @@ from torrcast.adapters.filesystem.trace_journal import digest, records, shutdown
 from torrcast.adapters.prowlarr.indexer_circle import IndexerCircle
 from torrcast.adapters.prowlarr.prowlarr import Prowlarr
 from torrcast.adapters.prowlarr.prowlarr_http_client import _IndexersUnavailableError
-from torrcast.adapters.prowlarr.raw_result import RawResult
 from torrcast.domain.circle_indexers import Indexer
 from torrcast.domain.indexer_budget import SHORT_TIMEOUT, indexer_budget
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.not_found_error import NotFoundError
+from torrcast.domain.raw_result import RawResult
 from torrcast.domain.response_budget import LATE_TIMEOUT
 
 FIXTURES = Path(__file__).parents[2] / "fixtures"

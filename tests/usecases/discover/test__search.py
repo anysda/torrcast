@@ -5,12 +5,12 @@ from __future__ import annotations
 import pytest
 
 from tests.usecases.discover.world import Indexer, Said, row, wire_catalogue
-from torrcast.adapters.prowlarr.raw_result import RawResult
 from torrcast.cli.args import Args
 from torrcast.domain.config import Config
 from torrcast.domain.facts.origin import Origin
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.not_found_error import NotFoundError
+from torrcast.domain.raw_result import RawResult
 from torrcast.usecases.discover._search import _search
 from torrcast.usecases.select import _Plan
 

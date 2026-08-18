@@ -56,9 +56,9 @@ from probeprofile import add_argument as add_profile_argument
 from probeprofile import choose as choose_profile
 
 from torrcast.adapters.filesystem.state import load_config
+from torrcast.adapters.prowlarr.collect_rows import collect_rows
 from torrcast.adapters.prowlarr.merge import merge
 from torrcast.adapters.prowlarr.prowlarr import Prowlarr
-from torrcast.adapters.prowlarr.raw_result import RawResult
 from torrcast.adapters.prowlarr.to_releases import to_releases
 from torrcast.cli.args import Args
 from torrcast.domain._name_data import THIN_POOL
@@ -70,6 +70,7 @@ from torrcast.domain.menu_order import menu_order
 from torrcast.domain.pick_franchise import pick_franchise
 from torrcast.domain.picture import Picture
 from torrcast.domain.profile import Profile
+from torrcast.domain.raw_result import RawResult
 from torrcast.domain.release import Release
 from torrcast.domain.split_franchise_index import split_franchise_index
 from torrcast.usecases.discover import _season_reread, unfit_pool, worth_asking_original
@@ -235,12 +236,7 @@ def batches_of(record: dict[str, Any]) -> list[list[RawResult]]:
     if not isinstance(rows, dict):
         return out
     for lines in rows.values():
-        batch: list[RawResult] = []
-        for line in lines or ():
-            try:
-                batch.append(RawResult.build(*list(line)[:5]))
-            except (ValueError, TypeError):
-                continue
+        batch = collect_rows(tuple(line)[:5] for line in lines or () if isinstance(line, list))
         if batch:
             out.append(batch)
     return out

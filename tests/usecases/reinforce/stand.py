@@ -9,13 +9,12 @@ from __future__ import annotations
 from typing import Any
 
 from torrcast.adapters.prowlarr.merge import merge
-from torrcast.adapters.prowlarr.raw_result import RawResult
 from torrcast.adapters.prowlarr.to_releases import to_releases
 from torrcast.domain.cluster import cluster
 from torrcast.domain.pick_franchise import pick_franchise
 from torrcast.domain.picture import Picture
+from torrcast.domain.raw_result import RawResult
 from torrcast.domain.release import Release
-from torrcast.ports.torrent_catalogue import RawRow
 
 GB = 1024**3
 
@@ -51,10 +50,10 @@ def franchise(query: str, rows: list[RawResult]) -> list[Picture]:
 class Catalogue:
     """Каталог раздач договором порта; сам разбор считает тот же парсер, что и в бою."""
 
-    def merge(self, *batches: list[RawRow]) -> list[RawRow]:
+    def merge(self, *batches: list[RawResult]) -> list[RawResult]:
         return merge(*batches)
 
-    def to_releases(self, rows: list[RawRow]) -> list[Release]:
+    def to_releases(self, rows: list[RawResult]) -> list[Release]:
         return to_releases(rows)
 
 

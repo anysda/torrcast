@@ -23,6 +23,7 @@ from torrcast.domain.franchise_key import franchise_key
 from torrcast.domain.menu_order import menu_order
 from torrcast.domain.picture import Picture
 from torrcast.domain.profile import CAUTIOUS, Profile
+from torrcast.domain.raw_result import RawResult
 from torrcast.domain.recodes_whole import recodes_whole
 from torrcast.domain.release import Release
 from torrcast.domain.slugify import slugify
@@ -30,7 +31,7 @@ from torrcast.domain.split_franchise_index import split_franchise_index
 from torrcast.domain.transliterate import transliterate
 from torrcast.ports.journal import journal
 from torrcast.ports.passport_source import PassportSource
-from torrcast.ports.torrent_catalogue import IndexerClient, RawRow, TorrentCatalogue
+from torrcast.ports.torrent_catalogue import IndexerClient, TorrentCatalogue
 from torrcast.usecases.choice import first_alive, fitness
 from torrcast.usecases.rank import gate_open, last_hope, rank_releases
 from torrcast.usecases.reinforce._as_is import _as_is
@@ -61,7 +62,7 @@ __all__ = [
     "PassportSource",
     "Picture",
     "Profile",
-    "RawRow",
+    "RawResult",
     "Release",
     "TorrentCatalogue",
     "TypeAlias",

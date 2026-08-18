@@ -22,7 +22,6 @@ from tests.fakes.prowlarr import FakeProwlarr
 from torrcast import NotFoundError
 from torrcast.adapters.console.console import Progress
 from torrcast.adapters.prowlarr.merge import merge
-from torrcast.adapters.prowlarr.raw_result import RawResult
 from torrcast.cli.args import Args
 from torrcast.domain._name_data import THIN_POOL
 from torrcast.domain.alt_query import alt_query
@@ -31,6 +30,7 @@ from torrcast.domain.facts.origin import Origin
 from torrcast.domain.parse_release_name import parse_release_name
 from torrcast.domain.picture import Picture
 from torrcast.domain.rank_settings import ALIVE_SEEDERS
+from torrcast.domain.raw_result import RawResult
 from torrcast.domain.release import Release
 from torrcast.domain.slugify import slugify
 from torrcast.domain.transliterate import transliterate

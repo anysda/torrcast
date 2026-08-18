@@ -7,11 +7,12 @@ from typing import TYPE_CHECKING
 from torrcast.domain.episode import Episode
 from torrcast.domain.facts.same_name import same_name
 from torrcast.domain.picture import Picture
+from torrcast.domain.raw_result import RawResult
 from torrcast.domain.slugify import slugify
 from torrcast.domain.split_franchise_index import split_franchise_index
 from torrcast.domain.transliterate import transliterate
 from torrcast.ports.passport_source import PassportSource
-from torrcast.ports.torrent_catalogue import IndexerClient, RawRow
+from torrcast.ports.torrent_catalogue import IndexerClient
 from torrcast.usecases.discover._ask import _ask
 from torrcast.usecases.discover._no_budget import _no_budget
 from torrcast.usecases.reinforce.configure import _catalogue_port, _passport_port
@@ -25,13 +26,13 @@ def _season_reinforce(
     client: IndexerClient,
     query: str,
     args: Args,
-    raw: list[RawRow],
+    raw: list[RawResult],
     found: list[Picture],
     progress: Progress,
     titled: bool = False,
     *,
     passport: PassportSource | None = None,
-) -> tuple[list[RawRow], list[Picture], list[Picture]]:
+) -> tuple[list[RawResult], list[Picture], list[Picture]]:
     """Добрать сезон-пак сезонной строкой по оригиналу, прежде чем честно отказать.
 
     Родня транслит-добору (:func:`_second_language`), но повод другой: там пул тощий и

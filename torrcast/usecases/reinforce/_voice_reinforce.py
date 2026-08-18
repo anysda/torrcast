@@ -5,9 +5,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from torrcast.domain.picture import Picture
+from torrcast.domain.raw_result import RawResult
 from torrcast.domain.slugify import slugify
 from torrcast.domain.split_franchise_index import split_franchise_index
-from torrcast.ports.torrent_catalogue import IndexerClient, RawRow
+from torrcast.ports.torrent_catalogue import IndexerClient
 from torrcast.usecases.discover._ask import _ask
 from torrcast.usecases.discover._no_budget import _no_budget
 from torrcast.usecases.reinforce.configure import _catalogue_port
@@ -20,11 +21,11 @@ def _voice_reinforce(
     client: IndexerClient,
     query: str,
     lead: Picture,
-    raw: list[RawRow],
+    raw: list[RawResult],
     found: list[Picture],
     progress: Progress,
     titled: bool = False,
-) -> tuple[list[RawRow], list[Picture], list[Picture]]:
+) -> tuple[list[RawResult], list[Picture], list[Picture]]:
     """Добрать точной строкой «оригинал + год», когда русской дорожки нет ни у кого.
 
     🔴 Третий добор, и повод у него свой. Тощий пул добирают вторым языком

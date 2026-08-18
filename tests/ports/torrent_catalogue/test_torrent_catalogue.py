@@ -1,7 +1,7 @@
 """Проверяет, что боевой каталог раздач подходит своему порту."""
 
 from torrcast.adapters import prowlarr
-from torrcast.adapters.prowlarr.raw_result import RawResult
+from torrcast.domain.raw_result import RawResult
 from torrcast.domain.release import Release
 from torrcast.ports.torrent_catalogue import TorrentCatalogue
 

@@ -21,7 +21,6 @@ from tests.fakes import composition
 from torrcast import InfraError
 from torrcast.adapters.console.console import Progress
 from torrcast.adapters.filesystem.state import State, save_config
-from torrcast.adapters.prowlarr.raw_result import RawResult
 from torrcast.cli.main import main
 from torrcast.domain.audio_track import (
     STEP_FOREIGN,
@@ -33,6 +32,7 @@ from torrcast.domain.audio_track import (
 from torrcast.domain.config import Config
 from torrcast.domain.entry import Entry
 from torrcast.domain.media import Media
+from torrcast.domain.raw_result import RawResult
 from torrcast.domain.studio import STUDIOS
 from torrcast.domain.torr_file import TorrFile
 from torrcast.domain.voice_order import voice_order

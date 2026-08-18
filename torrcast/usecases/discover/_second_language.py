@@ -10,11 +10,12 @@ from torrcast.domain.alt_query import alt_query
 from torrcast.domain.cluster import cluster
 from torrcast.domain.facts.origin import Origin
 from torrcast.domain.picture import Picture
+from torrcast.domain.raw_result import RawResult
 from torrcast.domain.slugify import slugify
 from torrcast.domain.split_franchise_index import split_franchise_index
 from torrcast.domain.transliterate import transliterate
 from torrcast.ports.progress import Progress
-from torrcast.ports.torrent_catalogue import IndexerClient, RawRow
+from torrcast.ports.torrent_catalogue import IndexerClient
 from torrcast.usecases.discover._asked_kind import _asked_kind
 from torrcast.usecases.discover._passport_pick import _passport_pick
 from torrcast.usecases.discover._query_note import _query_note
@@ -36,13 +37,13 @@ def _second_language(
     client: IndexerClient,
     query: str,
     args: Args,
-    raw: list[RawRow],
+    raw: list[RawResult],
     found: list[Picture],
     progress: Progress,
     titled: bool = False,
     *,
     passport: Callable[..., Origin] | None = None,
-) -> tuple[list[RawRow], list[Picture], list[Picture]]:
+) -> tuple[list[RawResult], list[Picture], list[Picture]]:
     """Русский запрос дал пусто или тощий пул - переспросить тем же названием на латинице.
 
     Индексер ищет по имени раздачи, поэтому «Психо» приносит десяток русских имён, а

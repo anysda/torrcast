@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from torrcast import NotFoundError
-from torrcast.adapters.prowlarr.raw_result import RawResult
+from torrcast.domain.raw_result import RawResult
 
 
 class FakeProwlarr:

@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from torrcast.ports.torrent_catalogue import IndexerClient, RawRow
+from torrcast.domain.raw_result import RawResult
+from torrcast.ports.torrent_catalogue import IndexerClient
 
 
 class _Prowlarr:
@@ -14,11 +15,11 @@ class _Prowlarr:
         self.asked: list[str] = []
         self.budget = 8.0
 
-    def search(self, query: str, limit: int = 100) -> list[RawRow]:
+    def search(self, query: str, limit: int = 100) -> list[RawResult]:
         self.asked.append(query)
-        return [query]
+        return [RawResult(query, "a" * 40)]
 
-    def late(self, wait: float = 0.0) -> list[RawRow]:
+    def late(self, wait: float = 0.0) -> list[RawResult]:
         return []
 
     def spare(self) -> float:
@@ -29,7 +30,7 @@ def test_the_real_client_of_an_adapter_answers_the_whole_contract() -> None:
     """Клиент адаптера подходит договору целиком - и лишние доводы ему не мешают."""
     carried: IndexerClient = _Prowlarr()
 
-    assert carried.search("кино") == ["кино"]
+    assert [row.title for row in carried.search("кино")] == ["кино"]
     assert carried.late() == []
     assert carried.spare() == 8.0
 

@@ -12,8 +12,8 @@ from typing import TYPE_CHECKING
 from torrcast.domain.choice import Choice
 from torrcast.domain.config import Config
 from torrcast.domain.picture import Picture
+from torrcast.domain.raw_result import RawResult
 from torrcast.domain.release import Release
-from torrcast.ports.torrent_catalogue import RawRow
 from torrcast.ports.torrent_engines import TorrentEngines
 
 if TYPE_CHECKING:
@@ -35,8 +35,8 @@ _play_detect: Callable[[Config], Choice]
 _play_facts: Callable[[list[tuple[str, int | None]]], Facts]
 _play_native: Callable[[Picture, str], None]
 _play_pinned: Callable[[str, str, int], str]
-_play_merge: Callable[..., list[RawRow]]
-_play_releases: Callable[[list[RawRow]], list[Release]]
+_play_merge: Callable[..., list[RawResult]]
+_play_releases: Callable[[list[RawResult]], list[Release]]
 
 
 def _configure_cast_command(
@@ -46,8 +46,8 @@ def _configure_cast_command(
     facts: Callable[[list[tuple[str, int | None]]], Facts],
     native: Callable[[Picture, str], None],
     pinned: Callable[[str, str, int], str],
-    merge: Callable[..., list[RawRow]],
-    releases: Callable[[list[RawRow]], list[Release]],
+    merge: Callable[..., list[RawResult]],
+    releases: Callable[[list[RawResult]], list[Release]],
 ) -> None:
     """Назначить команде показа её внешний мир."""
     global _play_engines, _play_settings, _play_detect, _play_facts

@@ -6,8 +6,9 @@ import torrcast.usecases.discover._search_state as _search_state
 from torrcast.domain.facts.origin import Origin
 from torrcast.domain.goal_spare import CIRCLE_SHARE, GOAL
 from torrcast.domain.picture import Picture
+from torrcast.domain.raw_result import RawResult
 from torrcast.ports.progress import Progress
-from torrcast.ports.torrent_catalogue import IndexerClient, RawRow
+from torrcast.ports.torrent_catalogue import IndexerClient
 from torrcast.usecases.discover._ask import _ask
 
 
@@ -18,9 +19,9 @@ def _second_circle(
     index: int | None,
     about: Origin,
     found: list[Picture],
-    raw: list[RawRow],
+    raw: list[RawResult],
     progress: Progress,
-) -> list[RawRow]:
+) -> list[RawResult]:
     """Второй круг по индексерам и склейка его выдачи с первой; пол бюджета - целая цель.
 
     Несколько картин под одним коротким именем заполняют широкий латинский поиск свежими

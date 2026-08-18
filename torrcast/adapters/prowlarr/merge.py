@@ -5,8 +5,8 @@ from __future__ import annotations
 from collections import Counter
 from dataclasses import replace
 
-from torrcast.adapters.prowlarr.raw_result import RawResult
 from torrcast.domain.by_majority import by_majority
+from torrcast.domain.raw_result import RawResult
 
 
 def merge(*batches: list[RawResult]) -> list[RawResult]:

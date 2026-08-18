@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from torrcast.ports.torrent_catalogue.torrent_catalogue import RawRow
+from torrcast.domain.raw_result import RawResult
 
 
 class IndexerClient(Protocol):
@@ -26,10 +26,10 @@ class IndexerClient(Protocol):
     #: Частный бюджет за съеденной целью уже выдан - второй раз его не дают.
     over_goal: bool
 
-    def search(self, query: str) -> list[RawRow]:
+    def search(self, query: str) -> list[RawResult]:
         """Один круг по индексерам; пусто - это не ошибка, а повод переспросить иначе."""
 
-    def late(self) -> list[RawRow]:
+    def late(self) -> list[RawResult]:
         """Строки, доехавшие уже после того, как круг закрылся по кворуму."""
 
     def spare(self) -> float:

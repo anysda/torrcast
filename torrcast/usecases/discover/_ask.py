@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from torrcast.domain.not_found_error import NotFoundError
+from torrcast.domain.raw_result import RawResult
 from torrcast.ports.progress import Progress
-from torrcast.ports.torrent_catalogue import IndexerClient, RawRow
+from torrcast.ports.torrent_catalogue import IndexerClient
 
 
-def _ask(client: IndexerClient, query: str, progress: Progress) -> list[RawRow]:
+def _ask(client: IndexerClient, query: str, progress: Progress) -> list[RawResult]:
     """Один запрос к индексерам; пусто - это не ошибка, а повод переспросить иначе.
 
     🔴 TC-510. Выпавший источник называется вслух ОДНОЙ строкой и ровно один раз за

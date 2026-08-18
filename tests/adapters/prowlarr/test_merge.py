@@ -4,8 +4,8 @@ from itertools import permutations
 from typing import Final
 
 from torrcast.adapters.prowlarr.merge import merge
-from torrcast.adapters.prowlarr.raw_result import RawResult
 from torrcast.adapters.prowlarr.to_releases import to_releases
+from torrcast.domain.raw_result import RawResult
 
 
 def _mirror(title: str, seeders: int, indexer: str, size: int = 8_000_000_000) -> RawResult:

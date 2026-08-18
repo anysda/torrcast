@@ -6,8 +6,8 @@ from pathlib import Path
 import pytest
 
 from torrcast.adapters.prowlarr.from_json import from_json
-from torrcast.adapters.prowlarr.raw_result import RawResult
 from torrcast.adapters.prowlarr.to_releases import to_releases
+from torrcast.domain.raw_result import RawResult
 
 FIXTURES = Path(__file__).parents[2] / "fixtures"
 

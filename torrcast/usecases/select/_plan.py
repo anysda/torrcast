@@ -11,8 +11,8 @@ from torrcast.domain.episode import Episode
 from torrcast.domain.info_hash import info_hash
 from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.picture import Picture
+from torrcast.domain.raw_result import RawResult
 from torrcast.domain.release import Release
-from torrcast.ports.torrent_catalogue import RawRow
 from torrcast.usecases.rank.is_candidate import is_candidate
 from torrcast.usecases.rank.misses_episode import misses_episode
 from torrcast.usecases.select._nothing_late import _nothing_late
@@ -64,7 +64,7 @@ class _Plan:
     off_season: int = 0
     #: Выдача опоздавших индексеров: круг ушёл по кворуму, а эти доехали позже (TC-118).
     #: Зовётся ОДИН раз и только после ответа на меню - :func:`_topup`.
-    late: Callable[[], list[RawRow]] = _nothing_late
+    late: Callable[[], list[RawResult]] = _nothing_late
 
     def candidates(self, args: Args) -> list[int]:
         """Очередь релизов: прошедшие ворота, в порядке ранжира - **все, сколько есть**.

@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from torrcast.adapters.prowlarr.raw_result import RawResult
+from torrcast.adapters.prowlarr.collect_rows import collect_rows
 from torrcast.domain.infra_error import InfraError
+from torrcast.domain.raw_result import RawResult
 
 
 def from_json(payload: Any) -> list[RawResult]:
@@ -16,7 +17,7 @@ def from_json(payload: Any) -> list[RawResult]:
     """
     if not isinstance(payload, list):
         raise InfraError("Prowlarr вернул неожиданный ответ")
-    return RawResult.collect(
+    return collect_rows(
         (i.get("title"), i.get("infoHash"), i.get("size"), i.get("seeders"), i.get("indexer"))
         for i in payload
         if isinstance(i, dict)

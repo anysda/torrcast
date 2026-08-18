@@ -16,12 +16,12 @@ import pytest
 from tests.fakes import composition
 from tests.fakes.show_unit import FakeShowUnit
 from torrcast.adapters.filesystem.state import State, save_config
-from torrcast.adapters.prowlarr.raw_result import RawResult
 from torrcast.cli.main import main
 from torrcast.domain.audio_track import AudioTrack
 from torrcast.domain.config import Config
 from torrcast.domain.entry import Entry
 from torrcast.domain.media import Media
+from torrcast.domain.raw_result import RawResult
 from torrcast.domain.torr_file import TorrFile
 from torrcast.usecases.playback import _await_playing
 from torrcast.usecases.playback import _show_state as playback_state

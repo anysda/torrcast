@@ -7,8 +7,8 @@ from collections.abc import Callable
 from typing import Any
 
 from torrcast.adapters.prowlarr.from_json import from_json
-from torrcast.adapters.prowlarr.raw_result import RawResult
 from torrcast.domain.infra_error import InfraError
+from torrcast.domain.raw_result import RawResult
 
 
 def ask_indexer(

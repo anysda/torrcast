@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from tests.usecases.discover.world import franchise, row
-from torrcast.adapters.prowlarr.raw_result import RawResult
 from torrcast.cli.args import Args
 from torrcast.domain.config import Config
+from torrcast.domain.raw_result import RawResult
 from torrcast.usecases.discover.unfit_pool import unfit_pool
 
 #: Живой годный 1080p: этой картиной вечер состоится.
