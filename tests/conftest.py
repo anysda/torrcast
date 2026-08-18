@@ -10,6 +10,7 @@ import importlib
 import inspect
 import socket
 import subprocess
+import sys
 import time
 from types import ModuleType
 from typing import TYPE_CHECKING
@@ -19,8 +20,8 @@ import pytest
 from tests.fakes import composition
 from tests.fakes.cast_world import CastWorld
 from tests.fakes.journal import Tape
+from tests.fakes.pretend_tty import PretendTty
 from tests.fakes.show_unit import FakeShowUnit
-from torrcast.adapters.console import console
 from torrcast.adapters.filesystem.trace_journal import LOG_ENV, SID_ENV
 from torrcast.domain.debug_handles import CTL_ENV
 from torrcast.domain.facts.origin import Origin
@@ -256,8 +257,12 @@ def _pretend_tty(monkeypatch: pytest.MonkeyPatch) -> None:
     требование, и у него есть свои тесты. Всем остальным нужен обычный «человеческий» pty,
     поэтому по умолчанию притворяемся терминалом, а ``builtins.input`` тесты подменяют
     сами.
+
+    Притворяется вход прогона, а не наша ручка: терминала нет у МАШИНЫ, и врать надо ей.
+    Подмени мы ``stdin_is_tty``, она сама выпала бы из прогона целиком - вместе со своим
+    разбором закрытого входа, - а тесту досталась бы наша же ложь вместо ответа системы.
     """
-    monkeypatch.setattr(console, "stdin_is_tty", lambda: True)
+    monkeypatch.setattr(sys, "stdin", PretendTty(sys.stdin))
 
 
 @pytest.fixture
