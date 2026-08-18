@@ -148,6 +148,12 @@ def use_settings(patch: pytest.MonkeyPatch, settings: StandIn) -> None:
     patch.setattr(worker, "_worker_configs", settings)
 
 
+def use_facts(patch: pytest.MonkeyPatch, facts: StandIn) -> None:
+    """Справка к меню - обоим сценариям, которым её даёт корень: показу и списку релизов."""
+    patch.setattr(_play_state, "_play_facts", facts)
+    patch.setattr(releases_command, "_releases_facts", facts)
+
+
 def use_film_keys(patch: pytest.MonkeyPatch, film_keys: StandIn) -> None:
     """Карта опорных кадров: её знает медиатракт показа, и только он.
 

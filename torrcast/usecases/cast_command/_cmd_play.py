@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 import torrcast.usecases.cast_command._play_state as _state
@@ -27,9 +28,16 @@ from torrcast.usecases.torrents import _release_orphans
 
 if TYPE_CHECKING:
     from torrcast.domain.args import Args
+    from torrcast.usecases.cast_command._choose import Chosen
 
 
-def _cmd_play(args: Args) -> int:
+def _cmd_play(
+    args: Args,
+    *,
+    restart: Callable[..., int | None] = _from_start,
+    resume: Callable[..., int | None] = _continue,
+    choose: Callable[..., Chosen] = _choose,
+) -> int:
     """Счастливый путь: запрос → «какой фильм?» → «какая озвучка?» → показ.
 
     Релиз и файл выбираются сами, таблиц и списков файлов на этом пути нет. Пока человек
@@ -38,6 +46,10 @@ def _cmd_play(args: Args) -> int:
 
     ``--new`` играет сохранённую раздачу, файл и дорожку с нулевой позиции. Если записи
     нет, команда идёт обычным путём поиска.
+
+    Три дороги отсюда - игра с начала, продолжение с места и путь до релиза - названы
+    аргументами с боевым умолчанием: развилка и есть работа этой единицы, и зеркалу
+    надо мерить именно её, а не то, чем каждая дорога кончается в сети и на экране.
     """
     journal().mark("команда")
     clock = _Clock()
@@ -67,7 +79,7 @@ def _cmd_play(args: Args) -> int:
     # весь запрос. Явная серия сперва прыгает внутри сохранённой раздачи, а ручной
     # релиз/файл выбирается обычным путём: эти ручки нельзя выбросить молча.
     if args.from_start and found_entry is not None and not args.pinned:
-        code = _from_start(config, *found_entry, args=args, clock=clock)
+        code = restart(config, *found_entry, args=args, clock=clock)
         if code is not None:
             return code
     # 🔴 Названный руками релиз весит здесь ровно столько же, сколько на втором раннем
@@ -78,14 +90,14 @@ def _cmd_play(args: Args) -> int:
     # не совпал - картина выбиралась в меню, и тот же флаг работал.
     if found_entry is not None and not args.pinned:
         if watched and not found_entry[1].serial:
-            code = _from_start(config, *found_entry, args=args, clock=clock)
+            code = restart(config, *found_entry, args=args, clock=clock)
             if code is not None:
                 return code
-        code = _continue(config, *found_entry, args=args, clock=clock)
+        code = resume(config, *found_entry, args=args, clock=clock)
         if code is not None:
             return code
 
-    picked = _choose(config, args, chosen, state, live, clock)
+    picked = choose(config, args, chosen, state, live, clock)
     if isinstance(picked, int):
         return picked  # закладка выбранной картины ответила показом сама
     plans, plan, prep, bench, passport = picked

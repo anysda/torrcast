@@ -19,7 +19,6 @@ import pytest
 from tests.fakes import composition
 from torrcast.adapters.console import console
 from torrcast.ports import show_unit as unit_port
-from torrcast.usecases.playback import _show_state as playback_state
 
 
 @dataclass
@@ -83,7 +82,7 @@ class CastWorld:
         composition.use_indexers(patch, self._indexer)
         composition.use_engines(patch, self._torrents)
         composition.use_prober(patch, self._probe)
-        patch.setattr(playback_state, "start_play_unit", self._start)
+        composition.use_start_unit(patch, self._start)
         unit_port.install(_WorldShowUnit(self))
         composition.use_await_playing(patch, self._await)
         composition.use_warm_file(patch, self._warm)

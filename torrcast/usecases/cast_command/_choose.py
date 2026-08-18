@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 import torrcast.usecases.cast_command._play_state as _state
@@ -29,6 +30,9 @@ if TYPE_CHECKING:
     from torrcast.usecases.choice import _Passport
     from torrcast.usecases.select.plan import Plan
 
+    #: Чем кончается путь до релиза: набор для показа или КОД от закладки картины.
+    Chosen = tuple[list[Plan], Plan, _Prep, Bench, _Passport] | int
+
 
 def _choose(
     config: Config,
@@ -37,15 +41,25 @@ def _choose(
     state: WatchState,
     live: tuple[str, Entry] | None,
     clock: _Clock,
-) -> tuple[list[Plan], Plan, _Prep, Bench, _Passport] | int:
+    *,
+    circle: Callable[..., list[Plan]] = search_circle,
+    stand: Callable[..., Bench] = Bench,
+    passport_of: Callable[..., _Passport] = _passport,
+    pick: Callable[..., Plan] = _pick_plan,
+    bookmark: Callable[..., int | None] = _continue_picked,
+) -> Chosen:
     """Найти, спросить и отобрать: планы меню, выбранная картина и готовый релиз.
 
     Вместо набора отсюда бывает КОД: закладка выбранной картины отвечает показом прямо
     здесь (:func:`_continue_picked`), а звать её раньше меню нельзя - она про место ВНУТРИ
     картины, и картина к этой секунде ещё не названа.
+
+    Круг поиска, стенд отбора, фоновая справка, вопрос о картине и закладка названы
+    аргументами с боевым умолчанием: работа этой единицы - порядок, в котором их зовут,
+    и зеркалу надо мерить именно порядок, а не сеть и не рой за каждым из них.
     """
     with progress_bar() as progress:
-        plans = search_circle(config, args, progress, chosen.profile)
+        plans = circle(config, args, progress, chosen.profile)
         # Справка к меню (рейтинг, хронометраж, о чём кино) едет фоном - ровно в те
         # секунды, что уходят на подъём прогрева. Меню её не ждёт: см. torrcast.runtime.facts_wiring.
         facts = _state._play_facts([(p.picture.title, p.picture.year) for p in plans])
@@ -55,9 +69,9 @@ def _choose(
         # ровно в те секунды, что уходят на меню и прогрев: путь до меню её не ждёт, а к
         # последней строке перед стартом паспорт уже приехал. Год выдачи ей НЕ сообщаем -
         # иначе подстроится под подмену и сверять станет нечего.
-        passport = _passport(plans)
+        passport = passport_of(plans)
         torrserver = _state._play_engines(config.torrserver_url)
-        bench = Bench(torrserver, choose=file_picker(args), profile=chosen.profile)
+        bench = stand(torrserver, choose=file_picker(args), profile=chosen.profile)
         # Прогрев под меню: пока идёт вопрос, раздачи уже качают метаданные. Греется
         # голова ОЧЕРЕДИ, а не верх ранжира: верх мог не пройти ворота (TC-432), и
         # греть то, что отбор не возьмёт, - тянуть чужой вес из роя зря.
@@ -81,11 +95,11 @@ def _choose(
         journal().mark("прогрев пущен", придержан=live is not None)  # TC-108: замер
         try:
             try:
-                plan = _pick_plan(plans, facts, pick=args.pick, asked=args.title_query)
+                plan = pick(plans, facts, pick=args.pick, asked=args.title_query)
                 journal().mark("картина выбрана")  # TC-108: замер
                 # Картина названа - вот теперь очередь закладки: она про место ВНУТРИ
                 # картины, и спрашивают о ней после того, как картина выбрана.
-                code = _continue_picked(config, state, plan, bench, args=args, clock=clock)
+                code = bookmark(config, state, plan, bench, args=args, clock=clock)
                 if code is not None:
                     return code
                 if args.release is not None:

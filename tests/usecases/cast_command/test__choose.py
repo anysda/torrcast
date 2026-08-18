@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-import importlib
 from typing import Any, cast
 
 import pytest
 
-import torrcast.usecases.cast_command._play_state as _state
+from tests.fakes import composition
 from tests.usecases.cast_command.world import entry, plan
 from torrcast.domain.args import Args
 from torrcast.domain.choice import Choice
@@ -16,6 +15,8 @@ from torrcast.domain.exit_codes import EXIT_OK
 from torrcast.domain.profile import CAUTIOUS
 from torrcast.domain.watch_state import WatchState
 from torrcast.usecases.cast_command._choose import _choose
+from torrcast.usecases.choice import _Passport
+from torrcast.usecases.select_bench import Bench
 from torrcast.usecases.start_clock import _Clock
 
 
@@ -37,18 +38,11 @@ class _Facts:
         return Fact()
 
 
-#: Модуль пути до релиза: имя ``_choose`` на пакете занято самой функцией, поэтому
-#: зеркало спрашивает модуль по полному имени, а не через атрибут пакета.
-_choose_module = importlib.import_module("torrcast.usecases.cast_command._choose")
-
-
 @pytest.fixture(autouse=True)
 def _outside(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(_state, "_play_facts", _Facts)
-    monkeypatch.setattr(_state, "_play_engines", lambda url: object())
-    monkeypatch.setattr(_choose_module, "search_circle", lambda *args, **rest: [plan()])
-    monkeypatch.setattr(_choose_module, "Bench", lambda *args, **rest: _NoBench())
-    monkeypatch.setattr(_choose_module, "_passport", lambda plans: _NoPassport())
+    """Справка и служба раздач - от корня подделкой; сеть и рой за ними не стоят."""
+    composition.use_facts(monkeypatch, _Facts)
+    composition.use_engines(monkeypatch, lambda url, timeout=30.0: object())
 
 
 class _NoBench:
@@ -71,12 +65,8 @@ class _NoPassport:
         return Origin()
 
 
-def test_a_saved_place_of_the_chosen_picture_answers_with_a_code(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_a_saved_place_of_the_chosen_picture_answers_with_a_code() -> None:
     """Закладка выбранной картины отвечает показом сама - и код уезжает наружу целым."""
-    monkeypatch.setattr(_choose_module, "_pick_plan", lambda *args, **rest: plan())
-    monkeypatch.setattr(_choose_module, "_continue_picked", lambda *args, **rest: EXIT_OK)
     state = WatchState()
     state.put(plan().picture.key, entry())
 
@@ -87,6 +77,11 @@ def test_a_saved_place_of_the_chosen_picture_answers_with_a_code(
         state,
         None,
         _Clock(),
+        circle=lambda *args, **rest: [plan()],
+        stand=lambda *args, **rest: cast(Bench, _NoBench()),
+        passport_of=lambda plans: cast(_Passport, _NoPassport()),
+        pick=lambda *args, **rest: plan(),
+        bookmark=lambda *args, **rest: EXIT_OK,
     )
 
     assert picked == EXIT_OK
