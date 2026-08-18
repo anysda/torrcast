@@ -58,3 +58,11 @@ def test_a_whole_recode_is_taken_last_of_the_good_ones() -> None:
     remux = rel(name="ремукс", size_gb=28, seeders=900)
     plain = rel(name="обычный", size_gb=8, seeders=10)
     assert _order([remux, plain], hard_mbit=20.0) == ["обычный", "ремукс"]
+
+
+def test_a_single_film_outranks_a_more_seeded_collection() -> None:
+    """Дилогия остаётся запасной: у одиночной раздачи не надо угадывать файл части."""
+    both = rel(name="Брат. Дилогия (1997-2000) WEB-DL 1080p", collection=True, seeders=7)
+    single = rel(name="Брат (1997) WEB-DL 1080p", seeders=5)
+
+    assert _order([both, single]) == ["Брат (1997) WEB-DL 1080p", both.raw_name]

@@ -18,6 +18,7 @@ from torrcast.ports.receivers import Receivers
 from torrcast.ports.stream_source import StreamSource
 from torrcast.ports.torrent_engine import TorrentEngine
 from torrcast.ports.torrent_engines import TorrentEngines
+from torrcast.usecases.playback import _play
 from torrcast.usecases.stopped import _on_term
 from torrcast.usecases.torrents import _own_torrent, _release_torrents
 from torrcast.usecases.worker_loop import _worker_loop
@@ -48,7 +49,7 @@ def _configure_worker(
     _worker_detect = detect
 
 
-def _cmd_worker(key: str) -> int:
+def _cmd_worker(key: str, *, play: Callable[..., int] = _play) -> int:
     """Показ внутри transient-юнита: своей раздачей, своей упаковкой и своим сторожем.
 
     Руками не зовётся — это ``ExecStart`` юнита ``torrcast-play``. Всё, что нужно знать о
@@ -66,6 +67,9 @@ def _cmd_worker(key: str) -> int:
     :class:`torrcast.adapters.chromecast.cast.ChromecastReceiver`), и он отвечает новому пустым
     статусом. Замер на живом Q70D, стык s1e5→s1e6: два соединения в ``ss``, «LOAD не взяли
     (IDLE/ERROR)», «приёмник залип — закрываю приложение и соединение», экран пустой **15.3 с**.
+
+    Сам показ серии передаётся дальше в цикл аргументом с боевым умолчанием: юнит про
+    него знает ровно то, что его зовут на каждую серию.
 
     ⚠️ **Раздача уезжает вместе с показом.** Юнит - единственный её хозяин: он её поднял,
     он один из неё читает, и кроме него о ней не знает никто - в списке службы она, к
@@ -100,7 +104,9 @@ def _cmd_worker(key: str) -> int:
     #: Хэши, которые подняли МЫ, - по ним и только по ним пойдёт уборка на выходе.
     mine: list[str] = []
     try:
-        return _worker_loop(config, key, torrserver, receiver, supply, mine, chosen.profile)
+        return _worker_loop(
+            config, key, torrserver, receiver, supply, mine, chosen.profile, play=play
+        )
     finally:
         gone = _release_torrents(config, mine)
         # Раздачи больше нет - и записи о ней тоже: следующему запуску убирать нечего.

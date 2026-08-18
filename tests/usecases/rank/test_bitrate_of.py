@@ -28,3 +28,15 @@ def test_a_collection_is_measured_per_film() -> None:
     assert bitrate_of(two, RUNTIME) == pytest.approx(9.54 / 2, abs=0.01)
     unknown = rel(name="Коллекция (1999) BDRip 1080p", collection=True, size_gb=8)
     assert bitrate_of(unknown, RUNTIME) is None, "сколько внутри фильмов, имя не сказало"
+
+
+def test_the_guess_inflates_the_bitrate_of_a_long_film() -> None:
+    """🔴 TC-185. Один и тот же файл: по прикидке 19.7 Мбит/с, по настоящей длине 14.0.
+
+    «Интерстеллар» идёт 2 ч 49 мин против прикидки в два часа - знаменатель занижен в
+    1.41 раза, и честный 1080p отсекался потолком, которого он не переходил.
+    """
+    full = rel(name="Интерстеллар / Interstellar (2014) BDRip 1080p", size_gb=16.5, seeders=90)
+
+    assert bitrate_of(full, RUNTIME) == pytest.approx(19.7, abs=0.1)
+    assert bitrate_of(full, 169 * 60.0) == pytest.approx(14.0, abs=0.1)

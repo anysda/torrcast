@@ -48,3 +48,15 @@ def test_hevc_passes_by_the_last_hope_or_by_the_receivers_word() -> None:
     assert not is_candidate(rel(codec="HEVC", size_gb=28), RUNTIME, 20.0, copy_hevc=True), (
         "профиль не снимает потолок битрейта"
     )
+
+
+def test_the_denominator_decides_whether_an_honest_1080p_is_a_candidate() -> None:
+    """🔴 TC-185. Потолок тот же, длительность разная - и годность у файла разная.
+
+    Это и был молчаливый отсев: прикидка «фильм это два часа» выкидывала честный
+    16.5-гигабайтный 1080p «Интерстеллара», который в свои 2 ч 49 мин в потолок влезает.
+    """
+    full = rel(name="Интерстеллар / Interstellar (2014) BDRip 1080p", size_gb=16.5, seeders=90)
+
+    assert not is_candidate(full, RUNTIME, 16.0), "прикидка выкидывает честный 1080p"
+    assert is_candidate(full, 169 * 60.0, 16.0), "настоящая длительность его возвращает"

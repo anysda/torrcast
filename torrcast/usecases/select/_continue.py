@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 import torrcast.usecases.select._pick_state as _pick_state
@@ -17,7 +18,16 @@ if TYPE_CHECKING:
     from torrcast.domain.args import Args
 
 
-def _continue(config: Config, key: str, entry: Entry, args: Args, clock: _Clock) -> int | None:
+def _continue(
+    config: Config,
+    key: str,
+    entry: Entry,
+    args: Args,
+    clock: _Clock,
+    *,
+    launch: Callable[..., int] = _launch,
+    resume: Callable[..., int] = _resume,
+) -> int | None:
     """Продолжение по сохранённому выбору. ``None`` — состоянием не обойтись,
     дальше идёт обычный путь с поиском и меню.
 
@@ -30,6 +40,10 @@ def _continue(config: Config, key: str, entry: Entry, args: Args, clock: _Clock)
     уберёт сам юнит. Все прочие исходы — сухой прогон, Ctrl-C на вопросе, «серии тут нет»,
     «смотреть сначала? нет», не поднявшийся юнит — оставляли раздачу навсегда, и убирает
     её теперь ``finally``, по её собственному хэшу.
+
+    Запуск показа и продолжение с места названы аргументами с боевым умолчанием: работа
+    этой единицы - решить, какой из них зовут и с какой записью, и зеркалу надо мерить
+    именно решение, а не показ, systemd и рой за каждым из них.
     """
     own = _Voiced()
     try:
@@ -37,7 +51,7 @@ def _continue(config: Config, key: str, entry: Entry, args: Args, clock: _Clock)
             if not entry.resumable:
                 return None  # продолжать нечего - озвучку выберет обычный путь, по дорожкам
             entry = _voiced(config, entry, args, own)
-            code = _resume(config, key, entry, clock=clock, dry=args.dry)
+            code = resume(config, key, entry, clock=clock, dry=args.dry)
             own.handed = not args.dry  # показ пошёл и раздача та же - дальше она его
             return code
         entry = _voiced(config, entry, args, own)
@@ -45,7 +59,7 @@ def _continue(config: Config, key: str, entry: Entry, args: Args, clock: _Clock)
             jumped = entry.jump(args.episode.season, args.episode.episode)
             if jumped is None:
                 return None  # серии в этой раздаче нет - честно идём искать релиз сезона
-            code = _launch(config, key, jumped, _about(jumped), clock, args.dry)
+            code = launch(config, key, jumped, _about(jumped), clock, args.dry)
             own.handed = not args.dry
             return code
         if entry.done:  # конец раздачи: сама собой следующая серия не появится
@@ -54,7 +68,7 @@ def _continue(config: Config, key: str, entry: Entry, args: Args, clock: _Clock)
                 return EXIT_OK
             first = entry.episodes[0]
             entry = entry.jump(first[0], first[1]) or entry
-        code = _launch(config, key, entry, _about(entry), clock, args.dry)
+        code = launch(config, key, entry, _about(entry), clock, args.dry)
         own.handed = not args.dry
         return code
     finally:

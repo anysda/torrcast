@@ -39,6 +39,7 @@ from torrcast.usecases.discover import _search_state
 from torrcast.usecases.playback import _show_state
 from torrcast.usecases.playback._launch import _await_playing
 from torrcast.usecases.rank.peer_grace import peer_grace
+from torrcast.usecases.reinforce.configure import configure as _reinforce_configure
 from torrcast.usecases.revive_playback import _revive_state
 from torrcast.usecases.select import _pick_state
 from torrcast.usecases.select_bench import _bench_state, _bench_work
@@ -59,9 +60,11 @@ def _home(unit: object) -> ModuleType:
     return home
 
 
-#: Правило отсрочки первого контакта и запуск показа: оба - тёзки своих модулей.
+#: Правило отсрочки первого контакта, запуск показа и слоты добора: все - тёзки
+#: своих модулей, и дом у каждого спрашивается у самой единицы.
 _grace_rule = _home(peer_grace)
 _launch_show = _home(_await_playing)
+_reinforce_ports = _home(_reinforce_configure)
 
 
 def use_tape(patch: pytest.MonkeyPatch, put: StandIn) -> None:
@@ -210,3 +213,17 @@ def use_revive_clock(patch: pytest.MonkeyPatch, clock: Clock) -> None:
 def use_playing_mark(patch: pytest.MonkeyPatch, mark: StandIn) -> None:
     """Отметка «картинка на экране»: её кладёт оживление показа, и только оно."""
     patch.setattr(_revive_state, "_revive_playing_mark", mark)
+
+
+def blank_reinforce_ports(patch: pytest.MonkeyPatch) -> None:
+    """Слоты каталога и справки у добора - пустыми: их ставит корень, и зеркало
+    :func:`~torrcast.usecases.reinforce.configure.configure` обязано начинать с чистых.
+
+    ⚠️ Промах имени тут молчал бы дважды. Слота ДО первого вызова нет вовсе (он только
+    объявлен типом), поэтому подмена ставится с ``raising=False`` - и переименуйся слот,
+    она легла бы в никуда, а зеркало осталось бы зелёным на грязных слотах соседа.
+    Отсюда сверка с объявлением модуля: переименование валит зеркало громко.
+    """
+    for name in ("_catalogue", "_passport_source"):
+        assert name in _reinforce_ports.__annotations__, f"слот {name} переименован"
+        patch.setattr(_reinforce_ports, name, None, raising=False)

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time
+
 import pytest
 
 from tests.usecases.select_bench.world import RUNTIME, Said, Torrents, plan, probes, rel
@@ -73,3 +75,32 @@ def test_a_release_without_russian_waits_and_plays_when_nobody_has_it(
 
     assert prep.number == 1
     assert "русской озвучки нет ни в одной из проверенных раздач" in capsys.readouterr().out
+
+
+@pytest.mark.machine
+def test_the_hunt_for_a_russian_track_names_the_release_it_is_waiting_for() -> None:
+    """Пока идёт спрос, бегущая строка называет, ЧЬЮ озвучку ищут: релиз N из M.
+
+    Строка эта видна только на непрогретой раздаче: прогретая под меню отвечает
+    мгновенно, и фазу спрашивать не у кого. Поэтому паспорт тут едет не сразу, а
+    запасной - ещё и дольше верха: греется-то он с ним наперегонки.
+    """
+    pool = [rel(name=f"r{n} | Дубляж", seeders=100 - n) for n in range(2)]
+    read = probes(pool, _media("av1"), _media())
+    said = Said()
+
+    def slow(source_url: str, /, timeout: float = 90.0, alive: object = None) -> Media:
+        # Дольше шага опроса фазы (:meth:`Bench._wait`), иначе спрашивать нечего.
+        time.sleep(0.3 if f"hash-{pool[0].magnet}/" in source_url else 0.9)
+        return read(source_url, timeout=timeout, alive=alive)
+
+    bench = Bench(Torrents(), prober=slow)
+
+    prep = bench.resolve(plan(pool, recode_at=0.0), _ASKED, said)
+
+    assert prep.number == 2, "верх осуждён по кодеку - спрашивали обоих"
+    asked = {phase.rsplit(" - ", 1)[0] for phase in said.phases if phase.startswith("ищу русскую")}
+    assert asked == {
+        "ищу русскую озвучку: релиз 1 из 2",
+        "ищу русскую озвучку: релиз 2 из 2",
+    }

@@ -44,9 +44,15 @@ def _worker_loop(
     supply: StreamSource,
     mine: list[str],
     profile: Profile,
+    *,
+    play: Callable[..., int] = _play,
 ) -> int:
     """Сам цикл показа: серия за серией, пока сериал не кончится. Раздачи, которые он
     поднял, складываются в ``mine`` — их убирает :func:`_cmd_worker` на выходе.
+
+    Сам показ серии назван аргументом с боевым умолчанием: работа этой единицы -
+    очередь серий, учёт раздачи и то, с какими числами показ зовут, а не HLS, ffmpeg и
+    приёмник за ним.
     """
     magnet, torrent_hash = "", ""
     while True:
@@ -85,7 +91,7 @@ def _worker_loop(
             **_worker_thresholds(config, profile),
         )
         print(f"{session_tag} показ «{title}» с {_hms(entry.pos)}", flush=True)
-        code = _play(
+        code = play(
             config,
             source,
             entry.audio,

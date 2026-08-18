@@ -19,7 +19,6 @@ import pytest
 
 from tests.fakes import composition
 from torrcast import InfraError
-from torrcast.adapters.console.console import Progress
 from torrcast.adapters.filesystem.state import State, save_config
 from torrcast.cli.main import main
 from torrcast.domain.audio_track import (
@@ -36,12 +35,7 @@ from torrcast.domain.raw_result import RawResult
 from torrcast.domain.studio import STUDIOS
 from torrcast.domain.torr_file import TorrFile
 from torrcast.domain.voice_order import voice_order
-from torrcast.usecases import voices_command
-from torrcast.usecases.choice import _pick_plan
-from torrcast.usecases.playback import _show_state as playback_state
 from torrcast.usecases.rank import voice_note
-from torrcast.usecases.select import Plan, _Prep
-from torrcast.usecases.select_bench import Bench
 
 GB = 1024**3
 KEY = "movie:моана-2:2024"
@@ -343,6 +337,11 @@ FOUND = [
     RawResult("Моана 2 / Moana 2 (2024) WEB-DL 1080p | D, P", "c" * 40, 3 * GB, 140),
     RawResult("Moana 2 (2024) 1080p BRRip 5.1 x264 -YTS", "d" * 40, 2 * GB, 121),
 ]
+#: Выдача, в которой картин ДВЕ: только на ней и видно, что номер выбирает картину.
+TWO_FILMS = [
+    RawResult("Моана 2 / Moana 2 (2024) WEB-DL 1080p | D", "c" * 40, 3 * GB, 140),
+    RawResult("Моана / Moana (2016) WEB-DL 1080p | D", "e" * 40, 3 * GB, 90),
+]
 
 
 @pytest.fixture(autouse=True)
@@ -352,21 +351,28 @@ def _env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("TORRCAST_CONFIG", str(tmp_path / "config.json"))
     save_config(Config(tv="mock", prowlarr_apikey="ключ", hls_dir=str(tmp_path / "hls")))
     _FakeTorrServer.added, _FakeTorrServer.dropped = [], []
-    composition.use_indexers(monkeypatch, _FakeProwlarr)
+    _found(monkeypatch, *FOUND)
     composition.use_engines(monkeypatch, _FakeTorrServer)
     composition.use_prober(
         monkeypatch, lambda url, timeout=90.0, alive=None: Media(5978.0, MOANA2, "h264", 1080)
     )
-    monkeypatch.setattr(playback_state, "start_play_unit", lambda key: None)
+    composition.use_start_unit(monkeypatch, lambda key: None)
     composition.use_await_playing(monkeypatch, lambda config, progress, timeout=120.0: None)
 
 
 class _FakeProwlarr:
-    def __init__(self, url: str, apikey: str) -> None:
+    """Индексер, отвечающий заготовленной выдачей: она приезжает конструктором.
+
+    ⚠️ Не атрибутом класса: подмена ``search`` по месту делала выдачу свойством ПРОГОНА,
+    а не стенда, и порядок тестов решал, что найдёт следующий.
+    """
+
+    def __init__(self, url: str, apikey: str, rows: tuple[RawResult, ...] = ()) -> None:
         self.url = url
+        self._rows = list(rows)
 
     def search(self, query: str) -> list[RawResult]:
-        return list(FOUND)
+        return list(self._rows)
 
     def late(self) -> list[RawResult]:
         """Опоздавших нет: круг тут отвечает разом (TC-118)."""
@@ -377,6 +383,11 @@ class _FakeProwlarr:
         from torrcast.domain.goal_spare import GOAL
 
         return GOAL
+
+
+def _found(monkeypatch: pytest.MonkeyPatch, *rows: RawResult) -> None:
+    """Выдача каталога на этот прогон: завод индексера кладёт корень, строки - стенд."""
+    composition.use_indexers(monkeypatch, lambda url, apikey: _FakeProwlarr(url, apikey, rows))
 
 
 class _FakeTorrServer:
@@ -483,9 +494,7 @@ def test_new_with_a_voice_overwrites_the_memory(
 
 def test_a_wrong_number_is_a_polite_refusal(monkeypatch: pytest.MonkeyPatch) -> None:
     """Дорожки с таким номером нет — честная строка и код «не нашли», а не показ."""
-    monkeypatch.setattr(
-        playback_state, "start_play_unit", lambda key: pytest.fail("вслепую не кастим")
-    )
+    composition.use_start_unit(monkeypatch, lambda key: pytest.fail("вслепую не кастим"))
     _answers(monkeypatch)
 
     assert main(["моана", "2", "--voice", "42"]) == 1
@@ -513,9 +522,7 @@ def test_the_voices_command_lists_and_exits(
     state = State()
     state.put(KEY, Entry(title="Моана 2", magnet="m", query="моана-2", voice="rus · MVO (TVShows)"))
     state.save()
-    monkeypatch.setattr(
-        playback_state, "start_play_unit", lambda key: pytest.fail("voices ничего не играет")
-    )
+    composition.use_start_unit(monkeypatch, lambda key: pytest.fail("voices ничего не играет"))
 
     assert main(["voices", "моана 2"]) == 0
 
@@ -527,26 +534,22 @@ def test_the_voices_command_lists_and_exits(
 
 
 def test_the_voices_command_passes_a_noninteractive_picture_number(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """``cast voices`` понимает тот же ``--pick M``, что показ и таблица релизов."""
-    seen: list[int | None] = []
-    original = _pick_plan
+    """``cast voices`` понимает тот же ``--pick M``, что показ и таблица релизов.
 
-    def pick(
-        plans: list[Plan],
-        facts: object = None,
-        pick: int | None = None,
-        asked: str = "",
-    ) -> Plan:
-        seen.append(pick)
-        return original(plans, pick=1, asked=asked)
-
-    monkeypatch.setattr(voices_command, "_pick_plan", pick)
+    Меряется не то, что число куда-то доехало, а КАКУЮ картину оно выбрало: в выдаче их
+    две, номер называет вторую, и вопросов при этом не задаётся ни одного. Подсмотреть
+    аргумент у соседа тут мало: то же самое напечатал бы и жёстко зашитый номер.
+    """
+    _found(monkeypatch, *TWO_FILMS)
     monkeypatch.setattr("builtins.input", lambda prompt="": pytest.fail("меню не спрашиваем"))
 
-    assert main(["voices", "моана 2", "--pick", "2"]) == 0
-    assert seen == [2]
+    assert main(["voices", "моана", "--pick", "2"]) == 0
+
+    printed = capsys.readouterr().out
+    assert "  1. Моана (2016)" in printed and "  2. Моана 2 (2024)" in printed
+    assert "Моана 2 (2024) - релиз 1:" in printed, "номер назвал вторую картину списка"
 
 
 def test_a_record_with_nothing_to_continue_does_not_wake_the_swarm(
@@ -657,9 +660,7 @@ def test_a_dry_run_with_a_voice_leaves_no_torrent_behind(monkeypatch: pytest.Mon
     """
     _serial()
     _answers(monkeypatch)
-    monkeypatch.setattr(
-        playback_state, "start_play_unit", lambda key: pytest.fail("сухой прогон не кастит")
-    )
+    composition.use_start_unit(monkeypatch, lambda key: pytest.fail("сухой прогон не кастит"))
 
     assert main(["киберпанк", "--voice", "5", "--dry"]) == 0
 
@@ -679,7 +680,7 @@ def test_a_voice_torrent_is_handed_to_the_show_and_not_pulled_from_under_it(
     key = _serial()
     _answers(monkeypatch)
     started: list[str] = []
-    monkeypatch.setattr(playback_state, "start_play_unit", lambda name: started.append(name))
+    composition.use_start_unit(monkeypatch, lambda name: started.append(name))
 
     assert main(["киберпанк", "--voice", "5"]) == 0
 
@@ -701,7 +702,7 @@ def test_a_voice_torrent_dies_with_the_show_that_never_started(
     def refuse(key: str) -> None:
         raise InfraError("не запустился юнит torrcast-play")
 
-    monkeypatch.setattr(playback_state, "start_play_unit", refuse)
+    composition.use_start_unit(monkeypatch, refuse)
 
     assert main(["киберпанк", "--voice", "5"]) == 2
 
@@ -739,7 +740,7 @@ def _pool(
         RawResult(name, tag * 40, 8 * GB, seeders)
         for seeders, (name, tag, _) in zip((90, 30), releases, strict=True)
     ]
-    monkeypatch.setattr(_FakeProwlarr, "search", lambda self, query: list(rows))
+    _found(monkeypatch, *rows)
 
     def read(url: str, timeout: float = 90.0, alive: object = None) -> Media:
         for _, tag, tracks in releases:
@@ -760,36 +761,22 @@ def test_a_japanese_top_release_steps_aside_for_a_russian_one_below_it(
     он: обещание имени отбор проверял только на отборе, а лестница дорожек выбирала лучшее
     из того, что нашлось В ВЗЯТОМ релизе. Теперь паспорт решает годность, и показ уходит к
     соседу, сказав об этом одной строкой.
+
+    Чью именно озвучку ищут в эту секунду, спрашивает зеркало стенда отбора
+    (``tests/usecases/select_bench/test_bench.py``): там бегущая строка видна портом
+    индикатора, а не подсмотренным аргументом чужого метода.
     """
     _pool(
         monkeypatch,
         ("Аниме / Anime (2020) WEB-DL 1080p [RUS(int)]", "c", JAPANESE),
         ("Аниме / Anime (2020) WEB-DL 1080p [RUS(int)]", "d", RUSSIAN),
     )
-    prefixes: list[str] = []
-    wait = Bench._wait
-
-    def watched_wait(
-        self: Bench,
-        prep: _Prep,
-        progress: Progress,
-        prefix: str = "",
-        limit: float = 0.0,
-    ) -> None:
-        prefixes.append(prefix)
-        wait(self, prep, progress, prefix, limit)
-
-    monkeypatch.setattr(Bench, "_wait", watched_wait)
     _answers(monkeypatch)
 
     assert main(["аниме"]) == 0
 
     printed = capsys.readouterr().out
     assert "релиз 1 без русской озвучки (японский) - беру 2" in printed
-    assert prefixes[:2] == [
-        "ищу русскую озвучку: релиз 1 из 2 - ",
-        "ищу русскую озвучку: релиз 2 из 2 - ",
-    ]
     assert "rus · Дубляж" in printed, "играет русская дорожка"
     assert "только японский звук" not in printed, "оправдываться не в чем"
     assert _FakeTorrServer.left() == {"hash-magnet:?xt=urn:btih:" + "d" * 10}, (

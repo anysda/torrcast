@@ -30,7 +30,6 @@ from torrcast.domain.audio_track import AudioTrack
 from torrcast.domain.media import Media
 from torrcast.domain.pick_settings import MAX_TRIES, META_BUDGET, PROBE_BUDGET
 from torrcast.domain.rank_settings import PEER_GRACE, STEP_GRACE
-from torrcast.domain.release import Release
 from torrcast.domain.server_down_error import ServerDownError
 from torrcast.domain.warm_open import KEYS_KEPT
 from torrcast.usecases.rank import peer_grace
@@ -109,7 +108,6 @@ def test_a_silent_stream_is_dropped_before_the_full_probe_budget(
     а не за все сорок секунд PROBE_BUDGET, и показ уходит к живому запасному.
     """
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
-    monkeypatch.setattr(Release, "magnet", property(lambda self: f"magnet-{self.raw_name}"))
     composition.use_swarm_grace(monkeypatch, 0.3)
 
     def read(url: str, timeout: float = 90.0, alive: Any = None) -> Media:
@@ -170,7 +168,6 @@ def test_the_same_words_without_the_type_do_not_stop_the_queue(
     тип исключения, и чужая ошибка с теми же словами очередь не останавливает.
     """
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(2)]
-    monkeypatch.setattr(Release, "magnet", property(lambda self: f"magnet-{self.raw_name}"))
 
     class _Shaky(_FakeTorrServer):
         def add(self, magnet: str) -> str:
@@ -431,7 +428,6 @@ def test_a_picture_whose_swarm_never_answers_is_refused_in_seconds_with_a_move(
     бюджетов, как до отсрочек, тут нет и близко.
     """
     ranked = [rel(name=f"r{i}", seeders=4 - i) for i in range(3)]
-    monkeypatch.setattr(Release, "magnet", property(lambda self: f"magnet-{self.raw_name}"))
     composition.use_graces(monkeypatch, peer=0.3)
     torrserver = _Empty()
 
@@ -463,7 +459,6 @@ def test_a_slow_swarm_is_not_mistaken_for_an_empty_one_by_the_pick(
     жалко. Живой рой обязан доехать, сколько бы отсрочек мимо него ни прошло.
     """
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
-    monkeypatch.setattr(Release, "magnet", property(lambda self: f"magnet-{self.raw_name}"))
     composition.use_graces(monkeypatch, peer=0.2)
 
     def read(url: str, timeout: float = 90.0, alive: Any = None) -> Media:

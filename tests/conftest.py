@@ -106,7 +106,6 @@ MACHINE_TESTS = frozenset(
         "tests/test_anime.py::test_the_catalogue_hole_lands_in_the_weekly_trace",
         "tests/test_anime.py::test_the_gate_costs_no_extra_probe_when_the_top_release_speaks_russian",
         "tests/usecases/test_passport.py::test_the_map_answers_when_wikipedia_misses_the_deadline",
-        "tests/test_pool.py::test_without_a_reference_the_guess_stays_but_says_so",
         "tests/test_warm.py::test_a_piece_laid_off_the_grid_never_reaches_the_show",
         "tests/test_ux.py::test_the_spare_release_warms_under_the_menu_not_after_the_first_one_fails",
         "tests/test_ux.py::test_a_dry_run_takes_even_the_chosen_torrent_back",

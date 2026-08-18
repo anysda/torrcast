@@ -11,6 +11,7 @@ from torrcast.domain.config import Config
 from torrcast.domain.facts.fact import Fact
 from torrcast.domain.picture import Picture
 from torrcast.domain.runtime_guess import RUNTIME_GUESS
+from torrcast.ports.journal import Silent, install
 from torrcast.usecases.reinforce._timed import _timed
 from torrcast.usecases.reinforce.plan_for import plan_for
 
@@ -30,12 +31,38 @@ class _Facts:
         return Fact(runtime=self.runtime)
 
 
+class _Noted(Silent):
+    """Молчащая лента, которая помнит, чем пересборка плана отчиталась о длительности."""
+
+    def __init__(self) -> None:
+        self.events: list[tuple[str, dict[str, object]]] = []
+
+    def emit(self, phase: str, event: str, **fields: object) -> None:
+        self.events.append((event, dict(fields)))
+
+
 def _plan(picture: Picture) -> Any:
     return plan_for(picture, Args(query=["кино"]), Config())
 
 
 def _picture() -> Picture:
     return pictures([row("Кино / Movie (1999) BDRip 1080p", "a")])[0]
+
+
+def _interstellar() -> Picture:
+    """Картина, у которой прикидка врёт: 2 ч 49 мин против двух часов.
+
+    Пул нарочно из двух ступеней: честный 1080p на 16.5 ГБ, который прикидка выкидывает
+    потолком, и 720p на 4 ГБ, который она оставляет единственным годным.
+    """
+    return pictures(
+        [
+            row(
+                "Интерстеллар / Interstellar (2014) BDRip 1080p | D", "a", seeders=90, size_gb=16.5
+            ),
+            row("Интерстеллар / Interstellar (2014) WEB-DL 720p | D", "b", seeders=120, size_gb=4),
+        ]
+    )[0]
 
 
 def test_the_real_runtime_replaces_the_guess_in_the_denominator() -> None:
@@ -75,3 +102,64 @@ def test_the_kin_of_the_old_plan_moves_into_the_fresh_one() -> None:
 
     assert fresh is not was
     assert [picture.title for picture in fresh.kin] == ["Соседняя часть"]
+
+
+def test_the_reference_runtime_returns_an_honest_1080p_to_the_queue() -> None:
+    """🔴 TC-185. Справка назвала 2 ч 49 мин - и 1080p, отсеянный арифметикой, снова в очереди.
+
+    Потолок при этом не двигается ни на знак: чинится знаменатель, а не порог.
+    """
+    picture = _interstellar()
+    args = Args(query=["интерстеллар"])
+    config = Config(recode=False)  # потолок отбора - ровно bitrate_warn_mbit
+    blind = plan_for(picture, args, config)
+    assert not blind.runtime_known
+    assert blind.candidates(args) == [1], "по прикидке годен только 720p"
+    small = blind.ranked[0]
+
+    fresh = _timed(blind, _Facts(_INTERSTELLAR), args, config)
+
+    assert fresh.warn_mbit == blind.warn_mbit, "чинится знаменатель, а не потолок"
+    assert fresh.ranked[0] is not small, "живой 1080p вернулся и встал верхом"
+    assert len(fresh.candidates(args)) == 2
+
+
+def test_a_hand_picked_release_keeps_the_number_the_table_showed() -> None:
+    """🔴 TC-216. ``--release N`` играет ровно ту раздачу, что стояла под номером N в таблице.
+
+    Держится инвариант не заслонкой, а тем, что ОБЕ стороны считают битрейт по одной
+    длительности: ``cast releases`` спрашивает справку так же, как путь показа. Пока
+    таблица строилась на прикидке, порядок сходился ценой вранья про битрейт.
+    """
+    picture = _interstellar()
+    config = Config(recode=False)
+    asked = Args(query=["интерстеллар"])
+    by_hand = Args(query=["интерстеллар"], release=2)
+
+    shown = _timed(plan_for(picture, asked, config), _Facts(_INTERSTELLAR), asked, config)
+    played = _timed(plan_for(picture, by_hand, config), _Facts(_INTERSTELLAR), by_hand, config)
+
+    assert [r.raw_name for r in played.ranked] == [r.raw_name for r in shown.ranked], (
+        "номер из таблицы означает ту же раздачу на показе"
+    )
+    assert played.runtime == shown.runtime, "длительность у таблицы и у показа одна"
+
+
+def test_a_silent_passport_says_so_in_the_trace_and_does_not_keep_quiet() -> None:
+    """Справка молчит - план остаётся на прикидке, и это видно в следе, а не молча.
+
+    Молчание тут - обычное дело (нет статьи, нет сети, картины нет в выгрузке), и цена
+    его - заниженный знаменатель битрейта у каждого длинного фильма. Не назови след
+    источник длительности, разбирать такие показы было бы нечем.
+    """
+    was = _plan(_picture())
+    noted = _Noted()
+    install(noted)
+    try:
+        assert _timed(was, _Facts(), Args(query=["кино"]), Config()) is was
+    finally:
+        install(Silent())
+
+    runtime = [fields for event, fields in noted.events if event == "runtime"]
+    assert runtime and runtime[-1]["src"] == "guess"
+    assert runtime[-1]["secs"] == round(RUNTIME_GUESS["movie"])

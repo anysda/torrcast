@@ -56,3 +56,26 @@ def test_a_rounding_difference_is_not_a_step() -> None:
     assert STEP_RATIO == 0.95
     plan = Plan([rel(name="взятый", quality="1080p"), rel(name="сосед", quality="1080p")])
     assert stepdown_note(plan, 1, media(), [1, 2]) == ""
+
+
+def test_a_neighbour_that_was_touched_and_turned_down_carries_its_verdict() -> None:
+    """Лучшего трогали и осудили - в строке стоит его приговор, а не «не дошли».
+
+    Разница не косметическая: «не дошли» значит «попробуй ещё раз», а приговор роя или
+    ffprobe - что пробовать нечего, и следующий заход кончится тем же.
+    """
+    taken, near = rel(name="взятый", quality="720p"), rel(name="сосед", seeders=59)
+    said = stepdown_note(
+        Plan([taken, near]), 1, media(height=720, width=1280), [2, 1], {2: "рой молчит"}, 2
+    )
+
+    assert "отбраковали (рой молчит)" in said
+
+
+def test_a_neighbour_that_kept_silent_is_not_called_turned_down() -> None:
+    """До ответа роя приговора релизу нет: кончилось только НАШЕ ожидание."""
+    taken, near = rel(name="взятый", quality="720p"), rel(name="сосед", seeders=59)
+    said = stepdown_note(Plan([taken, near]), 1, media(height=720, width=1280), [2, 1], {}, 2)
+
+    assert said.endswith("не ответил")
+    assert "отбраковали" not in said

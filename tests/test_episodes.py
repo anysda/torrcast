@@ -19,8 +19,6 @@ from torrcast.cli.main import main
 from torrcast.domain.entry import Entry
 from torrcast.domain.media import Media
 from torrcast.domain.torr_file import TorrFile
-from torrcast.usecases import worker_loop
-from torrcast.usecases.playback import _show_state as playback_state
 from torrcast.usecases.worker import _cmd_worker
 
 KEY = "tv:киберпанк-бегущие-по-краю:2022"
@@ -93,14 +91,10 @@ def _no_questions(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("builtins.input", refuse)
 
 
-def _no_unit(
-    show_unit: FakeShowUnit, monkeypatch: pytest.MonkeyPatch, order: list[str] | None = None
-) -> list[str]:
+def _no_unit(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     started: list[str] = []
-    monkeypatch.setattr(playback_state, "start_play_unit", lambda key: started.append(key))
+    composition.use_start_unit(monkeypatch, lambda key: started.append(key))
     composition.use_await_playing(monkeypatch, lambda config, progress, timeout=120.0: None)
-    if order is not None:
-        show_unit.on_stop = lambda: order.append("stop")
     return started
 
 
@@ -113,14 +107,17 @@ def test_the_previous_show_is_stopped_before_the_new_record_is_written(
     Поэтому сначала гасим прошлый показ, и только потом пишем, что играть дальше.
     """
     remember(episode=1, pos=600.0, dur=MINUTES_24)
-    order: list[str] = []
+    at_stop: list[str] = []
     _no_questions(monkeypatch)
-    _no_unit(show_unit, monkeypatch, order)
-    monkeypatch.setattr(State, "save", lambda self: order.append("save"))
+    _no_unit(monkeypatch)
+    # Что записано в состоянии В СЕКУНДУ остановки: спрашиваем сам файл, а не порядок
+    # вызовов. Порядок вызовов зелёный и у записи, которая до юнита не доехала.
+    show_unit.on_stop = lambda: at_stop.append(saved().label)
 
     assert main(["киберпанк", "s1e3"]) == 0
 
-    assert order == ["stop", "save"]
+    assert at_stop == ["s1e1"], "прыжок записан раньше остановки - умирающий юнит его затрёт"
+    assert saved().label == "s1e3", "а после остановки он записан, и играть дальше есть что"
 
 
 def test_the_unit_plays_the_whole_release_by_itself(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -160,9 +157,7 @@ def test_the_unit_plays_the_whole_release_by_itself(monkeypatch: pytest.MonkeyPa
         monkeypatch, lambda url, timeout=90.0, alive=None: Media(MINUTES_24, (), "h264")
     )
     composition.use_receivers(monkeypatch, lambda kind, address, cert, profile=None: tv)
-    monkeypatch.setattr(worker_loop, "_play", play)
-
-    assert _cmd_worker(KEY) == 0
+    assert _cmd_worker(KEY, play=play) == 0
 
     assert receivers == [tv, tv, tv], (
         "приёмник один на весь юнит - второй сендер гасит показ на стыке серий"
@@ -192,17 +187,15 @@ def test_the_next_episode_learns_its_own_duration(monkeypatch: pytest.MonkeyPatc
     composition.use_engines(monkeypatch, _FakeTorrServer)
     composition.use_prober(monkeypatch, probe)
     composition.use_receivers(monkeypatch, lambda kind, address, cert, profile=None: None)
-    monkeypatch.setattr(
-        worker_loop,
-        "_play",
-        lambda config, source, audio, about, clock, watch=None, **rest: (
-            watch.see(watch.entry.dur),
-            watch.close(),
-            0,
-        )[2],
-    )
 
-    assert _cmd_worker(KEY) == 0
+    def play(
+        config: Any, source: str, audio: int, about: str, clock: Any, watch: Any = None, **rest: Any
+    ) -> int:
+        watch.see(watch.entry.dur)
+        watch.close()
+        return 0
+
+    assert _cmd_worker(KEY, play=play) == 0
 
     assert len(probed) == 2, "у первой серии длительность уже была, у двух следующих - нет"
 
@@ -236,9 +229,7 @@ def test_a_record_from_before_the_ten_bit_era_asks_the_passport_once(
         watch.close()
         return 0
 
-    monkeypatch.setattr(worker_loop, "_play", play)
-
-    assert _cmd_worker(KEY) == 0
+    assert _cmd_worker(KEY, play=play) == 0
 
     assert seen[0] == 10, "показ обязан узнать глубину, а не решать по одному имени кодека"
     assert saved().depth == 10, "узнанное осталось в записи - второй раз спрашивать незачем"
@@ -274,9 +265,7 @@ def test_a_record_from_before_the_frame_era_asks_the_passport_once(
         watch.close()
         return 0
 
-    monkeypatch.setattr(worker_loop, "_play", play)
-
-    assert _cmd_worker(KEY) == 0
+    assert _cmd_worker(KEY, play=play) == 0
 
     assert seen[0] == 2160, "показ обязан узнать кадр, а не писать в поток «4.1» на 4К"
     assert saved().frame == 2160, "узнанное осталось в записи - второй раз спрашивать незачем"
@@ -310,9 +299,7 @@ def test_the_unit_signs_its_torrent_in_the_state_and_unsigns_it_on_the_way_out(
     composition.use_engines(monkeypatch, _FakeTorrServer)
     composition.use_prober(monkeypatch, lambda url, timeout=90.0, alive=None: Media(MINUTES_24, ()))
     composition.use_receivers(monkeypatch, lambda kind, address, cert, profile=None: None)
-    monkeypatch.setattr(worker_loop, "_play", play)
-
-    assert _cmd_worker(KEY) == 0
+    assert _cmd_worker(KEY, play=play) == 0
 
     assert signed == ["hash", "hash", "hash"], "пока показ идёт, хозяин раздачи назван"
     assert _FakeTorrServer.dropped == ["hash"], "раздача убрана на выходе, как и раньше"
@@ -327,7 +314,7 @@ def test_a_series_continues_the_right_episode_from_the_right_place(
     """
     remember(episode=2, file_idx=1, pos=300.0, dur=MINUTES_24)
     _no_questions(monkeypatch)
-    started = _no_unit(show_unit, monkeypatch)
+    started = _no_unit(monkeypatch)
 
     assert main(["киберпанк"]) == 0
 
@@ -344,7 +331,7 @@ def test_a_watched_episode_is_followed_by_the_next_one_without_questions(
     """Серия досмотрена до порога — `cast киберпанк` играет следующую с нуля."""
     remember(episode=3, file_idx=2, pos=0.0, dur=0.0)  # так выглядит запись после стыка
     _no_questions(monkeypatch)
-    _no_unit(show_unit, monkeypatch)
+    _no_unit(monkeypatch)
 
     assert main(["киберпанк"]) == 0
 
@@ -356,7 +343,7 @@ def test_an_episode_stopped_at_96_percent_starts_the_next_one(
 ) -> None:
     remember(episode=2, file_idx=1, pos=1382.4, dur=MINUTES_24)
     _no_questions(monkeypatch)
-    _no_unit(show_unit, monkeypatch)
+    _no_unit(monkeypatch)
 
     assert main(["киберпанк"]) == 0
 
@@ -396,7 +383,7 @@ def test_a_named_episode_is_not_shadowed_by_the_watched_bookkeeping(
     """
     remember(episode=2, file_idx=1, pos=1382.4, dur=MINUTES_24)
     _no_questions(monkeypatch)
-    _no_unit(show_unit, monkeypatch)
+    _no_unit(monkeypatch)
 
     assert main(["киберпанк", "s1e1"]) == 0
 
@@ -411,7 +398,7 @@ def test_an_explicit_episode_jumps_inside_the_cached_release(
     """`cast киберпанк s1e3`: прыжок по кэшу раздачи — ни поиска, ни вопросов."""
     remember(episode=1, pos=600.0, dur=MINUTES_24)
     _no_questions(monkeypatch)
-    _no_unit(show_unit, monkeypatch)
+    _no_unit(monkeypatch)
 
     assert main(["киберпанк", "s1e3"]) == 0
 
@@ -426,7 +413,7 @@ def test_an_episode_outside_the_release_goes_looking_for_it(
     цепочка идёт искать релиз нужного сезона (тут упирается в ненастроенный Prowlarr).
     """
     remember(episode=1, pos=600.0, dur=MINUTES_24)
-    monkeypatch.setattr(playback_state, "start_play_unit", lambda key: pytest.fail("играть нечего"))
+    composition.use_start_unit(monkeypatch, lambda key: pytest.fail("играть нечего"))
 
     assert main(["киберпанк", "s2e5"]) == 2
 
@@ -440,7 +427,7 @@ def test_the_end_of_the_release_is_the_end(
     """Раздача досмотрена: следующая серия не выдумывается. Ответ «нет» — просто выходим."""
     remember(episode=3, file_idx=2, done=True, dur=MINUTES_24)
     monkeypatch.setattr("builtins.input", lambda prompt="": "нет")
-    monkeypatch.setattr(playback_state, "start_play_unit", lambda key: pytest.fail("играть нечего"))
+    composition.use_start_unit(monkeypatch, lambda key: pytest.fail("играть нечего"))
 
     assert main(["киберпанк"]) == 0
 
@@ -453,7 +440,7 @@ def test_the_finished_release_can_be_started_over(
     """…а Enter на том же вопросе начинает раздачу сначала: выбор релиза не повторяется."""
     remember(episode=3, file_idx=2, done=True, dur=MINUTES_24)
     monkeypatch.setattr("builtins.input", lambda prompt="": "")
-    _no_unit(show_unit, monkeypatch)
+    _no_unit(monkeypatch)
 
     assert main(["киберпанк"]) == 0
 
