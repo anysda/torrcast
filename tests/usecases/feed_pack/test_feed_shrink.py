@@ -2,17 +2,18 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any
 
-import torrcast.usecases.feed_pack._state as _state
-from tests.usecases.feed_pack.world import clock, feed, grid, lay, packer
+from tests.usecases.feed_pack.world import factory, feed, grid, lay, packer, tract
+from torrcast.adapters.recode import MAXRATE_GAIN, Encode, Pace
+from torrcast.adapters.stream_pack.grid import Grid
+from torrcast.domain.delivered_mbit import AUDIO_MBIT, TS_OVERHEAD
+from torrcast.domain.hls_settings import MAX_SEGMENT_BYTES
 from torrcast.usecases.feed_pack.feed_shrink import _shrink, _skip
 
 if TYPE_CHECKING:
     from pathlib import Path
-
-    import pytest
 
 
 @dataclass(frozen=True)
@@ -45,16 +46,15 @@ class _Recoder:
         return path if self.fits and path.exists() else None
 
 
-def _tract(monkeypatch: pytest.MonkeyPatch, laid: list[int]) -> None:
-    """Подставить ужатию поддельный медиатракт: ffmpeg не поднимается ни разу."""
-    monkeypatch.setattr(_state, "ffmpeg_pack_command", lambda *a, **k: ["ffmpeg"])
+def _tract(laid: list[int], start: Any = None) -> None:
+    """Собрать ужатию стендовый медиатракт: ffmpeg не поднимается ни разу."""
 
     def _start(command: list[str], out: Path, run: Path, first: int, **kwargs: Any) -> Any:
         laid.append(first)
         run.mkdir(parents=True, exist_ok=True)
         return packer(run.parent, out=out, run=run, first=first, edge=first)
 
-    monkeypatch.setattr(_state, "Packer", type("Fake", (), {"start": staticmethod(_start)}))
+    tract(pack_command=lambda *a, **k: ["ffmpeg"], packer=factory(start or _start))
 
 
 def _recoder(tmp_path: Path, **kwargs: Any) -> _Recoder:
@@ -97,13 +97,10 @@ def test_on_a_whole_film_recode_a_side_run_is_forbidden(tmp_path: Path, journal:
     assert " (0 МБ)" not in said[0], "вес не измерен - выдумывать его в строке нельзя"
 
 
-def test_a_recode_that_arrived_while_we_waited_for_the_lock_is_taken_as_is(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_a_recode_that_arrived_while_we_waited_for_the_lock_is_taken_as_is(tmp_path: Path) -> None:
     """Пока ждали замок, перекод доехал сам - поднимать ради него ещё один ffmpeg незачем."""
-    clock(monkeypatch)
     laid: list[int] = []
-    _tract(monkeypatch, laid)
+    _tract(laid)
     recoder = _recoder(tmp_path, fits=True)
     lay(recoder.spare, 4, size=5)
     show = feed(tmp_path, recoder=recoder, cap=100)
@@ -113,13 +110,12 @@ def test_a_recode_that_arrived_while_we_waited_for_the_lock_is_taken_as_is(
 
 
 def test_a_shrunk_piece_that_fits_the_ceiling_saves_the_place(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, journal: Path
+    tmp_path: Path, journal: Path
 ) -> None:
     """Ужатие - один короткий прогон ровно на этот сегмент; влез - место спасено."""
-    clock(monkeypatch)
     laid: list[int] = []
     said: list[str] = []
-    _tract(monkeypatch, laid)
+    _tract(laid)
     recoder = _recoder(tmp_path)
     show = feed(tmp_path, recoder=recoder, log=said.append, cap=100, grid=grid(60.0, 10.0))
 
@@ -130,7 +126,7 @@ def test_a_shrunk_piece_that_fits_the_ceiling_saves_the_place(
         recoder.fits = True
         return packer(run.parent, out=out, run=run, first=first, edge=first)
 
-    monkeypatch.setattr(_state, "Packer", type("Fake", (), {"start": staticmethod(_start)}))
+    _tract(laid, start=_start)
 
     assert _shrink(show, 4, 20_000_000) is True
     assert laid == [4] and show.skipped == set()
@@ -138,12 +134,11 @@ def test_a_shrunk_piece_that_fits_the_ceiling_saves_the_place(
 
 
 def test_a_shrink_that_did_not_fit_is_a_skip_and_not_a_second_try(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, journal: Path
+    tmp_path: Path, journal: Path
 ) -> None:
     """Ужать не вышло - место пропускается: стоять на нём значит крутить круг вечно."""
-    clock(monkeypatch)
     said: list[str] = []
-    _tract(monkeypatch, [])
+    _tract([])
     show = feed(tmp_path, recoder=_recoder(tmp_path), log=said.append, grid=grid(60.0, 10.0))
 
     assert _shrink(show, 4, 20_000_000) is False
@@ -158,3 +153,67 @@ def test_a_skipped_place_is_taken_off_the_encoders_list_too(tmp_path: Path, jour
 
     assert _skip(show, 7, 0, "ужимать нечем") is False
     assert show.skipped == {7} and recoder.done == {7}
+
+
+def test_the_spot_shrink_aims_under_both_ceilings_of_the_receiver(tmp_path: Path) -> None:
+    """🔴 TC-495: у приёмника ДВА потолка, а ужатие считало цель по одному - по весу.
+
+    Живой показ 11-08 (сеанс на Q70D): ужатие сработало на слотах 0, 2 и 4, попросив
+    8.87, 7.32 и 9.00 Мбит/с, а наружу уехало 9.65, 8.33 и **10.94** Мбит/с при потолке
+    битрейта около десяти. Четыре подгруза в первую минуту, и ранние места ровно эти.
+    Кусок был короткий, поэтому по весу влезал с запасом: чем короче кусок, тем больше
+    мегабит в секунду помещается в одни и те же 16 МБ.
+
+    Сам ffmpeg тут не нужен и не зовётся: проверяется РЕШЕНИЕ, а оно принимается и
+    называется вслух до всякого прогона - потому заводу прогона тут и разрешено падать.
+    """
+
+    class _Ceilings:
+        """Кодировщик-заглушка: ровно то, что спрашивает ужатие, и оба потолка при нём."""
+
+        def __init__(self, spare: Path) -> None:
+            self.spare = spare
+            self.encode = Encode()
+            self.pace = Pace()
+            self.threshold = 10.0  # потолок битрейта приёмника, ``recode_at_mbit``
+            self.cap = MAX_SEGMENT_BYTES  # потолок веса, тот же, которым меряет показ
+            self.over_wait = 60.0
+            self.done: set[int] = set()
+            self.played = 0.0
+
+        def stop(self) -> None: ...
+
+        def opening(self, slot: int) -> None: ...
+
+        def note(self, slot: int, how: str) -> None: ...
+
+        def holding(self, slot: int, size: int = 0) -> bool:
+            return False
+
+        def ready(self, slot: int) -> Path | None:
+            return None
+
+        def fit(self, span: float, preset: str) -> Encode:
+            # Тело - копия :meth:`torrcast.adapters.recode.Recoder.fit`, знак в знак:
+            # заглушка со своим расчётом зелена при любом контракте.
+            return replace(self.encode, preset=preset).fit(span, self.cap, self.threshold)
+
+    def _dead(*args: Any, **kwargs: Any) -> Any:
+        raise OSError("ffmpeg не поднялся - для решения это неважно")
+
+    said: list[str] = []
+    tract(packer=factory(_dead))
+    recoder = _Ceilings(tmp_path / "recode")
+    # Тот самый слот 4 того самого сеанса: 9.55 с фильма.
+    show = feed(
+        tmp_path,
+        grid=Grid(bounds=(0.0, 9.55), duration=19.1),
+        log=said.append,
+        recoder=recoder,
+    )
+
+    assert _shrink(show, 0, MAX_SEGMENT_BYTES + 1) is False
+    asked = float(said[0].split(" до ")[1].split()[0])
+    went = (asked * MAXRATE_GAIN + AUDIO_MBIT) * TS_OVERHEAD
+    assert went <= recoder.threshold, "ужатие обязано укладываться в потолок битрейта"
+    assert went * 9.55 / 8 <= show.cap / 1e6, "и в потолок веса оно укладываться не перестало"

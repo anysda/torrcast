@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from typing import TYPE_CHECKING, Any
 
 import torrcast.usecases.feed_pack._state as _state
@@ -10,26 +11,6 @@ from torrcast.usecases.feed_pack.configure import configure
 
 if TYPE_CHECKING:
     from pathlib import Path
-
-    import pytest
-
-SLOTS = (
-    "segment_name",
-    "segment_slot",
-    "pack_start",
-    "ffmpeg_pack_command",
-    "Packer",
-    "forget_playing",
-    "RECODE_DIR",
-    "remove_tree",
-    "segment_paths",
-)
-
-
-def _restore(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Вернуть боевые слоты после теста: они общие на весь прогон."""
-    for name in SLOTS:
-        monkeypatch.setattr(_state, name, getattr(_state, name), raising=False)
 
 
 def _world() -> dict[str, Any]:
@@ -45,12 +26,12 @@ def _world() -> dict[str, Any]:
         "recode_dir": "свой-перекод",
         "remove_tree": swept.append,
         "segment_paths": lambda where: [where / "свой.ts"],
+        "clock": time,
     }
 
 
-def test_every_slot_takes_its_value_from_the_composition(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_every_slot_takes_its_value_from_the_composition() -> None:
     """Один вызов - и весь внешний мир ленты на месте, ни одного слота мимо."""
-    _restore(monkeypatch)
     world = _world()
 
     configure(**world)
@@ -64,13 +45,11 @@ def test_every_slot_takes_its_value_from_the_composition(monkeypatch: pytest.Mon
     assert _state.Packer is world["packer"]
     assert _state.remove_tree is world["remove_tree"]
     assert _state.segment_paths is world["segment_paths"]
+    assert _state.clock_port is world["clock"]
 
 
-def test_a_second_call_replaces_the_world_and_does_not_mix_two(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_a_second_call_replaces_the_world_and_does_not_mix_two() -> None:
     """Повторное подключение меняет мир целиком: половинчатая замена - это два мира разом."""
-    _restore(monkeypatch)
     second = dict(_world())
     second["segment_name"] = lambda slot: f"v{slot}"
     second["recode_dir"] = "второй"
@@ -81,10 +60,8 @@ def test_a_second_call_replaces_the_world_and_does_not_mix_two(
     assert _state.segment_name(4) == "v4" and _state.RECODE_DIR == "второй"
 
 
-def test_the_grid_slot_is_not_touched_by_the_composition(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_grid_slot_is_not_touched_by_the_composition() -> None:
     """Сетка приходит вызовом, а не подключением: подменять её тут нечем и незачем."""
-    _restore(monkeypatch)
-
     configure(**_world())
 
     assert _state.Grid is Grid

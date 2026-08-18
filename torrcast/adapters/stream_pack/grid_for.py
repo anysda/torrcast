@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from dataclasses import replace
 from typing import Any
 
@@ -10,6 +11,7 @@ from torrcast.adapters.stream_pack.extra_mbit import extra_mbit
 from torrcast.adapters.stream_pack.film_keys import film_keys
 from torrcast.adapters.stream_pack.grid import Grid
 from torrcast.adapters.stream_pack.pack_origin import pack_origin
+from torrcast.domain.film_keys import FilmKeys
 from torrcast.domain.hls_settings import HLS_SEGMENT_SECONDS, MAX_SEGMENT_BYTES
 from torrcast.domain.infra_error import InfraError
 
@@ -24,6 +26,9 @@ def grid_for(
     ceiling_mbit: float = 0.0,
     fixed_mbit: float = 0.0,
     cap: float = MAX_SEGMENT_BYTES,
+    *,
+    keys_of: Callable[[str], FilmKeys] = film_keys,
+    origin_of: Callable[[str], float] = pack_origin,
 ) -> Grid:
     """Сетка для конкретного файла: по опорным кадрам, если карту удалось снять.
 
@@ -43,6 +48,12 @@ def grid_for(
     ``cap`` — потолок веса одного куска: он у каждого приёмника свой
     (:attr:`torrcast.domain.profile.Profile.max_segment_bytes`), и умолчание тут осторожное.
 
+    ``keys_of`` и ``origin_of`` - карта опорных кадров и начало ленты. Обе стоят
+    настоящими, и обе названы параметром, а не именем модуля: карта стоит Range-запросов,
+    начало ленты - живого ffprobe, и стенду нужно спросить сетку, не поднимая ни того, ни
+    другого. Прежде стенд подменял их атрибутом модуля, то есть знал не договор
+    :func:`grid_for`, а порядок имён внутри него.
+
     ``fixed_mbit`` — сплошной перекод (:data:`RECODE_CODECS`): вес сегмента больше не
     зависит от карты вовсе, потому что на ТВ уезжает не файл, а наш поток с известным
     битрейтом. Карта тут не просто лишняя, а вредная: лёгкий HEVC (1.3 Мбит/с) она
@@ -52,13 +63,13 @@ def grid_for(
     began = time.monotonic()
     # Начало ленты - свойство файла, а не способа его нарезать: считается до всякой развилки
     # и уезжает в любую сетку, какой бы из путей ниже ни выбрался (:func:`pack_origin`).
-    origin = pack_origin(source_url)
+    origin = origin_of(source_url)
     if not on_keys:
         if say:
             say(f"сетка ровно по {step:g} с - так велено настройкой")
         return replace(Grid.uniform(duration, step), origin=origin)
     try:
-        found = film_keys(source_url)
+        found = keys_of(source_url)
     except InfraError as exc:
         if say:
             say(f"сетка ровно по {step:g} с: {exc}")

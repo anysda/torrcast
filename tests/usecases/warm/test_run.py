@@ -5,15 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-import torrcast.usecases.warm._state as _state
 from tests.usecases.warm.world import warmer, world
 from torrcast.usecases.warm.run import _run
 from torrcast.usecases.warm.settings import RUN_DIR
 
 if TYPE_CHECKING:
     from pathlib import Path
-
-    import pytest
 
 
 @dataclass(frozen=True)
@@ -52,8 +49,8 @@ class _Packer:
         self.stopped.append(reason)
 
 
-def _tract(monkeypatch: pytest.MonkeyPatch, packers: list[_Packer]) -> list[list[str]]:
-    """Подставить заходу поддельный медиатракт; возвращает собранные команды ffmpeg."""
+def _tract(packers: list[_Packer]) -> tuple[dict[str, Any], list[list[str]]]:
+    """Медиатракт захода стендом; возвращает слоты для :func:`world` и команды ffmpeg."""
     commands: list[list[str]] = []
 
     def _start(command: list[str], out: Any, run: Any, first: int, **kwargs: Any) -> _Packer:
@@ -64,19 +61,19 @@ def _tract(monkeypatch: pytest.MonkeyPatch, packers: list[_Packer]) -> list[list
         packers.append(packer)
         return packer
 
-    monkeypatch.setattr(_state, "pack_start", lambda source, at: at - 2.0)
-    monkeypatch.setattr(_state, "ffmpeg_pack_command", lambda *args, **kwargs: ["ffmpeg", "-i"])
-    monkeypatch.setattr(_state, "Packer", type("Fake", (), {"start": staticmethod(_start)}))
-    return commands
+    parts = {
+        "pilot": lambda source, at: at - 2.0,
+        "pack": lambda *args, **kwargs: ["ffmpeg", "-i"],
+        "packer": type("StandPacker", (), {"start": staticmethod(_start)}),
+    }
+    return parts, commands
 
 
-def test_a_copy_run_asks_the_pilot_and_goes_nice(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_a_copy_run_asks_the_pilot_and_goes_nice(tmp_path: Path) -> None:
     """Копия заходит от ИЗМЕРЕННОГО начала и всегда под ``nice``: резы считаются от него."""
-    fake = world(monkeypatch)
     packers: list[_Packer] = []
-    commands = _tract(monkeypatch, packers)
+    parts, commands = _tract(packers)
+    fake = world(**parts)
     warm = warmer(tmp_path, log=[].append)
 
     _run(warm, 2, 3)
@@ -88,11 +85,11 @@ def test_a_copy_run_asks_the_pilot_and_goes_nice(
     assert packers[0].stopped == ["прогрев окончен"]
 
 
-def test_a_recoding_run_needs_no_pilot(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_recoding_run_needs_no_pilot(tmp_path: Path) -> None:
     """У перекодирующего захода ``-ss`` точен: пробный увёл бы весь заход на сегмент назад."""
-    fake = world(monkeypatch)
     packers: list[_Packer] = []
-    _tract(monkeypatch, packers)
+    parts, _ = _tract(packers)
+    fake = world(**parts)
     warm = warmer(tmp_path, encode=_Encode(), log=[].append)
 
     _run(warm, 0, 1)
@@ -101,13 +98,11 @@ def test_a_recoding_run_needs_no_pilot(tmp_path: Path, monkeypatch: pytest.Monke
     assert fake.named("прогрев пошёл")["режим"] == "перекод"
 
 
-def test_a_spot_run_marks_the_place_only_after_it_is_laid(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_a_spot_run_marks_the_place_only_after_it_is_laid(tmp_path: Path) -> None:
     """Метка ставится ПОСЛЕ выкладки: оборвался прогон - на месте куска осталась копия."""
-    world(monkeypatch)
     packers: list[_Packer] = []
-    _tract(monkeypatch, packers)
+    parts, _ = _tract(packers)
+    world(**parts)
     warm = warmer(tmp_path, spot_encode=_Encode(), log=[].append)
 
     _run(warm, 4, 4, spot=True)
@@ -116,19 +111,14 @@ def test_a_spot_run_marks_the_place_only_after_it_is_laid(
     assert warm.vault.have(4)
 
 
-def test_a_piece_off_the_grid_aborts_the_whole_run(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_a_piece_off_the_grid_aborts_the_whole_run(tmp_path: Path) -> None:
     """Заход, вставший не туда, кладёт мимо сетки весь участок: доводить его нельзя."""
-    world(monkeypatch)
     packers: list[_Packer] = []
-    _tract(monkeypatch, packers)
-    import torrcast.usecases.warm.verify as verify_module
-
-    monkeypatch.setattr(verify_module, "segment_start", lambda path: 0.0)
+    parts, _ = _tract(packers)
+    world(**parts)
     warm = warmer(tmp_path, log=[].append)
 
-    _run(warm, 0, warm.grid.count - 1)
+    _run(warm, 0, warm.grid.count - 1, began_of=lambda path: 0.0)
 
     assert warm.misgrid == 1, "промах не оборвал заход"
     # Мера обрыва - счёт промахов, а не то, что осталось лежать. Забракованный кусок
@@ -140,14 +130,12 @@ def test_a_piece_off_the_grid_aborts_the_whole_run(
     assert warm.vault.slots() == {0}, "кусок мимо сетки остался лежать в показе"
 
 
-def test_a_run_that_gave_nothing_says_so_and_waits(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_a_run_that_gave_nothing_says_so_and_waits(tmp_path: Path) -> None:
     """Ни куска за заход - это не тишина, а строка и пауза перед новой попыткой."""
-    fake = world(monkeypatch)
     said: list[str] = []
     packers: list[_Packer] = []
-    _tract(monkeypatch, packers)
+    parts, _ = _tract(packers)
+    fake = world(**parts)
     warm = warmer(tmp_path, log=said.append)
 
     _run(warm, 0, -1)
@@ -156,13 +144,11 @@ def test_a_run_that_gave_nothing_says_so_and_waits(
     assert fake.slept[-1] == 10.0, "прогрев тут же полез в раздачу снова"
 
 
-def test_the_heavy_hook_of_the_warming_is_handed_to_the_packer(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_the_heavy_hook_of_the_warming_is_handed_to_the_packer(tmp_path: Path) -> None:
     """Выкладке прогрева нужен свой хук: без него она встала бы на первом тяжёлом куске."""
-    world(monkeypatch)
     packers: list[_Packer] = []
-    _tract(monkeypatch, packers)
+    parts, _ = _tract(packers)
+    world(**parts)
     warm = warmer(tmp_path, log=[].append)
 
     _run(warm, 0, 0)

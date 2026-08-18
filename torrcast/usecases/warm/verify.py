@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import contextlib
 import math
+from collections.abc import Callable
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import torrcast.usecases.warm._state as _state
@@ -18,7 +20,12 @@ if TYPE_CHECKING:
     from torrcast.usecases.warm.warmer_state import _State
 
 
-def _inspect(state: _State, done: int, edge: int) -> int:
+def _inspect(
+    state: _State,
+    done: int,
+    edge: int,
+    began_of: Callable[[Path], float] = segment_start,
+) -> int:
     """Сверить с сеткой всё, что легло после ``done`` и не дальше ``edge``.
 
     Возвращает новую границу сверенного. Обход не обрывается на первом же промахе, и
@@ -26,13 +33,15 @@ def _inspect(state: _State, done: int, edge: int) -> int:
     его раз в полсекунды), а заход, вставший не туда, разъезжается с сеткой ЦЕЛИКОМ.
     Оборви обход - и остальные куски пачки остались бы лежать в показе непроверенными,
     то есть сторож ловил бы ровно один кусок из четырёх.
+
+    ``began_of`` - чем узнаётся начало уложенного куска; уезжает в саму сверку.
     """
     for slot in range(max(done + 1, 0), edge + 1):
-        _verify(state, slot)
+        _verify(state, slot, began_of)
     return max(done, edge)
 
 
-def _verify(state: _State, slot: int) -> bool:
+def _verify(state: _State, slot: int, began_of: Callable[[Path], float] = segment_start) -> bool:
     """Кусок лёг на своё место сетки? Ложь - он уже убран и в показ не пойдёт.
 
     🔴 Ради этой сверки карточка и написана. Дефект, из-за которого прогрев резал куски
@@ -62,8 +71,12 @@ def _verify(state: _State, slot: int) -> bool:
     пометки он не читает. Отдачу это не роняет даже в самый неудачный момент - файл,
     пропавший между проверкой и чтением, отдача уже переживает (``OSError`` →
     404 → приёмник просит снова, :meth:`torrcast.adapters.http_server._handler._Handler._read`).
+
+    ``began_of`` - чем узнаётся начало уложенного куска. Доводом, а не именем внутри
+    модуля: настоящий замер поднимает ffprobe на настоящем куске, а меряется тут само
+    правило сверки - что считается промахом, что дырой и что при этом стирается.
     """
-    began = segment_start(state.vault.path(slot))
+    began = began_of(state.vault.path(slot))
     # Метка куска - это время фильма ПЛЮС начало ленты, одно на все заходы
     # (:attr:`torrcast.adapters.stream_pack.grid.Grid.origin`): сверять надо с тем же числом, иначе
     # порог сдвига у релизов с B-кадрами съеден на треть ещё до всякого промаха.

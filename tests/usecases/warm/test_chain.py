@@ -26,7 +26,7 @@ def test_an_unfinished_episode_holds_the_chain_back(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Пока текущая серия не на диске, каждый байт раздачи нужен ей, а не следующей."""
-    world(monkeypatch)
+    world()
     warm = warmer(tmp_path)
     warm.follow = lambda: warmer(tmp_path, vault=vault(tmp_path, key="следующая"))
 
@@ -39,7 +39,7 @@ def test_a_finished_episode_starts_the_next_one(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Серия легла целиком - следующая берётся в работу и защищается от бюджета."""
-    fake = world(monkeypatch)
+    fake = world()
     warm = _whole(tmp_path)
     following = warmer(tmp_path, vault=vault(tmp_path, key="следующая"))
     warm.follow = lambda: following
@@ -63,7 +63,7 @@ def test_the_chain_hands_over_the_reserve_and_the_rival(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Соседу достаются и запас показа, и кодировщик: процессор и раздача у них общие."""
-    world(monkeypatch)
+    world()
     warm = _whole(tmp_path)
     following = warmer(tmp_path, vault=vault(tmp_path, key="следующая"))
     warm.slack, warm.rival = 42.0, _Rival()
@@ -79,7 +79,7 @@ def test_a_chain_never_goes_two_episodes_ahead(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Ровно за одну серию: сезон-пак впрок - уже не страховка показа."""
-    world(monkeypatch)
+    world()
     warm = _whole(tmp_path)
     asked = 0
 
@@ -100,7 +100,7 @@ def test_there_is_nothing_to_chain_without_a_factory(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """У фильма продолжения нет и быть не может - цепочка молчит."""
-    world(monkeypatch)
+    world()
     warm = _whole(tmp_path)
 
     _chain(warm)
@@ -112,7 +112,7 @@ def test_a_broken_network_is_waited_out_and_asked_again(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Спрашиваем повторно, пока показ жив: один вопрос стоил целой следующей серии."""
-    world(monkeypatch)
+    world()
     said: list[str] = []
     warm = warmer(tmp_path, log=said.append)
     warm.chain_retry = 0.0
@@ -137,7 +137,7 @@ def test_nothing_to_follow_is_answered_at_once(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """``None`` - это «нечего», а не «не смогли»: ждать тут нечего никогда."""
-    world(monkeypatch)
+    world()
     warm = warmer(tmp_path)
     warm.follow = lambda: None
 
@@ -148,7 +148,7 @@ def test_a_stopped_show_ends_the_nap_and_the_asking(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Показ кончился - прогреву спать и спрашивать незачем."""
-    fake = world(monkeypatch)
+    fake = world()
     warm = warmer(tmp_path)
     warm.stopped = True
 
@@ -159,7 +159,7 @@ def test_a_stopped_show_ends_the_nap_and_the_asking(
 
 def test_the_nap_wakes_up_in_small_steps(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Сон меряется десятками секунд, а снятие показа обязано срабатывать сразу."""
-    fake = world(monkeypatch)
+    fake = world()
     warm = warmer(tmp_path)
 
     _nap(warm, 2.0)

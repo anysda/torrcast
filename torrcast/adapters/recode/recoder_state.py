@@ -14,8 +14,10 @@ from torrcast.adapters.recode.pace import Pace
 from torrcast.adapters.recode.recoder_settings import RUN_MAX
 from torrcast.adapters.recode.targets import _targets
 from torrcast.adapters.recode.weights import Weights
+from torrcast.adapters.stream_pack.packer import Packer
 from torrcast.adapters.stream_probe import segment_name, segment_slot
 from torrcast.domain.profile import CAUTIOUS
+from torrcast.ports.pack_run import PackFactory
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -72,6 +74,11 @@ class _State:
     #: Фактическая скорость перекода на этом показе (:class:`Pace`). Всё, что считает срок,
     #: спрашивает её, а не :data:`PRESETS` напрямую.
     pace: Pace = field(default_factory=Pace)
+    #: Чем поднимать заход. Полем, а не именем внутри :func:`_run`: сам заход - это
+    #: процесс ffmpeg, а меряется тут команда, которую ему собрали, и то, чем заход
+    #: сочли. Договор ему называет порт (:class:`PackFactory`), а кем он будет на самом
+    #: деле, решает тот, кто собирает кодировщик.
+    packer_type: PackFactory = Packer
     log: Any = None
 
     #: Где сейчас показ; обновляет :func:`torrcast.cli._hold`.

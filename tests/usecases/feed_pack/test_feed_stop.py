@@ -6,14 +6,12 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 import torrcast.usecases.feed_pack._state as _state
-from tests.usecases.feed_pack.world import feed, lay, packer, vault
+from tests.usecases.feed_pack.world import feed, lay, packer, tract, vault
 from torrcast.domain.hls_settings import PACK_DIR
 from torrcast.usecases.feed_pack.feed_stop import _rest, _stop
 
 if TYPE_CHECKING:
     from pathlib import Path
-
-    import pytest
 
 
 @dataclass
@@ -44,12 +42,10 @@ def test_without_the_warmed_film_or_a_run_there_is_nothing_to_put_out(tmp_path: 
     assert _rest(show) is False
 
 
-def test_the_end_of_the_show_closes_the_feed_for_good(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_the_end_of_the_show_closes_the_feed_for_good(tmp_path: Path) -> None:
     """Поток раздачи, спящий в запросе сегмента до двух минут, не должен поднять новый ffmpeg."""
     forgotten: list[Path] = []
-    monkeypatch.setattr(_state, "forget_playing", forgotten.append)
+    tract(forget_flag=forgotten.append)
     recoder = _Recoder()
     show = feed(tmp_path, recoder=recoder)
     show.packer = packer(tmp_path, first=0, out=show.out)
@@ -67,11 +63,9 @@ def test_the_end_of_the_show_closes_the_feed_for_good(
     assert forgotten == [show.out], "флажок картинки пережил конец показа"
 
 
-def test_a_show_that_already_failed_keeps_its_own_reason(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_a_show_that_already_failed_keeps_its_own_reason(tmp_path: Path) -> None:
     """Приговор упаковки не переписывается словами «показ окончен»: причина одна и первая."""
-    monkeypatch.setattr(_state, "forget_playing", lambda out: None)
+    tract(forget_flag=lambda out: None)
     show = feed(tmp_path)
     show.fatal = "упаковка оборвалась (молча, код 0)"
 

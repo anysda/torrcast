@@ -123,6 +123,15 @@ def use_graces(
         patch.setattr(_grace_rule, "STEP_GRACE", step)
 
 
+def use_media_grid(patch: pytest.MonkeyPatch, grid_for: StandIn) -> None:
+    """Сетка сегментов файла - показу: тем же слотом, что заполняет корень.
+
+    Сетку показ и прогрев считают одной и той же функцией и обязаны получить одно и то
+    же (:func:`torrcast.usecases.playback.layout.layout`), поэтому слот один.
+    """
+    patch.setattr(_show_state, "grid_for", grid_for)
+
+
 def use_swarm_grace(patch: pytest.MonkeyPatch, grace: float) -> None:
     """Отсрочка молчащего потока - стенду, который её и спрашивает у признака жизни роя."""
     patch.setattr(_bench_work, "SWARM_GRACE", grace)

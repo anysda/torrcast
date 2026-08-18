@@ -8,12 +8,22 @@ from __future__ import annotations
 import contextlib
 import json
 import os
-from dataclasses import dataclass
+from collections.abc import Callable
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import torrcast.usecases.warm._state as _state
 from torrcast.domain.warm_settings import WARM_BUDGET
 from torrcast.usecases.warm.settings import FREE_FLOOR, META
+
+
+def _disk_free(root: Path) -> int:
+    """Сколько байт свободно на разделе, где лежит корень прогретого; беда - ноль."""
+    try:
+        stat = os.statvfs(root)
+    except OSError:
+        return 0
+    return stat.f_bavail * stat.f_frsize
 
 
 @dataclass(slots=True)
@@ -36,6 +46,10 @@ class Vault:
     #: прогрев следующей серии выедал бы текущую и обрыв связи убивал бы показ ровно
     #: там, где его и должно было спасти прогретое.
     keep: frozenset[str] = frozenset()
+    #: Чем меряется свободное место на разделе. Полем, а не именем внутри :meth:`free`:
+    #: правило отказа (:meth:`fit`) обязано быть проверяемым на любом разделе, а не
+    #: только на том, который случайно оказался под тестом.
+    free_of: Callable[[Path], int] = field(default=_disk_free)
 
     @property
     def dir(self) -> Path:
@@ -98,11 +112,7 @@ class Vault:
 
     def free(self) -> int:
         """Сколько байт свободно на разделе прогрева."""
-        try:
-            stat = os.statvfs(self.root)
-        except OSError:
-            return 0
-        return stat.f_bavail * stat.f_frsize
+        return self.free_of(self.root)
 
     def fit(self, need: int) -> str:
         """Место под ещё ``need`` байт: пусто — нашлось, иначе честная причина отказа.

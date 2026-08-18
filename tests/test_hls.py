@@ -22,8 +22,8 @@ import math
 import subprocess
 import threading
 import time
+from collections.abc import Callable, Iterator
 from pathlib import Path
-from types import SimpleNamespace
 from typing import IO, Any
 
 import pytest
@@ -33,18 +33,17 @@ from tests.conftest import CLIP_SECONDS, fake_packer, free_port, module_of
 from torrcast.adapters.frames.http_range_reader import HttpRangeReader as Reader
 from torrcast.adapters.frames.keyframes import keyframes
 from torrcast.adapters.http_server.hls_server import HlsServer
+from torrcast.adapters.pack_memory import _SEEK_OK
 from torrcast.adapters.stream_pack._pilot_start import _pilot_start
 from torrcast.adapters.stream_pack.ffmpeg_pack_command import ffmpeg_pack_command
 from torrcast.adapters.stream_pack.grid import Grid
 from torrcast.adapters.stream_pack.grid_for import grid_for
 from torrcast.adapters.stream_pack.hls_dir import hls_dir
 from torrcast.adapters.stream_pack.mapped_start import mapped_start
-from torrcast.adapters.stream_pack.pack_origin import _reorder_slack
 from torrcast.adapters.stream_pack.pack_start import pack_start
 from torrcast.adapters.stream_pack.packer import Packer
 from torrcast.adapters.stream_pack.parse_manifest import parse_manifest
 from torrcast.adapters.stream_probe.segment_name import segment_name
-from torrcast.domain.delivered_mbit import AUDIO_MBIT, TS_OVERHEAD
 from torrcast.domain.film_keys import FilmKeys
 from torrcast.domain.frames.keymap import video_track
 from torrcast.domain.hls_settings import (
@@ -69,27 +68,23 @@ warm_file_module = module_of("torrcast.adapters.stream_pack.warm_file")
 FILM = 7200.0
 
 
-def test_reorder_slack_distinguishes_measured_zero_from_no_measurement(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Успешный ffprobe без DTS и частоты - не измеренный ноль."""
-    answers = iter(
-        (
-            {
-                "packets": [{"pts_time": "0.000", "dts_time": "N/A"}],
-                "streams": [{"has_b_frames": 3, "avg_frame_rate": "0/0"}],
-            },
-            {"packets": [{"pts_time": "0.000", "dts_time": "0.000"}], "streams": []},
-        )
-    )
-    monkeypatch.setattr(
-        subprocess,
-        "run",
-        lambda *_args, **_kwargs: SimpleNamespace(stdout=json.dumps(next(answers))),
-    )
+def _restarts(also: Callable[[int], object] | None = None) -> tuple[type[Feed], list[int]]:
+    """Лента, у которой перезапуск упаковки только записан, и список того, что она начала.
 
-    assert _reorder_slack("unknown") is None
-    assert _reorder_slack("zero") == 0.0
+    Решения показа - «это перемотка или обычный ход» - меряются по тому, ЧТО лента решила
+    начать, а не по тому, поднялся ли ffmpeg. Перезапуск тут единственная ступень, которую
+    зеркало отводит в сторону, и отводит наследованием: подпись остаётся под тайпчеком.
+    ``also`` - что ещё делает перезапуск (обычно кладёт кусок на диск, как настоящий).
+    """
+    started: list[int] = []
+
+    class Counted(Feed):
+        def restart(self, slot: int) -> None:
+            started.append(slot)
+            if also is not None:
+                also(slot)
+
+    return Counted, started
 
 
 def _keyframes(duration: float = 600.0, gop: float = 2.08) -> list[float]:
@@ -559,6 +554,14 @@ def test_a_space_in_the_run_directory_does_not_quietly_kill_the_packing(
 # настоящим ffmpeg: предсказание против измеренного, на mkv и на mp4.
 
 
+@pytest.fixture(autouse=True)
+def _own_seek_memory() -> Iterator[None]:
+    """Доверие карте помнится на весь процесс; каждой пробе оно достаётся пустым."""
+    _SEEK_OK.clear()
+    yield
+    _SEEK_OK.clear()
+
+
 @pytest.fixture
 def offline_keys(monkeypatch: pytest.MonkeyPatch) -> None:
     """Карта снимается с локального файла: Range-запросы читают путь, а не сеть."""
@@ -609,7 +612,7 @@ def test_the_entry_point_from_the_map_is_where_ffmpeg_actually_lands(
 
 
 def test_the_map_is_believed_only_after_the_pilot_has_confirmed_it(
-    clip: str, offline_keys: None, monkeypatch: pytest.MonkeyPatch
+    clip: str, offline_keys: None
 ) -> None:
     """Пробный прогон - один на файл, а не один на заход, и он именно сверка.
 
@@ -617,26 +620,26 @@ def test_the_map_is_believed_only_after_the_pilot_has_confirmed_it(
     даром. Дёшево поверить карте сразу проект уже дважды не смог: резы захода муксер
     отмеряет от первого пакета, и заход, вставший не туда, кладёт мимо сетки весь участок.
     """
-    trusted: dict[str, bool] = {}
-    monkeypatch.setattr(pack_start_module, "_SEEK_OK", trusted)
     keys = _map_of(clip)
     asked: list[float] = []
-    honest = _pilot_start
 
     def counted(url: str, at: float, timeout: float = 0.0) -> float:
         asked.append(at)
-        return honest(url, at)
+        return _pilot_start(url, at)
 
-    monkeypatch.setattr(pack_start_module, "_pilot_start", counted)
     first, second = keys.at[6], keys.at[9]
-    assert pack_start(clip, first, keys=keys) == pytest.approx(mapped_start(keys, first))
-    assert pack_start(clip, second, keys=keys) == pytest.approx(mapped_start(keys, second))
+    assert pack_start(clip, first, keys=keys, pilot=counted) == pytest.approx(
+        mapped_start(keys, first)
+    )
+    assert pack_start(clip, second, keys=keys, pilot=counted) == pytest.approx(
+        mapped_start(keys, second)
+    )
     assert asked == [first], f"пробных прогонов {len(asked)}, а карта сверяется один раз"
-    assert trusted[clip] is True
+    assert _SEEK_OK[clip] is True
 
 
 def test_a_lying_map_is_caught_by_the_pilot_and_never_believed_again(
-    clip: str, offline_keys: None, monkeypatch: pytest.MonkeyPatch
+    clip: str, offline_keys: None
 ) -> None:
     """Карта разошлась с фактом - работает прежний пробный прогон, и место захода верное.
 
@@ -644,15 +647,13 @@ def test_a_lying_map_is_caught_by_the_pilot_and_never_believed_again(
     полкадра. Показ обязан этого не заметить - заход всё равно начинается там, где ffmpeg
     встал на самом деле.
     """
-    trusted: dict[str, bool] = {}
-    monkeypatch.setattr(pack_start_module, "_SEEK_OK", trusted)
     keys = _map_of(clip)
     lying = keys._replace(at=[second + 0.7 for second in keys.at])
     for at in (keys.at[6], keys.at[9]):
         assert pack_start(clip, at, keys=lying) == pytest.approx(
             _pilot_start(clip, at), abs=SPLIT_SLACK
         ), "заход ушёл туда, куда показала врущая карта"
-    assert trusted[clip] is False, "враньё карты запоминается: второй раз не спрашиваем"
+    assert _SEEK_OK[clip] is False, "враньё карты запоминается: второй раз не спрашиваем"
 
 
 def test_the_map_keeps_quiet_where_the_rule_does_not_hold() -> None:
@@ -1046,76 +1047,6 @@ def test_the_spot_shrink_packs_the_piece_under_the_cap(clip: str, tmp_path: Path
     assert len(said) == 1 and "ужимаю" in said[0], "одно авто-решение - одна честная строка"
 
 
-def test_the_spot_shrink_aims_under_both_ceilings_of_the_receiver(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """🔴 TC-495: у приёмника ДВА потолка, а ужатие считало цель по одному - по весу.
-
-    Живой показ 11-08 (сеанс на Q70D): ужатие сработало на слотах 0, 2 и 4, попросив
-    8.87, 7.32 и 9.00 Мбит/с, а наружу уехало 9.65, 8.33 и **10.94** Мбит/с при потолке
-    битрейта около десяти. Четыре подгруза в первую минуту, и ранние места ровно эти.
-    Кусок был короткий, поэтому по весу влезал с запасом: чем короче кусок, тем больше
-    мегабит в секунду помещается в одни и те же 16 МБ.
-
-    Сам ffmpeg тут не нужен и не зовётся: проверяется РЕШЕНИЕ, а оно принимается и
-    называется вслух до всякого прогона.
-    """
-    from dataclasses import replace
-
-    from torrcast.adapters.recode import MAXRATE_GAIN, Encode, Pace
-
-    class _Recoder:
-        """Кодировщик-заглушка: ровно то, что спрашивает ужатие."""
-
-        def __init__(self, spare: Path) -> None:
-            self.spare = spare
-            self.encode = Encode()
-            self.pace = Pace()
-            self.threshold = 10.0  # потолок битрейта приёмника, ``recode_at_mbit``
-            self.cap = MAX_SEGMENT_BYTES  # потолок веса, тот же, которым меряет показ
-            self.over_wait = 60.0
-            self.done: set[int] = set()
-            self.played = 0.0
-
-        def stop(self) -> None: ...
-
-        def opening(self, slot: int) -> None: ...
-
-        def note(self, slot: int, how: str) -> None: ...
-
-        def holding(self, slot: int, size: int = 0) -> bool:
-            return False
-
-        def ready(self, slot: int) -> Path | None:
-            return None
-
-        def fit(self, span: float, preset: str) -> Encode:
-            # Тело - копия :meth:`torrcast.adapters.recode.Recoder.fit`, знак в знак (см. соседний
-            # тест): заглушка со своим расчётом зелена при любом контракте.
-            return replace(self.encode, preset=preset).fit(span, self.cap, self.threshold)
-
-    out = hls_dir(str(tmp_path / "hls"))
-    said: list[str] = []
-    recoder = _Recoder(out / "recode")
-    # Тот самый слот 4 того самого сеанса: 9.55 с фильма.
-    feed = Feed(
-        source="u",
-        audio=0,
-        out=out,
-        grid=Grid(bounds=(0.0, 9.55), duration=19.1),
-        log=said.append,
-        recoder=recoder,
-    )
-    monkeypatch.setattr(
-        Packer, "start", classmethod(lambda cls, *a, **k: (_ for _ in ()).throw(OSError()))
-    )
-    assert feed._shrink(0, MAX_SEGMENT_BYTES + 1) is False  # ffmpeg не поднялся - это не важно
-    asked = float(said[0].split(" до ")[1].split()[0])
-    went = (asked * MAXRATE_GAIN + AUDIO_MBIT) * TS_OVERHEAD
-    assert went <= recoder.threshold, "ужатие обязано укладываться в потолок битрейта"
-    assert went * 9.55 / 8 <= feed.cap / 1e6, "и в потолок веса оно укладываться не перестало"
-
-
 def test_the_spot_shrink_without_a_recoder_skips_the_place_once(tmp_path: Path) -> None:
     """Ужимать нечем (перекод выключен) - честный пропуск, сказанный один раз."""
     out = hls_dir(str(tmp_path / "hls"))
@@ -1171,10 +1102,9 @@ def test_a_request_for_an_unpacked_place_repacks_instead_of_404(
     манифест не обещал, паковать там нечего, и упаковку такой запрос двигать не смеет.
     """
     root = hls_dir(str(tmp_path / "hls"))
-    started: list[int] = []
-    monkeypatch.setattr(Feed, "restart", lambda self, slot: started.append(slot))
+    kind, started = _restarts()
     grid = Grid.uniform(FILM)
-    feed = Feed(source="", audio=0, out=root, grid=grid, wait=0.0)
+    feed = kind(source="", audio=0, out=root, grid=grid, wait=0.0)
 
     assert grid.count > 700, "место перемотки обязано быть внутри фильма"
     assert feed.segment(700) is None, "файла нет и упаковка мгновенной не бывает"
@@ -1193,9 +1123,8 @@ def test_a_burst_of_requests_after_a_seek_restarts_packing_only_once(
     месте — это шесть заходов в рой и потерянные секунды на каждом.
     """
     root = hls_dir(str(tmp_path / "hls"))
-    started: list[int] = []
-    monkeypatch.setattr(Feed, "restart", lambda self, slot: started.append(slot))
-    feed = Feed(source="", audio=0, out=root, grid=Grid.uniform(FILM), wait=0.0)
+    kind, started = _restarts()
+    feed = kind(source="", audio=0, out=root, grid=Grid.uniform(FILM), wait=0.0)
 
     for slot in range(50, 56):
         feed.segment(slot)
@@ -1218,9 +1147,8 @@ def test_a_forward_seek_inside_the_run_does_not_wait_out_the_readrate(
     out = hls_dir(str(tmp_path / "hls"))
     for slot in range(5):
         (out / f"v{slot}.ts").write_bytes(b"x")
-    started: list[int] = []
-    monkeypatch.setattr(Feed, "restart", lambda self, slot: started.append(slot))
-    feed = Feed(source="", audio=0, out=out, grid=grid, wait=0.0, ahead=7, jump=15.0)
+    kind, started = _restarts()
+    feed = kind(source="", audio=0, out=out, grid=grid, wait=0.0, ahead=7, jump=15.0)
 
     # Прогон только что начался с нуля: первые 60 с фильма он читает на полной скорости,
     # и всё, что попадает в burst, честно «вот-вот допакуется».
@@ -1256,9 +1184,8 @@ def test_the_seek_threshold_is_counted_in_segments_not_in_seconds(
     out = hls_dir(str(tmp_path / "hls"))
     for slot in range(5):
         (out / f"v{slot}.ts").write_bytes(b"x")
-    started: list[int] = []
-    monkeypatch.setattr(Feed, "restart", lambda self, slot: started.append(slot))
-    feed = Feed(source="", audio=0, out=out, grid=grid, wait=0.0, ahead=7)
+    kind, started = _restarts()
+    feed = kind(source="", audio=0, out=out, grid=grid, wait=0.0, ahead=7)
     feed.packer = fake_packer(out)
 
     feed.segment(4 + feed.ahead)
@@ -1286,14 +1213,10 @@ def test_a_seek_back_behind_the_run_repacks_instead_of_waiting_out_the_clock(
     out = hls_dir(str(tmp_path / "hls"))
     for slot in range(30, 37):  # окно позади показа, начало фильма уже выметено
         (out / f"v{slot}.ts").write_bytes(b"x")
-    started: list[int] = []
-
-    def repack(self: Feed, slot: int) -> None:  # упаковка с места и доходит до него
-        started.append(slot)
-        (out / f"v{slot}.ts").write_bytes(b"x")
-
-    monkeypatch.setattr(Feed, "restart", repack)
-    feed = Feed(source="", audio=0, out=out, grid=grid, wait=120.0)
+    # Перезапуск тут не только записан: настоящий доходит до запрошенного места, и без
+    # этого нечем отличить ответ файлом от ответа «404 через две минуты».
+    kind, started = _restarts(lambda slot: (out / f"v{slot}.ts").write_bytes(b"x"))
+    feed = kind(source="", audio=0, out=out, grid=grid, wait=120.0)
     feed.packer = fake_packer(out, first=0, edge=36)
 
     began = time.monotonic()
@@ -1318,9 +1241,8 @@ def test_pieces_of_past_runs_never_move_the_edge_of_the_current_run(
     """
     grid = Grid.uniform(FILM)
     out = hls_dir(str(tmp_path / "hls"))
-    started: list[int] = []
-    monkeypatch.setattr(Feed, "restart", lambda self, slot: started.append(slot))
-    feed = Feed(source="", audio=0, out=out, grid=grid, wait=0.0, ahead=7)
+    kind, started = _restarts()
+    feed = kind(source="", audio=0, out=out, grid=grid, wait=0.0, ahead=7)
     feed.packer = fake_packer(out, first=0, edge=3)
     (out / "v900.ts").write_bytes(b"x")  # кусок прошлого прогона: показ там уже был
 
@@ -1362,16 +1284,10 @@ def test_a_segment_outside_the_grid_never_moves_the_packer(
     out = hls_dir(str(tmp_path / "hls"))
     for slot in range(5):
         (out / f"v{slot}.ts").write_bytes(b"x")
-    started: list[int] = []
-
-    def repack(self: Feed, slot: int) -> None:  # упаковка с места и доходит до него
-        started.append(slot)
-        (out / f"v{slot}.ts").write_bytes(b"x")
-
-    monkeypatch.setattr(Feed, "restart", repack)
+    kind, started = _restarts(lambda slot: (out / f"v{slot}.ts").write_bytes(b"x"))
     # `wait` заведомо больше, чем тест готов ждать: ответ обязан прийти сразу, а не
     # после того, как поток раздачи высидит своё окно, толкая упаковку каждые 0.2 с.
-    feed = Feed(source="", audio=0, out=out, grid=grid, wait=120.0, ahead=7)
+    feed = kind(source="", audio=0, out=out, grid=grid, wait=120.0, ahead=7)
     feed.packer = fake_packer(out, first=0, edge=4)
 
     assert grid.count < 99999, "сетка обязана быть короче запрошенного имени - иначе проба пустая"
@@ -1457,9 +1373,8 @@ def test_a_piece_finished_by_this_very_poll_is_not_mistaken_for_a_seek_back(
     ровного показа.
     """
     out = hls_dir(str(tmp_path / "hls"))
-    started: list[int] = []
-    monkeypatch.setattr(Feed, "restart", lambda self, slot: started.append(slot))
-    feed = Feed(source="", audio=0, out=out, grid=Grid.uniform(FILM), wait=0.0)
+    kind, started = _restarts()
+    feed = kind(source="", audio=0, out=out, grid=Grid.uniform(FILM), wait=0.0)
     feed.packer = fake_packer(out, first=0, edge=4)
     feed.packer.run.mkdir(parents=True)
     (feed.packer.run / "v5.ts").write_bytes(b"done")  # закрыт: за ним открыт следующий
@@ -1811,15 +1726,17 @@ def test_a_long_decision_does_not_hold_up_a_neighbours_ready_segment(
 
     out = hls_dir(str(tmp_path / "hls"))
     grid = Grid.uniform(FILM)
-    feed = Feed(source="", audio=0, out=out, grid=grid, wait=10.0)
     holding = threading.Event()
 
-    def slow_steer(self: Feed, slot: int) -> bool:
-        holding.set()
-        time.sleep(1.0)  # пробный прогон: 0.5-1.7 с обычно, до 60 с по потолку
-        return True
+    class Slow(Feed):
+        """Лента, у которой решение об упаковке идёт секунду - как пробный прогон."""
 
-    monkeypatch.setattr(Feed, "_steer", slow_steer)
+        def _steer(self, slot: int) -> bool:
+            holding.set()
+            time.sleep(1.0)  # пробный прогон: 0.5-1.7 с обычно, до 60 с по потолку
+            return True
+
+    feed = Slow(source="", audio=0, out=out, grid=grid, wait=10.0)
     decider = threading.Thread(target=lambda: feed.segment(0), daemon=True)
     decider.start()
     assert holding.wait(timeout=5), "решение так и не началось - тест бессмыслен"
@@ -1976,55 +1893,6 @@ def _le_shaped_chain(tmp_path: Path) -> tuple[str, str, str]:
     return crt["root"].read_text(), crt["inter"].read_text(), crt["leaf"].read_text()
 
 
-def test_the_position_is_warmed_by_its_byte_offset_not_by_a_proportion(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Продолжение с середины греет ровно то место файла, где лежит позиция.
-
-    Смещение берётся из карты опорных кадров — той же, по которой строится сетка. Долей
-    «позиция от длительности, умноженная на размер файла» тут обойтись нельзя: битрейт по
-    фильму гуляет вдвое, и промах в один процент двухгигабайтного файла — это 20 МБ, то
-    есть прогрев чужого места и отобранная у показа полоса.
-    """
-    from torrcast.adapters.stream_pack.warm_file import warm_file
-    from torrcast.domain.film_keys import FilmKeys
-    from torrcast.domain.warm_open import HEAD_OPEN, HEAD_WARM
-
-    keys = FilmKeys(600.0, [0.0, 100.0, 200.0, 300.0], [0, 90 << 20, 500 << 20, 505 << 20], "mp4")
-    # 200-я секунда - ровно половина фильма, а лежит она на 500 МБ из 505: пропорция
-    # показала бы 250 МБ, то есть промахнулась бы на четверть фильма.
-    assert keys.byte_at(240.0) == 500 << 20
-    assert keys.byte_at(0.0) == 0 and keys.byte_at(-5.0) == 0
-
-    asked: list[tuple[int, int]] = []
-    monkeypatch.setattr(warm_file_module, "film_keys", lambda url: keys)
-
-    def note(url: str, offset: int, upto: int = 0, alive: Any = None) -> int:
-        asked.append((offset, upto))
-        return 0
-
-    # Голову греет pull_head, место позиции - сам warm_file: подмена нужна обоим,
-    # иначе половина прогрева пройдёт мимо счётчика.
-    monkeypatch.setattr(warm_file_module, "warm_at", note)
-    monkeypatch.setattr(pull_head_module, "warm_at", note)
-    warm_file("http://127.0.0.1:1/film.mp4", at=240.0)
-    for _ in range(200):
-        if len(asked) >= 2:
-            break
-        time.sleep(0.01)
-    assert asked == [(0, HEAD_OPEN["mp4"]), (500 << 20, HEAD_WARM)], (
-        "с середины греется заголовок файла и место позиции, а не 32 МБ чужого начала"
-    )
-
-    asked.clear()
-    warm_file("http://127.0.0.1:1/film.mp4")
-    for _ in range(200):
-        if asked:
-            break
-        time.sleep(0.01)
-    assert asked == [(0, HEAD_WARM)], "с нуля греется начало, и только оно"
-
-
 def test_an_old_key_cache_without_offsets_still_builds_the_grid(tmp_path: Path) -> None:
     """Кэш карты прошлой версии смещений не знает — сетка из него всё равно строится.
 
@@ -2041,146 +1909,6 @@ def test_an_old_key_cache_without_offsets_still_builds_the_grid(tmp_path: Path) 
     found = read_keys(cache)
     assert found is not None and found.at == [0.0, 10.0, 20.0]
     assert found.offset == [] and found.byte_at(15.0) == 0
-
-
-def test_the_key_lock_stays_alive_while_its_holder_works(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Замок карты живёт по mtime - значит, пока его держат, mtime обязан идти вперёд.
-
-    Иначе сосед, заглянувший на середине долгого разбора, увидит протухший замок и полезет
-    читать тот же хвост вторым потоком: ровно то, ради чего замок и заведён.
-    """
-    from torrcast.adapters.stream_pack._keys_shelf import _keys_cache
-    from torrcast.adapters.stream_pack.film_keys import _fetching, film_keys
-    from torrcast.domain.frames import keymap as keymap_module
-
-    monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
-    monkeypatch.setattr(film_keys_module, "KEYS_LOCK", 0.3)  # 60 с в проде: столько не ждём
-    url = "http://127.0.0.1:8090/stream?link=hash&index=1"
-    lock = _keys_cache(url).with_suffix(".lock")
-    alive: list[bool] = []
-
-    def slow_keyframes(_: str) -> Any:
-        for _tick in range(6):  # 0.6 с работы против 0.3 с жизни замка
-            time.sleep(0.1)
-            alive.append(_fetching(lock))
-        return keymap_module.KeyMap(60.0, (keymap_module.Point(0.0, 0, 0),), 0, 0, "mkv")
-
-    monkeypatch.setattr(film_keys_module, "keyframes", slow_keyframes)
-    film_keys(url)
-    assert all(alive), f"замок протух под работающим читателем: {alive}"
-    assert not lock.exists(), "замок обязан сниматься после записи кэша"
-
-
-def test_two_writers_of_one_key_map_do_not_share_a_draft(tmp_path: Path) -> None:
-    """Черновик кэша карты - файл на писателя, а не на URL.
-
-    Замок на карту берётся не всегда (протух, каталог только для чтения), и два писателя
-    на одно имя пишут вперемешку: наружу уехала бы склейка двух половин.
-    """
-    import threading
-
-    from torrcast.adapters.stream_pack.film_keys import _keys_draft
-
-    cache = tmp_path / "abcdef0123456789.json"
-    drafts: list[Path] = []
-    # ⚠️ Писатели обязаны быть живы ОДНОВРЕМЕННО: разойдись они по времени - и номер
-    # потока переиспользуется, а вместе с ним и имя. Развести надо ровно тех, кто пишет
-    # вперемешку, и барьер держит в тесте именно этот случай.
-    gate = threading.Barrier(2)
-
-    def draft() -> None:
-        gate.wait(timeout=5)
-        drafts.append(_keys_draft(cache))
-        gate.wait(timeout=5)
-
-    writers = [threading.Thread(target=draft) for _ in range(2)]
-    for writer in writers:
-        writer.start()
-    for writer in writers:
-        writer.join(timeout=10)
-
-    assert len(set(drafts)) == 2, f"два писателя взяли одно имя: {drafts}"
-    for name in [*drafts, _keys_draft(cache)]:
-        assert name != cache and name.name.endswith(".tmp")
-        assert name.parent == cache.parent, "черновик кладётся рядом: replace атомарен в одной fs"
-
-
-def test_the_head_warmed_under_the_question_is_sized_by_the_container(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Голова прогрева меряется контейнером, а не запасом под ``moov``.
-
-    У mp4 в голове лежит ``moov`` (у «Моаны 2» от YTS — 5.3 МБ), и без него ffmpeg вход
-    не откроет. У mkv там EBML-заголовок, SeekHead, Info и Tracks — килобайты, а восемь
-    мегабайт чужого начала на холодном рое съедали весь бюджет раздумья: до места позиции
-    дело не доходило вовсе.
-    """
-    from torrcast.adapters.stream_pack.head_open import head_open
-    from torrcast.adapters.stream_pack.warm_file import warm_file
-    from torrcast.domain.film_keys import FilmKeys
-    from torrcast.domain.warm_open import HEAD_OPEN, HEAD_OPEN_DEFAULT
-
-    assert head_open("mkv") < head_open("mp4"), "у mkv голова меньше - это и есть правка"
-    assert head_open("") == HEAD_OPEN_DEFAULT, "контейнер не известен - с запасом"
-
-    asked: list[tuple[int, int]] = []
-
-    def note(url: str, offset: int, upto: int = 0, alive: Any = None) -> int:
-        asked.append((offset, upto))
-        return 0
-
-    # Голову греет pull_head, место позиции - сам warm_file: подмена нужна обоим,
-    # иначе половина прогрева пройдёт мимо счётчика.
-    monkeypatch.setattr(warm_file_module, "warm_at", note)
-    monkeypatch.setattr(pull_head_module, "warm_at", note)
-    for kind in ("mkv", "mp4"):
-        asked.clear()
-        keys = FilmKeys(600.0, [0.0, 200.0], [0, 500 << 20], kind)
-        monkeypatch.setattr(warm_file_module, "film_keys", lambda url, k=keys: k)
-        warm_file(f"http://127.0.0.1:1/film.{kind}", at=240.0)
-        for _ in range(200):
-            if len(asked) >= 2:
-                break
-            time.sleep(0.01)
-        assert asked[0] == (0, HEAD_OPEN[kind]), f"{kind}: голова не по контейнеру"
-
-
-def test_an_old_key_cache_takes_the_container_from_the_file_name(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Карта из кэша прошлой версии контейнера не знает — его называет имя файла.
-
-    Без этой подсказки продолжение по уже игранному фильму грело бы восемь мегабайт
-    головы вечно: кэш карт живёт долго, а переснимать его ради одного поля незачем.
-    """
-    from torrcast.adapters.stream_pack.container_of import container_of
-    from torrcast.adapters.stream_pack.warm_file import warm_file
-    from torrcast.domain.film_keys import FilmKeys
-    from torrcast.domain.warm_open import HEAD_OPEN
-
-    assert (container_of("Moana.2.2024.mkv"), container_of("Moana.mp4")) == ("mkv", "mp4")
-    assert container_of("Moana.avi") == "" and container_of("Moana") == ""
-
-    asked: list[tuple[int, int]] = []
-
-    def note(url: str, offset: int, upto: int = 0, alive: Any = None) -> int:
-        asked.append((offset, upto))
-        return 0
-
-    keys = FilmKeys(600.0, [0.0, 200.0], [0, 500 << 20], "")  # кэш прошлой версии
-    # Голову греет pull_head, место позиции - сам warm_file: подмена нужна обоим,
-    # иначе половина прогрева пройдёт мимо счётчика.
-    monkeypatch.setattr(warm_file_module, "warm_at", note)
-    monkeypatch.setattr(pull_head_module, "warm_at", note)
-    monkeypatch.setattr(warm_file_module, "film_keys", lambda url: keys)
-    warm_file("http://127.0.0.1:1/stream?link=hash&index=1", at=240.0, name="Moana.2.2024.mkv")
-    for _ in range(200):
-        if len(asked) >= 2:
-            break
-        time.sleep(0.01)
-    assert asked[0] == (0, HEAD_OPEN["mkv"]), "имя файла назвало контейнер - греем по нему"
 
 
 def _desert(mbit: float = 10.0) -> tuple[list[float], list[int], float]:

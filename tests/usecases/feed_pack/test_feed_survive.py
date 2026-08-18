@@ -4,25 +4,23 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from tests.usecases.feed_pack.world import FakeProc, clock, feed, packer, vault
+from tests.usecases.feed_pack.world import FakeProc, feed, packer, tract, vault
 from torrcast.domain.hls_settings import MUTE_SECONDS
 from torrcast.usecases.feed_pack.feed_survive import _mute, _survive
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-    import pytest
-
 
 def test_a_source_silent_longer_than_the_clock_is_the_same_break_as_a_dead_ffmpeg(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
 ) -> None:
     """Пропавший интернет при живом TorrServer вход не рвёт: ffmpeg висит, а показ молчал.
 
     Замер на живом Q70D: показ доел прогретое, встал в BUFFERING и 2.5 минуты не сказал
     ни слова, после чего приёмник сам перегрузил фильм с нуля.
     """
-    fake = clock(monkeypatch, now=1000.0)
+    fake = tract(now=1000.0)
     said: list[str] = []
     show = feed(tmp_path, vault=vault(tmp_path), log=said.append)
     show.moved = 1000.0
@@ -39,10 +37,10 @@ def test_a_source_silent_longer_than_the_clock_is_the_same_break_as_a_dead_ffmpe
 
 
 def test_without_the_warmed_film_the_silence_is_indistinguishable_from_a_slow_swarm(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
 ) -> None:
     """Идти показу всё равно некуда: тут работает счёт обрывов, а не часы молчания."""
-    clock(monkeypatch, now=99999.0)
+    tract(now=99999.0)
     said: list[str] = []
     show = feed(tmp_path, log=said.append)
     show.moved = 0.0

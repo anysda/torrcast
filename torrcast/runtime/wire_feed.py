@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time
+
 from torrcast.adapters.filesystem.remove_tree import remove_tree
 from torrcast.adapters.recode.recode_dir import RECODE_DIR
 from torrcast.adapters.stream_pack._segment_files import _paths
@@ -37,4 +39,5 @@ def wire_feed() -> None:
         RECODE_DIR,
         remove_tree,
         _paths,
+        time,
     )

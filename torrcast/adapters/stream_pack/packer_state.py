@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import threading
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -112,6 +113,10 @@ class _State:
     #: вход (``-ss``, то есть с учётом докатки). Вместе с :attr:`rate` и :attr:`burst` это
     #: и есть планка чтения ffmpeg, по которой считается :meth:`eta`.
     began: float = 0.0
+    #: Монотонные часы прогона. Полем, а не именем :mod:`time` внутри модуля: замер
+    #: «через сколько ffmpeg дочитает вход» (:meth:`eta`) идёт по стенным секундам, и
+    #: стенду нужна ручная стрелка, а не терпеливость машины.
+    now: Callable[[], float] = time.monotonic
     at: float = 0.0
     #: ``-readrate`` и ``-readrate_initial_burst`` этого прогона; ноль - читаем без темпа.
     rate: float = 0.0

@@ -485,14 +485,14 @@ def test_a_slow_swarm_is_not_mistaken_for_an_empty_one_by_the_pick(
 # на инструменте, который работает годами, это тихий рост диска без единой строки наружу.
 
 
-def _fake_map(monkeypatch: pytest.MonkeyPatch) -> None:
+def _fake_map() -> Any:
     """Снятие карты без роя и без файла: тут проверяется полка, а не разбор Cues."""
     from torrcast.domain.frames import keymap as keymap_mod
 
     def keyframes(_: str) -> Any:
         return keymap_mod.KeyMap(60.0, (keymap_mod.Point(0.0, 0, 0),), 0, 0, "mkv")
 
-    monkeypatch.setattr(film_keys_module, "keyframes", keyframes)
+    return keyframes
 
 
 def _url(number: int) -> str:
@@ -513,15 +513,15 @@ def test_the_key_shelf_is_trimmed_and_what_was_asked_today_survives(
 
     monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
     monkeypatch.setattr(film_keys_module, "KEYS_KEPT", 8)
-    _fake_map(monkeypatch)
+    keys_of = _fake_map()
 
     for number in range(8):  # полка ровно под потолок, и вся она «старая»
-        film_keys(_url(number))
+        film_keys(_url(number), keys_of=keys_of)
         os.utime(_keys_cache(_url(number)), (number, number))
-    assert film_keys(_url(0)).duration == 60.0, "старейшую карту взяли с полки"
+    assert film_keys(_url(0), keys_of=keys_of).duration == 60.0, "старейшую карту взяли с полки"
 
     for number in range(100, 104):  # четыре новых фильма выдавливают полку за потолок
-        film_keys(_url(number))
+        film_keys(_url(number), keys_of=keys_of)
     shelf = _keys_cache(_url(0)).parent
     left = {path.stem for path in shelf.glob("*.json")}
     assert len(left) <= 8, f"полка переросла потолок: {len(left)} карт"
@@ -573,7 +573,7 @@ def test_junk_on_the_shelf_is_ignored_and_never_crashes_the_start(
 
     monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
     monkeypatch.setattr(film_keys_module, "KEYS_KEPT", 4)
-    _fake_map(monkeypatch)
+    keys_of = _fake_map()
 
     cache = _keys_cache(_url(0))
     cache.parent.mkdir(parents=True, exist_ok=True)
@@ -581,12 +581,12 @@ def test_junk_on_the_shelf_is_ignored_and_never_crashes_the_start(
     alien.write_text("не наше дело", "utf-8")
     for junk in ('{"duration": 60.0, "keys": [0.0, 1', "", '{"keys": []}', "[1, 2, 3]"):
         cache.write_text(junk, "utf-8")
-        assert film_keys(_url(0)).duration == 60.0, f"мусор {junk!r} уронил старт"
+        assert film_keys(_url(0), keys_of=keys_of).duration == 60.0, f"мусор {junk!r} уронил старт"
         assert cache.read_text("utf-8") != junk, "мусор перезаписан снятой картой"
 
     for number in range(20):  # подрезка обязана пережить мусор рядом
         cache.with_name(f"{number:016x}.json").write_text("не json", "utf-8")
-        film_keys(_url(number + 1))
+        film_keys(_url(number + 1), keys_of=keys_of)
     assert alien.exists(), "подрезка тронула чужой файл"
 
 
@@ -603,8 +603,8 @@ def test_trimming_does_not_hold_up_the_start(
     from torrcast.adapters.stream_probe.shelf import _trim
 
     monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
-    _fake_map(monkeypatch)
-    film_keys(_url(0))
+    keys_of = _fake_map()
+    film_keys(_url(0), keys_of=keys_of)
     shelf = _keys_cache(_url(0)).parent
     for number in range(KEYS_KEPT + 1):
         (shelf / f"{number:016x}.json").write_text("{}", "utf-8")

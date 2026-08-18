@@ -6,12 +6,15 @@
 from __future__ import annotations
 
 import contextlib
+from collections.abc import Callable
 from functools import partial
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import torrcast.usecases.warm._state as _state
 from torrcast.usecases.warm.forecast import _forecast
 from torrcast.usecases.warm.lay_heavy import _lay_heavy
+from torrcast.usecases.warm.segment_start import segment_start
 from torrcast.usecases.warm.settings import RUN_DIR
 from torrcast.usecases.warm.stall import _stall
 from torrcast.usecases.warm.throttle import _resume, _throttle
@@ -21,7 +24,13 @@ if TYPE_CHECKING:
     from torrcast.usecases.warm.warmer_state import _State
 
 
-def _run(state: _State, first: int, last: int, spot: bool = False) -> None:
+def _run(
+    state: _State,
+    first: int,
+    last: int,
+    spot: bool = False,
+    began_of: Callable[[Path], float] = segment_start,
+) -> None:
     """Один прогон ffmpeg: от ``first`` до ``last`` включительно, на диск, в темпе.
 
     ``spot`` - это не участок, а один тяжёлый кусок, который перекладывается поверх
@@ -99,7 +108,7 @@ def _run(state: _State, first: int, last: int, spot: bool = False) -> None:
     try:
         while not state.stopped:
             packer.publish()
-            laid = _inspect(state, laid, min(packer.edge, last))
+            laid = _inspect(state, laid, min(packer.edge, last), began_of)
             if state.misgrid >= 0 or packer.edge >= last or packer.poll() is not None:
                 break
             if not spot and laid > checked:
@@ -118,7 +127,7 @@ def _run(state: _State, first: int, last: int, spot: bool = False) -> None:
             # Мёртвый ffmpeg дописал последний кусок, но выложить его успевает уже
             # не цикл (:meth:`torrcast.adapters.stream_pack.packer.Packer.publish`) - и сверить тоже.
             packer.publish()
-            _inspect(state, laid, min(packer.edge, last))
+            _inspect(state, laid, min(packer.edge, last), began_of)
     finally:
         _resume(state, packer)
         with state.lock:

@@ -10,6 +10,7 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 
+from torrcast.ports.feed_clock import FeedClock
 from torrcast.ports.feed_grid import FeedGrid
 from torrcast.ports.pack_run import PackFactory
 
@@ -34,6 +35,9 @@ RECODE_DIR: str
 remove_tree: Callable[[Path], None]
 segment_paths: Callable[[Path], list[Path]]
 
-#: Часы ленты. Именем, а не слотом: :class:`torrcast.usecases.feed_pack.feed_state._State`
-#: берёт отсюда ``monotonic`` на сборке своего поля, то есть раньше любой композиции.
-clock_port = time
+#: Часы ленты - слот, как и всё остальное здесь; заполняет его та же :func:`configure`.
+#:
+#: ⚠️ Умолчание тут не для красоты: :class:`torrcast.usecases.feed_pack.feed_state._State`
+#: берёт отсюда ``monotonic`` на сборке своего поля, то есть раньше любой композиции, и
+#: без готового значения импорт пакета не состоялся бы вовсе.
+clock_port: FeedClock = time

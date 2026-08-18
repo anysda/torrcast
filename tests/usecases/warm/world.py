@@ -8,15 +8,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
-import torrcast.usecases.warm._state as _state
 from torrcast.adapters.stream_pack.grid import Grid
+from torrcast.adapters.warm_environment import environment
+from torrcast.usecases.warm import configure
 from torrcast.usecases.warm.vault import Vault
 from torrcast.usecases.warm.warmer import Warmer
-
-if TYPE_CHECKING:
-    import pytest
 
 
 @dataclass
@@ -30,6 +28,18 @@ class FakeEnvironment:
     removed: list[Path] = field(default_factory=list)
     stamp: float = 1_700_000_000.0
     naps: int = 1000
+    #: Медиатракт прогрева. Умолчания тут БОЕВЫЕ и названы теми же именами, что в корне
+    #: (:data:`torrcast.adapters.warm_environment.environment`): зеркало подменяет ровно ту
+    #: ступень, которую меряет, а остальные остаются настоящими.
+    packer: Any = environment.packer_type
+    pack: Any = environment.pack_command
+    pilot: Any = environment.pack_start
+    names: Any = environment.segment_name
+    slots: Any = environment.segment_slot
+    clock_face: Any = environment.hms
+    audio_mbit: float = environment.audio_mbit
+    max_segment_bytes: int = environment.max_segment_bytes
+    ts_overhead: float = environment.ts_overhead
 
     def epoch(self) -> float:
         return self.stamp
@@ -60,6 +70,25 @@ class FakeEnvironment:
     def mark(self, name: str, **facts: object) -> None:
         self.marks.append((name, dict(facts)))
 
+    def segment_name(self, slot: int) -> str:
+        return str(self.names(slot))
+
+    def segment_slot(self, name: str) -> int:
+        return int(self.slots(name))
+
+    def hms(self, seconds: float) -> str:
+        return str(self.clock_face(seconds))
+
+    @property
+    def packer_type(self) -> Any:
+        return self.packer
+
+    def pack_command(self, *args: Any, **kwargs: Any) -> Any:
+        return self.pack(*args, **kwargs)
+
+    def pack_start(self, source_url: str, at: float) -> Any:
+        return self.pilot(source_url, at)
+
     def named(self, name: str) -> dict[str, Any]:
         """Поля метки с таким именем; нет метки - пустой словарь."""
         for mark, facts in self.marks:
@@ -68,10 +97,46 @@ class FakeEnvironment:
         return {}
 
 
-def world(monkeypatch: pytest.MonkeyPatch) -> FakeEnvironment:
-    """Подставить прогреву поддельную среду на время одного теста."""
-    fake = FakeEnvironment()
-    monkeypatch.setattr(_state, "_environment", fake)
+class LiveTract:
+    """Боевая среда прогрева, у которой стенд назвал только медиатракт.
+
+    Часы, диск и телеметрия тут настоящие: сквозные пробы читают ленту следа и ждут
+    живого ffmpeg, и подделка среды доказывала бы там собственную тишину. Подменяется
+    ровно то, что поднимает второй процесс: завод захода и пробный прогон.
+    """
+
+    def __init__(self, packer: Any = None, pilot: Any = None) -> None:
+        self._packer = packer if packer is not None else environment.packer_type
+        self._pilot = pilot if pilot is not None else environment.pack_start
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(environment, name)
+
+    @property
+    def packer_type(self) -> Any:
+        return self._packer
+
+    def pack_start(self, source_url: str, at: float) -> float:
+        return float(self._pilot(source_url, at))
+
+
+def live_tract(**parts: Any) -> LiveTract:
+    """Подключить прогреву боевую среду, назвав стендом только её медиатракт."""
+    tract = LiveTract(**parts)
+    configure(tract)
+    return tract
+
+
+def world(kind: Any = None, **parts: Any) -> FakeEnvironment:
+    """Собрать прогреву его внешний мир: тот же корень, что и боевой, кроме названного.
+
+    Одним вызовом :func:`torrcast.usecases.warm.configure`, ровно как это делает боевая
+    проводка: слоты заполняет среда целиком, и половинчатая замена невозможна по
+    устройству. Боевую среду возвращает фикстура ``_rewired`` этого пакета - после
+    каждой пробы.
+    """
+    fake: FakeEnvironment = (kind or FakeEnvironment)(**parts)
+    configure(fake)
     return fake
 
 
@@ -95,7 +160,41 @@ def lay(store: Vault, slot: int, size: int = 1024) -> Path:
 
 
 def warmer(root: Path, **kwargs: Any) -> Warmer:
-    """Прогрев на ровной сетке поверх свежего каталога."""
+    """Прогрев на ровной сетке поверх свежего каталога.
+
+    ``kind`` - каким классом собрать прогрев: зеркалу нитки нужен наследник, у которого
+    заход считает решения вместо того, чтобы поднимать ffmpeg (:func:`counting`).
+    """
+    kind = kwargs.pop("kind", None) or Warmer
     lines = kwargs.pop("grid", None) or grid()
     store = kwargs.pop("vault", None) or vault(root)
-    return Warmer(source="src", audio=0, grid=lines, vault=store, **kwargs)
+    built: Warmer = kind(source="src", audio=0, grid=lines, vault=store, **kwargs)
+    return built
+
+
+def counting() -> tuple[Any, list[tuple[int, int, bool]]]:
+    """Прогрев, у которого заход только записан, и список того, что он взял в работу.
+
+    Нитка прогрева проверяется по РЕШЕНИЯМ - порядку участков и остановкам, - а не по
+    тому, поднялся ли ffmpeg. Заход тут - единственная ступень, которую зеркало отводит
+    в сторону, и отводит наследованием: подпись остаётся под присмотром тайпчека.
+    """
+    taken: list[tuple[int, int, bool]] = []
+
+    class Counted(Warmer):
+        def _run(self, first: int, last: int, spot: bool = False) -> None:
+            taken.append((first, last, spot))
+            self.stopped = True
+
+    return Counted, taken
+
+
+def falling(boom: Exception) -> Any:
+    """Прогрев, у которого заход срывается: своя беда - это строка и пауза, не смерть показа."""
+
+    class Falls(Warmer):
+        def _run(self, first: int, last: int, spot: bool = False) -> None:
+            self.stopped = True
+            raise boom
+
+    return Falls

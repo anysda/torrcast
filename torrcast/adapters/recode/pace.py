@@ -65,6 +65,10 @@ class Pace:
     recent: list[float] = field(default_factory=list)
     #: Сколько заходов легло в замер. ``0`` - планируем по умолчанию, а не по факту.
     seen: int = 0
+    #: Таблица пресетов, которую этот замер масштабирует. Полем, а не именем модуля:
+    #: числа в :data:`PRESETS` сняты на одной машине, и стенду нужно назвать свою
+    #: машину - медленную или быструю, - чтобы мерить арифметику срока, а не таблицу.
+    presets: tuple[tuple[str, float], ...] = PRESETS
 
     @property
     def plan(self) -> float:
@@ -74,7 +78,7 @@ class Pace:
     def table(self) -> tuple[tuple[str, float], ...]:
         """:data:`PRESETS`, пересчитанные в скорость, которая тут и правда бывает."""
         scale = self.plan
-        return tuple((name, speed * scale) for name, speed in PRESETS)
+        return tuple((name, speed * scale) for name, speed in self.presets)
 
     def speed(self, preset: str) -> float:
         """Скорость одного пресета по тому же масштабу; неизвестный - самый быстрый."""
@@ -87,7 +91,7 @@ class Pace:
         не дал ни куска (сорвался, брошен перемоткой), сюда не попадает: он мерит не
         скорость, а помеху.
         """
-        table = dict(PRESETS).get(preset)
+        table = dict(self.presets).get(preset)
         if table is None or seconds <= 0 or spent <= 0:
             return self.plan
         got = seconds / spent / table

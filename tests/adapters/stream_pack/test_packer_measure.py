@@ -4,31 +4,23 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from tests.usecases.feed_pack.world import clock, lay, packer
+from tests.usecases.feed_pack.world import hand, lay, packer
 from torrcast.adapters.stream_pack.packer_measure import _eta, _frontier, _pending
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-    import pytest
 
-
-def test_a_run_without_a_pace_never_makes_anyone_wait(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_a_run_without_a_pace_never_makes_anyone_wait(tmp_path: Path) -> None:
     """``rate <= 0`` - ffmpeg читает во весь опор: ждать нечего, ноль."""
-    clock(monkeypatch, now=100.0)
-    run = packer(tmp_path, rate=0.0, began=0.0, at=0.0, burst=0.0)
+    run = packer(tmp_path, rate=0.0, began=0.0, at=0.0, burst=0.0, now=hand(100.0).monotonic)
 
     assert _eta(run, 3600.0) == 0.0
 
 
-def test_the_wait_is_counted_from_the_pace_of_ffmpeg_and_not_from_our_guess(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_the_wait_is_counted_from_the_pace_of_ffmpeg_and_not_from_our_guess(tmp_path: Path) -> None:
     """Планка чтения - ``-ss + burst + прошло * rate``; выше неё ждать в темпе ``rate``."""
-    clock(monkeypatch, now=110.0)
-    run = packer(tmp_path, rate=1.0, burst=60.0, at=100.0, began=100.0)
+    run = packer(tmp_path, rate=1.0, burst=60.0, at=100.0, began=100.0, now=hand(110.0).monotonic)
 
     # Планка: 100 + 60 + 10 * 1 = 170 с фильма.
     assert _eta(run, 200.0) == 30.0
@@ -36,12 +28,9 @@ def test_the_wait_is_counted_from_the_pace_of_ffmpeg_and_not_from_our_guess(
     assert _eta(run, 100.0) == 0.0, "ниже планки ждать нечего, а не отрицательно"
 
 
-def test_the_wait_shrinks_twice_on_a_double_pace(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_the_wait_shrinks_twice_on_a_double_pace(tmp_path: Path) -> None:
     """Темп вдвое выше - и планка выше, и остаток дочитывается вдвое быстрее."""
-    clock(monkeypatch, now=110.0)
-    run = packer(tmp_path, rate=2.0, burst=0.0, at=0.0, began=100.0)
+    run = packer(tmp_path, rate=2.0, burst=0.0, at=0.0, began=100.0, now=hand(110.0).monotonic)
 
     # Планка: 0 + 0 + 10 * 2 = 20 с фильма; до 40-й секунды ещё 20 с фильма в темпе 2.
     assert _eta(run, 40.0) == 10.0

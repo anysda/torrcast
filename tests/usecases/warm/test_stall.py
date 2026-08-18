@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 
 def test_the_reason_reaches_all_three_ears(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Молчаливая остановка уже стоила расследования: причина говорится трижды."""
-    fake = world(monkeypatch)
+    fake = world()
     said: list[str] = []
     warm = warmer(tmp_path, log=said.append)
     lay(warm.vault, 0)
@@ -35,7 +35,7 @@ def test_the_trace_carries_numbers_apart_and_not_a_sentence(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """В след идут числа врозь: по ним и через неделю видно, сколько успел прогрев."""
-    fake = world(monkeypatch)
+    fake = world()
     warm = warmer(tmp_path)
     lay(warm.vault, 0, size=777)
 

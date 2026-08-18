@@ -14,6 +14,7 @@ import os
 import shutil
 import subprocess
 import time
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +22,7 @@ import pytest
 
 from tests.conftest import CLIP_SECONDS, free_port, module_of
 from tests.fakes import composition
+from tests.usecases.warm.world import counting, live_tract
 from torrcast.adapters import warm_environment
 from torrcast.adapters.chromecast.mock.mock_receiver import MockReceiver
 from torrcast.adapters.filesystem.state import State
@@ -59,6 +61,7 @@ from torrcast.usecases.warm import (
     warm_key,
     warm_root,
 )
+from torrcast.usecases.warm import configure as configure_warm
 from torrcast.usecases.watch import Watch as _Watch
 
 #: Слот прогрева, а не модуль упаковщика: сценарий идёт за заводом прогона ровно
@@ -66,8 +69,22 @@ from torrcast.usecases.watch import Watch as _Watch
 warm_slots = module_of("torrcast.usecases.warm._state")
 
 
-def _vault(tmp_path: Path, key: str = "k", budget: int = 1 << 30, floor: int = 0) -> Vault:
-    vault = Vault(root=tmp_path / "warm", key=key, budget=budget, floor=floor)
+@pytest.fixture(autouse=True)
+def _rewired() -> Iterator[None]:
+    """Внешний мир прогрева возвращается боевым после каждой пробы.
+
+    Стенд заводит его тем же композиционным корнем, каким живёт продукт
+    (:func:`tests.usecases.warm.world.live_tract`), а корень пишет в слоты модуля - то
+    есть в состояние ПРОЦЕССА.
+    """
+    yield
+    configure_warm(warm_environment.environment)
+
+
+def _vault(
+    tmp_path: Path, key: str = "k", budget: int = 1 << 30, floor: int = 0, **rest: Any
+) -> Vault:
+    vault = Vault(root=tmp_path / "warm", key=key, budget=budget, floor=floor, **rest)
     vault.open()
     return vault
 
@@ -276,28 +293,26 @@ def test_the_budget_evicts_other_shows_by_age_and_never_the_own(tmp_path: Path) 
     assert "бюджет" in mine.fit(1 << 40), "бюджет не удержан"
 
 
-def test_the_warm_budget_accepts_the_worst_measured_evening(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_the_warm_budget_accepts_the_worst_measured_evening(tmp_path: Path) -> None:
     """Живой замер 14-08-2026: пик вечера задаёт копия и требует ровно 28.0 ГБ.
 
     Проверяем решение через допуск хранилища, а не равенство двух констант: возврат к
     прежнему бюджету обязан отказать такому вечеру до записи.
     """
-    vault = Vault(root=tmp_path / "warm", key="тяжёлый", floor=0)
-    monkeypatch.setattr(Vault, "free", lambda _self: WARM_BUDGET * 2)
+    vault = Vault(
+        root=tmp_path / "warm", key="тяжёлый", floor=0, free_of=lambda root: WARM_BUDGET * 2
+    )
     assert int(Config().warm_budget_gb * 1e9) == vault.budget, "конфиг разошёлся с хранилищем"
     assert vault.fit(28_000_000_000) == "", "худший измеренный вечер остался без страховки"
 
 
-def test_the_budget_leaves_the_disk_room_to_breathe(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_the_budget_leaves_the_disk_room_to_breathe(tmp_path: Path) -> None:
     """Диску не дают лопнуть: даже пустой бюджет не разрешает залезть в последние
     гигабайты раздела — рядом живут и state, и раздача, и система."""
-    vault = _vault(tmp_path, budget=1 << 62, floor=FREE_FLOOR)
     need = 21_300_000_000
-    monkeypatch.setattr(Vault, "free", lambda _self: need + FREE_FLOOR - 1)
+    vault = _vault(
+        tmp_path, budget=1 << 62, floor=FREE_FLOOR, free_of=lambda root: need + FREE_FLOOR - 1
+    )
     refusal = vault.fit(need)
     assert "на разделе свободно" in refusal and "запас" in refusal, (
         "наш бюджет не должен скрывать нехватку чужого места"
@@ -661,8 +676,9 @@ class _FakePacker:
         self.proc = _FakeProc()
 
 
-def _warmer(tmp_path: Path) -> Warmer:
-    return Warmer(source="s", audio=0, grid=_grid(), vault=_vault(tmp_path))
+def _warmer(tmp_path: Path, kind: Any = None) -> Warmer:
+    built: Warmer = (kind or Warmer)(source="s", audio=0, grid=_grid(), vault=_vault(tmp_path))
+    return built
 
 
 # --- TC-468: прикидка веса захода и бюджет по ходу захода ----------------------
@@ -757,8 +773,7 @@ def test_the_budget_is_rechecked_as_the_run_lays_pieces(
     место под заход было (20 + 5x16 = 100 МБ из 105), а после третьего куска прогрев
     обязан встать с честной причиной, а не доложить остаток сверх бюджета.
     """
-    monkeypatch.setattr(warm_slots, "Packer", _LayingPacker)
-    monkeypatch.setattr(warm_environment, "_pack_start", lambda url, at: at)
+    live_tract(packer=_LayingPacker, pilot=lambda url, at: at)
     grid = _grid()
     said: list[str] = []
     warmer = Warmer(
@@ -891,9 +906,7 @@ def test_warming_freezes_while_the_live_recoder_has_a_run_in_flight(tmp_path: Pa
     assert packer.proc.signals[-1] == signal.SIGCONT, "заход кончился, а прогрев не ожил"
 
 
-def test_warming_does_not_even_start_a_run_while_the_recoder_works(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_warming_does_not_even_start_a_run_while_the_recoder_works(tmp_path: Path) -> None:
     """Уступка начинается раньше первого :meth:`Warmer._throttle`, а не после него.
 
     Между «пора греть» и первой заморозкой прогрев успевает поднять пробный прогон
@@ -902,26 +915,20 @@ def test_warming_does_not_even_start_a_run_while_the_recoder_works(
     замер через миллисекунду после старта: весь процессор, который прогрев в ту минуту
     отобрал у показа, был процессором пробного прогона.
     """
-    started: list[tuple[int, int]] = []
-
-    def _fake_run(self: Warmer, first: int, last: int, spot: bool = False) -> None:
-        started.append((first, last))
-        self.stopped = True
-
-    monkeypatch.setattr(Warmer, "_run", _fake_run)
-    warmer = _warmer(tmp_path)
+    kind, taken = counting()
+    warmer = _warmer(tmp_path, kind=kind)
     warmer.slack = GUARD_HIGH + 100.0  # запас отличный: ждать картинки нечего
     warmer.rival = _Rival(working=True)
     warmer.start()
     time.sleep(1.5)
-    assert started == [], "прогрев поднял прогон посреди чужого захода"
+    assert taken == [], "прогрев поднял прогон посреди чужого захода"
 
     warmer.rival.working = False
     deadline = time.monotonic() + 10.0
-    while not started and time.monotonic() < deadline:
+    while not taken and time.monotonic() < deadline:
         time.sleep(0.1)
     warmer.stop()
-    assert started == [(0, _grid().count - 1)], "заход кончился, а прогрев так и не тронулся"
+    assert taken == [(0, _grid().count - 1, False)], "заход кончился, а прогрев так и не тронулся"
 
 
 def test_a_freeze_for_the_recoder_outlives_a_healthy_reserve(tmp_path: Path) -> None:
@@ -1183,7 +1190,7 @@ def test_the_recoding_run_of_the_warming_never_asks_the_pilot(
         asked.append(at)
         return at - 5.0
 
-    monkeypatch.setattr(warm_environment, "_pack_start", _pilot)
+    live_tract(pilot=_pilot)
     grid = _offkey_grid()
     slot = 2
     vault = _vault(tmp_path, key="точечно")
@@ -1321,7 +1328,7 @@ def test_a_piece_laid_off_the_grid_never_reaches_the_show(
     """
     monkeypatch.setenv(LOG_ENV, str(tmp_path / "след"))
     monkeypatch.setenv(SID_ENV, "tc-125")
-    monkeypatch.setattr(warm_environment, "_pack_start", lambda url, at: at)
+    live_tract(pilot=lambda url, at: at)
     grid = _offkey_grid()
     vault = _vault(tmp_path, key="кривой")
     said: list[str] = []
@@ -1445,8 +1452,7 @@ def test_a_piece_over_the_receiver_ceiling_never_stops_the_warm_publishing(
         def stop(self, keep_files: bool = True, reason: str = "") -> None:
             return None
 
-    monkeypatch.setattr(warm_slots, "Packer", _Recorder)
-    monkeypatch.setattr(warm_environment, "_pack_start", lambda url, at: at)
+    live_tract(packer=_Recorder, pilot=lambda url, at: at)
     grid = _grid()
     warmer = Warmer(source="нет", audio=0, grid=grid, vault=_vault(tmp_path), slack=1e6)
     warmer._run(0, grid.count - 1)

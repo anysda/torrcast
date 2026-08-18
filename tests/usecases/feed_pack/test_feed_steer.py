@@ -4,13 +4,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from tests.usecases.feed_pack.world import FakeProc, clock, feed, grid, lay, packer, vault
+from tests.usecases.feed_pack.world import FakeProc, feed, grid, lay, packer, tract, vault
 from torrcast.usecases.feed_pack.feed_steer import _steer
 
 if TYPE_CHECKING:
     from pathlib import Path
-
-    import pytest
 
 
 def test_a_finished_show_is_never_diagnosed_again(tmp_path: Path) -> None:
@@ -39,15 +37,13 @@ def test_a_skipped_place_is_kept_silent_and_never_repacked(tmp_path: Path) -> No
     assert _steer(show, 4, asked.append) is True and asked == []
 
 
-def test_a_piece_finished_by_this_very_publish_is_not_a_seek_back(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_a_piece_finished_by_this_very_publish_is_not_a_seek_back(tmp_path: Path) -> None:
     """Кусок допаковался ровно этим publish - обычный ход показа, а не перемотка назад.
 
     Без этой проверки он был бы «ниже края, а файла нет»: замер - перезапуск на
     каждом четвёртом сегменте.
     """
-    clock(monkeypatch)
+    tract()
     asked: list[int] = []
     show = feed(tmp_path)
     show.packer = packer(tmp_path, first=0, out=show.out)
@@ -59,10 +55,10 @@ def test_a_piece_finished_by_this_very_publish_is_not_a_seek_back(
 
 
 def test_a_run_that_read_the_input_to_the_end_promises_nothing_beyond_its_edge(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
 ) -> None:
     """Упаковка честно дошла до конца входа - за краем файла не будет, и это не 404 зря."""
-    clock(monkeypatch)
+    tract()
     asked: list[int] = []
     show = feed(tmp_path)
     show.packer = packer(tmp_path, first=0, edge=2, out=show.out, proc=FakeProc(code=0))
@@ -71,18 +67,26 @@ def test_a_run_that_read_the_input_to_the_end_promises_nothing_beyond_its_edge(
 
 
 def test_the_wait_is_measured_in_seconds_of_film_and_not_in_segments(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, journal: Path
+    tmp_path: Path, journal: Path
 ) -> None:
     """«Вот-вот» - это про ВРЕМЯ: семь сегментов вперёд - это семьдесят секунд чтения.
 
     Замер на живом Q70D: перемотка +116 с внутри прогона стоила 57.8 с чёрного экрана,
     пока показ считал её обычным ходом.
     """
-    fake = clock(monkeypatch, now=100.0)
+    fake = tract(now=100.0)
     asked: list[int] = []
     show = feed(tmp_path, grid=grid(600.0, 10.0), jump=15.0)
     show.packer = packer(
-        tmp_path, first=0, edge=0, out=show.out, rate=1.0, burst=0.0, at=0.0, began=100.0
+        tmp_path,
+        first=0,
+        edge=0,
+        out=show.out,
+        rate=1.0,
+        burst=0.0,
+        at=0.0,
+        began=100.0,
+        now=fake.monotonic,
     )
 
     # Планка чтения стоит на нуле фильма: сегмент 1 (10 с) достанут через 10 с - ждём.
@@ -93,11 +97,9 @@ def test_the_wait_is_measured_in_seconds_of_film_and_not_in_segments(
     assert _steer(show, 5, asked.append) is True and asked == [5]
 
 
-def test_neighbours_never_restart_the_packing_all_at_once(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_neighbours_never_restart_the_packing_all_at_once(tmp_path: Path) -> None:
     """После перемотки приёмник просит куски пачкой: перезапустить обязан ровно первый."""
-    fake = clock(monkeypatch, now=100.0)
+    fake = tract(now=100.0)
     asked: list[int] = []
     show = feed(tmp_path)
 
@@ -111,11 +113,9 @@ def test_neighbours_never_restart_the_packing_all_at_once(
     assert _steer(show, 4, asked.append) is True and asked == [3, 4]
 
 
-def test_a_published_piece_means_the_source_reads_again(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_a_published_piece_means_the_source_reads_again(tmp_path: Path) -> None:
     """Прогон что-то выложил - значит сеть вернулась: признак обрыва снимается сам."""
-    clock(monkeypatch, now=500.0)
+    tract(now=500.0)
     asked: list[int] = []
     show = feed(tmp_path, vault=vault(tmp_path))
     show.offline = "источник молчит"
@@ -127,11 +127,9 @@ def test_a_published_piece_means_the_source_reads_again(
     assert show.offline == "" and show.moved == 500.0
 
 
-def test_a_silent_source_on_a_dead_network_is_not_pushed_every_two_seconds(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_a_silent_source_on_a_dead_network_is_not_pushed_every_two_seconds(tmp_path: Path) -> None:
     """Пока источник не читается, подъём ffmpeg стоит секунды и не даёт ничего: ждём дольше."""
-    fake = clock(monkeypatch, now=100.0)
+    fake = tract(now=100.0)
     asked: list[int] = []
     show = feed(tmp_path, vault=vault(tmp_path))
     show.offline = "источник не читается"

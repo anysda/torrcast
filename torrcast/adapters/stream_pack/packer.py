@@ -9,8 +9,10 @@ import shutil
 import subprocess
 import tempfile
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import IO, Any
 
 from torrcast.adapters.stream_pack.packer_finished import _cuts, _drift, _finished
 from torrcast.adapters.stream_pack.packer_measure import _eta, _frontier, _pending
@@ -48,13 +50,25 @@ class Packer(_State):
         burst: float = 0.0,
         grid: FeedGrid | None = None,
         cap: int = CAUTIOUS.max_segment_bytes,
+        *,
+        spawn: Callable[..., Any] = subprocess.Popen,
+        log_file: Callable[[], IO[bytes]] = tempfile.TemporaryFile,
+        now: Callable[[], float] = time.monotonic,
     ) -> Packer:
-        log = tempfile.TemporaryFile()  # noqa: SIM115 - живёт весь прогон упаковки
+        """Поднять ffmpeg и вернуть идущий прогон.
+
+        ``spawn``, ``log_file`` и ``now`` - чем поднимается процесс, куда пишется его брань
+        и по каким часам меряется прогон.
+        Доводами, а не именами внутри модуля: прежде стенд подменял :mod:`subprocess` и
+        :mod:`tempfile` целиком, вместе с их же классами ошибок, - то есть знал не
+        договор завода, а порядок имён под его крышкой.
+        """
+        log = log_file()
         shutil.rmtree(run, ignore_errors=True)
         run.mkdir(parents=True, exist_ok=True)
-        began = time.monotonic()
+        began = now()
         try:
-            proc = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=log)
+            proc = spawn(command, stdout=subprocess.DEVNULL, stderr=log)
         except FileNotFoundError as exc:
             raise InfraError("ffmpeg не установлен") from exc
         return cls(
@@ -69,6 +83,7 @@ class Packer(_State):
             shrink=shrink,
             last=last,
             began=began,
+            now=now,
             at=at,
             rate=rate,
             burst=burst,

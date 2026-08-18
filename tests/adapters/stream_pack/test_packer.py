@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
+import io
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 import pytest
 
-import torrcast.adapters.stream_pack.packer as packer_module
-from tests.usecases.feed_pack.world import FakeProc, clock, packer, signals
+from tests.usecases.feed_pack.world import FakeProc, hand, packer, signals
 from torrcast.adapters.stream_pack.packer import Packer
 from torrcast.domain.infra_error import InfraError
 
@@ -17,54 +17,50 @@ if TYPE_CHECKING:
 
 
 @dataclass
-class _Subprocess:
-    """Подпроцессы под рукой зеркала: ffmpeg тут не поднимается ни разу."""
+class _Spawn:
+    """Подъём процесса под рукой зеркала: ffmpeg тут не поднимается ни разу."""
 
-    DEVNULL: int = -3
     boom: bool = False
     seen: list[list[str]] = field(default_factory=list)
-    TimeoutExpired: type[Exception] = TimeoutError
-    SubprocessError: type[Exception] = OSError
 
-    def Popen(self, command: list[str], **kwargs: Any) -> FakeProc:  # noqa: N802
+    def __call__(self, command: list[str], **kwargs: Any) -> FakeProc:
         if self.boom:
             raise FileNotFoundError("ffmpeg")
         self.seen.append(command)
         return FakeProc()
 
 
-@dataclass
-class _Tempfile:
-    made: int = 0
-
-    def TemporaryFile(self) -> object:  # noqa: N802
-        self.made += 1
-        return object()
+def _log() -> Any:
+    """Временный файл под брань ffmpeg: на стенде он никому не нужен."""
+    return io.BytesIO()
 
 
-def _outer(monkeypatch: pytest.MonkeyPatch, boom: bool = False) -> _Subprocess:
-    """Подставить подъёму прогона поддельные подпроцессы, временный файл и часы."""
-    fake = _Subprocess(boom=boom)
-    monkeypatch.setattr(packer_module, "subprocess", fake)
-    monkeypatch.setattr(packer_module, "tempfile", _Tempfile())
-    clock(monkeypatch, now=555.0)
-    return fake
+def _outer(boom: bool = False) -> _Spawn:
+    """Подъём процесса под рукой зеркала: ffmpeg тут не поднимается ни разу."""
+    return _Spawn(boom=boom)
 
 
-def test_the_run_starts_from_a_clean_directory_and_remembers_when(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_the_run_starts_from_a_clean_directory_and_remembers_when(tmp_path: Path) -> None:
     """Каталог прогона расчищается перед стартом, а час старта запоминается.
 
     Мусор прошлого прогона в своём каталоге - это чужие куски под нашими именами:
     выкладка отдала бы их наружу как свои.
     """
-    outer = _outer(monkeypatch)
+    outer = _outer()
     run = tmp_path / "out" / "pack"
     run.mkdir(parents=True)
     (run / "v0.ts").write_bytes(b"old")
 
-    made = Packer.start(["ffmpeg", "-i", "src"], tmp_path / "out", run, first=4, at=40.0)
+    made = Packer.start(
+        ["ffmpeg", "-i", "src"],
+        tmp_path / "out",
+        run,
+        first=4,
+        at=40.0,
+        spawn=outer,
+        log_file=_log,
+        now=hand(555.0).monotonic,
+    )
 
     assert outer.seen == [["ffmpeg", "-i", "src"]]
     assert not (run / "v0.ts").exists(), "мусор прошлого прогона остался в каталоге"
@@ -72,25 +68,27 @@ def test_the_run_starts_from_a_clean_directory_and_remembers_when(
     assert made.edge == 3, "прогон обязан встать перед своим первым куском"
 
 
-def test_a_missing_ffmpeg_is_an_infrastructure_error_and_not_a_traceback(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_a_missing_ffmpeg_is_an_infrastructure_error_and_not_a_traceback(tmp_path: Path) -> None:
     """Нет ffmpeg - это внятный отказ инфраструктуры, а не FileNotFoundError зрителю."""
-    _outer(monkeypatch, boom=True)
+    outer = _outer(boom=True)
 
     with pytest.raises(InfraError):
-        Packer.start(["ffmpeg"], tmp_path / "out", tmp_path / "out" / "pack")
+        Packer.start(
+            ["ffmpeg"], tmp_path / "out", tmp_path / "out" / "pack", spawn=outer, log_file=_log
+        )
 
 
-def test_a_busy_publish_is_skipped_and_never_queued(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_a_busy_publish_is_skipped_and_never_queued(tmp_path: Path) -> None:
     """Второй заход выкладки не ждёт первый: горячий путь важнее лишнего опроса."""
     laid: list[int] = []
-    monkeypatch.setattr(
-        "torrcast.adapters.stream_pack.packer._lay_out", lambda state, finished: laid.append(1)
-    )
-    run = packer(tmp_path)
+
+    class Counted(Packer):
+        """Прогон, у которого сама выкладка ничего не делает: меряется замок вокруг неё."""
+
+        def _publish(self) -> None:
+            laid.append(1)
+
+    run = packer(tmp_path, kind=Counted)
 
     run.publish()
     assert laid == [1]

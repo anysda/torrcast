@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import math
+from collections.abc import Callable
 
 from torrcast.adapters.pack_memory import _SEEK_LOCK, _SEEK_OK
 from torrcast.adapters.stream_pack._keys_shelf import _keys_cache
@@ -17,7 +18,12 @@ from torrcast.ports.journal import journal
 
 
 def pack_start(
-    source_url: str, at: float, timeout: float = PILOT_TIMEOUT, keys: FilmKeys | None = None
+    source_url: str,
+    at: float,
+    timeout: float = PILOT_TIMEOUT,
+    keys: FilmKeys | None = None,
+    *,
+    pilot: Callable[[str, float, float], float] = _pilot_start,
 ) -> float:
     """Куда на самом деле встанет ffmpeg после ``-ss at``: по карте, а иначе пробным прогоном.
 
@@ -41,6 +47,10 @@ def pack_start(
 
     ``-muxdelay 0 -muxpreload 0`` обязательны: без них мультиплексор mpegts добавляет
     к меткам свои 1.4 с, и «первый кадр» оказался бы не там, где он есть на самом деле.
+
+    ``pilot`` - сам пробный прогон. Параметром, а не именем внутри модуля: он поднимает
+    ffmpeg и ffprobe на живом файле, а здесь меряется правило сверки - сколько раз прогон
+    зовут и что запоминают о файле после него.
     """
     if at <= 0:
         return 0.0
@@ -58,7 +68,7 @@ def pack_start(
         if trusted:
             journal().mark("заход по карте", просили=round(at, 3), встали=round(guess, 3))
             return guess
-    found = _pilot_start(source_url, at, timeout)
+    found = pilot(source_url, at, timeout)
     if not math.isnan(guess) and _SEEK_OK.get(source_url) is None:
         agreed = abs(found - guess) <= SPLIT_SLACK
         with _SEEK_LOCK:

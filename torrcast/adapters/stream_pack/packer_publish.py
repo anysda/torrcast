@@ -18,11 +18,18 @@ from torrcast.domain.hls_settings import MIXED_PREFIX
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from pathlib import Path
 
     from torrcast.adapters.stream_pack.packer_state import _State
 
 
-def _lay_out(state: _State, finished: Callable[[], bool]) -> None:
+def _lay_out(
+    state: _State,
+    finished: Callable[[], bool],
+    *,
+    merge: Callable[..., bool] = merge_tracks,
+    shift_of: Callable[[Path, Path], float | None] = timeline_shift,
+) -> None:
     """Выложить наружу куски, которые ffmpeg уже дописал.
 
     Дописан тот, за которым появился следующий: сегментный муксер открывает новый
@@ -34,6 +41,11 @@ def _lay_out(state: _State, finished: Callable[[], bool]) -> None:
     Признак «прогон дочитал вход» приходит доводом, а не спрашивается у класса: подменяют
     его наследники прогона на стендах показа, а импортировать сюда сам класс нельзя -
     выкладка живёт внутри него.
+
+    Тем же доводом приезжают ``merge`` (склейка картинки перекода со звуком копии) и
+    ``shift_of`` (сдвиг ленты между ними): обе поднимают ffmpeg и ffprobe на настоящих
+    кусках, а здесь меряется РЕШЕНИЕ выкладки - что уходит наружу, что выбрасывается и
+    куда встаёт край.
     """
     slots = sorted(s for s in map(segment_slot, _names(state.run)) if s >= 0)
     if not slots:
@@ -71,8 +83,8 @@ def _lay_out(state: _State, finished: Callable[[], bool]) -> None:
             # звук показа обязан остаться одним непрерывным потоком, а сама
             # картинка - лечь на ленту ЭТОГО прогона (:func:`timeline_shift`).
             mixed = state.run / f"{MIXED_PREFIX}{slot}.ts"
-            shift = timeline_shift(path, better)
-            if merge_tracks(better, path, mixed, shift=shift or 0.0):
+            shift = shift_of(path, better)
+            if merge(better, path, mixed, shift=shift or 0.0):
                 source, how = mixed, "склейка"
             elif shift and size and size <= state.cap:
                 # Лента прогона сдвинута, а склейки нет: перекод как есть - это

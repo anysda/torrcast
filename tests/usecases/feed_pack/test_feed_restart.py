@@ -5,15 +5,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-import torrcast.usecases.feed_pack._state as _state
-from tests.usecases.feed_pack.world import clock, feed, grid, packer, signals
+from tests.usecases.feed_pack.world import factory, feed, grid, packer, signals, tract
+from torrcast.adapters.recode import FULL_PRESET, Encode
 from torrcast.domain.hls_settings import PACK_DIR
 from torrcast.usecases.feed_pack.feed_restart import _restart
 
 if TYPE_CHECKING:
     from pathlib import Path
-
-    import pytest
 
 
 @dataclass
@@ -32,10 +30,8 @@ class _Recoder:
         return False
 
 
-def _tract(
-    monkeypatch: pytest.MonkeyPatch, seen: list[str], at: float = 0.0
-) -> list[tuple[Any, ...]]:
-    """Подставить заходу поддельный медиатракт; возвращает поднятые прогоны."""
+def _tract(seen: list[str], at: float = 0.0) -> list[tuple[Any, ...]]:
+    """Собрать заходу стендовый медиатракт; возвращает поднятые прогоны."""
     started: list[tuple[Any, ...]] = []
 
     def _start(command: list[str], out: Path, run: Path, first: int, **kwargs: Any) -> Any:
@@ -47,21 +43,20 @@ def _tract(
         seen.append("проба")
         return at
 
-    monkeypatch.setattr(_state, "pack_start", _pilot, raising=False)
-    monkeypatch.setattr(
-        _state, "ffmpeg_pack_command", lambda *a, **k: ["ffmpeg", *map(str, a[4:6])]
+    tract(
+        pack_start=_pilot,
+        pack_command=lambda *a, **k: ["ffmpeg", *map(str, a[4:6])],
+        packer=factory(_start),
     )
-    monkeypatch.setattr(_state, "Packer", type("Fake", (), {"start": staticmethod(_start)}))
     return started
 
 
 def test_the_encoder_learns_about_the_new_place_before_the_pilot_run(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, journal: Path
+    tmp_path: Path, journal: Path
 ) -> None:
     """Голову прогона кодировщик обязан начать не позже упаковщика: пробный стоит 0.5-1.7 с."""
-    clock(monkeypatch)
     seen: list[str] = []
-    started = _tract(monkeypatch, seen)
+    started = _tract(seen)
     recoder = _Recoder(spare=tmp_path / "recode")
     show = feed(tmp_path, recoder=recoder)
 
@@ -73,16 +68,15 @@ def test_the_encoder_learns_about_the_new_place_before_the_pilot_run(
 
 
 def test_a_whole_film_recode_never_asks_the_pilot_and_stands_where_the_grid_says(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, journal: Path
+    tmp_path: Path, journal: Path
 ) -> None:
     """Перекодирующему прогону пробный вреден: по ``-ss`` он встаёт точно, докатки нет.
 
     Измеренное ``at`` увело бы весь прогон на сегмент назад - эта грабля уже стоила
     отладки кодировщику.
     """
-    clock(monkeypatch)
     seen: list[str] = []
-    started = _tract(monkeypatch, seen, at=8.0)
+    started = _tract(seen, at=8.0)
     show = feed(tmp_path, grid=grid(60.0, 10.0), encode=object())
 
     _restart(show, 3, lambda slot, size: False)
@@ -92,17 +86,16 @@ def test_a_whole_film_recode_never_asks_the_pilot_and_stands_where_the_grid_says
 
 
 def test_the_run_starts_where_it_was_measured_and_the_rollback_is_told(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, journal: Path
+    tmp_path: Path, journal: Path
 ) -> None:
     """Место захода берут у пробного прогона, а докатку называют зрителю вслух.
 
     ``-segment_times`` считаются от ``at``, а муксер отмеряет их от первого пакета
     прогона: отдай мы задуманное начало - и все резы уехали бы на всю докатку.
     """
-    clock(monkeypatch)
     seen: list[str] = []
     said: list[str] = []
-    started = _tract(monkeypatch, seen, at=28.4)
+    started = _tract(seen, at=28.4)
     show = feed(tmp_path, grid=grid(60.0, 10.0), log=said.append)
 
     _restart(show, 3, lambda slot, size: False)
@@ -113,12 +106,11 @@ def test_the_run_starts_where_it_was_measured_and_the_rollback_is_told(
 
 
 def test_a_run_that_stands_where_it_was_asked_says_nothing_about_a_rollback(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, journal: Path
+    tmp_path: Path, journal: Path
 ) -> None:
     """Докатки нет - и строки о ней нет: допуск сравнения меньше полкадра."""
-    clock(monkeypatch)
     said: list[str] = []
-    _tract(monkeypatch, [], at=30.0)
+    _tract([], at=30.0)
     show = feed(tmp_path, grid=grid(60.0, 10.0), log=said.append)
 
     _restart(show, 3, lambda slot, size: False)
@@ -126,12 +118,9 @@ def test_a_run_that_stands_where_it_was_asked_says_nothing_about_a_rollback(
     assert said == ["упаковка с 30.0 с"]
 
 
-def test_the_previous_run_is_taken_down_but_its_pieces_stay(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, journal: Path
-) -> None:
+def test_the_previous_run_is_taken_down_but_its_pieces_stay(tmp_path: Path, journal: Path) -> None:
     """Под именем ``vN`` и до, и после перезапуска лежит одно и то же место фильма."""
-    clock(monkeypatch)
-    _tract(monkeypatch, [])
+    _tract([])
     show = feed(tmp_path, grid=grid(60.0, 10.0))
     old = packer(tmp_path, first=0, out=show.out)
     (show.out / "v0.ts").write_bytes(b"old")
@@ -142,3 +131,34 @@ def test_the_previous_run_is_taken_down_but_its_pieces_stay(
     assert old.stopped == "" and signals(old) == ["terminate"]
     assert (show.out / "v0.ts").exists(), "перезапуск выбросил уже упакованное"
     assert show.packer is not old
+
+
+def test_a_whole_film_recode_builds_an_encoding_command_from_the_grid(
+    tmp_path: Path, journal: Path
+) -> None:
+    """Команда перекодирующего прогона встаёт от границы сетки и без докатки.
+
+    Сборка команды тут настоящая: подделай её - и проверять было бы нечего, а вредна
+    докатка ровно в готовой команде (``-segment_start_number`` и ``-ss`` разъехались бы,
+    и весь прогон уехал бы на сегмент назад - грабля, стоившая отладки кодировщику).
+    """
+    lines = grid(600.0, 10.0)
+    seen: list[list[str]] = []
+
+    def _pilot(source: str, want: float) -> float:
+        raise AssertionError("пробный прогон при сплошном перекоде звать нельзя")
+
+    def _start(command: list[str], out: Path, run: Path, first: int, **kwargs: Any) -> Any:
+        seen.append(command)
+        run.mkdir(parents=True, exist_ok=True)
+        return packer(out.parent, out=out, run=run, first=first)
+
+    tract(pack_start=_pilot, packer=factory(_start))
+    show = feed(tmp_path, grid=lines, encode=Encode(preset=FULL_PRESET))
+
+    _restart(show, 5, lambda slot, size: False)
+
+    command = seen[0]
+    assert command[command.index("-c:v") + 1] == "libx264"
+    assert command[command.index("-segment_start_number") + 1] == "5", "докатки нет"
+    assert command[command.index("-ss") + 1] == f"{lines.start(5):.3f}"

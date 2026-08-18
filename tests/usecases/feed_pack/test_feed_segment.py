@@ -4,14 +4,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from tests.usecases.feed_pack.world import clock, feed, grid, lay, vault
+from tests.usecases.feed_pack.world import feed, grid, lay, tract, vault
 from torrcast.usecases.feed_pack.feed_segment import _have, _segment, _warm
 
 if TYPE_CHECKING:
     from collections.abc import Callable
     from pathlib import Path
-
-    import pytest
 
 
 def _yes(slot: int) -> bool:
@@ -28,11 +26,9 @@ def _noting(asked: list[int]) -> Callable[[int], bool]:
     return steer
 
 
-def test_a_ready_piece_is_answered_at_once_without_touching_the_packing(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_a_ready_piece_is_answered_at_once_without_touching_the_packing(tmp_path: Path) -> None:
     """Файл на месте - разбираться с упаковкой незачем: это обычный ход показа."""
-    clock(monkeypatch)
+    tract()
     asked: list[int] = []
     show = feed(tmp_path)
     lay(show.out, 2)
@@ -42,15 +38,13 @@ def test_a_ready_piece_is_answered_at_once_without_touching_the_packing(
     assert answer == show.out / "v2.ts" and asked == []
 
 
-def test_a_name_the_manifest_never_promised_goes_nowhere_near_the_packing(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_a_name_the_manifest_never_promised_goes_nowhere_near_the_packing(tmp_path: Path) -> None:
     """🔴 TC-622. Номер за сеткой не спорит с упаковкой: ждать по манифесту нечего.
 
     Раньше он шёл в решение как есть, а там сетка зажимала его в границы - и один GET
     давал 61 перезапуск упаковки с конца фильма.
     """
-    fake = clock(monkeypatch)
+    fake = tract()
     asked: list[int] = []
     show = feed(tmp_path, grid=grid(60.0, 10.0), wait=120.0)
 
@@ -61,11 +55,9 @@ def test_a_name_the_manifest_never_promised_goes_nowhere_near_the_packing(
     assert _segment(show, 99999, _yes) == show.out / "v99999.ts", "лежащий файл отдаётся всегда"
 
 
-def test_the_warmed_piece_answers_before_any_argument_with_the_packing(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_the_warmed_piece_answers_before_any_argument_with_the_packing(tmp_path: Path) -> None:
     """В этом весь смысл прогрева: перемотка в прогретое отвечает файлом, не поднимая ffmpeg."""
-    clock(monkeypatch)
+    tract()
     asked: list[int] = []
     store = vault(tmp_path)
     show = feed(tmp_path, vault=store)
@@ -92,22 +84,18 @@ def test_a_warmed_piece_over_the_ceiling_is_not_warmed_at_all(tmp_path: Path) ->
     assert _warm(show, 3) == store.dir / "v3.ts", "кусок ровно по потолку показу годится"
 
 
-def test_a_hopeless_place_is_answered_the_moment_the_packing_says_so(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_a_hopeless_place_is_answered_the_moment_the_packing_says_so(tmp_path: Path) -> None:
     """«Файла не будет» - ответ сразу: держать поток раздачи после приговора незачем."""
-    fake = clock(monkeypatch)
+    fake = tract()
     show = feed(tmp_path, wait=120.0)
 
     assert _segment(show, 1, lambda slot: False) is None
     assert fake.slept == [], "после приговора показ всё равно ждал"
 
 
-def test_a_busy_decision_is_waited_out_by_the_file_and_not_by_the_queue(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_a_busy_decision_is_waited_out_by_the_file_and_not_by_the_queue(tmp_path: Path) -> None:
     """Замок занят - сосед ждёт свой файл, а не очередь: решение стоит до минуты."""
-    fake = clock(monkeypatch)
+    fake = tract()
     asked: list[int] = []
     show = feed(tmp_path, wait=1.0)
     show.lock.acquire()

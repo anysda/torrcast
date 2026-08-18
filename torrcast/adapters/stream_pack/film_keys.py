@@ -7,6 +7,7 @@ import json
 import os
 import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 from torrcast.adapters.frames.keyframes import keyframes
@@ -14,16 +15,20 @@ from torrcast.adapters.stream_pack._keys_shelf import _keys_cache
 from torrcast.adapters.stream_pack.read_keys import read_keys
 from torrcast.adapters.stream_probe import _trim
 from torrcast.domain.film_keys import FilmKeys
-from torrcast.domain.frames.keymap import video_track
+from torrcast.domain.frames.keymap import KeyMap, video_track
 from torrcast.domain.hls_wait import KEYS_WAIT
 from torrcast.domain.warm_open import KEYS_KEPT, KEYS_LOCK
 from torrcast.ports.journal import journal
 
 
-def _fetching(lock: Path) -> bool:
-    """Карту прямо сейчас снимает кто-то другой (прогрев под меню — соседний процесс)."""
+def _fetching(lock: Path, ttl: float = KEYS_LOCK) -> bool:
+    """Карту прямо сейчас снимает кто-то другой (прогрев под меню — соседний процесс).
+
+    ``ttl`` - сколько замок считается живым. Числом, а не именем модуля: срок жизни
+    замка тут - предмет измерения, и стенду он нужен в доли секунды, а не в минуту.
+    """
     with contextlib.suppress(OSError):
-        return time.time() - lock.stat().st_mtime < KEYS_LOCK
+        return time.time() - lock.stat().st_mtime < ttl
     return False
 
 
@@ -36,29 +41,40 @@ def _keys_draft(cache: Path) -> Path:
     return cache.with_suffix(f".{os.getpid()}-{threading.get_ident()}.tmp")
 
 
-def _hold_keys_lock(lock: Path, done: threading.Event) -> None:
+def _hold_keys_lock(lock: Path, done: threading.Event, ttl: float = KEYS_LOCK) -> None:
     """Держать замок карты живым, пока его хозяин работает: трогать mtime до ``done``."""
-    while not done.wait(KEYS_LOCK / 3):
+    while not done.wait(ttl / 3):
         with contextlib.suppress(OSError):
             lock.touch()
 
 
-def film_keys(source_url: str) -> FilmKeys:
+def film_keys(
+    source_url: str,
+    *,
+    keys_of: Callable[[str], KeyMap] = keyframes,
+    lock_ttl: float = KEYS_LOCK,
+    wait: float = KEYS_WAIT,
+) -> FilmKeys:
     """Карта опорных кадров видео: из кэша или из индекса контейнера.
 
     Индекс снимает :mod:`torrcast.adapters.frames.keyframes`.
 
     Если карту уже снимает прогрев (:func:`warm_file`), ждём его, а не читаем индекс
     файла вторым потоком: рой от этого быстрее не станет, а старт показа удвоится.
+
+    ``keys_of`` - чем снимать индекс, ``lock_ttl`` и ``wait`` - сколько живёт замок и
+    сколько ждать соседа. Все три названы параметром, а не именем внутри модуля: снятие
+    индекса стоит Range-запросов в рой, а боевые сроки тут - минута и десятки секунд, и
+    стенд обязан уметь назвать своё, не заглядывая модулю под крышку.
     """
     cache = _keys_cache(source_url)
     if (ready := read_keys(cache)) is not None:
         journal().mark("карта: из кэша")
         return ready
     lock = cache.with_suffix(".lock")
-    deadline = time.monotonic() + KEYS_WAIT
+    deadline = time.monotonic() + wait
     waited = time.monotonic()
-    while _fetching(lock) and time.monotonic() < deadline:
+    while _fetching(lock, lock_ttl) and time.monotonic() < deadline:
         time.sleep(0.2)
         if (ready := read_keys(cache)) is not None:
             journal().mark("карта: дождались прогрева", ждали=round(time.monotonic() - waited, 2))
@@ -72,14 +88,14 @@ def film_keys(source_url: str) -> FilmKeys:
     # и на длинном фильме замок протух бы прямо под работающим читателем - а сосед,
     # увидевший протухший замок, полез бы читать тот же хвост вторым потоком.
     holding = threading.Event()
-    keeper = threading.Thread(target=_hold_keys_lock, args=(lock, holding), daemon=True)
+    keeper = threading.Thread(target=_hold_keys_lock, args=(lock, holding, lock_ttl), daemon=True)
     keeper.start()
     # ⚠️ Замок снимается не после чтения, а после **записи кэша**: между ними лежит разбор
     # карты, и сосед, отпущенный раньше времени, кэша ещё не увидит и полезет читать хвост
     # сам. Ровно так холодный старт платил разбор дважды (замер: CLI и юнит
     # разбирали одну и ту же карту параллельно).
     try:
-        found = keyframes(source_url)
+        found = keys_of(source_url)
         journal().mark("карта: снята", кадров=len(found.points), байт=found.taken)
         # ⚠️ Дорожку видео выбираем ОДИН раз. Пока этот вызов стоял внутри списка, он
         # считался на каждую точку Cues, а сам он линейный по всем точкам - то есть карта

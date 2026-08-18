@@ -5,12 +5,13 @@ from __future__ import annotations
 import os
 import signal
 import subprocess
+from functools import partial
 from pathlib import Path
 from typing import cast
 
 import pytest
 
-import torrcast.adapters.stream_pack.packer_publish as packer_publish
+from tests.fakes import composition
 from torrcast.adapters.recode import (
     DEADLINE_MARGIN,
     FULL_PRESET,
@@ -29,18 +30,26 @@ from torrcast.adapters.recode import (
 )
 from torrcast.adapters.stream_pack.ffmpeg_pack_command import ffmpeg_pack_command
 from torrcast.adapters.stream_pack.grid import Grid
+from torrcast.adapters.stream_pack.grid_for import grid_for
 from torrcast.adapters.stream_pack.pack_start import pack_start
 from torrcast.adapters.stream_pack.packer import Packer
 from torrcast.adapters.stream_probe.segment_name import segment_name
 from torrcast.domain.film_keys import FilmKeys
 from torrcast.domain.recode_settings import RECODE_HEIGHT
-from torrcast.usecases.feed_pack.feed import Feed
 
-from .conftest import fake_packer, module_of
+from .conftest import fake_packer
 
-#: Модуль, а не одноимённая единица из пакета: подмена ставится туда, откуда её
-#: читает сам код.
-grid_for_module = module_of("torrcast.adapters.stream_pack.grid_for")
+
+def _map(patch: pytest.MonkeyPatch, keys: FilmKeys) -> None:
+    """Сетку показ строит настоящую, а карту опорных кадров ему даёт стенд.
+
+    Слотом композиции, а не подменой имени внутри :func:`grid_for`: сетку показу раздаёт
+    корень (:func:`torrcast.runtime.wire.wire`), и стенд раздаёт её тем же слотом - только
+    с готовой картой, чтобы не ходить в рой.
+    """
+    composition.use_media_grid(
+        patch, partial(grid_for, keys_of=lambda url: keys, origin_of=lambda url: 0.0)
+    )
 
 
 def _keys(duration: float = 300.0, gop: float = 2.0, rate: float = 2.0e6) -> FilmKeys:
@@ -629,24 +638,24 @@ def test_what_the_packer_already_published_is_never_re_encoded(tmp_path) -> None
     assert job[0] == 4
 
 
-def test_a_run_never_promises_more_than_it_can_deliver_in_time(  # type: ignore[no-untyped-def]
-    tmp_path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_a_run_never_promises_more_than_it_can_deliver_in_time(tmp_path) -> None:  # type: ignore[no-untyped-def]
     """Длинный заход сам себе создаёт опоздание — он обрывается на первом несрочном куске.
 
     На обычной машине эта защита почти не срабатывает (даже ``ultrafast`` идёт вчетверо
-    быстрее реального времени), поэтому здесь кодировщику назначается медленная машина.
+    быстрее реального времени), поэтому здесь кодировщику назначается медленная машина -
+    таблицей своего замера темпа, а не подменой имени в пакете.
     """
-    # Медленную машину назначаем там, где таблицу читает замер темпа: срок захода
-    # считается по :meth:`Pace.table`, а не по общему имени пакета.
-    from torrcast.adapters.recode import pace as module
-
-    monkeypatch.setattr(module, "PRESETS", (("medium", 0.5), ("veryfast", 0.6)))
     grid = _grid()
     weights = Weights.of(_keys(rate=2.0e6), grid)
     assert weights is not None
     recoder = Recoder(
-        source="src", audio=0, grid=grid, spare=tmp_path, weights=weights, threshold=15.0
+        source="src",
+        audio=0,
+        grid=grid,
+        spare=tmp_path,
+        weights=weights,
+        threshold=15.0,
+        pace=Pace(presets=(("medium", 0.5), ("veryfast", 0.6))),
     )
     recoder.played = 0.0
     recoder.note(3, "копия")
@@ -918,160 +927,6 @@ def test_a_seek_makes_the_new_place_the_head_and_rewinds_the_edge(tmp_path) -> N
     assert recoder.edge == 2
     assert recoder.played == grid.start(3)
     assert recoder._pick() == (3, 3)
-
-
-def test_the_packer_tells_the_encoder_where_the_run_begins(monkeypatch, tmp_path) -> None:  # type: ignore[no-untyped-def]
-    """Кодировщик узнаёт о новом месте показа раньше пробного прогона (0.5–1.7 с).
-
-    Иначе он начинает голову позже упаковщика, и придерживать её копию нечем.
-    """
-    import torrcast.usecases.feed_pack._state as feed_state
-
-    grid = _grid()
-    seen: list[tuple[str, int]] = []
-
-    class _Stub:
-        spare = tmp_path / "recode"
-        over_wait = 60.0
-        played = 0.0
-        pace = Pace()
-
-        def __init__(self) -> None:
-            self.done: set[int] = set()
-
-        def opening(self, slot: int) -> None:
-            seen.append(("голова", slot))
-
-        def note(self, slot: int, how: str) -> None: ...
-
-        def holding(self, slot: int, size: int = 0) -> bool:
-            return False
-
-        def stop(self) -> None: ...
-
-        def ready(self, slot: int) -> Path | None:
-            return None
-
-        def fit(self, span: float, preset: str) -> Encode:
-            return Encode(preset=preset)
-
-    recoder = _Stub()
-
-    def _probe(*a: object, **k: object) -> float:
-        seen.append(("проба", 0))
-        return 0.0
-
-    monkeypatch.setattr(feed_state, "pack_start", _probe)
-    monkeypatch.setattr(Packer, "start", classmethod(lambda cls, *a, **k: fake_packer(tmp_path)))
-    feed = Feed(source="src", audio=0, out=tmp_path, grid=grid, recoder=recoder)
-    feed.restart(5)
-    assert seen == [("голова", 5), ("проба", 0)]
-
-
-def test_the_head_run_is_not_niced_behind_the_packer(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
-    """Голову ждёт старт показа, а не запас впрок: каждая её секунда — чёрный экран.
-
-    Замер («Моана 2» 13.3 ГБ, v0 длиной 19.96 с, ultrafast): ``nice 15`` — 8.05 с,
-    ``nice 0`` — 5.84 с.
-    """
-    grid = _grid()
-    weights = Weights.of(_keys(rate=2.0e6), grid)
-    assert weights is not None
-    recoder = Recoder(
-        source="src", audio=0, grid=grid, spare=tmp_path, weights=weights, threshold=15.0
-    )
-    seen: list[list[str]] = []
-
-    def _remember(cls: object, command: list[str], /, *a: object, **k: object) -> Packer:
-        seen.append(command)
-        return fake_packer(tmp_path)
-
-    monkeypatch.setattr(Packer, "start", classmethod(_remember))
-    recoder.opening(3)
-    recoder.stopped = True  # один круг: ждать реального ffmpeg тут нечего
-    recoder._run(3, 3)
-    recoder._run(9, 11)
-    assert seen[0][:3] == ["nice", "-n", "0"]
-    assert seen[1][:3] == ["nice", "-n", "15"]
-
-
-def test_a_run_takes_its_target_from_its_longest_piece(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
-    """🔴 TC-483: заход идёт одним ``-b:v`` на все куски, значит судит самый длинный.
-
-    Куски сетки по опорным кадрам разной длины, и прибитая цель не влезала в потолок веса
-    ровно на длинных. Взять среднюю по заходу нельзя: короткие соседи её вытянут вверх, и
-    длинный кусок снова уедет за потолок - а ловить это на выходе поздно, процессор уже
-    потрачен.
-    """
-    grid = Grid(bounds=(0.0, 6.0, 26.0, 32.0), duration=45.0, on_keys=True)
-    weights = Weights.of(_keys(rate=4.0e6), grid)
-    assert weights is not None
-    recoder = Recoder(
-        source="src", audio=0, grid=grid, spare=tmp_path, weights=weights, threshold=10.0
-    )
-    seen: list[list[str]] = []
-
-    def _remember(cls: object, command: list[str], /, *a: object, **k: object) -> Packer:
-        seen.append(command)
-        return fake_packer(tmp_path)
-
-    monkeypatch.setattr(Packer, "start", classmethod(_remember))
-    recoder.stopped = True
-
-    recoder._run(0, 2)  # куски 6, 20 и 6 с - судит двадцатисекундный
-    long_target = float(seen[-1][seen[-1].index("-b:v") + 1].rstrip("M"))
-    assert long_target == pytest.approx(
-        Encode(mbit=9.0).fit(20.0, recoder.cap, recoder.threshold).mbit, abs=0.01
-    )
-    assert _went(long_target) * 20.0 / 8 <= recoder.cap / 1e6, "20 с обязаны влезть в потолок"
-
-    recoder._run(0, 0)
-    short_target = float(seen[-1][seen[-1].index("-b:v") + 1].rstrip("M"))
-    assert short_target == pytest.approx(7.93, abs=0.01)
-    assert _went(short_target) <= recoder.threshold
-
-
-def test_a_run_is_counted_by_what_it_published_not_by_what_is_left(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
-    """Готовый кусок из каталога уже мог забрать показ — глоб объявлял бы заход провальным.
-
-    Ровно так «перекодировал v0» печаталось как «не дало ни куска за 7 с».
-    """
-    grid = _grid()
-    weights = Weights.of(_keys(rate=2.0e6), grid)
-    assert weights is not None
-    recoder = Recoder(
-        source="src", audio=0, grid=grid, spare=tmp_path, weights=weights, threshold=15.0
-    )
-    monkeypatch.setattr(
-        Packer,
-        "start",
-        classmethod(lambda cls, *a, **k: fake_packer(tmp_path, first=3, code=0, edge=4)),
-    )
-    recoder.stopped = True
-    recoder._run(3, 4)  # каталог пуст: показ уже забрал оба куска наружу
-    assert recoder.made == 2
-    assert recoder.done == {3, 4}
-
-
-def test_the_head_preempts_a_run_that_works_ahead(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
-    """Заход впрок бросается ради головы: её ждёт чёрный экран, а его — только tmpfs.
-
-    Живой замер: заход за ``v0`` (7 с) съедал ровно столько же от ожидания ``v358``,
-    и голова не успевала к сроку, хотя сама кодируется 9 с.
-    """
-    grid = _grid()
-    weights = Weights.of(_keys(rate=2.0e6), grid)
-    assert weights is not None
-    recoder = Recoder(
-        source="src", audio=0, grid=grid, spare=tmp_path, weights=weights, threshold=15.0
-    )
-    packer = fake_packer(tmp_path, first=0, edge=-1)
-    monkeypatch.setattr(Packer, "start", classmethod(lambda cls, *a, **k: packer))
-    recoder.opening(0)
-    recoder.played = grid.start(12)  # показ ушёл вперёд, кодировщик работает впрок за ним
-    recoder.opening(3)  # перемотали НАЗАД - голова теперь позади захода
-    recoder._run(12, 14)
-    assert packer.stopped == "голова прогона важнее"
 
 
 def test_the_pieces_right_after_the_current_run_are_held_too(tmp_path) -> None:  # type: ignore[no-untyped-def]
@@ -1517,210 +1372,6 @@ def test_the_passport_is_not_thrown_away_by_the_first_noisy_segment() -> None:
     assert weights.extra == pytest.approx(3.4, abs=0.2)  # сдвинулся, но не обнулился
 
 
-# ------------------------------------------------------------ звук на стыке с перекодом
-
-
-def test_the_recoded_piece_goes_out_with_the_copy_s_sound(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
-    """Наружу — картинка перекода и звук копии: у звука показа один прогон на всё.
-
-    Кадровая сетка AAC отсчитывается от ``-ss`` прогона, поэтому на первом куске каждого
-    захода перекода звук копии обрывался, а звук перекода начинался позже: замер на
-    «Тачках 3» — дыра 40.7 мс, и Q70D платил за неё 2–5 секундами пересборки.
-    """
-    out = tmp_path / "out"
-    spare = out / "recode"
-    spare.mkdir(parents=True)
-    packer = fake_packer(out, first=0)
-    packer.spare = spare
-    packer.run.mkdir(parents=True, exist_ok=True)
-    (packer.run / segment_name(0)).write_bytes(b"copy")
-    (packer.run / segment_name(1)).write_bytes(b"next")
-    (spare / segment_name(0)).write_bytes(b"recode")
-    seen: list[tuple[str, str]] = []
-
-    def merge(video, audio, dst, timeout=30.0, shift=0.0):  # type: ignore[no-untyped-def]
-        seen.append((video.name, audio.name))
-        dst.write_bytes(b"mixed")
-        return True
-
-    monkeypatch.setattr(packer_publish, "merge_tracks", merge)
-    packer.publish()
-    assert seen == [(segment_name(0), segment_name(0))]  # картинка из перекода, звук из копии
-    assert (out / segment_name(0)).read_bytes() == b"mixed"
-    assert not (spare / segment_name(0)).exists()  # перекод забрали
-    assert not (packer.run / segment_name(0)).exists()  # копию выбросили
-    assert packer.edge == 0
-
-
-def test_a_failed_merge_still_sends_the_recoded_piece(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
-    """Склейку не сверили с лентой прогона (сдвиг неизвестен) — наружу перекод как есть:
-    это ровно сегодняшнее поведение, а тяжёлая копия из-под приёмника хуже стыка."""
-    out = tmp_path / "out"
-    spare = out / "recode"
-    spare.mkdir(parents=True)
-    packer = fake_packer(out, first=0)
-    packer.spare = spare
-    packer.run.mkdir(parents=True, exist_ok=True)
-    (packer.run / segment_name(0)).write_bytes(b"heavy copy")
-    (packer.run / segment_name(1)).write_bytes(b"next")
-    (spare / segment_name(0)).write_bytes(b"recode")
-    monkeypatch.setattr(packer_publish, "merge_tracks", lambda *a, **k: False)
-    monkeypatch.setattr(packer_publish, "timeline_shift", lambda *a, **k: None)
-    packer.publish()
-    assert (out / segment_name(0)).read_bytes() == b"recode"
-    assert packer.edge == 0
-
-
-def test_the_recoded_picture_lies_on_the_run_s_own_timeline(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
-    """Склейке передаётся сдвиг ленты прогона: прогон с нуля пишет метки на кадр
-    вперёд времени фильма, и картинка перекода обязана лечь на его ленту, а не на свою."""
-    out = tmp_path / "out"
-    spare = out / "recode"
-    spare.mkdir(parents=True)
-    packer = fake_packer(out, first=0)
-    packer.spare = spare
-    packer.run.mkdir(parents=True, exist_ok=True)
-    (packer.run / segment_name(0)).write_bytes(b"copy")
-    (packer.run / segment_name(1)).write_bytes(b"next")
-    (spare / segment_name(0)).write_bytes(b"recode")
-    told: list[tuple[int, str]] = []
-    packer.told = lambda slot, how: told.append((slot, how))
-    seen: list[float] = []
-
-    def merge(video, audio, dst, timeout=30.0, shift=0.0):  # type: ignore[no-untyped-def]
-        seen.append(shift)
-        dst.write_bytes(b"mixed")
-        return True
-
-    monkeypatch.setattr(packer_publish, "merge_tracks", merge)
-    monkeypatch.setattr(packer_publish, "timeline_shift", lambda *a, **k: 0.0417)
-    packer.publish()
-    assert seen == [0.0417]
-    assert (out / segment_name(0)).read_bytes() == b"mixed"
-    assert told == [(0, "склейка")]  # журнал различает склейку и голый перекод
-
-
-def test_a_failed_merge_on_a_shifted_run_sends_the_copy(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
-    """Лента прогона сдвинута, а склейка не вышла — наружу КОПИЯ своего же прогона.
-
-    Перекод как есть тут не «сегодняшнее поведение», а гарантированный разрыв: на голове
-    захода приёмник получил бы кадр с меткой назад, а на хвосте — дыру в кадр.
-    Копия своего прогона стыкуется с соседями точно, и пока она не тяжелее потолка
-    (:data:`torrcast.domain.hls_settings.MAX_SEGMENT_BYTES`), она меньшее зло.
-    """
-    out = tmp_path / "out"
-    spare = out / "recode"
-    spare.mkdir(parents=True)
-    packer = fake_packer(out, first=0)
-    packer.spare = spare
-    packer.run.mkdir(parents=True, exist_ok=True)
-    (packer.run / segment_name(0)).write_bytes(b"copy")
-    (packer.run / segment_name(1)).write_bytes(b"next")
-    (spare / segment_name(0)).write_bytes(b"recode")
-    told: list[tuple[int, str]] = []
-    packer.told = lambda slot, how: told.append((slot, how))
-    monkeypatch.setattr(packer_publish, "merge_tracks", lambda *a, **k: False)
-    monkeypatch.setattr(packer_publish, "timeline_shift", lambda *a, **k: 0.0417)
-    packer.publish()
-    assert (out / segment_name(0)).read_bytes() == b"copy"
-    assert not (spare / segment_name(0)).exists()  # перекод этому месту больше не нужен
-    assert told == [(0, "копия")]
-
-
-def test_a_too_heavy_copy_loses_even_to_a_broken_seam(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
-    """Копия тяжелее потолка не выходит наружу даже ради стыка: кусок, который приёмник
-    не доигрывает вовсе (19.4 МБ дают стоп 8 с), хуже разрыва в один кадр."""
-    from torrcast.domain.hls_settings import MAX_SEGMENT_BYTES
-
-    out = tmp_path / "out"
-    spare = out / "recode"
-    spare.mkdir(parents=True)
-    packer = fake_packer(out, first=0)
-    packer.spare = spare
-    packer.run.mkdir(parents=True, exist_ok=True)
-    (packer.run / segment_name(0)).write_bytes(b"x" * (MAX_SEGMENT_BYTES + 1))
-    (packer.run / segment_name(1)).write_bytes(b"next")
-    (spare / segment_name(0)).write_bytes(b"recode")
-    told: list[tuple[int, str]] = []
-    packer.told = lambda slot, how: told.append((slot, how))
-    monkeypatch.setattr(packer_publish, "merge_tracks", lambda *a, **k: False)
-    monkeypatch.setattr(packer_publish, "timeline_shift", lambda *a, **k: 0.0417)
-    packer.publish()
-    assert (out / segment_name(0)).read_bytes() == b"recode"
-    assert told == [(0, "перекод")]
-
-
-def test_a_merge_heavier_than_the_cap_is_not_sent_to_the_receiver(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
-    """Потолок проверяет готовую склейку, а не её части до запуска ffmpeg."""
-    from torrcast.domain.hls_settings import MAX_SEGMENT_BYTES
-
-    out = tmp_path / "out"
-    spare = out / "recode"
-    spare.mkdir(parents=True)
-    packer = fake_packer(out, first=0)
-    packer.spare = spare
-    packer.run.mkdir(parents=True, exist_ok=True)
-    (packer.run / segment_name(0)).write_bytes(b"copy")
-    (packer.run / segment_name(1)).write_bytes(b"next")
-    (spare / segment_name(0)).write_bytes(b"recode")
-
-    def merge(video, audio, dst, timeout=30.0, shift=0.0):  # type: ignore[no-untyped-def]
-        dst.write_bytes(b"x" * (MAX_SEGMENT_BYTES + 1))
-        return True
-
-    monkeypatch.setattr(packer_publish, "merge_tracks", merge)
-    packer.publish()
-    assert (out / segment_name(0)).read_bytes() == b"recode"
-    assert (out / segment_name(0)).stat().st_size <= MAX_SEGMENT_BYTES
-
-
-def test_the_timeline_shift_of_garbage_is_unknown(tmp_path) -> None:  # type: ignore[no-untyped-def]
-    """Сверить ленту не по чему — так и говорим: ``None``, а не «сдвига нет»."""
-    from torrcast.adapters.stream_pack.timeline_shift import timeline_shift
-
-    copy, recode = tmp_path / "c.ts", tmp_path / "r.ts"
-    copy.write_bytes(b"not a stream")
-    recode.write_bytes(b"also not a stream")
-    assert timeline_shift(copy, recode) is None
-
-
-def test_the_merged_piece_is_not_mistaken_for_a_packed_segment(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
-    """Склейка лежит в каталоге прогона, но сегментом не считается: «кусок дописан» —
-    это появление СЛЕДУЮЩЕГО ``v*.ts``, и посторонний файл не имеет права на это влиять."""
-    out = tmp_path / "out"
-    spare = out / "recode"
-    spare.mkdir(parents=True)
-    packer = fake_packer(out, first=0)
-    packer.spare = spare
-    packer.run.mkdir(parents=True, exist_ok=True)
-    for slot in (0, 1, 2):
-        (packer.run / segment_name(slot)).write_bytes(b"copy")
-    (spare / segment_name(0)).write_bytes(b"recode")
-
-    def merge(video, audio, dst, timeout=30.0, shift=0.0):  # type: ignore[no-untyped-def]
-        dst.write_bytes(b"mixed")
-        return True
-
-    monkeypatch.setattr(packer_publish, "merge_tracks", merge)
-    packer.publish()
-    assert (out / segment_name(0)).read_bytes() == b"mixed"
-    # Кусок v2 не дописан (следующего за ним нет) и наружу не ушёл - а ушёл бы, если бы
-    # склейка попала в перебор каталога прогона и сдвинула «последний» на единицу.
-    assert not (out / segment_name(2)).exists()
-    assert sorted(p.name for p in packer.run.glob("v*.ts")) == [segment_name(2)]
-
-
-def test_merge_of_garbage_leaves_no_file_and_says_so(tmp_path) -> None:  # type: ignore[no-untyped-def]
-    """Не вышло — значит не вышло: ни файла-огрызка, ни ``True``."""
-    from torrcast.adapters.stream_pack.merge_tracks import merge_tracks
-
-    video, audio, dst = tmp_path / "v.ts", tmp_path / "a.ts", tmp_path / "mix.ts"
-    video.write_bytes(b"not a stream")
-    audio.write_bytes(b"also not a stream")
-    assert merge_tracks(video, audio, dst) is False
-    assert not dst.exists()
-
-
 # ------------------------------------------------------------------ сплошной перекод
 
 
@@ -1759,36 +1410,6 @@ def test_the_whole_file_run_encodes_every_segment_to_the_end_of_the_film() -> No
     forced = [float(x) for x in command[command.index("-force_key_frames") + 1].split(",")]
     assert len(forced) == grid.count, "опорный кадр обязан стоять на каждой границе"
     assert forced[-1] == pytest.approx(grid.start(grid.count - 1) - 0.02, abs=0.001)
-
-
-def test_full_recode_packing_skips_the_pilot_run(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
-    """У перекодирующего прогона докатки нет: ``-ss`` точен, пробный прогон вреден.
-
-    Вреден дважды: измеренное место старта увело бы весь прогон на сегмент назад (эта
-    грабля стоила отладки ещё кодировщику), а сам он стоит 0.5-1.7 с пути старта — тех
-    самых, которыми сплошной перекод оплачивает свою голову.
-    """
-    import torrcast.usecases.feed_pack._state as feed_state
-
-    grid = _grid()
-    seen: list[list[str]] = []
-
-    def _pilot(*a: object, **k: object) -> float:
-        raise AssertionError("пробный прогон при сплошном перекоде звать нельзя")
-
-    def _remember(cls: object, command: list[str], /, *a: object, **k: object) -> Packer:
-        seen.append(command)
-        return fake_packer(tmp_path)
-
-    monkeypatch.setattr(feed_state, "pack_start", _pilot)
-    monkeypatch.setattr(Packer, "start", classmethod(_remember))
-    feed = Feed(source="src", audio=0, out=tmp_path, grid=grid, encode=Encode(preset=FULL_PRESET))
-    feed.restart(5)
-
-    command = seen[0]
-    assert command[command.index("-c:v") + 1] == "libx264"
-    assert command[command.index("-segment_start_number") + 1] == "5", "докатки нет"
-    assert command[command.index("-ss") + 1] == f"{grid.start(5):.3f}"
 
 
 def test_a_light_source_is_not_blown_up_to_the_ceiling() -> None:
@@ -1938,7 +1559,7 @@ def test_a_scaled_down_4k_show_gets_its_grid_weighed_by_our_bitrate_too(
     from torrcast.usecases.playback import layout
 
     keys = _keys(duration=595.0, gop=8.5, rate=0.5e6)  # 4 Мбит/с - для карты это лёгкий файл
-    monkeypatch.setattr(grid_for_module, "film_keys", lambda url: keys)
+    _map(monkeypatch, keys)
 
     grid, whole = layout(Config(), "http://ts/x", 595.0, "h264", 4.0, depth=8, frame=2160)
     assert whole is not None and whole.mbit == 9.0, "4К поехало сплошным перекодом"
@@ -1982,7 +1603,7 @@ def test_the_grid_is_told_the_encoders_ceiling_not_its_average_target() -> None:
     )
     keys = FilmKeys(duration=duration, at=at, offset=[int(t * 5.0e6) for t in at], kind="mkv")
     monkey = pytest.MonkeyPatch()
-    monkey.setattr(grid_for_module, "film_keys", lambda url: keys)
+    _map(monkey, keys)
     try:
         grid, whole = layout(Config(), "http://ts/x", duration, "h264", 40.0, depth=10)
     finally:
@@ -2032,7 +1653,7 @@ def test_the_spot_recode_ceiling_is_delivered_bitrate_not_bare_video() -> None:
     )
     keys = FilmKeys(duration, at, [int(t * 20.0e6 / 8) for t in at], "mkv")
     monkey = pytest.MonkeyPatch()
-    monkey.setattr(grid_for_module, "film_keys", lambda url: keys)
+    _map(monkey, keys)
     try:
         grid, whole = layout(Config(), "http://ts/x", duration, "h264", 20.0, depth=8)
     finally:
@@ -2067,7 +1688,7 @@ def test_a_gop_too_long_to_cut_pulls_the_whole_target_down() -> None:
     duration, gop = 200.0, 15.2  # опорные кадры редкие: между ними резать нечем
     keys = _keys(duration=duration, gop=gop, rate=5.0e6)
     monkey = pytest.MonkeyPatch()
-    monkey.setattr(grid_for_module, "film_keys", lambda url: keys)
+    _map(monkey, keys)
     try:
         grid, whole = layout(Config(), "http://ts/x", duration, "h264", 40.0, depth=10)
     finally:
@@ -2088,7 +1709,7 @@ def test_a_gop_too_long_to_cut_pulls_the_whole_target_down() -> None:
     # где резать, и цель остаётся потолком настройки.
     dense = _keys(duration=duration, gop=2.0, rate=5.0e6)
     monkey = pytest.MonkeyPatch()
-    monkey.setattr(grid_for_module, "film_keys", lambda url: dense)
+    _map(monkey, dense)
     try:
         _, easy = layout(Config(), "http://ts/y", duration, "h264", 40.0, depth=10)
     finally:

@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 import contextlib
-import time
 from typing import TYPE_CHECKING
 
 from torrcast.adapters.stream_pack._segment_files import _names
@@ -35,7 +34,7 @@ def _eta(state: _State, film: float) -> float:
     """
     if state.rate <= 0:
         return 0.0
-    reach: float = state.at + state.burst + (time.monotonic() - state.began) * state.rate
+    reach: float = state.at + state.burst + (state.now() - state.began) * state.rate
     return max(0.0, (film - reach) / state.rate)
 
 

@@ -3,17 +3,16 @@
 from __future__ import annotations
 
 import subprocess
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
 
-from tests.conftest import module_of
+from torrcast.adapters.pack_memory import _SEEK_OK
 from torrcast.adapters.stream_pack.grid import Grid
 from torrcast.adapters.stream_pack.mapped_start import mapped_start
 from torrcast.adapters.stream_pack.pack_start import pack_start
 from torrcast.domain.film_keys import FilmKeys
-
-module = module_of("torrcast.adapters.stream_pack.pack_start")
 
 #: На столько секунд вперёд уезжают метки контейнера в фикстуре ниже. Число заведомо
 #: больше сегмента: ошибка в ленту меньше сегмента дала бы всего лишь кривой рез, а
@@ -25,6 +24,14 @@ SHIFT = 600.0
 BETWEEN_KEYS = 41.0
 
 KEYS = FilmKeys(60.0, [round(k * 2.0, 3) for k in range(31)], [k * 4096 for k in range(31)], "mkv")
+
+
+@pytest.fixture(autouse=True)
+def _own_memory() -> Iterator[None]:
+    """Доверие карте помнится на весь процесс; каждой пробе оно достаётся пустым."""
+    _SEEK_OK.clear()
+    yield
+    _SEEK_OK.clear()
 
 
 @pytest.fixture
@@ -51,46 +58,44 @@ def test_the_start_of_the_film_needs_no_measurement() -> None:
     assert pack_start("http://торрент/поток", -3.0) == 0.0
 
 
-def test_the_map_is_believed_only_after_the_pilot_has_confirmed_it(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_the_map_is_believed_only_after_the_pilot_has_confirmed_it() -> None:
     """🔴 Пробный прогон - один на файл, а не один на заход, и он именно сверка.
 
     Дёшево поверить карте сразу проект уже дважды не смог: резы захода муксер отмеряет от
     первого пакета, и заход, вставший не туда, кладёт мимо сетки весь участок.
     """
     url = "http://торрент/поток?link=честная"
-    trusted: dict[str, bool] = {}
     asked: list[float] = []
-    monkeypatch.setattr(module, "_SEEK_OK", trusted)
 
-    def pilot(url: str, at: float, timeout: float = 0.0) -> float:
+    def pilot(source: str, at: float, timeout: float = 0.0) -> float:
         asked.append(at)
         return 40.0
 
-    monkeypatch.setattr(module, "_pilot_start", pilot)
-
     first, second = 42.0, 50.0
-    assert pack_start(url, first, keys=KEYS) == pytest.approx(mapped_start(KEYS, first))
-    assert pack_start(url, second, keys=KEYS) == pytest.approx(mapped_start(KEYS, second))
+    assert pack_start(url, first, keys=KEYS, pilot=pilot) == pytest.approx(
+        mapped_start(KEYS, first)
+    )
+    assert pack_start(url, second, keys=KEYS, pilot=pilot) == pytest.approx(
+        mapped_start(KEYS, second)
+    )
     assert asked == [first], f"пробных прогонов {len(asked)}, а карта сверяется один раз"
-    assert trusted[url] is True
+    assert _SEEK_OK[url] is True
 
 
-def test_a_lying_map_is_caught_and_never_believed_again(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_lying_map_is_caught_and_never_believed_again() -> None:
     """Карта разошлась с фактом - работает прежний прогон, и место захода верное.
 
     Разошлось больше полукадра - файл помечен недоверенным навсегда.
     """
     url = "http://торрент/поток?link=врущая"
-    trusted: dict[str, bool] = {}
-    monkeypatch.setattr(module, "_SEEK_OK", trusted)
-    monkeypatch.setattr(module, "_pilot_start", lambda u, at, t=0.0: at - 0.7)
+
+    def pilot(source: str, at: float, timeout: float = 0.0) -> float:
+        return at - 0.7
 
     lying = KEYS._replace(at=[second + 0.7 for second in KEYS.at])
-    assert pack_start(url, 42.0, keys=lying) == pytest.approx(41.3)
-    assert trusted[url] is False, "враньё карты запоминается: второй раз не спрашиваем"
-    assert pack_start(url, 50.0, keys=lying) == pytest.approx(49.3)
+    assert pack_start(url, 42.0, keys=lying, pilot=pilot) == pytest.approx(41.3)
+    assert _SEEK_OK[url] is False, "враньё карты запоминается: второй раз не спрашиваем"
+    assert pack_start(url, 50.0, keys=lying, pilot=pilot) == pytest.approx(49.3)
 
 
 @pytest.mark.ffmpeg

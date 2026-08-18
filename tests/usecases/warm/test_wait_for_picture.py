@@ -18,7 +18,7 @@ def test_a_ready_reserve_lets_the_warming_start_at_once(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Запас уже есть - ждать нечего: путь до картинки дорожать не имеет права."""
-    fake = world(monkeypatch)
+    fake = world()
     warm = warmer(tmp_path, slack=GUARD_HIGH + 1.0)
 
     _wait_for_picture(warm)
@@ -30,7 +30,7 @@ def test_without_a_reserve_the_warming_waits_out_its_grace(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Запаса нет - стоим, но не дольше своего потолка: mock и молчащий приёмник тоже бывают."""
-    fake = world(monkeypatch)
+    fake = world()
     warm = warmer(tmp_path, slack=1.0)
 
     _wait_for_picture(warm)
@@ -43,7 +43,7 @@ def test_a_stopped_show_ends_the_wait_immediately(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Показ сняли - прогреву ждать картинку незачем."""
-    fake = world(monkeypatch)
+    fake = world()
     warm = warmer(tmp_path, slack=0.0)
     warm.stopped = True
 

@@ -44,7 +44,7 @@ def test_opening_writes_a_passport_the_budget_reads_by(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Паспорт нужен бюджету: по его времени считается давность показа."""
-    fake = world(monkeypatch)
+    fake = world()
     store = Vault(root=tmp_path / "warm", key="ключ", title="Кино")
     store.open()
 
@@ -58,7 +58,7 @@ def test_the_budget_evicts_the_oldest_stranger_and_never_its_own(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Вытесняются чужие каталоги от самого давнего; свой и соседняя серия неприкосновенны."""
-    fake = world(monkeypatch)
+    fake = world()
     mine = vault(tmp_path, key="моя", budget=3000)
     mine.keep = frozenset({"соседняя"})
     for key, stamp in (("старая", 1.0), ("свежая", 9.0)):
@@ -80,7 +80,7 @@ def test_a_budget_and_a_disk_are_two_different_refusals(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Наш бюджет и чужое место на разделе путать нельзя: причины разные."""
-    world(monkeypatch)
+    world()
     store = vault(tmp_path, budget=1000, floor=0)
     lay(store, 0, size=900)
 
@@ -94,7 +94,7 @@ def test_clearing_hands_the_catalogue_to_the_environment(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Стирание идёт через среду: слой сценариев сам файлы не сносит."""
-    fake = world(monkeypatch)
+    fake = world()
     store = vault(tmp_path)
 
     store.clear()

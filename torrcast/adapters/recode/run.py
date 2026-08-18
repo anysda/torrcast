@@ -12,7 +12,6 @@ from torrcast.adapters.recode.preset_for import preset_for
 from torrcast.adapters.recode.presets import PRESETS
 from torrcast.adapters.recode.yield_to_shrink import _yield_to_shrink
 from torrcast.adapters.stream_pack.ffmpeg_pack_command import ffmpeg_pack_command
-from torrcast.adapters.stream_pack.packer import Packer
 from torrcast.ports.journal import journal
 
 if TYPE_CHECKING:
@@ -85,7 +84,7 @@ def _run(state: _State, first: int, last: int) -> None:
         # ``last`` тут не украшение: без него огрызок за ``-to`` (секунда фильма
         # вместо десяти) лёг бы в каталог перекода как готовый кусок и уехал бы на ТВ
         # вместо честной копии (:attr:`torrcast.adapters.stream_pack.packer.Packer.last`).
-        state.packer = packer = Packer.start(
+        state.packer = packer = state.packer_type.start(
             command,
             state.spare,
             state.spare / "run",

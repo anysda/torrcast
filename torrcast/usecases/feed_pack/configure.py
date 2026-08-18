@@ -9,6 +9,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import torrcast.usecases.feed_pack._state as _state
+from torrcast.ports.feed_clock import FeedClock
 from torrcast.ports.pack_run import PackFactory
 
 
@@ -22,8 +23,9 @@ def configure(
     recode_dir: str,
     remove_tree: Callable[[Path], None],
     segment_paths: Callable[[Path], list[Path]],
+    clock: FeedClock,
 ) -> None:
-    """Передать сценарию имена сегментов, медиатракт упаковки и уборку на диске."""
+    """Передать сценарию имена сегментов, медиатракт упаковки, уборку на диске и часы."""
     _state.segment_name = segment_name
     _state.segment_slot = segment_slot
     _state.pack_start = pack_start
@@ -33,3 +35,4 @@ def configure(
     _state.RECODE_DIR = recode_dir
     _state.remove_tree = remove_tree
     _state.segment_paths = segment_paths
+    _state.clock_port = clock

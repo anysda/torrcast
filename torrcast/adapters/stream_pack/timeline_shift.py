@@ -7,12 +7,20 @@ from __future__ import annotations
 
 import contextlib
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 from torrcast.domain.probe_settings import _TIMEOUT
 
 
-def timeline_shift(copy: Path, recode: Path, timeout: float = _TIMEOUT) -> float | None:
+def timeline_shift(
+    copy: Path,
+    recode: Path,
+    timeout: float = _TIMEOUT,
+    *,
+    run: Callable[..., Any] = subprocess.run,
+) -> float | None:
     """Разница лент копии и перекода одного места, секунды; ``None`` - не сверили.
 
     Оба куска делают разные ffmpeg, поэтому разницу нельзя предполагать нулевой: она
@@ -26,6 +34,9 @@ def timeline_shift(copy: Path, recode: Path, timeout: float = _TIMEOUT) -> float
 
     ``None`` - сверить не вышло (нет ffprobe, битый кусок) или разница вышла больше
     секунды: столько между двумя кусками ОДНОГО места быть не может, значит мерили не то.
+
+    ``run`` - чем поднимается ffprobe. Доводом, а не именем модуля: прежде стенд подменял
+    :mod:`subprocess` целиком, вместе с его же классом ошибок.
     """
     marks: list[float] = []
     for path in (copy, recode):
@@ -34,7 +45,7 @@ def timeline_shift(copy: Path, recode: Path, timeout: float = _TIMEOUT) -> float
             "-show_entries", "packet=pts_time", "-of", "csv=p=0", str(path),
         ]  # fmt: skip
         try:
-            done = subprocess.run(command, capture_output=True, timeout=timeout, check=False)
+            done = run(command, capture_output=True, timeout=timeout, check=False)
         except (OSError, subprocess.SubprocessError):
             return None
         found = []

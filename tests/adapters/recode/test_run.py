@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+import time
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 
@@ -12,7 +13,7 @@ from torrcast.adapters.recode.presets import PRESETS
 from torrcast.adapters.recode.recoder_state import _State
 from torrcast.adapters.recode.run import HEAD_NICE, NICE, _run
 from torrcast.adapters.recode.weights import Weights
-from torrcast.adapters.stream_pack.packer import Packer
+from torrcast.ports.pack_run import PackFactory
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -27,27 +28,26 @@ def _state(spare: Path) -> _State:
     return state
 
 
-def _commands(spare: Path, monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
+def _commands(spare: Path, state: _State) -> list[list[str]]:
+    """Завод прогона под рукой зеркала: ffmpeg не поднимается, а команда остаётся видна."""
     seen: list[list[str]] = []
 
-    def _remember(cls: object, command: list[str], /, *a: object, **k: object) -> Any:
+    def _remember(command: list[str], /, *a: object, **k: object) -> Any:
         seen.append(command)
         return fake_packer(spare)
 
-    monkeypatch.setattr(Packer, "start", classmethod(_remember))
+    state.packer_type = cast(PackFactory, type("StandPacker", (), {"start": _remember}))
     return seen
 
 
-def test_the_head_of_the_run_is_not_niced_behind_the_packer(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_the_head_of_the_run_is_not_niced_behind_the_packer(tmp_path: Path) -> None:
     """Голову ждёт старт показа, и каждая её секунда - секунда чёрного экрана.
 
     Замер («Моана 2», v0 длиной 19.96 с, ultrafast): под ``nice 15`` - 8.05 с, под
     ``nice 0`` - 5.84 с. Остальные заходы работают впрок и уступают процессор упаковке.
     """
     state = _state(tmp_path)
-    seen = _commands(tmp_path, monkeypatch)
+    seen = _commands(tmp_path, state)
     state.head = 3
 
     _run(state, 3, 3)
@@ -57,12 +57,10 @@ def test_the_head_of_the_run_is_not_niced_behind_the_packer(
     assert seen[1][:3] == ["nice", "-n", str(NICE)] == ["nice", "-n", "15"]
 
 
-def test_a_blocked_publisher_ends_the_bargaining_about_quality(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_a_blocked_publisher_ends_the_bargaining_about_quality(tmp_path: Path) -> None:
     """Пока мы выбираем пресет получше, приёмник ждёт наш кусок и никакого другого."""
     state = _state(tmp_path)
-    seen = _commands(tmp_path, monkeypatch)
+    seen = _commands(tmp_path, state)
     state.played, state.edge = 0.0, -1
 
     _run(state, 20, 21)
@@ -78,9 +76,7 @@ def test_a_blocked_publisher_ends_the_bargaining_about_quality(
     assert urgent == PRESETS[-1][0] == "ultrafast", "выкладка стоит - качество не торгуется"
 
 
-def test_the_target_is_taken_from_the_longest_piece_of_the_run(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_the_target_is_taken_from_the_longest_piece_of_the_run(tmp_path: Path) -> None:
     """🔴 TC-483: заход идёт одним ``-b:v`` на все куски, значит судит самый длинный."""
     from torrcast.adapters.stream_pack.grid import Grid
 
@@ -91,7 +87,7 @@ def test_the_target_is_taken_from_the_longest_piece_of_the_run(
         source="src", audio=0, grid=lines, spare=tmp_path, weights=weights, threshold=10.0
     )
     state.stopped = True
-    seen = _commands(tmp_path, monkeypatch)
+    seen = _commands(tmp_path, state)
 
     _run(state, 0, 2)
     long_run = float(seen[-1][seen[-1].index("-b:v") + 1].rstrip("M"))
@@ -102,14 +98,12 @@ def test_the_target_is_taken_from_the_longest_piece_of_the_run(
     assert long_run < short_run, "двадцатисекундный кусок обязан просить меньше шестисекундного"
 
 
-def test_a_run_that_gave_nothing_is_not_tried_forever(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_a_run_that_gave_nothing_is_not_tried_forever(tmp_path: Path) -> None:
     """Заход не дал ни куска - помечаем их сделанными, чтобы не крутиться на месте вечно."""
     said: list[str] = []
     state = _state(tmp_path)
     state.log = said.append
-    _commands(tmp_path, monkeypatch)
+    _commands(tmp_path, state)
 
     _run(state, 4, 6)
 
@@ -118,18 +112,16 @@ def test_a_run_that_gave_nothing_is_not_tried_forever(
     assert any("не дало ни куска" in line for line in said)
 
 
-def test_a_run_that_delivered_is_counted_by_its_own_packer_edge(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_a_run_that_delivered_is_counted_by_its_own_packer_edge(tmp_path: Path) -> None:
     """Считаем по краю СВОЕГО упаковщика: готовый кусок из каталога уже мог забрать показ."""
     state = _state(tmp_path)
     said: list[str] = []
     state.log = said.append
 
-    def _remember(cls: object, command: list[str], /, *a: object, **k: object) -> Any:
+    def _remember(command: list[str], /, *a: object, **k: object) -> Any:
         return fake_packer(tmp_path, first=4, edge=5)
 
-    monkeypatch.setattr(Packer, "start", classmethod(_remember))
+    state.packer_type = cast(PackFactory, type("StandPacker", (), {"start": _remember}))
 
     _run(state, 4, 6)
 
@@ -137,3 +129,23 @@ def test_a_run_that_delivered_is_counted_by_its_own_packer_edge(
     assert state.made == 2 and state.seconds > 0.0
     assert state.pace.seen == 1, "состоявшийся заход уточняет масштаб таблицы"
     assert any("перекодировал v4" in line for line in said)
+
+
+def test_the_head_of_a_new_run_preempts_a_run_that_works_ahead(tmp_path: Path) -> None:
+    """Заход впрок бросается ради головы: её ждёт чёрный экран, а его - только tmpfs.
+
+    Живой замер: заход за ``v0`` (7 с) съедал ровно столько же от ожидания ``v358``, и
+    голова не успевала к сроку, хотя сама кодируется 9 с.
+    """
+    state = _state(tmp_path)
+    state.stopped = False  # тут заход обязан оборваться сам, а не по флагу зеркала
+    run = fake_packer(tmp_path, first=0, edge=-1)
+    state.packer_type = cast(PackFactory, type("StandPacker", (), {"start": lambda *a, **k: run}))
+
+    state.played = state.grid.start(12)  # показ ушёл вперёд, кодировщик работает впрок
+    state.head, state.head_at = 3, time.monotonic()  # перемотали НАЗАД: голова позади захода
+    assert 3 in set(state.targets), "замер подобран неверно: голова обязана быть тяжёлой"
+
+    _run(state, 12, 14)
+
+    assert run.stopped == "голова прогона важнее"

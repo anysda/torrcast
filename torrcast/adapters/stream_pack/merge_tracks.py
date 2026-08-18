@@ -6,13 +6,21 @@
 from __future__ import annotations
 
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 from torrcast.domain.probe_settings import _TIMEOUT
 
 
 def merge_tracks(
-    video: Path, audio: Path, dst: Path, timeout: float = _TIMEOUT, shift: float = 0.0
+    video: Path,
+    audio: Path,
+    dst: Path,
+    timeout: float = _TIMEOUT,
+    shift: float = 0.0,
+    *,
+    run: Callable[..., Any] = subprocess.run,
 ) -> bool:
     """Собрать сегмент из картинки ``video`` и звука ``audio``; ``False`` — не вышло.
 
@@ -41,6 +49,10 @@ def merge_tracks(
     ⚠️ Не вышло — врать нельзя: возвращаем ``False``, и :meth:`Packer.publish` решает,
     что выкладывать вместо склейки — копию своего прогона (если она не тяжелее потолка)
     или перекод как есть.
+
+    ``run`` - чем поднимается ffmpeg. Доводом, а не именем модуля: прежде стенд подменял
+    :mod:`subprocess` целиком, вместе с его же классом ошибок, - то есть знал не договор
+    склейки, а список имён внутри неё.
     """
     command = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-copyts"]
     # Полкадра - порог осмысленности: ниже него сдвига нет, а не «есть, но крошечный».
@@ -52,7 +64,7 @@ def merge_tracks(
         "-muxdelay", "0", "-muxpreload", "0", "-f", "mpegts", "-y", str(dst),
     ]  # fmt: skip
     try:
-        done = subprocess.run(command, capture_output=True, timeout=timeout, check=False)
+        done = run(command, capture_output=True, timeout=timeout, check=False)
     except (OSError, subprocess.SubprocessError):
         dst.unlink(missing_ok=True)
         return False

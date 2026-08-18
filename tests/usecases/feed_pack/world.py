@@ -8,17 +8,20 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import Any, cast
 
-import torrcast.adapters.stream_pack.packer as packer_module
-import torrcast.adapters.stream_pack.packer_measure as measure_module
-import torrcast.usecases.feed_pack._state as _state
+from torrcast.adapters.filesystem.remove_tree import remove_tree
+from torrcast.adapters.recode.recode_dir import RECODE_DIR
+from torrcast.adapters.stream_pack._segment_files import _paths
+from torrcast.adapters.stream_pack.ffmpeg_pack_command import ffmpeg_pack_command
+from torrcast.adapters.stream_pack.forget_playing import forget_playing
 from torrcast.adapters.stream_pack.grid import Grid
+from torrcast.adapters.stream_pack.pack_start import pack_start
 from torrcast.adapters.stream_pack.packer import Packer
+from torrcast.adapters.stream_probe.segment_name import segment_name
+from torrcast.adapters.stream_probe.segment_slot import segment_slot
+from torrcast.usecases.feed_pack import configure
 from torrcast.usecases.feed_pack.feed import Feed
-
-if TYPE_CHECKING:
-    import pytest
 
 
 @dataclass
@@ -80,18 +83,48 @@ class FakeVault:
         return self.dir / f"v{slot}.ts"
 
 
-def clock(monkeypatch: pytest.MonkeyPatch, now: float = 1000.0) -> FakeClock:
-    """Подставить показу ручные часы на время одного теста.
+def hand(now: float = 1000.0) -> FakeClock:
+    """Ручные часы: сна тут нет вовсе, стрелку двигает сам ``sleep``.
 
-    Часов у показа два места: лента держит их своим именем, а прогон упаковки - своим,
-    в медиатракте. Стенд подменяет оба разом: подмени одно - и зеркало мерило бы
-    получасы, где решение ленты идёт по ручной стрелке, а замер прогона по настоящей.
+    Часов у показа два места: лента держит их слотом композиции (:func:`tract`), а прогон
+    упаковки - своим полем (``packer(..., now=hand.monotonic)``). Заведи одно - и зеркало
+    мерило бы получасы, где решение ленты идёт по ручной стрелке, а замер прогона по
+    настоящей.
     """
-    fake = FakeClock(now=now)
-    monkeypatch.setattr(_state, "clock_port", fake)
-    monkeypatch.setattr(packer_module, "time", fake)
-    monkeypatch.setattr(measure_module, "time", fake)
-    return fake
+    return FakeClock(now=now)
+
+
+def tract(**parts: Any) -> FakeClock:
+    """Собрать ленте её внешний мир - тот же, что и боевой корень, кроме названного.
+
+    Слоты перечислены здесь поимённо и ровно теми же, что заполняет
+    :func:`torrcast.runtime.wire_feed.wire_feed`: промах виден глазами, а перенос единицы
+    между файлами ломает стенд там же, где ломает боевую проводку, - на импорте, а не
+    молча посреди зелёного прогона.
+
+    Возвращает ручные часы стенда: сна тут нет вовсе, а стрелку двигает сам ``sleep``.
+    Боевую проводку возвращает фикстура ``_rewired`` этого пакета - после каждой пробы.
+    """
+    ticking = cast(FakeClock, parts.pop("clock", None) or hand(parts.pop("now", 1000.0)))
+    configure(
+        parts.pop("segment_name", segment_name),
+        parts.pop("segment_slot", segment_slot),
+        parts.pop("pack_start", pack_start),
+        parts.pop("pack_command", ffmpeg_pack_command),
+        parts.pop("packer", Packer),
+        parts.pop("forget_flag", forget_playing),
+        parts.pop("recode_dir", RECODE_DIR),
+        parts.pop("remove_tree", remove_tree),
+        parts.pop("segment_paths", _paths),
+        ticking,
+    )
+    assert not parts, f"стенд не знает таких слотов: {sorted(parts)}"
+    return ticking
+
+
+def factory(start: Any) -> Any:
+    """Завод прогона упаковки из одной ручки ``start`` - в объёме порта, и не больше."""
+    return type("StandPacker", (), {"start": staticmethod(start)})
 
 
 def grid(duration: float = 60.0, step: float = 10.0) -> Grid:
@@ -100,13 +133,20 @@ def grid(duration: float = 60.0, step: float = 10.0) -> Grid:
 
 
 def packer(root: Path, **kwargs: Any) -> Packer:
-    """Прогон упаковки поверх свежих каталогов, без единого ffmpeg."""
+    """Прогон упаковки поверх свежих каталогов, без единого ffmpeg.
+
+    Часы прогону называет тот, кому они важны: ``packer(..., now=hand.monotonic)``.
+    ``kind`` - каким классом собрать прогон: зеркалу иногда нужен наследник, у которого
+    одна ступень подменена своей (так меряется замок выкладки, не трогая саму выкладку).
+    """
+    kind = kwargs.pop("kind", None) or Packer
     out = kwargs.pop("out", None) or root / "out"
     run = kwargs.pop("run", None) or out / "pack"
     out.mkdir(parents=True, exist_ok=True)
     run.mkdir(parents=True, exist_ok=True)
     proc = kwargs.pop("proc", None) or FakeProc()
-    return Packer(proc=proc, out=out, run=run, **kwargs)
+    built: Packer = kind(proc=proc, out=out, run=run, **kwargs)
+    return built
 
 
 def feed(root: Path, **kwargs: Any) -> Feed:

@@ -45,9 +45,9 @@ def test_the_slots_are_wired_by_the_application() -> None:
 
 
 def test_the_clock_of_the_feed_is_the_real_one() -> None:
-    """Часы названы импортом, а не слотом: поле ленты берёт ``monotonic`` на сборке.
-
-    Слотом их не сделать: :class:`torrcast.usecases.feed_pack.feed_state._State` кладёт
-    ``monotonic`` в ``default_factory`` на импорте, то есть раньше любой композиции.
+    """Часы - такой же слот композиции, но с готовым умолчанием, и корень ставит в него
+    настоящие: :class:`torrcast.usecases.feed_pack.feed_state._State` берёт ``monotonic``
+    на сборке своего поля, то есть раньше любой композиции, и без умолчания импорт
+    пакета не состоялся бы вовсе.
     """
     assert _state.clock_port is time

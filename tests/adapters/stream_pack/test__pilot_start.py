@@ -3,23 +3,23 @@
 from __future__ import annotations
 
 import subprocess
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
 
-from tests.conftest import module_of
-from torrcast.adapters.stream_pack._pilot_start import _film_start, _pilot_start
-
-module = module_of("torrcast.adapters.stream_pack._pilot_start")
+from torrcast.adapters.stream_pack._pilot_start import _FILM_START, _film_start, _pilot_start
 
 #: На столько уезжает вперёд лента контейнера в фикстуре ниже.
 SHIFT = 600.0
 
 
 @pytest.fixture(autouse=True)
-def _own_memory(monkeypatch: pytest.MonkeyPatch) -> None:
+def _own_memory() -> Iterator[None]:
     """Начало ленты помнится на весь процесс; каждой проверке нужна своя память."""
-    monkeypatch.setattr(module, "_FILM_START", {})
+    _FILM_START.clear()
+    yield
+    _FILM_START.clear()
 
 
 @pytest.fixture
@@ -65,6 +65,6 @@ def test_the_start_of_the_film_is_measured_once_per_file(clip: str) -> None:
     а заходов на фильм много: число считается раз и помнится.
     """
     _film_start(clip)
-    assert module._FILM_START[clip] == 0.0
-    module._FILM_START[clip] = 3.5  # второй раз ffprobe не зовут
+    assert _FILM_START[clip] == 0.0
+    _FILM_START[clip] = 3.5  # второй раз ffprobe не зовут
     assert _film_start(clip) == 3.5
