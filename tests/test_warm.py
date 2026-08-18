@@ -1005,6 +1005,13 @@ def test_a_light_film_is_warmed_by_the_very_copy_the_live_packing_gives(tmp_path
     class _Heavy:
         targets = (1, 4)
         encode = Encode(preset="veryfast", mbit=9.0)
+        played = 0.0
+        #: Заход не идёт: сборка прогрева обязана видеть в кодировщике будущего соперника
+        #: по процессору, и без этого признака он им не является (:class:`RecodeRival`).
+        working = False
+
+        def start(self) -> None:
+            return None
 
     config = Config(warm=True, warm_dir=str(tmp_path / "warm"))
     warmer = _warmer(config, "http://ts/stream?link=abc&index=1", 0, _grid(), 0.0, "кино",

@@ -19,7 +19,7 @@ import pytest
 
 from torrcast import cli, console
 from torrcast.ports import show_unit as unit_port
-from torrcast.usecases import playback
+from torrcast.usecases.playback import _show_state as playback_state
 
 
 @dataclass
@@ -83,7 +83,7 @@ class CastWorld:
         patch.setattr(cli, "Prowlarr", self._indexer)
         patch.setattr(cli, "TorrServer", self._torrents)
         patch.setattr(cli, "probe", self._probe)
-        patch.setattr(playback, "start_play_unit", self._start)
+        patch.setattr(playback_state, "start_play_unit", self._start)
         unit_port.install(_WorldShowUnit(self))
         patch.setattr(cli, "_await_playing", self._await)
         patch.setattr(cli, "warm_file", self._warm)

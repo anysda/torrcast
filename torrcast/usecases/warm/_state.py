@@ -14,17 +14,6 @@ from torrcast.ports.warm_environment import WarmEnvironment, WarmGrid
 Grid = WarmGrid
 
 
-class _Encode(Protocol):
-    """Перекод в объёме, который нужен прогреву: чем кодируем и как это зовётся в ключе."""
-
-    @property
-    def preset(self) -> str: ...
-    @property
-    def mbit(self) -> float: ...
-    @property
-    def mark(self) -> str: ...
-
-
 class _Signalled(Protocol):
     """Процесс прогона в том объёме, в каком его знает прогрев: ему шлют сигнал."""
 

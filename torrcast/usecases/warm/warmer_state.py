@@ -8,19 +8,13 @@ from __future__ import annotations
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Protocol
 
 from torrcast.domain.profile import CAUTIOUS
-from torrcast.usecases.warm._state import Grid, _Encode, _Run
+from torrcast.ports.recode.encoding_key import EncodingKey
+from torrcast.ports.recode.recode_rival import RecodeRival
+from torrcast.usecases.warm._state import Grid, _Run
 from torrcast.usecases.warm.settings import CHAIN_RETRY, GUARD_LOW, WARM_NICE, WARM_RATE
 from torrcast.usecases.warm.vault import Vault
-
-
-class _Rival(Protocol):
-    """Кодировщик живых кусков в объёме, в каком его знает прогрев: идёт ли заход."""
-
-    @property
-    def working(self) -> bool: ...
 
 
 @dataclass(slots=True)
@@ -36,7 +30,7 @@ class _State:
     #: 🔴 Ставится ТЕМ ЖЕ решением, что у живой упаковки (:func:`torrcast.cli._warmer`).
     #: Прогретый кусок и живой - это одна лента для приёмника, и если они закодированы
     #: по-разному, на стыке источников у него меняется SPS.
-    encode: _Encode | None = None
+    encode: EncodingKey | None = None
     #: Слоты, которые живой показ отдаёт перекодированными поштучно (тяжёлые куски,
     #: :attr:`torrcast.recode.Recoder.targets`). Прогрев обязан положить на диск их же и
     #: такими же: копия тяжёлого куска приёмнику не по зубам, а перекод всего фильма ради
@@ -44,7 +38,7 @@ class _State:
     spots: tuple[int, ...] = ()
     #: Чем перекодировать :attr:`spots` - тот же :class:`torrcast.recode.Encode`, которым
     #: их берёт живой кодировщик.
-    spot_encode: _Encode | None = None
+    spot_encode: EncodingKey | None = None
     #: С какого места смотрим: прогрев идёт отсюда вперёд, голова - потом.
     began_at: int = 0
     #: Потолок веса одного куска у приёмника, байты
@@ -59,7 +53,7 @@ class _State:
     slack: float = 0.0
     #: Кодировщик живых кусков (:class:`torrcast.recode.Recoder`) или ``None``. Пока у него
     #: идёт заход, прогрев замирает: см. :meth:`_must_yield`.
-    rival: _Rival | None = None
+    rival: RecodeRival | None = None
     #: Прогрев замер под просевшим запасом (:data:`GUARD_LOW`).
     idle: bool = False
     #: С какого момента (монотонные секунды) запас держится над :data:`GUARD_LOW`, пока

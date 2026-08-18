@@ -18,7 +18,7 @@ from torrcast import cli
 from torrcast.search import RawResult
 from torrcast.state import Config, Entry, State, save_config
 from torrcast.stream import AudioTrack, Media, TorrFile
-from torrcast.usecases import playback
+from torrcast.usecases.playback import _show_state as playback_state
 
 #: Настоящее ожидание картинки: фикстура окружения подменяет его заглушкой, а один тест
 #: проверяет именно его.
@@ -49,7 +49,7 @@ def _env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         cli, "probe", lambda url, timeout=90.0, alive=None: Media(5978.0, TRACKS, "h264", 1080)
     )
-    monkeypatch.setattr(playback, "start_play_unit", lambda key: None)
+    monkeypatch.setattr(playback_state, "start_play_unit", lambda key: None)
     monkeypatch.setattr(cli, "_await_playing", lambda config, progress, timeout=120.0: None)
 
 
@@ -322,7 +322,7 @@ def test_a_pick_outside_the_menu_is_an_honest_error(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Номер, которого нет в меню, - ошибка вслух, а не молчаливый первый пункт."""
-    monkeypatch.setattr(playback, "start_play_unit", lambda key: pytest.fail("не кастим"))
+    monkeypatch.setattr(playback_state, "start_play_unit", lambda key: pytest.fail("не кастим"))
     _answers(monkeypatch)
 
     assert cli.main(["моана", "--pick", "7"]) == 1
@@ -817,7 +817,7 @@ def test_an_instant_answer_is_no_worse_than_before(monkeypatch: pytest.MonkeyPat
             return f"hash-{magnet[:30]}"
 
     monkeypatch.setattr(cli, "TorrServer", _Slow)
-    monkeypatch.setattr(playback, "start_play_unit", lambda key: started.append(key))
+    monkeypatch.setattr(playback_state, "start_play_unit", lambda key: started.append(key))
     _answers(monkeypatch, "")
 
     assert cli.main(["моана", "2"]) == 0

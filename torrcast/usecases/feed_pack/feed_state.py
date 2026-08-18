@@ -14,48 +14,10 @@ from typing import Protocol
 import torrcast.usecases.feed_pack._state as _state
 from torrcast.domain.hls_settings import PACK_PENDING_BYTES
 from torrcast.domain.profile import CAUTIOUS
+from torrcast.ports.recode.encoding_rate import EncodingRate
+from torrcast.ports.recode.feed_recoder import FeedRecoder
 from torrcast.usecases.feed_pack._state import Grid
 from torrcast.usecases.feed_pack.packer import Packer
-
-
-class _Encode(Protocol):
-    """Перекод в объёме, который нужен ленте: цель по битрейту, Мбит/с."""
-
-    @property
-    def mbit(self) -> float: ...
-
-
-class _Paced(Protocol):
-    """Лестница пресетов кодировщика: чем и с какой скоростью он умеет перекодировать."""
-
-    def table(self) -> tuple[tuple[str, float], ...]: ...
-
-
-class _Recoder(Protocol):
-    """Кодировщик тяжёлых кусков в объёме, в каком его знает лента показа.
-
-    Полный :class:`torrcast.recode.Recoder` сюда не приходит: он адаптер, а лента живёт
-    слоем сценариев и спрашивает у него ровно то, что перечислено ниже.
-    """
-
-    #: Каталог перекодированных кусков и его же корень для ужатия на месте.
-    spare: Path
-    #: Потолок ожидания перекода, секунды: тот же, что у предохранителя кодировщика.
-    over_wait: float
-    #: Где идёт показ, секунды фильма: по нему кодировщик решает, за что браться.
-    played: float
-    #: Слоты, за которые кодировщику браться уже незачем.
-    done: set[int]
-
-    @property
-    def pace(self) -> _Paced: ...
-
-    def stop(self) -> None: ...
-    def opening(self, slot: int) -> None: ...
-    def note(self, slot: int, how: str) -> None: ...
-    def holding(self, slot: int, size: int = 0) -> bool: ...
-    def ready(self, slot: int) -> Path | None: ...
-    def fit(self, span: float, preset: str) -> _Encode: ...
 
 
 class _Vault(Protocol):
@@ -130,7 +92,7 @@ class _State:
     log: Callable[[str], None] | None = None
     #: Кодировщик тяжёлых кусков (:class:`torrcast.recode.Recoder`) или ``None``, если
     #: динамический битрейт выключен либо тяжёлых кусков в фильме нет.
-    recoder: _Recoder | None = None
+    recoder: FeedRecoder | None = None
     #: Чем перекодировать ВЕСЬ фильм (:class:`torrcast.recode.Encode`); ``None`` - видео
     #: уезжает копией, как обычно.
     #:
@@ -143,7 +105,7 @@ class _State:
     #: ⚠️ Смешивать копию и перекод в одном показе НЕЛЬЗЯ (:data:`RECODE_CODECS`), поэтому
     #: признак живёт на :class:`Feed`, а не на сегменте: он один на весь файл и не зависит
     #: ни от места показа, ни от перемотки.
-    encode: _Encode | None = None
+    encode: EncodingRate | None = None
     #: Хранилище прогретого на диске (:class:`torrcast.warm.Vault`) или ``None``.
     #:
     #: Сетка детерминирована, поэтому прогретый кусок и живой - одно и то же место фильма

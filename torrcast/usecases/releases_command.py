@@ -5,14 +5,16 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, TypeAlias
 
 from torrcast.domain.choice import Choice
 from torrcast.domain.config import Config
 from torrcast.domain.exit_codes import EXIT_OK
 from torrcast.domain.not_found_error import NotFoundError
+from torrcast.domain.profile import Profile
 from torrcast.domain.release import Release
 from torrcast.domain.tune import tune as tune_profile
+from torrcast.ports.progress import Progress
 from torrcast.ports.progress import progress as progress_bar
 from torrcast.usecases.choice import _named
 from torrcast.usecases.discover import _search
@@ -20,7 +22,14 @@ from torrcast.usecases.rank import render_table
 from torrcast.usecases.reinforce import _timed
 
 if TYPE_CHECKING:
-    from torrcast.ports.choice_types import Args, Facts
+    from torrcast.ports.choice_types import Args
+    from torrcast.usecases.facts import Facts
+    from torrcast.usecases.select import _Plan
+
+    #: Чем ищется выдача: тот же поиск, что и у показа (:func:`_search`), либо ответ
+    #: подделки в тесте. Тип назван подписью самого поиска, а не свободным `Any`:
+    #: таблица зовёт его ровно этими четырьмя доводами и ждёт ровно планы картин.
+    Search: TypeAlias = Callable[[Config, Args, Progress, Profile], list[_Plan]]
 
 #: Внешний мир таблицы: настройки, справка о картинах, паспорт приёмника и память
 #: показанного порядка. Кладёт их композиционный корень (:mod:`torrcast.runtime.wire`) -
@@ -49,10 +58,10 @@ def _configure_releases_command(
 
 def _cmd_releases(
     args: Args,
-    search: Callable[..., Any] | None = None,
-    settings: Callable[[], Any] | None = None,
-    facts_source: Callable[..., Any] | None = None,
-    profile_choice: Callable[..., Any] | None = None,
+    search: Search | None = None,
+    settings: Callable[[], Config] | None = None,
+    facts_source: Callable[[list[tuple[str, int | None]]], Facts] | None = None,
+    profile_choice: Callable[[Config], Choice] | None = None,
 ) -> int:
     """``cast releases <запрос>`` — отладочная ручка: таблица и выход.
 

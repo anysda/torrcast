@@ -186,7 +186,7 @@ def wire() -> None:
         HlsServer,
         Encode,
         Recoder,
-        Weights,
+        Weights.of,
         whole_encode,
         MAXRATE_GAIN,
         RECODE_DIR,

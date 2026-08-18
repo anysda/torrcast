@@ -38,6 +38,7 @@ import urllib.error
 import urllib.request
 from dataclasses import replace
 from pathlib import Path
+from typing import cast
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -341,7 +342,7 @@ def main() -> int:
             f"сплошной перекод: {whole.preset}, цель {whole.mbit:.2f} Мбит/с, "
             f"потолок кодера {whole.maxrate:.2f}, кадр {whole.out_frame}, тонемап {whole.hdr}"
         )
-    unfit = unfit_grid(grid, args.step)
+    unfit = unfit_grid(cast(Grid, grid), args.step)
     if unfit:
         print(
             f"🔴 материал негоден для сеточного замера: {unfit}.\n"

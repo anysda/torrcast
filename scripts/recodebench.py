@@ -49,6 +49,7 @@ import sys
 import time
 from dataclasses import replace
 from pathlib import Path
+from typing import cast
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -204,7 +205,15 @@ def price(
     # ⚠️ Пробного захода тут нет и быть не может: у перекодирующего прогона докатки нет,
     # ``-ss`` точен (:func:`torrcast.stream.ffmpeg_pack_command`).
     command = ffmpeg_pack_command(
-        source, 0, str(run), grid, slot, grid.start(slot), readrate=0.0, encode=whole, until=until
+        source,
+        0,
+        str(run),
+        cast(Grid, grid),
+        slot,
+        grid.start(slot),
+        readrate=0.0,
+        encode=whole,
+        until=until,
     )
     print(f"\nпакуем v{slot}..v{until} тем же ffmpeg, что и показ:\n  {' '.join(command)}\n")
     was_cpu = _cpu_seconds()

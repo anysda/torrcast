@@ -1,0 +1,84 @@
+"""Строки перед стартом: чем это играется, что подменено и о чём человек обязан знать.
+
+Печатает их команда показа (:func:`_cmd_play`) - последним, что зритель уносит с собой.
+"""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+from torrcast.domain.bitrate_mbit import bitrate_mbit
+from torrcast.domain.config import Config
+from torrcast.domain.media import Media
+from torrcast.domain.release import Release
+from torrcast.domain.torr_file import TorrFile
+from torrcast.usecases.choice import (
+    _is_default,
+    namesake_note,
+    swap_note,
+    year_note,
+)
+from torrcast.usecases.rank import _gb, _hms, default_unnamed, sound_note, voice_note, voice_unproven
+from torrcast.usecases.select import _Prep
+
+if TYPE_CHECKING:
+    from torrcast.ports.choice_types import Args, _Plan
+    from torrcast.usecases.choice import _Passport
+
+
+def _notes(
+    config: Config,
+    plans: list[_Plan],
+    plan: _Plan,
+    prep: _Prep,
+    media: Media,
+    audio: int,
+    release: Release,
+    video: TorrFile,
+    passport: _Passport,
+    args: Args,
+) -> None:
+    """Всё, что показ обязан сказать до старта: вес, звук, подмена картины и тёзки."""
+    peak = bitrate_mbit(video.size, media.duration or plan.runtime)
+    if peak > config.bitrate_warn_mbit:
+        print(
+            f"внимание: ~{peak:.0f} Мбит/с - тяжёлые куски перекодирую на ходу"
+            if config.recode
+            else f"внимание: ~{peak:.0f} Мбит/с - ресивер на таком битрейте может встать"
+        )
+    # Молчаливого японского не бывает: перевода в файле нет - человек слышит об этом
+    # строкой, а не на слух через минуту показа.
+    playable = [plan.ranked[number - 1] for number in plan.candidates(args)]
+    fallback_spoken = (
+        not args.pinned
+        and voice_unproven(media, native=plan.picture.native)
+        and default_unnamed(media)
+        and release.dubbed
+    )
+    note = (
+        ""
+        if fallback_spoken
+        else sound_note(media, audio, playable, release, prep.files, native=plan.picture.native)
+    )
+    if note:
+        print(note)
+    # Русских дорожек было несколько - говорим, сколько и что взяли: подпись дорожки
+    # отвечает «что играет», а эта строка - «почему это, а не соседняя».
+    if note := voice_note(media, audio):
+        print(note)
+    if args.pinned:  # отладочный путь: тут внутренности показывать и надо
+        print(f"файл: {video.base} · {_gb(video.size)} · {_hms(media.duration)} · {media.video}")
+    # 🔴 TC-198. Последняя строка перед стартом: взяли не то, что назвали вслух. Место
+    # выбрано не для порядка - фазы поиска к этой секунде уехали вверх экрана, а решение
+    # про КАРТИНУ человек должен унести с собой. Человек выбрал пункт меню сам - подмены
+    # нет и строки нет (:func:`default_note`).
+    if note := swap_note(plans, plan, args.title_query):
+        print(note)
+    # 🔴 TC-199/TC-200. Год дефолтной картины против независимого слова справки: имя
+    # раздачи врёт («Оно» 2014, «Медведь» 2026), а год у дефолта не сверялся нигде.
+    if _is_default(plans, plan) and (note := year_note(plan, passport.get(), args.title_query)):
+        print(note)
+    # 🔴 TC-371. Двусмысленность самих источников: под одним именем и годом картин две,
+    # и развести их отбору нечем - значит человек читает об этом строкой.
+    if note := namesake_note(plan, passport.get()):
+        print(note)

@@ -16,7 +16,7 @@ from tests.fakes.show_unit import FakeShowUnit
 from torrcast import cli
 from torrcast.state import Entry, State
 from torrcast.stream import Media, TorrFile
-from torrcast.usecases import playback
+from torrcast.usecases.playback import _show_state as playback_state
 
 KEY = "tv:киберпанк-бегущие-по-краю:2022"
 #: Три серии раздачи: s1e1 → файл 0, s1e2 → файл 1, s1e3 → файл 2.
@@ -92,7 +92,7 @@ def _no_unit(
     show_unit: FakeShowUnit, monkeypatch: pytest.MonkeyPatch, order: list[str] | None = None
 ) -> list[str]:
     started: list[str] = []
-    monkeypatch.setattr(playback, "start_play_unit", lambda key: started.append(key))
+    monkeypatch.setattr(playback_state, "start_play_unit", lambda key: started.append(key))
     monkeypatch.setattr(cli, "_await_playing", lambda config, progress, timeout=120.0: None)
     if order is not None:
         show_unit.on_stop = lambda: order.append("stop")
@@ -421,7 +421,7 @@ def test_an_episode_outside_the_release_goes_looking_for_it(
     цепочка идёт искать релиз нужного сезона (тут упирается в ненастроенный Prowlarr).
     """
     remember(episode=1, pos=600.0, dur=MINUTES_24)
-    monkeypatch.setattr(playback, "start_play_unit", lambda key: pytest.fail("играть нечего"))
+    monkeypatch.setattr(playback_state, "start_play_unit", lambda key: pytest.fail("играть нечего"))
 
     assert cli.main(["киберпанк", "s2e5"]) == 2
 
@@ -435,7 +435,7 @@ def test_the_end_of_the_release_is_the_end(
     """Раздача досмотрена: следующая серия не выдумывается. Ответ «нет» — просто выходим."""
     remember(episode=3, file_idx=2, done=True, dur=MINUTES_24)
     monkeypatch.setattr("builtins.input", lambda prompt="": "нет")
-    monkeypatch.setattr(playback, "start_play_unit", lambda key: pytest.fail("играть нечего"))
+    monkeypatch.setattr(playback_state, "start_play_unit", lambda key: pytest.fail("играть нечего"))
 
     assert cli.main(["киберпанк"]) == 0
 

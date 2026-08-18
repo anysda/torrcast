@@ -7,37 +7,29 @@ from typing import Any
 
 import pytest
 
+from tests.fakes.blurb_source import FakeBlurbSource
+from tests.fakes.blurb_store import FakeBlurbStore
 from torrcast.cli.args import Args
 from torrcast.domain.choice import Choice
 from torrcast.domain.config import Config
 from torrcast.domain.exit_codes import EXIT_OK
-from torrcast.domain.facts.fact import Fact
 from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.picture import Picture
-from torrcast.domain.profile import CAUTIOUS
+from torrcast.domain.profile import CAUTIOUS, Profile
 from torrcast.domain.release import Release
+from torrcast.ports.progress import Progress
 from torrcast.runtime.wire import wire
 from torrcast.usecases import releases_command
+from torrcast.usecases.facts import Facts
 from torrcast.usecases.releases_command import _cmd_releases
 from torrcast.usecases.select import _Plan
 
 GB = 1024**3
 
 
-class _Silent:
+def _silent(wanted: list[tuple[str, int | None]]) -> Facts:
     """Справка, которой нечего сказать: таблица считает по своим числам."""
-
-    def __init__(self, *_args: Any, **_kwargs: Any) -> None:
-        pass
-
-    def start(self) -> None:
-        return None
-
-    def finish(self) -> None:
-        return None
-
-    def get(self, *_args: Any, **_kwargs: Any) -> Fact:
-        return Fact()
+    return Facts(wanted, 0.0, store=FakeBlurbStore(), source=FakeBlurbSource())
 
 
 def _plan() -> _Plan:
@@ -72,7 +64,7 @@ def test_the_command_drops_its_own_word_and_prints_the_table(
     monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
     asked: list[list[str]] = []
 
-    def search(config: Config, args: Any, progress: Any, *rest: Any) -> list[_Plan]:
+    def search(config: Config, args: Args, progress: Progress, profile: Profile) -> list[_Plan]:
         asked.append(list(args.query))
         return [_plan()]
 
@@ -80,7 +72,7 @@ def test_the_command_drops_its_own_word_and_prints_the_table(
         Args(query=["releases", "кино"]),
         search=search,
         settings=Config,
-        facts_source=_Silent,
+        facts_source=_silent,
         profile_choice=lambda _config: Choice(profile=CAUTIOUS, how="стенд"),
     )
     printed = capsys.readouterr().out

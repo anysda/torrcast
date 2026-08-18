@@ -44,6 +44,7 @@ if TYPE_CHECKING:
 #: красного.
 _MOVED_NAMES = {
     "_cmd_status": (("torrcast.cli.main", "status"),),
+    "_await_playing": (("torrcast.usecases.playback._launch", "_await_playing"),),
     "PEER_GRACE": (("torrcast.usecases.rank.peer_grace", "PEER_GRACE"),),
     "STEP_GRACE": (("torrcast.usecases.rank.peer_grace", "STEP_GRACE"),),
 }
@@ -54,7 +55,7 @@ _MOVED_NAMES = {
 _COMPOSED_NAMES = {
     "TorrServer": (
         ("torrcast.usecases.cache_reserve", "_reserve_engines"),
-        ("torrcast.usecases.cast_command", "_play_engines"),
+        ("torrcast.usecases.cast_command._play_state", "_play_engines"),
         ("torrcast.usecases.select", "_select_engines"),
         ("torrcast.usecases.torrents", "_cleanup_engines"),
         ("torrcast.usecases.voices_command", "_voices_engines"),
@@ -62,13 +63,17 @@ _COMPOSED_NAMES = {
     ),
     "Prowlarr": (("torrcast.usecases.discover", "_search_indexers"),),
     "ask_line": (("torrcast.usecases.select", "_select_ask_line"),),
-    "make_receiver": (("torrcast.usecases.worker", "_worker_receivers"),),
+    "make_receiver": (
+        ("torrcast.usecases.playback._show_state", "make_receiver"),
+        ("torrcast.usecases.worker", "_worker_receivers"),
+    ),
     "origin": (
         ("torrcast.adapters.choice_environment", "_passport"),
         ("torrcast.usecases.discover", "_search_passport"),
     ),
     "probe": (
         ("torrcast.usecases.episode_duration", "_episode_prober"),
+        ("torrcast.usecases.playback._show_state", "probe"),
         ("torrcast.usecases.select", "_select_prober"),
         ("torrcast.usecases.select_bench", "_bench_prober"),
     ),

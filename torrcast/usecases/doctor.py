@@ -19,6 +19,7 @@ from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 
+import torrcast.usecases.doctor_environment as _state
 from torrcast.domain.cache_health import CacheHealth
 from torrcast.domain.health_verdict import HealthLine
 from torrcast.domain.indexer_health import IPV4_ONLY, KEY_INDEXER, IndexerHealth
@@ -29,7 +30,9 @@ from torrcast.ports.console import Console
 from torrcast.ports.health_checks import HealthChecks
 from torrcast.ports.health_config import HealthConfig
 from torrcast.ports.health_environment import HealthEnvironment
+from torrcast.usecases.disk_free import disk_free as disk_free
 from torrcast.usecases.host_checkup import HostCheckup
+from torrcast.usecases.machine_memory import machine_memory as machine_memory
 from torrcast.usecases.show_checkup import ShowCheckup
 from torrcast.usecases.warm import FREE_FLOOR
 
@@ -46,15 +49,15 @@ _INDEXER_TIMEOUT = 15.0
 #: своим бюджетом и запасом, а также состояние и система. То же число складывает
 #: установка (``install.sh``: тот же ``WARM_BUDGET`` плюс ``TS_DISK_FLOOR``).
 CACHE_DISK_RESERVE = WARM_BUDGET + FREE_FLOOR
-#: Оба поля кладёт композиция при импорте фасада ``torrcast.doctor``.
-_environment: HealthEnvironment
+#: Порт приёмника кладёт композиция при импорте фасада ``torrcast.doctor``; сама среда
+#: лежит одна на всех её читателей (:mod:`torrcast.usecases.doctor_environment`).
 CAST_PORT: int
 
 
 def _configure(environment: HealthEnvironment) -> None:
     """Принять системную среду от композиции: без неё пробы не знают внешнего мира."""
-    global _environment, CAST_PORT
-    _environment = environment
+    global CAST_PORT
+    _state.environment = environment
     CAST_PORT = environment.cast_port()
 
 
@@ -85,8 +88,8 @@ class Doctor:
     @staticmethod
     def checkup(config: HealthConfig, env: Env = None) -> Iterator[Line]:
         """Все проверки по порядку: сначала консоль, потом инфраструктура, потом ТВ."""
-        host = HostCheckup(env or _environment)
-        show = ShowCheckup(env or _environment, _TIMEOUT)
+        host = HostCheckup(env or _state.environment)
+        show = ShowCheckup(env or _state.environment, _TIMEOUT)
         yield host.terminal()
         yield host.locale()
         yield host.ffmpeg()
@@ -110,27 +113,17 @@ _enabled_names = IndexerHealth.enabled_names
 
 def _json(url: str, headers: dict[str, str]) -> object | None:
     """JSON у Prowlarr спрашивает адаптер среды."""
-    return _environment.get_json(url, headers, _TIMEOUT)
+    return _state.environment.get_json(url, headers, _TIMEOUT)
 
 
 def _settings(url: str) -> object | None:
     """Настройки TorrServer спрашивает адаптер среды."""
-    return _environment.torrserver_settings(url, _TIMEOUT)
-
-
-def machine_memory() -> int:
-    """Память машины меряет адаптер среды."""
-    return _environment.machine_memory()
-
-
-def disk_free(path: str) -> int:
-    """Место на разделе меряет адаптер среды."""
-    return _environment.disk_free(path)
+    return _state.environment.torrserver_settings(url, _TIMEOUT)
 
 
 def _family(env: Env = None) -> Line:
     """Какой дорогой Prowlarr идёт к трекерам: по IPv4 или как ляжет (TC-311)."""
-    return IndexerHealth.route((env or _environment).prowlarr_unit(_TIMEOUT))
+    return IndexerHealth.route((env or _state.environment).prowlarr_unit(_TIMEOUT))
 
 
 def _prowlarr(config: HealthConfig, env: Env = None) -> Iterator[Line]:
@@ -167,7 +160,7 @@ def _live_indexers(config: HealthConfig, payload: object, env: Env = None) -> It
 def _probe_indexer(config: HealthConfig, indexer: int, name: str, env: Env = None) -> str:
     """Ответ индексера на живой поиск: ответил, ответил мимо или промолчал."""
     query = IndexerHealth.query(name)
-    titles = (env or _environment).search_titles(
+    titles = (env or _state.environment).search_titles(
         config.prowlarr_url, config.prowlarr_apikey, indexer, query, _INDEXER_TIMEOUT
     )
     return IndexerHealth.answer(query, titles)
@@ -190,9 +183,9 @@ def _cache(config: HealthConfig, env: Env = None) -> Line:
 
 def _trace(env: Env = None) -> Line:
     """Недельный след: пишется ли он вообще, свежий ли и сколько занимает."""
-    return ShowCheckup(env or _environment, _TIMEOUT).trace()
+    return ShowCheckup(env or _state.environment, _TIMEOUT).trace()
 
 
 def _mdns(env: Env = None) -> Line:
     """Путь поиска приёмников по mDNS: жив ли он, и что именно не так, если имён нет."""
-    return ReceiverHealth.mdns(*(env or _environment).heard_receivers())
+    return ReceiverHealth.mdns(*(env or _state.environment).heard_receivers())

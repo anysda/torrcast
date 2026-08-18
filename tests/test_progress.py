@@ -17,7 +17,7 @@ from tests.fakes.show_unit import FakeShowUnit
 from torrcast import InfraError, cli
 from torrcast.state import Entry, State, load_config
 from torrcast.stream import unit_active, unit_why
-from torrcast.usecases import playback
+from torrcast.usecases.playback import _show_state as playback_state
 
 KEY = "movie:моана-2:2024"
 
@@ -112,7 +112,7 @@ def test_resume_is_silent_and_starts_from_the_saved_position(
         asked.append(prompt)
         return ""
 
-    monkeypatch.setattr(playback, "start_play_unit", lambda key: started.append(key))
+    monkeypatch.setattr(playback_state, "start_play_unit", lambda key: started.append(key))
     monkeypatch.setattr(cli, "_await_playing", lambda config, progress, timeout=120.0: None)
     monkeypatch.setattr("builtins.input", ask)
 
@@ -131,7 +131,7 @@ def test_new_keeps_the_release_but_drops_the_position(
 ) -> None:
     """``--new`` - та же раздача и дорожка, позиция ноль."""
     remember(pos=2467.0, dur=5978.0, audio=1)
-    monkeypatch.setattr(playback, "start_play_unit", lambda key: None)
+    monkeypatch.setattr(playback_state, "start_play_unit", lambda key: None)
     monkeypatch.setattr(cli, "_await_playing", lambda config, progress, timeout=120.0: None)
     monkeypatch.setattr("builtins.input", lambda prompt="": pytest.fail("меню не нужно"))
 
@@ -162,7 +162,7 @@ def test_new_restarts_the_recorded_episode_not_the_series(
         ),
     )
     state.save()
-    monkeypatch.setattr(playback, "start_play_unit", lambda key: None)
+    monkeypatch.setattr(playback_state, "start_play_unit", lambda key: None)
     monkeypatch.setattr(cli, "_await_playing", lambda config, progress, timeout=120.0: None)
     monkeypatch.setattr("builtins.input", lambda prompt="": pytest.fail("меню не нужно"))
 
@@ -195,7 +195,7 @@ def test_new_jumps_to_the_named_episode_in_the_saved_release(
         ),
     )
     state.save()
-    monkeypatch.setattr(playback, "start_play_unit", lambda key: None)
+    monkeypatch.setattr(playback_state, "start_play_unit", lambda key: None)
     monkeypatch.setattr(cli, "_await_playing", lambda config, progress, timeout=120.0: None)
 
     assert cli.main(["сериал", "s2e6", "--new"]) == 0
@@ -221,7 +221,7 @@ def test_watched_movie_restarts_without_a_question(
         asked.append(prompt)
         return ""
 
-    monkeypatch.setattr(playback, "start_play_unit", started.append)
+    monkeypatch.setattr(playback_state, "start_play_unit", started.append)
     monkeypatch.setattr(cli, "_await_playing", lambda config, progress, timeout=120.0: None)
     monkeypatch.setattr("builtins.input", ask)
 
@@ -240,7 +240,7 @@ def test_dry_resume_does_not_touch_the_unit(
     remember(pos=2467.0, dur=5978.0)
     monkeypatch.setattr("builtins.input", lambda prompt="": "")
     monkeypatch.setattr(
-        playback, "start_play_unit", lambda key: pytest.fail("--dry юнитов не поднимает")
+        playback_state, "start_play_unit", lambda key: pytest.fail("--dry юнитов не поднимает")
     )
 
     assert cli.main(["моана", "2", "--dry"]) == 0
@@ -472,7 +472,7 @@ def test_the_next_cast_takes_down_the_torrent_of_a_killed_unit(
     torrents = _Torrents()
     monkeypatch.setattr(cli, "TorrServer", torrents)
     show_unit.alive = False
-    monkeypatch.setattr(playback, "start_play_unit", lambda key: None)
+    monkeypatch.setattr(playback_state, "start_play_unit", lambda key: None)
     monkeypatch.setattr(cli, "_await_playing", lambda config, progress, timeout=120.0: None)
     monkeypatch.setattr("builtins.input", lambda prompt="": "")
 

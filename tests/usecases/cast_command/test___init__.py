@@ -8,8 +8,7 @@ from torrcast.domain.parse_release_name import parse_release_name
 from torrcast.domain.pick_franchise import pick_franchise
 from torrcast.domain.picture import Picture
 from torrcast.runtime.wire import wire
-from torrcast.usecases import cast_command
-from torrcast.usecases.cast_command import _cmd_play, _season_reread
+from torrcast.usecases.cast_command import _cmd_play, _play_state, _season_reread
 
 
 def _catalog(*names: str) -> list[Picture]:
@@ -53,7 +52,7 @@ def test_the_composition_root_hands_the_command_its_whole_outside_world() -> Non
     поэтому новый слот забыть в этой проверке нельзя.
     """
     wire()
-    slots = [name for name in cast_command.__annotations__ if name.startswith("_play_")]
+    slots = [name for name in _play_state.__annotations__ if name.startswith("_play_")]
     assert slots, "у команды показа обязаны быть объявленные слоты внешнего мира"
-    assert [name for name in slots if not hasattr(cast_command, name)] == []
+    assert [name for name in slots if not hasattr(_play_state, name)] == []
     assert _cmd_play is not None

@@ -6,6 +6,7 @@ import os
 import signal
 import subprocess
 from pathlib import Path
+from typing import cast
 
 import pytest
 
@@ -1840,7 +1841,7 @@ def test_a_frame_above_the_receivers_ceiling_is_scaled_down_instead_of_refused()
     from torrcast.state import Config
     from torrcast.stream import recode_note
 
-    whole = _encode_all(Config(), "hevc", 20.0, 10, CAUTIOUS, frame=2160)
+    whole = cast(Encode | None, _encode_all(Config(), "hevc", 20.0, 10, CAUTIOUS, frame=2160))
     assert whole is not None and whole.scaled, "4К обязано ужиматься, а не ехать как есть"
     assert whole.out_frame == RECODE_HEIGHT == CAUTIOUS.recode_frame
     args = whole.args(_grid(), 0, 2)
@@ -1856,7 +1857,7 @@ def test_a_frame_above_the_receivers_ceiling_is_scaled_down_instead_of_refused()
         "видео hevc 10 бит - перекодирую на ходу целиком, 2160p - играю в 1080p"
     )
     # На 1080p не поменялось ничего: ни фильтра, ни строки.
-    same = _encode_all(Config(), "hevc", 20.0, 10, CAUTIOUS, frame=1080)
+    same = cast(Encode | None, _encode_all(Config(), "hevc", 20.0, 10, CAUTIOUS, frame=1080))
     assert same is not None and not same.scaled and "-vf" not in same.args(_grid(), 0, 2)
     assert recode_note("hevc 10 бит") == "видео hevc 10 бит - перекодирую на ходу целиком"
 
@@ -2022,7 +2023,7 @@ def test_the_grid_is_told_the_encoders_ceiling_not_its_average_target() -> None:
         sizes=keys.offset, fixed_mbit=(whole.mbit + AUDIO_MBIT) * TS_OVERHEAD,
         cap=CAUTIOUS.max_segment_bytes,
     )  # fmt: skip
-    assert naive.bounds != grid.bounds, "обещание сетке решает, где лягут границы"
+    assert naive.bounds != cast(Grid, grid).bounds, "обещание сетке решает, где лягут границы"
     assert max(naive.span(k) for k in range(naive.count - 1)) > 13.0, "по цели берётся длинный"
     assert (
         max(naive.span(k) * delivered * 1e6 / 8 for k in range(naive.count - 1))

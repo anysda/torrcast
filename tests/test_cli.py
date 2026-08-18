@@ -6,17 +6,20 @@ import io
 import re
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, cast
 
 import pytest
 
+from tests.fakes.blurb_source import FakeBlurbSource
+from tests.fakes.blurb_store import FakeBlurbStore
 from tests.fakes.choice_environment import FakeChoiceEnvironment
 from torrcast import InfraError, NotFoundError, SwarmError, cli
 from torrcast.cli import TABLE_LIMIT, is_candidate, is_disc, rank_releases, render_table, warned
 from torrcast.console import Progress
+from torrcast.domain.facts.fact import Fact
 from torrcast.parse import (
     Episode,
     Kind,
@@ -29,6 +32,7 @@ from torrcast.parse import (
 from torrcast.profile import CAUTIOUS
 from torrcast.state import load_config
 from torrcast.stream import RUNTIME_GUESS, AudioTrack, Media, ServerDownError, TorrFile
+from torrcast.usecases.facts import Facts
 
 RUNTIME = RUNTIME_GUESS["movie"]
 GB = 1024**3
@@ -3733,7 +3737,6 @@ def test_releases_table_uses_true_duration_and_matches_explicit_release(
     """У картины с длительностью сильно больше двух часов таблица cast releases
     и последующий --release N дают одну и ту же раздачу под одним и тем же номером.
     """
-    from torrcast.facts import Fact
     from torrcast.state import Config
 
     lighter = rel(name="lighter", size_gb=10, seeders=50)
@@ -3752,21 +3755,11 @@ def test_releases_table_uses_true_duration_and_matches_explicit_release(
         warn_mbit=config.bitrate_warn_mbit,
     )
 
-    def fake_search(*args: Any, **kwargs: Any) -> list[cli._Plan]:
+    def fake_search(*args: Any, **kwargs: Any) -> list[Any]:
         return [plan]
 
-    class FakeFacts:
-        def __init__(self, *args: Any, **kwargs: Any) -> None:
-            pass
-
-        def start(self) -> None:
-            pass
-
-        def finish(self) -> None:
-            pass
-
-        def get(self, *args: Any, **kwargs: Any) -> Fact:
-            return Fact(runtime="3 ч")
+    class FakeFacts(_Facts3h):
+        """Та же справка «3 ч», но объявленная рядом с прогоном, который её зовёт."""
 
     cli._cmd_releases(
         cli.Args(query=["releases", "кино"]),
@@ -3786,17 +3779,17 @@ def test_releases_table_uses_true_duration_and_matches_explicit_release(
 
     args = cli.Args(query=["кино"], release=1)
     assert args.release is not None
-    fresh_plan = cli._timed(plan, cast(Any, FakeFacts()), args, config)
+    fresh_plan = cli._timed(plan, cast(Any, FakeFacts([])), args, config)
     assert fresh_plan.ranked[args.release - 1].raw_name == "heavy", (
         "отбор не должен расходиться с таблицей"
     )
 
 
-class _Facts3h:
+class _Facts3h(Facts):
     """Справка, которая на любую картину отвечает хронометражем «3 ч»."""
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        pass
+    def __init__(self, pictures: Iterable[tuple[str, int | None]]) -> None:
+        super().__init__(pictures, 0.0, store=FakeBlurbStore(), source=FakeBlurbSource())
 
     def start(self) -> None:
         pass
@@ -3804,9 +3797,7 @@ class _Facts3h:
     def finish(self) -> None:
         pass
 
-    def get(self, *args: Any, **kwargs: Any) -> Any:
-        from torrcast.facts import Fact
-
+    def get(self, title: str, year: int | None) -> Fact:
         return Fact(runtime="3 ч")
 
 
