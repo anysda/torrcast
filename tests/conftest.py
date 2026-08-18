@@ -389,7 +389,7 @@ def remote(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 def _wired() -> None:
     """Тесты собирают приложение так же, как боевой запуск: через композиционный корень.
 
-    Без этого след молчал бы (:class:`torrcast.ports.journal._Silent`), и проверки,
+    Без этого след молчал бы (:class:`torrcast.ports.journal.silent.Silent`), и проверки,
     которые читают ленту, доказывали бы не поведение показа, а собственную тишину.
     Каталог ленты у каждого теста свой - его даёт фикстура ``journal``.
     """

@@ -21,6 +21,7 @@ import pytest
 
 from tests.conftest import CLIP_SECONDS, free_port
 from torrcast import cli, trace
+from torrcast.adapters import warm_environment
 from torrcast.cast import MockReceiver, Position, trust_anchor
 from torrcast.cli import Watch as _Watch
 from torrcast.cli import _Clock, _play, _Stopped
@@ -748,7 +749,7 @@ def test_the_budget_is_rechecked_as_the_run_lays_pieces(
     from torrcast import stream
 
     monkeypatch.setattr(stream, "Packer", _LayingPacker)
-    monkeypatch.setattr(stream, "pack_start", lambda url, at, timeout=0.0: at)
+    monkeypatch.setattr(warm_environment, "_pack_start", lambda url, at: at)
     grid = _grid()
     said: list[str] = []
     warmer = Warmer(
@@ -1156,16 +1157,15 @@ def test_the_recoding_run_of_the_warming_never_asks_the_pilot(
     (:func:`torrcast.stream.ffmpeg_pack_command`). Пробный прогон тут подменён заведомо
     неверным ответом - если прогрев его спросит и послушает, кусок ляжет не на своё место.
     """
-    from torrcast import stream
     from torrcast.recode import Encode
 
     asked: list[float] = []
 
-    def _pilot(url: str, at: float, timeout: float = 0.0) -> float:
+    def _pilot(url: str, at: float) -> float:
         asked.append(at)
         return at - 5.0
 
-    monkeypatch.setattr(stream, "pack_start", _pilot)
+    monkeypatch.setattr(warm_environment, "_pack_start", _pilot)
     grid = _offkey_grid()
     slot = 2
     vault = _vault(tmp_path, key="точечно")
@@ -1301,11 +1301,9 @@ def test_a_piece_laid_off_the_grid_never_reaches_the_show(
     измеренного), и заход честно уезжает на всю докатку. Первый промах - кусок вон и
     заново; второй на том же месте - место честно объявлено непрогретым.
     """
-    from torrcast import stream
-
     monkeypatch.setenv(trace.LOG_ENV, str(tmp_path / "след"))
     monkeypatch.setenv(trace.SID_ENV, "tc-125")
-    monkeypatch.setattr(stream, "pack_start", lambda url, at, timeout=0.0: at)
+    monkeypatch.setattr(warm_environment, "_pack_start", lambda url, at: at)
     grid = _offkey_grid()
     vault = _vault(tmp_path, key="кривой")
     said: list[str] = []
@@ -1431,7 +1429,7 @@ def test_a_piece_over_the_receiver_ceiling_never_stops_the_warm_publishing(
             return None
 
     monkeypatch.setattr(stream, "Packer", _Recorder)
-    monkeypatch.setattr(stream, "pack_start", lambda url, at, timeout=0.0: at)
+    monkeypatch.setattr(warm_environment, "_pack_start", lambda url, at: at)
     grid = _grid()
     warmer = Warmer(source="нет", audio=0, grid=grid, vault=_vault(tmp_path), slack=1e6)
     warmer._run(0, grid.count - 1)

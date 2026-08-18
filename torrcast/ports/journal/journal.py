@@ -1,14 +1,16 @@
 """Пишет диагностический след сценариев и отвечает на вопросы о нём.
 
-Слои зовут след через этот порт, а не через модуль: `torrcast.trace` - это файлы и
-фоновый писатель, то есть внешний мир. Кто именно пишет, решает композиционный корень
+Слои зовут след через этот порт, а не через модуль: лента - это файлы и фоновый
+писатель, то есть внешний мир. Кто именно пишет, решает композиционный корень
 (:mod:`torrcast.runtime.wire`); до его слова след молчит - и это НЕ авария, а
 умолчание: прогон без корня (щуп, отдельный тест) не обязан заводить файлы пользователя.
 """
 
 from __future__ import annotations
 
-from typing import Any, Protocol
+from typing import Protocol
+
+from torrcast.ports.json_value import JsonValue
 
 
 class Journal(Protocol):
@@ -17,18 +19,30 @@ class Journal(Protocol):
     Словарь событий именной, а не «пиши что хочешь»: имя события задаёт набор полей, по
     которым его потом ищет ``cast log``. Свободный :meth:`emit` остаётся для того, что
     именем ещё не названо.
+
+    Поля события названы :data:`~torrcast.ports.json_value.JsonValue`, а не «чем угодно»:
+    запись уезжает в ленту строкой ``jsonl``, и всё, что в JSON не укладывается, лента
+    роняет целиком вместе с записью. Договор тут ровно тот, который лента и так
+    исполняет, - просто теперь он назван.
     """
 
-    def emit(self, phase: str, event: str, **fields: Any) -> None:
-        """Положить произвольное событие в ленту."""
+    def emit(self, phase: str, event: str, **fields: object) -> None:
+        """Положить произвольное событие в ленту.
 
-    def mark(self, name: str, **facts: Any) -> None:
+        ⚠️ Поля тут пока шире правды: настоящий договор свободного события - такой же
+        :data:`~torrcast.ports.json_value.JsonValue`, как у :meth:`mark`, но один слот
+        сценария рабочего (``_worker_thresholds``) объявлен ``dict[str, object]`` и
+        разливается сюда звёздочкой. Сузить его - правка в слое сценариев, и она идёт
+        отдельно от этого куска.
+        """
+
+    def mark(self, name: str, **facts: JsonValue) -> None:
         """Отметить фазу критического пути старта: где именно ушли секунды."""
 
     def shutdown(self) -> None:
         """Дождаться, пока фоновый писатель допишет хвост."""
 
-    def records(self, since: float = 0.0) -> list[dict[str, Any]]:
+    def records(self, since: float = 0.0) -> list[dict[str, JsonValue]]:
         """Записи ленты, начиная с указанного момента."""
 
     def session_id(self) -> str:
@@ -75,46 +89,3 @@ class Journal(Protocol):
 
     def warmth(self, event: str, secs: float, dur: float, size: int, why: str = "") -> None:
         """Ход прогрева: сколько секунд фильма готово и во что это обошлось."""
-
-
-class _Silent:
-    """След, которого нет: прогон без композиционного корня ничего не пишет."""
-
-    def emit(self, phase: str, event: str, **fields: Any) -> None:
-        return None
-
-    def mark(self, name: str, **facts: Any) -> None:
-        return None
-
-    def shutdown(self) -> None:
-        return None
-
-    def records(self, since: float = 0.0) -> list[dict[str, Any]]:
-        return []
-
-    def session_id(self) -> str:
-        return ""
-
-    def start_session(self) -> str:
-        return ""
-
-    def health(self) -> tuple[bool, float, int]:
-        return False, 0.0, 0
-
-    def __getattr__(self, name: str) -> Any:
-        """Любое именное событие молчащей ленты - тоже молчание."""
-        return lambda *args, **fields: None
-
-
-_journal: Journal = _Silent()
-
-
-def journal() -> Journal:
-    """Куда пишется след прямо сейчас."""
-    return _journal
-
-
-def install(sink: Journal) -> None:
-    """Назначить, кто пишет след. Зовёт это только композиционный корень и тесты."""
-    global _journal
-    _journal = sink

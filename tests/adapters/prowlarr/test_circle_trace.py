@@ -9,10 +9,10 @@ import pytest
 
 from torrcast.adapters.filesystem.trace_journal import records, shutdown
 from torrcast.adapters.prowlarr.circle_trace import circle_trace
-from torrcast.ports.journal import _Silent, install
+from torrcast.ports.journal import Silent, install
 
 
-class _Spy(_Silent):
+class _Spy(Silent):
     """Молчащая лента, которая запоминает фазы секундомера.
 
     Секундомер кладёт фазу в ленту событием ``timeline``; недельный след круга идёт

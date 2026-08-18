@@ -4,19 +4,19 @@ from __future__ import annotations
 
 from typing import ClassVar
 
-from torrcast.ports.progress import Progress, _Quiet, install, progress
+from torrcast.ports.progress import Progress, Quiet, install, progress
 
 
 def test_without_a_root_the_bar_is_quiet_and_not_a_failure() -> None:
     """Прогон без композиционного корня ничего не рисует и не падает."""
-    install(_Quiet)
+    install(Quiet)
 
     with progress() as bar:
         bar.phase("поиск «моана»")
         bar.note("выбрана раздача")
         bar.stop()
 
-    assert isinstance(progress(), _Quiet)
+    assert isinstance(progress(), Quiet)
 
 
 def test_every_call_gets_its_own_bar() -> None:

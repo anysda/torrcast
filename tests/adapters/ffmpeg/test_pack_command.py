@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from torrcast.adapters.ffmpeg.pack_command import pack_command
-from torrcast.ports.journal import _Silent, install
+from torrcast.ports.journal import Silent, install
 
 
 @dataclass
@@ -21,7 +21,7 @@ class _Grid:
         return self.bounds[slot + 1] if slot + 1 < self.count else 30.0
 
 
-class _Spy(_Silent):
+class _Spy(Silent):
     """Молчащая лента, которая запоминает отметки: сборка обязана оставлять след."""
 
     def __init__(self) -> None:

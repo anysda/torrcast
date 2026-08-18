@@ -22,12 +22,12 @@ import pytest
 from tests.fakes.clock import FakeClock
 from tests.fakes.stream_source import FakeStreamSource
 from torrcast.domain.revive_settings import SOURCE_PAUSE, SOURCE_TRIES
-from torrcast.ports.journal import _Silent, install
+from torrcast.ports.journal import Silent, install
 from torrcast.usecases import source_blame
 from torrcast.usecases.source_blame import _asked, _blamed
 
 
-class RecordingJournal(_Silent):
+class RecordingJournal(Silent):
     """Молчащий след, который запоминает одно: что сказали про возврат раздачи."""
 
     def __init__(self) -> None:
@@ -43,7 +43,7 @@ def trace() -> Iterator[RecordingJournal]:
     sink = RecordingJournal()
     install(sink)
     yield sink
-    install(_Silent())
+    install(Silent())
 
 
 def test_a_healthy_source_is_asked_several_times_and_still_not_blamed() -> None:

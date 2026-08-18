@@ -4,6 +4,7 @@ from typing import Any
 
 import pytest
 
+from torrcast.adapters import warm_environment
 from torrcast.adapters.warm_environment import environment
 
 
@@ -12,22 +13,24 @@ def test_warm_environment_has_monotonic_clock() -> None:
     assert environment.monotonic() >= 0
 
 
-def test_the_media_tract_is_taken_from_the_facade_at_every_call(
+def test_the_media_tract_is_taken_from_its_slot_at_every_call(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Упаковку и пробный прогон среда спрашивает у фасада именем, а не держит у себя.
+    """Медиатракт среда спрашивает на каждом вызове, а не связывает на сборке класса.
 
-    На этом стоят все подмены медиатракта в зеркалах прогрева. Сценарий читает не
-    ``torrcast.stream``, а слоты :mod:`torrcast.usecases.warm._state`, и лежат в них методы
-    среды: сравнение ``is`` со ``stream.pack_start`` даёт False. Из этого False уже
-    делали вывод «подмена мёртвая» (TC-666), хотя живая она ровно потому, что среда на
-    каждом вызове идёт за именем на фасад.
+    На этом стоят все подмены медиатракта в зеркалах прогрева. Сценарий читает не свои
+    имена, а слоты :mod:`torrcast.usecases.warm._state`, и лежат в них методы среды:
+    сравнение ``is`` с исходной функцией даёт False. Из этого False уже делали вывод
+    «подмена мёртвая» (TC-666), хотя живая она ровно потому, что среда на каждом вызове
+    идёт за именем в свой модульный слот.
 
-    🔴 Связать имя на сборке (``pack_start = staticmethod(stream.pack_start)``) или
-    увести адрес мимо фасада (``import_module("torrcast.stream_pack")``) - и шесть подмен
-    в зеркалах прогрева замолчат разом. Замер пробой: такую поломку адреса видит одно
+    🔴 Связать имя на сборке (``pack_start = staticmethod(pack_start)``) - и подмены в
+    зеркалах прогрева замолчат разом. Замер пробой: такую поломку адреса видит одно
     зеркало прогрева из четырёх, остальные три остаются зелёными. Поэтому адрес держится
     мерой, а не договорённостью.
+
+    Упаковщик (:class:`Packer`) живёт в слое сценариев, и адаптеру он по имени недоступен
+    (правило слоёв), поэтому его адрес - прежний фасад; мера сторожит и его.
     """
     from torrcast import stream
 
@@ -36,9 +39,15 @@ def test_the_media_tract_is_taken_from_the_facade_at_every_call(
         def start(cls, *args: object, **kwargs: object) -> str:
             return "упаковка с фасада"
 
-    monkeypatch.setattr(stream, "pack_start", lambda *args, **kwargs: "начало с фасада")
+    monkeypatch.setattr(warm_environment, "_pack_start", lambda url, at: 42.5)
+    monkeypatch.setattr(warm_environment, "_segment_name", lambda slot: "имя из слота")
+    monkeypatch.setattr(warm_environment, "_segment_slot", lambda name: 77)
+    monkeypatch.setattr(warm_environment, "_pack_command", lambda *a, **k: ["команда из слота"])
     monkeypatch.setattr(stream, "Packer", _Sentinel)
     packer: Any = environment.packer_type
 
-    assert environment.pack_start("нет", 0.0) == "начало с фасада"
+    assert environment.pack_start("нет", 0.0) == 42.5
+    assert environment.segment_name(0) == "имя из слота"
+    assert environment.segment_slot("нет") == 77
+    assert environment.pack_command() == ["команда из слота"]
     assert packer.start() == "упаковка с фасада"

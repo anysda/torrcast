@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 from torrcast.adapters.filesystem.trace_journal import FileJournal
-from torrcast.ports.journal import Journal, _Silent, install, journal
+from torrcast.ports.journal import Journal, Silent, install, journal
 
 
 def test_without_a_root_the_journal_is_silent_and_not_a_failure() -> None:
     """Прогон без композиционного корня не заводит файлов и не падает."""
-    install(_Silent())
+    install(Silent())
     port: Journal = journal()
 
     port.emit("search", "query", raw=1)

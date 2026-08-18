@@ -1,6 +1,8 @@
 """Запрашивает JSON у внешнего HTTP-источника."""
 
-from typing import Any, Protocol
+from typing import Protocol
+
+from torrcast.ports.json_value import JsonValue
 
 
 class JsonClient(Protocol):
@@ -13,4 +15,4 @@ class JsonClient(Protocol):
         params: dict[str, str],
         headers: dict[str, str],
         timeout: float,
-    ) -> Any: ...
+    ) -> JsonValue: ...

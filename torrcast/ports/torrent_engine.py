@@ -6,9 +6,10 @@ status`` спрашивает счётчик кэша. Кто отвечает -
 решает композиционный корень (:mod:`torrcast.runtime.wire`).
 """
 
-from typing import Any, Protocol
+from typing import Protocol
 
 from torrcast.domain.torr_file import TorrFile
+from torrcast.ports.json_value import JsonValue
 
 
 class TorrentEngine(Protocol):
@@ -17,7 +18,7 @@ class TorrentEngine(Protocol):
     def add(self, magnet: str) -> str:
         """Поднять раздачу и вернуть её хэш; повторный вызов тем же магнитом безопасен."""
 
-    def cache(self, torrent_hash: str) -> dict[str, Any]:
+    def cache(self, torrent_hash: str) -> dict[str, JsonValue]:
         """Счётчики кэша раздачи: сколько байт набито прямо сейчас."""
 
     def drop(self, torrent_hash: str) -> bool:

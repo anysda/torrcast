@@ -27,33 +27,3 @@ class ShowUnit(Protocol):
         Спрашивается у юнита, а не берётся свежайшей записью состояния: рядом мог писать
         другой ход, и ответ «что играет» тогда назвал бы чужую картину.
         """
-
-
-class _Idle:
-    """Юнита нет: прогон без композиционного корня ничего не играет и никого не гасит."""
-
-    def active(self) -> bool:
-        return False
-
-    def why(self) -> str:
-        return ""
-
-    def stop(self) -> None:
-        return None
-
-    def key(self) -> str:
-        return ""
-
-
-_unit: ShowUnit = _Idle()
-
-
-def unit() -> ShowUnit:
-    """Юнит показа, назначенный на этот процесс."""
-    return _unit
-
-
-def install(target: ShowUnit) -> None:
-    """Назначить юнит показа. Зовёт это композиционный корень и тесты."""
-    global _unit
-    _unit = target

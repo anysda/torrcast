@@ -9,10 +9,10 @@ import pytest
 from torrcast.adapters.filesystem.stopwatch.mark import mark
 from torrcast.adapters.filesystem.stopwatch.read import read
 from torrcast.domain.timeline_env import TIMELINE_ENV
-from torrcast.ports.journal import _Silent, install
+from torrcast.ports.journal import Silent, install
 
 
-class _Spy(_Silent):
+class _Spy(Silent):
     """Молчащая лента, которая запоминает, что ей сказали."""
 
     def __init__(self) -> None:
@@ -39,7 +39,7 @@ def test_the_named_file_gets_the_phase_with_its_facts(
     """Названный файл собирает метки обоих процессов: по ним и считают старт."""
     line = tmp_path / "timeline.jsonl"
     monkeypatch.setenv(TIMELINE_ENV, str(line))
-    install(_Silent())
+    install(Silent())
 
     mark("юнит", ключ="abc")
     mark("картинка")
@@ -59,7 +59,7 @@ def test_a_mark_carries_the_wall_clock_and_the_process_that_made_it(
     """
     line = tmp_path / "timeline.jsonl"
     monkeypatch.setenv(TIMELINE_ENV, str(line))
-    install(_Silent())
+    install(Silent())
 
     mark("поиск")
 
@@ -76,6 +76,6 @@ def test_a_file_that_cannot_be_written_does_not_break_the_start(
 ) -> None:
     """Секундомер не имеет права уронить старт: недоступный путь просто молчит."""
     monkeypatch.setenv(TIMELINE_ENV, str(tmp_path / "нет-такого-каталога" / "timeline.jsonl"))
-    install(_Silent())
+    install(Silent())
 
     mark("поиск")

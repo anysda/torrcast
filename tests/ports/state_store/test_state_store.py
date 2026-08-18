@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from torrcast.domain.entry import Entry
 from torrcast.domain.watch_state import WatchState
-from torrcast.ports.state_store import StateStore, _Ephemeral, install, store
+from torrcast.ports.state_store import Ephemeral, StateStore, install, store
 
 
 def test_without_a_root_the_state_lives_in_the_process_and_not_in_a_file() -> None:
     """Прогон без композиционного корня помнит позицию, но файлов владельца не заводит."""
-    install(_Ephemeral())
+    install(Ephemeral())
     port: StateStore = store()
 
     state = port.load()
