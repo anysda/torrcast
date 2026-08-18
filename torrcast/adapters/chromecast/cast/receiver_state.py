@@ -19,7 +19,11 @@ class _State(_Settings):
     """Поля живого приёмника: настройки показа и ход текущей сессии."""
 
     def __init__(
-        self, address: str, profile: Profile = CAUTIOUS, clock: Clock | None = None
+        self,
+        address: str,
+        profile: Profile = CAUTIOUS,
+        clock: Clock | None = None,
+        device: Any = None,
     ) -> None:
         if not address:
             raise InfraError("адрес ТВ не задан: cast --tv - найдёт телевизоры в сети")
@@ -31,7 +35,10 @@ class _State(_Settings):
         #: повтором, часы сторожа подвиса. Умолчание - настоящее время; сухому прогону
         #: сюда дают свои часы, чтобы не выжидать эти минуты (:class:`torrcast.ports.clock.Clock`).
         self.clock: Clock = clock if clock is not None else SystemClock()
-        self._cast: Any = None
+        #: Уже поднятое соединение с приёмником. Умолчание боевое - его нет, и первый же
+        #: вопрос к устройству поднимает настоящее (:meth:`_Link._device`). Называет своё
+        #: только стенд: настоящее соединение будит телевизор одним лишь коннектом.
+        self._cast: Any = device
         self._url = ""
         self._title = ""
         self._peak = 0.0

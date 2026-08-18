@@ -79,12 +79,15 @@ def test_mdns_silence_is_named_too(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_mdns_broken_listening_names_the_reason(monkeypatch: pytest.MonkeyPatch) -> None:
     """Слушание оборвалось посередине - это «network», и текст обрыва виден."""
-    _quiet_ether(monkeypatch)
+    import pychromecast.discovery
+    import zeroconf
 
-    def blow_up(self: _FakeBrowser) -> None:
-        raise RuntimeError("сокет умер")
+    class _DeadBrowser(_FakeBrowser):
+        def start_discovery(self) -> None:
+            raise RuntimeError("сокет умер")
 
-    monkeypatch.setattr(_FakeBrowser, "start_discovery", blow_up)
+    monkeypatch.setattr(zeroconf, "Zeroconf", _FakeZeroconf)
+    monkeypatch.setattr(pychromecast.discovery, "CastBrowser", _DeadBrowser)
 
     heard = by_mdns(timeout=0.01)
 

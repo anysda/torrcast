@@ -286,7 +286,7 @@ class _FakeDevice:
         self.jumps.append(pos)
 
 
-def test_the_watchdog_jumps_by_the_profile_step(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_watchdog_jumps_by_the_profile_step() -> None:
     """Сторож подвиса меряет и терпение, и шаг прыжка ПРОФИЛЕМ, а не константой класса.
 
     Проверка живая, а не «поле на месте»: константы класса остались осторожными
@@ -295,8 +295,7 @@ def test_the_watchdog_jumps_by_the_profile_step(monkeypatch: pytest.MonkeyPatch)
     """
     mine = dataclasses.replace(CAUTIOUS, stall_seconds=30.0, stall_skip=25.0)
     jumps: list[float] = []
-    monkeypatch.setattr(cast.ChromecastReceiver, "_device", lambda self: _FakeDevice(jumps))
-    receiver = cast.ChromecastReceiver("10.0.0.50", profile=mine)
+    receiver = cast.ChromecastReceiver("10.0.0.50", profile=mine, device=_FakeDevice(jumps))
     receiver._peak = 84.0
 
     receiver._nudge(84.0, front=144.0)

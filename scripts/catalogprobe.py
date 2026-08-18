@@ -14,8 +14,12 @@ import json
 import time
 import urllib.parse
 import urllib.request
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeAlias
+
+#: Чем щуп спрашивает Prowlarr: боевой HTTP-запрос (:func:`_json`) или ответ стенда.
+Ask: TypeAlias = Callable[[str, str, str, float], Any]
 
 
 def _json(base: str, key: str, path: str, timeout: float) -> Any:
@@ -27,8 +31,8 @@ def _json(base: str, key: str, path: str, timeout: float) -> Any:
         return json.load(answer)
 
 
-def blocked(base: str, key: str, timeout: float) -> dict[int, str]:
-    payload = _json(base, key, "/api/v1/indexerstatus", timeout)
+def blocked(base: str, key: str, timeout: float, ask: Ask = _json) -> dict[int, str]:
+    payload = ask(base, key, "/api/v1/indexerstatus", timeout)
     if not isinstance(payload, list):
         raise ValueError("Prowlarr вернул неожиданный статус индексеров")
     return {
@@ -38,15 +42,19 @@ def blocked(base: str, key: str, timeout: float) -> dict[int, str]:
     }
 
 
-def measure(base: str, key: str, query: str, timeout: float) -> list[dict[str, Any]]:
-    indexers = _json(base, key, "/api/v1/indexer", timeout)
+def measure(
+    base: str, key: str, query: str, timeout: float, ask: Ask = _json
+) -> list[dict[str, Any]]:
+    """``ask`` - чем спрашивать Prowlarr. Умолчание боевое (:func:`_json`); называет своё
+    только стенд, которому нужен ответ на бумаге, а не живой каталог."""
+    indexers = ask(base, key, "/api/v1/indexer", timeout)
     if not isinstance(indexers, list):
         raise ValueError("Prowlarr вернул неожиданный список индексеров")
     rows: list[dict[str, Any]] = []
     for indexer in indexers:
         if not isinstance(indexer, dict) or not indexer.get("enable"):
             continue
-        banned = blocked(base, key, timeout)
+        banned = blocked(base, key, timeout, ask)
         if banned:
             names = ", ".join(
                 str(row.get("name") or row.get("id")) for row in indexers if row.get("id") in banned
@@ -63,12 +71,12 @@ def measure(base: str, key: str, query: str, timeout: float) -> list[dict[str, A
             ]
         )
         began = time.monotonic()
-        payload = _json(base, key, "/api/v1/search?" + params, timeout)
+        payload = ask(base, key, "/api/v1/search?" + params, timeout)
         elapsed = round(time.monotonic() - began, 3)
         if not isinstance(payload, list):
             raise ValueError(f"{name}: Prowlarr вернул неожиданный ответ")
         rows.append({"query": query, "indexer": name, "rows": len(payload), "seconds": elapsed})
-    banned = blocked(base, key, timeout)
+    banned = blocked(base, key, timeout, ask)
     if banned:
         raise RuntimeError("замер недействителен: источник выпал во время последнего запроса")
     return rows

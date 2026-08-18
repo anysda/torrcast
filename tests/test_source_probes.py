@@ -22,9 +22,7 @@ def probe(name: str) -> ModuleType:
     return module
 
 
-def test_catalog_probe_stops_before_querying_a_banned_source(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_catalog_probe_stops_before_querying_a_banned_source() -> None:
     catalog = probe("catalogprobe")
     calls: list[str] = []
 
@@ -36,15 +34,12 @@ def test_catalog_probe_stops_before_querying_a_banned_source(
             return [{"indexerId": 1, "disabledTill": "later"}]
         raise AssertionError("поиск поверх отсрочки начался")
 
-    monkeypatch.setattr(catalog, "_json", answer)
     with pytest.raises(RuntimeError, match="замер остановлен"):
-        catalog.measure("http://p", "key", "movie", 1)
+        catalog.measure("http://p", "key", "movie", 1, answer)
     assert not any("/search?" in path for path in calls)
 
 
-def test_catalog_probe_invalidates_the_round_that_created_a_ban(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_catalog_probe_invalidates_the_round_that_created_a_ban() -> None:
     catalog = probe("catalogprobe")
     statuses = iter(([], [{"indexerId": 1, "disabledTill": "later"}]))
 
@@ -55,6 +50,5 @@ def test_catalog_probe_invalidates_the_round_that_created_a_ban(
             return next(statuses)
         return []
 
-    monkeypatch.setattr(catalog, "_json", answer)
     with pytest.raises(RuntimeError, match="замер недействителен"):
-        catalog.measure("http://p", "key", "movie", 1)
+        catalog.measure("http://p", "key", "movie", 1, answer)
