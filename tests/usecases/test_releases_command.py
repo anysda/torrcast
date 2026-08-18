@@ -9,7 +9,7 @@ import pytest
 
 from tests.fakes.blurb_source import FakeBlurbSource
 from tests.fakes.blurb_store import FakeBlurbStore
-from torrcast.cli.args import Args
+from torrcast.domain.args import Args
 from torrcast.domain.choice import Choice
 from torrcast.domain.config import Config
 from torrcast.domain.exit_codes import EXIT_OK

@@ -22,9 +22,9 @@ from tests.fakes.prowlarr import FakeProwlarr
 from torrcast import NotFoundError
 from torrcast.adapters.console.console import Progress
 from torrcast.adapters.prowlarr.merge import merge
-from torrcast.cli.args import Args
 from torrcast.domain._name_data import THIN_POOL
 from torrcast.domain.alt_query import alt_query
+from torrcast.domain.args import Args
 from torrcast.domain.config import Config
 from torrcast.domain.facts.origin import Origin
 from torrcast.domain.parse_release_name import parse_release_name

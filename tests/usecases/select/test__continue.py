@@ -7,7 +7,7 @@ from importlib import import_module
 import pytest
 
 from tests.usecases.select.world import entry
-from torrcast.cli.args import Args
+from torrcast.domain.args import Args
 from torrcast.domain.config import Config
 from torrcast.domain.entry import Entry
 from torrcast.domain.exit_codes import EXIT_OK

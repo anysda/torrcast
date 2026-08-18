@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from tests.usecases.reinforce.stand import franchise, row
-from torrcast.cli.args import Args
+from torrcast.domain.args import Args
 from torrcast.usecases.reinforce._lacks_season import _lacks_season
 
 

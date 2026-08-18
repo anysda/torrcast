@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from tests.fakes.scenario import FakeScenario
-from torrcast.cli.args import Args
 from torrcast.cli.worker import worker
+from torrcast.domain.args import Args
 
 
 def test_the_unit_key_is_handed_over_as_a_string() -> None:

@@ -8,7 +8,6 @@ from collections.abc import Callable, Mapping, Sequence
 from contextlib import AbstractContextManager
 
 from torrcast.cli.answered import answered
-from torrcast.cli.args import Args
 from torrcast.cli.configure import configure
 from torrcast.cli.doctor import doctor
 from torrcast.cli.log import log
@@ -19,6 +18,7 @@ from torrcast.cli.status import status
 from torrcast.cli.stop import stop
 from torrcast.cli.voices import voices
 from torrcast.cli.worker import worker
+from torrcast.domain.args import Args
 
 #: Режим stdin на время команды. Кладёт сюда композиционный корень
 #: (:mod:`torrcast.runtime.wire`): терминал - это адаптер, а слою команд адаптеры не

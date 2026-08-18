@@ -1,6 +1,6 @@
 """Аргументы команды: договор их возит и читать не разрешает."""
 
-from torrcast.cli.args import Args
+from torrcast.domain.args import Args
 from torrcast.ports.choice_environment import ChoiceArgs
 
 

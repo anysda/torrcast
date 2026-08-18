@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from tests.usecases.discover.world import Indexer, Said, franchise, row, wire_catalogue
-from torrcast.cli.args import Args
+from torrcast.domain.args import Args
 from torrcast.domain.facts.origin import Origin
 from torrcast.domain.picture import Picture
 from torrcast.domain.raw_result import RawResult

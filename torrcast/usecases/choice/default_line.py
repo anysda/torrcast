@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 from torrcast.usecases.choice._named import _named
 
 if TYPE_CHECKING:
-    from torrcast.ports.choice_types import _Plan
+    from torrcast.usecases.select._plan import _Plan
 
 
 def default_line(plans: list[_Plan], default: int) -> str:

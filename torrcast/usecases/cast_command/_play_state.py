@@ -17,7 +17,7 @@ from torrcast.domain.release import Release
 from torrcast.ports.torrent_engines import TorrentEngines
 
 if TYPE_CHECKING:
-    from torrcast.ports.choice_types import Facts
+    from torrcast.usecases.facts import Facts
 
 
 #: Внешний мир команды показа. Всё это кладёт композиционный корень

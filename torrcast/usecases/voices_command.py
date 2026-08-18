@@ -22,7 +22,7 @@ from torrcast.usecases.select import _remembered
 from torrcast.usecases.select_bench import _Bench
 
 if TYPE_CHECKING:
-    from torrcast.ports.choice_types import Args
+    from torrcast.domain.args import Args
 
 #: Внешний мир меню озвучек: настройки, служба раздач и происхождение картины. Кладёт
 #: их композиционный корень (:mod:`torrcast.runtime.wire`). Имена длиннее очевидных

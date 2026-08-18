@@ -16,7 +16,7 @@ from torrcast.usecases.reinforce._leading import _leading
 from torrcast.usecases.reinforce.configure import _catalogue_port, _passport_port
 
 if TYPE_CHECKING:
-    from torrcast.ports.choice_types import Args
+    from torrcast.domain.args import Args
     from torrcast.ports.progress import Progress
 
 

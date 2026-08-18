@@ -10,7 +10,13 @@ from torrcast.usecases.choice.understudy import understudy
 from torrcast.usecases.choice.understudy_note import _why_refused, understudy_note
 
 if TYPE_CHECKING:
-    from torrcast.ports.choice_types import Args, Config, Facts, Progress, _Bench, _Plan, _Prep
+    from torrcast.domain.args import Args
+    from torrcast.domain.config import Config
+    from torrcast.ports.progress import Progress
+    from torrcast.usecases.facts import Facts
+    from torrcast.usecases.select._plan import _Plan
+    from torrcast.usecases.select._prep import _Prep
+    from torrcast.usecases.select_bench._bench import _Bench
 
 
 def _played(

@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any, cast
 
 from tests.usecases.cast_command.world import plan, release
-from torrcast.cli.args import Args
+from torrcast.domain.args import Args
 from torrcast.domain.audio_track import AudioTrack
 from torrcast.domain.media import Media
 from torrcast.domain.torr_file import TorrFile

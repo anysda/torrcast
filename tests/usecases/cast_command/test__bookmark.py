@@ -7,7 +7,7 @@ from typing import Any, cast
 import pytest
 
 from tests.usecases.cast_command.world import entry, plan
-from torrcast.cli.args import Args
+from torrcast.domain.args import Args
 from torrcast.domain.config import Config
 from torrcast.domain.watch_state import WatchState
 from torrcast.usecases.cast_command._bookmark import _account_watched, _continue_picked

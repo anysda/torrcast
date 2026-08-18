@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 
-from torrcast.cli.args import Args
+from torrcast.domain.args import Args
 from torrcast.domain.config import Config
 from torrcast.domain.not_found_error import NotFoundError
 from torrcast.runtime.wire import wire

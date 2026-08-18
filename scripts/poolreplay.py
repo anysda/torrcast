@@ -60,8 +60,8 @@ from torrcast.adapters.prowlarr.collect_rows import collect_rows
 from torrcast.adapters.prowlarr.merge import merge
 from torrcast.adapters.prowlarr.prowlarr import Prowlarr
 from torrcast.adapters.prowlarr.to_releases import to_releases
-from torrcast.cli.args import Args
 from torrcast.domain._name_data import THIN_POOL
+from torrcast.domain.args import Args
 from torrcast.domain.capped_indexers import INDEXER_PAGE
 from torrcast.domain.cluster import cluster
 from torrcast.domain.config import Config

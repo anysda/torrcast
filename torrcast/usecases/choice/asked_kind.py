@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from torrcast.ports.choice_types import _Plan
+    from torrcast.usecases.select._plan import _Plan
 
 
 def asked_kind(plans: list[_Plan]) -> list[int]:

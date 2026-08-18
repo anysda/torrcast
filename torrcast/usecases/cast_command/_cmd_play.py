@@ -25,7 +25,7 @@ from torrcast.usecases.start_clock import _Clock
 from torrcast.usecases.torrents import _release_orphans
 
 if TYPE_CHECKING:
-    from torrcast.ports.choice_types import Args
+    from torrcast.domain.args import Args
 
 
 def _cmd_play(args: Args) -> int:

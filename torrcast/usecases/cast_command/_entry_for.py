@@ -15,7 +15,8 @@ from torrcast.domain.torr_file import TorrFile
 from torrcast.usecases.select import _Prep
 
 if TYPE_CHECKING:
-    from torrcast.ports.choice_types import Args, _Plan
+    from torrcast.domain.args import Args
+    from torrcast.usecases.select._plan import _Plan
 
 
 def _entry_for(

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from tests.usecases.select.world import entry
-from torrcast.cli.args import Args
+from torrcast.domain.args import Args
 from torrcast.domain.config import Config
 from torrcast.domain.torrcast_error import TorrcastError
 from torrcast.usecases.select._voiced import _Voiced, _voiced

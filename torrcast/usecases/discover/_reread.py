@@ -24,7 +24,7 @@ from torrcast.usecases.discover._ask import _ask
 from torrcast.usecases.discover._no_budget import _no_budget
 
 if TYPE_CHECKING:
-    from torrcast.ports.choice_types import Args
+    from torrcast.domain.args import Args
 
 
 def _relayout(

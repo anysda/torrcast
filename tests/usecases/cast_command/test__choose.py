@@ -9,7 +9,7 @@ import pytest
 
 import torrcast.usecases.cast_command._play_state as _state
 from tests.usecases.cast_command.world import entry, plan
-from torrcast.cli.args import Args
+from torrcast.domain.args import Args
 from torrcast.domain.choice import Choice
 from torrcast.domain.config import Config
 from torrcast.domain.exit_codes import EXIT_OK

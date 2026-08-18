@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from torrcast.cli.args import Args
+from torrcast.domain.args import Args
 from torrcast.usecases.log_command import _cmd_log
 
 

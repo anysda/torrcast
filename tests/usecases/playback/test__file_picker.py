@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 import torrcast.usecases.playback._show_state as _state
-from torrcast.cli.args import Args
+from torrcast.domain.args import Args
 from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.picture import Picture
 from torrcast.domain.release import Release

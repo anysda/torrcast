@@ -8,7 +8,7 @@ from torrcast.usecases.choice.default_note import default_note
 from torrcast.usecases.choice.first_alive import first_alive
 
 if TYPE_CHECKING:
-    from torrcast.ports.choice_types import _Plan
+    from torrcast.usecases.select._plan import _Plan
 
 
 def swap_note(plans: list[_Plan], picked: _Plan, asked: str = "") -> str:

@@ -18,7 +18,7 @@ from torrcast.usecases.discover._no_budget import _no_budget
 from torrcast.usecases.reinforce.configure import _catalogue_port, _passport_port
 
 if TYPE_CHECKING:
-    from torrcast.ports.choice_types import Args
+    from torrcast.domain.args import Args
     from torrcast.ports.progress import Progress
 
 

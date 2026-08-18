@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from tests.usecases.reinforce.stand import pictures, row
-from torrcast.cli.args import Args
+from torrcast.domain.args import Args
 from torrcast.domain.config import Config
 from torrcast.domain.facts.fact import Fact
 from torrcast.domain.picture import Picture

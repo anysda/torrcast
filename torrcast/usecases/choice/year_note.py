@@ -7,7 +7,8 @@ from typing import TYPE_CHECKING
 from torrcast.domain.slugify import slugify
 
 if TYPE_CHECKING:
-    from torrcast.ports.choice_types import Origin, _Plan
+    from torrcast.domain.facts.origin import Origin
+    from torrcast.usecases.select._plan import _Plan
 
 
 def year_note(picked: _Plan, about: Origin, asked: str = "") -> str:

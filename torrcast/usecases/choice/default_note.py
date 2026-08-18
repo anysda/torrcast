@@ -13,7 +13,7 @@ from torrcast.usecases.choice.fitness import fitness
 from torrcast.usecases.choice.liveliness import liveliness
 
 if TYPE_CHECKING:
-    from torrcast.ports.choice_types import _Plan
+    from torrcast.usecases.select._plan import _Plan
 
 
 def default_note(plans: list[_Plan], asked: str = "") -> str:

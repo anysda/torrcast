@@ -27,7 +27,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from torrcast.adapters.console.console import Progress
 from torrcast.adapters.filesystem.state import load_config
 from torrcast.adapters.torrserver.torr_server import TorrServer
-from torrcast.cli.args import Args
+from torrcast.domain.args import Args
 from torrcast.usecases.discover import _search
 from torrcast.usecases.playback import _file_picker
 from torrcast.usecases.select_bench import _Bench

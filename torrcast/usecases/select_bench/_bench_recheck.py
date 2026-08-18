@@ -14,7 +14,7 @@ from torrcast.usecases.select._verdict import _did_not_answer, _silenced, _turne
 from torrcast.usecases.select_bench._bench_notes import _BenchNotes
 
 if TYPE_CHECKING:
-    from torrcast.ports.choice_types import Args
+    from torrcast.domain.args import Args
 
 
 class _BenchRecheck(_BenchNotes):

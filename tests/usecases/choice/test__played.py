@@ -9,7 +9,7 @@ from __future__ import annotations
 import pytest
 
 from tests.usecases.choice.world import Outside, outside, parts
-from torrcast.cli.args import Args
+from torrcast.domain.args import Args
 from torrcast.domain.config import Config
 from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.profile import CAUTIOUS

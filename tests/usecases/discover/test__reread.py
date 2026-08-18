@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from torrcast.cli.args import Args
+from torrcast.domain.args import Args
 from torrcast.domain.cluster import cluster
 from torrcast.domain.parse_release_name import parse_release_name
 from torrcast.domain.pick_franchise import pick_franchise

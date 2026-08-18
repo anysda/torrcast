@@ -11,7 +11,7 @@ from torrcast.usecases.choice import fitness
 from torrcast.usecases.reinforce._plan_for import _plan_for
 
 if TYPE_CHECKING:
-    from torrcast.ports.choice_types import Args
+    from torrcast.domain.args import Args
 
 
 def unfit_pool(

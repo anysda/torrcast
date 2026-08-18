@@ -14,7 +14,7 @@ from torrcast.usecases.choice.default_note import _passed_why
 from torrcast.usecases.choice.first_alive import first_alive
 
 if TYPE_CHECKING:
-    from torrcast.ports.choice_types import _Plan
+    from torrcast.usecases.select._plan import _Plan
 
 
 def part_one_swap(plans: list[_Plan], asked: str) -> str:

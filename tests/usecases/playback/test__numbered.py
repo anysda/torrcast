@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from torrcast.cli.args import Args
+from torrcast.domain.args import Args
 from torrcast.usecases.playback._numbered import _Numbered
 
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from tests.usecases.select_bench.world import plan, rel
-from torrcast.cli.args import Args
+from torrcast.domain.args import Args
 from torrcast.domain.not_found_error import NotFoundError
 from torrcast.usecases.select_bench._bench_queue import _bench_queue
 

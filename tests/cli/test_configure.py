@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from tests.fakes.scenario import FakeScenario
-from torrcast.cli.args import Args
 from torrcast.cli.configure import configure
 from torrcast.cli.parse_args import TV_MENU
+from torrcast.domain.args import Args
 
 
 def test_a_named_address_reaches_the_scenario_as_it_was_typed() -> None:

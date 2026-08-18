@@ -18,7 +18,7 @@ from torrcast.usecases.rank.misses_episode import misses_episode
 from torrcast.usecases.select._nothing_late import _nothing_late
 
 if TYPE_CHECKING:
-    from torrcast.ports.choice_types import Args
+    from torrcast.domain.args import Args
 
 
 @dataclass(slots=True)

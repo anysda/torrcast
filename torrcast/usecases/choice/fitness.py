@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 from torrcast.usecases.choice.configure import _environment_port
 
 if TYPE_CHECKING:
-    from torrcast.ports.choice_types import _Plan
+    from torrcast.usecases.select._plan import _Plan
 
 
 def fitness(plan: _Plan, dubbed: bool = False) -> int:

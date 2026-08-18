@@ -27,7 +27,7 @@ from torrcast.adapters.filesystem.trace_journal import (
     records,
     shutdown,
 )
-from torrcast.cli.args import Args
+from torrcast.domain.args import Args
 from torrcast.domain.config import Config
 from torrcast.domain.digest import digest
 from torrcast.domain.facts.fact import Fact

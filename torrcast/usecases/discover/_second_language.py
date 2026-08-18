@@ -30,7 +30,7 @@ from torrcast.usecases.reinforce._twin import _twin
 from torrcast.usecases.reinforce.same_picture import same_picture
 
 if TYPE_CHECKING:
-    from torrcast.ports.choice_types import Args
+    from torrcast.domain.args import Args
 
 
 def _second_language(

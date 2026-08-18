@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import replace
 
 from tests.usecases.select_bench.world import Torrents, plan, probes, rel
-from torrcast.cli.args import Args
+from torrcast.domain.args import Args
 from torrcast.domain.picture import Picture
 from torrcast.domain.release import Release
 from torrcast.usecases.select._plan import _Plan

@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from tests.usecases.discover.world import Indexer, Said, row, wire_catalogue
-from torrcast.cli.args import Args
+from torrcast.domain.args import Args
 from torrcast.domain.config import Config
 from torrcast.domain.facts.origin import Origin
 from torrcast.domain.infra_error import InfraError

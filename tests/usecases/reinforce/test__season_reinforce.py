@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from tests.usecases.reinforce.stand import Indexer, Said, franchise, row
-from torrcast.cli.args import Args
+from torrcast.domain.args import Args
 from torrcast.domain.facts.origin import Origin
 from torrcast.domain.picture import Picture
 from torrcast.domain.raw_result import RawResult

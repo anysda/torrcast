@@ -17,7 +17,7 @@ from torrcast.usecases.select._verdict import _turned_down
 from torrcast.usecases.select_bench._bench_trouble import _BenchTrouble
 
 if TYPE_CHECKING:
-    from torrcast.ports.choice_types import Args
+    from torrcast.domain.args import Args
 
 
 class _BenchHonest(_BenchTrouble):

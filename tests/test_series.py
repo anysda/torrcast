@@ -12,8 +12,8 @@ from dataclasses import replace
 import pytest
 
 from torrcast import NotFoundError
-from torrcast.cli.args import Args
 from torrcast.domain._series import _Series
+from torrcast.domain.args import Args
 from torrcast.domain.cluster import cluster
 from torrcast.domain.config import Config
 from torrcast.domain.episode import Episode

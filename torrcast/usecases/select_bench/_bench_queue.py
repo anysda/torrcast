@@ -12,7 +12,7 @@ from torrcast.usecases.rank.queue_drops import queue_drops
 from torrcast.usecases.select._plan import _Plan
 
 if TYPE_CHECKING:
-    from torrcast.ports.choice_types import Args
+    from torrcast.domain.args import Args
 
 
 def _bench_queue(plan: _Plan, args: Args) -> list[int]:

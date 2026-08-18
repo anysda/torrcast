@@ -19,7 +19,7 @@ from torrcast.usecases.select_bench._bench_refusal import _bench_refusal
 from torrcast.usecases.select_bench._retried_verdict import _retried_verdict
 
 if TYPE_CHECKING:
-    from torrcast.ports.choice_types import Args
+    from torrcast.domain.args import Args
 
 
 class _Bench(_BenchPrewarm):

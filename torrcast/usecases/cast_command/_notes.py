@@ -22,8 +22,9 @@ from torrcast.usecases.rank import _gb, _hms, default_unnamed, sound_note, voice
 from torrcast.usecases.select import _Prep
 
 if TYPE_CHECKING:
-    from torrcast.ports.choice_types import Args, _Plan
+    from torrcast.domain.args import Args
     from torrcast.usecases.choice import _Passport
+    from torrcast.usecases.select._plan import _Plan
 
 
 def _notes(

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from torrcast.cli.args import Args
+from torrcast.domain.args import Args
 from torrcast.domain.episode import Episode
 
 

@@ -11,7 +11,7 @@ from torrcast.usecases.select._prep import _Prep
 from torrcast.usecases.select_bench._bench_recheck import _BenchRecheck
 
 if TYPE_CHECKING:
-    from torrcast.ports.choice_types import Args
+    from torrcast.domain.args import Args
 
 
 class _BenchPrewarm(_BenchRecheck):

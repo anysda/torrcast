@@ -11,8 +11,9 @@ from torrcast.ports.journal import journal
 from torrcast.usecases.reinforce._plan_for import _plan_for
 
 if TYPE_CHECKING:
+    from torrcast.domain.args import Args
     from torrcast.domain.config import Config
-    from torrcast.ports.choice_types import Args, _Plan
+    from torrcast.usecases.select._plan import _Plan
 
 
 class _Told(Protocol):

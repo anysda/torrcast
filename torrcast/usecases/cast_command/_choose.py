@@ -22,11 +22,12 @@ from torrcast.usecases.select_bench import _Bench
 from torrcast.usecases.start_clock import _Clock
 
 if TYPE_CHECKING:
+    from torrcast.domain.args import Args
     from torrcast.domain.choice import Choice
     from torrcast.domain.entry import Entry
     from torrcast.domain.watch_state import WatchState
-    from torrcast.ports.choice_types import Args, _Plan
     from torrcast.usecases.choice import _Passport
+    from torrcast.usecases.select._plan import _Plan
 
 
 def _choose(

@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 from torrcast.domain.picture import Picture
 
 if TYPE_CHECKING:
-    from torrcast.ports.choice_types import Args
+    from torrcast.domain.args import Args
 
 
 def _asked_kind(lead: Picture | None, args: Args) -> bool | None:

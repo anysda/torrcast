@@ -10,7 +10,8 @@ from torrcast.domain.picture import Picture
 from torrcast.usecases.choice.configure import _environment_port
 
 if TYPE_CHECKING:
-    from torrcast.ports.choice_types import Origin, _Plan
+    from torrcast.domain.facts.origin import Origin
+    from torrcast.usecases.select._plan import _Plan
 
 
 class _Passport:

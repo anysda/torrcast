@@ -8,7 +8,7 @@ from torrcast.usecases.rank.misses_episode import misses_episode
 from torrcast.usecases.rank.over_ceiling import over_ceiling
 
 if TYPE_CHECKING:
-    from torrcast.ports.choice_types import _Plan
+    from torrcast.usecases.select._plan import _Plan
 
 
 def silent_swarm(

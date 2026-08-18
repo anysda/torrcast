@@ -11,7 +11,7 @@ from torrcast.domain.profile import CAUTIOUS, Profile
 from torrcast.usecases.discover.unfit_pool import unfit_pool
 
 if TYPE_CHECKING:
-    from torrcast.ports.choice_types import Args
+    from torrcast.domain.args import Args
 
 
 def worth_asking_original(

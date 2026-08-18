@@ -8,7 +8,7 @@ from __future__ import annotations
 import argparse
 from collections.abc import Sequence
 
-from torrcast.cli.args import Args
+from torrcast.domain.args import Args
 from torrcast.domain.rank_settings import VOICE_MENU
 from torrcast.domain.version import __version__
 

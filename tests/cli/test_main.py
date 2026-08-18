@@ -7,8 +7,8 @@ from collections.abc import Callable, Mapping
 import pytest
 
 from torrcast import InfraError, NotFoundError
-from torrcast.cli.args import Args
 from torrcast.cli.main import main
+from torrcast.domain.args import Args
 from torrcast.domain.exit_codes import EXIT_INFRA, EXIT_NOT_FOUND, EXIT_OK
 from torrcast.usecases.stopped import _Stopped
 

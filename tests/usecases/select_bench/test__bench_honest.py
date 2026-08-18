@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from tests.usecases.select_bench.world import RUNTIME, Said, Torrents, plan, probes, rel
-from torrcast.cli.args import Args
+from torrcast.domain.args import Args
 from torrcast.domain.audio_track import AudioTrack
 from torrcast.domain.media import Media
 from torrcast.usecases.select_bench._bench import _Bench

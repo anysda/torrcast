@@ -29,7 +29,7 @@ from torrcast.adapters.console.console import Progress
 from torrcast.adapters.filesystem.trace_journal import records, shutdown
 from torrcast.adapters.prowlarr.merge import merge
 from torrcast.adapters.prowlarr.to_releases import to_releases
-from torrcast.cli.args import Args
+from torrcast.domain.args import Args
 from torrcast.domain.audio_track import AudioTrack
 from torrcast.domain.config import Config
 from torrcast.domain.digest import digest

@@ -14,7 +14,7 @@ from torrcast.usecases.select._voiced import _Voiced, _voiced
 from torrcast.usecases.start_clock import _Clock
 
 if TYPE_CHECKING:
-    from torrcast.ports.choice_types import Args
+    from torrcast.domain.args import Args
 
 
 def _continue(config: Config, key: str, entry: Entry, args: Args, clock: _Clock) -> int | None:

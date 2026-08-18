@@ -8,7 +8,7 @@ from torrcast.domain.episode import Episode
 from torrcast.domain.picture import Picture
 
 if TYPE_CHECKING:
-    from torrcast.ports.choice_types import Args
+    from torrcast.domain.args import Args
 
 
 def _lacks_season(found: list[Picture], args: Args) -> bool:

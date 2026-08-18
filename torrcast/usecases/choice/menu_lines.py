@@ -10,7 +10,8 @@ from torrcast.usecases.choice._named import _BLURB_INDENT, _named
 from torrcast.usecases.choice.configure import _environment_port
 
 if TYPE_CHECKING:
-    from torrcast.ports.choice_types import Facts, _Plan
+    from torrcast.usecases.facts import Facts
+    from torrcast.usecases.select._plan import _Plan
 
 
 def menu_lines(plans: list[_Plan], facts: Facts | None = None, width: int = 0) -> str:

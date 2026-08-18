@@ -8,7 +8,7 @@ from torrcast.usecases.choice.configure import _environment_port
 from torrcast.usecases.choice.liveliness import liveliness
 
 if TYPE_CHECKING:
-    from torrcast.ports.choice_types import _Plan
+    from torrcast.usecases.select._plan import _Plan
 
 
 def alive_numbers(plans: list[_Plan], numbers: list[int]) -> list[int]:

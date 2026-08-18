@@ -15,7 +15,7 @@ from torrcast.usecases.rank.voices_table import voices_table
 class _Voiced(Protocol):
     """Разобранная строка запуска в объёме, который нужен выбору дорожки: ``--voice N``.
 
-    Полный :class:`torrcast.cli.args.Args` сюда не приходит: разбор аргументов стоит слоем
+    Полный :class:`torrcast.domain.args.Args` сюда не приходит: разбор аргументов стоит слоем
     выше сценариев, а выбору дорожки от него нужна одна ручка.
     """
 

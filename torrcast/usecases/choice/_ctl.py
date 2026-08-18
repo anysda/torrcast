@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 from torrcast.usecases.choice.configure import _environment_port
 
 if TYPE_CHECKING:
-    from torrcast.ports.choice_types import Receiver
+    from torrcast.ports.receiver import Receiver
 
 
 @runtime_checkable

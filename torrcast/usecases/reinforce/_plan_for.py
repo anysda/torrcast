@@ -14,8 +14,9 @@ from torrcast.usecases.rank.last_hope import last_hope
 from torrcast.usecases.rank.rank_releases import rank_releases
 
 if TYPE_CHECKING:
+    from torrcast.domain.args import Args
     from torrcast.domain.config import Config
-    from torrcast.ports.choice_types import Args, _Plan
+    from torrcast.usecases.select._plan import _Plan
 else:
     # Договор плана называет порт, а сам класс живёт в сценарии выбора: тут план не
     # только называют, но и строят, поэтому во время работы имя берётся оттуда, куда

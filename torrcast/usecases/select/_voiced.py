@@ -17,7 +17,7 @@ from torrcast.usecases.rank.pick_voice import pick_voice
 from torrcast.usecases.torrents import _held_by_show, _release_torrents
 
 if TYPE_CHECKING:
-    from torrcast.ports.choice_types import Args
+    from torrcast.domain.args import Args
 
 
 @dataclass(slots=True)

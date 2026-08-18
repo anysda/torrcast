@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from tests.fakes.scenario import FakeScenario
-from torrcast.cli.args import Args
 from torrcast.cli.voices import voices
+from torrcast.domain.args import Args
 
 
 def test_the_parsed_line_reaches_the_scenario_untouched() -> None:

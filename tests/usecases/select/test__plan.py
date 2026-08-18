@@ -5,8 +5,8 @@ from __future__ import annotations
 import pytest
 
 from tests.usecases.select.world import parsed, plan, release
-from torrcast.cli.args import Args
 from torrcast.domain._series import _Series
+from torrcast.domain.args import Args
 from torrcast.domain.episode import Episode
 from torrcast.domain.info_hash import info_hash
 from torrcast.domain.not_found_error import NotFoundError

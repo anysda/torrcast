@@ -11,7 +11,8 @@ from torrcast.usecases.choice.menu_lines import menu_lines
 from torrcast.usecases.choice.part_one_swap import part_one_swap
 
 if TYPE_CHECKING:
-    from torrcast.ports.choice_types import Facts, _Plan
+    from torrcast.usecases.facts import Facts
+    from torrcast.usecases.select._plan import _Plan
 
 
 def _pick_plan(

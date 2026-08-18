@@ -19,8 +19,8 @@ from tests.fakes.choice_environment import FakeChoiceEnvironment
 from torrcast import InfraError, NotFoundError, SwarmError
 from torrcast.adapters.console.console import Progress
 from torrcast.adapters.filesystem.state import load_config
-from torrcast.cli.args import Args
 from torrcast.domain._series import _Series
+from torrcast.domain.args import Args
 from torrcast.domain.audio_track import AudioTrack
 from torrcast.domain.cluster import cluster
 from torrcast.domain.episode import Episode

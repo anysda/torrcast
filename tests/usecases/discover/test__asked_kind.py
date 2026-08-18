@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from tests.usecases.discover.world import franchise, row
-from torrcast.cli.args import Args
+from torrcast.domain.args import Args
 from torrcast.usecases.discover._asked_kind import _asked_kind
 
 _SERIES = [row("Кухня 6 / Kuhnya 6 (2017) WEB-DL 1080p | 6 сезон, 1-20 из 20")]

@@ -43,8 +43,8 @@ from probeprofile import add_argument as add_profile_argument
 from probeprofile import choose as choose_profile
 
 from torrcast.adapters.filesystem.state import load_config
-from torrcast.cli.args import Args
 from torrcast.domain._name_data import _EXTRAS_RE
+from torrcast.domain.args import Args
 from torrcast.domain.rank_settings import HD_HEIGHT
 from torrcast.domain.release import Release
 from torrcast.usecases.rank import bitrate_of, is_dated, is_extra

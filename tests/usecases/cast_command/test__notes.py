@@ -7,7 +7,7 @@ from typing import Any, cast
 import pytest
 
 from tests.usecases.cast_command.world import plan, release
-from torrcast.cli.args import Args
+from torrcast.domain.args import Args
 from torrcast.domain.audio_track import AudioTrack
 from torrcast.domain.config import Config
 from torrcast.domain.facts.origin import Origin

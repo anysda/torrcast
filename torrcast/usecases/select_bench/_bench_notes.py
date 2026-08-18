@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from torrcast.domain.recode_note import recode_note
 from torrcast.ports.journal import journal
-from torrcast.usecases.choice import last_hope_note
+from torrcast.usecases.choice.last_hope_note import last_hope_note
 from torrcast.usecases.rank.default_unnamed import default_unnamed
 from torrcast.usecases.rank.heard import heard
 from torrcast.usecases.rank.stepdown_note import stepdown_note

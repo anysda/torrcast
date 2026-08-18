@@ -41,7 +41,7 @@ from torrcast import TorrcastError
 from torrcast.adapters.console.console import Progress
 from torrcast.adapters.filesystem.state import load_config, state_path
 from torrcast.adapters.torrserver.torr_server import TorrServer
-from torrcast.cli.args import Args
+from torrcast.domain.args import Args
 from torrcast.domain.picture import Picture
 from torrcast.domain.prewarm_settings import PREWARM
 from torrcast.domain.release import Release

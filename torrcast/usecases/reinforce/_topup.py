@@ -11,9 +11,10 @@ from torrcast.usecases.reinforce._plan_for import _plan_for
 from torrcast.usecases.reinforce.configure import _catalogue_port
 
 if TYPE_CHECKING:
+    from torrcast.domain.args import Args
     from torrcast.domain.config import Config
-    from torrcast.ports.choice_types import Args, _Plan
     from torrcast.ports.progress import Progress
+    from torrcast.usecases.select._plan import _Plan
 
 
 def _topup(

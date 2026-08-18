@@ -37,7 +37,8 @@ from torrcast.usecases.reinforce._voice_reinforce import _voice_reinforce
 from torrcast.usecases.reinforce.voiceless_pool import voiceless_pool
 
 if TYPE_CHECKING:
-    from torrcast.ports.choice_types import Args, _Plan
+    from torrcast.domain.args import Args
+    from torrcast.usecases.select._plan import _Plan
 
 
 def _search(

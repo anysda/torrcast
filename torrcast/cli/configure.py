@@ -7,8 +7,8 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from torrcast.cli.args import Args
 from torrcast.cli.parse_args import TV_MENU
+from torrcast.domain.args import Args
 
 #: Кем отвечает ``cast --tv``. Кладёт сюда композиционный корень
 #: (:mod:`torrcast.runtime.wire`): слой команд не вправе видеть адаптеры, которыми
