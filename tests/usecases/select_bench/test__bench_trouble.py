@@ -6,7 +6,7 @@ from tests.usecases.select_bench.world import RUNTIME, Torrents, probes, rel
 from torrcast.domain.media import Media
 from torrcast.domain.torr_file import TorrFile
 from torrcast.usecases.select._prep import _Prep
-from torrcast.usecases.select_bench._bench import _Bench
+from torrcast.usecases.select_bench.bench import Bench
 
 GB = 1024**3
 
@@ -19,7 +19,7 @@ def _judged(
     warn_mbit: float = 0.0,
     hard_mbit: float = 0.0,
 ) -> str:
-    bench = _Bench(Torrents(), prober=probes([]))
+    bench = Bench(Torrents(), prober=probes([]))
     prep = _Prep(number=1, release=rel())
     prep.media = media
     prep.video = TorrFile(0, "movie.mkv", int(size_gb * GB))

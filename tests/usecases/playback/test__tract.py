@@ -58,15 +58,15 @@ def _config(tmp_path: Path) -> Config:
 def test_the_pack_and_the_warm_up_get_the_same_grid(tmp_path: Path) -> None:
     """Куски приёмнику приходят из двух мест, и сетка у обоих обязана быть одна."""
     out = hls_dir(str(tmp_path / "hls"))
-    layout = grid()
+    grid_of = grid()
 
     recoder, warmer, feed, server, _receiver = _tract(
-        _config(tmp_path), "http://ts", 0, "кино", out, layout, None, 0.0, 8.0, False, _Cutting()
+        _config(tmp_path), "http://ts", 0, "кино", out, grid_of, None, 0.0, 8.0, False, _Cutting()
     )
     try:
-        assert feed.grid is layout
-        assert warmer is not None and warmer.grid is layout
-        assert recoder is not None and cast(Recoder, recoder).grid is layout
+        assert feed.grid is grid_of
+        assert warmer is not None and warmer.grid is grid_of
+        assert recoder is not None and cast(Recoder, recoder).grid is grid_of
     finally:
         server.stop()
 

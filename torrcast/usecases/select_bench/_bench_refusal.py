@@ -8,11 +8,11 @@ from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.pick_settings import MAX_TRIES
 from torrcast.usecases.discover.kin_line import kin_line
 from torrcast.usecases.discover.silent_swarm import silent_swarm
-from torrcast.usecases.select._plan import _Plan
+from torrcast.usecases.select.plan import Plan
 
 
 def _bench_refusal(
-    plan: _Plan,
+    plan: Plan,
     queue: list[int],
     tried: list[str],
     silents: int,

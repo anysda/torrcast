@@ -7,24 +7,24 @@ from typing import TYPE_CHECKING
 
 from torrcast.domain.profile import Profile
 from torrcast.usecases.reinforce._foreign_note import _foreign_note
-from torrcast.usecases.reinforce._plan_for import _plan_for
 from torrcast.usecases.reinforce.configure import _catalogue_port
+from torrcast.usecases.reinforce.plan_for import plan_for
 
 if TYPE_CHECKING:
     from torrcast.domain.args import Args
     from torrcast.domain.config import Config
     from torrcast.ports.progress import Progress
-    from torrcast.usecases.select._plan import _Plan
+    from torrcast.usecases.select.plan import Plan
 
 
 def _topup(
-    plan: _Plan,
+    plan: Plan,
     args: Args,
     config: Config,
     profile: Profile,
     progress: Progress,
     menu: frozenset[str] = frozenset(),
-) -> _Plan:
+) -> Plan:
     """Долить опоздавший индексер в пул УЖЕ выбранной картины (TC-118).
 
     🔴 Круг индексеров уходит по кворуму (:data:`~torrcast.domain.quorum_indexer.QUORUM_INDEXERS`), и
@@ -42,7 +42,7 @@ def _topup(
       молча этого не делает: строка ниже называет и опоздавшего, и то, что верх другой.
 
     Пул при этом только растёт: старые раздачи остаются теми же объектами, и прогрев,
-    пущенный под меню, переезжает на новые номера (:meth:`_Bench.reorder`), а не
+    пущенный под меню, переезжает на новые номера (:meth:`Bench.reorder`), а не
     выбрасывается. Долив пустой или ничего не добавил - план возвращается прежним.
     """
     from torrcast.domain.cluster import cluster
@@ -66,7 +66,7 @@ def _topup(
     _foreign_note([r for r in extra if r.magnet not in mine], menu, progress)
     if not add:
         return plan
-    fresh = _plan_for(
+    fresh = plan_for(
         replace(plan.picture, releases=[*plan.picture.releases, *add]), args, config, profile
     )
     if not fresh.ranked:  # отнимать уже показанное долив не вправе

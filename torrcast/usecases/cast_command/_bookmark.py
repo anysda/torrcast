@@ -14,17 +14,18 @@ from torrcast.domain.watch_state import WatchState
 from torrcast.ports.state_store import store as watch_store
 from torrcast.usecases.playback import _launch
 from torrcast.usecases.rank import _hms
-from torrcast.usecases.select import _about, _continue, _Voiced, _voiced
-from torrcast.usecases.select_bench import _Bench
+from torrcast.usecases.select import _about, _Voiced, _voiced
+from torrcast.usecases.select._continue import _continue
+from torrcast.usecases.select_bench import Bench
 from torrcast.usecases.start_clock import _Clock
 
 if TYPE_CHECKING:
     from torrcast.domain.args import Args
-    from torrcast.usecases.select._plan import _Plan
+    from torrcast.usecases.select.plan import Plan
 
 
 def _continue_picked(
-    config: Config, state: WatchState, plan: _Plan, bench: _Bench, *, args: Args, clock: _Clock
+    config: Config, state: WatchState, plan: Plan, bench: Bench, *, args: Args, clock: _Clock
 ) -> int | None:
     """Закладка выбранной картины поднимается после «Что смотрим?», а не вместо него.
 

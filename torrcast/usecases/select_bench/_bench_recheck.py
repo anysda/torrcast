@@ -8,9 +8,9 @@ from torrcast.domain.infra_error import InfraError
 from torrcast.domain.server_down_error import ServerDownError
 from torrcast.ports.progress import Progress
 from torrcast.usecases.rank.voice_unproven import voice_unproven
-from torrcast.usecases.select._plan import _Plan
 from torrcast.usecases.select._prep import _Prep
 from torrcast.usecases.select._verdict import _did_not_answer, _silenced, _turned_down
+from torrcast.usecases.select.plan import Plan
 from torrcast.usecases.select_bench._bench_notes import _BenchNotes
 
 if TYPE_CHECKING:
@@ -22,7 +22,7 @@ class _BenchRecheck(_BenchNotes):
 
     def _recheck(
         self,
-        plan: _Plan,
+        plan: Plan,
         queue: list[int],
         args: Args,
         progress: Progress,

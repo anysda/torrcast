@@ -8,11 +8,11 @@ from torrcast.usecases.rank.misses_episode import misses_episode
 from torrcast.usecases.rank.over_ceiling import over_ceiling
 
 if TYPE_CHECKING:
-    from torrcast.usecases.select._plan import _Plan
+    from torrcast.usecases.select.plan import Plan
 
 
 def silent_swarm(
-    plan: _Plan, queue: list[int], touched: int, shown: str, *, picked: int | None = None
+    plan: Plan, queue: list[int], touched: int, shown: str, *, picked: int | None = None
 ) -> str:
     """Отказ, когда ни одна тронутая раздача не отозвалась ни метаданными, ни потоком.
 
@@ -21,7 +21,7 @@ def silent_swarm(
     запросов из 225, и у девяти из них рой был ЖИВОЙ - просто очередь отбора кончилась
     на трёх раздачах из пятнадцати, а «пиров нет» было сказано про всю выдачу.
 
-    Очередь отбора (:meth:`_Plan.candidates`) - это не вся выдача: мимо неё проходят
+    Очередь отбора (:meth:`Plan.candidates`) - это не вся выдача: мимо неё проходят
     раздачи с чужой серией, образы дисков, слишком тяжёлые. Молчание тех, кого
     потрогали, не говорит ни слова о тех, кого не трогали. Поэтому строк пять, и
     различает их не догадка, а счётчики:

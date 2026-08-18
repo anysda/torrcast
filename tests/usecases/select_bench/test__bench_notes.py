@@ -9,7 +9,7 @@ from torrcast.domain.audio_track import AudioTrack
 from torrcast.domain.media import Media
 from torrcast.domain.torr_file import TorrFile
 from torrcast.usecases.select._prep import _Prep
-from torrcast.usecases.select_bench._bench import _Bench
+from torrcast.usecases.select_bench.bench import Bench
 
 GB = 1024**3
 
@@ -23,7 +23,7 @@ def _prep(media: Media, number: int = 1, size_gb: float = 8.0, name: str | None 
 
 def test_a_whole_recode_is_never_silent(capsys: pytest.CaptureFixture[str]) -> None:
     """Молчаливых подмен нет: перекод целиком - решение показа, и человек его слышит."""
-    bench = _Bench(Torrents(), prober=probes([]))
+    bench = Bench(Torrents(), prober=probes([]))
     hevc = _prep(Media(RUNTIME, (), "hevc", height=1080, width=1920))
 
     bench._announce(plan([rel()]), hevc, [1], {}, 1)
@@ -35,7 +35,7 @@ def test_a_copy_playable_release_needs_no_word_at_all(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Играется копией и ступень не снижена - говорить не о чем."""
-    bench = _Bench(Torrents(), prober=probes([]))
+    bench = Bench(Torrents(), prober=probes([]))
     plain = _prep(Media(RUNTIME, (), "h264", height=1080, width=1920))
 
     bench._announce(plan([rel()]), plain, [1], {}, 1)
@@ -45,7 +45,7 @@ def test_a_copy_playable_release_needs_no_word_at_all(
 
 def test_the_last_hope_of_the_mute_fallback_is_loud(capsys: pytest.CaptureFixture[str]) -> None:
     """🔴 TC-178. Русской нет ни у кого - играем то, что есть, и говорим об этом вслух."""
-    bench = _Bench(Torrents(), prober=probes([]))
+    bench = Bench(Torrents(), prober=probes([]))
     japanese = _prep(
         Media(RUNTIME, (AudioTrack(index=0, language="jpn"),), "h264", height=1080, width=1920)
     )
@@ -60,7 +60,7 @@ def test_a_track_without_a_language_tag_is_named_as_unnamed(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """🔴 TC-492. Незнание - не согласие: строка честно говорит, что метки языка нет."""
-    bench = _Bench(Torrents(), prober=probes([]))
+    bench = Bench(Torrents(), prober=probes([]))
     unnamed = _prep(
         Media(RUNTIME, (AudioTrack(index=0),), "h264", height=1080, width=1920),
         name="Кино / Movie (1999) BDRip 1080p | Дубляж",

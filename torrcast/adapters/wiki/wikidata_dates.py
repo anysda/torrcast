@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from torrcast.adapters.wiki.endpoints import _SPARQL_HEAD, _WIKIDATA_HOST, _WIKIDATA_PATH
+from torrcast.adapters.wiki.endpoints import SPARQL_HEAD, WIKIDATA_HOST, WIKIDATA_PATH
 from torrcast.domain.facts.read_published import read_published
 from torrcast.domain.facts.settings import HTTP_TIMEOUT
 from torrcast.ports.json_client import JsonClient
@@ -22,6 +22,6 @@ class WikidataDates:
         """
         query = f"SELECT ?date WHERE {{ wd:{entity} wdt:P577 ?date }}"
         payload = self.client.get(
-            _WIKIDATA_HOST, _WIKIDATA_PATH, {"query": query}, dict(_SPARQL_HEAD), timeout
+            WIKIDATA_HOST, WIKIDATA_PATH, {"query": query}, dict(SPARQL_HEAD), timeout
         )
         return read_published(payload)

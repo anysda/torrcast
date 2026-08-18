@@ -55,7 +55,7 @@ from torrcast.adapters.stream_probe.probe import probe
 from torrcast.adapters.stream_probe.segment_name import segment_name
 from torrcast.runtime.wire import wire
 from torrcast.usecases.feed_pack.feed import Feed
-from torrcast.usecases.playback import _layout
+from torrcast.usecases.playback.layout import layout
 
 #: Во сколько раз кусок вправе быть длиннее заказанного шага, прежде чем сетка перестанет
 #: быть сеткой.
@@ -324,7 +324,7 @@ def main() -> int:
         # Порог «тяжёл каждый кусок» опущен ниже любого веса: щуп меряет ИМЕННО сплошной
         # перекод, но решение о нём всё равно принимает показ, а не щуп.
         config = replace(config, bitrate_hard_mbit=-1.0)
-    grid, whole = _layout(
+    grid, whole = layout(
         config,
         url,
         media.duration,

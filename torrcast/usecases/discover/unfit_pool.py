@@ -8,7 +8,7 @@ from torrcast.domain.config import Config
 from torrcast.domain.picture import Picture
 from torrcast.domain.profile import CAUTIOUS, Profile
 from torrcast.usecases.choice import fitness
-from torrcast.usecases.reinforce._plan_for import _plan_for
+from torrcast.usecases.reinforce.plan_for import plan_for
 
 if TYPE_CHECKING:
     from torrcast.domain.args import Args
@@ -24,4 +24,4 @@ def unfit_pool(
     :func:`is_dated`. Ни одного такого релиза во всём пуле - и вечер по этой выдаче не
     состоится, сколько бы строк в ней ни было.
     """
-    return not any(fitness(_plan_for(p, args, config, profile)) for p in found)
+    return not any(fitness(plan_for(p, args, config, profile)) for p in found)

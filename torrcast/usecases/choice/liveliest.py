@@ -7,10 +7,10 @@ from typing import TYPE_CHECKING
 from torrcast.usecases.choice.liveliness import liveliness
 
 if TYPE_CHECKING:
-    from torrcast.usecases.select._plan import _Plan
+    from torrcast.usecases.select.plan import Plan
 
 
-def liveliest(plans: list[_Plan]) -> int:
+def liveliest(plans: list[Plan]) -> int:
     """Номер (с единицы) самой живой картины — он же дефолт меню и первый на прогрев.
 
     Список остаётся хронологическим, меняется только цифра в скобках:

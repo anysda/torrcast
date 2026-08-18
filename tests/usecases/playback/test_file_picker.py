@@ -10,8 +10,8 @@ from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.picture import Picture
 from torrcast.domain.release import Release
 from torrcast.domain.torr_file import TorrFile
-from torrcast.usecases.playback._file_picker import _default_file, _file_picker
-from torrcast.usecases.select import _Plan
+from torrcast.usecases.playback.file_picker import _default_file, file_picker
+from torrcast.usecases.select import Plan
 
 
 def _files() -> list[TorrFile]:
@@ -22,9 +22,9 @@ def _files() -> list[TorrFile]:
     ]
 
 
-def _plan() -> _Plan:
+def _plan() -> Plan:
     release = Release(raw_name="кино", title="Кино", magnet="magnet:?xt=1")
-    return _Plan(
+    return Plan(
         picture=Picture(title="Кино", year=1999, releases=[release]),
         ranked=[release],
         runtime=7200.0,
@@ -41,14 +41,14 @@ def test_a_movie_takes_the_biggest_video_file(monkeypatch: pytest.MonkeyPatch) -
 
 def test_the_hand_named_number_counts_only_video_files() -> None:
     """``--file N`` считает ВИДЕО раздачи по порядку, а не файлы вперемешку с текстом."""
-    chosen = _file_picker(Args(query=["кино"], file=2))
+    chosen = file_picker(Args(query=["кино"], file=2))
 
     assert chosen(_plan(), _plan().ranked[0], _files()).name.endswith("film.mkv")
 
 
 def test_a_number_outside_the_pool_is_a_polite_refusal() -> None:
     """Номера нет - отказ называет, сколько видеофайлов в раздаче на самом деле."""
-    chosen = _file_picker(Args(query=["кино"], file=9))
+    chosen = file_picker(Args(query=["кино"], file=9))
 
     with pytest.raises(NotFoundError, match="видеофайлов в раздаче 2"):
         chosen(_plan(), _plan().ranked[0], _files())
@@ -56,4 +56,4 @@ def test_a_number_outside_the_pool_is_a_polite_refusal() -> None:
 
 def test_without_the_flag_the_default_picker_is_returned() -> None:
     """Ручку не назвали - выбор остаётся обычным, и подмены на ней не бывает."""
-    assert _file_picker(Args(query=["кино"])) is _default_file
+    assert file_picker(Args(query=["кино"])) is _default_file

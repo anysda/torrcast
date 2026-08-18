@@ -16,21 +16,21 @@ from torrcast.usecases.rank.rank_releases import rank_releases
 if TYPE_CHECKING:
     from torrcast.domain.args import Args
     from torrcast.domain.config import Config
-    from torrcast.usecases.select._plan import _Plan
+    from torrcast.usecases.select.plan import Plan
 else:
     # Договор плана называет порт, а сам класс живёт в сценарии выбора: тут план не
     # только называют, но и строят, поэтому во время работы имя берётся оттуда, куда
     # порт и указывает.
-    from torrcast.usecases.select import _Plan
+    from torrcast.usecases.select import Plan
 
 
-def _plan_for(
+def plan_for(
     picture: Picture,
     args: Args,
     config: Config,
     profile: Profile = CAUTIOUS,
     runtime: float = 0.0,
-) -> _Plan:
+) -> Plan:
     """План по одной картине: пул релизов в порядке отбора и цель для сериала.
 
     ``runtime`` — настоящая длительность картины, секунды (из справки, :func:`_timed`).
@@ -83,7 +83,7 @@ def _plan_for(
         last=last,
         copy_hevc=copy_hevc,
     )
-    return _Plan(
+    return Plan(
         picture=picture,
         ranked=ranked,
         runtime=runtime,

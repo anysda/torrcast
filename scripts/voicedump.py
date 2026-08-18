@@ -28,21 +28,25 @@ from torrcast.adapters.console.console import Progress
 from torrcast.adapters.filesystem.state import load_config
 from torrcast.adapters.torrserver.torr_server import TorrServer
 from torrcast.domain.args import Args
-from torrcast.usecases.discover import _search
-from torrcast.usecases.playback import _file_picker
-from torrcast.usecases.select_bench import _Bench
+from torrcast.runtime.wire import wire
+from torrcast.usecases.discover.search_circle import search_circle
+from torrcast.usecases.playback.file_picker import file_picker
+from torrcast.usecases.select_bench.bench import Bench
 
 
 def main(argv: list[str]) -> int:
+    # Тракт отбора сценарию раздаёт композиционный корень: без него первый же
+    # вопрос сценария внешнему миру падает на несобранной среде.
+    wire()
     config = load_config()
     out: list[dict[str, object]] = []
     for query in argv:
         args = Args(query=query.split())
         try:
             with Progress() as progress:
-                plans = _search(config, args, progress)
+                plans = search_circle(config, args, progress)
                 torrserver = TorrServer(config.torrserver_url)
-                bench = _Bench(torrserver, choose=_file_picker(args))
+                bench = Bench(torrserver, choose=file_picker(args))
                 for plan in plans[:1]:
                     prep = bench.resolve(plan, args, progress)
                     out.append(

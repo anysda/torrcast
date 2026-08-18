@@ -8,10 +8,10 @@ from torrcast.domain.picture import Picture
 from torrcast.usecases.discover.kin_line import kin_line
 
 if TYPE_CHECKING:
-    from torrcast.usecases.select._plan import _Plan
+    from torrcast.usecases.select.plan import Plan
 
 
-def unfit_line(plan: _Plan, drops: dict[str, int], kin: list[Picture]) -> str:
+def unfit_line(plan: Plan, drops: dict[str, int], kin: list[Picture]) -> str:
     """Отказ, когда ворота отбора не пропустили НИ ОДНОГО релиза картины (TC-432).
 
     Пустая очередь - это картина, в выдаче которой одни игры, книги, образы дисков или
@@ -27,7 +27,7 @@ def unfit_line(plan: _Plan, drops: dict[str, int], kin: list[Picture]) -> str:
     Ход у отказа обязан быть всегда. Живых соседей по франшизе строка предлагает
     (:func:`kin_line`), а «выбери руками» не предлагает: раздачи отвергнуты по уже
     ИЗВЕСТНЫМ признакам, и номер этого не меняет. Названный человеком релиз при этом
-    играет как играл: ворота на него не смотрят вовсе (:meth:`_Plan.candidates`).
+    играет как играл: ворота на него не смотрят вовсе (:meth:`Plan.candidates`).
 
     🔴 TC-447. Соседей нет - и ход всё равно есть, той же строкой. Честное «ничего не
     нашлось» тут врало бы: картина в каталоге есть, негодны её раздачи, - так и

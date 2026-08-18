@@ -6,9 +6,10 @@ import contextlib
 import math
 
 from torrcast.adapters.pack_memory import _SEEK_LOCK, _SEEK_OK
-from torrcast.adapters.stream_pack._keys_shelf import _keys_cache, _read_keys
+from torrcast.adapters.stream_pack._keys_shelf import _keys_cache
 from torrcast.adapters.stream_pack._pilot_start import _pilot_start
 from torrcast.adapters.stream_pack.mapped_start import mapped_start
+from torrcast.adapters.stream_pack.read_keys import read_keys
 from torrcast.domain.film_keys import FilmKeys
 from torrcast.domain.hls_settings import SPLIT_SLACK
 from torrcast.domain.hls_wait import PILOT_TIMEOUT
@@ -49,7 +50,7 @@ def pack_start(
     # секунды.
     if keys is None:
         with contextlib.suppress(Exception):
-            keys = _read_keys(_keys_cache(source_url))
+            keys = read_keys(_keys_cache(source_url))
     guess = mapped_start(keys, at)
     if not math.isnan(guess):
         with _SEEK_LOCK:

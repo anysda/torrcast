@@ -43,15 +43,15 @@ from probeprofile import add_argument as add_profile_argument
 from probeprofile import choose as choose_profile
 
 from torrcast.adapters.filesystem.state import load_config
-from torrcast.domain._name_data import _EXTRAS_RE
 from torrcast.domain.args import Args
 from torrcast.domain.rank_settings import HD_HEIGHT
 from torrcast.domain.release import Release
+from torrcast.runtime.wire import wire
 from torrcast.usecases.rank import bitrate_of, is_dated, is_extra
-from torrcast.usecases.select import _Plan
+from torrcast.usecases.select.plan import Plan
 
 
-def live_hd_below(plan: _Plan, queue: list[int]) -> list[int]:
+def live_hd_below(plan: Plan, queue: list[int]) -> list[int]:
     """Живые названные HD ниже верха очереди - те, кого позвал бы разворот по ffprobe.
 
     Датированные не считаются: ступень :func:`is_dated` уже уложила их под верх, и
@@ -64,12 +64,6 @@ def live_hd_below(plan: _Plan, queue: list[int]) -> list[int]:
         and plan.ranked[n - 1].seeders > 0
         and not is_dated(plan.ranked[n - 1], plan.runtime)
     ]
-
-
-def mark_of(release: Release) -> str:
-    """Какая метка приложения сработала в имени; пусто - метки нет (контроль)."""
-    found = _EXTRAS_RE.search(release._untitled)
-    return found.group(0) if found else ""
 
 
 def weight_unknown(release: Release) -> bool:
@@ -88,10 +82,13 @@ _UNAMBIGUOUS_RE = re.compile(
 
 def unambiguous_extra(release: Release) -> bool:
     """Имя несёт однозначную метку приложения (в зоне пометок, не в имени картины)."""
-    return bool(_UNAMBIGUOUS_RE.search(release._untitled))
+    return bool(_UNAMBIGUOUS_RE.search(release.untitled))
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Тракт отбора сценарию раздаёт композиционный корень: без него первый же
+    # вопрос сценария внешнему миру падает на несобранной среде.
+    wire()
     ap = argparse.ArgumentParser(description="щуп ворот отбора по сохранённым выдачам")
     ap.add_argument("pools", type=Path, help="pools.jsonl со снятыми выдачами индексеров")
     add_profile_argument(ap)
@@ -197,7 +194,7 @@ def main(argv: list[str] | None = None) -> int:
             heavy_extras.append(
                 f"{plan.picture.title}: «{release.raw_name[:70]}» "
                 f"({release.seeders} сид, {release.size / 1024**3:.1f} ГБ, "
-                f"{shown}, метка «{mark_of(release)}», "
+                f"{shown}, метка «{release.extras_mark}», "
                 f"место в очереди: {positions.get(n, 'отсеян')})"
             )
 
@@ -208,7 +205,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  {row}")
 
     # --- гейт TC-290 -----------------------------------------------------------
-    # Верх очереди (ranked[0]) ворота не трогают никогда (:meth:`_Plan.candidates`),
+    # Верх очереди (ranked[0]) ворота не трогают никогда (:meth:`Plan.candidates`),
     # поэтому потеря - это очередь, в которой не осталось НИ ОДНОГО живого. Два
     # варианта отсева приложений: по ЛЮБОЙ метке и только по однозначной
     # («дополнительные материалы», «бонус-диск») с сохранением верха.
@@ -227,7 +224,7 @@ def main(argv: list[str] | None = None) -> int:
         if not [n for n in kept if plan.ranked[n - 1].seeders > 0]:
             lost_unamb += 1
             names = "; ".join(
-                f"«{plan.ranked[n - 1].raw_name[:60]}» ({mark_of(plan.ranked[n - 1])})"
+                f"«{plan.ranked[n - 1].raw_name[:60]}» ({plan.ranked[n - 1].extras_mark})"
                 for n in live_now
             )
             lost_rows.append(f"  {plan.picture.title}: живые только приложения: {names}")

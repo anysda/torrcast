@@ -8,10 +8,10 @@ from torrcast.domain.slugify import slugify
 
 if TYPE_CHECKING:
     from torrcast.domain.facts.origin import Origin
-    from torrcast.usecases.select._plan import _Plan
+    from torrcast.usecases.select.plan import Plan
 
 
-def year_note(picked: _Plan, about: Origin, asked: str = "") -> str:
+def year_note(picked: Plan, about: Origin, asked: str = "") -> str:
     """🔴 TC-199/TC-200. Честная строка, когда год дефолтной картины расходится со справкой.
 
     Год картины склеивается из ИМЕНИ раздачи, а имя врёт: «Оно» уезжает раздачей 2014

@@ -30,7 +30,7 @@ def peer_grace(plan: _Ranked, number: int, queue: list[int]) -> float:
 
     Соседи берутся из фактического хвоста ``queue`` после этой раздачи. Поэтому ручной
     выбор, проверка по звуку и уже пройденный сосед отсрочку не удлиняют. Ворота и
-    нужная серия учтены при построении самой очереди (:meth:`_Plan.candidates`).
+    нужная серия учтены при построении самой очереди (:meth:`Plan.candidates`).
     """
     release = plan.ranked[number - 1]
     if release.height < FULL_HEIGHT or number not in queue:

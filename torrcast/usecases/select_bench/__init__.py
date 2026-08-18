@@ -7,7 +7,7 @@
 
 from __future__ import annotations
 
-from torrcast.usecases.select_bench._bench import _Bench
 from torrcast.usecases.select_bench._bench_state import _configure_select_bench
+from torrcast.usecases.select_bench.bench import Bench
 
-__all__ = ["_Bench", "_configure_select_bench"]
+__all__ = ["Bench", "_configure_select_bench"]

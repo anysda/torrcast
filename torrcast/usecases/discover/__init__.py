@@ -30,19 +30,15 @@ from torrcast.usecases.discover._asked_kind import _asked_kind
 from torrcast.usecases.discover._no_budget import _no_budget
 from torrcast.usecases.discover._nothing import _nothing
 from torrcast.usecases.discover._query_note import _query_note
-from torrcast.usecases.discover._reread import (
-    _relayout,
-    _season_asked,
-    _season_reread,
-    _titled_number,
-)
-from torrcast.usecases.discover._search import _search
+from torrcast.usecases.discover._reread import _relayout, _titled_number
 from torrcast.usecases.discover._search_state import _configure_discover
 from torrcast.usecases.discover._second_language import _second_language
 from torrcast.usecases.discover._vouched import _vouched
 from torrcast.usecases.discover.discover import Discover
 from torrcast.usecases.discover.kin_line import KIN_SHOWN, _kin, kin_line
+from torrcast.usecases.discover.search_circle import search_circle
 from torrcast.usecases.discover.season_gaps import season_gaps
+from torrcast.usecases.discover.season_reread import _season_asked, season_reread
 from torrcast.usecases.discover.silent_swarm import silent_swarm
 from torrcast.usecases.discover.unfit_line import unfit_line
 from torrcast.usecases.discover.unfit_pool import unfit_pool
@@ -73,9 +69,7 @@ __all__ = [
     "_nothing",
     "_query_note",
     "_relayout",
-    "_search",
     "_season_asked",
-    "_season_reread",
     "_second_language",
     "_titled_number",
     "_vouched",
@@ -84,7 +78,9 @@ __all__ = [
     "other_words",
     "replace",
     "same_name",
+    "search_circle",
     "season_gaps",
+    "season_reread",
     "silent_swarm",
     "slugify",
     "split_franchise_index",

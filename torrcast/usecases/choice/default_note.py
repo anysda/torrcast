@@ -13,10 +13,10 @@ from torrcast.usecases.choice.fitness import fitness
 from torrcast.usecases.choice.liveliness import liveliness
 
 if TYPE_CHECKING:
-    from torrcast.usecases.select._plan import _Plan
+    from torrcast.usecases.select.plan import Plan
 
 
-def default_note(plans: list[_Plan], asked: str = "") -> str:
+def default_note(plans: list[Plan], asked: str = "") -> str:
     """🔴 TC-198. Одна честная строка про смену картины: «спросили X - беру Y, потому что Z».
 
     Молчаливая подмена КАРТИНЫ - худший вид брака, а дефолт франшизы подменяет её
@@ -62,7 +62,7 @@ def default_note(plans: list[_Plan], asked: str = "") -> str:
     return ""
 
 
-def _passed_why(plans: list[_Plan], number: int, numbers: list[int]) -> str:
+def _passed_why(plans: list[Plan], number: int, numbers: list[int]) -> str:
     """Почему картина, стоящая раньше по хронологии, дефолтом не стала.
 
     Причины ровно четыре, и человеку они разные: «играть нечем» (годной раздачи нет ни

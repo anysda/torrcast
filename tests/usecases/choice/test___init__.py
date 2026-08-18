@@ -20,7 +20,7 @@ from torrcast.domain.picture import Picture
 from torrcast.domain.rank_settings import ALIVE_SEEDERS
 from torrcast.domain.release import Release
 from torrcast.usecases.choice import fitness, liveliness, warned
-from torrcast.usecases.select import _Plan
+from torrcast.usecases.select import Plan
 
 #: Десятичный гигабайт: в них считают размер раздачи и трекеры, и наша прикидка веса.
 GB = 1000**3
@@ -45,9 +45,9 @@ def film(gigabytes: float, **fields: Any) -> Release:
     )
 
 
-def picture_of(*releases: Release) -> _Plan:
+def picture_of(*releases: Release) -> Plan:
     """План по одной картине: пул раздач и та же длительность, что и во взвешивании."""
-    return _Plan(
+    return Plan(
         picture=Picture(title="Кино", year=2020),
         ranked=list(releases),
         runtime=RUNTIME,

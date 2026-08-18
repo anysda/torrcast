@@ -14,11 +14,11 @@ from torrcast.ports.journal import journal
 from torrcast.ports.progress import progress as progress_bar
 from torrcast.usecases.cast_command._bookmark import _continue_picked
 from torrcast.usecases.choice import _passport, _pick_plan, _played, warm_order
-from torrcast.usecases.discover import _search
-from torrcast.usecases.playback import _file_picker
+from torrcast.usecases.discover import search_circle
+from torrcast.usecases.playback import file_picker
 from torrcast.usecases.reinforce import _timed, _topup
 from torrcast.usecases.select import _Prep
-from torrcast.usecases.select_bench import _Bench
+from torrcast.usecases.select_bench import Bench
 from torrcast.usecases.start_clock import _Clock
 
 if TYPE_CHECKING:
@@ -27,7 +27,7 @@ if TYPE_CHECKING:
     from torrcast.domain.entry import Entry
     from torrcast.domain.watch_state import WatchState
     from torrcast.usecases.choice import _Passport
-    from torrcast.usecases.select._plan import _Plan
+    from torrcast.usecases.select.plan import Plan
 
 
 def _choose(
@@ -37,7 +37,7 @@ def _choose(
     state: WatchState,
     live: tuple[str, Entry] | None,
     clock: _Clock,
-) -> tuple[list[_Plan], _Plan, _Prep, _Bench, _Passport] | int:
+) -> tuple[list[Plan], Plan, _Prep, Bench, _Passport] | int:
     """Найти, спросить и отобрать: планы меню, выбранная картина и готовый релиз.
 
     Вместо набора отсюда бывает КОД: закладка выбранной картины отвечает показом прямо
@@ -45,7 +45,7 @@ def _choose(
     картины, и картина к этой секунде ещё не названа.
     """
     with progress_bar() as progress:
-        plans = _search(config, args, progress, chosen.profile)
+        plans = search_circle(config, args, progress, chosen.profile)
         # Справка к меню (рейтинг, хронометраж, о чём кино) едет фоном - ровно в те
         # секунды, что уходят на подъём прогрева. Меню её не ждёт: см. torrcast.runtime.facts_wiring.
         facts = _state._play_facts([(p.picture.title, p.picture.year) for p in plans])
@@ -57,7 +57,7 @@ def _choose(
         # иначе подстроится под подмену и сверять станет нечего.
         passport = _passport(plans)
         torrserver = _state._play_engines(config.torrserver_url)
-        bench = _Bench(torrserver, choose=_file_picker(args), profile=chosen.profile)
+        bench = Bench(torrserver, choose=file_picker(args), profile=chosen.profile)
         # Прогрев под меню: пока идёт вопрос, раздачи уже качают метаданные. Греется
         # голова ОЧЕРЕДИ, а не верх ранжира: верх мог не пройти ворота (TC-432), и
         # греть то, что отбор не возьмёт, - тянуть чужой вес из роя зря.
@@ -111,12 +111,12 @@ def _choose(
                 # Справка уже дождана меню - её хронометраж встаёт в знаменатель
                 # битрейта вместо прикидки (:func:`_timed`), и порядок отбора
                 # пересобирается на настоящих числах. Прогретое при этом не пропадает:
-                # номера релизов переезжают вместе с порядком (:meth:`_Bench.reorder`).
+                # номера релизов переезжают вместе с порядком (:meth:`Bench.reorder`).
                 plan = bench.reorder(plan, _timed(plan, facts, args, config, chosen.profile))
                 _state._play_native(plan.picture, args.title_query)
                 # Прогретые кандидаты ДРУГИХ картин с этой секунды - мусор: они тянут
                 # куски у той раздачи, которую сейчас будем показывать, и всё это время
-                # стоят в TorrServer лишними (:meth:`_Bench.keep_plan`).
+                # стоят в TorrServer лишними (:meth:`Bench.keep_plan`).
                 bench.keep_plan(plan)
             finally:
                 # Меню уже на экране, и ответ на него получен: пусть фоновый добор допишет

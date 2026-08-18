@@ -1463,7 +1463,7 @@ def test_a_franchise_of_twins_costs_one_pass_not_a_square(monkeypatch: pytest.Mo
     """
     import builtins
 
-    from torrcast.domain.both_languages import _both_languages
+    from torrcast.domain.both_languages import both_languages
 
     size = 200
     groups = {"дюна": [_picture("Дюна", 2021)]}
@@ -1482,7 +1482,7 @@ def test_a_franchise_of_twins_costs_one_pass_not_a_square(monkeypatch: pytest.Mo
         return real_id(obj)
 
     monkeypatch.setattr(builtins, "id", counting_id)
-    found = _both_languages(groups, aliases, "дюна")
+    found = both_languages(groups, aliases, "дюна")
     monkeypatch.undo()
 
     assert len(found) == size + 1, "все близнецы обязаны попасть во франшизу"

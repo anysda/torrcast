@@ -14,7 +14,7 @@ from torrcast.usecases.cast_command._bookmark import _account_watched, _continue
 from torrcast.usecases.start_clock import _Clock
 
 
-class _Bench:
+class Bench:
     """Стенд отбора под наблюдением зеркала: важно, убрал ли он прогретое."""
 
     def __init__(self) -> None:
@@ -37,7 +37,7 @@ def test_a_picture_without_a_bookmark_goes_the_usual_way() -> None:
         Config(),
         _state_with(None),
         cast(Any, plan()),
-        _Bench(),  # type: ignore[arg-type]
+        Bench(),  # type: ignore[arg-type]
         args=Args(query=["кино"]),
         clock=_Clock(),
     )
@@ -49,7 +49,7 @@ def test_a_hand_named_release_says_out_loud_that_it_drops_the_bookmark(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """``--release N`` значит «другая раздача», а не «забудь, где я остановился»."""
-    bench = _Bench()
+    bench = Bench()
 
     code = _continue_picked(
         Config(),
@@ -71,7 +71,7 @@ def test_a_series_is_left_to_the_usual_way() -> None:
         Config(),
         _state_with(entry(kind="tv", season=1, episode=2, episodes=[(1, 1), (1, 2)])),
         cast(Any, plan()),
-        _Bench(),  # type: ignore[arg-type]
+        Bench(),  # type: ignore[arg-type]
         args=Args(query=["кино"]),
         clock=_Clock(),
     )

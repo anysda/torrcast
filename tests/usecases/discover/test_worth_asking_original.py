@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from tests.usecases.discover.world import franchise, row
-from torrcast.domain._name_data import THIN_POOL
 from torrcast.domain.args import Args
 from torrcast.domain.config import Config
 from torrcast.domain.raw_result import RawResult
+from torrcast.domain.thin_pool import THIN_POOL
 from torrcast.usecases.discover.worth_asking_original import worth_asking_original
 
 

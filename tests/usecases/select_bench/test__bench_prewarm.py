@@ -8,22 +8,22 @@ from tests.usecases.select_bench.world import Torrents, plan, probes, rel
 from torrcast.domain.args import Args
 from torrcast.domain.picture import Picture
 from torrcast.domain.release import Release
-from torrcast.usecases.select._plan import _Plan
-from torrcast.usecases.select_bench._bench import _Bench
+from torrcast.usecases.select.plan import Plan
+from torrcast.usecases.select_bench.bench import Bench
 
 _ASKED = Args(query=["кино"])
 
 
-def _ranked(count: int, dubbed: bool = True) -> list[Release]:
+def wiki_ranked(count: int, dubbed: bool = True) -> list[Release]:
     tail = " | Дубляж" if dubbed else ""
     return [rel(name=f"r{n}{tail}", seeders=100 - n) for n in range(count)]
 
 
 def test_the_warmed_release_moves_with_its_number_not_with_the_digit() -> None:
     """Переезд считается по самой раздаче: та же цифра после пересборки - другой магнит."""
-    pool = _ranked(2)
+    pool = wiki_ranked(2)
     before = plan(pool)
-    bench = _Bench(Torrents(), prober=probes([]))
+    bench = Bench(Torrents(), prober=probes([]))
     warmed = bench.start(before, 1)
     after = plan(list(reversed(pool)))
 
@@ -34,10 +34,10 @@ def test_the_warmed_release_moves_with_its_number_not_with_the_digit() -> None:
 
 def test_a_release_that_fell_out_of_the_order_loses_its_warm_up() -> None:
     """Раздачи в новом порядке нет вовсе - прогрев отпускается, а не переносится наугад."""
-    pool = _ranked(2)
+    pool = wiki_ranked(2)
     before = plan(pool)
     torrents = Torrents()
-    bench = _Bench(torrents, prober=probes([]))
+    bench = Bench(torrents, prober=probes([]))
     warmed = bench.start(before, 2)
     warmed.ready.wait(2.0)
 
@@ -48,14 +48,14 @@ def test_a_release_that_fell_out_of_the_order_loses_its_warm_up() -> None:
 
 def test_the_chosen_picture_leaves_no_warm_ups_of_the_neighbours() -> None:
     """Картина выбрана - чужие прогревы доедали бы полосу у той, что вот-вот покажем."""
-    mine = plan(_ranked(1))
-    other = _Plan(
-        picture=Picture(title="Другое", year=2001, releases=_ranked(1)),
-        ranked=_ranked(1),
+    mine = plan(wiki_ranked(1))
+    other = Plan(
+        picture=Picture(title="Другое", year=2001, releases=wiki_ranked(1)),
+        ranked=wiki_ranked(1),
         runtime=3600.0,
         warn_mbit=20.0,
     )
-    bench = _Bench(Torrents(), prober=probes([]))
+    bench = Bench(Torrents(), prober=probes([]))
     kept = bench.start(mine, 1)
     dropped = bench.start(other, 1)
     for prep in (kept, dropped):
@@ -68,8 +68,8 @@ def test_the_chosen_picture_leaves_no_warm_ups_of_the_neighbours() -> None:
 
 def test_the_spare_release_is_the_next_one_the_queue_would_take() -> None:
     """Очередь та же, что спросит отбор, и следующий в ней - тот, кого он поднимет первым."""
-    built = plan(_ranked(3))
-    bench = _Bench(Torrents(), prober=probes([]))
+    built = plan(wiki_ranked(3))
+    bench = Bench(Torrents(), prober=probes([]))
 
     preps = bench.spare(built, _ASKED)
 
@@ -78,9 +78,9 @@ def test_the_spare_release_is_the_next_one_the_queue_would_take() -> None:
 
 def test_a_release_named_by_hand_has_no_spare_at_all() -> None:
     """Очередь из одного номера - подменять человека нечем, и лишней раздачи не будет."""
-    bench = _Bench(Torrents(), prober=probes([]))
+    bench = Bench(Torrents(), prober=probes([]))
 
-    assert bench.spare(plan(_ranked(3)), Args(query=["кино"], release=1)) == []
+    assert bench.spare(plan(wiki_ranked(3)), Args(query=["кино"], release=1)) == []
 
 
 def test_a_silent_top_warms_the_first_release_that_promises_russian() -> None:
@@ -90,7 +90,7 @@ def test_a_silent_top_warms_the_first_release_that_promises_russian() -> None:
         replace(rel(name="r1", seeders=90), raw_name="r1"),
         replace(rel(name="r2 | Дубляж", seeders=80), raw_name="r2 | Дубляж"),
     ]
-    bench = _Bench(Torrents(), prober=probes([]))
+    bench = Bench(Torrents(), prober=probes([]))
 
     preps = bench.spare(plan(pool), _ASKED)
 

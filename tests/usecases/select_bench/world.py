@@ -12,7 +12,7 @@ from torrcast.domain.swarm_error import SwarmError
 from torrcast.domain.torr_file import TorrFile
 from torrcast.ports.contact_wait import ContactWait
 from torrcast.ports.json_value import JsonValue
-from torrcast.usecases.select._plan import _Plan
+from torrcast.usecases.select.plan import Plan
 
 GB = 1024**3
 RUNTIME = 3600.0
@@ -48,13 +48,13 @@ def plan(
     warn_mbit: float = 20.0,
     hard_mbit: float = 0.0,
     kin: list[Picture] | None = None,
-) -> _Plan:
+) -> Plan:
     """План картины: пул в порядке ранжира и включённое перекодирование, как в бою.
 
     ``recode_at`` не украшение: в бою перекодирование включено, и именно от него зависит,
     отказ ли HEVC или сплошной перекод. Ноль - перекодирование выключено.
     """
-    return _Plan(
+    return Plan(
         picture=Picture(title="Кино", year=1999, releases=ranked),
         ranked=ranked,
         runtime=RUNTIME,

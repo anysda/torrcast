@@ -1929,18 +1929,18 @@ def test_a_scaled_down_4k_show_gets_its_grid_weighed_by_our_bitrate_too(
     перекод на 9 Мбит/с, то есть 20 МБ при потолке приёмника 16. Сплошной перекод сам
     себе делает тот тяжёлый кусок, ради которого он и заведён.
 
-    Сетка тут строится настоящая - той же :func:`torrcast.cli._layout`, что и на показе;
+    Сетка тут строится настоящая - той же :func:`torrcast.cli.layout`, что и на показе;
     подменена только карта опорных кадров, чтобы не ходить в рой.
     """
     from torrcast.domain.config import Config
     from torrcast.domain.delivered_mbit import AUDIO_MBIT, TS_OVERHEAD
     from torrcast.domain.profile import CAUTIOUS
-    from torrcast.usecases.playback import _layout
+    from torrcast.usecases.playback import layout
 
     keys = _keys(duration=595.0, gop=8.5, rate=0.5e6)  # 4 Мбит/с - для карты это лёгкий файл
     monkeypatch.setattr(grid_for_module, "film_keys", lambda url: keys)
 
-    grid, whole = _layout(Config(), "http://ts/x", 595.0, "h264", 4.0, depth=8, frame=2160)
+    grid, whole = layout(Config(), "http://ts/x", 595.0, "h264", 4.0, depth=8, frame=2160)
     assert whole is not None and whole.mbit == 9.0, "4К поехало сплошным перекодом"
     ours = (whole.mbit + AUDIO_MBIT) * TS_OVERHEAD
     # Хвост сетки в счёт не идёт: он по правилу такой, какой остался, и потолок веса на
@@ -1971,7 +1971,7 @@ def test_the_grid_is_told_the_encoders_ceiling_not_its_average_target() -> None:
     from torrcast.domain.config import Config
     from torrcast.domain.delivered_mbit import AUDIO_MBIT, TS_OVERHEAD
     from torrcast.domain.profile import CAUTIOUS
-    from torrcast.usecases.playback import _layout
+    from torrcast.usecases.playback import layout
 
     duration, period = 160.0, 13.4
     at = sorted(
@@ -1984,7 +1984,7 @@ def test_the_grid_is_told_the_encoders_ceiling_not_its_average_target() -> None:
     monkey = pytest.MonkeyPatch()
     monkey.setattr(grid_for_module, "film_keys", lambda url: keys)
     try:
-        grid, whole = _layout(Config(), "http://ts/x", duration, "h264", 40.0, depth=10)
+        grid, whole = layout(Config(), "http://ts/x", duration, "h264", 40.0, depth=10)
     finally:
         monkey.undo()
 
@@ -2021,7 +2021,7 @@ def test_the_spot_recode_ceiling_is_delivered_bitrate_not_bare_video() -> None:
     from torrcast.domain.config import Config
     from torrcast.domain.delivered_mbit import AUDIO_MBIT, TS_OVERHEAD
     from torrcast.domain.profile import CAUTIOUS
-    from torrcast.usecases.playback import _layout
+    from torrcast.usecases.playback import layout
 
     duration, period = 80.0, 13.4
     at = sorted(
@@ -2034,7 +2034,7 @@ def test_the_spot_recode_ceiling_is_delivered_bitrate_not_bare_video() -> None:
     monkey = pytest.MonkeyPatch()
     monkey.setattr(grid_for_module, "film_keys", lambda url: keys)
     try:
-        grid, whole = _layout(Config(), "http://ts/x", duration, "h264", 20.0, depth=8)
+        grid, whole = layout(Config(), "http://ts/x", duration, "h264", 20.0, depth=8)
     finally:
         monkey.undo()
 
@@ -2062,14 +2062,14 @@ def test_a_gop_too_long_to_cut_pulls_the_whole_target_down() -> None:
     from torrcast.domain.config import Config
     from torrcast.domain.delivered_mbit import AUDIO_MBIT, TS_OVERHEAD
     from torrcast.domain.profile import CAUTIOUS
-    from torrcast.usecases.playback import _layout
+    from torrcast.usecases.playback import layout
 
     duration, gop = 200.0, 15.2  # опорные кадры редкие: между ними резать нечем
     keys = _keys(duration=duration, gop=gop, rate=5.0e6)
     monkey = pytest.MonkeyPatch()
     monkey.setattr(grid_for_module, "film_keys", lambda url: keys)
     try:
-        grid, whole = _layout(Config(), "http://ts/x", duration, "h264", 40.0, depth=10)
+        grid, whole = layout(Config(), "http://ts/x", duration, "h264", 40.0, depth=10)
     finally:
         monkey.undo()
 
@@ -2090,7 +2090,7 @@ def test_a_gop_too_long_to_cut_pulls_the_whole_target_down() -> None:
     monkey = pytest.MonkeyPatch()
     monkey.setattr(grid_for_module, "film_keys", lambda url: dense)
     try:
-        _, easy = _layout(Config(), "http://ts/y", duration, "h264", 40.0, depth=10)
+        _, easy = layout(Config(), "http://ts/y", duration, "h264", 40.0, depth=10)
     finally:
         monkey.undo()
     assert easy is not None and easy.mbit == 9.0, "есть где резать - чёткость не трогаем"

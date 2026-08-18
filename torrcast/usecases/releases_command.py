@@ -17,19 +17,19 @@ from torrcast.domain.tune import tune as tune_profile
 from torrcast.ports.progress import Progress
 from torrcast.ports.progress import progress as progress_bar
 from torrcast.usecases.choice import _named
-from torrcast.usecases.discover import _search
+from torrcast.usecases.discover import search_circle
 from torrcast.usecases.rank import render_table
 from torrcast.usecases.reinforce import _timed
 
 if TYPE_CHECKING:
     from torrcast.domain.args import Args
     from torrcast.usecases.facts import Facts
-    from torrcast.usecases.select._plan import _Plan
+    from torrcast.usecases.select.plan import Plan
 
-    #: Чем ищется выдача: тот же поиск, что и у показа (:func:`_search`), либо ответ
+    #: Чем ищется выдача: тот же поиск, что и у показа (:func:`search_circle`), либо ответ
     #: подделки в тесте. Тип назван подписью самого поиска, а не свободным `Any`:
     #: таблица зовёт его ровно этими четырьмя доводами и ждёт ровно планы картин.
-    Search: TypeAlias = Callable[[Config, Args, Progress, Profile], list[_Plan]]
+    Search: TypeAlias = Callable[[Config, Args, Progress, Profile], list[Plan]]
 
 #: Внешний мир таблицы: настройки, справка о картинах, паспорт приёмника и память
 #: показанного порядка. Кладёт их композиционный корень (:mod:`torrcast.runtime.wire`) -
@@ -87,7 +87,7 @@ def _cmd_releases(
     """
     #: Внешние соседи таблицы: поиск, конфиг, справка и паспорт приёмника. Подделке
     #: отбора хватает её собственных ответов, в бою это сеть, диск и опрос устройства.
-    search = search or _search
+    search = search or search_circle
     settings = settings or _releases_settings
     facts_source = facts_source or _releases_facts
     profile_choice = profile_choice or _releases_detect
@@ -113,7 +113,7 @@ def _cmd_releases(
             print()
             head = f"{_named(plan.picture)} - раздач {len(plan.ranked)}"
             # Номер картины тот же, что у пункта меню в `cast <запрос>` и у --pick:
-            # порядок таблиц - порядок меню (:func:`_search` в обеих командах).
+            # порядок таблиц - порядок меню (:func:`search_circle` в обеих командах).
             print(f"{number}. {head}" if len(plans) > 1 else head)
             print(
                 render_table(

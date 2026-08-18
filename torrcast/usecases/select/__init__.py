@@ -1,7 +1,12 @@
 """Часть CLI; публичный фасад - :mod:`torrcast.cli`.
 
-Реэкспорт отбора: план картины, подготовка релиза, продолжение по состоянию и выбор
-озвучки. Ни строчки логики - каждая единица живёт в своём файле.
+Реэкспорт отбора: план картины, подготовка релиза и выбор озвучки. Ни строчки логики -
+каждая единица живёт в своём файле.
+
+⚠️ Продолжение показа (:func:`~torrcast.usecases.select._continue._continue`) отсюда не
+реэкспортится намеренно: оно единственное в отборе зовёт показ, и втянутое сюда
+замыкало бы два пакета друг на друга - порядок импортов решал бы, поднимется ли
+приложение вообще. Зовущие называют его домом.
 """
 
 from __future__ import annotations
@@ -31,10 +36,8 @@ from torrcast.domain.torr_file import TorrFile
 from torrcast.domain.watch_state import WatchState
 from torrcast.ports.progress import Progress
 from torrcast.usecases.select._about import _about
-from torrcast.usecases.select._continue import _continue
 from torrcast.usecases.select._nothing_late import _nothing_late
 from torrcast.usecases.select._pick_state import _configure_select
-from torrcast.usecases.select._plan import _Plan
 from torrcast.usecases.select._prep import _Prep
 from torrcast.usecases.select._remembered import _remembered
 from torrcast.usecases.select._verdict import (
@@ -44,6 +47,7 @@ from torrcast.usecases.select._verdict import (
     _waiting_note,
 )
 from torrcast.usecases.select._voiced import _revoice, _Voiced, _voiced
+from torrcast.usecases.select.plan import Plan
 from torrcast.usecases.select.select import Select
 
 __all__ = [
@@ -62,6 +66,7 @@ __all__ = [
     "Media",
     "NotFoundError",
     "Picture",
+    "Plan",
     "Profile",
     "Progress",
     "Release",
@@ -71,13 +76,11 @@ __all__ = [
     "TorrcastError",
     "TorrFile",
     "WatchState",
-    "_Plan",
     "_Prep",
     "_Series",
     "_Voiced",
     "_about",
     "_configure_select",
-    "_continue",
     "_did_not_answer",
     "_nothing_late",
     "_remembered",

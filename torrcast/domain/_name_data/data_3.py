@@ -111,7 +111,6 @@ _CHANNEL_RE: Final = re.compile(
     "^(?:bbc|discovery|national\\s+geographic|nat\\s+geo(?:\\s+wild)?|animal\\s+planet|pbs|nhk|arte|би-би-си)\\s*[.:]\\s+(?=\\S)",
     re.IGNORECASE,
 )
-THIN_POOL: Final = 15
 _TRANSLIT: Final[dict[str, str]] = {
     "а": "a",
     "б": "b",

@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from torrcast.domain._name_data import THIN_POOL
 from torrcast.domain.config import Config
 from torrcast.domain.picture import Picture
 from torrcast.domain.profile import CAUTIOUS, Profile
+from torrcast.domain.thin_pool import THIN_POOL
 from torrcast.usecases.discover.unfit_pool import unfit_pool
 
 if TYPE_CHECKING:
@@ -21,7 +21,7 @@ def worth_asking_original(
 
     Поводов два, и оба про одно: русской выдачи не хватило.
 
-    1. Пул ТОЩИЙ - строк выдачи меньше :data:`~torrcast.domain._name_data.THIN_POOL`. Мера считается
+    1. Пул ТОЩИЙ - строк выдачи меньше :data:`~torrcast.domain.thin_pool.THIN_POOL`. Мера считается
        строками (:attr:`~torrcast.domain.picture.Picture.rows`), а не склеенными раздачами:
        зеркалящие индексеры несут один торрент по разу каждый, и по склеенному пулу
        порог срабатывал бы тем чаще, чем больше зеркал в круге.
@@ -33,7 +33,7 @@ def worth_asking_original(
        про его годность не говорит ровно ничего, и мерить надо годность.
 
     Второй повод считается по УЖЕ вынесенным приговорам отбора, а не заранее: пул
-    прогоняется через тот же :func:`_plan_for`, что построит меню, и вопрос к нему один -
+    прогоняется через тот же :func:`plan_for`, что построит меню, и вопрос к нему один -
     осталось ли после отбора хоть что-нибудь, чем стоит играть. Лишнего круга на здоровой
     выдаче отсюда не берётся: годная раздача есть - второго захода нет.
 
@@ -69,7 +69,7 @@ def worth_asking_original(
 
     Рядом, тем же решением «идти ли на второй круг», стоит третий повод: пул упёрся в
     потолок индексера, а картины с именем запроса в ней нет вовсе
-    (:func:`_ceiling_hides_name`). Он срабатывает лишь когда эти два молчат: тощий или
+    (:func:`ceiling_hides_name`). Он срабатывает лишь когда эти два молчат: тощий или
     негодный пул важнее обрезанного хвоста.
     """
     if max((p.rows for p in found), default=0) < THIN_POOL:

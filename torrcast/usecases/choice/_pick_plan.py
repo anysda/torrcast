@@ -12,16 +12,16 @@ from torrcast.usecases.choice.part_one_swap import part_one_swap
 
 if TYPE_CHECKING:
     from torrcast.usecases.facts import Facts
-    from torrcast.usecases.select._plan import _Plan
+    from torrcast.usecases.select.plan import Plan
 
 
 def _pick_plan(
-    plans: list[_Plan],
+    plans: list[Plan],
     facts: Facts | None = None,
     pick: int | None = None,
     asked: str = "",
     environment: ChoiceEnvironment | None = None,
-) -> _Plan:
+) -> Plan:
     """Вопрос «какой фильм франшизы?»; один вариант — без вопроса.
 
     Дефолт — верхняя картина меню. Если играть её нечем, отбор называет причину и не

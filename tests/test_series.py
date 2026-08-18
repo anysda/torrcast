@@ -25,7 +25,7 @@ from torrcast.domain.runtime_guess import RUNTIME_GUESS
 from torrcast.domain.split_episode import split_episode
 from torrcast.domain.torr_file import TorrFile
 from torrcast.usecases.rank import rank_releases
-from torrcast.usecases.reinforce import _plan_for
+from torrcast.usecases.reinforce import plan_for
 
 GB = 1024**3
 
@@ -385,7 +385,7 @@ def test_a_stub_release_is_thrown_out_before_the_swarm_not_after() -> None:
     picture = Picture(title="Наруто", year=2002, kind="tv", releases=[stub, full])
     args = Args(query=["наруто s1e20"])
 
-    plan = _plan_for(picture, args, Config())
+    plan = plan_for(picture, args, Config())
 
     assert plan.candidates(args) == [1], "в очереди только пак с двадцатой серией"
     assert plan.skipped == [stub], "а огрызок назван вслух, а не выкинут молча"

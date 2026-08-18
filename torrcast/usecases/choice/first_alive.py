@@ -12,10 +12,10 @@ from torrcast.usecases.choice.liveliness import liveliness
 from torrcast.usecases.choice.playable import playable
 
 if TYPE_CHECKING:
-    from torrcast.usecases.select._plan import _Plan
+    from torrcast.usecases.select.plan import Plan
 
 
-def first_alive(plans: list[_Plan]) -> int:
+def first_alive(plans: list[Plan]) -> int:
     """Номер (с единицы) картины по умолчанию: **первая по хронологии, чей рой жив**.
 
     Смотреть франшизу начинают с начала, а не с самой обсиженной части: «тачки» — это
@@ -50,7 +50,7 @@ def first_alive(plans: list[_Plan]) -> int:
     return _first_alive(plans, asked_kind(plans))
 
 
-def _first_alive(plans: list[_Plan], numbers: list[int]) -> int:
+def _first_alive(plans: list[Plan], numbers: list[int]) -> int:
     """:func:`first_alive` среди перечисленных номеров - остальные картины не в счёт."""
     if not numbers:
         return liveliest(plans)

@@ -54,14 +54,12 @@ from torrcast.ports.stream_source import StreamSource
 from torrcast.usecases.feed_pack import Feed
 from torrcast.usecases.playback._cuttable import _Cuttable
 from torrcast.usecases.playback._encode_all import _encode_all
-from torrcast.usecases.playback._file_picker import _default_file, _file_picker
 from torrcast.usecases.playback._launch import (
     _await_playing,
     _launch,
     _refuse_hopeless,
     _resume,
 )
-from torrcast.usecases.playback._layout import _layout
 from torrcast.usecases.playback._numbered import _Numbered
 from torrcast.usecases.playback._play import _play
 from torrcast.usecases.playback._recoder import _recoder
@@ -75,9 +73,11 @@ from torrcast.usecases.playback._show_end import (
 from torrcast.usecases.playback._show_state import _configure_playback
 from torrcast.usecases.playback._tract import _tract
 from torrcast.usecases.playback._warmer import _next_warmer, _warmer
+from torrcast.usecases.playback.file_picker import _default_file, file_picker
 from torrcast.usecases.playback.following import Following
 from torrcast.usecases.playback.heavy_profile import HeavyProfile
 from torrcast.usecases.playback.heavy_profiles import HeavyProfileOf
+from torrcast.usecases.playback.layout import layout
 from torrcast.usecases.playback.media_grid import MediaGrid
 from torrcast.usecases.playback.media_grids import MediaGrids
 from torrcast.usecases.playback.spot_encodings import SpotEncodings
@@ -87,7 +87,7 @@ from torrcast.usecases.playback.stream_servers import StreamServers
 from torrcast.usecases.playback.whole_encodings import WholeEncodings
 from torrcast.usecases.revive_playback import _hold, _Revival
 from torrcast.usecases.select._about import _about
-from torrcast.usecases.select._plan import _Plan
+from torrcast.usecases.select.plan import Plan
 from torrcast.usecases.source_blame import _asked, _blamed
 from torrcast.usecases.start_budget import START_BUDGET
 from torrcast.usecases.start_clock import _Clock
@@ -126,6 +126,7 @@ __all__ = [
     "NoReturn",
     "NotFoundError",
     "Path",
+    "Plan",
     "Prober",
     "Profile",
     "Progress",
@@ -150,7 +151,6 @@ __all__ = [
     "_Clock",
     "_Cuttable",
     "_Numbered",
-    "_Plan",
     "_Revival",
     "_about",
     "_asked",
@@ -161,11 +161,9 @@ __all__ = [
     "_configure_playback",
     "_default_file",
     "_encode_all",
-    "_file_picker",
     "_handover",
     "_hold",
     "_launch",
-    "_layout",
     "_next_warmer",
     "_play",
     "_recoder",
@@ -178,7 +176,9 @@ __all__ = [
     "annotations",
     "codec_name",
     "contextlib",
+    "file_picker",
     "journal",
+    "layout",
     "progress_bar",
     "recode_note",
     "recodes_whole",

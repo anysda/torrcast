@@ -6,10 +6,10 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from torrcast.domain.facts.origin import Origin
-    from torrcast.usecases.select._plan import _Plan
+    from torrcast.usecases.select.plan import Plan
 
 
-def namesake_note(picked: _Plan, about: Origin) -> str:
+def namesake_note(picked: Plan, about: Origin) -> str:
     """🔴 TC-371. Честная строка: под этим именем и годом картин ДВЕ, а играет одна.
 
     Двусмысленность тут не наша: именем «Девять» и годом 2009 в русском прокате подписаны

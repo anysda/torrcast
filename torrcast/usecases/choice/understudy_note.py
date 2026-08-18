@@ -8,10 +8,10 @@ from torrcast.usecases.choice._named import _named
 from torrcast.usecases.choice.configure import _environment_port
 
 if TYPE_CHECKING:
-    from torrcast.usecases.select._plan import _Plan
+    from torrcast.usecases.select.plan import Plan
 
 
-def understudy_note(failed: _Plan, spare: _Plan, why: str) -> str:
+def understudy_note(failed: Plan, spare: Plan, why: str) -> str:
     """Одна строка про уход к тёзке (:func:`understudy`) - печатается ВСЕГДА.
 
     Уход к тёзке - это смена картины, то есть ровно то, о чём молчать нельзя

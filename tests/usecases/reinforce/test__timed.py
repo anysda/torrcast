@@ -11,8 +11,8 @@ from torrcast.domain.config import Config
 from torrcast.domain.facts.fact import Fact
 from torrcast.domain.picture import Picture
 from torrcast.domain.runtime_guess import RUNTIME_GUESS
-from torrcast.usecases.reinforce._plan_for import _plan_for
 from torrcast.usecases.reinforce._timed import _timed
+from torrcast.usecases.reinforce.plan_for import plan_for
 
 #: «Интерстеллар»: у прикидки «фильм это два часа» знаменатель занижен в 1.41 раза.
 _INTERSTELLAR = "2 ч 49 мин"
@@ -31,7 +31,7 @@ class _Facts:
 
 
 def _plan(picture: Picture) -> Any:
-    return _plan_for(picture, Args(query=["кино"]), Config())
+    return plan_for(picture, Args(query=["кино"]), Config())
 
 
 def _picture() -> Picture:

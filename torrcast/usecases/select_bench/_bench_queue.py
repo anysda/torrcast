@@ -9,13 +9,13 @@ from torrcast.ports.journal import journal
 from torrcast.usecases.discover.unfit_line import unfit_line
 from torrcast.usecases.rank._cut import _cut
 from torrcast.usecases.rank.queue_drops import queue_drops
-from torrcast.usecases.select._plan import _Plan
+from torrcast.usecases.select.plan import Plan
 
 if TYPE_CHECKING:
     from torrcast.domain.args import Args
 
 
-def _bench_queue(plan: _Plan, args: Args) -> list[int]:
+def _bench_queue(plan: Plan, args: Args) -> list[int]:
     """Очередь релизов плана; пустая очередь - это ответ, а не повод подставить отсеянное.
 
     Пул, очередь и весь отсев с причинами уезжают одним событием на запрос (TC-186).

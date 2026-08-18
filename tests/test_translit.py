@@ -22,7 +22,6 @@ from tests.fakes.prowlarr import FakeProwlarr
 from torrcast import NotFoundError
 from torrcast.adapters.console.console import Progress
 from torrcast.adapters.prowlarr.merge import merge
-from torrcast.domain._name_data import THIN_POOL
 from torrcast.domain.alt_query import alt_query
 from torrcast.domain.args import Args
 from torrcast.domain.config import Config
@@ -33,6 +32,7 @@ from torrcast.domain.rank_settings import ALIVE_SEEDERS
 from torrcast.domain.raw_result import RawResult
 from torrcast.domain.release import Release
 from torrcast.domain.slugify import slugify
+from torrcast.domain.thin_pool import THIN_POOL
 from torrcast.domain.transliterate import transliterate
 from torrcast.domain.unswap_layout import unswap_layout
 from torrcast.usecases import discover
@@ -181,7 +181,7 @@ def _catalog(russian: int, latin: int, quality: str = "DVDRip") -> FakeProwlarr:
     )
 
 
-def _search(
+def search_circle(
     client: FakeProwlarr, query: str, about: Callable[..., Origin] | None = None
 ) -> tuple[Any, str]:
     """План поиска и всё, что он сказал вслух."""
@@ -189,14 +189,14 @@ def _search(
     args = Args(query=query.split())
     out = io.StringIO()
     with Progress(out=out) as progress:
-        found = discover._search(config, args, progress, indexer=client, passport=about)
+        found = discover.search_circle(config, args, progress, indexer=client, passport=about)
         return found, out.getvalue()
 
 
 def test_thin_russian_pool_is_topped_up_by_the_latin_title() -> None:
     """Два русских DVDRip'а - повод переспросить: рядом лежит сорок 1080p."""
     client = _catalog(russian=2, latin=40)
-    plans, said = _search(client, "психо")
+    plans, said = search_circle(client, "психо")
 
     assert client.asked == ["психо", "Psycho"]
     assert len(plans[0].picture.releases) == 42
@@ -206,7 +206,7 @@ def test_thin_russian_pool_is_topped_up_by_the_latin_title() -> None:
 def test_full_russian_pool_is_not_searched_twice() -> None:
     """Счастливый путь не платит за чужую беду: полная и годная выдача - один запрос."""
     client = _catalog(russian=THIN_POOL, latin=40, quality="BDRip 1080p")
-    plans, _said = _search(client, "психо")
+    plans, _said = search_circle(client, "психо")
 
     assert client.asked == ["психо"]
     assert len(plans[0].picture.releases) == THIN_POOL
@@ -220,7 +220,7 @@ def test_a_fat_but_sd_russian_pool_asks_the_original_too() -> None:
     Тощесть тут не срабатывала ни разу - строк-то много, - и второго захода не случалось.
     """
     client = _catalog(russian=THIN_POOL + 5, latin=40)
-    plans, said = _search(client, "психо")
+    plans, said = search_circle(client, "психо")
 
     assert client.asked == ["психо", "Psycho"], "HD ноль - это тоже повод спросить оригинал"
     assert len(plans[0].picture.releases) == THIN_POOL + 45
@@ -243,7 +243,7 @@ def test_a_fat_but_dead_russian_pool_asks_the_original_too() -> None:
             "psycho": [raw(f"Psycho.1960.1080p.BluRay.x264-GRP{i}", 100 + i) for i in range(40)],
         }
     )
-    plans, said = _search(client, "психо")
+    plans, said = search_circle(client, "психо")
 
     assert client.asked == ["психо", "Psycho"]
     assert len(plans[0].picture.releases) == THIN_POOL + 45
@@ -269,7 +269,7 @@ def test_a_fat_pool_of_living_old_rips_still_asks_the_original() -> None:
     assert sd.prime and sd.dated, "премиса: старьё, которое ворота отбора всё же проходит"
 
     client = _catalog(russian=THIN_POOL + 5, latin=40, quality="DVDRip x264")
-    plans, said = _search(client, "психо")
+    plans, said = search_circle(client, "психо")
 
     assert client.asked == ["психо", "Psycho"], "живое старьё - это не годный релиз"
     assert len(plans[0].picture.releases) == THIN_POOL + 45
@@ -305,7 +305,7 @@ def test_a_mirrored_pool_is_not_mistaken_for_a_thin_one() -> None:
         }
     )
 
-    plans, _said = _search(client, "психо")
+    plans, _said = search_circle(client, "психо")
 
     assert client.asked == ["психо"], "зеркала склеились - но каталог от этого не обеднел"
     assert len(plans[0].picture.releases) == 6
@@ -322,7 +322,7 @@ def test_a_truly_poor_pool_still_asks_the_latin_title() -> None:
         }
     )
 
-    plans, said = _search(client, "психо")
+    plans, said = search_circle(client, "психо")
 
     assert client.asked == ["психо", "Psycho"]
     assert len(plans[0].picture.releases) == 46
@@ -351,7 +351,7 @@ def test_a_series_missing_the_wanted_season_is_topped_up_by_the_season_string() 
             ],
         }
     )
-    plans, said = _search(client, "ангел", about)
+    plans, said = search_circle(client, "ангел", about)
 
     assert "Angel S01" in client.asked, "сезонная строка по оригиналу спрошена"
     packs = [r for p in plans for r in p.picture.releases if r.covers(1)]
@@ -366,7 +366,7 @@ def test_a_full_season_pool_skips_the_season_string_top_up() -> None:
     client = FakeProwlarr(
         {"ангел": [raw("Ангел / Angel [S01] (1999) WEB-DL 1080p", i) for i in range(3)]}
     )
-    _plans, said = _search(client, "ангел", about)
+    _plans, said = search_circle(client, "ангел", about)
 
     assert not any(a.startswith("Angel S") for a in client.asked), "сезон есть - добора нет"
     assert "добрал по" not in said
@@ -398,7 +398,7 @@ def test_a_guessed_origin_is_not_the_season_top_up_filter() -> None:
     )
 
     with pytest.raises(NotFoundError, match="раздач с сезоном 1 нет"):
-        _search(client, "незнакомка s1e1", about)
+        search_circle(client, "незнакомка s1e1", about)
 
     assert "The Stranger S01" not in client.asked, "сезонная строка по догадке не спрошена"
 
@@ -424,7 +424,7 @@ def test_a_guess_the_reference_confirms_still_tops_up_the_season() -> None:
         }
     )
 
-    plans, said = _search(client, "сальтберн s1e1", about)
+    plans, said = search_circle(client, "сальтберн s1e1", about)
 
     assert "Saltburn S01" in client.asked, "сезонная строка по подтверждённой догадке спрошена"
     packs = [r for p in plans for r in p.picture.releases if r.covers(1)]
@@ -435,7 +435,7 @@ def test_a_guess_the_reference_confirms_still_tops_up_the_season() -> None:
 def test_nothing_found_in_russian_is_searched_by_translit() -> None:
     """Пустая выдача - тот же случай: читать оригинал неоткуда, идём транслитом."""
     client = FakeProwlarr({"brat": [raw(f"Brat.1997.BDRip.x264-{i}", i) for i in range(20)]})
-    plans, _said = _search(client, "брат")
+    plans, _said = search_circle(client, "брат")
 
     assert client.asked == ["брат", "brat"]
     assert len(plans[0].picture.releases) == 20
@@ -475,7 +475,7 @@ def test_thin_pool_is_topped_up_even_when_the_goal_is_spent() -> None:
         },
         spare=0.3,
     )
-    plans, said = _search(client, "психо")
+    plans, said = search_circle(client, "психо")
 
     assert client.asked == ["психо", "Psycho"], "добор съеденной целью не отменяется"
     assert len(plans[0].picture.releases) == 42
@@ -492,7 +492,7 @@ def test_empty_russian_answer_is_searched_even_when_the_goal_is_spent() -> None:
         {"brat": [raw(f"Brat.1997.BDRip.x264-{i}", i) for i in range(20)]},
         spare=0.3,
     )
-    plans, said = _search(client, "брат")
+    plans, said = search_circle(client, "брат")
 
     assert client.asked == ["брат", "brat"], "и безнадёжный путь не отменяется бюджетом"
     assert len(plans[0].picture.releases) == 20
@@ -512,7 +512,7 @@ def test_a_missing_old_namesake_is_searched_by_original_and_year() -> None:
     )
     about = _knows({"брат": Origin(title="Brat", year=1997, name="Брат")})
 
-    plans, _said = _search(client, "брат", about)
+    plans, _said = search_circle(client, "брат", about)
 
     assert client.asked == ["брат", "брат 1997"]
     assert [plan.picture.year for plan in plans] == [1997, 2000, 2025]
@@ -521,7 +521,7 @@ def test_a_missing_old_namesake_is_searched_by_original_and_year() -> None:
 def test_second_search_that_found_nothing_leaves_the_first_result_alone() -> None:
     """Добор - не обещание: не нашлось ничего нового, играем то, что было, и молчим."""
     client = _catalog(russian=3, latin=0)
-    plans, said = _search(client, "психо")
+    plans, said = search_circle(client, "психо")
 
     assert client.asked == ["психо", "Psycho"]
     assert len(plans[0].picture.releases) == 3
@@ -531,7 +531,7 @@ def test_second_search_that_found_nothing_leaves_the_first_result_alone() -> Non
 def test_nothing_anywhere_is_still_an_honest_not_found() -> None:
     client = FakeProwlarr({})
     with pytest.raises(NotFoundError, match="ничего не нашлось"):
-        _search(client, "нетакогофильма")
+        search_circle(client, "нетакогофильма")
 
 
 def test_results_full_of_strangers_are_reported_as_nothing_found() -> None:
@@ -546,7 +546,7 @@ def test_results_full_of_strangers_are_reported_as_nothing_found() -> None:
     )
 
     with pytest.raises(NotFoundError) as caught:
-        _search(client, "дети мужчин")
+        search_circle(client, "дети мужчин")
 
     assert "ничего не нашлось" in str(caught.value)
     assert "франшиз" not in str(caught.value)
@@ -559,7 +559,7 @@ def test_a_part_that_the_franchise_does_not_have_is_named_as_such() -> None:
     )
 
     with pytest.raises(NotFoundError) as caught:
-        _search(client, "матрица 5")
+        search_circle(client, "матрица 5")
 
     assert "картин во франшизе 1, номера 5 нет" in str(caught.value)
     assert client.asked[:2] == ["матрица", "матрица 5"], "всей строкой спросили вместо отказа"
@@ -581,7 +581,7 @@ def test_a_number_that_belongs_to_the_title_is_searched_whole() -> None:
         }
     )
 
-    plans, said = _search(client, "бен 10")
+    plans, said = search_circle(client, "бен 10")
 
     assert client.asked[:2] == ["бен", "бен 10"]
     assert [plan.picture.title for plan in plans] == ["Бен 10"]
@@ -610,10 +610,10 @@ def test_a_number_at_a_series_name_asks_for_that_season() -> None:
     )
 
     with pytest.raises(NotFoundError) as caught:
-        _search(client, "человек-бензопила 2")
+        search_circle(client, "человек-бензопила 2")
 
     assert "раздач с сезоном 2 нет" in str(caught.value)
-    plans, said = _search(client, "человек-бензопила 1")
+    plans, said = search_circle(client, "человек-бензопила 1")
     assert [(plan.picture.title, plan.picture.kind) for plan in plans] == [
         ("Человек-бензопила", "tv")
     ]
@@ -629,7 +629,7 @@ def test_the_whole_string_is_not_asked_when_the_part_is_found() -> None:
         }
     )
 
-    plans, _said = _search(client, "тачки 2")
+    plans, _said = search_circle(client, "тачки 2")
 
     assert client.asked == ["тачки"]
     assert [plan.picture.year for plan in plans] == [2011]
@@ -657,7 +657,7 @@ def test_the_titled_number_reaches_the_season_top_up_whole() -> None:
         }
     )
 
-    plans, said = _search(client, "бен 10 s2e1", about)
+    plans, said = search_circle(client, "бен 10 s2e1", about)
 
     assert about.asked, "добор до справки дошёл"
     assert set(about.asked) == {"бен 10"}, "справку спросили целой строкой, а не обрубком «бен»"
@@ -685,7 +685,7 @@ def test_the_part_number_picks_inside_the_named_franchise() -> None:
         }
     )
 
-    plans, _said = _search(client, "гарри поттер дары смерти 2")
+    plans, _said = search_circle(client, "гарри поттер дары смерти 2")
 
     assert client.asked == ["гарри поттер дары смерти"]
     assert [p.picture.year for p in plans] == [2011]
@@ -703,7 +703,7 @@ def test_a_named_part_is_not_thrown_away_by_the_year_of_the_first_one() -> None:
     )
     about = _knows({"тачки": Origin(title="Cars", year=2006)})
 
-    plans, said = _search(client, "тачки 2", about)
+    plans, said = search_circle(client, "тачки 2", about)
 
     assert [p.picture.year for p in plans] == [2011]
     assert "в каталоге лежит картина" not in said
@@ -722,7 +722,7 @@ def test_a_year_that_disagrees_without_a_part_number_is_named_but_not_taken_away
     )
     about = _knows({"тачки": Origin(title="Cars", year=2006)})
 
-    plans, said = _search(client, "тачки", about)
+    plans, said = search_circle(client, "тачки", about)
 
     assert [p.picture.year for p in plans] == [2011]
     assert "под этим именем в каталоге лежит картина 2011 года, а не 2006" in said
@@ -738,7 +738,7 @@ def test_other_word_order_is_found_and_said_out_loud() -> None:
         }
     )
 
-    plans, said = _search(client, "бульвар сансет")
+    plans, said = search_circle(client, "бульвар сансет")
 
     assert [p.picture.title for p in plans] == ["Сансет бульвар"]
     assert "«бульвар сансет» - в каталоге это «Сансет бульвар»" in said
@@ -792,7 +792,7 @@ def test_the_top_up_is_not_lost_on_the_binding_to_a_picture() -> None:
     """
     client = _unglued()
     about = _knows({"синий экзорцист": Origin(title="Blue Exorcist", year=2009)})
-    plans, said = _search(client, "синий экзорцист", about)
+    plans, said = search_circle(client, "синий экзорцист", about)
 
     assert client.asked == ["синий экзорцист", "Blue Exorcist"]
     assert {p.picture.title for p in plans} == {"Синий экзорцист", "Blue Exorcist"}
@@ -808,7 +808,7 @@ def test_the_reference_year_of_a_whole_franchise_does_not_kill_the_top_up() -> N
     """
     client = _unglued()
     about = _knows({"синий экзорцист": Origin(title="Blue Exorcist", year=1066)})
-    _plans, said = _search(client, "синий экзорцист", about)
+    _plans, said = search_circle(client, "синий экзорцист", about)
 
     assert "приехала другая картина" not in said
 
@@ -829,7 +829,7 @@ def test_a_namesake_under_the_reference_name_is_still_refused() -> None:
         }
     )
     about = _knows({"восхождение": Origin(title="The Ascent", year=1977)})
-    plans, said = _search(client, "восхождение", about)
+    plans, said = search_circle(client, "восхождение", about)
 
     assert client.asked == ["восхождение", "The Ascent"]
     assert [p.picture.year for p in plans] == [1977]
@@ -858,7 +858,7 @@ def test_a_subtitle_query_needs_no_second_round() -> None:
         }
     )
     about = _knows({})
-    plans, said = _search(client, "кольца власти", about)
+    plans, said = search_circle(client, "кольца власти", about)
 
     assert client.asked == ["кольца власти"], "лишнего круга по индексерам не нужно"
     assert about.asked == [], "справку тоже не тревожим: пул полон"
@@ -889,7 +889,7 @@ def test_a_dead_namesake_no_longer_swallows_a_subtitle_query() -> None:
             + [raw("Космическая одиссея (1987) VHSRip", 90, seeders=0)]
         }
     )
-    plans, said = _search(client, "космическая одиссея")
+    plans, said = search_circle(client, "космическая одиссея")
 
     assert [p.picture.year for p in plans] == [1987, 1968], "в меню обе картины"
     assert first_alive(plans) == 2, "дефолт - живая, а не мёртвый огрызок"
@@ -918,7 +918,7 @@ def test_a_thin_subtitle_pool_is_never_zeroed_by_the_gate() -> None:
         }
     )
     about = _knows({})
-    plans, said = _search(client, "кольца власти", about)
+    plans, said = search_circle(client, "кольца власти", about)
 
     assert client.asked == ["кольца власти", "The Lord of the Rings"]
     assert [p.picture.title for p in plans] == ["Властелин колец: Кольца власти"]
@@ -929,7 +929,7 @@ def test_a_thin_subtitle_pool_is_never_zeroed_by_the_gate() -> None:
 def test_top_up_that_brings_a_namesake_picture_is_refused() -> None:
     """🔴 Раздач стало больше - но это раздачи другого фильма. Добор отменяется."""
     client = _namesakes()
-    plans, said = _search(client, "восхождение")
+    plans, said = search_circle(client, "восхождение")
 
     assert client.asked == ["восхождение", "The Climbers"]
     assert [p.picture.year for p in plans] == [1977, 2019]
@@ -961,14 +961,14 @@ def test_the_reference_year_never_takes_away_what_the_russian_query_found() -> N
     )
     about = _knows({"крестьяне": Origin(year=1935)})
 
-    plans, said = _search(peasants, "крестьяне", about)
+    plans, said = search_circle(peasants, "крестьяне", about)
 
     assert [p.picture.title for p in plans] == ["Крестьяне"]
     assert len(plans[0].picture.releases) == 6, "живой 1080p остался в руках"
     assert "ничего не нашлось" not in said
     assert "под этим именем в каталоге лежит картина 2023 года, а не 1935" in said
 
-    ascent, told = _search(_namesakes(), "восхождение", about)
+    ascent, told = search_circle(_namesakes(), "восхождение", about)
 
     assert max(len(p.picture.releases) for p in ascent) == 4, "чужая картина не подмешана"
     assert "добрал" not in told
@@ -979,7 +979,7 @@ def test_the_reference_year_outweighs_the_pool_in_the_gate() -> None:
     """Справка знает год картины - и он же отвергает однофамильца, кто бы ни был крупнее."""
     client = _namesakes()
     about = _knows({"восхождение": Origin(year=1977)})
-    plans, said = _search(client, "восхождение", about)
+    plans, said = search_circle(client, "восхождение", about)
 
     assert about.asked == ["восхождение"]
     assert max(len(p.picture.releases) for p in plans) == 4
@@ -1007,7 +1007,7 @@ def test_original_title_comes_from_the_reference_when_the_pool_has_none() -> Non
         }
     )
     about = _knows({"кингсман секретная служба": Origin(title="Kingsman", year=2014)})
-    plans, said = _search(client, "кингсман секретная служба", about)
+    plans, said = search_circle(client, "кингсман секретная служба", about)
 
     assert about.asked == ["кингсман секретная служба"]
     assert client.asked == ["кингсман секретная служба", "Kingsman"]
@@ -1023,7 +1023,7 @@ def test_a_silent_reference_leaves_the_old_path_alone() -> None:
     """
     client = _catalog(russian=2, latin=40)
     about = _knows({})
-    plans, said = _search(client, "психо", about)
+    plans, said = search_circle(client, "психо", about)
 
     assert about.asked == ["психо", "психо"], "под типом молчит - переспрос без типа, тоже мимо"
     assert client.asked == ["психо", "Psycho"]
@@ -1060,7 +1060,7 @@ def test_a_silent_answer_under_the_leads_kind_is_reasked_without_it() -> None:
             return Origin(title="Serial Experiments Lain", name="Эксперименты Лэйн")
         return Origin()  # под типом «фильм», который назвал журнал, - молчание
 
-    plans, said = _search(client, "lain", about)
+    plans, said = search_circle(client, "lain", about)
 
     assert asked == [("lain", False), ("lain", None)], "молчание под типом - переспрос без него"
     assert client.asked == ["lain", "Serial Experiments Lain"]
@@ -1074,7 +1074,7 @@ def test_the_full_pool_asks_neither_the_indexers_nor_the_reference() -> None:
     """Счастливый путь не платит ни за второй круг по индексерам, ни за справку."""
     client = _catalog(russian=THIN_POOL, latin=40, quality="BDRip 1080p")
     about = _knows({"психо": Origin(title="Psycho", year=1960)})
-    plans, _said = _search(client, "психо", about)
+    plans, _said = search_circle(client, "психо", about)
 
     assert client.asked == ["психо"]
     assert about.asked == []
@@ -1131,7 +1131,7 @@ def test_the_gate_keeps_a_series_without_a_year() -> None:
             ],
         }
     )
-    plans, said = _search(client, "дедвуд")
+    plans, said = search_circle(client, "дедвуд")
 
     assert client.asked == ["дедвуд", "Deadwood"]
     assert len(plans[0].picture.releases) == 19
@@ -1151,7 +1151,7 @@ def test_an_empty_result_asks_the_reference_by_the_query_itself() -> None:
     )
     about = _knows({"уэнсдей": Origin(title="Wednesday")})
 
-    plans, said = _search(client, "уэнсдей", about)
+    plans, said = search_circle(client, "уэнсдей", about)
 
     assert about.asked == ["уэнсдей"]
     assert client.asked == ["уэнсдей", "Wednesday"]
@@ -1164,7 +1164,7 @@ def test_a_silent_reference_on_an_empty_result_still_goes_by_translit() -> None:
     client = FakeProwlarr({"brat": [raw(f"Brat.1997.BDRip.x264-{i}", i) for i in range(20)]})
     about = _knows({})
 
-    plans, _said = _search(client, "брат", about)
+    plans, _said = search_circle(client, "брат", about)
 
     assert about.asked == ["брат"]
     assert client.asked == ["брат", "brat"]
@@ -1176,7 +1176,7 @@ def _refused(client: FakeProwlarr, query: str, about: Callable[..., Origin] | No
     config = Config(tv="127.0.0.1", prowlarr_apikey="KEY")
     out = io.StringIO()
     with Progress(out=out) as progress, pytest.raises(NotFoundError):
-        discover._search(
+        discover.search_circle(
             config, Args(query=query.split()), progress, indexer=client, passport=about
         )
     return out.getvalue()
@@ -1243,7 +1243,7 @@ def test_a_guessed_name_with_a_living_lead_does_not_bring_a_stranger() -> None:
         },
     )
 
-    plans, said = _search(client, "все мы незнакомцы", about)
+    plans, said = search_circle(client, "все мы незнакомцы", about)
 
     assert client.asked == ["все мы незнакомцы"], "за чужой картиной не ходят и с живым вожаком"
     assert "справка нашла лишь похожее имя «Все мы убийцы»" in said
@@ -1263,7 +1263,7 @@ def test_a_shorter_article_title_brings_the_real_original() -> None:
         {"все мы незнакомцы": Origin(title="All of Us Strangers", name="Незнакомцы", guessed=True)},
     )
 
-    plans, said = _search(client, "все мы незнакомцы", about)
+    plans, said = search_circle(client, "все мы незнакомцы", about)
 
     assert client.asked == ["все мы незнакомцы", "All of Us Strangers"]
     assert len(plans[0].picture.releases) == 20
@@ -1281,7 +1281,7 @@ def test_the_same_name_in_another_spelling_is_still_topped_up() -> None:
     )
     about = _knows({"сальтберн": Origin(title="Saltburn", name="Солтберн", guessed=True)})
 
-    plans, said = _search(client, "сальтберн", about)
+    plans, said = search_circle(client, "сальтберн", about)
 
     assert client.asked == ["сальтберн", "Saltburn"]
     assert len(plans[0].picture.releases) == 20
@@ -1305,7 +1305,7 @@ def test_the_same_confirmed_guess_is_topped_up_with_a_living_lead() -> None:
     )
     about = _knows({"сальтберн": Origin(title="Saltburn", name="Солтберн", guessed=True)})
 
-    plans, said = _search(client, "сальтберн", about)
+    plans, said = search_circle(client, "сальтберн", about)
 
     assert client.asked == ["сальтберн", "Saltburn"]
     assert len(plans[0].picture.releases) == THIN_POOL + 25
@@ -1324,7 +1324,7 @@ def test_a_guessed_name_with_nothing_to_check_it_against_is_taken_out_loud() -> 
     )
     about = _knows({"ре зеро": Origin(title="Re:Zero", guessed=True)})
 
-    plans, said = _search(client, "ре зеро", about)
+    plans, said = search_circle(client, "ре зеро", about)
 
     assert client.asked == ["ре зеро", "Re:Zero"]
     assert len(plans[0].picture.releases) == 8
@@ -1349,7 +1349,7 @@ def test_a_name_wikipedia_itself_redirects_to_is_not_a_guess() -> None:
         {"мальчик и цапля": Origin(title="The Boy and the Heron", name="Мальчик и птица")},
     )
 
-    plans, said = _search(client, "мальчик и цапля", about)
+    plans, said = search_circle(client, "мальчик и цапля", about)
 
     assert client.asked == ["мальчик и цапля", "The Boy and the Heron"]
     assert len(plans[0].picture.releases) == 20
@@ -1369,7 +1369,7 @@ def test_the_reference_original_does_not_open_the_gate_to_another_year() -> None
     about = _knows({"восхождение": Origin(title="The Ascent", year=1976)})
 
     with pytest.raises(NotFoundError):
-        _search(client, "восхождение", about)
+        search_circle(client, "восхождение", about)
 
     assert about.asked == ["восхождение"]
     assert client.asked == ["восхождение", "The Ascent"]
@@ -1384,7 +1384,7 @@ def test_the_verdict_of_a_top_up_comes_after_the_line_of_that_very_search() -> N
     удавшийся второй поиск, из которого и выросло меню.
     """
     client = _namesakes()
-    _plans, said = _search(client, "восхождение")
+    _plans, said = search_circle(client, "восхождение")
 
     assert "поиск «The Climbers»" in said
     assert said.index("поиск «The Climbers»") < said.index("приехала другая картина")
@@ -1402,7 +1402,7 @@ def test_the_same_name_is_not_asked_a_second_time() -> None:
     client = FakeProwlarr({"cars": [raw(f"Cars (2006) BDRip {i}", i) for i in range(3)]})
     about = _knows({"cars": Origin(title="Cars", year=2006)})
 
-    plans, _said = _search(client, "cars", about)
+    plans, _said = search_circle(client, "cars", about)
 
     assert client.asked == ["cars"]
     # Пул тощий - значит добор рассматривался и был отменён именно как бессмысленный.
@@ -1425,7 +1425,7 @@ def test_latin_query_is_topped_up_by_the_russian_title_from_the_reference() -> N
     )
     about = _knows({"cars": Origin(title="Cars", year=2006, name="Тачки")})
 
-    plans, said = _search(client, "cars", about)
+    plans, said = search_circle(client, "cars", about)
 
     assert client.asked == ["cars", "Тачки"]
     # Картина одна на оба имени: русские раздачи в пуле, а не в соседнем пункте меню.
@@ -1448,7 +1448,7 @@ def test_the_biggest_part_of_a_franchise_is_not_a_swapped_picture() -> None:
     )
     about = _knows({"cars": Origin(title="Cars", year=2006, name="Тачки")})
 
-    plans, said = _search(client, "cars", about)
+    plans, said = search_circle(client, "cars", about)
 
     assert [p.picture.year for p in plans] == [2006, 2017]
     assert "приехала другая картина" not in said
@@ -1473,7 +1473,7 @@ def test_a_classic_with_a_known_original_is_asked_by_it_and_not_by_translit() ->
     )
     about = _knows({"крики и шёпот": Origin(title="Viskningar och rop", name="Шёпоты и крики")})
 
-    _plans, said = _search(client, "крики и шёпот", about)
+    _plans, said = search_circle(client, "крики и шёпот", about)
 
     assert client.asked == ["крики и шёпот", "Viskningar och rop"]
     assert transliterate("крики и шёпот") not in client.asked
@@ -1492,7 +1492,7 @@ def test_the_swap_of_the_query_is_said_out_loud() -> None:
     )
     about = _knows({"крики и шёпот": Origin(title="Viskningar och rop", name="Шёпоты и крики")})
 
-    _plans, said = _search(client, "крики и шёпот", about)
+    _plans, said = search_circle(client, "крики и шёпот", about)
 
     assert "оригинал «Viskningar och rop» - по справке; без неё искал бы «kriki i shepot»" in said
 
@@ -1502,7 +1502,7 @@ def test_the_reference_that_says_nothing_new_keeps_quiet() -> None:
     client = _catalog(russian=2, latin=40)
     about = _knows({"психо": Origin(title="Psycho", year=1960)})
 
-    _plans, said = _search(client, "психо", about)
+    _plans, said = search_circle(client, "психо", about)
 
     assert "по справке" not in said
     assert "добрал по «Psycho»" in said
@@ -1513,7 +1513,7 @@ def test_an_empty_second_language_round_explains_its_result() -> None:
     client = FakeProwlarr({"психо": [raw("Психо (1960) DVDRip", 1)]})
     about = _knows({"психо": Origin(title="Psycho", year=1960)})
 
-    _plans, said = _search(client, "психо", about)
+    _plans, said = search_circle(client, "психо", about)
 
     assert client.asked == ["психо", "Psycho"]
     assert said.count("добор по «Psycho» ничего не дал") == 1
@@ -1536,7 +1536,7 @@ def test_a_latin_named_picture_without_an_article_keeps_its_translit() -> None:
     )
     about = _knows({})  # статьи нет - паспорт пуст
 
-    _plans, said = _search(client, "врата штейна", about)
+    _plans, said = search_circle(client, "врата штейна", about)
 
     assert client.asked == ["врата штейна", "vrata shteyna"]
     assert "по справке" not in said
@@ -1565,7 +1565,7 @@ def test_the_wrong_layout_finds_the_picture_instead_of_refusing() -> None:
         {"тачки": [raw(f"Тачки / Cars (2006) BDRip 1080p {i}", i) for i in range(20)]}
     )
 
-    plans, said = _search(client, "nfxrb")
+    plans, said = search_circle(client, "nfxrb")
 
     assert client.asked == ["nfxrb", "тачки"]
     assert plans[0].picture.title.casefold().startswith("тачки")
@@ -1579,7 +1579,7 @@ def test_a_latin_query_that_finds_something_is_never_re_read_as_layout() -> None
         {"cars": [raw(f"Cars.2006.1080p.BluRay.x264-GRP{i}", i) for i in range(20)]}
     )
 
-    _plans, said = _search(client, "cars")
+    _plans, said = search_circle(client, "cars")
 
     assert client.asked == ["cars"]
     assert "раскладке" not in said
@@ -1611,7 +1611,7 @@ def test_a_picture_dubbed_only_in_unplayable_releases_is_asked_by_original_and_y
         }
     )
 
-    plans, said = _search(client, "тачки", about)
+    plans, said = search_circle(client, "тачки", about)
 
     assert client.asked == ["тачки", "Cars", "Cars 2006"]
     assert "«Тачки» по-русски есть только там, где играть нечем - добрал по «Cars 2006»" in said
@@ -1663,7 +1663,7 @@ def test_a_dub_locked_behind_the_bitrate_ceiling_is_asked_by_original_and_year()
         }
     )
 
-    plans, said = _search(client, "тачки 2", about)
+    plans, said = search_circle(client, "тачки 2", about)
 
     assert client.asked == ["тачки", "Cars", "Cars 2 2011"]
     assert "«Тачки 2» по-русски есть только там, где играть нечем" in said

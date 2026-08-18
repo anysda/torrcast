@@ -10,15 +10,15 @@ from torrcast.domain.rank_settings import PEER_GRACE
 from torrcast.domain.torrcast_error import TorrcastError
 from torrcast.ports.journal import journal
 from torrcast.ports.progress import Progress
-from torrcast.usecases.select._plan import _Plan
 from torrcast.usecases.select._prep import _Prep
+from torrcast.usecases.select.plan import Plan
 from torrcast.usecases.select_bench._bench_core import _BenchCore
 
 
 class _BenchWork(_BenchCore):
     """Работа одного прогрева: раздача, метаданные, дорожки - и как её ждут."""
 
-    def _work(self, plan: _Plan, prep: _Prep) -> None:
+    def _work(self, plan: Plan, prep: _Prep) -> None:
         """Фоновая подготовка: раздача в TorrServer, метаданные по DHT, ffprobe."""
         try:
             prep.phase = "метаданные (DHT)"
@@ -104,7 +104,7 @@ class _BenchWork(_BenchCore):
                 return False
         return True
 
-    def start(self, plan: _Plan, number: int, patient: bool = False) -> _Prep:
+    def start(self, plan: Plan, number: int, patient: bool = False) -> _Prep:
         """Начать (или вернуть уже начатую) подготовку релиза ``number`` этого плана.
 
         ``patient`` - спрашивать рой без отсрочек, по полным бюджетам фазы

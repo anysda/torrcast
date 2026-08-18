@@ -14,21 +14,21 @@ if TYPE_CHECKING:
     from torrcast.domain.config import Config
     from torrcast.ports.progress import Progress
     from torrcast.usecases.facts import Facts
-    from torrcast.usecases.select._plan import _Plan
     from torrcast.usecases.select._prep import _Prep
-    from torrcast.usecases.select_bench._bench import _Bench
+    from torrcast.usecases.select.plan import Plan
+    from torrcast.usecases.select_bench.bench import Bench
 
 
 def _played(
-    bench: _Bench,
-    plans: list[_Plan],
-    plan: _Plan,
+    bench: Bench,
+    plans: list[Plan],
+    plan: Plan,
     args: Args,
     progress: Progress,
     facts: Facts | None,
     config: Config,
     profile: Profile,
-) -> tuple[_Plan, _Prep]:
+) -> tuple[Plan, _Prep]:
     """Отбор релиза выбранной картины, а нечем играть - её живой тёзки (:func:`understudy`).
 
     🔴 TC-203. Отдельной функцией это стоит затем, что уход к тёзке - смена КАРТИНЫ, и
@@ -53,7 +53,7 @@ def _played(
             **{"from": plan.picture.title, "to": spare.picture.title, "why": why},
         )
     # Тёзке достаётся ровно то же, что досталось бы ей после меню: своя длительность из
-    # справки и свой порядок прогретого (:func:`_timed`, :meth:`_Bench.reorder`).
+    # справки и свой порядок прогретого (:func:`_timed`, :meth:`Bench.reorder`).
     spare = bench.reorder(spare, _environment_port().timed(spare, facts, args, config, profile))
     bench.keep_plan(spare)
     return spare, bench.resolve(spare, args, progress)

@@ -11,7 +11,7 @@ if TYPE_CHECKING:
     from torrcast.domain.args import Args
 
 
-def _lacks_season(found: list[Picture], args: Args) -> bool:
+def lacks_season(found: list[Picture], args: Args) -> bool:
     """Сериал найден, а раздач нужного сезона в нём нет ни по одному имени.
 
     Ровно тот случай, где отбор упирался в «раздач с сезоном N нет»: TC-6 берёт сезон-пак,

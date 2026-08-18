@@ -20,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from torrcast.adapters.frames.http_range_reader import HttpRangeReader as Reader
 from torrcast.adapters.stream_probe.pick_video_file import pick_video_file
 from torrcast.adapters.torrserver.torr_server import TorrServer
-from torrcast.domain.frames.mkv import (
+from torrcast.domain.frames.mkv.ids import (
     CLUSTER,
     CUES,
     DURATION,
@@ -31,32 +31,32 @@ from torrcast.domain.frames.mkv import (
     SEEK_POSITION,
     SEGMENT,
     TIMESTAMP_SCALE,
-    _uint,
-    _walk,
 )
+from torrcast.domain.frames.mkv.uint import uint
+from torrcast.domain.frames.mkv.walk import walk
 
 
 def head_scan(buf: bytes) -> tuple[int | None, int, float]:
-    segment = next((d for i, _, d in _walk(buf, 0, len(buf)) if i == SEGMENT), None)
+    segment = next((d for i, _, d in walk(buf, 0, len(buf)) if i == SEGMENT), None)
     if segment is None:
         return None, 1_000_000, 0.0
     cues_at, scale, duration = None, 1_000_000, 0.0
-    for ident, size, data in _walk(buf, segment, len(buf)):
+    for ident, size, data in walk(buf, segment, len(buf)):
         end = min(len(buf), data + size)
         if ident == SEEK_HEAD:
-            for _, seek_size, seek in [e for e in _walk(buf, data, end) if e[0] == SEEK]:
+            for _, seek_size, seek in [e for e in walk(buf, data, end) if e[0] == SEEK]:
                 what = which = None
-                for sub, sub_size, sub_data in _walk(buf, seek, seek + seek_size):
+                for sub, sub_size, sub_data in walk(buf, seek, seek + seek_size):
                     if sub == SEEK_ID:
-                        what = _uint(buf, sub_data, sub_size)
+                        what = uint(buf, sub_data, sub_size)
                     elif sub == SEEK_POSITION:
-                        which = _uint(buf, sub_data, sub_size)
+                        which = uint(buf, sub_data, sub_size)
                 if what == CUES and which is not None:
                     cues_at = segment + which
         elif ident == INFO:
-            for sub, sub_size, sub_data in _walk(buf, data, end):
+            for sub, sub_size, sub_data in walk(buf, data, end):
                 if sub == TIMESTAMP_SCALE:
-                    scale = _uint(buf, sub_data, sub_size)
+                    scale = uint(buf, sub_data, sub_size)
                 elif sub == DURATION:
                     duration = float(
                         __import__("struct").unpack(
@@ -105,7 +105,7 @@ def main() -> int:
     out["tail1"] = time.monotonic() - t
     print(f"хвост одним куском {len(chunk) / 1e6:.2f} МБ - {out['tail1']:.2f} с")
 
-    ident, size, data = _walk(chunk, 0, 32)[0]
+    ident, size, data = walk(chunk, 0, 32)[0]
     print(f"  Cues: id={ident:#x} тело {size} байт, влезло в кусок: {data + size <= len(chunk)}")
     if data + size > len(chunk):
         t = time.monotonic()

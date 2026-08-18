@@ -11,9 +11,9 @@ from torrcast.usecases.rank.promises_more import promises_more
 from torrcast.usecases.rank.quality_text import quality_text
 from torrcast.usecases.rank.understated import understated
 from torrcast.usecases.rank.voice_unproven import voice_unproven
-from torrcast.usecases.select._plan import _Plan
 from torrcast.usecases.select._prep import _Prep
 from torrcast.usecases.select._verdict import _turned_down
+from torrcast.usecases.select.plan import Plan
 from torrcast.usecases.select_bench._bench_trouble import _BenchTrouble
 
 if TYPE_CHECKING:
@@ -25,7 +25,7 @@ class _BenchHonest(_BenchTrouble):
 
     def _honest(
         self,
-        plan: _Plan,
+        plan: Plan,
         chosen: _Prep,
         queue: list[int],
         args: Args,

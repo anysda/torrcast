@@ -15,9 +15,9 @@ from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.profile import CAUTIOUS
 from torrcast.ports.progress import Progress, Quiet
 from torrcast.usecases.choice import _played
-from torrcast.usecases.select._plan import _Plan
 from torrcast.usecases.select._prep import _Prep
-from torrcast.usecases.select_bench import _Bench
+from torrcast.usecases.select.plan import Plan
+from torrcast.usecases.select_bench import Bench
 
 REFUSAL = (
     "годного релиза нет (1 - тяжёлый): выбери руками - cast releases <запрос>"
@@ -25,7 +25,7 @@ REFUSAL = (
 )
 
 
-class SwitchBench(_Bench):
+class SwitchBench(Bench):
     """Стенд, у которого играет только картина 2020 года: 1933-я отказывает как в жизни."""
 
     def __init__(self) -> None:
@@ -33,21 +33,21 @@ class SwitchBench(_Bench):
         self.kept: list[int | None] = []
         self.reordered: list[int | None] = []
 
-    def resolve(self, plan: _Plan, args: Args, progress: Progress) -> _Prep:
+    def resolve(self, plan: Plan, args: Args, progress: Progress) -> _Prep:
         self.asked.append(plan.picture.year)
         if plan.picture.year != 2020:
             raise NotFoundError(REFUSAL)
         return _Prep(number=1, release=plan.ranked[0])
 
-    def reorder(self, before: _Plan, after: _Plan) -> _Plan:
+    def reorder(self, before: Plan, after: Plan) -> Plan:
         self.reordered.append(before.picture.year)
         return after
 
-    def keep_plan(self, plan: _Plan) -> None:
+    def keep_plan(self, plan: Plan) -> None:
         self.kept.append(plan.picture.year)
 
 
-def invisible_man() -> list[_Plan]:
+def invisible_man() -> list[Plan]:
     """«Человек-невидимка»: 1933 год формально жив, а играть ему нечем; 2020 - играет."""
     return parts(("Человек-невидимка", 1933, 12), ("Человек-невидимка", 2020, 140))
 

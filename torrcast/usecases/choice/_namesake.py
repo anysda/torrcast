@@ -5,10 +5,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from torrcast.usecases.select._plan import _Plan
+    from torrcast.usecases.select.plan import Plan
 
 
-def _namesake(plans: list[_Plan], number: int, picked: int) -> bool:
+def _namesake(plans: list[Plan], number: int, picked: int) -> bool:
     """Тёзка по году: то же название, другая картина.
 
     Одноимённые части - самая тихая из подмен: в меню они отличаются только годом в

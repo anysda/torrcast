@@ -9,10 +9,10 @@ from torrcast.usecases.choice.alive_numbers import alive_numbers
 from torrcast.usecases.choice.liveliness import liveliness
 
 if TYPE_CHECKING:
-    from torrcast.usecases.select._plan import _Plan
+    from torrcast.usecases.select.plan import Plan
 
 
-def understudy(plans: list[_Plan], failed: _Plan) -> _Plan | None:
+def understudy(plans: list[Plan], failed: Plan) -> Plan | None:
     """🔴 TC-203. Живая ТЁЗКА выбранной картины - та, которой показ доиграет вместо неё.
 
     У выбранной картины кончились все раздачи, а рядом в меню стоит одноимённая живая -

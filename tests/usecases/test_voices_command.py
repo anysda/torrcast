@@ -27,7 +27,7 @@ def test_an_empty_query_is_an_honest_line_not_a_search(monkeypatch: pytest.Monke
     def never(*_args: Any, **_kwargs: Any) -> list[Any]:
         raise AssertionError("искать без запроса нечего")
 
-    monkeypatch.setattr(voices_command, "_search", never)
+    monkeypatch.setattr(voices_command, "search_circle", never)
     with pytest.raises(NotFoundError, match="что искать"):
         _cmd_voices(Args(query=["voices"]))
 
@@ -48,7 +48,7 @@ def test_the_inner_query_keeps_the_handles_that_name_a_release(
         seen.append(args)
         raise NotFoundError("дальше стенду нечем отвечать")
 
-    monkeypatch.setattr(voices_command, "_search", search)
+    monkeypatch.setattr(voices_command, "search_circle", search)
     with pytest.raises(NotFoundError):
         _cmd_voices(
             Args(query=["voices", "кино"], release=3, pick=2, file=5, voice=7, from_start=True)

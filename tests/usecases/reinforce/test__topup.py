@@ -9,14 +9,14 @@ from torrcast.domain.args import Args
 from torrcast.domain.config import Config
 from torrcast.domain.profile import CAUTIOUS
 from torrcast.domain.raw_result import RawResult
-from torrcast.usecases.reinforce._plan_for import _plan_for
 from torrcast.usecases.reinforce._topup import _topup
+from torrcast.usecases.reinforce.plan_for import plan_for
 
 
 def _poured(rows: list[RawResult], menu: frozenset[str] = frozenset()) -> tuple[Any, Any, Said]:
     """План на одной раздаче, в который опоздавший индексер доливает свои строки."""
     picture = pictures([row("Кино / Movie (1999) BDRip 1080p", "a", seeders=100)])[0]
-    plan = _plan_for(picture, Args(query=["кино"]), Config())
+    plan = plan_for(picture, Args(query=["кино"]), Config())
     plan.late = lambda: rows
     said = Said()
     fresh = _topup(plan, Args(query=["кино"]), Config(), CAUTIOUS, said, menu)
@@ -65,7 +65,7 @@ def test_a_topup_that_reaches_no_selection_at_all_is_not_boasted_about() -> None
     """
     args = Args(query=["ангел", "s01e01"])
     picture = pictures([row("Ангел / Angel S05 1080p", "a", seeders=100)])[0]
-    plan = _plan_for(picture, args, Config())
+    plan = plan_for(picture, args, Config())
     plan.late = lambda: [row("Ангел / Angel S05 720p", "b", seeders=900)]
     said = Said()
 

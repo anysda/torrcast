@@ -6,16 +6,19 @@ import contextlib
 import threading
 import time
 
-from torrcast.adapters.wiki.endpoints import _WIKI_HOST, _WIKI_PATH
+from torrcast.adapters.wiki.endpoints import WIKI_HOST, WIKI_PATH
 from torrcast.adapters.wiki.wiki_spelling import WikiSpelling
+from torrcast.domain.facts.extract_params import extract_params
 from torrcast.domain.facts.origin import Origin
 from torrcast.domain.facts.own_name_first import _own_name_first
 from torrcast.domain.facts.read_origin import read_origin
 from torrcast.domain.facts.redirected_name import redirected_name
+from torrcast.domain.facts.search_params import search_params
 from torrcast.domain.facts.settings import HTTP_TIMEOUT
 from torrcast.domain.facts.titles_for import titles_for
-from torrcast.domain.facts.wiki_params import _extract_params, _search_params
-from torrcast.domain.facts.wiki_reply import _article, _pages, _ranked
+from torrcast.domain.facts.wiki_pages import wiki_pages
+from torrcast.domain.facts.wiki_ranked import wiki_ranked
+from torrcast.domain.facts.wiki_reply import _article
 from torrcast.ports.json_client import JsonClient
 from torrcast.ports.name_catalogue import NameCatalogue
 
@@ -52,8 +55,8 @@ class WikiArticles:
         names = titles_for(title, None)
         if series:  # у сериала своя статья, и лежит она под своим уточнением
             names.sort(key=lambda name: "сериал" not in name)
-        payload = self.client.get(_WIKI_HOST, _WIKI_PATH, _extract_params(names), {}, timeout)
-        hops, pages = _pages(payload)
+        payload = self.client.get(WIKI_HOST, WIKI_PATH, extract_params(names), {}, timeout)
+        hops, pages = wiki_pages(payload)
         direct = _own_name_first([_article(name, hops, pages) for name in names], title)
         found = read_origin(direct, title, trusted=True, series=series)
         if found:
@@ -92,9 +95,9 @@ class WikiArticles:
 
         def by_search() -> None:
             with contextlib.suppress(Exception):
-                params = _search_params(f"{title} {kind}")
-                payload = self.client.get(_WIKI_HOST, _WIKI_PATH, params, {}, timeout)
-                box["search"] = read_origin(_ranked(payload), title, series=series)
+                params = search_params(f"{title} {kind}")
+                payload = self.client.get(WIKI_HOST, WIKI_PATH, params, {}, timeout)
+                box["search"] = read_origin(wiki_ranked(payload), title, series=series)
 
         def by_spelling() -> None:
             with contextlib.suppress(Exception):

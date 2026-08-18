@@ -11,7 +11,7 @@ from torrcast.usecases.choice.configure import _environment_port
 
 if TYPE_CHECKING:
     from torrcast.domain.facts.origin import Origin
-    from torrcast.usecases.select._plan import _Plan
+    from torrcast.usecases.select.plan import Plan
 
 
 class _Passport:
@@ -50,7 +50,7 @@ class _Passport:
         return self._box[0] if self._box else _environment_port().empty_origin()
 
 
-def _passport(plans: list[_Plan]) -> _Passport:
+def _passport(plans: list[Plan]) -> _Passport:
     """Пустить фоном добор паспорта верхней картины меню (:func:`year_note`).
 
     Только на меню из нескольких картин: одна картина - выбора не было, сверять нечего, и

@@ -6,7 +6,7 @@ from torrcast.domain.kindred import _kindred
 from torrcast.domain.picture import Picture
 
 
-def _both_languages(
+def both_languages(
     groups: dict[str, list[Picture]], aliases: dict[str, str], key: str
 ) -> list[Picture]:
     items = list(groups[key])
@@ -23,4 +23,4 @@ def _both_languages(
     return items
 
 
-__all__ = ["_both_languages"]
+__all__ = ["both_languages"]

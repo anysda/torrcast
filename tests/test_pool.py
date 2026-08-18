@@ -41,9 +41,9 @@ from torrcast.domain.release import Release
 from torrcast.domain.runtime_guess import RUNTIME_GUESS
 from torrcast.runtime.menu_facts import MenuFacts as Facts
 from torrcast.usecases.rank import bitrate_of, drop_reason, is_candidate, queue_drops, stepdown_note
-from torrcast.usecases.reinforce import _plan_for, _timed
-from torrcast.usecases.select import _Plan, _Prep
-from torrcast.usecases.select_bench import _Bench
+from torrcast.usecases.reinforce import _timed, plan_for
+from torrcast.usecases.select import Plan, _Prep
+from torrcast.usecases.select_bench import Bench
 
 GB = 1024**3
 GUESS = RUNTIME_GUESS["movie"]
@@ -99,7 +99,7 @@ def test_the_reference_runtime_returns_an_honest_1080p_to_the_queue() -> None:
     args = Args(query=["интерстеллар"])
     config = Config(recode=False)  # потолок отбора - ровно bitrate_warn_mbit
 
-    blind = _plan_for(picture, args, config)
+    blind = plan_for(picture, args, config)
     assert not blind.runtime_known
     assert blind.candidates(args) == [1], "по прикидке годен только 720p"
     assert blind.ranked[0] is small
@@ -125,7 +125,7 @@ def test_without_a_reference_the_guess_stays_but_says_so(
         releases=[named("Нелюбовь (2017) BDRip 1080p | D", size_gb=8.0, seeders=40)],
     )
     args = Args(query=["нелюбовь"])
-    before = _plan_for(picture, args, Config())
+    before = plan_for(picture, args, Config())
 
     plan = _timed(before, facts_with("Нелюбовь", 2017, ""), args, Config())
     shutdown()
@@ -149,8 +149,8 @@ def test_already_warmed_releases_move_with_the_new_order() -> None:
     picture = Picture(title="Интерстеллар", year=2014, releases=[full, small])
     args = Args(query=["интерстеллар"])
     config = Config(recode=False)
-    blind = _plan_for(picture, args, config)
-    bench = _Bench(cast(Any, None))
+    blind = plan_for(picture, args, config)
+    bench = Bench(cast(Any, None))
     warmed = _Prep(number=1, release=blind.ranked[0])
     bench.preps[(picture.key, 1)] = warmed
 
@@ -180,13 +180,13 @@ def test_a_hand_picked_release_keeps_the_number_the_table_showed() -> None:
     facts = facts_with("Интерстеллар", 2014, "2 ч 49 мин")
 
     shown = _timed(
-        _plan_for(picture, Args(query=["интерстеллар"]), config),
+        plan_for(picture, Args(query=["интерстеллар"]), config),
         facts,
         Args(query=["интерстеллар"]),
         config,
     )
     named_by_hand = Args(query=["интерстеллар"], release=2)
-    played = _timed(_plan_for(picture, named_by_hand, config), facts, named_by_hand, config)
+    played = _timed(plan_for(picture, named_by_hand, config), facts, named_by_hand, config)
 
     assert [r.title for r in played.ranked] == [r.title for r in shown.ranked], (
         "номер из таблицы означает ту же раздачу на показе"
@@ -216,11 +216,11 @@ def test_a_hand_picked_release_survives_a_late_reorder(
         magnet=magnet_for("c" * 40),
     )
     picture = Picture(title="Кино", year=1999, releases=[shown, neighbour])
-    before = _Plan(picture, [shown, neighbour], 7200.0, 20.0)
+    before = Plan(picture, [shown, neighbour], 7200.0, 20.0)
     selected = 1
     pins.remember("кино", {picture.key: before.ranked})
 
-    after = _Plan(
+    after = Plan(
         replace(picture, releases=[shown, neighbour, late]),
         [late, shown, neighbour],
         7200.0,
@@ -261,7 +261,7 @@ def test_every_release_of_the_pool_is_either_queued_or_counted_out() -> None:
     """Сумма «в очереди + выкинуто по причинам» сходится с пулом картины - до штуки."""
     picture = _mixed_picture()
     args = Args(query=["кино"])
-    plan = _plan_for(picture, args, Config())
+    plan = plan_for(picture, args, Config())
     queue = plan.candidates(args)
 
     drops = queue_drops(plan, queue)
@@ -277,7 +277,7 @@ def test_a_single_film_outranks_a_more_seeded_collection() -> None:
     single = named("Брат (1997) WEB-DL 1080p", size_gb=5.4, seeders=5)
     picture = Picture(title="Брат", year=1997, releases=[collection, single])
 
-    plan = _plan_for(picture, Args(query=["брат"]), Config())
+    plan = plan_for(picture, Args(query=["брат"]), Config())
 
     assert plan.ranked == [single, collection]
 
@@ -286,7 +286,7 @@ def test_a_dropped_release_is_named_by_the_reason_it_was_dropped() -> None:
     """У каждой причины своё имя, и это имя того шага, на котором раздачу выкинули."""
     picture = _mixed_picture()
     args = Args(query=["кино"])
-    plan = _plan_for(picture, args, Config())
+    plan = plan_for(picture, args, Config())
 
     reasons = {r.raw_name: drop_reason(r, plan) for r in plan.ranked}
 
@@ -302,7 +302,7 @@ def test_releases_without_the_asked_season_are_counted_too() -> None:
     second = named("Сериал / Series S02 (2020) WEB-DL 1080p | D", size_gb=20.0, seeders=70)
     picture = Picture(title="Сериал", year=2019, kind="tv", releases=[first, second])
     args = Args(query=["сериал", "s1e1"])
-    plan = _plan_for(picture, args, Config())
+    plan = plan_for(picture, args, Config())
     queue = plan.candidates(args)
 
     drops = queue_drops(plan, queue)
@@ -351,7 +351,7 @@ def _stepdown_plan() -> tuple[Picture, Args]:
 def test_taking_a_lower_step_says_so_in_one_line() -> None:
     """Взяли 720p при живом 1080p в очереди - строка называет релиз, сиды и причину."""
     picture, args = _stepdown_plan()
-    plan = _plan_for(picture, args, Config())
+    plan = plan_for(picture, args, Config())
     assert plan.ranked[0].height == 720, "верхом стоит обсиженный 720p"
 
     line = stepdown_note(plan, 1, Media(height=720, width=1280), [1, 2], {}, 1)
@@ -362,7 +362,7 @@ def test_taking_a_lower_step_says_so_in_one_line() -> None:
 def test_a_rejected_neighbour_is_named_with_its_verdict() -> None:
     """Лучшего трогали и отбраковали - в строке стоит его приговор, а не «не дошли»."""
     picture, args = _stepdown_plan()
-    plan = _plan_for(picture, args, Config())
+    plan = plan_for(picture, args, Config())
 
     line = stepdown_note(plan, 1, Media(height=720, width=1280), [2, 1], {2: "рой молчит"}, 2)
 
@@ -372,7 +372,7 @@ def test_a_rejected_neighbour_is_named_with_its_verdict() -> None:
 def test_a_silent_neighbour_is_not_called_rejected() -> None:
     """До ответа роя приговора релизу нет: кончилось только наше ожидание."""
     picture, args = _stepdown_plan()
-    plan = _plan_for(picture, args, Config())
+    plan = plan_for(picture, args, Config())
 
     line = stepdown_note(plan, 1, Media(height=720, width=1280), [2, 1], {}, 2)
 
@@ -386,7 +386,7 @@ def test_a_dead_swarm_above_is_named_dead() -> None:
     dead = named("Зелёная миля (1999) BDRip 1080p | D", size_gb=9.0, seeders=0)
     picture = Picture(title="Зелёная миля", year=1999, releases=[top, dead])
     args = Args(query=["зелёная миля"])
-    plan = _plan_for(picture, args, Config())
+    plan = plan_for(picture, args, Config())
 
     line = stepdown_note(plan, 1, Media(height=720, width=1280), [1], {}, 1)
 
@@ -402,7 +402,7 @@ def test_the_step_is_judged_by_the_passport_not_by_the_name() -> None:
     rival = named("Кино / Movie (2024) BDRip 1080p | D", size_gb=13.0, seeders=121)
     picture = Picture(title="Кино", year=2024, releases=[top, rival])
     args = Args(query=["кино"])
-    plan = _plan_for(picture, args, Config())
+    plan = plan_for(picture, args, Config())
 
     lied = stepdown_note(plan, 1, Media(height=574, width=1150), [1, 2], {}, 1)
     honest = stepdown_note(plan, 1, Media(height=1080, width=1920), [1, 2], {}, 1)
@@ -417,6 +417,6 @@ def test_nothing_is_said_when_nothing_better_was_there() -> None:
     worse = named("Кино / Movie (2024) DVDRip | D", size_gb=1.4, seeders=90)
     picture = Picture(title="Кино", year=2024, releases=[only, worse])
     args = Args(query=["кино"])
-    plan = _plan_for(picture, args, Config())
+    plan = plan_for(picture, args, Config())
 
     assert stepdown_note(plan, 1, Media(height=720, width=1280), [1], {}, 1) == ""

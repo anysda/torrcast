@@ -1,7 +1,7 @@
 """Секундомер ФАЗЫ ОТБОРА: во что человеку обходится брак верхнего релиза (TC-120).
 
 Меряется ровно то, что видно глазами после ответа на меню: сколько идёт
-:meth:`torrcast._Bench.resolve` - от «картина выбрана» до «отбор релиза». Индексеры при
+:meth:`torrcast.Bench.resolve` - от «картина выбрана» до «отбор релиза». Индексеры при
 этом не спрашиваются вовсе: план собирается из magnet-ссылок, названных в командной
 строке, поэтому замер не жжёт квоту трекеров и повторяется одинаково.
 
@@ -32,6 +32,7 @@ import os
 import shutil
 import statistics
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -45,12 +46,14 @@ from torrcast.domain.args import Args
 from torrcast.domain.picture import Picture
 from torrcast.domain.prewarm_settings import PREWARM
 from torrcast.domain.release import Release
+from torrcast.runtime.wire import wire
 from torrcast.usecases.choice import warm_order
-from torrcast.usecases.select import _Plan
-from torrcast.usecases.select_bench import _Bench
+from torrcast.usecases.select.plan import Plan
+from torrcast.usecases.select_bench.bench import Bench
 
-#: Каталог замера: своё состояние и свой кэш карт, рабочие не трогаются.
-BENCH = Path("/root/tc120")
+#: Каталог замера: своё состояние и свой кэш карт, рабочие не трогаются. Живёт во
+#: временном каталоге системы: замер не вправе требовать ни root, ни чужой машины.
+BENCH = Path(tempfile.gettempdir()) / "torrcast-pickbench"
 GB = 1024**3
 
 
@@ -74,20 +77,20 @@ def release(magnet: str, number: int, seeders: int = 100) -> Release:
     )
 
 
-def plans(magnets: list[str], filler: list[str], ceiling: float) -> list[_Plan]:
+def plans(magnets: list[str], filler: list[str], ceiling: float) -> list[Plan]:
     """Картина под замером и её соседи по франшизе - ровно то, что греется под меню."""
-    made: list[_Plan] = []
+    made: list[Plan] = []
     for spot, group in enumerate([magnets, *[[m] for m in filler]]):
         ranked = [release(m, n) for n, m in enumerate(group, start=1)]
         picture = Picture(title=f"Кино {spot + 1}", year=1999 + spot, releases=ranked)
-        made.append(_Plan(picture=picture, ranked=ranked, runtime=6000.0, warn_mbit=ceiling))
+        made.append(Plan(picture=picture, ranked=ranked, runtime=6000.0, warn_mbit=ceiling))
     return made
 
 
-def once(url: str, order: list[_Plan], think: float, spare: bool) -> tuple[float, str]:
+def once(url: str, order: list[Plan], think: float, spare: bool) -> tuple[float, str]:
     """Один прогон: прогрев под меню, пауза «человек читает», отбор. Всё убирается за собой."""
     shutil.rmtree(state_path().parent / "keys", ignore_errors=True)  # старт холодный
-    bench = _Bench(TorrServer(url))
+    bench = Bench(TorrServer(url))
     args = Args(query=["кино"])
     warmed = warm_order(order)
     for plan in warmed[:PREWARM]:
@@ -125,6 +128,9 @@ def weigh(url: str, magnet: str) -> str:
 
 
 def main() -> int:
+    # Тракт отбора сценарию раздаёт композиционный корень: без него первый же
+    # вопрос сценария внешнему миру падает на несобранной среде.
+    wire()
     ap = argparse.ArgumentParser()
     ap.add_argument("--magnets", nargs=2, required=True, help="верх и запасной одной картины")
     ap.add_argument("--filler", nargs="*", default=[], help="соседние картины франшизы")

@@ -8,7 +8,7 @@ from tests.usecases.select_bench.world import RUNTIME, Said, Torrents, plan, pro
 from torrcast.domain.args import Args
 from torrcast.domain.audio_track import AudioTrack
 from torrcast.domain.media import Media
-from torrcast.usecases.select_bench._bench import _Bench
+from torrcast.usecases.select_bench.bench import Bench
 
 _ASKED = Args(query=["кино"])
 _RUS = (AudioTrack(index=0, language="rus"),)
@@ -21,7 +21,7 @@ def test_a_swarm_that_only_seemed_dead_plays_on_the_second_ask(
     pool = [rel(name="r0 | Дубляж", seeders=100)]
     built = plan(pool)
     torrents = Torrents()
-    bench = _Bench(
+    bench = Bench(
         torrents,
         prober=probes(pool, Media(RUNTIME, _RUS, "h264", height=1080, width=1920)),
         meta_budget=1.0,
@@ -42,7 +42,7 @@ def test_a_queue_whose_releases_answered_for_themselves_is_not_asked_again() -> 
     """Раздачу без нужной серии терпение не изменит - второго спроса ей не бывает."""
     pool = [rel(name="r0 | Дубляж", seeders=100)]
     built = plan(pool)
-    bench = _Bench(Torrents(), prober=probes(pool))
+    bench = Bench(Torrents(), prober=probes(pool))
     known = bench.start(built, 1)
     bench._wait(known, Said())
 
@@ -53,7 +53,7 @@ def test_the_second_ask_never_takes_the_phase_past_its_ceiling() -> None:
     """Честный второй спрос в остаток бюджета фазы уже не влезает - его и не бывает."""
     pool = [rel(name="r0 | Дубляж", seeders=100)]
     built = plan(pool)
-    bench = _Bench(Torrents(), prober=probes(pool), meta_budget=30.0, probe_budget=30.0)
+    bench = Bench(Torrents(), prober=probes(pool), meta_budget=30.0, probe_budget=30.0)
     silent = bench.start(built, 1)
     bench._wait(silent, Said())
     silent.media = None

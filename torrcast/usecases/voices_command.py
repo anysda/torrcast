@@ -15,11 +15,11 @@ from torrcast.ports.progress import progress as progress_bar
 from torrcast.ports.state_store import store as watch_store
 from torrcast.ports.torrent_engines import TorrentEngines
 from torrcast.usecases.choice import _named, _pick_plan
-from torrcast.usecases.discover import _search
-from torrcast.usecases.playback import _file_picker
+from torrcast.usecases.discover import search_circle
+from torrcast.usecases.playback import file_picker
 from torrcast.usecases.rank import _cut, voices_table
 from torrcast.usecases.select import _remembered
-from torrcast.usecases.select_bench import _Bench
+from torrcast.usecases.select_bench import Bench
 
 if TYPE_CHECKING:
     from torrcast.domain.args import Args
@@ -53,7 +53,7 @@ def _cmd_voices(args: Args) -> int:
     ``cast <запрос> --voice N``.
 
     Показ отсюда не начинается и состояние не пишется; прогретые раздачи убираются из
-    TorrServer, как и на всяком пути мимо показа (:meth:`_Bench.drop_all`).
+    TorrServer, как и на всяком пути мимо показа (:meth:`Bench.drop_all`).
     """
     config = _voices_settings()
     # Внутренний запрос той же формы, что пришёл: команда снимает с него своё слово
@@ -65,8 +65,8 @@ def _cmd_voices(args: Args) -> int:
     if not inner.query:
         raise NotFoundError("что искать? cast voices <запрос>")
     with progress_bar() as progress:
-        plans = _search(config, inner, progress)
-        bench = _Bench(_voices_engines(config.torrserver_url), choose=_file_picker(inner))
+        plans = search_circle(config, inner, progress)
+        bench = Bench(_voices_engines(config.torrserver_url), choose=file_picker(inner))
         try:
             plan = _pick_plan(plans, pick=inner.pick, asked=inner.title_query)
             _voices_native(plan.picture, inner.title_query)

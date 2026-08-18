@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from torrcast.domain.aliases import _aliases
-from torrcast.domain.both_languages import _both_languages
+from torrcast.domain.both_languages import both_languages
 from torrcast.domain.by_alias import _by_alias
 from torrcast.domain.by_both_names import _by_both_names
 from torrcast.domain.by_subtitle import _by_subtitle
@@ -86,7 +86,7 @@ def pick_franchise(
         if not items:
             items, index = (_by_both_names(query, pictures), None)
         return _numbered(items, index)
-    franchise_items = _both_languages(groups, aliases, key)
+    franchise_items = both_languages(groups, aliases, key)
     if index is None and join_continuations:
         seen = {p.key for p in franchise_items}
         franchise_items = sorted(
@@ -114,7 +114,7 @@ def pick_franchise(
             )
     items = _numbered(franchise_items, index)
     if not items and index is not None and ((whole_name := named(query)) is not None):
-        items = _both_languages(groups, aliases, whole_name)
+        items = both_languages(groups, aliases, whole_name)
     return _with_subtitled(items, name, pictures, index)
 
 

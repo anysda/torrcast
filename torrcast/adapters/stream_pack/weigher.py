@@ -11,7 +11,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
 
-def _weigher(
+def weigher(
     keys: Sequence[float],
     sizes: Sequence[int],
     extra_mbit: float,

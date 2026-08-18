@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from tests.conftest import module_of
-from torrcast.adapters.stream_pack.grid_for import _extra_mbit, grid_for
+from torrcast.adapters.stream_pack.grid_for import grid_for
 from torrcast.domain.film_keys import FilmKeys
 from torrcast.domain.infra_error import InfraError
 
@@ -83,17 +83,3 @@ def test_a_heavier_ceiling_of_the_piece_makes_the_pieces_shorter(
     wide = grid_for("http://торрент/поток", 60.0, 10.0, delivered_mbit=16.0)
     tight = grid_for("http://торрент/поток", 60.0, 10.0, delivered_mbit=16.0, cap=4.0e6)
     assert tight.count > wide.count, "потолок веса не укоротил куски"
-
-
-def test_what_does_not_travel_to_the_tv_is_measured_from_the_map_and_the_passport() -> None:
-    """Ровно то же число, что набирает калибровка по факту, но известное до первого куска.
-
-    Паспорт молчит - ноль: потолок тогда считает по контейнеру целиком, то есть режет с
-    запасом. Запас безопасен, недооценка нет.
-    """
-    assert _extra_mbit(KEYS, 0.0) == 0.0
-    container = (KEYS.offset[-1] - KEYS.offset[0]) * 8 / (KEYS.at[-1] - KEYS.at[0]) / 1e6
-    assert _extra_mbit(KEYS, 8.0) == pytest.approx(container - 8.0)
-    assert container == pytest.approx(8.389, abs=0.001)
-    assert _extra_mbit(KEYS, 1e9) == 0.0, "паспорт тяжелее контейнера - вычитать нечего"
-    assert _extra_mbit(FilmKeys(60.0, [0.0, 2.0], [], "mkv"), 8.0) == 0.0

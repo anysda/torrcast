@@ -20,7 +20,7 @@
   мимо меню.
 
 Ключ, который нашёл боевой разбор, щуп не угадывает: он подсматривает вызов
-:func:`torrcast.domain.both_languages._both_languages` внутри
+:func:`torrcast.domain.both_languages.both_languages` внутри
 :func:`~torrcast.domain.pick_franchise.pick_franchise` (тот же приём, что
 :func:`poolreplay.watching_glue`), так что счёт идёт ровно по тому ключу и ровно по тем
 группам, с которыми работал продукт.
@@ -53,23 +53,24 @@ from probeprofile import choose as choose_profile
 from torrcast.adapters.filesystem.state import load_config
 from torrcast.domain import pick_franchise as pick_franchise_home
 from torrcast.domain.args import Args
-from torrcast.domain.both_languages import _both_languages
+from torrcast.domain.both_languages import both_languages
 from torrcast.domain.picture import Picture
 from torrcast.domain.split_franchise_index import split_franchise_index
+from torrcast.runtime.wire import wire
 
 Groups = dict[str, list[Picture]]
 
-#: Вызовы ``_both_languages`` внутри ``pick_franchise`` за один прогон запроса:
+#: Вызовы ``both_languages`` внутри ``pick_franchise`` за один прогон запроса:
 #: (найденный ключ франшизы, группы каталога).
 calls: list[tuple[str, Groups]] = []
 
 
 def _spy(groups: Groups, aliases: dict[str, str], key: str) -> list[Picture]:
     calls.append((key, groups))
-    return _both_languages(groups, aliases, key)
+    return both_languages(groups, aliases, key)
 
 
-patch.object(pick_franchise_home, "_both_languages", _spy).start()
+patch.object(pick_franchise_home, "both_languages", _spy).start()
 
 
 def continuations(key: str, groups: Groups) -> tuple[Groups, Groups]:
@@ -88,6 +89,9 @@ def continuations(key: str, groups: Groups) -> tuple[Groups, Groups]:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Тракт отбора сценарию раздаёт композиционный корень: без него первый же
+    # вопрос сценария внешнему миру падает на несобранной среде.
+    wire()
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0] if __doc__ else None)
     ap.add_argument("pools", type=Path, help="pools.jsonl со снятыми выдачами индексеров")
     add_profile_argument(ap)

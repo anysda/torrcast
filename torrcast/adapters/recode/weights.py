@@ -83,7 +83,7 @@ class Weights:
         """Сколько байт весит **копия** этого куска — предсказание по карте, без потолка.
 
         ⚠️ Это не то же число, которым сетка проверяет потолок веса
-        (:func:`torrcast.adapters.stream_pack._weigher._weigher`): там вес зажат ``ceiling_mbit`` в
+        (:func:`torrcast.adapters.stream_pack.weigher.weigher`): там вес зажат ``ceiling_mbit`` в
         предположении, что тяжёлый кусок перекодируют. Здесь — честный вес того, что лежит в файле,
         и именно он решает, можно ли отпустить копию наружу (:meth:`Recoder.oversize`).
 

@@ -11,7 +11,8 @@
 
 ``--price`` (``--file ФАЙЛ`` или ``--film ХЕШ``)
     Цена **боевого** тракта: ровно та пара «сетка и решение о сплошном перекоде», которую
-    собирает показ (:func:`torrcast.cli._layout`), и ровно та команда, которой он пакует
+    собирает показ (:func:`torrcast.usecases.playback.layout.layout`), и ровно та команда,
+    которой он пакует
     (:func:`torrcast.adapters.stream_pack.ffmpeg_pack_command.ffmpeg_pack_command`). Отличие от
     ``--speed`` не косметическое: там меряется чистая скорость кодека на готовом куске, а тут —
     секунда показа со всеми её слагаемыми, включая подъём ffmpeg, чтение источника,
@@ -72,7 +73,8 @@ from torrcast.adapters.stream_probe.segment_slot import segment_slot
 from torrcast.adapters.torrserver.torr_server import TorrServer
 from torrcast.domain.config import Config
 from torrcast.domain.profile import Profile
-from torrcast.usecases.playback import _layout
+from torrcast.runtime.wire import wire
+from torrcast.usecases.playback.layout import layout
 
 PRESET_LADDER = ("ultrafast", "superfast", "veryfast", "faster", "fast", "medium")
 
@@ -153,8 +155,9 @@ def price(
 ) -> None:
     """Цена боевого тракта: та же пара «сетка + сплошной перекод», которой пакует показ.
 
-    Собирается она ровно одним вызовом :func:`torrcast.cli._layout` — не повторяется здесь
-    и не подгоняется. Всё, что щуп добавляет от себя, — часы и весы:
+    Собирается она ровно одним вызовом :func:`torrcast.usecases.playback.layout.layout` —
+    не повторяется здесь и не подгоняется. Всё, что щуп добавляет от себя, — часы и
+    весы:
 
     * сколько процессорных секунд стоит секунда фильма (``xCPU``) и сколько стенных (``xRT``);
     * сколько весит каждый упакованный кусок против того, что сетке **обещали**
@@ -175,7 +178,7 @@ def price(
         f"  {media.duration:.1f} с, {media.video} {media.frame}p, глубина {media.depth}, "
         f"HDR {media.hdr}, видео {video_mbit:.2f} Мбит/с"
     )
-    grid, whole = _layout(
+    grid, whole = layout(
         config,
         source,
         media.duration,
@@ -267,7 +270,7 @@ def calibrate(
     карты — контейнер целиком, поэтому из них вычитается поправка «контейнер → ТВ»
     (:attr:`~torrcast.adapters.recode.Weights.extra`), а она до первой калибровки известна
     только паспортом ffprobe
-    (:func:`torrcast.adapters.stream_pack.grid_for._extra_mbit`) — и известна **одним
+    (:func:`torrcast.adapters.stream_pack.extra_mbit.extra_mbit`) — и известна **одним
     числом на весь фильм**.
 
     Щуп пакует первые куски КОПИЕЙ — ровно тем, чем их положил бы показ, — и печатает три
@@ -457,6 +460,9 @@ def dump(url: str, step: float, slot: int, count: int, where: Path) -> None:
 
 
 def main() -> int:
+    # Медиатракт сценарию раздаёт композиционный корень: без него лента показа не
+    # знает ни имён сегментов, ни чем паковать.
+    wire()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--speed", type=Path, help="замер скорости пресетов на готовом куске")
     parser.add_argument("--price", action="store_true", help="цена боевого тракта на источнике")

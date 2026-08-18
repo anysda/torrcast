@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from tests.usecases.select_bench.world import Torrents, plan, probes, rel
 from torrcast.usecases.select._prep import _Prep
-from torrcast.usecases.select_bench._bench import _Bench
+from torrcast.usecases.select_bench.bench import Bench
 
 
-def _bench(torrents: Torrents) -> _Bench:
-    return _Bench(torrents, prober=probes([]))
+def _bench(torrents: Torrents) -> Bench:
+    return Bench(torrents, prober=probes([]))
 
 
 def test_a_prep_that_is_no_longer_needed_is_dropped_by_its_own_hash() -> None:

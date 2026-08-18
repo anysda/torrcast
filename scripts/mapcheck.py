@@ -29,8 +29,11 @@ from torrcast import TorrcastError
 from torrcast.adapters.frames.http_range_reader import HttpRangeReader as Reader
 from torrcast.adapters.frames.keyframes import HEAD_PEEK, keyframes
 from torrcast.domain.frames.keymap import Point, video_track
-from torrcast.domain.frames.mkv import CLUSTER, _uint, _vint, _walk
-from torrcast.domain.frames.mkv import _Head as MkvHead
+from torrcast.domain.frames.mkv.head import Head as MkvHead
+from torrcast.domain.frames.mkv.ids import CLUSTER
+from torrcast.domain.frames.mkv.uint import uint
+from torrcast.domain.frames.mkv.vint import vint
+from torrcast.domain.frames.mkv.walk import walk
 
 #: EBML-идентификаторы кластера, которые нужны сверке.
 TIMESTAMP = 0xE7
@@ -43,23 +46,23 @@ TOLERANCE = 0.021
 
 def cluster_at(buf: bytes, scale: float, track: int) -> tuple[float | None, float | None, bool]:
     """(время кластера, время первого блока дорожки, опорный ли он) — из сырых байт."""
-    found = _walk(buf, 0, min(32, len(buf)))
+    found = walk(buf, 0, min(32, len(buf)))
     if not found or found[0][0] != CLUSTER:
         return None, None, False
     _, size, data = found[0]
     end = min(len(buf), data + size)
     raw = None
-    for ident, b_size, b_data in _walk(buf, data, end):
+    for ident, b_size, b_data in walk(buf, data, end):
         if ident == TIMESTAMP:
-            raw = _uint(buf, b_data, b_size)
+            raw = uint(buf, b_data, b_size)
         elif ident in (SIMPLE_BLOCK, BLOCK_GROUP) and raw is not None:
             block = b_data
             if ident == BLOCK_GROUP:
-                inner = [e for e in _walk(buf, b_data, min(end, b_data + b_size)) if e[0] == BLOCK]
+                inner = [e for e in walk(buf, b_data, min(end, b_data + b_size)) if e[0] == BLOCK]
                 if not inner:
                     continue
                 block = inner[0][2]
-            number, after = _vint(buf, block, keep_marker=False)
+            number, after = vint(buf, block, keep_marker=False)
             if number != track:
                 continue
             rel = int.from_bytes(buf[after : after + 2], "big", signed=True)

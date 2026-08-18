@@ -7,10 +7,10 @@ from typing import TYPE_CHECKING
 from torrcast.usecases.choice._named import _named
 
 if TYPE_CHECKING:
-    from torrcast.usecases.select._plan import _Plan
+    from torrcast.usecases.select.plan import Plan
 
 
-def default_line(plans: list[_Plan], default: int) -> str:
+def default_line(plans: list[Plan], default: int) -> str:
     """Что случится по Enter - словами, последней строкой перед вопросом.
 
     🔴 TC-204. Порядок меню хронологический, и это решение: франшизу читают так, как её

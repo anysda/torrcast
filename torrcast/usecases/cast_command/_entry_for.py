@@ -16,11 +16,11 @@ from torrcast.usecases.select import _Prep
 
 if TYPE_CHECKING:
     from torrcast.domain.args import Args
-    from torrcast.usecases.select._plan import _Plan
+    from torrcast.usecases.select.plan import Plan
 
 
 def _entry_for(
-    plan: _Plan,
+    plan: Plan,
     prep: _Prep,
     release: Release,
     video: TorrFile,

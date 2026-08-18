@@ -7,10 +7,10 @@ from typing import TYPE_CHECKING
 from torrcast.usecases.choice.fitness import fitness
 
 if TYPE_CHECKING:
-    from torrcast.usecases.select._plan import _Plan
+    from torrcast.usecases.select.plan import Plan
 
 
-def playable(plans: list[_Plan], alive: list[int]) -> list[int]:
+def playable(plans: list[Plan], alive: list[int]) -> list[int]:
     """🔴 TC-246. Тупиковая картина уступает дефолт своей ТЁЗКЕ, которой есть чем играть.
 
     Тупик - это картина, у которой после отбора не осталось ни одной раздачи, годной,
@@ -44,6 +44,6 @@ def playable(plans: list[_Plan], alive: list[int]) -> list[int]:
     ]
 
 
-def _same_name(plans: list[_Plan], first: int, second: int) -> bool:
+def _same_name(plans: list[Plan], first: int, second: int) -> bool:
     """Одним ли именем каталог подписал две картины меню."""
     return plans[first - 1].picture.title.casefold() == plans[second - 1].picture.title.casefold()

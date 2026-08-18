@@ -9,7 +9,7 @@ from torrcast.domain.args import Args
 from torrcast.domain.audio_track import AudioTrack
 from torrcast.domain.media import Media
 from torrcast.domain.not_found_error import NotFoundError
-from torrcast.usecases.select_bench._bench import _Bench
+from torrcast.usecases.select_bench.bench import Bench
 
 _ASKED = Args(query=["кино"])
 _RUS = (AudioTrack(index=0, language="rus"),)
@@ -22,7 +22,7 @@ def _media(codec: str = "h264") -> Media:
 def test_the_first_fit_release_is_the_answer() -> None:
     """Счастливый путь: верх очереди годен, и дальше него отбор не идёт."""
     pool = [rel(name=f"r{n} | Дубляж", seeders=100 - n) for n in range(2)]
-    bench = _Bench(Torrents(), prober=probes(pool, _media(), _media()))
+    bench = Bench(Torrents(), prober=probes(pool, _media(), _media()))
 
     prep = bench.resolve(plan(pool), _ASKED, Said())
 
@@ -32,7 +32,7 @@ def test_the_first_fit_release_is_the_answer() -> None:
 def test_an_unfit_top_is_swapped_out_loud(capsys: pytest.CaptureFixture[str]) -> None:
     """Молчаливых подмен не бывает: каждая осечка стоит строки и следующего кандидата."""
     pool = [rel(name=f"r{n} | Дубляж", seeders=100 - n) for n in range(2)]
-    bench = _Bench(Torrents(), prober=probes(pool, _media("av1"), _media()))
+    bench = Bench(Torrents(), prober=probes(pool, _media("av1"), _media()))
 
     prep = bench.resolve(plan(pool, recode_at=0.0), _ASKED, Said())
 
@@ -43,7 +43,7 @@ def test_an_unfit_top_is_swapped_out_loud(capsys: pytest.CaptureFixture[str]) ->
 def test_a_queue_of_nothing_but_verdicts_ends_with_an_honest_refusal() -> None:
     """Все до одного прочитаны и осуждены - это отказ отбора, а не молчание роя."""
     pool = [rel(name=f"r{n} | Дубляж", seeders=100 - n) for n in range(2)]
-    bench = _Bench(Torrents(), prober=probes(pool, _media("av1"), _media("vp9")))
+    bench = Bench(Torrents(), prober=probes(pool, _media("av1"), _media("vp9")))
 
     with pytest.raises(NotFoundError, match="годного релиза нет"):
         bench.resolve(plan(pool, recode_at=0.0), _ASKED, Said())
@@ -53,7 +53,7 @@ def test_a_queue_that_only_kept_silent_names_the_swarm_not_the_choice() -> None:
     """🔴 TC-435. Ни одного приговора - врать «годного релиза нет» тут нельзя."""
     pool = [rel(name=f"r{n} | Дубляж", seeders=100 - n) for n in range(2)]
     dead = {f"hash-{one.magnet}" for one in pool}
-    bench = _Bench(Torrents(dead=dead), prober=probes(pool), meta_budget=0.5, probe_budget=0.5)
+    bench = Bench(Torrents(dead=dead), prober=probes(pool), meta_budget=0.5, probe_budget=0.5)
 
     with pytest.raises(NotFoundError, match="раздач в выдаче 2"):
         bench.resolve(plan(pool), _ASKED, Said())
@@ -67,7 +67,7 @@ def test_a_release_without_russian_waits_and_plays_when_nobody_has_it(
     japanese = Media(
         RUNTIME, (AudioTrack(index=0, language="jpn"),), "h264", height=1080, width=1920
     )
-    bench = _Bench(Torrents(), prober=probes(pool, japanese))
+    bench = Bench(Torrents(), prober=probes(pool, japanese))
 
     prep = bench.resolve(plan(pool), _ASKED, Said())
 

@@ -11,8 +11,8 @@ from torrcast.domain.facts.origin import Origin
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.raw_result import RawResult
-from torrcast.usecases.discover._search import _search
-from torrcast.usecases.select import _Plan
+from torrcast.usecases.discover.search_circle import search_circle
+from torrcast.usecases.select import Plan
 
 _CONFIG = Config(prowlarr_apikey="KEY")
 _CARS = [
@@ -21,10 +21,10 @@ _CARS = [
 ]
 
 
-def _found(answers: dict[str, list[RawResult]], query: str) -> list[_Plan]:
+def _found(answers: dict[str, list[RawResult]], query: str) -> list[Plan]:
     wire_catalogue()
     client = Indexer(answers=answers)
-    return _search(
+    return search_circle(
         _CONFIG,
         Args(query=query.split()),
         Said(),
@@ -58,4 +58,4 @@ def test_without_prowlarr_the_search_is_an_infra_failure_not_a_refusal() -> None
     """Искать нечем - это поломка настройки, а не «ничего не нашлось»."""
     wire_catalogue()
     with pytest.raises(InfraError, match="не настроен Prowlarr"):
-        _search(Config(), Args(query=["тачки"]), Said(), indexer=lambda *_a, **_k: Indexer())
+        search_circle(Config(), Args(query=["тачки"]), Said(), indexer=lambda *_a, **_k: Indexer())

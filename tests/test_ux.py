@@ -739,7 +739,7 @@ def test_silent_resume_does_not_start_a_competing_position_warmer(
 def test_a_dry_run_takes_even_the_chosen_torrent_back(monkeypatch: pytest.MonkeyPatch) -> None:
     """``--dry`` с поиском убирает ВСЁ поднятое - и раздачу, которую «сыграли бы», тоже.
 
-    Лишнее из прогрева убиралось всегда (:meth:`_Bench.keep_only`), а выбранная раздача
+    Лишнее из прогрева убиралось всегда (:meth:`Bench.keep_only`), а выбранная раздача
     оставалась жить в TorrServer до его перезапуска: с ``save_to_db: false`` в списке
     службы её не видно, и копилась она молча. Сухой прогон заведён ровно затем, чтобы
     следов не оставалось, - и сносить он обязан ровно своё, по явным хэшам.

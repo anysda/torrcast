@@ -13,10 +13,10 @@ from torrcast.domain.why import why
 from torrcast.ports.journal import journal
 from torrcast.ports.receiver import Receiver
 from torrcast.ports.stream_source import StreamSource
-from torrcast.usecases.playback._layout import _layout
 from torrcast.usecases.playback._show_end import _close_show, _report_end, _say_whole
 from torrcast.usecases.playback._tract import _tract
 from torrcast.usecases.playback.following import Following
+from torrcast.usecases.playback.layout import layout
 from torrcast.usecases.revive_playback import _hold
 from torrcast.usecases.start_clock import _Clock
 from torrcast.usecases.watch import Watch
@@ -74,7 +74,7 @@ def _play(
     # перекодирует сама упаковка, одним прогоном, и кодировщик тяжёлых кусков не нужен -
     # перекодировать поверх перекода нечего. Решается это ДО сетки: от битрейта перекода
     # зависит вес каждого куска, а значит и то, где сетка поставит границы.
-    grid, whole = _layout(
+    grid, whole = layout(
         config,
         source,
         length,

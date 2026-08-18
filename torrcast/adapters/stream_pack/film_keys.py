@@ -10,7 +10,8 @@ import time
 from pathlib import Path
 
 from torrcast.adapters.frames.keyframes import keyframes
-from torrcast.adapters.stream_pack._keys_shelf import _keys_cache, _read_keys
+from torrcast.adapters.stream_pack._keys_shelf import _keys_cache
+from torrcast.adapters.stream_pack.read_keys import read_keys
 from torrcast.adapters.stream_probe import _trim
 from torrcast.domain.film_keys import FilmKeys
 from torrcast.domain.frames.keymap import video_track
@@ -51,7 +52,7 @@ def film_keys(source_url: str) -> FilmKeys:
     файла вторым потоком: рой от этого быстрее не станет, а старт показа удвоится.
     """
     cache = _keys_cache(source_url)
-    if (ready := _read_keys(cache)) is not None:
+    if (ready := read_keys(cache)) is not None:
         journal().mark("карта: из кэша")
         return ready
     lock = cache.with_suffix(".lock")
@@ -59,7 +60,7 @@ def film_keys(source_url: str) -> FilmKeys:
     waited = time.monotonic()
     while _fetching(lock) and time.monotonic() < deadline:
         time.sleep(0.2)
-        if (ready := _read_keys(cache)) is not None:
+        if (ready := read_keys(cache)) is not None:
             journal().mark("карта: дождались прогрева", ждали=round(time.monotonic() - waited, 2))
             return ready
     with contextlib.suppress(OSError):

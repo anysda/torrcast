@@ -44,14 +44,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import runpass
 
 from torrcast.adapters.wiki.endpoints import (
-    _WIKI_HOST,
-    _WIKI_PATH,
-    _WIKIDATA_HOST,
-    _WIKIDATA_PATH,
+    WIKI_HOST,
+    WIKI_PATH,
+    WIKIDATA_HOST,
+    WIKIDATA_PATH,
 )
+from torrcast.domain.facts.extract_params import extract_params
 from torrcast.domain.facts.read_origin import read_origin
-from torrcast.domain.facts.wiki_params import _extract_params, _search_params
-from torrcast.domain.facts.wiki_reply import _pages, _ranked
+from torrcast.domain.facts.search_params import search_params
+from torrcast.domain.facts.wiki_pages import wiki_pages
+from torrcast.domain.facts.wiki_ranked import wiki_ranked
 from torrcast.domain.json_map import json_map
 from torrcast.domain.slugify import slugify
 from torrcast.domain.split_franchise_index import split_franchise_index
@@ -95,8 +97,8 @@ def sparql(query: str) -> dict[str, Any]:
     for attempt in range(_SPARQL_TRIES):
         try:
             payload = FACTS.client.get(
-                _WIKIDATA_HOST,
-                _WIKIDATA_PATH,
+                WIKIDATA_HOST,
+                WIKIDATA_PATH,
                 {"query": query},
                 {"Accept": "application/sparql-results+json"},
                 _SPARQL_TIMEOUT,
@@ -187,8 +189,8 @@ def confirmed_parts(
 
 def entity_of(heading: str) -> str:
     """Q-идентификатор статьи ru.wikipedia по заголовку; пусто - статьи нет."""
-    payload = FACTS.client.get(_WIKI_HOST, _WIKI_PATH, _extract_params([heading]), {}, 8.0)
-    _hops, pages = _pages(payload)
+    payload = FACTS.client.get(WIKI_HOST, WIKI_PATH, extract_params([heading]), {}, 8.0)
+    _hops, pages = wiki_pages(payload)
     for page in pages.values():
         if page is not None:
             return str(json_map(json_map(page).get("pageprops")).get("wikibase_item") or "")
@@ -197,8 +199,8 @@ def entity_of(heading: str) -> str:
 
 def search_pages(query: str) -> list[Any]:
     """Запасной путь справки: выдача поиска «запрос фильм», как в origin_now."""
-    payload = FACTS.client.get(_WIKI_HOST, _WIKI_PATH, _search_params(f"{query} фильм"), {}, 8.0)
-    return _ranked(payload)
+    payload = FACTS.client.get(WIKI_HOST, WIKI_PATH, search_params(f"{query} фильм"), {}, 8.0)
+    return wiki_ranked(payload)
 
 
 def numbered_queries(pools: Path | None) -> list[str]:

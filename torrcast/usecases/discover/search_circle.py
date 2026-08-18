@@ -22,26 +22,27 @@ from torrcast.ports.progress import Progress
 from torrcast.ports.torrent_catalogue import IndexerClient
 from torrcast.usecases.discover._ask import _ask
 from torrcast.usecases.discover._nothing import _nothing
-from torrcast.usecases.discover._reread import _relayout, _season_reread, _titled_number
+from torrcast.usecases.discover._reread import _relayout, _titled_number
 from torrcast.usecases.discover._second_language import _second_language
 from torrcast.usecases.discover.kin_line import _kin
 from torrcast.usecases.discover.season_gaps import season_gaps
+from torrcast.usecases.discover.season_reread import season_reread
 from torrcast.usecases.discover.worth_asking_original import worth_asking_original
-from torrcast.usecases.reinforce._ceiling_hides_name import _ceiling_hides_name
 from torrcast.usecases.reinforce._ceiling_reinforce import _ceiling_reinforce
-from torrcast.usecases.reinforce._lacks_season import _lacks_season
 from torrcast.usecases.reinforce._leading import _leading
-from torrcast.usecases.reinforce._plan_for import _plan_for
 from torrcast.usecases.reinforce._season_reinforce import _season_reinforce
 from torrcast.usecases.reinforce._voice_reinforce import _voice_reinforce
+from torrcast.usecases.reinforce.ceiling_hides_name import ceiling_hides_name
+from torrcast.usecases.reinforce.lacks_season import lacks_season
+from torrcast.usecases.reinforce.plan_for import plan_for
 from torrcast.usecases.reinforce.voiceless_pool import voiceless_pool
 
 if TYPE_CHECKING:
     from torrcast.domain.args import Args
-    from torrcast.usecases.select._plan import _Plan
+    from torrcast.usecases.select.plan import Plan
 
 
-def _search(
+def search_circle(
     config: Config,
     args: Args,
     progress: Progress,
@@ -49,7 +50,7 @@ def _search(
     *,
     indexer: Callable[[str, str], IndexerClient] | None = None,
     passport: Callable[..., Origin] | None = None,
-) -> list[_Plan]:
+) -> list[Plan]:
     """Поиск и разбор выдачи: запрос → картины франшизы, каждая со своим пулом релизов.
 
     ``profile`` - чей декодер судит релизы (:mod:`torrcast.domain.profile`). Пороги битрейта до
@@ -83,7 +84,7 @@ def _search(
     # Номер в запросе - позиция во франшизе, а не в общей выдаче.
     found = pick_franchise(query, pictures)
     titled = False
-    if (reread := _season_reread(args, name, index, found, pictures)) is not None:
+    if (reread := season_reread(args, name, index, found, pictures)) is not None:
         # 🔴 TC-363. У сериала номер это сезон, а не часть франшизы
         # (:func:`~torrcast.domain.reads_season.reads_season`), и дальше по строке он идёт ровно тем
         # же путём, что и явное `sNeM`: своей сезонной машинерией, вплоть до честного «раздач с
@@ -105,7 +106,7 @@ def _search(
         raw, pictures, found = _second_language(
             client, query, args, raw, found, progress, titled, passport=passport
         )
-    elif index is None and not titled and _ceiling_hides_name(client, name, pictures, found):
+    elif index is None and not titled and ceiling_hides_name(client, name, pictures, found):
         # Номер части и «цифра - часть названия» уточнению не подчиняются: запрос «имя +
         # год» строится по голому имени, и смысл номера в нём теряется.
         raw, pictures, found = _ceiling_reinforce(
@@ -113,7 +114,7 @@ def _search(
         )
     # Сериал есть, а раздач нужного сезона в нём нет - добрать сезонной строкой по
     # оригиналу, прежде чем честно отказать (:func:`_season_reinforce`).
-    if _lacks_season(found, args):
+    if lacks_season(found, args):
         raw, pictures, found = _season_reinforce(
             client, query, args, raw, found, progress, titled, passport=passport
         )
@@ -142,7 +143,7 @@ def _search(
     # Номер пункта меню человек читает как номер части и им же отвечает: «Тачки 2» обязаны
     # стоять вторыми, а безномерные - после линейки (:func:`~torrcast.domain.menu_order.menu_order`).
     found = menu_order(found)
-    plans = [plan for plan in (_plan_for(p, args, config, profile) for p in found) if plan.ranked]
+    plans = [plan for plan in (plan_for(p, args, config, profile) for p in found) if plan.ranked]
     for line in season_gaps(found, {plan.picture.key for plan in plans}, args.episode):
         progress.note(line)
     # Соседи по франшизе, до меню не доехавшие: понадобятся, если у выбранной картины

@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from torrcast.domain.facts.confirms import confirms
-from torrcast.domain.facts.wiki_reply import _article, _pages
+from torrcast.domain.facts.wiki_pages import wiki_pages
+from torrcast.domain.facts.wiki_reply import _article
 from torrcast.domain.json_map import json_map
 from torrcast.domain.json_value import JsonValue
 
@@ -17,7 +18,7 @@ def _read_pages(
     по перенаправлениям, и «Моана (мультфильм)» вполне может ответить статьёй с другим
     заголовком. Обратный путь API отдаёт сам, списками ``normalized`` и ``redirects``.
     """
-    hops, pages = _pages(payload)
+    hops, pages = wiki_pages(payload)
     about: dict[tuple[str, int | None], str] = {}
     entities: dict[tuple[str, int | None], str] = {}
     for key, names in candidates.items():

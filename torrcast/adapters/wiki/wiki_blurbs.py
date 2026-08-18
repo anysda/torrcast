@@ -9,19 +9,19 @@ from collections.abc import Callable
 from typing import Any
 
 from torrcast.adapters.wiki.endpoints import (
-    _SPARQL_HEAD,
-    _WIKI_HOST,
-    _WIKI_PATH,
-    _WIKIDATA_HOST,
-    _WIKIDATA_PATH,
+    SPARQL_HEAD,
+    WIKI_HOST,
+    WIKI_PATH,
+    WIKIDATA_HOST,
+    WIKIDATA_PATH,
 )
+from torrcast.domain.facts.extract_params import extract_params
 from torrcast.domain.facts.fact import Fact
 from torrcast.domain.facts.hms import hms
 from torrcast.domain.facts.read_pages import _read_pages
 from torrcast.domain.facts.read_sparql import read_sparql
 from torrcast.domain.facts.settings import _EXBATCHES, _EXLIMIT, HTTP_TIMEOUT
 from torrcast.domain.facts.titles_for import titles_for
-from torrcast.domain.facts.wiki_params import _extract_params
 from torrcast.domain.facts.wiki_reply import _merged
 from torrcast.ports.json_client import JsonClient
 from torrcast.ports.rating_dump import RatingDump
@@ -120,9 +120,7 @@ class WikiBlurbs:
 
         def ask(part: list[str]) -> None:
             with contextlib.suppress(Exception):
-                payload = self.client.get(
-                    _WIKI_HOST, _WIKI_PATH, _extract_params(part), {}, timeout
-                )
+                payload = self.client.get(WIKI_HOST, WIKI_PATH, extract_params(part), {}, timeout)
                 with lock:
                     answers.append(payload)
 
@@ -153,6 +151,6 @@ class WikiBlurbs:
             "OPTIONAL { ?item wdt:P345 ?imdb } OPTIONAL { ?item wdt:P2047 ?dur } }"
         )
         payload = self.client.get(
-            _WIKIDATA_HOST, _WIKIDATA_PATH, {"query": query}, dict(_SPARQL_HEAD), timeout
+            WIKIDATA_HOST, WIKIDATA_PATH, {"query": query}, dict(SPARQL_HEAD), timeout
         )
         return read_sparql(payload)

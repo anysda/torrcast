@@ -28,7 +28,7 @@ from torrcast.domain.rank_settings import ALIVE_SEEDERS
 from torrcast.domain.release import Release
 from torrcast.ports.choice_environment import ChoiceArgs, ChoiceEnvironment, ChoiceFacts
 from torrcast.usecases.choice.configure import _environment_port, configure
-from torrcast.usecases.select._plan import _Plan
+from torrcast.usecases.select.plan import Plan
 
 #: Десятичный гигабайт: в них считают размер раздачи и трекеры, и наша прикидка веса.
 GB = 1000**3
@@ -78,10 +78,10 @@ def plan(
     asked_series: bool = False,
     loose: bool = False,
     last_resort: bool = False,
-) -> _Plan:
+) -> Plan:
     """План одной картины меню: пул раздач в порядке ранжира и та же длительность."""
     ranked = pool if pool is not None else [film(f"{title} {year} WEB-DL 1080p", seeders=seeders)]
-    return _Plan(
+    return Plan(
         picture=Picture(
             title=title, year=year, kind=kind, part=part, original=original, releases=ranked
         ),
@@ -94,7 +94,7 @@ def plan(
     )
 
 
-def parts(*named: tuple[str, int | None, int]) -> list[_Plan]:
+def parts(*named: tuple[str, int | None, int]) -> list[Plan]:
     """Франшиза тройками «название, год, сиды лучшей годной раздачи картины»."""
     return [plan(title, year, seeders=seeders) for title, year, seeders in named]
 

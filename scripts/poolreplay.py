@@ -28,7 +28,7 @@
 Прогоняется ровно боевой тракт отбора и ровно его функциями::
 
     merge → to_releases → cluster (внутри неё glue) → pick_franchise → menu_order
-          → _plan_for → candidates → queue_drops
+          → plan_for → candidates → queue_drops
 
 Ни одна ступень здесь не переписана - щуп только зовёт и печатает. Это и есть повод
 его завести: пока обвязку к сохранённым пулам писали заново под каждый замер, у
@@ -60,7 +60,6 @@ from torrcast.adapters.prowlarr.collect_rows import collect_rows
 from torrcast.adapters.prowlarr.merge import merge
 from torrcast.adapters.prowlarr.prowlarr import Prowlarr
 from torrcast.adapters.prowlarr.to_releases import to_releases
-from torrcast.domain._name_data import THIN_POOL
 from torrcast.domain.args import Args
 from torrcast.domain.capped_indexers import INDEXER_PAGE
 from torrcast.domain.cluster import cluster
@@ -73,10 +72,17 @@ from torrcast.domain.profile import Profile
 from torrcast.domain.raw_result import RawResult
 from torrcast.domain.release import Release
 from torrcast.domain.split_franchise_index import split_franchise_index
-from torrcast.usecases.discover import _season_reread, unfit_pool, worth_asking_original
+from torrcast.domain.thin_pool import THIN_POOL
+from torrcast.runtime.wire import wire
+from torrcast.usecases.discover.season_reread import season_reread
+from torrcast.usecases.discover.unfit_pool import unfit_pool
+from torrcast.usecases.discover.worth_asking_original import worth_asking_original
 from torrcast.usecases.rank import OFF_SEASON, drop_reason, queue_drops
-from torrcast.usecases.reinforce import _ceiling_hides_name, _lacks_season, _plan_for, voiceless_pool
-from torrcast.usecases.select import _Plan
+from torrcast.usecases.reinforce.ceiling_hides_name import ceiling_hides_name
+from torrcast.usecases.reinforce.lacks_season import lacks_season
+from torrcast.usecases.reinforce.plan_for import plan_for
+from torrcast.usecases.reinforce.voiceless_pool import voiceless_pool
+from torrcast.usecases.select.plan import Plan
 
 #: Что склеили и во что: список исходных кучек и получившаяся из них картина.
 Merge = tuple[list[Picture], Picture]
@@ -152,7 +158,7 @@ class Replay:
     #: Картины франшизы в порядке меню - это и есть верх меню.
     menu: list[Picture] = field(default_factory=list)
     #: Планы тех картин меню, у которых пул отбора не пуст.
-    plans: list[_Plan] = field(default_factory=list)
+    plans: list[Plan] = field(default_factory=list)
     merges: list[Merge] = field(default_factory=list)
     #: Пул тощий: строк за самой полной картиной меньше :data:`THIN_POOL`.
     thin: bool = False
@@ -262,12 +268,13 @@ def replay(
     pictures = cluster(to_releases(raw), glue_rule=spy)
     found = menu_order(pick_franchise(args.title_query, pictures))
     # Номер при имени сериала - сезон, и читает его тут ТА ЖЕ функция, что и показ
-    # (:func:`~torrcast.cli._season_reread`, TC-363): иначе планы строились бы по первому
-    # сезону там, где спрошен второй, - и разошлись бы молча.
+    # (:func:`~torrcast.usecases.discover.season_reread.season_reread`, TC-363): иначе
+    # планы строились бы по первому сезону там, где спрошен второй, - и разошлись бы
+    # молча.
     name, index = split_franchise_index(args.title_query)
-    if (reread := _season_reread(args, name, index, found, pictures)) is not None:
+    if (reread := season_reread(args, name, index, found, pictures)) is not None:
         args, index = reread, None
-    plans = [p for p in (_plan_for(pic, args, config, profile) for pic in found) if p.ranked]
+    plans = [p for p in (plan_for(pic, args, config, profile) for pic in found) if p.ranked]
     return Replay(
         query=query,
         raw_rows=sum(len(b) for b in batches),
@@ -312,8 +319,9 @@ def beyond_first_circle(
 ) -> list[str]:
     """Какие ступени :data:`BEYOND` боевой поиск взял бы на этом пуле (TC-416).
 
-    Спрашиваются САМИ боевые гейты и в том же порядке, что в :func:`~torrcast.cli._search`
-    (потолок - только там, где до него доходит очередь: после паспортного добора его не
+    Спрашиваются САМИ боевые гейты и в том же порядке, что в круге поиска
+    (:func:`~torrcast.usecases.discover.search_circle.search_circle`; потолок - только
+    там, где до него доходит очередь: после паспортного добора его не
     спрашивают). Пройти за ними щуп не может - за каждым стоит круг по индексерам, - но
     назвать их обязан: на этих запросах пул показа шире сохранённого, и «замерено на
     корпусе» тут значит «замерено до добора».
@@ -325,9 +333,9 @@ def beyond_first_circle(
         beyond.append("цифра в имени")
     if worth_asking_original(found, args, config, profile):
         beyond.append("паспорт")
-    elif index is None and _ceiling_hides_name(asked_nobody(capped), name, pictures, found):
+    elif index is None and ceiling_hides_name(asked_nobody(capped), name, pictures, found):
         beyond.append("потолок")
-    if _lacks_season(found, args):
+    if lacks_season(found, args):
         beyond.append("сезон")
     if voiceless_pool(found, args, config, profile) is not None:
         beyond.append("голос")
@@ -337,8 +345,10 @@ def beyond_first_circle(
 def asked_nobody(capped: tuple[str, ...]) -> Prowlarr:
     """Клиент, которого никто ни о чём не спрашивал: помнит только полные страницы.
 
-    Гейт потолка (:func:`~torrcast.cli._ceiling_hides_name`) спрашивает у клиента ровно
-    одно поле, и подделывать ради этого сам гейт нечего. Адреса у клиента нет намеренно:
+    Гейт потолка
+    (:func:`~torrcast.usecases.reinforce.ceiling_hides_name.ceiling_hides_name`)
+    спрашивает у клиента ровно одно поле, и подделывать ради этого сам гейт нечего.
+    Адреса у клиента нет намеренно:
     сходить им никуда нельзя, а щупу и не надо.
     """
     client = Prowlarr("", "")
@@ -346,7 +356,7 @@ def asked_nobody(capped: tuple[str, ...]) -> Prowlarr:
     return client
 
 
-def verdicts(plan: _Plan, args: Args) -> tuple[list[int], dict[str, int]]:
+def verdicts(plan: Plan, args: Args) -> tuple[list[int], dict[str, int]]:
     """Очередь кандидатов и приговоры ступеней по одной картине, со сверкой счёта.
 
     Сумма очереди и всех причин отсева обязана сойтись с пулом картины - так устроен
@@ -364,7 +374,7 @@ def verdicts(plan: _Plan, args: Args) -> tuple[list[int], dict[str, int]]:
     return queue, drops
 
 
-def release_verdicts(plan: _Plan, queue: list[int]) -> list[dict[str, Any]]:
+def release_verdicts(plan: Plan, queue: list[int]) -> list[dict[str, Any]]:
     """Сиды и приговор каждой раздачи картины, без молчаливого остатка."""
     places = {number: place for place, number in enumerate(queue, start=1)}
     ranked = {id(release): number for number, release in enumerate(plan.ranked, start=1)}
@@ -603,6 +613,9 @@ def asks_of(query: str, templates: list[str]) -> list[str]:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Тракт отбора сценарию раздаёт композиционный корень: без него первый же
+    # вопрос сценария внешнему миру падает на несобранной среде.
+    wire()
     ap = argparse.ArgumentParser(description="офлайн-прогон отбора по сохранённым выдачам")
     ap.add_argument("pools", type=Path, help="pools.jsonl со снятыми выдачами индексеров")
     ap.add_argument(

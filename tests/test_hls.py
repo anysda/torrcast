@@ -2034,11 +2034,11 @@ def test_an_old_key_cache_without_offsets_still_builds_the_grid(tmp_path: Path) 
     """
     import json
 
-    from torrcast.adapters.stream_pack._keys_shelf import _read_keys
+    from torrcast.adapters.stream_pack.read_keys import read_keys
 
     cache = tmp_path / "keys.json"
     cache.write_text(json.dumps({"duration": 600.0, "keys": [0.0, 10.0, 20.0]}), "utf-8")
-    found = _read_keys(cache)
+    found = read_keys(cache)
     assert found is not None and found.at == [0.0, 10.0, 20.0]
     assert found.offset == [] and found.byte_at(15.0) == 0
 

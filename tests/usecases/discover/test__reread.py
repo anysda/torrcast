@@ -1,57 +1,52 @@
-"""Зеркало перечтения запроса: раскладка, цифра в названии и номер сезона."""
+"""Зеркало второго захода по той же строке: забытая раскладка и цифра в названии.
+
+Оба захода стоят ровно один круг к индексерам и зовутся ТОЛЬКО там, где иначе человек
+уже читал бы отказ. Мера про это и про их вежливость: не помогло - выдача остаётся
+прежней, а не расширенной, иначе сдвинулась бы нумерация франшизы.
+"""
 
 from __future__ import annotations
 
-from torrcast.domain.args import Args
-from torrcast.domain.cluster import cluster
-from torrcast.domain.parse_release_name import parse_release_name
-from torrcast.domain.pick_franchise import pick_franchise
-from torrcast.domain.picture import Picture
-from torrcast.usecases.discover._reread import _season_asked, _season_reread
+from tests.usecases.discover.world import Indexer, Said, row
+from torrcast.usecases.discover._reread import _relayout
+
+CARS = "Тачки / Cars (2006) BDRip 1080p"
 
 
-def _catalog(*names: str) -> list[Picture]:
-    return cluster([parse_release_name(name) for name in names])
+def test_a_latin_query_is_read_as_the_forgotten_keyboard_layout() -> None:
+    """`cast nfxrb` - это «тачки»: отказ по такой строке правдив только для строки."""
+    client = Indexer([row(CARS)])
+    said = Said()
+
+    query, name, index, raw = _relayout(client, "nfxrb", "nfxrb", None, said)
+
+    assert (query, name, index) == ("тачки", "тачки", None)
+    assert len(raw) == 1
+    assert said.notes == ["«nfxrb» - это «тачки» в русской раскладке"]
 
 
-def test_a_number_by_a_series_name_asks_for_a_season() -> None:
-    """🔴 TC-363. У сериала номер это сезон, и решает это сезонная машинерия, а не разбор."""
-    pictures = _catalog(
-        "Кухня 6 / Kuhnya 6 (2017) WEB-DL 1080p | 6 сезон, 1-20 из 20",
-        "Кухня 6 / Kuhnya 6 (2017) SATRip | 6 сезон [1-20 из 20]",
-    )
+def test_the_part_number_is_read_again_in_the_swapped_query() -> None:
+    """«nfxrb 2» - это «тачки 2»: цифра обязана снова стать номером, а не именем."""
+    client = Indexer([row("Тачки 2 / Cars 2 (2011) BDRip 1080p")])
 
-    assert _season_asked(pick_franchise("кухня", pictures), "кухня", pictures) is True
+    query, name, index, _raw = _relayout(client, "nfxrb 2", "nfxrb 2", None, Said())
 
-
-def test_a_number_by_a_film_name_asks_for_nothing_of_the_kind() -> None:
-    """У фильма сезонов не бывает - номер остаётся номером части линейки."""
-    pictures = _catalog(
-        "Форсаж / The Fast and the Furious (2001) BDRip 1080p",
-        "Форсаж 5 / Fast Five (2011) BDRip 1080p",
-    )
-
-    assert _season_asked(pick_franchise("форсаж", pictures), "форсаж", pictures) is False
+    assert (query, name, index) == ("тачки 2", "тачки", 2)
 
 
-def test_an_empty_find_asks_for_nothing() -> None:
-    """Картины не нашлось - перечитывать нечего, и сезон тут ни при чём."""
-    assert _season_asked([], "кухня", []) is False
+def test_a_query_that_is_already_russian_is_left_alone() -> None:
+    """Двойника у кириллической строки нет - заход не тратится вовсе."""
+    client = Indexer([row(CARS)])
+
+    assert _relayout(client, "тачки", "тачки", None, Said()) == ("тачки", "тачки", None, [])
+    assert client.asked == [], "лишнего круга к индексерам тут не бывает"
 
 
-def test_the_reread_rewrites_the_query_to_the_first_episode() -> None:
-    """Правило сработало - запрос переписывается на первую серию названного сезона."""
-    pictures = _catalog("Кухня 6 / Kuhnya 6 (2017) WEB-DL 1080p | 6 сезон, 1-20 из 20")
-    found = pick_franchise("кухня", pictures)
+def test_a_swapped_query_that_found_nothing_changes_nothing() -> None:
+    """Перевод не помог - остаётся ПРЕЖНЯЯ строка: молчаливой подмены не бывает."""
+    said = Said()
 
-    reread = _season_reread(Args(query=["кухня", "6"]), "кухня", 6, found, pictures)
+    found = _relayout(Indexer([]), "nfxrb", "nfxrb", 1, said)
 
-    assert reread is not None and reread.query == ["кухня", "s6e1"]
-
-
-def test_without_a_number_there_is_nothing_to_reread() -> None:
-    """Номера в запросе нет - трогать его незачем."""
-    pictures = _catalog("Кухня 6 / Kuhnya 6 (2017) WEB-DL 1080p | 6 сезон, 1-20 из 20")
-    found = pick_franchise("кухня", pictures)
-
-    assert _season_reread(Args(query=["кухня"]), "кухня", None, found, pictures) is None
+    assert found == ("nfxrb", "nfxrb", 1, [])
+    assert said.notes == []

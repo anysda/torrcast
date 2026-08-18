@@ -6,10 +6,10 @@ import time
 from dataclasses import replace
 from typing import Any
 
+from torrcast.adapters.stream_pack.extra_mbit import extra_mbit
 from torrcast.adapters.stream_pack.film_keys import film_keys
 from torrcast.adapters.stream_pack.grid import Grid
 from torrcast.adapters.stream_pack.pack_origin import pack_origin
-from torrcast.domain.film_keys import FilmKeys
 from torrcast.domain.hls_settings import HLS_SEGMENT_SECONDS, MAX_SEGMENT_BYTES
 from torrcast.domain.infra_error import InfraError
 
@@ -73,7 +73,7 @@ def grid_for(
         length,
         step,
         sizes=found.offset,
-        extra_mbit=_extra_mbit(found, delivered_mbit),
+        extra_mbit=extra_mbit(found, delivered_mbit),
         ceiling_mbit=ceiling_mbit,
         fixed_mbit=fixed_mbit,
         cap=cap,
@@ -87,19 +87,3 @@ def grid_for(
             f"(карта за {time.monotonic() - began:.1f} с)"
         )
     return grid
-
-
-def _extra_mbit(keys: FilmKeys, delivered_mbit: float) -> float:
-    """Что в контейнере есть, а на ТВ не уезжает, Мбит/с — по карте и паспорту.
-
-    Ровно то же число, что набирает :meth:`torrcast.adapters.recode.Weights.calibrate` по факту, но
-    известное до первого куска. Паспорт молчит (mp4 без тегов) — ноль: тогда потолок веса
-    считает по контейнеру целиком, то есть режет с запасом. Запас безопасен, недооценка нет.
-    """
-    if delivered_mbit <= 0 or len(keys.offset) != len(keys.at) or len(keys.at) < 3:
-        return 0.0
-    span = keys.at[-1] - keys.at[0]
-    if span <= 0:
-        return 0.0
-    container = (keys.offset[-1] - keys.offset[0]) * 8 / span / 1e6
-    return max(0.0, container - delivered_mbit)

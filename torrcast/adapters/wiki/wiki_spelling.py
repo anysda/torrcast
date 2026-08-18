@@ -6,13 +6,13 @@ import contextlib
 import threading
 from typing import Any
 
-from torrcast.adapters.wiki.endpoints import _WIKI_HOST, _WIKI_PATH
+from torrcast.adapters.wiki.endpoints import WIKI_HOST, WIKI_PATH
 from torrcast.domain.facts.near_name import _near_name
 from torrcast.domain.facts.origin import Origin
 from torrcast.domain.facts.read_origin import read_origin
+from torrcast.domain.facts.search_params import search_params
 from torrcast.domain.facts.settings import _PHRASE_WORDS, _SUGGEST_HITS
-from torrcast.domain.facts.wiki_params import _search_params
-from torrcast.domain.facts.wiki_reply import _ranked
+from torrcast.domain.facts.wiki_ranked import wiki_ranked
 from torrcast.domain.transliterate import transliterate
 from torrcast.ports.json_client import JsonClient
 
@@ -95,7 +95,7 @@ class WikiSpelling:
         внутри), но статьи приезжают с ним разом, за один поход и те же 0.4 с.
         """
         params = {
-            **_search_params(""),
+            **search_params(""),
             "generator": "prefixsearch",
             "gpssearch": query,
             "gpslimit": str(_SUGGEST_HITS),
@@ -104,7 +104,7 @@ class WikiSpelling:
         params.pop("gsrsearch", None)
         params.pop("gsrlimit", None)
         params.pop("gsrnamespace", None)
-        return _ranked(self.client.get(_WIKI_HOST, _WIKI_PATH, params, {}, timeout))
+        return wiki_ranked(self.client.get(WIKI_HOST, WIKI_PATH, params, {}, timeout))
 
     def by_phrase(self, title: str, timeout: float) -> list[Any]:
         """Статьи, у которых в ЗАГОЛОВКЕ стоит запрос без одного крайнего слова.
@@ -121,9 +121,9 @@ class WikiSpelling:
         out: list[Any] = []
         for phrase in (" ".join(words[1:]), " ".join(words[:-1])):
             payload = self.client.get(
-                _WIKI_HOST, _WIKI_PATH, _search_params(f'intitle:"{phrase}"'), {}, timeout
+                WIKI_HOST, WIKI_PATH, search_params(f'intitle:"{phrase}"'), {}, timeout
             )
-            out.extend(_ranked(payload))
+            out.extend(wiki_ranked(payload))
             if out:
                 break
         return out

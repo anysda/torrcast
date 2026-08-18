@@ -8,10 +8,10 @@ from torrcast.domain.release import Release
 from torrcast.usecases.choice.configure import _environment_port
 
 if TYPE_CHECKING:
-    from torrcast.usecases.select._plan import _Plan
+    from torrcast.usecases.select.plan import Plan
 
 
-def last_hope_note(plan: _Plan, release: Release) -> str:
+def last_hope_note(plan: Plan, release: Release) -> str:
     """Та самая честная строка про последнюю надежду; пусто — путь обычный.
 
     Печатается ровно тогда, когда показ берёт релиз, попавший в очередь ТОЛЬКО потому,

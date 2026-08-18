@@ -19,10 +19,10 @@ from torrcast.domain.profile import CAUTIOUS, Profile
 from torrcast.domain.release import Release
 from torrcast.domain.torr_file import TorrFile
 from torrcast.ports.torrent_engine import TorrentEngine
-from torrcast.usecases.playback._file_picker import _default_file
+from torrcast.usecases.playback.file_picker import _default_file
 from torrcast.usecases.rank.peer_grace import peer_grace
-from torrcast.usecases.select._plan import _Plan
 from torrcast.usecases.select._prep import _Prep
+from torrcast.usecases.select.plan import Plan
 from torrcast.usecases.torrents import _held_by_show
 
 
@@ -32,7 +32,7 @@ class _BenchCore:
     def __init__(
         self,
         torrserver: TorrentEngine,
-        choose: Callable[[_Plan, Release, list[TorrFile]], TorrFile] | None = None,
+        choose: Callable[[Plan, Release, list[TorrFile]], TorrFile] | None = None,
         meta_budget: float = META_BUDGET,
         probe_budget: float = PROBE_BUDGET,
         profile: Profile = CAUTIOUS,
@@ -62,7 +62,7 @@ class _BenchCore:
         self.needed: set[tuple[str, int]] = set()
 
     @staticmethod
-    def _ask(plan: _Plan, prep: _Prep, queue: list[int]) -> None:
+    def _ask(plan: Plan, prep: _Prep, queue: list[int]) -> None:
         """Запустить часы первого контакта, когда релиз дошёл до вопроса."""
         if prep.contact_wait is not None:
             prep.contact_wait.activate(peer_grace(plan, prep.number, queue))

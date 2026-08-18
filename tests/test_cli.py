@@ -89,10 +89,10 @@ from torrcast.usecases.rank import (
     understated,
     voice_unproven,
 )
-from torrcast.usecases.reinforce import _ceiling_hides_name, _ceiling_reinforce, _timed
+from torrcast.usecases.reinforce import _ceiling_reinforce, _timed, ceiling_hides_name
 from torrcast.usecases.releases_command import _cmd_releases
-from torrcast.usecases.select import _Plan, _Prep, _silenced, _Voiced
-from torrcast.usecases.select_bench import _Bench
+from torrcast.usecases.select import Plan, _Prep, _silenced, _Voiced
+from torrcast.usecases.select_bench import Bench
 
 RUNTIME = RUNTIME_GUESS["movie"]
 GB = 1024**3
@@ -267,7 +267,7 @@ def test_the_only_release_of_a_picture_is_not_shown_instead_of_it() -> None:
     only = _named(
         "Мандалорец / The Mandalorian [2019, фантастика, приключения, HDRip] Трейлер", 0.21, 1
     )
-    plan = _Plan(
+    plan = Plan(
         picture=Picture(title="Мандалорец", year=2019, releases=[only]),
         ranked=rank_releases([only], RUNTIME, 16.0),
         runtime=RUNTIME,
@@ -291,7 +291,7 @@ def test_an_empty_queue_is_an_honest_refusal_not_a_substitute() -> None:
     game = [rel(name=f"игра {n}", size_gb=35.6, seeders=40 - n) for n in range(2)]
 
     with pytest.raises(NotFoundError) as caught:
-        _resolve(_Bench(cast(Any, _FakeTorrServer())), game)
+        _resolve(Bench(cast(Any, _FakeTorrServer())), game)
 
     msg = str(caught.value)
     assert "годного релиза нет: раздач в выдаче 2" in msg, msg
@@ -310,7 +310,7 @@ def test_an_empty_queue_without_kin_still_names_the_next_step() -> None:
     game = [rel(name=f"игра {n}", size_gb=35.6, seeders=40 - n) for n in range(2)]
 
     with pytest.raises(NotFoundError) as caught:
-        _resolve(_Bench(cast(Any, _FakeTorrServer())), game)
+        _resolve(Bench(cast(Any, _FakeTorrServer())), game)
 
     msg = str(caught.value)
     assert "все до одной отсеял отбор (тяжелее потолка - 2)" in msg, msg
@@ -341,7 +341,7 @@ def test_a_heavy_bonus_disc_with_a_plain_mark_is_turned_away() -> None:
     Приложения» на 19.2 ГБ проходили ворота по весу и могли подменить картину, стоит
     умереть всему выше них. Метке без веса - только ВОРОТА; порядок и таблица видят
     раздачу по-прежнему, а картина, у которой других раздач нет, своего верха не
-    теряет (:meth:`_Plan.candidates`).
+    теряет (:meth:`Plan.candidates`).
 
     Метка НЕоднозначная («трейлер» у ещё не вышедшей картины, «фильм о фильме» у
     документального кино) без веса не судится: такую носят и раздачи самой картины.
@@ -366,7 +366,7 @@ def test_the_only_sure_marked_release_of_a_picture_is_not_shown_instead_of_it() 
 
     У «воссоединения актёрского состава» из сохранённой выдачи единственная раздача
     несёт метку «допматериалы» - и она же есть та самая картина, которую спросили.
-    Замер TC-339 держался на том, что верх :attr:`~torrcast.cli._Plan.ranked` попадает в
+    Замер TC-339 держался на том, что верх :attr:`~torrcast.cli.Plan.ranked` попадает в
     очередь безусловно; TC-432 повёл через ворота и его, и такая картина теперь кончается
     честным отказом, а не бонус-диском вместо картины. Метка при этом судит БЕЗ веса, как
     и судила: 2.4 ГБ тут по битрейту выглядят картиной.
@@ -379,7 +379,7 @@ def test_the_only_sure_marked_release_of_a_picture_is_not_shown_instead_of_it() 
         2.4,
         2,
     )
-    plan = _Plan(
+    plan = Plan(
         picture=Picture(
             title="Властелин Колец: воссоединение актёрского состава", year=2021, releases=[only]
         ),
@@ -513,7 +513,7 @@ def _plan(ranked: list[Release], recode_at: float = 10.0) -> Any:
     # ``recode_at`` не украшение: в бою перекодирование включено (:class:`Config`), и
     # именно от него зависит, отказ HEVC или сплошной перекод. Ноль - «перекодирование
     # выключено», и тогда поведение обязано остаться прежним.
-    return _Plan(
+    return Plan(
         picture=picture, ranked=ranked, runtime=RUNTIME, warn_mbit=20.0, recode_at=recode_at
     )
 
@@ -756,7 +756,7 @@ def test_a_release_that_turns_out_not_to_be_h264_is_swapped_out_loudly(
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
     prober = _probes(ranked, "av1", "h264")
     torrserver = _FakeTorrServer()
-    prep = _resolve(_Bench(cast(Any, torrserver), prober=prober), ranked)
+    prep = _resolve(Bench(cast(Any, torrserver), prober=prober), ranked)
 
     assert (prep.number, prep.found.video) == (2, "h264")
     assert prep.want.name == "movie.mkv"
@@ -780,7 +780,7 @@ def test_two_release_passports_start_together_before_verdicts() -> None:
         codec = "h264" if f"hash-{ranked[2].magnet}/" in url else "av1"
         return Media(3600.0, (), codec)
 
-    prep = _resolve(_Bench(cast(Any, _FakeTorrServer()), prober=read), ranked)
+    prep = _resolve(Bench(cast(Any, _FakeTorrServer()), prober=read), ranked)
 
     assert prep.number == 3
     assert first_saw_second, "запасной паспорт поднят до готовности первого приговора"
@@ -799,7 +799,7 @@ def test_hevc_release_plays_and_says_so_instead_of_being_refused(
     prober = _probes(ranked, "hevc", "h264")
     torrserver = _FakeTorrServer()
 
-    prep = _resolve(_Bench(cast(Any, torrserver), prober=prober), ranked)
+    prep = _resolve(Bench(cast(Any, torrserver), prober=prober), ranked)
 
     printed = capsys.readouterr().out
     assert (prep.number, prep.found.video) == (1, "hevc"), "HEVC-релиз играет, а не отказывает"
@@ -818,7 +818,7 @@ def test_hevc_is_still_refused_when_recoding_is_switched_off(
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
     prober = _probes(ranked, "hevc", "h264")
 
-    prep = _resolve(_Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked, recode_at=0.0)
+    prep = _resolve(Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked, recode_at=0.0)
 
     assert prep.number == 2, "без перекодирования HEVC остаётся отказом"
     assert "релиз 1 не годится (hevc) - беру 2" in capsys.readouterr().out
@@ -837,7 +837,7 @@ def test_mpeg4_release_plays_through_the_same_whole_recode_instead_of_being_refu
     prober = _probes(ranked, "mpeg4", "h264")
     torrserver = _FakeTorrServer()
 
-    prep = _resolve(_Bench(cast(Any, torrserver), prober=prober), ranked)
+    prep = _resolve(Bench(cast(Any, torrserver), prober=prober), ranked)
 
     printed = capsys.readouterr().out
     assert (prep.number, prep.found.video) == (1, "mpeg4"), "mpeg4-релиз играет, а не отказывает"
@@ -852,7 +852,7 @@ def test_mpeg4_is_still_refused_when_recoding_is_switched_off(
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
     prober = _probes(ranked, "mpeg4", "h264")
 
-    prep = _resolve(_Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked, recode_at=0.0)
+    prep = _resolve(Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked, recode_at=0.0)
 
     assert prep.number == 2, "без перекодирования mpeg4 остаётся отказом"
     assert "релиз 1 не годится (mpeg4) - беру 2" in capsys.readouterr().out
@@ -870,7 +870,7 @@ def test_a_dead_swarm_is_not_a_hang_but_the_next_release(
     prober = _probes(ranked, "h264")
     torrserver = _FakeTorrServer(dead={"hash-magnet-r0"})
 
-    prep = _resolve(_Bench(cast(Any, torrserver), prober=prober), ranked)
+    prep = _resolve(Bench(cast(Any, torrserver), prober=prober), ranked)
 
     printed = capsys.readouterr().out
     assert prep.number == 2, "мёртвая раздача не останавливает показ"
@@ -896,7 +896,7 @@ def test_silent_swarms_do_not_burn_the_tries_meant_for_verdicts(
     prober = _probes(ranked, "h264")
     torrserver = _FakeTorrServer(dead={f"hash-magnet-r{i}" for i in range(4)})
 
-    prep = _resolve(_Bench(cast(Any, torrserver), prober=prober), ranked)
+    prep = _resolve(Bench(cast(Any, torrserver), prober=prober), ranked)
 
     printed = capsys.readouterr().out
     assert prep.number == 5, "четыре молчаливых роя подряд - и всё же дошли до живого"
@@ -921,7 +921,7 @@ def test_the_walk_down_the_queue_stops_when_the_start_budget_is_out(
     torrserver = _FakeTorrServer(dead={f"hash-magnet-r{i}" for i in range(4)})
 
     with pytest.raises(NotFoundError) as caught:
-        _resolve(_Bench(cast(Any, torrserver), prober=prober, pick_budget=0.0), ranked)
+        _resolve(Bench(cast(Any, torrserver), prober=prober, pick_budget=0.0), ranked)
 
     msg = str(caught.value)
     assert "раздач в выдаче 6, потрогали 1 из очереди 6" in msg, msg
@@ -970,7 +970,7 @@ def test_the_pick_budget_cuts_the_wait_it_has_already_started() -> None:
     фазы кончается через секунду после того, как ожидание началось.
     """
     clock = _FakeClock()
-    bench = _Bench(cast(Any, _FakeTorrServer()), clock=clock)
+    bench = Bench(cast(Any, _FakeTorrServer()), clock=clock)
     prep = _Prep(number=1, release=rel(), started=clock.now, phase="метаданные")
     prep.ready = cast(Any, _Sleeper(clock))
 
@@ -1002,7 +1002,7 @@ def test_a_timed_out_walk_does_not_speak_for_the_queue_it_never_reached() -> Non
     torrserver = _FakeTorrServer(dead={f"hash-magnet-r{i}" for i in range(3)})
 
     with pytest.raises(NotFoundError) as caught:
-        _resolve(_Bench(cast(Any, torrserver), prober=prober, pick_budget=0.0), ranked)
+        _resolve(Bench(cast(Any, torrserver), prober=prober, pick_budget=0.0), ranked)
 
     msg = str(caught.value)
     assert "раздач в выдаче 5, потрогали 1 из очереди 3" in msg, msg
@@ -1026,7 +1026,7 @@ def test_a_fully_walked_queue_of_dead_swarms_is_an_honest_dead_swarm(
     молчание роя с пустой выдачей путать нельзя (:func:`~torrcast.cli.silent_swarm`).
 
     🔴 TC-300. Строк на три раздачи тут четыре: перед отказом лучший из промолчавших
-    спрашивается ещё раз, один и без отсрочек (:meth:`~torrcast.cli._Bench._recheck`).
+    спрашивается ещё раз, один и без отсрочек (:meth:`~torrcast.cli.Bench._recheck`).
     Рой этой картины мёртв по-настоящему, второй спрос это подтверждает - и отказ
     остаётся ровно тем же, что был, вместе со всеми своими числами.
     """
@@ -1035,7 +1035,7 @@ def test_a_fully_walked_queue_of_dead_swarms_is_an_honest_dead_swarm(
     torrserver = _FakeTorrServer(dead={f"hash-magnet-r{i}" for i in range(3)})
 
     with pytest.raises(NotFoundError) as caught:
-        _resolve(_Bench(cast(Any, torrserver), prober=prober), ranked)
+        _resolve(Bench(cast(Any, torrserver), prober=prober), ranked)
 
     msg = str(caught.value)
     assert "раздач в выдаче 3, потрогали 3 (все)" in msg and "ни одна не отозвалась" in msg
@@ -1079,7 +1079,7 @@ def test_a_queue_that_went_silent_to_the_end_gets_one_patient_ask_and_reaches_th
     prober = _probes(ranked, "h264")
     torrserver = _Impatient()
 
-    prep = _resolve(_Bench(cast(Any, torrserver), prober=prober), ranked)
+    prep = _resolve(Bench(cast(Any, torrserver), prober=prober), ranked)
 
     printed = capsys.readouterr().out
     assert prep.number == 1, "терпеливый второй спрос дошёл до живой раздачи"
@@ -1096,7 +1096,7 @@ def test_a_patient_ask_that_gets_a_verdict_does_not_report_silent_swarm() -> Non
     prober = _probes(ranked, "av1")
 
     with pytest.raises(NotFoundError) as caught:
-        _resolve(_Bench(cast(Any, _Impatient()), prober=prober), ranked, recode_at=0.0)
+        _resolve(Bench(cast(Any, _Impatient()), prober=prober), ranked, recode_at=0.0)
 
     msg = str(caught.value)
     assert "годного релиза нет" in msg and "av1" in msg
@@ -1109,7 +1109,7 @@ def test_an_exhausted_queue_does_not_offer_a_release_that_was_already_rejected()
     prober = _probes(ranked, "av1", "av1")
 
     with pytest.raises(NotFoundError) as caught:
-        _resolve(_Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked, recode_at=0.0)
+        _resolve(Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked, recode_at=0.0)
 
     msg = str(caught.value)
     assert "годного релиза нет" in msg and "av1" in msg
@@ -1131,7 +1131,7 @@ def test_the_patient_ask_is_not_made_when_the_phase_budget_cannot_cover_it(
 
     with pytest.raises(NotFoundError) as caught:
         # На обход часов фазы хватает, а на второй спрос - уже нет.
-        _resolve(_Bench(cast(Any, torrserver), prober=prober, pick_budget=1.0), ranked)
+        _resolve(Bench(cast(Any, torrserver), prober=prober, pick_budget=1.0), ranked)
 
     printed = capsys.readouterr().out
     assert "потрогали 3 (все)" in str(caught.value)
@@ -1166,7 +1166,7 @@ def test_the_patient_ask_goes_to_the_release_the_swarm_silenced_not_to_a_judged_
         return files[0]
 
     torrserver = _Mixed()
-    prep = _resolve(_Bench(cast(Any, torrserver), choose=choose, prober=prober), ranked)
+    prep = _resolve(Bench(cast(Any, torrserver), choose=choose, prober=prober), ranked)
 
     printed = capsys.readouterr().out
     assert prep.number == 2, "терпеливо спросили того, кого оборвал рой"
@@ -1193,7 +1193,7 @@ def test_a_patient_verdict_rewrites_the_reason_of_the_release_that_was_reasked()
         return files[0]
 
     with pytest.raises(NotFoundError) as caught:
-        _resolve(_Bench(cast(Any, _Mixed()), choose=choose, prober=prober), ranked, recode_at=0.0)
+        _resolve(Bench(cast(Any, _Mixed()), choose=choose, prober=prober), ranked, recode_at=0.0)
 
     msg = str(caught.value)
     assert "1 - серии s1e1 в этой раздаче нет" in msg
@@ -1244,7 +1244,7 @@ def test_a_disc_image_verdict_is_not_asked_twice(capsys: pytest.CaptureFixture[s
 
     torrserver = _HalfDead(files=disc.files)
     with pytest.raises(NotFoundError):
-        _resolve(_Bench(cast(Any, torrserver), prober=prober), ranked)
+        _resolve(Bench(cast(Any, torrserver), prober=prober), ranked)
 
     printed = capsys.readouterr().out
     assert "релиз 1 не годится (в раздаче нет отдельного видеофайла" in printed
@@ -1270,7 +1270,7 @@ def test_a_disc_image_verdict_is_not_reported_as_a_silent_swarm() -> None:
 
     torrserver = _FakeTorrServer()
     with pytest.raises(NotFoundError) as caught:
-        _resolve(_Bench(cast(Any, torrserver), choose=choose, prober=prober), ranked)
+        _resolve(Bench(cast(Any, torrserver), choose=choose, prober=prober), ranked)
 
     msg = str(caught.value)
     assert "годного релиза нет" in msg and "нет отдельного видеофайла" in msg
@@ -1294,7 +1294,7 @@ def test_an_explicitly_named_release_is_played_as_asked_with_a_loud_warning(
     prober = _probes(ranked, "av1")
     torrserver = _FakeTorrServer()
 
-    prep = _resolve(_Bench(cast(Any, torrserver), prober=prober), ranked, release=1)
+    prep = _resolve(Bench(cast(Any, torrserver), prober=prober), ranked, release=1)
 
     printed = capsys.readouterr().out
     assert (prep.number, prep.found.video) == (1, "av1"), "названный релиз не подменяется"
@@ -1315,7 +1315,7 @@ def test_a_named_hevc_release_is_not_a_warning_but_a_promise_to_recode(
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
     prober = _probes(ranked, "hevc")
 
-    prep = _resolve(_Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked, release=1)
+    prep = _resolve(Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked, release=1)
 
     printed = capsys.readouterr().out
     assert prep.number == 1
@@ -1337,7 +1337,7 @@ def test_a_queue_of_failed_probes_ends_with_an_honest_exit(
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(5)]
     prober = _probes(ranked, *REFUSED)
     with pytest.raises(NotFoundError) as caught:
-        _resolve(_Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked)
+        _resolve(Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked)
     assert "годного релиза нет" in str(caught.value)
     assert "1 - av1" in str(caught.value) and "3 - vc1" in str(caught.value)
     assert len(re.findall(r"беру \d", capsys.readouterr().out)) == 4  # очередь пройдена
@@ -1366,7 +1366,7 @@ def test_cheap_verdicts_do_not_eat_the_place_of_the_living_release_below(
     prober = _probes(ranked, "vp9", "vp9", "av1", "h264")
 
     began = time.monotonic()
-    prep = _resolve(_Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked)
+    prep = _resolve(Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked)
     spent = time.monotonic() - began
 
     printed = capsys.readouterr().out
@@ -1389,7 +1389,7 @@ def test_expensive_verdicts_still_stop_the_walk_at_three(
 
     with pytest.raises(NotFoundError) as caught:
         # Бюджет приговоров обнулён - каждый из них «дорогой».
-        bench = _Bench(cast(Any, _FakeTorrServer()), prober=prober, verdict_budget=0.0)
+        bench = Bench(cast(Any, _FakeTorrServer()), prober=prober, verdict_budget=0.0)
         _resolve(bench, ranked)
 
     assert "годного релиза нет" in str(caught.value)
@@ -1408,7 +1408,7 @@ def test_the_healthy_case_pays_nothing_for_the_deeper_walk(
     prober = _probes(ranked, "h264")
 
     began = time.monotonic()
-    prep = _resolve(_Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked)
+    prep = _resolve(Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked)
     spent = time.monotonic() - began
 
     assert prep.number == 1
@@ -1428,7 +1428,7 @@ def test_vp9_is_refused_at_the_pick_like_av1_and_never_reaches_the_packer(
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
     prober = _probes(ranked, "vp9", "h264")
 
-    prep = _resolve(_Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked)
+    prep = _resolve(Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked)
 
     assert (prep.number, prep.found.video) == (2, "h264"), "берём тот, про который знаем всё"
     assert "релиз 1 не годится (vp9) - беру 2" in capsys.readouterr().out
@@ -1443,7 +1443,7 @@ def test_warmup_leaves_in_torrserver_only_what_we_play() -> None:
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
     prober = _probes(ranked, "h264")
     torrserver = _FakeTorrServer()
-    bench = _Bench(cast(Any, torrserver), prober=prober)
+    bench = Bench(cast(Any, torrserver), prober=prober)
 
     prep = _resolve(bench, ranked)
     # Запасной релиз греется в своём потоке, и resolve на подделках отвечает за
@@ -1472,7 +1472,7 @@ def test_warmup_spares_a_release_a_parallel_show_holds(tmp_path: Path) -> None:
 
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
     torrserver = _FakeTorrServer()
-    bench = _Bench(cast(Any, torrserver))
+    bench = Bench(cast(Any, torrserver))
     chosen = _Prep(number=1, release=ranked[0], torrent_hash="hash-play")
     held = _Prep(number=2, release=ranked[1], torrent_hash="hash-parallel")
     cold = _Prep(number=3, release=ranked[2], torrent_hash="hash-cold")
@@ -1773,7 +1773,7 @@ def test_the_ceiling_is_checked_again_by_the_file_not_by_the_torrent_size() -> N
     heavy = rel(size_gb=13.3 * 1e9 / GB)  # 13.3 ГБ по-магазинному, как их считает трекер
     assert is_candidate(heavy, RUNTIME, 16.0), "прикидка по раздаче потолок не превышает"
 
-    bench = _Bench(cast(Any, _FakeTorrServer()))
+    bench = Bench(cast(Any, _FakeTorrServer()))
     prep = _Prep(number=1, release=heavy)
     prep.video = TorrFile(0, "moana2.mkv", 13_300_000_000)
     prep.media = Media(duration=5977.0, video="h264")
@@ -1797,7 +1797,7 @@ def test_the_ceiling_weighs_the_video_track_not_the_ten_dubs_around_it() -> None
     from torrcast.domain.media import Media
     from torrcast.domain.torr_file import TorrFile
 
-    bench = _Bench(cast(Any, _FakeTorrServer()))
+    bench = Bench(cast(Any, _FakeTorrServer()))
     prep = _Prep(number=1, release=rel(size_gb=13.3 * 1e9 / GB))
     prep.video = TorrFile(0, "moana2.mkv", 13_300_000_000)
     prep.media = Media(duration=5977.0, video="h264", video_bps=14_333_000.0)
@@ -1820,7 +1820,7 @@ def _franchise_plan(
     title: str, year: int | None, releases: list[Release], kind: Kind = "movie"
 ) -> Any:
 
-    return _Plan(
+    return Plan(
         picture=Picture(title=title, year=year, kind=kind, releases=releases),
         ranked=rank_releases(releases, RUNTIME, 20.0),
         runtime=RUNTIME,
@@ -2212,7 +2212,7 @@ def test_a_refusal_after_a_manual_pick_offers_another_release() -> None:
 def _series_plan(title: str, year: int, kind: Kind, releases: list[Release]) -> Any:
     """План картины, у которой запрос назвал серию: тип сказан вслух (``s1e1``)."""
 
-    return _Plan(
+    return Plan(
         picture=Picture(title=title, year=year, kind=kind, releases=releases),
         ranked=rank_releases(releases, RUNTIME, 20.0),
         runtime=RUNTIME,
@@ -2408,7 +2408,7 @@ def test_the_year_gate_stays_silent_where_it_should() -> None:
     near = _franchise_plan("Оно", 2016, [rel(name="a")])
     assert year_note(near, Origin(title="It", year=2017)) == "", "±1 год (прокат) - не подмена"
     releases = [rel(name="a")]
-    remake = _Plan(
+    remake = Plan(
         picture=Picture(
             title="Корзинка фруктов", year=2019, original="Fruits Basket", releases=releases
         ),
@@ -2990,13 +2990,13 @@ def test_enter_picks_the_top_of_the_menu(capsys: pytest.CaptureFixture[str]) -> 
 def test_the_spare_release_goes_up_next_to_the_first_one() -> None:
     """Запасной релиз выбранной картины греется вместе с верхом, а не после его брака.
 
-    Номер у него ровно тот же, который возьмёт :meth:`~torrcast.cli._Bench.resolve`, -
-    следующий в очереди (:meth:`~torrcast.cli._Plan.candidates`). Отличается только время:
+    Номер у него ровно тот же, который возьмёт :meth:`~torrcast.cli.Bench.resolve`, -
+    следующий в очереди (:meth:`~torrcast.cli.Plan.candidates`). Отличается только время:
     раньше он поднимался в отборе, теперь - пока на экране висит меню.
     """
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
     prober = _probes(ranked, "h264")
-    bench = _Bench(cast(Any, _FakeTorrServer()), prober=prober)
+    bench = Bench(cast(Any, _FakeTorrServer()), prober=prober)
     plan = _plan(ranked)
 
     bench.start(plan, plan.candidates(Args(query=["кино"]))[0])
@@ -3011,7 +3011,7 @@ def test_a_release_named_by_hand_has_no_spare() -> None:
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
     prober = _probes(ranked, "h264")
     torrserver = _FakeTorrServer()
-    bench = _Bench(cast(Any, torrserver), prober=prober)
+    bench = Bench(cast(Any, torrserver), prober=prober)
 
     assert bench.spare(_plan(ranked), Args(query=["кино"], release=2)) == []
     assert not bench.preps
@@ -3093,7 +3093,7 @@ def test_a_top_that_turns_out_to_be_sd_gives_way_to_a_confirmed_1080p(
     )
     torrserver = _FakeTorrServer()
 
-    prep = _resolve(_Bench(cast(Any, torrserver), prober=prober), ranked)
+    prep = _resolve(Bench(cast(Any, torrserver), prober=prober), ranked)
 
     printed = capsys.readouterr().out
     assert prep.number == 2, "среди честных обсиженность решает, но 574p - не честный 1080p"
@@ -3117,7 +3117,7 @@ def test_an_honest_top_is_played_without_a_word(capsys: pytest.CaptureFixture[st
         Media(5977.0, (), "h264", 1080, 1920),
     )
 
-    prep = _resolve(_Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked)
+    prep = _resolve(Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked)
 
     assert prep.number == 1
     assert not re.search(r"беру \d", capsys.readouterr().out)
@@ -3137,7 +3137,7 @@ def test_when_the_neighbour_lies_too_we_play_the_truth_out_loud(
         Media(5977.0, (), "h264", 576, 1024),
     )
 
-    prep = _resolve(_Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked)
+    prep = _resolve(Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked)
 
     printed = capsys.readouterr().out
     assert prep.number == 1, "лучше 574p рядом нет - играем то, что есть"
@@ -3159,7 +3159,7 @@ def test_a_named_release_is_never_second_guessed_for_quality(
         Media(5977.0, (), "h264", 1080, 1920),
     )
 
-    prep = _resolve(_Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked, release=1)
+    prep = _resolve(Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked, release=1)
 
     assert prep.number == 1
     assert not re.search(r"беру \d", capsys.readouterr().out)
@@ -3184,7 +3184,7 @@ def test_a_slow_neighbour_does_not_hold_up_the_show(capsys: pytest.CaptureFixtur
         return Media(5977.0, (), "h264", 574, 1150)
 
     try:
-        bench = _Bench(cast(Any, _FakeTorrServer()), prober=read, honest_budget=0.3)
+        bench = Bench(cast(Any, _FakeTorrServer()), prober=read, honest_budget=0.3)
         prep = _resolve(bench, ranked)
     finally:
         slow.set()  # поток прогрева отпускаем, чтобы не висел до конца прогона
@@ -3228,7 +3228,7 @@ def test_an_unnamed_language_does_not_stop_the_queue_at_the_top(
     )
     torrserver = _FakeTorrServer()
 
-    prep = _resolve(_Bench(cast(Any, torrserver), prober=prober), ranked)
+    prep = _resolve(Bench(cast(Any, torrserver), prober=prober), ranked)
 
     printed = capsys.readouterr().out
     assert prep.number == 2, "незнание меняем на знание, а не на догадку"
@@ -3246,7 +3246,7 @@ def test_an_unnamed_language_falls_back_to_the_existing_mute_move(
 
     До правки безымянный паспорт кончался собственной строкой «русской рядом нет, играю
     его» - то есть тем же показом, только с оправданием. Хода тут не заводится нового:
-    работает тот же :meth:`~torrcast.cli._Bench._mute_fallback`, что и у прямо нерусского
+    работает тот же :meth:`~torrcast.cli.Bench._mute_fallback`, что и у прямо нерусского
     релиза, одной строкой на всё решение.
 
     Отложенный при этом выбирается не первым попавшимся: паспорт, промолчавший про язык,
@@ -3263,7 +3263,7 @@ def test_an_unnamed_language_falls_back_to_the_existing_mute_move(
         Media(5977.0, FOREIGN, "h264", 1080, 1920),
     )
 
-    prep = _resolve(_Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked)
+    prep = _resolve(Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked)
 
     printed = capsys.readouterr().out
     assert prep.number == 1
@@ -3290,7 +3290,7 @@ def test_a_confirmed_russian_track_asks_nobody(capsys: pytest.CaptureFixture[str
         Media(5977.0, RUSSIAN, "h264", 1080, 1920),
         Media(5977.0, RUSSIAN, "h264", 1080, 1920),
     )
-    prep = _resolve(_Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked)
+    prep = _resolve(Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked)
     assert prep.number == 1
     assert not re.search(r"беру \d", capsys.readouterr().out)
 
@@ -3303,7 +3303,7 @@ def test_a_confirmed_russian_track_asks_nobody(capsys: pytest.CaptureFixture[str
         Media(5977.0, UNNAMED, "h264", 1080, 1920),
         Media(5977.0, RUSSIAN, "h264", 1080, 1920),
     )
-    prep = _resolve(_Bench(cast(Any, _FakeTorrServer()), prober=prober), promised)
+    prep = _resolve(Bench(cast(Any, _FakeTorrServer()), prober=prober), promised)
     assert prep.number == 2, "обещание имени русской дорожкой не становится"
 
 
@@ -3322,7 +3322,7 @@ def test_a_dubbed_neighbour_warms_under_the_menu_when_the_top_promises_nothing()
     """🔴 TC-309. Верх именем русскую не обещает - ближайший обещавший греется заодно.
 
     Проверка честности спросит этого соседа первым же вопросом, если дорожка верха
-    окажется без тега языка (:meth:`~torrcast.cli._Bench._honest`, повод «язык звука не
+    окажется без тега языка (:meth:`~torrcast.cli.Bench._honest`, повод «язык звука не
     назван»), а с нуля - метаданные роя плюс чтение дорожек - он в
     :data:`~torrcast.cli.HONEST_BUDGET` укладывался не всегда. Пауза под меню при этом
     простаивает.
@@ -3333,7 +3333,7 @@ def test_a_dubbed_neighbour_warms_under_the_menu_when_the_top_promises_nothing()
         rel(name="Кино [BDRip 1080p] от Scarabey | D", seeders=121),
     ]
     prober = _reads(ranked, *([Media(5977.0, (), "h264", 1080, 1920)] * 3))
-    bench = _Bench(cast(Any, _FakeTorrServer()), prober=prober)
+    bench = Bench(cast(Any, _FakeTorrServer()), prober=prober)
 
     preps = bench.spare(_plan(ranked), Args(query=["кино"]))
 
@@ -3354,7 +3354,7 @@ def test_a_dubbed_neighbour_warms_when_a_front_candidate_promises_nothing() -> N
         rel(name="Кино [BDRip 1080p] от Scarabey | D", seeders=121),
     ]
     prober = _reads(ranked, *([Media(5977.0, (), "h264", 1080, 1920)] * 3))
-    bench = _Bench(cast(Any, _FakeTorrServer()), prober=prober)
+    bench = Bench(cast(Any, _FakeTorrServer()), prober=prober)
 
     preps = bench.spare(_plan(ranked), Args(query=["кино"]))
 
@@ -3370,7 +3370,7 @@ def test_a_picture_whose_front_candidates_all_promise_russian_warms_no_sound_nei
     """
     ranked = [rel(name=f"Кино [BDRip 1080p] р{i} | D", seeders=100 - i) for i in range(3)]
     prober = _reads(ranked, *([Media(5977.0, (), "h264", 1080, 1920)] * 3))
-    bench = _Bench(cast(Any, _FakeTorrServer()), prober=prober)
+    bench = Bench(cast(Any, _FakeTorrServer()), prober=prober)
 
     preps = bench.spare(_plan(ranked), Args(query=["кино"]))
 
@@ -3382,7 +3382,7 @@ def test_no_dubbed_neighbour_in_the_pool_means_nothing_extra_to_warm() -> None:
     """Обещанной русской в очереди нет вовсе - греть нечего, лишней раздачи не появляется."""
     ranked = [rel(name=f"Кино [WEB-DL 1080p] р{i}", voices=(), seeders=100 - i) for i in range(3)]
     prober = _reads(ranked, *([Media(5977.0, (), "h264", 1080, 1920)] * 3))
-    bench = _Bench(cast(Any, _FakeTorrServer()), prober=prober)
+    bench = Bench(cast(Any, _FakeTorrServer()), prober=prober)
 
     preps = bench.spare(_plan(ranked), Args(query=["кино"]))
 
@@ -3397,7 +3397,7 @@ def test_a_dubbed_spare_is_not_warmed_twice() -> None:
         rel(name="Кино [BDRip 1080p] от Scarabey | D", seeders=121),
     ]
     prober = _reads(ranked, *([Media(5977.0, (), "h264", 1080, 1920)] * 2))
-    bench = _Bench(cast(Any, _FakeTorrServer()), prober=prober)
+    bench = Bench(cast(Any, _FakeTorrServer()), prober=prober)
 
     preps = bench.spare(_plan(ranked), Args(query=["кино"]))
 
@@ -3412,7 +3412,7 @@ def test_a_named_release_still_has_no_spare_at_all() -> None:
         rel(name="Кино [BDRip 1080p] от Scarabey | D", seeders=121),
     ]
     prober = _reads(ranked, *([Media(5977.0, (), "h264", 1080, 1920)] * 2))
-    bench = _Bench(cast(Any, _FakeTorrServer()), prober=prober)
+    bench = Bench(cast(Any, _FakeTorrServer()), prober=prober)
 
     assert bench.spare(_plan(ranked), Args(query=["кино"], release=2)) == []
     assert not bench.preps
@@ -3467,7 +3467,7 @@ def test_a_refusal_names_the_living_parts_of_the_franchise(
     ]
     args = Args(query=["тачки"])
     with pytest.raises(NotFoundError) as caught, Progress(out=io.StringIO()) as progress:
-        _Bench(cast(Any, _FakeTorrServer()), prober=prober).resolve(plan, args, progress)
+        Bench(cast(Any, _FakeTorrServer()), prober=prober).resolve(plan, args, progress)
 
     assert "годного релиза нет" in str(caught.value)
     assert "в каталоге есть Тачки 2 (2011), Тачки 3 (2017) - cast тачки 2" in str(caught.value)
@@ -3481,7 +3481,7 @@ def test_a_refusal_stays_silent_when_the_franchise_has_no_other_parts(
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(5)]
     prober = _probes(ranked, *REFUSED)
     with pytest.raises(NotFoundError) as caught:
-        _resolve(_Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked)
+        _resolve(Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked)
 
     assert "в каталоге есть" not in str(caught.value)
     capsys.readouterr()
@@ -3529,7 +3529,7 @@ def _named_release(title: str, year: int) -> Release:
 def test_a_picture_we_did_not_choose_stops_being_warmed_the_moment_we_choose() -> None:
     """Картина выбрана - прогревы ОСТАЛЬНЫХ картин убираются сразу, а не после отбора.
 
-    Раньше они доживали до :meth:`~torrcast.cli._Bench.keep_only`, то есть до конца
+    Раньше они доживали до :meth:`~torrcast.cli.Bench.keep_only`, то есть до конца
     отбора: до :data:`~torrcast.cli.PICK_BUDGET` секунд две-три чужие раздачи тянули
     куски у той единственной, которую мы вот-вот покажем.
 
@@ -3537,7 +3537,7 @@ def test_a_picture_we_did_not_choose_stops_being_warmed_the_moment_we_choose() -
     верху намеренно, и распорядиться им вправе только сам отбор.
     """
     torrserver = _FakeTorrServer()
-    bench = _Bench(cast(Any, torrserver))
+    bench = Bench(cast(Any, torrserver))
     mine = _franchise_plan("Кино", 1999, [rel(name=f"a{i}", seeders=100 - i) for i in range(3)])
     other = _franchise_plan("Кино 2", 2005, [rel(name=f"b{i}", seeders=100 - i) for i in range(3)])
     bench.start(mine, 1)
@@ -3566,7 +3566,7 @@ def test_we_never_hold_more_torrents_at_once_than_the_ceiling() -> None:
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(12)]
     prober = _probes(ranked, *(["h264"] * 11), "h264")
     torrserver = _FakeTorrServer()
-    bench = _Bench(cast(Any, torrserver), prober=prober)
+    bench = Bench(cast(Any, torrserver), prober=prober)
     plan = _plan(ranked)
     peak = 0
 
@@ -3593,7 +3593,7 @@ def test_the_ceiling_never_kills_the_warmup_someone_is_waiting_for() -> None:
     """
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(6)]
     prober = _probes(ranked, *(["h264"] * 6))
-    bench = _Bench(cast(Any, _FakeTorrServer()), prober=prober)
+    bench = Bench(cast(Any, _FakeTorrServer()), prober=prober)
     plan = _plan(ranked)
     for number in (1, 2, 3, 4, 5):
         bench.start(plan, number)
@@ -3626,7 +3626,7 @@ def test_a_neighbour_asked_about_honesty_is_dropped_once_it_has_answered(
     )
     torrserver = _FakeTorrServer()
 
-    prep = _resolve(_Bench(cast(Any, torrserver), prober=prober), ranked)
+    prep = _resolve(Bench(cast(Any, torrserver), prober=prober), ranked)
 
     assert prep.number == 1, "лучше 574p рядом нет - играем то, что есть"
     assert "не лучше" in capsys.readouterr().out
@@ -3657,7 +3657,7 @@ def test_a_neighbour_that_missed_its_budget_is_let_go_too(
 
     torrserver = _FakeTorrServer()
 
-    prep = _resolve(_Bench(cast(Any, torrserver), prober=read, honest_budget=0.05), ranked)
+    prep = _resolve(Bench(cast(Any, torrserver), prober=read, honest_budget=0.05), ranked)
 
     assert prep.number == 1, "ответа не дождались - играем то, что уже прочитано"
     assert "не успел ответить" in capsys.readouterr().out
@@ -3812,7 +3812,7 @@ def test_releases_table_uses_true_duration_and_matches_explicit_release(
 
     from torrcast.domain.picture import Picture
 
-    plan = _Plan(
+    plan = Plan(
         picture=Picture(title="Кино", year=1999, releases=[lighter, heavy]),
         ranked=ranked_guess,
         runtime=120.0 * 60.0,
@@ -3876,7 +3876,7 @@ def _releases_output(capsys: pytest.CaptureFixture[str], profile_choice: Any = N
     from torrcast.domain.config import Config
 
     heavy = rel(name="Кино / Movie (1999) BDRip 1080p", size_gb=18, seeders=100)
-    plan = _Plan(
+    plan = Plan(
         picture=Picture(title="Кино", year=1999, releases=[heavy]),
         ranked=[heavy],
         runtime=RUNTIME,
@@ -3950,8 +3950,8 @@ def test_a_release_already_judged_is_not_turned_down_twice_on_screen(
 
     Замер, с которого началось: у «Сталкера» в недельной ленте два отказа, а на экране
     человек прочитал четыре строки. Подготовка забракованного релиза остаётся в
-    :attr:`~torrcast.cli._Bench.preps` готовой - ``ffprobe`` прочитан, ответ есть, - и
-    проверка честности переспрашивала её тем же :meth:`~torrcast.cli._Bench._trouble` с теми
+    :attr:`~torrcast.cli.Bench.preps` готовой - ``ffprobe`` прочитан, ответ есть, - и
+    проверка честности переспрашивала её тем же :meth:`~torrcast.cli.Bench._trouble` с теми
     же порогами. Приговор выходил тот же, строка печаталась вторая, а записи не было ни
     одной новой: экран и лента расходились ровно на этот дубль.
     """
@@ -3965,7 +3965,7 @@ def test_a_release_already_judged_is_not_turned_down_twice_on_screen(
         Media(5977.0, (), "h264", 574, 1150),  # годен, но занижен - зовётся проверка честности
     )
 
-    prep = _resolve(_Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked)
+    prep = _resolve(Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked)
 
     printed = capsys.readouterr().out
     assert prep.number == 2, "годным оказался второй - его и играем"
@@ -3980,7 +3980,7 @@ def test_a_release_turned_down_by_the_honesty_check_is_written_to_the_trace(
 
     Второй замер: у «Наруто» строка отказа на экране одна, а событий за сеанс НОЛЬ - по
     следу выходило, что отбор прошёл без единой осечки. Запись рождалась только в очереди
-    отбора, а :meth:`~torrcast.cli._Bench._honest` печатал свои отказы мимо неё.
+    отбора, а :meth:`~torrcast.cli.Bench._honest` печатал свои отказы мимо неё.
     """
     ranked = [
         rel(name="Кино [WEB-DL] a", quality=None, size_gb=3.14, seeders=140),
@@ -3992,7 +3992,7 @@ def test_a_release_turned_down_by_the_honesty_check_is_written_to_the_trace(
         Media(5977.0, (), "av1", 1080, 1920),  # сосед обещает больше, а внутри av1
     )
 
-    prep = _resolve(_Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked)
+    prep = _resolve(Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked)
 
     printed = capsys.readouterr().out
     assert prep.number == 1, "сосед не годится - играем то, что есть"
@@ -4018,7 +4018,7 @@ def test_a_neighbour_that_is_no_better_is_a_record_of_the_trace_too(
         Media(5977.0, (), "h264", 576, 1024),  # обещал 1080p, а внутри такой же SD
     )
 
-    prep = _resolve(_Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked)
+    prep = _resolve(Bench(cast(Any, _FakeTorrServer()), prober=prober), ranked)
 
     printed = capsys.readouterr().out
     assert prep.number == 1 and "релиз 2 не лучше" in printed
@@ -4311,14 +4311,14 @@ def test_повод_потолка_узок() -> None:
     spare = cast(Any, _Spent(9.0))
     capped = cast(Any, _Ceiling(9.0, []))
 
-    assert not _ceiling_hides_name(spare, "девять", pictures, found), "нет потолка - нет повода"
-    assert not _ceiling_hides_name(capped, "девять", pictures, []), (
+    assert not ceiling_hides_name(spare, "девять", pictures, found), "нет потолка - нет повода"
+    assert not ceiling_hides_name(capped, "девять", pictures, []), (
         "пустая выдача - это тощий пул, а не потолок: там отвечает добор вторым языком"
     )
-    assert not _ceiling_hides_name(capped, "девять ярдов", pictures, found), (
+    assert not ceiling_hides_name(capped, "девять ярдов", pictures, found), (
         "имя в каталоге есть - обрезан лишь хвост, и это не повод"
     )
-    assert _ceiling_hides_name(capped, "девять", pictures, found)
+    assert ceiling_hides_name(capped, "девять", pictures, found)
 
 
 def test_потолок_не_принимает_сиквел_за_спрошенную_первую_часть() -> None:
@@ -4330,7 +4330,7 @@ def test_потолок_не_принимает_сиквел_за_спрошен
     )
     found = pick_franchise("лёд", pictures)
     capped = cast(Any, _Ceiling(9.0, []))
-    assert _ceiling_hides_name(capped, "лёд", pictures, found)
+    assert ceiling_hides_name(capped, "лёд", pictures, found)
 
 
 def test_two_pictures_under_one_name_and_year_are_named_out_loud() -> None:

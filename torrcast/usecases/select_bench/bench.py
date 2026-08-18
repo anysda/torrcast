@@ -10,9 +10,9 @@ from torrcast.domain.server_down_error import ServerDownError
 from torrcast.ports.progress import Progress
 from torrcast.usecases.rank.heard import heard
 from torrcast.usecases.rank.voice_unproven import voice_unproven
-from torrcast.usecases.select._plan import _Plan
 from torrcast.usecases.select._prep import _Prep
 from torrcast.usecases.select._verdict import _did_not_answer, _silenced, _turned_down, _waiting_note
+from torrcast.usecases.select.plan import Plan
 from torrcast.usecases.select_bench._bench_prewarm import _BenchPrewarm
 from torrcast.usecases.select_bench._bench_queue import _bench_queue
 from torrcast.usecases.select_bench._bench_refusal import _bench_refusal
@@ -22,10 +22,10 @@ if TYPE_CHECKING:
     from torrcast.domain.args import Args
 
 
-class _Bench(_BenchPrewarm):
+class Bench(_BenchPrewarm):
     """Стенд отбора целиком: обход очереди до годного релиза."""
 
-    def resolve(self, plan: _Plan, args: Args, progress: Progress) -> _Prep:
+    def resolve(self, plan: Plan, args: Args, progress: Progress) -> _Prep:
         """Годный релиз плана: ждём подготовку с прогрессом, негодный — следующий.
 
         Осечки бывают двух разных сортов, и до сих пор они стоили одинаково — попытки из

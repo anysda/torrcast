@@ -37,7 +37,7 @@ def last_hope(
     признак :func:`hevc_hope` не сработает ни на одной раздаче.
 
     ⚠️ Про приёмник тут не спрашивается: «тяжёлый ли для него HEVC» — вопрос профиля, и
-    задаёт его :func:`_plan_for` перед этой ступенью, одним и тем же
+    задаёт его :func:`plan_for` перед этой ступенью, одним и тем же
     :func:`torrcast.domain.recodes_whole.recodes_whole` на весь код.
     """
     return not any(

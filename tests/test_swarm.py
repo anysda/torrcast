@@ -35,7 +35,7 @@ from torrcast.domain.server_down_error import ServerDownError
 from torrcast.domain.warm_open import KEYS_KEPT
 from torrcast.usecases.rank import peer_grace
 from torrcast.usecases.select import _Prep, _waiting_note
-from torrcast.usecases.select_bench import _Bench
+from torrcast.usecases.select_bench import Bench
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -125,7 +125,7 @@ def test_a_silent_stream_is_dropped_before_the_full_probe_budget(
     composition.use_prober(monkeypatch, read)
 
     began = time.monotonic()
-    prep = _resolve(_Bench(cast(Any, _FakeTorrServer())), ranked)
+    prep = _resolve(Bench(cast(Any, _FakeTorrServer())), ranked)
     elapsed = time.monotonic() - began
 
     printed = capsys.readouterr().out
@@ -149,7 +149,7 @@ def test_dead_torrserver_stops_before_the_next_release() -> None:
 
     torrserver = _Dead()
     with pytest.raises(InfraError) as caught:
-        _resolve(_Bench(cast(Any, torrserver)), ranked)
+        _resolve(Bench(cast(Any, torrserver)), ranked)
 
     assert str(caught.value) == (
         "TorrServer не отвечает (http://127.0.0.1:8090): connection refused"
@@ -185,7 +185,7 @@ def test_the_same_words_without_the_type_do_not_stop_the_queue(
 
     composition.use_prober(monkeypatch, read)
 
-    prep = _resolve(_Bench(cast(Any, _Shaky())), ranked)
+    prep = _resolve(Bench(cast(Any, _Shaky())), ranked)
 
     assert prep.number == 2, "чужая ошибка с теми же словами - не отказ инфраструктуры"
 
@@ -403,7 +403,7 @@ def test_prewarm_cannot_judge_the_swarm_before_the_release_is_chosen(
     """Часы первого контакта не тикают, пока человек читает меню."""
     ranked = [rel(name="полный", quality="1080p")]
     composition.use_graces(monkeypatch, peer=0.15)
-    bench = _Bench(cast(Any, _Empty()), meta_budget=1.0)
+    bench = Bench(cast(Any, _Empty()), meta_budget=1.0)
     plan = _plan(ranked)
 
     prep = bench.start(plan, 1)
@@ -427,7 +427,7 @@ def test_a_picture_whose_swarm_never_answers_is_refused_in_seconds_with_a_move(
     🔴 TC-300. Цена отказа теперь складывается из двух разных вещей, и обе тут проверяются:
     сам обход очереди по-прежнему стоит отсрочек, а не бюджетов (три раздачи - меньше
     секунды), но сверх него платится РОВНО ОДИН полный бюджет раздачи - за последний,
-    терпеливый спрос лучшей из промолчавших (:meth:`~torrcast.cli._Bench._recheck`). Трёх
+    терпеливый спрос лучшей из промолчавших (:meth:`~torrcast.cli.Bench._recheck`). Трёх
     бюджетов, как до отсрочек, тут нет и близко.
     """
     ranked = [rel(name=f"r{i}", seeders=4 - i) for i in range(3)]
@@ -437,7 +437,7 @@ def test_a_picture_whose_swarm_never_answers_is_refused_in_seconds_with_a_move(
 
     began = time.monotonic()
     with pytest.raises(NotFoundError) as refusal:
-        _resolve(_Bench(cast(Any, torrserver)), ranked)
+        _resolve(Bench(cast(Any, torrserver)), ranked)
     spent = time.monotonic() - began
 
     said = str(refusal.value)
@@ -471,7 +471,7 @@ def test_a_slow_swarm_is_not_mistaken_for_an_empty_one_by_the_pick(
 
     composition.use_prober(monkeypatch, read)
 
-    prep = _resolve(_Bench(cast(Any, _Slow(0.6, peers=2))), ranked)
+    prep = _resolve(Bench(cast(Any, _Slow(0.6, peers=2))), ranked)
 
     assert prep.number == 1, "медленный, но живой рой отбор бросать не имеет права"
     assert prep.meta >= 0.6, f"метаданные пришли за {prep.meta:.2f} с - ждали не рой"
@@ -703,7 +703,7 @@ def test_a_full_hd_head_is_not_dropped_for_a_slow_minute_of_its_swarm(
     composition.use_graces(monkeypatch, step=1.2)
     head = f"hash-{ranked[0].magnet}"
 
-    bench = _Bench(cast(Any, _LateHead(head, answers_in=0.6)), prober=prober)
+    bench = Bench(cast(Any, _LateHead(head, answers_in=0.6)), prober=prober)
     prep = _resolve(bench, ranked)
 
     assert prep.number == 1, "ступень отдали не рою, а собственному нетерпению"
@@ -724,7 +724,7 @@ def test_a_slow_head_still_yields_when_nothing_below_it_is_a_step_lower(
     composition.use_graces(monkeypatch, step=1.2)
     head = f"hash-{ranked[0].magnet}"
 
-    bench = _Bench(cast(Any, _LateHead(head, answers_in=0.6)), prober=prober)
+    bench = Bench(cast(Any, _LateHead(head, answers_in=0.6)), prober=prober)
     prep = _resolve(bench, ranked)
 
     assert prep.number == 2, "ступени под верхом нет - ждать его дольше незачем"

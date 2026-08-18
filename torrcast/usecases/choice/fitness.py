@@ -7,10 +7,10 @@ from typing import TYPE_CHECKING
 from torrcast.usecases.choice.configure import _environment_port
 
 if TYPE_CHECKING:
-    from torrcast.usecases.select._plan import _Plan
+    from torrcast.usecases.select.plan import Plan
 
 
-def fitness(plan: _Plan, dubbed: bool = False) -> int:
+def fitness(plan: Plan, dubbed: bool = False) -> int:
     """Сиды лучшей раздачи, которой картину и правда стоит смотреть; 0 - такой нет.
 
     От :func:`liveliness` отличается двумя условиями, и оба взяты у самого отбора, а не

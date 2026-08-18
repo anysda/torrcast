@@ -8,8 +8,8 @@ from torrcast.usecases.choice.last_hope_note import last_hope_note
 from torrcast.usecases.rank.default_unnamed import default_unnamed
 from torrcast.usecases.rank.heard import heard
 from torrcast.usecases.rank.stepdown_note import stepdown_note
-from torrcast.usecases.select._plan import _Plan
 from torrcast.usecases.select._prep import _Prep
+from torrcast.usecases.select.plan import Plan
 from torrcast.usecases.select_bench._bench_honest import _BenchHonest
 
 
@@ -18,7 +18,7 @@ class _BenchNotes(_BenchHonest):
 
     def _announce(
         self,
-        plan: _Plan,
+        plan: Plan,
         prep: _Prep,
         queue: list[int],
         judged: dict[int, str],
@@ -51,7 +51,7 @@ class _BenchNotes(_BenchHonest):
 
     def _mute_fallback(
         self,
-        plan: _Plan,
+        plan: Plan,
         mute: _Prep,
         queue: list[int],
         judged: dict[int, str],

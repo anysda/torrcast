@@ -74,7 +74,7 @@ class Release:
     def stereoscopic(self) -> bool:
         if _STEREO_LAYOUT_RE.search(self.raw_name):
             return True
-        tail = self._untitled
+        tail = self.untitled
         return bool(re.search("\\b3д\\b", self.raw_name, re.IGNORECASE)) or (
             not _TWO_D_RE.search(tail) and bool(_STEREO_RE.search(tail))
         )
@@ -117,18 +117,29 @@ class Release:
         )
 
     @property
+    def extras_mark(self) -> str:
+        """Метка приложения, сработавшая в зоне пометок; пусто - метки нет.
+
+        Метка, перед которой стоит «+», приложением раздачу не делает: «фильм + доп
+        материалы» - это фильм, к которому приложено, а не приложение само по себе.
+        """
+        tail = self.untitled
+        for found in _EXTRAS_RE.finditer(tail):
+            if not _WITH_EXTRAS_RE.search(tail[: found.start()]):
+                return found.group(0)
+        return ""
+
+    @property
     def extras(self) -> bool:
-        tail = self._untitled
-        return any(
-            not _WITH_EXTRAS_RE.search(tail[: found.start()]) for found in _EXTRAS_RE.finditer(tail)
-        )
+        return bool(self.extras_mark)
 
     @property
     def extras_sure(self) -> bool:
-        return self.extras and bool(_EXTRAS_SURE_RE.search(self._untitled))
+        return self.extras and bool(_EXTRAS_SURE_RE.search(self.untitled))
 
     @property
-    def _untitled(self) -> str:
+    def untitled(self) -> str:
+        """Имя раздачи без названия картины: зона пометок, по которой судят метки."""
         tail = self.raw_name
         for name in (self.title, self.original, *self.aliases):
             if name:

@@ -22,7 +22,7 @@ from torrcast.runtime.wire import wire
 from torrcast.usecases import releases_command
 from torrcast.usecases.facts import Facts
 from torrcast.usecases.releases_command import _cmd_releases
-from torrcast.usecases.select import _Plan
+from torrcast.usecases.select import Plan
 
 GB = 1024**3
 
@@ -32,7 +32,7 @@ def _silent(wanted: list[tuple[str, int | None]]) -> Facts:
     return Facts(wanted, 0.0, store=FakeBlurbStore(), source=FakeBlurbSource())
 
 
-def _plan() -> _Plan:
+def _plan() -> Plan:
     release = Release(
         raw_name="Кино / Movie (1999) BDRip 1080p",
         title="Кино",
@@ -44,7 +44,7 @@ def _plan() -> _Plan:
         seeders=100,
         magnet="magnet-кино",
     )
-    return _Plan(
+    return Plan(
         picture=Picture(title="Кино", year=1999, releases=[release]),
         ranked=[release],
         runtime=120.0 * 60.0,
@@ -64,7 +64,7 @@ def test_the_command_drops_its_own_word_and_prints_the_table(
     monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
     asked: list[list[str]] = []
 
-    def search(config: Config, args: Args, progress: Progress, profile: Profile) -> list[_Plan]:
+    def search(config: Config, args: Args, progress: Progress, profile: Profile) -> list[Plan]:
         asked.append(list(args.query))
         return [_plan()]
 
@@ -89,7 +89,7 @@ def test_an_empty_query_is_an_honest_line_not_a_search(
     """``cast releases`` без запроса - это вопрос «что искать?», а не поход в каталог."""
     monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
 
-    def never(*_args: Any, **_kwargs: Any) -> list[_Plan]:
+    def never(*_args: Any, **_kwargs: Any) -> list[Plan]:
         raise AssertionError("искать без запроса нечего")
 
     with pytest.raises(NotFoundError, match="что искать"):

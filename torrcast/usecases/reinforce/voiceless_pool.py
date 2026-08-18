@@ -8,7 +8,7 @@ from torrcast.domain.menu_order import menu_order
 from torrcast.domain.picture import Picture
 from torrcast.domain.profile import CAUTIOUS, Profile
 from torrcast.usecases.choice import first_alive, fitness
-from torrcast.usecases.reinforce._plan_for import _plan_for
+from torrcast.usecases.reinforce.plan_for import plan_for
 
 if TYPE_CHECKING:
     from torrcast.domain.args import Args
@@ -55,7 +55,7 @@ def voiceless_pool(
     """
     plans = [
         plan
-        for plan in (_plan_for(p, args, config, profile) for p in menu_order(found))
+        for plan in (plan_for(p, args, config, profile) for p in menu_order(found))
         if plan.ranked
     ]
     if not plans:

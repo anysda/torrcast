@@ -40,8 +40,8 @@ from torrcast.usecases import voices_command
 from torrcast.usecases.choice import _pick_plan
 from torrcast.usecases.playback import _show_state as playback_state
 from torrcast.usecases.rank import voice_note
-from torrcast.usecases.select import _Plan, _Prep
-from torrcast.usecases.select_bench import _Bench
+from torrcast.usecases.select import Plan, _Prep
+from torrcast.usecases.select_bench import Bench
 
 GB = 1024**3
 KEY = "movie:моана-2:2024"
@@ -534,11 +534,11 @@ def test_the_voices_command_passes_a_noninteractive_picture_number(
     original = _pick_plan
 
     def pick(
-        plans: list[_Plan],
+        plans: list[Plan],
         facts: object = None,
         pick: int | None = None,
         asked: str = "",
-    ) -> _Plan:
+    ) -> Plan:
         seen.append(pick)
         return original(plans, pick=1, asked=asked)
 
@@ -767,10 +767,10 @@ def test_a_japanese_top_release_steps_aside_for_a_russian_one_below_it(
         ("Аниме / Anime (2020) WEB-DL 1080p [RUS(int)]", "d", RUSSIAN),
     )
     prefixes: list[str] = []
-    wait = _Bench._wait
+    wait = Bench._wait
 
     def watched_wait(
-        self: _Bench,
+        self: Bench,
         prep: _Prep,
         progress: Progress,
         prefix: str = "",
@@ -779,7 +779,7 @@ def test_a_japanese_top_release_steps_aside_for_a_russian_one_below_it(
         prefixes.append(prefix)
         wait(self, prep, progress, prefix, limit)
 
-    monkeypatch.setattr(_Bench, "_wait", watched_wait)
+    monkeypatch.setattr(Bench, "_wait", watched_wait)
     _answers(monkeypatch)
 
     assert main(["аниме"]) == 0

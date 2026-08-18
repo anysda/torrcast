@@ -17,7 +17,7 @@ from torrcast.usecases.playback._encode_all import _encode_all
 from torrcast.usecases.playback.media_grid import MediaGrid
 
 
-def _layout(
+def layout(
     config: Config,
     source: str,
     length: float,

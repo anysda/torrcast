@@ -7,7 +7,7 @@ from torrcast.domain.picture import Picture
 from torrcast.ports.torrent_catalogue import IndexerClient
 
 
-def _ceiling_hides_name(
+def ceiling_hides_name(
     client: IndexerClient, name: str, pictures: list[Picture], found: list[Picture]
 ) -> bool:
     """Выдача упёрлась в потолок индексера, а картины с именем запроса в ней нет.

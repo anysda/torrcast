@@ -14,9 +14,9 @@ from torrcast.ports.journal import journal
 from torrcast.ports.recode.encoding import Encoding
 from torrcast.ports.recode.spot_rival import SpotRival
 from torrcast.ports.torrent_engine import TorrentEngine
-from torrcast.usecases.playback._layout import _layout
 from torrcast.usecases.playback._recoder import _recoder
 from torrcast.usecases.playback.following import Following
+from torrcast.usecases.playback.layout import layout
 from torrcast.usecases.playback.media_grid import MediaGrid
 from torrcast.usecases.warm import Vault, Warmer, warm_key, warm_root
 
@@ -128,7 +128,7 @@ def _next_warmer(
     video_mbit = max(0.0, media.video_bps / 1e6)
     # 🔴 Профиль тот же, что у показа: разойдись они - прогретое ляжет под другим ключом
     # (:func:`torrcast.usecases.warm.warm_key`), и показ своего же прогретого не найдёт.
-    grid, whole = _layout(
+    grid, whole = layout(
         config,
         source,
         media.duration,

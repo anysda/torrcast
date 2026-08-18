@@ -6,7 +6,7 @@ from typing import Any
 from tests.articles import CARS, MOANA, wiki_reply
 from tests.fakes.json_client import FakeJsonClient
 from tests.fakes.rating_dump import FakeRatingDump
-from torrcast.adapters.wiki.endpoints import _WIKIDATA_HOST
+from torrcast.adapters.wiki.endpoints import WIKIDATA_HOST
 from torrcast.adapters.wiki.wiki_blurbs import WikiBlurbs
 from torrcast.domain.facts.fact import Fact
 from torrcast.domain.facts.settings import _EXLIMIT
@@ -101,7 +101,7 @@ def test_отказ_украшений_не_отнимает_уже_добыто
     """
 
     def answer(host: str, path: str, params: dict[str, str]) -> Any:
-        if host == _WIKIDATA_HOST:
+        if host == WIKIDATA_HOST:
             raise OSError("Wikidata молчит")
         return wiki_reply()
 
@@ -116,7 +116,7 @@ def test_описание_отдаётся_меню_до_того_как_спр�
     order: list[str] = []
 
     def answer(host: str, path: str, params: dict[str, str]) -> Any:
-        if host == _WIKIDATA_HOST:
+        if host == WIKIDATA_HOST:
             order.append("украшения")
             return SPARQL
         return wiki_reply()
@@ -148,7 +148,7 @@ def test_the_ratings_dump_is_read_alongside_the_first_request_not_after_it() -> 
         return {"tt0317219": "7.2"}
 
     def slow_wiki(host: str, path: str, params: dict[str, str]) -> Any:
-        if host == _WIKIDATA_HOST:
+        if host == WIKIDATA_HOST:
             return SPARQL
         order.append("вики-начало")
         time.sleep(0.3)

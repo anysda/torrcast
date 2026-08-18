@@ -11,10 +11,10 @@ from torrcast.usecases.choice.configure import _environment_port
 
 if TYPE_CHECKING:
     from torrcast.usecases.facts import Facts
-    from torrcast.usecases.select._plan import _Plan
+    from torrcast.usecases.select.plan import Plan
 
 
-def menu_lines(plans: list[_Plan], facts: Facts | None = None, width: int = 0) -> str:
+def menu_lines(plans: list[Plan], facts: Facts | None = None, width: int = 0) -> str:
     """Список картин со справкой: номер, название с годом, рейтинг и хронометраж — в одну
     строку, описание — под ней, с отступом под номер.
 

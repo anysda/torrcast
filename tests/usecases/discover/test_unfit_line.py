@@ -9,16 +9,16 @@ from torrcast.domain.raw_result import RawResult
 from torrcast.usecases.discover.kin_line import _kin
 from torrcast.usecases.discover.unfit_line import unfit_line
 from torrcast.usecases.rank.queue_drops import queue_drops
-from torrcast.usecases.reinforce._plan_for import _plan_for
-from torrcast.usecases.select import _Plan
+from torrcast.usecases.reinforce.plan_for import plan_for
+from torrcast.usecases.select import Plan
 
 #: Образ диска: играть такой раздачей нечем, и ворота отбора её не пускают.
 _IMAGE = row("Тачки / Cars (2006) BDRemux 2160p ISO", "a", size_gb=41.0, seeders=90)
 _CARS_2 = row("Тачки 2 / Cars 2 (2011) BDRip 1080p", "b", size_gb=5.0, seeders=70)
 
 
-def _plan(rows: list[RawResult], query: str = "тачки") -> _Plan:
-    return _plan_for(franchise(query, rows)[0], Args(query=[query]), Config())
+def _plan(rows: list[RawResult], query: str = "тачки") -> Plan:
+    return plan_for(franchise(query, rows)[0], Args(query=[query]), Config())
 
 
 def test_the_refusal_names_the_pool_and_the_reasons_it_was_dropped_for() -> None:

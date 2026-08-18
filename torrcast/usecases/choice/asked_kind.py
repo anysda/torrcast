@@ -5,10 +5,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from torrcast.usecases.select._plan import _Plan
+    from torrcast.usecases.select.plan import Plan
 
 
-def asked_kind(plans: list[_Plan]) -> list[int]:
+def asked_kind(plans: list[Plan]) -> list[int]:
     """Номера (с единицы) картин того типа, который назвал сам запрос.
 
     Тип назван вслух ровно одним способом: запрос спросил СЕРИЮ (``s1e1``). Тогда

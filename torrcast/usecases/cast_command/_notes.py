@@ -24,13 +24,13 @@ from torrcast.usecases.select import _Prep
 if TYPE_CHECKING:
     from torrcast.domain.args import Args
     from torrcast.usecases.choice import _Passport
-    from torrcast.usecases.select._plan import _Plan
+    from torrcast.usecases.select.plan import Plan
 
 
 def _notes(
     config: Config,
-    plans: list[_Plan],
-    plan: _Plan,
+    plans: list[Plan],
+    plan: Plan,
     prep: _Prep,
     media: Media,
     audio: int,

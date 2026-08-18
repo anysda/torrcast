@@ -7,14 +7,14 @@ from torrcast.domain.args import Args
 from torrcast.domain.config import Config
 from torrcast.domain.raw_result import RawResult
 from torrcast.usecases.discover.silent_swarm import silent_swarm
-from torrcast.usecases.reinforce._plan_for import _plan_for
-from torrcast.usecases.select import _Plan
+from torrcast.usecases.reinforce.plan_for import plan_for
+from torrcast.usecases.select import Plan
 
 _SHOWN = "показывали «кино»"
 
 
-def _plan(rows: list[RawResult], query: str = "тачки") -> _Plan:
-    return _plan_for(franchise(query, rows)[0], Args(query=[query]), Config())
+def _plan(rows: list[RawResult], query: str = "тачки") -> Plan:
+    return plan_for(franchise(query, rows)[0], Args(query=[query]), Config())
 
 
 def _rows(*seeders: int) -> list[RawResult]:

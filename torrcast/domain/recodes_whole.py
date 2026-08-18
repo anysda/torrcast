@@ -18,7 +18,7 @@ def recodes_whole(codec: str, depth: int = 0, profile: Profile = CAUTIOUS, frame
     Отказ отбора (:const:`torrcast.domain.profile.REFUSE`) для упаковки означает ровно то же, что
     и перекод: раз мы всё-таки играем этот файл, копия - гарантированный чёрный экран, а
     сплошной перекод - хотя бы шанс. Отбраковывает такое отбор, и делает это раньше
-    (:meth:`torrcast.usecases.select_bench._Bench._trouble`).
+    (:meth:`torrcast.usecases.select_bench.Bench._trouble`).
 
     🔴 Функция одна на весь код намеренно. Решение принимается дважды - показом
     (:func:`torrcast.usecases.playback._play`) и прогревом следующей серии впрок

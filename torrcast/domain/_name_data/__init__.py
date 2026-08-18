@@ -78,12 +78,10 @@ from torrcast.domain._name_data.data_3 import (
     _TECH_TOKEN_RE,
     _TITLE_NUMBER_RE,
     _TRANSLIT,
-    THIN_POOL,
     VIDEO_EXT,
 )
 
 __all__ = [
-    "THIN_POOL",
     "VIDEO_EXT",
     "_ALTERNATIVE_PICTURE_RE",
     "_ALTERNATIVE_TITLE_RE",

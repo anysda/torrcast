@@ -14,10 +14,10 @@ from torrcast.usecases.choice.default_note import _passed_why
 from torrcast.usecases.choice.first_alive import first_alive
 
 if TYPE_CHECKING:
-    from torrcast.usecases.select._plan import _Plan
+    from torrcast.usecases.select.plan import Plan
 
 
-def part_one_swap(plans: list[_Plan], asked: str) -> str:
+def part_one_swap(plans: list[Plan], asked: str) -> str:
     """Честная строка вместо дефолта меню, когда дефолт подменил бы часть франшизы.
 
     🔴 TC-373. Запрос «тачки» - это просьба про «Тачки» 2006 года, и пока первая часть

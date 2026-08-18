@@ -1,11 +1,11 @@
-"""Параметры запросов к API Википедии; собирает их адаптер справки."""
+"""Параметры запроса к API Википедии за первыми фразами статей; зовёт адаптер справки."""
 
 from __future__ import annotations
 
-from torrcast.domain.facts.settings import _EXCHARS, _EXLIMIT, _SEARCH_HITS
+from torrcast.domain.facts.settings import _EXCHARS, _EXLIMIT
 
 
-def _extract_params(names: list[str]) -> dict[str, str]:
+def extract_params(names: list[str]) -> dict[str, str]:
     """Один запрос за первыми фразами сразу нескольких статей и их Q-идентификаторами."""
     return {
         "action": "query",
@@ -27,16 +27,4 @@ def _extract_params(names: list[str]) -> dict[str, str]:
         "exlimit": str(_EXLIMIT),
         "format": "json",
         "formatversion": "2",
-    }
-
-
-def _search_params(query: str) -> dict[str, str]:
-    """Тот же запрос, но статьи выбирает поиск Википедии, а не мы перебором имён."""
-    return {
-        **_extract_params([]),
-        "titles": "",
-        "generator": "search",
-        "gsrsearch": query,
-        "gsrlimit": str(_SEARCH_HITS),
-        "gsrnamespace": "0",
     }

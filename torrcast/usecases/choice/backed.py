@@ -7,10 +7,10 @@ from typing import TYPE_CHECKING
 from torrcast.usecases.choice.liveliness import liveliness
 
 if TYPE_CHECKING:
-    from torrcast.usecases.select._plan import _Plan
+    from torrcast.usecases.select.plan import Plan
 
 
-def backed(plans: list[_Plan], alive: list[int]) -> list[int]:
+def backed(plans: list[Plan], alive: list[int]) -> list[int]:
     """Из живых - те, кому есть чем играть: за картиной больше одной раздачи.
 
     Порог живости считает сиды, и по сидам однораздачная картина обходит соседку с
@@ -53,7 +53,7 @@ def backed(plans: list[_Plan], alive: list[int]) -> list[int]:
     return [n for n in alive if n in deep or liveliness(plans[n - 1]) > _rival(plans, deep, n)]
 
 
-def _rival(plans: list[_Plan], deep: list[int], number: int) -> int:
+def _rival(plans: list[Plan], deep: list[int], number: int) -> int:
     """Самая живая очередь СВОЕГО типа - её и обязана перебить однораздачная картина.
     Очередей своего типа нет вовсе - уступать нечему, и порог равен нулю.
     """

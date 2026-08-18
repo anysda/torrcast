@@ -9,7 +9,7 @@ from torrcast.domain.entry import Entry
 from torrcast.domain.parse_release_name import parse_release_name
 from torrcast.domain.picture import Picture
 from torrcast.domain.release import Release
-from torrcast.usecases.select._plan import _Plan
+from torrcast.usecases.select.plan import Plan
 
 GB = 1024**3
 
@@ -43,7 +43,7 @@ def parsed(name: str, *, seeders: int = 50) -> Release:
     return replace(parse_release_name(name), seeders=seeders)
 
 
-def plan(*releases: Release, **rest: Any) -> _Plan:
+def plan(*releases: Release, **rest: Any) -> Plan:
     """План по одной картине: пул из переданных раздач в порядке ранжира."""
     pool = list(releases) or [release()]
     fields: dict[str, Any] = {
@@ -53,7 +53,7 @@ def plan(*releases: Release, **rest: Any) -> _Plan:
         "warn_mbit": 16.0,
     }
     fields.update(rest)
-    return _Plan(**fields)
+    return Plan(**fields)
 
 
 def entry(**rest: Any) -> Entry:

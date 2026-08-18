@@ -8,7 +8,7 @@ from tests.usecases.select_bench.world import RUNTIME, Said, Torrents, plan, pro
 from torrcast.domain.args import Args
 from torrcast.domain.audio_track import AudioTrack
 from torrcast.domain.media import Media
-from torrcast.usecases.select_bench._bench import _Bench
+from torrcast.usecases.select_bench.bench import Bench
 
 _ASKED = Args(query=["кино"])
 _RUS = (AudioTrack(index=0, language="rus"),)
@@ -23,7 +23,7 @@ def test_a_top_that_lied_about_its_frame_gives_way_to_an_honest_neighbour(
 ) -> None:
     """Живой случай: верх обещает 1080p, а внутри 574p, и рядом стоит настоящий."""
     pool = [rel(name="r0 | Дубляж", seeders=140), rel(name="r1 | Дубляж", seeders=121)]
-    bench = _Bench(
+    bench = Bench(
         Torrents(), prober=probes(pool, _media(574, 1150), _media(1080, 1920)), honest_budget=5.0
     )
     built = plan(pool)
@@ -39,7 +39,7 @@ def test_a_top_that_lied_about_its_frame_gives_way_to_an_honest_neighbour(
 def test_an_honest_top_is_never_swapped(capsys: pytest.CaptureFixture[str]) -> None:
     """Верх не соврал - спрашивать соседей незачем, и ни строки об этом не печатается."""
     pool = [rel(name="r0 | Дубляж", seeders=140), rel(name="r1 | Дубляж", seeders=121)]
-    bench = _Bench(Torrents(), prober=probes(pool, _media(1080, 1920)), honest_budget=5.0)
+    bench = Bench(Torrents(), prober=probes(pool, _media(1080, 1920)), honest_budget=5.0)
     built = plan(pool)
     chosen = bench.start(built, 1)
     bench._wait(chosen, Said())
@@ -53,7 +53,7 @@ def test_an_honest_top_is_never_swapped(capsys: pytest.CaptureFixture[str]) -> N
 def test_a_release_named_by_hand_is_never_checked() -> None:
     """``--release N`` - человек выбрал сам, и подменять его проверкой нечем."""
     pool = [rel(name="r0 | Дубляж", seeders=140), rel(name="r1 | Дубляж", seeders=121)]
-    bench = _Bench(Torrents(), prober=probes(pool, _media(574, 1150)), honest_budget=5.0)
+    bench = Bench(Torrents(), prober=probes(pool, _media(574, 1150)), honest_budget=5.0)
     built = plan(pool)
     chosen = bench.start(built, 1)
     bench._wait(chosen, Said())
@@ -66,7 +66,7 @@ def test_a_neighbour_already_judged_is_not_asked_twice(
 ) -> None:
     """🔴 TC-194. Приговорённого очередью не переспрашивают: вторая строка была бы враньём."""
     pool = [rel(name="r0 | Дубляж", seeders=140), rel(name="r1 | Дубляж", seeders=121)]
-    bench = _Bench(
+    bench = Bench(
         Torrents(), prober=probes(pool, _media(574, 1150), _media(1080, 1920)), honest_budget=5.0
     )
     built = plan(pool)

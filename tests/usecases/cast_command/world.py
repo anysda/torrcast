@@ -5,7 +5,7 @@ from __future__ import annotations
 from torrcast.domain.entry import Entry
 from torrcast.domain.picture import Picture
 from torrcast.domain.release import Release
-from torrcast.usecases.select import _Plan
+from torrcast.usecases.select import Plan
 
 GB = 1024**3
 
@@ -25,10 +25,10 @@ def release(name: str = "Кино / Movie (1999) BDRip 1080p") -> Release:
     )
 
 
-def plan() -> _Plan:
+def plan() -> Plan:
     """План по одной картине: пул из одной живой раздачи."""
     one = release()
-    return _Plan(
+    return Plan(
         picture=Picture(title="Кино", year=1999, releases=[one]),
         ranked=[one],
         runtime=120.0 * 60.0,

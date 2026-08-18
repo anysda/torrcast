@@ -36,10 +36,10 @@ from probeprofile import add_argument as add_profile_argument
 from probeprofile import choose as choose_profile
 
 from torrcast.adapters.filesystem.state import load_config
-from torrcast.adapters.stream_pack._keys_shelf import _read_keys
-from torrcast.adapters.stream_pack._weigher import _weigher
+from torrcast.adapters.stream_pack.extra_mbit import extra_mbit
 from torrcast.adapters.stream_pack.grid import Grid
-from torrcast.adapters.stream_pack.grid_for import _extra_mbit
+from torrcast.adapters.stream_pack.read_keys import read_keys
+from torrcast.adapters.stream_pack.weigher import weigher
 from torrcast.domain.delivered_mbit import AUDIO_MBIT, TS_OVERHEAD
 from torrcast.domain.warm_settings import WARM_BUDGET
 from torrcast.usecases.warm import Vault, Warmer
@@ -96,7 +96,7 @@ def main() -> int:
 
     rows: list[_Row] = []
     for path in sorted(Path(args.keys).glob("*.json")):
-        keys = _read_keys(path)
+        keys = read_keys(path)
         card = Path(args.probe) / path.name
         if keys is None or len(keys.offset) != len(keys.at) or len(keys.at) < 3:
             continue
@@ -109,7 +109,7 @@ def main() -> int:
         if duration <= 0 or video_mbit <= 0:
             continue  # паспорт молчит о битрейте - считать нечего, гадать не будем
         delivered = (video_mbit + AUDIO_MBIT) * TS_OVERHEAD
-        extra = _extra_mbit(keys, delivered)
+        extra = extra_mbit(keys, delivered)
         grid = Grid.on_keyframes(
             keys.at,
             duration,
@@ -122,8 +122,8 @@ def main() -> int:
         # Два веса на один и тот же кусок. Копия - то, что прогрев кладёт на диск сразу
         # и чем занимает бюджет всё время показа; перекод - то, во что тяжёлые места
         # приводятся поздним заходом (:meth:`torrcast.usecases.warm.Warmer._spots_left`).
-        copy = _weigher(keys.at, keys.offset, extra, 0.0)
-        weigh = _weigher(keys.at, keys.offset, extra, ceiling)
+        copy = weigher(keys.at, keys.offset, extra, 0.0)
+        weigh = weigher(keys.at, keys.offset, extra, ceiling)
         sizes = [copy(grid.start(k), grid.end(k)) for k in range(grid.count)]
         spans = [max(0.0, grid.end(k) - grid.start(k)) for k in range(grid.count)]
         # Битрейт куска - тот же, которым меряет отбор тяжёлых мест: байты копии на длину.

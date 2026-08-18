@@ -8,12 +8,12 @@ from torrcast.domain.facts.fact import Fact
 from torrcast.domain.facts.minutes_of import minutes_of
 from torrcast.domain.profile import CAUTIOUS, Profile
 from torrcast.ports.journal import journal
-from torrcast.usecases.reinforce._plan_for import _plan_for
+from torrcast.usecases.reinforce.plan_for import plan_for
 
 if TYPE_CHECKING:
     from torrcast.domain.args import Args
     from torrcast.domain.config import Config
-    from torrcast.usecases.select._plan import _Plan
+    from torrcast.usecases.select.plan import Plan
 
 
 class _Told(Protocol):
@@ -27,8 +27,8 @@ class _Told(Protocol):
 
 
 def _timed(
-    plan: _Plan, facts: _Told | None, args: Args, config: Config, profile: Profile = CAUTIOUS
-) -> _Plan:
+    plan: Plan, facts: _Told | None, args: Args, config: Config, profile: Profile = CAUTIOUS
+) -> Plan:
     """Пересобрать план на НАСТОЯЩЕЙ длительности картины, как только её назвала справка.
 
     🔴 TC-185. Битрейт релиза отбор считает делением размера раздачи на длительность
@@ -57,7 +57,7 @@ def _timed(
             "select", "runtime", secs=round(plan.runtime), src="guess", title=plan.picture.title
         )
         return plan
-    fresh = _plan_for(plan.picture, args, config, profile, runtime=minutes * 60.0)
+    fresh = plan_for(plan.picture, args, config, profile, runtime=minutes * 60.0)
     fresh.kin = plan.kin
     journal().emit(
         "select",

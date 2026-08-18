@@ -6,8 +6,8 @@ from typing import TYPE_CHECKING
 
 from torrcast.domain.pick_settings import MAX_TRIES
 from torrcast.domain.prewarm_settings import PREWARM_SPARE
-from torrcast.usecases.select._plan import _Plan
 from torrcast.usecases.select._prep import _Prep
+from torrcast.usecases.select.plan import Plan
 from torrcast.usecases.select_bench._bench_recheck import _BenchRecheck
 
 if TYPE_CHECKING:
@@ -17,11 +17,11 @@ if TYPE_CHECKING:
 class _BenchPrewarm(_BenchRecheck):
     """Прогрев под меню и его переезд под новый порядок отбора."""
 
-    def reorder(self, before: _Plan, after: _Plan) -> _Plan:
+    def reorder(self, before: Plan, after: Plan) -> Plan:
         """Переставить уже начатые прогревы под НОВЫЙ порядок отбора; вернуть новый план.
 
         Прогрев под меню заводится по номеру релиза в плане (:meth:`start`), а номер —
-        это место в :attr:`_Plan.ranked`. Пересборка плана на настоящей длительности
+        это место в :attr:`Plan.ranked`. Пересборка плана на настоящей длительности
         (:func:`_timed`) порядок вправе поменять, и без переезда ключей прогрев верха
         отдался бы уже другой раздаче: та же цифра, другой магнит.
 
@@ -53,7 +53,7 @@ class _BenchPrewarm(_BenchRecheck):
         }
         return after
 
-    def keep_plan(self, plan: _Plan) -> None:
+    def keep_plan(self, plan: Plan) -> None:
         """Картина выбрана - прогревы ОСТАЛЬНЫХ картин больше не нужны, и они убираются.
 
         До сих пор они доживали до :meth:`keep_only`, то есть до конца отбора, - а отбор
@@ -69,11 +69,11 @@ class _BenchPrewarm(_BenchRecheck):
             if key[0] != plan.picture.key:
                 self._forget(prep)
 
-    def spare(self, plan: _Plan, args: Args) -> list[_Prep]:
+    def spare(self, plan: Plan, args: Args) -> list[_Prep]:
         """Поднять запасной релиз этого плана - тот, к которому уйдёт отбор, если верх забракуют.
 
         Отличие от :meth:`start` только во времени. Очередь релизов та же самая, что
-        спросит :meth:`resolve` (:meth:`_Plan.candidates`), и следующий номер в ней -
+        спросит :meth:`resolve` (:meth:`Plan.candidates`), и следующий номер в ней -
         ровно тот, который resolve поднимает первым же движением. Здесь он поднимается
         раньше: пока на экране висит меню, а не после того, как верх уже осуждён.
 

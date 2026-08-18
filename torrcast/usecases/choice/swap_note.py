@@ -8,10 +8,10 @@ from torrcast.usecases.choice.default_note import default_note
 from torrcast.usecases.choice.first_alive import first_alive
 
 if TYPE_CHECKING:
-    from torrcast.usecases.select._plan import _Plan
+    from torrcast.usecases.select.plan import Plan
 
 
-def swap_note(plans: list[_Plan], picked: _Plan, asked: str = "") -> str:
+def swap_note(plans: list[Plan], picked: Plan, asked: str = "") -> str:
     """Честная строка про смену картины для ТОГО, что реально пошло на показ.
 
     От :func:`default_note` отличается одним вопросом: а дефолт ли это. Человек, который
@@ -26,7 +26,7 @@ def swap_note(plans: list[_Plan], picked: _Plan, asked: str = "") -> str:
     return default_note(plans, asked)
 
 
-def _is_default(plans: list[_Plan], picked: _Plan) -> bool:
+def _is_default(plans: list[Plan], picked: Plan) -> bool:
     """Встал ли выбранный план дефолтом (:func:`first_alive`), а не выбором человека.
 
     Человек, ответивший на меню номером, ничего не подменял - он выбрал. Строки про

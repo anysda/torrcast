@@ -24,5 +24,5 @@ def over_ceiling(
         ceiling = min(warn_mbit, hard_mbit)
     mbit = bitrate_of(release, runtime)
     # Вес неизвестен (TC-344) - потолок молчит: выкидывать по весу, которого нет,
-    # нельзя, а тяжесть файла рассудит ffprobe уже после выбора (:meth:`_Bench._trouble`).
+    # нельзя, а тяжесть файла рассудит ffprobe уже после выбора (:meth:`Bench._trouble`).
     return mbit is not None and mbit > ceiling

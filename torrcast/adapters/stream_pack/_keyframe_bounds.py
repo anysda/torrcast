@@ -5,7 +5,7 @@ from __future__ import annotations
 import bisect
 from typing import TYPE_CHECKING
 
-from torrcast.adapters.stream_pack._weigher import _weigher
+from torrcast.adapters.stream_pack.weigher import weigher
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -26,12 +26,12 @@ def _keyframe_bounds(
     Счёт лежит отдельно от правила, которое он считает: разбор правила - потолок байт,
     ближайшая голова, короткий хвост - остался докстрокой своего метода.
     """
-    weigh = _weigher(keys, sizes, extra_mbit, ceiling_mbit, fixed_mbit)
+    weigh = weigher(keys, sizes, extra_mbit, ceiling_mbit, fixed_mbit)
     # Отдельно от границ - вес КОПИИ (без потолков): тяжёлый кусок режется сеткой и
     # уезжает на ТВ перекодом, а на диск прогрев кладёт сначала его самого, во весь
     # вес. Бюджет прогрева проверяется именно под этот, пиковый, вес.
     copy = (
-        _weigher(keys, sizes, extra_mbit, 0.0)
+        weigher(keys, sizes, extra_mbit, 0.0)
         if len(sizes) == len(keys) and len(keys) >= 2
         else None
     )

@@ -46,8 +46,8 @@ _choose_module = importlib.import_module("torrcast.usecases.cast_command._choose
 def _outside(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(_state, "_play_facts", _Facts)
     monkeypatch.setattr(_state, "_play_engines", lambda url: object())
-    monkeypatch.setattr(_choose_module, "_search", lambda *args, **rest: [plan()])
-    monkeypatch.setattr(_choose_module, "_Bench", lambda *args, **rest: _NoBench())
+    monkeypatch.setattr(_choose_module, "search_circle", lambda *args, **rest: [plan()])
+    monkeypatch.setattr(_choose_module, "Bench", lambda *args, **rest: _NoBench())
     monkeypatch.setattr(_choose_module, "_passport", lambda plans: _NoPassport())
 
 
