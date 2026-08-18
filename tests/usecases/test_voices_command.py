@@ -7,6 +7,7 @@ from typing import Any
 
 import pytest
 
+from tests.fakes.composition import use_settings
 from torrcast.domain.args import Args
 from torrcast.domain.config import Config
 from torrcast.domain.not_found_error import NotFoundError
@@ -22,14 +23,13 @@ def test_an_empty_query_is_an_honest_line_not_a_search(monkeypatch: pytest.Monke
     останься «voices» в строке, команда молча ушла бы искать картину с таким именем -
     ни в рой, ни к индексерам за этим ходить не нужно.
     """
-    monkeypatch.setattr(voices_command, "_voices_settings", Config)
+    use_settings(monkeypatch, Config)
 
     def never(*_args: Any, **_kwargs: Any) -> list[Any]:
         raise AssertionError("искать без запроса нечего")
 
-    monkeypatch.setattr(voices_command, "search_circle", never)
     with pytest.raises(NotFoundError, match="что искать"):
-        _cmd_voices(Args(query=["voices"]))
+        _cmd_voices(Args(query=["voices"]), search=never)
 
 
 def test_the_inner_query_keeps_the_handles_that_name_a_release(
@@ -41,17 +41,17 @@ def test_the_inner_query_keeps_the_handles_that_name_a_release(
     потерять их значило бы отвечать про чужую раздачу. А ``--voice`` и ``--new``
     относятся к показу, которого здесь нет вовсе.
     """
-    monkeypatch.setattr(voices_command, "_voices_settings", Config)
+    use_settings(monkeypatch, Config)
     seen: list[Args] = []
 
     def search(_config: Any, args: Args, *_rest: Any) -> list[Any]:
         seen.append(args)
         raise NotFoundError("дальше стенду нечем отвечать")
 
-    monkeypatch.setattr(voices_command, "search_circle", search)
     with pytest.raises(NotFoundError):
         _cmd_voices(
-            Args(query=["voices", "кино"], release=3, pick=2, file=5, voice=7, from_start=True)
+            Args(query=["voices", "кино"], release=3, pick=2, file=5, voice=7, from_start=True),
+            search=search,
         )
     (inner,) = seen
     assert inner.query == ["кино"]

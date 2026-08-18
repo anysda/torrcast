@@ -5,12 +5,13 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypeAlias
 
 from torrcast.domain.config import Config
 from torrcast.domain.exit_codes import EXIT_OK
 from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.picture import Picture
+from torrcast.ports.progress import Progress
 from torrcast.ports.progress import progress as progress_bar
 from torrcast.ports.state_store import store as watch_store
 from torrcast.ports.torrent_engines import TorrentEngines
@@ -23,6 +24,12 @@ from torrcast.usecases.select_bench import Bench
 
 if TYPE_CHECKING:
     from torrcast.domain.args import Args
+    from torrcast.usecases.select.plan import Plan
+
+    #: Чем ищется выдача: тот же круг поиска, что у показа (:func:`search_circle`), либо
+    #: ответ подделки на стенде. Тип назван подписью самого поиска, а не свободным `Any`:
+    #: меню зовёт его ровно этими тремя доводами и ждёт ровно планы картин.
+    Search: TypeAlias = Callable[[Config, Args, Progress], list[Plan]]
 
 #: Внешний мир меню озвучек: настройки, служба раздач и происхождение картины. Кладёт
 #: их композиционный корень (:mod:`torrcast.runtime.wire`). Имена длиннее очевидных
@@ -45,7 +52,7 @@ def _configure_voices_command(
     _voices_native = native
 
 
-def _cmd_voices(args: Args) -> int:
+def _cmd_voices(args: Args, search: Search | None = None) -> int:
     """``cast voices <запрос>`` — какие озвучки есть у релиза, который поедет на ТВ.
 
     Отладочная ручка того же рода, что ``cast releases``: на счастливом пути озвучка
@@ -55,6 +62,9 @@ def _cmd_voices(args: Args) -> int:
     Показ отсюда не начинается и состояние не пишется; прогретые раздачи убираются из
     TorrServer, как и на всяком пути мимо показа (:meth:`Bench.drop_all`).
     """
+    #: Чем искать. Умолчание боевое - тот же круг поиска, которым ищет показ; называет
+    #: его тот, у кого своих служб нет: стенд и соседняя ручка ``cast releases``.
+    search = search or search_circle
     config = _voices_settings()
     # Внутренний запрос той же формы, что пришёл: команда снимает с него своё слово
     # («voices») и играет остатком. Класс берётся у самого аргумента - разбор командной
@@ -65,7 +75,7 @@ def _cmd_voices(args: Args) -> int:
     if not inner.query:
         raise NotFoundError("что искать? cast voices <запрос>")
     with progress_bar() as progress:
-        plans = search_circle(config, inner, progress)
+        plans = search(config, inner, progress)
         bench = Bench(_voices_engines(config.torrserver_url), choose=file_picker(inner))
         try:
             plan = _pick_plan(plans, pick=inner.pick, asked=inner.title_query)
