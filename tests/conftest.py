@@ -56,29 +56,29 @@ _COMPOSED_NAMES = {
     "TorrServer": (
         ("torrcast.usecases.cache_reserve", "_reserve_engines"),
         ("torrcast.usecases.cast_command._play_state", "_play_engines"),
-        ("torrcast.usecases.select", "_select_engines"),
+        ("torrcast.usecases.select._pick_state", "_select_engines"),
         ("torrcast.usecases.torrents", "_cleanup_engines"),
         ("torrcast.usecases.voices_command", "_voices_engines"),
         ("torrcast.usecases.worker", "_worker_engines"),
     ),
-    "Prowlarr": (("torrcast.usecases.discover", "_search_indexers"),),
-    "ask_line": (("torrcast.usecases.select", "_select_ask_line"),),
+    "Prowlarr": (("torrcast.usecases.discover._search_state", "_search_indexers"),),
+    "ask_line": (("torrcast.usecases.select._pick_state", "_select_ask_line"),),
     "make_receiver": (
         ("torrcast.usecases.playback._show_state", "make_receiver"),
         ("torrcast.usecases.worker", "_worker_receivers"),
     ),
     "origin": (
         ("torrcast.adapters.choice_environment", "_passport"),
-        ("torrcast.usecases.discover", "_search_passport"),
+        ("torrcast.usecases.discover._search_state", "_search_passport"),
     ),
     "probe": (
         ("torrcast.usecases.episode_duration", "_episode_prober"),
         ("torrcast.usecases.playback._show_state", "probe"),
-        ("torrcast.usecases.select", "_select_prober"),
-        ("torrcast.usecases.select_bench", "_bench_prober"),
+        ("torrcast.usecases.select._pick_state", "_select_prober"),
+        ("torrcast.usecases.select_bench._bench_state", "_bench_prober"),
     ),
-    "swarm_pulse": (("torrcast.usecases.select_bench", "_bench_swarm_pulse"),),
-    "warm_file": (("torrcast.usecases.select_bench", "_bench_warm_file"),),
+    "swarm_pulse": (("torrcast.usecases.select_bench._bench_state", "_bench_swarm_pulse"),),
+    "warm_file": (("torrcast.usecases.select_bench._bench_state", "_bench_warm_file"),),
 }
 
 

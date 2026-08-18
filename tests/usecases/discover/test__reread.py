@@ -7,7 +7,7 @@ from torrcast.domain.cluster import cluster
 from torrcast.domain.parse_release_name import parse_release_name
 from torrcast.domain.pick_franchise import pick_franchise
 from torrcast.domain.picture import Picture
-from torrcast.usecases.cast_command._reread import _season_asked, _season_reread
+from torrcast.usecases.discover._reread import _season_asked, _season_reread
 
 
 def _catalog(*names: str) -> list[Picture]:

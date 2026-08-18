@@ -440,18 +440,14 @@ def test_nothing_found_in_russian_is_searched_by_translit() -> None:
 class _SpentProwlarr(FakeProwlarr):
     """Тот же каталог, но первый круг уже съел цель почти всю (TC-386)."""
 
-    #: Пол круга (:attr:`torrcast.search.Prowlarr.cap_floor`) ставит снаружи сам заход, а
-    #: не подделка: до первого круга поля нет вовсе, потому ниже и стоит ``getattr``.
-    cap_floor: float
-
     def __init__(self, catalog: dict[str, list[RawResult]], spare: float) -> None:
         super().__init__(catalog)
         self._spent = spare
         #: Пол бюджета, с которым спрошен каждый круг: у добора он обязан быть целью.
-        self.floors: list[float | None] = []
+        self.floors: list[float] = []
 
     def search(self, query: str, limit: int = 100) -> list[RawResult]:
-        self.floors.append(getattr(self, "cap_floor", None))
+        self.floors.append(self.cap_floor)
         return super().search(query, limit)
 
     def spare(self) -> float:
@@ -481,7 +477,7 @@ def test_thin_pool_is_topped_up_even_when_the_goal_is_spent() -> None:
     assert len(plans[0].picture.releases) == 42
     assert "всё равно делаю" in said, "превышение цели объявлено вслух"
     assert "не делаю" not in said
-    assert client.floors == [None, GOAL], "круг добора спрошен с полом в целую цель"
+    assert client.floors == [CIRCLE_SHARE, GOAL], "круг добора спрошен с полом в целую цель"
     assert client.cap_floor == CIRCLE_SHARE, "после добора пол возвращён обычному"
 
 

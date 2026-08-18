@@ -21,7 +21,7 @@ from torrcast.ports.progress import progress as progress_bar
 from torrcast.ports.show_unit import ShowUnit
 from torrcast.ports.show_unit import unit as show_unit
 from torrcast.ports.state_store import store
-from torrcast.usecases.select import _about
+from torrcast.usecases.select._about import _about
 from torrcast.usecases.start_budget import START_BUDGET
 from torrcast.usecases.start_clock import _Clock
 

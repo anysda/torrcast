@@ -3,7 +3,7 @@ from torrcast.commands import Args as Args
 from torrcast.facts import Facts as Facts
 from torrcast.facts import Origin as Origin
 from torrcast.ports.progress import Progress as Progress
-from torrcast.selection import _Bench as _Bench
-from torrcast.selection import _Plan as _Plan
-from torrcast.selection import _Prep as _Prep
 from torrcast.state import Config as Config
+from torrcast.usecases.select import _Plan as _Plan
+from torrcast.usecases.select import _Prep as _Prep
+from torrcast.usecases.select_bench import _Bench as _Bench

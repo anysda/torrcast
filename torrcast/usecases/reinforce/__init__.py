@@ -2,6 +2,9 @@
 
 Реэкспорт кругов добора: второй заход по потолку, по сезону и по озвучке, план картины
 и долив опоздавшего индексера. Ни строчки логики - каждая единица живёт в своём файле.
+
+⚠️ Имена круга поиска (``_ask``, ``_no_budget``, ``_asked_kind``) отсюда не реэкспортятся:
+плоскому фасаду их отдаёт сам поиск, а импорт сюда замкнул бы пакеты друг на друга.
 """
 
 from __future__ import annotations
@@ -29,7 +32,6 @@ from torrcast.ports.journal import journal
 from torrcast.ports.passport_source import PassportSource
 from torrcast.ports.torrent_catalogue import IndexerClient, RawRow, TorrentCatalogue
 from torrcast.usecases.choice import first_alive, fitness
-from torrcast.usecases.discover import _ask, _asked_kind, _no_budget
 from torrcast.usecases.rank import gate_open, last_hope, rank_releases
 from torrcast.usecases.reinforce._as_is import _as_is
 from torrcast.usecases.reinforce._ceiling_hides_name import _ceiling_hides_name
@@ -65,14 +67,11 @@ __all__ = [
     "TypeAlias",
     "_Series",
     "_as_is",
-    "_ask",
-    "_asked_kind",
     "_ceiling_hides_name",
     "_ceiling_reinforce",
     "_foreign_note",
     "_lacks_season",
     "_leading",
-    "_no_budget",
     "_plan_for",
     "_season_reinforce",
     "_timed",

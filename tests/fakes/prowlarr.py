@@ -16,6 +16,11 @@ class FakeProwlarr:
     def __init__(self, catalog: dict[str, list[RawResult]]) -> None:
         self.catalog = catalog
         self.asked: list[str] = []
+        #: Пол бюджета круга и признак выданного за целью бюджета - оба из договора
+        #: клиента (:class:`~torrcast.ports.torrent_catalogue.IndexerClient`): добор
+        #: двигает первый и читает второй, и молчаливой подделки у них не бывает.
+        self.cap_floor = 1.0
+        self.over_goal = False
 
     def __call__(self, url: str, apikey: str) -> FakeProwlarr:
         return self

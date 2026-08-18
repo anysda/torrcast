@@ -22,9 +22,8 @@ from torrcast.usecases.rank import render_table
 from torrcast.usecases.reinforce import _timed
 
 if TYPE_CHECKING:
-    from torrcast.ports.choice_types import Args
+    from torrcast.ports.choice_types import Args, _Plan
     from torrcast.usecases.facts import Facts
-    from torrcast.usecases.select import _Plan
 
     #: Чем ищется выдача: тот же поиск, что и у показа (:func:`_search`), либо ответ
     #: подделки в тесте. Тип назван подписью самого поиска, а не свободным `Any`:

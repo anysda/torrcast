@@ -8,7 +8,9 @@ from torrcast.domain.catalog_has_name import catalog_has_name
 from torrcast.domain.picture import Picture
 from torrcast.ports.passport_source import PassportSource
 from torrcast.ports.torrent_catalogue import IndexerClient, RawRow
-from torrcast.usecases.discover import _ask, _asked_kind, _no_budget
+from torrcast.usecases.discover._ask import _ask
+from torrcast.usecases.discover._asked_kind import _asked_kind
+from torrcast.usecases.discover._no_budget import _no_budget
 from torrcast.usecases.reinforce._leading import _leading
 from torrcast.usecases.reinforce.configure import _catalogue_port, _passport_port
 

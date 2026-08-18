@@ -58,19 +58,24 @@ def _warmer(
         return None
     encode = whole
     spots = () if whole is not None or recoder is None else tuple(recoder.targets)
+    # Решение точечного перекода спрашивается у самого кодировщика, а не у ``getattr``:
+    # слоты непусты только тогда, когда кодировщик есть (:class:`SpotRival`).
+    spot_encode = recoder.encode if spots and recoder is not None else None
+    # Пресет и битрейт называет то решение, которым кусок и будет взят; решения нет
+    # вовсе - и в записи стоят пустая строка и ноль, как стояли.
+    decided: Encoding | None = spot_encode or encode
     vault = Vault(
         root=warm_root(config.warm_dir),
         key=warm_key(source, audio, grid, encode, spots),
         budget=int(config.warm_budget_gb * 1e9),
         title=title,
     )
-    spot_encode = getattr(recoder, "encode", None) if spots else None
     journal().plan(
         pack="recode" if encode is not None else "copy",
         warm="recode" if encode is not None else "copy",
         spots=len(spots),
-        preset=str(getattr(spot_encode or encode, "preset", "")),
-        mbit=float(getattr(spot_encode or encode, "mbit", 0.0)),
+        preset=decided.preset if decided is not None else "",
+        mbit=decided.mbit if decided is not None else 0.0,
     )
     return Warmer(
         source=source,

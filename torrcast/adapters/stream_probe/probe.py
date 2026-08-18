@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 import subprocess
-from typing import Any
+from collections.abc import Callable
 
 from torrcast.adapters.ffprobe.parse_media import parse_media
 from torrcast.adapters.stream_probe.media_shelf import (
@@ -18,7 +18,7 @@ from torrcast.domain.infra_error import InfraError
 from torrcast.domain.media import Media
 
 
-def probe(url: str, timeout: float = 90.0, alive: Any = None) -> Media:
+def probe(url: str, timeout: float = 90.0, alive: Callable[[], bool] | None = None) -> Media:
     """Дорожки и длительность из HTTP-потока, не качая файл: ffprobe берёт заголовок mkv
     запросами Range — это и есть цена меню озвучек.
 

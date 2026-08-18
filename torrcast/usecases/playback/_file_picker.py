@@ -13,7 +13,7 @@ from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.release import Release
 from torrcast.domain.torr_file import TorrFile
 from torrcast.usecases.playback._numbered import _Numbered
-from torrcast.usecases.select import _Plan
+from torrcast.usecases.select._plan import _Plan
 
 
 def _default_file(plan: _Plan, release: Release, files: list[TorrFile]) -> TorrFile:

@@ -1,7 +1,8 @@
 """Второй заход по той же строке: забытая раскладка, цифра в названии и номер сезона.
 
-Зовёт их круг поиска (:func:`torrcast.usecases.discover._search`) - каждый ровно там, где
-иначе человек уже читал бы отказ.
+Зовёт их круг поиска (:func:`torrcast.usecases.discover._search._search`) - каждый ровно
+там, где иначе человек уже читал бы отказ. Живут они рядом с ним, а не в команде показа:
+честный импорт из команды дал бы настоящий цикл - показ и сам зовёт круг поиска.
 """
 
 from __future__ import annotations
@@ -9,7 +10,7 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
-import torrcast.usecases.cast_command._play_state as _state
+import torrcast.usecases.discover._search_state as _search_state
 from torrcast.domain.cluster import cluster
 from torrcast.domain.pick_franchise import pick_franchise
 from torrcast.domain.picture import Picture
@@ -18,7 +19,8 @@ from torrcast.domain.split_franchise_index import split_franchise_index
 from torrcast.domain.unswap_layout import unswap_layout
 from torrcast.ports.progress import Progress
 from torrcast.ports.torrent_catalogue import IndexerClient, RawRow
-from torrcast.usecases.discover import _ask, _no_budget
+from torrcast.usecases.discover._ask import _ask
+from torrcast.usecases.discover._no_budget import _no_budget
 
 if TYPE_CHECKING:
     from torrcast.ports.choice_types import Args
@@ -84,16 +86,16 @@ def _titled_number(
     стало бы неправдой про другую линейку.
     """
     if _no_budget(client, f"поиск «{query}» целиком", progress) is None:
-        return raw, cluster(_state._play_releases(raw)), []
+        return raw, cluster(_search_state._search_catalogue.to_releases(raw)), []
     progress.phase(f"поиск «{query}»")
-    merged = _state._play_merge(raw, _ask(client, query, progress))
+    merged = _search_state._search_catalogue.merge(raw, _ask(client, query, progress))
     progress.phase("")
     if len(merged) == len(raw):
-        return raw, cluster(_state._play_releases(raw)), []
-    pictures = cluster(_state._play_releases(merged))
+        return raw, cluster(_search_state._search_catalogue.to_releases(raw)), []
+    pictures = cluster(_search_state._search_catalogue.to_releases(merged))
     found = pick_franchise(query, pictures)
     if not found:
-        return raw, cluster(_state._play_releases(raw)), []
+        return raw, cluster(_search_state._search_catalogue.to_releases(raw)), []
     progress.note(f"по «{name}» картины не нашлось - искал «{query}» целиком")
     return merged, pictures, found
 

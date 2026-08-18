@@ -9,6 +9,7 @@ import pytest
 import torrcast.usecases.playback._show_state as _state
 from tests.usecases.playback.world import film_keys, grid
 from torrcast.domain.config import Config
+from torrcast.ports.journal import Silent, install
 from torrcast.recode import Encode, Recoder, Weights, whole_encode
 from torrcast.usecases.playback._warmer import _warmer
 
@@ -72,3 +73,50 @@ def test_the_place_of_the_show_becomes_the_place_of_the_warm_up(tmp_path: Path) 
 
     assert made is not None
     assert made.began_at == grid().slot_at(95.0)
+
+
+class _Noted(Silent):
+    """Молчащая лента, которая помнит одну запись плана кодирования."""
+
+    def __init__(self) -> None:
+        self.plans: list[tuple[str, float]] = []
+
+    def plan(self, pack: str, warm: str, spots: int, preset: str = "", mbit: float = 0.0) -> None:
+        self.plans.append((preset, mbit))
+
+
+def test_the_plan_names_the_decision_the_spots_are_taken_with(tmp_path: Path) -> None:
+    """Точечный перекод есть - в записи плана стоят ЕГО пресет и битрейт, а не чужие."""
+    config = Config(warm=True, warm_dir=str(tmp_path / "warm"))
+    weights = Weights.of(film_keys(), grid())
+    assert weights is not None
+    recoder = Recoder(
+        source="http://ts",
+        audio=0,
+        grid=grid(),
+        spare=tmp_path / "recode",
+        weights=weights,
+        threshold=0.0,
+        encode=Encode(preset="ultrafast", mbit=9.0),
+    )
+    noted = _Noted()
+    install(noted)
+    try:
+        _warmer(config, "http://ts", 0, grid(), 0.0, "кино", recoder=recoder)
+    finally:
+        install(Silent())
+
+    assert noted.plans == [("ultrafast", 9.0)]
+
+
+def test_without_any_recode_the_plan_stays_empty(tmp_path: Path) -> None:
+    """Ни сплошного, ни точечного перекода - в записи пустой пресет и нулевой битрейт."""
+    config = Config(warm=True, warm_dir=str(tmp_path / "warm"))
+    noted = _Noted()
+    install(noted)
+    try:
+        _warmer(config, "http://ts", 0, grid(), 0.0, "кино")
+    finally:
+        install(Silent())
+
+    assert noted.plans == [("", 0.0)]

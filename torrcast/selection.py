@@ -30,7 +30,6 @@ from torrcast.usecases.select import (
     TorrFile,
     WatchState,
     _about,
-    _Bench,
     _continue,
     _did_not_answer,
     _nothing_late,
@@ -48,6 +47,7 @@ from torrcast.usecases.select import (
     map_episodes,
     recode_note,
 )
+from torrcast.usecases.select_bench import _Bench
 
 __all__ = [
     "CAUTIOUS",

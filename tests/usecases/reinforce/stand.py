@@ -102,6 +102,12 @@ class Indexer:
         self.asked: list[str] = []
         #: Частный бюджет за целью ещё не выдан - как у свежего клиента поиска.
         self.over_goal = False
+        #: Пол бюджета круга: добор его двигает, и договор клиента о нём знает.
+        self.cap_floor = 1.0
+
+    def late(self) -> list[RawResult]:
+        """Опоздавших нет: круг тут отвечает разом (TC-118)."""
+        return []
 
     def spare(self) -> float:
         return self._spare

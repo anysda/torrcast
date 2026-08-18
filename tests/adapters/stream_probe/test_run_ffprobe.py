@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+from collections.abc import Callable
 
 import pytest
 
@@ -42,7 +43,9 @@ def test_the_budget_is_still_the_last_word() -> None:
 
 
 @pytest.mark.parametrize("alive", [None, lambda: True])
-def test_a_failed_probe_is_raised_the_same_way_on_both_paths(alive: object) -> None:
+def test_a_failed_probe_is_raised_the_same_way_on_both_paths(
+    alive: Callable[[], bool] | None,
+) -> None:
     """Оба пути обязаны отличать «не прочитал поток» от «не дождался» одинаково."""
     with pytest.raises(subprocess.CalledProcessError):
         _run_ffprobe(_FAIL, timeout=10.0, alive=alive)

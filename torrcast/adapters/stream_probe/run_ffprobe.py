@@ -6,12 +6,12 @@ from __future__ import annotations
 
 import subprocess
 import time
-from typing import Any
+from collections.abc import Callable
 
 from torrcast.domain.swarm_error import SwarmError
 
 
-def _run_ffprobe(command: list[str], timeout: float, alive: Any) -> str:
+def _run_ffprobe(command: list[str], timeout: float, alive: Callable[[], bool] | None) -> str:
     """Запустить ffprobe и вернуть stdout. Без ``alive`` — прежний :func:`subprocess.run`
     с тем же таймаутом; с ``alive`` — то же самое, но с возможностью оборвать чтение
     раньше бюджета, когда рой замолчал (:func:`swarm_pulse`).

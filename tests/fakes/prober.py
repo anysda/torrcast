@@ -1,5 +1,6 @@
 """Возвращает тестам паспорт медиа и запоминает источник."""
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from torrcast.domain.media import Media
@@ -13,7 +14,13 @@ class FakeProber:
     #: выбор релиза, и разницу видно только здесь.
     timeouts: list[float] = field(default_factory=list)
 
-    def __call__(self, source_url: str, /, timeout: float = 90.0) -> Media:
+    def __call__(
+        self,
+        source_url: str,
+        /,
+        timeout: float = 90.0,
+        alive: Callable[[], bool] | None = None,
+    ) -> Media:
         self.sources.append(source_url)
         self.timeouts.append(timeout)
         return self.result

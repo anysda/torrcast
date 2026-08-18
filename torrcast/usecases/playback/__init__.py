@@ -86,7 +86,8 @@ from torrcast.usecases.playback.stream_server import StreamServer
 from torrcast.usecases.playback.stream_servers import StreamServers
 from torrcast.usecases.playback.whole_encodings import WholeEncodings
 from torrcast.usecases.revive_playback import _hold, _Revival
-from torrcast.usecases.select import _about, _Plan
+from torrcast.usecases.select._about import _about
+from torrcast.usecases.select._plan import _Plan
 from torrcast.usecases.source_blame import _asked, _blamed
 from torrcast.usecases.start_budget import START_BUDGET
 from torrcast.usecases.start_clock import _Clock
