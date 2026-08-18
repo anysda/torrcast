@@ -61,10 +61,8 @@ def voiceless_pool(
     if not plans:
         return None
     plan = plans[first_alive(plans) - 1]
-    # Тип самого плана назвать пока нечем: у отбора он свой в каждом из двух фасадов
-    # (`torrcast.selection` и `torrcast.usecases.select`), и до их сведения `_Plan`
-    # остаётся `Any`. А вот картина у плана - обычная доменная :class:`Picture`, и
-    # наружу она уходит под своим именем, а не безымянной.
+    # Картина у плана - обычная доменная :class:`Picture`, и наружу она уходит под
+    # своим именем, а не безымянной.
     picture: Picture = plan.picture
     if picture.kind == "tv" or not picture.original or not picture.year:
         return None

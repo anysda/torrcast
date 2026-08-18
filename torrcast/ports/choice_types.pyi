@@ -1,5 +1,5 @@
 from torrcast.cast import Receiver as Receiver
-from torrcast.commands import Args as Args
+from torrcast.cli.args import Args as Args
 from torrcast.facts import Facts as Facts
 from torrcast.facts import Origin as Origin
 from torrcast.ports.progress import Progress as Progress

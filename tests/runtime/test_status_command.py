@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from tests.fakes.show_unit import FakeShowUnit
-from torrcast import commands
+from torrcast.runtime import status_command as status_module
 from torrcast.runtime.status_command import status_command
 
 
@@ -40,7 +40,7 @@ def test_the_configuration_is_read_once_for_the_whole_answer(
 
     show_unit.alive = True
     show_unit.playing = "movie:моана-2"
-    monkeypatch.setattr(commands, "load_config", counted)
+    monkeypatch.setattr(status_module, "load_config", counted)
 
     assert status_command() == 0
     assert reads == [1], "конфиг у команды один на все три вопроса сеанса"

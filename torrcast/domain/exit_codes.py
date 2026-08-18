@@ -1,5 +1,5 @@
 """Коды возврата ``cast``: ``0`` ок, ``1`` не нашли, ``2`` инфра-ошибка.
-Читают их все сценарии команд и :func:`torrcast.commands.main`.
+Читают их все сценарии команд и :func:`torrcast.cli.main.main`.
 """
 
 from typing import Final

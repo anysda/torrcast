@@ -19,8 +19,8 @@ from typing import Any
 from torrcast.domain.picture import Picture
 from torrcast.domain.rank_settings import ALIVE_SEEDERS
 from torrcast.domain.release import Release
-from torrcast.selection import _Plan
 from torrcast.usecases.choice import fitness, liveliness, warned
+from torrcast.usecases.select import _Plan
 
 #: Десятичный гигабайт: в них считают размер раздачи и трекеры, и наша прикидка веса.
 GB = 1000**3

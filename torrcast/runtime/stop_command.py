@@ -1,5 +1,5 @@
 """Собирает команду ``cast stop``: сеанс поверх юнита плюс сценарий остановки.
-Зовёт её :func:`torrcast.commands.main`.
+Зовёт её :func:`torrcast.cli.main.main`.
 """
 
 from __future__ import annotations

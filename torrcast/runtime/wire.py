@@ -62,24 +62,17 @@ from torrcast.runtime.native_picture import native_picture
 from torrcast.runtime.trace_thresholds import trace_thresholds
 from torrcast.usecases.cache_reserve import _configure_cache_reserve
 from torrcast.usecases.cast_command import _configure_cast_command
-from torrcast.usecases.choice import configure as configure_choice
+from torrcast.usecases.choice.configure import configure as configure_choice
 from torrcast.usecases.discover import _configure_discover
 from torrcast.usecases.doctor import _configure as configure_checks
 from torrcast.usecases.doctor_command import _configure as configure_doctor
 from torrcast.usecases.episode_duration import _configure_episode_duration
 from torrcast.usecases.feed_pack import configure as configure_feed
 from torrcast.usecases.playback import _configure_playback
-from torrcast.usecases.rank import (
-    _cut,
-    bitrate_of,
-    hevc_hope,
-    is_candidate,
-    is_dated,
-)
-from torrcast.usecases.rank import (
-    configure as configure_rank,
-)
+from torrcast.usecases.rank import _cut, bitrate_of, hevc_hope, is_candidate, is_dated
+from torrcast.usecases.rank import configure as configure_rank
 from torrcast.usecases.reinforce import _timed
+from torrcast.usecases.reinforce.configure import configure as configure_reinforce
 from torrcast.usecases.releases_command import _configure_releases_command
 from torrcast.usecases.revive_playback import _configure_revive_playback
 from torrcast.usecases.select import _configure_select
@@ -116,10 +109,10 @@ def wire() -> None:
     _configure_choice_environment(
         FACTS.passport.of, _cut, bitrate_of, hevc_hope, is_candidate, is_dated, _timed
     )
-    # 🔴 То же самое и у выбора раздачи, только фасад-смертник `torrcast.choice` пока
-    # кем-то импортируется, и потому беда прячется. Держится она на порядке импортов, а
-    # не на корне: снесёт разрез фасад - и выбор упадёт `NameError` на живом запуске, а
-    # не на гейте. Раздаём отсюда, пока фасад ещё есть (TC-630).
+    # 🔴 То же и у выбора раздачи: среду раздавал импорт фасада-смертника `torrcast.choice`,
+    # и беда пряталась за порядком импортов. Фасада нет, раздаёт корень (TC-630). ⚠️ Слот
+    # берётся ИМЕНЕМ ИЗ МОДУЛЯ: у пакета-части плоского namespace короткое `configure`
+    # затёрто одноимённой единицей ранжирования, и среда встала бы в никуда, молча.
     configure_choice(choice_environment)
     # И у ранжирования то же: печать ему раздавал импорт совместимого фасада.
     configure_rank(PrintConsole())
@@ -142,9 +135,13 @@ def wire() -> None:
     # вручную релиза, - и спрашивает человека о начале сериала заново. Служба,
     # чтение паспорта и вопрос приходят отсюда, а не из строки с именем фасада.
     _configure_select(TorrServer, probe, ask_line)
-    # Поиск: сырая выдача каталога, справка о картинах и завод клиента индексеров.
-    # Всё трое ходят в сеть, и слою сценариев их не назвать - только корню.
+    # Поиск: сырая выдача каталога, справка о картинах и завод клиента индексеров. Все
+    # трое ходят в сеть, и слою сценариев их не назвать - только корню. Добор берёт первые
+    # два тем же порядком: прежде их раздавал импорт фасада-смертника `torrcast.reinforce`,
+    # единственного, кто видел сразу `torrcast.search` и `torrcast.facts` (TC-632). Слот -
+    # снова именем из модуля, по причине выше.
     _configure_discover(torrent_catalogue, FACTS.passport.of, Prowlarr)
+    configure_reinforce(torrent_catalogue, FACTS.passport.of)
     # Юнит показа поднимает systemd, а не CLI: свой внешний мир он получает здесь же и
     # целиком, иначе показ узнавал бы имя `TorrServer` из строки уже внутри юнита.
     _configure_worker(TorrServer, make_receiver, Supply, load_config, detector.detect)

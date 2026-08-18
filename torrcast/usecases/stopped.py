@@ -1,5 +1,5 @@
 """Штатный конец показа по SIGTERM от ``cast stop``.
-Ставит обработчик юнит показа, ловит его :func:`torrcast.commands.main`.
+Ставит обработчик юнит показа, ловит его :func:`torrcast.cli.main.main`.
 """
 
 from __future__ import annotations

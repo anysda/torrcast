@@ -1,5 +1,5 @@
 """Команда ``cast log [--since]``: выжимка недельного диагностического следа.
-Зовёт её :func:`torrcast.commands.main`; внешних систем на пути нет.
+Зовёт её :func:`torrcast.cli.main.main`; внешних систем на пути нет.
 """
 
 from __future__ import annotations

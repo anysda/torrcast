@@ -5,8 +5,8 @@
 своего. Структурный гейт этого не видит: плоский модуль для него «не разложено»,
 а зелёный прогон одинаково доволен и переездом, и копией рядом.
 
-    facade-audit torrcast/discovery.py torrcast/selection.py
-    facade-audit --strict torrcast/discovery.py
+    facade-audit torrcast/commands.py torrcast/stream.py
+    facade-audit --strict torrcast/commands.py
 
 Считаются определения верхнего уровня и строки их тел. У фасада и то и другое ноль.
 """

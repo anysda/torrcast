@@ -1,5 +1,5 @@
 """Показ внутри transient-юнита: своя раздача, свой приёмник и своя уборка на выходе.
-Зовёт его ``ExecStart`` юнита ``torrcast-play`` через :func:`torrcast.commands.main`.
+Зовёт его ``ExecStart`` юнита ``torrcast-play`` через :func:`torrcast.cli.main.main`.
 """
 
 from __future__ import annotations
@@ -72,7 +72,8 @@ def _cmd_worker(key: str) -> int:
     слову, видна весь показ (проверено на TorrServer MatriX.142.2), но своей её там
     ничто не называет. Пока уборки тут не было, каждый сеанс оставлял по раздаче
     навсегда - до перезапуска TorrServer, - и они копились ровно в той службе, которая
-    падает по таймеру тем вероятнее, чем их больше (:data:`torrcast.commands.MAX_LIVE`).
+    падает по таймеру тем вероятнее, чем их больше
+    (:data:`torrcast.domain.prewarm_settings.MAX_LIVE`).
     Убирается своё и только своё, по хэшам, которые юнит завёл сам, и на любом выходе:
     штатный конец, ошибка и SIGTERM от ``cast stop`` (он приходит как
     :class:`torrcast.usecases.stopped._Stopped` и раскручивает ``finally`` наравне с

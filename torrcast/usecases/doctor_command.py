@@ -1,5 +1,5 @@
 """Команда ``cast doctor``: самопроверка окружения по-русски и общий вердикт.
-Зовёт её :func:`torrcast.commands.main`, сами проверки живут в :mod:`torrcast.usecases.doctor`.
+Зовёт её :func:`torrcast.cli.main.main`, сами проверки живут в :mod:`torrcast.usecases.doctor`.
 """
 
 from __future__ import annotations

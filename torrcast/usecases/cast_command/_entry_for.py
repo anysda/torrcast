@@ -57,6 +57,6 @@ def _entry_for(
         episode=series.want.episode if series else None,
         # Список серий берётся у ТОЙ раздачи, которую играем, и разбирается здесь заново:
         # подготовка спрашивает соседние раздачи параллельно, и общего места, где список
-        # мог бы полежать, у них нет (:meth:`torrcast.selection._Series.choose`).
+        # мог бы полежать, у них нет (:meth:`torrcast.domain._series._Series.choose`).
         episodes=series.table(prep.files, release.season) if series else [],
     )

@@ -1,6 +1,7 @@
 """Слоты каталога раздач и справки о картинах.
 
-Ставит их совместимый фасад :mod:`torrcast.reinforce`, спрашивают все круги добора."""
+Ставит их композиционный корень (:func:`torrcast.runtime.wire.wire`), спрашивают все
+круги добора."""
 
 from __future__ import annotations
 
@@ -8,8 +9,8 @@ from torrcast.ports.passport_source import PassportSource
 from torrcast.ports.torrent_catalogue import TorrentCatalogue
 
 #: Каталог раздач и справка о картинах - единственное, что у добора снаружи. Ставит их
-#: фасад :mod:`torrcast.reinforce`: только он видит и :mod:`torrcast.search`, и
-#: :mod:`torrcast.facts`, которые по слоям ещё не разложены.
+#: корень: за первым стоит адаптер индексеров, за второй - паспорт справки, и оба он же
+#: раздаёт поиску.
 #:
 #: ⚠️ Имена тут длиннее очевидных нарочно. Плоский namespace прежнего монолита
 #: (:mod:`torrcast.cli`) вписывает в КАЖДУЮ свою часть globals всех остальных, и короткое

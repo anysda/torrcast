@@ -24,18 +24,11 @@ def test_wiring_puts_the_real_journal_on_the_port() -> None:
     assert isinstance(journal(), FileJournal)
 
 
-#: Сценарии, чьё связывание сознательно живёт в совместимом фасаде, а не в корне.
-#: Единственный жилец - добор кандидатов: его каталог (:mod:`torrcast.search`) и справка
-#: о картинах (:mod:`torrcast.facts`) по слоям ещё не разложены, и назвать их вправе
-#: только модуль вне слоёв (докстрока `torrcast/reinforce.py`). Переедет в корень вместе
-#: с ними, TC-632. Список именной намеренно: молчаливый пропуск неотличим от дыры.
-_BOUND_BY_FACADE = {"torrcast.usecases.reinforce.configure"}
-
 #: Вопрос задаётся СВЕЖЕМУ процессу и по одному модулю за раз, потому что оба соседа
 #: покупают ответ. Общий прогон покупает его чужим импортом: сосед по набору втянул
 #: совместимый фасад, и тот раздал среду побочным эффектом. Обход всего дерева в одном
-#: процессе покупает его сам у себя: `torrcast/choice.py` импортируется раньше
-#: `torrcast/usecases/choice.py` просто по алфавиту - и к моменту вопроса среда уже стоит.
+#: процессе покупал его сам у себя: `torrcast/choice.py` импортировался раньше
+#: `torrcast/usecases/choice.py` просто по алфавиту - и к моменту вопроса среда уже стояла.
 #: Спрашивать надо ровно одно: раздал ли КОРЕНЬ, а не подвернулся ли импорт.
 _UNBOUND_AFTER_WIRING = """
 import ast, importlib, pathlib, sys
@@ -90,12 +83,13 @@ def test_no_scenario_is_left_without_its_environment() -> None:
     беду у выбора раздачи (TC-630): она делала ``import torrcast.cli`` «как точка входа»,
     а тот тянул фасад, который среду и раздавал. Мера ответа не покупает: корень
     зовётся в одиночку, каждый модуль спрашивается своим процессом.
+
+    Исключений у меры больше нет: последним связыванием вне корня оставался добор
+    кандидатов, и оно переехало сюда вместе со сносом фасада ``torrcast.reinforce``.
     """
     root = Path(__file__).resolve().parents[2]
     empty = []
     for name in _modules_with_bare_declarations(root):
-        if name in _BOUND_BY_FACADE:
-            continue
         done = subprocess.run(
             [sys.executable, "-c", _UNBOUND_AFTER_WIRING, name],
             capture_output=True,

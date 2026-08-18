@@ -8,7 +8,6 @@ from __future__ import annotations
 
 from typing import Any
 
-import torrcast.reinforce  # noqa: F401  - импорт фасада и есть связывание портов добора
 from torrcast.domain.cluster import cluster
 from torrcast.domain.pick_franchise import pick_franchise
 from torrcast.domain.picture import Picture
