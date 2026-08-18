@@ -5,15 +5,21 @@
 from __future__ import annotations
 
 import ipaddress
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 
-from torrcast.adapters.chromecast import scan as _scan
 from torrcast.adapters.chromecast.scan.alive import PROBE_TIMEOUT
-from torrcast.adapters.chromecast.scan.by_mdns import MDNS_TIMEOUT
-from torrcast.adapters.chromecast.scan.by_scan import BUDGET, WORKERS
+from torrcast.adapters.chromecast.scan.by_mdns import MDNS_TIMEOUT, by_mdns
+from torrcast.adapters.chromecast.scan.by_scan import BUDGET, WORKERS, by_scan
 from torrcast.adapters.chromecast.scan.device import Device
 from torrcast.adapters.chromecast.scan.found import Found
-from torrcast.adapters.chromecast.scan.subnets import MAX_HOSTS
+from torrcast.adapters.chromecast.scan.hosts import hosts
+from torrcast.adapters.chromecast.scan.interfaces import interfaces
+from torrcast.adapters.chromecast.scan.mdns import Mdns
+from torrcast.adapters.chromecast.scan.named import named
+from torrcast.adapters.chromecast.scan.net import Net
+from torrcast.adapters.chromecast.scan.skipped import skipped
+from torrcast.adapters.chromecast.scan.subnets import MAX_HOSTS, subnets
 
 
 def find(
@@ -21,6 +27,11 @@ def find(
     timeout: float = PROBE_TIMEOUT,
     limit: int = MAX_HOSTS,
     budget: float = BUDGET,
+    *,
+    nets: Callable[[], list[Net]] = interfaces,
+    listen: Callable[[float], Mdns] = by_mdns,
+    walk: Callable[[list[str], float, int, float], list[str]] = by_scan,
+    name: Callable[[str], Device] = named,
 ) -> Found:
     """Все приёмники, каких видно с этого хоста: mDNS и обход подсетей разом.
 
@@ -31,14 +42,19 @@ def find(
     Слияние по адресу: одно устройство находится обоими способами сразу, и вторым
     пунктом в меню оно появляться не должно. Имя от mDNS выигрывает - оно то самое, что
     человек видит в настройках телевизора.
+
+    ⚠️ Ноги хоста, слушание, обход и опрос имени - это сеть, и на стенде их не бывает.
+    Приезжают они сюда аргументами с боевым умолчанием, а не спрашиваются у пакета по
+    имени: пока их доставала подмена атрибута, зеркало знало не договор поиска, а то,
+    какими именами соседи разложены по файлам.
     """
-    nets = _scan.interfaces()
-    ours = {net.address for net in nets}
-    networks, huge = _scan.subnets(nets, limit=limit)
-    notes = [line for line in (_scan.skipped(huge),) if line]
+    found_nets = nets()
+    ours = {net.address for net in found_nets}
+    networks, huge = subnets(found_nets, limit=limit)
+    notes = [line for line in (skipped(huge),) if line]
     with ThreadPoolExecutor(max_workers=2) as pool:
-        listening = pool.submit(_scan.by_mdns, mdns_timeout)
-        scanning = pool.submit(_scan.by_scan, _scan.hosts(networks, ours), timeout, WORKERS, budget)
+        listening = pool.submit(listen, mdns_timeout)
+        scanning = pool.submit(walk, hosts(networks, ours), timeout, WORKERS, budget)
         heard = listening.result()
         addresses = scanning.result()
     if heard.note:  # почему mDNS пуст: нет модуля, нет мультикаста или тишина в эфире
@@ -48,7 +64,7 @@ def find(
     fresh = [address for address in addresses if address not in known]
     if fresh:
         with ThreadPoolExecutor(max_workers=min(WORKERS, len(fresh))) as pool:
-            named_by_scan = list(pool.map(_scan.named, fresh))
+            named_by_scan = list(pool.map(name, fresh))
     devices = {device.address: device for device in named_by_scan}
     for device in heard.devices:  # имя от mDNS перебивает добытое обходом
         devices[device.address] = device

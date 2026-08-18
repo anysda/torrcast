@@ -7,8 +7,8 @@ from typing import Any
 import pytest
 
 from tests.adapters.chromecast.cast.wired import Wired
+from tests.fakes.journal import Tape
 from torrcast.adapters.chromecast.cast.reload import _reload
-from torrcast.adapters.filesystem.trace_journal.writer import _Writer
 
 
 class _Quiet(Wired):
@@ -29,15 +29,8 @@ class _Quiet(Wired):
         self.loads.append(at)
 
 
-@pytest.fixture
-def queued(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
-    seen: list[dict[str, Any]] = []
-    monkeypatch.setattr(_Writer, "put", lambda _self, record: seen.append(record))
-    return seen
-
-
 def test_the_receiver_is_brought_back_exactly_where_it_stumbled(
-    queued: list[dict[str, Any]], capsys: pytest.CaptureFixture[str]
+    tape: Tape, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Манифест описывает весь фильм, поэтому вернуть приёмник туда - это позиция в LOAD.
 
@@ -50,13 +43,13 @@ def test_the_receiver_is_brought_back_exactly_where_it_stumbled(
     assert receiver.loads == [1272.4]
     assert receiver.restarts == 1
     assert receiver._reloads == 1
-    assert [rec["event"] for rec in queued] == ["reload"]
-    assert queued[0]["error"] == 905
+    assert tape.events() == ["reload"]
+    assert tape.named("reload")[0]["error"] == 905
     assert "повтор LOAD" in capsys.readouterr().out
 
 
 def test_the_retries_run_out_and_the_trouble_stops_being_ours(
-    queued: list[dict[str, Any]],
+    tape: Tape,
 ) -> None:
     """Ровно столько попыток, сколько разрешает профиль: дальше это не наша авария."""
     receiver = _Quiet()
@@ -67,7 +60,7 @@ def test_the_retries_run_out_and_the_trouble_stops_being_ours(
 
 
 def test_a_receiver_that_left_mid_retry_is_left_to_the_next_tick(
-    queued: list[dict[str, Any]],
+    tape: Tape,
 ) -> None:
     """Приёмник мог просто уйти - решает следующий тик, а не исключение из сторожа."""
     receiver = _Quiet(breaks=True)
@@ -77,7 +70,7 @@ def test_a_receiver_that_left_mid_retry_is_left_to_the_next_tick(
 
 
 def test_stepping_over_a_deadly_segment_moves_the_peak_with_the_show(
-    queued: list[dict[str, Any]], capsys: pytest.CaptureFixture[str]
+    tape: Tape, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Перешагнули - максимум обязан уехать вместе с показом.
 

@@ -4,27 +4,18 @@ from __future__ import annotations
 
 from typing import Any
 
-import pytest
-
 from tests.adapters.chromecast.cast.wired import Wired
 from tests.fakes.clock import FakeClock
+from tests.fakes.journal import Tape
 from torrcast.adapters.chromecast.cast.watch_seek import _watch_seek
-from torrcast.adapters.filesystem.trace_journal.writer import _Writer
 
 
-@pytest.fixture
-def queued(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
-    seen: list[dict[str, Any]] = []
-    monkeypatch.setattr(_Writer, "put", lambda _self, record: seen.append(record))
-    return seen
-
-
-def _seeks(queued: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    return [rec for rec in queued if rec.get("event") == "seek"]
+def _seeks(tape: Tape) -> list[dict[str, Any]]:
+    return tape.named("seek")
 
 
 def test_the_wait_is_measured_to_the_picture_and_not_to_the_word_playing(
-    queued: list[dict[str, Any]],
+    tape: Tape,
 ) -> None:
     """Приёмник говорит ``PLAYING`` РАНЬШЕ первого кадра.
 
@@ -37,22 +28,22 @@ def test_the_wait_is_measured_to_the_picture_and_not_to_the_word_playing(
 
     _watch_seek(receiver, 100.0, "PLAYING")  # обычный ход показа
     _watch_seek(receiver, 900.0, "PLAYING")  # прыжок: перемотка замечена
-    assert _seeks(queued) == [], "картинки ещё не было - записи тоже"
+    assert _seeks(tape) == [], "картинки ещё не было - записи тоже"
 
     clock.now += 6.0
     _watch_seek(receiver, 900.0, "PLAYING")  # указатель стоит: кадра нет
-    assert _seeks(queued) == []
+    assert _seeks(tape) == []
 
     _watch_seek(receiver, 900.0 + receiver.PICTURE_STEP, "PLAYING")
 
-    (rec,) = _seeks(queued)
+    (rec,) = _seeks(tape)
     assert rec["frm"] == 100.0
     assert rec["to"] == 900.0
     assert rec["wait"] == 6.0
 
 
 def test_the_watchdogs_own_jump_is_not_counted_as_a_seek(
-    queued: list[dict[str, Any]],
+    tape: Tape,
 ) -> None:
     """Сторож только что назвал это место сам - перемоткой человека это не считается."""
     receiver = Wired()
@@ -61,12 +52,12 @@ def test_the_watchdogs_own_jump_is_not_counted_as_a_seek(
     _watch_seek(receiver, 100.0, "BUFFERING")
     _watch_seek(receiver, 900.0, "BUFFERING")
 
-    assert _seeks(queued) == []
+    assert _seeks(tape) == []
     assert receiver._nudged_to == -1.0, "на второй прыжок нужен и второй нудж"
 
 
 def test_a_dead_session_is_not_a_rewind_to_the_beginning(
-    queued: list[dict[str, Any]],
+    tape: Tape,
 ) -> None:
     """У мёртвой сессии позиции нет вовсе, и её ноль - не перемотка в начало.
 
@@ -79,11 +70,11 @@ def test_a_dead_session_is_not_a_rewind_to_the_beginning(
     _watch_seek(receiver, 0.0, "IDLE")
 
     assert receiver._seen == 500.0, "позиции не было - сравнивать не с чем"
-    assert _seeks(queued) == []
+    assert _seeks(tape) == []
 
 
 def test_a_second_seek_in_a_row_closes_the_first_one_with_a_record(
-    queued: list[dict[str, Any]],
+    tape: Tape,
 ) -> None:
     """Человек мотает второй раз - первая перемотка кончилась ничем, и это записано."""
     receiver = Wired()
@@ -92,6 +83,6 @@ def test_a_second_seek_in_a_row_closes_the_first_one_with_a_record(
 
     _watch_seek(receiver, 2000.0, "PLAYING")
 
-    closed = _seeks(queued)
+    closed = _seeks(tape)
     assert [rec["wait"] for rec in closed] == [None]
     assert closed[0]["why"] == "следом пришла ещё одна перемотка"

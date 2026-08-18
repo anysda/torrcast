@@ -7,7 +7,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from torrcast.adapters.chromecast import scan as _scan
+from torrcast.adapters.chromecast.scan.find import find as find_receivers
 from torrcast.domain.receiver_info import ReceiverInfo
 from torrcast.ports.progress import progress as progress_bar
 
@@ -24,8 +24,7 @@ class NetworkReceiverFinder:
         self._notes: list[str] = []
 
     def find(self, name: str | None = None) -> list[ReceiverInfo]:
-        # Обход спрашивается у модуля в момент поиска: подмену сети ставят именно на него.
-        discover = self._discover if self._discover is not None else _scan.find
+        discover = self._discover if self._discover is not None else find_receivers
         with progress_bar() as progress:
             progress.phase("ищу приёмники в сети")
             found = discover()

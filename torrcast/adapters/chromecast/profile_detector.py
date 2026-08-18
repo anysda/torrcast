@@ -11,13 +11,17 @@ chromecast.scan.named`) и память о нём. Ответ кэшируетс
 
 from __future__ import annotations
 
-from typing import Final
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Final
 
 from torrcast.domain.by_key import by_key
 from torrcast.domain.choice import Choice
 from torrcast.domain.for_passport import for_passport
 from torrcast.domain.profile import CAUTIOUS
 from torrcast.ports.health_config import HealthConfig
+
+if TYPE_CHECKING:
+    from torrcast.adapters.chromecast.scan.device import Device
 
 #: Сколько ждём паспорт приёмника: он отвечает мгновенно или не отвечает вовсе.
 PASSPORT_TIMEOUT: Final = 2.0
@@ -26,9 +30,14 @@ PASSPORT_TIMEOUT: Final = 2.0
 class ProfileDetector:
     """Профиль приёмника с памятью на адрес: спрашиваем устройство один раз на процесс."""
 
-    def __init__(self, timeout: float = PASSPORT_TIMEOUT) -> None:
+    def __init__(
+        self,
+        timeout: float = PASSPORT_TIMEOUT,
+        ask: Callable[..., Device] | None = None,
+    ) -> None:
         self._seen: dict[str, Choice] = {}
         self._timeout = timeout
+        self._ask = ask
 
     def detect(self, config: HealthConfig) -> Choice:
         """Выбрать профиль: ручной ключ, затем сохранённый или опрошенный паспорт."""
@@ -52,10 +61,11 @@ class ProfileDetector:
     def _asked(self, address: str) -> Choice:
         """Спросить паспорт у самого устройства. Молчание - осторожный профиль, не авария.
 
-        Опрос зовётся отсюда, а не с верха модуля: подмена в тестах и ленивая цена
-        импорта сети держатся на том, что имя берётся в момент вопроса.
+        Кем спрашивать, знает либо тот, кто завёл прибор, либо умолчание - штатный опрос
+        (:func:`torrcast.adapters.chromecast.scan.named`). Импорт умолчания ленивый: сеть
+        стоит секунд на импорте, а профиль спрашивают и там, где до неё не дойдёт.
         """
-        from torrcast.adapters.chromecast.scan import named as ask
+        ask = self._ask if self._ask is not None else self._named()
 
         try:
             device = ask(address, timeout=self._timeout)
@@ -67,6 +77,13 @@ class ProfileDetector:
         return Choice(
             for_passport(device.maker, device.model, device.name), f"по паспорту: {passport}"
         )
+
+    @staticmethod
+    def _named() -> Callable[..., Device]:
+        """Штатный опрос устройства; берётся в момент вопроса, а не на импорте модуля."""
+        from torrcast.adapters.chromecast.scan.named import named
+
+        return named
 
 
 #: Один кэш на процесс: и показ, и ``cast doctor`` спрашивают профиль у него же.

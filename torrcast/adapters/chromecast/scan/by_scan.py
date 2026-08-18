@@ -5,11 +5,11 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from typing import Final
 
-from torrcast.adapters.chromecast import scan as _scan
-from torrcast.adapters.chromecast.scan.alive import PROBE_TIMEOUT
+from torrcast.adapters.chromecast.scan.alive import PROBE_TIMEOUT, alive
 
 #: Сколько адресов щупаем разом. Упирается не в процессор, а в сокеты и таймауты.
 WORKERS: Final = 128
@@ -22,6 +22,8 @@ def by_scan(
     timeout: float = PROBE_TIMEOUT,
     workers: int = WORKERS,
     budget: float = BUDGET,
+    *,
+    probe_address: Callable[..., bool] = alive,
 ) -> list[str]:
     """Обойти адреса параллельно и вернуть те, где живой приёмник.
 
@@ -29,6 +31,9 @@ def by_scan(
     ``/24`` с секундным таймаутом - это четыре минуты, то есть никто этим пользоваться
     не станет. Бюджет - второй предохранитель: сколько бы подсетей ни было, ждать
     дольше нельзя, лучше показать найденное.
+
+    ⚠️ Щуп адреса - настоящее TLS-рукопожатие, и на стенде его не бывает: он приезжает
+    сюда аргументом с боевым умолчанием, а не спрашивается у пакета по имени.
     """
     if not addresses:
         return []
@@ -38,7 +43,7 @@ def by_scan(
     def probe(address: str) -> str:
         if time.monotonic() > deadline:
             return ""
-        return address if _scan.alive(address, timeout=timeout) else ""
+        return address if probe_address(address, timeout=timeout) else ""
 
     with ThreadPoolExecutor(max_workers=min(workers, len(addresses))) as pool:
         for answer in pool.map(probe, addresses):

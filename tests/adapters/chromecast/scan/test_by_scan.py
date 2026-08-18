@@ -2,33 +2,29 @@
 
 from __future__ import annotations
 
-import pytest
-
-from torrcast.adapters.chromecast import scan
 from torrcast.adapters.chromecast.scan.by_scan import BUDGET, WORKERS, by_scan
 
 
-def test_only_the_addresses_that_answered_come_back(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_only_the_addresses_that_answered_come_back() -> None:
     """Обход возвращает адреса живых приёмников и сохраняет их порядок.
 
     Порядок держит сортировку меню предсказуемой: пункт «второй телевизор» не должен
     прыгать между запусками из-за того, кто ответил быстрее.
     """
-    monkeypatch.setattr(scan, "alive", lambda address, timeout=0.0: address.endswith(("50", "60")))
+    answers = by_scan(
+        ["10.0.0.9", "10.0.0.50", "10.0.0.60"],
+        probe_address=lambda address, timeout=0.0: address.endswith(("50", "60")),
+    )
 
-    assert by_scan(["10.0.0.9", "10.0.0.50", "10.0.0.60"]) == ["10.0.0.50", "10.0.0.60"]
+    assert answers == ["10.0.0.50", "10.0.0.60"]
 
 
-def test_an_empty_list_does_not_raise_a_pool_at_all(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_an_empty_list_does_not_raise_a_pool_at_all() -> None:
     """Обходить нечего - и поток заводить незачем: пустой пул ThreadPoolExecutor запрещает."""
-    monkeypatch.setattr(scan, "alive", lambda address, timeout=0.0: True)
-
-    assert by_scan([]) == []
+    assert by_scan([], probe_address=lambda address, timeout=0.0: True) == []
 
 
-def test_the_budget_stops_the_walk_even_if_the_subnets_are_many(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_the_budget_stops_the_walk_even_if_the_subnets_are_many() -> None:
     """Бюджет - второй предохранитель: лучше показать найденное, чем ждать дольше.
 
     Нулевой бюджет означает «время уже вышло», и ни один адрес щупаться не должен.
@@ -39,9 +35,7 @@ def test_the_budget_stops_the_walk_even_if_the_subnets_are_many(
         asked.append(address)
         return True
 
-    monkeypatch.setattr(scan, "alive", probe)
-
-    assert by_scan(["10.0.0.1", "10.0.0.2"], budget=-1.0) == []
+    assert by_scan(["10.0.0.1", "10.0.0.2"], budget=-1.0, probe_address=probe) == []
     assert asked == []
 
 

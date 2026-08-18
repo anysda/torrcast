@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import importlib
+import inspect
+
 import pytest
 
 from tests.adapters.chromecast.cast.wired import Wired
@@ -56,37 +59,49 @@ def test_the_remote_commands_do_not_touch_the_watchdog_state() -> None:
     assert (receiver._peak, receiver._stall_hits) == (500.0, 2)
 
 
-def test_every_task_of_the_show_is_forwarded_to_its_own_file(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+#: Занятие показа и файл, в котором оно живёт: имя метода приёмника - имя занятия.
+_TASKS = (
+    ("play", "play"),
+    ("stop", "stop"),
+    ("position", "position"),
+    ("replay", "replay"),
+    ("_say_skip", "say_skip"),
+    ("_past_deadly", "past_deadly"),
+    ("_reload", "reload"),
+    ("_nudge", "nudge"),
+    ("_watch_seek", "watch_seek"),
+    ("_drop_seek", "drop_seek"),
+)
+
+
+@pytest.mark.parametrize(("method", "file"), _TASKS)
+def test_every_task_of_the_show_is_forwarded_to_its_own_file(method: str, file: str) -> None:
     """Метод приёмника - имя занятия, а тело занятия лежит своим файлом рядом.
 
-    Проверяется именно передача: разъедься имя метода и занятие, показ звал бы чужую
-    работу молча - и это была бы ровно та поломка, которую в файле на девятьсот строк
-    не видно.
+    Спрашивается тут именно связь: метод обязан звать СВОЁ занятие и ничьё чужое, и
+    занятие это обязано быть тем самым, что лежит в одноимённом файле. Разъедься имя
+    метода и занятие - показ звал бы чужую работу молча, и это была бы ровно та
+    поломка, которую в файле на девятьсот строк не видно.
     """
-    receiver = Wired()
-    calls: list[tuple[str, tuple[object, ...]]] = []
+    unit = f"_{file}"
+    called = ChromecastReceiver.__dict__[method].__code__.co_names
 
-    for name in ("_play", "_stop", "_position", "_replay", "_say_skip", "_nudge"):
+    assert called == (unit,), f"{method} зовёт {called}, а обязан звать одно занятие {unit}"
+    home_of_unit = importlib.import_module(f"torrcast.adapters.chromecast.cast.{file}")
+    assert getattr(home, unit) is getattr(home_of_unit, unit), "занятие взято не из своего файла"
 
-        def spy(_rcv: object, *rest: object, _name: str = name) -> None:
-            calls.append((_name, rest))
 
-        monkeypatch.setattr(home, name, spy)
+@pytest.mark.parametrize(("method", "file"), _TASKS)
+def test_the_task_is_asked_for_exactly_what_the_method_promised(method: str, file: str) -> None:
+    """Договор метода и договор занятия - один: приёмник добавляет к нему только себя.
 
-    receiver.play("http://дом/поток.m3u8", "Моана", 10.0)
-    receiver.stop(quit_app=True)
-    receiver.position(front=144.0)
-    receiver.replay(500.0)
-    receiver._say_skip(200.0)
-    receiver._nudge(84.0, 144.0)
+    Разойдись они - подмена аргументов проехала бы молча: занятие взяло бы место
+    вторым числом там, где метод обещал первое, и разница видна была бы только на
+    экране. Проверяется тут ровно то, чего не видит сверка имён.
+    """
+    unit = getattr(home, f"_{file}")
+    promised = list(inspect.signature(ChromecastReceiver.__dict__[method]).parameters.values())
+    asked = list(inspect.signature(unit).parameters.values())
 
-    assert calls == [
-        ("_play", ("http://дом/поток.m3u8", "Моана", 10.0)),
-        ("_stop", (True,)),
-        ("_position", (144.0,)),
-        ("_replay", (500.0,)),
-        ("_say_skip", (200.0,)),
-        ("_nudge", (84.0, 144.0)),
-    ]
+    assert promised[0].name == "self" and asked[0].name in {"rcv", "receiver"}
+    assert promised[1:] == asked[1:], "занятие спрашивает не то, что метод обещал"

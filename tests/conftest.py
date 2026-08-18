@@ -18,6 +18,7 @@ import pytest
 
 from tests.fakes import composition
 from tests.fakes.cast_world import CastWorld
+from tests.fakes.journal import Tape
 from tests.fakes.show_unit import FakeShowUnit
 from torrcast.adapters.console import console
 from torrcast.adapters.filesystem.trace_journal import LOG_ENV, SID_ENV
@@ -348,6 +349,18 @@ def show_unit(_ports_restored: None) -> FakeShowUnit:
     """
     fake = FakeShowUnit()
     unit_port.install(fake)
+    return fake
+
+
+@pytest.fixture
+def tape(_ports_restored: None) -> Tape:
+    """Лента под тестом - подделка на порту: зеркало спрашивает, ЧТО рассказал показ.
+
+    Файл ленты тут не заводится вовсе, поэтому фонового писателя ждать не приходится, а
+    округление и раскладка полей остаются заботой самой ленты и её зеркал.
+    """
+    fake = Tape()
+    journal_port.install(fake)
     return fake
 
 
