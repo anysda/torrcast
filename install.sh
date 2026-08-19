@@ -1283,16 +1283,11 @@ WantedBy=sockets.target"
             stop_service torrcast-shim "$PYTHON $SHIM_DIR/sni-shim.py"
             printf '%s\n' "$socket_body" >"$socket_unit"
             systemctl daemon-reload
+            # daemon-reload подхватывает новое тело юнита, но не трогает уже открытый
+            # слушатель: переприбитый адрес (TORRCAST_SHIM_PORT) подхватывает только
+            # перезапуск. На неактивном сокете try-restart - пустая ходка с нулём.
+            systemctl try-restart torrcast-shim.socket
         fi
-        # ⚠️ На ЧИСТОЙ машине этот старт обязан не удаться: torrcast-shim.service
-        # пишется только ниже (run_service), а сокет без своей службы не слушает
-        # («Socket service not loaded, refusing»). Это штатная ветка первого захода,
-        # а не сбой: служба тогда просто держит порт сама (`_activated_socket` в
-        # sni-shim.py возвращает None), а сокет встаёт со второго захода, когда юнит
-        # уже на диске. Стража не снимаем голым `|| true` без слов: код возврата тут
-        # проглатывается ОСОЗНАННО, и именно эта строка - тот случай, ради которого
-        # TC-638 велел проверить, не держится ли фаза на проглоченном сбое.
-        systemctl enable --now torrcast-shim.socket || true
     fi
     run_service torrcast-shim-guard "Сторож аренды имён TLS-шима" \
         "$PYTHON $SHIM_DIR/sni-shim.py --guard $SHIM_PID $SHIM_DEAD_GRACE ${routes[*]%%=*}" \
@@ -1300,6 +1295,17 @@ WantedBy=sockets.target"
     run_service torrcast-shim "TLS-шим для трекеров, чьё имя не проходит по SNI" \
         "$PYTHON $SHIM_DIR/sni-shim.py $SHIM_DIR/shim.crt $SHIM_DIR/shim.key $SHIM_PORT ${routes[*]}" \
         "$knobs"
+    # Сокет поднимает сам старт службы выше: Sockets= в её юните тянет socket-unit
+    # первым, и слушатель доезжает до процесса через LISTEN_FDS (`_activated_socket`
+    # в sni-shim.py) - замер на чистой машине: сокет слушает уже на ПЕРВОМ заходе,
+    # двумя секундами позже старта службы. Эта строка - не запуск, а страховка:
+    # держит автозапуск и поднимет сокет, если его остановили снаружи. Юнит службы к
+    # этому месту на диске, поэтому «Socket service not loaded, refusing» здесь
+    # невозможен, и стража не нужна: падение может значить только чужой процесс на
+    # порту, а такое проглатывать нельзя.
+    if [ -z "${TORRCAST_NO_SYSTEMD:-}" ]; then
+        systemctl enable --now torrcast-shim.socket
+    fi
 }
 
 # Пробы независимы, а каждая ждёт СВОЙ таймаут - последовательно это набегало в минуту
