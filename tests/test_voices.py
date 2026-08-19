@@ -830,3 +830,49 @@ def test_a_picture_nobody_ever_dubbed_still_plays_and_says_why(
     printed = capsys.readouterr().out
     assert "русской озвучки нет ни в одной из проверенных раздач (2)" in printed
     assert "только японский звук, перевода в каталоге нет" in printed
+
+
+#: Сезонный пак: дорожки подписаны голым тегом, а студия названа именем раздачи.
+SEASON_PACK = [
+    RawResult(
+        "Харли Квинн / Harley Quinn [S01] (2019) WEB-DL 1080p, "
+        "Dub (The Kitchen Russia) + MVO (Good People)",
+        "f" * 40,
+        6 * GB,
+        40,
+    ),
+]
+SILENT_RUS = (AudioTrack(0, "rus", None, "ac3", 6), AudioTrack(1, "rus", None, "ac3", 2))
+
+
+def test_a_season_pack_names_its_studio_in_the_launch_line_and_in_the_record(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """🔴 TC-701. Подпись дорожки тут «rus» и не говорит ни о чём.
+
+    Сезон кончится вместе со своей раздачей, и продолжать сериал будет уже другая: всё,
+    что от этой останется, - имя студии в записи. Не записать его значит не дать
+    досмотреть сериал так, как его начали.
+    """
+    _found(monkeypatch, *SEASON_PACK)
+
+    class _Pack(_FakeTorrServer):
+        """Тот же TorrServer, но внутри раздачи лежит сезон, а не один файл."""
+
+        def wait_files(
+            self, torrent_hash: str, timeout: float = 60.0, grace: float = 0.0
+        ) -> list[TorrFile]:
+            return [TorrFile(n, f"Harley.Quinn.S01E0{n + 1}.1080p.mkv", 2 * GB) for n in range(3)]
+
+    composition.use_engines(monkeypatch, _Pack)
+    composition.use_prober(
+        monkeypatch, lambda url, timeout=90.0, alive=None: Media(1500.0, SILENT_RUS, "h264", 1080)
+    )
+    _answers(monkeypatch)
+
+    assert main(["харли", "квинн", "s1e1"]) == 0
+
+    assert "rus (The Kitchen Russia)" in capsys.readouterr().out
+    saved = State.load().entries["tv:харли-квинн:2019"]
+    assert saved.studio == "The Kitchen Russia"
+    assert saved.voice == "", "автовыбор подпись дорожки не занимает - это память человека"

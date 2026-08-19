@@ -7,10 +7,13 @@ import pytest
 from tests.usecases.discover.world import Indexer, Said, row, wire_catalogue
 from torrcast.domain.args import Args
 from torrcast.domain.config import Config
+from torrcast.domain.entry import Entry
 from torrcast.domain.facts.origin import Origin
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.raw_result import RawResult
+from torrcast.ports.state_store.ephemeral import Ephemeral
+from torrcast.ports.state_store.slot import install
 from torrcast.usecases.discover.search_circle import search_circle
 from torrcast.usecases.select.plan import Plan
 
@@ -74,3 +77,50 @@ def test_the_count_of_the_late_travels_with_every_plan() -> None:
     )
 
     assert all(plan.waiting() == ("JacRed",) for plan in plans)
+
+
+_QUINN = [
+    row(
+        "Харли Квинн / Harley Quinn [S02] (2020) WEB-DL 1080p, Dub (The Kitchen Russia)",
+        "c",
+        size_gb=5.0,
+        seeders=30,
+    ),
+    row(
+        "Харли Квинн / Harley Quinn [S02] (2020) WEB-DL 1080p, MVO (Good People)",
+        "d",
+        size_gb=5.0,
+        seeders=90,
+    ),
+]
+
+
+def _watched(studio: str) -> None:
+    """Состояние, в котором эту картину уже смотрели названной студией."""
+    store = Ephemeral()
+    state = store.load()
+    state.entries["tv:харли-квинн:2020"] = Entry(
+        title="Харли Квинн",
+        magnet="magnet:?xt=urn:btih:" + "e" * 40,
+        kind="tv",
+        query="харли-квинн-s2e1",
+        studio=studio,
+    )
+    store.save(state)
+    install(store)
+
+
+def test_the_season_border_keeps_the_studio_the_series_was_watched_with() -> None:
+    """Сезон кончился вместе с раздачей, а сериал продолжается той же озвучкой."""
+    _watched("The Kitchen Russia")
+    plans = _found({"харли квинн": _QUINN}, "харли квинн s2e1")
+
+    assert "The Kitchen Russia" in plans[0].ranked[0].raw_name
+
+
+def test_without_the_memory_the_top_is_the_most_seeded_one() -> None:
+    """Памяти нет - ступень плоская, и наверху стоит тот же, кто стоял всегда."""
+    _watched("")
+    plans = _found({"харли квинн": _QUINN}, "харли квинн s2e1")
+
+    assert "Good People" in plans[0].ranked[0].raw_name

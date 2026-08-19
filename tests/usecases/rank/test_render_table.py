@@ -1,4 +1,4 @@
-"""Таблица релизов: N, качество, размер, сиды, озвучка, кодек."""
+"""Таблица релизов: N, качество, размер, сиды, озвучка, студия, кодек."""
 
 from __future__ import annotations
 
@@ -11,8 +11,8 @@ def test_the_table_names_the_columns_and_the_row() -> None:
     lines = table.splitlines()
 
     assert lines[0] == "Релизы:"
-    assert lines[1].split() == ["N", "Качество", "Размер", "Сиды", "Озвучка", "Кодек"]
-    assert lines[2].split() == ["1", "1080p", "8.0", "ГБ", "42", "Дубляж", "H.264"]
+    assert lines[1].split() == ["N", "Качество", "Размер", "Сиды", "Озвучка", "Студия", "Кодек"]
+    assert lines[2].split() == ["1", "1080p", "8.0", "ГБ", "42", "Дубляж", "-", "H.264"]
 
 
 def test_the_columns_are_padded_to_one_width() -> None:
@@ -35,3 +35,14 @@ def test_the_limit_cuts_the_tail_and_says_how_much_is_left() -> None:
 
 def test_a_fat_release_carries_its_warning_into_the_codec_column() -> None:
     assert "тяжёлый" in render_table([rel(name="жирный", size_gb=28)], RUNTIME, 20.0)
+
+
+def test_the_studio_column_names_who_voiced_it() -> None:
+    """Строки сериала подписаны одинаково, и руками из них выбирают по студии."""
+    kitchen = rel(
+        name="Кино (Сезон 2) WEB-DL 1080p, Dub (The Kitchen Russia) + MVO (Good People)",
+        voices=("Дубляж", "Многоголосый"),
+    )
+    row = render_table([kitchen], RUNTIME, 20.0).splitlines()[2]
+
+    assert "The Kitchen Russia, Good People" in row

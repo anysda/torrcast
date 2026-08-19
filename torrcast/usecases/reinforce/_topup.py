@@ -67,7 +67,11 @@ def _topup(
     if not add:
         return plan
     fresh = plan_for(
-        replace(plan.picture, releases=[*plan.picture.releases, *add]), args, config, profile
+        replace(plan.picture, releases=[*plan.picture.releases, *add]),
+        args,
+        config,
+        profile,
+        studio=plan.studio,
     )
     if not fresh.ranked:  # отнимать уже показанное долив не вправе
         return plan

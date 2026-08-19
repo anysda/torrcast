@@ -11,7 +11,9 @@ from torrcast.domain.entry import Entry
 from torrcast.domain.media import Media
 from torrcast.domain.release import Release
 from torrcast.domain.slugify import slugify
+from torrcast.domain.studio import Studio
 from torrcast.domain.torr_file import TorrFile
+from torrcast.domain.track_studio import track_studio
 from torrcast.usecases.select._prep import _Prep
 
 if TYPE_CHECKING:
@@ -38,6 +40,10 @@ def _entry_for(
         file_idx=video.index,
         audio=audio,
         voice=voice,
+        # Чья это озвучка - спрашивается у дорожки и у имени раздачи, а записывается
+        # всегда: следующий сезон будет другим релизом, и одна эта строка - всё, чем
+        # он узнает, чем сериал смотрели (:func:`track_studio`).
+        studio=_named(track_studio(media, audio, release.studios)),
         dur=media.duration,
         # Вес видеодорожки из паспорта: по нему показ строит профиль тяжести с первой
         # секунды, не набирая поправку «контейнер → ТВ» вслепую.
@@ -61,3 +67,8 @@ def _entry_for(
         # мог бы полежать, у них нет (:meth:`torrcast.domain._series._Series.choose`).
         episodes=series.table(prep.files, release.season) if series else [],
     )
+
+
+def _named(studio: Studio | None) -> str:
+    """Имя студии для памяти картины; не узнали - пусто."""
+    return studio.name if studio is not None else ""

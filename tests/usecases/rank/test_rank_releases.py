@@ -66,3 +66,23 @@ def test_a_single_film_outranks_a_more_seeded_collection() -> None:
     single = rel(name="Брат (1997) WEB-DL 1080p", seeders=5)
 
     assert _order([both, single]) == ["Брат (1997) WEB-DL 1080p", both.raw_name]
+
+
+def test_the_remembered_studio_wins_among_equals() -> None:
+    """Граница сезона: раздача кончилась вместе с сезоном, а студия остаётся та же."""
+    same = rel(name="Харли Квинн S02 WEB-DL 1080p, Dub (The Kitchen Russia)", seeders=40)
+    other = rel(name="Харли Квинн S02 WEB-DL 1080p, MVO (Good People)", seeders=60)
+    assert _order([other, same], studio="The Kitchen Russia") == [same.raw_name, other.raw_name]
+
+
+def test_without_memory_the_order_is_the_old_one() -> None:
+    same = rel(name="Харли Квинн S02 WEB-DL 1080p, Dub (The Kitchen Russia)", seeders=40)
+    other = rel(name="Харли Квинн S02 WEB-DL 1080p, MVO (Good People)", seeders=60)
+    assert _order([other, same]) == [other.raw_name, same.raw_name]
+
+
+def test_the_studio_does_not_buy_a_worse_frame() -> None:
+    """Ступень стоит ПОД кадром: память про звук картинку не покупает."""
+    small = rel(name="Харли Квинн S02 WEB-DL 720p, Dub (The Kitchen Russia)", quality="720p")
+    full = rel(name="Харли Квинн S02 WEB-DL 1080p, MVO (Good People)", quality="1080p")
+    assert _order([small, full], studio="The Kitchen Russia") == [full.raw_name, small.raw_name]

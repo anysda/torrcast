@@ -256,12 +256,19 @@ def replay(
     profile: Profile,
     capped: tuple[str, ...] = (),
     pool: str = "",
+    studio: str = "",
 ) -> Replay:
     """Прогнать один пул по боевому тракту отбора.
 
     ``capped`` - индексеры, отдавшие полную страницу (:func:`capped_of`): единственное
     свойство живого клиента, которое гейт потолка спрашивает и которое сохранённый пул
     ещё помнит. ``pool`` - каким запросом пул снят, если ``query`` спрашивает иначе.
+
+    ``studio`` - память картины: чьей озвучкой её уже смотрели
+    (:attr:`~torrcast.domain.entry.Entry.studio`). В сохранённом пуле её нет и быть не может -
+    она лежит в состоянии показа, - поэтому на замере её называют руками: только так и
+    видно, что ступень студии делает с порядком
+    (:func:`~torrcast.usecases.rank.studio_step.studio_step`).
     """
     args = Args(query=query.split())
     raw = merge(*batches) if batches else []
@@ -275,7 +282,8 @@ def replay(
     name, index = split_franchise_index(args.title_query)
     if (reread := season_reread(args, name, index, found, pictures)) is not None:
         args, index = reread, None
-    plans = [p for p in (plan_for(pic, args, config, profile) for pic in found) if p.ranked]
+    ranked = (plan_for(pic, args, config, profile, studio=studio) for pic in found)
+    plans = [p for p in ranked if p.ranked]
     return Replay(
         query=query,
         raw_rows=sum(len(b) for b in batches),
@@ -633,6 +641,12 @@ def main(argv: list[str] | None = None) -> int:
         help="спросить пул НЕ тем запросом, которым он снят; {} - место снятого "
         "(--ask '{} 2'). Флаг повторяется: пул прогоняется каждым запросом подряд",
     )
+    ap.add_argument(
+        "--studio",
+        default="",
+        metavar="ИМЯ",
+        help="память картины: студия, которой её уже смотрели (в пуле её нет)",
+    )
     ap.add_argument("--glue", action="store_true", help="отчёт о склейках картин")
     ap.add_argument("--menu", type=int, default=5, help="сколько картин меню расписывать")
     ap.add_argument("--releases", type=int, default=3, help="сколько релизов очереди печатать")
@@ -650,7 +664,9 @@ def main(argv: list[str] | None = None) -> int:
         query = str(record.get("query", ""))
         batches, capped = batches_of(record), capped_of(record)
         for asked in asks_of(query, args.ask):
-            items.append(replay(asked, batches, config, choice.profile, capped, pool=query))
+            items.append(
+                replay(asked, batches, config, choice.profile, capped, query, studio=args.studio)
+            )
 
     picked = (
         [

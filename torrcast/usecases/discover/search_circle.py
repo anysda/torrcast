@@ -19,6 +19,7 @@ from torrcast.domain.profile import CAUTIOUS, Profile
 from torrcast.domain.split_franchise_index import split_franchise_index
 from torrcast.ports.journal.slot import journal
 from torrcast.ports.progress.progress import Progress
+from torrcast.ports.state_store.slot import store as watch_store
 from torrcast.ports.torrent_catalogue.indexer_client import IndexerClient
 from torrcast.usecases.discover._ask import _ask
 from torrcast.usecases.discover._nothing import _nothing
@@ -37,6 +38,7 @@ from torrcast.usecases.reinforce.lacks_season import lacks_season
 from torrcast.usecases.reinforce.plan_for import plan_for
 from torrcast.usecases.reinforce.voiceless_pool import voiceless_pool
 from torrcast.usecases.select._nobody_waiting import _nobody_waiting
+from torrcast.usecases.select._studio_seen import _studio_seen
 
 if TYPE_CHECKING:
     from torrcast.domain.args import Args
@@ -144,7 +146,19 @@ def search_circle(
     # Номер пункта меню человек читает как номер части и им же отвечает: «Тачки 2» обязаны
     # стоять вторыми, а безномерные - после линейки (:func:`~torrcast.domain.menu_order.menu_order`).
     found = menu_order(found)
-    plans = [plan for plan in (plan_for(p, args, config, profile) for p in found) if plan.ranked]
+    # Память картины доезжает до отбора здесь, и здесь же по одной причине: ступень
+    # студии нужна КАЖДОМУ, кто строит меню, - и показу, и `cast releases`, - иначе
+    # таблица показывала бы один порядок, а играл бы другой.
+    seen = watch_store().load()
+    remembered = seen.find(args.title_query)
+    plans = [
+        plan
+        for plan in (
+            plan_for(p, args, config, profile, studio=_studio_seen(seen, p.key, remembered))
+            for p in found
+        )
+        if plan.ranked
+    ]
     for line in season_gaps(found, {plan.picture.key for plan in plans}, args.episode):
         progress.note(line)
     # Соседи по франшизе, до меню не доехавшие: понадобятся, если у выбранной картины

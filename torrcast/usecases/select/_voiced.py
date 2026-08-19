@@ -12,6 +12,7 @@ from torrcast.domain.config import Config
 from torrcast.domain.entry import Entry
 from torrcast.domain.pick_settings import META_BUDGET, PROBE_BUDGET
 from torrcast.domain.torrcast_error import TorrcastError
+from torrcast.domain.track_studio import track_studio
 from torrcast.ports.progress.slot import progress as progress_bar
 from torrcast.usecases.rank.pick_voice import pick_voice
 from torrcast.usecases.torrents import _held_by_show, _release_torrents
@@ -106,5 +107,14 @@ def _revoice(config: Config, entry: Entry, args: Args, own: _Voiced) -> Entry:
             torrserver.stream_url(torrent_hash, entry.file_idx), timeout=PROBE_BUDGET
         )
         progress.phase("")
+    played = entry.audio
     entry.audio, entry.voice = pick_voice(media, args, entry.voice)
+    # Память студии тут можно только ПОДТВЕРДИТЬ или честно стереть: имени раздачи на
+    # этом пути нет вовсе (в записи лежит магнит), а заголовки дорожек сезонного пака
+    # молчат. Человек взял другую дорожку - чья она, неизвестно, и старая память про неё
+    # уже неправда.
+    if (studio := track_studio(media, entry.audio)) is not None:
+        entry.studio = studio.name
+    elif entry.audio != played:
+        entry.studio = ""
     return entry

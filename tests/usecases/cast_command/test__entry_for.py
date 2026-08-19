@@ -60,3 +60,15 @@ def test_a_movie_carries_no_episode_at_all() -> None:
 def test_the_query_is_remembered_by_its_slug() -> None:
     """Запись ищется по канону запроса, а не по тому, как его набрали в этот раз."""
     assert _entry().query == "кино"
+
+
+def test_the_studio_that_played_reaches_the_record() -> None:
+    """Сезонная раздача кончится вместе с сезоном, и студия - всё, что от неё останется."""
+    video = TorrFile(index=0, name="кино/s01e01.mkv", size=(8 * 1024**3))
+    pack = release("Кино / Movie (Сезон 1) WEB-DL 1080p, Dub (The Kitchen Russia)")
+    prep = _Prep(number=1, release=pack)
+    prep.video, prep.files, prep.media = video, [video], _media()
+    silent = Media(duration=7200.0, tracks=(AudioTrack(index=0, language="rus"),))
+    entry = _entry_for(cast(Any, plan()), prep, pack, video, silent, 0, "rus", Args(query=["кино"]))
+
+    assert entry.studio == "The Kitchen Russia", "подпись «rus» о студии не говорит ничего"

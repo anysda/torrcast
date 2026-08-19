@@ -30,12 +30,17 @@ def plan_for(
     config: Config,
     profile: Profile = CAUTIOUS,
     runtime: float = 0.0,
+    studio: str = "",
 ) -> Plan:
     """План по одной картине: пул релизов в порядке отбора и цель для сериала.
 
     ``runtime`` — настоящая длительность картины, секунды (из справки, :func:`_timed`).
     Ноль — её не назвал никто, и в знаменатель битрейта идёт прикидка
     (:data:`torrcast.domain.runtime_guess.RUNTIME_GUESS`).
+
+    ``studio`` — студия, которой эту картину уже смотрели (:func:`_studio_seen`): по ней
+    отбор поднимает ту раздачу, которой сериал и смотрели, через границу сезона
+    (:func:`torrcast.usecases.rank.studio_step.studio_step`). Пусто — первый просмотр.
     """
     from torrcast.domain.runtime_guess import RUNTIME_GUESS
 
@@ -82,6 +87,7 @@ def plan_for(
         hard_mbit=hard,
         last=last,
         copy_hevc=copy_hevc,
+        studio=studio,
     )
     return Plan(
         picture=picture,
@@ -97,4 +103,5 @@ def plan_for(
         copy_hevc=copy_hevc,
         hard_mbit=hard,
         asked_series=args.episode is not None,
+        studio=studio,
     )

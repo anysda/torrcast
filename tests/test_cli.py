@@ -402,8 +402,8 @@ def test_table_has_all_the_columns() -> None:
     text = render_table([rel(seeders=214, voices=("Дубляж",))], RUNTIME, 20.0)
     lines = text.splitlines()
     assert lines[0] == "Релизы:"
-    assert lines[1].split() == ["N", "Качество", "Размер", "Сиды", "Озвучка", "Кодек"]
-    assert lines[2].split() == ["1", "1080p", "8.0", "ГБ", "214", "Дубляж", "H.264"]
+    assert lines[1].split() == ["N", "Качество", "Размер", "Сиды", "Озвучка", "Студия", "Кодек"]
+    assert lines[2].split() == ["1", "1080p", "8.0", "ГБ", "214", "Дубляж", "-", "H.264"]
 
 
 def test_table_marks_hevc_row() -> None:

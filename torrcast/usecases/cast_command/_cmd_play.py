@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 import torrcast.usecases.cast_command._play_state as _state
 from torrcast.domain.bitrate_mbit import bitrate_mbit
 from torrcast.domain.exit_codes import EXIT_OK
+from torrcast.domain.track_studio import track_studio
 from torrcast.domain.tune import tune as tune_profile
 from torrcast.ports.journal.slot import journal
 from torrcast.ports.state_store.slot import store as watch_store
@@ -106,6 +107,12 @@ def _cmd_play(
     audio, voice = pick_voice(media, args, _remembered(state, plan.picture.key, found_entry))
     journal().mark("ответы")  # ноль секундомера: Enter после последнего вопроса
     label = media.tracks[audio].label if audio < len(media.tracks) else "-"
+    # Чья это озвучка - в подписи дорожки бывает не написано вовсе: сезонный пак
+    # подписывает свои дорожки голым «rus», а студию называет своим именем. Строка
+    # запуска обязана сказать, ЧТО играет, и молчать об этом ей нечем (TC-701).
+    studio = track_studio(media, audio, release.studios)
+    if studio is not None and studio.name.casefold() not in label.casefold():
+        label = f"{label} ({studio.name})"
     series = plan.series
     what = f"«{plan.picture.title}»" + (
         f" {series.want}" if series else f" ({plan.picture.year or '?'})"

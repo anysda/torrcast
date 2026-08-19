@@ -61,6 +61,9 @@ STUDIOS: Final[dict[str, Studio]] = {
     "movie dubbing": Studio("дубляж", "Movie Dubbing"),
     "amazing dubbing": Studio("дубляж", "Amazing Dubbing"),
     "red head sound": Studio("дубляж", "Red Head Sound"),
+    # Вид перевода назвала сама раздача: «Dub (The Kitchen Russia) + MVO (Good People)».
+    "the kitchen russia": Studio("дубляж", "The Kitchen Russia"),
+    "kitchen russia": Studio("дубляж", "The Kitchen Russia"),
     "flarrow films": Studio("дубляж", "Flarrow Films"),
     "jaskier": Studio("дубляж", "Jaskier"),
     "timecraft": Studio("дубляж", "Timecraft"),
@@ -79,6 +82,7 @@ STUDIOS: Final[dict[str, Studio]] = {
     "novafilm": Studio("многоголосый", "NovaFilm"),
     "амедиа": Studio("многоголосый", "Амедиа"),
     "viruseproject": Studio("многоголосый", "ViruseProject"),
+    "good people": Studio("многоголосый", "Good People"),
     "1win": Studio("многоголосый", "1win Studio"),
     "студийная банда": Studio("многоголосый", "Студийная банда"),
     "studio band": Studio("многоголосый", "Студийная банда"),

@@ -57,7 +57,7 @@ def _timed(
             "select", "runtime", secs=round(plan.runtime), src="guess", title=plan.picture.title
         )
         return plan
-    fresh = plan_for(plan.picture, args, config, profile, runtime=minutes * 60.0)
+    fresh = plan_for(plan.picture, args, config, profile, minutes * 60.0, plan.studio)
     fresh.kin = plan.kin
     # 🔴 TC-703. Признак неполноты каталога переезжает на пересобранный план: без
     # него поздний отказ (:func:`unfit_line`) снова звучал бы приговором картине.

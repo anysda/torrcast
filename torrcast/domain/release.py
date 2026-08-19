@@ -20,6 +20,8 @@ from torrcast.domain.franchise_key import franchise_key
 from torrcast.domain.looks_anime import looks_anime
 from torrcast.domain.parse_voices import _parse_voices
 from torrcast.domain.slugify import slugify
+from torrcast.domain.studio import Studio
+from torrcast.domain.studios_in import studios_in
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,6 +63,18 @@ class Release(_ReleaseMarks):
     @property
     def external_dub(self) -> bool:
         return any(_RU_EXT_RE.search(name) for name in self.names or (self.raw_name,))
+
+    @property
+    def studios(self) -> tuple[Studio, ...]:
+        """Знакомые студии, названные ИМЕНЕМ раздачи, в порядке появления.
+
+        У сезонной раздачи это единственное место, где студия вообще написана: дорожки
+        внутри подписаны голым тегом ``rus``, и ни ffprobe, ни таблица озвучек про
+        «The Kitchen Russia» не скажут ничего. Судится зона пометок
+        (:attr:`untitled`), а не всё имя: название картины бывает тёзкой студии, и
+        «Гоблин» в имени фильма - это фильм, а не перевод.
+        """
+        return studios_in(self.untitled)
 
     @property
     def anime(self) -> bool:
