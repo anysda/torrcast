@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from torrcast.domain.catalog_has_name import catalog_has_name
 from torrcast.domain.picture import Picture
-from torrcast.ports.torrent_catalogue import IndexerClient
+from torrcast.ports.torrent_catalogue.indexer_client import IndexerClient
 
 
 def ceiling_hides_name(

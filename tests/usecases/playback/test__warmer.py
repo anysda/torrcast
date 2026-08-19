@@ -13,7 +13,8 @@ from torrcast.adapters.recode.recoder import Recoder
 from torrcast.adapters.recode.weights import Weights
 from torrcast.adapters.recode.whole_encode import whole_encode
 from torrcast.domain.config import Config
-from torrcast.ports.journal import Silent, install
+from torrcast.ports.journal.silent import Silent
+from torrcast.ports.journal.slot import install
 from torrcast.usecases.playback._warmer import _warmer
 
 

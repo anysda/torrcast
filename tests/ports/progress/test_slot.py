@@ -1,7 +1,8 @@
 """Слот назначенного завода индикатора: чем рисуется ход и кто это назначает."""
 
-from torrcast.ports.progress import Progress, Quiet, factory, install, progress
-from torrcast.ports.progress.slot import Slot
+from torrcast.ports.progress.progress import Progress
+from torrcast.ports.progress.quiet import Quiet
+from torrcast.ports.progress.slot import Slot, factory, install, progress
 
 
 class _Spy(Quiet):

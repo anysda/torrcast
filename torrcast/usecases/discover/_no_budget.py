@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from torrcast.domain.facts.settings import FACTS_BUDGET
 from torrcast.domain.goal_spare import CIRCLE_SHARE, GOAL, SECOND_LEAST
-from torrcast.ports.progress import Progress
-from torrcast.ports.torrent_catalogue import IndexerClient
+from torrcast.ports.progress.progress import Progress
+from torrcast.ports.torrent_catalogue.indexer_client import IndexerClient
 
 
 def _no_budget(client: IndexerClient, what: str, progress: Progress) -> float | None:

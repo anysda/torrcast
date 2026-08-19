@@ -38,14 +38,7 @@
 границы — ровно тот же допуск, с которым режет сегментный муксер.
 
 Имена берутся у своих модулей: `from torrcast.adapters.recode.pace import Pace`.
-Реэкспортом тут живут ровно два имени, и только потому, что их этим путём зовёт сам
-гейт (`scripts/test-gate`) - файл, который правкой раскладки не трогают.
+Реэкспорта тут не осталось вовсе: последними держались `Encode` и `FULL_PRESET`, которые
+этим путём звал сам гейт (`scripts/test-gate`), - теперь и он зовёт их из домов
+(:mod:`torrcast.adapters.recode.encode`, :mod:`torrcast.adapters.recode.whole_encode`).
 """
-
-from torrcast.adapters.recode.encode import Encode
-from torrcast.adapters.recode.whole_encode import FULL_PRESET
-
-__all__ = [
-    "FULL_PRESET",
-    "Encode",
-]

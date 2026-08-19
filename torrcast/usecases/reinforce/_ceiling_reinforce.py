@@ -8,7 +8,7 @@ from torrcast.domain.catalog_has_name import catalog_has_name
 from torrcast.domain.picture import Picture
 from torrcast.domain.raw_result import RawResult
 from torrcast.ports.passport_source import PassportSource
-from torrcast.ports.torrent_catalogue import IndexerClient
+from torrcast.ports.torrent_catalogue.indexer_client import IndexerClient
 from torrcast.usecases.discover._ask import _ask
 from torrcast.usecases.discover._asked_kind import _asked_kind
 from torrcast.usecases.discover._no_budget import _no_budget
@@ -17,7 +17,7 @@ from torrcast.usecases.reinforce.configure import _catalogue_port, _passport_por
 
 if TYPE_CHECKING:
     from torrcast.domain.args import Args
-    from torrcast.ports.progress import Progress
+    from torrcast.ports.progress.progress import Progress
 
 
 def _ceiling_reinforce(

@@ -14,7 +14,7 @@ from typing import Protocol
 import torrcast.usecases.feed_pack._state as _state
 from torrcast.domain.hls_settings import PACK_PENDING_BYTES
 from torrcast.domain.profile import CAUTIOUS
-from torrcast.ports.pack_run import PackRun
+from torrcast.ports.pack_run.pack_run import PackRun
 from torrcast.ports.recode.encoding_rate import EncodingRate
 from torrcast.ports.recode.feed_recoder import FeedRecoder
 from torrcast.usecases.feed_pack._state import Grid

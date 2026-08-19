@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from torrcast.adapters.filesystem.state import state_path
+from torrcast.adapters.filesystem.state.state_path import state_path
 from torrcast.adapters.filesystem.trace_journal.log_dir import LOG_ENV, log_dir
 
 

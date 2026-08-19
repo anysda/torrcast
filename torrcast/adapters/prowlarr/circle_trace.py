@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
-from torrcast.adapters.filesystem.stopwatch import mark
-from torrcast.adapters.filesystem.trace_journal import emit
+from torrcast.adapters.filesystem.stopwatch.mark import mark
+from torrcast.adapters.filesystem.trace_journal.emit import emit
 
 
 def circle_trace(

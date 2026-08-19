@@ -8,7 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from torrcast.ports.pack_run import PackRun
+from torrcast.ports.pack_run.pack_run import PackRun
 from torrcast.usecases.feed_pack.feed_front import _front, _weight
 from torrcast.usecases.feed_pack.feed_restart import _restart
 from torrcast.usecases.feed_pack.feed_segment import _have, _segment, _warm

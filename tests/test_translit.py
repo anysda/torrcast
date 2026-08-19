@@ -19,13 +19,13 @@ import pytest
 
 from tests.fakes.passport import FakePassport
 from tests.fakes.prowlarr import FakeProwlarr
-from torrcast import NotFoundError
-from torrcast.adapters.console.console import Progress
+from torrcast.adapters.console.console.progress import Progress
 from torrcast.adapters.prowlarr.merge import merge
 from torrcast.domain.alt_query import alt_query
 from torrcast.domain.args import Args
 from torrcast.domain.config import Config
 from torrcast.domain.facts.origin import Origin
+from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.parse_release_name import parse_release_name
 from torrcast.domain.picture import Picture
 from torrcast.domain.rank_settings import ALIVE_SEEDERS

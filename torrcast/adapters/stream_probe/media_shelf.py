@@ -13,7 +13,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Final
 
-from torrcast.adapters.filesystem.state import state_path
+from torrcast.adapters.filesystem.state.state_path import state_path
 from torrcast.adapters.stream_probe.opt_str import _opt_str
 from torrcast.adapters.stream_probe.shelf import _touch, _trim
 from torrcast.domain.audio_track import AudioTrack

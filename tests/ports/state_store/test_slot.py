@@ -1,8 +1,8 @@
 """Слот назначенного хранилища состояния: где оно лежит и кто это назначает."""
 
 from torrcast.domain.watch_state import WatchState
-from torrcast.ports.state_store import Ephemeral, install, store
-from torrcast.ports.state_store.slot import Slot
+from torrcast.ports.state_store.ephemeral import Ephemeral
+from torrcast.ports.state_store.slot import Slot, install, store
 
 
 class _Spy:

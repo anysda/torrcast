@@ -1,7 +1,8 @@
 """Поиск приёмников отдаёт список и отдельно - пояснения о пропущенных подсетях."""
 
 from torrcast.adapters.chromecast.network_receiver_finder import NetworkReceiverFinder
-from torrcast.adapters.chromecast.scan import Device, Found
+from torrcast.adapters.chromecast.scan.device import Device
+from torrcast.adapters.chromecast.scan.found import Found
 
 
 def test_devices_and_notes_arrive_separately() -> None:

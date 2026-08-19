@@ -1,7 +1,7 @@
 """Порт сетки прогрева: настоящая сетка медиатракта под договор подходит."""
 
 from torrcast.adapters.stream_pack.grid import Grid
-from torrcast.ports.warm_environment import WarmGrid
+from torrcast.ports.warm_environment.warm_grid import WarmGrid
 
 
 def test_the_media_tract_grid_fits_the_warming_contract() -> None:

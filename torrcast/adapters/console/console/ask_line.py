@@ -6,7 +6,8 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from torrcast.adapters.console import console as _console
+from torrcast.adapters.console.console import stdin_is_tty as _tty
+from torrcast.adapters.console.console.clean import clean
 
 
 def ask_line(
@@ -25,16 +26,16 @@ def ask_line(
     ``None`` значит «взять живые»: консоль спрашивают из десятка мест, и передавать туда
     нечего.
     """
-    has_tty = _console.stdin_is_tty if tty is None else tty
+    has_tty = _tty.stdin_is_tty if tty is None else tty
     line = input if read is None else read
     prompt = f"{question}: "
     if not has_tty():
         print(f"{prompt}{default or '(терминала нет - беру по умолчанию)'}", flush=True)
-        return _console.clean(default).casefold()
+        return clean(default).casefold()
     try:
         raw = line(prompt)
     except EOFError:
         print(flush=True)
-        return _console.clean(default).casefold()
-    answer = _console.clean(raw).casefold()
-    return answer or _console.clean(default).casefold()
+        return clean(default).casefold()
+    answer = clean(raw).casefold()
+    return answer or clean(default).casefold()

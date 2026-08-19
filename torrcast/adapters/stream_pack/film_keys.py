@@ -15,10 +15,11 @@ from torrcast.adapters.stream_pack._keys_shelf import _keys_cache
 from torrcast.adapters.stream_pack.read_keys import read_keys
 from torrcast.adapters.stream_probe.shelf import _trim
 from torrcast.domain.film_keys import FilmKeys
-from torrcast.domain.frames.keymap import KeyMap, video_track
+from torrcast.domain.frames.keymap.key_map import KeyMap
+from torrcast.domain.frames.keymap.video_track import video_track
 from torrcast.domain.hls_wait import KEYS_WAIT
 from torrcast.domain.warm_open import KEYS_KEPT, KEYS_LOCK
-from torrcast.ports.journal import journal
+from torrcast.ports.journal.slot import journal
 
 
 def _fetching(lock: Path, ttl: float = KEYS_LOCK) -> bool:

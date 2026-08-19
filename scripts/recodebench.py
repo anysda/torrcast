@@ -58,7 +58,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from probeprofile import choose as choose_profile
 from seekcheck import serve_file
 
-from torrcast.adapters.filesystem.state import load_config
+from torrcast.adapters.filesystem.state.load_config import load_config
 from torrcast.adapters.prowlarr.magnet_for import magnet_for
 from torrcast.adapters.recode.encode import Encode
 from torrcast.adapters.recode.weights import Weights

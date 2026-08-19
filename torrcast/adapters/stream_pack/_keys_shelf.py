@@ -10,7 +10,7 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 
-from torrcast.adapters.filesystem.state import state_path
+from torrcast.adapters.filesystem.state.state_path import state_path
 
 
 def _keys_cache(source_url: str) -> Path:

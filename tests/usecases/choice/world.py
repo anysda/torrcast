@@ -26,7 +26,9 @@ from torrcast.domain.picture import Picture
 from torrcast.domain.profile import Profile
 from torrcast.domain.rank_settings import ALIVE_SEEDERS
 from torrcast.domain.release import Release
-from torrcast.ports.choice_environment import ChoiceArgs, ChoiceEnvironment, ChoiceFacts
+from torrcast.ports.choice_environment.choice_args import ChoiceArgs
+from torrcast.ports.choice_environment.choice_environment import ChoiceEnvironment
+from torrcast.ports.choice_environment.choice_facts import ChoiceFacts
 from torrcast.usecases.choice.configure import _environment_port, configure
 from torrcast.usecases.select.plan import Plan
 

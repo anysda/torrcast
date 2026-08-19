@@ -13,7 +13,7 @@ from torrcast.usecases.reinforce.plan_for import plan_for
 if TYPE_CHECKING:
     from torrcast.domain.args import Args
     from torrcast.domain.config import Config
-    from torrcast.ports.progress import Progress
+    from torrcast.ports.progress.progress import Progress
     from torrcast.usecases.select.plan import Plan
 
 

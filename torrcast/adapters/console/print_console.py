@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from torrcast.adapters.console import console as _console
+from torrcast.adapters.console.console import stdin_is_tty as _tty
 from torrcast.adapters.console.console.ask import ask
 from torrcast.adapters.console.console.ask_line import ask_line
 
@@ -35,7 +35,7 @@ class PrintConsole:
         return ask(question, count, default, tty=self._tty, read=self._read)
 
     def interactive(self) -> bool:
-        return (_console.stdin_is_tty if self._tty is None else self._tty)()
+        return (_tty.stdin_is_tty if self._tty is None else self._tty)()
 
     def write(self, message: str) -> None:
         print(message)

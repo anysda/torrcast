@@ -11,9 +11,9 @@ from torrcast.domain.config import Config
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.profile import Profile
 from torrcast.domain.worker_settings import WORKER_META
-from torrcast.ports.journal import journal
+from torrcast.ports.journal.slot import journal
 from torrcast.ports.receiver import Receiver
-from torrcast.ports.state_store import store
+from torrcast.ports.state_store.slot import store
 from torrcast.ports.stream_source import StreamSource
 from torrcast.ports.torrent_engine import TorrentEngine
 from torrcast.usecases.episode_duration import _duration

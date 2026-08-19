@@ -5,16 +5,17 @@
 которым нужен настоящий, а не молчащий след.
 """
 
-from torrcast.adapters.console.console import Progress
-from torrcast.adapters.filesystem.state import FileStateStore, load_config
-from torrcast.adapters.filesystem.trace_journal import FileJournal
+from torrcast.adapters.console.console.progress import Progress
+from torrcast.adapters.filesystem.state.file_state_store import FileStateStore
+from torrcast.adapters.filesystem.state.load_config import load_config
+from torrcast.adapters.filesystem.trace_journal.file_journal import FileJournal
 from torrcast.adapters.health.system_health_environment import SystemHealthEnvironment
 from torrcast.adapters.systemd.transient_show_unit import TransientShowUnit
 from torrcast.adapters.warm_environment import environment as warm_environment
-from torrcast.ports.journal import install as install_journal
-from torrcast.ports.progress import install as install_progress
-from torrcast.ports.show_unit import install as install_unit
-from torrcast.ports.state_store import install as install_state
+from torrcast.ports.journal.slot import install as install_journal
+from torrcast.ports.progress.slot import install as install_progress
+from torrcast.ports.show_unit.slot import install as install_unit
+from torrcast.ports.state_store.slot import install as install_state
 from torrcast.runtime.configure_cli import configure_cli
 from torrcast.runtime.wire_feed import wire_feed
 from torrcast.runtime.wire_search import wire_search

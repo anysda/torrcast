@@ -8,9 +8,9 @@ import contextlib
 import time
 from typing import Protocol
 
-from torrcast.domain.digest import digest
+from torrcast.domain.digest.digest import digest
 from torrcast.domain.exit_codes import EXIT_OK
-from torrcast.ports.journal import journal
+from torrcast.ports.journal.slot import journal
 
 __all__ = ["EXIT_OK", "_cmd_log", "_since_seconds"]
 

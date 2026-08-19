@@ -7,7 +7,7 @@ import urllib.request
 from typing import Any
 
 from torrcast.domain.warm_open import HEAD_WARM, WARM_TIMEOUT
-from torrcast.ports.journal import journal
+from torrcast.ports.journal.slot import journal
 
 
 def warm_at(source_url: str, offset: int, upto: int = HEAD_WARM, alive: Any = None) -> int:

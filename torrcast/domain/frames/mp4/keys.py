@@ -8,7 +8,8 @@ from __future__ import annotations
 
 import struct
 
-from torrcast.domain.frames.keymap import KeyMap, Point
+from torrcast.domain.frames.keymap.key_map import KeyMap
+from torrcast.domain.frames.keymap.point import Point
 from torrcast.domain.frames.mp4._moov import (
     _edit_shift,
     _find_moov,

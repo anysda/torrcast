@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from torrcast.adapters.filesystem.release_pins import ReleasePins
-from torrcast.adapters.filesystem.state import state_path
+from torrcast.adapters.filesystem.state.state_path import state_path
 from torrcast.domain.release import Release
 
 FIRST = "4f2c1a90bd9e3f1fbaa1a8b8b7c0d1e2f3a4b5c6"

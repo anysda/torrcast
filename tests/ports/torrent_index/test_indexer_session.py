@@ -1,6 +1,6 @@
 """Сессия индексеров: договор возит её через границу и читать не разрешает."""
 
-from torrcast.ports.torrent_index import IndexerSession
+from torrcast.ports.torrent_index.indexer_session import IndexerSession
 
 
 class _Session:

@@ -7,7 +7,7 @@ from __future__ import annotations
 import time
 
 from torrcast.adapters.stream_probe.segment_slot import segment_slot
-from torrcast.ports.journal import journal
+from torrcast.ports.journal.slot import journal
 
 
 def log_segment(name: str, began: float, size: int, took: float, src: str) -> None:

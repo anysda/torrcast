@@ -10,8 +10,8 @@ from collections.abc import Sequence
 from torrcast.domain.config import Config
 from torrcast.domain.probe_settings import PROBE_TIMEOUT
 from torrcast.domain.torrcast_error import TorrcastError
-from torrcast.ports.show_unit import unit
-from torrcast.ports.state_store import store
+from torrcast.ports.show_unit.slot import unit
+from torrcast.ports.state_store.slot import store
 from torrcast.ports.torrent_engines import TorrentEngines
 
 #: Чем сценарий берёт службу раздач: адрес и срок ответа знает он, саму службу - корень

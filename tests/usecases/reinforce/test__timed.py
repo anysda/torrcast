@@ -11,7 +11,8 @@ from torrcast.domain.config import Config
 from torrcast.domain.facts.fact import Fact
 from torrcast.domain.picture import Picture
 from torrcast.domain.runtime_guess import RUNTIME_GUESS
-from torrcast.ports.journal import Silent, install
+from torrcast.ports.journal.silent import Silent
+from torrcast.ports.journal.slot import install
 from torrcast.usecases.reinforce._timed import _timed
 from torrcast.usecases.reinforce.plan_for import plan_for
 

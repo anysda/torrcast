@@ -8,7 +8,8 @@
 
 from __future__ import annotations
 
-from torrcast.domain.frames.keymap import KeyMap, Point
+from torrcast.domain.frames.keymap.key_map import KeyMap
+from torrcast.domain.frames.keymap.point import Point
 from torrcast.domain.frames.mkv.head import Head
 from torrcast.domain.frames.mkv.ids import (
     CUE_CLUSTER_POSITION,

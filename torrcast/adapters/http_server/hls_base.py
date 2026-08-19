@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from torrcast.adapters.filesystem.state import Config
 from torrcast.adapters.http_server.our_address import our_address
+from torrcast.domain.config import Config
 from torrcast.domain.infra_error import InfraError
 
 

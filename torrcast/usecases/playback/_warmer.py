@@ -10,7 +10,7 @@ from torrcast.domain.config import Config
 from torrcast.domain.entry import Entry
 from torrcast.domain.profile import CAUTIOUS, Profile
 from torrcast.domain.worker_settings import WORKER_DUR
-from torrcast.ports.journal import journal
+from torrcast.ports.journal.slot import journal
 from torrcast.ports.recode.encoding import Encoding
 from torrcast.ports.recode.spot_rival import SpotRival
 from torrcast.ports.torrent_engine import TorrentEngine

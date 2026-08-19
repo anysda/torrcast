@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from torrcast.adapters.chromecast.profile_detector import ProfileDetector
-from torrcast.adapters.chromecast.scan import Device
+from torrcast.adapters.chromecast.scan.device import Device
 from torrcast.domain.config import Config
 from torrcast.domain.profile import ANDROID_TV, CAUTIOUS
 

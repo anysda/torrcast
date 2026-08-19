@@ -14,7 +14,7 @@ from torrcast.adapters.stream_pack.read_keys import read_keys
 from torrcast.domain.film_keys import FilmKeys
 from torrcast.domain.hls_settings import SPLIT_SLACK
 from torrcast.domain.hls_wait import PILOT_TIMEOUT
-from torrcast.ports.journal import journal
+from torrcast.ports.journal.slot import journal
 
 
 def pack_start(

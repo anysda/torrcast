@@ -16,8 +16,8 @@ from torrcast.domain.picture import Picture
 from torrcast.domain.raw_result import RawResult
 from torrcast.domain.split_franchise_index import split_franchise_index
 from torrcast.domain.unswap_layout import unswap_layout
-from torrcast.ports.progress import Progress
-from torrcast.ports.torrent_catalogue import IndexerClient
+from torrcast.ports.progress.progress import Progress
+from torrcast.ports.torrent_catalogue.indexer_client import IndexerClient
 from torrcast.usecases.discover._ask import _ask
 from torrcast.usecases.discover._no_budget import _no_budget
 

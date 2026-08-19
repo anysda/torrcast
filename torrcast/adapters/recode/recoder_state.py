@@ -17,7 +17,7 @@ from torrcast.adapters.recode.weights import Weights
 from torrcast.adapters.stream_pack.packer import Packer
 from torrcast.adapters.stream_probe.segment_name import segment_name
 from torrcast.domain.profile import CAUTIOUS
-from torrcast.ports.pack_run import PackFactory
+from torrcast.ports.pack_run.pack_factory import PackFactory
 
 if TYPE_CHECKING:
     from pathlib import Path

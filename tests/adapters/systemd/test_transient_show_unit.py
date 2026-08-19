@@ -12,7 +12,7 @@ from collections.abc import Callable
 from typing import Any
 
 from torrcast.adapters.systemd.transient_show_unit import TransientShowUnit
-from torrcast.ports.show_unit import ShowUnit
+from torrcast.ports.show_unit.show_unit import ShowUnit
 
 
 def _spy(name: str, answer: Any, called: list[str]) -> Callable[[], Any]:

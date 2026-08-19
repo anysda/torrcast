@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from torrcast import NotFoundError
+from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.raw_result import RawResult
 
 

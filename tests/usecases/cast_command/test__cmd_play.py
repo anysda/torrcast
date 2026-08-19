@@ -11,7 +11,7 @@ from torrcast.domain.choice import Choice
 from torrcast.domain.exit_codes import EXIT_OK
 from torrcast.domain.profile import CAUTIOUS
 from torrcast.domain.watch_state import WatchState
-from torrcast.ports.state_store import store as watch_store
+from torrcast.ports.state_store.slot import store as watch_store
 from torrcast.usecases.cast_command._cmd_play import _cmd_play
 
 

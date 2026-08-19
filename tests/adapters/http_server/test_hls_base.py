@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from torrcast.adapters.filesystem.state import Config
 from torrcast.adapters.http_server.hls_base import hls_base
+from torrcast.domain.config import Config
 from torrcast.domain.infra_error import InfraError
 
 

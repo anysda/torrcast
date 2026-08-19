@@ -1,8 +1,8 @@
 """Слот назначенного юнита показа: кто играет прямо сейчас и кто это назначает."""
 
 from tests.fakes.show_unit import FakeShowUnit
-from torrcast.ports.show_unit import Idle, install, unit
-from torrcast.ports.show_unit.slot import Slot
+from torrcast.ports.show_unit.idle import Idle
+from torrcast.ports.show_unit.slot import Slot, install, unit
 
 
 def test_a_fresh_slot_plays_nothing_until_the_root_says_otherwise() -> None:

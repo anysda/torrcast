@@ -13,7 +13,8 @@ from typing import Any
 import pytest
 
 from torrcast.domain.entry import Entry
-from torrcast.ports.state_store import Ephemeral, install, store
+from torrcast.ports.state_store.ephemeral import Ephemeral
+from torrcast.ports.state_store.slot import install, store
 from torrcast.usecases.following import _following
 
 KEY = "tv:сериал:2020"

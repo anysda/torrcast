@@ -35,7 +35,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from probeprofile import add_argument as add_profile_argument
 from probeprofile import choose as choose_profile
 
-from torrcast.adapters.filesystem.state import load_config
+from torrcast.adapters.filesystem.state.load_config import load_config
 from torrcast.adapters.stream_pack.extra_mbit import extra_mbit
 from torrcast.adapters.stream_pack.grid import Grid
 from torrcast.adapters.stream_pack.read_keys import read_keys

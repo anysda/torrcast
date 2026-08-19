@@ -1,6 +1,7 @@
 """Умолчание порта юнита показа: ничего не играет и никого не гасит."""
 
-from torrcast.ports.show_unit import Idle, ShowUnit
+from torrcast.ports.show_unit.idle import Idle
+from torrcast.ports.show_unit.show_unit import ShowUnit
 
 
 def test_without_a_root_there_is_no_unit_and_that_is_not_a_failure() -> None:

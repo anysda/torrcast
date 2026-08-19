@@ -5,16 +5,24 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 
-from torrcast.adapters.filesystem import trace_journal
+from torrcast.adapters.filesystem.trace_journal import evict, skew, warmth
 from torrcast.adapters.stream_pack.ffmpeg_pack_command import ffmpeg_pack_command
 from torrcast.adapters.stream_pack.pack_start import pack_start as _pack_start
 from torrcast.adapters.stream_pack.packer import Packer
 from torrcast.adapters.stream_probe.segment_name import segment_name as _segment_name
 from torrcast.adapters.stream_probe.segment_slot import segment_slot as _segment_slot
 from torrcast.domain._hms import _hms
-from torrcast.ports.journal import journal
+from torrcast.ports.journal.slot import journal
 from torrcast.ports.json_value import JsonValue
-from torrcast.ports.warm_environment import WarmPacker
+from torrcast.ports.warm_environment.warm_packer import WarmPacker
+
+#: Схемы событий ленты, которые ставит прогрев: имя события приходит с места вызова
+#: (:mod:`torrcast.usecases.warm`), а дом схемы назван здесь модулем, а не пакетом.
+_SCHEMAS: dict[str, Callable[..., None]] = {
+    "evict": evict.evict,
+    "skew": skew.skew,
+    "warmth": warmth.warmth,
+}
 
 #: Слот сборки команды: имена параметров тут не повторяются нарочно - полный договор
 #: стоит в порту, а слот держит адрес, по которому его ставит подмена медиатракта.
@@ -69,9 +77,11 @@ class _SystemWarmEnvironment:
 
     @staticmethod
     def emit(event: str, *args: object, **facts: object) -> None:
-        # Схема события - файл в пакете ленты; имя события приходит с места вызова,
-        # но сам пакет назван импортом и виден графу зависимостей.
-        getattr(trace_journal, event)(*args, **facts)
+        # Схема события - файл в пакете ленты, и дом каждой названа тут по имени файла.
+        # Раньше на этом месте стоял ``getattr`` по пакету: имя события приходит с места
+        # вызова, и пакет раздавал схемы своим namespace. Теперь пакет имён не раздаёт,
+        # а зовущий берёт схему из её модуля.
+        _SCHEMAS[event](*args, **facts)
 
     @staticmethod
     def mark(name: str, **facts: JsonValue) -> None:

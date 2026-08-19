@@ -6,7 +6,7 @@ from collections.abc import Callable
 from typing import Final
 
 from torrcast.adapters.frames.http_range_reader import HttpRangeReader
-from torrcast.domain.frames.keymap import KeyMap
+from torrcast.domain.frames.keymap.key_map import KeyMap
 from torrcast.domain.frames.range_reader import RangeReader
 from torrcast.domain.infra_error import InfraError
 
@@ -34,7 +34,7 @@ def keyframes(url: str, *, source: Source = HttpRangeReader, head_peek: int = HE
 
         return keys(reader, head)
     if head[4:8] in {b"ftyp", b"moov", b"free", b"skip", b"mdat", b"wide"}:
-        from torrcast.domain.frames.mp4 import keys
+        from torrcast.domain.frames.mp4.keys import keys
 
         return keys(reader, head)
     raise InfraError("это не mkv и не mp4: карту опорных кадров взять неоткуда")

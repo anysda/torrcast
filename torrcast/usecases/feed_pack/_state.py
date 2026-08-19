@@ -12,7 +12,7 @@ from pathlib import Path
 
 from torrcast.ports.feed_clock import FeedClock
 from torrcast.ports.feed_grid import FeedGrid
-from torrcast.ports.pack_run import PackFactory
+from torrcast.ports.pack_run.pack_factory import PackFactory
 
 #: Сетка сегментов в том объёме, в каком её знают упаковщик и лента.
 Grid = FeedGrid

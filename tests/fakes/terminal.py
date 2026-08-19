@@ -11,9 +11,9 @@ from __future__ import annotations
 
 import pytest
 
-from torrcast.adapters.console import console
+from torrcast.adapters.console.console import stdin_is_tty as tty_home
 
 
 def use_tty(patch: pytest.MonkeyPatch, *, tty: bool) -> None:
     """Сказать стенду, есть ли терминал у запуска."""
-    patch.setattr(console, "stdin_is_tty", lambda: tty)
+    patch.setattr(tty_home, "stdin_is_tty", lambda: tty)

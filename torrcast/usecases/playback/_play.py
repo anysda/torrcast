@@ -10,7 +10,7 @@ from torrcast.domain.config import Config
 from torrcast.domain.profile import CAUTIOUS, Profile
 from torrcast.domain.start_refused_error import StartRefusedError
 from torrcast.domain.why import why
-from torrcast.ports.journal import journal
+from torrcast.ports.journal.slot import journal
 from torrcast.ports.receiver import Receiver
 from torrcast.ports.stream_source import StreamSource
 from torrcast.usecases.playback._show_end import _close_show, _report_end, _say_whole

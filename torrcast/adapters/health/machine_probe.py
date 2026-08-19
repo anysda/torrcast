@@ -10,9 +10,12 @@ import time
 from pathlib import Path
 from typing import Any
 
-from torrcast.adapters.console import console
-from torrcast.adapters.filesystem import trace_journal
-from torrcast.adapters.filesystem.state import state_path
+from torrcast.adapters.console.console import stdin_is_tty as _tty
+from torrcast.adapters.console.console.iutf8 import iutf8
+from torrcast.adapters.filesystem.state.state_path import state_path
+from torrcast.adapters.filesystem.trace_journal.health import health as trace_health
+from torrcast.adapters.filesystem.trace_journal.log_dir import log_dir
+from torrcast.adapters.filesystem.trace_journal.prune import RETAIN_DAYS
 from torrcast.adapters.stream_probe.shelf_weight import shelf_weight
 from torrcast.domain.warm_open import KEYS_KEPT, PROBE_KEPT
 
@@ -26,7 +29,7 @@ class MachineProbe:
     @staticmethod
     def has_terminal() -> bool:
         """Есть ли живой pty на входе: без него вопросы возьмут дефолты."""
-        return console.stdin_is_tty()
+        return _tty.stdin_is_tty()
 
     @staticmethod
     def terminal_utf8() -> bool | None:
@@ -37,7 +40,7 @@ class MachineProbe:
             mode = termios.tcgetattr(sys.stdin.fileno())
         except (termios.error, ValueError, OSError):
             return None
-        return bool(int(mode[0]) & console.iutf8())
+        return bool(int(mode[0]) & iutf8())
 
     @staticmethod
     def encoding() -> str:
@@ -116,18 +119,18 @@ class MachineProbe:
     @staticmethod
     def trace_health() -> tuple[bool, float, int]:
         """Здоровье недельной ленты: есть ли, когда писали последний раз, сколько весит."""
-        found, newest, total = trace_journal.health()
+        found, newest, total = trace_health()
         return bool(found), float(newest), int(total)
 
     @staticmethod
     def trace_dir() -> str:
         """Каталог, в котором лента живёт."""
-        return str(trace_journal.log_dir())
+        return str(log_dir())
 
     @staticmethod
     def retain_days() -> int:
         """Сколько суток лента хранится: старше этого - уже протухла."""
-        return int(trace_journal.RETAIN_DAYS)
+        return int(RETAIN_DAYS)
 
     @staticmethod
     def now() -> float:

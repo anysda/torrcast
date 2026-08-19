@@ -11,8 +11,8 @@ from typing import TYPE_CHECKING
 import torrcast.usecases.cast_command._play_state as _state
 from torrcast.domain.config import Config
 from torrcast.domain.prewarm_settings import PREWARM
-from torrcast.ports.journal import journal
-from torrcast.ports.progress import progress as progress_bar
+from torrcast.ports.journal.slot import journal
+from torrcast.ports.progress.slot import progress as progress_bar
 from torrcast.usecases.cast_command._bookmark import _continue_picked
 from torrcast.usecases.choice._passport import _passport
 from torrcast.usecases.choice._pick_plan import _pick_plan

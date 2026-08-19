@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import torrcast.adapters.prowlarr as torrent_catalogue
 import torrcast.usecases.discover._search_state as _search_state
 import torrcast.usecases.torrents as torrents
 from torrcast.adapters.prowlarr.prowlarr import Prowlarr
+from torrcast.adapters.prowlarr.torrent_catalogue import torrent_catalogue
 from torrcast.adapters.torrserver.torr_server import TorrServer
 from torrcast.runtime.wire_search import wire_search
 

@@ -10,7 +10,7 @@ import time
 from typing import TYPE_CHECKING, Any, Final
 
 from torrcast.domain.hls_settings import SHRINK_DIR
-from torrcast.ports.journal import journal
+from torrcast.ports.journal.slot import journal
 
 if TYPE_CHECKING:
     from torrcast.adapters.recode.recoder_state import _State

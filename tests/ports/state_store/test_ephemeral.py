@@ -1,7 +1,8 @@
 """Умолчание порта состояния: помнит позицию, но файлов владельца не заводит."""
 
 from torrcast.domain.entry import Entry
-from torrcast.ports.state_store import Ephemeral, StateStore
+from torrcast.ports.state_store.ephemeral import Ephemeral
+from torrcast.ports.state_store.state_store import StateStore
 
 
 def test_the_state_survives_the_run_but_never_reaches_a_file(tmp_path: object) -> None:

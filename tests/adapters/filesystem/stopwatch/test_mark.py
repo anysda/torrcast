@@ -9,7 +9,8 @@ import pytest
 from torrcast.adapters.filesystem.stopwatch.mark import mark
 from torrcast.adapters.filesystem.stopwatch.read import read
 from torrcast.domain.timeline_env import TIMELINE_ENV
-from torrcast.ports.journal import Silent, install
+from torrcast.ports.journal.silent import Silent
+from torrcast.ports.journal.slot import install
 
 
 class _Spy(Silent):

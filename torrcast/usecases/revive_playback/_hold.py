@@ -13,7 +13,7 @@ from torrcast.domain.infra_error import InfraError
 from torrcast.domain.profile import CAUTIOUS, Profile
 from torrcast.domain.start_settings import PAUSE_LIMIT, PAUSE_SECONDS, SAY_SECONDS
 from torrcast.ports.clock import Clock
-from torrcast.ports.journal import journal
+from torrcast.ports.journal.slot import journal
 from torrcast.ports.receiver import Receiver
 from torrcast.ports.stream_source import StreamSource
 from torrcast.usecases.choice._ctl import _ctl

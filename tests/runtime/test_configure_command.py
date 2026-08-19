@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from torrcast.adapters.filesystem.state import load_config
+from torrcast.adapters.filesystem.state.load_config import load_config
 from torrcast.runtime.configure_command import configure_command
 
 

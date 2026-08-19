@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from torrcast.ports.journal import journal
+from torrcast.ports.journal.slot import journal
 
 if TYPE_CHECKING:
     from torrcast.adapters.chromecast.cast.receiver_state import _State

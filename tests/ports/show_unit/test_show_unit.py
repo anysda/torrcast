@@ -1,7 +1,7 @@
 """Проверяет контракт юнита показа и поведение его фейка."""
 
 from tests.fakes.show_unit import FakeShowUnit
-from torrcast.ports.show_unit import ShowUnit
+from torrcast.ports.show_unit.show_unit import ShowUnit
 
 
 def test_a_stopped_unit_is_not_alive_any_more() -> None:

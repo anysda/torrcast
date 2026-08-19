@@ -10,7 +10,7 @@ import os
 import time
 
 from torrcast.domain.timeline_env import TIMELINE_ENV
-from torrcast.ports.journal import journal
+from torrcast.ports.journal.slot import journal
 
 
 def mark(name: str, **facts: object) -> None:

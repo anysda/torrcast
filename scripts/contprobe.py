@@ -50,7 +50,7 @@ import poolreplay
 from probeprofile import add_argument as add_profile_argument
 from probeprofile import choose as choose_profile
 
-from torrcast.adapters.filesystem.state import load_config
+from torrcast.adapters.filesystem.state.load_config import load_config
 from torrcast.domain import pick_franchise as pick_franchise_home
 from torrcast.domain.args import Args
 from torrcast.domain.both_languages import both_languages

@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 from torrcast.ports.passport_source import PassportSource
-from torrcast.ports.torrent_catalogue import TorrentCatalogue
+from torrcast.ports.torrent_catalogue.torrent_catalogue import TorrentCatalogue
 
 #: Каталог раздач и справка о картинах - единственное, что у добора снаружи. Ставит их
 #: корень: за первым стоит адаптер индексеров, за второй - паспорт справки, и оба он же

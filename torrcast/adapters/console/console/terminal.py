@@ -8,7 +8,7 @@ import contextlib
 import sys
 from collections.abc import Callable, Iterator
 
-from torrcast.adapters.console import console as _console
+from torrcast.adapters.console.console import stdin_is_tty as _tty
 from torrcast.adapters.console.console.iutf8 import iutf8
 
 
@@ -24,7 +24,7 @@ def terminal(tty: Callable[[], bool] | None = None) -> Iterator[None]:
     Кто отвечает на «есть ли терминал», можно назвать параметром: no-op меряется тем,
     что режим никто не трогал, а не подменой имени в соседнем модуле.
     """
-    if not (_console.stdin_is_tty if tty is None else tty)():
+    if not (_tty.stdin_is_tty if tty is None else tty)():
         yield
         return
     import termios

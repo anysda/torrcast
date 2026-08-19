@@ -34,8 +34,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from probeprofile import add_argument as add_profile_argument
 from probeprofile import choose as choose_profile
 
-from torrcast.adapters.chromecast.cast import ChromecastReceiver
-from torrcast.adapters.filesystem.state import load_config
+from torrcast.adapters.chromecast.cast.chromecast_receiver import ChromecastReceiver
+from torrcast.adapters.filesystem.state.load_config import load_config
 from torrcast.adapters.http_server.hls_base import hls_base
 from torrcast.adapters.http_server.hls_server import HlsServer
 from torrcast.adapters.recode.encode import Encode

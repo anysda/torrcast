@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 from torrcast.domain.entry import Entry
-from torrcast.ports.state_store import store
+from torrcast.ports.state_store.slot import store
 
 
 def _following(key: str) -> Entry | None:

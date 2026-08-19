@@ -2,8 +2,8 @@
 
 import pytest
 
-from torrcast.adapters.filesystem.state import Config
 from torrcast.adapters.health.service_probe import ServiceProbe
+from torrcast.domain.config import Config
 
 
 def test_the_cast_port_is_the_one_the_search_knows() -> None:

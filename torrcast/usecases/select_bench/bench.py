@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.pick_settings import MAX_TRIES
 from torrcast.domain.server_down_error import ServerDownError
-from torrcast.ports.progress import Progress
+from torrcast.ports.progress.progress import Progress
 from torrcast.usecases.rank.heard import heard
 from torrcast.usecases.rank.voice_unproven import voice_unproven
 from torrcast.usecases.select._prep import _Prep

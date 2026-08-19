@@ -1,7 +1,8 @@
 """Слот назначенного писателя следа: кто пишет прямо сейчас и кто это назначает."""
 
-from torrcast.ports.journal import Journal, Silent, install, journal
-from torrcast.ports.journal.slot import Slot
+from torrcast.ports.journal.journal import Journal
+from torrcast.ports.journal.silent import Silent
+from torrcast.ports.journal.slot import Slot, install, journal
 from torrcast.ports.json_value import JsonValue
 
 

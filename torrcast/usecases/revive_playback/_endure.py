@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from torrcast.domain.infra_error import InfraError
 from torrcast.ports.clock import Clock
-from torrcast.ports.journal import journal
+from torrcast.ports.journal.slot import journal
 from torrcast.ports.stream_source import StreamSource
 from torrcast.usecases.feed_pack.feed import Feed
 from torrcast.usecases.source_blame import _asked

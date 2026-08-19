@@ -8,8 +8,9 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from torrcast.adapters.console import console
-from torrcast.adapters.filesystem.trace_journal import emit
+from torrcast.adapters.console.console import stdin_is_tty as _tty
+from torrcast.adapters.console.console.ask import ask
+from torrcast.adapters.filesystem.trace_journal.emit import emit
 from torrcast.domain.debug_handles import CTL_ENV
 from torrcast.domain.facts.fact import Fact
 from torrcast.domain.facts.origin import Origin
@@ -83,11 +84,11 @@ class _SystemChoiceEnvironment:
 
     @staticmethod
     def stdin_is_tty() -> bool:
-        return console.stdin_is_tty()
+        return _tty.stdin_is_tty()
 
     @staticmethod
     def ask(question: str, count: int, default: int | None = 1) -> int:
-        return console.ask(question, count, default)
+        return ask(question, count, default)
 
     @staticmethod
     def columns() -> int:

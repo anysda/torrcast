@@ -36,10 +36,3 @@
 Если ``moov`` оказался в хвосте, он всё равно находится — шагами по верхним боксам, по
 16 байт заголовка на шаг: ``mdat`` в 2 ГБ при этом не читается ни байтом.
 """
-
-from __future__ import annotations
-
-from torrcast.domain.frames.mp4._window import MOOV_CHUNK as MOOV_CHUNK
-from torrcast.domain.frames.mp4.keys import keys as keys
-
-__all__ = ["MOOV_CHUNK", "keys"]

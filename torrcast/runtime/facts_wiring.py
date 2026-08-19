@@ -6,7 +6,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Final
 
-from torrcast.adapters.filesystem.state import state_path
+from torrcast.adapters.filesystem.state.state_path import state_path
 from torrcast.adapters.wiki.facts_file_cache import FactsFileCache
 from torrcast.adapters.wiki.http_json_client import HttpJsonClient
 from torrcast.adapters.wiki.imdb_names import ImdbNames

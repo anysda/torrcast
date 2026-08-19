@@ -22,13 +22,14 @@ from tests.fakes.cast_world import CastWorld
 from tests.fakes.journal import Tape
 from tests.fakes.pretend_tty import PretendTty
 from tests.fakes.show_unit import FakeShowUnit
-from torrcast.adapters.filesystem.trace_journal import LOG_ENV, SID_ENV
+from torrcast.adapters.filesystem.trace_journal.log_dir import LOG_ENV
+from torrcast.adapters.filesystem.trace_journal.session_id import SID_ENV
 from torrcast.domain.debug_handles import CTL_ENV
 from torrcast.domain.facts.origin import Origin
-from torrcast.ports import journal as journal_port
-from torrcast.ports import progress as progress_port
-from torrcast.ports import show_unit as unit_port
-from torrcast.ports import state_store as state_port
+from torrcast.ports.journal import slot as journal_slot
+from torrcast.ports.progress import slot as progress_slot
+from torrcast.ports.show_unit import slot as unit_slot
+from torrcast.ports.state_store import slot as state_slot
 from torrcast.runtime.wire import wire
 
 if TYPE_CHECKING:
@@ -314,15 +315,15 @@ def _ports_restored() -> Iterator[None]:
     на то, что каждый автор допишет ``install`` обратно, - значит ждать той же ошибки
     снова.
     """
-    saved_journal = journal_port.journal()
-    saved_progress = progress_port.factory()
-    saved_state = state_port.store()
-    saved_unit = unit_port.unit()
+    saved_journal = journal_slot.journal()
+    saved_progress = progress_slot.factory()
+    saved_state = state_slot.store()
+    saved_unit = unit_slot.unit()
     yield
-    journal_port.install(saved_journal)
-    progress_port.install(saved_progress)
-    state_port.install(saved_state)
-    unit_port.install(saved_unit)
+    journal_slot.install(saved_journal)
+    progress_slot.install(saved_progress)
+    state_slot.install(saved_state)
+    unit_slot.install(saved_unit)
 
 
 @pytest.fixture(autouse=True)
@@ -336,7 +337,7 @@ def show_unit(_ports_restored: None) -> FakeShowUnit:
     нужен идущий показ, достаточно ``show_unit.alive = True``.
     """
     fake = FakeShowUnit()
-    unit_port.install(fake)
+    unit_slot.install(fake)
     return fake
 
 
@@ -348,7 +349,7 @@ def tape(_ports_restored: None) -> Tape:
     округление и раскладка полей остаются заботой самой ленты и её зеркал.
     """
     fake = Tape()
-    journal_port.install(fake)
+    journal_slot.install(fake)
     return fake
 
 

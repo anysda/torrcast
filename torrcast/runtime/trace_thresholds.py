@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from torrcast.adapters.chromecast.profile_detector import detector
-from torrcast.adapters.filesystem.state import config_keys, load_config
+from torrcast.adapters.filesystem.state.config_keys import config_keys
+from torrcast.adapters.filesystem.state.load_config import load_config
 from torrcast.domain.config import Config
 from torrcast.domain.profile import Profile
 from torrcast.domain.thresholds import thresholds

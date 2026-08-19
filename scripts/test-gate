@@ -34,7 +34,8 @@ from pathlib import Path
 import subprocess
 import sys
 
-from torrcast.adapters.recode import FULL_PRESET, Encode
+from torrcast.adapters.recode.encode import Encode
+from torrcast.adapters.recode.whole_encode import FULL_PRESET
 from torrcast.adapters.stream_pack.ffmpeg_pack_command import ffmpeg_pack_command
 from torrcast.adapters.stream_pack.grid_for import grid_for
 

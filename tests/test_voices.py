@@ -18,8 +18,8 @@ from typing import ClassVar
 import pytest
 
 from tests.fakes import composition
-from torrcast import InfraError
-from torrcast.adapters.filesystem.state import State, save_config
+from torrcast.adapters.filesystem.state.save_config import save_config
+from torrcast.adapters.filesystem.state.state import State
 from torrcast.cli.main import main
 from torrcast.domain.audio_track import (
     STEP_FOREIGN,
@@ -30,6 +30,7 @@ from torrcast.domain.audio_track import (
 )
 from torrcast.domain.config import Config
 from torrcast.domain.entry import Entry
+from torrcast.domain.infra_error import InfraError
 from torrcast.domain.media import Media
 from torrcast.domain.raw_result import RawResult
 from torrcast.domain.studio import STUDIOS

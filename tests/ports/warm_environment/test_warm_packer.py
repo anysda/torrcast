@@ -1,7 +1,7 @@
 """Завод захода упаковки: настоящий упаковщик под договор прогрева подходит."""
 
 from torrcast.adapters.stream_pack.packer import Packer
-from torrcast.ports.warm_environment import WarmPacker
+from torrcast.ports.warm_environment.warm_packer import WarmPacker
 
 
 def test_the_real_packer_fits_the_warming_contract() -> None:

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
-from torrcast.adapters.filesystem.trace_journal import FileJournal
-from torrcast.ports.journal import Journal, Silent, install, journal
+from torrcast.adapters.filesystem.trace_journal.file_journal import FileJournal
+from torrcast.ports.journal.journal import Journal
+from torrcast.ports.journal.silent import Silent
+from torrcast.ports.journal.slot import install, journal
 
 
 def test_without_a_root_the_journal_is_silent_and_not_a_failure() -> None:

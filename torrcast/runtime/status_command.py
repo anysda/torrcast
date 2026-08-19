@@ -7,7 +7,7 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from torrcast.adapters.console.print_console import PrintConsole
-from torrcast.adapters.filesystem.state import load_config
+from torrcast.adapters.filesystem.state.load_config import load_config
 from torrcast.adapters.system_clock import SystemClock
 from torrcast.domain.config import Config
 from torrcast.runtime.playback_session import playback_session

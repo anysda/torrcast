@@ -18,9 +18,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from torrcast import TorrcastError
 from torrcast.adapters.frames.keyframes import keyframes
-from torrcast.domain.frames.keymap import Point, video_track
+from torrcast.domain.frames.keymap.point import Point
+from torrcast.domain.frames.keymap.video_track import video_track
+from torrcast.domain.torrcast_error import TorrcastError
 
 
 def report(duration: float, points: tuple[Point, ...], grid: int) -> None:

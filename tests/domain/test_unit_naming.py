@@ -7,7 +7,8 @@
 
 from __future__ import annotations
 
-from torrcast.adapters.filesystem.trace_journal import LOG_ENV, SID_ENV
+from torrcast.adapters.filesystem.trace_journal.log_dir import LOG_ENV
+from torrcast.adapters.filesystem.trace_journal.session_id import SID_ENV
 from torrcast.domain.debug_handles import CTL_ENV, TRACE_ENV
 from torrcast.domain.timeline_env import TIMELINE_ENV
 from torrcast.domain.unit_naming import _PASS_ENV, _UNIT_NAME, _UNIT_TAG

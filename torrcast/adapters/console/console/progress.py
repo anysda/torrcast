@@ -9,7 +9,7 @@ import threading
 import time
 from typing import Any, Final, TextIO
 
-from torrcast.adapters.filesystem import trace_journal
+from torrcast.adapters.filesystem.trace_journal.emit import emit
 
 #: Как часто перерисовывается строка прогресса на живом терминале, секунды.
 _TICK: Final = 0.5
@@ -61,7 +61,7 @@ class Progress:
         склейка картин, честный отказ), и знать о нём при разборе сеанса надо. Отдельных
         вызовов журнала в местах решений это не заводит - их подбирает сам ``note``.
         """
-        trace_journal.emit("note", "note", text=text)
+        emit("note", "note", text=text)
         with self._lock:
             keep, since = self._text, self._since
             self._erase()

@@ -8,7 +8,7 @@ from __future__ import annotations
 import torrcast.usecases.revive_playback._revive_state as _state
 from torrcast.domain.position import Position
 from torrcast.domain.revive_settings import REVIVE_LIMIT, REVIVE_TRIES
-from torrcast.ports.journal import journal
+from torrcast.ports.journal.slot import journal
 from torrcast.usecases.feed_pack.feed import Feed
 from torrcast.usecases.rank._hms import _hms
 from torrcast.usecases.revive_playback._revival import _Revival

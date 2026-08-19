@@ -11,7 +11,7 @@ from typing import Any
 from torrcast.adapters.pack_memory import _ORIGIN, _ORIGIN_LOCK
 from torrcast.domain.hls_settings import AUDIO_PRIMING
 from torrcast.domain.hls_wait import PILOT_TIMEOUT
-from torrcast.ports.journal import journal
+from torrcast.ports.journal.slot import journal
 
 
 def _reorder_slack(

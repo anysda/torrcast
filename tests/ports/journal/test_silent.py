@@ -1,6 +1,7 @@
 """Умолчание порта следа: принимает любое событие и не пишет ни байта."""
 
-from torrcast.ports.journal import Journal, Silent
+from torrcast.ports.journal.journal import Journal
+from torrcast.ports.journal.silent import Silent
 
 
 def test_a_named_event_of_the_silent_journal_is_silence_too() -> None:

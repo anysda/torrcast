@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from torrcast.ports.choice_environment import ChoiceEnvironment
+from torrcast.ports.choice_environment.choice_environment import ChoiceEnvironment
 
 _environment: ChoiceEnvironment
 

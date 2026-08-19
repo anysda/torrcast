@@ -14,7 +14,7 @@ import pytest
 
 from tests.fakes import composition
 from tests.fakes.show_unit import FakeShowUnit
-from torrcast.adapters.filesystem.state import State
+from torrcast.adapters.filesystem.state.state import State
 from torrcast.cli.main import main
 from torrcast.domain.config import Config
 from torrcast.domain.entry import Entry

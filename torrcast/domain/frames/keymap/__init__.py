@@ -37,11 +37,3 @@ mp4          ``stss``/``stts`` в ``moov``, обычно в      :mod:`torrcast.
 к меткам свои 1.4 с, и разница карты с таким сегментом — это его добавка, а не ошибка
 карты. Ровно на этом однажды сгорело целое расследование подвисов.
 """
-
-from __future__ import annotations
-
-from torrcast.domain.frames.keymap.key_map import KeyMap as KeyMap
-from torrcast.domain.frames.keymap.point import Point as Point
-from torrcast.domain.frames.keymap.video_track import video_track as video_track
-
-__all__ = ["KeyMap", "Point", "video_track"]

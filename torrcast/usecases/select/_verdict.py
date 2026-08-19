@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 
 from torrcast.domain.swarm_error import SwarmError
-from torrcast.ports.journal import journal
+from torrcast.ports.journal.slot import journal
 from torrcast.usecases.select._prep import _Prep
 
 

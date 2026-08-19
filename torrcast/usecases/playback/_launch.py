@@ -15,12 +15,12 @@ from torrcast.domain.exit_codes import EXIT_OK
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.not_found_error import NotFoundError
 from torrcast.ports.clock import Clock
-from torrcast.ports.journal import journal
-from torrcast.ports.progress import Progress
-from torrcast.ports.progress import progress as progress_bar
-from torrcast.ports.show_unit import ShowUnit
-from torrcast.ports.show_unit import unit as show_unit
-from torrcast.ports.state_store import store
+from torrcast.ports.journal.slot import journal
+from torrcast.ports.progress.progress import Progress
+from torrcast.ports.progress.slot import progress as progress_bar
+from torrcast.ports.show_unit.show_unit import ShowUnit
+from torrcast.ports.show_unit.slot import unit as show_unit
+from torrcast.ports.state_store.slot import store
 from torrcast.usecases.select._about import _about
 from torrcast.usecases.start_budget import START_BUDGET
 from torrcast.usecases.start_clock import _Clock

@@ -16,7 +16,7 @@ from torrcast.domain.profile import Profile
 from torrcast.domain.recode_note import recode_note
 from torrcast.domain.recodes_whole import recodes_whole
 from torrcast.ports.clock import Clock
-from torrcast.ports.journal import journal
+from torrcast.ports.journal.slot import journal
 from torrcast.ports.receiver import Receiver
 from torrcast.ports.recode.encoding import Encoding
 from torrcast.ports.stream_source import StreamSource

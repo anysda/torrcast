@@ -17,7 +17,7 @@ from torrcast.domain.hls_settings import PLAYING_FLAG
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.profile import CAUTIOUS
-from torrcast.ports.show_unit import ShowUnit
+from torrcast.ports.show_unit.show_unit import ShowUnit
 from torrcast.usecases.playback._launch import _await_playing, _refuse_hopeless
 
 

@@ -1,7 +1,7 @@
 """Идущий прогон упаковки: настоящий прогон отвечает на всё, что спрашивает лента."""
 
 from torrcast.adapters.stream_pack.packer import Packer
-from torrcast.ports.pack_run import PackRun
+from torrcast.ports.pack_run.pack_run import PackRun
 
 
 def test_the_real_run_answers_everything_the_feed_asks() -> None:

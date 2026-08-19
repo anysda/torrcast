@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import torrcast.usecases.warm._state as _state
-from torrcast.ports.warm_environment import WarmGrid
+from torrcast.ports.warm_environment.warm_grid import WarmGrid
 
 #: Что композиция обязана положить в слоты (:func:`torrcast.usecases.warm.configure`).
 FILLED = (

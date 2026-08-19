@@ -14,25 +14,24 @@ from pathlib import Path
 
 import pytest
 
-from torrcast.adapters.filesystem.trace_journal import (
-    LOG_ENV,
-    SID_ENV,
-    dark,
-    emit,
-    evict,
-    nudge,
-    plan,
-    records,
-    revive,
-    seek,
-    segment,
-    shutdown,
-    skew,
-    start_session,
-    warmth,
-)
+from torrcast.adapters.filesystem.trace_journal.dark import dark
+from torrcast.adapters.filesystem.trace_journal.emit import emit
+from torrcast.adapters.filesystem.trace_journal.evict import evict
+from torrcast.adapters.filesystem.trace_journal.log_dir import LOG_ENV
+from torrcast.adapters.filesystem.trace_journal.nudge import nudge
+from torrcast.adapters.filesystem.trace_journal.plan import plan
+from torrcast.adapters.filesystem.trace_journal.records import records
+from torrcast.adapters.filesystem.trace_journal.revive import revive
+from torrcast.adapters.filesystem.trace_journal.seek import seek
+from torrcast.adapters.filesystem.trace_journal.segment import segment
+from torrcast.adapters.filesystem.trace_journal.session_id import SID_ENV
+from torrcast.adapters.filesystem.trace_journal.shutdown import shutdown
+from torrcast.adapters.filesystem.trace_journal.skew import skew
+from torrcast.adapters.filesystem.trace_journal.start_session import start_session
+from torrcast.adapters.filesystem.trace_journal.warmth import warmth
 from torrcast.cli.main import main
-from torrcast.domain.digest import _seams, digest
+from torrcast.domain.digest._seams import _seams
+from torrcast.domain.digest.digest import digest
 from torrcast.domain.trace_sources import PACKED, WARMED
 
 
@@ -488,7 +487,7 @@ def test_cast_log_shows_the_timeline_and_the_query(
     ``jsonl``, человек не видел. Это ровно та ловушка, ради которой след и заведён: «в
     журнале нет строки» читалось как «события не было».
     """
-    from torrcast.adapters.filesystem.stopwatch import mark
+    from torrcast.adapters.filesystem.stopwatch.mark import mark
 
     emit("search", "query", query="сталкер", raw=41, pictures=3)
     mark("отбор релиза", релиз=2)

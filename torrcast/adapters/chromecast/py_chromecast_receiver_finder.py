@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from torrcast.adapters.chromecast.cast import hush_cosmetic_noise
+from torrcast.adapters.chromecast.cast.hush_cosmetic_noise import hush_cosmetic_noise
 from torrcast.domain.receiver_info import ReceiverInfo
 
 

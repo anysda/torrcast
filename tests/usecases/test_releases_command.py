@@ -17,7 +17,7 @@ from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.picture import Picture
 from torrcast.domain.profile import CAUTIOUS, Profile
 from torrcast.domain.release import Release
-from torrcast.ports.progress import Progress
+from torrcast.ports.progress.progress import Progress
 from torrcast.runtime.wire import wire
 from torrcast.usecases import releases_command
 from torrcast.usecases.facts import Facts

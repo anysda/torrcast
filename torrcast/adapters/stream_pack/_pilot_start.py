@@ -11,7 +11,7 @@ import tempfile
 import threading
 
 from torrcast.domain.hls_wait import PILOT_TIMEOUT
-from torrcast.ports.journal import journal
+from torrcast.ports.journal.slot import journal
 
 #: С какой метки начинается ВИДЕО этого файла, секунды. Одно число на файл
 #: (:func:`_film_start`): им пробный прогон переводит свой ответ из лент контейнера в

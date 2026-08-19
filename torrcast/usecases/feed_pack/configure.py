@@ -10,7 +10,7 @@ from pathlib import Path
 
 import torrcast.usecases.feed_pack._state as _state
 from torrcast.ports.feed_clock import FeedClock
-from torrcast.ports.pack_run import PackFactory
+from torrcast.ports.pack_run.pack_factory import PackFactory
 
 
 def configure(

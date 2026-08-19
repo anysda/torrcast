@@ -30,10 +30,10 @@ import pytest
 from tests.conftest import CLIP_SECONDS, FakeProc, fake_packer, free_port
 from tests.fakes.clock import FakeClock
 from tests.fakes.show_unit import FakeShowUnit
-from torrcast import InfraError
-from torrcast.adapters.chromecast.cast import ChromecastReceiver
+from torrcast.adapters.chromecast.cast.chromecast_receiver import ChromecastReceiver
+from torrcast.adapters.chromecast.cast.hush_cosmetic_noise import hush_cosmetic_noise
 from torrcast.adapters.chromecast.mock.mock_receiver import MockReceiver
-from torrcast.adapters.filesystem.state import State
+from torrcast.adapters.filesystem.state.state import State
 from torrcast.adapters.http_server.hls_base import hls_base
 from torrcast.adapters.stream_pack.ffmpeg_pack_command import ffmpeg_pack_command
 from torrcast.adapters.stream_pack.grid import Grid
@@ -47,6 +47,7 @@ from torrcast.adapters.stream_probe.supply import Supply
 from torrcast.domain.config import Config
 from torrcast.domain.entry import Entry
 from torrcast.domain.hls_settings import HLS_SEGMENT_SECONDS, PACK_DIR
+from torrcast.domain.infra_error import InfraError
 from torrcast.domain.not_raised import NOT_RAISED
 from torrcast.domain.position import Position
 from torrcast.domain.revive_settings import REVIVE_DROP, REVIVE_LIMIT, REVIVE_PAUSE, REVIVE_TRIES
@@ -138,8 +139,8 @@ def test_a_release_without_a_video_file_is_a_verdict_not_an_infra_error() -> Non
     читается молчанием роя, и раздача-журнал («lainzine 1-5» по запросу «lain», TC-399)
     числилась бы неотозвавшейся, хотя про неё известно всё.
     """
-    from torrcast import NotFoundError
     from torrcast.adapters.stream_probe.pick_video_file import pick_video_file
+    from torrcast.domain.not_found_error import NotFoundError
     from torrcast.domain.torr_file import TorrFile
 
     with pytest.raises(NotFoundError, match="нет отдельного видеофайла"):
@@ -1312,7 +1313,7 @@ def test_a_release_that_never_plays_stops_at_the_profile_not_at_eleven() -> None
 
 def test_the_receivers_detailed_error_survives_pychromecast_parsing() -> None:
     """Код отказа снимается с сырого ответа, пока библиотека его не выбросила."""
-    from torrcast.adapters.chromecast.cast import ChromecastReceiver
+    from torrcast.adapters.chromecast.cast.chromecast_receiver import ChromecastReceiver
 
     seen: list[dict[str, Any]] = []
 
@@ -1337,7 +1338,7 @@ def test_the_receivers_detailed_error_survives_pychromecast_parsing() -> None:
 
 def test_the_receivers_detailed_error_is_taken_from_a_refused_load_too() -> None:
     """Код отказа снимается и со второго ответа приёмника - отказа самой загрузки."""
-    from torrcast.adapters.chromecast.cast import ChromecastReceiver
+    from torrcast.adapters.chromecast.cast.chromecast_receiver import ChromecastReceiver
 
     seen: list[dict[str, Any]] = []
 
@@ -1363,7 +1364,7 @@ def test_the_receivers_detailed_error_is_taken_from_a_refused_load_too() -> None
 
 def test_a_receiver_without_load_failure_parsing_still_gets_its_error_hook() -> None:
     """Приёмник, у которого разбора отказа загрузки нет, снимается прежним путём."""
-    from torrcast.adapters.chromecast.cast import ChromecastReceiver
+    from torrcast.adapters.chromecast.cast.chromecast_receiver import ChromecastReceiver
 
     class _Controller:
         def _process_media_status(self, data: dict[str, Any]) -> None:
@@ -2157,10 +2158,9 @@ def test_only_the_cosmetic_pychromecast_line_is_hushed(caplog: pytest.LogCapture
     ``port=8009`` в её тексте - распечатка списка сервисов, а не отказавший порт; на этом
     уже строилась ложная гипотеза «телевизор выпадает по 8009».
     """
-    from torrcast.adapters.chromecast import cast
 
-    cast.hush_cosmetic_noise()
-    cast.hush_cosmetic_noise()  # второй вызов второго фильтра не вешает
+    hush_cosmetic_noise()
+    hush_cosmetic_noise()  # второй вызов второго фильтра не вешает
     logger = logging.getLogger("pychromecast.dial")
     assert len(logger.filters) == 1
 
@@ -2432,7 +2432,7 @@ def test_the_cli_never_kills_a_show_that_is_still_inside_the_units_budget(
     здесь одно: ждать не меньше суммы потолков всех фаз, которые юнит проходит до
     первого ``PLAYING``.
     """
-    from torrcast.adapters.chromecast.cast import ChromecastReceiver
+    from torrcast.adapters.chromecast.cast.chromecast_receiver import ChromecastReceiver
     from torrcast.domain.hls_wait import KEYS_WAIT, PILOT_TIMEOUT
 
     phases = (
@@ -2511,7 +2511,7 @@ def _supply(service: _Service) -> Any:
 
 
 def _events(directory: Path) -> list[dict[str, Any]]:
-    from torrcast.adapters.filesystem.trace_journal import shutdown
+    from torrcast.adapters.filesystem.trace_journal.shutdown import shutdown
 
     shutdown()
     rows: list[dict[str, Any]] = []

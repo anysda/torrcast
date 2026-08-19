@@ -7,7 +7,8 @@ from __future__ import annotations
 from torrcast.adapters.chromecast.network_receiver_finder import NetworkReceiverFinder
 from torrcast.adapters.console.print_console import PrintConsole
 from torrcast.adapters.filesystem.config_file_store import ConfigFileStore
-from torrcast.adapters.filesystem.state import load_config, save_config
+from torrcast.adapters.filesystem.state.load_config import load_config
+from torrcast.adapters.filesystem.state.save_config import save_config
 from torrcast.usecases.configure import Configure
 
 

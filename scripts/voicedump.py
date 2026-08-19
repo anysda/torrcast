@@ -24,8 +24,8 @@ from pathlib import Path
 # такой замер нельзя вовсе.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from torrcast.adapters.console.console import Progress
-from torrcast.adapters.filesystem.state import load_config
+from torrcast.adapters.console.console.progress import Progress
+from torrcast.adapters.filesystem.state.load_config import load_config
 from torrcast.adapters.torrserver.torr_server import TorrServer
 from torrcast.domain.args import Args
 from torrcast.runtime.wire import wire

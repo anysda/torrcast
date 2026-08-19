@@ -21,7 +21,7 @@ import pytest
 import torrcast
 from torrcast.adapters.chromecast.profile_detector import ProfileDetector, detector
 from torrcast.adapters.chromecast.scan.device import Device
-from torrcast.adapters.filesystem.state import save_config
+from torrcast.adapters.filesystem.state.save_config import save_config
 from torrcast.domain.args import Args
 from torrcast.domain.config import Config
 from torrcast.domain.profile import ANDROID_TV, CAUTIOUS

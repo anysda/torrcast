@@ -9,10 +9,11 @@ from typing import cast
 
 import requests
 
-from torrcast.adapters.chromecast import scan
 from torrcast.adapters.chromecast.profile_detector import detector
-from torrcast.adapters.filesystem.state import Config
+from torrcast.adapters.chromecast.scan.alive import CAST_PORT
+from torrcast.adapters.chromecast.scan.by_mdns import by_mdns
 from torrcast.adapters.http_server.stream_serve import hls_base, our_address
+from torrcast.domain.config import Config
 from torrcast.domain.profile import CAUTIOUS
 from torrcast.domain.torrcast_error import TorrcastError
 from torrcast.ports.health_config import HealthConfig
@@ -135,7 +136,7 @@ class ServiceProbe:
     @staticmethod
     def cast_port() -> int:
         """Порт приёмника: он открыт даже у спящего телевизора."""
-        return scan.CAST_PORT
+        return CAST_PORT
 
     @staticmethod
     def our_address(tv: str) -> str:
@@ -158,7 +159,7 @@ class ServiceProbe:
     @staticmethod
     def heard_receivers() -> tuple[list[str], str, str]:
         """Имена приёмников из эфира, а также причина и пояснение, если их нет."""
-        heard = scan.by_mdns()
+        heard = by_mdns()
         return [device.title for device in heard.devices], heard.reason, heard.note
 
     @staticmethod

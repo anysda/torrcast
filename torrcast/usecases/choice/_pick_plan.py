@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from torrcast.ports.choice_environment import ChoiceEnvironment
+from torrcast.ports.choice_environment.choice_environment import ChoiceEnvironment
 from torrcast.usecases.choice.configure import _environment_port
 from torrcast.usecases.choice.default_line import default_line
 from torrcast.usecases.choice.menu_lines import menu_lines

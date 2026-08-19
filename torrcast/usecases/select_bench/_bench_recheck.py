@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.server_down_error import ServerDownError
-from torrcast.ports.progress import Progress
+from torrcast.ports.progress.progress import Progress
 from torrcast.usecases.rank.voice_unproven import voice_unproven
 from torrcast.usecases.select._prep import _Prep
 from torrcast.usecases.select._verdict import _did_not_answer, _silenced, _turned_down

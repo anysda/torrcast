@@ -2,10 +2,10 @@
 
 Зовёт её композиционный корень (:func:`torrcast.runtime.wire.wire`), и только он."""
 
-from torrcast.adapters.chromecast.cast import make_receiver
+from torrcast.adapters.chromecast.cast.make_receiver import make_receiver
 from torrcast.adapters.chromecast.profile_detector import detector
 from torrcast.adapters.filesystem.release_pins import pins
-from torrcast.adapters.filesystem.state import load_config
+from torrcast.adapters.filesystem.state.load_config import load_config
 from torrcast.adapters.http_server.stream_serve import HlsServer, hls_base, start_play_unit
 from torrcast.adapters.prowlarr.merge import merge
 from torrcast.adapters.prowlarr.to_releases import to_releases

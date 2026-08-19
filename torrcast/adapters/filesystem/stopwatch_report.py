@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from torrcast.adapters.filesystem.stopwatch import read
+from torrcast.adapters.filesystem.stopwatch.read import read
 from torrcast.domain.report import report
 
 

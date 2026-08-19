@@ -11,9 +11,9 @@ from torrcast.domain.config import Config
 from torrcast.domain.exit_codes import EXIT_OK
 from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.picture import Picture
-from torrcast.ports.progress import Progress
-from torrcast.ports.progress import progress as progress_bar
-from torrcast.ports.state_store import store as watch_store
+from torrcast.ports.progress.progress import Progress
+from torrcast.ports.progress.slot import progress as progress_bar
+from torrcast.ports.state_store.slot import store as watch_store
 from torrcast.ports.torrent_engines import TorrentEngines
 from torrcast.usecases.choice._named import _named
 from torrcast.usecases.choice._pick_plan import _pick_plan

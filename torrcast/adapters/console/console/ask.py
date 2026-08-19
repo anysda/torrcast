@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from torrcast.adapters.console import console as _console
+from torrcast.adapters.console.console import stdin_is_tty as _tty
 from torrcast.adapters.console.console.ask_line import ask_line
 
 
@@ -26,7 +26,7 @@ def ask(
     Терминал и чтение строки едут дальше в свободный ответ теми же параметрами: круг
     вопросов тут один, и внешний мир у него один на оба вопроса.
     """
-    has_tty = _console.stdin_is_tty if tty is None else tty
+    has_tty = _tty.stdin_is_tty if tty is None else tty
     prompt = f"{question} [{default}]" if default is not None else question
     while True:
         answer = ask_line(prompt, tty=has_tty, read=read)

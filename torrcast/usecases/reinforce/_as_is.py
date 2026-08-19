@@ -12,7 +12,7 @@ from torrcast.domain.slugify import slugify
 from torrcast.usecases.reinforce.configure import _catalogue_port
 
 if TYPE_CHECKING:
-    from torrcast.ports.progress import Progress
+    from torrcast.ports.progress.progress import Progress
 
 
 def _as_is(

@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Protocol
 
 from torrcast.ports.feed_grid import FeedGrid
-from torrcast.ports.warm_environment import WarmGrid
+from torrcast.ports.warm_environment.warm_grid import WarmGrid
 
 
 class MediaGrid(WarmGrid, FeedGrid, Protocol):

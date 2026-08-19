@@ -26,7 +26,8 @@ def test_nothing_plays_and_nothing_was_watched(
 def test_the_configuration_is_read_once_for_the_whole_answer(
     show_unit: FakeShowUnit, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    from torrcast.adapters.filesystem.state import State, load_config
+    from torrcast.adapters.filesystem.state.load_config import load_config
+    from torrcast.adapters.filesystem.state.state import State
     from torrcast.domain.config import Config
     from torrcast.domain.entry import Entry
 

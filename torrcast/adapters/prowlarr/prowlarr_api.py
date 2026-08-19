@@ -6,7 +6,7 @@ from typing import Any, Final
 from urllib.parse import quote
 
 from torrcast.adapters.prowlarr.prowlarr_http_client import ProwlarrHttpClient
-from torrcast.ports.torrent_index import IndexerHttpClient
+from torrcast.ports.torrent_index.indexer_http_client import IndexerHttpClient
 
 #: Потолок общего запроса - того, которым спрашиваем, когда список индексеров недоступен.
 #: Такой запрос отдаётся, только когда опрошены ВСЕ индексеры, поэтому потолок здесь - это

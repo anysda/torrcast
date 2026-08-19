@@ -4,7 +4,7 @@
 
 from __future__ import annotations
 
-from torrcast.adapters.filesystem.stopwatch import mark as _mark
+from torrcast.adapters.filesystem.stopwatch.mark import mark as _mark
 from torrcast.adapters.filesystem.trace_journal.dark import dark
 from torrcast.adapters.filesystem.trace_journal.emit import emit
 from torrcast.adapters.filesystem.trace_journal.evict import evict

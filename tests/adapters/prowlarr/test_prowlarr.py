@@ -16,11 +16,13 @@ from typing import Any
 
 import pytest
 
-from torrcast.adapters.filesystem.trace_journal import digest, records, shutdown
+from torrcast.adapters.filesystem.trace_journal.records import records
+from torrcast.adapters.filesystem.trace_journal.shutdown import shutdown
 from torrcast.adapters.prowlarr.indexer_circle import IndexerCircle
 from torrcast.adapters.prowlarr.prowlarr import Prowlarr
 from torrcast.adapters.prowlarr.prowlarr_http_client import _IndexersUnavailableError
 from torrcast.domain.circle_indexers import Indexer
+from torrcast.domain.digest.digest import digest
 from torrcast.domain.indexer_budget import SHORT_TIMEOUT, indexer_budget
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.not_found_error import NotFoundError

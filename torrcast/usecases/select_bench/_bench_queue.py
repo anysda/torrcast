@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from torrcast.domain.not_found_error import NotFoundError
-from torrcast.ports.journal import journal
+from torrcast.ports.journal.slot import journal
 from torrcast.usecases.discover.unfit_line import unfit_line
 from torrcast.usecases.rank._cut import _cut
 from torrcast.usecases.rank.queue_drops import queue_drops

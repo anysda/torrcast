@@ -12,7 +12,7 @@ from torrcast.usecases.choice.understudy_note import _why_refused, understudy_no
 if TYPE_CHECKING:
     from torrcast.domain.args import Args
     from torrcast.domain.config import Config
-    from torrcast.ports.progress import Progress
+    from torrcast.ports.progress.progress import Progress
     from torrcast.usecases.facts import Facts
     from torrcast.usecases.select._prep import _Prep
     from torrcast.usecases.select.plan import Plan

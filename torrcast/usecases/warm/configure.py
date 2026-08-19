@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 import torrcast.usecases.warm._state as _state
-from torrcast.ports.warm_environment import WarmEnvironment
+from torrcast.ports.warm_environment.warm_environment import WarmEnvironment
 
 
 def configure(environment: WarmEnvironment) -> None:

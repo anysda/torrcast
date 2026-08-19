@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from tests.usecases.warm.world import grid, lay, vault
-from torrcast.adapters.recode import Encode
+from torrcast.adapters.recode.encode import Encode
 from torrcast.usecases.warm._warm_count import _all_warmed, _spots_left, _warmed
 
 if TYPE_CHECKING:

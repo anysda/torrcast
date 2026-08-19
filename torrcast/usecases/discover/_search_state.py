@@ -5,7 +5,8 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from torrcast.ports.passport_source import PassportSource
-from torrcast.ports.torrent_catalogue import IndexerClient, TorrentCatalogue
+from torrcast.ports.torrent_catalogue.indexer_client import IndexerClient
+from torrcast.ports.torrent_catalogue.torrent_catalogue import TorrentCatalogue
 
 #: Каталог раздач, справка о картинах и завод клиента индексеров - всё, что у поиска
 #: снаружи. Кладёт это композиционный корень (:mod:`torrcast.runtime.wire`): и сырая

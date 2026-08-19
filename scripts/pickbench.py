@@ -38,14 +38,15 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from torrcast import TorrcastError
-from torrcast.adapters.console.console import Progress
-from torrcast.adapters.filesystem.state import load_config, state_path
+from torrcast.adapters.console.console.progress import Progress
+from torrcast.adapters.filesystem.state.load_config import load_config
+from torrcast.adapters.filesystem.state.state_path import state_path
 from torrcast.adapters.torrserver.torr_server import TorrServer
 from torrcast.domain.args import Args
 from torrcast.domain.picture import Picture
 from torrcast.domain.prewarm_settings import PREWARM
 from torrcast.domain.release import Release
+from torrcast.domain.torrcast_error import TorrcastError
 from torrcast.runtime.wire import wire
 from torrcast.usecases.choice.warm_order import warm_order
 from torrcast.usecases.select.plan import Plan

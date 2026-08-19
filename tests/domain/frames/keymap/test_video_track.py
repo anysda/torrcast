@@ -7,7 +7,8 @@
 
 from __future__ import annotations
 
-from torrcast.domain.frames.keymap import Point, video_track
+from torrcast.domain.frames.keymap.point import Point
+from torrcast.domain.frames.keymap.video_track import video_track
 
 
 def test_the_regular_track_wins_over_the_crowded_one() -> None:

@@ -9,8 +9,9 @@ from pathlib import Path
 
 import pytest
 
-from torrcast.adapters.filesystem.trace_journal import FileJournal
-from torrcast.ports.journal import Silent, install, journal
+from torrcast.adapters.filesystem.trace_journal.file_journal import FileJournal
+from torrcast.ports.journal.silent import Silent
+from torrcast.ports.journal.slot import install, journal
 from torrcast.runtime.wire import wire
 
 

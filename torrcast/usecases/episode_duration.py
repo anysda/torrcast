@@ -7,7 +7,7 @@ from __future__ import annotations
 from torrcast.domain.entry import Entry
 from torrcast.domain.worker_settings import WORKER_DUR
 from torrcast.ports.prober import Prober
-from torrcast.ports.state_store import store
+from torrcast.ports.state_store.slot import store
 
 #: Чем читается паспорт потока. Кладёт сюда композиционный корень
 #: (:mod:`torrcast.runtime.wire`): без него следующая серия не узнала бы своей длительности.

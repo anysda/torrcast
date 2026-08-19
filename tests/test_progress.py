@@ -13,10 +13,11 @@ import pytest
 
 from tests.fakes import composition
 from tests.fakes.show_unit import FakeShowUnit
-from torrcast import InfraError
-from torrcast.adapters.filesystem.state import State, load_config
+from torrcast.adapters.filesystem.state.load_config import load_config
+from torrcast.adapters.filesystem.state.state import State
 from torrcast.cli.main import main
 from torrcast.domain.entry import Entry
+from torrcast.domain.infra_error import InfraError
 from torrcast.domain.torrent_hash import _torrent_hash
 from torrcast.usecases.torrents import _release_orphans
 from torrcast.usecases.watch import Watch

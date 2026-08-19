@@ -17,8 +17,8 @@ from typing import Any
 import pytest
 
 from tests.fakes import composition
-from torrcast.adapters.console import console
-from torrcast.ports import show_unit as unit_port
+from torrcast.adapters.console.console import stdin_is_tty as tty_home
+from torrcast.ports.show_unit.slot import install
 
 
 @dataclass
@@ -83,10 +83,10 @@ class CastWorld:
         composition.use_engines(patch, self._torrents)
         composition.use_prober(patch, self._probe)
         composition.use_start_unit(patch, self._start)
-        unit_port.install(_WorldShowUnit(self))
+        install(_WorldShowUnit(self))
         composition.use_await_playing(patch, self._await)
         composition.use_warm_file(patch, self._warm)
-        patch.setattr(console, "stdin_is_tty", lambda: self.tty)
+        patch.setattr(tty_home, "stdin_is_tty", lambda: self.tty)
         patch.setattr("builtins.input", self.ask)
 
     def ask(self, prompt: str = "") -> str:

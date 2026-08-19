@@ -12,7 +12,7 @@ from collections.abc import Callable
 from torrcast.domain.exit_codes import EXIT_INFRA, EXIT_NOT_FOUND, EXIT_OK
 from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.torrcast_error import TorrcastError
-from torrcast.ports.journal import journal
+from torrcast.ports.journal.slot import journal
 from torrcast.usecases.stopped import _Stopped
 
 

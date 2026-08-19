@@ -8,7 +8,7 @@ import contextlib
 from typing import TYPE_CHECKING
 
 from torrcast.adapters.chromecast.cast.drop_seek import _drop_seek
-from torrcast.ports.journal import journal
+from torrcast.ports.journal.slot import journal
 
 if TYPE_CHECKING:
     from torrcast.adapters.chromecast.cast.receiver_talk import _Talk

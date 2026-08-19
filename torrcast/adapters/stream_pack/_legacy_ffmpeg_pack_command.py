@@ -16,7 +16,7 @@ from torrcast.domain.hls_settings import (
     PACK_LIST,
     SPLIT_SLACK,
 )
-from torrcast.ports.journal import journal
+from torrcast.ports.journal.slot import journal
 
 
 def _legacy_ffmpeg_pack_command(

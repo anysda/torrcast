@@ -17,9 +17,9 @@ from torrcast.domain.other_words import other_words
 from torrcast.domain.pick_franchise import pick_franchise
 from torrcast.domain.profile import CAUTIOUS, Profile
 from torrcast.domain.split_franchise_index import split_franchise_index
-from torrcast.ports.journal import journal
-from torrcast.ports.progress import Progress
-from torrcast.ports.torrent_catalogue import IndexerClient
+from torrcast.ports.journal.slot import journal
+from torrcast.ports.progress.progress import Progress
+from torrcast.ports.torrent_catalogue.indexer_client import IndexerClient
 from torrcast.usecases.discover._ask import _ask
 from torrcast.usecases.discover._nothing import _nothing
 from torrcast.usecases.discover._reread import _relayout, _titled_number

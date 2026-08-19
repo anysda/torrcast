@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.raw_result import RawResult
-from torrcast.ports.progress import Progress
-from torrcast.ports.torrent_catalogue import IndexerClient
+from torrcast.ports.progress.progress import Progress
+from torrcast.ports.torrent_catalogue.indexer_client import IndexerClient
 
 
 def _ask(client: IndexerClient, query: str, progress: Progress) -> list[RawResult]:

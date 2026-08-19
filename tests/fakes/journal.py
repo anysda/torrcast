@@ -13,7 +13,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from torrcast.ports.journal import Silent
+from torrcast.ports.journal.silent import Silent
 
 #: Одно пойманное событие: имя и поля ровно в том виде, в каком их назвал зовущий.
 Call = tuple[str, dict[str, Any]]

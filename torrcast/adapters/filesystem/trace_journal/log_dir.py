@@ -17,6 +17,6 @@ def log_dir() -> Path:
     override = os.environ.get(LOG_ENV)
     if override:
         return Path(override)
-    from torrcast.adapters.filesystem.state import state_path
+    from torrcast.adapters.filesystem.state.state_path import state_path
 
     return state_path().parent

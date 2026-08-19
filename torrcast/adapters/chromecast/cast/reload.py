@@ -7,7 +7,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from torrcast.adapters.chromecast.cast.past_deadly import _past_deadly
-from torrcast.ports.journal import journal
+from torrcast.ports.journal.slot import journal
 
 if TYPE_CHECKING:
     from torrcast.adapters.chromecast.cast.receiver_talk import _Talk

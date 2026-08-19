@@ -1,7 +1,7 @@
 """Справка о картинах: договор снят с настоящего вызова пересборки плана."""
 
 from torrcast.domain.facts.fact import Fact
-from torrcast.ports.choice_environment import ChoiceFacts
+from torrcast.ports.choice_environment.choice_facts import ChoiceFacts
 
 
 class _Facts:

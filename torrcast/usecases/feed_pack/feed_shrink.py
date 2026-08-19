@@ -10,10 +10,10 @@ from typing import TYPE_CHECKING
 
 import torrcast.usecases.feed_pack._state as _state
 from torrcast.domain.hls_settings import SHRINK_DIR
-from torrcast.ports.journal import journal
+from torrcast.ports.journal.slot import journal
 
 if TYPE_CHECKING:
-    from torrcast.ports.pack_run import PackRun
+    from torrcast.ports.pack_run.pack_run import PackRun
     from torrcast.usecases.feed_pack.feed_state import _State
 
 

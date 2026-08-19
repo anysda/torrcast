@@ -16,17 +16,18 @@ import pytest
 from tests.fakes.blurb_source import FakeBlurbSource
 from tests.fakes.blurb_store import FakeBlurbStore
 from tests.fakes.choice_environment import FakeChoiceEnvironment
-from torrcast import InfraError, NotFoundError, SwarmError
-from torrcast.adapters.console.console import Progress
-from torrcast.adapters.filesystem.state import load_config
+from torrcast.adapters.console.console.progress import Progress
+from torrcast.adapters.filesystem.state.load_config import load_config
 from torrcast.domain._series import _Series
 from torrcast.domain.args import Args
 from torrcast.domain.audio_track import AudioTrack
 from torrcast.domain.cluster import cluster
 from torrcast.domain.episode import Episode
 from torrcast.domain.facts.fact import Fact
+from torrcast.domain.infra_error import InfraError
 from torrcast.domain.kind import Kind
 from torrcast.domain.media import Media
+from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.parse_release_name import parse_release_name
 from torrcast.domain.pick_franchise import pick_franchise
 from torrcast.domain.pick_settings import VERDICT_BUDGET
@@ -37,6 +38,7 @@ from torrcast.domain.rank_settings import ALIVE_SEEDERS, FULL_HD_LIVENESS, TABLE
 from torrcast.domain.release import Release
 from torrcast.domain.runtime_guess import RUNTIME_GUESS
 from torrcast.domain.server_down_error import ServerDownError
+from torrcast.domain.swarm_error import SwarmError
 from torrcast.domain.torr_file import TorrFile
 from torrcast.usecases.choice._pick_plan import _pick_plan
 from torrcast.usecases.choice._played import _played
@@ -1464,7 +1466,7 @@ def test_warmup_spares_a_release_a_parallel_show_holds(tmp_path: Path) -> None:
     и раздача живого показа попадает в прогрев. Уборка прогрева обязана её пощадить -
     снос выдернул бы источник из-под экрана. Хозяина видно по записи состояния.
     """
-    from torrcast.adapters.filesystem.state import State
+    from torrcast.adapters.filesystem.state.state import State
     from torrcast.domain.entry import Entry
 
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
@@ -1489,7 +1491,7 @@ def test_voice_cleanup_spares_a_release_a_parallel_show_holds() -> None:
     """``cast --voice`` на играющий фильм поднимает ту же раздачу (``add`` идемпотентен).
     Не пригодилась - убираем свою, но не ту, что держит живой показ.
     """
-    from torrcast.adapters.filesystem.state import State
+    from torrcast.adapters.filesystem.state.state import State
     from torrcast.domain.entry import Entry
 
     dropped: list[str] = []
@@ -3937,7 +3939,8 @@ def _turned_down_on_screen(printed: str) -> list[str]:
 
 def _turned_down_in_trace() -> list[str]:
     """Те же отказы, как их видит недельная лента (`cast log` печатает эти же записи)."""
-    from torrcast.adapters.filesystem.trace_journal import records, shutdown
+    from torrcast.adapters.filesystem.trace_journal.records import records
+    from torrcast.adapters.filesystem.trace_journal.shutdown import shutdown
 
     shutdown()
     return [str(rec.get("release")) for rec in records() if rec.get("event") == "drop"]

@@ -1,17 +1,6 @@
-"""Публичный API torrcast: версия и реэкспорт ошибок."""
+"""Пакет torrcast: поиск релиза и показ его на ТВ без скачивания.
 
-from torrcast.domain.infra_error import InfraError
-from torrcast.domain.not_found_error import NotFoundError
-from torrcast.domain.swarm_error import SwarmError
-from torrcast.domain.torrcast_error import TorrcastError
-from torrcast.domain.version import __version__
-from torrcast.domain.why import why
-
-__all__ = [
-    "InfraError",
-    "NotFoundError",
-    "SwarmError",
-    "TorrcastError",
-    "__version__",
-    "why",
-]
+Имён отсюда не берут - у каждого есть свой дом. Версия живёт в
+:mod:`torrcast.domain.version`, ошибки - в :mod:`torrcast.domain.torrcast_error` и
+соседях, точка входа ``cast`` - в :mod:`torrcast.runtime.main`.
+"""

@@ -5,7 +5,7 @@
 модуля - тем же обходом правила слоёв, каким держался и плоский namespace монолита.
 """
 
-from torrcast.adapters.console.console import terminal
+from torrcast.adapters.console.console.terminal import terminal
 from torrcast.cli.configure import _configure_settings
 from torrcast.cli.main import _configure_main
 from torrcast.cli.status import _configure_status

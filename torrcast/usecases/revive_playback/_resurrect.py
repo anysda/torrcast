@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 
 from torrcast.domain.entry import ENDING_RATIO
 from torrcast.domain.revive_settings import REVIVE_LIMIT, REVIVE_TRIES
-from torrcast.ports.journal import journal
+from torrcast.ports.journal.slot import journal
 from torrcast.ports.receiver import Receiver
 from torrcast.usecases.choice._ctl import _Revivable
 from torrcast.usecases.feed_pack.feed import Feed

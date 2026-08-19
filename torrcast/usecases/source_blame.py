@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from torrcast.domain.revive_settings import SOURCE_PAUSE, SOURCE_TRIES
 from torrcast.ports.clock import Clock
-from torrcast.ports.journal import journal
+from torrcast.ports.journal.slot import journal
 from torrcast.ports.stream_source import StreamSource
 
 

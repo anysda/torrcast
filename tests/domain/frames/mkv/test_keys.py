@@ -11,7 +11,7 @@ import pytest
 
 from tests.domain.frames.mkv.blocks import Matroska
 from tests.domain.frames.mp4.boxes import Served
-from torrcast.domain.frames.keymap import KeyMap
+from torrcast.domain.frames.keymap.key_map import KeyMap
 from torrcast.domain.frames.mkv.keys import keys
 from torrcast.domain.infra_error import InfraError
 

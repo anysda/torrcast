@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
-from torrcast.adapters.filesystem.stopwatch import mark
-from torrcast.adapters.filesystem.trace_journal import dark, emit, nudge, records, segment
+from torrcast.adapters.filesystem.stopwatch.mark import mark
+from torrcast.adapters.filesystem.trace_journal.dark import dark
+from torrcast.adapters.filesystem.trace_journal.emit import emit
 from torrcast.adapters.filesystem.trace_journal.file_journal import FileJournal
-from torrcast.ports.journal import Journal
+from torrcast.adapters.filesystem.trace_journal.nudge import nudge
+from torrcast.adapters.filesystem.trace_journal.records import records
+from torrcast.adapters.filesystem.trace_journal.segment import segment
+from torrcast.ports.journal.journal import Journal
 
 
 def test_the_object_calls_the_very_same_functions_and_not_a_second_copy_of_the_schema() -> None:

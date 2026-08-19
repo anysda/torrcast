@@ -12,8 +12,8 @@ import torrcast.usecases.cast_command._play_state as _state
 from torrcast.domain.bitrate_mbit import bitrate_mbit
 from torrcast.domain.exit_codes import EXIT_OK
 from torrcast.domain.tune import tune as tune_profile
-from torrcast.ports.journal import journal
-from torrcast.ports.state_store import store as watch_store
+from torrcast.ports.journal.slot import journal
+from torrcast.ports.state_store.slot import store as watch_store
 from torrcast.usecases.cast_command._bookmark import _account_watched, _from_start
 from torrcast.usecases.cast_command._choose import _choose
 from torrcast.usecases.cast_command._entry_for import _entry_for

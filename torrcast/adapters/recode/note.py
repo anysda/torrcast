@@ -8,7 +8,7 @@ import contextlib
 from typing import TYPE_CHECKING
 
 from torrcast.adapters.http_server.stream_serve import TRACE
-from torrcast.ports.journal import journal
+from torrcast.ports.journal.slot import journal
 
 if TYPE_CHECKING:
     from torrcast.adapters.recode.recoder_state import _State

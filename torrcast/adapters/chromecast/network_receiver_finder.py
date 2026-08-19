@@ -9,7 +9,7 @@ from typing import Any
 
 from torrcast.adapters.chromecast.scan.find import find as find_receivers
 from torrcast.domain.receiver_info import ReceiverInfo
-from torrcast.ports.progress import progress as progress_bar
+from torrcast.ports.progress.slot import progress as progress_bar
 
 
 class NetworkReceiverFinder:

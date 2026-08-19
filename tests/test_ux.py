@@ -15,7 +15,8 @@ import pytest
 
 from tests.fakes import composition, terminal
 from tests.fakes.show_unit import FakeShowUnit
-from torrcast.adapters.filesystem.state import State, save_config
+from torrcast.adapters.filesystem.state.save_config import save_config
+from torrcast.adapters.filesystem.state.state import State
 from torrcast.cli.main import main
 from torrcast.domain.audio_track import AudioTrack
 from torrcast.domain.config import Config
@@ -402,7 +403,7 @@ def test_the_start_time_means_a_picture_on_the_screen(
     Доказательство картинки одно: показ увидел ``PLAYING`` и положил флажок. Пока
     флажка нет, CLI честно стоит в фазе «жду телевизор».
     """
-    from torrcast.adapters.console.console import Progress
+    from torrcast.adapters.console.console.progress import Progress
     from torrcast.adapters.stream_pack.forget_playing import forget_playing
     from torrcast.adapters.stream_pack.mark_playing import mark_playing
     from torrcast.adapters.stream_pack.playing_flag import playing_flag

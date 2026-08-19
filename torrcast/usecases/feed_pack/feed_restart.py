@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 
 import torrcast.usecases.feed_pack._state as _state
 from torrcast.domain.hls_settings import PACK_DIR, SPLIT_SLACK
-from torrcast.ports.journal import journal
+from torrcast.ports.journal.slot import journal
 
 if TYPE_CHECKING:
     from collections.abc import Callable

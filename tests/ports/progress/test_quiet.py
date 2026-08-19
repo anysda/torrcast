@@ -1,6 +1,7 @@
 """Умолчание порта индикатора: принимает фазы и заметки и не печатает ничего."""
 
-from torrcast.ports.progress import Progress, Quiet
+from torrcast.ports.progress.progress import Progress
+from torrcast.ports.progress.quiet import Quiet
 
 
 def test_the_quiet_bar_takes_every_phase_and_draws_nothing(capsys: object) -> None:

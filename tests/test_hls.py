@@ -46,7 +46,8 @@ from torrcast.adapters.stream_pack.packer import Packer
 from torrcast.adapters.stream_pack.parse_manifest import parse_manifest
 from torrcast.adapters.stream_probe.segment_name import segment_name
 from torrcast.domain.film_keys import FilmKeys
-from torrcast.domain.frames.keymap import KeyMap, video_track
+from torrcast.domain.frames.keymap.key_map import KeyMap
+from torrcast.domain.frames.keymap.video_track import video_track
 from torrcast.domain.hls_settings import (
     HLS_SEGMENT_SECONDS,
     MAX_SEGMENT_BYTES,
@@ -186,10 +187,10 @@ def test_the_playback_address_is_our_own_leg_toward_the_tv(tmp_path: Path) -> No
     Имени в нём нет вовсе — упавший DNS показ не трогает. Ручной ``hls_base_url``
     остаётся запасным выходом и перебивает вычисленный адрес.
     """
-    from torrcast import InfraError
     from torrcast.adapters.http_server.hls_base import hls_base
     from torrcast.adapters.http_server.our_address import our_address
     from torrcast.domain.config import Config
+    from torrcast.domain.infra_error import InfraError
 
     assert our_address("127.0.0.1") == "127.0.0.1", "адрес берём у ядра, по маршруту"
     assert our_address("") == ""
@@ -1785,9 +1786,9 @@ def test_mock_receiver_closes_its_ffmpeg_log() -> None:
     """
     import tempfile
 
-    from torrcast import InfraError
     from torrcast.adapters.chromecast.mock.hls_fetch import HlsFetch
     from torrcast.adapters.chromecast.mock.mock_receiver import MockReceiver
+    from torrcast.domain.infra_error import InfraError
 
     class _Blank(HlsFetch):
         """Раздача с пустым манифестом: показу от неё отказ, а не поток."""
@@ -1829,7 +1830,7 @@ def test_a_real_ca_signed_cert_is_verified_against_the_system_store(
     принимать системное хранилище — иначе «проверка» вырождается в пиннинг к
     промежуточному серту из того же файла, и подмена self-signed'ом прошла бы незаметно.
     """
-    from torrcast.adapters.chromecast.cast import make_receiver
+    from torrcast.adapters.chromecast.cast.make_receiver import make_receiver
     from torrcast.adapters.chromecast.mock.mock_receiver import MockReceiver
     from torrcast.domain.trust_anchor import trust_anchor
 

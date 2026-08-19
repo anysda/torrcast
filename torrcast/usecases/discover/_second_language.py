@@ -14,8 +14,8 @@ from torrcast.domain.raw_result import RawResult
 from torrcast.domain.slugify import slugify
 from torrcast.domain.split_franchise_index import split_franchise_index
 from torrcast.domain.transliterate import transliterate
-from torrcast.ports.progress import Progress
-from torrcast.ports.torrent_catalogue import IndexerClient
+from torrcast.ports.progress.progress import Progress
+from torrcast.ports.torrent_catalogue.indexer_client import IndexerClient
 from torrcast.usecases.discover._asked_kind import _asked_kind
 from torrcast.usecases.discover._passport_pick import _passport_pick
 from torrcast.usecases.discover._query_note import _query_note

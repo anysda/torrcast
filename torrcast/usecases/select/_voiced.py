@@ -12,7 +12,7 @@ from torrcast.domain.config import Config
 from torrcast.domain.entry import Entry
 from torrcast.domain.pick_settings import META_BUDGET, PROBE_BUDGET
 from torrcast.domain.torrcast_error import TorrcastError
-from torrcast.ports.progress import progress as progress_bar
+from torrcast.ports.progress.slot import progress as progress_bar
 from torrcast.usecases.rank.pick_voice import pick_voice
 from torrcast.usecases.torrents import _held_by_show, _release_torrents
 

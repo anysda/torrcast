@@ -11,7 +11,6 @@ from dataclasses import replace
 
 import pytest
 
-from torrcast import NotFoundError
 from torrcast.domain._series import _Series
 from torrcast.domain.args import Args
 from torrcast.domain.cluster import cluster
@@ -19,6 +18,7 @@ from torrcast.domain.config import Config
 from torrcast.domain.episode import Episode
 from torrcast.domain.episode_file import EpisodeFile
 from torrcast.domain.map_episodes import map_episodes
+from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.parse_release_name import parse_release_name
 from torrcast.domain.picture import Picture
 from torrcast.domain.runtime_guess import RUNTIME_GUESS

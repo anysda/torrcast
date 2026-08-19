@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 from torrcast.domain.release import Release
 
 if TYPE_CHECKING:
-    from torrcast.ports.progress import Progress
+    from torrcast.ports.progress.progress import Progress
 
 
 KIN_SHOWN = 3

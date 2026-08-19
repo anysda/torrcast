@@ -55,7 +55,7 @@ import runpass
 from probeprofile import add_argument as add_profile_argument
 from probeprofile import choose as choose_profile
 
-from torrcast.adapters.filesystem.state import load_config
+from torrcast.adapters.filesystem.state.load_config import load_config
 from torrcast.adapters.prowlarr.collect_rows import collect_rows
 from torrcast.adapters.prowlarr.merge import merge
 from torrcast.adapters.prowlarr.prowlarr import Prowlarr

@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from torrcast.domain.pick_settings import MAX_TRIES
-from torrcast.ports.progress import Progress
+from torrcast.ports.progress.progress import Progress
 from torrcast.usecases.rank.honest_shot import honest_shot
 from torrcast.usecases.rank.promises_more import promises_more
 from torrcast.usecases.rank.quality_text import quality_text

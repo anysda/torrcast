@@ -12,7 +12,8 @@ import pytest
 
 from torrcast.adapters.stream_pack._keys_shelf import _keys_cache
 from torrcast.adapters.stream_pack.film_keys import _fetching, _keys_draft, film_keys
-from torrcast.domain.frames.keymap import KeyMap, Point
+from torrcast.domain.frames.keymap.key_map import KeyMap
+from torrcast.domain.frames.keymap.point import Point
 
 URL = "http://127.0.0.1:8090/stream?link=0123456789abcdef&index=1"
 

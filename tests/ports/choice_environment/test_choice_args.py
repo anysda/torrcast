@@ -1,7 +1,7 @@
 """Аргументы команды: договор их возит и читать не разрешает."""
 
 from torrcast.domain.args import Args
-from torrcast.ports.choice_environment import ChoiceArgs
+from torrcast.ports.choice_environment.choice_args import ChoiceArgs
 
 
 def test_the_real_command_arguments_fit_the_carrier() -> None:

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from torrcast.domain.digest import digest
+from torrcast.domain.digest.digest import digest
 
 HOUR = 3600.0
 

@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 from tests.conftest import module_of
-from torrcast.adapters.console.console import terminal
+from torrcast.adapters.console.console.terminal import terminal
 from torrcast.runtime.configure_cli import configure_cli
 from torrcast.runtime.configure_command import configure_command
 from torrcast.runtime.status_command import status_command

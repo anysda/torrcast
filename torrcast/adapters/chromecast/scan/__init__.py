@@ -26,34 +26,3 @@
 имени - приезжает в поиск аргументом с боевым умолчанием: раньше её подменяли атрибутом
 пакета, и зеркало знало не договор поиска, а раскладку соседей по файлам.
 """
-
-from torrcast.adapters.chromecast.scan.alive import CAST_PORT, alive
-from torrcast.adapters.chromecast.scan.by_mdns import by_mdns
-from torrcast.adapters.chromecast.scan.by_scan import by_scan
-from torrcast.adapters.chromecast.scan.device import Device
-from torrcast.adapters.chromecast.scan.find import find
-from torrcast.adapters.chromecast.scan.found import Found
-from torrcast.adapters.chromecast.scan.hosts import hosts
-from torrcast.adapters.chromecast.scan.interfaces import interfaces
-from torrcast.adapters.chromecast.scan.mdns import Mdns
-from torrcast.adapters.chromecast.scan.named import named
-from torrcast.adapters.chromecast.scan.net import Net
-from torrcast.adapters.chromecast.scan.skipped import skipped
-from torrcast.adapters.chromecast.scan.subnets import subnets
-
-__all__ = [
-    "CAST_PORT",
-    "Device",
-    "Found",
-    "Mdns",
-    "Net",
-    "alive",
-    "by_mdns",
-    "by_scan",
-    "find",
-    "hosts",
-    "interfaces",
-    "named",
-    "skipped",
-    "subnets",
-]

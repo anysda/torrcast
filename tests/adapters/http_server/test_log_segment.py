@@ -6,7 +6,8 @@ import time
 
 from torrcast.adapters.http_server.log_segment import log_segment
 from torrcast.domain.trace_sources import PACKED
-from torrcast.ports.journal import Silent, install
+from torrcast.ports.journal.silent import Silent
+from torrcast.ports.journal.slot import install
 
 
 class _Tape(Silent):

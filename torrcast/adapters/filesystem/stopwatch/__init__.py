@@ -10,8 +10,3 @@
 В недельный след фаза при этом уходит всегда (:mod:`torrcast.ports.journal`): он и заведён
 затем, чтобы знать про сеанс всё, и точки секундомера подбирает даром.
 """
-
-from torrcast.adapters.filesystem.stopwatch.mark import mark
-from torrcast.adapters.filesystem.stopwatch.read import read
-
-__all__ = ["mark", "read"]

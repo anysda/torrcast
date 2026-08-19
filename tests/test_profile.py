@@ -13,7 +13,8 @@ from typing import ClassVar
 
 import pytest
 
-from torrcast.adapters.chromecast import cast
+from torrcast.adapters.chromecast.cast.chromecast_receiver import ChromecastReceiver
+from torrcast.adapters.chromecast.mock.mock_receiver import MockReceiver
 from torrcast.domain.config import Config
 from torrcast.domain.for_passport import for_passport
 from torrcast.domain.hls_settings import MAX_SEGMENT_BYTES
@@ -53,10 +54,10 @@ def test_the_stream_constants_are_the_cautious_profile() -> None:
     holds = {f.name: f.default for f in dataclasses.fields(Feed)}
     assert holds["wait"] == cautious.hold_seconds == 120.0
     assert holds["burst"] == cautious.burst == 60.0
-    assert cast.MockReceiver.PATIENCE == cautious.patience == 23.5
-    assert cast.MockReceiver.SULK == cautious.sulk == 0.0
-    assert cast.MockReceiver.SEGMENT_RETRIES == cautious.segment_retries == 2
-    assert cast.ChromecastReceiver.REVIVE_TIMEOUT == cautious.revive_timeout == 300.0
+    assert MockReceiver.PATIENCE == cautious.patience == 23.5
+    assert MockReceiver.SULK == cautious.sulk == 0.0
+    assert MockReceiver.SEGMENT_RETRIES == cautious.segment_retries == 2
+    assert ChromecastReceiver.REVIVE_TIMEOUT == cautious.revive_timeout == 300.0
 
 
 def test_the_revival_waits_are_the_cautious_profile() -> None:
@@ -170,11 +171,11 @@ def test_the_receiver_takes_its_thresholds_from_the_profile() -> None:
     Проверка именно на объекте: класс держит осторожные числа умолчанием, и легко было бы
     оставить показ читать их напрямую - тогда профиль не менял бы ровно ничего.
     """
-    stick = cast.ChromecastReceiver("10.0.0.50", profile=ANDROID_TV)
-    assert stick.profile.revive_timeout == 577.0 != cast.ChromecastReceiver.REVIVE_TIMEOUT
-    mock = cast.MockReceiver(profile=ANDROID_TV)
+    stick = ChromecastReceiver("10.0.0.50", profile=ANDROID_TV)
+    assert stick.profile.revive_timeout == 577.0 != ChromecastReceiver.REVIVE_TIMEOUT
+    mock = MockReceiver(profile=ANDROID_TV)
     assert mock.patience == ANDROID_TV.patience
-    assert mock.profile.segment_retries == 0 != cast.MockReceiver.SEGMENT_RETRIES
+    assert mock.profile.segment_retries == 0 != MockReceiver.SEGMENT_RETRIES
     assert mock.profile.sulk == 0.0, "приставка на 404 не обижается - замер"
 
 
@@ -295,11 +296,11 @@ def test_the_watchdog_jumps_by_the_profile_step() -> None:
     """
     mine = dataclasses.replace(CAUTIOUS, stall_seconds=30.0, stall_skip=25.0)
     jumps: list[float] = []
-    receiver = cast.ChromecastReceiver("10.0.0.50", profile=mine, device=_FakeDevice(jumps))
+    receiver = ChromecastReceiver("10.0.0.50", profile=mine, device=_FakeDevice(jumps))
     receiver._peak = 84.0
 
     receiver._nudge(84.0, front=144.0)
-    receiver._stall_since -= cast.ChromecastReceiver.STALL_SECONDS  # осторожные 8 с
+    receiver._stall_since -= ChromecastReceiver.STALL_SECONDS  # осторожные 8 с
     receiver._nudge(84.0, front=144.0)
     assert jumps == [], "терпение сторожа - профильные 30 с, а не 8 с класса"
 
@@ -321,19 +322,19 @@ def test_the_mock_receiver_sulks_by_the_profile(monkeypatch: pytest.MonkeyPatch)
         status_code = 404
         headers: ClassVar[dict[str, str]] = {}
 
-    stick = cast.MockReceiver(profile=ANDROID_TV)
+    stick = MockReceiver(profile=ANDROID_TV)
     stick.fetch.caught(_Answer())
     assert stick.fetch.sulk_until <= time.monotonic(), (
         "приставка на 404 не обижается - LOAD берётся сразу"
     )
 
-    q70d = cast.MockReceiver()
+    q70d = MockReceiver()
     q70d.fetch.caught(_Answer())
     assert q70d.fetch.sulk_until <= time.monotonic(), (
         "и Q70D тоже: замер 09-08 снял наказание трижды"
     )
 
-    sulky = cast.MockReceiver(profile=dataclasses.replace(CAUTIOUS, sulk=150.0))
+    sulky = MockReceiver(profile=dataclasses.replace(CAUTIOUS, sulk=150.0))
     sulky.fetch.caught(_Answer())
     assert sulky.fetch.sulk_until - time.monotonic() > 100.0, (
         "механизм жив: наказание ставится числом"

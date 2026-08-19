@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Protocol
 from torrcast.domain.facts.fact import Fact
 from torrcast.domain.facts.minutes_of import minutes_of
 from torrcast.domain.profile import CAUTIOUS, Profile
-from torrcast.ports.journal import journal
+from torrcast.ports.journal.slot import journal
 from torrcast.usecases.reinforce.plan_for import plan_for
 
 if TYPE_CHECKING:

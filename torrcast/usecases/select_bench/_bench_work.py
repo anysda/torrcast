@@ -8,8 +8,8 @@ import torrcast.usecases.select_bench._bench_state as _bench_state
 from torrcast.domain.pick_settings import SWARM_GRACE
 from torrcast.domain.rank_settings import PEER_GRACE
 from torrcast.domain.torrcast_error import TorrcastError
-from torrcast.ports.journal import journal
-from torrcast.ports.progress import Progress
+from torrcast.ports.journal.slot import journal
+from torrcast.ports.progress.progress import Progress
 from torrcast.usecases.select._prep import _Prep
 from torrcast.usecases.select.plan import Plan
 from torrcast.usecases.select_bench._bench_core import _BenchCore

@@ -8,7 +8,7 @@ import time
 from dataclasses import dataclass, field
 
 from torrcast.domain.entry import Entry
-from torrcast.ports.state_store import store
+from torrcast.ports.state_store.slot import store
 from torrcast.usecases.rank._hms import _hms
 
 __all__ = ["WATCH_SECONDS", "Watch"]

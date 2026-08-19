@@ -14,8 +14,8 @@ from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.profile import Profile
 from torrcast.domain.release import Release
 from torrcast.domain.tune import tune as tune_profile
-from torrcast.ports.progress import Progress
-from torrcast.ports.progress import progress as progress_bar
+from torrcast.ports.progress.progress import Progress
+from torrcast.ports.progress.slot import progress as progress_bar
 from torrcast.usecases.choice._named import _named
 from torrcast.usecases.discover.search_circle import search_circle
 from torrcast.usecases.rank.render_table import render_table

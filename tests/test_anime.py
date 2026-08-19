@@ -25,14 +25,15 @@ import pytest
 
 from tests.fakes.media_probe import FakeMediaProbe
 from tests.test_cli import _FakeTorrServer, _resolve, rel
-from torrcast.adapters.console.console import Progress
-from torrcast.adapters.filesystem.trace_journal import records, shutdown
+from torrcast.adapters.console.console.progress import Progress
+from torrcast.adapters.filesystem.trace_journal.records import records
+from torrcast.adapters.filesystem.trace_journal.shutdown import shutdown
 from torrcast.adapters.prowlarr.merge import merge
 from torrcast.adapters.prowlarr.to_releases import to_releases
 from torrcast.domain.args import Args
 from torrcast.domain.audio_track import AudioTrack
 from torrcast.domain.config import Config
-from torrcast.domain.digest import digest
+from torrcast.domain.digest.digest import digest
 from torrcast.domain.facts.origin import Origin
 from torrcast.domain.media import Media
 from torrcast.domain.parse_release_name import parse_release_name

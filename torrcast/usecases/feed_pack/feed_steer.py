@@ -8,7 +8,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import torrcast.usecases.feed_pack._state as _state
-from torrcast.ports.journal import journal
+from torrcast.ports.journal.slot import journal
 from torrcast.usecases.feed_pack.feed_survive import _mute, _survive
 
 if TYPE_CHECKING:

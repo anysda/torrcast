@@ -6,7 +6,8 @@ from tests.usecases.select.world import release
 from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.swarm_error import SwarmError
 from torrcast.domain.torrcast_error import TorrcastError
-from torrcast.ports.journal import Silent, install
+from torrcast.ports.journal.silent import Silent
+from torrcast.ports.journal.slot import install
 from torrcast.usecases.select._prep import _Prep
 from torrcast.usecases.select._verdict import (
     _did_not_answer,

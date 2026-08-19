@@ -25,8 +25,10 @@ from tests.fakes import composition
 from tests.usecases.warm.world import counting, live_tract
 from torrcast.adapters import warm_environment
 from torrcast.adapters.chromecast.mock.mock_receiver import MockReceiver
-from torrcast.adapters.filesystem.state import State
-from torrcast.adapters.filesystem.trace_journal import LOG_ENV, SID_ENV, shutdown
+from torrcast.adapters.filesystem.state.state import State
+from torrcast.adapters.filesystem.trace_journal.log_dir import LOG_ENV
+from torrcast.adapters.filesystem.trace_journal.session_id import SID_ENV
+from torrcast.adapters.filesystem.trace_journal.shutdown import shutdown
 from torrcast.adapters.stream_pack.ffmpeg_pack_command import ffmpeg_pack_command
 from torrcast.adapters.stream_pack.grid import Grid
 from torrcast.adapters.stream_pack.grid_for import grid_for
@@ -1499,7 +1501,7 @@ def test_the_warm_journal_says_whether_it_copies_or_recodes(
     Настоящие заходы обоими режимами, а не разбор аргументов ffmpeg: сказать про режим
     обязана та самая строка, которую читают при разборе, а не та, которую можно вывести.
     """
-    from torrcast.adapters.filesystem.stopwatch import read
+    from torrcast.adapters.filesystem.stopwatch.read import read
     from torrcast.adapters.recode.encode import Encode
     from torrcast.domain.timeline_env import TIMELINE_ENV
 

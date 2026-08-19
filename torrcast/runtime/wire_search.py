@@ -2,12 +2,12 @@
 
 Зовёт её композиционный корень (:func:`torrcast.runtime.wire.wire`), и только он."""
 
-import torrcast.adapters.prowlarr as torrent_catalogue
 from torrcast.adapters.choice_environment import _configure_choice_environment
 from torrcast.adapters.choice_environment import environment as choice_environment
-from torrcast.adapters.console.console import ask_line
+from torrcast.adapters.console.console.ask_line import ask_line
 from torrcast.adapters.console.print_console import PrintConsole
 from torrcast.adapters.prowlarr.prowlarr import Prowlarr
+from torrcast.adapters.prowlarr.torrent_catalogue import torrent_catalogue
 from torrcast.adapters.stream_pack.warm_file import warm_file
 from torrcast.adapters.stream_probe.probe import probe
 from torrcast.adapters.stream_probe.swarm_pulse import swarm_pulse

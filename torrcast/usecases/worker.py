@@ -13,7 +13,7 @@ from torrcast.domain.config import Config
 from torrcast.domain.probe_settings import PROBE_TIMEOUT
 from torrcast.domain.torrcast_error import TorrcastError
 from torrcast.domain.tune import tune
-from torrcast.ports.journal import journal
+from torrcast.ports.journal.slot import journal
 from torrcast.ports.receivers import Receivers
 from torrcast.ports.stream_source import StreamSource
 from torrcast.ports.torrent_engine import TorrentEngine

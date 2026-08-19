@@ -21,15 +21,19 @@ import pytest
 
 from tests.fakes import composition
 from tests.test_cli import _FakeTorrServer, _plan, _probes, _resolve, rel
-from torrcast import InfraError, NotFoundError, SwarmError
 from torrcast.adapters.stream_probe.run_ffprobe import _run_ffprobe
 from torrcast.adapters.stream_probe.swarm_pulse import swarm_pulse
 from torrcast.adapters.torrserver.torr_server import META_STEP_MAX, TorrServer
 from torrcast.domain.audio_track import AudioTrack
+from torrcast.domain.frames.keymap.key_map import KeyMap
+from torrcast.domain.frames.keymap.point import Point
+from torrcast.domain.infra_error import InfraError
 from torrcast.domain.media import Media
+from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.pick_settings import MAX_TRIES, META_BUDGET, PROBE_BUDGET
 from torrcast.domain.rank_settings import PEER_GRACE, STEP_GRACE
 from torrcast.domain.server_down_error import ServerDownError
+from torrcast.domain.swarm_error import SwarmError
 from torrcast.domain.warm_open import KEYS_KEPT
 from torrcast.usecases.rank.peer_grace import peer_grace
 from torrcast.usecases.select._prep import _Prep
@@ -478,10 +482,9 @@ def test_a_slow_swarm_is_not_mistaken_for_an_empty_one_by_the_pick(
 
 def _fake_map() -> Any:
     """Снятие карты без роя и без файла: тут проверяется полка, а не разбор Cues."""
-    from torrcast.domain.frames import keymap as keymap_mod
 
     def keyframes(_: str) -> Any:
-        return keymap_mod.KeyMap(60.0, (keymap_mod.Point(0.0, 0, 0),), 0, 0, "mkv")
+        return KeyMap(60.0, (Point(0.0, 0, 0),), 0, 0, "mkv")
 
     return keyframes
 

@@ -22,7 +22,8 @@ import pytest
 from tests.fakes.clock import FakeClock
 from tests.fakes.stream_source import FakeStreamSource
 from torrcast.domain.revive_settings import SOURCE_PAUSE, SOURCE_TRIES
-from torrcast.ports.journal import Silent, install
+from torrcast.ports.journal.silent import Silent
+from torrcast.ports.journal.slot import install
 from torrcast.usecases import source_blame
 from torrcast.usecases.source_blame import _asked, _blamed
 

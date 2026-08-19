@@ -1,7 +1,8 @@
 """Сетевая механика индексеров: сессию порт возит, но не читает."""
 
 from torrcast.ports.json_value import JsonValue
-from torrcast.ports.torrent_index import IndexerHttpClient, IndexerSession
+from torrcast.ports.torrent_index.indexer_http_client import IndexerHttpClient
+from torrcast.ports.torrent_index.indexer_session import IndexerSession
 
 
 class _Session:

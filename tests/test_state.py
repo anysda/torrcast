@@ -7,7 +7,9 @@ from pathlib import Path
 
 import pytest
 
-from torrcast.adapters.filesystem.state import State, load_config, save_config
+from torrcast.adapters.filesystem.state.load_config import load_config
+from torrcast.adapters.filesystem.state.save_config import save_config
+from torrcast.adapters.filesystem.state.state import State
 from torrcast.domain.entry import Entry
 
 

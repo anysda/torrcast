@@ -3,8 +3,8 @@
 import pytest
 
 from tests.fakes.prowlarr import FakeProwlarr
-from torrcast import NotFoundError
 from torrcast.domain.goal_spare import GOAL
+from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.raw_result import RawResult
 
 

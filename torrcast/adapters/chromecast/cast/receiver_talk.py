@@ -9,7 +9,7 @@ import contextlib
 
 from torrcast.adapters.chromecast.cast.hls_hints import HLS_HINTS, HLS_TYPE
 from torrcast.adapters.chromecast.cast.receiver_link import _Link
-from torrcast.ports.journal import journal
+from torrcast.ports.journal.slot import journal
 
 
 class _Talk(_Link):

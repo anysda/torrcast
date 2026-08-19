@@ -4,7 +4,8 @@ from dataclasses import dataclass
 from typing import Any
 
 from torrcast.adapters.ffmpeg.pack_command import pack_command
-from torrcast.ports.journal import Silent, install
+from torrcast.ports.journal.silent import Silent
+from torrcast.ports.journal.slot import install
 
 
 @dataclass

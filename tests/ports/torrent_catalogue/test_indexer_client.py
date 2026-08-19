@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from torrcast.domain.raw_result import RawResult
-from torrcast.ports.torrent_catalogue import IndexerClient
+from torrcast.ports.torrent_catalogue.indexer_client import IndexerClient
 
 
 class _Prowlarr:

@@ -7,7 +7,8 @@
 
 from __future__ import annotations
 
-from torrcast.domain.digest import _seams, digest
+from torrcast.domain.digest._seams import _seams
+from torrcast.domain.digest.digest import digest
 from torrcast.domain.json_value import JsonValue
 from torrcast.domain.trace_sources import PACKED, WARMED
 

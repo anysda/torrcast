@@ -2,7 +2,7 @@
 
 from typing import Any, Protocol
 
-from torrcast.ports.journal import journal
+from torrcast.ports.journal.slot import journal
 
 
 class _Grid(Protocol):

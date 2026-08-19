@@ -7,9 +7,11 @@ from typing import Any
 
 import pytest
 
-from torrcast.adapters.filesystem.trace_journal import records, shutdown
+from torrcast.adapters.filesystem.trace_journal.records import records
+from torrcast.adapters.filesystem.trace_journal.shutdown import shutdown
 from torrcast.adapters.prowlarr.circle_trace import circle_trace
-from torrcast.ports.journal import Silent, install
+from torrcast.ports.journal.silent import Silent
+from torrcast.ports.journal.slot import install
 
 
 class _Spy(Silent):

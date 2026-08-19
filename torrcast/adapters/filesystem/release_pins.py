@@ -6,7 +6,8 @@ import json
 from pathlib import Path
 from typing import Any, Final
 
-from torrcast.adapters.filesystem.state import _write_atomic, state_path
+from torrcast.adapters.filesystem.state.state_path import state_path
+from torrcast.adapters.filesystem.state.write_atomic import _write_atomic
 from torrcast.domain.info_hash import info_hash
 from torrcast.domain.release import Release
 
