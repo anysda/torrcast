@@ -34,7 +34,7 @@ from torrcast.domain.warm_open import KEYS_KEPT
 from torrcast.usecases.rank import peer_grace
 from torrcast.usecases.select._prep import _Prep
 from torrcast.usecases.select._verdict import _waiting_note
-from torrcast.usecases.select_bench import Bench
+from torrcast.usecases.select_bench.bench import Bench
 
 if TYPE_CHECKING:
     from pathlib import Path

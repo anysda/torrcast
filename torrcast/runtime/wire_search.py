@@ -23,7 +23,7 @@ from torrcast.usecases.rank import configure as configure_rank
 from torrcast.usecases.reinforce._timed import _timed
 from torrcast.usecases.reinforce.configure import configure as configure_reinforce
 from torrcast.usecases.select._pick_state import _configure_select
-from torrcast.usecases.select_bench import _configure_select_bench
+from torrcast.usecases.select_bench._bench_state import _configure_select_bench
 from torrcast.usecases.torrents import _configure_torrents
 
 

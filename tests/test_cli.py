@@ -91,7 +91,7 @@ from torrcast.usecases.select._prep import _Prep
 from torrcast.usecases.select._verdict import _silenced
 from torrcast.usecases.select._voiced import _Voiced
 from torrcast.usecases.select.plan import Plan
-from torrcast.usecases.select_bench import Bench
+from torrcast.usecases.select_bench.bench import Bench
 
 RUNTIME = RUNTIME_GUESS["movie"]
 GB = 1024**3

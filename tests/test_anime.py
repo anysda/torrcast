@@ -54,7 +54,7 @@ from torrcast.usecases.rank import (
 )
 from torrcast.usecases.reinforce.plan_for import plan_for
 from torrcast.usecases.select.plan import Plan
-from torrcast.usecases.select_bench import Bench
+from torrcast.usecases.select_bench.bench import Bench
 
 RUNTIME = RUNTIME_GUESS["movie"]
 GB = 1024**3
@@ -640,7 +640,7 @@ def _prep(name: str, *, video_bps: float, height: int, size_gb: float, dur: floa
 
 def _bench() -> Any:
     """Отбор без раздач: TorrServer тут ни о чём не спрашивают."""
-    from torrcast.usecases.select_bench import Bench
+    from torrcast.usecases.select_bench.bench import Bench
 
     class _Nothing:
         def drop(self, torrent_hash: str) -> bool:

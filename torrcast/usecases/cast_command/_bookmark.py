@@ -17,7 +17,7 @@ from torrcast.usecases.rank import _hms
 from torrcast.usecases.select._about import _about
 from torrcast.usecases.select._continue import _continue
 from torrcast.usecases.select._voiced import _Voiced, _voiced
-from torrcast.usecases.select_bench import Bench
+from torrcast.usecases.select_bench.bench import Bench
 from torrcast.usecases.start_clock import _Clock
 
 if TYPE_CHECKING:

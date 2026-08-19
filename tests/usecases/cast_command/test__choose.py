@@ -16,7 +16,7 @@ from torrcast.domain.profile import CAUTIOUS
 from torrcast.domain.watch_state import WatchState
 from torrcast.usecases.cast_command._choose import _choose
 from torrcast.usecases.choice._passport import _Passport
-from torrcast.usecases.select_bench import Bench
+from torrcast.usecases.select_bench.bench import Bench
 from torrcast.usecases.start_clock import _Clock
 
 

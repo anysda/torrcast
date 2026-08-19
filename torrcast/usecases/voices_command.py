@@ -21,7 +21,7 @@ from torrcast.usecases.discover.search_circle import search_circle
 from torrcast.usecases.playback import file_picker
 from torrcast.usecases.rank import _cut, voices_table
 from torrcast.usecases.select._remembered import _remembered
-from torrcast.usecases.select_bench import Bench
+from torrcast.usecases.select_bench.bench import Bench
 
 if TYPE_CHECKING:
     from torrcast.domain.args import Args

@@ -17,7 +17,7 @@ from torrcast.ports.progress import Progress, Quiet
 from torrcast.usecases.choice._played import _played
 from torrcast.usecases.select._prep import _Prep
 from torrcast.usecases.select.plan import Plan
-from torrcast.usecases.select_bench import Bench
+from torrcast.usecases.select_bench.bench import Bench
 
 REFUSAL = (
     "годного релиза нет (1 - тяжёлый): выбери руками - cast releases <запрос>"

@@ -23,7 +23,7 @@ from torrcast.usecases.playback import file_picker
 from torrcast.usecases.reinforce._timed import _timed
 from torrcast.usecases.reinforce._topup import _topup
 from torrcast.usecases.select._prep import _Prep
-from torrcast.usecases.select_bench import Bench
+from torrcast.usecases.select_bench.bench import Bench
 from torrcast.usecases.start_clock import _Clock
 
 if TYPE_CHECKING:
