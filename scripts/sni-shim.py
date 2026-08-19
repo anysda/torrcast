@@ -63,6 +63,16 @@
 
 Слушает только 127.0.0.1; наружу не смотрит и ничего не кэширует.
 
+Дом обхода - этот отдельный скрипт, а не адаптер пакета, и это решение, а не
+случайность: процесс у шима свой (systemd держит его сокет сквозь рестарт, чтобы не
+рвать входящие соединения), права свои (он правит таблицу имён хоста), а пакету от него
+не нужно ни одного вызова - обход поднимается установкой и живёт ниже уровня
+приложения. Граница поэтому названа явно и вся она здесь: командная строка и окружение.
+Настройки окружения читаются в точке входа (:func:`main`) и в месте использования, а не
+на импорте модуля: иначе их нельзя назвать доводом - окружение, выставленное после
+импорта, не бралось бы вовсе. Держит границу `tests/test_shim.py`, грузящий скрипт
+по пути.
+
     sni-shim.py <cert> <key> <порт> имя=кандидат[,кандидат…] …
     sni-shim.py --resolve имя …   адреса origin'а мимо `/etc/hosts` (ими щупает установка)
     sni-shim.py --unpin имя …     снять наши строки из `/etc/hosts`
@@ -142,24 +152,28 @@ _HANDSHAKE = 10.0
 _DNS_TTL = 300.0
 _DNS_TIMEOUT = 5.0
 
-#: Где лежит таблица имён. Подменяется в песочнице и в тестах.
-_HOSTS = os.environ.get("TORRCAST_HOSTS") or "/etc/hosts"
+#: Где лежит таблица имён, если окружение не назвало другую. Перебивает её
+#: ``TORRCAST_HOSTS``, и читается оно в точке входа (:func:`main`), а не здесь:
+#: на импорте настройку нельзя назвать доводом.
+_HOSTS = "/etc/hosts"
 _LEASE_POLL = 0.25
 #: Метка наших строк в ней: по ней и только по ней мы их потом убираем. Чужую строку
 #: (например, нарочно прибитый каталог определений Prowlarr) не трогаем никогда.
 _PIN_MARK = "# torrcast-shim"
-#: Как часто перерешать маршрут. Ноль - не перерешать вовсе (так гоняют тесты).
-_WATCH_EVERY = float(os.environ.get("TORRCAST_ROUTE_EVERY") or 900)
+#: Как часто перерешать маршрут умолчанием; перебивает ``TORRCAST_ROUTE_EVERY`` в
+#: точке входа. Ноль - не перерешать вовсе (так гоняют тесты).
+_WATCH_EVERY = 900.0
 #: Сколько проверок ПОДРЯД имя должно ответить целиком, чтобы снять с него обход.
 #: Больше одной нарочно: снять обход по одной удачной пробе - это как раз тот дешёвый
 #: способ получить дорогую ошибку (молчащий индексер), от которого весь перекос и заведён.
 _WATCH_CLEAR = 2
-#: Пороги пробы - те же, что у установки (`probe_whole` в install.sh, TC-235): судим по
-#: ПРОСТОЮ потока, а не по общему времени. Значения приезжают оттуда же, окружением.
-_PROBE_TIMEOUT = os.environ.get("TORRCAST_PROBE_TIMEOUT") or "25"
-_PROBE_STALL = os.environ.get("TORRCAST_PROBE_STALL") or "5"
-_PROBE_FLOOR = os.environ.get("TORRCAST_PROBE_FLOOR") or "1024"
-_PROBE_UA = os.environ.get("TORRCAST_PROBE_UA") or (
+#: Пороги пробы умолчанием - те же, что у установки (`probe_whole` в install.sh,
+#: TC-235): судим по ПРОСТОЮ потока, а не по общему времени. Окружение
+#: (``TORRCAST_PROBE_*``) перебивает их в месте использования (:func:`probe_direct`).
+_PROBE_TIMEOUT = "25"
+_PROBE_STALL = "5"
+_PROBE_FLOOR = "1024"
+_PROBE_UA = (
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/122 Safari/537.36"
 )
@@ -438,12 +452,12 @@ def _process_alive(path: str) -> bool:
     return True
 
 
-def guard_lease(pidfile: str, grace: float, names: list[str]) -> None:
+def guard_lease(pidfile: str, grace: float, names: list[str], hosts: str = _HOSTS) -> None:
     """Держать аренду сквозь короткий рестарт, но снять после настоящей смерти шима."""
     guard = LeaseGuard(grace)
     while True:
         if guard.tick(_process_alive(pidfile), time.monotonic()):
-            set_pins(_HOSTS, [], names)
+            set_pins(hosts, [], names)
         time.sleep(_LEASE_POLL)
 
 
@@ -474,13 +488,17 @@ def probe_direct(host: str, path: str, body: str, address: str) -> bool:
     читается целиком, потому что рвётся оно на объёме, и проба на один коннект больного
     имени не видит.
     """
+    timeout = os.environ.get("TORRCAST_PROBE_TIMEOUT") or _PROBE_TIMEOUT
+    stall = os.environ.get("TORRCAST_PROBE_STALL") or _PROBE_STALL
+    floor = os.environ.get("TORRCAST_PROBE_FLOOR") or _PROBE_FLOOR
+    agent = os.environ.get("TORRCAST_PROBE_UA") or _PROBE_UA
     command = [
         "curl", "-fsS",
-        "-m", _PROBE_TIMEOUT,
-        "--speed-time", _PROBE_STALL,
-        "--speed-limit", _PROBE_FLOOR,
+        "-m", timeout,
+        "--speed-time", stall,
+        "--speed-limit", floor,
         "-o", os.devnull,
-        "-A", _PROBE_UA,
+        "-A", agent,
         "--resolve", f"{host}:443:{f'[{address}]' if ':' in address else address}",
     ]  # fmt: skip
     if body:
@@ -488,9 +506,7 @@ def probe_direct(host: str, path: str, body: str, address: str) -> bool:
     command.append(f"https://{host}{path}")
     try:
         # Список аргументов, а не строка: оболочки в этом пути нет вовсе.
-        done = subprocess.run(
-            command, capture_output=True, timeout=float(_PROBE_TIMEOUT) + 5, check=False
-        )
+        done = subprocess.run(command, capture_output=True, timeout=float(timeout) + 5, check=False)
     except (OSError, subprocess.SubprocessError):
         return False
     return done.returncode == 0
@@ -675,7 +691,11 @@ def _client_present(conn: socket.socket) -> bool:
 
 
 @contextlib.contextmanager
-def _in_queue(route: Route, conn: socket.socket) -> Iterator[bool]:
+def _in_queue(
+    route: Route,
+    conn: socket.socket,
+    present: Callable[[socket.socket], bool] = _client_present,
+) -> Iterator[bool]:
     """Занять место в очереди к хосту; ``True`` - слот наш, идём на хост.
 
     Свободно - проходим сразу, ничего не стоит. Занято - ждём здесь, а не идём на хост
@@ -688,7 +708,8 @@ def _in_queue(route: Route, conn: socket.socket) -> Iterator[bool]:
 
     Дождавшийся слота проверяет, жив ли ещё клиент: тот мог оборвать соединение, пока
     стоял в очереди. Такой слот тратить на поход к хосту и запись в мёртвый сокет незачем -
-    отпускаем сразу, и следующий в очереди проходит по-настоящему.
+    отпускаем сразу, и следующий в очереди проходит по-настоящему. Проверка живости -
+    довод: у сервера она боевая, у его испытания - подставная.
     """
     if route.gate.acquire(blocking=False):
         try:
@@ -698,7 +719,7 @@ def _in_queue(route: Route, conn: socket.socket) -> Iterator[bool]:
         return
     waited = time.monotonic()
     while not route.gate.acquire(timeout=_QUEUE_POLL):
-        if not _client_present(conn):
+        if not present(conn):
             waited = time.monotonic() - waited
             print(
                 f"{route.host}: клиент ушёл из очереди через {waited:.1f} с",
@@ -709,7 +730,7 @@ def _in_queue(route: Route, conn: socket.socket) -> Iterator[bool]:
             return
     waited = time.monotonic() - waited
     print(f"{route.host}: очередь, ждал {waited:.1f} с", file=sys.stderr, flush=True)
-    if not _client_present(conn):
+    if not present(conn):
         route.gate.release()
         print(f"{route.host}: клиент ушёл из очереди, слот свободен", file=sys.stderr, flush=True)
         yield False
@@ -728,18 +749,31 @@ def _activated_socket() -> socket.socket | None:
 
 
 def build_server(
-    cert: str, key: str, port: int, routes: dict[str, Route], resolver: Resolver | None = None
+    cert: str,
+    key: str,
+    port: int,
+    routes: dict[str, Route],
+    resolver: Resolver | None = None,
+    *,
+    timeout: float = _TIMEOUT,
+    route_timeout: float = _ROUTE_TIMEOUT,
+    opener: Callable[[bool], urllib.request.OpenerDirector] = _opener,
+    present: Callable[[socket.socket], bool] = _client_present,
 ) -> http.server.HTTPServer:
     """Собрать слушающий шим.
 
     Отдельно от :func:`main` - чтобы его можно было завести на случайном порту и
     остановить: так его гоняют тесты. Разбор имён общий с :class:`Watch` - у обоих одна
     и та же память об адресах origin'ов.
+
+    Ручки поведения - доводы, а не модульные переменные: сроки похода наверх, фабрика
+    опенеров и проверка живости клиента называются здесь, и тест подставляет свои
+    именно сюда, не переписывая модуль задним числом.
     """
     # Отдельным именем, а не переприсваиванием: замыкание обработчика видит его как
     # уже разрешённый, без «а вдруг там None».
     names: Resolver = resolver or Resolver()
-    openers = {True: _opener(verify=True), False: _opener(verify=False)}
+    openers = {True: opener(True), False: opener(False)}
     #: Опенеры кандидата `named`: по одному на адрес, собираются на первом же походе.
     pinned: dict[str, urllib.request.OpenerDirector] = {}
     pinned_lock = threading.Lock()
@@ -778,13 +812,13 @@ def build_server(
             length = int(self.headers.get("Content-Length") or 0)
             body = self.rfile.read(length) if length else None
             # Тело от клиента читаем до очереди: место занимаем ровно на поход к хосту.
-            with _in_queue(route, self.connection) as ours:
+            with _in_queue(route, self.connection, present) as ours:
                 if ours:
                     self._upstream(route, method, body)
 
         def _upstream(self, route: Route, method: str, body: bytes | None) -> None:
             last = "маршрут пуст"
-            deadline = time.monotonic() + _ROUTE_TIMEOUT
+            deadline = time.monotonic() + route_timeout
             #: Придержанный 5xx: ответ, который лучше не отдавать, пока есть непробованный
             #: кандидат. Отдадим его, только если лучше не нашлось.
             held: tuple[int, list[tuple[str, str]], bytes] | None = None
@@ -804,7 +838,7 @@ def build_server(
                 request.add_header("Accept-Encoding", "gzip")
                 try:
                     with opener_for(target).open(
-                        request, timeout=min(_TIMEOUT, remaining)
+                        request, timeout=min(timeout, remaining)
                     ) as response:
                         route.current = target.number
                         payload, headers = _unpack(
@@ -924,8 +958,12 @@ def build_server(
     return server
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, *, build: Callable[..., Any] = build_server) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
+    # Окружение читается здесь, в точке входа, а не на импорте модуля: только так его
+    # можно назвать доводом - прочитанное на импорте не подменить ни тесту, ни юниту,
+    # поднятому с другими значениями.
+    hosts = os.environ.get("TORRCAST_HOSTS") or _HOSTS
     # Две служебные ходки без сервера. `--resolve` - адрес origin'а мимо `/etc/hosts`:
     # им установка щупает источник напрямую, тем же приёмом, что и сам шим.
     if args and args[0] == "--resolve":
@@ -939,10 +977,10 @@ def main(argv: list[str] | None = None) -> int:
     # `--unpin` - снять наши строки. Это же делает юнит после остановки службы, чтобы
     # имена не остались прибитыми к тому, кого больше нет (даже после SIGKILL).
     if args and args[0] == "--unpin":
-        set_pins(_HOSTS, [], args[1:])
+        set_pins(hosts, [], args[1:])
         return 0
     if args and args[0] == "--guard":
-        guard_lease(args[1], float(args[2]), args[3:])
+        guard_lease(args[1], float(args[2]), args[3:], hosts)
         return 0
 
     cert, key, port_text = args[:3]
@@ -956,13 +994,14 @@ def main(argv: list[str] | None = None) -> int:
         print("нечего вести: не задан ни один маршрут имя=кандидат", file=sys.stderr)
         return 2
     resolver = Resolver()
-    server = build_server(cert, key, int(port_text), routes, resolver)
+    server = build(cert, key, int(port_text), routes, resolver)
     pidfile = os.environ.get("TORRCAST_SHIM_PID") or ""
     if pidfile:
         with open(pidfile, "w", encoding="ascii") as handle:
             handle.write(str(os.getpid()))
     pinned = (os.environ.get("TORRCAST_ROUTE_PINNED") or "").replace(",", " ").split()
-    watch = Watch(routes, resolver, pinned, hosts=_HOSTS, every=_WATCH_EVERY)
+    every = float(os.environ.get("TORRCAST_ROUTE_EVERY") or _WATCH_EVERY)
+    watch = Watch(routes, resolver, pinned, hosts=hosts, every=every)
     # Прибиваем только теперь: сокет уже слушает, и ответить есть кому. Освобождает имена
     # отдельный сторож, если процесса непрерывно нет дольше штатного RestartSec.
     watch.apply()

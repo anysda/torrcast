@@ -128,11 +128,9 @@ def _get(port: int, host: str) -> tuple[int, float]:
         return exc.code, time.monotonic() - started
 
 
-@pytest.fixture
-def plain_openers(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Шим ходит к бэкенду по имени-кандидату, а серт там самоподписанный."""
-    plain = shim._opener(verify=False)
-    monkeypatch.setattr(shim, "_opener", lambda verify: plain)
+def _plain(verify: bool) -> Any:
+    """Опенер без проверки серта - довод серверу: у тестового бэкенда серт свой."""
+    return shim._opener(verify=False)
 
 
 @pytest.fixture
@@ -144,23 +142,22 @@ def backend(tls: tuple[str, str]) -> Iterator[tuple[http.server.HTTPServer, Coun
     server.server_close()
 
 
-def _shim(tls: tuple[str, str], routes: dict[str, object]) -> http.server.HTTPServer:
+def _shim(tls: tuple[str, str], routes: dict[str, object], **knobs: Any) -> http.server.HTTPServer:
     cert, key = tls
-    server: http.server.HTTPServer = shim.build_server(cert, key, 0, routes)
+    server: http.server.HTTPServer = shim.build_server(cert, key, 0, routes, **knobs)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     return server
 
 
 def test_two_at_a_time_on_the_host(
     tls: tuple[str, str],
-    plain_openers: None,
     backend: tuple[http.server.HTTPServer, Counter],
 ) -> None:
     """Шесть одновременных запросов через шим - на хосте зараз не больше двух."""
     origin, counter = backend
     port = origin.server_address[1]
     routes = {"tracker.test": shim.Route("tracker.test", [f"https://127.0.0.1:{port}"])}
-    server = _shim(tls, routes)
+    server = _shim(tls, routes, opener=_plain)
     try:
         front = server.server_address[1]
         with ThreadPoolExecutor(max_workers=6) as pool:
@@ -181,14 +178,13 @@ def test_two_at_a_time_on_the_host(
 
 def test_alone_does_not_wait(
     tls: tuple[str, str],
-    plain_openers: None,
     backend: tuple[http.server.HTTPServer, Counter],
 ) -> None:
     """Одиночный запрос на пустом шиме не ждёт ничего: потолок ему не мешает."""
     origin, _ = backend
     port = origin.server_address[1]
     routes = {"tracker.test": shim.Route("tracker.test", [f"https://127.0.0.1:{port}"])}
-    server = _shim(tls, routes)
+    server = _shim(tls, routes, opener=_plain)
     try:
         code, spent = _get(server.server_address[1], "tracker.test")
     finally:
@@ -201,7 +197,6 @@ def test_alone_does_not_wait(
 
 def test_queue_is_per_host(
     tls: tuple[str, str],
-    plain_openers: None,
     backend: tuple[http.server.HTTPServer, Counter],
 ) -> None:
     """Очередь у каждого хоста своя: забитый сосед чужие запросы не задерживает.
@@ -216,7 +211,7 @@ def test_queue_is_per_host(
         "sick.test": shim.Route("sick.test", ["https://127.0.0.1:1"]),
         "well.test": shim.Route("well.test", [f"https://127.0.0.1:{port}"]),
     }
-    server = _shim(tls, routes)
+    server = _shim(tls, routes, opener=_plain)
     front = server.server_address[1]
     try:
         with ThreadPoolExecutor(max_workers=5) as pool:
@@ -236,13 +231,10 @@ def test_queue_is_per_host(
 
 def test_silent_candidate_does_not_hide_working_fallback(
     tls: tuple[str, str],
-    plain_openers: None,
     backend: tuple[http.server.HTTPServer, Counter],
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Первый молчун отдаёт место сменной альтернативе внутри бюджета маршрута."""
-    monkeypatch.setattr(shim, "_TIMEOUT", 0.6)
-    monkeypatch.setattr(shim, "_ROUTE_TIMEOUT", 1.5)
+    budget = 1.5
     blackhole = _blackhole()
     origin, counter = backend
     route = shim.Route(
@@ -252,7 +244,7 @@ def test_silent_candidate_does_not_hide_working_fallback(
             f"https://127.0.0.1:{origin.server_address[1]}",
         ],
     )
-    server = _shim(tls, {"tracker.test": route})
+    server = _shim(tls, {"tracker.test": route}, opener=_plain, timeout=0.6, route_timeout=budget)
     try:
         code, spent = _get(server.server_address[1], "tracker.test")
     finally:
@@ -262,7 +254,7 @@ def test_silent_candidate_does_not_hide_working_fallback(
     print(f"после молчуна: код {code}, {spent:.2f} с, фолбэк спросили {counter.served} раз")
     assert code == 200
     assert counter.served == 1
-    assert spent < shim._ROUTE_TIMEOUT
+    assert spent < budget
 
 
 def test_all_rutor_candidates_fit_indexer_budget() -> None:
@@ -330,7 +322,7 @@ def _fetch(port: int, host: str, accept: str | None = None) -> tuple[bytes, dict
         return response.read(), {k.lower(): v for k, v in response.headers.items()}
 
 
-def test_shim_asks_gzip_and_unpacks_it(tls: tuple[str, str], plain_openers: None) -> None:
+def test_shim_asks_gzip_and_unpacks_it(tls: tuple[str, str]) -> None:
     """🔴 TC-213: клиент про сжатие не заикался - шим всё равно просит его наверху.
 
     Ради этого всё и затевалось: тело едет по каналу сжатым (тут - втрое короче), а
@@ -344,7 +336,7 @@ def test_shim_asks_gzip_and_unpacks_it(tls: tuple[str, str], plain_openers: None
             "tracker.test", [f"https://127.0.0.1:{origin.server_address[1]}"]
         )
     }
-    server = _shim(tls, routes)
+    server = _shim(tls, routes, opener=_plain)
     try:
         body, headers = _fetch(server.server_address[1], "tracker.test")
     finally:
@@ -363,7 +355,7 @@ def test_shim_asks_gzip_and_unpacks_it(tls: tuple[str, str], plain_openers: None
     assert headers["content-length"] == str(len(BULK))
 
 
-def test_client_that_asked_gzip_gets_it_as_is(tls: tuple[str, str], plain_openers: None) -> None:
+def test_client_that_asked_gzip_gets_it_as_is(tls: tuple[str, str]) -> None:
     """А если сжатие просил сам клиент - отдаём как есть: распаковывать за него нечего."""
     asked = Asked()
     origin = _gzip_backend(tls, asked)
@@ -372,7 +364,7 @@ def test_client_that_asked_gzip_gets_it_as_is(tls: tuple[str, str], plain_opener
             "tracker.test", [f"https://127.0.0.1:{origin.server_address[1]}"]
         )
     }
-    server = _shim(tls, routes)
+    server = _shim(tls, routes, opener=_plain)
     try:
         body, headers = _fetch(server.server_address[1], "tracker.test", accept="gzip")
     finally:
@@ -454,7 +446,7 @@ def _status_backend(
 
 
 def test_пятисотый_уводит_на_следующего_кандидата(
-    tls: tuple[str, str], plain_openers: None
+    tls: tuple[str, str],
 ) -> None:
     """🔴 TC-237: 502 от первого адреса не уезжает наверх, пока есть второй.
 
@@ -473,7 +465,7 @@ def test_пятисотый_уводит_на_следующего_кандид�
             f"https://127.0.0.1:{well.server_address[1]}",
         ],
     )
-    server = _shim(tls, {"tracker.test": route})
+    server = _shim(tls, {"tracker.test": route}, opener=_plain)
     try:
         first, _ = _get(server.server_address[1], "tracker.test")
         second, _ = _get(server.server_address[1], "tracker.test")
@@ -489,7 +481,7 @@ def test_пятисотый_уводит_на_следующего_кандид�
 
 
 def test_чужой_отказ_доезжает_когда_кандидаты_кончились(
-    tls: tuple[str, str], plain_openers: None
+    tls: tuple[str, str],
 ) -> None:
     """Все кандидаты отдали 5xx - наверх едет их код, а не выдуманный нами 502.
 
@@ -505,7 +497,7 @@ def test_чужой_отказ_доезжает_когда_кандидаты_к
             f"https://127.0.0.1:{two.server_address[1]}",
         ],
     )
-    server = _shim(tls, {"tracker.test": route})
+    server = _shim(tls, {"tracker.test": route}, opener=_plain)
     try:
         code, _ = _get(server.server_address[1], "tracker.test")
     finally:
@@ -551,7 +543,7 @@ def _open_and_send(port: int, host: str) -> ssl.SSLSocket:
     return conn
 
 
-def _drop_then_third(tls: tuple[str, str], sick_port: int) -> float:
+def _drop_then_third(tls: tuple[str, str], sick_port: int, timeout: float, **knobs: Any) -> float:
     """Обрыв в очереди, затем настоящий третий запрос: за сколько тот получит ответ.
 
     Единственный слот держим руками - будто на хосте уже висит запрос. Первый клиент
@@ -586,7 +578,7 @@ def _drop_then_third(tls: tuple[str, str], sick_port: int) -> float:
     route = shim.Route("sick.test", [f"https://127.0.0.1:{sick_port}"])
     gate = ObservedGate()
     route.gate = gate
-    server = _shim(tls, {"sick.test": route})
+    server = _shim(tls, {"sick.test": route}, timeout=timeout, **knobs)
     front = server.server_address[1]
     spent: dict[str, float] = {}
 
@@ -603,7 +595,7 @@ def _drop_then_third(tls: tuple[str, str], sick_port: int) -> float:
         worker.start()
         gate.wait_for(2)
         route.gate.release()  # ручной слот отпущен - очередь оживает
-        worker.join(timeout=shim._TIMEOUT * 3 + 5)
+        worker.join(timeout=timeout * 3 + 5)
         return spent["took"]
     finally:
         server.shutdown()
@@ -612,30 +604,27 @@ def _drop_then_third(tls: tuple[str, str], sick_port: int) -> float:
 
 def test_dropped_client_frees_slot_at_once(
     tls: tuple[str, str],
-    monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Клиент, оборвавший соединение в очереди, слот не проедает: следующий проходит сразу.
 
-    Замеряем оба поведения на одном сценарии. Со старым (проверку живости глушим) мёртвый
-    держит слот весь таймаут к больному хосту, и третий ждёт два таймаута. С новым - обрыв
-    замечен, слот сразу свободен, и третий укладывается в один таймаут.
+    Замеряем оба поведения на одном сценарии. Со старым (проверка живости подменена
+    доводом) мёртвый держит слот весь таймаут к больному хосту, и третий ждёт два
+    таймаута. С новым - обрыв замечен, слот сразу свободен, и третий укладывается в один.
     """
-    monkeypatch.setattr(shim, "_TIMEOUT", 2)
+    timeout = 2.0
     blackhole = _blackhole()
     sick_port = blackhole.getsockname()[1]
     try:
-        with monkeypatch.context() as bypass:
-            bypass.setattr(shim, "_client_present", lambda conn: True)
-            stuck = _drop_then_third(tls, sick_port)
-        freed = _drop_then_third(tls, sick_port)
+        stuck = _drop_then_third(tls, sick_port, timeout, present=lambda conn: True)
+        freed = _drop_then_third(tls, sick_port, timeout)
     finally:
         blackhole.close()
     err = capsys.readouterr().err
     print(f"третий получил ответ: без проверки {stuck:.2f} с, с проверкой {freed:.2f} с")
-    assert stuck >= shim._TIMEOUT * 1.8, "без проверки мёртвый держит слот весь таймаут"
-    assert freed < shim._TIMEOUT * 1.7, "с проверкой третий укладывается в один таймаут"
-    assert stuck - freed >= shim._TIMEOUT * 0.7, "проверка живости обязана вернуть слот раньше"
+    assert stuck >= timeout * 1.8, "без проверки мёртвый держит слот весь таймаут"
+    assert freed < timeout * 1.7, "с проверкой третий укладывается в один таймаут"
+    assert stuck - freed >= timeout * 0.7, "проверка живости обязана вернуть слот раньше"
     assert "клиент ушёл из очереди" in err, "уход из очереди должен попасть в журнал"
 
 
@@ -733,7 +722,6 @@ def _wait_log(capsys: pytest.CaptureFixture[str], marker: str, budget: float = 5
 
 def test_client_gone_before_the_answer_is_one_line_not_a_traceback(
     tls: tuple[str, str],
-    plain_openers: None,
     backend: tuple[http.server.HTTPServer, Counter],
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -747,7 +735,7 @@ def test_client_gone_before_the_answer_is_one_line_not_a_traceback(
     origin, _ = backend
     port = origin.server_address[1]
     routes = {"tracker.test": shim.Route("tracker.test", [f"https://127.0.0.1:{port}"])}
-    server = _shim(tls, routes)
+    server = _shim(tls, routes, opener=_plain)
     try:
         conn = _open_and_send(server.server_address[1], "tracker.test")
         # Обрыв с RST, а не вежливое закрытие: так запись ответа упадёт наверняка,
@@ -870,8 +858,10 @@ def test_the_shim_hands_the_names_back_when_it_goes_down(
     """
     hosts = tmp_path / "hosts"
     hosts.write_text("127.0.0.1 localhost\n", encoding="utf-8")
-    monkeypatch.setattr(shim, "_HOSTS", str(hosts))
-    monkeypatch.setattr(shim, "_WATCH_EVERY", 0.0)  # круг проверок тут не нужен
+    # Окружение - настоящая граница скрипта, и читается оно в точке входа: setenv
+    # здесь - тот же приём, которым настройки раздаёт юниту install.sh.
+    monkeypatch.setenv("TORRCAST_HOSTS", str(hosts))
+    monkeypatch.setenv("TORRCAST_ROUTE_EVERY", "0")  # круг проверок тут не нужен
     monkeypatch.setenv("TORRCAST_ROUTE_PINNED", "tracker.test")
     monkeypatch.setenv("TORRCAST_ROUTE_PROBES", str(tmp_path / "нет-такого"))
     seen: list[list[str]] = []
@@ -883,9 +873,11 @@ def test_the_shim_hands_the_names_back_when_it_goes_down(
             seen.append(hosts.read_text(encoding="utf-8").splitlines())
             raise KeyboardInterrupt
 
-    monkeypatch.setattr(shim, "build_server", lambda *a, **k: _Listening())
     with pytest.raises(KeyboardInterrupt):
-        shim.main(["cert", "key", "0", "tracker.test=direct", "well.test=direct"])
+        shim.main(
+            ["cert", "key", "0", "tracker.test=direct", "well.test=direct"],
+            build=lambda *a, **k: _Listening(),
+        )
 
     print(f"пока шим слушал: {seen[0]}")
     print(f"после его ухода: {hosts.read_text(encoding='utf-8').splitlines()}")
