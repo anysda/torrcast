@@ -17,7 +17,7 @@ from torrcast.usecases.playback._show_end import _close_show, _report_end, _say_
 from torrcast.usecases.playback._tract import _tract
 from torrcast.usecases.playback.following import Following
 from torrcast.usecases.playback.layout import layout
-from torrcast.usecases.revive_playback import _hold
+from torrcast.usecases.revive_playback._hold import _hold
 from torrcast.usecases.start_clock import _Clock
 from torrcast.usecases.watch import Watch
 

@@ -47,7 +47,7 @@ from torrcast.domain.picture import Picture
 from torrcast.domain.prewarm_settings import PREWARM
 from torrcast.domain.release import Release
 from torrcast.runtime.wire import wire
-from torrcast.usecases.choice import warm_order
+from torrcast.usecases.choice.warm_order import warm_order
 from torrcast.usecases.select.plan import Plan
 from torrcast.usecases.select_bench.bench import Bench
 

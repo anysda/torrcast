@@ -12,7 +12,7 @@ from dataclasses import replace
 from tests.usecases.choice.world import film, plan
 from torrcast.domain._series import _Series
 from torrcast.domain.episode import Episode
-from torrcast.usecases.choice import last_hope_note
+from torrcast.usecases.choice.last_hope_note import last_hope_note
 
 HEVC = film("Гинтама S01E01 BDRip HEVC 720p", seeders=4, codec="HEVC", quality="720p")
 HONEST = film("Гинтама S01E01 WEB-DL 1080p", seeders=5)

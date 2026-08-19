@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from torrcast.domain._name_data import _GLUE
+from torrcast.domain._name_data.data_3 import _GLUE
 
 
 def wire_query(query: str) -> str:

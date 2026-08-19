@@ -9,7 +9,7 @@
 from __future__ import annotations
 
 from tests.usecases.choice.world import film, parts, plan
-from torrcast.usecases.choice import _passed_why, default_note
+from torrcast.usecases.choice.default_note import _passed_why, default_note
 
 VHS = film("Moana 1926 DVDRip XviD", seeders=100, codec="XviD", quality=None)
 SD = film("Кино 2020 WEB-DLRip 480p", seeders=100, quality="480p")

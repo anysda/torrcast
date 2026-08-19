@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unicodedata
 
-from torrcast.domain._name_data import _LAYOUT
+from torrcast.domain._name_data.data_3 import _LAYOUT
 
 
 def unswap_layout(text: str) -> str:

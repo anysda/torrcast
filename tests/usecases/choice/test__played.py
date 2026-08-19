@@ -14,7 +14,7 @@ from torrcast.domain.config import Config
 from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.profile import CAUTIOUS
 from torrcast.ports.progress import Progress, Quiet
-from torrcast.usecases.choice import _played
+from torrcast.usecases.choice._played import _played
 from torrcast.usecases.select._prep import _Prep
 from torrcast.usecases.select.plan import Plan
 from torrcast.usecases.select_bench import Bench

@@ -12,7 +12,7 @@ from torrcast.domain.infra_error import InfraError
 from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.raw_result import RawResult
 from torrcast.usecases.discover.search_circle import search_circle
-from torrcast.usecases.select import Plan
+from torrcast.usecases.select.plan import Plan
 
 _CONFIG = Config(prowlarr_apikey="KEY")
 _CARS = [

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from torrcast.domain._name_data import _ANIME_INDEXERS
+from torrcast.domain._name_data.data_3 import _ANIME_INDEXERS
 
 
 def anime_indexer(name: str) -> bool:

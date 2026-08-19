@@ -9,7 +9,7 @@
 from __future__ import annotations
 
 from tests.usecases.choice.world import plan
-from torrcast.usecases.choice import asked_kind
+from torrcast.usecases.choice.asked_kind import asked_kind
 
 
 def test_a_query_that_named_an_episode_narrows_the_menu_down_to_the_series() -> None:

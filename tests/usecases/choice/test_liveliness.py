@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 from tests.usecases.choice.world import film, plan
-from torrcast.usecases.choice import liveliness
+from torrcast.usecases.choice.liveliness import liveliness
 
 
 def test_the_weight_is_taken_from_the_liveliest_candidate_and_not_from_the_top_of_queue() -> None:

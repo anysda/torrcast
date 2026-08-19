@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 from tests.usecases.choice.world import parts
-from torrcast.usecases.choice import warm_order
+from torrcast.usecases.choice.warm_order import warm_order
 
 
 def test_the_warmup_follows_the_order_the_person_sees_and_not_the_liveliness() -> None:

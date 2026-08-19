@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-from torrcast.domain._name_data import _ALTERNATIVE_PICTURE_RE, _ALTERNATIVE_TITLE_RE, _ROMAN
+from torrcast.domain._name_data.data_2 import _ALTERNATIVE_PICTURE_RE, _ALTERNATIVE_TITLE_RE, _ROMAN
 from torrcast.domain.compose import _compose
 from torrcast.domain.glued_year import _glued_year
 from torrcast.domain.in_digits import in_digits

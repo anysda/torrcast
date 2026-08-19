@@ -1,7 +1,7 @@
 """Проверяет сценарий отбора на фейковой зависимости."""
 
 from tests.fakes.scenario import FakeScenario
-from torrcast.usecases.select import Select
+from torrcast.usecases.select.select import Select
 
 
 def test_select_delegates_request() -> None:

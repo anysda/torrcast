@@ -15,11 +15,12 @@ from torrcast.ports.progress import Progress
 from torrcast.ports.progress import progress as progress_bar
 from torrcast.ports.state_store import store as watch_store
 from torrcast.ports.torrent_engines import TorrentEngines
-from torrcast.usecases.choice import _named, _pick_plan
-from torrcast.usecases.discover import search_circle
+from torrcast.usecases.choice._named import _named
+from torrcast.usecases.choice._pick_plan import _pick_plan
+from torrcast.usecases.discover.search_circle import search_circle
 from torrcast.usecases.playback import file_picker
 from torrcast.usecases.rank import _cut, voices_table
-from torrcast.usecases.select import _remembered
+from torrcast.usecases.select._remembered import _remembered
 from torrcast.usecases.select_bench import Bench
 
 if TYPE_CHECKING:

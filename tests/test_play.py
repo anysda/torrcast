@@ -53,10 +53,11 @@ from torrcast.domain.revive_settings import REVIVE_DROP, REVIVE_LIMIT, REVIVE_PA
 from torrcast.domain.start_refused_error import StartRefusedError
 from torrcast.domain.start_settings import PAUSE_SECONDS
 from torrcast.domain.worker_settings import WORKER_DUR, WORKER_META
-from torrcast.usecases.choice import _ctl, _Steerable
+from torrcast.usecases.choice._ctl import _ctl, _Steerable
 from torrcast.usecases.feed_pack.feed import Feed
 from torrcast.usecases.playback import _await_playing, _blame_the_end, _handover, _play
-from torrcast.usecases.revive_playback import _hold, _Revival
+from torrcast.usecases.revive_playback._hold import _hold
+from torrcast.usecases.revive_playback._revival import _Revival
 from torrcast.usecases.start_budget import START_BUDGET
 from torrcast.usecases.start_clock import _Clock
 from torrcast.usecases.watch import Watch as _Watch
@@ -2121,7 +2122,7 @@ def test_the_revival_names_the_place_the_show_actually_came_back_from(
     печатал тот, кто ПРОСИЛ, - и печатал ровно поверх честной строки о перешагнутом куске. Двух
     мнений о том, откуда идёт фильм, у зрителя быть не должно.
     """
-    from torrcast.usecases.revive_playback import _Revival
+    from torrcast.usecases.revive_playback._revival import _Revival
 
     class _Stepping:
         """Приёмник, который поднял показ ЗА куском, а не там, где его просили."""

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from tests.usecases.choice.world import parts
 from torrcast.domain.rank_settings import ALIVE_SEEDERS
-from torrcast.usecases.choice import alive_numbers
+from torrcast.usecases.choice.alive_numbers import alive_numbers
 
 
 def test_a_picture_is_alive_by_its_own_swarm_and_not_by_a_share_of_the_liveliest() -> None:

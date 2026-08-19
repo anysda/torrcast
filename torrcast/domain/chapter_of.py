@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from torrcast.domain._name_data import _CHAPTER_RE, _PART_NUMBER_RE, _ROMAN
+from torrcast.domain._name_data.data_2 import _CHAPTER_RE, _PART_NUMBER_RE, _ROMAN
 from torrcast.domain.slugify import slugify
 
 

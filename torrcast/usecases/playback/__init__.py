@@ -55,7 +55,7 @@ from torrcast.ports.show_unit import ShowUnit as ShowUnit
 from torrcast.ports.show_unit import unit as show_unit
 from torrcast.ports.state_store import store as store
 from torrcast.ports.stream_source import StreamSource as StreamSource
-from torrcast.usecases.feed_pack import Feed as Feed
+from torrcast.usecases.feed_pack.feed import Feed as Feed
 from torrcast.usecases.playback._cuttable import _Cuttable as _Cuttable
 from torrcast.usecases.playback._encode_all import _encode_all as _encode_all
 from torrcast.usecases.playback._launch import _await_playing as _await_playing
@@ -87,8 +87,8 @@ from torrcast.usecases.playback.spot_recoders import SpotRecoders as SpotRecoder
 from torrcast.usecases.playback.stream_server import StreamServer as StreamServer
 from torrcast.usecases.playback.stream_servers import StreamServers as StreamServers
 from torrcast.usecases.playback.whole_encodings import WholeEncodings as WholeEncodings
-from torrcast.usecases.revive_playback import _hold as _hold
-from torrcast.usecases.revive_playback import _Revival as _Revival
+from torrcast.usecases.revive_playback._hold import _hold as _hold
+from torrcast.usecases.revive_playback._revival import _Revival as _Revival
 from torrcast.usecases.select._about import _about as _about
 from torrcast.usecases.select.plan import Plan as Plan
 from torrcast.usecases.source_blame import _asked as _asked

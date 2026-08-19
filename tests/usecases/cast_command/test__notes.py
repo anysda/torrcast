@@ -14,7 +14,7 @@ from torrcast.domain.facts.origin import Origin
 from torrcast.domain.media import Media
 from torrcast.domain.torr_file import TorrFile
 from torrcast.usecases.cast_command._notes import _notes
-from torrcast.usecases.select import _Prep
+from torrcast.usecases.select._prep import _Prep
 
 
 class _Silent:

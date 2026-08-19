@@ -16,13 +16,13 @@ from torrcast.adapters.torrserver.torr_server import TorrServer
 from torrcast.runtime.facts_wiring import FACTS
 from torrcast.usecases.cache_reserve import _configure_cache_reserve
 from torrcast.usecases.choice.configure import configure as configure_choice
-from torrcast.usecases.discover import _configure_discover
+from torrcast.usecases.discover._search_state import _configure_discover
 from torrcast.usecases.episode_duration import _configure_episode_duration
 from torrcast.usecases.rank import _cut, bitrate_of, hevc_hope, is_candidate, is_dated
 from torrcast.usecases.rank import configure as configure_rank
-from torrcast.usecases.reinforce import _timed
+from torrcast.usecases.reinforce._timed import _timed
 from torrcast.usecases.reinforce.configure import configure as configure_reinforce
-from torrcast.usecases.select import _configure_select
+from torrcast.usecases.select._pick_state import _configure_select
 from torrcast.usecases.select_bench import _configure_select_bench
 from torrcast.usecases.torrents import _configure_torrents
 

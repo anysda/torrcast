@@ -12,8 +12,8 @@ from torrcast.domain.entry import ENDING_RATIO
 from torrcast.domain.revive_settings import REVIVE_LIMIT, REVIVE_TRIES
 from torrcast.ports.journal import journal
 from torrcast.ports.receiver import Receiver
-from torrcast.usecases.choice import _Revivable
-from torrcast.usecases.feed_pack import Feed
+from torrcast.usecases.choice._ctl import _Revivable
+from torrcast.usecases.feed_pack.feed import Feed
 from torrcast.usecases.rank import _hms
 from torrcast.usecases.revive_playback._blame import _may, _why
 from torrcast.usecases.warm import Warmer

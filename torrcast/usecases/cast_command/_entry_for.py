@@ -12,7 +12,7 @@ from torrcast.domain.media import Media
 from torrcast.domain.release import Release
 from torrcast.domain.slugify import slugify
 from torrcast.domain.torr_file import TorrFile
-from torrcast.usecases.select import _Prep
+from torrcast.usecases.select._prep import _Prep
 
 if TYPE_CHECKING:
     from torrcast.domain.args import Args

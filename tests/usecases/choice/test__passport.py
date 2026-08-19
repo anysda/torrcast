@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from tests.usecases.choice.world import Outside, outside, parts, plan
 from torrcast.domain.facts.origin import Origin
-from torrcast.usecases.choice import _passport
+from torrcast.usecases.choice._passport import _passport
 
 
 def test_a_menu_of_one_picture_never_goes_to_the_reference_at_all() -> None:

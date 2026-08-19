@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-from torrcast.domain._name_data import _CYRILLIC, _LATIN, _TAG_ONLY_RE, _UKRAINIAN
+from torrcast.domain._name_data.data_1 import _CYRILLIC, _LATIN, _TAG_ONLY_RE, _UKRAINIAN
 
 
 def _split_titles(zone: str) -> tuple[str, str | None, tuple[str, ...]]:

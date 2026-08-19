@@ -8,7 +8,8 @@
 from __future__ import annotations
 
 from tests.usecases.choice.world import film, plan
-from torrcast.usecases.choice import fitness, liveliness
+from torrcast.usecases.choice.fitness import fitness
+from torrcast.usecases.choice.liveliness import liveliness
 
 
 def test_old_junk_is_not_something_worth_watching_however_lively_its_swarm_is() -> None:

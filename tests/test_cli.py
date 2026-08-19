@@ -38,40 +38,33 @@ from torrcast.domain.release import Release
 from torrcast.domain.runtime_guess import RUNTIME_GUESS
 from torrcast.domain.server_down_error import ServerDownError
 from torrcast.domain.torr_file import TorrFile
-from torrcast.usecases import reinforce
-from torrcast.usecases.choice import (
-    _is_default,
-    _pick_plan,
-    _played,
-    alive_numbers,
-    asked_kind,
-    backed,
-    default_line,
-    default_note,
-    first_alive,
-    fitness,
-    liveliest,
-    liveliness,
-    menu_lines,
-    namesake_note,
-    part_one_swap,
-    playable,
-    swap_note,
-    understudy,
-    understudy_note,
-    warm_order,
-    warned,
-    year_note,
-)
-from torrcast.usecases.discover import (
-    _asked_kind,
-    _kin,
-    _no_budget,
-    _nothing,
-    _second_language,
-    kin_line,
-    silent_swarm,
-)
+from torrcast.usecases.choice._pick_plan import _pick_plan
+from torrcast.usecases.choice._played import _played
+from torrcast.usecases.choice.alive_numbers import alive_numbers
+from torrcast.usecases.choice.asked_kind import asked_kind
+from torrcast.usecases.choice.backed import backed
+from torrcast.usecases.choice.default_line import default_line
+from torrcast.usecases.choice.default_note import default_note
+from torrcast.usecases.choice.first_alive import first_alive
+from torrcast.usecases.choice.fitness import fitness
+from torrcast.usecases.choice.liveliest import liveliest
+from torrcast.usecases.choice.liveliness import liveliness
+from torrcast.usecases.choice.menu_lines import menu_lines
+from torrcast.usecases.choice.namesake_note import namesake_note
+from torrcast.usecases.choice.part_one_swap import part_one_swap
+from torrcast.usecases.choice.playable import playable
+from torrcast.usecases.choice.swap_note import _is_default, swap_note
+from torrcast.usecases.choice.understudy import understudy
+from torrcast.usecases.choice.understudy_note import understudy_note
+from torrcast.usecases.choice.warm_order import warm_order
+from torrcast.usecases.choice.warned import warned
+from torrcast.usecases.choice.year_note import year_note
+from torrcast.usecases.discover._asked_kind import _asked_kind
+from torrcast.usecases.discover._no_budget import _no_budget
+from torrcast.usecases.discover._nothing import _nothing
+from torrcast.usecases.discover._second_language import _second_language
+from torrcast.usecases.discover.kin_line import _kin, kin_line
+from torrcast.usecases.discover.silent_swarm import silent_swarm
 from torrcast.usecases.facts import Facts
 from torrcast.usecases.playback import _refuse_hopeless
 from torrcast.usecases.rank import (
@@ -89,9 +82,15 @@ from torrcast.usecases.rank import (
     understated,
     voice_unproven,
 )
-from torrcast.usecases.reinforce import _ceiling_reinforce, _timed, ceiling_hides_name
+from torrcast.usecases.reinforce._ceiling_reinforce import _ceiling_reinforce
+from torrcast.usecases.reinforce._timed import _timed
+from torrcast.usecases.reinforce._topup import _topup as _reinforce_topup
+from torrcast.usecases.reinforce.ceiling_hides_name import ceiling_hides_name
 from torrcast.usecases.releases_command import _cmd_releases
-from torrcast.usecases.select import Plan, _Prep, _silenced, _Voiced
+from torrcast.usecases.select._prep import _Prep
+from torrcast.usecases.select._verdict import _silenced
+from torrcast.usecases.select._voiced import _Voiced
+from torrcast.usecases.select.plan import Plan
 from torrcast.usecases.select_bench import Bench
 
 RUNTIME = RUNTIME_GUESS["movie"]
@@ -532,7 +531,7 @@ def _topup(plan: Any, rows: list[Any], menu: frozenset[str] = frozenset()) -> tu
     plan.late = lambda: rows
     out = io.StringIO()
     with Progress(out=out) as progress:
-        fresh = reinforce._topup(
+        fresh = _reinforce_topup(
             plan, Args(query=["кино"]), load_config(), CAUTIOUS, progress, menu
         )
     return fresh, out.getvalue()

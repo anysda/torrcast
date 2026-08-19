@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections import Counter
 
-from torrcast.domain._name_data import _CYRILLIC
+from torrcast.domain._name_data.data_1 import _CYRILLIC
 from torrcast.domain.alias_slugs import _alias_slugs
 from torrcast.domain.by_majority import by_majority
 from torrcast.domain.kind import Kind

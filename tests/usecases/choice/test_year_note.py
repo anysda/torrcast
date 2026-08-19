@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from tests.usecases.choice.world import plan
 from torrcast.domain.facts.origin import Origin
-from torrcast.usecases.choice import year_note
+from torrcast.usecases.choice.year_note import year_note
 
 
 def test_a_year_that_disagrees_with_the_reference_is_said_out_loud() -> None:

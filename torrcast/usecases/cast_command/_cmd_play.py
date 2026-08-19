@@ -21,8 +21,8 @@ from torrcast.usecases.cast_command._notes import _notes
 from torrcast.usecases.playback import _launch
 from torrcast.usecases.rank import pick_voice, quality_text
 from torrcast.usecases.say_showing import _say_showing
-from torrcast.usecases.select import _remembered
 from torrcast.usecases.select._continue import _continue
+from torrcast.usecases.select._remembered import _remembered
 from torrcast.usecases.start_clock import _Clock
 from torrcast.usecases.torrents import _release_orphans
 

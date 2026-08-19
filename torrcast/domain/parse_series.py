@@ -4,12 +4,8 @@ from __future__ import annotations
 
 import re
 
-from torrcast.domain._name_data import (
-    _CODEC_TOKEN_RE,
-    _SEASON_EPISODE_RES,
-    _SEASON_ONLY_RES,
-    _SERIES_HINT_RE,
-)
+from torrcast.domain._name_data.data_2 import _SEASON_EPISODE_RES, _SEASON_ONLY_RES
+from torrcast.domain._name_data.data_3 import _CODEC_TOKEN_RE, _SERIES_HINT_RE
 from torrcast.domain.episode import Episode
 from torrcast.domain.episode_span import _episode_span
 from torrcast.domain.fansub_episode import _fansub_episode

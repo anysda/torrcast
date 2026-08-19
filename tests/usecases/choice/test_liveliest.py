@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 from tests.usecases.choice.world import parts
-from torrcast.usecases.choice import liveliest
+from torrcast.usecases.choice.liveliest import liveliest
 
 
 def test_the_number_points_at_the_liveliest_picture_and_not_at_the_first_one() -> None:

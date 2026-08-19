@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import re
 
-from torrcast.domain._name_data import _FRANCHISE_MIN, _PART_NUMBER_RE, _ROMAN
+from torrcast.domain._name_data.data_2 import _PART_NUMBER_RE, _ROMAN
+from torrcast.domain._name_data.data_3 import _FRANCHISE_MIN
 
 
 def part_number(title: str) -> int | None:

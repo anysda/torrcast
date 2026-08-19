@@ -35,9 +35,10 @@ from torrcast.domain.slugify import slugify
 from torrcast.domain.thin_pool import THIN_POOL
 from torrcast.domain.transliterate import transliterate
 from torrcast.domain.unswap_layout import unswap_layout
-from torrcast.usecases import discover
-from torrcast.usecases.choice import default_note, first_alive
-from torrcast.usecases.reinforce import same_picture
+from torrcast.usecases.choice.default_note import default_note
+from torrcast.usecases.choice.first_alive import first_alive
+from torrcast.usecases.discover.search_circle import search_circle as circle
+from torrcast.usecases.reinforce.same_picture import same_picture
 
 GB = 1024**3
 
@@ -189,7 +190,7 @@ def search_circle(
     args = Args(query=query.split())
     out = io.StringIO()
     with Progress(out=out) as progress:
-        found = discover.search_circle(config, args, progress, indexer=client, passport=about)
+        found = circle(config, args, progress, indexer=client, passport=about)
         return found, out.getvalue()
 
 
@@ -1176,9 +1177,7 @@ def _refused(client: FakeProwlarr, query: str, about: Callable[..., Origin] | No
     config = Config(tv="127.0.0.1", prowlarr_apikey="KEY")
     out = io.StringIO()
     with Progress(out=out) as progress, pytest.raises(NotFoundError):
-        discover.search_circle(
-            config, Args(query=query.split()), progress, indexer=client, passport=about
-        )
+        circle(config, Args(query=query.split()), progress, indexer=client, passport=about)
     return out.getvalue()
 
 

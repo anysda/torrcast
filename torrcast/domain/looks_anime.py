@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from torrcast.domain._name_data import _ANIME_RE
+from torrcast.domain._name_data.data_3 import _ANIME_RE
 
 
 def looks_anime(text: str) -> bool:

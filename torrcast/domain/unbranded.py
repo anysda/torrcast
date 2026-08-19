@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from torrcast.domain._name_data import _CHANNEL_RE
+from torrcast.domain._name_data.data_3 import _CHANNEL_RE
 
 
 def _unbranded(title: str) -> str:

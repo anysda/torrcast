@@ -25,7 +25,7 @@ from torrcast.domain.runtime_guess import RUNTIME_GUESS
 from torrcast.domain.split_episode import split_episode
 from torrcast.domain.torr_file import TorrFile
 from torrcast.usecases.rank import rank_releases
-from torrcast.usecases.reinforce import plan_for
+from torrcast.usecases.reinforce.plan_for import plan_for
 
 GB = 1024**3
 
@@ -425,7 +425,7 @@ def test_season_gaps_speaks_instead_of_dropping_picture() -> None:
     from torrcast.domain.episode import Episode
     from torrcast.domain.parse_release_name import parse_release_name
     from torrcast.domain.picture import Picture
-    from torrcast.usecases.discover import season_gaps
+    from torrcast.usecases.discover.season_gaps import season_gaps
 
     gintama = Picture(
         title="Гинтама",

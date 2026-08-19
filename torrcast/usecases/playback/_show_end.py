@@ -20,7 +20,7 @@ from torrcast.ports.journal import journal
 from torrcast.ports.receiver import Receiver
 from torrcast.ports.recode.encoding import Encoding
 from torrcast.ports.stream_source import StreamSource
-from torrcast.usecases.feed_pack import Feed
+from torrcast.usecases.feed_pack.feed import Feed
 from torrcast.usecases.following import _following
 from torrcast.usecases.playback.stream_server import StreamServer
 from torrcast.usecases.source_blame import _blamed

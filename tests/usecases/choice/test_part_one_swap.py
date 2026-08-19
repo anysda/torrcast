@@ -9,7 +9,7 @@
 from __future__ import annotations
 
 from tests.usecases.choice.world import film, parts, plan
-from torrcast.usecases.choice import part_one_swap
+from torrcast.usecases.choice.part_one_swap import part_one_swap
 
 #: Первая часть, у которой в каталоге одни DVD-образы: рой есть, играть нечем.
 VHS = film("Cars 2006 DVDRip XviD", seeders=100, codec="XviD", quality=None)

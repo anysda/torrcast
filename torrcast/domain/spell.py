@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from torrcast.domain._name_data import _SPELL_X
+from torrcast.domain._name_data.data_3 import _SPELL_X
 from torrcast.domain.transliterate import transliterate
 
 

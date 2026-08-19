@@ -13,7 +13,8 @@ from tests.usecases.choice.world import Outside, outside, parts, plan
 from torrcast.domain.facts.fact import Fact
 from torrcast.domain.facts.settings import HTTP_TIMEOUT
 from torrcast.runtime.menu_facts import MenuFacts
-from torrcast.usecases.choice import _BLURB_INDENT, menu_lines
+from torrcast.usecases.choice._named import _BLURB_INDENT
+from torrcast.usecases.choice.menu_lines import menu_lines
 from torrcast.usecases.facts import Facts
 
 #: Живое описание из Википедии: длиннее строки терминала и с дефисом внутри слова.

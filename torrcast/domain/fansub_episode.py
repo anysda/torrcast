@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-from torrcast.domain._name_data import _FANSUB_EPISODE_RE
+from torrcast.domain._name_data.data_3 import _FANSUB_EPISODE_RE
 from torrcast.domain.find_year import _find_year
 
 

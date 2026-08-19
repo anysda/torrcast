@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from torrcast.domain._name_data import _NON_VIDEO_RE, _VIDEO_MARKER_RE
+from torrcast.domain._name_data.data_2 import _NON_VIDEO_RE, _VIDEO_MARKER_RE
 
 
 def _is_non_video(text: str) -> bool:

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from torrcast.domain._name_data import _EPISODE_COUNT_RE, _EPISODE_SPAN_RES
+from torrcast.domain._name_data.data_3 import _EPISODE_COUNT_RE, _EPISODE_SPAN_RES
 
 
 def _episode_span(text: str) -> tuple[int, ...]:

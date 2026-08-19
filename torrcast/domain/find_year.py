@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from torrcast.domain._name_data import _YEAR_PATTERNS
+from torrcast.domain._name_data.data_2 import _YEAR_PATTERNS
 
 
 def _find_year(text: str) -> tuple[int | None, tuple[int, int] | None]:

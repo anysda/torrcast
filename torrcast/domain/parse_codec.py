@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from torrcast.domain._name_data import _AV1_RE, _H264_RE, _HEVC_RE, _MPEG4_RE
+from torrcast.domain._name_data.data_1 import _AV1_RE, _H264_RE, _HEVC_RE, _MPEG4_RE
 
 
 def _parse_codec(text: str) -> str | None:

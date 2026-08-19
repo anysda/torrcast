@@ -10,7 +10,7 @@ from torrcast.domain.picture import Picture
 from torrcast.domain.release import Release
 from torrcast.domain.torr_file import TorrFile
 from torrcast.usecases.playback.file_picker import _default_file, file_picker
-from torrcast.usecases.select import Plan
+from torrcast.usecases.select.plan import Plan
 
 
 def _files() -> list[TorrFile]:

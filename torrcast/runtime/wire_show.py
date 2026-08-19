@@ -32,7 +32,7 @@ from torrcast.runtime.trace_thresholds import trace_thresholds
 from torrcast.usecases.cast_command import _configure_cast_command
 from torrcast.usecases.playback import _configure_playback
 from torrcast.usecases.releases_command import _configure_releases_command
-from torrcast.usecases.revive_playback import _configure_revive_playback
+from torrcast.usecases.revive_playback._revive_state import _configure_revive_playback
 from torrcast.usecases.voices_command import _configure_voices_command
 from torrcast.usecases.worker import _configure_worker
 from torrcast.usecases.worker_loop import _configure_worker_loop

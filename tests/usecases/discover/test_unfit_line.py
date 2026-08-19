@@ -10,7 +10,7 @@ from torrcast.usecases.discover.kin_line import _kin
 from torrcast.usecases.discover.unfit_line import unfit_line
 from torrcast.usecases.rank.queue_drops import queue_drops
 from torrcast.usecases.reinforce.plan_for import plan_for
-from torrcast.usecases.select import Plan
+from torrcast.usecases.select.plan import Plan
 
 #: Образ диска: играть такой раздачей нечем, и ворота отбора её не пускают.
 _IMAGE = row("Тачки / Cars (2006) BDRemux 2160p ISO", "a", size_gb=41.0, seeders=90)

@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import os.path
 
-from torrcast.domain._name_data import _CYRILLIC, _ENDING, _STEM
+from torrcast.domain._name_data.data_1 import _CYRILLIC
+from torrcast.domain._name_data.data_3 import _ENDING, _STEM
 from torrcast.domain.spell import spell
 
 

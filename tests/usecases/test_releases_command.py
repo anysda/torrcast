@@ -22,7 +22,7 @@ from torrcast.runtime.wire import wire
 from torrcast.usecases import releases_command
 from torrcast.usecases.facts import Facts
 from torrcast.usecases.releases_command import _cmd_releases
-from torrcast.usecases.select import Plan
+from torrcast.usecases.select.plan import Plan
 
 GB = 1024**3
 

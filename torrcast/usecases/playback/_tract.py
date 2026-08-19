@@ -14,7 +14,7 @@ from torrcast.domain.profile import CAUTIOUS, Profile
 from torrcast.ports.receiver import Receiver
 from torrcast.ports.recode.encoding import Encoding
 from torrcast.ports.recode.spot_recoder import SpotRecoder
-from torrcast.usecases.feed_pack import Feed
+from torrcast.usecases.feed_pack.feed import Feed
 from torrcast.usecases.playback._cuttable import _Cuttable
 from torrcast.usecases.playback._recoder import _recoder
 from torrcast.usecases.playback._warmer import _warmer

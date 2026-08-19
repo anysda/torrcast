@@ -12,7 +12,7 @@ from tests.conftest import fake_packer
 from torrcast.adapters.stream_pack.grid import Grid
 from torrcast.adapters.stream_pack.hls_dir import hls_dir
 from torrcast.domain.position import Position
-from torrcast.usecases.feed_pack import Feed
+from torrcast.usecases.feed_pack.feed import Feed
 
 
 @dataclass

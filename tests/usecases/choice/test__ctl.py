@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from tests.usecases.choice.world import Outside, outside
 from torrcast.domain.position import Position
-from torrcast.usecases.choice import _ctl, _Revivable, _Steerable
+from torrcast.usecases.choice._ctl import _ctl, _Revivable, _Steerable
 
 
 class Plain:

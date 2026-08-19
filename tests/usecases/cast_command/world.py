@@ -5,7 +5,7 @@ from __future__ import annotations
 from torrcast.domain.entry import Entry
 from torrcast.domain.picture import Picture
 from torrcast.domain.release import Release
-from torrcast.usecases.select import Plan
+from torrcast.usecases.select.plan import Plan
 
 GB = 1024**3
 

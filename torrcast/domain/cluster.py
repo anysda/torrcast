@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from torrcast.domain._name_data import _CYRILLIC
+from torrcast.domain._name_data.data_1 import _CYRILLIC
 from torrcast.domain.compose import _compose
 from torrcast.domain.glue import glue
 from torrcast.domain.kind import Kind

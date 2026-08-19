@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 from tests.usecases.choice.world import film, plan
-from torrcast.usecases.choice import _rival, backed
+from torrcast.usecases.choice.backed import _rival, backed
 
 
 def test_a_lone_release_yields_to_a_queue_that_is_livelier_than_it() -> None:

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from torrcast.domain._name_data import _ALTERNATIVE_PICTURE_RE, _ALTERNATIVE_TITLE_RE
+from torrcast.domain._name_data.data_2 import _ALTERNATIVE_PICTURE_RE, _ALTERNATIVE_TITLE_RE
 from torrcast.domain.living_part import _living_part
 from torrcast.domain.numbered_line import _numbered_line
 from torrcast.domain.picture import Picture

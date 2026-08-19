@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-from torrcast.domain._name_data import _TAG_ONLY_RE, _TAG_VOICES, _VOICES
+from torrcast.domain._name_data.data_1 import _TAG_ONLY_RE, _TAG_VOICES, _VOICES
 
 
 def _parse_voices(text: str) -> tuple[str, ...]:

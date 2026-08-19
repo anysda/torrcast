@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from torrcast.domain._name_data import _NUMERALS
+from torrcast.domain._name_data.data_3 import _NUMERALS
 
 
 def in_digits(slug: str) -> str:

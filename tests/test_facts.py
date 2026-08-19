@@ -18,7 +18,7 @@ from torrcast.domain.facts.settings import SOURCE_WIKI
 from torrcast.domain.facts.shorten import shorten
 from torrcast.runtime.facts_wiring import FACTS
 from torrcast.runtime.menu_facts import MenuFacts as Facts
-from torrcast.usecases.choice import menu_lines
+from torrcast.usecases.choice.menu_lines import menu_lines
 
 
 def test_the_passport_entry_point_answers_from_the_same_cache() -> None:

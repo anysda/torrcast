@@ -21,7 +21,7 @@ else:
     # Договор плана называет порт, а сам класс живёт в сценарии выбора: тут план не
     # только называют, но и строят, поэтому во время работы имя берётся оттуда, куда
     # порт и указывает.
-    from torrcast.usecases.select import Plan
+    from torrcast.usecases.select.plan import Plan
 
 
 def plan_for(

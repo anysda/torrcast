@@ -9,7 +9,7 @@ s1e1» дефолт стоял строкой 33 из 35. Одной цифры 
 from __future__ import annotations
 
 from tests.usecases.choice.world import parts
-from torrcast.usecases.choice import default_line
+from torrcast.usecases.choice.default_line import default_line
 
 
 def test_the_default_is_named_out_loud_and_not_left_as_a_bare_number() -> None:

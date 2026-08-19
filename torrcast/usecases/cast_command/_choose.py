@@ -14,11 +14,15 @@ from torrcast.domain.prewarm_settings import PREWARM
 from torrcast.ports.journal import journal
 from torrcast.ports.progress import progress as progress_bar
 from torrcast.usecases.cast_command._bookmark import _continue_picked
-from torrcast.usecases.choice import _passport, _pick_plan, _played, warm_order
-from torrcast.usecases.discover import search_circle
+from torrcast.usecases.choice._passport import _passport
+from torrcast.usecases.choice._pick_plan import _pick_plan
+from torrcast.usecases.choice._played import _played
+from torrcast.usecases.choice.warm_order import warm_order
+from torrcast.usecases.discover.search_circle import search_circle
 from torrcast.usecases.playback import file_picker
-from torrcast.usecases.reinforce import _timed, _topup
-from torrcast.usecases.select import _Prep
+from torrcast.usecases.reinforce._timed import _timed
+from torrcast.usecases.reinforce._topup import _topup
+from torrcast.usecases.select._prep import _Prep
 from torrcast.usecases.select_bench import Bench
 from torrcast.usecases.start_clock import _Clock
 
@@ -27,7 +31,7 @@ if TYPE_CHECKING:
     from torrcast.domain.choice import Choice
     from torrcast.domain.entry import Entry
     from torrcast.domain.watch_state import WatchState
-    from torrcast.usecases.choice import _Passport
+    from torrcast.usecases.choice._passport import _Passport
     from torrcast.usecases.select.plan import Plan
 
     #: Чем кончается путь до релиза: набор для показа или КОД от закладки картины.

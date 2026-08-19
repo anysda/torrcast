@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 from tests.usecases.choice.world import film, plan
-from torrcast.usecases.choice import _same_name, playable
+from torrcast.usecases.choice.playable import _same_name, playable
 
 #: Живая раздача, которой картину и правда стоит смотреть.
 HD = film("Кино 2020 WEB-DL 1080p", seeders=58)

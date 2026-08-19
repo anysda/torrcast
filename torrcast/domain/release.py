@@ -4,17 +4,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from torrcast.domain._name_data import (
+from torrcast.domain._name_data.data_1 import (
     _AVI_RE,
     _DUBBED,
-    _FOREIGN_DUB_RE,
     _HD_SOURCES,
     _RU_AUDIO_RE,
-    _RU_EXT_RE,
-    _RU_STUDIO_RE,
     _SD_SOURCES,
     _SUB_MENTION_RE,
 )
+from torrcast.domain._name_data.data_2 import _FOREIGN_DUB_RE, _RU_EXT_RE, _RU_STUDIO_RE
 from torrcast.domain._release_marks import _ReleaseMarks
 from torrcast.domain.anime_indexer import anime_indexer
 from torrcast.domain.episode import Episode

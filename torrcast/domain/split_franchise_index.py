@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-from torrcast.domain._name_data import _TITLE_NUMBER_RE
+from torrcast.domain._name_data.data_3 import _TITLE_NUMBER_RE
 
 
 def split_franchise_index(query: str) -> tuple[str, int | None]:

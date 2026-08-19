@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 from tests.usecases.choice.world import parts, plan
-from torrcast.usecases.choice import _namesake
+from torrcast.usecases.choice._namesake import _namesake
 
 
 def test_the_same_title_under_a_different_year_is_a_namesake() -> None:

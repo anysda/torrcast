@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from torrcast.domain._name_data import (
+from torrcast.domain._name_data.data_2 import (
     _BRACKETS_RE,
     _COLLECTION_CUT_RE,
     _OPEN_BRACKET_RE,

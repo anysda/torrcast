@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 import unicodedata
 
-from torrcast.domain._name_data import _TRANSLIT
+from torrcast.domain._name_data.data_3 import _TRANSLIT
 
 
 def transliterate(text: str) -> str:

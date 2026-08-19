@@ -1,7 +1,7 @@
 """Проверяет сценарий поиска на фейковой зависимости."""
 
 from tests.fakes.scenario import FakeScenario
-from torrcast.usecases.discover import Discover
+from torrcast.usecases.discover.discover import Discover
 
 
 def test_discover_delegates_request() -> None:

@@ -12,18 +12,15 @@ from torrcast.domain.config import Config
 from torrcast.domain.media import Media
 from torrcast.domain.release import Release
 from torrcast.domain.torr_file import TorrFile
-from torrcast.usecases.choice import (
-    _is_default,
-    namesake_note,
-    swap_note,
-    year_note,
-)
+from torrcast.usecases.choice.namesake_note import namesake_note
+from torrcast.usecases.choice.swap_note import _is_default, swap_note
+from torrcast.usecases.choice.year_note import year_note
 from torrcast.usecases.rank import _gb, _hms, default_unnamed, sound_note, voice_note, voice_unproven
-from torrcast.usecases.select import _Prep
+from torrcast.usecases.select._prep import _Prep
 
 if TYPE_CHECKING:
     from torrcast.domain.args import Args
-    from torrcast.usecases.choice import _Passport
+    from torrcast.usecases.choice._passport import _Passport
     from torrcast.usecases.select.plan import Plan
 
 

@@ -31,7 +31,7 @@ from torrcast.domain.recode_settings import RECODE_HEIGHT as RECODE_HEIGHT
 from torrcast.domain.release import Release as Release
 from torrcast.domain.torr_file import TorrFile as TorrFile
 from torrcast.ports.console import Console as Console
-from torrcast.usecases.choice import warned as warned
+from torrcast.usecases.choice.warned import warned as warned
 from torrcast.usecases.rank._cut import _cut as _cut
 from torrcast.usecases.rank._gb import _gb as _gb
 from torrcast.usecases.rank._hms import _hms as _hms

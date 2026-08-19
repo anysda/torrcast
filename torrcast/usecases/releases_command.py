@@ -16,10 +16,10 @@ from torrcast.domain.release import Release
 from torrcast.domain.tune import tune as tune_profile
 from torrcast.ports.progress import Progress
 from torrcast.ports.progress import progress as progress_bar
-from torrcast.usecases.choice import _named
-from torrcast.usecases.discover import search_circle
+from torrcast.usecases.choice._named import _named
+from torrcast.usecases.discover.search_circle import search_circle
 from torrcast.usecases.rank import render_table
-from torrcast.usecases.reinforce import _timed
+from torrcast.usecases.reinforce._timed import _timed
 
 if TYPE_CHECKING:
     from torrcast.domain.args import Args

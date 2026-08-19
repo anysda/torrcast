@@ -9,7 +9,7 @@
 from __future__ import annotations
 
 from tests.usecases.choice.world import Outside, outside, parts
-from torrcast.usecases.choice import alive_numbers
+from torrcast.usecases.choice.alive_numbers import alive_numbers
 from torrcast.usecases.choice.configure import _environment_port
 
 

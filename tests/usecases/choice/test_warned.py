@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 from tests.usecases.choice.world import RUNTIME, film
-from torrcast.usecases.choice import warned
+from torrcast.usecases.choice.warned import warned
 
 WARN_MBIT = 16.0
 RECODE_AT_MBIT = 10.0

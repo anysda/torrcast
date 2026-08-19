@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 from tests.usecases.choice.world import parts, plan
-from torrcast.usecases.choice import understudy
+from torrcast.usecases.choice.understudy import understudy
 
 
 def test_a_live_namesake_is_the_one_that_finishes_the_evening_instead() -> None:

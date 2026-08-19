@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from torrcast.domain._name_data import _SEASON_SPAN_RES
+from torrcast.domain._name_data.data_2 import _SEASON_SPAN_RES
 
 
 def _season_span(text: str) -> tuple[int, ...]:

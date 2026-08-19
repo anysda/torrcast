@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from torrcast.domain._name_data import _SUBTITLE_RE
+from torrcast.domain._name_data.data_3 import _SUBTITLE_RE
 from torrcast.domain.picture import Picture
 from torrcast.domain.slugify import slugify
 

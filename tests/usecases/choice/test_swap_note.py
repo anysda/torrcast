@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import replace
 
 from tests.usecases.choice.world import parts
-from torrcast.usecases.choice import _is_default, swap_note
+from torrcast.usecases.choice.swap_note import _is_default, swap_note
 
 
 def test_a_picture_chosen_for_the_person_is_explained_out_loud() -> None:

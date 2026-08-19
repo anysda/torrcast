@@ -8,7 +8,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from torrcast.domain._name_data import (
+from torrcast.domain._name_data.data_1 import (
     _EXTRAS_RE,
     _EXTRAS_SURE_RE,
     _STEREO_LAYOUT_RE,

@@ -9,7 +9,8 @@ from __future__ import annotations
 
 from tests.usecases.choice.world import Outside, film, outside, plan
 from torrcast.domain.facts.fact import Fact
-from torrcast.usecases.choice import _BLURB_INDENT, _named, menu_lines
+from torrcast.usecases.choice._named import _BLURB_INDENT, _named
+from torrcast.usecases.choice.menu_lines import menu_lines
 
 
 def test_a_picture_is_named_by_its_title_and_the_year_in_brackets() -> None:

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-from torrcast.domain._name_data import _SOURCES
+from torrcast.domain._name_data.data_1 import _SOURCES
 
 
 def _parse_source(text: str) -> str | None:

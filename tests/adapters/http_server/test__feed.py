@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from torrcast.adapters.http_server._feed import _Feed
-from torrcast.usecases.feed_pack import Feed
+from torrcast.usecases.feed_pack.feed import Feed
 
 
 def _asked() -> set[str]:

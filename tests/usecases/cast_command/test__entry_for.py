@@ -10,7 +10,7 @@ from torrcast.domain.audio_track import AudioTrack
 from torrcast.domain.media import Media
 from torrcast.domain.torr_file import TorrFile
 from torrcast.usecases.cast_command._entry_for import _entry_for
-from torrcast.usecases.select import _Prep
+from torrcast.usecases.select._prep import _Prep
 
 
 def _media() -> Media:

@@ -7,7 +7,8 @@ from typing import TYPE_CHECKING
 from torrcast.domain.menu_order import menu_order
 from torrcast.domain.picture import Picture
 from torrcast.domain.profile import CAUTIOUS, Profile
-from torrcast.usecases.choice import first_alive, fitness
+from torrcast.usecases.choice.first_alive import first_alive
+from torrcast.usecases.choice.fitness import fitness
 from torrcast.usecases.reinforce.plan_for import plan_for
 
 if TYPE_CHECKING:

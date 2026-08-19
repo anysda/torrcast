@@ -8,7 +8,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Protocol
 
-from torrcast.usecases.feed_pack import Feed
+from torrcast.usecases.feed_pack.feed import Feed
 from torrcast.usecases.playback.stream_server import StreamServer
 
 

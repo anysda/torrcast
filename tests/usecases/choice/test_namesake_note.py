@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from tests.usecases.choice.world import plan
 from torrcast.domain.facts.origin import Origin
-from torrcast.usecases.choice import namesake_note
+from torrcast.usecases.choice.namesake_note import namesake_note
 
 
 def test_the_second_picture_is_named_the_way_the_reference_signed_it() -> None:

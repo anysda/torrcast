@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-from torrcast.domain._name_data import _CYRILLIC, _HDR_RE, _LATIN, _QUALITY_RE
+from torrcast.domain._name_data.data_1 import _CYRILLIC, _HDR_RE, _LATIN, _QUALITY_RE
 from torrcast.domain.find_year import _find_year
 from torrcast.domain.is_non_video import _is_non_video
 from torrcast.domain.kind import Kind

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from torrcast.domain.rank_settings import TABLE_LIMIT
 from torrcast.domain.release import Release
-from torrcast.usecases.choice import warned
+from torrcast.usecases.choice.warned import warned
 from torrcast.usecases.rank._cut import _cut
 from torrcast.usecases.rank._gb import _gb
 

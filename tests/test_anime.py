@@ -52,8 +52,8 @@ from torrcast.usecases.rank import (
     rank_releases,
     sound_note,
 )
-from torrcast.usecases.reinforce import plan_for
-from torrcast.usecases.select import Plan
+from torrcast.usecases.reinforce.plan_for import plan_for
+from torrcast.usecases.select.plan import Plan
 from torrcast.usecases.select_bench import Bench
 
 RUNTIME = RUNTIME_GUESS["movie"]
@@ -630,7 +630,7 @@ def _prep(name: str, *, video_bps: float, height: int, size_gb: float, dur: floa
     """Прочитанный ffprobe релиз: ровно то, чем судит отбор после похода в рой."""
     from torrcast.domain.media import Media
     from torrcast.domain.torr_file import TorrFile
-    from torrcast.usecases.select import _Prep
+    from torrcast.usecases.select._prep import _Prep
 
     prep = _Prep(number=1, release=named(name, size_gb=size_gb, seeders=17))
     prep.video = TorrFile(0, "anime.mkv", int(size_gb * GB))
@@ -948,7 +948,7 @@ def test_a_light_4k_release_is_taken_and_scaled_down_instead_of_being_refused() 
 
 def test_the_heavy_path_says_so_out_loud_in_one_line() -> None:
     """Молчаливых подмен нет: взяли HEVC последней надеждой - сказали одной строкой."""
-    from torrcast.usecases.choice import last_hope_note
+    from torrcast.usecases.choice.last_hope_note import last_hope_note
 
     hevc = named(GINTAMA_HEVC, size_gb=30.2, seeders=4)
     dead = named(GINTAMA_DEAD, size_gb=99.2, seeders=0)

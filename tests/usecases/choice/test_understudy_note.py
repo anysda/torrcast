@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from tests.usecases.choice.world import film, parts, plan
 from torrcast.domain.not_found_error import NotFoundError
-from torrcast.usecases.choice import _why_refused, understudy_note
+from torrcast.usecases.choice.understudy_note import _why_refused, understudy_note
 
 
 def test_the_line_names_both_pictures_the_reason_and_what_the_spare_has_to_play() -> None:

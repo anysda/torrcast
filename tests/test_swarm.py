@@ -32,7 +32,8 @@ from torrcast.domain.rank_settings import PEER_GRACE, STEP_GRACE
 from torrcast.domain.server_down_error import ServerDownError
 from torrcast.domain.warm_open import KEYS_KEPT
 from torrcast.usecases.rank import peer_grace
-from torrcast.usecases.select import _Prep, _waiting_note
+from torrcast.usecases.select._prep import _Prep
+from torrcast.usecases.select._verdict import _waiting_note
 from torrcast.usecases.select_bench import Bench
 
 if TYPE_CHECKING:

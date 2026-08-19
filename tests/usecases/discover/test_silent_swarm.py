@@ -8,7 +8,7 @@ from torrcast.domain.config import Config
 from torrcast.domain.raw_result import RawResult
 from torrcast.usecases.discover.silent_swarm import silent_swarm
 from torrcast.usecases.reinforce.plan_for import plan_for
-from torrcast.usecases.select import Plan
+from torrcast.usecases.select.plan import Plan
 
 _SHOWN = "показывали «кино»"
 

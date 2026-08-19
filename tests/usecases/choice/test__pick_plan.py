@@ -10,7 +10,7 @@ import pytest
 
 from tests.usecases.choice.world import Outside, film, parts, plan
 from torrcast.domain.not_found_error import NotFoundError
-from torrcast.usecases.choice import _pick_plan
+from torrcast.usecases.choice._pick_plan import _pick_plan
 
 VHS = film("Cars 2006 DVDRip XviD", seeders=100, codec="XviD", quality=None)
 

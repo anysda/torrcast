@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 from tests.usecases.choice.world import film, parts, plan
-from torrcast.usecases.choice import _first_alive, first_alive
+from torrcast.usecases.choice.first_alive import _first_alive, first_alive
 
 #: Немой VHS-рип: рой у него есть, а годной раздачи нет ни одной.
 VHS = film("Moana 1926 DVDRip XviD", seeders=100, codec="XviD", quality=None)

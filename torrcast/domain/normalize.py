@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 import unicodedata
 
-from torrcast.domain._name_data import _NUMERO_RE
+from torrcast.domain._name_data.data_3 import _NUMERO_RE
 
 
 def _normalize(name: str) -> str:
