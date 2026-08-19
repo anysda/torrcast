@@ -55,6 +55,18 @@
 0.9 с). Prowlarr сжатия не просит (видно в pcap), и попросить его за Prowlarr больше
 некому.
 
+🔴 TC-696. Сжатия одного не хватает там, где клиент просит много: Prowlarr спрашивает
+у Knaben сразу 100 раздач (число зашито в его сборке, настройки нет), а канал рвёт
+тело на ~17-19 КБ, даже сжатое - обречен и такой ответ. Поэтому у маршрута бывает
+ПОСТРАНИЧНЫЙ обход (:attr:`Route.page`): запрос с JSON-телом вида ``{"from": N,
+"size": M}`` разбивается на страницы по ``page`` строк, каждая едет по каналу своим
+мелким ответом, а клиенту склеивается одна выдача - их он и просил. Мелкий ответ
+порогу не подвластен (замер: 20 раздач - 8.7 КБ сжатых при пороге ~15-19 КБ), а склейка
+происходит уже на петле, где канала нет. Страницы идут строго по одной - залп
+одновременных запросов это то, за что трекер раздаёт баны. Каталог кончился раньше
+(страница пришла короче запрошенной) - цепочка обрывается сама; середина цепочки
+оборвалась - отдаём уже собранное: часть выдачи честнее, чем повод к повтору.
+
 К одному хосту шим держит не больше двух запросов зараз: фронт трекера, спрошенный
 по IP, столько и тянет, а лишним параллельным отвечает 504 на шестнадцатой секунде -
 после серии таких индексер уезжает в бан на три часа. Лишние ждут очереди, а не летят
@@ -79,8 +91,10 @@
 
 Остальное приезжает окружением, чтобы не городить кавычки в строке запуска юнита:
 `TORRCAST_HOSTS`, `TORRCAST_ROUTE_PROBES` (файл `имя|путь|тело` - чем щупать),
-`TORRCAST_ROUTE_PINNED` (что прибито на старте), `TORRCAST_ROUTE_EVERY` (как часто
-перерешать, 0 - не перерешать) и пороги пробы `TORRCAST_PROBE_*` - те же, что у установки.
+`TORRCAST_ROUTE_PAGES` (файл `имя|N` - кому постраничный обход и какого размера
+страница), `TORRCAST_ROUTE_PINNED` (что прибито на старте), `TORRCAST_ROUTE_EVERY`
+(как часто перерешать, 0 - не перерешать) и пороги пробы `TORRCAST_PROBE_*` - те же,
+что у установки.
 """
 
 from __future__ import annotations
@@ -89,6 +103,7 @@ import contextlib
 import gzip
 import http.client
 import http.server
+import json
 import os
 import random
 import select
@@ -337,13 +352,18 @@ class Target(NamedTuple):
 class Route:
     """Один трекер: имя, которое видит Prowlarr, и кандидаты, куда ходить на самом деле."""
 
-    def __init__(self, host: str, candidates: list[str], path: str = "", body: str = "") -> None:
+    def __init__(
+        self, host: str, candidates: list[str], path: str = "", body: str = "", page: int = 0
+    ) -> None:
         self.host = host
         self.candidates = candidates
         #: Чем щупать источник напрямую (:class:`Watch`): путь и тело POST. Пусто - имя
         #: перерешать нечем, и маршрут у него остаётся тот, с которым его завели.
         self.path = path
         self.body = body
+        #: Размер страницы постраничного обхода (TC-696, см. модульную строку). Ноль -
+        #: запросы уходят как пришли, одним ответом.
+        self.page = page
         self.current = 0
         #: Места в очереди к ЭТОМУ хосту. Свой счётчик на каждый - в этом весь смысл:
         #: хост, который сейчас болеет, держит только своих ждущих.
@@ -473,6 +493,49 @@ def load_probes(path: str) -> dict[str, tuple[str, str]]:
                     out[host.lower()] = (probe, body)
     except OSError:
         pass
+    return out
+
+
+def load_pages(path: str) -> dict[str, int]:
+    """Кому постраничный обход и какого размера страница: строки ``имя|N`` от установки."""
+    out: dict[str, int] = {}
+    try:
+        with open(path, encoding="utf-8") as handle:
+            for line in handle:
+                host, _, size = line.strip().partition("|")
+                if host and size.isdigit() and int(size) > 0:
+                    out[host.lower()] = int(size)
+    except OSError:
+        pass
+    return out
+
+
+def _page_bodies(route: Route, body: bytes | None) -> list[tuple[int, bytes]] | None:
+    """Разложить запрос на страницы: ``(сколько строк просим, тело)`` на каждую.
+
+    ``None`` - запрос уходит как есть: маршруту постраничный обход не включён, тела
+    нет, это не JSON со ``size``/``from``, или строк и так не больше страницы.
+    Тело - список раздач, который клиент просил ОДНИМ ответом; мы просим его частями,
+    потому что канал рвёт ответ по объёму (TC-696), а мелкие проходят.
+    """
+    if route.page <= 0 or body is None:
+        return None
+    try:
+        payload = json.loads(body)
+    except ValueError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    size, base = payload.get("size"), payload.get("from", 0)
+    if not isinstance(size, int) or not isinstance(base, int) or size <= route.page:
+        return None
+    out: list[tuple[int, bytes]] = []
+    last = base + size
+    while base < last:
+        ask = min(route.page, last - base)
+        chunk = dict(payload, **{"from": base, "size": ask})
+        out.append((ask, json.dumps(chunk).encode()))
+        base += ask
     return out
 
 
@@ -817,6 +880,10 @@ def build_server(
                     self._upstream(route, method, body)
 
         def _upstream(self, route: Route, method: str, body: bytes | None) -> None:
+            pages = _page_bodies(route, body) if method == "POST" else None
+            if pages is not None:
+                self._paged_upstream(route, pages)
+                return
             last = "маршрут пуст"
             deadline = time.monotonic() + route_timeout
             #: Придержанный 5xx: ответ, который лучше не отдавать, пока есть непробованный
@@ -864,6 +931,103 @@ def build_server(
                     last = f"{target.base}: {exc.code} {exc.reason}"
                 except Exception as exc:  # любой отказ значит «следующий кандидат»
                     last = f"{target.base}: {exc}"
+            if held is not None:  # лучше не нашлось - отдаём чужой отказ как есть
+                status, headers, payload = held
+                self._reply(status, headers, payload)
+                return
+            self._reply(502, [("Content-Type", "text/plain")], f"{last}\n".encode())
+
+        def _paged_upstream(self, route: Route, pages: list[tuple[int, bytes]]) -> None:
+            """Выдача по страницам: каждая едет каналом сама, клиенту - одна склейка.
+
+            🔴 TC-696. Правила перебора те же, что у одиночного похода
+            (:meth:`_upstream`), но граница смены кандидата другая: уйти на следующий
+            адрес можно, только пока не доехала ПЕРВАЯ страница - у соседа выдача может
+            лежать в другом порядке, и его страницы не продолжение начатых, а другая
+            выдача. Оборвалась середина - отдаём собранное: часть каталога честнее,
+            чем повод к повтору, которым Prowlarr зарабатывает индексеру бан. Страницы
+            строго по одной: параллельный веер - это то, за что трекер банит.
+            """
+            last = "маршрут пуст"
+            deadline = time.monotonic() + route_timeout
+            held: tuple[int, list[tuple[str, str]], bytes] | None = None
+            wanted = "gzip" in (self.headers.get("Accept-Encoding") or "").lower()
+            for target in route.targets(names):
+                merged: dict[str, Any] | None = None
+                headers: list[tuple[str, str]] = []
+                for want, page_body in pages:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        last = "маршрут не ответил в срок"
+                        break
+                    request = urllib.request.Request(
+                        target.base + self.path, data=page_body, method="POST"
+                    )
+                    request.add_header("Host", route.host)
+                    for name, value in self.headers.items():
+                        if name.lower() not in _HOP:
+                            request.add_header(name, value)
+                    # Сжатие просим так же, как в одиночном походе: мелкая страница
+                    # сжатой ещё дальше от порога обрыва.
+                    request.add_header("Accept-Encoding", "gzip")
+                    try:
+                        with opener_for(target).open(
+                            request, timeout=min(timeout, remaining)
+                        ) as response:
+                            # Склеивать можно только распакованное, поэтому страницы
+                            # распаковываем всегда, чего бы ни просил клиент.
+                            payload, page_headers = _unpack(
+                                response.read(), list(response.headers.items()), False
+                            )
+                            page = json.loads(payload)
+                            hits = page.get("hits") if isinstance(page, dict) else None
+                            if not isinstance(hits, list):
+                                raise ValueError("в ответе нет списка hits")
+                            if merged is None:
+                                route.current = target.number
+                                merged, headers = page, page_headers
+                                merged["hits"] = []
+                            merged["hits"] += hits
+                            if len(hits) < want:  # каталог кончился раньше страницы
+                                break
+                    except urllib.error.HTTPError as exc:
+                        if merged is not None:  # середина цепочки: отдаём собранное
+                            print(
+                                f"{route.host}: страница не доехала ({exc.code}), "
+                                f"отдаю собранные {len(merged['hits'])} строк",
+                                file=sys.stderr,
+                                flush=True,
+                            )
+                            break
+                        payload, exc_headers = _unpack(
+                            exc.read(), list(exc.headers.items()), wanted
+                        )
+                        if exc.code < 500:  # ответ по существу - как в одиночном походе
+                            route.current = target.number
+                            self._reply(exc.code, exc_headers, payload)
+                            return
+                        held = held or (exc.code, exc_headers, payload)
+                        last = f"{target.base}: {exc.code} {exc.reason}"
+                        break
+                    except Exception as exc:  # обрыв страницы: как выше
+                        if merged is not None:
+                            print(
+                                f"{route.host}: страница оборвалась ({exc}), "
+                                f"отдаю собранные {len(merged['hits'])} строк",
+                                file=sys.stderr,
+                                flush=True,
+                            )
+                            break
+                        last = f"{target.base}: {exc}"
+                        break
+                if merged is None:  # первая страница не доехала - следующий кандидат
+                    continue
+                out = json.dumps(merged).encode()
+                if wanted:  # клиент сам просил сжатие - упакуем склейку обратно
+                    out = gzip.compress(out)
+                    headers.append(("Content-Encoding", "gzip"))
+                self._reply(200, headers, out)
+                return
             if held is not None:  # лучше не нашлось - отдаём чужой отказ как есть
                 status, headers, payload = held
                 self._reply(status, headers, payload)
@@ -985,11 +1149,14 @@ def main(argv: list[str] | None = None, *, build: Callable[..., Any] = build_ser
 
     cert, key, port_text = args[:3]
     probes = load_probes(os.environ.get("TORRCAST_ROUTE_PROBES") or "")
+    pages = load_pages(os.environ.get("TORRCAST_ROUTE_PAGES") or "")
     routes: dict[str, Route] = {}
     for spec in args[3:]:
         name, _, candidates = spec.partition("=")
         path, body = probes.get(name.lower(), ("", ""))
-        routes[name.lower()] = Route(name, [c for c in candidates.split(",") if c], path, body)
+        routes[name.lower()] = Route(
+            name, [c for c in candidates.split(",") if c], path, body, pages.get(name.lower(), 0)
+        )
     if not routes:
         print("нечего вести: не задан ни один маршрут имя=кандидат", file=sys.stderr)
         return 2

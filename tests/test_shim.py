@@ -1,6 +1,6 @@
 """Шим для трекеров, чьё имя не проходит по TLS (``scripts/sni-shim.py``).
 
-Проверяется здесь замером, а не рассуждением, ровно два его свойства.
+Проверяется здесь замером, а не рассуждением, ровно три его свойства.
 
 Первое: сколько запросов шим пускает на хост одновременно. Фронт трекера, спрошенный
 по IP, тянет два; третьему параллельному он отвечает 504 на шестнадцатой секунде, а
@@ -11,6 +11,10 @@
 на ОБЪЁМЕ тела, и сжатая выдача чаще остаётся ниже порога обрыва; Prowlarr сжатия не
 просит, попросить за него больше некому.
 
+Третье: постраничный обход (TC-696). Запрос на сотню раздач каналу не поднять ни в
+сжатом виде, поэтому маршрут с ``page`` разбивает его на страницы, которые канал несёт,
+и клеит клиенту одну выдачу.
+
 Бэкенд здесь свой, медленный и считающий: он сам говорит, сколько запросов держал
 зараз и о чём его просили. Сети тесту не нужно.
 """
@@ -20,6 +24,7 @@ from __future__ import annotations
 import gzip
 import http.server
 import importlib.util
+import json
 import socket
 import ssl
 import struct
@@ -1038,3 +1043,222 @@ def test_a_name_is_healthy_only_when_every_family_answers(tmp_path: Path) -> Non
     assert hosts.read_text(encoding="utf-8").splitlines() == [
         "127.0.0.1 tracker.test # torrcast-shim"
     ], "имя, больное хоть на одном семействе, обязано остаться за шимом"
+
+
+# --- Постраничный обход: сто раздач пятью мелкими ответами (TC-696) --------------
+
+
+class Pages:
+    """Что origin'у заказали: пары ``(from, size)``, по записи на запрос."""
+
+    def __init__(self) -> None:
+        self.asked: list[tuple[int, int]] = []
+
+    def add(self, start: int, size: int) -> None:
+        self.asked.append((start, size))
+
+
+def _paged_backend(
+    tls: tuple[str, str], log: Pages, total: int = 100, fail_at: int = -1
+) -> http.server.HTTPServer:
+    """Origin с постраничным JSON-API: ``size`` строк, начиная с ``from``.
+
+    ``total`` - сколько строк у каталога всего: страница за краем приходит короче
+    заказанной. ``fail_at`` - номер запроса (с нуля), которому вместо страницы
+    отвечаем 500: так выглядит оборвавшаяся середина цепочки.
+    """
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"
+
+        def log_message(self, *args: object) -> None:
+            """Молчим: вывод теста не про это."""
+
+        def do_POST(self) -> None:
+            length = int(self.headers.get("Content-Length") or 0)
+            order = json.loads(self.rfile.read(length))
+            index = len(log.asked)
+            log.add(int(order["from"]), int(order["size"]))
+            if index == fail_at:
+                data = b"backend error\n"
+                self.send_response(500)
+            else:
+                hits = [
+                    {"title": f"раздача {i}", "hash": f"{i:040x}"}
+                    for i in range(order["from"], min(order["from"] + order["size"], total))
+                ]
+                data = json.dumps({"hits": hits}).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+    class Server(http.server.ThreadingHTTPServer):
+        daemon_threads = True
+
+    cert, key = tls
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.load_cert_chain(cert, key)
+    server = Server(("127.0.0.1", 0), Handler)
+    server.socket = context.wrap_socket(server.socket, server_side=True)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server
+
+
+def _post(
+    port: int, host: str, payload: dict[str, object], accept: str | None = None
+) -> tuple[bytes, dict[str, str]]:
+    """POST к шиму с JSON-телом, как ходит Prowlarr: тело ответа и его заголовки."""
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    context.check_hostname = False
+    context.verify_mode = ssl.CERT_NONE
+    headers = {"Host": host, "Content-Type": "application/json"}
+    if accept:
+        headers["Accept-Encoding"] = accept
+    request = urllib.request.Request(
+        f"https://127.0.0.1:{port}/v1",
+        data=json.dumps(payload).encode(),
+        headers=headers,
+        method="POST",
+    )
+    opener = urllib.request.build_opener(urllib.request.HTTPSHandler(context=context))
+    with opener.open(request, timeout=30) as response:
+        return response.read(), {k.lower(): v for k, v in response.headers.items()}
+
+
+def _paged_shim(
+    tls: tuple[str, str], *origins: http.server.HTTPServer, page: int = 20
+) -> http.server.HTTPServer:
+    route = shim.Route(
+        "tracker.test", [f"https://127.0.0.1:{o.server_address[1]}" for o in origins], page=page
+    )
+    return _shim(tls, {"tracker.test": route}, opener=_plain)
+
+
+def test_сто_раздач_собираются_пятью_страницами(tls: tuple[str, str]) -> None:
+    """🔴 TC-696. Просили 100 раздач - наверх ушли пять мелких ответов, вниз одна сотня.
+
+    Канал рвёт ответ на ~17-19 КБ, а запрос на 100 раздач и сжатый больше; страница
+    по 20 - 8.7 КБ, проходит. Порядок строк обязан быть порядком каталога: страницы
+    клеятся в том же порядке, в каком их отдал бы один большой ответ.
+    """
+    log = Pages()
+    origin = _paged_backend(tls, log)
+    server = _paged_shim(tls, origin)
+    try:
+        body, headers = _post(
+            server.server_address[1], "tracker.test", {"from": 0, "size": 100, "query": "матрица"}
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+        origin.shutdown()
+        origin.server_close()
+    merged = json.loads(body)
+    print(f"наверх ушло: {log.asked}; клиенту строк: {len(merged['hits'])}")
+    assert log.asked == [(0, 20), (20, 20), (40, 20), (60, 20), (80, 20)]
+    assert [h["title"] for h in merged["hits"]] == [f"раздача {i}" for i in range(100)]
+    assert headers["content-type"] == "application/json"
+
+
+def test_кончившийся_каталог_обрывает_цепочку_страниц(tls: tuple[str, str]) -> None:
+    """Страница пришла короче заказанной - дальше строк нет, и спрашивать нечего."""
+    log = Pages()
+    origin = _paged_backend(tls, log, total=27)
+    server = _paged_shim(tls, origin)
+    try:
+        body, _ = _post(server.server_address[1], "tracker.test", {"from": 0, "size": 100})
+    finally:
+        server.shutdown()
+        server.server_close()
+        origin.shutdown()
+        origin.server_close()
+    merged = json.loads(body)
+    print(f"при каталоге из 27 наверх ушло: {log.asked}")
+    assert log.asked == [(0, 20), (20, 20)], "пустые страницы не выспрашиваем"
+    assert len(merged["hits"]) == 27
+
+
+def test_мелкий_запрос_едет_как_есть_даже_на_постраничном_маршруте(
+    tls: tuple[str, str],
+) -> None:
+    """Строк не больше страницы - разбивать нечего: один запрос, один ответ."""
+    log = Pages()
+    origin = _paged_backend(tls, log, total=100)
+    server = _paged_shim(tls, origin)
+    try:
+        body, _ = _post(server.server_address[1], "tracker.test", {"from": 0, "size": 20})
+    finally:
+        server.shutdown()
+        server.server_close()
+        origin.shutdown()
+        origin.server_close()
+    assert log.asked == [(0, 20)], "мелкий запрос не множится"
+    assert len(json.loads(body)["hits"]) == 20
+
+
+def test_оборванная_середина_отдаёт_уже_собранное(
+    tls: tuple[str, str], capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Третья страница не доехала - клиенту честные сорок строк, а не повод к повтору.
+
+    Отказ после части выдачи Prowlarr прочитал бы как «повтори», а повтор - это лишний
+    заход на трекер, которым зарабатывается бан. Собранное лучше: половина каталога -
+    не ноль.
+    """
+    log = Pages()
+    origin = _paged_backend(tls, log, fail_at=2)
+    server = _paged_shim(tls, origin)
+    try:
+        body, _ = _post(server.server_address[1], "tracker.test", {"from": 0, "size": 100})
+    finally:
+        server.shutdown()
+        server.server_close()
+        origin.shutdown()
+        origin.server_close()
+    merged = json.loads(body)
+    print(f"с обрывом на третьей странице клиенту строк: {len(merged['hits'])}")
+    assert log.asked == [(0, 20), (20, 20), (40, 20)]
+    assert len(merged["hits"]) == 40
+    assert "отдаю собранные 40 строк" in capsys.readouterr().err, "частичная выдача видна в журнале"
+
+
+def test_первая_страница_не_доехала_уводит_на_следующего_кандидата(
+    tls: tuple[str, str],
+) -> None:
+    """Пока не доехала первая страница, перебор кандидатов работает как всегда."""
+    sick_log, well_log = Pages(), Pages()
+    sick = _paged_backend(tls, sick_log, fail_at=0)
+    well = _paged_backend(tls, well_log)
+    server = _paged_shim(tls, sick, well)
+    try:
+        body, _ = _post(server.server_address[1], "tracker.test", {"from": 0, "size": 100})
+    finally:
+        server.shutdown()
+        server.server_close()
+        for origin in (sick, well):
+            origin.shutdown()
+            origin.server_close()
+    print(f"больного спросили {len(sick_log.asked)} раз, здоровому ушло {len(well_log.asked)}")
+    assert len(json.loads(body)["hits"]) == 100
+    assert len(sick_log.asked) == 1, "кандидат, не отдавший первую страницу, больше не зовём"
+    assert len(well_log.asked) == 5
+
+
+def test_клиенту_со_сжатием_склейка_уезжает_сжатой(tls: tuple[str, str]) -> None:
+    """Сжатие - договор шима с origin'ом; клиент, просивший gzip, получает gzip."""
+    log = Pages()
+    origin = _paged_backend(tls, log, total=25)
+    server = _paged_shim(tls, origin)
+    try:
+        body, headers = _post(
+            server.server_address[1], "tracker.test", {"from": 0, "size": 100}, accept="gzip"
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+        origin.shutdown()
+        origin.server_close()
+    assert headers.get("content-encoding") == "gzip"
+    assert len(json.loads(gzip.decompress(body))["hits"]) == 25

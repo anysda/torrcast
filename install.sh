@@ -262,9 +262,13 @@ HOSTS_FILE="${TORRCAST_HOSTS:-/etc/hosts}"
 ROUTE_EVERY="${TORRCAST_ROUTE_EVERY:-900}"
 
 # Трекеры, чьё имя может не пройти по TLS. Поля:
-#   имя | путь пробы | тело POST (пусто - GET) | кандидаты обхода через запятую.
+#   имя | путь пробы | тело POST (пусто - GET) | кандидаты обхода через запятую
+#   | размер страницы постраничного обхода (пусто - не нужен, TC-696).
 # Проба обязана просить ЗАМЕТНОЕ тело (десятки КБ): мелкий ответ проходит и через
-# троттлинг, обрыв ловится только на объёме. Кандидаты - то, что умеет sni-shim.py:
+# троттлинг, обрыв ловится только на объёме. Более того - проба обязана просить РОВНО
+# то, что просит клиент: просила бы меньше, и имя объявлялось бы здоровым там, где
+# настоящий запрос клиента рвётся (обратная же подмена - просто лишний обход, он
+# почти ничего не стоит). Кандидаты - то, что умеет sni-shim.py:
 # `direct` (стучаться на IP origin'а: для IP-адреса SNI не отправляется вовсе),
 # `direct:другое-имя` (то же самое, но адрес берём у зеркала - это ДРУГОЙ край того же
 # каталога), `named` (адрес спрашиваем сами, имя в рукопожатии остаётся) и запасное имя
@@ -281,12 +285,20 @@ SHIMS=(
     # разных сетей молчит до таймаута. С именем в рукопожатии тот же адрес отвечает
     # целиком за 0.3 с, когда канал имя не режет, - то есть `named` несёт всё время,
     # пока обход ещё прибит, а окно уже открылось (сторож снимает прибитие только после
-    # двух удачных кругов). Пока канал режет, не спасает и он: зона блокируется по
-    # объёму тела (обрыв на ~15-19 КБ даже сжатого ответа), а Prowlarr просит сразу
-    # 100 раздач. Оба старых кандидата оставлены после `named`: `direct` падает за
-    # 0.1 с и оживёт, если API съедет с общего CDN; knaben.eu - единственный край
-    # вне Cloudflare, если он воскреснет.
-    'api.knaben.org|/v1|{"query":"матрица","search_type":"score","size":50}|named,direct,https://knaben.eu'
+    # двух удачных кругов). Оба старых кандидата оставлены после `named`: `direct`
+    # падает за 0.1 с и оживёт, если API съедет с общего CDN; knaben.eu - единственный
+    # край вне Cloudflare, если он воскреснет.
+    # 🔴 TC-696. Канал режет ответ по ОБЪЁМУ тела (обрыв на ~17-19 КБ, даже сжатого),
+    # а Prowlarr просит у Knaben сразу 100 раздач - число зашито в его сборке, настройки
+    # нет. Поэтому пятое поле: шим разбивает такой запрос на страницы по 20 раздач
+    # (замер: 8.7 КБ сжатых на страницу при пороге обрыва ~15-19 КБ), и каждая доезжает
+    # сама, а клиенту склеивается одна выдача из ста. Проба просит те же 100, что и
+    # Prowlarr: вердикт «имя режется» обязан мерить НАСТОЯЩИЙ запрос клиента, а не
+    # удобный пробе - иначе имя объявлялось бы здоровым там, где выдача клиента рвётся
+    # (или наоборот, гнало бы живое имя за шим по слишком жирной пробе). Менять размер
+    # пробы отдельно от страницы бессмысленно: один порог заменялся бы другим без
+    # выигрыша - выигрыш даёт только склейка.
+    'api.knaben.org|/v1|{"query":"матрица","search_type":"score","size":100}|named,direct,https://knaben.eu|20'
     # Запасного имени нет (зеркала - чужие обёртки за CDN: 403 либо обрыв тела, замер),
     # второго адреса у origin'а тоже нет. Что есть - второй СПОСОБ дойти до того же
     # адреса: с именем в рукопожатии. Сейчас его режут, но режут не всегда (TC-260), и
@@ -1254,12 +1266,17 @@ setup_shim() {  # $1 - имена, которые ведём через шим (
     printf '%s\n' "${routes[@]}" >"$SHIM_DIR/routes"
     # Чем шим перещупывает источники (:data:`SHIMS` без кандидатов). Файлом, а не строкой
     # запуска: в теле пробы живут кавычки, а строку юнита systemd разбирает по-своему.
+    # Тем же приёмом - кому постраничный обход и какого размера страница (5-е поле).
+    local pages=""
     for spec in "${SHIMS[@]}"; do
-        IFS='|' read -r spec_host spec_path spec_body _ <<<"$spec"
+        IFS='|' read -r spec_host spec_path spec_body _ spec_page <<<"$spec"
         probes="$probes$spec_host|$spec_path|$spec_body"$'\n'
+        [ -n "${spec_page:-}" ] && pages="$pages$spec_host|$spec_page"$'\n'
     done
     [ "$(cat "$SHIM_DIR/probes" 2>/dev/null)" = "${probes%$'\n'}" ] || changed=1
     printf '%s' "$probes" >"$SHIM_DIR/probes"
+    [ "$(cat "$SHIM_DIR/pages" 2>/dev/null)" = "${pages%$'\n'}" ] || changed=1
+    printf '%s' "$pages" >"$SHIM_DIR/pages"
 
     # 🔴 TC-267/TC-323. Строки в /etc/hosts ставит шим, а снимает отдельный сторож,
     # только если процесса непрерывно нет дольше SHIM_DEAD_GRACE. Сам процесс не вправе
@@ -1270,6 +1287,7 @@ setup_shim() {  # $1 - имена, которые ведём через шим (
     local knobs; knobs="Environment=TORRCAST_HOSTS=$HOSTS_FILE
 Environment=TORRCAST_SHIM_PID=$SHIM_PID
 Environment=TORRCAST_ROUTE_PROBES=$SHIM_DIR/probes
+Environment=TORRCAST_ROUTE_PAGES=$SHIM_DIR/pages
 Environment=TORRCAST_ROUTE_PINNED=$pins
 Environment=TORRCAST_ROUTE_EVERY=$ROUTE_EVERY
 Environment=TORRCAST_PROBE_TIMEOUT=$PROBE_TIMEOUT
@@ -1345,7 +1363,7 @@ probe_all() {  # $1 - `direct` (одна проба мимо hosts) либо `th
     [ "$how" = through ] && retry=1
     dir="$(mktemp -d)"
     for spec in "$@"; do
-        IFS='|' read -r host path body ups <<<"$spec"
+        IFS='|' read -r host path body ups _ <<<"$spec"
         # Адрес берём до развилки: у `through` его быть не должно вовсе (там вся соль в
         # том, чтобы пойти именно сквозь прибитое имя), у `direct` - обязан.
         at=""
@@ -1387,7 +1405,7 @@ check_sources() {
     # больше не мешает, а сквозь шим она не уходит.
     probes="$(probe_all direct "${SHIMS[@]}")"
     for spec in "${SHIMS[@]}"; do
-        IFS='|' read -r host path body ups <<<"$spec"
+        IFS='|' read -r host path body ups _ <<<"$spec"
         # Маршрут заводим КАЖДОМУ, даже здоровому: шим ему пока не нужен, но перерешать
         # это - его же работа, и без маршрута ему нечем будет подхватить имя, когда канал
         # начнёт его резать.
@@ -1422,7 +1440,7 @@ check_sources() {
     # трое из четырёх, и все трое сразу после этого исправно отдавали раздачи).
     local through=()
     for spec in "${SHIMS[@]}"; do
-        IFS='|' read -r host path body ups <<<"$spec"
+        IFS='|' read -r host path body ups _ <<<"$spec"
         printf '%s\n' ${pins[@]+"${pins[@]}"} | grep -qx "$host" || continue
         through+=("$spec")
     done
@@ -1445,7 +1463,7 @@ verify_shims() {  # $@ - строки SHIMS тех, кого ведём чере
     while [ "$waited" -lt "$SHIM_PIN_WAIT" ]; do
         missing=0
         for spec in "$@"; do
-            IFS='|' read -r host path body ups <<<"$spec"
+            IFS='|' read -r host path body ups _ <<<"$spec"
             pinned "$host" || { missing=1; break; }
         done
         [ "$missing" = 0 ] && break
@@ -1454,7 +1472,7 @@ verify_shims() {  # $@ - строки SHIMS тех, кого ведём чере
     done
     probes="$(probe_all through "$@")"
     for spec in "$@"; do
-        IFS='|' read -r host path body ups <<<"$spec"
+        IFS='|' read -r host path body ups _ <<<"$spec"
         if pinned "$host"; then
             if [ "$(cat "$probes/$host" 2>/dev/null)" = 0 ]; then
                 info "через шим $host отвечает целиком"
