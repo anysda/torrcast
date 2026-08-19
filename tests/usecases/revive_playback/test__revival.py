@@ -13,7 +13,7 @@ def test_the_darkness_is_counted_from_its_own_start() -> None:
 
     assert revival.darkness() == 0.0
 
-    revival.since = 90.0
+    revival.since, revival.why = 90.0, "сети нет"  # метка темноты - причина, не часы
 
     assert revival.darkness() == 10.0
 
@@ -33,7 +33,7 @@ def test_a_live_picture_ends_the_darkness_and_wipes_its_marks() -> None:
 def test_the_spent_tries_come_back_only_with_a_lived_minute() -> None:
     """Подъём запаса не возвращает - его возвращает картинка, которая идёт и не гаснет."""
     clock = FakeClock(now=1000.0)
-    revival = _Revival(clock=clock, tries=2, lived=60.0, since=900.0)
+    revival = _Revival(clock=clock, tries=2, lived=60.0, since=900.0, why="сети нет")
     revival.alive()  # темнота кончилась, отсчёт прожитого пошёл
 
     clock.now = 1059.0
@@ -50,7 +50,7 @@ def test_the_spent_tries_come_back_only_with_a_lived_minute() -> None:
 def test_buffering_restarts_the_lived_minute() -> None:
     """``BUFFERING`` - не картинка: доказательство пережитого обрыва считается заново."""
     clock = FakeClock(now=1000.0)
-    revival = _Revival(clock=clock, tries=1, lived=60.0, since=900.0)
+    revival = _Revival(clock=clock, tries=1, lived=60.0, since=900.0, why="сети нет")
     revival.alive()
 
     clock.now = 1059.0

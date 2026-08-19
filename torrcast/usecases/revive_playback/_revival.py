@@ -80,7 +80,7 @@ class _Revival(_RevivalState):
         вперёд. Встала картинка - минуту живого показа считаем заново.
         """
         now = self.clock.monotonic()
-        if self.since:
+        if self.why:
             self.since, self.blamed, self.dropped = 0.0, False, False
             self.began, self.why = 0.0, ""  # темноты нет - и отметки о ней тоже
             self.back = now  # темнота кончилась - засекаем прожитое
@@ -97,7 +97,7 @@ class _Revival(_RevivalState):
         Отсюда правду о чёрном экране узнают оба, кто обязан её сказать: журнал показа
         (строка вместо «экран: … · IDLE») и через состояние - ``cast status``.
         """
-        return self.clock.monotonic() - self.since if self.since else 0.0
+        return self.clock.monotonic() - self.since if self.why else 0.0
 
     def resurrect(
         self,

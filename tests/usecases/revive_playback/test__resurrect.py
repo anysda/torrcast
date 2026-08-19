@@ -9,7 +9,7 @@ import pytest
 
 from tests.fakes.clock import FakeClock
 from tests.usecases.revive_playback.world import FakeReceiver, FakeSupply, feed_with_segments
-from torrcast.domain.revive_settings import REVIVE_TRIES
+from torrcast.domain.revive_settings import REVIVE_TRIES, SOURCE_TRIES
 from torrcast.ports.receiver import Receiver
 from torrcast.ports.stream_source import StreamSource
 from torrcast.usecases.revive_playback._resurrect import _resurrect
@@ -91,3 +91,33 @@ def test_a_receiver_that_dropped_the_show_is_waited_out_by_its_own_clock(
     assert ladder.dropped is True, "источник спрошен и цел - виноват приёмник"
     assert receiver.replayed == [], "в темноте нулевой длины попытка сгорала бы впустую"
     assert "показ погас на" in capsys.readouterr().out
+
+
+def test_a_darkness_from_the_clocks_zero_is_announced_once(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Темнота в нулевую секунду часов - одна строка, один круг вопросов, LOAD на 8-й.
+
+    Сухой прогон считает часы от нуля, и нулевой ``since`` в такой темноте
+    неотличим от «темноты нет»: приговор выносился заново на каждом тике, источник
+    спрашивался двумя кругами, а первая попытка уезжала с 8-й секунды на 16-ю -
+    сухой счёт лестницы врал ровно на круг вопросов. Признак темноты - причина
+    (:attr:`_RevivalState.why`), а не часы.
+    """
+    clock = FakeClock()  # нулевые часы сухого прогона - не отладочная прихоть, а умолчание
+    supply = FakeSupply()
+    receiver = FakeReceiver()
+    ladder = _RevivalState(clock=clock, supply=cast(StreamSource, supply), drop=4.0, pause=60.0)
+    feed = feed_with_segments(tmp_path)
+    feed.offline = ""  # упаковка не жаловалась: темноту устроил приёмник
+
+    _resurrect(ladder, cast(Receiver, receiver), feed, None, 120.0)
+    clock.sleep(2.0)  # шаг опроса показа
+    _resurrect(ladder, cast(Receiver, receiver), feed, None, 120.0)
+
+    printed = capsys.readouterr().out
+    assert printed.count("показ погас на") == 1, "одна темнота - одна строка и один приговор"
+    assert supply.asked == SOURCE_TRIES, "источник спрошен одним кругом, а не двумя"
+    assert ladder.since == 0.0, "отсчёт темноты - от её начала, а не от второго тика"
+    assert receiver.replayed == [120.0], "первая попытка - на 8-й секунде, а не на 16-й"
+    assert ladder.tries == 1
