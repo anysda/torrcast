@@ -281,3 +281,52 @@ def test_the_merged_piece_is_not_mistaken_for_a_packed_segment(tmp_path: Path) -
     # склейка попала в перебор каталога прогона и сдвинула «последний» на единицу.
     assert not (run.out / "v2.ts").exists()
     assert sorted(p.name for p in run.run.glob("v*.ts")) == ["v2.ts"]
+
+
+def test_a_recode_without_a_leading_key_frame_is_thrown_out_instead_of_shown(
+    tmp_path: Path,
+) -> None:
+    """🔴 TC-698. Перекод без опорного кадра в начале - кусок БЕЗ КАРТИНКИ, и наружу он не идёт.
+
+    Склейка со звуком копии копирует поток ``-c copy``, а копирование выбрасывает всё до
+    первого опорного кадра: нет его вовсе - выброшено всё видео, и зритель получает
+    десять секунд звука на чёрном экране. Живой замер: 12 таких кусков из 39 (0.32-0.47 МБ
+    вместо 9-11), приёмник умирает на них трижды за четыре минуты. Спасти такой кусок
+    нечем (сегмент обязан быть самостоятельным), поэтому место идёт дальше обычным путём
+    копии - то есть ужатием на месте.
+
+    ⚠️ Сверка стоит именно ЗДЕСЬ, а не в самом заходе кодировщика, и это замер, а не
+    вкус: заход выкладывает свои куски по ходу дела, показ забирает их раньше, чем
+    заход кончится, и та же сверка на конце захода пропустила зрителю 2 куска из 38,
+    тогда как здесь их ноль из 35.
+    """
+    told: list[tuple[int, str]] = []
+    spare = tmp_path / "recode"
+    spare.mkdir()
+    run = packer(tmp_path, spare=spare, told=lambda slot, how: told.append((slot, how)))
+    lay(run.run, 0)
+    lay(spare, 0, size=2048)
+
+    _lay_out(run, _always, merge=lambda *a, **k: True, keyless=lambda piece: True)
+
+    assert told == [(0, "копия")], "кусок без картинки уехал зрителю"
+    assert not (spare / "v0.ts").exists(), "негодный перекод остался лежать готовым куском"
+    assert (run.out / "v0.ts").read_bytes() == b"x" * 1024, "наружу ушла не копия"
+
+
+def test_a_recode_that_starts_with_a_key_frame_still_goes_out_as_a_merge(tmp_path: Path) -> None:
+    """Отрицательная проба к TC-698: исправный перекод сверка не трогает."""
+    told: list[tuple[int, str]] = []
+    spare = tmp_path / "recode"
+    spare.mkdir()
+    run = packer(tmp_path, spare=spare, told=lambda slot, how: told.append((slot, how)))
+    lay(run.run, 0)
+    lay(spare, 0, size=2048)
+
+    def merge(video: Path, audio: Path, dst: Path, **kwargs: Any) -> bool:
+        dst.write_bytes(b"m" * 3072)
+        return True
+
+    _lay_out(run, _always, merge=merge, keyless=lambda piece: False)
+
+    assert told == [(0, "склейка")]

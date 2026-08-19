@@ -10,11 +10,13 @@ import os
 from typing import TYPE_CHECKING
 
 from torrcast.adapters.stream_pack._segment_files import _names
+from torrcast.adapters.stream_pack.key_missing import key_missing
 from torrcast.adapters.stream_pack.merge_tracks import merge_tracks
 from torrcast.adapters.stream_pack.timeline_shift import timeline_shift
 from torrcast.adapters.stream_probe.segment_name import segment_name
 from torrcast.adapters.stream_probe.segment_slot import segment_slot
 from torrcast.domain.hls_settings import MIXED_PREFIX
+from torrcast.ports.journal.slot import journal
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -29,6 +31,7 @@ def _lay_out(
     *,
     merge: Callable[..., bool] = merge_tracks,
     shift_of: Callable[[Path, Path], float | None] = timeline_shift,
+    keyless: Callable[[Path], bool] = key_missing,
 ) -> None:
     """Выложить наружу куски, которые ffmpeg уже дописал.
 
@@ -42,10 +45,10 @@ def _lay_out(
     его наследники прогона на стендах показа, а импортировать сюда сам класс нельзя -
     выкладка живёт внутри него.
 
-    Тем же доводом приезжают ``merge`` (склейка картинки перекода со звуком копии) и
-    ``shift_of`` (сдвиг ленты между ними): обе поднимают ffmpeg и ffprobe на настоящих
-    кусках, а здесь меряется РЕШЕНИЕ выкладки - что уходит наружу, что выбрасывается и
-    куда встаёт край.
+    Тем же доводом приезжают ``merge`` (склейка картинки перекода со звуком копии),
+    ``shift_of`` (сдвиг ленты между ними) и ``keyless`` (не начинается ли перекод БЕЗ
+    опорного кадра): все трое поднимают ffmpeg и ffprobe на настоящих кусках, а здесь
+    меряется РЕШЕНИЕ выкладки - что уходит наружу, что выбрасывается и куда встаёт край.
     """
     slots = sorted(s for s in map(segment_slot, _names(state.run)) if s >= 0)
     if not slots:
@@ -77,6 +80,16 @@ def _lay_out(
         # Перекодированный кусок этого же места лучше копии: то же разрешение и те же
         # метки, но битрейт, который приёмник тянет. Копия при этом выбрасывается.
         better = state.spare / segment_name(slot) if state.spare is not None else None
+        # 🔴 TC-698. Перекод без опорного кадра в начале - это кусок БЕЗ КАРТИНКИ, а не
+        # кусок похуже: склейка идёт ``-c copy``, а копирование выбрасывает всё до первого
+        # опорного кадра, и когда его нет вовсе - выбрасывает всё видео. Живой замер: 12
+        # таких кусков из 39, приёмник умирает на них трижды за четыре минуты, КПД 0.47
+        # против 0.94. Такой перекод не спасти ни склейкой, ни выкладкой как есть (сегмент
+        # обязан быть самостоятельным), поэтому он тут же и сносится: дальше место идёт
+        # обычным путём копии, то есть ужатием на месте.
+        if better is not None and better.exists() and keyless(better):
+            journal().mark("перекод без опорного кадра", слот=slot)
+            better.unlink(missing_ok=True)
         source, how = path, "копия"
         if better is not None and better.exists():
             # Наружу идёт картинка перекода со звуком копии (:func:`merge_tracks`):
