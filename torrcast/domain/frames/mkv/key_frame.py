@@ -54,6 +54,12 @@ def key_frame(reader: Reader, offset: int, track: int, codec: str) -> bool | Non
             payload = inner[0][2] if inner else None
         if payload is None:
             continue
+        # Край окна мог лечь поперёк заголовка этого блока: идентификатор прочитался,
+        # а тело уже за границей прочитанного куска. walk такую запись отдаёт нарочно
+        # (по ней keys дочитывает индекс, не влезший в первый кусок), а читать по её
+        # смещению нельзя. Это «не разобрать», а не призрак.
+        if payload >= len(buf):
+            continue
         number, after = vint(buf, payload, keep_marker=False)
         if number != track:
             continue

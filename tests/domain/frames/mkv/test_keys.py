@@ -87,6 +87,21 @@ def test_an_honest_index_passes_the_frame_check() -> None:
     assert reader.requests == 5, "голова, один заход за Cues и три пробы вразброс"
 
 
+def test_a_block_header_cut_by_the_window_edge_is_not_a_crash() -> None:
+    """Окно пробы обрезало заголовок блока: «не разобрать», а не падение (TC-687).
+
+    «Не разобрать» - не призрак: проверка честности верит такой точке, как верит
+    незнакомому кодеку, - а упасть на пути показа она права не имеет, там ловится
+    только InfraError.
+    """
+    cues = [(k * 500, 1024 + k * 262144, 1) for k in range(4)]
+    data, _base = Matroska(cues=cues, cut_header=True).bytes()
+    reader = Served(data)
+    found = keys(reader, reader.read(0, HEAD))
+
+    assert len(found.points) == 4, "пробы ответили «не разобрать» - индекс принят"
+
+
 def test_the_map_comes_out_sorted_whatever_order_the_index_lay_in() -> None:
     """Точки едут наружу по времени: сетку сегментов строят по возрастанию, а не по файлу."""
     _served, _base, found = _map(Matroska(cues=[(900, 9000, 1), (100, 1000, 1)]))

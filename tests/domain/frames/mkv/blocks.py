@@ -38,6 +38,7 @@ from torrcast.domain.frames.mkv.ids import (
     TRACK_TYPE,
     TRACKS,
 )
+from torrcast.domain.frames.mkv.key_frame import BLOCK_BYTES
 
 EBML_HEADER = 0x1A45DFA3
 #: EBML-идентификаторы, которых нет в ids.py: разбору они не нужны, нужны сборке.
@@ -90,6 +91,8 @@ class Matroska:
     ghost: bool = False
     #: Блоки со включённым лейсингом: содержимое кадра не разобрать.
     laced: bool = False
+    #: Край окна чтения режет заголовок блока пополам, а видеоблока в окне нет (TC-687).
+    cut_header: bool = False
 
     def _cues(self) -> bytes:
         points = b""
@@ -126,6 +129,8 @@ class Matroska:
 
     def _cluster(self, at: int, tracks: list[int]) -> bytes:
         """Кластер с одним блоком на дорожку; у видео - AVC-срез, IDR или нет."""
+        if self.cut_header:
+            return self._cut_cluster(at)
         payload = elem(TIMESTAMP, uint(at))
         for track in tracks:
             flags = 0x80 | (0x06 if self.laced else 0)
@@ -133,6 +138,27 @@ class Matroska:
             frame = (5).to_bytes(4, "big") + nal + b"\x00" * 4
             block = bytes([0x80 | track]) + b"\x00\x00" + bytes([flags]) + frame
             payload += elem(SIMPLE_BLOCK, block)
+        return elem(CLUSTER, payload)
+
+    def _cut_cluster(self, at: int) -> bytes:
+        """Кластер, у которого край окна чтения лёг поперёк заголовка блока.
+
+        Блока видеодорожки в окне нет: его место занимает один длинный блок звуковой
+        дорожки, а заголовок следующего обрублен краем окна так, что идентификатор
+        прочитался целиком, а смещение тела оказалось уже за границей буфера. Бывает
+        у живых файлов, и разбор обязан ответить «не разобрать», а не упасть.
+        """
+        payload = elem(TIMESTAMP, uint(at))
+        audio = bytes([0x80 | 2]) + b"\x00\x00" + b"\x80"  # звуковая дорожка, флаг опорности
+        room = (
+            BLOCK_BYTES
+            - len(ident(CLUSTER) + length(0))
+            - len(payload)
+            - len(ident(SIMPLE_BLOCK) + length(0))
+            - 2  # обрубленный заголовок: байт идентификатора и первый байт размера
+        )
+        payload += elem(SIMPLE_BLOCK, audio + b"\x00" * (room - len(audio)))
+        payload += ident(SIMPLE_BLOCK) + b"\x40"
         return elem(CLUSTER, payload)
 
     def bytes(self) -> tuple[bytes, int]:

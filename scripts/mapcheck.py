@@ -63,8 +63,12 @@ def cluster_at(buf: bytes, scale: float, track: int) -> tuple[float | None, floa
                 if not inner:
                     continue
                 block = inner[0][2]
+            if block >= len(buf):  # край окна обрубил заголовок - по смещению не читаем
+                continue
             number, after = vint(buf, block, keep_marker=False)
             if number != track:
+                continue
+            if after + 3 > len(buf):  # метка и флаги блока остались за краем окна
                 continue
             rel = int.from_bytes(buf[after : after + 2], "big", signed=True)
             key = ident == BLOCK_GROUP or bool(buf[after + 2] & 0x80)

@@ -51,3 +51,15 @@ def test_an_offset_without_a_cluster_cannot_be_read() -> None:
     served, base = _served(Matroska())
 
     assert key_frame(served, base + 100, 1, AVC) is None
+
+
+def test_a_block_header_cut_by_the_window_edge_cannot_be_read() -> None:
+    """Край окна лёг поперёк заголовка блока, а видеоблока в окне не было (TC-687).
+
+    walk честно отдаёт запись, чьё тело осталось за границей прочитанного куска, и
+    разбор обязан сказать «не разобрать», а не упасть: на пути показа ловится только
+    InfraError, и любое другое исключение роняет показ вместо мягкого отката.
+    """
+    served, base = _served(Matroska(cues=[(0, 1024, 1)], cut_header=True))
+
+    assert key_frame(served, base + 1024, 1, AVC) is None
