@@ -51,3 +51,51 @@ def test_the_silent_and_the_banned_are_told_apart() -> None:
     assert said.notes == [
         "индексеры выпали из каталога: Knaben не ответил, RuTor недоступен - выдача может быть хуже"
     ]
+
+
+def test_a_healthy_circle_says_nothing_at_all() -> None:
+    """Никто не выпал и никто не опоздал - лишней строке взяться неоткуда."""
+    said = Said()
+
+    _ask(Indexer([row("Кино / Movie (2001) BDRip 1080p")]), "кино", said)
+
+    assert said.notes == []
+
+
+def test_a_late_indexer_is_named_with_words_of_its_own() -> None:
+    """🔴 TC-703. Опоздавший не выпал: его выдача может доехать, и слова у него свои."""
+    client = Indexer([row("Кино / Movie (2001) BDRip 1080p")], waiting=("JacRed",))
+    said = Said()
+
+    _ask(client, "кино", said)
+    _ask(client, "кино ещё раз", said)
+
+    assert said.notes == ["индексер JacRed ещё в пути - выдача пока без него, он может доехать"]
+
+
+def test_several_late_indexers_are_named_by_one_line() -> None:
+    """Строка о неполноте каталога одна, сколько бы источников ни было в пути."""
+    client = Indexer([row("Кино / Movie (2001) BDRip 1080p")], waiting=("JacRed", "Knaben"))
+    said = Said()
+
+    _ask(client, "кино", said)
+
+    assert said.notes == [
+        "индексеры ещё в пути: JacRed, Knaben - выдача пока без них, они могут доехать"
+    ]
+
+
+def test_a_source_named_once_is_not_named_twice_by_other_words() -> None:
+    """Опорного круг ждёт весь бюджет, а поток его живёт дальше: имя в обоих счётах одно.
+
+    Человек читает строку про ту секунду, в которую она напечатана, и в эту секунду
+    источник молчит. Второй строкой о нём же отказ не разбавляется.
+    """
+    client = Indexer(
+        [row("Кино / Movie (2001) BDRip 1080p")], silent=("JacRed",), waiting=("JacRed",)
+    )
+    said = Said()
+
+    _ask(client, "кино", said)
+
+    assert said.notes == ["индексер JacRed не ответил - выдача может быть хуже"]

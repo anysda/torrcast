@@ -44,6 +44,15 @@ class Prowlarr(_State):
         """Выдача опоздавших: круг ушёл по опорным, а эти доехали уже потом (TC-118)."""
         return self._circle.late(wait)
 
+    def waiting(self) -> tuple[str, ...]:
+        """Имена тех, кто ещё в пути: их части каталога в этой выдаче нет (TC-118).
+
+        🔴 TC-703. Это признак НЕПОЛНОТЫ выдачи, и спрашивают его те, кто говорит
+        человеку про каталог: круг поиска (:func:`torrcast.usecases.discover._ask._ask`) и
+        отказ по пустой очереди (:func:`torrcast.usecases.discover.unfit_line.unfit_line`).
+        """
+        return self._circle.waiting()
+
     def _apart(self, query: str, limit: int) -> list[RawResult] | None:
         """Круг по индексерам, где у каждого свой бюджет; ``None`` - список не отдали.
 
@@ -95,7 +104,7 @@ class Prowlarr(_State):
         # стоило им по 2.1 с, и у двух из них опоздавший вёз ту самую картину, которой не
         # хватало, опаздывая на 0.2 с. Ждём остаток цели: секунды тут покупают не скорость
         # показа, а выбор между «ничего не нашлось» и картиной.
-        waiting = self._circle.waiting()
+        waiting = self.waiting()
         if not any(got) and (rows := self.late(wait=self.spare())):
             got.append(rows)
         circle_trace(

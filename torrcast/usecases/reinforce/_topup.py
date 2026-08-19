@@ -72,6 +72,9 @@ def _topup(
     if not fresh.ranked:  # отнимать уже показанное долив не вправе
         return plan
     fresh.kin = plan.kin
+    # 🔴 TC-703. Признак неполноты каталога переезжает на пересобранный план: без
+    # него поздний отказ (:func:`unfit_line`) снова звучал бы приговором картине.
+    fresh.waiting = plan.waiting
     who = ", ".join(sorted({r.indexer for r in add if r.indexer})) or "опоздавший индексер"
     changed = bool(plan.ranked) and fresh.ranked[0].magnet != plan.ranked[0].magnet
     progress.note(

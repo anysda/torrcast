@@ -59,6 +59,9 @@ def _timed(
         return plan
     fresh = plan_for(plan.picture, args, config, profile, runtime=minutes * 60.0)
     fresh.kin = plan.kin
+    # 🔴 TC-703. Признак неполноты каталога переезжает на пересобранный план: без
+    # него поздний отказ (:func:`unfit_line`) снова звучал бы приговором картине.
+    fresh.waiting = plan.waiting
     journal().emit(
         "select",
         "runtime",

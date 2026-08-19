@@ -59,3 +59,18 @@ def test_without_prowlarr_the_search_is_an_infra_failure_not_a_refusal() -> None
     wire_catalogue()
     with pytest.raises(InfraError, match="не настроен Prowlarr"):
         search_circle(Config(), Args(query=["тачки"]), Said(), indexer=lambda *_a, **_k: Indexer())
+
+
+def test_the_count_of_the_late_travels_with_every_plan() -> None:
+    """🔴 TC-703. Признак неполноты каталога нужен отказу по пустой очереди, а он поздний."""
+    wire_catalogue()
+    client = Indexer(answers={"тачки": _CARS}, waiting=("JacRed",))
+    plans = search_circle(
+        _CONFIG,
+        Args(query=["тачки"]),
+        Said(),
+        indexer=lambda *_a, **_k: client,
+        passport=lambda *_a, **_k: Origin(),
+    )
+
+    assert all(plan.waiting() == ("JacRed",) for plan in plans)

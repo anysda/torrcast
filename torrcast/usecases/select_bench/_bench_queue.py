@@ -33,7 +33,9 @@ def _bench_queue(plan: Plan, args: Args) -> list[int]:
         "select", "queue", pool=len(plan.picture.releases), queued=len(queue), dropped=drops
     )
     if not queue:
-        raise NotFoundError(unfit_line(plan, drops, plan.kin))
+        # 🔴 TC-703. Кто ещё в пути - часть отказа: спрошен был не весь каталог, и
+        # молчать об этом значит выдать урезанную выдачу за приговор картине.
+        raise NotFoundError(unfit_line(plan, drops, plan.kin, plan.waiting()))
     if args.release is None and (skipped := plan.skipped):
         # Молчать тут нельзя: человек попросил серию, а половину выдачи мы не взяли.
         print(

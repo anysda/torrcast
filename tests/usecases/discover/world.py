@@ -94,6 +94,7 @@ class Indexer:
         answers: dict[str, list[RawResult]] | None = None,
         silent: tuple[str, ...] = (),
         banned: tuple[str, ...] = (),
+        waiting: tuple[str, ...] = (),
     ) -> None:
         self._rows = list(rows or [])
         self._answers = answers or {}
@@ -104,6 +105,8 @@ class Indexer:
         self.silent = silent
         self.banned = banned
         self.reported_silent: set[str] = set()
+        #: Кто ещё в пути: круг ушёл по опорным, а эти не успели (TC-118).
+        self._waiting = waiting
         #: Частный бюджет за целью ещё не выдан - как у свежего клиента поиска.
         self.over_goal = False
         #: Пол бюджета круга: заходы его двигают, договор клиента о нём знает.
@@ -115,6 +118,10 @@ class Indexer:
     def late(self) -> list[RawResult]:
         """Опоздавших нет: круг тут отвечает разом (TC-118)."""
         return []
+
+    def waiting(self) -> tuple[str, ...]:
+        """Кто ещё в пути - тот же признак неполноты выдачи, что и у боевого клиента."""
+        return self._waiting
 
     def search(self, query: str) -> list[RawResult]:
         self.asked.append(query)

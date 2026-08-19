@@ -12,6 +12,7 @@ from torrcast.domain._series import _Series
 from torrcast.domain.picture import Picture
 from torrcast.domain.raw_result import RawResult
 from torrcast.domain.release import Release
+from torrcast.usecases.select._nobody_waiting import _nobody_waiting
 from torrcast.usecases.select._nothing_late import _nothing_late
 
 
@@ -55,3 +56,8 @@ class _PlanFields:
     #: Выдача опоздавших индексеров: круг ушёл по кворуму, а эти доехали позже (TC-118).
     #: Зовётся ОДИН раз и только после ответа на меню - :func:`_topup`.
     late: Callable[[], list[RawResult]] = _nothing_late
+    #: 🔴 TC-703. Кто из индексеров ещё в пути: их части каталога в пуле нет. Признак
+    #: неполноты выдачи, и отказ по пустой очереди обязан его назвать (:func:`unfit_line`)
+    #: - иначе «раздачи её негодны» звучит приговором картине, а спрошен был не весь
+    #: каталог. Спрашивается ПОСЛЕ долива: доехавший из этого счёта уже ушёл.
+    waiting: Callable[[], tuple[str, ...]] = _nobody_waiting
