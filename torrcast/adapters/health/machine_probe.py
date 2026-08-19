@@ -13,7 +13,7 @@ from typing import Any
 from torrcast.adapters.console import console
 from torrcast.adapters.filesystem import trace_journal
 from torrcast.adapters.filesystem.state import state_path
-from torrcast.adapters.stream_probe import shelf_weight
+from torrcast.adapters.stream_probe.shelf_weight import shelf_weight
 from torrcast.domain.warm_open import KEYS_KEPT, PROBE_KEPT
 
 #: Имена переменных окружения, которыми задаётся локаль: их и показываем человеку.

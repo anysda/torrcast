@@ -6,7 +6,9 @@ from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any
 
 from tests.usecases.feed_pack.world import factory, feed, grid, lay, packer, tract
-from torrcast.adapters.recode import MAXRATE_GAIN, Encode, Pace
+from torrcast.adapters.recode.encode import Encode
+from torrcast.adapters.recode.encode_settings import MAXRATE_GAIN
+from torrcast.adapters.recode.pace import Pace
 from torrcast.adapters.stream_pack.grid import Grid
 from torrcast.domain.delivered_mbit import AUDIO_MBIT, TS_OVERHEAD
 from torrcast.domain.hls_settings import MAX_SEGMENT_BYTES

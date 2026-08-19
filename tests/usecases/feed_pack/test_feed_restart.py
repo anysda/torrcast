@@ -6,7 +6,8 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from tests.usecases.feed_pack.world import factory, feed, grid, packer, signals, tract
-from torrcast.adapters.recode import FULL_PRESET, Encode
+from torrcast.adapters.recode.encode import Encode
+from torrcast.adapters.recode.whole_encode import FULL_PRESET
 from torrcast.domain.hls_settings import PACK_DIR
 from torrcast.usecases.feed_pack.feed_restart import _restart
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from torrcast.adapters.recode import Encode
+from torrcast.adapters.recode.encode import Encode
 from torrcast.ports.recode.encoding import Encoding
 
 

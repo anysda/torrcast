@@ -6,7 +6,7 @@ import contextlib
 import json
 from pathlib import Path
 
-from torrcast.adapters.stream_probe import _touch
+from torrcast.adapters.stream_probe.shelf import _touch
 from torrcast.domain.film_keys import FilmKeys
 
 

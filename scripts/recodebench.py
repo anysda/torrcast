@@ -60,7 +60,8 @@ from seekcheck import serve_file
 
 from torrcast.adapters.filesystem.state import load_config
 from torrcast.adapters.prowlarr.magnet_for import magnet_for
-from torrcast.adapters.recode import Encode, Weights
+from torrcast.adapters.recode.encode import Encode
+from torrcast.adapters.recode.weights import Weights
 from torrcast.adapters.stream_pack.ffmpeg_pack_command import ffmpeg_pack_command
 from torrcast.adapters.stream_pack.film_keys import film_keys
 from torrcast.adapters.stream_pack.grid import Grid

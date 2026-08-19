@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import time
 
-from torrcast.adapters.stream_probe import segment_slot
+from torrcast.adapters.stream_probe.segment_slot import segment_slot
 from torrcast.ports.journal import journal
 
 

@@ -9,7 +9,7 @@ import tempfile
 import threading
 from typing import IO, Any, Final
 
-from torrcast.adapters.stream_pack import parse_manifest
+from torrcast.adapters.stream_pack.parse_manifest import parse_manifest
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.lost_segments import lost_segments
 from torrcast.domain.position import Position

@@ -1,7 +1,7 @@
 """Проверяет, что замеры упаковщика помнит один объект на процесс, а не копия на модуль."""
 
 from torrcast.adapters import pack_memory
-from torrcast.adapters.stream_pack import pack_origin
+from torrcast.adapters.stream_pack.pack_origin import pack_origin
 
 #: Ключ памяти - URL потока: в нём hash раздачи и номер файла, как у полки карт.
 URL = "http://torrserver.invalid/stream?link=0123456789abcdef&index=0"

@@ -7,7 +7,7 @@
 
 from __future__ import annotations
 
-from torrcast.adapters.recode import Encode
+from torrcast.adapters.recode.encode import Encode
 from torrcast.domain.recode_settings import RECODE_HEIGHT
 
 #: Замер на 4 vCPU: сплошной перекод 2160p БЕЗ ужатия идёт 1.03x реального времени, то есть

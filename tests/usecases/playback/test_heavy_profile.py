@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from tests.usecases.playback.world import film_keys, grid
-from torrcast.adapters.recode import Weights
+from torrcast.adapters.recode.weights import Weights
 from torrcast.usecases.playback.heavy_profile import HeavyProfile
 
 

@@ -10,7 +10,7 @@ from __future__ import annotations
 import struct
 from dataclasses import dataclass, field
 
-from torrcast.domain.frames.mkv import (
+from torrcast.domain.frames.mkv.ids import (
     CUE_CLUSTER_POSITION,
     CUE_POINT,
     CUE_TIME,

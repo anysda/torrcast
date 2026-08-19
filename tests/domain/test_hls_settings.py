@@ -8,7 +8,7 @@
 
 from __future__ import annotations
 
-from torrcast.adapters.recode import RUN_MAX
+from torrcast.adapters.recode.recoder_settings import RUN_MAX
 from torrcast.domain.hls_settings import (
     _SEGMENT_RE,
     AUDIO_BITRATE,

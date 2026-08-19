@@ -36,62 +36,16 @@
 опорный кадр на следующий, и на стыке копии с перекодом терялся один кадр. Поэтому
 принудительные опорные кадры просятся на :data:`torrcast.domain.hls_settings.SPLIT_SLACK` раньше
 границы — ровно тот же допуск, с которым режет сегментный муксер.
+
+Имена берутся у своих модулей: `from torrcast.adapters.recode.pace import Pace`.
+Реэкспортом тут живут ровно два имени, и только потому, что их этим путём зовёт сам
+гейт (`scripts/test-gate`) - файл, который правкой раскладки не трогают.
 """
 
 from torrcast.adapters.recode.encode import Encode
-from torrcast.adapters.recode.encode_settings import (
-    FIT_FLOOR,
-    FIT_SLACK,
-    MAXRATE_GAIN,
-    TONEMAP,
-    VBV_SECONDS,
-)
-from torrcast.adapters.recode.hold_head import HEAD_LIMIT
-from torrcast.adapters.recode.level_for import level_for
-from torrcast.adapters.recode.pace import NEIGHBOUR_TOLL, PACE_MEMORY, Pace
-from torrcast.adapters.recode.preset_for import DEADLINE_MARGIN, REALTIME, preset_for
-from torrcast.adapters.recode.presets import PRESETS
-from torrcast.adapters.recode.recode_dir import RECODE_DIR
-from torrcast.adapters.recode.recoder import Recoder
-from torrcast.adapters.recode.recoder_settings import RUN_MAX
-from torrcast.adapters.recode.run import HEAD_NICE, NICE
-from torrcast.adapters.recode.weights import PASSPORT_WEIGHT, Weights
-from torrcast.adapters.recode.whole_encode import (
-    FULL_FLOOR,
-    FULL_GAIN,
-    FULL_PRESET,
-    whole_encode,
-)
-from torrcast.adapters.recode.yield_to_shrink import SHRINK_FRESH
-from torrcast.domain.recode_settings import RECODE_HEIGHT
+from torrcast.adapters.recode.whole_encode import FULL_PRESET
 
 __all__ = [
-    "DEADLINE_MARGIN",
-    "FIT_FLOOR",
-    "FIT_SLACK",
-    "FULL_FLOOR",
-    "FULL_GAIN",
     "FULL_PRESET",
-    "HEAD_LIMIT",
-    "HEAD_NICE",
-    "MAXRATE_GAIN",
-    "NEIGHBOUR_TOLL",
-    "NICE",
-    "PACE_MEMORY",
-    "PASSPORT_WEIGHT",
-    "PRESETS",
-    "REALTIME",
-    "RECODE_DIR",
-    "RECODE_HEIGHT",
-    "RUN_MAX",
-    "SHRINK_FRESH",
-    "TONEMAP",
-    "VBV_SECONDS",
     "Encode",
-    "Pace",
-    "Recoder",
-    "Weights",
-    "level_for",
-    "preset_for",
-    "whole_encode",
 ]

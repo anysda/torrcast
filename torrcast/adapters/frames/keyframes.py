@@ -30,7 +30,7 @@ def keyframes(url: str, *, source: Source = HttpRangeReader, head_peek: int = HE
     reader = source(url)
     head = reader.read(0, head_peek)
     if head[:4] == b"\x1a\x45\xdf\xa3":
-        from torrcast.domain.frames.mkv import keys
+        from torrcast.domain.frames.mkv.keys import keys
 
         return keys(reader, head)
     if head[4:8] in {b"ftyp", b"moov", b"free", b"skip", b"mdat", b"wide"}:

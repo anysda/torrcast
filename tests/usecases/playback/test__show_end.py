@@ -8,7 +8,7 @@ from typing import cast
 import pytest
 
 from tests.usecases.revive_playback.world import FakeSupply, feed_with_segments
-from torrcast.adapters.recode import whole_encode
+from torrcast.adapters.recode.whole_encode import whole_encode
 from torrcast.domain.entry import Entry
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.profile import CAUTIOUS

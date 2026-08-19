@@ -980,7 +980,8 @@ def test_the_spot_shrink_packs_the_piece_under_the_cap(clip: str, tmp_path: Path
     влезает в потолок, и решение сказано одной честной строкой."""
     from dataclasses import replace
 
-    from torrcast.adapters.recode import Encode, Pace
+    from torrcast.adapters.recode.encode import Encode
+    from torrcast.adapters.recode.pace import Pace
 
     class _Recoder:
         """Кодировщик-заглушка: ровно то, что спрашивает ужатие."""

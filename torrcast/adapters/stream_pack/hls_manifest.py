@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from torrcast.adapters.stream_probe import segment_name
+from torrcast.adapters.stream_probe.segment_name import segment_name
 
 if TYPE_CHECKING:
     from collections.abc import Sequence

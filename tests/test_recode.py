@@ -12,23 +12,17 @@ from typing import cast
 import pytest
 
 from tests.fakes import composition
-from torrcast.adapters.recode import (
-    DEADLINE_MARGIN,
-    FULL_PRESET,
-    MAXRATE_GAIN,
-    NEIGHBOUR_TOLL,
-    PRESETS,
-    REALTIME,
-    SHRINK_FRESH,
-    Encode,
-    Pace,
-    Recoder,
-    Weights,
-    level_for,
-    preset_for,
-    whole_encode,
-)
+from torrcast.adapters.recode.encode import Encode
+from torrcast.adapters.recode.encode_settings import MAXRATE_GAIN
+from torrcast.adapters.recode.level_for import level_for
+from torrcast.adapters.recode.pace import NEIGHBOUR_TOLL, Pace
+from torrcast.adapters.recode.preset_for import DEADLINE_MARGIN, REALTIME, preset_for
+from torrcast.adapters.recode.presets import PRESETS
+from torrcast.adapters.recode.recoder import Recoder
 from torrcast.adapters.recode.sweep_spare import sweep_spare
+from torrcast.adapters.recode.weights import Weights
+from torrcast.adapters.recode.whole_encode import FULL_PRESET, whole_encode
+from torrcast.adapters.recode.yield_to_shrink import SHRINK_FRESH
 from torrcast.adapters.stream_pack.ffmpeg_pack_command import ffmpeg_pack_command
 from torrcast.adapters.stream_pack.grid import Grid
 from torrcast.adapters.stream_pack.grid_for import grid_for
@@ -1037,7 +1031,7 @@ def test_the_head_wait_has_a_hard_ceiling_even_while_encoding(tmp_path) -> None:
     """Кодировщик, который не кончает, не имеет права держать чёрный экран без предела."""
     import time as clock
 
-    from torrcast.adapters.recode import HEAD_LIMIT
+    from torrcast.adapters.recode.hold_head import HEAD_LIMIT
 
     grid = _grid()
     weights = Weights.of(_keys(rate=1.5e6), grid)
@@ -1421,7 +1415,7 @@ def test_a_light_source_is_not_blown_up_to_the_ceiling() -> None:
     21.4 МБ при потолке 16 и замеренной границе срыва 19.4 — то есть сплошной перекод
     сам себе сделал ровно тот тяжёлый кусок, ради которого всё это затевалось.
     """
-    from torrcast.adapters.recode import FULL_FLOOR, FULL_GAIN
+    from torrcast.adapters.recode.whole_encode import FULL_FLOOR, FULL_GAIN
     from torrcast.domain.config import Config
     from torrcast.usecases.playback import _encode_all
 
@@ -1505,7 +1499,7 @@ def test_the_tonemap_is_a_conversion_not_a_relabel_and_it_is_measured() -> None:
     тонемапом - 1.00x, тонемап до скейла (на 4К) - 0.37x. Запас съеден целиком, поэтому
     настройка по умолчанию выключена, а порядок в цепочке - скейл первым.
     """
-    from torrcast.adapters.recode import TONEMAP
+    from torrcast.adapters.recode.encode_settings import TONEMAP
     from torrcast.domain.config import Config
 
     assert not Config().recode_tonemap, "по умолчанию выключен: 1.00x - это ноль запаса"

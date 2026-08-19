@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from torrcast.adapters.recode import Pace
+from torrcast.adapters.recode.pace import Pace
 from torrcast.ports.recode.recode_pace import RecodePace
 
 

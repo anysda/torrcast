@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import torrcast.usecases.playback._show_state as _show_state
 from torrcast.adapters.chromecast.cast import make_receiver
-from torrcast.adapters.recode import Recoder
+from torrcast.adapters.recode.recoder import Recoder
 from torrcast.adapters.system_clock import CLOCK
 from torrcast.runtime.wire_show import wire_show
 

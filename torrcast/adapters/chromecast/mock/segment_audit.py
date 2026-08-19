@@ -8,7 +8,7 @@ from collections.abc import Callable
 from typing import Any, Final
 
 from torrcast.adapters.chromecast.mock.hls_fetch import CORS_HEADER, HTTP_TIMEOUT, HlsFetch
-from torrcast.adapters.stream_pack import parse_manifest
+from torrcast.adapters.stream_pack.parse_manifest import parse_manifest
 from torrcast.domain.reception_report import ReceptionReport
 from torrcast.domain.trimmed_playlist import GRID_SLACK
 

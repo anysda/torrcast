@@ -15,7 +15,7 @@ from torrcast.adapters.recode.recoder_settings import RUN_MAX
 from torrcast.adapters.recode.targets import _targets
 from torrcast.adapters.recode.weights import Weights
 from torrcast.adapters.stream_pack.packer import Packer
-from torrcast.adapters.stream_probe import segment_name
+from torrcast.adapters.stream_probe.segment_name import segment_name
 from torrcast.domain.profile import CAUTIOUS
 from torrcast.ports.pack_run import PackFactory
 

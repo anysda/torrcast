@@ -8,7 +8,10 @@ import pytest
 
 from tests.fakes import composition
 from tests.usecases.playback.world import film_keys, grid
-from torrcast.adapters.recode import Encode, Recoder, Weights, whole_encode
+from torrcast.adapters.recode.encode import Encode
+from torrcast.adapters.recode.recoder import Recoder
+from torrcast.adapters.recode.weights import Weights
+from torrcast.adapters.recode.whole_encode import whole_encode
 from torrcast.domain.config import Config
 from torrcast.ports.journal import Silent, install
 from torrcast.usecases.playback._warmer import _warmer

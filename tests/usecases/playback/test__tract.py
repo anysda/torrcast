@@ -10,7 +10,8 @@ import pytest
 
 from tests.fakes import composition
 from tests.usecases.playback.world import film_keys, grid
-from torrcast.adapters.recode import Recoder, whole_encode
+from torrcast.adapters.recode.recoder import Recoder
+from torrcast.adapters.recode.whole_encode import whole_encode
 from torrcast.adapters.stream_pack.hls_dir import hls_dir
 from torrcast.domain.config import Config
 from torrcast.domain.position import Position

@@ -13,7 +13,7 @@ from pathlib import Path
 from torrcast.adapters.frames.keyframes import keyframes
 from torrcast.adapters.stream_pack._keys_shelf import _keys_cache
 from torrcast.adapters.stream_pack.read_keys import read_keys
-from torrcast.adapters.stream_probe import _trim
+from torrcast.adapters.stream_probe.shelf import _trim
 from torrcast.domain.film_keys import FilmKeys
 from torrcast.domain.frames.keymap import KeyMap, video_track
 from torrcast.domain.hls_wait import KEYS_WAIT

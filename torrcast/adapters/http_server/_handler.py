@@ -11,7 +11,7 @@ from typing import Any, ClassVar, Final
 
 from torrcast.adapters.http_server._feed import _Feed
 from torrcast.adapters.http_server.log_segment import log_segment
-from torrcast.adapters.stream_probe import segment_slot
+from torrcast.adapters.stream_probe.segment_slot import segment_slot
 from torrcast.domain.trace_sources import PACKED, WARMED
 
 #: Отдаём ровно манифест и сегменты сетки, и ничего больше: каталог наружу не открыт.
