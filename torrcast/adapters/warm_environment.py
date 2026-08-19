@@ -51,7 +51,7 @@ class _SystemWarmEnvironment:
 
     @staticmethod
     def hms(seconds: float) -> str:
-        # ⚠️ Похожая :func:`torrcast.domain.digest._hms` тут НЕ подходит: она опускает
+        # ⚠️ Похожая :func:`torrcast.domain.digest._words._hms` тут НЕ подходит: она опускает
         # часы у коротких отрезков, а прогрев печатает их всегда.
         return _hms(seconds)
 

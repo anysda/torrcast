@@ -152,7 +152,7 @@ def _lay_out(
             moved = True
         # Выложили одно из трёх - остальные две копии этого места больше не нужны
         # никому: tmpfs не резиновая, а лишний файл в каталоге перекода ещё и выглядел
-        # бы для кодировщика готовым куском (:meth:`torrcast.adapters.recode.Recoder.ready`).
+        # бы для кодировщика готовым куском (:meth:`torrcast.adapters.recode.recoder.Recoder.ready`).
         if moved and source is not path:
             path.unlink(missing_ok=True)
         if moved and better is not None and source is not better:

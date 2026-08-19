@@ -17,7 +17,7 @@ class FakeProwlarr:
         self.catalog = catalog
         self.asked: list[str] = []
         #: Пол бюджета круга и признак выданного за целью бюджета - оба из договора
-        #: клиента (:class:`~torrcast.ports.torrent_catalogue.IndexerClient`): добор
+        #: клиента (:class:`~torrcast.ports.torrent_catalogue.indexer_client.IndexerClient`): добор
         #: двигает первый и читает второй, и молчаливой подделки у них не бывает.
         self.cap_floor = 1.0
         self.over_goal = False

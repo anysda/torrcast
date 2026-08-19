@@ -1,7 +1,7 @@
 """Состояние просмотра как значение: что записано и что из этого спрашивают.
 
 Чистые правила без файла: читает и пишет его файловое состояние
-(:class:`torrcast.adapters.filesystem.state.State`), а спрашивают - сценарии.
+(:class:`torrcast.adapters.filesystem.state.state.State`), а спрашивают - сценарии.
 """
 
 from __future__ import annotations
@@ -71,12 +71,13 @@ class WatchState:
         🔴 Приёмник об этом НЕ спрашивается, и это правило, а не экономия: у всех
         соединений pychromecast один ``source_id``, поэтому второй опрашивающий процесс
         неотличим от владельца сессии и гасит живой показ
-        (:class:`torrcast.adapters.chromecast.cast.ChromecastReceiver`). Занятость телевизора мы
-        знаем из своего состояния или не знаем вовсе.
+        (:class:`torrcast.adapters.chromecast.cast.chromecast_receiver.ChromecastReceiver`).
+        Занятость телевизора мы знаем из своего состояния или не знаем вовсе.
 
         ⚠️ Чего этот признак НЕ видит: показ, убитый ``SIGKILL``, оставляет хэш записанным
-        и выглядит отсюда живым. Разбирает такие сироты :func:`torrcast.cli._release_orphans`
-        (он спрашивает systemd, а не приёмник) - и зовётся он до этой проверки.
+        и выглядит отсюда живым. Разбирает такие сироты
+        :func:`torrcast.usecases.torrents._release_orphans` (он спрашивает systemd, а не приёмник) -
+        и зовётся он до этой проверки.
         """
         live = [(key, entry) for key, entry in self.entries.items() if entry.torrent]
         return max(live, key=lambda item: item[1].updated) if live else None
@@ -124,7 +125,7 @@ def _other_part(query: str, want: str, key: str, entry: Entry) -> bool:
     продолжает следующую невиденную серию, как и продолжала.
 
     Закладка при этом не теряется: у выбранной картины её предложат внутри
-    (:func:`torrcast.cli._continue_picked`).
+    (:func:`torrcast.usecases.cast_command._bookmark._continue_picked`).
     """
     if entry.serial:
         return False

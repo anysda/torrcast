@@ -26,7 +26,7 @@ from torrcast.usecases.rank.over_ceiling import over_ceiling
 class _Judged(Protocol):
     """План в объёме, которым судят одну раздачу: цель сериала и потолки отбора.
 
-    Полный :class:`torrcast.usecases.select.Plan` сюда не приходит: правилу нужны шесть
+    Полный :class:`torrcast.usecases.select.plan.Plan` сюда не приходит: правилу нужны шесть
     его полей, и ровно они названы. Тем же объёмом план видят счёт отсева и снижение
     ступени, которые это правило и зовут.
     """

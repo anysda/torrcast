@@ -176,11 +176,10 @@ def test_a_warmed_copy_heavier_than_the_ceiling_is_not_a_warmed_piece(tmp_path: 
     """Прогретая копия тяжелее потолка приёмника наружу не идёт и запасом не считается.
 
     Прогрев кладёт фильм на диск копией, а тяжёлые места приводит к перекоду отдельным,
-    поздним заходом (:meth:`torrcast.usecases.warm.Warmer._spots_left`). До него на месте тяжёлого
-    куска лежит копия во весь свой вес, а показ берёт прогретое напрямую с диска - мимо
-    обоих мест, где вес зажат потолком
-    (:meth:`torrcast.adapters.stream_pack.packer.Packer.publish`,
-    :meth:`torrcast.adapters.recode.Recoder.holding`).
+    поздним заходом (:meth:`torrcast.usecases.warm.warmer.Warmer._spots_left`). До него на месте
+    тяжёлого куска лежит копия во весь свой вес, а показ берёт прогретое напрямую с диска - мимо
+    обоих мест, где вес зажат потолком (:meth:`torrcast.adapters.stream_pack.packer.Packer.publish`,
+    :meth:`torrcast.adapters.recode.recoder.Recoder.holding`).
 
     Замер на живом Q70D («Тачки» 2006, 1080p, 39% фильма тяжелее потолка): прогрев обгонял
     показ вчетверо, наружу уезжали прогретые копии по 17-44 МБ, и приёмник вставал на
@@ -1489,8 +1488,8 @@ def test_a_piece_over_the_receiver_ceiling_never_stops_the_warm_publishing(
 # --- TC-563: журнал прогрева не говорит, копией он идёт или перекодом -----------------
 # Режим выводился косвенно - по соседней метке «пробный прогон прогрева», которой у
 # перекодирующего захода нет вовсе, - и на этой недоговорённости срывался разбор живого
-# показа: цену соседства с прогревом (:data:`torrcast.adapters.recode.NEIGHBOUR_TOLL`, 33 %) искали
-# там, где прогрев шёл копией, а копия стоит соседу 2-3 %.
+# показа: цену соседства с прогревом (:data:`torrcast.adapters.recode.pace.NEIGHBOUR_TOLL`, 33 %)
+# искали там, где прогрев шёл копией, а копия стоит соседу 2-3 %.
 
 
 def test_the_warm_journal_says_whether_it_copies_or_recodes(

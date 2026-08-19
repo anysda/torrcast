@@ -100,7 +100,7 @@ class AudioTrack:
     def named(self) -> bool:
         """Назвала ли раздача язык дорожки. ``und``/``unk`` и пустой тег — это «не
         назвала» (:data:`_VAGUE_LANG`): язык неизвестен, и выдавать его за русский
-        нельзя (:func:`torrcast.cli.sound_note`)."""
+        нельзя (:func:`torrcast.usecases.rank.sound_note.sound_note`)."""
         return (self.language or "").strip().casefold() not in _VAGUE_LANG
 
     @property

@@ -26,7 +26,8 @@ def _play(rcv: _Talk, url: str, title: str = "", at: float = 0.0) -> None:
     """
     rcv._url, rcv._title = url, title or "torrcast"
     # Смерти считаются по кускам ЭТОГО фильма: следующей серии они не наследуются -
-    # приёмник один на весь юнит, а сетка у каждой серии своя (:func:`torrcast.cli._play`).
+    # приёмник один на весь юнит, а сетка у каждой серии своя
+    # (:func:`torrcast.usecases.playback._play._play`).
     rcv._deaths.clear()
     rcv._peak, rcv._reloads, rcv._stall_hits = at, 0, 0
     rcv._stall_at, rcv._stall_since = -1.0, 0.0

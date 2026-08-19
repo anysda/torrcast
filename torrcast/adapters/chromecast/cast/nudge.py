@@ -54,8 +54,8 @@ def _nudge(rcv: _Talk, pos: float, front: float = 0.0) -> None:
     замерено, 12 нуджей подряд без единого ``PLAYING``, 96 с фильма прошагано впустую.
     Поэтому после :attr:`torrcast.domain.profile.Profile.blind_nudges` слепых прыжков сторож
     умолкает и объявляет показ погасшим (:attr:`_gone`): дальше это работа
-    воскрешения (:class:`torrcast.cli._Revival`), которое поднимает сессию с последнего
-    показанного кадра, а не гонит указатель дальше по фильму.
+    воскрешения (:class:`torrcast.usecases.revive_playback._revival._Revival`), которое поднимает
+    сессию с последнего показанного кадра, а не гонит указатель дальше по фильму.
     """
     now = rcv.clock.monotonic()
     if pos != rcv._stall_at:

@@ -147,7 +147,7 @@ def test_a_closed_port_still_turns_the_indexer_line_red() -> None:
     делает сам отказ соединения.
 
     Заодно снимается срок. У живого поиска терпение своё и длинное
-    (:data:`torrcast.usecases.doctor._INDEXER_TIMEOUT`), а идут пробы по одной - и
+    (:data:`torrcast.usecases.doctor_probe._INDEXER_TIMEOUT`), а идут пробы по одной - и
     закрытый порт не имеет права выесть это терпение целиком, иначе доктор на десятке
     мёртвых индексеров встал бы на минуты вместо мгновенного отказа.
     """

@@ -81,7 +81,7 @@ class _State:
     packer_type: PackFactory = Packer
     log: Any = None
 
-    #: Где сейчас показ; обновляет :func:`torrcast.cli._hold`.
+    #: Где сейчас показ; обновляет :func:`torrcast.usecases.revive_playback._hold._hold`.
     played: float = 0.0
     #: Докуда дошла упаковка - последний выложенный наружу сегмент (:meth:`note`).
     #:
@@ -132,7 +132,7 @@ class _State:
     def working(self) -> bool:
         """Идёт ли заход прямо сейчас.
 
-        По этому и уступает прогрев (:class:`torrcast.usecases.warm.Warmer`).
+        По этому и уступает прогрев (:class:`torrcast.usecases.warm.warmer.Warmer`).
 
         Замер, ради которого свойство появилось: живой перекод под работающим прогревом
         теряет 30 % скорости (:data:`NEIGHBOUR_TOLL`), а ``nice`` от этого не спасает -

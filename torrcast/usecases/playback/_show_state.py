@@ -40,9 +40,9 @@ start_play_unit: Callable[[str], None]
 film_keys: Callable[[str], FilmKeys]
 grid_for: MediaGrids
 #: Раздача по http (:class:`torrcast.adapters.http_server.hls_server.HlsServer`), оба
-#: кодировщика (:class:`torrcast.adapters.recode.Encode`,
-#: :class:`torrcast.adapters.recode.Recoder`), профиль тяжести
-#: (:class:`torrcast.adapters.recode.Weights`) и сплошной перекод: классы адаптеров, у
+#: кодировщика (:class:`torrcast.adapters.recode.encode.Encode`,
+#: :class:`torrcast.adapters.recode.recoder.Recoder`), профиль тяжести
+#: (:class:`torrcast.adapters.recode.weights.Weights`) и сплошной перекод: классы адаптеров, у
 #: которых в слое сценариев есть только имя.
 HlsServer: StreamServers
 Encode: SpotEncodings
@@ -51,8 +51,9 @@ Recoder: SpotRecoders
 #: у неё ровно одно, и называть слоем сценариев весь класс адаптера незачем.
 weights_of: HeavyProfileOf
 whole_encode: WholeEncodings
-#: Мгновенный потолок кодера сверх цели (:data:`torrcast.adapters.recode.MAXRATE_GAIN`) и имя
-#: каталога перекодированных кусков (:data:`torrcast.adapters.recode.RECODE_DIR`).
+#: Мгновенный потолок кодера сверх цели
+#: (:data:`torrcast.adapters.recode.encode_settings.MAXRATE_GAIN`) и имя каталога перекодированных
+#: кусков (:data:`torrcast.adapters.recode.recode_dir.RECODE_DIR`).
 MAXRATE_GAIN: float
 RECODE_DIR: str
 

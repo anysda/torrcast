@@ -23,7 +23,7 @@ def _say_showing(live: tuple[str, Entry] | None) -> None:
     (:meth:`torrcast.adapters.filesystem.state.state.State.showing`) и только оттуда:
     спросить сам приёмник значит подключиться к нему вторым сендером и погасить
     показ, который мы как раз и бережём
-    (:class:`torrcast.adapters.chromecast.cast.ChromecastReceiver`).
+    (:class:`torrcast.adapters.chromecast.cast.chromecast_receiver.ChromecastReceiver`).
     """
     if live is None:
         return

@@ -23,8 +23,8 @@ class _Revivable(Protocol):
 
     ``replay`` отвечает секундой, С КОТОРОЙ показ пошёл, а не «да/нет»: приёмник вправе
     поднять его не там, где просили
-    (:meth:`torrcast.adapters.chromecast.cast.ChromecastReceiver._past_deadly`), и тогда «да» на
-    месте, которого зритель не увидит, - это враньё о пятнадцати секундах фильма.
+    (:meth:`torrcast.adapters.chromecast.cast.chromecast_receiver.ChromecastReceiver._past_deadly`),
+    и тогда «да» на месте, которого зритель не увидит, - это враньё о пятнадцати секундах фильма.
     :data:`torrcast.domain.not_raised.NOT_RAISED` - картинки нет; ноль ответом об отказе не является,
     это законное начало картины.
     """

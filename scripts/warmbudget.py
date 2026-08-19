@@ -7,8 +7,8 @@
 веса куска - поэтому число «сколько лягет на диск» тут не оценка на глаз, а расчёт показа.
 
 Рядом печатается ``запрос`` - то, на что прогрев просит места у бюджета перед заходом
-(:meth:`torrcast.usecases.warm.Warmer._forecast`): зовётся сам предсказатель, а не переписанная
-тут арифметика, поэтому расхождение «запроса» с «копией» - это и есть ошибка прогрева,
+(:meth:`torrcast.usecases.warm.warmer.Warmer._forecast`): зовётся сам предсказатель, а не
+переписанная тут арифметика, поэтому расхождение «запроса» с «копией» - это и есть ошибка прогрева,
 а не ошибка щупа.
 
     python scripts/warmbudget.py --keys /var/lib/torrcast/keys --probe /var/lib/torrcast/probe
@@ -122,7 +122,7 @@ def main() -> int:
         )
         # Два веса на один и тот же кусок. Копия - то, что прогрев кладёт на диск сразу
         # и чем занимает бюджет всё время показа; перекод - то, во что тяжёлые места
-        # приводятся поздним заходом (:meth:`torrcast.usecases.warm.Warmer._spots_left`).
+        # приводятся поздним заходом (:meth:`torrcast.usecases.warm.warmer.Warmer._spots_left`).
         copy = weigher(keys.at, keys.offset, extra, 0.0)
         weigh = weigher(keys.at, keys.offset, extra, ceiling)
         sizes = [copy(grid.start(k), grid.end(k)) for k in range(grid.count)]

@@ -48,7 +48,7 @@ def _play(
     Раздача, приёмник и LOAD при этом одни на весь показ.
 
     ``follow`` - чем прогреву заняться, когда эта серия ляжет на диск целиком
-    (:attr:`torrcast.usecases.warm.Warmer.follow`); у фильма его нет и быть не может.
+    (:attr:`torrcast.usecases.warm.warmer.Warmer.follow`); у фильма его нет и быть не может.
 
     ``supply`` - источник показа (:class:`torrcast.ports.stream_source.StreamSource`): служба и наша
     раздача в ней. Спрашивают его только на краю показа, зато прежде, чем объявить показ

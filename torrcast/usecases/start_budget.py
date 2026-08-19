@@ -18,7 +18,7 @@ from torrcast.domain.worker_settings import WORKER_DUR, WORKER_META
 #: 60), он гасил `stop_play_unit`'ом показ, который вот-вот начался бы.
 #:
 #: Ждать так долго не страшно и не молчаливо:
-#: :class:`~torrcast.adapters.console.console.Progress` всё это время показывает живую
+#: :class:`~torrcast.adapters.console.console.progress.Progress` всё это время показывает живую
 #: фазу, а любая честная неудача убивает юнит раньше - CLI видит
 #: это по :func:`unit_active` и печатает причину из журнала, не досиживая до конца.
 START_BUDGET = WORKER_META + WORKER_DUR + KEYS_WAIT + PILOT_TIMEOUT + START_SLACK + START_TIMEOUT

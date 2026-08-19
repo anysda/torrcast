@@ -723,11 +723,11 @@ def test_ten_bit_h264_goes_through_a_whole_file_recode_like_hevc() -> None:
 def test_the_show_and_the_warmer_decide_the_recode_the_same_way() -> None:
     """🔴 Показ и прогрев обязаны решать одинаково - иначе прогретое ляжет не под тем ключом.
 
-    Прогрев зовёт :func:`torrcast.cli.layout` с паспортом только что снятого ffprobe, показ -
-    с тем, что лежит в записи состояния. Разойдись они, и ключ прогретого куска
+    Прогрев зовёт :func:`torrcast.usecases.playback.layout.layout` с паспортом только что снятого
+    ffprobe, показ - с тем, что лежит в записи состояния. Разойдись они, и ключ прогретого куска
     (:func:`torrcast.usecases.warm.warm_key`) не совпадёт с ключом, который спросит показ: грелось
-    впустую, а на экран уехала бы смесь копии и перекода - ровно тот SPS, на котором
-    приёмник встаёт.
+    впустую, а на экран уехала бы смесь копии и перекода - ровно тот SPS, на котором приёмник
+    встаёт.
     """
     from torrcast.domain.entry import Entry
     from torrcast.domain.media import Media
@@ -1172,9 +1172,9 @@ def test_when_the_queue_runs_out_the_unnamed_release_plays_by_the_mute_move(
     """🔴 TC-492. Русской не нашлось ни у кого - играет отложенный, ходом TC-178.
 
     Хода под этот случай не заводится нового и строки не разводится: работает тот же
-    :meth:`~torrcast.cli.Bench._mute_fallback`, что и у прямо нерусского релиза. Играет
-    при этом тот, про кого меньше известно плохого: паспорт, промолчавший про язык, ещё
-    может оказаться русским, а названный японским русским уже не станет.
+    :meth:`~torrcast.usecases.select_bench.bench.Bench._mute_fallback`, что и у прямо нерусского
+    релиза. Играет при этом тот, про кого меньше известно плохого: паспорт, промолчавший про язык,
+    ещё может оказаться русским, а названный японским русским уже не станет.
     """
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
     probe = _tracks(ranked, "jpn", "und", "jpn")

@@ -365,10 +365,10 @@ def test_the_only_sure_marked_release_of_a_picture_is_not_shown_instead_of_it() 
 
     У «воссоединения актёрского состава» из сохранённой выдачи единственная раздача
     несёт метку «допматериалы» - и она же есть та самая картина, которую спросили.
-    Замер TC-339 держался на том, что верх :attr:`~torrcast.cli.Plan.ranked` попадает в
-    очередь безусловно; TC-432 повёл через ворота и его, и такая картина теперь кончается
-    честным отказом, а не бонус-диском вместо картины. Метка при этом судит БЕЗ веса, как
-    и судила: 2.4 ГБ тут по битрейту выглядят картиной.
+    Замер TC-339 держался на том, что верх :attr:`~torrcast.usecases.select.plan.Plan.ranked`
+    попадает в очередь безусловно; TC-432 повёл через ворота и его, и такая картина теперь кончается
+    честным отказом, а не бонус-диском вместо картины. Метка при этом судит БЕЗ веса, как и судила:
+    2.4 ГБ тут по битрейту выглядят картиной.
 
     Вернуть отсеянную раздачу может только сам человек, номером из таблицы: ``--release N``
     в ворота не ходит.
@@ -909,11 +909,11 @@ def test_the_walk_down_the_queue_stops_when_the_start_budget_is_out(
     """Упорство упорством, а человек сидит у консоли: бюджет фазы отбора конечен.
 
     Потолок тот же, что был у трёх попыток по полному бюджету раздачи
-    (:data:`~torrcast.cli.PICK_BUDGET`), и кончиться он обязан честной строкой, а не
+    (:data:`~torrcast.domain.pick_settings.PICK_BUDGET`), и кончиться он обязан честной строкой, а не
     новым походом в рой. 🔴 TC-435: честная - это «рой молчит», а не «годного релиза
     нет»: негодных не нашли ни одной, их просто не прочитали. Совета «выбери руками»
     тут нет - весь бюджет ушёл на раздачи, стоявшие выше неспрошенных, и про хвост
-    очереди мы не знаем ничего (:func:`~torrcast.cli.silent_swarm`).
+    очереди мы не знаем ничего (:func:`~torrcast.usecases.discover.silent_swarm.silent_swarm`).
     """
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(6)]
     prober = _probes(ranked, "h264")
@@ -960,8 +960,9 @@ class _Sleeper:
 def test_the_pick_budget_cuts_the_wait_it_has_already_started() -> None:
     """🔴 TC-436. Потолок фазы отбора держит и ожидание ВНУТРИ попытки, а не только переход.
 
-    Замер TC-424: потолок (:data:`~torrcast.cli.PICK_BUDGET`, 180 с) проверялся ровно между
-    попытками, поэтому свежий прогрев, начатый на 179-й секунде, ждал своего по СВОЕМУ сроку
+    Замер TC-424: потолок (:data:`~torrcast.domain.pick_settings.PICK_BUDGET`, 180 с) проверялся
+    ровно между попытками, поэтому свежий прогрев, начатый на 179-й секунде, ждал своего по СВОЕМУ
+    сроку
     - метаданные плюс проба плюс 5, то есть до 65 с, - и худший обход стоил человеку около
     245 с вместо объявленных 180. Платит за это зритель ожиданием картинки.
 
@@ -1022,12 +1023,14 @@ def test_a_fully_walked_queue_of_dead_swarms_is_an_honest_dead_swarm(
     бюджету и ниже могли лежать живые, а тут очередь именно кончилась.
 
     «Пиров нет» тут при этом не говорится: сиды у раздач как раз числятся - сотня, - и
-    молчание роя с пустой выдачей путать нельзя (:func:`~torrcast.cli.silent_swarm`).
+    молчание роя с пустой выдачей путать нельзя
+    (:func:`~torrcast.usecases.discover.silent_swarm.silent_swarm`).
 
     🔴 TC-300. Строк на три раздачи тут четыре: перед отказом лучший из промолчавших
-    спрашивается ещё раз, один и без отсрочек (:meth:`~torrcast.cli.Bench._recheck`).
-    Рой этой картины мёртв по-настоящему, второй спрос это подтверждает - и отказ
-    остаётся ровно тем же, что был, вместе со всеми своими числами.
+    спрашивается ещё раз, один и без отсрочек
+    (:meth:`~torrcast.usecases.select_bench.bench.Bench._recheck`). Рой этой картины мёртв
+    по-настоящему, второй спрос это подтверждает - и отказ остаётся ровно тем же, что был, вместе со
+    всеми своими числами.
     """
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
     prober = _probes(ranked, "h264")
@@ -1052,8 +1055,8 @@ class _Impatient(_FakeTorrServer):
     бюджет раздачи - метаданные целиком.
 
     Так выглядит живая раздача, которую очередь считает мёртвой: отсрочка обрывает её
-    втрое раньше её собственного бюджета (:data:`~torrcast.cli.PEER_GRACE`), и очередь
-    доходит до конца, ни разу никого не дослушав.
+    втрое раньше её собственного бюджета (:data:`~torrcast.domain.rank_settings.PEER_GRACE`), и
+    очередь доходит до конца, ни разу никого не дослушав.
     """
 
     def wait_files(
@@ -1121,8 +1124,8 @@ def test_the_patient_ask_is_not_made_when_the_phase_budget_cannot_cover_it(
 ) -> None:
     """Второй спрос живёт внутри прежнего потолка фазы, а не сверх него.
 
-    Потолок (:data:`~torrcast.cli.PICK_BUDGET`) заводился не зря: человек сидит у консоли.
-    Остатка меньше худшей цены спроса - спроса и нет, отказ приходит как приходил.
+    Потолок (:data:`~torrcast.domain.pick_settings.PICK_BUDGET`) заводился не зря: человек сидит у
+    консоли. Остатка меньше худшей цены спроса - спроса и нет, отказ приходит как приходил.
     """
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
     prober = _probes(ranked, "h264")
@@ -1222,8 +1225,8 @@ def test_a_disc_image_verdict_is_not_asked_twice(capsys: pytest.CaptureFixture[s
 
     Раздача, у которой метаданные приехали целиком и видеофайла в ней не оказалось,
     осуждена, а не промолчала: про неё известно всё, и терпение её ответа не изменит.
-    Опознаётся это ТИПОМ отказа (:func:`torrcast.cli._silenced`), а типом тут обязан быть
-    тот же, что у «нужной серии нет»
+    Опознаётся это ТИПОМ отказа (:func:`torrcast.usecases.select._verdict._silenced`), а типом тут
+    обязан быть тот же, что у «нужной серии нет»
     (:func:`torrcast.adapters.stream_probe.pick_video_file.pick_video_file` поднимает его на пути
     настоящего прогрева, без всякого подставного ``choose``).
     """
@@ -1353,7 +1356,7 @@ def test_cheap_verdicts_do_not_eat_the_place_of_the_living_release_below(
     а место в очереди он занимал ровно как приговор тяжёлому ремуксу.
 
     Здесь три приговора подряд стоят долей секунды (:class:`_FakeTorrServer` отвечает
-    сразу), то есть весь :data:`~torrcast.cli.VERDICT_BUDGET` остаётся нетронутым, и
+    сразу), то есть весь :data:`~torrcast.domain.pick_settings.VERDICT_BUDGET` остаётся нетронутым, и
     четвёртая раздача - названный 1080p - обязана быть спрошена.
     """
     ranked = [
@@ -1727,7 +1730,7 @@ def test_a_barely_seeded_1080p_does_not_claim_the_step() -> None:
 
     Против пятисидового соседа доля 0.60 формально проходит любой порог, а три сида —
     это подгрузы, и живой 720p честнее: рой, не играбельный сам по себе
-    (:data:`~torrcast.cli.ALIVE_SEEDERS`), ступенью качества не лечится.
+    (:data:`~torrcast.domain.rank_settings.ALIVE_SEEDERS`), ступенью качества не лечится.
     """
     full = rel(name="BDRip 1080p", codec=None, size_gb=7.2, seeders=3)
     hd = rel(name="BDRip 720p", codec=None, quality="720p", size_gb=5.3, seeders=5)
@@ -1739,10 +1742,10 @@ def test_a_live_1080p_is_not_priced_against_a_pool_leader_on_the_recode_step() -
     """«Тачки 2»: лидер пула — тяжеляк, играбельный только сплошным перекодом.
 
     Верх выдачи по сидам держал ремукс на 71 сид, утопленный своей ступенью веса
-    (:func:`~torrcast.cli.needs_whole_recode`) и в споре за верх не участвующий. А
-    знаменатель живости считался по нему, и русский 1080p-дубляж с 11 сидами
-    проигрывал русскому же 720p с тринадцатью: 11 < 71 × 0.25. Против настоящего
-    соперника у него 0.85 — ступень его, и дефолт обязан встать на 1080p.
+    (:func:`~torrcast.usecases.rank.needs_whole_recode.needs_whole_recode`) и в споре за верх не
+    участвующий. А знаменатель живости считался по нему, и русский 1080p-дубляж с 11 сидами
+    проигрывал русскому же 720p с тринадцатью: 11 < 71 × 0.25. Против настоящего соперника у него
+    0.85 — ступень его, и дефолт обязан встать на 1080p.
     """
     heavy = rel(name="BDRemux 1080p", codec=None, size_gb=45.0, seeders=71)
     hd = rel(name="BDRip 720p", codec=None, quality="720p", size_gb=5.3, seeders=13)
@@ -1849,7 +1852,7 @@ def _cars_franchise() -> list[Any]:
     выше потолка отбора, а второй релиз - 0.4-гигабайтный HDRip «фильм о фильме» с одним
     сидом. Играть картине нечем, и сказать это обязаны ДВЕ ступени независимо: ворота
     отбора (🔴 TC-290: ролик о съёмках не кандидат вовсе) и порог живости
-    (:data:`~torrcast.cli.ALIVE_SEEDERS`: один сид - не рой). Ступени намеренно не
+    (:data:`~torrcast.domain.rank_settings.ALIVE_SEEDERS`: один сид - не рой). Ступени намеренно не
     выброшены одна ради другой: у ворот на такой случай есть и другой ответ - раздача,
     которая и правда картина, просто мёртвая.
     """
@@ -1905,7 +1908,7 @@ def test_menu_default_steps_over_a_dead_first_picture() -> None:
 def test_a_faint_swarm_does_not_count_as_alive() -> None:
     """Один сид - это не «живая часть», а её отсутствие.
 
-    Порог - свой рой картины (:data:`~torrcast.cli.ALIVE_SEEDERS`). Без него дефолт
+    Порог - свой рой картины (:data:`~torrcast.domain.rank_settings.ALIVE_SEEDERS`). Без него дефолт
     уходил бы на первую попавшуюся картину с хоть каким-то кандидатом.
     """
     plans = _cars_franchise()
@@ -2422,7 +2425,8 @@ def test_the_year_line_belongs_to_the_default_not_to_the_human_choice() -> None:
     """Гейт года живёт там же, где гейт картины: у дефолта, а не у выбора человека.
 
     Человек, ответивший на меню сам, ничего не подменял - говорить ему «беру не тот год»
-    было бы враньём (:func:`~torrcast.cli._is_default`, общий с :func:`~torrcast.cli.swap_note`).
+    было бы враньём (:func:`~torrcast.usecases.choice.swap_note._is_default`, общий с
+    :func:`~torrcast.usecases.choice.swap_note.swap_note`).
     """
     plans = _parts(("Оно", 2014, 37), ("Оно", 2017, 214))
     assert _is_default(plans, plans[0]), "первая часть по хронологии - дефолт"
@@ -2452,10 +2456,10 @@ def test_a_film_is_not_swapped_for_a_same_name_series_with_a_deeper_queue() -> N
     """🔴 TC-192. «Нелюбовь» - это фильм Звягинцева, а не сериал «НЕлюбовь [S01]».
 
     Однораздачная картина уступает дефолт соседке, у которой и очередь глубже, и рой
-    живее (:func:`~torrcast.cli.backed`). Через границу типа это правило врёт: у фильма
-    раздача одна на всё кино, у сериала - на каждый сезон, и общей линейкой фильм
-    объявлялся «формально живым» ровно за то, что он фильм. Замер: фильм 2017 года одной
-    раздачей на 40 сид против сериала двумя на 120 - дефолтом молча вставал сериал.
+    живее (:func:`~torrcast.usecases.choice.backed.backed`). Через границу типа это правило врёт: у
+    фильма раздача одна на всё кино, у сериала - на каждый сезон, и общей линейкой фильм объявлялся
+    «формально живым» ровно за то, что он фильм. Замер: фильм 2017 года одной раздачей на 40 сид
+    против сериала двумя на 120 - дефолтом молча вставал сериал.
     """
     film = _franchise_plan("Нелюбовь", 2017, [rel(name="Нелюбовь 2017 BDRip 1080p", seeders=40)])
     series = _franchise_plan(
@@ -2501,7 +2505,8 @@ def test_default_leaves_a_dead_end_picture_for_its_living_namesake() -> None:
 
     Тупик тут дословный: одна SD-раздача, порог живости она проходит (8 сид), очереди за
     ней нет, и нужного сезона тоже. Рядом стоит картина ровно того же имени с тридцатью
-    раздачами в 1080p. :func:`~torrcast.cli.backed` за неё не берётся - тип другой (TC-192),
+    раздачами в 1080p. :func:`~torrcast.usecases.choice.backed.backed` за неё не берётся - тип другой
+    (TC-192),
     - и дефолтом молча вставал тупик. Тот же расклад у «Ангела», «Убийства», «Родины».
     """
     stub = _franchise_plan(
@@ -2796,9 +2801,10 @@ def test_the_understudy_is_a_namesake_and_never_someone_elses_picture() -> None:
     """🔴 TC-203. Ограждения ухода: тёзка по году - да, соседка по франшизе - никогда.
 
     «Тачки 2» вместо «Тачек» - это другое кино, и уходить туда самому нельзя ни при каком
-    отказе: о таких соседях говорит подсказка (:func:`~torrcast.cli.kin_line`), и подсказкой
-    она и остаётся. Тип обязан совпасть по той же причине, по какой его не меняет дефолт.
-    Мёртвая тёзка дублёром не бывает: играть ею нечем ровно так же.
+    отказе: о таких соседях говорит подсказка
+    (:func:`~torrcast.usecases.discover.kin_line.kin_line`), и подсказкой она и остаётся. Тип обязан
+    совпасть по той же причине, по какой его не меняет дефолт. Мёртвая тёзка дублёром не бывает:
+    играть ею нечем ровно так же.
     """
     cars = _parts(("Тачки", 2006, 66), ("Тачки 3", 2017, 121))
     assert understudy(cars, cars[0]) is None, "соседка по франшизе - другое кино"
@@ -2873,7 +2879,7 @@ def test_without_a_live_namesake_the_refusal_stays_the_refusal(
 
     Уход к соседке по франшизе или к одноимённому сериалу тут был бы подменой картины,
     и молчание отказа подменять его нечем: подсказку про соседей отказ несёт сам
-    (:func:`~torrcast.cli.kin_line`).
+    (:func:`~torrcast.usecases.discover.kin_line.kin_line`).
     """
     plans = _parts(("Тачки", 2006, 66), ("Тачки 3", 2017, 121))
     bench = _SwitchBench()
@@ -2989,9 +2995,10 @@ def test_enter_picks_the_top_of_the_menu(capsys: pytest.CaptureFixture[str]) -> 
 def test_the_spare_release_goes_up_next_to_the_first_one() -> None:
     """Запасной релиз выбранной картины греется вместе с верхом, а не после его брака.
 
-    Номер у него ровно тот же, который возьмёт :meth:`~torrcast.cli.Bench.resolve`, -
-    следующий в очереди (:meth:`~torrcast.cli.Plan.candidates`). Отличается только время:
-    раньше он поднимался в отборе, теперь - пока на экране висит меню.
+    Номер у него ровно тот же, который возьмёт
+    :meth:`~torrcast.usecases.select_bench.bench.Bench.resolve`, - следующий в очереди
+    (:meth:`~torrcast.usecases.select.plan.Plan.candidates`). Отличается только время: раньше он
+    поднимался в отборе, теперь - пока на экране висит меню.
     """
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
     prober = _probes(ranked, "h264")
@@ -3245,8 +3252,8 @@ def test_an_unnamed_language_falls_back_to_the_existing_mute_move(
 
     До правки безымянный паспорт кончался собственной строкой «русской рядом нет, играю
     его» - то есть тем же показом, только с оправданием. Хода тут не заводится нового:
-    работает тот же :meth:`~torrcast.cli.Bench._mute_fallback`, что и у прямо нерусского
-    релиза, одной строкой на всё решение.
+    работает тот же :meth:`~torrcast.usecases.select_bench.bench.Bench._mute_fallback`, что и у прямо
+    нерусского релиза, одной строкой на всё решение.
 
     Отложенный при этом выбирается не первым попавшимся: паспорт, промолчавший про язык,
     ещё может оказаться русским, а названный английским - уже нет. Поэтому играет верх с
@@ -3321,10 +3328,10 @@ def test_a_dubbed_neighbour_warms_under_the_menu_when_the_top_promises_nothing()
     """🔴 TC-309. Верх именем русскую не обещает - ближайший обещавший греется заодно.
 
     Проверка честности спросит этого соседа первым же вопросом, если дорожка верха
-    окажется без тега языка (:meth:`~torrcast.cli.Bench._honest`, повод «язык звука не
-    назван»), а с нуля - метаданные роя плюс чтение дорожек - он в
-    :data:`~torrcast.cli.HONEST_BUDGET` укладывался не всегда. Пауза под меню при этом
-    простаивает.
+    окажется без тега языка (:meth:`~torrcast.usecases.select_bench.bench.Bench._honest`, повод «язык
+    звука не назван»), а с нуля - метаданные роя плюс чтение дорожек - он в
+    :data:`~torrcast.domain.pick_settings.HONEST_BUDGET` укладывался не всегда. Пауза под меню при
+    этом простаивает.
     """
     ranked = [
         rel(name="Кино [WEB-DL 1080p] тихий", voices=(), seeders=140),
@@ -3345,7 +3352,7 @@ def test_a_dubbed_neighbour_warms_when_a_front_candidate_promises_nothing() -> N
     Проверка честности спрашивает того, кого отбор реально взял, а это не обязан быть
     верх: верх забракуют (мёртвый рой, чужой язык в паспорте), и повод «язык звука не
     назван» всплывёт на втором-третьем кандидате. Гейт поэтому смотрит первых
-    :data:`~torrcast.cli.MAX_TRIES` кандидатов, а не одного верха.
+    :data:`~torrcast.domain.pick_settings.MAX_TRIES` кандидатов, а не одного верха.
     """
     ranked = [
         rel(name="Кино [BDRip 1080p] верх | D", seeders=140),
@@ -3528,9 +3535,9 @@ def _named_release(title: str, year: int) -> Release:
 def test_a_picture_we_did_not_choose_stops_being_warmed_the_moment_we_choose() -> None:
     """Картина выбрана - прогревы ОСТАЛЬНЫХ картин убираются сразу, а не после отбора.
 
-    Раньше они доживали до :meth:`~torrcast.cli.Bench.keep_only`, то есть до конца
-    отбора: до :data:`~torrcast.cli.PICK_BUDGET` секунд две-три чужие раздачи тянули
-    куски у той единственной, которую мы вот-вот покажем.
+    Раньше они доживали до :meth:`~torrcast.usecases.select_bench.bench.Bench.keep_only`, то есть до
+    конца отбора: до :data:`~torrcast.domain.pick_settings.PICK_BUDGET` секунд две-три чужие раздачи
+    тянули куски у той единственной, которую мы вот-вот покажем.
 
     Внутри выбранной картины не убирается ничего: запасной релиз греется параллельно
     верху намеренно, и распорядиться им вправе только сам отбор.
@@ -3556,7 +3563,7 @@ def test_a_picture_we_did_not_choose_stops_being_warmed_the_moment_we_choose() -
 
 def test_we_never_hold_more_torrents_at_once_than_the_ceiling() -> None:
     """Жёсткий потолок: сколько бы ни длился перебор, одновременно держим не больше
-    :data:`~torrcast.cli.MAX_LIVE` раздач.
+    :data:`~torrcast.domain.prewarm_settings.MAX_LIVE` раздач.
 
     TorrServer падает по таймеру раз в 15 минут тем вероятнее, чем больше раздач
     он тянет; до потолка очередь перебора поднимала по раздаче за попытку, а убиралось
@@ -3612,7 +3619,8 @@ def test_a_neighbour_asked_about_honesty_is_dropped_once_it_has_answered(
     """Проверка «честного HD» спрашивает соседей по одному - и отпускает их сразу.
 
     До сих пор отвергнутый сосед доживал до старта показа: до трёх лишних раздач
-    (:data:`~torrcast.cli.MAX_TRIES`) в тот самый момент, когда полоса роя нужна показу.
+    (:data:`~torrcast.domain.pick_settings.MAX_TRIES`) в тот самый момент, когда полоса роя нужна
+    показу.
     """
     ranked = [
         rel(name="Кино [WEB-DL] a", quality=None, size_gb=3.14, seeders=140),
@@ -3682,9 +3690,9 @@ def test_a_multi_season_pack_that_hides_its_bitrate_stops_outranking_the_live_on
     """🟡 «Чёрные паруса»: перебор упирался в старьё, у которого имя молчит обо всём.
 
     ``[S01-04] (2014-2017) HDTV-AlexFilm`` не называет ни разрешения, ни кодека и серий
-    не считает - :func:`~torrcast.cli.bitrate_of` на таком молчит (``None``, TC-344), и
-    раздача с ОДНИМ сидом вставала в очереди выше сериала на 61 сид. Три таких верха
-    подряд - это три приговора ``mpeg4``, весь :data:`~torrcast.cli.MAX_TRIES` и 130
+    не считает - :func:`~torrcast.usecases.rank.bitrate_of.bitrate_of` на таком молчит (``None``,
+    TC-344), и раздача с ОДНИМ сидом вставала в очереди выше сериала на 61 сид. Три таких верха
+    подряд - это три приговора ``mpeg4``, весь :data:`~torrcast.domain.pick_settings.MAX_TRIES` и 130
     секунд, после которых показ говорит «годного релиза нет» при живом каталоге.
     """
     from torrcast.usecases.rank.is_dated import is_dated
@@ -3711,9 +3719,9 @@ def test_a_multi_season_pack_that_hides_its_bitrate_stops_outranking_the_live_on
 def test_the_pack_ceiling_never_judges_a_release_only_orders_it() -> None:
     """Потолок пака - это ПОРЯДОК и только он: ворота отбора считают, как считали.
 
-    Отдельно от :func:`~torrcast.cli.bitrate_of` он живёт нарочно: тот кормит
-    :func:`~torrcast.cli.is_candidate`, и потолок в воротах означал бы «слишком тяжёлый»,
-    то есть отказ показывать честный 114-гигабайтный пак.
+    Отдельно от :func:`~torrcast.usecases.rank.bitrate_of.bitrate_of` он живёт нарочно: тот кормит
+    :func:`~torrcast.usecases.rank.is_candidate.is_candidate`, и потолок в воротах означал бы
+    «слишком тяжёлый», то есть отказ показывать честный 114-гигабайтный пак.
     """
     from torrcast.usecases.rank.bitrate_of import bitrate_of
     from torrcast.usecases.rank.is_candidate import is_candidate
@@ -3953,10 +3961,11 @@ def test_a_release_already_judged_is_not_turned_down_twice_on_screen(
 
     Замер, с которого началось: у «Сталкера» в недельной ленте два отказа, а на экране
     человек прочитал четыре строки. Подготовка забракованного релиза остаётся в
-    :attr:`~torrcast.cli.Bench.preps` готовой - ``ffprobe`` прочитан, ответ есть, - и
-    проверка честности переспрашивала её тем же :meth:`~torrcast.cli.Bench._trouble` с теми
-    же порогами. Приговор выходил тот же, строка печаталась вторая, а записи не было ни
-    одной новой: экран и лента расходились ровно на этот дубль.
+    :attr:`~torrcast.usecases.select_bench.bench.Bench.preps` готовой - ``ffprobe`` прочитан, ответ
+    есть, - и проверка честности переспрашивала её тем же
+    :meth:`~torrcast.usecases.select_bench.bench.Bench._trouble` с теми же порогами. Приговор выходил
+    тот же, строка печаталась вторая, а записи не было ни одной новой: экран и лента расходились
+    ровно на этот дубль.
     """
     ranked = [
         rel(name="Кино [WEB-DL 1080p] a", size_gb=3.20, seeders=140),
@@ -3983,7 +3992,8 @@ def test_a_release_turned_down_by_the_honesty_check_is_written_to_the_trace(
 
     Второй замер: у «Наруто» строка отказа на экране одна, а событий за сеанс НОЛЬ - по
     следу выходило, что отбор прошёл без единой осечки. Запись рождалась только в очереди
-    отбора, а :meth:`~torrcast.cli.Bench._honest` печатал свои отказы мимо неё.
+    отбора, а :meth:`~torrcast.usecases.select_bench.bench.Bench._honest` печатал свои отказы мимо
+    неё.
     """
     ranked = [
         rel(name="Кино [WEB-DL] a", quality=None, size_gb=3.14, seeders=140),
@@ -4359,7 +4369,7 @@ def test_the_namesake_line_stays_silent_where_it_should() -> None:
 
     Год, разошедшийся со справкой, - самый важный случай: паспорт приехал про ДРУГУЮ
     картину, и её тёзка к выбранной отношения не имеет. Про сам разъезд человек читает
-    своей строкой (:func:`~torrcast.cli.year_note`), и валить их в кучу нельзя.
+    своей строкой (:func:`~torrcast.usecases.choice.year_note.year_note`), и валить их в кучу нельзя.
     """
     from torrcast.domain.facts.origin import Origin
 

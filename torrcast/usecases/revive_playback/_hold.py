@@ -112,7 +112,7 @@ def _hold(
         if warmer is not None:
             # Приоритет живого окна держится ровно здесь: прогрев видит тот же запас, что
             # и сторож приёмника, и на просевшем замирает
-            # (:meth:`torrcast.usecases.warm.Warmer._throttle`).
+            # (:meth:`torrcast.usecases.warm.warmer.Warmer._throttle`).
             warmer.feed(feed.front(position.pos) - position.pos)
             if warmer.done and feed.rest():
                 print("прогрето целиком - живую упаковку гашу, показ идёт с диска", flush=True)
@@ -125,10 +125,10 @@ def _hold(
         # последнем куске рапортует BUFFERING и живым себя считать не перестаёт, а сторож
         # подвиса на нём молчит по своему же правилу - впереди честно пусто, потому что
         # картина кончилась, и неподвижность он читает как законное ожидание упаковки
-        # (:meth:`torrcast.adapters.chromecast.cast.ChromecastReceiver._nudge`). Сеанс в этом месте
-        # не кончался вовсе: показ висел до утра, следующая серия не начиналась, и терялся именно
-        # переход - то, что дороже хвоста. Поэтому неподвижный указатель ЗА долей длительности сам
-        # кончает сеанс: дальше конец разбирает :meth:`Watch.close`.
+        # (:meth:`torrcast.adapters.chromecast.cast.chromecast_receiver.ChromecastReceiver._nudge`).
+        # Сеанс в этом месте не кончался вовсе: показ висел до утра, следующая серия не начиналась,
+        # и терялся именно переход - то, что дороже хвоста. Поэтому неподвижный указатель ЗА долей
+        # длительности сам кончает сеанс: дальше конец разбирает :meth:`Watch.close`.
         if watch is not None and position.playing and watch.entry.ending:
             if position.pos != screen.tail_at:
                 screen.tail_at, screen.tail_since = position.pos, clock.monotonic()

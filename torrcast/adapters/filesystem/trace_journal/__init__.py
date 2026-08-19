@@ -4,10 +4,10 @@
 пишется, но врозь и недолго. Фазы старта живут в секундомере
 (:func:`torrcast.adapters.filesystem.stopwatch.mark`), время отдачи кусков - в ``TORRCAST_TRACE``
 (:meth:`torrcast.adapters.http_server._handler._Handler._sent`), решения отбора - в журнале
-прогресса (:meth:`torrcast.adapters.console.console.Progress.note`) и в ``journald`` юнита показа.
-Каждое из этого гаснет вместе с командой и по нему нельзя спросить «что было за неделю». Этот слой
-ничего из перечисленного не дублирует: он сводит те же события в одну ленту - :func:`mark` и
-:func:`~torrcast.adapters.console.console.Progress.note` дозывают :func:`emit` сами,
+прогресса (:meth:`torrcast.adapters.console.console.progress.Progress.note`) и в ``journald`` юнита
+показа. Каждое из этого гаснет вместе с командой и по нему нельзя спросить «что было за неделю».
+Этот слой ничего из перечисленного не дублирует: он сводит те же события в одну ленту - :func:`mark`
+и :func:`~torrcast.adapters.console.console.progress.Progress.note` дозывают :func:`emit` сами,
 - и держит её семь дней с потолком места.
 
 🔴 **Запись не в горячем пути.** Отдача сегмента

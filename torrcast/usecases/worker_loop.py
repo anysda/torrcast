@@ -108,7 +108,8 @@ def _worker_loop(
             frame=entry.frame,
             hdr=entry.hdr,
             # Прогрев следующей серии впрок: собирается лениво, когда текущая уже на
-            # диске (:meth:`torrcast.usecases.warm.Warmer._chain`). Раздача та же, файл - соседний.
+            # диске (:meth:`torrcast.usecases.warm.warmer.Warmer._chain`). Раздача та же, файл -
+            # соседний.
             follow=partial(_next_warmer, config, torrserver, torrent_hash, entry, profile),
             supply=supply,
             profile=profile,

@@ -196,7 +196,7 @@ def test_the_spot_shrink_aims_under_both_ceilings_of_the_receiver(tmp_path: Path
             return None
 
         def fit(self, span: float, preset: str) -> Encode:
-            # Тело - копия :meth:`torrcast.adapters.recode.Recoder.fit`, знак в знак:
+            # Тело - копия :meth:`torrcast.adapters.recode.recoder.Recoder.fit`, знак в знак:
             # заглушка со своим расчётом зелена при любом контракте.
             return replace(self.encode, preset=preset).fit(span, self.cap, self.threshold)
 

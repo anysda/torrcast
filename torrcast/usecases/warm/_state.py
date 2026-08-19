@@ -15,7 +15,7 @@ from torrcast.ports.warm_environment.warm_packer import WarmPacker
 
 Grid = WarmGrid
 #: Прогон упаковки в том объёме, в каком его знает прогрев: край, процесс, выкладка и
-#: конец. Договор стоит в порту (:class:`torrcast.ports.warm_environment.WarmPack`), а
+#: конец. Договор стоит в порту (:class:`torrcast.ports.warm_environment.warm_pack.WarmPack`), а
 #: не повторяется здесь: повторённый, он разъезжался бы с портом молча.
 _Run = WarmPack
 

@@ -108,7 +108,7 @@ class _MediaPicture(_MediaFacts):
 
         ⚠️ Строка честна ровно там, где перекодирования нет: при включённом
         перекодировании HEVC мы берём на себя целиком, и говорит об этом
-        :func:`recode_note`, а не она (:meth:`torrcast.cli.Bench.resolve`).
+        :func:`recode_note`, а не она (:meth:`torrcast.usecases.select_bench.bench.Bench.resolve`).
 
         Десятибитный H.264 сюда попадает наравне с HEVC, хотя зовётся ``h264``: на живом
         Q70D он встаёт (:data:`COPY_DEPTH`), и молчать об этом - та же подмена. Кадр 4К -

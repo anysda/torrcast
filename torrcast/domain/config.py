@@ -26,7 +26,7 @@ class Config(_ConfigRecode):
     #: Бюджет диска под всё прогретое, ГБ (:data:`~torrcast.domain.warm_settings.WARM_BUDGET`).
     warm_budget_gb: float = WARM_BUDGET / 1e9
     #: Во сколько раз быстрее реального времени идёт прогрев
-    #: (:data:`torrcast.usecases.warm.WARM_RATE`).
+    #: (:data:`torrcast.usecases.warm.settings.WARM_RATE`).
     warm_rate: float = 4.0
 
     @classmethod

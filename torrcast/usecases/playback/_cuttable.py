@@ -14,10 +14,10 @@ class _Cuttable(Protocol):
     """Приёмник, который спотыкается о СЕТКУ, а не о секунды.
 
     Отдельно от :class:`torrcast.ports.receiver.Receiver` намеренно, и ровно по той же
-    причине, что и :class:`torrcast.usecases.choice._Revivable`: и прыжок сторожа подвиса,
+    причине, что и :class:`torrcast.usecases.choice._ctl._Revivable`: и прыжок сторожа подвиса,
     и подъём после отказа обязаны мерить кусками
-    (:meth:`torrcast.adapters.chromecast.cast.ChromecastReceiver._nudge`), а у приёмника,
-    который так не умеет, границ сетки нет и спрашивать их незачем. Сетка у каждой серии
+    (:meth:`torrcast.adapters.chromecast.cast.chromecast_receiver.ChromecastReceiver._nudge`), а у
+    приёмника, который так не умеет, границ сетки нет и спрашивать их незачем. Сетка у каждой серии
     своя, поэтому её называют каждой.
     """
 

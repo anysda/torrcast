@@ -424,8 +424,9 @@ def test_a_picture_whose_swarm_never_answers_is_refused_in_seconds_with_a_move(
     🔴 TC-300. Цена отказа теперь складывается из двух разных вещей, и обе тут проверяются:
     сам обход очереди по-прежнему стоит отсрочек, а не бюджетов (три раздачи - меньше
     секунды), но сверх него платится РОВНО ОДИН полный бюджет раздачи - за последний,
-    терпеливый спрос лучшей из промолчавших (:meth:`~torrcast.cli.Bench._recheck`). Трёх
-    бюджетов, как до отсрочек, тут нет и близко.
+    терпеливый спрос лучшей из промолчавших
+    (:meth:`~torrcast.usecases.select_bench.bench.Bench._recheck`). Трёх бюджетов, как до отсрочек,
+    тут нет и близко.
     """
     ranked = [rel(name=f"r{i}", seeders=4 - i) for i in range(3)]
     composition.use_graces(monkeypatch, peer=0.3)
@@ -707,8 +708,9 @@ def test_a_slow_head_still_yields_when_nothing_below_it_is_a_step_lower(
 ) -> None:
     """Терпение узкое: очередь из одинаковых ступеней идёт дальше по обычной отсрочке.
 
-    Иначе это была бы не защита ступени, а поднятый всем :data:`~torrcast.cli.PEER_GRACE`,
-    и каждый пустой рой снова стоил бы человеку лишних секунд.
+    Иначе это была бы не защита ступени, а поднятый всем
+    :data:`~torrcast.domain.rank_settings.PEER_GRACE`, и каждый пустой рой снова стоил бы человеку
+    лишних секунд.
     """
     ranked = [rel(name="полный", quality="1080p"), rel(name="второй", quality="1080p")]
     prober = _probes(ranked, "h264", "h264")

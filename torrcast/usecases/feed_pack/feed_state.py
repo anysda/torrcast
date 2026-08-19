@@ -90,11 +90,11 @@ class _State:
     crashes: int = 0
     fatal: str = ""
     log: Callable[[str], None] | None = None
-    #: Кодировщик тяжёлых кусков (:class:`torrcast.adapters.recode.Recoder`) или ``None``, если
-    #: динамический битрейт выключен либо тяжёлых кусков в фильме нет.
+    #: Кодировщик тяжёлых кусков (:class:`torrcast.adapters.recode.recoder.Recoder`) или ``None``,
+    #: если динамический битрейт выключен либо тяжёлых кусков в фильме нет.
     recoder: FeedRecoder | None = None
-    #: Чем перекодировать ВЕСЬ фильм (:class:`torrcast.adapters.recode.Encode`); ``None`` - видео
-    #: уезжает копией, как обычно.
+    #: Чем перекодировать ВЕСЬ фильм (:class:`torrcast.adapters.recode.encode.Encode`); ``None`` -
+    #: видео уезжает копией, как обычно.
     #:
     #: Ставится ровно на один случай: кодек, который приёмник не декодирует
     #: (:data:`RECODE_CODECS`). Тогда перекодирует сама упаковка, одним прогоном на весь
@@ -106,7 +106,7 @@ class _State:
     #: признак живёт на :class:`Feed`, а не на сегменте: он один на весь файл и не зависит
     #: ни от места показа, ни от перемотки.
     encode: EncodingRate | None = None
-    #: Хранилище прогретого на диске (:class:`torrcast.usecases.warm.Vault`) или ``None``.
+    #: Хранилище прогретого на диске (:class:`torrcast.usecases.warm.vault.Vault`) или ``None``.
     #:
     #: Сетка детерминирована, поэтому прогретый кусок и живой - одно и то же место фильма
     #: под одним и тем же именем. Отсюда всё остальное: показ берёт прогретое напрямую с
@@ -134,8 +134,9 @@ class _State:
     #: услышит. Замер живого показа: на 404 приёмник гасит буфер, не доиграв его, -
     #: 24 запроса подряд, показ встал, погас, поднялся и попросил снова; на тишине тот
     #: же буфер доигрывается до конца, и застрявшее место перешагивает сторож приёмника
-    #: сеткой (:meth:`torrcast.adapters.chromecast.cast.ChromecastReceiver._nudge`, 8 с). 404 хуже
-    #: задержки.
+    #: сеткой
+    #: (:meth:`torrcast.adapters.chromecast.cast.chromecast_receiver.ChromecastReceiver._nudge`, 8
+    #: с). 404 хуже задержки.
     skipped: set[int] = field(default_factory=set)
     #: Ужатие на месте одно на весь показ: зовётся оно из выкладки, а выкладку дёргают
     #: и запрос приёмника, и часы показа (:meth:`sweep`) - двум ffmpeg на один и тот же

@@ -48,9 +48,10 @@ def _silenced(prep: _Prep | None) -> bool:
     ТИПОМ отказа, а не текстом: текст пишется языком зрителя и правится (TC-281).
 
     «Нужной серии в раздаче нет» и «отдельного видеофайла нет» - это
-    :class:`~torrcast.NotFoundError`: про раздачу узнали всё, что хотели, и терпение ей
-    ничего не добавит. Молчание роя приезжает :class:`~torrcast.SwarmError`, а не
-    уложившаяся в бюджет фаза - вовсе без отказа, одной строкой :attr:`_Prep.error`.
+    :class:`~torrcast.domain.not_found_error.NotFoundError`: про раздачу узнали всё, что хотели, и
+    терпение ей ничего не добавит. Молчание роя приезжает
+    :class:`~torrcast.domain.swarm_error.SwarmError`, а не уложившаяся в бюджет фаза - вовсе без
+    отказа, одной строкой :attr:`_Prep.error`.
     """
     if prep is None or prep.media is not None:
         return False

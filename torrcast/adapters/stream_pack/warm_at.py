@@ -20,7 +20,8 @@ def warm_at(source_url: str, offset: int, upto: int = HEAD_WARM, alive: Any = No
     Лишнего трафика тут нет — ровно эти байты показ прочитает следующим действием.
 
     ``alive`` — жив ли ещё смысл греть: релиз, от которого показ отказался, дотягивать
-    нельзя, он отъедает полосу у выбранного (:meth:`torrcast.cli.Bench.keep_only`).
+    нельзя, он отъедает полосу у выбранного
+    (:meth:`torrcast.usecases.select_bench.bench.Bench.keep_only`).
     """
     began = time.monotonic()
     taken = 0

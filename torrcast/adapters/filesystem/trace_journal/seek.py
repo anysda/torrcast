@@ -12,7 +12,7 @@ def seek(frm: float, to: float, wait: float | None, why: str = "") -> None:
 
     Ожидание меряется до сдвига указателя с места приземления, а не до слова ``PLAYING``:
     приёмник говорит его раньше первого кадра
-    (:attr:`torrcast.adapters.chromecast.cast.ChromecastReceiver.PICTURE_STEP`).
+    (:attr:`torrcast.adapters.chromecast.cast.chromecast_receiver.ChromecastReceiver.PICTURE_STEP`).
     ``wait=None`` - картинки после этой перемотки не случилось вовсе, и ``why`` называет,
     чем всё кончилось.
     """

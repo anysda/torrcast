@@ -9,7 +9,8 @@ from torrcast.domain.watch_state import WatchState
 
 
 class FileStateStore:
-    """Состояние просмотра в файле: за портом :class:`~torrcast.ports.state_store.StateStore`.
+    """Состояние просмотра в файле: за портом
+    :class:`~torrcast.ports.state_store.state_store.StateStore`.
 
     Своего кода тут нет ни строчки - чтение и атомарная запись живут в :class:`State`,
     а этот класс только называет их именами договора. Заводится он один на процесс и

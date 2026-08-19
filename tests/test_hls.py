@@ -961,7 +961,8 @@ def test_a_promised_place_is_never_answered_with_a_404(tmp_path: Path) -> None:
     показа: на 404 приёмник гасит НЕДОИГРАННЫЙ буфер и уходит в круг «встал - погас -
     поднялся - попросил снова», 24 запроса подряд; на тишине тот же буфер доигрывается до
     конца, а дыру перешагивает его собственный сторож
-    (:meth:`torrcast.adapters.chromecast.cast.ChromecastReceiver._nudge`) - сеткой и через 8 с.
+    (:meth:`torrcast.adapters.chromecast.cast.chromecast_receiver.ChromecastReceiver._nudge`) -
+    сеткой и через 8 с.
 
     Чего ожидание при этом не делает - так это не поднимает упаковку: тяжёлый кусок
     детерминирован, второй прогон над ним получит ровно ту же копию, и перепаковка
@@ -1011,10 +1012,10 @@ def test_the_spot_shrink_packs_the_piece_under_the_cap(clip: str, tmp_path: Path
             return path if path.exists() else None
 
         def fit(self, span: float, preset: str) -> Encode:
-            # Тело - копия :meth:`torrcast.adapters.recode.Recoder.fit`, знак в знак. Заглушка,
-            # считающая ПО-СВОЕМУ, зелена при любом контракте: собери она цель из
-            # чистого ``Encode()``, и потеря кадра с HDR по дороге в ужатие прошла бы
-            # молча - ``ceiling``, ``frame`` и ``hdr`` живут именно в ``self.encode``.
+            # Тело - копия :meth:`torrcast.adapters.recode.recoder.Recoder.fit`, знак в знак.
+            # Заглушка, считающая ПО-СВОЕМУ, зелена при любом контракте: собери она цель из чистого
+            # ``Encode()``, и потеря кадра с HDR по дороге в ужатие прошла бы молча - ``ceiling``,
+            # ``frame`` и ``hdr`` живут именно в ``self.encode``.
             return replace(self.encode, preset=preset).fit(span, self.cap, self.threshold)
 
     out = hls_dir(str(tmp_path / "hls"))

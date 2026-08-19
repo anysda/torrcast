@@ -170,8 +170,8 @@ def test_the_target_of_a_long_piece_is_counted_from_its_length_not_pinned() -> N
 
     Длина куска сетки задаётся картой опорных кадров и доходит до 20 с, а цель
     кодировщика была константой. Не влезал САМ ПЕРЕКОД, а не только копия: ловушка на
-    выходе (:meth:`torrcast.Packer.publish`) ловила это уже после того, как
-    процессор был потрачен на кусок, который заведомо не влезал.
+    выходе (:meth:`torrcast.adapters.stream_pack.packer.Packer.publish`) ловила это уже после того,
+    как процессор был потрачен на кусок, который заведомо не влезал.
     """
     cap = 16_000_000
     pinned = 9.0 * 20.0 / 8 * 1e6
@@ -1545,8 +1545,8 @@ def test_a_scaled_down_4k_show_gets_its_grid_weighed_by_our_bitrate_too(
     перекод на 9 Мбит/с, то есть 20 МБ при потолке приёмника 16. Сплошной перекод сам
     себе делает тот тяжёлый кусок, ради которого он и заведён.
 
-    Сетка тут строится настоящая - той же :func:`torrcast.cli.layout`, что и на показе;
-    подменена только карта опорных кадров, чтобы не ходить в рой.
+    Сетка тут строится настоящая - той же :func:`torrcast.usecases.playback.layout.layout`, что и на
+    показе; подменена только карта опорных кадров, чтобы не ходить в рой.
     """
     from torrcast.domain.config import Config
     from torrcast.domain.delivered_mbit import AUDIO_MBIT, TS_OVERHEAD

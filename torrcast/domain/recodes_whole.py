@@ -18,11 +18,11 @@ def recodes_whole(codec: str, depth: int = 0, profile: Profile = CAUTIOUS, frame
     Отказ отбора (:const:`torrcast.domain.profile.REFUSE`) для упаковки означает ровно то же, что
     и перекод: раз мы всё-таки играем этот файл, копия - гарантированный чёрный экран, а
     сплошной перекод - хотя бы шанс. Отбраковывает такое отбор, и делает это раньше
-    (:meth:`torrcast.usecases.select_bench.Bench._trouble`).
+    (:meth:`torrcast.usecases.select_bench.bench.Bench._trouble`).
 
     🔴 Функция одна на весь код намеренно. Решение принимается дважды - показом
     (:func:`torrcast.usecases.playback._play`) и прогревом следующей серии впрок
-    (:func:`torrcast.usecases.playback._next_warmer`), - и разойтись они не имеют права:
+    (:func:`torrcast.usecases.playback._warmer._next_warmer`), - и разойтись они не имеют права:
     прогретое лежит под ключом, в который входит перекод
     (:func:`torrcast.usecases.warm.warm_key`), и стоит одному
     месту решить иначе, как показ своего же прогретого не найдёт. Ровно так и вышло с

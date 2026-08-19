@@ -26,19 +26,19 @@ class _State:
     audio: int
     grid: Grid
     vault: Vault
-    #: Чем кодировать видео (:class:`torrcast.adapters.recode.Encode`); ``None`` - копия.
+    #: Чем кодировать видео (:class:`torrcast.adapters.recode.encode.Encode`); ``None`` - копия.
     #:
-    #: 🔴 Ставится ТЕМ ЖЕ решением, что у живой упаковки (:func:`torrcast.cli._warmer`).
-    #: Прогретый кусок и живой - это одна лента для приёмника, и если они закодированы
-    #: по-разному, на стыке источников у него меняется SPS.
+    #: 🔴 Ставится ТЕМ ЖЕ решением, что у живой упаковки
+    #: (:func:`torrcast.usecases.playback._warmer._warmer`). Прогретый кусок и живой - это одна лента
+    #: для приёмника, и если они закодированы по-разному, на стыке источников у него меняется SPS.
     encode: EncodingKey | None = None
     #: Слоты, которые живой показ отдаёт перекодированными поштучно (тяжёлые куски,
-    #: :attr:`torrcast.adapters.recode.Recoder.targets`). Прогрев обязан положить на диск их же и
-    #: такими же: копия тяжёлого куска приёмнику не по зубам, а перекод всего фильма ради
-    #: пяти кусков расходится с живой упаковкой во всём остальном.
+    #: :attr:`torrcast.adapters.recode.recoder.Recoder.targets`). Прогрев обязан положить на диск их
+    #: же и такими же: копия тяжёлого куска приёмнику не по зубам, а перекод всего фильма ради пяти
+    #: кусков расходится с живой упаковкой во всём остальном.
     spots: tuple[int, ...] = ()
-    #: Чем перекодировать :attr:`spots` - тот же :class:`torrcast.adapters.recode.Encode`, которым
-    #: их берёт живой кодировщик.
+    #: Чем перекодировать :attr:`spots` - тот же :class:`torrcast.adapters.recode.encode.Encode`,
+    #: которым их берёт живой кодировщик.
     spot_encode: EncodingKey | None = None
     #: С какого места смотрим: прогрев идёт отсюда вперёд, голова - потом.
     began_at: int = 0
@@ -50,10 +50,11 @@ class _State:
     rate: float = WARM_RATE
     nice: int = WARM_NICE
     log: Callable[[str], None] | None = None
-    #: Запас живого показа, секунды; кладёт :func:`torrcast.cli._hold` на каждом опросе.
+    #: Запас живого показа, секунды; кладёт :func:`torrcast.usecases.revive_playback._hold._hold` на
+    #: каждом опросе.
     slack: float = 0.0
-    #: Кодировщик живых кусков (:class:`torrcast.adapters.recode.Recoder`) или ``None``. Пока у него
-    #: идёт заход, прогрев замирает: см. :meth:`_must_yield`.
+    #: Кодировщик живых кусков (:class:`torrcast.adapters.recode.recoder.Recoder`) или ``None``. Пока
+    #: у него идёт заход, прогрев замирает: см. :meth:`_must_yield`.
     rival: RecodeRival | None = None
     #: Прогрев замер под просевшим запасом (:data:`GUARD_LOW`).
     idle: bool = False
