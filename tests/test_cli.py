@@ -2736,12 +2736,18 @@ def test_the_menu_asks_without_a_default_when_another_part_would_answer(
 def test_the_menu_default_stays_on_the_living_first_part(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """Ограждение: первая часть жива - дефолт «первая живая часть» не тронут."""
+    """Ограждение: первая часть жива - дефолт «первая живая часть» не тронут.
+
+    Сказать о таком дефолте нечего, поэтому вопроса нет вовсе: строка называет взятую
+    картину и ход к соседним частям, а показ начинается сам.
+    """
     plans = _numbered_cars(first_dead=False)
+    environment = FakeChoiceEnvironment()
 
-    plan = _pick_plan(plans, asked="тачки", environment=cast(Any, FakeChoiceEnvironment()))
+    plan = _pick_plan(plans, asked="тачки", environment=cast(Any, environment))
 
-    assert "Enter - «Тачки (2006)»" in capsys.readouterr().out
+    assert "беру «Тачки (2006)» - подошло картин 3" in capsys.readouterr().out
+    assert environment.questions == [], "спрашивать не о чем"
     assert plan.picture.title == "Тачки"
 
 

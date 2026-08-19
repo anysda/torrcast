@@ -72,21 +72,22 @@ def test_a_number_outside_the_list_is_an_honest_error_and_not_a_quiet_first_item
 
 
 def test_without_a_terminal_we_refuse_out_loud_and_say_how_to_name_the_picture() -> None:
-    """🔴 Без терминала любой дефолт означает ДРУГОЙ фильм, и мы отказываемся вслух.
+    """🔴 Спрашивать есть о чём, а терминала нет - отказываемся вслух.
 
-    Разница между «Моаной» 2016 и «Моаной 2» - это не оттенок, а не тот вечер. Цифра в
-    скобках имеет смысл ровно потому, что рядом напечатан список и человек видит, от чего
-    отказывается; без терминала видеть его некому.
+    Тёзка по году - это ДРУГОЙ фильм: разница между «Мумией» 1999 и «Мумией» 2017 не
+    оттенок, а не тот вечер. Цифра в скобках имеет смысл ровно потому, что рядом
+    напечатан список и человек видит, от чего отказывается; без терминала видеть его
+    некому.
     """
     world = Outside(tty=False)
-    moana = parts(("Моана", 2016, 222), ("Моана 2", 2024, 140))
+    mummy = parts(("Мумия", 1999, 47), ("Мумия", 2017, 58))
 
     with pytest.raises(NotFoundError) as refusal:
-        _pick_plan(moana, environment=world)
+        _pick_plan(mummy, asked="мумия", environment=world)
 
     said = str(refusal.value)
     assert "терминала нет - вслепую не выбираю" in said
-    assert "«Моана»" in said and "--pick N" in said
+    assert "«Мумия»" in said and "--pick N" in said
     assert world.asked == [], "спрашивать было некого, и висеть мы не стали"
 
 
@@ -109,3 +110,44 @@ def test_a_default_that_would_swap_a_part_of_the_franchise_is_taken_away_entirel
     assert world.asked == [("Что смотрим?", 3, None)], "дефолта у вопроса нет"
     assert picked is cars[2]
     assert not any(line.startswith("Enter - ") for line in world.said), "обещать Enter нечем"
+
+
+def test_several_pictures_are_not_a_reason_to_ask_when_the_top_is_the_one_asked() -> None:
+    """🔴 Подошло три картины, а спрашивать не о чем: первая часть жива и стоит сверху.
+
+    Список тут не печатается вовсе: меню читают там, где на него отвечают, а перед
+    показом, который уже начался, читать его некому. Вместо списка - одна строка про
+    решение, и в ней есть ход к соседним частям.
+    """
+    world = Outside()
+    cars = [
+        plan("Тачки", 2006, part=1, seeders=66),
+        plan("Тачки 2", 2011, part=2, seeders=71),
+        plan("Тачки 3", 2017, part=3, seeders=121),
+    ]
+
+    picked = _pick_plan(cars, asked="тачки", environment=world)
+
+    assert picked is cars[0]
+    assert world.asked == [], "вопроса не было"
+    assert world.said == [
+        "беру «Тачки (2006)» - подошло картин 3; другая: cast releases тачки и --pick N"
+    ]
+
+
+def test_a_picture_the_lines_are_silent_about_needs_no_terminal_either() -> None:
+    """Спрашивать не о чем - значит и терминал не нужен: висеть и отказываться не на чем.
+
+    Ровно в этом месте отказ был больнее всего: на стыке серий консоли уже нет, а
+    картина есть, и «вслепую не выбираю» означало не показ вместо показа.
+    """
+    world = Outside(tty=False)
+    cars = [
+        plan("Тачки", 2006, part=1, seeders=66),
+        plan("Тачки 2", 2011, part=2, seeders=71),
+    ]
+
+    picked = _pick_plan(cars, asked="тачки", environment=world)
+
+    assert picked is cars[0]
+    assert world.said[0].startswith("беру «Тачки (2006)»")

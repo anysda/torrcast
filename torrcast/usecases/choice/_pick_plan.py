@@ -5,10 +5,12 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from torrcast.ports.choice_environment.choice_environment import ChoiceEnvironment
+from torrcast.usecases.choice.certain_default import certain_default
 from torrcast.usecases.choice.configure import _environment_port
 from torrcast.usecases.choice.default_line import default_line
 from torrcast.usecases.choice.menu_lines import menu_lines
 from torrcast.usecases.choice.part_one_swap import part_one_swap
+from torrcast.usecases.choice.taken_line import taken_line
 
 if TYPE_CHECKING:
     from torrcast.usecases.facts import Facts
@@ -22,10 +24,17 @@ def _pick_plan(
     asked: str = "",
     environment: ChoiceEnvironment | None = None,
 ) -> Plan:
-    """Вопрос «какой фильм франшизы?»; один вариант — без вопроса.
+    """Вопрос «какой фильм франшизы?» - и только там, где спрашивать есть о чём.
 
-    Дефолт — верхняя картина меню. Если играть её нечем, отбор называет причину и не
+    Дефолт - верхняя картина меню. Если играть её нечем, отбор называет причину и не
     подставляет соседнюю картину.
+
+    🔴 Несколько подошедших картин - ещё не повод спрашивать. Вопрос остаётся там, где
+    о выборе есть что сказать честной строкой; где сказать нечего (:func:`certain_default`),
+    верх меню и есть спрошенная картина, и показ начинается сам. Молчаливым это решение
+    не бывает: :func:`taken_line` называет взятую картину, число подошедших и ход к
+    любой другой. Терминал такому пути не нужен вовсе - ни висеть, ни отказываться тут
+    не на чем.
 
     🔴 TC-373. Ограждение того же дефолта: перескочив через спрошенную часть франшизы
     (её нет в выдаче или играть ей нечем), он вставал на ДРУГУЮ часть - и Enter включал
@@ -42,24 +51,26 @@ def _pick_plan(
     тот же номер, что стоит у пункта меню на экране. Номер вне списка - честная ошибка,
     а не тихий первый пункт.
 
-    Без терминала (ssh без pty, cron, чужой скрипт) спрашивать некого, и общее правило —
-    не висеть, а брать дефолт. Здесь мы по-прежнему отказываемся — и «дефолт стал умнее»
-    ничего не меняет. У озвучки дефолт считается правилами, а продолжение и вовсе
-    молчит; тут же любой дефолт означает **другой фильм**: разница между «Моаной»
-    2016 и «Моаной 2» — это не оттенок, а не тот вечер. Цифра в скобках имеет смысл
-    ровно потому, что рядом напечатан список и человек видит, от чего отказывается;
-    без терминала видеть его некому. Поэтому отказываемся вслух и подсказываем, как
-    назвать картину точно.
+    Спрашивать есть о чём, а терминала нет (ssh без pty, cron, чужой скрипт) - тут мы
+    по-прежнему отказываемся. Любой дефолт означает в этом месте **другой фильм**:
+    разница между «Моаной» 2016 и «Моаной 2» — это не оттенок, а не тот вечер. Цифра в
+    скобках имеет смысл ровно потому, что рядом напечатан список и человек видит, от чего
+    отказывается; без терминала видеть его некому. Поэтому отказываемся вслух и
+    подсказываем, как назвать картину точно.
     """
     env = environment or _environment_port()
     if pick is not None and not 1 <= pick <= len(plans):
         raise env.not_found_error(f"подходит картин: {len(plans)}, номера {pick} нет")
-    env.write(menu_lines(plans, facts))
     if pick is not None:  # номер назвал сам человек - ни вопроса, ни подмены
+        env.write(menu_lines(plans, facts))
         return plans[pick - 1]
     if len(plans) == 1:
         return plans[0]
     default = 1
+    if certain_default(plans, asked):
+        env.write(taken_line(plans, default, asked))
+        return plans[default - 1]
+    env.write(menu_lines(plans, facts))
     if not env.stdin_is_tty():
         raise env.not_found_error(
             f"подходит картин: {len(plans)}, а терминала нет - вслепую не выбираю; "

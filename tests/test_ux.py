@@ -104,6 +104,25 @@ class _FakeTorrServer:
         return True
 
 
+#: Тёзка по году в той же выдаче: под одним именем две картины - и меню спрашивает.
+NAMESAKE = RawResult("Moana 2020 1080p WEB-DL H 264-GROUP", "n" * 40, 4 * GB, 30)
+
+
+def _menu_that_asks(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Выдача, на которой вопрос про картину остаётся: у «Moana» появляется тёзка по году.
+
+    Тёзка - самая тихая из подмен, и молчать про неё нельзя ни при каком дефолте; значит
+    вопрос тут задаётся, и вокруг него можно мерить всё, что происходит, пока меню на
+    экране.
+    """
+
+    class _Namesake(_FakeProwlarr):
+        def search(self, query: str) -> list[RawResult]:
+            return [*FOUND, NAMESAKE]
+
+    composition.use_indexers(monkeypatch, _Namesake)
+
+
 def _answers(monkeypatch: pytest.MonkeyPatch, *replies: str) -> list[str]:
     """Подставные ответы человека; заодно собираем сами вопросы."""
     asked: list[str] = []
@@ -117,23 +136,30 @@ def _answers(monkeypatch: pytest.MonkeyPatch, *replies: str) -> list[str]:
     return asked
 
 
-def test_the_happy_path_asks_about_the_film_and_nothing_else(
+def test_the_happy_path_asks_nothing_at_all(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """На счастливом пути вопрос ровно один — «какой фильм франшизы?».
+    """На счастливом пути вопросов нет ни одного: назвали кино - оно и включилось.
+
+    Картин подошло две, и это ещё не повод спрашивать: «моана» - просьба про «Moana»
+    2016 с её 22 сидами, даже когда у «Моаны 2» их 140, и другой картины, которую тут
+    можно было иметь в виду, нет. Решение при этом названо вслух одной строкой, и в ней
+    есть ход к любой другой картине.
 
     Меню озвучки из счастливого пути убрано: дорожка выбирается сама, а её подпись
     печатается в строке запуска — молчаливой подмены тут нет, есть названный выбор.
     """
-    asked = _answers(monkeypatch, "2", "")
+    asked = _answers(monkeypatch)
 
     assert main(["моана"]) == 0
 
     printed = capsys.readouterr().out
-    assert [q.split("[")[0].strip() for q in asked] == ["Что смотрим?"]
+    assert asked == [], "спрашивать было не о чем"
     assert "Озвучка:" not in printed, "меню озвучки на счастливом пути больше нет"
-    assert "  1. Moana (2016)" in printed and "  2. Моана 2 (2024)" in printed
-    assert "играю «Моана 2» (2024) · 1080p · rus · Дубляж - на ТВ" in printed
+    assert "беру «Moana (2016)» - подошло картин 2; другая: cast releases моана и --pick N" in (
+        printed
+    )
+    assert "играю «Moana» (2016) · 1080p · rus · Дубляж - на ТВ" in printed
     # Ни таблицы релизов, ни файлов, ни серий - именно этого пользователь видеть не хочет.
     for forbidden in ("Релизы:", "Качество", "Файл:", "Серии:", ".mkv", "Какой берём?"):
         assert forbidden not in printed, forbidden
@@ -189,26 +215,32 @@ def test_banned_indexer_is_named_too(
 def test_the_question_says_out_loud_what_enter_will_start(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """🔴 TC-204. Дефолт - не первая строка меню, а в длинной франшизе он и за экраном:
-    терминал после вывода показывает хвост. Поэтому прямо перед вопросом сказано, что
-    случится по Enter, - названием и годом, а не одной цифрой в скобках.
+    """🔴 TC-204. Дефолт в длинной франшизе уезжает за экран: терминал после вывода
+    показывает хвост. Поэтому прямо перед вопросом сказано, что случится по Enter, -
+    названием и годом, а не одной цифрой в скобках.
 
     Строка стоит ПОСЛЕ списка: шапка уехала бы вверх вместе со списком. Сам список
     остаётся хронологическим - меняется показ дефолта, а не порядок.
     """
+
+    class _Twins(_FakeProwlarr):
+        def search(self, query: str) -> list[RawResult]:
+            return list(TWINS)
+
+    composition.use_indexers(monkeypatch, _Twins)
     _answers(monkeypatch, "", "")  # Enter на вопросе - то самое, о чём строка и говорит
 
-    assert main(["моана"]) == 0
+    assert main(["мумия"]) == 0
 
     printed = capsys.readouterr().out
-    enter = "Enter - «Moana (2016)», пункт 1 из 2"
+    enter = "Enter - «Мумия (1999)», пункт 1 из 2"
     assert enter in printed
     assert (
-        printed.index("  1. Moana (2016)")
-        < printed.index("  2. Моана 2 (2024)")
+        printed.index("  1. Мумия (1999)")
+        < printed.index("  2. Мумия (2026)")
         < printed.index(enter)
     ), "список хронологический, а строка про дефолт - в хвосте, у самого вопроса"
-    assert "играю «Moana»" in printed, "и Enter запустил ровно то, что было названо"
+    assert "играю «Мумия» (1999)" in printed, "и Enter запустил ровно то, что было названо"
 
 
 def test_a_single_choice_is_not_a_question(
@@ -231,16 +263,24 @@ def test_a_bare_enter_is_enough_for_everything(
 ) -> None:
     """Любой вопрос принимает пустой Enter: русский ввод допустим, но не обязателен.
 
-    Enter приводит в ПЕРВУЮ ЖИВУЮ часть франшизы, а не в самую обсиженную: «моана» -
-    это просьба про «Moana» 2016 с её 22 сидами, даже когда у «Моаны 2» их 140
+    Enter приводит в ПЕРВУЮ картину списка, а не в самую обсиженную: «мумия» - это
+    просьба про «Мумию» 1999 года с её 47 сидами, даже когда у тёзки 2026 года их 604
     (🔴 TC-196). Список при этом остаётся хронологическим.
     """
+
+    class _Twins(_FakeProwlarr):
+        def search(self, query: str) -> list[RawResult]:
+            return list(TWINS)
+
+    composition.use_indexers(monkeypatch, _Twins)
     _answers(monkeypatch, "", "")
 
-    assert main(["моана"]) == 0
+    assert main(["мумия"]) == 0
     printed = capsys.readouterr().out
-    assert "  1. Moana (2016)\n  2. Моана 2 (2024)" in printed, "список остался хронологией"
-    assert "играю «Moana» (2016)" in printed
+    assert printed.index("  1. Мумия (1999)") < printed.index("  2. Мумия (2026)"), (
+        "список остался хронологией"
+    )
+    assert "играю «Мумия» (1999)" in printed
 
 
 #: Выдача «мумии»: две картины под одним именем - самая тихая из подмен (🔴 TC-198).
@@ -282,9 +322,9 @@ def test_the_film_with_a_number_in_the_title_is_a_film(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Номер в названии не делает картину сериалом: «Моана 2» — фильм, строк про серии нет."""
-    _answers(monkeypatch, "2", "")
+    _answers(monkeypatch, "")
 
-    assert main(["моана"]) == 0
+    assert main(["моана", "--pick", "2"]) == 0
 
     printed = capsys.readouterr().out
     assert "сериал" not in printed and "s1e1" not in printed
@@ -363,9 +403,9 @@ def test_a_hand_picked_number_does_not_trip_the_neighbours_prewarm(
             return [*FOUND, extra]
 
     composition.use_indexers(monkeypatch, _WithSpare)
-    _answers(monkeypatch, "2", "")
+    _answers(monkeypatch, "")
 
-    assert main(["моана", "--release", "3"]) == 0
+    assert main(["моана", "--pick", "2", "--release", "3"]) == 0
 
     assert "релизов 2" not in capsys.readouterr().out, "счёт соседки к выбору не относится"
 
@@ -500,12 +540,12 @@ def test_new_restarts_the_saved_choice_of_the_picture_picked_in_the_menu(
         ),
     )
     state.save()
-    asked = _answers(monkeypatch, "2")
+    asked = _answers(monkeypatch)
 
-    assert main(["моана", "--new"]) == 0
+    assert main(["моана", "--pick", "2", "--new"]) == 0
 
     saved = State.load().entries["movie:моана-2:2024"]
-    assert len(asked) == 1 and "Что смотрим?" in asked[0]
+    assert asked == [], "картину назвали флагом - спрашивать нечего"
     assert (saved.magnet, saved.file_idx, saved.audio, saved.pos) == (
         "magnet:?xt=saved-picked",
         7,
@@ -521,7 +561,7 @@ def test_a_bookmark_of_a_sequel_does_not_answer_which_picture_was_asked(
 
     Запись под запросом «моана» осталась от «Моаны 2»: её когда-то выбрали в меню, а в
     записи лежит текст запроса, а не имя картины. Продолжение по такой записи включало
-    другое кино той же франшизы молча - и вопрос про картину не задавался вовсе.
+    другое кино той же франшизы молча.
     """
     state = State()
     state.put(
@@ -529,13 +569,13 @@ def test_a_bookmark_of_a_sequel_does_not_answer_which_picture_was_asked(
         Entry(title="Моана 2", magnet="magnet:?xt=1", pos=2467.0, dur=5978.0, query="моана"),
     )
     state.save()
-    asked = _answers(monkeypatch, "")  # Enter в меню - дефолт франшизы
+    asked = _answers(monkeypatch)
 
     assert main(["моана"]) == 0
 
     printed = capsys.readouterr().out
-    assert [q.split("[")[0].strip() for q in asked] == ["Что смотрим?"]
-    assert "  1. Moana (2016)" in printed and "  2. Моана 2 (2024)" in printed
+    assert asked == [], "имя франшизы зовёт первую часть, и спрашивать не о чем"
+    assert "беру «Moana (2016)»" in printed
     assert "играю «Moana» (2016)" in printed, printed
     assert State.load().entries["movie:моана-2:2024"].pos == 2467.0, "закладка цела"
 
@@ -545,7 +585,7 @@ def test_the_bookmark_is_resumed_inside_the_picture_that_was_chosen(
 ) -> None:
     """Закладка не выброшена: её предлагают той картине, которую человек выбрал.
 
-    Вопрос только про картину; после выбора сохранённое место поднимается молча.
+    Картина названа флагом; после выбора сохранённое место поднимается молча.
     """
     state = State()
     state.put(
@@ -553,13 +593,12 @@ def test_the_bookmark_is_resumed_inside_the_picture_that_was_chosen(
         Entry(title="Моана 2", magnet="magnet:?xt=1", pos=2467.0, dur=5978.0, query="моана"),
     )
     state.save()
-    asked = _answers(monkeypatch, "2", "")  # вторая картина меню, продолжить с места
+    asked = _answers(monkeypatch, "")  # вторая картина меню, продолжить с места
 
-    assert main(["моана"]) == 0
+    assert main(["моана", "--pick", "2"]) == 0
 
     printed = capsys.readouterr().out
-    assert len(asked) == 1, asked
-    assert asked[0].split("[")[0].strip() == "Что смотрим?", asked
+    assert asked == [], "картину назвали флагом, а место поднимается молча"
     assert "играю «Моана 2»" in printed and "с 0:41:07" in printed, printed
     assert State.load().entries["movie:моана-2:2024"].pos == 2467.0, "продолжаем с места"
 
@@ -621,6 +660,7 @@ def test_prewarmed_torrents_are_dropped_when_the_show_never_starts(
             return True
 
     composition.use_engines(monkeypatch, _Counting)
+    _menu_that_asks(monkeypatch)
     monkeypatch.setattr(
         "builtins.input", lambda prompt="": (_ for _ in ()).throw(KeyboardInterrupt)
     )
@@ -657,6 +697,7 @@ def test_the_spare_release_warms_under_the_menu_not_after_the_first_one_fails(
             return f"hash-{magnet[:30]}"
 
     composition.use_engines(monkeypatch, _Counting)
+    _menu_that_asks(monkeypatch)
     under_question: list[set[str]] = []
 
     def ask(prompt: str = "") -> str:
@@ -916,6 +957,7 @@ def test_the_menu_prewarm_stands_aside_while_our_show_is_on_air(
             return f"hash-{magnet[:30]}"
 
     composition.use_engines(monkeypatch, _Counting)
+    _menu_that_asks(monkeypatch)
     _live_show(show_unit)
 
     under_question: list[int] = []
