@@ -160,6 +160,12 @@ KEY_INDEXER="Knaben"
 # единственная ручка хвоста - наша: личный бюджет индексера
 # (torrcast/domain/indexer_budget.py, QUORUM_TIMEOUT), и там же записано, почему Knaben
 # ждут дольше остальных.
+# 🔴 TC-692. Опорные источники каталога - те, без которых пул не беднеет, а пустеет. Замер
+# по журналу запросов: без метапоиска пул пуст у 72 запросов из 93, без обоих опорных - у
+# 97 из 99. Остальные индексеры узкие (аниме, русская озвучка) и этой дыры не закрывают.
+# Отсюда правило установки: непроход опорного - это урезанный каталог, а не «не блокер».
+# Его и стережёт :func:`catalog_gate` - словами и ненулевым кодом возврата.
+CORE_INDEXERS=("$KEY_INDEXER" "rutor")
 # Список короткий не по лени: пул прочёсан целиком и машинно. В схеме Prowlarr 622
 # определения, из них открытых (privacy=public) - 86, и каждое прощупано с той самой
 # машины, где стоит torrcast: базовый адрес плюс все зеркала из схемы (74 адреса на
@@ -269,7 +275,18 @@ ROUTE_EVERY="${TORRCAST_ROUTE_EVERY:-900}"
 # именем всё было хорошо.
 # Новый такой трекер заводится одной строкой здесь и строкой в INDEXERS.
 SHIMS=(
-    'api.knaben.org|/v1|{"query":"матрица","search_type":"score","size":50}|direct,https://knaben.eu'
+    # 🔴 TC-692. Первым теперь `named`: замер на живой машине - api.knaben.org переехал
+    # за Cloudflare, а она рукопожатие БЕЗ имени (`direct`) не принимает вовсе (TLS alert
+    # handshake failure за 0.1 с с обоих адресов зоны), и запасное имя knaben.eu с двух
+    # разных сетей молчит до таймаута. С именем в рукопожатии тот же адрес отвечает
+    # целиком за 0.3 с, когда канал имя не режет, - то есть `named` несёт всё время,
+    # пока обход ещё прибит, а окно уже открылось (сторож снимает прибитие только после
+    # двух удачных кругов). Пока канал режет, не спасает и он: зона блокируется по
+    # объёму тела (обрыв на ~15-19 КБ даже сжатого ответа), а Prowlarr просит сразу
+    # 100 раздач. Оба старых кандидата оставлены после `named`: `direct` падает за
+    # 0.1 с и оживёт, если API съедет с общего CDN; knaben.eu - единственный край
+    # вне Cloudflare, если он воскреснет.
+    'api.knaben.org|/v1|{"query":"матрица","search_type":"score","size":50}|named,direct,https://knaben.eu'
     # Запасного имени нет (зеркала - чужие обёртки за CDN: 403 либо обрыв тела, замер),
     # второго адреса у origin'а тоже нет. Что есть - второй СПОСОБ дойти до того же
     # адреса: с именем в рукопожатии. Сейчас его режут, но режут не всегда (TC-260), и
@@ -1655,19 +1672,35 @@ PL_SEARCH_PROBE="${TORRCAST_SEARCH_PROBE:-матрица}"
 #: на критическом пути ровно одну живую пробу. Переопределение нужно только
 #: для изолированной проверки установки.
 INDEXER_ADD_GAP="${TORRCAST_INDEXER_ADD_GAP:-2}"
+# Опорный ли это источник (:data:`CORE_INDEXERS`): без такого каталог не беднее, а пуст.
+core_indexer() {  # $1 - definitionName
+    local core
+    for core in "${CORE_INDEXERS[@]}"; do [ "$core" = "$1" ] && return 0; done
+    return 1
+}
+
 late_indexer() {  # $1 - definitionName; 0 = добавляем в фоне, а не на глазах у человека
-    # Ключевой не откладывается ни при каких условиях: фон не имеет права спрятать то,
-    # без чего каталог наполовину пуст.
-    [ "$1" = "$KEY_INDEXER" ] && return 1
+    # Опорные не откладываются ни при каких условиях: фон не имеет права спрятать то,
+    # без чего каталог пуст.
+    core_indexer "$1" && return 1
     local late
     for late in "${LATE_INDEXERS[@]}"; do [ "$late" = "$1" ] && return 0; done
     return 1
 }
 
+# Причина отказа из тела ответа Prowlarr: он называет поле и причину (TC-692), и
+# прятать их за голым кодом нельзя. Не JSON или чужая форма - отдаём начало тела как есть.
+indexer_fail_reason() {  # $1 - файл с телом ответа
+    [ -s "$1" ] || return 0
+    jq -r 'if type=="array" then .[0].errorMessage // empty else .message // empty end
+        | if length>0 then ": "+. else "" end' "$1" 2>/dev/null \
+        || printf ': %.200s' "$(tr -d '\n' <"$1")"
+}
+
 # Добавить отложенные индексеры. Тела запросов собраны заранее, так что здесь остаётся
 # только сходить в свой Prowlarr - никакой сети, кроме той, что он дёрнет сам.
 add_indexers() {  # $1 - apikey; дальше пары «имя<TAB>тело»
-    local key="$1" spec iname ibody have
+    local key="$1" spec iname ibody have answer status
     shift
     for spec in "$@"; do
         IFS=$'\t' read -r iname ibody <<<"$spec"
@@ -1680,13 +1713,52 @@ add_indexers() {  # $1 - apikey; дальше пары «имя<TAB>тело»
             info "$iname уже на месте"
             continue
         fi
-        if curl -fsS -X POST "$PL_URL/api/v1/indexer?apikey=$key" \
-                -H 'Content-Type: application/json' -d "$ibody" >/dev/null 2>&1; then
+        answer="$(mktemp)"
+        status="$(curl -sS -o "$answer" -w '%{http_code}' -X POST \
+            "$PL_URL/api/v1/indexer?apikey=$key" -H 'Content-Type: application/json' \
+            -d "$ibody" 2>/dev/null)" || status=000
+        if [[ "$status" = 2* ]]; then
             info "$iname добавлен"
         else
-            info "⚠ $iname не добавился (недоступен из этой сети?) - не блокер"
+            info "⚠ $iname не добавился: Prowlarr ответил HTTP $status$(indexer_fail_reason "$answer")"
         fi
+        rm -f "$answer"
     done
+}
+
+# 🔴 TC-692. Отказ на добавление - это живая проба источника В ЭТУ МИНУТУ: Prowlarr не
+# заводит индексер, не спросившийся у трекера (forceSave=true этот экзамен не отменяет:
+# проверено живьём, тот же 400). А канал режет трекеры окнами (TC-260: в 19:00 имя
+# рвалось в 100% попыток, в 20:00 - в 0%), поэтому одиночный отказ в минуту установки -
+# погода, а не приговор. До этой карточки он был приговором: установка спрашивала один
+# раз и навсегда оставляла свежую машину без опорных источников, если окно в ту минуту
+# было закрыто. Переспрашиваем в догреве: окно откроется - индексер встанет сам.
+INDEXER_RETRY_TIMES="${TORRCAST_INDEXER_RETRY_TIMES:-12}"
+INDEXER_RETRY_EVERY="${TORRCAST_INDEXER_RETRY_EVERY:-300}"
+
+retry_add_indexers() {  # $1 - apikey; дальше пары «имя<TAB>тело» (вставшие пропускаются)
+    local key="$1" attempt spec iname list missing todo=() left=()
+    shift
+    todo=("$@")
+    for attempt in $(seq "$INDEXER_RETRY_TIMES"); do
+        [ "$attempt" -eq 1 ] || sleep "$INDEXER_RETRY_EVERY"
+        add_indexers "$key" "${todo[@]}"
+        list="$(curl -fsS "$PL_URL/api/v1/indexer?apikey=$key" 2>/dev/null)" || list='[]'
+        # На следующий круг едут только те, кого в Prowlarr так и нет: переспрашивать
+        # вставшего - лишний круг к трекеру и строка «уже на месте» двенадцать раз.
+        missing=""; left=()
+        for spec in "${todo[@]}"; do
+            IFS=$'\t' read -r iname _ <<<"$spec"
+            [ -n "$iname" ] || continue
+            jq -e --arg n "$iname" 'any(.[]; .name==$n)' <<<"$list" >/dev/null 2>&1 && continue
+            missing="$missing${missing:+, }$iname"
+            left+=("$spec")
+        done
+        [ -z "$missing" ] && return 0
+        todo=("${left[@]}")
+    done
+    info "⚠ так и не завелись: $missing - каталог без них неполный; \
+повторный ./install.sh заведёт их, когда источник ответит"
 }
 
 # 🔴 TC-259/TC-272. Снять бан с индексеров, которых Prowlarr увёл в недоступные.
@@ -1752,6 +1824,56 @@ check_indexers() {  # $1 - apikey; дальше тройки «номер<TAB>и
     done
 }
 
+#: 🔴 TC-692. Урезан ли каталог на выходе установки: имена опорных источников, которых
+#: нет или которые молчат. Пусто - каталог полный. Читает :func:`main`: пустой каталог под
+#: видом успешной установки - это неправда, и она обязана быть видна и словами, и кодом.
+CATALOG_CUT=""
+#: Код возврата установки, которая поставилась, но каталога не получила. Тот же смысл и то
+#: же число, что у инфра-ошибки `cast` (torrcast/domain/exit_codes.py, EXIT_INFRA): всё
+#: своё на месте, а среда не дала работать. Ноль тут врал бы автоматике так же, как
+#: «готово» врало бы человеку.
+EXIT_CATALOG_CUT=2
+
+# Гейт каталога: опорный источник обязан ЧИСЛИТЬСЯ и ОТВЕЧАТЬ, а это разные утверждения.
+# 🔴 Замер живьём: rutor заводился, стоял в списке включённым - и не отдавал ничего, ни
+# одной раздачи за 25 с. Проверка «добавился ли» такую установку объявляла успешной, а
+# каталог у неё был пуст. Поэтому здесь спрашивается сам поиск, а не список.
+# Лишнего обращения к трекеру это не стоит: опорные раньше щупались тем же поиском в
+# догреве (:func:`check_indexers`), просто уже после «готово» - там их молчание никого не
+# останавливало. Теперь оно спрашивается на глазах, а из догрева опорные убраны.
+catalog_gate() {  # $1 - apikey, $2 - список индексеров, $3 - схема Prowlarr; печатает вердикт
+    local key="$1" list="$2" schema="$3" def id iname n cut=""
+    for def in "${CORE_INDEXERS[@]}"; do
+        IFS='|' read -r id iname < <(jq -r --arg d "$def" \
+            'first(.[]|select(.definitionName==$d and (.enable != false))|"\(.id)|\(.name)")
+             // "|"' <<<"$list")
+        # Имя для человека берём из схемы: у ненавёрстанного индексера в списке его нет, а
+        # печатать вместо имени внутренний идентификатор определения - это загадка, не строка.
+        [ -n "$iname" ] || iname="$(jq -r --arg d "$def" \
+            'first(.[]|select(.definitionName==$d)|.name) // $d' <<<"$schema")"
+        if [ -z "$id" ]; then
+            cut="$cut${cut:+, }$iname (не завёлся)"
+            continue
+        fi
+        n="$(curl -fsS -m "$PL_SEARCH_TIMEOUT" -G "$PL_URL/api/v1/search" \
+                --data-urlencode "apikey=$key" --data-urlencode "query=$PL_SEARCH_PROBE" \
+                --data-urlencode "type=search" --data-urlencode "limit=100" \
+                --data-urlencode "indexerIds=$id" 2>/dev/null | jq 'length' 2>/dev/null)" || n=""
+        if [ -z "$n" ]; then
+            cut="$cut${cut:+, }$iname (не ответил за $PL_SEARCH_TIMEOUT с)"
+        elif [ "$n" -eq 0 ]; then
+            cut="$cut${cut:+, }$iname (заведён, но не отдал ничего)"
+        else
+            info "$iname отвечает: $n раздач в проверочном поиске «$PL_SEARCH_PROBE»"
+        fi
+    done
+    [ -z "$cut" ] && return 0
+    CATALOG_CUT="$cut"
+    loud "опорные источники каталога не работают: $cut"
+    info "остальные индексеры узкие и этой дыры не закрывают: поиск будет находить мало \
+или ничего, пока источник не ответит"
+}
+
 install_indexers() {
     log "индексеры Prowlarr"
     local key schema existing
@@ -1768,8 +1890,8 @@ install_indexers() {
     jq -e 'type == "array" and length > 0 and all(.[]; has("definitionName"))' <<<"$schema" >/dev/null 2>&1 \
         || die "схема индексеров Prowlarr не в ожидаемом виде - API этой версии не тот, на который рассчитана установка"
 
-    local spec def url extra over body name key_here=0
-    local late=() answer status first=1
+    local spec def url extra over body name
+    local late=() retry=() answer status first=1
     for spec in "${INDEXERS[@]}"; do
         IFS='|' read -r def url extra <<<"$spec"
         name="$(jq -r --arg d "$def" '.[]|select(.definitionName==$d)|.name' <<<"$schema")"
@@ -1779,7 +1901,6 @@ install_indexers() {
         fi
         if jq -e --arg n "$name" 'any(.[]; .name==$n)' <<<"$existing" >/dev/null; then
             skip "индексер $name"
-            [ "$def" = "$KEY_INDEXER" ] && key_here=1
             continue
         fi
         # Поля определения, которые перебиваем: базовый URL плюс то, что задано третьим
@@ -1810,68 +1931,58 @@ install_indexers() {
             -d "$body" 2>/dev/null)" || status=000
         if [[ "$status" = 2* ]]; then
             info "добавлен $name"
-            [ "$def" = "$KEY_INDEXER" ] && key_here=1
         else
-            info "⚠ $name не добавился: Prowlarr ответил HTTP $status$(jq -r 'if type==\"array\" then .[0].errorMessage // empty else .message // empty end | if length>0 then \": \"+. else \"\" end' "$answer" 2>/dev/null) - не блокер"
+            # 🔴 TC-692. Это отказ КАТАЛОГА, а не «не блокер»: без опорного источника
+            # установка остаётся с почти пустым поиском, и человек обязан это видеть.
+            # Установку не роняем, но и успехом не называем: громкая строка с причиной
+            # из тела ответа, а дальше догрев переспросит отказавшие ещё не раз
+            # (:func:`retry_add_indexers`) - отказ здесь чаще всего погода канала.
+            retry+=("$(printf '%s\t%s' "$name" "$body")")
+            loud "$name не добавился: Prowlarr ответил HTTP $status$(indexer_fail_reason "$answer") - без него каталог неполный"
+            info "переспросим его в фоне ещё не раз; состояние видно в cast doctor"
         fi
+        rm -f "$answer"
     done
 
     # Живая проверка: «индексер заведён» и «поиск что-то находит» - разные утверждения.
     # Первое бывает правдой при неправде второго - например когда сеть режет индексер.
-    # 🔴 На глазах у человека проверяем ОДИН - ключевой. Остальные друг друга
-    # подстраховывают, и ждать их молчания (до $PL_SEARCH_TIMEOUT с каждому) незачем: их
-    # проверка уезжает в догрев, к оценкам IMDb. А этот не подстраховывает никто, поэтому
-    # его пустота обязана быть видна словами прямо здесь - и стоит она секунду, если он
-    # жив. Отказ самой проверки установку не роняет: это отчёт, а не условие.
+    # 🔴 На глазах у человека проверяются ОПОРНЫЕ (:func:`catalog_gate`): их молчание
+    # оставляет каталог пустым, и оно обязано быть видно в самой установке. Узкие друг
+    # друга подстраховывают, и ждать их молчания (до $PL_SEARCH_TIMEOUT с каждому)
+    # человеку незачем - их проверка уезжает в догрев, к оценкам IMDb.
     # Бан прошлой грозы переживает и перезапуск службы, и эту установку, а на проверке
     # ниже выглядел бы как «индексер заведён, но не отдал ничего» - то есть врал бы про
     # источник. Снимаем до проверки, чтобы проверялся источник, а не отсрочка Prowlarr.
     unban_indexers "$key"
 
-    local list key_id="" key_name="" rest=() id iname n
+    local list rest=() id iname
     list="$(curl -fsS "$PL_URL/api/v1/indexer?apikey=$key")" || list='[]'
     info "индексеров сейчас: $(jq 'length' <<<"$list")"
     while IFS='|' read -r id def iname; do
         [ -n "$id" ] || continue
-        if [ "$def" = "$KEY_INDEXER" ]; then
-            key_id="$id"; key_name="$iname"
-        else
-            rest+=("$(printf '%s\t%s' "$id" "$iname")")
-        fi
+        # Опорные щупаются здесь же, на глазах (:func:`catalog_gate`), поэтому в догрев
+        # они не попадают: дважды один поиск - это дважды обращение к трекеру.
+        core_indexer "$def" || rest+=("$(printf '%s\t%s' "$id" "$iname")")
     done < <(jq -r '.[]|"\(.id)|\(.definitionName)|\(.name)"' <<<"$list")
 
-    # Гейт веса: на этом индексере держится половина каталога, и замены ему в открытом
-    # пуле нет. Установку не роняем (без него всё равно ищется), но и молчать нельзя:
-    # человек должен понимать, что каталог у него урезан, а не гадать, почему западного
-    # кино и аниме не находится.
-    if [ "$key_here" != 1 ]; then
-        loud "$KEY_INDEXER не завёлся - каталог западных релизов и аниме будет неполным"
-        info "поиск продолжит работать на остальных индексерах; повторный ./install.sh \
-заведёт его, когда он снова будет доступен"
-    elif [ -z "$key_id" ]; then
-        info "$KEY_INDEXER заведён, но в списке Prowlarr его нет - проверить нечем"
-    else
-        n="$(curl -fsS -m "$PL_SEARCH_TIMEOUT" -G "$PL_URL/api/v1/search" \
-                --data-urlencode "apikey=$key" --data-urlencode "query=$PL_SEARCH_PROBE" \
-                --data-urlencode "type=search" --data-urlencode "limit=100" \
-                --data-urlencode "indexerIds=$key_id" 2>/dev/null | jq 'length' 2>/dev/null)" || n=""
-        if [ -z "$n" ]; then
-            info "$key_name заведён, но проверить его нечем - он не ответил за $PL_SEARCH_TIMEOUT с"
-        elif [ "$n" -gt 0 ]; then
-            info "$key_name отвечает: $n раздач в проверочном поиске «$PL_SEARCH_PROBE»"
-        else
-            loud "$key_name заведён, но не отдал ничего - каталог западных релизов и аниме \
-будет неполным"
-            info "поиск продолжит работать на остальных индексерах; состояние видно в cast doctor"
-        fi
-    fi
+    # 🔴 TC-692. Гейт каталога вместо прежнего гейта одного ключевого индексера: опорных
+    # два, и молчание любого из них оставляет поиск почти пустым. Установку не роняем
+    # (деградируем, а не умираем), но и успехом такую не называем: `main` скажет об этом
+    # последней строкой и вернёт ненулевой код.
+    catalog_gate "$key" "$list" "$schema"
 
     # Догрев: сперва то, ради чего он заведён (индексер на сто секунд), следом проверка
     # остальных. Порядок не случаен - проверять имеет смысл уже полный список.
-    if [ "${#late[@]}" -gt 0 ]; then
+    # Отказавшие на глазах едут тем же догревом: первая попытка та же, что была,
+    # а дальше они переспрашиваются, пока окно канала не откроется (TC-692).
+    local todo=()
+    [ "${#late[@]}" -eq 0 ] || todo+=("${late[@]}")
+    [ "${#retry[@]}" -eq 0 ] || todo+=("${retry[@]}")
+    if [ "${#todo[@]}" -gt 0 ]; then
         local names=""
-        for spec in "${late[@]}"; do names="$names${names:+, }${spec%%$'\t'*}"; done
-        late_run "индексер $names (добавляется до двух минут)" add_indexers "$key" "${late[@]}"
+        for spec in "${todo[@]}"; do names="$names${names:+, }${spec%%$'\t'*}"; done
+        late_run "индексер $names (добавляется до двух минут; отказавшие переспросим ещё)" \
+            retry_add_indexers "$key" "${todo[@]}"
     fi
     if [ "${#rest[@]}" -gt 0 ]; then
         late_run "проверочный поиск по остальным индексерам" check_indexers "$key" "${rest[@]}"
@@ -2123,6 +2234,19 @@ main() {
 (итог в $LATE_LOG)"
     fi
     rm -f "$LATE_NOTES"
+
+    # 🔴 TC-692. Последнее слово установки. Всё своё она поставила, показ работает - но
+    # если опорного источника нет, искать нечем, и «готово» без этой строки было бы
+    # неправдой: раньше такая установка молча объявляла успех, а свежая машина не находила
+    # почти ничего. Роняем не установку, а её ВЕРДИКТ: код возврата у неудавшегося
+    # каталога ненулевой (:data:`EXIT_CATALOG_CUT`), иначе всякая автоматика поверит нулю.
+    if [ -n "$CATALOG_CUT" ]; then
+        loud "каталог урезан: $CATALOG_CUT"
+        info "torrcast поставлен и показ работает, но искать почти нечего: источники режет \
+сеть. Догрев переспрашивает их сам, состояние видно в cast doctor, повторный ./install.sh \
+заведёт их, когда они ответят"
+        exit "$EXIT_CATALOG_CUT"
+    fi
 }
 
 main "$@"
