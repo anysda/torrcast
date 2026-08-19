@@ -8,10 +8,11 @@ from typing import Any, Final
 
 from torrcast.adapters.chromecast.mock.hls_decoder import HlsDecoder
 from torrcast.adapters.chromecast.mock.hls_fetch import HlsFetch
+from torrcast.adapters.chromecast.mock.mock_replay import mock_replay
+from torrcast.adapters.chromecast.mock.mock_settings import _Settings
 from torrcast.adapters.chromecast.mock.screen_watch import ScreenWatch
 from torrcast.adapters.chromecast.mock.segment_audit import SegmentAudit
 from torrcast.adapters.system_clock import SystemClock
-from torrcast.domain.infra_error import InfraError
 from torrcast.domain.not_raised import NOT_RAISED
 from torrcast.domain.patience import Patience
 from torrcast.domain.position import Position
@@ -23,7 +24,7 @@ from torrcast.ports.clock import Clock
 _CLOCK: Final[Clock] = SystemClock()
 
 
-class MockReceiver:
+class MockReceiver(_Settings):
     """Приёмник без телевизора: тянет HLS ровно как ТВ и декодирует ffmpeg'ом.
 
     Приёмка ТРАНСПОРТА и ДЕКОДА проходит на нём целиком: манифест и сегменты забираются
@@ -41,22 +42,6 @@ class MockReceiver:
     404 приходят из профиля (:mod:`torrcast.domain.profile`), а константы класса остаются
     умолчанием осторожного профиля.
     """
-
-    #: Сколько приёмник терпит стоящую картинку, прежде чем умрёт медиасессия. Замер
-    #: 09-08-2026 на живом Q70D (рапорт приёмника + tcpdump): 23.5 с. Прежние «около
-    #: четырёх минут» склеивали этот срок со сроком жизни приложения на экране
-    #: (:attr:`torrcast.domain.profile.Profile.app_patience`) и не равны ни одному из них.
-    #: Терпение задаётся и в конструкторе: тест не обязан выжидать даже эти секунды.
-    PATIENCE = CAUTIOUS.patience
-    #: Сколько раз приёмник САМ перезабирает пропавший кусок, прежде чем сдаться.
-    #: У Q70D их два, у приставки Android TV - ни одного
-    #: (:attr:`torrcast.domain.profile.Profile.segment_retries`).
-    SEGMENT_RETRIES = CAUTIOUS.segment_retries
-    #: Сколько приёмник не берёт LOAD вовсе, поймав 404.
-    SULK = CAUTIOUS.sulk
-    #: Сколько ждём картинку, поднимая погасший показ (:meth:`replay`) - как у живого
-    #: приёмника: попытка тут не одна, интервалы держит зовущий.
-    WAKE_TIMEOUT = 60.0
 
     def __init__(
         self,
@@ -144,37 +129,21 @@ class MockReceiver:
         return self.screen.read(front)
 
     def replay(self, at: float) -> float:
-        """Поднять СВОЙ погасший показ с секунды ``at``; вернуть секунду, с которой он пошёл.
-
-        Тот же договор, что и у приёмника на живом ТВ: позиция приходит снаружи (у мёртвой
-        сессии её нет), исключения наружу не выпускаются, а место подъёма называется только
-        про действительно вернувшуюся картинку, а не про отправленный LOAD;
-        :data:`torrcast.domain.not_raised.NOT_RAISED` - её нет. Ждать её дольше
-        :attr:`WAKE_TIMEOUT` незачем: попытка тут не одна.
-
-        Своей сетки сухой приёмник не знает и куски не перешагивает, поэтому пошла картинка
-        ровно оттуда, откуда просили.
+        """Поднять СВОЙ погасший показ с секунды ``at`` (:func:`mock_replay`).
 
         ⚠️ Чужой показ он не видит и видеть не может: что приёмник занят чужим, проверяется
         только на живом ТВ.
         """
         if not self._url or self.clock.monotonic() < self.fetch.sulk_until:
             return NOT_RAISED  # приёмник поймал 404 и ближайшее время не берёт LOAD вовсе
-        try:
-            self._open(self._url, at)
-        except (InfraError, OSError):
-            return NOT_RAISED  # источника всё ещё нет - зовущий попробует ещё или погасит
-        self.screen.jumped(at)
-        deadline = self.clock.monotonic() + self.WAKE_TIMEOUT
-        while self.clock.monotonic() < deadline:
-            self.clock.sleep(1.0)
-            if self.decoder.pos.pos > at:  # декодер поехал - картинка на экране
-                self.screen.dead = False
-                return at
-            if not self.decoder.pos.playing:
-                break  # декодер лёг, не начав: показа нет, и врать о нём нельзя
-        self.decoder.stop()
-        return NOT_RAISED
+        return mock_replay(
+            lambda pos: self._open(self._url, pos),
+            self.screen,
+            self.decoder,
+            self.clock,
+            at,
+            self.WAKE_TIMEOUT,
+        )
 
     def _open(self, url: str, at: float = 0.0) -> None:
         """Спросить источник, завести декодер и пустить за ним сверку сегментов.
