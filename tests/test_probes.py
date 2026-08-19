@@ -728,6 +728,29 @@ def test_щуп_перемотки_берёт_порт_у_ядра() -> None:
         assert sock.getsockname()[1] == port
 
 
+def test_щуп_перемоток_берёт_удержание_и_потолок_у_профиля() -> None:
+    """Удержание запроса и потолок веса куска - свойства приёмника, не щупа.
+
+    🔴 Пока оба профиля были по 16 МБ, расхождение не проявлялось. Когда у приставки
+    потолок веса куска стал 28 МБ, щуп строил сетку под 28 (профиль в ``layout`` он
+    передавал честно), а раздачу собирал без ``cap`` - с осторожным умолчанием 16 МБ:
+    на релизе, чьи копии тяжелее 16 МБ, ни один кусок не выкладывался, и здоровый
+    продукт выглядел «ни кадра». Показ оба числа берёт у профиля
+    (:func:`torrcast.usecases.playback._tract._tract`), щуп обязан мерить тот же тракт.
+    """
+    source = (SCRIPTS / "seekcheck.py").read_text(encoding="utf-8")
+    calls = [
+        node
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "Feed"
+    ]
+    assert len(calls) == 1, "щуп собирает ленту показа ровно раз"
+    given = {kw.arg: ast.unparse(kw.value) for kw in calls[0].keywords}
+
+    assert given.get("wait") == "choice.profile.hold_seconds"
+    assert given.get("cap") == "choice.profile.max_segment_bytes"
+
+
 def test_щуп_берёт_код_из_своего_дерева() -> None:
     """Каждый щуп, зовущий продукт, кладёт впереди путей СВОЙ корень - и не чужой.
 

@@ -299,7 +299,6 @@ def main() -> int:
     parser.add_argument("--keep", type=float, default=120.0, help="окно позади показа, с")
     parser.add_argument("--burst", type=float, default=60.0)
     parser.add_argument("--readrate", type=float, default=1.0)
-    parser.add_argument("--wait", type=float, default=120.0, help="сколько показ держит запрос")
     parser.add_argument("--trace", action="store_true", help="печатать решения об упаковке")
     parser.add_argument("--whole", action="store_true", help="перекодировать фильм целиком")
     parser.add_argument("--mbit", type=float, default=9.0, help="во сколько перекодировать")
@@ -360,7 +359,10 @@ def main() -> int:
         readrate=args.readrate,
         burst=args.burst,
         keep=args.keep,
-        wait=args.wait,
+        # Как у показа (:mod:`torrcast.usecases.playback._tract`): удержание запроса и потолок
+        # веса куска - свойства приёмника, иначе щуп меряет осторожное умолчание Q70D.
+        wait=choice.profile.hold_seconds,
+        cap=choice.profile.max_segment_bytes,
         log=functools.partial(print, "  упаковка:"),
         encode=whole,
     )
@@ -368,7 +370,7 @@ def main() -> int:
     server = HlsServer(out, host="127.0.0.1", port=port, feed=feed)
     server.start()
     base = f"http://127.0.0.1:{port}"
-    user = Consumer(base, feed, timeout=args.wait + 30.0)
+    user = Consumer(base, feed, timeout=choice.profile.hold_seconds + 30.0)
     began = time.monotonic()
     try:
         code, size, waited = get(f"{base}/index.m3u8", 30.0)
