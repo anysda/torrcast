@@ -10,39 +10,16 @@ from typing import TYPE_CHECKING
 from torrcast.adapters.ffmpeg.encode_args import encode_args
 from torrcast.adapters.recode.encode_settings import (
     _KEY_SLACK,
-    FIT_FLOOR,
-    FIT_SLACK,
     MAXRATE_GAIN,
     TONEMAP,
     VBV_SECONDS,
 )
+from torrcast.adapters.recode.fit_mbit import fit_mbit
 from torrcast.adapters.recode.level_for import level_for
-from torrcast.domain.media import AUDIO_MBIT, TS_OVERHEAD
+from torrcast.adapters.recode.scale_to import scale_to
 
 if TYPE_CHECKING:
     from torrcast.adapters.stream_pack.grid import Grid
-
-
-def _scale_to(frame: int) -> str:
-    """Фильтр, ужимающий кадр в габарит ступени лестницы, - и ни пикселя вверх.
-
-    🔴 Габарит, а не одна высота. Прямое ``scale=-2:1080`` судит по высоте, а высота
-    ступени не задаёт: скоуп 3840×1600 - это тот же 2160p (:attr:`torrcast.domain.media.Media.frame`
-    считает по 16:9-габариту), и ``-2:1080`` развернул бы его в 2592×1080 - кадр, который
-    ШИРЕ 1080p и приёмнику по-прежнему не по зубам. Габарит 1920×1080 с сохранением
-    пропорций даёт из него честные 1920×800.
-
-    ``min(iw,…)`` - страховка от увеличения: ``force_original_aspect_ratio=decrease``
-    ужимает габарит до пропорций входа, но САМ по себе мелкий вход растянул бы до
-    габарита. Нам растягивать нечего: 720p должен остаться 720p.
-
-    ``force_divisible_by=2`` - стороны обязаны быть чётными: у ``yuv420p`` цветность
-    вдвое реже яркости, и нечётная сторона кодировщику просто не даётся.
-    """
-    return (
-        f"scale=w=min(iw\\,{frame * 16 // 9}):h=min(ih\\,{frame})"
-        ":force_original_aspect_ratio=decrease:force_divisible_by=2"
-    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,37 +59,11 @@ class Encode:
     def fit(self, span: float, cap: float, cap_mbit: float = 0.0) -> Encode:
         """Тот же перекод, но с целью, посчитанной под потолки ПРИЁМНИКА.
 
-        🔴 Единственное место, где цель перекода считается из потолков. Спрашивают его
-        двое - фоновый кодировщик (:meth:`Recoder._run`) и ужатие на месте
-        (:meth:`torrcast.usecases.feed_pack.feed.Feed._shrink`), - и разойдись они хоть в одном
-        знаке, в проекте появился бы третий источник правды о потолке.
-
-        Потолков два, и они разной природы. ``cap`` - **вес** куска в байтах
-        (:attr:`torrcast.domain.profile.Profile.max_segment_bytes`): сегмент тяжелее его приёмник
-        не доигрывает, а выбрасывает буфер и качает заново. Сколько мегабит в секунду в
-        такой вес влезает, зависит от ДЛИНЫ куска, а она у сетки по опорным кадрам
-        доходит до 20 секунд: прибитые 9 Мбит/с кладут в такой кусок 23 МБ при потолке 16,
-        и не влезает сам перекод, а не только копия (TC-483). ``cap_mbit`` - **битрейт**,
-        который приёмник тянет (:attr:`torrcast.domain.profile.Profile.recode_at_mbit`): выше него
-        он спотыкается независимо от веса. Ноль - про этот потолок не спрашивали.
-
-        Считается от того, что получит приёмник, а не от голого видео: сверху лягут наш
-        AAC (:data:`torrcast.domain.delivered_mbit.AUDIO_MBIT`) и оверхед mpegts
-        (:data:`torrcast.domain.delivered_mbit.TS_OVERHEAD`), а сам кодер вправе идти до
-        :attr:`maxrate`. Отсюда же и запас :data:`FIT_SLACK`.
-
-        Вверх не перекодируем: цель не может стать выше той, что уже стоит
-        (:attr:`mbit`), - потолок умеет только опустить её.
+        Оба потолка, запас и пол цели живут в :func:`fit_mbit`: считает её и фоновый
+        кодировщик, и ужатие на месте, и разойдись они хоть в одном знаке, в проекте
+        появился бы третий источник правды о потолке.
         """
-
-        def room(delivered: float) -> float:
-            """Сколько Мбит/с ВИДЕО просить, чтобы сегмент не вышел за ``delivered``."""
-            return max(0.0, (delivered / TS_OVERHEAD - AUDIO_MBIT) / MAXRATE_GAIN)
-
-        want = room(cap * 8 / (max(span, 0.1) * 1e6))
-        if cap_mbit > 0:
-            want = min(want, room(cap_mbit))
-        return replace(self, mbit=max(FIT_FLOOR, min(self.mbit, want * FIT_SLACK)))
+        return replace(self, mbit=fit_mbit(self.mbit, span, cap, cap_mbit))
 
     @property
     def scaled(self) -> bool:
@@ -143,7 +94,7 @@ class Encode:
         тонемап работает уже на 1080p. Тонемап - самый дорогой фильтр в тракте, и цена
         его линейна по пикселям, так что вчетверо меньший кадр стоит вчетверо дешевле.
         """
-        chain = [_scale_to(self.ceiling)] if self.scaled else []
+        chain = [scale_to(self.ceiling)] if self.scaled else []
         if self.hdr:
             chain.append(TONEMAP)
         return ",".join(chain)

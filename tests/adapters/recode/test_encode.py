@@ -6,7 +6,8 @@ import pytest
 
 from tests.adapters.recode.grids import grid
 from torrcast.adapters.recode.encode import Encode
-from torrcast.adapters.recode.encode_settings import FIT_FLOOR, MAXRATE_GAIN, VBV_SECONDS
+from torrcast.adapters.recode.encode_settings import MAXRATE_GAIN, VBV_SECONDS
+from torrcast.adapters.recode.fit_mbit import fit_mbit
 
 
 def test_the_ceiling_and_the_buffer_are_counted_from_the_target() -> None:
@@ -17,26 +18,14 @@ def test_the_ceiling_and_the_buffer_are_counted_from_the_target() -> None:
     assert encode.bufsize == encode.maxrate * VBV_SECONDS
 
 
-def test_the_target_is_counted_from_the_length_of_the_piece() -> None:
-    """Один и тот же вес в длинном куске - это меньше Мбит/с, чем в коротком (TC-483)."""
-    encode = Encode(mbit=9.0)
+def test_the_fitted_target_comes_back_as_the_same_encode() -> None:
+    """Потолки считает :func:`fit_mbit`, перекод забирает его ответ и не меняет остального."""
+    encode = Encode(mbit=9.0, preset="superfast", frame=2160, ceiling=1080)
 
-    short = encode.fit(span=5.0, cap=16_000_000)
-    long = encode.fit(span=20.0, cap=16_000_000)
+    fitted = encode.fit(span=20.0, cap=16_000_000)
 
-    assert long.mbit < short.mbit, "длинный кусок обязан просить меньше"
-    assert short.mbit <= 9.0, "вверх не перекодируем: потолок умеет только опустить цель"
-
-
-def test_the_receiver_bitrate_ceiling_lowers_the_target_on_its_own() -> None:
-    """Приёмник спотыкается о битрейт независимо от веса куска."""
-    encode = Encode(mbit=9.0)
-
-    without = encode.fit(span=2.0, cap=16_000_000)
-    with_ceiling = encode.fit(span=2.0, cap=16_000_000, cap_mbit=4.0)
-
-    assert with_ceiling.mbit < without.mbit
-    assert encode.fit(span=1000.0, cap=1).mbit == FIT_FLOOR, "ниже пола не опускаемся"
+    assert fitted.mbit == fit_mbit(9.0, 20.0, 16_000_000)
+    assert (fitted.preset, fitted.frame, fitted.ceiling) == ("superfast", 2160, 1080)
 
 
 def test_the_frame_is_only_shrunk_when_the_source_is_bigger_than_the_receiver_takes() -> None:
