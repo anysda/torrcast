@@ -8,7 +8,7 @@ from __future__ import annotations
 import time
 from typing import TYPE_CHECKING
 
-from torrcast.domain.entry import ENDING_RATIO
+from torrcast.domain.ending_reached import ending_reached
 from torrcast.domain.revive_settings import REVIVE_LIMIT, REVIVE_TRIES
 from torrcast.ports.journal.slot import journal
 from torrcast.ports.receiver import Receiver
@@ -58,7 +58,7 @@ def _resurrect(
     now = state.clock.monotonic()
     if not isinstance(receiver, _Revivable) or pos < 0:
         return False  # поднимать нечем или неоткуда - это обычный конец показа
-    if feed.duration > 0 and pos >= feed.duration * ENDING_RATIO:
+    if ending_reached(pos, feed.duration):
         return False  # фильм досмотрен: гаснущий экран тут и есть титры, а не авария
     if not state.why:
         state.since, state.warmed = now, warmer.warmed if warmer is not None else 0.0

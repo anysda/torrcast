@@ -2816,9 +2816,10 @@ def test_the_mock_tells_the_credits_from_a_source_that_died_under_the_show() -> 
     🔴 Замер TC-314: источник пропал под показом, ffmpeg закрыл вход нулём на 0:04:42 из
     2:46:55, и сухой прогон записал это «фильм доигран» - в журнале ``экран: 0:04:42`` с
     пустым состоянием. Пока это считалось титрами, ни один замер досмотра заглушкой не
-    доказывался: авария на пятой минуте читалась успехом.
+    доказывался: авария на пятой минуте читалась успехом. Пустой манифест - тот же случай:
+    длины нет, и звать титрами тут нечего.
     """
-    from torrcast.domain.entry import ENDING_RATIO
+    from torrcast.domain.watch_ratios import ENDING_RATIO
 
     whole = 10015.0  # 2:46:55 - длина того самого фильма
 
@@ -2844,7 +2845,8 @@ def test_the_mock_tells_the_credits_from_a_source_that_died_under_the_show() -> 
     blind = MockReceiver()
     blind.decoder.proc = FakeProc(0)  # type: ignore[assignment]
     blind.decoder.pos = Position(282.0, 0.0, False)
-    assert blind.screen.over(), "длины фильма ещё не знаем - судить не по чему, правило прежнее"
+    assert not blind.screen.over(), "в манифесте пусто - это смерть источника, а не титры"
+    assert blind.position().state == "BUFFERING", "неизвестная длина уходит в терпение"
 
 
 def test_the_diagnostic_remote_steers_the_mock_receiver(remote: Path) -> None:

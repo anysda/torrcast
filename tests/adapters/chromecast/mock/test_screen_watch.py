@@ -6,11 +6,11 @@ from tests.conftest import FakeProc
 from tests.fakes.clock import FakeClock
 from torrcast.adapters.chromecast.mock.hls_decoder import HlsDecoder
 from torrcast.adapters.chromecast.mock.screen_watch import ScreenWatch
-from torrcast.domain.entry import ENDING_RATIO
 from torrcast.domain.patience import Patience
 from torrcast.domain.position import Position
 from torrcast.domain.profile import CAUTIOUS
 from torrcast.domain.reception_report import ReceptionReport
+from torrcast.domain.watch_ratios import ENDING_RATIO
 
 WHOLE = 7200.0
 

@@ -1,14 +1,15 @@
 """Зеркало :mod:`torrcast.domain.entry`: запись состояния показа как чистое значение.
 
 Переходы записи и закладку сторожит набор состояния (``tests/test_state.py``). Здесь -
-то, что живёт только в самой записи: две доли, отвечающие на РАЗНЫЕ вопросы; поля, которые
-относятся к файлу и обязаны обнуляться вместе со сменой файла; и признак сериала, который
-нельзя выдавать по одной осечке разбора.
+то, что живёт только в самой записи: доли конца, приложенные к её собственным числам; поля,
+которые относятся к файлу и обязаны обнуляться вместе со сменой файла; и признак сериала,
+который нельзя выдавать по одной осечке разбора.
 """
 
 from __future__ import annotations
 
-from torrcast.domain.entry import ENDING_RATIO, WATCHED_RATIO, Entry
+from torrcast.domain.entry import Entry
+from torrcast.domain.watch_ratios import ENDING_RATIO, WATCHED_RATIO
 
 WHOLE = 1000.0
 
@@ -29,17 +30,6 @@ def pack(**fields: object) -> Entry:
         episodes=[[1, 2, 5], [1, 3, 6], [1, 4, 7]],
         **fields,  # type: ignore[arg-type]
     )
-
-
-def test_the_credits_mark_is_never_stricter_than_the_watched_mark() -> None:
-    """Две доли отвечают на разные вопросы, и та, что про титры, обязана быть не строже.
-
-    «Досмотрено» решает, предлагать ли продолжение; «это был конец, а не обрыв» решает,
-    воскрешать ли погасший экран. Сузь вторую относительно первой - и показ полез бы
-    поднимать доигранное: экран гаснет на титрах штатно, а запись бы этого ещё не признала.
-    """
-    assert ENDING_RATIO <= WATCHED_RATIO
-    assert 0.0 < ENDING_RATIO < 1.0, "доля титров обязана оставаться долей, а не концом ленты"
 
 
 def test_the_watched_mark_falls_exactly_on_its_share_of_the_length() -> None:
@@ -76,9 +66,12 @@ def test_an_unknown_length_never_gives_the_right_to_guess_the_share() -> None:
 
     Приёмник знает длину не всегда. Начни запись угадывать - недосмотренный фильм с
     неизвестной длиной уходил бы в «досмотрено», и продолжить его стало бы нечем.
+    Отрицательная длина - тот же случай: у картины её не бывает, и считать долю от неё
+    значит объявлять концом любое место, включая начало.
     """
-    assert not movie(pos=WHOLE, dur=0.0).ending
-    assert not movie(pos=WHOLE, dur=0.0).watched
+    for dur in (0.0, -1.0):
+        assert not movie(pos=WHOLE, dur=dur).ending
+        assert not movie(pos=WHOLE, dur=dur).watched
 
 
 def test_continuing_is_offered_only_where_there_is_progress_left_unfinished() -> None:

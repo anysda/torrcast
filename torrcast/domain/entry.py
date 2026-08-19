@@ -14,14 +14,14 @@ from datetime import UTC, datetime
 
 from torrcast.domain._playing import EntryKind as EntryKind
 from torrcast.domain._playing import _Playing
+from torrcast.domain.ending_reached import ending_reached
 from torrcast.domain.json_model import json_model
 from torrcast.domain.json_number import json_number
 from torrcast.domain.json_rows import json_rows
 from torrcast.domain.json_value import JsonValue
-from torrcast.domain.watch_ratios import ENDING_RATIO as ENDING_RATIO
-from torrcast.domain.watch_ratios import WATCHED_RATIO as WATCHED_RATIO
+from torrcast.domain.watch_ratios import WATCHED_RATIO
 
-__all__ = ["ENDING_RATIO", "WATCHED_RATIO", "Entry", "EntryKind"]
+__all__ = ["Entry", "EntryKind"]
 
 
 @dataclass(slots=True)
@@ -41,19 +41,15 @@ class Entry(_Playing):
 
     @property
     def ending(self) -> bool:
-        """Дошёл ли показ до титров: позиция ≥ 95 % длительности.
+        """Дошёл ли показ до титров: место записи за долей её длительности.
 
-        🔴 Мерка не «досмотрено», а «это был конец, а не обрыв», и порогом переключения
-        она НЕ является. Серия доигрывает до самого конца, и следующую берёт естественный
-        конец потока (:meth:`torrcast.usecases.watch.Watch.close`); доля же отвечает на другой
-        вопрос - считать ли погасший экран титрами или аварией, которую надо поднимать
-        (:meth:`torrcast.usecases.revive_playback._revival._Revival.resurrect`). Поэтому она щедрая:
-        сузишь её - и обычный конец начнёт читаться как смерть, а показ полезет воскрешать
-        доигранное. Она же и страховка: приёмник, который залип на последнем куске или молча ушёл в
-        IDLE, кончает сеанс не сам, а по терпению - и переход всё равно случается, потому что
-        позиция к этому времени давно за долей.
+        Правило одно на весь показ и живёт отдельно
+        (:func:`torrcast.domain.ending_reached.ending_reached`): и запись, и приёмник обязаны
+        отвечать на «дошло ли до конца» одинаково, иначе страховка перехода становится
+        лотереей. Там же сказано, почему доля щедрая и почему неизвестная длительность -
+        это «не конец».
         """
-        return self.dur > 0 and self.pos >= self.dur * ENDING_RATIO
+        return ending_reached(self.pos, self.dur)
 
     @property
     def watched(self) -> bool:
