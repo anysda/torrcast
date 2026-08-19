@@ -21,6 +21,7 @@ from torrcast.domain.frames.mkv.ids import (
     CUES_CHUNK,
     HEAD_BYTES,
 )
+from torrcast.domain.frames.mkv.key_frame import key_frame
 from torrcast.domain.frames.mkv.uint import uint
 from torrcast.domain.frames.mkv.walk import walk
 from torrcast.domain.frames.range_reader import RangeReader as Reader
@@ -30,11 +31,11 @@ from torrcast.domain.infra_error import InfraError
 def keys(reader: Reader, head: bytes) -> KeyMap:
     """Карта опорных кадров mkv. ``head`` — уже прочитанные :data:`HEAD_PEEK` байт.
 
-    Заходов к рою ровно два (:data:`~torrcast.adapters.frames.keyframes.HEAD_PEEK` и
+    Заходов к рою минимум два (:data:`~torrcast.adapters.frames.keyframes.HEAD_PEEK` и
     :data:`CUES_CHUNK`), и оба — минимально возможного размера: у холодной раздачи цена
     карты — это не байты, а сколько раз мы заставили рой отдать новое место и сколько ждали
-    перед следующим
-    запросом.
+    перед следующим запросом. Сверх них - три пробы честности индекса (:func:`_honest`):
+    бывают индексы-вруны, и отличает их от честных только содержимое кадра.
     """
     facts = Head(head)
     if facts.cues_at is None or facts.duration <= 0:  # маленького куска не хватило
@@ -58,8 +59,39 @@ def keys(reader: Reader, head: bytes) -> KeyMap:
     points = _points(body, facts)
     if not points:
         raise InfraError("Cues в файле есть, но точек в нём нет")
+    _honest(points, facts, reader)
     duration = facts.duration * facts.scale / 1e9
-    return KeyMap(duration, tuple(sorted(points)), reader.taken, reader.requests, "mkv")
+    return KeyMap(
+        duration, tuple(sorted(points)), reader.taken, reader.requests, "mkv", facts.video
+    )
+
+
+def _honest(points: list[Point], facts: Head, reader: Reader) -> None:
+    """Проверка, что точки Cues - опорные кадры, а не призраки; врущий индекс - ошибка.
+
+    Замер TC-639: бывают файлы, чей муксер ставит точку Cues на каждый кластер и флаг
+    опорности на каждый видеоблок, - карта из такого индекса на 89.7 % призраки (замер
+    по полному перебору ffprobe: 7235 из 8065), и наружу она уехать не имеет права.
+    Отличает призрака только содержимое кадра (:func:`key_frame`), поэтому проверяются
+    пробы вразброс - середина, потом четверти:
+    у врущего индекса призрак находится первой же пробой (один запрос), у честного
+    проверка стоит три запроса раз на файл - потом карта лежит в кэше.
+
+    Не проверяем и верим, когда нечего проверять (точек меньше четырёх - такую карту
+    всё равно отвергнет сетка), когда файл не назвал дорожку видео или когда кодек нам
+    не по зубам: ``None`` у :func:`key_frame` - это «не разобрать», а не призрак.
+    """
+    if facts.video is None:
+        return
+    own = [p for p in points if p.track == facts.video]
+    if len(own) < 4:
+        return
+    for k in (len(own) // 2, len(own) // 4, 3 * len(own) // 4):
+        if key_frame(reader, own[k].offset, facts.video, facts.codec) is False:
+            raise InfraError(
+                f"индекс Cues врёт: точка {own[k].at:.3f} ссылается не на опорный кадр - "
+                "карта из него была бы призрачной"
+            )
 
 
 def _points(body: bytes, facts: Head) -> list[Point]:

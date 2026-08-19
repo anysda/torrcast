@@ -106,7 +106,9 @@ def film_keys(
         # точки - 18.5 с чистого процессора после того, как рой всё отдал. Ровно это и
         # принимали за «первое чтение хвоста у холодного роя»: рой отдаёт
         # Cues за 2-6 с, остальное было наше.
-        track = video_track(found.points)
+        # Дорожку называет сам файл (элемент Tracks у mkv); эвристика - запасной путь
+        # на случай головы без Tracks.
+        track = found.video if found.video is not None else video_track(found.points)
         video = [p for p in found.points if p.track == track]
         ready = FilmKeys(
             found.duration, [p.at for p in video], [p.offset for p in video], found.kind

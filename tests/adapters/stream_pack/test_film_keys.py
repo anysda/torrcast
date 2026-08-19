@@ -48,7 +48,10 @@ def test_the_map_is_taken_from_the_shelf_instead_of_the_swarm() -> None:
 
 
 def test_only_the_video_track_gets_into_the_map() -> None:
-    """Сетка стоит на опорных кадрах ВИДЕО: чужая дорожка в карте разъехалась бы с ней."""
+    """Сетка стоит на опорных кадрах ВИДЕО: чужая дорожка в карте разъехалась бы с ней.
+
+    Файл дорожку не назвал (``KeyMap.video`` пуст) - выбирает эвристика-запасной путь.
+    """
     # Дорожка 0 - звук: точек больше, а пробелы в ней втрое шире, чем у видео.
     sound = tuple(Point(place, int(place * 10), 0) for place in (0.0, 1.0, 2.0, 32.0, 33.0, 60.0))
     video = tuple(Point(place, int(place * 100), 3) for place in (0.0, 10.0, 20.0, 30.0, 40.0))
@@ -56,6 +59,22 @@ def test_only_the_video_track_gets_into_the_map() -> None:
     ready = film_keys(URL, keys_of=lambda url: KeyMap(60.0, points, 0, 0, "mkv"))
     assert ready.at == [0.0, 10.0, 20.0, 30.0, 40.0], "в карту попала не дорожка видео"
     assert ready.offset == [0, 1000, 2000, 3000, 4000]
+
+
+def test_the_track_named_by_the_file_wins_over_the_guess() -> None:
+    """Файл назвал дорожку видео сам (``Tracks``) - эвристика не спрашивается.
+
+    Эвристика тут выбрала бы звук (дорожка 0): у неё точки через секунду ровно, а у видео
+    - раз в десять. Замер TC-639 на живом файле: ровный шаг бывает и у мусорного индекса,
+    поэтому слово файла сильнее любой закономерности.
+    """
+    sound = tuple(Point(float(place), place * 10, 0) for place in range(61))
+    video = tuple(Point(float(place), place * 100, 3) for place in range(0, 61, 10))
+    points = tuple(sorted(sound + video, key=lambda point: point.at))
+    ready = film_keys(URL, keys_of=lambda url: KeyMap(60.0, points, 0, 0, "mkv", 3))
+    assert ready.at == [float(place) for place in range(0, 61, 10)], (
+        "названная файлом дорожка проиграла эвристике"
+    )
 
 
 @pytest.mark.machine

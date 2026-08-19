@@ -34,10 +34,57 @@ def test_the_cue_times_and_absolute_offsets_make_the_map() -> None:
     assert found.kind == "mkv"
     assert found.duration == 6.0, "длительность - это Duration в своём масштабе"
     assert [(p.at, p.offset, p.track) for p in found.points] == [
-        (0.0, base + 100, 1),
-        (0.5, base + 4000, 1),
+        (0.0, base + 1024, 1),
+        (0.5, base + 4096, 1),
     ]
     assert found.requests == served.requests
+
+
+def test_the_map_remembers_the_track_the_file_named() -> None:
+    """Дорожку видео называет сам файл (``Tracks``) - карта везёт её номер с собой."""
+    _served, _base, found = _map(Matroska())
+
+    assert found.video == 1
+
+
+def test_without_tracks_the_track_is_not_named_and_not_guessed_here() -> None:
+    """``Tracks`` в голове нет - карта дорожку не называет: выбор остаётся эвристике."""
+    _served, _base, found = _map(Matroska(forget_tracks=True))
+
+    assert found.video is None
+
+
+def test_a_lying_index_is_an_error_not_a_ghost_map() -> None:
+    """Точки Cues ссылаются не на опорные кадры - карта из них не строится (TC-639).
+
+    Замер на живом файле: муксер поставил точку на каждый кластер и флаг опорности на
+    каждый видеоблок, и 7235 из 8065 «опорных кадров» через ровно 1.251 с оказались
+    призраками.
+    Четырёх точек хватает, чтобы проверка честности запустилась (меньше - карту отвергнет
+    сама сетка), а врущему индексу - чтобы попасться первой же пробой.
+    """
+    cues = [(0, 1024, 1), (2000, 2048, 1), (4000, 3072, 1), (6000, 4096, 1)]
+    data, _base = Matroska(cues=cues, ghost=True).bytes()
+    reader = Served(data)
+
+    with pytest.raises(InfraError, match="врёт"):
+        keys(reader, reader.read(0, HEAD))
+
+
+def test_an_honest_index_passes_the_frame_check() -> None:
+    """Честный индекс: пробы находят IDR, карта строится, цена - запрос на каждую пробу."""
+    cues = [(0, 1024, 1), (2000, 2048, 1), (4000, 3072, 1), (6000, 4096, 1)]
+    data, base = Matroska(cues=cues).bytes()
+    reader = Served(data)
+    found = keys(reader, reader.read(0, HEAD))
+
+    assert [(p.at, p.offset, p.track) for p in found.points] == [
+        (0.0, base + 1024, 1),
+        (2.0, base + 2048, 1),
+        (4.0, base + 3072, 1),
+        (6.0, base + 4096, 1),
+    ]
+    assert reader.requests == 5, "голова, один заход за Cues и три пробы вразброс"
 
 
 def test_the_map_comes_out_sorted_whatever_order_the_index_lay_in() -> None:
@@ -49,7 +96,7 @@ def test_the_map_comes_out_sorted_whatever_order_the_index_lay_in() -> None:
 
 def test_the_cues_of_sound_and_subtitles_keep_their_own_track_number() -> None:
     """У «Моаны 2» шесть дорожек в Cues: смешай их - и сетка встала бы по звуку."""
-    _served, _base, found = _map(Matroska(cues=[(0, 100, 1), (0, 100, 2), (700, 800, 2)]))
+    _served, _base, found = _map(Matroska(cues=[(0, 1024, 1), (0, 1024, 2), (700, 2048, 2)]))
 
     assert sorted({p.track for p in found.points}) == [1, 2]
 

@@ -19,3 +19,7 @@ class KeyMap(NamedTuple):
     #: чтобы ffmpeg открыл вход, - у mp4 там ``moov`` на мегабайты, у mkv хватает
     #: килобайт.
     kind: str = ""
+    #: Номер дорожки видео, названный самим файлом (элемент ``Tracks`` у mkv); ``None`` -
+    #: файл дорожку не назвал, и выбирать её придётся эвристикой
+    #: (:func:`~torrcast.domain.frames.keymap.video_track.video_track`).
+    video: int | None = None

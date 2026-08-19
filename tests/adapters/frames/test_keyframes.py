@@ -21,6 +21,7 @@ import pytest
 from torrcast.adapters.frames.keyframes import HEAD_PEEK, keyframes
 from torrcast.domain.frames.keymap.video_track import video_track
 from torrcast.domain.frames.mkv.ids import CUES_CHUNK, HEAD_BYTES
+from torrcast.domain.frames.mkv.key_frame import BLOCK_BYTES
 from torrcast.domain.frames.range_reader import RangeReader
 from torrcast.domain.infra_error import InfraError
 
@@ -81,11 +82,16 @@ def probe_offsets(path: str) -> list[int]:
     return [int(line.rstrip(",")) for line in done.stdout.split() if line.strip(",").isdigit()]
 
 
-def test_mkv_two_requests_and_small_head(served: _Served, clip: str) -> None:
-    """Карта mkv снимается двумя заходами: маленькая голова и один кусок с места Cues."""
+def test_mkv_small_head_one_cues_read_and_three_honesty_probes(served: _Served, clip: str) -> None:
+    """Карта mkv: маленькая голова, один заход за Cues и три пробы честности индекса.
+
+    Пробы появились с TC-639: встречаются индексы-вруны (точка Cues на каждый кластер при
+    редких настоящих опорных кадрах), и отличает их только содержимое кадра - отсюда по
+    запросу на пробу, раз на файл, дальше карта лежит в кэше.
+    """
     found = keyframes(clip, source=served)
-    assert [size for _, size in served[clip]] == [HEAD_PEEK, CUES_CHUNK]
-    assert found.requests == 2
+    assert [size for _, size in served[clip]] == [HEAD_PEEK, CUES_CHUNK] + [BLOCK_BYTES] * 3
+    assert found.requests == 5
     assert found.duration > 0
     assert found.points
     assert video_track(found.points) in {p.track for p in found.points}

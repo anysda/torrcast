@@ -23,6 +23,24 @@ def test_the_head_tells_where_cues_are_and_how_time_is_scaled() -> None:
     assert facts.duration == 6000.0
 
 
+def test_the_head_names_the_video_track_and_its_codec() -> None:
+    """Элемент ``Tracks`` называет дорожку видео сам - гадать по точкам Cues не нужно."""
+    data, _base = Matroska().bytes()
+    facts = Head(data)
+
+    assert facts.video == 1
+    assert facts.codec == "V_MPEG4/ISO/AVC"
+
+
+def test_a_head_without_tracks_names_no_video_track() -> None:
+    """``Tracks`` не прочитался - дорожка не названа, и врать о ней разбор не станет."""
+    data, _base = Matroska(forget_tracks=True).bytes()
+    facts = Head(data)
+
+    assert facts.video is None
+    assert facts.codec == ""
+
+
 def test_a_seek_head_without_cues_leaves_the_address_empty() -> None:
     """Записи о Cues в SeekHead нет - адреса нет, и врать о нём разбор не станет."""
     data, _base = Matroska(forget_cues=True).bytes()
