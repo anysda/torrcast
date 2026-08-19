@@ -255,8 +255,17 @@ def _swarm_of(client: Prowlarr) -> _Swarm:
 
 
 def _asked(client: Prowlarr) -> list[str]:
-    """Кого спросили персональным запросом - по номерам, в порядке круга."""
-    return [url.rsplit("=", 1)[1] for url in _swarm_of(client).urls if "&indexerIds=" in url]
+    """Кого спросили персональным запросом - по номерам, в порядке круга.
+
+    🔴 TC-686. Потоки круга пишут адреса в ``urls`` в том порядке, в каком их пустил
+    планировщик, поэтому сырой список под параллельным набором выходил то
+    ``["1", "2", "3"]``, то ``["2", "1", "3"]`` - и тест краснел на чужой правке.
+    Предмет проверки - КТО спрошен, а не кто из потоков записался первым, поэтому
+    номера сортируем. Что список к моменту чтения уже полон, гарантирует сам круг:
+    ответов он ждёт событием ``ask.done``, а не паузой.
+    """
+    asked = (url.rsplit("=", 1)[1] for url in _swarm_of(client).urls if "&indexerIds=" in url)
+    return sorted(asked, key=int)
 
 
 def _probes(client: Prowlarr, wait: float = 2.0) -> list[str]:
@@ -535,6 +544,9 @@ def test_anime_query_calls_nyaa_in_the_main_circle() -> None:
     так что фолбэк бы не сработал - значит Nyaa именно в основном круге."""
     client = _swarm(rows=2)
     results = client.search("Naruto [TV]")
+    # Nyaa - не опорный, и круг вправе уйти до его ответа: хвост ждём СОБЫТИЕМ (долив
+    # дожидается флаг потока), а не порядком, в котором успели потоки (TC-686).
+    results += client.late(wait=SHORT_TIMEOUT)
     assert _asked(client) == ["1", "2", "3"]
     assert len(results) == 6
 
