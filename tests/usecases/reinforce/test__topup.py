@@ -96,3 +96,20 @@ def test_the_count_of_the_late_survives_the_topup() -> None:
 
     assert fresh is not plan, "долив собрал новый план"
     assert fresh.waiting() == ("JacRed",)
+
+
+def test_the_memory_of_the_studio_survives_the_topup() -> None:
+    """🔴 TC-701. Долив собирает план заново, а память студии решает его порядок.
+
+    Опоздавший доезжает уже после ответа на меню, и верх отбора долив вправе сменить:
+    потеряй он тут студию, сменил бы по сидам, а не по тому, чем сериал и смотрели.
+    """
+    picture = pictures([row("Кино / Movie (1999) BDRip 1080p", "a", seeders=100)])[0]
+    plan = plan_for(picture, Args(query=["кино"]), Config())
+    plan.late = lambda: [row("Кино / Movie (1999) BDRip 2160p", "b", seeders=900)]
+    plan.studio = "LostFilm"
+
+    fresh = _topup(plan, Args(query=["кино"]), Config(), CAUTIOUS, Said(), frozenset())
+
+    assert fresh is not plan, "долив собрал новый план"
+    assert fresh.studio == "LostFilm"

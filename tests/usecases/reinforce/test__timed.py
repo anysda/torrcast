@@ -176,3 +176,19 @@ def test_the_count_of_the_late_survives_the_rebuild_on_the_real_runtime() -> Non
 
     assert fresh is not plan, "справка собрала новый план"
     assert fresh.waiting() == ("JacRed",)
+
+
+def test_the_memory_of_the_studio_survives_the_rebuild_on_the_real_runtime() -> None:
+    """🔴 TC-701. Справка пересобирает план, а память студии решает его порядок.
+
+    Пересборка идёт после меню и до показа, и потеряй она студию тут - порядок молча
+    вернулся бы к лотерее ровно там, где человек её и не ждёт.
+    """
+    install(_Noted())
+    plan = _plan(_interstellar())
+    plan.studio = "LostFilm"
+
+    fresh = _timed(plan, _Facts(_INTERSTELLAR), Args(query=["кино"]), Config())
+
+    assert fresh is not plan, "справка собрала новый план"
+    assert fresh.studio == "LostFilm"
