@@ -1,4 +1,4 @@
-"""Состояние кодировщика: цель куска, срок до выкладки, готовый кусок и уборка позади показа."""
+"""Состояние кодировщика: цель куска, срок до выкладки и готовый кусок на диске."""
 
 from __future__ import annotations
 
@@ -79,22 +79,6 @@ def test_a_stuck_slot_stops_blocking_once_it_is_released(tmp_path: Path) -> None
     state._unstick(4)
 
     assert state.stuck == {} and state.blocked == -1
-
-
-def test_only_the_pieces_behind_the_show_are_swept_out_of_ram(tmp_path: Path) -> None:
-    """Позади показа держим окно, а не выбрасываем всё: перемотка назад бывает короткой."""
-    state = _state(tmp_path)
-    for slot in (0, 1, 20):
-        (tmp_path / f"v{slot}.ts").write_bytes(b"x" * 1000)
-    state.done.update({0, 1, 20})
-    state.played = 200.0  # слоты по 10 с: окно в 30 с оставляет всё, что ближе 17-го
-
-    assert state._weight() == 3 * 1000 / 1e6
-    state._sweep()
-
-    assert not (tmp_path / "v0.ts").exists() and not (tmp_path / "v1.ts").exists()
-    assert (tmp_path / "v20.ts").exists(), "то, что впереди показа, уборке не подлежит"
-    assert state.done == {20}, "выброшенный кусок перестаёт числиться готовым"
 
 
 def test_a_recoder_without_a_log_says_nothing_and_does_not_fall(tmp_path: Path) -> None:

@@ -10,6 +10,8 @@ from typing import TYPE_CHECKING
 
 from torrcast.adapters.recode.pick import _pick
 from torrcast.adapters.recode.run import _run
+from torrcast.adapters.recode.spare_weight import spare_weight
+from torrcast.adapters.recode.sweep_spare import sweep_spare
 
 if TYPE_CHECKING:
     from torrcast.adapters.recode.recoder_state import _State
@@ -29,7 +31,7 @@ def _work(
     """
     while not state.stopped:
         try:
-            state._sweep()
+            sweep_spare(state.spare, state.grid, state.played, state.done)
             job = pick(state)
             if job is None:
                 nap(1.0)
@@ -39,7 +41,8 @@ def _work(
             # он не касается куска, на котором ВСТАЛА выкладка (:attr:`blocked`):
             # заснуть под потолком кэша значит держать показ до предохранителя и
             # потом всё равно выпустить тяжёлую копию.
-            if job[0] not in (state.head, state.blocked) and state._weight() >= state.cache_mb:
+            spared = job[0] in (state.head, state.blocked)
+            if not spared and spare_weight(state.spare) >= state.cache_mb:
                 nap(2.0)
                 continue
             run(state, *job)

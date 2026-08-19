@@ -4,18 +4,18 @@
 
 from __future__ import annotations
 
-import contextlib
 import threading
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any
 
 from torrcast.adapters.recode.encode import Encode
+from torrcast.adapters.recode.oversize import oversize
 from torrcast.adapters.recode.pace import Pace
 from torrcast.adapters.recode.recoder_settings import RUN_MAX
 from torrcast.adapters.recode.targets import _targets
 from torrcast.adapters.recode.weights import Weights
 from torrcast.adapters.stream_pack.packer import Packer
-from torrcast.adapters.stream_probe import segment_name, segment_slot
+from torrcast.adapters.stream_probe import segment_name
 from torrcast.domain.profile import CAUTIOUS
 from torrcast.ports.pack_run import PackFactory
 
@@ -146,16 +146,8 @@ class _State:
         return _targets(self.weights, self.grid, self.threshold, self.cap)
 
     def oversize(self, slot: int, size: int = 0) -> bool:
-        """Копия этого куска тяжелее потолка, то есть наружу её отдавать нельзя.
-
-        ``size`` — вес копии, уже лежащей на диске
-        (:meth:`torrcast.adapters.stream_pack.packer.Packer.publish` знает его точно, один ``stat``);
-        ноль — копии ещё нет, берём предсказание по карте (:meth:`Weights.size`), оно завышает на 12
-        % и промахивается в безопасную сторону.
-        """
-        if size > 0:
-            return size > self.cap
-        return self.weights.size(slot, self.grid.span(slot)) > self.cap
+        """Копия этого куска тяжелее потолка приёмника (:func:`oversize`)."""
+        return oversize(self.weights, self.grid, self.cap, slot, size)
 
     def ready(self, slot: int) -> Path | None:
         """Путь к готовому перекодированному куску или ``None``."""
@@ -180,19 +172,3 @@ class _State:
     def _say(self, text: str) -> None:
         if self.log is not None:
             self.log(text)
-
-    def _weight(self) -> float:
-        total = 0
-        for path in self.spare.glob("v*.ts"):
-            with contextlib.suppress(OSError):
-                total += path.stat().st_size
-        return total / 1e6
-
-    def _sweep(self) -> None:
-        """Выбросить готовые куски позади показа: их час прошёл, tmpfs не резиновый."""
-        behind = self.grid.slot_at(max(0.0, self.played - 30.0))
-        for path in self.spare.glob("v*.ts"):
-            slot = segment_slot(path.name)
-            if 0 <= slot < behind:
-                path.unlink(missing_ok=True)
-                self.done.discard(slot)

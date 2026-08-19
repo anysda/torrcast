@@ -28,6 +28,7 @@ from torrcast.adapters.recode import (
     preset_for,
     whole_encode,
 )
+from torrcast.adapters.recode.sweep_spare import sweep_spare
 from torrcast.adapters.stream_pack.ffmpeg_pack_command import ffmpeg_pack_command
 from torrcast.adapters.stream_pack.grid import Grid
 from torrcast.adapters.stream_pack.grid_for import grid_for
@@ -409,7 +410,7 @@ def test_played_pieces_leave_the_cache(tmp_path) -> None:  # type: ignore[no-unt
     (tmp_path / segment_name(20)).write_bytes(b"x")
     recoder.done = {0, 20}
     recoder.played = grid.start(21)
-    recoder._sweep()
+    sweep_spare(recoder.spare, recoder.grid, recoder.played, recoder.done)
     assert not (tmp_path / segment_name(0)).exists()
     assert (tmp_path / segment_name(20)).exists()
 
