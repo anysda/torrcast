@@ -311,3 +311,87 @@ def test_silencer_rule_leaves_a_narrow_exception_alone(tmp_path: Path) -> None:
     root = _tree(tmp_path)
     _layered(root, "narrow", '"""Модуль."""\n# ruff: noqa: RUF001\ndef narrow(): pass\n')
     assert "глушитель" not in _rules(root)
+
+
+def _package(root: Path, name: str, init: str, module: str = "digest") -> None:
+    """Кладёт пакет с подмодулем и его зеркальным тестом."""
+    (root / "torrcast" / name).mkdir(exist_ok=True)
+    (root / "tests" / name).mkdir(exist_ok=True)
+    (root / "torrcast" / name / "__init__.py").write_text(init, encoding="utf-8")
+    (root / "torrcast" / name / f"{module}.py").write_text(
+        f'"""Модуль."""\n\n\ndef {module}(): pass\n', encoding="utf-8"
+    )
+    (root / "tests" / name / f"test_{module}.py").write_text("", encoding="utf-8")
+
+
+def test_handout_rule_turns_red_on_a_name_from_a_submodule(tmp_path: Path) -> None:
+    """Одна строка возвращает имени второй адрес - витрину пакета вместо дома."""
+    root = _tree(tmp_path)
+    _package(root, "notes", '"""Пакет."""\n\nfrom .digest import digest\n')
+    handed = [item for item in structure_gate.check(root) if item.rule == "раздача"]
+    assert [item.message for item in handed] == ["пакет раздаёт имя digest из torrcast.notes.digest"]
+
+
+def test_handout_rule_turns_red_on_a_name_taken_by_its_full_address(tmp_path: Path) -> None:
+    """Полный путь раздаёт имя ровно так же, как точка: считается запись, а не длина."""
+    root = _tree(tmp_path)
+    _package(root, "notes", '"""Пакет."""\n\nfrom torrcast.notes.digest import digest\n')
+    assert "раздача" in _rules(root)
+
+
+def test_handout_rule_turns_red_on_a_submodule_shadowed_by_its_own_init(tmp_path: Path) -> None:
+    """Затенённый подмодуль домом не является: `digest` в пакете - функция, а не модуль."""
+    root = _tree(tmp_path)
+    _package(root, "digest", '"""Пакет."""\n\nfrom torrcast.digest.digest import digest\n')
+    assert "раздача" in _rules(root)
+
+
+def test_handout_rule_turns_red_on_a_renamed_import(tmp_path: Path) -> None:
+    """Псевдоним заводит модулю второй адрес - иначе правило покупается словом `as`."""
+    root = _tree(tmp_path)
+    _package(root, "notes", '"""Пакет."""\n\nimport torrcast.notes.digest as short\n')
+    assert "раздача" in _rules(root)
+
+
+def test_handout_rule_turns_red_on_a_renamed_home(tmp_path: Path) -> None:
+    """`from . import digest as short` называет дом чужим именем - это второй адрес."""
+    root = _tree(tmp_path)
+    _package(root, "notes", '"""Пакет."""\n\nfrom . import digest as short\n')
+    assert "раздача" in _rules(root)
+
+
+def test_handout_rule_turns_red_on_a_wholesale_reexport(tmp_path: Path) -> None:
+    """`import *` раздаёт весь подмодуль сразу, не называя ни одного имени."""
+    root = _tree(tmp_path)
+    _package(root, "notes", '"""Пакет."""\n\nfrom .digest import *\n')
+    assert "раздача" in _rules(root)
+
+
+def test_handout_rule_turns_red_on_a_borrowed_name(tmp_path: Path) -> None:
+    """Чужое имя раздаётся наравне со своим: `Path` в namespace пакета берут оттуда."""
+    root = _tree(tmp_path)
+    _package(root, "notes", '"""Пакет."""\n\nfrom pathlib import Path\n')
+    assert "раздача" in _rules(root)
+
+
+def test_handout_rule_leaves_naming_a_home_alone(tmp_path: Path) -> None:
+    """`import подмодуль` и `from . import подмодуль` называют дом, второго адреса нет.
+
+    Без этой пробы правило запретило бы пакету называть собственные дома - и его сняли бы
+    целиком вместе с проверкой на раздачу имён.
+    """
+    root = _tree(tmp_path)
+    _package(root, "notes", '"""Пакет."""\n\nimport torrcast.notes.digest\nfrom . import digest\n')
+    assert "раздача" not in _rules(root)
+
+
+def test_handout_rule_leaves_an_ordinary_module_alone(tmp_path: Path) -> None:
+    """Правило про namespace пакета: обычный модуль зовёт соседа как звал."""
+    root = _tree(tmp_path)
+    _package(root, "notes", '"""Пакет."""\n')
+    (root / "torrcast" / "notes" / "reader.py").write_text(
+        '"""Модуль."""\n\nfrom .digest import digest\n\n\ndef reader(): return digest\n',
+        encoding="utf-8",
+    )
+    (root / "tests" / "notes" / "test_reader.py").write_text("", encoding="utf-8")
+    assert "раздача" not in _rules(root)

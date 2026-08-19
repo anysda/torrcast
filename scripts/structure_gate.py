@@ -24,6 +24,7 @@ RULES: Final = (
     "обход",
     "глушитель",
     "размен",
+    "раздача",
 )
 #: Шапки, которыми файл целиком снимают с тайпчека.
 _MYPY_OFF: Final = re.compile(r"^#\s*mypy:\s*(ignore-errors|disable-error-code)")
@@ -484,6 +485,85 @@ def _trade_violations(module: Module) -> list[Violation]:
     ]
 
 
+def _handout_violations(module: Module, known: set[str]) -> list[Violation]:
+    """Ищет пакетный `__init__.py`, который кладёт в свой namespace чужое имя.
+
+    Плоский namespace монолита вычищен, реэкспорты из пакетных `__init__.py` сняты все, и
+    две трети из них никто не звал. Отрастает это молча и за две волны: одна строка
+    `from .digest import digest` возвращает пакету право раздавать имя, объявленное в его
+    подмодуле, и у имени снова два адреса - дом и витрина. Ни одно из прежних правил такой
+    строки не считает: правило слоёв её пропускает (пакет зовёт свой же подмодуль), цикла
+    она не делает, длины не добавляет, договора не разменивает. Проба это показала: имя,
+    подсаженное обратно в `__init__.py`, оставляло гейт нулевым по всем одиннадцати.
+
+    Нарушение - раздача ИМЕНИ: `from .модуль import имя` и `from torrcast.пакет.модуль
+    import имя`. Название дома нарушением не является: `import подмодуль` и
+    `from . import подмодуль` дают модулю ровно тот адрес, который у него и так есть, а
+    второго не заводят.
+
+    Дом признаётся только по форме `from . import подмодуль`, и это не придирка к записи.
+    Подмодуль, затенённый собственным `__init__`, домом не является: в пакете
+    `torrcast.domain.digest` лежит модуль `digest.py`, поэтому `from torrcast.domain.digest
+    import digest` читается как название дома, а имя `digest` в namespace пакета после
+    него - функция, а не модуль. Отличить одно от другого по имени модуля нечем, а форма
+    `from . import подмодуль` этой двусмысленности не имеет вовсе.
+
+    Псевдоним - тоже раздача, и у обеих записей: `from . import digest as d` и
+    `import torrcast.domain.digest as d` заводят модулю второй адрес ровно так же, как
+    реэкспорт имени. Иначе правило покупается одним словом `as`.
+
+    Имя из чужого пакета считается наравне со своим: `from pathlib import Path` в
+    `__init__.py` кладёт в namespace пакета `Path`, и зовущий берёт его оттуда. Пакетный
+    `__init__.py` называет свои дома и не связывает себя больше ничем - `annotations` из
+    `__future__` там тоже незачем, потому что аннотаций в нём нет.
+    """
+    if module.path.name != "__init__.py":
+        return []
+    failures: list[Violation] = []
+    for node in ast.walk(module.tree):
+        if isinstance(node, ast.Import):
+            failures.extend(
+                Violation(
+                    "раздача",
+                    module.relative,
+                    node.lineno,
+                    f"второй адрес модулю: {alias.name} as {alias.asname}",
+                )
+                for alias in node.names
+                if alias.asname is not None
+            )
+            continue
+        if not isinstance(node, ast.ImportFrom):
+            continue
+        parts = module.name.split(".")
+        base = ".".join(parts[: max(0, len(parts) - node.level + 1)]) if node.level else ""
+        source = ".".join(part for part in (base, node.module) if part) or "."
+        for alias in node.names:
+            if alias.name == "*":
+                failures.append(
+                    Violation(
+                        "раздача", module.relative, node.lineno, f"пакет раздаёт всё из {source}"
+                    )
+                )
+                continue
+            own_home = (
+                node.level == 1
+                and node.module is None
+                and alias.asname is None
+                and f"{base}.{alias.name}" in known
+            )
+            if not own_home:
+                failures.append(
+                    Violation(
+                        "раздача",
+                        module.relative,
+                        node.lineno,
+                        f"пакет раздаёт имя {alias.name} из {source}",
+                    )
+                )
+    return failures
+
+
 def _cycle_violations(modules: list[Module], edges: dict[str, set[str]]) -> list[Violation]:
     by_name = {module.name: module for module in modules}
     failures: list[Violation] = []
@@ -560,6 +640,7 @@ def check(root: Path) -> list[Violation]:
         failures.extend(_bypass_violations(module))
         failures.extend(_silencer_violations(module))
         failures.extend(_trade_violations(module))
+        failures.extend(_handout_violations(module, known))
         edges[module.name] = {
             target
             for name, _line in imports
