@@ -18,3 +18,7 @@ from torrcast.usecases.playback.heavy_profile import HeavyProfile
 
 #: Чем показ строит профиль тяжести: карта, сетка и поправка «контейнер → ТВ».
 HeavyProfileOf: TypeAlias = Callable[..., HeavyProfile | None]
+
+#: Чем показ строит РОВНЫЙ профиль тяжести, когда карты нет вовсе: число кусков и
+#: средний вес фильма по паспорту (:meth:`torrcast.adapters.recode.weights.Weights.flat`).
+HeavyProfileFlat: TypeAlias = Callable[[int, float], HeavyProfile]

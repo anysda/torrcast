@@ -16,7 +16,7 @@ from torrcast.domain.torr_file import TorrFile
 from torrcast.ports.clock import Clock
 from torrcast.ports.prober import Prober
 from torrcast.ports.receivers import Receivers
-from torrcast.usecases.playback.heavy_profiles import HeavyProfileOf
+from torrcast.usecases.playback.heavy_profiles import HeavyProfileFlat, HeavyProfileOf
 from torrcast.usecases.playback.media_grids import MediaGrids
 from torrcast.usecases.playback.spot_encodings import SpotEncodings
 from torrcast.usecases.playback.spot_recoders import SpotRecoders
@@ -50,6 +50,9 @@ Recoder: SpotRecoders
 #: Завод профиля тяжести - уже ГОТОВАЯ ручка ``Weights.of``, а не класс: показ зовёт
 #: у неё ровно одно, и называть слоем сценариев весь класс адаптера незачем.
 weights_of: HeavyProfileOf
+#: Ровный профиль тяжести на случай, когда карты нет вовсе
+#: (:meth:`torrcast.adapters.recode.weights.Weights.flat`) - такая же готовая ручка.
+flat_weights: HeavyProfileFlat
 whole_encode: WholeEncodings
 #: Мгновенный потолок кодера сверх цели
 #: (:data:`torrcast.adapters.recode.encode_settings.MAXRATE_GAIN`) и имя каталога перекодированных
@@ -75,6 +78,7 @@ def _configure_playback(
     encode: SpotEncodings,
     recoder: SpotRecoders,
     weights: HeavyProfileOf,
+    flat: HeavyProfileFlat,
     whole: WholeEncodings,
     maxrate_gain: float,
     recode_dir: str,
@@ -82,7 +86,7 @@ def _configure_playback(
     """Назначить показу его внешний мир: медиатракт, приёмник, часы и юнит."""
     global CLOCK, make_receiver, probe, detect_profile, pick_video_file, hls_dir, hls_base
     global playing_flag, forget_playing, start_play_unit, film_keys, grid_for, HlsServer
-    global Encode, Recoder, weights_of, whole_encode, MAXRATE_GAIN, RECODE_DIR
+    global Encode, Recoder, weights_of, flat_weights, whole_encode, MAXRATE_GAIN, RECODE_DIR
     CLOCK = clock
     make_receiver = receivers
     probe = prober
@@ -99,6 +103,7 @@ def _configure_playback(
     Encode = encode
     Recoder = recoder
     weights_of = weights
+    flat_weights = flat
     whole_encode = whole
     MAXRATE_GAIN = maxrate_gain
     RECODE_DIR = recode_dir

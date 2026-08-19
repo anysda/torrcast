@@ -54,6 +54,7 @@ def test_a_second_word_replaces_the_first(monkeypatch: pytest.MonkeyPatch) -> No
             _state.Encode,
             _state.Recoder,
             _state.weights_of,
+            _state.flat_weights,
             _state.whole_encode,
             _state.MAXRATE_GAIN,
             _state.RECODE_DIR,

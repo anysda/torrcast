@@ -82,6 +82,7 @@ def wire_show() -> None:
         Encode,
         Recoder,
         Weights.of,
+        Weights.flat,
         whole_encode,
         MAXRATE_GAIN,
         RECODE_DIR,

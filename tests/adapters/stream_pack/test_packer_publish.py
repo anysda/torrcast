@@ -135,6 +135,31 @@ def test_a_piece_over_the_ceiling_is_shrunk_and_a_hopeless_one_is_honestly_skipp
     assert (run.out / "v1.ts").exists() and run.edge == 1
 
 
+def test_a_piece_shrunk_in_place_is_not_reported_as_a_failed_merge(tmp_path: Path) -> None:
+    """🔴 TC-693. Ужатие на месте зовётся ужатием: склейку оно не пробовало вовсе.
+
+    «Перекод» в журнале означает ровно одно - готовый кусок кодировщика, у которого
+    склейка со звуком копии НЕ вышла, то есть заявка на разбор стыка. Ужатию склеивать
+    нечего и не с чем: оно само и есть единственная версия куска. Пока оба звались одним
+    словом, каждый ужатый кусок печатал «склейка не вышла» - на ровной сетке это 818
+    ложных заявок на разбор за фильм.
+    """
+    told: list[tuple[int, str]] = []
+    spare = tmp_path / "recode"
+    spare.mkdir()
+    run = packer(tmp_path, spare=spare, cap=10, told=lambda slot, how: told.append((slot, how)))
+    lay(run.run, 0, size=100)
+
+    def shrink(slot: int, size: int) -> bool:
+        lay(spare, slot, size=5)
+        return True
+
+    run.shrink = shrink
+    _lay_out(run, _always)
+
+    assert told == [(0, "ужатие")], "ужатый кусок назван перекодом - это ложный стык в журнале"
+
+
 def test_without_anyone_to_shrink_the_heavy_piece_the_publish_stops_on_it(
     tmp_path: Path,
 ) -> None:

@@ -68,6 +68,23 @@ def test_the_last_resort_clamp_shouts_into_the_journal_instead_of_replacing_a_nu
     assert said[0]["замер"] == 25.0
 
 
+def test_a_uniform_grid_lands_late_by_construction_and_is_not_called_an_incident() -> None:
+    """🔴 TC-693. На ровной сетке посадка позже границы - норма пути, а не авария.
+
+    Граница ровной сетки с опорным кадром не совпадает по построению, и перемотка mpegts
+    садится на следующий кадр: замер даёт 688 таких границ из 768, тогда как на сетке по
+    опорным кадрам - 0 из 419. Аварийное имя тут красило бы штатную работу, поэтому
+    запись своя и спокойная, а само число зажимается ровно так же.
+    """
+    spy = _Spy()
+    install(spy)
+    pack_command("http://source", 2, "/run/", _Grid(on_keys=False), 1, 25.0)
+    names = [name for name, _ in spy.marks]
+    assert "заход позже своей границы" not in names, "штатная посадка названа аварией"
+    said = [facts for name, facts in spy.marks if name == "посадка позже границы на ровной сетке"]
+    assert said and said[0]["граница"] == 10.0, "зажим смолчал: разбирать потом будет нечего"
+
+
 def test_a_run_standing_on_its_boundary_is_not_reported_as_an_incident() -> None:
     """Штатный заход следа не пачкает: заявка на разбор — только настоящий уезд."""
     spy = _Spy()
