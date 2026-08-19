@@ -283,6 +283,10 @@ def main() -> None:
         readrate=config.hls_readrate,
         burst=config.hls_burst,
         keep=config.hls_keep,
+        # Как у показа (:mod:`torrcast.usecases.playback._tract`): удержание запроса и потолок
+        # веса куска - свойства приёмника, иначе щуп меряет осторожное умолчание Q70D.
+        wait=choice.profile.hold_seconds,
+        cap=choice.profile.max_segment_bytes,
         log=lambda text: print(f"  упаковка: {text}", flush=True),
         recoder=recoder,
         encode=whole,
