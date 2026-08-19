@@ -11,7 +11,7 @@ from torrcast.ports.receiver import Receiver
 from torrcast.usecases.feed_pack.feed import Feed
 from torrcast.usecases.revive_playback._resurrect import _resurrect
 from torrcast.usecases.revive_playback._revival_state import _RevivalState
-from torrcast.usecases.warm import Warmer
+from torrcast.usecases.warm.warmer import Warmer
 
 
 @dataclass(slots=True)

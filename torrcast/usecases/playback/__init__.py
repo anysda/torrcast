@@ -95,10 +95,10 @@ from torrcast.usecases.source_blame import _asked as _asked
 from torrcast.usecases.source_blame import _blamed as _blamed
 from torrcast.usecases.start_budget import START_BUDGET as START_BUDGET
 from torrcast.usecases.start_clock import _Clock as _Clock
-from torrcast.usecases.warm import Vault as Vault
-from torrcast.usecases.warm import Warmer as Warmer
-from torrcast.usecases.warm import warm_key as warm_key
-from torrcast.usecases.warm import warm_root as warm_root
+from torrcast.usecases.warm.vault import Vault as Vault
+from torrcast.usecases.warm.warm_key import warm_key as warm_key
+from torrcast.usecases.warm.warm_root import warm_root as warm_root
+from torrcast.usecases.warm.warmer import Warmer as Warmer
 from torrcast.usecases.watch import Watch as Watch
 
 __all__ = ["progress_bar", "show_unit"]

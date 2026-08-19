@@ -21,7 +21,7 @@ from torrcast.runtime.wire_search import wire_search
 from torrcast.runtime.wire_show import wire_show
 from torrcast.usecases.doctor import _configure as configure_checks
 from torrcast.usecases.doctor_command import _configure as configure_doctor
-from torrcast.usecases.warm import configure as configure_warm
+from torrcast.usecases.warm.configure import configure as configure_warm
 
 
 def wire() -> None:

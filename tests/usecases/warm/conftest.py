@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from torrcast.adapters.warm_environment import environment
-from torrcast.usecases.warm import configure
+from torrcast.usecases.warm.configure import configure
 
 if TYPE_CHECKING:
     from collections.abc import Iterator

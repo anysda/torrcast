@@ -12,7 +12,7 @@ from typing import Any
 
 from torrcast.adapters.stream_pack.grid import Grid
 from torrcast.adapters.warm_environment import environment
-from torrcast.usecases.warm import configure
+from torrcast.usecases.warm.configure import configure
 from torrcast.usecases.warm.vault import Vault
 from torrcast.usecases.warm.warmer import Warmer
 

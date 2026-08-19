@@ -259,7 +259,8 @@ def test_an_eviction_says_who_was_thrown_out_and_how_much_it_freed(tmp_path: Pat
     Это единственный случай, когда прогрев трогает ЧУЖОЕ, и через неделю вопрос будет
     ровно один: почему вчерашний фильм не открылся с диска. Ответ обязан лежать полями.
     """
-    from torrcast.usecases.warm import META, Vault
+    from torrcast.usecases.warm.settings import META
+    from torrcast.usecases.warm.vault import Vault
 
     root = tmp_path / "warm"
     old = Vault(root=root, key="старый", budget=1000, floor=0, title="Тачки 3")
@@ -314,7 +315,8 @@ def test_the_share_of_the_warmed_movie_is_a_field(tmp_path: Path) -> None:
     фильма, доля и вес каталога - по ним видно, докуда дошёл прогрев и почему встал.
     """
     from torrcast.adapters.stream_pack.grid import Grid
-    from torrcast.usecases.warm import Vault, Warmer
+    from torrcast.usecases.warm.vault import Vault
+    from torrcast.usecases.warm.warmer import Warmer
 
     grid = Grid.uniform(100.0)
     vault = Vault(root=tmp_path / "warm", key="k", budget=1 << 30, floor=0)

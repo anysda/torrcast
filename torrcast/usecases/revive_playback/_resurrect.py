@@ -16,7 +16,7 @@ from torrcast.usecases.choice._ctl import _Revivable
 from torrcast.usecases.feed_pack.feed import Feed
 from torrcast.usecases.rank import _hms
 from torrcast.usecases.revive_playback._blame import _may, _why
-from torrcast.usecases.warm import Warmer
+from torrcast.usecases.warm.warmer import Warmer
 
 if TYPE_CHECKING:
     from torrcast.usecases.revive_playback._revival_state import _RevivalState

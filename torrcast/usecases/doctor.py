@@ -34,7 +34,7 @@ from torrcast.usecases.doctor_prowlarr import _prowlarr
 from torrcast.usecases.host_checkup import HostCheckup
 from torrcast.usecases.machine_memory import machine_memory as machine_memory
 from torrcast.usecases.show_checkup import ShowCheckup
-from torrcast.usecases.warm import FREE_FLOOR
+from torrcast.usecases.warm.settings import FREE_FLOOR
 
 __all__ = ["CAST_PORT", "IPV4_ONLY", "KEY_INDEXER", "Doctor", "checkup"]
 #: Байты диска, которые кэшу на диске не отдают: рядом на том же разделе живёт прогрев со

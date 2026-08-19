@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from torrcast.usecases.warm import Warmer
+from torrcast.usecases.warm.warmer import Warmer
 
 
 class Following(Protocol):

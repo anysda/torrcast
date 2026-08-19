@@ -18,7 +18,10 @@ from torrcast.usecases.playback._recoder import _recoder
 from torrcast.usecases.playback.following import Following
 from torrcast.usecases.playback.layout import layout
 from torrcast.usecases.playback.media_grid import MediaGrid
-from torrcast.usecases.warm import Vault, Warmer, warm_key, warm_root
+from torrcast.usecases.warm.vault import Vault
+from torrcast.usecases.warm.warm_key import warm_key
+from torrcast.usecases.warm.warm_root import warm_root
+from torrcast.usecases.warm.warmer import Warmer
 
 
 def _warmer(

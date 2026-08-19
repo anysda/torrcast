@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from torrcast.usecases.playback.following import Following
-from torrcast.usecases.warm import Warmer
+from torrcast.usecases.warm.warmer import Warmer
 
 
 def test_a_movie_has_nothing_to_follow() -> None:

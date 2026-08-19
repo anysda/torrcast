@@ -30,7 +30,7 @@ from torrcast.usecases.revive_playback._screen import (
     _trace_line,
 )
 from torrcast.usecases.revive_playback._screen_state import _Screen
-from torrcast.usecases.warm import Warmer
+from torrcast.usecases.warm.warmer import Warmer
 from torrcast.usecases.watch import Watch
 
 

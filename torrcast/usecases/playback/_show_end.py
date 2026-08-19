@@ -24,7 +24,7 @@ from torrcast.usecases.feed_pack.feed import Feed
 from torrcast.usecases.following import _following
 from torrcast.usecases.playback.stream_server import StreamServer
 from torrcast.usecases.source_blame import _blamed
-from torrcast.usecases.warm import Warmer
+from torrcast.usecases.warm.warmer import Warmer
 from torrcast.usecases.watch import Watch
 
 

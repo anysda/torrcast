@@ -21,7 +21,7 @@ from torrcast.usecases.playback._warmer import _warmer
 from torrcast.usecases.playback.following import Following
 from torrcast.usecases.playback.media_grid import MediaGrid
 from torrcast.usecases.playback.stream_server import StreamServer
-from torrcast.usecases.warm import Warmer
+from torrcast.usecases.warm.warmer import Warmer
 
 
 def _tract(

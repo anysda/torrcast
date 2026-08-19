@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 from torrcast.ports.journal import journal
 from torrcast.usecases.feed_pack.feed import Feed
 from torrcast.usecases.source_blame import _asked, _blamed
-from torrcast.usecases.warm import Warmer
+from torrcast.usecases.warm.warmer import Warmer
 
 if TYPE_CHECKING:
     from torrcast.usecases.revive_playback._revival_state import _RevivalState
