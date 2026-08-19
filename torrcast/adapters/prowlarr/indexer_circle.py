@@ -2,44 +2,23 @@
 
 from __future__ import annotations
 
-import threading
 import time
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, field
 from typing import Final
 
-from torrcast.adapters.prowlarr.ask_indexer import ask_indexer
 from torrcast.adapters.prowlarr.merge import merge
 from torrcast.adapters.prowlarr.prowlarr_api import ProwlarrApi
-from torrcast.adapters.prowlarr.search_url import search_url
+from torrcast.adapters.prowlarr.spawn_ask import _Ask, spawn_ask
 from torrcast.domain.circle_indexers import Indexer
 from torrcast.domain.indexer_budget import indexer_budget
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.raw_result import RawResult
-from torrcast.domain.response_budget import response_budget
 from torrcast.domain.wait_indexer import wait_indexer
 
 #: Запас поверх личного бюджета на ожидание потока: сам запрос уже ограничен бюджетом,
 #: и эта секунда нужна лишь на то, чтобы поток успел записать ответ и поднять флаг.
 #: Без неё круг изредка объявлял молчуном того, кто ответил на последней миллисекунде.
 ASK_SLACK: Final = 1.0
-
-
-@dataclass(slots=True)
-class _Ask:
-    """Один спрошенный индексер: место под ответ и флаг «поток закончил».
-
-    Поток свой и демонский, а не из пула: опоздавший живёт дольше круга (TC-118), и
-    пул задержал бы на нём выход процесса - потоки пула дожидаются на atexit, демонские
-    умирают вместе с командой.
-    """
-
-    name: str
-    budget: float
-    done: threading.Event = field(default_factory=threading.Event)
-    rows: list[RawResult] | None = None
-    ms: int = 0
-    err: InfraError | None = None
 
 
 class IndexerCircle:
@@ -162,20 +141,9 @@ class IndexerCircle:
         return merge(rows) if rows else []
 
     def _spawn(self, query: str, limit: int, num: int, name: str, cap: float = 0.0) -> _Ask:
-        """Пустить один индексер отдельным потоком и вернуть место под его ответ."""
+        """Пустить один индексер в его личный бюджет, урезанный потолком круга."""
         budget = self.budget_of(name)
-        ask = _Ask(name=name, budget=min(budget, cap) if cap else budget)
-        url = search_url(self.api.base_url, self.api.apikey, query, limit, num)
-
-        def work() -> None:
-            # Бюджет ``ask`` отвечает только за критический путь. Сам запрос живёт в
-            # личный срок индексера, чтобы потолок второго круга не обрывал быстрый
-            # ответ на границе, а поздний ответ опорного мог доехать в долив.
-            ask.rows, ask.ms, ask.err = ask_indexer(self.api.get_json, url, response_budget(name))
-            ask.done.set()
-
-        threading.Thread(target=work, daemon=True, name=f"idx-{name}").start()
-        return ask
+        return spawn_ask(self.api, query, limit, num, name, min(budget, cap) if cap else budget)
 
 
 __all__ = ["ASK_SLACK", "IndexerCircle"]
