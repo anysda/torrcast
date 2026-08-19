@@ -31,7 +31,7 @@ def test_one_request_carries_the_whole_franchise() -> None:
     client = FakeJsonClient(lambda host, path, params: wiki_reply())
     blurbs = WikiBlurbs(client, FakeRatingDump())
 
-    about, _entities = blurbs.extracts([("Тачки", 2006), ("Моана", 2016)], 1.0)
+    about, _entities, answered = blurbs.extracts([("Тачки", 2006), ("Моана", 2016)], 1.0)
 
     assert len(client.calls) == 1
     titles = client.calls[0][2]["titles"].split("|")
@@ -39,6 +39,7 @@ def test_one_request_carries_the_whole_franchise() -> None:
     assert len(titles) <= _EXLIMIT, "лимит API на статьи в одном запросе"
     assert about[("Тачки", 2006)] == CARS
     assert about[("Моана", 2016)] == MOANA
+    assert answered == {("Тачки", 2006), ("Моана", 2016)}, "про обе картины ответ приехал"
 
 
 def test_кандидаты_картин_уезжают_несколькими_пакетами_а_не_обрезаются() -> None:
@@ -67,12 +68,38 @@ def test_кандидаты_картин_уезжают_несколькими_�
     wanted: list[tuple[str, int | None]] = [(f"Картина {number}", 2000) for number in range(12)]
     wanted.append(("Моана", 2016))
 
-    about, entities = WikiBlurbs(FakeJsonClient(answer), FakeRatingDump()).extracts(wanted, 1.0)
+    about, entities, answered = WikiBlurbs(FakeJsonClient(answer), FakeRatingDump()).extracts(
+        wanted, 1.0
+    )
 
     assert len(asked) > 1, "имена должны уезжать несколькими пакетами"
     assert sum(len(part) for part in asked) > _EXLIMIT
     assert about[("Моана", 2016)] == MOANA, "уточнение «(мультфильм)» обязано быть спрошено"
     assert entities[("Моана", 2016)] == "Q1183953"
+    assert ("Моана", 2016) in answered
+
+
+def test_молчание_части_пакетов_не_читается_как_статьи_нет_про_её_картины() -> None:
+    """🔴 TC-568. Ответ приехал неполным - и промолчавший пакет не говорит ничего.
+
+    Неполный ответ считался полным, и картины, о которых просто не успели спросить,
+    ложились в кэш как «статьи нет» на весь срок - хотя статья у них есть.
+    """
+
+    def deaf(host: str, path: str, params: dict[str, str]) -> Any:
+        if "властелин" in params["titles"].split("|"):
+            raise OSError("пакет промолчал")
+        return wiki_reply()
+
+    wanted: list[tuple[str, int | None]] = [("Тачки", 2006), ("Моана", 2016), ("Властелин", 2001)]
+    blurbs = WikiBlurbs(FakeJsonClient(deaf), FakeRatingDump())
+
+    about, _entities, answered = blurbs.extracts(wanted, 1.0)
+
+    assert about[("Тачки", 2006)] == CARS, "ответившая часть разбирается как обычно"
+    assert answered == {("Тачки", 2006), ("Моана", 2016)}, (
+        "«Властелин» не спрошен до конца - «статьи нет» про него нечестно"
+    )
 
 
 def test_молчание_всех_пакетов_это_отказ_сети_а_не_отсутствие_статьи() -> None:
@@ -105,10 +132,13 @@ def test_отказ_украшений_не_отнимает_уже_добыто
             raise OSError("Wikidata молчит")
         return wiki_reply()
 
-    out = WikiBlurbs(FakeJsonClient(answer), FakeRatingDump()).fetch([CARS_KEY], timeout=1.0)
+    out, answered = WikiBlurbs(FakeJsonClient(answer), FakeRatingDump()).fetch(
+        [CARS_KEY], timeout=1.0
+    )
 
     assert out[CARS_KEY].about == CARS, "описание добыто и отменять его нечем"
     assert not out[CARS_KEY].rating, "украшений нет - и это законный исход"
+    assert answered == {CARS_KEY}
 
 
 def test_описание_отдаётся_меню_до_того_как_спрошены_украшения() -> None:
@@ -126,7 +156,9 @@ def test_описание_отдаётся_меню_до_того_как_спр�
         assert part[CARS_KEY].about == CARS
 
     ratings = FakeRatingDump(lambda: {"tt0317219": "7.2"})
-    out = WikiBlurbs(FakeJsonClient(answer), ratings).fetch([CARS_KEY], timeout=1.0, ready=ready)
+    out, _answered = WikiBlurbs(FakeJsonClient(answer), ratings).fetch(
+        [CARS_KEY], timeout=1.0, ready=ready
+    )
 
     assert order == ["описание", "украшения"], "описание отдаётся первым, а не после всего"
     assert out[CARS_KEY].rating == "IMDb 7.2"
@@ -157,7 +189,7 @@ def test_the_ratings_dump_is_read_alongside_the_first_request_not_after_it() -> 
 
     blurbs = WikiBlurbs(FakeJsonClient(slow_wiki), FakeRatingDump(slow_scores))
     started = time.monotonic()
-    out = blurbs.fetch([CARS_KEY], timeout=5.0)
+    out, _answered = blurbs.fetch([CARS_KEY], timeout=5.0)
     spent = time.monotonic() - started
 
     assert out[CARS_KEY].rating == "IMDb 7.2"

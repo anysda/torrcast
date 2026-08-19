@@ -82,12 +82,17 @@ class Facts:
             # его - значит занимать его именами место в пакете и рисковать записать
             # поверх полной справки её обеднённый повтор.
             missing = [key for key in self.wanted if key not in self.found]
-            fresh = self.source.fetch(missing, ready=self._ready)
+            fresh, answered = self.source.fetch(missing, ready=self._ready)
             # Дописываем к тому, что уже лежало в кэше, а не заменяем: сеть отвечает только
             # про ненайденное, и присваиванием мы выбрасывали справку, которая у нас была.
             self.found = {**self.found, **fresh}
             # Пустой ответ тоже запоминаем - иначе поход за ним повторяется каждое меню.
-            self.store.remember(fresh, [key for key in missing if key not in fresh])
+            # Но только про то, о чём источник РЕАЛЬНО ответил: неполный ответ не говорит
+            # про промолчавшую часть ничего, и «статьи нет» про неё - выдумка на весь срок
+            # кэша (🔴 TC-568).
+            self.store.remember(
+                fresh, [key for key in missing if key not in fresh and key in answered]
+            )
         except Exception:
             pass
         finally:

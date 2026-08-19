@@ -126,3 +126,26 @@ def test_a_query_that_named_a_picture_rather_than_a_franchise_changes_nothing() 
 def test_a_menu_of_one_picture_was_never_a_choice_between_parts() -> None:
     """Картина одна - меню не задавалось вовсе, и подменять было нечего."""
     assert part_one_swap([plan("Тачки", 2006, part=1, pool=[VHS])], "тачки") == ""
+
+
+def test_a_single_release_on_both_sides_leaves_no_reason_worth_printing() -> None:
+    """У взятой раздач столько же, сколько у первой части, - причины для строки нет.
+
+    Хвост «у неё всего одна раздача, а тут их 1» читался бы самопротиворечием, и строка
+    выходит без него - но сама остаётся: перескок с первой части молчать не вправе.
+    """
+    cars = [
+        plan("Тачки", 2006, part=1, seeders=16),
+        plan("Тачки 2", 2011, part=2, seeders=90),
+        plan(
+            "Тачки 3",
+            2017,
+            part=3,
+            pool=[film("Cars 3 a", seeders=50), film("Cars 3 b", seeders=40)],
+        ),
+    ]
+
+    assert part_one_swap(cars, "тачки") == (
+        "«Тачки (2006)» не играет; вместо неё другую часть сам не включаю - "
+        "вот что есть, назови номер"
+    )

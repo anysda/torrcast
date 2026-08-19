@@ -74,6 +74,6 @@ def part_one_swap(plans: list[Plan], asked: str) -> str:
     number = next(n for n, plan in enumerate(plans, start=1) if plan.picture is first)
     why = _passed_why(plans, number, asked_kind(plans))
     return (
-        f"«{_named(first)}» не играет: {why}; вместо неё другую часть сам не включаю - "
-        f"вот что есть, назови номер"
+        f"«{_named(first)}» не играет{f': {why}' if why else ''}; вместо неё другую "
+        f"часть сам не включаю - вот что есть, назови номер"
     )

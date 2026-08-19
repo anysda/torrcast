@@ -11,6 +11,6 @@ def test_fake_records_the_walk_and_hands_the_answer_to_ready() -> None:
     fake = FakeBlurbSource(lambda wanted: cars)
     port: BlurbSource = fake
     seen: list[dict[tuple[str, int | None], Fact]] = []
-    assert port.fetch([("Тачки", 2006)], ready=seen.append) == cars
+    assert port.fetch([("Тачки", 2006)], ready=seen.append) == (cars, {("Тачки", 2006)})
     assert fake.walks == [[("Тачки", 2006)]]
     assert seen == [cars]

@@ -39,7 +39,7 @@ class WikiBlurbs:
         wanted: list[tuple[str, int | None]],
         timeout: float = HTTP_TIMEOUT,
         ready: Callable[[dict[tuple[str, int | None], Fact]], None] | None = None,
-    ) -> dict[tuple[str, int | None], Fact]:
+    ) -> tuple[dict[tuple[str, int | None], Fact], set[tuple[str, int | None]]]:
         """Собрать справку по картинам: Википедия → Wikidata → выгрузка рейтингов.
 
         Цепочка тут не вся: Wikidata спрашивают по идентификаторам из Википедии, и эти два
@@ -60,6 +60,10 @@ class WikiBlurbs:
         Теперь порядок соответствует цене: описания отдаются ``ready`` сразу, как приехали, -
         меню печатает их, не дожидаясь украшений. Отказ Wikidata гасится: справка выходит без
         рейтинга и хронометража, но с тем, что уже добыто, и ложится в кэш.
+
+        Второй элемент ответа - про какие картины Википедия РЕАЛЬНО ответила
+        (:meth:`extracts`): только про них «статьи нет» - честный итог, и только их
+        вызывающий вправе запомнить пустыми.
         """
         scores: dict[str, str] = {}
 
@@ -69,7 +73,7 @@ class WikiBlurbs:
 
         reader = threading.Thread(target=load, daemon=True)
         reader.start()
-        about, entities = self.extracts(wanted, timeout)
+        about, entities, answered = self.extracts(wanted, timeout)
         if ready is not None:
             ready({key: Fact(about=text) for key, text in about.items() if text})
         ids: dict[str, tuple[str, int]] = {}
@@ -87,11 +91,15 @@ class WikiBlurbs:
             )
             if fact:
                 out[key] = fact
-        return out
+        return out, answered
 
     def extracts(
         self, wanted: list[tuple[str, int | None]], timeout: float
-    ) -> tuple[dict[tuple[str, int | None], str], dict[tuple[str, int | None], str]]:
+    ) -> tuple[
+        dict[tuple[str, int | None], str],
+        dict[tuple[str, int | None], str],
+        set[tuple[str, int | None]],
+    ]:
         """Одним запросом: описания по-русски и Q-идентификаторы Wikidata для второго шага.
 
         Кандидатов на статью у картины около десятка (:func:`titles_for`), а в один запрос их
@@ -107,22 +115,28 @@ class WikiBlurbs:
         Поэтому имена режутся на пакеты по :data:`_EXLIMIT` и уезжают РАЗОМ (:data:`_EXBATCHES`
         штук): запросы ждут сеть, а не друг друга. Замер там же: один пакет 0.78 с, три
         очередью 2.14 с, три разом 0.83 с - втрое больше имён за семь сотых секунды.
+
+        Третий элемент ответа - про какие картины ответ приехал ПОЛНЫМ: все имена картины
+        попали в пакеты, которые ответили. Промолчавший пакет не говорит про свои имена
+        ничего, и картина из него - не «статьи нет», а «не успели спросить» (🔴 TC-568).
         """
         candidates = {key: titles_for(*key) for key in wanted}
         names: list[str] = []
+        scheduled: dict[tuple[str, int | None], list[str]] = {key: [] for key in wanted}
         room = _EXLIMIT * _EXBATCHES
         for depth in range(max((len(c) for c in candidates.values()), default=0)):
             for key in wanted:
                 if depth < len(candidates[key]) and len(names) < room:
                     names.append(candidates[key][depth])
-        answers: list[Any] = []
+                    scheduled[key].append(candidates[key][depth])
+        answers: list[tuple[list[str], Any]] = []
         lock = threading.Lock()
 
         def ask(part: list[str]) -> None:
             with contextlib.suppress(Exception):
                 payload = self.client.get(WIKI_HOST, WIKI_PATH, extract_params(part), {}, timeout)
                 with lock:
-                    answers.append(payload)
+                    answers.append((part, payload))
 
         parts = [names[at : at + _EXLIMIT] for at in range(0, len(names), _EXLIMIT)]
         deadline = time.monotonic() + timeout
@@ -136,7 +150,14 @@ class WikiBlurbs:
             # пустой ответ лёг бы в кэш на неделю и накрыл бы картину, про которую Википедия
             # прекрасно знает.
             raise OSError("Википедия не ответила ни на один запрос")
-        return _read_pages(_merged(answers), candidates)
+        heard = {name for part, _payload in answers for name in part}
+        answered = {
+            key
+            for key in wanted
+            if scheduled[key] and all(name in heard for name in scheduled[key])
+        }
+        about, entities = _read_pages(_merged([payload for _part, payload in answers]), candidates)
+        return about, entities, answered
 
     def ids(self, items: list[str], timeout: float) -> dict[str, tuple[str, int]]:
         """Q-идентификаторы → (идентификатор IMDb, минуты). Один запрос на все картины.

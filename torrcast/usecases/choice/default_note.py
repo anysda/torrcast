@@ -55,7 +55,8 @@ def default_note(plans: list[Plan], asked: str = "") -> str:
         return f"{head} «{mine}», а не «{other}»: спросили серию, а это другой тип"
     if passed := [n for n in numbers if n < picked]:
         other = _named(plans[passed[0] - 1].picture)
-        return f"{head} «{mine}», а не «{other}»: {_passed_why(plans, passed[0], numbers)}"
+        why = _passed_why(plans, passed[0], numbers)
+        return f"{head} «{mine}», а не «{other}»{f': {why}' if why else ''}"
     if twins := [n for n in numbers if n != picked and _namesake(plans, n, picked)]:
         others = ", ".join(f"«{_named(plans[n - 1].picture)}»" for n in twins)
         return f"{head} «{mine}»: под этим именем есть ещё {others} - другая картина"
@@ -70,6 +71,10 @@ def _passed_why(plans: list[Plan], number: int, numbers: list[int]) -> str:
     раздача есть, но сидов у неё столько, что это подгрузы), «живого HD нет»
     (:func:`playable`: у тёзки того же имени он есть, а тут одно старьё) и «всего одна
     раздача» (:func:`backed`: одно обещание индексера против очереди у соседки).
+
+    Счёт раздач в последней причине - у ВЗЯТОЙ картины (:func:`_first_alive`), ради
+    которой пропуск и объясняется. У взятой тоже одна раздача - сравнивать нечего, и
+    причина молчит: строка, которая врёт про причину выбора, хуже отсутствия строки.
     """
     life = liveliness(plans[number - 1])
     if life <= 0:
@@ -78,4 +83,7 @@ def _passed_why(plans: list[Plan], number: int, numbers: list[int]) -> str:
         return f"рой у неё мёртв - сидов {life}"
     if not fitness(plans[number - 1]):
         return "живого HD у неё нет - одно старьё"
-    return f"у неё всего одна раздача, а тут их {len(plans[number - 1].ranked)}"
+    taken = len(plans[_first_alive(plans, numbers) - 1].ranked)
+    if taken <= 1:
+        return ""
+    return f"у неё всего одна раздача, а тут их {taken}"

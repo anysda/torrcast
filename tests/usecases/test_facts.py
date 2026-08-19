@@ -87,6 +87,33 @@ def test_an_empty_answer_is_remembered_so_the_walk_is_not_repeated() -> None:
     assert len(source.walks) == 1
 
 
+def test_a_half_heard_answer_is_not_remembered_as_no_article() -> None:
+    """🔴 TC-568. Про промолчавшую часть ответа «статьи нет» - выдумка, в кэш ей нельзя.
+
+    Справка спрашивается пакетами разом; часть ответила, часть промолчала - и картины из
+    молчащей части ложились в кэш пустыми на весь срок, хотя статья у них есть. Один
+    неудачный момент делал картину без рейтинга и хронометража надолго.
+    """
+    store = FakeBlurbStore()
+    source = FakeBlurbSource(
+        lambda wanted: {CARS_KEY: Fact(rating="IMDb 7.2")}, unanswered={MOANA_KEY}
+    )
+    wanted = [CARS_KEY, MOANA_KEY]
+
+    first = Facts(wanted, 5.0, store=store, source=source)
+    first.start()
+    first.finish()
+
+    assert store.remembered == [({CARS_KEY: Fact(rating="IMDb 7.2")}, [])], (
+        "«Моана» не ложится в кэш как «статьи нет»: про неё просто не ответили"
+    )
+
+    second = Facts(wanted, 5.0, store=store, source=source)
+    second.start()
+    second.finish()
+    assert len(source.walks) == 2, "за «Моаной» ходят снова - её справка ещё не добыта"
+
+
 def test_a_menu_with_nothing_to_ask_never_starts_a_walk() -> None:
     """Пустая франшиза и полный кэш одинаково не стоят ни одного похода в сеть."""
     source = FakeBlurbSource()
