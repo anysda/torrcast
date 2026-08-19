@@ -86,3 +86,28 @@ def test_the_map_is_taken_without_reading_the_film_itself() -> None:
 
     assert found.points, "moov в хвосте всё равно находится"
     assert served.taken < 1 << 20, "тело фильма в чтение не попало"
+
+
+def test_a_track_without_an_edit_list_is_sought_by_decode_time() -> None:
+    """Без ``elst`` ffmpeg ищет кадр по времени ДЕКОДИРОВАНИЯ - карта несёт его в ``via``.
+
+    Замер TC-699 на живом YIFY-релизе: индекс mp4 без списка правок стоит на dts, и
+    ``-ss`` в полосе ``ctts`` перед кадром садится на САМ кадр, а не на прежний. Не отдай
+    разбор исковое время отдельно - предсказание посадки промахивается на опорный кадр.
+    """
+    _served, found = _map(Movie(composition=[(4, 300)]))
+
+    assert [p.at for p in found.points] == [0.5, 1.0], "метки показа - dts плюс ctts"
+    assert list(found.via) == [0.0, 0.5], "исковое время - честный dts без ctts"
+
+
+def test_an_edit_list_moves_the_seek_index_to_shown_time() -> None:
+    """Со списком правок ffmpeg перестраивает индекс на метки показа: ``via`` не нужна.
+
+    Замер TC-695 на настоящем релизе: ``-ss`` ниже суб-мс метки кадра садится на ПРЕЖНИЙ
+    опорный, то есть исковое время совпадает с меткой - и отдельным рядом не несётся.
+    """
+    _served, found = _map(Movie(edit=(6000, 150), composition=[(4, 300)]))
+
+    assert found.via == (), "со списком правок ищут по метке показа"
+    assert [p.at for p in found.points] == [0.25, 0.75]

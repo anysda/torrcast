@@ -27,6 +27,34 @@ def test_a_saved_map_comes_back_whole(tmp_path: Path) -> None:
     )
 
 
+def test_the_seek_time_survives_the_shelf(tmp_path: Path) -> None:
+    """Исковое время (``via``) доживает до чтения: без него бисект пошёл бы по метке показа.
+
+    Кэш прошлой версии ``via`` не знал - и это законно: пустой ряд читается как
+    «искать по самой метке», то есть ровно то, что делал код до её появления.
+    """
+    cache = tmp_path / "карта.json"
+    cache.write_text(
+        json.dumps(
+            {
+                "duration": 60.0,
+                "keys": [0.0834, 2.0854],
+                "bytes": [0, 4096],
+                "kind": "mp4",
+                "via": [0.0, 2.002],
+            }
+        ),
+        "utf-8",
+    )
+    ready = read_keys(cache)
+    assert ready is not None and list(ready.via) == [0.0, 2.002]
+
+    old = tmp_path / "старая.json"
+    old.write_text(json.dumps({"duration": 60.0, "keys": [0.0, 2.0], "bytes": [0, 4096]}), "utf-8")
+    ready = read_keys(old)
+    assert ready is not None and ready.via == (), "старый кэш: исковое время - сама метка"
+
+
 def test_the_shelf_lives_by_the_time_of_asking(tmp_path: Path) -> None:
     """Вытеснение идёт по обращению, а не по возрасту: иначе выбрасывалось бы то,
     ради чего кэш и заведён - карта фильма, который смотрят каждый вечер.

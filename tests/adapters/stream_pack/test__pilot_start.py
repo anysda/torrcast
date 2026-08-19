@@ -35,6 +35,31 @@ def clip_shifted(clip: str, tmp_path: Path) -> str:
     return str(path)
 
 
+@pytest.fixture
+def clip_mp4_late_start(tmp_path: Path) -> str:
+    """mp4, чьё видео начинается не с нуля: у исходника звук начался на набивку aac раньше.
+
+    Так лежат ремуксы mkv в mp4 (замер TC-699: ``start_time`` видео 0.023), и это не
+    экзотика стенда - тот же класс дают живые релизы (старые YIFY без списка правок).
+    """
+    mkv = tmp_path / "src.mkv"
+    mp4 = tmp_path / "late.mp4"
+    subprocess.run(
+        ["ffmpeg", "-hide_banner", "-loglevel", "error",
+         "-f", "lavfi", "-i", "testsrc2=size=640x360:rate=25",
+         "-f", "lavfi", "-i", "sine=frequency=440", "-t", "30",
+         "-c:v", "libx264", "-preset", "ultrafast", "-g", "50", "-bf", "3",
+         "-c:a", "aac", "-y", str(mkv)],
+        check=True, capture_output=True,
+    )  # fmt: skip
+    subprocess.run(
+        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-i", str(mkv),
+         "-c", "copy", "-movflags", "+faststart", "-y", str(mp4)],
+        check=True, capture_output=True,
+    )  # fmt: skip
+    return str(mp4)
+
+
 def test_a_file_that_did_not_open_leaves_the_boundary_as_it_was() -> None:
     """Не вышло - считаем, что встали ровно на границе: врать про место нечем."""
     assert _pilot_start("http://нет-такого.invalid/поток", 12.5, timeout=5.0) == 12.5
@@ -57,6 +82,27 @@ def test_the_shift_of_the_whole_container_is_subtracted(clip_shifted: str) -> No
     """
     assert _film_start(clip_shifted) == pytest.approx(SHIFT, abs=1.0)
     assert _pilot_start(clip_shifted, 41.0) == pytest.approx(42.0, abs=0.5)
+
+
+@pytest.mark.ffmpeg
+def test_an_mp4_whose_video_starts_late_keeps_the_container_tape(
+    clip_mp4_late_start: str,
+) -> None:
+    """🔴 TC-699. У mp4 карта, сетка, ``-ss`` и ``-copyts`` живут в метках контейнера -
+    вычитание ``start_time`` разводит прогон с картой ровно на него (замер: 0.023 на
+    всех 20 местах ремукса), и сверка в :data:`SPLIT_SLACK` не сходится никогда.
+    """
+    raw = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
+         "stream=start_time", "-of", "csv=p=0", clip_mp4_late_start],
+        check=True, capture_output=True, text=True,
+    )  # fmt: skip
+    start = float(raw.stdout.strip().splitlines()[0])
+    assert start > 0.005, f"фикстура перестала быть своим классом: start_time {start}"
+    assert _film_start(clip_mp4_late_start) == 0.0
+    # Опорные кадры стоят на k*2.0 + start: посадка на 20.023 - это метка контейнера,
+    # а не «лента фильма» с вычтенными 0.023.
+    assert _pilot_start(clip_mp4_late_start, 21.0) == pytest.approx(20.0 + start, abs=0.01)
 
 
 @pytest.mark.ffmpeg

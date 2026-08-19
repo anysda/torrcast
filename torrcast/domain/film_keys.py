@@ -20,6 +20,10 @@ class FilmKeys(NamedTuple):
     offset: list[int]
     #: Контейнер файла, ``mkv`` или ``mp4``. Пусто - карта из кэша прошлой версии.
     kind: str = ""
+    #: Время, по которому ffmpeg ИЩЕТ кадр при ``-ss``, в том же порядке, что ``at``
+    #: (:data:`torrcast.domain.frames.keymap.key_map.KeyMap.via`). Пусто - совпадает с
+    #: ``at``; отдельным рядом оно идёт у mp4 без списка правок (там - dts).
+    via: tuple[float, ...] = ()
 
     def byte_at(self, seconds: float) -> int:
         """Смещение опорного кадра не позже ``seconds``; карта без смещений — ``0``.

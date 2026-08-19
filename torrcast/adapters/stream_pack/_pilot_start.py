@@ -9,6 +9,7 @@ import math
 import subprocess
 import tempfile
 import threading
+from typing import Final
 
 from torrcast.domain.hls_wait import PILOT_TIMEOUT
 from torrcast.ports.journal.slot import journal
@@ -19,14 +20,28 @@ from torrcast.ports.journal.slot import journal
 _FILM_START: dict[str, float] = {}
 _FILM_LOCK = threading.Lock()
 
+#: Так ffprobe называет семейство mp4 (первым словом в списке демуксеров).
+_MOV_FAMILY: Final = "mov"
+
 
 def _film_start(source_url: str, timeout: float = PILOT_TIMEOUT) -> float:
-    """С какой метки начинается ВИДЕО этого файла. Не прочли — ``0.0``. Раз на файл.
+    """С какой метки начинается ВИДЕО этого файла, секунды. Не прочли — ``0.0``. Раз на файл.
 
     Это переводчик между двумя лентами, которые до TC-629 молча считались одной. Метки в
     файле лежат от ``start_time`` контейнера, а сетка (:class:`Grid`) отсчитана от начала
-    фильма: ``bounds[0]`` всегда 0. У mkv и mp4 видео начинается с нуля, и разницы между
-    лентами нет вовсе - поэтому дефекта и не было видно годами. У .ts и .m2ts начало любое.
+    фильма: ``bounds[0]`` всегда 0. У .ts и .m2ts начало контейнера любое (замер TC-629:
+    600.006), и там перевод обязателен.
+
+    🔴 TC-699: у mp4 вычитать ``start_time`` НЕЛЬЗЯ, даже когда он не ноль. Карта опорных
+    кадров mp4 снимается из таблиц ``moov`` и лежит ровно в тех метках, которые показывает
+    ffmpeg (сдвиг ``elst`` карта и ffmpeg применяют одинаково), сетка строится по карте, а
+    ``-ss`` и ``-copyts`` работают в той же ленте - то есть карта, сетка, заход и прогон у
+    mp4 живут в метках контейнера, и «лента фильма» для них одна и та же. Вычитание при
+    этом работало, пока видео mp4 начиналось с нуля; у ремукса, чей звук в исходнике
+    начинался на набивку кодировщика раньше видео, видео начинается с 0.023, и вычитание
+    разводило карту с фактом ровно на эти 0.023 на всех проверенных местах - сверка
+    (:data:`SPLIT_SLACK` 0.02) не сходилась НИКОГДА, и файл оставался недоверенным
+    навсегда: пробный прогон на каждый копирующий заход.
 
     Спрашивается ровно **видео**, а не контейнер целиком: ``start_time`` формата - это
     минимум по всем потокам, а наш звук начинается на набивку кодировщика раньше видео
@@ -46,13 +61,16 @@ def _film_start(source_url: str, timeout: float = PILOT_TIMEOUT) -> float:
     try:
         answer = subprocess.run(
             ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
-             "stream=start_time", "-of", "csv=p=0", source_url],
+             "stream=start_time:format=format_name", "-of", "csv=p=0", source_url],
             capture_output=True, text=True, timeout=timeout, check=True,
         )  # fmt: skip
-        head = answer.stdout.strip().splitlines()
-        value = float(head[0].split(",")[0])
+        lines = answer.stdout.strip().splitlines()
+        value = float(lines[0].split(",")[0])
         # nan/inf в ленту переводить нечем, а «N/A» ffprobe печатает словом и сюда не дойдёт.
-        begins = value if math.isfinite(value) else 0.0
+        value = value if math.isfinite(value) else 0.0
+        # Семейство mp4 живёт в метках контейнера целиком (карта, сетка, -ss) - перевода нет.
+        container = lines[1].strip().strip('"').split(",")[0] if len(lines) > 1 else ""
+        begins = 0.0 if container == _MOV_FAMILY else value
     except (OSError, subprocess.SubprocessError, IndexError, ValueError):
         begins = 0.0
     with _FILM_LOCK:
@@ -88,8 +106,9 @@ def _pilot_start(source_url: str, at: float, timeout: float = PILOT_TIMEOUT) -> 
     бережёт :func:`pack_start`, только с другого конца.
 
     Поэтому лечится это переводом ленты (:func:`_film_start`), и перевод стоит одного
-    ``ffprobe`` на файл: у mkv и mp4 видео начинается с нуля, сдвиг нулевой и ответ не
-    меняется ни на миллисекунду, у .ts - вычитается целиком.
+    ``ffprobe`` на файл: у .ts сдвиг контейнера вычитается целиком, а у mp4 его нет вовсе -
+    карта, сетка и прогон там изначально в одной ленте (TC-699), и у mkv видео начинается
+    с нуля, то есть ответ не меняется ни на миллисекунду.
 
     ⚠️ Вычитать ``start_time`` ВСЕГО контейнера (``-start_at_zero``) нельзя: он считается по
     самому раннему потоку, а сетка стоит на опорных кадрах ВИДЕО. На обычном mkv звук

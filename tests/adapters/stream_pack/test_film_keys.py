@@ -77,6 +77,20 @@ def test_the_track_named_by_the_file_wins_over_the_guess() -> None:
     )
 
 
+def test_the_seek_time_is_filtered_with_its_track() -> None:
+    """Исковое время (``via``) сокращается до дорожки видео вместе с точками карты.
+
+    Разойдись эти ряды длиной - и бисект в ``mapped_start`` пошёл бы по чужим меткам,
+    поэтому ряды склеены ``zip(strict=True)``: сдвинутый ряд роняет разбор, а не режет.
+    """
+    sound = tuple(Point(place, int(place * 10), 0) for place in (0.0, 30.0))
+    video = tuple(Point(place, int(place * 100), 3) for place in (10.0, 20.0))
+    points = tuple(sorted(sound + video, key=lambda point: point.at))
+    via = tuple(point.at - 0.08 for point in points)  # исковое время чуть раньше метки
+    ready = film_keys(URL, keys_of=lambda url: KeyMap(60.0, points, 0, 0, "mp4", 3, via))
+    assert list(ready.via) == [9.92, 19.92], "исковое время потеряло дорожку видео"
+
+
 @pytest.mark.machine
 def test_a_reader_waits_for_the_neighbour_instead_of_reading_the_tail_twice() -> None:
     """Карту уже снимает прогрев - ждём его, а не читаем индекс вторым потоком.

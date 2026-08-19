@@ -110,8 +110,19 @@ def film_keys(
         # на случай головы без Tracks.
         track = found.video if found.video is not None else video_track(found.points)
         video = [p for p in found.points if p.track == track]
+        # Исковое время лежит в том же порядке, что точки, и фильтруется вместе с ними;
+        # пустое - равно меткам показа (mkv, mp4 со списком правок).
+        via = (
+            tuple(v for p, v in zip(found.points, found.via, strict=True) if p.track == track)
+            if found.via
+            else ()
+        )
         ready = FilmKeys(
-            found.duration, [p.at for p in video], [p.offset for p in video], found.kind
+            found.duration,
+            [p.at for p in video],
+            [p.offset for p in video],
+            found.kind,
+            via,
         )
         with contextlib.suppress(OSError):
             cache.parent.mkdir(parents=True, exist_ok=True)
@@ -121,6 +132,7 @@ def film_keys(
                 "keys": ready.at,
                 "bytes": ready.offset,
                 "kind": ready.kind,
+                "via": list(ready.via),
             }
             try:
                 tmp.write_text(json.dumps(body), "utf-8")

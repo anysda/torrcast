@@ -17,11 +17,14 @@ def read_keys(cache: Path) -> FilmKeys | None:
         at = [float(x) for x in saved["keys"]]
         # Кэш прошлой версии смещений не знал: он всё ещё годен для сетки, а грелка
         # позиции без смещений просто не работает - это лучше, чем выбросить карту.
+        # Так же и с исковым временем (via): без него предсказание работает по меткам,
+        # как до его появления.
         ready = FilmKeys(
             float(saved["duration"]),
             at,
             [int(x) for x in saved.get("bytes", ())],
             str(saved.get("kind", "")),
+            tuple(float(x) for x in saved.get("via", ())),
         )
         _touch(cache)  # полка живёт по времени обращения (:func:`_trim`)
         return ready

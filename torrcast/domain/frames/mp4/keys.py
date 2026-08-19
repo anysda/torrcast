@@ -61,12 +61,27 @@ def keys(reader: Reader, head: bytes) -> KeyMap:
     where = _offsets(window, stbl, sync)
     track = _track_id(window, trak)
 
-    points = [
-        Point((clock + ahead.get(number, 0)) / scale - shift, offset, track)
+    # Есть ли у дорожки список правок - решает, по какому времени ffmpeg ИЩЕТ кадр при
+    # ``-ss``: со списком его индекс перестроен на метки показа (замер TC-695: ``-ss``
+    # ниже суб-мс метки садится на ПРЕЖНИЙ кадр), а без списка индекс стоит на времени
+    # декодирования, и в окне между dts и меткой кадра посадка - САМ кадр (замер TC-699
+    # на живом YIFY-релизе). Предсказание посадки идёт по исковому времени
+    # (:func:`torrcast.adapters.stream_pack.mapped_start.mapped_start`), поэтому без правок
+    # его надо отдать картой отдельным рядом.
+    edits = _find(window, *trak, b"edts")
+    seekable = edits is not None and _find(window, *edits, b"elst") is not None
+
+    pairs = sorted(
+        (
+            Point((clock + ahead.get(number, 0)) / scale - shift, offset, track),
+            clock / scale,
+        )
         for number, clock, offset in zip(sync, times, where, strict=False)
-    ]
+    )
+    points = tuple(point for point, _decode in pairs)
+    via = () if seekable else tuple(decode for _point, decode in pairs)
     if not points:
         raise InfraError("таблицы mp4 есть, но карта из них не собралась")
     if length <= 0:
         length = points[-1].at
-    return KeyMap(length, tuple(sorted(points)), reader.taken, reader.requests, "mp4")
+    return KeyMap(length, points, reader.taken, reader.requests, "mp4", via=via)
