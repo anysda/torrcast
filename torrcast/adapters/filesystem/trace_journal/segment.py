@@ -17,7 +17,7 @@ def segment(slot: int, mb: float, sent: float, wait: float, src: str) -> None:
     переходам нельзя сказать, чем шёл показ между ними.
 
     🔴 Зовётся из горячего пути отдачи
-    (:meth:`torrcast.adapters.http_server._handler._Handler._log_segment`): только :func:`emit`, то
+    (:func:`torrcast.adapters.http_server.log_segment.log_segment`): только :func:`emit`, то
     есть только укладка в очередь.
     """
     emit(

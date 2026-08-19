@@ -10,9 +10,9 @@ from pathlib import Path
 from typing import Any, ClassVar, Final
 
 from torrcast.adapters.http_server._feed import _Feed
+from torrcast.adapters.http_server.log_segment import log_segment
 from torrcast.adapters.stream_probe import segment_slot
 from torrcast.domain.trace_sources import PACKED, WARMED
-from torrcast.ports.journal import journal
 
 #: Отдаём ровно манифест и сегменты сетки, и ничего больше: каталог наружу не открыт.
 _ASSET_RE: Final = re.compile(r"^(?:v\d+\.ts|index\.m3u8)$")
@@ -41,7 +41,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
     #: Откуда взят кусок, который сейчас отдаём
     #: (:data:`torrcast.domain.trace_sources.PACKED` /
     #: :data:`torrcast.domain.trace_sources.WARMED`). Ставит :meth:`_read`, читает
-    #: :meth:`_log_segment`.
+    #: :func:`log_segment`.
     _src: str = "pack"
 
     def do_GET(self) -> None:
@@ -82,13 +82,13 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             self.wfile.write(data)
             took = time.monotonic() - sent
             self._sent(name, len(data), took)
-            self._log_segment(name, began, len(data), took)
+            log_segment(name, began, len(data), took, self._src)
 
     def _read(self, name: str) -> bytes | None:
         """Тело ответа: манифест на весь фильм или сегмент, дождавшись упаковки.
 
         Заодно запоминает, ОТКУДА взят кусок (:attr:`_src`): решает это
-        :meth:`Feed.segment`, а в след пишет :meth:`_log_segment`, и передать источник
+        :meth:`Feed.segment`, а в след пишет :func:`log_segment`, и передать источник
         между ними больше нечем - наружу уходят одни байты.
         """
         if name.endswith(".m3u8"):
@@ -160,31 +160,6 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             f"отдал {name} · {size / 1e6:.1f} МБ за {seconds:.1f} с"
             f" · {size * 8 / seconds / 1e6:.1f} Мбит/с",
             flush=True,
-        )
-
-    def _log_segment(self, name: str, began: float, size: int, took: float) -> None:
-        """Каждый отданный сегмент - в недельный след: номер, вес, время, ожидание, ИСТОЧНИК.
-
-        Источник (:attr:`_src`) - живая упаковка или прогретое. Без него в ленте не видно
-        главного: показ идёт кусками ДВУХ производителей, и разбор «почему приёмник
-        споткнулся вот здесь» упирался в то, что по записи нельзя сказать, чей это был
-        кусок и не сменился ли производитель ровно на этом месте.
-
-        🔴 Это горячий путь. :func:`torrcast.adapters.filesystem.trace_journal.emit`
-        только кладёт запись в очередь - ни ``open``, ни ``write``, ни ``flush`` тут не
-        случается, показ не ждёт журнал.
-        Отдельно от ``TORRCAST_TRACE`` (:meth:`_sent`): тот пишет в консоль по требованию, а
-        след ведётся всегда. Манифест не пишем - он не сегмент и дёргается на каждый опрос.
-        """
-        if not name.endswith(".ts"):
-            return
-
-        journal().segment(
-            slot=segment_slot(name),
-            mb=size / 1e6,
-            sent=took,
-            wait=time.monotonic() - began - took,
-            src=self._src,
         )
 
     def log_message(self, fmt: str, *args: Any) -> None:
