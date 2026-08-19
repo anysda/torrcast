@@ -109,6 +109,12 @@ def test_the_stick_is_bold_only_where_it_was_measured() -> None:
     с экрана не уходит). Про вес куска, шаг сетки и пороги сторожа нуджей замер не
     говорит НИЧЕГО, а HEVC через наш mpegts на ней ещё не проходил - значит, эти пороги
     обязаны остаться осторожными.
+
+    Вес куска с тех пор ИЗМЕРЕН (TC-620), и это единственное число, которое ушло от
+    осторожного: куски 19.1-19.9 МБ приставка играет с КПД 0.992-0.997 и без остановок,
+    а у самого потолка доигрывает и 26.9-27.7 МБ. С осторожными 16 МБ тот же релиз не
+    показывает ни кадра: ужать его на ровной сетке нечем, и наружу не выходит ни один
+    кусок. У Q70D его 16 МБ при этом остаются на месте.
     """
     stick, cautious = ANDROID_TV, CAUTIOUS
     assert stick.warn_mbit > cautious.warn_mbit and stick.recode_at_mbit > cautious.recode_at_mbit
@@ -124,7 +130,9 @@ def test_the_stick_is_bold_only_where_it_was_measured() -> None:
     )
     assert stick.recode_codecs == cautious.recode_codecs, "HEVC в нашем mpegts ещё не проверен"
     assert stick.copy_depth == cautious.copy_depth, "Hi10P в нашем mpegts ещё не проверен"
-    assert stick.max_segment_bytes == cautious.max_segment_bytes, "вес куска не измеряли"
+    assert stick.max_segment_bytes == 28_000_000 > cautious.max_segment_bytes, (
+        "вес куска на приставке измерен: 16 МБ не отдают этого релиза вовсе, 28 играют начисто"
+    )
     assert stick.segment_seconds == cautious.segment_seconds, "шаг сетки не измеряли"
     assert (stick.stall_seconds, stick.ready_ahead, stick.stall_skip) == (
         cautious.stall_seconds,
