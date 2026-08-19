@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from torrcast.runtime.wire import wire
-from torrcast.usecases.cast_command import _cmd_play, _play_state
+from torrcast.usecases.cast_command import _play_state
+from torrcast.usecases.cast_command._cmd_play import _cmd_play
 
 
 def test_the_composition_root_hands_the_command_its_whole_outside_world() -> None:

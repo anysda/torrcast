@@ -8,7 +8,7 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from torrcast.domain.args import Args
-from torrcast.usecases.cast_command import _cmd_play
+from torrcast.usecases.cast_command._cmd_play import _cmd_play
 
 
 def play(args: Args, command: Callable[[Args], int] = _cmd_play) -> int:

@@ -29,7 +29,7 @@ from torrcast.adapters.torrserver.torr_server import TorrServer
 from torrcast.runtime.menu_facts import MenuFacts
 from torrcast.runtime.native_picture import native_picture
 from torrcast.runtime.trace_thresholds import trace_thresholds
-from torrcast.usecases.cast_command import _configure_cast_command
+from torrcast.usecases.cast_command._play_state import _configure_cast_command
 from torrcast.usecases.playback import _configure_playback
 from torrcast.usecases.releases_command import _configure_releases_command
 from torrcast.usecases.revive_playback._revive_state import _configure_revive_playback
