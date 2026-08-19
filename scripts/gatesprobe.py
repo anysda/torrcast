@@ -47,7 +47,9 @@ from torrcast.domain.args import Args
 from torrcast.domain.rank_settings import HD_HEIGHT
 from torrcast.domain.release import Release
 from torrcast.runtime.wire import wire
-from torrcast.usecases.rank import bitrate_of, is_dated, is_extra
+from torrcast.usecases.rank.bitrate_of import bitrate_of
+from torrcast.usecases.rank.is_dated import is_dated
+from torrcast.usecases.rank.is_extra import is_extra
 from torrcast.usecases.select.plan import Plan
 
 

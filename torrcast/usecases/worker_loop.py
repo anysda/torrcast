@@ -19,7 +19,7 @@ from torrcast.ports.torrent_engine import TorrentEngine
 from torrcast.usecases.episode_duration import _duration
 from torrcast.usecases.following import _following
 from torrcast.usecases.playback import _next_warmer, _play
-from torrcast.usecases.rank import _hms
+from torrcast.usecases.rank._hms import _hms
 from torrcast.usecases.start_clock import _Clock
 from torrcast.usecases.torrents import _own_torrent
 from torrcast.usecases.watch import Watch

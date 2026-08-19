@@ -14,7 +14,7 @@ from torrcast.ports.journal import journal
 from torrcast.ports.receiver import Receiver
 from torrcast.usecases.choice._ctl import _Revivable
 from torrcast.usecases.feed_pack.feed import Feed
-from torrcast.usecases.rank import _hms
+from torrcast.usecases.rank._hms import _hms
 from torrcast.usecases.revive_playback._blame import _may, _why
 from torrcast.usecases.warm.warmer import Warmer
 

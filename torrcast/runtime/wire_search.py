@@ -18,8 +18,12 @@ from torrcast.usecases.cache_reserve import _configure_cache_reserve
 from torrcast.usecases.choice.configure import configure as configure_choice
 from torrcast.usecases.discover._search_state import _configure_discover
 from torrcast.usecases.episode_duration import _configure_episode_duration
-from torrcast.usecases.rank import _cut, bitrate_of, hevc_hope, is_candidate, is_dated
-from torrcast.usecases.rank import configure as configure_rank
+from torrcast.usecases.rank._cut import _cut
+from torrcast.usecases.rank.bitrate_of import bitrate_of
+from torrcast.usecases.rank.configure import configure as configure_rank
+from torrcast.usecases.rank.hevc_hope import hevc_hope
+from torrcast.usecases.rank.is_candidate import is_candidate
+from torrcast.usecases.rank.is_dated import is_dated
 from torrcast.usecases.reinforce._timed import _timed
 from torrcast.usecases.reinforce.configure import configure as configure_reinforce
 from torrcast.usecases.select._pick_state import _configure_select

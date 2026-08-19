@@ -42,7 +42,7 @@ from torrcast.domain.trust_anchor import trust_anchor
 from torrcast.domain.warm_settings import WARM_BUDGET
 from torrcast.usecases.feed_pack.feed import Feed
 from torrcast.usecases.playback import _play
-from torrcast.usecases.rank import _hms
+from torrcast.usecases.rank._hms import _hms
 from torrcast.usecases.start_clock import _Clock
 from torrcast.usecases.stopped import _Stopped
 from torrcast.usecases.warm.configure import configure as configure_warm

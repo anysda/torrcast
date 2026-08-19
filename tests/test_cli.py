@@ -67,21 +67,19 @@ from torrcast.usecases.discover.kin_line import _kin, kin_line
 from torrcast.usecases.discover.silent_swarm import silent_swarm
 from torrcast.usecases.facts import Facts
 from torrcast.usecases.playback import _refuse_hopeless
-from torrcast.usecases.rank import (
-    bitrate_of,
-    is_candidate,
-    is_dated,
-    is_disc,
-    is_extra,
-    is_full_hd,
-    needs_whole_recode,
-    quality_text,
-    rank_releases,
-    render_table,
-    sound_note,
-    understated,
-    voice_unproven,
-)
+from torrcast.usecases.rank.bitrate_of import bitrate_of
+from torrcast.usecases.rank.is_candidate import is_candidate
+from torrcast.usecases.rank.is_dated import is_dated
+from torrcast.usecases.rank.is_disc import is_disc
+from torrcast.usecases.rank.is_extra import is_extra
+from torrcast.usecases.rank.is_full_hd import is_full_hd
+from torrcast.usecases.rank.needs_whole_recode import needs_whole_recode
+from torrcast.usecases.rank.quality_text import quality_text
+from torrcast.usecases.rank.rank_releases import rank_releases
+from torrcast.usecases.rank.render_table import render_table
+from torrcast.usecases.rank.sound_note import sound_note
+from torrcast.usecases.rank.understated import understated
+from torrcast.usecases.rank.voice_unproven import voice_unproven
 from torrcast.usecases.reinforce._ceiling_reinforce import _ceiling_reinforce
 from torrcast.usecases.reinforce._timed import _timed
 from torrcast.usecases.reinforce._topup import _topup as _reinforce_topup
@@ -345,7 +343,7 @@ def test_a_heavy_bonus_disc_with_a_plain_mark_is_turned_away() -> None:
     Метка НЕоднозначная («трейлер» у ещё не вышедшей картины, «фильм о фильме» у
     документального кино) без веса не судится: такую носят и раздачи самой картины.
     """
-    from torrcast.usecases.rank import is_extra
+    from torrcast.usecases.rank.is_extra import is_extra
 
     bonus = _named("Титаник / Titanic (1997) BDRip | Дополнительные материалы", 11.56, 12)
     disc = _named("Тачки 3 [Бонус-Диск] / Cars 3 [Bonus Disc] (2017) BDRip 720p", 2.7, 3)
@@ -3687,7 +3685,8 @@ def test_a_multi_season_pack_that_hides_its_bitrate_stops_outranking_the_live_on
     подряд - это три приговора ``mpeg4``, весь :data:`~torrcast.cli.MAX_TRIES` и 130
     секунд, после которых показ говорит «годного релиза нет» при живом каталоге.
     """
-    from torrcast.usecases.rank import is_dated, pack_mbit
+    from torrcast.usecases.rank.is_dated import is_dated
+    from torrcast.usecases.rank.pack_mbit import pack_mbit
 
     tv = RUNTIME_GUESS["tv"]
     pda = _series_release(
@@ -3714,7 +3713,9 @@ def test_the_pack_ceiling_never_judges_a_release_only_orders_it() -> None:
     :func:`~torrcast.cli.is_candidate`, и потолок в воротах означал бы «слишком тяжёлый»,
     то есть отказ показывать честный 114-гигабайтный пак.
     """
-    from torrcast.usecases.rank import bitrate_of, is_candidate, pack_mbit
+    from torrcast.usecases.rank.bitrate_of import bitrate_of
+    from torrcast.usecases.rank.is_candidate import is_candidate
+    from torrcast.usecases.rank.pack_mbit import pack_mbit
 
     tv = RUNTIME_GUESS["tv"]
     honest = _series_release(

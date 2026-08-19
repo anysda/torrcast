@@ -19,7 +19,8 @@ from torrcast.usecases.cast_command._choose import _choose
 from torrcast.usecases.cast_command._entry_for import _entry_for
 from torrcast.usecases.cast_command._notes import _notes
 from torrcast.usecases.playback import _launch
-from torrcast.usecases.rank import pick_voice, quality_text
+from torrcast.usecases.rank.pick_voice import pick_voice
+from torrcast.usecases.rank.quality_text import quality_text
 from torrcast.usecases.say_showing import _say_showing
 from torrcast.usecases.select._continue import _continue
 from torrcast.usecases.select._remembered import _remembered

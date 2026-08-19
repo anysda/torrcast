@@ -18,7 +18,7 @@ from torrcast.ports.receiver import Receiver
 from torrcast.ports.stream_source import StreamSource
 from torrcast.usecases.choice._ctl import _ctl
 from torrcast.usecases.feed_pack.feed import Feed
-from torrcast.usecases.rank import _hms
+from torrcast.usecases.rank._hms import _hms
 from torrcast.usecases.revive_playback._endure import _endure
 from torrcast.usecases.revive_playback._revival import _Revival
 from torrcast.usecases.revive_playback._revive_state import TAIL_LIMIT

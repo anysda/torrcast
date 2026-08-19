@@ -13,7 +13,7 @@ from torrcast.domain.entry import Entry
 from torrcast.domain.watch_state import WatchState
 from torrcast.ports.state_store import store as watch_store
 from torrcast.usecases.playback import _launch
-from torrcast.usecases.rank import _hms
+from torrcast.usecases.rank._hms import _hms
 from torrcast.usecases.select._about import _about
 from torrcast.usecases.select._continue import _continue
 from torrcast.usecases.select._voiced import _Voiced, _voiced

@@ -77,7 +77,9 @@ from torrcast.runtime.wire import wire
 from torrcast.usecases.discover.season_reread import season_reread
 from torrcast.usecases.discover.unfit_pool import unfit_pool
 from torrcast.usecases.discover.worth_asking_original import worth_asking_original
-from torrcast.usecases.rank import OFF_SEASON, drop_reason, queue_drops
+from torrcast.usecases.rank.drop_reason import drop_reason
+from torrcast.usecases.rank.drop_reasons import OFF_SEASON
+from torrcast.usecases.rank.queue_drops import queue_drops
 from torrcast.usecases.reinforce.ceiling_hides_name import ceiling_hides_name
 from torrcast.usecases.reinforce.lacks_season import lacks_season
 from torrcast.usecases.reinforce.plan_for import plan_for

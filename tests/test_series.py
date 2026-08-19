@@ -24,7 +24,7 @@ from torrcast.domain.picture import Picture
 from torrcast.domain.runtime_guess import RUNTIME_GUESS
 from torrcast.domain.split_episode import split_episode
 from torrcast.domain.torr_file import TorrFile
-from torrcast.usecases.rank import rank_releases
+from torrcast.usecases.rank.rank_releases import rank_releases
 from torrcast.usecases.reinforce.plan_for import plan_for
 
 GB = 1024**3

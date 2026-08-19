@@ -9,7 +9,7 @@ from torrcast.domain.cluster import cluster
 from torrcast.domain.menu_order import menu_order
 from torrcast.domain.pick_franchise import pick_franchise
 from torrcast.domain.release import Release
-from torrcast.usecases.rank import rank_releases
+from torrcast.usecases.rank.rank_releases import rank_releases
 
 
 def test_deterministic_ties() -> None:

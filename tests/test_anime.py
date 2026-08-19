@@ -42,16 +42,14 @@ from torrcast.domain.raw_result import RawResult
 from torrcast.domain.release import Release
 from torrcast.domain.runtime_guess import RUNTIME_GUESS
 from torrcast.runtime.native_picture import native_picture
-from torrcast.usecases.rank import (
-    bitrate_of,
-    drop_reason,
-    gate_open,
-    is_candidate,
-    is_dated,
-    is_dead,
-    rank_releases,
-    sound_note,
-)
+from torrcast.usecases.rank.bitrate_of import bitrate_of
+from torrcast.usecases.rank.drop_reason import drop_reason
+from torrcast.usecases.rank.gate_open import gate_open
+from torrcast.usecases.rank.is_candidate import is_candidate
+from torrcast.usecases.rank.is_dated import is_dated
+from torrcast.usecases.rank.is_dead import is_dead
+from torrcast.usecases.rank.rank_releases import rank_releases
+from torrcast.usecases.rank.sound_note import sound_note
 from torrcast.usecases.reinforce.plan_for import plan_for
 from torrcast.usecases.select.plan import Plan
 from torrcast.usecases.select_bench.bench import Bench
@@ -877,7 +875,8 @@ def test_a_4k_release_never_lifts_over_a_live_1080p_however_many_seeders_it_has(
     по цене это тот же класс, что BD-ремукс. Ступень «играется только сплошным перекодом»
     стоит выше живости и выше качества, поэтому девятикратный перевес сидов 4К не спасает.
     """
-    from torrcast.usecases.rank import needs_whole_recode, rank_releases
+    from torrcast.usecases.rank.needs_whole_recode import needs_whole_recode
+    from torrcast.usecases.rank.rank_releases import rank_releases
 
     uhd = named("Аниме / Anime [TV] [01-12 из 12] (2019) BDRip-HEVC 2160p", size_gb=20.0, seeders=9)
     hd = named("Аниме / Anime [TV] [01-12 из 12] (2019) BDRip-HEVC 1080p", size_gb=8.0, seeders=1)
@@ -897,7 +896,7 @@ def test_the_last_hope_opens_for_a_4k_hevc_because_it_is_scaled_down_now() -> No
     1.03x без скейла. Отказывать тут значило бы отказывать в единственном носителе
     картины ради потолка, которого больше нет.
     """
-    from torrcast.usecases.rank import hevc_hope
+    from torrcast.usecases.rank.hevc_hope import hevc_hope
 
     uhd = named("Аниме / Anime [TV] [01-12 из 12] (2019) BDRip-HEVC 2160p", size_gb=20.0, seeders=9)
     hd = named("Аниме / Anime [TV] [01-12 из 12] (2019) BDRip-HEVC 1080p", size_gb=8.0, seeders=1)

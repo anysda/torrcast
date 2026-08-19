@@ -8,7 +8,7 @@ from torrcast.domain.entry import Entry
 
 __all__ = ["Entry", "_say_showing"]
 
-from torrcast.usecases.rank import _hms
+from torrcast.usecases.rank._hms import _hms
 
 
 def _say_showing(live: tuple[str, Entry] | None) -> None:

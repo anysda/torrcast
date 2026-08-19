@@ -35,7 +35,7 @@ from torrcast.domain.raw_result import RawResult
 from torrcast.domain.studio import STUDIOS
 from torrcast.domain.torr_file import TorrFile
 from torrcast.domain.voice_order import voice_order
-from torrcast.usecases.rank import voice_note
+from torrcast.usecases.rank.voice_note import voice_note
 
 GB = 1024**3
 KEY = "movie:моана-2:2024"

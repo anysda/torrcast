@@ -31,7 +31,7 @@ from torrcast.domain.pick_settings import MAX_TRIES, META_BUDGET, PROBE_BUDGET
 from torrcast.domain.rank_settings import PEER_GRACE, STEP_GRACE
 from torrcast.domain.server_down_error import ServerDownError
 from torrcast.domain.warm_open import KEYS_KEPT
-from torrcast.usecases.rank import peer_grace
+from torrcast.usecases.rank.peer_grace import peer_grace
 from torrcast.usecases.select._prep import _Prep
 from torrcast.usecases.select._verdict import _waiting_note
 from torrcast.usecases.select_bench.bench import Bench
