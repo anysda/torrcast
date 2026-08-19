@@ -6,6 +6,7 @@
 
 import json
 import os
+import shlex
 import subprocess
 import sys
 import threading
@@ -407,3 +408,41 @@ def test_a_refused_narrow_source_is_not_reasked_at_all(tmp_path: Path) -> None:
     # ровно раз; заведшийся узкий не переспрашивается тем более.
     for name in ("YTS", "Nyaa.si", "JacRed"):
         assert len(posts[name]) == 1, f"{name}: обращений {len(posts[name])} вместо одного"
+
+
+def _shim_knobs() -> list[str]:
+    """Ручки шима так, как их запишет установка: значения подставляет сам bash."""
+    body = SCRIPT.split("local knobs; knobs=", 1)[1].split('Sockets=torrcast-shim.socket"', 1)[0]
+    agent = SCRIPT.split('\nUA="', 1)[1].split('"\n', 1)[0]
+    snippet = (
+        f'UA="{agent}"\n'
+        "HOSTS_FILE=/etc/hosts\nSHIM_PID=/etc/torrcast-shim/shim.pid\n"
+        "SHIM_DIR=/etc/torrcast-shim\npins=api.knaben.org\nROUTE_EVERY=900\n"
+        "PROBE_TIMEOUT=25\nPROBE_STALL=5\nPROBE_FLOOR=1024\n"
+        f'knobs={body}Sockets=torrcast-shim.socket"\nprintf "%s\\n" "$knobs"\n'
+    )
+    done = subprocess.run(["bash", "-c", snippet], capture_output=True, text=True, check=True)
+    return done.stdout.splitlines()
+
+
+def test_a_shim_knob_with_a_space_reaches_the_process_whole() -> None:
+    """🔴 TC-704. Значение с пробелом внутри доезжает до шима целиком.
+
+    Строку ``Environment=`` systemd делит по пробелам и всё после первого пробела
+    считает СЛЕДУЮЩИМ присваиванием. Браузерная подпись пробы состоит из пробелов чуть
+    менее чем полностью, и без кавычек она доезжает обрезанной до ``Mozilla/5.0`` -
+    молча, потому что служба при этом исправно поднимается, а обрезанной подписью часть
+    трекеров отвечает отказом ещё на пробе. Отказ пробы возвращает имя за шим или
+    уводит его оттуда - то есть цена молчания тут не косметическая.
+    """
+    agent = SCRIPT.split('\nUA="', 1)[1].split('"\n', 1)[0]
+    assert " " in agent, "подпись без пробелов эту ловушку не ловит"
+    env: dict[str, str] = {}
+    for line in _shim_knobs():
+        if not line.startswith("Environment="):
+            continue
+        # Ровно то, что делает systemd: режем по пробелам с оглядкой на кавычки.
+        for assignment in shlex.split(line.removeprefix("Environment=")):
+            name, _, value = assignment.partition("=")
+            env[name] = value
+    assert env["TORRCAST_PROBE_UA"] == agent

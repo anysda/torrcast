@@ -1284,16 +1284,21 @@ setup_shim() {  # $1 - имена, которые ведём через шим (
     # одновременный отказ всех источников.
     # Прибитое имя ведёт на 127.0.0.1, и пока шима там нет, трекера нет вовсе; аренда же
     # кончается вместе со службой, и трекер остаётся хотя бы со своим прямым путём.
-    local knobs; knobs="Environment=TORRCAST_HOSTS=$HOSTS_FILE
-Environment=TORRCAST_SHIM_PID=$SHIM_PID
-Environment=TORRCAST_ROUTE_PROBES=$SHIM_DIR/probes
-Environment=TORRCAST_ROUTE_PAGES=$SHIM_DIR/pages
-Environment=TORRCAST_ROUTE_PINNED=$pins
-Environment=TORRCAST_ROUTE_EVERY=$ROUTE_EVERY
-Environment=TORRCAST_PROBE_TIMEOUT=$PROBE_TIMEOUT
-Environment=TORRCAST_PROBE_STALL=$PROBE_STALL
-Environment=TORRCAST_PROBE_FLOOR=$PROBE_FLOOR
-Environment=TORRCAST_PROBE_UA=$UA
+    # Значение каждой ручки берётся в кавычки, и это не украшение: systemd режет строку
+    # `Environment=` по пробелам и всё после первого пробела считает следующим
+    # присваиванием, а не продолжением значения. Без кавычек ручка с пробелом внутри
+    # доезжает до процесса обрезанной по первому пробелу - молча, потому что служба при
+    # этом исправно поднимается.
+    local knobs; knobs="Environment=\"TORRCAST_HOSTS=$HOSTS_FILE\"
+Environment=\"TORRCAST_SHIM_PID=$SHIM_PID\"
+Environment=\"TORRCAST_ROUTE_PROBES=$SHIM_DIR/probes\"
+Environment=\"TORRCAST_ROUTE_PAGES=$SHIM_DIR/pages\"
+Environment=\"TORRCAST_ROUTE_PINNED=$pins\"
+Environment=\"TORRCAST_ROUTE_EVERY=$ROUTE_EVERY\"
+Environment=\"TORRCAST_PROBE_TIMEOUT=$PROBE_TIMEOUT\"
+Environment=\"TORRCAST_PROBE_STALL=$PROBE_STALL\"
+Environment=\"TORRCAST_PROBE_FLOOR=$PROBE_FLOOR\"
+Environment=\"TORRCAST_PROBE_UA=$UA\"
 Sockets=torrcast-shim.socket"
     # Маска - начало строки запуска, без маршрутов: у живого процесса они прежние, а
     # погасить надо именно его.
