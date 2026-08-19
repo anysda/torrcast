@@ -19,7 +19,7 @@ from torrcast.usecases.choice._pick_plan import _pick_plan
 from torrcast.usecases.choice._played import _played
 from torrcast.usecases.choice.warm_order import warm_order
 from torrcast.usecases.discover.search_circle import search_circle
-from torrcast.usecases.playback import file_picker
+from torrcast.usecases.playback.file_picker import file_picker
 from torrcast.usecases.reinforce._timed import _timed
 from torrcast.usecases.reinforce._topup import _topup
 from torrcast.usecases.select._prep import _Prep

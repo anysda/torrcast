@@ -18,7 +18,7 @@ from torrcast.ports.receivers import Receivers
 from torrcast.ports.stream_source import StreamSource
 from torrcast.ports.torrent_engine import TorrentEngine
 from torrcast.ports.torrent_engines import TorrentEngines
-from torrcast.usecases.playback import _play
+from torrcast.usecases.playback._play import _play
 from torrcast.usecases.stopped import _on_term
 from torrcast.usecases.torrents import _own_torrent, _release_torrents
 from torrcast.usecases.worker_loop import _worker_loop

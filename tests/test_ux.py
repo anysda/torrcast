@@ -23,7 +23,7 @@ from torrcast.domain.entry import Entry
 from torrcast.domain.media import Media
 from torrcast.domain.raw_result import RawResult
 from torrcast.domain.torr_file import TorrFile
-from torrcast.usecases.playback import _await_playing
+from torrcast.usecases.playback._launch import _await_playing
 
 #: Настоящее ожидание картинки: фикстура окружения подменяет его заглушкой, а один тест
 #: проверяет именно его.

@@ -227,7 +227,7 @@ def test_a_frame_the_receiver_cannot_take_never_leaves_as_a_copy_either() -> Non
     по другому, а прогретое легло бы под третьим ключом.
     """
     from torrcast.domain.config import Config
-    from torrcast.usecases.playback import _encode_all
+    from torrcast.usecases.playback._encode_all import _encode_all
 
     q70d = CAUTIOUS
     assert q70d.recode_frame == 1080, "потолок кадра - свойство приёмника, отсюда и берётся"
@@ -255,7 +255,7 @@ def test_an_unmeasured_codec_never_leaves_for_the_receiver_as_a_copy(codec: str)
     AV1 при этом спасала отбраковка на отборе, VP9 не спасало ничто.
     """
     from torrcast.domain.config import Config
-    from torrcast.usecases.playback import _encode_all
+    from torrcast.usecases.playback._encode_all import _encode_all
 
     assert recodes_whole(codec, 0, CAUTIOUS), "копией такое не отдаём"
     assert _encode_all(Config(), codec, profile=CAUTIOUS) is not None
@@ -266,7 +266,7 @@ def test_an_unmeasured_codec_never_leaves_for_the_receiver_as_a_copy(codec: str)
 def test_the_hevc_path_is_untouched_and_plain_h264_still_goes_as_a_copy() -> None:
     """Гейт обратной стороны: закрытому пути HEVC от белого списка ни жарко ни холодно."""
     from torrcast.domain.config import Config
-    from torrcast.usecases.playback import _encode_all
+    from torrcast.usecases.playback._encode_all import _encode_all
 
     assert _encode_all(Config(), "hevc", profile=CAUTIOUS) is not None
     assert _encode_all(Config(), "h264", depth=10, profile=CAUTIOUS) is not None

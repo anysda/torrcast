@@ -683,7 +683,7 @@ def test_a_whole_file_recode_is_chosen_by_weight_not_only_by_codec() -> None:
     Посегментный кодировщик на таком файле выродился бы в сотню коротких ffmpeg подряд;
     один длинный прогон дешевле и не даёт смешанного потока.
     """
-    from torrcast.usecases.playback import _encode_all
+    from torrcast.usecases.playback._encode_all import _encode_all
 
     config = Config()
 
@@ -702,7 +702,7 @@ def test_ten_bit_h264_goes_through_a_whole_file_recode_like_hevc() -> None:
     «залип - LOAD - BUFFERING». Гейт смотрел только на имя кодека, а имя у Hi10P то же
     самое - ``h264``, - поэтому он и проходил как обычный.
     """
-    from torrcast.usecases.playback import _encode_all
+    from torrcast.usecases.playback._encode_all import _encode_all
 
     config = Config()
 
@@ -730,7 +730,7 @@ def test_the_show_and_the_warmer_decide_the_recode_the_same_way() -> None:
     """
     from torrcast.domain.entry import Entry
     from torrcast.domain.media import Media
-    from torrcast.usecases.playback import _encode_all
+    from torrcast.usecases.playback._encode_all import _encode_all
 
     config = Config()
     media = Media(1366.0, (), "h264", profile="High 10", pix_fmt="yuv420p10le")

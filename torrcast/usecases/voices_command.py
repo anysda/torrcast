@@ -18,7 +18,7 @@ from torrcast.ports.torrent_engines import TorrentEngines
 from torrcast.usecases.choice._named import _named
 from torrcast.usecases.choice._pick_plan import _pick_plan
 from torrcast.usecases.discover.search_circle import search_circle
-from torrcast.usecases.playback import file_picker
+from torrcast.usecases.playback.file_picker import file_picker
 from torrcast.usecases.rank._cut import _cut
 from torrcast.usecases.rank.voices_table import voices_table
 from torrcast.usecases.select._remembered import _remembered

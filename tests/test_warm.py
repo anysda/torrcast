@@ -41,7 +41,7 @@ from torrcast.domain.position import Position
 from torrcast.domain.trust_anchor import trust_anchor
 from torrcast.domain.warm_settings import WARM_BUDGET
 from torrcast.usecases.feed_pack.feed import Feed
-from torrcast.usecases.playback import _play
+from torrcast.usecases.playback._play import _play
 from torrcast.usecases.rank._hms import _hms
 from torrcast.usecases.start_clock import _Clock
 from torrcast.usecases.stopped import _Stopped
@@ -1012,7 +1012,7 @@ def test_a_light_film_is_warmed_by_the_very_copy_the_live_packing_gives(tmp_path
     профиль, другая энтропийная кодировка. Решение обязано быть одно на обоих.
     """
     from torrcast.adapters.recode.encode import Encode
-    from torrcast.usecases.playback import _warmer
+    from torrcast.usecases.playback._warmer import _warmer
 
     class _Heavy:
         targets = (1, 4)
@@ -1038,7 +1038,7 @@ def test_a_light_film_is_warmed_by_the_very_copy_the_live_packing_gives(tmp_path
 def test_an_undecodable_codec_still_recodes_both_the_show_and_the_warming(tmp_path: Path) -> None:
     """Обратная сторона того же правила: показ идёт сплошным перекодом - и прогрев тоже."""
     from torrcast.adapters.recode.encode import Encode
-    from torrcast.usecases.playback import _warmer
+    from torrcast.usecases.playback._warmer import _warmer
 
     whole = Encode(preset="ultrafast", mbit=6.0)
     config = Config(warm=True, warm_dir=str(tmp_path / "warm"))
