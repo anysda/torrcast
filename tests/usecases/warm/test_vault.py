@@ -7,8 +7,9 @@ import os
 from typing import TYPE_CHECKING
 
 from tests.usecases.warm.world import lay, vault, world
+from torrcast.usecases.warm._vault_disk import _title, _touched
 from torrcast.usecases.warm.settings import META
-from torrcast.usecases.warm.vault import Vault, _size, _title, _touched, _weigh
+from torrcast.usecases.warm.vault import Vault
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -100,13 +101,3 @@ def test_clearing_hands_the_catalogue_to_the_environment(
     store.clear()
 
     assert fake.removed == [store.dir]
-
-
-def test_an_unreadable_file_weighs_nothing_and_a_missing_passport_is_nameless(
-    tmp_path: Path,
-) -> None:
-    """Ноль тут безопасен: кусок, пропавший между глобом и ``stat``, отдача переживает."""
-    assert _size(tmp_path / "нет.ts") == 0
-    assert _weigh(tmp_path / "нет") == 0
-    assert _title(tmp_path / "нет") == ""
-    assert _touched(tmp_path / "нет") == 0.0

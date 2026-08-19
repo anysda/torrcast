@@ -13,6 +13,7 @@ from torrcast.domain.profile import CAUTIOUS
 from torrcast.ports.recode.encoding_key import EncodingKey
 from torrcast.ports.recode.recode_rival import RecodeRival
 from torrcast.usecases.warm._state import Grid, _Run
+from torrcast.usecases.warm._warm_count import _all_warmed, _spots_left, _warmed
 from torrcast.usecases.warm.settings import CHAIN_RETRY, GUARD_LOW, WARM_NICE, WARM_RATE
 from torrcast.usecases.warm.vault import Vault
 
@@ -116,45 +117,17 @@ class _State:
 
     @property
     def warmed(self) -> float:
-        """Сколько секунд фильма показ может взять с диска.
-
-        Считается не «сколько лежит», а «что возьмут»: копия тяжелее потолка приёмника
-        наружу не идёт (:meth:`torrcast.usecases.feed_pack.feed.Feed._warm`), под таким местом
-        работает живая упаковка - значит, обрыва связи оно не переживёт и запасом не является.
-        Тяжёлое место входит в счёт, когда прогрев приведёт его к перекоду (:meth:`_spots_left`), то
-        есть к тому же виду, в котором его отдаёт показ.
-
-        Замер, ради которого счёт такой («Тачки» 2006, 1080p): тяжелее потолка 38 % кусков,
-        и число называло запас, которого у человека нет.
-        """
-        return sum(self.grid.span(slot) for slot in self.vault.slots(self.cap))
+        """Сколько секунд фильма показ может взять с диска (:func:`_warmed`)."""
+        return _warmed(self.grid, self.vault, self.cap)
 
     @property
     def done(self) -> bool:
-        """Весь фильм на диске: показ дальше не нуждается в сети вовсе.
-
-        Считается ровно то же, что и в :attr:`warmed`, - только то, что показ и правда
-        возьмёт с диска: копия тяжелее потолка приёмника наружу не идёт
-        (:meth:`torrcast.usecases.feed_pack.feed.Feed._warm`), и пока на месте тяжёлого куска лежит
-        она, а не перекод (:meth:`_spots_left`), «готово» - ложь: человек выключит интернет и
-        упрётся в темноту на первом же тяжёлом месте.
-        """
-        return len(self.vault.slots(self.cap)) >= self.grid.count and not self._spots_left()
+        """Весь фильм на диске: сети дальше не нужно (:func:`_all_warmed`)."""
+        return _all_warmed(self.grid, self.vault, self.cap, self.spots, self.spot_encode)
 
     def _spots_left(self) -> tuple[int, ...]:
-        """Тяжёлые куски, которые ещё не перекодированы точечно.
-
-        Кусок берётся в работу, только когда копия уже лежит: перекод идёт поверх неё, и
-        порядок «сначала весь фильм копией, потом тяжёлые места» держит одно свойство -
-        прогретое в любой момент играбельно целиком, даже если прогрев сняли посередине.
-        """
-        if not self.spots or self.spot_encode is None:
-            return ()
-        return tuple(
-            slot
-            for slot in self.spots
-            if self.vault.have(slot) and not self.vault.spot(slot).exists()
-        )
+        """Тяжёлые куски, ещё не перекодированные точечно (:func:`_spots_left`)."""
+        return _spots_left(self.vault, self.spots, self.spot_encode)
 
     def _busy_rival(self) -> bool:
         """Идёт ли прямо сейчас заход живого перекода (:attr:`rival`)."""

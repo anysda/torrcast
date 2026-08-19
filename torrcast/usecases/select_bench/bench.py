@@ -11,11 +11,12 @@ from torrcast.ports.progress import Progress
 from torrcast.usecases.rank.heard import heard
 from torrcast.usecases.rank.voice_unproven import voice_unproven
 from torrcast.usecases.select._prep import _Prep
-from torrcast.usecases.select._verdict import _did_not_answer, _silenced, _turned_down, _waiting_note
+from torrcast.usecases.select._verdict import _waiting_note
 from torrcast.usecases.select.plan import Plan
 from torrcast.usecases.select_bench._bench_prewarm import _BenchPrewarm
 from torrcast.usecases.select_bench._bench_queue import _bench_queue
 from torrcast.usecases.select_bench._bench_refusal import _bench_refusal
+from torrcast.usecases.select_bench._bench_tally import _Tally
 from torrcast.usecases.select_bench._retried_verdict import _retried_verdict
 
 if TYPE_CHECKING:
@@ -78,22 +79,9 @@ class Bench(_BenchPrewarm):
         # третий ffprobe лишь из-за того, как планировщик разложил три фоновых потока.
         for number in queue[:2]:
             self.start(plan, number)
-        tried: list[str] = []
-        #: Приговоры по номерам релизов: нужны строке о снижении ступени (TC-187), чтобы
-        #: она называла причину, а не просто «лучшее было».
-        judged: dict[int, str] = {}
-        verdicts = 0
-        #: Сколько тронутых раздач промолчали роем (:func:`_silenced`): без этого счёта
-        #: приговор осмотра («отдельного видеофайла нет») числился молчанием роя, и отказ
-        #: советовал «зайти позже» там, где рой ни при чём - в раздаче просто не картина.
-        silents = 0
-        #: Во что приговоры уже обошлись человеку, секунды (:data:`VERDICT_BUDGET`).
-        priced = 0.0
+        #: Осечки, их цена и отложенный безрусский - всё, что обход уже узнал.
+        tally = _Tally()
         exhausted = False
-        #: Первый годный кандидат, у которого не оказалось русской дорожки: он не играет,
-        #: пока в очереди есть кого спросить, но и не выбрасывается - это запасной ход на
-        #: случай, когда русской не найдётся ни у кого (:meth:`_mute_fallback`).
-        mute: _Prep | None = None
         #: Докуда дошла очередь - для строки о снижении ступени на запасном ходу.
         reached = 0
         deadline = self.clock() + self.pick_budget
@@ -103,7 +91,7 @@ class Bench(_BenchPrewarm):
             # Нужны ровно двое: тот, чьего ответа ждём, и тот, кто греется ему на смену.
             # Всё прочее прогретое потолок вправе убрать прямо здесь (:meth:`_room`).
             # Третий - отложенный безрусский: его раздача ещё может понадобиться показу.
-            keep = (number, following, mute.number if mute is not None else None)
+            keep = (number, following, tally.mute.number if tally.mute is not None else None)
             self.needed = {(plan.picture.key, n) for n in keep if n is not None}
             prep = self.start(plan, number)
             self._ask(plan, prep, queue)
@@ -146,34 +134,16 @@ class Bench(_BenchPrewarm):
             )
             if not trouble and not voiceless:
                 progress.phase("")
-                prep = self._honest(plan, prep, queue, args, progress, judged)
-                self._announce(plan, prep, queue, judged, attempt)
+                prep = self._honest(plan, prep, queue, args, progress, tally.judged)
+                self._announce(plan, prep, queue, tally.judged, attempt)
                 return prep
             why = _waiting_note(prep, trouble) if trouble else "без русской озвучки"
-            tried.append(f"{number} - {why}")
-            if _silenced(prep):
-                _did_not_answer(number, why)
-            else:
-                _turned_down(judged, number, why)
-            silents += 1 if _silenced(prep) else 0
-            if not prep.error and prep.media is not None:  # ffprobe прочитал и осудил
-                verdicts += 1
-                priced += self.clock() - entered
-            # Запасной ход держит ОДНОГО отложенного, и это лучший из безрусских. Лучший
-            # тут - тот, про кого меньше известно плохого: паспорт, промолчавший про язык,
-            # ещё может оказаться русским, а названный японским русским уже не станет
-            # никогда (TC-492). Поэтому незнание вытесняет знание «нет», а между равными
-            # выигрывает первый - он выше в ранжире.
-            if voiceless and (mute is None or (mute.found.foreign and not prep.found.foreign)):
-                if mute is not None:
-                    self._forget(mute)
-                mute = prep  # запасной ход: русской может не оказаться ни у кого
-            else:
-                self._forget(prep)
+            tally.note(number, prep, why, entered, self.clock)
+            tally.hold(prep, voiceless, self._forget)
             progress.phase("")
             # Три приговора - пол, дальше решают секунды: дешёвые приговоры (SD-рип,
             # vp9) места следующей раздаче больше не занимают, дорогие занимают.
-            affordable = verdicts < MAX_TRIES or priced < self.verdict_budget
+            affordable = tally.verdicts < MAX_TRIES or tally.priced < self.verdict_budget
             goes_on = following is not None and affordable and self.clock() < deadline
             tail = f" - беру {following}" if goes_on else ""
             head = (
@@ -186,12 +156,16 @@ class Bench(_BenchPrewarm):
                 # Дошли до конца очереди, а не встали по бюджету/попыткам: следующего нет.
                 exhausted = following is None
                 break
-        if mute is not None:
-            return self._mute_fallback(plan, mute, queue, judged, reached, len(tried))
-        if verdicts == 0 and exhausted and tried:
-            judged_before = set(judged)
-            revived = self._recheck(plan, queue, args, progress, judged, deadline)
+        if tally.mute is not None:
+            return self._mute_fallback(
+                plan, tally.mute, queue, tally.judged, reached, len(tally.tried)
+            )
+        if tally.verdicts == 0 and exhausted and tally.tried:
+            judged_before = set(tally.judged)
+            revived = self._recheck(plan, queue, args, progress, tally.judged, deadline)
             if revived is not None:
                 return revived
-            tried, silents = _retried_verdict(queue, judged, judged_before, tried, silents)
-        _bench_refusal(plan, queue, tried, silents, exhausted, args.release)
+            tally.tried, tally.silents = _retried_verdict(
+                queue, tally.judged, judged_before, tally.tried, tally.silents
+            )
+        _bench_refusal(plan, queue, tally.tried, tally.silents, exhausted, args.release)

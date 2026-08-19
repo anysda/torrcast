@@ -1,70 +1,30 @@
-"""Что покажем по одной картине: пул релизов и, для сериала, нужная серия."""
+"""Очередь отбора по одной картине: кого спрашивать, в каком порядке и кого не спрашивать."""
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from torrcast.domain._series import _Series
 from torrcast.domain.episode import Episode
 from torrcast.domain.info_hash import info_hash
 from torrcast.domain.not_found_error import NotFoundError
-from torrcast.domain.picture import Picture
-from torrcast.domain.raw_result import RawResult
 from torrcast.domain.release import Release
 from torrcast.usecases.rank.is_candidate import is_candidate
 from torrcast.usecases.rank.misses_episode import misses_episode
-from torrcast.usecases.select._nothing_late import _nothing_late
+from torrcast.usecases.select._plan_fields import _PlanFields
 
 if TYPE_CHECKING:
     from torrcast.domain.args import Args
 
 
 @dataclass(slots=True)
-class Plan:
+class Plan(_PlanFields):
     """Что покажем по одной картине: пул релизов и, для сериала, нужная серия.
 
     План строится на **все** картины франшизы ещё до вопроса — иначе прогрев под меню
-    невозможен: греть надо то, что человек, скорее всего, выберет.
+    невозможен: греть надо то, что человек, скорее всего, выберет. Поля плана живут
+    в :class:`torrcast.usecases.select._plan_fields._PlanFields`, здесь - очередь отбора.
     """
-
-    picture: Picture
-    ranked: list[Release]
-    runtime: float
-    #: Потолок ОТБРАКОВКИ, Мбит/с: выше него релиз не берём вовсе (см. :func:`plan_for`).
-    warn_mbit: float
-    series: _Series | None = None
-    #: Порог ПЕРЕКОДИРОВАНИЯ, Мбит/с: выше него куски перекодируются, а релиз годен.
-    #: Ноль - перекодирование выключено, и тогда отбраковка и порог это одно число.
-    recode_at: float = 0.0
-    #: Потолок для тех, кого сплошной перекод не спасает, Мбит/с: выше него релиз годен
-    #: только при перекоде ЦЕЛИКОМ и только пока кадр не выше 1080p
-    #: (:attr:`torrcast.domain.config.Config.bitrate_hard_mbit`). Ноль - ступени нет.
-    hard_mbit: float = 0.0
-    #: Ворота отбора открыты: живых именных кандидатов у картины нет (:func:`gate_open`),
-    #: и молчаливые имена идут в очередь наравне с именными.
-    loose: bool = False
-    #: Ворота последней надежды открыты: живого кандидата с нужной серией нет ВООБЩЕ
-    #: (:func:`last_hope`), и в очередь пускается названный HEVC — играть его будет
-    #: сплошной перекод. Перекодирование выключено — ворота закрыты всегда.
-    last_resort: bool = False
-    #: HEVC объявлен своим ресивером как играющий копией через наш HLS.
-    copy_hevc: bool = False
-    #: Другие части той же франшизы, до меню не доехавшие: их нет в списке картин, но в
-    #: выдаче они есть и раздачи у них живые. Нужны одной строке отказа (:func:`kin_line`).
-    kin: list[Picture] = field(default_factory=list)
-    #: Запрос назвал СЕРИЮ (``s1e1``), а не просто имя. Тогда тип сказан вслух, и дефолт
-    #: обязан считаться среди сериалов (:func:`asked_kind`), а не среди тёзок-полнометражек.
-    asked_series: bool = False
-    #: :attr:`runtime` — настоящая длительность из справки, а не прикидка (:func:`_timed`).
-    runtime_known: bool = False
-    #: Раздачи картины, не доехавшие даже до :attr:`ranked`: нужного сезона в них нет по
-    #: их же именам. Нужны счёту отсева (:func:`queue_drops`), чтобы он сходился с пулом.
-    off_season: int = 0
-    #: Выдача опоздавших индексеров: круг ушёл по кворуму, а эти доехали позже (TC-118).
-    #: Зовётся ОДИН раз и только после ответа на меню - :func:`_topup`.
-    late: Callable[[], list[RawResult]] = _nothing_late
 
     def candidates(self, args: Args) -> list[int]:
         """Очередь релизов: прошедшие ворота, в порядке ранжира - **все, сколько есть**.

@@ -6,187 +6,79 @@
 
 from __future__ import annotations
 
-import re
-from collections.abc import Sequence
-from pathlib import Path
-from typing import TYPE_CHECKING, Any, Final, TypeAlias
-
-from torrcast.domain.audio_track import AudioTrack
-from torrcast.domain.bitrate_mbit import bitrate_mbit
-from torrcast.domain.episode import Episode
-from torrcast.domain.infra_error import InfraError
-from torrcast.domain.media import Media
-from torrcast.domain.not_found_error import NotFoundError
-from torrcast.domain.rank_settings import (
-    ALIVE_SEEDERS,
-    DISC_RE,
-    EXTRAS_MBIT,
-    FULL_HD_LIVENESS,
-    FULL_HEIGHT,
-    GATE_LIVENESS,
-    HD_HEIGHT,
-    HONEST_RATIO,
-    PEER_GRACE,
-    SD_BITRATE,
-    SEASON_EPISODES,
-    SOUND_LIVENESS,
-    STEP_GRACE,
-    TABLE_LIMIT,
-    VOICE_MENU,
-)
-from torrcast.domain.recode_settings import RECODE_HEIGHT
-from torrcast.domain.release import Release
-from torrcast.domain.torr_file import TorrFile
-from torrcast.ports.console import Console
-from torrcast.usecases.choice import warned
-from torrcast.usecases.rank._cut import _cut
-from torrcast.usecases.rank._gb import _gb
-from torrcast.usecases.rank._hms import _hms
-from torrcast.usecases.rank.ask import ask
-from torrcast.usecases.rank.bitrate_of import bitrate_of
-from torrcast.usecases.rank.configure import configure
-from torrcast.usecases.rank.default_unnamed import default_unnamed
-from torrcast.usecases.rank.drop_reason import drop_reason
-from torrcast.usecases.rank.drop_reasons import (
-    _CODEC,
-    _DISC,
-    _EXTRAS,
-    _HEAVY,
-    _HEVC,
-    _NO_EPISODE,
-    _PINNED,
-    _QUIET,
-    _SMALL,
-    _SOURCE,
-    OFF_SEASON,
-)
-from torrcast.usecases.rank.gate_open import gate_open
-from torrcast.usecases.rank.heard import heard
-from torrcast.usecases.rank.hevc_hope import hevc_hope
-from torrcast.usecases.rank.honest_shot import honest_shot
-from torrcast.usecases.rank.is_candidate import is_candidate
-from torrcast.usecases.rank.is_dated import is_dated
-from torrcast.usecases.rank.is_dead import is_dead
-from torrcast.usecases.rank.is_disc import _DISC_RE, is_disc
-from torrcast.usecases.rank.is_extra import is_extra
-from torrcast.usecases.rank.is_full_hd import is_full_hd
-from torrcast.usecases.rank.last_hope import last_hope
-from torrcast.usecases.rank.misses_episode import misses_episode
-from torrcast.usecases.rank.needs_whole_recode import needs_whole_recode
-from torrcast.usecases.rank.over_ceiling import over_ceiling
-from torrcast.usecases.rank.pack_mbit import pack_mbit
-from torrcast.usecases.rank.peer_grace import peer_grace
-from torrcast.usecases.rank.pick_voice import _ask_voice, _voice_number, pick_voice
-from torrcast.usecases.rank.promises_more import promises_more
-from torrcast.usecases.rank.quality_text import quality_text
-from torrcast.usecases.rank.queue_drops import queue_drops
-from torrcast.usecases.rank.rank_releases import rank_releases
-from torrcast.usecases.rank.render_table import _pad, render_table
-from torrcast.usecases.rank.sound_note import (
-    _AUDIO_FILE_EXT,
-    _RU_FILE_RE,
-    _russian_audio_file,
-    sound_note,
-)
-from torrcast.usecases.rank.sound_step import sound_step
-from torrcast.usecases.rank.spoken import _SPOKEN, spoken
-from torrcast.usecases.rank.stepdown_note import STEP_RATIO, stepdown_note
-from torrcast.usecases.rank.understated import understated
-from torrcast.usecases.rank.voice_note import voice_note
-from torrcast.usecases.rank.voice_unproven import voice_unproven
-from torrcast.usecases.rank.voices_table import voices_table
-
-__all__ = [
-    "ALIVE_SEEDERS",
-    "DISC_RE",
-    "EXTRAS_MBIT",
-    "FULL_HD_LIVENESS",
-    "FULL_HEIGHT",
-    "GATE_LIVENESS",
-    "HD_HEIGHT",
-    "HONEST_RATIO",
-    "OFF_SEASON",
-    "PEER_GRACE",
-    "RECODE_HEIGHT",
-    "SD_BITRATE",
-    "SEASON_EPISODES",
-    "SOUND_LIVENESS",
-    "STEP_GRACE",
-    "STEP_RATIO",
-    "TABLE_LIMIT",
-    "TYPE_CHECKING",
-    "VOICE_MENU",
-    "_AUDIO_FILE_EXT",
-    "_CODEC",
-    "_DISC",
-    "_DISC_RE",
-    "_EXTRAS",
-    "_HEAVY",
-    "_HEVC",
-    "_NO_EPISODE",
-    "_PINNED",
-    "_QUIET",
-    "_RU_FILE_RE",
-    "_SMALL",
-    "_SOURCE",
-    "_SPOKEN",
-    "Any",
-    "AudioTrack",
-    "Console",
-    "Episode",
-    "Final",
-    "InfraError",
-    "Media",
-    "NotFoundError",
-    "Path",
-    "Release",
-    "Sequence",
-    "TorrFile",
-    "TypeAlias",
-    "_ask_voice",
-    "_cut",
-    "_gb",
-    "_hms",
-    "_pad",
-    "_russian_audio_file",
-    "_voice_number",
-    "annotations",
-    "ask",
-    "bitrate_mbit",
-    "bitrate_of",
-    "configure",
-    "default_unnamed",
-    "drop_reason",
-    "gate_open",
-    "heard",
-    "hevc_hope",
-    "honest_shot",
-    "is_candidate",
-    "is_dated",
-    "is_dead",
-    "is_disc",
-    "is_extra",
-    "is_full_hd",
-    "last_hope",
-    "misses_episode",
-    "needs_whole_recode",
-    "over_ceiling",
-    "pack_mbit",
-    "peer_grace",
-    "pick_voice",
-    "promises_more",
-    "quality_text",
-    "queue_drops",
-    "rank_releases",
-    "re",
-    "render_table",
-    "sound_note",
-    "sound_step",
-    "spoken",
-    "stepdown_note",
-    "understated",
-    "voice_note",
-    "voice_unproven",
-    "voices_table",
-    "warned",
-]
+from torrcast.domain.audio_track import AudioTrack as AudioTrack
+from torrcast.domain.bitrate_mbit import bitrate_mbit as bitrate_mbit
+from torrcast.domain.episode import Episode as Episode
+from torrcast.domain.infra_error import InfraError as InfraError
+from torrcast.domain.media import Media as Media
+from torrcast.domain.not_found_error import NotFoundError as NotFoundError
+from torrcast.domain.rank_settings import ALIVE_SEEDERS as ALIVE_SEEDERS
+from torrcast.domain.rank_settings import DISC_RE as DISC_RE
+from torrcast.domain.rank_settings import EXTRAS_MBIT as EXTRAS_MBIT
+from torrcast.domain.rank_settings import FULL_HD_LIVENESS as FULL_HD_LIVENESS
+from torrcast.domain.rank_settings import FULL_HEIGHT as FULL_HEIGHT
+from torrcast.domain.rank_settings import GATE_LIVENESS as GATE_LIVENESS
+from torrcast.domain.rank_settings import HD_HEIGHT as HD_HEIGHT
+from torrcast.domain.rank_settings import HONEST_RATIO as HONEST_RATIO
+from torrcast.domain.rank_settings import PEER_GRACE as PEER_GRACE
+from torrcast.domain.rank_settings import SD_BITRATE as SD_BITRATE
+from torrcast.domain.rank_settings import SEASON_EPISODES as SEASON_EPISODES
+from torrcast.domain.rank_settings import SOUND_LIVENESS as SOUND_LIVENESS
+from torrcast.domain.rank_settings import STEP_GRACE as STEP_GRACE
+from torrcast.domain.rank_settings import TABLE_LIMIT as TABLE_LIMIT
+from torrcast.domain.rank_settings import VOICE_MENU as VOICE_MENU
+from torrcast.domain.recode_settings import RECODE_HEIGHT as RECODE_HEIGHT
+from torrcast.domain.release import Release as Release
+from torrcast.domain.torr_file import TorrFile as TorrFile
+from torrcast.ports.console import Console as Console
+from torrcast.usecases.choice import warned as warned
+from torrcast.usecases.rank._cut import _cut as _cut
+from torrcast.usecases.rank._gb import _gb as _gb
+from torrcast.usecases.rank._hms import _hms as _hms
+from torrcast.usecases.rank.ask import ask as ask
+from torrcast.usecases.rank.bitrate_of import bitrate_of as bitrate_of
+from torrcast.usecases.rank.configure import configure as configure
+from torrcast.usecases.rank.default_unnamed import default_unnamed as default_unnamed
+from torrcast.usecases.rank.drop_reason import drop_reason as drop_reason
+from torrcast.usecases.rank.drop_reasons import _CODEC as _CODEC
+from torrcast.usecases.rank.drop_reasons import _DISC as _DISC
+from torrcast.usecases.rank.drop_reasons import _EXTRAS as _EXTRAS
+from torrcast.usecases.rank.drop_reasons import _HEAVY as _HEAVY
+from torrcast.usecases.rank.drop_reasons import _HEVC as _HEVC
+from torrcast.usecases.rank.drop_reasons import _NO_EPISODE as _NO_EPISODE
+from torrcast.usecases.rank.drop_reasons import _PINNED as _PINNED
+from torrcast.usecases.rank.drop_reasons import _QUIET as _QUIET
+from torrcast.usecases.rank.drop_reasons import _SMALL as _SMALL
+from torrcast.usecases.rank.drop_reasons import _SOURCE as _SOURCE
+from torrcast.usecases.rank.drop_reasons import OFF_SEASON as OFF_SEASON
+from torrcast.usecases.rank.gate_open import gate_open as gate_open
+from torrcast.usecases.rank.heard import heard as heard
+from torrcast.usecases.rank.hevc_hope import hevc_hope as hevc_hope
+from torrcast.usecases.rank.honest_shot import honest_shot as honest_shot
+from torrcast.usecases.rank.is_candidate import is_candidate as is_candidate
+from torrcast.usecases.rank.is_dated import is_dated as is_dated
+from torrcast.usecases.rank.is_dead import is_dead as is_dead
+from torrcast.usecases.rank.is_disc import is_disc as is_disc
+from torrcast.usecases.rank.is_extra import is_extra as is_extra
+from torrcast.usecases.rank.is_full_hd import is_full_hd as is_full_hd
+from torrcast.usecases.rank.last_hope import last_hope as last_hope
+from torrcast.usecases.rank.misses_episode import misses_episode as misses_episode
+from torrcast.usecases.rank.needs_whole_recode import needs_whole_recode as needs_whole_recode
+from torrcast.usecases.rank.over_ceiling import over_ceiling as over_ceiling
+from torrcast.usecases.rank.pack_mbit import pack_mbit as pack_mbit
+from torrcast.usecases.rank.peer_grace import peer_grace as peer_grace
+from torrcast.usecases.rank.pick_voice import pick_voice as pick_voice
+from torrcast.usecases.rank.promises_more import promises_more as promises_more
+from torrcast.usecases.rank.quality_text import quality_text as quality_text
+from torrcast.usecases.rank.queue_drops import queue_drops as queue_drops
+from torrcast.usecases.rank.rank_releases import rank_releases as rank_releases
+from torrcast.usecases.rank.render_table import render_table as render_table
+from torrcast.usecases.rank.sound_note import sound_note as sound_note
+from torrcast.usecases.rank.sound_step import sound_step as sound_step
+from torrcast.usecases.rank.spoken import spoken as spoken
+from torrcast.usecases.rank.stepdown_note import STEP_RATIO as STEP_RATIO
+from torrcast.usecases.rank.stepdown_note import stepdown_note as stepdown_note
+from torrcast.usecases.rank.understated import understated as understated
+from torrcast.usecases.rank.voice_note import voice_note as voice_note
+from torrcast.usecases.rank.voice_unproven import voice_unproven as voice_unproven
+from torrcast.usecases.rank.voices_table import voices_table as voices_table

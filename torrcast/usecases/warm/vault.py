@@ -7,23 +7,14 @@ from __future__ import annotations
 
 import contextlib
 import json
-import os
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import torrcast.usecases.warm._state as _state
 from torrcast.domain.warm_settings import WARM_BUDGET
+from torrcast.usecases.warm._vault_disk import _dirs, _disk_free, _size, _title, _touched, _weigh
 from torrcast.usecases.warm.settings import FREE_FLOOR, META
-
-
-def _disk_free(root: Path) -> int:
-    """Сколько байт свободно на разделе, где лежит корень прогретого; беда - ноль."""
-    try:
-        stat = os.statvfs(root)
-    except OSError:
-        return 0
-    return stat.f_bavail * stat.f_frsize
 
 
 @dataclass(slots=True)
@@ -144,44 +135,3 @@ class Vault:
         if need + self.floor > self.free():
             return f"на разделе свободно {self.free() / 1e9:.1f} ГБ - это последний запас"
         return ""
-
-
-def _dirs(root: Path) -> list[Path]:
-    try:
-        return [path for path in root.iterdir() if path.is_dir()]
-    except OSError:
-        return []
-
-
-def _touched(path: Path) -> float:
-    try:
-        return (path / META).stat().st_mtime
-    except OSError:
-        return 0.0
-
-
-def _title(path: Path) -> str:
-    """Название вытесняемого показа из его паспорта; нет паспорта - пустая строка."""
-    with contextlib.suppress(OSError, ValueError):
-        found = json.loads((path / META).read_text(encoding="utf-8"))
-        if isinstance(found, dict):
-            return str(found.get("title", ""))
-    return ""
-
-
-def _size(path: Path) -> int:
-    """Вес файла; не прочли - ноль. Ноль тут безопасен: кусок, пропавший между глобом и
-    ``stat``, отдача уже переживает (404 → приёмник просит снова)."""
-    try:
-        return path.stat().st_size
-    except OSError:
-        return 0
-
-
-def _weigh(where: Path) -> int:
-    total = 0
-    with contextlib.suppress(OSError):
-        for path in where.rglob("v*.ts"):
-            with contextlib.suppress(OSError):
-                total += path.stat().st_size
-    return total

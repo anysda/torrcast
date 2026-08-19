@@ -2,60 +2,31 @@
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 
 from torrcast.domain._name_data import (
     _AVI_RE,
     _DUBBED,
-    _EXTRAS_RE,
-    _EXTRAS_SURE_RE,
     _FOREIGN_DUB_RE,
     _HD_SOURCES,
     _RU_AUDIO_RE,
     _RU_EXT_RE,
     _RU_STUDIO_RE,
     _SD_SOURCES,
-    _STEREO_LAYOUT_RE,
-    _STEREO_RE,
     _SUB_MENTION_RE,
-    _TWO_D_RE,
-    _WITH_EXTRAS_RE,
 )
+from torrcast.domain._release_marks import _ReleaseMarks
 from torrcast.domain.anime_indexer import anime_indexer
 from torrcast.domain.episode import Episode
 from torrcast.domain.franchise_key import franchise_key
-from torrcast.domain.kind import Kind
 from torrcast.domain.looks_anime import looks_anime
 from torrcast.domain.parse_voices import _parse_voices
 from torrcast.domain.slugify import slugify
 
 
 @dataclass(frozen=True, slots=True)
-class Release:
-    raw_name: str
-    title: str
-    original: str | None = None
-    aliases: tuple[str, ...] = ()
-    year: int | None = None
-    quality: str | None = None
-    codec: str | None = None
-    source: str | None = None
-    hdr: bool = False
-    voices: tuple[str, ...] = ()
-    season: int | None = None
-    episode: int | None = None
-    seasons: tuple[int, ...] = ()
-    episodes: tuple[int, ...] = ()
-    size: int = 0
-    seeders: int = 0
-    magnet: str = ""
-    indexer: str = ""
-    kind: Kind = "movie"
-    copies: int = 1
-    indexers: tuple[str, ...] = ()
-    names: tuple[str, ...] = ()
-    collection: bool = False
+class Release(_ReleaseMarks):
+    """Раздача целиком: качество картинки, язык звука, серии и ключи франшизы."""
 
     @property
     def is_hevc(self) -> bool:
@@ -69,15 +40,6 @@ class Release:
     @property
     def interlaced(self) -> bool:
         return bool(self.quality and self.quality.endswith("i"))
-
-    @property
-    def stereoscopic(self) -> bool:
-        if _STEREO_LAYOUT_RE.search(self.raw_name):
-            return True
-        tail = self.untitled
-        return bool(re.search("\\b3д\\b", self.raw_name, re.IGNORECASE)) or (
-            not _TWO_D_RE.search(tail) and bool(_STEREO_RE.search(tail))
-        )
 
     @property
     def prime(self) -> bool:
@@ -115,36 +77,6 @@ class Release:
             or self.source in _SD_SOURCES
             or bool(_AVI_RE.search(self.raw_name))
         )
-
-    @property
-    def extras_mark(self) -> str:
-        """Метка приложения, сработавшая в зоне пометок; пусто - метки нет.
-
-        Метка, перед которой стоит «+», приложением раздачу не делает: «фильм + доп
-        материалы» - это фильм, к которому приложено, а не приложение само по себе.
-        """
-        tail = self.untitled
-        for found in _EXTRAS_RE.finditer(tail):
-            if not _WITH_EXTRAS_RE.search(tail[: found.start()]):
-                return found.group(0)
-        return ""
-
-    @property
-    def extras(self) -> bool:
-        return bool(self.extras_mark)
-
-    @property
-    def extras_sure(self) -> bool:
-        return self.extras and bool(_EXTRAS_SURE_RE.search(self.untitled))
-
-    @property
-    def untitled(self) -> str:
-        """Имя раздачи без названия картины: зона пометок, по которой судят метки."""
-        tail = self.raw_name
-        for name in (self.title, self.original, *self.aliases):
-            if name:
-                tail = re.sub(f"(?<!\\w){re.escape(name)}(?!\\w)", " ", tail, flags=re.IGNORECASE)
-        return tail
 
     def covers(self, season: int) -> bool:
         if self.seasons:

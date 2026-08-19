@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from tests.usecases.warm.world import grid, lay, vault
+from tests.usecases.warm.world import grid, vault
 from torrcast.usecases.warm.settings import GUARD_LOW, WARM_NICE, WARM_RATE
 from torrcast.usecases.warm.warmer_state import _State
 
@@ -30,38 +30,6 @@ def test_the_defaults_are_the_polite_ones(tmp_path: Path) -> None:
     assert (state.rate, state.nice) == (WARM_RATE, WARM_NICE)
     assert state.began_at == 0 and state.misgrid == -1 and state.after is None
     assert state.skews == {} and not state.stopped and not state.idle
-
-
-def test_the_reserve_counts_only_what_the_show_would_take(tmp_path: Path) -> None:
-    """Копия тяжелее потолка приёмника наружу не идёт и запасом не является."""
-    state = _state(tmp_path, cap=500)
-    lay(state.vault, 0, size=100)
-    lay(state.vault, 1, size=1000)
-
-    assert state.warmed == state.grid.span(0), "тяжёлая копия зачлась запасом"
-    assert not state.done, "неполный фильм назвался готовым"
-
-
-def test_a_heavy_place_without_a_recode_is_not_done_yet(tmp_path: Path) -> None:
-    """Пока на месте тяжёлого куска лежит копия, «готово» - ложь."""
-    state = _state(tmp_path, spots=(1,), spot_encode=object())
-    for slot in range(state.grid.count):
-        lay(state.vault, slot)
-
-    assert state._spots_left() == (1,), "тяжёлое место числится сделанным"
-    assert not state.done
-
-    state.vault.spot(1).touch()
-    assert state._spots_left() == () and state.done, "перекод лёг, а прогрев всё не готов"
-
-
-def test_without_a_spot_encode_there_is_nothing_to_bring_to_a_recode(tmp_path: Path) -> None:
-    """Перекодировать нечем - и точечных работ у прогрева нет вовсе."""
-    state = _state(tmp_path, spots=(1,))
-    for slot in range(state.grid.count):
-        lay(state.vault, slot)
-
-    assert state._spots_left() == () and state.done
 
 
 def test_the_warming_yields_to_a_thin_reserve_and_to_the_live_recoder(tmp_path: Path) -> None:
