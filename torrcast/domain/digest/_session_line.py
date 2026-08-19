@@ -45,7 +45,9 @@ def _session_start(rec: Mapping[str, JsonValue], stamp: str) -> str:
     profile_text = f" · профиль {profile}" + (f" ({source})" if source else "")
     if not thresholds:
         return f"{head}{profile_text}"
-    details = ", ".join(
+    # Всей строкой это 31 порог плюс 31 источник - тысяча с лишним символов, глазами
+    # не читается. По одному порогу на строку - столбик, который читается.
+    details = "\n    ".join(
         f"{key}={value} [{origins.get(key, '?')}]" for key, value in thresholds.items()
     )
-    return f"{head}{profile_text} · пороги: {details}"
+    return f"{head}{profile_text} · пороги:\n    {details}"

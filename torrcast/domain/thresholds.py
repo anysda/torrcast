@@ -64,9 +64,15 @@ def thresholds(
         values[key] = getattr(tuned, key)
         if key in _TUNED:
             stock = getattr(CAUTIOUS, _TUNED[key])
-            sources[key] = (
-                "написан в конфиге" if getattr(raw, key) != stock else f"профиль {profile.key}"
-            )
+            if getattr(raw, key) != stock:
+                sources[key] = "написан в конфиге"
+            elif key in configured:
+                # Ключ в файле ЕСТЬ, но равен осторожному умолчанию, а tune() такой
+                # считает несказанным: играет профиль, и молчать об этом - значит
+                # показать согласие там, где настройку проигнорировали.
+                sources[key] = f"написан в конфиге, но равен осторожному - профиль {profile.key}"
+            else:
+                sources[key] = f"профиль {profile.key}"
         else:
             sources[key] = "написан в конфиге" if key in configured else "умолчание конфига"
     for key in _PROFILE_THRESHOLDS:

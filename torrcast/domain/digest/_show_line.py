@@ -66,10 +66,16 @@ def _show_line(rec: Mapping[str, JsonValue], stamp: str, seam: bool) -> str | No
             f"{error} - повтор LOAD {rec.get('tries', 1)}"
         )
     if event == "dark":
-        return (
-            f"{stamp}показ погас на {_hms(json_number(rec.get('pos', 0.0)))}:"
-            f" {rec.get('why', 'приёмник бросил показ')}"
+        # Поле shown разделяет две разные аварии: погасший показ человек успел
+        # посмотреть, а показ без единого кадра - это «включил и не включилось»
+        # (:func:`torrcast.adapters.filesystem.trace_journal.dark`). В записях прежних
+        # версий поля нет - они все про погасший показ, поэтому умолчание True.
+        head = (
+            f"показ погас на {_hms(json_number(rec.get('pos', 0.0)))}"
+            if rec.get("shown", True)
+            else "показ не дал ни кадра"
         )
+        return f"{stamp}{head}: {rec.get('why', 'приёмник бросил показ')}"
     if event == "revive":
         took = "показ поднят" if rec.get("ok") else "приёмник показ не взял"
         return (

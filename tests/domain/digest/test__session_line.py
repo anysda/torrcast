@@ -42,7 +42,29 @@ def test_the_thresholds_are_printed_together_with_where_each_of_them_came_from()
     )
 
     assert told is not None
-    assert "показ «Дюна» с 1:30 · профиль q70d (паспорт) · пороги: burst=60 [профиль]" in told
+    assert "показ «Дюна» с 1:30 · профиль q70d (паспорт) · пороги:\n    burst=60 [профиль]" in told
+
+
+def test_every_threshold_gets_its_own_line() -> None:
+    """Тридцать один порог с источниками в одну строку - это тысяча символов, которую
+    глазами не прочитать: пороги печатаются столбиком, по одному на строку."""
+    told = _session_line(
+        rec(
+            "session_start",
+            phase="session",
+            title="Дюна",
+            pos=0.0,
+            profile="q70d",
+            thresholds={"burst": 60, "patience": 23.5},
+            threshold_sources={"burst": "профиль q70d", "patience": "профиль q70d"},
+        ),
+        STAMP,
+    )
+
+    assert told is not None
+    lines = told.splitlines()
+    assert "    burst=60 [профиль q70d]" in lines
+    assert "    patience=23.5 [профиль q70d]" in lines
 
 
 def test_a_profile_without_thresholds_stops_at_the_profile() -> None:

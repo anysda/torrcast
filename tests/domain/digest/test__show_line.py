@@ -73,3 +73,21 @@ def test_a_reload_tells_a_missing_code_apart_from_no_code_at_all() -> None:
     assert coded is not None and ", код 7" in coded
     assert blank is not None and ", без кода" in blank
     assert silent is not None and "код" not in silent
+
+
+def test_a_show_that_never_gave_a_frame_is_not_called_extinguished_at_zero() -> None:
+    """«Погас на 0:00:00» и «не дал ни кадра» - две разные аварии, и поле ``shown``
+    их разделяет: первую человек успел посмотреть, вторая - «включил и не включилось»."""
+    dark = _show_line(rec("dark", pos=1272.4, why="приёмник молчит", shown=True), STAMP, False)
+    never = _show_line(rec("dark", pos=0.0, why="приёмник молчит", shown=False), STAMP, False)
+
+    assert dark is not None and "показ погас на 21:12: приёмник молчит" in dark
+    assert never is not None and "показ не дал ни кадра: приёмник молчит" in never
+    assert "погас" not in never
+
+
+def test_an_old_dark_record_without_the_field_is_an_extinguished_show() -> None:
+    """Записи прежних версий поля ``shown`` не несут - все они про погасший показ."""
+    told = _show_line(rec("dark", pos=1272.4, why="приёмник молчит"), STAMP, False)
+
+    assert told is not None and "показ погас на 21:12" in told
