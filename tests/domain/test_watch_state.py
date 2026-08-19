@@ -32,6 +32,53 @@ def test_a_series_answers_a_short_name() -> None:
     assert state.find("киберпанк") is not None
 
 
+def test_a_series_with_a_single_episode_still_answers_its_short_name() -> None:
+    """Сериал из одной серии - всё ещё сериал: число в его названии это сезон,
+    а не часть франшизы, и короткое имя находит его закладку.
+    """
+    state = _state(
+        **{
+            "tv__кухня-6__2016": Entry(
+                title="Кухня 6",
+                magnet="m",
+                kind="tv",
+                query="кухня-6",
+                season=6,
+                episode=1,
+                episodes=[[6, 1, 0]],
+                updated="2026-01-01",
+            )
+        }
+    )
+    found = state.find("кухня")
+    assert found is not None and found[0] == "tv:кухня-6:2016"
+
+
+def test_a_film_written_as_a_series_stays_closed_to_the_franchise_name() -> None:
+    """Осечка разбора оставила «Moana 2» записанной сериалом с одной серией s1e1:
+    её двойка сезоном не является (запись стоит в s1), и имя франшизы ей не
+    достаётся - достаётся только названный номер.
+    """
+    state = _state(
+        **{
+            "tv__moana-2__2024": Entry(
+                title="Moana 2",
+                magnet="m",
+                kind="tv",
+                query="моана-2",
+                season=1,
+                episode=1,
+                episodes=[[1, 1, 1]],
+                pos=100,
+                updated="2026-01-01",
+            )
+        }
+    )
+    assert state.find("moana") is None
+    found = state.find("моана 2")
+    assert found is not None and found[0] == "tv:moana-2:2024"
+
+
 def test_the_freshest_record_is_the_one_status_shows() -> None:
     """`cast status` показывает свежайшую запись, а не первую попавшуюся."""
     state = _state(
