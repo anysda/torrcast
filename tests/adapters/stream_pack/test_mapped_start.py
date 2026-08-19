@@ -17,6 +17,30 @@ def test_the_two_demuxers_land_on_different_sides_of_the_same_frame() -> None:
     assert mapped_start(KEYS._replace(kind="mp4"), 6.0) == 6.0
 
 
+def test_inside_a_gop_both_demuxers_land_on_the_same_row() -> None:
+    """Внутри GOP сдвига нет: оба демуксера встают на последний опорный кадр перед местом.
+
+    Замер TC-695 на файле с ровным GOP 7.28 с: ``-ss 110.000`` встаёт на 109.200 и в
+    mkv, и в mp4, и в их remux, а прежнее правило обещало 101.920 - промах ровно на один
+    опорный кадр, поэтому сверка карты с пробным прогоном на границе внутри GOP не
+    сходилась никогда, и файл оставался недоверенным навсегда.
+    """
+    assert mapped_start(KEYS, 5.0) == 4.0
+    assert mapped_start(KEYS._replace(kind="mp4"), 5.0) == 4.0
+
+
+def test_the_seek_target_is_what_the_command_prints() -> None:
+    """Цель захода печатается с тремя знаками (``-ss %.3f``), и округление решает попадание.
+
+    Замер TC-695 на настоящем mp4-релизе: опорный кадр лежит на 373.206167, команда
+    печатает ``-ss 373.206`` - НИЖЕ кадра - и ffmpeg встаёт на прежний опорный кадр;
+    от 373.207 - ровно на него. Суб-мс метки у релизов - норма, а не экзотика.
+    """
+    keys = FilmKeys(600.0, [0.0, 100.0, 373.206167, 400.0], [0, 1, 2, 3], "mp4")
+    assert mapped_start(keys, 373.206167) == 100.0
+    assert mapped_start(keys, 373.207) == 373.206167
+
+
 def test_the_map_keeps_quiet_where_the_rule_does_not_hold() -> None:
     """``nan`` там, где правила нет: чужой контейнер, край карты, голова файла.
 
