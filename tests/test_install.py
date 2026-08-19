@@ -9,7 +9,10 @@ import os
 import subprocess
 import sys
 import threading
+import time
+from collections.abc import Iterator
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from itertools import pairwise
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
@@ -153,6 +156,36 @@ def test_a_cut_catalog_is_not_a_successful_install() -> None:
     assert "EXIT_CATALOG_CUT=2" in SCRIPT
 
 
+def test_the_indexer_texts_match_what_the_installer_actually_does() -> None:
+    """🔴 TC-697. Три текста рядом врали: догрев звал опорным одного (их два), а срок
+    переспроса обещал «до двух минут» при двенадцати кругах по пять минут.
+
+    Две минуты - честный потолок ровно для того, кого добавляют ОДИН раз (замер: 100 с
+    на yts), а срок переспроса теперь не обещается словами, а считается из тех же двух
+    ручек, которыми он и задан, - соврать он больше не может.
+    """
+    assert "кроме опорных" in SCRIPT
+    assert "кроме ключевого" not in SCRIPT and "Ключевой проверяется" not in SCRIPT
+    body = _install_indexers()
+    assert 'late_run "индексер $names (добавляется до двух минут)" add_indexers' in body
+    assert "span=$(( more * INDEXER_RETRY_EVERY / 60 ))" in body
+    assert "это до $span мин" in body
+
+
+#: Заглушки живых Prowlarr, поднятые тестом: гасить их надо ПОСЛЕ замера, а не в
+#: момент выхода установки - догрев догревает уже после «готово», и рано закрытый
+#: сервер превращал бы его обращения в отказы соединения (TC-697).
+_STUBS: list[ThreadingHTTPServer] = []
+
+
+@pytest.fixture(autouse=True)
+def _stop_stub_prowlarrs() -> Iterator[None]:
+    yield
+    for server in _STUBS:
+        server.shutdown()
+    _STUBS.clear()
+
+
 #: Схема Prowlarr для заглушки: только то, что установка из неё берёт.
 _STUB_SCHEMA = [
     {
@@ -175,14 +208,19 @@ _STUB_SCHEMA = [
 ]
 
 
-def _stub_prowlarr(fail: frozenset[str], silent: frozenset[str]) -> tuple[ThreadingHTTPServer, int]:
+def _stub_prowlarr(
+    fail: frozenset[str], silent: frozenset[str]
+) -> tuple[int, dict[str, list[float]]]:
     """Заглушка Prowlarr: отвечает как живой, но кого щупать успешно - решаем мы.
 
     Живой Prowlarr на молчащий трекер отвечает 400 с телом про 502, а забаненный
     индексер у него числится включённым и отдаёт пустой поиск - обе беды здесь и
-    инсценируются, потому что от канала их не дождёшься по заказу.
+    инсценируются, потому что от канала их не дождёшься по заказу. Каждый POST на
+    добавление записывается с моментом: число обращений к индексеру и паузы между
+    ними - то, ради чего замер (TC-697: дубль пробы в первую минуту).
     """
     added: list[dict[str, object]] = []
+    posts: dict[str, list[float]] = {}
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args: object) -> None:  # тишина в отчёте теста
@@ -219,6 +257,7 @@ def _stub_prowlarr(fail: frozenset[str], silent: frozenset[str]) -> tuple[Thread
             if path.path != "/api/v1/indexer":
                 return self._send(404, {"message": "нет такого"})
             body = json.loads(raw or b"{}")
+            posts.setdefault(str(body.get("name")), []).append(time.monotonic())
             if body.get("name") in fail:
                 return self._send(400, [{"errorMessage": "Unable to connect to indexer"}])
             body["id"] = len(added) + 1
@@ -227,14 +266,35 @@ def _stub_prowlarr(fail: frozenset[str], silent: frozenset[str]) -> tuple[Thread
 
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
-    return server, server.server_port
+    _STUBS.append(server)
+    return server.server_port, posts
+
+
+def _late_settled(box: Path, timeout: float = 30.0) -> str:
+    """Дождаться, пока догрев доедет: замер идёт по фоновым заходам, а установка
+    отчитывается раньше них - без этой паузы замеряли бы половину правды."""
+    log = box / "late.log"
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if log.exists():
+            text = log.read_text(encoding="utf-8")
+            began = text.count(" | начал: ")
+            ended = text.count(" | готово: ") + text.count(" | НЕ вышло ")
+            if began and began == ended:
+                return text
+        time.sleep(0.05)
+    raise AssertionError(f"догрев не доработал за {timeout} с: {log}")
 
 
 def _run_indexers(
-    box: Path, fail: frozenset[str] = frozenset(), silent: frozenset[str] = frozenset()
-) -> subprocess.CompletedProcess[str]:
+    box: Path,
+    fail: frozenset[str] = frozenset(),
+    silent: frozenset[str] = frozenset(),
+    retry_times: str = "1",
+    retry_every: str = "1",
+) -> tuple[subprocess.CompletedProcess[str], dict[str, list[float]]]:
     """Прогнать фазу индексеров установки против заглушки Prowlarr."""
-    server, port = _stub_prowlarr(fail, silent)
+    port, posts = _stub_prowlarr(fail, silent)
     (box / "prowlarr-data").mkdir(parents=True)
     (box / "prowlarr-data" / "config.xml").write_text("<Config><ApiKey>proba</ApiKey></Config>")
     env = {
@@ -251,15 +311,13 @@ def _run_indexers(
         "TORRCAST_PL_PORT": str(port),
         "TORRCAST_INDEXER_ADD_GAP": "0",
         "TORRCAST_SEARCH_TIMEOUT": "3",
-        "TORRCAST_INDEXER_RETRY_TIMES": "1",
-        "TORRCAST_INDEXER_RETRY_EVERY": "1",
+        "TORRCAST_INDEXER_RETRY_TIMES": retry_times,
+        "TORRCAST_INDEXER_RETRY_EVERY": retry_every,
     }
-    try:
-        return subprocess.run(
-            [str(REPO / "install.sh")], capture_output=True, text=True, env=env, check=False
-        )
-    finally:
-        server.shutdown()
+    done = subprocess.run(
+        [str(REPO / "install.sh")], capture_output=True, text=True, env=env, check=False
+    )
+    return done, posts
 
 
 @pytest.mark.machine
@@ -270,7 +328,7 @@ def test_a_cut_catalog_comes_out_of_the_installer_as_a_failure(tmp_path: Path) -
     400, установка печатала «не блокер» и объявляла успех - каталог при этом был пуст.
     Проба инсценирует ровно это, и красным обязан быть код возврата, а не только слова.
     """
-    done = _run_indexers(tmp_path / "оба-отказали", fail=frozenset({"Knaben", "RuTor"}))
+    done, _ = _run_indexers(tmp_path / "оба-отказали", fail=frozenset({"Knaben", "RuTor"}))
     assert done.returncode == 2, done.stdout + done.stderr
     printed = done.stdout + done.stderr
     assert "каталог урезан: Knaben (не завёлся), RuTor (не завёлся)" in printed
@@ -281,16 +339,71 @@ def test_a_cut_catalog_comes_out_of_the_installer_as_a_failure(tmp_path: Path) -
 def test_a_listed_but_silent_core_source_is_a_cut_catalog_too(tmp_path: Path) -> None:
     """🔴 TC-692. Заведён - не значит отвечает: живьём rutor стоял в списке включённым и
     молчал, а прежняя проверка «добавился ли» такую установку объявляла успешной."""
-    done = _run_indexers(tmp_path / "молчит", silent=frozenset({"RuTor"}))
+    box = tmp_path / "молчит"
+    done, posts = _run_indexers(box, silent=frozenset({"RuTor"}))
     assert done.returncode == 2, done.stdout + done.stderr
     assert "RuTor (заведён, но не отдал ничего)" in done.stdout + done.stderr
+    # 🔴 TC-697. Заведшийся индексер не переспрашивается: «завёлся и молчит» - не
+    # повод для второго обращения, его судьбу решает гейт поиском, а не повторным POST.
+    _late_settled(box)
+    assert len(posts["RuTor"]) == 1 and len(posts["Knaben"]) == 1
 
 
 @pytest.mark.machine
 def test_the_installer_still_succeeds_when_the_core_sources_answer(tmp_path: Path) -> None:
     """🔴 TC-692. Отрицательная проба к гейту: он обязан УМЕТЬ пропускать. Иначе красный
     код возврата ничего не говорит - его отдавала бы любая установка."""
-    done = _run_indexers(tmp_path / "все-ответили")
+    box = tmp_path / "все-ответили"
+    done, posts = _run_indexers(box)
     assert done.returncode == 0, done.stdout + done.stderr
     assert "каталог урезан" not in done.stdout + done.stderr
     assert "Knaben отвечает: 3 раздач" in done.stdout
+    # 🔴 TC-697. Счастливый путь: ровно одно обращение на индексер, дублей нет.
+    _late_settled(box)
+    for name in ("Knaben", "RuTor", "Nyaa.si", "AniLibria", "YTS", "JacRed"):
+        assert len(posts[name]) == 1, f"{name}: обращений {len(posts[name])} вместо одного"
+
+
+@pytest.mark.machine
+def test_a_refused_core_source_is_reasked_after_a_full_pause_not_twice_at_once(
+    tmp_path: Path,
+) -> None:
+    """🔴 TC-697. Дубля в первую минуту быть не должно.
+
+    Отказавший на глазах опорный уже получил свою пробу, поэтому переспрос обязан
+    начаться с паузы: RETRY_TIMES - это ВСЕ пробы вместе с той, что на глазах, а не
+    одни догревы. Замер числом обращений и пауз между ними.
+    """
+    box = tmp_path / "отказали"
+    done, posts = _run_indexers(
+        box, fail=frozenset({"Knaben", "RuTor"}), retry_times="3", retry_every="1"
+    )
+    assert done.returncode == 2, done.stdout + done.stderr
+    _late_settled(box)
+    for name in ("Knaben", "RuTor"):
+        stamps = posts[name]
+        assert len(stamps) == 3, f"{name}: проб {len(stamps)} вместо трёх"
+        gaps = [later - earlier for earlier, later in pairwise(stamps)]
+        assert all(gap >= 0.9 for gap in gaps), f"{name}: паузы между пробами {gaps}"
+
+
+@pytest.mark.machine
+def test_a_refused_narrow_source_is_not_reasked_at_all(tmp_path: Path) -> None:
+    """🔴 TC-697. Переспрос - привилегия опорных: узкий спрашивается один раз.
+
+    Переспрос стоит обращений к источнику, а ступень бана у трекера - сутки. За узкий
+    платить их нечем: без него каталог не пустеет (+2.1% раздач и ноль запросов, где он
+    единственный источник играбельного HD), тогда как без опорных пул пуст у 97 запросов
+    из 99. Не завёлся узкий - его заведёт следующий заход установки.
+    """
+    box = tmp_path / "узкий-отказал"
+    done, posts = _run_indexers(
+        box, fail=frozenset({"YTS", "Nyaa.si"}), retry_times="3", retry_every="1"
+    )
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert "каталог этим не урезан" in done.stdout + done.stderr
+    _late_settled(box)
+    # Узкие приходят обеими дорогами - из фона (yts) и с глаз (Nyaa.si), и обе спрашивают
+    # ровно раз; заведшийся узкий не переспрашивается тем более.
+    for name in ("YTS", "Nyaa.si", "JacRed"):
+        assert len(posts[name]) == 1, f"{name}: обращений {len(posts[name])} вместо одного"

@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from tests.fakes.configuration_source import FakeConfigurationSource
 from tests.fakes.console import FakeConsole
 from tests.fakes.health_environment import FakeHealthEnvironment
+from torrcast.domain.indexer_health import CORE_INDEXERS
 from torrcast.domain.settings import Settings
 from torrcast.usecases.doctor import Doctor, _cache, _mdns
 
@@ -47,11 +48,18 @@ def _config() -> Settings:
 
 
 def _answering() -> FakeHealthEnvironment:
-    """Среда, в которой отвечают все: тогда видно полный набор строк по порядку."""
+    """Среда, в которой отвечают все: тогда видно полный набор строк по порядку.
+
+    Здоровая машина - это та, где заведены ОБА опорных источника (TC-697): доктор
+    отчитывается по каждому из них своей строкой.
+    """
     return FakeHealthEnvironment(
         payloads={
             "health": [],
-            "indexer": [{"id": 7, "name": "Knaben", "enable": True}],
+            "indexer": [
+                {"id": number, "name": name, "enable": True}
+                for number, name in enumerate(CORE_INDEXERS, start=7)
+            ],
             "indexerstatus": [],
         }
     )
@@ -61,14 +69,18 @@ def test_checkup_keeps_every_probe_and_their_order() -> None:
     """Порядок проб - часть договора: сначала консоль, потом службы, потом ТВ."""
     lines = list(Doctor.checkup(_config(), _answering()))
 
-    assert len(lines) == 16, [line for line, _ in lines]
+    assert len(lines) == 18, [line for line, _ in lines]
     assert "терминал" in lines[0][0] and "локаль" in lines[1][0] and "ffmpeg" in lines[2][0]
     assert "Prowlarr ходит к трекерам по IPv4" in lines[3][0]
-    assert "индексеров 1" in lines[4][0] and "Knaben" in lines[6][0]
-    assert "TorrServer" in lines[7][0] and "кэша неизвестен" in lines[8][0]
-    assert "ТВ 10.0.0.50" in lines[9][0] and "порт 8009" in lines[10][0]
-    assert "тишина" in lines[11][0] and "профиль приёмника" in lines[12][0]
-    assert "раздача" in lines[13][0] and "кэши в" in lines[14][0] and "след" in lines[15][0]
+    assert "индексеров 2" in lines[4][0]
+    # По строке живой пробы и по строке опорного на каждого: их два, и молчит доктор ни
+    # о ком (TC-697 - установка при отказе отправляет человека смотреть именно сюда).
+    assert "Knaben ответил" in lines[5][0] and "RuTor ответил" in lines[6][0]
+    assert "Knaben на месте" in lines[7][0] and "RuTor на месте" in lines[8][0]
+    assert "TorrServer" in lines[9][0] and "кэша неизвестен" in lines[10][0]
+    assert "ТВ 10.0.0.50" in lines[11][0] and "порт 8009" in lines[12][0]
+    assert "тишина" in lines[13][0] and "профиль приёмника" in lines[14][0]
+    assert "раздача" in lines[15][0] and "кэши в" in lines[16][0] and "след" in lines[17][0]
 
 
 def test_a_checkup_of_a_healthy_machine_stays_passing() -> None:

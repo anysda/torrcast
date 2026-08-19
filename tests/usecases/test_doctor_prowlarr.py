@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 import pytest
 
 from tests.fakes.health_environment import FakeHealthEnvironment
-from torrcast.domain.indexer_health import KEY_INDEXER
+from torrcast.domain.indexer_health import CORE_INDEXERS
 from torrcast.domain.settings import Settings
 from torrcast.usecases.doctor_probe import _INDEXER_TIMEOUT, _TIMEOUT
 from torrcast.usecases.doctor_prowlarr import _live_indexers, _probe_indexer, _prowlarr
@@ -18,12 +18,19 @@ def _config() -> Settings:
     return Settings(tv="10.0.0.50", prowlarr_apikey="x" * 32)
 
 
+#: Опорный, на котором держатся проверки ниже: имя берём у домена, а не своё.
+KEY = next(iter(CORE_INDEXERS))
+
+
 def _answering() -> FakeHealthEnvironment:
     """Среда, в которой отвечают все: тогда видно полный набор строк по порядку."""
     return FakeHealthEnvironment(
         payloads={
             "health": [],
-            "indexer": [{"id": 7, "name": "Knaben", "enable": True}],
+            "indexer": [
+                {"id": number, "name": name, "enable": True}
+                for number, name in enumerate(CORE_INDEXERS, start=7)
+            ],
             "indexerstatus": [],
         }
     )
@@ -39,7 +46,8 @@ def test_prowlarr_is_asked_in_the_agreed_order() -> None:
         "indexer",
         "indexerstatus",
     ]
-    assert [ok for _, ok in lines] == [True, True, True]
+    # Строк ровно столько: сколько индексеров, паузы, живая проба каждому и опорные.
+    assert [ok for _, ok in lines] == [True] * (1 + 2 * len(CORE_INDEXERS))
     assert environment.timeouts[0] == _TIMEOUT
 
 
@@ -75,7 +83,7 @@ def test_a_pause_and_a_silent_live_probe_both_reach_the_answer() -> None:
     environment = FakeHealthEnvironment(
         payloads={
             "health": [],
-            "indexer": [{"id": 7, "name": KEY_INDEXER, "enable": True}],
+            "indexer": [{"id": 7, "name": KEY, "enable": True}],
             "indexerstatus": [{"indexerId": 7, "disabledTill": "2026-08-09T12:30:00Z"}],
         },
         titles=None,
@@ -84,8 +92,8 @@ def test_a_pause_and_a_silent_live_probe_both_reach_the_answer() -> None:
     lines = list(_prowlarr(_config(), environment))
 
     text = "\n".join(line for line, _ in lines)
-    assert f"индексер {KEY_INDEXER} отключён Prowlarr до 2026-08-09 12:30:00" in text
-    assert f"индексер {KEY_INDEXER} не ответил на живой поиск - выдача неполная" in text
+    assert f"индексер {KEY} отключён Prowlarr до 2026-08-09 12:30:00" in text
+    assert f"индексер {KEY} не ответил на живой поиск - выдача неполная" in text
     assert any(not good for _, good in lines)
 
 

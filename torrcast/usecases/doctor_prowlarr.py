@@ -19,7 +19,7 @@ def _json(url: str, headers: dict[str, str]) -> object | None:
 
 
 def _prowlarr(config: HealthConfig, env: Env = None) -> Iterator[Line]:
-    """Prowlarr: отвечает ли, сколько индексеров и жив ли тот, что весит за половину."""
+    """Prowlarr: отвечает ли, сколько индексеров и живы ли опорные, на которых каталог."""
     ask = _json if env is None else partial(env.get_json, timeout=_TIMEOUT)
     if not config.prowlarr_apikey:
         yield IndexerHealth.no_apikey()
@@ -36,7 +36,7 @@ def _prowlarr(config: HealthConfig, env: Env = None) -> Iterator[Line]:
     statuses = ask(f"{config.prowlarr_url}/api/v1/indexerstatus", headers)
     yield from IndexerHealth.paused(indexers, statuses)
     yield from _live_indexers(config, indexers, env)
-    yield IndexerHealth.key(indexers)
+    yield from IndexerHealth.core(indexers)
 
 
 def _live_indexers(config: HealthConfig, payload: object, env: Env = None) -> Iterator[Line]:

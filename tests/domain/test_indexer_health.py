@@ -1,6 +1,6 @@
 """Зеркало :mod:`torrcast.domain.indexer_health`."""
 
-from torrcast.domain.indexer_health import IPV4_ONLY, KEY_INDEXER, IndexerHealth
+from torrcast.domain.indexer_health import CORE_INDEXERS, IPV4_ONLY, IndexerHealth
 
 
 def test_the_road_to_trackers_is_named_and_treated() -> None:
@@ -101,14 +101,27 @@ def test_names_survive_junk_rows() -> None:
     assert IndexerHealth.enabled_names("не список") == []
 
 
-def test_the_key_indexer_is_loud_but_passing_when_missing() -> None:
-    """Метапоиска нет - вердикт не валится, но про неполную выдачу сказано словами."""
-    line, ok = IndexerHealth.key([{"name": "RuTor"}])
-    assert ok and line.startswith("внимание") and KEY_INDEXER in line
-    assert "аниме" in line
+def test_every_core_source_gets_its_own_line() -> None:
+    """🔴 TC-697. Опорных ДВА, и доктор обязан назвать каждого своей строкой.
+
+    Установка при непроходе опорного отправляет человека смотреть именно в `cast doctor`;
+    строка только про метапоиск оставляла второй опорный без ответа ровно там, куда за
+    ответом послали. Вердикт при этом не валится: без опорного искать всё ещё можно.
+    """
+    lines = list(IndexerHealth.core([{"name": "RuTor"}]))
+
+    assert len(lines) == len(CORE_INDEXERS) == 2
+    missing, present = lines
+    assert missing[1] and missing[0].startswith("внимание") and "Knaben" in missing[0]
+    assert "аниме" in missing[0] and "./install.sh" in missing[0]
+    assert present[1] and present[0].startswith("ок") and "RuTor" in present[0]
 
 
-def test_a_disabled_key_indexer_counts_as_missing() -> None:
+def test_a_disabled_core_source_counts_as_missing() -> None:
     """Заведён, но выключен - искать он не будет, значит для вердикта его нет."""
-    assert IndexerHealth.key([{"name": KEY_INDEXER, "enable": False}])[0].startswith("внимание")
-    assert IndexerHealth.key([{"name": KEY_INDEXER}])[0].startswith("ок")
+    disabled = [{"name": name, "enable": False} for name in CORE_INDEXERS]
+    assert all(line.startswith("внимание") for line, _ in IndexerHealth.core(disabled))
+    assert all(
+        line.startswith("ок")
+        for line, _ in IndexerHealth.core([{"name": n} for n in CORE_INDEXERS])
+    )

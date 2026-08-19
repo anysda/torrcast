@@ -7,11 +7,18 @@ from collections.abc import Iterator
 
 from torrcast.domain.health_verdict import HealthLine, HealthVerdict
 
-#: Метапоиск, на котором держится примерно половина каталога - весь западный хвост и
-#: аниме: прямые трекеры из установки его не перекрывают. Без него поиск продолжает
-#: работать, поэтому это «внимание», а не «плохо», - но молчать о нём нельзя, иначе
-#: урезанная выдача выглядит как пустой поиск без причины.
-KEY_INDEXER = "Knaben"
+#: Опорные источники каталога: те, без которых пул не беднеет, а пустеет (замер по
+#: журналу запросов: без метапоиска пул пуст у 72 запросов из 93, без обоих - у 97 из 99).
+#: Остальные индексеры узкие и этой дыры не закрывают. Имя - как его зовёт Prowlarr, за
+#: ним то, что источник даёт каталогу, и то, чего в выдаче не хватит без него. Поиск без
+#: опорного продолжает работать, поэтому это «внимание», а не «плохо», - но молчать
+#: нельзя: урезанная выдача выглядит как пустой поиск без причины.
+#: 🔴 TC-697. Опорных ДВА, и установка отправляет человека смотреть их состояние именно
+#: сюда (``install.sh``: тот же ``CORE_INDEXERS``), поэтому строка нужна на каждого.
+CORE_INDEXERS = {
+    "Knaben": ("западные релизы и аниме", "западных релизов и аниме"),
+    "RuTor": ("русские раздачи и озвучки", "русских раздач и озвучек"),
+}
 #: Ручка, которой Prowlarr запрещено ходить по IPv6 (TC-311). Её же ставит установка.
 IPV4_ONLY = "DOTNET_SYSTEM_NET_DISABLEIPV6=1"
 
@@ -136,14 +143,14 @@ class IndexerHealth:
         return names
 
     @staticmethod
-    def key(payload: object) -> HealthLine:
-        """Метапоиск с половиной каталога: есть и включён - или выдача будет неполной."""
-        needle = KEY_INDEXER.lower()
-        if any(needle in name.lower() for name in IndexerHealth.enabled_names(payload)):
-            return HealthVerdict.ok(
-                f"{KEY_INDEXER} на месте - западные релизы и аниме в каталоге есть"
-            )
-        return HealthVerdict.warn(
-            f"{KEY_INDEXER} не заведён или выключен - искать можно, но западных релизов и "
-            "аниме в выдаче будет заметно меньше; вернуть - ./install.sh"
-        )
+    def core(payload: object) -> Iterator[HealthLine]:
+        """Опорные источники, строка на каждого: есть и включён - или выдача неполная."""
+        enabled = [name.lower() for name in IndexerHealth.enabled_names(payload)]
+        for indexer, (gives, misses) in CORE_INDEXERS.items():
+            if any(indexer.lower() in name for name in enabled):
+                yield HealthVerdict.ok(f"{indexer} на месте - {gives} в каталоге есть")
+            else:
+                yield HealthVerdict.warn(
+                    f"{indexer} не заведён или выключен - искать можно, но {misses} в выдаче "
+                    "будет заметно меньше; вернуть - ./install.sh"
+                )

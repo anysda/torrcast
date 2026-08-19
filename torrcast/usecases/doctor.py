@@ -1,8 +1,8 @@
 """``cast doctor`` - самопроверка окружения одной командой.
 
 Проверяется ровно то, обо что уже спотыкались: терминал и локаль (кириллица в
-вопросах), Prowlarr и TorrServer (есть чем искать и что раздавать), метапоиск, на
-котором держится западный и аниме-хвост каталога, адрес ТВ и его порт (есть кому
+вопросах), Prowlarr и TorrServer (есть чем искать и что раздавать), опорные источники,
+на которых стоит каталог, адрес ТВ и его порт (есть кому
 играть), путь до ТВ и адрес раздачи, mDNS-путь поиска приёмников (будут ли имена),
 ffmpeg с ``-readrate_initial_burst`` и серт, если кто-то включил https.
 
@@ -20,7 +20,7 @@ from functools import partial
 
 import torrcast.usecases.doctor_environment as _state
 from torrcast.domain.cache_health import CacheHealth
-from torrcast.domain.indexer_health import IPV4_ONLY, KEY_INDEXER, IndexerHealth
+from torrcast.domain.indexer_health import CORE_INDEXERS, IPV4_ONLY, IndexerHealth
 from torrcast.domain.receiver_health import ReceiverHealth
 from torrcast.domain.warm_settings import WARM_BUDGET
 from torrcast.ports.configuration_source import ConfigurationSource
@@ -36,7 +36,7 @@ from torrcast.usecases.machine_memory import machine_memory as machine_memory
 from torrcast.usecases.show_checkup import ShowCheckup
 from torrcast.usecases.warm.settings import FREE_FLOOR
 
-__all__ = ["CAST_PORT", "IPV4_ONLY", "KEY_INDEXER", "Doctor", "checkup"]
+__all__ = ["CAST_PORT", "CORE_INDEXERS", "IPV4_ONLY", "Doctor", "checkup"]
 #: Байты диска, которые кэшу на диске не отдают: рядом на том же разделе живёт прогрев со
 #: своим бюджетом и запасом, а также состояние и система. То же число складывает
 #: установка (``install.sh``: тот же ``WARM_BUDGET`` плюс ``TS_DISK_FLOOR``).
