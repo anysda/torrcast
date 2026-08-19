@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from torrcast.adapters.stream_pack._keyframe_bounds import _keyframe_bounds
-from torrcast.adapters.stream_probe import segment_name
+from torrcast.adapters.stream_pack.hls_manifest import hls_manifest
 from torrcast.domain.hls_settings import HLS_SEGMENT_SECONDS, MAX_SEGMENT_BYTES
 
 if TYPE_CHECKING:
@@ -153,33 +153,8 @@ class Grid:
         return max(1, math.ceil(max(self.span(k) for k in range(self.count))))
 
     def manifest(self) -> str:
-        """Манифест VOD на **весь фильм**: все сегменты сетки и ``ENDLIST``.
+        """Манифест VOD на **весь фильм** (:func:`hls_manifest`): сетка целиком и ``ENDLIST``.
 
-        Приёмнику неоткуда узнать длительность, кроме
-        манифеста: у скользящего live-плейлиста её нет вовсе, поэтому ТВ считал показ
-        эфиром и не давал ни таймлайна, ни перемотки. Здесь длительность — сумма
-        ``EXTINF``, то есть ровно длина фильма, и перемотка разрешена в любую его точку.
-
-        Манифест **статический**: он не зависит от того, что упаковано прямо сейчас, и
-        перечисляет сегменты, которых на диске ещё нет. Целый фильм в tmpfs не влезает —
-        но приёмнику и не нужен файл раньше, чем он его попросит: за это отвечает
-        :class:`Feed`, которая на запрос неупакованного места пакует оттуда.
-
-        Проверено на живом Q70D: ``duration`` в MEDIA_STATUS = длине манифеста,
-        ``seek`` в произвольную точку отрабатывает за доли секунды и показ продолжается.
+        Длины кусков берутся из самой сетки, поэтому манифест и нарезка - одно и то же.
         """
-        lines = [
-            "#EXTM3U",
-            "#EXT-X-VERSION:3",
-            f"#EXT-X-TARGETDURATION:{self.target()}",
-            "#EXT-X-MEDIA-SEQUENCE:0",
-            "#EXT-X-PLAYLIST-TYPE:VOD",
-        ]
-        if self.on_keys:
-            # Не украшение: каждый сегмент начинается с опорного кадра, и приёмнику
-            # разрешено начать показ с любого - на этом и держится перемотка.
-            lines.append("#EXT-X-INDEPENDENT-SEGMENTS")
-        for slot in range(self.count):
-            lines += [f"#EXTINF:{self.span(slot):.6f},", segment_name(slot)]
-        lines.append("#EXT-X-ENDLIST")
-        return "\n".join(lines) + "\n"
+        return hls_manifest([self.span(k) for k in range(self.count)], self.target(), self.on_keys)

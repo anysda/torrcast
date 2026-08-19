@@ -63,22 +63,17 @@ def test_the_jump_over_a_bad_piece_lands_behind_it() -> None:
         assert grid.after(second) == grid.end(grid.slot_at(second)) > second
 
 
-def test_the_manifest_describes_the_whole_film_and_says_it_has_ended() -> None:
-    """У скользящего live-плейлиста длительности нет вовсе, и ТВ считал показ эфиром.
+def test_the_manifest_promises_exactly_what_the_grid_cuts() -> None:
+    """Длительность манифеста - сумма ``EXTINF``, то есть ровно длина фильма.
 
-    Здесь длительность - сумма ``EXTINF``, то есть ровно длина фильма, и перемотка
-    разрешена в любую его точку.
+    Границы у манифеста и у команды ffmpeg одни и те же, поэтому обещанное приёмнику
+    место фильма и есть то, что лежит в куске под этим именем.
     """
     grid = Grid.uniform(60.0, 8.0)
-    text = grid.manifest()
-    lines = text.splitlines()
-    assert lines[0] == "#EXTM3U"
-    assert "#EXT-X-PLAYLIST-TYPE:VOD" in lines
-    assert lines[-1] == "#EXT-X-ENDLIST" and text.endswith("\n")
-    assert "#EXT-X-INDEPENDENT-SEGMENTS" not in lines, "ровная сетка сама себя не обещает"
+    lines = grid.manifest().splitlines()
 
     spans = [float(line[len("#EXTINF:") :].rstrip(",")) for line in lines if line[:8] == "#EXTINF:"]
-    assert len(spans) == grid.count
+    assert spans == [grid.span(k) for k in range(grid.count)]
     assert sum(spans) == pytest.approx(grid.duration), "манифест обещает не длину фильма"
     assert [line for line in lines if line.endswith(".ts")] == [
         f"v{k}.ts" for k in range(grid.count)
