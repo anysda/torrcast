@@ -149,3 +149,28 @@ def test_the_head_of_a_new_run_preempts_a_run_that_works_ahead(tmp_path: Path) -
     _run(state, 12, 14)
 
     assert run.stopped == "голова прогона важнее"
+
+
+def test_an_abandoned_run_says_why_and_a_finished_one_says_nothing(tmp_path: Path) -> None:
+    """Возврат захода - это причина броска; отработавший до конца заход молчит.
+
+    По этому возврату нитка (:func:`_work`) отличает повтор от новой работы:
+    брошенный заход повторяется с паузой, а не лавиной подъёмов ffmpeg.
+    """
+    state = _state(tmp_path)
+    state.stopped = False  # тут заход обязан оборваться сам, а не по флагу зеркала
+    run = fake_packer(tmp_path, first=12, edge=-1)
+    state.packer_type = cast(PackFactory, type("StandPacker", (), {"start": lambda *a, **k: run}))
+    state.played = state.grid.end(14) + 1.0  # показ ушёл за пределы захода
+
+    assert _run(state, 12, 14) == "перемотка"
+    assert run.stopped == "перемотка"
+
+    delivered = _state(tmp_path)
+    delivered.packer_type = cast(
+        PackFactory,
+        type("StandPacker", (), {"start": lambda *a, **k: fake_packer(tmp_path, first=4, edge=5)}),
+    )
+
+    assert _run(delivered, 4, 6) is None, "заход, давший куски, - не брошенный"
+    assert delivered.made == 2

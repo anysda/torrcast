@@ -30,8 +30,14 @@ NICE: Final = 15
 HEAD_NICE: Final = 0
 
 
-def _run(state: _State, first: int, last: int) -> None:
-    """Заход кодировщика: пресет по сроку, цель по длине куска, ffmpeg и замер темпа."""
+def _run(state: _State, first: int, last: int) -> str | None:
+    """Заход кодировщика: пресет по сроку, цель по длине куска, ffmpeg и замер темпа.
+
+    Возвращает причину, по которой заход брошен (перемотка, голова прогона важнее,
+    выкладка встала), и ``None``, когда заход отработал до конца - хоть с кусками,
+    хоть без. По этому возврату нитка (:func:`_work`) отличает повтор от новой
+    работы: брошенный заход повторяется с паузой, а не немедленно.
+    """
     seconds = sum(state.grid.span(s) for s in range(first, last + 1))
     # Срок - у ПОСЛЕДНЕГО куска захода: до него кодировщик доберётся позже всех, и
     # именно он решает, каким пресетом идти всему заходу.
@@ -115,15 +121,17 @@ def _run(state: _State, first: int, last: int) -> None:
             gone = state.played > state.grid.end(last)
             far = state.played < state.grid.start(first) - state.ahead
             if gone or far:
-                packer.stop(keep_files=True, reason="перемотка")
-                return
+                why = "перемотка"
+                packer.stop(keep_files=True, reason=why)
+                return why
             # Голова нового прогона важнее любого запаса впрок: её ждёт чёрный экран,
             # а всё остальное - только tmpfs. Доработать заход и потом взяться за
             # голову значит проесть её ожидание чужой работой: замер -
             # заход за `v0` (7 с) съедал ровно столько же от ожидания `v358`.
             if _head_pending(state) and not first <= state.head <= last:
-                packer.stop(keep_files=True, reason="голова прогона важнее")
-                return
+                why = "голова прогона важнее"
+                packer.stop(keep_files=True, reason=why)
+                return why
             # Выкладка встала на слишком тяжёлой копии (:meth:`_hold_bulky`) - этот
             # кусок нужен ПРЯМО сейчас, а не впрок. Бросаем заход и берём его отдельно:
             # новый заход начнётся ровно с него, а срок у него нулевой, то есть пресет
@@ -131,8 +139,9 @@ def _run(state: _State, first: int, last: int) -> None:
             # ним самым быстрым пресетом, не трогаем - быстрее всё равно не будет.
             stuck = state.blocked
             if stuck >= 0 and (stuck < first or (stuck <= last and speed < quickest)):
-                packer.stop(keep_files=True, reason=f"упаковка встала на v{stuck}")
-                return
+                why = f"упаковка встала на v{stuck}"
+                packer.stop(keep_files=True, reason=why)
+                return why
             time.sleep(0.3)
     finally:
         with state.lock:
@@ -172,3 +181,6 @@ def _run(state: _State, first: int, last: int) -> None:
         state._say(f"перекодирование v{first}...v{last} не дало ни куска за {spent:.0f} с")
         # Чтобы не крутиться на одном и том же месте вечно.
         state.done.update(range(first, last + 1))
+    # Заход отработал до конца - хоть с кусками, хоть без: повторять его нитка
+    # будет только по новым условиям, а не по броску.
+    return None
