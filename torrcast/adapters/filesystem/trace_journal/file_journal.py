@@ -8,6 +8,7 @@ from torrcast.adapters.filesystem.stopwatch.mark import mark as _mark
 from torrcast.adapters.filesystem.trace_journal.dark import dark
 from torrcast.adapters.filesystem.trace_journal.emit import emit
 from torrcast.adapters.filesystem.trace_journal.evict import evict
+from torrcast.adapters.filesystem.trace_journal.freeze import freeze
 from torrcast.adapters.filesystem.trace_journal.health import health
 from torrcast.adapters.filesystem.trace_journal.nudge import nudge
 from torrcast.adapters.filesystem.trace_journal.offline import offline
@@ -52,4 +53,5 @@ class FileJournal:
     seek = staticmethod(seek)
     evict = staticmethod(evict)
     skew = staticmethod(skew)
+    freeze = staticmethod(freeze)
     warmth = staticmethod(warmth)

@@ -91,3 +91,20 @@ def test_an_old_dark_record_without_the_field_is_an_extinguished_show() -> None:
     told = _show_line(rec("dark", pos=1272.4, why="приёмник молчит"), STAMP, False)
 
     assert told is not None and "показ погас на 21:12" in told
+
+
+def test_a_stall_line_names_the_lost_film_and_what_the_receiver_said_about_itself() -> None:
+    """Подгруз печатается потерянной плёнкой; слово приёмника стоит рядом, а не вместо.
+
+    На приставке приёмник называет себя играющим всю остановку, и строка без состояния
+    читалась бы как ребуфер, которого не было.
+    """
+    told = _show_line(
+        rec("freeze", pos=163.9, lost=7.41, secs=8.1, total=12.63, front=201.1, state="PLAYING"),
+        STAMP,
+        False,
+    )
+
+    assert told is not None
+    assert "подгруз на 2:43: потеряно 7.4 с за 8 с (PLAYING" in told
+    assert "за показ 12.6 с" in told

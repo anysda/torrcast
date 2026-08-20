@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from tests.adapters.filesystem.trace_journal.tape import caught
 from tests.fakes import composition
 from tests.fakes.clock import FakeClock
 from tests.usecases.revive_playback.world import feed_with_segments
@@ -14,6 +15,7 @@ from torrcast.domain.position import Position
 from torrcast.usecases.revive_playback._revival import _Revival
 from torrcast.usecases.revive_playback._screen import (
     _first_frame,
+    _note_lag,
     _note_transitions,
     _note_watch,
     _report,
@@ -118,3 +120,36 @@ def test_the_bookmark_and_the_darkness_reach_the_state() -> None:
     _note_watch(watch, None, 120.0, revival)
 
     assert (watch.entry.dark, watch.entry.dark_why) == (17.0, "сети нет")
+
+
+def test_the_tape_sees_a_stall_the_receiver_never_called_a_rebuffer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """🔴 Тот самый вход, на котором лента молчала: указатель встал, а приёмник «играет».
+
+    Ребуфер не наступает ни разу (:func:`_note_transitions` тут и не при чём), но зритель
+    смотрит на стоящую картинку - и в ленте это обязано быть видно.
+    """
+    seen = caught(monkeypatch)
+    screen, feed = _Screen(), feed_with_segments(tmp_path)
+
+    for now, pos in [(0.0, 100.0), (2.0, 102.0), (4.0, 102.0), (6.0, 102.0), (8.0, 104.0)]:
+        _note_transitions(screen, feed, _at(pos, "PLAYING"))
+        _note_lag(screen, feed, _at(pos, "PLAYING"), now)
+
+    assert [(phase, event) for phase, event, _ in seen] == [("play", "freeze")]
+    assert seen[0][2]["lost"] == 4.0
+    assert seen[0][2]["state"] == "PLAYING"
+
+
+def test_an_even_show_puts_no_stalls_in_the_tape(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Отрицательная проба прибора: показ вровень с часами ленту подгрузами не засоряет."""
+    seen = caught(monkeypatch)
+    screen, feed = _Screen(), feed_with_segments(tmp_path)
+
+    for tick in range(30):
+        _note_lag(screen, feed, _at(100.0 + 2.0 * tick, "PLAYING"), 2.0 * tick)
+
+    assert seen == []

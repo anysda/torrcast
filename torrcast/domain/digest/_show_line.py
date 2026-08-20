@@ -41,6 +41,17 @@ def _show_line(rec: Mapping[str, JsonValue], stamp: str, seam: bool) -> str | No
         return f"{stamp}{rec.get('text', '')}"
     if event == "buffering":
         return f"{stamp}ребуфер на {_hms(json_number(rec.get('pos', 0.0)))}"
+    if event == "freeze":
+        # Подгруз - потерянная зрителем плёнка, а не слово приёмника: состояние стоит в
+        # строке рядом, потому что на приставке оно всё это время «играю».
+        pos = json_number(rec.get("pos", 0.0))
+        return (
+            f"{stamp}подгруз на {_hms(pos)}: потеряно"
+            f" {json_number(rec.get('lost', 0.0)):.1f} с"
+            f" за {json_number(rec.get('secs', 0.0)):.0f} с ({rec.get('state', '?')},"
+            f" готово впереди {json_number(rec.get('front', 0.0)) - pos:.0f} с),"
+            f" за показ {json_number(rec.get('total', 0.0)):.1f} с"
+        )
     if event == "offline":
         # Спрошенный источник называется источником: «сеть» тут была бы догадкой, а мы
         # знаем точно - служба ответила (или не ответила) нам сама.

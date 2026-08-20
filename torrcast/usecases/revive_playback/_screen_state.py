@@ -7,7 +7,9 @@ _screen`).
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+
+from torrcast.domain.pointer_lag import PointerLag
 
 
 @dataclass(slots=True)
@@ -66,6 +68,9 @@ class _Screen:
     still_at: float = -1.0
     #: Приёмник прямо сейчас в ``BUFFERING``: ребуфер пишется в след на входе в него.
     buffering: bool = False
+    #: Счёт потерянной зрителем плёнки (:class:`torrcast.domain.pointer_lag.PointerLag`).
+    #: Слову приёмника о подгрузе верить нечем, ходу его указателя - есть.
+    lag: PointerLag = field(default_factory=PointerLag)
     #: Об обрыве сети уже сказано: строка про аварию печатается один раз, а не каждые 2 с.
     was_offline: bool = False
     #: Указатель, на котором приёмник стоит у самого конца картины, и с каких пор

@@ -84,6 +84,11 @@ class Journal(Protocol):
     def evict(self, key: str, freed: int, need: int, title: str = "") -> None:
         """Уборка прогретого ради места."""
 
+    def freeze(
+        self, pos: float, lost: float, secs: float, total: float, front: float, state: str
+    ) -> None:
+        """Подгруз: картинка стояла, хотя приёмник называл себя играющим."""
+
     def skew(self, slot: int, want: float, got: float, hole: bool, src: str = "") -> None:
         """Расхождение сетки: какой кусок просили и какой отдали."""
 

@@ -69,6 +69,26 @@ def _note_transitions(screen: _Screen, feed: Feed, position: Position) -> None:
             journal().offline(why=str(feed.offline), asked=False)
 
 
+def _note_lag(screen: _Screen, feed: Feed, position: Position, now: float) -> None:
+    """Подгруз в ленту: указатель, отставший от часов, - это стоящая у зрителя картинка.
+
+    Вход в ``BUFFERING`` тут не при чём и подгруза не доказывает
+    (:class:`torrcast.domain.pointer_lag.PointerLag`): приставка Android TV называет себя
+    играющей всё время, пока картинка стоит. Пауза и темнота ходом показа не считаются -
+    указатель на них стоит законно.
+    """
+    frozen = screen.lag.see(position.pos, now, position.playing and position.state != "PAUSED")
+    if frozen is not None:
+        journal().freeze(
+            pos=frozen.pos,
+            lost=frozen.lost,
+            secs=frozen.secs,
+            total=frozen.total,
+            front=feed.front(position.pos),
+            state=position.state,
+        )
+
+
 def _trace_line(session_tag: str, feed: Feed, position: Position) -> None:
     """Отладочная строка запаса: сколько показано, сколько упаковано и чем расходится."""
     front = feed.front(position.pos)

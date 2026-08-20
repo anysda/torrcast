@@ -25,6 +25,7 @@ from torrcast.usecases.revive_playback._revival import _Revival
 from torrcast.usecases.revive_playback._revive_state import TAIL_LIMIT
 from torrcast.usecases.revive_playback._screen import (
     _first_frame,
+    _note_lag,
     _note_transitions,
     _note_watch,
     _report,
@@ -115,6 +116,7 @@ def _hold(
             screen.held = position.pos
         _first_frame(screen, feed, position, session_tag, say_started)
         _note_transitions(screen, feed, position)
+        _note_lag(screen, feed, position, clock.monotonic())
         if show_trace:
             _trace_line(session_tag, feed, position)
         if warmer is not None:
