@@ -93,3 +93,21 @@ def test_the_source_mark_is_counted_from_the_rows_on_disk() -> None:
     read = {title: _row_origin(_origin_row(found)) for title, found in saved.items()}
     helped = [title for title, found in read.items() if found and SOURCE_MAP in found.source]
     assert sorted(helped) == ["Тачки", "Эксперименты Лэйн"]
+
+
+def test_an_impossible_running_time_is_dropped_off_a_row_that_never_expires() -> None:
+    """Найденный ряд срока не имеет, и записанная однажды выдумка печаталась бы вечно."""
+    raw: dict[str, Any] = {
+        "Оппенгеймер|2023": {"about": "о физике", "rating": "IMDb 8.3", "runtime": "180 ч 9 мин"}
+    }
+    assert _cached_facts(raw, [("Оппенгеймер", 2023)], time.time()) == {
+        ("Оппенгеймер", 2023): Fact(about="о физике", rating="IMDb 8.3")
+    }
+
+
+def test_a_believable_running_time_stays_on_the_row() -> None:
+    """Граница режет выдумку, а не хронометраж: три часа с ряда снимать нечего."""
+    raw: dict[str, Any] = {"Оппенгеймер|2023": {"runtime": "3 ч"}}
+    assert _cached_facts(raw, [("Оппенгеймер", 2023)], time.time()) == {
+        ("Оппенгеймер", 2023): Fact(runtime="3 ч")
+    }

@@ -50,6 +50,10 @@ _VOICE_STEPS: Final[tuple[tuple[str, re.Pattern[str]], ...]] = (
 )
 #: Имена ступеней в порядке лестницы - для таблицы студий и строк человеку.
 VOICE_KINDS: Final[tuple[str, ...]] = tuple((name for name, _ in _VOICE_STEPS))
+#: Ступень собственной дорожки отечественной картины - выше всей лестницы переводов.
+#: Ставится не заголовком, а происхождением картины, и потому живёт в :func:`voice_order`,
+#: а не в :attr:`AudioTrack.step`: дорожка о себе такого сказать не может.
+STEP_NATIVE: Final = -1
 #: Ступени, на которые встаёт нерусская дорожка и служебная.
 STEP_RU_PLAIN: Final = len(_VOICE_STEPS)
 STEP_ORIGINAL: Final = STEP_RU_PLAIN + 1

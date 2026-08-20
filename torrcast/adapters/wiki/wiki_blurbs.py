@@ -165,11 +165,26 @@ class WikiBlurbs:
         Хронометраж берём здесь, а не из выгрузки IMDb, по цене вопроса: за ``title.basics``
         пришлось бы качать 225 МБ. Расхождение с IMDb бывает в пару минут — это разница в том,
         считать ли титры, а не выдумка.
+
+        Длительность спрашивается ВМЕСТЕ С ЕДИНИЦЕЙ, и это не украшение. ``wdt:`` отдаёт
+        голое число, а величина у Wikidata с единицей: у большинства картин там минуты, у
+        «Оппенгеймера» - секунды, и без единицы разобрать одно от другого нечем. Единица
+        лежит не у самого свойства, а у значения утверждения (``psv:``), поэтому её
+        приходится доставать отдельным шагом.
+
+        Шаг этот - ВЛОЖЕННЫЙ ``OPTIONAL`` внутри уже имеющегося, и порядок тут значащий:
+        само число как бралось у ``wdt:``, так и берётся, то есть отбор утверждений не
+        меняется ни на знак; единица лишь подсаживается к нему по равенству величины.
+        Не нашлась или ответ пришёл без неё - число остаётся минутами
+        (:func:`~torrcast.domain.facts.read_sparql.read_sparql`), как было.
         """
         values = " ".join(f"wd:{item}" for item in items)
         query = (
-            f"SELECT ?item ?imdb ?dur WHERE {{ VALUES ?item {{ {values} }} "
-            "OPTIONAL { ?item wdt:P345 ?imdb } OPTIONAL { ?item wdt:P2047 ?dur } }"
+            f"SELECT ?item ?imdb ?dur ?unit WHERE {{ VALUES ?item {{ {values} }} "
+            "OPTIONAL { ?item wdt:P345 ?imdb } "
+            "OPTIONAL { ?item wdt:P2047 ?dur . "
+            "OPTIONAL { ?item p:P2047/psv:P2047 ?value . "
+            "?value wikibase:quantityAmount ?dur ; wikibase:quantityUnit ?unit } } }"
         )
         payload = self.client.get(
             WIKIDATA_HOST, WIKIDATA_PATH, {"query": query}, dict(SPARQL_HEAD), timeout

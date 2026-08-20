@@ -9,3 +9,15 @@ def test_an_unnamed_track_keeps_the_passport_from_calling_the_file_foreign() -> 
     media = Media(tracks=(AudioTrack(index=0, language=None),))
 
     assert (media.foreign, media.russian) == (False, False)
+
+
+def test_a_native_picture_defaults_to_its_own_track_and_not_to_the_dub_over_it() -> None:
+    """Живая приёмка: у русского фильма отбор брал «[DUB] DVD-R5 AMALGAMA» вместо оригинала."""
+    tracks = (
+        AudioTrack(index=0, language="rus", title="[DUB] DVD-R5 AMALGAMA"),
+        AudioTrack(index=1, language="rus"),
+        AudioTrack(index=2, language="eng"),
+    )
+    media = Media(tracks=tracks)
+
+    assert (media.default_track(native=True), media.default_track()) == (1, 0)

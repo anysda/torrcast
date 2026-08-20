@@ -10,8 +10,9 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from torrcast.domain.facts.fact import Fact
+from torrcast.domain.facts.minutes_of import minutes_of
 from torrcast.domain.facts.origin import Origin
-from torrcast.domain.facts.settings import EMPTY_TTL
+from torrcast.domain.facts.settings import EMPTY_TTL, RUNTIME_CAP_MINUTES
 from torrcast.domain.json_value import JsonValue
 
 
@@ -72,6 +73,10 @@ def _cached_facts(
 
     Ряд с отметкой ``empty`` — это записанное «справки нет»: картина отдаётся пустой, и в
     сеть за ней не идут. Отметка со сроком (:data:`EMPTY_TTL`): вышел — ряда как не было.
+
+    Хронометраж вне правдоподобных границ (:data:`RUNTIME_CAP_MINUTES`) с ряда снимается:
+    срока у найденного ряда нет вовсе, и однажды записанная выдумка иначе печаталась бы
+    человеку вечно. Остальное в ряду при этом остаётся - описание и рейтинг не виноваты.
     """
     out: dict[tuple[str, int | None], Fact] = {}
     for key in wanted:
@@ -81,10 +86,11 @@ def _cached_facts(
         blank = row.get("empty")
         if isinstance(blank, int | float) and now - blank > EMPTY_TTL:
             continue
+        runtime = str(row.get("runtime", ""))
         fact = Fact(
             about=str(row.get("about", "")),
             rating=str(row.get("rating", "")),
-            runtime=str(row.get("runtime", "")),
+            runtime="" if minutes_of(runtime) > RUNTIME_CAP_MINUTES else runtime,
         )
         if not fact and not isinstance(blank, int | float):
             continue

@@ -74,3 +74,18 @@ def test_a_file_without_a_single_track_is_an_honest_error(console: FakeConsole) 
 def test_a_number_that_does_not_exist_is_an_honest_refusal(console: FakeConsole) -> None:
     with pytest.raises(NotFoundError):
         pick_voice(media(tracks=(DUB,)), _Args(voice=9))
+
+
+def test_a_native_picture_plays_its_own_track_without_a_question() -> None:
+    """Счастливый путь у русского фильма: играет он сам, а не переозвучка поверх него."""
+    tracks = (track(0, "rus", "[DUB] DVD-R5 AMALGAMA"), track(1, "rus", None))
+
+    assert pick_voice(media(tracks=tracks), _Args(), "", True) == (1, "")
+    assert pick_voice(media(tracks=tracks), _Args()) == (0, "")
+
+
+def test_a_hand_picked_voice_of_a_native_picture_is_still_the_hand_picked_one() -> None:
+    """Явный выбор сильнее любой лестницы: ``--voice 1`` берёт первую дорожку."""
+    tracks = (track(0, "rus", "[DUB] DVD-R5 AMALGAMA"), track(1, "rus", None))
+
+    assert pick_voice(media(tracks=tracks), _Args(voice=1), "", True)[0] == 0

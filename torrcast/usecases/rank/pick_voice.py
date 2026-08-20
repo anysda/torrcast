@@ -22,7 +22,9 @@ class _Voiced(Protocol):
     voice: int | None
 
 
-def pick_voice(media: Media, args: _Voiced, remembered: str = "") -> tuple[int, str]:
+def pick_voice(
+    media: Media, args: _Voiced, remembered: str = "", native: bool = False
+) -> tuple[int, str]:
     """Какую дорожку играем и что после этого лежит в памяти картины.
 
     **На счастливом пути вопроса про озвучку нет.** Дорожка выбирается сама
@@ -34,12 +36,19 @@ def pick_voice(media: Media, args: _Voiced, remembered: str = "") -> tuple[int, 
     (:attr:`torrcast.domain.entry.Entry.voice`). Автовыбор память не трогает: иначе первый же
     запуск с другим релизом переписал бы то, что пользователь выбрал руками.
 
+    ``native`` — картина снята по-русски: тогда сама собой выбирается её собственная
+    дорожка, а не переозвучка поверх неё (:func:`~torrcast.domain.voice_order.voice_order`).
+
     Возвращает пару «номер дорожки в этом релизе, память картины».
     """
     if not media.tracks:
         raise InfraError("в файле нет звуковых дорожек")
     if args.voice is not None:
-        index = _ask_voice(media) if args.voice == VOICE_MENU else _voice_number(media, args.voice)
+        index = (
+            _ask_voice(media, native)
+            if args.voice == VOICE_MENU
+            else _voice_number(media, args.voice)
+        )
         return index, media.tracks[index].label
     if remembered:
         found = media.find_voice(remembered)
@@ -48,7 +57,7 @@ def pick_voice(media: Media, args: _Voiced, remembered: str = "") -> tuple[int, 
         # Память живёт на картину, а релиз временный: озвучки в нём нет - говорим и
         # играем обычную, но выбор пользователя не забываем (:attr:`Entry.voice`).
         _console_port().write(f"озвучки «{remembered}» в этом релизе нет - беру обычную")
-    return media.default_track(), remembered
+    return media.default_track(native), remembered
 
 
 def _voice_number(media: Media, number: int) -> int:
@@ -60,9 +69,9 @@ def _voice_number(media: Media, number: int) -> int:
     return number - 1
 
 
-def _ask_voice(media: Media) -> int:
+def _ask_voice(media: Media, native: bool = False) -> int:
     """Меню озвучек — только по ``--voice`` без номера. Дефолт тот же, что и без флага."""
-    default = media.default_track()
+    default = media.default_track(native)
     if len(media.tracks) == 1:  # выбора нет - вопроса тоже
         return default
     _console_port().write(voices_table(media, default))

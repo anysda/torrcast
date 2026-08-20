@@ -54,15 +54,19 @@ class Media(_MediaPicture):
         """
         return any(track.is_russian for track in self.tracks)
 
-    def default_track(self) -> int:
+    def default_track(self, native: bool = False) -> int:
         """«Самая нормальная» озвучка — та, что играет без вопросов: русский дубляж →
         русский многоголосый → прочий русский → оригинал → чужой дубляж; служебные
         дорожки (тифлокомментарий, комментарии) — в самый низ. Выбор не молчаливый:
         подпись дорожки печатается в строке запуска.
+
+        ``native`` — картина снята по-русски, и тогда лестница начинается не с дубляжа, а
+        с собственной дорожки фильма (:func:`~torrcast.domain.voice_order.voice_order`).
+        Паспорт происхождения молчит — порядок прежний.
         """
         if not self.tracks:
             return 0
-        return min(self.tracks, key=voice_order).index
+        return min(self.tracks, key=lambda track: voice_order(track, native)).index
 
     def find_voice(self, label: str) -> int | None:
         """Дорожка с такой подписью (память озвучки); ``None`` — такой нет.

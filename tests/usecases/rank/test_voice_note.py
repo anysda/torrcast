@@ -27,3 +27,13 @@ def test_a_foreign_track_over_two_russian_ones_is_named_by_its_language() -> Non
 def test_a_number_outside_the_list_says_nothing() -> None:
     tracks = (track(0, "rus", "Дубляж"), track(1, "rus", "MVO"))
     assert voice_note(media(tracks=tracks), 9) == ""
+
+
+def test_a_native_picture_names_its_own_track_and_says_why_the_dub_lost() -> None:
+    """Взятое расходится с лестницей переводов - строка обязана назвать причину."""
+    tracks = (track(0, "rus", "[DUB] DVD-R5 AMALGAMA"), track(1, "rus", None))
+
+    assert voice_note(media(tracks=tracks), 1, native=True) == (
+        "дорожек rus 2, беру оригинальную - картина снята по-русски, это её собственная дорожка"
+    )
+    assert voice_note(media(tracks=tracks), 0) == "дорожек rus 2, беру дубляж"

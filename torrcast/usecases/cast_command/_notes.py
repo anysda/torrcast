@@ -67,7 +67,7 @@ def _notes(
         print(note)
     # Русских дорожек было несколько - говорим, сколько и что взяли: подпись дорожки
     # отвечает «что играет», а эта строка - «почему это, а не соседняя».
-    if note := voice_note(media, audio):
+    if note := voice_note(media, audio, plan.picture.native):
         print(note)
     if args.pinned:  # отладочный путь: тут внутренности показывать и надо
         print(f"файл: {video.base} · {_gb(video.size)} · {_hms(media.duration)} · {media.video}")

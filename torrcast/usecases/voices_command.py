@@ -89,7 +89,7 @@ def _cmd_voices(args: Args, search: Search | None = None) -> int:
     remembered = _remembered(watch_store().load(), plan.picture.key, None)
     print()
     print(f"{_named(plan.picture)} - релиз {prep.number}: {_cut(prep.release.title, 60)}")
-    print(voices_table(media, media.default_track(), remembered))
+    print(voices_table(media, media.default_track(plan.picture.native), remembered))
     print()
     print("играть конкретную: cast <запрос> --voice N   (выбор запомнится на эту картину)")
     return EXIT_OK

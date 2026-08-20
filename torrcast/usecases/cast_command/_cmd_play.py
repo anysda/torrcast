@@ -104,7 +104,9 @@ def _cmd_play(
         return picked  # закладка выбранной картины ответила показом сама
     plans, plan, prep, bench, passport = picked
     release, video, media = prep.release, prep.want, prep.found
-    audio, voice = pick_voice(media, args, _remembered(state, plan.picture.key, found_entry))
+    audio, voice = pick_voice(
+        media, args, _remembered(state, plan.picture.key, found_entry), plan.picture.native
+    )
     journal().mark("ответы")  # ноль секундомера: Enter после последнего вопроса
     label = media.tracks[audio].label if audio < len(media.tracks) else "-"
     # Чья это озвучка - в подписи дорожки бывает не написано вовсе: сезонный пак
