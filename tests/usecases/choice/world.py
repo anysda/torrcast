@@ -102,6 +102,33 @@ def parts(*named: tuple[str, int | None, int]) -> list[Plan]:
 
 
 @dataclass
+class Paint:
+    """Показ меню на стенде: помнит напечатанный список и каждую переписанную строку.
+
+    ``live`` - есть ли куда дописывать: на живом экране строка переписывается, в трубе и
+    в файле нет. Напечатанный список ложится в общий список сказанного тем же куском,
+    каким он ложится на экран, - зеркалам меню важен именно кусок.
+    """
+
+    said: list[str]
+    live: bool = True
+    lines: list[str] = field(default_factory=list)
+    redraws: list[tuple[int, str]] = field(default_factory=list)
+    closed: bool = False
+
+    def show(self, lines: list[str]) -> None:
+        self.lines = list(lines)
+        self.said.append("\n".join(lines))
+
+    def redraw(self, index: int, line: str) -> None:
+        self.redraws.append((index, line))
+        self.lines[index] = line
+
+    def close(self) -> None:
+        self.closed = True
+
+
+@dataclass
 class Outside:
     """Внешний мир меню, у которого подделан ровно ввод-вывод; правила настоящие.
 
@@ -124,7 +151,11 @@ class Outside:
     #: Что отвечает справка про паспорт картины; ``None`` - справка отвечает отказом.
     passport: Origin | None = field(default_factory=Origin)
 
+    #: Живой ли экран у меню: на нём строка дописывается, а в трубе и в файле - нет.
+    live: bool = True
+
     said: list[str] = field(default_factory=list)
+    painted: Paint | None = None
     asked: list[tuple[str, int, int | None]] = field(default_factory=list)
     events: list[tuple[str, str, dict[str, object]]] = field(default_factory=list)
     passports: list[tuple[str, bool]] = field(default_factory=list)
@@ -158,6 +189,11 @@ class Outside:
         if default is None:
             raise AssertionError(f"вопрос «{question}» без дефолта, а ответа тест не дал")
         return default
+
+    def menu(self) -> Paint:
+        """Показ меню на весь один вопрос; стенд помнит его, чтобы спросить о строках."""
+        self.painted = Paint(self.said, live=self.live)
+        return self.painted
 
     def columns(self) -> int:
         return self.width

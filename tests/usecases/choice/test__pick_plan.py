@@ -7,12 +7,15 @@
 
 from __future__ import annotations
 
+from typing import Any, cast
+
 import pytest
 
 from tests.usecases.choice.world import Outside, film, parts, plan
 from torrcast.domain.not_found_error import NotFoundError
 from torrcast.usecases.choice._pick_plan import _pick_plan
 from torrcast.usecases.choice.swap_note import swap_note
+from torrcast.usecases.facts import Facts
 
 VHS = film("Cars 2006 DVDRip XviD", seeders=100, codec="XviD", quality=None)
 
@@ -176,3 +179,61 @@ def test_enter_starts_the_picture_the_honest_line_is_about() -> None:
         "спросили «титаник» - беру «Титаник (1997)», а не «Титаник (1943)»: "
         "рой у неё мёртв - сидов 1"
     ), "картина сменилась - и об этом сказано"
+
+
+class Waited(Facts):
+    """Справка, которая помнит, ждали ли её и кто на неё подписан."""
+
+    def __init__(self) -> None:
+        super().__init__([], store=cast(Any, None), source=cast(Any, None))
+        self.waits = 0
+
+    def wait(self) -> None:
+        self.waits += 1
+
+
+def test_the_menu_is_shown_before_the_reference_and_never_waits_for_it() -> None:
+    """🔴 Решение владельца: список печатается сразу, а рейтинг дописывается в его строку.
+
+    Ждать справку меню тут не вправе вовсе: полторы секунды ожидания человек платил и на
+    двух прогонах из трёх всё равно получал голый список.
+    """
+    world = Outside()
+    mummy = parts(("Мумия", 1999, 47), ("Мумия", 2017, 58))
+    facts = Waited()
+
+    _pick_plan(mummy, facts, environment=world)
+
+    assert facts.waits == 0, "живой экран и вопрос - справку дописывают, а не ждут"
+    assert world.said[0].splitlines() == ["  1. Мумия (1999)", "  2. Мумия (2017)"]
+
+
+def test_where_nobody_will_watch_the_line_grow_the_reference_is_awaited() -> None:
+    """Дописывать некому - лучше подождать и напечатать со справкой, чем голое навсегда.
+
+    Два таких случая: номер назвал сам человек (``--pick N``), и вывод ушёл не на экран, а
+    в трубу или в файл. И там, и там показанную строку уже ничем не переписать.
+    """
+    mummy = parts(("Мумия", 1999, 47), ("Мумия", 2017, 58))
+
+    picked = Waited()
+    _pick_plan(mummy, picked, pick=2, environment=Outside())
+    piped = Waited()
+    _pick_plan(mummy, piped, pick=1, environment=Outside(live=False))
+
+    assert (picked.waits, piped.waits) == (1, 1)
+
+
+def test_the_answered_menu_is_unsubscribed_from_the_reference_and_closed() -> None:
+    """Меню отвечено: сперва отписка от справки, потом отпущенный экран.
+
+    Останься подписка - опоздавшая на миллисекунду строка писала бы уже в чужой вывод, по
+    которому в этот момент едет показ.
+    """
+    world = Outside()
+    facts = Waited()
+
+    _pick_plan(parts(("Мумия", 1999, 47), ("Мумия", 2017, 58)), facts, environment=world)
+
+    assert facts._seen is None
+    assert world.painted is not None and world.painted.closed

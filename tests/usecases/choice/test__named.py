@@ -10,7 +10,7 @@ from __future__ import annotations
 from tests.usecases.choice.world import Outside, film, outside, plan
 from torrcast.domain.facts.fact import Fact
 from torrcast.usecases.choice._named import _BLURB_INDENT, _named
-from torrcast.usecases.choice.menu_lines import menu_lines
+from torrcast.usecases.choice.menu_blocks import menu_blocks
 
 
 def test_a_picture_is_named_by_its_title_and_the_year_in_brackets() -> None:
@@ -64,7 +64,8 @@ def test_the_blurb_indent_puts_the_description_exactly_under_the_title() -> None
     picture = plan("Тачки", 2006, pool=[film(seeders=50)])
 
     with outside(world):
-        rows = menu_lines([picture, plan("Тачки 2", 2011)]).splitlines()
+        blocks = menu_blocks([picture, plan("Тачки 2", 2011)])
+        rows = [line for block in blocks for line in block]
 
     assert rows[0].index("Тачки") == len(_BLURB_INDENT)
     assert rows[1].startswith(_BLURB_INDENT + "Мультфильм")

@@ -51,7 +51,7 @@ from torrcast.usecases.choice.first_alive import first_alive
 from torrcast.usecases.choice.fitness import fitness
 from torrcast.usecases.choice.liveliest import liveliest
 from torrcast.usecases.choice.liveliness import liveliness
-from torrcast.usecases.choice.menu_lines import menu_lines
+from torrcast.usecases.choice.menu_blocks import menu_blocks
 from torrcast.usecases.choice.namesake_note import namesake_note
 from torrcast.usecases.choice.part_one_swap import part_one_swap
 from torrcast.usecases.choice.playable import playable
@@ -2966,7 +2966,7 @@ def test_the_default_names_itself_for_a_menu_that_does_not_fit_the_screen() -> N
 
     assert default == 33, "живой в этой выдаче стала только тридцать третья картина"
     assert default_line(plans, default) == "Enter - «Ван Пис (2023)», пункт 33 из 35"
-    assert menu_lines(plans, width=80).splitlines()[0].startswith("  1. Ван Пис (1991)"), (
+    assert menu_blocks(plans, width=80)[0][0].startswith("  1. Ван Пис (1991)"), (
         "список не переупорядочивается: хронология - осознанное решение"
     )
 
@@ -3004,7 +3004,7 @@ def test_enter_picks_the_picture_the_honest_line_is_about(
 
     picked = _pick_plan(plans, asked="naruto", environment=cast(Any, FakeChoiceEnvironment()))
 
-    assert menu_lines(plans).splitlines()[0].startswith("  1. Наруто (2002)")
+    assert menu_blocks(plans)[0][0].startswith("  1. Наруто (2002)")
     assert "Enter - «Наруто 8: Кровавая тюрьма (2011)», пункт 2 из 2" in capsys.readouterr().out
     assert picked is movie
     assert swap_note(plans, picked, "naruto") == (

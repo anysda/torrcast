@@ -5,15 +5,17 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from torrcast.ports.choice_environment.choice_environment import ChoiceEnvironment
+from torrcast.usecases.choice._dress import _dress
 from torrcast.usecases.choice.certain_default import certain_default
 from torrcast.usecases.choice.configure import _environment_port
 from torrcast.usecases.choice.default_line import default_line
 from torrcast.usecases.choice.first_alive import first_alive
-from torrcast.usecases.choice.menu_lines import menu_lines
+from torrcast.usecases.choice.menu_blocks import menu_blocks
 from torrcast.usecases.choice.part_one_swap import part_one_swap
 from torrcast.usecases.choice.taken_line import taken_line
 
 if TYPE_CHECKING:
+    from torrcast.ports.menu_paint import MenuPaint
     from torrcast.usecases.facts import Facts
     from torrcast.usecases.select.plan import Plan
 
@@ -52,8 +54,11 @@ def _pick_plan(
     называет сам человек.
 
     К каждой картине печатается справка (:mod:`torrcast.runtime.facts_wiring`) — рейтинг, хронометраж
-    и фраза о том, что это за кино. Её тут не ждут: что успело приехать фоном, то и печатается,
-    остальное просто не печатается.
+    и фраза о том, что это за кино. 🔴 Её тут не ждут ВОВСЕ: список печатается немедленно, а
+    приехавшее дописывается в уже показанные строки (:func:`_dress`) — зритель видит, как строка
+    дополняется, и отвечает в любую секунду этого дописывания.
+
+    Ждём справку ровно там, где дописывать её будет некому (:func:`_shown`).
 
     ``pick`` - номер пункта, названный флагом ``--pick N``: вопрос тогда не задаётся
     вовсе, и терминал не нужен. Это не молчаливая подмена, а названный человеком выбор -
@@ -71,7 +76,7 @@ def _pick_plan(
     if pick is not None and not 1 <= pick <= len(plans):
         raise env.not_found_error(f"подходит картин: {len(plans)}, номера {pick} нет")
     if pick is not None:  # номер назвал сам человек - ни вопроса, ни подмены
-        env.write(menu_lines(plans, facts))
+        _shown(env, plans, facts, dress=False).close()
         return plans[pick - 1]
     if len(plans) == 1:
         return plans[0]
@@ -79,17 +84,45 @@ def _pick_plan(
     if certain_default(plans, asked):
         env.write(taken_line(plans, default, asked))
         return plans[default - 1]
-    env.write(menu_lines(plans, facts))
-    if not env.stdin_is_tty():
-        raise env.not_found_error(
-            f"подходит картин: {len(plans)}, а терминала нет - вслепую не выбираю; "
-            f"назови картину точно (например «{plans[default - 1].picture.title}») "
-            f"или её номер (--pick N), либо запусти cast в терминале"
-        )
-    if note := part_one_swap(plans, asked):
-        # Дефолт подменил бы спрошенную часть другой - тогда его нет вовсе: строка
-        # называет, что с первой частью, список на экране, номер зовёт человек.
-        env.write(note)
-        return plans[env.ask("Что смотрим?", len(plans), default=None) - 1]
-    env.write(default_line(plans, default))
-    return plans[env.ask("Что смотрим?", len(plans), default=default) - 1]
+    menu = _shown(env, plans, facts, dress=env.stdin_is_tty())
+    try:
+        if not env.stdin_is_tty():
+            raise env.not_found_error(
+                f"подходит картин: {len(plans)}, а терминала нет - вслепую не выбираю; "
+                f"назови картину точно (например «{plans[default - 1].picture.title}») "
+                f"или её номер (--pick N), либо запусти cast в терминале"
+            )
+        if note := part_one_swap(plans, asked):
+            # Дефолт подменил бы спрошенную часть другой - тогда его нет вовсе: строка
+            # называет, что с первой частью, список на экране, номер зовёт человек.
+            env.write(note)
+            return plans[env.ask("Что смотрим?", len(plans), default=None) - 1]
+        env.write(default_line(plans, default))
+        return plans[env.ask("Что смотрим?", len(plans), default=default) - 1]
+    finally:
+        # Меню отвечено: сперва отписываем его от справки, потом отпускаем экран - иначе
+        # опоздавшая на миллисекунду строка писала бы уже в чужой вывод.
+        if facts is not None:
+            facts.watch(None)
+        menu.close()
+
+
+def _shown(
+    env: ChoiceEnvironment, plans: list[Plan], facts: Facts | None, dress: bool
+) -> MenuPaint:
+    """Напечатать список; ``dress`` - дописывать ли в него приезжающую справку.
+
+    Дописывать её есть смысл ровно там, где человек смотрит на список и отвечает: строка
+    дополняется у него на глазах. Где вопроса не будет вовсе или вывод ушёл не на экран
+    (труба, файл, юнит), переписать напечатанное уже нечем - там справку ждут, как ждали:
+    лучше подождать полторы секунды и напечатать со справкой, чем напечатать голое навсегда.
+    """
+    menu = env.menu()
+    dress = dress and menu.live and facts is not None
+    if facts is not None and not dress:
+        facts.wait()
+    blocks = menu_blocks(plans, facts)
+    menu.show([line for block in blocks for line in block])
+    if dress and facts is not None:
+        _dress(menu, plans, blocks, facts)
+    return menu

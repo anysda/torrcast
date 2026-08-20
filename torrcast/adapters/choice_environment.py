@@ -10,6 +10,7 @@ from typing import Any
 
 from torrcast.adapters.console.console import stdin_is_tty as _tty
 from torrcast.adapters.console.console.ask import ask
+from torrcast.adapters.console.live_menu import LiveMenu
 from torrcast.adapters.filesystem.trace_journal.emit import emit
 from torrcast.domain.debug_handles import CTL_ENV
 from torrcast.domain.facts.fact import Fact
@@ -17,6 +18,7 @@ from torrcast.domain.facts.origin import Origin
 from torrcast.domain.facts.shorten import shorten
 from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.rank_settings import ALIVE_SEEDERS
+from torrcast.ports.menu_paint import MenuPaint
 
 #: Правила соседних сценариев, которых адаптеру не назвать импортом: ранжирование, добор
 #: и справка лежат слоем выше. Кладёт их сюда композиционный корень
@@ -89,6 +91,11 @@ class _SystemChoiceEnvironment:
     @staticmethod
     def ask(question: str, count: int, default: int | None = 1) -> int:
         return ask(question, count, default)
+
+    @staticmethod
+    def menu() -> MenuPaint:
+        """Показ меню на весь один вопрос: своё состояние экрана у каждого меню."""
+        return LiveMenu()
 
     @staticmethod
     def columns() -> int:

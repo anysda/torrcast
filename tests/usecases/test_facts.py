@@ -18,6 +18,11 @@ def _menu(source: FakeBlurbSource, store: FakeBlurbStore, budget: float = 5.0) -
     return Facts([MOANA_KEY], budget, store=store, source=source)
 
 
+def _found(_wanted: list[tuple[str, int | None]]) -> dict[tuple[str, int | None], Fact]:
+    """Источник, которому есть что ответить: одна картина с рейтингом."""
+    return {MOANA_KEY: Fact(rating="IMDb 7.6")}
+
+
 def test_a_silent_source_leaves_the_menu_exactly_as_it_was() -> None:
     """Источник лёг — меню печатается прежней строкой и не ждёт ни секунды.
 
@@ -147,3 +152,69 @@ def test_a_half_ready_answer_never_covers_what_is_already_known() -> None:
 
     assert facts.get("Тачки", 2006).rating == "IMDb 7.2"
     assert store.remembered == [({CARS_KEY: Fact(about=CARS, rating="IMDb 7.2")}, [])]
+
+
+def test_what_already_arrived_is_given_out_without_a_single_wait() -> None:
+    """🔴 Меню справку не ждёт: спрашивает уже приехавшее и печатается немедленно.
+
+    Одна картина меню лежит в кэше, вторая - нет: за ней ушёл добор, и его держат не
+    отвечающим при бюджете в десять секунд. Дождись меню хоть чего-то из этого - и человек
+    смотрел бы на пустой экран вместо списка.
+    """
+    held = threading.Event()
+
+    def waiting(_wanted: list[tuple[str, int | None]]) -> dict[tuple[str, int | None], Fact]:
+        held.wait(10.0)
+        return {}
+
+    store = FakeBlurbStore({MOANA_KEY: Fact(rating="IMDb 7.6")})
+    facts = Facts([MOANA_KEY, CARS_KEY], 10.0, store=store, source=FakeBlurbSource(waiting))
+    facts.start()
+    started = time.monotonic()
+
+    assert facts.ready("Моана", 2016) == Fact(rating="IMDb 7.6")
+    assert facts.ready("Тачки", 2006) == Fact(), "не приехавшее - пустая справка, а не ожидание"
+    assert not facts._done.is_set(), "добор ещё идёт - и ровно его меню больше не ждёт"
+    assert time.monotonic() - started < 0.5, "ждать тут нечего и незачем"
+    held.set()
+
+
+def test_the_arrival_of_the_reference_is_told_to_whoever_is_watching() -> None:
+    """Приехавшую справку показанное меню узнаёт звонком, а не опросом по кругу.
+
+    Опрос стоил бы интерпретатора тем самым сетевым пробам, которые справку и добывают.
+    """
+    seen: list[Fact] = []
+    facts = _menu(FakeBlurbSource(_found), FakeBlurbStore())
+    facts.watch(lambda: seen.append(facts.ready("Моана", 2016)))
+    facts.start()
+    facts.finish()
+
+    assert Fact(rating="IMDb 7.6") in seen
+
+
+def test_a_watcher_that_broke_does_not_bring_down_the_top_up() -> None:
+    """Смотрящий упал - добор дописывает кэш дальше: справка не вправе ронять показ."""
+
+    def broken() -> None:
+        raise RuntimeError("экран уехал")
+
+    store = FakeBlurbStore()
+    facts = _menu(FakeBlurbSource(_found), store)
+    facts.watch(broken)
+    facts.start()
+    facts.finish()
+
+    assert store.stored == {MOANA_KEY: Fact(rating="IMDb 7.6")}, "итог всё равно лёг в кэш"
+
+
+def test_nobody_is_told_anything_after_the_menu_let_the_reference_go() -> None:
+    """Отписка обязана работать: меню ушло с экрана, и писать в чужой вывод нельзя."""
+    seen: list[str] = []
+    facts = _menu(FakeBlurbSource(_found), FakeBlurbStore())
+    facts.watch(lambda: seen.append("звонок"))
+    facts.watch(None)
+    facts.start()
+    facts.finish()
+
+    assert seen == []

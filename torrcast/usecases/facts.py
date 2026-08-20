@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import contextlib
 import threading
 import time
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 
 from torrcast.domain.facts.fact import Fact
 from torrcast.domain.facts.settings import FACTS_BUDGET, TOPUP_LIMIT
@@ -36,6 +37,7 @@ class Facts:
         self._thread: threading.Thread | None = None
         self._deadline = 0.0
         self._started = 0.0
+        self._seen: Callable[[], None] | None = None
 
     def start(self) -> None:
         """Пустить добор фоном. Ошибки внутри гасятся: справка не вправе ронять показ."""
@@ -52,13 +54,40 @@ class Facts:
         self._thread.start()
 
     def get(self, title: str, year: int | None) -> Fact:
-        """Справка по картине; не приехала к :attr:`budget` — пустая, и меню печатается.
+        """Справка по картине; не приехала к :attr:`budget` — пустая, и спрашивающий идёт дальше.
 
         Дедлайн один на всё меню, а не бюджет на строку: иначе франшиза из четырёх картин
         ждала бы молчащий источник вчетверо дольше обещанного.
         """
-        self._done.wait(max(0.0, self._deadline - time.monotonic()))
+        self.wait()
+        return self.ready(title, year)
+
+    def ready(self, title: str, year: int | None) -> Fact:
+        """Справка, которая УЖЕ приехала; ждать нечего - пустая, и это законный ответ.
+
+        Так её спрашивает меню: список нужен человеку сразу, а приехавшее позже
+        дописывается в уже показанную строку (:func:`~torrcast.usecases.choice._dress._dress`).
+        """
         return self.found.get((title, year), Fact())
+
+    def wait(self) -> None:
+        """Дождаться справки в пределах :attr:`budget` - там, где дописывать её некому.
+
+        Ждать имеет смысл ровно тогда, когда показанную строку уже не переписать: вывод
+        ушёл в файл или в трубу, вопроса не будет вовсе (``--pick N``, одна картина), или
+        терминала нет и спрашивать некого. Тогда лучше подождать и напечатать со справкой,
+        чем напечатать голое навсегда.
+        """
+        self._done.wait(max(0.0, self._deadline - time.monotonic()))
+
+    def watch(self, seen: Callable[[], None] | None) -> None:
+        """Кого звать, когда справки прибавилось; ``None`` - больше не звать никого.
+
+        Зовут отсюда показанное меню: оно дописывает приехавшее в свои строки. Звонок
+        идёт из потока добора, а отписка обязана случиться раньше, чем меню уйдёт с
+        экрана, - иначе опоздавшая справка писала бы в чужой уже вывод.
+        """
+        self._seen = seen
 
     def finish(self) -> None:
         """Дать добору дописать кэш - уже ПОСЛЕ меню, чтобы следующее было полным.
@@ -93,6 +122,7 @@ class Facts:
             self.store.remember(
                 fresh, [key for key in missing if key not in fresh and key in answered]
             )
+            self._tell()
         except Exception:
             pass
         finally:
@@ -112,3 +142,12 @@ class Facts:
         полуфабрикатом не накрываем: лежащее слева уступает тому, что уже есть.
         """
         self.found = {**part, **self.found}
+        self._tell()
+
+    def _tell(self) -> None:
+        """Сказать смотрящему, что справки прибавилось; его отказ не роняет добор."""
+        seen = self._seen
+        if seen is None:
+            return
+        with contextlib.suppress(Exception):
+            seen()
