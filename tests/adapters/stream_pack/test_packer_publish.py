@@ -161,9 +161,50 @@ def test_a_piece_shrunk_in_place_is_not_reported_as_a_failed_merge(tmp_path: Pat
         return True
 
     run.shrink = shrink
-    _lay_out(run, _always)
+    _lay_out(
+        run,
+        _always,
+        merge=lambda *a, **k: False,
+        shift_of=lambda *a: 0.0,
+        keyless=lambda piece: False,
+    )
 
     assert told == [(0, "ужатие")], "ужатый кусок назван перекодом - это ложный стык в журнале"
+
+
+def test_a_piece_shrunk_in_place_goes_out_with_the_audio_of_its_own_copy(tmp_path: Path) -> None:
+    """🔴 TC-708. Ужатие - второй прогон ffmpeg, и звук у него свой: сетка AAC считается
+    от ``-ss`` прогона, а у соседей ``-ss`` другой.
+
+    Живой замер на приставке (1080p, 13.5 Мбит/с, ужато одно место окна): у соседей-копий
+    стык звука +0.021333 с - ровно один кадр AAC, - а у ужатого места на входе +0.074667
+    (дыра 53 мс) и на выходе -0.053334 (метки назад). Приёмник на этом месте сам говорит
+    ``DEMUXER_UNDERFLOW`` по звуку и встаёт в BUFFERING: 4.1-4.3 с потерянной плёнки в
+    прогонах без склейки против нуля в трёх прогонах подряд с ней. Тяжёлая копия этого же
+    места лежит рядом, и её звук - тот самый непрерывный поток, что уехал в соседей.
+    """
+    seen: list[tuple[str, str]] = []
+    told: list[tuple[int, str]] = []
+    spare = tmp_path / "recode"
+    spare.mkdir()
+    run = packer(tmp_path, spare=spare, cap=10, told=lambda slot, how: told.append((slot, how)))
+    lay(run.run, 0, size=100)
+
+    def merge(video: Path, audio: Path, dst: Path, **kwargs: Any) -> bool:
+        seen.append((video.parent.name, audio.parent.name))
+        dst.write_bytes(b"m" * 5)
+        return True
+
+    def shrink(slot: int, size: int) -> bool:
+        lay(spare, slot, size=5)
+        return True
+
+    run.shrink = shrink
+    _lay_out(run, _always, merge=merge, shift_of=lambda *a: 0.0, keyless=lambda piece: False)
+
+    assert seen == [("recode", "pack")], "ужатое место ушло со звуком своего же прогона"
+    assert told == [(0, "ужатие")]
+    assert (run.out / "v0.ts").read_bytes() == b"m" * 5, "наружу ушла не склейка"
 
 
 def test_without_anyone_to_shrink_the_heavy_piece_the_publish_stops_on_it(

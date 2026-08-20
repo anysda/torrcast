@@ -10,6 +10,7 @@ import os
 from typing import TYPE_CHECKING
 
 from torrcast.adapters.stream_pack._segment_files import _names
+from torrcast.adapters.stream_pack._shrunk_out import _shrunk_out
 from torrcast.adapters.stream_pack.key_missing import key_missing
 from torrcast.adapters.stream_pack.merge_tracks import merge_tracks
 from torrcast.adapters.stream_pack.timeline_shift import timeline_shift
@@ -131,24 +132,34 @@ def _lay_out(
         # в памяти до потолка несданного, потолок гасил прогон, запрос приёмника
         # поднимал его заново - и круг повторялся, потому что тяжёлый кусок
         # детерминирован. Поэтому сначала одна попытка ужать кусок прямо сейчас
-        # (:attr:`shrink`) - перекод под потолок ложится в spare, и наружу идёт он,
-        # как есть: его звук - та же дорожка AAC, что у копии.
+        # (:attr:`shrink`) - перекод под потолок ложится в spare, и наружу идёт его
+        # картинка со звуком копии (:func:`_shrunk_out`): ужатие - это второй прогон
+        # ffmpeg над тем же местом, и звук он приносит свой, на своей сетке AAC.
         #
         # ⚠️ Зовётся этот исход «ужатие», а не «перекод», и это не синоним. «Перекод» -
         # это готовый кусок кодировщика, у которого склейка со звуком копии НЕ ВЫШЛА, то
-        # есть заявка на разбор стыка (:func:`torrcast.adapters.recode.note._note`). Ужатие
-        # на месте склейку не пробует вовсе - ему нечего склеивать, он сам и есть
-        # единственная версия куска. Пока оба звались одним словом, каждый ужатый кусок
-        # печатал «склейка не вышла, стык под вопросом»: на ровной сетке это 818 ложных
-        # заявок на разбор за фильм (TC-693).
+        # есть заявка на разбор стыка (:func:`torrcast.adapters.recode.note._note`). У ужатия
+        # своя запись в журнале, потому что и склеивает оно своё: не голову захода
+        # кодировщика, а единственное место, которое сам же и пересобрал. Пока оба звались
+        # одним словом, каждый ужатый кусок печатал «склейка не вышла, стык под вопросом»:
+        # на ровной сетке это 818 ложных заявок на разбор за фильм (TC-693).
         shrunk = oversized and state.shrink is not None and state.shrink(slot, size)
         if shrunk and better is not None:
+            source = _shrunk_out(
+                state.run,
+                slot,
+                path,
+                better,
+                state.cap,
+                merge=merge,
+                shift_of=shift_of,
+                keyless=keyless,
+            )
+            how = "ужатие"
             try:
-                oversized = better.stat().st_size > state.cap
+                oversized = source.stat().st_size > state.cap
             except OSError:
                 oversized = True
-            if not oversized:
-                source, how = better, "ужатие"
         if oversized:
             if how == "склейка":
                 source.unlink(missing_ok=True)
