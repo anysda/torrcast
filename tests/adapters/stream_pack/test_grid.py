@@ -5,7 +5,7 @@ import math
 import pytest
 
 from torrcast.adapters.stream_pack.grid import Grid
-from torrcast.domain.hls_settings import HLS_SEGMENT_SECONDS
+from torrcast.domain.hls_settings import GRID_WEIGHT_MARGIN, HLS_SEGMENT_SECONDS
 
 
 def test_a_uniform_grid_starts_at_zero_and_keeps_the_step() -> None:
@@ -93,3 +93,25 @@ def test_the_target_duration_is_the_longest_piece_rounded_up() -> None:
     grid = Grid.on_keyframes([0.0, 9.0, 21.0, 30.0, 45.0], 60.0, 10.0)
     assert grid.target() == math.ceil(max(grid.span(k) for k in range(grid.count)))
     assert grid.target() >= 1
+
+
+def test_a_piece_is_born_below_the_ceiling_and_not_exactly_at_it() -> None:
+    """Сетка целится ниже потолка: вес куска у неё предсказан, а не известен.
+
+    Замер по 84 сохранённым картам опорных кадров: у 0.75 % кусков предсказанный вес
+    стоит в пределах процента под потолком, и промах предсказателя решает их судьбу за
+    содержимое. Обещанный ровно в потолок кусок рождается за ним и уходит во второй
+    прогон ffmpeg над тем же местом.
+    """
+    keys = [round(k * 0.5, 3) for k in range(41)]
+    sizes = [int(place * 2.0e6) for place in keys]  # 2 МБ в секунду
+    cap = 8.0e6
+    grid = Grid.on_keyframes(keys, 20.0, 10.0, sizes=sizes, cap=cap)
+    assert grid.weigh is not None
+
+    body = range(grid.count - 1)  # хвост потолком веса не судится никогда
+    heaviest = max(grid.weigh(grid.start(k), grid.end(k)) for k in body)
+    assert heaviest <= cap * (1.0 - GRID_WEIGHT_MARGIN), (
+        f"кусок обещан в {heaviest:.0f} байт при потолке {cap:.0f} - это рождение за потолком"
+    )
+    assert max(grid.span(k) for k in body) < 10.0, "потолок веса не укоротил ни одного куска"

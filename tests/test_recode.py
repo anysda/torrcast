@@ -1581,15 +1581,18 @@ def test_the_grid_is_told_the_encoders_ceiling_not_its_average_target() -> None:
     перекоде ужатия на месте нет: перекодировать поверх перекода нечем).
 
     Карта тут не ровная, и это существенно: у сетки должен быть выбор. Опорные кадры
-    стоят парами (+9.5 и +13.4 от границы), поэтому обещание решает, какой из двух взять,
-    - а не только то, признает ли сетка кусок тяжёлым.
+    стоят парами (+9.5 и +13.2 от границы), поэтому обещание решает, какой из двух взять,
+    - а не только то, признает ли сетка кусок тяжёлым. Дальний кадр пары подобран так,
+    чтобы средняя цель принимала его и с отступом сетки под потолком
+    (:data:`torrcast.domain.hls_settings.GRID_WEIGHT_MARGIN`): промах в
+    :data:`MAXRATE_GAIN` вчетверо больше отступа, и ловить его обязано само обещание.
     """
     from torrcast.domain.config import Config
     from torrcast.domain.delivered_mbit import AUDIO_MBIT, TS_OVERHEAD
     from torrcast.domain.profile import CAUTIOUS
     from torrcast.usecases.playback.layout import layout
 
-    duration, period = 160.0, 13.4
+    duration, period = 160.0, 13.2
     at = sorted(
         t
         for k in range(int(duration / period) + 1)

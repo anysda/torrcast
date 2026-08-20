@@ -9,7 +9,11 @@ from typing import TYPE_CHECKING
 
 from torrcast.adapters.stream_pack._keyframe_bounds import _keyframe_bounds
 from torrcast.adapters.stream_pack.hls_manifest import hls_manifest
-from torrcast.domain.hls_settings import HLS_SEGMENT_SECONDS, MAX_SEGMENT_BYTES
+from torrcast.domain.hls_settings import (
+    GRID_WEIGHT_MARGIN,
+    HLS_SEGMENT_SECONDS,
+    MAX_SEGMENT_BYTES,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -97,6 +101,10 @@ class Grid:
         сцена-вспышка (много опорных кадров подряд) не дробит весь манифест, а правила
         весового потолка сохраняют прежний выбор.
 
+        Целится сетка не в сам потолок, а на :data:`GRID_WEIGHT_MARGIN` ниже: вес куска
+        тут предсказан, а не известен, и кусок, обещанный ровно в потолок, рождается за
+        ним на доли процента. Потолок при этом остаётся прежним - его отступ не двигает.
+
         **Потолок байт** — вторая половина правила, и она главная:
         приёмник Q70D срывается в BUFFERING на сегменте тяжелее ~19 МБ, сколько бы секунд
         в нём ни было. Поэтому граница берётся так: первый опорный кадр не раньше ``step``,
@@ -115,7 +123,14 @@ class Grid:
         кусок файла, который перекодируется целиком (:data:`RECODE_CODECS`).
         """
         bounds, copy = _keyframe_bounds(
-            keys, duration, step, sizes, extra_mbit, ceiling_mbit, cap, fixed_mbit
+            keys,
+            duration,
+            step,
+            sizes,
+            extra_mbit,
+            ceiling_mbit,
+            cap * (1.0 - GRID_WEIGHT_MARGIN),
+            fixed_mbit,
         )
         return cls(bounds, duration, True, copy, origin)
 
