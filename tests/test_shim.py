@@ -240,7 +240,7 @@ def test_silent_candidate_does_not_hide_working_fallback(
 ) -> None:
     """Первый молчун отдаёт место сменной альтернативе внутри бюджета маршрута."""
     budget = 1.5
-    blackhole = _blackhole()
+    blackhole = _Blackhole()
     origin, counter = backend
     route = shim.Route(
         "tracker.test",
@@ -514,28 +514,48 @@ def test_чужой_отказ_доезжает_когда_кандидаты_к
     assert first_hits.count == 1 and second_hits.count == 1, "спрошены обязаны быть все"
 
 
-def _blackhole() -> socket.socket:
+class _Blackhole:
     """Хост, который принимает соединение и молчит: TLS-рукопожатие к нему висит.
 
     Занятый им слот освобождается только по таймауту - ровно так ведёт себя больной
     фронт, из-за которого весь потолок и заведён.
-    """
-    srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    srv.bind(("127.0.0.1", 0))
-    srv.listen(8)
-    held: list[socket.socket] = []
 
-    def loop() -> None:
-        while True:
+    Свой поток закрывает :meth:`close`, и закрывает по отмашке, а не закрытым сокетом:
+    ``accept``, уже вставший в ядре, закрытие своего же сокета не будит, и поток
+    переживал пробу.
+    """
+
+    def __init__(self) -> None:
+        self._srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self._srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self._srv.bind(("127.0.0.1", 0))
+        self._srv.listen(8)
+        self._srv.settimeout(0.1)
+        self._held: list[socket.socket] = []
+        self._done = threading.Event()
+        self._thread = threading.Thread(target=self._loop, daemon=True)
+        self._thread.start()
+
+    def getsockname(self) -> Any:
+        return self._srv.getsockname()
+
+    def _loop(self) -> None:
+        while not self._done.is_set():
             try:
-                conn, _ = srv.accept()
+                conn, _ = self._srv.accept()
+            except TimeoutError:
+                continue
             except OSError:
                 return
-            held.append(conn)  # держим и не отвечаем
+            self._held.append(conn)  # держим и не отвечаем
 
-    threading.Thread(target=loop, daemon=True).start()
-    return srv
+    def close(self) -> None:
+        """Закрыть дыру ВМЕСТЕ с её потоком и всем, что она держит."""
+        self._done.set()
+        self._thread.join(timeout=5.0)
+        for conn in self._held:
+            conn.close()
+        self._srv.close()
 
 
 def _open_and_send(port: int, host: str) -> ssl.SSLSocket:
@@ -618,7 +638,7 @@ def test_dropped_client_frees_slot_at_once(
     таймаута. С новым - обрыв замечен, слот сразу свободен, и третий укладывается в один.
     """
     timeout = 2.0
-    blackhole = _blackhole()
+    blackhole = _Blackhole()
     sick_port = blackhole.getsockname()[1]
     try:
         stuck = _drop_then_third(tls, sick_port, timeout, present=lambda conn: True)

@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -15,6 +16,7 @@ from torrcast.adapters.warm_environment import environment
 from torrcast.usecases.warm.configure import configure
 from torrcast.usecases.warm.vault import Vault
 from torrcast.usecases.warm.warmer import Warmer
+from torrcast.usecases.warm.warmer_state import _State
 
 
 @dataclass
@@ -140,6 +142,29 @@ def world(kind: Any = None, **parts: Any) -> FakeEnvironment:
     return fake
 
 
+#: Сколько ждать нитку прогрева после снятия. Нитка узнаёт о снятии на ближайшем круге,
+#: то есть за миллисекунды; потолок стоит ради того, чтобы не подвесить прогон навсегда.
+QUIET = 5.0
+
+
+def quiet(warm: _State) -> None:
+    """Снять прогрев и ДОЖДАТЬСЯ его нитки - вместе с ниткой следующей серии.
+
+    :meth:`stop` только ставит флаг: нитка узнаёт о снятии на ближайшем круге, а до того
+    успевает и поспать, и поднять ffprobe - уже в среде СОСЕДНЕЙ пробы, потому что среду
+    прогрева она читает в момент вызова (:mod:`torrcast.usecases.warm._state`). Дожидается
+    нитку та проба, которая её и подняла: иначе покраснеет сосед.
+    """
+    warm.stop()
+    end = time.monotonic() + QUIET
+    chain: _State | None = warm
+    while chain is not None:
+        thread = chain.thread
+        if thread is not None:
+            thread.join(timeout=max(0.0, end - time.monotonic()))
+        chain = chain.after
+
+
 def grid(duration: float = 60.0, step: float = 10.0) -> Grid:
     """Ровная сетка: шесть кусков по десять секунд."""
     return Grid.uniform(duration, step)
@@ -170,6 +195,18 @@ def warmer(root: Path, **kwargs: Any) -> Warmer:
     store = kwargs.pop("vault", None) or vault(root)
     built: Warmer = kind(source="src", audio=0, grid=lines, vault=store, **kwargs)
     return built
+
+
+def follower(root: Path, **kwargs: Any) -> Warmer:
+    """Прогрев следующей серии для проб цепочки: нитку поднимает, а работы не берёт.
+
+    Проба цепочки меряет, ВЗЯЛИ ли следующую серию в работу; как она греется - предмет
+    других проб, и поднимать ради этого настоящий ffprobe незачем. ``trouble`` кончает
+    нитку на первом же круге и не трогает ``stopped``: по нему проверяется снятие показа.
+    """
+    made = warmer(root, **kwargs)
+    made.trouble = "проба цепочки: этому прогреву работы не дано"
+    return made
 
 
 def counting() -> tuple[Any, list[tuple[int, int, bool]]]:

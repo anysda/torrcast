@@ -11,12 +11,14 @@ import inspect
 import socket
 import subprocess
 import sys
+import threading
 import time
 from types import ModuleType
 from typing import TYPE_CHECKING
 
 import pytest
 
+from tests import thread_guard
 from tests.fakes import composition
 from tests.fakes.cast_world import CastWorld
 from tests.fakes.journal import Tape
@@ -151,6 +153,29 @@ MACHINE_TESTS = frozenset(
         "tests/test_swarm.py::test_the_grace_a_release_gets_is_the_price_of_dropping_it",
     }
 )
+
+
+_threads_before: set[threading.Thread] = set()
+
+
+def pytest_runtest_setup(item: pytest.Item) -> None:
+    """Запомнить потоки, которые были живы ДО пробы: чужие ей не в укор."""
+    global _threads_before
+    _threads_before = thread_guard.alive()
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_teardown(item: pytest.Item) -> Iterator[None]:
+    """Поток, переживший пробу, роняет её же, а не соседа (:mod:`tests.thread_guard`).
+
+    Обёрткой, а не обычным хуком: разбирать надо ПОСЛЕ финализаторов фикстур - иначе
+    сторож увидит поток, который фикстура как раз собирается закрыть.
+    """
+    result = yield
+    left = thread_guard.leaked(_threads_before)
+    if left:
+        pytest.fail(thread_guard.complain(item.nodeid, left), pytrace=False)
+    return result
 
 
 def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:

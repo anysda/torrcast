@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from tests.usecases.warm.world import lay, vault, warmer, world
+from tests.usecases.warm.world import follower, lay, quiet, vault, warmer, world
 from torrcast.usecases.warm.chain import _ask_follow, _chain, _nap
 from torrcast.usecases.warm.warmer import Warmer
 
@@ -41,7 +41,7 @@ def test_a_finished_episode_starts_the_next_one(
     """Серия легла целиком - следующая берётся в работу и защищается от бюджета."""
     fake = world()
     warm = _whole(tmp_path)
-    following = warmer(tmp_path, vault=vault(tmp_path, key="следующая"))
+    following = follower(tmp_path, vault=vault(tmp_path, key="следующая"))
     warm.follow = lambda: following
 
     _chain(warm)
@@ -50,7 +50,7 @@ def test_a_finished_episode_starts_the_next_one(
     assert following.thread is not None, "следующую серию взяли, а нитку не подняли"
     assert warm.vault.key in following.vault.keep, "бюджет выел бы текущую серию первой"
     assert "прогрев следующей серии" in [name for name, _facts in fake.marks]
-    following.stop()
+    quiet(warm)
 
 
 class _Rival:
@@ -65,14 +65,14 @@ def test_the_chain_hands_over_the_reserve_and_the_rival(
     """Соседу достаются и запас показа, и кодировщик: процессор и раздача у них общие."""
     world()
     warm = _whole(tmp_path)
-    following = warmer(tmp_path, vault=vault(tmp_path, key="следующая"))
+    following = follower(tmp_path, vault=vault(tmp_path, key="следующая"))
     warm.slack, warm.rival = 42.0, _Rival()
     warm.follow = lambda: following
 
     _chain(warm)
 
     assert following.slack == 42.0 and following.rival is warm.rival
-    following.stop()
+    quiet(warm)
 
 
 def test_a_chain_never_goes_two_episodes_ahead(
@@ -86,14 +86,14 @@ def test_a_chain_never_goes_two_episodes_ahead(
     def _follow() -> Warmer:
         nonlocal asked
         asked += 1
-        return warmer(tmp_path, vault=vault(tmp_path, key=f"следующая{asked}"))
+        return follower(tmp_path, vault=vault(tmp_path, key=f"следующая{asked}"))
 
     warm.follow = _follow
     _chain(warm)
     _chain(warm)
 
     assert asked == 1, "цепочка ушла на две серии вперёд"
-    warm.stop()
+    quiet(warm)
 
 
 def test_there_is_nothing_to_chain_without_a_factory(

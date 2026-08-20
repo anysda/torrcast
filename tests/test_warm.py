@@ -22,7 +22,7 @@ import pytest
 
 from tests.conftest import CLIP_SECONDS, free_port
 from tests.fakes import composition
-from tests.usecases.warm.world import counting, live_tract
+from tests.usecases.warm.world import counting, live_tract, quiet
 from torrcast.adapters import warm_environment
 from torrcast.adapters.chromecast.mock.mock_receiver import MockReceiver
 from torrcast.adapters.filesystem.state.state import State
@@ -95,6 +95,18 @@ def _lay(vault: Vault, slot: int, size: int = 1024) -> Path:
 
 def _grid() -> Grid:
     return Grid.uniform(float(CLIP_SECONDS))
+
+
+def _bystander(tmp_path: Path) -> Warmer:
+    """Прогрев следующей серии, которому работы не дано: нитку поднимает и тут же кончает.
+
+    Пробы цепочки меряют, ВЗЯЛИ ли следующую серию в работу; как она греется - предмет
+    других проб, и настоящий ffmpeg ради этого поднимать незачем. ``trouble`` кончает
+    нитку на первом же круге и не трогает ``stopped``: по нему проверяется снятие показа.
+    """
+    nxt = Warmer(source="s2", audio=0, grid=_grid(), vault=_vault(tmp_path, key="следующая"))
+    nxt.trouble = "проба цепочки: этому прогреву работы не дано"
+    return nxt
 
 
 def _warm_clip_for_show(clip: str, tmp_path: Path) -> Grid:
@@ -471,7 +483,7 @@ def test_the_next_episode_starts_warming_only_when_this_one_is_on_disk(tmp_path:
     for slot in range(grid.count):
         _lay(mine, slot)
     calls: list[int] = []
-    nxt = Warmer(source="s2", audio=0, grid=grid, vault=_vault(tmp_path, key="следующая"))
+    nxt = _bystander(tmp_path)
 
     def follow() -> Warmer:
         calls.append(1)
@@ -483,7 +495,7 @@ def test_the_next_episode_starts_warming_only_when_this_one_is_on_disk(tmp_path:
     assert warmer.done and warmer.after is nxt, "следующая серия не взята в работу"
     assert nxt.thread is not None and calls == [1], "фабрика зовётся не один раз"
     assert mine.key in nxt.vault.keep, "текущая серия не защищена от бюджета следующей"
-    warmer.stop()
+    quiet(warmer)
     assert nxt.stopped, "снятие показа обязано снимать и прогрев следующей серии"
 
 
@@ -506,7 +518,7 @@ def test_the_chain_waits_out_a_break_instead_of_giving_up_on_the_next_episode(
     mine = _vault(tmp_path, key="эта")
     for slot in range(grid.count):
         _lay(mine, slot)
-    nxt = Warmer(source="s2", audio=0, grid=grid, vault=_vault(tmp_path, key="следующая"))
+    nxt = _bystander(tmp_path)
     tries: list[int] = []
     said: list[str] = []
 
@@ -531,7 +543,7 @@ def test_the_chain_waits_out_a_break_instead_of_giving_up_on_the_next_episode(
     assert warmer.after is nxt, "цепочка сдалась на первом же обрыве - следующей серии нет"
     assert len(tries) == 3, f"следующую серию спросили {len(tries)} раз, а не до успеха"
     assert sum("не собрался" in line for line in said) == 1, said
-    warmer.stop()
+    quiet(warmer)
     assert nxt.stopped, "снятие показа обязано снимать и прогрев следующей серии"
 
 
@@ -617,7 +629,7 @@ def test_the_chain_outlives_a_film_whose_heavy_pieces_stay_copies(tmp_path: Path
         _lay(mine, slot, size=4096)
     _lay(mine, 1, size=4097)
     said: list[str] = []
-    nxt = Warmer(source="s2", audio=0, grid=grid, vault=_vault(tmp_path, key="следующая"))
+    nxt = _bystander(tmp_path)
     warmer = Warmer(
         source="s1",
         audio=0,
@@ -634,7 +646,7 @@ def test_the_chain_outlives_a_film_whose_heavy_pieces_stay_copies(tmp_path: Path
     assert all("интернет больше не нужен" not in line for line in said), said
     assert any("потолка приёмника" in line for line in said), "нет честной причины"
     assert warmer.after is nxt, "цепочка встала там, где работа прогрева кончилась"
-    warmer.stop()
+    quiet(warmer)
     assert nxt.stopped, "снятие показа обязано снимать и прогрев следующей серии"
 
 
@@ -966,14 +978,14 @@ def test_the_recoder_reaches_the_next_episode_warmer_too(tmp_path: Path) -> None
     следующей серии жжёт тот же процессор, что и прогрев этой."""
     grid = _grid()
     rival = _Rival()
-    nxt = Warmer(source="s2", audio=0, grid=grid, vault=_vault(tmp_path, key="следующая"))
+    nxt = _bystander(tmp_path)
     warmer = Warmer(source="s1", audio=0, grid=grid, vault=_vault(tmp_path, key="эта"), rival=rival)
     warmer.follow = lambda: nxt
     for slot in range(grid.count):
         _lay(warmer.vault, slot)
 
     warmer._chain()
-    nxt.stop()
+    quiet(warmer)
     assert nxt.rival is rival, "прогрев следующей серии не знает про кодировщика"
 
 

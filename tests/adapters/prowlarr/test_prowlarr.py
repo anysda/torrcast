@@ -602,9 +602,14 @@ def test_круг_уходит_по_кворуму_не_дожидаясь_ос�
     отговорили все четверо. Опоздавший (Nyaa) в этот момент ещё держит соединение - и
     раньше держал бы вместе с ним всё меню, до своего полного бюджета в 20 с."""
     client = _swarm(rows=2, hold={3})  # Nyaa не отпустят до отмашки
-    results = client.search("Naruto [TV]")  # аниме-запрос: Nyaa в основном круге
-    assert len(results) == 4  # Knaben и RuTor по две раздачи, Nyaa не дождались
-    assert client.silent == ()  # опоздавший - не молчун: он ещё в пути
+    try:
+        results = client.search("Naruto [TV]")  # аниме-запрос: Nyaa в основном круге
+        assert len(results) == 4  # Knaben и RuTor по две раздачи, Nyaa не дождались
+        assert client.silent == ()  # опоздавший - не молчун: он ещё в пути
+    finally:
+        # Отмашка и долив: поток опоздавшего дожидается тут, а не в чужой пробе.
+        _swarm_of(client).gate.set()
+        client.late(wait=5.0)
 
 
 def test_опоздавший_доливается_после_круга_а_не_теряется() -> None:
@@ -743,6 +748,8 @@ def test_след_отличает_опоздавшего_от_молчуна(jo
     объяснял бы задержку кругом, которого не было."""
     client = _swarm(rows=2, hold={3})
     client.search("Naruto [TV]")
+    _swarm_of(client).gate.set()  # отмашка опоздавшему: его поток кончается тут
+    client.late(wait=5.0)
     shutdown()
     (row,) = [r for r in records() if r.get("event") == "indexers"]
     assert row["late"] == ["Nyaa.si"]

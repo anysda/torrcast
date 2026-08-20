@@ -1729,8 +1729,10 @@ def test_a_long_decision_does_not_hold_up_a_neighbours_ready_segment(
     began = time.monotonic()
     found = feed.segment(7)
     took = time.monotonic() - began
+    (out / "v0.ts").write_bytes(b"x")  # решателю есть что вернуть - его нитка кончается тут
     decider.join(timeout=5)
 
+    assert not decider.is_alive(), "нитка решателя пережила пробу"
     assert found == ready, "готовый сегмент обязан вернуться"
     assert took < 0.8, f"сосед ждал замок, а не файл: {took:.2f} с при решении на 1.0 с"
 

@@ -375,12 +375,16 @@ def test_packing_torn_off_again_and_again_is_an_honest_infra_error(
     """
     config = config_for(tmp_path, tls)
     config.hls_readrate = 1.0  # реальное время: есть куда вклиниться посреди показа
-    killer = threading.Thread(target=_kill_when_playing, args=(config, str(tmp_path)), daemon=True)
+    enough = threading.Event()
+    killer = threading.Thread(
+        target=_kill_when_playing, args=(config, str(tmp_path), enough), daemon=True
+    )
     killer.start()
     try:
         with pytest.raises(InfraError) as caught:
             _play(config, clip, 0, "тест", _Clock(), duration=float(CLIP_SECONDS))
     finally:
+        enough.set()  # показ сдался - сносить больше некого
         killer.join(timeout=30)
     assert "упаковка оборвалась: убит сигналом 9" in str(caught.value)
     assert "начинаю заново" in capsys.readouterr().out, "обрыв показ переживает молча"
@@ -397,20 +401,23 @@ def _probe(path: Path) -> list[dict[str, Any]]:
     return streams
 
 
-def _kill_when_playing(config: Config, pattern: str) -> None:
+def _kill_when_playing(config: Config, pattern: str, enough: threading.Event) -> None:
     """Сносить упаковку, как только она поднимется, — и так пока показ не сдастся.
 
     Ждём кусок в каталоге прогона, а не снаружи: наружу он попадёт только после
     :meth:`Packer.publish`, и к тому времени можно не успеть вклиниться.
+
+    ``enough`` кончает поток сразу: без отмашки он доживал до своего срока уже в чужой
+    пробе и сносил бы её процессы.
     """
     out = Path(config.hls_dir)
     deadline = time.monotonic() + 60
-    while time.monotonic() < deadline:
+    while not enough.is_set() and time.monotonic() < deadline:
         if list(out.glob("**/v*.ts")):
             for pid in _own_pids(pattern):  # только свои: соседний прогон не наше дело
                 with contextlib.suppress(OSError):
                     os.kill(pid, signal.SIGKILL)
-        time.sleep(0.3)
+        enough.wait(0.3)
 
 
 #: Метка этого прогона. Она попадает в окружение всех потомков (ffmpeg поднимается

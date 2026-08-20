@@ -1,5 +1,6 @@
 """Проверяет сценарий паспорта: кэш, статья, офлайн-карта и потолок по времени."""
 
+import threading
 import time
 from dataclasses import replace
 from typing import Any
@@ -50,16 +51,23 @@ def test_origin_yields_empty_when_the_reference_raises() -> None:
 def test_origin_never_blocks_past_budget_when_the_reference_hangs() -> None:
     """Справка молчит (залипший сокет) - паспорт уходит по бюджету, а не держит поиск."""
 
+    # Отмашкой, а не сном: поток справки надо отпустить в конце пробы, иначе он
+    # доживает свой залипший сокет уже в среде соседа.
+    stuck = threading.Event()
+
     def never(title: str, series: bool, timeout: float) -> Origin:
-        time.sleep(30)
+        stuck.wait(30)
         return Origin(title="Ascension")
 
     started = time.monotonic()
-    found = _passport(FakeArticleSource(never)).of("Восхождение", budget=0.3)
-    elapsed = time.monotonic() - started
+    try:
+        found = _passport(FakeArticleSource(never)).of("Восхождение", budget=0.3)
+        elapsed = time.monotonic() - started
 
-    assert found == Origin(), "залипшая справка не должна протащить свой ответ"
-    assert elapsed < 3.0, "паспорт обязан вернуться по бюджету, а не ждать сокет"
+        assert found == Origin(), "залипшая справка не должна протащить свой ответ"
+        assert elapsed < 3.0, "паспорт обязан вернуться по бюджету, а не ждать сокет"
+    finally:
+        stuck.set()
 
 
 def test_справка_называет_источник_каждого_ответа() -> None:

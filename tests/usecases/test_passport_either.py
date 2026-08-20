@@ -1,5 +1,6 @@
 """Проверяет режим «оба типа»: согласие двух путей и второй источник года."""
 
+import threading
 import time
 
 from tests.fakes.date_source import FakeDateSource
@@ -155,15 +156,22 @@ def test_both_types_together_fit_into_one_budget_not_two() -> None:
         time.sleep(budget * 0.8)  # оба пути уложились в срок, но съели почти весь
         return Origin() if series else lone
 
+    # Отмашкой, а не сном: поток второго источника надо отпустить в конце пробы,
+    # иначе он доживает свой срок уже в среде соседа.
+    stuck = threading.Event()
+
     def slow_wikidata(entity: str, timeout: float) -> int:
-        time.sleep(budget)  # остатка срока на второй источник уже нет
+        stuck.wait(budget)  # остатка срока на второй источник уже нет
         return 2016
 
     either = PassportEither(slow_paper, FakeDateSource(slow_wikidata))
     started = time.monotonic()
-    found = either.of("Моана", budget=budget)
-    elapsed = time.monotonic() - started
+    try:
+        found = either.of("Моана", budget=budget)
+        elapsed = time.monotonic() - started
 
-    assert found.title == "Moana", "имя одинокого ответа остаётся - справка не замолкает"
-    assert found.year is None, "второй источник не успел - год неподтверждён, и мы молчим"
-    assert elapsed < budget * 1.4, f"обещали {budget} с, ушло {elapsed:.2f} с"
+        assert found.title == "Moana", "имя одинокого ответа остаётся - справка не замолкает"
+        assert found.year is None, "второй источник не успел - год неподтверждён, и мы молчим"
+        assert elapsed < budget * 1.4, f"обещали {budget} с, ушло {elapsed:.2f} с"
+    finally:
+        stuck.set()

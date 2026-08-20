@@ -1,5 +1,6 @@
 """Проверяет сценарий справки к меню франшизы: кэш, дедлайн и дописывание после меню."""
 
+import threading
 import time
 from typing import Any
 
@@ -35,16 +36,23 @@ def test_a_silent_source_leaves_the_menu_exactly_as_it_was() -> None:
 def test_the_menu_never_waits_longer_than_its_budget() -> None:
     """Источник молчит (не отвечает вовсе) — меню уходит по бюджету, а не висит."""
 
+    # Отмашкой, а не сном: нитку справки надо отпустить в конце пробы, иначе она
+    # доживает своё молчание уже в среде соседа.
+    stuck = threading.Event()
+
     def never(_wanted: list[tuple[str, int | None]]) -> dict[tuple[str, int | None], Fact]:
-        time.sleep(30)
+        stuck.wait(30)
         return {}
 
     facts = _menu(FakeBlurbSource(never), FakeBlurbStore(), budget=0.3)
     facts.start()
     started = time.monotonic()
 
-    assert facts.get("Моана", 2016) == Fact()
-    assert time.monotonic() - started < 3.0
+    try:
+        assert facts.get("Моана", 2016) == Fact()
+        assert time.monotonic() - started < 3.0
+    finally:
+        stuck.set()
 
 
 def test_the_network_answer_does_not_throw_away_what_the_cache_had() -> None:

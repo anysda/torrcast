@@ -9,7 +9,9 @@ from tests.usecases.warm.world import (
     FakeEnvironment,
     counting,
     falling,
+    follower,
     lay,
+    quiet,
     vault,
     warmer,
     world,
@@ -76,7 +78,7 @@ def test_a_whole_film_says_it_is_ready_and_moves_to_the_next_episode(tmp_path: P
     fake = world()
     said: list[str] = []
     warm = warmer(tmp_path, slack=GUARD_HIGH + 1.0, log=said.append)
-    following = warmer(tmp_path, vault=vault(tmp_path, key="следующая"))
+    following = follower(tmp_path, vault=vault(tmp_path, key="следующая"))
     warm.follow = lambda: following
     for slot in range(warm.grid.count):
         lay(warm.vault, slot)
@@ -87,7 +89,7 @@ def test_a_whole_film_says_it_is_ready_and_moves_to_the_next_episode(tmp_path: P
     assert fake.named("прогрев готов")["секунд"] == round(warm.grid.duration)
     assert (fake.events[0][0], fake.events[0][1]) == ("warmth", ("ready",))
     assert warm.after is following, "цепочка не тронулась после готовой серии"
-    following.stop()
+    quiet(warm)
 
 
 def test_heavy_places_without_a_recode_stop_the_work_but_not_the_chain(tmp_path: Path) -> None:
