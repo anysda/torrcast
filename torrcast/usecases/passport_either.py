@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-import contextlib
-import threading
 import time
 from collections.abc import Callable
+from functools import partial
 
 from torrcast.domain.facts.origin import Origin, _same_picture_origin
 from torrcast.domain.facts.settings import (
@@ -17,6 +16,7 @@ from torrcast.domain.facts.settings import (
 from torrcast.domain.facts.with_source import with_source
 from torrcast.domain.facts.without_source import without_source
 from torrcast.ports.date_source import DateSource
+from torrcast.usecases.lookers import Lookers
 
 
 class PassportEither:
@@ -25,6 +25,9 @@ class PassportEither:
     def __init__(self, typed: Callable[[str, bool, float], Origin], dates: DateSource) -> None:
         self.typed = typed
         self.dates = dates
+        # Нитка одна на ИМЯ и одна на сущность, а не на запрос: см. :meth:`of`.
+        self._papers: Lookers[Origin] = Lookers()
+        self._years: Lookers[int] = Lookers()
 
     def of(self, title: str, budget: float = FACTS_BUDGET) -> Origin:
         """Паспорт, когда тип картины неизвестен: пробуем и фильм, и сериал, верим согласию.
@@ -59,19 +62,23 @@ class PassportEither:
         есть режим «оба типа» стоил вдвое дороже обещанного. Пока потолок был полторы секунды,
         лишняя терялась в шуме; на пустой выдаче, где справке отдают весь остаток цели, эти
         «вдвое» - вся цель до картинки. Считаем от срока: сколько осталось, столько и спрашиваем.
+
+        🔴 TC-723. Поток тут ОДИН НА ИМЯ И ТИП, а не на запрос. Срок отпускает
+        спрашивающего, но оборвать поток, залипший в системном вызове, нечем - он живёт
+        дальше и доживает своё уже в показе. Ждать его закрытия здесь нельзя: по сроку
+        отвечают человеку, и потолок ожидания справки продуктовый. Лечится не длительность,
+        а число (:class:`~torrcast.usecases.lookers.Lookers`); заодно опоздавший ответ пишет сам
+        поток, и следующему спросившему он достаётся даром.
         """
         deadline = time.monotonic() + budget
-        box: dict[bool, Origin] = {}
-
-        def look(series: bool) -> None:
-            box[series] = self.typed(title, series, budget)
-
-        threads = [threading.Thread(target=look, args=(s,), daemon=True) for s in (False, True)]
-        for thread in threads:
-            thread.start()
-        for thread in threads:
+        wave = [
+            self._papers.looker((title, series), partial(self.typed, title, series, budget))
+            for series in (False, True)
+        ]
+        for thread in wave:
             thread.join(max(0.0, deadline - time.monotonic()))
-        movie, show = box.get(False, Origin()), box.get(True, Origin())
+        movie = self._papers.found((title, False)) or Origin()
+        show = self._papers.found((title, True)) or Origin()
         if movie and show:
             return movie if _same_picture_origin(movie, show) else Origin()
         lone = movie or show
@@ -113,6 +120,9 @@ class PassportEither:
         ответа он есть (иначе сверять нечего) и есть чем спросить второй источник (``entity``).
         Латинописанное аниме приходит без Q-идентификатора - тогда второго источника нет, и
         год остаётся неподтверждённым, ровно как раньше.
+
+        Поток тут один на СУЩНОСТЬ (:class:`~torrcast.usecases.lookers.Lookers`): ключ у этого
+        вопроса естественный, и второй спрос про ту же картину заводил второй запрос.
         """
         if lone.year is None or not lone.entity:
             return None
@@ -122,17 +132,14 @@ class PassportEither:
         """Подтверждает ли Wikidata (P577) год статьи. Молчание/расхождение/ошибка - ``False``.
 
         Год живёт в бюджете справки, а лишний хоп его тратит, поэтому запрос идёт в отдельном
-        потоке с ``join`` по бюджету: залипший сокет держит демона, а не путь до меню. Любая
-        ошибка (сети нет, v6 висит в SYN-SENT, Wikidata ответила не так) - тоже ``False``:
-        неподтверждённый год честнее чужого.
+        потоке с ``join`` по бюджету: залипший сокет держит поток, а не путь до меню, и поток
+        этот один на сущность, а не на запрос. Любая ошибка (сети нет, v6 висит в SYN-SENT,
+        Wikidata ответила не так) - тоже ``False``: неподтверждённый год честнее чужого.
         """
-        box: list[int | None] = []
 
-        def work() -> None:
-            with contextlib.suppress(Exception):
-                box.append(self.dates.published(entity, min(HTTP_TIMEOUT, budget)))
+        def published() -> int:
+            # Молчание источника - ноль, и такой ответ не запоминается: переспросить его
+            # следующему никто не мешает (:class:`~torrcast.usecases.lookers.Lookers`).
+            return self.dates.published(entity, min(HTTP_TIMEOUT, budget)) or 0
 
-        thread = threading.Thread(target=work, daemon=True)
-        thread.start()
-        thread.join(budget)
-        return bool(box) and box[0] == year
+        return self._years.ask(entity, published, budget) == year

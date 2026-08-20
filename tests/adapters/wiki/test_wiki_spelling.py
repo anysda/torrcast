@@ -1,7 +1,10 @@
 """Проверяет разбор описки: подсказки Википедии и поиск по куску заголовка."""
 
+import threading
+import time
 from typing import Any
 
+from tests import thread_guard
 from tests.articles import STRANGERS, SURPRISED, page
 from tests.fakes.json_client import FakeJsonClient
 from torrcast.adapters.wiki.wiki_spelling import WikiSpelling
@@ -69,3 +72,30 @@ def test_a_short_name_is_never_searched_by_a_piece_of_itself() -> None:
     WikiSpelling(client).look("сальтберн", False, 1.0)
 
     assert not [params for _host, _path, params in client.calls if "intitle" in str(params)]
+
+
+def test_the_spelling_wave_is_closed_by_the_one_who_raised_it() -> None:
+    """🔴 TC-723. Разбор описки закрывает за собой поднятые нитки, а не бросает доживать.
+
+    Три способа спросить идут разом, каждый своей ниткой. Брошенная по сроку нитка не
+    исчезает: она доживает свой залипший запрос уже в чужой работе - в бою это показ, в
+    прогоне соседняя проба, и красным там оказывается невиновный. Мера тут не «сколько
+    ждали», а «что осталось живым»: её и спрашивает сторож (:mod:`tests.thread_guard`).
+
+    Платит закрытие нитка выборки по имени, которая сюда и позвала: человек к этой
+    секунде отпущен потолком паспорта и ничего тут не ждёт.
+    """
+    late = threading.Event()
+
+    def slow(host: str, path: str, params: dict[str, str]) -> Any:
+        late.wait(0.5)  # Википедия отвечает, но много позже отведённого срока
+        return {"query": {"pages": []}}
+
+    before = thread_guard.alive()
+    started = time.monotonic()
+
+    WikiSpelling(FakeJsonClient(slow)).look("три слова тут", False, 0.05)
+
+    left = thread_guard.alive() - before
+    assert not left, f"нитки закрыл тот, кто их поднял, а живыми осталось {len(left)}: {left}"
+    assert time.monotonic() - started >= 0.5, "ответ отдан после закрытия, а не вместо него"

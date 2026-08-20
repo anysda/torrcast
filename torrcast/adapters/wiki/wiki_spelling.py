@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import contextlib
 import threading
+import time
 from typing import Any
 
+from torrcast.adapters.wiki.closed_wave import closed_wave
 from torrcast.adapters.wiki.endpoints import WIKI_HOST, WIKI_PATH
 from torrcast.domain.facts.near_name import _near_name
 from torrcast.domain.facts.origin import Origin
@@ -50,6 +52,15 @@ class WikiSpelling:
         цена ошибки у двух полей разная: именем добор ищет раздачи (худшее - лишние), а год
         объявлен сильнее выдачи, и неверным годом гейт молча выкидывает всю картину. У «ре
         зеро» это видно прямо: русская статья - о ранобэ 2014 года, аниме же вышло в 2016-м.
+
+        ⚠️ Срок тут ОДИН на всю волну, а не мерка каждой нитке. Три способа спросить идут
+        разом, но ждали их очередью, по ``timeout`` на каждого, - и потолок шага оказывался
+        втрое больше обещанного (замер: срок 0.20 с, шаг возвращался через 0.60 с). Внутрь
+        потолка справки такая очередь не влезает по построению, и стоит это не времени, а
+        самой справки: имя, написанное не так, доезжает уже никому не нужным.
+
+        Нитки подняты здесь - здесь и закрываются (:func:`closed_wave`). Платит закрытие
+        нитка выборки по имени, которая сюда и позвала, а не человек.
         """
         box: dict[str, list[Any]] = {}
 
@@ -70,12 +81,14 @@ class WikiSpelling:
             work.append(threading.Thread(target=suggest, args=("latin", latin), daemon=True))
         for thread in work:
             thread.start()
-        for thread in work:
-            thread.join(timeout)
+        keys = ("ru", "latin", "phrase")
+        in_time = closed_wave(
+            work, time.monotonic() + timeout, lambda: {key: list(box.get(key, [])) for key in keys}
+        )
         seen: set[str] = set()
         pages: list[Any] = []
-        for key in ("ru", "latin", "phrase"):
-            for page in box.get(key, []):
+        for key in keys:
+            for page in in_time[key]:
                 heading = str(page.get("title") or "")
                 if heading in seen or not _near_name(title, heading):
                     continue

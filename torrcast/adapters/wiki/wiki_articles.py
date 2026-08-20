@@ -6,6 +6,7 @@ import contextlib
 import threading
 import time
 
+from torrcast.adapters.wiki.closed_wave import closed_wave
 from torrcast.adapters.wiki.endpoints import WIKI_HOST, WIKI_PATH
 from torrcast.adapters.wiki.wiki_spelling import WikiSpelling
 from torrcast.domain.facts.extract_params import extract_params
@@ -90,6 +91,11 @@ class WikiArticles:
 
         Молчание любого из двух - не беда всей справки: ошибка одного шага не должна отнимать
         ответ у другого, поэтому каждый идёт своим потоком и своё исключение глотает сам.
+
+        Обе нитки подняты здесь, значит и закрыты будут здесь (:func:`closed_wave`): срок
+        отдаёт ответ спрашивающему, а брошенная нитка доживала бы своё уже в чужой работе.
+        Платит закрытие фоновая нитка паспорта, которая сюда и позвала, - не человек:
+        его потолок держит :meth:`~torrcast.usecases.passport.Passport._typed`.
         """
         box: dict[str, Origin] = {}
 
@@ -107,6 +113,6 @@ class WikiArticles:
         wave = [threading.Thread(target=work, daemon=True) for work in (by_search, by_spelling)]
         for thread in wave:
             thread.start()
-        for thread in wave:
-            thread.join(max(0.0, deadline - time.monotonic()))
-        return box.get("search") or box.get("spelling") or Origin()
+        return closed_wave(
+            wave, deadline, lambda: box.get("search") or box.get("spelling") or Origin()
+        )

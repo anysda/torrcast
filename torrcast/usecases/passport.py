@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import contextlib
-import threading
 import time
 
 from torrcast.domain.facts.origin import Origin
@@ -19,6 +17,7 @@ from torrcast.ports.article_source import ArticleSource
 from torrcast.ports.date_source import DateSource
 from torrcast.ports.name_catalogue import NameCatalogue
 from torrcast.ports.origin_store import OriginStore
+from torrcast.usecases.lookers import Lookers
 from torrcast.usecases.passport_either import PassportEither
 
 
@@ -36,6 +35,9 @@ class Passport:
         self.catalogue = catalogue
         self.store = store
         self.either = PassportEither(self._typed_now, dates)
+        # Нитка одна на ИМЯ, а не на запрос: см. :meth:`_typed` и :meth:`_catalogued`.
+        self._papers: Lookers[Origin] = Lookers()
+        self._maps: Lookers[Origin] = Lookers()
 
     def of(self, title: str, series: bool | None = False, budget: float = FACTS_BUDGET) -> Origin:
         """Паспорт картины из Википедии. Жёсткий потолок по времени и кэш на диске.
@@ -50,8 +52,9 @@ class Passport:
         уверенно приносила «Hannibal Rising», а без подсказки честно отвечает «1976».
 
         Молчание сети стоит ровно ``budget``: запрос живёт в отдельном потоке, и залипший
-        сокет держит не поиск, а демона, который умрёт вместе с процессом. Любая ошибка -
-        пустой паспорт: справка не вправе ни ронять поиск, ни задерживать его сверх обещанного.
+        сокет держит не поиск, а этот поток. Поток при этом один на ИМЯ, а не на запрос
+        (:class:`~torrcast.usecases.lookers.Lookers`). Любая ошибка - пустой паспорт: справка не
+        вправе ни ронять поиск, ни задерживать его сверх обещанного.
 
         ``series=None`` - тип картины неизвестен (русская выдача пуста, спросить его неоткуда),
         и это отдельный случай: см. :meth:`PassportEither.of`. У сериала и фильма разные
@@ -95,20 +98,24 @@ class Passport:
         Читать карту там, где её слово годится, никто не мешает: пустой паспорт и статья без
         года спрашивают её ровно как спрашивали - только уже не сверх срока
         (:meth:`_catalogued`).
+
+        🔴 TC-723. Поток тут ОДИН НА ИМЯ, а не на запрос. Срок отпускает спрашивающего, но
+        оборвать поток, залипший в системном вызове, нечем - он живёт дальше и доживает своё
+        уже в показе. Ждать его закрытия здесь нельзя: по сроку отвечают человеку, и потолок
+        ожидания справки продуктовый. Значит, лечится не длительность, а число: пока поток
+        заводился на каждый спрос, молчащая Википедия стоила по потоку за спрос. Заодно
+        опоздавший ответ перестал пропадать - его пишет сам поток
+        (:class:`~torrcast.usecases.lookers.Lookers`), и следующему спросившему он достаётся даром.
         """
-        box: list[Origin] = []
         deadline = time.monotonic() + budget
-
-        def work() -> None:
-            with contextlib.suppress(Exception):
-                box.append(self.articles.look(title, series, min(HTTP_TIMEOUT, budget)))
-
-        thread = threading.Thread(target=work, daemon=True)
-        thread.start()
-        thread.join(budget)
+        paper = self._papers.ask(
+            (title, series),
+            lambda: self.articles.look(title, series, min(HTTP_TIMEOUT, budget)),
+            budget,
+        )
         # Ответ сетевого пути подписан Википедией, если он сам не сказал иначе: последним шагом
         # статья спрашивает ту же карту, и её ответ подписан :data:`SOURCE_MAP`.
-        found = sourced(box[0] if box else Origin(), SOURCE_WIKI)
+        found = sourced(paper or Origin(), SOURCE_WIKI)
         # После страницы значений сетевому пути нужен второй запрос, и года у него нет.
         # Офлайн-каталог этот год и даёт. Для коротких имён это решающий признак: один
         # транслит не разводит старую картину и свежую тёзку.
@@ -148,15 +155,11 @@ class Passport:
         опоздавший паспорт не нужен никому.
 
         Файл читается один раз на процесс, так что не уложившийся поток дочитает его сам и
-        следующему спросившему карта достанется уже готовой.
+        следующему спросившему карта достанется уже готовой - тем же потоком, а не новым
+        (:class:`~torrcast.usecases.lookers.Lookers`): имя тут ключ, и второй спрос под ним
+        заводил второй разбор того же файла.
         """
-        box: list[Origin] = []
-
-        def look() -> None:
-            with contextlib.suppress(Exception):
-                box.append(self.catalogue.look(title, series))
-
-        thread = threading.Thread(target=look, daemon=True)
-        thread.start()
-        thread.join(budget)
-        return box[0] if box else Origin()
+        return (
+            self._maps.ask((title, series), lambda: self.catalogue.look(title, series), budget)
+            or Origin()
+        )

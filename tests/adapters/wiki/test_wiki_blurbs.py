@@ -1,8 +1,12 @@
 """Проверяет добор справки к меню: пакеты имён, порядок шагов и отказ украшений."""
 
+import threading
 import time
 from typing import Any
 
+import pytest
+
+from tests import thread_guard
 from tests.articles import CARS, MOANA, wiki_reply
 from tests.fakes.json_client import FakeJsonClient
 from tests.fakes.rating_dump import FakeRatingDump
@@ -196,3 +200,58 @@ def test_the_ratings_dump_is_read_alongside_the_first_request_not_after_it() -> 
     # Оба шага стартовали до того, как кончился любой из них - значит шли вместе.
     assert order[:2] == ["рейтинги-начало", "вики-начало"]
     assert spent < 0.55
+
+
+def test_the_batch_wave_is_closed_by_the_one_who_raised_it() -> None:
+    """🔴 TC-723. Пакеты имён уезжают разом, и закрывает их тот же, кто поднял.
+
+    Пакетов до трёх, и каждый едет своей ниткой. По сроку их бросали жить дальше:
+    брошенная нитка доживает залипший запрос уже в чужой работе - в бою это показ, в
+    прогоне соседняя проба, и красным там оказывается невиновный.
+
+    Платит закрытие фоновый добор справки, который сюда и позвал: меню отпущено своим
+    потолком задолго до этой секунды.
+    """
+    late = threading.Event()
+
+    def slow(host: str, path: str, params: dict[str, str]) -> Any:
+        late.wait(1.0)  # Википедия отвечает, но много позже отведённого срока
+        return wiki_reply()
+
+    blurbs = WikiBlurbs(FakeJsonClient(slow), FakeRatingDump())
+    before = thread_guard.alive()
+    started = time.monotonic()
+
+    with pytest.raises(OSError):  # ни один пакет не успел - это отказ сети, а не «статьи нет»
+        blurbs.extracts([CARS_KEY, ("Моана", 2016)], 0.05)
+
+    left = thread_guard.alive() - before
+    assert not left, f"нитки закрыл тот, кто их поднял, а живыми осталось {len(left)}: {left}"
+    assert time.monotonic() - started >= 1.0, "отказ отдан после закрытия, а не вместо него"
+
+
+def test_the_ratings_reader_is_closed_by_the_one_who_raised_it() -> None:
+    """🔴 TC-723. Нитку чтения выгрузки оценок закрывает тот, кто её поднял.
+
+    Выгрузка оценок читается рядом с первым запросом, отдельной ниткой, и по сроку её
+    бросали дочитывать файл в чужой работе. Ждать её дольше срока незачем - рейтинг это
+    украшение, - но закрыть за собой обязан тот, кто поднял.
+    """
+    late = threading.Event()
+
+    def slow_dump() -> dict[str, str]:
+        late.wait(1.0)  # выгрузка большая, первое чтение идёт долго
+        return {"tt0317219": "7.2"}
+
+    blurbs = WikiBlurbs(
+        FakeJsonClient(lambda host, path, params: wiki_reply()), FakeRatingDump(slow_dump)
+    )
+    before = thread_guard.alive()
+    started = time.monotonic()
+
+    found, _answered = blurbs.fetch([CARS_KEY], 0.05)
+
+    assert not found[CARS_KEY].rating, "оценка не успела к сроку - справка выходит без неё"
+    left = thread_guard.alive() - before
+    assert not left, f"нитку закрыл тот, кто её поднял, а живой осталась {left}"
+    assert time.monotonic() - started >= 1.0, "справка отдана после закрытия, а не вместо него"

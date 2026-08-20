@@ -218,3 +218,35 @@ def test_nobody_is_told_anything_after_the_menu_let_the_reference_go() -> None:
     facts.finish()
 
     assert seen == []
+
+
+def test_the_deadline_lets_the_menu_go_but_the_topup_thread_is_closed_by_its_owner() -> None:
+    """🔴 TC-723. Дедлайн отпускает МЕНЮ, а поток закрывает тот, кто его поднял.
+
+    Приём «подняли, подождали по сроку, бросили» тут не лежит, и это надо держать, а не
+    помнить: срок ждёт не поток, а событие (:meth:`Facts.wait`), и меню уходит печататься
+    ровно по нему. Поток же закрывается :meth:`Facts.finish` - её зовут в ``finally`` обе
+    команды, и опоздавшая справка успевает лечь в кэш, чтобы СЛЕДУЮЩЕЕ меню было полным.
+
+    Сторож потоков (:mod:`tests.thread_guard`) видит тут ровно то, что должен: после
+    пробы не осталось ничего живого. Без закрытия поток дописывал бы кэш уже в чужой
+    работе - в бою в показе, в прогоне в соседней пробе.
+    """
+
+    def late(_wanted: list[tuple[str, int | None]]) -> dict[tuple[str, int | None], Fact]:
+        time.sleep(1.0)  # источник отвечает много позже потолка меню
+        return {MOANA_KEY: Fact(rating="IMDb 7.6")}
+
+    store = FakeBlurbStore()
+    facts = _menu(FakeBlurbSource(late), store, budget=0.1)
+    facts.start()
+    started = time.monotonic()
+    facts.wait()
+    menu = time.monotonic() - started
+
+    assert menu < 0.5, f"меню отпущено по своему потолку, а ждало {menu:.2f} с"
+    assert facts.ready("Моана", 2016) == Fact(), "к потолку меню справка не приехала"
+
+    facts.finish()
+
+    assert store.stored[MOANA_KEY].rating == "IMDb 7.6", "опоздавшая справка легла в кэш"

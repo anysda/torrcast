@@ -3,6 +3,7 @@
 import threading
 import time
 
+from tests import thread_guard
 from tests.fakes.date_source import FakeDateSource
 from torrcast.domain.facts.origin import Origin
 from torrcast.domain.facts.settings import SOURCE_MAP, SOURCE_WIKI
@@ -193,3 +194,55 @@ def test_a_lone_answer_carries_the_proof_of_a_native_picture() -> None:
     got = PassportEither(lone, FakeDateSource(lambda entity, timeout: None)).of("Тени")
 
     assert got.native
+
+
+def test_one_name_is_asked_by_one_pair_of_threads_no_matter_how_many_ask() -> None:
+    """🔴 TC-723. Оба пути поднимают поток на ИМЯ И ТИП, а не на запрос.
+
+    Срок отпускает спрашивающего, но оборвать поток, залипший в системном вызове, нечем -
+    он живёт дальше и доживает своё уже в показе. Ждать его закрытия здесь нельзя: по
+    сроку отвечают ЧЕЛОВЕКУ, и потолок ожидания справки продуктовый. Значит, мера тут -
+    число потоков, и её спрашивает сторож (:mod:`tests.thread_guard`).
+    """
+    asked: list[bool] = []
+
+    def slow(title: str, series: bool, budget: float) -> Origin:
+        # Второго похода за тем же типом быть не должно, и его поток обязан пережить пробу.
+        again = series in asked
+        asked.append(series)
+        time.sleep(2.0 if again else 0.4)
+        return Origin(title="Ascension", year=1976)
+
+    either = PassportEither(slow, FakeDateSource())
+    before = thread_guard.alive()
+
+    assert either.of("Восхождение", 0.05) == Origin(), "в срок не приехало ничего"
+    found = either.of("Восхождение", 1.0)
+
+    assert found.title == "Ascension", "опоздавшие ответы достались следующему спросившему"
+    assert sorted(asked) == [False, True], f"походов должно быть два, а было {len(asked)}"
+    left = thread_guard.alive() - before
+    assert not left, f"поток на имя и тип один, а живыми осталось {len(left)}: {left}"
+
+
+def test_the_second_source_is_asked_by_one_thread_per_entity() -> None:
+    """🔴 TC-723. Второй источник года спрашивается потоком на СУЩНОСТЬ, а не на запрос."""
+    asked = 0
+
+    def slow(entity: str, timeout: float) -> int | None:
+        nonlocal asked
+        asked += 1
+        # Второго запроса про ту же сущность быть не должно, и его поток обязан пережить пробу.
+        time.sleep(2.0 if asked > 1 else 0.4)
+        return 1976
+
+    either = PassportEither(lambda title, series, budget: Origin(), FakeDateSource(slow))
+    before = thread_guard.alive()
+
+    assert not either.confirmed_year("Q1", 1976, 0.05), "в срок ответ не приехал"
+    confirmed = either.confirmed_year("Q1", 1976, 1.0)
+
+    assert confirmed, "опоздавший год достался следующему спросившему"
+    assert asked == 1, f"запрос про сущность один, а было их {asked}"
+    left = thread_guard.alive() - before
+    assert not left, f"поток на сущность один, а живыми осталось {len(left)}: {left}"

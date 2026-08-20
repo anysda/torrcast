@@ -5,6 +5,7 @@ import time
 from dataclasses import replace
 from typing import Any
 
+from tests import thread_guard
 from tests.fakes.article_source import FakeArticleSource
 from tests.fakes.date_source import FakeDateSource
 from tests.fakes.name_catalogue import FakeNameCatalogue
@@ -234,3 +235,64 @@ def test_an_empty_passport_is_never_written_to_the_cache() -> None:
 
     assert not empty
     assert store.written == []
+
+
+def test_one_name_is_asked_by_one_thread_no_matter_how_many_ask() -> None:
+    """🔴 TC-723. Поток тут один на ИМЯ, а не на запрос, и опоздавший ответ не пропадает.
+
+    Срок отпускает спрашивающего, но оборвать поток, залипший в системном вызове, нечем -
+    он живёт дальше и доживает своё уже в показе, а в прогоне красит ложным красным
+    соседнюю пробу. Ждать его закрытия здесь нельзя: по сроку отвечают ЧЕЛОВЕКУ, и потолок
+    ожидания справки продуктовый. Значит, мера тут - число потоков, и её спрашивает сторож
+    (:mod:`tests.thread_guard`).
+
+    Второй спрос про то же имя не заводит второго похода: он ждёт тот же поток, и ответ,
+    опоздавший к первому сроку, достаётся ему даром.
+    """
+    asked = 0
+
+    def slow(title: str, series: bool, timeout: float) -> Origin:
+        nonlocal asked
+        asked += 1
+        # Второго похода за тем же именем быть не должно, и его поток обязан пережить
+        # пробу: иначе сторож не увидит того, ради чего стоит.
+        time.sleep(2.0 if asked > 1 else 0.4)
+        return Origin(title="Ascension", year=1976)
+
+    passport = _passport(FakeArticleSource(slow))
+    before = thread_guard.alive()
+
+    assert passport.of("Восхождение", False, budget=0.05) == Origin(), "в срок не приехало"
+    found = passport.of("Восхождение", False, budget=1.0)
+
+    assert found.title == "Ascension", "опоздавший ответ достался следующему спросившему"
+    assert asked == 1, f"поход за именем один, а было их {asked}"
+    left = thread_guard.alive() - before
+    assert not left, f"поток на имя один, и он закрыт, а живыми осталось {len(left)}: {left}"
+
+
+def test_a_slow_map_is_read_by_one_thread_no_matter_how_many_ask() -> None:
+    """🔴 TC-723. Разбор карты - один поток на имя: второй спрос заводил второй разбор.
+
+    Карта читается один раз на процесс, но поток под неё заводился на каждый спрос: не
+    уложившийся в срок оставался жить, а следующий спрашивающий поднимал ещё один.
+    """
+    asked = 0
+
+    def slow_map(title: str, series: bool) -> Origin:
+        nonlocal asked
+        asked += 1
+        # Второго разбора того же файла быть не должно, и его поток обязан пережить пробу.
+        time.sleep(2.0 if asked > 1 else 0.4)
+        return Origin(year=1998)
+
+    passport = _passport(catalogue=FakeNameCatalogue(slow_map))
+    before = thread_guard.alive()
+
+    assert not passport._catalogued("Эксперименты Лэйн", True, 0.05), "в срок не приехало"
+    found = passport._catalogued("Эксперименты Лэйн", True, 1.0)
+
+    assert found.year == 1998, "опоздавший год достался следующему спросившему"
+    assert asked == 1, f"разбор карты один, а было их {asked}"
+    left = thread_guard.alive() - before
+    assert not left, f"поток на имя один, и он закрыт, а живыми осталось {len(left)}: {left}"

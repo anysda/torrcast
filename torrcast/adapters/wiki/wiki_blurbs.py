@@ -8,6 +8,7 @@ import time
 from collections.abc import Callable
 from typing import Any
 
+from torrcast.adapters.wiki.closed_wave import closed_wave
 from torrcast.adapters.wiki.endpoints import (
     SPARQL_HEAD,
     WIKI_HOST,
@@ -80,13 +81,15 @@ class WikiBlurbs:
         if entities:
             with contextlib.suppress(Exception):
                 ids = self.ids(sorted(set(entities.values())), timeout)
-        reader.join(timeout)
+        # Нитку выгрузки подняли здесь - здесь и закрываем: платит это фоновый добор,
+        # который сюда позвал, а меню отпущено своим потолком задолго до нас.
+        in_time = closed_wave([reader], time.monotonic() + timeout, lambda: scores)
         out: dict[tuple[str, int | None], Fact] = {}
         for key in wanted:
             imdb_id, minutes = ids.get(entities.get(key, ""), ("", 0))
             fact = Fact(
                 about=about.get(key, ""),
-                rating=f"IMDb {scores[imdb_id]}" if imdb_id in scores else "",
+                rating=f"IMDb {in_time[imdb_id]}" if imdb_id in in_time else "",
                 runtime=hms(minutes),
             )
             if fact:
@@ -143,8 +146,7 @@ class WikiBlurbs:
         wave = [threading.Thread(target=ask, args=(part,), daemon=True) for part in parts]
         for thread in wave:
             thread.start()
-        for thread in wave:
-            thread.join(max(0.0, deadline - time.monotonic()))
+        answers = closed_wave(wave, deadline, lambda: list(answers))
         if not answers:
             # Ни один пакет не ответил - это отказ сети, а не «статьи нет». Разница дорогая:
             # пустой ответ лёг бы в кэш на неделю и накрыл бы картину, про которую Википедия

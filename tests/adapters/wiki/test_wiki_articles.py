@@ -1,8 +1,10 @@
 """Проверяет синхронный поход в Википедию за паспортом картины."""
 
+import threading
 import time
 from typing import Any
 
+from tests import thread_guard
 from tests.articles import LAIN, page, wiki_reply
 from tests.fakes.date_source import FakeDateSource
 from tests.fakes.json_client import FakeJsonClient
@@ -85,3 +87,30 @@ def test_a_name_spelled_otherwise_is_answered_within_the_same_budget() -> None:
 
     assert found.title == "Serial Experiments Lain", "имя знает подсказчик, и оно обязано доехать"
     assert found.guessed, "имя лишь признано похожим - паспорт обязан это сказать"
+
+
+def test_the_two_step_wave_is_closed_by_the_one_who_raised_it() -> None:
+    """🔴 TC-723. Выборка по имени закрывает за собой обе нитки второго шага.
+
+    Поиск и разбор описки идут разом, каждый своей ниткой, и по сроку их бросали жить
+    дальше. Брошенная нитка доживает свой залипший запрос в чужой работе - в бою это
+    показ, в прогоне соседняя проба, и красным там оказывается невиновный.
+
+    Платит закрытие фоновая нитка паспорта, которая сюда и позвала: потолок ожидания
+    справки держит она, и от закрытия он не сдвигается.
+    """
+    late = threading.Event()
+
+    def slow(host: str, path: str, params: dict[str, str]) -> Any:
+        late.wait(1.0)  # Википедия отвечает, но много позже отведённого срока
+        return {"query": {"pages": []}}
+
+    articles = _articles(FakeJsonClient(slow), FakeNameCatalogue())
+    before = thread_guard.alive()
+    started = time.monotonic()
+
+    articles.look("Восхождение", False, 0.05)
+
+    left = thread_guard.alive() - before
+    assert not left, f"нитки закрыл тот, кто их поднял, а живыми осталось {len(left)}: {left}"
+    assert time.monotonic() - started >= 1.0, "ответ отдан после закрытия, а не вместо него"
