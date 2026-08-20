@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import torrcast.usecases.revive_playback._revive_state as _state
 from torrcast.domain.position import Position
 from torrcast.domain.revive_settings import REVIVE_LIMIT, REVIVE_TRIES
@@ -17,21 +19,33 @@ from torrcast.usecases.warm.warmer import Warmer
 from torrcast.usecases.watch import Watch
 
 
-def _first_frame(screen: _Screen, feed: Feed, position: Position, session_tag: str) -> None:
-    """Был ли на экране КАДР: право CLI сказать «старт NN с» даёт движение указателя."""
+def _first_frame(
+    screen: _Screen,
+    feed: Feed,
+    position: Position,
+    session_tag: str,
+    say_started: Callable[[], None] = lambda: None,
+) -> None:
+    """Был ли на экране КАДР: право сказать «старт NN с» даёт движение указателя."""
     if screen.seen or position.state != "PLAYING":
         return
-    # Картинка на экране - теперь CLI имеет право сказать «старт NN с». Право это
+    # Картинка на экране - теперь есть право сказать «старт NN с». Право это
     # даёт СДВИНУВШИЙСЯ указатель, а не слово ``PLAYING`` (см. :data:`still_at`):
     # приёмник объявляет себя играющим, ещё не набрав кадров, и на тяжёлом заходе
     # держит указатель на месте старта секунд шесть. Цена честности - один опрос
-    # (2 с) запаса в худшую сторону; цена прежней доверчивости была 5-6 с в лучшую.
+    # запаса в худшую сторону (в окне старта это :data:`FIRST_FRAME_POLL`, а не 2 с);
+    # цена прежней доверчивости была 5-6 с в лучшую.
     if screen.still_at < 0:
         screen.still_at = position.pos
     elif position.pos > screen.still_at:
         screen.seen = True
         _state._revive_playing_mark(feed.out)
-        if not screen.raised:
+        if screen.raised:
+            # Старт приёмник взял сам - и «старт NN с» говорится ровно сейчас, по
+            # кадру, а не по взятому LOAD: тот пришёлся бы на слово ``PLAYING``, а
+            # оно раньше картинки.
+            say_started()
+        else:
             # Старт приёмник не взял, картинку добыла лестница - и сказать об этом
             # обязаны мы: ``cast`` в этот момент печатает своё «старт NN с» по
             # флажку, а в журнале показа иначе не осталось бы ни строки о том,

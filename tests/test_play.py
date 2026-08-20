@@ -958,7 +958,9 @@ def test_the_darkness_is_named_in_the_state_and_not_called_a_show(
     assert "(TorrServer не отвечает) - картинки нет; источник не вернулся" in printed, (
         "человеку про темноту сказано числом, а не строкой «экран: … · IDLE»"
     )
-    assert "погашу через 0:00:02" in printed, "не сказано, когда показ сдастся сам"
+    # Граница сидит на такте опроса: с учащённым шагом окна старта последняя строка
+    # ложится ровно на срок сдачи.
+    assert "погашу через 0:00:00" in printed, "не сказано, когда показ сдастся сам"
     assert printed.count("экран:") == 1, "экраном названа только живая картинка, до темноты"
     assert "показ обеспечен до" not in printed, "обеспечивать в темноте уже нечего"
 
@@ -1521,8 +1523,10 @@ def test_a_blinking_source_takes_the_mock_receiver_dark_and_the_show_comes_back(
 
     first, own, revival = source.opens[0], source.opens[1:3], source.opens[3:]
     assert first == 1200.0, "показ начался с 20-й минуты"
-    assert own == [1208.0, 1208.0], "приёмник потратил на пропавшую картинку свои два LOAD"
-    assert revival == [1208.0], "воскрешение пришло снаружи - и ровно с места остановки"
+    # Полсекунды сетки: между словом PLAYING и первым кадром опрос идёт раз в
+    # FIRST_FRAME_POLL, и декодер заглушки успевает на полтика меньше.
+    assert own == [1208.5, 1208.5], "приёмник потратил на пропавшую картинку свои два LOAD"
+    assert revival == [1208.5], "воскрешение пришло снаружи - и ровно с места остановки"
     printed = capsys.readouterr().out
     assert "показ погас на 0:20:08" in printed, "заглушка бросила показ, а не досидела до конца"
     assert "сеть вернулась - поднимаю показ с 0:20:08" in printed
@@ -1572,7 +1576,8 @@ def test_a_source_that_never_returns_ends_the_show_on_the_mock_too(
 
     _hold(receiver, feed, None, warmer, clock=clock)  # type: ignore[arg-type]
 
-    assert source.opens == [1200.0, 1208.0, 1208.0], "после своих двух повторов - ни одного LOAD"
+    # Полсекунды сетки - от учащённого опроса между словом PLAYING и первым кадром.
+    assert source.opens == [1200.0, 1208.5, 1208.5], "после своих двух повторов - ни одного LOAD"
     assert clock.now - 1000.0 > REVIVE_LIMIT, "ждали ровно столько, сколько обещали"
     printed = capsys.readouterr().out
     assert "показ погас на 0:20:08" in printed

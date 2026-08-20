@@ -6,12 +6,13 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Callable
 
 import torrcast.usecases.revive_playback._revive_state as _state
 from torrcast.domain.debug_handles import TRACE_ENV
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.profile import CAUTIOUS, Profile
-from torrcast.domain.start_settings import PAUSE_LIMIT, PAUSE_SECONDS, SAY_SECONDS
+from torrcast.domain.start_settings import FIRST_FRAME_POLL, PAUSE_LIMIT, PAUSE_SECONDS, SAY_SECONDS
 from torrcast.ports.clock import Clock
 from torrcast.ports.journal.slot import journal
 from torrcast.ports.receiver import Receiver
@@ -45,8 +46,10 @@ def _hold(
     session_tag: str = "",
     start: float = 0.0,
     raised: bool = True,
+    say_started: Callable[[], None] = lambda: None,
 ) -> bool:
-    """Держим показ: опрос приёмника раз в 2 с, упаковка должна быть жива, из RAM уходит
+    """Держим показ: опрос приёмника раз в 2 с (между словом ``PLAYING`` и первым
+    кадром - раз в :data:`FIRST_FRAME_POLL`), упаковка должна быть жива, из RAM уходит
     только пройденное, сторож раз в 10 с пишет позицию.
 
     Перемотку здесь ловить больше нечем и незачем: приёмник видит весь фильм и на seek
@@ -70,6 +73,11 @@ def _hold(
     ``raised`` - взял ли приёмник старт. ``False`` - показа не было ни кадра, и первым же
     опросом им займётся лестница воскрешения (:meth:`_Revival.resurrect`): смерть на 0:00
     поднимается тем же путём, что и смерть посреди показа.
+
+    ``say_started`` - что сказать, когда приёмник показал ПЕРВЫЙ кадр. Говорится оно
+    по сдвинувшемуся указателю (:func:`_first_frame`), а не по взятому LOAD: словом
+    ``PLAYING`` приёмник отвечает раньше кадра, и «старт NN с» от него - заниженное
+    число.
     """
     clock = clock if clock is not None else _state._revive_clock
     session_tag = session_tag or f"[сеанс {journal().session_id()}]"
@@ -105,7 +113,7 @@ def _hold(
         screen.last = position.pos
         if position.pos > 0 and position.state not in {"BUFFERING", "IDLE"}:
             screen.held = position.pos
-        _first_frame(screen, feed, position, session_tag)
+        _first_frame(screen, feed, position, session_tag, say_started)
         _note_transitions(screen, feed, position)
         if show_trace:
             _trace_line(session_tag, feed, position)
@@ -174,4 +182,13 @@ def _hold(
             if feed.recoder is not None:
                 feed.recoder.played = position.pos
             feed.prune(position.pos)
-        clock.sleep(2.0)
+        # Между словом ``PLAYING`` и доказанным кадром приёмник спрашивается чаще: флажок
+        # «картинка» ставится только на этом круге, и при шаге 2 с строка «старт NN с»
+        # запаздывала за настоящим кадром на 1.9-3.8 с (:data:`FIRST_FRAME_POLL`). До слова
+        # ``PLAYING`` кадру взяться неоткуда, на паузе и в темноте указатель не двигается -
+        # там окна старта нет, и шаг обычный.
+        clock.sleep(
+            2.0
+            if screen.seen or screen.still_at < 0 or position.state in {"PAUSED", "IDLE"}
+            else FIRST_FRAME_POLL
+        )

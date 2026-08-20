@@ -7,12 +7,28 @@
 from __future__ import annotations
 
 from torrcast.domain.hls_wait import KEYS_WAIT, PILOT_TIMEOUT
-from torrcast.domain.start_settings import PAUSE_LIMIT, PAUSE_SECONDS, SAY_SECONDS, START_SLACK
+from torrcast.domain.start_settings import (
+    FIRST_FRAME_POLL,
+    PAUSE_LIMIT,
+    PAUSE_SECONDS,
+    SAY_SECONDS,
+    START_SLACK,
+)
 from torrcast.domain.start_timeout import START_TIMEOUT
 from torrcast.domain.worker_settings import WORKER_DUR, WORKER_META
 
 #: Как часто показ опрашивает приёмник: на этом такте и держится всё, что он говорит.
 POLL_SECONDS = 2.0
+
+
+def test_the_first_frame_poll_is_tighter_than_the_usual_one() -> None:
+    """До первого кадра приёмник спрашивается чаще обычного такта, иначе учащение бессмысленно.
+
+    Флажок «картинка» ставится только на круге опроса, поэтому шаг опроса - это и есть
+    запас вранья строки «старт NN с»: при обычном шаге она запаздывала за настоящим
+    кадром на 1.9-3.8 с. Выровняй срока - и строка снова отстанет на весь такт.
+    """
+    assert 0 < FIRST_FRAME_POLL < POLL_SECONDS
 
 
 def test_the_short_pause_is_shorter_than_the_one_that_ends_the_show() -> None:

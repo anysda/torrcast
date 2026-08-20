@@ -87,6 +87,24 @@ def test_a_refused_load_is_not_a_funeral(
     assert "поднимаю показ сам" in capsys.readouterr().out
 
 
+def test_the_start_is_named_by_the_first_frame_and_not_by_the_taken_load(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """LOAD взят, а указатель не сдвинулся - кадра не было, и «старт NN с» не звучит.
+
+    Взятый LOAD - это слово приёмника, а оно раньше картинки: на тяжёлом заходе
+    приёмник отвечает ``PLAYING`` за 5-6 с до первого кадра, и строка от этого момента
+    занижала старт ровно там, где по ней решают, уложился ли показ в срок.
+    """
+    receiver = _Screening()
+    receiver.script = [(0.0, "PLAYING"), (0.0, "PLAYING"), (-1.0, "IDLE")]
+
+    code = _play(_config(tmp_path), "file:///нет-такого", 0, "«Кино»", _Clock(), receiver=receiver)
+
+    assert code == EXIT_OK
+    assert "играю «Кино»" not in capsys.readouterr().out
+
+
 def test_the_grid_is_named_to_the_receiver(tmp_path: Path) -> None:
     """Приёмник спотыкается о сетку - и показ обязан назвать её ему на каждой серии."""
     receiver = _Screening()

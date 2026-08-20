@@ -132,7 +132,9 @@ def _play(
             print(f"{session_tag} {why(exc)} - поднимаю показ сам", flush=True)
         else:
             journal().mark("LOAD взят")
-            print(f"{session_tag} играю {about} - на ТВ   (старт {clock.total:.0f} с)", flush=True)
+            # Свою строку «старт NN с» показ говорит не здесь, а по первому кадру
+            # (``say_started`` ниже): взятый LOAD - это слово ``PLAYING``, а оно
+            # раньше картинки, и число от него занижено.
         # ⚠️ Прогрев стартует ровно ЗДЕСЬ и ни строкой выше: путь до картинки он не
         # удлиняет ни на секунду - ни своим ffmpeg, ни чтением каталога. Всё, что он
         # делает, происходит уже при играющем показе и на остатке процессора.
@@ -148,6 +150,9 @@ def _play(
             session_tag=session_tag,
             start=start,
             raised=raised,
+            say_started=lambda: print(
+                f"{session_tag} играю {about} - на ТВ   (старт {clock.total:.0f} с)", flush=True
+            ),
         )
     finally:
         _close_show(watch, warmer, receiver, feed, server)
