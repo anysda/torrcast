@@ -134,3 +134,56 @@ def test_a_catching_up_pointer_never_buys_the_viewer_any_film() -> None:
     assert done == [], "ровный показ через сетку приёмника подгрузом не является"
     assert all(b >= a for a, b in pairwise(trail)), "опережение указателя отняло плёнку"
     assert round(lag.total, 2) == 0.0
+
+
+def _grid_walk(
+    grid: float, step: float, secs: float, stall: tuple[float, float] = (0.0, 0.0)
+) -> list[tuple[float, float]]:
+    """Опросы шагом ``step`` по приёмнику, публикующему место своей сеткой ``grid``.
+
+    Плёнка идёт вровень с часами всюду, кроме ``stall`` - там картинка стоит.
+    """
+    began, held = stall
+    ticks, at = [], 0.0
+    while at < secs:
+        tick = grid * int(at / grid)
+        film = tick if tick < began else max(began, tick - held)
+        ticks.append((at, 100.0 + film))
+        at += step
+    return ticks
+
+
+def test_a_stale_snapshot_is_not_a_stall_at_any_poll_step() -> None:
+    """🔴 Правило не имеет права зависеть от НАШЕГО шага опроса.
+
+    Приёмник обновляет место не тогда, когда его спросили, а своей сеткой, и круг, на
+    который свежий снимок не пришёлся, отдаёт ровно то же число. Пока наш круг длиннее
+    сетки, таких кругов почти нет, и правило честно по совпадению. Замер на ленте
+    двухчасового показа: та же лента, разложенная на ровный шаг 2.0 с при сетке приёмника
+    2.03 с, дала 179 подгрузов вместо четырёх и накопленный счёт +415 с при дефиците
+    16.35 с. Шаг опроса - наша величина, в окне старта он уже 0.5 с.
+    """
+    for grid in (1.0, 2.03, 3.0):
+        for step in (0.5, 1.0, 1.5, 2.0, grid, 2.118, 4.0):
+            lag = PointerLag()
+
+            done = _run(lag, _grid_walk(grid, step, 600.0))
+
+            assert done == [], f"сетка {grid}, шаг {step}: подгруз там, где зритель не терял"
+            assert round(lag.total, 2) == 0.0, f"сетка {grid}, шаг {step}: долг из ничего"
+
+
+def test_a_stall_is_seen_even_when_we_ask_faster_than_the_receiver_answers() -> None:
+    """Остановка не пропадает оттого, что мы спрашиваем чаще, чем приёмник отвечает.
+
+    Плоский круг и остановка выглядят одинаково - неподвижным указателем; отличает их
+    то, сколько указатель простоял против шага, которым потом сдвинулся. Шесть секунд
+    стоящей картинки длиннее любой сетки, и правило обязано их увидеть на любом шаге.
+    """
+    for grid, step in ((2.03, 0.5), (2.03, 2.0), (2.03, 2.118), (1.0, 1.5)):
+        lag = PointerLag()
+
+        done = _run(lag, _grid_walk(grid, step, 240.0, stall=(100.0, 6.0)))
+
+        assert done, f"сетка {grid}, шаг {step}: шесть секунд стоящей картинки потеряны"
+        assert 5.0 <= lag.total <= 7.0, f"сетка {grid}, шаг {step}: насчитано {lag.total}"
