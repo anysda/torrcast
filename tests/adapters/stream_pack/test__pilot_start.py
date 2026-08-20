@@ -119,3 +119,32 @@ def test_the_start_of_the_film_is_measured_once_per_file(clip: str) -> None:
     assert _FILM_START[clip] == 0.0
     _FILM_START[clip] = 3.5  # второй раз ffprobe не зовут
     assert _film_start(clip) == 3.5
+
+
+def test_an_mp4_named_by_the_map_is_not_asked_of_the_swarm() -> None:
+    """У mp4 ответ назначен нулём, поэтому ffprobe живой раздачи не поднимается ни разу.
+
+    Замер, ради которого правило написано (живая раздача, холодный рой, заход с
+    2160-й секунды, три прогона): 0.331, 0.172 и 0.122 с — целый процесс, который
+    открывает вход и читает голову файла ради числа, известного заранее.
+    """
+    started: list[list[str]] = []
+
+    def run(command: list[str], **rest: object) -> None:
+        started.append(command)
+        raise AssertionError("живую раздачу спрашивать не о чем")
+
+    assert _film_start("поток", kind_of=lambda _: "mp4", run=run) == 0.0
+    assert started == [], "у названного картой mp4 поднялся лишний процесс"
+
+
+def test_a_container_the_map_does_not_know_is_still_asked() -> None:
+    """Карты нет или контейнер чужой - работает прежний ffprobe, а не выдуманный ноль."""
+    started: list[list[str]] = []
+
+    def run(command: list[str], **rest: object) -> None:
+        started.append(command)
+        raise OSError("ffprobe не поднялся")
+
+    assert _film_start("поток", kind_of=lambda _: "", run=run) == 0.0
+    assert len(started) == 1, "чужой контейнер остался без замера"
