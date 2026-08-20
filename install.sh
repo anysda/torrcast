@@ -540,8 +540,21 @@ warm_used() {
     local dir used
     dir="${TORRCAST_WARM:-$(warm_dir)}" || return 1
     [ -d "$dir" ] || { printf '0'; return 0; }
-    used="$(find "$dir" -type f -name 'v*.ts' -printf '%s\n' 2>/dev/null \
-        | awk '{s+=$1} END{print s+0}')"
+    # 🔴 Складывает арифметика ОБОЛОЧКИ, а не awk. Замер на двух машинах: mawk 1.3.4
+    # 20200120 печатает `s+0` для 6413961908 как «6,41396e+09» - экспоненциальной
+    # записью и с запятой из локали, - а `printf "%d"` упирается в 2147483647; mawk
+    # 1.3.4 20250131 на том же выражении отдаёт целое. Нечисло проверка ниже прочитала
+    # бы как ноль МОЛЧА, весь бюджет прогрева зарезервировался бы поверх уже занятого -
+    # ровно та ошибка, ради которой функция и написана. Арифметика оболочки
+    # 64-битная и локали не знает.
+    used="$(find "$dir" -type f -name 'v*.ts' -printf '%s\n' 2>/dev/null | {
+        sum=0
+        while IFS= read -r size; do
+            case "$size" in ''|*[!0-9]*) continue ;; esac
+            sum=$(( sum + size ))
+        done
+        printf '%s' "$sum"
+    })"
     case "$used" in ''|*[!0-9]*) printf '0'; return 0 ;; esac
     printf '%s' "$used"
 }

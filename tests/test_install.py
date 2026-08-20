@@ -170,6 +170,46 @@ ts_cache_disk
     assert int(done.stdout) > 3 * 1024**3, "кэшу на диске не осталось места - он уедет в память"
 
 
+@pytest.mark.machine
+def test_the_warming_is_weighed_the_same_on_a_machine_whose_awk_rounds(tmp_path: Path) -> None:
+    """🔴 Вес прогретого не отдан awk: у части машин он врёт, и врёт молча.
+
+    Замер двух машин с одним и тем же прогретым: mawk 1.3.4 20200120 печатает сумму
+    6413961908 как «6,41396e+09» - экспоненциальной записью и с запятой из локали, -
+    а mawk 1.3.4 20250131 отдаёт целое. Нечисло проверка `warm_used` читает как ноль,
+    и весь бюджет прогрева резервируется поверх уже занятого: та самая ошибка, ради
+    которой функция написана, только теперь молча и не везде.
+
+    Здесь на PATH кладётся awk, который ведёт себя как первый из двух. Правило обязано
+    отдать точный вес - значит спрашивать awk оно не вправе вовсе.
+    """
+    warmed = 6_413_961_908
+    stub = tmp_path / "bin"
+    stub.mkdir()
+    (stub / "awk").write_text("#!/bin/sh\ncat >/dev/null\nprintf '6,41396e+09\\n'\n")
+    (stub / "awk").chmod(0o755)
+    script = f"""
+set -eu
+PATH={shlex.quote(str(stub))}:$PATH
+REPO_DIR={shlex.quote(str(REPO))}
+eval "$(sed -n '/^warm_dir() {{$/,/^}}$/p;/^warm_used() {{$/,/^}}$/p' \
+    {shlex.quote(str(REPO / "install.sh"))})"
+pick_python() {{ PYTHON={shlex.quote(sys.executable)}; }}
+loud() {{ printf '%s\\n' "$*" >&2; }}
+TORRCAST_WARM={shlex.quote(str(tmp_path / "warm"))}
+warm_used
+"""
+    warm = tmp_path / "warm" / "показ"
+    warm.mkdir(parents=True)
+    with (warm / "v0.ts").open("wb") as piece:
+        piece.truncate(warmed)
+
+    done = subprocess.run(["bash", "-c", script], capture_output=True, text=True, check=False)
+
+    assert done.returncode == 0, done.stderr
+    assert done.stdout == str(warmed), f"вес прогретого сосчитан как {done.stdout!r}"
+
+
 def test_the_catalog_stands_on_roles_and_a_role_may_have_two_carriers() -> None:
     """🔴 TC-705. Каталог держится не на именах, а на ролях: русские раздачи несут два
     источника, и любой из них закрывает роль. Судить по именам - значит звать урезанным
