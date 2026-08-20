@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from itertools import pairwise
+
 from torrcast.domain.freeze import Freeze
 from torrcast.domain.pointer_lag import PointerLag
 
@@ -105,3 +107,30 @@ def test_a_real_freeze_does_not_hide_behind_the_late_poll_guard() -> None:
 
     assert len(done) == 1
     assert round(done[0].lost, 2) == 3.0
+
+
+def test_a_catching_up_pointer_never_buys_the_viewer_any_film() -> None:
+    """🔴 Догоняющий скачок уменьшать накопленный счёт не имеет права.
+
+    Приёмник публикует позицию своей сеткой, и снятый с неё указатель то отстаёт от часов
+    (наш круг растянулся, сетка не сдвинулась), то догоняет их скачком (устаревший снимок
+    сменился свежим). Отставание правило выбрасывает вместе с длинным кругом
+    (:data:`LAG_LATE`), а догоняющий скачок короче :data:`LAG_JUMP` остаётся принятым - и
+    накопленное знаковой суммой число уезжало в минус на этой однобокой паре. Плёнки
+    зритель тут не терял вовсе: показ идёт вровень с часами, а сетка - вся разница.
+    """
+    grid, at, ticks = 2.03, 0.0, []
+    for k in range(300):
+        at += 2.7 if k % 3 == 0 else 2.0  # каждый третий круг растягивается сверх LAG_LATE
+        ticks.append((at, 100.0 + grid * int(at / grid)))
+    lag = PointerLag()
+
+    done, trail = [], []
+    for now, pos in ticks:
+        if (found := lag.see(pos, now)) is not None:
+            done.append(found)
+        trail.append(lag.total)
+
+    assert done == [], "ровный показ через сетку приёмника подгрузом не является"
+    assert all(b >= a for a, b in pairwise(trail)), "опережение указателя отняло плёнку"
+    assert round(lag.total, 2) == 0.0
