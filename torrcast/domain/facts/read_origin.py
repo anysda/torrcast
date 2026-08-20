@@ -8,6 +8,7 @@ from torrcast.domain.facts.akin import _crowded, akin
 from torrcast.domain.facts.article_gate import _about_cinema, _fits_type
 from torrcast.domain.facts.english_title import english_title
 from torrcast.domain.facts.latin_title import latin_title
+from torrcast.domain.facts.named_original import named_original
 from torrcast.domain.facts.namesake import namesake
 from torrcast.domain.facts.origin import Origin
 from torrcast.domain.facts.patterns import _CYRILLIC, _TAIL_RE
@@ -100,6 +101,12 @@ def read_origin(
             year=picture_year(extract),
             name=_TAIL_RE.sub("", heading) if _CYRILLIC.search(heading) else "",
             entity=str(json_map(article.get("pageprops")).get("wikibase_item") or ""),
+            # 🔴 TC-567. Статья прочитана целиком, и чужого имени в ней не названо ни на
+            # каком письме - вот это и есть отечественная картина. Пустой ``title`` сам по
+            # себе того же не значит: иероглифы и кириллица другой страны дают ту же
+            # пустоту (:func:`named_original`). Догадкам (``whole``, ``shortened``) признак
+            # не достаётся вовсе: там и статья-то не про названную картину.
+            native=not latin and not named_original(extract),
             namesake=namesake(pages, heading, picture_year(extract)),
         )
         if found:

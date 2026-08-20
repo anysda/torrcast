@@ -74,6 +74,6 @@ def test_the_picture_named_by_the_passport_is_marked_as_its_own() -> None:
     """Русское имя справки - это имя картины, а не совпадение: меню обязано его знать."""
     found = franchise("крестьяне", _ROWS)
 
-    _as_is(_ROWS, found, Origin(name="Крестьяне"), Said())
+    _as_is(_ROWS, found, Origin(name="Крестьяне", native=True), Said())
 
     assert found[0].native

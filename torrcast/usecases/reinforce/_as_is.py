@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from torrcast.domain.facts.origin import Origin
-from torrcast.domain.facts.same_name import same_name
+from torrcast.domain.facts.proven_native import proven_native
 from torrcast.domain.picture import Picture
 from torrcast.domain.raw_result import RawResult
 from torrcast.domain.slugify import slugify
@@ -43,10 +43,9 @@ def _as_is(
     """
     from torrcast.domain.cluster import cluster
 
-    if about.name and not about.title:
-        for picture in found:
-            if same_name(picture.title, about.name):
-                picture.native = True
+    for picture in found:
+        if proven_native(about, picture.title):
+            picture.native = True
     stays = (raw, cluster(_catalogue_port().to_releases(raw)), found)
     if about.year is None or len(found) != 1 or found[0].year is None:
         return stays

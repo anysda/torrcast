@@ -23,6 +23,7 @@ from typing import Any, cast
 
 import pytest
 
+from tests.articles import UTENA, page
 from tests.fakes.media_probe import FakeMediaProbe
 from tests.test_cli import _FakeTorrServer, _resolve, rel
 from torrcast.adapters.console.console.progress import Progress
@@ -35,6 +36,7 @@ from torrcast.domain.audio_track import AudioTrack
 from torrcast.domain.config import Config
 from torrcast.domain.digest.digest import digest
 from torrcast.domain.facts.origin import Origin
+from torrcast.domain.facts.read_origin import read_origin
 from torrcast.domain.media import Media
 from torrcast.domain.parse_release_name import parse_release_name
 from torrcast.domain.picture import Picture
@@ -1210,6 +1212,38 @@ def test_a_native_picture_still_plays_its_only_unnamed_track(
     assert "без русской озвучки" not in capsys.readouterr().out
 
 
+def test_a_foreign_picture_whose_original_is_hieroglyphs_keeps_the_voice_gate(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """🔴 TC-567. Имя картины записано иероглифами - это не «имени нет», и звук не наш.
+
+    У такой статьи оригинала латиницей взять неоткуда, и паспорт уезжает ровно с тем же
+    пустым полем, что у отечественного кино. Прежде отбор читал эту пустоту как паспорт
+    происхождения, засчитывал безымянную дорожку за русскую и отдавал зрителю японский
+    звук - при живой раздаче с русским прямо в следующей строке очереди.
+    """
+    ranked = [rel(name="r0", seeders=100), rel(name="r1", seeders=90)]
+    probe = _tracks(ranked, "und", "rus")
+    picture = Picture(title="Юная революционерка Утэна", year=1997, releases=ranked)
+    native_picture(
+        picture,
+        "юная революционерка утэна",
+        read_origin(
+            [page("Юная революционерка Утэна", UTENA)], "Юная революционерка Утэна", trusted=True
+        ),
+    )
+    plan = Plan(picture=picture, ranked=ranked, runtime=RUNTIME, warn_mbit=20.0, recode_at=10.0)
+
+    with Progress(out=io.StringIO()) as progress:
+        prep = Bench(cast(Any, _FakeTorrServer()), prober=probe).resolve(
+            plan, Args(query=["юная", "революционерка", "утэна"]), progress
+        )
+
+    assert not picture.native, "иероглифы в скобке - это названное имя, а не его отсутствие"
+    assert prep.number == 2, "безымянная дорожка чужой картины русской не становится"
+    assert "релиз 1 без русской озвучки (не назван) - беру 2" in capsys.readouterr().out
+
+
 def test_a_native_passport_reaches_the_voice_gate_without_a_second_search(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -1223,7 +1257,7 @@ def test_a_native_passport_reaches_the_voice_gate_without_a_second_search(
     native_picture(
         picture,
         "полицейский с рублёвки",
-        Origin(name="Полицейский с Рублёвки"),
+        Origin(name="Полицейский с Рублёвки", native=True),
     )
     plan = Plan(picture=picture, ranked=ranked, runtime=RUNTIME, warn_mbit=20.0, recode_at=10.0)
 

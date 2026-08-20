@@ -175,3 +175,21 @@ def test_both_types_together_fit_into_one_budget_not_two() -> None:
         assert elapsed < budget * 1.4, f"обещали {budget} с, ушло {elapsed:.2f} с"
     finally:
         stuck.set()
+
+
+def test_a_lone_answer_carries_the_proof_of_a_native_picture() -> None:
+    """🔴 TC-567. Отвечает один путь из двух, и доказательство происхождения едет с ним.
+
+    Тип картины тут взять неоткуда, поэтому спрашивают оба; статьи о картине другого типа
+    в русской Википедии просто нет, и молчит второй путь именно поэтому. Терять на этом
+    прочитанную статью незачем: отбор звука спрашивает у паспорта ровно одно - назвала ли
+    статья картине имя на чужом языке, - и одинокий ответ знает это не хуже согласного.
+    """
+    paper = Origin(name="Тени исчезают в полдень", native=True)
+
+    def lone(title: str, series: bool, budget: float) -> Origin:
+        return Origin() if series else paper
+
+    got = PassportEither(lone, FakeDateSource(lambda entity, timeout: None)).of("Тени")
+
+    assert got.native

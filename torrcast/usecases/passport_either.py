@@ -82,6 +82,7 @@ class PassportEither:
             name=lone.name,
             entity=lone.entity,
             guessed=lone.guessed,
+            native=lone.native,
             source=lone.source,
         )
         if year is None:

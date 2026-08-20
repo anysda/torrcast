@@ -6,6 +6,7 @@ from tests.articles import (
     ATTACK_FILM,
     BICYCLE_THIEVES,
     BREAKING_BAD,
+    CARS,
     CLIMBERS,
     FARGO_SERIES,
     FELLOWSHIP,
@@ -16,6 +17,7 @@ from tests.articles import (
     JUDGMENT,
     MOANA,
     MOANA_2026,
+    NATIVE_SERIES,
     NINE_CARTOON,
     NINE_MUSICAL,
     NOT_CINEMA,
@@ -232,3 +234,35 @@ def test_a_namesake_of_another_year_is_not_an_ambiguity() -> None:
     found = read_origin(pages, "Моана", trusted=True, series=False)
     assert (found.title, found.year) == ("Moana", 2016)
     assert not found.namesake, "год развёл картины - говорить не о чем"
+
+
+def test_an_article_that_names_no_foreign_name_proves_the_picture_is_ours() -> None:
+    """Первая фраза чужого имени не называет - паспорт несёт доказательство происхождения.
+
+    Им и только им безымянная дорожка засчитывается за русскую
+    (:func:`~torrcast.domain.facts.proven_native.proven_native`).
+    """
+    about = read_origin(
+        [page("Тени исчезают в полдень", NATIVE_SERIES)], "Тени исчезают в полдень", trusted=True
+    )
+
+    assert about.native and about.title == ""
+
+
+def test_a_hieroglyphic_original_is_a_named_one_and_proves_nothing() -> None:
+    """🔴 TC-567. У аниме имя записано иероглифами: искать по нему нечего, но оно ЕСТЬ.
+
+    Английской статьи у такой картины может не быть вовсе, и тогда паспорт уезжает с
+    пустым оригиналом - ровно с таким же, какой бывает у отечественного кино. Прежде
+    отбор звука читал эту пустоту как «картина наша» и отдавал зрителю японскую дорожку.
+    """
+    about = read_origin(
+        [page("Юная революционерка Утэна", UTENA)], "Юная революционерка Утэна", trusted=True
+    )
+
+    assert about.title == "" and not about.native
+
+
+def test_a_named_latin_original_leaves_no_room_for_the_proof() -> None:
+    """Имя латиницей названо - доказывать нечего, признак молчит."""
+    assert not read_origin([page("Тачки", CARS)], "Тачки", trusted=True).native
