@@ -13,12 +13,15 @@ from pathlib import Path
 from torrcast.adapters.frames.keyframes import keyframes
 from torrcast.adapters.stream_pack._keys_shelf import _keys_cache
 from torrcast.adapters.stream_pack.read_keys import read_keys
+from torrcast.adapters.stream_pack.refused_keys import refused_keys
 from torrcast.adapters.stream_probe.shelf import _trim
 from torrcast.domain.film_keys import FilmKeys
 from torrcast.domain.frames.keymap.key_map import KeyMap
 from torrcast.domain.frames.keymap.video_track import video_track
 from torrcast.domain.hls_wait import KEYS_WAIT
-from torrcast.domain.warm_open import KEYS_KEPT, KEYS_LOCK
+from torrcast.domain.infra_error import InfraError
+from torrcast.domain.swarm_silent_error import SwarmSilentError
+from torrcast.domain.warm_open import KEYS_KEPT, KEYS_LOCK, KEYS_REFUSED
 from torrcast.ports.journal.slot import journal
 
 
@@ -42,6 +45,22 @@ def _keys_draft(cache: Path) -> Path:
     return cache.with_suffix(f".{os.getpid()}-{threading.get_ident()}.tmp")
 
 
+def _mark_refusal(cache: Path, refused: str) -> None:
+    """Положить на полку вердикт «карты с этого файла не будет» - на место самой карты.
+
+    Пишется через тот же черновик, что и карта (:func:`_keys_draft`): имя на полке одно, и
+    два писателя на одно имя пишут вперемешку.
+    """
+    with contextlib.suppress(OSError):
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        tmp = _keys_draft(cache)
+        try:
+            tmp.write_text(json.dumps({"refused": refused, "when": time.time()}), "utf-8")
+            tmp.replace(cache)
+        finally:
+            tmp.unlink(missing_ok=True)
+
+
 def _hold_keys_lock(lock: Path, done: threading.Event, ttl: float = KEYS_LOCK) -> None:
     """Держать замок карты живым, пока его хозяин работает: трогать mtime до ``done``."""
     while not done.wait(ttl / 3):
@@ -56,6 +75,7 @@ def film_keys(
     lock_ttl: float = KEYS_LOCK,
     wait: float = KEYS_WAIT,
     kept: int = KEYS_KEPT,
+    refused_ttl: float = KEYS_REFUSED,
 ) -> FilmKeys:
     """Карта опорных кадров видео: из кэша или из индекса контейнера.
 
@@ -64,16 +84,26 @@ def film_keys(
     Если карту уже снимает прогрев (:func:`warm_file`), ждём его, а не читаем индекс
     файла вторым потоком: рой от этого быстрее не станет, а старт показа удвоится.
 
+    Отказ кладётся на полку рядом с картами и на то же имя: «индекс врёт», «индекса нет»,
+    «контейнер незнакомый» - это ответы про сам файл, и до следующего старта они не
+    меняются. Без этого каждый старт такого фильма платил заново - голову, весь индекс и
+    пробы честности, - а сессия с прогревом и показом платила дважды. Молчание роя
+    (:class:`~torrcast.domain.swarm_silent_error.SwarmSilentError`) не запоминается: оно не про файл.
+
     ``keys_of`` - чем снимать индекс, ``lock_ttl`` и ``wait`` - сколько живёт замок и
-    сколько ждать соседа, ``kept`` - сколько карт остаётся на полке. Все четыре названы
-    параметром, а не именем внутри модуля: снятие индекса стоит Range-запросов в рой,
-    боевые сроки тут - минута и десятки секунд, а боевой потолок полки - 256 карт, и
-    стенд обязан уметь назвать своё, не заглядывая модулю под крышку.
+    сколько ждать соседа, ``kept`` - сколько карт остаётся на полке, ``refused_ttl`` -
+    сколько помнится отказ. Все пять названы параметром, а не именем внутри модуля:
+    снятие индекса стоит Range-запросов в рой, боевые сроки тут - минута, десятки секунд
+    и сутки, а боевой потолок полки - 256 карт, и стенд обязан уметь назвать своё, не
+    заглядывая модулю под крышку.
     """
     cache = _keys_cache(source_url)
     if (ready := read_keys(cache)) is not None:
         journal().mark("карта: из кэша")
         return ready
+    if (refused := refused_keys(cache, refused_ttl)) is not None:
+        journal().mark("карта: отказ с полки")
+        raise InfraError(refused)
     lock = cache.with_suffix(".lock")
     deadline = time.monotonic() + wait
     waited = time.monotonic()
@@ -82,6 +112,11 @@ def film_keys(
         if (ready := read_keys(cache)) is not None:
             journal().mark("карта: дождались прогрева", ждали=round(time.monotonic() - waited, 2))
             return ready
+        # Сосед может кончить и отказом - тогда ждать больше нечего, и читать хвост
+        # самому тем более незачем: ответ про файл у нас уже есть.
+        if (refused := refused_keys(cache, refused_ttl)) is not None:
+            journal().mark("карта: сосед отказал", ждали=round(time.monotonic() - waited, 2))
+            raise InfraError(refused)
     with contextlib.suppress(OSError):
         lock.parent.mkdir(parents=True, exist_ok=True)
         lock.touch()
@@ -142,6 +177,15 @@ def film_keys(
         # Подрезка идёт после записи, а не до: только что снятая карта - самая свежая на
         # полке, и подрезать раньше значило бы мерить полку без неё.
         _trim(cache.parent, kept)
+    except SwarmSilentError:
+        raise  # рой молчит: про файл это не говорит ничего, помнить нечего
+    except InfraError as no:
+        # Приговор самому файлу. Он лежит на месте карты, поэтому полку подрезаем и тут:
+        # иначе фильмы, которым карты не будет, растили бы её мимо потолка.
+        journal().mark("карта: отказ", почему=str(no))
+        _mark_refusal(cache, str(no))
+        _trim(cache.parent, kept)
+        raise
     finally:
         holding.set()
         with contextlib.suppress(OSError):

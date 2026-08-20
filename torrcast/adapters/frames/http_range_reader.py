@@ -1,11 +1,12 @@
 """Читает диапазоны файла по HTTP; разбор контейнера выполняет домен."""
 
+import http.client
 import urllib.error
 import urllib.request
 from collections.abc import Callable
 from typing import Any
 
-from torrcast.domain.infra_error import InfraError
+from torrcast.domain.swarm_silent_error import SwarmSilentError
 from torrcast.domain.why import why
 
 
@@ -31,8 +32,11 @@ class HttpRangeReader:
         try:
             with self._opener(request, timeout=self.timeout) as answer:
                 data: bytes = answer.read()
-        except (urllib.error.URLError, OSError, ValueError) as exc:
-            raise InfraError(f"не читается голова файла: {why(exc)}") from exc
+        # ⚠️ Оборванное тело ответа - тоже молчание роя, а не поломка прибора:
+        # служба закрывает поток на полуслове, когда куска у неё так и не оказалось,
+        # и ``http.client`` роняет это отдельной ветвью, мимо ``OSError``.
+        except (urllib.error.URLError, http.client.HTTPException, OSError, ValueError) as exc:
+            raise SwarmSilentError(f"не читается голова файла: {why(exc)}") from exc
         self.taken += len(data)
         self.requests += 1
         return data

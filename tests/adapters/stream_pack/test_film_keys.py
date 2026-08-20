@@ -12,8 +12,11 @@ import pytest
 
 from torrcast.adapters.stream_pack._keys_shelf import _keys_cache
 from torrcast.adapters.stream_pack.film_keys import _fetching, _keys_draft, film_keys
+from torrcast.adapters.stream_pack.read_keys import read_keys
 from torrcast.domain.frames.keymap.key_map import KeyMap
 from torrcast.domain.frames.keymap.point import Point
+from torrcast.domain.infra_error import InfraError
+from torrcast.domain.swarm_silent_error import SwarmSilentError
 
 URL = "http://127.0.0.1:8090/stream?link=0123456789abcdef&index=1"
 
@@ -177,3 +180,113 @@ def test_a_swarm_that_says_nothing_is_not_swallowed() -> None:
     with pytest.raises(OSError, match="рой молчит"):
         film_keys(URL, keys_of=dead)
     assert not _keys_cache(URL).with_suffix(".lock").exists(), "замок остался за мёртвым читателем"
+
+
+def test_a_verdict_about_the_file_is_paid_once_and_not_on_every_start() -> None:
+    """«Индекс Cues врёт» - ответ про сам файл: он ложится на полку рядом с картами.
+
+    Иначе каждый старт такого фильма платит заново - голову, весь индекс (у измеренного
+    файла 151 КБ) и пробы честности, - а сессия с прогревом и показом платит это дважды.
+    """
+    asked: list[str] = []
+
+    def lying(url: str) -> Any:
+        asked.append(url)
+        raise InfraError("индекс Cues врёт: точка 1234.567 ссылается не на опорный кадр")
+
+    for _start in range(3):
+        with pytest.raises(InfraError, match="индекс Cues врёт"):
+            film_keys(URL, keys_of=lying)
+    assert asked == [URL], f"за вердиктом сходили в рой {len(asked)} раза вместо одного"
+    assert not _keys_cache(URL).with_suffix(".lock").exists(), "замок остался за отказом"
+
+
+def test_an_unknown_container_is_remembered_the_same_way() -> None:
+    """Отказ запоминается по одному правилу, а не по списку известных слов."""
+    asked: list[str] = []
+
+    def strange(url: str) -> Any:
+        asked.append(url)
+        raise InfraError("это не mkv и не mp4: карту опорных кадров взять неоткуда")
+
+    for _start in range(2):
+        with pytest.raises(InfraError, match="не mkv и не mp4"):
+            film_keys(URL, keys_of=strange)
+    assert asked == [URL], "незнакомый контейнер разбирался повторно"
+
+
+def test_a_silent_swarm_is_not_remembered_as_a_bad_file() -> None:
+    """Раздача бывает холодной минуту и живой через минуту - молчание роя не про файл.
+
+    Запомни мы его - и фильм остался бы на ровной сетке из-за чужой беды.
+    """
+    asked: list[str] = []
+
+    def cold(url: str) -> Any:
+        asked.append(url)
+        raise SwarmSilentError("не читается голова файла: соединение отвергнуто")
+
+    for _start in range(3):
+        with pytest.raises(SwarmSilentError):
+            film_keys(URL, keys_of=cold)
+    assert len(asked) == 3, "молчание роя запомнили как приговор файлу"
+    assert not _keys_cache(URL).exists(), "на полке лежит вердикт, которого не выносили"
+
+
+def test_a_forgotten_verdict_gives_the_file_a_new_chance() -> None:
+    """Срок вышел - файл судится заново, и починенный индекс получает свою сетку."""
+    asked: list[str] = []
+
+    def once_lying(url: str) -> KeyMap:
+        asked.append(url)
+        if len(asked) == 1:
+            raise InfraError("индекс Cues врёт")
+        return _map()
+
+    with pytest.raises(InfraError):
+        film_keys(URL, keys_of=once_lying, refused_ttl=0.0)
+    assert film_keys(URL, keys_of=once_lying, refused_ttl=0.0).duration == 60.0
+    assert len(asked) == 2, "забытый вердикт не пустил файл на пересуд"
+    assert read_keys(_keys_cache(URL)) is not None, "карта не легла на место отказа"
+
+
+def test_refusals_do_not_grow_the_shelf_past_its_ceiling() -> None:
+    """Полка общая с картами, и потолок у неё общий: отказ - такой же ответ про файл.
+
+    Ложись отказы мимо подрезки - и полка росла бы теми самыми фильмами, у которых
+    карты не будет никогда.
+    """
+
+    def lying(url: str) -> Any:
+        raise InfraError("индекс Cues врёт")
+
+    kept = 4
+    for number in range(12):
+        with pytest.raises(InfraError):
+            film_keys(f"{URL}&file={number}", keys_of=lying, kept=kept)
+    shelf = list(_keys_cache(URL).parent.glob("*.json"))
+    assert len(shelf) <= kept, f"полка выросла до {len(shelf)} карточек при потолке {kept}"
+
+
+@pytest.mark.machine
+def test_a_reader_takes_the_neighbours_refusal_instead_of_reading_the_tail_itself() -> None:
+    """Прогрев кончил отказом - показу ждать больше нечего и читать хвост незачем.
+
+    Ровно тут сессия с прогревом и показом платила цену подготовки дважды: сосед
+    отказывался молча, замок исчезал, и показ шёл в рой за тем же ответом.
+    """
+    cache = _keys_cache(URL)
+    cache.parent.mkdir(parents=True, exist_ok=True)
+    lock = cache.with_suffix(".lock")
+    lock.touch()
+
+    def never(url: str) -> KeyMap:
+        raise AssertionError("показ полез в рой за ответом, который уже дал прогрев")
+
+    def neighbour() -> None:
+        time.sleep(0.2)
+        cache.write_text(json.dumps({"refused": "индекс Cues врёт", "when": time.time()}), "utf-8")
+
+    threading.Thread(target=neighbour, daemon=True).start()
+    with pytest.raises(InfraError, match="индекс Cues врёт"):
+        film_keys(URL, keys_of=never, lock_ttl=5.0, wait=5.0)
