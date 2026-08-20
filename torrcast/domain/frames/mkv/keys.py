@@ -24,6 +24,7 @@ from torrcast.domain.frames.mkv.ids import (
     HEAD_BYTES,
 )
 from torrcast.domain.frames.mkv.key_frame import key_frame
+from torrcast.domain.frames.mkv.probes import probes
 from torrcast.domain.frames.mkv.uint import uint
 from torrcast.domain.frames.mkv.walk import walk
 from torrcast.domain.frames.range_reader import RangeReader as Reader
@@ -36,7 +37,7 @@ def keys(reader: Reader, head: bytes) -> KeyMap:
     Заходов к рою минимум два (:data:`~torrcast.adapters.frames.keyframes.HEAD_PEEK` и
     :data:`CUES_CHUNK`), и оба — минимально возможного размера: у холодной раздачи цена
     карты — это не байты, а сколько раз мы заставили рой отдать новое место и сколько ждали
-    перед следующим запросом. Сверх них - три пробы честности индекса (:func:`_honest`):
+    перед следующим запросом. Сверх них - пробы честности индекса (:func:`_honest`):
     бывают индексы-вруны, и отличает их от честных только содержимое кадра.
     """
     facts = Head(head)
@@ -76,22 +77,18 @@ def _honest(cues: list[Cue], facts: Head, reader: Reader) -> None:
     Отличает призрака только содержимое кадра (:func:`key_frame`), причём именно того
     блока, который назвала точка (:attr:`~torrcast.domain.frames.mkv.cue.Cue.inside`):
     первый видеоблок кластера бывает чужим кадром, и тогда проверка судит не то, о чём
-    говорит точка. Пробы идут вразброс - середина, потом четверти:
-    у врущего индекса призрак находится первой же пробой (один запрос), у честного
-    проверка стоит три запроса раз на файл - потом карта лежит в кэше.
+    говорит точка. Куда ставить пробы, решает :func:`~torrcast.domain.frames.mkv.probes.
+    probes` - это соседняя пара, и она ловит вруна счётом, а не удачей.
 
-    Не проверяем и верим, когда нечего проверять (точек меньше четырёх - такую карту
-    всё равно отвергнет сетка), когда файл не назвал дорожку видео или когда кодек нам
-    не по зубам: ``None`` у :func:`key_frame` - это «не разобрать», а не призрак.
+    Не проверяем и верим, когда файл не назвал дорожку видео или когда кодек нам не по
+    зубам: ``None`` у :func:`key_frame` - это «не разобрать», а не призрак.
     """
     if facts.video is None:
         return
     own = [cue for cue in cues if cue.point.track == facts.video]
-    if len(own) < 4:
-        return
-    for k in (len(own) // 2, len(own) // 4, 3 * len(own) // 4):
-        at, offset, _ = own[k].point
-        if key_frame(reader, offset, facts.video, facts.codec, own[k].inside) is False:
+    for cue in probes(own):
+        at, offset, _ = cue.point
+        if key_frame(reader, offset, facts.video, facts.codec, cue.inside) is False:
             raise InfraError(
                 f"индекс Cues врёт: точка {at:.3f} ссылается не на опорный кадр - "
                 "карта из него была бы призрачной"

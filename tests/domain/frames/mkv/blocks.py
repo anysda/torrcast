@@ -90,6 +90,10 @@ class Matroska:
     forget_tracks: bool = False
     #: Индекс врёт: блок по каждой точке - не IDR, хотя флаг опорности стоит.
     ghost: bool = False
+    #: Через сколько точек у вруна стоит НАСТОЯЩИЙ опорный кадр: единица - врут все
+    #: точки подряд, 48 - выравненный врун, у которого настоящие кадры стоят ровным
+    #: шагом и потому садятся ровно в фиксированные доли ленты.
+    step: int = 1
     #: Блоки со включённым лейсингом: содержимое кадра не разобрать.
     laced: bool = False
     #: Край окна чтения режет заголовок блока пополам, а видеоблока в окне нет (TC-687).
@@ -148,13 +152,18 @@ class Matroska:
         frame = (5).to_bytes(4, "big") + (b"\x65" if idr else b"\x41") + b"\x00" * 4
         return elem(SIMPLE_BLOCK, bytes([0x80 | track]) + b"\x00\x00" + bytes([flags]) + frame)
 
-    def _cluster(self, at: int, tracks: list[int]) -> bytes:
-        """Кластер: набивка чужих видеокадров, затем по блоку на каждую дорожку точки."""
+    def _cluster(self, at: int, tracks: list[int], ordinal: int = 0) -> bytes:
+        """Кластер: набивка чужих видеокадров, затем по блоку на каждую дорожку точки.
+
+        ``ordinal`` - какая это точка индекса по счёту: у выравненного вруна настоящий
+        опорный кадр стоит на каждой :attr:`step`-й, а на остальных лежит призрак.
+        """
         if self.cut_header:
             return self._cut_cluster(at)
-        payload = elem(TIMESTAMP, uint(at)) + self._block(1, idr=self.ghost) * self.before
+        real = not self.ghost and ordinal % self.step == 0
+        payload = elem(TIMESTAMP, uint(at)) + self._block(1, idr=not real) * self.before
         for track in tracks:
-            payload += self._block(track, idr=not self.ghost)
+            payload += self._block(track, idr=real)
         return elem(CLUSTER, payload)
 
     def _cut_cluster(self, at: int) -> bytes:
@@ -187,12 +196,12 @@ class Matroska:
         by_offset: dict[int, list[tuple[int, int]]] = {}
         for cue_at, offset, track in self.cues:
             by_offset.setdefault(offset, []).append((cue_at, track))
-        for offset in sorted(by_offset):
+        for ordinal, offset in enumerate(sorted(by_offset)):
             if offset < len(payload):
                 raise ValueError(f"точка Cues ссылается внутрь головы: {offset}")
             payload += b"\x00" * (offset - len(payload))
             found = by_offset[offset]
-            payload += self._cluster(found[0][0], sorted({t for _, t in found}))
+            payload += self._cluster(found[0][0], sorted({t for _, t in found}), ordinal)
         head = elem(EBML_HEADER, b"\x00" * 8)
         segment = ident(SEGMENT) + length(len(payload)) + payload
         return head + segment, len(head) + len(ident(SEGMENT)) + 8

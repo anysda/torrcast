@@ -84,7 +84,7 @@ def test_an_honest_index_passes_the_frame_check() -> None:
         (4.0, base + 3072, 1),
         (6.0, base + 4096, 1),
     ]
-    assert reader.requests == 5, "голова, один заход за Cues и три пробы вразброс"
+    assert reader.requests == 4, "голова, один заход за Cues и соседняя пара проб"
 
 
 def test_an_honest_index_survives_a_cluster_with_several_video_frames() -> None:
@@ -174,4 +174,22 @@ def test_something_that_is_not_matroska_is_named_as_such() -> None:
     reader = Served(b"\x00" * 512)
 
     with pytest.raises(InfraError, match="Segment"):
+        keys(reader, reader.read(0, HEAD))
+
+
+def test_a_liar_whose_real_frames_line_up_with_the_shares_is_caught_too() -> None:
+    """Настоящие опорные кадры вруна стоят ровным шагом, и шаг делит доли ленты нацело.
+
+    Замер на собранном файле: 2880 точек, настоящий кадр каждый 48-й, - середина 1440 и
+    четверти 720 и 2160 делятся на 48, все три пробы в долях садятся ровно на настоящие
+    кадры, и индекс, у которого 719 точек доказанно не опорные, уезжает наружу целиком.
+    Заход по такой точке - это чужое кино под именем места: ошибка доходила до 123.3 с.
+    Соседняя пара берёт его без удачи: в шаг из 48 точек два соседа не помещаются.
+    """
+    step, count = 48, 384
+    cues = [(k * 2000, 65536 + k * 1024, 1) for k in range(count)]
+    data, _base = Matroska(cues=cues, step=step).bytes()
+    reader = Served(data)
+
+    with pytest.raises(InfraError, match="врёт"):
         keys(reader, reader.read(0, HEAD))

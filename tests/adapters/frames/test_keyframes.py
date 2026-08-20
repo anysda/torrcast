@@ -90,16 +90,18 @@ def probe_offsets(path: str) -> list[int]:
     return [int(line.rstrip(",")) for line in done.stdout.split() if line.strip(",").isdigit()]
 
 
-def test_mkv_small_head_one_cues_read_and_three_honesty_probes(served: _Served, clip: str) -> None:
-    """Карта mkv: маленькая голова, один заход за Cues и три пробы честности индекса.
+def test_mkv_small_head_one_cues_read_and_a_pair_of_probes(served: _Served, clip: str) -> None:
+    """Карта mkv: маленькая голова, один заход за Cues и пара проб честности индекса.
 
     Пробы появились с TC-639: встречаются индексы-вруны (точка Cues на каждый кластер при
     редких настоящих опорных кадрах), и отличает их только содержимое кадра - отсюда по
-    запросу на пробу, раз на файл, дальше карта лежит в кэше.
+    запросу на пробу, раз на файл, дальше карта лежит в кэше. Проб две, и они соседние:
+    замер на живой раздаче в 18 ГБ - 0.74 с медианы на пробу, а десять секунд старта
+    столько лишних запросов не держат.
     """
     found = keyframes(clip, source=served)
-    assert [size for _, size in served[clip]] == [HEAD_PEEK, CUES_CHUNK] + [BLOCK_BYTES] * 3
-    assert found.requests == 5
+    assert [size for _, size in served[clip]] == [HEAD_PEEK, CUES_CHUNK] + [BLOCK_BYTES] * 2
+    assert found.requests == 4
     assert found.duration > 0
     assert found.points
     assert video_track(found.points) in {p.track for p in found.points}
