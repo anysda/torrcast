@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 
 import torrcast.usecases.feed_pack._state as _state
 from torrcast.ports.journal.slot import journal
-from torrcast.usecases.feed_pack.feed_survive import _mute, _survive
+from torrcast.usecases.feed_pack.feed_survive import _mute, _reread, _survive
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -64,8 +64,7 @@ def _steer(state: _State, slot: int, restart: Callable[[int], None]) -> bool:
         # 100 с. Работает только честный край: он растёт ровно на publish.
         packer.publish()
         if packer.edge >= packer.first:
-            state.moved = _state.clock_port.monotonic()
-            state.offline = ""  # прогон что-то выложил - значит источник снова читается
+            _reread(state)  # прогон что-то выложил - значит источник снова читается
         else:
             _mute(state)
         if (state.out / _state.segment_name(slot)).exists():

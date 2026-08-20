@@ -139,3 +139,35 @@ def test_a_silent_source_on_a_dead_network_is_not_pushed_every_two_seconds(tmp_p
 
     fake.now = 103.0
     assert _steer(show, 1, asked.append) is True and asked == [1]
+
+
+def test_a_source_that_reads_again_lifts_the_provisional_verdicts(tmp_path: Path) -> None:
+    """🔴 TC-725. Прогон что-то выложил - значит и «ужать было неоткуда» больше не так.
+
+    Приговор месту держится на том, что тяжёлый кусок детерминирован. У мёртвого
+    источника этого свойства нет: он вернулся - и место снова обычное.
+    """
+    tract(now=500.0)
+    show = feed(tmp_path, vault=vault(tmp_path))
+    show.packer = packer(tmp_path, first=0, edge=0, out=show.out)
+    show.skipped = {4, 9, 12}
+    show.doubted = {4, 12}
+
+    _steer(show, 20, lambda _slot: None)
+
+    assert show.skipped == {9}, "условный приговор пережил возврат источника"
+    assert show.doubted == set()
+
+
+def test_a_verdict_by_the_weight_of_the_piece_survives_the_source_coming_back(
+    tmp_path: Path,
+) -> None:
+    """Кусок, который ужался и не влез, тем же и остаётся: перепаковка даст ровно то же."""
+    tract(now=500.0)
+    show = feed(tmp_path, vault=vault(tmp_path))
+    show.packer = packer(tmp_path, first=0, edge=0, out=show.out)
+    show.skipped = {4}
+
+    _steer(show, 20, lambda _slot: None)
+
+    assert show.skipped == {4}

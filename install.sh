@@ -522,8 +522,32 @@ warm_budget() {
     printf '%s' "$budget"
 }
 
+# Каталог прогретого - спрашивается у ПАКЕТА, тем же приёмом и по той же причине, что
+# и бюджет: имя переживает переезд модуля, путь к файлу - нет.
+warm_dir() {
+    local dir
+    pick_python
+    dir="$(PYTHONPATH="$REPO_DIR${PYTHONPATH:+:$PYTHONPATH}" "$PYTHON" -c \
+        'from torrcast.domain.warm_settings import WARM_DIR; print(WARM_DIR)' 2>&1)" \
+        || { loud "пакет torrcast не отдал WARM_DIR: $dir"; return 1; }
+    case "$dir" in /*) ;; *) loud "WARM_DIR не абсолютный путь: $dir"; return 1 ;; esac
+    printf '%s' "$dir"
+}
+
+# Сколько байт уже занято прогретым, тем же счётом, что у щупа `cast doctor`
+# (`MachineProbe.warm_used`): считаются куски показа, а не весь каталог.
+warm_used() {
+    local dir used
+    dir="${TORRCAST_WARM:-$(warm_dir)}" || return 1
+    [ -d "$dir" ] || { printf '0'; return 0; }
+    used="$(find "$dir" -type f -name 'v*.ts' -printf '%s\n' 2>/dev/null \
+        | awk '{s+=$1} END{print s+0}')"
+    case "$used" in ''|*[!0-9]*) printf '0'; return 0 ;; esac
+    printf '%s' "$used"
+}
+
 ts_cache_disk() {
-    local free cache reserve
+    local free cache reserve budget used
     free="$(disk_free "$TS_CACHE_DIR")"
     case "$free" in ''|*[!0-9]*) printf '0'; return 0 ;; esac
     # ⚠️ Провал пробы возвращаем ЯВНО, до самого `install_torrserver`. Раньше
@@ -531,7 +555,18 @@ ts_cache_disk() {
     # глубину вызова (TC-638), и провалившаяся проверка возвращала ноль. Теперь
     # errexit в теле задания жив, а явный код оставлен: ветка `|| die` в
     # `install_torrserver` называет причину словами, и терять её незачем.
-    reserve="$(warm_budget)" || return 1
+    #
+    # 🔴 TC-725. Из бюджета прогрева вычитается уже прогретое: свободное место раздела
+    # его не содержит, и резерв поверх свободного считал бы занятое ДВАЖДЫ. Цена
+    # ошибки замерена на машине, которая уже работала: раздел 52.7 ГБ, прогретого
+    # 15.3 ГБ, свободно 23.1 ГБ - бюджет прогрева с запасом просил 33.2 ГБ, кэшу на
+    # диске выходил ноль, и он уезжал в память. Там он стоит вдвое против себя
+    # (TS_MEM_OVERHEAD): служба весила 5.9 ГиБ при 8 ГБ у машины вместо 104 МиБ.
+    # Правило то же, что в домене (`torrcast.domain.warm_claim.warm_claim`).
+    budget="$(warm_budget)" || return 1
+    used="$(warm_used)" || return 1
+    reserve=$(( budget - used ))
+    [ "$reserve" -lt 0 ] && reserve=0
     cache=$(( free - reserve - TS_DISK_FLOOR ))
     [ "$cache" -gt "$TS_CACHE_MAX" ] && cache="$TS_CACHE_MAX"
     [ "$cache" -lt 0 ] && cache=0

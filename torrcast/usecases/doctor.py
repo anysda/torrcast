@@ -22,6 +22,7 @@ import torrcast.usecases.doctor_environment as _state
 from torrcast.domain.cache_health import CacheHealth
 from torrcast.domain.indexer_health import CORE_INDEXERS, IPV4_ONLY, IndexerHealth
 from torrcast.domain.receiver_health import ReceiverHealth
+from torrcast.domain.warm_claim import warm_claim
 from torrcast.domain.warm_settings import WARM_BUDGET
 from torrcast.ports.configuration_source import ConfigurationSource
 from torrcast.ports.console import Console
@@ -35,11 +36,16 @@ from torrcast.usecases.host_checkup import HostCheckup
 from torrcast.usecases.machine_memory import machine_memory as machine_memory
 from torrcast.usecases.show_checkup import ShowCheckup
 from torrcast.usecases.warm.settings import FREE_FLOOR
+from torrcast.usecases.warm_used import warm_used as warm_used
 
 __all__ = ["CAST_PORT", "CORE_INDEXERS", "IPV4_ONLY", "Doctor", "checkup"]
-#: Байты диска, которые кэшу на диске не отдают: рядом на том же разделе живёт прогрев со
-#: своим бюджетом и запасом, а также состояние и система. То же число складывает
-#: установка (``install.sh``: тот же ``WARM_BUDGET`` плюс ``TS_DISK_FLOOR``).
+#: Байты диска, которые кэшу на диске не отдают, когда прогревать ещё нечего: весь бюджет
+#: прогрева плюс неприкосновенный запас раздела. То же число складывает установка
+#: (``install.sh``: тот же ``WARM_BUDGET`` плюс ``TS_DISK_FLOOR``).
+#:
+#: 🔴 TC-725. Прогретое, которое уже лежит на диске, из этого числа ВЫЧИТАЕТСЯ
+#: (:func:`torrcast.domain.warm_claim.warm_claim`): свободное место раздела его не
+#: содержит, и резерв поверх свободного считал бы занятое дважды.
 CACHE_DISK_RESERVE = WARM_BUDGET + FREE_FLOOR
 #: Порт приёмника кладёт композиционный корень (:func:`torrcast.runtime.wire.wire`); сама
 #: среда лежит одна на всех её читателей (:mod:`torrcast.usecases.doctor_environment`).
@@ -118,6 +124,7 @@ def _cache(config: HealthConfig, env: Env = None) -> Line:
     read = _settings if env is None else partial(env.torrserver_settings, timeout=_TIMEOUT)
     memory = machine_memory if env is None else env.machine_memory
     free_of = disk_free if env is None else env.disk_free
+    weigh = warm_used if env is None else env.warm_used
     sets = read(config.torrserver_url)
     if not isinstance(sets, dict):
         return CacheHealth.unreadable()
@@ -125,7 +132,10 @@ def _cache(config: HealthConfig, env: Env = None) -> Line:
     if not sets.get("UseDisk"):
         return CacheHealth.in_memory(size, memory())
     path = str(sets.get("TorrentsSavePath") or "")
-    return CacheHealth.on_disk(size, path, free_of(path) if path else 0, CACHE_DISK_RESERVE)
+    if not path:
+        return CacheHealth.on_disk(size, path, 0, CACHE_DISK_RESERVE)
+    reserve = warm_claim(WARM_BUDGET, weigh()) + FREE_FLOOR
+    return CacheHealth.on_disk(size, path, free_of(path), reserve)
 
 
 def _trace(env: Env = None) -> Line:

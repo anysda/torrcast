@@ -3,6 +3,7 @@
 Половина системной среды :mod:`torrcast.adapters.health.system_health_environment`.
 """
 
+import contextlib
 import locale
 import os
 import sys
@@ -18,6 +19,7 @@ from torrcast.adapters.filesystem.trace_journal.log_dir import log_dir
 from torrcast.adapters.filesystem.trace_journal.prune import RETAIN_DAYS
 from torrcast.adapters.stream_probe.shelf_weight import shelf_weight
 from torrcast.domain.warm_open import KEYS_KEPT, PROBE_KEPT
+from torrcast.domain.warm_settings import WARM_DIR
 
 #: Имена переменных окружения, которыми задаётся локаль: их и показываем человеку.
 _LOCALE_NAMES = ("LANG", "LC_ALL", "LC_CTYPE")
@@ -88,6 +90,23 @@ class MachineProbe:
         except OSError:
             return 0
         return stat.f_bavail * stat.f_frsize
+
+    @staticmethod
+    def warm_used() -> int:
+        """Сколько байт уже занято прогретым в его каталоге (:data:`WARM_DIR`).
+
+        🔴 TC-725. Спрашивается ради резерва под кэш раздачи: свободное место раздела
+        занятого прогревом уже не содержит, и без этого числа бюджет прогрева считался
+        бы поверх собственных файлов (:func:`torrcast.domain.warm_claim.warm_claim`).
+        Считаются только куски показа - каталог общий с чужими файлами не бывает, но
+        паспорта и огрызки прогона к бюджету не относятся.
+        """
+        total = 0
+        with contextlib.suppress(OSError):
+            for piece in Path(WARM_DIR).rglob("v*.ts"):
+                with contextlib.suppress(OSError):
+                    total += piece.stat().st_size
+        return total
 
     @staticmethod
     def cert_days(path: str) -> int | None:

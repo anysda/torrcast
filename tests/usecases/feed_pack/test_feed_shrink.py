@@ -148,6 +148,41 @@ def test_a_shrink_that_did_not_fit_is_a_skip_and_not_a_second_try(
     assert any("ужать не вышло" in line for line in said)
 
 
+def test_a_shrink_that_gave_no_bytes_at_all_is_not_a_verdict_about_the_piece(
+    tmp_path: Path, journal: Path
+) -> None:
+    """🔴 TC-725. Ни одного байта - это отказ ИСТОЧНИКА, а не приговор куску.
+
+    Живой замер: службу раздач убили на 70-й минуте показа, перекод и ужатие подряд
+    ответили «Connection refused», и два места по десять секунд ушли в приговор
+    навсегда. Служба вернулась через пять секунд, а дыра в фильме осталась.
+    """
+    _tract([])
+    show = feed(tmp_path, recoder=_recoder(tmp_path), grid=grid(60.0, 10.0))
+
+    assert _shrink(show, 4, 20_000_000) is False
+    assert show.skipped == {4} and show.doubted == {4}, "приговор вынесен окончательным"
+
+
+def test_a_piece_that_was_shrunk_and_still_did_not_fit_is_judged_for_good(
+    tmp_path: Path, journal: Path
+) -> None:
+    """Ужалось и всё равно не влезло - кусок детерминирован, и второй заход даст то же."""
+    recoder = _recoder(tmp_path)
+    show = feed(tmp_path, recoder=recoder, cap=100, grid=grid(60.0, 10.0))
+
+    def _start(command: list[str], out: Path, run: Path, first: int, **kwargs: Any) -> Any:
+        run.mkdir(parents=True, exist_ok=True)
+        lay(recoder.spare, first, size=5_000)  # ужалось, но потолка не одолело
+        recoder.fits = True
+        return packer(run.parent, out=out, run=run, first=first, edge=first)
+
+    _tract([], start=_start)
+
+    assert _shrink(show, 4, 20_000_000) is False
+    assert show.skipped == {4} and show.doubted == set(), "приговор объявлен условным"
+
+
 def test_a_skipped_place_is_taken_off_the_encoders_list_too(tmp_path: Path, journal: Path) -> None:
     """Кодировщику за пропущенное место браться уже незачем: копия там детерминирована."""
     recoder = _recoder(tmp_path)

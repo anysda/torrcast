@@ -83,8 +83,8 @@ class Feed(_State):
         return _skip(self, slot, size, reason)
 
     def sweep(self) -> None:
-        """Сдать успевшее и не дать несданному расти без предела (:func:`_sweep`)."""
-        _sweep(self)
+        """Сдать успевшее, поднять оборванное, придержать несданное (:func:`_sweep`)."""
+        _sweep(self, self.restart)
 
     def prune(self, played: float) -> None:
         """Убрать из tmpfs то, чего показу уже не нужно (:func:`_prune`)."""

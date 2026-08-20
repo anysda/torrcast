@@ -22,6 +22,7 @@ class FakeHealthEnvironment:
     settings: object | None = None
     memory: int = 8 * 1024**3
     free: int = 60 * 1024**3
+    warmed: int = 0
     port: int = 8009
     address: str = "10.0.0.7"
     refusal: str = ""
@@ -88,6 +89,9 @@ class FakeHealthEnvironment:
     def disk_free(self, path: str) -> int:
         self.urls.append(path)
         return self.free
+
+    def warm_used(self) -> int:
+        return self.warmed
 
     def cast_port(self) -> int:
         return self.port

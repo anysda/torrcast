@@ -142,6 +142,26 @@ def test_a_cache_that_leaves_no_room_for_the_warmup_is_bad() -> None:
     assert "прогреву места не остаётся" in line, line
 
 
+def test_what_the_warming_already_took_is_not_asked_of_the_partition_twice() -> None:
+    """🔴 TC-725. Свободное место раздела уже не содержит того, что прогрев занял.
+
+    Тот же раздел, что и в пробе выше, и то же свободное место - но половина бюджета
+    прогрева на нём уже лежит, и просить её у раздела второй раз значит объявить
+    здоровую машину больной. Ценой этой ошибки был не отчёт: установка тем же
+    вычитанием получала под кэш ноль и уводила его в память, где служба весит вдвое
+    против кэша (замер стенда: 5.9 ГиБ при 8 ГБ у машины вместо 104 МиБ на диске).
+    """
+    environment = FakeHealthEnvironment(
+        settings={"CacheSize": 4 * 1024**3, "UseDisk": True, "TorrentsSavePath": "/кэш"},
+        free=30 * 1024**3,
+        warmed=15 * 1024**3,
+    )
+
+    line, ok = _cache(_config(), environment)
+
+    assert ok, f"занятое прогревом посчитано дважды: {line}"
+
+
 def test_the_receivers_heard_in_the_air_are_named_in_the_line() -> None:
     """Эфир ответил - в строке имена: они и есть весь смысл mDNS.
 

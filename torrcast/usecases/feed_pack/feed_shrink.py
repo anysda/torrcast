@@ -117,10 +117,15 @@ def _shrink(state: _State, slot: int, size: int = 0) -> bool:
             fits = 0 < ready.stat().st_size <= state.cap
     if fits:
         return True
-    return _skip(state, slot, size, "ужать не вышло")
+    # 🔴 TC-725. Ужатие, не отдавшее НИ ОДНОГО байта, - это не приговор куску, а отказ
+    # источника: ffmpeg не открыл вход и кодировать было нечего. Приговор такому месту
+    # выносится условно (:attr:`doubted`) и снимается, как только источник прочитается
+    # снова. Кусок, который ужался и всё равно не влез, - другое дело: он детерминирован,
+    # и второй заход над ним получит ровно то же самое.
+    return _skip(state, slot, size, "ужать не вышло", final=ready is not None)
 
 
-def _skip(state: _State, slot: int, size: int, reason: str) -> bool:
+def _skip(state: _State, slot: int, size: int, reason: str, final: bool = True) -> bool:
     """Честный пропуск места, которое нельзя отдать приёмнику: один раз и вслух.
 
     Возвращает ``False`` - выкладка выбросит копию и пойдёт дальше
@@ -128,8 +133,14 @@ def _skip(state: _State, slot: int, size: int, reason: str) -> bool:
     его перепаковки не поднимает - тяжёлый кусок детерминирован, второй прогон
     над ним получит ровно ту же копию, - но и 404 в ответ не получает (TC-501):
     имя уже обещано манифестом, а 404 приёмник переживает хуже тишины.
+
+    ``final`` - вправе ли решение пережить весь показ. Ноль отдаёт только тот отказ,
+    который вынес не вес куска, а мёртвый источник (:attr:`doubted`): помнить его весь
+    показ значило бы пробить в фильме дыру из-за пятисекундной перезагрузки соседа.
     """
     state.skipped.add(slot)
+    if not final:
+        state.doubted.add(slot)
     if state.recoder is not None:
         with contextlib.suppress(Exception):
             state.recoder.done.add(slot)  # кодировщику за это место браться уже незачем

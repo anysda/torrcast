@@ -1,14 +1,18 @@
-"""Уборка по часам показа: сдать успевшее, погасить раздувшееся, вымести пройденное."""
+"""Уборка по часам показа: сдать успевшее, поднять оборванное, вымести пройденное."""
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from tests.usecases.feed_pack.world import feed, grid, lay, packer
+from tests.usecases.feed_pack.world import FakeProc, feed, grid, lay, packer, tract, vault
 from torrcast.usecases.feed_pack.feed_sweep import _prune, _sweep
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+
+def nobody(_slot: int) -> None:
+    """Перезапуск, которого проба не ждёт: она меряет соседнюю ступень уборки."""
 
 
 def test_the_publish_is_called_by_the_clock_even_when_nobody_asks_for_a_piece(
@@ -23,7 +27,7 @@ def test_the_publish_is_called_by_the_clock_even_when_nobody_asks_for_a_piece(
     lay(show.packer.run, 0)
     lay(show.packer.run, 1)
 
-    _sweep(show)
+    _sweep(show, nobody)
 
     assert (show.out / "v0.ts").exists() and show.packer.edge == 0
 
@@ -31,13 +35,13 @@ def test_the_publish_is_called_by_the_clock_even_when_nobody_asks_for_a_piece(
 def test_a_halted_or_missing_run_is_left_alone(tmp_path: Path) -> None:
     """Погашенную упаковку часы не поднимают: она встала намеренно."""
     show = feed(tmp_path)
-    _sweep(show)  # прогона нет - падать не на чем
+    _sweep(show, nobody)  # прогона нет - падать не на чем
 
     show.packer = packer(tmp_path, first=0, out=show.out, halted=True)
     lay(show.packer.run, 0)
     lay(show.packer.run, 1)
 
-    _sweep(show)
+    _sweep(show, nobody)
 
     assert list(show.out.glob("v*.ts")) == []
 
@@ -53,7 +57,7 @@ def test_unclaimed_pieces_over_the_ceiling_put_the_run_out_with_one_honest_line(
     lay(show.packer.run, 1, size=2_000_000)
     lay(show.packer.run, 2, size=2_000_000)
 
-    _sweep(show)
+    _sweep(show, nobody)
 
     assert show.packer.halted is True
     assert said == [
@@ -71,7 +75,7 @@ def test_unclaimed_pieces_under_the_ceiling_never_stop_a_working_run(
     lay(show.packer.run, 0, size=900)
     lay(show.packer.run, 1, size=900)
 
-    _sweep(show)
+    _sweep(show, nobody)
 
     assert show.packer.halted is False and said == []
 
@@ -110,3 +114,129 @@ def test_without_a_run_nothing_ahead_is_touched(tmp_path: Path) -> None:
     _prune(show, played=5.0)
 
     assert sorted(int(p.stem[1:]) for p in show.out.glob("v*.ts")) == [0, 40]
+
+
+def test_a_torn_run_is_picked_up_by_the_clock_while_the_shelf_is_still_full(
+    tmp_path: Path,
+) -> None:
+    """🔴 TC-725. Труп прогона обязан находиться по часам, а не по пустой полке.
+
+    Живой замер: служба раздач упала на 17-й минуте показа, полка была полна - и
+    разбирательство началось только через 31 с, когда запас впереди сошёл со 115 с
+    до 13 с. Тут полка полна нарочно: за куском никто не придёт, и найти обрыв
+    больше некому.
+    """
+    tract(now=100.0)
+    said: list[str] = []
+    asked: list[int] = []
+    show = feed(tmp_path, log=said.append)
+    show.packer = packer(tmp_path, first=0, edge=2, out=show.out, proc=FakeProc(code=1))
+    for slot in range(0, 6):
+        lay(show.out, slot)
+
+    _sweep(show, asked.append)
+
+    assert asked == [3], "оборванный прогон не подняли с места за краем"
+    assert show.crashes == 1 and show.restarted == 100.0
+    assert said and said[0].endswith("начинаю заново, попытка 1")
+
+
+def test_a_living_run_is_never_restarted_by_the_clock(tmp_path: Path) -> None:
+    """Прогон жив - паковать дальше ему никто не мешает, и трогать его незачем."""
+    tract(now=100.0)
+    asked: list[int] = []
+    show = feed(tmp_path)
+    show.packer = packer(tmp_path, first=0, edge=2, out=show.out)
+
+    _sweep(show, asked.append)
+
+    assert asked == [] and show.crashes == 0
+
+
+def test_a_run_that_read_the_input_to_the_end_is_the_end_of_the_film(tmp_path: Path) -> None:
+    """Дочитанный вход - это конец фильма, а не обрыв: поднимать нечего."""
+    tract(now=100.0)
+    asked: list[int] = []
+    show = feed(tmp_path, grid=grid(60.0, 10.0))
+    show.packer = packer(tmp_path, first=0, edge=5, out=show.out, proc=FakeProc(code=0), whole=True)
+
+    _sweep(show, asked.append)
+
+    assert show.packer.finished() is True and asked == []
+
+
+def test_the_clock_does_not_push_a_run_it_has_just_restarted(tmp_path: Path) -> None:
+    """Часы идут вдвое чаще защиты «не толкаемся»: второй круг обязан промолчать."""
+    fake = tract(now=100.0)
+    asked: list[int] = []
+    show = feed(tmp_path)
+    show.packer = packer(tmp_path, first=0, edge=2, out=show.out, proc=FakeProc(code=1))
+
+    _sweep(show, asked.append)
+    fake.now = 101.0
+    show.packer = packer(tmp_path, first=3, edge=4, out=show.out, proc=FakeProc(code=1))
+    _sweep(show, asked.append)
+
+    assert asked == [3], "сосед по часам толкнул упаковку внутри защиты"
+
+
+def test_a_show_that_gave_up_for_good_is_buried_by_the_holder_and_not_by_the_sweep(
+    tmp_path: Path,
+) -> None:
+    """Обрывы подряд без прогретого - приговор, и выносит его держатель показа."""
+    fake = tract(now=100.0)
+    asked: list[int] = []
+    show = feed(tmp_path, limit=1)
+    for _attempt in range(0, 3):
+        # Прогон, умерший на открытии входа: край ниже начала - выложить он не успел
+        # ничего, и «источник снова читается» про такой прогон сказать нельзя.
+        show.packer = packer(tmp_path, first=3, edge=2, out=show.out, proc=FakeProc(code=1))
+        _sweep(show, asked.append)
+        fake.now += 10.0
+
+    assert asked == [3] and show.fatal, "приговор не вынесен или уборка продолжила толкать"
+
+
+def test_the_clock_gives_the_first_word_about_a_tear_and_then_steps_aside(
+    tmp_path: Path,
+) -> None:
+    """🔴 TC-725. Часам показа принадлежит ПЕРВАЯ весть, а не всё разбирательство.
+
+    Идут они вчетверо чаще, чем приёмник просит куски. Оставь им и повторы - и весь счёт
+    обрывов сгорел бы за секунды, а пятисекундная перезагрузка соседа стала бы
+    приговором показу. Дальше обрыв ведёт запрос сегмента: у него на это есть выдержка.
+    """
+    fake = tract(now=100.0)
+    asked: list[int] = []
+    show = feed(tmp_path, limit=1, vault=vault(tmp_path))
+    for _attempt in range(0, 3):
+        show.packer = packer(tmp_path, first=3, edge=2, out=show.out, proc=FakeProc(code=1))
+        _sweep(show, asked.append)
+        fake.now += 10.0
+
+    # Два подъёма - это ровно путь до вести «источник лежит» (:attr:`limit` = 1), а не
+    # три круга часов: как только показ это узнал, часы замолкают.
+    assert asked == [3, 3], "часы забрали себе всё разбирательство, а не первую весть"
+    assert not show.fatal and show.offline, "показ похоронен, хотя фильм лежит на диске"
+
+
+def test_the_clock_lifts_a_provisional_verdict_the_receiver_can_never_ask_about(
+    tmp_path: Path,
+) -> None:
+    """🔴 TC-725. Приёмник, упёршийся в дыру, просит ИМЕННО приговорённое место.
+
+    Такой запрос отвечается молчанием, не заглядывая в прогон, - то есть единственный,
+    кто мог бы снять приговор, до пересмотра не доходит. Живой замер: служба убита на
+    70-й минуте, вернулась через пять секунд, а показ встал насмерть на 4234-й секунде.
+    Поэтому пересмотр висит на часах показа, которым приёмник не указ.
+    """
+    tract(now=100.0)
+    show = feed(tmp_path)
+    show.packer = packer(tmp_path, first=0, edge=4, out=show.out)
+    show.skipped = {2, 7}
+    show.doubted = {7}
+
+    _sweep(show, nobody)
+
+    assert show.skipped == {2}, "условный приговор пережил возврат источника"
+    assert show.doubted == set() and show.offline == ""

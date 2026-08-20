@@ -1,4 +1,4 @@
-"""Уборка по часам показа: сдать успевшее и не дать несданному расти без предела.
+"""Уборка по часам показа: сдать успевшее, поднять оборванное, придержать несданное.
 
 Зовут отсюда часы показа (:mod:`torrcast.usecases.feed_pack.feed`), а не запрос сегмента.
 """
@@ -9,12 +9,15 @@ from typing import TYPE_CHECKING
 
 import torrcast.usecases.feed_pack._state as _state
 from torrcast.ports.journal.slot import journal
+from torrcast.usecases.feed_pack.feed_survive import _doubts, _survive
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from torrcast.usecases.feed_pack.feed_state import _State
 
 
-def _sweep(state: _State) -> None:
+def _sweep(state: _State, restart: Callable[[int], None]) -> None:
     """Сдать всё, что упаковка успела, и не дать несданному расти без предела.
 
     Зовётся по часам показа, а не по запросу приёмника, и в этом весь смысл. Выкладка
@@ -38,6 +41,9 @@ def _sweep(state: _State) -> None:
     if packer is None or packer.halted:
         return
     packer.publish()
+    if packer.poll() is None and packer.edge >= packer.first:
+        _doubts(state)
+    _torn(state, restart)
     pending = packer.pending()
     if pending <= state.pending_cap:
         return
@@ -47,6 +53,58 @@ def _sweep(state: _State) -> None:
     )
     journal().mark("несданное копится", мб=round(pending / 1e6), край=packer.edge)
     packer.halt(reason=f"несданного {pending / 1e6:.0f} МБ в памяти")
+
+
+def _torn(state: _State, restart: Callable[[int], None]) -> None:
+    """Прогон оборвался - поднять его СЕЙЧАС, не дожидаясь, пока полка сойдёт в ноль.
+
+    🔴 TC-725. Оборванный прогон разбирали в одном месте - на запросе сегмента
+    (:func:`torrcast.usecases.feed_pack.feed_steer._steer`). А запрос доходит до
+    разбирательства только тогда, когда куска на полке НЕТ: пока полка полна,
+    :func:`torrcast.usecases.feed_pack.feed_segment._segment` отвечает файлом и до
+    упаковки не доходит вовсе. То есть труп прогона обнаруживался ровно в тот миг,
+    когда запас показа кончился, и весь запас впереди уходил не на починку, а на
+    ожидание её начала.
+
+    Живой замер (фильм 2:00:23, BDRip 24.5 Мбит/с): служба раздач упала на 17-й минуте
+    показа, вход оборвался - и показ молчал **31 секунду**, доедая полку со 115 с до
+    13 с, после чего упаковка поднялась и первый кусок ждали ещё 9.1 с. Запаса на
+    обрыв хватило с зазором в четыре секунды; упади служба минутой позже, на месте с
+    тощей полкой, - и плёнка встала бы.
+
+    Часы показа зовут уборку каждый круг опроса приёмника (те же две секунды), и полка
+    им не мешает: тут смотрят на ПРОГОН, а не на файлы. Поэтому починка начинается от
+    смерти прогона, а не от конца запаса, и запас впереди остаётся тем, чем он
+    обещан, - временем на починку.
+    """
+    packer = state.packer
+    if packer is None or state.fatal or packer.stopped or packer.finished():
+        return
+    if packer.poll() is None:
+        return  # прогон жив: паковать дальше ему никто не мешает
+    # 🔴 Толкаться незачем, когда про источник УЖЕ всё известно: подъём ffmpeg на мёртвую
+    # сеть стоит секунды и не даёт ничего, а показ в это время идёт с диска
+    # (:func:`torrcast.usecases.feed_pack.feed_steer._steer`). Часы показа идут вчетверо
+    # чаще запросов приёмника, и без этой границы они съедали бы весь счёт обрывов за
+    # секунды, превращая пятисекундную перезагрузку соседа в приговор. Здесь чинится
+    # ПЕРВАЯ весть о смерти прогона - та, которой полка мешала прийти вовремя; дальше
+    # обрыв ведёт разбирательство на запросе сегмента, у него на это есть выдержка.
+    if state.offline:
+        return
+    if _state.clock_port.monotonic() - state.restarted < 2.0:
+        return
+    # ⚠️ Замок берётся без ожидания и по той же причине, что на запросе сегмента:
+    # занятый замок значит «решение уже принимают», и вставать за ним в очередь
+    # часам показа нельзя - внутри решения лежит пробный прогон до минуты по потолку.
+    if not state.lock.acquire(blocking=False):
+        return
+    try:
+        if not _survive(state, packer):
+            return  # упаковка сдалась насовсем - хоронит показ держатель, а не уборка
+        state.restarted = _state.clock_port.monotonic()
+        restart(packer.edge + 1)
+    finally:
+        state.lock.release()
 
 
 def _prune(state: _State, played: float) -> None:

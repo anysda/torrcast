@@ -126,9 +126,48 @@ def test_a_failed_warm_budget_probe_reaches_the_installer_as_a_failure() -> None
     Фазу заводит `job_start`, а там тело идёт под ``|| rc=$?`` - контекст, который
     гасит errexit на всю глубину вызова. Значит провал несём наверх руками.
     """
-    assert 'reserve="$(warm_budget)" || return 1' in _body("ts_cache_disk")
+    assert 'budget="$(warm_budget)" || return 1' in _body("ts_cache_disk")
     assert 'disk="$(ts_cache_disk)" || return 1' in _body("ts_cache_place")
     assert 'place="$(ts_cache_place)" || die' in _body("install_torrserver")
+
+
+@pytest.mark.machine
+def test_the_warming_already_on_disk_is_not_reserved_twice(tmp_path: Path) -> None:
+    """🔴 TC-725. Занятое прогревом уже вычтено из свободного места раздела.
+
+    Замер стенда, ради которого правило написано: раздел 52.7 ГБ, прогретого 15.3 ГБ,
+    свободно 23.1 ГБ. Резерв поверх свободного просил бы 33.2 ГБ - кэшу на диске
+    выходил ноль, он уезжал в память и стоил службе 5.9 ГиБ при 8 ГБ у машины вместо
+    104 МиБ на диске.
+    """
+    from torrcast.domain.warm_settings import WARM_BUDGET
+
+    free, warmed = 23_065_513_984, 15_315_748_102
+    floor = 3 * 1024**3
+    script = f"""
+set -eu
+REPO_DIR={shlex.quote(str(REPO))}
+eval "$(sed -n '/^warm_budget() {{$/,/^}}$/p;/^warm_dir() {{$/,/^}}$/p;\
+/^warm_used() {{$/,/^}}$/p;/^ts_cache_disk() {{$/,/^}}$/p' {shlex.quote(str(REPO / "install.sh"))})"
+pick_python() {{ PYTHON={shlex.quote(sys.executable)}; }}
+loud() {{ printf '%s\\n' "$*" >&2; }}
+TS_DISK_FLOOR={floor}
+TS_CACHE_MAX={8 * 1024**3}
+TS_CACHE_DIR={shlex.quote(str(tmp_path))}
+TORRCAST_WARM={shlex.quote(str(tmp_path / "warm"))}
+disk_free() {{ printf '%s' {free}; }}
+ts_cache_disk
+"""
+    warm = tmp_path / "warm" / "показ"
+    warm.mkdir(parents=True)
+    with (warm / "v0.ts").open("wb") as piece:
+        piece.truncate(warmed)
+
+    done = subprocess.run(["bash", "-c", script], capture_output=True, text=True, check=False)
+
+    assert done.returncode == 0, done.stderr
+    assert int(done.stdout) == free - (WARM_BUDGET - warmed) - floor, done.stdout
+    assert int(done.stdout) > 3 * 1024**3, "кэшу на диске не осталось места - он уедет в память"
 
 
 def test_the_catalog_stands_on_roles_and_a_role_may_have_two_carriers() -> None:
