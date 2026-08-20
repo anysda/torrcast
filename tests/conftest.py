@@ -112,6 +112,7 @@ MACHINE_TESTS = frozenset(
         "tests/usecases/test_facts.py::test_the_menu_never_waits_longer_than_its_budget",
         "tests/adapters/wiki/test_wiki_blurbs.py::test_the_ratings_dump_is_read_alongside_the_first_request_not_after_it",
         "tests/adapters/wiki/test_http_json_client.py::test_a_memoized_address_rides_over_a_dns_storm",
+        "tests/adapters/wiki/test_http_json_client.py::test_a_refusal_by_deadline_takes_its_resolver_thread_with_it",
         "tests/adapters/wiki/test_wiki_articles.py::test_a_name_spelled_otherwise_is_answered_within_the_same_budget",
         "tests/usecases/test_passport.py::test_a_slow_offline_map_never_pushes_the_passport_past_the_budget",
         "tests/usecases/test_passport_either.py::test_both_types_together_fit_into_one_budget_not_two",
