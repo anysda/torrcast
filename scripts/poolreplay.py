@@ -74,6 +74,7 @@ from torrcast.domain.release import Release
 from torrcast.domain.split_franchise_index import split_franchise_index
 from torrcast.domain.thin_pool import THIN_POOL
 from torrcast.runtime.wire import wire
+from torrcast.usecases.choice.first_alive import first_alive
 from torrcast.usecases.discover.season_reread import season_reread
 from torrcast.usecases.discover.unfit_pool import unfit_pool
 from torrcast.usecases.discover.worth_asking_original import worth_asking_original
@@ -193,8 +194,13 @@ class Replay:
 
     @property
     def default(self) -> Picture | None:
-        """Что играет по Enter: верхняя картина меню, для которой построен план."""
-        return self.plans[0].picture if self.plans else None
+        """Что играет по Enter - :func:`first_alive`, ровно та же мерка, что у показа.
+
+        Верх списка и дефолт - разные вещи, и путать их нельзя: в меню «титаник» первой
+        строкой стоит «Титаник» 1943 года, а Enter играет 1997-й. Расхождение считается
+        отдельно (:attr:`default_is_menu_top`) и потерей не является.
+        """
+        return self.plans[first_alive(self.plans) - 1].picture if self.plans else None
 
     @property
     def above_default(self) -> list[Picture]:

@@ -27,8 +27,8 @@ def test_a_menu_of_one_picture_never_goes_to_the_reference_at_all() -> None:
         assert holder.get() == Origin(), "сверять нечего - и паспорт пустой"
 
 
-def test_the_reference_is_asked_about_the_top_picture_of_the_menu() -> None:
-    """Спрашивается верхняя картина меню - та самая, которую включит Enter."""
+def test_the_reference_is_asked_about_the_picture_that_enter_will_start() -> None:
+    """Спрашивается дефолтная картина - та самая, которую включит Enter."""
     world = Outside(passport=Origin(title="The Mummy", year=1999))
 
     with outside(world):
@@ -37,6 +37,25 @@ def test_the_reference_is_asked_about_the_top_picture_of_the_menu() -> None:
         assert holder.get() == Origin(title="The Mummy", year=1999)
 
     assert world.passports == [("Мумия", False)]
+
+
+def test_the_reference_follows_the_default_and_not_the_first_line_of_the_menu() -> None:
+    """🔴 Дефолт стоит не первой строкой - справка едет всё равно про НЕГО.
+
+    Строку про год печатают только дефолту, и справка, добранная про верх списка,
+    спрашивала бы про другую картину: у «медведь s2e7» верх - фильм 1938 года, а Enter
+    включает сериал 2022-го, и статьи у фильма с сериалом разные.
+    """
+    world = Outside(passport=Origin(title="The Bear", year=2022))
+    bear = [
+        plan("Медведь", 1938, seeders=1),
+        plan("Медведь", 2022, seeders=124, kind="tv"),
+    ]
+
+    with outside(world):
+        _passport(bear).get()
+
+    assert world.passports == [("Медведь", True)], "дефолт тут сериал, а верх списка - фильм"
 
 
 def test_the_type_of_the_picture_is_told_to_the_reference_because_the_articles_differ() -> None:

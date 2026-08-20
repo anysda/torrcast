@@ -50,13 +50,17 @@ def default_note(plans: list[Plan], asked: str = "") -> str:
     plain = _first_alive(plans, list(range(1, len(plans) + 1)))
     head = f"спросили «{asked}» - беру" if asked else "беру"
     mine = _named(plans[picked - 1].picture)
+    if picked > 1:
+        other = _named(plans[0].picture)
+        why = (
+            "спросили серию, а это другой тип"
+            if 1 not in numbers
+            else _passed_why(plans, 1, numbers)
+        )
+        return f"{head} «{mine}», а не «{other}»{f': {why}' if why else ''}"
     if len(numbers) != len(plans) and picked != plain:
         other = _named(plans[plain - 1].picture)
         return f"{head} «{mine}», а не «{other}»: спросили серию, а это другой тип"
-    if passed := [n for n in numbers if n < picked]:
-        other = _named(plans[passed[0] - 1].picture)
-        why = _passed_why(plans, passed[0], numbers)
-        return f"{head} «{mine}», а не «{other}»{f': {why}' if why else ''}"
     if twins := [n for n in numbers if n != picked and _namesake(plans, n, picked)]:
         others = ", ".join(f"«{_named(plans[n - 1].picture)}»" for n in twins)
         return f"{head} «{mine}»: под этим именем есть ещё {others} - другая картина"

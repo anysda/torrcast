@@ -1,7 +1,8 @@
 """Зеркало :mod:`torrcast.usecases.choice._pick_plan`: вопрос «Что смотрим?».
 
-Дефолт - верхняя картина меню, и цифра в скобках имеет смысл ровно потому, что рядом
-напечатан список и человек видит, от чего отказывается.
+Дефолт - та картина, о которой говорят честные строки про смену (:func:`first_alive`),
+и цифра в скобках имеет смысл ровно потому, что рядом напечатан список и человек видит,
+от чего отказывается.
 """
 
 from __future__ import annotations
@@ -11,6 +12,7 @@ import pytest
 from tests.usecases.choice.world import Outside, film, parts, plan
 from torrcast.domain.not_found_error import NotFoundError
 from torrcast.usecases.choice._pick_plan import _pick_plan
+from torrcast.usecases.choice.swap_note import swap_note
 
 VHS = film("Cars 2006 DVDRip XviD", seeders=100, codec="XviD", quality=None)
 
@@ -151,3 +153,26 @@ def test_a_picture_the_lines_are_silent_about_needs_no_terminal_either() -> None
 
     assert picked is cars[0]
     assert world.said[0].startswith("беру «Тачки (2006)»")
+
+
+def test_enter_starts_the_picture_the_honest_line_is_about() -> None:
+    """🔴 Дефолт у прибора один, и Enter берёт ровно ту картину, про которую сказано.
+
+    Пока Enter брал верх списка, а строка про смену считала дефолт своей меркой, эти
+    двое расходились на 23 запросах из 71 сохранённого меню, и на всех 23 строка молчала:
+    сверялась она с одной картиной, а печаталась про другую, поэтому сказать ей было
+    нечего. Человек жал Enter и получал «Титаник» 1943 года вместо 1997-го - без единого
+    слова о том, что картина другая.
+    """
+    world = Outside()
+    titanic = parts(("Титаник", 1943, 1), ("Титаник", 1953, 2), ("Титаник", 1997, 165))
+
+    picked = _pick_plan(titanic, asked="титаник", environment=world)
+
+    assert picked is titanic[2], "пустой Enter - это дефолт"
+    assert world.said[-1] == "Enter - «Титаник (1997)», пункт 3 из 3"
+    assert world.asked == [("Что смотрим?", 3, 3)]
+    assert swap_note(titanic, picked, "титаник") == (
+        "спросили «титаник» - беру «Титаник (1997)», а не «Титаник (1943)»: "
+        "рой у неё мёртв - сидов 1"
+    ), "картина сменилась - и об этом сказано"

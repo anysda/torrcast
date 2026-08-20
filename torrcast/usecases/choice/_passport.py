@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 from torrcast.domain.picture import Picture
 from torrcast.usecases.choice.configure import _environment_port
+from torrcast.usecases.choice.first_alive import first_alive
 
 if TYPE_CHECKING:
     from torrcast.domain.facts.origin import Origin
@@ -51,12 +52,17 @@ class _Passport:
 
 
 def _passport(plans: list[Plan]) -> _Passport:
-    """Пустить фоном добор паспорта верхней картины меню (:func:`year_note`).
+    """Пустить фоном добор паспорта ДЕФОЛТНОЙ картины (:func:`year_note`).
+
+    Картина тут та же, что возьмёт Enter (:func:`first_alive`), и это условие работы
+    гейта года, а не оттенок: строку про год печатают только дефолту
+    (:func:`swap_note._is_default`), и справка, добранная про верх меню, сверяла бы
+    «Титаник» 1997 года со статьёй про «Титаник» 1943-го.
 
     Только на меню из нескольких картин: одна картина - выбора не было, сверять нечего, и
     лишнего похода к справке на счастливом однокартинном пути не случается.
     """
-    default = plans[0].picture if len(plans) >= 2 else None
+    default = plans[first_alive(plans) - 1].picture if len(plans) >= 2 else None
     holder = _Passport(default)
     holder.start()
     return holder

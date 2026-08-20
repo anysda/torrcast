@@ -8,6 +8,7 @@ from torrcast.ports.choice_environment.choice_environment import ChoiceEnvironme
 from torrcast.usecases.choice.certain_default import certain_default
 from torrcast.usecases.choice.configure import _environment_port
 from torrcast.usecases.choice.default_line import default_line
+from torrcast.usecases.choice.first_alive import first_alive
 from torrcast.usecases.choice.menu_lines import menu_lines
 from torrcast.usecases.choice.part_one_swap import part_one_swap
 from torrcast.usecases.choice.taken_line import taken_line
@@ -26,8 +27,16 @@ def _pick_plan(
 ) -> Plan:
     """Вопрос «какой фильм франшизы?» - и только там, где спрашивать есть о чём.
 
-    Дефолт - верхняя картина меню. Если играть её нечем, отбор называет причину и не
-    подставляет соседнюю картину.
+    🔴 Дефолт у прибора ОДИН - :func:`first_alive`, и это та же картина, о которой
+    говорят честные строки про смену (:func:`default_note`, :func:`swap_note`,
+    :func:`year_note`, :func:`part_one_swap`). Пока Enter брал верх меню, а строки
+    считали дефолт своей меркой, эти двое расходились на 23 запросах из 71, и на всех
+    23 строка молчала: она сверялась с одной картиной, а печаталась про другую, поэтому
+    сказать ей было нечего. Человек жал Enter и получал «Титаник» 1943 года вместо
+    1997-го, фильм «Фарго» вместо третьего сезона, «Медведя» 1938 года вместо седьмой
+    серии - и ни слова о том, что картина другая. Замер по эталонной разметке того же
+    корпуса: из 23 расхождений первая живая права на 16, верх меню - на одном, на одном
+    неправы обе, на пяти разметка тёзок по году не различает.
 
     🔴 Несколько подошедших картин - ещё не повод спрашивать. Вопрос остаётся там, где
     о выборе есть что сказать честной строкой; где сказать нечего (:func:`certain_default`),
@@ -66,7 +75,7 @@ def _pick_plan(
         return plans[pick - 1]
     if len(plans) == 1:
         return plans[0]
-    default = 1
+    default = first_alive(plans)
     if certain_default(plans, asked):
         env.write(taken_line(plans, default, asked))
         return plans[default - 1]

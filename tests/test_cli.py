@@ -2971,14 +2971,25 @@ def test_the_default_names_itself_for_a_menu_that_does_not_fit_the_screen() -> N
     )
 
 
-def test_prewarm_follows_the_visible_menu() -> None:
-    """Греем сверху вниз: Enter и первая строка меню указывают на одну картину."""
+def test_prewarm_starts_with_the_default_not_with_the_earliest() -> None:
+    """Греем то, во что попадёт Enter: иначе прогрев под меню греет чужую картину.
+
+    У «моаны» дефолт - вторая картина, а под меню греются только первые
+    :data:`~torrcast.domain.prewarm_settings.PREWARM`.
+    """
     plans = _moana_franchise()
-    assert [p.picture.year for p in warm_order(plans)] == [1926, 2016, 2024]
+    assert [p.picture.year for p in warm_order(plans)] == [2016, 1926, 2024]
 
 
-def test_enter_picks_the_top_of_the_menu(capsys: pytest.CaptureFixture[str]) -> None:
-    """Enter выбирает видимый верх, даже когда соседняя картина раздаётся лучше."""
+def test_enter_picks_the_picture_the_honest_line_is_about(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Enter берёт дефолт, а не верх списка, и о смене картины говорит вслух.
+
+    Верх списка тут - сериал с мёртвым роем: нажми человек Enter на нём, он не получил
+    бы ничего. Дефолт уходит на живую картину, но уходит НЕ молча - строка называет обе
+    картины и причину, а список с номерами остаётся на экране.
+    """
     top = _franchise_plan("Наруто", 2002, [rel(name="Naruto 001-220", seeders=4)])
     movie = _franchise_plan(
         "Наруто 8: Кровавая тюрьма",
@@ -2989,13 +3000,17 @@ def test_enter_picks_the_top_of_the_menu(capsys: pytest.CaptureFixture[str]) -> 
         ],
     )
     plans = [top, movie]
-    assert first_alive(plans) == 2, "условие расхождения воспроизведено"
+    assert first_alive(plans) == 2, "рой верхней картины мёртв"
 
     picked = _pick_plan(plans, asked="naruto", environment=cast(Any, FakeChoiceEnvironment()))
 
     assert menu_lines(plans).splitlines()[0].startswith("  1. Наруто (2002)")
-    assert "Enter - «Наруто (2002)», пункт 1 из 2" in capsys.readouterr().out
-    assert picked is top
+    assert "Enter - «Наруто 8: Кровавая тюрьма (2011)», пункт 2 из 2" in capsys.readouterr().out
+    assert picked is movie
+    assert swap_note(plans, picked, "naruto") == (
+        "спросили «naruto» - беру «Наруто 8: Кровавая тюрьма (2011)», "
+        "а не «Наруто (2002)»: рой у неё мёртв - сидов 4"
+    ), "картина сменилась - и об этом сказано"
 
 
 def test_the_spare_release_goes_up_next_to_the_first_one() -> None:
