@@ -509,3 +509,91 @@ def test_a_shim_knob_with_a_space_reaches_the_process_whole() -> None:
             name, _, value = assignment.partition("=")
             env[name] = value
     assert env["TORRCAST_PROBE_UA"] == agent
+
+
+def _funcs(*names: str) -> str:
+    """Тела функций установщика, вынутые из его же текста, - чтобы гонять их взаправду."""
+    parts = ["set -euo pipefail", """info() { printf '    %s\\n' "$*"; }"""]
+    parts += [f"{name}() {{{_body(name)}\n}}" for name in names]
+    return "\n".join(parts)
+
+
+@pytest.mark.machine
+def test_a_module_gone_from_the_tree_goes_from_the_installed_package(tmp_path: Path) -> None:
+    """🔴 TC-713. В установленном пакете лежит ровно то, что есть в дереве, - ни файлом больше.
+
+    Запускается не дерево, а установленный пакет, и pip убирает за собой только то, что
+    сам записал. Файл, о котором его запись не знает (установку оборвали между сносом
+    старого и записью нового), не уносит ни повторный запуск, ни ``--force-reinstall``:
+    удалённый из дерева модуль остаётся в site-packages и продолжает импортироваться.
+    Тест гоняет саму уборку установщика на разложенных каталогах, а не сверяет её текст.
+    """
+    src, pkg = tmp_path / "tree", tmp_path / "package"
+    for root in (src, pkg):
+        (root / "adapters").mkdir(parents=True)
+        (root / "__init__.py").touch()
+        (root / "adapters" / "live.py").touch()
+    (pkg / "adapters" / "__pycache__").mkdir()
+    (pkg / "adapters" / "__pycache__" / "live.cpython-311.pyc").touch()
+    # Следы модулей, которых в дереве уже нет: сам модуль, осиротевший байт-код и
+    # подпакет целиком. Пустой каталог тоже след: по нему `import` состоится.
+    (pkg / "ghost.py").write_text("GHOST = 1\n", encoding="utf-8")
+    (pkg / "adapters" / "__pycache__" / "ghost.cpython-311.pyc").touch()
+    (pkg / "dead_pack").mkdir()
+    (pkg / "dead_pack" / "__init__.py").touch()
+
+    done = subprocess.run(
+        [
+            "bash",
+            "-c",
+            f'{_funcs("stray_files", "prune_torrcast")}\nprune_torrcast "$1" "$2"',
+            "bash",
+            str(pkg),
+            str(src),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert done.returncode == 0, done.stdout + done.stderr
+
+    left = sorted(item.relative_to(pkg).as_posix() for item in pkg.rglob("*"))
+    assert left == [
+        "__init__.py",
+        "adapters",
+        "adapters/__pycache__",
+        "adapters/__pycache__/live.cpython-311.pyc",
+        "adapters/live.py",
+    ], done.stdout
+
+
+@pytest.mark.machine
+def test_a_torn_install_leaves_no_copy_of_the_old_package(tmp_path: Path) -> None:
+    """🔴 TC-713. Оборванная установка чинится СЛЕДУЮЩЕЙ, а не копится.
+
+    Снося прежний пакет, pip сперва переименовывает его в ``~...`` и стирает уже после
+    успеха. Убитый на этом месте, он оставляет полную копию прежнего кода: сам он её не
+    уберёт никогда, только ругается на неё при каждом запуске, и с каждым обрывом таких
+    копий становится больше.
+    """
+    site = tmp_path / "site-packages"
+    (site / "~orcast" / "adapters").mkdir(parents=True)
+    (site / "~orcast" / "adapters" / "old.py").touch()
+    (site / "~orcast-0.1.0.dist-info").mkdir()
+    (site / "torrcast").mkdir()
+    (site / "torrcast" / "__init__.py").touch()
+
+    done = subprocess.run(
+        [
+            "bash",
+            "-c",
+            f'{_funcs("drop_pip_leftovers")}\ndrop_pip_leftovers "$1"',
+            "bash",
+            str(site),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert sorted(item.name for item in site.iterdir()) == ["torrcast"], done.stdout

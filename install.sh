@@ -985,6 +985,7 @@ pick_pip_index() {
 }
 
 install_torrcast() {
+    local installed site
     log "пакет torrcast → $PREFIX"
     pick_python  # фаза может гоняться и в одиночку, без `packages`
     if [ ! -x "$PREFIX/venv/bin/python" ]; then
@@ -994,6 +995,9 @@ install_torrcast() {
         skip "venv $PREFIX/venv"
     fi
     pick_pip_index
+    site="$("$PREFIX/venv/bin/python" -P -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')" ||
+        die "venv $PREFIX/venv не отвечает - ставить пакет некуда"
+    drop_pip_leftovers "$site"
     "$PREFIX/venv/bin/pip" install --quiet --upgrade pip
     # Первый вызов ставит зависимости, второй — САМ пакет, всегда заново.
     # ⚠️ Оба флага второго вызова нужны, и оба пойманы живой выкаткой:
@@ -1007,15 +1011,87 @@ install_torrcast() {
     install -d -m 0755 "$BIN_DIR"
     # Симлинк перезаписываем всегда: это дёшево и чинит битую ссылку.
     ln -sfn "$PREFIX/venv/bin/cast" "$BIN_DIR/cast"
-    verify_torrcast
+    installed="$(torrcast_site_dir)" ||
+        die "пакет torrcast не импортируется из $PREFIX/venv - установка не состоялась"
+    prune_torrcast "$installed" "$REPO_DIR/torrcast"
+    verify_torrcast "$installed"
 }
 
-# Слепок дерева исходников: «sha256 + относительный путь» на каждый .py, порядок
-# фиксирован сортировкой, поэтому два каталога сравниваются построчно.
+# 🔴 TC-713. Следы оборванной установки. Снося прежний пакет, pip сперва переименовывает
+# его в `~...` и стирает уже после успеха; убитый на этом месте, он оставляет полную копию
+# прежнего кода. Сам он её не уберёт никогда - только ругается на неё «invalid
+# distribution» при каждом своём запуске, и с каждым обрывом таких копий становится
+# больше. Venv тут наш целиком, чужого в нём нет, поэтому сносим все.
+drop_pip_leftovers() {  # $1 - каталог site-packages нашего venv
+    local site="$1" left count=0
+    for left in "$site"/~*; do
+        [ -e "$left" ] || continue
+        rm -rf "$left"
+        count=$((count + 1))
+    done
+    [ "$count" -gt 0 ] && info "убрано следов оборванной установки: $count"
+    return 0
+}
+
+# Каталог, из которого пакет РЕАЛЬНО импортируется. Спрашиваем сам интерпретатор, а не
+# складываем путь из версии: -P убирает текущий каталог из sys.path, иначе `import
+# torrcast`, запущенный из каталога с исходниками, нашёл бы их, а не установленный пакет.
+torrcast_site_dir() {
+    "$PREFIX/venv/bin/python" -P -c \
+        'import pathlib, torrcast; print(pathlib.Path(torrcast.__file__).resolve().parent)'
+}
+
+# Файлы установленного пакета, которым в дереве исходников пары нет.
+# Байт-код зовётся не как исходник (`имя.cpython-311.pyc` в соседнем `__pycache__`),
+# поэтому пару ему ищут по имени до первой точки и на каталог выше.
+stray_files() {  # $1 - каталог установленного пакета, $2 - каталог исходников
+    local pkg="$1" src="$2" rel dir stem
+    (
+        cd "$pkg" || return 1
+        LC_ALL=C find . -type f -printf '%P\n' | LC_ALL=C sort
+    ) | while IFS= read -r rel; do
+        case "$rel" in
+            __pycache__/*)    dir="." ;;
+            */__pycache__/*)  dir="${rel%/__pycache__/*}" ;;
+            *)
+                if [ ! -e "$src/$rel" ]; then printf '%s\n' "$rel"; fi
+                continue
+                ;;
+        esac
+        stem="${rel##*/}"
+        stem="${stem%%.*}"
+        if [ ! -e "$src/$dir/$stem.py" ]; then printf '%s\n' "$rel"; fi
+    done
+}
+
+# 🔴 TC-713. Приводим установленный пакет к дереву: чего в дереве нет, того нет и здесь.
+# pip убирает за собой ровно то, что сам записал в RECORD, и на ровном месте с этим
+# справляется. Но установку можно оборвать между сносом старого и записью нового, и
+# тогда в site-packages остаются файлы, о которых pip больше не знает: ни повторная
+# установка, ни --force-reinstall их уже не тронут. Такой файл продолжает
+# импортироваться - и модуль, удалённый из дерева месяц назад, живёт и работает.
+prune_torrcast() {  # $1 - каталог установленного пакета, $2 - каталог исходников
+    local pkg="$1" src="$2" rel gone=0
+    while IFS= read -r rel; do
+        rm -f "$pkg/$rel"
+        info "лишнее в пакете, убрано: $rel"
+        gone=$((gone + 1))
+    done < <(stray_files "$pkg" "$src")
+    # Каталог, из которого унесли последний файл, оставлять нельзя: пустой каталог внутри
+    # пакета Python считает пространством имён, и `import` по мёртвому имени состоится.
+    find "$pkg" -mindepth 1 -depth -type d -empty -delete
+    [ "$gone" -gt 0 ] && info "пакет приведён к дереву: убрано файлов $gone"
+    return 0
+}
+
+# Слепок дерева: «sha256 + относительный путь» на каждый файл, кроме байт-кода, порядок
+# фиксирован сортировкой, поэтому два каталога сравниваются построчно. Считаем ВСЕ файлы,
+# а не только .py: колесо везёт всё, что лежит в пакете, и лишний .json или .yml в
+# site-packages - такой же файл без пары в дереве, как и лишний модуль.
 py_manifest() {  # $1 — каталог пакета torrcast
     (
         cd "$1" || return 1
-        LC_ALL=C find . -name __pycache__ -prune -o -name '*.py' -print0 |
+        LC_ALL=C find . -name __pycache__ -prune -o -type f -print0 |
             LC_ALL=C sort -z | xargs -0r sha256sum
     )
 }
@@ -1025,15 +1101,15 @@ py_manifest() {  # $1 — каталог пакета torrcast
 # и это ловилось только сверкой хэшей руками после каждой выкатки. Расхождение —
 # это провал установки, а не повод для предупреждения: дальше по скрипту нет ничего,
 # что чинило бы venv, а показ пойдёт по чужому коду.
-verify_torrcast() {
-    local installed repo_side venv_side changed count sum
-    # -P убирает текущий каталог из sys.path: без него `import torrcast`, запущенный
-    # из каталога репы, нашёл бы исходники репы и сверка сравнивала бы их сами с собой.
-    installed="$("$PREFIX/venv/bin/python" -P -c \
-        'import pathlib, torrcast; print(pathlib.Path(torrcast.__file__).resolve().parent)')" ||
-        die "пакет torrcast не импортируется из $PREFIX/venv - установка не состоялась"
+verify_torrcast() {  # $1 — каталог установленного пакета
+    local installed="$1" repo_side venv_side changed count sum extra
     [ -d "$REPO_DIR/torrcast" ] || die "рядом с install.sh нет каталога torrcast/ — нечего сверять"
     [ -d "$installed" ] || die "torrcast импортируется, но каталога $installed нет"
+
+    # Сверка хэшей видит только пары «есть там и там»; отдельной строкой спрашиваем то,
+    # чего в дереве нет вовсе, - включая осиротевший байт-код, которого слепок не берёт.
+    extra="$(stray_files "$installed" "$REPO_DIR/torrcast" | tr '\n' ' ')"
+    [ -z "$extra" ] || die "в пакете остались файлы, которых в дереве нет: $extra"
 
     repo_side="$(py_manifest "$REPO_DIR/torrcast")"
     venv_side="$(py_manifest "$installed")"
@@ -1054,7 +1130,7 @@ verify_torrcast() {
 
     count="$(printf '%s\n' "$repo_side" | grep -c .)"
     sum="$(printf '%s\n' "$repo_side" | sha256sum | cut -c1-12)"
-    info "сверка venv ↔ репа: $count файлов .py совпадают (sha256 $sum)"
+    info "сверка venv ↔ репа: $count файлов совпадают (sha256 $sum)"
 }
 
 # --- 3. TorrServer ----------------------------------------------------------
