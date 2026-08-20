@@ -33,6 +33,7 @@ CUE_TIME: Final = 0xB3
 CUE_TRACK_POSITIONS: Final = 0xB7
 CUE_TRACK: Final = 0xF7
 CUE_CLUSTER_POSITION: Final = 0xF1
+CUE_RELATIVE_POSITION: Final = 0xF0
 
 #: Запасной размер головы: :data:`~torrcast.adapters.frames.keyframes.HEAD_PEEK` не хватило (длинный
 #: SeekHead, толстые теги).

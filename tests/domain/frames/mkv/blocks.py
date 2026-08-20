@@ -20,6 +20,7 @@ from torrcast.domain.frames.mkv.ids import (
     CODEC_ID,
     CUE_CLUSTER_POSITION,
     CUE_POINT,
+    CUE_RELATIVE_POSITION,
     CUE_TIME,
     CUE_TRACK,
     CUE_TRACK_POSITIONS,
@@ -93,12 +94,26 @@ class Matroska:
     laced: bool = False
     #: Край окна чтения режет заголовок блока пополам, а видеоблока в окне нет (TC-687).
     cut_header: bool = False
+    #: Сколько видеокадров лежит в кластере ПЕРЕД тем, который назвала точка Cues. Они
+    #: нарочно противоположны названному по опорности: так видно, чей кадр судит
+    #: проверка честности - названный точкой или первый попавшийся в кластере.
+    before: int = 0
+    #: Муксер назвал место блока внутри кластера (``CueRelativePosition``).
+    relative: bool = False
+
+    def inside(self) -> int:
+        """Смещение названного блока от начала данных кластера; ноль - муксер смолчал."""
+        if not self.relative:
+            return 0
+        return len(elem(TIMESTAMP, uint(0))) + self.before * len(self._block(1, idr=self.ghost))
 
     def _cues(self) -> bytes:
         points = b""
         for at, offset, track in self.cues:
-            inside = elem(CUE_TRACK, uint(track)) + elem(CUE_CLUSTER_POSITION, uint(offset))
-            points += elem(CUE_POINT, elem(CUE_TIME, uint(at)) + elem(CUE_TRACK_POSITIONS, inside))
+            where = elem(CUE_TRACK, uint(track)) + elem(CUE_CLUSTER_POSITION, uint(offset))
+            if self.relative:
+                where += elem(CUE_RELATIVE_POSITION, uint(self.inside()))
+            points += elem(CUE_POINT, elem(CUE_TIME, uint(at)) + elem(CUE_TRACK_POSITIONS, where))
         return elem(CUES, points)
 
     def _seek_head(self, at: int) -> bytes:
@@ -127,17 +142,19 @@ class Matroska:
             entries += elem(TRACK_ENTRY, entry)
         return elem(TRACKS, entries)
 
+    def _block(self, track: int, idr: bool) -> bytes:
+        """Блок дорожки с настоящим срезом AVC внутри: IDR (NAL типа 5) или обычный."""
+        flags = 0x80 | (0x06 if self.laced else 0)
+        frame = (5).to_bytes(4, "big") + (b"\x65" if idr else b"\x41") + b"\x00" * 4
+        return elem(SIMPLE_BLOCK, bytes([0x80 | track]) + b"\x00\x00" + bytes([flags]) + frame)
+
     def _cluster(self, at: int, tracks: list[int]) -> bytes:
-        """Кластер с одним блоком на дорожку; у видео - AVC-срез, IDR или нет."""
+        """Кластер: набивка чужих видеокадров, затем по блоку на каждую дорожку точки."""
         if self.cut_header:
             return self._cut_cluster(at)
-        payload = elem(TIMESTAMP, uint(at))
+        payload = elem(TIMESTAMP, uint(at)) + self._block(1, idr=self.ghost) * self.before
         for track in tracks:
-            flags = 0x80 | (0x06 if self.laced else 0)
-            nal = b"\x41" if self.ghost else b"\x65"
-            frame = (5).to_bytes(4, "big") + nal + b"\x00" * 4
-            block = bytes([0x80 | track]) + b"\x00\x00" + bytes([flags]) + frame
-            payload += elem(SIMPLE_BLOCK, block)
+            payload += self._block(track, idr=not self.ghost)
         return elem(CLUSTER, payload)
 
     def _cut_cluster(self, at: int) -> bytes:

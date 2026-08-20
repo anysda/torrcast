@@ -63,3 +63,27 @@ def test_a_block_header_cut_by_the_window_edge_cannot_be_read() -> None:
     served, base = _served(Matroska(cues=[(0, 1024, 1)], cut_header=True))
 
     assert key_frame(served, base + 1024, 1, AVC) is None
+
+
+def test_the_named_block_is_judged_and_not_the_first_one_in_the_cluster() -> None:
+    """Перед названным кадром в кластере лежит чужой - судится всё равно названный.
+
+    Точка Cues ссылается на НАЧАЛО кластера, а муксер вправе положить туда несколько
+    видеокадров. Первым тогда оказывается чужой кадр, и честный индекс отвергался бы за
+    него целиком; место названного блока муксер называет сам (``CueRelativePosition``).
+    """
+    film = Matroska(before=2, relative=True)
+    served, base = _served(film)
+
+    assert key_frame(served, base + 1024, 1, AVC, film.inside()) is True
+
+
+def test_a_ghost_behind_an_honest_neighbour_in_the_same_cluster_is_seen() -> None:
+    """Первый видеоблок кластера опорный, а названный точкой - нет: это призрак.
+
+    Ровно так врущий индекс покупал бы себе проверку: сосед по кластеру отвечает за него.
+    """
+    film = Matroska(before=2, relative=True, ghost=True)
+    served, base = _served(film)
+
+    assert key_frame(served, base + 1024, 1, AVC, film.inside()) is False

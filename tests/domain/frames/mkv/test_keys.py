@@ -87,6 +87,38 @@ def test_an_honest_index_passes_the_frame_check() -> None:
     assert reader.requests == 5, "голова, один заход за Cues и три пробы вразброс"
 
 
+def test_an_honest_index_survives_a_cluster_with_several_video_frames() -> None:
+    """Опорный кадр не первым в кластере - индекс всё равно честный, и карта строится.
+
+    Точка Cues ссылается на начало кластера, а муксер вправе положить туда несколько
+    видеокадров: тогда первым лежит чужой кадр. Судить по нему - значит отвергнуть
+    честный файл целиком и отдать показу ровную сетку вместо сетки по опорным кадрам.
+    Место своего блока муксер называет сам (``CueRelativePosition``).
+    """
+    cues = [(0, 1024, 1), (2000, 2048, 1), (4000, 3072, 1), (6000, 4096, 1)]
+    data, base = Matroska(cues=cues, before=2, relative=True).bytes()
+    reader = Served(data)
+    found = keys(reader, reader.read(0, HEAD))
+
+    assert [p.offset for p in found.points] == [base + 1024, base + 2048, base + 3072, base + 4096]
+
+
+def test_a_ghost_does_not_buy_itself_off_with_an_honest_neighbour() -> None:
+    """Первый видеоблок кластера опорный, а названный точкой - призрак: индекс врёт.
+
+    Так проверка честности покупается соседом по кластеру: муксер, который ставит точку
+    на каждый видеокадр, начинает кластер настоящим опорным кадром, и проба по первому
+    блоку каждый раз отвечает «опорный». Замер на стенде: 2880 точек при 60 настоящих
+    опорных кадрах - 97.9 % призраков, и все три пробы сказали «честно».
+    """
+    cues = [(0, 1024, 1), (2000, 2048, 1), (4000, 3072, 1), (6000, 4096, 1)]
+    data, _base = Matroska(cues=cues, before=2, relative=True, ghost=True).bytes()
+    reader = Served(data)
+
+    with pytest.raises(InfraError, match="врёт"):
+        keys(reader, reader.read(0, HEAD))
+
+
 def test_a_block_header_cut_by_the_window_edge_is_not_a_crash() -> None:
     """Окно пробы обрезало заголовок блока: «не разобрать», а не падение (TC-687).
 
