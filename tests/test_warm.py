@@ -20,7 +20,7 @@ from typing import Any
 
 import pytest
 
-from tests.conftest import CLIP_SECONDS, free_port
+from tests.conftest import CLIP_KEY_SECONDS, CLIP_SECONDS, free_port
 from tests.fakes import composition
 from tests.usecases.warm.world import counting, live_tract, quiet
 from torrcast.adapters import warm_environment
@@ -1117,13 +1117,22 @@ def test_the_warmed_film_is_homogeneous_and_its_heavy_piece_is_recoded(
 
 
 def _offkey_grid() -> Grid:
-    """Сетка, чьи границы заведомо не совпадают с опорными кадрами ролика.
+    """Сетка, чьи границы стоят РОВНО ПОСЕРЕДИНЕ между опорными кадрами ролика.
 
-    У ролика опорный кадр каждые 2 с (``-g 50`` при 25 к/с), поэтому границы, сдвинутые
-    на секунду, гарантируют докатку: ``-ss`` уводит ffmpeg на опорный кадр раньше границы -
-    ровно то, что происходит на настоящем релизе.
+    ``-ss`` уводит ffmpeg на опорный кадр раньше границы, и докатка тут выходит в полшага
+    опорных кадров - самая большая, какую этот ролик вообще может дать. Ровно то, что
+    происходит на настоящем релизе, и ровно то, что обязан ловить сторож границ.
+
+    🔴 Круглым числом границу тут ставить нельзя. Пока кадры стояли на целых секундах,
+    сдвиг границы на секунду и правда давал секунду докатки; у ролика с дробной частотой
+    опорный кадр оказывается в 0.146 с от той же круглой границы - меньше порога сторожа
+    (:data:`torrcast.usecases.warm.settings.SKEW_MAX` = 0.15), заход выходит здоровым, и
+    сторожу нечего ловить. Поэтому место границы СЧИТАЕТСЯ от шага кадров
+    (:data:`CLIP_KEY_SECONDS`), а не вписывается числом.
     """
-    return Grid(tuple(float(k * 10 + (1 if k else 0)) for k in range(6)), float(CLIP_SECONDS), True)
+    step = CLIP_KEY_SECONDS
+    middles = [0.0] + [(math.floor(k * 10 / step) + 0.5) * step for k in range(1, 6)]
+    return Grid(tuple(round(at, 3) for at in middles), float(CLIP_SECONDS), True)
 
 
 def _md5(path: Path) -> str:
@@ -1234,8 +1243,8 @@ def test_the_recoding_run_of_the_warming_never_asks_the_pilot(
 # результату. Тесты ниже проверяют не намерение и не аргументы ffmpeg, а НАЧАЛО уже
 # лежащего файла - то самое место, где дефект был виден с самого начала.
 
-#: Слот, на котором ставятся опыты сторожа: у :func:`_offkey_grid` его граница (21.0 с)
-#: заведомо не совпадает с опорным кадром ролика, то есть докатка гарантирована.
+#: Слот, на котором ставятся опыты сторожа: у :func:`_offkey_grid` его граница стоит
+#: посередине между опорными кадрами ролика, то есть докатка гарантирована и велика.
 _LAID = 2
 
 

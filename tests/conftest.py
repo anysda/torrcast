@@ -13,6 +13,7 @@ import subprocess
 import sys
 import threading
 import time
+from fractions import Fraction
 from types import ModuleType
 from typing import TYPE_CHECKING
 
@@ -44,6 +45,36 @@ if TYPE_CHECKING:
 #: сегментов: на сетке 10 с двадцатисекундный ролик - это всего два сегмента,
 #: и «продолжить с середины» на нём проверять уже нечего.
 CLIP_SECONDS = 60
+
+#: Частота кадров синтетических роликов, дробью для ffmpeg. 🔴 Это не вкус и не
+#: правдоподобие, а условие видимости целого класса дефектов.
+#:
+#: На ровной сетке рез идёт по ВРЕМЕНИ, а не по кадру (``-break_non_keyframes 1``), а
+#: принудительный опорный кадр кодировщик ставит на границу минус
+#: :data:`torrcast.adapters.recode.encode_settings._KEY_SLACK`. Когда период кадра делит
+#: границу нацело, этот кадр всякий раз ложится ровно на рез и достаётся куску справа:
+#: куска, начинающегося НЕ с опорного кадра, на таком входе не бывает ни разу. А наружу
+#: перекод идёт склейкой со звуком копии, склейка копирует поток ``-c copy``, и
+#: копирование выбрасывает всё до первого опорного кадра - нет его вовсе, выброшено ВСЁ
+#: видео, и зритель получает десять секунд звука на чёрном экране
+#: (:func:`torrcast.adapters.stream_pack.key_missing.key_missing`).
+#:
+#: Замер на заходе кодировщика ``v1..v3`` по ровной сетке 10 с: 25 к/с - 0 кусков без
+#: опорного кадра из 3, ровные 24 к/с - тоже 0, 24000/1001 - 1 из 3, 30000/1001 - 1 из 3.
+#: Делят границу нацело ровно первые два, и они же были входом всего набора.
+#:
+#: Взята частота кинопроката: 10 с - это 239.76 кадра, сетка в границу не попадает
+#: никогда, а ещё это самая частая частота живых релизов.
+CLIP_FPS = Fraction(24000, 1001)
+CLIP_RATE = f"{CLIP_FPS.numerator}/{CLIP_FPS.denominator}"
+
+#: Через сколько КАДРОВ ролики ставят опорный кадр (``-g``).
+CLIP_GOP = 50
+
+#: Шаг опорных кадров ролика, секунды. Числом, а не строкой в комментарии: у ролика с
+#: дробной частотой опорные кадры стоят не на круглых секундах, и тест, которому надо
+#: встать ЗАВЕДОМО между ними, обязан считать это место, а не переписывать от руки.
+CLIP_KEY_SECONDS = float(CLIP_GOP / CLIP_FPS)
 
 # Любой тест из этой группы получает настоящий медиафайл, собранный ffmpeg. Маркер
 # ставится по замыканию фикстур: так зависимость не потеряется, когда тест начнёт брать
@@ -414,9 +445,9 @@ def clip(tmp_path_factory: pytest.TempPathFactory) -> str:
     path = tmp_path_factory.mktemp("src") / "clip.mkv"
     subprocess.run(
         ["ffmpeg", "-hide_banner", "-loglevel", "error",
-         "-f", "lavfi", "-i", "testsrc2=size=640x360:rate=25",
+         "-f", "lavfi", "-i", f"testsrc2=size=640x360:rate={CLIP_RATE}",
          "-f", "lavfi", "-i", "sine=frequency=440", "-t", str(CLIP_SECONDS),
-         "-c:v", "libx264", "-preset", "ultrafast", "-g", "50", "-c:a", "ac3", "-ac", "6",
+         "-c:v", "libx264", "-preset", "ultrafast", "-g", str(CLIP_GOP), "-c:a", "ac3", "-ac", "6",
          "-y", str(path)],
         check=True, capture_output=True,
     )  # fmt: skip
@@ -435,9 +466,10 @@ def clip_hevc(tmp_path_factory: pytest.TempPathFactory) -> str:
     path = tmp_path_factory.mktemp("src-hevc") / "clip.mkv"
     subprocess.run(
         ["ffmpeg", "-hide_banner", "-loglevel", "error",
-         "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=25",
+         "-f", "lavfi", "-i", f"testsrc2=size=320x180:rate={CLIP_RATE}",
          "-f", "lavfi", "-i", "sine=frequency=440", "-t", str(CLIP_SECONDS),
-         "-c:v", "libx265", "-preset", "ultrafast", "-x265-params", "log-level=none:keyint=50",
+         "-c:v", "libx265", "-preset", "ultrafast",
+         "-x265-params", f"log-level=none:keyint={CLIP_GOP}",
          "-c:a", "ac3", "-ac", "6", "-y", str(path)],
         check=True, capture_output=True,
     )  # fmt: skip
@@ -489,9 +521,9 @@ def clip_mp4_bframes(tmp_path_factory: pytest.TempPathFactory) -> str:
     path = tmp_path_factory.mktemp("src-mp4-bf") / "clip.mp4"
     subprocess.run(
         ["ffmpeg", "-hide_banner", "-loglevel", "error",
-         "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=25",
+         "-f", "lavfi", "-i", f"testsrc2=size=320x180:rate={CLIP_RATE}",
          "-f", "lavfi", "-i", "sine=frequency=440", "-t", str(CLIP_SECONDS),
-         "-c:v", "libx264", "-preset", "ultrafast", "-g", "50", "-bf", "3",
+         "-c:v", "libx264", "-preset", "ultrafast", "-g", str(CLIP_GOP), "-bf", "3",
          "-c:a", "aac", "-movflags", "+faststart", "-y", str(path)],
         check=True, capture_output=True,
     )  # fmt: skip

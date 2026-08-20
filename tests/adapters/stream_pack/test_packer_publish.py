@@ -2,10 +2,16 @@
 
 from __future__ import annotations
 
+import subprocess
 from typing import TYPE_CHECKING, Any
 
-from tests.usecases.feed_pack.world import lay, packer
+from tests.conftest import CLIP_SECONDS
+from tests.usecases.feed_pack.world import FakeProc, lay, packer
+from torrcast.adapters.recode.encode import Encode
+from torrcast.adapters.stream_pack.ffmpeg_pack_command import ffmpeg_pack_command
+from torrcast.adapters.stream_pack.grid import Grid
 from torrcast.adapters.stream_pack.packer_publish import _lay_out
+from torrcast.adapters.stream_probe.segment_name import segment_name
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -330,3 +336,69 @@ def test_a_recode_that_starts_with_a_key_frame_still_goes_out_as_a_merge(tmp_pat
     _lay_out(run, _always, merge=merge, keyless=lambda piece: False)
 
     assert told == [(0, "склейка")]
+
+
+#: Заход кодировщика в пробе ниже: с какого куска сетки и по какой. Кусок без опорного
+#: кадра берётся на ВНУТРЕННИХ границах захода, поэтому одной границы тут мало, а
+#: начинаться заход обязан не с нуля: своё место в ленте ему задаёт ``-ss``, и от него же
+#: считается кадровая сетка кодировщика.
+_FIRST, _LAST = 1, 3
+
+
+def _video_packets(piece: Path) -> list[str]:
+    """Флаги видеопакетов куска по порядку; пусто - видео в куске нет вовсе."""
+    done = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "v", "-show_entries", "packet=flags",
+         "-of", "csv=p=0", str(piece)],
+        check=True, capture_output=True, text=True,
+    )  # fmt: skip
+    return [line.strip() for line in done.stdout.splitlines() if line.strip()]
+
+
+def _pack(source: str, where: Path, grid: Grid, slot: int, encode: Encode | None) -> Path:
+    """Один заход ffmpeg по сетке ``grid`` до :data:`_LAST` включительно."""
+    where.mkdir(parents=True)
+    subprocess.run(
+        ffmpeg_pack_command(source, 0, str(where), grid, slot, grid.start(slot),
+                            readrate=0.0, encode=encode, until=_LAST),
+        check=True, capture_output=True, timeout=300,
+    )  # fmt: skip
+    return where
+
+
+def test_a_piece_without_a_single_video_frame_never_reaches_the_viewer(
+    clip: str, tmp_path: Path
+) -> None:
+    """🔴 TC-698 живьём: ни один выложенный кусок не уходит зрителю без картинки.
+
+    Куски тут не подрисованы, а нарезаны настоящим ffmpeg по РОВНОЙ сетке - той, где рез
+    идёт по времени, а не по кадру (``-break_non_keyframes 1``). На такой сетке
+    принудительный опорный кадр кодировщика вправе лечь по ту сторону границы, и тогда
+    следующий кусок начинается кадром без ``K``. Склейка со звуком копии копирует поток
+    ``-c copy``, копирование выбрасывает всё до первого опорного кадра - и наружу уходят
+    десять секунд звука на чёрном экране.
+
+    Мера тут одна и она про зрителя: что именно легло в каталог показа. Сверху стоит
+    положительный контроль - заход обязан ХОТЯ БЫ РАЗ встать без опорного кадра, иначе
+    проба зелена не потому, что выкладка работает, а потому, что ловить было нечего. На
+    роликах, чья кадровая сетка делит границу нацело, этого не случается ни разу
+    (:data:`tests.conftest.CLIP_RATE`), и такой вход прятал бы дефект целиком.
+    """
+    grid = Grid.uniform(float(CLIP_SECONDS))
+    run = _pack(clip, tmp_path / "copy", grid, 0, None)
+    spare = _pack(clip, tmp_path / "recode", grid, _FIRST, Encode(preset="ultrafast", mbit=1.0))
+    out = tmp_path / "out"
+    out.mkdir()
+
+    heads = {slot: _video_packets(spare / segment_name(slot)) for slot in range(_FIRST, _LAST + 1)}
+    keyless = [slot for slot, flags in heads.items() if flags and not flags[0].startswith("K")]
+    assert keyless, "заход ни разу не встал без опорного кадра - выкладке нечего ловить"
+
+    # Процесс вышел нулём: прогон дочитал вход, и «дописан ли последний кусок» решает
+    # один этот код - выкладке есть что отдавать наружу до самого :data:`_LAST`.
+    packer(tmp_path, proc=FakeProc(code=0), out=out, run=run, spare=spare, last=_LAST).publish()
+
+    laid = sorted(out.glob("v*.ts"))
+    assert laid, "выкладка не отдала наружу ни одного куска"
+    for piece in laid:
+        assert _video_packets(piece), f"{piece.name} - ни одного видеокадра, зрителю чёрный экран"

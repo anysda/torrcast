@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from tests.conftest import CLIP_KEY_SECONDS, CLIP_RATE
 from torrcast.adapters.stream_pack._pilot_start import _FILM_START, _film_start, _pilot_start
 
 #: На столько уезжает вперёд лента контейнера в фикстуре ниже.
@@ -46,7 +47,7 @@ def clip_mp4_late_start(tmp_path: Path) -> str:
     mp4 = tmp_path / "late.mp4"
     subprocess.run(
         ["ffmpeg", "-hide_banner", "-loglevel", "error",
-         "-f", "lavfi", "-i", "testsrc2=size=640x360:rate=25",
+         "-f", "lavfi", "-i", f"testsrc2=size=640x360:rate={CLIP_RATE}",
          "-f", "lavfi", "-i", "sine=frequency=440", "-t", "30",
          "-c:v", "libx264", "-preset", "ultrafast", "-g", "50", "-bf", "3",
          "-c:a", "aac", "-y", str(mkv)],
@@ -100,9 +101,13 @@ def test_an_mp4_whose_video_starts_late_keeps_the_container_tape(
     start = float(raw.stdout.strip().splitlines()[0])
     assert start > 0.005, f"фикстура перестала быть своим классом: start_time {start}"
     assert _film_start(clip_mp4_late_start) == 0.0
-    # Опорные кадры стоят на k*2.0 + start: посадка на 20.023 - это метка контейнера,
-    # а не «лента фильма» с вычтенными 0.023.
-    assert _pilot_start(clip_mp4_late_start, 21.0) == pytest.approx(20.0 + start, abs=0.01)
+    # Опорные кадры стоят на ``k * CLIP_KEY_SECONDS + start``. Целимся посередине между
+    # двумя из них - так посадка не зависит от того, куда именно легли кадры, - и ждём
+    # метку КОНТЕЙНЕРА: кадр плюс ``start``, а не «лента фильма» с вычтенными 0.023.
+    key = 10 * CLIP_KEY_SECONDS
+    assert _pilot_start(clip_mp4_late_start, key + CLIP_KEY_SECONDS / 2) == pytest.approx(
+        key + start, abs=0.01
+    )
 
 
 @pytest.mark.ffmpeg

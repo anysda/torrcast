@@ -32,7 +32,7 @@ from torrcast.adapters.stream_probe.segment_name import segment_name
 from torrcast.domain.film_keys import FilmKeys
 from torrcast.domain.recode_settings import RECODE_HEIGHT
 
-from .conftest import fake_packer
+from .conftest import CLIP_RATE, fake_packer
 
 
 def _map(patch: pytest.MonkeyPatch, keys: FilmKeys) -> None:
@@ -514,8 +514,8 @@ def test_a_quiet_opening_does_not_let_the_encoder_burst(tmp_path) -> None:  # ty
     source = tmp_path / "opening.mkv"
     subprocess.run(
         ["ffmpeg", "-hide_banner", "-loglevel", "error",
-         "-f", "lavfi", "-i", "color=c=black:s=640x360:r=25:d=2",
-         "-f", "lavfi", "-i", "testsrc2=s=640x360:r=25:d=10",
+         "-f", "lavfi", "-i", f"color=c=black:s=640x360:r={CLIP_RATE}:d=2",
+         "-f", "lavfi", "-i", f"testsrc2=s=640x360:r={CLIP_RATE}:d=10",
          "-f", "lavfi", "-i", "sine=frequency=440:d=12",
          "-filter_complex", "[0:v][1:v]concat=n=2:v=1:a=0[v]", "-map", "[v]", "-map", "2:a",
          "-c:v", "libx264", "-preset", "ultrafast", "-qp", "16", "-c:a", "ac3", "-ac", "2",

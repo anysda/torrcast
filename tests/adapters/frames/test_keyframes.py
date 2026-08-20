@@ -25,6 +25,14 @@ from torrcast.domain.frames.mkv.key_frame import BLOCK_BYTES
 from torrcast.domain.frames.range_reader import RangeReader
 from torrcast.domain.infra_error import InfraError
 
+#: Допуск сверки карты с ffprobe, секунды. Побитово сверять тут нечего: ffprobe печатает
+#: время шестью знаками, а карта считает его в дробной шкале контейнера, и на 24000/1001
+#: их значения расходятся в пятнадцатом знаке - ровно столько нужно, чтобы округление до
+#: миллисекунды село по разные стороны от 12.5125. Дефект, ради которого сверка и стоит
+#: (потерянные ``ctts`` или ``elst``), двигает карту на КАДРЫ, то есть на 40 мс и больше:
+#: миллисекунда допуска его не прячет, а бит округления больше не красит зелёное красным.
+MAP_SLACK = 0.001
+
 
 class _FromDisk:
     """Диапазоны того же файла, но с диска: рою тут взяться неоткуда."""
@@ -114,7 +122,7 @@ def test_unknown_container_is_infra_error(served: _Served, tmp_path: Path) -> No
 def test_mp4_map_matches_ffprobe(served: _Served, clip_mp4: str) -> None:
     """Карта mp4 - те же кадры и те же байты, что видит ffprobe, читающий файл целиком."""
     found = keyframes(clip_mp4, source=served)
-    assert [round(p.at, 3) for p in found.points] == [round(x, 3) for x in probe_keys(clip_mp4)]
+    assert [p.at for p in found.points] == pytest.approx(probe_keys(clip_mp4), abs=MAP_SLACK)
     assert [p.offset for p in found.points] == probe_offsets(clip_mp4)
 
 
@@ -126,9 +134,9 @@ def test_mp4_with_b_frames_and_edit_list(served: _Served, clip_mp4_bframes: str)
     попадать на опорные кадры, а виден этот брак только на живом ТВ.
     """
     found = keyframes(clip_mp4_bframes, source=served)
-    assert [round(p.at, 3) for p in found.points] == [
-        round(x, 3) for x in probe_keys(clip_mp4_bframes)
-    ]
+    assert [p.at for p in found.points] == pytest.approx(
+        probe_keys(clip_mp4_bframes), abs=MAP_SLACK
+    )
 
 
 def test_mp4_moov_in_tail_costs_no_mdat(served: _Served, clip_mp4_tail: str) -> None:
@@ -155,9 +163,9 @@ def test_the_same_film_gives_the_same_map(served: _Served, clip: str, clip_mp4: 
     theirs = [p.at for p in inside.points if p.track == track]
     ours = [p.at for p in outside.points]
     assert len(ours) == len(theirs)
-    assert [round(b - a, 3) for a, b in itertools.pairwise(theirs)] == [
-        round(b - a, 3) for a, b in itertools.pairwise(ours)
-    ]
+    assert [b - a for a, b in itertools.pairwise(theirs)] == pytest.approx(
+        [b - a for a, b in itertools.pairwise(ours)], abs=MAP_SLACK
+    )
     assert max(abs(a - b) for a, b in zip(theirs, ours, strict=True)) < 0.04  # меньше кадра
 
 
