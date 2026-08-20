@@ -1,6 +1,7 @@
 """Закладка выбранной картины: продолжить, начать сначала или списать досмотренное.
 
-Зовёт их команда показа (:func:`_cmd_play`) - каждую на своём раннем выходе.
+Зовёт их команда показа (:func:`_cmd_play`) - каждую на своём раннем выходе. Прогрев
+под меню спрашивает у закладки, ответит ли она за картину сама (:func:`_plays_recorded`).
 """
 
 from __future__ import annotations
@@ -79,6 +80,23 @@ def _continue_picked(
         return None
     bench.drop_all()
     return _continue(config, plan.picture.key, started, args=args, clock=clock)
+
+
+def _plays_recorded(state: WatchState, key: str, args: Args) -> bool:
+    """Ответит ли закладка этой картины показом записанной раздачи - и снесёт прогретое.
+
+    Спрашивает прогрев под меню до подъёма раздачи картины
+    (:func:`torrcast.usecases.cast_command._choose._choose`): закладка играет ЗАПИСАННУЮ
+    раздачу, поэтому прогретый кандидат такой картины не пригодится при любом ответе -
+    выбери человек её, прогретое снесёт сама закладка (:func:`_continue_picked`), выбери
+    соседнюю - его уберёт уборка чужих картин
+    (:meth:`torrcast.usecases.select_bench.bench.Bench.keep_plan`). Условие обязано совпадать с
+    условием самой закладки знак в знак, поэтому живёт рядом с ней.
+    """
+    started = state.get(key)
+    if started is None or args.pinned:
+        return False
+    return args.from_start or (not started.serial and started.resumable)
 
 
 def _from_start(config: Config, key: str, entry: Entry, *, args: Args, clock: _Clock) -> int | None:

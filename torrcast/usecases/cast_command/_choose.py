@@ -13,7 +13,7 @@ from torrcast.domain.config import Config
 from torrcast.domain.prewarm_settings import PREWARM
 from torrcast.ports.journal.slot import journal
 from torrcast.ports.progress.slot import progress as progress_bar
-from torrcast.usecases.cast_command._bookmark import _continue_picked
+from torrcast.usecases.cast_command._bookmark import _continue_picked, _plays_recorded
 from torrcast.usecases.choice._passport import _passport
 from torrcast.usecases.choice._pick_plan import _pick_plan
 from torrcast.usecases.choice._played import _played
@@ -56,7 +56,9 @@ def _choose(
 
     Вместо набора отсюда бывает КОД: закладка выбранной картины отвечает показом прямо
     здесь (:func:`_continue_picked`), а звать её раньше меню нельзя - она про место ВНУТРИ
-    картины, и картина к этой секунде ещё не названа.
+    картины, и картина к этой секунде ещё не названа. Прогрев под меню при этом спрашивает
+    её заранее (:func:`_plays_recorded`): картина, за которую ответит закладка, играет
+    записанную раздачу, и греть её кандидата - поднимать то, что снесётся при любом ответе.
 
     Круг поиска, стенд отбора, фоновая справка, вопрос о картине и закладка названы
     аргументами с боевым умолчанием: работа этой единицы - порядок, в котором их зовут,
@@ -90,11 +92,16 @@ def _choose(
             # раздач не наберётся: спрос с той, которую человек выберет, - за отбором.
             if args.release is not None and not 1 <= args.release <= len(plan.ranked):
                 continue
+            # Картину, за которую ответит закладка, не греем: она сыграет записанную
+            # раздачу, и прогретое снесётся при любом ответе на меню - выбери человек
+            # её, снесёт закладка, выбери соседнюю - уборка чужих картин.
+            if _plays_recorded(state, plan.picture.key, args):
+                continue
             if queue := plan.candidates(args):
                 bench.start(plan, queue[0])
         # ...и запасной релиз той картины, в которую попадёт Enter: брак верха не должен
         # стоить человеку подъёма второй раздачи с нуля (:data:`PREWARM_SPARE`).
-        if live is None:
+        if live is None and not _plays_recorded(state, order[0].picture.key, args):
             bench.spare(order[0], args)
         journal().mark("прогрев пущен", придержан=live is not None)  # TC-108: замер
         try:

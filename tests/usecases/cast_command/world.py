@@ -36,6 +36,22 @@ def plan() -> Plan:
     )
 
 
+def plans(count: int = 3) -> list[Plan]:
+    """Меню франшизы из ``count`` частей: у каждой части свой ключ и живая раздача."""
+    menu = []
+    for n in range(1, count + 1):
+        one = release(f"Тачки {n} / Cars {n} ({2005 + n}) BDRip 1080p")
+        menu.append(
+            Plan(
+                picture=Picture(title=f"Тачки {n}", year=2005 + n, releases=[one]),
+                ranked=[one],
+                runtime=110.0 * 60.0,
+                warn_mbit=16.0,
+            )
+        )
+    return menu
+
+
 def entry(**rest: object) -> Entry:
     """Запись состояния под ключом картины: то, что читает закладка."""
     fields: dict[str, object] = {
