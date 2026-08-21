@@ -118,7 +118,13 @@ TS_CACHE_MAX=8589934592
 #
 # Теги пишутся ровно так, как они названы у авторов: у TorrServer без «v», у
 # Prowlarr с «v».
-TS_VERSION="${TORRCAST_TS_VERSION:-MatriX.142.2}"
+#
+# У TorrServer пин - ТОЛЬКО базовый тег вида MatriX.NNN. Точечные (MatriX.NNN.M) там
+# живут до следующего релиза и пропадают: на 22-08-2026 в репозитории 85 релизов с 2018
+# года, из них 61 MatriX - и ни одного точечного, а базовые идут подряд 81..143 (нет
+# трёх). Прошлый пин был точечным, сгинул с места загрузки - и установки молча разъехались
+# по разным версиям тракта показа.
+TS_VERSION="${TORRCAST_TS_VERSION:-MatriX.143}"
 PL_VERSION="${TORRCAST_PL_VERSION:-v2.5.2.5491}"
 
 # Индексеры: definitionName в схеме Prowlarr + базовый URL. Только открытые: ни
@@ -680,10 +686,9 @@ fetch() {  # $@ - аргументы curl; возвращает код посл�
     done
 }
 
-# Описание релиза с GitHub: сначала пиненный тег, и только если его там больше нет -
-# latest, вслух и с предупреждением. Пропавший тег (снесли, переименовали) не должен
-# останавливать установку: живая незнакомая версия полезнее мёртвой установки, а
-# несовместимость поймает самопроверка в конце - падение будет честным и с адресом.
+# Описание релиза с GitHub: сначала пиненный тег. Четвёртый аргумент запрещает
+# отступать на latest: TorrServer - часть тракта показа, и подмена проверенной версии
+# новой при очередной установке хуже честного отказа именно этой сменной фазы.
 #
 # «Тега нет» (404) и «до GitHub не достучались» (код 000, ответа не было вовсе) - два
 # РАЗНЫХ исхода, и обращать их в одно нельзя: поймано в замере установки, когда под
@@ -696,7 +701,7 @@ fetch() {  # $@ - аргументы curl; возвращает код посл�
 # бессмысленно: GitHub ответил честно, и второй заход ничего не оживит.
 # Печатает JSON в stdout, все свои слова - в stderr, иначе jq подавится.
 GH_TAG_TRIES=3
-gh_release() {  # $1 - организация/репозиторий, $2 - тег пина, $3 - имя для сообщений
+gh_release() {  # $1 - организация/репозиторий, $2 - тег пина, $3 - имя, $4 - только пин
     local api="https://api.github.com/repos/$1/releases" body code i=1
     body="$(mktemp)"
     while :; do
@@ -715,6 +720,10 @@ gh_release() {  # $1 - организация/репозиторий, $2 - те�
         cat "$body"; rm -f "$body"; return 0
     fi
     rm -f "$body"
+    if [ -n "${4:-}" ]; then
+        info "✗ $3: пиненная версия $2 недоступна (код ${code:-нет}) - другую версию не ставлю" >&2
+        return 1
+    fi
     if [ "$code" = 404 ]; then
         info "⚠ $3: пиненной версии $2 на GitHub больше нет (404) - беру latest" >&2
     else
@@ -1183,7 +1192,7 @@ verify_torrcast() {  # $1 — каталог установленного пак
 
 # --- 3. TorrServer ----------------------------------------------------------
 install_torrserver() {
-    local budget place where
+    local budget place where upgraded=0
     place="$(ts_cache_place)" || die "не рассчитался размер кэша TorrServer - причина выше"
     TS_DISK="${place%% *}"
     TS_CACHE="${TORRCAST_TS_CACHE:-${place#* }}"
@@ -1200,8 +1209,14 @@ install_torrserver() {
         install -d -m 0755 "$TS_CACHE_DIR"
     fi
 
+    local installed=""
     if [ -x "$PREFIX/bin/TorrServer" ]; then
-        skip "бинарь TorrServer $("$PREFIX/bin/TorrServer" --help 2>&1 | head -1)"
+        installed="$("$PREFIX/bin/TorrServer" --help 2>&1)"
+        installed="${installed%%$'\n'*}"
+        installed="${installed#TorrServer }"
+    fi
+    if [ "$installed" = "$TS_VERSION" ]; then
+        skip "бинарь TorrServer $installed"
     else
         local arch url
         case "$(uname -m)" in
@@ -1210,15 +1225,29 @@ install_torrserver() {
             armv7l)  arch=arm7 ;;
             *) die "нет сборки TorrServer под $(uname -m)" ;;
         esac
-        url="$(gh_release YouROK/TorrServer "$TS_VERSION" TorrServer \
+        url="$(gh_release YouROK/TorrServer "$TS_VERSION" TorrServer exact \
             | jq -r --arg n "TorrServer-linux-$arch" \
                    '.assets[]|select(.name==$n)|.browser_download_url')" || url=""
-        [ -n "$url" ] && [ "$url" != null ] \
-            || die "не нашёл сборку TorrServer-linux-$arch (пин $TS_VERSION, latest тоже не отдал)"
-        info "качаю $url"
-        fetch -o "$PREFIX/bin/TorrServer.new" "$url" || die "не скачался TorrServer: $url"
-        chmod +x "$PREFIX/bin/TorrServer.new"
-        mv "$PREFIX/bin/TorrServer.new" "$PREFIX/bin/TorrServer"
+        # Пина нет на месте загрузки. На чистой машине ставить нечего, а взять вместо
+        # него неизвестную версию ровно той службы, чей дефект мы ловим, - это и есть та
+        # подмена, из-за которой версии разъехались: падаем с адресом, что чинить. Но
+        # там, где рабочий бинарь уже стоит, установка обязана деградировать, а не
+        # умирать: остаёмся на нём и говорим об этом вслух.
+        if [ -z "$url" ] || [ "$url" = null ]; then
+            [ -n "$installed" ] \
+                || die "не нашёл пиненную сборку TorrServer-linux-$arch ($TS_VERSION)"
+            loud "TorrServer остаётся на $installed: пиненного $TS_VERSION на месте \
+загрузки нет"
+            info "поднять пин - строка TS_VERSION в install.sh, список версий лежит \
+в релизах YouROK/TorrServer"
+        else
+            info "качаю $url"
+            fetch -o "$PREFIX/bin/TorrServer.new" "$url" || die "не скачался TorrServer: $url"
+            chmod +x "$PREFIX/bin/TorrServer.new"
+            mv "$PREFIX/bin/TorrServer.new" "$PREFIX/bin/TorrServer"
+            [ -z "$installed" ] || info "TorrServer обновлён: $installed -> $TS_VERSION"
+            upgraded=1
+        fi
     fi
 
     # Два потолка вокруг кэша, и оба не для красоты.
@@ -1232,6 +1261,7 @@ install_torrserver() {
     # утечка, раздача с гигантским куском). Служба тогда умирает и поднимается заново
     # (Restart=on-failure): показ прервётся, но машина останется живой - а вставший колом
     # хозяин без ssh это ровно то, что мы чиним.
+    [ "$upgraded" = 0 ] || stop_service torrserver "$PREFIX/bin/TorrServer"
     run_service torrserver "TorrServer для torrcast" \
         "$PREFIX/bin/TorrServer --port $TS_PORT --ip $TS_HOST --path $PREFIX/torrserver" \
         "Environment=GOMEMLIMIT=${budget}B
