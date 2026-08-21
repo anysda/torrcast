@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from tests.usecases.warm.world import warmer, world
+from torrcast.domain.profile import ANDROID_TV, CAUTIOUS
 from torrcast.usecases.warm.run import _run
 from torrcast.usecases.warm.settings import RUN_DIR
 
@@ -32,6 +33,7 @@ class _Packer:
     first: int = 0
     last: int = -1
     edge: int = -1
+    cap: int = 0
     shrink: Any = None
     code: int | None = None
     stopped: list[str] = field(default_factory=list)
@@ -56,7 +58,14 @@ def _tract(packers: list[_Packer]) -> tuple[dict[str, Any], list[list[str]]]:
     def _start(command: list[str], out: Any, run: Any, first: int, **kwargs: Any) -> _Packer:
         commands.append(command)
         run.mkdir(parents=True, exist_ok=True)
-        packer = _Packer(out=out, run=run, first=first, last=kwargs["last"], edge=first - 1, **{})
+        packer = _Packer(
+            out=out,
+            run=run,
+            first=first,
+            last=kwargs["last"],
+            edge=first - 1,
+            cap=kwargs.get("cap", 0),
+        )
         packer.shrink = kwargs.get("shrink")
         packers.append(packer)
         return packer
@@ -158,3 +167,40 @@ def test_the_heavy_hook_of_the_warming_is_handed_to_the_packer(tmp_path: Path) -
     assert packers[0].shrink is not None
     assert packers[0].shrink(5, 1_000_000) is False, "прогрев пообещал выкладке ужатие"
     assert warm.vault.have(5), "тяжёлый кусок не лёг на диск"
+
+
+def test_a_run_weighs_its_pieces_by_the_ceiling_of_the_receiver_it_warms_for(
+    tmp_path: Path,
+) -> None:
+    """Заход зажимает вес куска потолком ТОГО приёмника, для которого греет.
+
+    Умолчание завода упаковщика - осторожный профиль
+    (:attr:`torrcast.domain.profile.CAUTIOUS.max_segment_bytes`), и не сказать ему потолок
+    значит сказать 16 МБ. У приёмника с потолком выше весь класс кусков между двумя
+    потолками считался бы тяжёлым и уходил бы на диск обходным путём
+    (:func:`torrcast.usecases.warm.lay_heavy._lay_heavy`) вместо обычной выкладки.
+
+    Незнакомому приёмнику по-прежнему достаётся осторожный: умолчание тут не трогается,
+    оно приезжает из состояния прогрева (:attr:`torrcast.usecases.warm.warmer_state._State.cap`).
+    """
+    packers: list[_Packer] = []
+    parts, _ = _tract(packers)
+    world(**parts)
+    warm = warmer(tmp_path, cap=ANDROID_TV.max_segment_bytes, log=[].append)
+
+    _run(warm, 0, 1)
+
+    assert ANDROID_TV.max_segment_bytes != CAUTIOUS.max_segment_bytes, "потолки сравнялись"
+    assert packers[0].cap == warm.cap, "заход мерил куски чужим потолком"
+
+
+def test_an_unknown_receiver_still_gets_the_cautious_ceiling(tmp_path: Path) -> None:
+    """Отрицательная проба: не названный потолок остаётся осторожным, а не любым."""
+    packers: list[_Packer] = []
+    parts, _ = _tract(packers)
+    world(**parts)
+    warm = warmer(tmp_path, log=[].append)
+
+    _run(warm, 0, 1)
+
+    assert packers[0].cap == CAUTIOUS.max_segment_bytes, "умолчание перестало быть осторожным"
