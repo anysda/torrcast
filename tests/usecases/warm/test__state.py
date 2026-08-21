@@ -14,7 +14,6 @@ FILLED = (
     "ffmpeg_pack_command",
     "pack_start",
     "AUDIO_MBIT",
-    "MAX_SEGMENT_BYTES",
     "TS_OVERHEAD",
     "_environment",
 )
@@ -39,5 +38,5 @@ def test_the_slots_are_wired_by_the_application() -> None:
     """
     assert _state.segment_name(3) == "v3.ts"
     assert _state.segment_slot("v3.ts") == 3
-    assert _state.MAX_SEGMENT_BYTES > 0 and _state.TS_OVERHEAD > 1.0
+    assert _state.TS_OVERHEAD > 1.0
     assert _state.AUDIO_MBIT > 0 and hasattr(_state.Packer, "start")

@@ -12,7 +12,6 @@ from torrcast.adapters.stream_pack.packer import Packer
 from torrcast.adapters.stream_probe.segment_name import segment_name as _segment_name
 from torrcast.adapters.stream_probe.segment_slot import segment_slot as _segment_slot
 from torrcast.domain._hms import _hms
-from torrcast.domain.profile import CAUTIOUS
 from torrcast.ports.journal.slot import journal
 from torrcast.ports.json_value import JsonValue
 from torrcast.ports.warm_environment.warm_packer import WarmPacker
@@ -69,9 +68,6 @@ class _SystemWarmEnvironment:
         return _pack_start(source_url, at)
 
     audio_mbit = 0.192
-    # Потолок веса куска берётся у осторожного профиля, а не повторяется числом: прогноз
-    # байтов под бюджет диска (:mod:`torrcast.usecases.warm.forecast`) считает по нему.
-    max_segment_bytes = CAUTIOUS.max_segment_bytes
     ts_overhead = 1.03
 
     @staticmethod

@@ -13,7 +13,6 @@ def _own() -> FakeEnvironment:
     """Среда, у которой всё своё: по ней и видно, что слот взял именно её значение."""
     return FakeEnvironment(
         audio_mbit=0.5,
-        max_segment_bytes=123,
         ts_overhead=1.5,
         names=lambda slot: f"кусок{slot}",
         slots=lambda name: -7,
@@ -40,7 +39,7 @@ def test_every_slot_takes_its_value_from_the_environment() -> None:
     assert tract.Packer == "упаковщик"
     assert tract.ffmpeg_pack_command() == "команда"
     assert tract.pack_start("src", 1.0) == "пробный"
-    assert (_state.AUDIO_MBIT, _state.MAX_SEGMENT_BYTES, _state.TS_OVERHEAD) == (0.5, 123, 1.5)
+    assert (_state.AUDIO_MBIT, _state.TS_OVERHEAD) == (0.5, 1.5)
 
 
 def test_a_second_call_replaces_the_world_and_does_not_mix_two() -> None:
@@ -48,7 +47,6 @@ def test_a_second_call_replaces_the_world_and_does_not_mix_two() -> None:
     first: Any = _own()
     second: Any = FakeEnvironment(
         audio_mbit=1.0,
-        max_segment_bytes=7,
         ts_overhead=2.0,
         names=lambda slot: f"v{slot}",
         slots=lambda name: 1,
@@ -62,4 +60,4 @@ def test_a_second_call_replaces_the_world_and_does_not_mix_two() -> None:
     configure(second)
 
     assert _state._environment is second
-    assert _state.segment_name(4) == "v4" and _state.MAX_SEGMENT_BYTES == 7
+    assert _state.segment_name(4) == "v4"

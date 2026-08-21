@@ -29,7 +29,6 @@ Packer: WarmPacker
 ffmpeg_pack_command: Callable[..., list[str]]
 pack_start: Callable[[str, float], float]
 AUDIO_MBIT: float
-MAX_SEGMENT_BYTES: int
 TS_OVERHEAD: float
 
 _environment: WarmEnvironment

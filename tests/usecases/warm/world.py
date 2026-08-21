@@ -40,7 +40,6 @@ class FakeEnvironment:
     slots: Any = environment.segment_slot
     clock_face: Any = environment.hms
     audio_mbit: float = environment.audio_mbit
-    max_segment_bytes: int = environment.max_segment_bytes
     ts_overhead: float = environment.ts_overhead
 
     def epoch(self) -> float:

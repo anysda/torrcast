@@ -19,5 +19,4 @@ def configure(environment: WarmEnvironment) -> None:
     _state.ffmpeg_pack_command = environment.pack_command
     _state.pack_start = environment.pack_start
     _state.AUDIO_MBIT = environment.audio_mbit
-    _state.MAX_SEGMENT_BYTES = environment.max_segment_bytes
     _state.TS_OVERHEAD = environment.ts_overhead

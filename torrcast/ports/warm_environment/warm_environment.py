@@ -45,5 +45,4 @@ class WarmEnvironment(Protocol):
     def pack_start(self, source_url: str, at: float) -> float: ...
 
     audio_mbit: float
-    max_segment_bytes: int
     ts_overhead: float
