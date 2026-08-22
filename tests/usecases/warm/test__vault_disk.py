@@ -5,7 +5,16 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from torrcast.usecases.warm._vault_disk import _dirs, _disk_free, _size, _title, _touched, _weigh
+from torrcast.usecases.warm._vault_disk import (
+    _dirs,
+    _disk_free,
+    _lay,
+    _size,
+    _spot_marks,
+    _title,
+    _touched,
+    _weigh,
+)
 from torrcast.usecases.warm.settings import META
 
 
@@ -41,3 +50,28 @@ def test_an_unreadable_file_weighs_nothing_and_a_missing_passport_is_nameless(
     assert _weigh(tmp_path / "нет") == 0
     assert _title(tmp_path / "нет") == ""
     assert _touched(tmp_path / "нет") == 0.0
+
+
+def test_the_way_the_pieces_were_laid_comes_from_the_passport(tmp_path: Path) -> None:
+    """Способ выкладки читается из паспорта; не сказано - значит, каталог старше записи."""
+    (tmp_path / META).write_text(json.dumps({"key": "k", "lay": "старый"}), encoding="utf-8")
+
+    assert _lay(tmp_path) == "старый"
+    assert _lay(tmp_path / "нет такого") == "", "нет паспорта - способ не назван"
+
+    (tmp_path / META).write_text(json.dumps({"key": "k"}), encoding="utf-8")
+    assert _lay(tmp_path) == "", "паспорт без способа - тоже не назван"
+
+    (tmp_path / META).write_text("не json", encoding="utf-8")
+    assert _lay(tmp_path) == "", "битый паспорт - не беда, а неназванный способ"
+
+
+def test_only_marked_places_are_named_for_relaying(tmp_path: Path) -> None:
+    """Точечные места называют их метки: кусок и посторонний файл рядом в счёт не идут."""
+    (tmp_path / "v7.rec").touch()
+    (tmp_path / "v2.rec").touch()
+    (tmp_path / "v2.ts").write_bytes(b"x")
+    (tmp_path / "vхвост.rec").touch()
+
+    assert _spot_marks(tmp_path) == [2, 7]
+    assert _spot_marks(tmp_path / "нет такого") == []

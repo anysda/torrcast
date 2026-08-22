@@ -13,8 +13,17 @@ from pathlib import Path
 
 import torrcast.usecases.warm._state as _state
 from torrcast.domain.warm_settings import WARM_BUDGET
-from torrcast.usecases.warm._vault_disk import _dirs, _disk_free, _size, _title, _touched, _weigh
-from torrcast.usecases.warm.settings import FREE_FLOOR, META
+from torrcast.usecases.warm._vault_disk import (
+    _dirs,
+    _disk_free,
+    _lay,
+    _size,
+    _spot_marks,
+    _title,
+    _touched,
+    _weigh,
+)
+from torrcast.usecases.warm.settings import FREE_FLOOR, META, SPOT_LAY
 
 
 @dataclass(slots=True)
@@ -32,6 +41,9 @@ class Vault:
     #: Сколько байт раздела не трогаем ни при каких обстоятельствах (:data:`FREE_FLOOR`).
     floor: int = FREE_FLOOR
     title: str = ""
+    #: Каким способом ЭТОТ прогрев кладёт точечные куски (:data:`SPOT_LAY`). Пишется в
+    #: паспорт и сверяется при заводе каталога (:meth:`relay`).
+    lay: str = SPOT_LAY
     #: Чужие ключи, которые бюджет вытеснять не имеет права: серия, которую смотрят
     #: прямо сейчас, для прогрева следующей - чужой каталог (:meth:`fit`). Без этого
     #: прогрев следующей серии выедал бы текущую и обрыв связи убивал бы показ ровно
@@ -80,16 +92,59 @@ class Vault:
         return found
 
     def open(self) -> None:
-        """Завести каталог и паспорт. Паспорт нужен ровно бюджету: по его времени
-        изменения считается давность показа (:meth:`fit`)."""
+        """Завести каталог и паспорт. Паспорт нужен бюджету и способу выкладки: по его
+        времени изменения считается давность показа (:meth:`fit`), а по записанному в нём
+        способу - надо ли перекладывать точечные куски (:meth:`relay`)."""
         self.dir.mkdir(parents=True, exist_ok=True)
         self.touch()
+
+    def relay(self) -> tuple[int, ...]:
+        """Убрать куски, положенные ПРЕЖНИМ способом выкладки; вернуть их места.
+
+        Способ выкладки в ключ каталога не входит и входить не должен
+        (:func:`torrcast.usecases.warm.warm_key.warm_key`): ключ называет содержимое куска, а на
+        детерминированной сетке стоит переиспользование прошлых заходов. Из-за этого каталог,
+        прогретый прежним способом, находится по тому же ключу, метки ``v{N}.rec`` считают его
+        точечные куски сделанными, и починка выкладки до них не доезжает - старые куски лежат
+        под теми же именами и уезжают зрителю.
+
+        Перекладываются ровно помеченные места, а не весь каталог: копию точечная работа не
+        трогала, и сброс каталога целиком стоил бы прогрева заново. Кусок стирается вместе с
+        меткой - иначе он числился бы сделанным (:func:`torrcast.usecases.warm.missing._missing`,
+        :func:`torrcast.usecases.warm._warm_count._spots_left`) и остался бы лежать как есть.
+
+        🔴 Стирается именно ФАЙЛ, а не одна метка. Точечный перекод кладётся поверх копии
+        этого же места и берёт её звук (:func:`torrcast.adapters.stream_pack.spot_out.spot_out`);
+        под старым куском копии больше нет, и перекод поверх него взял бы звук у него же -
+        то есть у той самой рваной сетки, ради которой всё и затевалось. Копию возвращает
+        обычный заход прогрева, одним прогоном и одним непрерывным звуком.
+
+        Зовётся ОДИН раз, когда каталог заводят (:func:`torrcast.usecases.playback._warmer._warmer`),
+        а не при выдаче: прогретое читается показом первым, и проверка на этом пути стоила бы
+        чтения куска на каждый запрос.
+        """
+        if _lay(self.dir) == self.lay:
+            return ()
+        gone = tuple(_spot_marks(self.dir))
+        for slot in gone:
+            with contextlib.suppress(OSError):
+                self.path(slot).unlink(missing_ok=True)
+            with contextlib.suppress(OSError):
+                self.spot(slot).unlink(missing_ok=True)
+        if gone:
+            self.touch()
+        return gone
 
     def touch(self) -> None:
         with contextlib.suppress(OSError):
             (self.dir / META).write_text(
                 json.dumps(
-                    {"key": self.key, "title": self.title, "at": _state._environment.epoch()}
+                    {
+                        "key": self.key,
+                        "title": self.title,
+                        "at": _state._environment.epoch(),
+                        "lay": self.lay,
+                    }
                 ),
                 encoding="utf-8",
             )

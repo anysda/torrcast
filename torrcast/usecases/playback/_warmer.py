@@ -75,6 +75,13 @@ def _warmer(
         budget=int(config.warm_budget_gb * 1e9),
         title=title,
     )
+    # Каталог, прогретый ПРЕЖНИМ способом выкладки, находится по тому же ключу: способ в
+    # ключ не входит (:func:`warm_key`). Помеченные точечные куски убираются здесь, до
+    # первого запроса сегмента, - показ читает прогретое раньше всего, и на его пути этой
+    # проверке не место.
+    relaid = vault.relay()
+    if relaid:
+        journal().mark("прогретое перекладывается", кусков=len(relaid), первый=relaid[0])
     journal().plan(
         pack="recode" if encode is not None else "copy",
         warm="recode" if encode is not None else "copy",

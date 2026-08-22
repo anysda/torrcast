@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 
 from tests.usecases.warm.world import lay, vault, world
 from torrcast.usecases.warm._vault_disk import _title, _touched
-from torrcast.usecases.warm.settings import META
+from torrcast.usecases.warm.settings import META, SPOT_LAY
 from torrcast.usecases.warm.vault import Vault
 
 if TYPE_CHECKING:
@@ -50,7 +50,7 @@ def test_opening_writes_a_passport_the_budget_reads_by(
     store.open()
 
     found = json.loads((store.dir / META).read_text(encoding="utf-8"))
-    assert found == {"key": "ключ", "title": "Кино", "at": fake.stamp}
+    assert found == {"key": "ключ", "title": "Кино", "at": fake.stamp, "lay": SPOT_LAY}
     assert _title(store.dir) == "Кино"
     assert _touched(store.dir) > 0.0
 
@@ -101,3 +101,57 @@ def test_clearing_hands_the_catalogue_to_the_environment(
     store.clear()
 
     assert fake.removed == [store.dir]
+
+
+def _laid_the_old_way(store: Vault, *spots: int) -> None:
+    """Каталог прошлого способа: копии, точечные куски и метки, а в паспорте способа нет."""
+    for slot in range(4):
+        lay(store, slot, size=100)
+    for slot in spots:
+        store.spot(slot).touch()
+    (store.dir / META).write_text(json.dumps({"key": store.key, "at": 1.0}), encoding="utf-8")
+
+
+def test_pieces_laid_the_previous_way_are_dropped_and_the_copies_are_left_alone(
+    tmp_path: Path,
+) -> None:
+    """Каталог прежнего способа находится и перекладывается, а копии не трогают.
+
+    Метка стирается вместе с куском: останься она - место числилось бы сделанным, и
+    точечный перекод лёг бы поверх старого куска, взяв звук у него же.
+    """
+    world()
+    store = vault(tmp_path)
+    _laid_the_old_way(store, 1, 3)
+
+    assert store.relay() == (1, 3)
+
+    assert store.slots() == {0, 2}, "куски прежнего способа остались лежать"
+    assert not store.spot(1).exists() and not store.spot(3).exists(), "метка пережила кусок"
+    assert store.have(0) and store.have(2), "копия перекладывается зря"
+    found = json.loads((store.dir / META).read_text(encoding="utf-8"))
+    assert found["lay"] == SPOT_LAY, "способ не записан - каталог переложат ещё раз"
+
+
+def test_a_catalogue_laid_the_current_way_is_left_alone(tmp_path: Path) -> None:
+    """Каталог, уложенный нынешним способом, не перекладывается ни одним куском."""
+    world()
+    store = vault(tmp_path)
+    _laid_the_old_way(store, 1, 3)
+    store.touch()
+
+    assert store.relay() == ()
+
+    assert store.slots() == {0, 1, 2, 3}
+    assert store.spot(1).exists() and store.spot(3).exists()
+
+
+def test_a_catalogue_without_spots_costs_nothing_to_relay(tmp_path: Path) -> None:
+    """Каталог без точечных мест не платит за смену способа ничем: перекладывать нечего."""
+    world()
+    store = vault(tmp_path)
+    for slot in range(4):
+        lay(store, slot, size=100)
+
+    assert store.relay() == ()
+    assert store.slots() == {0, 1, 2, 3}

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -16,6 +17,8 @@ from torrcast.domain.config import Config
 from torrcast.ports.journal.silent import Silent
 from torrcast.ports.journal.slot import install
 from torrcast.usecases.playback._warmer import _warmer
+from torrcast.usecases.warm.settings import META
+from torrcast.usecases.warm.warm_key import warm_key
 
 
 @pytest.fixture(autouse=True)
@@ -121,3 +124,29 @@ def test_without_any_recode_the_plan_stays_empty(tmp_path: Path) -> None:
         install(Silent())
 
     assert noted.plans == [("", 0.0)]
+
+
+def test_the_warm_catalogue_of_the_previous_way_is_relaid_before_the_show_reads_it(
+    tmp_path: Path,
+) -> None:
+    """Каталог прежнего способа перекладывается ЕЩЁ ПРИ СБОРКЕ, до первого запроса сегмента.
+
+    Показ читает прогретое раньше упаковки (:func:`torrcast.usecases.feed_pack.feed_segment._warm`),
+    и та же лента отдаёт куски этого каталога. Останься помеченный кусок на диске - он уехал
+    бы зрителю ровно тем, чем лежал.
+    """
+    config = Config(warm=True, warm_dir=str(tmp_path / "warm"))
+    lines = grid()
+    where = tmp_path / "warm" / warm_key("http://ts", 0, lines)
+    where.mkdir(parents=True)
+    (where / "v1.ts").write_bytes(b"old piece")
+    (where / "v1.rec").touch()
+    (where / "v2.ts").write_bytes(b"copy")
+    (where / META).write_text(json.dumps({"key": "k", "at": 1.0}), encoding="utf-8")
+
+    made = _warmer(config, "http://ts", 0, lines, 0.0, "кино")
+
+    assert made is not None
+    assert not (where / "v1.ts").exists(), "кусок прежнего способа дожил до выдачи"
+    assert not (where / "v1.rec").exists()
+    assert (where / "v2.ts").exists(), "копию переложили зря"

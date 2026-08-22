@@ -1,4 +1,4 @@
-"""Чем прогрев меряет диск: вес прогретого, давность показа и свободное место раздела.
+"""Чем прогрев меряет диск: вес прогретого, давность показа, место раздела и способ выкладки.
 
 Зовёт их каталог прогретого (:class:`torrcast.usecases.warm.vault.Vault`), и только он.
 """
@@ -43,6 +43,34 @@ def _title(path: Path) -> str:
         if isinstance(found, dict):
             return str(found.get("title", ""))
     return ""
+
+
+def _lay(where: Path) -> str:
+    """Способ, которым положены точечные куски каталога, из его паспорта.
+
+    Сверяется со способом этого прогрева (:data:`torrcast.usecases.warm.settings.SPOT_LAY`).
+    Пусто - паспорта нет, он не читается или способа в нём не сказано; всё это значит одно:
+    каталог клали до того, как способ начали записывать.
+    """
+    with contextlib.suppress(OSError, ValueError):
+        found = json.loads((where / META).read_text(encoding="utf-8"))
+        if isinstance(found, dict):
+            return str(found.get("lay", ""))
+    return ""
+
+
+def _spot_marks(where: Path) -> list[int]:
+    """Места, у которых стоит метка точечного перекода, по возрастанию.
+
+    Метка ``v{N}.rec`` и есть след способа выкладки: копию точечная работа не трогала, и
+    после смены способа перекладывать надо ровно помеченные места.
+    """
+    found: list[int] = []
+    with contextlib.suppress(OSError):
+        for mark in where.glob("v*.rec"):
+            with contextlib.suppress(ValueError):
+                found.append(int(mark.stem[1:]))
+    return sorted(found)
 
 
 def _size(path: Path) -> int:
