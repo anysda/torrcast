@@ -6,6 +6,7 @@ import time
 
 from torrcast.adapters.filesystem.remove_tree import remove_tree
 from torrcast.adapters.recode.recode_dir import RECODE_DIR
+from torrcast.adapters.side_thread import side_thread
 from torrcast.adapters.stream_pack._segment_files import _paths
 from torrcast.adapters.stream_pack.ffmpeg_pack_command import ffmpeg_pack_command
 from torrcast.adapters.stream_pack.forget_playing import forget_playing
@@ -40,4 +41,5 @@ def wire_feed() -> None:
         remove_tree,
         _paths,
         time,
+        side_thread,
     )

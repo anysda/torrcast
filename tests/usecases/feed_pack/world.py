@@ -12,6 +12,7 @@ from typing import Any, cast
 
 from torrcast.adapters.filesystem.remove_tree import remove_tree
 from torrcast.adapters.recode.recode_dir import RECODE_DIR
+from torrcast.adapters.side_thread import side_thread
 from torrcast.adapters.stream_pack._segment_files import _paths
 from torrcast.adapters.stream_pack.ffmpeg_pack_command import ffmpeg_pack_command
 from torrcast.adapters.stream_pack.forget_playing import forget_playing
@@ -117,9 +118,20 @@ def tract(**parts: Any) -> FakeClock:
         parts.pop("remove_tree", remove_tree),
         parts.pop("segment_paths", _paths),
         ticking,
+        parts.pop("spawn", side_thread),
     )
     assert not parts, f"стенд не знает таких слотов: {sorted(parts)}"
     return ticking
+
+
+def here(work: Any) -> None:
+    """Подъём в стороне - прямо здесь: зеркалу нужен порядок, а не второй поток.
+
+    Слот этот боевой поднимает демона (:func:`torrcast.adapters.side_thread.side_thread`),
+    и с ним проба мерила бы гонку двух потоков вместо решения показа. Что работа и правда
+    идёт в стороне, меряется отдельно и с настоящим потоком.
+    """
+    work()
 
 
 def factory(start: Any) -> Any:

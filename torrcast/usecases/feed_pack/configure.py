@@ -24,8 +24,9 @@ def configure(
     remove_tree: Callable[[Path], None],
     segment_paths: Callable[[Path], list[Path]],
     clock: FeedClock,
+    spawn: Callable[[Callable[[], None]], None],
 ) -> None:
-    """Передать сценарию имена сегментов, медиатракт упаковки, уборку на диске и часы."""
+    """Передать сценарию имена сегментов, медиатракт упаковки, уборку, часы и подъём в стороне."""
     _state.segment_name = segment_name
     _state.segment_slot = segment_slot
     _state.pack_start = pack_start
@@ -36,3 +37,4 @@ def configure(
     _state.remove_tree = remove_tree
     _state.segment_paths = segment_paths
     _state.clock_port = clock
+    _state.spawn = spawn

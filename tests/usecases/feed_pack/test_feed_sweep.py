@@ -4,7 +4,16 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from tests.usecases.feed_pack.world import FakeProc, feed, grid, lay, packer, tract, vault
+from tests.usecases.feed_pack.world import (
+    FakeProc,
+    feed,
+    grid,
+    here,
+    lay,
+    packer,
+    tract,
+    vault,
+)
 from torrcast.usecases.feed_pack.feed_sweep import _prune, _sweep
 
 if TYPE_CHECKING:
@@ -126,7 +135,7 @@ def test_a_torn_run_is_picked_up_by_the_clock_while_the_shelf_is_still_full(
     до 13 с. Тут полка полна нарочно: за куском никто не придёт, и найти обрыв
     больше некому.
     """
-    tract(now=100.0)
+    tract(now=100.0, spawn=here)
     said: list[str] = []
     asked: list[int] = []
     show = feed(tmp_path, log=said.append)
@@ -143,7 +152,7 @@ def test_a_torn_run_is_picked_up_by_the_clock_while_the_shelf_is_still_full(
 
 def test_a_living_run_is_never_restarted_by_the_clock(tmp_path: Path) -> None:
     """Прогон жив - паковать дальше ему никто не мешает, и трогать его незачем."""
-    tract(now=100.0)
+    tract(now=100.0, spawn=here)
     asked: list[int] = []
     show = feed(tmp_path)
     show.packer = packer(tmp_path, first=0, edge=2, out=show.out)
@@ -155,7 +164,7 @@ def test_a_living_run_is_never_restarted_by_the_clock(tmp_path: Path) -> None:
 
 def test_a_run_that_read_the_input_to_the_end_is_the_end_of_the_film(tmp_path: Path) -> None:
     """Дочитанный вход - это конец фильма, а не обрыв: поднимать нечего."""
-    tract(now=100.0)
+    tract(now=100.0, spawn=here)
     asked: list[int] = []
     show = feed(tmp_path, grid=grid(60.0, 10.0))
     show.packer = packer(tmp_path, first=0, edge=5, out=show.out, proc=FakeProc(code=0), whole=True)
@@ -167,7 +176,7 @@ def test_a_run_that_read_the_input_to_the_end_is_the_end_of_the_film(tmp_path: P
 
 def test_the_clock_does_not_push_a_run_it_has_just_restarted(tmp_path: Path) -> None:
     """Часы идут вдвое чаще защиты «не толкаемся»: второй круг обязан промолчать."""
-    fake = tract(now=100.0)
+    fake = tract(now=100.0, spawn=here)
     asked: list[int] = []
     show = feed(tmp_path)
     show.packer = packer(tmp_path, first=0, edge=2, out=show.out, proc=FakeProc(code=1))
@@ -184,7 +193,7 @@ def test_a_show_that_gave_up_for_good_is_buried_by_the_holder_and_not_by_the_swe
     tmp_path: Path,
 ) -> None:
     """Обрывы подряд без прогретого - приговор, и выносит его держатель показа."""
-    fake = tract(now=100.0)
+    fake = tract(now=100.0, spawn=here)
     asked: list[int] = []
     show = feed(tmp_path, limit=1)
     for _attempt in range(0, 3):
@@ -206,7 +215,7 @@ def test_the_clock_gives_the_first_word_about_a_tear_and_then_steps_aside(
     обрывов сгорел бы за секунды, а пятисекундная перезагрузка соседа стала бы
     приговором показу. Дальше обрыв ведёт запрос сегмента: у него на это есть выдержка.
     """
-    fake = tract(now=100.0)
+    fake = tract(now=100.0, spawn=here)
     asked: list[int] = []
     show = feed(tmp_path, limit=1, vault=vault(tmp_path))
     for _attempt in range(0, 3):
@@ -230,7 +239,7 @@ def test_the_clock_lifts_a_provisional_verdict_the_receiver_can_never_ask_about(
     70-й минуте, вернулась через пять секунд, а показ встал насмерть на 4234-й секунде.
     Поэтому пересмотр висит на часах показа, которым приёмник не указ.
     """
-    tract(now=100.0)
+    tract(now=100.0, spawn=here)
     show = feed(tmp_path)
     show.packer = packer(tmp_path, first=0, edge=4, out=show.out)
     show.skipped = {2, 7}

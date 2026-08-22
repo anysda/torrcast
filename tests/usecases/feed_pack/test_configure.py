@@ -16,6 +16,7 @@ if TYPE_CHECKING:
 def _world() -> dict[str, Any]:
     forgotten: list[Path] = []
     swept: list[Path] = []
+    raised: list[Any] = []
     return {
         "segment_name": lambda slot: f"кусок{slot}",
         "segment_slot": lambda name: -7,
@@ -27,6 +28,7 @@ def _world() -> dict[str, Any]:
         "remove_tree": swept.append,
         "segment_paths": lambda where: [where / "свой.ts"],
         "clock": time,
+        "spawn": raised.append,
     }
 
 
@@ -46,6 +48,7 @@ def test_every_slot_takes_its_value_from_the_composition() -> None:
     assert _state.remove_tree is world["remove_tree"]
     assert _state.segment_paths is world["segment_paths"]
     assert _state.clock_port is world["clock"]
+    assert _state.spawn is world["spawn"]
 
 
 def test_a_second_call_replaces_the_world_and_does_not_mix_two() -> None:

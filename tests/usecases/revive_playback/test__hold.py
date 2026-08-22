@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import itertools
+import time
+from collections.abc import Iterator
 from pathlib import Path
 from typing import cast
 
@@ -9,6 +12,7 @@ import pytest
 
 from tests.fakes import composition
 from tests.fakes.clock import FakeClock
+from tests.usecases.feed_pack.world import FakeProc, packer, tract
 from tests.usecases.revive_playback.world import (
     FakeReceiver,
     FakeSupply,
@@ -17,9 +21,11 @@ from tests.usecases.revive_playback.world import (
 )
 from torrcast.domain.entry import Entry
 from torrcast.domain.infra_error import InfraError
+from torrcast.domain.position import Position
 from torrcast.domain.start_settings import FIRST_FRAME_POLL
 from torrcast.ports.receiver import Receiver
 from torrcast.ports.stream_source import StreamSource
+from torrcast.runtime.wire_feed import wire_feed
 from torrcast.usecases.revive_playback._hold import _hold
 from torrcast.usecases.watch import Watch
 
@@ -131,3 +137,61 @@ def test_a_dead_packing_with_a_healthy_source_falls_honestly(tmp_path: Path) -> 
             supply=cast(StreamSource, FakeSupply()),
             clock=FakeClock(now=1000.0),
         )
+
+
+@pytest.fixture
+def _feed_rewired() -> Iterator[None]:
+    """Отдать ленте боевой медиатракт обратно: слоты - состояние процесса, не пробы."""
+    yield
+    wire_feed()
+
+
+@pytest.mark.machine
+def test_the_poll_circle_keeps_its_pace_while_a_torn_run_is_being_lifted(
+    tmp_path: Path, _feed_rewired: None
+) -> None:
+    """🔴 Круг опроса слеп ровно столько, сколько часы показа стоят в чужой работе.
+
+    Подъём оборванного прогона несёт в себе пробный прогон, до минуты по потолку
+    (:data:`torrcast.domain.hls_wait.PILOT_TIMEOUT`), и упирается он в тот же нечитаемый
+    источник, из-за которого прогон и оборвался. Пока часы показа ждали его сами,
+    приёмника не спрашивали вовсе: слепы были ВСЕ метрики показа - место, подвис,
+    перемотка, - а не только та упаковка, которую поднимали.
+
+    Прогон рвётся посреди показа, а не до него: цена подъёма обязана попасть МЕЖДУ двумя
+    вопросами приёмнику, иначе разрыв круга мерить не на чем. Часы тут ручные, а вот
+    подъём и его цена настоящие: круг слепнет в реальном времени, а не в ручном.
+    """
+    lift_cost = 1.0
+
+    def costly(_source: str, at: float, *_rest: object) -> float:
+        """Пробный прогон в нечитаемый источник: стоит времени и отвечает границей."""
+        time.sleep(lift_cost)
+        return at
+
+    tract(clock=FakeClock(now=1000.0), pack_start=costly)
+    show = feed_with_segments(tmp_path)
+    alive = FakeProc()
+    show.packer = packer(tmp_path, first=0, edge=2, out=show.out, proc=alive)
+    asked: list[float] = []
+
+    class _Watched(PlainReceiver):
+        def position(self, front: float = 0.0) -> Position:
+            asked.append(time.monotonic())
+            if len(asked) == 2:
+                alive.code = 1  # вход оборвался посреди показа
+            return super().position(front)
+
+    receiver = _Watched([(100.0, "PLAYING")] * 6 + [(0.0, "IDLE")])
+    _hold(cast(Receiver, receiver), show, clock=FakeClock(now=1000.0))
+    # Поток поднял продукт, а закрывает его тот, кто завёл эту пробу: замок свободен
+    # ровно тогда, когда подъём договорил.
+    assert show.lock.acquire(timeout=lift_cost * 10), "подъём прогона не кончился"
+    show.lock.release()
+
+    assert show.crashes == 1, "обрыв прогона не заметили - мерить нечего"
+    assert len(asked) > 3, "круг опроса не сделал и трёх витков"
+    blind = max(later - sooner for sooner, later in itertools.pairwise(asked))
+    assert blind < lift_cost / 2, (
+        f"круг опроса простоял {blind:.2f} с в чужой работе при её цене {lift_cost:.2f} с"
+    )

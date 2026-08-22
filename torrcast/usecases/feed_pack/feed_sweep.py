@@ -76,6 +76,15 @@ def _torn(state: _State, restart: Callable[[int], None]) -> None:
     им не мешает: тут смотрят на ПРОГОН, а не на файлы. Поэтому починка начинается от
     смерти прогона, а не от конца запаса, и запас впереди остаётся тем, чем он
     обещан, - временем на починку.
+
+    🔴 Начинается она здесь, а идёт не здесь (:func:`_lift`). Внутри подъёма лежит
+    пробный прогон, до минуты по потолку
+    (:data:`torrcast.domain.hls_wait.PILOT_TIMEOUT`), и упирается он ровно в то, из-за
+    чего прогон и оборвался, - в источник, который не читается. Пока часы показа стояли
+    в этом ожидании сами, круг опроса не приходил вовсе: приёмника не спрашивали, и
+    слепы были ВСЕ метрики показа разом - место, подвис, перемотка, - а не только та
+    упаковка, которую поднимали. Ждать тут некому: часы обязаны вернуться через свои две
+    секунды.
     """
     packer = state.packer
     if packer is None or state.fatal or packer.stopped or packer.finished():
@@ -98,11 +107,28 @@ def _torn(state: _State, restart: Callable[[int], None]) -> None:
     # часам показа нельзя - внутри решения лежит пробный прогон до минуты по потолку.
     if not state.lock.acquire(blocking=False):
         return
+    if not _survive(state, packer):
+        state.lock.release()
+        return  # упаковка сдалась насовсем - хоронит показ держатель, а не уборка
+    state.restarted = _state.clock_port.monotonic()
+    # Замок отсюда уносит подъём и отпускает его сам: он и есть то решение, за которым
+    # соседу вставать в очередь нельзя.
+    slot = packer.edge + 1
+    _state.spawn(lambda: _lift(state, restart, slot))
+
+
+def _lift(state: _State, restart: Callable[[int], None], slot: int) -> None:
+    """Поднять оборванный прогон, не занимая собой круг опроса показа.
+
+    ⚠️ Показ может кончиться, пока прогон поднимают: конец гасит ТОТ прогон, который
+    застал (:func:`torrcast.usecases.feed_pack.feed_stop._stop`), а поднятый следом
+    остался бы жить и читать раздачу в каталог, которого уже нет. Поэтому свой прогон
+    подъём за собой и убирает - решает это признак конца, а не порядок двух потоков.
+    """
     try:
-        if not _survive(state, packer):
-            return  # упаковка сдалась насовсем - хоронит показ держатель, а не уборка
-        state.restarted = _state.clock_port.monotonic()
-        restart(packer.edge + 1)
+        restart(slot)
+        if state.fatal and state.packer is not None:
+            state.packer.stop()
     finally:
         state.lock.release()
 
