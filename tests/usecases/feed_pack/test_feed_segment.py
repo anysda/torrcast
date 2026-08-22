@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import pytest
+
+import torrcast.usecases.feed_pack.feed_segment as feed_segment
 from tests.usecases.feed_pack.world import feed, grid, lay, tract, vault
 from torrcast.usecases.feed_pack.feed_segment import _have, _segment, _warm
 
@@ -55,12 +58,15 @@ def test_a_name_the_manifest_never_promised_goes_nowhere_near_the_packing(tmp_pa
     assert _segment(show, 99999, _yes) == show.out / "v99999.ts", "лежащий файл отдаётся всегда"
 
 
-def test_the_warmed_piece_answers_before_any_argument_with_the_packing(tmp_path: Path) -> None:
+def test_the_warmed_piece_answers_before_any_argument_with_the_packing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """В этом весь смысл прогрева: перемотка в прогретое отвечает файлом, не поднимая ffmpeg."""
     tract()
     asked: list[int] = []
     store = vault(tmp_path)
     show = feed(tmp_path, vault=store)
+    monkeypatch.setattr(feed_segment, "segment_start", lambda path: 30.0)
     lay(store.dir, 3)
 
     answer = _segment(show, 3, _noting(asked))
@@ -68,7 +74,9 @@ def test_the_warmed_piece_answers_before_any_argument_with_the_packing(tmp_path:
     assert answer == store.dir / "v3.ts" and asked == []
 
 
-def test_a_warmed_piece_over_the_ceiling_is_not_warmed_at_all(tmp_path: Path) -> None:
+def test_a_warmed_piece_over_the_ceiling_is_not_warmed_at_all(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Прогретое идёт мимо обоих потолков веса, поэтому тяжёлая копия прогретой не считается.
 
     Замер («Тачки» 2006, 39% фильма тяжелее потолка): 32 BUFFERING и 20 пинков за
@@ -76,12 +84,38 @@ def test_a_warmed_piece_over_the_ceiling_is_not_warmed_at_all(tmp_path: Path) ->
     """
     store = vault(tmp_path)
     show = feed(tmp_path, vault=store, cap=100)
+    monkeypatch.setattr(feed_segment, "segment_start", lambda path: 30.0)
     lay(store.dir, 3, size=101)
 
     assert _warm(show, 3) is None
 
     lay(store.dir, 3, size=100)
     assert _warm(show, 3) == store.dir / "v3.ts", "кусок ровно по потолку показу годится"
+
+
+def test_a_warmed_piece_from_another_place_is_repacked_live(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Чужой таймкод под верным именем не уходит зрителю и не роняет показ."""
+    fake = tract()
+    said: list[str] = []
+    asked: list[int] = []
+    store = vault(tmp_path)
+    show = feed(tmp_path, vault=store, wait=1.0, log=said.append)
+    foreign = lay(store.dir, 3)
+    monkeypatch.setattr(feed_segment, "segment_start", lambda path: 1237.68, raising=False)
+
+    def pack_live(slot: int) -> bool:
+        asked.append(slot)
+        lay(show.out, slot)
+        return True
+
+    answer = _segment(show, 3, pack_live)
+
+    assert answer == show.out / "v3.ts" and asked == [3]
+    assert not foreign.exists(), "чужой кусок остался доступен следующему запросу"
+    assert said == ["прогретый v3 мимо сетки (+1207.68 с) - переделываю живой упаковкой"]
+    assert fake.slept == []
 
 
 def test_a_hopeless_place_is_answered_the_moment_the_packing_says_so(tmp_path: Path) -> None:
@@ -104,10 +138,13 @@ def test_a_busy_decision_is_waited_out_by_the_file_and_not_by_the_queue(tmp_path
     assert asked == [] and fake.slept == [0.2] * 5
 
 
-def test_a_piece_is_ours_whether_it_lies_in_the_window_or_on_the_disk(tmp_path: Path) -> None:
+def test_a_piece_is_ours_whether_it_lies_in_the_window_or_on_the_disk(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Запас показа считает и окно, и прогретое: приёмнику всё равно, откуда кусок."""
     store = vault(tmp_path)
     show = feed(tmp_path, vault=store)
+    monkeypatch.setattr(feed_segment, "segment_start", lambda path: 20.0)
     lay(show.out, 1)
     lay(store.dir, 2)
 

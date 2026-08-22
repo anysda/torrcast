@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import pytest
+
+import torrcast.usecases.feed_pack.feed_segment as feed_segment
 from tests.usecases.feed_pack.world import feed, grid, lay, packer, vault
 from torrcast.usecases.feed_pack.feed import Feed
 from torrcast.usecases.feed_pack.feed_front import _front, _weight
@@ -37,10 +40,13 @@ def test_the_reserve_is_the_chain_of_pieces_and_it_ends_at_the_first_hole(
     assert _front(show, played=105.0) == 130.0
 
 
-def test_the_warmed_film_counts_as_the_reserve_of_the_show(tmp_path: Path) -> None:
+def test_the_warmed_film_counts_as_the_reserve_of_the_show(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Прогретое на диске - тот же запас: приёмнику всё равно, откуда придёт кусок."""
     store = vault(tmp_path)
     show = feed(tmp_path, grid=grid(600.0, 10.0), vault=store)
+    monkeypatch.setattr(feed_segment, "segment_start", lambda path: int(path.stem[1:]) * 10.0)
     lay(show.out, 10)
     lay(store.dir, 11)
     lay(store.dir, 12)

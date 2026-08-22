@@ -20,6 +20,7 @@ from typing import Any
 
 import pytest
 
+import torrcast.usecases.feed_pack.feed_segment as feed_segment
 from tests.conftest import CLIP_KEY_SECONDS, CLIP_SECONDS, free_port
 from tests.fakes import composition
 from tests.usecases.warm.world import counting, live_tract, quiet
@@ -169,12 +170,15 @@ def test_the_key_changes_with_everything_that_changes_the_bytes() -> None:
     ), "перекод даёт другие байты под тем же именем"
 
 
-def test_the_show_reads_the_warmed_piece_without_touching_the_packer(tmp_path: Path) -> None:
+def test_the_show_reads_the_warmed_piece_without_touching_the_packer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Прогретый кусок отдаётся сразу и не поднимает ни одного ffmpeg.
 
     Это и есть обещание прогрева: перемотка в прогретую зону не ждёт ни упаковки, ни сети.
     """
     vault = _vault(tmp_path)
+    monkeypatch.setattr(feed_segment, "segment_start", lambda path: _grid().start(3))
     warmed = _lay(vault, 3)
     out = hls_dir(str(tmp_path / "hls"))
     feed = Feed(source="нет", audio=0, out=out, grid=_grid(), vault=vault)
@@ -184,7 +188,9 @@ def test_the_show_reads_the_warmed_piece_without_touching_the_packer(tmp_path: P
     assert feed.have(3) and not feed.have(4)
 
 
-def test_a_warmed_copy_heavier_than_the_ceiling_is_not_a_warmed_piece(tmp_path: Path) -> None:
+def test_a_warmed_copy_heavier_than_the_ceiling_is_not_a_warmed_piece(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Прогретая копия тяжелее потолка приёмника наружу не идёт и запасом не считается.
 
     Прогрев кладёт фильм на диск копией, а тяжёлые места приводит к перекоду отдельным,
@@ -201,6 +207,7 @@ def test_a_warmed_copy_heavier_than_the_ceiling_is_not_a_warmed_piece(tmp_path: 
     """
     vault = _vault(tmp_path)
     grid = _grid()
+    monkeypatch.setattr(feed_segment, "segment_start", lambda path: grid.start(0))
     out = hls_dir(str(tmp_path / "hls"))
     feed = Feed(source="нет", audio=0, out=out, grid=grid, vault=vault, cap=4096)
     light, heavy = _lay(vault, 0, size=4096), _lay(vault, 1, size=4097)
@@ -241,11 +248,14 @@ def test_the_warmed_counter_names_only_what_the_show_can_take(tmp_path: Path) ->
     assert warmer.warmed == pytest.approx(grid.span(0) + grid.span(1)), "перекод не зачёлся"
 
 
-def test_the_warmed_tail_counts_as_the_show_reserve(tmp_path: Path) -> None:
+def test_the_warmed_tail_counts_as_the_show_reserve(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Запас показа считается и по прогретому: иначе сторож приёмника решил бы, что
     впереди пусто, и дёргал бы нуджем работающий показ (:meth:`Feed.front`)."""
     vault = _vault(tmp_path)
     grid = _grid()
+    monkeypatch.setattr(feed_segment, "segment_start", lambda path: grid.start(int(path.stem[1:])))
     for slot in range(grid.count):
         _lay(vault, slot)
     out = hls_dir(str(tmp_path / "hls"))

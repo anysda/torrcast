@@ -6,9 +6,12 @@
 from __future__ import annotations
 
 import contextlib
+import math
 from typing import TYPE_CHECKING
 
 import torrcast.usecases.feed_pack._state as _state
+from torrcast.usecases.warm.segment_start import segment_start
+from torrcast.usecases.warm.settings import SKEW_MAX
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -102,7 +105,17 @@ def _warm(state: _State, slot: int) -> Path | None:
     size = 0
     with contextlib.suppress(OSError):
         size = path.stat().st_size
-    return None if size > state.cap else path
+    if size > state.cap:
+        return None
+    began = segment_start(path)
+    want = state.grid.start(slot) + state.grid.origin
+    if not math.isnan(began) and abs(began - want) <= SKEW_MAX:
+        return path
+    with contextlib.suppress(OSError):
+        path.unlink(missing_ok=True)
+    detail = "таймкод не прочитан" if math.isnan(began) else f"{began - want:+.2f} с"
+    state._say(f"прогретый v{slot} мимо сетки ({detail}) - переделываю живой упаковкой")
+    return None
 
 
 def _have(state: _State, slot: int) -> bool:
