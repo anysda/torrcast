@@ -20,6 +20,8 @@ def _keyframe_bounds(
     ceiling_mbit: float,
     cap: float,
     fixed_mbit: float,
+    *,
+    fill_from: float = 0.0,
 ) -> tuple[tuple[float, ...], Callable[[float, float], float] | None]:
     """Границы сегментов и предсказатель веса КОПИИ для :meth:`Grid.on_keyframes`.
 
@@ -42,14 +44,18 @@ def _keyframe_bounds(
         prev = bounds[-1]
         index = bisect.bisect_right(keys, prev, lo=index)
         fits = before = first = None
+        filling = False
         for key in keys[index:]:
             if key >= limit:
                 break
             if weigh(prev, key) <= cap:
                 fits = key
             if key >= prev + step:
-                first = key
-                break
+                if first is None:
+                    first = key
+                    filling = fill_from > 0 and weigh(prev, key) > fill_from
+                if not filling or weigh(prev, key) > cap:
+                    break
             if key - prev >= step / 2 and weigh(prev, key) <= cap:
                 before = key
         if first is None:
@@ -71,6 +77,8 @@ def _keyframe_bounds(
         if nearest_head:
             assert before is not None  # условие nearest_head уже доказало границу
             bounds.append(before)
+        elif filling and fits is not None:
+            bounds.append(fits)
         elif first_fits or fits is None:
             bounds.append(first)  # влез - или один GOP тяжелее потолка, резать нечем
         else:

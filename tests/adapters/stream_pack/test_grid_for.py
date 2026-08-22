@@ -107,3 +107,31 @@ def test_a_heavier_ceiling_of_the_piece_makes_the_pieces_shorter() -> None:
     wide = _grid(lambda url: KEYS, delivered_mbit=16.0)
     tight = _grid(lambda url: KEYS, delivered_mbit=16.0, cap=4.0e6)
     assert tight.count > wide.count, "потолок веса не укоротил куски"
+
+
+def test_a_receiver_with_more_room_gets_fewer_and_heavier_pieces() -> None:
+    """Измеренный запас приёмника заполняется, а осторожная сетка не сдвигается.
+
+    Карта и паспорт одни и те же. Различается только потолок веса приёмника, поэтому
+    проверка краснеет ровно тогда, когда этот потолок доходит до сетки, но не участвует
+    в выборе границ.
+    """
+    heavy = FilmKeys(KEYS.duration, KEYS.at, [k * (4 << 20) for k in range(31)], KEYS.kind)
+    cautious = _grid(lambda url: heavy, delivered_mbit=16.0, cap=16_000_000)
+    roomy = _grid(lambda url: heavy, delivered_mbit=16.0, cap=28_000_000)
+
+    assert cautious.bounds == (0.0, 6.0, 12.0, 18.0, 24.0, 30.0, 36.0, 42.0, 48.0, 54.0)
+    assert roomy.bounds == (0.0, 12.0, 24.0, 36.0, 48.0)
+    assert roomy.count < cautious.count
+    assert roomy.weigh is not None and cautious.weigh is not None
+    assert max(roomy.weigh(roomy.start(k), roomy.end(k)) for k in range(roomy.count - 1)) > max(
+        cautious.weigh(cautious.start(k), cautious.end(k)) for k in range(cautious.count - 1)
+    )
+
+
+def test_more_room_does_not_stretch_a_piece_that_already_fit_the_cautious_cap() -> None:
+    """Измерен вес, а не новая длительность: лёгкий кусок остаётся у прежнего шага."""
+    cautious = _grid(lambda url: KEYS, delivered_mbit=16.0, cap=16_000_000)
+    roomy = _grid(lambda url: KEYS, delivered_mbit=16.0, cap=28_000_000)
+
+    assert roomy.bounds == cautious.bounds

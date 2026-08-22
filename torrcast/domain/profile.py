@@ -98,6 +98,9 @@ ANDROID_TV: Final = Profile(
     max_segment_bytes=28_000_000,
     warn_mbit=28.0,
     recode_at_mbit=28.0,
+    # Верх цели - тот же измеренный поток, который приставка принимает нативно.
+    # Длина куска и потолок 28 МБ опускают фактическую цель через Encode.fit.
+    recode_mbit=28.0,
     patience=577.0,
     app_patience=577.0,
     dead_url_seconds=4.0,

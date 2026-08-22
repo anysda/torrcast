@@ -15,10 +15,12 @@ import pytest
 
 from torrcast.adapters.chromecast.cast.chromecast_receiver import ChromecastReceiver
 from torrcast.adapters.chromecast.mock.mock_receiver import MockReceiver
+from torrcast.adapters.recode.encode import Encode
+from torrcast.adapters.recode.encode_settings import MAXRATE_GAIN
 from torrcast.domain.config import Config
 from torrcast.domain.for_passport import for_passport
 from torrcast.domain.hls_settings import MAX_SEGMENT_BYTES
-from torrcast.domain.media import Media
+from torrcast.domain.media import AUDIO_MBIT, TS_OVERHEAD, Media
 from torrcast.domain.probe_settings import COPY_DEPTH, RECODE_CODECS
 from torrcast.domain.profile import ANDROID_TV, CAUTIOUS, COPY, RECODE, REFUSE
 from torrcast.domain.recodes_whole import recodes_whole
@@ -147,7 +149,24 @@ def test_the_profile_moves_the_config_thresholds() -> None:
     tuned = tune(Config(), ANDROID_TV)
     assert tuned.bitrate_warn_mbit == ANDROID_TV.warn_mbit == 28.0
     assert tuned.recode_at_mbit == ANDROID_TV.recode_at_mbit == 28.0
+    assert (
+        tuned.recode_mbit
+        == ANDROID_TV.recode_mbit
+        == min(ANDROID_TV.recode_at_mbit, ANDROID_TV.warn_mbit)
+    )
     assert tune(Config(), CAUTIOUS) == Config(), "осторожный ничего не меняет"
+
+
+def test_the_stick_recode_target_still_fits_the_piece_length() -> None:
+    """Профиль задаёт верх цели, а длинный кусок опускает её под потолок веса."""
+    stick = ANDROID_TV
+    span = 20.0
+
+    fitted = Encode(mbit=stick.recode_mbit).fit(span, stick.max_segment_bytes, stick.recode_at_mbit)
+    delivered = (fitted.mbit * MAXRATE_GAIN + AUDIO_MBIT) * TS_OVERHEAD
+
+    assert fitted.mbit < stick.recode_mbit, "20-секундному куску верх профиля велик"
+    assert delivered * span * 1e6 / 8 < stick.max_segment_bytes
 
 
 def test_a_hand_written_setting_beats_the_profile() -> None:
