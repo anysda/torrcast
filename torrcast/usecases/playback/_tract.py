@@ -69,6 +69,7 @@ def _tract(
         recoder=recoder,
         follow=follow,
         profile=profile,
+        video_mbit=video_mbit,
     )
     feed = Feed(
         source=source,

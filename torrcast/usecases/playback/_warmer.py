@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import torrcast.usecases.playback._show_state as _state
 from torrcast.domain.config import Config
+from torrcast.domain.delivered_mbit import AUDIO_MBIT, TS_OVERHEAD
 from torrcast.domain.entry import Entry
 from torrcast.domain.profile import CAUTIOUS, Profile
 from torrcast.domain.worker_settings import WORKER_DUR
@@ -35,6 +36,7 @@ def _warmer(
     recoder: SpotRival | None = None,
     follow: Following | None = None,
     profile: Profile = CAUTIOUS,
+    video_mbit: float = 0.0,
 ) -> Warmer | None:
     """Фоновый прогрев всего фильма на диск или ``None``, если он выключен.
 
@@ -94,6 +96,13 @@ def _warmer(
         # (:attr:`torrcast.usecases.warm.warmer.Warmer.warmed`,
         # :meth:`torrcast.usecases.feed_pack.feed.Feed._warm`).
         cap=profile.max_segment_bytes,
+        # Сколько уедет на ТВ в среднем по фильму - тем же счётом, что и у живого
+        # кодировщика тяжёлых кусков (:func:`torrcast.usecases.playback._recoder._recoder`):
+        # видео копией, звук всегда AAC, сверху оверхед mpegts. Прогрев спрашивает по нему
+        # место у бюджета там, где карты опорных кадров нет
+        # (:func:`torrcast.usecases.warm.forecast._forecast`). Паспорт молчит - ноль, и
+        # прогноз возвращается к потолку приёмника, как и был.
+        delivered=(video_mbit + AUDIO_MBIT) * TS_OVERHEAD if video_mbit > 0 else 0.0,
         rate=config.warm_rate,
         follow=follow,
         rival=recoder,
@@ -167,4 +176,5 @@ def _next_warmer(
         whole=whole,
         recoder=recoder,
         profile=profile,
+        video_mbit=video_mbit,
     )

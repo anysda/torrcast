@@ -47,6 +47,12 @@ class _State:
     #: укладки, а для счёта: тяжелее потолка показ прогретое с диска не берёт
     #: (:meth:`torrcast.usecases.feed_pack.feed.Feed._warm`), и запасом такой кусок не является.
     cap: int = CAUTIOUS.max_segment_bytes
+    #: Сколько Мбит/с уедет на ТВ в среднем по фильму - паспорт ffprobe, та же цифра, по
+    #: которой живой показ строит ровный профиль тяжести
+    #: (:meth:`torrcast.adapters.recode.weights.Weights.flat`). Прогреву она нужна там, где
+    #: карты опорных кадров нет: без неё вес куска нечем оценить, кроме потолка приёмника,
+    #: а потолок - это верхняя граница, а не вес. Ноль - паспорт про видео промолчал.
+    delivered: float = 0.0
     rate: float = WARM_RATE
     nice: int = WARM_NICE
     log: Callable[[str], None] | None = None
