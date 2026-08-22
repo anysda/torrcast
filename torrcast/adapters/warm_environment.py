@@ -9,6 +9,7 @@ from torrcast.adapters.filesystem.trace_journal import evict, skew, warmth
 from torrcast.adapters.stream_pack.ffmpeg_pack_command import ffmpeg_pack_command
 from torrcast.adapters.stream_pack.pack_start import pack_start as _pack_start
 from torrcast.adapters.stream_pack.packer import Packer
+from torrcast.adapters.stream_pack.spot_out import spot_out
 from torrcast.adapters.stream_probe.segment_name import segment_name as _segment_name
 from torrcast.adapters.stream_probe.segment_slot import segment_slot as _segment_slot
 from torrcast.domain._hms import _hms
@@ -27,6 +28,9 @@ _SCHEMAS: dict[str, Callable[..., None]] = {
 #: Слот сборки команды: имена параметров тут не повторяются нарочно - полный договор
 #: стоит в порту, а слот держит адрес, по которому его ставит подмена медиатракта.
 _pack_command: Callable[..., list[str]] = ffmpeg_pack_command
+#: Слот выкладки точечного перекода: под ним поднимаются ffmpeg и ffprobe, и зеркала
+#: прогрева подменяют его ровно здесь.
+_spot_out: Callable[..., bool] = spot_out
 
 
 # ⚠️ Медиатракт зовётся ЧЕРЕЗ модульные слоты выше, а не связывается на сборке класса
@@ -66,6 +70,10 @@ class _SystemWarmEnvironment:
     @staticmethod
     def pack_start(source_url: str, at: float) -> float:
         return _pack_start(source_url, at)
+
+    @staticmethod
+    def spot_out(*args: object, **kwargs: object) -> bool:
+        return _spot_out(*args, **kwargs)
 
     audio_mbit = 0.192
     ts_overhead = 1.03

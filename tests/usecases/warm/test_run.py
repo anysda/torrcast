@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -42,7 +43,12 @@ class _Packer:
     def publish(self) -> None:
         if self.edge < self.last:
             self.edge += 1
-            (self.out / f"v{self.edge}.ts").write_bytes(b"x")
+            # Выкладка продукта - ПЕРЕИМЕНОВАНИЕ из каталога прогона, а не запись поверх
+            # готового имени: под этим именем может лежать копия, которую придерживает
+            # точечный перекод, и запись поверх поменяла бы её прямо под ним.
+            piece = self.run / f"v{self.edge}.ts"
+            piece.write_bytes(b"x")
+            os.replace(piece, self.out / f"v{self.edge}.ts")
 
     def poll(self) -> int | None:
         return self.code if self.edge >= self.last else None
@@ -118,6 +124,50 @@ def test_a_spot_run_marks_the_place_only_after_it_is_laid(tmp_path: Path) -> Non
 
     assert warm.vault.spot(4).exists(), "точечный перекод лёг, а метки нет"
     assert warm.vault.have(4)
+
+
+def test_a_spot_run_lays_its_picture_with_the_sound_of_the_copy(tmp_path: Path) -> None:
+    """🔴 Точечный перекод стирает копию, а её звук нужен склейке: копия придерживается ссылкой.
+
+    Без этого на диске остаётся перекод со СВОЕЙ сеткой AAC, и стык с соседями рвётся на
+    47.3-54.7 мс - замер на уложенном каталоге двухчасовой картины.
+    """
+    seen: list[tuple[int, str, bytes, int]] = []
+
+    def lay_spot(slot: int, laid: Path, copy: Path, cap: int) -> bool:
+        seen.append((slot, laid.name, copy.read_bytes(), cap))
+        return True
+
+    packers: list[_Packer] = []
+    parts, _ = _tract(packers)
+    world(lay_spot=lay_spot, **parts)
+    warm = warmer(tmp_path, spot_encode=_Encode(), log=[].append)
+    warm.vault.path(4).write_bytes("копия этого места".encode())
+
+    _run(warm, 4, 4, spot=True)
+
+    assert seen == [(4, "v4.ts", "копия этого места".encode(), warm.cap)], (
+        "звук копии не доехал до выкладки точечного перекода"
+    )
+    assert not (warm.vault.dir / "a4.ts").exists(), "ссылка на копию осталась лежать"
+
+
+def test_a_run_that_is_not_pointwise_lays_nothing_over_a_copy(tmp_path: Path) -> None:
+    """Сплошной заход кладёт своё и ничего не склеивает: копии под ним нет и быть не должно."""
+    called: list[int] = []
+
+    def lay_spot(slot: int, *args: Any, **kwargs: Any) -> bool:
+        called.append(slot)
+        return True
+
+    packers: list[_Packer] = []
+    parts, _ = _tract(packers)
+    world(lay_spot=lay_spot, **parts)
+    warm = warmer(tmp_path, log=[].append)
+
+    _run(warm, 2, 3)
+
+    assert called == [], "сплошной заход полез в выкладку точечного перекода"
 
 
 def test_a_piece_off_the_grid_aborts_the_whole_run(tmp_path: Path) -> None:

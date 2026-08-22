@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import contextlib
+import os
 from collections.abc import Callable
 from functools import partial
 from pathlib import Path
@@ -59,6 +60,15 @@ def _run(
     0.5-2.9 с на заход против получаса прогрева не считаются.
     """
     encode = state.spot_encode if spot else state.encode
+    # Точечный перекод ложится ПОВЕРХ своей копии и стирает её, а звук копии нужен
+    # склейке уже после выкладки (:func:`torrcast.adapters.stream_pack.spot_out.spot_out`).
+    # Ссылка стоит ноль байт и переживает подмену файла; имя не подходит под ``v*.ts``,
+    # поэтому ни :meth:`Vault.slots`, ни показ её не видят.
+    donor = state.vault.dir / f"a{first}.ts"
+    donor.unlink(missing_ok=True)
+    if spot:
+        with contextlib.suppress(OSError):
+            os.link(state.vault.path(first), donor)
     at = state.grid.start(first)
     if encode is None:
         at = _state.pack_start(state.source, at)
@@ -139,6 +149,12 @@ def _run(
         with state.lock:
             state.packer = None
         packer.stop(keep_files=True, reason="прогрев окончен")
+        if spot and state.misgrid < 0 and packer.edge >= first:
+            # На диске остаётся картинка точечного перекода со звуком копии: звук показа
+            # обязан быть одним непрерывным потоком одного кодировщика, а не рваться на
+            # каждом стыке прогретого (:func:`spot_out`).
+            _state.spot_out(first, state.vault.path(first), donor, state.cap)
+        donor.unlink(missing_ok=True)
         state.vault.touch()
     if state.misgrid >= 0:
         # Заход, вставший не туда, кладёт мимо сетки весь свой участок: доводить его

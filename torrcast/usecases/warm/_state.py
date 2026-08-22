@@ -28,6 +28,8 @@ _hms: Callable[[float], str]
 Packer: WarmPacker
 ffmpeg_pack_command: Callable[..., list[str]]
 pack_start: Callable[[str, float], float]
+#: Выкладка точечного перекода: его картинка со звуком копии, что лежит под ним.
+spot_out: Callable[..., bool]
 AUDIO_MBIT: float
 TS_OVERHEAD: float
 

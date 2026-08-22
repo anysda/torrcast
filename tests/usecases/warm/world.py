@@ -36,6 +36,7 @@ class FakeEnvironment:
     packer: Any = environment.packer_type
     pack: Any = environment.pack_command
     pilot: Any = environment.pack_start
+    lay_spot: Any = environment.spot_out
     names: Any = environment.segment_name
     slots: Any = environment.segment_slot
     clock_face: Any = environment.hms
@@ -89,6 +90,9 @@ class FakeEnvironment:
 
     def pack_start(self, source_url: str, at: float) -> Any:
         return self.pilot(source_url, at)
+
+    def spot_out(self, *args: Any, **kwargs: Any) -> Any:
+        return self.lay_spot(*args, **kwargs)
 
     def named(self, name: str) -> dict[str, Any]:
         """Поля метки с таким именем; нет метки - пустой словарь."""
