@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from tests.usecases.feed_pack.world import feed, grid, lay, packer, vault
+from torrcast.usecases.feed_pack.feed import Feed
 from torrcast.usecases.feed_pack.feed_front import _front, _weight
 
 if TYPE_CHECKING:
@@ -70,3 +71,50 @@ def test_the_memory_of_the_show_is_the_window_and_the_unclaimed_together(
     lay(show.packer.run, 5, size=500)
 
     assert _weight(show) == 2500
+
+
+def test_the_memory_is_named_in_full_while_the_lift_holds_the_lock(tmp_path: Path) -> None:
+    """Подъём оборванного прогона держит замок ленты до минуты - вес всю её называет пик.
+
+    Мера, отступающая перед занятым замком, ровно в эту минуту показывала бы провал
+    памяти там, где растёт пик, и разбор подгрузов пошёл бы в обратную сторону.
+    """
+    show = feed(tmp_path)
+    lay(show.out, 0, size=1000)
+    show.packer = packer(tmp_path, first=0, out=show.out)
+    lay(show.packer.run, 5, size=500)
+
+    assert show.lock.acquire(blocking=False), "замок ленты свободен до пробы"
+    try:
+        assert _weight(show) == 1500
+    finally:
+        show.lock.release()
+
+
+class _SwappingFeed(Feed):
+    """Лента, у которой прогон исчезает ровно между двумя чтениями поля.
+
+    Гонка тут подделана, а не поднята: второй поток дал бы то же самое, но по случаю.
+    """
+
+    reads = 0
+
+    def __getattribute__(self, name: str) -> object:
+        if name == "packer":
+            type(self).reads += 1
+            if type(self).reads == 2:
+                self.packer = None
+        return super().__getattribute__(name)
+
+
+def test_the_memory_survives_the_run_swapped_between_two_readings(tmp_path: Path) -> None:
+    """Прогон меняют между проверкой на ``None`` и вопросом о несданном: мера обязана устоять."""
+    _SwappingFeed.reads = 0
+    show = feed(tmp_path, kind=_SwappingFeed)
+    lay(show.out, 0, size=1000)
+    live = packer(tmp_path, first=0, out=show.out)
+    lay(live.run, 5, size=500)
+    show.packer = live
+
+    assert _weight(show) == 1500
+    assert _SwappingFeed.reads == 1, "поле прогона читается один раз, снимком"

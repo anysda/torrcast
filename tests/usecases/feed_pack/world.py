@@ -162,12 +162,18 @@ def packer(root: Path, **kwargs: Any) -> Packer:
 
 
 def feed(root: Path, **kwargs: Any) -> Feed:
-    """Лента показа на ровной сетке поверх свежего каталога показа."""
+    """Лента показа на ровной сетке поверх свежего каталога показа.
+
+    ``kind`` - каким классом её собрать: зеркалу иногда нужен наследник, у которого одно
+    поле отвечает по-своему (так меряется подмена прогона, не поднимая второго потока).
+    """
+    kind = kwargs.pop("kind", None) or Feed
     out = kwargs.pop("out", None) or root / "out"
     out.mkdir(parents=True, exist_ok=True)
     lines = kwargs.pop("grid", None) or grid()
     kwargs.setdefault("wait", 0.0)
-    return Feed(source="src", audio=0, out=out, grid=lines, **kwargs)
+    built: Feed = kind(source="src", audio=0, out=out, grid=lines, **kwargs)
+    return built
 
 
 def signals(run: Packer) -> list[str]:

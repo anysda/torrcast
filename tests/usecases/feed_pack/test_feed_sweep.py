@@ -16,7 +16,7 @@ from tests.usecases.feed_pack.world import (
     tract,
     vault,
 )
-from torrcast.usecases.feed_pack.feed_sweep import _prune, _sweep
+from torrcast.usecases.feed_pack.feed_sweep import _lift, _prune, _sweep
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -270,3 +270,49 @@ def test_the_clock_lifts_a_provisional_verdict_the_receiver_can_never_ask_about(
 
     assert show.skipped == {2}, "условный приговор пережил возврат источника"
     assert show.doubted == set() and show.offline == ""
+
+
+def test_a_torn_print_in_the_blame_does_not_silence_the_next_attempt(tmp_path: Path) -> None:
+    """Разбор обрыва печатает - и печать рвётся: замок починки не может остаться закрытым.
+
+    Между взятием замка и подъёмом лежит весь разбор обрыва, а он и печатает, и читает
+    лог прогона: `BrokenPipeError` и `OSError` тут не выдумка. Замок, оставшийся
+    закрытым от такого броска, не отпустит уже никто, и починка ленты умолкнет до конца
+    показа молча.
+    """
+
+    def torn_pipe(_line: str) -> None:
+        raise BrokenPipeError("печать оборвалась")
+
+    tract(now=100.0, spawn=here)
+    asked: list[int] = []
+    show = feed(tmp_path, log=torn_pipe)
+    show.packer = packer(tmp_path, first=0, edge=2, out=show.out, proc=FakeProc(code=1))
+
+    with pytest.raises(BrokenPipeError, match="печать оборвалась"):
+        _sweep(show, asked.append)
+    show.log = None
+    tract(now=110.0, spawn=here)
+    _sweep(show, asked.append)
+
+    assert asked == [3], "брошенный разбор обрыва навсегда занял замок починки"
+
+
+def test_a_show_already_over_is_not_given_a_run_to_kill(tmp_path: Path) -> None:
+    """Признак конца встал до подъёма - прогон не поднимается вовсе, и снос его не ждёт.
+
+    Внутри подъёма лежит пробный прогон, до минуты по потолку, а снос показа стоит за
+    этим замком: замер на сухом стенде с висящим источником - 59.76 с ожидания ради
+    прогона, который тут же и гасят.
+    """
+    tract(now=100.0, spawn=here)
+    asked: list[int] = []
+    show = feed(tmp_path)
+    show.fatal = "показ окончен"
+    assert show.lock.acquire(blocking=False), "замок ленты свободен до пробы"
+
+    _lift(show, asked.append, 3)
+
+    assert asked == [], "подъём поднял прогон показу, которого уже нет"
+    assert show.lock.acquire(blocking=False), "подъём не отпустил замок"
+    show.lock.release()

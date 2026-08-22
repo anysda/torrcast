@@ -107,18 +107,26 @@ def _torn(state: _State, restart: Callable[[int], None]) -> None:
     # часам показа нельзя - внутри решения лежит пробный прогон до минуты по потолку.
     if not state.lock.acquire(blocking=False):
         return
-    if not _survive(state, packer):
-        state.lock.release()
-        return  # упаковка сдалась насовсем - хоронит показ держатель, а не уборка
-    state.restarted = _state.clock_port.monotonic()
-    # Замок отсюда уносит подъём и отпускает его сам: он и есть то решение, за которым
-    # соседу вставать в очередь нельзя.
-    slot = packer.edge + 1
+    # 🔴 Охрана начинается ЗДЕСЬ, а не у подъёма: между взятием замка и подъёмом лежит
+    # разбор обрыва, а он и печатает (:meth:`_State._say`), и читает лог прогона
+    # (:meth:`Packer.why`) - то есть роняет `BrokenPipeError` и `OSError` на ровном
+    # месте. Замок, оставшийся закрытым от такого броска, не отпустит уже никто:
+    # починка ленты умолкла бы до конца показа и молча.
+    handed = False
     try:
+        if not _survive(state, packer):
+            return  # упаковка сдалась насовсем - хоронит показ держатель, а не уборка
+        state.restarted = _state.clock_port.monotonic()
+        # Замок отсюда уносит подъём и отпускает его сам: он и есть то решение, за
+        # которым соседу вставать в очередь нельзя.
+        slot = packer.edge + 1
         _state.spawn(lambda: _lift(state, restart, slot))
-    except BaseException:
-        state.lock.release()
-        raise
+        handed = True
+    finally:
+        # Отпускает тот, кто держит: подъём поднялся - замок теперь его, и трогать
+        # чужой замок отсюда нельзя.
+        if not handed:
+            state.lock.release()
 
 
 def _lift(state: _State, restart: Callable[[int], None], slot: int) -> None:
@@ -128,9 +136,20 @@ def _lift(state: _State, restart: Callable[[int], None], slot: int) -> None:
     застал (:func:`torrcast.usecases.feed_pack.feed_stop._stop`), а поднятый следом
     остался бы жить и читать раздачу в каталог, которого уже нет. Поэтому свой прогон
     подъём за собой и убирает - решает это признак конца, а не порядок двух потоков.
+
+    🔴 Кончившийся показ спрашивается ДО подъёма, а не только после него, и это не
+    украшение. Внутри подъёма лежит пробный прогон, до минуты по потолку
+    (:data:`torrcast.domain.hls_wait.PILOT_TIMEOUT`), а снос показа ждёт этот замок
+    (:func:`torrcast.usecases.feed_pack.feed_stop._stop`) - и ждал бы всю минуту ради
+    прогона, который тут же и гасят. Замер на сухом стенде, источник висит: снос ждал
+    59.76 с. Успел признак конца встать до этой строки - ждать нечего, и ffmpeg не
+    поднимается в каталог, который прямо сейчас убирают.
     """
     try:
-        restart(slot)
+        if not state.fatal:
+            restart(slot)
+        # Признак конца мог встать и до подъёма, и посреди него: прогон, который застали,
+        # гасится в обоих случаях.
         if state.fatal and state.packer is not None:
             state.packer.stop()
     finally:

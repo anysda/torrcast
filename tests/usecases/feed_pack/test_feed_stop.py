@@ -2,18 +2,29 @@
 
 from __future__ import annotations
 
+import ast
+import threading
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from pathlib import Path
 
+import pytest
+
+import torrcast.usecases.feed_pack as feed_pack
 import torrcast.usecases.feed_pack._state as _state
-from tests.usecases.feed_pack.world import FakeProc, feed, here, lay, packer, tract, vault
+from tests.usecases.feed_pack.world import (
+    FakeProc,
+    feed,
+    here,
+    lay,
+    packer,
+    signals,
+    tract,
+    vault,
+)
 from torrcast.adapters.stream_pack.packer import Packer
 from torrcast.domain.hls_settings import PACK_DIR
 from torrcast.usecases.feed_pack.feed_stop import _rest, _stop
 from torrcast.usecases.feed_pack.feed_sweep import _sweep
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 
 @dataclass
@@ -103,3 +114,78 @@ def test_a_show_that_already_failed_keeps_its_own_reason(tmp_path: Path) -> None
     _stop(show)
 
     assert show.trouble() == "упаковка оборвалась (молча, код 0)"
+
+
+def _waits_for_the_lock(node: ast.AST) -> bool:
+    """Берут ли тут замок ленты с ожиданием: ``with state.lock`` или ``acquire`` без отказа."""
+    if isinstance(node, ast.With):
+        return any(
+            isinstance(item.context_expr, ast.Attribute) and item.context_expr.attr == "lock"
+            for item in node.items
+        )
+    if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+        return False
+    owner = node.func.value
+    if node.func.attr != "acquire" or not isinstance(owner, ast.Attribute) or owner.attr != "lock":
+        return False
+    refused = [
+        word
+        for word in node.keywords
+        if word.arg == "blocking" and isinstance(word.value, ast.Constant)
+    ]
+    return not any(word.value.value is False for word in refused)  # type: ignore[attr-defined]
+
+
+def _blocking_grabs() -> list[str]:
+    """Единицы ленты, которые ЖДУТ замок, а не отступают перед занятым."""
+    where = Path(str(feed_pack.__file__)).parent
+    found: set[str] = set()
+    for path in sorted(where.glob("*.py")):
+        for unit in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if not isinstance(unit, ast.FunctionDef):
+                continue
+            if any(_waits_for_the_lock(inner) for inner in ast.walk(unit)):
+                found.add(f"{path.stem}.{unit.name}")
+    return sorted(found)
+
+
+def test_the_lock_is_waited_for_at_the_end_of_the_show_and_nowhere_else() -> None:
+    """Ждать замок ленты можно ровно на сносе показа - и больше нигде.
+
+    Замок держит подъём оборванного прогона до минуты по потолку пробного. Ожидание,
+    попавшее на круг опроса приёмника (те же две секунды), ослепило бы разом ВСЕ метрики
+    показа - место, подвис, перемотку, - а не только ту упаковку, которую поднимают.
+    """
+    assert _blocking_grabs() == ["feed_stop._stop"], "ожидание замка вернулось на часы показа"
+
+
+@pytest.mark.machine
+def test_the_end_of_the_show_waits_for_the_lift_it_found_in_flight(tmp_path: Path) -> None:
+    """Снос показа не встревает в идущий подъём: он ждёт его и гасит доставленный прогон.
+
+    🔴 Замок тут единственный на всю ленту, и он закрывает замену прогона
+    (:attr:`_State.packer`). Отсутствие замка видно ТОЛЬКО при конкуренции, поэтому
+    конкурент настоящий: без замка снос гасит прогон, который подъём уже сменил, а
+    свежий ffmpeg остаётся читать раздачу в каталог, которого больше нет.
+
+    Замок держат прямо тут, а не поднимают вторым потоком подъём: ждать в пробе минуту
+    пробного прогона незачем, а держит его подъём ровно так же.
+    """
+    tract(forget_flag=lambda out: None)
+    show = feed(tmp_path)
+    show.packer = packer(tmp_path, first=0, edge=2, out=show.out, proc=FakeProc(code=1))
+    fresh = packer(tmp_path, first=3, out=show.out, run=tmp_path / "pack-fresh")
+
+    show.lock.acquire()  # подъём в полёте: замок его, пока не кончится пробный прогон
+    ending = threading.Thread(target=_stop, args=(show,))
+    ending.start()
+    try:
+        ending.join(0.3)
+        assert ending.is_alive(), "снос показа встрял в идущий подъём и погасил чужой прогон"
+        show.packer = fresh  # подъём доставил свой прогон и отпускает замок
+    finally:
+        show.lock.release()
+        ending.join(10.0)
+
+    assert not ending.is_alive(), "снос показа не дождался подъёма"
+    assert signals(fresh) == ["terminate"], "снос показа не погасил прогон, доставленный подъёмом"

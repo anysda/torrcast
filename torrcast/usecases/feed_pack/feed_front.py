@@ -51,14 +51,20 @@ def _weight(state: _State) -> int:
     Считается и окно показа, и несданное каталога прогона (:meth:`Packer.pending`):
     память одна на оба, и вторая половина росла невидимой ровно потому, что число
     называло только первую.
+
+    🔴 Замка тут нет, и это часть меры. Замок ленты держит подъём оборванного прогона -
+    до минуты по потолку пробного (:data:`torrcast.domain.hls_wait.PILOT_TIMEOUT`), - и
+    мера, отступающая перед занятым замком, всю эту минуту называла бы одно окно показа.
+    То есть показывала бы провал памяти ровно там, где растёт пик, и разбор подгрузов
+    пошёл бы в обратную сторону. Отступать тут не за чем: :meth:`Packer.pending` только
+    складывает размеры файлов в каталоге прогона и ничего в нём не меняет.
+
+    Прогон берётся снимком - и этого достаточно: подмена прогона (:meth:`restart`) между
+    проверкой на ``None`` и вопросом о несданном уронила бы меру на ровном месте.
     """
     total = 0
     for path in _state.segment_paths(state.out):
         with contextlib.suppress(OSError):  # вычистило окном прямо сейчас
             total += path.stat().st_size
-    if not state.lock.acquire(blocking=False):
-        return total
-    try:
-        return total + (0 if state.packer is None else state.packer.pending())
-    finally:
-        state.lock.release()
+    packer = state.packer
+    return total + (0 if packer is None else packer.pending())
