@@ -30,7 +30,7 @@ class Entry(_Playing):
 
     season: int | None = None
     episode: int | None = None
-    #: Серии раздачи по порядку: ``[сезон, серия, номер файла]``. Это и есть кэш
+    #: Серии раздачи по порядку: ``[сезон, серия, номер файла, размер файла]``. Это и есть кэш
     #: выбора: стык серий и прыжок на s2e5 обходятся без Prowlarr и без вопросов.
     episodes: list[list[int]] = field(default_factory=list)
     #: Slug исходного запроса: по нему resume находит запись, не ходя в Prowlarr.
@@ -152,7 +152,7 @@ class Entry(_Playing):
         raw = fields.get("episodes")
         if isinstance(raw, list):  # битую строку списка серий лучше потерять, чем упасть
             fields["episodes"] = [
-                [int(json_number(n)) for n in json_rows(item)[:3]]
+                [int(json_number(n)) for n in json_rows(item)[:4]]
                 for item in raw
                 if isinstance(item, list) and len(item) >= 3
             ]

@@ -96,7 +96,7 @@ def _profile(source: str, grid: MediaGrid, delivered: float) -> HeavyProfile:
         print(
             f"профиль тяжести: контейнер {weights.container:.1f} Мбит/с, "
             + (
-                f"на ТВ уедет {delivered:.1f} Мбит/с по паспорту"
+                f"на ТВ уедет {delivered:.1f} Мбит/с по известному среднему весу"
                 if delivered > 0
                 else "веса видеодорожки в паспорте нет - поправку наберу по факту"
             ),
@@ -105,7 +105,8 @@ def _profile(source: str, grid: MediaGrid, delivered: float) -> HeavyProfile:
         return weights
     if delivered > 0:
         print(
-            f"профиль тяжести ровный: {delivered:.1f} Мбит/с на каждый кусок по паспорту - "
+            f"профиль тяжести ровный: {delivered:.1f} Мбит/с на каждый кусок "
+            "по известному среднему весу - "
             "тяжёлое место в лицо не знаю, ужимаю по среднему",
             flush=True,
         )

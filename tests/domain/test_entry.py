@@ -186,6 +186,15 @@ def test_a_broken_row_in_the_saved_episode_list_is_dropped_and_not_half_read() -
     assert entry.episodes == [[1, 1, 0], [1, 3, 7]]
 
 
+def test_the_saved_episode_file_size_survives_reading() -> None:
+    """Четвёртое число нужно оценке веса следующей серии."""
+    entry = Entry.from_json(
+        {"title": "Сериал", "magnet": "m", "episodes": [[1, 1, 0, 20_000_000_000]]}
+    )
+
+    assert entry.episodes == [[1, 1, 0, 20_000_000_000]]
+
+
 def test_an_unknown_key_in_a_saved_record_is_ignored_instead_of_crashing() -> None:
     """Запись, написанную другой версией, читаем молча: лишний ключ - не повод падать.
 

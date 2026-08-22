@@ -8,6 +8,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from torrcast.domain.entry import Entry
+from torrcast.domain.estimated_video_mbit import estimated_video_mbit
 from torrcast.domain.media import Media
 from torrcast.domain.release import Release
 from torrcast.domain.slugify import slugify
@@ -45,9 +46,9 @@ def _entry_for(
         # он узнает, чем сериал смотрели (:func:`track_studio`).
         studio=_named(track_studio(media, audio, release.studios)),
         dur=media.duration,
-        # Вес видеодорожки из паспорта: по нему показ строит профиль тяжести с первой
-        # секунды, не набирая поправку «контейнер → ТВ» вслепую.
-        vbps=media.video_bps / 1e6 or -1.0,
+        # Паспортный вес точнее; если его нет, верхняя оценка по размеру выбранного
+        # файла и длительности всё равно даёт профилю цели с первой секунды.
+        vbps=media.video_bps / 1e6 or estimated_video_mbit(video.size, media.duration) or -1.0,
         # Кодек оттуда же: по нему показ решает, играть копией или перекодировать файл
         # целиком, и решает это один раз - до первого сегмента (:func:`_encode_all`).
         codec=media.video or "",

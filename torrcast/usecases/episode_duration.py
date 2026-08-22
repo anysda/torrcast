@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 from torrcast.domain.entry import Entry
+from torrcast.domain.estimated_video_mbit import estimated_video_mbit
 from torrcast.domain.worker_settings import WORKER_DUR
 from torrcast.ports.prober import Prober
 from torrcast.ports.state_store.slot import store
@@ -50,8 +51,13 @@ def _duration(key: str, entry: Entry, source: str) -> Entry:
         return entry
     media = _episode_prober(source, timeout=WORKER_DUR)
     entry.dur = media.duration or entry.dur
-    # Ноль - «ещё не спрашивали», минус - «спросили, паспорт промолчал» (mp4 без тегов).
-    entry.vbps = media.video_bps / 1e6 or -1.0
+    # Паспортный вес точнее; если он промолчал, размер текущего файла даёт честно
+    # названную верхнюю оценку. Старые записи без четвёртого столбца остаются с -1.
+    row = next(
+        (item for item in entry.episodes if len(item) >= 3 and item[2] == entry.file_idx), []
+    )
+    size = row[3] if len(row) >= 4 else 0
+    entry.vbps = media.video_bps / 1e6 or estimated_video_mbit(size, media.duration) or -1.0
     # Кодек следующей серии тоже свой: в раздаче аниме нередко лежат и HEVC, и H.264,
     # а решение «перекодировать целиком» принимается по файлу, который играем сейчас.
     entry.codec = media.video or ""

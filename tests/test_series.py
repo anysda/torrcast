@@ -692,4 +692,4 @@ def test_the_episode_table_belongs_to_the_release_being_played() -> None:
 
     table = series.table(played, pack.season)
     assert len(table) == 11, "в состоянии серии сыгранной раздачи, а не соседней"
-    assert table[0] == [1, 1, 1] and table[-1] == [1, 11, 11]
+    assert table[0] == [1, 1, 1, 1024**3] and table[-1] == [1, 11, 11, 1024**3]

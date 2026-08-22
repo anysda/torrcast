@@ -49,6 +49,19 @@ def test_the_chosen_file_and_track_reach_the_record() -> None:
     assert (entry.file_idx, entry.audio, entry.voice) == (7, 0, "Дубляж")
 
 
+def test_missing_video_weight_is_estimated_from_the_chosen_file() -> None:
+    """Молчание паспорта не оставляет ровный профиль без целей."""
+    video = TorrFile(index=7, name="кино/film.mkv", size=30_000_000_000)
+    pack = release("Кино / Movie WEB-DL 1080p")
+    prep = _Prep(number=1, release=pack)
+    prep.video, prep.files, prep.media = video, [video], _media()
+    silent = Media(duration=6000.0, video="h264", height=1080, width=1920)
+
+    entry = _entry_for(cast(Any, plan()), prep, pack, video, silent, 0, "rus", Args(query=["кино"]))
+
+    assert entry.vbps == 40.0, "оценка по выбранному файлу поднимает ровный профиль"
+
+
 def test_a_movie_carries_no_episode_at_all() -> None:
     """У фильма серии нет: ни сезона, ни номера, ни таблицы серий."""
     entry = _entry()

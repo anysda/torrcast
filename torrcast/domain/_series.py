@@ -87,7 +87,7 @@ class _Series:
         Спрашивается у той раздачи, которую играют, и разбирается заново - держать его
         на объекте нельзя (см. :meth:`choose`).
         """
-        return [[f.season, f.episode, f.index] for f in map_episodes(files, season)]
+        return [[f.season, f.episode, f.index, f.size] for f in map_episodes(files, season)]
 
     @staticmethod
     def summary(files: list[EpisodeFile]) -> str:
