@@ -77,3 +77,20 @@ def test_the_grid_that_moved_its_bounds_is_another_catalogue() -> None:
     ), "сетки разошлись не границами - случай не тот"
 
     assert warm_key(SOURCE, 0, before) != warm_key(SOURCE, 0, after)
+
+
+def test_receiver_cap_alone_moves_the_grid_to_another_catalogue() -> None:
+    """Измеренный потолок меняет границы и потому обязан менять каталог."""
+    keys = tuple(float(second) for second in range(0, 61, 2))
+    sizes = tuple(index * (4 << 20) for index, _second in enumerate(keys))
+
+    cautious = Grid.on_keyframes(keys, 60.0, sizes=sizes, cap=16_000_000)
+    roomy = Grid.on_keyframes(keys, 60.0, sizes=sizes, cap=28_000_000)
+
+    assert cautious.bounds != roomy.bounds, "потолок приёмника не сдвинул сетку"
+    assert (cautious.duration, cautious.on_keys, cautious.origin) == (
+        roomy.duration,
+        roomy.on_keys,
+        roomy.origin,
+    ), "сетки разошлись не только границами"
+    assert warm_key(SOURCE, 0, cautious) != warm_key(SOURCE, 0, roomy)
