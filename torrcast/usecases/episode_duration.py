@@ -57,7 +57,10 @@ def _duration(key: str, entry: Entry, source: str) -> Entry:
         (item for item in entry.episodes if len(item) >= 3 and item[2] == entry.file_idx), []
     )
     size = row[3] if len(row) >= 4 else 0
-    entry.vbps = media.video_bps / 1e6 or estimated_video_mbit(size, media.duration) or -1.0
+    measured_mbit = media.video_bps / 1e6
+    estimated_mbit = estimated_video_mbit(size, media.duration)
+    entry.vbps = measured_mbit or estimated_mbit or -1.0
+    entry.vbps_estimated = not measured_mbit and bool(estimated_mbit)
     # Кодек следующей серии тоже свой: в раздаче аниме нередко лежат и HEVC, и H.264,
     # а решение «перекодировать целиком» принимается по файлу, который играем сейчас.
     entry.codec = media.video or ""

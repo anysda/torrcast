@@ -40,6 +40,7 @@ def test_the_passport_defaults_mean_not_asked_and_not_measured_zero() -> None:
     assert (empty.frame, empty.depth, empty.vbps) == (0, 0, 0.0)
     assert (empty.codec, empty.quality) == ("", "")
     assert empty.hdr is False
+    assert empty.vbps_estimated is False
 
 
 def test_the_live_show_marks_start_empty_and_belong_to_the_current_file() -> None:

@@ -40,6 +40,32 @@ def test_missing_weight_is_estimated_for_the_current_episode(
     _duration("ключ", entry, "http://127.0.0.1:1/x")
 
     assert entry.vbps == 40.0, "оценка берёт размер текущей, а не первой серии"
+    assert entry.vbps_estimated
+
+
+def test_a_measured_weight_and_an_old_three_column_row_keep_their_meaning(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Замер помечен замером, а старой строке размер по-прежнему не приписывается."""
+    monkeypatch.setattr(
+        episode_duration,
+        "_episode_prober",
+        lambda source, timeout: Media(duration=4000.0, video_bps=12_000_000.0),
+    )
+    monkeypatch.setattr(episode_duration, "store", lambda: _MemoryStore())
+    measured = Entry(title="Сериал", magnet="m", file_idx=2, episodes=[[1, 2, 2]])
+
+    _duration("замер", measured, "http://127.0.0.1:1/x")
+    monkeypatch.setattr(
+        episode_duration,
+        "_episode_prober",
+        lambda source, timeout: Media(duration=4000.0),
+    )
+    old = Entry(title="Сериал", magnet="m", file_idx=2, episodes=[[1, 2, 2]])
+    _duration("старая", old, "http://127.0.0.1:1/x")
+
+    assert (measured.vbps, measured.vbps_estimated) == (12.0, False)
+    assert (old.vbps, old.vbps_estimated) == (-1.0, False)
 
 
 class _MemoryState:

@@ -58,4 +58,5 @@ def _cache_reserve(config: Config, entry: Entry) -> str:
     minutes = filled * 8 / (entry.vbps * 1e6 * 60)
     if minutes < 1:
         return "в кэше службы запас меньше минуты показа"
-    return f"в кэше службы запас ещё на {minutes:.0f} мин показа"
+    source = "по оценке" if entry.vbps_estimated else "по замеру"
+    return f"в кэше службы запас ещё на {minutes:.0f} мин показа ({source})"

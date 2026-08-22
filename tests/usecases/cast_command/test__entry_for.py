@@ -40,6 +40,7 @@ def test_the_passport_reaches_the_record_whole() -> None:
 
     assert (entry.codec, entry.depth, entry.frame, entry.hdr) == ("hevc", 10, 2160, True)
     assert entry.vbps == 21.0, "вес видеодорожки едет числом, а не набирается вслепую"
+    assert not entry.vbps_estimated
 
 
 def test_the_chosen_file_and_track_reach_the_record() -> None:
@@ -60,6 +61,7 @@ def test_missing_video_weight_is_estimated_from_the_chosen_file() -> None:
     entry = _entry_for(cast(Any, plan()), prep, pack, video, silent, 0, "rus", Args(query=["кино"]))
 
     assert entry.vbps == 40.0, "оценка по выбранному файлу поднимает ровный профиль"
+    assert entry.vbps_estimated
 
 
 def test_a_movie_carries_no_episode_at_all() -> None:

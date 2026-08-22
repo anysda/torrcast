@@ -26,6 +26,7 @@ def _recoder(
     config: Config,
     video_mbit: float = 0.0,
     profile: Profile = CAUTIOUS,
+    video_mbit_estimated: bool = False,
 ) -> SpotRecoder | None:
     """Кодировщик тяжёлых кусков или ``None``, если он не нужен и не может помочь.
 
@@ -48,7 +49,7 @@ def _recoder(
     # Сколько уедет на ТВ: видеодорожка идёт копией, звук всегда AAC, сверху оверхед
     # mpegts. Паспорт молчит (mp4 без тегов) - поправка наберётся по факту, как раньше.
     delivered = (video_mbit + AUDIO_MBIT) * TS_OVERHEAD if video_mbit > 0 else 0.0
-    weights = _profile(source, grid, delivered)
+    weights = _profile(source, grid, delivered, video_mbit_estimated)
     return _state.Recoder(
         source=source,
         audio=audio,
@@ -67,7 +68,9 @@ def _recoder(
     )
 
 
-def _profile(source: str, grid: MediaGrid, delivered: float) -> HeavyProfile:
+def _profile(
+    source: str, grid: MediaGrid, delivered: float, video_mbit_estimated: bool
+) -> HeavyProfile:
     """Профиль тяжести показа: по карте опорных кадров, а нет карты — ровный по паспорту.
 
     Профиль по карте считается из уже снятой карты: байты и секунды каждого сегмента
@@ -96,7 +99,8 @@ def _profile(source: str, grid: MediaGrid, delivered: float) -> HeavyProfile:
         print(
             f"профиль тяжести: контейнер {weights.container:.1f} Мбит/с, "
             + (
-                f"на ТВ уедет {delivered:.1f} Мбит/с по известному среднему весу"
+                f"на ТВ уедет {delivered:.1f} Мбит/с "
+                f"по {'оценке' if video_mbit_estimated else 'замеру'}"
                 if delivered > 0
                 else "веса видеодорожки в паспорте нет - поправку наберу по факту"
             ),
@@ -106,7 +110,7 @@ def _profile(source: str, grid: MediaGrid, delivered: float) -> HeavyProfile:
     if delivered > 0:
         print(
             f"профиль тяжести ровный: {delivered:.1f} Мбит/с на каждый кусок "
-            "по известному среднему весу - "
+            f"по {'оценке' if video_mbit_estimated else 'замеру'} - "
             "тяжёлое место в лицо не знаю, ужимаю по среднему",
             flush=True,
         )

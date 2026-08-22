@@ -106,5 +106,6 @@ class UnitPlaybackSession:
             audio_index=entry.audio,
             torrent_hash=_torrent_hash(entry.magnet),
             video_bitrate_mbit=entry.vbps,
+            video_bitrate_estimated=entry.vbps_estimated,
             done=entry.done,
         )

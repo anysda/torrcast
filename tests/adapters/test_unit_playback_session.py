@@ -27,6 +27,7 @@ class _Entry:
     audio: int = 1
     torrent: str = HASH
     vbps: float = 10.0
+    vbps_estimated: bool = False
     done: bool = False
 
 
@@ -96,6 +97,7 @@ def test_the_named_key_wins_over_the_freshest_record() -> None:
         audio_index=1,
         torrent_hash=HASH,
         video_bitrate_mbit=10.0,
+        video_bitrate_estimated=False,
     )
 
 

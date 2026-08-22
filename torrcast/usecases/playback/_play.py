@@ -62,6 +62,7 @@ def _play(
     length = watch.entry.dur if watch else duration
     tls = config.transport == "https"
     video_mbit = max(0.0, watch.entry.vbps) if watch else 0.0
+    video_mbit_estimated = watch.entry.vbps_estimated if watch else False
     session_tag = session_tag or f"[сеанс {journal().session_id()}]"
     # Сетка сегментов снимается с самого файла и дальше не меняется: она же в манифесте,
     # она же в команде ffmpeg. Всё, что показ говорит о времени, считается по ней.
@@ -103,6 +104,7 @@ def _play(
         receiver,
         follow=follow,
         profile=profile,
+        video_mbit_estimated=video_mbit_estimated,
     )
     url = f"{_state.hls_base(config)}/index.m3u8"
     try:

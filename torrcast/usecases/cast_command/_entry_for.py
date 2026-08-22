@@ -34,6 +34,8 @@ def _entry_for(
 ) -> Entry:
     """Запись показа по выбранному релизу: паспорт, дорожка, серия и список серий."""
     series = plan.series
+    measured_mbit = media.video_bps / 1e6
+    estimated_mbit = estimated_video_mbit(video.size, media.duration)
     return Entry(
         title=plan.picture.title,
         magnet=release.magnet,
@@ -48,7 +50,8 @@ def _entry_for(
         dur=media.duration,
         # Паспортный вес точнее; если его нет, верхняя оценка по размеру выбранного
         # файла и длительности всё равно даёт профилю цели с первой секунды.
-        vbps=media.video_bps / 1e6 or estimated_video_mbit(video.size, media.duration) or -1.0,
+        vbps=measured_mbit or estimated_mbit or -1.0,
+        vbps_estimated=not measured_mbit and bool(estimated_mbit),
         # Кодек оттуда же: по нему показ решает, играть копией или перекодировать файл
         # целиком, и решает это один раз - до первого сегмента (:func:`_encode_all`).
         codec=media.video or "",

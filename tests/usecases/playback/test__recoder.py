@@ -142,6 +142,27 @@ def test_a_healthy_map_raises_the_recoder_and_says_its_profile(
     assert "профиль тяжести:" in capsys.readouterr().out
 
 
+def test_the_flat_profile_names_a_measurement_and_an_estimate(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Одинаковое число не скрывает, паспортное оно или оценочное."""
+    _recoder("http://ts", 0, grid(), tmp_path, Config(recode=True), video_mbit=8.0)
+    measured = capsys.readouterr().out
+    _recoder(
+        "http://ts",
+        0,
+        grid(),
+        tmp_path,
+        Config(recode=True),
+        video_mbit=8.0,
+        video_mbit_estimated=True,
+    )
+    estimated = capsys.readouterr().out
+
+    assert "по замеру" in measured
+    assert "по оценке" in estimated
+
+
 def test_a_map_without_offsets_falls_back_to_the_flat_profile(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

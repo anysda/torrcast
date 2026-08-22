@@ -38,6 +38,7 @@ def _tract(
     receiver: Receiver | None,
     follow: Following | None = None,
     profile: Profile = CAUTIOUS,
+    video_mbit_estimated: bool = False,
 ) -> tuple[SpotRecoder | None, Warmer | None, Feed, StreamServer, Receiver]:
     """Собрать тракт показа: кодировщик, прогрев, упаковку, раздачу и приёмник."""
     # Профиль тяжести всего фильма известен со старта - он считается из уже снятой
@@ -54,6 +55,7 @@ def _tract(
             config,
             video_mbit=video_mbit,
             profile=profile,
+            video_mbit_estimated=video_mbit_estimated,
         )
     )
     # Прогрев поднимается ПОСЛЕ старта показа (ниже), а собирается здесь: ему нужны и

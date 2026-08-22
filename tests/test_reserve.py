@@ -70,7 +70,7 @@ def test_reserve_is_minutes_of_this_release(monkeypatch: pytest.MonkeyPatch) -> 
 
     line = _cache_reserve(Config(), _entry())
 
-    assert line == "в кэше службы запас ещё на 7 мин показа"
+    assert line == "в кэше службы запас ещё на 7 мин показа (по замеру)"
 
 
 def test_reserve_depends_on_bitrate(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -79,7 +79,16 @@ def test_reserve_depends_on_bitrate(monkeypatch: pytest.MonkeyPatch) -> None:
 
     heavy = _cache_reserve(Config(), _entry(vbps=40.0))
 
-    assert heavy == "в кэше службы запас ещё на 2 мин показа"
+    assert heavy == "в кэше службы запас ещё на 2 мин показа (по замеру)"
+
+
+def test_reserve_names_an_estimated_bitrate(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Минуты по оценке не выдаются за минуты по измеренной видеодорожке."""
+    _server(monkeypatch, {"Capacity": 8 * 1024**3, "Filled": 500_000_000})
+
+    line = _cache_reserve(Config(), _entry(vbps_estimated=True))
+
+    assert line == "в кэше службы запас ещё на 7 мин показа (по оценке)"
 
 
 def test_empty_cache_is_an_honest_line(monkeypatch: pytest.MonkeyPatch) -> None:
