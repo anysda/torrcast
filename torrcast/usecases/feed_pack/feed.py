@@ -96,7 +96,8 @@ class Feed(_State):
 
     def drift(self) -> float:
         """Насколько нарезанное разошлось с манифестом, секунды (:meth:`Packer.drift`)."""
-        return 0.0 if self.packer is None else self.packer.drift(self.grid)
+        packer = self.packer
+        return 0.0 if packer is None else packer.drift(self.grid)
 
     def weight(self) -> int:
         """Сколько байт лежит в tmpfs прямо сейчас (:func:`_weight`)."""
@@ -130,15 +131,17 @@ class Feed(_State):
         self.offline = why_source
 
     def halted(self) -> bool:
-        return self.packer is not None and self.packer.halted
+        packer = self.packer
+        return packer is not None and packer.halted
 
     def rest(self) -> bool:
         """Остаток фильма прогрет целиком — упаковку гасим (:func:`_rest`)."""
         return _rest(self)
 
     def halt(self) -> None:
-        if self.packer is not None:
-            self.packer.halt()
+        packer = self.packer
+        if packer is not None:
+            packer.halt()
 
     def stop(self) -> None:
         """Показ окончен: упаковка гаснет, каталог показа пустеет (:func:`_stop`)."""

@@ -53,6 +53,52 @@ def test_the_drift_of_a_show_without_a_run_is_a_zero_and_not_a_guess(tmp_path: P
     assert show.drift() == 0.0, "списка нарезки нет - расхождение всё равно ноль"
 
 
+class _SwappingFeed(Feed):
+    """Лента, у которой прогон исчезает ровно между двумя чтениями поля."""
+
+    reads = 0
+
+    def __getattribute__(self, name: str) -> object:
+        if name == "packer":
+            type(self).reads += 1
+            if type(self).reads == 2:
+                self.packer = None
+        return super().__getattribute__(name)
+
+
+def test_drift_survives_the_run_swapped_between_two_readings(tmp_path: Path) -> None:
+    """Расхождение спрашивают у снимка прогона, даже если поле уже перепривязано."""
+    _SwappingFeed.reads = 0
+    show = feed(tmp_path, kind=_SwappingFeed)
+    show.packer = packer(tmp_path, first=0)
+
+    assert show.drift() == 0.0
+    assert _SwappingFeed.reads == 1, "поле прогона читается один раз, снимком"
+
+
+def test_halted_survives_the_run_swapped_between_two_readings(tmp_path: Path) -> None:
+    """Состояние паузы спрашивают у снимка прогона, даже если поле уже перепривязано."""
+    _SwappingFeed.reads = 0
+    show = feed(tmp_path, kind=_SwappingFeed)
+    show.packer = packer(tmp_path, first=0, halted=True)
+
+    assert show.halted() is True
+    assert _SwappingFeed.reads == 1, "поле прогона читается один раз, снимком"
+
+
+def test_halt_survives_the_run_swapped_between_two_readings(tmp_path: Path) -> None:
+    """Паузу передают снимку прогона, даже если поле уже перепривязано."""
+    _SwappingFeed.reads = 0
+    show = feed(tmp_path, kind=_SwappingFeed)
+    live = packer(tmp_path, first=0)
+    show.packer = live
+
+    show.halt()
+
+    assert live.halted is True
+    assert _SwappingFeed.reads == 1, "поле прогона читается один раз, снимком"
+
+
 def test_a_source_that_came_back_lifts_the_verdict_without_forgiving_nothing(
     tmp_path: Path,
 ) -> None:
