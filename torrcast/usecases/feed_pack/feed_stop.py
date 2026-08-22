@@ -21,10 +21,16 @@ def _rest(state: _State) -> bool:
     отбирать полосу у прогрева головы. Это не конец показа: запрос куска, которого в
     прогретом нет, поднимет упаковку заново (:meth:`_steer`), как после паузы.
     """
-    if state.vault is None or state.packer is None or state.packer.halted:
+    if state.vault is None or not state.lock.acquire(blocking=False):
         return False
-    state.packer.halt(reason="весь остаток прогрет")
-    return True
+    try:
+        packer = state.packer
+        if packer is None or packer.halted:
+            return False
+        packer.halt(reason="весь остаток прогрет")
+        return True
+    finally:
+        state.lock.release()
 
 
 def _stop(state: _State) -> None:
@@ -40,8 +46,9 @@ def _stop(state: _State) -> None:
     state.fatal = state.fatal or "показ окончен"
     if state.recoder is not None:
         state.recoder.stop()
-    if state.packer is not None:
-        state.packer.stop()
+    with state.lock:
+        if state.packer is not None:
+            state.packer.stop()
     for junk in _state.segment_paths(state.out):
         junk.unlink(missing_ok=True)
     _state.remove_tree(state.out / PACK_DIR)

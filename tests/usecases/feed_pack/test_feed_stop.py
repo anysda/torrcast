@@ -6,9 +6,11 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 import torrcast.usecases.feed_pack._state as _state
-from tests.usecases.feed_pack.world import feed, lay, packer, tract, vault
+from tests.usecases.feed_pack.world import FakeProc, feed, here, lay, packer, tract, vault
+from torrcast.adapters.stream_pack.packer import Packer
 from torrcast.domain.hls_settings import PACK_DIR
 from torrcast.usecases.feed_pack.feed_stop import _rest, _stop
+from torrcast.usecases.feed_pack.feed_sweep import _sweep
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -40,6 +42,35 @@ def test_without_the_warmed_film_or_a_run_there_is_nothing_to_put_out(tmp_path: 
 
     show.packer = packer(tmp_path, first=0, out=show.out, halted=True)
     assert _rest(show) is False
+
+
+def test_rest_cannot_stop_the_run_replaced_by_the_clock(tmp_path: Path) -> None:
+    """Решение о паузе и замена оборванного прогона не пересекаются."""
+    tract(now=100.0, spawn=here)
+    show = feed(tmp_path, vault=vault(tmp_path))
+    fresh = packer(tmp_path, first=3, out=show.out)
+
+    class TurningPacker(Packer):
+        turned = False
+
+        def __getattribute__(self, name: str) -> object:
+            if name == "halted" and not type(self).turned:
+                type(self).turned = True
+                _sweep(show, lambda _slot: setattr(show, "packer", fresh))
+            return super().__getattribute__(name)
+
+    old = packer(
+        tmp_path,
+        kind=TurningPacker,
+        first=0,
+        edge=2,
+        out=show.out,
+        proc=FakeProc(code=1),
+    )
+    show.packer = old
+
+    assert _rest(show) is True
+    assert show.packer is old and old.halted and not fresh.halted
 
 
 def test_the_end_of_the_show_closes_the_feed_for_good(tmp_path: Path) -> None:

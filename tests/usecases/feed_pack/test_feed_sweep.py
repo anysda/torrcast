@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import pytest
+
 from tests.usecases.feed_pack.world import (
     FakeProc,
     feed,
@@ -148,6 +150,25 @@ def test_a_torn_run_is_picked_up_by_the_clock_while_the_shelf_is_still_full(
     assert asked == [3], "оборванный прогон не подняли с места за краем"
     assert show.crashes == 1 and show.restarted == 100.0
     assert said and said[0].endswith("начинаю заново, попытка 1")
+
+
+def test_a_spawn_failure_does_not_silence_the_next_attempt(tmp_path: Path) -> None:
+    """Неподнятый поток не может навсегда отнять у часов право чинить ленту."""
+
+    def broken(_work: object) -> None:
+        raise RuntimeError("поток не поднялся")
+
+    tract(now=100.0, spawn=broken)
+    asked: list[int] = []
+    show = feed(tmp_path)
+    show.packer = packer(tmp_path, first=0, edge=2, out=show.out, proc=FakeProc(code=1))
+
+    with pytest.raises(RuntimeError, match="поток не поднялся"):
+        _sweep(show, asked.append)
+    tract(now=110.0, spawn=here)
+    _sweep(show, asked.append)
+
+    assert asked == [3], "сбой подъёма навсегда занял замок починки"
 
 
 def test_a_living_run_is_never_restarted_by_the_clock(tmp_path: Path) -> None:

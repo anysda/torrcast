@@ -114,7 +114,11 @@ def _torn(state: _State, restart: Callable[[int], None]) -> None:
     # Замок отсюда уносит подъём и отпускает его сам: он и есть то решение, за которым
     # соседу вставать в очередь нельзя.
     slot = packer.edge + 1
-    _state.spawn(lambda: _lift(state, restart, slot))
+    try:
+        _state.spawn(lambda: _lift(state, restart, slot))
+    except BaseException:
+        state.lock.release()
+        raise
 
 
 def _lift(state: _State, restart: Callable[[int], None], slot: int) -> None:

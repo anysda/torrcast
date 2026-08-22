@@ -56,4 +56,9 @@ def _weight(state: _State) -> int:
     for path in _state.segment_paths(state.out):
         with contextlib.suppress(OSError):  # вычистило окном прямо сейчас
             total += path.stat().st_size
-    return total + (0 if state.packer is None else state.packer.pending())
+    if not state.lock.acquire(blocking=False):
+        return total
+    try:
+        return total + (0 if state.packer is None else state.packer.pending())
+    finally:
+        state.lock.release()
