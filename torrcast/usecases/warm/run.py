@@ -147,13 +147,13 @@ def _run(
                 # входе. По мере укладки, а не по таймеру: ``fit`` взвешивает весь
                 # каталог, и лишний раз гонять его каждые полсекунды незачем.
                 checked = laid
-                tight = state.vault.fit(int(_forecast(state, laid + 1, last)))
+                tight = state.vault.fit(int(_forecast(state, laid + 1, laid + 1)))
                 if tight:
                     _stall(state, tight)
                     break
             _throttle(state, packer)
             _state._environment.sleep(0.5)
-        if state.misgrid < 0:
+        if state.misgrid < 0 and not state.trouble:
             # Мёртвый ffmpeg дописал последний кусок, но выложить его успевает уже
             # не цикл (:meth:`torrcast.adapters.stream_pack.packer.Packer.publish`) - и сверить тоже.
             packer.publish()

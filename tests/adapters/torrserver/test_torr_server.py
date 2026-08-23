@@ -4,6 +4,24 @@ from tests.fakes.clock import FakeClock
 from torrcast.adapters.torrserver.torr_server import TorrServer
 
 
+class _Recording(TorrServer):
+    def __init__(self) -> None:
+        super().__init__("http://torrserver")
+        self.body: dict[str, object] = {}
+
+    def _post(self, path: str, body: dict[str, object], json_body: bool = True) -> dict[str, str]:
+        self.body = body
+        return {"hash": "abc"}
+
+
+def test_an_added_torrent_is_saved_so_its_disk_cache_survives_a_restart() -> None:
+    server = _Recording()
+
+    assert server.add("magnet:?xt=urn:btih:abc") == "abc"
+
+    assert server.body["save_to_db"] is True
+
+
 class _Ready(TorrServer):
     def __init__(self, clock: FakeClock) -> None:
         super().__init__("http://torrserver", clock=clock)

@@ -61,7 +61,7 @@ class TorrServer:
         self._session: requests.Session | None = None
 
     def add(self, magnet: str) -> str:
-        payload = self._post("/torrents", {"action": "add", "link": magnet, "save_to_db": False})
+        payload = self._post("/torrents", {"action": "add", "link": magnet, "save_to_db": True})
         if not isinstance(payload, dict):
             raise ServerDownError("TorrServer вернул неожиданный ответ на добавление")
         torrent_hash = str(payload.get("hash", ""))

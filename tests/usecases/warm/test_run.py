@@ -11,6 +11,7 @@ from torrcast.adapters.recode.encode import Encode
 from torrcast.domain.profile import ANDROID_TV, CAUTIOUS
 from torrcast.usecases.warm.run import _run
 from torrcast.usecases.warm.settings import RUN_DIR
+from torrcast.usecases.warm.vault import Vault
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -103,6 +104,26 @@ def test_a_copy_run_asks_the_pilot_and_goes_nice(tmp_path: Path) -> None:
     assert fake.named("прогрев пошёл")["режим"] == "копия"
     assert warm.vault.slots() == {2, 3}, "заход не выложил свой участок"
     assert packers[0].stopped == ["прогрев окончен"]
+
+
+def test_a_running_copy_reserves_one_next_piece_at_a_time(tmp_path: Path, monkeypatch: Any) -> None:
+    """По ходу длинного захода остаток фильма не заявляется местом заранее."""
+    packers: list[_Packer] = []
+    parts, _ = _tract(packers)
+    world(**parts)
+    warm = warmer(tmp_path, log=[].append)
+    asked: list[int] = []
+
+    def fit(_vault: Vault, need: int) -> str:
+        asked.append(need)
+        return ""
+
+    monkeypatch.setattr(Vault, "fit", fit)
+
+    _run(warm, 0, 2)
+
+    assert asked
+    assert max(asked) == int(warm._forecast(1, 1))
 
 
 def test_a_recoding_run_needs_no_pilot(tmp_path: Path) -> None:

@@ -14,6 +14,7 @@ from torrcast.adapters.recode.recoder import Recoder
 from torrcast.adapters.recode.weights import Weights
 from torrcast.adapters.recode.whole_encode import whole_encode
 from torrcast.domain.config import Config
+from torrcast.domain.profile import CAUTIOUS
 from torrcast.ports.journal.silent import Silent
 from torrcast.ports.journal.slot import install
 from torrcast.usecases.playback._warmer import _warmer
@@ -150,3 +151,56 @@ def test_the_warm_catalogue_of_the_previous_way_is_relaid_before_the_show_reads_
     assert not (where / "v1.ts").exists(), "кусок прежнего способа дожил до выдачи"
     assert not (where / "v1.rec").exists()
     assert (where / "v2.ts").exists(), "копию переложили зря"
+
+
+def test_a_piece_above_the_receivers_cap_is_removed_before_the_show_reads_it(
+    tmp_path: Path,
+) -> None:
+    """Невыдаваемая копия не занимает бюджет и не доживает до пути показа."""
+    config = Config(warm=True, warm_dir=str(tmp_path / "warm"))
+    lines = grid()
+    where = tmp_path / "warm" / warm_key("http://ts", 0, lines)
+    where.mkdir(parents=True)
+    piece = where / "v1.ts"
+    piece.write_bytes(b"x" * (CAUTIOUS.max_segment_bytes + 1))
+
+    made = _warmer(config, "http://ts", 0, lines, 0.0, "кино")
+
+    assert made is not None
+    assert not piece.exists(), "невыдаваемый кусок остался занимать бюджет"
+
+
+def test_a_heavy_copy_under_a_spot_recode_survives_the_start_of_the_show(
+    tmp_path: Path,
+) -> None:
+    """Копия тяжёлого места - работа прогрева впереди, и старт показа её не забирает.
+
+    Замер на настоящем каталоге посреди прогрева («Дюна: Часть вторая», 1080p
+    11.9 Мбит/с): 64 куска из 105 тяжелее осторожного потолка, 59 из них - цели
+    точечного перекода. Не дойди слоты кодировщика до уборки, продолжение показа
+    сносило бы их каждый вечер, а прогрев тянул бы их из роя заново.
+    """
+    config = Config(warm=True, warm_dir=str(tmp_path / "warm"))
+    lines = grid()
+    weights = Weights.of(film_keys(), lines)
+    assert weights is not None
+    recoder = Recoder(
+        source="http://ts",
+        audio=0,
+        grid=lines,
+        spare=tmp_path / "recode",
+        weights=weights,
+        threshold=0.0,
+        encode=Encode(preset="ultrafast", mbit=9.0),
+    )
+    assert recoder.targets, "стенду нужен показ, у которого точечный перекод есть"
+    slot = recoder.targets[0]
+    where = tmp_path / "warm" / warm_key("http://ts", 0, lines, None, recoder.targets)
+    where.mkdir(parents=True)
+    piece = where / f"v{slot}.ts"
+    piece.write_bytes(b"x" * (CAUTIOUS.max_segment_bytes + 1))
+
+    made = _warmer(config, "http://ts", 0, lines, 0.0, "кино", recoder=recoder)
+
+    assert made is not None
+    assert piece.exists(), "старт показа забрал копию, которую сам же собрался перекодировать"

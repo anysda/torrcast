@@ -119,6 +119,19 @@ def test_a_tight_budget_stops_the_work_before_the_run(tmp_path: Path) -> None:
     assert "бюджет диска" in warm.trouble
 
 
+def test_a_run_reserves_only_its_nearest_piece(tmp_path: Path) -> None:
+    """Остаток фильма не вытесняет соседей до того, как его начали укладывать."""
+    world()
+    kind, taken = counting()
+    warm = warmer(tmp_path, kind=kind, slack=GUARD_HIGH + 1.0)
+    one = int(warm._forecast(0, 0))
+    warm.vault.budget = one
+
+    warm._work()
+
+    assert taken == [(0, warm.grid.count - 1, False)]
+
+
 def test_a_crash_inside_the_work_never_kills_the_show(tmp_path: Path) -> None:
     """Прогрев не имеет права ронять показ: своя беда - это строка и пауза."""
     fake = world()

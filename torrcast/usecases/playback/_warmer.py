@@ -19,6 +19,7 @@ from torrcast.usecases.playback._recoder import _recoder
 from torrcast.usecases.playback.following import Following
 from torrcast.usecases.playback.layout import layout
 from torrcast.usecases.playback.media_grid import MediaGrid
+from torrcast.usecases.warm.trim import trim
 from torrcast.usecases.warm.vault import Vault
 from torrcast.usecases.warm.warm_key import warm_key
 from torrcast.usecases.warm.warm_root import warm_root
@@ -79,6 +80,9 @@ def _warmer(
     # ключ не входит (:func:`warm_key`). Помеченные точечные куски убираются здесь, до
     # первого запроса сегмента, - показ читает прогретое раньше всего, и на его пути этой
     # проверке не место.
+    trimmed, freed = trim(vault, profile.max_segment_bytes, grid, spots)
+    if trimmed:
+        journal().mark("прогретое очищено", кусков=trimmed, байт=freed)
     relaid = vault.relay()
     if relaid:
         journal().mark("прогретое перекладывается", кусков=len(relaid), первый=relaid[0])

@@ -92,7 +92,7 @@ class Warmer(_State):
                             )
                         self._chain()
                     return
-                tight = self.vault.fit(int(self._forecast(*job)))
+                tight = self.vault.fit(int(self._forecast(job[0], job[0])))
                 if tight:
                     self._stall(tight)
                     return
