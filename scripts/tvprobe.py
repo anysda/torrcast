@@ -12,6 +12,11 @@
 Печатает ленту «секунда показа → позиция → состояние» и вердикт: где встал, насколько,
 был ли запас упаковки в этот момент (то есть ждал ли приёмник нас или завис сам).
 
+Тот же вердикт уходит в КОД ВОЗВРАТА (:func:`clean`): ноль - кадр был и подвисов нет,
+единица - всё остальное. Без него щуп отвечал нулём и на прогоне, где картинки не
+случилось вовсе: показ, стоявший на месте захода все 90 с, в пакетном прогоне выглядел
+пройденным ровно как чистый.
+
 ⚠️ Состояние показа (``state.json``) не трогает вовсе, чужой показ не перебивает: если на
 ТВ уже что-то играет, смок отказывается стартовать.
 """
@@ -25,7 +30,7 @@ import subprocess
 import sys
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -78,6 +83,16 @@ def shown(pos: float, at: float) -> bool:
     картинкой не является, а ``BUFFERING`` с едущим - как раз является.
     """
     return pos >= at + PICTURE_STEP
+
+
+def clean(picture: float | None, stalls: Sequence[object]) -> bool:
+    """Прогон засчитан: кадр на экране был и ни одного подвиса при живом запасе.
+
+    🔴 Оба условия обязательны, и второе не следует из первого: приёмник умеет отвечать
+    ``PLAYING`` со стоящим указателем, и такой прогон без этой проверки выглядел
+    состоявшимся - ни исключения, ни ненулевого кода.
+    """
+    return picture is not None and not stalls
 
 
 def brew_poison(url: str, grid: Grid, slot: int, audio: int, where: Path) -> Path:
@@ -166,7 +181,7 @@ def make_grid(
     return Grid(tuple(bounds), base.duration, base.on_keys, base.weigh, base.origin)
 
 
-def main() -> None:
+def main() -> int:
     # Медиатракт сценарию раздаёт композиционный корень: без него лента показа не
     # знает ни имён сегментов, ни чем паковать.
     wire()
@@ -387,7 +402,8 @@ def main() -> None:
         )
     else:
         print(f"ВЕРДИКТ: чисто, дошёл до {lowest:.3f} с без подвисов")
+    return 0 if clean(picture, stalls) else 1
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
