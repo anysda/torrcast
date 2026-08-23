@@ -5,13 +5,17 @@ from __future__ import annotations
 import subprocess
 from typing import TYPE_CHECKING, Any
 
+import pytest
+
 from tests.conftest import CLIP_SECONDS
 from tests.usecases.feed_pack.world import FakeProc, lay, packer
 from torrcast.adapters.recode.encode import Encode
 from torrcast.adapters.stream_pack.ffmpeg_pack_command import ffmpeg_pack_command
 from torrcast.adapters.stream_pack.grid import Grid
+from torrcast.adapters.stream_pack.pack_start import pack_start
 from torrcast.adapters.stream_pack.packer_publish import _lay_out
 from torrcast.adapters.stream_probe.segment_name import segment_name
+from torrcast.domain.hls_settings import SPLIT_SLACK
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -443,3 +447,119 @@ def test_a_piece_without_a_single_video_frame_never_reaches_the_viewer(
     assert laid, "выкладка не отдала наружу ни одного куска"
     for piece in laid:
         assert _video_packets(piece), f"{piece.name} - ни одного видеокадра, зрителю чёрный экран"
+
+
+def _keyframes(source: str) -> list[float]:
+    """Опорные кадры ролика, снятые с самого файла.
+
+    Границы сетки обязаны лечь на НАСТОЯЩИЕ кадры, а не на расчётный шаг ``-g``: кодировщик
+    ставит опорные кадры и по смене сцены тоже, и сетка по расчётному шагу встала бы между
+    ними. Тогда прогон садится на кадр раньше своей границы, у него появляется докатка -
+    то есть собственный рез, - и предмет пробы исчезает: список резов уже не пуст.
+    """
+    done = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "v", "-skip_frame", "nokey",
+         "-show_entries", "frame=pts_time", "-of", "csv=p=0", source],
+        check=True, capture_output=True, text=True,
+    )  # fmt: skip
+    return sorted(float(line.strip(", ")) for line in done.stdout.splitlines() if line.strip(", "))
+
+
+def _deliver(source: str, where: Path, grid: Grid, slot: int) -> Path:
+    """Упаковать заход от ``slot`` до конца фильма и выложить его так, как это делает показ."""
+    run, out = where / "run", where / "out"
+    run.mkdir(parents=True)
+    out.mkdir(parents=True)
+    last = grid.count - 1
+    at = pack_start(source, grid.start(slot))
+    assert at == pytest.approx(grid.start(slot), abs=SPLIT_SLACK), (
+        f"заход встал на {at:.3f} вместо своей границы {grid.start(slot):.3f} - "
+        "у такого захода есть докатка, то есть свой рез, и ловить тут нечего"
+    )
+    subprocess.run(
+        ffmpeg_pack_command(source, 0, str(run), grid, slot, at, readrate=0.0, until=last),
+        check=True, capture_output=True, timeout=300,
+    )  # fmt: skip
+    packer(where, proc=FakeProc(code=0), out=out, run=run, first=slot, last=last, grid=grid,
+           cap=1 << 40).publish()  # fmt: skip
+    return out
+
+
+def _stamps(piece: Path) -> list[float]:
+    """Метки видеопакетов куска по порядку."""
+    done = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "v", "-show_entries", "packet=dts_time",
+         "-of", "csv=p=0", str(piece)],
+        check=True, capture_output=True, text=True,
+    )  # fmt: skip
+    return [float(line.strip(", ")) for line in done.stdout.splitlines() if line.strip(", ")]
+
+
+def test_the_tail_redone_alone_is_the_same_tail_as_in_the_whole_pass(
+    clip_mp4: str, tmp_path: Path
+) -> None:
+    """🔴 TC-771. Хвост, переделанный в одиночку, уезжает зрителю целиком, а не половиной.
+
+    Заход в один-единственный слот-хвост - это штатная работа прогрева: заход, доведённый
+    не до конца, оставляет слоты, которые потом переделываются поодиночке. Границ сетки
+    внутри такого захода нет вовсе, список резов выходил пустым, а пустой список для
+    сегментного муксера значит не «не режь», а «режь своим умолчанием» - и хвост
+    закрывался на первом же опорном кадре за второй секундой. Замер настоящим ffmpeg до
+    правки: 2.113 с / 554 788 Б вместо 7.884 с / 2 086 048 Б, то есть зритель терял конец
+    фильма. Начало у обрезка при этом верное, и сверка начала (:func:`segment_start`) его
+    пропускала: длину куска не сверял никто.
+
+    Меряется то, что уехало зрителю: файл в каталоге показа, а не кусок в каталоге
+    прогона. Эталон тут не число из отчёта, а тот же хвост из общего захода - оба
+    нарезаны настоящим ffmpeg из одного файла по одной сетке.
+    """
+    grid = Grid.on_keyframes(_keyframes(clip_mp4), float(CLIP_SECONDS))
+    last = grid.count - 1
+    assert grid.on_keys and last >= 2, "нужна сетка по опорным кадрам и хвост, а не весь фильм"
+
+    whole = _deliver(clip_mp4, tmp_path / "whole", grid, 0)
+    lone = _deliver(clip_mp4, tmp_path / "lone", grid, last)
+
+    tail = segment_name(last)
+    assert (lone / tail).exists(), "хвост, переделанный в одиночку, наружу не вышел вовсе"
+    assert _stamps(lone / tail) == pytest.approx(_stamps(whole / tail), abs=SPLIT_SLACK), (
+        "хвост в одиночку нарезан не так, как в общем заходе - зритель теряет конец фильма"
+    )
+
+
+def test_a_tail_the_muxer_cut_by_its_own_default_never_reaches_the_viewer(
+    clip_mp4: str, tmp_path: Path
+) -> None:
+    """🔴 TC-771, второй рубеж: обрезанный кусок наружу не идёт, кто бы его ни нарезал.
+
+    Куски тут не подрисованы: заход нарезан настоящим ffmpeg, у которого отобран список
+    резов, - ровно то, что делает сегментный муксер, когда резать ему не сказали. Первый
+    кусок такого захода закрыт вдвое раньше своего места, и все прежние заборы он проходил:
+    номер у него свой, начало верное (``segment_start``), сосед в каталоге открыт. Ловит
+    его только длина - и ловит по слову самого ffmpeg, по его же списку нарезки.
+
+    Один этот рубеж дефект не лечит: место остаётся непрогретым, и следующий круг возьмётся
+    за него снова. Он отвечает за другое - что обрезок не уедет зрителю ни при каком
+    стечении обстоятельств.
+    """
+    grid = Grid.on_keyframes(_keyframes(clip_mp4), float(CLIP_SECONDS))
+    last = grid.count - 1
+    run, out = tmp_path / "run", tmp_path / "out"
+    run.mkdir()
+    out.mkdir()
+
+    command = ffmpeg_pack_command(
+        clip_mp4, 0, str(run), grid, last, grid.start(last), readrate=0.0, until=last
+    )
+    if "-segment_times" in command:
+        cut = command.index("-segment_times")
+        command = command[:cut] + command[cut + 2 :]
+    subprocess.run(command, check=True, capture_output=True, timeout=300)
+    assert len(list(run.glob("v*.ts"))) > 1, (
+        "муксер не разрезал хвост своим умолчанием - проверять тут нечего"
+    )
+
+    packer(tmp_path, proc=FakeProc(code=0), out=out, run=run, first=last, last=last, grid=grid,
+           cap=1 << 40).publish()  # fmt: skip
+
+    assert not list(out.glob("v*.ts")), "обрезанный хвост уехал зрителю"

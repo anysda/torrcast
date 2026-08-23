@@ -108,3 +108,38 @@ def test_builds_segment_command_from_supplied_grid() -> None:
     assert command[-1] == "/run/v%d.ts"
     assert "-output_ts_offset" in command
     assert any("10.500" in argument for argument in command)
+
+
+def test_a_run_into_the_last_slot_alone_still_names_its_cut() -> None:
+    """🔴 TC-771. Молчание про резы сегментный муксер читает как «режь своим умолчанием».
+
+    Заход в один-единственный слот-хвост - штатная работа прогрева: заход, доведённый не
+    до конца, оставляет слоты, которые потом переделываются поодиночке. Границ сетки
+    внутри такого захода нет, и список резов выходил пустым; муксер брал своё умолчание
+    (2 с) и закрывал хвост на первом опорном кадре за ним. Замер настоящим ffmpeg: вместо
+    7.884 с / 2 086 048 Б наружу шёл кусок 2.113 с / 554 788 Б, то есть конец фильма.
+
+    Поэтому рез называется всегда, а стоит он там же, куда смотрит ``-to``: за концом
+    прогона, где муксеру его уже не достать.
+    """
+    grid = _Grid()
+    at = grid.start(2)
+    command = pack_command("http://source", 2, "/run/", grid, 2, at, until=2)
+    stop = float(command[command.index("-to") + 1])
+
+    assert _cuts(command), "без резов муксер режет по своему умолчанию и рвёт хвост пополам"
+    assert min(_cuts(command)) >= stop - at, "названный рез стоит внутри захода"
+    assert command[command.index("-segment_start_number") + 1] == "2", "имя куска съехало"
+
+
+def test_a_live_run_restarted_on_the_last_slot_names_its_cut_too() -> None:
+    """Тот же слот-хвост без предела захода: живой упаковке умолчание муксера так же
+    разрезало бы хвост, а её кусок уезжает приёмнику прямо сейчас.
+    """
+    grid = _Grid()
+    at = grid.start(2)
+    command = pack_command("http://source", 2, "/run/", grid, 2, at)
+
+    assert _cuts(command) and min(_cuts(command)) > grid.end(2) - at, (
+        "рез внутри захода: хвост уедет обрезанным"
+    )

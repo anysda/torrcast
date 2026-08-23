@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 
 from torrcast.adapters.stream_pack._segment_files import _names
 from torrcast.adapters.stream_pack._shrunk_out import _shrunk_out
+from torrcast.adapters.stream_pack.done_slots import done_slots
 from torrcast.adapters.stream_pack.key_missing import key_missing
 from torrcast.adapters.stream_pack.merge_tracks import merge_tracks
 from torrcast.adapters.stream_pack.timeline_shift import timeline_shift
@@ -36,9 +37,11 @@ def _lay_out(
 ) -> None:
     """Выложить наружу куски, которые ffmpeg уже дописал.
 
-    Дописан тот, за которым появился следующий: сегментный муксер открывает новый
-    файл ровно тогда, когда закрыл прошлый. Последний кусок такого соседа не получит
-    никогда, поэтому за него отвечает отдельный признак (:meth:`Packer.finished`).
+    Дописан тот, за которым появился следующий, а хвост сетки - ещё и тот, кто дорезан
+    до конца фильма (:func:`done_slots`): соседа муксер открывает и после реза не по
+    нашему списку, а такой хвост вдвое короче своего места в манифесте. Последний кусок
+    соседа не получит никогда, поэтому за него отвечает отдельный признак
+    (:meth:`Packer.finished`).
     Докатка (номер меньше ``first``) не выкладывается никогда — она короче своего
     места в манифесте и под её именем может лежать честный сегмент прошлого прогона.
 
@@ -56,7 +59,7 @@ def _lay_out(
         return
     # Прогон дочитал вход до конца - дописан и последний кусок (:meth:`finished`).
     # Любой другой исход (жив, убит, оборвался) последний кусок дописанным не делает.
-    done = slots if finished() else slots[:-1]
+    done = done_slots(state, slots, finished())
     for slot in done:
         path = state.run / segment_name(slot)
         # Ниже своего первого - докатка, выше последнего - обрезок за ``-to``
