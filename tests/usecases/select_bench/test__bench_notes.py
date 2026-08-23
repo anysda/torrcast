@@ -56,10 +56,16 @@ def test_the_last_hope_of_the_mute_fallback_is_loud(capsys: pytest.CaptureFixtur
     assert "русской озвучки нет ни в одной из проверенных раздач (2)" in capsys.readouterr().out
 
 
-def test_a_track_without_a_language_tag_is_named_as_unnamed(
+def test_the_release_name_does_not_soften_the_fallback_line(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """🔴 TC-492. Незнание - не согласие: строка честно говорит, что метки языка нет."""
+    """🔴 TC-741. Строку запасного хода пишет паспорт, а не имя раздачи.
+
+    «Дубляж» в имени русской дорожки не гарантирует (TC-191), и мягкой формулировки под
+    него не заводится: играет то, что ffprobe прочитал, и зовётся оно тем же словом.
+    Прежде имя покупало отдельную строку «имя релиза обещает русский» - обещание вместо
+    факта, ровно там, где про факт ничего не известно.
+    """
     bench = Bench(Torrents(), prober=probes([]))
     unnamed = _prep(
         Media(RUNTIME, (AudioTrack(index=0),), "h264", height=1080, width=1920),
@@ -69,6 +75,5 @@ def test_a_track_without_a_language_tag_is_named_as_unnamed(
     bench._mute_fallback(plan([rel()]), unnamed, [1], {}, 1, tried=1)
 
     said = capsys.readouterr().out
-    assert "русская озвучка не подтверждена" in said
-    assert "звук без метки языка" in said
-    assert "имя релиза обещает русский" in said
+    assert "включаю релиз 1, звук не назван" in said
+    assert "обещает русский" not in said

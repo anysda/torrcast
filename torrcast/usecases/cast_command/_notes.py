@@ -17,10 +17,8 @@ from torrcast.usecases.choice.swap_note import _is_default, swap_note
 from torrcast.usecases.choice.year_note import year_note
 from torrcast.usecases.rank._gb import _gb
 from torrcast.usecases.rank._hms import _hms
-from torrcast.usecases.rank.default_unnamed import default_unnamed
 from torrcast.usecases.rank.sound_note import sound_note
 from torrcast.usecases.rank.voice_note import voice_note
-from torrcast.usecases.rank.voice_unproven import voice_unproven
 from torrcast.usecases.select._prep import _Prep
 
 if TYPE_CHECKING:
@@ -52,18 +50,7 @@ def _notes(
     # Молчаливого японского не бывает: перевода в файле нет - человек слышит об этом
     # строкой, а не на слух через минуту показа.
     playable = [plan.ranked[number - 1] for number in plan.candidates(args)]
-    fallback_spoken = (
-        not args.pinned
-        and voice_unproven(media, native=plan.picture.native)
-        and default_unnamed(media)
-        and release.dubbed
-    )
-    note = (
-        ""
-        if fallback_spoken
-        else sound_note(media, audio, playable, release, prep.files, native=plan.picture.native)
-    )
-    if note:
+    if note := sound_note(media, audio, playable, release, prep.files, native=plan.picture.native):
         print(note)
     # Русских дорожек было несколько - говорим, сколько и что взяли: подпись дорожки
     # отвечает «что играет», а эта строка - «почему это, а не соседняя».

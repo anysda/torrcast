@@ -60,3 +60,51 @@ def test_the_second_ask_never_takes_the_phase_past_its_ceiling() -> None:
     silent.error = "раздача не отдала метаданные - нет пиров"
 
     assert bench._recheck(built, [1], _ASKED, Said(), {}, deadline=bench.clock() + 1.0) is None
+
+
+def test_a_revived_release_whose_language_is_unnamed_does_not_play(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """🔴 TC-741. Второй спрос оживил раздачу, а язык её звука так и не назван - не играем.
+
+    Правило тут ровно то же, что в обходе очереди: подтверждённый русский - годен,
+    названный чужой - последний ход с честной строкой, а незнание не ход вовсе. Прежде
+    ожившая безымянная раздача уезжала запасным ходом под строку «звук не назван», то
+    есть терпение покупало зрителю ровно то, чего гейт и не пропускал.
+    """
+    pool = [rel(name="r0 | Дубляж", seeders=100)]
+    built = plan(pool)
+    unnamed = Media(RUNTIME, (AudioTrack(index=0),), "h264", height=1080, width=1920)
+    bench = Bench(Torrents(), prober=probes(pool, unnamed), meta_budget=1.0, probe_budget=1.0)
+    silent = bench.start(built, 1)
+    bench._wait(silent, Said())
+    silent.media = None
+    silent.error = "раздача не отдала метаданные за 1 с - нет пиров"
+
+    revived = bench._recheck(built, [1], _ASKED, Said(), {}, deadline=bench.clock() + 100.0)
+
+    printed = capsys.readouterr().out
+    assert revived is None, "незнание запасным ходом не становится и на втором спросе"
+    assert "релиз 1 ответил в одиночку, но без русской озвучки" in printed
+    assert "включаю релиз" not in printed
+
+
+def test_a_revived_release_whose_language_is_named_still_plays(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Отрицательная половина: срезает второй спрос именно незнание, а не чужой язык."""
+    pool = [rel(name="r0 | Дубляж", seeders=100)]
+    built = plan(pool)
+    japanese = Media(
+        RUNTIME, (AudioTrack(index=0, language="jpn"),), "h264", height=1080, width=1920
+    )
+    bench = Bench(Torrents(), prober=probes(pool, japanese), meta_budget=1.0, probe_budget=1.0)
+    silent = bench.start(built, 1)
+    bench._wait(silent, Said())
+    silent.media = None
+    silent.error = "раздача не отдала метаданные за 1 с - нет пиров"
+
+    revived = bench._recheck(built, [1], _ASKED, Said(), {}, deadline=bench.clock() + 100.0)
+
+    assert revived is not None and revived.number == 1
+    assert "включаю релиз 1, звук японский" in capsys.readouterr().out

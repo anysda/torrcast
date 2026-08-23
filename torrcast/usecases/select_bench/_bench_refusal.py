@@ -18,6 +18,7 @@ def _bench_refusal(
     silents: int,
     exhausted: bool,
     picked: int | None,
+    voiceless: int = 0,
 ) -> NoReturn:
     """Отказ обхода очереди: молчание роя и «годного нет» - это разные отказы.
 
@@ -35,6 +36,11 @@ def _bench_refusal(
     🔴 TC-399. Ветка - только когда промолчали ВСЕ тронутые. Приговор осмотра
     («отдельного видеофайла нет», «нужной серии нет») молчанием роя не является: про
     такую раздачу известно всё, и «зайди позже - рой оживёт» было бы ложью.
+
+    🔴 TC-741. ``voiceless`` - сколько раздач забраковано звуком. Когда звуком забракованы
+    ВСЕ, отказ называется своим именем: «годного релиза нет» тут прячет ровно то, что
+    человек и спрашивал, - раздачи-то годные, в них нет русской озвучки. Ход при этом
+    остаётся прежний: очередь кончилась - другой запрос, не кончилась - выбор руками.
     """
     shown = "; ".join(tried[:MAX_TRIES])
     more = f" и ещё {len(tried) - MAX_TRIES}" if len(tried) > MAX_TRIES else ""
@@ -45,6 +51,8 @@ def _bench_refusal(
             silent_swarm(plan, queue, len(tried), f"{shown}{more}", picked=picked) + tail
         )
     refused = f"годного релиза нет ({shown}{more})"
+    if tried and voiceless == len(tried):
+        refused = f"русской озвучки нет ни в одной из проверенных раздач ({len(tried)})"
     if exhausted and len(set(queue)) == len(plan.ranked):
         if offer:
             raise NotFoundError(refused + tail)

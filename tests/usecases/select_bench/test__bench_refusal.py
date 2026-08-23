@@ -63,3 +63,33 @@ def test_living_kin_is_offered_instead_of_a_bare_dead_end() -> None:
         _bench_refusal(
             plan(_RANKED, kin=kin), [1, 2, 3], tried, silents=0, exhausted=True, picked=None
         )
+
+
+def test_a_refusal_where_every_miss_was_the_voice_says_so_by_name() -> None:
+    """🔴 TC-741. Забраковал звук - отказ говорит про звук, а не «годного релиза нет».
+
+    Раздачи-то годные: и кадр, и кодек, и вес - всё на месте, нет ровно того, ради чего
+    человек и включал. «Годного релиза нет» прятало бы это за общим словом, а ход у
+    человека от него не меняется - очередь не кончилась, значит выбор руками.
+    """
+    tried = [f"{n} - без русской озвучки" for n in (1, 2)]
+
+    with pytest.raises(NotFoundError) as refusal:
+        _bench_refusal(
+            plan(_RANKED), [1, 2, 3], tried, silents=0, exhausted=False, picked=None, voiceless=2
+        )
+
+    said = str(refusal.value)
+    assert "русской озвучки нет ни в одной из проверенных раздач (2)" in said
+    assert "годного релиза нет" not in said
+    assert "выбери руками" in said
+
+
+def test_a_single_miss_of_another_kind_keeps_the_general_refusal() -> None:
+    """Забраковал не только звук - и причина отказа снова общая, без подмены имени."""
+    tried = ["1 - без русской озвучки", "2 - тяжелее потолка"]
+
+    with pytest.raises(NotFoundError, match="годного релиза нет"):
+        _bench_refusal(
+            plan(_RANKED), [1, 2, 3], tried, silents=0, exhausted=False, picked=None, voiceless=1
+        )

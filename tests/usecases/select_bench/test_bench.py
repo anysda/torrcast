@@ -104,3 +104,54 @@ def test_the_hunt_for_a_russian_track_names_the_release_it_is_waiting_for() -> N
         "ищу русскую озвучку: релиз 1 из 2",
         "ищу русскую озвучку: релиз 2 из 2",
     }
+
+
+def test_a_walk_cut_by_the_budget_gets_no_spare_at_all(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """🔴 TC-741. Запасной ход - ответ КОНЧИВШЕЙСЯ очереди, а не выход из срезанного обхода.
+
+    Обход, вставший по цене приговоров, про непроверенный хвост очереди не знает ничего, и
+    «русской нет ни у кого» тут было бы неправдой: ниже стоят нетронутые раздачи. Прежде
+    такой обход отдавал зрителю английский звук первого же кандидата и называл это
+    проверкой всей выдачи; теперь он называет нехватку своим именем и оставляет человеку
+    ход - выбрать релиз руками.
+    """
+    pool = [rel(name=f"r{n} | Дубляж", seeders=100 - n) for n in range(5)]
+    english = Media(
+        RUNTIME, (AudioTrack(index=0, language="eng"),), "h264", height=1080, width=1920
+    )
+    # Бюджет приговоров обнулён - каждый из них «дорогой», и обход встаёт на третьем.
+    bench = Bench(Torrents(), prober=probes(pool, *[english] * 5), verdict_budget=0.0)
+
+    with pytest.raises(NotFoundError) as refusal:
+        bench.resolve(plan(pool), _ASKED, Said())
+
+    said = str(refusal.value)
+    printed = capsys.readouterr().out
+    assert "русской озвучки нет ни в одной из проверенных раздач (3)" in said
+    assert "выбери руками" in said, "очередь не кончилась - ход у человека есть"
+    assert "включаю релиз" not in printed, "срезанный обход запасного хода не получает"
+
+
+def test_an_exhausted_queue_still_plays_the_named_foreign_track(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """🔴 TC-178. Очередь кончилась - отказывать нечем: играет то, что есть, и вслух.
+
+    Отрицательная половина предыдущей проверки: срезает обход именно потолок, а не сам
+    нерусский звук. Спрошены все до последней раздачи - и решение остаётся за зрителем.
+    """
+    pool = [rel(name=f"r{n} | Дубляж", seeders=100 - n) for n in range(3)]
+    english = Media(
+        RUNTIME, (AudioTrack(index=0, language="eng"),), "h264", height=1080, width=1920
+    )
+    bench = Bench(Torrents(), prober=probes(pool, *[english] * 3))
+
+    prep = bench.resolve(plan(pool), _ASKED, Said())
+
+    assert prep.number == 1
+    assert (
+        "русской озвучки нет ни в одной из проверенных раздач (3) - "
+        "включаю релиз 1, звук английский" in capsys.readouterr().out
+    )

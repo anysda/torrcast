@@ -5,7 +5,6 @@ from __future__ import annotations
 from torrcast.domain.recode_note import recode_note
 from torrcast.ports.journal.slot import journal
 from torrcast.usecases.choice.last_hope_note import last_hope_note
-from torrcast.usecases.rank.default_unnamed import default_unnamed
 from torrcast.usecases.rank.heard import heard
 from torrcast.usecases.rank.stepdown_note import stepdown_note
 from torrcast.usecases.select._prep import _Prep
@@ -71,13 +70,12 @@ class _BenchNotes(_BenchHonest):
         экране, запись в недельном следе (по ней замер и считает дыры каталога) и честная
         строка про язык звука перед стартом (:func:`sound_note`).
 
-        🔴 TC-492. Сюда же приходит и третий ответ паспорта - «язык не назван»
-        (:func:`voice_unproven`). Раньше такой релиз играл молча, как будто русская в нём
-        нашлась; теперь он идёт тем же ходом и той же строкой, а язык в ней называется
-        честно - «не назван» (:func:`heard`), а не выдуманным «оригинальным». Отдельной
-        строки под этот случай не заводится намеренно: зрителю важно одно - русскую
-        озвучку не нашли, - а чем именно кончился паспорт, ему договаривает
-        :func:`sound_note` перед стартом.
+        🔴 TC-741. Третий ответ паспорта - «язык не назван» - сюда больше не приходит.
+        Ходом этот случай не отличался бы ничем, а строка про него честной быть не может:
+        «звук не назван» - это признание, что мы не знаем, что зазвучит, и назвать его
+        зрителю нечем. Такой релиз остаётся забракованным (:meth:`_Tally.hold`), и
+        картина, у которой всё найденное молчит про язык, кончается отказом со своим
+        именем, а не тихой подстановкой первой дорожки файла.
 
         Проверки честности (:meth:`_honest`) тут нет намеренно: она меняет релиз ради
         разрешения, а на этом пути мы уже знаем, что русской дорожки нет ни у одного из
@@ -85,17 +83,9 @@ class _BenchNotes(_BenchHonest):
         """
         lang = heard(mute.found)
         journal().emit("select", "mute", release=mute.number, lang=lang, checked=tried)
-        unnamed_promise = default_unnamed(mute.found) and mute.release.dubbed
-        if unnamed_promise:
-            print(
-                f"русская озвучка не подтверждена ни в одной из проверенных раздач "
-                f"({tried}) - включаю релиз {mute.number}: звук без метки языка, "
-                "имя релиза обещает русский"
-            )
-        else:
-            print(
-                f"русской озвучки нет ни в одной из проверенных раздач ({tried}) - "
-                f"включаю релиз {mute.number}, звук {lang}"
-            )
+        print(
+            f"русской озвучки нет ни в одной из проверенных раздач ({tried}) - "
+            f"включаю релиз {mute.number}, звук {lang}"
+        )
         self._announce(plan, mute, queue, judged, reached)
         return mute

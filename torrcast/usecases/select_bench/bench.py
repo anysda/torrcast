@@ -68,9 +68,15 @@ class Bench(_BenchPrewarm):
         🔴 TC-178, TC-492. Третья осечка - **звук**: «включилось» значит «включилось С
         РУССКОЙ ОЗВУЧКОЙ», и годен только ПОДТВЕРЖДЁННЫЙ русский (:func:`voice_unproven`).
         Считается она как приговор - про релиз узнали всё, - и упирается в те же два
-        потолка. Лишнего времени это не стоит: спрашивается уже прочитанный паспорт. И
-        гейт не слепой: первый безрусский, но во всём остальном годный кандидат ждёт в
-        стороне и играет, если русской не найдётся ни у кого (:meth:`_mute_fallback`).
+        потолка. Лишнего времени это не стоит: спрашивается уже прочитанный паспорт.
+
+        🔴 TC-741. Гейт при этом не слепой, но и не покупается незнанием. В стороне ждёт
+        первый кандидат, чей язык паспорт НАЗВАЛ, и играет он ровно в одном случае - когда
+        очередь кончилась и русской не нашлось ни у кого (:meth:`_mute_fallback`): тогда
+        зритель слышит про японский звук и решает сам. Паспорт, промолчавший про язык,
+        запасным ходом не становится вовсе (:meth:`_Tally.hold`), а обход, срезанный
+        потолком, запасного хода не получает: непроверенный хвост очереди - это не «ни у
+        кого нет».
         """
         queue = _bench_queue(plan, args)
         # Верх и запасной готовятся независимо: паспорт второго релиза не ждёт первого.
@@ -156,10 +162,17 @@ class Bench(_BenchPrewarm):
                 # Дошли до конца очереди, а не встали по бюджету/попыткам: следующего нет.
                 exhausted = following is None
                 break
-        if tally.mute is not None:
+        # 🔴 TC-741. Запасной ход - это ответ КОНЧИВШЕЙСЯ очереди, а не способ выйти из
+        # обхода, который встал по часам или по приговорам. Обход, срезанный потолком,
+        # про непроверенный хвост очереди не знает ничего, и отдавать зрителю чужой язык
+        # вместо того, чтобы назвать нехватку своим именем, тут не за что: ниже стоят
+        # нетронутые раздачи, и ход у человека есть - выбрать релиз руками.
+        if tally.mute is not None and exhausted:
             return self._mute_fallback(
                 plan, tally.mute, queue, tally.judged, reached, len(tally.tried)
             )
+        if tally.mute is not None:
+            self._forget(tally.mute)
         if tally.verdicts == 0 and exhausted and tally.tried:
             judged_before = set(tally.judged)
             revived = self._recheck(plan, queue, args, progress, tally.judged, deadline)
@@ -168,4 +181,6 @@ class Bench(_BenchPrewarm):
             tally.tried, tally.silents = _retried_verdict(
                 queue, tally.judged, judged_before, tally.tried, tally.silents
             )
-        _bench_refusal(plan, queue, tally.tried, tally.silents, exhausted, args.release)
+        _bench_refusal(
+            plan, queue, tally.tried, tally.silents, exhausted, args.release, tally.voiceless
+        )

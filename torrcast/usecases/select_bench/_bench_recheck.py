@@ -106,7 +106,15 @@ class _BenchRecheck(_BenchNotes):
             return None
         if not args.pinned and voice_unproven(prep.found, native=plan.picture.native):
             # Ожил безрусский: русской не нашлось ни у кого, кого вообще удалось спросить.
-            return self._mute_fallback(plan, prep, queue, judged, len(queue), len(queue))
+            # 🔴 TC-741. Играет он только если язык НАЗВАН: тогда зритель слышит, чей это
+            # звук, и решает сам. Паспорт, промолчавший про язык, тут ровно тот же отказ,
+            # что и в обходе очереди, - подставлять первую дорожку файла молча нельзя.
+            if prep.found.foreign:
+                return self._mute_fallback(plan, prep, queue, judged, len(queue), len(queue))
+            _turned_down(judged, number, "без русской озвучки")
+            print(f"релиз {number} ответил в одиночку, но без русской озвучки")
+            self._forget(prep)
+            return None
         # Проверки честности (:meth:`_honest`) тут нет по той же причине, что и на запасном
         # ходу: сравнивать не с кем - все соседи уже ответили молчанием, и второй круг
         # ffprobe спрашивал бы ровно тех, кто только что промолчал.

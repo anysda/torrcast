@@ -1168,15 +1168,17 @@ def test_an_unnamed_language_no_longer_ends_the_queue(
     assert "играю его" not in printed, "«не назван, играю его» больше не бывает"
 
 
-def test_when_the_queue_runs_out_the_unnamed_release_plays_by_the_mute_move(
+def test_when_the_queue_runs_out_the_named_language_plays_and_the_unnamed_does_not(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """🔴 TC-492. Русской не нашлось ни у кого - играет отложенный, ходом TC-178.
+    """🔴 TC-741. Русской не нашлось ни у кого - играет тот, чей язык НАЗВАН.
 
-    Хода под этот случай не заводится нового и строки не разводится: работает тот же
-    :meth:`~torrcast.usecases.select_bench.bench.Bench._mute_fallback`, что и у прямо нерусского
-    релиза. Играет при этом тот, про кого меньше известно плохого: паспорт, промолчавший про язык,
-    ещё может оказаться русским, а названный японским русским уже не станет.
+    Хода под этот случай не заводится нового: работает тот же
+    :meth:`~torrcast.usecases.select_bench.bench.Bench._mute_fallback`, что и всегда. А
+    отложенным становится названный японский, а не безымянная дорожка: про японский
+    зрителю есть что сказать строкой до картинки, про безымянную - ровно одно, что она
+    первая в файле. Прежде незнание вытесняло знание «нет», и отбор кончался тем самым
+    релизом, который сам же забраковал строкой «без русской озвучки».
     """
     ranked = [rel(name=f"r{i}", seeders=100 - i) for i in range(3)]
     probe = _tracks(ranked, "jpn", "und", "jpn")
@@ -1184,10 +1186,11 @@ def test_when_the_queue_runs_out_the_unnamed_release_plays_by_the_mute_move(
     prep = _resolve(Bench(cast(Any, _FakeTorrServer()), prober=probe), ranked)
 
     printed = capsys.readouterr().out
-    assert prep.number == 2, "незнание лучше знания «нет»: японский русским не станет"
+    assert prep.number == 1, "играет названный японский, а не дорожка без метки языка"
     assert "релиз 1 без русской озвучки (японский) - беру 2" in printed
     assert "русской озвучки нет ни в одной из проверенных раздач (3)" in printed
-    assert "включаю релиз 2, звук не назван" in printed
+    assert "включаю релиз 1, звук японский" in printed
+    assert "звук не назван" not in printed
 
 
 def test_a_native_picture_still_plays_its_only_unnamed_track(
@@ -1270,10 +1273,17 @@ def test_a_native_passport_reaches_the_voice_gate_without_a_second_search(
     assert "без русской озвучки" not in capsys.readouterr().out
 
 
-def test_a_mute_fallback_does_not_dispute_its_own_release_name(
+def test_a_release_name_promising_russian_does_not_save_an_unnamed_passport(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """Отказ и косвенная улика живут в одном непротиворечивом вердикте."""
+    """🔴 TC-741. Имя раздачи не паспорт: «| D» безымянную дорожку русской не делает.
+
+    Судьёй имя тут не бывает ни в одну сторону (TC-191). Прежде оно покупало верху и
+    запасной ход, и собственную мягкую строку - «имя релиза обещает русский», - хотя про
+    сам звук по-прежнему не было известно ничего. Играет названный английский ниже, и
+    ступень кадра, которой это стоило, зритель читает отдельной строкой: озвучка выше
+    чёткости, но молчаливым размен не бывает.
+    """
     ranked = [
         rel(name="Кино 1080p | D", seeders=120),
         rel(name="Кино 720p", quality="720p", seeders=80),
@@ -1283,8 +1293,8 @@ def test_a_mute_fallback_does_not_dispute_its_own_release_name(
     prep = _resolve(Bench(cast(Any, _FakeTorrServer()), prober=probe), ranked)
 
     verdicts = [line for line in capsys.readouterr().out.splitlines() if "включаю релиз" in line]
-    assert prep.number == 1
+    assert prep.number == 2, "обещание именем годностью не считается"
     assert verdicts == [
-        "русская озвучка не подтверждена ни в одной из проверенных раздач (2) - "
-        "включаю релиз 1: звук без метки языка, имя релиза обещает русский"
+        "русской озвучки нет ни в одной из проверенных раздач (2) - "
+        "включаю релиз 2, звук английский"
     ]

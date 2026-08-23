@@ -47,8 +47,13 @@ def test_a_verdict_is_priced_by_the_seconds_the_person_waited_for_it() -> None:
     assert tally.judged == {2: "кодек av1"}
 
 
-def test_the_spare_kept_is_the_one_less_is_known_bad_about() -> None:
-    """Незнание вытесняет знание «нет»: безымянная дорожка ещё может оказаться русской."""
+def test_the_spare_kept_is_the_one_whose_language_is_named() -> None:
+    """🔴 TC-741. Отложенным становится только тот, чей язык паспорт назвал вслух.
+
+    Про безымянную дорожку сказать зрителю нечего: «русской не нашли» от «нашли, но не
+    назвали» её не отличить. Прежде она вытесняла названного соперника и играла запасным
+    ходом - то есть отбор возвращался к релизу, который сам же забраковал.
+    """
     forgotten: list[int] = []
     named_foreign = _judged(1, Media(tracks=(AudioTrack(index=0, language="jpn"),)))
     unnamed = _judged(2, Media(tracks=(AudioTrack(index=0),)))
@@ -58,8 +63,9 @@ def test_the_spare_kept_is_the_one_less_is_known_bad_about() -> None:
     assert tally.mute is named_foreign
 
     tally.hold(unnamed, voiceless=True, forget=lambda prep: forgotten.append(prep.number))
-    assert tally.mute is unnamed, "знание «нет» вытеснило незнание"
-    assert forgotten == [1], "прежний запасной остался греться впустую"
+    assert tally.mute is named_foreign, "незнание запасным ходом не становится"
+    assert forgotten == [2], "безымянный отпущен, а не оставлен греться"
+    assert tally.voiceless == 2, "звуком забракованы оба - это и есть причина отказа"
 
 
 def test_a_release_that_has_a_voice_is_let_go_rather_than_kept_as_a_spare() -> None:
