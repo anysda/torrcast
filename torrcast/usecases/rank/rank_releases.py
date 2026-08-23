@@ -5,6 +5,7 @@ from __future__ import annotations
 from torrcast.domain.episode import Episode
 from torrcast.domain.release import Release
 from torrcast.usecases.rank.fits_receiver import fits_receiver
+from torrcast.usecases.rank.heavy_peers import heavy_peers
 from torrcast.usecases.rank.hevc_hope import hevc_hope
 from torrcast.usecases.rank.is_candidate import is_candidate
 from torrcast.usecases.rank.is_dated import is_dated
@@ -141,6 +142,12 @@ def rank_releases(
     ``recode_at`` - потолок приёмника, Мбит/с (ноль - перекодирования нет и ступень
     плоская). Отсевом она не является: раздача выше потолка остаётся кандидатом.
 
+    Снизу у ступени пол, и знаменатель ему даёт :func:`heavy_peers` - самый тяжёлый
+    сосед по той же группе. Без пола «легче потолка» проходила и каша: раздача, названная
+    1080p, при 0.05 Мбит/с вставала над честной на 9.5. Пол тоже предпочтение, а не
+    отсев, и меряется он долей, а не Мбит/с
+    (:data:`~torrcast.domain.rank_settings.TRADE_FLOOR`).
+
     ``loose`` — ворота отбора открыты (:func:`gate_open`), и молчаливые имена идут
     в кандидатах наравне с именными. ``last`` — открыты ворота последней надежды
     (:func:`last_hope`). ``copy_hevc`` - профиль разрешил HEVC копией, поэтому это
@@ -171,13 +178,19 @@ def rank_releases(
     for r in releases:
         key = steps[id(r)]
         rivals[key] = max(rivals.get(key, 0), r.seeders)
+    # Пол размена (:func:`fits_receiver`) меряется тяжёлым соседом, а сосед тут - равный
+    # по всем ступеням ВЫШЕ потолка приёмника. Поэтому ключ группы досчитывается целиком
+    # до сортировки: в `rivals` его нет, там ступени только до кадра.
+    full: dict[int, tuple[object, ...]] = {
+        id(r): (*steps[id(r)], not is_full_hd(r, rivals[steps[id(r)]]), studio_step(r, studio))
+        for r in releases
+    }
+    heavy = heavy_peers(releases, full, runtime, recode_at)
     return sorted(
         releases,
         key=lambda r: (
-            *steps[id(r)],
-            not is_full_hd(r, rivals[steps[id(r)]]),
-            studio_step(r, studio),
-            not fits_receiver(r, runtime, recode_at),
+            *full[id(r)],
+            not fits_receiver(r, runtime, recode_at, heavy.get(full[id(r)], 0.0)),
             -r.seeders,
             -r.size,
             r.magnet,

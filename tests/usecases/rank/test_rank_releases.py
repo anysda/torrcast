@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from tests.usecases.rank.releases import RUNTIME, rel
 from torrcast.domain.episode import Episode
+from torrcast.usecases.rank.is_full_hd import is_full_hd
 from torrcast.usecases.rank.rank_releases import rank_releases
 
 
@@ -125,6 +126,55 @@ def test_the_receiver_ceiling_does_not_buy_the_frame() -> None:
     small = rel(name="малый", quality="720p", size_gb=8, seeders=40)
     full = rel(name="полный", quality="1080p", size_gb=16, seeders=40)
     assert _order([small, full], recode_at=10.0) == ["полный", "малый"]
+
+
+def test_a_junk_bitrate_under_the_ceiling_does_not_take_the_top() -> None:
+    """🔴 1080p на 0.05 Мбит/с - каша, и потолок приёмника её над честной не поднимает.
+
+    Обе раздачи названы 1080p, обе живы, и лестница выше разводит их только по весу.
+    Без пола выигрывала мусорная: «легче потолка» ей давалось легче всех.
+    """
+    junk = rel(name="мусор", size_gb=0.042, seeders=30)
+    honest = rel(name="честный", size_gb=10.06, seeders=60)
+    assert _order([honest, junk], recode_at=10.0) == ["честный", "мусор"]
+
+
+def test_the_floor_does_not_take_a_lawful_deep_trade() -> None:
+    """Аниме на 3.54 Мбит/с вместо 16.22 - размен корпуса, и он обязан остаться.
+
+    Пол задан долей от тяжёлого соседа ровно ради этого случая: абсолютным числом,
+    которое отсекло бы кашу игрового кино, эту законную раздачу отсекло бы тоже.
+    """
+    lean = rel(name="лёгкий", size_gb=2.967, seeders=6)
+    heavy = rel(name="тяжёлый", size_gb=13.596, seeders=14)
+    assert _order([heavy, lean], recode_at=10.0) == ["лёгкий", "тяжёлый"]
+
+
+def test_the_floor_is_measured_inside_the_group_not_across_the_pool() -> None:
+    """Тяжёлый из чужой ступени пол не поднимает: соперником он раздаче не был.
+
+    Иначе один 4К в выдаче отнимал бы предпочтение у всех остальных раздач картины.
+    """
+    stranger = rel(name="чужой", quality="720p", size_gb=30, seeders=90)
+    lean = rel(name="лёгкий", size_gb=2.0, seeders=40)
+    heavy = rel(name="тяжёлый", size_gb=10.06, seeders=60)
+    assert _order([stranger, heavy, lean], recode_at=10.0)[0] == "лёгкий"
+
+
+def test_a_full_hd_that_failed_its_liveness_share_still_stands_above_720p() -> None:
+    """1080p, проваливший долю живости, не проваливается ПОД названный 720p.
+
+    Долю (:data:`~torrcast.domain.rank_settings.FULL_HD_LIVENESS`) 1080p тут не проходит:
+    в его группе лежит вчетверо обсиженнее сосед, и защиту кадра он теряет. Дальше спор
+    доходит до потолка приёмника нерешённым, и 720p под потолком забирал вторую строку.
+    Верхнюю строку это сломать не могло, а середина меню ехала, и с ней нумерация
+    ``--release``.
+    """
+    full = rel(name="1080p", quality="1080p", size_gb=10.058, seeders=60)
+    small = rel(name="720p", quality="720p", size_gb=1.257, seeders=55)
+    crowd = rel(name="толпа", quality="1080p", size_gb=16.76, seeders=250)
+    assert not is_full_hd(full, crowd.seeders)
+    assert _order([crowd, small, full], recode_at=10.0) == ["толпа", "1080p", "720p"]
 
 
 def test_a_dead_light_release_does_not_displace_a_live_heavy_one() -> None:
