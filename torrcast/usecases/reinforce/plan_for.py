@@ -88,6 +88,10 @@ def plan_for(
         last=last,
         copy_hevc=copy_hevc,
         studio=studio,
+        # Потолок ПРИЁМНИКА, и с потолком отбора выше он не путается: тот решает, годен
+        # ли релиз вообще, а этот - поедет кусок копией или перекодированным на ходу.
+        # В порядок он идёт предпочтением, а не отсевом (:func:`fits_receiver`).
+        recode_at=config.recode_at_mbit if config.recode else 0.0,
     )
     return Plan(
         picture=picture,

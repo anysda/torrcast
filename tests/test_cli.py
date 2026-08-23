@@ -3834,7 +3834,11 @@ def test_releases_table_uses_true_duration_and_matches_explicit_release(
     """
     from torrcast.domain.config import Config
 
-    lighter = rel(name="lighter", size_gb=10, seeders=50)
+    # Обе раздачи взяты ВЫШЕ потолка приёмника (10 Мбит/с) и на двух часах, и на трёх:
+    # ступень :func:`fits_receiver` тут обязана молчать, иначе меряется она, а не
+    # знаменатель. Лёгкая при этом остаётся кандидатом на двух часах, тяжёлая - нет,
+    # и ровно на этой разнице таблица и ловится.
+    lighter = rel(name="lighter", size_gb=13.2, seeders=50)
     heavy = rel(name="heavy", size_gb=20, seeders=100)
 
     config = Config(bitrate_warn_mbit=16.0)

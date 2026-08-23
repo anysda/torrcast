@@ -86,3 +86,53 @@ def test_the_studio_does_not_buy_a_worse_frame() -> None:
     small = rel(name="Харли Квинн S02 WEB-DL 720p, Dub (The Kitchen Russia)", quality="720p")
     full = rel(name="Харли Квинн S02 WEB-DL 1080p, MVO (Good People)", quality="1080p")
     assert _order([small, full], studio="The Kitchen Russia") == [full.raw_name, small.raw_name]
+
+
+def _light_and_heavy() -> tuple[object, object]:
+    """Два живых 1080p одной картины: лёгкий под потолком приёмника и тяжёлый над ним."""
+    light = rel(name="лёгкий", size_gb=8, seeders=40)
+    heavy = rel(name="тяжёлый", size_gb=16, seeders=90)
+    return light, heavy
+
+
+def test_the_receiver_ceiling_lifts_the_release_it_plays_whole() -> None:
+    """Раздача, которую приёмник играет как есть, обходит равного ей соседа с бо́льшим роем."""
+    light, heavy = _light_and_heavy()
+    assert _order([heavy, light], recode_at=10.0) == ["лёгкий", "тяжёлый"]
+
+
+def test_without_the_receiver_ceiling_the_order_is_the_old_one() -> None:
+    """Потолок не назван - решают сиды, ровно как решали."""
+    light, heavy = _light_and_heavy()
+    assert _order([heavy, light]) == ["тяжёлый", "лёгкий"]
+
+
+def test_a_release_above_the_ceiling_stays_in_the_menu() -> None:
+    """🔴 Потолок приёмника - предпочтение, а не отсев: под ним живого может не быть."""
+    heavy = rel(name="тяжёлый", size_gb=16, seeders=90)
+    assert _order([heavy], recode_at=10.0) == ["тяжёлый"]
+
+
+def test_the_receiver_ceiling_does_not_buy_the_sound() -> None:
+    """Релиз без русской дорожки негоден любым весом: ступень звука стоит выше."""
+    mute = rel(name="Кино (1999) BDRip 1080p [JAP+Sub]", size_gb=8, seeders=40)
+    dubbed = rel(name="Кино (1999) BDRip 1080p, Дубляж", size_gb=16, seeders=40)
+    assert _order([mute, dubbed], recode_at=10.0) == [dubbed.raw_name, mute.raw_name]
+
+
+def test_the_receiver_ceiling_does_not_buy_the_frame() -> None:
+    """720p под потолком - это не выигрыш, а другая ступень чёткости."""
+    small = rel(name="малый", quality="720p", size_gb=8, seeders=40)
+    full = rel(name="полный", quality="1080p", size_gb=16, seeders=40)
+    assert _order([small, full], recode_at=10.0) == ["полный", "малый"]
+
+
+def test_a_dead_light_release_does_not_displace_a_live_heavy_one() -> None:
+    """Лёгкий на двух сидах меняет перекод на подгрузы - это не размен, а откат.
+
+    Кадр у обеих раздач один, и спор доходит до потолка приёмника нерешённым: иначе
+    мёртвую сторону утопила бы ступень чёткости, а пол живости остался бы непроверенным.
+    """
+    light = rel(name="лёгкий", quality="720p", size_gb=8, seeders=2)
+    heavy = rel(name="тяжёлый", quality="720p", size_gb=16, seeders=90)
+    assert _order([heavy, light], recode_at=10.0) == ["тяжёлый", "лёгкий"]

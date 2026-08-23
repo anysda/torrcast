@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from torrcast.domain.episode import Episode
 from torrcast.domain.release import Release
+from torrcast.usecases.rank.fits_receiver import fits_receiver
 from torrcast.usecases.rank.hevc_hope import hevc_hope
 from torrcast.usecases.rank.is_candidate import is_candidate
 from torrcast.usecases.rank.is_dated import is_dated
@@ -26,6 +27,7 @@ def rank_releases(
     last: bool = False,
     copy_hevc: bool = False,
     studio: str = "",
+    recode_at: float = 0.0,
 ) -> list[Release]:
     """Порядок меню: сверху самый обсиженный кандидат, потом всё остальное по
     сидам, образы дисков всегда внизу — цельного файла внутри нет, стримить нечего.
@@ -123,6 +125,22 @@ def rank_releases(
     ``studio`` - имя студии из памяти картины; пусто (первый просмотр) - ступень плоская,
     и порядок в точности прежний.
 
+    Самой нижней ступенью, ПОД студией и НАД сидами, идёт :func:`fits_receiver`: из двух
+    равных во всём остальном раздач берётся та, которую приёмник играет без перекода на
+    ходу. Ступень отвечает на вопрос, которого весь порядок выше не задаёт: во что показ
+    обойдётся зрителю. Кусок тяжелее потолка уезжает перекодированным на ходу, и платит
+    за это плёнка - на осторожном приёмнике так уходит 616 кусков из 627 и 59.98 секунды
+    подгрузов за сеанс.
+
+    Ниже всех прочих ступеней она стоит нарочно, и обе границы замерены на корпусе.
+    Выше звука её нельзя: релиз без русской дорожки негоден любым весом. Выше кадра
+    тоже: 720p под потолком - это не выигрыш, это другая ступень чёткости. Спор ей
+    остаётся ровно один - между раздачами, которые лестница уже признала равными, и там
+    её ответ дешевле ответа по сидам.
+
+    ``recode_at`` - потолок приёмника, Мбит/с (ноль - перекодирования нет и ступень
+    плоская). Отсевом она не является: раздача выше потолка остаётся кандидатом.
+
     ``loose`` — ворота отбора открыты (:func:`gate_open`), и молчаливые имена идут
     в кандидатах наравне с именными. ``last`` — открыты ворота последней надежды
     (:func:`last_hope`). ``copy_hevc`` - профиль разрешил HEVC копией, поэтому это
@@ -159,6 +177,7 @@ def rank_releases(
             *steps[id(r)],
             not is_full_hd(r, rivals[steps[id(r)]]),
             studio_step(r, studio),
+            not fits_receiver(r, runtime, recode_at),
             -r.seeders,
             -r.size,
             r.magnet,

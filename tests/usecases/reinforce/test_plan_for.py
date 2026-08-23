@@ -75,3 +75,41 @@ def test_the_ceiling_of_the_plan_is_the_one_recoding_allows() -> None:
     assert with_recode.recode_at == config.recode_at_mbit
     assert without.warn_mbit == config.bitrate_warn_mbit == without.hard_mbit
     assert without.recode_at == 0.0, "порог перекода без перекодирования - не порог"
+
+
+def test_the_order_asks_the_receiver_for_its_bitrate_ceiling() -> None:
+    """🔴 Потолок берётся из ПРОФИЛЯ приёмника, и разные приёмники дают разный порядок.
+
+    Одна и та же пара раздач: ~9.5 Мбит/с на 40 сидах и ~19.1 Мбит/с на 90. Осторожный
+    приёмник тяжёлую перекодирует на ходу и платит за это плёнкой, поэтому берёт лёгкую;
+    приставка играет обе как есть, размениваться ей не на что, и решают сиды.
+    """
+    from torrcast.domain.profile import ANDROID_TV, CAUTIOUS
+    from torrcast.domain.tune import tune
+
+    picture = pictures(
+        [
+            row("Кино / Movie (1999) BDRip 1080p", "a", seeders=40, size_gb=8),
+            row("Кино / Movie (1999) BDRip 1080p x264", "b", seeders=90, size_gb=16),
+        ]
+    )[0]
+    args = Args(query=["кино"])
+
+    cautious = plan_for(picture, args, tune(Config(), CAUTIOUS), CAUTIOUS)
+    stick = plan_for(picture, args, tune(Config(), ANDROID_TV), ANDROID_TV)
+
+    assert [release.seeders for release in cautious.ranked] == [40, 90]
+    assert [release.seeders for release in stick.ranked] == [90, 40]
+
+
+def test_a_release_above_the_receiver_ceiling_keeps_its_place_in_the_queue() -> None:
+    """🔴 Каталог сузиться не имеет права: под потолком живого может не быть вовсе."""
+    from torrcast.domain.profile import CAUTIOUS
+    from torrcast.domain.tune import tune
+
+    picture = pictures([row("Кино / Movie (1999) BDRip 1080p", "a", seeders=90, size_gb=16)])[0]
+
+    plan = plan_for(picture, Args(query=["кино"]), tune(Config(), CAUTIOUS), CAUTIOUS)
+
+    assert len(plan.ranked) == 1, "единственную раздачу потолок приёмника не выкидывает"
+    assert plan.candidates(Args(query=["кино"])) == [1]
