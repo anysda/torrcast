@@ -29,15 +29,17 @@ def test_the_answer_is_taken_by_the_deadline_and_the_wave_is_closed_after_it() -
     wave[0].start()
 
     answer = closed_wave(wave, time.monotonic() + 0.05, lambda: list(box))
+    returned = time.monotonic()
 
     assert answer == [], "по сроку не приехало ничего - это и есть ответ"
+    # Сравниваем два момента по одним часам: нитка сама записывает в done, когда доработала,
+    # а returned снят следующей строкой за вызовом. Длительность ожидания тут не мера:
+    # Event.wait вправе отпустить чуть раньше запрошенного срока, потому что его таймаут и
+    # time.monotonic считаются по разным часам, и порог "не меньше секунды" мигал бы.
+    assert done and returned >= done[0], "ответ отдан после закрытия, а не вместо него"
     assert box == ["опоздавший"], "опоздавшая нитка доработала, а не была брошена"
     left = thread_guard.alive() - before
     assert not left, f"нитку закрыл тот, кто её поднял, а живой осталась {left}"
-    # Рубеж - момент, когда нитка доработала, а не длительность её ожидания:
-    # Event.wait вправе отпустить чуть раньше срока, его таймаут и time.monotonic
-    # считаются по разным часам.
-    assert done and time.monotonic() >= done[0], "ответ отдан после закрытия, а не вместо него"
 
 
 def test_the_wave_is_waited_out_as_a_wave_not_as_a_queue() -> None:
