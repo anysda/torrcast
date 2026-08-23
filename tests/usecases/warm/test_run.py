@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any
 
-from tests.usecases.warm.world import warmer, world
+from tests.usecases.warm.world import grid, warmer, world
+from torrcast.adapters.recode.encode import Encode
 from torrcast.domain.profile import ANDROID_TV, CAUTIOUS
 from torrcast.usecases.warm.run import _run
 from torrcast.usecases.warm.settings import RUN_DIR
@@ -18,6 +19,10 @@ if TYPE_CHECKING:
 @dataclass(frozen=True)
 class _Encode:
     mbit: float = 8.0
+
+    def fit(self, span: float, cap: float, cap_mbit: float = 0.0) -> _Encode:
+        """Ужатие под кусок стендом: цель кладётся ровно в потолок веса этой длины."""
+        return replace(self, mbit=min(self.mbit, cap * 8 / span / 1e6))
 
 
 @dataclass
@@ -254,3 +259,40 @@ def test_an_unknown_receiver_still_gets_the_cautious_ceiling(tmp_path: Path) -> 
     _run(warm, 0, 1)
 
     assert packers[0].cap == CAUTIOUS.max_segment_bytes, "умолчание перестало быть осторожным"
+
+
+def test_a_spot_run_fits_its_target_to_the_length_of_the_piece(tmp_path: Path) -> None:
+    """🔴 Цель точечного перекода считается от ДЛИНЫ куска, а не берётся константой.
+
+    Живой замер приставки (потолок куска 28 МБ, цель приёмника 28 Мбит/с): постоянная цель
+    положила в кусок 19.972 с 69.64 МБ - тяжелее той самой копии, поверх которой перекод и
+    шёл. Склейка в потолок не влезла, место осталось копией на весь сеанс, и показ платил
+    за него ожиданием на каждом заходе.
+    """
+    packers: list[_Packer] = []
+    parts, _ = _tract(packers)
+    seen: list[Any] = []
+
+    def pack(*args: Any, **kwargs: Any) -> list[str]:
+        seen.append(kwargs.get("encode"))
+        return ["ffmpeg", "-i"]
+
+    parts["pack"] = pack
+    world(**parts)
+    warm = warmer(
+        tmp_path,
+        grid=grid(duration=120.0, step=20.0),
+        spot_encode=Encode(preset="ultrafast", mbit=ANDROID_TV.recode_mbit),
+        cap=ANDROID_TV.max_segment_bytes,
+        threshold=ANDROID_TV.recode_at_mbit,
+        log=[].append,
+    )
+
+    _run(warm, 4, 4, spot=True)
+
+    span = warm.grid.span(4)
+    weight = seen[0].mbit * span * 1e6 / 8
+    assert weight <= warm.cap, (
+        f"цель {seen[0].mbit:.2f} Мбит/с кладёт в кусок {span:.3f} с "
+        f"{weight / 1e6:.2f} МБ при потолке {warm.cap / 1e6:g} МБ"
+    )

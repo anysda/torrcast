@@ -103,6 +103,10 @@ def _warmer(
         # (:attr:`torrcast.usecases.warm.warmer.Warmer.warmed`,
         # :meth:`torrcast.usecases.feed_pack.feed.Feed._warm`).
         cap=profile.max_segment_bytes,
+        # Второй потолок цели точечного перекода - тот же, которым его считает живой
+        # кодировщик (:func:`torrcast.usecases.playback._recoder._recoder`): решение о куске
+        # обязано выйти одним и тем же с обеих сторон.
+        threshold=config.recode_at_mbit,
         # Сколько уедет на ТВ в среднем по фильму - тем же счётом, что и у живого
         # кодировщика тяжёлых кусков (:func:`torrcast.usecases.playback._recoder._recoder`):
         # видео копией, звук всегда AAC, сверху оверхед mpegts. Прогрев спрашивает по нему

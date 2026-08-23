@@ -10,6 +10,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from torrcast.domain.profile import CAUTIOUS
+from torrcast.ports.recode.encoding import Encoding
 from torrcast.ports.recode.encoding_key import EncodingKey
 from torrcast.ports.recode.recode_rival import RecodeRival
 from torrcast.usecases.warm._state import Grid, _Run
@@ -39,7 +40,17 @@ class _State:
     spots: tuple[int, ...] = ()
     #: Чем перекодировать :attr:`spots` - тот же :class:`torrcast.adapters.recode.encode.Encode`,
     #: которым их берёт живой кодировщик.
-    spot_encode: EncodingKey | None = None
+    #:
+    #: 🔴 Решение тут приезжает НЕужатым под кусок: живой кодировщик ужимает его сам, уже
+    #: зная длину своего захода (:func:`torrcast.adapters.recode.run._run`), и прогрев обязан
+    #: повторить тот же счёт на своей длине (:func:`torrcast.usecases.warm.run._run`).
+    #: Договор поэтому широкий (:class:`Encoding`, а не :class:`EncodingKey`): ужатие -
+    #: часть решения, а не расчёт на стороне прогрева.
+    spot_encode: Encoding | None = None
+    #: Битрейт, который тянет приёмник (:attr:`torrcast.domain.profile.Profile.recode_at_mbit`).
+    #: Второй потолок цели точечного перекода рядом с :attr:`cap`: вес зависит от длины
+    #: куска, а этот - нет, и на коротком куске главным оказывается он.
+    threshold: float = CAUTIOUS.recode_at_mbit
     #: С какого места смотрим: прогрев идёт отсюда вперёд, голова - потом.
     began_at: int = 0
     #: Потолок веса одного куска у приёмника, байты

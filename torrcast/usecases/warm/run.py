@@ -22,6 +22,7 @@ from torrcast.usecases.warm.throttle import _resume, _throttle
 from torrcast.usecases.warm.verify import _inspect
 
 if TYPE_CHECKING:
+    from torrcast.ports.recode.encoding_key import EncodingKey
     from torrcast.usecases.warm.warmer_state import _State
 
 
@@ -59,7 +60,20 @@ def _run(
     голова (:meth:`_missing`), - а точечные идут перекодом и пробного не просят вовсе.
     0.5-2.9 с на заход против получаса прогрева не считаются.
     """
-    encode = state.spot_encode if spot else state.encode
+    encode: EncodingKey | None = state.encode
+    if spot:
+        # 🔴 Цель точечного перекода считается от ДЛИНЫ куска, а не берётся константой -
+        # тем же счётом, каким её берёт живой кодировщик этого же куска
+        # (:func:`torrcast.adapters.recode.run._run`). Заход тут ровно один кусок, и его
+        # длина и есть та, под которую цель обязана лечь. Ловить промах на выходе поздно:
+        # процессор уже потрачен, а склейка не влезает в потолок и место остаётся копией
+        # навсегда (:func:`torrcast.adapters.stream_pack.spot_out.spot_out`).
+        spot_encode = state.spot_encode
+        encode = (
+            None
+            if spot_encode is None
+            else spot_encode.fit(state.grid.span(first), state.cap, state.threshold)
+        )
     # Точечный перекод ложится ПОВЕРХ своей копии и стирает её, а звук копии нужен
     # склейке уже после выкладки (:func:`torrcast.adapters.stream_pack.spot_out.spot_out`).
     # Ссылка стоит ноль байт и переживает подмену файла; имя не подходит под ``v*.ts``,
