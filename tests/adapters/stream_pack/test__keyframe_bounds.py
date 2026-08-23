@@ -16,9 +16,18 @@ def _bounds(
     extra_mbit: float = 0.0,
     ceiling_mbit: float = 0.0,
     fixed_mbit: float = 0.0,
+    span_cap: float = 0.0,
 ) -> tuple[float, ...]:
     found, _copy = _keyframe_bounds(
-        KEYS, DURATION, step, sizes or [], extra_mbit, ceiling_mbit, cap, fixed_mbit
+        KEYS,
+        DURATION,
+        step,
+        sizes or [],
+        extra_mbit,
+        ceiling_mbit,
+        cap,
+        fixed_mbit,
+        span_cap=span_cap,
     )
     return found
 
@@ -73,3 +82,35 @@ def test_the_copy_weigher_knows_no_ceiling() -> None:
 
     _found, none = _keyframe_bounds(KEYS, DURATION, 10.0, [], 0.0, 0.0, 1e18, 0.0)
     assert none is None, "карты нет - и веса копии знать неоткуда"
+
+
+def test_a_piece_longer_than_the_length_ceiling_is_cut_shorter() -> None:
+    """🔴 Приставка Android TV просит следующий кусок, когда впереди остаётся 20.0 с
+    плёнки: кусок такой же длины оставляет её с единственным куском в запасе, и на
+    границе после него она сама встаёт на паузу. Потолок длины судит кандидата так же,
+    как потолок веса.
+    """
+    sparse = [round(k * 6.0, 3) for k in range(11)]
+    tall, _copy = _keyframe_bounds(sparse, DURATION, 10.0, [], 0.0, 0.0, 1e18, 0.0)
+    short, _copy = _keyframe_bounds(sparse, DURATION, 10.0, [], 0.0, 0.0, 1e18, 0.0, span_cap=8.0)
+
+    assert max(b - a for a, b in pairwise(tall)) == 12.0, "без потолка длины сетка берёт 12 с"
+    assert max(b - a for a, b in pairwise(short)) == 6.0, "потолок длины не укоротил куски"
+    assert all(place in sparse for place in short), "резать GOP нельзя даже ради потолка"
+
+
+def test_a_gop_longer_than_the_ceiling_stays_whole() -> None:
+    """Резать GOP нельзя, и врать об этом не будем: длинный кадр остаётся длинным куском."""
+    single = [0.0, 30.0, 40.0, 50.0]
+    found, _copy = _keyframe_bounds(single, DURATION, 10.0, [], 0.0, 0.0, 1e18, 0.0, span_cap=8.0)
+
+    assert found[1] == 30.0
+
+
+def test_a_zero_length_ceiling_does_not_move_a_single_boundary() -> None:
+    """Ноль - это «потолка нет»: осторожная сетка обязана остаться прежней знак в знак."""
+    sizes = [int(place * 2.0e6) for place in KEYS]
+
+    assert _bounds(step=10.0, sizes=sizes, cap=8.0e6, span_cap=0.0) == _bounds(
+        step=10.0, sizes=sizes, cap=8.0e6
+    )

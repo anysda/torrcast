@@ -86,6 +86,8 @@ def layout(
         fixed_mbit=(whole.maxrate + AUDIO_MBIT) * TS_OVERHEAD if whole is not None else 0.0,
         # Потолок веса куска - у каждого приёмника свой (:mod:`torrcast.domain.profile`).
         cap=profile.max_segment_bytes,
+        # И потолок его длины - тоже: он про окно, которым приёмник забирает куски.
+        span_cap=profile.max_segment_seconds,
     )
     if whole is not None:
         # 🔴 TC-501, вторая половина. Сетка режет ТОЛЬКО по опорным кадрам, и там, где

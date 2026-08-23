@@ -26,6 +26,7 @@ def grid_for(
     ceiling_mbit: float = 0.0,
     fixed_mbit: float = 0.0,
     cap: float = MAX_SEGMENT_BYTES,
+    span_cap: float = 0.0,
     *,
     keys_of: Callable[[str], FilmKeys] = film_keys,
     origin_of: Callable[[str], float] = pack_origin,
@@ -48,6 +49,8 @@ def grid_for(
 
     ``cap`` — потолок веса одного куска: он у каждого приёмника свой
     (:attr:`torrcast.domain.profile.Profile.max_segment_bytes`), и умолчание тут осторожное.
+    ``span_cap`` — потолок его ДЛИНЫ, и он тоже свойство приёмника
+    (:attr:`torrcast.domain.profile.Profile.max_segment_seconds`); ноль - потолка нет.
 
     ``keys_of`` и ``origin_of`` - карта опорных кадров и начало ленты. Обе стоят
     настоящими, и обе названы параметром, а не именем модуля: карта стоит Range-запросов,
@@ -90,6 +93,7 @@ def grid_for(
         fixed_mbit=fixed_mbit,
         cap=cap,
         origin=origin,
+        span_cap=span_cap,
     )
     if say:
         spans = [grid.span(k) for k in range(grid.count)]

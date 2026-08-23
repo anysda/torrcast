@@ -22,12 +22,18 @@ def _keyframe_bounds(
     fixed_mbit: float,
     *,
     fill_from: float = 0.0,
+    span_cap: float = 0.0,
 ) -> tuple[tuple[float, ...], Callable[[float, float], float] | None]:
     """Границы сегментов и предсказатель веса КОПИИ для :meth:`Grid.on_keyframes`.
 
     Счёт лежит отдельно от правила, которое он считает: разбор правила - потолок байт,
-    ближайшая голова, короткий хвост - остался докстрокой своего метода.
+    потолок длины, ближайшая голова, короткий хвост - остался докстрокой своего метода.
     """
+
+    # Потолок длины судит кандидата ровно так же, как потолок веса: годен - и точка.
+    def short(prev: float, key: float) -> bool:
+        return span_cap <= 0.0 or key - prev <= span_cap
+
     weigh = weigher(keys, sizes, extra_mbit, ceiling_mbit, fixed_mbit)
     # Отдельно от границ - вес КОПИИ (без потолков): тяжёлый кусок режется сеткой и
     # уезжает на ТВ перекодом, а на диск прогрев кладёт сначала его самого, во весь
@@ -48,13 +54,13 @@ def _keyframe_bounds(
         for key in keys[index:]:
             if key >= limit:
                 break
-            if weigh(prev, key) <= cap:
+            if weigh(prev, key) <= cap and short(prev, key):
                 fits = key
             if key >= prev + step:
                 if first is None:
                     first = key
                     filling = fill_from > 0 and weigh(prev, key) > fill_from
-                if not filling or weigh(prev, key) > cap:
+                if not filling or weigh(prev, key) > cap or not short(prev, key):
                     break
             if key - prev >= step / 2 and weigh(prev, key) <= cap:
                 before = key
@@ -62,12 +68,12 @@ def _keyframe_bounds(
             if weigh(prev, duration) <= cap:
                 break  # короткий хвост влезает и по-прежнему прилипает к последнему
             tail = [key for key in keys[index:] if prev < key < duration]
-            tail_fits = [key for key in tail if weigh(prev, key) <= cap]
+            tail_fits = [key for key in tail if weigh(prev, key) <= cap and short(prev, key)]
             if not tail:
                 break  # последний GOP тяжелее потолка, резать его нечем
             bounds.append(tail_fits[-1] if tail_fits else tail[0])
             continue
-        first_fits = weigh(prev, first) <= cap
+        first_fits = weigh(prev, first) <= cap and short(prev, first)
         nearest_head = (
             len(bounds) <= 2
             and before is not None

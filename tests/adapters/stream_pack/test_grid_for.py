@@ -25,6 +25,7 @@ def _grid(
     say: Callable[[str], None] | None = None,
     delivered_mbit: float = 0.0,
     cap: float = MAX_SEGMENT_BYTES,
+    span_cap: float = 0.0,
 ) -> Grid:
     """Сетка по названной карте: обе зависимости приезжают договором :func:`grid_for`."""
     return grid_for(
@@ -34,6 +35,7 @@ def _grid(
         say=say,
         delivered_mbit=delivered_mbit,
         cap=cap,
+        span_cap=span_cap,
         keys_of=keys,
         origin_of=lambda url: ORIGIN,
     )
@@ -135,3 +137,18 @@ def test_more_room_does_not_stretch_a_piece_that_already_fit_the_cautious_cap() 
     roomy = _grid(lambda url: KEYS, delivered_mbit=16.0, cap=28_000_000)
 
     assert roomy.bounds == cautious.bounds
+
+
+def test_the_length_ceiling_of_the_receiver_reaches_the_grid() -> None:
+    """Потолок длины - свойство приёмника, и он обязан доехать до границ, а не осесть в пути.
+
+    Карта и паспорт одни и те же; различается ровно потолок длины, поэтому проверка
+    краснеет тогда, когда он до сетки не доходит.
+    """
+    sparse = FilmKeys(60.0, [round(k * 6.0, 3) for k in range(11)], [], "mkv")
+
+    free = _grid(lambda url: sparse)
+    tight = _grid(lambda url: sparse, span_cap=8.0)
+
+    assert max(free.span(k) for k in range(free.count - 1)) == 12.0
+    assert max(tight.span(k) for k in range(tight.count - 1)) == 6.0

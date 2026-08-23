@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+import pytest
+
+from tests.fakes.composition import use_media_grid
+from torrcast.adapters.stream_pack.grid_for import grid_for
 from torrcast.domain.config import Config
-from torrcast.domain.profile import CAUTIOUS
+from torrcast.domain.profile import ANDROID_TV, CAUTIOUS
 from torrcast.usecases.playback.layout import layout
+from torrcast.usecases.playback.media_grid import MediaGrid
 
 
 def test_the_same_passport_gives_the_same_layout_twice() -> None:
@@ -58,3 +63,21 @@ def test_four_k_tonemap_says_its_measured_cost() -> None:
     )
 
     assert any("тонемап 4К включён" in line and "подгруз" in line for line in said)
+
+
+def test_the_layout_hands_the_receiver_ceilings_to_the_grid(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Оба потолка приёмника - вес и длина - едут в сетку из профиля, а не из умолчания."""
+    seen: dict[str, float] = {}
+
+    def spy(source_url: str, duration: float, *args: object, **kwargs: float) -> MediaGrid:
+        seen.update(kwargs)
+        return grid_for(source_url, duration, *args, **kwargs)  # type: ignore[arg-type]
+
+    use_media_grid(monkeypatch, spy)
+
+    layout(Config(), "file:///нет-такого", 300.0, "h264", 5.0, depth=8, profile=ANDROID_TV)
+
+    assert seen["cap"] == ANDROID_TV.max_segment_bytes
+    assert seen["span_cap"] == ANDROID_TV.max_segment_seconds > 0.0

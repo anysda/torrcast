@@ -155,6 +155,7 @@ def make_grid(
             # Сплошной перекод: вес куска задаём мы сами, карта источника тут не судья.
             fixed_mbit=(whole.mbit + AUDIO_MBIT) * TS_OVERHEAD if whole is not None else 0.0,
             cap=profile.max_segment_bytes,
+            span_cap=profile.max_segment_seconds,
         )
     drop = {float(x) for x in args.drop.split(",") if x}
     extra = {float(x) for x in args.add.split(",") if x}

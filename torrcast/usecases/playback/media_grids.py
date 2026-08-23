@@ -25,5 +25,6 @@ class MediaGrids(Protocol):
         ceiling_mbit: float = 0.0,
         fixed_mbit: float = 0.0,
         cap: float = ...,
+        span_cap: float = 0.0,
     ) -> MediaGrid:
         """Сетка для конкретного файла: по опорным кадрам, если карту удалось снять."""
