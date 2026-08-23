@@ -176,6 +176,24 @@ def test_full_hd_liveness_is_measured_against_the_720p_it_displaces() -> None:
     assert _order([crowd, small, full], recode_at=10.0) == ["толпа", "1080p", "720p"]
 
 
+def test_sound_liveness_is_measured_against_the_release_without_russian_sound() -> None:
+    """Сильный дубляж не раздувает цену русской дорожки для другого дубляжа."""
+    small = rel(name="малый дубляж", quality="720p", seeders=10)
+    crowd = rel(name="толпа с дубляжом", quality="1080p", seeders=200)
+    foreign = rel(name="Anime 720p [JAP+Sub]", quality="720p", seeders=55)
+
+    assert _order([crowd, foreign, small]) == [crowd.raw_name, small.raw_name, foreign.raw_name]
+
+
+def test_an_unnamed_frame_does_not_displace_a_named_frame() -> None:
+    """Новая защита звука не покупает молчащий кадр у названного HD."""
+    named = rel(name="Матрица BDRip 720p, Дубляж", quality="720p", size_gb=16, seeders=56)
+    quiet = rel(name="Матрица BDRip, Дубляж", quality=None, size_gb=3.6, seeders=6)
+    crowd = rel(name="старьё с дубляжом", quality=None, source="WEB-DL", size_gb=1.46, seeders=100)
+
+    assert _order([quiet, named, crowd], recode_at=10.0)[:2] == [named.raw_name, quiet.raw_name]
+
+
 def test_a_dead_light_release_does_not_displace_a_live_heavy_one() -> None:
     """Лёгкий на двух сидах меняет перекод на подгрузы - это не размен, а откат.
 

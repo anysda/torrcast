@@ -5,6 +5,7 @@ from __future__ import annotations
 from torrcast.domain.episode import Episode
 from torrcast.domain.release import Release
 from torrcast.usecases.rank.fits_receiver import fits_receiver
+from torrcast.usecases.rank.frame_rivals import frame_rivals
 from torrcast.usecases.rank.heavy_peers import heavy_peers
 from torrcast.usecases.rank.hevc_hope import hevc_hope
 from torrcast.usecases.rank.is_candidate import is_candidate
@@ -14,6 +15,7 @@ from torrcast.usecases.rank.is_disc import is_disc
 from torrcast.usecases.rank.is_full_hd import is_full_hd
 from torrcast.usecases.rank.misses_episode import misses_episode
 from torrcast.usecases.rank.needs_whole_recode import needs_whole_recode
+from torrcast.usecases.rank.sound_rivals import sound_rivals
 from torrcast.usecases.rank.sound_step import sound_step
 from torrcast.usecases.rank.studio_step import studio_step
 
@@ -151,7 +153,7 @@ def rank_releases(
     обычный кандидат, а не последняя надежда.
     """
     alive = max((r.seeders for r in releases), default=0)
-    steps = {
+    steps: dict[int, tuple[object, ...]] = {
         id(r): (
             misses_episode(r, want),
             is_disc(r),
@@ -163,25 +165,23 @@ def rank_releases(
             is_dead(r, alive),
             hevc_hope(r, last),
             is_dated(r, runtime),
-            sound_step(r, alive),
         )
         for r in releases
+    }
+    sound_alive = sound_rivals(releases, steps)
+    steps = {
+        id(r): (*steps[id(r)], sound_step(r, sound_alive.get(steps[id(r)], 0))) for r in releases
     }
     # Цена размена «1080p вместо 720p» меряется сидами сильнейшего из тех, кого этот
     # 1080p и правда потеснит, - равных по всем ступеням выше. Лидер пула тут не мерка:
     # он может сидеть на другой ступени (старьё, чужой звук, сплошной перекод) и в споре
-    # за верх не участвовать вовсе, а его сиды всё равно раздували знаменатель.
-    rivals: dict[tuple[object, ...], int] = {}
-    for r in releases:
-        key = steps[id(r)]
-        if not is_full_hd(r, 0):
-            rivals[key] = max(rivals.get(key, 0), r.seeders)
-    # Пол размена (:func:`fits_receiver`) меряется тяжёлым соседом, а сосед тут - равный
-    # по всем ступеням ВЫШЕ потолка приёмника. Поэтому ключ группы досчитывается целиком
-    # до сортировки: в `rivals` его нет, там ступени только до кадра.
+    rivals = frame_rivals(releases, steps)
+    # Для пола потолка ключ досчитывается до ступени кадра и студии.
     full: dict[int, tuple[object, ...]] = {
         id(r): (
             *steps[id(r)],
+            r.quality is None
+            and sound_step(r, alive) != sound_step(r, sound_alive.get(steps[id(r)][:-1], 0)),
             not is_full_hd(r, rivals.get(steps[id(r)], 0)),
             studio_step(r, studio),
         )
