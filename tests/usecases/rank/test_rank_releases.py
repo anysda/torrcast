@@ -161,17 +161,16 @@ def test_the_floor_is_measured_inside_the_group_not_across_the_pool() -> None:
     assert _order([stranger, heavy, lean], recode_at=10.0)[0] == "лёгкий"
 
 
-def test_a_full_hd_that_failed_its_liveness_share_still_stands_above_720p() -> None:
-    """1080p, проваливший долю живости, не проваливается ПОД названный 720p.
+def test_full_hd_liveness_is_measured_against_the_720p_it_displaces() -> None:
+    """1080p меряет долю по сильнейшему 720p, а не по другому 1080p своей группы.
 
-    Долю (:data:`~torrcast.domain.rank_settings.FULL_HD_LIVENESS`) 1080p тут не проходит:
-    в его группе лежит вчетверо обсиженнее сосед, и защиту кадра он теряет. Дальше спор
-    доходит до потолка приёмника нерешённым, и 720p под потолком забирал вторую строку.
-    Верхнюю строку это сломать не могло, а середина меню ехала, и с ней нумерация
-    ``--release``.
+    Малый 1080p держит законную долю против 720p на 3.0 Мбит/с. Более обсиженный 1080p
+    уже защищён той же ступенью и соперником в этом размене не является. Если включить
+    его в знаменатель, малый 1080p теряет защиту кадра, а потолок приёмника уводит его
+    третьим, под 720p.
     """
     full = rel(name="1080p", quality="1080p", size_gb=10.058, seeders=60)
-    small = rel(name="720p", quality="720p", size_gb=1.257, seeders=55)
+    small = rel(name="720p", quality="720p", size_gb=2.514, seeders=55)
     crowd = rel(name="толпа", quality="1080p", size_gb=16.76, seeders=250)
     assert not is_full_hd(full, crowd.seeders)
     assert _order([crowd, small, full], recode_at=10.0) == ["толпа", "1080p", "720p"]
