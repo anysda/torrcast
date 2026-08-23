@@ -39,3 +39,22 @@ def test_the_say_handle_hears_the_grid_talking() -> None:
     layout(Config(), "file:///нет-такого", 300.0, "h264", 5.0, say=said.append)
 
     assert said, "сетка без карты обязана сказать об этом вслух"
+
+
+def test_four_k_tonemap_says_its_measured_cost() -> None:
+    """Включённый тонемап на 4К-пути не выглядит бесплатным улучшением цвета."""
+    said: list[str] = []
+
+    layout(
+        Config(recode_tonemap=True),
+        "file:///нет-такого",
+        300.0,
+        "hevc",
+        20.0,
+        say=said.append,
+        depth=10,
+        frame=2160,
+        hdr=True,
+    )
+
+    assert any("тонемап 4К включён" in line and "подгруз" in line for line in said)
