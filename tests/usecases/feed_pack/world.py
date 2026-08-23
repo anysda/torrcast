@@ -83,6 +83,16 @@ class FakeVault:
     def path(self, slot: int) -> Path:
         return self.dir / f"v{slot}.ts"
 
+    def spot(self, slot: int) -> Path:
+        return self.dir / f"v{slot}.rec"
+
+    def have(self, slot: int) -> bool:
+        return self.path(slot).exists()
+
+    def reject(self, slot: int) -> None:
+        self.path(slot).unlink(missing_ok=True)
+        self.spot(slot).unlink(missing_ok=True)
+
 
 def hand(now: float = 1000.0) -> FakeClock:
     """Ручные часы: сна тут нет вовсе, стрелку двигает сам ``sleep``.

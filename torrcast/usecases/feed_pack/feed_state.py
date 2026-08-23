@@ -21,13 +21,15 @@ from torrcast.usecases.feed_pack._state import Grid
 
 
 class _Vault(Protocol):
-    """Хранилище прогретого в объёме, который нужен показу: путь куска на диске.
+    """Хранилище прогретого в объёме, который нужен показу: взять или отвергнуть кусок.
 
     Полный :class:`torrcast.usecases.warm.vault.Vault` сюда не приходит: бюджет диска,
     учёт каталогов и вытеснение - дело прогрева, а показу нужно одно имя файла.
     """
 
     def path(self, slot: int) -> Path: ...
+
+    def reject(self, slot: int) -> None: ...
 
 
 @dataclass(slots=True)

@@ -127,13 +127,17 @@ class Vault:
             return ()
         gone = tuple(_spot_marks(self.dir))
         for slot in gone:
-            with contextlib.suppress(OSError):
-                self.path(slot).unlink(missing_ok=True)
-            with contextlib.suppress(OSError):
-                self.spot(slot).unlink(missing_ok=True)
+            self.reject(slot)
         if gone:
             self.touch()
         return gone
+
+    def reject(self, slot: int) -> None:
+        """Убрать забракованный кусок вместе с меткой точечного перекода."""
+        with contextlib.suppress(OSError):
+            self.path(slot).unlink(missing_ok=True)
+        with contextlib.suppress(OSError):
+            self.spot(slot).unlink(missing_ok=True)
 
     def touch(self) -> None:
         with contextlib.suppress(OSError):

@@ -2,17 +2,21 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import pytest
 
 import torrcast.usecases.feed_pack.feed_segment as feed_segment
 from tests.usecases.feed_pack.world import feed, grid, lay, tract, vault
 from torrcast.usecases.feed_pack.feed_segment import _have, _segment, _warm
+from torrcast.usecases.warm._warm_count import _spots_left
 
 if TYPE_CHECKING:
     from collections.abc import Callable
     from pathlib import Path
+
+    from torrcast.ports.recode.encoding_key import EncodingKey
+    from torrcast.usecases.warm.vault import Vault
 
 
 def _yes(slot: int) -> bool:
@@ -103,6 +107,8 @@ def test_a_warmed_piece_from_another_place_is_repacked_live(
     store = vault(tmp_path)
     show = feed(tmp_path, vault=store, wait=1.0, log=said.append)
     foreign = lay(store.dir, 3)
+    copied = foreign.read_bytes()
+    store.spot(3).touch()
     monkeypatch.setattr(feed_segment, "segment_start", lambda path: 1237.68, raising=False)
 
     def pack_live(slot: int) -> bool:
@@ -114,6 +120,11 @@ def test_a_warmed_piece_from_another_place_is_repacked_live(
 
     assert answer == show.out / "v3.ts" and asked == [3]
     assert not foreign.exists(), "чужой кусок остался доступен следующему запросу"
+    assert not store.spot(3).exists(), "метка перекода пережила забракованный кусок"
+    foreign.write_bytes(copied)
+    assert _spots_left(cast("Vault", store), (3,), cast("EncodingKey", object())) == (3,), (
+        "возвращённая копия не попала в перекод"
+    )
     assert said == ["прогретый v3 мимо сетки (+1207.68 с) - переделываю живой упаковкой"]
     assert fake.slept == []
 
@@ -144,7 +155,11 @@ def test_a_piece_is_ours_whether_it_lies_in_the_window_or_on_the_disk(
     """Запас показа считает и окно, и прогретое: приёмнику всё равно, откуда кусок."""
     store = vault(tmp_path)
     show = feed(tmp_path, vault=store)
-    monkeypatch.setattr(feed_segment, "segment_start", lambda path: 20.0)
+    monkeypatch.setattr(
+        feed_segment,
+        "segment_start",
+        lambda path: pytest.fail("предикат запаса прочитал голову прогретого"),
+    )
     lay(show.out, 1)
     lay(store.dir, 2)
 

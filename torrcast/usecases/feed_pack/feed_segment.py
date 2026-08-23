@@ -111,13 +111,19 @@ def _warm(state: _State, slot: int) -> Path | None:
     want = state.grid.start(slot) + state.grid.origin
     if not math.isnan(began) and abs(began - want) <= SKEW_MAX:
         return path
-    with contextlib.suppress(OSError):
-        path.unlink(missing_ok=True)
+    state.vault.reject(slot)
     detail = "таймкод не прочитан" if math.isnan(began) else f"{began - want:+.2f} с"
     state._say(f"прогретый v{slot} мимо сетки ({detail}) - переделываю живой упаковкой")
     return None
 
 
 def _have(state: _State, slot: int) -> bool:
-    """Есть ли кусок этого места — всё равно, в окне показа или в прогретом."""
-    return (state.out / _state.segment_name(slot)).exists() or _warm(state, slot) is not None
+    """Есть ли допустимый по весу кусок в окне показа или в прогретом."""
+    if (state.out / _state.segment_name(slot)).exists():
+        return True
+    if state.vault is None:
+        return False
+    path = state.vault.path(slot)
+    with contextlib.suppress(OSError):
+        return path.stat().st_size <= state.cap
+    return False
