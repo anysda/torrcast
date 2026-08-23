@@ -194,6 +194,15 @@ def test_an_unnamed_frame_does_not_displace_a_named_frame() -> None:
     assert _order([quiet, named, crowd], recode_at=10.0)[:2] == [named.raw_name, quiet.raw_name]
 
 
+def test_the_unnamed_frame_guard_does_not_apply_to_named_frames() -> None:
+    """Страж молчащего кадра не меняет размен между названными 1080p и 720p."""
+    full = rel(name="фильм 1080p, Дубляж", quality="1080p", seeders=20)
+    hd = rel(name="фильм 720p, Дубляж", quality="720p", seeders=55)
+    collection = rel(name="сборник 1080p, Дубляж", seeders=300, collection=True)
+
+    assert _order([hd, collection, full]) == [full.raw_name, hd.raw_name, collection.raw_name]
+
+
 def test_a_dead_light_release_does_not_displace_a_live_heavy_one() -> None:
     """Лёгкий на двух сидах меняет перекод на подгрузы - это не размен, а откат.
 
