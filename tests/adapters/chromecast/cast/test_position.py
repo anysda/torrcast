@@ -69,6 +69,50 @@ def test_a_dead_session_zero_is_not_a_rewind_to_the_beginning() -> None:
     assert receiver.loads == [4355.0], "повтор идёт в то же место, а не в ноль"
 
 
+def test_a_live_receiver_zero_is_not_a_rewind_to_the_beginning_either() -> None:
+    """Слово «я жив» ноль позицией не делает: своё место приёмник теряет и на ходу.
+
+    Замер на живом Q70D («Отряд самоубийц»): картинка стояла на 34.3 с, приёмник отдал
+    ноль, мёртвым себя не назвав, ноль сошёл за перемотку - и максимум уехал в начало
+    фильма вместе с ним.
+    """
+    receiver = _Scripted(Status(pos=0.0, state="BUFFERING"))
+    receiver._peak = 34.3
+
+    _position(receiver)
+
+    assert receiver._peak == 34.3
+
+
+def test_a_human_who_rewound_to_the_very_beginning_is_followed_on_the_next_poll() -> None:
+    """Отмотанный в начало показ ЕДЕТ, и ноль на нём держится один круг.
+
+    Потерянное место стоит ровно нулём - этим они и различаются, а максимум обязан пойти
+    за человеком, иначе следующий нудж вернёт его туда, откуда он только что ушёл.
+    """
+    receiver = _Scripted(Status(pos=0.0, state="PLAYING"))
+    receiver._peak = 3660.0
+
+    _position(receiver)
+    assert receiver._peak == 3660.0, "первый круг ноль от потерянного места не отличает"
+
+    receiver.reported = Status(pos=0.2, state="PLAYING")
+    _position(receiver)
+    assert receiver._peak == 0.2, "показ поехал - значит, это человек, и максимум идёт за ним"
+
+
+def test_the_shown_frame_is_the_place_where_the_screen_was_alive() -> None:
+    """Кадр на экране - это живое состояние и ненулевое место, и только оно."""
+    receiver = _Scripted(Status(pos=34.3, state="PLAYING"))
+
+    _position(receiver)
+    assert receiver._shown == 34.3
+
+    receiver.reported = Status(pos=0.0, state="BUFFERING")
+    _position(receiver)
+    assert receiver._shown == 34.3, "ноль в подгрузе показанным кадром не бывает"
+
+
 def test_a_show_the_watchdog_gave_up_on_is_not_called_alive() -> None:
     """Сторож отработал и передаёт эстафету воскрешению: живым такой показ звать нельзя.
 

@@ -1962,6 +1962,46 @@ def test_the_peak_follows_the_viewer_back_after_a_rewind() -> None:
     )
 
 
+def test_a_zero_from_a_live_receiver_never_throws_the_show_back_to_the_beginning() -> None:
+    """Приёмник отдал ноль, не назвавшись мёртвым, - и это не перемотка в начало.
+
+    Замер на живом Q70D («Отряд самоубийц»): картинка была и стояла на 34.3 с, приёмник
+    ответил нулём при живом состоянии, ноль сошёл за перемотку - максимум ушёл за ним, а
+    от нуля прицелился сторож подвиса. В ленте это `seek 34.3 → 0.0,
+    why=«сторож перебил нуджем»`, а зрителю - фильм, начавшийся сначала на 86-й секунде.
+    """
+
+    class _Scripted(_Reporting):
+        """Приёмник, чьи ответы заданы лентой замера, а не сетью."""
+
+        def __init__(self, device: Any, script: list[_Reported]) -> None:
+            super().__init__(device)
+            self.script = script
+
+        def _status(self) -> Any:
+            return self.script.pop(0) if len(self.script) > 1 else self.script[0]
+
+    jumps: list[float] = []
+    device = _FakeDevice(jumps)
+    lost = _Reported(0.0, "BUFFERING")
+    receiver = _Scripted(device, [_Reported(34.3), lost])
+    receiver.device.status = lost
+
+    receiver.position(front=94.3)  # картинка стояла на 34.3 с
+    assert receiver._shown == 34.3, "кадр на экране запомнен"
+
+    receiver.position(front=94.3)  # приёмник отдал ноль, живым себя называть не перестав
+    assert receiver._peak == 34.3, "ноль живого приёмника местом показа не является"
+
+    receiver._stall_since -= ChromecastReceiver.STALL_SECONDS
+    receiver.position(front=94.3)
+
+    assert jumps == [34.3 + ChromecastReceiver.STALL_SKIP], (
+        "сторож толкает показ вперёд от увиденного кадра, а не отсчитывает от нуля"
+    )
+    assert min(jumps) > receiver._shown, "назад от увиденного кадра сторож не прыгает"
+
+
 class _Gone:
     """Ушедший приёмник: ``seek`` принимает, указатель двигает - а кадра не даёт ни разу.
 

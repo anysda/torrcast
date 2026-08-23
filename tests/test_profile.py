@@ -136,11 +136,20 @@ def test_the_stick_is_bold_only_where_it_was_measured() -> None:
         "вес куска на приставке измерен: 16 МБ не отдают этого релиза вовсе, 28 играют начисто"
     )
     assert stick.segment_seconds == cautious.segment_seconds, "шаг сетки не измеряли"
-    assert (stick.stall_seconds, stick.ready_ahead, stick.stall_skip) == (
+    assert (
+        stick.stall_seconds,
+        stick.ready_ahead,
+        stick.stall_skip,
+        stick.blind_nudges,
+    ) == (
         cautious.stall_seconds,
         cautious.ready_ahead,
         cautious.stall_skip,
-    ), "сторож нуджей замером не назван"
+        cautious.blind_nudges,
+    ), (
+        "сторож подвиса - самсунговский: на этом приёмнике он не зовётся ни разу, и "
+        "настраивать его числа тут не на чем (TC-728)"
+    )
     assert stick.load_retries == cautious.load_retries, "свои повторы LOAD замер не отменяет"
 
 

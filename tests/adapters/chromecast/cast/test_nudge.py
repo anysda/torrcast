@@ -96,6 +96,25 @@ def test_the_ladder_of_blind_jumps_has_an_end(
     assert "прыгать перестаю" in capsys.readouterr().out
 
 
+def test_a_jump_that_cannot_get_past_the_shown_frame_is_not_made_at_all(tape: Tape) -> None:
+    """Прыжок назад не лечит ничего, поэтому его нет вовсе.
+
+    Прицел берётся от пройденного максимума, а максимум ходит за указателем приёмника -
+    и стоит указателю соврать, как прицел уезжает вместе с ним. Замер на живом Q70D:
+    картинка стояла на 34.3 с, приёмник отдал ноль позицией - и зритель получил фильм
+    сначала. Место последнего показанного кадра тут - пол, ниже которого сторож молчит.
+    """
+    clock = FakeClock(now=100.0)
+    receiver = Wired(clock=clock)
+    receiver._peak, receiver._shown = 0.0, 34.3
+
+    _stuck(receiver, clock, 0.0, front=94.3)
+
+    assert receiver.device.media_controller.jumps == []
+    assert tape.events() == []
+    assert receiver._blind == 0, "несделанный прыжок лестницу не тратит"
+
+
 def test_the_frame_the_viewer_was_left_on_is_remembered_by_the_first_jump() -> None:
     """Дальше указатель поедет за нашими же прыжками, и спросить о кадре будет некого."""
     clock = FakeClock(now=100.0)
