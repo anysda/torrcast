@@ -237,9 +237,15 @@ def test_the_verdict_is_the_only_place_where_a_codec_is_judged(
 
     Раньше ответов было два разных в двух местах - белый список копии на отборе и чёрный
     список перекода в упаковке, - и между ними была щель ровно в размер VP9.
+
+    🔴 TC-542. У приставки ответ ТОТ ЖЕ, и совпадение это замеренное, а не оставшееся по
+    недосмотру: её декодер берёт HEVC, Hi10P, VP9 и AV1 нативно, но нашим mpegts к ней
+    доезжает только h264 8 бит, а прочее кончается ``pipeline_error`` до первого кадра
+    (замер и числа - у :data:`~torrcast.domain.profile.ANDROID_TV`). Поэтому строчку тут
+    двигает не паспорт декодера, а живой прогон НАШИМ трактом.
     """
     assert CAUTIOUS.verdict(codec, depth) == want
-    assert ANDROID_TV.verdict(codec, depth) == want, "замер на приставке был нативный"
+    assert ANDROID_TV.verdict(codec, depth) == want, "замер приставки снят нашим трактом"
 
 
 def test_a_frame_the_receiver_cannot_take_never_leaves_as_a_copy_either() -> None:
