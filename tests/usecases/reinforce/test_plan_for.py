@@ -113,3 +113,32 @@ def test_a_release_above_the_receiver_ceiling_keeps_its_place_in_the_queue() -> 
 
     assert len(plan.ranked) == 1, "единственную раздачу потолок приёмника не выкидывает"
     assert plan.candidates(Args(query=["кино"])) == [1]
+
+
+def test_the_order_asks_the_receiver_for_its_codecs_too() -> None:
+    """🔴 TC-766. Потолка мало: раздачу, которую декодер не берёт, лёгкой считать нельзя.
+
+    Живой случай «Матрицы: Воскрешение»: HDR-раздача укладывается в потолок осторожного
+    приёмника (9.06 при 10.0), а едет зрителю сплошным перекодом от первой секунды до
+    титров. Приёмнику, который копирует десять бит, та же пара достаётся прежним порядком.
+    """
+    from dataclasses import replace
+
+    from torrcast.domain.profile import CAUTIOUS
+    from torrcast.domain.tune import tune
+
+    picture = pictures(
+        [
+            row("Кино / Movie (1999) WEB-DL 1080p, HDR10", "a", seeders=90, size_gb=8),
+            row("Кино / Movie (1999) WEB-DL 1080p", "b", seeders=40, size_gb=8),
+        ]
+    )[0]
+    args = Args(query=["кино"])
+    ten_bit = replace(CAUTIOUS, copy_depth=10)
+
+    cautious = plan_for(picture, args, tune(Config(), CAUTIOUS), CAUTIOUS)
+    tolerant = plan_for(picture, args, tune(Config(), ten_bit), ten_bit)
+
+    assert [release.seeders for release in cautious.ranked] == [40, 90]
+    assert [release.seeders for release in tolerant.ranked] == [90, 40]
+    assert len(cautious.ranked) == 2, "🔴 это предпочтение, а не отсев"

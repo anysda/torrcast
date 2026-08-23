@@ -2,12 +2,20 @@
 
 from __future__ import annotations
 
+from torrcast.domain.profile import CAUTIOUS, Profile
 from torrcast.domain.rank_settings import ALIVE_SEEDERS, TRADE_FLOOR
+from torrcast.domain.recodes_whole import recodes_whole
 from torrcast.domain.release import Release
 from torrcast.usecases.rank.bitrate_of import bitrate_of
 
 
-def fits_receiver(release: Release, runtime: float, recode_at: float, heavy_mbit: float) -> bool:
+def fits_receiver(
+    release: Release,
+    runtime: float,
+    recode_at: float,
+    heavy_mbit: float,
+    profile: Profile = CAUTIOUS,
+) -> bool:
     """Битрейт раздачи укладывается в потолок приёмника, а рой и картинка при этом живы.
 
     Потолок тут не тот, что у ворот отбора (:func:`over_ceiling`), и вопрос другой.
@@ -71,8 +79,29 @@ def fits_receiver(release: Release, runtime: float, recode_at: float, heavy_mbit
 
     Вес неизвестен - ступень молчит: предпочитать по весу, которого нет, нельзя, а
     настоящий битрейт куска рассудит уже показ.
+
+    🔴 TC-766. Потолок битрейта - не единственное, что у приёмника надо спросить. Раздача,
+    которую декодер не берёт ВОВСЕ, укладывается в него вольготнее любой честной и на этой
+    ступени вставала верхом: у «Матрицы: Воскрешение» это 9.06 Мбит/с при потолке 10.0, а
+    едет она зрителю сплошным перекодом от первой секунды до титров - 888 кусков из 888
+    через кодировщик. Ступень, заведённая ради вопроса «во что показ обойдётся зрителю», на
+    этом классе отвечала ровно наоборот, и цена ошибки тут не оттенок: сплошной перекод
+    занимает процессор целиком, требует из роя ~4.7 МБ/с вместо ~1 и стартует на 3 с позже.
+
+    Спрашивается это у ``profile``, и одним и тем же вопросом, что у показа и прогрева
+    (:func:`torrcast.domain.recodes_whole.recodes_whole`): второй список кодеков рядом со ступенью
+    разошёлся бы с профилем молча. Имя раздачи для этого вопроса переводится на язык
+    профиля (:attr:`Release.named_codec`, :attr:`Release.named_depth`) - названный HEVC и
+    названный HDR суть ровно то, чего осторожный декодер не берёт копией.
+
+    Приёмник, который этот кодек играет нативно, ничего не теряет: вопрос задан ЕГО
+    профилю, и ответ у него другой. Предпочтением это по-прежнему не является: раздача,
+    которую приёмник не декодирует, остаётся кандидатом и играется ровно как игралась -
+    под 1080p, где живого нет вовсе, сплошной перекод и есть показ.
     """
     if recode_at <= 0 or release.seeders < ALIVE_SEEDERS:
+        return False
+    if recodes_whole(release.named_codec, release.named_depth, profile):
         return False
     mbit = bitrate_of(release, runtime)
     return mbit is not None and heavy_mbit * TRADE_FLOOR <= mbit <= recode_at

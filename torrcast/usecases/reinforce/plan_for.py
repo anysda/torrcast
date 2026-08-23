@@ -92,6 +92,9 @@ def plan_for(
         # ли релиз вообще, а этот - поедет кусок копией или перекодированным на ходу.
         # В порядок он идёт предпочтением, а не отсевом (:func:`fits_receiver`).
         recode_at=config.recode_at_mbit if config.recode else 0.0,
+        # Кодеки приёмника - свойство того же профиля, что и его потолок: ступень
+        # спрашивает их одним вопросом с показом (🔴 TC-766).
+        profile=profile,
     )
     return Plan(
         picture=picture,

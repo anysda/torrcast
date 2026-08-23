@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Final
 
 from torrcast.domain._name_data.data_1 import (
     _AVI_RE,
@@ -23,6 +24,14 @@ from torrcast.domain.slugify import slugify
 from torrcast.domain.studio import Studio
 from torrcast.domain.studios_in import studios_in
 
+#: Как кодек зовётся в имени раздачи и как его зовёт профиль приёмника
+#: (:meth:`torrcast.domain.profile.Profile.verdict`). Имя молчит - ключа нет, и приговор
+#: достаётся умолчанию профиля.
+_PROFILE_CODECS: Final = {"HEVC": "hevc", "H.264": "h264", "MPEG-4": "mpeg4", "AV1": "av1"}
+#: Сколько бит на цвет обещает пометка HDR: и HDR10, и Dolby Vision - это десять,
+#: восьмибитного HDR не бывает.
+_HDR_DEPTH: Final = 10
+
 
 @dataclass(frozen=True, slots=True)
 class Release(_ReleaseMarks):
@@ -31,6 +40,34 @@ class Release(_ReleaseMarks):
     @property
     def is_hevc(self) -> bool:
         return self.codec == "HEVC"
+
+    @property
+    def named_codec(self) -> str:
+        """Кодек, НАЗВАННЫЙ именем раздачи, словами профиля приёмника; пусто - имя молчит.
+
+        Профиль судит кодеки одним ключом (``hevc``, ``h264``), а имя раздачи пишет их
+        по-человечески (``HEVC``, ``H.264``), и перевод нужен ровно затем, чтобы вопрос
+        «возьмёт ли это приёмник копией» задавался ОДНОЙ функции
+        (:func:`torrcast.domain.recodes_whole.recodes_whole`), а не второму списку рядом с ней.
+
+        Пусто - это «имя не сказало», а не «кодека нет»: приговор такому релизу вынесет
+        умолчание самого профиля, ровно как выносит его показ.
+        """
+        return _PROFILE_CODECS.get(self.codec or "", "")
+
+    @property
+    def named_depth(self) -> int:
+        """Глубина цвета, НАЗВАННАЯ именем раздачи; ноль - имя о ней молчит.
+
+        Пометка HDR - единственное, что имя об этом говорит, и говорит она достаточно:
+        и HDR10, и Dolby Vision несут десять бит на цвет по своему определению. Осторожному
+        приёмнику этого хватает, чтобы отказаться от копии (:attr:`Profile.copy_depth`), -
+        та же беда, что у десятибитного H.264, только названная в имени вслух.
+
+        Ноль тут значит «не спрашивали», а не «восемь»: точную глубину знает ffprobe после
+        выбора (:func:`torrcast.domain.color_depth.color_depth`), и спорить с ним имени нечем.
+        """
+        return _HDR_DEPTH if self.hdr else 0
 
     @property
     def height(self) -> int:

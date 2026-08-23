@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from tests.usecases.rank.releases import RUNTIME, rel
 from torrcast.domain.episode import Episode
+from torrcast.domain.profile import CAUTIOUS
 from torrcast.usecases.rank.is_full_hd import is_full_hd
 from torrcast.usecases.rank.rank_releases import rank_releases
 
@@ -212,3 +215,31 @@ def test_a_dead_light_release_does_not_displace_a_live_heavy_one() -> None:
     light = rel(name="лёгкий", quality="720p", size_gb=8, seeders=2)
     heavy = rel(name="тяжёлый", quality="720p", size_gb=16, seeders=90)
     assert _order([heavy, light], recode_at=10.0) == ["тяжёлый", "лёгкий"]
+
+
+def test_a_stream_the_receiver_cannot_decode_does_not_win_the_ceiling_step() -> None:
+    """🔴 TC-766. Названный HDR не обходит честного соседа: осторожный декодер берёт восемь бит.
+
+    Ступень заведена ради вопроса «во что показ обойдётся зрителю», и на этом классе
+    отвечала наоборот: раздача, которая едет сплошным перекодом целиком, проходила потолок
+    вольготнее той, что уезжает копией. Ворота отбора тут ни при чём - имя кодека молчит,
+    и кандидатом такая раздача остаётся при любом ответе профиля.
+    """
+    hdr = rel(name="hdr", codec=None, hdr=True, size_gb=8, seeders=90)
+    plain = rel(name="обычный", codec=None, size_gb=8, seeders=40)
+    assert _order([hdr, plain], recode_at=10.0) == ["обычный", "hdr"]
+
+
+def test_the_codec_step_is_a_preference_and_never_a_filter() -> None:
+    """🔴 Раздача остаётся кандидатом и играется: под ней живого может не быть вовсе."""
+    hdr = rel(name="hdr", codec=None, hdr=True, size_gb=8, seeders=90)
+    assert _order([hdr], recode_at=10.0) == ["hdr"]
+
+
+def test_the_receiver_that_plays_the_stream_by_copy_keeps_its_order() -> None:
+    """Вопрос задан профилю: у приёмника с десятибитной копией порядок прежний."""
+    ten_bit = replace(CAUTIOUS, copy_depth=10)
+    hdr = rel(name="hdr", codec=None, hdr=True, size_gb=8, seeders=90)
+    heavy = rel(name="тяжёлый", codec=None, size_gb=16, seeders=90)
+    assert _order([heavy, hdr], recode_at=10.0) == ["тяжёлый", "hdr"]
+    assert _order([heavy, hdr], recode_at=10.0, profile=ten_bit) == ["hdr", "тяжёлый"]
