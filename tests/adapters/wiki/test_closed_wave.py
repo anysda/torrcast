@@ -16,16 +16,17 @@ def test_the_answer_is_taken_by_the_deadline_and_the_wave_is_closed_after_it() -
     невиновный.
     """
     box: list[str] = []
+    done: list[float] = []
     late = threading.Event()
 
     def slow() -> None:
         late.wait(1.0)  # нитка отвечает, но много позже отведённого срока
         box.append("опоздавший")
+        done.append(time.monotonic())
 
     wave = [threading.Thread(target=slow, daemon=True, name="проба-волны")]
     before = thread_guard.alive()
     wave[0].start()
-    started = time.monotonic()
 
     answer = closed_wave(wave, time.monotonic() + 0.05, lambda: list(box))
 
@@ -33,7 +34,10 @@ def test_the_answer_is_taken_by_the_deadline_and_the_wave_is_closed_after_it() -
     assert box == ["опоздавший"], "опоздавшая нитка доработала, а не была брошена"
     left = thread_guard.alive() - before
     assert not left, f"нитку закрыл тот, кто её поднял, а живой осталась {left}"
-    assert time.monotonic() - started >= 1.0, "ответ отдан после закрытия, а не вместо него"
+    # Рубеж - момент, когда нитка доработала, а не длительность её ожидания:
+    # Event.wait вправе отпустить чуть раньше срока, его таймаут и time.monotonic
+    # считаются по разным часам.
+    assert done and time.monotonic() >= done[0], "ответ отдан после закрытия, а не вместо него"
 
 
 def test_the_wave_is_waited_out_as_a_wave_not_as_a_queue() -> None:
