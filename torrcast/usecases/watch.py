@@ -59,7 +59,9 @@ class Watch:
         self.flush()
 
     def flush(self) -> None:
-        """Записать состояние атомарно (tmp + rename в :mod:`torrcast.adapters.filesystem.state`)."""
+        """Записать состояние атомарно (tmp + rename в
+        :mod:`torrcast.adapters.filesystem.state`).
+        """
         if self.sealed:  # досмотренную запись повторными тиками не портим
             return
         self.last = time.monotonic()

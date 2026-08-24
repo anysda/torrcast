@@ -1892,8 +1892,9 @@ def test_deaths_are_counted_where_the_show_died_and_not_where_the_jump_aims() ->
     смерти легли в один и тот же кусок ``[124.583..137.095)``. Счёт по месту ПРИЦЕЛА
     (кадр + запас декодера) пересекает границу сетки на 127.095, то есть внутри этого
     самого дрейфа: смерти разъезжаются по двум счётчикам, ни один не добирает
-    :attr:`~torrcast.adapters.chromecast.cast.chromecast_receiver.ChromecastReceiver.DEADLY_TRIES`, и
-    перешагивание опаздывает на целый круг восстановления. Цель прыжка при этом остаётся у декодера.
+    :attr:`~torrcast.adapters.chromecast.cast.chromecast_receiver.ChromecastReceiver.DEADLY_TRIES`,
+    и перешагивание опаздывает на целый круг восстановления. Цель прыжка при этом остаётся у
+    декодера.
     """
     receiver = _Free()
     loads = receiver.loads

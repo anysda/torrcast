@@ -189,8 +189,8 @@ def _lay_out(
             # этой строки, а не наличие файла в каталоге (:attr:`edge`).
             state.edge = max(state.edge, slot)
             moved = True
-        # Остальные копии места больше не нужны: лишний файл в каталоге перекода выглядел
-        # бы для кодировщика готовым куском (:meth:`torrcast.adapters.recode.recoder.Recoder.ready`).
+        # Остальные копии места больше не нужны: лишний файл в каталоге перекода выглядел бы для
+        # кодировщика готовым куском (:meth:`torrcast.adapters.recode.recoder.Recoder.ready`).
         if moved and source is not path:
             path.unlink(missing_ok=True)
         if moved and better is not None and source is not better:

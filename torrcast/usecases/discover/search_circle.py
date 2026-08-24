@@ -66,8 +66,8 @@ def search_circle(
 
     ``indexer`` и ``passport`` - откуда берутся клиент индексеров и справка. Умолчание
     боевое (:class:`~torrcast.adapters.prowlarr.prowlarr.Prowlarr`,
-    :func:`~torrcast.usecases.passport.Passport.of`); называют их те, у кого своих служб нет, - тесты
-    и щупы.
+    :func:`~torrcast.usecases.passport.Passport.of`); называют их те, у кого своих служб нет, -
+    тесты и щупы.
     """
     if not config.prowlarr_apikey:  # без Prowlarr искать нечем - это инфра-ошибка
         raise InfraError("не настроен Prowlarr: apikey пуст, перезапусти ./install.sh")
@@ -144,7 +144,8 @@ def search_circle(
         progress.note(f"«{lead.also}» и «{lead.title}» - одна картина, раздач {len(lead.releases)}")
     progress.phase("")
     # Номер пункта меню человек читает как номер части и им же отвечает: «Тачки 2» обязаны
-    # стоять вторыми, а безномерные - после линейки (:func:`~torrcast.domain.menu_order.menu_order`).
+    # стоять вторыми, а безномерные - после линейки
+    # (:func:`~torrcast.domain.menu_order.menu_order`).
     found = menu_order(found)
     # Память картины доезжает до отбора здесь, и здесь же по одной причине: ступень
     # студии нужна КАЖДОМУ, кто строит меню, - и показу, и `cast releases`, - иначе

@@ -85,8 +85,8 @@ class _Playing:
     #: (``--release N``, ``--file N``), уезжала на ТВ и вставала там намертво.
     #:
     #: Ноль - кадр не спрашивали (записи прежних версий). Такая запись своё число
-    #: получает на первом же продолжении (:func:`torrcast.usecases.episode_duration._duration`) - тем
-    #: же одним ffprobe, что и глубину цвета: без него 4К уезжало бы в поток с уровнем «4.1»
+    #: получает на первом же продолжении (:func:`torrcast.usecases.episode_duration._duration`) -
+    #: тем же одним ffprobe, что и глубину цвета: без него 4К уезжало бы в поток с уровнем «4.1»
     #: (:func:`torrcast.adapters.recode.level_for`, TC-251).
     frame: int = 0
     #: Картинка в HDR по паспорту ffprobe (:attr:`torrcast.domain.media.Media.hdr`): её при

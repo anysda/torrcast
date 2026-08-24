@@ -25,8 +25,8 @@ class _Revivable(Protocol):
     поднять его не там, где просили
     (:meth:`torrcast.adapters.chromecast.cast.chromecast_receiver.ChromecastReceiver._past_deadly`),
     и тогда «да» на месте, которого зритель не увидит, - это враньё о пятнадцати секундах фильма.
-    :data:`torrcast.domain.not_raised.NOT_RAISED` - картинки нет; ноль ответом об отказе не является,
-    это законное начало картины.
+    :data:`torrcast.domain.not_raised.NOT_RAISED` - картинки нет; ноль ответом об отказе не
+    является, это законное начало картины.
 
     ``paused=True`` - вернуть потерянную сессию на закладку, НЕ начиная показ: паузу на
     ней ставил зритель, и снимает её тоже он, с пульта

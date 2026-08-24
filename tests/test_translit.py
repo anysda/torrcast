@@ -232,8 +232,8 @@ def test_a_fat_but_dead_russian_pool_asks_the_original_too() -> None:
     """Вторая половина того же: HD в пуле есть, а сидов под ним нет.
 
     Порог живости тут тот же, которым меряется картина в меню
-    (:data:`~torrcast.domain.rank_settings.ALIVE_SEEDERS`): под ним раздача не играет, и пул из таких
-    строк негоден ровно так же, как пул из одного SD.
+    (:data:`~torrcast.domain.rank_settings.ALIVE_SEEDERS`): под ним раздача не играет, и пул из
+    таких строк негоден ровно так же, как пул из одного SD.
     """
     client = FakeProwlarr(
         {

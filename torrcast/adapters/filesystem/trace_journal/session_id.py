@@ -9,8 +9,8 @@ import time
 from typing import Final
 
 #: Общий идентификатор сеанса у команды и у юнита показа. Ставится в окружение и едет в
-#: юнит вместе с прочими путями (:data:`torrcast.domain.unit_naming._PASS_ENV`), поэтому поиск, отбор
-#: и показ одного ``cast`` сводятся в одну строку истории.
+#: юнит вместе с прочими путями (:data:`torrcast.domain.unit_naming._PASS_ENV`), поэтому поиск,
+#: отбор и показ одного ``cast`` сводятся в одну строку истории.
 SID_ENV: Final = "TORRCAST_SID"
 
 

@@ -9,8 +9,8 @@ from dataclasses import dataclass, field
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.media import Media
 from torrcast.domain.release import Release
-from torrcast.domain.torrcast_error import TorrcastError
 from torrcast.domain.torr_file import TorrFile
+from torrcast.domain.torrcast_error import TorrcastError
 from torrcast.ports.contact_wait import ContactWait
 
 

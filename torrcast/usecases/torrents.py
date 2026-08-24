@@ -33,8 +33,8 @@ def _release_torrents(config: Config, hashes: Sequence[str]) -> list[str]:
 
     Своё в списке тоже видно, но отличить его владельца по списку нельзя.
 
-    Срок службе даётся короткий (:data:`torrcast.domain.probe_settings.PROBE_TIMEOUT`), а молчание не
-    считается бедой: уборка идёт на выходе, в том числе по SIGTERM от ``cast stop``, и
+    Срок службе даётся короткий (:data:`torrcast.domain.probe_settings.PROBE_TIMEOUT`), а молчание
+    не считается бедой: уборка идёт на выходе, в том числе по SIGTERM от ``cast stop``, и
     задерживать выход из-за неотвечающей службы она права не имеет. Повторный снос
     несуществующей раздачи - не ошибка (:meth:`torrcast.ports.torrent_engine.TorrentEngine.drop`).
 

@@ -473,8 +473,8 @@ def clip_hevc(tmp_path_factory: pytest.TempPathFactory) -> str:
     """Ролик-источник в HEVC — то, чего приёмник не декодирует вовсе.
 
     Такой файл показ обязан перекодировать ЦЕЛИКОМ
-    (:data:`torrcast.domain.probe_settings.RECODE_CODECS`), а не посегментно по весу: смешанный поток
-    H.264 и HEVC живой Q70D не доигрывает. Кадр мелкий и ``ultrafast`` — ролик собирается за
+    (:data:`torrcast.domain.probe_settings.RECODE_CODECS`), а не посегментно по весу: смешанный
+    поток H.264 и HEVC живой Q70D не доигрывает. Кадр мелкий и ``ultrafast`` — ролик собирается за
     секунды.
     """
     path = tmp_path_factory.mktemp("src-hevc") / "clip.mkv"

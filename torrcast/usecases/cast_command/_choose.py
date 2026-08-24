@@ -67,7 +67,8 @@ def _choose(
     with progress_bar() as progress:
         plans = circle(config, args, progress, chosen.profile)
         # Справка к меню (рейтинг, хронометраж, о чём кино) едет фоном - ровно в те
-        # секунды, что уходят на подъём прогрева. Меню её не ждёт: см. torrcast.runtime.facts_wiring.
+        # секунды, что уходят на подъём прогрева. Меню её не ждёт: см.
+        # torrcast.runtime.facts_wiring.
         facts = _state._play_facts([(p.picture.title, p.picture.year) for p in plans])
         facts.start()
         # 🔴 TC-199/TC-200. Год картины, которая встанет дефолтом, сверяется со справкой -

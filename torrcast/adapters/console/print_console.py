@@ -12,7 +12,8 @@ from torrcast.adapters.console.console.ask_line import ask_line
 
 
 class PrintConsole:
-    """Реализация консольного порта поверх прежнего диалога :mod:`torrcast.adapters.console.console`.
+    """Реализация консольного порта поверх прежнего диалога
+    :mod:`torrcast.adapters.console.console`.
 
     Терминал и чтение строки приходят конструктором: обе связи с человеком у консоли
     одни на все три её вопроса, и стенд подставляет их объектом, а не подменой имени в

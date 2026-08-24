@@ -73,7 +73,9 @@ def test_install_removes_its_login_notice_without_a_motd_phase() -> None:
 
 
 def test_imdb_files_follow_the_state_directory() -> None:
-    assert 'IMDB_RATINGS_PATH="${TORRCAST_IMDB_RATINGS_PATH:-$STATE_DIR/imdb-ratings.tsv}"' in SCRIPT
+    assert (
+        'IMDB_RATINGS_PATH="${TORRCAST_IMDB_RATINGS_PATH:-$STATE_DIR/imdb-ratings.tsv}"' in SCRIPT
+    )
     assert 'IMDB_NAMES_PATH="${TORRCAST_IMDB_NAMES_PATH:-$STATE_DIR/imdb-ru-names.tsv}"' in SCRIPT
 
 

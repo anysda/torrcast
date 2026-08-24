@@ -54,8 +54,12 @@ def test_layers_rule_turns_red(tmp_path: Path) -> None:
 
 def test_cycles_rule_turns_red(tmp_path: Path) -> None:
     root = _tree(tmp_path)
-    (root / "torrcast" / "a.py").write_text('"""Модуль А."""\nimport torrcast.b\n', encoding="utf-8")
-    (root / "torrcast" / "b.py").write_text('"""Модуль Б."""\nimport torrcast.a\n', encoding="utf-8")
+    (root / "torrcast" / "a.py").write_text(
+        '"""Модуль А."""\nimport torrcast.b\n', encoding="utf-8"
+    )
+    (root / "torrcast" / "b.py").write_text(
+        '"""Модуль Б."""\nimport torrcast.a\n', encoding="utf-8"
+    )
     (root / "tests" / "test_a.py").write_text("", encoding="utf-8")
     (root / "tests" / "test_b.py").write_text("", encoding="utf-8")
     assert "циклы" in _rules(root)
@@ -329,7 +333,9 @@ def test_handout_rule_turns_red_on_a_name_from_a_submodule(tmp_path: Path) -> No
     root = _tree(tmp_path)
     _package(root, "notes", '"""Пакет."""\n\nfrom .digest import digest\n')
     handed = [item for item in structure_gate.check(root) if item.rule == "раздача"]
-    assert [item.message for item in handed] == ["пакет раздаёт имя digest из torrcast.notes.digest"]
+    assert [item.message for item in handed] == [
+        "пакет раздаёт имя digest из torrcast.notes.digest"
+    ]
 
 
 def test_handout_rule_turns_red_on_a_name_taken_by_its_full_address(tmp_path: Path) -> None:

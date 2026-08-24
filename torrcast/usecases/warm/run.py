@@ -42,8 +42,8 @@ def _run(
     уже есть - и прогретое повторяет его один в один, а не добавляет свой.
 
     🔴 Где прогон встал на самом деле - :func:`torrcast.adapters.stream_pack.pack_start.pack_start`,
-    ровно как у живой упаковки (:meth:`torrcast.usecases.feed_pack.feed.Feed.restart`), а не «где его
-    задумала сетка». Разница не бухгалтерская: ``-segment_times`` считаются от ``at``, а муксер
+    ровно как у живой упаковки (:meth:`torrcast.usecases.feed_pack.feed.Feed.restart`), а не «где
+    его задумала сетка». Разница не бухгалтерская: ``-segment_times`` считаются от ``at``, а муксер
     отмеряет их от ПЕРВОГО ПАКЕТА прогона. Отдали задуманное начало - и все резы захода попросились
     раньше на всю докатку. Замер на живом материале: ``-ss 2901.815`` ставит ffmpeg на 2899.730,
     докатка 2.085 с, и прогретый кусок начинался на 2932.638 вместо 2934.432 - PCR на 1.668 с назад,
@@ -53,8 +53,8 @@ def _run(
     кадров не было, рез вставал верно и кусок был побайтово равен живому - отсюда и незаметность.
 
     ⚠️ Пробный прогон нужен ровно копии. У перекодирующего захода (``spot``, сплошной
-    :attr:`encode`) ``-ss`` точен, докатки нет, и измеренное начало увело бы весь заход
-    на сегмент назад (:func:`torrcast.adapters.stream_pack.ffmpeg_pack_command.ffmpeg_pack_command`).
+    :attr:`encode`) ``-ss`` точен, докатки нет, и измеренное начало увело бы весь заход на сегмент
+    назад (:func:`torrcast.adapters.stream_pack.ffmpeg_pack_command.ffmpeg_pack_command`).
 
     Заход, вставший ПОЗЖЕ границы, кладёт куски, начинающиеся не там, где обещает
     манифест, а сверка укладки (:func:`torrcast.usecases.warm.verify._verify`) ищет сдвиг
@@ -162,8 +162,8 @@ def _run(
             _throttle(state, packer)
             _state._environment.sleep(0.5)
         if state.misgrid < 0 and not state.trouble:
-            # Мёртвый ffmpeg дописал последний кусок, но выложить его успевает уже
-            # не цикл (:meth:`torrcast.adapters.stream_pack.packer.Packer.publish`) - и сверить тоже.
+            # Мёртвый ffmpeg дописал последний кусок, но выложить его успевает уже не цикл
+            # (:meth:`torrcast.adapters.stream_pack.packer.Packer.publish`) - и сверить тоже.
             packer.publish()
             _inspect(state, laid, min(packer.edge, last), began_of)
     finally:

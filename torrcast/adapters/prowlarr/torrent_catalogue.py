@@ -1,11 +1,12 @@
 """Каталог раздач одним предметом: склейка выдач и разбор строк в релизы.
 
-Договор стоит в порту (:class:`torrcast.ports.torrent_catalogue.torrent_catalogue.TorrentCatalogue`),
-а считают обе операции соседи по пакету - :func:`torrcast.adapters.prowlarr.merge.merge` и
+Договор стоит в порту
+(:class:`torrcast.ports.torrent_catalogue.torrent_catalogue.TorrentCatalogue`), а считают обе
+операции соседи по пакету - :func:`torrcast.adapters.prowlarr.merge.merge` и
 :func:`torrcast.adapters.prowlarr.to_releases.to_releases`. Предмет нужен потому, что порт
-спрашивает ОБЕ операции у одного объекта: раньше этим объектом был сам пакет, и договор
-держался на том, что его ``__init__`` раздавал имена соседей. Теперь у предмета свой файл,
-а имена берутся из своих домов.
+спрашивает ОБЕ операции у одного объекта: раньше этим объектом был сам пакет, и договор держался на
+том, что его ``__init__`` раздавал имена соседей. Теперь у предмета свой файл, а имена берутся из
+своих домов.
 """
 
 from __future__ import annotations

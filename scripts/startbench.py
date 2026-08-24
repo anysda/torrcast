@@ -106,7 +106,8 @@ def watch_segment(
     середины путать их нельзя: mock открывает поток через ``ffmpeg -ss``, а тот сначала
     дёргает начало плейлиста, показ честно допаковывает ещё и ``v0``, и по нему замер
     показал бы совсем не то, что увидит телевизор. Номер слота берётся из ленты меток —
-    его печатает метка захода упаковки (:func:`torrcast.adapters.stream_pack.pack_start.pack_start`).
+    его печатает метка захода упаковки
+    (:func:`torrcast.adapters.stream_pack.pack_start.pack_start`).
     """
     slot = 0
     while not stop.is_set():

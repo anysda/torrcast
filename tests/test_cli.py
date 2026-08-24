@@ -620,8 +620,8 @@ class _Spent:
     def __init__(self, spare: float) -> None:
         self._spare = spare
         #: Частный бюджет за целью ещё не выдан - как у свежего клиента поиска
-        #: (:attr:`torrcast.adapters.prowlarr.prowlarr.Prowlarr.over_goal`). Подделка обязана обещать
-        #: это поле: без него охранник читал бы у настоящего клиента то, чего у неё нет.
+        #: (:attr:`torrcast.adapters.prowlarr.prowlarr.Prowlarr.over_goal`). Подделка обязана
+        #: обещать это поле: без него охранник читал бы у настоящего клиента то, чего у неё нет.
         self.over_goal = False
 
     def spare(self) -> float:
@@ -909,8 +909,8 @@ def test_the_walk_down_the_queue_stops_when_the_start_budget_is_out(
     """Упорство упорством, а человек сидит у консоли: бюджет фазы отбора конечен.
 
     Потолок тот же, что был у трёх попыток по полному бюджету раздачи
-    (:data:`~torrcast.domain.pick_settings.PICK_BUDGET`), и кончиться он обязан честной строкой, а не
-    новым походом в рой. 🔴 TC-435: честная - это «рой молчит», а не «годного релиза
+    (:data:`~torrcast.domain.pick_settings.PICK_BUDGET`), и кончиться он обязан честной строкой, а
+    не новым походом в рой. 🔴 TC-435: честная - это «рой молчит», а не «годного релиза
     нет»: негодных не нашли ни одной, их просто не прочитали. Совета «выбери руками»
     тут нет - весь бюджет ушёл на раздачи, стоявшие выше неспрошенных, и про хвост
     очереди мы не знаем ничего (:func:`~torrcast.usecases.discover.silent_swarm.silent_swarm`).
@@ -1356,8 +1356,8 @@ def test_cheap_verdicts_do_not_eat_the_place_of_the_living_release_below(
     а место в очереди он занимал ровно как приговор тяжёлому ремуксу.
 
     Здесь три приговора подряд стоят долей секунды (:class:`_FakeTorrServer` отвечает
-    сразу), то есть весь :data:`~torrcast.domain.pick_settings.VERDICT_BUDGET` остаётся нетронутым, и
-    четвёртая раздача - названный 1080p - обязана быть спрошена.
+    сразу), то есть весь :data:`~torrcast.domain.pick_settings.VERDICT_BUDGET` остаётся нетронутым,
+    и четвёртая раздача - названный 1080p - обязана быть спрошена.
     """
     ranked = [
         rel(name="SD-рип", quality="480p", seeders=90),
@@ -2505,8 +2505,8 @@ def test_default_leaves_a_dead_end_picture_for_its_living_namesake() -> None:
 
     Тупик тут дословный: одна SD-раздача, порог живости она проходит (8 сид), очереди за
     ней нет, и нужного сезона тоже. Рядом стоит картина ровно того же имени с тридцатью
-    раздачами в 1080p. :func:`~torrcast.usecases.choice.backed.backed` за неё не берётся - тип другой
-    (TC-192),
+    раздачами в 1080p. :func:`~torrcast.usecases.choice.backed.backed` за неё не берётся - тип
+    другой (TC-192),
     - и дефолтом молча вставал тупик. Тот же расклад у «Ангела», «Убийства», «Родины».
     """
     stub = _franchise_plan(
@@ -3348,8 +3348,8 @@ def test_a_dubbed_neighbour_warms_under_the_menu_when_the_top_promises_nothing()
     """🔴 TC-309. Верх именем русскую не обещает - ближайший обещавший греется заодно.
 
     Проверка честности спросит этого соседа первым же вопросом, если дорожка верха
-    окажется без тега языка (:meth:`~torrcast.usecases.select_bench.bench.Bench._honest`, повод «язык
-    звука не назван»), а с нуля - метаданные роя плюс чтение дорожек - он в
+    окажется без тега языка (:meth:`~torrcast.usecases.select_bench.bench.Bench._honest`, повод
+    «язык звука не назван»), а с нуля - метаданные роя плюс чтение дорожек - он в
     :data:`~torrcast.domain.pick_settings.HONEST_BUDGET` укладывался не всегда. Пауза под меню при
     этом простаивает.
     """
@@ -3712,8 +3712,8 @@ def test_a_multi_season_pack_that_hides_its_bitrate_stops_outranking_the_live_on
     ``[S01-04] (2014-2017) HDTV-AlexFilm`` не называет ни разрешения, ни кодека и серий
     не считает - :func:`~torrcast.usecases.rank.bitrate_of.bitrate_of` на таком молчит (``None``,
     TC-344), и раздача с ОДНИМ сидом вставала в очереди выше сериала на 61 сид. Три таких верха
-    подряд - это три приговора ``mpeg4``, весь :data:`~torrcast.domain.pick_settings.MAX_TRIES` и 130
-    секунд, после которых показ говорит «годного релиза нет» при живом каталоге.
+    подряд - это три приговора ``mpeg4``, весь :data:`~torrcast.domain.pick_settings.MAX_TRIES` и
+    130 секунд, после которых показ говорит «годного релиза нет» при живом каталоге.
     """
     from torrcast.usecases.rank.is_dated import is_dated
     from torrcast.usecases.rank.pack_mbit import pack_mbit
@@ -3987,9 +3987,9 @@ def test_a_release_already_judged_is_not_turned_down_twice_on_screen(
     человек прочитал четыре строки. Подготовка забракованного релиза остаётся в
     :attr:`~torrcast.usecases.select_bench.bench.Bench.preps` готовой - ``ffprobe`` прочитан, ответ
     есть, - и проверка честности переспрашивала её тем же
-    :meth:`~torrcast.usecases.select_bench.bench.Bench._trouble` с теми же порогами. Приговор выходил
-    тот же, строка печаталась вторая, а записи не было ни одной новой: экран и лента расходились
-    ровно на этот дубль.
+    :meth:`~torrcast.usecases.select_bench.bench.Bench._trouble` с теми же порогами. Приговор
+    выходил тот же, строка печаталась вторая, а записи не было ни одной новой: экран и лента
+    расходились ровно на этот дубль.
     """
     ranked = [
         rel(name="Кино [WEB-DL 1080p] a", size_gb=3.20, seeders=140),
@@ -4393,7 +4393,8 @@ def test_the_namesake_line_stays_silent_where_it_should() -> None:
 
     Год, разошедшийся со справкой, - самый важный случай: паспорт приехал про ДРУГУЮ
     картину, и её тёзка к выбранной отношения не имеет. Про сам разъезд человек читает
-    своей строкой (:func:`~torrcast.usecases.choice.year_note.year_note`), и валить их в кучу нельзя.
+    своей строкой (:func:`~torrcast.usecases.choice.year_note.year_note`), и валить их в кучу
+    нельзя.
     """
     from torrcast.domain.facts.origin import Origin
 

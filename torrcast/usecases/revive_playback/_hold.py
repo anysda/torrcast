@@ -99,8 +99,8 @@ def _hold(
         _ctl(receiver)
         # Выкладка кусков стоит на пути запроса сегмента, а запросов может не быть вовсе:
         # показ, который берёт прогретое с диска, к упаковке не обращается, и написанное
-        # ею копится в памяти (:meth:`torrcast.usecases.feed_pack.feed.Feed.sweep`). Поэтому её зовут
-        # ещё и по часам показа - здесь, до всякого разговора с приёмником.
+        # ею копится в памяти (:meth:`torrcast.usecases.feed_pack.feed.Feed.sweep`). Поэтому её
+        # зовут ещё и по часам показа - здесь, до всякого разговора с приёмником.
         feed.sweep()
         if trouble := feed.trouble():
             screen.was_offline = _endure(feed, supply, clock, trouble, screen.was_offline)
