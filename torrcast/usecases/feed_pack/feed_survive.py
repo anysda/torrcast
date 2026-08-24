@@ -70,10 +70,25 @@ def _doubts(state: _State) -> None:
 
 
 def _reread(state: _State) -> None:
-    """Прогон что-то выложил - значит источник снова читается: снять обрыв и приговоры."""
+    """Прогон получил байты - значит источник снова читается: снять обрыв и приговоры."""
     state.moved = _state.clock_port.monotonic()
     state.offline = ""
     _doubts(state)
+
+
+def _progress(state: _State, packer: PackRun) -> bool:
+    """Заметить прирост пишущегося файла, не приняв выкладку за байты источника."""
+    pending = packer.pending()
+    moved = pending > state.source_bytes if packer is state.source_run else pending > 0
+    state.source_run = packer
+    state.source_bytes = pending
+    return moved
+
+
+def _settle(state: _State, packer: PackRun) -> None:
+    """Запомнить вес после выкладки: переименование не является движением источника."""
+    state.source_run = packer
+    state.source_bytes = packer.pending()
 
 
 def _survive(state: _State, packer: PackRun) -> bool:

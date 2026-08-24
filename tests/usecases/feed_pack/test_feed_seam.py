@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+import pytest
+
 from tests.usecases.feed_pack.world import (
     FakeProc,
     feed,
@@ -166,6 +168,24 @@ def test_the_raise_leaves_the_answer_to_the_receiver_alone(tmp_path: Path, tape:
     assert asked == [] and show.lock.locked(), "подъём пошёл прямо в ответе приёмнику"
     work[0]()
     assert asked == [11] and not show.lock.locked()
+
+
+def test_a_spawn_failure_does_not_lock_the_seam_forever(tmp_path: Path, tape: Tape) -> None:
+    """Неподнятый поток не может навсегда отнять у стыка право поднять упаковку."""
+
+    def broken(_work: object) -> None:
+        raise RuntimeError("поток не поднялся")
+
+    tract(now=100.0, spawn=broken)
+    asked: list[int] = []
+    show = _warmed(tmp_path, 10)
+
+    with pytest.raises(RuntimeError, match="поток не поднялся"):
+        _seam(show, 5, asked.append)
+    tract(now=110.0, spawn=here)
+    _seam(show, 5, asked.append)
+
+    assert asked == [11], "сбой подъёма навсегда занял замок стыка"
 
 
 def test_a_show_ended_mid_raise_takes_the_run_with_it(tmp_path: Path, tape: Tape) -> None:

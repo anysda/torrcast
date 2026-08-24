@@ -121,6 +121,7 @@ def test_a_published_piece_means_the_source_reads_again(tmp_path: Path) -> None:
     show.offline = "источник молчит"
     show.moved = 0.0
     show.packer = packer(tmp_path, first=0, edge=0, out=show.out)
+    lay(show.packer.run, 1)
 
     _steer(show, 9, asked.append)
 
@@ -150,6 +151,7 @@ def test_a_source_that_reads_again_lifts_the_provisional_verdicts(tmp_path: Path
     tract(now=500.0)
     show = feed(tmp_path, vault=vault(tmp_path))
     show.packer = packer(tmp_path, first=0, edge=0, out=show.out)
+    lay(show.packer.run, 1)
     show.skipped = {4, 9, 12}
     show.doubted = {4, 12}
 

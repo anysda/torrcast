@@ -68,15 +68,21 @@ def _seam(state: _State, slot: int, restart: Callable[[int], None]) -> None:
         return  # соседний запрос уже поднял упаковку - не толкаемся
     if not state.lock.acquire(blocking=False):
         return  # решение уже принимают; свой кусок ждёт файла, а не очереди
-    state.restarted = _state.clock_port.monotonic()
-    journal().mark(
-        "упаковка к стыку прогретого",
-        слот=seam,
-        задел=round(state.grid.end(end) - state.grid.start(slot), 1),
-    )
-    # Замок отсюда уносит подъём и отпускает его сам: внутри лежит пробный прогон, до
-    # минуты по потолку, а тут стоит поток раздачи с готовым прогретым куском в руках.
-    _state.spawn(lambda: _raise(state, restart, seam))
+    handed = False
+    try:
+        state.restarted = _state.clock_port.monotonic()
+        journal().mark(
+            "упаковка к стыку прогретого",
+            слот=seam,
+            задел=round(state.grid.end(end) - state.grid.start(slot), 1),
+        )
+        # Замок отсюда уносит подъём и отпускает его сам: внутри лежит пробный прогон, до
+        # минуты по потолку, а тут стоит поток раздачи с готовым прогретым куском в руках.
+        _state.spawn(lambda: _raise(state, restart, seam))
+        handed = True
+    finally:
+        if not handed:
+            state.lock.release()
 
 
 def _raise(state: _State, restart: Callable[[int], None], slot: int) -> None:

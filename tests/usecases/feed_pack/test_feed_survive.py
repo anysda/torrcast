@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from tests.usecases.feed_pack.world import FakeProc, feed, packer, tract, vault
+from tests.usecases.feed_pack.world import FakeProc, feed, lay, packer, tract, vault
 from torrcast.domain.hls_settings import MUTE_SECONDS
 from torrcast.usecases.feed_pack.feed_survive import _mute, _survive
+from torrcast.usecases.feed_pack.feed_sweep import _sweep
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -48,6 +49,27 @@ def test_without_the_warmed_film_the_silence_is_indistinguishable_from_a_slow_sw
     _mute(show)
 
     assert show.offline == "" and said == []
+
+
+def test_warmed_pieces_do_not_move_the_source_silence_clock(tmp_path: Path) -> None:
+    """Часы идут от последнего байта источника, пока показ берёт прогретое."""
+    fake = tract(now=900.0)
+    said: list[str] = []
+    show = feed(tmp_path, vault=vault(tmp_path), log=said.append)
+    show.packer = packer(tmp_path, first=7, out=show.out)
+    lay(show.packer.run, 7, size=100)
+
+    fake.now = 1000.0
+    _sweep(show, lambda _slot: None)
+    assert show.moved == 1000.0
+
+    fake.now += MUTE_SECONDS
+    _sweep(show, lambda _slot: None)
+    assert show.offline == "" and said == []
+
+    fake.now += 1.0
+    _sweep(show, lambda _slot: None)
+    assert show.offline == f"источник молчит дольше {MUTE_SECONDS:.0f} с"
 
 
 def test_the_same_corpse_is_counted_once_and_not_five_times_a_second(

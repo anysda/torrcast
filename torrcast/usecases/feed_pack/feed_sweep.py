@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 
 import torrcast.usecases.feed_pack._state as _state
 from torrcast.ports.journal.slot import journal
-from torrcast.usecases.feed_pack.feed_survive import _doubts, _survive
+from torrcast.usecases.feed_pack.feed_survive import _mute, _progress, _reread, _settle, _survive
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -40,9 +40,13 @@ def _sweep(state: _State, restart: Callable[[int], None]) -> None:
     packer = state.packer
     if packer is None or packer.halted:
         return
+    moved = _progress(state, packer)
     packer.publish()
-    if packer.poll() is None and packer.edge >= packer.first:
-        _doubts(state)
+    _settle(state, packer)
+    if moved:
+        _reread(state)
+    else:
+        _mute(state)
     _torn(state, restart)
     pending = packer.pending()
     if pending <= state.pending_cap:

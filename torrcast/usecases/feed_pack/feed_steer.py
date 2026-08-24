@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 
 import torrcast.usecases.feed_pack._state as _state
 from torrcast.ports.journal.slot import journal
-from torrcast.usecases.feed_pack.feed_survive import _mute, _reread, _survive
+from torrcast.usecases.feed_pack.feed_survive import _mute, _progress, _reread, _settle, _survive
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -56,6 +56,7 @@ def _steer(state: _State, slot: int, restart: Callable[[int], None]) -> bool:
         return True
     packer = state.packer
     if packer is not None and not packer.halted:
+        moved = _progress(state, packer)
         # Край берём честный - тот, что выложил ЭТОТ прогон (:attr:`Packer.edge`).
         # Глоб каталога (`frontier`) на этом месте и был багом: чужие куски
         # уводили край вперёд, запрос далеко назад попадал в «подожди, вот-вот
@@ -63,8 +64,9 @@ def _steer(state: _State, slot: int, restart: Callable[[int], None]) -> bool:
         # наивная починка («ждать только впереди глоба») давала 20 перезапусков за
         # 100 с. Работает только честный край: он растёт ровно на publish.
         packer.publish()
-        if packer.edge >= packer.first:
-            _reread(state)  # прогон что-то выложил - значит источник снова читается
+        _settle(state, packer)
+        if moved:
+            _reread(state)  # прогон получил байты - значит источник снова читается
         else:
             _mute(state)
         if (state.out / _state.segment_name(slot)).exists():

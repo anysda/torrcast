@@ -263,6 +263,7 @@ def test_the_clock_lifts_a_provisional_verdict_the_receiver_can_never_ask_about(
     tract(now=100.0, spawn=here)
     show = feed(tmp_path)
     show.packer = packer(tmp_path, first=0, edge=4, out=show.out)
+    lay(show.packer.run, 5)
     show.skipped = {2, 7}
     show.doubted = {7}
 
