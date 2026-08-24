@@ -5,8 +5,11 @@ from dataclasses import replace
 from tests.usecases.select_bench.world import RUNTIME, Said, Torrents, plan, probes, rel
 from torrcast.domain.args import Args
 from torrcast.domain.media import Media
-from torrcast.domain.profile import CAUTIOUS
+from torrcast.domain.profile import ANDROID_TV, CAUTIOUS
+from torrcast.domain.torr_file import TorrFile
 from torrcast.ports.json_value import JsonValue
+from torrcast.usecases.select._prep import _Prep
+from torrcast.usecases.select_bench._bench_supply import _bench_supply
 from torrcast.usecases.select_bench.bench import Bench
 
 
@@ -41,3 +44,16 @@ def test_best_is_kept_when_every_swarm_is_short(capsys: object) -> None:
     assert chosen.number == 1
     said = capsys.readouterr().out  # type: ignore[attr-defined]
     assert "ни один проверенный рой не тянет - беру лучший" in said
+
+
+def test_the_stick_does_not_condemn_a_swarm_before_its_measured_settle_time() -> None:
+    release = rel("good-after-settle")
+    prep = _Prep(number=1, release=release)
+    prep.video = TorrFile(0, "movie.mkv", 8 * 1024**3)
+    prep.media = Media(RUNTIME, (), "h264")
+    prep.supply = [(1.0, 0.0), (2.0, 0.0)]
+
+    assert _bench_supply(CAUTIOUS, prep)[0] == 0.0, "нулевое окно измерено, а не потеряно"
+    assert _bench_supply(ANDROID_TV, prep)[0] < 0.0, (
+        "до измеренных 10 с мера ещё молчит: неизвестное снабжение обязано пройти отбор"
+    )
