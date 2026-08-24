@@ -296,12 +296,17 @@ def test_the_encoder_is_not_allowed_to_bank_bits_for_a_burst() -> None:
 
 
 def test_a_ready_recoded_piece_goes_out_instead_of_the_heavy_copy(tmp_path) -> None:  # type: ignore[no-untyped-def]
-    """Выкладка осталась в одном месте: перекод побеждает копию внутри :meth:`publish`."""
+    """Выкладка осталась в одном месте: перекод побеждает копию внутри :meth:`publish`.
+
+    Копия тут и правда тяжелее потолка приёмника: пока она в него влезает, склейка со
+    звуком копии не вышла и наружу идёт как раз она.
+    """
     out = tmp_path / "out"
     spare = out / "recode"
     spare.mkdir(parents=True)
     packer = fake_packer(out, first=0)
     packer.spare = spare
+    packer.cap = 100
     packer.run.mkdir(parents=True, exist_ok=True)
     (packer.run / segment_name(0)).write_bytes(b"heavy" * 100)
     (packer.run / segment_name(1)).write_bytes(b"next")

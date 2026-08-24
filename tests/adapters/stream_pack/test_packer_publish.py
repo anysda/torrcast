@@ -101,21 +101,21 @@ def test_the_recoded_picture_goes_out_with_the_sound_of_the_copy(tmp_path: Path)
         dst.write_bytes(b"mixed")
         return True
 
-    _lay_out(run, _always, merge=merge, shift_of=lambda *a: 0.25)
+    _lay_out(run, _always, merge=merge)
 
     assert (run.out / "v0.ts").read_bytes() == b"mixed"
     assert told == [(0, "склейка")]
     assert not (spare / "v0.ts").exists(), "лишняя копия места осталась лежать"
 
 
-def test_a_failed_merge_on_a_shifted_run_sends_the_copy_while_it_fits(tmp_path: Path) -> None:
-    """Склейки нет, а лента сдвинута: копия своего прогона - меньшее зло, пока влезает."""
+def test_a_failed_merge_sends_the_copy_of_its_own_run_while_it_fits(tmp_path: Path) -> None:
+    """Склейки нет: перекод принёс бы свой звук, поэтому копия своего прогона меньшее зло."""
     spare = tmp_path / "recode"
     spare.mkdir()
     run = packer(tmp_path, spare=spare, cap=4096)
     lay(run.run, 0, size=100)
     lay(spare, 0, size=200)
-    _lay_out(run, _always, merge=lambda *a, **k: False, shift_of=lambda *a: 0.25)
+    _lay_out(run, _always, merge=lambda *a, **k: False)
 
     assert (run.out / "v0.ts").stat().st_size == 100, "наружу ушла не копия своего прогона"
 
@@ -238,33 +238,18 @@ def test_the_picture_of_the_recode_lies_on_the_timeline_of_this_run(tmp_path: Pa
     run = packer(tmp_path, spare=spare, told=lambda slot, how: told.append((slot, how)))
     lay(run.run, 0)
     lay(spare, 0, size=2048)
-    seen: list[tuple[str, str, float]] = []
+    seen: list[tuple[str, str, float | None]] = []
 
     def merge(video: Path, audio: Path, dst: Path, **kwargs: Any) -> bool:
-        seen.append((video.name, audio.name, float(kwargs["shift"])))
+        seen.append((video.name, audio.name, kwargs.get("shift")))
         dst.write_bytes(b"mixed")
         return True
 
     _lay_out(run, _always, merge=merge, shift_of=lambda *a: 0.0417)
 
-    assert seen == [("v0.ts", "v0.ts", 0.0417)], "сдвиг ленты прогона не доехал до склейки"
+    assert seen == [("v0.ts", "v0.ts", None)], "картинку перекода подвинули под голову копии"
     assert (run.out / "v0.ts").read_bytes() == b"mixed"
     assert told == [(0, "склейка")], "журнал не отличает склейку от голого перекода"
-
-
-def test_a_merge_that_failed_on_an_unshifted_run_sends_the_recode_as_it_is(
-    tmp_path: Path,
-) -> None:
-    """Сдвиг неизвестен, склейки нет - наружу перекод как есть: тяжёлая копия хуже стыка."""
-    spare = tmp_path / "recode"
-    spare.mkdir()
-    run = packer(tmp_path, spare=spare)
-    lay(run.run, 0, size=100)
-    lay(spare, 0, size=200)
-
-    _lay_out(run, _always, merge=lambda *a, **k: False, shift_of=lambda *a: None)
-
-    assert (run.out / "v0.ts").stat().st_size == 200, "наружу ушла не картинка перекода"
 
 
 def test_a_copy_over_the_ceiling_loses_even_to_a_broken_seam(tmp_path: Path) -> None:
@@ -280,7 +265,7 @@ def test_a_copy_over_the_ceiling_loses_even_to_a_broken_seam(tmp_path: Path) -> 
     lay(run.run, 0, size=101)
     lay(spare, 0, size=50)
 
-    _lay_out(run, _always, merge=lambda *a, **k: False, shift_of=lambda *a: 0.0417)
+    _lay_out(run, _always, merge=lambda *a, **k: False)
 
     assert (run.out / "v0.ts").stat().st_size == 50
     assert told == [(0, "перекод")]

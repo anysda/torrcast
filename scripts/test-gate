@@ -157,12 +157,12 @@ for name in sys.argv[1:]:
         groups.append([])
     else:
         groups[-1].append(Path(name))
-# Ход ленты сверяется у кусков ОДНОГО прогона: там оба соседа нарезаны одним муксером
-# из одного потока, и «метка назад» на их стыке - это дефект и ничего больше. У
-# выложенного наружу соседями встают куски разных производителей (копия и склейка), у
-# которых своя задержка переупорядочивания, и общей меры хода ленты на таком стыке нет.
-SEAMS = ("упаковка копией", "непрерывность перекода")
-for leg, pieces in zip((*SEAMS, "выкладка зрителю"), groups):
+# Ход ленты сверяется на всех трёх плечах, и выложенное зрителю - главное из них: это
+# ровно тот поток, который разбирает приёмник, и «метка назад» в нём стоит показа.
+# Куски там разных производителей (копия и склейка), но лента у них одна - фильма, -
+# потому что оба захода пакуют её метки как есть (``-copyts`` и общий ``origin``).
+SEAMS = ("упаковка копией", "непрерывность перекода", "выкладка зрителю")
+for leg, pieces in zip(SEAMS, groups):
     if len(pieces) < 2:
         raise SystemExit("сторожу стыков нужно хотя бы два куска")
     timeline = [packets(piece) for piece in pieces]
@@ -174,8 +174,6 @@ for leg, pieces in zip((*SEAMS, "выкладка зрителю"), groups):
         if not found["video"]:
             print(f"{leg}: {piece.name} - ни одного видеокадра", file=sys.stderr)
             broken = True
-    if leg not in SEAMS:
-        continue
     for seam, (left, right) in enumerate(zip(timeline, timeline[1:]), start=1):
         for stream, label in (("video", "видео"), ("audio", "звук")):
             if not left[stream] or not right[stream]:
