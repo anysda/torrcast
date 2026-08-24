@@ -40,6 +40,12 @@ def test_debug_handles_and_the_show_flags_are_read_as_named() -> None:
     assert args.from_start and args.dry
 
 
+def test_the_menu_is_asked_by_a_flag_of_its_own() -> None:
+    """``--menu`` - просьба выбрать картину: номера у неё нет, и по умолчанию её нет."""
+    assert parse_args(["кино", "--menu"]).menu
+    assert not parse_args(["кино"]).menu
+
+
 def test_the_log_border_and_the_unit_key_are_read_as_named() -> None:
     assert parse_args(["log", "--since", "2d"]).since == "2d"
     assert parse_args(["--play-key", "movie:кино:1999"]).play_key == "movie:кино:1999"

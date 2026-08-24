@@ -134,6 +134,14 @@ def test_a_finished_bookmark_does_not_answer_for_the_warm() -> None:
     )
 
 
+def test_a_named_episode_keeps_the_warm_of_the_film() -> None:
+    """Серию у записи фильма не спросить: картину выберет обычный путь - прогрев нужен."""
+    assert (
+        _plays_recorded(_state_with(entry()), plan().picture.key, Args(query=["кино", "s1e1"]))
+        is False
+    )
+
+
 def test_a_hand_named_release_keeps_the_warm() -> None:
     """``--release N`` играет выбранное руками: прогретое ещё пригодится."""
     assert (

@@ -75,12 +75,15 @@ def _cmd_play(
     # Названная руками серия, `--new` и ручной релиз решают это за неё, и обещать им
     # следующую серию нельзя: строка «играю s1e3» перед честным «играю s1e1» - подмена.
     named = args.episode is not None
-    if found_entry is not None and not (args.from_start or args.pinned or named):
+    # Ручки, которыми зритель называет картину сам, старше закладки: `--menu` и `--pick N`
+    # просят меню, а сохранённое место отвечает на «где я остановился» (TC-773).
+    own_choice = args.pinned or args.from_menu
+    if found_entry is not None and not (args.from_start or own_choice or named):
         found_entry, watched = _account_watched(state, found_entry)
     # --new поднимает сохранённый выбор лишь когда он действительно отвечает на
     # весь запрос. Явная серия сперва прыгает внутри сохранённой раздачи, а ручной
     # релиз/файл выбирается обычным путём: эти ручки нельзя выбросить молча.
-    if args.from_start and found_entry is not None and not args.pinned:
+    if args.from_start and found_entry is not None and not own_choice:
         code = restart(config, *found_entry, args=args, clock=clock)
         if code is not None:
             return code
@@ -90,7 +93,7 @@ def _cmd_play(
     # тот же `--release N` то уважался, то пропадал молча, и решал это лишь текст запроса:
     # совпал с записью - выход был здесь, и флаг выбрасывался, не назвав себя ни строкой;
     # не совпал - картина выбиралась в меню, и тот же флаг работал.
-    if found_entry is not None and not args.pinned:
+    if found_entry is not None and not own_choice:
         if watched and not found_entry[1].serial:
             code = restart(config, *found_entry, args=args, clock=clock)
             if code is not None:

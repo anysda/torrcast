@@ -53,6 +53,37 @@ def test_a_watched_movie_is_started_over_and_says_so() -> None:
     assert code == EXIT_OK
 
 
+def test_an_asked_menu_outranks_the_bookmark_and_says_nothing_about_it(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """``--menu`` - запрос «дай выбрать»: закладка на него не отвечает и не считает."""
+    _remember(entry(query="кино", pos=7100.0))
+
+    code = _cmd_play(
+        Args(query=["кино"], menu=True),
+        restart=_never,
+        resume=_never,
+        choose=lambda *args, **rest: EXIT_OK,
+    )
+
+    assert code == EXIT_OK
+    assert "досмотрено" not in capsys.readouterr().out
+
+
+def test_a_hand_named_menu_item_outranks_the_bookmark() -> None:
+    """``--pick N`` называет картину номером - съесть этот номер закладке нечем."""
+    _remember(entry(query="кино"))
+
+    code = _cmd_play(
+        Args(query=["кино"], pick=3),
+        restart=_never,
+        resume=_never,
+        choose=lambda *args, **rest: EXIT_OK,
+    )
+
+    assert code == EXIT_OK
+
+
 def test_the_code_of_the_bookmark_of_the_chosen_picture_reaches_the_caller() -> None:
     """Закладка выбранной картины отвечает показом - и её код уезжает наружу целым."""
     assert _cmd_play(Args(query=["кино"]), choose=lambda *args, **rest: EXIT_OK) == EXIT_OK

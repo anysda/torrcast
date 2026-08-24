@@ -20,14 +20,19 @@ def test_the_line_names_the_picture_the_episode_the_quality_and_the_voice() -> N
 
     said = _about(saved)
 
-    assert said == "«Кино» · s1e2 · 1080p · Дубляж · с 0:03:20"
+    assert said == "«Кино» · s1e2 · 1080p · Дубляж · с 0:03:20 · выбрать другое: --menu"
 
 
 def test_a_nameless_voice_is_named_by_its_number() -> None:
     """Подписи у дорожки нет - человеку называют её номер, а не пустое место."""
-    assert _about(entry(pos=0.0, audio=1)) == "«Кино» · дорожка 2"
+    assert _about(entry(pos=0.0, audio=1)) == "«Кино» · дорожка 2 · выбрать другое: --menu"
 
 
 def test_the_start_of_the_film_is_not_a_place_worth_naming() -> None:
     """Показ с нуля - говорить «с 0:00:00» незачем."""
     assert "с " not in _about(entry(pos=0.0, voice="Дубляж"))
+
+
+def test_the_line_names_the_handle_that_raises_the_menu() -> None:
+    """Играет записанный выбор - и строка сама говорит, чем просят другую картину."""
+    assert _about(entry()).endswith("выбрать другое: --menu")

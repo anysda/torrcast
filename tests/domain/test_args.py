@@ -50,3 +50,11 @@ def test_a_hand_named_release_or_file_is_the_debug_path() -> None:
     assert Args(query=["кино"], release=2).pinned
     assert Args(query=["кино"], file=1).pinned
     assert not Args(query=["кино"], voice=3).pinned, "озвучка выбор раздачи не прибивает"
+
+
+def test_a_menu_asked_by_hand_outranks_the_bookmark() -> None:
+    """``--menu`` и ``--pick N`` называют картину сами - место в записи им не ответ."""
+    assert not Args(query=["кино"]).from_menu
+    assert Args(query=["кино"], menu=True).from_menu
+    assert Args(query=["кино"], pick=3).from_menu
+    assert not Args(query=["кино"], release=2).from_menu, "релиз - это раздача, не картина"

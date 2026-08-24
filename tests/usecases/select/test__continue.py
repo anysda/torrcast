@@ -74,6 +74,23 @@ def test_a_film_in_the_middle_is_resumed_without_a_single_question() -> None:
     assert shown.resumed == ["Кино"]
 
 
+def test_a_named_episode_is_not_answered_by_a_film_bookmark() -> None:
+    """`cast кино s1e1` при закладке фильма - запрос сериала: отвечать на него нечем."""
+    shown = _Shown()
+
+    code = _continue(
+        Config(),
+        "movie:кино:1999",
+        entry(),
+        Args(query=["кино", "s1e1"]),
+        _Clock(),
+        **shown.calls,
+    )
+
+    assert code is None, "серию просили у фильма - идём искать сериал"
+    assert (shown.launched, shown.resumed) == ([], [])
+
+
 def test_an_asked_episode_jumps_by_the_cache_of_the_torrent() -> None:
     """`cast кино s1e3` - прыжок по кэшу раздачи, без Prowlarr и без вопросов."""
     saved, shown = entry(**_SERIES), _Shown()

@@ -39,6 +39,11 @@ def parse_args(argv: Sequence[str] | None = None) -> Args:
         help="отладка: релиз N выбранной картины; номера - из cast releases с тем же запросом",
     )
     parser.add_argument("--pick", type=int, metavar="N", help="картина N из меню, без вопроса")
+    # Закладка отвечает на «где я остановился», а меню - на «что играть»: этой ручкой
+    # спрашивают второе, и сохранённое место у неё дороги не занимает.
+    parser.add_argument(
+        "--menu", action="store_true", help="поднять меню выбора картины, а не продолжать начатое"
+    )
     parser.add_argument("--file", type=int, metavar="N", help="отладка: взять файл N раздачи")
     parser.add_argument(
         "--voice",

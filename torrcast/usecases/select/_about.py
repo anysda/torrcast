@@ -5,6 +5,11 @@ from __future__ import annotations
 from torrcast.domain.entry import Entry
 from torrcast.usecases.rank._hms import _hms
 
+#: Ручка, которой зритель просит меню картин вместо записанного выбора. Строку читают
+#: ровно там, где играет закладка, поэтому имя ручки стоит в ней самой: искать его в
+#: справке человеку неоткуда - он не спрашивал.
+_OTHER = "выбрать другое: --menu"
+
 
 def _about(entry: Entry) -> str:
     """Строка показа по записи состояния: «Киберпанк» · s1e2 · дорожка 1 · с 0:03:20.
@@ -12,6 +17,10 @@ def _about(entry: Entry) -> str:
     Студия называется отдельным словом, если подпись дорожки о ней молчит: у сезонной
     раздачи подпись это голое ``rus``, и по ней человек не отличит студию, которой он
     смотрит сериал, от любой другой (:attr:`torrcast.domain.entry.Entry.studio`).
+
+    Последним словом строка называет ручку, которой поднимают меню картин
+    (:attr:`torrcast.domain.args.Args.menu`): играет тут записанный выбор, и другого
+    места сказать о выборе нет.
     """
     voice = entry.voice or f"дорожка {entry.audio + 1}"
     if entry.studio and entry.studio.casefold() not in voice.casefold():
@@ -19,4 +28,5 @@ def _about(entry: Entry) -> str:
     parts = [f"«{entry.title}»", entry.label, entry.quality, voice]
     if entry.pos > 0:
         parts.append(f"с {_hms(entry.pos)}")
+    parts.append(_OTHER)
     return " · ".join(filter(None, parts))

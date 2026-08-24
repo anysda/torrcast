@@ -96,7 +96,7 @@ def _plays_recorded(state: WatchState, key: str, args: Args) -> bool:
     started = state.get(key)
     if started is None or args.pinned:
         return False
-    return args.from_start or (not started.serial and started.resumable)
+    return args.from_start or (args.episode is None and not started.serial and started.resumable)
 
 
 def _from_start(config: Config, key: str, entry: Entry, *, args: Args, clock: _Clock) -> int | None:
