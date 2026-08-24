@@ -68,6 +68,46 @@ def test_a_number_named_by_the_flag_replaces_the_question_and_not_the_choice() -
     assert world.said[0].splitlines()[1] == "  2. Мумия (2017)", "список всё равно на экране"
 
 
+def test_the_flag_number_is_checked_against_the_table_it_came_from() -> None:
+    """Номер из ``cast releases`` адресует ТУ картину, что стояла под ним в таблице.
+
+    Состав выдачи гуляет от захода к заходу: под тем же номером сегодня может стоять
+    другая картина. Сверка с запомненной таблицей пропускает только совпадение, и
+    картина проговаривается вслух - номер молчит.
+    """
+    mummy = parts(("Мумия", 1999, 47), ("Мумия", 2017, 58))
+    world = Outside(tty=False, pinned=(mummy[1].picture.key, "Мумия (2017)"))
+
+    assert _pick_plan(mummy, pick=2, asked="мумия", environment=world) is mummy[1]
+    assert world.said[-1] == "играю «Мумия (2017)» - пункт 2, названный флагом --pick"
+
+
+def test_a_flag_number_pointing_at_another_picture_is_a_refusal_not_a_show() -> None:
+    """Под номером сейчас ДРУГАЯ картина - отказ, называющий обе, а не молчаливый показ.
+
+    В таблице «мумия» под двойкой стояла «Мумия (1999)», а в новой выдаче под ней
+    «Мумия (2017)»: сыграть её - значит подменить кино без единой строки.
+    """
+    mummy = parts(("Мумия", 1999, 47), ("Мумия", 2017, 58))
+    world = Outside(tty=False, pinned=(mummy[0].picture.key, "Мумия (1999)"))
+
+    with pytest.raises(NotFoundError) as refusal:
+        _pick_plan(mummy, pick=2, asked="мумия", environment=world)
+
+    said = str(refusal.value)
+    assert "«Мумия (1999)»" in said and "«Мумия (2017)»" in said
+    assert "cast releases мумия" in said
+    assert world.asked == [], "вопроса не было - был отказ"
+
+
+def test_a_flag_number_without_a_remembered_table_is_taken_as_named() -> None:
+    """Таблицы этого запроса не было - сверять не с чем, номер берётся как назван."""
+    world = Outside(tty=False)
+    mummy = parts(("Мумия", 1999, 47), ("Мумия", 2017, 58))
+
+    assert _pick_plan(mummy, pick=2, asked="мумия", environment=world) is mummy[1]
+
+
 def test_a_number_outside_the_list_is_an_honest_error_and_not_a_quiet_first_item() -> None:
     """Номера нет в списке - честная ошибка: тихо взять первый пункт значило бы подменить кино."""
     mummy = parts(("Мумия", 1999, 47), ("Мумия", 2017, 58))

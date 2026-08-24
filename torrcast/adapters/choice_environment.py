@@ -11,6 +11,7 @@ from typing import Any
 from torrcast.adapters.console.console import stdin_is_tty as _tty
 from torrcast.adapters.console.console.ask import ask
 from torrcast.adapters.console.live_menu import LiveMenu
+from torrcast.adapters.filesystem.release_pins import pins
 from torrcast.adapters.filesystem.trace_journal.emit import emit
 from torrcast.domain.debug_handles import CTL_ENV
 from torrcast.domain.facts.fact import Fact
@@ -79,6 +80,10 @@ class _SystemChoiceEnvironment:
             return None
         path.unlink(missing_ok=True)
         return line
+
+    @staticmethod
+    def recalled_pick(query: str, number: int) -> tuple[str, str]:
+        return pins.recalled_picture(query, number)
 
     @staticmethod
     def write(line: str) -> None:

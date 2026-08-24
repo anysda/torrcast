@@ -39,14 +39,17 @@ if TYPE_CHECKING:
 _releases_settings: Callable[[], Config]
 _releases_facts: Callable[[list[tuple[str, int | None]]], Facts]
 _releases_detect: Callable[[Config], Choice]
-_releases_remember: Callable[[str, dict[str, list[Release]]], None]
+#: Память показанного порядка: строки таблицы - ключ картины, её имя и раздачи под
+#: их номерами. По этой записи ``--pick M`` и ``--release N`` сверяют, что номер
+#: адресует то же, что стояло под ним при выдаче.
+_releases_remember: Callable[[str, list[tuple[str, str, list[Release]]]], None]
 
 
 def _configure_releases_command(
     settings: Callable[[], Config],
     facts: Callable[[list[tuple[str, int | None]]], Facts],
     detect: Callable[[Config], Choice],
-    remember: Callable[[str, dict[str, list[Release]]], None],
+    remember: Callable[[str, list[tuple[str, str, list[Release]]]], None],
 ) -> None:
     """Назначить таблице релизов её внешний мир."""
     global _releases_settings, _releases_facts, _releases_detect, _releases_remember
@@ -106,10 +109,10 @@ def _cmd_releases(
     facts.start()
     try:
         print(f"профиль приёмника: {chosen.profile.title} - {chosen.how}")
-        shown: dict[str, list[Release]] = {}
+        shown: list[tuple[str, str, list[Release]]] = []
         for number, plan in enumerate(plans, start=1):
             plan = _timed(plan, facts, inner, config, chosen.profile)
-            shown[plan.picture.key] = plan.ranked
+            shown.append((plan.picture.key, _named(plan.picture), plan.ranked))
             print()
             head = f"{_named(plan.picture)} - раздач {len(plan.ranked)}"
             # Номер картины тот же, что у пункта меню в `cast <запрос>` и у --pick:

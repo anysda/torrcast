@@ -17,14 +17,31 @@ class ReleasePins:
 
     Номер живёт ровно до следующей таблицы того же запроса, поэтому файл переписывается
     целиком, а не дополняется: показанное вчера под номером 2 сегодня значит другое.
+
+    Помимо раздач таблица запоминает порядок самих картин и их имена: номер картины
+    (``--pick M``) без такой записи - не адрес, а место в списке, чей состав гуляет
+    от захода к заходу. По записи выбор сверяет, ТУ ли картину взял номер.
     """
 
-    def remember(self, query: str, releases: dict[str, list[Release]]) -> None:
-        """Атомарно запомнить порядок последней таблицы этого запроса."""
-        shown = {
-            key: [info_hash(release) for release in ranked] for key, ranked in releases.items()
-        }
-        _write_atomic(self._path(), {query: shown})
+    def remember(self, query: str, shown: list[tuple[str, str, list[Release]]]) -> None:
+        """Атомарно запомнить порядок последней таблицы этого запроса.
+
+        ``shown`` - строки таблицы в показанном порядке: ключ картины, её имя для
+        человека и раздачи в порядке их номеров.
+        """
+        _write_atomic(
+            self._path(),
+            {
+                query: {
+                    "order": [key for key, _name, _ranked in shown],
+                    "names": {key: name for key, name, _ranked in shown},
+                    "shown": {
+                        key: [info_hash(release) for release in ranked]
+                        for key, _name, ranked in shown
+                    },
+                }
+            },
+        )
 
     def recalled(self, query: str, picture: str, number: int) -> str:
         """Вернуть хэш, стоявший под номером в последней показанной таблице.
@@ -32,11 +49,40 @@ class ReleasePins:
         Номера нет, файла нет, лежит чужое - пусто: по пустому имени показ ищет заново,
         а не берёт раздачу наугад.
         """
-        saved = self._read(self._path()).get(query, {})
-        ranked = saved.get(picture, []) if isinstance(saved, dict) else []
+        tables = self._tables(query)
+        ranked = tables.get(picture, [])
         if not isinstance(ranked, list) or not all(isinstance(item, str) for item in ranked):
             return ""
         return ranked[number - 1] if 1 <= number <= len(ranked) else ""
+
+    def recalled_picture(self, query: str, number: int) -> tuple[str, str]:
+        """Картина, стоявшая под номером в последней таблице: ключ и имя.
+
+        Пустая пара - таблицы этого запроса не было, и сверять номер не с чем: такой
+        ``--pick`` остаётся просто номером пункта, каким человек его и назвал.
+        """
+        saved = self._read(self._path()).get(query, {})
+        if not isinstance(saved, dict):
+            return "", ""
+        order = saved.get("order", [])
+        names = saved.get("names", {})
+        if not isinstance(order, list) or not all(isinstance(key, str) for key in order):
+            return "", ""
+        if not isinstance(names, dict):
+            names = {}
+        if not 1 <= number <= len(order):
+            return "", ""
+        key = order[number - 1]
+        name = names.get(key, "")
+        return key, name if isinstance(name, str) else ""
+
+    def _tables(self, query: str) -> dict[str, Any]:
+        """Таблицы раздач запроса; старый формат (без порядка картин) читается тоже."""
+        saved = self._read(self._path()).get(query, {})
+        if not isinstance(saved, dict):
+            return {}
+        tables = saved.get("shown", saved)
+        return tables if isinstance(tables, dict) else {}
 
     def _path(self) -> Path:
         return state_path().with_name("release-pins.json")

@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 from torrcast.ports.choice_environment.choice_environment import ChoiceEnvironment
 from torrcast.usecases.choice._dress import _dress
+from torrcast.usecases.choice._named import _named
 from torrcast.usecases.choice.certain_default import certain_default
 from torrcast.usecases.choice.configure import _environment_port
 from torrcast.usecases.choice.default_line import default_line
@@ -61,9 +62,12 @@ def _pick_plan(
     Ждём справку ровно там, где дописывать её будет некому (:func:`_shown`).
 
     ``pick`` - номер пункта, названный флагом ``--pick N``: вопрос тогда не задаётся
-    вовсе, и терминал не нужен. Это не молчаливая подмена, а названный человеком выбор -
-    тот же номер, что стоит у пункта меню на экране. Номер вне списка - честная ошибка,
-    а не тихий первый пункт.
+    вовсе, и терминал не нужен. Номер берётся из таблицы ``cast releases``, а состав
+    выдачи гуляет от захода к заходу, поэтому номер сверяется с запомненной таблицей
+    (:meth:`ChoiceEnvironment.recalled_pick`): под ним обязана стоять ТА картина, что
+    стояла при выдаче номера. Расхождение - отказ, называющий обе картины, а не показ
+    соседки. Картина при этом проговаривается вслух в любом исходе - номер молчит.
+    Номер вне списка - честная ошибка, а не тихий первый пункт.
 
     Спрашивать есть о чём, а терминала нет (ssh без pty, cron, чужой скрипт) - тут мы
     по-прежнему отказываемся. Любой дефолт означает в этом месте **другой фильм**:
@@ -76,8 +80,22 @@ def _pick_plan(
     if pick is not None and not 1 <= pick <= len(plans):
         raise env.not_found_error(f"подходит картин: {len(plans)}, номера {pick} нет")
     if pick is not None:  # номер назвал сам человек - ни вопроса, ни подмены
+        plan = plans[pick - 1]
+        key, named = env.recalled_pick(asked, pick)
+        if key and key != plan.picture.key:
+            # Номер - адрес из показанной таблицы, а состав выдачи гуляет: под тем же
+            # номером сегодня стоит ДРУГАЯ картина. Показать её молча - подмена; отказ
+            # называет, что стояло под номером тогда и что стоит сейчас.
+            raise env.not_found_error(
+                f"под номером {pick} в таблице «{asked}» была «{named}», "
+                f"а сейчас под ним «{_named(plan.picture)}» - это не та картина; "
+                f"свежие номера: cast releases {asked}"
+            )
         _shown(env, plans, facts, dress=False).close()
-        return plans[pick - 1]
+        # Картина проговаривается перед показом: номер молчит, и без этой строки
+        # человек узнал бы о подмене уже с экрана.
+        env.write(f"играю «{_named(plan.picture)}» - пункт {pick}, названный флагом --pick")
+        return plan
     if len(plans) == 1:
         return plans[0]
     default = first_alive(plans)

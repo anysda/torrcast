@@ -154,6 +154,10 @@ class Outside:
     #: Живой ли экран у меню: на нём строка дописывается, а в трубе и в файле - нет.
     live: bool = True
 
+    #: Что отвечает память последней показанной таблицы: (ключ, имя) картины под
+    #: спрошенным номером. Пустая пара - таблицы не было, сверять номер не с чем.
+    pinned: tuple[str, str] = ("", "")
+
     said: list[str] = field(default_factory=list)
     painted: Paint | None = None
     asked: list[tuple[str, int, int | None]] = field(default_factory=list)
@@ -174,6 +178,10 @@ class Outside:
         self.reads += 1
         line, self.command = self.command, None
         return line
+
+    def recalled_pick(self, query: str, number: int) -> tuple[str, str]:
+        """Картина под номером в последней показанной таблице - что запомнила память."""
+        return self.pinned
 
     def write(self, line: str) -> None:
         self.said.append(line)
