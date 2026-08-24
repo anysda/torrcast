@@ -38,7 +38,7 @@ def test_every_slot_takes_its_value_from_the_environment() -> None:
     tract: Any = _state
     assert tract.Packer == "упаковщик"
     assert tract.ffmpeg_pack_command() == "команда"
-    assert tract.pack_start("src", 1.0) == "пробный"
+    assert tract.settle_start("src", 1.0) == "пробный"
     assert (_state.AUDIO_MBIT, _state.TS_OVERHEAD) == (0.5, 1.5)
 
 

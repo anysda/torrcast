@@ -7,8 +7,8 @@ from pathlib import Path
 
 from torrcast.adapters.filesystem.trace_journal import evict, skew, warmth
 from torrcast.adapters.stream_pack.ffmpeg_pack_command import ffmpeg_pack_command
-from torrcast.adapters.stream_pack.pack_start import pack_start as _pack_start
 from torrcast.adapters.stream_pack.packer import Packer
+from torrcast.adapters.stream_pack.settle_start import settle_start as _settle_start
 from torrcast.adapters.stream_pack.spot_out import spot_out
 from torrcast.adapters.stream_probe.segment_name import segment_name as _segment_name
 from torrcast.adapters.stream_probe.segment_slot import segment_slot as _segment_slot
@@ -34,7 +34,7 @@ _spot_out: Callable[..., bool] = spot_out
 
 
 # ⚠️ Медиатракт зовётся ЧЕРЕЗ модульные слоты выше, а не связывается на сборке класса
-# (``pack_start = staticmethod(...)``): подмена медиатракта в зеркалах прогрева ставится
+# (``settle_start = staticmethod(...)``): подмена медиатракта в зеркалах прогрева ставится
 # ровно сюда, и связывание на сборке обесточило бы её молча (TC-666).
 
 
@@ -68,8 +68,8 @@ class _SystemWarmEnvironment:
         return _pack_command(*args, **kwargs)
 
     @staticmethod
-    def pack_start(source_url: str, at: float) -> float:
-        return _pack_start(source_url, at)
+    def settle_start(source_url: str, at: float) -> tuple[float, float]:
+        return _settle_start(source_url, at)
 
     @staticmethod
     def spot_out(*args: object, **kwargs: object) -> bool:

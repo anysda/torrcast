@@ -20,8 +20,8 @@ Grid = FeedGrid
 #: Имя файла сегмента по месту в фильме и обратный разбор имени в место.
 segment_name: Callable[[int], str]
 segment_slot: Callable[[str], int]
-#: Куда на самом деле встанет ffmpeg после ``-ss``, и чем паковать по сетке.
-pack_start: Callable[..., float]
+#: С какого ``-ss`` заходить и где ffmpeg встанет, и чем паковать по сетке.
+settle_start: Callable[..., tuple[float, float]]
 ffmpeg_pack_command: Callable[..., list[str]]
 #: Чем поднять прогон упаковки. Сам прогон адаптерный - процесс ffmpeg, временный файл
 #: и часы, - и живёт он в медиатракте (:mod:`torrcast.adapters.stream_pack.packer`); сюда

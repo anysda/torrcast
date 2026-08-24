@@ -49,6 +49,7 @@ def pack_command(
     encode: Any = None,
     until: int = -1,
     *,
+    seek: float | None = None,
     split_slack: float = 0.02,
     audio_codec: str = "aac",
     audio_channels: int = 2,
@@ -85,8 +86,15 @@ def pack_command(
     раз из 768. Аварийным именем это красило бы штатную работу, поэтому у ровной сетки
     запись своя и спокойная — ``посадка позже границы на ровной сетке``. Само число
     зажимается одинаково: ошибиться именем куска нельзя ни на какой сетке.
+
+    ``seek`` — с какого места прогон заходит на самом деле, то есть что уедет в ``-ss``.
+    Обычно это и есть граница, и тогда его не называют. Врозь они расходятся ровно там,
+    где демуксер садится ПОЗЖЕ границы: заход отводят назад
+    (:func:`torrcast.adapters.stream_pack.settle_start.settle_start`), чтобы кусок границы
+    резался внутри непрерывного потока, а не начинался дырой.
     """
     run = run_dir.rstrip("/")
+    entry = grid.start(slot) if seek is None else seek
     if at > grid.start(slot):
         journal().mark(
             "заход позже своей границы"
@@ -139,7 +147,7 @@ def pack_command(
             command += ["-readrate_initial_burst", f"{burst:g}"]
     command += ["-copyts"]
     if slot > 0:
-        command += ["-ss", f"{grid.start(slot):.3f}"]
+        command += ["-ss", f"{entry:.3f}"]
     command += ["-i", source_url, "-map", "0:v:0", "-map", f"0:a:{audio_index}"]
     command += ["-c:v", "copy"] if encode is None else encode.args(grid, slot, upto - 2)
     if until >= 0:

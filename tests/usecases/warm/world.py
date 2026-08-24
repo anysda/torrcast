@@ -35,7 +35,7 @@ class FakeEnvironment:
     #: ступень, которую меряет, а остальные остаются настоящими.
     packer: Any = environment.packer_type
     pack: Any = environment.pack_command
-    pilot: Any = environment.pack_start
+    pilot: Any = environment.settle_start
     lay_spot: Any = environment.spot_out
     names: Any = environment.segment_name
     slots: Any = environment.segment_slot
@@ -88,7 +88,7 @@ class FakeEnvironment:
     def pack_command(self, *args: Any, **kwargs: Any) -> Any:
         return self.pack(*args, **kwargs)
 
-    def pack_start(self, source_url: str, at: float) -> Any:
+    def settle_start(self, source_url: str, at: float) -> Any:
         return self.pilot(source_url, at)
 
     def spot_out(self, *args: Any, **kwargs: Any) -> Any:
@@ -112,7 +112,7 @@ class LiveTract:
 
     def __init__(self, packer: Any = None, pilot: Any = None) -> None:
         self._packer = packer if packer is not None else environment.packer_type
-        self._pilot = pilot if pilot is not None else environment.pack_start
+        self._pilot = pilot if pilot is not None else environment.settle_start
 
     def __getattr__(self, name: str) -> Any:
         return getattr(environment, name)
@@ -121,8 +121,9 @@ class LiveTract:
     def packer_type(self) -> Any:
         return self._packer
 
-    def pack_start(self, source_url: str, at: float) -> float:
-        return float(self._pilot(source_url, at))
+    def settle_start(self, source_url: str, at: float) -> tuple[float, float]:
+        seek, stood = self._pilot(source_url, at)
+        return float(seek), float(stood)
 
 
 def live_tract(**parts: Any) -> LiveTract:

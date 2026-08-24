@@ -36,12 +36,17 @@ def _restart(state: _State, slot: int, shrink: Callable[[int, int], bool]) -> No
     # докатки не делает (:func:`ffmpeg_pack_command`), и измеренное ``at`` увело бы
     # весь прогон на сегмент назад. Заодно это минус 0.5-1.7 с из пути старта - ровно
     # та цена, которой сплошной перекод отчасти и оплачивает свою голову.
-    at = state.grid.start(slot)
+    at = seek = state.grid.start(slot)
     if state.encode is None:
         # Место захода считается по карте опорных кадров, а пробный прогон остаётся
         # запасным путём и сверкой: он идёт один раз на файл (:func:`pack_start`).
         # Дороже всего это на перемотке - там прогон был на пути к картинке каждый раз.
-        at = _state.pack_start(state.source, state.grid.start(slot))
+        #
+        # 🔴 Заход, вставший ПОЗЖЕ границы, не производит плёнку между границей и собой
+        # вовсе, и приёмник упирается в дыру. Поэтому спрашивается не «где встанем», а
+        # «с какого места зайти, чтобы не проскочить границу»
+        # (:func:`torrcast.adapters.stream_pack.settle_start.settle_start`).
+        seek, at = _state.settle_start(state.source, state.grid.start(slot))
         journal().mark("заход упаковки", слот=slot, встали=round(at, 3))
     command = _state.ffmpeg_pack_command(
         state.source,
@@ -53,6 +58,7 @@ def _restart(state: _State, slot: int, shrink: Callable[[int, int], bool]) -> No
         state.readrate,
         state.burst,
         encode=state.encode,
+        seek=seek,
     )
     state.restarted = _state.clock_port.monotonic()
     state.packer = _state.Packer.start(

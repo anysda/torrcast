@@ -17,7 +17,7 @@ def configure(environment: WarmEnvironment) -> None:
     _state._hms = environment.hms
     _state.Packer = environment.packer_type
     _state.ffmpeg_pack_command = environment.pack_command
-    _state.pack_start = environment.pack_start
+    _state.settle_start = environment.settle_start
     _state.spot_out = environment.spot_out
     _state.AUDIO_MBIT = environment.audio_mbit
     _state.TS_OVERHEAD = environment.ts_overhead

@@ -164,12 +164,12 @@ def test_the_poll_circle_keeps_its_pace_while_a_torn_run_is_being_lifted(
     """
     lift_cost = 1.0
 
-    def costly(_source: str, at: float, *_rest: object) -> float:
+    def costly(_source: str, at: float, *_rest: object) -> tuple[float, float]:
         """Пробный прогон в нечитаемый источник: стоит времени и отвечает границей."""
         time.sleep(lift_cost)
-        return at
+        return at, at
 
-    tract(clock=FakeClock(now=1000.0), pack_start=costly)
+    tract(clock=FakeClock(now=1000.0), settle_start=costly)
     show = feed_with_segments(tmp_path)
     alive = FakeProc()
     show.packer = packer(tmp_path, first=0, edge=2, out=show.out, proc=alive)

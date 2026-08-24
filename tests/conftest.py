@@ -509,6 +509,24 @@ def clip_mp4(clip: str, tmp_path_factory: pytest.TempPathFactory) -> str:
 
 
 @pytest.fixture(scope="session")
+def clip_ts(clip: str, tmp_path_factory: pytest.TempPathFactory) -> str:
+    """Тот же ролик в mpegts — единственный контейнер, где ``-ss`` уводит ВПЕРЁД.
+
+    Карты опорных кадров для .ts взять неоткуда, поэтому место захода там меряет пробный
+    прогон, и меряет он посадку на СЛЕДУЮЩИЙ опорный кадр
+    (:data:`torrcast.domain.warm_open.SEEK_SHIFT`). Ровно так же садится файл, чей индекс
+    врёт, - и это тот вход, на котором кусок под именем границы начинался позже неё.
+    """
+    path = tmp_path_factory.mktemp("src-ts") / "clip.ts"
+    subprocess.run(
+        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-i", clip,
+         "-c", "copy", "-muxdelay", "0", "-muxpreload", "0", "-f", "mpegts", "-y", str(path)],
+        check=True, capture_output=True,
+    )  # fmt: skip
+    return str(path)
+
+
+@pytest.fixture(scope="session")
 def clip_mp4_tail(clip: str, tmp_path_factory: pytest.TempPathFactory) -> str:
     """Тот же ролик, но ``moov`` в хвосте: так пишет ffmpeg без ``faststart``.
 

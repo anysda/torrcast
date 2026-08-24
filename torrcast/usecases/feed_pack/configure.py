@@ -16,7 +16,7 @@ from torrcast.ports.pack_run.pack_factory import PackFactory
 def configure(
     segment_name: Callable[[int], str],
     segment_slot: Callable[[str], int],
-    pack_start: Callable[..., float],
+    settle_start: Callable[..., tuple[float, float]],
     pack_command: Callable[..., list[str]],
     packer: PackFactory,
     forget_flag: Callable[[Path], None],
@@ -29,7 +29,7 @@ def configure(
     """Передать сценарию имена сегментов, медиатракт упаковки, уборку, часы и подъём в стороне."""
     _state.segment_name = segment_name
     _state.segment_slot = segment_slot
-    _state.pack_start = pack_start
+    _state.settle_start = settle_start
     _state.ffmpeg_pack_command = pack_command
     _state.Packer = packer
     _state.forget_playing = forget_flag

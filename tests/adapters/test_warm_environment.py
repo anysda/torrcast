@@ -24,7 +24,7 @@ def test_the_media_tract_is_taken_from_its_slot_at_every_call(
     «подмена мёртвая» (TC-666), хотя живая она ровно потому, что среда на каждом вызове
     идёт за именем в свой модульный слот.
 
-    🔴 Связать имя на сборке (``pack_start = staticmethod(pack_start)``) - и подмены в
+    🔴 Связать имя на сборке (``settle_start = staticmethod(...)``) - и подмены в
     зеркалах прогрева замолчат разом. Замер пробой: такую поломку адреса видит одно
     зеркало прогрева из четырёх, остальные три остаются зелёными. Поэтому адрес держится
     мерой, а не договорённостью.
@@ -38,14 +38,14 @@ def test_the_media_tract_is_taken_from_its_slot_at_every_call(
         def start(cls, *args: object, **kwargs: object) -> str:
             return "упаковка из медиатракта"
 
-    monkeypatch.setattr(warm_environment, "_pack_start", lambda url, at: 42.5)
+    monkeypatch.setattr(warm_environment, "_settle_start", lambda url, at: (41.0, 42.5))
     monkeypatch.setattr(warm_environment, "_segment_name", lambda slot: "имя из слота")
     monkeypatch.setattr(warm_environment, "_segment_slot", lambda name: 77)
     monkeypatch.setattr(warm_environment, "_pack_command", lambda *a, **k: ["команда из слота"])
     monkeypatch.setattr(warm_environment, "Packer", _Sentinel)
     packer: Any = environment.packer_type
 
-    assert environment.pack_start("нет", 0.0) == 42.5
+    assert environment.settle_start("нет", 0.0) == (41.0, 42.5)
     assert environment.segment_name(0) == "имя из слота"
     assert environment.segment_slot("нет") == 77
     assert environment.pack_command() == ["команда из слота"]

@@ -56,6 +56,11 @@ def _run(
     :attr:`encode`) ``-ss`` точен, докатки нет, и измеренное начало увело бы весь заход
     на сегмент назад (:func:`torrcast.adapters.stream_pack.ffmpeg_pack_command.ffmpeg_pack_command`).
 
+    Заход, вставший ПОЗЖЕ границы, кладёт куски, начинающиеся не там, где обещает
+    манифест, а сверка укладки (:func:`torrcast.usecases.warm.verify._verify`) ищет сдвиг
+    НАЗАД и такого не ловит. Поэтому спрашивается не «где встанем», а «с какого места
+    зайти, чтобы не проскочить границу» (:func:`...stream_pack.settle_start.settle_start`).
+
     Цена честная: копирующих заходов у прогрева два на фильм - хвост от места показа и
     голова (:meth:`_missing`), - а точечные идут перекодом и пробного не просят вовсе.
     0.5-2.9 с на заход против получаса прогрева не считаются.
@@ -83,9 +88,9 @@ def _run(
     if spot:
         with contextlib.suppress(OSError):
             os.link(state.vault.path(first), donor)
-    at = state.grid.start(first)
+    at = seek = state.grid.start(first)
     if encode is None:
-        at = _state.pack_start(state.source, at)
+        seek, at = _state.settle_start(state.source, at)
         _state._environment.mark("пробный прогон прогрева", слот=first, встали=round(at, 3))
     command = _state.ffmpeg_pack_command(
         state.source,
@@ -98,6 +103,7 @@ def _run(
         burst=0.0,
         encode=encode,
         until=last,
+        seek=seek,
     )
     command = ["nice", "-n", str(state.nice), *command]
     began = _state._environment.monotonic()

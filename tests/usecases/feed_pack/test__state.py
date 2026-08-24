@@ -11,7 +11,7 @@ from torrcast.ports.feed_grid import FeedGrid
 FILLED = (
     "segment_name",
     "segment_slot",
-    "pack_start",
+    "settle_start",
     "ffmpeg_pack_command",
     "Packer",
     "forget_playing",
@@ -38,7 +38,7 @@ def test_the_slots_are_wired_by_the_application() -> None:
     assert _state.segment_slot("v3.ts") == 3
     assert _state.segment_slot("mix3.ts") == -1
     assert isinstance(_state.RECODE_DIR, str) and _state.RECODE_DIR
-    assert callable(_state.pack_start) and callable(_state.ffmpeg_pack_command)
+    assert callable(_state.settle_start) and callable(_state.ffmpeg_pack_command)
     assert callable(_state.forget_playing)
     assert callable(_state.remove_tree) and callable(_state.segment_paths)
     assert hasattr(_state.Packer, "start"), "завод прогона упаковки не встал в слот"

@@ -26,6 +26,7 @@ def ffmpeg_pack_command(
     burst: float = 0.0,
     encode: Any = None,
     until: int = -1,
+    seek: float | None = None,
 ) -> list[str]:
     """Совместимый фасад сборки команды упаковщика."""
     return pack_command(
@@ -39,6 +40,7 @@ def ffmpeg_pack_command(
         burst,
         encode,
         until,
+        seek=seek,
         split_slack=SPLIT_SLACK,
         audio_codec=AUDIO_CODEC,
         audio_channels=AUDIO_CHANNELS,

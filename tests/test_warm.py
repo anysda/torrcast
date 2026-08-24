@@ -810,7 +810,7 @@ def test_the_budget_is_rechecked_as_the_run_lays_pieces(
     место под заход было (20 + 5x16 = 100 МБ из 105), а после третьего куска прогрев
     обязан встать с честной причиной, а не доложить остаток сверх бюджета.
     """
-    live_tract(packer=_LayingPacker, pilot=lambda url, at: at)
+    live_tract(packer=_LayingPacker, pilot=lambda url, at: (at, at))
     grid = _grid()
     said: list[str] = []
     warmer = Warmer(
@@ -1232,9 +1232,9 @@ def test_the_recoding_run_of_the_warming_never_asks_the_pilot(
 
     asked: list[float] = []
 
-    def _pilot(url: str, at: float) -> float:
+    def _pilot(url: str, at: float) -> tuple[float, float]:
         asked.append(at)
-        return at - 5.0
+        return at, at - 5.0
 
     live_tract(pilot=_pilot)
     grid = _offkey_grid()
@@ -1374,7 +1374,7 @@ def test_a_piece_laid_off_the_grid_never_reaches_the_show(
     """
     monkeypatch.setenv(LOG_ENV, str(tmp_path / "след"))
     monkeypatch.setenv(SID_ENV, "tc-125")
-    live_tract(pilot=lambda url, at: at)
+    live_tract(pilot=lambda url, at: (at, at))
     grid = _offkey_grid()
     vault = _vault(tmp_path, key="кривой")
     said: list[str] = []
@@ -1498,7 +1498,7 @@ def test_a_piece_over_the_receiver_ceiling_never_stops_the_warm_publishing(
         def stop(self, keep_files: bool = True, reason: str = "") -> None:
             return None
 
-    live_tract(packer=_Recorder, pilot=lambda url, at: at)
+    live_tract(packer=_Recorder, pilot=lambda url, at: (at, at))
     grid = _grid()
     warmer = Warmer(source="нет", audio=0, grid=grid, vault=_vault(tmp_path), slack=1e6)
     warmer._run(0, grid.count - 1)

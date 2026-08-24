@@ -20,7 +20,7 @@ def _world() -> dict[str, Any]:
     return {
         "segment_name": lambda slot: f"кусок{slot}",
         "segment_slot": lambda name: -7,
-        "pack_start": lambda *a, **k: 4.5,
+        "settle_start": lambda *a, **k: (4.0, 4.5),
         "pack_command": lambda *a, **k: ["ffmpeg", "своя"],
         "packer": type("Fake", (), {"start": staticmethod(lambda *a, **k: None)}),
         "forget_flag": forgotten.append,
@@ -40,7 +40,7 @@ def test_every_slot_takes_its_value_from_the_composition() -> None:
 
     assert _state.segment_name(4) == "кусок4"
     assert _state.segment_slot("v4.ts") == -7
-    assert _state.pack_start("src", 1.0) == 4.5
+    assert _state.settle_start("src", 1.0) == (4.0, 4.5)
     assert _state.ffmpeg_pack_command() == ["ffmpeg", "своя"]
     assert _state.forget_playing is world["forget_flag"]
     assert _state.RECODE_DIR == "свой-перекод"

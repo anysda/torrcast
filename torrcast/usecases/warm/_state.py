@@ -27,7 +27,7 @@ _hms: Callable[[float], str]
 #: и там же названы их договоры - здесь стоят ровно они.
 Packer: WarmPacker
 ffmpeg_pack_command: Callable[..., list[str]]
-pack_start: Callable[[str, float], float]
+settle_start: Callable[[str, float], tuple[float, float]]
 #: Выкладка точечного перекода: его картинка со звуком копии, что лежит под ним.
 spot_out: Callable[..., bool]
 AUDIO_MBIT: float

@@ -40,12 +40,12 @@ def _tract(seen: list[str], at: float = 0.0) -> list[tuple[Any, ...]]:
         run.mkdir(parents=True, exist_ok=True)
         return packer(out.parent, out=out, run=run, first=first)
 
-    def _pilot(source: str, want: float) -> float:
+    def _pilot(source: str, want: float) -> tuple[float, float]:
         seen.append("проба")
-        return at
+        return want, at
 
     tract(
-        pack_start=_pilot,
+        settle_start=_pilot,
         pack_command=lambda *a, **k: ["ffmpeg", *map(str, a[4:6])],
         packer=factory(_start),
     )
@@ -146,7 +146,7 @@ def test_a_whole_film_recode_builds_an_encoding_command_from_the_grid(
     lines = grid(600.0, 10.0)
     seen: list[list[str]] = []
 
-    def _pilot(source: str, want: float) -> float:
+    def _pilot(source: str, want: float) -> tuple[float, float]:
         raise AssertionError("пробный прогон при сплошном перекоде звать нельзя")
 
     def _start(command: list[str], out: Path, run: Path, first: int, **kwargs: Any) -> Any:
@@ -154,7 +154,7 @@ def test_a_whole_film_recode_builds_an_encoding_command_from_the_grid(
         run.mkdir(parents=True, exist_ok=True)
         return packer(out.parent, out=out, run=run, first=first)
 
-    tract(pack_start=_pilot, packer=factory(_start))
+    tract(settle_start=_pilot, packer=factory(_start))
     show = feed(tmp_path, grid=lines, encode=Encode(preset=FULL_PRESET))
 
     _restart(show, 5, lambda slot, size: False)

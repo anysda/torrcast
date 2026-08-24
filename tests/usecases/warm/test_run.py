@@ -83,7 +83,7 @@ def _tract(packers: list[_Packer]) -> tuple[dict[str, Any], list[list[str]]]:
         return packer
 
     parts = {
-        "pilot": lambda source, at: at - 2.0,
+        "pilot": lambda source, at: (at, at - 2.0),
         "pack": lambda *args, **kwargs: ["ffmpeg", "-i"],
         "packer": type("StandPacker", (), {"start": staticmethod(_start)}),
     }

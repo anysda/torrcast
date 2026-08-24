@@ -10,8 +10,8 @@ from torrcast.adapters.side_thread import side_thread
 from torrcast.adapters.stream_pack._segment_files import _paths
 from torrcast.adapters.stream_pack.ffmpeg_pack_command import ffmpeg_pack_command
 from torrcast.adapters.stream_pack.forget_playing import forget_playing
-from torrcast.adapters.stream_pack.pack_start import pack_start
 from torrcast.adapters.stream_pack.packer import Packer
+from torrcast.adapters.stream_pack.settle_start import settle_start
 from torrcast.adapters.stream_probe.segment_name import segment_name
 from torrcast.adapters.stream_probe.segment_slot import segment_slot
 from torrcast.usecases.feed_pack.configure import configure
@@ -33,7 +33,7 @@ def wire_feed() -> None:
     configure(
         segment_name,
         segment_slot,
-        pack_start,
+        settle_start,
         ffmpeg_pack_command,
         Packer,
         forget_playing,

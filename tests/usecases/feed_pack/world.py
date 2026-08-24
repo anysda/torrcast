@@ -17,8 +17,8 @@ from torrcast.adapters.stream_pack._segment_files import _paths
 from torrcast.adapters.stream_pack.ffmpeg_pack_command import ffmpeg_pack_command
 from torrcast.adapters.stream_pack.forget_playing import forget_playing
 from torrcast.adapters.stream_pack.grid import Grid
-from torrcast.adapters.stream_pack.pack_start import pack_start
 from torrcast.adapters.stream_pack.packer import Packer
+from torrcast.adapters.stream_pack.settle_start import settle_start
 from torrcast.adapters.stream_probe.segment_name import segment_name
 from torrcast.adapters.stream_probe.segment_slot import segment_slot
 from torrcast.usecases.feed_pack.configure import configure
@@ -120,7 +120,7 @@ def tract(**parts: Any) -> FakeClock:
     configure(
         parts.pop("segment_name", segment_name),
         parts.pop("segment_slot", segment_slot),
-        parts.pop("pack_start", pack_start),
+        parts.pop("settle_start", settle_start),
         parts.pop("pack_command", ffmpeg_pack_command),
         parts.pop("packer", Packer),
         parts.pop("forget_flag", forget_playing),
