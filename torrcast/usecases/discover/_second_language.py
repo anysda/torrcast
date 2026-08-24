@@ -141,6 +141,15 @@ def _second_language(
         progress.note(f"{said}; {outcome}" if said else outcome)
         return _as_is(raw, found, about, progress)
     pictures = cluster(_search_state._search_catalogue.to_releases(merged))
+    # Одна новая картина бывает второй, несклеившейся языковой половиной той же картины.
+    # Всё сверх неё - оригинал расширил предмет поиска вместо уточнения.
+    if len(pictures) > len(first_pictures) + 1:
+        outcome = (
+            f"добор по «{alt}» привёз больше картин: {len(pictures)} вместо "
+            f"{len(first_pictures)} - остаюсь на выдаче по «{name}»"
+        )
+        progress.note(f"{said}; {outcome}" if said else outcome)
+        return _as_is(raw, found, about, progress)
     # Транслит - это сами слова запроса, чужого фильма он принести не может; оригинал из
     # справки отвечает про ту самую картину. А вот оригинал из выдачи ничем не подтверждён.
     proven = bool(about.title) or alt == about.name or alt == transliterate(name)

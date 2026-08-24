@@ -77,3 +77,34 @@ def test_the_same_name_twice_pays_for_no_second_circle() -> None:
     )
 
     assert client.asked == []
+
+
+def test_a_top_up_that_widens_the_picture_pool_does_not_replace_the_picture() -> None:
+    """Ошибочный оригинал франшизы не заменяет точно названную картину первой частью."""
+    russian = [
+        row(
+            "Тачки: Байки Мэтра / Cars Toons: Mater Tall Tales (2008) WEB-DL 1080p",
+            "m",
+        )
+    ]
+    franchise_rows = [
+        row("Тачки / Cars (2006) BDRip 1080p", "c"),
+        row("Тачки 2 / Cars 2 (2011) BDRip 1080p", "d"),
+        row("Тачки 3 / Cars 3 (2017) BDRip 1080p", "e"),
+    ]
+    wire_catalogue()
+    said = Said()
+
+    raw, _pictures, found = _second_language(
+        Indexer(answers={"cars": franchise_rows}),
+        "Тачки: Байки Мэтра",
+        Args(query=["Тачки: Байки Мэтра"]),
+        russian,
+        franchise("Тачки: Байки Мэтра", russian),
+        said,
+        passport=lambda *_a, **_k: Origin(title="Cars", year=2006, name="Тачки"),
+    )
+
+    assert len(raw) == 1
+    assert [(picture.title, picture.year) for picture in found] == [("Тачки: Байки Мэтра", 2008)]
+    assert "привёз больше картин" in said.text
