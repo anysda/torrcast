@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import torrcast.usecases.warm._state as _state
+from torrcast.domain.segment_container import FMP4, MPEGTS, SegmentContainer
 from torrcast.domain.warm_settings import WARM_BUDGET
 from torrcast.usecases.warm._vault_disk import (
     _dirs,
@@ -49,6 +50,7 @@ class Vault:
     #: прогрев следующей серии выедал бы текущую и обрыв связи убивал бы показ ровно
     #: там, где его и должно было спасти прогретое.
     keep: frozenset[str] = frozenset()
+    container: SegmentContainer = MPEGTS
     #: Чем меряется свободное место на разделе. Полем, а не именем внутри :meth:`free`:
     #: правило отказа (:meth:`fit`) обязано быть проверяемым на любом разделе, а не
     #: только на том, который случайно оказался под тестом.
@@ -59,6 +61,8 @@ class Vault:
         return self.root / self.key
 
     def path(self, slot: int) -> Path:
+        if self.container == FMP4:
+            return self.dir / f"v{slot}.m4s"
         return self.dir / _state.segment_name(slot)
 
     def have(self, slot: int) -> bool:
@@ -84,7 +88,7 @@ class Vault:
         """
         found: set[int] = set()
         with contextlib.suppress(OSError):
-            for path in self.dir.glob("v*.ts"):
+            for path in self.dir.glob("v*.m4s" if self.container == FMP4 else "v*.ts"):
                 slot = _state.segment_slot(path.name)
                 if slot < 0 or (cap > 0 and _size(path) > cap):
                     continue

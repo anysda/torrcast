@@ -130,8 +130,9 @@ def test_the_stick_is_bold_only_where_it_was_measured() -> None:
     assert stick.revive_drop == 10.0 > cautious.revive_drop, (
         "приставке проворность не выдумываем: раньше 8.9 с к LOAD она не возвращалась"
     )
-    assert stick.recode_codecs == cautious.recode_codecs, "HEVC в нашем mpegts ещё не проверен"
-    assert stick.copy_depth == cautious.copy_depth, "Hi10P в нашем mpegts ещё не проверен"
+    assert "hevc" not in stick.recode_codecs and stick.plays_copy("hevc", 10)
+    assert not stick.plays_copy("h264", 10), "Hi10P через CMAF не прошёл"
+    assert stick.plays_copy("vp9", 8) and not stick.plays_copy("av1", 8)
     assert stick.max_segment_bytes == 28_000_000 > cautious.max_segment_bytes, (
         "вес куска на приставке измерен: 16 МБ не отдают этого релиза вовсе, 28 играют начисто"
     )
@@ -225,22 +226,22 @@ def test_the_codec_verdict_follows_the_profile() -> None:
 
 
 @pytest.mark.parametrize(
-    "codec,depth,want",
+    "codec,depth,cautious,android",
     [
-        ("h264", 8, COPY),
-        ("h264", 0, COPY),
-        ("", 0, COPY),  # запись прежней версии: кодека не спрашивали
-        ("h264", 10, RECODE),  # Hi10P зовётся тем же именем
-        ("hevc", 8, RECODE),
-        ("hevc", 10, RECODE),
-        ("vp9", 0, REFUSE),
-        ("av1", 0, REFUSE),
-        ("vc1", 0, REFUSE),
-        ("mpeg2video", 0, REFUSE),
+        ("h264", 8, COPY, COPY),
+        ("h264", 0, COPY, COPY),
+        ("", 0, COPY, COPY),  # запись прежней версии: кодека не спрашивали
+        ("h264", 10, RECODE, RECODE),  # Hi10P зовётся тем же именем
+        ("hevc", 8, RECODE, COPY),
+        ("hevc", 10, RECODE, COPY),
+        ("vp9", 0, REFUSE, COPY),
+        ("av1", 0, REFUSE, REFUSE),
+        ("vc1", 0, REFUSE, REFUSE),
+        ("mpeg2video", 0, REFUSE, REFUSE),
     ],
 )
 def test_the_verdict_is_the_only_place_where_a_codec_is_judged(
-    codec: str, depth: int, want: str
+    codec: str, depth: int, cautious: str, android: str
 ) -> None:
     """🔴 Судьба картинки решается одним вызовом: копия, сплошной перекод или отказ.
 
@@ -253,8 +254,8 @@ def test_the_verdict_is_the_only_place_where_a_codec_is_judged(
     (замер и числа - у :data:`~torrcast.domain.profile.ANDROID_TV`). Поэтому строчку тут
     двигает не паспорт декодера, а живой прогон НАШИМ трактом.
     """
-    assert CAUTIOUS.verdict(codec, depth) == want
-    assert ANDROID_TV.verdict(codec, depth) == want, "замер приставки снят нашим трактом"
+    assert CAUTIOUS.verdict(codec, depth) == cautious
+    assert ANDROID_TV.verdict(codec, depth) == android
 
 
 def test_a_frame_the_receiver_cannot_take_never_leaves_as_a_copy_either() -> None:

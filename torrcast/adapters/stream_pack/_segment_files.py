@@ -9,8 +9,8 @@ from pathlib import Path
 
 
 def _names(out: Path) -> list[str]:
-    return [path.name for path in out.glob("v*.ts")]
+    return [path.name for suffix in ("ts", "m4s") for path in out.glob(f"v*.{suffix}")]
 
 
 def _paths(out: Path) -> list[Path]:
-    return list(out.glob("v*.ts"))
+    return [path for suffix in ("ts", "m4s") for path in out.glob(f"v*.{suffix}")]

@@ -195,4 +195,4 @@ GRID_WEIGHT_MARGIN: Final = 0.02
 #: самого длинного куска сетки плюс подъём: это уже не «медленно», это «никак».
 MUTE_SECONDS: Final = 45.0
 
-_SEGMENT_RE: Final = re.compile(r"v(\d+)\.ts")
+_SEGMENT_RE: Final = re.compile(r"v(\d+)\.(?:ts|m4s)")

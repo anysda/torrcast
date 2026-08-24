@@ -59,6 +59,8 @@ def _restart(state: _State, slot: int, shrink: Callable[[int, int], bool]) -> No
         state.burst,
         encode=state.encode,
         seek=seek,
+        container=state.container,
+        video_tag="hvc1" if state.video_codec.startswith("hvc1") else "",
     )
     state.restarted = _state.clock_port.monotonic()
     state.packer = _state.Packer.start(
@@ -75,6 +77,7 @@ def _restart(state: _State, slot: int, shrink: Callable[[int, int], bool]) -> No
         burst=state.burst,
         grid=state.grid,
         cap=state.cap,
+        container=state.container,
     )
     drop = state.grid.start(slot) - at
     state._say(

@@ -2,23 +2,21 @@
 
 from typing import Any, Final, Protocol
 
+from torrcast.domain.segment_container import FMP4, MPEGTS, SegmentContainer
+from torrcast.domain.segment_suffix import segment_suffix
 from torrcast.ports.journal.slot import journal
 
 #: Допуск реза (``-segment_time_delta``) для захода, который ставит опорные кадры сам.
-#:
 #: Такой заход режет ПО КАДРУ, и муксеру нужен допуск шире, чем расхождение двух отсчётов
 #: времени: принудительный кадр кодировщик ставит по времени ФИЛЬМА, а рез муксер
 #: отмеряет от первого пакета прогона, который встаёт на первый кадр не раньше границы -
 #: то есть на долю кадра позже неё. Допуск обязан покрывать эту долю плюс отступ самого
 #: принудительного кадра (:data:`torrcast.adapters.recode.encode_settings._KEY_SLACK`, 0.02 с).
-#:
 #: Замер настоящим ffmpeg (ролик 60 с, заход по ровной сетке 10 с): доля кадра вышла
 #: 0.010 с на 23.976 к/с и 0.013 с на 29.97 к/с, то есть меньше периода кадра, как и
 #: обещано. С прежними 0.02 с муксер проходит мимо принудительного кадра и склеивает два
 #: места в одно - кусок 19.98 с вместо двух по 10 (23.976 к/с) и 18.32 с (29.97 к/с).
-#: 0.2 с покрывают отступ и период кадра вплоть до 6 к/с; резать раньше границы этому
-#: допуску нечем - других опорных кадров, кроме принудительных, у перекода нет
-#: (``-sc_threshold 0``), а соседний стоит целую границу сетки назад.
+#: Допуск покрывает период вплоть до 6 к/с; других опорных кадров у перекода нет.
 KEY_CUT_SLACK: Final = 0.2
 
 
@@ -55,6 +53,8 @@ def pack_command(
     audio_channels: int = 2,
     audio_bitrate: str = "192k",
     pack_list: str = "index.csv",
+    container: SegmentContainer = MPEGTS,
+    video_tag: str = "",
 ) -> list[str]:
     """Собрать прежнюю команду сегментного муксера без запуска процесса.
 
@@ -105,7 +105,6 @@ def pack_command(
             замер=round(at, 3),
         )
         at = grid.start(slot)
-    # 🔴 Резать по кадру или по времени решает не сетка, а тот, кто ставит опорные кадры.
     # Копия берёт их у исходника, и на ровной сетке они с границами не совпадают по
     # построению - там режем по времени. Перекодирующий заход ставит их САМ и ровно на
     # границы (:meth:`torrcast.adapters.recode.encode.Encode.args`), поэтому режет по ним на
@@ -150,6 +149,8 @@ def pack_command(
         command += ["-ss", f"{entry:.3f}"]
     command += ["-i", source_url, "-map", "0:v:0", "-map", f"0:a:{audio_index}"]
     command += ["-c:v", "copy"] if encode is None else encode.args(grid, slot, upto - 2)
+    if video_tag:
+        command += ["-tag:v", video_tag]
     if until >= 0:
         command += ["-to", f"{grid.end(until) + 1.0:.3f}"]
     if grid.origin > 0:
@@ -161,16 +162,12 @@ def pack_command(
         f"{audio_channels}",
         "-b:a",
         audio_bitrate,
-        "-muxdelay",
-        "0",
-        "-muxpreload",
-        "0",
         "-avoid_negative_ts",
         "disabled",
         "-f",
         "segment",
         "-segment_format",
-        "mpegts",
+        "mp4" if container == FMP4 else "mpegts",
         "-segment_time_delta",
         f"{KEY_CUT_SLACK if own_keys else split_slack:g}",
         "-break_non_keyframes",
@@ -184,6 +181,20 @@ def pack_command(
         "-segment_list_flags",
         "+live",
     ]
+    if container == FMP4:
+        command += [
+            "-segment_format_options",
+            "movflags=cmaf",
+            "-segment_header_filename",
+            f"{run}/init.mp4",
+            "-individual_header_trailer",
+            "0",
+            "-write_header_trailer",
+            "0",
+        ]
+    else:
+        at_option = command.index("-avoid_negative_ts")
+        command[at_option:at_option] = ["-muxdelay", "0", "-muxpreload", "0"]
     command += ["-segment_times", times]
-    command.append(f"{run}/v%d.ts")
+    command.append(f"{run}/v%d{segment_suffix(container)}")
     return command

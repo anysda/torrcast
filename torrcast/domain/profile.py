@@ -3,6 +3,8 @@
 from dataclasses import dataclass
 from typing import Final, Literal
 
+from torrcast.domain.segment_container import FMP4, MPEGTS, SegmentContainer
+
 __all__ = [
     "ANDROID_TV",
     "CAUTIOUS",
@@ -33,6 +35,8 @@ class Profile:
     recode_codecs: frozenset[str] = frozenset({"hevc", "mpeg4"})
     copy_depth: int = 8
     copy_codecs: frozenset[str] = frozenset({"h264"})
+    copy_10bit_codecs: frozenset[str] = frozenset()
+    segment_container: SegmentContainer = MPEGTS
     recode_frame: int = 1080
     max_segment_bytes: int = 16_000_000
     #: Потолок ДЛИНЫ одного куска, секунды; ``0`` - потолка нет и сетку держит только вес.
@@ -82,7 +86,9 @@ class Profile:
             return RECODE
         if name not in self.copy_codecs:
             return REFUSE
-        if depth > self.copy_depth or frame > self.recode_frame:
+        deep = depth > self.copy_depth
+        deep_refused = deep and (depth > 10 or name not in self.copy_10bit_codecs)
+        if deep_refused or frame > self.recode_frame:
             return RECODE
         return COPY
 
@@ -96,30 +102,13 @@ CAUTIOUS: Final = Profile(key="q70d", title="осторожный (Samsung Q70D)
 ANDROID_TV: Final = Profile(
     key="androidtv",
     title="приставка Android TV (Xiaomi TV Stick)",
-    # 🔴 Белый список копии тут НЕ переопределён, и это замер, а не недосмотр (TC-542).
-    # Декодер приставки и правда берёт нативно HEVC 8 и 10 бит, Hi10P, VP9 и AV1: те же
-    # клипы, отданные ей файлом mp4/webm, играют с первой секунды (HEVC уходит в
-    # ``OMX.amlogic.hevc.decoder``, VP9 в ``OMX.amlogic.vp9.decoder``, Hi10P идёт
-    # программным). Но копия уезжает к приёмнику не файлом, а нашим mpegts, и по этому
-    # пути её плеер не берёт ничего, кроме h264 8 бит:
-    #
-    # * HEVC 8 и 10 бит, VP9, AV1 - разбор потока отвечает ``Initialization segment misses
-    #   expected h264 track`` и ``pipeline_error 16``, показ не начинается вовсе
-    #   (по три прогона на кодек, 12 отказов из 12);
-    # * Hi10P разбор пропускает, а падает уже завод декодера
-    #   (``video decoder initialization failed``, ``pipeline_error 15``): три прогона из
-    #   трёх, картинки не было ни разу, указатель все 90 с стоял на месте захода.
-    #
-    # Контроль тем же трактом и той же копией h264 8 бит - чисто пять прогонов из пяти,
-    # кадр через 3.3-3.9 с, ноль подвисов; то есть отказ принадлежит кодеку, а не
-    # приёмнику в нерабочем состоянии. Объявить кодек в плейлисте не помогает: с
-    # ``CODECS="hvc1..."`` приёмник читает манифест и не просит НИ ОДНОГО куска, тогда как
-    # с ``CODECS="avc1..."`` тот же каталог играет.
-    #
-    # Отсюда правило, которое тут и записано: «приёмник декодирует кодек» и «приёмник
-    # играет то, что кладёт наша упаковка», - разные утверждения, а белый список копии
-    # живёт по второму. Расширяется он вместе с контейнером доставки, а не по паспорту
-    # декодера.
+    segment_container=FMP4,
+    recode_codecs=frozenset({"mpeg4"}),
+    copy_codecs=frozenset({"h264", "hevc", "vp9"}),
+    copy_10bit_codecs=frozenset({"hevc"}),
+    # Белый список относится к измеренному CMAF-тракту, а не к паспорту декодера:
+    # HEVC 8/10 бит и VP9 проходят копией с init-сегментом и подсказкой LOAD ``fmp4``.
+    # Hi10P и AV1 через этот тракт отвергаются и остаются вне списка копии.
     # Живой замер на приставке (TC-620). У релиза, на котором мерили, индекс Cues врун,
     # карта опорных кадров отвергается, и сетка выходит ровная по 10 с: куски копии
     # 19.1-19.9 МБ. С осторожными 16 МБ наружу не выходит НИ ОДИН кусок: на ровной сетке

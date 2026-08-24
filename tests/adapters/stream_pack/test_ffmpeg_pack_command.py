@@ -13,8 +13,20 @@ from torrcast.domain.hls_settings import (
     PACK_LIST,
     SPLIT_SLACK,
 )
+from torrcast.domain.segment_container import FMP4
 
 GRID = Grid.uniform(60.0, 8.0)
+
+
+def test_fmp4_keeps_explicit_grid_and_writes_shared_init() -> None:
+    command = ffmpeg_pack_command("вход", 0, "/пак", GRID, 0, 0.0, container=FMP4, video_tag="hvc1")
+
+    assert _cuts(command) == [8.0, 16.0, 24.0, 32.0, 40.0, 48.0]
+    assert command[command.index("-segment_format") + 1] == "mp4"
+    assert command[command.index("-segment_header_filename") + 1] == "/пак/init.mp4"
+    assert command[command.index("-segment_format_options") + 1] == "movflags=cmaf"
+    assert command[command.index("-tag:v") + 1] == "hvc1"
+    assert command[-1] == "/пак/v%d.m4s"
 
 
 def _cuts(command: list[str]) -> list[float]:

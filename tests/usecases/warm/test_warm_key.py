@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 from tests.usecases.warm.world import grid
 from torrcast.adapters.stream_pack.grid import Grid
+from torrcast.domain.segment_container import FMP4, MPEGTS
 from torrcast.usecases.warm.warm_key import warm_key
 
 SOURCE = "http://ts/stream?link=abc&index=1"
@@ -55,6 +56,14 @@ def test_the_recode_and_the_spots_change_the_key_too() -> None:
     ), "ужатый кадр под другой приёмник"
     assert base != warm_key(SOURCE, 0, grid(), None, (1, 2)), "точечные перекоды"
     assert warm_key(SOURCE, 0, grid(), None, (1, 2)) != warm_key(SOURCE, 0, grid(), None, (1, 3))
+
+
+def test_neither_container_can_find_the_other_containers_warm_catalogue() -> None:
+    ts_key = warm_key(SOURCE, 0, grid(), container=MPEGTS)
+    fmp4_key = warm_key(SOURCE, 0, grid(), container=FMP4)
+
+    assert ts_key != fmp4_key, "TS-прогрев не должен находиться из CMAF-показа"
+    assert fmp4_key != ts_key, "CMAF-прогрев не должен находиться из TS-показа"
 
 
 def test_the_grid_that_moved_its_bounds_is_another_catalogue() -> None:

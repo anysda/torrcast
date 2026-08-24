@@ -9,6 +9,7 @@ import pytest
 from tests.adapters.chromecast.cast.wired import Device, Status, Wired
 from tests.fakes.clock import FakeClock
 from torrcast.adapters.chromecast.cast.hls_hints import HLS_HINTS, HLS_TYPE
+from torrcast.domain.segment_container import FMP4
 
 
 class _Loading:
@@ -63,6 +64,21 @@ def test_the_load_carries_the_hls_hints_and_a_vod_stream_type() -> None:
     assert load["stream_type"] == "BUFFERED"
     assert load["current_time"] == 1272.4
     assert controller.active == 1, "LOAD ждёт, пока сессия станет активной"
+
+
+def test_fmp4_load_carries_the_lowercase_segment_hint() -> None:
+    receiver = _receiver()
+    receiver.segment_container = FMP4
+
+    receiver._load()
+
+    controller = receiver.device.media_controller
+    assert isinstance(controller, _Loading)
+    assert controller.loads[0]["media_info"] == {
+        "hlsSegmentFormat": "fmp4",
+        "hlsVideoSegmentFormat": "fmp4",
+        "hlsAudioSegmentFormat": "fmp4",
+    }
 
 
 def test_a_new_load_starts_with_a_clean_reason_of_refusal() -> None:

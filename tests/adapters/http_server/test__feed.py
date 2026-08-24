@@ -16,12 +16,12 @@ def _asked() -> set[str]:
 
 
 def test_the_serving_side_asks_for_the_manifest_the_segment_and_the_pack_directory() -> None:
-    """Договор узкий намеренно: раздача не знает про упаковку ничего сверх этих трёх имён.
+    """Договор узкий намеренно: раздача знает только манифест, init, кусок и каталог.
 
     ``out`` тут не украшение - по нему отданный кусок делится на «упаковано сейчас» и
     «взято с прогретого», и без этого в следе не видно, чей это был кусок.
     """
-    assert _asked() == {"out", "manifest", "segment"}
+    assert _asked() == {"out", "manifest", "init", "segment"}
 
 
 def test_the_real_feed_supplies_everything_that_is_asked() -> None:

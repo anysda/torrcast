@@ -12,6 +12,7 @@ from torrcast.adapters.chromecast.cast.receiver_settings import _Settings
 from torrcast.adapters.system_clock import SystemClock
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.profile import CAUTIOUS, Profile
+from torrcast.domain.segment_container import MPEGTS, SegmentContainer
 from torrcast.ports.clock import Clock
 
 
@@ -31,6 +32,7 @@ class _State(_Settings):
         #: Профиль этого приёмника: его терпение, его повторы LOAD, его сторож нуджей.
         #: Умолчание осторожное - показ без выбранного профиля ведёт себя как раньше.
         self.profile = profile
+        self.segment_container: SegmentContainer = MPEGTS
         #: Чем меряются выдержки приёмника: ожидание картинки после LOAD, пауза перед
         #: повтором, часы сторожа подвиса. Умолчание - настоящее время; сухому прогону
         #: сюда дают свои часы, чтобы не выжидать эти минуты (:class:`torrcast.ports.clock.Clock`).

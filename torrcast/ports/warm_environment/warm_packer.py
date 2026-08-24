@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Protocol
 
 from torrcast.domain.profile import CAUTIOUS
+from torrcast.domain.segment_container import MPEGTS, SegmentContainer
 from torrcast.ports.feed_grid import FeedGrid
 from torrcast.ports.warm_environment.warm_pack import WarmPack
 
@@ -34,5 +35,6 @@ class WarmPacker(Protocol):
         grid: FeedGrid | None = None,
         shrink: Callable[[int, int], bool] | None = None,
         cap: int = CAUTIOUS.max_segment_bytes,
+        container: SegmentContainer = MPEGTS,
     ) -> WarmPack:
         """Поднять ffmpeg на куски с ``first`` по ``last`` и вернуть идущий заход."""

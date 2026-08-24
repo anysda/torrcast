@@ -10,6 +10,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from torrcast.domain.profile import CAUTIOUS
+from torrcast.domain.segment_container import MPEGTS, SegmentContainer
 from torrcast.ports.recode.encoding import Encoding
 from torrcast.ports.recode.encoding_key import EncodingKey
 from torrcast.ports.recode.recode_rival import RecodeRival
@@ -27,6 +28,7 @@ class _State:
     audio: int
     grid: Grid
     vault: Vault
+    container: SegmentContainer = MPEGTS
     #: Чем кодировать видео (:class:`torrcast.adapters.recode.encode.Encode`); ``None`` - копия.
     #:
     #: 🔴 Ставится ТЕМ ЖЕ решением, что у живой упаковки

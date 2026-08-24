@@ -10,6 +10,7 @@ from torrcast.domain.config import Config
 from torrcast.domain.delivered_mbit import AUDIO_MBIT, TS_OVERHEAD
 from torrcast.domain.entry import Entry
 from torrcast.domain.profile import CAUTIOUS, Profile
+from torrcast.domain.segment_container import MPEGTS, SegmentContainer
 from torrcast.domain.worker_settings import WORKER_DUR
 from torrcast.ports.journal.slot import journal
 from torrcast.ports.recode.encoding import Encoding
@@ -38,6 +39,7 @@ def _warmer(
     follow: Following | None = None,
     profile: Profile = CAUTIOUS,
     video_mbit: float = 0.0,
+    container: SegmentContainer = MPEGTS,
 ) -> Warmer | None:
     """Фоновый прогрев всего фильма на диск или ``None``, если он выключен.
 
@@ -72,9 +74,10 @@ def _warmer(
     decided: Encoding | None = spot_encode or encode
     vault = Vault(
         root=warm_root(config.warm_dir),
-        key=warm_key(source, audio, grid, encode, spots),
+        key=warm_key(source, audio, grid, encode, spots, container),
         budget=int(config.warm_budget_gb * 1e9),
         title=title,
+        container=container,
     )
     # Каталог, прогретый ПРЕЖНИМ способом выкладки, находится по тому же ключу: способ в
     # ключ не входит (:func:`warm_key`). Помеченные точечные куски убираются здесь, до
@@ -98,6 +101,7 @@ def _warmer(
         audio=audio,
         grid=grid,
         vault=vault,
+        container=container,
         encode=encode,
         spots=spots,
         spot_encode=spot_encode,

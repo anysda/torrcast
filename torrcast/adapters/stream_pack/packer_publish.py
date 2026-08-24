@@ -54,6 +54,10 @@ def _lay_out(
     перекод БЕЗ опорного кадра): все трое поднимают ffmpeg и ffprobe на настоящих кусках,
     а здесь меряется РЕШЕНИЕ выкладки - что уходит наружу и куда встаёт край.
     """
+    init = state.run / "init.mp4"
+    if init.exists() and not (state.out / init.name).exists():
+        with contextlib.suppress(OSError):
+            os.replace(init, state.out / init.name)
     slots = sorted(s for s in map(segment_slot, _names(state.run)) if s >= 0)
     if not slots:
         return
@@ -61,10 +65,8 @@ def _lay_out(
     # Любой другой исход (жив, убит, оборвался) последний кусок дописанным не делает.
     done = done_slots(state, slots, finished())
     for slot in done:
-        path = state.run / segment_name(slot)
-        # Ниже своего первого - докатка, выше последнего - обрезок за ``-to``
-        # (:attr:`last`). И то и другое короче своего места в манифесте, и наружу
-        # такое отдавать нельзя ни при каких обстоятельствах.
+        path = state.run / segment_name(slot, state.container)
+        # Докатка и обрезок за ``-to`` короче своего места и наружу не выходят.
         if slot < state.first or 0 <= state.last < slot:
             path.unlink(missing_ok=True)
             continue
@@ -72,10 +74,7 @@ def _lay_out(
         # идём: выложить следующий, оставив дыру, значит увести край за неё, и запрос
         # придержанного места выглядел бы для :meth:`Feed._steer` перемоткой назад.
         #
-        # Спрашивающему отдаётся ВЕС уже готовой копии, и это не оптимизация, а
-        # единственный честный замер: предсказание по карте зажато потолком
-        # перекодирования и на «Тачках 3» промахнулось вчетверо (11.7 МБ против
-        # 51.4). Стоит он один ``stat`` на выложенный сегмент.
+        # Спрашивающему отдаётся вес готовой копии: предсказание бывает неточным.
         size = 0
         with contextlib.suppress(OSError):
             size = path.stat().st_size
@@ -83,7 +82,9 @@ def _lay_out(
             break
         # Перекодированный кусок этого же места лучше копии: то же разрешение и те же
         # метки, но битрейт, который приёмник тянет. Копия при этом выбрасывается.
-        better = state.spare / segment_name(slot) if state.spare is not None else None
+        better = (
+            state.spare / segment_name(slot, state.container) if state.spare is not None else None
+        )
         # 🔴 TC-698. Перекод без опорного кадра в начале - это кусок БЕЗ КАРТИНКИ, а не
         # кусок похуже: склейка идёт ``-c copy``, а копирование выбрасывает всё до первого
         # опорного кадра, и когда его нет вовсе - выбрасывает всё видео. Живой замер: 12
@@ -183,13 +184,12 @@ def _lay_out(
             break
         moved = False
         with contextlib.suppress(OSError):
-            os.replace(source, state.out / segment_name(slot))
+            os.replace(source, state.out / segment_name(slot, state.container))
             # Край двигает только состоявшееся переименование: «выложил» - это факт
             # этой строки, а не наличие файла в каталоге (:attr:`edge`).
             state.edge = max(state.edge, slot)
             moved = True
-        # Выложили одно из трёх - остальные две копии этого места больше не нужны
-        # никому: tmpfs не резиновая, а лишний файл в каталоге перекода ещё и выглядел
+        # Остальные копии места больше не нужны: лишний файл в каталоге перекода выглядел
         # бы для кодировщика готовым куском (:meth:`torrcast.adapters.recode.recoder.Recoder.ready`).
         if moved and source is not path:
             path.unlink(missing_ok=True)

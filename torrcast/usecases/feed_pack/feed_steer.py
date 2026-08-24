@@ -69,7 +69,7 @@ def _steer(state: _State, slot: int, restart: Callable[[int], None]) -> bool:
             _reread(state)  # прогон получил байты - значит источник снова читается
         else:
             _mute(state)
-        if (state.out / _state.segment_name(slot)).exists():
+        if (state.out / state.piece_name(slot)).exists():
             # ⚠️ Кусок допаковался ровно этим `publish` - и это не редкость, а
             # обычный ход показа: приёмник идёт вплотную за упаковкой и просит
             # сегмент за мгновение до того, как тот закрылся. Без этой проверки он

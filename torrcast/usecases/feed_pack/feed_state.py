@@ -14,6 +14,7 @@ from typing import Protocol
 import torrcast.usecases.feed_pack._state as _state
 from torrcast.domain.hls_settings import PACK_PENDING_BYTES
 from torrcast.domain.profile import CAUTIOUS
+from torrcast.domain.segment_container import FMP4, MPEGTS, SegmentContainer
 from torrcast.ports.pack_run.pack_run import PackRun
 from torrcast.ports.recode.encoding_rate import EncodingRate
 from torrcast.ports.recode.feed_recoder import FeedRecoder
@@ -40,6 +41,13 @@ class _State:
     audio: int
     out: Path
     grid: Grid
+    container: SegmentContainer = MPEGTS
+    video_codec: str = "avc1.640028"
+
+    def piece_name(self, slot: int) -> str:
+        """Имя сегмента текущего контейнера."""
+        return f"v{slot}.m4s" if self.container == FMP4 else _state.segment_name(slot)
+
     readrate: float = 1.0
     #: Запас упаковки впереди показа: свойство приёмника, живёт в его профиле
     #: (:attr:`torrcast.domain.profile.Profile.burst`). Здесь умолчание - осторожное.

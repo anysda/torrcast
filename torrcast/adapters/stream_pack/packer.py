@@ -21,6 +21,7 @@ from torrcast.adapters.stream_pack.packer_state import _Asked, _State, _Told
 from torrcast.adapters.stream_pack.packer_stop import _stop, _why
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.profile import CAUTIOUS
+from torrcast.domain.segment_container import MPEGTS, SegmentContainer
 from torrcast.ports.feed_grid import FeedGrid
 
 
@@ -50,6 +51,7 @@ class Packer(_State):
         burst: float = 0.0,
         grid: FeedGrid | None = None,
         cap: int = CAUTIOUS.max_segment_bytes,
+        container: SegmentContainer = MPEGTS,
         *,
         spawn: Callable[..., Any] = subprocess.Popen,
         log_file: Callable[[], IO[bytes]] = tempfile.TemporaryFile,
@@ -89,6 +91,7 @@ class Packer(_State):
             burst=burst,
             grid=grid,
             cap=cap,
+            container=container,
         )
 
     def eta(self, film: float) -> float:

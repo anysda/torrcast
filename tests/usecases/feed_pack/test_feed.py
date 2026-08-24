@@ -28,6 +28,27 @@ def test_the_manifest_promises_the_whole_film_in_bytes(tmp_path: Path) -> None:
     assert show.duration == 60.0
 
 
+def test_the_live_shelf_uses_the_selected_containers_name(tmp_path: Path) -> None:
+    from torrcast.domain.segment_container import FMP4
+
+    assert feed(tmp_path).piece_name(7) == "v7.ts"
+    assert feed(tmp_path, container=FMP4).piece_name(7) == "v7.m4s"
+
+
+def test_init_request_publishes_the_header_before_answering(tmp_path: Path) -> None:
+    clock = tract()
+    show = feed(tmp_path, wait=1.0)
+
+    class _Run:
+        def publish(self) -> None:
+            (show.out / "init.mp4").write_bytes(b"init")
+
+    show.packer = _Run()  # type: ignore[assignment]
+
+    assert show.init() == show.out / "init.mp4"
+    assert not clock.slept, "готовый заголовок отдаётся без ожидания"
+
+
 def test_a_restart_overridden_by_an_heir_is_the_one_that_gets_called(tmp_path: Path) -> None:
     """Решение о перезапуске зовётся через объект: подмена наследником обязана доезжать.
 

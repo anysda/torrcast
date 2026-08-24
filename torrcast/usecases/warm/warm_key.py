@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 
+from torrcast.domain.segment_container import MPEGTS, SegmentContainer
 from torrcast.ports.recode.encoding_key import EncodingKey
 from torrcast.usecases.warm._state import Grid
 
@@ -40,6 +41,7 @@ def warm_key(
     grid: Grid,
     encode: EncodingKey | None = None,
     spots: tuple[int, ...] = (),
+    container: SegmentContainer = MPEGTS,
 ) -> str:
     """Ключ каталога прогретого: один и тот же показ — один и тот же ключ.
 
@@ -75,5 +77,6 @@ def warm_key(
         # Точечно перекодированные куски - тоже содержимое каталога: сменился список
         # тяжёлых мест (другой порог, другой профиль тяжести) - каталог другой.
         "" if not spots else f"s{len(spots)}:{spots[0]}:{spots[-1]}",
+        f"c{container}",
     ]
     return hashlib.sha1("|".join(parts).encode("utf-8")).hexdigest()[:16]

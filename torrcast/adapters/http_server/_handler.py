@@ -15,8 +15,13 @@ from torrcast.adapters.stream_probe.segment_slot import segment_slot
 from torrcast.domain.trace_sources import PACKED, WARMED
 
 #: Отдаём ровно манифест и сегменты сетки, и ничего больше: каталог наружу не открыт.
-_ASSET_RE: Final = re.compile(r"^(?:v\d+\.ts|index\.m3u8)$")
-_TYPES: Final = {".m3u8": "application/vnd.apple.mpegurl", ".ts": "video/mp2t"}
+_ASSET_RE: Final = re.compile(r"^(?:v\d+\.(?:ts|m4s)|init\.mp4|(?:index|stream)\.m3u8)$")
+_TYPES: Final = {
+    ".m3u8": "application/vnd.apple.mpegurl",
+    ".ts": "video/mp2t",
+    ".m4s": "video/mp4",
+    ".mp4": "video/mp4",
+}
 _RANGE_RE: Final = re.compile(r"bytes=(\d*)-(\d*)")
 #: ``TORRCAST_TRACE=1`` - раздача пишет в журнал каждый запрос приёмника (:meth:`_Handler._trace`).
 TRACE: Final = bool(os.environ.get("TORRCAST_TRACE"))
@@ -65,7 +70,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             self._trace(name, began, "404")
             return
         self._trace(name, began, f"{len(data) / 1e6:.1f} МБ")
-        suffix = ".m3u8" if name.endswith(".m3u8") else ".ts"
+        suffix = Path(name).suffix
         ctype, total = _TYPES[suffix], len(data)
         span = self._range(total)
         if span is None:
@@ -92,7 +97,15 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         между ними больше нечем - наружу уходят одни байты.
         """
         if name.endswith(".m3u8"):
-            return self.feed.manifest() if self.feed is not None else None
+            return self.feed.manifest(name) if self.feed is not None else None
+        if name == "init.mp4":
+            path = self.feed.init() if self.feed is not None else self.root / name
+            if path is None:
+                return None
+            try:
+                return path.read_bytes()
+            except OSError:
+                return None
         path = self.root / name
         if self.feed is not None:
             found = self.feed.segment(segment_slot(name))

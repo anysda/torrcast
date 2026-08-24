@@ -104,6 +104,7 @@ def _run(
         encode=encode,
         until=last,
         seek=seek,
+        container=state.container,
     )
     command = ["nice", "-n", str(state.nice), *command]
     began = _state._environment.monotonic()
@@ -137,6 +138,7 @@ def _run(
             # приёмника уходил на диск обходным путём (:func:`_lay_heavy`) вместо
             # обычной выкладки.
             cap=state.cap,
+            container=state.container,
         )
     state.misgrid = -1
     laid = first - 1

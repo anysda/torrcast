@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Protocol, TypeAlias
 
 from torrcast.domain.profile import CAUTIOUS
+from torrcast.domain.segment_container import MPEGTS, SegmentContainer
 from torrcast.ports.feed_grid import FeedGrid
 from torrcast.ports.pack_run.pack_run import PackRun
 
@@ -39,5 +40,6 @@ class PackFactory(Protocol):
         burst: float = 0.0,
         grid: FeedGrid | None = None,
         cap: int = CAUTIOUS.max_segment_bytes,
+        container: SegmentContainer = MPEGTS,
     ) -> PackRun:
         """Поднять ffmpeg командой ``command`` и вернуть идущий прогон."""

@@ -4,9 +4,12 @@
 
 from __future__ import annotations
 
+from torrcast.domain.segment_container import MPEGTS, SegmentContainer
+from torrcast.domain.segment_suffix import segment_suffix
 
-def segment_name(slot: int) -> str:
+
+def segment_name(slot: int, container: SegmentContainer = MPEGTS) -> str:
     """Имя файла сегмента. Имя = место в фильме, а не номер по порядку упаковки — это и
     делает возможным манифест на весь фильм при упаковке по требованию.
     """
-    return f"v{slot}.ts"
+    return f"v{slot}{segment_suffix(container)}"

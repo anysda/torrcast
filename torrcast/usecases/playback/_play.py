@@ -105,6 +105,8 @@ def _play(
         follow=follow,
         profile=profile,
         video_mbit_estimated=video_mbit_estimated,
+        codec=codec,
+        depth=depth,
     )
     url = f"{_state.hls_base(config)}/index.m3u8"
     try:

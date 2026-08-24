@@ -18,8 +18,11 @@ class _Supply:
         self.out = out
         self._warm = warm
 
-    def manifest(self) -> bytes:
+    def manifest(self, name: str = "index.m3u8") -> bytes:
         return b"#EXTM3U\n"
+
+    def init(self) -> Path | None:
+        return self.out / "init.mp4"
 
     def segment(self, slot: int) -> Path | None:
         packed = self.out / f"v{slot}.ts"
@@ -54,6 +57,8 @@ def test_the_content_types_are_the_ones_the_receiver_expects() -> None:
     """Chromecast разбирает манифест по типу ответа: чужой тип - LOAD ERROR без объяснений."""
     assert _TYPES[".m3u8"] == "application/vnd.apple.mpegurl"
     assert _TYPES[".ts"] == "video/mp2t"
+    assert _TYPES[".m4s"] == "video/mp4"
+    assert _TYPES[".mp4"] == "video/mp4"
 
 
 @pytest.mark.parametrize(

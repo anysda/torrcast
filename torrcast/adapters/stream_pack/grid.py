@@ -14,6 +14,7 @@ from torrcast.domain.hls_settings import (
     HLS_SEGMENT_SECONDS,
     MAX_SEGMENT_BYTES,
 )
+from torrcast.domain.segment_container import MPEGTS, SegmentContainer
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -189,9 +190,11 @@ class Grid:
         """``EXT-X-TARGETDURATION``: округлённая вверх длина самого длинного сегмента."""
         return max(1, math.ceil(max(self.span(k) for k in range(self.count))))
 
-    def manifest(self) -> str:
+    def manifest(self, container: SegmentContainer = MPEGTS) -> str:
         """Манифест VOD на **весь фильм** (:func:`hls_manifest`): сетка целиком и ``ENDLIST``.
 
         Длины кусков берутся из самой сетки, поэтому манифест и нарезка - одно и то же.
         """
-        return hls_manifest([self.span(k) for k in range(self.count)], self.target(), self.on_keys)
+        return hls_manifest(
+            [self.span(k) for k in range(self.count)], self.target(), self.on_keys, container
+        )

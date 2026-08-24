@@ -57,6 +57,7 @@ from torrcast.domain.hls_settings import (
     SPLIT_SLACK,
 )
 from torrcast.domain.reception_report import ReceptionReport
+from torrcast.domain.segment_container import FMP4
 from torrcast.usecases.feed_pack.feed import Feed
 
 #: Ровная сетка на два часа: примерно столько и играет полнометражный фильм.
@@ -541,6 +542,26 @@ def test_a_space_in_the_run_directory_does_not_quietly_kill_the_packing(
     packer.publish()
     packer.stop(keep_files=True, reason="проверка пути с пробелом")
     assert (out / segment_name(0)).exists(), f"ни куска: {packer.why()}"
+
+
+def test_cmaf_pack_has_one_init_and_headerless_media_fragments(clip: str, tmp_path: Path) -> None:
+    grid = Grid.uniform(float(CLIP_SECONDS))
+    run = tmp_path / PACK_DIR
+    command = ffmpeg_pack_command(
+        clip, 0, str(run), grid, 0, 0.0, readrate=0.0, until=0, container=FMP4
+    )
+    packer = Packer.start(command, tmp_path, run, 0, last=0, container=FMP4)
+    deadline = time.monotonic() + 120
+    while packer.poll() is None and time.monotonic() < deadline:
+        packer.publish()
+        time.sleep(0.2)
+    packer.publish()
+    packer.stop(keep_files=True, reason="проверка CMAF")
+
+    init = (tmp_path / "init.mp4").read_bytes()
+    media = (tmp_path / segment_name(0, FMP4)).read_bytes()
+    assert init[4:8] == b"ftyp" and b"moov" in init
+    assert media[4:8] == b"moof" and b"moov" not in media
 
 
 # --- TC-122: точка захода упаковки берётся из карты, а не пробным прогоном каждый раз ---

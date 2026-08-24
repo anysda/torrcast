@@ -5,7 +5,18 @@ import math
 import pytest
 
 from torrcast.adapters.stream_pack.grid import Grid
+from torrcast.adapters.stream_pack.hls_manifest import hls_manifest
 from torrcast.domain.hls_settings import GRID_WEIGHT_MARGIN, HLS_SEGMENT_SECONDS
+from torrcast.domain.segment_container import FMP4
+
+
+def test_fmp4_manifest_names_init_and_media_segments() -> None:
+    text = hls_manifest([10.0, 7.5], 10, True, FMP4)
+
+    assert "#EXT-X-VERSION:7" in text
+    assert '#EXT-X-MAP:URI="init.mp4"' in text
+    assert "v0.m4s" in text and "v1.m4s" in text
+    assert ".ts" not in text
 
 
 def test_a_uniform_grid_starts_at_zero_and_keeps_the_step() -> None:

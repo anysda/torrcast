@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import contextlib
 
-from torrcast.adapters.chromecast.cast.hls_hints import HLS_HINTS, HLS_TYPE
+from torrcast.adapters.chromecast.cast.hls_hints import HLS_TYPE, hls_hints
 from torrcast.adapters.chromecast.cast.receiver_link import _Link
 from torrcast.ports.journal.slot import journal
 
@@ -28,7 +28,7 @@ class _Talk(_Link):
             HLS_TYPE,
             title=self._title,
             stream_type="BUFFERED",
-            media_info=HLS_HINTS,
+            media_info=hls_hints(self.segment_container),
             current_time=at,
             autoplay=not paused,
         )

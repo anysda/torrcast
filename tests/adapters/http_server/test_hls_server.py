@@ -17,8 +17,11 @@ class _Supply:
     def __init__(self, out: Path) -> None:
         self.out = out
 
-    def manifest(self) -> bytes:
+    def manifest(self, name: str = "index.m3u8") -> bytes:
         return b"#EXTM3U\n#EXT-X-ENDLIST\n"
+
+    def init(self) -> Path | None:
+        return self.out / "init.mp4"
 
     def segment(self, slot: int) -> Path | None:
         piece = self.out / f"v{slot}.ts"
@@ -28,6 +31,7 @@ class _Supply:
 @pytest.fixture
 def serving(tmp_path: Path) -> object:
     (tmp_path / "v0.ts").write_bytes(bytes(range(256)) * 4)
+    (tmp_path / "init.mp4").write_bytes(b"init")
     server = HlsServer(tmp_path, port=free_port(), feed=_Supply(tmp_path))
     server.start()
     try:
@@ -66,6 +70,10 @@ def test_the_manifest_and_the_segment_come_from_the_feed_and_nothing_else_does(
 
     assert requests.get(f"{serving}/v9.ts", timeout=10).status_code == 404
     assert requests.get(f"{serving}/../state.json", timeout=10).status_code == 404
+
+    init = requests.get(f"{serving}/init.mp4", timeout=10)
+    assert init.status_code == 200 and init.content == b"init"
+    assert init.headers["Content-Type"] == "video/mp4"
 
 
 @pytest.mark.machine

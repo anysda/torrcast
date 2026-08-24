@@ -56,7 +56,7 @@ def _segment(
     всё равно отдаётся файлом - чтение того, что есть, упаковку не двигает, и куски
     прошлых прогонов остаются честными.
     """
-    path = state.out / _state.segment_name(slot)
+    path = state.out / state.piece_name(slot)
     if not 0 <= slot < state.grid.count:
         return path if path.exists() else None
     deadline = _state.clock_port.monotonic() + state.wait
@@ -144,7 +144,7 @@ def _warm(state: _State, slot: int) -> Path | None:
 
 def _have(state: _State, slot: int) -> bool:
     """Есть ли допустимый по весу кусок в окне показа или в прогретом."""
-    if (state.out / _state.segment_name(slot)).exists():
+    if (state.out / state.piece_name(slot)).exists():
         return True
     if state.vault is None:
         return False

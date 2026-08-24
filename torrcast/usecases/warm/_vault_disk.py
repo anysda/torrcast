@@ -85,7 +85,8 @@ def _size(path: Path) -> int:
 def _weigh(where: Path) -> int:
     total = 0
     with contextlib.suppress(OSError):
-        for path in where.rglob("v*.ts"):
-            with contextlib.suppress(OSError):
-                total += path.stat().st_size
+        for suffix in ("ts", "m4s"):
+            for path in where.rglob(f"v*.{suffix}"):
+                with contextlib.suppress(OSError):
+                    total += path.stat().st_size
     return total

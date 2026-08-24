@@ -8,6 +8,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+import torrcast.usecases.feed_pack._state as _state
+from torrcast.domain.master_manifest import master_manifest
+from torrcast.domain.segment_container import FMP4
 from torrcast.ports.pack_run.pack_run import PackRun
 from torrcast.usecases.feed_pack.feed_front import _front, _weight
 from torrcast.usecases.feed_pack.feed_restart import _restart
@@ -44,8 +47,22 @@ class Feed(_State):
     def duration(self) -> float:
         return self.grid.duration
 
-    def manifest(self) -> bytes:
-        return self.grid.manifest().encode("utf-8")
+    def manifest(self, name: str = "index.m3u8") -> bytes:
+        if self.container == FMP4 and name == "index.m3u8":
+            return master_manifest(self.video_codec).encode("utf-8")
+        return self.grid.manifest(self.container).encode("utf-8")
+
+    def init(self) -> Path | None:
+        """Опубликовать и вернуть CMAF init, дождавшись завода упаковщика."""
+        deadline = _state.clock_port.monotonic() + self.wait
+        path = self.out / "init.mp4"
+        while _state.clock_port.monotonic() < deadline:
+            if self.packer is not None:
+                self.packer.publish()
+            if path.exists():
+                return path
+            _state.clock_port.sleep(0.05)
+        return None
 
     def segment(self, slot: int) -> Path | None:
         """Файл сегмента ``slot``; ``None`` — его не будет (:func:`_segment`)."""

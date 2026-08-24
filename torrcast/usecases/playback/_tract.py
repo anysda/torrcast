@@ -9,8 +9,10 @@ from __future__ import annotations
 from pathlib import Path
 
 import torrcast.usecases.playback._show_state as _state
+from torrcast.domain.codec_tag import codec_tag
 from torrcast.domain.config import Config
 from torrcast.domain.profile import CAUTIOUS, Profile
+from torrcast.domain.segment_container import MPEGTS
 from torrcast.ports.receiver import Receiver
 from torrcast.ports.recode.encoding import Encoding
 from torrcast.ports.recode.spot_recoder import SpotRecoder
@@ -39,6 +41,8 @@ def _tract(
     follow: Following | None = None,
     profile: Profile = CAUTIOUS,
     video_mbit_estimated: bool = False,
+    codec: str = "",
+    depth: int = 0,
 ) -> tuple[SpotRecoder | None, Warmer | None, Feed, StreamServer, Receiver]:
     """Собрать тракт показа: кодировщик, прогрев, упаковку, раздачу и приёмник."""
     # Профиль тяжести всего фильма известен со старта - он считается из уже снятой
@@ -60,6 +64,7 @@ def _tract(
     )
     # Прогрев поднимается ПОСЛЕ старта показа (ниже), а собирается здесь: ему нужны и
     # сетка, и решение о перекодировании - те же, что у живой упаковки.
+    container = profile.segment_container if whole is None else MPEGTS
     warmer = _warmer(
         config,
         source,
@@ -72,12 +77,15 @@ def _tract(
         follow=follow,
         profile=profile,
         video_mbit=video_mbit,
+        container=container,
     )
     feed = Feed(
         source=source,
         audio=audio,
         out=out,
         grid=grid,
+        container=container,
+        video_codec=codec_tag(codec, depth),
         readrate=config.hls_readrate,
         burst=config.hls_burst,
         keep=config.hls_keep,
@@ -102,6 +110,8 @@ def _tract(
         receiver = _state.make_receiver(
             config.receiver, config.tv or "", config.hls_cert if tls else "", profile=profile
         )
+    if hasattr(receiver, "segment_container"):
+        receiver.segment_container = container
     # Сетку знает показ, а спотыкается о неё приёмник: и прыжок сторожа, и подъём после
     # отказа обязаны мерить кусками, а не секундами
     # (:meth:`torrcast.adapters.chromecast.cast.chromecast_receiver.ChromecastReceiver._nudge`).

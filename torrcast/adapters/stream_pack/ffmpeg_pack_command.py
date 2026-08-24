@@ -13,6 +13,7 @@ from torrcast.domain.hls_settings import (
     PACK_LIST,
     SPLIT_SLACK,
 )
+from torrcast.domain.segment_container import MPEGTS, SegmentContainer
 
 
 def ffmpeg_pack_command(
@@ -27,6 +28,8 @@ def ffmpeg_pack_command(
     encode: Any = None,
     until: int = -1,
     seek: float | None = None,
+    container: SegmentContainer = MPEGTS,
+    video_tag: str = "",
 ) -> list[str]:
     """Совместимый фасад сборки команды упаковщика."""
     return pack_command(
@@ -46,4 +49,6 @@ def ffmpeg_pack_command(
         audio_channels=AUDIO_CHANNELS,
         audio_bitrate=AUDIO_BITRATE,
         pack_list=PACK_LIST,
+        container=container,
+        video_tag=video_tag,
     )

@@ -59,7 +59,7 @@ def trim(vault: Vault, cap: int, grid: Grid, spots: tuple[int, ...] = ()) -> tup
     allow = _tail_cap(grid, cap)
     waited = frozenset(spots)
     with contextlib.suppress(OSError):
-        for path in vault.dir.glob("v*.ts"):
+        for path in vault.dir.glob("v*.m4s" if vault.container == "fmp4" else "v*.ts"):
             try:
                 slot = int(path.stem[1:])
             except ValueError:

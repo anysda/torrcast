@@ -7,12 +7,18 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from torrcast.adapters.stream_probe.segment_name import segment_name
+from torrcast.domain.segment_container import FMP4, MPEGTS, SegmentContainer
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
 
-def hls_manifest(spans: Sequence[float], target: int, on_keys: bool) -> str:
+def hls_manifest(
+    spans: Sequence[float],
+    target: int,
+    on_keys: bool,
+    container: SegmentContainer = MPEGTS,
+) -> str:
     """Манифест VOD на **весь фильм**: все сегменты сетки и ``ENDLIST``.
 
     Приёмнику неоткуда узнать длительность, кроме
@@ -30,7 +36,7 @@ def hls_manifest(spans: Sequence[float], target: int, on_keys: bool) -> str:
     """
     lines = [
         "#EXTM3U",
-        "#EXT-X-VERSION:3",
+        f"#EXT-X-VERSION:{7 if container == FMP4 else 3}",
         f"#EXT-X-TARGETDURATION:{target}",
         "#EXT-X-MEDIA-SEQUENCE:0",
         "#EXT-X-PLAYLIST-TYPE:VOD",
@@ -39,7 +45,9 @@ def hls_manifest(spans: Sequence[float], target: int, on_keys: bool) -> str:
         # Не украшение: каждый сегмент начинается с опорного кадра, и приёмнику
         # разрешено начать показ с любого - на этом и держится перемотка.
         lines.append("#EXT-X-INDEPENDENT-SEGMENTS")
+    if container == FMP4:
+        lines.append('#EXT-X-MAP:URI="init.mp4"')
     for slot, span in enumerate(spans):
-        lines += [f"#EXTINF:{span:.6f},", segment_name(slot)]
+        lines += [f"#EXTINF:{span:.6f},", segment_name(slot, container)]
     lines.append("#EXT-X-ENDLIST")
     return "\n".join(lines) + "\n"

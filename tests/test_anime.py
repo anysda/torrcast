@@ -983,10 +983,12 @@ def test_the_last_hope_asks_the_receiver_profile_not_a_module_constant() -> None
     picture = Picture(title="Гинтама", year=2006, kind="tv", releases=[dead, hevc])
     args = Args(query=["gintama", "s1e1"])
 
-    for profile in (CAUTIOUS, ANDROID_TV):
-        plan = plan_for(picture, args, Config(), profile)
-        assert plan.last_resort, f"{profile.key}: HEVC он перекодирует целиком - надежда нужна"
-        assert plan.ranked[0] is hevc
+    cautious = plan_for(picture, args, Config(), CAUTIOUS)
+    assert cautious.last_resort and cautious.ranked[0] is hevc
+
+    android = plan_for(picture, args, Config(), ANDROID_TV)
+    assert not android.last_resort, "CMAF-профиль берёт HEVC копией без тяжёлого пути"
+    assert android.copy_hevc and android.ranked[0] is hevc
 
     native = replace(
         CAUTIOUS, key="native", recode_codecs=frozenset(), copy_codecs=frozenset({"h264", "hevc"})

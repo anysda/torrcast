@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Protocol, TypeAlias
 
 from torrcast.domain.profile import CAUTIOUS
+from torrcast.domain.segment_container import MPEGTS, SegmentContainer
 from torrcast.ports.feed_grid import FeedGrid
 
 #: Кого позвать, когда сегмент ушёл наружу: ``(слот, чем он ушёл)``.
@@ -153,6 +154,7 @@ class _State:
     #: Потолок веса куска этого приёмника. Последний гейт обязан мерить ровно им:
     #: здесь уже известен вес файла после склейки, которого не видел каталог перекода.
     cap: int = CAUTIOUS.max_segment_bytes
+    container: SegmentContainer = MPEGTS
 
     def __post_init__(self) -> None:
         # Прогон, который ещё ничего не выложил, стоит ровно перед своим первым сегментом:
