@@ -17,10 +17,17 @@ class _Loading:
     def __init__(self, status: Status) -> None:
         self.status = status
         self.loads: list[dict[str, Any]] = []
+        self.said: list[str] = []
         self.active = 0
 
     def play_media(self, url: str, kind: str, **rest: Any) -> None:
         self.loads.append({"url": url, "kind": kind, **rest})
+
+    def pause(self) -> None:
+        """Команда паузы: приёмник её берёт и встаёт на месте."""
+        self.said.append("pause")
+        self.status.player_state = "PAUSED"
+        self.status.player_is_playing = False
 
     def block_until_active(self, timeout: float = 0.0) -> None:
         self.active += 1
@@ -153,6 +160,40 @@ def test_a_silent_receiver_is_reloaded_and_then_given_up_on(
     assert isinstance(controller, _Loading)
     assert len(controller.loads) == receiver.profile.load_retries
     assert "LOAD не взяли" in capsys.readouterr().out
+
+
+def test_a_paused_load_asks_the_receiver_not_to_start() -> None:
+    """LOAD без автостарта: сессия на закладке ждёт зрителя, снявшего паузу с пульта."""
+    receiver = _receiver()
+
+    receiver._load(2231.0, paused=True)
+
+    controller = receiver.device.media_controller
+    assert isinstance(controller, _Loading)
+    (load,) = controller.loads
+    assert load["autoplay"] is False
+    assert load["current_time"] == 2231.0
+
+
+def test_a_paused_load_settles_on_the_paused_word() -> None:
+    """Готовность LOAD без автостарта - слово PAUSED, а не картинка на экране."""
+    clock = FakeClock()
+    receiver = _receiver(Status(state="PAUSED"), clock=clock)
+    receiver._load(2231.0, paused=True)
+
+    assert receiver._settle(60.0) is True
+
+
+def test_a_receiver_that_ignored_autoplay_is_paused_back() -> None:
+    """Приёмник не удержал LOAD без старта и начал сам - паузу зрителя возвращаем мы."""
+    clock = FakeClock()
+    receiver = _receiver(Status(state="PLAYING"), clock=clock)
+    receiver._load(2231.0, paused=True)
+
+    assert receiver._settle(60.0) is True
+    controller = receiver.device.media_controller
+    assert isinstance(controller, _Loading)
+    assert controller.said == ["pause"], "одна команда паузы - и показ снова ждёт зрителя"
 
 
 def test_a_budget_that_ran_out_ends_the_wait_without_a_single_retry() -> None:

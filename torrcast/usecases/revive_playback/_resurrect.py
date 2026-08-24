@@ -62,7 +62,7 @@ def _resurrect(
         return False  # фильм досмотрен: гаснущий экран тут и есть титры, а не авария
     if not state.why:
         state.since, state.warmed = now, warmer.warmed if warmer is not None else 0.0
-        why = _why(state, feed)
+        why = _why(state, feed, warmer)
         state.began, state.why = time.time(), why
         journal().dark(pos=pos, why=why, shown=shown)
         said = (

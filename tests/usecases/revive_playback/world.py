@@ -35,7 +35,7 @@ class FakeReceiver:
         pos, state = self.script.pop(0) if self.script else (0.0, "IDLE")
         return Position(pos, 7200.0, state in {"PLAYING", "BUFFERING"}, state)
 
-    def replay(self, pos: float) -> float:
+    def replay(self, pos: float, paused: bool = False) -> float:
         self.replayed.append(pos)
         return self.answer
 

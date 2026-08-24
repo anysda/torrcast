@@ -27,9 +27,13 @@ class _Revivable(Protocol):
     и тогда «да» на месте, которого зритель не увидит, - это враньё о пятнадцати секундах фильма.
     :data:`torrcast.domain.not_raised.NOT_RAISED` - картинки нет; ноль ответом об отказе не является,
     это законное начало картины.
+
+    ``paused=True`` - вернуть потерянную сессию на закладку, НЕ начиная показ: паузу на
+    ней ставил зритель, и снимает её тоже он, с пульта
+    (:mod:`torrcast.usecases.revive_playback._paused`).
     """
 
-    def replay(self, at: float) -> float: ...
+    def replay(self, at: float, paused: bool = False) -> float: ...
 
 
 @runtime_checkable

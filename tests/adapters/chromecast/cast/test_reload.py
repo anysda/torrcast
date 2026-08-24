@@ -25,7 +25,7 @@ class _Quiet(Wired):
         if self.breaks:
             raise OSError("приёмник ушёл")
 
-    def _load(self, at: float = 0.0) -> None:
+    def _load(self, at: float = 0.0, paused: bool = False) -> None:
         self.loads.append(at)
 
 

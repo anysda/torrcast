@@ -17,6 +17,7 @@ class _Quiet(Wired):
         self.settles = settles
         self.breaks = breaks
         self.loads: list[float] = []
+        self.paused_loads: list[bool] = []
         self.budgets: list[float] = []
         self.restarts = 0
 
@@ -25,8 +26,9 @@ class _Quiet(Wired):
         if self.breaks:
             raise OSError("приёмника нет в сети")
 
-    def _load(self, at: float = 0.0) -> None:
+    def _load(self, at: float = 0.0, paused: bool = False) -> None:
         self.loads.append(at)
+        self.paused_loads.append(paused)
 
     def _settle(self, budget: float) -> bool:
         self.budgets.append(budget)
@@ -84,6 +86,15 @@ def test_the_answer_is_the_place_past_the_deadly_segment_and_not_the_place_asked
     assert started > 127.2
     assert receiver.loads == [started]
     assert receiver._peak == started and receiver._at == started
+
+
+def test_a_paused_resurrection_loads_without_autoplay() -> None:
+    """Паузу ставил зритель: сессию возвращают на закладку, НЕ начиная показ."""
+    receiver = _Quiet()
+
+    assert _replay(receiver, 2231.0, paused=True) == 2231.0
+    assert receiver.loads == [2231.0]
+    assert receiver.paused_loads == [True]
 
 
 def test_the_watchdog_starts_the_new_session_from_a_clean_slate() -> None:

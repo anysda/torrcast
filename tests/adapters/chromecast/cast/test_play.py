@@ -20,7 +20,7 @@ class _Quiet(Wired):
         self.loads: list[float] = []
         self.budgets: list[float] = []
 
-    def _load(self, at: float = 0.0) -> None:
+    def _load(self, at: float = 0.0, paused: bool = False) -> None:
         self.loads.append(at)
 
     def _settle(self, budget: float) -> bool:

@@ -15,9 +15,12 @@ from torrcast.ports.journal.slot import journal
 class _Talk(_Link):
     """Загрузка, чужая сессия и ожидание картинки: всё, о чём спрашивают приёмник."""
 
-    def _load(self, at: float = 0.0) -> None:
+    def _load(self, at: float = 0.0, paused: bool = False) -> None:
         controller = self._device().media_controller
         self._error_code = None  # новый LOAD - новая причина, старую приписывать ему нельзя
+        # ``paused=True`` - LOAD без автостарта: сессия возвращается на закладку и ждёт
+        # зрителя, снявшего паузу с пульта; готовность её - слово ``PAUSED`` (:meth:`_settle`).
+        self._paused = paused
         # BUFFERED, а не LIVE: манифест VOD знает длительность целиком, и ресивер
         # рисует шкалу с общим временем - перемотка пультом работает.
         controller.play_media(
@@ -27,6 +30,7 @@ class _Talk(_Link):
             stream_type="BUFFERED",
             media_info=HLS_HINTS,
             current_time=at,
+            autoplay=not paused,
         )
         controller.block_until_active(timeout=30)
         # Чья сессия на приёмнике - запоминаем здесь: по ней :meth:`_ours` отличит наш
@@ -118,14 +122,28 @@ class _Talk(_Link):
 
         Любая повторная попытка идёт в чистое приложение: залипший Default Media Receiver
         молчит на все LOAD подряд, а `quit_app` лечит сразу.
+
+        LOAD без автостарта (:attr:`_paused`) готов не картинкой, а словом ``PAUSED``:
+        сессия вернулась на закладку и ждёт зрителя. Приёмник вправе такой LOAD не
+        удержать и начать показ сам - тогда паузу возвращаем мы: ставил её зритель,
+        и снимает тоже он.
         """
         deadline = self.clock.monotonic() + budget
         tried = self.clock.monotonic()
+        ready = ("PAUSED",) if self._paused else ("PLAYING", "BUFFERING")
+        hushed = False
         while self.clock.monotonic() < deadline:
             self.clock.sleep(1.0)
             status = self._status()
-            if status.player_state in ("PLAYING", "BUFFERING"):
+            if status.player_state in ready:
                 return True
+            if self._paused and status.player_state == "PLAYING" and not hushed:
+                # autoplay=False проигнорирован, приёмник начал сам - вернуть паузу
+                # зрителя наша работа, а не его.
+                hushed = True
+                with contextlib.suppress(Exception):
+                    self._device().media_controller.pause()
+                continue
             waited = self.clock.monotonic() - tried
             refused = status.idle_reason == "ERROR" and waited >= self.LOAD_PAUSE
             if refused or waited >= self.STUCK_SECONDS:
@@ -140,5 +158,5 @@ class _Talk(_Link):
                     flush=True,
                 )
                 self._restart_app()
-                self._load(self._at)
+                self._load(self._at, paused=self._paused)
         return False

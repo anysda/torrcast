@@ -23,7 +23,7 @@ class _Scripted(Wired):
     def _restart_app(self) -> None:
         self.restarts += 1
 
-    def _load(self, at: float = 0.0) -> None:
+    def _load(self, at: float = 0.0, paused: bool = False) -> None:
         self.loads.append(at)
 
 

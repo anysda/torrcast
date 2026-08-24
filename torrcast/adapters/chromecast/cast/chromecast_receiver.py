@@ -51,9 +51,13 @@ class ChromecastReceiver(_Talk):
         """Где показ и жив ли он; попутно вся работа сторожа (:func:`_position`)."""
         return _position(self, front)
 
-    def replay(self, at: float) -> float:
-        """Поднять свой погасший показ (:func:`_replay`)."""
-        return _replay(self, at)
+    def replay(self, at: float, paused: bool = False) -> float:
+        """Поднять свой погасший показ (:func:`_replay`).
+
+        ``paused=True`` - вернуть сессию на закладку, НЕ начиная показ: паузу ставил
+        зритель, и снимает её тоже он, с пульта.
+        """
+        return _replay(self, at, paused)
 
     def seek(self, pos: float) -> None:
         """Перемотка от владеющего сендера — ровно та же MEDIA-команда, что с пульта.

@@ -10,6 +10,7 @@ from tests.usecases.revive_playback.world import FakeSupply, feed_with_segments
 from torrcast.ports.stream_source import StreamSource
 from torrcast.usecases.revive_playback._blame import _may, _why
 from torrcast.usecases.revive_playback._revival_state import _RevivalState
+from torrcast.usecases.warm.warmer import Warmer
 
 
 def test_a_silent_source_takes_the_blame_and_reaches_the_packing(tmp_path: Path) -> None:
@@ -35,6 +36,26 @@ def test_a_healthy_source_leaves_the_receiver_to_blame(tmp_path: Path) -> None:
     assert why == "приёмник бросил показ"
     assert state.dropped is True and state.blamed is False
     assert supply.asked > 0, "приговор приёмнику ставится только после вопроса источнику"
+
+
+def test_a_fully_warmed_film_never_blames_the_supply(tmp_path: Path) -> None:
+    """Фильм целиком на диске - снабжение ему не нужно, и диагноз рою печататься не должен.
+
+    Замер 24-08-2026: упаковку на паузе погасили мы сами, фильм лежал на диске целиком,
+    а показ написал «рой привозит 0.00 Мбит/с при нужных 9.22» - враньё дважды.
+    """
+
+    class _Done:
+        done = True
+        warmed = 0.0
+
+    supply = FakeSupply(silence="рой привозит 0.00 Мбит/с - снабжения не хватает")
+    state = _RevivalState(clock=FakeClock(), supply=cast(StreamSource, supply))
+
+    why = _why(state, feed_with_segments(tmp_path), cast(Warmer, _Done()))
+
+    assert why == "приёмник бросил показ"
+    assert supply.asked == 0, "спрашивать источник не о чем: прогретый фильм сети не ждёт"
 
 
 def test_a_finished_warm_up_needs_no_network_at_all(tmp_path: Path) -> None:

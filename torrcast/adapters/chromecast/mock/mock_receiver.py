@@ -13,6 +13,7 @@ from torrcast.adapters.chromecast.mock.mock_settings import _Settings
 from torrcast.adapters.chromecast.mock.screen_watch import ScreenWatch
 from torrcast.adapters.chromecast.mock.segment_audit import SegmentAudit
 from torrcast.adapters.system_clock import SystemClock
+from torrcast.domain.infra_error import InfraError
 from torrcast.domain.not_raised import NOT_RAISED
 from torrcast.domain.patience import Patience
 from torrcast.domain.position import Position
@@ -128,14 +129,19 @@ class MockReceiver(_Settings):
         """Что приёмник видит на экране; ``front`` - докуда упаковано."""
         return self.screen.read(front)
 
-    def replay(self, at: float) -> float:
+    def replay(self, at: float, paused: bool = False) -> float:
         """Поднять СВОЙ погасший показ с секунды ``at`` (:func:`mock_replay`).
 
         ⚠️ Чужой показ он не видит и видеть не может: что приёмник занят чужим, проверяется
         только на живом ТВ.
+
+        ``paused=True`` - вернуть сессию на закладку, НЕ начиная показ: паузу ставил
+        зритель, и снимает её тоже он, с пульта.
         """
         if not self._url or self.clock.monotonic() < self.fetch.sulk_until:
             return NOT_RAISED  # приёмник поймал 404 и ближайшее время не берёт LOAD вовсе
+        if paused:
+            return self._replay_paused(at)
         return mock_replay(
             lambda pos: self._open(self._url, pos),
             self.screen,
@@ -144,6 +150,22 @@ class MockReceiver(_Settings):
             at,
             self.WAKE_TIMEOUT,
         )
+
+    def _replay_paused(self, at: float) -> float:
+        """LOAD без автостарта: сессия возвращается на закладку и ждёт зрителя.
+
+        Картинки ждать нечего - её и не просили: готовность такого подъёма на живом
+        приёмнике - слово ``PAUSED``, и здесь оно выставляется тем же ``pause``,
+        которым его выставляет пульт.
+        """
+        try:
+            self._open(self._url, at)
+        except (InfraError, OSError):
+            return NOT_RAISED  # источника нет - зовущий попробует ещё или дождётся срока паузы
+        self.screen.jumped(at)
+        self.screen.dead = False
+        self.pause()
+        return at
 
     def _open(self, url: str, at: float = 0.0) -> None:
         """Спросить источник, завести декодер и пустить за ним сверку сегментов.

@@ -14,11 +14,17 @@ if TYPE_CHECKING:
     from torrcast.adapters.chromecast.cast.receiver_talk import _Talk
 
 
-def _replay(rcv: _Talk, at: float) -> float:
+def _replay(rcv: _Talk, at: float, paused: bool = False) -> float:
     """Поднять СВОЙ погасший показ с секунды ``at``; вернуть секунду, С КОТОРОЙ он пошёл.
 
     :data:`NOT_RAISED` - картинки нет: приёмник занят чужим показом, не взял LOAD или
     взял, но кадра так и не дал.
+
+    ``paused=True`` - сессию возвращают на закладку БЕЗ начала показа (LOAD с
+    ``autoplay=False``): паузу на ней ставил зритель, и снимает её тоже он
+    (:mod:`torrcast.usecases.revive_playback._paused`). Готовность такого подъёма -
+    слово ``PAUSED``, а не картинка
+    (:meth:`torrcast.adapters.chromecast.cast.receiver_talk._Talk._settle`).
 
     🔴 Отказ отвечает отрицательной секундой, а не нулём, и это не педантизм. Ноль -
     законное место фильма: показ, умерший на 0:00, поднимают ровно с начала картины
@@ -72,7 +78,7 @@ def _replay(rcv: _Talk, at: float) -> float:
     rcv._skip_from = -1.0  # о перешагнутом куске сказано выше, вторым голосом незачем
     try:
         rcv._restart_app()
-        rcv._load(at)
+        rcv._load(at, paused=paused)
         return at if rcv._settle(rcv.WAKE_TIMEOUT) else NOT_RAISED
     except Exception:
         return NOT_RAISED

@@ -100,7 +100,7 @@ class _Silenced(ChromecastReceiver):
     def _restart_app(self) -> None:
         self.restarts += 1
 
-    def _load(self, at: float = 0.0) -> None:
+    def _load(self, at: float = 0.0, paused: bool = False) -> None:
         self.loads.append(at)
 
     def _settle(self, budget: float) -> bool:
@@ -2141,7 +2141,7 @@ def test_a_show_raised_from_the_last_shown_frame_reports_no_gap(
         def _restart_app(self) -> None:
             return None
 
-        def _load(self, at: float = 0.0) -> None:
+        def _load(self, at: float = 0.0, paused: bool = False) -> None:
             return None
 
         def _free(self) -> bool:

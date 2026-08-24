@@ -12,7 +12,7 @@ import torrcast.usecases.revive_playback._revive_state as _state
 from torrcast.domain.debug_handles import TRACE_ENV
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.profile import CAUTIOUS, Profile
-from torrcast.domain.start_settings import FIRST_FRAME_POLL, PAUSE_LIMIT, PAUSE_SECONDS, SAY_SECONDS
+from torrcast.domain.start_settings import FIRST_FRAME_POLL, SAY_SECONDS
 from torrcast.ports.clock import Clock
 from torrcast.ports.journal.slot import journal
 from torrcast.ports.receiver import Receiver
@@ -21,6 +21,7 @@ from torrcast.usecases.choice._ctl import _ctl
 from torrcast.usecases.feed_pack.feed import Feed
 from torrcast.usecases.rank._hms import _hms
 from torrcast.usecases.revive_playback._endure import _endure
+from torrcast.usecases.revive_playback._paused import _pause
 from torrcast.usecases.revive_playback._revival import _Revival
 from torrcast.usecases.revive_playback._revive_state import TAIL_LIMIT
 from torrcast.usecases.revive_playback._screen import (
@@ -151,13 +152,12 @@ def _hold(
                 return True
         else:
             screen.tail_at, screen.tail_since = -1.0, 0.0
-        if position.state == "PAUSED":
-            screen.paused = screen.paused or clock.monotonic()
-            if clock.monotonic() - screen.paused > PAUSE_LIMIT:
+        # Пауза - решение зрителя, и потеря сессии его не отменяет: слово приёмника
+        # здесь может быть потеряно (UNKNOWN с нулём), и ветка держится на памяти
+        # показа, а не на нём (:mod:`torrcast.usecases.revive_playback._paused`).
+        if (alive := position.state == "PAUSED") or (screen.paused and not position.playing):
+            if not _pause(screen, receiver, feed, profile, clock, alive, screen.held or start):
                 return False  # пауза длиной с вечер - показ окончен, юнит гасим
-            if clock.monotonic() - screen.paused > PAUSE_SECONDS and not feed.halted():
-                print("пауза на пульте - упаковку гашу", flush=True)
-                feed.halt()  # вернутся к показу - раздача сама начнёт паковать заново
         elif not position.playing:
             # Показ погас. Это конец только тогда, когда поднять его не удалось: обрыв
             # интернета длиннее приёмникова терпения гасит экран, а фильм и место, где
