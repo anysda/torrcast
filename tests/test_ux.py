@@ -1025,8 +1025,10 @@ def test_a_hand_named_release_says_out_loud_that_it_drops_the_bookmark(
     assert main(["моана", "2", "--release", "2"]) == 0
 
     said = capsys.readouterr().out
-    assert "не поднимаю" in said, said
-    assert "41:07" in said, "потерянное место названо точным временем"
+    assert (
+        "«Моана 2» - релиз назван руками, играю с начала; "
+        "сохранённое место 0:41:07 не поднимаю" in said
+    ), said
     assert State.load().entries["movie:моана-2:2024"].pos == 0.0, "играли с начала"
 
 
@@ -1056,7 +1058,10 @@ def test_a_hand_named_choice_beats_new_and_says_so(
     played = State.load().entries["movie:моана-2:2024"]
     said = capsys.readouterr().out
     assert played.magnet.startswith(f"magnet:?xt=urn:btih:{torrent * 4}")
-    assert f"{named} назван руками" in said and "сохранённый выбор не поднимаю" in said
+    assert (
+        f"«Моана 2» - {named} назван руками, играю выбранное с начала; "
+        "сохранённый выбор не поднимаю" in said
+    ), said
 
 
 def test_continuing_without_a_flag_keeps_the_bookmark_and_stays_silent(

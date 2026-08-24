@@ -65,7 +65,10 @@ def test_a_hand_named_release_says_out_loud_that_it_drops_the_bookmark(
     )
 
     assert code is None, "названный руками релиз играется обычным путём"
-    assert "сохранённое место 1:00:00 не поднимаю" in capsys.readouterr().out
+    assert (
+        "«Кино» - релиз назван руками, играю с начала; "
+        "сохранённое место 1:00:00 не поднимаю" in capsys.readouterr().out
+    )
     assert bench.dropped == 0, "прогретое тут ещё пригодится: показ пойдёт обычным путём"
 
 
