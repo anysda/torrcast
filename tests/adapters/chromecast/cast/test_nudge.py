@@ -53,6 +53,34 @@ def test_a_receiver_waiting_for_us_is_not_pushed_at_all(tape: Tape) -> None:
     assert tape.events() == []
 
 
+@pytest.mark.parametrize(
+    ("pos", "front"),
+    [
+        (79.1, 90.0),
+        (89.4, 100.0),
+        (109.0, 120.0),
+        (119.3, 130.0),
+        (129.1, 140.0),
+        (139.4, 150.0),
+        (149.2, 160.0),
+        (159.5, 170.0),
+        (169.2, 180.0),
+    ],
+)
+def test_a_receiver_starved_on_the_recorded_feed_is_not_pushed(
+    tape: Tape, pos: float, front: float
+) -> None:
+    """Запас 10.8-10.9 с - это наш голод, а не разрешение украсть прыжком 8 с."""
+    clock = FakeClock(now=100.0)
+    receiver = Wired(clock=clock)
+    receiver._peak = pos
+
+    _stuck(receiver, clock, pos, front)
+
+    assert receiver.device.media_controller.jumps == []
+    assert tape.events() == []
+
+
 def test_the_jump_is_measured_by_the_grid_and_not_by_seconds(
     tape: Tape,
 ) -> None:
