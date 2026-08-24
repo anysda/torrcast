@@ -188,6 +188,24 @@ def test_the_show_reads_the_warmed_piece_without_touching_the_packer(
     assert feed.have(3) and not feed.have(4)
 
 
+def test_only_a_complete_warmed_tail_reaches_the_show(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Последний кусок с диска обязан доходить до обещанного конца фильма."""
+    grid = Grid.uniform(21.0)
+    vault = _vault(tmp_path)
+    tail = _lay(vault, grid.count - 1)
+    feed = Feed(source="нет", audio=0, out=hls_dir(str(tmp_path / "hls")), grid=grid, vault=vault)
+    monkeypatch.setattr(feed_segment, "segment_start", lambda path: grid.start(grid.count - 1))
+    monkeypatch.setattr(feed_segment, "segment_end", lambda path: 20.8)
+
+    assert feed._warm(grid.count - 1) == tail, "здоровый хвост забракован"
+
+    monkeypatch.setattr(feed_segment, "segment_end", lambda path: 20.5)
+    assert feed._warm(grid.count - 1) is None, "обрезанный хвост уехал зрителю"
+    assert not tail.exists(), "обрезанный хвост остался готовым на диске"
+
+
 def test_a_warmed_copy_heavier_than_the_ceiling_is_not_a_warmed_piece(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -10,8 +10,9 @@ import math
 from typing import TYPE_CHECKING
 
 import torrcast.usecases.feed_pack._state as _state
+from torrcast.usecases.warm.segment_end import segment_end
 from torrcast.usecases.warm.segment_start import segment_start
-from torrcast.usecases.warm.settings import SKEW_MAX
+from torrcast.usecases.warm.settings import SKEW_MAX, TAIL_GAP_MAX
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -118,6 +119,19 @@ def _warm(state: _State, slot: int) -> Path | None:
         size = path.stat().st_size
     if size > state.cap:
         return None
+    if slot == state.grid.count - 1:
+        # 🔴 TC-772. Конец куска меряется по ЛЮБОЙ его дорожке (:func:`segment_end`), а не по
+        # одной картинке: у настоящего релиза видеодорожка вправе кончиться раньше паспорта
+        # контейнера, и мера по картинке звала целый хвост оборванным на 9% корпуса.
+        ended = segment_end(path)
+        promised = state.grid.duration + state.grid.origin
+        if math.isnan(ended) or promised - ended > TAIL_GAP_MAX:
+            state.vault.reject(slot)
+            detail = (
+                "конец не прочитан" if math.isnan(ended) else f"не хватает {promised - ended:.2f} с"
+            )
+            state._say(f"прогретый v{slot} оборван ({detail}) - переделываю живой упаковкой")
+            return None
     began = segment_start(path)
     want = state.grid.start(slot) + state.grid.origin
     if not math.isnan(began) and abs(began - want) <= SKEW_MAX:
