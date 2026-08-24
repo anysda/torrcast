@@ -48,3 +48,12 @@ def test_a_very_long_line_is_cut_before_it_reaches_the_console() -> None:
     """Наружу уходит строка, а не портянка: трейсбек в консоли человеку не ответ."""
     long_line = _journal({"SYSLOG_IDENTIFIER": "python3.13", "MESSAGE": "я" * 500})
     assert unit_why(call=long_line) == "я" * 160
+
+
+def test_a_broken_journal_cannot_kill_the_answer_about_the_unit() -> None:
+    """Отказ чтения journald сам становится причиной, а не обрывает команду."""
+
+    def unavailable(tool: str, *args: str) -> subprocess.CompletedProcess[str]:
+        raise subprocess.TimeoutExpired([tool, *args], 60)
+
+    assert unit_why(call=unavailable).startswith("причина недоступна:")

@@ -7,6 +7,7 @@ import json
 
 from torrcast.adapters.systemd._systemd_call import SystemdCall, _systemd
 from torrcast.domain.unit_naming import _UNIT_NAME
+from torrcast.domain.why import why
 
 
 def unit_why(unit: str = _UNIT_NAME, *, call: SystemdCall = _systemd) -> str:
@@ -22,10 +23,13 @@ def unit_why(unit: str = _UNIT_NAME, *, call: SystemdCall = _systemd) -> str:
 
     ``call`` - чем звать systemd; боевое умолчание одно, и меняет его только стенд.
     """
-    done = call(
-        "journalctl", "-u", unit, "-n", "30", "--no-pager",
-        "-o", "json", "--output-fields=MESSAGE,SYSLOG_IDENTIFIER",
-    )  # fmt: skip
+    try:
+        done = call(
+            "journalctl", "-u", unit, "-n", "30", "--no-pager",
+            "-o", "json", "--output-fields=MESSAGE,SYSLOG_IDENTIFIER",
+        )  # fmt: skip
+    except Exception as exc:
+        return f"причина недоступна: {why(exc)}"[:160]
     ours: list[str] = []
     for line in done.stdout.splitlines():
         with contextlib.suppress(ValueError, TypeError):

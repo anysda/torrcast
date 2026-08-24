@@ -2,9 +2,33 @@
 
 from __future__ import annotations
 
+import os
+import signal
+from collections.abc import Callable
+
+import pytest
+
 from torrcast.cli.answered import answered
 from torrcast.domain.exit_codes import EXIT_INFRA, EXIT_OK
+from torrcast.ports.journal.silent import Silent
+from torrcast.ports.journal.slot import install
 from torrcast.usecases.stopped import _on_term
+
+
+class _ClosingTape(Silent):
+    def __init__(self) -> None:
+        self.events: list[tuple[str, str, dict[str, object]]] = []
+        self.closed = 0
+
+    def emit(self, phase: str, event: str, **fields: object) -> None:
+        self.events.append((phase, event, fields))
+
+    def shutdown(self) -> None:
+        self.closed += 1
+
+
+def _broken() -> int:
+    raise RuntimeError("сломано")
 
 
 def test_a_planned_stop_of_the_show_is_a_success_not_a_failure() -> None:
@@ -35,3 +59,42 @@ def test_a_planned_stop_of_the_show_is_a_success_not_a_failure() -> None:
         raise KeyboardInterrupt
 
     assert answered(interrupted) == EXIT_INFRA, "Ctrl-C остаётся отказом"
+
+
+@pytest.mark.parametrize(
+    ("run", "result", "code"),
+    [
+        (lambda: int(EXIT_OK), "успех", EXIT_OK),
+        (_broken, "необработанный отказ", EXIT_INFRA),
+    ],
+)
+def test_every_exit_closes_the_trace(run: Callable[[], int], result: str, code: int) -> None:
+    """Штатный конец и отказ оставляют последнюю запись до остановки писателя."""
+    tape = _ClosingTape()
+    install(tape)
+
+    if result == "необработанный отказ":
+        with pytest.raises(RuntimeError, match="сломано"):
+            answered(run)
+    else:
+        assert answered(run) == code
+
+    assert tape.events == [("command", "finished", {"result": result, "code": code})]
+    assert tape.closed == 1
+
+
+def test_sigterm_is_named_on_the_screen_and_in_the_trace(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """SIGTERM раскручивает общий выход, сообщает причину и дожимает ленту."""
+    tape = _ClosingTape()
+    install(tape)
+
+    def terminated() -> int:
+        os.kill(os.getpid(), signal.SIGTERM)
+        return int(EXIT_OK)
+
+    assert answered(terminated) == EXIT_INFRA
+    assert capsys.readouterr().err == "команда прервана сигналом SIGTERM\n"
+    assert tape.events == [("command", "finished", {"result": "SIGTERM", "code": EXIT_INFRA})]
+    assert tape.closed == 1
