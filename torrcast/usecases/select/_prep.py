@@ -54,6 +54,9 @@ class _Prep:
     started: float = field(default_factory=time.monotonic)
     meta: float = 0.0
     read: float = 0.0
+    #: Фактическая доставка во время прогрева: ``(секунд от старта, прочитано байт)``.
+    #: Счётчик снимается, пока файл действительно читают, а не после остановки спроса.
+    supply: list[tuple[float, float]] = field(default_factory=list)
     ready: threading.Event = field(default_factory=threading.Event)
 
     @property

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import threading
+from contextlib import suppress
+from typing import Any, cast
 
 import torrcast.usecases.select_bench._bench_state as _bench_state
 from torrcast.domain.pick_settings import SWARM_GRACE
@@ -29,6 +31,7 @@ class _BenchWork(_BenchCore):
                 grace=prep.contact_wait or 0.0,
             )
             prep.files = files
+            self._sample_supply(prep)
             prep.meta = self.clock() - prep.started
             journal().mark("метаданные", релиз=prep.number, картина=plan.picture.key)
             prep.video = self.choose(plan, prep.release, files)
@@ -43,6 +46,7 @@ class _BenchWork(_BenchCore):
             _bench_state._bench_warm_file(
                 source, alive=lambda: not prep.dropped, name=prep.want.name
             )
+            self._sample_supply(prep)
             prep.media = self.prober(
                 source,
                 timeout=self.probe_budget,
@@ -55,6 +59,7 @@ class _BenchWork(_BenchCore):
                 ),
             )
             prep.read = self.clock() - began
+            self._sample_supply(prep)
             journal().mark("ffprobe", релиз=prep.number, картина=plan.picture.key)
             prep.phase = "готово"
         except TorrcastError as exc:
@@ -65,6 +70,13 @@ class _BenchWork(_BenchCore):
             prep.ready.set()
             if prep.dropped:  # пока грелись, показ ушёл к другому релизу
                 self._forget(prep)
+
+    def _sample_supply(self, prep: _Prep) -> None:
+        """Снять счётчик байтов именно пока прогрев создаёт спрос на файл."""
+        with suppress(Exception):
+            read = cast(Any, self.torrserver).status(prep.torrent_hash).get("bytes_read")
+            if isinstance(read, (int, float)) and not isinstance(read, bool) and read >= 0:
+                prep.supply.append((self.clock() - prep.started, float(read)))
 
     def _wait(self, prep: _Prep, progress: Progress, prefix: str = "", limit: float = 0.0) -> None:
         """Дождаться подготовки, показывая фазу и бегущее время.

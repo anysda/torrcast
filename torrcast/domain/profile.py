@@ -71,6 +71,9 @@ class Profile:
     ready_ahead: float = 8.0
     stall_skip: float = 8.0
     blind_nudges: int = 3
+    #: Достаточность роя до показа: запас над реальным временем и начало честного окна.
+    supply_ratio: float = 1.25
+    supply_settle_seconds: float = 0.0
 
     def verdict(self, codec: str, depth: int = 0, frame: int = 0) -> Verdict:
         """Решить судьбу картинки одним правилом: копия, перекод или отказ."""

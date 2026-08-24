@@ -72,12 +72,17 @@ class Torrents:
         self.dropped: list[str] = []
         self.known = files if files is not None else [TorrFile(0, "movie.mkv", 4 * GB)]
         self.dead = dead or set()
+        self.read: dict[str, int] = {}
 
     def add(self, magnet: str) -> str:
         return f"hash-{magnet}"
 
     def cache(self, torrent_hash: str) -> dict[str, JsonValue]:
         return {}
+
+    def status(self, torrent_hash: str) -> dict[str, JsonValue]:
+        self.read[torrent_hash] = self.read.get(torrent_hash, 0) + 8 * 1024 * 1024
+        return {"bytes_read": self.read[torrent_hash]}
 
     def files(self, torrent_hash: str) -> list[TorrFile]:
         return self.known

@@ -16,6 +16,7 @@ from torrcast.usecases.select.plan import Plan
 from torrcast.usecases.select_bench._bench_prewarm import _BenchPrewarm
 from torrcast.usecases.select_bench._bench_queue import _bench_queue
 from torrcast.usecases.select_bench._bench_refusal import _bench_refusal
+from torrcast.usecases.select_bench._bench_supply import _bench_supply
 from torrcast.usecases.select_bench._bench_tally import _Tally
 from torrcast.usecases.select_bench._retried_verdict import _retried_verdict
 
@@ -39,19 +40,9 @@ class Bench(_BenchPrewarm):
           уложилась в бюджет. Про КАЧЕСТВО релиза при этом не узнали ничего: раздача
           просто не отозвалась.
 
-        Считать их одинаково — это и есть главная причина 🟡 в замере на тысяче запросов:
-        три подряд «нет пиров за 20 с» заканчивали отбор словами «годного релиза нет»,
-        хотя ниже в очереди стояли живые. Перепроверка тех же картин в один поток
-        оживляла шесть из восьми («Кавказская пленница», «Зона интересов», «Бесконечная
-        история»).
-
         Поэтому попытку жжёт только приговор (:data:`MAX_TRIES`), а молчание роя — часы
         (:data:`PICK_BUDGET`). Бесконечно это не длится и молчаливым не бывает: потолок
         фазы прежний, каждая осечка стоит строки, а очередь конечна.
-
-        🔴 TC-436. Потолок фазы держит и ОЖИДАНИЕ внутри попытки (:meth:`_wait`), а не
-        только переход к следующей: свежий прогрев, начатый на 179-й секунде, тянул ещё до
-        65 с сверх потолка, и объявленные 180 с обходились человеку в 245.
 
         🔴 TC-300. А кончившаяся очередь, в которой промолчали ВСЕ, кончается не отказом:
         лучший из промолчавших спрашивается ещё раз - один и без отсрочек, в остаток того
@@ -85,10 +76,9 @@ class Bench(_BenchPrewarm):
         # третий ffprobe лишь из-за того, как планировщик разложил три фоновых потока.
         for number in queue[:2]:
             self.start(plan, number)
-        #: Осечки, их цена и отложенный безрусский - всё, что обход уже узнал.
         tally = _Tally()
+        weak: tuple[float, _Prep] | None = None
         exhausted = False
-        #: Докуда дошла очередь - для строки о снижении ступени на запасном ходу.
         reached = 0
         deadline = self.clock() + self.pick_budget
         for attempt, number in enumerate(queue, start=1):
@@ -97,14 +87,18 @@ class Bench(_BenchPrewarm):
             # Нужны ровно двое: тот, чьего ответа ждём, и тот, кто греется ему на смену.
             # Всё прочее прогретое потолок вправе убрать прямо здесь (:meth:`_room`).
             # Третий - отложенный безрусский: его раздача ещё может понадобиться показу.
-            keep = (number, following, tally.mute.number if tally.mute is not None else None)
+            keep = (
+                number,
+                following,
+                tally.mute.number if tally.mute is not None else None,
+                weak[1].number if weak is not None else None,
+            )
             self.needed = {(plan.picture.key, n) for n in keep if n is not None}
             prep = self.start(plan, number)
             self._ask(plan, prep, queue)
             if following is not None:  # запасной греется, пока ждём этот
                 self.start(plan, following)
-            # Секундомер стоит вокруг ОЖИДАНИЯ, а не вокруг работы потока: прогретая под
-            # меню раздача отвечает мгновенно, и её приговор человеку ничего не стоил.
+            # Секундомер стоит вокруг ОЖИДАНИЯ, а не вокруг работы фонового потока.
             entered = self.clock()
             voice_search = (
                 "" if args.pinned else f"ищу русскую озвучку: релиз {attempt} из {len(queue)} - "
@@ -139,13 +133,22 @@ class Bench(_BenchPrewarm):
                 and voice_unproven(prep.found, native=plan.picture.native)
             )
             if not trouble and not voiceless:
-                progress.phase("")
-                prep = self._honest(plan, prep, queue, args, progress, tally.judged)
-                self._announce(plan, prep, queue, tally.judged, attempt)
-                return prep
+                supply = _bench_supply(self.profile, prep)
+                if args.pinned or supply[0] < 0 or supply[0] >= self.profile.supply_ratio:
+                    progress.phase("")
+                    prep = self._honest(plan, prep, queue, args, progress, tally.judged)
+                    self._announce(plan, prep, queue, tally.judged, attempt)
+                    return prep
+                ratio, got, need = supply
+                trouble = f"рой везёт {got:.2f} из нужных {need:.2f} Мбит/с ({ratio:.2f}x)"
+                if weak is None or ratio > weak[0]:
+                    if weak is not None:
+                        self._forget(weak[1])
+                    weak = ratio, prep
             why = _waiting_note(prep, trouble) if trouble else "без русской озвучки"
             tally.note(number, prep, why, entered, self.clock)
-            tally.hold(prep, voiceless, self._forget)
+            if weak is None or prep is not weak[1]:
+                tally.hold(prep, voiceless, self._forget)
             progress.phase("")
             # Три приговора - пол, дальше решают секунды: дешёвые приговоры (SD-рип,
             # vp9) места следующей раздаче больше не занимают, дорогие занимают.
@@ -167,6 +170,15 @@ class Bench(_BenchPrewarm):
         # про непроверенный хвост очереди не знает ничего, и отдавать зрителю чужой язык
         # вместо того, чтобы назвать нехватку своим именем, тут не за что: ниже стоят
         # нетронутые раздачи, и ход у человека есть - выбрать релиз руками.
+        if weak is not None:
+            ratio, prep = weak
+            tally.judged.pop(prep.number, None)
+            print(
+                f"ни один проверенный рой не тянет - беру лучший, "
+                f"релиз {prep.number} ({ratio:.2f}x)"
+            )
+            self._announce(plan, prep, queue, tally.judged, reached)
+            return prep
         if tally.mute is not None and exhausted:
             return self._mute_fallback(
                 plan, tally.mute, queue, tally.judged, reached, len(tally.tried)
