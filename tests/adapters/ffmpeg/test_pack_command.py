@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from typing import Any
 
-from torrcast.adapters.ffmpeg.pack_command import pack_command
+from torrcast.adapters.ffmpeg.pack_command import KEY_CUT_SLACK, pack_command
 from torrcast.ports.journal.silent import Silent
 from torrcast.ports.journal.slot import install
 
@@ -20,6 +20,14 @@ class _Grid:
 
     def end(self, slot: int) -> float:
         return self.bounds[slot + 1] if slot + 1 < self.count else 30.0
+
+
+@dataclass
+class _Encode:
+    """Перекод в договоре сборки: она спрашивает у него только аргументы кодера."""
+
+    def args(self, grid: Any, slot: int, until: int) -> list[str]:
+        return ["-c:v", "libx264"]
 
 
 class _Spy(Silent):
@@ -143,3 +151,33 @@ def test_a_live_run_restarted_on_the_last_slot_names_its_cut_too() -> None:
     assert _cuts(command) and min(_cuts(command)) > grid.end(2) - at, (
         "рез внутри захода: хвост уедет обрезанным"
     )
+
+
+def _cut_rule(command: list[str]) -> tuple[str, str]:
+    """Чем режет муксер: по времени или по кадру, и с каким допуском."""
+    return (
+        command[command.index("-break_non_keyframes") + 1],
+        command[command.index("-segment_time_delta") + 1],
+    )
+
+
+def test_a_pass_that_places_its_own_keyframes_cuts_by_them_on_any_grid() -> None:
+    """🔴 TC-775. Резать по кадру или по времени решает не сетка, а хозяин опорных кадров.
+
+    Копия берёт их у исходника, и на ровной сетке они с границами не совпадают по
+    построению - там рез только по времени. Перекодирующий заход ставит их сам и ровно на
+    границы, поэтому по ним и режет: рез по времени отдавал бы принудительный кадр куску
+    слева, а следующий оставался без картинки после склейки и выбрасывался вместе со всем
+    потолком битрейта, который в нём уезжал.
+
+    Допуск у такого реза свой и он шире: муксер отмеряет рез от первого пакета прогона, а
+    тот встаёт на долю кадра позже границы (:data:`KEY_CUT_SLACK`).
+    """
+    flat, keyed = _Grid(on_keys=False), _Grid()
+    assert _cut_rule(pack_command("u", 0, "/run", flat, 0, 0.0)) == ("1", "0.02")
+    assert _cut_rule(pack_command("u", 0, "/run", flat, 0, 0.0, encode=_Encode())) == (
+        "0",
+        f"{KEY_CUT_SLACK:g}",
+    )
+    assert _cut_rule(pack_command("u", 0, "/run", keyed, 0, 0.0)) == ("0", "0.02")
+    assert _cut_rule(pack_command("u", 0, "/run", keyed, 0, 0.0, encode=_Encode())) == ("0", "0.02")

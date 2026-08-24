@@ -400,15 +400,69 @@ def _video_packets(piece: Path) -> list[str]:
     return [line.strip() for line in done.stdout.splitlines() if line.strip()]
 
 
-def _pack(source: str, where: Path, grid: Grid, slot: int, encode: Encode | None) -> Path:
-    """Один заход ffmpeg по сетке ``grid`` до :data:`_LAST` включительно."""
+def _pack(
+    source: str, where: Path, grid: Grid, slot: int, encode: Encode | None, by_time: bool = False
+) -> Path:
+    """Один заход ffmpeg по сетке ``grid`` до :data:`_LAST` включительно.
+
+    ``by_time`` - резать по ВРЕМЕНИ с прежним допуском, то есть так, как режет заход,
+    который опорных кадров не ставит. Перекодирующий заход ставит их сам и режет по ним
+    (:data:`torrcast.adapters.ffmpeg.pack_command.KEY_CUT_SLACK`), поэтому куска без опорного
+    кадра больше не даёт - а предохранителю выкладки такой кусок нужен предметом, и
+    берётся он ровно тем резом, который его и порождал.
+    """
     where.mkdir(parents=True)
-    subprocess.run(
-        ffmpeg_pack_command(source, 0, str(where), grid, slot, grid.start(slot),
-                            readrate=0.0, encode=encode, until=_LAST),
-        check=True, capture_output=True, timeout=300,
-    )  # fmt: skip
+    command = ffmpeg_pack_command(source, 0, str(where), grid, slot, grid.start(slot),
+                                  readrate=0.0, encode=encode, until=_LAST)  # fmt: skip
+    if by_time:
+        command[command.index("-break_non_keyframes") + 1] = "1"
+        command[command.index("-segment_time_delta") + 1] = f"{SPLIT_SLACK:g}"
+    subprocess.run(command, check=True, capture_output=True, timeout=300)
     return where
+
+
+def _keyless(spare: Path) -> list[int]:
+    """Куски захода, начинающиеся НЕ с опорного кадра."""
+    heads = {slot: _video_packets(spare / segment_name(slot)) for slot in range(_FIRST, _LAST + 1)}
+    return [slot for slot, flags in heads.items() if flags and not flags[0].startswith("K")]
+
+
+def test_a_recode_pass_on_a_flat_grid_never_lands_without_a_keyframe(
+    clip: str, tmp_path: Path
+) -> None:
+    """🔴 TC-775. На ровной сетке потолок битрейта работает: наружу идёт перекод, а не копия.
+
+    Предохранитель TC-698 задуман на редкий кусок, а на ровной сетке он срабатывал на
+    КАЖДОМ: рез шёл по времени, принудительный опорный кадр доставался куску слева, и
+    выкладка выбрасывала перекод целиком - вместе с потолком битрейта, который в нём и
+    уезжал. Наружу вместо него шла копия исходника, каким бы тяжёлым он ни был.
+
+    Меряется цель, а не её признак: сколько кусков захода уехало КАРТИНКОЙ ПЕРЕКОДА.
+    Ровно её вес и держит потолок профиля; копия на этом месте значит, что потолка нет.
+    Сверху - положительный контроль на самом входе: ролик обязан быть таким, где старый
+    рез по времени этот дефект даёт (:data:`tests.conftest.CLIP_RATE`), иначе проба зелена
+    не потому, что рез исправлен, а потому, что ловить было нечего.
+    """
+    grid = Grid.uniform(float(CLIP_SECONDS))
+    run = _pack(clip, tmp_path / "copy", grid, 0, None)
+    encode = Encode(preset="ultrafast", mbit=1.0)
+    assert _keyless(_pack(clip, tmp_path / "by-time", grid, _FIRST, encode, by_time=True)), (
+        "рез по времени на этом ролике куска без опорного кадра не даёт - ловить нечего"
+    )
+
+    spare = _pack(clip, tmp_path / "recode", grid, _FIRST, encode)
+    assert not _keyless(spare), "перекод встал без опорного кадра - выкладка выбросит его"
+
+    told: list[tuple[int, str]] = []
+    out = tmp_path / "out"
+    out.mkdir()
+    packer(tmp_path, proc=FakeProc(code=0), out=out, run=run, spare=spare, last=_LAST,
+           told=lambda slot, how: told.append((slot, how))).publish()  # fmt: skip
+
+    # Слот 0 перекода не ждал - заход начинается с :data:`_FIRST`, и копия там честная.
+    assert [pair for pair in told if pair[0] >= _FIRST] == [
+        (slot, "склейка") for slot in range(_FIRST, _LAST + 1)
+    ], "наружу ушла копия - потолок битрейта профиля на ровной сетке не работает"
 
 
 def test_a_piece_without_a_single_video_frame_never_reaches_the_viewer(
@@ -416,12 +470,11 @@ def test_a_piece_without_a_single_video_frame_never_reaches_the_viewer(
 ) -> None:
     """🔴 TC-698 живьём: ни один выложенный кусок не уходит зрителю без картинки.
 
-    Куски тут не подрисованы, а нарезаны настоящим ffmpeg по РОВНОЙ сетке - той, где рез
-    идёт по времени, а не по кадру (``-break_non_keyframes 1``). На такой сетке
-    принудительный опорный кадр кодировщика вправе лечь по ту сторону границы, и тогда
-    следующий кусок начинается кадром без ``K``. Склейка со звуком копии копирует поток
-    ``-c copy``, копирование выбрасывает всё до первого опорного кадра - и наружу уходят
-    десять секунд звука на чёрном экране.
+    Куски тут не подрисованы, а нарезаны настоящим ffmpeg с резом ПО ВРЕМЕНИ - тем самым,
+    которым режет заход, не ставящий опорных кадров. При таком резе принудительный опорный
+    кадр вправе лечь по ту сторону границы, и тогда следующий кусок начинается кадром без
+    ``K``. Склейка со звуком копии копирует поток ``-c copy``, копирование выбрасывает всё
+    до первого опорного кадра - и наружу уходят десять секунд звука на чёрном экране.
 
     Мера тут одна и она про зрителя: что именно легло в каталог показа. Сверху стоит
     положительный контроль - заход обязан ХОТЯ БЫ РАЗ встать без опорного кадра, иначе
@@ -431,13 +484,13 @@ def test_a_piece_without_a_single_video_frame_never_reaches_the_viewer(
     """
     grid = Grid.uniform(float(CLIP_SECONDS))
     run = _pack(clip, tmp_path / "copy", grid, 0, None)
-    spare = _pack(clip, tmp_path / "recode", grid, _FIRST, Encode(preset="ultrafast", mbit=1.0))
+    spare = _pack(
+        clip, tmp_path / "recode", grid, _FIRST, Encode(preset="ultrafast", mbit=1.0), by_time=True
+    )
     out = tmp_path / "out"
     out.mkdir()
 
-    heads = {slot: _video_packets(spare / segment_name(slot)) for slot in range(_FIRST, _LAST + 1)}
-    keyless = [slot for slot, flags in heads.items() if flags and not flags[0].startswith("K")]
-    assert keyless, "заход ни разу не встал без опорного кадра - выкладке нечего ловить"
+    assert _keyless(spare), "заход ни разу не встал без опорного кадра - выкладке нечего ловить"
 
     # Процесс вышел нулём: прогон дочитал вход, и «дописан ли последний кусок» решает
     # один этот код - выкладке есть что отдавать наружу до самого :data:`_LAST`.
