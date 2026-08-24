@@ -94,3 +94,6 @@ class Journal(Protocol):
 
     def warmth(self, event: str, secs: float, dur: float, size: int, why: str = "") -> None:
         """Ход прогрева: сколько секунд фильма готово и во что это обошлось."""
+
+    def supply(self, ratio: float, got: float, need: float, enough: bool) -> None:
+        """Снабжение исходником: доля реального времени и обе скорости, Мбит/с."""

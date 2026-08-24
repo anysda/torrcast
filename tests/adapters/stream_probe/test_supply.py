@@ -8,13 +8,18 @@ from typing import Any
 from torrcast.adapters.stream_probe.supply import Supply
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.probe_settings import META_GRACE
+from torrcast.ports.journal.silent import Silent
+from torrcast.ports.journal.slot import install
 
 
 class _Server:
     """Служба раздач ровно в том объёме, в каком её спрашивает расспрос источника."""
 
-    def __init__(self, *, up: bool = True, listed: bool = True, files: bool = True) -> None:
+    def __init__(
+        self, *, up: bool = True, listed: bool = True, files: bool = True, speed: int | None = None
+    ) -> None:
         self.up, self.listed_, self.files_ = up, listed, files
+        self.speed = speed
         self.added: list[str] = []
 
     def alive(self) -> bool:
@@ -27,6 +32,13 @@ class _Server:
 
     def files(self, torrent_hash: str) -> list[object]:
         return [object()] if self.files_ else []
+
+    def status(self, torrent_hash: str) -> dict[str, object]:
+        files = [{"id": 0, "path": "film.mkv", "length": 1_000_000_000}] if self.files_ else []
+        answer: dict[str, object] = {"file_stats": files}
+        if self.speed is not None:
+            answer["download_speed"] = self.speed
+        return answer
 
     def add(self, magnet: str) -> str:
         self.added.append(magnet)
@@ -100,3 +112,34 @@ def test_without_our_hash_the_supply_keeps_quiet() -> None:
     server = _Server(up=False)
 
     assert Supply(server=server).check() == ""
+
+
+class _Tape(Silent):
+    def __init__(self) -> None:
+        self.measures: list[tuple[float, float, float, bool]] = []
+
+    def supply(self, ratio: float, got: float, need: float, enough: bool) -> None:
+        self.measures.append((ratio, got, need, enough))
+
+
+def test_a_live_but_thin_swarm_is_measured_named_and_written_to_the_tape() -> None:
+    tape = _Tape()
+    install(tape)
+    supply = _supply(_Server(speed=125_000))
+    supply.duration = 1000.0
+
+    try:
+        answer = supply.check()
+    finally:
+        install(Silent())
+
+    expected = "рой привозит 1.00 Мбит/с при нужных 8.00 Мбит/с - " + "снабжения не хватает (0.12x)"
+    assert answer == expected
+    assert tape.measures == [(0.125, 1.0, 8.0, False)]
+
+
+def test_one_source_second_per_wall_second_is_the_named_boundary() -> None:
+    supply = _supply(_Server(speed=1_000_000))
+    supply.duration = 1000.0
+
+    assert supply.check() == ""

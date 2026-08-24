@@ -23,6 +23,7 @@ from torrcast.adapters.filesystem.trace_journal.session_id import session_id
 from torrcast.adapters.filesystem.trace_journal.shutdown import shutdown
 from torrcast.adapters.filesystem.trace_journal.skew import skew
 from torrcast.adapters.filesystem.trace_journal.start_session import start_session
+from torrcast.adapters.filesystem.trace_journal.supply import supply
 from torrcast.adapters.filesystem.trace_journal.warmth import warmth
 
 
@@ -55,3 +56,4 @@ class FileJournal:
     skew = staticmethod(skew)
     freeze = staticmethod(freeze)
     warmth = staticmethod(warmth)
+    supply = staticmethod(supply)

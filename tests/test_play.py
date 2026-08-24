@@ -2540,6 +2540,12 @@ class _Service:
             raise InfraError("TorrServer не отвечает")
         return [object()] if self._files else []
 
+    def status(self, torrent_hash: str) -> dict[str, object]:
+        if not self.up:
+            raise InfraError("TorrServer не отвечает")
+        files = [{"id": 0, "path": "film.mkv", "length": 1_000_000_000}] if self._files else []
+        return {"file_stats": files}
+
     def add(self, magnet: str) -> str:
         if not self.up:
             raise InfraError("TorrServer не отвечает")

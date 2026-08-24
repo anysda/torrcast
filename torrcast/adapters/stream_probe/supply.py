@@ -10,6 +10,8 @@ from typing import TYPE_CHECKING, Any
 
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.probe_settings import META_GRACE
+from torrcast.domain.swarm_supply import ENOUGH, swarm_supply
+from torrcast.ports.journal.slot import journal
 
 if TYPE_CHECKING:
     TorrServer = Any
@@ -53,6 +55,9 @@ class Supply:
     restored: bool = False
     #: Монотонный момент последнего возврата: от него отсчитывается :data:`META_GRACE`.
     restored_at: float = 0.0
+    #: Выбранный файл и его паспортная длительность задают расход исходника на 1.0x.
+    file_index: int = 0
+    duration: float = 0.0
 
     def check(self) -> str:
         """Что не так с ИСТОЧНИКОМ прямо сейчас; пусто - источник в порядке.
@@ -75,12 +80,28 @@ class Supply:
                 return self._blame("TorrServer не отвечает")
             if not self.server.listed(self.torrent_hash):
                 self._blame("TorrServer потерял нашу раздачу")
-            elif not self.server.files(self.torrent_hash):
-                if time.monotonic() - self.restored_at < META_GRACE:
-                    return ""  # раздачу только что вернули магнитом - метаданные ещё едут
-                self._blame("раздача осталась без трекеров - метаданных нет")
-            elif not self.lost:
-                return ""  # служба отвечает, раздача на месте, аварии за ней не числится
+            else:
+                status = self.server.status(self.torrent_hash)
+                files = status.get("file_stats")
+                if not isinstance(files, list) or not files:
+                    if time.monotonic() - self.restored_at < META_GRACE:
+                        return ""  # раздачу только что вернули магнитом - метаданные ещё едут
+                    self._blame("раздача осталась без трекеров - метаданных нет")
+                elif self.lost:
+                    pass
+                else:
+                    measured = swarm_supply(status, self.file_index, self.duration)
+                    if measured is None:
+                        return ""
+                    ratio, got, need = measured
+                    enough = ratio >= ENOUGH
+                    journal().supply(ratio, got, need, enough)
+                    if enough:
+                        return ""
+                    return (
+                        f"рой привозит {got:.2f} Мбит/с при нужных {need:.2f} Мбит/с - "
+                        f"снабжения не хватает ({ratio:.2f}x)"
+                    )
         except InfraError as exc:
             return self._blame(str(exc))
         return self._restore()

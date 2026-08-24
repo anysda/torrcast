@@ -77,6 +77,7 @@ def _worker_loop(
             supply.torrent_hash, supply.magnet, supply.lost = torrent_hash, magnet, ""
         source = torrserver.stream_url(torrent_hash, entry.file_idx)
         entry = _duration(key, entry, source)
+        supply.file_index, supply.duration = entry.file_idx, entry.dur
         watch = Watch(key=key, entry=entry)
         title = " ".join(filter(None, (entry.title, entry.label)))
         sid = journal().start_session()

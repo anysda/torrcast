@@ -9,6 +9,8 @@ class FakeStreamSource:
     magnet: str = ""
     lost: str = ""
     restored: bool = False
+    file_index: int = 0
+    duration: float = 0.0
     #: Что источник ответит на вопрос «что с тобой»; пусто - он в порядке.
     trouble: str = ""
     #: Сколько раз его спросили: вопрос стоит двух запросов к службе, и горячий путь
