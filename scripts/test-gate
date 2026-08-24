@@ -6,6 +6,7 @@ set -eu
 # есть раскладка расползается обратно молча. Порог длины тут ровно один - правило
 # `длина` внутри гейта, и оно меряет всё дерево, а не только верх пакета.
 scripts/structure-gate --strict
+scripts/cli-contract
 
 .venv/bin/ruff check
 .venv/bin/ruff format --check
