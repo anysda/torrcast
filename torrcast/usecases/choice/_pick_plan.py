@@ -62,8 +62,9 @@ def _pick_plan(
     Ждём справку ровно там, где дописывать её будет некому (:func:`_shown`).
 
     ``pick`` - номер пункта, названный флагом ``--pick N``: вопрос тогда не задаётся
-    вовсе, и терминал не нужен. Номер берётся из таблицы ``cast releases``, а состав
-    выдачи гуляет от захода к заходу, поэтому номер сверяется с запомненной таблицей
+    вовсе, и терминал не нужен. Номер берётся из показанного списка - таблицы
+    ``cast releases`` или этого меню, - а состав выдачи гуляет от захода к заходу, поэтому
+    номер сверяется с запомненным порядком
     (:meth:`ChoiceEnvironment.recalled_pick`): под ним обязана стоять ТА картина, что
     стояла при выдаче номера. Расхождение - отказ, называющий обе картины, а не показ
     соседки. Картина при этом проговаривается вслух в любом исходе - номер молчит.
@@ -91,7 +92,7 @@ def _pick_plan(
                 f"а сейчас под ним «{_named(plan.picture)}» - это не та картина; "
                 f"свежие номера: cast releases {asked}"
             )
-        _shown(env, plans, facts, dress=False).close()
+        _shown(env, plans, facts, dress=False, asked=asked).close()
         # Картина проговаривается перед показом: номер молчит, и без этой строки
         # человек узнал бы о подмене уже с экрана.
         env.write(f"играю «{_named(plan.picture)}» - пункт {pick}, названный флагом --pick")
@@ -102,7 +103,7 @@ def _pick_plan(
     if certain_default(plans, asked):
         env.write(taken_line(plans, default, asked))
         return plans[default - 1]
-    menu = _shown(env, plans, facts, dress=env.stdin_is_tty())
+    menu = _shown(env, plans, facts, dress=env.stdin_is_tty(), asked=asked)
     try:
         if not env.stdin_is_tty():
             raise env.not_found_error(
@@ -126,7 +127,7 @@ def _pick_plan(
 
 
 def _shown(
-    env: ChoiceEnvironment, plans: list[Plan], facts: Facts | None, dress: bool
+    env: ChoiceEnvironment, plans: list[Plan], facts: Facts | None, dress: bool, asked: str
 ) -> MenuPaint:
     """Напечатать список; ``dress`` - дописывать ли в него приезжающую справку.
 
@@ -134,6 +135,10 @@ def _shown(
     дополняется у него на глазах. Где вопроса не будет вовсе или вывод ушёл не на экран
     (труба, файл, юнит), переписать напечатанное уже нечем - там справку ждут, как ждали:
     лучше подождать полторы секунды и напечатать со справкой, чем напечатать голое навсегда.
+
+    Показанный порядок запоминается тем же словом, что и таблица ``cast releases``
+    (:meth:`ChoiceEnvironment.remember_pick`): номер пункта - адрес, и под ним в следующем
+    запуске обязана стоять ТА картина, что стояла при показе списка.
     """
     menu = env.menu()
     dress = dress and menu.live and facts is not None
@@ -141,6 +146,7 @@ def _shown(
         facts.wait()
     blocks = menu_blocks(plans, facts)
     menu.show([line for block in blocks for line in block])
+    env.remember_pick(asked, [(p.picture.key, _named(p.picture)) for p in plans])
     if dress and facts is not None:
         _dress(menu, plans, blocks, facts)
     return menu

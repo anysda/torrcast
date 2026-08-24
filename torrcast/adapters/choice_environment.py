@@ -86,6 +86,10 @@ class _SystemChoiceEnvironment:
         return pins.recalled_picture(query, number)
 
     @staticmethod
+    def remember_pick(query: str, shown: list[tuple[str, str]]) -> None:
+        pins.remember_menu(query, shown)
+
+    @staticmethod
     def write(line: str) -> None:
         print(line, flush=True)
 

@@ -83,6 +83,109 @@ def test_a_series_is_left_to_the_usual_way() -> None:
     assert code is None
 
 
+def test_a_menu_picked_started_series_says_it_drops_the_saved_place(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Из меню взяли тот же начатый сериал: показ с нуля снесёт сохранённое место.
+
+    Причиной названа та дверь, которой вошли: релиз тут руками не называли. Хвост о потере
+    общий с ``--release N`` - потеря одна, а молчать значило бы снести место без строки.
+    """
+    saved = entry(kind="tv", season=1, episode=2, episodes=[(1, 1), (1, 2)])
+
+    code = _continue_picked(
+        Config(),
+        _state_with(saved),
+        cast(Any, plan()),
+        Bench(),  # type: ignore[arg-type]
+        args=Args(query=["кино"], menu=True),
+        clock=_Clock(),
+    )
+
+    assert code is None, "сериал уходит обычным путём - показ с нуля"
+    assert (
+        "«Кино» - картина выбрана в меню, играю с начала; "
+        "сохранённое место 1:00:00 не поднимаю" in capsys.readouterr().out
+    )
+
+
+def test_a_flag_picked_started_series_says_it_drops_the_saved_place(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """``--pick N`` - та же дверь меню: та же строка о потере места обязана быть и там."""
+    saved = entry(kind="tv", season=1, episode=2, episodes=[(1, 1), (1, 2)])
+
+    code = _continue_picked(
+        Config(),
+        _state_with(saved),
+        cast(Any, plan()),
+        Bench(),  # type: ignore[arg-type]
+        args=Args(query=["кино"], pick=2),
+        clock=_Clock(),
+    )
+
+    assert code is None
+    assert (
+        "«Кино» - картина выбрана в меню, играю с начала; "
+        "сохранённое место 1:00:00 не поднимаю" in capsys.readouterr().out
+    )
+
+
+def test_a_menu_picked_picture_without_a_bookmark_stays_silent(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Из меню взяли ДРУГУЮ картину: записи о ней нет, терять нечего - и строки нет."""
+    code = _continue_picked(
+        Config(),
+        _state_with(None),
+        cast(Any, plan()),
+        Bench(),  # type: ignore[arg-type]
+        args=Args(query=["кино"], menu=True),
+        clock=_Clock(),
+    )
+
+    assert code is None
+    assert capsys.readouterr().out == ""
+
+
+def test_a_menu_picked_series_without_progress_stays_silent(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Места у записи нет - терять нечего, и строка молчит, как у ``--release N``."""
+    saved = entry(kind="tv", season=1, episode=2, episodes=[(1, 1), (1, 2)], pos=0.0)
+
+    code = _continue_picked(
+        Config(),
+        _state_with(saved),
+        cast(Any, plan()),
+        Bench(),  # type: ignore[arg-type]
+        args=Args(query=["кино"], menu=True),
+        clock=_Clock(),
+    )
+
+    assert code is None
+    assert capsys.readouterr().out == ""
+
+
+def test_a_started_series_without_the_menu_door_stays_silent(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Без ручек меню закладка сериала молчит: его продолжение ведёт своя ветка."""
+    saved = entry(kind="tv", season=1, episode=2, episodes=[(1, 1), (1, 2)])
+
+    code = _continue_picked(
+        Config(),
+        _state_with(saved),
+        cast(Any, plan()),
+        Bench(),  # type: ignore[arg-type]
+        args=Args(query=["кино"]),
+        clock=_Clock(),
+    )
+
+    assert code is None
+    assert capsys.readouterr().out == ""
+
+
 def test_a_watched_bookmark_becomes_watched_on_the_next_cast(
     capsys: pytest.CaptureFixture[str],
 ) -> None:

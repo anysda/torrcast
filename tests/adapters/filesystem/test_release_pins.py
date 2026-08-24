@@ -108,3 +108,59 @@ def test_the_table_lands_beside_the_state_file() -> None:
 
     beside = Path(state_path()).with_name("release-pins.json")
     assert beside.exists()
+
+
+def test_the_menu_remembers_its_picture_order_without_a_release_table() -> None:
+    """Меню нумерует картины, но не раздачи: номеров раздач в его записи нет."""
+    pins = ReleasePins()
+    pins.remember_menu("тачки", [(KEY, NAME), ("movie:тачки-2:2011", "Тачки 2 (2011)")])
+
+    assert pins.recalled_picture("тачки", 1) == (KEY, NAME)
+    assert pins.recalled_picture("тачки", 2) == ("movie:тачки-2:2011", "Тачки 2 (2011)")
+    assert pins.recalled("тачки", KEY, 1) == "", "номеров раздач меню не показывало"
+
+
+def test_the_menu_keeps_the_release_table_of_the_same_query() -> None:
+    """Таблица раздач - от последнего ``cast releases``: меню её не переписывает.
+
+    Порядок раздач под пунктами меню человек не видел никогда: запомни его меню -
+    и номер из таблицы молча адресовал бы другую раздачу.
+    """
+    pins = ReleasePins()
+    pins.remember("тачки", _shown(_cars(FIRST, SECOND)))
+    pins.remember_menu("тачки", [("movie:тачки-2:2011", "Тачки 2 (2011)"), (KEY, NAME)])
+
+    assert pins.recalled("тачки", KEY, 2) == SECOND, "номера раздач видели в таблице"
+    assert pins.recalled_picture("тачки", 1) == ("movie:тачки-2:2011", "Тачки 2 (2011)")
+
+
+def test_a_menu_of_another_query_forgets_the_whole_table() -> None:
+    """Номер живёт до следующего показанного списка - даже списка чужого запроса."""
+    pins = ReleasePins()
+    pins.remember("тачки", _shown(_cars(FIRST)))
+    pins.remember_menu("моана", [("movie:моана:2016", "Моана (2016)")])
+
+    assert pins.recalled("тачки", KEY, 1) == ""
+    assert pins.recalled_picture("тачки", 1) == ("", "")
+
+
+def test_the_menu_keeps_a_release_table_of_the_previous_format() -> None:
+    """Плоский файл до появления порядка картин меню тоже бережёт: раздачи читаются."""
+    path = state_path().with_name("release-pins.json")
+    path.write_text(f'{{"тачки": {{"{KEY}": ["{FIRST}"]}}}}', encoding="utf-8")
+
+    pins = ReleasePins()
+    pins.remember_menu("тачки", [(KEY, NAME)])
+
+    assert pins.recalled("тачки", KEY, 1) == FIRST
+    assert pins.recalled_picture("тачки", 1) == (KEY, NAME)
+
+
+def test_the_next_table_replaces_what_the_menu_remembered() -> None:
+    """Свежая таблица того же запроса переписывает и порядок картин, и раздачи."""
+    pins = ReleasePins()
+    pins.remember_menu("тачки", [(KEY, NAME)])
+    pins.remember("тачки", _shown(_cars(FIRST)))
+
+    assert pins.recalled("тачки", KEY, 1) == FIRST
+    assert pins.recalled_picture("тачки", 1) == (KEY, NAME)

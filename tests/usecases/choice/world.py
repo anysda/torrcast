@@ -158,6 +158,9 @@ class Outside:
     #: спрошенным номером. Пустая пара - таблицы не было, сверять номер не с чем.
     pinned: tuple[str, str] = ("", "")
 
+    #: Что список попросил запомнить: запрос и пары (ключ, имя) в показанном порядке.
+    remembered: list[tuple[str, list[tuple[str, str]]]] = field(default_factory=list)
+
     said: list[str] = field(default_factory=list)
     painted: Paint | None = None
     asked: list[tuple[str, int, int | None]] = field(default_factory=list)
@@ -182,6 +185,10 @@ class Outside:
     def recalled_pick(self, query: str, number: int) -> tuple[str, str]:
         """Картина под номером в последней показанной таблице - что запомнила память."""
         return self.pinned
+
+    def remember_pick(self, query: str, shown: list[tuple[str, str]]) -> None:
+        """Порядок показанного списка уехал в память номеров - зеркало его видит."""
+        self.remembered.append((query, list(shown)))
 
     def write(self, line: str) -> None:
         self.said.append(line)

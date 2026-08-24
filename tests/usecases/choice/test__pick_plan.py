@@ -108,6 +108,43 @@ def test_a_flag_number_without_a_remembered_table_is_taken_as_named() -> None:
     assert _pick_plan(mummy, pick=2, asked="мумия", environment=world) is mummy[1]
 
 
+def test_the_printed_menu_remembers_its_order_for_the_next_run() -> None:
+    """Меню запоминает свой порядок тем же словом, что и таблица ``cast releases``.
+
+    Номер пункта человек видит и в меню: выйти и назвать его флагом ``--pick N`` в
+    следующем запуске - тот же ход, что и по таблице, и сверяться он обязан так же.
+    """
+    world = Outside()
+    mummy = parts(("Мумия", 1999, 47), ("Мумия", 2017, 58))
+
+    _pick_plan(mummy, asked="мумия", environment=world)
+
+    assert world.remembered == [
+        ("мумия", [(p.picture.key, f"Мумия ({p.picture.year})") for p in mummy])
+    ]
+
+
+def test_the_list_shown_for_a_flag_number_is_remembered_too() -> None:
+    """Список под ``--pick N`` - тоже показанный список: его порядок запоминается."""
+    world = Outside(tty=False)
+    mummy = parts(("Мумия", 1999, 47), ("Мумия", 2017, 58))
+
+    _pick_plan(mummy, pick=2, asked="мумия", environment=world)
+
+    assert [query for query, _shown_rows in world.remembered] == ["мумия"]
+
+
+def test_a_refused_flag_number_remembers_nothing() -> None:
+    """Отказ стоит до показа списка: порядку, которого человек не видел, в памяти нечего."""
+    mummy = parts(("Мумия", 1999, 47), ("Мумия", 2017, 58))
+    world = Outside(tty=False, pinned=(mummy[0].picture.key, "Мумия (1999)"))
+
+    with pytest.raises(NotFoundError):
+        _pick_plan(mummy, pick=2, asked="мумия", environment=world)
+
+    assert world.remembered == []
+
+
 def test_a_number_outside_the_list_is_an_honest_error_and_not_a_quiet_first_item() -> None:
     """Номера нет в списке - честная ошибка: тихо взять первый пункт значило бы подменить кино."""
     mummy = parts(("Мумия", 1999, 47), ("Мумия", 2017, 58))
