@@ -33,6 +33,20 @@ def _noting(asked: list[int]) -> Callable[[int], bool]:
     return steer
 
 
+def _quiet(slot: int) -> None:
+    """Стык прогретого, который ничего не решает: предмет проб тут - выдача куска."""
+    return None
+
+
+def _watching(seen: list[int]) -> Callable[[int], None]:
+    """Стык прогретого, который только запоминает, о каком месте его спросили."""
+
+    def seam(slot: int) -> None:
+        seen.append(slot)
+
+    return seam
+
+
 def test_a_ready_piece_is_answered_at_once_without_touching_the_packing(tmp_path: Path) -> None:
     """Файл на месте - разбираться с упаковкой незачем: это обычный ход показа."""
     tract()
@@ -40,7 +54,7 @@ def test_a_ready_piece_is_answered_at_once_without_touching_the_packing(tmp_path
     show = feed(tmp_path)
     lay(show.out, 2)
 
-    answer = _segment(show, 2, _noting(asked))
+    answer = _segment(show, 2, _noting(asked), _quiet)
 
     assert answer == show.out / "v2.ts" and asked == []
 
@@ -55,11 +69,13 @@ def test_a_name_the_manifest_never_promised_goes_nowhere_near_the_packing(tmp_pa
     asked: list[int] = []
     show = feed(tmp_path, grid=grid(60.0, 10.0), wait=120.0)
 
-    assert _segment(show, 99999, _noting(asked)) is None
+    assert _segment(show, 99999, _noting(asked), _quiet) is None
     assert asked == [] and fake.slept == [], "за сеткой ждали, вместо того чтобы ответить сразу"
 
     lay(show.out, 99999)
-    assert _segment(show, 99999, _yes) == show.out / "v99999.ts", "лежащий файл отдаётся всегда"
+    assert _segment(show, 99999, _yes, _quiet) == show.out / "v99999.ts", (
+        "лежащий файл отдаётся всегда"
+    )
 
 
 def test_the_warmed_piece_answers_before_any_argument_with_the_packing(
@@ -68,14 +84,18 @@ def test_the_warmed_piece_answers_before_any_argument_with_the_packing(
     """В этом весь смысл прогрева: перемотка в прогретое отвечает файлом, не поднимая ffmpeg."""
     tract()
     asked: list[int] = []
+    seen: list[int] = []
     store = vault(tmp_path)
     show = feed(tmp_path, vault=store)
     monkeypatch.setattr(feed_segment, "segment_start", lambda path: 30.0)
     lay(store.dir, 3)
 
-    answer = _segment(show, 3, _noting(asked))
+    answer = _segment(show, 3, _noting(asked), _watching(seen))
 
     assert answer == store.dir / "v3.ts" and asked == []
+    assert seen == [3], (
+        "выдача прогретого прошла мимо стыка: за концом прогретого некому поднять упаковку"
+    )
 
 
 def test_a_warmed_piece_over_the_ceiling_is_not_warmed_at_all(
@@ -116,7 +136,7 @@ def test_a_warmed_piece_from_another_place_is_repacked_live(
         lay(show.out, slot)
         return True
 
-    answer = _segment(show, 3, pack_live)
+    answer = _segment(show, 3, pack_live, _quiet)
 
     assert answer == show.out / "v3.ts" and asked == [3]
     assert not foreign.exists(), "чужой кусок остался доступен следующему запросу"
@@ -134,7 +154,7 @@ def test_a_hopeless_place_is_answered_the_moment_the_packing_says_so(tmp_path: P
     fake = tract()
     show = feed(tmp_path, wait=120.0)
 
-    assert _segment(show, 1, lambda slot: False) is None
+    assert _segment(show, 1, lambda slot: False, _quiet) is None
     assert fake.slept == [], "после приговора показ всё равно ждал"
 
 
@@ -145,7 +165,7 @@ def test_a_busy_decision_is_waited_out_by_the_file_and_not_by_the_queue(tmp_path
     show = feed(tmp_path, wait=1.0)
     show.lock.acquire()
 
-    assert _segment(show, 1, _noting(asked)) is None
+    assert _segment(show, 1, _noting(asked), _quiet) is None
     assert asked == [] and fake.slept == [0.2] * 5
 
 

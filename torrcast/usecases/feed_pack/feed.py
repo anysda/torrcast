@@ -11,6 +11,7 @@ from pathlib import Path
 from torrcast.ports.pack_run.pack_run import PackRun
 from torrcast.usecases.feed_pack.feed_front import _front, _weight
 from torrcast.usecases.feed_pack.feed_restart import _restart
+from torrcast.usecases.feed_pack.feed_seam import _seam
 from torrcast.usecases.feed_pack.feed_segment import _have, _segment, _warm
 from torrcast.usecases.feed_pack.feed_shrink import _shrink, _skip
 from torrcast.usecases.feed_pack.feed_state import _State
@@ -48,11 +49,15 @@ class Feed(_State):
 
     def segment(self, slot: int) -> Path | None:
         """Файл сегмента ``slot``; ``None`` — его не будет (:func:`_segment`)."""
-        return _segment(self, slot, self._steer)
+        return _segment(self, slot, self._steer, self._seam)
 
     def _warm(self, slot: int) -> Path | None:
         """Прогретый на диске кусок этого места или ``None`` (:func:`_warm`)."""
         return _warm(self, slot)
+
+    def _seam(self, slot: int) -> None:
+        """Прогретое впереди на исходе - поднять упаковку за его концом (:func:`_seam`)."""
+        _seam(self, slot, self.restart)
 
     def have(self, slot: int) -> bool:
         """Есть ли кусок этого места — в окне показа или в прогретом (:func:`_have`)."""

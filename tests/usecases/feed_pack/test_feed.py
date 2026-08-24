@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from tests.usecases.feed_pack.world import feed, grid, packer
+import pytest
+
+import torrcast.usecases.feed_pack.feed_segment as feed_segment
+from tests.usecases.feed_pack.world import feed, grid, here, lay, packer, tract, vault
 from torrcast.usecases.feed_pack.feed import Feed
 
 if TYPE_CHECKING:
@@ -123,3 +126,30 @@ def test_the_pause_is_asked_of_the_run_and_answered_by_it(tmp_path: Path) -> Non
     show.halt()
 
     assert show.halted() is True and show.packer.stopped == "пауза на пульте"
+
+
+def test_a_warmed_piece_handed_out_raises_the_packing_for_the_seam_behind_it(
+    tmp_path: Path, tape: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Выдача прогретого - единственное место, где виден ход показа по прогретому.
+
+    К упаковке такой запрос не обращается вовсе, поэтому за концом прогретого отрезка
+    не оказывалось ничего: разбор ленты сеанса - 13.08 с потерянной плёнки на первом же
+    месте за границей. Проба идёт через саму ленту: собери её без стыка, и подъём
+    упаковки уехал бы в никуда при зелёном зеркале самого стыка.
+    """
+    tract(now=100.0, spawn=here)
+    monkeypatch.setattr(feed_segment, "segment_start", lambda path: 50.0)
+    asked: list[int] = []
+
+    class _Noting(Feed):
+        def restart(self, slot: int) -> None:
+            asked.append(slot)
+
+    store = vault(tmp_path)
+    show = feed(tmp_path, kind=_Noting, grid=grid(600.0, 10.0), vault=store)
+    for slot in range(11):
+        lay(store.dir, slot)
+
+    assert show.segment(5) == store.dir / "v5.ts"
+    assert asked == [11], "выдача прогретого прошла мимо стыка"

@@ -20,7 +20,12 @@ if TYPE_CHECKING:
     from torrcast.usecases.feed_pack.feed_state import _State
 
 
-def _segment(state: _State, slot: int, steer: Callable[[int], bool]) -> Path | None:
+def _segment(
+    state: _State,
+    slot: int,
+    steer: Callable[[int], bool],
+    seam: Callable[[int], None],
+) -> Path | None:
     """Файл сегмента ``slot``; ``None`` — его не будет (за концом фильма или не успели).
 
     Зовётся из потоков раздачи, поэтому решение о перезапуске упаковки принимается
@@ -63,6 +68,12 @@ def _segment(state: _State, slot: int, steer: Callable[[int], bool]) -> Path | N
         # отвечает файлом сразу, не поднимая ffmpeg и не спрашивая сеть.
         warm = _warm(state, slot)
         if warm is not None:
+            # Прогретое кончится, и кончится на границе: за ней не лежит ничего, а первое
+            # же место оттуда придётся ждать столько, сколько стоит поднять упаковку на
+            # живом источнике (:func:`torrcast.usecases.feed_pack.feed_seam._seam`). Спросить
+            # об этом надо здесь: другого места, где видно ход показа по прогретому, нет -
+            # к упаковке такой запрос не обращается вовсе.
+            seam(slot)
             return warm
         if state.lock.acquire(blocking=False):
             try:
