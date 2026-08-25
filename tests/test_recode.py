@@ -15,7 +15,7 @@ from tests.fakes import composition
 from torrcast.adapters.recode.encode import Encode
 from torrcast.adapters.recode.encode_settings import MAXRATE_GAIN
 from torrcast.adapters.recode.level_for import level_for
-from torrcast.adapters.recode.pace import NEIGHBOUR_TOLL, Pace
+from torrcast.adapters.recode.pace import COPY_TOLL, Pace
 from torrcast.adapters.recode.preset_for import DEADLINE_MARGIN, REALTIME, preset_for
 from torrcast.adapters.recode.presets import PRESETS
 from torrcast.adapters.recode.recoder import Recoder
@@ -1739,14 +1739,15 @@ def test_the_deadline_keeps_half_the_slack_in_reserve() -> None:
     assert preset_for(seconds, slack=seconds * 2.5, presets=table) == PRESETS[0][0]
 
 
-def test_before_the_first_run_the_pace_plans_as_if_a_neighbour_is_working() -> None:
+def test_before_the_first_run_the_pace_plans_against_a_copying_neighbour() -> None:
     """Прогрев поднимается через 45 с после старта показа и живёт весь фильм, так что
-    «соседа нет» - это не про показ, а про стенд, где снимали таблицу."""
+    «соседа нет» - это не про показ, а про стенд, где снимали таблицу. Сосед этот
+    копирующий, и стоит он 2-3 %, а не треть."""
     pace = Pace()
     assert pace.seen == 0
-    assert pace.plan == NEIGHBOUR_TOLL < 1.0, "первый заход планируется по чистой табличке"
-    assert pace.table()[0][1] == pytest.approx(PRESETS[0][1] * NEIGHBOUR_TOLL)
-    assert pace.speed(PRESETS[1][0]) == pytest.approx(PRESETS[1][1] * NEIGHBOUR_TOLL)
+    assert pace.plan == COPY_TOLL < 1.0, "первый заход планируется по чистой табличке"
+    assert pace.table()[0][1] == pytest.approx(PRESETS[0][1] * COPY_TOLL)
+    assert pace.speed(PRESETS[1][0]) == pytest.approx(PRESETS[1][1] * COPY_TOLL)
     assert pace.speed("такого пресета нет") == pace.table()[-1][1]
 
 
@@ -1768,7 +1769,7 @@ def test_a_fast_machine_earns_back_the_quality_the_table_forbids() -> None:
     """Промах таблицы в другую сторону не безобиднее: на лёгком материале тот же veryfast
     идёт 2.62x, и по прибитым числам показ отказывался бы от качества, которое успевает."""
     pace = Pace()
-    seconds, slack = 60.0, 60.0
+    seconds, slack = 60.0, 45.0
     assert preset_for(seconds, slack, pace.table()) == PRESETS[-1][0]
     for _ in range(3):
         pace.record(PRESETS[-1][0], seconds=100.0, spent=100.0 / (PRESETS[-1][1] * 2.0))
@@ -1790,8 +1791,8 @@ def test_a_run_that_gave_nothing_is_not_a_speed_measurement() -> None:
     """Заход, брошенный перемоткой или сорвавшийся, мерит помеху, а не скорость."""
     pace = Pace()
     for bad in ((0.0, 10.0), (10.0, 0.0), (-1.0, 10.0)):
-        assert pace.record(PRESETS[0][0], *bad) == NEIGHBOUR_TOLL
-    assert pace.record("не наш пресет", 10.0, 1.0) == NEIGHBOUR_TOLL
+        assert pace.record(PRESETS[0][0], *bad) == COPY_TOLL
+    assert pace.record("не наш пресет", 10.0, 1.0) == COPY_TOLL
     assert pace.seen == 0, "негодный заход попал в замер"
 
 

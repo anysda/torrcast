@@ -2,21 +2,38 @@
 
 from __future__ import annotations
 
-from torrcast.adapters.recode.pace import NEIGHBOUR_TOLL, PACE_MEMORY, Pace
+from torrcast.adapters.recode.pace import COPY_TOLL, NEIGHBOUR_TOLL, PACE_MEMORY, Pace
+from torrcast.adapters.recode.preset_for import REALTIME, preset_for
 from torrcast.adapters.recode.presets import PRESETS
 
 
-def test_before_the_first_measurement_we_plan_as_if_the_neighbour_is_awake() -> None:
-    """Через 45 с сосед и правда работает, поэтому умолчание - уже с его помехой.
+def test_before_the_first_measurement_we_plan_as_if_the_neighbour_is_copying() -> None:
+    """Через 45 с сосед и правда работает - и работает КОПИЕЙ, а она стоит 2-3 %.
 
-    Замер помехи: veryfast 2.62 → 1.84x, superfast 4.32 → 2.94x, ultrafast 8.17 → 5.65x -
-    потеря одна и та же на всех трёх, то есть множитель, а не слагаемое.
+    Замер обеих помех на одном входе (кусок 14.3 с, 4 vCPU): рядом с перекодирующим
+    прогревом заход veryfast идёт 0.95x вместо 1.41x, рядом с копирующим - 1.38x.
     """
     pace = Pace()
 
     assert pace.seen == 0
-    assert pace.plan == NEIGHBOUR_TOLL == 0.70
-    assert pace.table() == tuple((name, speed * 0.70) for name, speed in PRESETS)
+    assert pace.plan == COPY_TOLL == 0.98
+    assert pace.table() == tuple((name, speed * 0.98) for name, speed in PRESETS)
+
+
+def test_a_copying_neighbour_leaves_the_best_preset_reachable() -> None:
+    """Цена посылки - не треть скорости, а ступень чёткости: по цене перекодирующего
+    соседа лучший пресет идёт медленнее реального времени и не берётся ни при каком
+    сроке, сколько бы его ни было."""
+    seconds = 14.26
+    best = PRESETS[0][0]
+
+    pessimistic = Pace(factor=NEIGHBOUR_TOLL).table()
+    assert pessimistic[0][1] < REALTIME
+    assert preset_for(seconds, slack=3600.0, presets=pessimistic) != best
+
+    honest = Pace().table()
+    assert honest[0][1] >= REALTIME
+    assert preset_for(seconds, slack=3600.0, presets=honest) == best
 
 
 def test_one_scale_corrects_the_whole_table_at_once() -> None:

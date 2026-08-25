@@ -71,9 +71,7 @@ def test_a_blocked_publisher_ends_the_bargaining_about_quality(tmp_path: Path) -
     _run(state, 20, 21)
     urgent = seen[-1][seen[-1].index("-preset") + 1]
 
-    # ``veryfast`` при умолчании плана (сосед уже работает) идёт медленнее реального
-    # времени, поэтому на пути показа его не берут даже под щедрый срок.
-    assert roomy == "superfast", "срок щедрый - берём качество"
+    assert roomy == "veryfast", "срок щедрый - берём качество"
     assert urgent == PRESETS[-1][0] == "ultrafast", "выкладка стоит - качество не торгуется"
 
 
