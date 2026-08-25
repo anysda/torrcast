@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -75,17 +76,19 @@ _LIST: list[dict[str, Any]] = [
 ]
 
 
+def _here(work: Callable[[], None]) -> None:
+    """Стук в стороне, но в этом же круге: зеркалу нужен ответ, а не планировщик.
+
+    Боевой путь уводит стук в демон-поток, и ждать его тест мог только настоящими
+    часами: до двух секунд сна, ответ - «пока ничего», и на нагруженной машине он
+    приходил не тот. Ждать тут нечего вовсе - лечение либо постучалось, либо нет.
+    """
+    work()
+
+
 def _roster(**kwargs: Any) -> tuple[IndexerRoster, _Http]:
     http = _Http(**kwargs)
-    return IndexerRoster(ProwlarrApi("http://p", "KEY", http=http)), http
-
-
-def _probed(http: _Http, wait: float = 2.0) -> list[tuple[str, str]]:
-    """Лечение идёт своим потоком и круга не держит (TC-272), поэтому ждём его тут."""
-    end = time.monotonic() + wait
-    while time.monotonic() < end and not http.probed:
-        time.sleep(0.01)
-    return http.probed
+    return IndexerRoster(ProwlarrApi("http://p", "KEY", http=http), spawn=_here), http
 
 
 def test_выключенные_индексеры_в_список_не_попадают() -> None:
@@ -128,7 +131,7 @@ def test_отдохнувший_бан_лечим_проверкой_индек�
     проверка, а она ходит в источник по-настоящему."""
     roster, http = _roster(blocked={1: _ago(300)})
     roster.usable(roster.known())
-    assert _probed(http) == [
+    assert http.probed == [
         ("http://p/api/v1/indexer/1?apikey=KEY", "http://p/api/v1/indexer/test?apikey=KEY")
     ]
 
@@ -136,7 +139,7 @@ def test_отдохнувший_бан_лечим_проверкой_индек�
 def test_свежий_отказ_проверками_не_добиваем() -> None:
     roster, http = _roster(blocked={1: _ago(1)})
     roster.usable(roster.known())
-    assert _probed(http, wait=0.3) == []
+    assert http.probed == []
 
 
 def test_отказ_этого_поиска_назван_а_чужой_нет() -> None:

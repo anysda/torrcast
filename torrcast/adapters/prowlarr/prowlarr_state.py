@@ -8,7 +8,7 @@ import time
 from collections.abc import Callable
 
 from torrcast.adapters.prowlarr.indexer_circle import ASK_SLACK, IndexerCircle
-from torrcast.adapters.prowlarr.indexer_roster import IndexerRoster
+from torrcast.adapters.prowlarr.indexer_roster import IndexerRoster, _aside, _Spawn
 from torrcast.adapters.prowlarr.prowlarr_api import TIMEOUT, ProwlarrApi
 from torrcast.domain.goal_spare import CIRCLE_SHARE, goal_spare
 from torrcast.domain.indexer_budget import indexer_budget
@@ -25,6 +25,7 @@ class _State:
         *,
         slack: float = ASK_SLACK,
         budget_of: Callable[[str], float] = indexer_budget,
+        heal: _Spawn = _aside,
     ) -> None:
         self._api = ProwlarrApi(base_url, apikey, timeout)
         self.base_url = self._api.base_url
@@ -43,7 +44,7 @@ class _State:
         #: Индексеры, которых Prowlarr увёл в недоступные, - по именам. Молчунами они не
         #: считаются: молчун не ответил нам, а этих мы и не спрашивали (TC-259).
         self.banned: tuple[str, ...] = ()
-        self._roster = IndexerRoster(self._api)
+        self._roster = IndexerRoster(self._api, spawn=heal)
         self._circle = IndexerCircle(self._api, slack=slack, budget_of=budget_of)
         #: Начало поиска - от него считается остаток цели (:meth:`spare`, TC-228).
         #: Клиент живёт ровно один поиск, поэтому «создан» и «начат» тут одно и то же.

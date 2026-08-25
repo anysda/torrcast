@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import threading
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import Final
 
 from torrcast.adapters.prowlarr.prowlarr_api import ProwlarrApi
@@ -24,13 +24,24 @@ _STATUS_PATH: Final = "/api/v1/indexerstatus"
 _TEST_PATH: Final = "/api/v1/indexer/test"
 #: Список индексеров - локальная страница Prowlarr, сеть в ней не участвует.
 LIST_TIMEOUT: Final = 15.0
+#: Чем поднимается лечебный стук: работа отдаётся в сторону и круга не держит.
+_Spawn = Callable[[Callable[[], None]], None]
+
+
+def _aside(work: Callable[[], None]) -> None:
+    """Боевой подъём лечебного стука: демон с именем, по которому его видно в отладке."""
+    threading.Thread(target=work, daemon=True, name="idx-heal").start()
 
 
 class IndexerRoster:
     """Кто у Prowlarr включён, кого он увёл в недоступные и как вернуть выбывшего."""
 
-    def __init__(self, api: ProwlarrApi) -> None:
+    def __init__(self, api: ProwlarrApi, spawn: _Spawn = _aside) -> None:
         self.api = api
+        #: Чем отдаётся в сторону лечебный стук (:meth:`_heal`). Боевой путь уводит его в
+        #: демон-поток; зеркалу отдельный поток не нужен - ему нужен ответ про стук, а не
+        #: про планировщик, и со своим ``spawn`` оно получает его тем же кругом.
+        self._spawn = spawn
         self._indexers: tuple[Indexer, ...] | None = None
 
     def known(self) -> tuple[Indexer, ...]:
@@ -147,7 +158,7 @@ class IndexerRoster:
         )
         if not due:
             return
-        threading.Thread(target=self._knock, args=(due,), daemon=True, name="idx-heal").start()
+        self._spawn(lambda: self._knock(due))
 
     def _knock(self, nums: tuple[int, ...]) -> None:
         """Стук в заблокированные - строго по одному, друг за другом.

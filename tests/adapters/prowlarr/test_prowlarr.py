@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import threading
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -251,7 +251,7 @@ def _swarm(slack: float | None = None, budget_of: Any = None, **kwargs: Any) -> 
         dependencies["slack"] = slack
     if budget_of is not None:
         dependencies["budget_of"] = budget_of
-    client = Prowlarr("http://127.0.0.1:9696/", "KEY", **dependencies)
+    client = Prowlarr("http://127.0.0.1:9696/", "KEY", heal=_here, **dependencies)
     client._api.session = _Swarm(**kwargs)
     return client
 
@@ -276,14 +276,19 @@ def _asked(client: Prowlarr) -> list[str]:
     return sorted(asked, key=int)
 
 
-def _probes(client: Prowlarr, wait: float = 2.0) -> list[str]:
-    """Куда сходило лечение бана. Оно идёт своим потоком и круга не держит (TC-272),
-    поэтому ждём его здесь, а не в поиске."""
-    session = _swarm_of(client)
-    end = time.monotonic() + wait
-    while time.monotonic() < end and not session.probed:
-        time.sleep(0.01)
-    return session.probed
+def _here(work: Callable[[], None]) -> None:
+    """Лечение бана в стороне, но в этом же круге: зеркалу нужен ответ, а не планировщик.
+
+    Боевой путь уводит стук в демон-поток, и ждать его тест мог только настоящими
+    часами - до двух секунд сна с ответом «пока ничего», который на нагруженной машине
+    приходил не тот.
+    """
+    work()
+
+
+def _probes(client: Prowlarr) -> list[str]:
+    """Куда сходило лечение бана (TC-272)."""
+    return _swarm_of(client).probed
 
 
 def test_search_asks_every_indexer_apart() -> None:
@@ -440,7 +445,7 @@ def test_свежий_отказ_проверками_не_добиваем() ->
     та причина, по которой Prowlarr и раздаёт баны (Nyaa отвечает на них 504)."""
     client = _swarm(yts=True, blocked={4: _ago(1)})
     client.search("матрица")
-    assert _probes(client, wait=0.3) == []
+    assert _probes(client) == []
     assert client.banned == ("YTS",)  # в круг он всё равно не идёт
 
 
@@ -452,7 +457,7 @@ def test_суточную_отсрочку_лечебным_стуком_не_п
         disabled_till={4: _ago(-24 * 60 * 60)},
     )
     client.search("матрица")
-    assert _probes(client, wait=0.3) == []
+    assert _probes(client) == []
     assert client.banned == ("YTS",)
 
 
