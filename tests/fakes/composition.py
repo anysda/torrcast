@@ -255,9 +255,8 @@ def _slot(patch: pytest.MonkeyPatch, home: ModuleType, name: str, put: object) -
 def use_rank_console(patch: pytest.MonkeyPatch, console: Console) -> None:
     """Консольный порт правил ранжирования: его ставит корень, и он один на весь пакет.
 
-    Спрашивают его вопрос про озвучку (:func:`~torrcast.usecases.rank.ask.ask`) и меню
-    дорожек (:func:`~torrcast.usecases.rank.pick_voice.pick_voice`) - оба через
-    :func:`~torrcast.usecases.rank.configure._console_port`. Приходит он сюда портом, а не
+    Спрашивает его меню дорожек (:func:`~torrcast.usecases.rank.pick_voice.pick_voice`)
+    через :func:`~torrcast.usecases.rank.configure._console_port`. Приходит он сюда портом, а не
     подделкой любой полноты: у консоли есть свой договор, и слабее он не становится.
     """
     _slot(patch, _rank_ports, "_console", console)
