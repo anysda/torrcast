@@ -6,11 +6,12 @@ import time
 
 import pytest
 
-from tests.usecases.select_bench.world import RUNTIME, Said, Torrents, plan, probes, rel
+from tests.usecases.select_bench.world import GB, RUNTIME, Said, Torrents, plan, probes, rel
 from torrcast.domain.args import Args
 from torrcast.domain.audio_track import AudioTrack
 from torrcast.domain.media import Media
 from torrcast.domain.not_found_error import NotFoundError
+from torrcast.domain.torr_file import TorrFile
 from torrcast.usecases.select_bench.bench import Bench
 
 _ASKED = Args(query=["кино"])
@@ -155,3 +156,87 @@ def test_an_exhausted_queue_still_plays_the_named_foreign_track(
         "русской озвучки нет ни в одной из проверенных раздач (3) - "
         "включаю релиз 1, звук английский" in capsys.readouterr().out
     )
+
+
+def test_a_russian_track_lying_beside_the_video_saves_the_release(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """🔴 TC-305. Русская дорожка отдельным файлом рядом с видео - это «озвучка есть».
+
+    Живой класс: у аниме внутри видео только японский, а русский дубляж лежит в той же
+    раздаче отдельным ``.mka``. Судить такой релиз по одному видеофайлу значит забраковать
+    раздачу за то, чего в ней нет: очередь уходила к следующему релизу, хотя играть было
+    чем - и играть верхом ранжира, а не тем, что осталось ниже.
+
+    Опознаётся дорожка паспортом ВТОРОГО файла, а не именем: в аниме имя файла звука не
+    называет язык никогда. Проверено откатом: верни гейту паспорт одного видеофайла - и
+    отбор объявляет верх безрусским и берёт второй релиз.
+    """
+    pool = [rel(name="r0 | RUS(ext)", seeders=100), rel(name="r1 | Дубляж", seeders=90)]
+    files = [
+        TorrFile(0, "Erin - 01.mkv", 4 * GB),
+        TorrFile(1, "Sound/Erin - 01.mka", 150 * 1024**2),
+    ]
+    japanese = Media(
+        RUNTIME, (AudioTrack(index=0, language="jpn"),), "h264", height=1080, width=1920
+    )
+    russian = Media(RUNTIME, (AudioTrack(index=0, language="rus", title="Дубляж"),), None)
+    inside = _media()
+
+    def read(source_url: str, /, timeout: float = 90.0, alive: object = None) -> Media:
+        if f"hash-{pool[1].magnet}" in source_url:
+            return inside
+        return russian if source_url.endswith("/1") else japanese
+
+    bench = Bench(Torrents(files=files), prober=read)
+
+    prep = bench.resolve(plan(pool), _ASKED, Said())
+
+    assert prep.number == 1, "релиз с русской дорожкой рядом с видео уступил место соседу"
+    assert "без русской озвучки" not in capsys.readouterr().out
+    assert prep.apart, "показ пойдёт японским: дорожка рядом с видео не опознана"
+    assert prep.voice_file is not None and prep.voice_file.index == 1
+    assert prep.voiced is russian, "дорожку выбирают у того файла, из которого её и возьмут"
+
+
+def test_a_foreign_track_beside_the_video_saves_nobody() -> None:
+    """Отдельный файл звука не русский - гейт остаётся на месте, а не «сойдёт»."""
+    pool = [rel(name="r0 | RUS(ext)", seeders=100)]
+    files = [
+        TorrFile(0, "Erin - 01.mkv", 4 * GB),
+        TorrFile(1, "Sound/Erin - 01.mka", 150 * 1024**2),
+    ]
+    japanese = Media(
+        RUNTIME, (AudioTrack(index=0, language="jpn"),), "h264", height=1080, width=1920
+    )
+    english = Media(RUNTIME, (AudioTrack(index=0, language="eng"),), None)
+
+    def read(source_url: str, /, timeout: float = 90.0, alive: object = None) -> Media:
+        return english if source_url.endswith("/1") else japanese
+
+    bench = Bench(Torrents(files=files), prober=read)
+
+    prep = bench.resolve(plan(pool), _ASKED, Said())
+
+    assert not prep.apart, "чужая дорожка рядом с видео засчитана за русскую"
+    assert prep.voiced is japanese
+
+
+def test_a_nameless_track_beside_the_video_is_not_a_spare_way_either() -> None:
+    """🔴 Безымянная дорожка рядом с видео запасным ходом гейта не становится."""
+    pool = [rel(name="r0 | RUS(ext)", seeders=100)]
+    files = [
+        TorrFile(0, "Erin - 01.mkv", 4 * GB),
+        TorrFile(1, "Sound/Erin - 01.mka", 150 * 1024**2),
+    ]
+    japanese = Media(
+        RUNTIME, (AudioTrack(index=0, language="jpn"),), "h264", height=1080, width=1920
+    )
+    nameless = Media(RUNTIME, (AudioTrack(index=0),), None)
+
+    def read(source_url: str, /, timeout: float = 90.0, alive: object = None) -> Media:
+        return nameless if source_url.endswith("/1") else japanese
+
+    bench = Bench(Torrents(files=files), prober=read)
+
+    assert not bench.resolve(plan(pool), _ASKED, Said()).apart
