@@ -114,3 +114,21 @@ def test_a_zero_length_ceiling_does_not_move_a_single_boundary() -> None:
     assert _bounds(step=10.0, sizes=sizes, cap=8.0e6, span_cap=0.0) == _bounds(
         step=10.0, sizes=sizes, cap=8.0e6
     )
+
+
+def test_when_nothing_fits_the_cut_goes_by_the_nearest_keyframe() -> None:
+    """В потолок не влезает ни один кадр - и всё равно есть из чего выбирать: ближний
+    кусок тяжелее потолка легче дальнего ровно во столько раз, во сколько он короче.
+    """
+    step = 10.0
+    # Кадры считаются от шага: ближний стоит на его половине, следующий - на двух шагах.
+    sparse = [0.0, step / 2, step * 2, step * 3, step * 4, step * 5]
+    sizes = [int(place * 8.0e6) for place in sparse]
+    found, copy = _keyframe_bounds(sparse, DURATION, step, sizes, 0.0, 0.0, 1.0e6, 0.0)
+
+    assert copy is not None
+    assert copy(0.0, step / 2) > 1.0e6 and copy(0.0, step * 2) > 1.0e6, (
+        "в потолок влез кандидат - ветка тупика не тронута, проверять нечего"
+    )
+    assert found[1] == step / 2, "рез ушёл на первый кадр за шагом, хотя ближе есть другой"
+    assert copy(0.0, found[1]) < copy(0.0, step * 2), "ближний кусок не легче дальнего"

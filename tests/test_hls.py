@@ -1989,17 +1989,23 @@ def test_the_cap_counts_what_leaves_for_the_tv_not_what_lies_in_the_container() 
 
     На ТВ уезжает видео плюс наш AAC, и тяжёлый кусок ещё и перекодируется, поэтому
     потолок обязан знать поправку «контейнер → ТВ» и потолок перекодирования. Слепое
-    правило на том же файле решает, что резать бесполезно (по контейнеру не влезает ни
-    один вариант), и отдаёт кусок как есть — то есть ровно тот подвис, ради которого всё
-    и делалось.
+    правило на том же файле мерит чужие озвучки и режет по самому короткому кандидату:
+    манифест дробится там, где резать было незачем.
     """
     keys, sizes, duration = _desert(20.0)  # контейнер: кино плюс восемь озвучек рядом
+    # Второй кандидат в пустыне: по чужому весу он единственный проходной, по своему -
+    # проходны оба, и правило обязано взять тот, что длиннее.
+    keys = sorted([*keys, round(keys[20] + 4.0, 3)])
+    sizes = [int(place * 20.0e6 / 8) for place in keys]
     plain = Grid.on_keyframes(keys, duration, 10.0)
     blind = Grid.on_keyframes(keys, duration, 10.0, sizes=sizes)
     aware = Grid.on_keyframes(keys, duration, 10.0, sizes=sizes, extra_mbit=12.0)
     recoded = Grid.on_keyframes(keys, duration, 10.0, sizes=sizes, ceiling_mbit=8.0)
 
-    assert blind.bounds == plain.bounds, "по контейнеру не влезает ничего - правило сдаётся"
+    assert max(plain.span(k) * 8e6 / 8 for k in range(plain.count)) > MAX_SEGMENT_BYTES, (
+        "карта подобрана неверно: без потолка веса кусок обязан не влезать"
+    )
+    assert blind.count == plain.count + 2, "по чужому весу правило режет мельче, чем нужно"
     assert aware.count == plain.count + 1, "поправка известна - рез ровно один, в пустыне"
     assert recoded.count == plain.count + 1, "перекод сделает кусок легче, и сетка это знает"
     for grid in (aware, recoded):
