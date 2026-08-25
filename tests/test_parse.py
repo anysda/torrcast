@@ -148,6 +148,20 @@ def test_slash_year_range_uses_its_first_year() -> None:
     assert release.year == 2021
 
 
+def test_a_collection_of_years_is_dated_by_the_first_of_them() -> None:
+    """🔴 TC-802. Сборник называет год каждой части, и картина у него - первая.
+
+    «Тачки / Cars (2006 / 2011 / 2017) [Трилогия]» датовались 2011 годом - средним из
+    трёх, - и в меню «тачек» вставала лишняя картина «Тачки (2011)». Тёзка по году
+    поднимала вопрос «Что смотрим?» там, где спрошенное и взятое - одно и то же кино.
+    """
+    release = parse_release_name(
+        "Тачки / Cars (2006 / 2011 / 2017) UHD BDRip [4K, HDR, 10-bit] [Трилогия]"
+    )
+
+    assert release.year == 2006
+
+
 def test_1080i_is_named_but_not_promoted_as_full_hd() -> None:
     release = parse_release_name("Матрица / The Matrix [1999, HDTV 1080i] [Open Matte] Dub")
 
