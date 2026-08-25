@@ -592,6 +592,51 @@ def test_a_shim_knob_with_a_space_reaches_the_process_whole() -> None:
     assert env["TORRCAST_PROBE_UA"] == agent
 
 
+def _knob_landed(box: Path, knobs: str, timeout: float = 15.0) -> str:
+    """Что доехало до процесса, поднятого песочничной веткой ``run_service``.
+
+    Гоняется сама ветка установщика, а подпись читается из окружения запущенного ею
+    процесса: только там видно, доехало значение целиком или его срезало по дороге.
+    """
+    landed, launched = box / "доехало", box / "служба.sh"
+    launched.write_text(
+        f'#!/bin/sh\nprintf %s "${{TORRCAST_PROBE_UA-нет}}" >{shlex.quote(str(landed))}\n',
+        encoding="utf-8",
+    )
+    snippet = (
+        f"{_funcs('run_service')}\n"
+        "skip() { :; }\n"
+        # Шаблон складывается в момент вызова: написанный целиком, он лежал бы в строке
+        # запуска самой оболочки, и `pgrep -f` нашёл бы по нему её же.
+        "proc_mask() { printf 'нет%sтакого' \"$$\"; }\n"
+        f"PREFIX={shlex.quote(str(box))}\nTORRCAST_NO_SYSTEMD=1\n"
+        f'run_service проба описание {shlex.quote(f"/bin/sh {launched}")} "$1"\n'
+    )
+    done = subprocess.run(
+        ["bash", "-c", snippet, "проба", knobs], capture_output=True, text=True, check=False
+    )
+    assert done.returncode == 0, done.stdout + done.stderr
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if landed.exists():
+            return landed.read_text(encoding="utf-8")
+        time.sleep(0.05)
+    raise AssertionError(f"процесс не отчитался за {timeout} с: {done.stdout + done.stderr}")
+
+
+def test_a_shim_knob_with_a_space_reaches_the_process_in_the_sandbox(tmp_path: Path) -> None:
+    """🔴 TC-448. Ручка с пробелом доезжает до процесса целиком и в песочнице тоже.
+
+    Кавычки со значения снимает systemd, а в песочнице юнита нет вовсе: службу поднимает
+    сам установщик, и разбирает ручки он же. Разбор, не знающий про кавычки, отдаёт
+    ``export`` имя, начинающееся с кавычки, - и роняет весь заход установки, потому что
+    ``set -e``. Мера смотрит не текст разбора, а окружение поднятого процесса.
+    """
+    agent = SCRIPT.split('\nUA="', 1)[1].split('"\n', 1)[0]
+    assert " " in agent, "подпись без пробелов эту ловушку не ловит"
+    assert _knob_landed(tmp_path, "\n".join(_shim_knobs())) == agent
+
+
 def _funcs(*names: str) -> str:
     """Тела функций установщика, вынутые из его же текста, - чтобы гонять их взаправду."""
     parts = ["set -euo pipefail", """info() { printf '    %s\\n' "$*"; }"""]

@@ -625,9 +625,15 @@ run_service() {  # $1 имя, $2 описание, $3 команда, $4 - ли�
         # сами: без них служба в песочнице росла бы иначе, чем в системе, и замер
         # песочницы ничего бы не говорил о живой машине. Строки MemoryMax= тут нечему
         # применить - в песочнице cgroup своего юнита нет.
-        local line
+        # Кавычки со значения снимает systemd, а в песочнице юнита нет и снимать их
+        # некому: `export` получил бы имя, начинающееся с кавычки, отказал бы «not a
+        # valid identifier» и увёл бы за собой всю установку (set -e). Ручка с пробелом
+        # внутри без кавычек не запишется вовсе, поэтому снимаем их тут сами.
+        local line knob
         while IFS= read -r line; do
-            case "$line" in Environment=*) export "${line#Environment=}" ;; esac
+            case "$line" in Environment=*) knob="${line#Environment=}" ;; *) continue ;; esac
+            case "$knob" in \"*\") knob="${knob#\"}"; knob="${knob%\"}" ;; esac
+            export "${knob%%=*}=${knob#*=}"
         done <<EOF
 ${4:-}
 EOF
