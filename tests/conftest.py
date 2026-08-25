@@ -21,7 +21,6 @@ import pytest
 
 from tests import thread_guard
 from tests.fakes import composition
-from tests.fakes.cast_world import CastWorld
 from tests.fakes.journal import Tape
 from tests.fakes.pretend_tty import PretendTty
 from tests.fakes.show_unit import FakeShowUnit
@@ -334,14 +333,6 @@ def _pretend_tty(monkeypatch: pytest.MonkeyPatch) -> None:
     разбором закрытого входа, - а тесту досталась бы наша же ложь вместо ответа системы.
     """
     monkeypatch.setattr(sys, "stdin", PretendTty(sys.stdin))
-
-
-@pytest.fixture
-def world(monkeypatch: pytest.MonkeyPatch) -> CastWorld:
-    """Стенд команды показа: внешний мир объектом, а не подменами по месту."""
-    stand = CastWorld()
-    stand.install(monkeypatch)
-    return stand
 
 
 @pytest.fixture(autouse=True)
