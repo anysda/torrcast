@@ -19,6 +19,7 @@ from torrcast.ports.stream_source import StreamSource
 from torrcast.ports.torrent_engine import TorrentEngine
 from torrcast.usecases.episode_duration import _duration
 from torrcast.usecases.following import _following
+from torrcast.usecases.next_season import _next_season
 from torrcast.usecases.playback._play import _play
 from torrcast.usecases.playback._warmer import _next_warmer
 from torrcast.usecases.rank._hms import _hms
@@ -48,13 +49,17 @@ def _worker_loop(
     profile: Profile,
     *,
     play: Callable[..., int] = _play,
+    next_season: Callable[..., bool] = _next_season,
 ) -> int:
     """Сам цикл показа: серия за серией, пока сериал не кончится. Раздачи, которые он
     поднял, складываются в ``mine`` — их убирает :func:`_cmd_worker` на выходе.
 
-    Сам показ серии назван аргументом с боевым умолчанием: работа этой единицы -
-    очередь серий, учёт раздачи и то, с какими числами показ зовут, а не HLS, ffmpeg и
-    приёмник за ним.
+    Конец раздачи сезона - не конец цикла: досмотренному сезону цикл сперва ищет
+    следующий (:func:`torrcast.usecases.next_season._next_season`) и играет его с первой серии.
+
+    Сам показ серии и поиск следующего сезона названы аргументами с боевым умолчанием:
+    работа этой единицы - очередь серий, учёт раздачи и то, с какими числами показ зовут,
+    а не HLS, ffmpeg, приёмник и поиск за ними.
     """
     magnet, torrent_hash = "", ""
     while True:
@@ -124,6 +129,11 @@ def _worker_loop(
             session_tag=session_tag,
         )
         following = _following(key) if watch.done else None
+        # Конец раздачи сезона - не конец сериала (TC-805): следующий сезон ищется
+        # и записывается в состояние здесь, и цикл играет его, как играл бы следующую
+        # серию внутри пака. Не нашёлся - строка уже сказана, и показ заканчивается.
+        if following is None and watch.done and next_season(config, key, torrserver, profile):
+            following = _following(key)
         if following is None:
             return code
         print(f"следующая серия: {following.label}", flush=True)

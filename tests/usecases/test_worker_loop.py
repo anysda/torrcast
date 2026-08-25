@@ -11,6 +11,7 @@ from tests.fakes.stream_source import FakeStreamSource
 from tests.fakes.torrent_engine import FakeTorrentEngine
 from torrcast.domain.config import Config
 from torrcast.domain.entry import Entry
+from torrcast.domain.media import Media
 from torrcast.domain.profile import CAUTIOUS, Profile
 from torrcast.domain.worker_settings import WORKER_META
 from torrcast.ports.journal import slot as journal_slot
@@ -141,3 +142,90 @@ def test_a_forced_voice_swap_reaches_the_screen_and_not_the_terminal(
 def test_a_show_without_a_swap_carries_no_extra_word(_ports_restored: None) -> None:
     """Подмены нет - и приписывать подписи нечего: молчаливых подмен не бывает, лишних тоже."""
     assert _shown_title(_harley(studio="The Kitchen Russia")) == "Харли Квинн s5e1"
+
+
+def test_a_finished_season_is_continued_by_the_next_one(
+    monkeypatch: pytest.MonkeyPatch, _ports_restored: None
+) -> None:
+    """Конец раздачи сезона - не конец показа: цикл играет сезон, записанный поиском."""
+    key = "tv:сериал:2020"
+    state = Ephemeral()
+    fresh = state.load()
+    fresh.put(
+        key,
+        Entry(
+            title="Сериал",
+            magnet="magnet:?xt=s4",
+            kind="tv",
+            season=4,
+            episode=10,
+            dur=1400.0,
+            depth=8,
+            frame=1080,
+            episodes=[[4, 9, 0, 10**9], [4, 10, 1, 10**9]],
+        ),
+    )
+    state.save(fresh)
+    state_slot.install(state)
+    journal_slot.install(Tape())
+    monkeypatch.setattr(worker_loop, "_worker_thresholds", lambda *_a: {})
+    # Следующая серия своей длительности не знает - её читает пробник; здесь он подделка.
+    monkeypatch.setattr(
+        "torrcast.usecases.episode_duration._episode_prober",
+        lambda *_a, **_k: Media(duration=1400.0, video="h264", height=1080, width=1920),
+    )
+    played: list[str] = []
+
+    def play(
+        _c: object, _s: object, _a: object, title: str, _clock: object, watch: Any, **_kw: object
+    ) -> int:
+        played.append(title)
+        watch.done = True  # серия доиграла до конца: сторож пишет «досмотрено»
+        keeper = state_slot.store()
+        now = keeper.load()
+        now.put(key, watch.entry.advance())
+        keeper.save(now)
+        return 0
+
+    searches: list[str] = []
+
+    def next_season(_config: object, asked: str, *_rest: object) -> bool:
+        searches.append(asked)
+        if len(searches) > 1:
+            return False  # шестого сезона в природе нет
+        keeper = state_slot.store()
+        now = keeper.load()
+        now.put(
+            key,
+            Entry(
+                title="Сериал",
+                magnet="magnet:?xt=s5",
+                kind="tv",
+                season=5,
+                episode=1,
+                dur=1400.0,
+                depth=8,
+                frame=1080,
+                episodes=[[5, 1, 0, 10**9], [5, 2, 1, 10**9]],
+            ),
+        )
+        keeper.save(now)
+        return True
+
+    code = worker_loop._worker_loop(
+        Config(),
+        key,
+        FakeTorrentEngine(),
+        None,  # type: ignore[arg-type]
+        FakeStreamSource(),
+        [],
+        CAUTIOUS,
+        play=play,
+        next_season=next_season,
+    )
+
+    assert code == 0
+    assert played == ["Сериал s4e10", "Сериал s5e1", "Сериал s5e2"], (
+        "сезон 5 продолжил показ сам, а внутри него стык серий работает как прежде"
+    )
+    assert searches == [key, key], "поиск следующего сезона - один раз на конец сезона"
