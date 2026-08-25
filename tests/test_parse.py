@@ -19,6 +19,7 @@ from torrcast.domain.cluster import cluster
 from torrcast.domain.franchise_key import franchise_key
 from torrcast.domain.franchise_name import franchise_name
 from torrcast.domain.in_digits import in_digits
+from torrcast.domain.kind import Kind
 from torrcast.domain.menu_order import menu_order
 from torrcast.domain.other_words import other_words
 from torrcast.domain.outside_numbering import outside_numbering
@@ -935,6 +936,80 @@ def test_cars_franchise_is_cross_language() -> None:
     assert len(pictures[2].releases) == 2
 
 
+def test_one_picture_split_by_kind_comes_back_together() -> None:
+    """Одно имя, один год, а каталог развёл фильм и сериал - это одна картина.
+
+    Набор короткометражек «Байки Мэтра» приезжал двумя пунктами меню разом: раздачи
+    сборников каталог подписал фильмом, раздачи сезонов - сериалом. Выбирать из такой
+    пары нечего: обе строки об одном и том же.
+    """
+    pictures = cluster(
+        [
+            _release("Тачки: Байки Мэтра", 2008, original="Cars Toon: Mater's Tall Tales"),
+            _release("Тачки: Байки Мэтра", 2008, original="Mater's Tall Tales", kind="tv"),
+        ]
+    )
+
+    assert [(p.title, p.year, len(p.releases)) for p in pictures] == [
+        ("Тачки: Байки Мэтра", 2008, 2)
+    ]
+
+
+def test_the_same_original_under_two_kinds_is_the_same_picture() -> None:
+    """Сериал, чью раздачу каталог принял за фильм: оригинал у обоих один и тот же."""
+    pictures = cluster(
+        [
+            _release("Робокоп", 1994, original="RoboCop", kind="tv"),
+            _release("Робокоп", 1994, original="RoboCop"),
+        ]
+    )
+
+    assert len(pictures) == 1
+
+
+def test_two_kinds_of_one_year_stay_apart_when_the_original_only_starts_the_same() -> None:
+    """Отрицательная проба: «Трансформеры» 2007 года - это и фильм, и мультсериал.
+
+    Имя, год и вид тут те же, что у склеиваемой пары, и разводит их ровно оригинал:
+    «Transformers: Animated» начинается с имени фильма, но подзаголовком ему не приходится.
+    """
+    pictures = cluster(
+        [
+            _release("Трансформеры", 2007, original="Transformers"),
+            _release("Трансформеры", 2007, original="Transformers: Animated", kind="tv"),
+        ]
+    )
+
+    assert [(p.kind, p.original) for p in pictures] == [
+        ("movie", "Transformers"),
+        ("tv", "Transformers: Animated"),
+    ]
+
+
+def test_two_kinds_of_one_year_stay_apart_when_the_originals_are_strangers() -> None:
+    """Отрицательная проба: «Хищники» 2022 года - испанское кино и сериал о животных."""
+    pictures = cluster(
+        [
+            _release("Хищники", 2022, original="As bestas"),
+            _release("Хищники", 2022, original="Predators", kind="tv"),
+        ]
+    )
+
+    assert len(pictures) == 2
+
+
+def test_a_soundtrack_never_joins_the_picture_it_was_written_for() -> None:
+    """Отрицательная проба: у диска с музыкой и вид другой, и картиной он не является."""
+    pictures = cluster(
+        [
+            _release("Настоящий детектив", 2015, original="True Detective", kind="tv"),
+            _release("Настоящий детектив", 2015, original="True Detective", kind="other"),
+        ]
+    )
+
+    assert len(pictures) == 2
+
+
 #: Живая выдача по «гарри поттер дары смерти»: 139 раздач, и нужная часть среди них есть.
 #: Ключ франшизы у каталога с союзом («гарри-поттер-и-дары-смерти»), а человек союз не
 #: набирает - подстрокой такое не совпадает ни в одну сторону.
@@ -1285,6 +1360,7 @@ def _release(
     seeders: int = 0,
     codec: str = "H.264",
     original: str | None = None,
+    kind: Kind = "movie",
 ) -> Release:
     return Release(
         raw_name=f"{title} ({year})",
@@ -1294,6 +1370,7 @@ def _release(
         quality="1080p",
         codec=codec,
         seeders=seeders,
+        kind=kind,
     )
 
 

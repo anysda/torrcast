@@ -103,6 +103,31 @@ def glue(pictures: list[Picture]) -> list[Picture]:
                     bucket.append(i)
     for same in lone.values():
         _link(pictures, same, union)
+
+    def subtitle(name: str) -> str:
+        head, colon, tail = name.partition(":")
+        return identity(tail) if colon and head.strip() else ""
+
+    def one_picture_two_kinds(a: Picture, b: Picture) -> bool:
+        # Вид тут и есть весь спор: одно имя, один год, а каталог развёл фильм и сериал.
+        # Сойтись им мало имени - «Трансформеры» 2007 года это и фильм, и мультсериал
+        # «Transformers: Animated», - поэтому спрашивается оригинал: он либо тот же, либо
+        # стоит подзаголовком у соседа («Mater's Tall Tales» в «Cars Toon: Mater's Tall
+        # Tales»). Приставка соседом не считается: ею и отличается «Animated».
+        if a.kind == b.kind or "other" in (a.kind, b.kind) or not (a.original and b.original):
+            return False
+        mine, theirs = identity(a.original), identity(b.original)
+        return mine == theirs or mine == subtitle(b.original) or theirs == subtitle(a.original)
+
+    kindred: dict[tuple[str, int], list[int]] = {}
+    for i, picture in enumerate(pictures):
+        if picture.year is not None and picture.original:
+            kindred.setdefault((identity(picture.title), picture.year), []).append(i)
+    for same in kindred.values():
+        for spot, i in enumerate(same):
+            for j in same[spot + 1 :]:
+                if one_picture_two_kinds(pictures[i], pictures[j]):
+                    union(i, j)
     groups: dict[int, list[int]] = {}
     for i in range(len(pictures)):
         groups.setdefault(root(i), []).append(i)
