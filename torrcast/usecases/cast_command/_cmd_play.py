@@ -25,6 +25,7 @@ from torrcast.usecases.rank.quality_text import quality_text
 from torrcast.usecases.say_showing import _say_showing
 from torrcast.usecases.select._continue import _continue
 from torrcast.usecases.select._remembered import _remembered
+from torrcast.usecases.select._studio_seen import _studio_seen
 from torrcast.usecases.start_clock import _Clock
 from torrcast.usecases.torrents import _release_orphans
 
@@ -143,5 +144,8 @@ def _cmd_play(
         # серия» (сквозная нумерация против сезонной) всухую не виден вовсе (TC-302).
         print(f"(--dry) {about} · файл «{video.base}» - каста нет")
         return EXIT_OK
-    entry = _entry_for(plan, prep, release, video, media, audio, voice, args)
+    # Студия из памяти картины: вынужденный дефолт её не переписывает, поэтому знать
+    # прежнюю запись обязана и запись показа, а не только порядок меню.
+    seen = _studio_seen(state, plan.picture.key, found_entry)
+    entry = _entry_for(plan, prep, release, video, media, audio, voice, seen, args)
     return _launch(config, plan.picture.key, entry, about, clock)

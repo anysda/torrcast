@@ -30,7 +30,7 @@ def _entry() -> Any:
     prep = _Prep(number=1, release=release())
     prep.video, prep.files, prep.media = video, [video], _media()
     return _entry_for(
-        cast(Any, plan()), prep, release(), video, _media(), 0, "Дубляж", Args(query=["кино"])
+        cast(Any, plan()), prep, release(), video, _media(), 0, "Дубляж", "", Args(query=["кино"])
     )
 
 
@@ -58,7 +58,9 @@ def test_missing_video_weight_is_estimated_from_the_chosen_file() -> None:
     prep.video, prep.files, prep.media = video, [video], _media()
     silent = Media(duration=6000.0, video="h264", height=1080, width=1920)
 
-    entry = _entry_for(cast(Any, plan()), prep, pack, video, silent, 0, "rus", Args(query=["кино"]))
+    entry = _entry_for(
+        cast(Any, plan()), prep, pack, video, silent, 0, "rus", "", Args(query=["кино"])
+    )
 
     assert entry.vbps == 40.0, "оценка по выбранному файлу поднимает ровный профиль"
     assert entry.vbps_estimated
@@ -84,6 +86,45 @@ def test_the_studio_that_played_reaches_the_record() -> None:
     prep = _Prep(number=1, release=pack)
     prep.video, prep.files, prep.media = video, [video], _media()
     silent = Media(duration=7200.0, tracks=(AudioTrack(index=0, language="rus"),))
-    entry = _entry_for(cast(Any, plan()), prep, pack, video, silent, 0, "rus", Args(query=["кино"]))
+    entry = _entry_for(
+        cast(Any, plan()), prep, pack, video, silent, 0, "rus", "", Args(query=["кино"])
+    )
 
     assert entry.studio == "The Kitchen Russia", "подпись «rus» о студии не говорит ничего"
+    assert entry.heard == "", "памяти не было - подменять было нечего"
+
+
+def _forced(seen: str, voice: int | None = None) -> Any:
+    """Запись показа сезона, у которого запомненной студии нет вовсе."""
+    video = TorrFile(index=0, name="кино/s05e01.mkv", size=(8 * 1024**3))
+    pack = release("Кино / Movie (Сезон 5) WEB-DL 1080p, 2 x MVO (TVShows, NewStation)")
+    prep = _Prep(number=1, release=pack)
+    prep.video, prep.files, prep.media = video, [video], _media()
+    silent = Media(duration=7200.0, tracks=(AudioTrack(index=0, language="rus"),))
+    return _entry_for(
+        cast(Any, plan()),
+        prep,
+        pack,
+        video,
+        silent,
+        0,
+        "rus",
+        seen,
+        Args(query=["кино"], voice=voice),
+    )
+
+
+def test_a_forced_default_keeps_the_studio_the_picture_was_watched_with() -> None:
+    """Запомненной студии в новом сезоне нет - играем что есть, но помним прежнюю."""
+    entry = _forced("The Kitchen Russia")
+
+    assert entry.studio == "The Kitchen Russia", "вынужденный дефолт память не переписывает"
+    assert entry.heard == "TVShows", "а что играет на самом деле, зритель обязан прочесть"
+
+
+def test_a_named_track_is_the_only_thing_that_rewrites_the_studio() -> None:
+    """Человек назвал дорожку сам - это и есть новая память картины."""
+    entry = _forced("The Kitchen Russia", voice=1)
+
+    assert entry.studio == "TVShows"
+    assert entry.heard == "", "выбранная руками дорожка подменой не является"

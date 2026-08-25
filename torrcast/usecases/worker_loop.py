@@ -10,6 +10,7 @@ from functools import partial
 from torrcast.domain.config import Config
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.profile import Profile
+from torrcast.domain.voice_swap import voice_swap
 from torrcast.domain.worker_settings import WORKER_META
 from torrcast.ports.journal.slot import journal
 from torrcast.ports.receiver import Receiver
@@ -80,6 +81,12 @@ def _worker_loop(
         supply.file_index, supply.duration = entry.file_idx, entry.dur
         watch = Watch(key=key, entry=entry)
         title = " ".join(filter(None, (entry.title, entry.label)))
+        # 🔴 Подпись показа - единственное, что уезжает на ЭКРАН, и подмена озвучки
+        # обязана доехать именно туда: запомненной студии в этом релизе не нашлось,
+        # играет другая, а зритель сидит перед телевизором, а не перед терминалом
+        # (:func:`voice_swap`). В след и в консоль идёт та же подпись без приписки:
+        # там подмена уже названа своим полем записи.
+        shown = " · ".join(filter(None, (title, voice_swap(entry.studio, entry.heard))))
         sid = journal().start_session()
         session_tag = f"[сеанс {sid}]"
         # Профиль идёт в след каждой серией: по какому набору порогов играли - вопрос,
@@ -97,7 +104,7 @@ def _worker_loop(
             config,
             source,
             entry.audio,
-            title,
+            shown,
             _Clock(),
             watch,
             receiver=receiver,

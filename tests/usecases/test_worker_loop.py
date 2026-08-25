@@ -84,3 +84,60 @@ def test_the_loop_pins_the_thresholds_snapshot_to_the_session_start_record(
     assert start[0]["profile_source"] == "паспорт приёмника"
     assert start[0]["thresholds"] == {"burst": 60.0}
     assert start[0]["threshold_sources"] == {"burst": "профиль q70d"}
+
+
+def _shown_title(entry: Entry, _ports: None = None) -> str:
+    """Подпись, с которой цикл зовёт показ: ровно она уезжает на экран."""
+    key = "tv:harley-quinn:2019"
+    state = Ephemeral()
+    fresh = state.load()
+    fresh.put(key, entry)
+    state.save(fresh)
+    state_slot.install(state)
+    journal_slot.install(_EmitTape())
+    seen: list[str] = []
+
+    def play(config: Config, source: str, audio: int, about: str, *args: Any, **kw: Any) -> int:
+        seen.append(about)
+        return 0
+
+    worker_loop._worker_loop(
+        Config(),
+        key,
+        FakeTorrentEngine(),
+        None,  # type: ignore[arg-type]  # приёмник зовёт только показ, а он здесь подделка
+        FakeStreamSource(),
+        [],
+        CAUTIOUS,
+        play=play,
+    )
+    return seen[0]
+
+
+def _harley(**fields: Any) -> Entry:
+    return Entry(
+        title="Харли Квинн",
+        magnet="magnet:?xt=urn:btih:x",
+        kind="tv",
+        dur=1500.0,
+        depth=8,
+        frame=1080,
+        season=5,
+        episode=1,
+        episodes=[[5, 1, 0], [5, 2, 1]],
+        **fields,
+    )
+
+
+def test_a_forced_voice_swap_reaches_the_screen_and_not_the_terminal(
+    _ports_restored: None,
+) -> None:
+    """Зритель смотрит в телевизор: подпись показа - единственное, что туда уезжает."""
+    shown = _shown_title(_harley(studio="The Kitchen Russia", heard="TVShows"))
+
+    assert shown == "Харли Квинн s5e1 · озвучка TVShows вместо The Kitchen Russia"
+
+
+def test_a_show_without_a_swap_carries_no_extra_word(_ports_restored: None) -> None:
+    """Подмены нет - и приписывать подписи нечего: молчаливых подмен не бывает, лишних тоже."""
+    assert _shown_title(_harley(studio="The Kitchen Russia")) == "Харли Квинн s5e1"

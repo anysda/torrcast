@@ -30,10 +30,19 @@ def _entry_for(
     media: Media,
     audio: int,
     voice: str,
+    seen: str,
     args: Args,
 ) -> Entry:
-    """Запись показа по выбранному релизу: паспорт, дорожка, серия и список серий."""
+    """Запись показа по выбранному релизу: паспорт, дорожка, серия и список серий.
+
+    ``seen`` - студия, которой эту картину уже смотрели (:func:`_studio_seen`): память
+    картины, а не факт этого запуска, и переписывать её вынужденным дефолтом нельзя.
+    """
     series = plan.series
+    played = _named(track_studio(media, audio, release.studios))
+    # Явный выбор человека - единственное, что вправе назначить картине другую студию:
+    # `--voice N` и меню озвучек называют дорожку сами (:func:`pick_voice`).
+    studio = played if args.voice is not None else (seen or played)
     measured_mbit = media.video_bps / 1e6
     estimated_mbit = estimated_video_mbit(video.size, media.duration)
     return Entry(
@@ -43,10 +52,13 @@ def _entry_for(
         file_idx=video.index,
         audio=audio,
         voice=voice,
-        # Чья это озвучка - спрашивается у дорожки и у имени раздачи, а записывается
-        # всегда: следующий сезон будет другим релизом, и одна эта строка - всё, чем
-        # он узнает, чем сериал смотрели (:func:`track_studio`).
-        studio=_named(track_studio(media, audio, release.studios)),
+        # Чья это озвучка - спрашивается у дорожки и у имени раздачи: следующий сезон
+        # будет другим релизом, и одна эта строка - всё, чем он узнает, чем сериал
+        # смотрели (:func:`track_studio`).
+        studio=studio,
+        # А это уже не память, а факт: запомненной студии в релизе не нашлось, играет
+        # другая, и зритель прочтёт об этом на экране (:func:`voice_swap`).
+        heard=played if played and played != studio else "",
         dur=media.duration,
         # Паспортный вес точнее; если его нет, верхняя оценка по размеру выбранного
         # файла и длительности всё равно даёт профилю цели с первой секунды.

@@ -36,3 +36,13 @@ def test_the_start_of_the_film_is_not_a_place_worth_naming() -> None:
 def test_the_line_names_the_handle_that_raises_the_menu() -> None:
     """Играет записанный выбор - и строка сама говорит, чем просят другую картину."""
     assert _about(entry()).endswith("выбрать другое: --menu")
+
+
+def test_the_line_names_the_studio_that_plays_and_the_one_it_replaced() -> None:
+    """Запомненной студии в релизе не нашлось - строка говорит и что играет, и вместо чего."""
+    said = _about(entry(pos=0.0, voice="rus", studio="The Kitchen Russia", heard="TVShows"))
+
+    assert said == (
+        "«Кино» · rus (TVShows) · озвучка TVShows вместо The Kitchen Russia "
+        "· выбрать другое: --menu"
+    )
