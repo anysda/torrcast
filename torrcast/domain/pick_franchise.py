@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from torrcast.domain.aliases import _aliases
+from torrcast.domain.asked_year import asked_year
 from torrcast.domain.both_languages import both_languages
 from torrcast.domain.by_alias import _by_alias
 from torrcast.domain.by_both_names import _by_both_names
@@ -13,6 +14,7 @@ from torrcast.domain.franchise_item_key import _franchise_item_key
 from torrcast.domain.franchises import franchises
 from torrcast.domain.group_weight import _group_weight
 from torrcast.domain.in_digits import in_digits
+from torrcast.domain.nearly_named import nearly_named
 from torrcast.domain.numbered import _numbered
 from torrcast.domain.picture import Picture
 from torrcast.domain.slugify import slugify
@@ -85,7 +87,7 @@ def pick_franchise(
             index = None
         if not items:
             items, index = (_by_both_names(query, pictures), None)
-        return _numbered(items, index)
+        return _numbered(items, index) or _asked_otherwise(query, name, pictures)
     franchise_items = both_languages(groups, aliases, key)
     if index is None and join_continuations:
         seen = {p.key for p in franchise_items}
@@ -116,6 +118,30 @@ def pick_franchise(
     if not items and index is not None and ((whole_name := named(query)) is not None):
         items = both_languages(groups, aliases, whole_name)
     return _with_subtitled(items, name, pictures, index)
+
+
+def _asked_otherwise(query: str, name: str, pictures: list[Picture]) -> list[Picture]:
+    """Последняя попытка перед отказом: лишний год в конце и промах одной буквы.
+
+    🔴 TC-777. Обе формы человек берёт из НАШЕГО же меню - оттуда и год «(2008)», и
+    написание имени, - а каталог их не принимал: «Байки Мэтра» давало четыре картины,
+    «Байки Мэтра 2008» и «Байки Мэтр» - ни одной. Отказ там, где картина есть и только
+    что показывалась, это брак, а не осторожность.
+
+    Спрашивается это в самом конце и только на пустой выдаче, поэтому найденную сегодня
+    картину такая попытка сдвинуть не может: до неё очередь доходит лишь тогда, когда
+    двигать уже нечего.
+
+    Год сужает найденное, а не расширяет: назвали год - берём картины этого года, а не
+    все под этим именем. Не совпал ни с одной - остаётся то, что нашлось по имени: год
+    ошибиться может, а имя названо верно.
+    """
+    bare, year = asked_year(query)
+    if year is not None and (found := pick_franchise(bare, pictures)):
+        return [p for p in found if p.year == year] or found
+    if near := nearly_named(name, pictures):
+        return pick_franchise(near, pictures)
+    return []
 
 
 __all__ = ["pick_franchise"]
