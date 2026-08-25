@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from tests.usecases.feed_pack.world import FakeProc, feed, grid, lay, packer, tract, vault
-from torrcast.usecases.feed_pack.feed_steer import _steer
+from torrcast.usecases.feed_pack.feed_steer import IDLE_CIRCLES, _steer
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -173,3 +173,48 @@ def test_a_verdict_by_the_weight_of_the_piece_survives_the_source_coming_back(
     _steer(show, 20, lambda _slot: None)
 
     assert show.skipped == {4}
+
+
+def test_repacking_one_place_in_circles_ends_with_a_line_and_another_decision(
+    tmp_path: Path,
+) -> None:
+    """Круг без прогресса детерминирован: следующий заход кончится ровно тем же.
+
+    Замер живого показа на приставке: 45 и 65 таких кругов подряд по одному месту, семь
+    минут без единого выложенного куска и без единой строки о том, что происходит.
+    """
+    fake = tract(now=100.0)
+    asked: list[int] = []
+    said: list[str] = []
+    show = feed(tmp_path, log=said.append)
+
+    for circle in range(IDLE_CIRCLES + 1):
+        fake.now = 100.0 + circle * 3.0
+        assert _steer(show, 3, asked.append) is True
+
+    assert asked == [3] * IDLE_CIRCLES, "холостых кругов ровно столько, сколько терпим"
+    assert 3 in show.skipped, "место, которого перепаковка не даёт, дальше живёт пропуском"
+    assert any("перепаковки подряд" in line for line in said), "молчать об этом нельзя"
+
+    fake.now = 200.0
+    assert _steer(show, 3, asked.append) is True and asked == [3] * IDLE_CIRCLES
+
+
+def test_a_place_that_was_given_out_starts_its_count_from_scratch(tmp_path: Path) -> None:
+    """Круг считается по МЕСТУ и обнуляется выдачей: перемотка туда-обратно - не круг."""
+    fake = tract(now=100.0)
+    asked: list[int] = []
+    show = feed(tmp_path)
+
+    for circle in range(IDLE_CIRCLES - 1):
+        fake.now = 100.0 + circle * 3.0
+        _steer(show, 3, asked.append)
+    fake.now = 130.0
+    _steer(show, 4, asked.append)  # соседнее место - это работа, а не круг
+
+    assert show.circling == (4, 1)
+    for circle in range(IDLE_CIRCLES - 1):
+        fake.now = 140.0 + circle * 3.0
+        _steer(show, 3, asked.append)
+
+    assert 3 not in show.skipped, "счёт по чужому месту приговора не выносит"

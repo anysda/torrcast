@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
 import torrcast.usecases.feed_pack._state as _state
 from torrcast.ports.journal.slot import journal
@@ -15,6 +15,50 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from torrcast.usecases.feed_pack.feed_state import _State
+
+#: Сколько холостых кругов по одному месту терпим, прежде чем решить иначе.
+#:
+#: Круг стоит не меньше двух секунд (столько держится защёлка :attr:`restarted`), а на
+#: живом замере выходил 2.5-3.2 с: три круга - это около десяти секунд, ровно тот срок,
+#: за который зритель обязан получить картинку. Ниже опускать нельзя: перезапуск за одно
+#: место подряд бывает и честным - перемотка внутри прогона, возврат источника, - и
+#: второй заход там доходит до куска.
+IDLE_CIRCLES: Final = 3
+
+
+def _circling(state: _State, slot: int) -> bool:
+    """Перепаковка этого места уже ходит по кругу без прогресса; ``True`` - хватит.
+
+    Холостой круг - это перезапуск за то же место, которого прошлый прогон так и не
+    выложил. Считается он по месту, а не по числу перезапусков вообще: перепаковка
+    соседнего куска - это работа, а не круг, и счёт с неё начинается заново.
+
+    Заход в такой круг детерминирован: пробный прогон садится туда же, выкладка решает
+    то же самое, и следующий круг кончится тем же. Ждать тут нечего, и молчать нельзя -
+    зритель обязан получить либо картинку, либо честную строку.
+    """
+    place, rounds = state.circling
+    rounds = rounds + 1 if place == slot else 1
+    state.circling = (slot, rounds)
+    return rounds > IDLE_CIRCLES
+
+
+def _give_up(state: _State, slot: int) -> None:
+    """Сказать про место, которое перепаковка не берёт, и перестать за него браться.
+
+    Дальше это место живёт как любое честно пропущенное (:attr:`skipped`): 404 приёмник
+    переживает хуже тишины, поэтому имя, уже обещанное манифестом, просто остаётся без
+    ответа, а дыру перешагивает сторож самого приёмника.
+    """
+    state.circling = (-1, 0)
+    state.skipped.add(slot)
+    if state.recoder is not None:
+        state.recoder.done.add(slot)  # браться за это место кодировщику уже незачем
+    state._say(
+        f"⚠️ v{slot} пропускаю: {IDLE_CIRCLES} перепаковки подряд не дали этого куска - "
+        "этого места в показе не будет"
+    )
+    journal().mark("перепаковка по кругу", слот=slot, кругов=IDLE_CIRCLES)
 
 
 def _steer(state: _State, slot: int, restart: Callable[[int], None]) -> bool:
@@ -70,6 +114,7 @@ def _steer(state: _State, slot: int, restart: Callable[[int], None]) -> bool:
         else:
             _mute(state)
         if (state.out / state.piece_name(slot)).exists():
+            state.circling = (-1, 0)  # место выдано - круга по нему больше нет
             # ⚠️ Кусок допаковался ровно этим `publish` - и это не редкость, а
             # обычный ход показа: приёмник идёт вплотную за упаковкой и просит
             # сегмент за мгновение до того, как тот закрылся. Без этой проверки он
@@ -107,6 +152,9 @@ def _steer(state: _State, slot: int, restart: Callable[[int], None]) -> bool:
     # стоит секунды и не даёт ничего, а показ в это время идёт с диска.
     if _state.clock_port.monotonic() - state.restarted < (5.0 if state.offline else 2.0):
         return True  # соседний запрос уже перезапустил упаковку - не толкаемся
+    if _circling(state, slot):
+        _give_up(state, slot)
+        return True
     state.restarted = _state.clock_port.monotonic()
     restart(slot)
     return True
