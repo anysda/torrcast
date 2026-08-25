@@ -5,6 +5,7 @@ from __future__ import annotations
 import itertools
 import time
 from collections.abc import Iterator
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import cast
 
@@ -219,3 +220,76 @@ def test_the_poll_circle_keeps_its_pace_while_a_torn_run_is_being_lifted(
     assert blind < lift_cost / 2, (
         f"круг опроса простоял {blind:.2f} с в чужой работе при её цене {lift_cost:.2f} с"
     )
+
+
+@dataclass
+class _ClosedReceiver:
+    """Приёмник из сеанса 11-08-2026: показ убрали с экрана пультом.
+
+    Слово о ходе показа при этом теряется вместе с сессией - вместо ``PAUSED`` или
+    ``IDLE``/``ERROR`` приходит пустой статус с нулём, - а признак «экран пуст, и
+    гасили его не мы» потерю сессии переживает и приходит в позиции.
+    """
+
+    script: list[tuple[float, str]]
+    #: Места, с которых у приёмника просили поднять показ.
+    replayed: list[float] = field(default_factory=list)
+
+    def play(self, url: str, title: str = "", at: float = 0.0) -> None:
+        return None
+
+    def stop(self, quit_app: bool = False) -> None:
+        return None
+
+    def position(self, front: float = 0.0) -> Position:
+        pos, state = self.script.pop(0) if self.script else (0.0, "UNKNOWN")
+        alive = state in {"PLAYING", "BUFFERING"}
+        return Position(pos, 7200.0, alive, state, closed=not self.script and not alive)
+
+    def replay(self, pos: float, paused: bool = False) -> float:
+        self.replayed.append(pos)
+        return pos
+
+
+def test_the_show_closed_with_the_remote_is_not_raised_back(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Показ, закрытый рукой человека, обратно не поднимается ни разу.
+
+    Сеанс 11-08-2026: приёмник ушёл в ``UNKNOWN``, приложение пропало с экрана целиком -
+    и через 8 с показ поднялся сам, поперёк воли зрителя. Своя авария по-прежнему
+    воскрешается: её от закрытия отличает то, что осталось на экране вместо показа.
+    """
+    receiver = _ClosedReceiver([(2231.0, "PLAYING"), (0.0, "UNKNOWN")])
+
+    ended = _hold(
+        cast(Receiver, receiver), feed_with_segments(tmp_path), clock=FakeClock(now=1000.0)
+    )
+
+    assert ended is True, "показ кончился по воле зрителя, а не аварией"
+    assert receiver.replayed == [], "закрытый с пульта показ поднимать нельзя"
+    assert "показ закрыт с пульта на 0:37:11" in capsys.readouterr().out
+
+
+def test_a_show_closed_before_the_very_first_frame_is_not_raised_either(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Закрытие в первые секунды - то же самое: лестница воскрешения туда не идёт.
+
+    Окно подъёма доходит до нулевой позиции (показ, умерший на 0:00, поднимается с
+    начала картины), и без этой ветки закрытый до первого кадра показ включался бы
+    обратно ровно так же, как закрытый посреди фильма.
+    """
+    receiver = _ClosedReceiver([(0.0, "UNKNOWN")])
+
+    ended = _hold(
+        cast(Receiver, receiver),
+        feed_with_segments(tmp_path),
+        clock=FakeClock(now=1000.0),
+        start=2231.0,
+        raised=False,
+    )
+
+    assert ended is True
+    assert receiver.replayed == [], "показа не было ни кадра, но закрыл его зритель"
+    assert "показ закрыт с пульта на 0:37:11" in capsys.readouterr().out

@@ -48,6 +48,9 @@ class _Talk(_Link):
         картинку за 3 с. Значит, чинить надо не только приёмник, но и свою сессию.
         """
         print("приёмник залип - закрываю приложение и соединение, гружу заново", flush=True)
+        # Пустой экран после этого - наша работа, и волей зрителя он не считается
+        # (:func:`torrcast.adapters.chromecast.cast.viewer_closed._viewer_closed`).
+        self._we_quit = True
         if self._cast is not None:
             with contextlib.suppress(Exception):
                 self._cast.quit_app()

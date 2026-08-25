@@ -20,6 +20,7 @@ from torrcast.ports.stream_source import StreamSource
 from torrcast.usecases.choice._ctl import _ctl
 from torrcast.usecases.feed_pack.feed import Feed
 from torrcast.usecases.rank._hms import _hms
+from torrcast.usecases.revive_playback._closed import _closed
 from torrcast.usecases.revive_playback._endure import _endure
 from torrcast.usecases.revive_playback._paused import _pause
 from torrcast.usecases.revive_playback._revival import _Revival
@@ -152,6 +153,9 @@ def _hold(
                 return True
         else:
             screen.tail_at, screen.tail_since = -1.0, 0.0
+        # Выше паузы нарочно: закрытый с пульта показ и на закладку возвращать некому.
+        if _closed(position, session_tag, screen.held or start):
+            return True  # показ убрал с экрана зритель - это конец, а не авария
         # Пауза - решение зрителя, и потеря сессии его не отменяет: слово приёмника
         # здесь может быть потеряно (UNKNOWN с нулём), и ветка держится на памяти
         # показа, а не на нём (:mod:`torrcast.usecases.revive_playback._paused`).

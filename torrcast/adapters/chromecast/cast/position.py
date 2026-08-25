@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 from torrcast.adapters.chromecast.cast.nudge import _nudge
 from torrcast.adapters.chromecast.cast.reload import _reload
 from torrcast.adapters.chromecast.cast.say_skip import _say_skip
+from torrcast.adapters.chromecast.cast.viewer_closed import _viewer_closed
 from torrcast.adapters.chromecast.cast.watch_seek import _watch_seek
 from torrcast.domain.position import Position
 
@@ -21,6 +22,9 @@ def _position(rcv: _Talk, front: float = 0.0) -> Position:
     st = rcv._status()
     state = str(st.player_state or "")
     pos = st.current_time or 0.0
+    # Спрашивается ДО всякой нашей починки: повтор LOAD сам убирает приложение с экрана,
+    # и после него пустой экран уже наш (:func:`_viewer_closed`).
+    closed = _viewer_closed(rcv)
     if pos > rcv._peak:  # реальный прогресс - прошлые нуджи больше не в счёт
         rcv._peak, rcv._stall_hits = pos, 0
     elif state != "IDLE" and pos > 0.0 and rcv._peak - pos > rcv.REWIND:
@@ -70,10 +74,10 @@ def _position(rcv: _Talk, front: float = 0.0) -> Position:
     else:
         rcv._stall_at, rcv._stall_since = -1.0, 0.0
     if state == "IDLE" and st.idle_reason == "ERROR" and _reload(rcv):
-        return Position(rcv._peak, st.duration or 0.0, True, "BUFFERING")
+        return Position(rcv._peak, st.duration or 0.0, True, "BUFFERING", closed)
     if rcv._gone:
         # 🔴 Сторож своё отработал и передаёт эстафету воскрешению: живым такой показ
         # называть больше нельзя, хотя приёмник и рапортует BUFFERING. Состояние
         # отдаём как есть - врать о нём незачем, а решает зовущий по ``playing``.
-        return Position(pos, st.duration or 0.0, False, state)
-    return Position(pos, st.duration or 0.0, st.player_is_playing, state)
+        return Position(pos, st.duration or 0.0, False, state, closed)
+    return Position(pos, st.duration or 0.0, st.player_is_playing, state, closed)

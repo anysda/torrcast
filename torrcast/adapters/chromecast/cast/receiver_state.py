@@ -59,6 +59,11 @@ class _State(_Settings):
         #: - ``PAUSED`` (:meth:`_settle`), а повтор LOAD посреди показа при нём не идёт
         #: вовсе (:func:`torrcast.adapters.chromecast.cast.reload._reload`).
         self._paused = False
+        #: Приложение с экрана убрали МЫ (:meth:`_restart_app`), и пустой экран сейчас -
+        #: наша работа, а не воля зрителя. Гасится первым же появлением нашего приложения,
+        #: то есть удавшимся LOAD
+        #: (:func:`torrcast.adapters.chromecast.cast.viewer_closed._viewer_closed`).
+        self._we_quit = False
         #: Сессия приложения приёмника, которую подняли мы (см. :meth:`_ours`).
         self._session = ""
         #: Позиция с прошлого опроса и незакрытая перемотка (:meth:`_watch_seek`):
