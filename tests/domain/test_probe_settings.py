@@ -1,14 +1,14 @@
-"""Зеркало :mod:`torrcast.domain.probe_settings`: сроки опроса служб и списки кодеков.
+"""Зеркало :mod:`torrcast.domain.probe_settings`: сроки опроса служб и глубина цвета.
 
 Сторожатся две связи. Вопрос на краю показа обязан быть дешёвым: пока мы ждём ответа, экран
-уже гаснет, и человеку нужна строка, а не наше терпение. А наборы кодеков и глубина - это
-замеры ПРИЁМНИКА, и живут они в его профиле, а не второй копией рядом.
+уже гаснет, и человеку нужна строка, а не наше терпение. А глубина цвета - это замер
+ПРИЁМНИКА, и живёт он в его профиле, а не второй копией рядом.
 """
 
 from __future__ import annotations
 
 from torrcast.domain.pick_settings import META_BUDGET
-from torrcast.domain.probe_settings import COPY_DEPTH, META_GRACE, PROBE_TIMEOUT, RECODE_CODECS
+from torrcast.domain.probe_settings import COPY_DEPTH, META_GRACE, PROBE_TIMEOUT
 from torrcast.domain.profile import CAUTIOUS
 from torrcast.domain.worker_settings import WORKER_META
 
@@ -45,13 +45,12 @@ def test_the_grace_ends_before_the_unit_itself_stops_waiting_for_metadata() -> N
     assert META_GRACE < WORKER_META
 
 
-def test_the_codec_measurements_are_the_receivers_profile_and_not_a_copy_beside_it() -> None:
-    """Набор кодеков и глубина цвета - свойства приёмника, и берутся они у него.
+def test_the_depth_measurement_is_the_receivers_profile_and_not_a_copy_beside_it() -> None:
+    """Глубина цвета - свойство приёмника, и берётся она у него.
 
-    Заведись здесь вторая копия этих чисел - показ пошёл бы по профилю живого приёмника, а
-    щупы и умолчания мерили бы прежний набор, и замер перестал бы значить что-либо.
+    Заведись здесь вторая копия этого числа - показ пошёл бы по профилю живого приёмника, а
+    щупы и умолчания мерили бы прежнюю границу, и замер перестал бы значить что-либо.
     """
-    assert CAUTIOUS.recode_codecs == RECODE_CODECS
     assert CAUTIOUS.copy_depth == COPY_DEPTH
 
 
@@ -62,6 +61,6 @@ def test_the_name_of_the_codec_is_never_enough_to_decide_on_a_copy() -> None:
     себе копии не обещает. Сведи правило к членству в наборе - и вернётся вечная петля
     «залип, закрываю приложение, LOAD, BUFFERING».
     """
-    assert "h264" not in RECODE_CODECS
+    assert "h264" not in CAUTIOUS.recode_codecs
     assert CAUTIOUS.plays_copy("h264", COPY_DEPTH)
     assert not CAUTIOUS.plays_copy("h264", COPY_DEPTH + 2)

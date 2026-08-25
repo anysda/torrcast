@@ -1326,7 +1326,7 @@ def test_a_named_hevc_release_is_not_a_warning_but_a_promise_to_recode(
 
 
 #: Кодеки, которых мы не берём на себя, по одному на релиз: перекод целиком замерен для
-#: HEVC (:data:`torrcast.domain.probe_settings.RECODE_CODECS`), а av1/vc1/vp9/mpeg2video остаются
+#: HEVC (:attr:`torrcast.domain.profile.Profile.recode_codecs`), а av1/vc1/vp9/mpeg2video остаются
 #: честным отказом. Раздаются на ВСЮ очередь: играбельный релиз ниже по списку отбор теперь
 #: дочерпывает (TC-188), и «годного нет» обязано означать, что годного правда нет.
 REFUSED = ("av1", "mpeg2video", "vc1", "vp9", "av1")

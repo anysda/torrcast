@@ -110,7 +110,7 @@ class _Playing:
     vbps_estimated: bool = False
     #: Кодек видео по паспорту ffprobe (``h264``, ``hevc``). Из него показ знает, играть
     #: видео копией или перекодировать файл целиком
-    #: (:data:`torrcast.domain.probe_settings.RECODE_CODECS`), и знает это ДО первого сегмента -
+    #: (:attr:`torrcast.domain.profile.Profile.recode_codecs`), и знает это ДО первого сегмента -
     #: решение принимается один раз на файл.
     #:
     #: Пусто - записи прежних версий и те, где паспорт не спрашивали: такие играются

@@ -192,7 +192,7 @@ def pack_command(
             "-write_header_trailer",
             "0",
         ]
-    else:
+    else:  # оба флага и оба по нулю: mpegts иначе двигает ВСЕ метки на 0.7 + 0.7 = 1.4 с
         at_option = command.index("-avoid_negative_ts")
         command[at_option:at_option] = ["-muxdelay", "0", "-muxpreload", "0"]
     command += ["-segment_times", times]

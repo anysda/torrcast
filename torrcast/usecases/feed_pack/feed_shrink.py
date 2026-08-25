@@ -53,7 +53,7 @@ def _shrink(state: _State, slot: int, size: int = 0) -> bool:
         return _skip(state, slot, size, "ужимать нечем")
     if state.encode is not None:
         # На сплошном перекоде чужой заход в середину потока - это смена SPS на
-        # ходу, а её приёмник не переживает (:data:`RECODE_CODECS`).
+        # ходу, а её приёмник не переживает (:attr:`Profile.recode_codecs`).
         return _skip(state, slot, size, "ужать нельзя")
     with state.shrink_lock:
         if slot in state.skipped:

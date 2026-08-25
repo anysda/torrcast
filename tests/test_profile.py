@@ -21,7 +21,7 @@ from torrcast.domain.config import Config
 from torrcast.domain.for_passport import for_passport
 from torrcast.domain.hls_settings import MAX_SEGMENT_BYTES
 from torrcast.domain.media import AUDIO_MBIT, TS_OVERHEAD, Media
-from torrcast.domain.probe_settings import COPY_DEPTH, RECODE_CODECS
+from torrcast.domain.probe_settings import COPY_DEPTH
 from torrcast.domain.profile import ANDROID_TV, CAUTIOUS, COPY, RECODE, REFUSE
 from torrcast.domain.recodes_whole import recodes_whole
 from torrcast.domain.revive_settings import REVIVE_DROP, REVIVE_PAUSE
@@ -50,7 +50,7 @@ def test_the_stream_constants_are_the_cautious_profile() -> None:
     """Константы упаковки - тот же осторожный профиль, а не своя копия чисел."""
     cautious = CAUTIOUS
     assert MAX_SEGMENT_BYTES == cautious.max_segment_bytes == 16_000_000
-    assert RECODE_CODECS == cautious.recode_codecs == frozenset({"hevc", "mpeg4"})
+    assert cautious.recode_codecs == frozenset({"hevc", "mpeg4"})
     assert COPY_DEPTH == cautious.copy_depth == 8
     assert dataclasses.fields(Feed)  # slots-датакласс: умолчание берём из поля
     holds = {f.name: f.default for f in dataclasses.fields(Feed)}

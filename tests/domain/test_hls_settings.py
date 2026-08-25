@@ -18,7 +18,6 @@ from torrcast.domain.hls_settings import (
     HLS_SEGMENT_SECONDS,
     MAX_SEGMENT_BYTES,
     MIXED_PREFIX,
-    MPEGTS_MUX_DELAY,
     MUTE_SECONDS,
     PACK_DIR,
     PACK_LIST,
@@ -38,10 +37,6 @@ FIRST_DEADLY_BYTES = 19_400_000
 
 #: Чем ffmpeg зовут «отдать дорожку как есть»: ровно это тут и запрещено.
 PASSTHROUGH_CODECS = frozenset({"copy"})
-
-#: Умолчания мультиплексора mpegts, из которых и складывается его сдвиг меток времени.
-FFMPEG_MUXDELAY_SECONDS = 0.7
-FFMPEG_MUXPRELOAD_SECONDS = 0.7
 
 
 def test_the_segment_cap_stays_under_the_weight_that_killed_the_show() -> None:
@@ -98,28 +93,6 @@ def test_the_tolerances_stay_tolerances_and_never_become_a_second_threshold() ->
     assert 0.065 < PACK_SHORT_SECONDS < 0.6
     assert 0.0 < SPLIT_SLACK <= 1 / 24, "допуск границы - меньше кадра, а не целый кадр"
     assert SPLIT_SLACK * 100 < HLS_SEGMENT_SECONDS
-
-
-def test_the_mpegts_shift_names_the_two_ffmpeg_defaults_it_stands_for() -> None:
-    """Число обязано оставаться суммой обоих умолчаний, которые глушим, а не одного.
-
-    Сдвиг ко всем меткам выходного потока даёт ``muxdelay`` плюс ``muxpreload``, и глушить
-    надо оба: заглуши один - и лента уехала бы на оставшиеся 0.7 с. Именно этим дефект и
-    был дважды: :func:`pack_start` глушил сдвиг с самого начала, а
-    :func:`ffmpeg_pack_command` - нет, и сегменты уезжали на ТВ со временем фильма плюс
-    1.4 с. Обнули число - и расследовать стало бы нечего: имя перестало бы называть цену.
-    """
-    assert MPEGTS_MUX_DELAY == FFMPEG_MUXDELAY_SECONDS + FFMPEG_MUXPRELOAD_SECONDS
-
-
-def test_the_mpegts_shift_dwarfs_the_tolerance_a_segment_boundary_is_allowed() -> None:
-    """Сдвиг не косметика: он на два порядка больше допуска, в который метим границей.
-
-    Границу сегмента мы кладём в карту с точностью :data:`SPLIT_SLACK` - меньше кадра.
-    Незаглушенный сдвиг больше этого допуска в десятки раз, то есть уводит кусок мимо
-    карты целиком, а не «немного не туда»: потому его и глушат, а не терпят.
-    """
-    assert MPEGTS_MUX_DELAY > SPLIT_SLACK * 10
 
 
 def test_the_audio_priming_covers_the_measured_head_start_of_the_first_packet() -> None:

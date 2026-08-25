@@ -123,7 +123,7 @@ class Grid:
         «первый кадр не раньше ``step``».
 
         ``fixed_mbit`` — вес считается не по карте, а по нашему же битрейту: так весит
-        кусок файла, который перекодируется целиком (:data:`RECODE_CODECS`).
+        кусок файла, который перекодируется целиком (:attr:`Profile.recode_codecs`).
 
         **Потолок длины** (``span_cap``,
         :attr:`torrcast.domain.profile.Profile.max_segment_seconds`) — третья половина правила, и
