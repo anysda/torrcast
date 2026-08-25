@@ -11,6 +11,7 @@ from torrcast.usecases.choice.certain_default import certain_default
 from torrcast.usecases.choice.configure import _environment_port
 from torrcast.usecases.choice.default_line import default_line
 from torrcast.usecases.choice.first_alive import first_alive
+from torrcast.usecases.choice.lone_other_part import lone_other_part
 from torrcast.usecases.choice.menu_blocks import menu_blocks
 from torrcast.usecases.choice.named_elsewhere import named_elsewhere
 from torrcast.usecases.choice.part_one_swap import part_one_swap
@@ -55,6 +56,12 @@ def _pick_plan(
     «Тачки 2» вместо просимых «Тачек». Такому дефолту не бывать (:func:`part_one_swap`):
     строка говорит, что случилось с первой частью, список остаётся на экране, и номер
     называет сам человек.
+
+    🔴 TC-814. Тот же дефолт франшизы, но на ветке «картина одна»: меню тут не
+    задаётся вовсе, и до стража перескока дело не доходило - «лёд» молча включал «Лёд 3».
+    Единственная найденная картина, оказавшаяся другой частью спрошенной франшизы, - это
+    отказ (:func:`lone_other_part`), а не показ: выбирать не из чего, и строка называет,
+    что нашлось и каким запросом это спросить.
 
     🔴 TC-715. И дефолта нет там, где запрос назвал картину ЦЕЛИКОМ, а дефолт встаёт на
     другую: «блич s1e1» уезжал с «Блича» 2004 года на «Тысячелетнюю кровавую войну»,
@@ -112,6 +119,10 @@ def _pick_plan(
         env.write(f"играю «{_named(plan.picture)}» - пункт {pick}, названный флагом --pick")
         return plan
     if len(plans) == 1:
+        if note := lone_other_part(plans, asked):
+            # Единственная найденная картина - другая часть спрошенной франшизы. Меню
+            # тут не задаётся, выбирать не из чего, а показать её молча - подмена.
+            raise env.not_found_error(note)
         return plans[0]
     default = first_alive(plans)
     if certain_default(plans, asked) and not menu:

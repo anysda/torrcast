@@ -54,6 +54,32 @@ def test_a_single_picture_is_no_choice_and_the_question_is_not_asked() -> None:
     assert world.asked == []
 
 
+def test_the_only_picture_found_being_another_part_of_the_franchise_is_refused() -> None:
+    """🔴 TC-814. Одна картина, и она чужая часть - отказ, а не молчаливый показ.
+
+    `cast лёд` включал «Лёд 3» 2024 года, ни словом об этом не сказав: меню при одной
+    картине не задаётся, и страж перескока сюда не доходил.
+    """
+    world = Outside()
+    ice = [plan("Лёд 3", 2024, part=3, seeders=3)]
+
+    with pytest.raises(NotFoundError) as refusal:
+        _pick_plan(ice, asked="лёд", environment=world)
+
+    assert "первой части в выдаче нет" in str(refusal.value)
+    assert "«Лёд 3 (2024)»" in str(refusal.value)
+    assert world.asked == [], "выбирать было не из чего, и вопроса тут нет"
+
+
+def test_a_single_picture_of_the_asked_franchise_still_goes_on_without_a_word() -> None:
+    """Номер назван самим человеком - найденное и есть спрошенное, показ идёт молча."""
+    world = Outside()
+    ice = [plan("Лёд 3", 2024, part=3, seeders=3)]
+
+    assert _pick_plan(ice, asked="лёд 3", environment=world) is ice[0]
+    assert world.asked == []
+
+
 def test_a_number_named_by_the_flag_replaces_the_question_and_not_the_choice() -> None:
     """``--pick N`` - названный человеком выбор, тот же номер, что стоит у пункта меню.
 
