@@ -147,3 +147,32 @@ def test_a_show_that_is_not_buffering_clears_the_stall_clock() -> None:
 
     assert receiver._stall_at == -1.0
     assert receiver._stall_since == 0.0
+
+
+def test_the_pause_of_a_viewer_survives_the_death_of_the_session() -> None:
+    """Слово приёмник теряет вместе с сессией, а память показа о паузе - не теряет.
+
+    Смерть словом ``IDLE/ERROR`` перехватывается раньше круга опроса, и без этой памяти
+    она грузила показ с автостарта - мимо всей защиты паузы.
+    """
+    receiver = _Scripted(Status(pos=1272.4, state="PAUSED"))
+
+    _position(receiver)
+
+    assert receiver._paused is True, "признак паузы снимается с того же слова приёмника"
+
+    receiver.reported = Status(pos=0.0, state="IDLE", idle_reason="ERROR")
+    where = _position(receiver)
+
+    assert receiver.loads == [], "показ, начатый поверх зрительской паузы, - брак"
+    assert where.playing is False, "мёртвая сессия называется мёртвой, а не BUFFERING"
+
+
+def test_a_live_screen_forgets_the_pause_the_same_way_the_poll_circle_does() -> None:
+    """Признак паузы гасится живым экраном - ровно тем же случаем, что у круга опроса."""
+    receiver = _Scripted(Status(pos=100.0, state="BUFFERING"))
+    receiver._paused = True
+
+    _position(receiver)
+
+    assert receiver._paused is False

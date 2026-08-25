@@ -22,6 +22,12 @@ def _reload(rcv: _Talk) -> bool:
     случая: кусок, на котором показ уже умирал, приёмнику больше не отдаётся
     (:meth:`_past_deadly`).
     """
+    if rcv._paused:
+        # Показ стоит на паузе зрителя, и смерть сессии её не отменяет: повтор LOAD
+        # начал бы фильм поверх чужой паузы. Возвращает такую сессию круг опроса показа
+        # - на закладку и БЕЗ автостарта (:mod:`torrcast.usecases.revive_playback._paused`),
+        # а запас повторов остаётся настоящей смерти посреди показа.
+        return False
     if rcv._reloads >= rcv.profile.load_retries:
         return False
     rcv._reloads += 1

@@ -59,6 +59,26 @@ def test_the_retries_run_out_and_the_trouble_stops_being_ours(
     assert receiver.loads == []
 
 
+def test_a_show_on_the_viewers_pause_is_not_started_over_by_a_retry(
+    tape: Tape, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Паузу ставил зритель, и смерть сессии её не отменяет: LOAD с автостартом не идёт.
+
+    Живой замер 25-08-2026 на приставке: под голоданием упаковки она убила медиасессию
+    сама через 29 с после паузы зрителя, и смерть пришла словом ``IDLE/ERROR``. Повтор
+    LOAD перехватывал её раньше круга опроса и начинал фильм поверх паузы.
+    """
+    receiver = _Quiet()
+    receiver._peak, receiver._paused = 1272.4, True
+
+    assert _reload(receiver) is False
+    assert receiver.loads == [], "показ, начатый поверх зрительской паузы, - брак"
+    assert receiver.restarts == 0
+    assert receiver._reloads == 0, "запас повторов остаётся настоящей смерти"
+    assert tape.events() == []
+    assert capsys.readouterr().out == ""
+
+
 def test_a_receiver_that_left_mid_retry_is_left_to_the_next_tick(
     tape: Tape,
 ) -> None:
