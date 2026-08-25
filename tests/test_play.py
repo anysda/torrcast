@@ -1288,7 +1288,7 @@ def test_a_release_that_never_plays_stops_at_the_profile_not_at_eleven() -> None
             self.status = self
             self.media_controller = self
 
-        def play_media(self, url: str, mime: str, current_time: float = 0.0, **_: Any) -> None:
+        def play_media(self, url: str, _mime: str, current_time: float = 0.0, **_: Any) -> None:
             loads.append(current_time)
 
         def block_until_active(self, timeout: float = 30.0) -> None:
