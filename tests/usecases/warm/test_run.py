@@ -160,8 +160,9 @@ def test_a_spot_run_lays_its_picture_with_the_sound_of_the_copy(tmp_path: Path) 
     """
     seen: list[tuple[int, str, bytes, int]] = []
 
-    def lay_spot(slot: int, laid: Path, copy: Path, cap: int) -> bool:
+    def lay_spot(slot: int, laid: Path, copy: Path, cap: int, container: str) -> bool:
         seen.append((slot, laid.name, copy.read_bytes(), cap))
+        assert container == warm.container, "склейка прогрева режет контейнером показа"
         return True
 
     packers: list[_Packer] = []

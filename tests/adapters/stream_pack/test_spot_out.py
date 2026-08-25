@@ -10,6 +10,7 @@ from torrcast.adapters.ffmpeg.pack_command import pack_command
 from torrcast.adapters.recode.encode import Encode
 from torrcast.adapters.stream_pack.grid import Grid
 from torrcast.adapters.stream_pack.spot_out import spot_out
+from torrcast.domain.segment_container import FMP4
 
 #: Кадр AAC 48 кГц в тиках часов MPEG (90 кГц): ровно 1024 сэмпла.
 _AAC_TICKS = 1920
@@ -147,3 +148,24 @@ def test_an_empty_merge_is_not_taken_for_a_light_one(tmp_path: Path) -> None:
 
     assert spot_out(4, laid, copy, 50, merge=merge, shift_of=lambda *a: 0.0) is False
     assert laid.read_bytes() == b"x" * 18
+
+
+def test_the_warm_merge_is_muxed_by_the_container_of_the_receiver(tmp_path: Path) -> None:
+    """Тёплый путь склеивает тем же муксером, что и живой: файл остаётся именем куска.
+
+    На живом пути контейнер уже едет из профиля приёмника, а здесь оставалось умолчание
+    завода - то есть на fMP4 склейка прогрева собиралась бы mpegts под ``.m4s``.
+    """
+    seen: list[object] = []
+
+    def merge(video: Path, audio: Path, dst: Path, **kwargs: Any) -> bool:
+        seen.append(kwargs.get("container"))
+        dst.write_bytes(b"m" * 10)
+        return True
+
+    laid, copy = tmp_path / "v7.m4s", tmp_path / "a7.m4s"
+    laid.write_bytes(b"v" * 20)
+    copy.write_bytes(b"a" * 20)
+
+    assert spot_out(7, laid, copy, 100, FMP4, merge=merge, shift_of=lambda *a: 0.0) is True
+    assert seen == [FMP4]

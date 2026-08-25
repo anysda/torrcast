@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 from torrcast.adapters.stream_pack.merge_tracks import merge_tracks
 from torrcast.adapters.stream_pack.timeline_shift import timeline_shift
 from torrcast.domain.hls_settings import MIXED_PREFIX
+from torrcast.domain.segment_container import MPEGTS, SegmentContainer
 from torrcast.ports.journal.slot import journal
 
 if TYPE_CHECKING:
@@ -24,6 +25,7 @@ def spot_out(
     laid: Path,
     copy: Path,
     cap: int,
+    container: SegmentContainer = MPEGTS,
     *,
     merge: Callable[..., bool] = merge_tracks,
     shift_of: Callable[[Path, Path], float | None] = timeline_shift,
@@ -56,11 +58,15 @@ def spot_out(
     потолка приёмника показ с диска не берёт вовсе
     (:meth:`torrcast.usecases.warm.vault.Vault.slots`), и точечная работа пропала бы зря.
 
+    ``container`` - чем режет прогрев, то есть каким муксером собирать склейку. Тем же,
+    что и на живом пути: файл остаётся лежать под именем куска, и муксер обязан быть тем
+    же, каким собраны его соседи по каталогу.
+
     ``merge`` и ``shift_of`` приезжают доводами: оба поднимают ffmpeg и ffprobe на
     настоящих кусках, а здесь меряется решение - что именно остаётся лежать на диске.
     """
     mixed = laid.with_name(f"{MIXED_PREFIX}{laid.name}")
-    if not merge(laid, copy, mixed, shift=shift_of(copy, laid) or 0.0):
+    if not merge(laid, copy, mixed, shift=shift_of(copy, laid) or 0.0, container=container):
         mixed.unlink(missing_ok=True)
         journal().mark("склейка точечного не вышла", слот=slot)
         return False

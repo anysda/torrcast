@@ -175,7 +175,7 @@ def _run(
             # На диске остаётся картинка точечного перекода со звуком копии: звук показа
             # обязан быть одним непрерывным потоком одного кодировщика, а не рваться на
             # каждом стыке прогретого (:func:`spot_out`).
-            _state.spot_out(first, state.vault.path(first), donor, state.cap)
+            _state.spot_out(first, state.vault.path(first), donor, state.cap, state.container)
         donor.unlink(missing_ok=True)
         state.vault.touch()
     if state.misgrid >= 0:
