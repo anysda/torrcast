@@ -188,61 +188,6 @@ def passport(
     }
 
 
-#: Чем восстановленный паспорт отличается от снятого: его собрали задним числом по описи,
-#: а не написал щуп в момент прогона. Отметка стоит в самом паспорте, чтобы это отличие
-#: нельзя было потерять при копировании.
-RESTORED = "восстановлен по описи, не снят вместе с прогоном"
-
-
-def restore(
-    output: Path,
-    told_by: str,
-    tool: str | None = None,
-    made: str | None = None,
-    inputs: list[Path] | None = None,
-) -> dict[str, Any]:
-    """Паспорт задним числом для прогона, снятого БЕЗ паспорта.
-
-    🔴 TC-431. Правило «паспорт рядом с каждым прогоном» появилось позже самих прогонов, и
-    архив ему не соответствует. Прогон без паспорта нельзя привязать ни к коду, ни к
-    сырью: его числа приходится либо перепроверять целиком, либо брать на веру.
-
-    Восстановить можно не всё, и это главное свойство такого паспорта. Отпечаток и число
-    строк САМОГО прогона считаются по файлу и потому честны - ими прогон и опознаётся
-    после любого копирования. Код, которым считали, по описи чаще всего назвать нечем -
-    он и остаётся пустым, а не выдуманным: неизвестное перечислено списком ``unknown``.
-
-    ``told_by`` - откуда взято остальное (строка описи, каталог замера). Форма паспорта та
-    же, что у снятого: старые глаза читают его без оговорок, а отметка :data:`RESTORED`
-    не даёт спутать восстановленное со снятым.
-    """
-    card: dict[str, Any] = {
-        "tool": tool,
-        "made": made,
-        "python": None,
-        "argv": None,
-        "probe": {"name": f"{tool}.py" if tool else None, "sha256": None},
-        "code": {
-            "commit": None,
-            "date": None,
-            "dirty": None,
-            "fingerprint": None,
-            "files": 0,
-            "package": None,
-        },
-        "inputs": [about(path) for path in inputs or []],
-        "output": about(output),
-        "restored": {"how": RESTORED, "told_by": told_by},
-    }
-    blank = [name for name, value in card.items() if value is None]
-    blank += [f"code.{name}" for name, value in card["code"].items() if value is None]
-    blank += [f"probe.{name}" for name, value in card["probe"].items() if value is None]
-    if not card["inputs"]:
-        blank.append("inputs")
-    card["restored"]["unknown"] = sorted(blank)
-    return card
-
-
 def write(card: dict[str, Any], output: Path) -> Path:
     """Дописать в паспорт отпечаток уже записанного вывода и положить паспорт рядом с ним."""
     card["output"] = about(output)
@@ -252,11 +197,7 @@ def write(card: dict[str, Any], output: Path) -> Path:
 
 
 def told(card: dict[str, Any]) -> str:
-    """Одна строка паспорта для человека: чем считали и по какому сырью.
-
-    У восстановленного паспорта (:func:`restore`) это сказано первым же словом: пустое в
-    нём значит «неизвестно», а не «нечего сказать», и путать их нельзя.
-    """
+    """Одна строка паспорта для человека: чем считали и по какому сырью."""
     code = card["code"]
     who = code["commit"][:12] if code["commit"] else "не из git"
     # Подпись и её пустой случай складываются в ОДНУ фразу: «отпечаток кода рядом нет» и
@@ -268,9 +209,9 @@ def told(card: dict[str, Any]) -> str:
         f"{Path(item['path']).name} ({item['lines']} строк, {item['sha256'][:12]})"
         for item in card["inputs"]
     )
-    head = "Паспорт прогона (восстановлен)" if card.get("restored") else "Паспорт прогона"
     return (
-        f"{head}: {card['tool'] or 'щуп не назван'}, {card['made'] or 'дата не записана'}; "
+        f"Паспорт прогона: {card['tool'] or 'щуп не назван'}, "
+        f"{card['made'] or 'дата не записана'}; "
         f"код {who}{dirty}, отпечаток {mark}, пакет {package}; "
         f"сырьё: {corpus or 'не записано'}"
     )

@@ -538,35 +538,6 @@ def test_паспорт_молчит_об_отпечатке_щупа_а_не_п
     assert card["code"]["fingerprint"] == runpass.fingerprint()[0]
 
 
-def test_восстановленный_паспорт_называет_себя_и_своё_незнание(tmp_path: Path) -> None:
-    """🔴 TC-431. Прогон снят без паспорта: восстановленный не выдаёт себя за снятый.
-
-    Форма та же, что у снятого, - иначе каждый обход опять заведёт свой формат, а ровно
-    из-за этого счётчик вердиктов и заводили. Отличие ровно одно и оно вслух: что
-    восстановлено по описи, а что осталось неизвестным.
-    """
-    runpass = probe("runpass")
-    run = tmp_path / "res.jsonl"
-    run.write_text('{"query": "дюна"}\n{"query": "тачки"}\n', encoding="utf-8")
-
-    card = runpass.restore(run, told_by="опись архива, строка про замер 09-08")
-    assert set(card) == {*runpass.passport("runpass", [], []), "restored"}, "форма та же"
-    assert card["output"] == runpass.about(run), "сам прогон опознаётся по файлу, а не по вере"
-    assert card["output"]["lines"] == 2
-    assert card["code"]["fingerprint"] is None, "кода по описи не назвать - и не выдумываем"
-    assert card["restored"]["how"] == runpass.RESTORED
-    assert card["restored"]["told_by"] == "опись архива, строка про замер 09-08"
-    assert "code.commit" in card["restored"]["unknown"], "незнание перечислено, а не умолчано"
-    assert "inputs" in card["restored"]["unknown"]
-    assert runpass.told(card).startswith("Паспорт прогона (восстановлен): щуп не назван")
-
-    named = runpass.restore(run, told_by="опись", tool="run142", made="2026-08-09")
-    assert named["probe"] == {"name": "run142.py", "sha256": None}
-    assert "tool" not in named["restored"]["unknown"]
-    assert "made" not in named["restored"]["unknown"]
-    assert runpass.told(named).startswith("Паспорт прогона (восстановлен): run142, 2026-08-09")
-
-
 def test_счёт_кладёт_паспорт_рядом_со_сводкой(tmp_path: Path) -> None:
     """Сводка называет код и сырьё - иначе её нечем пересчитать."""
     report = probe("runreport")
