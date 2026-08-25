@@ -29,7 +29,7 @@ import grimp
 REPO = Path(__file__).resolve().parent.parent
 PACKAGE = "torrcast"
 #: Живое, что зовут не из питона: кто именно зовёт - сказано у каждой строки внутри.
-WHITELIST = "vulture-whitelist.py"
+WHITELIST = "scripts/vulture-whitelist.py"
 #: Что в тестах зовёт pytest, а не наш код. Это ЗНАНИЕ о зовущем, а не поблажка порогу:
 #: фикстуру зовёт не имя в тексте, а её регистрация (`@pytest.fixture`, почти всегда
 #: `autouse=True`), хук - имя из его протокола, где префикс `pytest_` занят самим pytest.

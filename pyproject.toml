@@ -59,7 +59,7 @@ ignore = ["RUF001", "RUF002", "RUF003"]
 "scripts/**" = ["ARG"]
 # Белый список vulture - не код, а перечень имён: они здесь намеренно не определены
 # (F821) и стоят голыми выражениями (B018), потому что читает файл только vulture.
-"vulture-whitelist.py" = ["F821", "B018"]
+"scripts/vulture-whitelist.py" = ["F821", "B018"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["torrcast"]
@@ -68,6 +68,9 @@ known-first-party = ["torrcast"]
 python_version = "3.11"
 strict = true
 files = ["torrcast", "tests", "scripts"]
+# Белый список vulture переехал в `scripts`, то есть в охват mypy, но кодом он не
+# является: имена в нём намеренно нигде не определены, их читает только vulture.
+exclude = ['scripts/vulture-whitelist\.py$']
 warn_unreachable = true
 warn_unused_configs = true
 disallow_any_explicit = false
