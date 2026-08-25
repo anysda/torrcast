@@ -13,6 +13,7 @@ from torrcast.usecases.rank.voice_unproven import voice_unproven
 from torrcast.usecases.select._prep import _Prep
 from torrcast.usecases.select._verdict import _waiting_note
 from torrcast.usecases.select.plan import Plan
+from torrcast.usecases.select_bench._bench_front import _bench_front
 from torrcast.usecases.select_bench._bench_prewarm import _BenchPrewarm
 from torrcast.usecases.select_bench._bench_queue import _bench_queue
 from torrcast.usecases.select_bench._bench_refusal import _bench_refusal
@@ -71,10 +72,7 @@ class Bench(_BenchPrewarm):
         """
         queue = _bench_queue(plan, args)
         # Верх и запасной готовятся независимо: паспорт второго релиза не ждёт первого.
-        # Третий до счастливого пути не относится и стартует в цикле ниже, только если
-        # первые два действительно не подошли. Иначе быстрый русский верх оплачивал бы
-        # третий ffprobe лишь из-за того, как планировщик разложил три фоновых потока.
-        for number in queue[:2]:
+        for number in _bench_front(queue, 1):
             self.start(plan, number)
         tally = _Tally()
         weak: tuple[float, _Prep] | None = None
@@ -84,20 +82,21 @@ class Bench(_BenchPrewarm):
         for attempt, number in enumerate(queue, start=1):
             reached = attempt
             following = queue[attempt] if attempt < len(queue) else None
-            # Нужны ровно двое: тот, чьего ответа ждём, и тот, кто греется ему на смену.
-            # Всё прочее прогретое потолок вправе убрать прямо здесь (:meth:`_room`).
-            # Третий - отложенный безрусский: его раздача ещё может понадобиться показу.
+            # Нужен фронт (:func:`_bench_front`): тот, чьего ответа ждём, и те, кто
+            # греется ему на смену. Всё прочее прогретое потолок вправе убрать прямо
+            # здесь (:meth:`_room`), кроме отложенного безрусского и слабого роя: их
+            # раздачи ещё могут понадобиться показу.
+            front = _bench_front(queue, attempt)
             keep = (
-                number,
-                following,
+                *front,
                 tally.mute.number if tally.mute is not None else None,
                 weak[1].number if weak is not None else None,
             )
             self.needed = {(plan.picture.key, n) for n in keep if n is not None}
             prep = self.start(plan, number)
             self._ask(plan, prep, queue)
-            if following is not None:  # запасной греется, пока ждём этот
-                self.start(plan, following)
+            for ahead in front[1:]:  # смена греется, пока ждём этот
+                self.start(plan, ahead)
             # Секундомер стоит вокруг ОЖИДАНИЯ, а не вокруг работы фонового потока.
             entered = self.clock()
             voice_search = (

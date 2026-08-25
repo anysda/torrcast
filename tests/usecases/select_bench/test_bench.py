@@ -12,6 +12,8 @@ from torrcast.domain.audio_track import AudioTrack
 from torrcast.domain.media import Media
 from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.torr_file import TorrFile
+from torrcast.usecases.select._prep import _Prep
+from torrcast.usecases.select.plan import Plan
 from torrcast.usecases.select_bench.bench import Bench
 
 _ASKED = Args(query=["кино"])
@@ -261,3 +263,37 @@ def test_a_video_without_any_sound_of_its_own_is_played_by_the_track_beside_it()
 
     assert prep.apart, "показ пойдёт немым: дорожки рядом с видео никто не спросил"
     assert prep.voiced is russian
+
+
+class _Watched(Bench):
+    """Стенд, который помнит ПОРЯДОК заведения прогревов: им и меряется ширина фронта."""
+
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        super().__init__(*args, **kwargs)  # type: ignore[arg-type]
+        self.opened: list[int] = []
+
+    def start(self, plan: Plan, number: int, patient: bool = False) -> _Prep:
+        if (plan.picture.key, number) not in self.preps:
+            self.opened.append(number)
+        return super().start(plan, number, patient)
+
+
+def test_a_fit_top_never_pays_for_a_third_release() -> None:
+    """Счастливый путь греет двоих: третий ffprobe верх ранжира не оплачивает."""
+    pool = [rel(name=f"r{n} | Дубляж", seeders=100 - n) for n in range(5)]
+    bench = _Watched(Torrents(), prober=probes(pool, *[_media()] * 5))
+
+    bench.resolve(plan(pool), _ASKED, Said())
+
+    assert bench.opened == [1, 2]
+
+
+def test_a_queue_that_went_past_the_top_warms_two_at_once() -> None:
+    """Верх осуждён - дальние кандидаты греются РАЗОМ, а не по одному за попытку."""
+    pool = [rel(name=f"r{n} | Дубляж", seeders=100 - n) for n in range(5)]
+    bench = _Watched(Torrents(), prober=probes(pool, _media("av1"), *[_media()] * 4))
+
+    prep = bench.resolve(plan(pool, recode_at=0.0), _ASKED, Said())
+
+    assert prep.number == 2
+    assert bench.opened == [1, 2, 3, 4]
