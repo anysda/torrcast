@@ -401,3 +401,60 @@ def test_handout_rule_leaves_an_ordinary_module_alone(tmp_path: Path) -> None:
     )
     (root / "tests" / "notes" / "test_reader.py").write_text("", encoding="utf-8")
     assert "раздача" not in _rules(root)
+
+
+def test_environment_rule_turns_red(tmp_path: Path) -> None:
+    root = _tree(tmp_path)
+    _layered(root, "handle", '"""Модуль."""\nimport os\nHANDLE = os.environ.get("TORRCAST_X")\n')
+    assert "окружение" in _rules(root)
+
+
+def test_environment_rule_reads_a_handle_taken_by_a_borrowed_name(tmp_path: Path) -> None:
+    """Ручка берётся по смыслу, а не по букве: `from os import environ, getenv`."""
+    root = _tree(tmp_path)
+    _layered(
+        root,
+        "borrowed",
+        '"""Модуль."""\nfrom os import environ, getenv\n'
+        'A = environ["TORRCAST_X"]\nB = getenv("TORRCAST_Y")\n',
+    )
+    assert len([item for item in structure_gate.check(root) if item.rule == "окружение"]) == 2
+
+
+def test_environment_rule_leaves_a_handle_asked_at_the_call_alone(tmp_path: Path) -> None:
+    """Ручка, спрошенная в момент вызова, - это довод, а не застывшее на импорте значение."""
+    root = _tree(tmp_path)
+    _layered(
+        root,
+        "asked",
+        '"""Модуль."""\nimport os\ndef asked() -> str:\n'
+        '    return os.environ.get("TORRCAST_X", "")\n',
+    )
+    assert "окружение" not in _rules(root)
+
+
+def _shim_tree(tmp_path: Path, source: str) -> Path:
+    """Дерево, где по названной границе (:data:`structure_gate.SCRIPTS`) лежит скрипт."""
+    root = _tree(tmp_path)
+    (root / "scripts").mkdir()
+    (root / next(iter(structure_gate.SCRIPTS))).write_text(source, encoding="utf-8")
+    return root
+
+
+def test_the_named_script_is_measured_by_the_gate(tmp_path: Path) -> None:
+    """🔴 TC-684. Обход DPI живёт скриптом, и границу эту гейт знает поимённо.
+
+    Пока скрипт лежал вне мерки, ни одно правило раскладки на него не распространялось,
+    хотя поднимается он службой и часть каталога достижима только через него.
+    """
+    root = _shim_tree(tmp_path, 'import os\n\nHANDLE = os.environ.get("TORRCAST_X")\n')
+    assert {"докстрока", "зеркало", "окружение"} <= _rules(root)
+
+
+def test_the_named_script_may_not_grow_past_its_named_debt(tmp_path: Path) -> None:
+    """Долг скрипта назван числом: он не порог, и вырасти ему нельзя."""
+    debt = next(iter(structure_gate.SCRIPTS.values()))
+    root = _shim_tree(tmp_path, '"""Обход."""\n' + "# строка\n" * debt.lines)
+    (root / debt.mirror).write_text("", encoding="utf-8")
+    assert "длина" in _rules(root)
+    assert "зеркало" not in _rules(root), "зеркало у скрипта названо поимённо"

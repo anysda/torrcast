@@ -1,4 +1,4 @@
-"""Проверяет соответствие пакета torrcast целевой слоистой структуре."""
+"""Проверяет раскладку пакета torrcast и названные поимённо скрипты за его пределами."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from collections import Counter
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Final
+from typing import Final, NamedTuple
 
 RULES: Final = (
     "длина",
@@ -25,6 +25,7 @@ RULES: Final = (
     "глушитель",
     "размен",
     "раздача",
+    "окружение",
 )
 #: Шапки, которыми файл целиком снимают с тайпчека.
 _MYPY_OFF: Final = re.compile(r"^#\s*mypy:\s*(ignore-errors|disable-error-code)")
@@ -43,6 +44,32 @@ TYPED_LAYERS: Final = frozenset({"domain", "ports", "usecases", "cli", "runtime"
 #: Дома, откуда `Any` и `TypeAlias` приезжают под любым именем: `from typing import Any as A`.
 TYPING_HOMES: Final = frozenset({"typing", "typing_extensions"})
 LAYERS: Final = frozenset({"domain", "ports", "usecases", "adapters", "cli", "runtime"})
+
+
+class Boundary(NamedTuple):
+    """Скрипт под мерой гейта и то, чем он сегодня отличается от модуля пакета."""
+
+    #: Зеркальный тест: у скрипта он назван поимённо, потому что имя файла ему не мать.
+    mirror: str
+    #: Сколько в нём строк сегодня. Больше - нарушение.
+    lines: int
+    #: Сколько в нём публичных единиц сегодня. Больше - нарушение.
+    units: int
+
+
+#: Граница обхода DPI, названная поимённо: он живёт скриптом, а не модулем пакета.
+#: `sni-shim.py` поднимается службой из `install.sh`, и часть каталога достижима только
+#: через него, поэтому мерить его нечем нельзя. Слоя у скрипта нет и быть не может -
+#: правила про слои, договор и ввод-вывод к нему неприложимы, - а докстрока, зеркало,
+#: глушители, зависимость строкой и чтение окружения на импорте спрашиваются с него
+#: наравне с пакетом. Имя файла тоже не спрашивается: у скрипта оно имя команды, и
+#: связано со строкой запуска службы, а не с единицей внутри.
+#: `lines` и `units` - долг, названный числом: столько их сегодня, и вырасти им нельзя.
+#: Свести долг к пакетным порогам (200 строк, одна публичная единица) значит разрезать
+#: работающий обход DPI, а это отдельная работа, а не правка заодно.
+SCRIPTS: Final = {
+    "scripts/sni-shim.py": Boundary(mirror="tests/test_shim.py", lines=1182, units=12),
+}
 ALLOWED: Final = {
     "domain": frozenset({"domain"}),
     "ports": frozenset({"domain", "ports"}),
@@ -50,6 +77,8 @@ ALLOWED: Final = {
     "adapters": frozenset({"domain", "ports", "adapters"}),
     "cli": frozenset({"domain", "ports", "usecases", "cli"}),
     "runtime": LAYERS,
+    # Скрипт стоит снаружи раскладки и зовёт пакет так же, как композиционный корень.
+    "скрипт": LAYERS,
 }
 BANNED_IO: Final = frozenset(
     {
@@ -108,6 +137,21 @@ def _load_modules(root: Path) -> list[Module]:
                 relative_path.as_posix(),
                 _module_name(relative_path),
                 layer,
+                ast.parse(source, filename=str(path)),
+                len(source.splitlines()),
+            )
+        )
+    for relative in sorted(SCRIPTS):
+        path = root / relative
+        if not path.exists():
+            continue
+        source = path.read_text(encoding="utf-8")
+        result.append(
+            Module(
+                path,
+                relative,
+                _module_name(Path(relative)),
+                "скрипт",
                 ast.parse(source, filename=str(path)),
                 len(source.splitlines()),
             )
@@ -205,7 +249,7 @@ def _layer_violations(module: Module, imports: list[tuple[str, int]]) -> list[Vi
 
 
 def _io_violations(module: Module, imports: list[tuple[str, int]]) -> list[Violation]:
-    if module.layer in {"adapters", "не разложено"}:
+    if module.layer in {"adapters", "не разложено", "скрипт"}:
         return []
     failures: list[Violation] = []
     aliases: dict[str, str] = {}
@@ -273,6 +317,55 @@ def _bypass_violations(module: Module) -> list[Violation]:
         failures.append(
             Violation("обход", module.relative, 1, f"заглушка вместо честных имён: {stub.name}")
         )
+    return failures
+
+
+def _environment_violations(module: Module) -> list[Violation]:
+    """Ищет ручки настройки, прочитанные в момент импорта модуля.
+
+    Значение, взятое из окружения на верхнем уровне, застывает на всю жизнь процесса:
+    оно такое, каким было у того, кто первым затащил модуль. Ручку показа ставят юниту
+    (`--setenv`), а модуль к этому времени давно импортирован, поэтому прочитанная на
+    импорте ручка молча не работает. Тест такую ручку тоже не поставит: `monkeypatch.setenv`
+    в чужой уже случившийся импорт не попадает, и вместо довода в пробе появляется подмена
+    модульного имени - ровно то, чем и держатся россыпи подмен.
+
+    Место, где ручку можно назвать доводом, - вызов, а не шапка файла. Тело функции
+    поэтому не считается вовсе, а шапка модуля, тело класса, украшение и умолчание
+    параметра - считаются: всё это исполняется на импорте.
+    """
+    if module.layer == "не разложено":
+        return []
+    inside: set[int] = set()
+    for node in ast.walk(module.tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            statements: list[ast.AST] = list(node.body)
+        elif isinstance(node, ast.Lambda):
+            statements = [node.body]
+        else:
+            continue
+        for statement in statements:
+            inside.update(id(child) for child in ast.walk(statement))
+    failures: list[Violation] = []
+    for node in ast.walk(module.tree):
+        if id(node) in inside:
+            continue
+        if isinstance(node, ast.Call):
+            named = ast.unparse(node.func)
+        elif isinstance(node, ast.Subscript):
+            named = ast.unparse(node.value)
+        else:
+            continue
+        head, _, last = named.rpartition(".")
+        if last == "getenv" or named.endswith("environ") or head.endswith("environ"):
+            failures.append(
+                Violation(
+                    "окружение",
+                    module.relative,
+                    node.lineno,
+                    f"ручка читается на импорте: {ast.unparse(node)[:60]}",
+                )
+            )
     return failures
 
 
@@ -598,18 +691,29 @@ def check(root: Path) -> list[Violation]:
     edges: dict[str, set[str]] = {}
     failures: list[Violation] = []
     for module in modules:
-        if module.lines > 200:
-            failures.append(
-                Violation("длина", module.relative, 201, f"{module.lines} строк, порог 200")
-            )
-        units = _public_units(module.tree)
-        if len(units) > 1:
+        # У скрипта с названной границы пороги - его сегодняшний долг (:data:`SCRIPTS`).
+        boundary = SCRIPTS.get(module.relative)
+        limit = boundary.lines if boundary else 200
+        if module.lines > limit:
             failures.append(
                 Violation(
-                    "единица", module.relative, units[1].lineno, f"публичных единиц: {len(units)}"
+                    "длина", module.relative, limit + 1, f"{module.lines} строк, порог {limit}"
                 )
             )
-        if len(units) == 1 and module.path.name != "__init__.py":
+        units = _public_units(module.tree)
+        allowed = boundary.units if boundary else 1
+        if len(units) > allowed:
+            failures.append(
+                Violation(
+                    "единица",
+                    module.relative,
+                    units[allowed].lineno,
+                    f"публичных единиц: {len(units)}, порог {allowed}",
+                )
+            )
+        # Имя файла скрипта - имя команды: оно связано со строкой запуска службы,
+        # а не с единицей внутри, и переименовать его заодно нечем.
+        if len(units) == 1 and module.path.name != "__init__.py" and boundary is None:
             expected = _snake_case(units[0].name) + ".py"
             if module.path.name != expected:
                 failures.append(
@@ -624,7 +728,9 @@ def check(root: Path) -> list[Violation]:
             failures.append(Violation("докстрока", module.relative, 1, "нет докстроки модуля"))
         if module.path.name != "__init__.py":
             mirror = (
-                root
+                root / boundary.mirror
+                if boundary
+                else root
                 / "tests"
                 / Path(*Path(module.relative).parts[1:]).with_name(f"test_{module.path.name}")
             )
@@ -639,6 +745,7 @@ def check(root: Path) -> list[Violation]:
         failures.extend(_io_violations(module, imports))
         failures.extend(_bypass_violations(module))
         failures.extend(_silencer_violations(module))
+        failures.extend(_environment_violations(module))
         failures.extend(_trade_violations(module))
         failures.extend(_handout_violations(module, known))
         edges[module.name] = {
