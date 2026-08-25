@@ -25,6 +25,7 @@ cast = "torrcast.runtime.main:main"
 
 [dependency-groups]
 dev = [
+    "grimp>=3.15",
     "mypy>=1.11",
     "pytest>=8.3",
     "pytest-testmon>=2.1",
