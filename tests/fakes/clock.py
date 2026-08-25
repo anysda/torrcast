@@ -2,18 +2,32 @@
 
 from dataclasses import dataclass, field
 
+#: Отметка, с которой стенные часы подделки начинают ход. Ноль тут брать нельзя:
+#: нулевое стенное время неотличимо от «отметки нет» - ровно так проверка «была ли
+#: темнота» получает ложный ответ на честно поставленную отметку.
+WALL_ORIGIN = 1_700_000_000.0
+
 
 @dataclass
 class FakeClock:
+    """Обе стрелки идут вместе: ожидание двигает и монотонные часы, и стенные.
+
+    Врозь они не ходят и у настоящих часов: секунда сна - секунда на тех и на других.
+    Подделка с застывшей стенной стрелкой описывала бы устройство, которого не бывает,
+    и разницу между стенной отметкой и монотонным отсчётом прятала бы от проверок.
+    """
+
     now: float = 0.0
     sleeps: list[float] = field(default_factory=list)
-    wall_now: float = 0.0
+    #: С какой отметки идут стенные часы. Отдельно от :attr:`now` затем, что путать эти
+    #: две шкалы и есть тот дефект, ради которого стенные часы вынесены в порт.
+    wall_origin: float = WALL_ORIGIN
 
     def monotonic(self) -> float:
         return self.now
 
     def wall(self) -> float:
-        return self.wall_now
+        return self.wall_origin + self.now
 
     def sleep(self, seconds: float) -> None:
         self.sleeps.append(seconds)

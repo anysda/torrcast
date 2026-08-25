@@ -28,7 +28,7 @@ from typing import Any, Final
 import pytest
 
 from tests.conftest import CLIP_SECONDS, FakeProc, band_db, fake_packer, free_port
-from tests.fakes.clock import FakeClock
+from tests.fakes.clock import WALL_ORIGIN, FakeClock
 from tests.fakes.show_unit import FakeShowUnit
 from torrcast.adapters.chromecast.cast.chromecast_receiver import ChromecastReceiver
 from torrcast.adapters.chromecast.cast.hush_cosmetic_noise import hush_cosmetic_noise
@@ -633,8 +633,12 @@ class _Ticker:
         return self.now
 
     def wall(self) -> float:
-        """Стенное время подделке не нужно: показ считает им только подписи меток."""
-        return self.now
+        """Стенная стрелка идёт вместе с монотонной, но со своей отметки.
+
+        Одно и то же число на обеих шкалах прятало бы от проверок ровно ту путаницу,
+        ради которой стенные часы вынесены в отдельную ручку порта.
+        """
+        return WALL_ORIGIN + self.now
 
 
 class _Warm:

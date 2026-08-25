@@ -121,3 +121,23 @@ def test_a_darkness_from_the_clocks_zero_is_announced_once(
     assert ladder.since == 0.0, "отсчёт темноты - от её начала, а не от второго тика"
     assert receiver.replayed == [120.0], "первая попытка - на 8-й секунде, а не на 16-й"
     assert ladder.tries == 1
+
+
+def test_the_darkness_stamp_is_taken_from_the_clock_the_show_lives_by(tmp_path: Path) -> None:
+    """Метку начала темноты ставят те часы, по которым её потом и меряют.
+
+    Читает метку чужой процесс - ``cast status``, - и длину темноты он считает разницей
+    со своим :meth:`torrcast.ports.clock.Clock.wall`
+    (:meth:`torrcast.usecases.status.Status._darkness`). Пока метку ставили мимо порта,
+    она приходила с часов машины: две шкалы вычитались одна из другой, разница выходила
+    отрицательной, и вместо длины темноты человек получал слово без числа.
+    """
+    clock = FakeClock(now=1000.0)
+    ladder = _ladder(FakeSupply(), drop=30.0)
+    ladder.clock = clock
+
+    _resurrect(ladder, cast(Receiver, FakeReceiver()), feed_with_segments(tmp_path), None, 120.0)
+
+    assert ladder.why, "темнота случилась - метке есть чем быть"
+    assert ladder.began == clock.wall(), "отметка стенная, но с часов порта"
+    assert 0.0 <= clock.wall() - ladder.began < 1.0, "длина темноты меряется секундами"

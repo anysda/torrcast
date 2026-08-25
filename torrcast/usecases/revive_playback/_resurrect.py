@@ -5,7 +5,6 @@
 
 from __future__ import annotations
 
-import time
 from typing import TYPE_CHECKING
 
 from torrcast.domain.ending_reached import ending_reached
@@ -63,7 +62,7 @@ def _resurrect(
     if not state.why:
         state.since, state.warmed = now, warmer.warmed if warmer is not None else 0.0
         why = _why(state, feed, warmer)
-        state.began, state.why = time.time(), why
+        state.began, state.why = state.clock.wall(), why
         journal().dark(pos=pos, why=why, shown=shown)
         said = (
             f"показ погас на {_hms(pos)}"
