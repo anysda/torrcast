@@ -16,6 +16,17 @@
 _.do_GET
 _.do_HEAD
 _.do_OPTIONS
+_.do_POST
+
+# `close_connection` читает сам `handle_one_request` после каждого ответа: этим полем
+# обработчик говорит серверу, держать ли соединение дальше или закрыть его.
+_.close_connection
+
+# `urllib.request.OpenerDirector` выбирает обработчик тоже по имени метода: `https_open`
+# зовётся на каждый запрос по https, `redirect_request` - на каждый ответ с переходом.
+# Наш код зовёт `urlopen`, а не эти два метода, и звать их не должен.
+_.https_open
+_.redirect_request
 
 # Каждую строку про запрос и про ошибку `BaseHTTPRequestHandler` печатает сам
 # (`log_request` и `log_error` зовут `log_message`). Переопределяем его там, где не
@@ -35,6 +46,19 @@ client_address
 protocol_version
 server_version
 daemon_threads
+request_queue_size
+# `server_name` и `server_port` обычно проставляет сам `server_bind`, а читает их
+# обработчик (заголовки ответа и `address_string`). Когда слушающий сокет приходит
+# готовым от systemd, `server_bind` не зовётся вовсе, и поля выставляются руками.
+_.server_name
+_.server_port
+
+# Пороги профиля приёмника читаются ПО ИМЕНИ из списка `_PROFILE_THRESHOLDS`
+# (`torrcast/domain/thresholds.py`): `getattr(profile, key)` в цикле, а оттуда значение
+# уходит в след порогов. Прямого обращения к полю нет по построению - и так у всех
+# двадцати имён того списка, просто у этих двух имя больше нигде не встречается.
+app_patience
+dead_url_seconds
 
 # Договор пробы (`torrcast/ports/prober.py`) описан как вызываемый объект: его
 # единственный метод зовётся синтаксисом вызова `prober(...)`, а не по имени.

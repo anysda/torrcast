@@ -30,6 +30,11 @@ REPO = Path(__file__).resolve().parent.parent
 PACKAGE = "torrcast"
 #: Живое, что зовут не из питона: кто именно зовёт - сказано у каждой строки внутри.
 WHITELIST = "vulture-whitelist.py"
+#: Что в тестах зовёт pytest, а не наш код. Это ЗНАНИЕ о зовущем, а не поблажка порогу:
+#: фикстуру зовёт не имя в тексте, а её регистрация (`@pytest.fixture`, почти всегда
+#: `autouse=True`), хук - имя из его протокола, где префикс `pytest_` занят самим pytest.
+#: Списком имён это не лечится: фикстур три десятка и заводятся они каждую неделю.
+PYTEST_CALLS = ("--ignore-decorators", "@pytest.fixture", "--ignore-names", "pytest_*")
 #: Имя модуля в чужом тексте: `torrcast.domain.warm_settings`, `torrcast.usecases.doctor`.
 MENTION = re.compile(r"\btorrcast(?:\.[a-z_][a-z0-9_]*)+")
 
@@ -115,10 +120,10 @@ def orphans(graph: grimp.ImportGraph) -> list[str]:
     ]
 
 
-def vulture(*paths: str) -> list[str]:
+def vulture(*paths: str, ignore: Iterable[str] = ()) -> list[str]:
     """Находки vulture по путям. Код 3 - это находки, всё прочее - поломка стадии."""
     done = subprocess.run(
-        [str(REPO / ".venv/bin/vulture"), *paths, WHITELIST],
+        [str(REPO / ".venv/bin/vulture"), *paths, WHITELIST, *ignore],
         cwd=REPO,
         capture_output=True,
         text=True,
@@ -142,7 +147,7 @@ def main() -> int:
     found = report("мёртвое в пакете и в инструментах", vulture("torrcast", "scripts"))
     # Отбор строк не смеет подменить собой код возврата: падаем по ЧИСЛУ отобранных
     # находок, а не по коду `grep`. На этом месте проект уже получал ноль на упавшем.
-    whole = vulture("torrcast", "tests", "scripts")
+    whole = vulture("torrcast", "tests", "scripts", ignore=PYTEST_CALLS)
     found += report("мёртвое в тестах", [line for line in whole if line.startswith("tests/")])
     found += report("модулей без импортирующих", orphans(grimp.build_graph(PACKAGE)))
     return 1 if found else 0
