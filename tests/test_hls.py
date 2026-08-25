@@ -542,7 +542,14 @@ def test_a_space_in_the_run_directory_does_not_quietly_kill_the_packing(
     assert (out / segment_name(0)).exists(), f"ни куска: {packer.why()}"
 
 
-def test_cmaf_pack_has_one_init_and_headerless_media_fragments(clip: str, tmp_path: Path) -> None:
+def test_cmaf_pieces_are_self_sufficient_and_still_name_a_head(clip: str, tmp_path: Path) -> None:
+    """Кусок несёт свой заголовок и открывается один, а общий берётся из него же.
+
+    🔴 Оба свойства обязательны и по отдельности не работают. Без своего заголовка
+    приёмник разбирает перекод параметрами копии - живой замер, 1514 и 1680 строк ошибок
+    картинки на двух ужатых местах. Без общего (``EXT-X-MAP``) он куски качает, а разбор
+    не начинает вовсе - конвейер стоит в ``kStarting``.
+    """
     grid = Grid.uniform(float(CLIP_SECONDS))
     run = tmp_path / PACK_DIR
     command = ffmpeg_pack_command(
@@ -556,10 +563,20 @@ def test_cmaf_pack_has_one_init_and_headerless_media_fragments(clip: str, tmp_pa
     packer.publish()
     packer.stop(keep_files=True, reason="проверка CMAF")
 
+    piece = tmp_path / segment_name(0, FMP4)
+    media = piece.read_bytes()
+    assert media[4:8] == b"ftyp" and b"moov" in media and b"moof" in media
     init = (tmp_path / "init.mp4").read_bytes()
-    media = (tmp_path / segment_name(0, FMP4)).read_bytes()
-    assert init[4:8] == b"ftyp" and b"moov" in init
-    assert media[4:8] == b"moof" and b"moov" not in media
+    assert init[4:8] == b"ftyp" and b"moov" in init and b"moof" not in init
+    assert media.startswith(init), "общий заголовок вырезан из этого же куска"
+    # Кусок обязан открываться БЕЗ чужой помощи - именно так его читает приёмник.
+    probe = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "stream=codec_name", "-of", "csv", str(piece)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert probe.returncode == 0 and probe.stderr == "", probe.stderr
 
 
 # --- TC-122: точка захода упаковки берётся из карты, а не пробным прогоном каждый раз ---

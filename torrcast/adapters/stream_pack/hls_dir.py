@@ -14,7 +14,7 @@ def hls_dir(path: str) -> Path:
     for junk in (
         *directory.glob("v*.ts"),
         *directory.glob("v*.m4s"),
-        *directory.glob("init.mp4"),
+        *directory.glob("init.mp4*"),
         *directory.glob("*.m3u8"),
     ):
         junk.unlink(missing_ok=True)

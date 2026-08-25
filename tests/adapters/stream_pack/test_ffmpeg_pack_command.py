@@ -18,12 +18,19 @@ from torrcast.domain.segment_container import FMP4
 GRID = Grid.uniform(60.0, 8.0)
 
 
-def test_fmp4_keeps_explicit_grid_and_writes_shared_init() -> None:
+def test_fmp4_keeps_explicit_grid_and_makes_every_piece_self_sufficient() -> None:
+    """Заголовок едет В КАЖДОМ куске: у показа два кодировщика и два набора параметров.
+
+    Общий заголовок на весь показ приёмник применял и к перекоду - к кадрам, которые им
+    не описаны: 334 строки ошибок картинки копией и 1514 полным декодированием против
+    нуля со своим заголовком.
+    """
     command = ffmpeg_pack_command("вход", 0, "/пак", GRID, 0, 0.0, container=FMP4, video_tag="hvc1")
 
     assert _cuts(command) == [8.0, 16.0, 24.0, 32.0, 40.0, 48.0]
     assert command[command.index("-segment_format") + 1] == "mp4"
-    assert command[command.index("-segment_header_filename") + 1] == "/пак/init.mp4"
+    assert command[command.index("-individual_header_trailer") + 1] == "1"
+    assert "-segment_header_filename" not in command, "общего заголовка больше нет"
     assert command[command.index("-segment_format_options") + 1] == "movflags=cmaf"
     assert command[command.index("-tag:v") + 1] == "hvc1"
     assert command[-1] == "/пак/v%d.m4s"
