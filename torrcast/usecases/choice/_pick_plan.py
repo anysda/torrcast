@@ -12,6 +12,7 @@ from torrcast.usecases.choice.configure import _environment_port
 from torrcast.usecases.choice.default_line import default_line
 from torrcast.usecases.choice.first_alive import first_alive
 from torrcast.usecases.choice.menu_blocks import menu_blocks
+from torrcast.usecases.choice.named_elsewhere import named_elsewhere
 from torrcast.usecases.choice.part_one_swap import part_one_swap
 from torrcast.usecases.choice.taken_line import taken_line
 
@@ -53,6 +54,12 @@ def _pick_plan(
     «Тачки 2» вместо просимых «Тачек». Такому дефолту не бывать (:func:`part_one_swap`):
     строка говорит, что случилось с первой частью, список остаётся на экране, и номер
     называет сам человек.
+
+    🔴 TC-715. И дефолта нет там, где запрос назвал картину ЦЕЛИКОМ, а дефолт встаёт на
+    другую: «блич s1e1» уезжал с «Блича» 2004 года на «Тысячелетнюю кровавую войну»,
+    «чернобыль s1e5» - на «Зону отчуждения» мимо обоих «Чернобылей». Решение владельца -
+    тут не решать вовсе (:func:`named_elsewhere`): строка называет обе картины и причину,
+    а номер называет человек.
 
     К каждой картине печатается справка (:mod:`torrcast.runtime.facts_wiring`) — рейтинг,
     хронометраж и фраза о том, что это за кино. 🔴 Её тут не ждут ВОВСЕ: список печатается
@@ -114,6 +121,11 @@ def _pick_plan(
         if note := part_one_swap(plans, asked):
             # Дефолт подменил бы спрошенную часть другой - тогда его нет вовсе: строка
             # называет, что с первой частью, список на экране, номер зовёт человек.
+            env.write(note)
+            return plans[env.ask("Что смотрим?", len(plans), default=None) - 1]
+        if note := named_elsewhere(plans, asked):
+            # Дефолт ушёл бы с картины, чьё имя названо целиком (TC-715) - тогда его
+            # нет вовсе: строка называет обе картины и причину, номер зовёт человек.
             env.write(note)
             return plans[env.ask("Что смотрим?", len(plans), default=None) - 1]
         env.write(default_line(plans, default))

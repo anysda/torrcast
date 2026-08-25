@@ -194,6 +194,28 @@ def test_a_default_that_would_swap_a_part_of_the_franchise_is_taken_away_entirel
     assert not any(line.startswith("Enter - ") for line in world.said), "обещать Enter нечем"
 
 
+def test_a_default_that_leaves_the_exactly_named_picture_is_taken_away_entirely() -> None:
+    """🔴 TC-715. Запрос назвал картину целиком, а дефолт встаёт на другую - дефолта нет.
+
+    «блич s1e1»: у «Блича» 2004 года рой ниже порога живости, и Enter включал
+    «Тысячелетнюю кровавую войну» - другой сериал под тем же именем. Теперь вопрос
+    задаётся БЕЗ дефолта: строка называет обе картины и причину, номер зовёт человек.
+    """
+    world = Outside(answers=[2])
+    bleach = [
+        plan("Блич", 2004, kind="tv", seeders=3, asked_series=True),
+        plan("Блич: Тысячелетняя кровавая война", 2022, kind="tv", seeders=40, asked_series=True),
+    ]
+
+    picked = _pick_plan(bleach, asked="блич", environment=world)
+
+    assert world.said[1].startswith("«блич» - это «Блич (2004, сериал)»")
+    assert "Тысячелетняя кровавая война" in world.said[1], "вторая картина тоже названа"
+    assert world.asked == [("Что смотрим?", 2, None)], "дефолта у вопроса нет"
+    assert picked is bleach[1], "взята та картина, чей номер назвал человек"
+    assert not any(line.startswith("Enter - ") for line in world.said), "обещать Enter нечем"
+
+
 def test_several_pictures_are_not_a_reason_to_ask_when_the_top_is_the_one_asked() -> None:
     """🔴 Подошло три картины, а спрашивать не о чем: первая часть жива и стоит сверху.
 

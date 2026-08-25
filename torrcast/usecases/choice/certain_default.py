@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 from torrcast.usecases.choice.default_note import default_note
 from torrcast.usecases.choice.first_alive import first_alive
+from torrcast.usecases.choice.named_elsewhere import named_elsewhere
 from torrcast.usecases.choice.part_one_swap import part_one_swap
 
 if TYPE_CHECKING:
@@ -16,8 +17,9 @@ def certain_default(plans: list[Plan], asked: str) -> bool:
     """Верх меню заведомо та картина, которую спросили, - вопроса тут нет.
 
     Граница «здесь берём молча, здесь спрашиваем» проходит по тому, есть ли о решении
-    честная строка. Обе строки про смену картины уже посчитаны и обе молчат - значит
-    дефолт не перескочил через часть франшизы (:func:`part_one_swap`), не сменил тип,
+    честная строка. Все строки про смену картины уже посчитаны и все молчат - значит
+    дефолт не перескочил через часть франшизы (:func:`part_one_swap`), не ушёл с картины,
+    чьё имя названо целиком (:func:`named_elsewhere`), не сменил тип,
     не пропустил картину выше себя и не имеет тёзки по году (:func:`default_note`).
     Другой картины, которую человек мог иметь в виду, тут просто нет.
 
@@ -36,5 +38,6 @@ def certain_default(plans: list[Plan], asked: str) -> bool:
     return (
         first_alive(plans) == 1
         and not part_one_swap(plans, asked)
+        and not named_elsewhere(plans, asked)
         and not default_note(plans, asked)
     )
