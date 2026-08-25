@@ -37,7 +37,6 @@ from torrcast.usecases.reinforce.ceiling_hides_name import ceiling_hides_name
 from torrcast.usecases.reinforce.lacks_season import lacks_season
 from torrcast.usecases.reinforce.plan_for import plan_for
 from torrcast.usecases.reinforce.voiceless_pool import voiceless_pool
-from torrcast.usecases.select._nobody_waiting import _nobody_waiting
 from torrcast.usecases.select._studio_seen import _studio_seen
 
 if TYPE_CHECKING:
@@ -171,9 +170,8 @@ def search_circle(
         # ручку долива несёт план, а зовут её один раз и после ответа (:func:`_topup`).
         plan.late = client.late
         # 🔴 TC-703. Кто ещё в пути - признак неполноты выдачи: без него отказ по пустой
-        # очереди звучит приговором картине (:func:`unfit_line`). Через getattr - по той
-        # же причине, что и счёт молчунов: на месте клиента в наборах стоят подделки.
-        plan.waiting = getattr(client, "waiting", _nobody_waiting)
+        # очереди звучит приговором картине (:func:`unfit_line`).
+        plan.waiting = client.waiting
     if not plans:  # картина есть, а раздач нужного сезона в ней нет
         want = args.episode or Episode(1, 1)
         raise NotFoundError(f"«{found[0].title}»: раздач с сезоном {want.season} нет")

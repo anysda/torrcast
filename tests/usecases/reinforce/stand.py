@@ -104,10 +104,20 @@ class Indexer:
         self.over_goal = False
         #: Пол бюджета круга: добор его двигает, и договор клиента о нём знает.
         self.cap_floor = 1.0
+        #: Счёт выпавших и опоздавших - часть договора клиента
+        #: (:class:`~torrcast.ports.torrent_catalogue.indexer_client.IndexerClient`):
+        #: круг говорит человеку и о том, чего в выдаче нет. Тут не выпал никто.
+        self.silent: tuple[str, ...] = ()
+        self.banned: tuple[str, ...] = ()
+        self.reported_silent: set[str] = set()
 
     def late(self) -> list[RawResult]:
         """Опоздавших нет: круг тут отвечает разом (TC-118)."""
         return []
+
+    def waiting(self) -> tuple[str, ...]:
+        """В пути никого: круг тут отвечает разом (TC-703)."""
+        return ()
 
     def spare(self) -> float:
         return self._spare

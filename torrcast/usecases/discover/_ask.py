@@ -6,7 +6,6 @@ from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.raw_result import RawResult
 from torrcast.ports.progress.progress import Progress
 from torrcast.ports.torrent_catalogue.indexer_client import IndexerClient
-from torrcast.usecases.select._nobody_waiting import _nobody_waiting
 
 
 def _ask(client: IndexerClient, query: str, progress: Progress) -> list[RawResult]:
@@ -34,14 +33,12 @@ def _ask(client: IndexerClient, query: str, progress: Progress) -> list[RawResul
         rows = client.search(query)
     except NotFoundError:
         rows = []
-    # Через getattr, а не полем: в тестах на месте клиента стоят подделки, которые
-    # обещают только `search`, и требовать от них весь договор Prowlarr незачем.
-    reported: set[str] = getattr(client, "reported_silent", set())
+    reported = client.reported_silent
     gone = [
         (name, why_gone)
         for names, why_gone in (
-            (getattr(client, "silent", ()), "не ответил"),
-            (getattr(client, "banned", ()), "недоступен"),
+            (client.silent, "не ответил"),
+            (client.banned, "недоступен"),
         )
         for name in names
         if name not in reported
@@ -52,7 +49,7 @@ def _ask(client: IndexerClient, query: str, progress: Progress) -> list[RawResul
     elif gone:
         listed = ", ".join(f"{name} {why_gone}" for name, why_gone in gone)
         progress.note(f"индексеры выпали из каталога: {listed} - выдача может быть хуже")
-    late = [name for name in getattr(client, "waiting", _nobody_waiting)() if name not in reported]
+    late = [name for name in client.waiting() if name not in reported]
     reported.update(late)
     if len(late) == 1:
         progress.note(f"индексер {late[0]} ещё в пути - выдача пока без него, он может доехать")

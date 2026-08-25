@@ -62,6 +62,12 @@ def _env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 class _FakeProwlarr:
     def __init__(self, url: str, apikey: str) -> None:
         self.url = url
+        #: Счёт выпавших и опоздавших - часть договора клиента
+        #: (:class:`~torrcast.ports.torrent_catalogue.indexer_client.IndexerClient`):
+        #: круг говорит человеку и о том, чего в выдаче нет. Тут не выпал никто.
+        self.silent: tuple[str, ...] = ()
+        self.banned: tuple[str, ...] = ()
+        self.reported_silent: set[str] = set()
 
     def search(self, query: str) -> list[RawResult]:
         return list(FOUND)
@@ -69,6 +75,10 @@ class _FakeProwlarr:
     def late(self) -> list[RawResult]:
         """Опоздавших нет: круг тут отвечает разом (TC-118)."""
         return []
+
+    def waiting(self) -> tuple[str, ...]:
+        """В пути никого: круг тут отвечает разом (TC-703)."""
+        return ()
 
     def spare(self) -> float:
         """Остаток цели: тут поиск мгновенный, поэтому цела вся (TC-228)."""
@@ -173,12 +183,9 @@ def test_silent_indexer_is_named_once_during_search(
     """Урезанная выдача не выглядит полной: промолчавший источник назван на экране."""
 
     class _SilentProwlarr(_FakeProwlarr):
-        silent = ("Knaben",)
-        reported_silent: set[str]
-
         def __init__(self, url: str, apikey: str) -> None:
             super().__init__(url, apikey)
-            self.reported_silent = set()
+            self.silent = ("Knaben",)
 
     composition.use_indexers(monkeypatch, _SilentProwlarr)
     _answers(monkeypatch, "2", "")
@@ -197,12 +204,9 @@ def test_banned_indexer_is_named_too(
     и на весь поиск одна - разводить их по кругам поиска незачем."""
 
     class _BannedProwlarr(_FakeProwlarr):
-        banned = ("Knaben",)
-        reported_silent: set[str]
-
         def __init__(self, url: str, apikey: str) -> None:
             super().__init__(url, apikey)
-            self.reported_silent = set()
+            self.banned = ("Knaben",)
 
     composition.use_indexers(monkeypatch, _BannedProwlarr)
     _answers(monkeypatch, "2", "")
