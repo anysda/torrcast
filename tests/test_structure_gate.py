@@ -458,3 +458,42 @@ def test_the_named_script_may_not_grow_past_its_named_debt(tmp_path: Path) -> No
     (root / debt.mirror).write_text("", encoding="utf-8")
     assert "длина" in _rules(root)
     assert "зеркало" not in _rules(root), "зеркало у скрипта названо поимённо"
+
+
+def _mirror(root: Path, body: str) -> Path:
+    """Написать зеркалу модуля `good` тело теста и вернуть корень."""
+    (root / "tests" / "test_good.py").write_text(
+        f'"""Зеркало."""\n\nfrom torrcast.good import Good\n\n\ndef test_good() -> None:\n{body}',
+        encoding="utf-8",
+    )
+    return root
+
+
+def test_check_rule_turns_red_on_a_test_that_holds_only_the_import(tmp_path: Path) -> None:
+    """Файл зеркала есть, счётчик `зеркало` нулевой, а проверки в файле нет."""
+    root = _mirror(_tree(tmp_path), "    assert Good is not None\n")
+    assert "проверка" in _rules(root)
+
+
+def test_check_rule_leaves_a_test_that_calls_the_unit_alone(tmp_path: Path) -> None:
+    """То же утверждение о том, что тест ПОСЧИТАЛ, - это уже поведение."""
+    root = _mirror(_tree(tmp_path), "    assert Good() is not None\n")
+    assert "проверка" not in _rules(root)
+
+
+def test_check_rule_leaves_a_name_the_test_made_itself_alone(tmp_path: Path) -> None:
+    """Имя, заведённое внутри теста, держит результат, а не импорт."""
+    root = _mirror(_tree(tmp_path), "    found = Good()\n    assert found is not None\n")
+    assert "проверка" not in _rules(root)
+
+
+def test_check_rule_counts_the_whole_test_and_not_a_single_line(tmp_path: Path) -> None:
+    """Пустая строка рядом с настоящей проверкой - лишняя строка, а не купленная зелень."""
+    root = _mirror(_tree(tmp_path), "    assert Good is not None\n    assert Good().ok\n")
+    assert "проверка" not in _rules(root)
+
+
+def test_check_rule_leaves_a_test_without_a_single_assert_alone(tmp_path: Path) -> None:
+    """Предмет правила - утверждение про импорт; тест «не падает» держат другие меры."""
+    root = _mirror(_tree(tmp_path), "    Good()\n")
+    assert "проверка" not in _rules(root)

@@ -26,6 +26,7 @@ RULES: Final = (
     "размен",
     "раздача",
     "окружение",
+    "проверка",
 )
 #: Шапки, которыми файл целиком снимают с тайпчека.
 _MYPY_OFF: Final = re.compile(r"^#\s*mypy:\s*(ignore-errors|disable-error-code)")
@@ -657,6 +658,72 @@ def _handout_violations(module: Module, known: set[str]) -> list[Violation]:
     return failures
 
 
+def _bound_inside(node: ast.AST) -> frozenset[str]:
+    """Имена, которые тест завёл сам: их значение считает он, а не импорт."""
+    names: set[str] = set()
+    for inner in ast.walk(node):
+        if isinstance(inner, ast.arg):
+            names.add(inner.arg)
+        elif isinstance(inner, ast.Name) and isinstance(inner.ctx, (ast.Store, ast.Del)):
+            names.add(inner.id)
+        elif isinstance(inner, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            names.add(inner.name)
+        elif isinstance(inner, (ast.Import, ast.ImportFrom)):
+            names.update((alias.asname or alias.name).split(".")[0] for alias in inner.names)
+    return frozenset(names)
+
+
+def _only_the_import(node: ast.Assert, local: frozenset[str]) -> bool:
+    """Утверждение, которое краснеет ровно на несостоявшемся импорте.
+
+    `X is not None` над именем, которое тест не заводил и ни во что не звал, - это
+    утверждение про импорт: значение туда положил `from ... import X`, и другим оно не
+    станет. Ни поломку модуля, ни смену его ответа такое не ловит.
+    """
+    test = node.test
+    if not isinstance(test, ast.Compare) or len(test.ops) != 1:
+        return False
+    right = test.comparators[0]
+    if not isinstance(test.ops[0], ast.IsNot) or not isinstance(right, ast.Constant):
+        return False
+    if right.value is not None or any(isinstance(step, ast.Call) for step in ast.walk(test.left)):
+        return False
+    named = test.left
+    while isinstance(named, ast.Attribute):
+        named = named.value
+    return isinstance(named, ast.Name) and named.id not in local
+
+
+def _empty_test_violations(root: Path) -> list[Violation]:
+    """Тесты, у которых все утверждения - про импорт.
+
+    Правило `зеркало` требует у модуля файл теста, и существованием файла оно и
+    покупается: зеркало есть, счётчик нулевой, а поломку своего модуля такой файл
+    пропускает целиком. Предмет тут - весь тест, а не отдельная строка: `assert X is not
+    None` рядом с настоящими утверждениями - это лишняя строка, а не купленная зелень.
+    """
+    found: list[Violation] = []
+    for path in sorted((root / "tests").rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            if not node.name.startswith("test"):
+                continue
+            checks = [step for step in ast.walk(node) if isinstance(step, ast.Assert)]
+            local = _bound_inside(node)
+            if checks and all(_only_the_import(check, local) for check in checks):
+                found.append(
+                    Violation(
+                        "проверка",
+                        path.relative_to(root).as_posix(),
+                        node.lineno,
+                        f"{node.name} держит только импорт",
+                    )
+                )
+    return found
+
+
 def _cycle_violations(modules: list[Module], edges: dict[str, set[str]]) -> list[Violation]:
     by_name = {module.name: module for module in modules}
     failures: list[Violation] = []
@@ -754,6 +821,7 @@ def check(root: Path) -> list[Violation]:
             if (target := _target_module(name, known)) is not None and target != module.name
         }
     failures.extend(_cycle_violations(modules, edges))
+    failures.extend(_empty_test_violations(root))
     order = {rule: index for index, rule in enumerate(RULES)}
     return sorted(failures, key=lambda item: (order[item.rule], item.path, item.line, item.message))
 
