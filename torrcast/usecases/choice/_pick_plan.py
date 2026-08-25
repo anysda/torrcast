@@ -28,6 +28,7 @@ def _pick_plan(
     pick: int | None = None,
     asked: str = "",
     environment: ChoiceEnvironment | None = None,
+    menu: bool = False,
 ) -> Plan:
     """Вопрос «какой фильм франшизы?» - и только там, где спрашивать есть о чём.
 
@@ -68,6 +69,12 @@ def _pick_plan(
 
     Ждём справку ровно там, где дописывать её будет некому (:func:`_shown`).
 
+    🔴 TC-802. ``menu`` - флаг ``--menu``: список поднимается и там, где о выборе сказать
+    нечего. Без него подходящую картину прибор берёт сам («тачками» зовутся только
+    «Тачки»), и просьба «покажи, что ещё есть» звучит этим флагом, а не отсутствием
+    решения. Всё остальное у обоих путей общее: тот же список, тот же дефолт, тот же
+    номер в ответе.
+
     ``pick`` - номер пункта, названный флагом ``--pick N``: вопрос тогда не задаётся
     вовсе, и терминал не нужен. Номер берётся из показанного списка - таблицы
     ``cast releases`` или этого меню, - а состав выдачи гуляет от захода к заходу, поэтому
@@ -107,10 +114,10 @@ def _pick_plan(
     if len(plans) == 1:
         return plans[0]
     default = first_alive(plans)
-    if certain_default(plans, asked):
+    if certain_default(plans, asked) and not menu:
         env.write(taken_line(plans, default, asked))
         return plans[default - 1]
-    menu = _shown(env, plans, facts, dress=env.stdin_is_tty(), asked=asked)
+    painted = _shown(env, plans, facts, dress=env.stdin_is_tty(), asked=asked)
     try:
         if not env.stdin_is_tty():
             raise env.not_found_error(
@@ -135,7 +142,7 @@ def _pick_plan(
         # опоздавшая на миллисекунду строка писала бы уже в чужой вывод.
         if facts is not None:
             facts.watch(None)
-        menu.close()
+        painted.close()
 
 
 def _shown(

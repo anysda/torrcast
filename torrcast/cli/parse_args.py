@@ -42,7 +42,9 @@ def parse_args(argv: Sequence[str] | None = None) -> Args:
     # Закладка отвечает на «где я остановился», а меню - на «что играть»: этой ручкой
     # спрашивают второе, и сохранённое место у неё дороги не занимает.
     parser.add_argument(
-        "--menu", action="store_true", help="поднять меню выбора картины, а не продолжать начатое"
+        "--menu",
+        action="store_true",
+        help="показать список картин и спросить, а не включать самому",
     )
     parser.add_argument("--file", type=int, metavar="N", help="отладка: взять файл N раздачи")
     parser.add_argument(

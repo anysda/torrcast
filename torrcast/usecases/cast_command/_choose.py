@@ -107,7 +107,7 @@ def _choose(
         journal().mark("прогрев пущен", придержан=live is not None)  # TC-108: замер
         try:
             try:
-                plan = pick(plans, facts, pick=args.pick, asked=args.title_query)
+                plan = pick(plans, facts, pick=args.pick, asked=args.title_query, menu=args.menu)
                 journal().mark("картина выбрана")  # TC-108: замер
                 # Картина названа - вот теперь очередь закладки: она про место ВНУТРИ
                 # картины, и спрашивают о ней после того, как картина выбрана.

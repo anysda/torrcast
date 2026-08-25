@@ -239,6 +239,27 @@ def test_several_pictures_are_not_a_reason_to_ask_when_the_top_is_the_one_asked(
     ]
 
 
+def test_the_menu_flag_raises_the_list_where_the_device_would_take_it_itself() -> None:
+    """🔴 TC-802. «Покажи, что ещё есть» - это флаг ``--menu``, а не отсутствие решения.
+
+    Без флага «тачки» включаются сами: тачками зовут ровно их, и вопрос тут был лишним.
+    С флагом поднимается тот же список и тот же дефолт - зритель просил выбор и получает
+    его, включая соседние части франшизы.
+    """
+    world = Outside()
+    cars = [
+        plan("Тачки", 2006, part=1, seeders=66),
+        plan("Тачки 2", 2011, part=2, seeders=71),
+        plan("Тачки 3", 2017, part=3, seeders=121),
+    ]
+
+    picked = _pick_plan(cars, asked="тачки", environment=world, menu=True)
+
+    assert picked is cars[0], "пустой Enter - это по-прежнему дефолт"
+    assert world.asked == [("Что смотрим?", 3, 1)], "список подняли - о нём и спрашивают"
+    assert world.said[0].splitlines()[1] == "  2. Тачки 2 (2011)"
+
+
 def test_a_picture_the_lines_are_silent_about_needs_no_terminal_either() -> None:
     """Спрашивать не о чем - значит и терминал не нужен: висеть и отказываться не на чем.
 
