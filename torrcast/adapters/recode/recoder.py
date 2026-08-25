@@ -11,6 +11,7 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
+from torrcast.adapters.recode.heavy_line import _heavy_line
 from torrcast.adapters.recode.hold_bulky import _hold_bulky
 from torrcast.adapters.recode.hold_head import _head_pending, _hold_head
 from torrcast.adapters.recode.holding import _holding
@@ -41,13 +42,7 @@ class Recoder(_State):
         if not self.targets:
             self._say("тяжёлых кусков нет - перекодировать нечего")
             return
-        heavy = self.targets
-        share = sum(self.grid.span(s) for s in heavy) / max(self.grid.duration, 1.0)
-        self._say(
-            f"тяжёлых кусков {len(heavy)} из {self.grid.count} "
-            f"({share * 100:.0f}% фильма, порог {self.threshold:.0f} Мбит/с) - "
-            f"перекодирую заранее не выше {self.encode.mbit:.0f} Мбит/с"
-        )
+        self._say(_heavy_line(self))
         self.spare.mkdir(parents=True, exist_ok=True)
         self.began = time.monotonic()
         self.thread = threading.Thread(target=self._work, daemon=True, name="torrcast-recode")

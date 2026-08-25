@@ -58,7 +58,7 @@ def test_the_start_says_how_much_of_the_film_is_heavy(tmp_path: Path) -> None:
     recoder.thread.join(timeout=5.0)
 
     assert (tmp_path / "recode").is_dir(), "каталог перекода готовится на старте"
-    assert "тяжёлых кусков 30 из 30" in said[0]
+    assert "кусков на перекод 30 из 30" in said[0]
     assert recoder.began > 0.0
 
 
