@@ -13,6 +13,7 @@ from torrcast.adapters.recode.presets import PRESETS
 from torrcast.adapters.recode.recoder_state import _State
 from torrcast.adapters.recode.run import HEAD_NICE, NICE, _run
 from torrcast.adapters.recode.weights import Weights
+from torrcast.domain.segment_container import FMP4
 from torrcast.ports.pack_run.pack_factory import PackFactory
 
 if TYPE_CHECKING:
@@ -174,3 +175,31 @@ def test_an_abandoned_run_says_why_and_a_finished_one_says_nothing(tmp_path: Pat
 
     assert _run(delivered, 4, 6) is None, "заход, давший куски, - не брошенный"
     assert delivered.made == 2
+
+
+def test_the_run_cuts_and_names_its_pieces_in_the_container_of_the_receiver(
+    tmp_path: Path,
+) -> None:
+    """Перекод ложится рядом с копией и зовётся так же - контейнер у них один.
+
+    Резать своим - значит писать готовые куски под именем, которого выкладка не ищет:
+    перекода для неё не существует, тяжёлое место наружу не выходит, и запрос приёмника
+    крутит перепаковку без прогресса.
+    """
+    state = _state(tmp_path)
+    state.container = FMP4
+    seen: list[list[str]] = []
+    told: list[dict[str, Any]] = []
+
+    def _remember(command: list[str], /, *a: object, **k: Any) -> Any:
+        seen.append(command)
+        told.append(k)
+        return fake_packer(tmp_path)
+
+    state.packer_type = cast(PackFactory, type("StandPacker", (), {"start": _remember}))
+
+    _run(state, 3, 3)
+
+    assert seen[0][-1].endswith("v%d.m4s"), "имена кусков захода - имена контейнера показа"
+    assert seen[0][seen[0].index("-segment_format") + 1] == "mp4"
+    assert told[0]["container"] == FMP4, "и сам прогон обязан знать тот же контейнер"

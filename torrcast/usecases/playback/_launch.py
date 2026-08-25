@@ -135,7 +135,7 @@ def _await_playing(
             return
         if not packed:
             with contextlib.suppress(OSError):
-                packed = any(out.glob("v*.ts"))
+                packed = any(out.glob("v*.ts")) or any(out.glob("v*.m4s"))
             if packed:
                 journal().mark("первый сегмент")
         progress.phase("жду телевизор" if packed else "упаковка")

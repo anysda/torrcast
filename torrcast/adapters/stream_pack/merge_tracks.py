@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from torrcast.domain.probe_settings import _TIMEOUT
+from torrcast.domain.segment_container import FMP4, MPEGTS, SegmentContainer
 
 
 def merge_tracks(
@@ -19,6 +20,7 @@ def merge_tracks(
     dst: Path,
     timeout: float = _TIMEOUT,
     shift: float = 0.0,
+    container: SegmentContainer = MPEGTS,
     *,
     run: Callable[..., Any] = subprocess.run,
 ) -> bool:
@@ -50,6 +52,11 @@ def merge_tracks(
     что выкладывать вместо склейки — копию своего прогона (если она не тяжелее потолка)
     или перекод как есть.
 
+    ``container`` - чем режет показ, то есть каким муксером собирать склейку. Отдельным
+    доводом, а не умолчанием: наружу этот файл уходит под именем куска, и муксер обязан
+    быть тем же, каким собраны его соседи. Пока здесь стоял один ``mpegts``, склейка на
+    fMP4 писалась чужим муксером под расширением ``.m4s``.
+
     ``run`` - чем поднимается ffmpeg. Доводом, а не именем модуля: прежде стенд подменял
     :mod:`subprocess` целиком, вместе с его же классом ошибок, - то есть знал не договор
     склейки, а список имён внутри неё.
@@ -61,8 +68,12 @@ def merge_tracks(
     command += [
         "-i", str(video), "-i", str(audio),
         "-map", "0:v:0", "-map", "1:a:0", "-c", "copy",
-        "-muxdelay", "0", "-muxpreload", "0", "-f", "mpegts", "-y", str(dst),
     ]  # fmt: skip
+    if container == FMP4:
+        command += ["-movflags", "cmaf+frag_keyframe+empty_moov+default_base_moof", "-f", "mp4"]
+    else:  # без обоих нулей mpegts двигает ВСЕ метки на 0.7 + 0.7 = 1.4 с
+        command += ["-muxdelay", "0", "-muxpreload", "0", "-f", "mpegts"]
+    command += ["-y", str(dst)]
     try:
         done = run(command, capture_output=True, timeout=timeout, check=False)
     except (OSError, subprocess.SubprocessError):

@@ -12,6 +12,7 @@ from torrcast.adapters.recode.pace import Pace
 from torrcast.adapters.stream_pack.grid import Grid
 from torrcast.domain.delivered_mbit import AUDIO_MBIT, TS_OVERHEAD
 from torrcast.domain.hls_settings import MAX_SEGMENT_BYTES
+from torrcast.domain.segment_container import FMP4
 from torrcast.usecases.feed_pack.feed_shrink import _shrink, _skip
 
 if TYPE_CHECKING:
@@ -254,3 +255,32 @@ def test_the_spot_shrink_aims_under_both_ceilings_of_the_receiver(tmp_path: Path
     went = (asked * MAXRATE_GAIN + AUDIO_MBIT) * TS_OVERHEAD
     assert went <= recoder.threshold, "ужатие обязано укладываться в потолок битрейта"
     assert went * 9.55 / 8 <= show.cap / 1e6, "и в потолок веса оно укладываться не перестало"
+
+
+def test_the_shrink_run_cuts_in_the_container_the_receiver_asked_for(tmp_path: Path) -> None:
+    """Ужатие - такой же прогон упаковки, и режет он тем же контейнером, что и показ.
+
+    Резать своим - значит положить готовый кусок под чужим именем: выкладка его не
+    находит, место не выходит наружу никогда, а запрос приёмника крутит перепаковку.
+    """
+    seen: list[dict[str, Any]] = []
+
+    def _start(command: list[str], out: Path, run: Path, first: int, **kwargs: Any) -> Any:
+        seen.append(kwargs)
+        run.mkdir(parents=True, exist_ok=True)
+        return packer(run.parent, out=out, run=run, first=first, edge=first)
+
+    made: list[dict[str, Any]] = []
+
+    def _command(*args: Any, **kwargs: Any) -> list[str]:
+        made.append(kwargs)
+        return ["ffmpeg"]
+
+    tract(pack_command=_command, packer=factory(_start))
+    show = feed(tmp_path, grid=grid(), recoder=_Recoder(spare=tmp_path / "recode"), cap=1)
+    show.container = FMP4
+
+    _shrink(show, 3, size=MAX_SEGMENT_BYTES)
+
+    assert made[0]["container"] == FMP4, "команда ужатия обязана резать контейнером показа"
+    assert seen[0]["container"] == FMP4, "и прогон обязан знать тот же контейнер"

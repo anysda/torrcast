@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 from tests.adapters.recode.grids import grid, keys
 from torrcast.adapters.recode.recoder_state import _State
 from torrcast.adapters.recode.weights import Weights
+from torrcast.domain.segment_container import FMP4
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -91,3 +92,20 @@ def test_a_recoder_without_a_log_says_nothing_and_does_not_fall(tmp_path: Path) 
     state._say("в журнал")
 
     assert said == ["в журнал"]
+
+
+def test_a_ready_piece_is_looked_for_under_the_name_the_receiver_container_gives(
+    tmp_path: Path,
+) -> None:
+    """Готовый перекод ищется тем же именем, каким его кладёт заход, - иначе его нет.
+
+    Разошлись имена - и выкладка не видит готового куска: место уходит в круг без
+    прогресса, а зритель не получает картинки вовсе.
+    """
+    state = _state(tmp_path)
+    state.container = FMP4
+    (tmp_path / "v3.m4s").write_bytes(b"x")
+    (tmp_path / "v4.ts").write_bytes(b"x")
+
+    assert state.ready(3) == tmp_path / "v3.m4s"
+    assert state.ready(4) is None, "кусок чужого контейнера готовым не считается"

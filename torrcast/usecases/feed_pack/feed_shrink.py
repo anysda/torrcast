@@ -84,6 +84,7 @@ def _shrink(state: _State, slot: int, size: int = 0) -> bool:
             0.0,
             encode=encode,
             until=slot,
+            container=state.container,
         )
         packer: PackRun | None = None
         try:
@@ -95,6 +96,7 @@ def _shrink(state: _State, slot: int, size: int = 0) -> bool:
                 last=slot,
                 grid=state.grid,
                 cap=state.cap,
+                container=state.container,
             )
             deadline = _state.clock_port.monotonic() + recoder.over_wait
             while (

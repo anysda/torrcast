@@ -103,9 +103,10 @@ class MachineProbe:
         """
         total = 0
         with contextlib.suppress(OSError):
-            for piece in Path(WARM_DIR).rglob("v*.ts"):
-                with contextlib.suppress(OSError):
-                    total += piece.stat().st_size
+            for mask in ("v*.ts", "v*.m4s"):
+                for piece in Path(WARM_DIR).rglob(mask):
+                    with contextlib.suppress(OSError):
+                        total += piece.stat().st_size
         return total
 
     @staticmethod

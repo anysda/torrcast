@@ -25,7 +25,7 @@ def log_segment(name: str, began: float, size: int, took: float, src: str) -> No
     требованию, а след ведётся всегда. Манифест не пишем - он не сегмент и дёргается на
     каждый опрос.
     """
-    if not name.endswith(".ts"):
+    if not name.endswith((".ts", ".m4s")):
         return
 
     journal().segment(

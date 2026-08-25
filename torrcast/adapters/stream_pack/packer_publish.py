@@ -17,7 +17,7 @@ from torrcast.adapters.stream_pack.merge_tracks import merge_tracks
 from torrcast.adapters.stream_pack.timeline_shift import timeline_shift
 from torrcast.adapters.stream_probe.segment_name import segment_name
 from torrcast.adapters.stream_probe.segment_slot import segment_slot
-from torrcast.domain.hls_settings import MIXED_PREFIX
+from torrcast.domain.mixed_name import mixed_name
 from torrcast.ports.journal.slot import journal
 
 if TYPE_CHECKING:
@@ -108,8 +108,8 @@ def _lay_out(
             # подгонка по такой голове вносила в неё скачок на 1-3 кадра; приёмник зовёт это
             # ``Parsed buffers not in DTS sequence`` и бросает показ (живой замер: 13 стыков
             # с меткой назад из 41 и 18 его перезаходов).
-            mixed = state.run / f"{MIXED_PREFIX}{slot}.ts"
-            if merge(better, path, mixed):
+            mixed = state.run / mixed_name(slot, state.container)
+            if merge(better, path, mixed, container=state.container):
                 source, how = mixed, "склейка"
             elif size and size <= state.cap:
                 # Склейки нет: перекод уехал бы со своим звуком, на своей сетке AAC, а это
@@ -152,16 +152,10 @@ def _lay_out(
         # на ровной сетке это 818 ложных заявок на разбор за фильм (TC-693).
         shrunk = oversized and state.shrink is not None and state.shrink(slot, size)
         if shrunk and better is not None:
-            source = _shrunk_out(
-                state.run,
-                slot,
-                path,
-                better,
-                state.cap,
-                merge=merge,
-                shift_of=shift_of,
-                keyless=keyless,
-            )
+            # Место и обе мерки приёмника разом: каталог прогона, слот, копия, ужатое,
+            # потолок веса и контейнер - расширение склейки выбирает муксер по нему.
+            place = (state.run, slot, path, better, state.cap, state.container)
+            source = _shrunk_out(*place, merge=merge, shift_of=shift_of, keyless=keyless)
             how = "ужатие"
             try:
                 oversized = source.stat().st_size > state.cap

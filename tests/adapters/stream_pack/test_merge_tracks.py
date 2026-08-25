@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from torrcast.adapters.stream_pack.merge_tracks import merge_tracks
+from torrcast.domain.segment_container import FMP4
 
 
 @dataclass
@@ -98,3 +99,25 @@ def test_a_merge_of_garbage_leaves_no_file_and_says_so_on_a_live_ffmpeg(tmp_path
 
     assert merge_tracks(video, audio, dst) is False
     assert not dst.exists()
+
+
+def test_the_merge_is_assembled_by_the_muxer_of_the_container_of_the_show(
+    tmp_path: Path,
+) -> None:
+    """Склейка уходит наружу под именем куска, и муксер у неё обязан быть соседский.
+
+    Один ``mpegts`` на оба контейнера значил, что на fMP4 приёмник получал бы под
+    расширением ``.m4s`` файл MPEG-TS.
+    """
+    ffmpeg = _Ffmpeg()
+    video, audio, dst = _pieces(tmp_path)
+
+    merge_tracks(video, audio, dst, container=FMP4, run=ffmpeg.run)
+    command = ffmpeg.seen[-1]
+    assert command[command.index("-f") + 1] == "mp4"
+    assert "cmaf" in command[command.index("-movflags") + 1]
+    assert "-muxdelay" not in command, "нули меток - лекарство mpegts, и только его"
+
+    merge_tracks(video, audio, dst, run=ffmpeg.run)
+    command = ffmpeg.seen[-1]
+    assert command[command.index("-f") + 1] == "mpegts" and "-movflags" not in command

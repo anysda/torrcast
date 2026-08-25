@@ -8,6 +8,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 from torrcast.adapters.stream_pack._shrunk_out import _shrunk_out
+from torrcast.domain.segment_container import FMP4
 
 
 def _has_key(piece: Path) -> bool:
@@ -122,3 +123,32 @@ def test_a_piece_without_a_key_frame_is_never_merged(tmp_path: Path) -> None:
     )
 
     assert out == shrunk and tried == [], "кусок без опорного кадра ушёл в склейку"
+
+
+def test_the_merge_of_a_shrunk_place_is_named_and_muxed_by_the_container(
+    tmp_path: Path,
+) -> None:
+    """Имя склейки и её муксер - оба из контейнера показа, а не из умолчания завода."""
+    seen: list[tuple[str, object]] = []
+
+    def merge(video: Path, audio: Path, dst: Path, **kwargs: Any) -> bool:
+        seen.append((dst.name, kwargs.get("container")))
+        dst.write_bytes(b"m" * 20)
+        return True
+
+    copy, shrunk = _lay(tmp_path, "v7.m4s", 100), _lay(tmp_path, "spare7.m4s", 18)
+
+    out = _shrunk_out(
+        tmp_path,
+        7,
+        copy,
+        shrunk,
+        50,
+        FMP4,
+        merge=merge,
+        shift_of=lambda *a: 0.0,
+        keyless=_has_key,
+    )
+
+    assert seen == [("mix7.m4s", FMP4)]
+    assert out.name == "mix7.m4s"

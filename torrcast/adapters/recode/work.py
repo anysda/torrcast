@@ -52,7 +52,7 @@ def _work(
     abandoned: tuple[int, int] | None = None
     while not state.stopped:
         try:
-            sweep_spare(state.spare, state.grid, state.played, state.done)
+            sweep_spare(state.spare, state.grid, state.played, state.done, state.container)
             job = pick(state)
             if job is None:
                 abandons, abandoned = 0, None
@@ -64,7 +64,7 @@ def _work(
             # заснуть под потолком кэша значит держать показ до предохранителя и
             # потом всё равно выпустить тяжёлую копию.
             spared = job[0] in (state.head, state.blocked)
-            if not spared and spare_weight(state.spare) >= state.cache_mb:
+            if not spared and spare_weight(state.spare, state.container) >= state.cache_mb:
                 nap(2.0)
                 continue
             if job == abandoned:

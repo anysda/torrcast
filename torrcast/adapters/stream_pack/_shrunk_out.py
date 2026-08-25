@@ -7,7 +7,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from torrcast.domain.hls_settings import MIXED_PREFIX
+from torrcast.domain.mixed_name import mixed_name
+from torrcast.domain.segment_container import MPEGTS, SegmentContainer
 from torrcast.ports.journal.slot import journal
 
 if TYPE_CHECKING:
@@ -21,6 +22,7 @@ def _shrunk_out(
     copy: Path,
     shrunk: Path,
     cap: int,
+    container: SegmentContainer = MPEGTS,
     *,
     merge: Callable[..., bool],
     shift_of: Callable[[Path, Path], float | None],
@@ -68,8 +70,8 @@ def _shrunk_out(
     """
     if keyless(shrunk):
         return shrunk
-    mixed = run_dir / f"{MIXED_PREFIX}{slot}.ts"
-    if merge(shrunk, copy, mixed, shift=shift_of(copy, shrunk) or 0.0):
+    mixed = run_dir / mixed_name(slot, container)
+    if merge(shrunk, copy, mixed, shift=shift_of(copy, shrunk) or 0.0, container=container):
         try:
             if mixed.stat().st_size <= cap:
                 return mixed

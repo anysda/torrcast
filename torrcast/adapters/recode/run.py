@@ -78,6 +78,7 @@ def _run(state: _State, first: int, last: int) -> str | None:
         burst=0.0,
         encode=encode,
         until=last,
+        container=state.container,
     )
     command = ["nice", "-n", str(HEAD_NICE if first == state.head else NICE), *command]
     began = time.monotonic()
@@ -98,6 +99,7 @@ def _run(state: _State, first: int, last: int) -> str | None:
             last=last,
             grid=state.grid,
             cap=state.cap,
+            container=state.container,
         )
         state.job = (first, last, began + seconds / speed * 2.0 + 10.0, began, speed)
     try:

@@ -8,6 +8,7 @@ import contextlib
 from typing import TYPE_CHECKING
 
 from torrcast.adapters.http_server.stream_serve import _tracing
+from torrcast.adapters.stream_probe.segment_name import segment_name
 from torrcast.ports.journal.slot import journal
 
 if TYPE_CHECKING:
@@ -41,7 +42,7 @@ def _note(state: _State, slot: int, how: str) -> None:
     span, went = state.grid.span(slot), 0.0
     size = 0
     with contextlib.suppress(OSError):
-        size = (state.spare.parent / f"v{slot}.ts").stat().st_size
+        size = (state.spare.parent / segment_name(slot, state.container)).stat().st_size
         went = size * 8 / span / 1e6 if span > 0 else 0.0
     journal().mark(
         "сегмент",

@@ -17,6 +17,7 @@ from torrcast.adapters.recode.weights import Weights
 from torrcast.adapters.stream_pack.packer import Packer
 from torrcast.adapters.stream_probe.segment_name import segment_name
 from torrcast.domain.profile import CAUTIOUS
+from torrcast.domain.segment_container import MPEGTS, SegmentContainer
 from torrcast.ports.pack_run.pack_factory import PackFactory
 
 if TYPE_CHECKING:
@@ -43,6 +44,12 @@ class _State:
     #: другим потолком получал от кодировщика не свою мерку. Умолчание тут то же
     #: осторожное, так что для Q70D не меняется ничего.
     cap: int = CAUTIOUS.max_segment_bytes
+    #: Контейнер кусков - свойство ПРИЁМНИКА
+    #: (:attr:`torrcast.domain.profile.Profile.segment_container`), тот же, каким режет
+    #: показ. Кодировщик кладёт свои куски рядом с кусками показа и под теми же именами,
+    #: и расширение у них обязано быть одно: под чужим расширением готовый перекод
+    #: невидим выкладке, а место уходит в круг без прогресса.
+    container: SegmentContainer = MPEGTS
     encode: Encode = field(default_factory=Encode)
     #: Горизонт: дальше этого места фильма впрок не работаем. Ограничение не по времени, а
     #: по tmpfs - готовые куски лежат в памяти. Модель показа «Моаны 2»: 300 с горизонта
@@ -151,7 +158,7 @@ class _State:
 
     def ready(self, slot: int) -> Path | None:
         """Путь к готовому перекодированному куску или ``None``."""
-        path = self.spare / segment_name(slot)
+        path = self.spare / segment_name(slot, self.container)
         return path if path.exists() else None
 
     def _unstick(self, slot: int) -> None:

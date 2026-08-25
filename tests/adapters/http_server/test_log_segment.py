@@ -41,3 +41,14 @@ def test_the_manifest_is_not_a_segment_and_is_never_written(_ports_restored: Non
     log_segment("index.m3u8", time.monotonic(), 1000, 0.1, PACKED)
 
     assert tape.rows == []
+
+
+def test_a_piece_of_the_fmp4_container_is_written_to_the_tape_too(_ports_restored: None) -> None:
+    """Иначе на CMAF след раздачи пуст, и «подгрузов ноль» читается из слепого прибора."""
+    tape = _Tape()
+    install(tape)
+
+    log_segment("v7.m4s", time.monotonic(), 3_000_000, 0.5, PACKED)
+    log_segment("init.mp4", time.monotonic(), 1345, 0.1, PACKED)
+
+    assert [row[0] for row in tape.rows] == [7], "заголовок контейнера сегментом не считается"

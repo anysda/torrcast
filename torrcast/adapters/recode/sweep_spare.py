@@ -7,6 +7,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from torrcast.adapters.stream_probe.segment_slot import segment_slot
+from torrcast.domain.segment_container import MPEGTS, SegmentContainer
+from torrcast.domain.segment_suffix import segment_suffix
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -14,7 +16,13 @@ if TYPE_CHECKING:
     from torrcast.adapters.stream_pack.grid import Grid
 
 
-def sweep_spare(spare: Path, grid: Grid, played: float, done: set[int]) -> None:
+def sweep_spare(
+    spare: Path,
+    grid: Grid,
+    played: float,
+    done: set[int],
+    container: SegmentContainer = MPEGTS,
+) -> None:
     """Выбросить перекодированные куски позади показа и забыть, что они были готовы.
 
     Позади показа держится окно в 30 секунд, а не выбрасывается всё: перемотка назад
@@ -22,7 +30,7 @@ def sweep_spare(spare: Path, grid: Grid, played: float, done: set[int]) -> None:
     чем подержать его в памяти.
     """
     behind = grid.slot_at(max(0.0, played - 30.0))
-    for path in spare.glob("v*.ts"):
+    for path in spare.glob(f"v*{segment_suffix(container)}"):
         slot = segment_slot(path.name)
         if 0 <= slot < behind:
             path.unlink(missing_ok=True)

@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 from tests.adapters.recode.grids import grid
 from torrcast.adapters.recode.sweep_spare import sweep_spare
+from torrcast.domain.segment_container import FMP4
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -24,3 +25,18 @@ def test_only_the_pieces_behind_the_show_are_swept_out_of_ram(tmp_path: Path) ->
     assert not (tmp_path / "v0.ts").exists() and not (tmp_path / "v1.ts").exists()
     assert (tmp_path / "v20.ts").exists(), "то, что впереди показа, уборке не подлежит"
     assert done == {20}, "выброшенный кусок перестаёт числиться готовым"
+
+
+def test_the_sweep_looks_at_the_pieces_of_the_container_the_receiver_asked_for(
+    tmp_path: Path,
+) -> None:
+    """Маска уборки едет из контейнера: иначе tmpfs растёт, а куски числятся готовыми."""
+    lines = grid()
+    for slot in (0, 1):
+        (tmp_path / f"v{slot}.m4s").write_bytes(b"x" * 1000)
+    done = {0, 1}
+
+    sweep_spare(tmp_path, lines, 200.0, done, FMP4)
+
+    assert not (tmp_path / "v0.m4s").exists() and not (tmp_path / "v1.m4s").exists()
+    assert done == set()

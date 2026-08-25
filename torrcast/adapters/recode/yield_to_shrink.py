@@ -10,6 +10,7 @@ import time
 from typing import TYPE_CHECKING, Any, Final
 
 from torrcast.domain.hls_settings import SHRINK_DIR
+from torrcast.domain.segment_suffix import segment_suffix
 from torrcast.ports.journal.slot import journal
 
 if TYPE_CHECKING:
@@ -27,7 +28,7 @@ def _shrink_touched(state: _State) -> float:
     """Когда в рабочем каталоге ужатия последний раз что-то писали (стенные секунды)."""
     newest = 0.0
     with contextlib.suppress(OSError):
-        for path in (state.spare / SHRINK_DIR).glob("*.ts"):
+        for path in (state.spare / SHRINK_DIR).glob(f"*{segment_suffix(state.container)}"):
             with contextlib.suppress(OSError):
                 newest = max(newest, path.stat().st_mtime)
     return newest
