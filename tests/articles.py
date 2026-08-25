@@ -183,6 +183,11 @@ FELLOWSHIP = (
     "«Властели́н коле́ц» (англ. The Lord of the Rings) — кинотрилогия режиссёра Питера "
     "Джексона, фильм 2001 года и два его продолжения."
 )
+FELLOWSHIP_LATIN = "The Lord of the Rings: The Fellowship of the Ring"
+FELLOWSHIP_FILM = (
+    "«Властели́н коле́ц: Бра́тство Кольца́» (англ. The Lord of the Rings: The Fellowship of "
+    "the Ring) — фильм 2001 года режиссёра Питера Джексона, первый из кинотрилогии."
+)
 LAIN = (
     "«Эксперименты Лэйн» (англ. Serial Experiments Lain) — японский аниме-сериал "
     "режиссёра Рютаро Накамуры, вышедший на экраны в 1998 году."

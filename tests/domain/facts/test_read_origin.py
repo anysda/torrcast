@@ -10,6 +10,8 @@ from tests.articles import (
     CLIMBERS,
     FARGO_SERIES,
     FELLOWSHIP,
+    FELLOWSHIP_FILM,
+    FELLOWSHIP_LATIN,
     HP_AZKABAN,
     HP_FRANCHISE,
     HP_PHOENIX,
@@ -42,6 +44,17 @@ def test_wikipedia_knows_better_than_us_how_the_asked_name_is_spelled() -> None:
     ровно там, где знала ответ, и поиску нечем было добирать.
     """
     assert read_origin([page("Уэнздей", WEDNESDAY)], "Уэнсдей", trusted=True).title == "Wednesday"
+
+
+def test_a_franchise_article_does_not_pass_for_a_subtitled_picture() -> None:
+    """🔴 TC-779. Спросили «Тачки: Байки Мэтра» - статья «Тачки» отвечает про франшизу.
+
+    Имя мы назвали сами, и перенаправление довело до статьи о первой картине: паспорт
+    выходил твёрдым, с оригиналом ``Cars`` и 2006 годом. Дальше на нём стояло всё - и
+    имя, которым каталог спрашивают второй раз, и год, которым гейт разводит
+    однофамильцев, - так что чем точнее названа картина, тем дальше уезжал ответ.
+    """
+    assert not read_origin([page("Тачки", CARS)], "Тачки: Байки Мэтра", trusted=True)
 
 
 def test_a_namesake_from_the_search_is_still_checked_by_its_heading() -> None:
@@ -177,11 +190,15 @@ def test_a_numbered_part_is_never_answered_by_the_whole_franchise() -> None:
     exact = read_origin([whole, part], "терминатор 2", series=False)
     assert (exact.title, exact.year, exact.guessed) == ("Terminator 2: Judgment Day", 1991, False)
 
-    # Подзаголовок номером части не является: «Властелин колец» за «Братство кольца» отвечает.
+    # 🔴 TC-779. Подзаголовок - такая же другая картина, как и номер, а имя латиницей
+    # ему не приставить обратно: за «Братство кольца» статья франшизы не отвечает вовсе.
     rings = page("Властелин колец (фильм)", FELLOWSHIP, english="The Lord of the Rings")
-    named = read_origin([rings], "Властелин колец: Братство кольца", series=False)
-    assert named.title == "The Lord of the Rings"
-    assert not named.guessed, "имя без номера части статья носит целиком"
+    assert not read_origin([rings], "Властелин колец: Братство кольца", series=False)
+
+    # Своя статья у части есть - её и берём, целиком и без оговорок.
+    own = page("Властелин колец: Братство Кольца", FELLOWSHIP_FILM, english=FELLOWSHIP_LATIN)
+    mine = read_origin([own], "Властелин колец: Братство кольца", series=False)
+    assert (mine.title, mine.year, mine.guessed) == (FELLOWSHIP_LATIN, 2001, False)
 
 
 def test_a_localized_name_finds_the_shorter_article_without_taking_its_namesake() -> None:

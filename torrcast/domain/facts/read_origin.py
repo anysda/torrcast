@@ -7,6 +7,7 @@ from collections.abc import Sequence
 from torrcast.domain.facts.akin import _crowded, akin
 from torrcast.domain.facts.article_gate import _about_cinema, _fits_type
 from torrcast.domain.facts.english_title import english_title
+from torrcast.domain.facts.franchise_article import franchise_article
 from torrcast.domain.facts.latin_title import latin_title
 from torrcast.domain.facts.named_original import named_original
 from torrcast.domain.facts.namesake import namesake
@@ -53,7 +54,9 @@ def read_origin(
     раздач одной части. Либо статья самой франшизы, либо ничего.
 
     🔴 TC-480. Зеркальный случай - спросили ЧАСТЬ, а отвечает имя франшизы
-    (:func:`_other_part`): такой паспорт отдаётся догадкой и без года.
+    (:func:`_other_part`): такой паспорт отдаётся догадкой и без года. Часть, названную
+    не номером, а подзаголовком, такая статья не отвечает вовсе
+    (:func:`~torrcast.domain.facts.franchise_article.franchise_article`).
     """
     crowd = _crowded(title, pages)
     shortened = Origin()
@@ -71,6 +74,10 @@ def read_origin(
             or english_title(page)
             or ("" if _CYRILLIC.search(heading) else heading)
         )
+        if franchise_article(title, heading):
+            # 🔴 TC-779. Статья про франшизу, а спрошена её картина с подзаголовком:
+            # ни имя латиницей, ни год у неё не про то, что назвали.
+            continue
         if _other_part(title, heading):
             # 🔴 TC-480. Спрошена часть N, а статья названа именем франшизы: её паспорт -
             # паспорт ПЕРВОЙ картины, и год у неё чужой. Имя латиницей годится (номер
