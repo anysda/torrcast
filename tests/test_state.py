@@ -10,6 +10,8 @@ import pytest
 from torrcast.adapters.filesystem.state.load_config import load_config
 from torrcast.adapters.filesystem.state.save_config import save_config
 from torrcast.adapters.filesystem.state.state import State
+from torrcast.adapters.filesystem.state.state_path import DEFAULT_STATE_PATH, state_path
+from torrcast.adapters.filesystem.trace_journal.log_dir import log_dir
 from torrcast.domain.entry import Entry
 
 
@@ -320,3 +322,22 @@ def test_latest_is_the_freshest_record() -> None:
 
     assert found is not None and found[1].title == "B"
     assert State().latest() is None
+
+
+def test_a_late_write_lands_in_the_runs_own_state_not_on_the_machine(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Место, на которое садится запись ПОСЛЕ теста, - своё, а не хозяйское.
+
+    Подмену на тест ставят фикстуры, и снимает её финализатор; фоновый поток пишет
+    позже. Лента следа выбирает файл в момент записи, полка карт опорных кадров - в
+    момент, когда карта снята, и оба этих момента приходят уже после снятой подмены.
+    Значит место называет окружение ПРОЦЕССА, и называть боевое оно не вправе.
+
+    ``undo`` тут и есть предмет проверки: он снимает всё, что поставили фикстуры этого
+    теста, и оставляет ровно то окружение, в котором просыпается опоздавшая запись.
+    """
+    monkeypatch.undo()
+
+    assert state_path() != DEFAULT_STATE_PATH, "прогон сидит на состоянии машины"
+    assert log_dir() != DEFAULT_STATE_PATH.parent, "лента прогона пишется в боевую"

@@ -8,10 +8,13 @@ import ast
 import functools
 import importlib
 import inspect
+import os
 import re
+import shutil
 import socket
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from fractions import Fraction
@@ -204,6 +207,35 @@ MACHINE_TESTS = frozenset(
         "tests/test_swarm.py::test_the_grace_a_release_gets_is_the_price_of_dropping_it",
     }
 )
+
+
+#: Состояние ПРОЦЕССА прогона: свой каталог, а не хозяйский. Заводится один на процесс
+#: (у каждого воркера xdist он свой) и живёт до конца прогона.
+_sandbox = ""
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    """Увести состояние прогона в свой каталог на весь ПРОЦЕСС, а не на тест.
+
+    🔴 Подмену на тест снимает финализатор фикстуры, а пишут по ней и фоновые потоки:
+    лента следа выбирает файл в момент ЗАПИСИ, а карта опорных кадров ложится на полку в
+    момент, когда она снята. Оба этих момента приходят позже конца своего теста, то есть
+    позже снятой подмены, - и запись садилась на файлы машины: прогон дописывал боевую
+    ленту и заводил замки на боевой полке карт (замер: 38 попаданий в
+    ``/var/lib/torrcast`` за один быстрый набор). Окружение процесса финализатором не
+    снимается, поэтому поздняя запись приходит туда же, куда пришла бы ранняя.
+
+    Подмена на тест поверх этой остаётся и нужна прежней: она разводит тесты между собой.
+    """
+    global _sandbox
+    _sandbox = tempfile.mkdtemp(prefix="torrcast-run-")
+    os.environ["TORRCAST_STATE"] = os.path.join(_sandbox, "state.json")
+
+
+def pytest_unconfigure(config: pytest.Config) -> None:
+    """Убрать за прогоном его каталог состояния."""
+    if _sandbox:
+        shutil.rmtree(_sandbox, ignore_errors=True)
 
 
 _threads_before: set[threading.Thread] = set()
