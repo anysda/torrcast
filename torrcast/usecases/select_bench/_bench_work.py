@@ -83,8 +83,14 @@ class _BenchWork(_BenchCore):
         Опознание языка - только паспортом второго файла: имя файла звука в аниме язык не
         называет никогда (194 из 194). Молчание ffprobe тут не беда: дорожки нет - значит
         нет, и релиз судится по одному видеофайлу, как судился раньше.
+
+        Видеофайл БЕЗ ЕДИНОЙ звуковой дорожки спрашивается тоже, хотя гейт озвучки такой
+        паспорт не бракует: так раздают исходники аниме, и весь звук у них снаружи. Гейту
+        сказать о таком файле нечего, а зрителю без второго файла нечего и слышать.
         """
-        if prep.media is None or not voice_unproven(prep.media, native=plan.picture.native):
+        if prep.media is None:
+            return
+        if prep.media.tracks and not voice_unproven(prep.media, native=plan.picture.native):
             return
         found = voice_beside(prep.want, prep.files)
         if found is None:

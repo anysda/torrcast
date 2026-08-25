@@ -240,3 +240,24 @@ def test_a_nameless_track_beside_the_video_is_not_a_spare_way_either() -> None:
     bench = Bench(Torrents(files=files), prober=read)
 
     assert not bench.resolve(plan(pool), _ASKED, Said()).apart
+
+
+def test_a_video_without_any_sound_of_its_own_is_played_by_the_track_beside_it() -> None:
+    """Исходник аниме: внутри видео звука нет вовсе, весь он лежит рядом отдельным файлом.
+
+    Гейт озвучки такой паспорт не бракует - сказать о языке ему нечем, - и релиз доходил
+    до показа немым. Проверено откатом: спрашивай второй файл только у паспорта с
+    дорожками - и запись показа остаётся без единой.
+    """
+    pool = [rel(name="r0 | RAW", seeders=100)]
+    files = [TorrFile(0, "Erin - 01.mkv", 4 * GB), TorrFile(1, "Erin - 01.mka", 150 * 1024**2)]
+    mute = Media(RUNTIME, (), "h264", height=1080, width=1920)
+    russian = Media(RUNTIME, (AudioTrack(index=0, language="rus", title="Дубляж"),), None)
+
+    def read(source_url: str, /, timeout: float = 90.0, alive: object = None) -> Media:
+        return russian if source_url.endswith("/1") else mute
+
+    prep = Bench(Torrents(files=files), prober=read).resolve(plan(pool), _ASKED, Said())
+
+    assert prep.apart, "показ пойдёт немым: дорожки рядом с видео никто не спросил"
+    assert prep.voiced is russian
