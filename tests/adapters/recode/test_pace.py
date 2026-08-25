@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
-from torrcast.adapters.recode.pace import COPY_TOLL, NEIGHBOUR_TOLL, PACE_MEMORY, Pace
+from torrcast.adapters.recode.pace import COPY_TOLL, PACE_MEMORY, Pace
 from torrcast.adapters.recode.preset_for import REALTIME, preset_for
 from torrcast.adapters.recode.presets import PRESETS
+
+#: Цена перекодирующего соседа тем же замером: заход veryfast идёт 0.95x вместо 1.41x.
+RECODING_TOLL = 0.70
 
 
 def test_before_the_first_measurement_we_plan_as_if_the_neighbour_is_copying() -> None:
@@ -27,7 +30,7 @@ def test_a_copying_neighbour_leaves_the_best_preset_reachable() -> None:
     seconds = 14.26
     best = PRESETS[0][0]
 
-    pessimistic = Pace(factor=NEIGHBOUR_TOLL).table()
+    pessimistic = Pace(factor=RECODING_TOLL).table()
     assert pessimistic[0][1] < REALTIME
     assert preset_for(seconds, slack=3600.0, presets=pessimistic) != best
 
