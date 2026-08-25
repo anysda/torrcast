@@ -78,6 +78,7 @@ def _run(state: _State, first: int, last: int) -> str | None:
         burst=0.0,
         encode=encode,
         until=last,
+        voice=state.voice,
         container=state.container,
     )
     command = ["nice", "-n", str(HEAD_NICE if first == state.head else NICE), *command]

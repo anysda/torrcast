@@ -10,8 +10,10 @@ import torrcast.usecases.select_bench._bench_state as _bench_state
 from torrcast.domain.pick_settings import SWARM_GRACE
 from torrcast.domain.rank_settings import PEER_GRACE
 from torrcast.domain.torrcast_error import TorrcastError
+from torrcast.domain.voice_beside import voice_beside
 from torrcast.ports.journal.slot import journal
 from torrcast.ports.progress.progress import Progress
+from torrcast.usecases.rank.voice_unproven import voice_unproven
 from torrcast.usecases.select._prep import _Prep
 from torrcast.usecases.select.plan import Plan
 from torrcast.usecases.select_bench._bench_core import _BenchCore
@@ -59,6 +61,7 @@ class _BenchWork(_BenchCore):
                 ),
             )
             prep.read = self.clock() - began
+            self._voice_apart(prep, plan)
             self._sample_supply(prep)
             journal().mark("ffprobe", релиз=prep.number, картина=plan.picture.key)
             prep.phase = "готово"
@@ -70,6 +73,29 @@ class _BenchWork(_BenchCore):
             prep.ready.set()
             if prep.dropped:  # пока грелись, показ ушёл к другому релизу
                 self._forget(prep)
+
+    def _voice_apart(self, prep: _Prep, plan: Plan) -> None:
+        """Прочитать паспортом отдельный файл звука рядом с видео, если он там лежит.
+
+        Спрашивается ровно там, где иначе релиз пошёл бы в брак: русской дорожки внутри
+        видеофайла нет. На здоровом релизе это не стоит ни одного лишнего ffprobe.
+
+        Опознание языка - только паспортом второго файла: имя файла звука в аниме язык не
+        называет никогда (194 из 194). Молчание ffprobe тут не беда: дорожки нет - значит
+        нет, и релиз судится по одному видеофайлу, как судился раньше.
+        """
+        if prep.media is None or not voice_unproven(prep.media, native=plan.picture.native):
+            return
+        found = voice_beside(prep.want, prep.files)
+        if found is None:
+            return
+        prep.voice_file = found
+        with suppress(TorrcastError):
+            prep.voice_media = self.prober(
+                self.torrserver.stream_url(prep.torrent_hash, found.index),
+                timeout=self.probe_budget,
+            )
+        journal().mark("дорожка отдельным файлом", релиз=prep.number, файл=found.base)
 
     def _sample_supply(self, prep: _Prep) -> None:
         """Снять счётчик байтов именно пока прогрев создаёт спрос на файл."""

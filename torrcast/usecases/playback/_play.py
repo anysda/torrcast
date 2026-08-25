@@ -39,6 +39,7 @@ def _play(
     frame: int = 0,
     hdr: bool = False,
     session_tag: str = "",
+    voice: str = "",
 ) -> int:
     """Упаковка → раздача по http на голом IP → приёмник. Своих демонов нет: и ffmpeg,
     и раздача живут ровно на время показа и гасятся вместе с ним, что бы ни случилось.
@@ -107,6 +108,7 @@ def _play(
         video_mbit_estimated=video_mbit_estimated,
         codec=codec,
         depth=depth,
+        voice=voice,
     )
     url = f"{_state.hls_base(config)}/index.m3u8"
     try:

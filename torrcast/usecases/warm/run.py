@@ -104,6 +104,7 @@ def _run(
         encode=encode,
         until=last,
         seek=seek,
+        voice=state.voice,
         container=state.container,
     )
     command = ["nice", "-n", str(state.nice), *command]
@@ -141,8 +142,7 @@ def _run(
             container=state.container,
         )
     state.misgrid = -1
-    laid = first - 1
-    checked = first - 1
+    laid = checked = first - 1
     try:
         while not state.stopped:
             packer.publish()

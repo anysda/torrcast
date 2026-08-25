@@ -28,6 +28,8 @@ class _State:
     audio: int
     grid: Grid
     vault: Vault
+    #: Отдельный файл со звуком рядом с видео; пусто - звук из самого видеофайла.
+    voice: str = ""
     container: SegmentContainer = MPEGTS
     #: Чем кодировать видео (:class:`torrcast.adapters.recode.encode.Encode`); ``None`` - копия.
     #:

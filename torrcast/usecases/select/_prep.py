@@ -36,6 +36,11 @@ class _Prep:
     video: TorrFile | None = None
     files: list[TorrFile] = field(default_factory=list)
     media: Media | None = None
+    #: Файл со звуком, лежащий в этой же раздаче рядом с видео
+    #: (:func:`torrcast.domain.voice_beside.voice_beside`), и его паспорт. Спрашиваются
+    #: только тогда, когда русской дорожки не нашлось в самом видеофайле.
+    voice_file: TorrFile | None = None
+    voice_media: Media | None = None
     error: str = ""
     #: Отказ, которым кончилась подготовка (``error`` - его строка для человека).
     #: Нужен именно типом: «умерло собственное звено» опознаётся по классу
@@ -70,6 +75,28 @@ class _Prep:
         if self.media is None:
             raise InfraError("поток не прочитан")
         return self.media
+
+    @property
+    def voiced(self) -> Media:
+        """Паспорт, по которому судят ЗВУК этого релиза, - он же решает годность.
+
+        Обычно это паспорт самого видеофайла. Разойтись они могут ровно там, где русская
+        дорожка в раздаче есть, но лежит отдельным файлом рядом с видео (:attr:`apart`):
+        судить релиз по одному видеофайлу значило бы забраковать раздачу за то, чего в
+        ней нет, при том что услышать зритель должен именно вторую дорожку.
+        """
+        found = self.voice_media
+        return found if found is not None and self.apart else self.found
+
+    @property
+    def apart(self) -> bool:
+        """Русская дорожка есть, но лежит отдельным файлом рядом с видео.
+
+        Паспорт самого видеофайла при этом русскую не подтверждает - иначе играть
+        вторым входом нечего: дорожка уже внутри, и один вход дешевле двух.
+        """
+        voiced = self.voice_media
+        return voiced is not None and voiced.russian and not self.found.russian
 
     @property
     def timing(self) -> str:

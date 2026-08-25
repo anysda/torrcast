@@ -130,7 +130,7 @@ class Bench(_BenchPrewarm):
             voiceless = (
                 not trouble
                 and not args.pinned
-                and voice_unproven(prep.found, native=plan.picture.native)
+                and voice_unproven(prep.voiced, native=plan.picture.native)
             )
             if not trouble and not voiceless:
                 supply = _bench_supply(self.profile, prep)
@@ -156,7 +156,7 @@ class Bench(_BenchPrewarm):
             goes_on = following is not None and affordable and self.clock() < deadline
             tail = f" - беру {following}" if goes_on else ""
             head = (
-                f"релиз {number} без русской озвучки ({heard(prep.found)})"
+                f"релиз {number} без русской озвучки ({heard(prep.voiced)})"
                 if voiceless
                 else f"релиз {number} не годится ({why})"
             )

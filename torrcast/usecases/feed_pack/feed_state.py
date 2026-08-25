@@ -41,6 +41,8 @@ class _State:
     audio: int
     out: Path
     grid: Grid
+    #: Отдельный файл со звуком рядом с видео; пусто - звук из самого видеофайла.
+    voice: str = ""
     container: SegmentContainer = MPEGTS
     video_codec: str = "avc1.640028"
 

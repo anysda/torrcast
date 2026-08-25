@@ -59,6 +59,7 @@ def _restart(state: _State, slot: int, shrink: Callable[[int, int], bool]) -> No
         state.burst,
         encode=state.encode,
         seek=seek,
+        voice=state.voice,
         container=state.container,
         video_tag="hvc1" if state.video_codec.startswith("hvc1") else "",
     )

@@ -20,8 +20,9 @@ from torrcast.ports.torrent_engine import TorrentEngine
 from torrcast.usecases.episode_duration import _duration
 from torrcast.usecases.following import _following
 from torrcast.usecases.next_season import _next_season
+from torrcast.usecases.playback._next_warmer import _next_warmer
 from torrcast.usecases.playback._play import _play
-from torrcast.usecases.playback._warmer import _next_warmer
+from torrcast.usecases.playback.voice_source import voice_source
 from torrcast.usecases.rank._hms import _hms
 from torrcast.usecases.start_clock import _Clock
 from torrcast.usecases.torrents import _own_torrent
@@ -82,6 +83,7 @@ def _worker_loop(
             # мы не ходим - он лежит в записи картины.
             supply.torrent_hash, supply.magnet, supply.lost = torrent_hash, magnet, ""
         source = torrserver.stream_url(torrent_hash, entry.file_idx)
+        voice = voice_source(torrserver, torrent_hash, entry)
         entry = _duration(key, entry, source)
         supply.file_index, supply.duration = entry.file_idx, entry.dur
         watch = Watch(key=key, entry=entry)
@@ -127,6 +129,8 @@ def _worker_loop(
             supply=supply,
             profile=profile,
             session_tag=session_tag,
+            # Звук отдельным файлом рядом с видео: второй вход упаковки, если он есть.
+            voice=voice,
         )
         following = _following(key) if watch.done else None
         # Конец раздачи сезона - не конец сериала (TC-805): следующий сезон ищется

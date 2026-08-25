@@ -27,6 +27,7 @@ def _recoder(
     video_mbit: float = 0.0,
     profile: Profile = CAUTIOUS,
     video_mbit_estimated: bool = False,
+    voice: str = "",
 ) -> SpotRecoder | None:
     """Кодировщик тяжёлых кусков или ``None``, если он не нужен и не может помочь.
 
@@ -53,6 +54,7 @@ def _recoder(
     return _state.Recoder(
         source=source,
         audio=audio,
+        voice=voice,
         grid=grid,
         spare=spare,
         weights=weights,

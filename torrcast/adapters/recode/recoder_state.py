@@ -35,6 +35,8 @@ class _State:
     grid: Grid
     spare: Path
     weights: Weights
+    #: Отдельный файл со звуком рядом с видео; пусто - звук из самого видеофайла.
+    voice: str = ""
     threshold: float = 15.0
     #: Потолок веса одного куска - свойство ПРИЁМНИКА
     #: (:attr:`torrcast.domain.profile.Profile.max_segment_bytes`), то же число, которым

@@ -118,15 +118,21 @@ def _cmd_play(
         return picked  # закладка выбранной картины ответила показом сама
     plans, plan, prep, bench, passport = picked
     release, video, media = prep.release, prep.want, prep.found
+    # Дорожку выбирают у того файла, из которого её и возьмёт показ: у видео, а когда
+    # русская лежит рядом отдельным файлом (:attr:`_Prep.apart`) - у него. Номер дорожки
+    # после этого считается ВНУТРИ выбранного файла, и туда же смотрит показ.
+    sound = prep.voiced
     audio, voice = pick_voice(
-        media, args, _remembered(state, plan.picture.key, found_entry), plan.picture.native
+        sound, args, _remembered(state, plan.picture.key, found_entry), plan.picture.native
     )
     journal().mark("ответы")  # ноль секундомера: Enter после последнего вопроса
-    label = media.tracks[audio].label if audio < len(media.tracks) else "-"
+    label = sound.tracks[audio].label if audio < len(sound.tracks) else "-"
+    if prep.apart and prep.voice_file is not None:
+        print(f"русская озвучка лежит отдельным файлом «{prep.voice_file.base}» - беру её")
     # Чья это озвучка - в подписи дорожки бывает не написано вовсе: сезонный пак
     # подписывает свои дорожки голым «rus», а студию называет своим именем. Строка
     # запуска обязана сказать, ЧТО играет, и молчать об этом ей нечем (TC-701).
-    studio = track_studio(media, audio, release.studios)
+    studio = track_studio(sound, audio, release.studios)
     if studio is not None and studio.name.casefold() not in label.casefold():
         label = f"{label} ({studio.name})"
     # Студия из памяти картины: вынужденный дефолт её не переписывает, поэтому знать

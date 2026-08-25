@@ -39,7 +39,7 @@ def _entry_for(
     картины, а не факт этого запуска, и переписывать её вынужденным дефолтом нельзя.
     """
     series = plan.series
-    played = _named(track_studio(media, audio, release.studios))
+    played = _named(track_studio(prep.voiced, audio, release.studios))
     # Явный выбор человека - единственное, что вправе назначить картине другую студию:
     # `--voice N` и меню озвучек называют дорожку сами (:func:`pick_voice`).
     studio = played if args.voice is not None else (seen or played)
@@ -60,6 +60,10 @@ def _entry_for(
         kind="tv" if plan.picture.kind == "tv" else "movie",
         file_idx=video.index,
         audio=audio,
+        # Дорожка едет из отдельного файла, а какого именно - показ спрашивает у
+        # раздачи тем же правилом (:func:`torrcast.domain.voice_beside.voice_beside`):
+        # у каждой серии свой файл звука, а список серий про него не знает.
+        voiced_apart=prep.apart,
         voice=voice,
         # Чья это озвучка - спрашивается у дорожки и у имени раздачи: следующий сезон
         # будет другим релизом, и одна эта строка - всё, чем он узнает, чем сериал

@@ -84,6 +84,7 @@ def _shrink(state: _State, slot: int, size: int = 0) -> bool:
             0.0,
             encode=encode,
             until=slot,
+            voice=state.voice,
             container=state.container,
         )
         packer: PackRun | None = None
