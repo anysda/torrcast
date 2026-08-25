@@ -87,8 +87,13 @@ def plans(magnets: list[str], filler: list[str], ceiling: float) -> list[Plan]:
     return made
 
 
-def once(url: str, order: list[Plan], think: float, spare: bool) -> tuple[float, str]:
-    """Один прогон: прогрев под меню, пауза «человек читает», отбор. Всё убирается за собой."""
+def once(url: str, order: list[Plan], think: float, spare: bool) -> tuple[float, str, list[str]]:
+    """Один прогон: прогрев под меню, пауза «человек читает», отбор. Всё убирается за собой.
+
+    Третьим возвращаются ФАЗЫ каждой тронутой раздачи - метаданные из роя и чтение
+    дорожек (:attr:`torrcast.usecases.select._prep._Prep.timing`). Сумма отбора без них
+    называет цену, но не говорит, за что заплачено, - а меряем мы здесь именно слагаемые.
+    """
     shutil.rmtree(state_path().parent / "keys", ignore_errors=True)  # старт холодный
     bench = Bench(TorrServer(url))
     args = Args(query=["кино"])
@@ -108,8 +113,15 @@ def once(url: str, order: list[Plan], think: float, spare: bool) -> tuple[float,
     except TorrcastError as exc:
         note = f"отказ: {exc}"
     spent = time.monotonic() - picked
+    # Называются только раздачи, прошедшие ОБЕ фазы. Прогрев, срезанный на середине
+    # чтения, числа не дал вовсе, и ноль вместо него занизил бы разброс замера.
+    phases = [
+        f"картина {key[0]}, релиз {key[1]}: {prep.timing}"
+        for key, prep in sorted(bench.preps.items())
+        if prep.meta > 0 and prep.read > 0
+    ]
     bench.drop_all()  # по явным хэшам: чистка списком снесла бы и чужие раздачи
-    return spent, note
+    return spent, note, phases
 
 
 def weigh(url: str, magnet: str) -> str:
@@ -153,9 +165,11 @@ def main() -> int:
     spent: list[float] = []
     for run in range(1, args.runs + 1):
         order = plans(list(args.magnets), list(args.filler), args.ceiling)
-        took, note = once(url, order, args.think, args.spare)
+        took, note, phases = once(url, order, args.think, args.spare)
         spent.append(took)
         print(f"прогон {run}: отбор {took:.1f} с - {note}", flush=True)
+        for line in phases:
+            print(f"    {line}", flush=True)
         time.sleep(5.0)  # рою дают отпустить снятые раздачи
     spread = f"{min(spent):.1f}-{max(spent):.1f}"
     print(f"\nотбор: медиана {statistics.median(spent):.1f} с, разброс {spread} с")
