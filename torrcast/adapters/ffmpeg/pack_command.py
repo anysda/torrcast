@@ -2,6 +2,7 @@
 
 from typing import Any, Final, Protocol
 
+from torrcast.adapters.ffmpeg.pack_inputs import pack_inputs
 from torrcast.domain.segment_container import FMP4, MPEGTS, SegmentContainer
 from torrcast.domain.segment_suffix import segment_suffix
 from torrcast.ports.journal.slot import journal
@@ -48,6 +49,7 @@ def pack_command(
     until: int = -1,
     *,
     seek: float | None = None,
+    voice_url: str = "",
     split_slack: float = 0.02,
     audio_codec: str = "aac",
     audio_channels: int = 2,
@@ -87,6 +89,9 @@ def pack_command(
     запись своя и спокойная — ``посадка позже границы на ровной сетке``. Само число
     зажимается одинаково: ошибиться именем куска нельзя ни на какой сетке.
 
+    ``voice_url`` — отдельный файл со звуком рядом с видео
+    (:func:`torrcast.adapters.ffmpeg.pack_inputs.pack_inputs`); пусто — звук из видеофайла.
+
     ``seek`` — с какого места прогон заходит на самом деле, то есть что уедет в ``-ss``.
     Обычно это и есть граница, и тогда его не называют. Врозь они расходятся ровно там,
     где демуксер садится ПОЗЖЕ границы: заход отводят назад
@@ -94,6 +99,7 @@ def pack_command(
     резался внутри непрерывного потока, а не начинался дырой.
     """
     run = run_dir.rstrip("/")
+    tail = grid.end(grid.count - 1) + 1.0  # секунда за концом фильма: туда смотрит рез хвоста
     entry = grid.start(slot) if seek is None else seek
     if at > grid.start(slot):
         journal().mark(
@@ -138,16 +144,9 @@ def pack_command(
         # обрезком. Границы и имена кусков от этого не двигаются ни на миллисекунду:
         # список резов пустым бывает ровно тогда, когда заход кончается последним слотом
         # сетки, и резать внутри него нечего по построению.
-        times = f"{grid.end(grid.count - 1) + 1.0 - at:.3f}"
-    command = ["ffmpeg", "-hide_banner", "-loglevel", "warning"]
-    if readrate > 0:
-        command += ["-readrate", f"{readrate:g}"]
-        if burst > 0:
-            command += ["-readrate_initial_burst", f"{burst:g}"]
-    command += ["-copyts"]
-    if slot > 0:
-        command += ["-ss", f"{entry:.3f}"]
-    command += ["-i", source_url, "-map", "0:v:0", "-map", f"0:a:{audio_index}"]
+        times = f"{tail - at:.3f}"
+    head = entry if slot > 0 else None
+    command = pack_inputs(source_url, audio_index, head, readrate, burst, voice_url, tail)
     command += ["-c:v", "copy"] if encode is None else encode.args(grid, slot, upto - 2)
     if video_tag:
         command += ["-tag:v", video_tag]

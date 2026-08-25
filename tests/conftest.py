@@ -78,7 +78,9 @@ CLIP_KEY_SECONDS = float(CLIP_GOP / CLIP_FPS)
 # Любой тест из этой группы получает настоящий медиафайл, собранный ffmpeg. Маркер
 # ставится по замыканию фикстур: так зависимость не потеряется, когда тест начнёт брать
 # не ``clip`` напрямую, а производный mp4 или общую фикстуру поверх него.
-FFMPEG_FIXTURES = frozenset({"clip", "clip_hevc", "clip_mp4", "clip_mp4_tail", "clip_mp4_bframes"})
+FFMPEG_FIXTURES = frozenset(
+    {"clip", "clip_hevc", "clip_mp4", "clip_mp4_tail", "clip_mp4_bframes", "clip_voice"}
+)
 
 # Эти проверки намеренно меряют настоящий планировщик, TCP/TLS или ожидание потока.
 # Их нельзя честно распараллеливать с быстрым набором: под CPU-нагрузкой пауза потока

@@ -28,6 +28,7 @@ def ffmpeg_pack_command(
     encode: Any = None,
     until: int = -1,
     seek: float | None = None,
+    voice: str = "",
     container: SegmentContainer = MPEGTS,
     video_tag: str = "",
 ) -> list[str]:
@@ -44,6 +45,7 @@ def ffmpeg_pack_command(
         encode,
         until,
         seek=seek,
+        voice_url=voice,
         split_slack=SPLIT_SLACK,
         audio_codec=AUDIO_CODEC,
         audio_channels=AUDIO_CHANNELS,
