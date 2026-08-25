@@ -50,6 +50,7 @@ from torrcast.domain.hls_settings import HLS_SEGMENT_SECONDS, PACK_DIR
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.not_raised import NOT_RAISED
 from torrcast.domain.position import Position
+from torrcast.domain.profile import CAUTIOUS
 from torrcast.domain.revive_settings import REVIVE_DROP, REVIVE_LIMIT, REVIVE_PAUSE, REVIVE_TRIES
 from torrcast.domain.start_refused_error import StartRefusedError
 from torrcast.domain.start_settings import PAUSE_SECONDS
@@ -1547,8 +1548,8 @@ def test_the_mock_receiver_burns_its_patience_before_it_drops_the_show(tmp_path:
     # приложения с экрана (301 с), - а «повторы LOAD» на деле оказались перезаборами
     # куска по HTTP: media_session_id при них не менялся. Поведение теста не изменилось:
     # терпение он и раньше задавал сам, а проверяет он правила, а не цифры.
-    assert MockReceiver.PATIENCE == 23.5, "замер: столько живёт медиасессия после стопа"
-    assert MockReceiver.SEGMENT_RETRIES == 2, "и ровно два перезабора куска внутри неё"
+    assert CAUTIOUS.patience == 23.5, "замер: столько живёт медиасессия после стопа"
+    assert CAUTIOUS.segment_retries == 2, "и ровно два перезабора куска внутри неё"
 
     seen = []
     for _ in range(6):
@@ -1602,7 +1603,7 @@ def test_the_mock_receiver_takes_a_load_right_after_a_404() -> None:
     receiver._url = "http://127.0.0.1:8010/index.m3u8"
 
     receiver.fetch.caught(_Answer(404))
-    assert MockReceiver.SULK == 0.0, "наказания за 404 нет - замер снял его трижды"
+    assert CAUTIOUS.sulk == 0.0, "наказания за 404 нет - замер снял его трижды"
     assert receiver.replay(1200.0) == NOT_RAISED, "картинки нет - врать о поднятом показе нельзя"
     assert receiver.opens == [1200.0], "но попытку приёмник принял сразу, не выжидая ни секунды"
 
@@ -1814,12 +1815,12 @@ def test_a_stuck_receiver_is_nudged_only_when_the_packing_is_ahead() -> None:
     receiver._nudge(84.0, front=144.0)
     assert jumps == [], "первый неподвижный тик - ещё не зависание"
 
-    receiver._stall_since -= ChromecastReceiver.STALL_SECONDS
+    receiver._stall_since -= CAUTIOUS.stall_seconds
     receiver._nudge(84.0, front=88.0)
     assert jumps == [], "запаса впереди нет - приёмник ждёт нас, а не завис"
 
     receiver._nudge(84.0, front=144.0)
-    assert jumps == [84.0 + ChromecastReceiver.STALL_SKIP], "еда на столе - расшевелить"
+    assert jumps == [84.0 + CAUTIOUS.stall_skip], "еда на столе - расшевелить"
 
 
 #: Сетка «Моаны» 2016 вокруг места, на котором показ умер: границы взяты у неё же.
@@ -1839,12 +1840,12 @@ def test_a_nudge_lands_past_the_segment_and_not_eight_seconds_ahead() -> None:
     receiver.next_cut = _MOANA.after
     receiver._peak = 127.2
 
-    assert _MOANA.slot_at(127.2 + ChromecastReceiver.STALL_SKIP) == _MOANA.slot_at(127.2), (
+    assert _MOANA.slot_at(127.2 + CAUTIOUS.stall_skip) == _MOANA.slot_at(127.2), (
         "замер: прежний шаг не выводил из сегмента вовсе"
     )
 
     receiver._nudge(127.2, front=200.0)
-    receiver._stall_since -= ChromecastReceiver.STALL_SECONDS
+    receiver._stall_since -= CAUTIOUS.stall_seconds
     receiver._nudge(127.2, front=200.0)
 
     assert jumps == [137.095 + ChromecastReceiver.CUT_SLACK]
@@ -1955,10 +1956,10 @@ def test_the_peak_follows_the_viewer_back_after_a_rewind() -> None:
     assert receiver._peak == 600.0, "максимум пошёл за человеком, а не остался на 31:31"
 
     receiver.position(front=688.0)  # встали на 10:19 при готовой упаковке впереди
-    receiver._stall_since -= ChromecastReceiver.STALL_SECONDS
+    receiver._stall_since -= CAUTIOUS.stall_seconds
     receiver.position(front=688.0)
 
-    assert jumps == [619.0 + ChromecastReceiver.STALL_SKIP], (
+    assert jumps == [619.0 + CAUTIOUS.stall_skip], (
         "нудж целится на кусок вперёд от текущего места, а не назад в покинутое"
     )
 
@@ -1994,10 +1995,10 @@ def test_a_zero_from_a_live_receiver_never_throws_the_show_back_to_the_beginning
     receiver.position(front=94.3)  # приёмник отдал ноль, живым себя называть не перестав
     assert receiver._peak == 34.3, "ноль живого приёмника местом показа не является"
 
-    receiver._stall_since -= ChromecastReceiver.STALL_SECONDS
+    receiver._stall_since -= CAUTIOUS.stall_seconds
     receiver.position(front=94.3)
 
-    assert jumps == [34.3 + ChromecastReceiver.STALL_SKIP], (
+    assert jumps == [34.3 + CAUTIOUS.stall_skip], (
         "сторож толкает показ вперёд от увиденного кадра, а не отсчитывает от нуля"
     )
     assert min(jumps) > receiver._shown, "назад от увиденного кадра сторож не прыгает"
@@ -2046,12 +2047,12 @@ def test_a_blind_ladder_of_nudges_gives_up_instead_of_walking_the_movie() -> Non
 
     result = receiver.position(front=1e6)
     for _ in range(30):  # минута показа при опросе раз в 2 с
-        receiver._stall_since -= ChromecastReceiver.STALL_SECONDS
+        receiver._stall_since -= CAUTIOUS.stall_seconds
         result = receiver.position(front=1e6)
         if not result.playing:
             break
 
-    limit = ChromecastReceiver.BLIND_NUDGES
+    limit = CAUTIOUS.blind_nudges
     assert len(gone.jumps) == limit, "лестница не остановилась - сторож шагает по фильму"
     assert gone.jumps == [84.0 + 8.0 * step for step in range(1, limit + 1)]
     assert not result.playing, "показ живым больше не считается - эстафета воскрешению"
@@ -2071,7 +2072,7 @@ def test_a_single_nudge_still_pulls_the_receiver_out() -> None:
     for _ in range(5):
         gone.freeze()
         receiver.position(front=1e6)  # первый неподвижный тик - ещё не зависание
-        receiver._stall_since -= ChromecastReceiver.STALL_SECONDS
+        receiver._stall_since -= CAUTIOUS.stall_seconds
         assert receiver.position(front=1e6).playing, "одиночный нудж показ не хоронит"
         gone.show(gone.status.current_time + 2.0)  # прыжок помог: кадр на экране
         assert receiver.position(front=1e6).state == "PLAYING"
@@ -2104,7 +2105,7 @@ def test_the_film_a_nudge_stepped_over_is_named_to_the_viewer(
     assert _TORN.after(103.6) == 118.7, "замер: кусок зрителя кончается ровно здесь"
 
     receiver.position(front=1e6)  # первый неподвижный тик - ещё не зависание
-    receiver._stall_since -= ChromecastReceiver.STALL_SECONDS
+    receiver._stall_since -= CAUTIOUS.stall_seconds
     receiver.position(front=1e6)
     assert gone.jumps == [118.7 + ChromecastReceiver.CUT_SLACK], "прыжок ушёл за кусок"
     assert capsys.readouterr().out == "", "в момент прыжка называть ещё нечего"
@@ -2156,7 +2157,7 @@ def test_a_show_raised_from_the_last_shown_frame_reports_no_gap(
 
     receiver.position(front=1e6)
     for _ in range(30):  # минута показа при опросе раз в 2 с
-        receiver._stall_since -= ChromecastReceiver.STALL_SECONDS
+        receiver._stall_since -= CAUTIOUS.stall_seconds
         if not receiver.position(front=1e6).playing:
             break
     assert receiver._gone, "лестница кончилась - эстафета воскрешению"
@@ -2852,7 +2853,6 @@ def test_the_mock_waits_for_as_much_film_as_the_receiver_gathers_before_the_firs
     """
     from torrcast.adapters.chromecast.mock.mock_receiver import MockReceiver
     from torrcast.domain.position import Position
-    from torrcast.domain.profile import CAUTIOUS
 
     assert CAUTIOUS.start_buffer == 10.0, "замер: столько фильма Q70D копит до первого кадра"
 

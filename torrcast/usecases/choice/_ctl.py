@@ -18,7 +18,7 @@ class _Revivable(Protocol):
     Отдельно от :class:`Receiver` намеренно: воскрешать имеет смысл только тот приёмник,
     у которого есть собственное терпение и который его тратит. Терпение mock моделирует
     нарочно и по замерам живого ТВ
-    (:attr:`torrcast.adapters.chromecast.mock.mock_receiver.MockReceiver.PATIENCE`) - иначе целый
+    (:attr:`torrcast.domain.profile.Profile.patience`) - иначе целый
     класс аварий «источник моргнул» уходил бы из-под сухих прогонов вовсе.
 
     ``replay`` отвечает секундой, С КОТОРОЙ показ пошёл, а не «да/нет»: приёмник вправе

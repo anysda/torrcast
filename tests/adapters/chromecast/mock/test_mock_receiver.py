@@ -86,8 +86,8 @@ def test_the_patience_and_the_sulk_come_from_the_profile() -> None:
 
     assert stick.patience == ANDROID_TV.patience
     assert stick.fetch.sulk == ANDROID_TV.sulk
-    assert cautious.patience == CAUTIOUS.patience == MockReceiver.PATIENCE
-    assert CAUTIOUS.segment_retries == MockReceiver.SEGMENT_RETRIES
+    assert cautious.patience == CAUTIOUS.patience
+    assert cautious.fetch.sulk == CAUTIOUS.sulk
 
 
 def test_a_patience_named_by_the_caller_beats_the_profile() -> None:

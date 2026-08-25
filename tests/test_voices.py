@@ -22,10 +22,10 @@ from torrcast.adapters.filesystem.state.save_config import save_config
 from torrcast.adapters.filesystem.state.state import State
 from torrcast.cli.main import main
 from torrcast.domain.audio_track import (
+    _VOICE_STEPS,
     STEP_FOREIGN,
     STEP_RU_PLAIN,
     STEP_SERVICE,
-    VOICE_KINDS,
     AudioTrack,
 )
 from torrcast.domain.config import Config
@@ -207,8 +207,10 @@ def test_studio_fame_ranks_studios_within_a_step() -> None:
     fame работает ТОЛЬКО внутри ступени: дубляж всегда выше многоголосого,
     даже если у многоголосого fame=100.
     """
-    # ступени в таблице - только иззвестных (:data:`VOICE_KINDS`)
-    assert {s.kind for s in STUDIOS.values()} <= set(VOICE_KINDS), "ступени только из лестницы"
+    # ступени в таблице - только те, что есть в лестнице (:data:`_VOICE_STEPS`): по ним
+    # :attr:`AudioTrack.step` и находит номер ступени по имени вида перевода.
+    ladder = {name for name, _ in _VOICE_STEPS}
+    assert {s.kind for s in STUDIOS.values()} <= ladder, "ступени только из лестницы"
     # AniDub вредоносный и fame отрицательный; Кубик в Кубе - положительный
     assert STUDIOS["anidub"].fame < 0
     assert STUDIOS["кубик в кубе"].fame > 0

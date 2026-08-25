@@ -1,4 +1,4 @@
-"""Пороги приёмника умолчанием: все они - осторожный профиль, и ни один не выдуман."""
+"""Числа приёмника, не зависящие от модели: app_id, пороги перемотки и сроки LOAD."""
 
 from __future__ import annotations
 
@@ -7,19 +7,9 @@ from torrcast.domain.profile import CAUTIOUS
 from torrcast.domain.start_timeout import START_TIMEOUT
 
 
-def test_every_threshold_that_belongs_to_a_profile_comes_from_the_cautious_one() -> None:
-    """Числа сторожа не прибиты здесь: они приходят из профиля приёмника.
-
-    Разъедься умолчание с профилем - и приёмник без выбранного профиля вёл бы себя
-    иначе, чем тот же приёмник с осторожным профилем, а различить это было бы нечем.
-    """
+def test_the_start_timeout_is_the_one_the_domain_counts_the_budget_by() -> None:
+    """Терпение до первой картинки не заводится тут заново: его складывает бюджет старта."""
     assert _Settings.START_TIMEOUT is START_TIMEOUT
-    assert CAUTIOUS.revive_timeout == _Settings.REVIVE_TIMEOUT
-    assert CAUTIOUS.load_retries == _Settings.LOAD_RETRIES
-    assert CAUTIOUS.stall_seconds == _Settings.STALL_SECONDS
-    assert CAUTIOUS.ready_ahead == _Settings.READY_AHEAD
-    assert CAUTIOUS.stall_skip == _Settings.STALL_SKIP
-    assert CAUTIOUS.blind_nudges == _Settings.BLIND_NUDGES
 
 
 def test_the_app_ids_are_the_ones_the_receiver_actually_reports() -> None:
@@ -36,7 +26,7 @@ def test_the_watchdog_thresholds_keep_the_order_that_makes_them_work() -> None:
     обычный ход фильма.
     """
     assert _Settings.REWIND == 8.0, "больше сегмента брать нельзя: откат на кусок - обычное дело"
-    assert _Settings.REWIND >= _Settings.STALL_SKIP
+    assert CAUTIOUS.stall_skip <= _Settings.REWIND
     assert _Settings.SEEK_JUMP > _Settings.REWIND
     assert _Settings.PICTURE_STEP < 2.0, "меньше шага показа за опрос (2 с)"
     assert _Settings.CUT_SLACK > 0.0, "ноль вернул бы прыжок в тот же кусок"
@@ -54,7 +44,7 @@ def test_the_wake_budget_is_shorter_than_the_revive_one() -> None:
     живой Q70D отвечает PLAYING за 0.7-1.5 с.
     """
     assert _Settings.WAKE_TIMEOUT == 60.0
-    assert _Settings.WAKE_TIMEOUT < _Settings.REVIVE_TIMEOUT
+    assert CAUTIOUS.revive_timeout > _Settings.WAKE_TIMEOUT
 
 
 def test_the_numbers_of_the_load_retry_are_the_measured_ones() -> None:

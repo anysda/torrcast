@@ -48,8 +48,6 @@ _VOICE_STEPS: Final[tuple[tuple[str, re.Pattern[str]], ...]] = (
     ("двухголосый", re.compile(r"двухголос|\bdvo\b|\bдвг\b", re.IGNORECASE)),
     ("одноголосый", re.compile(r"одноголос|авторск|\bavo\b|\bvo\b|\bло\b|\bап\b", re.IGNORECASE)),
 )
-#: Имена ступеней в порядке лестницы - для таблицы студий и строк человеку.
-VOICE_KINDS: Final[tuple[str, ...]] = tuple((name for name, _ in _VOICE_STEPS))
 #: Ступень собственной дорожки отечественной картины - выше всей лестницы переводов.
 #: Ставится не заголовком, а происхождением картины, и потому живёт в :func:`voice_order`,
 #: а не в :attr:`AudioTrack.step`: дорожка о себе такого сказать не может.

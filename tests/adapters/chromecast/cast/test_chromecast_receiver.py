@@ -38,7 +38,7 @@ def test_the_thresholds_are_reachable_from_the_receiver_itself() -> None:
     """Их спрашивают снаружи - показ, щупы и тесты, - поэтому они и остались атрибутами."""
     assert ChromecastReceiver.DEADLY_TRIES == _Settings.DEADLY_TRIES
     assert ChromecastReceiver.PICTURE_STEP == _Settings.PICTURE_STEP
-    assert ChromecastReceiver.STALL_SKIP == _Settings.STALL_SKIP
+    assert ChromecastReceiver.CUT_SLACK == _Settings.CUT_SLACK
 
 
 def test_the_remote_commands_do_not_touch_the_watchdog_state() -> None:

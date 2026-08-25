@@ -17,7 +17,6 @@ def test_the_dumps_live_beside_the_state_of_the_service() -> None:
     """Оба файла кладёт `install.sh`; нет их - справка молчит, и это не сбой."""
     assert settings.RATINGS_PATH.name == "imdb-ratings.tsv"
     assert settings.RU_NAMES_PATH.name == "imdb-ru-names.tsv"
-    assert settings.CACHE_PATH.name == "facts.json"
 
 
 def test_the_source_marks_are_short_words_joined_by_a_plus() -> None:

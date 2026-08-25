@@ -56,10 +56,10 @@ def test_the_stream_constants_are_the_cautious_profile() -> None:
     holds = {f.name: f.default for f in dataclasses.fields(Feed)}
     assert holds["wait"] == cautious.hold_seconds == 120.0
     assert holds["burst"] == cautious.burst == 60.0
-    assert MockReceiver.PATIENCE == cautious.patience == 23.5
-    assert MockReceiver.SULK == cautious.sulk == 0.0
-    assert MockReceiver.SEGMENT_RETRIES == cautious.segment_retries == 2
-    assert ChromecastReceiver.REVIVE_TIMEOUT == cautious.revive_timeout == 300.0
+    assert cautious.patience == 23.5
+    assert cautious.sulk == 0.0
+    assert cautious.segment_retries == 2
+    assert cautious.revive_timeout == 300.0
 
 
 def test_the_revival_waits_are_the_cautious_profile() -> None:
@@ -205,14 +205,14 @@ def test_effective_thresholds_name_every_source() -> None:
 def test_the_receiver_takes_its_thresholds_from_the_profile() -> None:
     """Пороги приёмника едут из профиля, а не из констант класса.
 
-    Проверка именно на объекте: класс держит осторожные числа умолчанием, и легко было бы
-    оставить показ читать их напрямую - тогда профиль не менял бы ровно ничего.
+    Проверка именно на объекте: показ обязан спрашивать профиль, а не осторожное
+    умолчание домена, - иначе профиль не менял бы ровно ничего.
     """
     stick = ChromecastReceiver("10.0.0.50", profile=ANDROID_TV)
-    assert stick.profile.revive_timeout == 577.0 != ChromecastReceiver.REVIVE_TIMEOUT
+    assert stick.profile.revive_timeout == 577.0 != CAUTIOUS.revive_timeout
     mock = MockReceiver(profile=ANDROID_TV)
     assert mock.patience == ANDROID_TV.patience
-    assert mock.profile.segment_retries == 0 != MockReceiver.SEGMENT_RETRIES
+    assert mock.profile.segment_retries == 0 != CAUTIOUS.segment_retries
     assert mock.profile.sulk == 0.0, "приставка на 404 не обижается - замер"
 
 
@@ -343,9 +343,9 @@ def test_the_watchdog_jumps_by_the_profile_step() -> None:
     receiver._peak = 84.0
 
     receiver._nudge(84.0, front=144.0)
-    receiver._stall_since -= ChromecastReceiver.STALL_SECONDS  # осторожные 8 с
+    receiver._stall_since -= CAUTIOUS.stall_seconds  # осторожные 8 с
     receiver._nudge(84.0, front=144.0)
-    assert jumps == [], "терпение сторожа - профильные 30 с, а не 8 с класса"
+    assert jumps == [], "терпение сторожа - профильные 30 с, а не осторожные 8 с"
 
     receiver._stall_since -= mine.stall_seconds
     receiver._nudge(84.0, front=144.0)
