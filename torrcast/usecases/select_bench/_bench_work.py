@@ -124,9 +124,14 @@ class _BenchWork(_BenchCore):
         Срезается ровно ожидание сверх потолка, и ни секундой раньше: раздача, прогретая
         под меню (:data:`PREWARM_SPARE`), отвечает мгновенно, и спросить её мы обязаны
         хоть на 179-й секунде - потолки роя тут не режутся, режется выход за потолок фазы.
+
+        🔴 TC-739. Свой срок прогрев отсчитывает от начала работы, а не от вопроса: он
+        уже стоял в очереди и всё это время спрашивал рой. Раньше вопроса срок при этом
+        не кончается - до вопроса ответ никому не нужен.
         """
         asked = prep.contact_wait.activated_at if prep.contact_wait is not None else None
-        deadline = (asked or prep.started) + self.meta_budget + self.probe_budget + 5.0
+        full = prep.started + self.meta_budget + self.probe_budget + 5.0
+        deadline = max(asked, full) if asked is not None else full
         if limit:
             deadline = min(deadline, limit)
         while not prep.ready.wait(0.2):

@@ -103,6 +103,7 @@ class TorrServer:
         began = self.clock.monotonic()
         deadline = began + timeout
         hopeless = began + float(grace)
+        empty_since: float | None = None
         step = META_STEP
         while True:
             status = self.status(torrent_hash)
@@ -110,14 +111,25 @@ class TorrServer:
             if files:
                 return files
             now = self.clock.monotonic()
+            if swarm_alive(status) is False:
+                empty_since = now if empty_since is None else empty_since
+            else:  # хоть один контакт был - отсрочка считается заново от этой секунды
+                empty_since = None
             if isinstance(grace, ContactWait):
                 activated = grace.activated_at
                 if activated is None:
                     self.clock.sleep(min(step, META_STEP_MAX))
                     step = min(step * META_STEP_GROW, META_STEP_MAX)
                     continue
-                deadline = activated + timeout
-                hopeless = activated + grace.seconds
+                # 🔴 TC-739. Прогрев спрашивает рой с той секунды, как раздача добавлена,
+                # а не с той, как до неё дошла очередь: своё ожидание он уже отстоял, и
+                # начинать бюджеты заново значит ждать по второму разу то же самое.
+                # Приговор при этом не выносится раньше вопроса: до него релиз никому не
+                # мешает, и объявлять его негодным незачем.
+                deadline = max(activated, began + timeout)
+                hopeless = max(
+                    activated, (empty_since if empty_since is not None else now) + grace.seconds
+                )
             seconds = grace.seconds if isinstance(grace, ContactWait) else float(grace)
             if seconds > 0 and now >= hopeless and swarm_alive(status) is False:
                 raise SwarmError(f"рой пуст - за {seconds:.0f} с ни одного пира")

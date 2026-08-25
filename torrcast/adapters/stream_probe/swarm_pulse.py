@@ -44,7 +44,13 @@ def swarm_pulse(
     threading.Thread(target=pull, daemon=True).start()
 
     def alive() -> bool:
-        began = wait.activated_at if wait is not None else started
-        return seen.is_set() or began is None or (time.monotonic() - began) < grace
+        asked = wait.activated_at if wait is not None else started
+        if seen.is_set() or asked is None:
+            return True
+        # 🔴 TC-739. Байты тянутся с той секунды, как прогрев дошёл до потока, а не с
+        # той, как до релиза дошла очередь: отсрочка засчитывает уже потраченное
+        # ожидание. Кончиться раньше вопроса она при этом не вправе - до вопроса ответ
+        # никому не нужен, и обрывать чтение незачем.
+        return time.monotonic() < max(asked, started + grace)
 
     return alive

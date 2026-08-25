@@ -93,3 +93,18 @@ def test_the_wait_that_has_not_started_yet_is_not_counted_against_the_swarm(
     alive = swarm_pulse("http://torr/stream/hash-1/2", grace=0.0, wait=ContactWait(0.0))
 
     assert alive(), "ожидание ещё не начиналось - винить рой не в чем"
+
+
+@pytest.mark.machine
+def test_a_warm_up_that_already_stood_its_grace_is_not_waited_for_twice(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Байты тянулись всё время прогрева: к вопросу приговор молчащему рою уже готов."""
+    _served(b"", monkeypatch)
+    wait = ContactWait(0.05)
+
+    alive = swarm_pulse("http://torr/stream/hash-1/2", grace=0.05, wait=wait)
+    time.sleep(0.08)  # прогрев стоит в очереди и тянет голову впустую
+    wait.activate(0.05)  # ...и вот до него дошла очередь
+
+    assert not alive(), "отсрочка отстояна прогревом - второй раз её не платят"

@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+from itertools import count
+
+from tests.fakes.clock import FakeClock
 from tests.usecases.select_bench.world import RUNTIME, Said, Torrents, plan, probes, rel
+from torrcast.adapters.torrserver.contact_wait import ContactWait
 from torrcast.domain.media import Media
 from torrcast.domain.swarm_error import SwarmError
 from torrcast.usecases.select._prep import _Prep
@@ -54,3 +58,24 @@ def test_our_own_waiting_that_ran_out_is_named_as_ours() -> None:
     bench._wait(slow, Said())
 
     assert slow.error == "фаза «дорожки» не уложилась в бюджет"
+
+
+def test_a_warm_up_counts_its_own_budget_from_the_moment_it_started() -> None:
+    """Свой срок прогрев отсчитывает от начала работы, а не от вопроса к нему.
+
+    Часы стенда идут по секунде на взгляд, поэтому счёт показанных фаз - это и есть
+    счёт секунд, которые ожидание себе взяло.
+    """
+    ticks = count(101.0)
+    bench = Bench(
+        Torrents(), prober=probes([]), meta_budget=1.0, probe_budget=1.0, clock=lambda: next(ticks)
+    )
+    late = _Prep(number=1, release=rel(), contact_wait=ContactWait(6.0, FakeClock(now=100.0)))
+    late.started = 0.0  # прогрев начал работу сто секунд назад
+    late.contact_wait.activate(6.0)  # type: ignore[union-attr]
+    said = Said()
+
+    bench._wait(late, said)
+
+    assert late.error == "фаза «очередь» не уложилась в бюджет"
+    assert len(said.phases) == 1, "срок прогрева вышел ещё до вопроса - ждать нечего"
