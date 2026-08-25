@@ -17,7 +17,7 @@ if TYPE_CHECKING:
     from torrcast.usecases.warm.warmer_state import _State
 
 
-def _lay_heavy(state: _State, slot: int, size: int) -> bool:
+def _lay_heavy(state: _State, slot: int, _size: int) -> bool:
     """Кусок тяжелее потолка приёмника: уложить на диск и не вставать на нём.
 
     Зовётся выкладкой на последнем гейте, где вес куска зажат потолком приёмника

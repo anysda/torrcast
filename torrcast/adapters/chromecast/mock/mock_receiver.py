@@ -78,6 +78,7 @@ class MockReceiver(_Settings):
         self._url = ""
 
     def play(self, url: str, title: str = "", at: float = 0.0) -> None:
+        del title  # названия сухому приёмнику показывать негде
         self._url = url
         self.screen.reset()
         self._open(url, at)
@@ -123,6 +124,7 @@ class MockReceiver(_Settings):
         аргумент есть затем, чтобы сухой приёмник оставался приёмником
         (:class:`torrcast.ports.receiver.Receiver`).
         """
+        del quit_app
         self.decoder.stop()
 
     def position(self, front: float = 0.0) -> Position:

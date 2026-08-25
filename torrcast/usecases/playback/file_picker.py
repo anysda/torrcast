@@ -26,7 +26,7 @@ def file_picker(args: _Numbered) -> Callable[[Plan, Release, list[TorrFile]], To
     if args.file is None:
         return _default_file
 
-    def chosen(plan: Plan, release: Release, files: list[TorrFile]) -> TorrFile:
+    def chosen(_plan: Plan, _release: Release, files: list[TorrFile]) -> TorrFile:
         ordered = sorted(files, key=lambda f: f.index)
         videos = [f for f in ordered if f.name.lower().endswith(VIDEO_EXT)]
         if not 1 <= (args.file or 0) <= len(videos):

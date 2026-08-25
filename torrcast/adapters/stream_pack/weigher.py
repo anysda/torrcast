@@ -37,7 +37,7 @@ def weigher(
     if fixed_mbit > 0:
         return lambda a, b: max(0.0, b - a) * fixed_mbit * 1e6 / 8
     if len(sizes) != len(keys) or len(keys) < 2:
-        return lambda a, b: 0.0
+        return lambda _a, _b: 0.0
 
     def weigh(a: float, b: float) -> float:
         span = b - a
