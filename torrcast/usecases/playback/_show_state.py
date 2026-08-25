@@ -1,7 +1,9 @@
 """Внешний мир показа: медиатракт, приёмник, часы и юнит - одним местом на всех.
 
 Кладёт его композиционный корень (:mod:`torrcast.runtime.wire`) одним словом
-(:func:`_configure_playback`); читают все части сценария показа.
+(:func:`_configure_playback`) и одним договором
+(:class:`torrcast.usecases.playback.show_environment.ShowEnvironment`); читают все части
+сценария показа.
 """
 
 from __future__ import annotations
@@ -18,6 +20,7 @@ from torrcast.ports.prober import Prober
 from torrcast.ports.receivers import Receivers
 from torrcast.usecases.playback.heavy_profiles import HeavyProfileFlat, HeavyProfileOf
 from torrcast.usecases.playback.media_grids import MediaGrids
+from torrcast.usecases.playback.show_environment import ShowEnvironment
 from torrcast.usecases.playback.spot_encodings import SpotEncodings
 from torrcast.usecases.playback.spot_recoders import SpotRecoders
 from torrcast.usecases.playback.stream_servers import StreamServers
@@ -61,49 +64,32 @@ MAXRATE_GAIN: float
 RECODE_DIR: str
 
 
-def _configure_playback(
-    clock: Clock,
-    receivers: Receivers,
-    prober: Prober,
-    detect: Callable[[Config], Choice],
-    video_pick: Callable[[list[TorrFile]], TorrFile],
-    out_dir: Callable[[str], Path],
-    base_url: Callable[[Config], str],
-    flag: Callable[[Path], Path],
-    forget_flag: Callable[[Path], None],
-    start_unit: Callable[[str], None],
-    keys: Callable[[str], FilmKeys],
-    grid: MediaGrids,
-    server: StreamServers,
-    encode: SpotEncodings,
-    recoder: SpotRecoders,
-    weights: HeavyProfileOf,
-    flat: HeavyProfileFlat,
-    whole: WholeEncodings,
-    maxrate_gain: float,
-    recode_dir: str,
-) -> None:
-    """Назначить показу его внешний мир: медиатракт, приёмник, часы и юнит."""
+def _configure_playback(environment: ShowEnvironment) -> None:
+    """Назначить показу его внешний мир: медиатракт, приёмник, часы и юнит.
+
+    Среда приходит одним договором, а не двумя десятками доводов по порядку: слот тут
+    берётся по имени, и подать вместо него соседа того же рода нечем.
+    """
     global CLOCK, make_receiver, probe, detect_profile, pick_video_file, hls_dir, hls_base
     global playing_flag, forget_playing, start_play_unit, film_keys, grid_for, HlsServer
     global Encode, Recoder, weights_of, flat_weights, whole_encode, MAXRATE_GAIN, RECODE_DIR
-    CLOCK = clock
-    make_receiver = receivers
-    probe = prober
-    detect_profile = detect
-    pick_video_file = video_pick
-    hls_dir = out_dir
-    hls_base = base_url
-    playing_flag = flag
-    forget_playing = forget_flag
-    start_play_unit = start_unit
-    film_keys = keys
-    grid_for = grid
-    HlsServer = server
-    Encode = encode
-    Recoder = recoder
-    weights_of = weights
-    flat_weights = flat
-    whole_encode = whole
-    MAXRATE_GAIN = maxrate_gain
-    RECODE_DIR = recode_dir
+    CLOCK = environment.clock
+    make_receiver = environment.receivers
+    probe = environment.prober
+    detect_profile = environment.detect
+    pick_video_file = environment.video_pick
+    hls_dir = environment.out_dir
+    hls_base = environment.base_url
+    playing_flag = environment.flag
+    forget_playing = environment.forget_flag
+    start_play_unit = environment.start_unit
+    film_keys = environment.keys
+    grid_for = environment.grid
+    HlsServer = environment.server
+    Encode = environment.encode
+    Recoder = environment.recoder
+    weights_of = environment.weights
+    flat_weights = environment.flat
+    whole_encode = environment.whole
+    MAXRATE_GAIN = environment.maxrate_gain
+    RECODE_DIR = environment.recode_dir

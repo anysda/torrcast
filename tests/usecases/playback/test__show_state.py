@@ -10,6 +10,7 @@ import torrcast.usecases.playback._show_state as _state
 from tests.fakes import composition
 from torrcast.runtime.wire import wire
 from torrcast.usecases.playback._show_state import _configure_playback
+from torrcast.usecases.playback.show_environment import ShowEnvironment
 
 
 def test_every_slot_of_the_show_is_filled_by_the_composition_root() -> None:
@@ -38,26 +39,28 @@ def test_a_second_word_replaces_the_first(monkeypatch: pytest.MonkeyPatch) -> No
     try:
         composition.use_start_unit(monkeypatch, first.append)
         _configure_playback(
-            _state.CLOCK,
-            _state.make_receiver,
-            _state.probe,
-            _state.detect_profile,
-            _state.pick_video_file,
-            _state.hls_dir,
-            _state.hls_base,
-            _state.playing_flag,
-            _state.forget_playing,
-            second.append,
-            _state.film_keys,
-            _state.grid_for,
-            _state.HlsServer,
-            _state.Encode,
-            _state.Recoder,
-            _state.weights_of,
-            _state.flat_weights,
-            _state.whole_encode,
-            _state.MAXRATE_GAIN,
-            _state.RECODE_DIR,
+            ShowEnvironment(
+                clock=_state.CLOCK,
+                receivers=_state.make_receiver,
+                prober=_state.probe,
+                detect=_state.detect_profile,
+                video_pick=_state.pick_video_file,
+                out_dir=_state.hls_dir,
+                base_url=_state.hls_base,
+                flag=_state.playing_flag,
+                forget_flag=_state.forget_playing,
+                start_unit=second.append,
+                keys=_state.film_keys,
+                grid=_state.grid_for,
+                server=_state.HlsServer,
+                encode=_state.Encode,
+                recoder=_state.Recoder,
+                weights=_state.weights_of,
+                flat=_state.flat_weights,
+                whole=_state.whole_encode,
+                maxrate_gain=_state.MAXRATE_GAIN,
+                recode_dir=_state.RECODE_DIR,
+            )
         )
         _state.start_play_unit("кино")
 

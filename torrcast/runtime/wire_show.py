@@ -31,6 +31,7 @@ from torrcast.runtime.native_picture import native_picture
 from torrcast.runtime.trace_thresholds import trace_thresholds
 from torrcast.usecases.cast_command._play_state import _configure_cast_command
 from torrcast.usecases.playback._show_state import _configure_playback
+from torrcast.usecases.playback.show_environment import ShowEnvironment
 from torrcast.usecases.releases_command import _configure_releases_command
 from torrcast.usecases.revive_playback._revive_state import _configure_revive_playback
 from torrcast.usecases.voices_command import _configure_voices_command
@@ -63,27 +64,30 @@ def wire_show() -> None:
     # картинки настоящим файлом. Обоих сценарий не знает: часы и отметку даёт корень.
     _configure_revive_playback(CLOCK, mark_playing)
     # Весь медиатракт показа - упаковка, раздача, оба кодировщика и приёмник - это сеть,
-    # диск и подпроцессы. Сценарий их только зовёт, а КЕМ они будут, знает корень: пока
-    # эти имена приходили строкой с именем модуля, слой показа ходил в адаптеры сам.
+    # диск и подпроцессы. Сценарий их только зовёт, а КЕМ они будут, знает корень, и
+    # говорит это одним договором: каждый слот назван, и перепутать местами два слота
+    # одного рода при сборке нечем.
     _configure_playback(
-        CLOCK,
-        make_receiver,
-        probe,
-        detector.detect,
-        pick_video_file,
-        hls_dir,
-        hls_base,
-        playing_flag,
-        forget_playing,
-        start_play_unit,
-        film_keys,
-        grid_for,
-        HlsServer,
-        Encode,
-        Recoder,
-        Weights.of,
-        Weights.flat,
-        whole_encode,
-        MAXRATE_GAIN,
-        RECODE_DIR,
+        ShowEnvironment(
+            clock=CLOCK,
+            receivers=make_receiver,
+            prober=probe,
+            detect=detector.detect,
+            video_pick=pick_video_file,
+            out_dir=hls_dir,
+            base_url=hls_base,
+            flag=playing_flag,
+            forget_flag=forget_playing,
+            start_unit=start_play_unit,
+            keys=film_keys,
+            grid=grid_for,
+            server=HlsServer,
+            encode=Encode,
+            recoder=Recoder,
+            weights=Weights.of,
+            flat=Weights.flat,
+            whole=whole_encode,
+            maxrate_gain=MAXRATE_GAIN,
+            recode_dir=RECODE_DIR,
+        )
     )
