@@ -22,6 +22,7 @@ from tests.usecases.revive_playback.world import (
 from torrcast.domain.entry import Entry
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.position import Position
+from torrcast.domain.revive_settings import SOURCE_TRIES
 from torrcast.domain.start_settings import FIRST_FRAME_POLL
 from torrcast.ports.receiver import Receiver
 from torrcast.ports.stream_source import StreamSource
@@ -47,6 +48,29 @@ def test_a_show_that_cannot_be_raised_ends_by_itself(tmp_path: Path) -> None:
     )
 
     assert ended is False, "лестница не поднимала - это обычный конец показа"
+
+
+def test_one_black_screen_is_one_accident_for_the_viewer(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Повтор LOAD отвечает ``BUFFERING`` из ещё не ответившего приёмника, и экран чёрен.
+
+    Считать такой ответ концом темноты значит рассказать зрителю об одном чёрном экране
+    как о двух авариях и дважды расспросить ни в чём не виноватый источник.
+    """
+    supply = FakeSupply()
+    receiver = FakeReceiver([(200.0, "PLAYING"), (0.0, "IDLE"), (200.0, "BUFFERING")], answer=-1.0)
+
+    _hold(
+        cast(Receiver, receiver),
+        feed_with_segments(tmp_path),
+        supply=cast(StreamSource, supply),
+        clock=FakeClock(now=1000.0),
+    )
+
+    printed = capsys.readouterr().out
+    assert printed.count("показ погас на") == 1, "одна темнота - одна строка зрителю"
+    assert supply.asked == SOURCE_TRIES, "источник спрошен одним кругом, а не двумя"
 
 
 def test_a_long_pause_ends_the_show(tmp_path: Path) -> None:

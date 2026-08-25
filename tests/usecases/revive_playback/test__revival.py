@@ -30,6 +30,24 @@ def test_a_live_picture_ends_the_darkness_and_wipes_its_marks() -> None:
     assert revival.back == 200.0, "с этого мгновения считается прожитая картинка"
 
 
+def test_a_retry_of_load_does_not_end_the_darkness() -> None:
+    """Темноту кончает кадр: ``BUFFERING`` показ выдаёт себе сам, повтором LOAD.
+
+    Пока такой ответ считался концом темноты, один чёрный экран раскладывался на две
+    аварии, а часы, с которых отмеряются выдержки подъёма, начинались заново с каждого
+    повтора.
+    """
+    clock = FakeClock(now=200.0)
+    revival = _Revival(clock=clock, since=100.0, began=1.0, why="приёмник бросил показ")
+    revival.dropped = True
+
+    revival.alive(shown=False)
+
+    assert revival.why == "приёмник бросил показ", "одна темнота - один приговор"
+    assert revival.darkness() == 100.0, "часы темноты повтором LOAD заново не идут"
+    assert (revival.since, revival.began, revival.dropped) == (100.0, 1.0, True)
+
+
 def test_the_spent_tries_come_back_only_with_a_lived_minute() -> None:
     """Подъём запаса не возвращает - его возвращает картинка, которая идёт и не гаснет."""
     clock = FakeClock(now=1000.0)
