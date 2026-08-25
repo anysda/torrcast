@@ -8,6 +8,7 @@ import ast
 import functools
 import importlib
 import inspect
+import re
 import socket
 import subprocess
 import sys
@@ -66,6 +67,10 @@ CLIP_SECONDS = 60
 #: никогда, а ещё это самая частая частота живых релизов.
 CLIP_FPS = Fraction(24000, 1001)
 CLIP_RATE = f"{CLIP_FPS.numerator}/{CLIP_FPS.denominator}"
+
+#: Полоса вокруг тона, по которой узнаётся, ЧЕЙ звук уехал в кусок.
+_BAND = 40
+_MEAN_RE = re.compile(r"mean_volume:\s*(-?\d+(?:\.\d+)?) dB")
 
 #: Через сколько КАДРОВ ролики ставят опорный кадр (``-g``).
 CLIP_GOP = 50
@@ -481,6 +486,45 @@ def clip_hevc(tmp_path_factory: pytest.TempPathFactory) -> str:
         check=True, capture_output=True,
     )  # fmt: skip
     return str(path)
+
+
+@pytest.fixture(scope="session")
+def clip_voice(tmp_path_factory: pytest.TempPathFactory) -> str:
+    """Дорожка отдельным файлом: русская, 44.1 кГц и ДЛИННЕЕ видео.
+
+    Три свойства тут не для красоты. Тег ``rus`` - то единственное, чем такую дорожку
+    вообще можно опознать: в аниме имя файла язык не называет никогда. 44.1 кГц - частота,
+    на которой кадр AAC не делит секунду нацело, и прибор фазы врёт красным у того, кто
+    не читает частоту из потока. А длина 75 с против 60 с у видео ловит хвост: без ``-t``
+    на втором входе он целиком приклеивается к последнему куску.
+
+    Тон меняется на 30-й секунде - по нему видно, что уехало зрителю: 660 Гц до неё и
+    1320 Гц после, тогда как у самого видео звук ровно 440 Гц.
+    """
+    path = tmp_path_factory.mktemp("voice") / "clip.mka"
+    subprocess.run(
+        ["ffmpeg", "-hide_banner", "-loglevel", "error",
+         "-f", "lavfi", "-i", "sine=frequency=660:duration=30:sample_rate=44100",
+         "-f", "lavfi", "-i", "sine=frequency=1320:duration=45:sample_rate=44100",
+         "-filter_complex", "[0:a][1:a]concat=n=2:v=0:a=1",
+         "-c:a", "ac3", "-ac", "2", "-ar", "44100",
+         "-metadata:s:a:0", "language=rus", "-metadata:s:a:0", "title=Дубляж",
+         "-y", str(path)],
+        check=True, capture_output=True, timeout=180,
+    )  # fmt: skip
+    return str(path)
+
+
+def band_db(path: Path, hertz: int) -> float:
+    """Сколько энергии звука куска лежит в полосе вокруг тона, дБ."""
+    done = subprocess.run(
+        ["ffmpeg", "-v", "info", "-i", str(path), "-map", "0:a",
+         "-af", f"bandpass=f={hertz}:width_type=h:w={_BAND},volumedetect", "-f", "null", "-"],
+        check=False, capture_output=True, text=True, timeout=120,
+    )  # fmt: skip
+    found = _MEAN_RE.search(done.stderr)
+    assert found, f"volumedetect промолчал о {path.name}: {done.stderr[-400:]}"
+    return float(found.group(1))
 
 
 @pytest.fixture(scope="session")

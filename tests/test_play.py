@@ -27,7 +27,7 @@ from typing import Any, Final
 
 import pytest
 
-from tests.conftest import CLIP_SECONDS, FakeProc, fake_packer, free_port
+from tests.conftest import CLIP_SECONDS, FakeProc, band_db, fake_packer, free_port
 from tests.fakes.clock import FakeClock
 from tests.fakes.show_unit import FakeShowUnit
 from torrcast.adapters.chromecast.cast.chromecast_receiver import ChromecastReceiver
@@ -294,6 +294,45 @@ def test_a_source_the_receiver_cannot_decode_is_recoded_from_the_first_segment(
         codecs = {s["codec_type"]: s["codec_name"] for s in _probe(path)}
         assert codecs["video"] == "h264", f"{path.name}: на ТВ уехал {codecs['video']}"
         assert codecs["audio"] == "aac", f"{path.name}: звук всегда AAC"
+
+
+def test_the_whole_show_plays_the_track_from_a_file_beside_the_video(
+    clip: str,
+    clip_voice: str,
+    tls: tuple[str, str],
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """🔴 TC-305. Показ целиком на дорожке, лежащей отдельным файлом рядом с видео.
+
+    Тут проверяется не команда ffmpeg, а сам показ: цепочка упаковка → раздача → приёмник
+    отыгрывает весь ролик, приёмник не встаёт ни на одном стыке, а в пойманных с раздачи
+    кусках звучит ВТОРОЙ файл (660 Гц), а не 440 Гц самого видео. Ровно так выглядит
+    спасённая раздача: внутри видео звук чужой, русский лежит рядом отдельным файлом.
+    """
+    config = config_for(tmp_path, tls)
+    kept: list[Path] = []
+    where = tmp_path / "kept"
+    where.mkdir()
+    stop = threading.Event()
+    watcher = threading.Thread(target=_grab_segments, args=(config, where, kept, stop), daemon=True)
+    watcher.start()
+    try:
+        played = _play(
+            config, clip, 0, "тест", _Clock(), duration=float(CLIP_SECONDS), voice=clip_voice
+        )
+    finally:
+        stop.set()
+        watcher.join(timeout=10)
+
+    printed = capsys.readouterr().out
+    assert played == 0
+    assert "разрывов 0" in printed
+    decoded = float(printed.split("декодировано ")[1].split(" ")[0])
+    assert decoded >= CLIP_SECONDS - HLS_SEGMENT_SECONDS, "приёмник встал посреди показа"
+    assert kept, "ни одного выложенного сегмента поймать не удалось"
+    for path in kept:
+        assert band_db(path, 660) > band_db(path, 440) + 10, f"{path.name}: на ТВ уехал звук видео"
 
 
 def _grab_segments(
