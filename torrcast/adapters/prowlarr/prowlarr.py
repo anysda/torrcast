@@ -124,10 +124,24 @@ class Prowlarr(_State):
             # офлайн: у 4 запросов из 10 (молчит один Knaben) так пропадало готовое меню.
             return []
         if not got:  # молчат все до одного - это не «ничего не нашлось», а инфра
-            if self.silent and isinstance(why_lost, _IndexersUnavailableError):
-                raise InfraError(f"индексеры не отвечают: {', '.join(self.silent)}")
-            raise InfraError(str(why_lost or ""))
+            raise self._nobody_answered(why_lost)
         return merge(*got)
+
+    def _nobody_answered(self, why_lost: InfraError | None) -> InfraError:
+        """Отказ круга, в котором смолчали все: у него всегда есть текст (TC-513).
+
+        Ошибку приносит не всякое молчание. Залипший дольше своего бюджета уезжает в
+        опоздавшие, и к этой секунде он ещё ничем не ответил - ни строкой, ни отказом;
+        молчит весь круг, а сказать о нём нечего, кроме имён. Их и говорим: спрошенные
+        (:attr:`silent`) тут не пусты никогда - круг идёт по непустому списку годных
+        (:meth:`~torrcast.adapters.prowlarr.indexer_roster.IndexerRoster.usable`).
+
+        Мёртвый Prowlarr называет себя сам: следующее действие у него своё, а недоступные
+        индексеры он же и увёл - имена их знаем мы, а не он.
+        """
+        if why_lost is None or isinstance(why_lost, _IndexersUnavailableError):
+            return InfraError(f"индексеры не отвечают: {', '.join(self.silent)}")
+        return InfraError(str(why_lost))
 
     def _url(self, query: str, limit: int, indexer: int | None = None) -> str:
         return search_url(self.base_url, self.apikey, query, limit, indexer)

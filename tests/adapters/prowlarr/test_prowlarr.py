@@ -129,11 +129,16 @@ class _Swarm:
         refuses: set[int] | None = None,
         empty: set[int] | None = None,
         delay: dict[int, float] | None = None,
+        stuck: dict[int, float] | None = None,
         unavailable: bool = False,
     ) -> None:
         #: Кто отвечает ЧЕСТНЫМ нулём: он не молчун и не отказ, просто ничего не нашёл.
         self.empty = empty or set()
         self.delay = delay or {}
+        #: Кто залипает дольше круга и отказывает уже после него: номер - сколько секунд
+        #: держать запрос. Круг такого не дожидается вовсе, и его ошибка приезжает в
+        #: пустую комнату - имя молчуна к этой секунде единственное, что о нём известно.
+        self.stuck = stuck or {}
         #: Кого Prowlarr увёл в недоступные: номер - время последнего отказа (UTC).
         #: Пусто - как на здоровом стенде: страница статуса показывает только банных.
         self.blocked = blocked or {}
@@ -197,6 +202,9 @@ class _Swarm:
             return _UnavailableReply([])
         num = int(url.rsplit("&indexerIds=", 1)[1])
         self.budget[str(num)] = timeout
+        if held := self.stuck.get(num):
+            time.sleep(held)
+            raise requests.ConnectTimeout("залип дольше круга")
         pause = self.delay.get(num, 0.0)
         if pause > timeout:
             time.sleep(timeout)
@@ -355,6 +363,20 @@ def test_all_indexers_silent_is_infra_not_empty_result() -> None:
     """Молчат все до одного - это отказ инфраструктуры, а не «ничего не нашлось»."""
     with pytest.raises(InfraError, match="не отвечает"):
         _swarm(mute_all=True).search("матрица")
+
+
+def test_stuck_first_circle_names_the_silent_ones() -> None:
+    """🔴 TC-513. Залипший дольше круга к этой секунде не ответил ничем - ни строкой, ни
+    отказом, - и причина отказа инфры складывается из одних имён молчунов. Зритель обязан
+    получить её словами: пустая строка не говорит ему, что делать дальше.
+
+    Круг отпущен на 0.04 с при залипании на 0.4 с: пересечься эти сроки не могут, а сам
+    запрос кончается отказом уже после круга - ровно как у живого молчуна.
+    """
+    client = _swarm(slack=0.02, budget_of=lambda _name: 0.02, stuck={1: 0.4, 2: 0.4, 3: 0.4})
+    with pytest.raises(InfraError) as caught:
+        client.search("матрица")
+    assert str(caught.value) == "индексеры не отвечают: Knaben, RuTor"
 
 
 def test_prowlarr_400_names_unavailable_indexers_not_prowlarr() -> None:
