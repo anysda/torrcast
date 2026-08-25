@@ -2,18 +2,25 @@
 
 from __future__ import annotations
 
-from torrcast.ports.state_store.ephemeral import Ephemeral
 from torrcast.ports.state_store.state_store import StateStore
 
 
 class Slot:
-    """Хранилище состояния этого процесса. До слова корня состояние живёт в памяти."""
+    """Хранилище состояния этого процесса. Пока его не назначили, слот пуст."""
 
     def __init__(self) -> None:
-        self._store: StateStore = Ephemeral()
+        self._store: StateStore | None = None
 
     def current(self) -> StateStore:
-        """Где состояние хранится прямо сейчас."""
+        """Где состояние хранится прямо сейчас.
+
+        Пустой слот отказывает, а не подставляет память: закладка зрителя, ушедшая в
+        память, теряется молча - сеанс проходит целиком, а продолжить его потом нечем.
+        Отказ приходит на первом же обращении к состоянию, то есть до того, как на
+        экране что-то появилось.
+        """
+        if self._store is None:
+            raise RuntimeError("хранилище состояния не назначено: приложение не собрано")
         return self._store
 
     def install(self, target: StateStore) -> None:

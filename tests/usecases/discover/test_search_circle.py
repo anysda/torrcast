@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from tests.fakes.state_store import FakeStateStore
 from tests.usecases.discover.world import Indexer, Said, row, wire_catalogue
 from torrcast.domain.args import Args
 from torrcast.domain.config import Config
@@ -12,7 +13,6 @@ from torrcast.domain.facts.origin import Origin
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.raw_result import RawResult
-from torrcast.ports.state_store.ephemeral import Ephemeral
 from torrcast.ports.state_store.slot import install
 from torrcast.usecases.discover.search_circle import search_circle
 from torrcast.usecases.select.plan import Plan
@@ -97,7 +97,7 @@ _QUINN = [
 
 def _watched(studio: str) -> None:
     """Состояние, в котором эту картину уже смотрели названной студией."""
-    store = Ephemeral()
+    store = FakeStateStore()
     state = store.load()
     state.entries["tv:харли-квинн:2020"] = Entry(
         title="Харли Квинн",

@@ -1,7 +1,8 @@
 """Слот назначенного хранилища состояния: где оно лежит и кто это назначает."""
 
+import pytest
+
 from torrcast.domain.watch_state import WatchState
-from torrcast.ports.state_store.ephemeral import Ephemeral
 from torrcast.ports.state_store.slot import Slot, install, store
 
 
@@ -16,11 +17,17 @@ class _Spy:
         self.saved.append(state)
 
 
-def test_a_fresh_slot_keeps_the_state_in_the_process() -> None:
-    """До слова композиционного корня состояние живёт в памяти прогона."""
+def test_a_fresh_slot_refuses_instead_of_remembering_in_memory() -> None:
+    """Пустой слот отказывает вслух, а не уводит закладку зрителя в память.
+
+    Память на месте умолчания молчит дважды: сеанс проходит целиком, отказа нет, а
+    продолжить недосмотренное потом нечем. Отказ приходит на первом же обращении к
+    состоянию - то есть раньше, чем на экране появится картинка.
+    """
     slot = Slot()
 
-    assert isinstance(slot.current(), Ephemeral)
+    with pytest.raises(RuntimeError, match="не назначено"):
+        slot.current()
 
 
 def test_the_installed_store_is_what_the_scenarios_get() -> None:

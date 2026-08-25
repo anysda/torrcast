@@ -11,6 +11,7 @@ from typing import Any
 
 import pytest
 
+from tests.fakes.state_store import FakeStateStore
 from tests.fakes.torrent_engine import FakeTorrentEngine
 from torrcast.domain._series import _Series
 from torrcast.domain.args import Args
@@ -24,7 +25,6 @@ from torrcast.domain.picture import Picture
 from torrcast.domain.profile import CAUTIOUS
 from torrcast.domain.release import Release
 from torrcast.domain.torr_file import TorrFile
-from torrcast.ports.state_store.ephemeral import Ephemeral
 from torrcast.ports.state_store.slot import install, store
 from torrcast.usecases.next_season import _next_season
 from torrcast.usecases.select._prep import _Prep
@@ -36,7 +36,7 @@ KEY = "tv:сериал:2020"
 @pytest.fixture(autouse=True)
 def _state() -> None:
     """Состояние держит порт, а не файл: вопрос про следующий сезон диска не трогает."""
-    install(Ephemeral())
+    install(FakeStateStore())
 
 
 def _put(**fields: Any) -> Entry:

@@ -12,8 +12,8 @@ from typing import Any
 
 import pytest
 
+from tests.fakes.state_store import FakeStateStore
 from torrcast.domain.entry import Entry
-from torrcast.ports.state_store.ephemeral import Ephemeral
 from torrcast.ports.state_store.slot import install, store
 from torrcast.usecases.following import _following
 
@@ -27,7 +27,7 @@ def _state() -> None:
     Возвращает порт на место общая фикстура ``_ports_restored``, поэтому своего отката
     тут нет: два места, снимающие один и тот же порт, разошлись бы молча.
     """
-    install(Ephemeral())
+    install(FakeStateStore())
 
 
 def put(**fields: Any) -> Entry:

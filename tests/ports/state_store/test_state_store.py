@@ -1,17 +1,17 @@
-"""Порт состояния просмотра: память процесса по умолчанию и назначенное хранилище."""
+"""Порт состояния просмотра: договор целого состояния и назначенное хранилище."""
 
 from __future__ import annotations
 
+from tests.fakes.state_store import FakeStateStore
 from torrcast.domain.entry import Entry
 from torrcast.domain.watch_state import WatchState
-from torrcast.ports.state_store.ephemeral import Ephemeral
 from torrcast.ports.state_store.slot import install, store
 from torrcast.ports.state_store.state_store import StateStore
 
 
-def test_without_a_root_the_state_lives_in_the_process_and_not_in_a_file() -> None:
-    """Прогон без композиционного корня помнит позицию, но файлов владельца не заводит."""
-    install(Ephemeral())
+def test_what_the_root_installed_is_what_the_scenarios_read() -> None:
+    """Назначенное хранилище и отдаётся сценариям: тем же читают, что положили."""
+    install(FakeStateStore())
     port: StateStore = store()
 
     state = port.load()
