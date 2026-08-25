@@ -24,6 +24,7 @@ from torrcast.adapters.chromecast.scan.device import Device
 from torrcast.adapters.filesystem.state.save_config import save_config
 from torrcast.domain.args import Args
 from torrcast.domain.config import Config
+from torrcast.domain.facts.origin import Origin
 from torrcast.domain.profile import ANDROID_TV, CAUTIOUS
 from torrcast.domain.tune import tune
 
@@ -756,3 +757,60 @@ def test_щуп_берёт_код_из_своего_дерева() -> None:
             guilty.append(path.name)
 
     assert not guilty, f"щуп берёт продукт из чужого дерева: {', '.join(guilty)}"
+
+
+def widen_pools() -> list[dict[str, Any]]:
+    """Тощая русская выдача одной части и латинская выдача всей франшизы к ней."""
+    return [
+        pool(
+            "ледниковый период 3",
+            RuTor=[
+                [
+                    "Ледниковый период 3: Эра динозавров / Ice Age 3 (2009) BDRip 1080p",
+                    "a" * 40,
+                    int(4.4 * GB),
+                    30,
+                    "RuTor",
+                ]
+            ],
+        ),
+        pool(
+            "Ice Age",
+            Knaben=[
+                ["Ice Age 3 (2009) BDRip 1080p x264", "b" * 40, GB, 40, "K"],
+                ["Ice Age (2002) BDRip 1080p x264", "c" * 40, GB, 55, "K"],
+                ["Ice Age 2 The Meltdown (2006) BDRip 1080p x264", "d" * 40, GB, 35, "K"],
+            ],
+        ),
+    ]
+
+
+def test_щуп_добора_называет_цену_отказа_гейта() -> None:
+    """🔴 Отказ добора без счёта привезённого - это приговор без предмета.
+
+    Гейт добора стоит на числе привезённых картин, и одного вердикта «остаюсь на прежней
+    выдаче» для замера мало: пока не сосчитано, СКОЛЬКО раздач спрошенной картины он этим
+    выбросил, порог гейта не с чем сравнивать. Щуп обязан печатать обе стороны разом.
+    """
+    replay = probe("widenreplay")
+    pools = {
+        str(record["query"]).casefold(): replay.poolreplay.batches_of(record)
+        for record in widen_pools()
+    }
+    ask = replay.facts_passport(None)
+    item = replay.widen(
+        "ледниковый период 3",
+        pools,
+        tune(Config(), CAUTIOUS),
+        CAUTIOUS,
+        lambda *_a, **_k: Origin(title="Ice Age", year=2002, name="Ледниковый период"),
+    )
+
+    assert item.worth and item.alt == "Ice Age" and not item.missed
+    assert not item.taken, "гейт счёта картин этот добор отвергает - на нём щуп и заведён"
+    assert (
+        item.counts["строк после"] == 4 and item.counts["картин после"] > item.counts["картин до"]
+    )
+    assert item.counts["раздач после"] > item.counts["раздач до"], "цена отказа не сосчитана"
+    assert any("привёз больше картин" in note for note in item.notes)
+    assert ask("нет такой картины") == Origin(), "без кэша справка молчит, а не выдумывает"
