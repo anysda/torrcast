@@ -1,15 +1,22 @@
 """Слот назначенного юнита показа: кто играет прямо сейчас и кто это назначает."""
 
+import pytest
+
 from tests.fakes.show_unit import FakeShowUnit
-from torrcast.ports.show_unit.idle import Idle
 from torrcast.ports.show_unit.slot import Slot, install, unit
 
 
-def test_a_fresh_slot_plays_nothing_until_the_root_says_otherwise() -> None:
-    """До слова композиционного корня юнита нет вовсе."""
+def test_a_fresh_slot_refuses_instead_of_saying_nothing_plays() -> None:
+    """Пустой слот отказывает вслух, а не утверждает, что показа нет.
+
+    «Ничего не играет» - утверждение о юните, а не его отсутствие, и врёт оно в обе
+    стороны: уборка по нему сносит раздачу из-под живого показа, а запуск заводит
+    второй показ поверх играющего, не погасив первый.
+    """
     slot = Slot()
 
-    assert isinstance(slot.current(), Idle)
+    with pytest.raises(RuntimeError, match="не назначен"):
+        slot.current()
 
 
 def test_the_installed_unit_is_what_the_scenarios_get() -> None:
