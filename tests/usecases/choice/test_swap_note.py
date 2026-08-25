@@ -43,7 +43,7 @@ def test_the_default_is_recognised_by_the_picture_and_not_by_the_identity_of_the
     состоится: после пересборки плана.
     """
     mummy = parts(("Мумия", 1999, 47), ("Мумия", 2017, 58))
-    retimed = replace(mummy[0], runtime=5400.0, runtime_known=True)
+    retimed = replace(mummy[0], runtime=5400.0)
 
     assert retimed is not mummy[0]
     assert _is_default(mummy, retimed) is True

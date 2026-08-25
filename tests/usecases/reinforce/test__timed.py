@@ -75,7 +75,7 @@ def test_the_real_runtime_replaces_the_guess_in_the_denominator() -> None:
     fresh = _timed(was, facts, Args(query=["кино"]), Config())
 
     assert facts.asked == [("Кино", 1999)], "спрашивается та же справка, что и меню"
-    assert fresh.runtime == 169 * 60.0 and fresh.runtime_known
+    assert fresh.runtime == 169 * 60.0
     assert fresh.warn_mbit == was.warn_mbit, "потолок остаётся прежним"
 
 
@@ -114,7 +114,6 @@ def test_the_reference_runtime_returns_an_honest_1080p_to_the_queue() -> None:
     args = Args(query=["интерстеллар"])
     config = Config(recode=False)  # потолок отбора - ровно bitrate_warn_mbit
     blind = plan_for(picture, args, config)
-    assert not blind.runtime_known
     assert blind.candidates(args) == [1], "по прикидке годен только 720p"
     small = blind.ranked[0]
 

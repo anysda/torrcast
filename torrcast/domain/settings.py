@@ -21,5 +21,4 @@ class Settings:
     hls_key: str = "/etc/torrcast/tls/torrcast.key"
     hls_dir: str = "/dev/shm/torrcast"
     state_path: str = "/var/lib/torrcast/state.json"
-    timeline_path: str = ""
     trace: bool = False

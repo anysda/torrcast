@@ -96,8 +96,6 @@ def test_the_named_key_wins_over_the_freshest_record() -> None:
         file_index=2,
         audio_index=1,
         torrent_hash=HASH,
-        video_bitrate_mbit=10.0,
-        video_bitrate_estimated=False,
     )
 
 

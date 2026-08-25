@@ -45,8 +45,7 @@ def plan_for(
     from torrcast.domain.runtime_guess import RUNTIME_GUESS
 
     series = _Series(want=args.episode or Episode(1, 1)) if picture.kind == "tv" else None
-    known = runtime > 0
-    runtime = runtime if known else RUNTIME_GUESS.get(picture.kind, 7200.0)
+    runtime = runtime if runtime > 0 else RUNTIME_GUESS.get(picture.kind, 7200.0)
     pool = picture.releases
     if series is not None:
         pool = [r for r in pool if r.covers(series.want.season)]
@@ -100,7 +99,6 @@ def plan_for(
         picture=picture,
         ranked=ranked,
         runtime=runtime,
-        runtime_known=known,
         off_season=len(picture.releases) - len(pool),
         warn_mbit=ceiling,
         series=series,
