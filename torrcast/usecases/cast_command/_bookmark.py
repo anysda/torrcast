@@ -26,6 +26,37 @@ if TYPE_CHECKING:
     from torrcast.usecases.select.plan import Plan
 
 
+def _kept_place(
+    state: WatchState, found: tuple[str, Entry], args: Args
+) -> tuple[tuple[str, Entry], Args, Entry] | None:
+    """Место начатого сериала при ручном выборе раздачи (``--release N`` / ``--file N``).
+
+    🔴 TC-807. «Выбери другую раздачу» не значит «начни сериал сначала»: место в сериале -
+    отдельная вещь от выбора раздачи (сам продукт советует эту ручку при отказе: «возьми
+    другую раздачу: cast <запрос> --release N»). Серия закладки встаёт в запрос ровно так,
+    как встала бы названная руками (``cast киберпанк s2e5``): её видят и поиск (добор
+    сезонной строкой), и отбор, и подпись показа, а позиция доезжает до записи показа
+    в :func:`torrcast.usecases.cast_command._cmd_play._cmd_play`.
+
+    ``None`` - держать нечего или нельзя: фильм (у него одно место на всю картину),
+    досмотренная раздача или серия, названная самим человеком и не совпавшая с закладкой,
+    - его слово старше. Названная серия совпала с закладкой - продолжается её место.
+    """
+    entry = found[1]
+    if not entry.serial or entry.done:
+        return None
+    named = args.episode
+    if named is not None:
+        if (named.season, named.episode) != (entry.season, entry.episode):
+            return None
+        return found, args, entry
+    found = _account_watched(state, found)[0]
+    entry = found[1]
+    if entry.done or not entry.label:
+        return None  # место доигралось до конца раздачи - дальше решает обычный путь
+    return found, replace(args, query=[*args.query, entry.label]), entry
+
+
 def _continue_picked(
     config: Config, state: WatchState, plan: Plan, bench: Bench, *, args: Args, clock: _Clock
 ) -> int | None:
@@ -57,6 +88,12 @@ def _continue_picked(
     я остановился», и разницу эту человек обязан увидеть строкой до старта, а не следующим
     запуском. Строка одна и только когда терять правда есть что (:attr:`Entry.resumable`).
 
+    У сериала место при этом НЕ теряется: серия и позиция закладки к этой секунде уже
+    встали в запрос и в показ (:func:`_kept_place`), и строка про потерю соврала бы.
+    Остались два случая, где терять правда есть что: фильм (у него одно место на всю
+    картину, и ручной релиз играет его с начала) и сериал, которому человек сам назвал
+    ДРУГУЮ серию, - тогда место закладки не поднимается, и строка обязана это сказать.
+
     Дверь меню (``--menu``, ``--pick N``) в том же исходе молчала: начатый сериал, взятый
     из меню, уходит обычным путём с нуля (его ветка здесь не отвечает), и стартовая запись
     сносит сохранённое место под тем же ключом. Строка там своя: причиной названа та дверь,
@@ -73,10 +110,16 @@ def _continue_picked(
             "сохранённый выбор не поднимаю"
         )
     elif args.pinned and started.resumable:
-        print(
-            f"«{started.title}» - релиз назван руками, играю с начала; "
-            f"сохранённое место {_hms(started.pos)} не поднимаю"
+        kept = (
+            started.serial
+            and args.episode is not None
+            and (args.episode.season, args.episode.episode) == (started.season, started.episode)
         )
+        if not kept:  # сериалу место уже поднято (:func:`_kept_place`) - строка соврала бы
+            print(
+                f"«{started.title}» - релиз назван руками, играю с начала; "
+                f"сохранённое место {_hms(started.pos)} не поднимаю"
+            )
     if args.pinned:
         return None
     if args.from_start:

@@ -15,11 +15,12 @@ from torrcast.domain.track_studio import track_studio
 from torrcast.domain.tune import tune as tune_profile
 from torrcast.ports.journal.slot import journal
 from torrcast.ports.state_store.slot import store as watch_store
-from torrcast.usecases.cast_command._bookmark import _account_watched, _from_start
+from torrcast.usecases.cast_command._bookmark import _account_watched, _from_start, _kept_place
 from torrcast.usecases.cast_command._choose import _choose
 from torrcast.usecases.cast_command._entry_for import _entry_for
 from torrcast.usecases.cast_command._notes import _notes
 from torrcast.usecases.playback._launch import _launch
+from torrcast.usecases.rank._hms import _hms
 from torrcast.usecases.rank.pick_voice import pick_voice
 from torrcast.usecases.rank.quality_text import quality_text
 from torrcast.usecases.say_showing import _say_showing
@@ -31,6 +32,7 @@ from torrcast.usecases.torrents import _release_orphans
 
 if TYPE_CHECKING:
     from torrcast.domain.args import Args
+    from torrcast.domain.entry import Entry
     from torrcast.usecases.cast_command._choose import Chosen
 
 
@@ -73,7 +75,7 @@ def _cmd_play(
     found_entry = state.find(args.title_query)
     watched = False
     # Бухгалтерия досмотра трогает только тот путь, который сам решает, что играть дальше.
-    # Названная руками серия, `--new` и ручной релиз решают это за неё, и обещать им
+    # Названная руками серия, `--new` и дверь меню решают это за неё, и обещать им
     # следующую серию нельзя: строка «играю s1e3» перед честным «играю s1e1» - подмена.
     named = args.episode is not None
     # Ручки, которыми зритель называет картину сам, старше закладки: `--menu` и `--pick N`
@@ -81,6 +83,14 @@ def _cmd_play(
     own_choice = args.pinned or args.from_menu
     if found_entry is not None and not (args.from_start or own_choice or named):
         found_entry, watched = _account_watched(state, found_entry)
+    resumed: Entry | None = None
+    if found_entry is not None and args.pinned and not args.from_start:
+        # 🔴 TC-807. «Возьми другую раздачу» у начатого сериала - про раздачу, а не про
+        # место в нём: серия закладки встаёт в запрос, и её видят поиск, отбор и подпись,
+        # а позиция ниже доезжает до записи показа. С начала сериал играет только --new.
+        kept = _kept_place(state, found_entry, args)
+        if kept is not None:
+            found_entry, args, resumed = kept
     # --new поднимает сохранённый выбор лишь когда он действительно отвечает на
     # весь запрос. Явная серия сперва прыгает внутри сохранённой раздачи, а ручной
     # релиз/файл выбирается обычным путём: эти ручки нельзя выбросить молча.
@@ -119,11 +129,24 @@ def _cmd_play(
     studio = track_studio(media, audio, release.studios)
     if studio is not None and studio.name.casefold() not in label.casefold():
         label = f"{label} ({studio.name})"
-    series = plan.series
-    what = f"«{plan.picture.title}»" + (
-        f" {series.want}" if series else f" ({plan.picture.year or '?'})"
-    )
+    # Студия из памяти картины: вынужденный дефолт её не переписывает, поэтому знать
+    # прежнюю запись обязана и запись показа, а не только порядок меню.
+    seen = _studio_seen(state, plan.picture.key, found_entry)
+    entry = _entry_for(plan, prep, release, video, media, audio, voice, seen, args)
+    if resumed is not None and resumed.resumable and (not entry.dur or resumed.pos < entry.dur):
+        # Позиция - от серии, а не от файла: другая раздача той же серии продолжается с
+        # того же места (TC-807). Позиция за концом файла новой раздачи - не место,
+        # а его отсутствие: такая серия играется с начала.
+        entry.pos = resumed.pos
+    # Подпись серии - у того файла, который реально играет (TC-807), а не у запроса:
+    # запрос мог звать «s1e1» серию, которая в этой раздаче - s5e1.
+    shown = f" {entry.label}" if entry.label else ""
+    if not plan.series and not shown:
+        shown = f" ({plan.picture.year or '?'})"
+    what = f"«{plan.picture.title}»{shown}"
     about = f"{what} · {quality_text(release, media)} · {label}"
+    if entry.pos > 0:
+        about = f"{about} · с {_hms(entry.pos)}"
     journal().emit(
         "select",
         "select",
@@ -144,8 +167,4 @@ def _cmd_play(
         # серия» (сквозная нумерация против сезонной) всухую не виден вовсе (TC-302).
         print(f"(--dry) {about} · файл «{video.base}» - каста нет")
         return EXIT_OK
-    # Студия из памяти картины: вынужденный дефолт её не переписывает, поэтому знать
-    # прежнюю запись обязана и запись показа, а не только порядок меню.
-    seen = _studio_seen(state, plan.picture.key, found_entry)
-    entry = _entry_for(plan, prep, release, video, media, audio, voice, seen, args)
     return _launch(config, plan.picture.key, entry, about, clock)

@@ -43,6 +43,15 @@ def _entry_for(
     # Явный выбор человека - единственное, что вправе назначить картине другую студию:
     # `--voice N` и меню озвучек называют дорожку сами (:func:`pick_voice`).
     studio = played if args.voice is not None else (seen or played)
+    # Список серий берётся у ТОЙ раздачи, которую играем, и разбирается здесь заново:
+    # подготовка спрашивает соседние раздачи параллельно, и общего места, где список
+    # мог бы полежать, у них нет (:meth:`torrcast.domain._series._Series.choose`).
+    episodes = series.table(prep.files, release.season) if series else []
+    # 🔴 TC-807. Сезон и серия пишутся по ТОМУ файлу, который играет, а не по запросу:
+    # запрос мог звать «s1e1» серию, которая в этой раздаче - s5e1, и подпись на экране
+    # обязана совпадать с записью. Файл вне таблицы серий (ручка ``--file N``) - серии
+    # у показа нет, и выдумывать её из запроса - та же ложь.
+    placed = next((row for row in episodes if row[2] == video.index), None)
     measured_mbit = media.video_bps / 1e6
     estimated_mbit = estimated_video_mbit(video.size, media.duration)
     return Entry(
@@ -76,12 +85,9 @@ def _entry_for(
         # И HDR оттуда же: ужатому кадру ещё решать, приводить ли цвет к SDR.
         hdr=media.hdr,
         query=slugify(args.title_query),
-        season=series.want.season if series else None,
-        episode=series.want.episode if series else None,
-        # Список серий берётся у ТОЙ раздачи, которую играем, и разбирается здесь заново:
-        # подготовка спрашивает соседние раздачи параллельно, и общего места, где список
-        # мог бы полежать, у них нет (:meth:`torrcast.domain._series._Series.choose`).
-        episodes=series.table(prep.files, release.season) if series else [],
+        season=placed[0] if placed else None,
+        episode=placed[1] if placed else None,
+        episodes=episodes,
     )
 
 

@@ -13,6 +13,7 @@ from torrcast.domain.watch_state import WatchState
 from torrcast.usecases.cast_command._bookmark import (
     _account_watched,
     _continue_picked,
+    _kept_place,
     _plays_recorded,
 )
 from torrcast.usecases.start_clock import _Clock
@@ -276,3 +277,103 @@ def test_from_start_with_a_hand_named_release_keeps_the_warm() -> None:
         )
         is False
     )
+
+
+def test_a_hand_named_release_keeps_the_place_of_a_started_series() -> None:
+    """``--release N`` у начатого сериала: серия закладки встаёт в запрос как своя."""
+    saved = entry(kind="tv", season=5, episode=1, pos=265.0, episodes=[(5, 1), (5, 2)])
+
+    kept = _kept_place(_state_with(saved), ("кино", saved), Args(query=["кино"], release=2))
+
+    assert kept is not None
+    _, args, place = kept
+    assert str(args.episode) == "s5e1", "искать и подписывать надо серию закладки, не s1e1"
+    assert place.pos == 265.0, "позиция едет в показ выбранной раздачи дальше"
+
+
+def test_a_watched_series_bookmark_moves_to_the_next_episode_under_a_hand_named_release(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Досмотренная серия под ``--release N`` - это место на СЛЕДУЮЩЕЙ серии."""
+    saved = entry(
+        kind="tv", season=5, episode=1, pos=7000.0, episodes=[(5, 1, 0, 10**9), (5, 2, 1, 10**9)]
+    )
+
+    kept = _kept_place(_state_with(saved), ("кино", saved), Args(query=["кино"], release=2))
+
+    assert kept is not None
+    _, args, place = kept
+    assert str(args.episode) == "s5e2"
+    assert place.pos == 0.0, "следующая серия начинается с нуля"
+    assert "досмотрено" in capsys.readouterr().out
+
+
+def test_a_hand_named_release_does_not_keep_the_place_of_a_movie() -> None:
+    """У фильма одно место на всю картину: ручной релиз играет его с начала, как и было."""
+    saved = entry(pos=265.0)
+
+    assert _kept_place(_state_with(saved), ("кино", saved), Args(query=["кино"], release=2)) is None
+
+
+def test_a_finished_series_has_no_place_to_keep() -> None:
+    """Досмотренная раздача - не место: дальше решает обычный путь."""
+    saved = entry(kind="tv", season=5, episode=2, done=True, episodes=[(5, 1), (5, 2)])
+
+    assert _kept_place(_state_with(saved), ("кино", saved), Args(query=["кино"], release=2)) is None
+
+
+def test_a_hand_named_episode_outranks_the_bookmark_place() -> None:
+    """Человек сам назвал ДРУГУЮ серию - его слово старше закладки."""
+    saved = entry(kind="tv", season=5, episode=1, pos=265.0, episodes=[(5, 1), (5, 2)])
+
+    kept = _kept_place(_state_with(saved), ("кино", saved), Args(query=["кино", "s2e3"], release=2))
+
+    assert kept is None
+
+
+def test_the_bookmarked_episode_named_by_hand_keeps_its_place() -> None:
+    """Названная руками серия совпала с закладкой - продолжается её место."""
+    saved = entry(kind="tv", season=5, episode=1, pos=265.0, episodes=[(5, 1), (5, 2)])
+
+    kept = _kept_place(_state_with(saved), ("кино", saved), Args(query=["кино", "s5e1"], release=2))
+
+    assert kept is not None
+    assert kept[2].pos == 265.0
+
+
+def test_a_hand_named_release_of_a_series_with_kept_place_says_nothing_about_a_loss(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Место сериала поднято - строка «сохранённое место не поднимаю» была бы ложью."""
+    saved = entry(kind="tv", season=5, episode=1, pos=265.0, episodes=[(5, 1), (5, 2)])
+
+    code = _continue_picked(
+        Config(),
+        _state_with(saved),
+        cast(Any, plan()),
+        Bench(),  # type: ignore[arg-type]
+        args=Args(query=["кино", "s5e1"], release=2),
+        clock=_Clock(),
+    )
+
+    assert code is None
+    assert capsys.readouterr().out == ""
+
+
+def test_a_hand_named_release_of_a_series_at_another_episode_says_the_place_is_dropped(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Человек назвал другую серию - место закладки правда теряется, и строка остаётся."""
+    saved = entry(kind="tv", season=5, episode=1, pos=265.0, episodes=[(5, 1), (5, 2)])
+
+    code = _continue_picked(
+        Config(),
+        _state_with(saved),
+        cast(Any, plan()),
+        Bench(),  # type: ignore[arg-type]
+        args=Args(query=["кино", "s2e3"], release=2),
+        clock=_Clock(),
+    )
+
+    assert code is None
+    assert "сохранённое место 0:04:25 не поднимаю" in capsys.readouterr().out

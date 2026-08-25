@@ -5,12 +5,16 @@ from __future__ import annotations
 from typing import Any, cast
 
 from tests.usecases.cast_command.world import plan, release
+from torrcast.domain._series import _Series
 from torrcast.domain.args import Args
 from torrcast.domain.audio_track import AudioTrack
+from torrcast.domain.episode import Episode
 from torrcast.domain.media import Media
+from torrcast.domain.picture import Picture
 from torrcast.domain.torr_file import TorrFile
 from torrcast.usecases.cast_command._entry_for import _entry_for
 from torrcast.usecases.select._prep import _Prep
+from torrcast.usecases.select.plan import Plan
 
 
 def _media() -> Media:
@@ -128,3 +132,31 @@ def test_a_named_track_is_the_only_thing_that_rewrites_the_studio() -> None:
 
     assert entry.studio == "TVShows"
     assert entry.heard == "", "выбранная руками дорожка подменой не является"
+
+
+def test_the_played_file_names_the_episode_not_the_request() -> None:
+    """Запрос мог звать «s1e1» серию, которая в этой раздаче - s5e1 (TC-807).
+
+    Подпись на экране и запись в состоянии обязаны совпадать с тем файлом,
+    который реально играет, - иначе зритель видит «первую серию первого сезона»
+    у играющей s5e1.
+    """
+    files = [
+        TorrFile(index=3, name="кино/s05e01.mkv", size=8 * 1024**3),
+        TorrFile(index=4, name="кино/s05e02.mkv", size=8 * 1024**3),
+    ]
+    pack = release("Кино / Movie WEB-DL 1080p")
+    one = Plan(
+        picture=Picture(title="Кино", year=1999, kind="tv", releases=[pack]),
+        ranked=[pack],
+        runtime=1400.0,
+        warn_mbit=16.0,
+        series=_Series(want=Episode(1, 1)),
+    )
+    prep = _Prep(number=1, release=pack)
+    prep.video, prep.files, prep.media = files[0], files, _media()
+
+    entry = _entry_for(one, prep, pack, files[0], _media(), 0, "Дубляж", "", Args(query=["кино"]))
+
+    assert (entry.season, entry.episode) == (5, 1)
+    assert entry.label == "s5e1"
