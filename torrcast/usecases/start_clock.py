@@ -1,5 +1,5 @@
-"""Часы фаз старта показа: сколько заняла каждая ступень до картинки на экране.
-Заводят их команда показа и цикл юнита, читает их вслух прогресс.
+"""Часы старта показа: сколько прошло от команды до картинки на экране.
+Заводят их команда показа и цикл юнита, а называет число строка запуска.
 """
 
 from __future__ import annotations
@@ -12,15 +12,9 @@ from dataclasses import dataclass, field
 
 @dataclass(slots=True)
 class _Clock:
-    """Фазы старта: холодный старт стоит 15–30 с, и цифры должны быть видны глазами."""
+    """Старт показа: холодный стоит 15–30 с, и цифра должна быть видна глазами."""
 
     start: float = field(default_factory=time.monotonic)
-    last: float = field(default_factory=time.monotonic)
-
-    def lap(self) -> str:
-        now = time.monotonic()
-        gap, self.last = now - self.last, now
-        return f"{gap:.1f} с"
 
     @property
     def total(self) -> float:

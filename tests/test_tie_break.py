@@ -46,7 +46,6 @@ def test_deterministic_ties() -> None:
                 (
                     pic.title,
                     pic.year,
-                    pic.best_release.magnet if pic.best_release else None,
                     [r.magnet for r in ranked],
                 )
             )

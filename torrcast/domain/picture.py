@@ -45,11 +45,5 @@ class Picture:
     def seeders(self) -> int:
         return max((r.seeders for r in self.releases), default=0)
 
-    @property
-    def best_release(self) -> Release | None:
-        if not self.releases:
-            return None
-        return sorted(self.releases, key=lambda r: (not r.prime, -r.seeders, -r.size, r.magnet))[0]
-
 
 __all__ = ["Picture"]

@@ -1259,23 +1259,6 @@ def test_a_single_word_never_goes_through_the_word_match() -> None:
     assert pick_franchise("сансет", pictures) == []
 
 
-def test_best_release_prefers_seeders_and_avoids_hevc() -> None:
-    """Дефолт — самый обсиженный H.264; HEVC уступает даже с бо́льшими сидами."""
-    picture = cluster(
-        [
-            _release("Тачки", 2006, seeders=500, codec="HEVC"),
-            _release("Тачки", 2006, seeders=200),
-            _release("Тачки", 2006, seeders=90),
-        ]
-    )[0]
-
-    best = picture.best_release
-
-    assert best is not None
-    assert best.seeders == 200
-    assert not best.is_hevc
-
-
 def test_slugify_is_stable_for_state_keys() -> None:
     """Ключ состояния не зависит от регистра, ё и пунктуации."""
     assert slugify("Киберпанк: Бегущие по краю") == "киберпанк-бегущие-по-краю"
