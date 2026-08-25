@@ -555,15 +555,16 @@ def test_a_refused_narrow_source_is_not_reasked_at_all(tmp_path: Path) -> None:
 
 
 def _shim_knobs() -> list[str]:
-    """Ручки шима так, как их запишет установка: значения подставляет сам bash."""
+    """Ручки шима так, как их получит юнит: значения подставляет и кавычит сам установщик."""
     body = SCRIPT.split("local knobs; knobs=", 1)[1].split('Sockets=torrcast-shim.socket"', 1)[0]
     agent = SCRIPT.split('\nUA="', 1)[1].split('"\n', 1)[0]
     snippet = (
+        f"{_funcs('quoted_knobs')}\n"
         f'UA="{agent}"\n'
         "HOSTS_FILE=/etc/hosts\nSHIM_PID=/etc/torrcast-shim/shim.pid\n"
         "SHIM_DIR=/etc/torrcast-shim\npins=api.knaben.org\nROUTE_EVERY=900\n"
         "PROBE_TIMEOUT=25\nPROBE_STALL=5\nPROBE_FLOOR=1024\n"
-        f'knobs={body}Sockets=torrcast-shim.socket"\nprintf "%s\\n" "$knobs"\n'
+        f'knobs={body}Sockets=torrcast-shim.socket"\nquoted_knobs "$knobs"\n'
     )
     done = subprocess.run(["bash", "-c", snippet], capture_output=True, text=True, check=True)
     return done.stdout.splitlines()
@@ -592,6 +593,46 @@ def test_a_shim_knob_with_a_space_reaches_the_process_whole() -> None:
     assert env["TORRCAST_PROBE_UA"] == agent
 
 
+def _quoted_knobs(knobs: str) -> list[str]:
+    """Строки секции ``[Service]`` так, как их окавычит общее место установщика."""
+    snippet = f'{_funcs("quoted_knobs")}\nquoted_knobs "$1"\n'
+    done = subprocess.run(
+        ["bash", "-c", snippet, "проба", knobs], capture_output=True, text=True, check=True
+    )
+    return done.stdout.splitlines()
+
+
+def test_every_knob_of_a_unit_comes_out_quoted() -> None:
+    """🔴 TC-489. Кавычки ручке ставит установщик, а не тот, кто её написал.
+
+    Строку ``Environment=`` systemd делит по пробелам и всё после первого пробела считает
+    СЛЕДУЮЩИМ присваиванием: ручка с пробелом внутри доезжает до процесса обрезанной по
+    первому пробелу, и увидеть это можно только в окружении живого процесса - служба
+    поднимается как ни в чём не бывало. Зовущих у юнитов много, и помнить про кавычки
+    каждому нечем, поэтому мера смотрит на общее место: своё оно кавычит, чужие строки
+    секции ``[Service]`` не трогает, а уже окавыченное вторыми кавычками не оборачивает.
+    """
+    knobs = (
+        "Environment=TORRCAST_PROBE_UA=Mozilla/5.0 (X11; Linux x86_64) Chrome/122\n"
+        'Environment="TORRCAST_HOSTS=/etc/hosts"\n'
+        "MemoryMax=268435456"
+    )
+    lines = _quoted_knobs(knobs)
+    assert lines[-1] == "MemoryMax=268435456", "строки не про ручки трогать нечем"
+    seen: dict[str, str] = {}
+    for line in lines:
+        if not line.startswith("Environment="):
+            continue
+        # Ровно то, что делает systemd: режем по пробелам с оглядкой на кавычки.
+        for assignment in shlex.split(line.removeprefix("Environment=")):
+            name, _, value = assignment.partition("=")
+            seen[name] = value
+    assert seen == {
+        "TORRCAST_PROBE_UA": "Mozilla/5.0 (X11; Linux x86_64) Chrome/122",
+        "TORRCAST_HOSTS": "/etc/hosts",
+    }
+
+
 def _knob_landed(box: Path, knobs: str, timeout: float = 15.0) -> str:
     """Что доехало до процесса, поднятого песочничной веткой ``run_service``.
 
@@ -604,7 +645,7 @@ def _knob_landed(box: Path, knobs: str, timeout: float = 15.0) -> str:
         encoding="utf-8",
     )
     snippet = (
-        f"{_funcs('run_service')}\n"
+        f"{_funcs('quoted_knobs', 'run_service')}\n"
         "skip() { :; }\n"
         # Шаблон складывается в момент вызова: написанный целиком, он лежал бы в строке
         # запуска самой оболочки, и `pgrep -f` нашёл бы по нему её же.

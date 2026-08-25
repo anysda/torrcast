@@ -614,9 +614,30 @@ ts_cache_place() {
     fi
 }
 
+# Значение ручки берётся в кавычки, и это не украшение: systemd режет строку
+# `Environment=` по пробелам и всё после первого пробела считает СЛЕДУЮЩИМ
+# присваиванием, а не продолжением значения. Ручка с пробелом внутри доезжает до
+# процесса обрезанной по первому пробелу - молча, потому что служба при этом исправно
+# поднимается, а увидеть потерю можно только в окружении живого процесса. Кавычки
+# ставятся здесь, а не в зовущем: забыть их в новой ручке иначе ничего не мешает.
+quoted_knobs() {  # $1 - лишние строки секции [Service]; печатает их же с кавычками
+    local line out=""
+    while IFS= read -r line; do
+        case "$line" in
+            'Environment="'*) ;;
+            Environment=*) line="Environment=\"${line#Environment=}\"" ;;
+        esac
+        out="$out$line"$'\n'
+    done <<EOF
+$1
+EOF
+    printf '%s' "${out%$'\n'}"
+}
+
 # Служба: в системе — юнит systemd, в песочнице — просто фоновый процесс,
 # чтобы фазы проверялись живьём, а не «как будто».
 run_service() {  # $1 имя, $2 описание, $3 команда, $4 - лишние строки секции [Service]
+    local quoted; quoted="$(quoted_knobs "${4:-}")"
     if [ -n "${TORRCAST_NO_SYSTEMD:-}" ]; then
         pgrep -f -- "$(proc_mask "$3")" >/dev/null 2>&1 \
             && { skip "процесс $1 (песочница)"; return 0; }
@@ -635,7 +656,7 @@ run_service() {  # $1 имя, $2 описание, $3 команда, $4 - ли�
             case "$knob" in \"*\") knob="${knob#\"}"; knob="${knob%\"}" ;; esac
             export "${knob%%=*}=${knob#*=}"
         done <<EOF
-${4:-}
+$quoted
 EOF
         # shellcheck disable=SC2086
         setsid nohup $3 >"$PREFIX/$1.log" 2>&1 </dev/null &
@@ -651,7 +672,7 @@ EOF
     # машине: 90 секунд установки ровно тут, на ожидании SIGKILL.
     local fresh=0 was_up=0
     systemctl is-active --quiet "$1.service" && was_up=1
-    write_unit "$1" "$2" "$3" "${4:-}" && fresh=1
+    write_unit "$1" "$2" "$3" "$quoted" && fresh=1
     systemctl enable --now "$1.service"
     [ "$fresh" = 1 ] && [ "$was_up" = 1 ] && systemctl restart "$1.service"
     return 0
@@ -1458,21 +1479,16 @@ setup_shim() {  # $1 - имена, которые ведём через шим (
     # одновременный отказ всех источников.
     # Прибитое имя ведёт на 127.0.0.1, и пока шима там нет, трекера нет вовсе; аренда же
     # кончается вместе со службой, и трекер остаётся хотя бы со своим прямым путём.
-    # Значение каждой ручки берётся в кавычки, и это не украшение: systemd режет строку
-    # `Environment=` по пробелам и всё после первого пробела считает следующим
-    # присваиванием, а не продолжением значения. Без кавычек ручка с пробелом внутри
-    # доезжает до процесса обрезанной по первому пробелу - молча, потому что служба при
-    # этом исправно поднимается.
-    local knobs; knobs="Environment=\"TORRCAST_HOSTS=$HOSTS_FILE\"
-Environment=\"TORRCAST_SHIM_PID=$SHIM_PID\"
-Environment=\"TORRCAST_ROUTE_PROBES=$SHIM_DIR/probes\"
-Environment=\"TORRCAST_ROUTE_PAGES=$SHIM_DIR/pages\"
-Environment=\"TORRCAST_ROUTE_PINNED=$pins\"
-Environment=\"TORRCAST_ROUTE_EVERY=$ROUTE_EVERY\"
-Environment=\"TORRCAST_PROBE_TIMEOUT=$PROBE_TIMEOUT\"
-Environment=\"TORRCAST_PROBE_STALL=$PROBE_STALL\"
-Environment=\"TORRCAST_PROBE_FLOOR=$PROBE_FLOOR\"
-Environment=\"TORRCAST_PROBE_UA=$UA\"
+    local knobs; knobs="Environment=TORRCAST_HOSTS=$HOSTS_FILE
+Environment=TORRCAST_SHIM_PID=$SHIM_PID
+Environment=TORRCAST_ROUTE_PROBES=$SHIM_DIR/probes
+Environment=TORRCAST_ROUTE_PAGES=$SHIM_DIR/pages
+Environment=TORRCAST_ROUTE_PINNED=$pins
+Environment=TORRCAST_ROUTE_EVERY=$ROUTE_EVERY
+Environment=TORRCAST_PROBE_TIMEOUT=$PROBE_TIMEOUT
+Environment=TORRCAST_PROBE_STALL=$PROBE_STALL
+Environment=TORRCAST_PROBE_FLOOR=$PROBE_FLOOR
+Environment=TORRCAST_PROBE_UA=$UA
 Sockets=torrcast-shim.socket"
     # Маска - начало строки запуска, без маршрутов: у живого процесса они прежние, а
     # погасить надо именно его.
@@ -2378,7 +2394,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-Environment=LANG=$LOCALE
+Environment="LANG=$LOCALE"
 ${4:+$4
 }ExecStart=$3
 Restart=on-failure
