@@ -69,7 +69,7 @@ def test_checkup_keeps_every_probe_and_their_order() -> None:
     """Порядок проб - часть договора: сначала консоль, потом службы, потом ТВ."""
     lines = list(Doctor.checkup(_config(), _answering()))
 
-    assert len(lines) == 18, [line for line, _ in lines]
+    assert len(lines) == 19, [line for line, _ in lines]
     assert "терминал" in lines[0][0] and "локаль" in lines[1][0] and "ffmpeg" in lines[2][0]
     assert "Prowlarr ходит к трекерам по IPv4" in lines[3][0]
     assert "индексеров 2" in lines[4][0]
@@ -79,8 +79,10 @@ def test_checkup_keeps_every_probe_and_their_order() -> None:
     assert "Knaben на месте" in lines[7][0] and "RuTor на месте" in lines[8][0]
     assert "TorrServer" in lines[9][0] and "кэша неизвестен" in lines[10][0]
     assert "ТВ 10.0.0.50" in lines[11][0] and "порт 8009" in lines[12][0]
-    assert "тишина" in lines[13][0] and "профиль приёмника" in lines[14][0]
-    assert "раздача" in lines[15][0] and "кэши в" in lines[16][0] and "след" in lines[17][0]
+    # 🔴 TC-503. Аптайм и связь идут сразу за портом: приёмник спрашивается один раз.
+    assert "приёмник" in lines[13][0]
+    assert "тишина" in lines[14][0] and "профиль приёмника" in lines[15][0]
+    assert "раздача" in lines[16][0] and "кэши в" in lines[17][0] and "след" in lines[18][0]
 
 
 def test_a_checkup_of_a_healthy_machine_stays_passing() -> None:

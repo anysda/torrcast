@@ -30,6 +30,30 @@ def test_a_closed_port_asks_about_the_power() -> None:
     assert ReceiverHealth.port(8009, "")[1] is True
 
 
+def test_the_uptime_and_the_link_are_said_in_one_line() -> None:
+    """🔴 TC-503. При разборе мёртвого показа это первые два вопроса, и ответа на них
+    у зрителя не было. Обе цифры читаются одним запросом, значит и строка одна."""
+    line, ok = ReceiverHealth.link(86400 * 3 + 3600 * 4, False)
+    assert ok and "3 д 4 ч" in line and "по Wi-Fi" in line
+
+
+def test_a_wired_receiver_is_named_as_wired() -> None:
+    line, ok = ReceiverHealth.link(3600 * 2, True)
+    assert ok and "2 ч 0 мин" in line and "по кабелю" in line
+
+
+def test_a_receiver_that_said_nothing_is_a_warning_and_not_a_failure() -> None:
+    """Молчащий паспорт показу не мешает: строка объясняет, а не судит."""
+    line, ok = ReceiverHealth.link(0.0, None)
+    assert ok and line.startswith("внимание") and "неизвестны" in line
+
+
+def test_a_named_link_survives_an_unnamed_uptime() -> None:
+    """Половина паспорта - тоже ответ: сказанное говорим, выдуманного не добавляем."""
+    line, ok = ReceiverHealth.link(0.0, True)
+    assert ok and "по кабелю" in line and "на ногах" not in line
+
+
 def test_heard_receivers_are_named_in_the_line() -> None:
     """Смысл mDNS - имена: они и должны быть видны, но не больше трёх."""
     line, ok = ReceiverHealth.mdns(["Q70D", "кухня", "спальня", "гараж"], "", "")

@@ -28,6 +28,8 @@ class FakeHealthEnvironment:
     refusal: str = ""
     heard: tuple[list[str], str, str] = field(default_factory=lambda: ([], "silence", "тишина"))
     profile: tuple[str, str, bool] = ("Q70D", "по паспорту: Samsung", False)
+    #: Аптайм приёмника (секунды) и то, подключён ли он кабелем.
+    link: tuple[float, bool | None] = (0.0, None)
     base: tuple[str, str] = ("http://10.0.0.7:8080", "")
     days: int | None = None
     shelf: tuple[str, tuple[int, int], tuple[int, int]] = ("/var/lib/torrcast", (1, 2), (3, 4))
@@ -108,6 +110,10 @@ class FakeHealthEnvironment:
 
     def receiver_profile(self, config: HealthConfig) -> tuple[str, str, bool]:
         return self.profile
+
+    def receiver_link(self, host: str, timeout: float) -> tuple[float, bool | None]:
+        self.timeouts.append(timeout)
+        return self.link
 
     def hls_base(self, config: HealthConfig) -> tuple[str, str]:
         return self.base

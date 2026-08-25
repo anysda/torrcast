@@ -4,6 +4,7 @@
 """
 
 from torrcast.domain.health_verdict import HealthLine, HealthVerdict
+from torrcast.domain.uptime_words import uptime_words
 
 
 class ReceiverHealth:
@@ -34,6 +35,27 @@ class ReceiverHealth:
         if error:
             return HealthVerdict.bad(f"порт {port} на ТВ не открылся ({error}) - ТВ обесточен?")
         return HealthVerdict.ok(f"порт {port} на ТВ открыт - приёмник примет показ")
+
+    @staticmethod
+    def link(uptime: float, wired: bool | None) -> HealthLine:
+        """Аптайм приёмника и то, чем он подключён: первые два вопроса о мёртвом показе.
+
+        Обе цифры читаются одним обычным запросом к странице сведений устройства
+        (:func:`torrcast.adapters.chromecast.scan.receiver_link.receiver_link`), поэтому
+        строка ничего не стоит и приёмник ею не будится. Оценка тут проходная: аптайм и
+        связь показу не мешают ни при каком значении, они его объясняют.
+
+        Сброшенный аптайм читается ПОСМЕРТНО: приёмник, вернувшийся с малым сроком, был
+        обесточен или перезагрузился, и это меняет разбор целиком.
+        """
+        if uptime <= 0 and wired is None:
+            return HealthVerdict.warn(
+                "приёмник сведений о себе не отдал - аптайм и связь неизвестны"
+            )
+        link = {True: "по кабелю", False: "по Wi-Fi", None: "связь не названа"}[wired]
+        if uptime <= 0:
+            return HealthVerdict.ok(f"приёмник подключён {link}")
+        return HealthVerdict.ok(f"приёмник на ногах {uptime_words(uptime)}, подключён {link}")
 
     @staticmethod
     def mdns(titles: list[str], reason: str, note: str) -> HealthLine:

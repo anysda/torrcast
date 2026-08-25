@@ -12,6 +12,7 @@ import requests
 from torrcast.adapters.chromecast.profile_detector import detector
 from torrcast.adapters.chromecast.scan.alive import CAST_PORT
 from torrcast.adapters.chromecast.scan.by_mdns import by_mdns
+from torrcast.adapters.chromecast.scan.receiver_link import receiver_link
 from torrcast.adapters.http_server.stream_serve import hls_base, our_address
 from torrcast.domain.config import Config
 from torrcast.domain.profile import CAUTIOUS
@@ -167,6 +168,11 @@ class ServiceProbe:
         """Имя выбранного профиля приёмника, откуда он взялся и осторожный ли он."""
         chosen = detector.detect(config)
         return str(chosen.profile.title), str(chosen.how), bool(chosen.profile is CAUTIOUS)
+
+    @staticmethod
+    def receiver_link(host: str, timeout: float) -> tuple[float, bool | None]:
+        """Аптайм приёмника и то, чем он подключён; молчание - ноль и «не сказал»."""
+        return receiver_link(host, timeout)
 
     @staticmethod
     def hls_base(config: HealthConfig) -> tuple[str, str]:

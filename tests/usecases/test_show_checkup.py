@@ -44,6 +44,24 @@ def test_a_visible_tv_is_probed_by_its_port() -> None:
     assert "8009" in lines[1][0] and "Connection refused" in lines[1][0]
 
 
+def test_an_open_port_is_followed_by_the_uptime_and_the_link() -> None:
+    """🔴 TC-503. Аптайм и связь читаются одним запросом - значит, спрашиваются всегда."""
+    environment = FakeHealthEnvironment(link=(86400 * 2.0, False))
+    lines = list(_checkup(environment).tv(Settings(tv="10.0.0.50")))
+    assert [ok for _, ok in lines] == [True, True, True]
+    assert "2 д 0 ч" in lines[2][0] and "по Wi-Fi" in lines[2][0]
+    assert environment.timeouts == [5.0, 5.0], "срок ожидания задаёт сценарий, а не адаптер"
+
+
+def test_a_dead_port_leaves_the_receiver_unasked_about_its_uptime() -> None:
+    """У обесточенного приёмника спрашивать про аптайм некого, и лишний срок ожидания
+    не тратится."""
+    environment = FakeHealthEnvironment(refusal="Connection refused")
+    lines = list(_checkup(environment).tv(Settings(tv="10.0.0.50")))
+    assert len(lines) == 2
+    assert environment.timeouts == [5.0]
+
+
 def test_http_delivery_never_asks_about_a_cert() -> None:
     """Серт спрашивается только под https - иначе его отсутствие ничего не значит."""
     environment = FakeHealthEnvironment(days=None)

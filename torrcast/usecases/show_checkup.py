@@ -26,7 +26,11 @@ class ShowCheckup:
         return CacheHealth.server(config.torrserver_url, echo)
 
     def tv(self, config: HealthConfig) -> Iterator[HealthLine]:
-        """Адрес ТВ, маршрут до него и порт приёмника - он открыт даже у спящего Q70D."""
+        """Адрес ТВ, маршрут до него, порт приёмника и то, чем и как долго он живёт.
+
+        Порт открыт даже у спящего приёмника, поэтому закрытый обрывает пробу: у
+        обесточенного спрашивать про аптайм уже некого.
+        """
         tv = config.tv or ""
         if not tv:
             yield ReceiverHealth.unnamed()
@@ -39,7 +43,11 @@ class ShowCheckup:
         if not ours:
             return
         port = self._environment.cast_port()
-        yield ReceiverHealth.port(port, self._environment.port_error(tv, port, self._timeout))
+        refusal = self._environment.port_error(tv, port, self._timeout)
+        yield ReceiverHealth.port(port, refusal)
+        if refusal:
+            return
+        yield ReceiverHealth.link(*self._environment.receiver_link(tv, self._timeout))
 
     def profile(self, config: HealthConfig) -> HealthLine:
         """Профиль приёмника: по каким порогам будет играть показ и откуда они взялись."""
