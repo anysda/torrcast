@@ -7,7 +7,7 @@ from __future__ import annotations
 import contextlib
 from typing import TYPE_CHECKING
 
-from torrcast.adapters.http_server.stream_serve import TRACE
+from torrcast.adapters.http_server.stream_serve import _tracing
 from torrcast.ports.journal.slot import journal
 
 if TYPE_CHECKING:
@@ -51,7 +51,7 @@ def _note(state: _State, slot: int, how: str) -> None:
         мбит=round(went, 2),
         профиль=round(state.weights.at(slot), 2),
     )
-    if TRACE:
+    if _tracing():
         state._say(
             f"выложен v{slot}: {how} {went:.1f} Мбит/с (профиль {state.weights.at(slot):.1f})"
         )

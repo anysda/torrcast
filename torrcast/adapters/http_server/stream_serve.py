@@ -20,7 +20,13 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Final
 
-from torrcast.adapters.http_server._handler import _ASSET_RE, _RANGE_RE, _TYPES, TRACE, _Handler
+from torrcast.adapters.http_server._handler import (
+    _ASSET_RE,
+    _RANGE_RE,
+    _TYPES,
+    _Handler,
+    _tracing,
+)
 from torrcast.adapters.http_server.hls_base import hls_base
 from torrcast.adapters.http_server.hls_server import HlsServer, _Server
 from torrcast.adapters.http_server.our_address import our_address
@@ -35,7 +41,6 @@ from torrcast.domain.unit_naming import _UNIT_NAME
 from torrcast.domain.why import why
 
 __all__ = [
-    "TRACE",
     "TYPE_CHECKING",
     "_ASSET_RE",
     "_RANGE_RE",
@@ -52,6 +57,7 @@ __all__ = [
     "_opt_str",
     "_scope",
     "_systemd",
+    "_tracing",
     "contextlib",
     "hls_base",
     "http",

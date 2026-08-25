@@ -7,7 +7,8 @@ from typing import Any, cast
 
 import pytest
 
-from torrcast.adapters.http_server._handler import _ASSET_RE, _RANGE_RE, _TYPES, _Handler
+from torrcast.adapters.http_server._handler import _ASSET_RE, _RANGE_RE, _TYPES, _Handler, _tracing
+from torrcast.domain.debug_handles import TRACE_ENV
 from torrcast.domain.trace_sources import PACKED, WARMED
 
 
@@ -112,3 +113,18 @@ def test_the_source_of_every_piece_is_remembered_for_the_trail(tmp_path: Path) -
 
     assert _handler(feed)._read("v3.ts") is None, "куска нет - и выдумывать его нечем"
     assert _handler(feed)._read("index.m3u8") == b"#EXTM3U\n", "манифест берётся не с диска"
+
+
+def test_the_trace_handle_is_asked_at_the_moment_of_the_show(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ручка следа спрашивается в момент показа, а не в момент импорта модуля.
+
+    Ставят её юниту показа, а модуль к тому времени давно затащен в процесс: прочитанная
+    на импорте, она навсегда осталась бы такой, какой была у первого зовущего, и след
+    просто не включался бы - молча, потому что раздача при этом работает.
+    """
+    monkeypatch.delenv(TRACE_ENV, raising=False)
+    assert _tracing() is False
+    monkeypatch.setenv(TRACE_ENV, "1")
+    assert _tracing() is True, "ручку поставили после импорта - её обязано быть видно"

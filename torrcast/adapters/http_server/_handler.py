@@ -12,6 +12,7 @@ from typing import Any, ClassVar, Final
 from torrcast.adapters.http_server._feed import _Feed
 from torrcast.adapters.http_server.log_segment import log_segment
 from torrcast.adapters.stream_probe.segment_slot import segment_slot
+from torrcast.domain.debug_handles import TRACE_ENV
 from torrcast.domain.trace_sources import PACKED, WARMED
 
 #: Отдаём ровно манифест и сегменты сетки, и ничего больше: каталог наружу не открыт.
@@ -23,8 +24,16 @@ _TYPES: Final = {
     ".mp4": "video/mp4",
 }
 _RANGE_RE: Final = re.compile(r"bytes=(\d*)-(\d*)")
-#: ``TORRCAST_TRACE=1`` - раздача пишет в журнал каждый запрос приёмника (:meth:`_Handler._trace`).
-TRACE: Final = bool(os.environ.get("TORRCAST_TRACE"))
+
+
+def _tracing() -> bool:
+    """Просит ли человек след раздачи прямо сейчас (``TORRCAST_TRACE=1``).
+
+    Спрашивается в момент показа, а не в момент импорта: ручку ставят юниту показа
+    (:data:`~torrcast.domain.unit_naming._PASS_ENV`), и прочитанная на импорте она
+    навсегда осталась бы такой, какой была у первого, кто затащил модуль в процесс.
+    """
+    return bool(os.environ.get(TRACE_ENV))
 
 
 class _Handler(http.server.BaseHTTPRequestHandler):
@@ -150,7 +159,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         Без этого подвис не измерить: снаружи он выглядит одинаково и
         когда он ждёт нас, и когда он перестал спрашивать вовсе, — а лечится это по-разному.
         """
-        if not TRACE:
+        if not _tracing():
             return
         span = self.headers.get("Range", "")
         print(
@@ -167,7 +176,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         нарезку» от «канал до ТВ не тянет этот кусок»: с диска всё отдаётся мгновенно, а
         уезжает ровно столько, сколько позволяет линк.
         """
-        if not TRACE or seconds <= 0:
+        if not _tracing() or seconds <= 0:
             return
         print(
             f"отдал {name} · {size / 1e6:.1f} МБ за {seconds:.1f} с"
