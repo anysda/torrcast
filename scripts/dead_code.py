@@ -1,4 +1,4 @@
-"""Мёртвый код в большом: три стадии, и охват у каждой - это и есть её смысл.
+"""Мёртвый код в большом: четыре стадии, и охват у каждой - это и есть её смысл.
 
 1. Имя без единого вызывающего в пакете и в инструментах. Тесты в охват НЕ входят
    намеренно: единственным вызывающим мертвеца часто оказывается его же зеркальный тест,
@@ -12,6 +12,9 @@
    на разрезе с зеркальными именами слепнет: пока в дереве живёт хоть один `Feed`,
    объявление `Feed` в мёртвом соседнем модуле читается как живое. Ловится это графом
    импортов: модуль жив, если до него есть путь от корня.
+4. Фикстура, которую не просит ни один тест. Она невидима обоим приборам сразу: vulture
+   не смотрит на неё вовсе (`PYTEST_CALLS` ниже), а pytest про непрошенную фикстуру
+   штатно молчит. Спрашивается она у самого pytest, который один и знает регистрацию.
 """
 
 from __future__ import annotations
@@ -134,6 +137,27 @@ def vulture(*paths: str, ignore: Iterable[str] = ()) -> list[str]:
     return [line for line in done.stdout.splitlines() if line]
 
 
+def fixtures() -> list[str]:
+    """Фикстуры без единого просящего теста: спрашиваем сам pytest, он держит регистрацию.
+
+    Отбор строк и код возврата тут сверяются друг с другом. Разошлись - это сорванная
+    стадия, а не «находок нет»: сорванный сбор тоже не печатает ни одной находки.
+    """
+    done = subprocess.run(
+        [str(REPO / ".venv/bin/python"), "-m", "pytest", "--dead-fixtures"],
+        cwd=REPO,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    found = [line for line in done.stdout.splitlines() if line.startswith("Fixture name:")]
+    if bool(found) != bool(done.returncode):
+        raise SystemExit(
+            f"стадия фикстур сорвалась, код {done.returncode}:\n{done.stdout}{done.stderr}"
+        )
+    return found
+
+
 def report(stage: str, found: list[str]) -> int:
     """Напечатать находки стадии и вернуть их число."""
     for line in found:
@@ -150,6 +174,7 @@ def main() -> int:
     whole = vulture("torrcast", "tests", "scripts", ignore=PYTEST_CALLS)
     found += report("мёртвое в тестах", [line for line in whole if line.startswith("tests/")])
     found += report("модулей без импортирующих", orphans(grimp.build_graph(PACKAGE)))
+    found += report("фикстур без просящих", fixtures())
     return 1 if found else 0
 
 

@@ -28,6 +28,7 @@ dev = [
     "grimp>=3.15",
     "mypy>=1.11",
     "pytest>=8.3",
+    "pytest-deadfixtures>=3.1",
     "pytest-testmon>=2.1",
     "pytest-xdist>=3.8",
     "ruff==0.16.1",
