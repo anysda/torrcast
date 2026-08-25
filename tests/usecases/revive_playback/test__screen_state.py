@@ -6,6 +6,11 @@ import pytest
 
 from torrcast.usecases.revive_playback._screen_state import _Screen
 
+#: Имя поля, которого у объекта нет и быть не должно. Названо переменной, а не
+#: точкой: через точку это выглядело бы объявлением НАШЕГО поля - и для читателя, и
+#: для поиска мёртвого кода, который считает такое присваивание объявлением.
+FOREIGN_FIELD = "invented"
+
 
 def test_a_fresh_screen_has_neither_a_bookmark_nor_a_first_frame() -> None:
     """Закладка нулевая, указатель ``PLAYING`` не назван, хвост ещё не стоял."""
@@ -25,4 +30,4 @@ def test_the_start_is_taken_as_raised_unless_told_otherwise() -> None:
 def test_the_screen_holds_nothing_it_was_not_asked_to_hold() -> None:
     """Лишнего поля к памяти экрана не приписать: она объявлена целиком и закрыта."""
     with pytest.raises(AttributeError):
-        _Screen().invented = 1  # type: ignore[attr-defined]
+        setattr(_Screen(), FOREIGN_FIELD, 1)

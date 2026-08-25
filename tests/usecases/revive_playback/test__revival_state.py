@@ -8,6 +8,11 @@ from tests.fakes.clock import FakeClock
 from torrcast.domain.revive_settings import REVIVE_DROP, REVIVE_LIVED, REVIVE_PAUSE
 from torrcast.usecases.revive_playback._revival_state import _RevivalState
 
+#: Имя поля, которого у объекта нет и быть не должно. Названо переменной, а не
+#: точкой: через точку это выглядело бы объявлением НАШЕГО поля - и для читателя, и
+#: для поиска мёртвого кода, который считает такое присваивание объявлением.
+FOREIGN_FIELD = "invented"
+
 
 def test_a_fresh_ladder_is_not_in_the_dark_and_has_spent_nothing() -> None:
     """Темноты нет, попыток нет, виноватого нет: лестница начинает с чистого листа."""
@@ -34,4 +39,4 @@ def test_a_named_clock_wins_over_the_configured_one() -> None:
 def test_the_ladder_holds_nothing_it_was_not_asked_to_hold() -> None:
     """Лишнего поля лестнице не приписать: её состояние объявлено целиком."""
     with pytest.raises(AttributeError):
-        _RevivalState(clock=FakeClock()).invented = 1  # type: ignore[attr-defined]
+        setattr(_RevivalState(clock=FakeClock()), FOREIGN_FIELD, 1)
