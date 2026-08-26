@@ -17,10 +17,12 @@ from torrcast.adapters.stream_pack._segment_files import _paths
 from torrcast.adapters.stream_pack.ffmpeg_pack_command import ffmpeg_pack_command
 from torrcast.adapters.stream_pack.forget_playing import forget_playing
 from torrcast.adapters.stream_pack.grid import Grid
+from torrcast.adapters.stream_pack.lay_head import lay_head
 from torrcast.adapters.stream_pack.packer import Packer
 from torrcast.adapters.stream_pack.settle_start import settle_start
 from torrcast.adapters.stream_probe.segment_name import segment_name
 from torrcast.adapters.stream_probe.segment_slot import segment_slot
+from torrcast.domain.segment_container import FMP4, MPEGTS, SegmentContainer
 from torrcast.usecases.feed_pack.configure import configure
 from torrcast.usecases.feed_pack.feed import Feed
 
@@ -79,9 +81,17 @@ class FakeVault:
     """Хранилище прогретого: каталог на диске под именами той же сетки."""
 
     dir: Path
+    container: SegmentContainer = MPEGTS
 
     def path(self, slot: int) -> Path:
-        return self.dir / f"v{slot}.ts"
+        return self.dir / f"v{slot}{self.suffix}"
+
+    @property
+    def suffix(self) -> str:
+        return ".m4s" if self.container == FMP4 else ".ts"
+
+    def slots(self) -> set[int]:
+        return {int(piece.stem[1:]) for piece in self.dir.glob(f"v*{self.suffix}")}
 
     def spot(self, slot: int) -> Path:
         return self.dir / f"v{slot}.rec"
@@ -125,6 +135,7 @@ def tract(**parts: Any) -> FakeClock:
         parts.pop("packer", Packer),
         parts.pop("forget_flag", forget_playing),
         parts.pop("recode_dir", RECODE_DIR),
+        parts.pop("lay_head", lay_head),
         parts.pop("remove_tree", remove_tree),
         parts.pop("segment_paths", _paths),
         ticking,
@@ -191,11 +202,11 @@ def signals(run: Packer) -> list[str]:
     return cast(FakeProc, run.proc).signals
 
 
-def vault(root: Path) -> FakeVault:
+def vault(root: Path, container: SegmentContainer = MPEGTS) -> FakeVault:
     """Каталог прогретого на диске."""
     where = root / "warm"
     where.mkdir(parents=True, exist_ok=True)
-    return FakeVault(dir=where)
+    return FakeVault(dir=where, container=container)
 
 
 def lay(where: Path, slot: int, size: int = 1024) -> Path:

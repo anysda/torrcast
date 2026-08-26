@@ -21,6 +21,7 @@ def configure(
     packer: PackFactory,
     forget_flag: Callable[[Path], None],
     recode_dir: str,
+    lay_head: Callable[[Path, Path], None],
     remove_tree: Callable[[Path], None],
     segment_paths: Callable[[Path], list[Path]],
     clock: FeedClock,
@@ -34,6 +35,7 @@ def configure(
     _state.Packer = packer
     _state.forget_playing = forget_flag
     _state.RECODE_DIR = recode_dir
+    _state.lay_head = lay_head
     _state.remove_tree = remove_tree
     _state.segment_paths = segment_paths
     _state.clock_port = clock

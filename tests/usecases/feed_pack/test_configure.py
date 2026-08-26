@@ -15,6 +15,7 @@ if TYPE_CHECKING:
 
 def _world() -> dict[str, Any]:
     forgotten: list[Path] = []
+    laid: list[tuple[Path, Path]] = []
     swept: list[Path] = []
     raised: list[Any] = []
     return {
@@ -25,6 +26,7 @@ def _world() -> dict[str, Any]:
         "packer": type("Fake", (), {"start": staticmethod(lambda *a, **k: None)}),
         "forget_flag": forgotten.append,
         "recode_dir": "свой-перекод",
+        "lay_head": lambda piece, out: laid.append((piece, out)),
         "remove_tree": swept.append,
         "segment_paths": lambda where: [where / "свой.ts"],
         "clock": time,
@@ -44,6 +46,7 @@ def test_every_slot_takes_its_value_from_the_composition() -> None:
     assert _state.ffmpeg_pack_command() == ["ffmpeg", "своя"]
     assert _state.forget_playing is world["forget_flag"]
     assert _state.RECODE_DIR == "свой-перекод"
+    assert _state.lay_head is world["lay_head"]
     assert _state.Packer is world["packer"]
     assert _state.remove_tree is world["remove_tree"]
     assert _state.segment_paths is world["segment_paths"]

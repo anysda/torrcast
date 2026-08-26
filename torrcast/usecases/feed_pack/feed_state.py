@@ -25,12 +25,14 @@ class _Vault(Protocol):
     """Хранилище прогретого в объёме, который нужен показу: взять или отвергнуть кусок.
 
     Полный :class:`torrcast.usecases.warm.vault.Vault` сюда не приходит: бюджет диска,
-    учёт каталогов и вытеснение - дело прогрева, а показу нужно одно имя файла.
+    учёт каталогов и вытеснение - дело прогрева, а показу нужны имена файлов.
     """
 
     def path(self, slot: int) -> Path: ...
 
     def reject(self, slot: int) -> None: ...
+
+    def slots(self) -> set[int]: ...
 
 
 @dataclass(slots=True)

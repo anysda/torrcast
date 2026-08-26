@@ -13,6 +13,7 @@ from torrcast.domain.master_manifest import master_manifest
 from torrcast.domain.segment_container import FMP4
 from torrcast.ports.pack_run.pack_run import PackRun
 from torrcast.usecases.feed_pack.feed_front import _front, _weight
+from torrcast.usecases.feed_pack.feed_head import _head
 from torrcast.usecases.feed_pack.feed_restart import _restart
 from torrcast.usecases.feed_pack.feed_seam import _seam
 from torrcast.usecases.feed_pack.feed_segment import _have, _segment, _warm
@@ -53,12 +54,17 @@ class Feed(_State):
         return self.grid.manifest(self.container).encode("utf-8")
 
     def init(self) -> Path | None:
-        """Опубликовать и вернуть CMAF init, дождавшись завода упаковщика."""
+        """Опубликовать и вернуть CMAF init, дождавшись упаковки или взяв его у прогретого.
+
+        Источников у заголовка два, и второй не для красоты: на прогретом фильме с мёртвым
+        источником живая упаковка не выложит ни куска, а значит и заголовка (:func:`_head`).
+        """
         deadline = _state.clock_port.monotonic() + self.wait
         path = self.out / "init.mp4"
         while _state.clock_port.monotonic() < deadline:
             if self.packer is not None:
                 self.packer.publish()
+            _head(self, path)
             if path.exists():
                 return path
             _state.clock_port.sleep(0.05)
