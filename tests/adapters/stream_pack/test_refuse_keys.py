@@ -6,11 +6,13 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from torrcast.adapters.stream_pack.read_keys import read_keys
 from torrcast.adapters.stream_pack.refuse_keys import refuse_keys
 from torrcast.adapters.stream_pack.refused_keys import refused_keys
+from torrcast.domain.warm_open import KEYS_RULES
 
 DAY = 24 * 60 * 60.0
 
@@ -31,7 +33,12 @@ def test_a_verdict_replaces_the_map_that_lay_there(tmp_path: Path) -> None:
     того же фильма взял бы ту же карту и построил бы по ней ту же сетку.
     """
     cache = tmp_path / "фильм.json"
-    cache.write_text('{"duration": 60.0, "keys": [0.0, 2.0], "bytes": [0, 4096]}', "utf-8")
+    cache.write_text(
+        json.dumps(
+            {"duration": 60.0, "keys": [0.0, 2.0], "bytes": [0, 4096], "rules": KEYS_RULES}
+        ),
+        "utf-8",
+    )
     assert read_keys(cache) is not None, "карта не легла - мерить нечего"
 
     refuse_keys(cache, "сетка по карте разошлась с прогоном")

@@ -17,6 +17,7 @@ from torrcast.domain.frames.keymap.key_map import KeyMap
 from torrcast.domain.frames.keymap.point import Point
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.swarm_silent_error import SwarmSilentError
+from torrcast.domain.warm_open import KEYS_RULES
 
 URL = "http://127.0.0.1:8090/stream?link=0123456789abcdef&index=1"
 
@@ -111,7 +112,10 @@ def test_a_reader_waits_for_the_neighbour_instead_of_reading_the_tail_twice() ->
     def neighbour() -> None:
         time.sleep(0.2)
         cache.write_text(
-            json.dumps({"duration": 42.0, "keys": [0.0], "bytes": [0], "kind": "mkv"}), "utf-8"
+            json.dumps(
+                {"duration": 42.0, "keys": [0.0], "bytes": [0], "kind": "mkv", "rules": KEYS_RULES}
+            ),
+            "utf-8",
         )
 
     threading.Thread(target=neighbour, daemon=True).start()

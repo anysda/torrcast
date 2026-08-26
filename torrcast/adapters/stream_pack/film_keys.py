@@ -22,7 +22,7 @@ from torrcast.domain.frames.keymap.video_track import video_track
 from torrcast.domain.hls_wait import KEYS_WAIT
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.swarm_silent_error import SwarmSilentError
-from torrcast.domain.warm_open import KEYS_KEPT, KEYS_LOCK, KEYS_REFUSED
+from torrcast.domain.warm_open import KEYS_KEPT, KEYS_LOCK, KEYS_REFUSED, KEYS_RULES
 from torrcast.ports.journal.slot import journal
 
 
@@ -145,6 +145,9 @@ def film_keys(
                 "bytes": ready.offset,
                 "kind": ready.kind,
                 "via": list(ready.via),
+                # Номер правил, которыми карта принята: с чужим номером её перечитают,
+                # а не возьмут на веру (:data:`KEYS_RULES`).
+                "rules": KEYS_RULES,
             }
             try:
                 tmp.write_text(json.dumps(body), "utf-8")
