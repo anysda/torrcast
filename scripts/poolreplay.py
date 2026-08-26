@@ -64,6 +64,7 @@ from torrcast.domain.args import Args
 from torrcast.domain.capped_indexers import INDEXER_PAGE
 from torrcast.domain.cluster import cluster
 from torrcast.domain.config import Config
+from torrcast.domain.entry import Entry
 from torrcast.domain.glue import glue
 from torrcast.domain.menu_order import menu_order
 from torrcast.domain.pick_franchise import pick_franchise
@@ -73,6 +74,7 @@ from torrcast.domain.raw_result import RawResult
 from torrcast.domain.release import Release
 from torrcast.domain.split_franchise_index import split_franchise_index
 from torrcast.domain.thin_pool import THIN_POOL
+from torrcast.domain.watch_state import WatchState
 from torrcast.runtime.wire import wire
 from torrcast.usecases.choice.first_alive import first_alive
 from torrcast.usecases.discover.season_reread import season_reread
@@ -85,6 +87,7 @@ from torrcast.usecases.reinforce.ceiling_hides_name import ceiling_hides_name
 from torrcast.usecases.reinforce.lacks_season import lacks_season
 from torrcast.usecases.reinforce.plan_for import plan_for
 from torrcast.usecases.reinforce.voiceless_pool import voiceless_pool
+from torrcast.usecases.select._measured_runtime import _measured_runtime
 from torrcast.usecases.select.plan import Plan
 
 #: Что склеили и во что: список исходных кучек и получившаяся из них картина.
@@ -263,6 +266,7 @@ def replay(
     capped: tuple[str, ...] = (),
     pool: str = "",
     studio: str = "",
+    seen: WatchState | None = None,
 ) -> Replay:
     """Прогнать один пул по боевому тракту отбора.
 
@@ -275,6 +279,12 @@ def replay(
     она лежит в состоянии показа, - поэтому на замере её называют руками: только так и
     видно, что ступень студии делает с порядком
     (:func:`~torrcast.usecases.rank.studio_step.studio_step`).
+
+    ``seen`` - состояние просмотра замера: у уже начатой картины в записи лежит
+    замеренная паспортом длительность, и ворота считают знаменатель по ней
+    (:func:`~torrcast.usecases.select._measured_runtime._measured_runtime`, TC-819) - ровно тем же
+    вызовом, что и боевой круг (:func:`~torrcast.usecases.discover.search_circle.search_circle`).
+    ``None`` - картину не смотрели никогда, и в знаменателе прикидка.
     """
     args = Args(query=query.split())
     raw = merge(*batches) if batches else []
@@ -288,7 +298,18 @@ def replay(
     name, index = split_franchise_index(args.title_query)
     if (reread := season_reread(args, name, index, found, pictures)) is not None:
         args, index = reread, None
-    ranked = (plan_for(pic, args, config, profile, studio=studio) for pic in found)
+    remembered = seen.find(args.title_query) if seen is not None else None
+    ranked = (
+        plan_for(
+            pic,
+            args,
+            config,
+            profile,
+            runtime=_measured_runtime(seen, pic.key, remembered) if seen is not None else 0.0,
+            studio=studio,
+        )
+        for pic in found
+    )
     plans = [p for p in ranked if p.ranked]
     return Replay(
         query=query,
@@ -657,11 +678,24 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--menu", type=int, default=5, help="сколько картин меню расписывать")
     ap.add_argument("--releases", type=int, default=3, help="сколько релизов очереди печатать")
     ap.add_argument("--jsonl", type=Path, help="куда положить разбор построчно")
+    ap.add_argument(
+        "--states",
+        type=Path,
+        metavar="JSON",
+        help="замеренные паспортом длительности начатых картин: "
+        '{"<ключ картины>": секунды} - память показа на замере (TC-819)',
+    )
     add_profile_argument(ap)
     args = ap.parse_args(argv)
     cmdline = list(argv) if argv is not None else sys.argv[1:]
 
     config, choice = choose_profile(load_config(), args.profile)
+    seen: WatchState | None = None
+    if args.states is not None:
+        recorded = json.loads(args.states.read_text(encoding="utf-8"))
+        seen = WatchState(
+            {key: Entry(title=key, magnet="", dur=float(secs)) for key, secs in recorded.items()}
+        )
     items: list[Replay] = []
     for line in args.pools.read_text(encoding="utf-8").splitlines():
         if not line.strip():
@@ -671,7 +705,16 @@ def main(argv: list[str] | None = None) -> int:
         batches, capped = batches_of(record), capped_of(record)
         for asked in asks_of(query, args.ask):
             items.append(
-                replay(asked, batches, config, choice.profile, capped, query, studio=args.studio)
+                replay(
+                    asked,
+                    batches,
+                    config,
+                    choice.profile,
+                    capped,
+                    query,
+                    studio=args.studio,
+                    seen=seen,
+                )
             )
 
     picked = (
