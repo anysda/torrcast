@@ -34,6 +34,7 @@ class Facts:
         self.source = source
         self.found: dict[tuple[str, int | None], Fact] = {}
         self._done = threading.Event()
+        self._about = threading.Event()
         self._thread: threading.Thread | None = None
         self._deadline = 0.0
         self._started = 0.0
@@ -44,11 +45,11 @@ class Facts:
         self._started = time.monotonic()
         self._deadline = time.monotonic() + self.budget
         if not self.wanted:
-            self._done.set()
+            self._settled()
             return
         self.found = self.store.blurbs(self.wanted)
         if len(self.found) == len(self.wanted):  # всё уже лежит в кэше - сети не надо
-            self._done.set()
+            self._settled()
             return
         self._thread = threading.Thread(target=self._work, daemon=True)
         self._thread.start()
@@ -79,6 +80,26 @@ class Facts:
         чем напечатать голое навсегда.
         """
         self._done.wait(max(0.0, self._deadline - time.monotonic()))
+
+    def wait_about(self) -> None:
+        """Дождаться ОПИСАНИЙ в пределах :attr:`budget`; украшения пусть догоняют.
+
+        🔴 TC-717, решение владельца от 20-08-2026, вариант «б»: «вернуть описание ценой
+        ожидания». Описание - единственное, чего у показанной строки уже не отнять и не
+        добавить: оно занимает не одну строку, а несколько, и вставить их в середину
+        прочитанного списка нечем (:func:`~torrcast.usecases.choice._dress._dress`). Значит,
+        либо оно есть с ПЕРВОЙ печати, либо его не будет вовсе.
+
+        Ждём поэтому не всю справку, а её первый шаг: описания отдаются
+        :meth:`_ready` сразу, как приехали (медиана 0.73 с), а рейтинг с хронометражем -
+        вторым, вдвое более медленным шагом, и они дописываются курсором. Дождавшись
+        только первого, меню платит ожиданием ровно за то, что иначе пропало бы.
+
+        Ждать нечего в трёх случаях, и во всех трёх ожидание кончается сразу: спрашивать
+        было некого, всё лежало в кэше, или источник ответил (хоть бы и пустотой). Досидеть
+        потолок ради молчания эта мера не даёт - потолок тут потолок, а не срок.
+        """
+        self._about.wait(max(0.0, self._deadline - time.monotonic()))
 
     def watch(self, seen: Callable[[], None] | None) -> None:
         """Кого звать, когда справки прибавилось; ``None`` - больше не звать никого.
@@ -126,7 +147,7 @@ class Facts:
         except Exception:
             pass
         finally:
-            self._done.set()
+            self._settled()
 
     def _ready(self, part: dict[tuple[str, int | None], Fact]) -> None:
         """Описания - в меню, не дожидаясь украшений.
@@ -140,9 +161,23 @@ class Facts:
         В кэш отсюда не пишем: на диск ложится итог, а не полуфабрикат - иначе описание
         без рейтинга закрыло бы дорогу полной справке на неделю вперёд. И уже добытое
         полуфабрикатом не накрываем: лежащее слева уступает тому, что уже есть.
+
+        Здесь же отпускается меню, дожидавшееся описаний (:meth:`wait_about`): дальше едут
+        только украшения, а их оно дописывает курсором и ждать им себя не даёт.
         """
         self.found = {**part, **self.found}
+        self._about.set()
         self._tell()
+
+    def _settled(self) -> None:
+        """Ждать больше нечего - ни описаний, ни украшений: обе меры отпускают меню.
+
+        Сюда сходятся все концы добора: спрашивать было некого, всё лежало в кэше, источник
+        ответил или отказал. Описания при этом могли и не приехать вовсе - но ждать их
+        после конца добора значит досиживать потолок ради пустоты.
+        """
+        self._about.set()
+        self._done.set()
 
     def _tell(self) -> None:
         """Сказать смотрящему, что справки прибавилось; его отказ не роняет добор."""

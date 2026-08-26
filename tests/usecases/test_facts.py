@@ -250,3 +250,61 @@ def test_the_deadline_lets_the_menu_go_but_the_topup_thread_is_closed_by_its_own
     facts.finish()
 
     assert store.stored[MOANA_KEY].rating == "IMDb 7.6", "опоздавшая справка легла в кэш"
+
+
+def test_the_menu_is_let_go_by_the_blurbs_and_not_by_the_ornaments() -> None:
+    """🔴 TC-717. Ожидание меню кончается на ОПИСАНИЯХ, а не на всей справке.
+
+    Описание приезжает первым шагом добора (медиана 0.73 с), рейтинг с хронометражем -
+    вторым, вдвое более медленным. Дописать в показанный список можно только второе,
+    поэтому ждут ровно первое: источник тут отдал описания и залип на украшениях, и меню
+    обязано уйти печататься сразу, а не досиживать свой потолок.
+    """
+    ornaments = threading.Event()
+
+    def stepwise(wanted: list[tuple[str, int | None]]) -> dict[tuple[str, int | None], Fact]:
+        ornaments.wait(10.0)
+        return {}
+
+    source = FakeBlurbSource(stepwise)
+    facts = Facts([MOANA_KEY], 10.0, store=FakeBlurbStore(), source=source)
+    facts.start()
+    facts._ready({MOANA_KEY: Fact(about=MOANA)})
+    started = time.monotonic()
+
+    try:
+        facts.wait_about()
+        told = time.monotonic() - started
+
+        assert told < 0.5, f"описания на руках, а меню ждало ещё {told:.2f} с"
+        assert facts.ready("Моана", 2016).about == MOANA
+        assert not facts._done.is_set(), "второй шаг ещё едет - и ровно его меню не ждёт"
+    finally:
+        ornaments.set()
+        facts.finish()
+
+
+def test_a_reference_with_nothing_to_say_holds_the_menu_not_a_moment() -> None:
+    """Справка молчит - ждать нечего: список выходит сразу, а не досиживает потолок.
+
+    Три вида молчания, и все три обязаны стоить ноль: спрашивать было некого, всё лежало в
+    кэше, источник ответил отказом. Потолок :data:`FACTS_BUDGET` - потолок, а не срок.
+    """
+
+    def dead(_wanted: list[tuple[str, int | None]]) -> Any:
+        raise OSError("сети нет")
+
+    empty = Facts([], 10.0, store=FakeBlurbStore(), source=FakeBlurbSource())
+    cached = _menu(FakeBlurbSource(), FakeBlurbStore({MOANA_KEY: Fact(about=MOANA)}), budget=10.0)
+    refused = _menu(FakeBlurbSource(dead), FakeBlurbStore(), budget=10.0)
+
+    started = time.monotonic()
+    for facts in (empty, cached, refused):
+        facts.start()
+        facts.wait_about()
+        facts.finish()
+    held = time.monotonic() - started
+
+    assert held < 1.0, f"молчание не стоит ожидания, а меню просидело {held:.2f} с"
+    assert cached.ready("Моана", 2016).about == MOANA
+    assert refused.ready("Моана", 2016) == Fact()

@@ -110,7 +110,7 @@ def parts(*named: tuple[str, int | None, int]) -> list[Plan]:
 
 
 class Waited(Facts):
-    """Справка, которая помнит, ждали ли её и кто на неё подписан.
+    """Справка, которая помнит, ждали ли её - и чего именно из неё ждали.
 
     Спрашивают её оба зеркала печати списка - и само :func:`_shown`, и вопрос вокруг него:
     ожидание справки решается в одном месте, а видно его с обеих сторон.
@@ -119,9 +119,13 @@ class Waited(Facts):
     def __init__(self) -> None:
         super().__init__([], store=cast(Any, None), source=cast(Any, None))
         self.waits = 0
+        self.abouts = 0
 
     def wait(self) -> None:
         self.waits += 1
+
+    def wait_about(self) -> None:
+        self.abouts += 1
 
 
 @dataclass
