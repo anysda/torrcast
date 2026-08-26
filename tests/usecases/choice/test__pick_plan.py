@@ -24,25 +24,63 @@ def test_the_menu_is_printed_before_the_question_so_the_number_has_a_meaning() -
     """Список печатается всегда, а последней строкой идёт то, что случится по Enter.
 
     Строка стоит именно ПЕРЕД вопросом: терминал после длинного вывода показывает его
-    хвост, и шапка тридцатипятистрочного меню уезжает за экран вместе с ним.
+    хвост, и шапка длинного меню уезжает за экран вместе с ним. Спросить тут есть о
+    чём: верх меню - мёртвая документалка с другим именем, и дефолт прошёл мимо неё.
     """
     world = Outside()
-    mummy = parts(("Мумия", 1999, 47), ("Мумия", 2017, 58))
+    moana = parts(
+        ("Моана: романтика золотого века", 1926, 1), ("Моана", 2016, 222), ("Моана 2", 2024, 140)
+    )
 
-    picked = _pick_plan(mummy, environment=world)
+    picked = _pick_plan(moana, asked="моана", environment=world)
 
-    assert world.said[0].splitlines() == ["  1. Мумия (1999)", "  2. Мумия (2017)"]
-    assert world.said[1] == "Enter - «Мумия (1999)», пункт 1 из 2"
-    assert world.asked == [("Что смотрим?", 2, 1)]
-    assert picked is mummy[0], "пустой Enter - это дефолт"
+    assert world.said[0].splitlines() == [
+        "  1. Моана: романтика золотого века (1926)",
+        "  2. Моана (2016)",
+        "  3. Моана 2 (2024)",
+    ]
+    assert world.said[1] == "Enter - «Моана (2016)», пункт 2 из 3"
+    assert world.asked == [("Что смотрим?", 3, 2)]
+    assert picked is moana[1], "пустой Enter - это дефолт"
 
 
 def test_the_number_the_person_answered_is_the_picture_that_goes_on() -> None:
     """Ответ номером - это выбор человека, и он исполняется буквально."""
-    world = Outside(answers=[2])
+    world = Outside(answers=[1])
+    moana = parts(
+        ("Моана: романтика золотого века", 1926, 1), ("Моана", 2016, 222), ("Моана 2", 2024, 140)
+    )
+
+    assert _pick_plan(moana, asked="моана", environment=world) is moana[0]
+
+
+def test_namesakes_by_year_are_taken_liveliest_without_a_question() -> None:
+    """🔴 TC-812. Тёзки по году больше не спрашивают: берётся самая живая, и не молча.
+
+    Решение владельца 26-08-2026: «включать самую живую это показатель того что картина
+    популярна а варианты будут уже за --menu». Строка называет взятую годом, число
+    остальных и ключ; список не печатается - отвечать на него больше не просят.
+    """
+    world = Outside()
     mummy = parts(("Мумия", 1999, 47), ("Мумия", 2017, 58))
 
-    assert _pick_plan(mummy, environment=world) is mummy[1]
+    picked = _pick_plan(mummy, asked="мумия", environment=world)
+
+    assert picked is mummy[1], "самая живая из одноимённых"
+    assert world.asked == [], "вопроса не было"
+    assert world.said == [
+        "беру «Мумия (2017)» - самая живая из одноимённых, у лучшей её раздачи сидов 58; "
+        "других картин под этим именем: 1, их список: cast мумия --menu"
+    ]
+
+
+def test_namesakes_need_no_terminal_either() -> None:
+    """Вопроса на тёзках нет - значит и терминал не нужен: берётся и в трубе, и в cron."""
+    world = Outside(tty=False)
+    mummy = parts(("Мумия", 1999, 47), ("Мумия", 2017, 58))
+
+    assert _pick_plan(mummy, asked="мумия", environment=world) is mummy[1]
+    assert world.asked == []
 
 
 def test_a_single_picture_is_no_choice_and_the_question_is_not_asked() -> None:
@@ -69,6 +107,24 @@ def test_the_only_picture_found_being_another_part_of_the_franchise_is_refused()
     assert "первой части в выдаче нет" in str(refusal.value)
     assert "«Лёд 3 (2024)»" in str(refusal.value)
     assert world.asked == [], "выбирать было не из чего, и вопроса тут нет"
+
+
+def test_the_menu_flag_passes_ahead_of_the_lone_other_part_refusal() -> None:
+    """🔴 TC-812. ``--menu`` пропускается вперёд отказа: список поднимается и из одного пункта.
+
+    «лёд» нашёл только «Лёд 3» - без флага это отказ (молча такое не включаем), а с
+    флагом человек просил список: строка про чужую часть печатается над ним, и ответ
+    называет сам человек.
+    """
+    world = Outside(answers=[1])
+    ice = [plan("Лёд 3", 2024, part=3, seeders=3)]
+
+    picked = _pick_plan(ice, asked="лёд", environment=world, menu=True)
+
+    assert picked is ice[0]
+    assert world.said[0].startswith("«лёд»: первой части в выдаче нет"), "отказ стал строкой"
+    assert world.said[1].splitlines() == ["  1. Лёд 3 (2024)"]
+    assert world.asked == [("Что смотрим?", 1, 1)]
 
 
 def test_a_single_picture_of_the_asked_franchise_still_goes_on_without_a_word() -> None:
@@ -141,12 +197,21 @@ def test_the_printed_menu_remembers_its_order_for_the_next_run() -> None:
     следующем запуске - тот же ход, что и по таблице, и сверяться он обязан так же.
     """
     world = Outside()
-    mummy = parts(("Мумия", 1999, 47), ("Мумия", 2017, 58))
+    moana = parts(
+        ("Моана: романтика золотого века", 1926, 1), ("Моана", 2016, 222), ("Моана 2", 2024, 140)
+    )
 
-    _pick_plan(mummy, asked="мумия", environment=world)
+    _pick_plan(moana, asked="моана", environment=world)
 
     assert world.remembered == [
-        ("мумия", [(p.picture.key, f"Мумия ({p.picture.year})") for p in mummy])
+        (
+            "моана",
+            [
+                (moana[0].picture.key, "Моана: романтика золотого века (1926)"),
+                (moana[1].picture.key, "Моана (2016)"),
+                (moana[2].picture.key, "Моана 2 (2024)"),
+            ],
+        )
     ]
 
 
@@ -182,20 +247,21 @@ def test_a_number_outside_the_list_is_an_honest_error_and_not_a_quiet_first_item
 def test_without_a_terminal_we_refuse_out_loud_and_say_how_to_name_the_picture() -> None:
     """🔴 Спрашивать есть о чём, а терминала нет - отказываемся вслух.
 
-    Тёзка по году - это ДРУГОЙ фильм: разница между «Мумией» 1999 и «Мумией» 2017 не
-    оттенок, а не тот вечер. Цифра в скобках имеет смысл ровно потому, что рядом
-    напечатан список и человек видит, от чего отказывается; без терминала видеть его
-    некому.
+    Дефолт прошёл мимо верха меню (мёртвая документалка с другим именем), и цифра в
+    скобках имеет смысл ровно потому, что рядом напечатан список и человек видит, от
+    чего отказывается; без терминала видеть его некому.
     """
     world = Outside(tty=False)
-    mummy = parts(("Мумия", 1999, 47), ("Мумия", 2017, 58))
+    moana = parts(
+        ("Моана: романтика золотого века", 1926, 1), ("Моана", 2016, 222), ("Моана 2", 2024, 140)
+    )
 
     with pytest.raises(NotFoundError) as refusal:
-        _pick_plan(mummy, asked="мумия", environment=world)
+        _pick_plan(moana, asked="моана", environment=world)
 
     said = str(refusal.value)
     assert "терминала нет - вслепую не выбираю" in said
-    assert "«Мумия»" in said and "--pick N" in said
+    assert "«Моана»" in said and "--pick N" in said
     assert world.asked == [], "спрашивать было некого, и висеть мы не стали"
 
 
@@ -220,14 +286,14 @@ def test_a_default_that_would_swap_a_part_of_the_franchise_is_taken_away_entirel
     assert not any(line.startswith("Enter - ") for line in world.said), "обещать Enter нечем"
 
 
-def test_a_default_that_leaves_the_exactly_named_picture_is_taken_away_entirely() -> None:
-    """🔴 TC-715. Запрос назвал картину целиком, а дефолт встаёт на другую - дефолта нет.
+def test_a_default_that_leaves_the_exactly_named_picture_takes_the_liveliest() -> None:
+    """🔴 TC-812. Страж «имя названо целиком» берёт живейшую вслух, а не спрашивает.
 
-    «блич s1e1»: у «Блича» 2004 года рой ниже порога живости, и Enter включал
-    «Тысячелетнюю кровавую войну» - другой сериал под тем же именем. Теперь вопрос
-    задаётся БЕЗ дефолта: строка называет обе картины и причину, номер зовёт человек.
+    «блич s1e1»: у «Блича» 2004 года рой ниже порога живости - взята живая одноимённая
+    линейка 2022 года, и строка называет обе картины, причину и ключ ``--menu``.
+    Вопрос без дефолта (TC-715) остался за явным ``--menu``.
     """
-    world = Outside(answers=[2])
+    world = Outside()
     bleach = [
         plan("Блич", 2004, kind="tv", seeders=3, asked_series=True),
         plan("Блич: Тысячелетняя кровавая война", 2022, kind="tv", seeders=40, asked_series=True),
@@ -235,8 +301,26 @@ def test_a_default_that_leaves_the_exactly_named_picture_is_taken_away_entirely(
 
     picked = _pick_plan(bleach, asked="блич", environment=world)
 
+    assert picked is bleach[1], "взята самая живая - названная не играет"
+    assert world.asked == [], "вопроса на обычном пути больше нет"
+    assert world.said == [
+        "«блич» - это «Блич (2004, сериал)», но не играет: рой у неё мёртв - сидов 3; "
+        "беру самую живую - «Блич: Тысячелетняя кровавая война (2022, сериал)»; "
+        "всего подошло картин 2; другая: cast блич --menu"
+    ]
+
+
+def test_the_named_guard_still_asks_without_a_default_behind_the_menu_flag() -> None:
+    """За явным ``--menu`` страж имени по-прежнему отдаёт номер человеку: дефолта нет."""
+    world = Outside(answers=[2])
+    bleach = [
+        plan("Блич", 2004, kind="tv", seeders=3, asked_series=True),
+        plan("Блич: Тысячелетняя кровавая война", 2022, kind="tv", seeders=40, asked_series=True),
+    ]
+
+    picked = _pick_plan(bleach, asked="блич", environment=world, menu=True)
+
     assert world.said[1].startswith("«блич» - это «Блич (2004, сериал)»")
-    assert "Тысячелетняя кровавая война" in world.said[1], "вторая картина тоже названа"
     assert world.asked == [("Что смотрим?", 2, None)], "дефолта у вопроса нет"
     assert picked is bleach[1], "взята та картина, чей номер назвал человек"
     assert not any(line.startswith("Enter - ") for line in world.said), "обещать Enter нечем"
@@ -304,23 +388,25 @@ def test_a_picture_the_lines_are_silent_about_needs_no_terminal_either() -> None
     assert world.said[0].startswith("беру «Тачки (2006)»")
 
 
-def test_enter_starts_the_picture_the_honest_line_is_about() -> None:
-    """🔴 Дефолт у прибора один, и Enter берёт ровно ту картину, про которую сказано.
+def test_the_taken_namesake_is_the_one_the_honest_lines_are_about() -> None:
+    """🔴 Взятая тёзка - ровно та картина, про которую сказано обеими строками.
 
-    Пока Enter брал верх списка, а строка про смену считала дефолт своей меркой, эти
-    двое расходились на 23 запросах из 71 сохранённого меню, и на всех 23 строка молчала:
-    сверялась она с одной картиной, а печаталась про другую, поэтому сказать ей было
-    нечего. Человек жал Enter и получал «Титаник» 1943 года вместо 1997-го - без единого
-    слова о том, что картина другая.
+    Живее всех тут сам дефолт, поэтому взятие не сменило картину, а перестало быть
+    вопросом (TC-812): строка взятия называет «Титаник» 1997 года и варианты за
+    ``--menu``, а предстартовая строка про смену (:func:`swap_note`) говорит, почему
+    мимо прошёл верх меню - мёртвый «Титаник» 1943 года.
     """
     world = Outside()
     titanic = parts(("Титаник", 1943, 1), ("Титаник", 1953, 2), ("Титаник", 1997, 165))
 
     picked = _pick_plan(titanic, asked="титаник", environment=world)
 
-    assert picked is titanic[2], "пустой Enter - это дефолт"
-    assert world.said[-1] == "Enter - «Титаник (1997)», пункт 3 из 3"
-    assert world.asked == [("Что смотрим?", 3, 3)]
+    assert picked is titanic[2], "самая живая из одноимённых - она же и дефолт"
+    assert world.asked == [], "тёзки больше не спрашивают (TC-812)"
+    assert world.said == [
+        "беру «Титаник (1997)» - самая живая из одноимённых, у лучшей её раздачи сидов 165; "
+        "других картин под этим именем: 2, их список: cast титаник --menu"
+    ]
     assert swap_note(titanic, picked, "титаник") == (
         "спросили «титаник» - беру «Титаник (1997)», а не «Титаник (1943)»: "
         "рой у неё мёртв - сидов 1"
@@ -345,13 +431,19 @@ def test_the_menu_is_shown_before_the_reference_and_never_waits_for_it() -> None
     двух прогонах из трёх всё равно получал голый список.
     """
     world = Outside()
-    mummy = parts(("Мумия", 1999, 47), ("Мумия", 2017, 58))
+    moana = parts(
+        ("Моана: романтика золотого века", 1926, 1), ("Моана", 2016, 222), ("Моана 2", 2024, 140)
+    )
     facts = Waited()
 
-    _pick_plan(mummy, facts, environment=world)
+    _pick_plan(moana, facts, asked="моана", environment=world)
 
     assert facts.waits == 0, "живой экран и вопрос - справку дописывают, а не ждут"
-    assert world.said[0].splitlines() == ["  1. Мумия (1999)", "  2. Мумия (2017)"]
+    assert world.said[0].splitlines() == [
+        "  1. Моана: романтика золотого века (1926)",
+        "  2. Моана (2016)",
+        "  3. Моана 2 (2024)",
+    ]
 
 
 def test_where_nobody_will_watch_the_line_grow_the_reference_is_awaited() -> None:
@@ -378,8 +470,11 @@ def test_the_answered_menu_is_unsubscribed_from_the_reference_and_closed() -> No
     """
     world = Outside()
     facts = Waited()
+    moana = parts(
+        ("Моана: романтика золотого века", 1926, 1), ("Моана", 2016, 222), ("Моана 2", 2024, 140)
+    )
 
-    _pick_plan(parts(("Мумия", 1999, 47), ("Мумия", 2017, 58)), facts, environment=world)
+    _pick_plan(moana, facts, asked="моана", environment=world)
 
     assert facts._seen is None
     assert world.painted is not None and world.painted.closed

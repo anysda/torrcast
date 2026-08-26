@@ -22,8 +22,13 @@ def test_a_franchise_that_starts_from_its_own_first_part_is_asked_about_nothing(
         assert certain_default(cars, "тачки") is True
 
 
-def test_a_namesake_by_year_keeps_the_question() -> None:
-    """Тёзка по году - самая тихая из подмен, и молчать про неё нельзя ни при каком дефолте."""
+def test_a_namesake_by_year_is_not_taken_silently() -> None:
+    """Тёзка по году - самая тихая из подмен, и МОЛЧА брать её нельзя ни при каком дефолте.
+
+    Вопроса на тёзках больше нет (TC-812): берётся самая живая с честной строкой. Но
+    молчаливым (:func:`taken_line` молчит о тёзках - он про «подошло картин N») это
+    взятие не бывает, и граница молчания тут не сдвинулась ни на шаг.
+    """
     mummy = parts(("Мумия", 1999, 47), ("Мумия", 2017, 58))
 
     with outside(Outside()):

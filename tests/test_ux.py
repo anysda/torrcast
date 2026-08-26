@@ -114,25 +114,6 @@ class _FakeTorrServer:
         return True
 
 
-#: Тёзка по году в той же выдаче: под одним именем две картины - и меню спрашивает.
-NAMESAKE = RawResult("Moana 2020 1080p WEB-DL H 264-GROUP", "n" * 40, 4 * GB, 30)
-
-
-def _menu_that_asks(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Выдача, на которой вопрос про картину остаётся: у «Moana» появляется тёзка по году.
-
-    Тёзка - самая тихая из подмен, и молчать про неё нельзя ни при каком дефолте; значит
-    вопрос тут задаётся, и вокруг него можно мерить всё, что происходит, пока меню на
-    экране.
-    """
-
-    class _Namesake(_FakeProwlarr):
-        def search(self, query: str) -> list[RawResult]:
-            return [*FOUND, NAMESAKE]
-
-    composition.use_indexers(monkeypatch, _Namesake)
-
-
 def _answers(monkeypatch: pytest.MonkeyPatch, *replies: str) -> list[str]:
     """Подставные ответы человека; заодно собираем сами вопросы."""
     asked: list[str] = []
@@ -224,27 +205,23 @@ def test_the_question_says_out_loud_what_enter_will_start(
     названием и годом, а не одной цифрой в скобках.
 
     Строка стоит ПОСЛЕ списка: шапка уехала бы вверх вместе со списком. Сам список
-    остаётся хронологическим - меняется показ дефолта, а не порядок.
+    остаётся хронологическим - меняется показ дефолта, а не порядок. Список тут
+    поднят явным ``--menu``: на обычном пути у этой выдачи вопроса нет, а мерить
+    строку надо там, где вопрос точно стоит.
     """
-
-    class _Twins(_FakeProwlarr):
-        def search(self, query: str) -> list[RawResult]:
-            return list(TWINS)
-
-    composition.use_indexers(monkeypatch, _Twins)
     _answers(monkeypatch, "", "")  # Enter на вопросе - то самое, о чём строка и говорит
 
-    assert main(["мумия"]) == 0
+    assert main(["моана", "--menu"]) == 0
 
     printed = capsys.readouterr().out
-    enter = "Enter - «Мумия (1999)», пункт 1 из 2"
+    enter = "Enter - «Moana (2016)», пункт 1 из 2"
     assert enter in printed
     assert (
-        printed.index("  1. Мумия (1999)")
-        < printed.index("  2. Мумия (2026)")
+        printed.index("  1. Moana (2016)")
+        < printed.index("  2. Моана 2 (2024)")
         < printed.index(enter)
     ), "список хронологический, а строка про дефолт - в хвосте, у самого вопроса"
-    assert "играю «Мумия» (1999)" in printed, "и Enter запустил ровно то, что было названо"
+    assert "играю «Moana» (2016)" in printed, "и Enter запустил ровно то, что было названо"
 
 
 def test_a_single_choice_is_not_a_question(
@@ -262,14 +239,15 @@ def test_a_single_choice_is_not_a_question(
     assert "Озвучка:" not in capsys.readouterr().out
 
 
-def test_a_bare_enter_is_enough_for_everything(
+def test_the_liveliest_namesake_is_taken_without_a_question(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Любой вопрос принимает пустой Enter: русский ввод допустим, но не обязателен.
+    """🔴 TC-812. Под одним именем - две разные картины разных лет: берётся самая живая.
 
-    Enter приводит в ПЕРВУЮ картину списка, а не в самую обсиженную: «мумия» - это
-    просьба про «Мумию» 1999 года с её 47 сидами, даже когда у тёзки 2026 года их 604
-    (🔴 TC-196). Список при этом остаётся хронологическим.
+    Живость роя - показатель того, что картина популярна, а варианты стоят за ``--menu``.
+    Решение не молчит: строка называет взятую картину годом, число сидов её лучшей
+    раздачи, сколько картин под этим именем есть ещё, и ключ, которым их поднять.
+    Дефолт франшизы это не тронуло - у частей своё правило, и тут обе картины - не части.
     """
 
     class _Twins(_FakeProwlarr):
@@ -277,14 +255,16 @@ def test_a_bare_enter_is_enough_for_everything(
             return list(TWINS)
 
     composition.use_indexers(monkeypatch, _Twins)
-    _answers(monkeypatch, "", "")
+    asked = _answers(monkeypatch, "", "")
 
     assert main(["мумия"]) == 0
     printed = capsys.readouterr().out
-    assert printed.index("  1. Мумия (1999)") < printed.index("  2. Мумия (2026)"), (
-        "список остался хронологией"
-    )
-    assert "играю «Мумия» (1999)" in printed
+    assert asked == [], "тёзки по году больше не спрашивают - берётся самая живая"
+    assert (
+        "беру «Мумия (2026)» - самая живая из одноимённых, у лучшей её раздачи сидов 604; "
+        "других картин под этим именем: 1, их список: cast мумия --menu" in printed
+    ), printed
+    assert "играю «Мумия» (2026)" in printed
 
 
 #: Выдача «мумии»: две картины под одним именем - самая тихая из подмен (🔴 TC-198).
@@ -294,10 +274,10 @@ TWINS = [
 ]
 
 
-def test_the_swap_line_is_the_last_word_before_the_start(
+def test_the_namesake_line_is_said_before_the_start(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """🔴 TC-198: взяли не то, что назвали, - и человек слышит об этом ПЕРЕД стартом.
+    """🔴 TC-198/TC-812: взяли самую живую тёзку - и человек слышит об этом ПЕРЕД стартом.
 
     Место у строки одно и выбрано не для порядка: фазы поиска к этой секунде уехали
     вверх экрана и читаются как ход работы, а решение про картину человек уносит с
@@ -314,12 +294,10 @@ def test_the_swap_line_is_the_last_word_before_the_start(
 
     assert main(["мумия"]) == 0
 
-    lines = [line for line in capsys.readouterr().out.splitlines() if line.strip()]
-    assert lines[-1].startswith("играю «Мумия» (1999)"), lines[-1]
-    assert lines[-2] == (
-        "спросили «мумия» - беру «Мумия (1999)»: под этим именем есть ещё "
-        "«Мумия (2026)» - другая картина"
-    ), lines[-2]
+    printed = capsys.readouterr().out
+    take = printed.index("беру «Мумия (2026)» - самая живая из одноимённых")
+    start = printed.index("играю «Мумия» (2026)")
+    assert take < start, "решение названо вслух до старта показа, а не после"
 
 
 def test_the_film_with_a_number_in_the_title_is_a_film(
@@ -664,12 +642,11 @@ def test_prewarmed_torrents_are_dropped_when_the_show_never_starts(
             return True
 
     composition.use_engines(monkeypatch, _Counting)
-    _menu_that_asks(monkeypatch)
     monkeypatch.setattr(
         "builtins.input", lambda prompt="": (_ for _ in ()).throw(KeyboardInterrupt)
     )
 
-    assert main(["моана"]) != 0, "Ctrl-C на вопросе - не показ"
+    assert main(["моана", "--menu"]) != 0, "Ctrl-C на вопросе - не показ"
 
     assert added, "прогрев под меню раздачи поднимает"
     assert len(dropped) == len(set(added)), "и все они убраны, раз показа не будет"
@@ -701,7 +678,6 @@ def test_the_spare_release_warms_under_the_menu_not_after_the_first_one_fails(
             return f"hash-{magnet[:30]}"
 
     composition.use_engines(monkeypatch, _Counting)
-    _menu_that_asks(monkeypatch)
     under_question: list[set[str]] = []
 
     def ask(prompt: str = "") -> str:
@@ -714,7 +690,7 @@ def test_the_spare_release_warms_under_the_menu_not_after_the_first_one_fails(
 
     monkeypatch.setattr("builtins.input", ask)
 
-    assert main(["моана"]) == 0
+    assert main(["моана", "--menu"]) == 0
 
     assert under_question, "меню про франшизу спросили"
     assert set(SPARE_PICTURE) <= under_question[0], "обе раздачи выбранной картины уже греются"
@@ -959,7 +935,6 @@ def test_the_menu_prewarm_stands_aside_while_our_show_is_on_air(
             return f"hash-{magnet[:30]}"
 
     composition.use_engines(monkeypatch, _Counting)
-    _menu_that_asks(monkeypatch)
     _live_show(show_unit)
 
     under_question: list[int] = []
@@ -972,7 +947,7 @@ def test_the_menu_prewarm_stands_aside_while_our_show_is_on_air(
 
     monkeypatch.setattr("builtins.input", ask)
 
-    assert main(["моана"]) == 0
+    assert main(["моана", "--menu"]) == 0
 
     assert under_question == [0], "под меню живого показа не поднято ни одной раздачи"
 
