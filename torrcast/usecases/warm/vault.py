@@ -144,18 +144,10 @@ class Vault:
             self.spot(slot).unlink(missing_ok=True)
 
     def touch(self) -> None:
+        at = _state._environment.epoch()
+        card = {"key": self.key, "title": self.title, "at": at, "lay": self.lay}
         with contextlib.suppress(OSError):
-            (self.dir / META).write_text(
-                json.dumps(
-                    {
-                        "key": self.key,
-                        "title": self.title,
-                        "at": _state._environment.epoch(),
-                        "lay": self.lay,
-                    }
-                ),
-                encoding="utf-8",
-            )
+            (self.dir / META).write_text(json.dumps(card), encoding="utf-8")
 
     def size(self) -> int:
         return _weigh(self.dir)
