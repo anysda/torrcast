@@ -11,9 +11,6 @@ from torrcast.domain.segment_container import FMP4
 
 
 def test_fmp4_manifest_names_init_and_media_segments() -> None:
-    """Общий заголовок назван, и это не украшение: без него приёмник качает куски, но
-    разбор не начинает вовсе - конвейер стоит в ``kStarting`` (живой замер на приставке).
-    """
     text = hls_manifest([10.0, 7.5], 10, True, FMP4)
 
     assert "#EXT-X-VERSION:7" in text

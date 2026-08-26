@@ -17,11 +17,14 @@ def test_the_pieces_of_the_previous_show_are_swept_out(tmp_path: Path) -> None:
     room.mkdir()
     (room / "v0.ts").write_bytes(b"old")
     (room / "index.m3u8").write_text("#EXTM3U\n")
+    (room / "init.mp4").write_bytes(b"old")
+    (room / "init.mp4.part").write_bytes("обрывок".encode())
     keep = room / "заметка.txt"
     keep.write_text("не сегмент")
 
     assert hls_dir(str(room)) == room
     assert not (room / "v0.ts").exists() and not (room / "index.m3u8").exists()
+    assert not (room / "init.mp4").exists() and not (room / "init.mp4.part").exists()
     assert keep.exists(), "чужие файлы каталога не наши, и трогать их незачем"
 
 

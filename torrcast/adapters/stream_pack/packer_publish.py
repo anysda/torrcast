@@ -13,13 +13,11 @@ from torrcast.adapters.stream_pack._segment_files import _names
 from torrcast.adapters.stream_pack._shrunk_out import _shrunk_out
 from torrcast.adapters.stream_pack.done_slots import done_slots
 from torrcast.adapters.stream_pack.key_missing import key_missing
-from torrcast.adapters.stream_pack.lay_head import lay_head
 from torrcast.adapters.stream_pack.merge_tracks import merge_tracks
 from torrcast.adapters.stream_pack.timeline_shift import timeline_shift
 from torrcast.adapters.stream_probe.segment_name import segment_name
 from torrcast.adapters.stream_probe.segment_slot import segment_slot
 from torrcast.domain.mixed_name import mixed_name
-from torrcast.domain.segment_container import FMP4
 from torrcast.ports.journal.slot import journal
 
 if TYPE_CHECKING:
@@ -56,6 +54,10 @@ def _lay_out(
     перекод БЕЗ опорного кадра): все трое поднимают ffmpeg и ffprobe на настоящих кусках,
     а здесь меряется РЕШЕНИЕ выкладки - что уходит наружу и куда встаёт край.
     """
+    init = state.run / "init.mp4"
+    if init.exists() and not (state.out / init.name).exists():
+        with contextlib.suppress(OSError):
+            os.replace(init, state.out / init.name)
     slots = sorted(s for s in map(segment_slot, _names(state.run)) if s >= 0)
     if not slots:
         return
@@ -181,8 +183,6 @@ def _lay_out(
             # этой строки, а не наличие файла в каталоге (:attr:`edge`).
             state.edge = max(state.edge, slot)
             moved = True
-        if moved and state.container == FMP4:
-            lay_head(state.out / segment_name(slot, state.container), state.out)
         # Остальные копии места больше не нужны: лишний файл в каталоге перекода выглядел бы для
         # кодировщика готовым куском (:meth:`torrcast.adapters.recode.recoder.Recoder.ready`).
         if moved and source is not path:

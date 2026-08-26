@@ -2,7 +2,6 @@
 
 from typing import Any, Final, Protocol
 
-from torrcast.adapters.ffmpeg.cmaf_options import CMAF_OPTIONS
 from torrcast.adapters.ffmpeg.pack_inputs import pack_inputs
 from torrcast.domain.segment_container import FMP4, MPEGTS, SegmentContainer
 from torrcast.domain.segment_suffix import segment_suffix
@@ -182,7 +181,16 @@ def pack_command(
         "+live",
     ]
     if container == FMP4:
-        command += CMAF_OPTIONS
+        command += [
+            "-segment_format_options",
+            "movflags=cmaf",
+            "-segment_header_filename",
+            f"{run}/init.mp4",
+            "-individual_header_trailer",
+            "0",
+            "-write_header_trailer",
+            "0",
+        ]
     else:  # оба флага и оба по нулю: mpegts иначе двигает ВСЕ метки на 0.7 + 0.7 = 1.4 с
         at_option = command.index("-avoid_negative_ts")
         command[at_option:at_option] = ["-muxdelay", "0", "-muxpreload", "0"]

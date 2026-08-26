@@ -29,6 +29,17 @@ def test_a_piece_lives_under_its_own_name_in_its_own_catalogue(tmp_path: Path) -
     assert store.have(7)
 
 
+def test_the_head_of_the_show_lies_in_the_catalogue_and_is_not_a_piece(tmp_path: Path) -> None:
+    """Заголовок кладёт сюда выкладка прогрева, и куском он не считается ни для кого."""
+    store = vault(tmp_path, key="ключ")
+    lay(store, 0, size=100)
+    store.head().write_bytes(b"x" * 1500)
+
+    assert store.head() == store.dir / "init.mp4"
+    assert store.slots() == {0}, "заголовок зачёлся куском фильма"
+    assert not store.have(0) or store.path(0) != store.head()
+
+
 def test_only_pieces_the_show_would_take_are_counted_with_a_cap(tmp_path: Path) -> None:
     """С потолком считаются только куски, которые показ и правда возьмёт с диска."""
     store = vault(tmp_path)

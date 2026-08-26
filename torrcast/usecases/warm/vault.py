@@ -68,6 +68,13 @@ class Vault:
     def have(self, slot: int) -> bool:
         return self.path(slot).exists()
 
+    def head(self) -> Path:
+        """Общий заголовок показа (``EXT-X-MAP``): прогрев пакует тем же муксером, и
+        заголовок оказывается тут сам собой. Спрашивает его показ, когда живая упаковка
+        не поднимется вовсе (:func:`torrcast.usecases.feed_pack.feed_head._head`). Под ``v*``
+        имя не подходит, поэтому куском его не считает ни :meth:`slots`, ни показ."""
+        return self.dir / "init.mp4"
+
     def spot(self, slot: int) -> Path:
         """Метка «этот кусок уже перекодирован точечно», а не скопирован.
 

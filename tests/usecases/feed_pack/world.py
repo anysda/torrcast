@@ -90,8 +90,8 @@ class FakeVault:
     def suffix(self) -> str:
         return ".m4s" if self.container == FMP4 else ".ts"
 
-    def slots(self) -> set[int]:
-        return {int(piece.stem[1:]) for piece in self.dir.glob(f"v*{self.suffix}")}
+    def head(self) -> Path:
+        return self.dir / "init.mp4"
 
     def spot(self, slot: int) -> Path:
         return self.dir / f"v{slot}.rec"

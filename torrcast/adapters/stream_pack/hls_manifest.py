@@ -41,12 +41,12 @@ def hls_manifest(
         "#EXT-X-MEDIA-SEQUENCE:0",
         "#EXT-X-PLAYLIST-TYPE:VOD",
     ]
-    if container == FMP4:
-        lines.append('#EXT-X-MAP:URI="init.mp4"')
     if on_keys:
         # Не украшение: каждый сегмент начинается с опорного кадра, и приёмнику
         # разрешено начать показ с любого - на этом и держится перемотка.
         lines.append("#EXT-X-INDEPENDENT-SEGMENTS")
+    if container == FMP4:
+        lines.append('#EXT-X-MAP:URI="init.mp4"')
     for slot, span in enumerate(spans):
         lines += [f"#EXTINF:{span:.6f},", segment_name(slot, container)]
     lines.append("#EXT-X-ENDLIST")
