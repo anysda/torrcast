@@ -14,74 +14,183 @@ scripts/cli-contract
 # Стоит она сразу за раскладкой: считается шесть секунд, а работу режет рано.
 scripts/dead-code
 
-# Зеркало проводки ленты (tests/runtime/test_wire_feed.py) обязано сверять каждый слот
-# по САМОМУ значению: «вызываемо ли» договору отвечает и пустышка - живая проба с
+# Зеркала проводок (tests/runtime/test_wire*.py) обязаны сверять каждый слот по САМОМУ
+# значению: «вызываемо ли» договору отвечает и пустышка - живая проба с
 # `lambda _piece, _out: None` на месте укладки заголовка держала весь набор зелёным.
-# Список слотов сторож не держит руками: он сам сличает доводы, которые проводка кладёт
-# в configure(), с тем, что зеркало сверяет через `is`, - и слот без такой сверки
-# (нынешний пропуск или будущий новый) гейт не пропускает.
+# Список слотов сторож не держит руками ни для одной проводки: он сам сличает доводы,
+# которые проводка кладёт в свои настройщики, с тем, что сверяет зеркало, - и слот без
+# такой сверки (нынешний пропуск или будущий новый) гейт не пропускает.
 .venv/bin/python - <<'PY'
 import ast
 from pathlib import Path
+
+#: Проводка и её зеркало. Корень (`wire.py`) ставит слоты иначе - см. `ROOT` ниже.
+WIRINGS = {
+    "torrcast/runtime/wire_feed.py": "tests/runtime/test_wire_feed.py",
+    "torrcast/runtime/wire_show.py": "tests/runtime/test_wire_show.py",
+    "torrcast/runtime/wire_search.py": "tests/runtime/test_wire_search.py",
+}
 
 
 def tree(path: str) -> ast.Module:
     return ast.parse(Path(path).read_text(encoding="utf-8"), filename=path)
 
 
-# Куда ложится каждый довод: `_state.X = довод` в configure().
-configure = next(
-    node
-    for node in tree("torrcast/usecases/feed_pack/configure.py").body
-    if isinstance(node, ast.FunctionDef)
-)
-slot_of = {}
-for node in ast.walk(configure):
-    if not isinstance(node, ast.Assign):
-        continue
-    target = node.targets[0]
-    if (
-        isinstance(node.value, ast.Name)
-        and isinstance(target, ast.Attribute)
-        and isinstance(target.value, ast.Name)
-        and target.value.id == "_state"
-    ):
-        slot_of[node.value.id] = target.attr
+def imports(mod: ast.Module) -> dict[str, tuple[str, str]]:
+    """Как имя зовётся здесь -> (модуль, как оно зовётся там)."""
+    out: dict[str, tuple[str, str]] = {}
+    for node in ast.walk(mod):
+        if isinstance(node, ast.ImportFrom) and node.module:
+            for alias in node.names:
+                out[alias.asname or alias.name] = (node.module, alias.name)
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                out[alias.asname or alias.name] = (alias.name, "")
+    return out
 
-# Чем проводка заполняет каждый довод.
-call = next(
-    node
-    for node in ast.walk(tree("torrcast/runtime/wire_feed.py"))
-    if isinstance(node, ast.Call)
-    and isinstance(node.func, ast.Name)
-    and node.func.id == "configure"
-)
-wanted = {
-    slot_of[param.arg]: ast.unparse(arg)
-    for param, arg in zip(configure.args.args, call.args)
-    if param.arg in slot_of
-}
 
-# Что зеркало сверяет по значению: `_state.X is <адаптер>`.
-found = {}
-for node in ast.walk(tree("tests/runtime/test_wire_feed.py")):
-    if not isinstance(node, ast.Compare) or not any(isinstance(op, ast.Is) for op in node.ops):
-        continue
-    left = node.left
-    if (
-        isinstance(left, ast.Attribute)
-        and isinstance(left.value, ast.Name)
-        and left.value.id == "_state"
-    ):
-        found[left.attr] = ast.unparse(node.comparators[0])
+def path_of(module: str) -> str | None:
+    for candidate in (module.replace(".", "/") + ".py", module.replace(".", "/") + "/__init__.py"):
+        if Path(candidate).exists():
+            return candidate
+    return None
 
-blind = [
-    f"{slot}: проводка кладёт {value}, а зеркало сверяет {found.get(slot, 'ничего')}"
-    for slot, value in wanted.items()
-    if found.get(slot) != value
-]
+
+def function(mod: ast.Module, name: str) -> ast.FunctionDef | None:
+    for node in mod.body:
+        if isinstance(node, ast.FunctionDef) and node.name == name:
+            return node
+    return None
+
+
+def slots_of(func: ast.FunctionDef) -> dict[tuple[str, str | None], tuple[str | None, str]]:
+    """Куда ложится каждый довод: (довод, поле) -> (чьё состояние, имя слота).
+
+    Две формы, обе живые: `_state.SLOT = довод` у ленты и глобальное `SLOT = среда.поле`
+    у показа, где модуль состояния сам себе хранилище (тогда «чьё» - None).
+    """
+    out: dict[tuple[str, str | None], tuple[str | None, str]] = {}
+    for node in ast.walk(func):
+        if not isinstance(node, ast.Assign) or len(node.targets) != 1:
+            continue
+        target, value = node.targets[0], node.value
+        if isinstance(target, ast.Attribute) and isinstance(target.value, ast.Name):
+            where: tuple[str | None, str] = (target.value.id, target.attr)
+        elif isinstance(target, ast.Name):
+            where = (None, target.id)
+        else:
+            continue
+        if isinstance(value, ast.Name):
+            out[(value.id, None)] = where
+        elif isinstance(value, ast.Attribute) and isinstance(value.value, ast.Name):
+            out[(value.value.id, value.attr)] = where
+    return out
+
+
+def expected(argument: ast.expr) -> str:
+    """Чем слот сверяется: своим значением, а у свежего экземпляра - точным классом.
+
+    Экземпляр проводка собирает прямо в доводе (`PrintConsole()`), тождества у него не
+    бывает ни с чем - поэтому договор тут другой: `type(слот) is Класс`. Ослаблением это
+    не является, пустышку он ловит ровно так же.
+    """
+    if isinstance(argument, ast.Call) and isinstance(argument.func, ast.Name):
+        return f"класс {argument.func.id}"
+    return ast.unparse(argument)
+
+
+def wanted(wiring: str) -> dict[tuple[str, str], str]:
+    """Что проводка кладёт в каждый слот: (модуль состояния, слот) -> выражение."""
+    mod = tree(wiring)
+    known = imports(mod)
+    out: dict[tuple[str, str], str] = {}
+    for node in ast.walk(mod):
+        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
+            continue
+        here = known.get(node.func.id)
+        if here is None or not here[0].startswith("torrcast."):
+            continue
+        state_module, there = here
+        state_path = path_of(state_module)
+        if state_path is None:
+            continue
+        setter_module = tree(state_path)
+        setter = function(setter_module, there)
+        if setter is None:
+            continue
+        # Слот живёт либо в соседнем модуле состояния (`_state.X`), либо в самом
+        # модуле настройщика (`X = среда.поле` под `global`).
+        holders = imports(setter_module)
+        places = slots_of(setter)
+        if not places:
+            continue
+        params = [arg.arg for arg in setter.args.args]
+        for index, argument in enumerate(node.args):
+            if index >= len(params):
+                break
+            param = params[index]
+            if (param, None) in places:
+                holder, slot = places[(param, None)]
+                keeper = holders.get(holder, (state_module, ""))[0] if holder else state_module
+                out[(keeper, slot)] = expected(argument)
+            # Договор одним мешком: слот берёт поле, а проводка называет его словом.
+            if isinstance(argument, ast.Call):
+                for keyword in argument.keywords:
+                    if keyword.arg and (param, keyword.arg) in places:
+                        holder, slot = places[(param, keyword.arg)]
+                        keeper = (
+                            holders.get(holder, (state_module, ""))[0] if holder else state_module
+                        )
+                        out[(keeper, slot)] = expected(keyword.value)
+    return out
+
+
+def found(mirror: str) -> dict[tuple[str, str], str]:
+    """Что зеркало сверяет по значению: (модуль состояния, слот) -> выражение."""
+    mod = tree(mirror)
+    known = imports(mod)
+    out: dict[tuple[str, str], str] = {}
+    for node in ast.walk(mod):
+        if not isinstance(node, ast.Compare) or len(node.ops) != 1:
+            continue
+        if not isinstance(node.ops[0], ast.Is | ast.Eq):
+            continue
+        left, right = node.left, node.comparators[0]
+        # `type(слот) is Класс` - сверка свежего экземпляра; читается тот же слот.
+        by_class = (
+            isinstance(left, ast.Call)
+            and isinstance(left.func, ast.Name)
+            and left.func.id == "type"
+            and len(left.args) == 1
+        )
+        if by_class:
+            left = left.args[0]
+        if not isinstance(left, ast.Attribute) or not isinstance(left.value, ast.Name):
+            continue
+        where = known.get(left.value.id)
+        if where is None:
+            continue
+        out[(where[0], left.attr)] = (
+            f"класс {ast.unparse(right)}" if by_class else ast.unparse(right)
+        )
+    return out
+
+
+blind = []
+total = 0
+for wiring, mirror in WIRINGS.items():
+    asked, seen = wanted(wiring), found(mirror)
+    total += len(asked)
+    for (state_module, slot), value in sorted(asked.items()):
+        if seen.get((state_module, slot)) != value:
+            blind.append(
+                f"{Path(mirror).name}: {state_module}.{slot} - проводка кладёт {value}, "
+                f"а зеркало сверяет {seen.get((state_module, slot), 'ничего')}"
+            )
+
 if blind:
-    raise SystemExit("зеркало проводки ленты слепо к подмене:\n" + "\n".join(blind))
+    raise SystemExit("зеркало проводки слепо к подмене:\n" + "\n".join(blind))
+print(f"зеркала проводок сверяют по значению слотов: {total}")
 PY
 
 .venv/bin/ruff check
