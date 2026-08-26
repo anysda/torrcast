@@ -5,10 +5,12 @@
 
 from __future__ import annotations
 
+import math
 from typing import TYPE_CHECKING
 
 from torrcast.domain.mixed_name import mixed_name
 from torrcast.domain.segment_container import MPEGTS, SegmentContainer
+from torrcast.domain.track_place import TRACK_PLACE_MAX
 from torrcast.ports.journal.slot import journal
 
 if TYPE_CHECKING:
@@ -22,11 +24,13 @@ def _shrunk_out(
     copy: Path,
     shrunk: Path,
     cap: int,
+    want: float,
     container: SegmentContainer = MPEGTS,
     *,
     merge: Callable[..., bool],
     shift_of: Callable[[Path, Path], float | None],
     keyless: Callable[[Path], bool],
+    starts_of: Callable[[Path], tuple[float, float]],
 ) -> Path:
     """Файл ужатого места для приёмника: склейка со звуком копии, иначе ужатие как есть.
 
@@ -65,20 +69,38 @@ def _shrunk_out(
     доехавший, пока ужатие ждало замка, а он таким бывает. Ему остаётся прежний путь:
     наружу как есть.
 
-    ``merge``, ``shift_of`` и ``keyless`` приезжают доводами: все трое поднимают ffmpeg и
-    ffprobe на настоящих кусках, а здесь меряется решение - что именно уедет на приёмник.
+    ⚠️ Звук копии годится, только пока копия - это ЭТО ЖЕ место фильма (TC-833). Ужатие берёт
+    копию из своего же каталога прогона и по тому же номеру, что и выкладка, поэтому промах
+    номера здесь тот же самый: муксер, пропустивший рез, сдвигает нумерацию файлов, и под
+    именем слота лежит другое место. Обе дорожки готовой склейки сверяются с ``want`` -
+    местом слота на ленте (:func:`track_starts`), - и не сошедшаяся наружу не идёт: ужатое как
+    есть - это шов звука на двух стыках, а склейка с чужим звуком - десять секунд чужого
+    звука. ``want`` бывает ``nan`` (сетки у прогона нет) - тогда место не проверяется вовсе.
+
+    ``merge``, ``shift_of``, ``keyless`` и ``starts_of`` приезжают доводами: все четверо
+    поднимают ffmpeg и ffprobe на настоящих кусках, а здесь меряется решение - что именно
+    уедет на приёмник.
     """
     if keyless(shrunk):
         return shrunk
     mixed = run_dir / mixed_name(slot, container)
+    why = "склейка ужатого не вышла"
     if merge(shrunk, copy, mixed, shift=shift_of(copy, shrunk) or 0.0, container=container):
-        try:
-            if mixed.stat().st_size <= cap:
-                return mixed
-        except OSError:
-            pass
+        astray = [
+            name
+            for name, mark in zip(("картинка", "звук"), starts_of(mixed), strict=True)
+            if not math.isnan(want) and not abs(mark - want) <= TRACK_PLACE_MAX
+        ]
+        if not astray:
+            try:
+                if mixed.stat().st_size <= cap:
+                    return mixed
+            except OSError:
+                pass
+        else:
+            why = f"склейка ужатого не с этого места: {' и '.join(astray)}"
     mixed.unlink(missing_ok=True)
     # Молчать об этом нельзя: без склейки на обоих стыках ужатого места возвращается
     # разрыв звука, а он стоит приёмнику секунд, а не миллисекунд.
-    journal().mark("склейка ужатого не вышла", слот=slot)
+    journal().mark(why, слот=slot)
     return shrunk

@@ -7,15 +7,18 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from tests.conftest import CLIP_SECONDS
+from tests.conftest import CLIP_RATE, CLIP_SECONDS
 from tests.usecases.feed_pack.world import FakeProc, lay, packer
 from torrcast.adapters.recode.encode import Encode
 from torrcast.adapters.stream_pack.ffmpeg_pack_command import ffmpeg_pack_command
 from torrcast.adapters.stream_pack.grid import Grid
+from torrcast.adapters.stream_pack.pack_origin import pack_origin
 from torrcast.adapters.stream_pack.pack_start import pack_start
 from torrcast.adapters.stream_pack.packer_publish import _lay_out
+from torrcast.adapters.stream_pack.track_starts import track_starts
 from torrcast.adapters.stream_probe.segment_name import segment_name
 from torrcast.domain.hls_settings import SPLIT_SLACK
+from torrcast.domain.track_place import TRACK_PLACE_MAX
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -27,6 +30,15 @@ def _never() -> bool:
 
 def _always() -> bool:
     return True
+
+
+def _on_place(piece: Path) -> tuple[float, float]:
+    """Обе дорожки склейки на месте своего слота: стенд это знает, а не меряет ffprobe.
+
+    Ноль тут не годится: сверяются метки с ГРАНИЦЕЙ слота, а сетки у этих прогонов нет -
+    значит и промаха нет ни у одной дорожки (:func:`_merged_out`).
+    """
+    return 0.0, 0.0
 
 
 def test_only_a_piece_with_a_successor_goes_out_while_the_run_is_alive(tmp_path: Path) -> None:
@@ -101,7 +113,7 @@ def test_the_recoded_picture_goes_out_with_the_sound_of_the_copy(tmp_path: Path)
         dst.write_bytes(b"mixed")
         return True
 
-    _lay_out(run, _always, merge=merge)
+    _lay_out(run, _always, merge=merge, starts_of=_on_place)
 
     assert (run.out / "v0.ts").read_bytes() == b"mixed"
     assert told == [(0, "склейка")]
@@ -171,6 +183,7 @@ def test_a_piece_shrunk_in_place_is_not_reported_as_a_failed_merge(tmp_path: Pat
         merge=lambda *a, **k: False,
         shift_of=lambda *a: 0.0,
         keyless=lambda piece: False,
+        starts_of=_on_place,
     )
 
     assert told == [(0, "ужатие")], "ужатый кусок назван перекодом - это ложный стык в журнале"
@@ -204,7 +217,14 @@ def test_a_piece_shrunk_in_place_goes_out_with_the_audio_of_its_own_copy(tmp_pat
         return True
 
     run.shrink = shrink
-    _lay_out(run, _always, merge=merge, shift_of=lambda *a: 0.0, keyless=lambda piece: False)
+    _lay_out(
+        run,
+        _always,
+        merge=merge,
+        shift_of=lambda *a: 0.0,
+        keyless=lambda piece: False,
+        starts_of=_on_place,
+    )
 
     assert seen == [("recode", "pack")], "ужатое место ушло со звуком своего же прогона"
     assert told == [(0, "ужатие")]
@@ -245,7 +265,7 @@ def test_the_picture_of_the_recode_lies_on_the_timeline_of_this_run(tmp_path: Pa
         dst.write_bytes(b"mixed")
         return True
 
-    _lay_out(run, _always, merge=merge, shift_of=lambda *a: 0.0417)
+    _lay_out(run, _always, merge=merge, shift_of=lambda *a: 0.0417, starts_of=_on_place)
 
     assert seen == [("v0.ts", "v0.ts", None)], "картинку перекода подвинули под голову копии"
     assert (run.out / "v0.ts").read_bytes() == b"mixed"
@@ -287,7 +307,7 @@ def test_the_ceiling_weighs_the_finished_merge_and_not_its_halves(tmp_path: Path
         dst.write_bytes(b"x" * 101)
         return True
 
-    _lay_out(run, _always, merge=merge, shift_of=lambda *a: 0.0)
+    _lay_out(run, _always, merge=merge, shift_of=lambda *a: 0.0, starts_of=_on_place)
 
     assert (run.out / "v0.ts").stat().st_size == 50
     assert not (run.run / "mix0.ts").exists(), "склейка за потолком осталась лежать"
@@ -310,7 +330,7 @@ def test_the_merged_piece_is_not_mistaken_for_a_packed_segment(tmp_path: Path) -
         dst.write_bytes(b"mixed")
         return True
 
-    _lay_out(run, _never, merge=merge, shift_of=lambda *a: 0.0)
+    _lay_out(run, _never, merge=merge, shift_of=lambda *a: 0.0, starts_of=_on_place)
 
     assert (run.out / "v0.ts").read_bytes() == b"mixed"
     # Кусок v2 не дописан (следующего за ним нет) и наружу не ушёл - а ушёл бы, если бы
@@ -343,7 +363,9 @@ def test_a_recode_without_a_leading_key_frame_is_thrown_out_instead_of_shown(
     lay(run.run, 0)
     lay(spare, 0, size=2048)
 
-    _lay_out(run, _always, merge=lambda *a, **k: True, keyless=lambda piece: True)
+    _lay_out(
+        run, _always, merge=lambda *a, **k: True, keyless=lambda piece: True, starts_of=_on_place
+    )
 
     assert told == [(0, "копия")], "кусок без картинки уехал зрителю"
     assert not (spare / "v0.ts").exists(), "негодный перекод остался лежать готовым куском"
@@ -363,7 +385,7 @@ def test_a_recode_that_starts_with_a_key_frame_still_goes_out_as_a_merge(tmp_pat
         dst.write_bytes(b"m" * 3072)
         return True
 
-    _lay_out(run, _always, merge=merge, keyless=lambda piece: False)
+    _lay_out(run, _always, merge=merge, keyless=lambda piece: False, starts_of=_on_place)
 
     assert told == [(0, "склейка")]
 
@@ -601,3 +623,90 @@ def test_a_tail_the_muxer_cut_by_its_own_default_never_reaches_the_viewer(
            cap=1 << 40).publish()  # fmt: skip
 
     assert not list(out.glob("v*.ts")), "обрезанный хвост уехал зрителю"
+
+
+#: Ролик пробы ниже: опорные кадры вдвое реже шага сетки. Ровно это и делает промах карты
+#: видимым - на ролике с частыми кадрами рез успевает встать почти на место.
+_LYING_STEP = 10.01
+
+
+def _sparse_clip(where: Path) -> str:
+    """Ролик, у которого опорные кадры стоят вдвое реже шага сетки."""
+    path = where / "sparse.mp4"
+    subprocess.run(
+        ["ffmpeg", "-hide_banner", "-loglevel", "error",
+         "-f", "lavfi", "-i", f"testsrc2=size=320x180:rate={CLIP_RATE}",
+         "-f", "lavfi", "-i", "sine=frequency=440", "-t", "180",
+         "-c:v", "libx264", "-preset", "ultrafast", "-g", "480", "-sc_threshold", "0",
+         "-bf", "3", "-c:a", "aac", "-movflags", "+faststart", "-y", str(path)],
+        check=True, capture_output=True, timeout=300,
+    )  # fmt: skip
+    return path.as_uri()
+
+
+def _places(pieces: list[Path], grid: Grid) -> dict[str, tuple[float, float]]:
+    """Промах обеих дорожек каждого куска от границы его слота - настоящим ffprobe."""
+    found: dict[str, tuple[float, float]] = {}
+    for piece in pieces:
+        want = grid.start(int(piece.stem[1:])) + grid.origin
+        picture, sound = track_starts(piece)
+        found[piece.name] = (picture - want, sound - want)
+    return found
+
+
+@pytest.mark.ffmpeg
+def test_no_piece_carries_the_sound_of_another_place_when_the_key_map_lied(
+    tmp_path: Path,
+) -> None:
+    """🔴 TC-833. Сетка построена по ВРУЩЕЙ карте - зрителю всё равно не уезжает чужой звук.
+
+    Сетка тут ровно та, что убила показ «Матрицы»: границы обещаны каждые 10 с и объявлены
+    опорными кадрами, а настоящие кадры стоят каждые 20 с. Копия режется по кадру
+    (``-break_non_keyframes 0``), лишние границы муксер пропускает и начинает считать
+    ФАЙЛЫ вместо границ - номер файла перестаёт быть номером слота. Перекод при этом ставит
+    опорные кадры сам и режет верно, поэтому его картинка на месте, а звук копии - нет.
+
+    Сверху стоит положительный контроль: если копия на этом входе с сеткой НЕ разъехалась,
+    ловить пробе нечего и зелёный цвет ничего не значит.
+
+    Меряется цель, а не признак: у каждого куска, который уехал наружу, звук обязан лежать
+    на месте его же картинки - по пакетам, настоящим ffprobe.
+    """
+    source = _sparse_clip(tmp_path)
+    bounds = tuple(round(_LYING_STEP * k, 3) for k in range(18))
+    grid = Grid(bounds, 180.0, True, None, pack_origin(source))
+    last = 4
+
+    run, spare = tmp_path / "copy", tmp_path / "recode"
+    for where, encode in ((run, None), (spare, Encode(preset="ultrafast", mbit=2.0))):
+        where.mkdir()
+        subprocess.run(
+            ffmpeg_pack_command(
+                source, 0, str(where), grid, 0, 0.0, readrate=0.0, encode=encode, until=last
+            ),
+            check=True,
+            capture_output=True,
+            timeout=300,
+        )
+
+    cuts = (run / "pack.csv").read_text("utf-8").splitlines()
+    assert len(cuts) < len(bounds) - 1, (
+        f"копия нарезала по сетке ({len(cuts)} резов на {len(bounds)} границ) - "
+        "промах карты на этом входе не воспроизводится, ловить пробе нечего"
+    )
+
+    told: list[tuple[int, str]] = []
+    out = tmp_path / "out"
+    out.mkdir()
+    packer(tmp_path, proc=FakeProc(code=0), out=out, run=run, spare=spare, last=last, grid=grid,
+           cap=1 << 40, told=lambda slot, how: told.append((slot, how))).publish()  # fmt: skip
+
+    assert told, "наружу не ушло ни одного куска - мерить нечего"
+    places = _places(sorted(out.glob("v*.ts")), grid)
+    assert places, "в каталоге показа нет ни одного куска"
+    strayed = {
+        name: miss
+        for name, miss in places.items()
+        if not all(abs(off) <= TRACK_PLACE_MAX for off in miss)
+    }
+    assert not strayed, f"зрителю уехало чужое место (картинка, звук): {strayed}"

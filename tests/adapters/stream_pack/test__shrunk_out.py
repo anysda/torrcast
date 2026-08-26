@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -10,10 +11,18 @@ if TYPE_CHECKING:
 from torrcast.adapters.stream_pack._shrunk_out import _shrunk_out
 from torrcast.domain.segment_container import FMP4
 
+#: Место слота на ленте, с которым сверяются дорожки склейки.
+_WANT = 70.0
+
 
 def _has_key(piece: Path) -> bool:
     """Кусок начинается с опорного кадра: на стенде это знают, а не спрашивают ffprobe."""
     return False
+
+
+def _on_place(piece: Path) -> tuple[float, float]:
+    """Обе дорожки склейки стоят на месте слота: стенд это знает, а не меряет ffprobe."""
+    return _WANT, _WANT - 0.021
 
 
 def _lay(where: Path, name: str, size: int = 16) -> Path:
@@ -38,7 +47,16 @@ def test_the_shrunk_piece_goes_out_with_the_audio_of_the_copy(tmp_path: Path) ->
     copy, shrunk = _lay(tmp_path, "v7.ts", 100), _lay(tmp_path, "spare7.ts", 18)
 
     out = _shrunk_out(
-        tmp_path, 7, copy, shrunk, 50, merge=merge, shift_of=lambda *a: 0.0, keyless=_has_key
+        tmp_path,
+        7,
+        copy,
+        shrunk,
+        50,
+        _WANT,
+        merge=merge,
+        shift_of=lambda *a: 0.0,
+        keyless=_has_key,
+        starts_of=_on_place,
     )
 
     assert seen == [("spare7.ts", "v7.ts")], "звук ужатого места взят не у копии"
@@ -57,7 +75,16 @@ def test_the_shift_between_the_two_passes_reaches_the_merge(tmp_path: Path) -> N
     copy, shrunk = _lay(tmp_path, "v3.ts"), _lay(tmp_path, "spare3.ts")
 
     _shrunk_out(
-        tmp_path, 3, copy, shrunk, 50, merge=merge, shift_of=lambda *a: 0.0417, keyless=_has_key
+        tmp_path,
+        3,
+        copy,
+        shrunk,
+        50,
+        _WANT,
+        merge=merge,
+        shift_of=lambda *a: 0.0417,
+        keyless=_has_key,
+        starts_of=_on_place,
     )
 
     assert shifts == [0.0417]
@@ -73,9 +100,11 @@ def test_a_merge_that_did_not_happen_leaves_the_bare_shrink(tmp_path: Path) -> N
         copy,
         shrunk,
         50,
+        _WANT,
         merge=lambda *a, **k: False,
         shift_of=lambda *a: 0.0,
         keyless=_has_key,
+        starts_of=_on_place,
     )
 
     assert out == shrunk and not (tmp_path / "mix1.ts").exists()
@@ -91,7 +120,16 @@ def test_a_merge_heavier_than_the_ceiling_is_thrown_away(tmp_path: Path) -> None
     copy, shrunk = _lay(tmp_path, "v2.ts"), _lay(tmp_path, "spare2.ts")
 
     out = _shrunk_out(
-        tmp_path, 2, copy, shrunk, 50, merge=merge, shift_of=lambda *a: 0.0, keyless=_has_key
+        tmp_path,
+        2,
+        copy,
+        shrunk,
+        50,
+        _WANT,
+        merge=merge,
+        shift_of=lambda *a: 0.0,
+        keyless=_has_key,
+        starts_of=_on_place,
     )
 
     assert out == shrunk, "склейка тяжелее потолка ушла бы приёмнику"
@@ -117,9 +155,11 @@ def test_a_piece_without_a_key_frame_is_never_merged(tmp_path: Path) -> None:
         copy,
         shrunk,
         50,
+        _WANT,
         merge=merge,
         shift_of=lambda *a: 0.0,
         keyless=lambda piece: True,
+        starts_of=_on_place,
     )
 
     assert out == shrunk and tried == [], "кусок без опорного кадра ушёл в склейку"
@@ -144,11 +184,72 @@ def test_the_merge_of_a_shrunk_place_is_named_and_muxed_by_the_container(
         copy,
         shrunk,
         50,
+        _WANT,
         FMP4,
         merge=merge,
         shift_of=lambda *a: 0.0,
         keyless=_has_key,
+        starts_of=_on_place,
     )
 
     assert seen == [("mix7.m4s", FMP4)]
     assert out.name == "mix7.m4s"
+
+
+def test_a_merge_whose_sound_is_from_another_place_leaves_the_bare_shrink(
+    tmp_path: Path,
+) -> None:
+    """🔴 TC-833. Звук копии годится, только пока копия - это ЭТО ЖЕ место фильма.
+
+    Ужатие берёт копию из своего каталога прогона по номеру слота, поэтому промах номера
+    здесь тот же, что и у выкладки: на сетке по недоверенной карте опорных кадров под
+    именем слота лежит другое место. Ужатое как есть - это шов звука на двух стыках, а
+    склейка с чужим звуком - десять секунд чужого звука.
+    """
+
+    def merge(video: Path, audio: Path, dst: Path, **kwargs: Any) -> bool:
+        dst.write_bytes(b"m" * 20)
+        return True
+
+    copy, shrunk = _lay(tmp_path, "v5.ts", 100), _lay(tmp_path, "spare5.ts", 18)
+
+    out = _shrunk_out(
+        tmp_path,
+        5,
+        copy,
+        shrunk,
+        50,
+        _WANT,
+        merge=merge,
+        shift_of=lambda *a: 0.0,
+        keyless=_has_key,
+        starts_of=lambda piece: (_WANT, _WANT + 41.7),
+    )
+
+    assert out == shrunk, "склейка с чужим звуком уехала приёмнику"
+    assert not (tmp_path / "mix5.ts").exists(), "склейка с чужим звуком осталась лежать"
+
+
+def test_a_merge_nobody_could_check_leaves_the_bare_shrink(tmp_path: Path) -> None:
+    """Проба молчит - склейка не уезжает: несверенному куску верить нечем."""
+
+    def merge(video: Path, audio: Path, dst: Path, **kwargs: Any) -> bool:
+        dst.write_bytes(b"m" * 20)
+        return True
+
+    copy, shrunk = _lay(tmp_path, "v6.ts", 100), _lay(tmp_path, "spare6.ts", 18)
+
+    out = _shrunk_out(
+        tmp_path,
+        6,
+        copy,
+        shrunk,
+        50,
+        _WANT,
+        merge=merge,
+        shift_of=lambda *a: 0.0,
+        keyless=_has_key,
+        starts_of=lambda piece: (_WANT, math.nan),
+    )
+
+    assert out == shrunk and not (tmp_path / "mix6.ts").exists()

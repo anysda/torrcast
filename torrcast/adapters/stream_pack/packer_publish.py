@@ -6,18 +6,20 @@
 from __future__ import annotations
 
 import contextlib
+import math
 import os
 from typing import TYPE_CHECKING
 
+from torrcast.adapters.stream_pack._merged_out import _merged_out
 from torrcast.adapters.stream_pack._segment_files import _names
 from torrcast.adapters.stream_pack._shrunk_out import _shrunk_out
 from torrcast.adapters.stream_pack.done_slots import done_slots
 from torrcast.adapters.stream_pack.key_missing import key_missing
 from torrcast.adapters.stream_pack.merge_tracks import merge_tracks
 from torrcast.adapters.stream_pack.timeline_shift import timeline_shift
+from torrcast.adapters.stream_pack.track_starts import track_starts
 from torrcast.adapters.stream_probe.segment_name import segment_name
 from torrcast.adapters.stream_probe.segment_slot import segment_slot
-from torrcast.domain.mixed_name import mixed_name
 from torrcast.ports.journal.slot import journal
 
 if TYPE_CHECKING:
@@ -34,6 +36,7 @@ def _lay_out(
     merge: Callable[..., bool] = merge_tracks,
     shift_of: Callable[[Path, Path], float | None] = timeline_shift,
     keyless: Callable[[Path], bool] = key_missing,
+    starts_of: Callable[[Path], tuple[float, float]] = track_starts,
 ) -> None:
     """Выложить наружу куски, которые ffmpeg уже дописал.
 
@@ -50,8 +53,9 @@ def _lay_out(
     выкладка живёт внутри него.
 
     Тем же доводом приезжают ``merge`` (склейка картинки перекода со звуком копии),
-    ``shift_of`` (сдвиг ленты, нужный ужатию на месте) и ``keyless`` (не начинается ли
-    перекод БЕЗ опорного кадра): все трое поднимают ffmpeg и ffprobe на настоящих кусках,
+    ``shift_of`` (сдвиг ленты, нужный ужатию на месте), ``keyless`` (не начинается ли
+    перекод БЕЗ опорного кадра) и ``starts_of`` (где на ленте стоят обе дорожки готовой
+    склейки): все четверо поднимают ffmpeg и ffprobe на настоящих кусках,
     а здесь меряется РЕШЕНИЕ выкладки - что уходит наружу и куда встаёт край.
     """
     init = state.run / "init.mp4"
@@ -96,27 +100,14 @@ def _lay_out(
             journal().mark("перекод без опорного кадра", слот=slot)
             better.unlink(missing_ok=True)
         source, how = path, "копия"
+        # Место этого слота на ленте: с ним сверяются обе дорожки готовой склейки. Сетки у
+        # прогона может не быть (щупы и стенды) - тогда сверять не с чем, и места не проверяют.
+        want = math.nan if state.grid is None else state.grid.start(slot) + state.grid.origin
         if better is not None and better.exists():
-            # Наружу идёт картинка перекода со звуком копии (:func:`merge_tracks`):
-            # звук показа обязан остаться одним непрерывным потоком.
-            #
-            # 🔴 Метки картинке НЕ правятся: оба захода пакуют ленту фильма (``-copyts``
-            # и общий :attr:`~.grid.Grid.origin`), а голова куска копии лентой не является.
-            # Муксер режет поток в порядке ДЕКОДИРОВАНИЯ по условию на время показа, и она
-            # встаёт тем раньше границы, чем сильнее переупорядочен кадр на ней, - от куска
-            # к куску по-разному. Заход кодировщика идёт одной непрерывной лентой, и
-            # подгонка по такой голове вносила в неё скачок на 1-3 кадра; приёмник зовёт это
-            # ``Parsed buffers not in DTS sequence`` и бросает показ (живой замер: 13 стыков
-            # с меткой назад из 41 и 18 его перезаходов).
-            mixed = state.run / mixed_name(slot, state.container)
-            if merge(better, path, mixed, container=state.container):
-                source, how = mixed, "склейка"
-            elif size and size <= state.cap:
-                # Склейки нет: перекод уехал бы со своим звуком, на своей сетке AAC, а это
-                # дыра на обоих стыках куска. Копия тут меньшее зло, пока влезает в потолок.
-                source, how = path, "копия"
-            else:
-                source, how = better, "перекод"
+            source, how = _merged_out(
+                state.run, slot, path, better, size, state.cap, want, state.container,
+                merge=merge, starts_of=starts_of,
+            )  # fmt: skip
         # Последний гейт стоит после склейки: только здесь известен вес ровно того
         # файла, который получит приёмник. Обе его части могут влезать по отдельности,
         # а готовый MPEG-TS - выйти за потолок из-за звука и накладных расходов.
@@ -154,8 +145,10 @@ def _lay_out(
         if shrunk and better is not None:
             # Место и обе мерки приёмника разом: каталог прогона, слот, копия, ужатое,
             # потолок веса и контейнер - расширение склейки выбирает муксер по нему.
-            place = (state.run, slot, path, better, state.cap, state.container)
-            source = _shrunk_out(*place, merge=merge, shift_of=shift_of, keyless=keyless)
+            place = (state.run, slot, path, better, state.cap, want, state.container)
+            source = _shrunk_out(
+                *place, merge=merge, shift_of=shift_of, keyless=keyless, starts_of=starts_of
+            )
             how = "ужатие"
             try:
                 oversized = source.stat().st_size > state.cap
