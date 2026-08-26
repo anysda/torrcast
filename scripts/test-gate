@@ -113,10 +113,71 @@ if [ "$#" -eq 0 ]; then
         -f lavfi -i sine=frequency=440 -t 60 \
         -c:v libx264 -preset ultrafast -g 50 -bf 3 \
         -c:a aac -movflags +faststart "$seam_dir/source.mp4"
-    .venv/bin/python - "$seam_dir" <<'PY'
+    # Сторож - тот же прогон, что и набор, и состояние у него своё, а не боевое: карта
+    # опорных кадров ложится на полку в момент снятия (:func:`film_keys`), а голый питон
+    # мимо pytest песочница фикстур (tests/conftest.pytest_configure) не накрывает, и
+    # запись садилась на боевую полку карт. -B - чтобы байт-код импортов не считался
+    # попаданием: pycache пишется рядом с кодом, то есть мимо песочницы.
+    TORRCAST_STATE="$seam_dir/state.json" .venv/bin/python -B - "$seam_dir" <<'PY'
+import io
+import os
 from pathlib import Path
 import subprocess
 import sys
+
+root = Path(sys.argv[1]).resolve()
+
+# Перехватчик записи: любая запись мимо песочницы сторожа - в боевое состояние машины.
+# Набор такую запись ловит песочницей процесса, этот прогон голый - поэтому попадания он
+# считает сам, и ноль у него доказан отрицательной пробой: с песочницей, сломанной
+# нарочно (TORRCAST_STATE снаружи seam_dir), сторож краснеет именно на этом списке.
+stray: list[str] = []
+
+
+def _outside(path: object) -> str | None:
+    """Путь записи, лежащий вне песочницы сторожа; ``None`` - внутри."""
+    full = Path(os.fspath(path))
+    if not full.is_absolute():
+        full = Path.cwd() / full
+    resolved = full.resolve()
+    return None if resolved == root or root in resolved.parents else str(resolved)
+
+
+_real_open = os.open
+
+
+def _watched_os_open(path: object, flags: int, *args: object, **kwargs: object) -> int:
+    if flags & (os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_TRUNC | os.O_APPEND):
+        if (hit := _outside(path)) is not None:
+            stray.append(f"os.open: {hit}")
+    return _real_open(path, flags, *args, **kwargs)
+
+
+os.open = _watched_os_open
+
+for _name in ("replace", "rename", "unlink", "mkdir", "rmdir", "utime", "symlink", "link"):
+    _real = getattr(os, _name)
+
+    def _watched(*paths: object, _real=_real, _name=_name, **kwargs: object) -> object:
+        for _path in paths:
+            if isinstance(_path, (str, bytes, os.PathLike)):
+                if (hit := _outside(_path)) is not None:
+                    stray.append(f"{_name}: {hit}")
+        return _real(*paths, **kwargs)
+
+    setattr(os, _name, _watched)
+
+_real_io_open = io.open
+
+
+def _watched_io_open(file: object, mode: str = "r", *args: object, **kwargs: object) -> object:
+    if isinstance(file, (str, bytes, os.PathLike)) and any(mark in mode for mark in "wax+"):
+        if (hit := _outside(file)) is not None:
+            stray.append(f"open: {hit}")
+    return _real_io_open(file, mode, *args, **kwargs)
+
+
+io.open = _watched_io_open
 
 from torrcast.adapters.recode.encode import Encode
 from torrcast.adapters.recode.whole_encode import FULL_PRESET
@@ -143,7 +204,6 @@ class _Exited:
         return 0
 
 
-root = Path(sys.argv[1])
 source_url = (root / "source.mp4").as_uri()
 recode = Encode(preset=FULL_PRESET, mbit=1.0)
 
@@ -187,6 +247,11 @@ spare = pack("flat-recode", flat, recode, FIRST, LAST)
 out = root / "out"
 out.mkdir()
 Packer(proc=_Exited(), out=out, run=run, spare=spare, last=LAST).publish()
+
+if stray:
+    raise SystemExit(
+        "сторож шва пишет мимо своей песочницы:\n" + "\n".join(sorted(set(stray)))
+    )
 PY
     set -- "$seam_dir"/copy/v*.ts -- "$seam_dir"/recode/v*.ts -- "$seam_dir"/out/v*.ts
 fi
