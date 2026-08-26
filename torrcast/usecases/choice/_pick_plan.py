@@ -5,14 +5,13 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from torrcast.ports.choice_environment.choice_environment import ChoiceEnvironment
-from torrcast.usecases.choice._dress import _dress
 from torrcast.usecases.choice._named import _named
+from torrcast.usecases.choice._shown import _shown
 from torrcast.usecases.choice.certain_default import certain_default
 from torrcast.usecases.choice.configure import _environment_port
 from torrcast.usecases.choice.default_line import default_line
 from torrcast.usecases.choice.first_alive import first_alive
 from torrcast.usecases.choice.lone_other_part import lone_other_part
-from torrcast.usecases.choice.menu_blocks import menu_blocks
 from torrcast.usecases.choice.named_elsewhere import named_elsewhere
 from torrcast.usecases.choice.named_take import named_take
 from torrcast.usecases.choice.named_taken_line import named_taken_line
@@ -22,7 +21,6 @@ from torrcast.usecases.choice.part_one_swap import part_one_swap
 from torrcast.usecases.choice.taken_line import taken_line
 
 if TYPE_CHECKING:
-    from torrcast.ports.menu_paint import MenuPaint
     from torrcast.usecases.facts import Facts
     from torrcast.usecases.select.plan import Plan
 
@@ -171,29 +169,3 @@ def _pick_plan(
         if facts is not None:
             facts.watch(None)
         painted.close()
-
-
-def _shown(
-    env: ChoiceEnvironment, plans: list[Plan], facts: Facts | None, dress: bool, asked: str
-) -> MenuPaint:
-    """Напечатать список; ``dress`` - дописывать ли в него приезжающую справку.
-
-    Дописывать её есть смысл ровно там, где человек смотрит на список и отвечает: строка
-    дополняется у него на глазах. Где вопроса не будет вовсе или вывод ушёл не на экран
-    (труба, файл, юнит), переписать напечатанное уже нечем - там справку ждут, как ждали:
-    лучше подождать полторы секунды и напечатать со справкой, чем напечатать голое навсегда.
-
-    Показанный порядок запоминается тем же словом, что и таблица ``cast releases``
-    (:meth:`ChoiceEnvironment.remember_pick`): номер пункта - адрес, и под ним в следующем
-    запуске обязана стоять ТА картина, что стояла при показе списка.
-    """
-    menu = env.menu()
-    dress = dress and menu.live and facts is not None
-    if facts is not None and not dress:
-        facts.wait()
-    blocks = menu_blocks(plans, facts)
-    menu.show([line for block in blocks for line in block])
-    env.remember_pick(asked, [(p.picture.key, _named(p.picture)) for p in plans])
-    if dress and facts is not None:
-        _dress(menu, plans, blocks, facts)
-    return menu

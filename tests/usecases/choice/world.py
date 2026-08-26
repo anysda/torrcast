@@ -14,7 +14,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import TypeVar
+from typing import Any, TypeVar, cast
 
 from torrcast.adapters.choice_environment import environment
 from torrcast.domain._series import _Series
@@ -32,6 +32,7 @@ from torrcast.ports.choice_environment.choice_args import ChoiceArgs
 from torrcast.ports.choice_environment.choice_environment import ChoiceEnvironment
 from torrcast.ports.choice_environment.choice_facts import ChoiceFacts
 from torrcast.usecases.choice.configure import _environment_port, configure
+from torrcast.usecases.facts import Facts
 from torrcast.usecases.select.plan import Plan
 
 #: Десятичный гигабайт: в них считают размер раздачи и трекеры, и наша прикидка веса.
@@ -106,6 +107,21 @@ def plan(
 def parts(*named: tuple[str, int | None, int]) -> list[Plan]:
     """Франшиза тройками «название, год, сиды лучшей годной раздачи картины»."""
     return [plan(title, year, seeders=seeders) for title, year, seeders in named]
+
+
+class Waited(Facts):
+    """Справка, которая помнит, ждали ли её и кто на неё подписан.
+
+    Спрашивают её оба зеркала печати списка - и само :func:`_shown`, и вопрос вокруг него:
+    ожидание справки решается в одном месте, а видно его с обеих сторон.
+    """
+
+    def __init__(self) -> None:
+        super().__init__([], store=cast(Any, None), source=cast(Any, None))
+        self.waits = 0
+
+    def wait(self) -> None:
+        self.waits += 1
 
 
 @dataclass
