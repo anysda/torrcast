@@ -21,13 +21,20 @@ def test_configure_saves_named_mock_receiver() -> None:
     assert console.messages == ["ТВ: mock (headless-приёмник, каста наружу нет)"]
 
 
-def test_configure_selects_discovered_receiver() -> None:
+def test_the_only_receiver_found_is_taken_without_a_question() -> None:
+    """Найденный один приёмник берётся молча: в своей сети он чужим быть не может.
+
+    Это то, что позволяет установке заканчиваться самой: ровно один откликнувшийся
+    приёмник - он и есть телевизор, и вопрос «какой из одного» был бы ручкой ради
+    ручки. Вопрос остаётся только там, где выбор настоящий, - приёмников несколько.
+    """
     store = FakeConfigurationStore()
-    console = FakeConsole(answers=["1"])
+    console = FakeConsole()
     finder = FakeReceiverFinder([ReceiverInfo("Гостиная", "192.0.2.5")])
 
     Configure(store, finder, console).run()
 
+    assert console.questions == [], "единственный найденный приёмник не спрашивается"
     assert store.settings.tv == "192.0.2.5"
     assert console.messages[-1] == "ТВ: Гостиная - 192.0.2.5"
 
@@ -79,17 +86,6 @@ def test_the_found_receivers_are_offered_as_a_numbered_list() -> None:
     assert "  1. Samsung Q70D - 10.0.0.50" in listed
     assert "  2. Chromecast - 10.0.0.60" in listed, "безымянный пункт называется моделью"
     assert (store.settings.tv, store.settings.receiver) == ("10.0.0.60", "chromecast")
-
-
-def test_the_only_receiver_found_is_taken_by_enter() -> None:
-    """Нашёлся один - вопрос остаётся, но отвечается пустым Enter: номер тут не нужен."""
-    store = FakeConfigurationStore()
-    console = FakeConsole()
-    finder = FakeReceiverFinder([ReceiverInfo("Samsung Q70D", "10.0.0.50")])
-
-    assert Configure(store, finder, console).run() == 0
-    assert store.settings.tv == "10.0.0.50"
-    assert console.messages[-1] == "ТВ: Samsung Q70D - 10.0.0.50"
 
 
 def test_finding_nobody_says_why_and_keeps_the_manual_way() -> None:
