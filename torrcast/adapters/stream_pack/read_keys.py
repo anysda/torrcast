@@ -20,7 +20,7 @@ def read_keys(cache: Path) -> FilmKeys | None:
     файл, который сегодняшний разбор отвергает, показу всё равно доставался с полки, и
     сетка строилась по нему. Не прочли - значит, снимем заново (:func:`film_keys`).
     """
-    with contextlib.suppress(OSError, ValueError, KeyError, TypeError):
+    with contextlib.suppress(OSError, ValueError, KeyError, TypeError, AttributeError):
         saved = json.loads(cache.read_text("utf-8"))
         if int(saved.get("rules", 0)) != KEYS_RULES:
             return None

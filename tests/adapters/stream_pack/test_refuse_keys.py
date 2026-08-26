@@ -34,9 +34,7 @@ def test_a_verdict_replaces_the_map_that_lay_there(tmp_path: Path) -> None:
     """
     cache = tmp_path / "фильм.json"
     cache.write_text(
-        json.dumps(
-            {"duration": 60.0, "keys": [0.0, 2.0], "bytes": [0, 4096], "rules": KEYS_RULES}
-        ),
+        json.dumps({"duration": 60.0, "keys": [0.0, 2.0], "bytes": [0, 4096], "rules": KEYS_RULES}),
         "utf-8",
     )
     assert read_keys(cache) is not None, "карта не легла - мерить нечего"

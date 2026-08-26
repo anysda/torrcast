@@ -1905,19 +1905,24 @@ def _le_shaped_chain(tmp_path: Path) -> tuple[str, str, str]:
     return crt["root"].read_text(), crt["inter"].read_text(), crt["leaf"].read_text()
 
 
-def test_an_old_key_cache_without_offsets_still_builds_the_grid(tmp_path: Path) -> None:
-    """Кэш карты прошлой версии смещений не знает — сетка из него всё равно строится.
+def test_a_map_without_offsets_still_builds_the_grid(tmp_path: Path) -> None:
+    """Карта без ряда смещений сетку всё равно строит: грелка позиции просто не работает.
 
-    Выбросить такой кэш значило бы заставить первый же показ после обновления заново
-    читать индекс у холодного роя. Грелка позиции без смещений просто не работает — это
-    дешевле.
+    ⚠️ Это про НЕДОСТАЮЩИЙ РЯД внутри карты, а не про карту прежних правил: та с полки не
+    возвращается вовсе (:data:`~torrcast.domain.warm_open.KEYS_RULES`). Прежде эти две
+    вещи были одним послаблением - «кэш прошлой версии всё ещё годен», - и оно стоило
+    зрителю сеанса: карта «Матрицы» 1999, снятая версией без проверки честности индекса,
+    доставалась показу с полки и после того, как живой разбор начал отвергать её.
     """
     import json
 
     from torrcast.adapters.stream_pack.read_keys import read_keys
+    from torrcast.domain.warm_open import KEYS_RULES
 
     cache = tmp_path / "keys.json"
-    cache.write_text(json.dumps({"duration": 600.0, "keys": [0.0, 10.0, 20.0]}), "utf-8")
+    cache.write_text(
+        json.dumps({"duration": 600.0, "keys": [0.0, 10.0, 20.0], "rules": KEYS_RULES}), "utf-8"
+    )
     found = read_keys(cache)
     assert found is not None and found.at == [0.0, 10.0, 20.0]
     assert found.offset == [] and found.byte_at(15.0) == 0

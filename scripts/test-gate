@@ -227,7 +227,11 @@ if [ "$#" -eq 0 ]; then
     # мимо pytest песочница фикстур (tests/conftest.pytest_configure) не накрывает, и
     # запись садилась на боевую полку карт. -B - чтобы байт-код импортов не считался
     # попаданием: pycache пишется рядом с кодом, то есть мимо песочницы.
-    TORRCAST_STATE="$seam_dir/state.json" .venv/bin/python -B - "$seam_dir" <<'PY'
+    # TMPDIR - тоже песочница: постройка сетки сверяет карту с фактом пробным прогоном
+    # (:func:`keys_agree`), а тот пишет свой кадр во временный каталог. Каталог этот
+    # самоубирающийся и боевому состоянию не вредит, но лежал бы он в общем /tmp - то
+    # есть мимо песочницы, - и сторож считал бы его попаданием.
+    TORRCAST_STATE="$seam_dir/state.json" TMPDIR="$seam_dir" .venv/bin/python -B - "$seam_dir" <<'PY'
 import io
 import os
 from pathlib import Path

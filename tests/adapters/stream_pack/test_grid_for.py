@@ -3,12 +3,20 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from pathlib import Path
 
+import pytest
+
+from torrcast.adapters.stream_pack._keys_shelf import _keys_cache
 from torrcast.adapters.stream_pack.grid import Grid
 from torrcast.adapters.stream_pack.grid_for import grid_for
+from torrcast.adapters.stream_pack.read_keys import read_keys
+from torrcast.adapters.stream_pack.refused_keys import refused_keys
 from torrcast.domain.film_keys import FilmKeys
 from torrcast.domain.hls_settings import MAX_SEGMENT_BYTES
 from torrcast.domain.infra_error import InfraError
+
+DAY = 24 * 60 * 60.0
 
 #: Ровный GOP в две секунды на минуту фильма и ровный битрейт 2 МБ/с.
 KEYS = FilmKeys(
@@ -18,6 +26,11 @@ KEYS = FilmKeys(
 #: Начало ленты меряет ffprobe; тут проверяется выбор сетки, а не замер, поэтому оно
 #: приезжает готовым числом - и остаётся видимым в проверках, а не спрятанным в фикстуру.
 ORIGIN = 0.083
+
+
+def _agreed(url: str, at: float, keys: FilmKeys) -> bool:
+    """Сверка карты с фактом сошлась: пробный прогон ffmpeg тут не поднимается."""
+    return True
 
 
 def _grid(
@@ -38,13 +51,19 @@ def _grid(
         span_cap=span_cap,
         keys_of=keys,
         origin_of=lambda url: ORIGIN,
+        agree_of=_agreed,
     )
 
 
 def test_the_grid_stands_on_keyframes_when_the_map_was_taken() -> None:
     """Карта снялась - границы стоят на опорных кадрах, и каждый кусок самостоятелен."""
     grid = grid_for(
-        "http://торрент/поток", 60.0, 10.0, keys_of=lambda url: KEYS, origin_of=lambda url: ORIGIN
+        "http://торрент/поток",
+        60.0,
+        10.0,
+        keys_of=lambda url: KEYS,
+        origin_of=lambda url: ORIGIN,
+        agree_of=_agreed,
     )
     assert grid.on_keys is True
     assert all(place in KEYS.at for place in grid.bounds)
@@ -99,7 +118,12 @@ def test_a_map_that_does_not_look_like_video_is_refused() -> None:
 def test_the_length_of_the_film_is_taken_from_the_map_when_it_is_not_known() -> None:
     """Паспорт молчит про длительность - её знает карта, и манифест обязан быть честным."""
     grid = grid_for(
-        "http://торрент/поток", 0.0, 10.0, keys_of=lambda url: KEYS, origin_of=lambda url: ORIGIN
+        "http://торрент/поток",
+        0.0,
+        10.0,
+        keys_of=lambda url: KEYS,
+        origin_of=lambda url: ORIGIN,
+        agree_of=_agreed,
     )
     assert grid.duration == KEYS.duration
 
@@ -152,3 +176,62 @@ def test_the_length_ceiling_of_the_receiver_reaches_the_grid() -> None:
 
     assert max(free.span(k) for k in range(free.count - 1)) == 12.0
     assert max(tight.span(k) for k in range(tight.count - 1)) == 6.0
+
+
+def test_a_map_that_disagreed_with_the_run_is_not_the_grid_of_the_show(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """🔴 Сетка, признанная не сошедшейся с фактом, не имеет права остаться сеткой показа.
+
+    Боевая запись 26-08: ``сверка карты с прогоном: сошлось false, карта 18.932, факт
+    50.917`` - и сетка ``покадрам: true`` на 741 сегмент по этой самой карте осталась
+    сеткой показа до конца вечера, потому что сверка стояла ПОСЛЕ постройки. Мера здесь
+    отрицательная в обе стороны: та же карта при сошедшейся сверке даёт сетку по кадрам,
+    при разошедшейся - ровную.
+    """
+    monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
+    said: list[str] = []
+    asked: list[float] = []
+
+    def apart(url: str, at: float, keys: FilmKeys) -> bool:
+        asked.append(at)
+        return False
+
+    grid = grid_for(
+        "http://торрент/поток",
+        60.0,
+        10.0,
+        say=said.append,
+        keys_of=lambda url: KEYS,
+        origin_of=lambda url: ORIGIN,
+        agree_of=apart,
+    )
+
+    assert grid.on_keys is False and grid.origin == ORIGIN
+    assert said and "разошлась с прогоном" in said[-1]
+    assert asked == [10.0], "сверять надо ПЕРВУЮ границу сетки, ту, что упаковка возьмёт первой"
+    assert _grid(lambda url: KEYS).on_keys is True, "сошедшаяся сверка обязана оставить кадры"
+
+
+def test_a_map_the_run_disagreed_with_does_not_wait_for_the_next_show(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Вердикт ложится на полку: иначе следующий показ снимет ту же карту и построит то же.
+
+    Пробы честности судят индекс по байтам, а тут его судил факт по живому файлу - и без
+    записи вердикта завтрашний сеанс повторил бы вчерашний.
+    """
+    monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
+    url = "http://торрент/поток"
+
+    grid_for(
+        url,
+        60.0,
+        10.0,
+        keys_of=lambda source: KEYS,
+        origin_of=lambda source: ORIGIN,
+        agree_of=lambda source, at, keys: False,
+    )
+
+    assert refused_keys(_keys_cache(url), DAY) is not None, "вердикт не лёг на полку"
+    assert read_keys(_keys_cache(url)) is None, "карта пережила вердикт"
