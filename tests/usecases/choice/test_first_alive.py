@@ -82,3 +82,30 @@ def test_counting_among_a_named_few_leaves_the_rest_of_the_menu_out_of_the_quest
 
     assert _first_alive(mummy, [2, 3]) == 2
     assert _first_alive(mummy, []) == 3, "спрашивать не о ком - отвечает самая живая"
+
+
+def test_a_named_season_keeps_the_default_off_the_part_numbered_otherwise() -> None:
+    """🔴 TC-818. Спросили первый сезон - дефолт не садится на вторую часть франшизы.
+
+    Замер по сохранённым выдачам: «код гиас s1e1» после добора ставил дефолтом «Код Гиас:
+    Восставший Лелуш 2» (2008), которую сам каталог подписал частью 2, - при живом первом
+    сезоне в том же меню. Обе ступени тут работают вместе: вторая часть выбывает по
+    спрошенному сезону (:func:`asked_season`), а однораздачный первый сезон не уступает
+    дефолт соседке по франшизе (:func:`backed`).
+    """
+    geass = [
+        plan("Код Гиас: Восставший Лелуш 2", 2008, kind="tv", part=2, season=1, asked_series=True),
+        plan(
+            "Код Гиас: Восставший Лелуш", 2006, kind="tv", seeders=11, season=1, asked_series=True
+        ),
+        plan(
+            "Code Geass: Dakkan no Rozé",
+            2024,
+            kind="tv",
+            season=1,
+            asked_series=True,
+            pool=[film("e01", seeders=77), film("e02", seeders=13)],
+        ),
+    ]
+
+    assert first_alive(geass) == 2

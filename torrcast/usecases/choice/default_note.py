@@ -8,7 +8,7 @@ from torrcast.usecases.choice._named import _named
 from torrcast.usecases.choice._namesake import _namesake
 from torrcast.usecases.choice.alive_numbers import alive_numbers
 from torrcast.usecases.choice.asked_kind import asked_kind
-from torrcast.usecases.choice.first_alive import _first_alive
+from torrcast.usecases.choice.first_alive import _first_alive, first_alive
 from torrcast.usecases.choice.fitness import fitness
 from torrcast.usecases.choice.liveliness import liveliness
 
@@ -46,7 +46,7 @@ def default_note(plans: list[Plan], asked: str = "") -> str:
     ``asked`` - слова человека; без них строка та же, только без головы «спросили X».
     """
     numbers = asked_kind(plans)
-    picked = _first_alive(plans, numbers)
+    picked = first_alive(plans)
     plain = _first_alive(plans, list(range(1, len(plans) + 1)))
     head = f"спросили «{asked}» - беру" if asked else "беру"
     mine = _named(plans[picked - 1].picture)
@@ -76,7 +76,7 @@ def _passed_why(plans: list[Plan], number: int, numbers: list[int]) -> str:
     (:func:`playable`: у тёзки того же имени он есть, а тут одно старьё) и «всего одна
     раздача» (:func:`backed`: одно обещание индексера против очереди у соседки).
 
-    Счёт раздач в последней причине - у ВЗЯТОЙ картины (:func:`_first_alive`), ради
+    Счёт раздач в последней причине - у ВЗЯТОЙ картины (:func:`first_alive`), ради
     которой пропуск и объясняется. У взятой тоже одна раздача - сравнивать нечего, и
     причина молчит: строка, которая врёт про причину выбора, хуже отсутствия строки.
     """
@@ -87,7 +87,7 @@ def _passed_why(plans: list[Plan], number: int, numbers: list[int]) -> str:
         return f"рой у неё мёртв - сидов {life}"
     if not fitness(plans[number - 1]):
         return "живого HD у неё нет - одно старьё"
-    taken = len(plans[_first_alive(plans, numbers) - 1].ranked)
+    taken = len(plans[first_alive(plans) - 1].ranked)
     if taken <= 1:
         return ""
     return f"у неё всего одна раздача, а тут их {taken}"

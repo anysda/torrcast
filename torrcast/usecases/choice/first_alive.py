@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 from torrcast.usecases.choice.alive_numbers import alive_numbers
 from torrcast.usecases.choice.asked_kind import asked_kind
+from torrcast.usecases.choice.asked_season import asked_season
 from torrcast.usecases.choice.backed import backed
 from torrcast.usecases.choice.liveliest import liveliest
 from torrcast.usecases.choice.liveliness import liveliness
@@ -44,14 +45,25 @@ def first_alive(plans: list[Plan]) -> int:
     (:func:`asked_kind`): «хорошая жена s1e1» — это просьба про сериал, и дефолт
     считается среди сериалов, даже если полнометражная тёзка живее.
 
+    Сезон, названный запросом, весит так же (:func:`asked_season`): «код гиас s1e1» -
+    это просьба про первый сезон, и картина, подписанная каталогом частью 2, дефолта
+    не берёт.
+
     Живого нет вовсе — отдаём самую живую из картин названного типа: выбирать всё
     равно не из чего, но цифра в скобках обязана на что-то указывать.
     """
-    return _first_alive(plans, asked_kind(plans))
+    return _first_alive(plans, asked_season(plans, asked_kind(plans)))
 
 
 def _first_alive(plans: list[Plan], numbers: list[int]) -> int:
-    """:func:`first_alive` среди перечисленных номеров - остальные картины не в счёт."""
+    """:func:`first_alive` среди перечисленных номеров - остальные картины не в счёт.
+
+    Сужения тут не делается ВОВСЕ, и это важно: ими считается
+    :func:`first_alive`, а честная строка про смену картины спрашивает эту ступень как
+    раз затем, чтобы узнать дефолт БЕЗ сужений и сравнить его с настоящим
+    (:func:`default_note`). Сузь тут - и строка сравнивала бы дефолт сам с собой,
+    молчала бы, и картина уезжала бы к зрителю без единого слова.
+    """
     if not numbers:
         return liveliest(plans)
     if alive := alive_numbers(plans, numbers):

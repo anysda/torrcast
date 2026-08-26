@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 from torrcast.usecases.choice.liveliness import liveliness
 
 if TYPE_CHECKING:
+    from torrcast.domain.picture import Picture
     from torrcast.usecases.select.plan import Plan
 
 
@@ -56,8 +57,31 @@ def backed(plans: list[Plan], alive: list[int]) -> list[int]:
 def _rival(plans: list[Plan], deep: list[int], number: int) -> int:
     """Самая живая очередь СВОЕГО типа - её и обязана перебить однораздачная картина.
     Очередей своего типа нет вовсе - уступать нечему, и порог равен нулю.
+
+    🔴 TC-818. Зритель назвал серию - и очередь соседки по франшизе тут не в счёт вовсе:
+    уступают друг другу ТЁЗКИ, картины под одним именем. Глубина очереди говорит о том,
+    чем играет она сама, а у соседки это другой сериал со своим первым сезоном, и её
+    двадцать раздач про спрошенную серию не знают ровно ничего - тот же довод, по
+    которому очередь сериала не весит на полнометражной тёзке. Замер: «код гиас s1e1» -
+    «Код Гиас: Восставший Лелуш» (одна раздача, 11 сид) уступала дефолт сериалу «Code
+    Geass: Dakkan no Rozé» (19 раздач, 77 сид), которого не спрашивали.
+
+    Серию запрос не называл - ограждение молчит: там речь про франшизу целиком, и
+    «Замок Калиостро» с десятью раздачами законно перебивает однораздачного тёзку.
     """
-    kind = plans[number - 1].picture.kind
+    picture = plans[number - 1].picture
+    named = any(plan.asked_series for plan in plans)
     return max(
-        (liveliness(plans[n - 1]) for n in deep if plans[n - 1].picture.kind == kind), default=0
+        (
+            liveliness(plans[n - 1])
+            for n in deep
+            if plans[n - 1].picture.kind == picture.kind
+            and (not named or _same_name(plans[n - 1].picture, picture))
+        ),
+        default=0,
     )
+
+
+def _same_name(rival: Picture, picture: Picture) -> bool:
+    """Одним ли именем каталог подписал две картины меню."""
+    return rival.title.casefold() == picture.title.casefold()

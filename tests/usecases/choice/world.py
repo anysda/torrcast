@@ -17,7 +17,9 @@ from dataclasses import dataclass, field
 from typing import TypeVar
 
 from torrcast.adapters.choice_environment import environment
+from torrcast.domain._series import _Series
 from torrcast.domain.config import Config
+from torrcast.domain.episode import Episode
 from torrcast.domain.facts.fact import Fact
 from torrcast.domain.facts.origin import Origin
 from torrcast.domain.kind import Kind
@@ -78,10 +80,14 @@ def plan(
     original: str | None = None,
     pool: list[Release] | None = None,
     asked_series: bool = False,
+    season: int | None = None,
     loose: bool = False,
     last_resort: bool = False,
 ) -> Plan:
-    """План одной картины меню: пул раздач в порядке ранжира и та же длительность."""
+    """План одной картины меню: пул раздач в порядке ранжира и та же длительность.
+
+    ``season`` - какой сезон плану нужен; без него серии у картины нет, как у фильма.
+    """
     ranked = pool if pool is not None else [film(f"{title} {year} WEB-DL 1080p", seeders=seeders)]
     return Plan(
         picture=Picture(
@@ -90,6 +96,7 @@ def plan(
         ranked=ranked,
         runtime=RUNTIME,
         warn_mbit=WARN_MBIT,
+        series=_Series(want=Episode(season, 1)) if season is not None else None,
         loose=loose,
         last_resort=last_resort,
         asked_series=asked_series,

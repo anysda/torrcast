@@ -65,6 +65,47 @@ def test_the_depth_of_a_series_queue_says_nothing_about_a_film_of_the_same_name(
     assert _rival(unloved, [2], 1) == 0, "очередей своего типа нет - уступать нечему"
 
 
+def test_a_named_episode_makes_a_franchise_neighbour_no_rival_at_all() -> None:
+    """🔴 TC-818. Зритель назвал серию - уступают друг другу ТЁЗКИ, а не соседки.
+
+    Глубина очереди говорит о том, чем играет она сама, а у соседки по франшизе это
+    другой сериал со своим первым сезоном. Замер: «код гиас s1e1» - «Код Гиас:
+    Восставший Лелуш» одной раздачей на 11 сид уступал дефолт сериалу «Code Geass:
+    Dakkan no Rozé» (19 раздач, лучшая на 77), которого не спрашивали.
+    """
+    geass = [
+        plan("Код Гиас: Восставший Лелуш", 2006, kind="tv", seeders=11, asked_series=True),
+        plan(
+            "Code Geass: Dakkan no Rozé",
+            2024,
+            kind="tv",
+            asked_series=True,
+            pool=[film("e01", seeders=77), film("e02", seeders=13)],
+        ),
+    ]
+
+    assert backed(geass, [1, 2]) == [1, 2]
+    assert _rival(geass, [2], 1) == 0, "соседка по франшизе - не тёзка, уступать нечему"
+
+
+def test_a_franchise_neighbour_stays_a_rival_where_no_episode_was_named() -> None:
+    """Серию запрос не называл - ограждение молчит, речь про франшизу целиком.
+
+    «Замок Калиостро» с десятью раздачами законно перебивает однораздачного тёзку
+    «Rupan sansei» 2014 года на три сида: спрошена франшиза, а не серия сериала.
+    """
+    lupin = [
+        plan("Rupan sansei", 2014, seeders=3),
+        plan(
+            "Замок Калиостро",
+            1979,
+            pool=[film("верх", seeders=10), film("сосед", seeders=8)],
+        ),
+    ]
+
+    assert backed(lupin, [1, 2]) == [2]
+
+
 def test_a_menu_where_everyone_has_a_single_release_stays_exactly_as_it_was() -> None:
     """Живых с очередью нет вовсе - список остаётся как был.
 
