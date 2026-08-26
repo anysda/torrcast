@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from torrcast.domain.split_franchise_index import split_franchise_index
 from torrcast.usecases.choice.liveliness import liveliness
 
 if TYPE_CHECKING:
@@ -83,5 +84,16 @@ def _rival(plans: list[Plan], deep: list[int], number: int) -> int:
 
 
 def _same_name(rival: Picture, picture: Picture) -> bool:
-    """Одним ли именем каталог подписал две картины меню."""
-    return rival.title.casefold() == picture.title.casefold()
+    """Одним ли именем каталог подписал две картины меню - без номера части.
+
+    Номер тут уже прочитан сезоном (:func:`~torrcast.usecases.choice.asked_season.asked_season`
+    оставил лишь спрошенный), поэтому «Ход королевы 1» и «Ход королевы» - один сериал, а
+    не тёзка и чужак. Сравнение по целой подписи разводило их: однораздачный сезон не
+    уступал дефолт собственному сериалу с сорока тремя раздачами и вставал дефолтом сам.
+    """
+    return _bare(rival.title) == _bare(picture.title)
+
+
+def _bare(title: str) -> str:
+    """Подпись картины без номера части - им картины меню и различают, а не именем."""
+    return split_franchise_index(title)[0].casefold()

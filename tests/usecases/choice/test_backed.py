@@ -115,3 +115,25 @@ def test_a_menu_where_everyone_has_a_single_release_stays_exactly_as_it_was() ->
     lonely = [plan("Кино", 1999, seeders=16), plan("Кино", 2001, seeders=28)]
 
     assert backed(lonely, [1, 2]) == [1, 2]
+
+
+def test_a_season_split_off_by_the_catalogue_yields_to_its_own_series() -> None:
+    """Номер части у сериала - это сезон, и «Ход королевы 1» с «Ход королевы» один сериал.
+
+    Замер по сохранённым выдачам: «ход королевы s1e7» - каталог отделяет сезон в свою
+    картину на одну раздачу, и она вставала дефолтом при собственном сериале с сорока
+    тремя. Сравнение по целой подписи разводило их в чужаков, а уступать чужаку нечему.
+    """
+    gambit = [
+        plan("Ход королевы 1", 2020, kind="tv", part=1, seeders=9, asked_series=True),
+        plan(
+            "Ход королевы",
+            2020,
+            kind="tv",
+            asked_series=True,
+            pool=[film("e07", seeders=60), film("e06", seeders=44)],
+        ),
+    ]
+
+    assert backed(gambit, [1, 2]) == [2]
+    assert _rival(gambit, [2], 1) == 60, "сезон и его же сериал - тёзки, номер части не в счёт"
