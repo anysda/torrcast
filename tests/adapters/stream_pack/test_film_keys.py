@@ -11,7 +11,7 @@ from typing import Any
 import pytest
 
 from torrcast.adapters.stream_pack._keys_shelf import _keys_cache
-from torrcast.adapters.stream_pack.film_keys import _fetching, _keys_draft, film_keys
+from torrcast.adapters.stream_pack.film_keys import _fetching, film_keys
 from torrcast.adapters.stream_pack.read_keys import read_keys
 from torrcast.domain.frames.keymap.key_map import KeyMap
 from torrcast.domain.frames.keymap.point import Point
@@ -138,37 +138,6 @@ def test_the_lock_stays_alive_while_its_holder_works() -> None:
     film_keys(URL, keys_of=slow, lock_ttl=ttl)
     assert all(alive), f"замок протух под работающим читателем: {alive}"
     assert not lock.exists(), "замок обязан сниматься после записи кэша"
-
-
-@pytest.mark.machine
-def test_two_writers_of_one_map_do_not_share_a_draft(tmp_path: Path) -> None:
-    """Черновик кэша - файл на писателя, а не на URL: иначе наружу уехала бы склейка.
-
-    Замок на карту берётся не всегда (протух, каталог только для чтения), и два писателя
-    на одно имя пишут вперемешку.
-    """
-    cache = tmp_path / "abcdef0123456789.json"
-    drafts: list[Path] = []
-    # ⚠️ Писатели обязаны быть живы ОДНОВРЕМЕННО: разойдись они по времени - и номер
-    # потока переиспользуется, а вместе с ним и имя. Развести надо ровно тех, кто пишет
-    # вперемешку, и барьер держит в пробе именно этот случай.
-    gate = threading.Barrier(2)
-
-    def draft() -> None:
-        gate.wait(timeout=5)
-        drafts.append(_keys_draft(cache))
-        gate.wait(timeout=5)
-
-    writers = [threading.Thread(target=draft) for _ in range(2)]
-    for writer in writers:
-        writer.start()
-    for writer in writers:
-        writer.join(timeout=10)
-
-    assert len(set(drafts)) == 2, f"два писателя взяли одно имя: {drafts}"
-    for name in [*drafts, _keys_draft(cache)]:
-        assert name != cache and name.name.endswith(".tmp")
-        assert name.parent == cache.parent, "черновик кладётся рядом: replace атомарен в одной fs"
 
 
 def test_a_swarm_that_says_nothing_is_not_swallowed() -> None:

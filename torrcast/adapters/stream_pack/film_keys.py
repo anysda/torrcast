@@ -4,15 +4,16 @@ from __future__ import annotations
 
 import contextlib
 import json
-import os
 import threading
 import time
 from collections.abc import Callable
 from pathlib import Path
 
 from torrcast.adapters.frames.keyframes import keyframes
+from torrcast.adapters.stream_pack._keys_draft import _keys_draft
 from torrcast.adapters.stream_pack._keys_shelf import _keys_cache
 from torrcast.adapters.stream_pack.read_keys import read_keys
+from torrcast.adapters.stream_pack.refuse_keys import refuse_keys
 from torrcast.adapters.stream_pack.refused_keys import refused_keys
 from torrcast.adapters.stream_probe.shelf import _trim
 from torrcast.domain.film_keys import FilmKeys
@@ -34,31 +35,6 @@ def _fetching(lock: Path, ttl: float = KEYS_LOCK) -> bool:
     with contextlib.suppress(OSError):
         return time.time() - lock.stat().st_mtime < ttl
     return False
-
-
-def _keys_draft(cache: Path) -> Path:
-    """Черновик кэша карты - свой у каждого писателя.
-
-    Замок на карту берётся не всегда (протух, каталог только для чтения), а на одно имя
-    два писателя пишут вперемешку - и ``replace`` выложил бы наружу склейку двух половин.
-    """
-    return cache.with_suffix(f".{os.getpid()}-{threading.get_ident()}.tmp")
-
-
-def _mark_refusal(cache: Path, refused: str) -> None:
-    """Положить на полку вердикт «карты с этого файла не будет» - на место самой карты.
-
-    Пишется через тот же черновик, что и карта (:func:`_keys_draft`): имя на полке одно, и
-    два писателя на одно имя пишут вперемешку.
-    """
-    with contextlib.suppress(OSError):
-        cache.parent.mkdir(parents=True, exist_ok=True)
-        tmp = _keys_draft(cache)
-        try:
-            tmp.write_text(json.dumps({"refused": refused, "when": time.time()}), "utf-8")
-            tmp.replace(cache)
-        finally:
-            tmp.unlink(missing_ok=True)
 
 
 def _hold_keys_lock(lock: Path, done: threading.Event, ttl: float = KEYS_LOCK) -> None:
@@ -184,7 +160,7 @@ def film_keys(
         # Приговор самому файлу. Он лежит на месте карты, поэтому полку подрезаем и тут:
         # иначе фильмы, которым карты не будет, растили бы её мимо потолка.
         journal().mark("карта: отказ", почему=str(no))
-        _mark_refusal(cache, str(no))
+        refuse_keys(cache, str(no))
         _trim(cache.parent, kept)
         raise
     finally:
