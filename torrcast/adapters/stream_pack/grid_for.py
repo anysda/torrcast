@@ -17,6 +17,7 @@ from torrcast.adapters.stream_pack.refuse_keys import refuse_keys
 from torrcast.domain.film_keys import FilmKeys
 from torrcast.domain.hls_settings import HLS_SEGMENT_SECONDS, MAX_SEGMENT_BYTES
 from torrcast.domain.infra_error import InfraError
+from torrcast.domain.keys_tail_gaps import KEYS_TAIL_GAPS
 from torrcast.ports.journal.slot import journal
 
 
@@ -103,6 +104,18 @@ def grid_for(
         if say:
             say(f"сетка ровно по {step:g} с: карта опорных кадров не похожа на видео")
         return replace(Grid.uniform(length, step), origin=origin)
+    tail = length - found.at[-1]
+    widest = max(b - a for a, b in zip(found.at, found.at[1:], strict=False))
+    if tail > widest * KEYS_TAIL_GAPS:
+        return _flat(
+            source_url,
+            f"карта кончается за {tail:.1f} с до конца фильма при самой широкой дыре "
+            f"{widest:.1f} с - хвост резать нечем",
+            length,
+            step,
+            origin,
+            say,
+        )
     grid = Grid.on_keyframes(
         found.at,
         length,

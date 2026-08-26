@@ -235,3 +235,25 @@ def test_a_map_the_run_disagreed_with_does_not_wait_for_the_next_show(
 
     assert refused_keys(_keys_cache(url), DAY) is not None, "вердикт не лёг на полку"
     assert read_keys(_keys_cache(url)) is None, "карта пережила вердикт"
+
+
+def test_a_map_that_stops_before_the_film_ends_is_not_a_grid(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """🔴 Хвост за последним кадром карты резать НЕЧЕМ - он уезжает одним куском.
+
+    «Матрица» 1999: последняя точка Cues 7778.899 при длительности 8175.488 - кусок
+    396.6 с, то есть ``EXT-X-TARGETDURATION: 397`` при обещанных 10.5 с. Мерка своя у
+    каждой карты: хвост судится самой широкой дырой внутри неё
+    (:data:`~torrcast.domain.keys_tail_gaps.KEYS_TAIL_GAPS`).
+    """
+    monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
+    said: list[str] = []
+    #: Шаг кадров 2 с, а кино идёт минуту: последний кадр на 40-й секунде - хвост 20 с.
+    short = FilmKeys(60.0, [round(k * 2.0, 3) for k in range(21)], [], "mkv")
+    #: Тот же шаг, тот же хвост в долях дыры на пределе - карта обязана остаться сеткой.
+    whole = FilmKeys(60.0, [round(k * 2.0, 3) for k in range(26)], [], "mkv")
+
+    assert _grid(lambda url: short, say=said.append).on_keys is False
+    assert said and "хвост резать нечем" in said[-1] and "20.0 с до конца" in said[-1]
+    assert _grid(lambda url: whole).on_keys is True, "здоровый хвост отвергнут вместе с битым"
