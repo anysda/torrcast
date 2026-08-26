@@ -34,7 +34,7 @@ def menu_blocks(plans: list[Plan], facts: Facts | None = None, width: int = 0) -
 
     Справку тут НЕ ждут ни секунды: берётся то, что УЖЕ приехало
     (:meth:`~torrcast.usecases.facts.Facts.ready`). Ждать - решение зовущего
-    (:func:`~torrcast.usecases.choice._pick_plan._shown`), и он ждёт ровно описания: они и
+    (:func:`~torrcast.usecases.choice._shown._shown`), и он ждёт ровно описания: они и
     решаются здесь, потому что второго шанса попасть в список у них нет. Не приехало ничего -
     печатается ровно та строка, что печаталась и раньше, без пустых разделителей и без
     «не нашёл».
