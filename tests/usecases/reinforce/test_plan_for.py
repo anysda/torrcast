@@ -31,6 +31,7 @@ def test_without_a_told_runtime_the_denominator_is_the_guess() -> None:
     plan = plan_for(picture, Args(query=["кино"]), Config())
 
     assert plan.runtime == RUNTIME_GUESS["movie"]
+    assert plan.runtime_estimated, "🔴 TC-819: прикидка обязана называться прикидкой"
 
 
 def test_the_told_runtime_goes_into_the_plan_as_known() -> None:
@@ -40,6 +41,7 @@ def test_the_told_runtime_goes_into_the_plan_as_known() -> None:
     plan = plan_for(picture, Args(query=["кино"]), Config(), runtime=169 * 60.0)
 
     assert plan.runtime == 10140.0
+    assert not plan.runtime_estimated, "названная длительность - не оценка"
 
 
 def test_the_series_pool_keeps_only_the_asked_season() -> None:

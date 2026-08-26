@@ -125,6 +125,7 @@ def _cmd_releases(
                     plan.warn_mbit,
                     recode_at=plan.recode_at,
                     hard_mbit=plan.hard_mbit,
+                    estimated=plan.runtime_estimated,
                 )
             )
         _releases_remember(inner.title_query, shown)

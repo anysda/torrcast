@@ -37,6 +37,7 @@ from torrcast.usecases.reinforce.ceiling_hides_name import ceiling_hides_name
 from torrcast.usecases.reinforce.lacks_season import lacks_season
 from torrcast.usecases.reinforce.plan_for import plan_for
 from torrcast.usecases.reinforce.voiceless_pool import voiceless_pool
+from torrcast.usecases.select._measured_runtime import _measured_runtime
 from torrcast.usecases.select._studio_seen import _studio_seen
 
 if TYPE_CHECKING:
@@ -151,14 +152,27 @@ def search_circle(
     # таблица показывала бы один порядок, а играл бы другой.
     seen = watch_store().load()
     remembered = seen.find(args.title_query)
-    plans = [
-        plan
-        for plan in (
-            plan_for(p, args, config, profile, studio=_studio_seen(seen, p.key, remembered))
-            for p in found
+    plans = []
+    for p in found:
+        # 🔴 TC-819. Знаменатель битрейта сперва спрашивается у паспорта файла - у уже
+        # начатой картины он лежит в записи состояния, и прикидке по типу («серия это
+        # 45 минут») верить рядом с замером незачем: на «Киберпанке» она занизила вес
+        # релиза вдвое, и ворота пустили его как «под потолком приёмника» в сплошной
+        # перекод на весь показ. Молчит и паспорт - прикидка идёт в дело под своим
+        # именем: источник знаменателя у каждого плана уходит в след.
+        measured = _measured_runtime(seen, p.key, remembered)
+        plan = plan_for(
+            p, args, config, profile, runtime=measured, studio=_studio_seen(seen, p.key, remembered)
         )
-        if plan.ranked
-    ]
+        journal().emit(
+            "search",
+            "runtime",
+            title=p.title,
+            secs=round(plan.runtime),
+            src="guess" if plan.runtime_estimated else "passport",
+        )
+        if plan.ranked:
+            plans.append(plan)
     for line in season_gaps(found, {plan.picture.key for plan in plans}, args.episode):
         progress.note(line)
     # Соседи по франшизе, до меню не доехавшие: понадобятся, если у выбранной картины

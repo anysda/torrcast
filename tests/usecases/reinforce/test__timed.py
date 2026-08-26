@@ -165,6 +165,28 @@ def test_a_silent_passport_says_so_in_the_trace_and_does_not_keep_quiet() -> Non
     assert runtime[-1]["secs"] == round(RUNTIME_GUESS["movie"])
 
 
+def test_the_measured_runtime_is_not_overwritten_by_the_facts() -> None:
+    """🔴 TC-819. Паспорт файла сильнее справки: статья пишет «24 минуты», серия длится 27.
+
+    Пересборки нет - план остаётся тем же объектом, а след называет источник
+    знаменателя: «passport», то есть замер, а не прикидка и не справка.
+    """
+    picture = pictures([row("Киберпанк / Cyberpunk [S01] (2022) WEB-DL 1080p", "a")])[0]
+    args = Args(query=["киберпанк", "s01e01"])
+    was = plan_for(picture, args, Config(), runtime=1620.0)
+    noted = _Noted()
+    install(noted)
+    try:
+        fresh = _timed(was, _Facts("24 мин"), args, Config())
+    finally:
+        install(Silent())
+
+    assert fresh is was, "замер файла справка не перебивает"
+    assert fresh.runtime == 1620.0
+    runtime = [fields for event, fields in noted.events if event == "runtime"]
+    assert runtime and runtime[-1]["src"] == "passport"
+
+
 def test_the_count_of_the_late_survives_the_rebuild_on_the_real_runtime() -> None:
     """🔴 TC-703. Справка пересобирает план, а признак неполноты каталога нужен позже него."""
     install(_Noted())

@@ -98,6 +98,30 @@ def test_the_count_of_the_late_survives_the_topup() -> None:
     assert fresh.waiting() == ("JacRed",)
 
 
+def test_the_measured_runtime_survives_the_topup() -> None:
+    """🔴 TC-819. Долив собирает план заново, а замер длительности обратно в прикидку
+    не превращается: иначе опоздавший индексер вернул бы воротам «45 минут» рядом с
+    лежащим в записи паспортом.
+    """
+    picture = pictures([row("Кино / Movie (1999) BDRip 1080p", "a", seeders=100)])[0]
+    plan = plan_for(picture, Args(query=["кино"]), Config(), runtime=8874.0)
+    plan.late = lambda: [row("Кино / Movie (1999) BDRip 2160p", "b", seeders=900)]
+
+    fresh = _topup(plan, Args(query=["кино"]), Config(), CAUTIOUS, Said(), frozenset())
+
+    assert fresh is not plan, "долив собрал новый план"
+    assert fresh.runtime == 8874.0
+    assert not fresh.runtime_estimated
+
+
+def test_the_guess_survives_the_topup_as_a_guess() -> None:
+    """Прикидка доливом не «уточняется»: она остаётся оценкой и носит свой признак."""
+    plan, fresh, _said = _poured([row("Кино / Movie (1999) BDRip 2160p", "b", seeders=900)])
+
+    assert fresh.runtime == plan.runtime
+    assert fresh.runtime_estimated
+
+
 def test_the_memory_of_the_studio_survives_the_topup() -> None:
     """🔴 TC-701. Долив собирает план заново, а память студии решает его порядок.
 

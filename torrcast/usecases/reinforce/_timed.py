@@ -49,7 +49,18 @@ def _timed(
     прикидке, и это решение не молчаливое: событие ``runtime`` уходит в недельный след
     (:func:`torrcast.adapters.filesystem.trace_journal.emit`) с тем же числом, которым
     считался битрейт.
+
+    🔴 TC-819. Знаменатель, уже замеренный паспортом файла
+    (:attr:`~torrcast.usecases.select.plan.Plan.runtime_estimated` ложно), справка НЕ
+    перебивает: запись состояния знает длительность того самого файла, который играем,
+    а справка - типовой хронометраж картины. У сериала это разные числа даже когда оба
+    честны: статья пишет «24 минуты», а серия в раздаче длится 27.
     """
+    if not plan.runtime_estimated:
+        journal().emit(
+            "select", "runtime", secs=round(plan.runtime), src="passport", title=plan.picture.title
+        )
+        return plan
     fact = facts.get(plan.picture.title, plan.picture.year) if facts is not None else Fact()
     minutes = minutes_of(fact.runtime)
     if minutes <= 0:

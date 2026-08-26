@@ -13,6 +13,7 @@ from torrcast.domain.facts.origin import Origin
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.raw_result import RawResult
+from torrcast.ports.journal.silent import Silent
 from torrcast.ports.state_store.slot import install
 from torrcast.usecases.discover.search_circle import search_circle
 from torrcast.usecases.select.plan import Plan
@@ -124,3 +125,65 @@ def test_without_the_memory_the_top_is_the_most_seeded_one() -> None:
     plans = _found({"харли квинн": _QUINN}, "харли квинн s2e1")
 
     assert "Good People" in plans[0].ranked[0].raw_name
+
+
+def _watched_with_runtime(dur: float) -> None:
+    """Состояние, в котором сериал уже смотрели и паспорт файла замерил длительность."""
+    store = FakeStateStore()
+    state = store.load()
+    state.entries["tv:харли-квинн:2020"] = Entry(
+        title="Харли Квинн",
+        magnet="magnet:?xt=urn:btih:" + "e" * 40,
+        kind="tv",
+        query="харли-квинн-s2e1",
+        dur=dur,
+    )
+    store.save(state)
+    install(store)
+
+
+class _Noted(Silent):
+    """Молчащая лента, помнящая события про знаменатель битрейта."""
+
+    def __init__(self) -> None:
+        self.events: list[dict[str, object]] = []
+
+    def emit(self, phase: str, event: str, **fields: object) -> None:
+        del phase
+        if event == "runtime":
+            self.events.append(dict(fields))
+
+
+def test_the_measured_runtime_of_the_file_replaces_the_guess() -> None:
+    """🔴 TC-819. У начатого сериала запись знает длительность серии: 27 минут, а не 45.
+
+    Прикидка «серия это 45 минут» занижает битрейт релиза вдвое, и ворота пускают его
+    как «под потолком приёмника» - в сплошной перекод на весь показ. Рядом с замером
+    паспорта гадать незачем.
+    """
+    _watched_with_runtime(1620.0)
+    plans = _found({"харли квинн": _QUINN}, "харли квинн s2e1")
+
+    assert plans[0].runtime == 1620.0
+    assert not plans[0].runtime_estimated
+
+
+def test_the_source_of_the_denominator_is_named_in_the_trace() -> None:
+    """Оценка называется оценкой, замер - замером: источник знаменателя не молчит."""
+    from torrcast.ports.journal.slot import install as install_journal
+
+    _watched_with_runtime(1620.0)
+    noted = _Noted()
+    install_journal(noted)
+    try:
+        _found({"харли квинн": _QUINN}, "харли квинн s2e1")
+        _watched("")
+        _found({"тачки": _CARS}, "тачки")
+    finally:
+        install_journal(Silent())
+
+    passport, *guesses = noted.events
+    assert passport["src"] == "passport" and passport["secs"] == 1620
+    assert guesses and {fields["src"] for fields in guesses} == {"guess"}, (
+        "прикидка в следе подписана прикидкой"
+    )

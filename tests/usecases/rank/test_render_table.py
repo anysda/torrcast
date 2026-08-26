@@ -46,3 +46,21 @@ def test_the_studio_column_names_who_voiced_it() -> None:
     row = render_table([kitchen], RUNTIME, 20.0).splitlines()[2]
 
     assert "The Kitchen Russia, Good People" in row
+
+
+def test_the_marks_counted_by_a_guess_are_named_a_guess() -> None:
+    """🔴 TC-819. Длительность - прикидка, и пометки веса говорят это вслух.
+
+    Прикидка «серия это 45 минут» против замеренных 27 занижает битрейт вдвое: молча
+    отдать такие пометки за замеренные значило бы врать про каждую строку таблицы.
+    """
+    table = render_table([rel(name="Кино", seeders=42)], RUNTIME, 20.0, estimated=True)
+
+    assert "по оценке длительности" in table.splitlines()[-1]
+
+
+def test_the_marks_counted_by_a_measurement_carry_no_footnote() -> None:
+    """Замер паспорта или хронометраж справки - не оценка, и сноски у таблицы нет."""
+    table = render_table([rel(name="Кино", seeders=42)], RUNTIME, 20.0)
+
+    assert "по оценке" not in table

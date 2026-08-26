@@ -25,6 +25,14 @@ class _PlanFields:
     runtime: float
     #: Потолок ОТБРАКОВКИ, Мбит/с: выше него релиз не берём вовсе (см. :func:`plan_for`).
     warn_mbit: float
+    #: ``True`` - длительность в знаменателе битрейта это ПРИКИДКА по типу картины
+    #: (:data:`torrcast.domain.runtime_guess.RUNTIME_GUESS`): ни паспорт файла из записи
+    #: состояния (:func:`torrcast.usecases.select._measured_runtime._measured_runtime`), ни справка
+    #: (:func:`torrcast.usecases.reinforce._timed._timed`) её не назвали. Оценка обязана
+    #: называться оценкой - тем же приёмом, каким :attr:`torrcast.domain.entry.Entry.vbps_estimated`
+    #: метит вес дорожки: без признака строка, посчитанная по прикидке, неотличима от
+    #: посчитанной по замеру, а расходятся они в разы (TC-819).
+    runtime_estimated: bool = True
     series: _Series | None = None
     #: Порог ПЕРЕКОДИРОВАНИЯ, Мбит/с: выше него куски перекодируются, а релиз годен.
     #: Ноль - перекодирование выключено, и тогда отбраковка и порог это одно число.

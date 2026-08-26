@@ -34,9 +34,12 @@ def plan_for(
 ) -> Plan:
     """План по одной картине: пул релизов в порядке отбора и цель для сериала.
 
-    ``runtime`` — настоящая длительность картины, секунды (из справки, :func:`_timed`).
-    Ноль — её не назвал никто, и в знаменатель битрейта идёт прикидка
-    (:data:`torrcast.domain.runtime_guess.RUNTIME_GUESS`).
+    ``runtime`` — настоящая длительность картины, секунды: замер паспорта файла из
+    записи состояния
+    (:func:`torrcast.usecases.select._measured_runtime._measured_runtime`) или хронометраж
+    справки (:func:`_timed`). Ноль — её не назвал никто, и в знаменатель битрейта идёт
+    прикидка (:data:`torrcast.domain.runtime_guess.RUNTIME_GUESS`), которую план метит
+    признаком :attr:`runtime_estimated`: оценка обязана называться оценкой (TC-819).
 
     ``studio`` — студия, которой эту картину уже смотрели (:func:`_studio_seen`): по ней
     отбор поднимает ту раздачу, которой сериал и смотрели, через границу сезона
@@ -45,7 +48,9 @@ def plan_for(
     from torrcast.domain.runtime_guess import RUNTIME_GUESS
 
     series = _Series(want=args.episode or Episode(1, 1)) if picture.kind == "tv" else None
-    runtime = runtime if runtime > 0 else RUNTIME_GUESS.get(picture.kind, 7200.0)
+    estimated = runtime <= 0
+    if estimated:
+        runtime = RUNTIME_GUESS.get(picture.kind, 7200.0)
     pool = picture.releases
     if series is not None:
         pool = [r for r in pool if r.covers(series.want.season)]
@@ -99,6 +104,7 @@ def plan_for(
         picture=picture,
         ranked=ranked,
         runtime=runtime,
+        runtime_estimated=estimated,
         off_season=len(picture.releases) - len(pool),
         warn_mbit=ceiling,
         series=series,
