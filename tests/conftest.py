@@ -87,7 +87,15 @@ CLIP_KEY_SECONDS = float(CLIP_GOP / CLIP_FPS)
 # ставится по замыканию фикстур: так зависимость не потеряется, когда тест начнёт брать
 # не ``clip`` напрямую, а производный mp4 или общую фикстуру поверх него.
 FFMPEG_FIXTURES = frozenset(
-    {"clip", "clip_hevc", "clip_mp4", "clip_mp4_tail", "clip_mp4_bframes", "clip_voice"}
+    {
+        "clip",
+        "clip_hevc",
+        "clip_mp4",
+        "clip_mp4_tail",
+        "clip_mp4_bframes",
+        "clip_mp4_24fps",
+        "clip_voice",
+    }
 )
 
 # Эти проверки намеренно меряют настоящий планировщик, TCP/TLS или ожидание потока.
@@ -625,6 +633,32 @@ def clip_mp4_bframes(tmp_path_factory: pytest.TempPathFactory) -> str:
          "-f", "lavfi", "-i", f"testsrc2=size=320x180:rate={CLIP_RATE}",
          "-f", "lavfi", "-i", "sine=frequency=440", "-t", str(CLIP_SECONDS),
          "-c:v", "libx264", "-preset", "ultrafast", "-g", str(CLIP_GOP), "-bf", "3",
+         "-c:a", "aac", "-movflags", "+faststart", "-y", str(path)],
+        check=True, capture_output=True,
+    )  # fmt: skip
+    return str(path)
+
+
+@pytest.fixture(scope="session")
+def clip_mp4_24fps(tmp_path_factory: pytest.TempPathFactory) -> str:
+    """mp4 ровно 24 к/с: граница сетки по опорным кадрам не ложится на миллисекунды.
+
+    🔴 Ровные 24 к/с тут не вкус и не правдоподобие, а условие видимости класса - зеркало
+    :data:`CLIP_FPS`. Шаг опорных кадров 50/24 = 2.08(3) с, и граница первого слота
+    (10.416(6) с) в ``-ss`` с тремя знаками пишется как "10.417" - ВВЕРХ. Точная перемотка
+    роняет кадр, стоящий ровно на границе, первый пакет прогона встаёт на кадр позже неё,
+    и цели всех резов уезжают за узкое окно допуска на период кадра. На 24000/1001 те же
+    границы округляются ВНИЗ, а на 25 к/с ложатся на миллисекунды ровно - на обоих входах
+    этот класс не рождается никогда, и проба на них зеленела бы на сломанном коде.
+    Контейнер mp4, а не mkv: тот хранит метки в миллисекундах, и граница в ``-ss``
+    совпала бы с кадром знак в знак.
+    """
+    path = tmp_path_factory.mktemp("src-mp4-24") / "clip.mp4"
+    subprocess.run(
+        ["ffmpeg", "-hide_banner", "-loglevel", "error",
+         "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=24",
+         "-f", "lavfi", "-i", "sine=frequency=440", "-t", str(CLIP_SECONDS),
+         "-c:v", "libx264", "-preset", "ultrafast", "-g", str(CLIP_GOP), "-bf", "1",
          "-c:a", "aac", "-movflags", "+faststart", "-y", str(path)],
         check=True, capture_output=True,
     )  # fmt: skip

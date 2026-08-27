@@ -170,8 +170,11 @@ def test_a_pass_that_places_its_own_keyframes_cuts_by_them_on_any_grid() -> None
     слева, а следующий оставался без картинки после склейки и выбрасывался вместе со всем
     потолком битрейта, который в нём уезжал.
 
-    Допуск у такого реза свой и он шире: муксер отмеряет рез от первого пакета прогона, а
-    тот встаёт на долю кадра позже границы (:data:`KEY_CUT_SLACK`).
+    Допуск у такого реза свой и он шире - на ЛЮБОЙ сетке: муксер отмеряет рез от первого
+    пакета прогона, а тот встаёт на долю кадра позже границы (:data:`KEY_CUT_SLACK`). На
+    сетке по опорным кадрам доля превращается в целый кадр, когда граница в ``-ss`` с
+    тремя знаками округляется вверх и точная перемотка роняет кадр на ней: узкого допуска
+    тогда не хватает ни одному резу захода, и нумерация файлов сползает на слот.
     """
     flat, keyed = _Grid(on_keys=False), _Grid()
     assert _cut_rule(pack_command("u", 0, "/run", flat, 0, 0.0)) == ("1", "0.02")
@@ -180,4 +183,7 @@ def test_a_pass_that_places_its_own_keyframes_cuts_by_them_on_any_grid() -> None
         f"{KEY_CUT_SLACK:g}",
     )
     assert _cut_rule(pack_command("u", 0, "/run", keyed, 0, 0.0)) == ("0", "0.02")
-    assert _cut_rule(pack_command("u", 0, "/run", keyed, 0, 0.0, encode=_Encode())) == ("0", "0.02")
+    assert _cut_rule(pack_command("u", 0, "/run", keyed, 0, 0.0, encode=_Encode())) == (
+        "0",
+        f"{KEY_CUT_SLACK:g}",
+    )

@@ -472,6 +472,73 @@ def test_a_recode_pass_on_a_flat_grid_never_lands_without_a_keyframe(
     ], "наружу ушла копия - потолок битрейта профиля на ровной сетке не работает"
 
 
+def _recode_run(source: str, where: Path, grid: Grid, slot: int, delta: str | None) -> Path:
+    """Один заход кодировщика от ``slot`` до конца фильма; ``delta`` подменяет допуск реза."""
+    where.mkdir(parents=True)
+    command = ffmpeg_pack_command(
+        source, 0, str(where), grid, slot, grid.start(slot),
+        readrate=0.0, encode=Encode(preset="ultrafast", mbit=1.0), until=grid.count - 1,
+    )  # fmt: skip
+    if delta is not None:
+        command[command.index("-segment_time_delta") + 1] = delta
+    subprocess.run(command, check=True, capture_output=True, timeout=300)
+    return where
+
+
+def _slot_offsets(where: Path, grid: Grid) -> dict[int, float]:
+    """Промах первого кадра каждого куска против границы ЕГО НОМЕРА, настоящим ffprobe."""
+    found = {}
+    for piece in sorted(where.glob("v*.ts")):
+        number = int(piece.stem[1:])
+        found[number] = track_starts(piece)[0] - grid.origin - grid.start(number)
+    return found
+
+
+def test_a_recode_pass_on_a_keyed_grid_keeps_every_piece_on_its_own_slot(
+    clip_mp4_24fps: str, tmp_path: Path
+) -> None:
+    """На сетке по опорным кадрам номер файла перекода обязан остаться номером слота.
+
+    Граница такой сетки - сам опорный кадр, и рез идёт по кадру (``-break_non_keyframes
+    0``). Но ``-ss`` уезжает в команду с тремя знаками, и граница, округлившаяся вверх до
+    миллисекунды, роняет свой кадр точной перемоткой: первый пакет прогона встаёт на кадр
+    позже границы, и цель каждого реза сдвигается на период кадра - за окно
+    :data:`SPLIT_SLACK`. Муксер ждёт следующий опорный кадр, склеивает два слота в один
+    файл, а файлы считает ПОДРЯД: дальше номер файла перестаёт быть номером слота, и
+    сползание монотонно. Замер настоящим ffmpeg на этом ролике до правки: все резы захода
+    уехали ровно на слот (+10.417 с) при исправном звуке. На ролике, чьи границы
+    округляются вниз или ложатся на миллисекунды ровно, кадр не роняется и класс невидим
+    (:func:`tests.conftest.clip_mp4_24fps`), поэтому слот захода СЧИТАЕТСЯ по карте -
+    первый, чья граница округляется вверх.
+
+    Меряется цель, а не признак: первый кадр каждого выданного куска против границы его
+    номера. Сверху - положительный контроль: тот же заход с прежним узким допуском обязан
+    сползти, иначе вход не способен показать дефект и зелёный цвет пробы ничего не значит.
+    """
+    grid = Grid.on_keyframes(
+        _keyframes(clip_mp4_24fps), float(CLIP_SECONDS), origin=pack_origin(clip_mp4_24fps)
+    )
+    slot = next(k for k in range(1, grid.count - 2) if round(grid.start(k), 3) > grid.start(k))
+
+    tight = _slot_offsets(
+        _recode_run(clip_mp4_24fps, tmp_path / "tight", grid, slot, f"{SPLIT_SLACK:g}"), grid
+    )
+    assert any(miss > TRACK_PLACE_MAX for miss in tight.values()), (
+        f"с прежним допуском заход не сполз ({tight}) - вход не способен показать дефект"
+    )
+
+    made = _recode_run(clip_mp4_24fps, tmp_path / "recode", grid, slot, None)
+    got = _slot_offsets(made, grid)
+    assert len(got) == grid.count - slot, (
+        f"кусков {len(got)} вместо {grid.count - slot} - рез потерян, файлы посчитаны подряд"
+    )
+    for number, miss in got.items():
+        assert abs(miss) <= TRACK_PLACE_MAX, (
+            f"v{number} начинается на {miss:+.3f} с от границы своего номера - "
+            "номер файла перестал быть номером слота"
+        )
+
+
 def test_a_piece_without_a_single_video_frame_never_reaches_the_viewer(
     clip: str, tmp_path: Path
 ) -> None:
