@@ -1043,3 +1043,146 @@ def test_щуп_привязки_краснеет_на_пришедшей_под
     assert numbers["сменилось"] == 1
     assert numbers["ПОДМЕН ПРИШЛО"] == 1 and numbers["подмен ушло"] == 0
     assert numbers["пропала озвучка"] == 1, "потеря русского голоса тоже обязана краснеть"
+
+
+def movie_pool() -> dict[str, Any]:
+    """Выдача одного фильма: имена молчат и про сборник, и про серии."""
+    return pool(
+        "матрица",
+        RuTor=[
+            ["Матрица / The Matrix (1999) BDRip 1080p", "e" * 40, int(9.0 * GB), 70, "RuTor"],
+            ["Матрица / The Matrix (1999) WEB-DL 720p", "f" * 40, int(3.0 * GB), 30, "RuTor"],
+        ],
+    )
+
+
+def test_щуп_пака_отделяет_картину_без_очереди_серий() -> None:
+    """Предмет замера - дефолт БЕЗ очереди: только там файл выбирается крупнейшим.
+
+    Щуп обязан развести два случая, которые иначе сливаются в один: у сериала очередь
+    серий есть и крупнейший файл никого не выбирает, у фильма её нет по построению
+    (:func:`~torrcast.usecases.reinforce.plan_for.plan_for`) - и вот он и есть население
+    болезни. Пока щуп считал бы оба, число замера было бы про весь корпус, а не про место.
+    """
+    packs = probe("packprobe")
+    config = tune(Config(), CAUTIOUS)
+
+    films = packs.picks([packs.replay(*_replayed(packs, movie_pool()), config, CAUTIOUS)])
+    assert len(films) == 1, "дефолт фильма до щупа не доехал"
+    assert films[0].picture.kind == "movie"
+    assert not films[0].queued and films[0].at_risk, "фильм обязан попасть в население замера"
+    assert films[0].by_name == "", "имя этой раздачи про пак молчит - выдумывать признак нечем"
+
+    tv_pool = pool(
+        "во все тяжкие s1e1",
+        RuTor=[
+            [
+                "Во все тяжкие / Breaking Bad [S01] (2008) BDRip 1080p",
+                "2" * 40,
+                int(20.0 * GB),
+                90,
+                "RuTor",
+            ]
+        ],
+    )
+    series = packs.picks([packs.replay(*_replayed(packs, tv_pool), config, CAUTIOUS)])
+    assert len(series) == 1 and series[0].picture.kind == "tv"
+    assert series[0].queued and not series[0].at_risk, "у сериала очередь есть, крупнейший не судит"
+
+
+def _replayed(packs: ModuleType, record: dict[str, Any]) -> tuple[str, list[list[Any]]]:
+    return (str(record["query"]), packs.batches_of(record))
+
+
+def test_щуп_пака_называет_сборник_по_имени() -> None:
+    """Имя, которое само говорит «коллекция», щуп обязан назвать - иначе мерка слепа вся."""
+    packs = probe("packprobe")
+    collection = pool(
+        "властелин колец",
+        RuTor=[
+            [
+                "Властелин колец / The Lord of the Rings: Кинотрилогия (2001-2003) BDRip 1080p",
+                "1" * 40,
+                int(30.0 * GB),
+                80,
+                "RuTor",
+            ]
+        ],
+    )
+    found = packs.picks(
+        [packs.replay(*_replayed(packs, collection), tune(Config(), CAUTIOUS), CAUTIOUS)]
+    )
+    assert found and found[0].by_name == "коллекция", "признак коллекции разбора потерян"
+
+
+def test_доля_крупнейшего_файла_отличает_пак_от_одиночной_картины() -> None:
+    """Правда о паке - в долях байтов, и мерить её надо по видеофайлам, а не по всем.
+
+    🔴 Ровно эта доля и есть то, что достаётся зрителю: показ берёт КРУПНЕЙШИЙ видеофайл
+    (:func:`~torrcast.adapters.stream_probe.pick_video_file.pick_video_file`). У картины с
+    дорожкой и субтитрами рядом доля почти единица, у дюжины короткометражек - около доли
+    одной части, и путать их нельзя. Звуковая дорожка на полгигабайта в счёт не идёт:
+    считанная как видео, она занизила бы долю у здоровой раздачи и придумала бы пак.
+    """
+    packs = probe("packprobe")
+
+    single = [["Матрица.mkv", 7 * GB], ["Ukrainian.ac3", GB // 2], ["cover.jpg", 40000]]
+    count, share = packs.video_shares(single)
+    assert count == 1 and share == 1.0, "у одиночной картины доля крупнейшего обязана быть единицей"
+
+    shorts = [[f"Сборник/{n:02d} короткометражка.mkv", GB] for n in range(12)]
+    count, share = packs.video_shares(shorts)
+    assert count == 12 and abs(share - 1 / 12) < 1e-9, "доля части сборника посчитана не по видео"
+
+    empty = packs.video_shares([["readme.txt", 10]])
+    assert empty == (0, 0.0), "раздача без видео - это не пак, а ноль"
+
+
+def test_щуп_пака_видит_сборник_ниже_дефолта() -> None:
+    """Дефолт - не вся очередь: показ падает вниз по ней, когда рой молчит.
+
+    🔴 Замер одного дефолта отвечает на вопрос про ПЕРВУЮ строку очереди и молчит про
+    остальные, а играет в итоге та, до которой дошли. Ранжир сборник не выбрасывает, он
+    уводит его ВНИЗ - значит на молчащих роях сборник и становится тем, что играет.
+    Номер в очереди щуп обязан назвать: цена случая целиком в нём.
+    """
+    packs = probe("packprobe")
+    record = pool(
+        "властелин колец",
+        RuTor=[
+            [
+                "Властелин колец / The Lord of the Rings (2001) BDRip 1080p",
+                "3" * 40,
+                int(12.0 * GB),
+                90,
+                "RuTor",
+            ],
+            [
+                "Властелин колец / The Lord of the Rings: Кинотрилогия (2001-2003) BDRip 1080p",
+                "4" * 40,
+                int(30.0 * GB),
+                50,
+                "RuTor",
+            ],
+        ],
+    )
+    found = packs.picks(
+        [packs.replay(*_replayed(packs, record), tune(Config(), CAUTIOUS), CAUTIOUS)]
+    )
+    assert found and found[0].by_name == "", "дефолтом стал сборник - ранжир сломан"
+    assert found[0].pack_below == 2, "сборник вторым номером очереди не назван"
+
+    # Снимать файлы надо у обоих: у дефолта и у сборника под ним, иначе «паков нет»
+    # остаётся правдой про одну строку и молчанием про ту, что играет на молчащем рое.
+    labels = [label for label, _ in packs.wanted(found)]
+    assert labels == ["властелин колец", "властелин колец #2"], "сборник не попал в съём файлов"
+
+
+def test_щуп_пака_не_числит_сборником_одиночную_очередь() -> None:
+    """Очередь без сборника обязана давать ноль, иначе номер ниже дефолта - выдумка."""
+    packs = probe("packprobe")
+    found = packs.picks(
+        [packs.replay(*_replayed(packs, movie_pool()), tune(Config(), CAUTIOUS), CAUTIOUS)]
+    )
+    assert found and found[0].pack_below == 0, "сборник найден там, где его нет"
+    assert [label for label, _ in packs.wanted(found)] == ["матрица"]
