@@ -14,6 +14,7 @@ from torrcast.adapters.stream_pack._merged_out import _merged_out
 from torrcast.adapters.stream_pack._own_head import _own_head
 from torrcast.adapters.stream_pack._segment_files import _names
 from torrcast.adapters.stream_pack._shrunk_out import _shrunk_out
+from torrcast.adapters.stream_pack.chunk_head import chunk_head
 from torrcast.adapters.stream_pack.done_slots import done_slots
 from torrcast.adapters.stream_pack.key_missing import key_missing
 from torrcast.adapters.stream_pack.merge_tracks import merge_tracks
@@ -101,12 +102,15 @@ def _lay_out(
             journal().mark("перекод без опорного кадра", слот=slot)
             better.unlink(missing_ok=True)
         source, how = path, "копия"
+        # Чем описаны обе половины будущей склейки: картинка приезжает от кодировщика,
+        # звук - из своего прогона, и заголовки у них РАЗНЫЕ (:func:`chunk_head`).
+        heads = (chunk_head(state, slot, spare=True), chunk_head(state, slot, spare=False))
         # Место этого слота на ленте: с ним сверяются обе дорожки готовой склейки. Сетки у
         # прогона может не быть (щупы и стенды) - тогда сверять не с чем, и места не проверяют.
         want = math.nan if state.grid is None else state.grid.start(slot) + state.grid.origin
         if better is not None and better.exists():
             source, how = _merged_out(
-                state.run, slot, path, better, size, state.cap, want, state.container,
+                state.run, slot, path, better, size, state.cap, want, state.container, heads,
                 merge=merge, starts_of=starts_of,
             )  # fmt: skip
         # Последний гейт стоит после склейки: только здесь известен вес ровно того
@@ -146,7 +150,7 @@ def _lay_out(
         if shrunk and better is not None:
             # Место и обе мерки приёмника разом: каталог прогона, слот, копия, ужатое,
             # потолок веса и контейнер - расширение склейки выбирает муксер по нему.
-            place = (state.run, slot, path, better, state.cap, want, state.container)
+            place = (state.run, slot, path, better, state.cap, want, state.container, heads)
             source = _shrunk_out(
                 *place, merge=merge, shift_of=shift_of, keyless=keyless, starts_of=starts_of
             )

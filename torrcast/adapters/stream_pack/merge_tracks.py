@@ -14,6 +14,23 @@ from torrcast.domain.probe_settings import _TIMEOUT
 from torrcast.domain.segment_container import FMP4, MPEGTS, SegmentContainer
 
 
+def _fed(chunk: Path, head: Path | None) -> str:
+    """Чем открыть кусок: голым он не открывается, а вместе со своим заголовком - да.
+
+    🔴 Кусок CMAF - это ``moof mdat`` без единого описания дорожек, и ffmpeg на нём честно
+    сдаётся: ``trun track id unknown, no tfhd was found``, код возврата 183. Ровно поэтому
+    склейка ужатого места не выходила на этом контейнере НИ РАЗУ - 196 отказов против 26
+    удачных на mpegts, - и дело было не в муксере, а во входе.
+
+    Читается кусок вместе с заголовком через ``concat:``: это протокол чтения, лишнего
+    файла он не создаёт и в tmpfs ничего не кладёт. Замер: выход байт в байт тот же, что
+    через временные склеенные копии.
+    """
+    if head is None or not head.exists():
+        return str(chunk)
+    return f"concat:{head}|{chunk}"
+
+
 def merge_tracks(
     video: Path,
     audio: Path,
@@ -21,6 +38,7 @@ def merge_tracks(
     timeout: float = _TIMEOUT,
     shift: float = 0.0,
     container: SegmentContainer = MPEGTS,
+    heads: tuple[Path | None, Path | None] = (None, None),
     *,
     run: Callable[..., Any] = subprocess.run,
 ) -> bool:
@@ -57,6 +75,20 @@ def merge_tracks(
     быть тем же, каким собраны его соседи. Пока здесь стоял один ``mpegts``, склейка на
     fMP4 писалась чужим муксером под расширением ``.m4s``.
 
+    ``heads`` - заголовки тех прогонов, что сделали картинку и звук
+    (:func:`torrcast.adapters.stream_pack.chunk_head.chunk_head`). Нужны они ровно на CMAF и
+    ровно на ВХОДЕ: голый фрагмент открыть нечем (:func:`_fed`). Приезжают доводом, а не
+    ищутся тут по соседству: «заголовок лежит рядом с куском» - это не свойство файла, а
+    знание выкладки о том, чей это кусок, и заголовок, взятый от чужого захода, не роняет
+    склейку, а молча отдаёт мусор - код возврата ноль при 334 строках ошибок.
+
+    На выходе склейка остаётся такой, какой её собрал муксер, - самостоятельным куском с
+    ``ftyp moov`` впереди. Снимать этот заголовок здесь нельзя: голый кусок перестаёт
+    читаться и нашими же приборами, а ими выкладка проверяет, с того ли места склейка
+    (:func:`torrcast.adapters.stream_pack.track_starts.track_starts`). Что с ним делать
+    дальше, решает выкладка (:func:`torrcast.adapters.stream_pack._own_head._own_head`):
+    кусок со своим заголовком - ровно та же форма, которую она приставляет сама.
+
     ``run`` - чем поднимается ffmpeg. Доводом, а не именем модуля: прежде стенд подменял
     :mod:`subprocess` целиком, вместе с его же классом ошибок, - то есть знал не договор
     склейки, а список имён внутри неё.
@@ -66,7 +98,7 @@ def merge_tracks(
     if abs(shift) >= 0.001:
         command += ["-itsoffset", f"{shift:.6f}"]
     command += [
-        "-i", str(video), "-i", str(audio),
+        "-i", _fed(video, heads[0]), "-i", _fed(audio, heads[1]),
         "-map", "0:v:0", "-map", "1:a:0", "-c", "copy",
     ]  # fmt: skip
     if container == FMP4:

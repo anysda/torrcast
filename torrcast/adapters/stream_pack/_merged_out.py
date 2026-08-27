@@ -27,6 +27,7 @@ def _merged_out(
     cap: int,
     want: float,
     container: SegmentContainer = MPEGTS,
+    heads: tuple[Path | None, Path | None] = (None, None),
     *,
     merge: Callable[..., bool],
     starts_of: Callable[[Path], tuple[float, float]],
@@ -68,12 +69,15 @@ def _merged_out(
 
     ``merge`` и ``starts_of`` приезжают доводами: оба поднимают ffmpeg и ffprobe на настоящих
     кусках, а здесь меряется РЕШЕНИЕ - что именно уедет на приёмник и как это назовут.
+
+    ``heads`` - заголовки прогонов, сделавших картинку (перекод) и звук (копия): на CMAF
+    без них не открыть ни того, ни другого куска.
     """
     # Копия тут меньшее зло ровно пока влезает в потолок: перекод уехал бы со своим звуком,
     # на своей сетке AAC, а это дыра на обоих стыках куска.
     without = (copy, "копия") if copy_size and copy_size <= cap else (recode, "перекод")
     mixed = run_dir / mixed_name(slot, container)
-    if not merge(recode, copy, mixed, container=container):
+    if not merge(recode, copy, mixed, container=container, heads=heads):
         return without
     picture, sound = starts_of(mixed)
     astray_picture, astray_sound = _astray(picture, want), _astray(sound, want)

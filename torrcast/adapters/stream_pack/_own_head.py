@@ -9,6 +9,8 @@ import contextlib
 import shutil
 from typing import TYPE_CHECKING, Final
 
+from torrcast.adapters.stream_pack.chunk_head import INIT, chunk_head
+from torrcast.domain.cmaf_body import cmaf_body
 from torrcast.domain.head_name import head_name
 from torrcast.domain.hls_settings import HEAD_SENT
 from torrcast.domain.segment_container import FMP4
@@ -19,10 +21,30 @@ if TYPE_CHECKING:
 
     from torrcast.adapters.stream_pack.packer_state import _State
 
-#: Общий заголовок показа: его приёмник забирает по ``EXT-X-MAP`` и им настраивает декодер.
-_INIT: Final = "init.mp4"
 #: Исход выкладки, у которого картинка взята из потока исходника, а не от кодировщика.
 _COPY: Final = "копия"
+
+#: Сколько байт от начала куска хватает, чтобы увидеть его заголовок: у показа он
+#: полторы тысячи байт, и читать ради этого весь кусок незачем.
+_HEAD_PEEK: Final = 64 << 10
+
+
+def _carried(source: Path) -> bytes:
+    """Заголовок, который кусок уже несёт в себе; пусто - кусок голый, как все соседи.
+
+    Несёт его ровно один исход выкладки - склейка
+    (:func:`torrcast.adapters.stream_pack.merge_tracks.merge_tracks`): муксер собирает её
+    самостоятельным файлом. Форма у такого куска ровно та же, что приставляет это место
+    само, - ``ftyp moov moof mdat``, - а заголовок вернее любого соседского: его написал
+    тот же прогон ffmpeg, что и сам кусок, поэтому описывает он именно эти байты.
+    """
+    try:
+        with source.open("rb") as fh:
+            head = fh.read(_HEAD_PEEK)
+    except OSError:
+        return b""
+    at = cmaf_body(head)
+    return head[:at] if at > 0 else b""
 
 
 def _own_head(state: _State, slot: int, source: Path, how: str) -> Path:
@@ -84,19 +106,22 @@ def _own_head(state: _State, slot: int, source: Path, how: str) -> Path:
     """
     if state.container != FMP4:
         return source
-    own = state.run / _INIT
-    if not own.exists():  # первая же выкладка уносит заголовок прогона наружу
-        own = state.out / _INIT
     if state.spare is None:
         with contextlib.suppress(OSError):
-            shutil.copyfile(own, state.out / head_name(slot))
+            shutil.copyfile(chunk_head(state, slot, spare=False), state.out / head_name(slot))
         return source
-    if how != _COPY:
-        beside = state.spare / head_name(slot)
-        own = beside if beside.exists() else state.spare / _INIT
+    # Кусок со своим заголовком приставлять не к чему: он уже той формы, ради которой всё
+    # это. Но соседу ответить обязано и оно - иначе следующее место сочтёт декодер
+    # настроенным прошлым заголовком и уедет к приёмнику без своего.
+    carried = _carried(source)
+    if carried:
+        with contextlib.suppress(OSError):
+            (state.spare / head_name(slot, HEAD_SENT)).write_bytes(carried)
+        return source
+    own = chunk_head(state, slot, spare=how != _COPY)
     kept = state.spare / head_name(slot - 1, HEAD_SENT)
     known = kept.exists()
-    before = kept if known else state.out / _INIT
+    before = kept if known else state.out / INIT
     try:
         now, was = own.read_bytes(), before.read_bytes()
     except OSError:  # заголовка нет ни у кого - показ идёт как шёл
@@ -116,7 +141,7 @@ def _own_head(state: _State, slot: int, source: Path, how: str) -> Path:
     # Тогда заголовок приставляется без сравнения: лишняя пересборка декодера стоит кадра,
     # а недостающая - всего показа. Там, где кодировщик не поднимался ни разу, сравнивать
     # не с чем и приставлять нечего: у показа из одних копий производитель картинки один.
-    blind = not known and slot == state.first and (state.spare / _INIT).exists()
+    blind = not known and slot == state.first and (state.spare / INIT).exists()
     if now == was and not blind:
         return source
     headed = state.run / head_name(slot, segment_suffix(state.container))

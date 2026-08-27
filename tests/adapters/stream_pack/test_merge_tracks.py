@@ -121,3 +121,38 @@ def test_the_merge_is_assembled_by_the_muxer_of_the_container_of_the_show(
     merge_tracks(video, audio, dst, run=ffmpeg.run)
     command = ffmpeg.seen[-1]
     assert command[command.index("-f") + 1] == "mpegts" and "-movflags" not in command
+
+
+def test_a_cmaf_chunk_is_opened_together_with_the_head_of_its_own_run(tmp_path: Path) -> None:
+    """🔴 Голый ``moof mdat`` не открыть ничем: на вход идёт кусок ВМЕСТЕ со своим заголовком."""
+    ffmpeg = _Ffmpeg()
+    video, audio, dst = _pieces(tmp_path)
+    picture, sound = tmp_path / "headv.mp4", tmp_path / "heada.mp4"
+    picture.write_bytes(b"P")
+    sound.write_bytes(b"S")
+
+    assert merge_tracks(video, audio, dst, container=FMP4, heads=(picture, sound), run=ffmpeg.run)
+    command = ffmpeg.seen[0]
+    fed = [command[i + 1] for i, word in enumerate(command) if word == "-i"]
+    assert fed == [f"concat:{picture}|{video}", f"concat:{sound}|{audio}"]
+
+
+def test_a_head_that_is_not_there_does_not_turn_into_a_guess(tmp_path: Path) -> None:
+    """Заголовка нет - кусок идёт на вход как есть: угадывать за выкладку тут нечем."""
+    ffmpeg = _Ffmpeg()
+    video, audio, dst = _pieces(tmp_path)
+
+    missing = tmp_path / "нет.mp4"
+    assert merge_tracks(video, audio, dst, container=FMP4, heads=(missing, None), run=ffmpeg.run)
+    command = ffmpeg.seen[0]
+    fed = [command[i + 1] for i, word in enumerate(command) if word == "-i"]
+    assert fed == [str(video), str(audio)]
+
+
+def test_the_splice_keeps_the_head_the_muxer_gave_it(tmp_path: Path) -> None:
+    """Заголовок с готовой склейки здесь не снимается: голый кусок не читают и наши приборы."""
+    ffmpeg = _Ffmpeg(payload=b"\x00\x00\x00\x1cftyp" + b"x" * 20 + b"\x00\x00\x00\x08moof")
+    video, audio, dst = _pieces(tmp_path)
+
+    assert merge_tracks(video, audio, dst, container=FMP4, run=ffmpeg.run) is True
+    assert dst.read_bytes().startswith(b"\x00\x00\x00\x1cftyp")

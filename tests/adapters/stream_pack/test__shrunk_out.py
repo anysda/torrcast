@@ -253,3 +253,33 @@ def test_a_merge_nobody_could_check_leaves_the_bare_shrink(tmp_path: Path) -> No
     )
 
     assert out == shrunk and not (tmp_path / "mix6.ts").exists()
+
+
+def test_both_halves_of_the_splice_reach_the_muxer_with_their_own_heads(tmp_path: Path) -> None:
+    """🔴 На CMAF без заголовков склейка не выходит НИ РАЗУ: голый фрагмент открыть нечем."""
+    seen: list[Any] = []
+
+    def merge(video: Path, audio: Path, dst: Path, **kwargs: Any) -> bool:
+        seen.append(kwargs.get("heads"))
+        dst.write_bytes(b"m" * 20)
+        return True
+
+    copy, shrunk = _lay(tmp_path, "v7.m4s", 100), _lay(tmp_path, "spare7.m4s", 18)
+    picture, sound = _lay(tmp_path, "head7.mp4"), _lay(tmp_path, "init.mp4")
+
+    _shrunk_out(
+        tmp_path,
+        7,
+        copy,
+        shrunk,
+        50,
+        _WANT,
+        FMP4,
+        (picture, sound),
+        merge=merge,
+        shift_of=lambda a, b: 0.0,
+        keyless=_has_key,
+        starts_of=_on_place,
+    )
+
+    assert seen == [(picture, sound)]

@@ -26,6 +26,7 @@ def _shrunk_out(
     cap: int,
     want: float,
     container: SegmentContainer = MPEGTS,
+    heads: tuple[Path | None, Path | None] = (None, None),
     *,
     merge: Callable[..., bool],
     shift_of: Callable[[Path, Path], float | None],
@@ -77,6 +78,10 @@ def _shrunk_out(
     есть - это шов звука на двух стыках, а склейка с чужим звуком - десять секунд чужого
     звука. ``want`` бывает ``nan`` (сетки у прогона нет) - тогда место не проверяется вовсе.
 
+    ``heads`` - заголовки прогонов, сделавших картинку (ужатие) и звук (копия). Без них
+    склейка на CMAF не выходит вовсе: голый фрагмент не открывается ничем
+    (:func:`torrcast.adapters.stream_pack.merge_tracks._fed`).
+
     ``merge``, ``shift_of``, ``keyless`` и ``starts_of`` приезжают доводами: все четверо
     поднимают ffmpeg и ffprobe на настоящих кусках, а здесь меряется решение - что именно
     уедет на приёмник.
@@ -85,7 +90,8 @@ def _shrunk_out(
         return shrunk
     mixed = run_dir / mixed_name(slot, container)
     why = "склейка ужатого не вышла"
-    if merge(shrunk, copy, mixed, shift=shift_of(copy, shrunk) or 0.0, container=container):
+    shift = shift_of(copy, shrunk) or 0.0
+    if merge(shrunk, copy, mixed, shift=shift, container=container, heads=heads):
         astray = [
             name
             for name, mark in zip(("картинка", "звук"), starts_of(mixed), strict=True)

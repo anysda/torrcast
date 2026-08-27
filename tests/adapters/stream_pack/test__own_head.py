@@ -178,3 +178,31 @@ def test_a_show_without_a_single_encoder_pass_prepends_nothing_at_all(tmp_path: 
     piece.write_bytes(_FRAMES)
 
     assert _own_head(fresh, 9, piece, "копия") is piece
+
+
+#: Кусок, собранный муксером самостоятельно: ``ftyp moov`` впереди и фрагмент за ними.
+_OWN = b"\x00\x00\x00\x0cftypiso6" + b"\x00\x00\x00\x0cmoovmoov"
+
+
+def test_a_splice_that_carries_its_own_head_is_not_headed_a_second_time(tmp_path: Path) -> None:
+    """Заголовок склейки написан тем же прогоном ffmpeg, что и её байты: вернее соседского нет."""
+    out, spare = _show(tmp_path)
+    run = packer(tmp_path, container=FMP4, out=out, spare=spare)
+    (spare / head_name(3)).write_bytes(_RECODE_HEAD)
+    piece = run.run / "v3.m4s"
+    piece.write_bytes(_OWN + b"\x00\x00\x00\x0emoof" + _FRAMES)
+
+    assert _own_head(run, 3, piece, "ужатие") is piece
+    assert piece.read_bytes().startswith(_OWN)
+
+
+def test_the_neighbour_is_told_which_head_the_splice_took_outside(tmp_path: Path) -> None:
+    """🔴 Иначе соседнее место сочтёт декодер настроенным прошлым заголовком и уедет без своего."""
+    out, spare = _show(tmp_path)
+    run = packer(tmp_path, container=FMP4, out=out, spare=spare)
+    piece = run.run / "v3.m4s"
+    piece.write_bytes(_OWN + b"\x00\x00\x00\x0emoof" + _FRAMES)
+
+    _own_head(run, 3, piece, "ужатие")
+
+    assert (spare / head_name(3, HEAD_SENT)).read_bytes() == _OWN
