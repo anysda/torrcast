@@ -12,12 +12,14 @@ import importlib.util
 import json
 import socket
 import sys
+from dataclasses import replace
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from typing import Any
 
 import pytest
 
+import tests.usecases.choice.world as world
 import torrcast
 from torrcast.adapters.chromecast.profile_detector import ProfileDetector, detector
 from torrcast.adapters.chromecast.scan.device import Device
@@ -1394,3 +1396,104 @@ def test_щуп_вида_краснеет_на_пришедшей_подмене
     assert numbers["сменилось"] == 2
     assert numbers["ПОДМЕН ПРИШЛО"] == 1 and numbers["подмен ушло"] == 1
     assert numbers["пропала озвучка"] == 1, "потеря русского голоса тоже обязана краснеть"
+
+
+def season_circle(meter: ModuleType, plans: list[Any]) -> Any:
+    """Круг одного запроса для щупа сезона: меню тут и есть предмет, каталог не нужен."""
+    args = Args(query=["моб", "психо", "100", "s1e1"])
+    return meter.anchorprobe.Circle(
+        scope="первый", plans=plans, menu=[], catalog=[], args=args, asked="моб психо 100"
+    )
+
+
+def test_щуп_сезона_видит_чужую_часть_при_молчащей_о_сезоне_раздаче() -> None:
+    """🔴 Предмет карточки: спрошен первый сезон, а по Enter идёт картина части 2.
+
+    Имя раздачи о сезоне молчит, значит сезон файлам раздадут первым - и зритель получит
+    вторую часть под именем первой. Честная строка выбора при этом обязана быть приложена
+    к случаю: без неё подмена уезжает молча, а это худший её вид.
+    """
+    meter = probe("seasonprobe")
+    plans = [
+        world.plan("Mob Psycho 100", 2018, kind="movie", asked_series=True),
+        world.plan(
+            "Mob Psycho 100 2",
+            None,
+            kind="tv",
+            part=2,
+            season=1,
+            asked_series=True,
+            pool=[world.film("Mob Psycho 100 2 - AniLiberty [WEBRip 720p][AVC][1-13]", kind="tv")],
+        ),
+    ]
+    case = meter.case_of("моб психо 100 s1e1", season_circle(meter, plans))
+
+    assert case.verdict == meter.OTHER, f"класс определён неверно: {case.verdict}"
+    assert case.asked == "s1e1" and case.part == 2
+    assert not case.named, "имя раздачи о сезоне молчит - назвать его щуп не вправе"
+    assert not case.blind, "часть названа каталогом, слепым такой случай не бывает"
+    assert case.note, "к подмене обязана быть приложена честная строка выбора"
+
+
+def test_щуп_сезона_не_считает_подменой_пак_названного_сезона() -> None:
+    """Отрицательная проба: пак ``[S01-06]`` на просьбу ``s1e1`` - верная раздача.
+
+    Очередь отбора уже отсеяна по покрытию серии, и раздача, НАЗВАВШАЯ сезоны, называет
+    среди них спрошенный. Красней щуп и тут - его ноль подмен не стоил бы ничего: он
+    краснел бы на всяком многосезонном паке, то есть мерил бы не подмену.
+    """
+    meter = probe("seasonprobe")
+    pack = replace(
+        world.film("Острые козырьки / Peaky Blinders [S01-06] BDRip 1080p", kind="tv"),
+        seasons=(1, 2, 3, 4, 5, 6),
+    )
+    plans = [
+        world.plan("Острые козырьки", 2013, kind="tv", season=1, asked_series=True, pool=[pack])
+    ]
+    case = meter.case_of("острые козырьки s1e1", season_circle(meter, plans))
+
+    assert case.verdict == meter.SAME, f"класс определён неверно: {case.verdict}"
+    assert case.named == [1, 2, 3, 4, 5, 6] and not case.blind
+
+
+def test_щуп_сезона_называет_слепым_случай_без_единой_подписи() -> None:
+    """Молчат оба звена - случай щупу невидим, и молчать об этом он не вправе.
+
+    Ноль подмен на корпусе, где половина случаев слепа, читался бы как ноль беды. Поэтому
+    слепые считаются своим числом рядом с подменами, а не растворяются в классе «тот».
+    """
+    meter = probe("seasonprobe")
+    plans = [
+        world.plan(
+            "Ход королевы",
+            2020,
+            kind="tv",
+            season=1,
+            asked_series=True,
+            pool=[world.film("Ход королевы 2020 WEB-DL 1080p", kind="tv")],
+        )
+    ]
+    case = meter.case_of("ход королевы s1e1", season_circle(meter, plans))
+
+    assert case.verdict == meter.SAME and case.blind, "ни часть, ни сезон не названы"
+
+
+def test_щуп_сезона_краснеет_на_пришедшей_подмене() -> None:
+    """Отрицательная проба счёта: требование выкатки - «подмен пришло = 0».
+
+    Щуп, не умеющий показать единицу на заведомой подмене, этого нуля не доказывает.
+    """
+    meter = probe("seasonprobe")
+    base = [
+        meter.Case(query="а", scope="первый", verdict=meter.SAME, played=["А", 2016, "tv"]),
+        meter.Case(query="б", scope="первый", verdict=meter.OTHER, played=["Б 2", None, "tv"]),
+    ]
+    rows = [
+        meter.Case(query="а", scope="первый", verdict=meter.OTHER, played=["А 2", None, "tv"]),
+        meter.Case(query="б", scope="первый", verdict=meter.SAME, played=["Б", 2016, "tv"]),
+    ]
+    numbers = meter.diff(base, rows)
+
+    assert numbers["сменилось приговоров"] == 2
+    assert numbers["подмен ПРИШЛО"] == 1 and numbers["подмен ушло"] == 1
+    assert numbers["молчаливых подмен"] == 1, "подмена без честной строки обязана краснеть"
