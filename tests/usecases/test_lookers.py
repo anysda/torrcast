@@ -17,10 +17,12 @@ def test_one_key_is_one_thread_no_matter_how_many_ask() -> None:
     источник стоил по нитке за спрос, и все они доживали своё уже в показе.
     """
     holding = threading.Event()
+    started = threading.Event()
     asked = 0
 
     def slow() -> str:
         nonlocal asked
+        started.set()
         asked += 1
         holding.wait(2.0)
         return "приехало"
@@ -30,6 +32,7 @@ def test_one_key_is_one_thread_no_matter_how_many_ask() -> None:
     try:
         for _ in range(100):
             assert lookers.ask("одно имя", slow, 0.0) is None, "по нулевому сроку ответа нет"
+        assert started.wait(1.0), "нитка источника не началась за секунду"
         raised = thread_guard.alive() - before
         assert len(raised) == 1, f"нитка одна на ключ, а поднято {len(raised)}"
         assert asked == 1, f"источник спрошен один раз, а спрошен {asked}"
