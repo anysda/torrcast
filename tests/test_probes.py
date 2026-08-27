@@ -25,6 +25,7 @@ from torrcast.adapters.filesystem.state.save_config import save_config
 from torrcast.domain.args import Args
 from torrcast.domain.config import Config
 from torrcast.domain.facts.origin import Origin
+from torrcast.domain.picture import Picture
 from torrcast.domain.profile import ANDROID_TV, CAUTIOUS
 from torrcast.domain.tune import tune
 
@@ -917,3 +918,128 @@ def test_щуп_добора_читает_отказом_чужую_картин
     assert not item.taken, "чужая картина под видом добора - это отказ, а не прибавка"
     assert any("другая картина" in note for note in item.notes), "отказ не назван своим гейтом"
     assert item.counts["строк после"] > item.counts["строк до"], "привезённое не сосчитано"
+
+
+def geass_pools() -> list[dict[str, Any]]:
+    """Тощая русская выдача первого сезона и латинский добор: он же и датированный спин-офф."""
+    return [
+        pool(
+            "код гиас s1e1",
+            RuTor=[
+                [
+                    "Код Гиас: Восставший Лелуш / Code Geass: Lelouch of the Rebellion "
+                    "(2006) BDRip-HEVC 1080p",
+                    "a" * 40,
+                    int(8.2 * GB),
+                    2,
+                    "RuTor",
+                ]
+            ],
+        ),
+        pool(
+            "Code Geass",
+            Knaben=[
+                [
+                    "Code Geass: Lelouch of the Rebellion S01 [1-25] BDRip 1080p x264",
+                    "b" * 40,
+                    int(7.4 * GB),
+                    60,
+                    "Knaben",
+                ],
+                [
+                    "Code Geass: Dakkan no Roze S01 [2024] WEB-DL 1080p",
+                    "c" * 40,
+                    int(5.0 * GB),
+                    40,
+                    "Knaben",
+                ],
+            ],
+        ),
+    ]
+
+
+def test_щуп_привязки_мерит_оба_круга_и_сходится_со_щупом_добора() -> None:
+    """Бесстрочная латинская половина привязана к 2006 году и играет вместо спин-оффа.
+
+    Добор привозит спрошенный первый сезон без года и датированный спин-офф 2024-го;
+    гейт счёта картин этот добор отвергает, и щуп мерит контрфакт. Привязка по
+    разобранному оригиналу ставит бесстрочный сезон впереди спин-оффа, и по Enter идёт
+    он, а честная строка называет его и верную причину. Сверка со щупом добора
+    (``mismatches``) пуста: иначе замер снят не с того показа.
+    """
+    meter = probe("anchorprobe")
+    records = geass_pools()
+    pools = {
+        str(record["query"]).casefold(): meter.poolreplay.batches_of(record) for record in records
+    }
+    canon = {
+        "query": "код гиас s1e1",
+        "short": "код гиас",
+        "canon": "Код Гиас: Восставший Лелуш",
+        "kind": "tv",
+        "year": 2006,
+    }
+    rows, mismatches, _beyond = meter.circles(
+        "код гиас s1e1",
+        records[0],
+        pools,
+        tune(Config(), CAUTIOUS),
+        CAUTIOUS,
+        lambda *_a, **_k: Origin(title="Code Geass", year=2006, name="Код Гиас: Восставший Лелуш"),
+        canon,
+    )
+
+    assert not mismatches, f"счёт со щупом добора не сошёлся: {mismatches}"
+    by_scope = {row.scope: row for row in rows}
+    widened = by_scope["добор"]
+    assert widened.played == ["Code Geass: Lelouch of the Rebellion", None, "tv"], (
+        "по Enter обязан идти спрошенный первый сезон, а не датированный спин-офф"
+    )
+    assert widened.anchor == 2006 and widened.verdict == meter.SAME
+    note = widened.guards["default_note"]
+    assert "Code Geass: Lelouch of the Rebellion" in note and "Dakkan" not in note
+    assert "спросили серию" in note, "строка обязана называть верную причину"
+
+
+def test_щуп_привязки_судит_бесстрочную_только_привязкой() -> None:
+    """Без привязки бесстрочная не судится вовсе: имена у половин общие, счёт бы врал."""
+    meter = probe("anchorprobe")
+    canon = {"kind": "tv", "year": 2006}
+    latin = Picture(title="Code Geass: Lelouch of the Rebellion", year=None, kind="tv")
+
+    assert meter.verdict_of(latin, canon) == meter.UNSURE
+    latin.anchor = 2006
+    assert meter.verdict_of(latin, canon) == meter.SAME
+    latin.anchor = 2024
+    assert meter.verdict_of(latin, canon) == meter.UNSURE
+    assert meter.verdict_of(None, canon) == meter.NONE
+    assert meter.verdict_of(latin, None) == meter.UNMARKED
+    dated = Picture(title="Код Гиас: Восставший Лелуш", year=2006, kind="tv")
+    assert meter.verdict_of(dated, canon) == meter.SAME
+    other = Picture(title="Код Гиас", year=2006, kind="movie")
+    assert meter.verdict_of(other, canon) == meter.OTHER
+    assert meter.verdict_of(Picture(title="Спин-офф", year=2024, kind="tv"), canon) == meter.OTHER
+
+
+def test_щуп_привязки_краснеет_на_пришедшей_подмене() -> None:
+    """Отрицательная проба счёта: подмена, которую привязка ПРИВЕСЛА, видна числом.
+
+    Требование выкатки - «подмен пришло = 0»; щуп, не умеющий показать единицу на
+    заведомой подмене, этот ноль не доказывает.
+    """
+    meter = probe("anchorprobe")
+    base = [
+        meter.Scope(
+            query="q", scope="добор", played=["А", 2006, "tv"], dubbed=True, verdict=meter.SAME
+        )
+    ]
+    rows = [
+        meter.Scope(
+            query="q", scope="добор", played=["Б", 2024, "tv"], dubbed=False, verdict=meter.OTHER
+        )
+    ]
+    numbers = meter.diff(base, rows)["добор"]
+
+    assert numbers["сменилось"] == 1
+    assert numbers["ПОДМЕН ПРИШЛО"] == 1 and numbers["подмен ушло"] == 0
+    assert numbers["пропала озвучка"] == 1, "потеря русского голоса тоже обязана краснеть"
