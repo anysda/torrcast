@@ -15,10 +15,9 @@
 На stdout пишется JSONL: сначала одна строка на границу, затем итоговая строка. Щуп ничего
 не знает о каталоге, раздаче и стенде; URL и длительность задаёт измеряющий.
 
-⚠️ Место посадки щуп читает в ленте контейнера, тогда как показ переводит его в ленту
-фильма. Совпадают они, пока видео файла начинается с нуля; у контейнера со сдвигом
-(.ts, .m2ts) числа щупа сдвинуты на этот же сдвиг целиком, и сравнивать их с границами
-можно только после вычитания начала видео.
+Место посадки переводится в ленту фильма - ту, в которой стоят границы сетки. У .m2ts
+видео начинается с тысяч секунд, и без перевода каждая посадка оказалась бы «позже
+границы» на весь сдвиг разом.
 """
 
 from __future__ import annotations
@@ -126,6 +125,29 @@ def land(url: str, at: float, timeout: float) -> tuple[float | None, str]:
         return stood, ""
 
 
+def film_begins(url: str, timeout: float) -> float:
+    """С какой метки начинается ВИДЕО файла: тем же правилом, каким её узнаёт показ.
+
+    Спрашивается ровно видео, а не контейнер целиком: ``start_time`` формата - минимум по
+    всем потокам, а звук начинается на набивку кодировщика раньше видео. У семейства mp4
+    сдвига нет по построению, и там ответ назначается нулём, а не считается.
+    """
+    try:
+        answer = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
+             "stream=start_time:format=format_name", "-of", "csv=p=0", url],
+            capture_output=True, text=True, timeout=timeout, check=True,
+        )  # fmt: skip
+        lines = answer.stdout.strip().splitlines()
+        value = float(lines[0].split(",")[0])
+        container = lines[1].strip().strip('"').split(",")[0] if len(lines) > 1 else ""
+    except (OSError, subprocess.SubprocessError, IndexError, ValueError):
+        return 0.0
+    if not math.isfinite(value) or container == "mov":
+        return 0.0
+    return value
+
+
 @dataclass
 class Pilot:
     """Измеритель, который правило отвода зовёт доводом; помнит всё, что видел.
@@ -133,10 +155,18 @@ class Pilot:
     Место посадки для одного и того же ``-ss`` не меняется, поэтому повторный вопрос
     отвечается из памяти. Считаются обе цены: сколько раз правило спросило и сколько
     прогонов ffmpeg за этим поднялось.
+
+    ``begins`` - с какой метки начинается ВИДЕО файла. Ответ переводится в ленту фильма
+    ровно так же, как это делает показ: ``-ss`` отсчитывается от начала видео, а
+    ``-copyts`` печатает метку вместе со сдвигом всего контейнера, и у .m2ts эти два
+    числа расходятся на тысячи секунд (замер: видео начинается с 4199.167). Не вычесть
+    сдвиг - и каждая посадка окажется «позже границы» на весь сдвиг разом, то есть
+    правило отвода мерилось бы на выдуманном провале.
     """
 
     url: str
     timeout: float
+    begins: float = 0.0
     seen: dict[float, float] = field(default_factory=dict)
     asks: int = 0
     runs: int = 0
@@ -151,8 +181,8 @@ class Pilot:
         stood, error = land(url, at, timeout)
         if stood is None:
             raise UnreachableError(error)
-        self.seen[key] = stood
-        return stood
+        self.seen[key] = stood - self.begins
+        return self.seen[key]
 
 
 def deeper(pilot: Pilot, at: float, stood: float, extra: int) -> int | None:
@@ -224,6 +254,7 @@ def summary(rows: list[Outcome], pilot: Pilot, duration: float, step: float) -> 
         "самый широкий провал": round(gap, 6),
         "между": [left, right],
         "шире 80 с": gap > 80.0,
+        "начало видео": round(pilot.begins, 3),
         "спрошено правилом": pilot.asks,
         "прогонов ffmpeg": pilot.runs,
     }
@@ -244,7 +275,7 @@ def main() -> int:
     args = parser.parse_args()
     if args.duration <= 0 or args.step <= 0 or args.timeout <= 0 or args.deeper < 0:
         parser.error("длительность, шаг и таймаут положительны, число лишних шагов неотрицательно")
-    pilot = Pilot(args.url, args.timeout)
+    pilot = Pilot(args.url, args.timeout, film_begins(args.url, args.timeout))
     rows = []
     for at in boundaries(args.duration, args.step):
         row = outcome(pilot, at, args.deeper)

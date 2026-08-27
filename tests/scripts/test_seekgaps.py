@@ -1,3 +1,6 @@
+import pytest
+
+from scripts import seekgaps
 from scripts.seekgaps import (
     AT_ONCE,
     GAVE_UP,
@@ -114,3 +117,17 @@ def test_the_report_counts_every_verdict_and_both_prices() -> None:
     assert report["самый широкий провал"] == 66.0
     assert report["шире 80 с"] is False
     assert (report["спрошено правилом"], report["прогонов ffmpeg"]) == (10, 7)
+
+
+def test_a_container_offset_is_translated_into_the_film_timeline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # У .m2ts видео начинается с тысяч секунд: без перевода посадка 4209.218 выглядела бы
+    # уехавшей на весь сдвиг вперёд, и правило отвода мерилось бы на выдуманном провале.
+    monkeypatch.setattr(seekgaps, "land", lambda url, at, timeout: (4209.218, ""))
+    pilot = Pilot("url", 1.0, begins=4199.167)
+
+    stood = pilot("url", 10.0, 1.0)
+
+    assert round(stood, 3) == 10.051
+    assert pilot.runs == 1
