@@ -28,7 +28,7 @@
 ## Установка
 
 ```sh
-git clone https://gitlab.anysda.space/anysda/torrcast torrcast && cd torrcast
+git clone https://gitlab.anysda.space/anysda/torrcast && cd torrcast
 sudo ./install.sh
 ```
 
