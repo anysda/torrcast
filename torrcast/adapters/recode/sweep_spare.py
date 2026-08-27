@@ -7,6 +7,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from torrcast.adapters.stream_probe.segment_slot import segment_slot
+from torrcast.domain.head_name import head_name
+from torrcast.domain.hls_settings import HEAD_SENT
 from torrcast.domain.segment_container import MPEGTS, SegmentContainer
 from torrcast.domain.segment_suffix import segment_suffix
 
@@ -34,4 +36,8 @@ def sweep_spare(
         slot = segment_slot(path.name)
         if 0 <= slot < behind:
             path.unlink(missing_ok=True)
+            # Заголовок этого места ушёл наружу вместе с куском или не понадобился вовсе,
+            # а запись о выложенном заголовке нужна ровно соседу, который давно позади.
+            (spare / head_name(slot)).unlink(missing_ok=True)
+            (spare / head_name(slot, HEAD_SENT)).unlink(missing_ok=True)
             done.discard(slot)

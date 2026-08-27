@@ -11,6 +11,7 @@ import os
 from typing import TYPE_CHECKING
 
 from torrcast.adapters.stream_pack._merged_out import _merged_out
+from torrcast.adapters.stream_pack._own_head import _own_head
 from torrcast.adapters.stream_pack._segment_files import _names
 from torrcast.adapters.stream_pack._shrunk_out import _shrunk_out
 from torrcast.adapters.stream_pack.done_slots import done_slots
@@ -169,6 +170,8 @@ def _lay_out(
                 state.edge = max(state.edge, slot)
                 continue
             break
+        # Параметры декодера у этого куска - его собственные (:func:`_own_head`).
+        source = _own_head(state, slot, source, how)
         moved = False
         with contextlib.suppress(OSError):
             os.replace(source, state.out / segment_name(slot, state.container))
