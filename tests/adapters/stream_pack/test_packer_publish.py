@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import math
 import subprocess
+from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -18,6 +20,7 @@ from torrcast.adapters.stream_pack.packer_publish import _lay_out
 from torrcast.adapters.stream_pack.track_starts import track_starts
 from torrcast.adapters.stream_probe.segment_name import segment_name
 from torrcast.domain.hls_settings import SPLIT_SLACK
+from torrcast.domain.segment_container import FMP4
 from torrcast.domain.track_place import TRACK_PLACE_MAX
 
 if TYPE_CHECKING:
@@ -32,7 +35,7 @@ def _always() -> bool:
     return True
 
 
-def _on_place(piece: Path) -> tuple[float, float]:
+def _on_place(piece: str | Path) -> tuple[float, float]:
     """Обе дорожки склейки на месте своего слота: стенд это знает, а не меряет ffprobe.
 
     Ноль тут не годится: сверяются метки с ГРАНИЦЕЙ слота, а сетки у этих прогонов нет -
@@ -777,3 +780,86 @@ def test_no_piece_carries_the_sound_of_another_place_when_the_key_map_lied(
         if not all(abs(off) <= TRACK_PLACE_MAX for off in miss)
     }
     assert not strayed, f"зрителю уехало чужое место (картинка, звук): {strayed}"
+
+
+def test_the_tape_of_a_show_on_mpegts_is_the_common_origin_and_nothing_is_probed(
+    tmp_path: Path,
+) -> None:
+    """На mpegts метка куска - время фильма: оба захода пакуют одну ленту, поднятую origin.
+
+    Мерить там нечего, и лишнего ffprobe на каждый прогон здесь не появляется.
+    """
+    asked: list[str] = []
+    run = packer(tmp_path, grid=replace(Grid.uniform(60.0, 10.0), origin=100.0))
+    lay(run.run, 0)
+
+    def starts(piece: str | Path) -> tuple[float, float]:
+        asked.append(str(piece))
+        return 1.0, 1.0
+
+    _lay_out(run, _always, starts_of=starts)
+
+    assert run.tape == (100.0, 100.0)
+    assert asked == []
+
+
+def test_the_tape_of_a_show_on_cmaf_is_measured_by_the_first_piece_it_lays_out(
+    tmp_path: Path,
+) -> None:
+    """🔴 На CMAF метка куска - счётчик прогона, у каждой дорожки свой.
+
+    Живой замер: звук куска стоит на 49.792, а картинка ТОГО ЖЕ куска - на 59.809. Пока
+    место слота сверялось с временем фильма напрямую, проверка отказывала каждой склейке
+    подряд: промах -6204.457 с - ровно место куска на фильме.
+    """
+    asked: list[str] = []
+
+    def starts(piece: str | Path) -> tuple[float, float]:
+        asked.append(str(piece))
+        return 59.809, 49.792
+
+    run = packer(tmp_path, container=FMP4, grid=Grid.uniform(60.0, 10.0))
+    (run.run / "init.mp4").write_bytes(b"i")
+    (run.run / "v0.m4s").write_bytes(b"x" * 1024)
+    (run.run / "v1.m4s").write_bytes(b"x" * 1024)
+
+    _lay_out(run, _always, starts_of=starts)
+
+    assert run.tape == (59.809, 49.792)
+    assert asked == [f"concat:{run.out / 'init.mp4'}|{run.run / 'v0.m4s'}"], "лента без заголовка"
+
+
+def test_the_tape_of_the_run_is_not_measured_a_second_time(tmp_path: Path) -> None:
+    """Лента - свойство прогона: считать её на каждом куске значило бы спрашивать
+
+    проверяемый кусок о нём самом, да ещё и два ffprobe на каждое место.
+    """
+    asked: list[str] = []
+
+    def starts(piece: str | Path) -> tuple[float, float]:
+        asked.append(str(piece))
+        return 59.809, 49.792
+
+    run = packer(tmp_path, container=FMP4, grid=Grid.uniform(60.0, 10.0))
+    (run.run / "init.mp4").write_bytes(b"i")
+    for slot in range(4):
+        (run.run / f"v{slot}.m4s").write_bytes(b"x" * 1024)
+
+    _lay_out(run, _always, starts_of=starts)
+
+    assert len(asked) == 1
+
+
+def test_a_piece_whose_tracks_did_not_answer_leaves_the_tape_unmeasured(tmp_path: Path) -> None:
+    """Считать ленту по одной дорожке нельзя, а сверять место с невычисленной - тем более."""
+    run = packer(tmp_path, container=FMP4, grid=Grid.uniform(60.0, 10.0))
+    (run.run / "init.mp4").write_bytes(b"i")
+    (run.run / "v0.m4s").write_bytes(b"x" * 1024)
+    (run.run / "v1.m4s").write_bytes(b"x" * 1024)
+
+    def starts(piece: str | Path) -> tuple[float, float]:
+        return math.nan, 49.792
+
+    _lay_out(run, _always, starts_of=starts)
+
+    assert run.tape is None

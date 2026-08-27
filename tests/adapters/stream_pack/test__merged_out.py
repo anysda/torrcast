@@ -8,12 +8,16 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from pathlib import Path
 
+from tests.fakes.journal import Tape
 from torrcast.adapters.stream_pack._merged_out import _merged_out
 from torrcast.domain.segment_container import FMP4
 from torrcast.domain.track_place import TRACK_PLACE_MAX
 
 #: Место слота на ленте, с которым сверяются дорожки склейки.
 _WANT = 70.0
+#: То же место на ленте картинки и на ленте звука: лент две, потому что на CMAF счётчик
+#: у каждой дорожки свой (:func:`torrcast.adapters.stream_pack.run_tape.run_tape`).
+_PLACE = (_WANT, _WANT)
 
 
 def _lay(where: Path, name: str, size: int = 16) -> Path:
@@ -49,7 +53,7 @@ def test_the_recoded_picture_goes_out_with_the_sound_of_the_copy(tmp_path: Path)
     copy, recode = _lay(tmp_path, "v7.ts", 100), _lay(tmp_path, "spare7.ts", 200)
 
     source, how = _merged_out(
-        tmp_path, 7, copy, recode, 100, 1 << 20, _WANT, merge=merge, starts_of=_on_place
+        tmp_path, 7, copy, recode, 100, 1 << 20, _PLACE, merge=merge, starts_of=_on_place
     )
 
     assert seen == [("spare7.ts", "v7.ts")], "звук взят не у копии"
@@ -73,7 +77,7 @@ def test_a_merge_that_did_not_happen_sends_the_copy_of_its_own_run_while_it_fits
         recode,
         100,
         4096,
-        _WANT,
+        _PLACE,
         merge=lambda *a, **k: False,
         starts_of=_on_place,
     )
@@ -92,7 +96,7 @@ def test_a_copy_over_the_ceiling_loses_even_to_a_broken_seam(tmp_path: Path) -> 
         recode,
         5000,
         4096,
-        _WANT,
+        _PLACE,
         merge=lambda *a, **k: False,
         starts_of=_on_place,
     )
@@ -118,7 +122,7 @@ def test_a_merge_whose_sound_is_from_another_place_never_reaches_the_viewer(
         recode,
         100,
         1 << 20,
-        _WANT,
+        _PLACE,
         merge=_merges(),
         starts_of=lambda piece: (_WANT, _WANT + 123.4),
     )
@@ -145,7 +149,7 @@ def test_a_picture_from_another_place_sends_the_copy_and_not_the_recode(
         recode,
         100,
         1 << 20,
-        _WANT,
+        _PLACE,
         merge=_merges(),
         starts_of=lambda piece: (_WANT + 10.417, _WANT - 0.033),
     )
@@ -171,7 +175,7 @@ def test_a_track_missing_from_the_head_counts_as_not_being_on_its_place(
         recode,
         100,
         1 << 20,
-        _WANT,
+        _PLACE,
         merge=_merges(),
         starts_of=lambda piece: (_WANT, math.nan),
     )
@@ -194,7 +198,7 @@ def test_a_merge_nobody_could_check_is_not_taken_on_trust(tmp_path: Path) -> Non
         recode,
         100,
         1 << 20,
-        _WANT,
+        _PLACE,
         merge=_merges(),
         starts_of=lambda piece: (math.nan, math.nan),
     )
@@ -217,7 +221,7 @@ def test_without_a_grid_the_place_is_not_checked_at_all(tmp_path: Path) -> None:
         recode,
         100,
         1 << 20,
-        math.nan,
+        (math.nan, math.nan),
         merge=_merges(),
         starts_of=lambda piece: (123.4, 456.7),
     )
@@ -241,7 +245,7 @@ def test_a_sound_within_the_threshold_still_goes_out_as_a_merge(tmp_path: Path) 
         recode,
         100,
         1 << 20,
-        _WANT,
+        _PLACE,
         merge=_merges(),
         starts_of=lambda piece: (_WANT, _WANT - TRACK_PLACE_MAX + 0.001),
     )
@@ -262,8 +266,137 @@ def test_the_merge_is_named_and_muxed_by_the_container_of_the_show(tmp_path: Pat
     copy, recode = _lay(tmp_path, "v4.m4s", 100), _lay(tmp_path, "spare4.m4s", 200)
 
     source, _how = _merged_out(
-        tmp_path, 4, copy, recode, 100, 1 << 20, _WANT, FMP4, merge=merge, starts_of=_on_place
+        tmp_path,
+        4,
+        copy,
+        recode,
+        100,
+        1 << 20,
+        _PLACE,
+        FMP4,
+        merge=merge,
+        starts_of=_on_place,
+        on_tape=lambda *_: True,
     )
 
     assert seen == [("mix4.m4s", FMP4)]
     assert source.name == "mix4.m4s"
+
+
+def test_a_merge_that_did_not_come_out_is_said_out_loud(tmp_path: Path, tape: Tape) -> None:
+    """🔴 Молчащий отказ склейки стоил проекту семи минут разбора вслепую (TC-800).
+
+    Строки в журнале не было вовсе: отказ виден был только по полю «чем» у соседнего
+    события, то есть по тому, что уехало, а не по тому, что не вышло.
+    """
+    copy, recode = _lay(tmp_path, "v3.ts", 100), _lay(tmp_path, "spare3.ts", 200)
+
+    source, how = _merged_out(
+        tmp_path,
+        3,
+        copy,
+        recode,
+        100,
+        1 << 20,
+        _PLACE,
+        merge=lambda *a, **k: False,
+        starts_of=_on_place,
+    )
+
+    assert (source, how) == (copy, "копия")
+    assert tape.named("склейка не вышла") == [{"слот": 3}]
+
+
+def test_a_splice_that_could_not_be_put_on_the_tape_does_not_go_out(
+    tmp_path: Path, tape: Tape
+) -> None:
+    """🔴 Кусок со счётчиком нового прогона уводит приёмник в начало ленты.
+
+    Живой промах -6204.457 с - ровно место куска на фильме. Наружу такая склейка не идёт: на
+    месте остаётся копия, то есть шов звука, а не уехавшая картина.
+    """
+
+    def merge(video: Path, audio: Path, dst: Path, **kwargs: Any) -> bool:
+        dst.write_bytes(b"m" * 20)
+        return True
+
+    copy, recode = _lay(tmp_path, "v6.m4s", 100), _lay(tmp_path, "spare6.m4s", 200)
+
+    source, how = _merged_out(
+        tmp_path,
+        6,
+        copy,
+        recode,
+        100,
+        1 << 20,
+        _PLACE,
+        FMP4,
+        merge=merge,
+        starts_of=_on_place,
+        on_tape=lambda *_: False,
+    )
+
+    assert (source, how) == (copy, "копия") and not (tmp_path / "mix6.m4s").exists()
+    assert tape.named("склейку не поставить на ленту показа") == [{"слот": 6}]
+
+
+def test_the_splice_is_put_on_the_tape_of_the_piece_it_replaces(tmp_path: Path) -> None:
+    """На ленту склейку ставят по куску копии - тому, вместо которого она уедет наружу."""
+    seen: list[tuple[str, str]] = []
+
+    def remember(splice: Path, piece: Path, head: Path) -> bool:
+        seen.append((piece.name, head.name))
+        return True
+
+    def merge(video: Path, audio: Path, dst: Path, **kwargs: Any) -> bool:
+        dst.write_bytes(b"m" * 20)
+        return True
+
+    copy, recode = _lay(tmp_path, "v6.m4s", 100), _lay(tmp_path, "spare6.m4s", 200)
+    sound = _lay(tmp_path, "init.mp4")
+
+    _merged_out(
+        tmp_path,
+        6,
+        copy,
+        recode,
+        100,
+        1 << 20,
+        _PLACE,
+        FMP4,
+        (None, sound),
+        merge=merge,
+        starts_of=_on_place,
+        on_tape=remember,
+    )
+
+    assert seen == [("v6.m4s", "init.mp4")]
+
+
+def test_each_track_is_checked_against_the_place_of_its_own_tape(tmp_path: Path) -> None:
+    """🔴 Лент две: на CMAF счётчик у каждой дорожки свой, и живой замер даёт между ними 10.0 с.
+
+    Пока место было одно, проверка отказывала каждой склейке подряд - и отказывала верно.
+    """
+
+    def merge(video: Path, audio: Path, dst: Path, **kwargs: Any) -> bool:
+        dst.write_bytes(b"m" * 20)
+        return True
+
+    copy, recode = _lay(tmp_path, "v2.m4s", 100), _lay(tmp_path, "spare2.m4s", 200)
+
+    source, how = _merged_out(
+        tmp_path,
+        2,
+        copy,
+        recode,
+        100,
+        1 << 20,
+        (59.809, 49.792),
+        FMP4,
+        merge=merge,
+        starts_of=lambda piece: (59.809, 49.792),
+        on_tape=lambda *_: True,
+    )
+
+    assert how == "склейка" and source.name == "mix2.m4s"

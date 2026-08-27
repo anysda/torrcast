@@ -8,8 +8,9 @@ from __future__ import annotations
 import math
 from typing import TYPE_CHECKING
 
+from torrcast.adapters.stream_pack.splice_on_tape import splice_on_tape
 from torrcast.domain.mixed_name import mixed_name
-from torrcast.domain.segment_container import MPEGTS, SegmentContainer
+from torrcast.domain.segment_container import FMP4, MPEGTS, SegmentContainer
 from torrcast.domain.track_place import TRACK_PLACE_MAX
 from torrcast.ports.journal.slot import journal
 
@@ -25,12 +26,13 @@ def _merged_out(
     recode: Path,
     copy_size: int,
     cap: int,
-    want: float,
+    want: tuple[float, float],
     container: SegmentContainer = MPEGTS,
     heads: tuple[Path | None, Path | None] = (None, None),
     *,
     merge: Callable[..., bool],
     starts_of: Callable[[Path], tuple[float, float]],
+    on_tape: Callable[..., bool] = splice_on_tape,
 ) -> tuple[Path, str]:
     """Файл этого места для приёмника и одно слово о том, чем он стал.
 
@@ -52,10 +54,15 @@ def _merged_out(
     от картинки +123…+324 с. Уезжало это зрителю кодом ноль, потому что видео у склейки было
     правильное, а звук не сверял никто.
 
-    ``want`` - место этого слота на ленте (``grid.start(slot) + grid.origin``), и сверяются с
-    ним ОБЕ дорожки готовой склейки порознь. Порознь - потому что промахнуться вправе любая:
-    тот же корпус, на котором снят порог, поймал заход КОДИРОВЩИКА, потерявший рез и уехавший
-    ровно на слот (+10.417 с) при исправном звуке. По разнице дорожек между собой это выглядело
+    ``want`` - место этого слота на ленте КАРТИНКИ и на ленте ЗВУКА, и сверяются с ним обе
+    дорожки готовой склейки порознь. Мест два, а не одно, потому что лент две: на CMAF метки
+    куска - счётчик прогона, у каждой дорожки свой, и живой замер даёт между ними 10.0 с на
+    одном и том же куске (:mod:`torrcast.adapters.stream_pack.run_tape`). На mpegts обе метки
+    равны прежнему ``grid.start(slot) + grid.origin``, и здесь не меняется ничего.
+
+    Порознь - потому что промахнуться вправе любая: тот же корпус, на котором снят порог,
+    поймал заход КОДИРОВЩИКА, потерявший рез и уехавший ровно на слот (+10.417 с) при
+    исправном звуке. По разнице дорожек между собой это выглядело
     бы виной звука, и наружу ушёл бы как раз испорченный перекод.
 
     Отсюда и развилка отказа: наружу идёт та половина пары, которая **сама** стоит на месте.
@@ -64,31 +71,46 @@ def _merged_out(
     месте нет вовсе, и это уже про недоверенную карту опорных кадров (TC-834), а не про
     склейку: наружу идёт прежний выбор, но молча он больше не идёт.
 
-    ``want`` бывает ``nan``: сетки у прогона нет (щупы и стенды), сверять не с чем, и место не
-    проверяется вовсе. На всех трёх живых путях упаковки сетка есть всегда.
+    ``want`` бывает ``nan``: сетки у прогона нет (щупы и стенды) или лента прогона ещё не
+    измерена, сверять не с чем, и место не проверяется вовсе. На всех трёх живых путях
+    упаковки сетка есть всегда.
 
     ``merge`` и ``starts_of`` приезжают доводами: оба поднимают ffmpeg и ffprobe на настоящих
     кусках, а здесь меряется РЕШЕНИЕ - что именно уедет на приёмник и как это назовут.
 
     ``heads`` - заголовки прогонов, сделавших картинку (перекод) и звук (копия): на CMAF
     без них не открыть ни того, ни другого куска.
+
+    ``on_tape`` ставит готовую склейку на ленту показа
+    (:func:`torrcast.adapters.stream_pack.splice_on_tape.splice_on_tape`): муксер собирает её
+    новым прогоном и начинает счёт с нуля, а уйти она обязана туда же, где стоял кусок,
+    вместо которого её отдают. Не встала - наружу не идёт: кусок с нулевым счётчиком уводит
+    приёмник в начало ленты.
     """
     # Копия тут меньшее зло ровно пока влезает в потолок: перекод уехал бы со своим звуком,
     # на своей сетке AAC, а это дыра на обоих стыках куска.
     without = (copy, "копия") if copy_size and copy_size <= cap else (recode, "перекод")
     mixed = run_dir / mixed_name(slot, container)
     if not merge(recode, copy, mixed, container=container, heads=heads):
+        # Молчать об этом нельзя. Отказ склейки - это вернувшийся разрыв звука на стыке, и
+        # виден он был только по полю «чем» у соседнего события: семь минут разбора вслепую
+        # стоил один такой молчащий отказ (TC-800).
+        journal().mark("склейка не вышла", слот=slot)
+        return without
+    if container == FMP4 and not on_tape(mixed, copy, heads[1]):
+        mixed.unlink(missing_ok=True)
+        journal().mark("склейку не поставить на ленту показа", слот=slot)
         return without
     picture, sound = starts_of(mixed)
-    astray_picture, astray_sound = _astray(picture, want), _astray(sound, want)
+    astray_picture, astray_sound = _astray(picture, want[0]), _astray(sound, want[1])
     if not astray_picture and not astray_sound:
         return mixed, "склейка"
     mixed.unlink(missing_ok=True)
     journal().mark(
         _refusal(astray_picture, astray_sound),
         слот=slot,
-        картинка=_miss(picture, want),
-        звук=_miss(sound, want),
+        картинка=_miss(picture, want[0]),
+        звук=_miss(sound, want[1]),
     )
     if astray_sound and not astray_picture:
         return recode, "перекод"

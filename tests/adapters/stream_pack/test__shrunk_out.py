@@ -8,11 +8,15 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from pathlib import Path
 
+from tests.fakes.journal import Tape
 from torrcast.adapters.stream_pack._shrunk_out import _shrunk_out
 from torrcast.domain.segment_container import FMP4
 
 #: Место слота на ленте, с которым сверяются дорожки склейки.
 _WANT = 70.0
+#: То же место на ленте картинки и на ленте звука: лент две, потому что на CMAF счётчик
+#: у каждой дорожки свой (:func:`torrcast.adapters.stream_pack.run_tape.run_tape`).
+_PLACE = (_WANT, _WANT)
 
 
 def _has_key(piece: Path) -> bool:
@@ -52,7 +56,7 @@ def test_the_shrunk_piece_goes_out_with_the_audio_of_the_copy(tmp_path: Path) ->
         copy,
         shrunk,
         50,
-        _WANT,
+        _PLACE,
         merge=merge,
         shift_of=lambda *a: 0.0,
         keyless=_has_key,
@@ -80,7 +84,7 @@ def test_the_shift_between_the_two_passes_reaches_the_merge(tmp_path: Path) -> N
         copy,
         shrunk,
         50,
-        _WANT,
+        _PLACE,
         merge=merge,
         shift_of=lambda *a: 0.0417,
         keyless=_has_key,
@@ -100,7 +104,7 @@ def test_a_merge_that_did_not_happen_leaves_the_bare_shrink(tmp_path: Path) -> N
         copy,
         shrunk,
         50,
-        _WANT,
+        _PLACE,
         merge=lambda *a, **k: False,
         shift_of=lambda *a: 0.0,
         keyless=_has_key,
@@ -125,7 +129,7 @@ def test_a_merge_heavier_than_the_ceiling_is_thrown_away(tmp_path: Path) -> None
         copy,
         shrunk,
         50,
-        _WANT,
+        _PLACE,
         merge=merge,
         shift_of=lambda *a: 0.0,
         keyless=_has_key,
@@ -155,7 +159,7 @@ def test_a_piece_without_a_key_frame_is_never_merged(tmp_path: Path) -> None:
         copy,
         shrunk,
         50,
-        _WANT,
+        _PLACE,
         merge=merge,
         shift_of=lambda *a: 0.0,
         keyless=lambda piece: True,
@@ -184,12 +188,13 @@ def test_the_merge_of_a_shrunk_place_is_named_and_muxed_by_the_container(
         copy,
         shrunk,
         50,
-        _WANT,
+        _PLACE,
         FMP4,
         merge=merge,
         shift_of=lambda *a: 0.0,
         keyless=_has_key,
         starts_of=_on_place,
+        on_tape=lambda *_: True,
     )
 
     assert seen == [("mix7.m4s", FMP4)]
@@ -219,7 +224,7 @@ def test_a_merge_whose_sound_is_from_another_place_leaves_the_bare_shrink(
         copy,
         shrunk,
         50,
-        _WANT,
+        _PLACE,
         merge=merge,
         shift_of=lambda *a: 0.0,
         keyless=_has_key,
@@ -245,7 +250,7 @@ def test_a_merge_nobody_could_check_leaves_the_bare_shrink(tmp_path: Path) -> No
         copy,
         shrunk,
         50,
-        _WANT,
+        _PLACE,
         merge=merge,
         shift_of=lambda *a: 0.0,
         keyless=_has_key,
@@ -273,13 +278,107 @@ def test_both_halves_of_the_splice_reach_the_muxer_with_their_own_heads(tmp_path
         copy,
         shrunk,
         50,
-        _WANT,
+        _PLACE,
         FMP4,
         (picture, sound),
         merge=merge,
         shift_of=lambda a, b: 0.0,
         keyless=_has_key,
         starts_of=_on_place,
+        on_tape=lambda *_: True,
     )
 
     assert seen == [(picture, sound)]
+
+
+def test_a_shrunk_splice_that_could_not_be_put_on_the_tape_stays_bare(
+    tmp_path: Path, tape: Tape
+) -> None:
+    """🔴 Склейка со счётчиком нового прогона увела бы приёмник в начало ленты.
+
+    Шов звука на двух стыках дешевле, чем кусок, который отдаёт приёмнику место фильма
+    за полтора часа отсюда.
+    """
+
+    def merge(video: Path, audio: Path, dst: Path, **kwargs: Any) -> bool:
+        dst.write_bytes(b"m" * 20)
+        return True
+
+    copy, shrunk = _lay(tmp_path, "v9.m4s", 100), _lay(tmp_path, "spare9.m4s", 18)
+
+    out = _shrunk_out(
+        tmp_path,
+        9,
+        copy,
+        shrunk,
+        50,
+        _PLACE,
+        FMP4,
+        merge=merge,
+        shift_of=lambda a, b: 0.0,
+        keyless=_has_key,
+        starts_of=_on_place,
+        on_tape=lambda *_: False,
+    )
+
+    assert out == shrunk and not (tmp_path / "mix9.m4s").exists()
+    assert tape.named("склейку ужатого не поставить на ленту показа") == [{"слот": 9}]
+
+
+def test_the_shrunk_splice_is_put_on_the_tape_of_the_copy_of_this_place(tmp_path: Path) -> None:
+    """Лента у склейки - лента куска копии: вместо него она и уедет приёмнику."""
+    seen: list[str] = []
+
+    def merge(video: Path, audio: Path, dst: Path, **kwargs: Any) -> bool:
+        dst.write_bytes(b"m" * 20)
+        return True
+
+    def remember(splice: Path, piece: Path, head: Path | None) -> bool:
+        seen.append(piece.name)
+        return True
+
+    copy, shrunk = _lay(tmp_path, "v9.m4s", 100), _lay(tmp_path, "spare9.m4s", 18)
+
+    _shrunk_out(
+        tmp_path,
+        9,
+        copy,
+        shrunk,
+        50,
+        _PLACE,
+        FMP4,
+        merge=merge,
+        shift_of=lambda a, b: 0.0,
+        keyless=_has_key,
+        starts_of=_on_place,
+        on_tape=remember,
+    )
+
+    assert seen == ["v9.m4s"]
+
+
+def test_each_track_of_the_shrunk_splice_is_checked_against_its_own_tape(tmp_path: Path) -> None:
+    """Лент две, и место у каждой своё: на CMAF счётчики дорожек расходятся на 10.0 с."""
+
+    def merge(video: Path, audio: Path, dst: Path, **kwargs: Any) -> bool:
+        dst.write_bytes(b"m" * 20)
+        return True
+
+    copy, shrunk = _lay(tmp_path, "v9.m4s", 100), _lay(tmp_path, "spare9.m4s", 18)
+
+    out = _shrunk_out(
+        tmp_path,
+        9,
+        copy,
+        shrunk,
+        50,
+        (59.809, 49.792),
+        FMP4,
+        merge=merge,
+        shift_of=lambda a, b: 0.0,
+        keyless=_has_key,
+        starts_of=lambda piece: (59.809, 49.792),
+        on_tape=lambda *_: True,
+    )
+
+    assert out.name == "mix9.m4s"

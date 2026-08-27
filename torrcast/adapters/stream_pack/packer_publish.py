@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 import contextlib
-import math
 import os
 from typing import TYPE_CHECKING
 
@@ -18,6 +17,8 @@ from torrcast.adapters.stream_pack.chunk_head import chunk_head
 from torrcast.adapters.stream_pack.done_slots import done_slots
 from torrcast.adapters.stream_pack.key_missing import key_missing
 from torrcast.adapters.stream_pack.merge_tracks import merge_tracks
+from torrcast.adapters.stream_pack.run_tape import run_tape
+from torrcast.adapters.stream_pack.slot_place import slot_place
 from torrcast.adapters.stream_pack.timeline_shift import timeline_shift
 from torrcast.adapters.stream_pack.track_starts import track_starts
 from torrcast.adapters.stream_probe.segment_name import segment_name
@@ -38,7 +39,7 @@ def _lay_out(
     merge: Callable[..., bool] = merge_tracks,
     shift_of: Callable[[Path, Path], float | None] = timeline_shift,
     keyless: Callable[[Path], bool] = key_missing,
-    starts_of: Callable[[Path], tuple[float, float]] = track_starts,
+    starts_of: Callable[[str | Path], tuple[float, float]] = track_starts,
 ) -> None:
     """Выложить наружу куски, которые ffmpeg уже дописал.
 
@@ -105,9 +106,14 @@ def _lay_out(
         # Чем описаны обе половины будущей склейки: картинка приезжает от кодировщика,
         # звук - из своего прогона, и заголовки у них РАЗНЫЕ (:func:`chunk_head`).
         heads = (chunk_head(state, slot, spare=True), chunk_head(state, slot, spare=False))
-        # Место этого слота на ленте: с ним сверяются обе дорожки готовой склейки. Сетки у
-        # прогона может не быть (щупы и стенды) - тогда сверять не с чем, и места не проверяют.
-        want = math.nan if state.grid is None else state.grid.start(slot) + state.grid.origin
+        # Лента прогона меряется один раз, по первому же выложенному куску: на CMAF метка
+        # куска - счётчик муксера, а не время фильма (:func:`run_tape`).
+        if state.tape is None:
+            state.tape = run_tape(state, slot, path, heads[1], starts_of)
+        # Место этого слота на ленте картинки и на ленте звука: с ними сверяются обе дорожки
+        # готовой склейки. Сетки у прогона может не быть (щупы и стенды), лента может быть ещё
+        # не измерена - тогда сверять не с чем, и места не проверяют.
+        want = slot_place(state, slot)
         if better is not None and better.exists():
             source, how = _merged_out(
                 state.run, slot, path, better, size, state.cap, want, state.container, heads,

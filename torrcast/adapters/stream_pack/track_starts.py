@@ -32,7 +32,7 @@ _HEAD_PACKETS: Final = 40
 
 
 def track_starts(
-    piece: Path, timeout: float = _TIMEOUT, *, run: Callable[..., Any] = subprocess.run
+    piece: str | Path, timeout: float = _TIMEOUT, *, run: Callable[..., Any] = subprocess.run
 ) -> tuple[float, float]:
     """Метки первых пакетов **картинки и звука** куска, секунды ленты; ``nan`` - не нашли.
 
@@ -73,6 +73,22 @@ def track_starts(
     рядом со склейкой в 90.5 мс (замер, 34 куска, разброс 75.3-116.8). Байт проба не пишет ни
     одного: файл склейки написан и без неё, а отказ его сносит.
 
+    🔴 Не попавшую в голову дорожку проба спрашивает ОТДЕЛЬНО, и на CMAF без этого меры нет
+    вовсе. Пакеты муксер отдаёт по возрастанию метки, а у куска CMAF счётчики дорожек свои
+    (:func:`torrcast.domain.chunk_tape.tape_spots`): на живом куске показа звук стоит на
+    49.792, а картинка того же куска - на 59.809, и весь звук куска (467 пакетов) выходит
+    ПЕРЕД первым пакетом картинки. Голова в сорок пакетов не доставала до картинки никогда,
+    то есть проба отвечала «картинки на месте нет» о каждом здоровом куске.
+
+    Спрошенная порознь дорожка стоит 0.15 с и только там, где в голове её не нашлось: на
+    mpegts обе дорожки лежат в первом десятке пакетов, и второго ffprobe там не бывает.
+    Смысл ``nan`` от этого не меняется: дорожки нет в куске вовсе - решать по нему
+    вызывающему, и решает он отказом.
+
+    ``piece`` бывает и строкой: голый кусок CMAF читается только вместе со своим заголовком
+    (:func:`torrcast.adapters.stream_pack.piece_with_head.piece_with_head`), а это протокол
+    чтения, а не файл на диске.
+
     ``run`` - чем поднимается ffprobe. Доводом, а не именем модуля: прежде стенд подменял
     :mod:`subprocess` целиком, вместе с его же классом ошибок, - то есть знал не договор
     пробы, а список имён внутри неё.
@@ -104,4 +120,31 @@ def track_starts(
             first[kind] = float(packet["pts_time"])
         except (KeyError, TypeError, ValueError):
             continue
+    for kind, stream in (("video", "v"), ("audio", "a")):
+        if kind not in first:
+            apart = _apart(piece, stream, timeout, run=run)
+            if apart is not None:
+                first[kind] = apart
     return first.get("video", math.nan), first.get("audio", math.nan)
+
+
+def _apart(
+    piece: str | Path, stream: str, timeout: float, *, run: Callable[..., Any]
+) -> float | None:
+    """Метка первого пакета одной дорожки, спрошенной у неё самой; ``None`` - не ответила."""
+    command = [
+        "ffprobe", "-v", "error", "-select_streams", stream, "-read_intervals", "%+#4",
+        "-show_entries", "packet=pts_time", "-of", "csv=p=0", str(piece),
+    ]  # fmt: skip
+    try:
+        done = run(command, capture_output=True, timeout=timeout, check=False)
+        lines = done.stdout.decode("utf-8", "replace").splitlines()
+    except (OSError, subprocess.SubprocessError, AttributeError):
+        return None
+    found = []
+    for line in lines:
+        try:
+            found.append(float(line.strip().rstrip(",")))
+        except ValueError:
+            continue
+    return min(found) if found else None

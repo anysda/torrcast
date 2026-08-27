@@ -35,6 +35,14 @@ class Tape(Silent):
     def seek(self, frm: float, to: float, wait: float | None, why: str = "") -> None:
         self.calls.append(("seek", {"frm": frm, "to": to, "wait": wait, "why": why}))
 
+    def mark(self, name: str, **facts: Any) -> None:
+        """Помеченное событие: имя ему даёт зовущий, по нему же его и спрашивают.
+
+        Помнить их обязательно: молчащий отказ склейки виден только этой строкой, а
+        «строки нет вовсе» - это семь минут разбора подвиса вслепую (TC-800).
+        """
+        self.calls.append((name, facts))
+
     def named(self, event: str) -> list[dict[str, Any]]:
         """Поля событий одного имени - по ним зеркала и сверяют рассказ показа."""
         return [fields for name, fields in self.calls if name == event]

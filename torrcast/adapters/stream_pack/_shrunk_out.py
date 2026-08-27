@@ -8,8 +8,9 @@ from __future__ import annotations
 import math
 from typing import TYPE_CHECKING
 
+from torrcast.adapters.stream_pack.splice_on_tape import splice_on_tape
 from torrcast.domain.mixed_name import mixed_name
-from torrcast.domain.segment_container import MPEGTS, SegmentContainer
+from torrcast.domain.segment_container import FMP4, MPEGTS, SegmentContainer
 from torrcast.domain.track_place import TRACK_PLACE_MAX
 from torrcast.ports.journal.slot import journal
 
@@ -24,7 +25,7 @@ def _shrunk_out(
     copy: Path,
     shrunk: Path,
     cap: int,
-    want: float,
+    want: tuple[float, float],
     container: SegmentContainer = MPEGTS,
     heads: tuple[Path | None, Path | None] = (None, None),
     *,
@@ -32,6 +33,7 @@ def _shrunk_out(
     shift_of: Callable[[Path, Path], float | None],
     keyless: Callable[[Path], bool],
     starts_of: Callable[[Path], tuple[float, float]],
+    on_tape: Callable[..., bool] = splice_on_tape,
 ) -> Path:
     """Файл ужатого места для приёмника: склейка со звуком копии, иначе ужатие как есть.
 
@@ -74,13 +76,21 @@ def _shrunk_out(
     копию из своего же каталога прогона и по тому же номеру, что и выкладка, поэтому промах
     номера здесь тот же самый: муксер, пропустивший рез, сдвигает нумерацию файлов, и под
     именем слота лежит другое место. Обе дорожки готовой склейки сверяются с ``want`` -
-    местом слота на ленте (:func:`track_starts`), - и не сошедшаяся наружу не идёт: ужатое как
-    есть - это шов звука на двух стыках, а склейка с чужим звуком - десять секунд чужого
-    звука. ``want`` бывает ``nan`` (сетки у прогона нет) - тогда место не проверяется вовсе.
+    местом слота на ленте КАРТИНКИ и на ленте ЗВУКА (:func:`track_starts`), - и не сошедшаяся
+    наружу не идёт: ужатое как есть - это шов звука на двух стыках, а склейка с чужим звуком -
+    десять секунд чужого звука. Мест два, потому что лент две: на CMAF счётчик у каждой
+    дорожки свой (:mod:`torrcast.adapters.stream_pack.run_tape`). ``want`` бывает ``nan``
+    (сетки у прогона нет или лента не измерена) - тогда место не проверяется вовсе.
 
     ``heads`` - заголовки прогонов, сделавших картинку (ужатие) и звук (копия). Без них
     склейка на CMAF не выходит вовсе: голый фрагмент не открывается ничем
-    (:func:`torrcast.adapters.stream_pack.merge_tracks._fed`).
+    (:func:`torrcast.adapters.stream_pack.piece_with_head.piece_with_head`).
+
+    ``on_tape`` ставит готовую склейку на ленту показа
+    (:func:`torrcast.adapters.stream_pack.splice_on_tape.splice_on_tape`): собрана она новым
+    прогоном ffmpeg, и счёт у него начинается с нуля, а уйти она обязана туда же, где стоял
+    ужатый кусок. Не встала - наружу идёт ужатое как есть: шов звука дешевле, чем кусок,
+    уводящий приёмник в начало ленты.
 
     ``merge``, ``shift_of``, ``keyless`` и ``starts_of`` приезжают доводами: все четверо
     поднимают ffmpeg и ffprobe на настоящих кусках, а здесь меряется решение - что именно
@@ -92,10 +102,14 @@ def _shrunk_out(
     why = "склейка ужатого не вышла"
     shift = shift_of(copy, shrunk) or 0.0
     if merge(shrunk, copy, mixed, shift=shift, container=container, heads=heads):
+        if container == FMP4 and not on_tape(mixed, copy, heads[1]):
+            mixed.unlink(missing_ok=True)
+            journal().mark("склейку ужатого не поставить на ленту показа", слот=slot)
+            return shrunk
         astray = [
             name
-            for name, mark in zip(("картинка", "звук"), starts_of(mixed), strict=True)
-            if not math.isnan(want) and not abs(mark - want) <= TRACK_PLACE_MAX
+            for name, mark, place in zip(("картинка", "звук"), starts_of(mixed), want, strict=True)
+            if not math.isnan(place) and not abs(mark - place) <= TRACK_PLACE_MAX
         ]
         if not astray:
             try:

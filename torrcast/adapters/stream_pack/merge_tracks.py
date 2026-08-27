@@ -8,27 +8,32 @@ from __future__ import annotations
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, Final
 
+from torrcast.adapters.stream_pack.piece_with_head import piece_with_head
 from torrcast.domain.probe_settings import _TIMEOUT
 from torrcast.domain.segment_container import FMP4, MPEGTS, SegmentContainer
+from torrcast.domain.video_scale import video_scale
+
+#: Сколько байт заголовка хватает, чтобы прочитать шкалы его дорожек.
+_HEAD_PEEK: Final = 64 << 10
 
 
-def _fed(chunk: Path, head: Path | None) -> str:
-    """Чем открыть кусок: голым он не открывается, а вместе со своим заголовком - да.
+def _show_scale(head: Path | None) -> int:
+    """Шкала картинки показа: ею и обязана быть собрана склейка; ``0`` - спросить негде.
 
-    🔴 Кусок CMAF - это ``moof mdat`` без единого описания дорожек, и ffmpeg на нём честно
-    сдаётся: ``trun track id unknown, no tfhd was found``, код возврата 183. Ровно поэтому
-    склейка ужатого места не выходила на этом контейнере НИ РАЗУ - 196 отказов против 26
-    удачных на mpegts, - и дело было не в муксере, а во входе.
-
-    Читается кусок вместе с заголовком через ``concat:``: это протокол чтения, лишнего
-    файла он не создаёт и в tmpfs ничего не кладёт. Замер: выход байт в байт тот же, что
-    через временные склеенные копии.
+    🔴 Умолчание муксера тут не годится. Замер: показ написан шкалой 16000 тиков в секунду,
+    а склейка того же места тем же ffmpeg - 12288. Склейка уходит наружу со своим
+    заголовком, приёмник берёт его как новое описание дорожек и читает им ВСЕ следующие
+    куски - то есть чужая шкала уводит не одну склейку, а весь хвост показа.
     """
-    if head is None or not head.exists():
-        return str(chunk)
-    return f"concat:{head}|{chunk}"
+    if head is None:
+        return 0
+    try:
+        with head.open("rb") as fh:
+            return video_scale(fh.read(_HEAD_PEEK))
+    except OSError:
+        return 0
 
 
 def merge_tracks(
@@ -89,6 +94,12 @@ def merge_tracks(
     дальше, решает выкладка (:func:`torrcast.adapters.stream_pack._own_head._own_head`):
     кусок со своим заголовком - ровно та же форма, которую она приставляет сама.
 
+    ⚠️ Метки готовой склейки лентой показа НЕ являются, и здесь это не чинится ничем: на
+    CMAF муксер начинает счёт своего прогона с нуля (замер: восемь способов попросить его об
+    обратном, все восемь дали ноль). Ставит склейку на ленту показа уже готовой
+    (:func:`torrcast.adapters.stream_pack.splice_on_tape.splice_on_tape`) тот, кто знает, вместо
+    какого куска она уедет.
+
     ``run`` - чем поднимается ffmpeg. Доводом, а не именем модуля: прежде стенд подменял
     :mod:`subprocess` целиком, вместе с его же классом ошибок, - то есть знал не договор
     склейки, а список имён внутри неё.
@@ -98,11 +109,15 @@ def merge_tracks(
     if abs(shift) >= 0.001:
         command += ["-itsoffset", f"{shift:.6f}"]
     command += [
-        "-i", _fed(video, heads[0]), "-i", _fed(audio, heads[1]),
+        "-i", piece_with_head(video, heads[0]), "-i", piece_with_head(audio, heads[1]),
         "-map", "0:v:0", "-map", "1:a:0", "-c", "copy",
     ]  # fmt: skip
     if container == FMP4:
-        command += ["-movflags", "cmaf+frag_keyframe+empty_moov+default_base_moof", "-f", "mp4"]
+        command += ["-movflags", "cmaf+frag_keyframe+empty_moov+default_base_moof"]
+        scale = _show_scale(heads[1])
+        if scale:
+            command += ["-video_track_timescale", f"{scale}"]
+        command += ["-f", "mp4"]
     else:  # без обоих нулей mpegts двигает ВСЕ метки на 0.7 + 0.7 = 1.4 с
         command += ["-muxdelay", "0", "-muxpreload", "0", "-f", "mpegts"]
     command += ["-y", str(dst)]

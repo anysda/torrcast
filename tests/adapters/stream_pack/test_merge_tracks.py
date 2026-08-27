@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import struct
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -38,6 +39,24 @@ def _pieces(root: Path) -> tuple[Path, Path, Path]:
     video.write_bytes(b"v")
     audio.write_bytes(b"a")
     return video, audio, root / "mixed.ts"
+
+
+def _show_head(scale: int) -> bytes:
+    """Заголовок показа: по нему склейка узнаёт, какой шкалой написана его картинка."""
+
+    def box(kind: bytes, payload: bytes = b"") -> bytes:
+        return struct.pack(">I", 8 + len(payload)) + kind + payload
+
+    trak = box(
+        b"trak",
+        box(b"tkhd", b"\x00" * 12 + struct.pack(">I", 1))
+        + box(
+            b"mdia",
+            box(b"mdhd", b"\x00" * 12 + struct.pack(">I", scale))
+            + box(b"hdlr", b"\x00" * 8 + b"vide"),
+        ),
+    )
+    return box(b"ftyp", b"iso6") + box(b"moov", trak)
 
 
 def test_the_picture_comes_from_the_recode_and_the_sound_from_the_copy(tmp_path: Path) -> None:
@@ -156,3 +175,43 @@ def test_the_splice_keeps_the_head_the_muxer_gave_it(tmp_path: Path) -> None:
 
     assert merge_tracks(video, audio, dst, container=FMP4, run=ffmpeg.run) is True
     assert dst.read_bytes().startswith(b"\x00\x00\x00\x1cftyp")
+
+
+def test_the_splice_is_written_in_the_scale_of_the_show_itself(tmp_path: Path) -> None:
+    """🔴 Замер: показ пишет картинку шкалой 16000, а склейку тот же ffmpeg - 12288.
+
+    Склейка уходит наружу со своим заголовком, приёмник берёт его как новое описание
+    дорожек и читает им ВСЕ следующие куски - то есть чужая шкала уводит не одну склейку,
+    а весь хвост показа.
+    """
+    ffmpeg = _Ffmpeg()
+    video, audio, dst = _pieces(tmp_path)
+    sound = tmp_path / "init.mp4"
+    sound.write_bytes(_show_head(16000))
+
+    merge_tracks(video, audio, dst, container=FMP4, heads=(None, sound), run=ffmpeg.run)
+    command = ffmpeg.seen[0]
+
+    assert command[command.index("-video_track_timescale") + 1] == "16000"
+
+
+def test_a_show_that_cannot_be_asked_about_its_scale_is_not_guessed_at(tmp_path: Path) -> None:
+    """Заголовка показа нет - шкала не выдумывается: муксер остаётся при своём умолчании."""
+    ffmpeg = _Ffmpeg()
+    video, audio, dst = _pieces(tmp_path)
+
+    merge_tracks(video, audio, dst, container=FMP4, run=ffmpeg.run)
+
+    assert "-video_track_timescale" not in ffmpeg.seen[0]
+
+
+def test_the_scale_of_the_show_is_not_asked_of_mpegts_at_all(tmp_path: Path) -> None:
+    """У mpegts шкалы дорожек нет вовсе, и склейка там собирается как собиралась."""
+    ffmpeg = _Ffmpeg()
+    video, audio, dst = _pieces(tmp_path)
+    sound = tmp_path / "init.mp4"
+    sound.write_bytes(_show_head(16000))
+
+    merge_tracks(video, audio, dst, heads=(None, sound), run=ffmpeg.run)
+
+    assert "-video_track_timescale" not in ffmpeg.seen[0]

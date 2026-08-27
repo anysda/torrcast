@@ -91,3 +91,60 @@ def test_only_the_head_of_the_piece_is_read() -> None:
     track_starts(_PIECE, run=spy)
     assert "-read_intervals" in seen[0], seen[0]
     assert seen[0][seen[0].index("-read_intervals") + 1].startswith("%+#"), seen[0]
+
+
+def _split(head: Any, apart: dict[str, str]) -> Any:
+    """Ffprobe, который на голову отвечает одним, а на вопрос дорожке порознь - другим."""
+
+    def run(command: list[str], **kwargs: Any) -> Any:
+        if "-select_streams" in command:
+            return _Answer(apart.get(command[command.index("-select_streams") + 1], ""))
+        return head(command, **kwargs)
+
+    return run
+
+
+def test_a_track_that_the_head_did_not_reach_is_asked_about_directly() -> None:
+    """🔴 На CMAF без этого меры нет вовсе: голова в сорок пакетов до картинки не достаёт.
+
+    Пакеты муксер отдаёт по возрастанию метки, а счётчики дорожек куска CMAF свои: на живом
+    куске показа звук стоит на 49.792, картинка - на 59.809, и все 467 пакетов звука выходят
+    ПЕРЕД первым пакетом картинки.
+    """
+    marks = track_starts(
+        _PIECE, run=_split(_probe((1, "49.792000")), {"v": "59.893000\n59.935000\n"})
+    )
+
+    assert marks == (59.893, 49.792)
+
+
+def test_the_track_found_in_the_head_is_not_asked_a_second_time() -> None:
+    """Вопрос порознь стоит 0.15 с и задаётся только там, где в голове дорожки не нашлось."""
+    asked: list[str] = []
+
+    def run(command: list[str], **kwargs: Any) -> Any:
+        asked.append(" ".join(command))
+        return _probe((0, "10.144000"), (1, "10.075333"))(command, **kwargs)
+
+    assert track_starts(_PIECE, run=run) == (10.144, 10.075333)
+    assert len(asked) == 1
+
+
+def test_a_track_that_answers_nothing_even_apart_stays_not_a_number() -> None:
+    """Дорожки нет в куске вовсе - ``nan``, и решает по нему отказом вызывающий."""
+    picture, sound = track_starts(_PIECE, run=_split(_probe((1, "10.0")), {"v": ""}))
+
+    assert math.isnan(picture) and sound == 10.0
+
+
+def test_the_piece_asked_about_may_be_a_reading_protocol_and_not_a_file() -> None:
+    """Голый кусок CMAF читается только вместе со своим заголовком, а это ``concat:``."""
+    seen: list[str] = []
+
+    def run(command: list[str], **kwargs: Any) -> Any:
+        seen.append(command[-1])
+        return _probe((0, "1.0"), (1, "1.0"))(command, **kwargs)
+
+    track_starts("concat:/init.mp4|/кусок.m4s", run=run)
+
+    assert seen == ["concat:/init.mp4|/кусок.m4s"]
