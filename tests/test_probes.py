@@ -814,3 +814,106 @@ def test_щуп_добора_называет_цену_отказа_гейта()
     assert item.counts["раздач после"] > item.counts["раздач до"], "цена отказа не сосчитана"
     assert any("привёз больше картин" in note for note in item.notes)
     assert ask("нет такой картины") == Origin(), "без кэша справка молчит, а не выдумывает"
+
+
+def same_picture_pools() -> list[dict[str, Any]]:
+    """Тощая русская выдача и латинский добор в ТУ ЖЕ картину: ключи картин те же."""
+    return [
+        pool(
+            "врата штейна",
+            RuTor=[
+                [
+                    "Врата Штейна / Steins;Gate [2011, Япония, фантастика, BDRip 1080p] MVO",
+                    "a" * 40,
+                    int(8.2 * GB),
+                    60,
+                    "RuTor",
+                ]
+            ],
+        ),
+        pool(
+            "Steins;Gate",
+            Knaben=[
+                ["Steins;Gate BDRip 1080p x264 AAC", "c" * 40, int(7.4 * GB), 40, "Knaben"],
+                ["Steins;Gate WEB-DL 1080p", "d" * 40, int(5.0 * GB), 25, "Knaben"],
+            ],
+        ),
+    ]
+
+
+def test_щуп_добора_читает_взятым_добор_в_те_же_картины() -> None:
+    """🔴 Добор, добавивший раздачи в ТЕ ЖЕ картины, - взят, а не отказ.
+
+    Прежняя редакция сверх расширения выдачи сверяла ещё и КЛЮЧИ картин: ключи те же -
+    и взятый боевым гейтом добор записывался отвергнутым. Так щуп насчитал «9 доборов
+    вместо 13»: проверка, которая не умеет краснеть на своём предмете, - это зелёный
+    отчёт, купленный входом.
+    """
+    replay = probe("widenreplay")
+    pools = {
+        str(record["query"]).casefold(): replay.poolreplay.batches_of(record)
+        for record in same_picture_pools()
+    }
+    item = replay.widen(
+        "врата штейна",
+        pools,
+        tune(Config(), CAUTIOUS),
+        CAUTIOUS,
+        lambda *_a, **_k: Origin(title="Steins;Gate", year=2011, name="Врата Штейна"),
+    )
+
+    assert item.worth and item.alt == "Steins;Gate" and not item.missed
+    assert item.taken, "боевой гейт этот добор берёт - и щуп обязан прочесть это взятием"
+    # Взятый добор мерится итогом самого захода: картина осталась одна, чужих ноль.
+    assert item.counts["картин после"] == item.counts["картин до"] == 1
+    assert item.counts["раздач до"] == 1 and item.counts["раздач после"] == 3
+    assert (item.plays["после"] or [None])[0] == "Врата Штейна"
+
+
+def test_щуп_добора_читает_отказом_чужую_картину() -> None:
+    """Раздач стало больше, а приехала другая картина - добора не было, и так и сказано.
+
+    Вторая сторона пробы: щуп, зеленеющий на любой прибавке, свой предмет не мерит.
+    Русская выдача держит «Восхождение» Шепитько, а латинское имя в ней - от
+    одноимённого чужого кино: добор по нему везёт не тот фильм, и гейт обязан ответить
+    «приехала другая картина». Справка тут молчит - имя добора ничем не подтверждено,
+    и гейт строг ровно поэтому.
+    """
+    replay = probe("widenreplay")
+    records = [
+        pool(
+            "восхождение",
+            RuTor=[
+                ["Восхождение (1976) BDRip 1080p", "a" * 40, int(8.0 * GB), 30, "RuTor"],
+                [
+                    "Восхождение / The Climbers [2019, Китай, приключения, WEB-DL 1080p]",
+                    "e" * 40,
+                    int(6.0 * GB),
+                    20,
+                    "RuTor",
+                ],
+            ],
+        ),
+        pool(
+            "The Climbers",
+            Knaben=[
+                ["The Climbers 2019 BDRip 1080p x264", "b" * 40, int(7.0 * GB), 40, "Knaben"],
+                ["The Climbers 2019 WEB-DL 720p", "c" * 40, int(3.0 * GB), 25, "Knaben"],
+            ],
+        ),
+    ]
+    pools = {
+        str(record["query"]).casefold(): replay.poolreplay.batches_of(record) for record in records
+    }
+    item = replay.widen(
+        "восхождение",
+        pools,
+        tune(Config(), CAUTIOUS),
+        CAUTIOUS,
+        lambda *_a, **_k: Origin(),
+    )
+
+    assert item.worth and item.alt == "The Climbers" and not item.missed
+    assert not item.taken, "чужая картина под видом добора - это отказ, а не прибавка"
+    assert any("другая картина" in note for note in item.notes), "отказ не назван своим гейтом"
+    assert item.counts["строк после"] > item.counts["строк до"], "привезённое не сосчитано"

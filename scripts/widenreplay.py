@@ -21,12 +21,17 @@
 * **что сказал добор** - боевой второй заход
   (:func:`~torrcast.usecases.discover._second_language._second_language`) целиком, вместе
   со строкой вердикта: её словами и назван гейт, который его остановил;
-* **что он привёз бы** - те же выдачи, склеенные и разобранные тем же кодом, но без
-  приговора: картины каталога, картины меню, раздачи спрошенной франшизы и картина,
-  которая пошла бы по Enter (:func:`~torrcast.usecases.choice.first_alive.first_alive`).
+* **что он привёз** - там, где добор взят, это итог САМОГО боевого захода: его склейка,
+  его каталог и его меню, а не их пересчёт щупом. Там, где гейт отверг, - те же выдачи,
+  склеенные и разобранные тем же кодом, но без приговора: картины каталога, картины меню,
+  раздачи спрошенной франшизы и картина, которая пошла бы по Enter
+  (:func:`~torrcast.usecases.choice.first_alive.first_alive`).
 
-Второе - counterfactual, и считается оно ВСЕГДА, даже когда гейт добор отверг: иначе цена
-отказа остаётся неизвестной, а без неё про порог гейта сказать нечего.
+Второе при отказе - counterfactual, и считается оно именно при отказе: иначе цена отказа
+остаётся неизвестной, а без неё про порог гейта сказать нечего. Но мерить ей ВЗЯТЫЙ добор
+нельзя: боевой путь привязывает приехавшее к спрошенной картине своим кодом
+(:func:`~torrcast.usecases.discover._second_wider._second_wider`), и щуп, склеивающий
+выдачи в обход него, мерит не тот показ, который пошёл бы на экран.
 
 Паспорта справки читаются из её же кэша на диске (``--facts``), боевым разбором ряда
 (:func:`~torrcast.domain.facts.cache_rows._row_origin`). Пустой ряд и отсутствующий файл
@@ -82,11 +87,18 @@ class SavedIndexer:
 
     cap_floor = 0.0
     over_goal = False
+    #: В сохранённой выдаче молчунов и выпавших нет: пул снят с ответивших.
+    silent: tuple[str, ...] = ()
+    banned: tuple[str, ...] = ()
 
     def __init__(self, pools: dict[str, list[list[RawResult]]]) -> None:
         self.pools = pools
         self.asked: list[str] = []
         self.missed: list[str] = []
+        self.reported_silent: set[str] = set()
+        #: Что отдано на каждый спрошенный запрос - чтобы цену отказа считать по ТОЙ ЖЕ
+        #: выдаче, которую получил боевой круг, а не по повторному чтению пула.
+        self.given: dict[str, list[RawResult]] = {}
 
     def search(self, query: str) -> list[RawResult]:
         self.asked.append(query)
@@ -94,13 +106,17 @@ class SavedIndexer:
         if batches is None:
             self.missed.append(query)
             return []
-        return merge(*batches)
+        self.given[query.strip().casefold()] = merge(*batches)
+        return self.given[query.strip().casefold()]
 
     def late(self) -> list[RawResult]:
         return []
 
     def spare(self) -> float:
         return SPARE
+
+    def waiting(self) -> tuple[str, ...]:
+        return ()
 
 
 class Quiet:
@@ -184,34 +200,43 @@ def widen(
     raw = merge(*pools[query.strip().casefold()])
     first = cluster(to_releases(raw))
     # Ровно порядок круга поиска (:func:`~torrcast.usecases.discover.search_circle.search_circle`):
-    # добор спрашивают ИМЕНЕМ запроса, а номер при имени сериала читают сезоном.
+    # добор спрашивают ИМЕНЕМ запроса, а номер при имени сериала читают сезоном. Меню на
+    # вход добора идёт в том порядке, в каком его отдала франшиза, - расстановкой своих
+    # строк боевой круг добор не кормит.
     asked = args.title_query
     name, index = split_franchise_index(asked)
     found = pick_franchise(asked, first)
     if (reread := season_reread(args, name, index, found, first)) is not None:
         args, asked = reread, name
-    found = menu_order(found)
     out = Widen(query=query, worth=worth_asking_original(found, args, config, profile))
     client, said = SavedIndexer(pools), Quiet()
-    merged, _pictures, wider = _second_language(client, asked, args, raw, found, said, passport=ask)
+    merged, pictures, wider = _second_language(client, asked, args, raw, found, said, passport=ask)
     out.alt = client.asked[0] if client.asked else ""
     out.missed, out.notes = client.missed, said.notes
-    out.taken = len(merged) != len(raw) and [p.key for p in wider] != [p.key for p in found]
-    # Counterfactual: те же выдачи тем же кодом, но без приговора гейта.
-    both = merge(raw, client.search(out.alt)) if out.alt else raw
-    catalog = cluster(to_releases(both))
-    theirs = menu_order(pick_franchise(asked, catalog))
+    # Взятие добора - это и только это расширение выдачи. Сверять сверх того КЛЮЧИ картин
+    # нельзя: добор, добавивший раздачи в ТЕ ЖЕ картины, читался отказом.
+    out.taken = len(merged) != len(raw)
+    menu = menu_order(found)
+    if out.taken:
+        # Что привёз боевой заход - его склейка, его каталог, его привязка к картине.
+        both, catalog, theirs = merged, pictures, menu_order(wider)
+    else:
+        # Counterfactual: та же вторая выдача, склеенная тем же кодом, но без приговора.
+        second = client.given.get(out.alt.strip().casefold(), []) if out.alt else []
+        both = merge(raw, second) if second else raw
+        catalog = cluster(to_releases(both))
+        theirs = menu_order(pick_franchise(asked, catalog))
     out.counts = {
         "строк до": len(raw),
         "строк после": len(both),
         "картин до": len(first),
         "картин после": len(catalog),
-        "меню до": len(found),
+        "меню до": len(menu),
         "меню после": len(theirs),
-        "раздач до": sum(len(p.releases) for p in found),
+        "раздач до": sum(len(p.releases) for p in menu),
         "раздач после": sum(len(p.releases) for p in theirs),
     }
-    out.plays = {"до": told(plays(found, args, config, profile))}
+    out.plays = {"до": told(plays(menu, args, config, profile))}
     out.plays["после"] = told(plays(theirs, args, config, profile))
     return out
 
