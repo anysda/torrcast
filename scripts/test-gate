@@ -4,24 +4,40 @@ set -eu
 # Один вход в гейт означает и один предел: вызывающая оболочка остаётся снаружи scope,
 # чтобы пережить OOM, назвать его вслух и вернуть код убитого прогона. Swap запрещён:
 # иначе MemoryMax сбережёт RAM, но жадный прогон сможет вытеснить в swap всю машину.
-if [ "${TORRCAST_GATE_SCOPED:-}" != 1 ]; then
+if [ -z "${TORRCAST_GATE_MODE:-}" ]; then
     gate_script=$(realpath "$0")
     gate_limit=6G
     if [ "${1:-}" = --oom-probe ] && [ "$#" -eq 1 ]; then
         gate_limit=64M
     fi
     gate_unit="test-gate-$$"
+    gate_run_dir=$(mktemp -d)
+    gate_started="$gate_run_dir/started"
+    gate_stderr="$gate_run_dir/stderr"
+    trap 'rm -rf "$gate_run_dir"' EXIT
     set +e
     systemd-run --user --scope --quiet --unit="$gate_unit" --working-directory="$PWD" \
         -p Delegate=yes -p MemoryAccounting=yes -p MemoryMax="$gate_limit" \
         -p MemorySwapMax=0 \
-        env TORRCAST_GATE_SCOPED=1 TORRCAST_GATE_LIMIT="$gate_limit" "$gate_script" "$@"
+        env TORRCAST_GATE_MODE=scoped TORRCAST_GATE_LIMIT="$gate_limit" \
+        TORRCAST_GATE_STARTED="$gate_started" "$gate_script" "$@" 2> "$gate_stderr"
     gate_rc=$?
     set -e
+    if [ ! -e "$gate_started" ]; then
+        echo "гейт запущен без потолка памяти: пользовательский scope недоступен" >&2
+        rm -rf "$gate_run_dir"
+        trap - EXIT
+        TORRCAST_GATE_MODE=unscoped exec "$gate_script" "$@"
+    fi
+    cat "$gate_stderr" >&2
     if [ "$gate_rc" -eq 137 ]; then
         echo "гейт остановлен: превышен потолок памяти $gate_limit" >&2
     fi
     exit "$gate_rc"
+fi
+
+if [ "$TORRCAST_GATE_MODE" = scoped ]; then
+    : > "$TORRCAST_GATE_STARTED"
 fi
 
 # Отрицательная проба проходит тем же внешним scope, но с малым пределом: машина не
@@ -32,29 +48,34 @@ fi
 
 # Свой дочерний cgroup даёт каждой стадии независимый memory.peak, который считает
 # xdist и ffmpeg вместе с родителем. Арифметика остаётся в оболочке и не зависит от awk.
-IFS= read -r gate_cgroup_line < /proc/self/cgroup
-gate_cgroup_root="/sys/fs/cgroup${gate_cgroup_line#*::}"
 gate_stage_number=0
-gate_stage_cgroup="$gate_cgroup_root/stage-$gate_stage_number"
-mkdir "$gate_stage_cgroup"
-while IFS= read -r gate_pid; do
-    echo "$gate_pid" > "$gate_stage_cgroup/cgroup.procs"
-done < "$gate_cgroup_root/cgroup.procs"
-echo +memory > "$gate_cgroup_root/cgroup.subtree_control"
-gate_stage=
-stage() {
-    if [ -n "$gate_stage" ]; then
-        gate_bytes=$(cat "$gate_stage_cgroup/memory.peak")
-        echo "пик памяти [$gate_stage]: $((gate_bytes / 1024 / 1024)) МиБ"
-    fi
-    gate_old_cgroup=$gate_stage_cgroup
-    gate_stage_number=$((gate_stage_number + 1))
+gate_stage_cgroup=
+if [ "$TORRCAST_GATE_MODE" = scoped ]; then
+    IFS= read -r gate_cgroup_line < /proc/self/cgroup
+    gate_cgroup_root="/sys/fs/cgroup${gate_cgroup_line#*::}"
     gate_stage_cgroup="$gate_cgroup_root/stage-$gate_stage_number"
     mkdir "$gate_stage_cgroup"
     while IFS= read -r gate_pid; do
         echo "$gate_pid" > "$gate_stage_cgroup/cgroup.procs"
-    done < "$gate_old_cgroup/cgroup.procs"
-    rmdir "$gate_old_cgroup"
+    done < "$gate_cgroup_root/cgroup.procs"
+    echo +memory > "$gate_cgroup_root/cgroup.subtree_control"
+fi
+gate_stage=
+stage() {
+    if [ "$TORRCAST_GATE_MODE" = scoped ] && [ -n "$gate_stage" ]; then
+        gate_bytes=$(cat "$gate_stage_cgroup/memory.peak")
+        echo "пик памяти [$gate_stage]: $((gate_bytes / 1024 / 1024)) МиБ"
+    fi
+    if [ "$TORRCAST_GATE_MODE" = scoped ]; then
+        gate_old_cgroup=$gate_stage_cgroup
+        gate_stage_number=$((gate_stage_number + 1))
+        gate_stage_cgroup="$gate_cgroup_root/stage-$gate_stage_number"
+        mkdir "$gate_stage_cgroup"
+        while IFS= read -r gate_pid; do
+            echo "$gate_pid" > "$gate_stage_cgroup/cgroup.procs"
+        done < "$gate_old_cgroup/cgroup.procs"
+        rmdir "$gate_old_cgroup"
+    fi
     gate_stage=$1
 }
 finish_peak() {
@@ -63,7 +84,7 @@ finish_peak() {
     if [ -n "${seam_dir:-}" ]; then
         rm -rf "$seam_dir"
     fi
-    if [ -n "$gate_stage" ]; then
+    if [ "$TORRCAST_GATE_MODE" = scoped ] && [ -n "$gate_stage" ]; then
         gate_bytes=$(cat "$gate_stage_cgroup/memory.peak")
         echo "пик памяти [$gate_stage]: $((gate_bytes / 1024 / 1024)) МиБ"
     fi
