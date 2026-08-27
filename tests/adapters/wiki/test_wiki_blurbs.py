@@ -30,6 +30,49 @@ SPARQL = {
 }
 
 
+def test_an_exact_offline_identity_restores_an_unyearred_blurb_and_rating() -> None:
+    """Точное имя, год и тип IMDb подтверждают статью без года и несут оценку сами."""
+    key = ("Матрица: Революция", 2003)
+    article = (
+        "«Матрица: Революция» (англ. The Matrix Revolutions) — американский "
+        "научно-фантастический боевик, являющийся продолжением фильма «Матрица»."
+    )
+
+    def answer(host: str, path: str, params: dict[str, str]) -> Any:
+        if host == WIKIDATA_HOST:
+            raise OSError("Wikidata молчит")
+        return {
+            "query": {
+                "pages": [
+                    {
+                        "title": key[0],
+                        "extract": article,
+                        "pageprops": {"wikibase_item": "Q207536"},
+                    }
+                ]
+            }
+        }
+
+    class Catalogue:
+        @staticmethod
+        def ids(
+            pictures: list[tuple[str, int | None, str]],
+        ) -> dict[tuple[str, int | None], str]:
+            assert pictures == [(key[0], key[1], "movie")], "тип обязан доехать до карты"
+            return {key: "tt0242653"}
+
+    ready: list[dict[tuple[str, int | None], Fact]] = []
+    found, answered = WikiBlurbs(
+        FakeJsonClient(answer),
+        FakeRatingDump(lambda: {"tt0242653": "6.7"}),
+        Catalogue(),
+    ).fetch([key], ready=ready.append, kinds={key: "movie"})
+
+    assert ready == [{key: Fact(about=article, rating="IMDb 6.7")}]
+    assert found[key] == Fact(about=article, rating="IMDb 6.7")
+    assert answered == {key}
+
+
 def test_one_request_carries_the_whole_franchise() -> None:
     """Все картины и все кандидаты уезжают одним запросом — их не по одному тянуть."""
     client = FakeJsonClient(lambda host, path, params: wiki_reply())

@@ -41,6 +41,20 @@ def test_the_map_is_parsed_once_per_process(tmp_path: Path) -> None:
     assert len(source.reads) == 1
 
 
+def test_an_exact_name_year_and_type_give_the_rating_id_without_a_full_index(
+    tmp_path: Path,
+) -> None:
+    """Меню читает несколько точных строк, не строя паспортный индекс всей карты."""
+    catalogue = _names(tmp_path)
+
+    found = catalogue.ids([("Американская фабрика", 2019, "movie")])
+
+    assert found == {("Американская фабрика", 2019): "tt9351980"}
+    source = catalogue.source
+    assert isinstance(source, FakeTextSource)
+    assert len(source.reads) == 1
+
+
 def test_a_missing_map_file_is_silence_not_a_crash(tmp_path: Path) -> None:
     """Нет файла карты (установка без справки) - паспорт пуст, и это не сбой."""
     path = tmp_path / "no-such-file.tsv"

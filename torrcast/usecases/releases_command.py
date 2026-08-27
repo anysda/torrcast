@@ -23,7 +23,7 @@ from torrcast.usecases.reinforce._timed import _timed
 
 if TYPE_CHECKING:
     from torrcast.domain.args import Args
-    from torrcast.usecases.facts import Facts
+    from torrcast.usecases.facts import FactPicture, Facts
     from torrcast.usecases.select.plan import Plan
 
     #: Чем ищется выдача: тот же поиск, что и у показа (:func:`search_circle`), либо ответ
@@ -37,7 +37,7 @@ if TYPE_CHECKING:
 #: плоский namespace прежнего монолита (:mod:`torrcast.cli`) вписывает globals каждой
 #: своей части в каждую другую, и короткий тёзка молча затирает функцию соседа.
 _releases_settings: Callable[[], Config]
-_releases_facts: Callable[[list[tuple[str, int | None]]], Facts]
+_releases_facts: Callable[[list[FactPicture]], Facts]
 _releases_detect: Callable[[Config], Choice]
 #: Память показанного порядка: строки таблицы - ключ картины, её имя и раздачи под
 #: их номерами. По этой записи ``--pick M`` и ``--release N`` сверяют, что номер
@@ -47,7 +47,7 @@ _releases_remember: Callable[[str, list[tuple[str, str, list[Release]]]], None]
 
 def _configure_releases_command(
     settings: Callable[[], Config],
-    facts: Callable[[list[tuple[str, int | None]]], Facts],
+    facts: Callable[[list[FactPicture]], Facts],
     detect: Callable[[Config], Choice],
     remember: Callable[[str, list[tuple[str, str, list[Release]]]], None],
 ) -> None:
@@ -63,7 +63,7 @@ def _cmd_releases(
     args: Args,
     search: Search | None = None,
     settings: Callable[[], Config] | None = None,
-    facts_source: Callable[[list[tuple[str, int | None]]], Facts] | None = None,
+    facts_source: Callable[[list[FactPicture]], Facts] | None = None,
     profile_choice: Callable[[Config], Choice] | None = None,
 ) -> int:
     """``cast releases <запрос>`` — отладочная ручка: таблица и выход.
@@ -105,7 +105,7 @@ def _cmd_releases(
     config = tune_profile(config, chosen.profile)
     with progress_bar() as progress:
         plans = search(config, inner, progress, chosen.profile)
-    facts = facts_source([(p.picture.title, p.picture.year) for p in plans])
+    facts = facts_source([(p.picture.title, p.picture.year, p.picture.kind) for p in plans])
     facts.start()
     try:
         print(f"профиль приёмника: {chosen.profile.title} - {chosen.how}")

@@ -6,7 +6,7 @@ from collections.abc import Iterable
 
 from torrcast.domain.facts.settings import FACTS_BUDGET
 from torrcast.runtime.facts_wiring import FACTS
-from torrcast.usecases.facts import Facts
+from torrcast.usecases.facts import FactPicture, Facts
 
 
 class MenuFacts(Facts):
@@ -17,6 +17,8 @@ class MenuFacts(Facts):
     """
 
     def __init__(
-        self, pictures: Iterable[tuple[str, int | None]], budget: float = FACTS_BUDGET
+        self,
+        pictures: Iterable[FactPicture],
+        budget: float = FACTS_BUDGET,
     ) -> None:
         super().__init__(pictures, budget, store=FACTS.cache, source=FACTS.blurbs)

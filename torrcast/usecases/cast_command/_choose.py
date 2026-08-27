@@ -69,7 +69,9 @@ def _choose(
         # Справка к меню (рейтинг, хронометраж, о чём кино) едет фоном - ровно в те
         # секунды, что уходят на подъём прогрева. Меню её не ждёт: см.
         # torrcast.runtime.facts_wiring.
-        facts = _state._play_facts([(p.picture.title, p.picture.year) for p in plans])
+        facts = _state._play_facts(
+            [(p.picture.title, p.picture.year, p.picture.kind) for p in plans]
+        )
         facts.start()
         # 🔴 TC-199/TC-200. Год картины, которая встанет дефолтом, сверяется со справкой -
         # так же, как добор сверяет свой (:func:`year_note`). Справку зовём вслепую и фоном,

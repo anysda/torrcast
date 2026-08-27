@@ -5,7 +5,12 @@ from __future__ import annotations
 import threading
 from pathlib import Path
 
-from torrcast.domain.facts.imdb_rows import _named_origin, _ru_rows, _RuName
+from torrcast.domain.facts.imdb_rows import (
+    _named_origin,
+    _picture_ids_from_lines,
+    _ru_rows,
+    _RuName,
+)
 from torrcast.domain.facts.origin import Origin
 from torrcast.domain.facts.settings import RU_NAMES_PATH
 from torrcast.domain.slugify import slugify
@@ -42,3 +47,7 @@ class ImdbNames:
             if self._names is None:
                 self._names = _ru_rows(self.source.lines(self.path))
             return self._names
+
+    def ids(self, pictures: list[tuple[str, int | None, str]]) -> dict[tuple[str, int | None], str]:
+        """IMDb-id по точной тройке «прокатное имя, год, тип»."""
+        return _picture_ids_from_lines(self.source.lines(self.path), pictures)

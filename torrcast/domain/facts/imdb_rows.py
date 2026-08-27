@@ -127,3 +127,31 @@ def _named_origin(
     year = int(raw_year) if raw_year.isdigit() else None
     latin = "" if _CYRILLIC.search(original) else original
     return Origin(title=latin, year=year, name=name, guessed=guessed, source=SOURCE_MAP)
+
+
+def _picture_ids_from_lines(
+    lines: Iterable[str], pictures: list[tuple[str, int | None, str]]
+) -> dict[tuple[str, int | None], str]:
+    """Найти несколько точных картин одним проходом, не разбирая всю карту.
+
+    Полный индекс нужен паспорту, но меню спрашивает считанные имена. Строить ради них
+    словарь из сотен тысяч строк стоило больше бюджета списка; линейный проход сравнивает
+    сырые прокатные имена и разбирает только совпавшие строки.
+    """
+    wanted = {title.casefold(): (title, year, kind) for title, year, kind in pictures}
+    matched: dict[tuple[str, int | None], set[str]] = {}
+    for line in lines:
+        fields = line.rstrip("\n").split("\t")
+        name, tconst, imdb_kind, _original, raw_year = [*fields, "", "", "", "", ""][:5]
+        picture = wanted.get(name.casefold())
+        if picture is None:
+            continue
+        title, year, kind = picture
+        if (
+            year is not None
+            and raw_year == str(year)
+            and (imdb_kind in _TV_KINDS) == (kind == "tv")
+            and tconst
+        ):
+            matched.setdefault((title, year), set()).add(tconst)
+    return {key: next(iter(ids)) for key, ids in matched.items() if len(ids) == 1}

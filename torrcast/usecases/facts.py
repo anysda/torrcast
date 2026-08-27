@@ -6,11 +6,14 @@ import contextlib
 import threading
 import time
 from collections.abc import Callable, Iterable
+from typing import TypeAlias
 
 from torrcast.domain.facts.fact import Fact
 from torrcast.domain.facts.settings import FACTS_BUDGET, TOPUP_LIMIT
 from torrcast.ports.blurb_source import BlurbSource
 from torrcast.ports.blurb_store import BlurbStore
+
+FactPicture: TypeAlias = tuple[str, int | None] | tuple[str, int | None, str]
 
 
 class Facts:
@@ -22,13 +25,15 @@ class Facts:
 
     def __init__(
         self,
-        pictures: Iterable[tuple[str, int | None]],
+        pictures: Iterable[FactPicture],
         budget: float = FACTS_BUDGET,
         *,
         store: BlurbStore,
         source: BlurbSource,
     ) -> None:
-        self.wanted = list(pictures)
+        rows = list(pictures)
+        self.wanted = [(row[0], row[1]) for row in rows]
+        self.kinds = {(row[0], row[1]): row[2] if len(row) == 3 else "movie" for row in rows}
         self.budget = budget
         self.store = store
         self.source = source
@@ -132,7 +137,14 @@ class Facts:
             # его - значит занимать его именами место в пакете и рисковать записать
             # поверх полной справки её обеднённый повтор.
             missing = [key for key in self.wanted if key not in self.found]
-            fresh, answered = self.source.fetch(missing, ready=self._ready)
+            kinds = {key: self.kinds[key] for key in missing}
+            try:
+                fresh, answered = self.source.fetch(missing, ready=self._ready, kinds=kinds)
+            except TypeError as error:
+                # Старый встраиваемый источник может не знать подсказку типа.
+                if "unexpected keyword argument 'kinds'" not in str(error):
+                    raise
+                fresh, answered = self.source.fetch(missing, ready=self._ready)
             # Дописываем к тому, что уже лежало в кэше, а не заменяем: сеть отвечает только
             # про ненайденное, и присваиванием мы выбрасывали справку, которая у нас была.
             self.found = {**self.found, **fresh}

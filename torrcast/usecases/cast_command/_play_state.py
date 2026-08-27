@@ -17,7 +17,7 @@ from torrcast.domain.release import Release
 from torrcast.ports.torrent_engines import TorrentEngines
 
 if TYPE_CHECKING:
-    from torrcast.usecases.facts import Facts
+    from torrcast.usecases.facts import FactPicture, Facts
 
 
 #: Внешний мир команды показа. Всё это кладёт композиционный корень
@@ -32,7 +32,7 @@ if TYPE_CHECKING:
 _play_engines: TorrentEngines
 _play_settings: Callable[[], Config]
 _play_detect: Callable[[Config], Choice]
-_play_facts: Callable[[list[tuple[str, int | None]]], Facts]
+_play_facts: Callable[[list[FactPicture]], Facts]
 _play_native: Callable[[Picture, str], None]
 _play_pinned: Callable[[str, str, int], str]
 _play_merge: Callable[..., list[RawResult]]
@@ -43,7 +43,7 @@ def _configure_cast_command(
     engines: TorrentEngines,
     settings: Callable[[], Config],
     detect: Callable[[Config], Choice],
-    facts: Callable[[list[tuple[str, int | None]]], Facts],
+    facts: Callable[[list[FactPicture]], Facts],
     native: Callable[[Picture, str], None],
     pinned: Callable[[str, str, int], str],
     merge: Callable[..., list[RawResult]],

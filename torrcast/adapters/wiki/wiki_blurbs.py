@@ -6,40 +6,38 @@ import contextlib
 import threading
 import time
 from collections.abc import Callable
-from typing import Any
 
 from torrcast.adapters.wiki.closed_wave import closed_wave
 from torrcast.adapters.wiki.endpoints import (
     SPARQL_HEAD,
-    WIKI_HOST,
-    WIKI_PATH,
     WIKIDATA_HOST,
     WIKIDATA_PATH,
 )
-from torrcast.domain.facts.extract_params import extract_params
+from torrcast.adapters.wiki.wiki_extracts import wiki_extracts
 from torrcast.domain.facts.fact import Fact
 from torrcast.domain.facts.hms import hms
 from torrcast.domain.facts.read_pages import _read_pages
 from torrcast.domain.facts.read_sparql import read_sparql
-from torrcast.domain.facts.settings import _EXBATCHES, _EXLIMIT, HTTP_TIMEOUT
-from torrcast.domain.facts.titles_for import titles_for
-from torrcast.domain.facts.wiki_reply import _merged
+from torrcast.domain.facts.settings import HTTP_TIMEOUT
 from torrcast.ports.json_client import JsonClient
 from torrcast.ports.rating_dump import RatingDump
+from torrcast.ports.title_ids import TitleIds
 
 
 class WikiBlurbs:
     """Два сетевых шага и файл оценок; отказ второго шага не отменяет первого."""
-
-    def __init__(self, client: JsonClient, ratings: RatingDump) -> None:
+    def __init__(
+        self, client: JsonClient, ratings: RatingDump, catalogue: TitleIds | None = None
+    ) -> None:
         self.client = client
         self.ratings = ratings
-
+        self.catalogue = catalogue
     def fetch(
         self,
         wanted: list[tuple[str, int | None]],
         timeout: float = HTTP_TIMEOUT,
         ready: Callable[[dict[tuple[str, int | None], Fact]], None] | None = None,
+        kinds: dict[tuple[str, int | None], str] | None = None,
     ) -> tuple[dict[tuple[str, int | None], Fact], set[tuple[str, int | None]]]:
         """Собрать справку по картинам: Википедия → Wikidata → выгрузка рейтингов.
 
@@ -67,29 +65,71 @@ class WikiBlurbs:
         вызывающий вправе запомнить пустыми.
         """
         scores: dict[str, str] = {}
+        local_ids: dict[tuple[str, int | None], str] = {}
 
         def load() -> None:
-            nonlocal scores
+            nonlocal scores, local_ids
             scores = self.ratings.scores()
+            if self.catalogue is not None:
+                local_ids = self.catalogue.ids(
+                    [
+                        (title, year, (kinds or {}).get((title, year), "movie"))
+                        for title, year in wanted
+                    ]
+                )
 
         reader = threading.Thread(target=load, daemon=True)
         reader.start()
-        about, entities, answered = self.extracts(wanted, timeout)
+        try:
+            candidates, payload, answered = wiki_extracts(self.client, wanted, timeout)
+        except OSError:
+            # Википедия и локальная оценка друг от друга не зависят. Сетевой отказ не
+            # вправе выбрасывать уже найденные по точным имени, году и типу IMDb-id.
+            scores, local_ids = closed_wave(
+                [reader], time.monotonic() + timeout, lambda: (dict(scores), dict(local_ids))
+            )
+            return (
+                {
+                    key: Fact(rating=f"IMDb {scores[tconst]}")
+                    for key, tconst in local_ids.items()
+                    if tconst in scores
+                },
+                set(),
+            )
+        in_time = closed_wave(
+            [reader], time.monotonic() + timeout, lambda: (dict(scores), dict(local_ids))
+        )
+        scores, local_ids = in_time
+        about, entities = _read_pages(payload, candidates, set(local_ids))
         if ready is not None:
-            ready({key: Fact(about=text) for key, text in about.items() if text})
+            ready(
+                {
+                    key: Fact(
+                        about=text,
+                        rating=(
+                            f"IMDb {scores[local_ids[key]]}"
+                            if local_ids.get(key) in scores
+                            else ""
+                        ),
+                    )
+                    for key, text in about.items()
+                    if text
+                }
+            )
         ids: dict[str, tuple[str, int]] = {}
         if entities:
             with contextlib.suppress(Exception):
                 ids = self.ids(sorted(set(entities.values())), timeout)
-        # Нитку выгрузки подняли здесь - здесь и закрываем: платит это фоновый добор,
-        # который сюда позвал, а меню отпущено своим потолком задолго до нас.
-        in_time = closed_wave([reader], time.monotonic() + timeout, lambda: scores)
         out: dict[tuple[str, int | None], Fact] = {}
         for key in wanted:
             imdb_id, minutes = ids.get(entities.get(key, ""), ("", 0))
             fact = Fact(
                 about=about.get(key, ""),
-                rating=f"IMDb {in_time[imdb_id]}" if imdb_id in in_time else "",
+                rating=(
+                    f"IMDb {scores[local_ids.get(key, imdb_id)]}"
+                    if local_ids.get(key, imdb_id) in scores
+                    else ""
+                ),
                 runtime=hms(minutes),
             )
             if fact:
@@ -123,42 +163,8 @@ class WikiBlurbs:
         попали в пакеты, которые ответили. Промолчавший пакет не говорит про свои имена
         ничего, и картина из него - не «статьи нет», а «не успели спросить» (🔴 TC-568).
         """
-        candidates = {key: titles_for(*key) for key in wanted}
-        names: list[str] = []
-        scheduled: dict[tuple[str, int | None], list[str]] = {key: [] for key in wanted}
-        room = _EXLIMIT * _EXBATCHES
-        for depth in range(max((len(c) for c in candidates.values()), default=0)):
-            for key in wanted:
-                if depth < len(candidates[key]) and len(names) < room:
-                    names.append(candidates[key][depth])
-                    scheduled[key].append(candidates[key][depth])
-        answers: list[tuple[list[str], Any]] = []
-        lock = threading.Lock()
-
-        def ask(part: list[str]) -> None:
-            with contextlib.suppress(Exception):
-                payload = self.client.get(WIKI_HOST, WIKI_PATH, extract_params(part), {}, timeout)
-                with lock:
-                    answers.append((part, payload))
-
-        parts = [names[at : at + _EXLIMIT] for at in range(0, len(names), _EXLIMIT)]
-        deadline = time.monotonic() + timeout
-        wave = [threading.Thread(target=ask, args=(part,), daemon=True) for part in parts]
-        for thread in wave:
-            thread.start()
-        answers = closed_wave(wave, deadline, lambda: list(answers))
-        if not answers:
-            # Ни один пакет не ответил - это отказ сети, а не «статьи нет». Разница дорогая:
-            # пустой ответ лёг бы в кэш на неделю и накрыл бы картину, про которую Википедия
-            # прекрасно знает.
-            raise OSError("Википедия не ответила ни на один запрос")
-        heard = {name for part, _payload in answers for name in part}
-        answered = {
-            key
-            for key in wanted
-            if scheduled[key] and all(name in heard for name in scheduled[key])
-        }
-        about, entities = _read_pages(_merged([payload for _part, payload in answers]), candidates)
+        candidates, payload, answered = wiki_extracts(self.client, wanted, timeout)
+        about, entities = _read_pages(payload, candidates)
         return about, entities, answered
 
     def ids(self, items: list[str], timeout: float) -> dict[str, tuple[str, int]]:
