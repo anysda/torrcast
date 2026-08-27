@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import threading
 import time
+from collections.abc import Mapping
 from typing import Any
 
 from torrcast.adapters.wiki.closed_wave import closed_wave
@@ -17,14 +18,21 @@ from torrcast.ports.json_client import JsonClient
 
 
 def wiki_extracts(
-    client: JsonClient, wanted: list[tuple[str, int | None]], timeout: float
+    client: JsonClient,
+    wanted: list[tuple[str, int | None]],
+    timeout: float,
+    kinds: Mapping[tuple[str, int | None], str] | None = None,
 ) -> tuple[
     dict[tuple[str, int | None], list[str]],
     dict[str, Any],
     set[tuple[str, int | None]],
 ]:
-    """Запросить кандидатов волной и назвать картины с полным ответом."""
-    candidates = {key: titles_for(*key) for key in wanted}
+    """Запросить кандидатов волной и назвать картины с полным ответом.
+
+    Тип картины правит ПОРЯДОК кандидатов (:func:`titles_for`), а не их набор: в волну
+    влезает не всё, и уточнение чужого типа впереди своего стоит места настоящей статьи.
+    """
+    candidates = {key: titles_for(*key, (kinds or {}).get(key, "")) for key in wanted}
     names: list[str] = []
     scheduled: dict[tuple[str, int | None], list[str]] = {key: [] for key in wanted}
     room = _EXLIMIT * _EXBATCHES

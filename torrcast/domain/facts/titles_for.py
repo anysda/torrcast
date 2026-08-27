@@ -5,7 +5,7 @@ from __future__ import annotations
 from torrcast.domain.facts.patterns import _QUALIFIERS
 
 
-def titles_for(title: str, year: int | None) -> list[str]:
+def titles_for(title: str, year: int | None, kind: str = "") -> list[str]:
     """Под какими именами статья может лежать в русской Википедии, в порядке доверия.
 
     Первым — само название: «Тачки 2» так и называется. Дальше уточнения в скобках,
@@ -16,6 +16,14 @@ def titles_for(title: str, year: int | None) -> list[str]:
     Подзаголовок после двоеточия отрезается отдельным кандидатом: раздачи подписывают
     старое кино развёрнуто («Моана: романтика золотого века»), а статья называется
     короче. Чужую статью это не притащит — год всё равно проверяется по тексту.
+
+    🔴 Уточнения выстраиваются по СПРОШЕННОМУ типу (:func:`_ordered`), и это не украшение
+    очереди. Имён у меню под сотню, а в запросы влезает шестьдесят
+    (:func:`~torrcast.adapters.wiki.wiki_extracts.wiki_extracts`): до Википедии доезжают
+    первые несколько кандидатов каждой картины, и уточнение чужого типа, стоящее раньше
+    своего, просто съедает место настоящей статьи. У «Робокопа» так и было: «(телесериал)»
+    уезжал, «(фильм, 1987)» - уже нет, и на весь показ у фильма оставалась одна чужая
+    статья. Набор имён от порядка не меняется ни на одно - меняется, кто из них успеет.
 
     Регистр внутри слова Википедия сама не чинит: ``redirects=1`` нормализует лишь ПЕРВУЮ
     букву. «breaking bad» уходит в «Breaking bad» и мимо статьи, тогда как редирект есть с
@@ -30,7 +38,7 @@ def titles_for(title: str, year: int | None) -> list[str]:
         bases.append(head)
     out: list[str] = []
     for base in bases:
-        for qualifier in _QUALIFIERS:
+        for qualifier in _ordered(kind):
             if "{year}" in qualifier and year is None:
                 continue
             name = base + qualifier.format(year=year)
@@ -41,3 +49,18 @@ def titles_for(title: str, year: int | None) -> list[str]:
             if variant != base and variant not in out:
                 out.append(variant)
     return out
+
+
+def _ordered(kind: str) -> tuple[str, ...]:
+    """Уточнения в порядке спрошенного типа: чужой тип - в хвост очереди.
+
+    Голое имя остаётся первым при любом типе: под ним лежит и сама статья, и страница
+    значений, и разбирать это не очереди. Тип не назван или назван «other» - порядок
+    остаётся объявленным: подсказывать нечем, и выдумывать подсказку нельзя.
+    """
+    if kind not in ("movie", "tv"):
+        return _QUALIFIERS
+    series = kind == "tv"
+    ours = [name for name in _QUALIFIERS if name and ("сериал" in name) is series]
+    theirs = [name for name in _QUALIFIERS if name and ("сериал" in name) is not series]
+    return ("", *ours, *theirs)

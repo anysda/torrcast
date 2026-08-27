@@ -24,3 +24,20 @@ def test_case_variants_of_the_plain_name_are_tried_too() -> None:
     assert "Twin Peaks" in titles_for("twin peaks", None)
     # Русскому имени регистровый вариант ничего не добавляет - лишних кандидатов не плодим.
     assert titles_for("Тачки 2", 2011).count("Тачки 2") == 1
+
+
+def test_the_asked_type_leads_the_queue_of_qualifiers() -> None:
+    """Уточнение своего типа идёт впереди чужого - до Википедии доезжают первые имена."""
+    film = titles_for("Робокоп", 1987, "movie")
+    series = titles_for("Робокоп", 1987, "tv")
+    assert film.index("Робокоп (фильм, 1987)") < film.index("Робокоп (телесериал)")
+    assert series.index("Робокоп (телесериал)") < series.index("Робокоп (фильм, 1987)")
+    assert sorted(film) == sorted(series) == sorted(titles_for("Робокоп", 1987))
+    assert film[0] == series[0] == "Робокоп", "голое имя первое при любом типе"
+
+
+def test_an_unknown_type_leaves_the_queue_as_declared() -> None:
+    """Тип не назван - подсказывать нечем, и порядок остаётся объявленным."""
+    plain = titles_for("Робокоп", 1987)
+    assert titles_for("Робокоп", 1987, "other") == plain
+    assert titles_for("Робокоп", 1987, "") == plain

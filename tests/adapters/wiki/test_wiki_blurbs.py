@@ -320,3 +320,19 @@ def test_the_asked_type_reaches_the_choice_of_article() -> None:
         [key], kinds={key: "movie"}
     )
     assert found[key].about == ROBOCOP_FILM
+
+
+def test_the_asked_type_leads_the_queue_that_reaches_wikipedia() -> None:
+    """В волну влезает не всё: уточнение своего типа обязано уехать раньше чужого."""
+    asked: list[list[str]] = []
+
+    def answer(host: str, path: str, params: dict[str, str]) -> Any:
+        if host == WIKIDATA_HOST:
+            raise OSError("Wikidata молчит")
+        asked.append(params["titles"].split("|"))
+        return robocop_reply()
+
+    key = ("Робокоп", 1987)
+    WikiBlurbs(FakeJsonClient(answer), FakeRatingDump(dict)).fetch([key], kinds={key: "movie"})
+    names = asked[0]
+    assert names.index("Робокоп (фильм, 1987)") < names.index("Робокоп (телесериал)")

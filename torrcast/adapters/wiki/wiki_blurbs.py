@@ -83,7 +83,7 @@ class WikiBlurbs:
         reader = threading.Thread(target=load, daemon=True)
         reader.start()
         try:
-            candidates, payload, answered = wiki_extracts(self.client, wanted, timeout)
+            candidates, payload, answered = wiki_extracts(self.client, wanted, timeout, kinds)
         except OSError:
             # Википедия и локальная оценка друг от друга не зависят. Сетевой отказ не
             # вправе выбрасывать уже найденные по точным имени, году и типу IMDb-id.
