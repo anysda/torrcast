@@ -12,6 +12,8 @@ from pathlib import Path
 from torrcast.adapters.stream_pack.read_keys import read_keys
 from torrcast.adapters.stream_pack.refuse_keys import refuse_keys
 from torrcast.adapters.stream_pack.refused_keys import refused_keys
+from torrcast.adapters.stream_pack.weigh_keys import weigh_keys
+from torrcast.domain.film_keys import FilmKeys
 from torrcast.domain.warm_open import KEYS_RULES
 
 DAY = 24 * 60 * 60.0
@@ -60,3 +62,31 @@ def test_a_shelf_that_cannot_be_written_is_not_a_crash(tmp_path: Path) -> None:
         refuse_keys(closed / "фильм.json", "индекс Cues врёт")
     finally:
         closed.chmod(0o700)
+
+
+def test_the_verdict_keeps_the_byte_index_of_the_map_it_refused(tmp_path: Path) -> None:
+    """🔴 Вердикт судит КАДРЫ карты, а её смещения переживают его и взвешивают куски.
+
+    Иначе цена вердикта достаётся зрителю на ВТОРОМ показе того же фильма: карта уже
+    стёрта, сетка ровная, профиля тяжести нет - и каждый кусок идёт ужатием на месте.
+    Мера отрицательная в обе стороны: сеткой такая запись не становится (``read_keys``
+    молчит), а весом остаётся (``weigh_keys`` отвечает).
+    """
+    cache = tmp_path / "фильм.json"
+    keys = FilmKeys(60.0, [0.0, 2.0, 4.0], [0, 2 << 20, 5 << 20], "mkv")
+
+    refuse_keys(cache, "прогон проехал мимо кадра карты", keys)
+
+    assert read_keys(cache) is None, "отвергнутая карта вернулась сеткой"
+    assert refused_keys(cache, DAY) == "прогон проехал мимо кадра карты"
+    assert weigh_keys(cache) == keys, "честные смещения выброшены вместе с кадрами"
+
+
+def test_a_map_without_offsets_adds_nothing_to_the_verdict(tmp_path: Path) -> None:
+    """Смещений в карте нет - вердикт остаётся голым: взвешивать по ней всё равно нечем."""
+    cache = tmp_path / "фильм.json"
+
+    refuse_keys(cache, "карта не похожа на видео", FilmKeys(60.0, [0.0, 2.0], [], "mkv"))
+
+    assert weigh_keys(cache) is None
+    assert json.loads(cache.read_text("utf-8")).keys() == {"refused", "when"}

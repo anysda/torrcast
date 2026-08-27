@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from torrcast.adapters.stream_pack.grid import Grid
@@ -14,9 +14,15 @@ from torrcast.domain.film_keys import FilmKeys
 
 
 def grid(duration: float = 300.0, gop: float = 2.0, step: float = 10.0) -> Grid:
-    """Настоящая сетка по опорным кадрам: ровно та, что ходит по боевому пути."""
+    """Настоящая сетка по опорным кадрам: ровно та, что ходит по боевому пути.
+
+    Карту сетка несёт с собой (:attr:`Grid.keys`) - так её собирает боевой
+    :func:`~torrcast.adapters.stream_pack.grid_for.grid_for`, и по ней кодировщик считает вес
+    куска. Забудь это зеркало - и профиль тяжести оказался бы ровным там, где боевой путь
+    строит его по карте.
+    """
     keys = film_keys(duration, gop)
-    return Grid.on_keyframes(keys.at, duration, step, sizes=keys.offset)
+    return replace(Grid.on_keyframes(keys.at, duration, step, sizes=keys.offset), keys=keys)
 
 
 def film_keys(duration: float = 300.0, gop: float = 2.0) -> FilmKeys:

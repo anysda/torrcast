@@ -39,8 +39,9 @@ def _grid(
     delivered_mbit: float = 0.0,
     cap: float = MAX_SEGMENT_BYTES,
     span_cap: float = 0.0,
+    agreed: bool = True,
 ) -> Grid:
-    """Сетка по названной карте: обе зависимости приезжают договором :func:`grid_for`."""
+    """Сетка по названной карте: все три зависимости приезжают договором :func:`grid_for`."""
     return grid_for(
         "http://торрент/поток",
         60.0,
@@ -51,7 +52,7 @@ def _grid(
         span_cap=span_cap,
         keys_of=keys,
         origin_of=lambda url: ORIGIN,
-        agree_of=_agreed,
+        agree_of=_agreed if agreed else (lambda url, at, keys: False),
     )
 
 
@@ -257,3 +258,63 @@ def test_a_map_that_stops_before_the_film_ends_is_not_a_grid(
     assert _grid(lambda url: short, say=said.append).on_keys is False
     assert said and "хвост резать нечем" in said[-1] and "20.0 с до конца" in said[-1]
     assert _grid(lambda url: whole).on_keys is True, "здоровый хвост отвергнут вместе с битым"
+
+
+def test_a_map_refused_as_a_grid_still_rides_along_as_the_weight_index(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """🔴 Отвергнута у карты ОПОРНОСТЬ кадров, а её смещения уезжают в саму ровную сетку.
+
+    Иначе ровная сетка остаётся без профиля тяжести, кодировщик не берёт ни куска впрок,
+    и КАЖДЫЙ уезжает через ужатие на месте: живой замер на приставке дал указателю
+    0.40-0.44x против 0.85-0.86x на сетке по кадрам, с откатами назад на 433-953 с.
+
+    Оба вердикта сетки судятся тут вместе: и разошедшаяся с прогоном карта, и карта, не
+    дотянувшая до конца фильма. Мера отрицательная: карта, не похожая на видео, в сетку
+    НЕ уезжает - там отвергнуто не одно утверждение про кадры, а сама запись.
+    """
+    monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
+    #: Шаг кадров 2 с при кино в минуту: последний кадр на 40-й секунде - хвост 20 с.
+    short = FilmKeys(
+        60.0, [round(k * 2.0, 3) for k in range(21)], [k * (1 << 20) for k in range(21)]
+    )
+    junk = FilmKeys(60.0, [0.0, 2.0], [0, 1 << 20])
+
+    apart = grid_for(
+        "http://торрент/поток",
+        60.0,
+        10.0,
+        keys_of=lambda url: KEYS,
+        origin_of=lambda url: ORIGIN,
+        agree_of=lambda url, at, keys: False,
+    )
+    assert apart.on_keys is False and apart.keys == KEYS, "карта потеряна вместе с кадрами"
+    assert _grid(lambda url: short).keys == short, "у хвостового вердикта карта тоже честная"
+    assert _grid(lambda url: junk).keys is None, "запись, не похожая на видео, взвешивать нечем"
+    assert _grid(lambda url: KEYS).keys == KEYS, "сетка по кадрам обязана нести свою же карту"
+
+
+def test_the_second_show_of_a_refused_film_still_knows_what_its_pieces_weigh(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """🔴 ВТОРОЙ показ того же фильма: карты уже нет, вердикт есть - вес обязан остаться.
+
+    Ровно так выглядит боевой сеанс на следующий день: полка помнит отказ
+    (:data:`~torrcast.domain.warm_open.KEYS_REFUSED` - сутки), и :func:`film_keys` честно
+    отдаёт наружу беду вместо карты. Не подними мы указатель ОТТУДА - и правка чинила бы
+    ровно один показ из всех, а замер, засевающий карту перед каждым заходом, этого не
+    показал бы вовсе.
+    """
+    monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
+    url = "http://торрент/поток"
+
+    first = _grid(lambda source: KEYS, agreed=False)
+    assert first.on_keys is False and first.keys == KEYS
+
+    def refused(source: str) -> FilmKeys:
+        raise InfraError(refused_keys(_keys_cache(url), DAY) or "карты нет")
+
+    second = _grid(refused)
+
+    assert second.on_keys is False, "вердикт с полки обязан оставить сетку ровной"
+    assert second.keys == KEYS, "указатель веса не поднят с полки - профиль тяжести пропал"

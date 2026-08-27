@@ -9,10 +9,8 @@ from pathlib import Path
 
 import torrcast.usecases.playback._show_state as _state
 from torrcast.domain.config import Config
-from torrcast.domain.infra_error import InfraError
 from torrcast.domain.media import AUDIO_MBIT, TS_OVERHEAD
 from torrcast.domain.profile import CAUTIOUS, Profile
-from torrcast.domain.why import why
 from torrcast.ports.recode.spot_recoder import SpotRecoder
 from torrcast.usecases.playback.heavy_profile import HeavyProfile
 from torrcast.usecases.playback.media_grid import MediaGrid
@@ -50,7 +48,7 @@ def _recoder(
     # Сколько уедет на ТВ: видеодорожка идёт копией, звук всегда AAC, сверху оверхед
     # mpegts. Паспорт молчит (mp4 без тегов) - поправка наберётся по факту, как раньше.
     delivered = (video_mbit + AUDIO_MBIT) * TS_OVERHEAD if video_mbit > 0 else 0.0
-    weights = _profile(source, grid, delivered, video_mbit_estimated)
+    weights = _profile(grid, delivered, video_mbit_estimated)
     return _state.Recoder(
         source=source,
         audio=audio,
@@ -73,25 +71,33 @@ def _recoder(
     )
 
 
-def _profile(
-    source: str, grid: MediaGrid, delivered: float, video_mbit_estimated: bool
-) -> HeavyProfile:
-    """Профиль тяжести показа: по карте опорных кадров, а нет карты — ровный по паспорту.
+def _profile(grid: MediaGrid, delivered: float, video_mbit_estimated: bool) -> HeavyProfile:
+    """Профиль тяжести показа: по карте, которую принесла сетка, а нет карты — ровный.
 
     Профиль по карте считается из уже снятой карты: байты и секунды каждого сегмента
     известны до упаковки, и это ноль запросов к рою. Он знает тяжёлое место в лицо и
     потому даёт кодировщику работать впрок.
 
-    ⚠️ Карта спрашивается ровно там, где она заведомо уже снята, — на сетке ПО ОПОРНЫМ
-    КАДРАМ: такой сетки без карты не бывает, значит карта лежит в кэше и стоит ноль
-    запросов. На ровной сетке спрашивать её второй раз нельзя: сетку строил тот же
-    :func:`torrcast.adapters.stream_pack.grid_for.grid_for`, и ровной она вышла ровно потому,
-    что карты не получил, — либо ему её запретила настройка, либо индекс контейнера
-    оказался вруном. Второй заход за ней — это те же Range-запросы в рой на старте показа
-    и ещё одна дорога, по которой наружу может выйти чужая ошибка.
+    🔴 Карта берётся у САМОЙ СЕТКИ (:attr:`torrcast.adapters.stream_pack.grid.Grid.keys`), а не у
+    полки вторым заходом, и спрашивается она независимо от того, стоят ли границы на
+    опорных кадрах. Прежде тут стояло правило «нет кадров - нет и карты», и объяснялось
+    оно так: ровной сетка выходит ровно потому, что карты не получила. Правило было
+    верным ровно до тех пор, пока у ровной сетки не появился второй повод рождаться -
+    карта СНЯТАЯ, но отвергнутая как сетка
+    (:func:`torrcast.adapters.stream_pack.grid_for.grid_for`): её кадры нарисованы, резать по
+    ним нечем, а байты честные.
 
-    Карты нет (ровная сетка) или она без смещений (кэш прошлой версии) — берётся ровный
-    профиль (:meth:`torrcast.adapters.recode.weights.Weights.flat`): про каждый кусок известен
+    🔴 Цена молчаливой потери профиля замерена живьём, парной мерой 3 на 3 на приставке
+    («Матрица» 1999, паспорт без веса видеодорожки). Ровная сетка без профиля: все 41
+    кусок ушли через ужатие на месте, упаковка на это время замирает
+    (:func:`torrcast.adapters.recode.yield_to_shrink._yield_to_shrink`), снабжение падает ниже
+    реального времени, указатель приёмника идёт 0.40-0.44x и откатывается назад на
+    433-953 с. Сетка по кадрам на том же файле - 0.85-0.86x и ни одного отката. ⚠️ Наш
+    собственный счётчик подгрузов при этом объявлял победу (11-12 против 0-1): куски он
+    считает отданные, а не показанные, и на ровной сетке он потерь НЕ самодостаточен.
+
+    Карты нет вовсе или она без смещений (кэш прошлой версии) — берётся ровный профиль
+    (:meth:`torrcast.adapters.recode.weights.Weights.flat`): про каждый кусок известен
     один и тот же средний вес фильма. Тяжёлое место в лицо он не знает и потому объявляет
     тяжёлыми либо все куски, либо ни одного. Это грубо — и это ровно та грубость, которую
     можно себе позволить: она стоит процессора, а прежний отказ стоил показа.
@@ -99,7 +105,7 @@ def _profile(
     Какой профиль взят, говорится вслух и числом: молчаливая подмена одного другим — то
     же самое, из-за чего пропажу кусков расследовали живьём.
     """
-    weights = _mapped(source, grid, delivered) if grid.on_keys else None
+    weights = _mapped(grid, delivered)
     if weights is not None:
         print(
             f"профиль тяжести: контейнер {weights.container:.1f} Мбит/с, "
@@ -108,7 +114,8 @@ def _profile(
                 f"по {'оценке' if video_mbit_estimated else 'замеру'}"
                 if delivered > 0
                 else "веса видеодорожки в паспорте нет - поправку наберу по факту"
-            ),
+            )
+            + ("" if grid.on_keys else " (карта не сетка, но вес по ней честный)"),
             flush=True,
         )
         return weights
@@ -128,14 +135,11 @@ def _profile(
     return _state.flat_weights(grid.count, delivered)
 
 
-def _mapped(source: str, grid: MediaGrid, delivered: float) -> HeavyProfile | None:
-    """Профиль по карте опорных кадров; ``None`` — карты нет или она без смещений."""
-    try:
-        keys = _state.film_keys(source)
-    except InfraError as exc:
-        print(f"карта опорных кадров не снята ({why(exc)})", flush=True)
+def _mapped(grid: MediaGrid, delivered: float) -> HeavyProfile | None:
+    """Профиль по карте самой сетки; ``None`` — карты нет или она без смещений."""
+    if grid.keys is None:
         return None
-    weights: HeavyProfile | None = _state.weights_of(keys, grid, delivered=delivered)
+    weights: HeavyProfile | None = _state.weights_of(grid.keys, grid, delivered=delivered)
     if weights is None:
         print("карта без смещений - веса кусков по ней не построить", flush=True)
     return weights

@@ -14,6 +14,7 @@ from torrcast.adapters.stream_pack.grid import Grid
 from torrcast.adapters.stream_pack.keys_agree import keys_agree
 from torrcast.adapters.stream_pack.pack_origin import pack_origin
 from torrcast.adapters.stream_pack.refuse_keys import refuse_keys
+from torrcast.adapters.stream_pack.weigh_keys import weigh_keys
 from torrcast.domain.film_keys import FilmKeys
 from torrcast.domain.hls_settings import HLS_SEGMENT_SECONDS, MAX_SEGMENT_BYTES
 from torrcast.domain.infra_error import InfraError
@@ -98,11 +99,20 @@ def grid_for(
     except InfraError as exc:
         if say:
             say(f"сетка ровно по {step:g} с: {exc}")
-        return replace(Grid.uniform(duration, step), origin=origin)
+        # 🔴 Карты для РЕЗА нет, но байтовый указатель для ВЕСА мог остаться на полке:
+        # ровно так выглядит ВТОРОЙ показ фильма, чью карту отверг первый
+        # (:func:`weigh_keys`). Без него ровная сетка второго показа осталась бы без
+        # профиля тяжести, и каждый её кусок пошёл бы ужатием на месте.
+        return replace(
+            Grid.uniform(duration, step), origin=origin, keys=weigh_keys(_keys_cache(source_url))
+        )
     length = duration or found.duration
     if len(found.at) < 3 or found.at[-1] < length * 0.5:
         if say:
             say(f"сетка ровно по {step:g} с: карта опорных кадров не похожа на видео")
+        # ⚠️ Указатель отсюда НЕ берётся, и это не забывчивость: отвергнуто тут не одно
+        # утверждение про кадры, а сама похожесть записи на карту видео - взвешивать по
+        # ней значило бы верить тому же, чему мы только что отказали.
         return replace(Grid.uniform(length, step), origin=origin)
     tail = length - found.at[-1]
     widest = max(b - a for a, b in zip(found.at, found.at[1:], strict=False))
@@ -115,6 +125,7 @@ def grid_for(
             step,
             origin,
             say,
+            found,
         )
     grid = Grid.on_keyframes(
         found.at,
@@ -128,6 +139,9 @@ def grid_for(
         origin=origin,
         span_cap=span_cap,
     )
+    # Ту же карту сетка несёт дальше: по ней кодировщик считает вес куска, и второго
+    # похода на полку за ней больше нет (:attr:`Grid.keys`).
+    grid = replace(grid, keys=found)
     if grid.count > 1 and not agree_of(source_url, grid.start(1), found):
         return _flat(
             source_url,
@@ -137,6 +151,7 @@ def grid_for(
             step,
             origin,
             say,
+            found,
         )
     if say:
         spans = [grid.span(k) for k in range(grid.count)]
@@ -155,6 +170,7 @@ def _flat(
     step: float,
     origin: float,
     say: Any = None,
+    keys: FilmKeys | None = None,
 ) -> Grid:
     """Ровная сетка вместо негодной карты: вердикт на полку, причина - вслух.
 
@@ -163,9 +179,18 @@ def _flat(
     годной теми же пробами байт и построит по ней ту же сетку: пробы судят индекс, а
     здесь его судил факт по живому файлу. Срок у вердикта свой
     (:data:`~torrcast.domain.warm_open.KEYS_REFUSED`) - ошибиться могли и мы.
+
+    🔴 ``keys`` - та самая отвергнутая карта, и уезжает она в ДВЕ стороны: на полку рядом
+    с вердиктом (:func:`refuse_keys`) и в саму ровную сетку (:attr:`Grid.keys`). Отвергнуто
+    в ней ровно одно утверждение - «здесь стоит опорный кадр»; пара «время - смещение»
+    честная, и вес куска по ней считается так же, как считался бы по принятой карте.
+    Молчаливая потеря этого указателя стоила зрителю вдвое: ровная сетка оставалась без
+    профиля тяжести (``профиль: 0.0``), кодировщик не брал ни куска впрок, и КАЖДЫЙ кусок
+    уезжал через ужатие на месте, посреди которого упаковка замирает
+    (:func:`torrcast.adapters.recode.yield_to_shrink._yield_to_shrink`).
     """
-    refuse_keys(_keys_cache(source_url), why)
+    refuse_keys(_keys_cache(source_url), why, keys)
     journal().mark("карта отвергнута сеткой", почему=why)
     if say:
         say(f"сетка ровно по {step:g} с: {why}")
-    return replace(Grid.uniform(length, step), origin=origin)
+    return replace(Grid.uniform(length, step), origin=origin, keys=keys)

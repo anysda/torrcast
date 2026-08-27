@@ -22,6 +22,15 @@ def read_keys(cache: Path) -> FilmKeys | None:
     """
     with contextlib.suppress(OSError, ValueError, KeyError, TypeError, AttributeError):
         saved = json.loads(cache.read_text("utf-8"))
+        # 🔴 На месте карты может лежать вердикт «эта карта - не сетка»
+        # (:func:`~torrcast.adapters.stream_pack.refuse_keys.refuse_keys`), и вместе с ним -
+        # её честный байтовый указатель. Точки в такой записи есть, и молчания «нет ключа»
+        # тут больше не хватает: верни мы её картой, сетка следующего показа встала бы на
+        # те же нарисованные кадры, то есть вердикт отменился бы сам собой. Указатель из
+        # неё читает тот, кому нужен вес, а не рез
+        # (:func:`~torrcast.adapters.stream_pack.weigh_keys.weigh_keys`).
+        if saved.get("refused"):
+            return None
         if int(saved.get("rules", 0)) != KEYS_RULES:
             return None
         at = [float(x) for x in saved["keys"]]
