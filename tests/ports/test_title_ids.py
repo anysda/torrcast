@@ -4,9 +4,7 @@ from torrcast.ports.title_ids import TitleIds
 
 
 class Catalogue:
-    def ids(
-        self, pictures: list[tuple[str, int | None, str]]
-    ) -> dict[tuple[str, int | None], str]:
+    def ids(self, pictures: list[tuple[str, int | None, str]]) -> dict[tuple[str, int | None], str]:
         return {(title, year): "tt0242653" for title, year, _kind in pictures}
 
 

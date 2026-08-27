@@ -12,7 +12,9 @@ from tests.fakes.json_client import FakeJsonClient
 from tests.fakes.rating_dump import FakeRatingDump
 from torrcast.adapters.wiki.endpoints import WIKIDATA_HOST
 from torrcast.adapters.wiki.wiki_blurbs import WikiBlurbs
+from torrcast.adapters.wiki.wiki_extracts import wiki_extracts
 from torrcast.domain.facts.fact import Fact
+from torrcast.domain.facts.read_pages import _read_pages
 from torrcast.domain.facts.settings import _EXLIMIT
 
 CARS_KEY = ("Тачки", 2006)
@@ -28,6 +30,18 @@ SPARQL = {
         ]
     }
 }
+
+
+def _extracts(
+    client: FakeJsonClient, wanted: list[tuple[str, int | None]], timeout: float
+) -> tuple[
+    dict[tuple[str, int | None], str],
+    dict[tuple[str, int | None], str],
+    set[tuple[str, int | None]],
+]:
+    candidates, payload, answered = wiki_extracts(client, wanted, timeout)
+    about, entities = _read_pages(payload, candidates)
+    return about, entities, answered
 
 
 def test_an_exact_offline_identity_restores_an_unyearred_blurb_and_rating() -> None:
@@ -76,9 +90,7 @@ def test_an_exact_offline_identity_restores_an_unyearred_blurb_and_rating() -> N
 def test_one_request_carries_the_whole_franchise() -> None:
     """Все картины и все кандидаты уезжают одним запросом — их не по одному тянуть."""
     client = FakeJsonClient(lambda host, path, params: wiki_reply())
-    blurbs = WikiBlurbs(client, FakeRatingDump())
-
-    about, _entities, answered = blurbs.extracts([("Тачки", 2006), ("Моана", 2016)], 1.0)
+    about, _entities, answered = _extracts(client, [("Тачки", 2006), ("Моана", 2016)], 1.0)
 
     assert len(client.calls) == 1
     titles = client.calls[0][2]["titles"].split("|")
@@ -115,9 +127,7 @@ def test_кандидаты_картин_уезжают_несколькими_�
     wanted: list[tuple[str, int | None]] = [(f"Картина {number}", 2000) for number in range(12)]
     wanted.append(("Моана", 2016))
 
-    about, entities, answered = WikiBlurbs(FakeJsonClient(answer), FakeRatingDump()).extracts(
-        wanted, 1.0
-    )
+    about, entities, answered = _extracts(FakeJsonClient(answer), wanted, 1.0)
 
     assert len(asked) > 1, "имена должны уезжать несколькими пакетами"
     assert sum(len(part) for part in asked) > _EXLIMIT
@@ -139,9 +149,7 @@ def test_молчание_части_пакетов_не_читается_как
         return wiki_reply()
 
     wanted: list[tuple[str, int | None]] = [("Тачки", 2006), ("Моана", 2016), ("Властелин", 2001)]
-    blurbs = WikiBlurbs(FakeJsonClient(deaf), FakeRatingDump())
-
-    about, _entities, answered = blurbs.extracts(wanted, 1.0)
+    about, _entities, answered = _extracts(FakeJsonClient(deaf), wanted, 1.0)
 
     assert about[("Тачки", 2006)] == CARS, "ответившая часть разбирается как обычно"
     assert answered == {("Тачки", 2006), ("Моана", 2016)}, (
@@ -160,7 +168,7 @@ def test_молчание_всех_пакетов_это_отказ_сети_а_
     wanted: list[tuple[str, int | None]] = [(f"Картина {number}", 2000) for number in range(12)]
 
     try:
-        WikiBlurbs(FakeJsonClient(broken), FakeRatingDump()).extracts(wanted, 1.0)
+        _extracts(FakeJsonClient(broken), wanted, 1.0)
     except OSError:
         assert len(tries) > 1, "молчание должно быть проверено на нескольких пакетах"
         return
@@ -261,12 +269,11 @@ def test_the_batch_wave_is_closed_by_the_one_who_raised_it() -> None:
         late.wait(1.0)  # Википедия отвечает, но много позже отведённого срока
         return wiki_reply()
 
-    blurbs = WikiBlurbs(FakeJsonClient(slow), FakeRatingDump())
     before = thread_guard.alive()
     started = time.monotonic()
 
     with pytest.raises(OSError):  # ни один пакет не успел - это отказ сети, а не «статьи нет»
-        blurbs.extracts([CARS_KEY, ("Моана", 2016)], 0.05)
+        _extracts(FakeJsonClient(slow), [CARS_KEY, ("Моана", 2016)], 0.05)
 
     left = thread_guard.alive() - before
     assert not left, f"нитки закрыл тот, кто их поднял, а живыми осталось {len(left)}: {left}"

@@ -52,8 +52,6 @@ def wiki_extracts(
         raise OSError("Википедия не ответила ни на один запрос")
     heard = {name for part, _payload in answers for name in part}
     answered = {
-        key
-        for key in wanted
-        if scheduled[key] and all(name in heard for name in scheduled[key])
+        key for key in wanted if scheduled[key] and all(name in heard for name in scheduled[key])
     }
     return candidates, _merged([payload for _part, payload in answers]), answered

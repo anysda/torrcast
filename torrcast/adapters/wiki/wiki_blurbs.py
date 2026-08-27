@@ -26,12 +26,14 @@ from torrcast.ports.title_ids import TitleIds
 
 class WikiBlurbs:
     """Два сетевых шага и файл оценок; отказ второго шага не отменяет первого."""
+
     def __init__(
         self, client: JsonClient, ratings: RatingDump, catalogue: TitleIds | None = None
     ) -> None:
         self.client = client
         self.ratings = ratings
         self.catalogue = catalogue
+
     def fetch(
         self,
         wanted: list[tuple[str, int | None]],
@@ -107,9 +109,7 @@ class WikiBlurbs:
                     key: Fact(
                         about=text,
                         rating=(
-                            f"IMDb {scores[local_ids[key]]}"
-                            if local_ids.get(key) in scores
-                            else ""
+                            f"IMDb {scores[local_ids[key]]}" if local_ids.get(key) in scores else ""
                         ),
                     )
                     for key, text in about.items()
@@ -135,37 +135,6 @@ class WikiBlurbs:
             if fact:
                 out[key] = fact
         return out, answered
-
-    def extracts(
-        self, wanted: list[tuple[str, int | None]], timeout: float
-    ) -> tuple[
-        dict[tuple[str, int | None], str],
-        dict[tuple[str, int | None], str],
-        set[tuple[str, int | None]],
-    ]:
-        """Одним запросом: описания по-русски и Q-идентификаторы Wikidata для второго шага.
-
-        Кандидатов на статью у картины около десятка (:func:`titles_for`), а в один запрос их
-        влезает :data:`_EXLIMIT`. Побеждает первый кандидат, который оказался статьёй (не
-        страницей значений, не пустышкой) и подтвердил год (:func:`confirms`).
-
-        🔴 TC-561. Пока запрос был один, лишние кандидаты просто отбрасывались - и это стоило
-        не времени, а самой справки: в меню из семи картин до Википедии доезжало по два-три
-        имени из двенадцати, то есть без уточнения «(мультфильм)», под которым и лежит
-        «Моана». Замер на корпусе из ста настоящих меню (503 картины): спрошенные по одной,
-        статью имеют 49% картин, а пакетом из двадцати имён справку получали 14%.
-
-        Поэтому имена режутся на пакеты по :data:`_EXLIMIT` и уезжают РАЗОМ (:data:`_EXBATCHES`
-        штук): запросы ждут сеть, а не друг друга. Замер там же: один пакет 0.78 с, три
-        очередью 2.14 с, три разом 0.83 с - втрое больше имён за семь сотых секунды.
-
-        Третий элемент ответа - про какие картины ответ приехал ПОЛНЫМ: все имена картины
-        попали в пакеты, которые ответили. Промолчавший пакет не говорит про свои имена
-        ничего, и картина из него - не «статьи нет», а «не успели спросить» (🔴 TC-568).
-        """
-        candidates, payload, answered = wiki_extracts(self.client, wanted, timeout)
-        about, entities = _read_pages(payload, candidates)
-        return about, entities, answered
 
     def ids(self, items: list[str], timeout: float) -> dict[str, tuple[str, int]]:
         """Q-идентификаторы → (идентификатор IMDb, минуты). Один запрос на все картины.
