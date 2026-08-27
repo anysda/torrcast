@@ -15,6 +15,7 @@ from torrcast.domain.torr_file import TorrFile
 from torrcast.usecases.choice.namesake_note import namesake_note
 from torrcast.usecases.choice.swap_note import _is_default, swap_note
 from torrcast.usecases.choice.year_note import year_note
+from torrcast.usecases.playback.pack_note import pack_note
 from torrcast.usecases.rank._gb import _gb
 from torrcast.usecases.rank._hms import _hms
 from torrcast.usecases.rank.sound_note import sound_note
@@ -39,7 +40,8 @@ def _notes(
     passport: _Passport,
     args: Args,
 ) -> None:
-    """Всё, что показ обязан сказать до старта: вес, звук, подмена картины и тёзки."""
+    """Всё, что показ обязан сказать до старта: вес, звук, выбор файла сборника, подмена
+    картины и тёзки."""
     peak = bitrate_mbit(video.size, media.duration or plan.runtime)
     if peak > config.bitrate_warn_mbit:
         print(
@@ -58,6 +60,12 @@ def _notes(
         print(note)
     if args.pinned:  # отладочный путь: тут внутренности показывать и надо
         print(f"файл: {video.base} · {_gb(video.size)} · {_hms(media.duration)} · {media.video}")
+    # Авто-выбор крупнейшего файла из нескольких - такое же авто-решение, как смена
+    # картины, и молчать о нём нельзя: в раздаче-сборнике зритель иначе не узнает, что
+    # играет одна часть из многих. Сериалу и ручке ``--file N`` говорить нечего: там файл
+    # называет серия или сам человек.
+    if plan.series is None and args.file is None and (note := pack_note(prep.files)):
+        print(note)
     # 🔴 TC-198. Последняя строка перед стартом: взяли не то, что назвали вслух. Место
     # выбрано не для порядка - фазы поиска к этой секунде уехали вверх экрана, а решение
     # про КАРТИНУ человек должен унести с собой. Человек выбрал пункт меню сам - подмены
