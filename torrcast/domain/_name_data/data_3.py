@@ -24,6 +24,9 @@ _EPISODE_SPAN_RES: Final[tuple[re.Pattern[str], ...]] = (
         "[eеэ]\\s*(?P<start>\\d{1,3})\\s*-\\s*[eеэ]?\\s*(?P<end>\\d{1,3})(?!\\d)", re.IGNORECASE
     ),
     _EPISODE_BRACKET_RE,
+    # «N to M» без слова «серия»: англоязычная линейка серий («OVAs 1 to 4»).
+    # Четырёхзначное начало не берём - «2001 to 2011» это годы, а не серии.
+    re.compile("(?<!\\d)(?P<start>\\d{1,3})\\s+to\\s+(?P<end>\\d{1,3})(?!\\d)", re.IGNORECASE),
 )
 _EPISODE_COUNT_RE: Final = re.compile(
     "(?<!\\d)(?P<count>\\d{1,3})\\s*(?:из|of)\\s*(?P<total>\\d{1,3})(?!\\d)", re.IGNORECASE
@@ -56,7 +59,10 @@ _CODEC_TOKEN_RE: Final = re.compile(
     re.IGNORECASE,
 )
 _SERIES_HINT_RE: Final = re.compile(
-    "\\d+\\s*(?:из|of)\\s*\\d+|сери[ия]\\b|сезон|\\bseason\\b|\\bs\\d{1,2}\\b|\\bсериал|\\[tv\\]|\\bтв-\\d",
+    "\\d+\\s*(?:из|of)\\s*\\d+|сери[ия]\\b|сезон|\\bseason\\b|\\bs\\d{1,2}\\b|\\bсериал|\\[tv\\]|\\bтв-\\d"
+    # Слова полного сериала без всяких номеров: «Complete Series», итальянское
+    # «[COMPLETA]», ньяшное «[Batch]» - это имя говорит о виде, а не о сериях.
+    "|complete\\s+series|\\bcompleta\\b|\\bbatch\\b",
     re.IGNORECASE,
 )
 _GLUE: Final = re.compile("(?<=[0-9a-zа-яё])[;:/\\\\|+&,~*=](?=[0-9a-zа-яё])", re.IGNORECASE)

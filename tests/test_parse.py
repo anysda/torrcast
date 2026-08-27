@@ -238,6 +238,42 @@ def test_season_pack_is_not_first_episode() -> None:
     assert release.episode is None
 
 
+@pytest.mark.parametrize(
+    "name",
+    (
+        # Скобочная линейка серий без ведущего нуля и без слова «серия».
+        "[Trix] Cyberpunk: Edgerunners (2022) [1-10] WEB-DL 1080p",
+        "Фрирен [01-12TV全集+OVA] BDRip 1080p",
+        "Наруто (27-40) HDTVRip 720p",
+        # Англоязычная линейка «N to M».
+        "Samurai X OVAs 1 to 4 BDRip 720p",
+        # Четырёхзначный номер серии: у длинных сериалов счёт идёт на тысячи.
+        "One Piece S01E1171 WEB-DL 1080p",
+        # Слова полного сериала без всяких номеров.
+        "The Wire Complete Series BluRay 1080p",
+        "I Soprano [COMPLETA] BDRip 1080p",
+        "[SubsPlease] Gintama [Batch] BDRip 1080p",
+    ),
+)
+def test_a_series_without_season_marks_is_still_a_series(name: str) -> None:
+    """Сериал не обязан называть сезон, чтобы разобраться сериалом."""
+    assert parse_release_name(name).kind == "tv", name
+
+
+@pytest.mark.parametrize(
+    "name",
+    (
+        # Скобочный диапазон лет сборника - это не линейка серий.
+        "Терминатор: коллекция (1984 - 2019) BDRip 1080p",
+        # «Complete ... Collection» про фильмы - не слово полного сериала.
+        "Evangelion Complete 8-Film Collection BDRip 1080p",
+    ),
+)
+def test_a_collection_word_does_not_turn_a_movie_into_a_series(name: str) -> None:
+    """Сборник фильмов не становится сериалом ни по годам, ни по слову «complete»."""
+    assert parse_release_name(name).kind == "movie", name
+
+
 def test_hevc_is_flagged() -> None:
     """HEVC помечается — по умолчанию его никогда не берём."""
     release = parse_release_name("Дюна / Dune (2021) UHD BDRemux 2160p HEVC Дубляж")
