@@ -68,6 +68,7 @@ known-first-party = ["torrcast"]
 [tool.mypy]
 python_version = "3.11"
 strict = true
+incremental = false
 files = ["torrcast", "tests", "scripts"]
 # Белый список vulture переехал в `scripts`, то есть в охват mypy, но кодом он не
 # является: имена в нём намеренно нигде не определены, их читает только vulture.

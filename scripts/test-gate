@@ -1,17 +1,90 @@
 #!/bin/sh
 set -eu
 
+# Один вход в гейт означает и один предел: вызывающая оболочка остаётся снаружи scope,
+# чтобы пережить OOM, назвать его вслух и вернуть код убитого прогона. Swap запрещён:
+# иначе MemoryMax сбережёт RAM, но жадный прогон сможет вытеснить в swap всю машину.
+if [ "${TORRCAST_GATE_SCOPED:-}" != 1 ]; then
+    gate_script=$(realpath "$0")
+    gate_limit=6G
+    if [ "${1:-}" = --oom-probe ] && [ "$#" -eq 1 ]; then
+        gate_limit=64M
+    fi
+    gate_unit="test-gate-$$"
+    set +e
+    systemd-run --user --scope --quiet --unit="$gate_unit" --working-directory="$PWD" \
+        -p Delegate=yes -p MemoryAccounting=yes -p MemoryMax="$gate_limit" \
+        -p MemorySwapMax=0 \
+        env TORRCAST_GATE_SCOPED=1 TORRCAST_GATE_LIMIT="$gate_limit" "$gate_script" "$@"
+    gate_rc=$?
+    set -e
+    if [ "$gate_rc" -eq 137 ]; then
+        echo "гейт остановлен: превышен потолок памяти $gate_limit" >&2
+    fi
+    exit "$gate_rc"
+fi
+
+# Отрицательная проба проходит тем же внешним scope, но с малым пределом: машина не
+# платит шестью гигабайтами за доказательство того, что OOM слышен снаружи.
+if [ "${1:-}" = --oom-probe ] && [ "$#" -eq 1 ]; then
+    exec .venv/bin/python -c 'bytearray(128 * 1024 * 1024)'
+fi
+
+# Свой дочерний cgroup даёт каждой стадии независимый memory.peak, который считает
+# xdist и ffmpeg вместе с родителем. Арифметика остаётся в оболочке и не зависит от awk.
+IFS= read -r gate_cgroup_line < /proc/self/cgroup
+gate_cgroup_root="/sys/fs/cgroup${gate_cgroup_line#*::}"
+gate_stage_number=0
+gate_stage_cgroup="$gate_cgroup_root/stage-$gate_stage_number"
+mkdir "$gate_stage_cgroup"
+while IFS= read -r gate_pid; do
+    echo "$gate_pid" > "$gate_stage_cgroup/cgroup.procs"
+done < "$gate_cgroup_root/cgroup.procs"
+echo +memory > "$gate_cgroup_root/cgroup.subtree_control"
+gate_stage=
+stage() {
+    if [ -n "$gate_stage" ]; then
+        gate_bytes=$(cat "$gate_stage_cgroup/memory.peak")
+        echo "пик памяти [$gate_stage]: $((gate_bytes / 1024 / 1024)) МиБ"
+    fi
+    gate_old_cgroup=$gate_stage_cgroup
+    gate_stage_number=$((gate_stage_number + 1))
+    gate_stage_cgroup="$gate_cgroup_root/stage-$gate_stage_number"
+    mkdir "$gate_stage_cgroup"
+    while IFS= read -r gate_pid; do
+        echo "$gate_pid" > "$gate_stage_cgroup/cgroup.procs"
+    done < "$gate_old_cgroup/cgroup.procs"
+    rmdir "$gate_old_cgroup"
+    gate_stage=$1
+}
+finish_peak() {
+    gate_rc=$?
+    trap - EXIT
+    if [ -n "${seam_dir:-}" ]; then
+        rm -rf "$seam_dir"
+    fi
+    if [ -n "$gate_stage" ]; then
+        gate_bytes=$(cat "$gate_stage_cgroup/memory.peak")
+        echo "пик памяти [$gate_stage]: $((gate_bytes / 1024 / 1024)) МиБ"
+    fi
+    exit "$gate_rc"
+}
+trap finish_peak EXIT
+
 # Разрез на слои закончен, нарушений ноль по всем правилам: сторож переключён из
 # режима отчёта в блокирующий. Без --strict он печатает список и возвращает ноль, то
 # есть раскладка расползается обратно молча. Порог длины тут ровно один - правило
 # `длина` внутри гейта, и оно меряет всё дерево, а не только верх пакета.
+stage "структурный гейт"
 scripts/structure-gate --strict
+stage "cli-contract"
 scripts/cli-contract
 
 # Мёртвое «в большом» - имя без вызывающих и модуль без импортирующих - не видит ни
 # ruff, ни mypy: те смотрят внутрь модуля, а вопрос тут ко всему дереву. Три стадии, у
 # каждой свой охват, и охват там - это и есть смысл стадии; сказано об этом в ней самой.
 # Стоит она сразу за раскладкой: считается шесть секунд, а работу режет рано.
+stage "dead-code"
 scripts/dead-code
 
 # Зеркала проводок (tests/runtime/test_wire*.py) обязаны сверять каждый слот по САМОМУ
@@ -20,6 +93,7 @@ scripts/dead-code
 # Список слотов сторож не держит руками ни для одной проводки: он сам сличает доводы,
 # которые проводка кладёт в свои настройщики, с тем, что сверяет зеркало, - и слот без
 # такой сверки (нынешний пропуск или будущий новый) гейт не пропускает.
+stage "зеркала проводок"
 .venv/bin/python - <<'PY'
 import ast
 from pathlib import Path
@@ -193,23 +267,30 @@ if blind:
 print(f"зеркала проводок сверяют по значению слотов: {total}")
 PY
 
+stage "ruff"
 .venv/bin/ruff check
+stage "ruff format"
 .venv/bin/ruff format --check
-# Без --no-incremental mypy отвечает из .mypy_cache и пропускает поломку, которую
+# С инкрементальным режимом mypy отвечает из .mypy_cache и пропускает поломку, которую
 # сам же нашёл бы на чистом дереве: 16-08-2026 гейт так держался зелёным на
-# отсутствующем модуле. Гейт обязан мерить дерево, а не кэш.
-.venv/bin/mypy --no-incremental
-# Логические процессоры делят независимые тесты; настоящие часы, сокеты, подпроцессы
-# и живой медиатракт не конкурируют за машину. Две команды покрывают всю коллекцию.
-.venv/bin/python -m pytest -m 'not ffmpeg and not machine' -n logical
+# отсутствующем модуле. Режим выключен в pyproject, чтобы голая команда брала оттуда
+# и охват, и честный способ проверки всего дерева.
+stage "mypy"
+.venv/bin/mypy
+# Четыре процесса почти не уступают восьми по времени, но заметно дешевле по памяти;
+# `logical` здесь нельзя: внутри контейнера он видит ядра хоста, а не долю нашей RAM.
+# Настоящие часы, сокеты, подпроцессы и живой медиатракт идут второй командой по одному.
+stage "быстрый набор"
+.venv/bin/python -m pytest -m 'not ffmpeg and not machine' -n 4
 
 # Сторож использует ffmpeg, поэтому живёт в ffmpeg-овой стадии. Без аргументов он
 # проверяет оба пути нашего упаковщика и то, что уезжает зрителю; готовые куски
 # аргументами оставляют прежнюю отрицательную пробу той же командой.
+stage "машинный и ffmpeg-овый набор"
 seam_dir=
 if [ "$#" -eq 0 ]; then
     seam_dir=$(mktemp -d)
-    trap 'rm -rf "$seam_dir"' EXIT HUP INT TERM
+    trap 'rm -rf "$seam_dir"' HUP INT TERM
     # 🔴 23.976 к/с, а не ровные 25, и это не вкус, а условие видимости целого класса.
     # Рез муксер отмеряет от первого пакета прогона, а тот встаёт на первый кадр не
     # раньше границы - то есть на долю кадра позже неё. На 25 к/с кадры стоят через
