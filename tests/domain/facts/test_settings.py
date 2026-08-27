@@ -13,6 +13,11 @@ def test_an_empty_answer_is_remembered_for_a_finite_week() -> None:
     assert settings.EMPTY_TTL == 7 * 24 * 3600
 
 
+def test_the_rules_number_is_a_positive_integer_counting_from_one() -> None:
+    """Номер правил целый и начинается с единицы: ряд без номера старше любой метки."""
+    assert isinstance(settings.FACTS_RULES, int) and settings.FACTS_RULES >= 1
+
+
 def test_the_dumps_live_beside_the_state_of_the_service() -> None:
     """Оба файла кладёт `install.sh`; нет их - справка молчит, и это не сбой."""
     assert settings.RATINGS_PATH.name == "imdb-ratings.tsv"

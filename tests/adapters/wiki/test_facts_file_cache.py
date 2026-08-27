@@ -8,7 +8,7 @@ from torrcast.adapters.wiki.facts_file_cache import FactsFileCache
 from torrcast.adapters.wiki.json_file_store import JsonFileStore
 from torrcast.domain.facts.fact import Fact
 from torrcast.domain.facts.origin import Origin
-from torrcast.domain.facts.settings import EMPTY_TTL, SOURCE_WIKI
+from torrcast.domain.facts.settings import EMPTY_TTL, FACTS_RULES, SOURCE_WIKI
 
 
 def test_a_passport_is_written_once_and_read_back_under_its_own_type() -> None:
@@ -32,7 +32,10 @@ def test_broken_cache_is_the_same_as_no_cache(tmp_path: Path) -> None:
 
     assert cache.blurbs([("Моана", 2016)]) == {}
 
-    path.write_text(json.dumps({"Моана|2016": {"rating": "IMDb 7.6"}}), encoding="utf-8")
+    path.write_text(
+        json.dumps({"Моана|2016": {"rating": "IMDb 7.6", "rules": FACTS_RULES}}),
+        encoding="utf-8",
+    )
     assert cache.blurbs([("Моана", 2016)]) == {("Моана", 2016): Fact(rating="IMDb 7.6")}
 
 

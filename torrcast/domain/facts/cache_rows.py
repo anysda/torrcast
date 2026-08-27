@@ -12,7 +12,7 @@ from collections.abc import Mapping
 from torrcast.domain.facts.fact import Fact
 from torrcast.domain.facts.minutes_of import minutes_of
 from torrcast.domain.facts.origin import Origin
-from torrcast.domain.facts.settings import EMPTY_TTL, RUNTIME_CAP_MINUTES
+from torrcast.domain.facts.settings import EMPTY_TTL, FACTS_RULES, RUNTIME_CAP_MINUTES
 from torrcast.domain.json_value import JsonValue
 
 
@@ -78,6 +78,12 @@ def _cached_facts(
 ) -> dict[tuple[str, int | None], Fact]:
     """Что из лежащего на диске годится сейчас. Битый ряд — как пустой: спросим сеть.
 
+    🔴 Годится только ряд, снятый НЫНЕШНИМИ правилами (:data:`FACTS_RULES`): полка живёт
+    дольше правил, и ряд прежнего номера - как и ряд кода, который номера ещё не писал, -
+    судится заново, что бы в нём ни лежало. Иначе отказ, купленный дефектом разбора,
+    молчал бы весь свой срок уже после починки дефекта, а находка прежних правил не
+    пересуживалась бы никогда.
+
     Ряд с отметкой ``empty`` — это записанное «справки нет»: картина отдаётся пустой, и в
     сеть за ней не идут. Отметка со сроком (:data:`EMPTY_TTL`): вышел — ряда как не было.
 
@@ -89,6 +95,8 @@ def _cached_facts(
     for key in wanted:
         row = raw.get(_key(*key))
         if not isinstance(row, dict):
+            continue
+        if row.get("rules") != FACTS_RULES:
             continue
         blank = row.get("empty")
         if isinstance(blank, int | float) and now - blank > EMPTY_TTL:
@@ -112,6 +120,10 @@ def _fact_rows(
 ) -> dict[str, JsonValue]:
     """Итог похода в ряды кэша; ничего не добыто и не опровергнуто — писать нечего.
 
+    Каждый ряд метится номером правил, которыми он снят (:data:`FACTS_RULES`), - по нему
+    читающая сторона отличает ряд нынешних правил от ряда прежних и пересуживает только
+    второй (:func:`_cached_facts`).
+
     ``misses`` — картины, про которые источник ответил, но сказать ему нечего. Раньше они
     в кэш не попадали вовсе, и каждое меню шло за ними в сеть заново: поход не успевал к
     дедлайну, меню печаталось голым, следующее — точно так же. Пустой ответ — тоже ответ,
@@ -119,7 +131,18 @@ def _fact_rows(
     """
     rows: dict[str, JsonValue] = {}
     for key, fact in found.items():
-        rows[_key(*key)] = {"about": fact.about, "rating": fact.rating, "runtime": fact.runtime}
+        rows[_key(*key)] = {
+            "about": fact.about,
+            "rating": fact.rating,
+            "runtime": fact.runtime,
+            "rules": FACTS_RULES,
+        }
     for key in misses:
-        rows[_key(*key)] = {"about": "", "rating": "", "runtime": "", "empty": now}
+        rows[_key(*key)] = {
+            "about": "",
+            "rating": "",
+            "runtime": "",
+            "empty": now,
+            "rules": FACTS_RULES,
+        }
     return rows

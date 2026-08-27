@@ -13,7 +13,7 @@ from torrcast.domain.facts.cache_rows import (
 )
 from torrcast.domain.facts.fact import Fact
 from torrcast.domain.facts.origin import Origin
-from torrcast.domain.facts.settings import EMPTY_TTL, SOURCE_MAP
+from torrcast.domain.facts.settings import EMPTY_TTL, FACTS_RULES, SOURCE_MAP
 from torrcast.domain.json_map import json_map
 
 
@@ -52,34 +52,88 @@ def test_a_row_written_before_the_source_mark_means_unknown_not_wikipedia() -> N
 def test_a_broken_row_is_the_same_as_no_row() -> None:
     """Битый кэш не роняет меню и не подсовывает мусор."""
     assert _cached_facts({"Моана|2016": "не словарь"}, [("Моана", 2016)], time.time()) == {}
-    raw: dict[str, Any] = {"Моана|2016": {"rating": "IMDb 7.6"}}
+    raw: dict[str, Any] = {"Моана|2016": {"rating": "IMDb 7.6", "rules": FACTS_RULES}}
     assert _cached_facts(raw, [("Моана", 2016)], time.time()) == {
         ("Моана", 2016): Fact(rating="IMDb 7.6")
+    }
+
+
+def test_a_row_judged_by_previous_rules_is_judged_again() -> None:
+    """🔴 TC-843. Полка живёт дольше правил: починка разбора обязана доехать до зрителя.
+
+    И отказ, и находка прежнего номера пересуживаются - за ними идут в сеть, а не берут
+    на веру; ряд кода, который номера ещё не писал, - тоже ряд прежних правил.
+    """
+    now = time.time()
+    found: dict[str, Any] = {
+        "Моана|2016": {"about": "о дочери вождя", "rating": "IMDb 7.6", "rules": FACTS_RULES - 1}
+    }
+    assert _cached_facts(found, [("Моана", 2016)], now) == {}
+    refused: dict[str, Any] = {
+        "Тачки|2006": {"about": "", "rating": "", "runtime": "", "empty": now, "rules": 0}
+    }
+    assert _cached_facts(refused, [("Тачки", 2006)], now) == {}
+    unmarked: dict[str, Any] = {"Дюна|2021": {"about": "о пустыне", "rating": "IMDb 8.0"}}
+    assert _cached_facts(unmarked, [("Дюна", 2021)], now) == {}
+
+
+def test_a_row_judged_by_current_rules_is_taken_without_a_walk() -> None:
+    """Ряд нынешнего номера лежит как лежал: пересуд без смены правил стоил бы сети."""
+    now = time.time()
+    raw: dict[str, Any] = {
+        "Моана|2016": {"about": "о дочери вождя", "rating": "IMDb 7.6", "rules": FACTS_RULES},
+        "Тачки|2006": {
+            "about": "",
+            "rating": "",
+            "runtime": "",
+            "empty": now,
+            "rules": FACTS_RULES,
+        },
+    }
+    assert _cached_facts(raw, [("Моана", 2016), ("Тачки", 2006)], now) == {
+        ("Моана", 2016): Fact(about="о дочери вождя", rating="IMDb 7.6"),
+        ("Тачки", 2006): Fact(),
     }
 
 
 def test_a_stale_empty_answer_is_as_good_as_absent() -> None:
     """Срок у пустоты конечный: статью могли и написать - через :data:`EMPTY_TTL` спросим."""
     now = time.time()
-    fresh: dict[str, Any] = {"Моана|2016": {"about": "", "rating": "", "runtime": "", "empty": now}}
+    fresh: dict[str, Any] = {
+        "Моана|2016": {"about": "", "rating": "", "runtime": "", "empty": now, "rules": FACTS_RULES}
+    }
     assert _cached_facts(fresh, [("Моана", 2016)], now) == {("Моана", 2016): Fact()}
     stale: dict[str, Any] = {
-        "Моана|2016": {"about": "", "rating": "", "runtime": "", "empty": now - EMPTY_TTL - 1}
+        "Моана|2016": {
+            "about": "",
+            "rating": "",
+            "runtime": "",
+            "empty": now - EMPTY_TTL - 1,
+            "rules": FACTS_RULES,
+        }
     }
     assert _cached_facts(stale, [("Моана", 2016)], now) == {}
 
 
 def test_an_empty_row_without_an_expiry_is_asked_again() -> None:
     """Старый пустой ряд без срока не может навсегда закрыть поход к источнику."""
-    raw: dict[str, Any] = {"Тачки|2006": {"about": "", "rating": "", "runtime": ""}}
+    raw: dict[str, Any] = {
+        "Тачки|2006": {"about": "", "rating": "", "runtime": "", "rules": FACTS_RULES}
+    }
     assert _cached_facts(raw, [("Тачки", 2006)], time.time()) == {}
 
 
 def test_the_walk_writes_both_what_it_found_and_what_it_did_not() -> None:
     """Пустой ответ — тоже ответ, и он тоже помнится, только со сроком."""
     rows = _fact_rows({("Тачки", 2006): Fact(rating="IMDb 7.2")}, [("Моана", 2016)], 1000)
-    assert rows["Тачки|2006"] == {"about": "", "rating": "IMDb 7.2", "runtime": ""}
-    assert json_map(rows["Моана|2016"])["empty"] == 1000
+    assert rows["Тачки|2006"] == {
+        "about": "",
+        "rating": "IMDb 7.2",
+        "runtime": "",
+        "rules": FACTS_RULES,
+    }
+    miss = json_map(rows["Моана|2016"])
+    assert (miss["empty"], miss["rules"]) == (1000, FACTS_RULES)
     assert _fact_rows({}, [], 1000) == {}
 
 
@@ -96,9 +150,14 @@ def test_the_source_mark_is_counted_from_the_rows_on_disk() -> None:
 
 
 def test_an_impossible_running_time_is_dropped_off_a_row_that_never_expires() -> None:
-    """Найденный ряд срока не имеет, и записанная однажды выдумка печаталась бы вечно."""
+    """У найденного ряда срока нет, и записанная однажды выдумка печаталась бы вечно."""
     raw: dict[str, Any] = {
-        "Оппенгеймер|2023": {"about": "о физике", "rating": "IMDb 8.3", "runtime": "180 ч 9 мин"}
+        "Оппенгеймер|2023": {
+            "about": "о физике",
+            "rating": "IMDb 8.3",
+            "runtime": "180 ч 9 мин",
+            "rules": FACTS_RULES,
+        }
     }
     assert _cached_facts(raw, [("Оппенгеймер", 2023)], time.time()) == {
         ("Оппенгеймер", 2023): Fact(about="о физике", rating="IMDb 8.3")
@@ -107,7 +166,7 @@ def test_an_impossible_running_time_is_dropped_off_a_row_that_never_expires() ->
 
 def test_a_believable_running_time_stays_on_the_row() -> None:
     """Граница режет выдумку, а не хронометраж: три часа с ряда снимать нечего."""
-    raw: dict[str, Any] = {"Оппенгеймер|2023": {"runtime": "3 ч"}}
+    raw: dict[str, Any] = {"Оппенгеймер|2023": {"runtime": "3 ч", "rules": FACTS_RULES}}
     assert _cached_facts(raw, [("Оппенгеймер", 2023)], time.time()) == {
         ("Оппенгеймер", 2023): Fact(runtime="3 ч")
     }
