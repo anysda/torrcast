@@ -186,19 +186,30 @@ def scope_of(
     )
 
 
-def circles(
+@dataclass(slots=True)
+class Circle:
+    """Меню одного круга одного запроса - и то, чем это меню считали."""
+
+    scope: str
+    plans: list[Plan]
+    menu: list[Picture]
+    catalog: list[Picture]
+    args: Args
+    asked: str
+
+
+def menus_of(
     query: str,
     record: dict[str, Any],
     pools: dict[str, list[list[RawResult]]],
     config: Config,
     profile: Profile,
     ask: Any,
-    canon: dict[str, Any] | None,
-) -> tuple[list[Scope], list[str], list[str]]:
-    """Оба круга одного запроса: первый боевой тракт и меню после добора.
+) -> tuple[list[Circle], list[str], list[str]]:
+    """Меню обоих кругов одного запроса: первый боевой тракт и меню после добора.
 
     Вторая половина - ровно переигровка ``widenreplay``: те же вызовы боевого кода,
-    но с картинами в руках (щупу нужны озвучка и привязка, а не только личность).
+    но с картинами в руках (щупам нужны озвучка, рой и привязка, а не только личность).
     Честность переигровки доказывается сверкой обеих картин по Enter с ``plays``
     самого ``widenreplay`` - расхождение названо строкой и счёт идти не может.
 
@@ -216,7 +227,7 @@ def circles(
     found = pick_franchise(asked, item.catalog)
     if (reread := season_reread(args, name, index, found, item.catalog)) is not None:
         args, asked = reread, name
-    out = [scope_of(query, "первый", item.plans, asked, canon)]
+    out = [Circle("первый", item.plans, item.menu, item.catalog, args, asked)]
 
     row = widenreplay.widen(query, pools, config, profile, ask)
     if told_as_widen(item.default) != row.plays["до"]:
@@ -226,9 +237,9 @@ def circles(
 
     raw = merge(*batches)
     client, said = widenreplay.SavedIndexer(pools), widenreplay.Quiet()
-    merged, _pictures, wider = _second_language(client, asked, args, raw, found, said, passport=ask)
+    merged, pictures, wider = _second_language(client, asked, args, raw, found, said, passport=ask)
     if len(merged) != len(raw):
-        menu = menu_order(wider)
+        menu, catalog = menu_order(wider), pictures
     else:
         # Гейт отверг - контрфакт: та же вторая выдача, склеенная тем же кодом.
         second = client.given.get(row.alt.strip().casefold(), [])
@@ -237,8 +248,23 @@ def circles(
     plans = plans_of(menu, args, config, profile)
     if told_as_widen(default_of(plans)) != row.plays["после"]:
         mismatches.append(f"{query}: круг добора со щупом не сошёлся")
-    out.append(scope_of(query, "добор", plans, asked, canon))
+    out.append(Circle("добор", plans, menu, catalog, args, asked))
     return out, mismatches, item.beyond
+
+
+def circles(
+    query: str,
+    record: dict[str, Any],
+    pools: dict[str, list[list[RawResult]]],
+    config: Config,
+    profile: Profile,
+    ask: Any,
+    canon: dict[str, Any] | None,
+) -> tuple[list[Scope], list[str], list[str]]:
+    """Что играет по Enter на обоих кругах одного запроса - и что сказали стражи."""
+    found, mismatches, beyond = menus_of(query, record, pools, config, profile, ask)
+    out = [scope_of(query, one.scope, one.plans, one.asked, canon) for one in found]
+    return out, mismatches, beyond
 
 
 def diff(base: list[Scope], rows: list[Scope]) -> dict[str, Any]:

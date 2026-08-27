@@ -1001,6 +1001,132 @@ def test_щуп_привязки_мерит_оба_круга_и_сходитс�
     assert "спросили серию" in note, "строка обязана называть верную причину"
 
 
+def dead_swarm_pool() -> dict[str, Any]:
+    """Спрошенный сезон одной раздачей HEVC с дубляжом и живее его - тёзка другого года.
+
+    Предмет замера: русская половина картины несёт единственный носитель серии, и
+    носитель этот HEVC. Осторожный профиль его копией не играет, годным кандидатом он не
+    становится, вес картины падает в ноль - и дефолт достаётся соседу под ТЕМ ЖЕ именем.
+    """
+    return pool(
+        "код гиас s1e1",
+        RuTor=[
+            [
+                "Код Гиас: Восставший Лелуш / Code Geass: Lelouch of the Rebellion R1 "
+                "[01-25 из 25] (2006-2007) BDRip-HEVC 1080p-AniLibria",
+                "a" * 40,
+                int(6.3 * GB),
+                7,
+                "RuTor",
+            ],
+            [
+                "Код Гиас: Восставший Лелуш / Gekijou Soushuuhen Code Geass: Hangyaku no "
+                "Lelouch [Movie] [E1 of 3] [JAP+Sub] [2017, приключения, фантастика, меха, "
+                "драма, BDRip] [720p]",
+                "b" * 40,
+                int(1.4 * GB),
+                4,
+                "RuTor",
+            ],
+        ],
+    )
+
+
+GEASS_CANON = {
+    "query": "код гиас s1e1",
+    "short": "код гиас",
+    "canon": "Код Гиас: Восставший Лелуш",
+    "kind": "tv",
+    "year": 2006,
+}
+
+
+def swarm_case(profile: Any) -> Any:
+    """Первый круг предметного пула глазами щупа роя на названном профиле."""
+    meter = probe("swarmprobe")
+    record = dead_swarm_pool()
+    pools = {str(record["query"]).casefold(): meter.poolreplay.batches_of(record)}
+    circles, mismatches, _beyond = meter.anchorprobe.menus_of(
+        "код гиас s1e1", record, pools, tune(Config(), profile), profile, lambda *_a, **_k: Origin()
+    )
+    assert not mismatches, f"счёт со щупом добора не сошёлся: {mismatches}"
+    return meter, meter.case_of("код гиас s1e1", circles[0], GEASS_CANON)
+
+
+def test_щуп_роя_видит_мёртвую_свою_картину_и_разводит_её_с_чужим_сезоном() -> None:
+    """Осторожный профиль: своя картина в меню есть, рой её ноль, Enter уехал к тёзке.
+
+    Проверяется и разводка внутри класса: взятая картина носит ТО ЖЕ имя каталога, то
+    есть это чужой сезон, а не чужая вещь, - и русская озвучка при подмене теряется.
+    """
+    meter, case = swarm_case(CAUTIOUS)
+
+    assert case.verdict == meter.DEAD, f"класс определён неверно: {case.verdict}"
+    assert case.mine == ["Код Гиас: Восставший Лелуш", 2006, "tv"]
+    assert case.mine_alive == 0, "рой считается по ГОДНЫМ раздачам, а HEVC тут не годен"
+    assert case.mine_ranked == 1, "в очередь отбора носитель серии всё-таки попал"
+    assert case.mine_top == 7, "потолок ожидания - живые сиды самой раздачи, а не ноль"
+    assert case.played == ["Код Гиас: Восставший Лелуш", 2017, "tv"]
+    assert case.played_alive == 4, "взятый сосед сам ниже порога: он лишь наименее мёртвый"
+    assert case.kin, "тёзка того же имени - чужой сезон, худший вид подмены"
+    assert case.mine_dubbed and not case.played_dubbed, "подмена уносит русскую озвучку"
+    numbers = meter.prices([case])
+    assert numbers[meter.KIN] == 1 and numbers[meter.STRANGER] == 0
+    assert numbers["взятая жива"] == 0 and numbers["теряется озвучка"] == 1
+    assert numbers["своя годна, но тиха"] == 1 and numbers["ждать есть чего"] == 1
+
+
+def test_щуп_роя_зеленеет_на_приставке_тем_же_пулом() -> None:
+    """Отрицательная проба: порог роя - свойство ПРОФИЛЯ, и числа не переносятся.
+
+    Пул тот же до строки. Приставка играет HEVC копией, тот же носитель становится
+    годным кандидатом, вес картины поднимается до семи - и по Enter идёт спрошенный
+    сезон. Щуп, красный на обоих профилях, мерил бы не рой, а что-то своё.
+    """
+    meter, case = swarm_case(ANDROID_TV)
+
+    assert case.verdict == meter.SAME, f"на приставке предмета быть не должно: {case.verdict}"
+    assert case.mine_alive == 7 and case.played == ["Код Гиас: Восставший Лелуш", 2006, "tv"]
+    assert not meter.dead_rows([case], "первый"), "класс на этом профиле пуст"
+
+
+def test_щуп_роя_не_считает_вторую_половину_подменой() -> None:
+    """Половина той же картины - не предмет карточки, и в его число попадать не вправе.
+
+    Сверка признаёт спрошенными обе половины: личность у них одна, подмены нет. Считать
+    их «рой мёртв» значило бы раздуть число класса ровно там, где зритель получил ту
+    самую картину. Потеря русского голоса на этой развилке при этом обязана остаться
+    видимой - своим классом, а не молчанием.
+    """
+    meter = probe("swarmprobe")
+    half = meter.Case(
+        query="arcane s1e3",
+        scope="первый",
+        verdict=meter.HALF,
+        mine=["Аркейн", 2021, "tv"],
+        mine_alive=77,
+        mine_dubbed=True,
+        played=["Arcane", 2021, "tv"],
+        played_alive=28,
+    )
+    dead = meter.Case(
+        query="код гиас s1e1",
+        scope="первый",
+        verdict=meter.DEAD,
+        mine=["Код Гиас: Восставший Лелуш", 2006, "tv"],
+        mine_top=7,
+        mine_dubbed=True,
+        played=["Код Гиас: Восставший Лелуш", 2017, "tv"],
+        played_alive=4,
+        kin=True,
+    )
+    counted = meter.tally([half, dead], "первый")
+
+    assert counted[meter.HALF] == 1 and counted[meter.DEAD] == 1
+    assert [row.query for row in meter.dead_rows([half, dead], "первый")] == ["код гиас s1e1"]
+    assert meter.prices([half])["теряется озвучка"] == 1, "потеря голоса обязана считаться"
+
+
 def test_щуп_привязки_судит_бесстрочную_только_привязкой() -> None:
     """Без привязки бесстрочная не судится вовсе: имена у половин общие, счёт бы врал."""
     meter = probe("anchorprobe")
