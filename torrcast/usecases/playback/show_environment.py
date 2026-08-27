@@ -17,7 +17,6 @@ from pathlib import Path
 
 from torrcast.domain.choice import Choice
 from torrcast.domain.config import Config
-from torrcast.domain.film_keys import FilmKeys
 from torrcast.domain.torr_file import TorrFile
 from torrcast.ports.clock import Clock
 from torrcast.ports.prober import Prober
@@ -49,7 +48,6 @@ class ShowEnvironment:
     forget_flag: Callable[[Path], None]
     #: Подъём юнита показа и карта опорных кадров файла.
     start_unit: Callable[[str], None]
-    keys: Callable[[str], FilmKeys]
     #: Медиатракт: сетка сегментов, раздача по http и оба кодировщика.
     grid: MediaGrids
     server: StreamServers

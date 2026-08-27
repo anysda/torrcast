@@ -15,7 +15,6 @@ from torrcast.adapters.recode.recode_dir import RECODE_DIR
 from torrcast.adapters.recode.recoder import Recoder
 from torrcast.adapters.recode.weights import Weights
 from torrcast.adapters.recode.whole_encode import whole_encode
-from torrcast.adapters.stream_pack.film_keys import film_keys
 from torrcast.adapters.stream_pack.forget_playing import forget_playing
 from torrcast.adapters.stream_pack.grid_for import grid_for
 from torrcast.adapters.stream_pack.hls_dir import hls_dir
@@ -79,7 +78,6 @@ def wire_show() -> None:
             flag=playing_flag,
             forget_flag=forget_playing,
             start_unit=start_play_unit,
-            keys=film_keys,
             grid=grid_for,
             server=HlsServer,
             encode=Encode,

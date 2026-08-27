@@ -183,15 +183,6 @@ def use_facts(patch: pytest.MonkeyPatch, facts: StandIn) -> None:
     patch.setattr(releases_command, "_releases_facts", facts)
 
 
-def use_film_keys(patch: pytest.MonkeyPatch, film_keys: StandIn) -> None:
-    """Карта опорных кадров: её знает медиатракт показа, и только он.
-
-    Настоящую снимает ffprobe с живого источника, поэтому зеркала медиатракта дают
-    сюда готовую карту ровного материала - меряется решение о нарезке, а не ffprobe.
-    """
-    patch.setattr(_show_state, "film_keys", film_keys)
-
-
 def use_hls_base(patch: pytest.MonkeyPatch, base: StandIn) -> None:
     """Свой адрес в сторону телевизора: его знает показ, и только он."""
     patch.setattr(_show_state, "hls_base", base)

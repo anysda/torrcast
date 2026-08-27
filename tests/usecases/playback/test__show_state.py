@@ -50,7 +50,6 @@ def test_a_second_word_replaces_the_first(monkeypatch: pytest.MonkeyPatch) -> No
                 flag=_state.playing_flag,
                 forget_flag=_state.forget_playing,
                 start_unit=second.append,
-                keys=_state.film_keys,
                 grid=_state.grid_for,
                 server=_state.HlsServer,
                 encode=_state.Encode,

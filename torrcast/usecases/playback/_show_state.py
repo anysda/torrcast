@@ -13,7 +13,6 @@ from pathlib import Path
 
 from torrcast.domain.choice import Choice
 from torrcast.domain.config import Config
-from torrcast.domain.film_keys import FilmKeys
 from torrcast.domain.torr_file import TorrFile
 from torrcast.ports.clock import Clock
 from torrcast.ports.prober import Prober
@@ -40,7 +39,6 @@ hls_base: Callable[[Config], str]
 playing_flag: Callable[[Path], Path]
 forget_playing: Callable[[Path], None]
 start_play_unit: Callable[[str], None]
-film_keys: Callable[[str], FilmKeys]
 grid_for: MediaGrids
 #: Раздача по http (:class:`torrcast.adapters.http_server.hls_server.HlsServer`), оба
 #: кодировщика (:class:`torrcast.adapters.recode.encode.Encode`,
@@ -71,7 +69,7 @@ def _configure_playback(environment: ShowEnvironment) -> None:
     берётся по имени, и подать вместо него соседа того же рода нечем.
     """
     global CLOCK, make_receiver, probe, detect_profile, pick_video_file, hls_dir, hls_base
-    global playing_flag, forget_playing, start_play_unit, film_keys, grid_for, HlsServer
+    global playing_flag, forget_playing, start_play_unit, grid_for, HlsServer
     global Encode, Recoder, weights_of, flat_weights, whole_encode, MAXRATE_GAIN, RECODE_DIR
     CLOCK = environment.clock
     make_receiver = environment.receivers
@@ -83,7 +81,6 @@ def _configure_playback(environment: ShowEnvironment) -> None:
     playing_flag = environment.flag
     forget_playing = environment.forget_flag
     start_play_unit = environment.start_unit
-    film_keys = environment.keys
     grid_for = environment.grid
     HlsServer = environment.server
     Encode = environment.encode

@@ -8,7 +8,6 @@ import pytest
 
 from tests.fakes import composition
 from tests.fakes.clock import FakeClock
-from tests.usecases.playback.world import film_keys
 from torrcast.domain.config import Config
 from torrcast.domain.exit_codes import EXIT_OK
 from torrcast.domain.position import Position
@@ -51,7 +50,6 @@ def _world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     ручные часы держателя: с боевыми круг опроса ждал бы настоящие две секунды на
     каждом шаге, то есть зеркало меряло бы терпеливость машины, а не решение показа.
     """
-    composition.use_film_keys(monkeypatch, lambda source: film_keys())
     composition.use_hls_base(monkeypatch, lambda config: "http://127.0.0.1:0")
     composition.use_revive_clock(monkeypatch, FakeClock(now=1000.0))
     composition.use_playing_mark(monkeypatch, lambda where: None)

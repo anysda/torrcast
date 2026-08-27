@@ -8,7 +8,6 @@ import pytest
 
 from tests.fakes import composition
 from tests.fakes.torrent_engine import FakeTorrentEngine
-from tests.usecases.playback.world import film_keys
 from torrcast.domain.config import Config
 from torrcast.domain.entry import Entry
 from torrcast.domain.media import Media
@@ -26,7 +25,6 @@ _FILES = [
 @pytest.fixture(autouse=True)
 def _world(monkeypatch: pytest.MonkeyPatch) -> None:
     """Карта опорных кадров и паспорт - готовые: ни сети, ни ffmpeg тут нет."""
-    composition.use_film_keys(monkeypatch, lambda source: film_keys())
     composition.use_prober(monkeypatch, lambda source, **_: Media(duration=300.0))
 
 

@@ -7,7 +7,6 @@ from pathlib import Path
 
 import pytest
 
-from tests.fakes import composition
 from tests.usecases.playback.world import film_keys, grid
 from torrcast.adapters.recode.encode import Encode
 from torrcast.adapters.recode.recoder import Recoder
@@ -25,7 +24,6 @@ from torrcast.usecases.warm.warm_key import warm_key
 @pytest.fixture(autouse=True)
 def _tract(monkeypatch: pytest.MonkeyPatch) -> None:
     """Карта опорных кадров - готовая; решение о кодировании считают настоящие классы."""
-    composition.use_film_keys(monkeypatch, lambda source: film_keys())
 
 
 def test_warming_switched_off_means_no_warmer_at_all(tmp_path: Path) -> None:

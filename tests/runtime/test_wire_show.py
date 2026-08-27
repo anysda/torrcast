@@ -22,7 +22,6 @@ from torrcast.adapters.recode.recode_dir import RECODE_DIR
 from torrcast.adapters.recode.recoder import Recoder
 from torrcast.adapters.recode.weights import Weights
 from torrcast.adapters.recode.whole_encode import whole_encode
-from torrcast.adapters.stream_pack.film_keys import film_keys
 from torrcast.adapters.stream_pack.forget_playing import forget_playing
 from torrcast.adapters.stream_pack.grid_for import grid_for
 from torrcast.adapters.stream_pack.hls_dir import hls_dir
@@ -70,7 +69,6 @@ def test_the_show_gets_the_real_media_pipeline_and_the_real_receiver() -> None:
     assert _show_state.playing_flag is playing_flag
     assert _show_state.forget_playing is forget_playing
     assert _show_state.start_play_unit is start_play_unit
-    assert _show_state.film_keys is film_keys
     assert _show_state.grid_for is grid_for
     assert _show_state.HlsServer is HlsServer
     assert _show_state.Encode is Encode

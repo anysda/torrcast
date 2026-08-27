@@ -8,8 +8,7 @@ from typing import cast
 
 import pytest
 
-from tests.fakes import composition
-from tests.usecases.playback.world import film_keys, grid
+from tests.usecases.playback.world import grid
 from torrcast.adapters.recode.recoder import Recoder
 from torrcast.adapters.recode.whole_encode import whole_encode
 from torrcast.adapters.stream_pack.hls_dir import hls_dir
@@ -41,7 +40,6 @@ def _world(monkeypatch: pytest.MonkeyPatch) -> None:
     (:func:`torrcast.runtime.wire.wire`) теми же, что стоят на боевом пути: договор
     медиатракта зеркало сверяет с ними, а не с пересказом.
     """
-    composition.use_film_keys(monkeypatch, lambda source: film_keys())
 
 
 def _config(tmp_path: Path) -> Config:
