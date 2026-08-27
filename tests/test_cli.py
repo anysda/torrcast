@@ -67,7 +67,7 @@ from torrcast.usecases.discover._nothing import _nothing
 from torrcast.usecases.discover._second_language import _second_language
 from torrcast.usecases.discover.kin_line import _kin, kin_line
 from torrcast.usecases.discover.silent_swarm import silent_swarm
-from torrcast.usecases.facts import Facts
+from torrcast.usecases.facts import FactPicture, Facts
 from torrcast.usecases.playback._launch import _refuse_hopeless
 from torrcast.usecases.rank.bitrate_of import bitrate_of
 from torrcast.usecases.rank.is_candidate import is_candidate
@@ -3937,7 +3937,7 @@ def test_releases_table_uses_true_duration_and_matches_explicit_release(
 class _Facts3h(Facts):
     """Справка, которая на любую картину отвечает хронометражем «3 ч»."""
 
-    def __init__(self, pictures: Iterable[tuple[str, int | None]]) -> None:
+    def __init__(self, pictures: Iterable[FactPicture]) -> None:
         super().__init__(pictures, 0.0, store=FakeBlurbStore(), source=FakeBlurbSource())
 
     def start(self) -> None:

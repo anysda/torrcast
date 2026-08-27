@@ -20,14 +20,14 @@ from torrcast.domain.release import Release
 from torrcast.ports.progress.progress import Progress
 from torrcast.runtime.wire import wire
 from torrcast.usecases import releases_command
-from torrcast.usecases.facts import Facts
+from torrcast.usecases.facts import FactPicture, Facts
 from torrcast.usecases.releases_command import _cmd_releases
 from torrcast.usecases.select.plan import Plan
 
 GB = 1024**3
 
 
-def _silent(wanted: list[tuple[str, int | None]]) -> Facts:
+def _silent(wanted: list[FactPicture]) -> Facts:
     """Справка, которой нечего сказать: таблица считает по своим числам."""
     return Facts(wanted, 0.0, store=FakeBlurbStore(), source=FakeBlurbSource())
 

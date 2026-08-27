@@ -52,6 +52,7 @@ class Offline:
         wanted: list[tuple[str, int | None]],
         timeout: float = HTTP_TIMEOUT,
         ready: Callable[[Blurbs], None] | None = None,
+        kinds: dict[tuple[str, int | None], str] | None = None,
     ) -> tuple[Blurbs, set[tuple[str, int | None]]]:
         raise AssertionError("справка уже в кэше - ходить за ней некуда")
 

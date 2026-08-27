@@ -70,6 +70,7 @@ def test_the_first_cold_list_carries_the_blurb_under_its_item() -> None:
             wanted: list[tuple[str, int | None]],
             timeout: float = HTTP_TIMEOUT,
             ready: Callable[[dict[tuple[str, int | None], Fact]], None] | None = None,
+            kinds: dict[tuple[str, int | None], str] | None = None,
         ) -> tuple[dict[tuple[str, int | None], Fact], set[tuple[str, int | None]]]:
             awaited.wait(5.0)
             if ready is not None:

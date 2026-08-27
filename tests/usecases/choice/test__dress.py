@@ -51,6 +51,7 @@ class Wave:
         wanted: list[tuple[str, int | None]],
         timeout: float = HTTP_TIMEOUT,
         ready: Callable[[Blurbs], None] | None = None,
+        kinds: dict[tuple[str, int | None], str] | None = None,
     ) -> tuple[Blurbs, set[tuple[str, int | None]]]:
         if self.hold is not None:
             self.hold.wait(2.0)
