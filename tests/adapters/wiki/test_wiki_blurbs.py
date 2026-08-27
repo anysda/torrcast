@@ -7,7 +7,7 @@ from typing import Any
 import pytest
 
 from tests import thread_guard
-from tests.articles import CARS, MOANA, wiki_reply
+from tests.articles import CARS, MOANA, ROBOCOP_FILM, robocop_reply, wiki_reply
 from tests.fakes.json_client import FakeJsonClient
 from tests.fakes.rating_dump import FakeRatingDump
 from torrcast.adapters.wiki.endpoints import WIKIDATA_HOST
@@ -305,3 +305,18 @@ def test_the_ratings_reader_is_closed_by_the_one_who_raised_it() -> None:
     left = thread_guard.alive() - before
     assert not left, f"нитку закрыл тот, кто её поднял, а живой осталась {left}"
     assert time.monotonic() - started >= 1.0, "справка отдана после закрытия, а не вместо него"
+
+
+def test_the_asked_type_reaches_the_choice_of_article() -> None:
+    """Тип доезжает не только до карты IMDb, но и до выбора статьи - иначе описание чужое."""
+    key = ("Робокоп", 1987)
+
+    def answer(host: str, path: str, params: dict[str, str]) -> Any:
+        if host == WIKIDATA_HOST:
+            raise OSError("Wikidata молчит")
+        return robocop_reply()
+
+    found, _answered = WikiBlurbs(FakeJsonClient(answer), FakeRatingDump(dict)).fetch(
+        [key], kinds={key: "movie"}
+    )
+    assert found[key].about == ROBOCOP_FILM

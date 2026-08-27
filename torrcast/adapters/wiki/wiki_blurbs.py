@@ -102,7 +102,7 @@ class WikiBlurbs:
             [reader], time.monotonic() + timeout, lambda: (dict(scores), dict(local_ids))
         )
         scores, local_ids = in_time
-        about, entities = _read_pages(payload, candidates, set(local_ids))
+        about, entities = _read_pages(payload, candidates, set(local_ids), kinds)
         if ready is not None:
             ready(
                 {
