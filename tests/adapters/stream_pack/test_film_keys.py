@@ -260,7 +260,12 @@ def test_a_reader_takes_the_neighbours_refusal_instead_of_reading_the_tail_itsel
 
     def neighbour() -> None:
         time.sleep(0.2)
-        cache.write_text(json.dumps({"refused": "индекс Cues врёт", "when": time.time()}), "utf-8")
+        # Сосед пишет вердикт так же, как его пишет :func:`refuse_keys`, - со своим номером
+        # правил: без номера показ обязан сходить в рой заново, и это уже другая проверка.
+        cache.write_text(
+            json.dumps({"refused": "индекс Cues врёт", "when": time.time(), "rules": KEYS_RULES}),
+            "utf-8",
+        )
 
     threading.Thread(target=neighbour, daemon=True).start()
     with pytest.raises(InfraError, match="индекс Cues врёт"):

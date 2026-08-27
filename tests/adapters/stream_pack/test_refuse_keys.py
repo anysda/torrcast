@@ -89,4 +89,4 @@ def test_a_map_without_offsets_adds_nothing_to_the_verdict(tmp_path: Path) -> No
     refuse_keys(cache, "карта не похожа на видео", FilmKeys(60.0, [0.0, 2.0], [], "mkv"))
 
     assert weigh_keys(cache) is None
-    assert json.loads(cache.read_text("utf-8")).keys() == {"refused", "when"}
+    assert json.loads(cache.read_text("utf-8")).keys() == {"refused", "when", "rules"}

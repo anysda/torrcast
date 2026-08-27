@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import time
 from collections.abc import Callable
 from pathlib import Path
 
@@ -353,3 +355,49 @@ def test_the_first_show_of_a_ghost_index_still_knows_what_its_pieces_weigh(
     assert flat.on_keys is False, "призрачной карте резать нечем - сетка обязана быть ровной"
     assert flat.keys is not None, "указатель веса потерян: профиль тяжести выйдет нулём"
     assert flat.keys.offset == [int(at * (1 << 20)) for at in KEYS.at]
+
+
+def test_a_verdict_from_before_the_fix_does_not_freeze_the_shelf_for_a_day(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """🔴 ПРОГРЕТАЯ полка: голый вердикт прежнего кода обязан пересуживаться, а не отвечать.
+
+    Тот самый случай, на котором предыдущая правка не доехала до зрителя. Код на его
+    машине был побайтово новым с 12:48, а сеанс 12:49 шёл по-старому - `профиль 0.0`,
+    `ужатие` на каждом куске, два погасания и четыре залипания, - потому что на полке
+    лежал вердикт того же файла в **469 байт**, записанный в 10:42 прежним кодом:
+    ``{"refused": "индекс Cues врёт: точка 4131.693...", "when": ...}``. Байтового
+    указателя в нём нет - прежний код его не писал, - а :func:`refused_keys` номера правил
+    не спрашивал и отдавал такую запись как есть все сутки
+    (:data:`~torrcast.domain.warm_open.KEYS_REFUSED`).
+
+    Мера стоит на стыке целиком: полка → :func:`film_keys` → :func:`grid_for`. Порознь
+    все трое зелены и на сломанном коде.
+    """
+    monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
+    url = "http://торрент/поток"
+    drawn = KeyMap(60.0, tuple(Point(at, int(at * (1 << 20)), 1) for at in KEYS.at), 0, 0, "mkv", 1)
+    cache = _keys_cache(url)
+    cache.parent.mkdir(parents=True, exist_ok=True)
+    #: Ровно та запись зрителя: голая, без указателя и без номера правил.
+    cache.write_text(
+        json.dumps({"refused": "индекс Cues врёт: точка 4131.693", "when": time.time()}), "utf-8"
+    )
+
+    asked: list[str] = []
+
+    def ghost(source: str) -> KeyMap:
+        asked.append(source)
+        raise GhostKeysError("индекс Cues врёт: точка 4131.693", drawn)
+
+    flat = _grid(lambda source: film_keys(source, keys_of=ghost))
+
+    assert asked == [url], "вердикт прежнего кода отдан с полки - разбор не поднялся"
+    assert flat.on_keys is False, "призрачной карте резать нечем"
+    assert flat.keys is not None, "указатель веса не родился: профиль тяжести выйдет нулём"
+    assert flat.keys.offset == [int(at * (1 << 20)) for at in KEYS.at]
+
+    #: И пересуд платится ОДИН раз: свежий вердикт лежит уже со своим номером.
+    again = _grid(lambda source: film_keys(source, keys_of=ghost))
+    assert asked == [url], "пересуд повторяется на каждом старте - это цена на ровном месте"
+    assert again.keys is not None and again.keys.offset == flat.keys.offset

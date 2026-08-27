@@ -8,6 +8,7 @@ import time
 from pathlib import Path
 
 from torrcast.adapters.stream_probe.shelf import _touch
+from torrcast.domain.warm_open import KEYS_RULES
 
 
 def refused_keys(cache: Path, ttl: float) -> str | None:
@@ -32,6 +33,21 @@ def refused_keys(cache: Path, ttl: float) -> str | None:
     вердикт), и это ровно то, что нужно: вес по ней считают, а режут - нет
     (:func:`~torrcast.adapters.stream_pack.weigh_keys.weigh_keys`).
 
+    🔴 Вердикт с ЧУЖИМ номером правил (:data:`~torrcast.domain.warm_open.KEYS_RULES`) отсюда не
+    отдаётся вовсе - как не отдаётся карта с чужим номером
+    (:func:`~torrcast.adapters.stream_pack.read_keys.read_keys`). Прежде номер тут не
+    спрашивался, и это стоило зрителю выката целиком. Живой разбор 27-08: правка,
+    научившая класть рядом с «индекс врёт» байтовый указатель, приехала на машину
+    зрителя побайтово в 12:48 - а сеанс 12:49 шёл по-старому, `профиль 0.0` и `ужатие`
+    на каждом куске, потому что на полке лежал голый вердикт того же файла в 469 байт,
+    записанный в 10:42 прежним кодом. Разбор до новых правил не доходил ни разу, и
+    продлилось бы это все сутки :data:`~torrcast.domain.warm_open.KEYS_REFUSED`. Срок
+    вердикта лечит прошлое ЗАВТРА, а зритель смотрит сегодня.
+
+    ⚠️ Цена пересуда названа и ограничена: голова, индекс и пробы честности - ОДИН раз на
+    файл, потому что первый же разбор кладёт на место вердикт уже со своим номером. Записи
+    сегодняшних правил тут не трогаются ни одним лишним запросом в рой.
+
     ⚠️ Срок считается по записанному времени вердикта, а не по времени файла: полка
     живёт по обращению (:func:`_touch`), и считай мы срок по нему - память об отказе
     продлевалась бы каждым стартом, то есть становилась бы вечной ровно у того фильма,
@@ -41,6 +57,8 @@ def refused_keys(cache: Path, ttl: float) -> str | None:
     with contextlib.suppress(OSError, ValueError, KeyError, TypeError):
         saved = json.loads(cache.read_text("utf-8"))
         refused = str(saved["refused"])
+        if int(saved.get("rules", 0)) != KEYS_RULES:
+            return None
         if time.time() - float(saved["when"]) < ttl:
             _touch(cache)
             return refused

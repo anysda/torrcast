@@ -10,6 +10,7 @@ from typing import Any
 
 from torrcast.adapters.stream_pack._keys_draft import _keys_draft
 from torrcast.domain.film_keys import FilmKeys
+from torrcast.domain.warm_open import KEYS_RULES
 
 
 def refuse_keys(cache: Path, refused: str, keys: FilmKeys | None = None) -> None:
@@ -47,11 +48,25 @@ def refuse_keys(cache: Path, refused: str, keys: FilmKeys | None = None) -> None
     ⚠️ Картой такая запись не становится: :func:`~torrcast.adapters.stream_pack.read_keys.read_keys`
     отдаёт ``None`` всему, на чём стоит вердикт, - иначе полка вернула бы отвергнутую
     карту сетке следующего показа, то есть отменила бы сам вердикт.
+
+    🔴 Вердикт носит на полке номер правил (:data:`KEYS_RULES`) ровно по той же причине, по
+    которой его носит карта: выкат, меняющий разбор или полноту записи, не отменяет того,
+    что уже лежит. Живой замер 27-08: правка, научившая класть рядом с «индекс врёт»
+    байтовый указатель, доехала до машины зрителя побайтово - и не сделала ничего, потому
+    что на полке лежал голый вердикт того же файла в 469 байт, записанный за два часа до
+    выката. Разбор до новых правил не доходил, профиль оставался нулём, куски шли ужатием
+    на месте, и продлилось бы это до конца суток вердикта.
     """
     with contextlib.suppress(OSError):
         cache.parent.mkdir(parents=True, exist_ok=True)
         tmp = _keys_draft(cache)
-        body: dict[str, Any] = {"refused": refused, "when": time.time()}
+        # 🔴 Номер правил стоит и на вердикте, а не только на карте. Полка живёт дольше
+        # правил в обе стороны: «да» прежних правил перечитывает
+        # :func:`~torrcast.adapters.stream_pack.read_keys.read_keys`, а «нет» прежних правил
+        # до этой отметки отдавалось как есть весь :data:`KEYS_REFUSED`
+        # (:func:`~torrcast.adapters.stream_pack.refused_keys.refused_keys`), и разбор до
+        # свежих правил не доходил вовсе.
+        body: dict[str, Any] = {"refused": refused, "when": time.time(), "rules": KEYS_RULES}
         if keys is not None and keys.offset and len(keys.offset) == len(keys.at):
             body |= {
                 "duration": keys.duration,
