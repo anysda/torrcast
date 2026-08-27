@@ -1186,3 +1186,85 @@ def test_щуп_пака_не_числит_сборником_одиночную
     )
     assert found and found[0].pack_below == 0, "сборник найден там, где его нет"
     assert [label for label, _ in packs.wanted(found)] == ["матрица"]
+
+
+def kind_corpus(tmp_path: Path) -> tuple[Path, Path]:
+    """Маленький корпус и его разметка: фильм, сериал с меткой и сериал без меток."""
+    corpus = tmp_path / "names.txt"
+    corpus.write_text(
+        "\n".join(
+            [
+                "Кино / Movie (1999) BDRip 1080p",
+                "Сериал / Series S01 1080p",
+                "Врата Штейна / Steins;Gate [2011, Япония, фантастика, BDRip 1080p] MVO",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    marks = tmp_path / "marks.tsv"
+    marks.write_text(
+        "# комментарий\n"
+        "Кино / Movie (1999) BDRip 1080p\tmovie\n"
+        "Врата Штейна / Steins;Gate [2011, Япония, фантастика, BDRip 1080p] MVO\ttv\tпак\n",
+        encoding="utf-8",
+    )
+    return corpus, marks
+
+
+def test_щуп_вида_считает_молчаливый_дефолт_по_разметке(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Вид «фильм» - это молчание разбора, и цену молчания называет разметка."""
+    meter = probe("kindprobe")
+    corpus, marks = kind_corpus(tmp_path)
+    out = tmp_path / "kind.jsonl"
+
+    assert meter.main(["--corpus", str(corpus), "--marks", str(marks), "--jsonl", str(out)]) == 0
+    said = capsys.readouterr().out
+
+    assert "поставлен молчанием (серийных меток нет): 2" in said
+    assert "покрыто разметкой: 2 из 2" in said
+    assert "неверно названы фильмом: 1 сериалов (паков 1, одиночных серий 0)" in said
+    assert "Врата Штейна" in said, "неверно названный сериал обязан быть назван по имени"
+    card = written(out)
+    assert card["tool"] == "kindprobe"
+
+
+def test_щуп_вида_не_считает_по_неполной_разметке(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Имя класса без ряда разметки - это исключение, а не сноска под таблицей."""
+    meter = probe("kindprobe")
+    corpus, marks = kind_corpus(tmp_path)
+    marks.write_text(marks.read_text(encoding="utf-8").splitlines()[0] + "\n", encoding="utf-8")
+
+    assert meter.main(["--corpus", str(corpus), "--marks", str(marks)]) == 1
+    assert "СЧЁТ НЕ СОШЁЛСЯ" in capsys.readouterr().err
+
+    # И зеркально: ряд разметки про имя вне корпуса - та же недопустимость.
+    corpus, marks = kind_corpus(tmp_path)
+    with marks.open("a", encoding="utf-8") as handle:
+        handle.write("Нет такого имени (1900)\ttv\tпак\n")
+    assert meter.main(["--corpus", str(corpus), "--marks", str(marks)]) == 1
+
+
+def test_щуп_вида_краснеет_на_пришедшей_подмене() -> None:
+    """Отрицательная проба счёта: смена вида на неверный видна числом, а не молчанием.
+
+    Требование выкатки - «подмен пришло = 0»; щуп, не умеющий показать единицу на
+    заведомой подмене, этот ноль не доказывает. Рядом - и потеря озвучки.
+    """
+    meter = probe("kindprobe")
+    base = [
+        meter.Row(raw_name="а", kind="movie", voices=["Дубляж"], truth="movie", form=""),
+        meter.Row(raw_name="б", kind="movie", voices=[], truth="tv", form="пак"),
+    ]
+    rows = [
+        meter.Row(raw_name="а", kind="tv", voices=[], truth="movie", form=""),
+        meter.Row(raw_name="б", kind="tv", voices=[], truth="tv", form="пак"),
+    ]
+    numbers = meter.diff(base, rows)
+
+    assert numbers["сменилось"] == 2
+    assert numbers["ПОДМЕН ПРИШЛО"] == 1 and numbers["подмен ушло"] == 1
+    assert numbers["пропала озвучка"] == 1, "потеря русского голоса тоже обязана краснеть"

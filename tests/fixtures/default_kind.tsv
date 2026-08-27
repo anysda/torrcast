@@ -1,0 +1,398 @@
+# Выверенная глазами разметка имён из names.txt, получивших вид «фильм» по
+# умолчанию: серийных меток в имени нет, и разбор ставит «movie» молча. Имена
+# взяты из корпуса дословно, вид проверен по самому имени раздачи. TSV, 3 колонки:
+# raw_name	вид	форма
+# вид: movie | tv (это сериал) | junk (не кино вовсе: игра, музыка, книга, клип)
+# форма (только для tv): пак - в раздаче больше одной серии; серия - одна серия
+(RUS) Чебурашка / 2013	movie
+2046 / 2046 (2004) UHD BDRemux 2160p | HDR | Dolby Vision Profile 7 | P	movie
+Akira (1988) [Blu-Ray JPN 2160p REMUX-HEVC Dolby Vision-Atmos 7.1-VO Multi VF + VOSTFR]	movie
+All.You.Need.Is.Kill.2025.1080p.BluRay.REMUX.AVC.DUAL.DTS-HD.MA.5.1-BLURANiUM	movie
+Amadeus.1984.4K.HDR.2160p BDRemux Ita Eng x265-NAHOM UHD [Theatrical Cut]	movie
+Atomic Blonde 2017 BDREMUX 2160p 4K UltraHD HEVC HDR ExKInoRay	movie
+Avatar 2009 Extended BluRay 1080p ReMux AVC DTS-HD MA 5.1-MgB	movie
+Avengers Endgame 2019 2160p UHD BDRip HEVC 10bit DV HDR TrueHD7.1 Atmos MUSHR00M	movie
+Belle - Ryuu to sobakasu no hime (2021) [Blu-Ray JPN 2160p REMUX-HEVC Dolby Vision-Atmos 7.1-VO Multi VF + VOSTFR]	movie
+Belle - Ryuu to sobakasu no hime (2021) [Blu-Ray JPN 2160p-HEVC Dolby Vision-Atmos 7.1-VO Multi]	movie
+Chainsaw Man - Il Film - La storia di Reze (2025) [2160p.x265.WEB-DL.ITA.JPN.DDP5.1.DV.HDR10+.Subs.Ita.Eng] [17.8GB] [stress]	movie
+Chainsaw Man The Movie Reze Arc 2025 2160p iT WEB-DL DUAL DDP5.1 DV HDR H 265-VARYG (Chainsaw Man: Reze-hen, Dual-Audio, Multi-Subs)	movie
+Chainsaw.Man.-.The.Movie.Reze.Arc.2025.1080p.MA.WEB-DL.DUAL.DDP5.1.Atmos.H.264-BYNDR	movie
+Chainsaw.Man.-.The.Movie.Reze.Arc.2025.2160p.MA.WEB-DL.DUAL.DDP5.1.Atmos.H.265-BYNDR	movie
+Chainsaw.Man.The.Movie.Reze.Arc.A.K.A.Gekijo-ban.Chenso.Man.Reze-hen.2025.DUAL-AUDIO.JAP-ENG.1080p.10bit.WEBRip.6CH.x265.HEVC-PSA	movie
+Cowboy Bebop (1998) [COMPLETA] [1080p.x264.FLAC.ITA.JPN.Subs.Ita.Eng.Jpn.v2] [BluRay] [175.2GB] [stress]	tv	пак
+Cowboy Bebop - AniLiberty.TOP [BDRip 1080p][AVC][1-26]	tv	пак
+Cowboy Bebop - Collection of Extras	junk
+Cyberpunk Edgerunners WEB-DL 1080P HDR DV EAC3 VF VOSTFR-LTPD v2	tv	пак
+Danger.Diabolik.1968.4K.HDR.DV.2160p.BDRemux Ita Eng x265-NAHOM	movie
+Deadpool & Wolverine (2024) 1080p WEBRip 5.1 10Bit x265 -YTS	movie
+Deadpool & Wolverine (2024) [WebDL 1080p 60fps] [dual Ac3 5.1+Sub]	movie
+Deadpool and Wolverine 2024 1080p BluRay x264-OFT	movie
+Deadpool and Wolverine 2024 1080p h264 Ac3 5 1 Ita Eng Sub Ita Eng-MIRCrew	movie
+Deadpool.And.Wolverine.2024.2160p.WEB-DL.DV.HDR10+.ENG.LATINO.Atmos.H265.MKV-BTM	movie
+Deadpool.and.Wolverine.2024.1080p.HD-TS-C1NEM4	movie
+Deadpool.and.Wolverine.2024.FRENCH.720p.BluRay.x264-Ulysse	movie
+Deadpool.and.Wolverine.2024.WEB-DL.1080p.DUAL.H.264-HDM	movie
+Demon Slayer : The Movie : Mugen Train [2020] 2160p UHD BDRip HDR10 x265 TrueHD Atmos 7.1 Kira [SEV]	movie
+Demon Slayer : To the Hashira Training [2024] COMPLETE 2160p UHD BDRip HDR10 x265 TrueHD Atmos 7.1 Kira [SEV]	movie
+Demon.Slayer.Kimetsu.No.Yaiba.Infinity.Castle.2025.CUSTOM.MULTi.1080p.BluRay.x264-SUPERFLU (Demon Slayer: Kimetsu no Yaiba : La Forteresse infinie, VF, VOSTFR)	movie
+Demon.Slayer.Kimetsu.No.Yaiba.Infinity.Castle.2025.FANSUB.VOSTFR.1080p.WEB-DL.x264-Slay3R (Gekijouban Kimetsu no Yaiba - Mugen-jou-hen, Demon Slayer: Kimetsu no Yaiba La Forteresse infinie)	movie
+Demon.Slayer.Kimetsu.no.Yaiba.Infinity.Castle.2025.MULTi.AD.1080p.BluRay.x265-KAF	movie
+Dune (2021) 720p CAMRip [Malaysian Bahasa Melayu - Dub] Dual-Aud ...	movie
+Dune (2021) 720p CAMRip [Thai - Dub] Dual-Audio x264	movie
+Dune (2021) 720p HDCAM [tamil-Sub] x264 - 1XBET	movie
+Dune (2021) 720p WEBRip [Thai - Sub] Dual-Audio x264	movie
+Dune (2021) FullHD 1080p.H264 Ita Eng AC3 5.1 Sub	movie
+Dune - Part One (2021) AV1 1080p 7RIP	movie
+Dune Part One (2021) 1080p BRRip 5.1 x264 -YTS	movie
+Edge.of.Tomorrow.2014.4K.HDR.DV.2160p.BDRemux Ita Eng x265-NAHOM ...	movie
+El Camino A Breaking Bad Movie (2019) BDRemux 1080p WinchesterHD	movie
+El Camino A Breaking Bad Movie (2019) BDRemux 1080p WinchesterHD ...	movie
+El.Camino.A.Breaking.Bad.Movie.2019.720p.WEBRip.800MB.x264-Galax ...	movie
+Evangelion-1.11.You.Are.(Not).Alone.2007.4K.SDR.2160p.BDRemux Ita Eng Jap x265-NAHOM	movie
+Fast and Furious 6 (2013) EXTENDED 720p BrRip x264 -YIFY	movie
+Fast and Furious Collection 1080p BluRay x264 Hindi English MW	movie
+Fight.Club.1999.4K.HDR.2160p.BDRemux Ita Eng x265-NAHOM	movie
+Ghost in the Shell (1995) [REMUX HDR 2160p] [MULTI HEVC DTS-HDMA x265]	movie
+Ginger.Snaps.2000.4K.HDR.DV.2160p.BDRemux Eng Ita x265-NAHOM	movie
+Gladiator (2000) 1080p BRRip x264 -YTS	movie
+Gladiator II (2024) 1080p WEBRip 5.1 10Bit x265 -YTS	movie
+Gladiator II (2024) 720p BRRip x264 -YTS	movie
+Gladiator II 2024 1080p UHD BluRay DoVi HDR x265-BRUTE	movie
+Gladiator.II.2024.1080p.BluRay.x264-HiP_EniaHD	movie
+Harry Potter 1-7 UK Pottermore Collection reader Stephen Fry m4b	junk
+Harry Potter 20th Anniversary Return to Hogwarts (2022) 1080p WEBRip 5.1 x264 -YTS	movie
+Harry Potter All Movies Collection 2001-2011 720p Dual KartiKing ...	movie
+Harry Potter Collection 2001-2011 1080p BluRay HEVC x265 5.1 BONE	movie
+Harry Potter [ 9 CD ] 2001 - 2011 OST / Soundtrack	junk
+Harry Potter and the Chamber of Secrets (2002)720p- 600mb- YIFY	movie
+Harry Potter and the Deathly Hallows - Part 2 (2011) (1080p DS4K BluRay x265 10-bit HDR AAC 7.1) [WeSLeY]	movie
+Harry Potter and the Deathly Hallows Collection - ElAmigos	junk
+Harry Potter and the Half-Blood Prince (2009) 2160p BRRip 5.1 10Bit x265 -YTS	movie
+Harry Potter and the Order of the Phoenix (2007) 720p BRRip x264 -YTS	movie
+Harry Potter and the Philosopher's Stone 2001 BDRip 720p	movie
+Harry Potter and the Prisoner of Azkaban (2004) 2160p BRRip 5.1 10Bit x265 -YTS	movie
+Harry.Potter.Complete.Collection.2001-2011.1080p.BluRay.DTS-ETRG ...	movie
+Hokum.2026.4K.HDR.2160p.BDRemux Eng Sub Ita x265-NAHOM	movie
+How.to.Train.Your.Dragon.2025.Repack.IMAX.1080p.BluRay.Remux.AVC.TrueHD.7.1.Atmo	movie
+Inside Out 2 (2024) 720p WEBRip x264 -YTS	movie
+Inside.Out.2015.1080p.3D.BluRay.AVC.DTS-HD.MA.7.1-RARBG	movie
+Inside.Out.2015.BDRip.x264-SPARKS	movie
+Interstellar (2014) UHD BDRemux 2160p 4K, HDR10 - Rjaa	movie
+Interstellar (2014) UHD BDRemux 2160p 4K, HDR10 -Rjaa	movie
+Interstellar IMAX 2014 BDRip 1080p x264 AC3 English Castellano U ...	movie
+Interstellar.2014.BDRip.X264.RoSubbed-playSD	movie
+John Coltrane - Interstellar Space 1967 / 20issue	movie
+Kami-tachi ni Hirowareta Otoko - AniLiberty.TOP [WEBRip 1080p][HEVC][1-12]	tv	пак
+Keeper.2025.4K.HDR10+.2160p.BDRemux Ita Eng x265-NAHOM	movie
+Kill.Bill.The.Whole.Bloody.Affair.2004.4K.HDR.DV.2160p.BDRemux Ita Eng x265-NAHOM	movie
+Malcolm.X.1992.4K.HDR.DV.2160p.BDRemux.HEVC.DTS-HD.MA.x265-NAHOM ...	movie
+Malcolm.X.1992.4k.10bit.HDR.DV.2160p.BDRemux.x265	movie
+Marty.Supreme.2025.2160p.iT.WEB-DL.DV.HDR10+.DDP5.1.Atmos.H265.MP4-BTM	movie
+Meet.Joe.Black.1998.1080p.BluRay.COMPLETE.REMUX.MULTi.DTS-HD.Master.VC1-BTM	movie
+Michael 2026 1080p WEB-DL HEVC x265 5.1 BONE	movie
+Moana (2016) 2160p BRRip 5.1 10Bit x265 -YTS	movie
+Moana (2016) TS | Rus (Dub)	movie
+Moana (Live-Action) (2026) 2160p FULL HD ENGMultiSubsEZTV	movie
+Moana 2 (2024) 1080p BRRip 5.1 x264 -YTS	movie
+Moana 2 (2024) 720p BRRip x264 -YTS	movie
+Moana 2 (2024) 720p WEBRip-LAMA	movie
+Moana 2.2024.2160p.HDR10.REQUEST.WEB-DL.DDP5.1.Multi-Language.Atmos.x265.BluBit	movie
+Moana 2.2024.2160p.HDR10.WEB-DL.DDP5.1.Atmos.x265.BluBit	movie
+Moana 2026 1080p CAM x264 [Ukr Dub]	movie
+Moana 2026 720p CAM x264 [Ukr Dub]	movie
+Moana 2026 CAM x264 [Ukr Dub]	movie
+Moana Vaiana Skarb oceanu 2016 PLDUB 720p BDRip	movie
+Moana.2.1080p.TELESYNC.x264.COLLECTiVE	movie
+Moana.2.2024.FLEMISH.1080p.WEB.h264-TRIPEL	movie
+Moana.2016.2160p.HDR10.REQUEST.WEB-DL.DDP5.1.Multi-Language.Atmos.x265.BluBit	movie
+My.Neighbor.Totoro.AKA.Tonari.no.Totoro.1988.PROPER.BluRay.1080p.FLAC.2.0.AVC.REMUX-FraMeSToR	movie
+Nanatsu no Taizai OVA - AniLiberty.TOP [DVDRip 480p][AVC][1-2]	tv	пак
+Natsume Yuujinchou Shichi - AniLiberty.TOP [WEBRip 1080p][AVC][1-12]	tv	пак
+OVERLORD.The.Sacred.Kingdom.2024.1080p.BluRay.Remux.AVC.FLAC5.1.Dual.Audio-RUDY	movie
+One Piece S01E1171 The Heinous Sinner-Loki of the Underworld Freed REPACK 1080p CR WEB-DL AAC2.0 H.264-VARYG (Multi-Subs)	tv	серия
+Oppenheimer (2023) BluRay 1080p.H264 Ita Eng AC3 5.1 Sub Ita Eng ...	movie
+Oppenheimer (2023) IMAX 2160p 4K Hybrid UHD HDR10 DV Blu-ray REMUX Dual Audio [Hindi + English] ESub ~ RemuxDoc	movie
+Oppenheimer 2023 IMAX 1080p BluRay 10Bit X265 DD 5 1-Chivaman	movie
+Oppenheimer 2023 IMAX 1080p BluRay x264 DTS-WiKi	movie
+Oppenheimer 2023 IMAX UHD BluRay 1080p DD Atmos 5 1 DoVi HDR10 x265-SM737	movie
+Oppenheimer.2023.1080p.HDCam.Sub.Eng.Latino.YG⭐	movie
+Oppenheimer.2023.2160p.REMUX.IMAX.Dolby.Vision.And.HDR10.PLUS.ENG.ITA.LATINO	movie
+Oppenheimer.2023.IMAX.2160p.BluRay.x265.10bit.DTS-HD.MA.5.1-WiKi	movie
+Oppenheimer.2023.IMAX.2160p.BluRay.x265.10bit.DTS-HD.MA.5.1-WiKi ...	movie
+Oppenheimer.2023.IMAX.4K.HDR.DV.2160p BDRemux Ita Eng x265-NAHOM	movie
+Oppenheimer.2023.IMAX.4K.HDR.DV.2160p.BDRip Ita Eng x265-NAHOM	movie
+Over.The.Hedge.2006.1080p.BluRay.REMUX.AVC.DTS-HD.MA.5.1-FGT	movie
+Ponyo.AKA.Gake.no.ue.no.Ponyo.2008.BluRay.1080p.DTS-HD.MA.5.1.AVC.HYBRID.REMUX-FraMeSToR	movie
+Project Hail Mary 2026 UHD BluRay IMAX 2160p HDR10 DV HEVC TrueHD Atmos 7.1 x265	movie
+Saboteur.1942.4K.HDR.2160p.BDRemux Ita Eng Fre x265-NAHOM	movie
+Saltburn.2023.2160p.Dolby.Vision.And.HDR10.PLUS.Multi.Sub.DDP5.1.Atmos.DV.MP4	movie
+Secretary 2002 1080p Hybrid BluRay REMUX AVC DTS-HD MA 7 1 FLAC 2 0 incl Co	movie
+Sousou no Frieren - AniLiberty.TOP [WEBRip 1080p][AVC][1-28]	tv	пак
+Sousou no Frieren - AniLiberty.TOP [WEBRip 1080p][HEVC][1-28]	tv	пак
+Stardust.2007.4K.HDR.DV.2160p.BDRemux Ita Eng x265-NAHOM	movie
+Supergirl (2026) 2160p HDR10 DV WEB-DL Dual Audio [Hindi+English] Sub ~ RemuxDoc	movie
+TVO Out of Mind Out of Sight Inside Brockville Psych x264 720p A ...	movie
+The Fallout (2021) 1080p WEBRip 5.1 x264 -YTS	movie
+The Fast And Furious Collection 1-6 DVDRip x264 AC3-VAiN	movie
+The Fast And The Furious - The Complete Collection (2001-2023) BDRip 1080p	movie
+The Fast and The Furious Collection [2001-2023] BluRay HEVC x265 10Bit DTS AC3	movie
+The Fast and The Furious Movie Collection Pack 1-7 1 through 7	movie
+The Fast and the Furious Tokyo Drift (2006) 2160p BRRip 5.1 10Bit x265 -YTS	movie
+The Matrix (1999) 3D HSBS 1080p BluRay H264 DolbyD 5.1 + nickarad	movie
+The Matrix 1999 1080p UHD BluRay DD 5 1 Atmos DV HDR x265-SQS	movie
+The Matrix 1999 Remastered 1080p BluRay x264-OFT	movie
+The Matrix Complete 5 Movie Collection - Sci-Fi 1999-2021 1080p	movie
+The Matrix Complete 5 Movie Collection Sci-Fi 1999-2021 Eng 1080 ...	movie
+The Matrix Reloaded (2003) 1080p BRRip x264 -YTS	movie
+The Matrix Reloaded (2003) 720p BRRip x264 -YTS	movie
+The Matrix Reloaded 2003.UHD.BluRay.2160p.x265.HDR.Atmos.7.1.[En	movie
+The Matrix Revolutions (2003) 3D HSBS 1080p BluRay H264 DolbyD 5.1 + nickarad	movie
+The Matrix Revolutions 2003 1080p UHD BluRay DD 7 1 DV HDR x265-HiDt	movie
+The Matrix trilogy (1999-2003) BDRip 1080p HighCode-PublicHash	movie
+The Science of Interstellar 720p BDRip x264 [MVGroup org]	movie
+The.Beekeeper.2024.2160p.Dolby.Vision.Profile.5.DDP5.1.Atmos.DV.x265.MP4	movie
+The.Bird.with.the.Crystal.Plumage.1970.4K.HDR.2160p.BDRemux Ita Eng x265-NAHOM	movie
+The.Cat.and.the.Canary.1927.4K.SDR.2160p.BDRemux Sub Ita Eng x265-NAHOM	movie
+The.Deep.House.2021.4K.HDR.DV.2160p.BDRemux Eng Ita x265-NAHOM	movie
+The.Matrix.Resurrections.2021.1080p.BluRay.DDP5.1.x265.10bit-Gal	movie
+The.Matrix.Resurrections.2021.1080p.BluRay.DDP5.1.x265.10bit-Gal ...	movie
+The.Matrix.Resurrections.2021.720p.HMAX.WEBRip.900MB.x264-Galaxy	movie
+The.Matrix.Revolutions.2003.REMASTERED.1080p.BluRay.AVC.TrueHD.7 ...	movie
+The.Mortuary.Collection.2019.2160p.4K.HDR10+.2160p.BDRemux Eng Sub Ita x265-NAHOM	movie
+The.Mothman.Prophecies.2002.4K.HDR.DV.2160p.BDRemux Ita Eng x265-NAHOM	movie
+The.Red.Shoes.1948.4K.HDR.DV.2160p.BDRemux Eng Ita x265-NAHOM	movie
+The.Shepherd.2023.2160p.Dolby.Vision.And.HDR10.Multi.Sub.DDP5.1.Atmos.DV	movie
+The.Shepherd.2023.2160p.Dolby.Vision.And.HDR10.Multi.Sub.DDP5.1.Atmos.DV.MP4	movie
+To End All War Oppenheimer & the Atomic Bomb (2023) 2160p WEBRip 5.1 10Bit x265 -YTS	movie
+To End All War Oppenheimer & the Atomic Bomb (2023) 720p BRRip x264 -YTS	movie
+Tokyo Ghoul- Jack [OVA] - AniLiberty.TOP [BDRip 720p][AVC][OVA]	movie
+Wicked City (1987) (BDRip 1440x1080p x265 HEVC FLAC, DTS-HD MA 2.0+5.1)(Dual Audio)[sxales]	movie
+Wicked Part I (2024) 2160p WEBRip 5.1 10Bit x265 -YTS	movie
+Wicked.For.Good.2025.2160p.UHD.BluRay.REMUX.DV.P7.HDR.MULTi.TrueHD.Atmos-BTM	movie
+[4K][DBD-Raws][幻想万华镜/Gensou Mangekyou ~The Memories of Phantasm~][19][含日语配音/Japanese Audio][2160P][BDRemux][简繁外挂+日文内封][AAC+PCM][MKV]	tv	серия
+[4K][DBD-Raws][幻想万华镜/Gensou Mangekyou ~The Memories of Phantasm~][20][2160P][BDRemux][简繁外挂+日文内封][PCM][MKV](幻想万華鏡)	tv	серия
+[4K_SDR][DBD-Raws][日在校园/School Days/スクールデイズ][01-12TV全集+OVA][2160P][BDRemux][简繁内封][GB&BIG5][PCM][MKV]	tv	пак
+[Aergia] Cowboy Bebop The Movie - Knockin' on Heaven's Door (2001) (BDRemux 1080p AVC FLAC) [Dual Audio]	movie
+[Ani] Vaiana (Moana) [ATG 2016] 720p.mp4	movie
+[Anime Time] Attack on Titan - The Last Attack [Web-DL][1080p][HEVC 10bit x265][AAC] [Dual Audio][Multi Subs]	movie
+[Anime Time] Cyberpunk - Edgerunners [NF][Dual Audio] [1080p][HEVC 10bit x265][Multi Sub] [Batch]	tv	пак
+[Anime Time] Steins;Gate Complete Series (Steins;Gate+Steins;Gate 0+OVAs+Specials+Movie) [BD] [Dual Audio][1080p][HEVC 10bit x265][Opus][Eng Sub]	tv	пак
+[Anime Time] Studio Ghibli Movie Collection (1984 - 2020) [BD] [Dual Audio][1080p][HEVC 10bit x265][AAC][Eng Sub]	movie
+[Antrophiss] Kimetsu no Yaiba The Movie - Infinity Castle Part 1 (Demon Slayer) | Клинок, рассекающий демонов: Бесконечный замок - Фильм 1 | En/Ru [Русские и английские субтитры][HEVC 10bit]	movie
+[Ari-M] Fullmetal Alchemist Brotherhood "Specials" OVAs 1 to 4 [BDrip 720p x264][Sub. Español]	tv	пак
+[Beatrice-Raws] Evangelion 1.0 (1.11) You Are (Not) Alone [BDRip 3840x2160 HEVC TrueHD]	movie
+[Beatrice-Raws] Sword Art Online Ordinal Scale [BDRip 3840x2160 HEVC HDR Dolby Vision Dolby Atmos TrueHD]	movie
+[CD] Fallout [P] [RUS / RUS + ENG] (1997, RPG) (1.1) [Expansion Version, 14.02.25, Mod]	junk
+[CD] Harry Potter and the Sorcerer's Stone / Гарри Поттер и Философский Камень [P] [RUS + ENG / RUS + ENG] (2001, Action) [Фаргус]	junk
+[CMEN][2008.11.18][DVDISO] Neon Genesis Evangelion Complete Platinum Collection	tv	пак
+[Colette] Adria Rae (Wash Me Inside and Out - 20.10.2016)	junk
+[DBD-Raws][4K][幻想万华镜/Gensou Mangekyou ~The Memories Of Phantasm~/幻想万華鏡][01-18全集+合集版][带配音音轨/Human Audio][2160P][BDRemux][简繁外挂][AAC+PCM][MKV]	tv	пак
+[DBD-Raws][4K][牙狼 -Divine Flame-/Garo -Divine Flame-][2160P][BDRemux][简繁外挂][DTS-HDMA][MKV](牙狼〈GARO〉-DIVINE FLAME-)	movie
+[DBD-Raws][4K_HDR][钢之炼金术师剧场版 香巴拉的征服者/Fullmetal Alchemist The Movie Conqueror of Shamballa][2160P][UHDBDRip][HEVC-10bit][简繁外挂][FLAC][MKV](劇場版 鋼の錬金術師 シャンバラを征く者)	movie
+[DL] Fallout 2 [P] [RUS / RUS] (1998, RPG) [Fallout: Sonora + DLC, Extended Release, 03.07.26, Mod]	junk
+[DVD_ISO] Fullmetal Alchemist {Premium OVA Collection} (US, FUNi)	tv	пак
+[Deformer-Lua] Evangelion 30+; - Diffusion spéciale 30e annniversaire [WEBDL 1080p VOSTFR]	movie
+[ESPADAS-3ASQ] Bleach Sennen Kessen-hen (27-40) [BD 1080p FLAC]	tv	пак
+[FAV] Cowboy Bebop + Movie [BD 540p x264 Dual-Audio AAC]	tv	пак
+[Feibanyama] Evangelion BILIBILI Collection 2160p	tv	пак
+[Hi-Subs] Death Note OP02 (BD 1920x1080 HEVC-YUV420P10 FLAC).mp4	junk
+[Knight-Subs] Bleach Thousand-Year Blood War - E41 - GOD OF THUNDER (1080p AMZN WEB-DL DDP2.0 H.264) [Eng-Subs]	tv	серия
+[LegalPorno] Sereia Moana (10.06.2023)	junk
+[LoliHouse] 尼古喵喵 (邪竜解放版) / ヤニねこ / Yani Neko / Chainsmoker Cat - 05 [WebRip 1080p HEVC-10bit AAC][简繁内封字幕]	tv	серия
+[MULT] Головоломка / Inside Out (Пит Доктер / Pete Docter, Роналдо Дель Кармен / Ronnie Del Carmen) [2015, мультфильм, HDRip] [MP4, 960x] Dub (Rus, Ukr), Original, Sub (rus)	movie
+[Mac] [Intel] [DL] The Lord of the Rings: War in the North / Властелин колец: Война на севере [L] [ENG / ENG] (2013, Action) (1.0.1)	junk
+[Moozzi2] Shingeki no Kyojin / 進撃の巨人 / Attack on Titan / Complete Series - 1080P + 4K	tv	пак
+[PS2] Ratchet: Deadlocked (Gladiator) [RUS/Multi3|NTSC]	junk
+[Patch] Патч 2.1 (The Witcher 2: Assassins of Kings - Ведьмак 2: Убийцы королей) [2.1] [RUS]	junk
+[R-Archive] カウボーイビバップ COWBOY BEBOP [English BD remux]	tv	пак
+[Rododendron] Evangelion: Housou 30-shuunen Kinen Tokubetsu Kougyou | Evangelion 30th Anniversary Special (WEB 720p)	movie
+[Shen3] ヱヴァンゲリヲン新劇場版：序 EVANGELION：1.11 YOU ARE (NOT) ALONE [BDRip][1080P][VVC-10bit AAC][CHS CHT ENG JPN][MP4]	movie
+[Shiniori-Raws] Jujutsu Kaisen Hidden Inventory Premature Death (BD 1280x720 x265 10bit AAC)	tv	пак
+[Sneediro] Demon Slayer: Kimetsu no Yaiba Infinity Castle (2025) (WEB 1080p TrueHD) [A1D6970F] | Kimetsu no Yaiba: Mugenjou-hen Movie 1 - Akaza Sairai	movie
+[SonicMaster] Jujutsu Kaisen - Hidden Inventory Premature Death - The Movie (2025) [BDRemux 1080p AVC TrueHD 5.1 E-AC3 2.0] [Dual-Audio] [v3]	movie
+[TPN]5.Centimeters.Per.Second.2007.Hybrid.REPACK.1080p.Bluray.Remux.AVC.DTS-HD.MA.5.1[Multi Au-Sub]	movie
+[Tigra] Chainsaw Man Movie: Reze-hen | Человек-Бензопила: Резе [2025][Русские субтитры]	movie
+[ToonsHub] One Piece EP1172 1080p CR WEB-DL AAC2.0 H.264 (English-Sub)	tv	серия
+[Trix] Chainsaw Man: The Movie - Reze Arc (2025) [Multi Audio] [Multi Subs] (WEB 4K 2160p (1604p) AV1 DV HDR10+ Opus) - CSM Reze-hen 劇場版 チェンソーマン レゼ篇 (VF/VOSTFR)	movie
+[Trix] Cyberpunk: Edgerunners (2022) [Optional Dual Audio] [Multi Subs] (720p AV1)	tv	пак
+[UQW] Death Note + Specials (Relight~Rewrite) [BD 1080p AVC-YUV420P10 FLAC]	tv	пак
+[VIDEO] Интерстеллар / Interstellar (Кристофер Нолан / Christopher Nolan) [2014, США, Великобритания, Канада, фантастика, драма, приключения, BDRip][MP4, 480x] Dub (IMAX Edition)	movie
+[VIDEO] Крепкий орешек: Коллекция / Die Hard: Collection (Джон МакТирнан, Ренни Харлин, Лен Уайзман, Джон Мур) [1988, 1990, 1995, 2007, 2013, Боевик, триллер, криминал, HDRip] [MP4, 960x]	movie
+[WADU] Chainsaw Man – The Movie: Reze Arc (2025) (iT WEB-DL 2160p DV HEVC 10-bit EAC-3) [Dual Audio] | Chainsaw Man: Reze-hen | チェンソーマン レゼ篇	movie
+[WZF]FullMetal_Alchemist_-_Milos_no_Sei-Naru_Hoshi_(2011)[BD-1080p][Hi10p][x264-FLAC_6ch][1920x1080][Sub_Esp].mkv	movie
+[Yameii] Chainsaw Man the Movie: Reze Arc (2025) [English Dub] [CR WEB-DL 1080p H264 AAC] [903D0D65] (Gekijouban Chainsaw Man: Reze-hen)	movie
+[❀拨雪寻春❀] 鏈鋸人 蕾潔篇 / チェンソーマン レゼ篇 / Chainsaw Man - Reze Arc [WebRip][HEVC-10bit 1080p][繁日内嵌]	movie
+[北宇治字幕组] 葬送的芙莉蓮 / Sousou no Frieren [38][WebRip][HEVC_AAC][繁日內嵌]	tv	серия
+Аватар / Avatar / 2009 / ДБ, СТ / 2D, 3D / Blu-Ray CEE (1080p)	movie
+Аватар: Пламя и Пепел / Avatar: Fire and Ash (2025) WEB-DL-HEVC 2160p | 4K | HDR | Dolby Vision Profile 8 | P | Jaskier, HDRezka Studio	movie
+Аватар: Пламя и пепел / Avatar: Fire and Ash (2025) Blu-Ray Remux 2160p | 4K, HEVC, HDR, Dolby Vision P7 | D | MovieDalen	movie
+Аватар: Путь воды / Avatar: The Way of Water (2022) WEB-DL 2160p от селезень | 4K | HDR | Dolby Vision Profile 8 | D, P	movie
+Аватар: Путь воды / Avatar: The Way of Water Collector's Edition / 2022 / ДБ, СТ / 4K, HEVC, HDR, Dolby Vision / Blu-Ray (2160p)	movie
+Аватар: Путь воды / Avatar: The Way of Water [2022, фантастика, боевик, драма, приключения, ProRes 444 10-bit encode, DTS-HD MA/AC-3/AAC 5.1 ENG] Тизер-трейлер #1 IMAX 4K/1080p	movie
+Авианосец: Страж морей / Aircraft Carrier: Guardian of the Seas / 2016 / СТ / 4K, HEVC, HDR / BDRemux (2160p)	movie
+Атака Титанов / Shingeki no Kyojin Movie: Kanketsu-hen - The Last Attack / 2024 / 2 x ДБ, СТ / 4K, HEVC, HDR, Dolby Vision P7 / Blu-Ray Remux (2160p)	movie
+Атака титанов / Вторжение титанов / Shingeki no Kyojin [OVA] (2017) DVDRip-AVC | FassaD	tv	пак
+Бегущий по лезвию 2049 / Blade Runner 2049 (2017) UHD BDRemux 2160p от Odze | 4K | HDR10 | 120fps | D, A	movie
+Безумный Макс (Классическая трилогия) / Mad Max (Trilogy) / 1979-1985 / ДБ / HEVC, HDR / BDRip (1080p)	movie
+Безумный Макс 2: Воин дороги / Mad Max 2: The Road Warrior [1981, Австралия, Боевик, Фантастика, Приключения, BDRip-AVC]	movie
+Безумный Макс: Дорога ярости / Mad Max: Fury Road (2015) BDRip-HEVC 1080p | Лицензия	movie
+Безумный Макс: Дорога ярости / Mad Max: Fury Road [2015, Австралия, США, Футуристическая драма, фантастика, приключения, WEB-DL] AVO	movie
+Безумный макс 1, 2, 3 / Mad Max I, II, III [1979, 1981, 1985] HDRip, HDTVRip	movie
+Белая кровь / Whiteblood (2017) WEB-DL 1080p | P	movie
+Битлджус Битлджус / Beetlejuice Beetlejuice (2024) WEB-DL-HEVC 2160p | 4K | SDR | D, P, L	movie
+Битлджус Битлджус / Beetlejuice Beetlejuice / 2024 / 3 x ДБ, 4 x ПМ, АП (Котов), СТ / BDRip (1080p)	movie
+Блич - OST / Bleach(2005-2012)	movie
+Боевой мститель / The Martial Avenger (2024) WEB-DLRip-AVC | D	movie
+В чужой шкуре / Обладатель / Possessor [2020, Великобритания, Канада, ужасы, фантастика, триллер, BDRip 720p] Dub + DVO + Sub Eng + Original Eng	movie
+Ванадис и Владыка магических стрел / Madan no Ou to Vanadis (2014) [HDTVRip 720p][AVC]	tv	пак
+Ванпанчмен / One Punch Man (2015) [HDTVRip 720p][AVC]	tv	пак
+Властелин Колец: Возвращение Короля / The Lord of The Rings (Extended Editions Remastered) / 2003 / ДБ, 5 x ПМ, ПД, 5 x АП, СТ / BDRip (1080p)	movie
+Властелин колец: Возвращение короля / The Lord of the Rings: The Return of the King (2003) BDRip-HEVC 1080p от RIPS CLUB | Remastered	movie
+Властелин колец: Война рохирримов / The Lord of the Rings: The War of the Rohirrim / 2024 / 2 x ДБ, 2 x ПМ, СТ / 4K, HEVC, HDR, DV P8 / WEB-DL (2160p)	movie
+Властелин колец: Война рохирримов / The Lord of the Rings: The War of the Rohirrim [2024, США, Япония, аниме, мультфильм, фэнтези, боевик, WEB-DL 2160p, SDR] 2x Dub + 2x MVO + 2x Ukr + Original (Eng) + Sub (Rus, Eng)	movie
+Властелин колец: Кинотрилогия / The Lord of the Rings: The Motion Picture Trilogy (2001-2003) HDRip | Режиссерская версия	movie
+Гарри Поттер (Коллекция) / Harry Potter: Complete 8-Film Collection / 2001-2011 / ДБ, 2 x ПМ, 3 x ПД, 3 x АП, СТ / BDRip (1080p)	movie
+Гарри Поттер и Дары Смерти: Часть I / Harry Potter and the Deathly Hallows: Part I [2010, США, Великобритания, фэнтези, приключения, семейный, WEB-DL-AVC] [Open Matte] Dub + Sub (Rus, Eng) + Original Eng	movie
+Гарри Поттер и Дары смерти: Часть 2 / Harry Potter and the Deathly Hallows: Part 2 (2011) Hybrid 1080p | D, A | IMAX	movie
+Гарри Поттер и Кубок огня / Harry Potter and the Goblet of Fire [2005, Великобритания, США, фэнтези, приключения, семейный, BDRip 1080p] Dub + MVO + 3x DVO + 4x AVO + 3x VO + Original (Eng) + Sub (Rus, Eng)	movie
+Гарри Поттер и кубок огня / Harry Potter and the Goblet of Fire / Fundamental Collection / 2005 / ДБ / Open Matte / WEB-DL (1080p)	movie
+Годзилла против Разрушителя / Godzilla vs. Destroyer	movie
+Головоломка 2 / Inside Out 2 (2024) UHD WEB-DL 2160p селезень | 4K | HDR | HDR10+ | Dolby Vision Profile 8 | D | MovieDalen	movie
+Гражданин-мститель / Citizen Vigilante (2026) WEB-DLRip | Р	movie
+Грозовой перевал / Wuthering Heights (2026) Blu-Ray Remux 2160p | 4K, HEVC, HDR, Dolby Vision P7 | D | Movie Dubbing	movie
+Джон Уик (Квадрология) / John Wick (Quadrology) / 2014 - 2023 / ДБ, АП (Есарев, Пучков), СТ / 4 x DVD-9	movie
+Джон Уик / John Wick (Дэвид Лейтч, Чад Стахелски / David Leitch, Chad Stahelski) [2014, боевик, триллер, AC3, DTS, FLAC, NTSC] AVO (Дмитрий Goblin Пучков)	movie
+Джон Уик 2 / John Wick: Chapter Two (2017) BDRip-AVC от OlLanDGroup | Лицензия	movie
+Джон Уик 2 / John Wick: Chapter Two (2017) HDRip-AVC от ExKinoRay | A	movie
+Джон Уик 3 / John Wick: Chapter 3 - Parabellum [2019, США, Боевик, триллер, криминал, BDRip-AVC] Dub + Original Eng + Sub (rus, eng)	movie
+Джон Уик 4 / John Wick: Chapter 4 (2023) BDRemux 1080p от селезень | D, P, A	movie
+Джон Уик 4 / John Wick: Chapter 4 (2023) UHD BDRemux 2160p от селезень | 4K | HDR | Dolby Vision Profile 8 | D, P, A	movie
+Джон Уик 4 / John Wick: Chapter 4 [2023, США, Германия, боевик, триллер, криминал, WEB-DL 2160p, SDR] 3х MVO (HDRezka Studio, Jaskier, TVShows) + Original (Eng) + Sub (Rus, Eng, Fra)	movie
+Дорога на Арлингтон / Arlington road [1999, США, драма, триллер, UHD BDRemux 2160p, HDR10, Dolby Vision] [4K DEU Transfer] Dub (Нева-1) + 2x DVO (R5, Сонотек) + 3x AVO + Sub Rus + Original Eng	movie
+Дэдпул и Росомаха / Дедпул і Росомаха / Deadpool & Wolverine (2024) WEB-DL-HEVC 2160p | 4K | HDR | Dolby Vision Profile 8 | D, L2 | UKR	movie
+Дюна / Dune: Part One / 2021 / ДБ, СТ / BDRip (1080p)	movie
+Дюна: Часть вторая / Dune: Part Two (2024) BDRemux 1080p от ExKinoRay | D, P, A	movie
+Дюна: Часть вторая / Dune: Part Two (2024) BDRip 1080p от селезень | D	movie
+Дюна: Часть вторая / Dune: Part Two (2024) UHD WEB-DL-HEVC 2160p | 4K | HDR | Dolby Vision Profile 8 | D, P, A	movie
+Дюна: Часть вторая / Dune: Part Two / 2024 / 4 x ДБ, 3 x ПМ, 2 x АП (Яроцкий, Сербин), СТ / 4K, HEVC, HDR, Dolby Vision / Blu-Ray Remux (2160p)	movie
+Евангелион 3.0+1.01: Как-то раз / Evangelion 3.0+1.01: Thrice Upon a Time (2021) [WEB-DLRip 1080p][AVC]	movie
+Звездные войны: Коллекция / Star Wars: The Collection (1977-2019) BDRemux 1080p | D	movie
+Звёздные войны: Изгой-один: Андор версия / Star Wars: Rogue One: The Andor Cut (2026) BDRip 1080p | Sub	movie
+Звёздные войны: Изгой-один: Андор версия / Star Wars: Rogue One: The Andor Cut (2026) HDRip-AVC | Sub	movie
+Звёздные войны: Скайуокер. Восход / Star Wars: Episode IX - The Rise of Skywalker (2019) BDRip 720p от ExKinoRay | P	movie
+Звёздные войны: Эпизод 1 / Star Wars Episode I - The Phantom Menace / 1999 / ДБ, ПМ, ПД, 5 x АП, ЛО, СТ / 4K, HEVC, SDR / WEB-DL (2160p)	movie
+Игра престолов. Последний дозор / Game of Thrones: The Last Watch (Джини Финлэй) [2019, документальный, BDRip 1080p]	movie
+Изгой-один: Звёздные войны. Истории / Rogue One: A Star Wars Story [2016, США, Великобритания, фантастика, боевик, приключения, BDRemux 1080p] [Локализованный видеоряд] Dub + VO + Original (Eng) + Sub (Rus, Eng)	movie
+Интерстеллар / Interstellar (2014) BDRip 720p by ZHz | IMAX | Лицензия | 60 fps	movie
+Интерстеллар / Interstellar (2014) BDRip 720p | IMAX Edition | D, Р, A | Лицензия	movie
+Интерстеллар / Interstellar (2014) BDRip 720p от Leonardo and Scarabey | IMAX Edition | Лицензия	movie
+Интерстеллар / Interstellar (IMAX Edition) / 2014 / ДБ / BDRip	movie
+Интерстеллар / Interstellar (IMAX Edition) / 2014 / ДБ, ПМ, АП (Есарев), СТ / BDRip (720p)	movie
+Интерстеллар / Interstellar (IMAX Edition) / 2014 / ДБ, СТ / BDRip	movie
+Интерстеллар / Interstellar [2014, США, Великобритания, фантастика, боевик, детектив, приключения, UHD BR-DISK 2160p] [IMAX] Dub (EUR) + Sub Rus, Eng + Original Eng	movie
+Казахское Ханство. Золотой трон / Қазақ хандығы. Алтын тақ / Kazakh Khanate - Golden Throne (2019) BDRip | D	movie
+Казахское ханство: Золотой трон / Қазақ хандығы: Алтын тақ (Kazakh Khanate: Golden Throne) / 2019 / ДБ / BDRip	movie
+Клинок и Душа / Blade and Soul (2014) [HDTVRip 720p][AVC]	tv	пак
+Клинок, Рассекающий Демонов: Тренировка Хашира / Kimetsu no Yaiba: Hashira Geiko-hen (2024) [WEBRip 1080p][AVC]	tv	пак
+Коллектор / Khon Dueat Thuang Khaen (2026) WEB-DL-HEVC 2160p | 4K | HDR | Sub	movie
+Крепкий орешек / 1967 / РУ / HDTV (1080i)	movie
+Крепкий орешек / Die Hard (Джон МакТирнан / John McTiernan) [1988, боевик, триллер, криминал, FLAC, AC3, NTSC] AVO (Дмитрий Goblin Пучков)	movie
+Крепкий орешек 4.0 / Live Free or Die Hard [2007, США, Великобритания, боевик, WEB-DL 1080p] [Open Matte] Dub (Rus, Ukr) + MVO + 2х AVO + Original Eng + Sub Rus, Eng	movie
+Крепкий орешек: Коллекция | Die Hard: Collection (1988/1990/1995/2007) Blu-ray 1080p	movie
+Крик 7 / Scream 7 (2026) Blu-Ray Remux-HEVC 2160p | 4K | HDR, Dolby Vision P7 | D | Продубляж	movie
+Лило и Стич / Lilo & Stitch (2025) BDRip 720p | D, P, L	movie
+Лило и Стич / Lilo & Stitch [2002, США, фантастика, приключения, семейный, мультфильм, DVD9] [Киномания] Dub + Original + AVO + Rus, Eng Sub	movie
+Магическая битва 0 Фильм / Jujutsu Kaisen 0 Movie (2021) [BDRip 1080p][HEVC]	movie
+Майкл / Michael (2026) UHD WEB-DL 2160p | 4K | HDR10 | Dolby Vision Profile 8 | D | Продубляж	movie
+Майкл / Michael (2026) WEB-DL-HEVC 2160p | 4K | HDR10+ | Dolby Vision P8 | D | Продубляж	movie
+Мандалорец и Грогу / The Mandalorian & Grogu (2026) UHD WEB-DL 2160p | 4K | HDR10+ | Dolby Vision Profile 8 | D, P | IMAX	movie
+Матрица Перекалибровка / The Matrix Recalibrated (2004) DVD5 | Sub	movie
+Матрица: Перезагрузка / The Matrix Reloaded [2003, США, Австралия, фантастика, боевик, приключения, BR-DISK (custom) 1080p] Dub (Blu-ray CEE) + DVO + DVO + Sub (Eng, Rus)	movie
+Матрица: Революция / The Matrix Revolutions (2003) HDRip-AVC от Leo.pard | D	movie
+Матрица: Трилогия / Matrix: Trilogy (1999-2003) UHD BDRemux 2160p | 4K | HDR10 | Dolby Vision | D	movie
+Михаил Булгаков-Мастер и Маргарита ...	junk
+Моб Психо 100 3 / Mob Psycho 100 III (2022) [WEBRip 1080p][HEVC]	tv	пак
+Мой любимый киллер / Lueat rak nakkha (2026) WEBRip 1080p | Sub	movie
+Моя дорогая госпожа / Mi querida senorita (2025) WEB-DL 1080p | Sub	movie
+Мститель / Protector (2025) WEB-DLRip-AVC от ExKinoRay | A | Яроцкий	movie
+Назад в будущее / Back to the Future (1985) BDRip 720p | Goblin	movie
+Назад в будущее / Back to the Future (1985) BDRip 720p | Пучков	movie
+Назад в будущее 2 / Back to the Future 2 (1989) BDRip от New-Team | D	movie
+Назад в будущее 2 / Back to the Future 2 / 1989 / ДБ, 3 x ПМ, 4 x ПД, 6 x АП, СТ / BDRip (1080p)	movie
+Назад в будущее 2 / Back to the Future Part II [1989, США, фантастика, боевик, комедия, приключения, семейный, BDRip-AVC] Dub	movie
+Назад в будущее 3 / Back to the Future 3 (1990) UHD BDRemux 2160p от селезень | 4K | HDR | Dolby Vision | Лицензия	movie
+Назад в будущее 3 / Back to the Future 3 / 1990 / АП (Пучков), СТ / BDRip	movie
+Назад в будущее: Трилогия / Back to the Future: Trilogy (1985-1990) BDRip-HEVC 720p | D	movie
+Наизнанку / Inside Out [2005, США, Драма, Триллер, DVDRip]	movie
+Не издевайся, Нагаторо: Вторая атака / Ijiranaide, Nagatoro-san 2nd Attack (2023) [WEBRip 1080p][HEVC]	tv	пак
+Новые начала / Begyndelser / 2025 / ЛМ, СТ / HDRip (AVC)	movie
+Обсессия / Obsession [2025, США, Ужасы, трилле, UHD BDRemux 2160p, HDR10, Dolby Vision] Dub (HDRezka) + Ukr Dub + Original Eng + Sub Eng	movie
+Оппенгеймер / Oppenheimer (2023) BDRip 1080p от селезень | D, A, L | IMAX	movie
+Оппенгеймер / Oppenheimer (2023) HDRip-AVC | КПК | D | IMAX	movie
+Оппенгеймер / Oppenheimer (2023) UHD BDRemux 2160p от Scarabey | 4K | HDR | IMAX | D | Red Head Sound	movie
+Оппенгеймер / Oppenheimer (2023) UHD BDRemux 2160p от селезень | 4K | HDR | D, A, L | IMAX	movie
+Оппенгеймер / Oppenheimer (IMAX) / 2023 / ПМ, СТ / BDRip (AVC)	movie
+Оппенгеймер / Oppenheimer [2023, США, Великобритания, биография, драма, история, BDRip 1080p] [IMAX] 2x Dub (Bravo Records Georgia, TVShows) + AVO + MVO (LineFilm) + Original (Eng) + Sub (Rus, Eng)	movie
+Оппенгеймер / Oppenheimer [2023, драма, биография, история, ProRes YUV444 10 bit encode, AAC RUS Dub 2.0/DTS-HD MA/AC-3 Audio] Трейлер #2 IMAX 4K [2-pack]	movie
+Очень страшное кино / Scary Movie (2026) UHD WEB-DL 2160p | 4K | Dolby Vision Profile 5 | D, P | Продубляж, TVShows, HDrezka Studio	movie
+Очень страшное кино / Scary Movie (2026) WEB-DL 1080p | D, A | Продубляж, Котов | Расширенная версия	movie
+Первому игроку приготовиться / Ready Player One [2018, США, фантастика, боевик, приключения, UHD BDRemux 2160p, HDR10, Dolby Vision] Dub + MVO (HDRezka Studio) + AVO + Original (Eng) + Sub (Rus, Eng)	movie
+Первый мститель (Коллекция) / Captain America (Collection) / 2011-2025 / ДБ / BDRip	movie
+Первый удар / First Strike (1996) UHD BDRemux 2160p | 4K | HDR10 | Dolby Vision Profile 7 | P, P2, A | Hong Kong Version	movie
+Перевоплотившийся король-герой, ставший самой сильной ученицей рыцаря♀ / Eiyuuou, Bu wo Kiwameru Tame Tenseisu. Soshite, Sekai Saikyou no Minarai Kishi♀ (2023) [WEBRip 1080p][HEVC]	tv	пак
+Пираты Карибского моря (Квадрология) / Pirates of the Caribbean: Quadrilogy / 2003-2011 / ДБ, ПД, АП, СТ / Blu-Ray Remux (1080p)	movie
+Пираты Карибского моря: Квадрология / Pirates of the Caribbean Quadrilogy (2003-2011) BDRip 1080р от Freeisland	movie
+Пираты Карибского моря: Квадрология / Pirates of the Caribbean Sea: Quadrilogy (2003-2011) BDRip-AVC | 60 fps	movie
+Пираты Карибского моря: Квадрология / Pirates of the Caribbean: Quadrilogy (2003/2006/2007/2011) BDRip от HELLYWOOD	movie
+Пираты Карибского моря: Коллекция / Pirates of the Caribbean: The Collection (2003-2017) BDRemux 1080p | D	movie
+Пираты Карибского моря: Мертвецы не Рассказывают Сказки / Pirates of the Caribbean: Dead (2017) BDRip 720p | Дополнительные материалы | Sub	movie
+Пираты Карибского моря: Мертвецы не рассказывают сказки / Pirates of the Caribbean: Dead Men Tell No Tales [2017, США, фэнтези, боевик, комедия, приключения, WEB-DL 2160p, HDR10, Dolby Vision] [Hybrid]	movie
+Пираты Карибского моря: На странных берегах / Pirates of the Caribbean: On Stranger Tides [2011, США, фэнтези, боевик, комедия, приключения, BDRip-AVC] Dub + Original (Eng) + Sub (rus, eng, ukr)	movie
+Пираты Карибского моря: Проклятие Чёрной Жемчужины / Pirates of the Caribbean / 2003 / ДБ, ПМ, ПД, АП, СТ / 4K, HEVC, HDR / BDRip (2160p)	movie
+Пляжный зонт / L'ombrellone (Weekend, Italian Style) / 1965 / АП (Герусов) / WEB-DL (1080p)	movie
+Пушистый форсаж: Гран-при / Grand Prix of Europe (2025) BDRip 720p | D | Мосфильм-Мастер	movie
+Смертельная гонка / Форсаж ярости: Смертельная гонка / Fast and Fierce: Death Race / In The Drift (2020) WEB-DL 1080p | P	movie
+Танкистка (Девушка-танк, Девушка на танке) / Tank Girl / 1995 / 3 x ПМ, АП (Дольский, Володарский, Визгунов), 2 x ЛО / BDRip	movie
+Тачки: Трилогия / Cars: Trilogy (2006-2017) BDRip 720p	movie
+Твин Пикс: Сквозь огонь [1992, США, Франция, триллер, детектив, мистика, BDRemux 1080p] [4K Remaster] [Criterion Collection] 5x MVO + 3x AVO + Original Eng + Sub Rus (x2), Eng (x2)	movie
+Терминатор / The Terminator [1984, США, Великобритания, фантастика, боевик, триллер, BDRemux 1080p] [Remastered] 2x Dub + 9x MVO + 2x DVO + 17x AVO + 11x VO + Sub Rus, Eng + Original Eng	movie
+Терминатор 2: Судный день / Terminator 2: Judgment Day [1991, США, фантастика, боевик, BDRip 720p] [Режиссерская версия / Director's cut]	movie
+Территория зла / Land of Bad (2024) WEB-DLRip-AVC | КПК | P2 | ViruseProject	movie
+Токийский Гуль: Джек / Tokyo Ghoul: Jack [OVA] (2015) [BDRip 720p][AVC]	movie
+Тот самый / Him (2025) UHD BDRemux 2160p от NiTrID | HDR10 | 4K | Dolby Vision P7 | D, P, A | Продубляж, TVShows, HDrezka Studio, Смирнов	movie
+Трансформеры: Восхождение Звероботов / Transformers: Rise of the Beasts / 2023 / 3 x ДБ, СТ / BDRip (AVC)	movie
+Трансформеры: Квадрология / Transformers: Quadrilogy (2007-2014) BDRip-AVC от R.G. HD-Films | 60 fps	movie
+Трансформеры: Коллекция / Transformers: Collection (2007-2023) BDRip 1080p | D, Р, Р2, А	movie
+Трансформеры: Месть падших / Transformers: Revenge of the Fallen (2009) BDRip-AVC от Leo.pard | D	movie
+Трансформеры: Пенталогия / Transformers: Pentology (2007-2017) BDRip-HEVC 1080p от M@kSIMus | Лицензия	movie
+Трансформеры: Последний Рыцарь [Бонус-Диск] / Transformers: The Last Knight [Bonus Disc] (2017) BDRip 720p | Дополнительные материалы | Sub	movie
+Трансформеры: Последний рыцарь / Transformers: The Last Knight (2017) BDRemux 1080p от ExKinoRay | Лицензия	movie
+Трансформеры: Последний рыцарь / Transformers: The Last Knight (2017) BDRip 1080p | 3D-Video | HSBS | IMAX Edition | Лицензия	movie
+Трансформеры: Последний рыцарь 3D / Transformers: The Last Knight 3D (2017) Blu-ray EUR 1080p | 3D-Video | Лицензия	movie
+Траффик / Трафик: Чужая земля / Reostat / Jaful Secolului / Traffic (2024) WEB-DLRip-AVC | L	movie
+Тройной форсаж: Токийский Дрифт / The Fast and the Furious: Tokyo Drift [2006, США, Германия, боевик, триллер, криминал, WEBRip-AVC] [Open Matte] Dub + 2x AVO + Sub Rus Eng + Original Eng	movie
+Форсаж 10 / Fast X / 2023 / ДБ, СТ / WEB-DLRip	movie
+Форсаж 6 / Fast & Furious 6 [2013, США, боевик, триллер, драма, криминал, UHD BDRemux 2160p, HDR10] [Extended Cut] Dub + 2x AVO + VO + Original (Eng) + Sub (Rus, Eng)	movie
+Форсаж 9 в 3Д / F9 3D [2021, боевик, криминал, приключения, BDRemux, 1080p] BD3D	movie
+Форсаж. Диабло / Diablo (2019) BDRemux 1080р от ExKinoRay | D	movie
+Хоббит / Властелин колец: Коллекция / The Hobbit / The Lord of the rings: Collection (2001-2014) BDRip 1080p | Extended Edition	movie
+Хоббит: Битва пяти воинств / The Hobbit: The Battle of the Five Armies / 2014 / ДБ, ПМ, 3 x АП, СТ / 4K, HEVC, HDR, HDR10+, DV P8 / BDRemux (2160p)	movie
+Чебурашка и крокодил Гена (Сборник мультфильмов) / 1969-1983 / РУ / DVDRip (AVC)	movie
+Чебурашка и крокодил Гена. Сборник мультфильмов (1969-1983) BDRip 720p от FREEISLAND	movie
+Человек на все времена / A Man for All Seasons (1966) UHD BDRemux 2160p | HDR | Dolby Vision Profile 7 | P, A	movie
+Человек-муравей и Оса: Квантомания / Ant-Man and the Wasp: Quantumania (2023) UHD WEB-DL 2160p от селезень | HDR | Dolby Vision Profile 8 | D	movie
+Человек-паук (Паутина вселенных) / Spider-Man: Across the Spider-Verse / 2023 / 3 x ДБ, 3 x ПМ, СТ / 4K, HEVC, HDR, DV P8 / Blu-Ray Remux (2160p)	movie
+Человек-паук: Вдали от дома / Spider-Man: Far from Home (2019) BDRemux 1080p от селезень | 3D-Video | Лицензия	movie
+Человек-паук: Вдали от дома / Spider-Man: Far from Home (IMAX Edition) / 2019 / ДБ / 4K, HEVC, HDR, Dolby Vision / Hybrid (2160p)	movie
+Человек-паук: Нет пути домой / Spider-Man: No Way Home (2021) BDRip-AVC от New-Team | D, P	movie
+Человек-паук: Нет пути домой / Людина-павук: Додому шляху нема / Spider-Man: No Way Home (2021) BDRip-HEVC 1080p | HDR | D | UKR	movie
+Человек-паук: Через вселенные / Spider-Man: Into the Spider-Verse (2018) BDRip 1080p от qqss44 & MegaPeer | Лицензия	movie
+Чужой / Alien [1979, Ужасы, фантастика, триллер, BDRip-AVC] [Director's cut] AVO (Goblin) + Original Eng + Sub Rus, Eng	movie
+Чужой: Завет / Alien: Covenant [2017, США, ужасы, фантастика, триллер, WEB-DL 1080p] [Open Matte / Локализованный видеоряд] Dub + Original (Eng) + Sub (Rus, Eng)	movie
+Чужой: Ромул / Alien: Romulus / 2024 / ПМ / BDRip (AVC)	movie
+Школьные друзья / Compagni di scuola (1988) BDRip 720p от msltel | L1	movie
+Шрек / Шрек 2 / Шрек Третий / Шрек навсегда / Shrek / Shrek 2 / Shrek the Third / Shrek Forever After [2001, США, 2004, 2007, 2010, BDRip 720p]	movie
+Шрек навсегда / Шрэк / Shrek Forever After (2010) BDRip	movie
+Шрек: Квадрология / Шрэк / Shrek Quadrilogy (2001-2010) BDRip 720p	movie
+Шрек: Квадрология / Шрэк / Shrek: Quadrilogy (2001-2010) BDRip 1080p	movie
+【喵萌奶茶屋】★07月新番★[超自然武裝噹噠噹 / 膽大黨 / Dandadan][13-24][1080p][繁日雙語]	tv	пак
