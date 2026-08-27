@@ -27,9 +27,14 @@ import itertools
 import json
 import math
 import subprocess
+import sys
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
+
+# Щуп зовёт продукт и обязан звать СВОЙ: editable-установка венва смотрит на соседний
+# клон, и без этой строки замер снимался бы кодом, который правят в чужой работе.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from torrcast.adapters.stream_pack.settle_start import SEEK_BACK_TRIES, settle_start
 from torrcast.domain.hls_settings import HLS_SEGMENT_SECONDS, SPLIT_SLACK
