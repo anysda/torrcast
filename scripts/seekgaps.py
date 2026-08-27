@@ -131,6 +131,10 @@ def film_begins(url: str, timeout: float) -> float:
     Спрашивается ровно видео, а не контейнер целиком: ``start_time`` формата - минимум по
     всем потокам, а звук начинается на набивку кодировщика раньше видео. У семейства mp4
     сдвига нет по построению, и там ответ назначается нулём, а не считается.
+
+    ⚠️ Строки берутся первая и последняя из непустых, а не по номеру: mpegts печатает на
+    тот же запрос ЧЕТЫРЕ строки (метка, пустая, метка ещё раз, имя контейнера), тогда как
+    matroska и avi - две. По номеру строки имя контейнера у mpegts попадает на пустую.
     """
     try:
         answer = subprocess.run(
@@ -138,9 +142,9 @@ def film_begins(url: str, timeout: float) -> float:
              "stream=start_time:format=format_name", "-of", "csv=p=0", url],
             capture_output=True, text=True, timeout=timeout, check=True,
         )  # fmt: skip
-        lines = answer.stdout.strip().splitlines()
+        lines = [line.strip() for line in answer.stdout.splitlines() if line.strip()]
         value = float(lines[0].split(",")[0])
-        container = lines[1].strip().strip('"').split(",")[0] if len(lines) > 1 else ""
+        container = lines[-1].strip('"').split(",")[0]
     except (OSError, subprocess.SubprocessError, IndexError, ValueError):
         return 0.0
     if not math.isfinite(value) or container == "mov":
