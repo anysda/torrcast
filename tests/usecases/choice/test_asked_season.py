@@ -9,7 +9,9 @@ s1e1» ставил дефолтом «Код Гиас: Восставший Л�
 
 from __future__ import annotations
 
-from tests.usecases.choice.world import plan
+from dataclasses import replace
+
+from tests.usecases.choice.world import film, plan
 from torrcast.usecases.choice.asked_season import asked_season
 
 
@@ -49,3 +51,43 @@ def test_a_menu_without_a_single_picture_of_the_asked_season_counts_as_it_counte
     ]
 
     assert asked_season(geass, [1, 2]) == [1, 2]
+
+
+def test_a_picture_numbered_by_a_minority_still_carries_the_season_its_names_call() -> None:
+    """🔴 TC-856. Номер части у картины бывает от меньшинства её же имён.
+
+    «Моб Психо 100» (2016) несёт все три сезона, но семь её раздач из тридцати зовутся
+    «Mob Psycho 100 III», и счёт номеров подписывает картину частью 3. По номерам тогда
+    не проходит НИКТО, прежний отвод возвращал всё меню разом - и дефолт первого сезона
+    садился на соседнюю часть. Ступень имён спасает ровно этот случай: сезон, названный
+    раздачей вслух, картина точно несёт.
+    """
+    psycho = [
+        plan("Mob Psycho 100 2", None, kind="tv", part=2, season=1, asked_series=True),
+        plan(
+            "Моб Психо 100",
+            2016,
+            kind="tv",
+            part=3,
+            season=1,
+            asked_series=True,
+            pool=[replace(film("Моб Психо 100 [S01] (2016) BDRip", kind="tv"), season=1)],
+        ),
+    ]
+
+    assert asked_season(psycho, [1, 2]) == [2]
+
+
+def test_a_picture_that_named_no_season_at_all_does_not_pass_by_names() -> None:
+    """Отрицательная проба ступени имён: молчание сезоном не считается.
+
+    Обе картины подписаны чужими частями и о сезонах молчат - значит имена не сказали
+    ничего, и ступень обязана пропустить ход, оставив прежний ответ «считаем как
+    считали». Пройди тут молчание - ступень отбирала бы картины наугад.
+    """
+    psycho = [
+        plan("Mob Psycho 100 2", None, kind="tv", part=2, season=1, asked_series=True),
+        plan("Mob Psycho 100 3", None, kind="tv", part=3, season=1, asked_series=True),
+    ]
+
+    assert asked_season(psycho, [1, 2]) == [1, 2]

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from torrcast.domain.seasons_named import seasons_named
+
 if TYPE_CHECKING:
     from torrcast.usecases.select.plan import Plan
 
@@ -30,6 +32,21 @@ def asked_season(plans: list[Plan], numbers: list[int]) -> list[int]:
 
     Картина без номера части проходит всегда: «Код Гиас: Восставший Лелуш» без цифры -
     это и есть первый сезон, а «Ход королевы» без цифры - весь сериал целиком.
+
+    🔴 TC-856. Между этими двумя воротами стоит третьи, и без них второе отпускало
+    подмену. Номер части картина носит не сама по себе - его считают по именам её раздач
+    (:func:`~torrcast.domain.compose._compose`), и меньшинство имён вправе назвать частью
+    всю картину: у «Моб Психо 100» (2016) семь раздач из тридцати зовутся «Mob Psycho 100
+    III», и картина, несущая все три сезона, подписана частью 3. Тогда на просьбу ``s1e1``
+    ворота выше не находят НИ ОДНОЙ подходящей, отступают к «считаем как считали» - и
+    возвращают все картины разом, включая соседний сезон. Ровно так дефолт и уехал на
+    «Mob Psycho 100 2».
+
+    Поэтому там, где по номерам не прошёл никто, спрашиваются сами имена раздач
+    (:func:`~torrcast.domain.seasons_named.seasons_named`): картина, чьи раздачи называют
+    спрошенный сезон вслух, его точно несёт - чьей бы частью её ни подписал счёт номеров.
+    Картина, не назвавшая ни одного сезона, этой ступени не проходит: молчание тут не
+    довод, а именно оно и уносило зрителя в чужой сезон молча.
     """
     if not any(plan.asked_series for plan in plans):
         return numbers
@@ -42,4 +59,5 @@ def asked_season(plans: list[Plan], numbers: list[int]) -> list[int]:
         for n in numbers
         if plans[n - 1].picture.part is None or plans[n - 1].picture.part == season
     ]
-    return able or numbers
+    named = [n for n in numbers if season in seasons_named(plans[n - 1].picture)]
+    return able or named or numbers
