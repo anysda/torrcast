@@ -10,6 +10,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from torrcast.adapters.frames.keyframes import keyframes
+from torrcast.adapters.stream_pack._film_keys_of import _film_keys_of
 from torrcast.adapters.stream_pack._keys_draft import _keys_draft
 from torrcast.adapters.stream_pack._keys_shelf import _keys_cache
 from torrcast.adapters.stream_pack.read_keys import read_keys
@@ -18,7 +19,7 @@ from torrcast.adapters.stream_pack.refused_keys import refused_keys
 from torrcast.adapters.stream_probe.shelf import _trim
 from torrcast.domain.film_keys import FilmKeys
 from torrcast.domain.frames.keymap.key_map import KeyMap
-from torrcast.domain.frames.keymap.video_track import video_track
+from torrcast.domain.ghost_keys_error import GhostKeysError
 from torrcast.domain.hls_wait import KEYS_WAIT
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.swarm_silent_error import SwarmSilentError
@@ -62,7 +63,11 @@ def film_keys(
 
     Отказ кладётся на полку рядом с картами и на то же имя: «индекс врёт», «индекса нет»,
     «контейнер незнакомый» - это ответы про сам файл, и до следующего старта они не
-    меняются. Без этого каждый старт такого фильма платил заново - голову, весь индекс и
+    меняются. 🔴 Отказы при этом разной полноты: «индекса нет» и «контейнер незнакомый» -
+    голые, а «индекс врёт»
+    (:class:`~torrcast.domain.ghost_keys_error.GhostKeysError`) ложится вместе с байтовым
+    указателем разобранной карты, потому что врёт она только про кадры. Без памяти об
+    отказе каждый старт такого фильма платил заново - голову, весь индекс и
     пробы честности, - а сессия с прогревом и показом платила дважды. Молчание роя
     (:class:`~torrcast.domain.swarm_silent_error.SwarmSilentError`) не запоминается: оно не про
     файл.
@@ -112,30 +117,7 @@ def film_keys(
     try:
         found = keys_of(source_url)
         journal().mark("карта: снята", кадров=len(found.points), байт=found.taken)
-        # ⚠️ Дорожку видео выбираем ОДИН раз. Пока этот вызов стоял внутри списка, он
-        # считался на каждую точку Cues, а сам он линейный по всем точкам - то есть карта
-        # разбиралась квадратично. Цена замерена: «Моана 2», 7274
-        # точки - 18.5 с чистого процессора после того, как рой всё отдал. Ровно это и
-        # принимали за «первое чтение хвоста у холодного роя»: рой отдаёт
-        # Cues за 2-6 с, остальное было наше.
-        # Дорожку называет сам файл (элемент Tracks у mkv); эвристика - запасной путь
-        # на случай головы без Tracks.
-        track = found.video if found.video is not None else video_track(found.points)
-        video = [p for p in found.points if p.track == track]
-        # Исковое время лежит в том же порядке, что точки, и фильтруется вместе с ними;
-        # пустое - равно меткам показа (mkv, mp4 со списком правок).
-        via = (
-            tuple(v for p, v in zip(found.points, found.via, strict=True) if p.track == track)
-            if found.via
-            else ()
-        )
-        ready = FilmKeys(
-            found.duration,
-            [p.at for p in video],
-            [p.offset for p in video],
-            found.kind,
-            via,
-        )
+        ready = _film_keys_of(found)
         with contextlib.suppress(OSError):
             cache.parent.mkdir(parents=True, exist_ok=True)
             tmp = _keys_draft(cache)
@@ -159,9 +141,20 @@ def film_keys(
         _trim(cache.parent, kept)
     except SwarmSilentError:
         raise  # рой молчит: про файл это не говорит ничего, помнить нечего
+    except GhostKeysError as no:
+        # 🔴 Приговор тот же, но карта разобрана целиком, и её байтовый указатель честен:
+        # он уезжает на полку рядом с вердиктом и оттуда достаётся ровной сетке
+        # (:func:`~torrcast.adapters.stream_pack.weigh_keys.weigh_keys`). Без него ровная сетка
+        # остаётся без профиля тяжести, и КАЖДЫЙ её кусок уходит ужатием на месте.
+        journal().mark("карта: отказ", почему=str(no))
+        refuse_keys(cache, str(no), _film_keys_of(no.drawn))
+        _trim(cache.parent, kept)
+        raise
     except InfraError as no:
-        # Приговор самому файлу. Он лежит на месте карты, поэтому полку подрезаем и тут:
-        # иначе фильмы, которым карты не будет, растили бы её мимо потолка.
+        # Приговор самому файлу, и карты за ним нет вовсе: индекса не нашлось, по адресу
+        # лежит не Cues, точек ноль, контейнер незнакомый. Вердикт ложится на место карты,
+        # поэтому полку подрезаем и тут: иначе фильмы, которым карты не будет, растили бы
+        # её мимо потолка.
         journal().mark("карта: отказ", почему=str(no))
         refuse_keys(cache, str(no))
         _trim(cache.parent, kept)

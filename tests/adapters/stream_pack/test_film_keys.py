@@ -13,8 +13,10 @@ import pytest
 from torrcast.adapters.stream_pack._keys_shelf import _keys_cache
 from torrcast.adapters.stream_pack.film_keys import _fetching, film_keys
 from torrcast.adapters.stream_pack.read_keys import read_keys
+from torrcast.adapters.stream_pack.weigh_keys import weigh_keys
 from torrcast.domain.frames.keymap.key_map import KeyMap
 from torrcast.domain.frames.keymap.point import Point
+from torrcast.domain.ghost_keys_error import GhostKeysError
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.swarm_silent_error import SwarmSilentError
 from torrcast.domain.warm_open import KEYS_RULES
@@ -263,3 +265,49 @@ def test_a_reader_takes_the_neighbours_refusal_instead_of_reading_the_tail_itsel
     threading.Thread(target=neighbour, daemon=True).start()
     with pytest.raises(InfraError, match="индекс Cues врёт"):
         film_keys(URL, keys_of=never, lock_ttl=5.0, wait=5.0)
+
+
+def test_a_ghost_index_leaves_its_honest_byte_row_on_the_shelf() -> None:
+    """🔴 TC-840. Индекс признан призрачным - вердикт ложится ВМЕСТЕ с его смещениями.
+
+    Врущий индекс отвергает у карты одно утверждение - «здесь стоит опорный кадр», - а
+    пара «время - смещение» у него честная: это позиции кластеров контейнера. По ней
+    считается ВЕС куска, и без неё ровная сетка остаётся без профиля тяжести
+    (`профиль 0.0`): кодировщик не берёт ни куска впрок, и КАЖДЫЙ уходит ужатием на месте.
+    Живой сеанс 27-08 на «Матрице» 1999: 59 кусков из 59 ужатием и три вылета приёмника
+    за 58 минут против нуля накануне.
+
+    Полка при этом остаётся полкой ОТКАЗА: картой такая запись не становится
+    (:func:`read_keys` молчит на всём, где стоит вердикт), а весом - становится
+    (:func:`weigh_keys`). Разъедься эти два читателя - вердикт отменил бы сам себя.
+    """
+    drawn = KeyMap(60.0, tuple(Point(float(k * 2), k * 4096, 1) for k in range(31)), 0, 0, "mkv", 1)
+
+    def ghost(url: str) -> KeyMap:
+        raise GhostKeysError("индекс Cues врёт: точка 4131.693", drawn)
+
+    with pytest.raises(InfraError, match="индекс Cues врёт"):
+        film_keys(URL, keys_of=ghost)
+
+    weighed = weigh_keys(_keys_cache(URL))
+    assert weighed is not None, "указатель веса потерян вместе с приговором кадрам"
+    assert weighed.at == [float(k * 2) for k in range(31)]
+    assert weighed.offset == [k * 4096 for k in range(31)]
+    assert read_keys(_keys_cache(URL)) is None, "отвергнутая карта вернулась сеткой показа"
+
+
+def test_an_index_that_never_parsed_leaves_nothing_to_weigh_by() -> None:
+    """Отрицательная проба к предыдущей: индекса не нашлось - взвешивать нечем и незачем.
+
+    Разница здесь не в громкости отказа, а в том, что у него на руках: призрачный индекс
+    разобран до последней точки, а «индекса нет» - это отсутствие самих точек. Выдай полка
+    вес и на такой записи, она выдумала бы его из ничего.
+    """
+
+    def missing(url: str) -> KeyMap:
+        raise InfraError("в файле нет индекса Cues - карту опорных кадров взять неоткуда")
+
+    with pytest.raises(InfraError, match="нет индекса Cues"):
+        film_keys(URL, keys_of=missing)
+
+    assert weigh_keys(_keys_cache(URL)) is None, "вес взялся у файла, чей индекс не разобран"

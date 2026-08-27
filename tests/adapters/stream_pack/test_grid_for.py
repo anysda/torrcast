@@ -8,11 +8,15 @@ from pathlib import Path
 import pytest
 
 from torrcast.adapters.stream_pack._keys_shelf import _keys_cache
+from torrcast.adapters.stream_pack.film_keys import film_keys
 from torrcast.adapters.stream_pack.grid import Grid
 from torrcast.adapters.stream_pack.grid_for import grid_for
 from torrcast.adapters.stream_pack.read_keys import read_keys
 from torrcast.adapters.stream_pack.refused_keys import refused_keys
 from torrcast.domain.film_keys import FilmKeys
+from torrcast.domain.frames.keymap.key_map import KeyMap
+from torrcast.domain.frames.keymap.point import Point
+from torrcast.domain.ghost_keys_error import GhostKeysError
 from torrcast.domain.hls_settings import MAX_SEGMENT_BYTES
 from torrcast.domain.infra_error import InfraError
 
@@ -318,3 +322,34 @@ def test_the_second_show_of_a_refused_film_still_knows_what_its_pieces_weigh(
 
     assert second.on_keys is False, "вердикт с полки обязан оставить сетку ровной"
     assert second.keys == KEYS, "указатель веса не поднят с полки - профиль тяжести пропал"
+
+
+def test_the_first_show_of_a_ghost_index_still_knows_what_its_pieces_weigh(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """🔴 TC-840. Индекс признан ПРИЗРАЧНЫМ на первом же показе - вес обязан остаться.
+
+    Тут стыкуются два вердикта, и до этой правки они вели себя по-разному. Карту,
+    отвергнутую СЕТКОЙ (разошлась с прогоном), TC-839 научил оставлять на полке вместе с
+    её байтовым указателем. Карту, отвергнутую РАЗБОРОМ («индекс Cues врёт»), тот же
+    указатель терял молча, потому что до :class:`FilmKeys` она не доживала вовсе.
+
+    Разница стоила зрителя. Живой сеанс 27-08 («Матрица» 1999, 8065 точек Cues, точка
+    4131.693 - не опорный кадр): сетка ровная на 818 кусков, `профиль тяжести 0.0` во всех
+    59 кусках, 59 ужатий на месте из 59 - и три вылета приёмника за 58 минут против нуля
+    накануне на том же фильме.
+
+    Меряется здесь настоящий стык: :func:`film_keys` кладёт вердикт, :func:`grid_for`
+    поднимает с него вес. Порознь они оба зелёные и на сломанном коде.
+    """
+    monkeypatch.setenv("TORRCAST_STATE", str(tmp_path / "state.json"))
+    drawn = KeyMap(60.0, tuple(Point(at, int(at * (1 << 20)), 1) for at in KEYS.at), 0, 0, "mkv", 1)
+
+    def ghost(url: str) -> KeyMap:
+        raise GhostKeysError("индекс Cues врёт: точка 4131.693", drawn)
+
+    flat = _grid(lambda url: film_keys(url, keys_of=ghost))
+
+    assert flat.on_keys is False, "призрачной карте резать нечем - сетка обязана быть ровной"
+    assert flat.keys is not None, "указатель веса потерян: профиль тяжести выйдет нулём"
+    assert flat.keys.offset == [int(at * (1 << 20)) for at in KEYS.at]

@@ -13,6 +13,7 @@ from tests.domain.frames.mkv.blocks import Matroska
 from tests.domain.frames.mp4.boxes import Served
 from torrcast.domain.frames.keymap.key_map import KeyMap
 from torrcast.domain.frames.mkv.keys import keys
+from torrcast.domain.ghost_keys_error import GhostKeysError
 from torrcast.domain.infra_error import InfraError
 
 HEAD = 256
@@ -69,6 +70,35 @@ def test_a_lying_index_is_an_error_not_a_ghost_map() -> None:
 
     with pytest.raises(InfraError, match="врёт"):
         keys(reader, reader.read(0, HEAD))
+
+
+def test_a_lying_index_hands_its_honest_byte_row_to_the_verdict() -> None:
+    """🔴 Приговор врущему индексу везёт с собой разобранную карту, а не выбрасывает её.
+
+    Врёт в такой карте ровно одно утверждение - «здесь стоит опорный кадр». Пара «время -
+    смещение» честная (17 Range-проб из 17 по живому файлу 18.2 ГБ попали в настоящий
+    кластер Matroska), и по ней считается ВЕС куска. Потеряй приговор эту пару - ровная
+    сетка осталась бы без профиля тяжести, а каждый её кусок ушёл бы ужатием на месте.
+
+    Цена карты считается ПОСЛЕ проб честности: сами пробы читают файл, и паспорт прогона
+    обязан назвать те байты и те заходы, которые за карту и правда заплачены.
+    """
+    cues = [(0, 1024, 1), (2000, 2048, 1), (4000, 3072, 1), (6000, 4096, 1)]
+    data, base = Matroska(cues=cues, ghost=True).bytes()
+    reader = Served(data)
+
+    with pytest.raises(GhostKeysError) as beda:
+        keys(reader, reader.read(0, HEAD))
+
+    drawn = beda.value.drawn
+    assert [(p.at, p.offset, p.track) for p in drawn.points] == [
+        (0.0, base + 1024, 1),
+        (2.0, base + 2048, 1),
+        (4.0, base + 3072, 1),
+        (6.0, base + 4096, 1),
+    ], "байтовый указатель отвергнутой карты обязан доехать целым"
+    assert drawn.kind == "mkv" and drawn.video == 1
+    assert drawn.requests == reader.requests, "цена карты названа с пробами, а не без них"
 
 
 def test_an_honest_index_passes_the_frame_check() -> None:

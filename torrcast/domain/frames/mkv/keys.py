@@ -28,6 +28,7 @@ from torrcast.domain.frames.mkv.probes import probes
 from torrcast.domain.frames.mkv.uint import uint
 from torrcast.domain.frames.mkv.walk import walk
 from torrcast.domain.frames.range_reader import RangeReader as Reader
+from torrcast.domain.ghost_keys_error import GhostKeysError
 from torrcast.domain.infra_error import InfraError
 
 
@@ -37,7 +38,7 @@ def keys(reader: Reader, head: bytes) -> KeyMap:
     Заходов к рою минимум два (:data:`~torrcast.adapters.frames.keyframes.HEAD_PEEK` и
     :data:`CUES_CHUNK`), и оба — минимально возможного размера: у холодной раздачи цена
     карты — это не байты, а сколько раз мы заставили рой отдать новое место и сколько ждали
-    перед следующим запросом. Сверх них - пробы честности индекса (:func:`_honest`):
+    перед следующим запросом. Сверх них - пробы честности индекса (:func:`_ghost`):
     бывают индексы-вруны, и отличает их от честных только содержимое кадра.
     """
     facts = Head(head)
@@ -62,14 +63,21 @@ def keys(reader: Reader, head: bytes) -> KeyMap:
     cues = _cues(body, facts)
     if not cues:
         raise InfraError("Cues в файле есть, но точек в нём нет")
-    _honest(cues, facts, reader)
+    # Пробы честности читают файл, поэтому цена карты считается ПОСЛЕ них: иначе паспорт
+    # прогона занизил бы и байты, и число заходов к рою на всю их стоимость.
+    drawn = _ghost(cues, facts, reader)
     duration = facts.duration * facts.scale / 1e9
     points = tuple(sorted(cue.point for cue in cues))
-    return KeyMap(duration, points, reader.taken, reader.requests, "mkv", facts.video)
+    taken = KeyMap(duration, points, reader.taken, reader.requests, "mkv", facts.video)
+    if drawn is not None:
+        # 🔴 Приговор едет вместе с картой, а не вместо неё: резать по ней нечем, а
+        # взвешивать - есть чем (:class:`GhostKeysError`).
+        raise GhostKeysError(drawn, taken)
+    return taken
 
 
-def _honest(cues: list[Cue], facts: Head, reader: Reader) -> None:
-    """Проверка, что точки Cues - опорные кадры, а не призраки; врущий индекс - ошибка.
+def _ghost(cues: list[Cue], facts: Head, reader: Reader) -> str | None:
+    """Чем именно индекс Cues врёт про опорные кадры; ``None`` - не поймали, карта годна.
 
     Замер TC-639: бывают файлы, чей муксер ставит точку Cues на каждый кластер и флаг
     опорности на каждый видеоблок, - карта из такого индекса на 89.7 % призраки (замер
@@ -84,15 +92,16 @@ def _honest(cues: list[Cue], facts: Head, reader: Reader) -> None:
     зубам: ``None`` у :func:`key_frame` - это «не разобрать», а не призрак.
     """
     if facts.video is None:
-        return
+        return None
     own = [cue for cue in cues if cue.point.track == facts.video]
     for cue in probes(own):
         at, offset, _ = cue.point
         if key_frame(reader, offset, facts.video, facts.codec, cue.inside) is False:
-            raise InfraError(
+            return (
                 f"индекс Cues врёт: точка {at:.3f} ссылается не на опорный кадр - "
                 "карта из него была бы призрачной"
             )
+    return None
 
 
 def _cues(body: bytes, facts: Head) -> list[Cue]:
@@ -103,7 +112,7 @@ def _cues(body: bytes, facts: Head) -> list[Cue]:
     равно, что там за матрёшка, — он знает только байты от начала файла.
 
     ``CueRelativePosition`` наружу не идёт вовсе и абсолютным не делается: это адрес
-    внутри кластера, и нужен он одной лишь проверке честности (:func:`_honest`).
+    внутри кластера, и нужен он одной лишь проверке честности (:func:`_ghost`).
     """
     base = facts.segment or 0
     cues: list[Cue] = []
