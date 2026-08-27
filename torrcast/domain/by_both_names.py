@@ -14,7 +14,16 @@ def _by_both_names(query: str, pictures: list[Picture]) -> list[Picture]:
     if len(asked) < 2:
         return []
     items = [p for p in pictures if asked <= _both_words(p) and (not _one_name_is_enough(asked, p))]
-    items.sort(key=lambda p: (p.year is None, p.year or 0, p.part or 99, -len(p.releases), p.title))
+    items.sort(
+        key=lambda p: (
+            p.sort_year is None,
+            p.sort_year or 0,
+            p.year is None,
+            p.part or 99,
+            -len(p.releases),
+            p.title,
+        )
+    )
     return items
 
 

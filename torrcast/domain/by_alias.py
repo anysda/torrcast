@@ -13,7 +13,16 @@ def _by_alias(query: str, pictures: list[Picture]) -> list[Picture]:
     items = [p for p in pictures if wanted in p.aliases]
     if len({p.franchise for p in items}) != 1:
         return []
-    items.sort(key=lambda p: (p.year is None, p.year or 0, p.part or 99, -len(p.releases), p.title))
+    items.sort(
+        key=lambda p: (
+            p.sort_year is None,
+            p.sort_year or 0,
+            p.year is None,
+            p.part or 99,
+            -len(p.releases),
+            p.title,
+        )
+    )
     return items
 
 

@@ -9,7 +9,7 @@ from torrcast.domain.picture import Picture
 def _numbered_line(pictures: list[Picture]) -> tuple[list[Picture], list[Picture]]:
     numbered = sorted(
         (p for p in pictures if p.part is not None and p.kind != "other"),
-        key=lambda p: (p.part or 0, p.year is None, p.year or 0, p.title),
+        key=lambda p: (p.part or 0, p.sort_year is None, p.sort_year or 0, p.year is None, p.title),
     )
     if not numbered:
         return (sorted(pictures, key=lambda p: p.kind == "other"), [])

@@ -12,7 +12,16 @@ def _by_subtitle(query: str, pictures: list[Picture]) -> list[Picture]:
     if not wanted:
         return []
     items = [p for p in pictures if wanted in _subtitles(p)]
-    items.sort(key=lambda p: (p.year is None, p.year or 0, p.part or 99, -len(p.releases), p.title))
+    items.sort(
+        key=lambda p: (
+            p.sort_year is None,
+            p.sort_year or 0,
+            p.year is None,
+            p.part or 99,
+            -len(p.releases),
+            p.title,
+        )
+    )
     return items
 
 

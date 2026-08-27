@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from torrcast.domain._name_data.data_1 import _CYRILLIC
+from torrcast.domain.anchor_years import anchor_years
 from torrcast.domain.compose import _compose
 from torrcast.domain.glue import glue
 from torrcast.domain.kind import Kind
@@ -57,7 +58,11 @@ def cluster(
                 key = canon.setdefault((kind, original, release.year), key)
         buckets.setdefault(key, []).append(release)
     pictures = [_compose(kind, year, group) for (kind, _, year), group in buckets.items()]
-    return _sorted(_unchaptered(glue_rule(pictures)))
+    glued = _unchaptered(glue_rule(pictures))
+    # Привязка - после склейки: претендентом на чужое имя считается уже слитая картина,
+    # а не её кучка, и бесстрочная половина склейки - тоже.
+    anchor_years(glued)
+    return _sorted(glued)
 
 
 __all__ = ["cluster"]

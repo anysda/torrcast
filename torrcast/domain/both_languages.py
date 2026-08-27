@@ -19,7 +19,16 @@ def both_languages(
         fresh = [p for p in groups.get(twin, []) if id(p) not in seen and _kindred(p, base)]
         items += fresh
         seen |= {id(p) for p in fresh}
-    items.sort(key=lambda p: (p.year is None, p.year or 0, p.part or 99, -len(p.releases), p.title))
+    items.sort(
+        key=lambda p: (
+            p.sort_year is None,
+            p.sort_year or 0,
+            p.year is None,
+            p.part or 99,
+            -len(p.releases),
+            p.title,
+        )
+    )
     return items
 
 
