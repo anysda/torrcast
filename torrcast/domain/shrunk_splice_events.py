@@ -1,0 +1,13 @@
+"""Имена событий склейки ужатого места, общие для рассказчика и выжимки."""
+
+from typing import Final
+
+SHRUNK: Final = "ужатие на месте"
+SHRUNK_SPLICE_ATTEMPT: Final = "попытка склейки ужатого"
+SHRUNK_SPLICE_WON: Final = "склейка ужатого вышла"
+SHRUNK_SPLICE_FAILED: Final = "склейка ужатого не вышла"
+SHRUNK_SPLICE_NOT_TRIED: Final = "склейка ужатого не пробовалась:"
+SHRUNK_SPLICE_KEYLESS: Final = f"{SHRUNK_SPLICE_NOT_TRIED} нет опорного кадра"
+SHRUNK_SPLICE_SHRINK_FAILED: Final = f"{SHRUNK_SPLICE_NOT_TRIED} ужать не вышло"
+SHRUNK_SPLICE_NOT_ON_TAPE: Final = "склейку ужатого не поставить на ленту показа"
+SHRUNK_SPLICE_ASTRAY: Final = "склейка ужатого не с этого места:"

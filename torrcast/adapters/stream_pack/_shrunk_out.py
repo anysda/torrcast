@@ -12,6 +12,14 @@ from torrcast.adapters.stream_pack.bare_on_tape import bare_on_tape
 from torrcast.adapters.stream_pack.splice_on_tape import splice_on_tape
 from torrcast.domain.mixed_name import mixed_name
 from torrcast.domain.segment_container import FMP4, MPEGTS, SegmentContainer
+from torrcast.domain.shrunk_splice_events import (
+    SHRUNK_SPLICE_ASTRAY,
+    SHRUNK_SPLICE_ATTEMPT,
+    SHRUNK_SPLICE_FAILED,
+    SHRUNK_SPLICE_KEYLESS,
+    SHRUNK_SPLICE_NOT_ON_TAPE,
+    SHRUNK_SPLICE_WON,
+)
 from torrcast.domain.track_place import TRACK_PLACE_MAX
 from torrcast.ports.journal.slot import journal
 
@@ -104,16 +112,17 @@ def _shrunk_out(
     уедет на приёмник.
     """
     if keyless(shrunk):
-        journal().mark("склейка ужатого не пробовалась: нет опорного кадра", слот=slot)
+        journal().mark(SHRUNK_SPLICE_KEYLESS, слот=slot)
         on_bare(shrunk, copy, slot, "ужатие", container, heads)
         return shrunk
+    journal().mark(SHRUNK_SPLICE_ATTEMPT, слот=slot)
     mixed = run_dir / mixed_name(slot, container)
-    why = "склейка ужатого не вышла"
+    why = SHRUNK_SPLICE_FAILED
     shift = shift_of(copy, shrunk) or 0.0
     if merge(shrunk, copy, mixed, shift=shift, container=container, heads=heads):
         if container == FMP4 and not on_tape(mixed, copy, heads[1]):
             mixed.unlink(missing_ok=True)
-            journal().mark("склейку ужатого не поставить на ленту показа", слот=slot)
+            journal().mark(SHRUNK_SPLICE_NOT_ON_TAPE, слот=slot)
             on_bare(shrunk, copy, slot, "ужатие", container, heads)
             return shrunk
         astray = [
@@ -124,12 +133,12 @@ def _shrunk_out(
         if not astray:
             try:
                 if mixed.stat().st_size <= cap:
-                    journal().mark("склейка ужатого вышла", слот=slot)
+                    journal().mark(SHRUNK_SPLICE_WON, слот=slot)
                     return mixed
             except OSError:
                 pass
         else:
-            why = f"склейка ужатого не с этого места: {' и '.join(astray)}"
+            why = f"{SHRUNK_SPLICE_ASTRAY} {' и '.join(astray)}"
     mixed.unlink(missing_ok=True)
     # Молчать об этом нельзя: без склейки на обоих стыках ужатого места возвращается
     # разрыв звука, а он стоит приёмнику секунд, а не миллисекунд.

@@ -13,6 +13,12 @@ from torrcast.domain.digest._seams import _seams
 from torrcast.domain.digest._words import _clock, _hms
 from torrcast.domain.json_number import json_number
 from torrcast.domain.json_value import JsonValue
+from torrcast.domain.shrunk_splice_events import (
+    SHRUNK,
+    SHRUNK_SPLICE_ATTEMPT,
+    SHRUNK_SPLICE_NOT_TRIED,
+    SHRUNK_SPLICE_WON,
+)
 
 #: Что считается в итоговой строке сеанса и как это называется по-русски. Ребуферы
 #: печатаются всегда (ноль ребуферов - тоже новость), остальное - только когда было.
@@ -28,16 +34,6 @@ _COUNTED: Final = {
     "evict": "вытеснений прогрева",
     "skew": "кусков мимо сетки",
 }
-
-#: Исходы настоящей попытки склейки. Отдельная метка ``не пробовалась`` сюда намеренно
-#: не входит: кусок без опорного кадра до муксера не доходит.
-_SHRUNK_SPLICE_TRIED: Final = frozenset(
-    {
-        "склейка ужатого вышла",
-        "склейка ужатого не вышла",
-        "склейку ужатого не поставить на ленту показа",
-    }
-)
 
 
 def _session_block(sid: str, rows: Sequence[Mapping[str, JsonValue]]) -> str:
@@ -79,17 +75,12 @@ def _session_block(sid: str, rows: Sequence[Mapping[str, JsonValue]]) -> str:
     for name, word in _COUNTED.items():
         if name != "buffering" and counts[name]:
             tail += f", {word} {counts[name]}"
-    shrunk = sum(1 for r in rows if r.get("event") == "ужатие на месте")
+    shrunk = sum(1 for r in rows if r.get("event") == SHRUNK)
     if shrunk:
-        tried = sum(
-            1
-            for r in rows
-            if r.get("event") in _SHRUNK_SPLICE_TRIED
-            or str(r.get("event", "")).startswith("склейка ужатого не с этого места:")
-        )
-        won = sum(1 for r in rows if r.get("event") == "склейка ужатого вышла")
+        tried = sum(1 for r in rows if r.get("event") == SHRUNK_SPLICE_ATTEMPT)
+        won = sum(1 for r in rows if r.get("event") == SHRUNK_SPLICE_WON)
         skipped = sum(
-            1 for r in rows if str(r.get("event", "")).startswith("склейка ужатого не пробовалась:")
+            1 for r in rows if str(r.get("event", "")).startswith(SHRUNK_SPLICE_NOT_TRIED)
         )
         tail += (
             f", ужатий {shrunk}, склейка ужатого: попыток {tried},"

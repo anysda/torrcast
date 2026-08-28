@@ -5,12 +5,14 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any
 
+from tests.fakes.journal import Tape
 from tests.usecases.feed_pack.world import factory, feed, grid, lay, packer, tract
 from torrcast.adapters.recode.encode import Encode
 from torrcast.adapters.recode.encode_settings import MAXRATE_GAIN
 from torrcast.adapters.recode.pace import Pace
 from torrcast.adapters.stream_pack.grid import Grid
 from torrcast.domain.delivered_mbit import AUDIO_MBIT, TS_OVERHEAD
+from torrcast.domain.digest._session_block import _session_block
 from torrcast.domain.hls_settings import MAX_SEGMENT_BYTES
 from torrcast.domain.segment_container import FMP4
 from torrcast.usecases.feed_pack.feed_shrink import _shrink, _skip
@@ -147,6 +149,24 @@ def test_a_shrink_that_did_not_fit_is_a_skip_and_not_a_second_try(
     assert _shrink(show, 4, 20_000_000) is False
     assert show.skipped == {4}
     assert any("ужать не вышло" in line for line in said)
+
+
+def test_a_failed_shrink_closes_the_splice_arithmetic_on_the_product_tape(
+    tmp_path: Path, tape: Tape
+) -> None:
+    """Ужатие без вызова склейки попадает в «без попытки» из настоящего пути продукта."""
+    _tract([])
+    show = feed(tmp_path, recoder=_recoder(tmp_path), grid=grid(60.0, 10.0))
+
+    assert _shrink(show, 4, 20_000_000) is False
+    rows = [
+        {"at": 0.0, "sid": "s", "phase": "timeline", "event": event, **facts}
+        for event, facts in tape.calls
+    ]
+
+    assert "ужатий 1, склейка ужатого: попыток 0, удач 0, без попытки 1" in _session_block(
+        "s", rows
+    )
 
 
 def test_a_shrink_that_gave_no_bytes_at_all_is_not_a_verdict_about_the_piece(

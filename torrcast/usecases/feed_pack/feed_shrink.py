@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 
 import torrcast.usecases.feed_pack._state as _state
 from torrcast.domain.hls_settings import SHRINK_DIR
+from torrcast.domain.shrunk_splice_events import SHRUNK, SHRUNK_SPLICE_SHRINK_FAILED
 from torrcast.ports.journal.slot import journal
 
 if TYPE_CHECKING:
@@ -72,7 +73,7 @@ def _shrink(state: _State, slot: int, size: int = 0) -> bool:
         run = recoder.spare / SHRINK_DIR
         weight = f" ({size / 1e6:.0f} МБ)" if size > 0 else ""
         state._say(f"v{slot} тяжелее потолка{weight} - ужимаю на месте до {mbit:.1f} Мбит/с")
-        journal().mark("ужатие на месте", слот=slot, мбит=round(mbit, 2))
+        journal().mark(SHRUNK, слот=slot, мбит=round(mbit, 2))
         command = _state.ffmpeg_pack_command(
             state.source,
             state.audio,
@@ -125,6 +126,7 @@ def _shrink(state: _State, slot: int, size: int = 0) -> bool:
     # выносится условно (:attr:`doubted`) и снимается, как только источник прочитается
     # снова. Кусок, который ужался и всё равно не влез, - другое дело: он детерминирован,
     # и второй заход над ним получит ровно то же самое.
+    journal().mark(SHRUNK_SPLICE_SHRINK_FAILED, слот=slot)
     return _skip(state, slot, size, "ужать не вышло", final=ready is not None)
 
 

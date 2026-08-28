@@ -8,6 +8,12 @@ from __future__ import annotations
 
 from tests.domain.digest.rows import rec
 from torrcast.domain.digest._session_block import _session_block
+from torrcast.domain.shrunk_splice_events import (
+    SHRUNK,
+    SHRUNK_SPLICE_ATTEMPT,
+    SHRUNK_SPLICE_KEYLESS,
+    SHRUNK_SPLICE_WON,
+)
 from torrcast.domain.trace_sources import PACKED, WARMED
 
 
@@ -60,12 +66,13 @@ def test_the_seams_of_the_session_are_counted_in_its_own_summary() -> None:
 def test_shrunk_splice_attempts_and_wins_are_counted_against_shrinks() -> None:
     """Удача, отказ и бездействие различимы, а их сумма сходится со всеми ужатиями."""
     rows = [
-        rec("ужатие на месте", phase="timeline", слот=1),
-        rec("склейка ужатого вышла", phase="timeline", слот=1),
-        rec("ужатие на месте", phase="timeline", слот=2),
-        rec("склейка ужатого не вышла", phase="timeline", слот=2),
-        rec("ужатие на месте", phase="timeline", слот=3),
-        rec("склейка ужатого не пробовалась: нет опорного кадра", phase="timeline", слот=3),
+        rec(SHRUNK, phase="timeline", слот=1),
+        rec(SHRUNK_SPLICE_ATTEMPT, phase="timeline", слот=1),
+        rec(SHRUNK_SPLICE_WON, phase="timeline", слот=1),
+        rec(SHRUNK, phase="timeline", слот=2),
+        rec(SHRUNK_SPLICE_ATTEMPT, phase="timeline", слот=2),
+        rec(SHRUNK, phase="timeline", слот=3),
+        rec(SHRUNK_SPLICE_KEYLESS, phase="timeline", слот=3),
     ]
 
     block = _session_block("s", rows)
@@ -76,8 +83,8 @@ def test_shrunk_splice_attempts_and_wins_are_counted_against_shrinks() -> None:
 def test_a_keyless_shrink_says_zero_attempts_instead_of_looking_like_no_shrink() -> None:
     """Ноль попыток печатается только при бывшем ужатии; это не молчание прибора."""
     rows = [
-        rec("ужатие на месте", phase="timeline", слот=9),
-        rec("склейка ужатого не пробовалась: нет опорного кадра", phase="timeline", слот=9),
+        rec(SHRUNK, phase="timeline", слот=9),
+        rec(SHRUNK_SPLICE_KEYLESS, phase="timeline", слот=9),
     ]
 
     block = _session_block("s", rows)

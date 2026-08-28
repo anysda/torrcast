@@ -65,6 +65,7 @@ def test_the_shrunk_piece_goes_out_with_the_audio_of_the_copy(tmp_path: Path, ta
 
     assert seen == [("spare7.ts", "v7.ts")], "звук ужатого места взят не у копии"
     assert out.name == "mix7.ts" and out.read_bytes() == b"m" * 20
+    assert tape.named("попытка склейки ужатого") == [{"слот": 7}]
     assert tape.named("склейка ужатого вышла") == [{"слот": 7}]
 
 
@@ -95,7 +96,7 @@ def test_the_shift_between_the_two_passes_reaches_the_merge(tmp_path: Path) -> N
     assert shifts == [0.0417]
 
 
-def test_a_merge_that_did_not_happen_leaves_the_bare_shrink(tmp_path: Path) -> None:
+def test_a_merge_that_did_not_happen_leaves_the_bare_shrink(tmp_path: Path, tape: Tape) -> None:
     """Склейки нет - наружу голое ужатие: кусок без звука хуже стыка со звуком."""
     copy, shrunk = _lay(tmp_path, "v1.ts"), _lay(tmp_path, "spare1.ts")
 
@@ -113,6 +114,7 @@ def test_a_merge_that_did_not_happen_leaves_the_bare_shrink(tmp_path: Path) -> N
     )
 
     assert out == shrunk and not (tmp_path / "mix1.ts").exists()
+    assert tape.named("склейка ужатого не вышла") == [{"слот": 1}]
 
 
 def test_a_merge_heavier_than_the_ceiling_is_thrown_away(tmp_path: Path) -> None:
