@@ -283,6 +283,43 @@ def test_a_default_that_would_swap_a_part_of_the_franchise_is_taken_away_entirel
     assert not any(line.startswith("Enter - ") for line in world.said), "обещать Enter нечем"
 
 
+def test_a_part_that_is_not_in_the_results_at_all_takes_the_liveliest_out_loud() -> None:
+    """🔴 TC-830. «Тачек» в выдаче нет вовсе - вопрос снят, берётся живейшая из найденных.
+
+    Вопрос тут был не выбором, а тупиком: он просил номер из списка, в котором нужного
+    пункта нет, а дефолта у него не было - и показ без человека не начинался вовсе.
+    Списка перед показом нет по той же причине, что и у :func:`taken_line`: читать его
+    некому, и вместо него одна строка с ходом к остальным частям. Берётся дефолт прибора
+    (:func:`first_alive`) - второму правилу выбора тут взяться неоткуда.
+    """
+    world = Outside()
+    cars = [plan("Тачки 2", 2011, part=2, seeders=40), plan("Тачки 3", 2017, part=3, seeders=121)]
+
+    picked = _pick_plan(cars, asked="тачки", environment=world)
+
+    assert picked is cars[0], "первая живая из найденных - дефолт у прибора один"
+    assert world.asked == [], "вопроса не было"
+    assert world.said == [
+        "«тачки»: первой части в выдаче нет; беру первую живую из найденных - "
+        "«Тачки 2 (2011)»; всего подошло картин 2; остальные: cast тачки --menu"
+    ]
+
+
+def test_the_menu_flag_still_asks_about_a_part_that_is_not_in_the_results() -> None:
+    """🔴 TC-830. За явным ``--menu`` вопрос остался - как и у стражей TC-812.
+
+    Флаг - это просьба о списке: человек пришёл выбирать, и номер называет он сам.
+    """
+    world = Outside(answers=[1])
+    cars = [plan("Тачки 2", 2011, part=2, seeders=40), plan("Тачки 3", 2017, part=3, seeders=121)]
+
+    picked = _pick_plan(cars, asked="тачки", environment=world, menu=True)
+
+    assert picked is cars[0]
+    assert world.asked == [("Что смотрим?", 2, None)], "дефолта у вопроса нет"
+    assert world.said[1].startswith("«тачки»: первой части в выдаче нет, и вместо неё")
+
+
 def test_a_default_that_leaves_the_exactly_named_picture_takes_the_liveliest() -> None:
     """🔴 TC-812. Страж «имя названо целиком» берёт живейшую вслух, а не спрашивает.
 

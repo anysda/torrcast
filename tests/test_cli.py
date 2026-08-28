@@ -2726,14 +2726,41 @@ def test_a_numbered_book_series_is_not_a_franchise_line() -> None:
     assert part_one_swap([book, film], "сталкер") == ""
 
 
-def test_the_menu_asks_without_a_default_when_another_part_would_answer(
+def test_a_part_absent_from_the_results_plays_instead_of_asking(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """Спрошенной части нет - Enter другую часть не включает: номер называет человек."""
+    """🔴 TC-830. Спрошенной части нет в выдаче - показ начинается сам и не молча.
+
+    До решения владельца 26-08-2026 тут спрашивали номер, и спрашивали БЕЗ дефолта: без
+    человека у экрана ``cast тачки`` не включал ничего вовсе. Выбирать было и не из чего -
+    той части, между которой и другой шёл выбор, в списке нет.
+    """
+    plans = _numbered_cars()[1:]
+    environment = FakeChoiceEnvironment()
+
+    plan = _pick_plan(plans, asked="тачки", environment=cast(Any, environment))
+
+    assert environment.questions == [], "вопроса нет: включаем сами"
+
+    out = capsys.readouterr().out
+    assert "первой части в выдаче нет" in out
+    assert "беру первую живую из найденных - «Тачки 2 (2011)»" in out
+    assert "остальные: cast тачки --menu" in out, "ход к другим частям обязан быть"
+    assert plan.picture.title == "Тачки 2"
+
+
+def test_a_part_absent_from_the_results_still_asks_behind_the_menu_flag(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """🔴 TC-830. За явным ``--menu`` вопрос остался, и остался без дефолта.
+
+    Флаг - просьба о списке: человек пришёл выбирать, и другую часть по Enter ему не
+    подставляют.
+    """
     plans = _numbered_cars()[1:]
     environment = FakeChoiceEnvironment(answers=[1])
 
-    plan = _pick_plan(plans, asked="тачки", environment=cast(Any, environment))
+    plan = _pick_plan(plans, asked="тачки", environment=cast(Any, environment), menu=True)
 
     assert environment.questions == [("Что смотрим?", 2, None)], "дефолта у вопроса нет"
 

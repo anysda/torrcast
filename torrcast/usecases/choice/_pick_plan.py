@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING
 from torrcast.ports.choice_environment.choice_environment import ChoiceEnvironment
 from torrcast.usecases.choice._named import _named
 from torrcast.usecases.choice._shown import _shown
+from torrcast.usecases.choice.absent_first_part import absent_first_part
+from torrcast.usecases.choice.absent_part_line import absent_part_line
 from torrcast.usecases.choice.certain_default import certain_default
 from torrcast.usecases.choice.configure import _environment_port
 from torrcast.usecases.choice.default_line import default_line
@@ -68,6 +70,15 @@ def _pick_plan(
     число остальных и ключ. Вопрос без дефолта у обоих остался только за явным
     ``--menu`` - там человек просил список, и номер называет он сам. Дефолт франшизы это
     не тронуло: первая живая часть и её страж (:func:`part_one_swap`) в силе.
+
+    🔴 TC-830. Разделены два случая, которые страж франшизы стерёг одинаково. «Спрошенная
+    часть в выдаче есть, но не играет» - вопрос: её видно номером, и подставлять вместо
+    неё другую по-прежнему запрещено. А «спрошенной части нет в выдаче вовсе» вопросом
+    быть перестало (:func:`absent_first_part`): выбора между «той» и «другой» там не
+    существует, и ``cast тачки`` просил номер из списка, в котором нужного пункта нет, -
+    показ без человека не начинался. Берётся дефолт прибора - первая живая из найденных -
+    и берётся не молча (:func:`absent_part_line`). За явным ``--menu`` спрашивают оба,
+    как и стражи TC-812.
 
     К каждой картине печатается справка (:mod:`torrcast.runtime.facts_wiring`) — рейтинг,
     хронометраж и фраза о том, что это за кино. 🔴 Ждут из неё ровно ОПИСАНИЕ (TC-717): его
@@ -132,6 +143,13 @@ def _pick_plan(
     if not menu:
         if certain_default(plans, asked):
             env.write(taken_line(plans, default, asked))
+            return plans[default - 1]
+        if absent_first_part(plans, asked):
+            # 🔴 TC-830, решение владельца 26-08-2026. Спрошенной части в выдаче нет
+            # вовсе: выбирать между «той» и «другой» не из чего, а вопрос сводился к
+            # «назови номер», когда нужного номера в списке нет, - и показ без человека
+            # не начинался. Берётся дефолт прибора, и берётся вслух.
+            env.write(absent_part_line(plans, default, asked))
             return plans[default - 1]
         if not part_one_swap(plans, asked):
             # 🔴 TC-812. Тёзки и целиком названная картина больше не спрашивают: берётся

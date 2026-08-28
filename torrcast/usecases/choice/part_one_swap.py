@@ -14,6 +14,7 @@ from torrcast.usecases.choice.default_note import _passed_why
 from torrcast.usecases.choice.first_alive import first_alive
 
 if TYPE_CHECKING:
+    from torrcast.domain.picture import Picture
     from torrcast.usecases.select.plan import Plan
 
 
@@ -45,23 +46,9 @@ def part_one_swap(plans: list[Plan], asked: str) -> str:
     Часть I») - это глава, а не часть франшизы: если «первая часть» линейки младше другой
     картины меню, перед нами семья однофамильцев, и там дефолт честен.
     """
-    name, index = split_franchise_index(asked)
-    if index is not None or len(plans) < 2:
-        return ""
-    key = slugify(name)
-    pictures = [plan.picture for plan in plans]
-    films = [p for p in pictures if p.kind != "other"]
-    if not key or not any(p.part is not None for p in films):
-        return ""
-    line = _numbered_line(films)[0]
-    first = line[0] if line and line[0].part in (None, 1) else None
-    if first is not None and any(p.year and first.year and p.year < first.year for p in films):
-        return ""
-    names = {p.franchise for p in pictures}
-    # Оригинальные имена зовут ту же франшизу («cars» - это «тачки»), а корень ключа
-    # (:func:`franchise_key`) режет номер части: «Cars 2» подписано корнем «cars».
-    names |= {franchise_key(p.original) for p in pictures if p.original}
-    if key not in names:  # запрос назвал не франшизу, а картину - подменять тут нечего
+    name, _index = split_franchise_index(asked)
+    first, franchise = _first_part(plans, asked)
+    if not franchise:
         return ""
     if first is None:
         return (
@@ -77,3 +64,31 @@ def part_one_swap(plans: list[Plan], asked: str) -> str:
         f"«{_named(first)}» не играет{f': {why}' if why else ''}; вместо неё другую "
         f"часть сам не включаю - вот что есть, назови номер"
     )
+
+
+def _first_part(plans: list[Plan], asked: str) -> tuple[Picture | None, bool]:
+    """Первая часть спрошенной франшизы и признак того, что стражу тут есть что стеречь.
+
+    Второе значение отделяет «франшизы в запросе нет вовсе» от «франшиза есть, а первой
+    её части в выдаче нет»: снаружи это разные случаи, и молчание стража об одном из них
+    читалось бы как молчание о другом (:func:`absent_first_part`).
+    """
+    name, index = split_franchise_index(asked)
+    if index is not None or len(plans) < 2:
+        return None, False
+    key = slugify(name)
+    pictures = [plan.picture for plan in plans]
+    films = [p for p in pictures if p.kind != "other"]
+    if not key or not any(p.part is not None for p in films):
+        return None, False
+    line = _numbered_line(films)[0]
+    first = line[0] if line and line[0].part in (None, 1) else None
+    if first is not None and any(p.year and first.year and p.year < first.year for p in films):
+        return None, False
+    names = {p.franchise for p in pictures}
+    # Оригинальные имена зовут ту же франшизу («cars» - это «тачки»), а корень ключа
+    # (:func:`franchise_key`) режет номер части: «Cars 2» подписано корнем «cars».
+    names |= {franchise_key(p.original) for p in pictures if p.original}
+    if key not in names:  # запрос назвал не франшизу, а картину - подменять тут нечего
+        return None, False
+    return first, True
