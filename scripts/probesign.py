@@ -4,10 +4,11 @@
 Инструмент разработчика: в устанавливаемый пакет не входит.
 
     python3 scripts/probesign.py
-    python3 scripts/probesign.py torrcast/domain/profile.py
+    python3 scripts/probesign.py torrcast/domain/android_tv_profile.py
 
-Предмет - профили приёмников (:mod:`torrcast.domain.profile`): это потолки, которыми
-живёт показ, и снимаются они только живьём. Спрашивается два разных долга:
+Предмет - профили приёмников (:mod:`torrcast.domain.receiver_profile` и
+:mod:`torrcast.domain.android_tv_profile`): это потолки, которыми живёт показ, и
+снимаются они только живьём. Спрашивается два разных долга:
 
 1. каждое переопределённое поле профиля подписано на СВОЕЙ строке. Подпись соседа не
    годится: блок комментария в этом файле стоит то над своим полем, то над чужим, и
@@ -68,7 +69,7 @@ def unsigned(source: str) -> list[str]:
 
 
 def _profiles(tree: ast.Module) -> list[tuple[str, ast.Call]]:
-    """Сборки профилей верхнего уровня: имя константы и сам вызов ``Profile(...)``."""
+    """Сборки профилей верхнего уровня: вызовы ``ReceiverProfile`` и фасадного имени."""
     found: list[tuple[str, ast.Call]] = []
     for node in tree.body:
         target: ast.expr
@@ -81,7 +82,7 @@ def _profiles(tree: ast.Module) -> list[tuple[str, ast.Call]]:
             continue
         if not isinstance(target, ast.Name) or not isinstance(value, ast.Call):
             continue
-        if isinstance(value.func, ast.Name) and value.func.id == "Profile":
+        if isinstance(value.func, ast.Name) and value.func.id in {"ReceiverProfile", "Profile"}:
             found.append((target.id, value))
     return found
 

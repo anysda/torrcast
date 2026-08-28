@@ -140,6 +140,8 @@ fi
 # `длина` внутри гейта, и оно меряет всё дерево, а не только верх пакета.
 stage "структурный гейт"
 scripts/structure-gate --strict
+stage "сторож подписей"
+.venv/bin/python scripts/probesign.py
 stage "cli-contract"
 scripts/cli-contract
 

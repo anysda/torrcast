@@ -845,8 +845,9 @@ def test_щупы_упаковки_подписывают_прогон_приб�
             continue
         for call in calls:
             said = [ast.unparse(argument) for argument in call.args]
-            if said[:2] != [f"'{name}'", "container"]:
-                mute.append(f"{name}.py:{call.lineno}: подпись зовёт себя {said[:2]}")
+            expected = [f"'{name}'", "container", "'TC-874'"]
+            if said[:3] != expected:
+                mute.append(f"{name}.py:{call.lineno}: подпись зовёт себя {said[:3]}")
 
     assert not mute, "щуп меряет молча:\n" + "\n".join(mute)
 

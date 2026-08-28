@@ -36,19 +36,22 @@ def test_каждое_число_приёмника_назвало_свой_пр
     греповой, а молчание от «снято щупом на приставке» не отличается ничем.
     """
     sign = tool("probesign")
+    sources = [profile.read_text(encoding="utf-8") for profile in PROFILES]
 
-    assert not [
-        fault
-        for profile in PROFILES
-        for fault in sign.unsigned(profile.read_text(encoding="utf-8"))
+    assert [
+        name for source in sources for name, _call in sign._profiles(sign.ast.parse(source))
+    ] == [
+        "CAUTIOUS",
+        "ANDROID_TV",
     ]
+    assert not [fault for source in sources for fault in sign.unsigned(source)]
 
 
 def test_сторож_видит_поле_без_подписи() -> None:
     """Поле профиля без подписи названо поимённо, а не общим числом."""
     sign = tool("probesign")
     faults = sign.unsigned(
-        "X = Profile(\n"
+        "X = ReceiverProfile(\n"
         "    key='k',\n"
         "    max_segment_bytes=1,  # снято: tvprobe · mpegts · TC-620\n"
         "    max_segment_seconds=2.0,\n"
@@ -66,7 +69,7 @@ def test_сторож_не_берёт_подпись_соседа() -> None:
     """
     sign = tool("probesign")
     faults = sign.unsigned(
-        "X = Profile(\n"
+        "X = ReceiverProfile(\n"
         "    key='k',\n"
         "    # снято: tvprobe · mpegts · TC-620\n"
         "    patience=577.0,\n"
@@ -80,7 +83,8 @@ def test_сторож_спрашивает_подпись_и_у_заявлени
     """Заявление «тут не переопределено, и это замер» числа не имеет, а прибора требует."""
     sign = tool("probesign")
     body = (
-        "X = Profile(\n    key='k',\n{block}    patience=1.0  # снято: tvprobe · fmp4 · TC-1\n)\n"
+        "X = ReceiverProfile(\n"
+        "    key='k',\n{block}    patience=1.0  # снято: tvprobe · fmp4 · TC-1\n)\n"
     )
     claim = "    # Нули сторожа тут не тронуты, и это замер, а не недосмотр.\n"
 
@@ -94,7 +98,9 @@ def test_сторож_спрашивает_подпись_и_у_заявлени
 def test_сторож_не_верит_самоназванному_прибору() -> None:
     """Прибор и тракт берутся из закрытых списков: «глазами» прибором не считается."""
     sign = tool("probesign")
-    faults = sign.unsigned("X = Profile(key='k', patience=1.0)  # снято: глазами · hls · TC-1\n")
+    faults = sign.unsigned(
+        "X = ReceiverProfile(key='k', patience=1.0)  # снято: глазами · hls · TC-1\n"
+    )
 
     assert len(faults) == 2
     assert "прибор «глазами»" in faults[0]
@@ -106,7 +112,7 @@ def test_сторож_не_принимает_отписку_вместо_мес
     sign = tool("probesign")
 
     faults = sign.unsigned(
-        "X = Profile(key='k', patience=1.0)  # снято: tvprobe · mpegts · замер вчера\n"
+        "X = ReceiverProfile(key='k', patience=1.0)  # снято: tvprobe · mpegts · замер вчера\n"
     )
 
     assert faults == [

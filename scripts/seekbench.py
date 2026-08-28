@@ -181,7 +181,7 @@ def main() -> int:
         stamp(
             "seekbench",
             container,
-            f"приёмник {choice.profile.key}",
+            "TC-874",
             [
                 f"вес {choice.profile.max_segment_bytes / 1e6:.1f} МБ",
                 f"длина {choice.profile.max_segment_seconds:.1f} с",
