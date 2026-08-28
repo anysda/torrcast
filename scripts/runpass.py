@@ -26,6 +26,7 @@ import importlib.util
 import json
 import subprocess
 import sys
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -168,13 +169,35 @@ def probe_stamp(tool: str, probe: Path | None = None) -> dict[str, Any]:
     return {"name": found.name, "sha256": digest(found)}
 
 
+@dataclass(frozen=True)
+class Fit:
+    """Годен ли САМ прогон: были ли живы приборы, которыми он снят.
+
+    🔴 TC-867. Паспорт до сих пор удостоверял только КОД и СЫРЬЁ - то есть чем считали, -
+    и молчал о том, работал ли прибор. Прогон, чей журнал приёмника оборвался на второй
+    секунде, выглядел в паспорте ровно как прогон с живым журналом, и «голоданий ноль»
+    уезжало из него в отчёт неотличимо от заработанного нуля.
+    """
+
+    ok: bool
+    why: str
+
+
 def passport(
-    tool: str, inputs: list[Path], argv: list[str], probe: Path | None = None
+    tool: str,
+    inputs: list[Path],
+    argv: list[str],
+    probe: Path | None = None,
+    fit: Fit | None = None,
 ) -> dict[str, Any]:
     """Собрать паспорт прогона: чем считали и по какому сырью. Вывод добавит :func:`write`.
 
     ``probe`` - путь к самому щупу, если он лежит не в ``scripts/`` (разовый щуп на стенде).
     Не назвали - :func:`probe_file` найдёт его сам.
+
+    ``fit`` - годность самого прогона, если щуп её меряет. Не назвали - паспорт скажет об
+    этом вслух (:func:`told`), а не промолчит: незаявленная годность и подтверждённая
+    годность обязаны читаться по-разному.
     """
     return {
         "tool": tool,
@@ -183,6 +206,7 @@ def passport(
         "argv": argv,
         "probe": probe_stamp(tool, probe),
         "code": code_stamp(),
+        "fit": None if fit is None else {"ok": fit.ok, "why": fit.why},
         "inputs": [about(path) for path in inputs],
         "output": None,
     }
@@ -209,9 +233,17 @@ def told(card: dict[str, Any]) -> str:
         f"{Path(item['path']).name} ({item['lines']} строк, {item['sha256'][:12]})"
         for item in card["inputs"]
     )
+    # Годность называется ВСЕГДА, и её отсутствие - тоже слово: молчащая строка читается
+    # как «годен», а это ровно та подмена, из-за которой мёртвый прибор попадал в отчёт.
+    fit = card.get("fit")
+    if fit is None:
+        fitness = "годность прогона не заявлена"
+    else:
+        fitness = f"{'ГОДЕН' if fit['ok'] else 'БРАК'}: {fit['why']}"
     return (
         f"Паспорт прогона: {card['tool'] or 'щуп не назван'}, "
         f"{card['made'] or 'дата не записана'}; "
         f"код {who}{dirty}, отпечаток {mark}, пакет {package}; "
+        f"{fitness}; "
         f"сырьё: {corpus or 'не записано'}"
     )

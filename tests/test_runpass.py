@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import importlib.util
+import sys
 from pathlib import Path
 
 SPEC = importlib.util.spec_from_file_location(
@@ -18,6 +19,7 @@ SPEC = importlib.util.spec_from_file_location(
 )
 assert SPEC and SPEC.loader
 runpass = importlib.util.module_from_spec(SPEC)
+sys.modules["runpass"] = runpass  # без записи в sys.modules ломается @dataclass
 SPEC.loader.exec_module(runpass)
 
 
@@ -68,3 +70,29 @@ def test_bytecode_cache_is_not_code(tmp_path: Path) -> None:
     cache.mkdir(parents=True)
     (cache / "grid.cpython-311.py").write_text("x = 2\n", encoding="utf-8")
     assert runpass.fingerprint(root) == (clean, count)
+
+
+def test_паспорт_называет_годность_прогона(tmp_path: Path) -> None:
+    """Годность прогона паспорт называет всегда, и её отсутствие - тоже слово.
+
+    🔴 TC-867. Паспорт удостоверял чем считали и по какому сырью, но молчал о том, был ли
+    жив сам прибор. Прогон, чей журнал приёмника оборвался на второй секунде, читался в
+    нём неотличимо от прогона с живым журналом - и «голоданий ноль» уезжало в отчёт.
+    Молчание в этой строке читается как «годен», поэтому строка обязана быть всегда.
+    """
+    corpus = tmp_path / "сырьё.jsonl"
+    corpus.write_text("{}\n", encoding="utf-8")
+
+    unsaid = runpass.told(runpass.passport("щуп", [corpus], []))
+    bad = runpass.told(
+        runpass.passport("щуп", [corpus], [], fit=runpass.Fit(False, "журнал молчал 380 с"))
+    )
+    good = runpass.told(runpass.passport("щуп", [corpus], [], fit=runpass.Fit(True, "журнал жив")))
+
+    assert "годность прогона не заявлена" in unsaid
+    assert "БРАК: журнал молчал 380 с" in bad
+    assert "ГОДЕН: журнал жив" in good
+    assert runpass.passport("щуп", [corpus], [], fit=runpass.Fit(False, "х"))["fit"] == {
+        "ok": False,
+        "why": "х",
+    }
