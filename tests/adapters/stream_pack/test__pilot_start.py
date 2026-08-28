@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from tests.conftest import CLIP_KEY_SECONDS, CLIP_RATE
+from tests.fakes.journal import Tape
 from torrcast.adapters.stream_pack._pilot_start import _FILM_START, _film_start, _pilot_start
 
 #: На столько уезжает вперёд лента контейнера в фикстуре ниже.
@@ -148,3 +149,32 @@ def test_a_container_the_map_does_not_know_is_still_asked() -> None:
 
     assert _film_start("поток", kind_of=lambda _: "", run=run) == 0.0
     assert len(started) == 1, "чужой контейнер остался без замера"
+
+
+@pytest.mark.ffmpeg
+def test_a_container_without_stamps_is_named_instead_of_answered_silently(
+    clip_avi_bframes: str, clip_avi: str, tape: Tape
+) -> None:
+    """🔴 Мера этой правки: место не измерено - и это СКАЗАНО, а не отдано числом границы.
+
+    Ответ прежний и остаётся прежним: измерителя у этого места нет, подменить его тут
+    нечем. Ново ровно одно - событие названо. Замер на стенде (.avi h264 с B-кадрами,
+    длительность 300 с, сетка 10 с): пробный прогон не дал первого пакета ни на одной из
+    29 границ, настоящая посадка отстоит от границы до 2.035 с, и следом события в
+    журнале была пустота.
+
+    Отрицательная проба стоит рядом и той же командой: тот же .avi без B-кадров. Там
+    ``pts`` есть, прогон меряет место как на всяком здоровом файле, и ни строки отказа
+    появиться не должно - иначе признак записывал бы в слепые исправный вход.
+    """
+    at = 3 * CLIP_KEY_SECONDS
+    blind = _pilot_start(clip_avi_bframes, at)
+    assert blind == at, "ответ пробного прогона изменился - это уже другая правка"
+    said = [facts for name, facts in tape.calls if name == "пробный прогон не дал первого пакета"]
+    assert said, "место не измерено, а в журнале ни строки"
+    assert "must be set" in said[0]["отказ"], f"названа не та причина: {said[0]['отказ']}"
+
+    tape.calls.clear()
+    seen = _pilot_start(clip_avi, at)
+    assert seen < at, f"на входе без B-кадров место обязано измеряться, а не отдаваться: {seen}"
+    assert not [name for name, _ in tape.calls if name == "пробный прогон не дал первого пакета"]

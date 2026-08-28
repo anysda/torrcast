@@ -586,6 +586,52 @@ def clip_mp4(clip: str, tmp_path_factory: pytest.TempPathFactory) -> str:
 
 
 @pytest.fixture(scope="session")
+def clip_avi_bframes(tmp_path_factory: pytest.TempPathFactory) -> str:
+    """Тот же ролик в .avi с B-кадрами: единственный контейнер, где меток нет вовсе.
+
+    🔴 B-кадры тут условие видимости класса, а не правдоподобие. Демультиплексор .avi
+    отдаёт пакеты с одним ``dts``; пока B-кадров нет, ffmpeg ставит ``pts`` равным ему, и
+    всё работает. Появились - и ``pts`` первого пакета пуст, mpegts отказывается писать
+    (``first pts and dts value must be set``), а пробный прогон возвращает саму границу.
+    Ролик без B-кадров рядом (:func:`clip_avi`) - отрицательная проба этой пары: он
+    отличается ровно одним доводом ffmpeg и меряется целиком.
+
+    Кодек h264, а не mpeg4: mpeg4 приёмник не берёт копией никогда
+    (:attr:`torrcast.domain.profile.Profile.recode_codecs`), и на нём копирующий заход не
+    поднимается вовсе. Класс живёт ровно там, где кодек копируемый, а контейнер без меток.
+    """
+    path = tmp_path_factory.mktemp("src-avi-bf") / "clip.avi"
+    subprocess.run(
+        ["ffmpeg", "-hide_banner", "-loglevel", "error",
+         "-f", "lavfi", "-i", f"testsrc2=size=320x180:rate={CLIP_RATE}",
+         "-f", "lavfi", "-i", "sine=frequency=440", "-t", str(CLIP_SECONDS),
+         "-c:v", "libx264", "-preset", "ultrafast", "-g", str(CLIP_GOP), "-bf", "3",
+         "-c:a", "libmp3lame", "-ac", "2", "-y", str(path)],
+        check=True, capture_output=True,
+    )  # fmt: skip
+    return str(path)
+
+
+@pytest.fixture(scope="session")
+def clip_avi(tmp_path_factory: pytest.TempPathFactory) -> str:
+    """Тот же .avi без B-кадров: меток по-прежнему нет, а ``pts`` уже есть.
+
+    Отрицательная проба к :func:`clip_avi_bframes`: отличие ровно в ``-bf``, и на этом
+    входе пробный прогон обязан мерить место посадки как на всяком здоровом файле.
+    """
+    path = tmp_path_factory.mktemp("src-avi") / "clip.avi"
+    subprocess.run(
+        ["ffmpeg", "-hide_banner", "-loglevel", "error",
+         "-f", "lavfi", "-i", f"testsrc2=size=320x180:rate={CLIP_RATE}",
+         "-f", "lavfi", "-i", "sine=frequency=440", "-t", str(CLIP_SECONDS),
+         "-c:v", "libx264", "-preset", "ultrafast", "-g", str(CLIP_GOP), "-bf", "0",
+         "-c:a", "libmp3lame", "-ac", "2", "-y", str(path)],
+        check=True, capture_output=True,
+    )  # fmt: skip
+    return str(path)
+
+
+@pytest.fixture(scope="session")
 def clip_ts(clip: str, tmp_path_factory: pytest.TempPathFactory) -> str:
     """Тот же ролик в mpegts — единственный контейнер, где ``-ss`` уводит ВПЕРЁД.
 

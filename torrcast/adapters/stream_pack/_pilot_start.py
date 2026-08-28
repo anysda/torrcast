@@ -14,6 +14,7 @@ from typing import Any, Final
 
 from torrcast.adapters.stream_pack._keys_shelf import _keys_cache
 from torrcast.adapters.stream_pack.read_keys import read_keys
+from torrcast.adapters.stream_pack.run_refusal import run_refusal
 from torrcast.domain.hls_wait import PILOT_TIMEOUT
 from torrcast.ports.journal.slot import journal
 
@@ -119,6 +120,19 @@ def _film_start(
     return begins
 
 
+def _unmeasured(source_url: str, at: float, why: str) -> float:
+    """Место посадки не измерено: ответом остаётся граница, но молчанием это не идёт.
+
+    🔴 Ответ прежний: другого измерителя у этого места нет. Ново ровно одно - событие
+    названо вслух. Пока его не было, «встали ровно на границе» и «не измерили ничего»
+    приходили одним и тем же числом, и в журнале не оставалось ни строки: отсутствие
+    записи читалось как отсутствие события. Замер на стенде (.avi с B-кадрами, 29 границ
+    сетки) показал класс, где так кончаются ВСЕ границы подряд.
+    """
+    journal().mark("пробный прогон не дал первого пакета", файл=source_url, отказ=why)
+    return at
+
+
 def _pilot_start(source_url: str, at: float, timeout: float = PILOT_TIMEOUT) -> float:
     """Пробный прогон в один кадр: где ffmpeg встал на самом деле. Не вышло — ``at``.
 
@@ -162,19 +176,22 @@ def _pilot_start(source_url: str, at: float, timeout: float = PILOT_TIMEOUT) -> 
             "-muxdelay", "0", "-muxpreload", "0", "-f", "mpegts", "-y", probe_path,
         ]  # fmt: skip
         try:
-            subprocess.run(command, capture_output=True, timeout=timeout, check=True)
+            done = subprocess.run(command, capture_output=True, text=True, timeout=timeout)
+            refused = run_refusal(done.stderr)
+            if done.returncode != 0 or refused:
+                return _unmeasured(source_url, at, refused or f"код возврата {done.returncode}")
             found = subprocess.run(
                 ["ffprobe", "-v", "error", "-select_streams", "v", "-show_entries",
                  "packet=pts_time", "-of", "csv=p=0", "-read_intervals", "%+#1", probe_path],
                 capture_output=True, text=True, timeout=timeout, check=True,
             )  # fmt: skip
-        except (OSError, subprocess.SubprocessError):
-            return at  # не вышло - считаем, что встали ровно на границе, и скажем об этом
+        except (OSError, subprocess.SubprocessError) as exc:
+            return _unmeasured(source_url, at, str(exc))
         head = found.stdout.strip().splitlines()
         try:
             stood = float(head[0].split(",")[0])
         except (IndexError, ValueError):
-            return at
+            return _unmeasured(source_url, at, "первого пакета в прогоне нет")
         # 🔴 TC-629. Ответ лежит в ленте контейнера, а нужен в ленте фильма - той, в которой
         # стоят границы сетки. Уезд вперёд на опорный кадр при этом остаётся как есть: он
         # не ошибка замера, а поведение демуксера (:data:`SEEK_SHIFT`).

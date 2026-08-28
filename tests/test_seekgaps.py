@@ -46,17 +46,6 @@ def test_the_probe_asks_every_nonzero_uniform_boundary() -> None:
     assert gaps.boundaries(34.999, 10.0) == [10.0, 20.0]
 
 
-def test_a_zero_exit_demux_error_is_still_an_error() -> None:
-    assert gaps._run_error("Error during demuxing: Input/output error")
-
-
-def test_a_muxer_refusing_a_stream_without_stamps_is_also_an_error() -> None:
-    # Ровно этим ffmpeg отвечает на mpeg4 из .avi - и выходит при этом НУЛЁМ.
-    assert gaps._run_error("[mpegts @ 0x1] first pts and dts value must be set")
-    assert gaps._run_error("[out#0/mpegts @ 0x1] Error muxing a packet")
-    assert not gaps._run_error("frame= 1 fps=0.0 q=-1.0 size=1kB")
-
-
 def test_a_start_landing_before_the_boundary_costs_one_run() -> None:
     pilot = _remembering({200.0: 196.0})
 

@@ -36,6 +36,7 @@ from pathlib import Path
 # клон, и без этой строки замер снимался бы кодом, который правят в чужой работе.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from torrcast.adapters.stream_pack.run_refusal import run_refusal
 from torrcast.adapters.stream_pack.settle_start import SEEK_BACK_TRIES, settle_start
 from torrcast.domain.hls_settings import HLS_SEGMENT_SECONDS, SPLIT_SLACK
 
@@ -72,27 +73,6 @@ def boundaries(duration: float, step: float) -> list[float]:
     return [step * slot for slot in range(1, count)]
 
 
-def _run_error(stderr: str) -> str:
-    """Строка ffmpeg, отменяющая удачу прогона; пусто - таких строк нет.
-
-    Ошибка мультиплексирования тут наравне с ошибкой демультиплексирования: mpegts
-    отказывается принимать поток без меток (``first pts and dts value must be set``),
-    печатает это и выходит НУЛЁМ, оставив пустой файл.
-    """
-    marks = (
-        "error during demuxing",
-        "input/output error",
-        "error muxing a packet",
-        "error submitting a packet",
-        "must be set",
-    )
-    for line in stderr.splitlines():
-        folded = line.casefold()
-        if any(mark in folded for mark in marks):
-            return line.strip()
-    return ""
-
-
 def land(url: str, at: float, timeout: float) -> tuple[float | None, str]:
     """Один боевой пробный прогон; ошибка названа отдельно от места посадки.
 
@@ -111,7 +91,7 @@ def land(url: str, at: float, timeout: float) -> tuple[float | None, str]:
             done = subprocess.run(command, capture_output=True, text=True, timeout=timeout)
         except (OSError, subprocess.TimeoutExpired) as exc:
             return None, str(exc)
-        broke = _run_error(done.stderr)
+        broke = run_refusal(done.stderr)
         if done.returncode != 0 or broke:
             tail = broke or next(
                 (line.strip() for line in reversed(done.stderr.splitlines()) if line.strip()),
