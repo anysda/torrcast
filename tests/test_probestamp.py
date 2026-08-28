@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 from types import ModuleType
 
@@ -34,6 +35,15 @@ def test_подпись_называет_прибор_тракт_и_место()
     assert stamp.stamp("tvprobe", "fmp4", "28-08-2026", ["вес 28.0 МБ"]) == (
         "снято: tvprobe · fmp4 · 28-08-2026 · вес 28.0 МБ"
     )
+
+
+def test_место_прогона_берётся_из_явной_карточки_либо_текущей_даты() -> None:
+    """Карточка - довод прогона; без неё подпись честно называет дату запуска по UTC."""
+    stamp = tool("probestamp")
+    today = datetime.now(UTC).strftime("%d-%m-%Y")
+
+    assert stamp.run_where("TC-875") == "TC-875"
+    assert stamp.run_where(None) == today
 
 
 def test_подпись_щупа_читается_сторожем_дерева() -> None:
@@ -64,8 +74,8 @@ def test_подпись_не_принимает_неназванный_приб�
         stamp.stamp("tvprobe", "mpegts", "замер вчера")
 
 
-def test_список_приборов_содержит_только_печатающие_подпись_щупы() -> None:
-    """Имя непечатающей команды не превращает отписку в допустимую подпись."""
+def test_закрытый_список_допустимых_имён_приборов() -> None:
+    """Реестр допускает ровно три известных щупа и честную отметку долга."""
     stamp = tool("probestamp")
 
     assert frozenset({"tvprobe", "seekcheck", "seekbench", stamp.UNNAMED}) == stamp.TOOLS

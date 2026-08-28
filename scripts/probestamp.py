@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Sequence
+from datetime import UTC, datetime
 from typing import Final
 
 #: Слово, с которого начинается подпись. По нему её и ищут - грепом и сторожем.
@@ -46,6 +47,11 @@ TOOLS: Final = frozenset({"tvprobe", "seekcheck", "seekbench", UNNAMED})
 TRACTS: Final = frozenset({"mpegts", "fmp4", "файлом", "не при чём", "неизвестен"})
 #: Где снят замер: карточка либо календарная дата ``ДД-ММ``/``ДД-ММ-ГГГГ``.
 WHERE: Final = re.compile(r"(?:TC-\d+|\d{2}-\d{2}(?:-\d{4})?)\Z")
+
+
+def run_where(card: str | None) -> str:
+    """Назвать место этого прогона: явную карточку либо сегодняшнюю дату UTC."""
+    return card if card is not None else datetime.now(UTC).strftime("%d-%m-%Y")
 
 
 def stamp(tool: str, tract: str, where: str, extra: Sequence[str] = ()) -> str:

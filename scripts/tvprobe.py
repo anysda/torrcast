@@ -39,7 +39,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import tvjournal
 from probeprofile import add_argument as add_profile_argument
 from probeprofile import choose as choose_profile
-from probestamp import stamp
+from probestamp import run_where, stamp
 
 from torrcast.adapters.chromecast.cast.chromecast_receiver import ChromecastReceiver
 from torrcast.adapters.filesystem.state.load_config import load_config
@@ -203,6 +203,7 @@ def main() -> int:
     wire()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("url", help="поток TorrServer")
+    parser.add_argument("--card", help="карточка замера, например TC-875")
     parser.add_argument("--at", type=float, required=True, help="с какой секунды грузить показ")
     parser.add_argument("--watch", type=float, default=25.0, help="сколько секунд смотреть")
     parser.add_argument("--step", type=float, default=10.0)
@@ -299,8 +300,9 @@ def main() -> int:
         stamp(
             "tvprobe",
             container,
-            "TC-874",
+            run_where(args.card),
             [
+                f"приёмник {choice.profile.key}",
                 f"вес {choice.profile.max_segment_bytes / 1e6:.1f} МБ",
                 f"длина {choice.profile.max_segment_seconds:.1f} с",
                 f"тяжесть {args.threshold:.1f} Мбит/с",

@@ -41,7 +41,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from probeprofile import add_argument as add_profile_argument
 from probeprofile import choose as choose_profile
-from probestamp import stamp
+from probestamp import run_where, stamp
 from seekcheck import free_port, get, serve_file, unfit_grid
 
 from torrcast.adapters.filesystem.state.load_config import load_config
@@ -130,6 +130,7 @@ def main() -> int:
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument("--source", help="URL потока (TorrServer)")
     source.add_argument("--file", help="локальный файл - поднимем ему Range-раздачу сами")
+    parser.add_argument("--card", help="карточка замера, например TC-875")
     parser.add_argument("--to", type=float, required=True, help="куда прыгаем, секунда фильма")
     parser.add_argument("--window", type=float, default=90.0, help="окно замера, с")
     parser.add_argument("--swarm", type=float, default=20.0, help="сколько мерить рой, с")
@@ -181,8 +182,9 @@ def main() -> int:
         stamp(
             "seekbench",
             container,
-            "TC-874",
+            run_where(args.card),
             [
+                f"приёмник {choice.profile.key}",
                 f"вес {choice.profile.max_segment_bytes / 1e6:.1f} МБ",
                 f"длина {choice.profile.max_segment_seconds:.1f} с",
             ],

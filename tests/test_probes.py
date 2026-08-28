@@ -826,7 +826,8 @@ def test_щупы_упаковки_подписывают_прогон_приб�
 
     TC-870: семь чисел приставки простояли в дереве без единой отметки о приборе, и
     восстанавливать их пришлось коммитами - а коммит прибора не называет тем более.
-    Подпись обязана печататься самим щупом (:func:`probestamp.stamp`) и обязана нести
+    Подпись обязана печататься самим щупом (:func:`probestamp.stamp`), брать место у
+    этого прогона, а не из литерала исходника, и обязана нести
     ТРАКТ: профиль, заявленный надписью, и контейнер, реально уехавший приёмнику,
     разъезжались молча (TC-868), и число тогда снято не про тот тракт.
     """
@@ -845,9 +846,11 @@ def test_щупы_упаковки_подписывают_прогон_приб�
             continue
         for call in calls:
             said = [ast.unparse(argument) for argument in call.args]
-            expected = [f"'{name}'", "container", "'TC-874'"]
+            expected = [f"'{name}'", "container", "run_where(args.card)"]
             if said[:3] != expected:
                 mute.append(f"{name}.py:{call.lineno}: подпись зовёт себя {said[:3]}")
+            if len(said) < 4 or "приёмник {choice.profile.key}" not in said[3]:
+                mute.append(f"{name}.py:{call.lineno}: профиль приёмника потерян в {said[3:]}")
 
     assert not mute, "щуп меряет молча:\n" + "\n".join(mute)
 
