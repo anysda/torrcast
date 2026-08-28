@@ -10,7 +10,6 @@ import contextlib
 import os
 from typing import TYPE_CHECKING
 
-import torrcast.usecases.warm._state as _state
 from torrcast.usecases.warm.settings import RUN_DIR
 
 if TYPE_CHECKING:
@@ -46,6 +45,14 @@ def _lay_heavy(state: _State, slot: int, _size: int) -> bool:
     кодировщика. Выкладке ответ важен только когда рядом лежит готовый перекод, а у
     прогрева его нет.
     """
+    # 🔴 Имя куска в каталоге прогона спрашивается У КАТАЛОГА ПРОГРЕТОГО, а не у общего
+    # :func:`torrcast.adapters.stream_probe.segment_name`: тот зовётся тут без контейнера и отвечает
+    # осторожным умолчанием завода (``v{slot}.ts``). На приёмнике с FMP4 (профиль Android TV,
+    # приставка) заход пакует ``v{slot}.m4s``, замена не находила НИЧЕГО, а выкладка сразу за
+    # этим стирала тяжёлую копию (:mod:`torrcast.adapters.stream_pack.packer_publish`). Место
+    # оставалось непрогретым навсегда, фильм копией не достраивался, и точечный перекод
+    # (:func:`torrcast.usecases.warm._warm_count._spots_left`) не начинался ни разу.
+    laid = state.vault.path(slot)
     with contextlib.suppress(OSError):
-        os.replace(state.vault.dir / RUN_DIR / _state.segment_name(slot), state.vault.path(slot))
+        os.replace(state.vault.dir / RUN_DIR / laid.name, laid)
     return False
