@@ -8,6 +8,7 @@ from __future__ import annotations
 import math
 from typing import TYPE_CHECKING
 
+from torrcast.adapters.stream_pack.bare_on_tape import bare_on_tape
 from torrcast.adapters.stream_pack.splice_on_tape import splice_on_tape
 from torrcast.domain.mixed_name import mixed_name
 from torrcast.domain.segment_container import FMP4, MPEGTS, SegmentContainer
@@ -34,6 +35,7 @@ def _shrunk_out(
     keyless: Callable[[Path], bool],
     starts_of: Callable[[Path], tuple[float, float]],
     on_tape: Callable[..., bool] = splice_on_tape,
+    on_bare: Callable[..., bool] = bare_on_tape,
 ) -> Path:
     """Файл ужатого места для приёмника: склейка со звуком копии, иначе ужатие как есть.
 
@@ -86,6 +88,11 @@ def _shrunk_out(
     склейка на CMAF не выходит вовсе: голый фрагмент не открывается ничем
     (:func:`torrcast.adapters.stream_pack.piece_with_head.piece_with_head`).
 
+    ``on_bare`` ставит на ту же ленту само УЖАТИЕ
+    (:func:`torrcast.adapters.stream_pack.bare_on_tape.bare_on_tape`): это второй прогон
+    ffmpeg над одним местом, счёт у него свой, и всюду, где склейка не сложилась, наружу
+    уходит именно он. Отказ выкладку не отменяет: кусок уходит как уходил, но уже не молча.
+
     ``on_tape`` ставит готовую склейку на ленту показа
     (:func:`torrcast.adapters.stream_pack.splice_on_tape.splice_on_tape`): собрана она новым
     прогоном ffmpeg, и счёт у него начинается с нуля, а уйти она обязана туда же, где стоял
@@ -97,6 +104,7 @@ def _shrunk_out(
     уедет на приёмник.
     """
     if keyless(shrunk):
+        on_bare(shrunk, copy, slot, "ужатие", container, heads)
         return shrunk
     mixed = run_dir / mixed_name(slot, container)
     why = "склейка ужатого не вышла"
@@ -105,6 +113,7 @@ def _shrunk_out(
         if container == FMP4 and not on_tape(mixed, copy, heads[1]):
             mixed.unlink(missing_ok=True)
             journal().mark("склейку ужатого не поставить на ленту показа", слот=slot)
+            on_bare(shrunk, copy, slot, "ужатие", container, heads)
             return shrunk
         astray = [
             name
@@ -123,4 +132,5 @@ def _shrunk_out(
     # Молчать об этом нельзя: без склейки на обоих стыках ужатого места возвращается
     # разрыв звука, а он стоит приёмнику секунд, а не миллисекунд.
     journal().mark(why, слот=slot)
+    on_bare(shrunk, copy, slot, "ужатие", container, heads)
     return shrunk

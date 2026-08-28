@@ -400,3 +400,37 @@ def test_each_track_is_checked_against_the_place_of_its_own_tape(tmp_path: Path)
     )
 
     assert how == "склейка" and source.name == "mix2.m4s"
+
+
+def test_the_recode_that_goes_out_is_put_on_the_show_tape(tmp_path: Path) -> None:
+    """🔴 Перекод несёт счётчик ЗАХОДА КОДИРОВЩИКА, а не ленту показа.
+
+    Замер базы: у уехавшего зрителю перекода тик 1024 там, где лента показа стоит на
+    2868224, - прыжок на 59 с назад ровно в месте голодания приёмника. Склейку на ленту
+    ставят с 27-08, а перекод уезжал мимо неё всяким исходом, где склейка не сложилась.
+    """
+    seen: list[tuple[str, str, str]] = []
+
+    def on_bare(chunk: Path, piece: Path, slot: int, what: str, *rest: Any) -> bool:
+        seen.append((chunk.name, piece.name, what))
+        return True
+
+    copy, recode = _lay(tmp_path, "v3.m4s", 100), _lay(tmp_path, "spare3.m4s", 200)
+
+    source, how = _merged_out(
+        tmp_path,
+        3,
+        copy,
+        recode,
+        100,
+        50,
+        _PLACE,
+        FMP4,
+        merge=lambda *a, **k: False,
+        starts_of=_on_place,
+        on_tape=lambda *_: True,
+        on_bare=on_bare,
+    )
+
+    assert (source, how) == (recode, "перекод")
+    assert seen == [("spare3.m4s", "v3.m4s", "перекод")]

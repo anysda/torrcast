@@ -28,7 +28,7 @@ _NARROW: Final = 4
 _NARROW_MAX: Final = (1 << 32) - 1
 
 
-def splice_on_tape(splice: Path, tape: Path, head: Path | None) -> bool:
+def splice_on_tape(splice: Path, tape: Path, head: Path | None, mine: Path | None = None) -> bool:
     """Переставить счётчики ``splice`` на счётчики куска ``tape``; ``False`` - не вышло.
 
     🔴 Ради этого написано. На CMAF метки куска - не время фильма, а счётчик прогона
@@ -55,6 +55,13 @@ def splice_on_tape(splice: Path, tape: Path, head: Path | None) -> bool:
     картинку на 0.768 её места. Не сошлись - склейка не уходит вовсе: место идёт прежним
     путём, со швом звука, а не с уехавшей картинкой.
 
+    ``mine`` - заголовок, описывающий дорожки САМОЙ ``splice``; ``None`` - она несёт его в
+    себе. Нужен он потому, что ставить на ленту приходится не только собранную склейку:
+    голыми фрагментами уезжают перекод и ужатие (:func:`._merged_out._merged_out`,
+    :func:`._shrunk_out._shrunk_out`), а у голого фрагмента своего ``moov`` нет, и спросить
+    его шкалы не у чего. Сверка шкал при этом не ослабляется, а переносится на тот
+    заголовок, с которым кусок и уедет (:func:`._own_head._own_head`).
+
     Байты сэмплов не двигаются ни на один: ``tfdt`` переписывается на месте, в свою же
     ширину, поэтому смещения ``trun`` остаются верными и файл не переписывается целиком -
     у куска показа это 16-28 МБ.
@@ -67,7 +74,7 @@ def splice_on_tape(splice: Path, tape: Path, head: Path | None) -> bool:
             spots = _spots(fh)
             if not spots:
                 return False
-            if not _same_scales(fh, head, splice_at=0):
+            if not _same_scales(fh, head, splice_at=0, mine=mine):
                 return False
             patch = _patch(spots, marks)
             if patch is None:
@@ -121,17 +128,21 @@ def _spots(fh: IO[bytes]) -> list[tuple[int, int, int, int]]:
         at += size
 
 
-def _same_scales(fh: IO[bytes], head: Path | None, splice_at: int) -> bool:
+def _same_scales(fh: IO[bytes], head: Path | None, splice_at: int, mine: Path | None) -> bool:
     """Шкалы дорожек склейки и показа совпадают: иначе счётчик значит в них разное."""
     if head is None:
         return False
     try:
         with head.open("rb") as other:
             theirs = tape_scales(other.read(_PEEK))
+        if mine is None:
+            fh.seek(splice_at)
+            ours = tape_scales(fh.read(_PEEK))
+        else:
+            with mine.open("rb") as own:
+                ours = tape_scales(own.read(_PEEK))
     except OSError:
         return False
-    fh.seek(splice_at)
-    ours = tape_scales(fh.read(_PEEK))
     if not ours or not theirs:
         return False
     return all(theirs.get(track) == scale for track, scale in ours.items())

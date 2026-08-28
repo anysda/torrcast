@@ -8,6 +8,7 @@ from __future__ import annotations
 import math
 from typing import TYPE_CHECKING
 
+from torrcast.adapters.stream_pack.bare_on_tape import bare_on_tape
 from torrcast.adapters.stream_pack.splice_on_tape import splice_on_tape
 from torrcast.domain.mixed_name import mixed_name
 from torrcast.domain.segment_container import FMP4, MPEGTS, SegmentContainer
@@ -33,6 +34,7 @@ def _merged_out(
     merge: Callable[..., bool],
     starts_of: Callable[[Path], tuple[float, float]],
     on_tape: Callable[..., bool] = splice_on_tape,
+    on_bare: Callable[..., bool] = bare_on_tape,
 ) -> tuple[Path, str]:
     """Файл этого места для приёмника и одно слово о том, чем он стал.
 
@@ -81,6 +83,11 @@ def _merged_out(
     ``heads`` - заголовки прогонов, сделавших картинку (перекод) и звук (копия): на CMAF
     без них не открыть ни того, ни другого куска.
 
+    ``on_bare`` ставит на ту же ленту сам ПЕРЕКОД
+    (:func:`torrcast.adapters.stream_pack.bare_on_tape.bare_on_tape`): наружу он уходит
+    тремя исходами из четырёх, и в каждом несёт счётчик захода кодировщика, а не ленту
+    показа. Отказ выкладку не отменяет: кусок уходит как уходил, но уже не молча.
+
     ``on_tape`` ставит готовую склейку на ленту показа
     (:func:`torrcast.adapters.stream_pack.splice_on_tape.splice_on_tape`): муксер собирает её
     новым прогоном и начинает счёт с нуля, а уйти она обязана туда же, где стоял кусок,
@@ -90,17 +97,24 @@ def _merged_out(
     # Копия тут меньшее зло ровно пока влезает в потолок: перекод уехал бы со своим звуком,
     # на своей сетке AAC, а это дыра на обоих стыках куска.
     without = (copy, "копия") if copy_size and copy_size <= cap else (recode, "перекод")
+
+    def leaving(pair: tuple[Path, str]) -> tuple[Path, str]:
+        """Уезжает голый перекод - значит и лента показа на нём своя, а не показа."""
+        if pair[0] is recode:
+            on_bare(recode, copy, slot, "перекод", container, heads)
+        return pair
+
     mixed = run_dir / mixed_name(slot, container)
     if not merge(recode, copy, mixed, container=container, heads=heads):
         # Молчать об этом нельзя. Отказ склейки - это вернувшийся разрыв звука на стыке, и
         # виден он был только по полю «чем» у соседнего события: семь минут разбора вслепую
         # стоил один такой молчащий отказ (TC-800).
         journal().mark("склейка не вышла", слот=slot)
-        return without
+        return leaving(without)
     if container == FMP4 and not on_tape(mixed, copy, heads[1]):
         mixed.unlink(missing_ok=True)
         journal().mark("склейку не поставить на ленту показа", слот=slot)
-        return without
+        return leaving(without)
     picture, sound = starts_of(mixed)
     astray_picture, astray_sound = _astray(picture, want[0]), _astray(sound, want[1])
     if not astray_picture and not astray_sound:
@@ -113,10 +127,10 @@ def _merged_out(
         звук=_miss(sound, want[1]),
     )
     if astray_sound and not astray_picture:
-        return recode, "перекод"
+        return leaving((recode, "перекод"))
     if astray_picture and not astray_sound:
         return copy, "копия"
-    return without
+    return leaving(without)
 
 
 def _astray(mark: float, want: float) -> bool:

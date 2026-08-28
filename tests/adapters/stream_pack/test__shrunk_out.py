@@ -382,3 +382,108 @@ def test_each_track_of_the_shrunk_splice_is_checked_against_its_own_tape(tmp_pat
     )
 
     assert out.name == "mix9.m4s"
+
+
+def test_the_shrunk_that_goes_out_is_put_on_the_show_tape(tmp_path: Path) -> None:
+    """🔴 Ужатие - ВТОРОЙ прогон ffmpeg над одним местом, и счёт у него начинается заново.
+
+    Всюду, где склейка ужатого не сложилась, наружу уходит именно оно - со счётчиком
+    своего прогона, то есть уводя приёмник туда, где стоял его собственный ноль.
+    """
+    seen: list[tuple[str, str, str]] = []
+
+    def on_bare(chunk: Path, piece: Path, slot: int, what: str, *rest: Any) -> bool:
+        seen.append((chunk.name, piece.name, what))
+        return True
+
+    copy, shrunk = _lay(tmp_path, "v7.m4s", 100), _lay(tmp_path, "spare7.m4s", 18)
+
+    out = _shrunk_out(
+        tmp_path,
+        7,
+        copy,
+        shrunk,
+        50,
+        _PLACE,
+        FMP4,
+        merge=lambda *a, **k: False,
+        shift_of=lambda a, b: 0.0,
+        keyless=_has_key,
+        starts_of=_on_place,
+        on_tape=lambda *_: True,
+        on_bare=on_bare,
+    )
+
+    assert out == shrunk
+    assert seen == [("spare7.m4s", "v7.m4s", "ужатие")]
+
+
+def test_a_shrunk_without_a_key_frame_gets_the_tape_too(tmp_path: Path) -> None:
+    """⚠️ Кусок без опорного кадра не склеивается вовсе (TC-698), но уезжает он всё равно.
+
+    Значит и ленту показа он обязан нести: путь «наружу как есть» - самый частый из тех,
+    где счётчик своего прогона доезжает до приёмника.
+    """
+    seen: list[str] = []
+
+    def on_bare(chunk: Path, piece: Path, slot: int, what: str, *rest: Any) -> bool:
+        seen.append(what)
+        return True
+
+    copy, shrunk = _lay(tmp_path, "v7.m4s", 100), _lay(tmp_path, "spare7.m4s", 18)
+
+    out = _shrunk_out(
+        tmp_path,
+        7,
+        copy,
+        shrunk,
+        50,
+        _PLACE,
+        FMP4,
+        merge=lambda *a, **k: True,
+        shift_of=lambda a, b: 0.0,
+        keyless=lambda piece: True,
+        starts_of=_on_place,
+        on_tape=lambda *_: True,
+        on_bare=on_bare,
+    )
+
+    assert out == shrunk and seen == ["ужатие"]
+
+
+def test_a_shrunk_that_stays_home_is_not_put_on_the_tape(tmp_path: Path) -> None:
+    """Уехала склейка - значит ужатое никуда не уехало, и ленту показа ему нести незачем.
+
+    🔴 Живой прогон на приставке: 42 ужатых места из 42 ушли склейкой, и безусловная
+    правка счётчика жаловалась на каждое - 42 строки отказа о кусках, которые уехали
+    верно. Ставить на ленту надо ТО, ЧТО УЕЗЖАЕТ, иначе жалоба перестаёт что-либо значить.
+    """
+    seen: list[str] = []
+
+    def on_bare(chunk: Path, piece: Path, slot: int, what: str, *rest: Any) -> bool:
+        seen.append(what)
+        return True
+
+    def merge(video: Path, audio: Path, dst: Path, **kwargs: Any) -> bool:
+        dst.write_bytes(b"m" * 20)
+        return True
+
+    copy, shrunk = _lay(tmp_path, "v7.m4s", 100), _lay(tmp_path, "spare7.m4s", 18)
+
+    out = _shrunk_out(
+        tmp_path,
+        7,
+        copy,
+        shrunk,
+        50,
+        _PLACE,
+        FMP4,
+        merge=merge,
+        shift_of=lambda a, b: 0.0,
+        keyless=_has_key,
+        starts_of=_on_place,
+        on_tape=lambda *_: True,
+        on_bare=on_bare,
+    )
+
+    assert out.name == "mix7.m4s" and seen == []
