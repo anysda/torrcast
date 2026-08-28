@@ -46,6 +46,7 @@ if [ "${1:-}" = --oom-probe ] && [ "$#" -eq 1 ]; then
     exec .venv/bin/python -c 'bytearray(128 * 1024 * 1024)'
 fi
 
+
 # Свой дочерний cgroup даёт каждой стадии независимый memory.peak, который считает
 # xdist и ffmpeg вместе с родителем. Арифметика остаётся в оболочке и не зависит от awk.
 gate_stage_number=0
@@ -61,10 +62,19 @@ if [ "$TORRCAST_GATE_MODE" = scoped ]; then
     echo +memory > "$gate_cgroup_root/cgroup.subtree_control"
 fi
 gate_stage=
+# Секунды на стадию: без них не видно, ЧТО именно занимает 3 мин 20 с, и ярус
+# --quick пришлось бы собирать на глазок. Пик памяти уже был, времени не было.
+gate_stage_started=$(date +%s%N)
 stage() {
-    if [ "$TORRCAST_GATE_MODE" = scoped ] && [ -n "$gate_stage" ]; then
-        gate_bytes=$(cat "$gate_stage_cgroup/memory.peak")
-        echo "пик памяти [$gate_stage]: $((gate_bytes / 1024 / 1024)) МиБ"
+    if [ -n "$gate_stage" ]; then
+        gate_now=$(date +%s%N)
+        gate_ms=$(( (gate_now - gate_stage_started) / 1000000 ))
+        if [ "$TORRCAST_GATE_MODE" = scoped ]; then
+            gate_bytes=$(cat "$gate_stage_cgroup/memory.peak")
+            echo "стадия [$gate_stage]: $((gate_ms / 1000)),$(( (gate_ms % 1000) / 100 )) с, пик $((gate_bytes / 1024 / 1024)) МиБ"
+        else
+            echo "стадия [$gate_stage]: $((gate_ms / 1000)),$(( (gate_ms % 1000) / 100 )) с"
+        fi
     fi
     if [ "$TORRCAST_GATE_MODE" = scoped ]; then
         gate_old_cgroup=$gate_stage_cgroup
@@ -77,6 +87,7 @@ stage() {
         rmdir "$gate_old_cgroup"
     fi
     gate_stage=$1
+    gate_stage_started=$(date +%s%N)
 }
 finish_peak() {
     gate_rc=$?
@@ -84,13 +95,44 @@ finish_peak() {
     if [ -n "${seam_dir:-}" ]; then
         rm -rf "$seam_dir"
     fi
-    if [ "$TORRCAST_GATE_MODE" = scoped ] && [ -n "$gate_stage" ]; then
-        gate_bytes=$(cat "$gate_stage_cgroup/memory.peak")
-        echo "пик памяти [$gate_stage]: $((gate_bytes / 1024 / 1024)) МиБ"
+    if [ -n "$gate_stage" ]; then
+        gate_now=$(date +%s%N)
+        gate_ms=$(( (gate_now - gate_stage_started) / 1000000 ))
+        if [ "$TORRCAST_GATE_MODE" = scoped ]; then
+            gate_bytes=$(cat "$gate_stage_cgroup/memory.peak")
+            echo "стадия [$gate_stage]: $((gate_ms / 1000)),$(( (gate_ms % 1000) / 100 )) с, пик $((gate_bytes / 1024 / 1024)) МиБ"
+        else
+            echo "стадия [$gate_stage]: $((gate_ms / 1000)),$(( (gate_ms % 1000) / 100 )) с"
+        fi
     fi
     exit "$gate_rc"
 }
 trap finish_peak EXIT
+
+# Ярус обратной связи. НЕ приёмка: здесь mypy инкрементальный и тесты отобраны testmon,
+# то есть оба главных способа купить фальшивую зелень включены НАМЕРЕННО ради скорости.
+# Приёмку объявляет только полный прогон без аргументов.
+# testmon пробован и отвергнут замером: при прогретой базе (6,7 МБ) он не отсеял НИ ОДНОГО
+# теста из 4962 и прогон занял 170 с в один поток - то есть отбора нет, а иллюзия отбора
+# есть. Ненадёжный отборщик в ярусе обратной связи - это станок фальшивой зелени, поэтому
+# здесь честный полный быстрый набор в четыре процесса.
+#   замер 28-08-2026: структурный 4,5 с + ruff 0 с + mypy инкр. 0,5 с + быстрый -n 4 43 с
+if [ "${1:-}" = --quick ] && [ "$#" -eq 1 ]; then
+    echo "⚠️  --quick: это обратная связь, а не приёмка."
+    echo "    mypy отвечает из кэша, тесты отобраны testmon по следу правки."
+    echo "    Зелень здесь НИЧЕГО не доказывает - перед сдачей гони scripts/test-gate без аргументов."
+    stage "структурный гейт"
+    scripts/structure-gate --strict
+    stage "ruff"
+    .venv/bin/ruff check
+    .venv/bin/ruff format --check
+    stage "mypy инкрементальный"
+    .venv/bin/mypy --incremental
+    stage "быстрый набор"
+    .venv/bin/python -m pytest -m 'not ffmpeg and not machine' -n 4
+    exit 0
+fi
+
 
 # Разрез на слои закончен, нарушений ноль по всем правилам: сторож переключён из
 # режима отчёта в блокирующий. Без --strict он печатает список и возвращает ноль, то
@@ -307,7 +349,9 @@ stage "быстрый набор"
 # Сторож использует ffmpeg, поэтому живёт в ffmpeg-овой стадии. Без аргументов он
 # проверяет оба пути нашего упаковщика и то, что уезжает зрителю; готовые куски
 # аргументами оставляют прежнюю отрицательную пробу той же командой.
-stage "машинный и ffmpeg-овый набор"
+# Стадия называется по тому, что в ней делается: сами наборы разведены ниже, здесь
+# остался только сторож стыков. Старое имя после разведения врало бы про содержимое.
+stage "сторож стыков"
 seam_dir=
 if [ "$#" -eq 0 ]; then
     seam_dir=$(mktemp -d)
@@ -542,4 +586,14 @@ if broken:
     raise SystemExit(1)
 PY
 
-.venv/bin/python -m pytest -m 'ffmpeg or machine' -n 0
+# Замер 28-08-2026 на восьми ядрах: одной командой в один поток эти 224 теста шли
+# 283 с и съедали 76% всего гейта. Разведены по маркерам, каждый со своей шириной -
+# 139 с на двоих. Ширины подобраны замером, а не на глаз, и обе проверены зелёными:
+#   машинные (162 шт): -n 0 107 с · -n 2 60 с · -n 4 41 с
+#   ffmpeg   (62 шт): -n 0 172 с · -n 2 98 с   (шире не берём: перекод жрёт память,
+#                                               а у гейта потолок 6G на всё)
+stage "машинный набор"
+.venv/bin/python -m pytest -m 'machine and not ffmpeg' -n 4
+
+stage "ffmpeg-овый набор"
+.venv/bin/python -m pytest -m 'ffmpeg' -n 2
