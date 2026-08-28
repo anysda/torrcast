@@ -8,4 +8,7 @@
 from typing import Final
 
 PACKED: Final = "pack"
+WARMED_COPY: Final = "warm-copy"
+WARMED_RECODE: Final = "warm-recode"
+#: Старое общее имя оставлено для чтения лент прежних версий.
 WARMED: Final = "warm"

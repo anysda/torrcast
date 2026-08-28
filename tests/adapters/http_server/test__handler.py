@@ -9,7 +9,7 @@ import pytest
 
 from torrcast.adapters.http_server._handler import _ASSET_RE, _RANGE_RE, _TYPES, _Handler, _tracing
 from torrcast.domain.debug_handles import TRACE_ENV
-from torrcast.domain.trace_sources import PACKED, WARMED
+from torrcast.domain.trace_sources import PACKED, WARMED_COPY, WARMED_RECODE
 
 
 class _Supply:
@@ -33,11 +33,17 @@ class _Supply:
         return warmed if warmed.exists() else None
 
 
-def _handler(feed: _Supply | None = None, root: Path | None = None, span: str = "") -> _Handler:
+def _handler(
+    feed: _Supply | None = None,
+    root: Path | None = None,
+    span: str = "",
+    warm_recodes: set[int] | None = None,
+) -> _Handler:
     ready = cast(Any, object.__new__(_Handler))
     ready.headers = {"Range": span} if span else {}
     ready.feed = feed
     ready.root = root or Path()
+    ready.warm_recodes = warm_recodes if warm_recodes is not None else set()
     return cast(_Handler, ready)
 
 
@@ -107,9 +113,13 @@ def test_the_source_of_every_piece_is_remembered_for_the_trail(tmp_path: Path) -
     assert packed._read("v1.ts") == "свежий".encode()
     assert packed._src == PACKED
 
-    warmed = _handler(feed)
-    assert warmed._read("v2.ts") == "прогретый".encode()
-    assert warmed._src == WARMED
+    warmed_copy = _handler(feed)
+    assert warmed_copy._read("v2.ts") == "прогретый".encode()
+    assert warmed_copy._src == WARMED_COPY
+
+    warmed_recode = _handler(feed, warm_recodes={2})
+    assert warmed_recode._read("v2.ts") == "прогретый".encode()
+    assert warmed_recode._src == WARMED_RECODE
 
     assert _handler(feed)._read("v3.ts") is None, "куска нет - и выдумывать его нечем"
     assert _handler(feed)._read("index.m3u8") == b"#EXTM3U\n", "манифест берётся не с диска"

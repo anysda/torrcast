@@ -60,8 +60,10 @@ class Journal(Protocol):
     def segment(self, slot: int, mb: float, sent: float, wait: float, src: str) -> None:
         """Отдача куска приёмнику: сколько весил, сколько ехал."""
 
-    def plan(self, pack: str, warm: str, spots: int, preset: str = "", mbit: float = 0.0) -> None:
-        """План показа: чем пакуем, что греем, сколько мест."""
+    def plan(
+        self, pack: str, warm: str, spots: tuple[int, ...], preset: str = "", mbit: float = 0.0
+    ) -> None:
+        """План показа: чем пакуем, что греем и номера точечных мест."""
 
     def reload(self, pos: float, tries: int, error: int | None = None) -> None:
         """Перезапуск показа с той же позиции."""

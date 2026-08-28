@@ -18,13 +18,19 @@ def test_both_producers_are_named_in_one_record_so_their_disagreement_is_visible
     """
     seen = caught(monkeypatch)
 
-    plan(pack="recode", warm="copy", spots=88, preset="veryfast", mbit=12.345)
+    plan(pack="recode", warm="copy", spots=(7, 88), preset="veryfast", mbit=12.345)
 
     assert seen == [
         (
             "warm",
             "plan",
-            {"pack": "recode", "warm": "copy", "spots": 88, "preset": "veryfast", "mbit": 12.35},
+            {
+                "pack": "recode",
+                "warm": "copy",
+                "spots": [7, 88],
+                "preset": "veryfast",
+                "mbit": 12.35,
+            },
         )
     ]
 
@@ -33,6 +39,6 @@ def test_a_show_without_a_preset_still_writes_the_plan(monkeypatch: pytest.Monke
     """Показ копией пресета не называет - но запись плана всё равно обязана быть."""
     seen = caught(monkeypatch)
 
-    plan(pack="copy", warm="copy", spots=0)
+    plan(pack="copy", warm="copy", spots=())
 
-    assert seen[0][2] == {"pack": "copy", "warm": "copy", "spots": 0, "preset": "", "mbit": 0.0}
+    assert seen[0][2] == {"pack": "copy", "warm": "copy", "spots": [], "preset": "", "mbit": 0.0}

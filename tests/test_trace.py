@@ -463,13 +463,13 @@ def test_the_plan_says_how_both_producers_encode(tmp_path: Path) -> None:
     monkey = pytest.MonkeyPatch()
     monkey.setenv(LOG_ENV, str(tmp_path))
     monkey.setenv(SID_ENV, "plan")
-    plan(pack="copy", warm="copy", spots=5, preset="veryfast", mbit=9.0)
+    plan(pack="copy", warm="copy", spots=(5, 19), preset="veryfast", mbit=9.0)
     shutdown()
     rows = [r for r in records() if r.get("event") == "plan"]
     monkey.undo()
 
     assert rows[0]["pack"] == "copy" and rows[0]["warm"] == "copy", "решения в ленте нет"
-    assert rows[0]["spots"] == 5, "точечный перекод не сосчитан"
+    assert rows[0]["spots"] == [5, 19], "номера точечного перекода не названы"
     assert "упаковка - копия, прогрев - копия" in digest(rows), "выжимка молчит о решении"
 
 

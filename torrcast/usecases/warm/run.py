@@ -188,7 +188,7 @@ def _run(
         # Метка ставится ПОСЛЕ выкладки: оборвался прогон - на месте куска осталась
         # копия, и следующий круг возьмётся за него снова.
         with contextlib.suppress(OSError):
-            state.vault.spot(first).touch()
+            state.vault.served.mark(first)
     if got and packer.poll() not in (0, None) and packer.edge < last:
         # Прогон оборвался сам - почти всегда это пропавшая сеть. Не авария:
         # следующий круг начнёт с первого непрогретого куска, когда сеть вернётся.

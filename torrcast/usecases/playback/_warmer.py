@@ -87,7 +87,7 @@ def _warmer(
     journal().plan(
         pack="recode" if encode is not None else "copy",
         warm="recode" if encode is not None else "copy",
-        spots=len(spots),
+        spots=spots,
         preset=decided.preset if decided is not None else "",
         mbit=decided.mbit if decided is not None else 0.0,
     )

@@ -82,10 +82,12 @@ class _Noted(Silent):
     """Молчащая лента, которая помнит одну запись плана кодирования."""
 
     def __init__(self) -> None:
-        self.plans: list[tuple[str, float]] = []
+        self.plans: list[tuple[tuple[int, ...], str, float]] = []
 
-    def plan(self, pack: str, warm: str, spots: int, preset: str = "", mbit: float = 0.0) -> None:
-        self.plans.append((preset, mbit))
+    def plan(
+        self, pack: str, warm: str, spots: tuple[int, ...], preset: str = "", mbit: float = 0.0
+    ) -> None:
+        self.plans.append((spots, preset, mbit))
 
 
 def test_the_plan_names_the_decision_the_spots_are_taken_with(tmp_path: Path) -> None:
@@ -109,7 +111,7 @@ def test_the_plan_names_the_decision_the_spots_are_taken_with(tmp_path: Path) ->
     finally:
         install(Silent())
 
-    assert noted.plans == [("ultrafast", 9.0)]
+    assert noted.plans == [(recoder.targets, "ultrafast", 9.0)]
 
 
 def test_without_any_recode_the_plan_stays_empty(tmp_path: Path) -> None:
@@ -122,7 +124,7 @@ def test_without_any_recode_the_plan_stays_empty(tmp_path: Path) -> None:
     finally:
         install(Silent())
 
-    assert noted.plans == [("", 0.0)]
+    assert noted.plans == [((), "", 0.0)]
 
 
 def test_the_warm_catalogue_of_the_previous_way_is_relaid_before_the_show_reads_it(

@@ -80,10 +80,12 @@ class HlsServer:
         port: int = 8080,
         tls: bool = False,
         feed: _Feed | None = None,
+        warm_recodes: set[int] | None = None,
     ):
         self.root, self.cert, self.key, self.host, self.port = root, cert, key, host, port
         self.tls = tls
         self.feed = feed
+        self.warm_recodes = warm_recodes if warm_recodes is not None else set()
         self._server: _Server | None = None
 
     def start(self) -> None:
@@ -94,7 +96,11 @@ class HlsServer:
                 ctx.load_cert_chain(self.cert, self.key)
             except (OSError, ssl.SSLError) as exc:
                 raise InfraError(f"не читается серт {self.cert}: {why(exc)}") from exc
-        handler = type("_Bound", (_Handler,), {"root": self.root, "feed": self.feed})
+        handler = type(
+            "_Bound",
+            (_Handler,),
+            {"root": self.root, "feed": self.feed, "warm_recodes": self.warm_recodes},
+        )
         try:
             server = _Server((self.host, self.port), handler)
         except OSError as exc:

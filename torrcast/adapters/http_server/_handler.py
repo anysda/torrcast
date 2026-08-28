@@ -13,7 +13,7 @@ from torrcast.adapters.http_server._feed import _Feed
 from torrcast.adapters.http_server.log_segment import log_segment
 from torrcast.adapters.stream_probe.segment_slot import segment_slot
 from torrcast.domain.debug_handles import TRACE_ENV
-from torrcast.domain.trace_sources import PACKED, WARMED
+from torrcast.domain.trace_sources import PACKED, WARMED_COPY, WARMED_RECODE
 
 #: Отдаём ровно манифест и сегменты сетки, и ничего больше: каталог наружу не открыт.
 _ASSET_RE: Final = re.compile(r"^(?:v\d+\.(?:ts|m4s)|init\.mp4|(?:index|stream)\.m3u8)$")
@@ -52,9 +52,11 @@ class _Handler(http.server.BaseHTTPRequestHandler):
     server_version = "torrcast"
     root: Path = Path()
     feed: ClassVar[_Feed | None] = None
+    #: Снимок меток точечного перекода, пополняемый прогревом без дискового чтения.
+    warm_recodes: ClassVar[set[int]] = set()
     #: Откуда взят кусок, который сейчас отдаём
-    #: (:data:`torrcast.domain.trace_sources.PACKED` /
-    #: :data:`torrcast.domain.trace_sources.WARMED`). Ставит :meth:`_read`, читает
+    #: (:data:`torrcast.domain.trace_sources.PACKED` и два вида прогретого). Ставит
+    #: :meth:`_read`, читает
     #: :func:`log_segment`.
     _src: str = "pack"
 
@@ -121,7 +123,13 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             if found is None:
                 return None
             path = found
-            self._src = PACKED if found.parent == self.feed.out else WARMED
+            self._src = (
+                PACKED
+                if found.parent == self.feed.out
+                else WARMED_RECODE
+                if segment_slot(name) in self.warm_recodes
+                else WARMED_COPY
+            )
         try:
             return path.read_bytes()
         except OSError:  # вычистило окном ровно между проверкой и чтением

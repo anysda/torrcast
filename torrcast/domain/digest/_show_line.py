@@ -12,13 +12,18 @@ from typing import Final
 from torrcast.domain.digest._words import _hms
 from torrcast.domain.json_number import json_number
 from torrcast.domain.json_value import JsonValue
-from torrcast.domain.trace_sources import PACKED, WARMED
+from torrcast.domain.trace_sources import PACKED, WARMED, WARMED_COPY, WARMED_RECODE
 
 #: Решение о кодировании куска по-русски (:func:`plan`).
 _PLAN: Final = {"copy": "копия", "recode": "перекод"}
 
 #: Как называется источник куска в выжимке.
-_SOURCES: Final = {PACKED: "живая упаковка", WARMED: "прогретое"}
+_SOURCES: Final = {
+    PACKED: "живая упаковка",
+    WARMED: "прогретое",
+    WARMED_COPY: "прогретую копию",
+    WARMED_RECODE: "прогретый перекод",
+}
 
 
 def _show_line(rec: Mapping[str, JsonValue], stamp: str, seam: bool) -> str | None:
@@ -31,8 +36,13 @@ def _show_line(rec: Mapping[str, JsonValue], stamp: str, seam: bool) -> str | No
         src = str(rec.get("src", ""))
         return f"{stamp}v{rec.get('slot', '?')}: источник сменился на {_SOURCES.get(src, src)}"
     if event == "plan":
-        spots = int(json_number(rec.get("spots", 0)))
-        tail = f", точечный перекод {spots}" if spots else ""
+        spots = rec.get("spots", [])
+        if isinstance(spots, list):
+            named = ", ".join(str(int(json_number(slot))) for slot in spots)
+            tail = f", точечный перекод: {named}" if named else ""
+        else:
+            count = int(json_number(spots))
+            tail = f", точечный перекод {count}" if count else ""
         return (
             f"{stamp}куски: упаковка - {_PLAN.get(str(rec.get('pack', '')), '?')},"
             f" прогрев - {_PLAN.get(str(rec.get('warm', '')), '?')}{tail}"

@@ -24,5 +24,6 @@ class StreamServers(Protocol):
         port: int = ...,
         tls: bool = ...,
         feed: Feed | None = ...,
+        warm_recodes: set[int] = ...,
     ) -> StreamServer:
         """Раздача на время показа: гаснет вместе с ним, что бы ни случилось."""

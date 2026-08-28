@@ -24,6 +24,7 @@ from torrcast.usecases.warm._vault_disk import (
     _touched,
     _weigh,
 )
+from torrcast.usecases.warm.served_spots import ServedSpots
 from torrcast.usecases.warm.settings import FREE_FLOOR, META, SPOT_LAY
 
 
@@ -31,9 +32,8 @@ from torrcast.usecases.warm.settings import FREE_FLOOR, META, SPOT_LAY
 class Vault:
     """Каталог прогретого одного показа и бюджет диска на всех.
 
-    Читается отсюда напрямую: показ отдаёт приёмнику файл из этого каталога, не копируя
-    его в tmpfs (:meth:`torrcast.usecases.feed_pack.feed.Feed.segment`). Копия стоила бы памяти
-    ровно там, где её и не хватает.
+    Показ отдаёт файл отсюда, не копируя в tmpfs. Метки точечного перекода для раздачи
+    снимаются с диска один раз и дальше пополняются через :meth:`ServedSpots.mark`.
     """
 
     root: Path
@@ -55,6 +55,10 @@ class Vault:
     #: правило отказа (:meth:`fit`) обязано быть проверяемым на любом разделе, а не
     #: только на том, который случайно оказался под тестом.
     free_of: Callable[[Path], int] = field(default=_disk_free)
+    served: ServedSpots = field(init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        self.served = ServedSpots(self.dir)
 
     @property
     def dir(self) -> Path:
@@ -112,17 +116,15 @@ class Vault:
     def relay(self) -> tuple[int, ...]:
         """Убрать куски, положенные ПРЕЖНИМ способом выкладки; вернуть их места.
 
-        Способ выкладки в ключ каталога не входит и входить не должен
-        (:func:`torrcast.usecases.warm.warm_key.warm_key`): ключ называет содержимое куска, а на
-        детерминированной сетке стоит переиспользование прошлых заходов. Из-за этого каталог,
-        прогретый прежним способом, находится по тому же ключу, метки ``v{N}.rec`` считают его
+        Способ выкладки в ключ не входит (:func:`torrcast.usecases.warm.warm_key.warm_key`):
+        ключ называет содержимое куска. Поэтому прежний каталог находится по тому же ключу,
+        а метки ``v{N}.rec`` считают его
         точечные куски сделанными, и починка выкладки до них не доезжает - старые куски лежат
         под теми же именами и уезжают зрителю.
 
-        Перекладываются ровно помеченные места, а не весь каталог: копию точечная работа не
-        трогала, и сброс каталога целиком стоил бы прогрева заново. Кусок стирается вместе с
-        меткой - иначе он числился бы сделанным (:func:`torrcast.usecases.warm.missing._missing`,
-        :func:`torrcast.usecases.warm._warm_count._spots_left`) и остался бы лежать как есть.
+        Перекладываются ровно помеченные места, а не весь каталог: копию точечная работа
+        не трогала. Кусок стирается вместе с меткой, иначе он числился бы сделанным
+        (:func:`torrcast.usecases.warm._warm_count._spots_left`) и остался лежать как есть.
 
         🔴 Стирается именно ФАЙЛ, а не одна метка. Точечный перекод кладётся поверх копии
         этого же места и берёт её звук (:func:`torrcast.adapters.stream_pack.spot_out.spot_out`);
@@ -130,9 +132,7 @@ class Vault:
         то есть у той самой рваной сетки, ради которой всё и затевалось. Копию возвращает
         обычный заход прогрева, одним прогоном и одним непрерывным звуком.
 
-        Зовётся ОДИН раз, когда каталог заводят
-        (:func:`torrcast.usecases.playback._warmer._warmer`), а не при выдаче: прогретое читается
-        показом первым, и проверка на этом пути стоила бы чтения куска на каждый запрос.
+        Зовётся при заводе каталога: на выдаче проверка стоила бы чтения на каждый запрос.
         """
         if _lay(self.dir) == self.lay:
             return ()
@@ -149,6 +149,7 @@ class Vault:
             self.path(slot).unlink(missing_ok=True)
         with contextlib.suppress(OSError):
             self.spot(slot).unlink(missing_ok=True)
+        self.served.discard(slot)
 
     def touch(self) -> None:
         at = _state._environment.epoch()

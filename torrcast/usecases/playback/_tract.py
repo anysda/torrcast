@@ -105,7 +105,13 @@ def _tract(
         vault=None if warmer is None else warmer.vault,
     )
     server = _state.HlsServer(
-        out, config.hls_cert, config.hls_key, port=config.hls_port, tls=tls, feed=feed
+        out,
+        config.hls_cert,
+        config.hls_key,
+        port=config.hls_port,
+        tls=tls,
+        feed=feed,
+        warm_recodes=set() if warmer is None else warmer.vault.served,
     )
     # Серт приёмнику нужен только затем, чтобы проверить нашу раздачу: по http проверять
     # нечего, и mock не должен делать вид, что что-то проверил. Готовый приёмник приходит

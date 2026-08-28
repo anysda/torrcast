@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from tests.domain.digest.rows import rec
 from torrcast.domain.digest._show_line import _show_line
-from torrcast.domain.trace_sources import WARMED
+from torrcast.domain.trace_sources import WARMED, WARMED_COPY, WARMED_RECODE
 
 STAMP = "+   0.0с "
 
@@ -24,17 +24,26 @@ def test_only_the_seam_of_a_segment_gets_printed_and_the_source_is_named_in_russ
     assert WARMED not in told
 
 
+def test_a_warmed_copy_and_recode_are_named_separately() -> None:
+    """По одной выжимке видно, каким именно прогретым куском ответили зрителю."""
+    copied = _show_line(rec("segment", slot=7, src=WARMED_COPY), STAMP, True)
+    recoded = _show_line(rec("segment", slot=8, src=WARMED_RECODE), STAMP, True)
+
+    assert copied is not None and "v7: источник сменился на прогретую копию" in copied
+    assert recoded is not None and "v8: источник сменился на прогретый перекод" in recoded
+
+
 def test_the_plan_says_how_both_producers_encode() -> None:
     """Решение о кодировании - строка ленты, а не разбор аргументов ffmpeg постфактум."""
-    told = _show_line(rec("plan", pack="copy", warm="recode", spots=5), STAMP, False)
+    told = _show_line(rec("plan", pack="copy", warm="recode", spots=[5, 19]), STAMP, False)
 
     assert told is not None
-    assert "упаковка - копия, прогрев - перекод, точечный перекод 5" in told
+    assert "упаковка - копия, прогрев - перекод, точечный перекод: 5, 19" in told
 
 
 def test_a_plan_without_spot_recodes_says_nothing_about_them() -> None:
     """Ноль точечных перекодов - не новость, и хвоста строки он не заслуживает."""
-    told = _show_line(rec("plan", pack="copy", warm="copy", spots=0), STAMP, False)
+    told = _show_line(rec("plan", pack="copy", warm="copy", spots=[]), STAMP, False)
 
     assert told is not None
     assert "точечный перекод" not in told
