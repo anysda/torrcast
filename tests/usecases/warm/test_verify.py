@@ -45,12 +45,13 @@ def test_a_piece_before_its_border_is_wiped_and_stops_the_run(tmp_path: Path) ->
     fake = world()
     warm = warmer(tmp_path, log=[].append)
     lay(warm.vault, 2)
-    warm.vault.spot(2).touch()
+    warm.vault.served.mark(2)
     began = _began({2: 20.0 - SKEW_MAX - 1.0})
 
     assert _verify(warm, 2, began) is False
     assert not warm.vault.have(2), "кусок мимо сетки остался в показе"
     assert not warm.vault.spot(2).exists(), "метка перекода пережила забракованный кусок"
+    assert 2 not in warm.vault.served, "раздача запомнила уже забракованный перекод"
     assert warm.misgrid == 2, "заход не оборвался на промахе"
     assert warm.skews[2] == 1
     assert fake.events[0][0] == "skew" and fake.events[0][2]["hole"] is False

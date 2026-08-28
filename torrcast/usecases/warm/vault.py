@@ -17,13 +17,13 @@ from torrcast.domain.warm_settings import WARM_BUDGET
 from torrcast.usecases.warm._vault_disk import (
     _dirs,
     _disk_free,
-    _lay,
     _size,
-    _spot_marks,
     _title,
     _touched,
     _weigh,
 )
+from torrcast.usecases.warm.reject import reject as _reject
+from torrcast.usecases.warm.relay import relay as _relay
 from torrcast.usecases.warm.served_spots import ServedSpots
 from torrcast.usecases.warm.settings import FREE_FLOOR, META, SPOT_LAY
 
@@ -32,8 +32,10 @@ from torrcast.usecases.warm.settings import FREE_FLOOR, META, SPOT_LAY
 class Vault:
     """Каталог прогретого одного показа и бюджет диска на всех.
 
-    Показ отдаёт файл отсюда, не копируя в tmpfs. Метки точечного перекода для раздачи
-    снимаются с диска один раз и дальше пополняются через :meth:`ServedSpots.mark`.
+    Читается отсюда напрямую: показ отдаёт приёмнику файл из этого каталога, не копируя
+    его в tmpfs (:meth:`torrcast.usecases.feed_pack.feed.Feed.segment`). Копия стоила бы памяти
+    ровно там, где её и не хватает. Метки точечного перекода для раздачи снимаются с
+    диска один раз и дальше пополняются через :meth:`ServedSpots.mark`.
     """
 
     root: Path
@@ -114,42 +116,10 @@ class Vault:
         self.touch()
 
     def relay(self) -> tuple[int, ...]:
-        """Убрать куски, положенные ПРЕЖНИМ способом выкладки; вернуть их места.
-
-        Способ выкладки в ключ не входит (:func:`torrcast.usecases.warm.warm_key.warm_key`):
-        ключ называет содержимое куска. Поэтому прежний каталог находится по тому же ключу,
-        а метки ``v{N}.rec`` считают его
-        точечные куски сделанными, и починка выкладки до них не доезжает - старые куски лежат
-        под теми же именами и уезжают зрителю.
-
-        Перекладываются ровно помеченные места, а не весь каталог: копию точечная работа
-        не трогала. Кусок стирается вместе с меткой, иначе он числился бы сделанным
-        (:func:`torrcast.usecases.warm._warm_count._spots_left`) и остался лежать как есть.
-
-        🔴 Стирается именно ФАЙЛ, а не одна метка. Точечный перекод кладётся поверх копии
-        этого же места и берёт её звук (:func:`torrcast.adapters.stream_pack.spot_out.spot_out`);
-        под старым куском копии больше нет, и перекод поверх него взял бы звук у него же -
-        то есть у той самой рваной сетки, ради которой всё и затевалось. Копию возвращает
-        обычный заход прогрева, одним прогоном и одним непрерывным звуком.
-
-        Зовётся при заводе каталога: на выдаче проверка стоила бы чтения на каждый запрос.
-        """
-        if _lay(self.dir) == self.lay:
-            return ()
-        gone = tuple(_spot_marks(self.dir))
-        for slot in gone:
-            self.reject(slot)
-        if gone:
-            self.touch()
-        return gone
+        return _relay(self)
 
     def reject(self, slot: int) -> None:
-        """Убрать забракованный кусок вместе с меткой точечного перекода."""
-        with contextlib.suppress(OSError):
-            self.path(slot).unlink(missing_ok=True)
-        with contextlib.suppress(OSError):
-            self.spot(slot).unlink(missing_ok=True)
-        self.served.discard(slot)
+        _reject(self, slot)
 
     def touch(self) -> None:
         at = _state._environment.epoch()

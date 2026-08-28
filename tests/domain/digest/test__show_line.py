@@ -49,6 +49,13 @@ def test_a_plan_without_spot_recodes_says_nothing_about_them() -> None:
     assert "точечный перекод" not in told
 
 
+def test_an_old_plan_with_a_spot_count_is_still_readable() -> None:
+    """В старых лентах ``spots`` был числом; совместимость зовёт его количеством."""
+    told = _show_line(rec("plan", pack="copy", warm="copy", spots=3), STAMP, False)
+
+    assert told is not None and "точечный перекод 3" in told
+
+
 def test_the_asked_source_is_called_a_source_and_not_the_network() -> None:
     """Служба ответила (или не ответила) нам сама - «сеть» тут была бы догадкой."""
     asked = _show_line(rec("offline", asked=True, why="TorrServer молчит"), STAMP, False)

@@ -5,7 +5,6 @@
 
 from __future__ import annotations
 
-import contextlib
 import math
 from collections.abc import Callable
 from pathlib import Path
@@ -91,9 +90,7 @@ def _verify(state: _State, slot: int, began_of: Callable[[Path], float] = segmen
     # следующая серия в работу не возьмётся (:meth:`_chain`). Ровно так же считается
     # неготовым тяжёлый кусок, под которым лежит копия (:meth:`_spots_left`).
     hole = tries >= SKEW_TRIES
-    with contextlib.suppress(OSError):
-        state.vault.path(slot).unlink(missing_ok=True)
-        state.vault.spot(slot).unlink(missing_ok=True)
+    state.vault.reject(slot)
     _state._environment.emit("skew", slot=slot, want=want, got=began, hole=hole)
     _state._environment.mark(
         "кусок прогрева мимо сетки", слот=slot, сдвиг=round(began - want, 3), дыра=hole
