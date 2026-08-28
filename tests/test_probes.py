@@ -612,6 +612,16 @@ def test_щуп_показа_не_отвечает_нулём_на_прогон�
     assert not tv.clean(None, []), "картинки не было - это не чистый прогон"
     assert not tv.clean(3.8, [(0.0, 89.6)]), "подвис при живом запасе - тоже не чистый"
 
+    # 🔴 TC-867. Третья половина вердикта - про ПРИБОР: чистая картинка при оборванном
+    # журнале приёмника это не чистый прогон, а замер с одним выключенным прибором.
+    journal = probe("tvjournal")
+    torn = journal.life(WINDOW, WINDOW + 400.0, _journal(WINDOW, [0.0, 0.2, 0.4]))
+    alive = journal.life(WINDOW, WINDOW + 400.0, _journal(WINDOW, [i * 5.0 for i in range(81)]))
+
+    assert not torn.fit and alive.fit, "проба опирается на разные вердикты журнала"
+    assert tv.clean(3.8, [], alive)
+    assert not tv.clean(3.8, [], torn), "оборванный журнал - брак замера, а не чистый прогон"
+
 
 def test_щуп_перемотки_ловит_негодную_фикстуру_вслух() -> None:
     """Материал без опорных кадров щуп называет сам, а не мерит на нём бессмыслицу.
@@ -1568,3 +1578,130 @@ def test_щуп_сезона_краснеет_на_пришедшей_подме
     assert numbers["сменилось приговоров"] == 2
     assert numbers["подмен ПРИШЛО"] == 1 and numbers["подмен ушло"] == 1
     assert numbers["молчаливых подмен"] == 1, "подмена без честной строки обязана краснеть"
+
+
+#: Начало выдуманного окна замера: метки журнала - настоящие секунды эпохи, и короче
+#: девяти знаков они не бывают (:data:`tvjournal.STAMP`).
+WINDOW = 1787900000.0
+
+
+def _journal(began: float, marks: list[float], noise: int = 0) -> bytes:
+    """Журнал приёмника из готовых меток: столько строк, сколько названо."""
+    lines = [b"--------- beginning of main"] * noise
+    lines += [f"{began + mark:.3f}   485   485 I adbd    : строка".encode() for mark in marks]
+    return b"\n".join(lines) + b"\n"
+
+
+def test_журнал_без_меток_это_брак_а_не_ноль_голоданий() -> None:
+    """Нечитанный прибор - брак замера, а не спокойный показ.
+
+    🔴 TC-867. «В журнале нет строки» не значит «события не было»: у молчащего прибора
+    ноль голоданий и у чистого показа ноль голоданий выглядят совершенно одинаково.
+    """
+    told = probe("tvjournal").life(WINDOW, WINDOW + 400.0, b"")
+
+    assert not told.fit
+    assert "не читан" in told.why
+
+
+def test_плотный_журнал_живший_миг_это_брак() -> None:
+    """Живость журнала меряется ОКНОМ, а не строками: залп в первый миг живостью не был.
+
+    🔴 TC-867. Прежний признак - «строк не меньше пятисот» - засчитывал ровно такие
+    прогоны: журнал вываливал тысячи строк кольцевого буфера за первую секунду, умирал,
+    и все четыреста секунд замера приёмник никто не читал. Пять прогонов архива прошли
+    этот признак с 1163-4335 строками при живом журнале от одной до двадцати шести секунд.
+    """
+    journal = probe("tvjournal")
+    marks = [index * 0.0002 for index in range(5000)]
+
+    told = journal.life(WINDOW, WINDOW + 400.0, _journal(WINDOW, marks))
+
+    assert told.lines >= 500, "строк тут заведомо больше прежнего порога"
+    assert not told.fit
+    assert "ослеп посреди" in told.why
+
+
+def test_журнал_кольцевого_буфера_это_брак() -> None:
+    """Журнал, начатый ДО прогона, несёт чужое окно - и назван браком отдельно.
+
+    🔴 TC-867. Ровно так выглядел единственный прогон архива, считавшийся образцовым:
+    4335 строк, шесть минут плотного журнала - и все они сняты до начала замера, потому
+    что кольцевой буфер не был очищен, а поток умер через секунду после старта.
+    """
+    journal = probe("tvjournal")
+    # Как у R1: шесть минут буфера до начала замера и одна секунда внутри него.
+    marks = [-378.6 + index * 0.1 for index in range(3796)]
+
+    told = journal.life(WINDOW, WINDOW + 400.0, _journal(WINDOW, marks))
+
+    assert not told.fit
+    assert told.backlog > 300.0
+    assert "кольцевой буфер" in told.why
+
+
+def test_журнал_покрывший_окно_годен() -> None:
+    """Годен тот журнал, который не молчал дольше порога ни разу за всё окно."""
+    journal = probe("tvjournal")
+    marks = [index * 5.0 for index in range(81)]
+
+    told = journal.life(WINDOW, WINDOW + 400.0, _journal(WINDOW, marks))
+
+    assert told.fit, told.why
+    assert told.silence <= journal.SILENCE
+
+
+def test_щуп_журнала_молчит_о_голоданиях_на_мёртвом_приборе(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Признак обязан ТРЕБОВАТЬ вторую половину меры, а не затыкать её нулём.
+
+    🔴 TC-867. Счёт голоданий на оборванном журнале - это ноль, купленный мёртвым
+    прибором, и уезжает он в отчёт неотличимо от заработанного. Поэтому на браке щуп не
+    печатает счёт вовсе и возвращает не ноль.
+    """
+    journal = probe("tvjournal")
+    out = tmp_path / "logcat.txt"
+
+    def torn(_device: str, where: Path, _seconds: float) -> object:
+        where.write_bytes(_journal(WINDOW, [index * 0.001 for index in range(2000)]))
+        return journal.Held(1, WINDOW, WINDOW + 400.0)
+
+    def whole(_device: str, where: Path, _seconds: float) -> object:
+        where.write_bytes(_journal(WINDOW, [index * 5.0 for index in range(81)]))
+        return journal.Held(9, WINDOW, WINDOW + 400.0)
+
+    monkeypatch.setattr(
+        sys, "argv", ["tvjournal.py", "10.0.0.5:5555", "--seconds", "400", "--out", str(out)]
+    )
+    assert journal.main(follow=torn) == 1
+    torn_said = capsys.readouterr()
+    assert "БРАК ЗАМЕРА" in torn_said.err
+    assert "DEMUXER_UNDERFLOW" not in torn_said.out, "счёт на мёртвом приборе назван вслух"
+
+    assert journal.main(follow=whole) == 0
+    whole_said = capsys.readouterr()
+    assert "ГОДЕН" in whole_said.out
+    assert "DEMUXER_UNDERFLOW за прогон: 0" in whole_said.out
+
+
+def test_порог_тишины_журнала_лежит_между_живым_и_ослепшим() -> None:
+    """Порог живости обоснован РАЗБРОСОМ замеров, а не выбран с потолка.
+
+    🔴 TC-867. Порог обязан лежать выше худшей тишины живого журнала (иначе он бракует
+    годные прогоны) и ниже самой короткой тишины ослепшего (иначе пропускает слепоту).
+    Оба края - замеры, и оба названы числами в самом щупе; проверка держит порог внутри.
+
+    Прежний признак «строк не меньше пятисот» ни одного из этих краёв не имел вовсе.
+    """
+    journal = probe("tvjournal")
+
+    assert journal.SILENCE_LIVE < journal.SILENCE < journal.SILENCE_BLIND, (
+        f"порог {journal.SILENCE} вне замеренного промежутка "
+        f"({journal.SILENCE_LIVE}, {journal.SILENCE_BLIND})"
+    )
+    # Живой край проверяется тем же признаком: тишина ровно в замеренную живую годна.
+    marks = [0.0, journal.SILENCE_LIVE, 2 * journal.SILENCE_LIVE]
+    assert journal.life(WINDOW, WINDOW + 2 * journal.SILENCE_LIVE, _journal(WINDOW, marks)).fit
+    # Ослепший край - тоже: самая тесная замеренная слепота обязана быть браком.
+    assert not journal.life(WINDOW, WINDOW + journal.SILENCE_BLIND, _journal(WINDOW, [0.0])).fit

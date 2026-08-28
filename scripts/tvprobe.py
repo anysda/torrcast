@@ -36,6 +36,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import tvjournal
 from probeprofile import add_argument as add_profile_argument
 from probeprofile import choose as choose_profile
 
@@ -68,6 +69,9 @@ STALL = 3.0
 #: Как часто подкладывать ядовитый кусок на место здорового (:func:`spoil`).
 POISON_STEP = 0.1
 
+#: Запас окна журнала сверх окна показа: подъём раздачи, LOAD и остановка тоже замер.
+JOURNAL_SPARE = 20.0
+
 #: Насколько указатель обязан уйти от места захода, чтобы считать это КАДРОМ.
 #:
 #: 🔴 Замер на живом Q70D: приёмник отвечает ``PLAYING``, ещё ничего не показав, и держит
@@ -87,13 +91,22 @@ def shown(pos: float, at: float) -> bool:
     return pos >= at + PICTURE_STEP
 
 
-def clean(picture: float | None, stalls: Sequence[object]) -> bool:
-    """Прогон засчитан: кадр на экране был и ни одного подвиса при живом запасе.
+def clean(
+    picture: float | None, stalls: Sequence[object], journal: tvjournal.Life | None = None
+) -> bool:
+    """Прогон засчитан: кадр был, подвисов нет и прибор второй половины меры был жив.
 
-    🔴 Оба условия обязательны, и второе не следует из первого: приёмник умеет отвечать
-    ``PLAYING`` со стоящим указателем, и такой прогон без этой проверки выглядел
+    🔴 Первые два условия обязательны оба, и второе не следует из первого: приёмник умеет
+    отвечать ``PLAYING`` со стоящим указателем, и такой прогон без этой проверки выглядел
     состоявшимся - ни исключения, ни ненулевого кода.
+
+    🔴 TC-867. Третье условие - про ПРИБОР, а не про приёмник. Живой замер считают две
+    независимые половины, и вторая - журнал самого приёмника - умеет молча ослепнуть
+    посреди прогона. Прогон с оборванным журналом чистым назвать нельзя: голоданий в нём
+    ноль не потому, что их не было, а потому, что их некому было увидеть.
     """
+    if journal is not None and not journal.fit:
+        return False
     return picture is not None and not stalls
 
 
@@ -228,6 +241,11 @@ def main() -> int:
     )
     parser.add_argument(
         "--poison", type=int, default=-1, help="сделать этот сегмент невоспроизводимым"
+    )
+    parser.add_argument(
+        "--journal",
+        default="",
+        help="читать журнал приёмника отладчиком, например 10.0.0.5:5555 (вторая половина меры)",
     )
     args = parser.parse_args()
 
@@ -364,6 +382,20 @@ def main() -> int:
 
     lowest, stalls, buffering = args.at, [], 0
     picture: float | None = None
+    # Вторая половина меры поднимается ДО показа и держится всё окно: журнал, начатый
+    # после LOAD, пропускает ровно тот кусок прогона, ради которого его и читают.
+    held: list[tvjournal.Held] = []
+    reader = None
+    if args.journal:
+        # Своё имя нарочно: ``where`` ниже держит точку перемотки, и типы там не сходятся.
+        logbook = out.parent / "logcat.txt"
+        window = args.watch + args.head_wait + JOURNAL_SPARE
+        reader = threading.Thread(
+            target=lambda: held.append(tvjournal.follow(args.journal, logbook, window)),
+            daemon=True,
+            name="journal",
+        )
+        reader.start()
     try:
         server.start()
         if recoder is not None:
@@ -418,6 +450,16 @@ def main() -> int:
         feed.stop()
         server.stop()
 
+    journal = None
+    if reader is not None:
+        reader.join(timeout=args.watch + args.head_wait + 2 * JOURNAL_SPARE)
+        logbook = out.parent / "logcat.txt"
+        one = held[0] if held else None
+        journal = (
+            tvjournal.life(one.began, one.ended, logbook.read_bytes()) if one is not None else None
+        )
+        told = "журнал приёмника НЕ ПРОЧИТАН" if journal is None else journal.why
+        print(f"вторая половина меры: {told}")
     print(f"опросов в BUFFERING за прогон: {buffering}")
     print(
         f"старт до КАДРА: {picture:.1f} с"
@@ -436,7 +478,11 @@ def main() -> int:
         )
     else:
         print(f"ВЕРДИКТ: чисто, дошёл до {lowest:.3f} с без подвисов")
-    return 0 if clean(picture, stalls) else 1
+    # 🔴 Журнала просили, а он оборвался - прогон БРАК, даже если картинка была чистой:
+    # ноль голоданий на мёртвом приборе не заработан, а куплен молчанием.
+    if args.journal and journal is None:
+        journal = tvjournal.Life(0, 0, 0.0, 0.0, False, "журнал приёмника не прочитан вовсе")
+    return 0 if clean(picture, stalls, journal) else 1
 
 
 if __name__ == "__main__":
