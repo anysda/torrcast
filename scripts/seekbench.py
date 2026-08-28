@@ -41,6 +41,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from probeprofile import add_argument as add_profile_argument
 from probeprofile import choose as choose_profile
+from probestamp import stamp
 from seekcheck import free_port, get, serve_file, unfit_grid
 
 from torrcast.adapters.filesystem.state.load_config import load_config
@@ -174,6 +175,19 @@ def main() -> int:
     # (:func:`torrcast.usecases.playback._tract._tract`): сплошной перекод уезжает mpegts,
     # остальное режется тем, что назвал профиль.
     container = choice.profile.segment_container if whole is None else MPEGTS
+    # Подпись прибора рядом с числами прогона: перенося число в дерево, переносят и её
+    # (:mod:`probestamp`, TC-870). Тракт тут отданный приёмнику, а не заявленный профилем.
+    print(
+        stamp(
+            "seekbench",
+            container,
+            f"приёмник {choice.profile.key}",
+            [
+                f"вес {choice.profile.max_segment_bytes / 1e6:.1f} МБ",
+                f"длина {choice.profile.max_segment_seconds:.1f} с",
+            ],
+        )
+    )
     codec = codec_tag(media.video or "", media.depth)
     out = hls_dir(args.out)
     feed = Feed(

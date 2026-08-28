@@ -821,6 +821,36 @@ def test_щупы_упаковки_берут_пороги_и_контейнер
     assert not blind, "провод профиля оборван:\n" + "\n".join(blind)
 
 
+def test_щупы_упаковки_подписывают_прогон_прибором() -> None:
+    """🔴 Прогон, который не назвал прибор, отвечает на «чем снято» историей git.
+
+    TC-870: семь чисел приставки простояли в дереве без единой отметки о приборе, и
+    восстанавливать их пришлось коммитами - а коммит прибора не называет тем более.
+    Подпись обязана печататься самим щупом (:func:`probestamp.stamp`) и обязана нести
+    ТРАКТ: профиль, заявленный надписью, и контейнер, реально уехавший приёмнику,
+    разъезжались молча (TC-868), и число тогда снято не про тот тракт.
+    """
+    mute = []
+    for name in PACK_PROBES:
+        tree = ast.parse((SCRIPTS / f"{name}.py").read_text(encoding="utf-8"))
+        calls = [
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "stamp"
+        ]
+        if not calls:
+            mute.append(f"{name}.py: подписи прибора нет вовсе")
+            continue
+        for call in calls:
+            said = [ast.unparse(argument) for argument in call.args]
+            if said[:2] != [f"'{name}'", "container"]:
+                mute.append(f"{name}.py:{call.lineno}: подпись зовёт себя {said[:2]}")
+
+    assert not mute, "щуп меряет молча:\n" + "\n".join(mute)
+
+
 def test_щуп_берёт_код_из_своего_дерева() -> None:
     """Каждый щуп, зовущий продукт, кладёт впереди путей СВОЙ корень - и не чужой.
 

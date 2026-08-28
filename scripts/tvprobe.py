@@ -39,6 +39,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import tvjournal
 from probeprofile import add_argument as add_profile_argument
 from probeprofile import choose as choose_profile
+from probestamp import stamp
 
 from torrcast.adapters.chromecast.cast.chromecast_receiver import ChromecastReceiver
 from torrcast.adapters.filesystem.state.load_config import load_config
@@ -290,6 +291,24 @@ def main() -> int:
     # Контейнер кусков - свойство приёмника, и сплошной перекод перебивает его ровно так
     # же, как в показе (:func:`torrcast.usecases.playback._tract._tract`).
     container = choice.profile.segment_container if whole is None else MPEGTS
+    # 🔴 Подпись прибора печатается ДО показа и в готовом для дерева виде: число, снятое
+    # этим прогоном, переносят вместе с подписью, и вопрос «чем снято» перестаёт
+    # отвечаться историей git (:mod:`probestamp`, TC-870). Тракт в ней - тот, что реально
+    # уехал приёмнику, а не заявленный профилем: их и развело в TC-868.
+    print(
+        stamp(
+            "tvprobe",
+            container,
+            f"приёмник {choice.profile.key}",
+            [
+                f"вес {choice.profile.max_segment_bytes / 1e6:.1f} МБ",
+                f"длина {choice.profile.max_segment_seconds:.1f} с",
+                f"тяжесть {args.threshold:.1f} Мбит/с",
+                f"цель {args.mbit:.1f} Мбит/с",
+                f"журнал {args.journal or 'НЕ ЧИТАЕТСЯ'}",
+            ],
+        )
+    )
     codec = codec_tag(media.video or "", media.depth) if media is not None else codec_tag("")
     grid = make_grid(args, choice.profile, delivered, whole)
     slot = grid.slot_at(args.at)
