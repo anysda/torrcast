@@ -717,27 +717,98 @@ def test_щуп_перемотки_берёт_порт_у_ядра() -> None:
         assert sock.getsockname()[1] == port
 
 
-def test_щуп_перемоток_берёт_удержание_и_потолок_у_профиля() -> None:
-    """Удержание запроса и потолок веса куска - свойства приёмника, не щупа.
+#: Щупы, собирающие упаковку под живой приёмник, и что каждая сборка обязана взять у
+#: профиля. Ключ - имя класса, значение - «довод сборки → поле профиля».
+#:
+#: ``packbench`` и ``seambench`` сюда не входят намеренно: приёмника у них нет вовсе,
+#: они меряют механику упаковщика на локальном файле и профиля не спрашивают.
+PACK_FROM_PROFILE = {
+    "Feed": {
+        "wait": "hold_seconds",
+        "cap": "max_segment_bytes",
+        "container": "segment_container",
+    },
+    "Recoder": {
+        "cap": "max_segment_bytes",
+        "container": "segment_container",
+    },
+}
+PACK_PROBES = ("tvprobe", "seekcheck", "seekbench")
 
-    🔴 Пока оба профиля были по 16 МБ, расхождение не проявлялось. Когда у приставки
-    потолок веса куска стал 28 МБ, щуп строил сетку под 28 (профиль в ``layout`` он
-    передавал честно), а раздачу собирал без ``cap`` - с осторожным умолчанием 16 МБ:
-    на релизе, чьи копии тяжелее 16 МБ, ни один кусок не выкладывался, и здоровый
-    продукт выглядел «ни кадра». Показ оба числа берёт у профиля
-    (:func:`torrcast.usecases.playback._tract._tract`), щуп обязан мерить тот же тракт.
+
+def _assignments(tree: ast.Module) -> dict[str, list[str]]:
+    """Все присваивания простым именам: имя → выражения, которые в него кладут.
+
+    Нужны, чтобы довод-псевдоним (``container=container``) читался по своему источнику, а
+    не по имени: имя само по себе не говорит ничего.
     """
-    source = (SCRIPTS / "seekcheck.py").read_text(encoding="utf-8")
-    calls = [
-        node
-        for node in ast.walk(ast.parse(source))
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "Feed"
-    ]
-    assert len(calls) == 1, "щуп собирает ленту показа ровно раз"
-    given = {kw.arg: ast.unparse(kw.value) for kw in calls[0].keywords}
+    found: dict[str, list[str]] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign) and len(node.targets) == 1:
+            target = node.targets[0]
+            if isinstance(target, ast.Name):
+                found.setdefault(target.id, []).append(ast.unparse(node.value))
+    return found
 
-    assert given.get("wait") == "choice.profile.hold_seconds"
-    assert given.get("cap") == "choice.profile.max_segment_bytes"
+
+def test_щупы_упаковки_берут_пороги_и_контейнер_у_профиля() -> None:
+    """Потолок веса, удержание запроса и контейнер кусков - свойства ПРИЁМНИКА, не щупа.
+
+    🔴 Пока оба профиля были по 16 МБ и оба резали mpegts, расхождение не проявлялось.
+    Когда у приставки потолок стал 28 МБ, а контейнер - fmp4, щуп строил сетку под 28
+    (профиль в ``layout`` он передавал честно), а раздачу собирал с осторожными
+    умолчаниями: на релизе, чьи копии тяжелее 16 МБ, ни один кусок не выкладывался, и
+    здоровый продукт выглядел «ни кадра».
+
+    🔴 TC-868. Контейнер оборвался ровно так же и молча: ``--profile androidtv`` менял
+    надпись, но щуп всё равно отдавал приставке mpegts - то есть мерил CMAF-тракт,
+    ни разу его не тронув. Прежний сторож этого не поймал, потому что смотрел на один
+    щуп из трёх и на одну сборку из двух.
+
+    Показ берёт все три числа у профиля
+    (:func:`torrcast.usecases.playback._tract._tract`,
+    :func:`torrcast.usecases.playback._recoder._recoder`) - щуп обязан мерить тот же тракт.
+    """
+    blind = []
+    checked = 0
+    for name in PACK_PROBES:
+        tree = ast.parse((SCRIPTS / f"{name}.py").read_text(encoding="utf-8"))
+        known = _assignments(tree)
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
+                continue
+            wanted = PACK_FROM_PROFILE.get(node.func.id)
+            if wanted is None:
+                continue
+            given = {kw.arg: ast.unparse(kw.value) for kw in node.keywords}
+            for argument, field in wanted.items():
+                checked += 1
+                said = given.get(argument)
+                # Довод либо прямо называет поле профиля, либо кладёт имя, КАЖДОЕ
+                # присваивание которому названо тем же полем.
+                sources: list[str] = [] if said is None else known.get(said, [said])
+                if not sources or not all(f"profile.{field}" in text for text in sources):
+                    blind.append(
+                        f"{name}.py:{node.lineno} {node.func.id}: "
+                        f"{argument} = {said} - не профиль ({field})"
+                    )
+        # Приёмнику контейнер называется не доводом сборки, а полем: подсказка формата
+        # в LOAD - последнее звено того же провода, и рвётся оно так же молча.
+        if "ChromecastReceiver(" in ast.unparse(tree):
+            checked += 1
+            named = [
+                ast.unparse(node.value)
+                for node in ast.walk(tree)
+                if isinstance(node, ast.Assign)
+                and len(node.targets) == 1
+                and isinstance(node.targets[0], ast.Attribute)
+                and node.targets[0].attr == "segment_container"
+            ]
+            behind = [text for one in named for text in known.get(one, [one])]
+            if not behind or not all("profile.segment_container" in text for text in behind):
+                blind.append(f"{name}.py: приёмнику контейнер не назван ({named or 'ничего'})")
+    assert checked >= 9, "сторож обязан проверить обе сборки и приёмник у каждого щупа"
+    assert not blind, "провод профиля оборван:\n" + "\n".join(blind)
 
 
 def test_щуп_берёт_код_из_своего_дерева() -> None:

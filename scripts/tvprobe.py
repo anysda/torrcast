@@ -55,8 +55,10 @@ from torrcast.adapters.stream_pack.hls_dir import hls_dir
 from torrcast.adapters.stream_pack.pack_origin import pack_origin
 from torrcast.adapters.stream_probe.probe import probe
 from torrcast.adapters.stream_probe.segment_name import segment_name
+from torrcast.domain.codec_tag import codec_tag
 from torrcast.domain.delivered_mbit import AUDIO_MBIT, TS_OVERHEAD
 from torrcast.domain.profile import Profile
+from torrcast.domain.segment_container import MPEGTS
 from torrcast.runtime.wire import wire
 from torrcast.usecases.feed_pack.feed import Feed
 
@@ -203,9 +205,13 @@ def main() -> int:
     parser.add_argument("--recode", action="store_true", help="перекодировать тяжёлые куски")
     parser.add_argument("--whole", action="store_true", help="перекодировать фильм целиком")
     parser.add_argument("--tonemap", action="store_true", help="привести HDR к SDR")
-    parser.add_argument("--threshold", type=float, default=15.0, help="порог тяжести, Мбит/с")
+    parser.add_argument(
+        "--threshold", type=float, default=0.0, help="порог тяжести, Мбит/с; 0 - из профиля"
+    )
     parser.add_argument("--preset", default="veryfast")
-    parser.add_argument("--mbit", type=float, default=12.0, help="во сколько перекодировать")
+    parser.add_argument(
+        "--mbit", type=float, default=0.0, help="во сколько перекодировать; 0 - из профиля"
+    )
     add_profile_argument(parser)
     parser.add_argument(
         "--ceiling",
@@ -226,11 +232,22 @@ def main() -> int:
     args = parser.parse_args()
 
     config, choice = choose_profile(load_config(), args.profile)
+    # 🔴 Порог тяжести и цель перекода - свойства ПРИЁМНИКА, и профиль их уже наложил на
+    # настройки (:func:`torrcast.domain.tune.tune`). Своими умолчаниями щуп мерил приставку
+    # числами, которых нет ни у одного профиля: 15.0 и 12.0 против её 28.0 и 28.0.
+    args.threshold = args.threshold or config.recode_at_mbit
+    args.mbit = args.mbit or config.recode_mbit
     out = hls_dir(config.hls_dir)
     # ⚠️ Паспорт нужен и на явной сетке, если перекодируем целиком: из него берутся кадр,
     # HDR и вес видеодорожки, а без них ``--whole`` молча выродился бы в копию - и щуп
     # отдал бы приёмнику ровно тот поток, ради отказа от которого перекод и заведён.
-    quiet = (args.uniform or args.bounds) and not args.whole
+    # 🔴 Он же нужен CMAF-тракту: тег кодека уезжает в мастер-плейлист, и угаданный тег -
+    # это чужой поток под нашим именем. Профиль с fmp4 паспорт требует всегда.
+    quiet = (
+        (args.uniform or args.bounds)
+        and not args.whole
+        and choice.profile.segment_container == MPEGTS
+    )
     media = None if quiet else probe(args.url)
     delivered = media.delivered_mbit if media else 0.0
     if media is not None:
@@ -252,6 +269,10 @@ def main() -> int:
             f"сплошной перекод: {whole.preset}, {whole.mbit:.2f} Мбит/с, "
             f"кадр {whole.out_frame}, тонемап {whole.hdr}"
         )
+    # Контейнер кусков - свойство приёмника, и сплошной перекод перебивает его ровно так
+    # же, как в показе (:func:`torrcast.usecases.playback._tract._tract`).
+    container = choice.profile.segment_container if whole is None else MPEGTS
+    codec = codec_tag(media.video or "", media.depth) if media is not None else codec_tag("")
     grid = make_grid(args, choice.profile, delivered, whole)
     slot = grid.slot_at(args.at)
     print(
@@ -287,6 +308,12 @@ def main() -> int:
                 spare=out / RECODE_DIR,
                 weights=weights,
                 threshold=args.threshold,
+                # Потолок веса куска и контейнер - те же, что у показа
+                # (:func:`torrcast.usecases.playback._recoder._recoder`): под чужим
+                # расширением готовый перекод выкладке невидим, а по чужому потолку
+                # кодировщик мерит не тот приёмник.
+                cap=choice.profile.max_segment_bytes,
+                container=container,
                 encode=Encode(preset=args.preset, mbit=args.mbit),
                 head_wait=args.head_wait,
                 log=lambda text: print(f"  кодировщик: {text}", flush=True),
@@ -303,12 +330,19 @@ def main() -> int:
         # веса куска - свойства приёмника, иначе щуп меряет осторожное умолчание Q70D.
         wait=choice.profile.hold_seconds,
         cap=choice.profile.max_segment_bytes,
+        container=container,
+        video_codec=codec,
         log=lambda text: print(f"  упаковка: {text}", flush=True),
         recoder=recoder,
         encode=whole,
     )
     server = HlsServer(out, port=config.hls_port, feed=feed)
     receiver = ChromecastReceiver(config.tv or "", profile=choice.profile)
+    # 🔴 Контейнер приёмнику называется ОТДЕЛЬНО от профиля: подсказка формата уезжает в
+    # LOAD (:func:`torrcast.adapters.chromecast.cast.hls_hints.hls_hints`), а умолчание там
+    # осторожное. Показ говорит это же (:func:`torrcast.usecases.playback._tract._tract`);
+    # молчащий щуп обещал приставке mpegts, отдавая CMAF, - и получал IDLE.
+    receiver.segment_container = container
     # Сторож подвиса меряет прыжок сеткой, а не абсолютной секундой: без этого он
     # приземляется в тот же кусок, на котором приёмник и споткнулся.
     receiver.next_cut = grid.after

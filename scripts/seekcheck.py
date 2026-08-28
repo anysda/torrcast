@@ -53,6 +53,8 @@ from torrcast.adapters.stream_pack.grid import Grid
 from torrcast.adapters.stream_pack.hls_dir import hls_dir
 from torrcast.adapters.stream_probe.probe import probe
 from torrcast.adapters.stream_probe.segment_name import segment_name
+from torrcast.domain.codec_tag import codec_tag
+from torrcast.domain.segment_container import MPEGTS
 from torrcast.runtime.wire import wire
 from torrcast.usecases.feed_pack.feed import Feed
 from torrcast.usecases.playback.layout import layout
@@ -350,6 +352,11 @@ def main() -> int:
         )
         return 2
 
+    # Контейнер кусков и тег кодека - свойства приёмника, ровно как в показе
+    # (:func:`torrcast.usecases.playback._tract._tract`): сплошной перекод уезжает mpegts,
+    # остальное режется тем, что назвал профиль.
+    container = choice.profile.segment_container if whole is None else MPEGTS
+    codec = codec_tag(media.video or "", media.depth)
     out = hls_dir(args.out)
     feed = Feed(
         source=url,
@@ -363,6 +370,8 @@ def main() -> int:
         # веса куска - свойства приёмника, иначе щуп меряет осторожное умолчание Q70D.
         wait=choice.profile.hold_seconds,
         cap=choice.profile.max_segment_bytes,
+        container=container,
+        video_codec=codec,
         log=functools.partial(print, "  упаковка:"),
         encode=whole,
     )
