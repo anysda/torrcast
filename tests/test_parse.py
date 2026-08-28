@@ -327,6 +327,44 @@ def test_a_named_foreign_dub_does_not_promise_russian(name: str) -> None:
 
 
 @pytest.mark.parametrize(
+    "name",
+    [
+        "Чёрный медведь / Black Bear [2020, США, WEB-DL 1080p] Sub Rus (FOCS), Eng + Original Eng",
+        "Братья / Broers [2017, Нидерланды, драма, WEB-DL 1080p] + Sub Rus, Nld + Original Nld",
+        "Твин Пикс: Огонь, иди со мной [1992, США, BDRip] + Sub Rus удаленные сцены",
+        "Some Film [2020, BDRip] Subtitles Rus",
+    ],
+)
+def test_russian_subtitles_do_not_promise_a_russian_track(name: str) -> None:
+    """Субтитры дорожкой не считаются в ЛЮБОМ порядке слов: и ``Rus Sub``, и ``Sub Rus``.
+
+    Порядок ``Sub Rus`` читался как обещанная дорожка, и после TC-826 звук стоит выше
+    чёткости - то есть релиз без озвучки вставал первым (TC-831). Живой случай: у
+    «Твин Пикс: Огонь, иди со мной» очередь возглавила раздача 0.72 ГБ с одними титрами,
+    оттеснив 4.37 ГБ с русским звуком при тех же 4 сидах.
+    """
+    assert not parse_release_name(name).dubbed
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "Броненосец Потёмкин [1925, СССР, BDRip] Original Rus",
+        "Пираты Карибского моря [2011, DVD9] Dub + Sub Rus + Original Eng",
+        "Аниме / Anime [2020, WEB-DL 1080p] [JAP+Sub Rus] [AniLibria]",
+        "Фильм / Film [2020, BDRip] Rus, Eng + Sub",
+    ],
+)
+def test_a_subtitle_mention_does_not_hide_a_real_russian_track(name: str) -> None:
+    """Отрицательная сторона того же правила: рядом с титрами живёт настоящая дорожка.
+
+    ``Original Rus`` - законная русская дорожка советского кино, ``Dub`` и знакомая
+    студия - обещание озвучки. Ни одно из них титрами не гасится.
+    """
+    assert parse_release_name(name).dubbed
+
+
+@pytest.mark.parametrize(
     ("text", "expected"),
     [
         ("Cyberpunk.Edgerunners.s01e05.1080p", (1, 5)),

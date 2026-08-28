@@ -79,7 +79,7 @@ _DUBBED: Final = frozenset(
     {"Гоблин", "Дубляж", "Многоголосый", "Двухголосый", "Авторский", "Одноголосый"}
 )
 _SUB_MENTION_RE: Final = re.compile(
-    "multi\\s*\\d*\\s*-?\\s*subs?\\b|\\bsubs?(?:titles?)?\\s*(?:\\([^)]*\\)|\\[[^\\]]*\\])|\\b(?:rus|ru|рус\\w*|eng|ukr|укр)[\\s._+-]*subs?\\b|\\bsubs?(?:titles?)?\\b|субтитр\\w*",
+    "multi\\s*\\d*\\s*-?\\s*subs?\\b|\\bsubs?(?:titles?)?\\s*(?:\\([^)]*\\)|\\[[^\\]]*\\])|\\b(?:rus|ru|рус\\w*|eng|ukr|укр)[\\s._+-]*subs?\\b|\\bsubs?(?:titles?)?[\\s._+-]*(?:rus|ru|рус\\w*|eng|ukr|укр)\\b|\\bsubs?(?:titles?)?\\b|субтитр\\w*",
     re.IGNORECASE,
 )
 _RU_AUDIO_RE: Final = re.compile("\\brus\\b|\\brussian\\b|\\bрус\\b|русск\\w*", re.IGNORECASE)
