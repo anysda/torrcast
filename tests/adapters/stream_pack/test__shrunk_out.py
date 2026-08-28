@@ -35,7 +35,7 @@ def _lay(where: Path, name: str, size: int = 16) -> Path:
     return path
 
 
-def test_the_shrunk_piece_goes_out_with_the_audio_of_the_copy(tmp_path: Path) -> None:
+def test_the_shrunk_piece_goes_out_with_the_audio_of_the_copy(tmp_path: Path, tape: Tape) -> None:
     """🔴 Наружу идёт картинка ужатия и звук копии, а не звук второго прогона ffmpeg.
 
     Замер на живом показе: у соседей-копий стык звука +0.021333 с (один кадр AAC), у
@@ -65,6 +65,7 @@ def test_the_shrunk_piece_goes_out_with_the_audio_of_the_copy(tmp_path: Path) ->
 
     assert seen == [("spare7.ts", "v7.ts")], "звук ужатого места взят не у копии"
     assert out.name == "mix7.ts" and out.read_bytes() == b"m" * 20
+    assert tape.named("склейка ужатого вышла") == [{"слот": 7}]
 
 
 def test_the_shift_between_the_two_passes_reaches_the_merge(tmp_path: Path) -> None:
@@ -140,7 +141,7 @@ def test_a_merge_heavier_than_the_ceiling_is_thrown_away(tmp_path: Path) -> None
     assert not (tmp_path / "mix2.ts").exists(), "склейка за потолком осталась лежать"
 
 
-def test_a_piece_without_a_key_frame_is_never_merged(tmp_path: Path) -> None:
+def test_a_piece_without_a_key_frame_is_never_merged(tmp_path: Path, tape: Tape) -> None:
     """🔴 TC-698. Склейка идёт ``-c copy``: у куска без опорного кадра она съест картинку.
 
     Такой кусок приходит от кодировщика, доехавшего, пока ужатие ждало замка. Ему
@@ -167,6 +168,7 @@ def test_a_piece_without_a_key_frame_is_never_merged(tmp_path: Path) -> None:
     )
 
     assert out == shrunk and tried == [], "кусок без опорного кадра ушёл в склейку"
+    assert tape.named("склейка ужатого не пробовалась: нет опорного кадра") == [{"слот": 9}]
 
 
 def test_the_merge_of_a_shrunk_place_is_named_and_muxed_by_the_container(

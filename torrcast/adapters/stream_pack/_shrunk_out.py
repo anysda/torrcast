@@ -104,6 +104,7 @@ def _shrunk_out(
     уедет на приёмник.
     """
     if keyless(shrunk):
+        journal().mark("склейка ужатого не пробовалась: нет опорного кадра", слот=slot)
         on_bare(shrunk, copy, slot, "ужатие", container, heads)
         return shrunk
     mixed = run_dir / mixed_name(slot, container)
@@ -123,6 +124,7 @@ def _shrunk_out(
         if not astray:
             try:
                 if mixed.stat().st_size <= cap:
+                    journal().mark("склейка ужатого вышла", слот=slot)
                     return mixed
             except OSError:
                 pass

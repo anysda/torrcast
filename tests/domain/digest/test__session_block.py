@@ -57,6 +57,34 @@ def test_the_seams_of_the_session_are_counted_in_its_own_summary() -> None:
     assert "стыков источника 2" in block
 
 
+def test_shrunk_splice_attempts_and_wins_are_counted_against_shrinks() -> None:
+    """Удача, отказ и бездействие различимы, а их сумма сходится со всеми ужатиями."""
+    rows = [
+        rec("ужатие на месте", phase="timeline", слот=1),
+        rec("склейка ужатого вышла", phase="timeline", слот=1),
+        rec("ужатие на месте", phase="timeline", слот=2),
+        rec("склейка ужатого не вышла", phase="timeline", слот=2),
+        rec("ужатие на месте", phase="timeline", слот=3),
+        rec("склейка ужатого не пробовалась: нет опорного кадра", phase="timeline", слот=3),
+    ]
+
+    block = _session_block("s", rows)
+
+    assert "ужатий 3, склейка ужатого: попыток 2, удач 1, без попытки 1" in block
+
+
+def test_a_keyless_shrink_says_zero_attempts_instead_of_looking_like_no_shrink() -> None:
+    """Ноль попыток печатается только при бывшем ужатии; это не молчание прибора."""
+    rows = [
+        rec("ужатие на месте", phase="timeline", слот=9),
+        rec("склейка ужатого не пробовалась: нет опорного кадра", phase="timeline", слот=9),
+    ]
+
+    block = _session_block("s", rows)
+
+    assert "ужатий 1, склейка ужатого: попыток 0, удач 0, без попытки 1" in block
+
+
 def test_the_end_tells_a_finished_film_apart_from_an_abandoned_one() -> None:
     """Досмотрено или брошено на такой-то секунде - разные вещи, и путать их нельзя."""
     done = _session_block(

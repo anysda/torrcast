@@ -29,6 +29,16 @@ _COUNTED: Final = {
     "skew": "кусков мимо сетки",
 }
 
+#: Исходы настоящей попытки склейки. Отдельная метка ``не пробовалась`` сюда намеренно
+#: не входит: кусок без опорного кадра до муксера не доходит.
+_SHRUNK_SPLICE_TRIED: Final = frozenset(
+    {
+        "склейка ужатого вышла",
+        "склейка ужатого не вышла",
+        "склейку ужатого не поставить на ленту показа",
+    }
+)
+
 
 def _session_block(sid: str, rows: Sequence[Mapping[str, JsonValue]]) -> str:
     """Блок одного сеанса: что искали, что взяли и чем всё кончилось."""
@@ -69,6 +79,22 @@ def _session_block(sid: str, rows: Sequence[Mapping[str, JsonValue]]) -> str:
     for name, word in _COUNTED.items():
         if name != "buffering" and counts[name]:
             tail += f", {word} {counts[name]}"
+    shrunk = sum(1 for r in rows if r.get("event") == "ужатие на месте")
+    if shrunk:
+        tried = sum(
+            1
+            for r in rows
+            if r.get("event") in _SHRUNK_SPLICE_TRIED
+            or str(r.get("event", "")).startswith("склейка ужатого не с этого места:")
+        )
+        won = sum(1 for r in rows if r.get("event") == "склейка ужатого вышла")
+        skipped = sum(
+            1 for r in rows if str(r.get("event", "")).startswith("склейка ужатого не пробовалась:")
+        )
+        tail += (
+            f", ужатий {shrunk}, склейка ужатого: попыток {tried},"
+            f" удач {won}, без попытки {skipped}"
+        )
     end = next((r for r in reversed(rows) if r.get("event") == "session_end"), None)
     if end is not None:
         where = _hms(json_number(end.get("pos", 0.0)))
