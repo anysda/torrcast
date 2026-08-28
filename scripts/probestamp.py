@@ -27,6 +27,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 from typing import Final
 
@@ -39,10 +40,12 @@ APART: Final = " · "
 UNNAMED: Final = "НЕ НАЗВАН"
 #: Приборы, которыми вообще меряют живой приёмник. Список закрыт нарочно: новый щуп
 #: попадает в подписи только вместе с правкой здесь, а не самоназванием в комментарии.
-TOOLS: Final = frozenset({"tvprobe", "seekcheck", "seekbench", "swarmprobe", "cast", UNNAMED})
+TOOLS: Final = frozenset({"tvprobe", "seekcheck", "seekbench", UNNAMED})
 #: Тракт, которым материал уехал приёмнику. ``файлом`` - мимо нашей упаковки вовсе,
 #: ``не при чём`` - число не про доставку (темп роя, терпение пустого экрана).
 TRACTS: Final = frozenset({"mpegts", "fmp4", "файлом", "не при чём", "неизвестен"})
+#: Где снят замер: карточка либо календарная дата ``ДД-ММ``/``ДД-ММ-ГГГГ``.
+WHERE: Final = re.compile(r"(?:TC-\d+|\d{2}-\d{2}(?:-\d{4})?)\Z")
 
 
 def stamp(tool: str, tract: str, where: str, extra: Sequence[str] = ()) -> str:
@@ -56,6 +59,6 @@ def stamp(tool: str, tract: str, where: str, extra: Sequence[str] = ()) -> str:
         raise ValueError(f"прибор «{tool}» не из списка: {sorted(TOOLS)}")
     if tract not in TRACTS:
         raise ValueError(f"тракт «{tract}» не из списка: {sorted(TRACTS)}")
-    if not where.strip():
-        raise ValueError("подпись без места замера: карточка или дата обязательны")
+    if WHERE.fullmatch(where.strip()) is None:
+        raise ValueError("место замера - карточка TC-<номер> или дата ДД-ММ[-ГГГГ]")
     return APART.join([f"{SIGN} {tool}", tract, where.strip(), *extra])

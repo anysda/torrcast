@@ -35,16 +35,18 @@ from typing import Final
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from probestamp import APART, SIGN, TOOLS, TRACTS, UNNAMED
+from probestamp import APART, SIGN, TOOLS, TRACTS, UNNAMED, WHERE
 
 #: Корень репозитория: у щупа он один - родитель ``scripts/``.
 ROOT: Final = Path(__file__).resolve().parent.parent
 #: Что спрашивается по умолчанию.
-PROFILES: Final = "torrcast/domain/profile.py"
+PROFILES: Final = ("torrcast/domain/receiver_profile.py", "torrcast/domain/android_tv_profile.py")
 #: Поля профиля, которые ничего не меряют: имя ключа и подпись для человека.
 NOT_MEASURED: Final = frozenset({"key", "title"})
 #: Слова, которыми комментарий ссылается на замер. Ссылается - значит обязан назвать чем.
 MEASURED: Final = re.compile(r"замер|измер|снят|живь[её]м|жив(ой|ых|ого)|прогон")
+#: Сегодняшний долг: новое ``НЕ НАЗВАН`` сторож уже не пропустит молча.
+UNNAMED_CEILING: Final = 18
 
 
 def unsigned(source: str) -> list[str]:
@@ -125,27 +127,35 @@ def _faults(where: str, text: str) -> list[str]:
     parts = [part.strip() for part in tail.split(APART.strip()) if part.strip()]
     if len(parts) < 3:
         return [f"{where}: подпись неполна, нужно «{SIGN} прибор{APART}тракт{APART}где»"]
-    tool, tract = parts[0], parts[1]
+    tool, tract, stamp_where = parts[0], parts[1], parts[2]
     faults: list[str] = []
     if tool not in TOOLS:
         faults.append(f"{where}: прибор «{tool}» не из списка {sorted(TOOLS)}")
     if tract not in TRACTS:
         faults.append(f"{where}: тракт «{tract}» не из списка {sorted(TRACTS)}")
+    if WHERE.fullmatch(stamp_where) is None:
+        faults.append(
+            f"{where}: место замера «{stamp_where}» не карточка TC-<номер> и не дата ДД-ММ[-ГГГГ]"
+        )
     return faults
 
 
 def main(argv: list[str] | None = None) -> int:
     """Назвать все числа приёмника без подписи прибора и вернуть их числом в коде."""
     parser = argparse.ArgumentParser(description="сторож подписи прибора у чисел приёмника")
-    parser.add_argument("path", nargs="?", default=str(ROOT / PROFILES), help="что спрашиваем")
+    parser.add_argument("path", nargs="*", help="что спрашиваем")
     args = parser.parse_args(argv)
-    source = Path(args.path).read_text(encoding="utf-8")
-    faults = unsigned(source)
+    paths = [Path(path) for path in args.path] if args.path else [ROOT / path for path in PROFILES]
+    sources = [path.read_text(encoding="utf-8") for path in paths]
+    faults = [fault for source in sources for fault in unsigned(source)]
     for fault in faults:
         print(fault)
     print(f"без подписи: {len(faults)}")
-    print(f"подписей «{UNNAMED}»: {source.count(UNNAMED)} - это долг замера, а не порядок")
-    return 1 if faults else 0
+    unnamed = sum(source.count(UNNAMED) for source in sources)
+    print(f"подписей «{UNNAMED}»: {unnamed}/{UNNAMED_CEILING} - это долг замера, а не порядок")
+    if unnamed > UNNAMED_CEILING:
+        print(f"долг «{UNNAMED}» вырос на {unnamed - UNNAMED_CEILING}")
+    return 1 if faults or unnamed > UNNAMED_CEILING else 0
 
 
 if __name__ == "__main__":

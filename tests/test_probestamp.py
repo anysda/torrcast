@@ -31,8 +31,8 @@ def test_подпись_называет_прибор_тракт_и_место()
     stamp = tool("probestamp")
 
     assert stamp.stamp("tvprobe", "mpegts", "TC-620") == "снято: tvprobe · mpegts · TC-620"
-    assert stamp.stamp("tvprobe", "fmp4", "приёмник androidtv", ["вес 28.0 МБ"]) == (
-        "снято: tvprobe · fmp4 · приёмник androidtv · вес 28.0 МБ"
+    assert stamp.stamp("tvprobe", "fmp4", "28-08-2026", ["вес 28.0 МБ"]) == (
+        "снято: tvprobe · fmp4 · 28-08-2026 · вес 28.0 МБ"
     )
 
 
@@ -58,5 +58,14 @@ def test_подпись_не_принимает_неназванный_приб�
         stamp.stamp("глазами", "mpegts", "TC-620")
     with pytest.raises(ValueError, match="тракт"):
         stamp.stamp("tvprobe", "hls", "TC-620")
-    with pytest.raises(ValueError, match="места замера"):
+    with pytest.raises(ValueError, match="место замера"):
         stamp.stamp("tvprobe", "mpegts", "  ")
+    with pytest.raises(ValueError, match="место замера"):
+        stamp.stamp("tvprobe", "mpegts", "замер вчера")
+
+
+def test_список_приборов_содержит_только_печатающие_подпись_щупы() -> None:
+    """Имя непечатающей команды не превращает отписку в допустимую подпись."""
+    stamp = tool("probestamp")
+
+    assert frozenset({"tvprobe", "seekcheck", "seekbench", stamp.UNNAMED}) == stamp.TOOLS
