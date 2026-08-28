@@ -108,3 +108,37 @@ def test_a_top_up_that_widens_the_picture_pool_does_not_replace_the_picture() ->
     assert len(raw) == 1
     assert [(picture.title, picture.year) for picture in found] == [("Тачки: Байки Мэтра", 2008)]
     assert "привёз больше картин" in said.text
+
+
+def test_an_empty_russian_reel_keeps_the_top_up_it_has_no_yardstick_for() -> None:
+    """🔴 TC-866. Первый круг привёз ноль - счёт картин мерить не от чего, и добор берётся.
+
+    Живой стенд, «эксперементы лейн» (описка внутри слова): справка называет
+    ``Serial Experiments Lain``, второй круг привозит 171 строку и 24 картины, и прежняя
+    мерка выбрасывала их все при 24 > 0 + 1. Человек читал «ничего не нашлось» при живой
+    картине. Предмет тут задаёт имя добора, а не счёт: соседние картины широкого латинского
+    круга в ответ всё равно не попадают.
+    """
+    wide = [
+        row("Serial Experiments Lain S01E01 1080p", "a"),
+        row("Serial Experiments Lain S01E02 1080p", "b"),
+        row("Texhnolyze S01E01 1080p", "c"),
+        row("Boogiepop Phantom S01E01 1080p", "d"),
+    ]
+    about = Origin(title="Serial Experiments Lain", name="Эксперименты Лэйн", guessed=True)
+    wire_catalogue()
+    said = Said()
+
+    raw, _pictures, found = _second_language(
+        Indexer(answers={"serial experiments lain": wide}),
+        "эксперементы лейн",
+        Args(query=["эксперементы лейн"]),
+        [],
+        [],
+        said,
+        passport=lambda *_a, **_k: about,
+    )
+
+    assert len(raw) == 4, "выдача добора остаётся, а не выбрасывается счётом картин"
+    assert [picture.title for picture in found] == ["Serial Experiments Lain"]
+    assert "привёз больше картин" not in said.text

@@ -24,6 +24,7 @@ from torrcast.usecases.discover._second_circle import _second_circle
 from torrcast.usecases.discover._second_hearsay import _second_hearsay
 from torrcast.usecases.discover._second_origin import _second_origin
 from torrcast.usecases.discover._second_wider import _second_wider
+from torrcast.usecases.discover._widened_subject import _widened_subject
 from torrcast.usecases.reinforce._as_is import _as_is
 from torrcast.usecases.reinforce._leading import _leading
 from torrcast.usecases.reinforce._twin import _twin
@@ -142,8 +143,9 @@ def _second_language(
         return _as_is(raw, found, about, progress)
     pictures = cluster(_search_state._search_catalogue.to_releases(merged))
     # Одна новая картина бывает второй, несклеившейся языковой половиной той же картины.
-    # Всё сверх неё - оригинал расширил предмет поиска вместо уточнения.
-    if len(pictures) > len(first_pictures) + 1:
+    # Всё сверх неё - оригинал расширил предмет поиска вместо уточнения. На ПУСТОЙ первой
+    # выдаче расширять нечего, и мерка молчит (:func:`_widened_subject`, TC-866).
+    if _widened_subject(len(pictures), len(first_pictures)):
         outcome = (
             f"добор по «{alt}» привёз больше картин: {len(pictures)} вместо "
             f"{len(first_pictures)} - остаюсь на выдаче по «{name}»"
