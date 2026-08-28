@@ -13,6 +13,8 @@ from torrcast.ports.pack_run.pack_run import PackRun
 PackTold: TypeAlias = Callable[[int, str], None]
 #: Кого спросить про кусок по его весу: ``(слот, вес копии) -> bool``.
 PackAsked: TypeAlias = Callable[[int, int], bool]
+#: Решение тяжёлого места: ужато, готовый перекод доехал сам или пропуск.
+PackShrink: TypeAlias = Callable[[int, int], bool | None]
 
 
 class PackFactory(Protocol):
@@ -33,7 +35,7 @@ class PackFactory(Protocol):
         spare: Path | None = None,
         told: PackTold | None = None,
         hold: PackAsked | None = None,
-        shrink: PackAsked | None = None,
+        shrink: PackShrink | None = None,
         last: int = -1,
         at: float = 0.0,
         rate: float = 0.0,

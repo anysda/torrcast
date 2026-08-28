@@ -17,7 +17,7 @@ from typing import IO, Any
 from torrcast.adapters.stream_pack.packer_finished import _cuts, _drift, _finished
 from torrcast.adapters.stream_pack.packer_measure import _eta, _frontier, _pending
 from torrcast.adapters.stream_pack.packer_publish import _lay_out
-from torrcast.adapters.stream_pack.packer_state import _Asked, _State, _Told
+from torrcast.adapters.stream_pack.packer_state import _Asked, _Shrink, _State, _Told
 from torrcast.adapters.stream_pack.packer_stop import _stop, _why
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.profile import CAUTIOUS
@@ -44,7 +44,7 @@ class Packer(_State):
         spare: Path | None = None,
         told: _Told | None = None,
         hold: _Asked | None = None,
-        shrink: _Asked | None = None,
+        shrink: _Shrink | None = None,
         last: int = -1,
         at: float = 0.0,
         rate: float = 0.0,

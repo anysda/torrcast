@@ -10,14 +10,13 @@ from typing import TYPE_CHECKING
 import torrcast.usecases.feed_pack._state as _state
 from torrcast.domain.hls_settings import PACK_DIR, SPLIT_SLACK
 from torrcast.ports.journal.slot import journal
+from torrcast.ports.pack_run.pack_factory import PackShrink
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-
     from torrcast.usecases.feed_pack.feed_state import _State
 
 
-def _restart(state: _State, slot: int, shrink: Callable[[int, int], bool]) -> None:
+def _restart(state: _State, slot: int, shrink: PackShrink) -> None:
     """Начать упаковку с сегмента ``slot``: перемотка, возврат с паузы или старт показа.
 
     Границы сегментов от места старта не зависят (:class:`Grid`), поэтому уже

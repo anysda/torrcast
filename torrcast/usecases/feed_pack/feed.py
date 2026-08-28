@@ -102,8 +102,8 @@ class Feed(_State):
         """Начать упаковку с сегмента ``slot`` (:func:`_restart`)."""
         _restart(self, slot, self._shrink)
 
-    def _shrink(self, slot: int, size: int = 0) -> bool:
-        """Ужать тяжёлый кусок на месте; ``False`` - пропуск (:func:`_shrink`)."""
+    def _shrink(self, slot: int, size: int = 0) -> bool | None:
+        """Ужать кусок; ``None`` - перекод доехал сам, ``False`` - пропуск."""
         return _shrink(self, slot, size)
 
     def _skip(self, slot: int, size: int, reason: str) -> bool:

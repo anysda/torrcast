@@ -20,6 +20,8 @@ from torrcast.ports.feed_grid import FeedGrid
 _Told: TypeAlias = Callable[[int, str], None]
 #: Кого спросить про кусок по его весу: ``(слот, вес копии) -> bool``.
 _Asked: TypeAlias = Callable[[int, int], bool]
+#: Ужатие: ``True`` - сделано, ``None`` - перекод доехал сам, ``False`` - пропуск.
+_Shrink: TypeAlias = Callable[[int, int], bool | None]
 
 
 class _Process(Protocol):
@@ -150,7 +152,7 @@ class _State:
     #: двигал край и не удалял саму копию, а всё за ней копилось в памяти до потолка
     #: несданного; потолок гасил прогон, запрос приёмника поднимал его заново - и круг
     #: повторялся, потому что тяжёлый кусок детерминирован.
-    shrink: _Asked | None = None
+    shrink: _Shrink | None = None
     #: Потолок веса куска этого приёмника. Последний гейт обязан мерить ровно им:
     #: здесь уже известен вес файла после склейки, которого не видел каталог перекода.
     cap: int = CAUTIOUS.max_segment_bytes

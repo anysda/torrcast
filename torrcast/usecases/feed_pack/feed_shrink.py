@@ -18,8 +18,8 @@ if TYPE_CHECKING:
     from torrcast.usecases.feed_pack.feed_state import _State
 
 
-def _shrink(state: _State, slot: int, size: int = 0) -> bool:
-    """Ужать кусок, который не влез в потолок приёмника, прямо сейчас; ``False`` - пропуск.
+def _shrink(state: _State, slot: int, size: int = 0) -> bool | None:
+    """Ужать тяжёлый кусок; ``None`` - перекод доехал сам, ``False`` - пропуск.
 
     Зовётся из :meth:`Packer.publish` с последнего гейта: копия тяжелее потолка
     (или перекод, который и сам не влез), а ждать кодировщика уже не стали -
@@ -63,7 +63,7 @@ def _shrink(state: _State, slot: int, size: int = 0) -> bool:
         if ready is not None:
             with contextlib.suppress(OSError):
                 if 0 < ready.stat().st_size <= state.cap:
-                    return True  # пока ждали замок, перекод доехал сам
+                    return None  # пока ждали замок, перекод доехал сам: это НЕ ужатие
         span = state.grid.span(slot)
         # Оба потолка приёмника разом: вес куска (:attr:`cap`) и битрейт, который он
         # тянет (порог кодировщика - то же число). Считает их одно место на весь

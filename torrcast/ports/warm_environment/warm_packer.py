@@ -33,7 +33,7 @@ class WarmPacker(Protocol):
         *,
         last: int = -1,
         grid: FeedGrid | None = None,
-        shrink: Callable[[int, int], bool] | None = None,
+        shrink: Callable[[int, int], bool | None] | None = None,
         cap: int = CAUTIOUS.max_segment_bytes,
         container: SegmentContainer = MPEGTS,
     ) -> WarmPack:

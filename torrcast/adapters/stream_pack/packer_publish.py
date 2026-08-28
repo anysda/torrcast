@@ -17,6 +17,7 @@ from torrcast.adapters.stream_pack.chunk_head import chunk_head
 from torrcast.adapters.stream_pack.done_slots import done_slots
 from torrcast.adapters.stream_pack.key_missing import key_missing
 from torrcast.adapters.stream_pack.merge_tracks import merge_tracks
+from torrcast.adapters.stream_pack.over_cap import over_cap
 from torrcast.adapters.stream_pack.run_tape import run_tape
 from torrcast.adapters.stream_pack.slot_place import slot_place
 from torrcast.adapters.stream_pack.timeline_shift import timeline_shift
@@ -125,10 +126,7 @@ def _lay_out(
         # Тогда голое видео перекода безопаснее; если не влезло и оно, наружу не
         # выходит ничего. Так же здесь остаётся тяжёлая копия, которую предохранитель
         # ожидания отпустил после срыва кодировщика.
-        try:
-            oversized = source.stat().st_size > state.cap
-        except OSError:
-            oversized = False
+        oversized = over_cap(source, state.cap)
         if oversized and how == "склейка" and better is not None:
             source.unlink(missing_ok=True)
             try:
@@ -152,8 +150,10 @@ def _lay_out(
         # кодировщика, а единственное место, которое сам же и пересобрал. Пока оба звались
         # одним словом, каждый ужатый кусок печатал «склейка не вышла, стык под вопросом»:
         # на ровной сетке это 818 ложных заявок на разбор за фильм (TC-693).
-        shrunk = oversized and state.shrink is not None and state.shrink(slot, size)
-        if shrunk and better is not None:
+        shrunk = state.shrink(slot, size) if oversized and state.shrink is not None else False
+        if shrunk is None and better is not None:
+            source, how, oversized = better, "перекод", False
+        elif shrunk and better is not None:
             # Место и обе мерки приёмника разом: каталог прогона, слот, копия, ужатое,
             # потолок веса и контейнер - расширение склейки выбирает муксер по нему.
             place = (state.run, slot, path, better, state.cap, want, state.container, heads)
@@ -161,10 +161,7 @@ def _lay_out(
                 *place, merge=merge, shift_of=shift_of, keyless=keyless, starts_of=starts_of
             )
             how = "ужатие"
-            try:
-                oversized = source.stat().st_size > state.cap
-            except OSError:
-                oversized = True
+            oversized = over_cap(source, state.cap, missing=True)
         if oversized:
             if how == "склейка":
                 source.unlink(missing_ok=True)

@@ -7,14 +7,22 @@ from typing import TYPE_CHECKING, Any
 
 from tests.fakes.journal import Tape
 from tests.usecases.feed_pack.world import factory, feed, grid, lay, packer, tract
+from torrcast.adapters.filesystem.trace_journal.file_journal import FileJournal
 from torrcast.adapters.recode.encode import Encode
 from torrcast.adapters.recode.encode_settings import MAXRATE_GAIN
 from torrcast.adapters.recode.pace import Pace
 from torrcast.adapters.stream_pack.grid import Grid
+from torrcast.adapters.stream_pack.packer_publish import _lay_out
 from torrcast.domain.delivered_mbit import AUDIO_MBIT, TS_OVERHEAD
 from torrcast.domain.digest._session_block import _session_block
 from torrcast.domain.hls_settings import MAX_SEGMENT_BYTES
 from torrcast.domain.segment_container import FMP4
+from torrcast.domain.shrunk_splice_events import (
+    SHRUNK,
+    SHRUNK_SPLICE_ATTEMPT,
+    SHRUNK_SPLICE_NOT_TRIED,
+)
+from torrcast.ports.journal import slot as journal_slot
 from torrcast.usecases.feed_pack.feed_shrink import _shrink, _skip
 
 if TYPE_CHECKING:
@@ -110,7 +118,7 @@ def test_a_recode_that_arrived_while_we_waited_for_the_lock_is_taken_as_is(tmp_p
     lay(recoder.spare, 4, size=5)
     show = feed(tmp_path, recoder=recoder, cap=100)
 
-    assert _shrink(show, 4, 20_000_000) is True
+    assert _shrink(show, 4, 20_000_000) is None
     assert laid == [] and show.skipped == set()
 
 
@@ -167,6 +175,54 @@ def test_a_failed_shrink_closes_the_splice_arithmetic_on_the_product_tape(
     assert "ужатий 1, склейка ужатого: попыток 0, удач 0, без попытки 1" in _session_block(
         "s", rows
     )
+
+
+def test_every_product_shrink_has_a_splice_decision_on_the_file_tape(
+    tmp_path: Path, journal: Path
+) -> None:
+    """Попытки и отказы от склейки сходятся со всеми настоящими ужатиями на ленте."""
+    file_journal = FileJournal()
+    journal_slot.install(file_journal)
+
+    recoder = _recoder(tmp_path / "shrunk")
+    show = feed(tmp_path / "shrunk", recoder=recoder, cap=100, grid=grid(60.0, 10.0))
+
+    def _start(command: list[str], out: Path, run: Path, first: int, **kwargs: Any) -> Any:
+        run.mkdir(parents=True, exist_ok=True)
+        lay(recoder.spare, first, size=50)
+        recoder.fits = True
+        return packer(run.parent, out=out, run=run, first=first, edge=first)
+
+    _tract([], start=_start)
+    first = packer(tmp_path / "first", spare=recoder.spare, cap=100, shrink=show._shrink)
+    lay(first.run, 4, size=200)
+    _lay_out(first, lambda: True, merge=lambda *a, **k: _merged(a[2], 50))
+
+    arrived = _recoder(tmp_path / "arrived")
+    later = feed(tmp_path / "arrived", recoder=arrived, cap=100, grid=grid(60.0, 10.0))
+
+    def _arrive(slot: int, size: int) -> bool | None:
+        lay(arrived.spare, slot, size=50)
+        arrived.fits = True
+        return later._shrink(slot, size)
+
+    second = packer(tmp_path / "second", spare=arrived.spare, cap=100, shrink=_arrive)
+    lay(second.run, 5, size=200)
+    _lay_out(second, lambda: True, merge=lambda *a, **k: _merged(a[2], 50))
+
+    file_journal.shutdown()
+    rows = file_journal.records()
+    shrinks = sum(row.get("event") == SHRUNK for row in rows)
+    attempts = sum(row.get("event") == SHRUNK_SPLICE_ATTEMPT for row in rows)
+    not_tried = sum(str(row.get("event", "")).startswith(SHRUNK_SPLICE_NOT_TRIED) for row in rows)
+    summary = _session_block("test-sid", rows).splitlines()[-1].strip()
+
+    assert attempts + not_tried == shrinks, summary
+
+
+def _merged(path: Path, size: int) -> bool:
+    path.write_bytes(b"m" * size)
+    return True
 
 
 def test_a_shrink_that_gave_no_bytes_at_all_is_not_a_verdict_about_the_piece(
