@@ -137,7 +137,13 @@ def _pick_plan(
             if not menu:
                 raise env.not_found_error(note)
             env.write(note)
-        elif not menu:
+        elif not menu or not env.stdin_is_tty():
+            # 🔴 TC-900. --menu вне терминала - просьба «покажи, что есть», а не способ
+            # уронить скрипт: картина ровно одна, выбирать не из чего, и «вслепую» тут
+            # ничего не выбирается. За терминалом --menu по-прежнему поднимает список
+            # из одного пункта и вопрос (TC-578, TC-836) - этой ветки они не касаются.
+            if menu:
+                env.write(f"подходит картин: 1 - «{_named(plans[0].picture)}», меню не нужно")
             return plans[0]
     default = first_alive(plans)
     if not menu:

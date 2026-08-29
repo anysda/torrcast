@@ -103,6 +103,37 @@ def test_the_menu_flag_prints_and_asks_even_about_a_single_picture() -> None:
     assert world.asked == [("Что смотрим?", 1, 1)]
 
 
+def test_the_menu_flag_returns_the_single_picture_outside_a_terminal() -> None:
+    """🔴 TC-900. Труба/cron с ``--menu`` и одной подошедшей картиной - не отказ.
+
+    Выбирать не из чего: картина ровно одна, и «вслепую» тут ничего не выбирается -
+    ``--menu`` остаётся просьбой «покажи, что есть», а не способом уронить скрипт.
+    """
+    world = Outside(tty=False)
+    single = parts(("Мумия", 1999, 47))
+
+    picked = _pick_plan(single, asked="мумия", environment=world, menu=True)
+
+    assert picked is single[0]
+    assert world.said == ["подходит картин: 1 - «Мумия (1999)», меню не нужно"]
+    assert world.asked == [], "выбирать было не из чего, вопроса тут нет"
+
+
+def test_lone_other_part_still_speaks_up_under_menu_without_a_terminal() -> None:
+    """🔴 TC-814/TC-812 не тронуты: чужая часть по-прежнему называет себя, а не молчит.
+
+    Терминала тут по-прежнему нет ни для чего - список из одного пункта ответить
+    некому, и отказ остаётся, но строка про найденную чужую часть печатается первой.
+    """
+    world = Outside(tty=False)
+    ice = [plan("Лёд 3", 2024, part=3, seeders=3)]
+
+    with pytest.raises(NotFoundError):
+        _pick_plan(ice, asked="лёд", environment=world, menu=True)
+
+    assert world.said[0].startswith("«лёд»: первой части в выдаче нет"), "отказ остался строкой"
+
+
 def test_the_only_picture_found_being_another_part_of_the_franchise_is_refused() -> None:
     """🔴 TC-814. Одна картина, и она чужая часть - отказ, а не молчаливый показ.
 
