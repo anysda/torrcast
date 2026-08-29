@@ -79,6 +79,56 @@ def test_imdb_files_follow_the_state_directory() -> None:
     assert 'IMDB_NAMES_PATH="${TORRCAST_IMDB_NAMES_PATH:-$STATE_DIR/imdb-ru-names.tsv}"' in SCRIPT
 
 
+@pytest.mark.machine
+def test_receiver_setup_never_reads_an_answer(tmp_path: Path) -> None:
+    """Несколько приёмников не превращают установку в меню.
+
+    В stdin нарочно лежит ответ: вызванный `cast` не должен его увидеть.
+    """
+    box = tmp_path / "receiver"
+    bindir = box / "bin"
+    configdir = box / "etc"
+    bindir.mkdir(parents=True)
+    configdir.mkdir()
+    (configdir / "config.json").write_text('{"tv": null}\n', encoding="utf-8")
+    cast = bindir / "cast"
+    cast.write_text(
+        "#!/bin/sh\n"
+        'if IFS= read -r answer; then echo "asked:$answer"; exit 9; fi\n'
+        "printf '  1. Гостиная - 192.0.2.10\\n  2. Спальня - 192.0.2.11\\n'\n"
+        "exit 1\n",
+        encoding="utf-8",
+    )
+    cast.chmod(0o755)
+    env = {
+        **os.environ,
+        "TORRCAST_PHASES": "receiver",
+        "TORRCAST_NO_ROOT": "1",
+        "TORRCAST_NO_SYSTEMD": "1",
+        "TORRCAST_PREFIX": str(box),
+        "TORRCAST_CONFIG_DIR": str(configdir),
+        "TORRCAST_STATE_DIR": str(box / "var"),
+        "TORRCAST_BIN_DIR": str(bindir),
+        "TORRCAST_MOTD": str(box / "motd"),
+        "TORRCAST_MOTD_D": str(box / "motd.d"),
+    }
+    done = subprocess.run(
+        [str(REPO / "install.sh")],
+        input="1\n",
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+
+    printed = done.stdout + done.stderr
+    assert done.returncode == 0, printed
+    assert "asked:" not in printed
+    assert "Гостиная - 192.0.2.10" in printed
+    assert "Спальня - 192.0.2.11" in printed
+    assert "cast --tv <ip>" in printed and "cast --tv для выбора номером" in printed
+
+
 def test_name_map_intermediates_stay_beside_the_result() -> None:
     body = SCRIPT.split("setup_names() {", 1)[1].split("\n}", 1)[0]
     assert 'local names="$IMDB_NAMES_PATH.akas.part"' in body
