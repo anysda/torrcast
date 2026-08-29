@@ -56,7 +56,9 @@ def _env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch, lambda url, timeout=90.0, alive=None: Media(5978.0, TRACKS, "h264", 1080)
     )
     composition.use_start_unit(monkeypatch, lambda key: None)
-    composition.use_await_playing(monkeypatch, lambda config, progress, timeout=120.0: None)
+    composition.use_await_playing(
+        monkeypatch, lambda config, progress, timeout=120.0, start=0.0: None
+    )
 
 
 class _FakeProwlarr:

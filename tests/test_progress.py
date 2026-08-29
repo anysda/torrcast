@@ -116,7 +116,9 @@ def test_resume_is_silent_and_starts_from_the_saved_position(
         return ""
 
     composition.use_start_unit(monkeypatch, started.append)
-    composition.use_await_playing(monkeypatch, lambda config, progress, timeout=120.0: None)
+    composition.use_await_playing(
+        monkeypatch, lambda config, progress, timeout=120.0, start=0.0: None
+    )
     monkeypatch.setattr("builtins.input", ask)
 
     assert main(["моана", "2"]) == 0
@@ -135,7 +137,9 @@ def test_new_keeps_the_release_but_drops_the_position(
     """``--new`` - та же раздача и дорожка, позиция ноль."""
     remember(pos=2467.0, dur=5978.0, audio=1)
     composition.use_start_unit(monkeypatch, lambda key: None)
-    composition.use_await_playing(monkeypatch, lambda config, progress, timeout=120.0: None)
+    composition.use_await_playing(
+        monkeypatch, lambda config, progress, timeout=120.0, start=0.0: None
+    )
     monkeypatch.setattr("builtins.input", lambda prompt="": pytest.fail("меню не нужно"))
 
     assert main(["моана", "2", "--new"]) == 0
@@ -166,7 +170,9 @@ def test_new_restarts_the_recorded_episode_not_the_series(
     )
     state.save()
     composition.use_start_unit(monkeypatch, lambda key: None)
-    composition.use_await_playing(monkeypatch, lambda config, progress, timeout=120.0: None)
+    composition.use_await_playing(
+        monkeypatch, lambda config, progress, timeout=120.0, start=0.0: None
+    )
     monkeypatch.setattr("builtins.input", lambda prompt="": pytest.fail("меню не нужно"))
 
     assert main(["сериал", "--new"]) == 0
@@ -199,7 +205,9 @@ def test_new_jumps_to_the_named_episode_in_the_saved_release(
     )
     state.save()
     composition.use_start_unit(monkeypatch, lambda key: None)
-    composition.use_await_playing(monkeypatch, lambda config, progress, timeout=120.0: None)
+    composition.use_await_playing(
+        monkeypatch, lambda config, progress, timeout=120.0, start=0.0: None
+    )
 
     assert main(["сериал", "s2e6", "--new"]) == 0
 
@@ -225,7 +233,9 @@ def test_watched_movie_restarts_without_a_question(
         return ""
 
     composition.use_start_unit(monkeypatch, started.append)
-    composition.use_await_playing(monkeypatch, lambda config, progress, timeout=120.0: None)
+    composition.use_await_playing(
+        monkeypatch, lambda config, progress, timeout=120.0, start=0.0: None
+    )
     monkeypatch.setattr("builtins.input", ask)
 
     assert main(["моана", "2"]) == 0
@@ -473,7 +483,9 @@ def test_the_next_cast_takes_down_the_torrent_of_a_killed_unit(
     composition.use_engines(monkeypatch, torrents)
     show_unit.alive = False
     composition.use_start_unit(monkeypatch, lambda key: None)
-    composition.use_await_playing(monkeypatch, lambda config, progress, timeout=120.0: None)
+    composition.use_await_playing(
+        monkeypatch, lambda config, progress, timeout=120.0, start=0.0: None
+    )
     monkeypatch.setattr("builtins.input", lambda prompt="": "")
 
     assert main(["моана", "2"]) == 0

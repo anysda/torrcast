@@ -94,7 +94,9 @@ def _no_questions(monkeypatch: pytest.MonkeyPatch) -> None:
 def _no_unit(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     started: list[str] = []
     composition.use_start_unit(monkeypatch, lambda key: started.append(key))
-    composition.use_await_playing(monkeypatch, lambda config, progress, timeout=120.0: None)
+    composition.use_await_playing(
+        monkeypatch, lambda config, progress, timeout=120.0, start=0.0: None
+    )
     return started
 
 
