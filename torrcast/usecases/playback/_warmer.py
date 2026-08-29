@@ -58,6 +58,7 @@ def _warmer(
     показ и отдаёт ему свои куски.
     """
     if not config.warm:
+        journal().emit("warm", "disabled")
         return None
     encode = whole
     spots = () if whole is not None or recoder is None else tuple(recoder.targets)
