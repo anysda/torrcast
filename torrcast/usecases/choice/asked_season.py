@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from torrcast.domain.seasons_named import seasons_named
+from torrcast.usecases.choice.asked_season_number import asked_season_number
 
 if TYPE_CHECKING:
     from torrcast.usecases.select.plan import Plan
@@ -48,12 +49,9 @@ def asked_season(plans: list[Plan], numbers: list[int]) -> list[int]:
     Картина, не назвавшая ни одного сезона, этой ступени не проходит: молчание тут не
     довод, а именно оно и уносило зрителя в чужой сезон молча.
     """
-    if not any(plan.asked_series for plan in plans):
+    season = asked_season_number(plans)
+    if season is None:
         return numbers
-    seasons = {plan.want.season for plan in plans if plan.want is not None}
-    if len(seasons) != 1:
-        return numbers
-    season = next(iter(seasons))
     able = [
         n
         for n in numbers

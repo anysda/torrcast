@@ -8,6 +8,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from tests.usecases.choice.world import film, parts, plan
 from torrcast.usecases.choice.default_note import _passed_why, default_note
 
@@ -203,3 +205,38 @@ def test_the_line_compares_against_the_default_no_narrowing_ever_touched() -> No
         "спросили «токийский гуль s1e1» - беру «Токийский гуль (2014, сериал)», "
         "а не «Токийский гуль 2 (2019)»: спросили серию, а это другой тип"
     )
+
+
+def test_the_line_speaks_even_when_the_default_stayed_the_first_menu_item() -> None:
+    """🔴 TC-860. Дефолт остался первым пунктом, но сезон себе он не назвал ни разу.
+
+    Ни «Мираж 2», ни «Мираж 3» первого сезона не несут - ни частью, ни именем раздачи, -
+    и узкие ворота (:func:`~torrcast.usecases.choice.asked_season.asked_season`)
+    отступают к «считаем как считали»: дефолтом молча вставала часть 2, потому что
+    хронологически она первая. Молчание строки тут читалось бы как «сезона в меню
+    хватило», хотя нужного не было вовсе.
+    """
+    mirage = [
+        plan("Мираж 2", 2018, kind="tv", part=2, season=1, asked_series=True, seeders=90),
+        plan("Мираж 3", 2020, kind="tv", part=3, season=1, asked_series=True, seeders=40),
+    ]
+
+    said = default_note(mirage, "мираж s1e1")
+
+    assert said == (
+        "спросили «мираж s1e1» - беру «Мираж 2 (2018, сериал)»: спрошен 1 сезон, "
+        "а в выдаче его нет - у неё часть 2"
+    )
+
+
+def test_a_carried_season_stays_silent_even_when_the_part_number_differs() -> None:
+    """Раздача сама назвала спрошенный сезон - часть тут ни при чём, строки не будет.
+
+    :func:`~torrcast.usecases.choice.asked_season.carries_season` пропускает картину и
+    по имени раздачи, не только по части: соврать про подмену там, где сезон named,
+    было бы хуже, чем промолчать.
+    """
+    named = replace(film("Мираж 2 S01 WEB-DL 1080p", seeders=90), season=1)
+    mirage = [plan("Мираж 2", 2018, kind="tv", part=2, season=1, asked_series=True, pool=[named])]
+
+    assert default_note(mirage, "мираж s1e1") == ""

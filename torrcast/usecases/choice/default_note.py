@@ -8,6 +8,8 @@ from torrcast.usecases.choice._named import _named
 from torrcast.usecases.choice._namesake import _namesake
 from torrcast.usecases.choice.alive_numbers import alive_numbers
 from torrcast.usecases.choice.asked_kind import asked_kind
+from torrcast.usecases.choice.asked_season_number import asked_season_number
+from torrcast.usecases.choice.carries_season import carries_season
 from torrcast.usecases.choice.first_alive import _first_alive, first_alive
 from torrcast.usecases.choice.fitness import fitness
 from torrcast.usecases.choice.liveliness import liveliness
@@ -44,6 +46,15 @@ def default_note(plans: list[Plan], asked: str = "") -> str:
       перестают быть сменой вообще.
 
     ``asked`` - слова человека; без них строка та же, только без головы «спросили X».
+
+    🔴 TC-860. Молчание было и четвёртым, не осознанным: вся ветка про пропущенную
+    часть выше стоит под условием «дефолт не первый пункт» - а решение о сезоне
+    (:func:`~torrcast.usecases.choice.asked_season.asked_season`) молча принимается и
+    тогда, когда дефолт как раз первый. Меню из «Мираж 2» и «Мираж 3» на просьбу первого
+    сезона: ни одна не несёт его - ни частью, ни именем раздачи, - узкие ворота
+    отступают к «считаем как считали», и дефолтом молча встаёт часть 2. Первым пунктом
+    меню она стоит по хронологии - но зрителю нужен был сезон, которого в выдаче не
+    было вовсе, и об этом обязана сказать та же строка.
     """
     numbers = asked_kind(plans)
     picked = first_alive(plans)
@@ -64,6 +75,11 @@ def default_note(plans: list[Plan], asked: str = "") -> str:
     if twins := [n for n in numbers if n != picked and _namesake(plans, n, picked)]:
         others = ", ".join(f"«{_named(plans[n - 1].picture)}»" for n in twins)
         return f"{head} «{mine}»: под этим именем есть ещё {others} - другая картина"
+    season = asked_season_number(plans)
+    picture = plans[picked - 1].picture
+    if season is not None and not carries_season(picture, season):
+        part = picture.part
+        return f"{head} «{mine}»: спрошен {season} сезон, а в выдаче его нет - у неё часть {part}"
     return ""
 
 
