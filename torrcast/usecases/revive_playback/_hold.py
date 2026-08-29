@@ -154,7 +154,7 @@ def _hold(
         else:
             screen.tail_at, screen.tail_since = -1.0, 0.0
         # Выше паузы нарочно: закрытый с пульта показ и на закладку возвращать некому.
-        if _closed(position, session_tag, screen.held or start):
+        if _closed(position, session_tag, screen.held or start, watch):
             return True  # показ убрал с экрана зритель - это конец, а не авария
         # Пауза - решение зрителя, и потеря сессии его не отменяет: слово приёмника
         # здесь может быть потеряно (UNKNOWN с нулём), и ветка держится на памяти

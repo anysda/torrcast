@@ -132,8 +132,17 @@ def _handover(watch: Watch | None) -> bool:
     Порог перехода уже записал в состояние следующую серию (:meth:`Watch.close`), поэтому
     ответ лежит там же, где его читает :func:`_cmd_worker`, — двух разных мнений о конце
     показа быть не должно.
+
+    Закрытый с пульта показ (:attr:`Watch.closed_by_remote`) сюда не считается, хоть
+    закладка и сдвинута: цикл юнита (TC-880) следующую серию в этот же процесс не
+    грузит, и держать приложение приёмника открытым ради несостоявшегося стыка незачем.
     """
-    return watch is not None and watch.done and _following(watch.key) is not None
+    return (
+        watch is not None
+        and watch.done
+        and not watch.closed_by_remote
+        and _following(watch.key) is not None
+    )
 
 
 def _blame_the_end(

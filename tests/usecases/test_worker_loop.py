@@ -229,3 +229,100 @@ def test_a_finished_season_is_continued_by_the_next_one(
         "сезон 5 продолжил показ сам, а внутри него стык серий работает как прежде"
     )
     assert searches == [key, key], "поиск следующего сезона - один раз на конец сезона"
+
+
+def _homemakers(**fields: Any) -> Entry:
+    return Entry(
+        title="Домохозяйки",
+        magnet="magnet:?xt=urn:btih:x",
+        kind="tv",
+        dur=2600.0,
+        depth=8,
+        frame=1080,
+        season=1,
+        episode=7,
+        episodes=[[1, 7, 0], [1, 8, 1]],
+        **fields,
+    )
+
+
+def test_a_show_closed_by_the_remote_moves_the_bookmark_without_raising_the_receiver(
+    _ports_restored: None,
+) -> None:
+    """TC-880: закрытый с пульта показ двигает закладку на s1e8, а приёмник не поднимает."""
+    key = "tv:домохозяйки:2020"
+    state = FakeStateStore()
+    fresh = state.load()
+    fresh.put(key, _homemakers())
+    state.save(fresh)
+    state_slot.install(state)
+    journal_slot.install(Tape())
+    played: list[str] = []
+
+    def play(
+        _c: object, _s: object, _a: object, title: str, _clock: object, watch: Any, **_kw: object
+    ) -> int:
+        played.append(title)
+        watch.entry.pos = watch.entry.dur  # доиграно почти до конца
+        watch.seen = True
+        watch.closed_by_remote = True  # зритель убрал показ с экрана пультом
+        watch.close()
+        return 0
+
+    code = worker_loop._worker_loop(
+        Config(),
+        key,
+        FakeTorrentEngine(),
+        None,  # type: ignore[arg-type]
+        FakeStreamSource(),
+        [],
+        CAUTIOUS,
+        play=play,
+    )
+
+    assert code == 0
+    assert played == ["Домохозяйки s1e7"], "приёмник поднят только для закрытой серии, не для s1e8"
+    following = _following(key)
+    assert following is not None and following.episode == 8, "закладка всё же сдвинута на s1e8"
+
+
+def test_a_naturally_ended_show_still_raises_the_next_episode(
+    monkeypatch: pytest.MonkeyPatch, _ports_restored: None
+) -> None:
+    """Поток доиграл сам - следующая серия по-прежнему поднимается на приёмнике."""
+    key = "tv:домохозяйки-натурально:2020"
+    state = FakeStateStore()
+    fresh = state.load()
+    fresh.put(key, _homemakers())
+    state.save(fresh)
+    state_slot.install(state)
+    journal_slot.install(Tape())
+    # Следующая серия своей длительности не знает - её читает пробник; здесь он подделка.
+    monkeypatch.setattr(
+        "torrcast.usecases.episode_duration._episode_prober",
+        lambda *_a, **_k: Media(duration=2600.0, video="h264", height=1080, width=1920),
+    )
+    played: list[str] = []
+
+    def play(
+        _c: object, _s: object, _a: object, title: str, _clock: object, watch: Any, **_kw: object
+    ) -> int:
+        played.append(title)
+        watch.entry.pos = watch.entry.dur  # доиграно до конца самим потоком
+        watch.seen = True
+        watch.close()  # closed_by_remote остаётся False
+        return 0
+
+    code = worker_loop._worker_loop(
+        Config(),
+        key,
+        FakeTorrentEngine(),
+        None,  # type: ignore[arg-type]
+        FakeStreamSource(),
+        [],
+        CAUTIOUS,
+        play=play,
+    )
+
+    assert code == 0
+    assert played == ["Домохозяйки s1e7", "Домохозяйки s1e8"], "обе серии поднялись на приёмнике"

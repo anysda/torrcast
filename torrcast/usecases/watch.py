@@ -34,6 +34,10 @@ class Watch:
     done: bool = False
     sealed: bool = False  # «досмотрено» уже легло на диск - тиками не переписываем
     seen: bool = False  # приёмник назвал живую позицию: без этого досмотра не бывает
+    #: Показ закрыл зритель с пульта (:func:`torrcast.usecases.revive_playback._closed._closed`).
+    #: Закладка при этом двигается как обычно, а вот следующую серию цикл (:mod:`torrcast.
+    #: usecases.worker_loop`) на приёмнике не поднимает - сеанс кончается на месте (TC-880).
+    closed_by_remote: bool = False
     last: float = field(default_factory=time.monotonic)
 
     def see(self, pos: float) -> None:
