@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from typing import TYPE_CHECKING, cast
 
 import pytest
@@ -150,6 +151,55 @@ def test_a_warmed_piece_from_another_place_is_repacked_live(
     )
     assert said == ["прогретый v3 мимо сетки (+1207.68 с) - переделываю живой упаковкой"]
     assert fake.slept == []
+
+
+def test_a_warmed_piece_whose_start_was_never_measured_is_handed_over(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """🔴 TC-879. Не прочтя начала, показ кусок ОТДАЁТ, а не стирает.
+
+    Вопрос тут другой, чем у сторожа укладки: тот решает, класть ли, и платит за ошибку
+    перекладкой того же места, а этот решает, отдавать ли УЖЕ ЛЕЖАЩЕЕ, и платит стёртым
+    прогревом. Замена куску одна - живая упаковка того же места, а её начало не сверяет
+    никто: отказ менял бы непроверенное на непроверенное, теряя по дороге весь прогрев.
+
+    Стоило это ВСЕГО прогрева на приставке: во фрагменте CMAF времени фильма нет ни в
+    одном байте, прежнее «не прочитан - значит мимо сетки» стирало КАЖДЫЙ прогретый кусок,
+    и за прогон не выдавалось ни одного ``warm-copy``.
+    """
+    said: list[str] = []
+    store = vault(tmp_path)
+    show = feed(tmp_path, vault=store, log=said.append)
+    lay(store.dir, 3)
+
+    for clock in (_Clock(math.nan, movie=False), _Clock(math.nan, movie=True)):
+        monkeypatch.setattr(feed_segment, "segment_start", lambda path, answer=clock: answer)
+        assert _warm(show, 3) == store.dir / "v3.ts", "прогретое стёрто по незнанию"
+    assert said == [], "показ назвал промахом то, чего не измерял"
+
+
+def test_the_last_warmed_piece_whose_end_was_never_measured_is_handed_over_too(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Тот же разбор на хвосте: не прочтя КОНЦА, показ последний кусок тоже отдаёт.
+
+    Мера хвоста читает пакеты MPEG-TS, во фрагменте CMAF их нет, и на приставке она
+    молчала на каждом последнем куске - то есть отказ по ней стирал прогретый хвост
+    фильма ровно там, где мерить было нечем.
+    """
+    said: list[str] = []
+    store = vault(tmp_path)
+    show = feed(tmp_path, vault=store, log=said.append)
+    last = show.grid.count - 1
+    lay(store.dir, last)
+    monkeypatch.setattr(feed_segment, "segment_start", lambda path: _Clock(math.nan, movie=False))
+    monkeypatch.setattr(feed_segment, "segment_end", lambda path: math.nan)
+
+    assert _warm(show, last) == store.dir / f"v{last}.ts", "хвост стёрт по незнанию"
+    assert said == []
+
+    monkeypatch.setattr(feed_segment, "segment_end", lambda path: 1.0)
+    assert _warm(show, last) is None, "измеренный обрыв хвоста перестал ловиться"
 
 
 def test_a_hopeless_place_is_answered_the_moment_the_packing_says_so(tmp_path: Path) -> None:

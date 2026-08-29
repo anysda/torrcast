@@ -78,7 +78,14 @@ class Warmer(_State):
                     if not self.trouble:
                         if self.done:
                             self._say(self.line())
-                            _state._environment.mark("прогрев готов", секунд=round(self.warmed))
+                            # 🔴 TC-879. Число несверенных стоит рядом с «готово» не для
+                            # красоты: без него ноль промахов у прогрева неотличим от
+                            # «сверять было нечем» - а на CMAF сверять нечем ВСЕГДА.
+                            _state._environment.mark(
+                                "прогрев готов",
+                                секунд=round(self.warmed),
+                                несверено=self.unchecked,
+                            )
                             self._trace("ready")
                         else:
                             # Лежит всё, что прогрев в силах положить, но часть мест -
