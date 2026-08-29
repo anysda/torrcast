@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import torrcast.usecases.playback._show_state as _state
 from torrcast.domain.config import Config
 from torrcast.domain.entry import Entry
@@ -68,7 +70,13 @@ def _next_warmer(
             source,
             following.audio,
             grid,
-            _state.hls_dir(config.hls_dir) / _state.RECODE_DIR,
+            # 🔴 Каталог тут ИМЕНУЕТСЯ, а не готовится. :func:`_state.hls_dir` готовит его
+            # под НОВЫЙ показ: выметает сегменты, плейлист и флажок картинки. Звался он
+            # отсюда посреди ИДУЩЕГО показа, в тот же каталог, и уносил его доказательство
+            # (TC-884, 29-08-2026: флажок жил долю секунды, CLI не успел его увидеть и
+            # погасил показ на 350 с бюджета). Место для кусков заводит сам кодировщик
+            # (:meth:`torrcast.adapters.recode.recoder.Recoder.start`), уборка не нужна вовсе.
+            Path(config.hls_dir) / _state.RECODE_DIR,
             config,
             video_mbit=video_mbit,
             profile=profile,

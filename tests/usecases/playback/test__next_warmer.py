@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import cast
 
 import pytest
 
 from tests.fakes import composition
 from tests.fakes.torrent_engine import FakeTorrentEngine
+from torrcast.adapters.recode.recode_dir import RECODE_DIR
+from torrcast.adapters.recode.recoder import Recoder
 from torrcast.domain.config import Config
 from torrcast.domain.entry import Entry
+from torrcast.domain.hls_settings import PLAYING_FLAG
 from torrcast.domain.media import Media
 from torrcast.domain.torr_file import TorrFile
 from torrcast.usecases.playback._next_warmer import _next_warmer
@@ -81,6 +85,35 @@ def test_the_next_episode_keeps_its_track_apart(tmp_path: Path) -> None:
 
     assert made is not None
     assert made.voice == "http://fake/hash/3"
+
+
+def test_the_next_episode_is_assembled_without_touching_the_running_show(tmp_path: Path) -> None:
+    """Сборка прогрева следующей серии не трогает каталог ИДУЩЕГО показа.
+
+    Зовут её посреди показа, когда текущая серия легла на диск целиком, и каталог
+    сегментов у неё тот же самый - боевой. Прежде она брала его через
+    :func:`_state.hls_dir`, то есть ГОТОВИЛА под новый показ: выметала куски, плейлист и
+    флажок картинки. Флажок и есть доказательство, по которому CLI отличает картинку от
+    упаковки, и жил он после этого доли секунды (TC-884: показ на 350 с бюджета погашен
+    своим же ``cast``, зритель увидел это как вылет посреди серии).
+    """
+    out = tmp_path / "hls"
+    out.mkdir()
+    (out / PLAYING_FLAG).write_text("")
+    (out / "v7.ts").write_text("кусок идущего показа")
+    (out / "index.m3u8").write_text("#EXTM3U")
+    alive = sorted(item.name for item in out.iterdir() if item.is_file())
+    config = Config(warm=True, warm_dir=str(tmp_path / "warm"), hls_dir=str(out))
+    engine = FakeTorrentEngine(torrent_files=list(_FILES))
+
+    made = _next_warmer(config, engine, "hash", _serial(apart=False))
+
+    assert made is not None, "греть есть что - иначе проверка не доходит до каталога"
+    rival = cast(Recoder, made.rival)
+    assert rival is not None and rival.spare == out / RECODE_DIR, (
+        "каталог кусков назван от боевого hls_dir - проверке есть чему краснеть"
+    )
+    assert sorted(item.name for item in out.iterdir() if item.is_file()) == alive
 
 
 def test_warming_switched_off_leaves_the_next_episode_alone(tmp_path: Path) -> None:
