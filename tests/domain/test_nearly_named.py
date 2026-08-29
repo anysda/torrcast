@@ -32,6 +32,35 @@ def test_a_letter_inside_the_name_is_another_picture() -> None:
     assert nearly_named("кольца власти", rings) == ""
 
 
+_MAD = [
+    "Безумный Макс / Mad Max (1979) UHD BDRip 2160p",
+    "Безумный Макс 2: Воин дороги / Mad Max 2 (1981) BDRip 1080p",
+    "Пираты Карибского моря: Проклятие Чёрной жемчужины (2003) BDRip 1080p",
+]
+
+
+def _mad() -> list[Picture]:
+    return cluster([parse_release_name(name) for name in _MAD])
+
+
+def test_a_letter_inside_a_word_is_a_typo_and_is_forgiven() -> None:
+    """🔴 TC-869. «безумний» - это промах клавиши, а не форма слова «безумный».
+
+    Первый круг тут НЕПУСТ: картины найдены, «Безумный Макс» среди них, - и отказ на
+    таком круге тем и дорог, что зритель уже получил бы осмысленное меню.
+    """
+    assert nearly_named("безумний макс", _mad()) == "безумный-макс"
+
+
+def test_a_letter_at_the_end_of_a_word_is_not_forgiven() -> None:
+    """🔴 Граница прощения - конец СЛОВА: там стоит падеж, а не промах клавиши.
+
+    «карибскога» от «карибского» отличается последней буквой слова, и прощать её нельзя
+    по той же причине, по какой «Кольца власти» не берут «Кольцо власти».
+    """
+    assert nearly_named("пираты карибскога моря", _mad()) == ""
+
+
 def test_a_short_name_is_not_forgiven_a_letter() -> None:
     """У имени из пяти букв одна буква разницы - уже другое слово."""
     assert nearly_named("тачка", _pictures()) == ""
