@@ -10,3 +10,8 @@ build/
 .pytest_cache/
 uv.lock
 .serena/
+tmp-ref/
+.testmondata
+.grimp_cache/
+CLAUDE.md
+SPEC.md
