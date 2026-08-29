@@ -135,12 +135,18 @@ def _asked_otherwise(query: str, name: str, pictures: list[Picture]) -> list[Pic
     Год сужает найденное, а не расширяет: назвали год - берём картины этого года, а не
     все под этим именем. Не совпал ни с одной - остаётся то, что нашлось по имени: год
     ошибиться может, а имя названо верно.
+
+    🔴 Номер части переспрашивается ВМЕСТЕ с исправленным именем. Описка правится в
+    имени, а не в номере: «терминатор 2» с промахом клавиши это по-прежнему просьба про
+    вторую часть. Уходил номер потому, что имя каталога тут спрашивают заново и голым, -
+    и по Enter вставала первая часть франшизы вместо названной.
     """
     bare, year = asked_year(query)
     if year is not None and (found := pick_franchise(bare, pictures)):
         return [p for p in found if p.year == year] or found
     if near := nearly_named(name, pictures):
-        return pick_franchise(near, pictures)
+        index = split_franchise_index(query)[1]
+        return pick_franchise(near if index is None else f"{near} {index}", pictures)
     return []
 
 

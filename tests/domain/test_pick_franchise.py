@@ -95,3 +95,22 @@ def test_a_third_name_of_the_picture_leads_to_it_too() -> None:
 def test_a_query_the_catalogue_does_not_answer_gets_nothing() -> None:
     """Пустой ответ честнее подставленного соседа: включать не то нельзя."""
     assert pick_franchise("Матрица", POOL) == []
+
+
+def test_a_typo_in_the_name_keeps_the_number_of_the_part() -> None:
+    """🔴 TC-869. Описка правится в имени, а номер части названа зрителем верно.
+
+    Имя каталога после прощения описки спрашивалось заново и голым, номер терялся, и по
+    Enter вставала ПЕРВАЯ часть франшизы вместо названной второй. Отдать не ту часть под
+    знакомым именем не лучше отказа.
+    """
+    pool = [
+        _picture("Терминатор", 1984, "The Terminator"),
+        _picture("Терминатор 2: Судный день", 1991, "Terminator 2", part=2),
+    ]
+
+    assert [p.title for p in pick_franchise("Тирминатор 2", pool)] == ["Терминатор 2: Судный день"]
+    assert [p.title for p in pick_franchise("Тирминатор", pool)] == [
+        "Терминатор",
+        "Терминатор 2: Судный день",
+    ]
