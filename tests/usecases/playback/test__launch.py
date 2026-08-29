@@ -19,6 +19,7 @@ from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.profile import CAUTIOUS
 from torrcast.ports.show_unit.show_unit import ShowUnit
 from torrcast.usecases.playback._launch import _await_playing, _refuse_hopeless
+from torrcast.usecases.screen_line import screen_line
 
 
 def test_a_frame_the_receiver_never_takes_is_refused_before_the_unit(
@@ -104,3 +105,55 @@ def test_the_budget_of_the_start_is_not_endless(
         )
 
     assert unit.stopped == 1, "юнит, не давший картинки, обязан быть погашен"
+
+
+def test_the_budget_does_not_kill_a_show_the_viewer_is_watching(tmp_path: Path) -> None:
+    """Бюджет вышел, а показ ИДЁТ - гасить его нельзя: зритель смотрит серию.
+
+    🔴 TC-884, 29-08-2026. Флажок картинки лежит в каталоге, куда ходит не только показ, и
+    его сняли посреди сеанса. CLI досидел бюджет, не спросил юнит вовсе и погасил показ,
+    шедший пятую минуту: экран потух посреди серии, а в след ушло «показ не начался за
+    350 с» рядом со словом ``PLAYING`` из того же журнала. Отсутствие флажка ничего не
+    доказывает - доказывает движение указателя, и спросить о нём надо ДО казни.
+    """
+    out = tmp_path / "hls"
+    out.mkdir()
+    landed = 26 * 60 + 58.0  # куда завели показ: «Домохозяйки» s1e8, 0:26:58
+    unit = FakeShow(reason=screen_line("[сеанс 7]", landed + 324.0, 2640.0, "PLAYING"))
+
+    _await_playing(
+        Config(hls_dir=str(out)),
+        FakeProgress(),
+        3.0,
+        clock=FakeClock(now=100.0),
+        unit=cast(ShowUnit, unit),
+        start=landed,
+    )
+
+    assert unit.stopped == 0, "показ, двигающий указатель, гасить нечем и не за что"
+
+
+def test_a_receiver_stuck_at_the_landing_point_is_still_a_failed_start(tmp_path: Path) -> None:
+    """Слово ``PLAYING`` без сдвига указателя картинкой не является - юнит гасится.
+
+    Приёмник объявляет себя играющим раньше первого кадра и держит указатель на месте
+    захода. Прими ограждение живого показа это слово за картинку - оно перестало бы
+    отличать идущий показ от не начавшегося вовсе, и неудачный старт висел бы на экране
+    чёрным до утра.
+    """
+    out = tmp_path / "hls"
+    out.mkdir()
+    landed = 26 * 60 + 58.0
+    unit = FakeShow(reason=screen_line("[сеанс 7]", landed, 2640.0, "PLAYING"))
+
+    with pytest.raises(InfraError, match="показ не начался за 3 с"):
+        _await_playing(
+            Config(hls_dir=str(out)),
+            FakeProgress(),
+            3.0,
+            clock=FakeClock(now=100.0),
+            unit=cast(ShowUnit, unit),
+            start=landed,
+        )
+
+    assert unit.stopped == 1, "старта не было - юнит обязан быть погашен, как и прежде"

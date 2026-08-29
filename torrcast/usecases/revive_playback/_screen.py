@@ -15,6 +15,7 @@ from torrcast.usecases.feed_pack.feed import Feed
 from torrcast.usecases.rank._hms import _hms
 from torrcast.usecases.revive_playback._revival import _Revival
 from torrcast.usecases.revive_playback._screen_state import _Screen
+from torrcast.usecases.screen_line import screen_line
 from torrcast.usecases.warm.warmer import Warmer
 from torrcast.usecases.watch import Watch
 
@@ -137,10 +138,10 @@ def _report(
         # Что видит приёмник, тем и отчитываемся: длительность и позиция - это
         # ровно ``duration`` и ``current_time`` из MEDIA_STATUS, снятые владеющим
         # сендером. Другого доказательства «на ТВ есть таймлайн» у нас нет.
-        print(
-            f"{session_tag} экран: {_hms(position.pos)} из {_hms(position.dur)} · {position.state}",
-            flush=True,
-        )
+        # ⚠️ Строку собирает :func:`screen_line`, а не эта печать: её же разбирает CLI,
+        # решая, гасить ли юнит по исчерпании бюджета старта (:func:`still_playing`), и
+        # разойдись печать с разбором - ограждение живого показа ослепло бы молча.
+        print(screen_line(session_tag, position.pos, position.dur, position.state), flush=True)
         if feed.offline:
             # Обрыв длиннее прогретого не имеет права быть молчаливой смертью:
             # показ говорит, докуда он обеспечен, и продолжает пробовать сеть. В

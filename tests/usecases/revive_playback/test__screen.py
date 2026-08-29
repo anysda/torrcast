@@ -21,6 +21,7 @@ from torrcast.usecases.revive_playback._screen import (
     _report,
 )
 from torrcast.usecases.revive_playback._screen_state import _Screen
+from torrcast.usecases.still_playing import still_playing
 from torrcast.usecases.watch import Watch
 
 
@@ -110,6 +111,26 @@ def test_a_live_screen_is_reported_by_what_the_receiver_sees(
     _report("[сеанс]", revival, _at(72.0, "PLAYING"), feed_with_segments(tmp_path), None)
 
     assert "[сеанс] экран: 0:01:12 из 2:00:00 · PLAYING" in capsys.readouterr().out
+
+
+def test_the_line_the_show_prints_is_the_line_the_cli_reads(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Строку, которую показ ПЕЧАТАЕТ, обязан понимать разбор CLI - иначе он слеп.
+
+    🔴 Ограждение TC-884 держится на этой строке: по ней CLI решает, гасить ли юнит,
+    досидевший бюджет старта (:func:`torrcast.usecases.playback._launch._await_playing`).
+    Разойдись печать с разбором на одно слово - сторож молча начал бы отвечать «картинки
+    не вижу» там, где зритель смотрит серию, и цена этому - погашенный показ. Поэтому
+    проверяется не сочинённая строка, а та, что вышла из самой печати.
+    """
+    revival = _Revival(clock=FakeClock(now=1000.0))
+
+    _report("[сеанс]", revival, _at(72.0, "PLAYING"), feed_with_segments(tmp_path), None)
+    printed = capsys.readouterr().out
+
+    assert still_playing(printed, 71.0), "указатель ушёл с места захода - показ идёт"
+    assert not still_playing(printed, 72.0), "указатель стоит там, куда завели - картинки нет"
 
 
 def test_the_bookmark_and_the_darkness_reach_the_state() -> None:

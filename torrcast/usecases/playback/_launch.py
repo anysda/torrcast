@@ -24,6 +24,7 @@ from torrcast.ports.state_store.slot import store
 from torrcast.usecases.select._about import _about
 from torrcast.usecases.start_budget import START_BUDGET
 from torrcast.usecases.start_clock import _Clock
+from torrcast.usecases.still_playing import still_playing
 
 
 def _resume(config: Config, key: str, entry: Entry, clock: _Clock, dry: bool = False) -> int:
@@ -60,7 +61,7 @@ def _launch(
     _state.start_play_unit(key)
     journal().mark("юнит")
     with progress_bar() as progress:
-        _await_playing(config, progress)
+        _await_playing(config, progress, start=entry.pos)
     print(f"играю {about} - на ТВ   (старт {clock.total:.0f} с)")
     return EXIT_OK
 
@@ -104,6 +105,7 @@ def _await_playing(
     timeout: float = START_BUDGET,
     clock: Clock | None = None,
     unit: ShowUnit | None = None,
+    start: float = 0.0,
 ) -> None:
     """Дождаться **картинки на экране**, а не «упаковка пошла».
 
@@ -121,6 +123,14 @@ def _await_playing(
     (:class:`torrcast.ports.show_unit.show_unit.ShowUnit`). Боевой путь ждёт настоящими секундами и
     спрашивает тот юнит, что поставил композиционный корень; сухому прогону дают свои
     часы и свой юнит прямо здесь, иначе тест выжидал бы весь бюджет старта по-настоящему.
+
+    🔴 Потеря флажка не имеет права стоить зрителю серии. Флажок - доказательство
+    одностороннее: он есть только когда картинка доказана, но его отсутствие само по себе
+    ничего не доказывает, а лежит он в каталоге, куда ходит не только показ. Поэтому
+    исчерпанный бюджет - это не приговор, а повод спросить сам юнит
+    (:func:`torrcast.usecases.still_playing.still_playing`): двинувшийся указатель значит, что
+    зритель СМОТРИТ, и гасить тут нечего. ``start`` - место, куда показ заводили: без него
+    «указатель двинулся» не отличить от «приёмник сказал PLAYING, не дав ни кадра».
     """
     unit = unit if unit is not None else show_unit()
     clock = clock if clock is not None else _state.CLOCK
@@ -144,5 +154,10 @@ def _await_playing(
             raise InfraError(f"показ не запустился: {unit.why()}")
         clock.sleep(0.2)
     progress.phase("")
+    said = unit.why()
+    if still_playing(said, start):
+        journal().mark("картинка")
+        print(f"картинку не доказал за {timeout:.0f} с, но показ идёт: {said}", flush=True)
+        return
     unit.stop()
-    raise InfraError(f"показ не начался за {timeout:.0f} с - {unit.why()}")
+    raise InfraError(f"показ не начался за {timeout:.0f} с - {said}")
