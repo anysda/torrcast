@@ -10,6 +10,7 @@ import torrcast.usecases.feed_pack.feed_segment as feed_segment
 from tests.usecases.feed_pack.world import feed, grid, lay, packer, vault
 from torrcast.usecases.feed_pack.feed import Feed
 from torrcast.usecases.feed_pack.feed_front import _front, _weight
+from torrcast.usecases.warm.segment_start import _Clock
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -46,7 +47,9 @@ def test_the_warmed_film_counts_as_the_reserve_of_the_show(
     """Прогретое на диске - тот же запас: приёмнику всё равно, откуда придёт кусок."""
     store = vault(tmp_path)
     show = feed(tmp_path, grid=grid(600.0, 10.0), vault=store)
-    monkeypatch.setattr(feed_segment, "segment_start", lambda path: int(path.stem[1:]) * 10.0)
+    monkeypatch.setattr(
+        feed_segment, "segment_start", lambda path: _Clock(int(path.stem[1:]) * 10.0, movie=True)
+    )
     lay(show.out, 10)
     lay(store.dir, 11)
     lay(store.dir, 12)

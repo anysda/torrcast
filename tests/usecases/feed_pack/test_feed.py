@@ -9,6 +9,7 @@ import pytest
 import torrcast.usecases.feed_pack.feed_segment as feed_segment
 from tests.usecases.feed_pack.world import feed, grid, here, lay, packer, tract, vault
 from torrcast.usecases.feed_pack.feed import Feed
+from torrcast.usecases.warm.segment_start import _Clock
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -160,7 +161,7 @@ def test_a_warmed_piece_handed_out_raises_the_packing_for_the_seam_behind_it(
     упаковки уехал бы в никуда при зелёном зеркале самого стыка.
     """
     tract(now=100.0, spawn=here)
-    monkeypatch.setattr(feed_segment, "segment_start", lambda path: 50.0)
+    monkeypatch.setattr(feed_segment, "segment_start", lambda path: _Clock(50.0, movie=True))
     asked: list[int] = []
 
     class _Noting(Feed):

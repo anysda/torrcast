@@ -10,6 +10,7 @@ from tests.usecases.warm.world import grid, warmer, world
 from torrcast.adapters.recode.encode import Encode
 from torrcast.domain.profile import ANDROID_TV, CAUTIOUS
 from torrcast.usecases.warm.run import _run
+from torrcast.usecases.warm.segment_start import _Clock
 from torrcast.usecases.warm.settings import RUN_DIR
 from torrcast.usecases.warm.vault import Vault
 
@@ -204,7 +205,7 @@ def test_a_piece_off_the_grid_aborts_the_whole_run(tmp_path: Path) -> None:
     world(**parts)
     warm = warmer(tmp_path, log=[].append)
 
-    _run(warm, 0, warm.grid.count - 1, began_of=lambda path: 0.0)
+    _run(warm, 0, warm.grid.count - 1, began_of=lambda path: _Clock(0.0, movie=True))
 
     assert warm.misgrid == 1, "промах не оборвал заход"
     # Мера обрыва - счёт промахов, а не то, что осталось лежать. Забракованный кусок

@@ -1,84 +1,78 @@
-"""С какой секунды фильма начинается уже уложенный кусок, по его же голове.
+"""С какой секунды и какой ЛЕНТЫ начинается уже уложенный кусок, по его же голове.
 
-Зовёт сверка укладки прогрева (:meth:`Warmer._verify`) на каждом куске.
+Зовёт сверка укладки прогрева (:func:`torrcast.usecases.warm.verify._verify`) на каждом
+куске и показ - на каждом прогретом куске, который собирается отдать
+(:func:`torrcast.usecases.feed_pack.feed_segment._warm`).
 """
 
 from __future__ import annotations
 
 import math
-from pathlib import Path
+from typing import TYPE_CHECKING, Final, NamedTuple
 
-from torrcast.usecases.warm.settings import (
-    HEAD_BYTES,
-    PCR_CLOCK,
-    PES_CLOCK,
-    TS_PACKET,
-    TS_SYNC,
-)
+from torrcast.usecases.warm.frag_stamp import frag_stamp
+from torrcast.usecases.warm.settings import HEAD_BYTES, TS_SYNC
+from torrcast.usecases.warm.ts_stamp import ts_stamp
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+#: Заголовок показа рядом с куском: без него счётчик фрагмента не перевести в секунды
+#: (:func:`torrcast.usecases.warm.head_clock.head_clock`). Имя одно на прогрев и показ -
+#: его кладёт сюда сам муксер (:meth:`torrcast.usecases.warm.vault.Vault.head`).
+HEAD_NAME: Final = "init.mp4"
+#: Имена первых боксов, по которым голова опознаётся как кусок MP4, а не как мусор.
+#: ``styp`` пишет CMAF, ``moof`` - голый фрагмент без него, ``ftyp``/``free`` встречаются
+#: у куска, собранного вместе с заголовком (:func:`.piece_with_head.piece_with_head`).
+_MP4_HEADS: Final = frozenset({b"styp", b"moof", b"ftyp", b"free", b"sidx"})
 
 
-def segment_start(path: Path) -> float:
-    """С какой секунды ФИЛЬМА кусок начинается на самом деле; ``nan`` - не прочли.
+class _Clock(NamedTuple):
+    """Начало куска и то, ПО КАКОЙ ленте оно названо."""
+
+    #: Секунда своей ленты; ``nan`` - прочесть не вышло.
+    began: float
+    #: Лента куска - это лента фильма (``True``, mpegts) или счётчик прогона муксера
+    #: (``False``, CMAF). Сверять с сеткой фильма можно только первое.
+    movie: bool
+
+
+def segment_start(path: Path) -> _Clock:
+    """С какой секунды какой ленты кусок начинается на самом деле.
 
     Читается голова уже лежащего файла, и только она: ни ffprobe, ни ffmpeg, ни единого
     обращения к раздаче. Причина не в красоте, а в месте вызова - сверка стоит на пути
-    укладки куска (:meth:`Warmer._verify`), рядом с показом, и не имеет права ни ждать
-    сеть, ни поднимать процесс. Замер на куске 2.7 МБ: 0.04-0.10 мс, когда кусок только что
-    записан и лежит в кэше страниц (это и есть штатный случай - сверяем сразу после
-    укладки), и 0.4 мс с холодного диска против 20-40 мс у одного ``ffprobe``.
+    укладки куска (:func:`torrcast.usecases.warm.verify._verify`), рядом с показом, и не
+    имеет права ни ждать сеть, ни поднимать процесс. Замер на куске 2.7 МБ: 0.04-0.10 мс,
+    когда кусок только что записан и лежит в кэше страниц (это и есть штатный случай -
+    сверяем сразу после укладки), и 0.4 мс с холодного диска против 20-40 мс у одного
+    ``ffprobe``. Замер разбора CMAF на том же месте: 0.05 мс медианой против 0.02 мс у
+    разбора MPEG-TS - заголовок показа читается один раз на прогон и лежит в памяти
+    (:mod:`torrcast.usecases.warm.head_clock`), на кусок приходится один ``stat``.
 
-    Берётся PTS первого пакета видео. Именно PTS, а не DTS: граница сетки стоит на опорном
-    кадре, а карта опорных кадров (:mod:`torrcast.domain.frames.keymap`) хранит их ВРЕМЯ
-    ПОКАЗА. У релиза с B-кадрами DTS того же кадра лежит на кадр-другой раньше PTS, и
-    сверка по DTS видела бы этот зазор как расхождение. Метки абсолютные - это ``-copyts``
-    у обоих упаковщиков
-    (:func:`torrcast.adapters.stream_pack.ffmpeg_pack_command.ffmpeg_pack_command`), поэтому PTS -
-    это время фильма плюс начало ленты, одно на все заходы
-    (:func:`torrcast.adapters.stream_pack.pack_origin.pack_origin`); прибавляет его к границе сама
-    сверка (:meth:`Warmer._verify`).
+    🔴 Ответ несёт ДВА поля, и второе важнее первого. У mpegts метка куска - это время
+    фильма плюс начало ленты, одно на все заходы
+    (:func:`torrcast.adapters.stream_pack.pack_origin.pack_origin`), и сверять её с сеткой
+    можно прямо. У CMAF - нельзя: ``tfdt`` там считает прогон муксера, а не фильм, и один
+    и тот же кусок из двух заходов несёт два разных числа
+    (:func:`torrcast.usecases.warm.frag_stamp.frag_stamp`, замер настоящим ffmpeg). Пока
+    ответом было одно число, эти два случая были неотличимы: ``nan`` на любом ``.m4s``
+    сторож прогрева читал как «годен», а показ - как «мимо сетки» и СТИРАЛ прогретое, то
+    есть прогретое на приставке не доезжало до зрителя вовсе (TC-879).
 
-    PCR - запасной ответ: если в голове файла пакета видео с меткой не нашлось, начало
-    берётся по часам транспорта. Он на преролл муксера раньше PTS, и порог
-    (:data:`SKEW_MAX`) этот преролл вмещает.
-
-    ``nan`` - честное «не знаю»: файл не читается, не выровнен по пакетам TS или меток в
-    голове нет вовсе. Гадать тут нельзя ни в одну сторону: сторож на догадке выбрасывал бы
-    здоровые куски.
+    ``nan`` - честное «не знаю»: файл не читается, не выровнен по пакетам TS, меток в
+    голове нет вовсе или у фрагмента не нашлось заголовка показа. Гадать тут нельзя ни в
+    одну сторону: сторож на догадке выбрасывал бы здоровые куски.
     """
     try:
         with path.open("rb") as handle:
             head = handle.read(HEAD_BYTES)
     except OSError:
-        return math.nan
-    pcr = math.nan
-    for at in range(0, len(head) - TS_PACKET + 1, TS_PACKET):
-        packet = head[at : at + TS_PACKET]
-        if packet[0] != TS_SYNC:
-            return math.nan  # файл не выровнен по пакетам - разбирать нечего
-        payload = 4
-        control = (packet[3] >> 4) & 0x3
-        if control & 0x2:  # есть поле адаптации, а в нём может лежать PCR
-            length = packet[4]
-            if length >= 7 and packet[5] & 0x10 and math.isnan(pcr):
-                base = (int.from_bytes(packet[6:10], "big") << 1) | (packet[10] >> 7)
-                pcr = (base * 300 + (((packet[10] & 0x1) << 8) | packet[11])) / PCR_CLOCK
-            payload = 5 + length
-        if not control & 0x1 or payload + 14 > TS_PACKET or not packet[1] & 0x40:
-            continue  # без содержимого, без места под заголовок PES или не начало PES
-        pes = packet[payload:]
-        if pes[:3] != b"\x00\x00\x01" or not 0xE0 <= pes[3] <= 0xEF or not pes[7] & 0x80:
-            continue  # не видео или пакет без PTS
-        return _stamp(pes[9:14])
-    return pcr
-
-
-def _stamp(raw: bytes) -> float:
-    """Метка PES (33 бита вперемешку с маркерами) в секундах."""
-    ticks = (
-        ((raw[0] >> 1) & 0x7) << 30
-        | raw[1] << 22
-        | ((raw[2] >> 1) & 0x7F) << 15
-        | raw[3] << 7
-        | raw[4] >> 1
-    )
-    return ticks / PES_CLOCK
+        return _Clock(math.nan, movie=True)
+    if head[:1] == bytes((TS_SYNC,)):
+        return _Clock(ts_stamp(head), movie=True)
+    if head[4:8] in _MP4_HEADS:
+        return _Clock(frag_stamp(head, path.parent / HEAD_NAME), movie=False)
+    # Ни пакетов TS, ни боксов MP4: разбирать нечего, но и объявлять кусок «без времени
+    # фильма» не за что - мы просто не прочли его.
+    return _Clock(math.nan, movie=True)

@@ -10,6 +10,7 @@ import torrcast.usecases.feed_pack.feed_segment as feed_segment
 from tests.usecases.feed_pack.world import feed, grid, lay, tract, vault
 from torrcast.usecases.feed_pack.feed_segment import _have, _segment, _warm
 from torrcast.usecases.warm._warm_count import _spots_left
+from torrcast.usecases.warm.segment_start import _Clock
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -87,7 +88,7 @@ def test_the_warmed_piece_answers_before_any_argument_with_the_packing(
     seen: list[int] = []
     store = vault(tmp_path)
     show = feed(tmp_path, vault=store)
-    monkeypatch.setattr(feed_segment, "segment_start", lambda path: 30.0)
+    monkeypatch.setattr(feed_segment, "segment_start", lambda path: _Clock(30.0, movie=True))
     lay(store.dir, 3)
 
     answer = _segment(show, 3, _noting(asked), _watching(seen))
@@ -108,7 +109,7 @@ def test_a_warmed_piece_over_the_ceiling_is_not_warmed_at_all(
     """
     store = vault(tmp_path)
     show = feed(tmp_path, vault=store, cap=100)
-    monkeypatch.setattr(feed_segment, "segment_start", lambda path: 30.0)
+    monkeypatch.setattr(feed_segment, "segment_start", lambda path: _Clock(30.0, movie=True))
     lay(store.dir, 3, size=101)
 
     assert _warm(show, 3) is None
@@ -129,7 +130,9 @@ def test_a_warmed_piece_from_another_place_is_repacked_live(
     foreign = lay(store.dir, 3)
     copied = foreign.read_bytes()
     store.spot(3).touch()
-    monkeypatch.setattr(feed_segment, "segment_start", lambda path: 1237.68, raising=False)
+    monkeypatch.setattr(
+        feed_segment, "segment_start", lambda path: _Clock(1237.68, movie=True), raising=False
+    )
 
     def pack_live(slot: int) -> bool:
         asked.append(slot)

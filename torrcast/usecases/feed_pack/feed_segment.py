@@ -108,6 +108,24 @@ def _warm(state: _State, slot: int) -> Path | None:
     Поэтому кусок тяжелее потолка прогретым не считается: под ним живая упаковка,
     которая тот же кусок отдаст перекодом. Ждать перекод дольше, чем взять готовое с
     диска, - и это правильная цена: подгруз тут не «медленнее», а «не играет вовсе».
+
+    🔴 TC-879. Не прочтя ни начала, ни конца, кусок ОТДАЁТСЯ, а не стирается, и это разбор,
+    а не поблажка. Вопрос здесь другой, чем у сторожа укладки
+    (:func:`torrcast.usecases.warm.verify._verify`): тот решает, класть ли, и платит за
+    ошибку перекладкой того же места, а этот решает, отдавать ли УЖЕ ЛЕЖАЩЕЕ, и платит
+    стёртым прогревом. Замена куску тут ровно одна - живая упаковка того же места, а её
+    начало не сверяет никто: отказ менял бы непроверенное на непроверенное, теряя по дороге
+    весь прогрев.
+
+    Стоило это ВСЕГО прогрева на приставке (androidtv, CMAF). Времени фильма в голом
+    ``.m4s`` нет вовсе (:func:`torrcast.usecases.warm.frag_stamp.frag_stamp`), прежнее
+    «не прочитан - значит мимо сетки» стирало КАЖДЫЙ прогретый кусок и переупаковывало его
+    живьём, а живая упаковка обгоняла показ и её куски брались первыми. Улика со стенда:
+    источники всех отданных кусков ``{"pack": 39}`` и ``{"pack": 38}``, ни одного
+    ``warm-copy`` и ни одного ``warm-recode`` за два прогона.
+
+    Мимо сетки ПО ПРОЧИТАННОМУ числу кусок по-прежнему стирается: это не незнание, а
+    измеренный промах, и отдавать его зрителю нельзя.
     """
     if state.vault is None:
         return None
@@ -125,20 +143,23 @@ def _warm(state: _State, slot: int) -> Path | None:
         # контейнера, и мера по картинке звала целый хвост оборванным на 9% корпуса.
         ended = segment_end(path)
         promised = state.grid.duration + state.grid.origin
-        if math.isnan(ended) or promised - ended > TAIL_GAP_MAX:
+        if not math.isnan(ended) and promised - ended > TAIL_GAP_MAX:
             state.vault.reject(slot)
-            detail = (
-                "конец не прочитан" if math.isnan(ended) else f"не хватает {promised - ended:.2f} с"
+            state._say(
+                f"прогретый v{slot} оборван (не хватает {promised - ended:.2f} с)"
+                " - переделываю живой упаковкой"
             )
-            state._say(f"прогретый v{slot} оборван ({detail}) - переделываю живой упаковкой")
             return None
-    began = segment_start(path)
+    clock = segment_start(path)
     want = state.grid.start(slot) + state.grid.origin
-    if not math.isnan(began) and abs(began - want) <= SKEW_MAX:
+    if not clock.movie or math.isnan(clock.began):
+        return path
+    if abs(clock.began - want) <= SKEW_MAX:
         return path
     state.vault.reject(slot)
-    detail = "таймкод не прочитан" if math.isnan(began) else f"{began - want:+.2f} с"
-    state._say(f"прогретый v{slot} мимо сетки ({detail}) - переделываю живой упаковкой")
+    state._say(
+        f"прогретый v{slot} мимо сетки ({clock.began - want:+.2f} с) - переделываю живой упаковкой"
+    )
     return None
 
 

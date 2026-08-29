@@ -28,6 +28,7 @@ from torrcast.ports.journal.slot import install
 from torrcast.ports.recode.encoding import Encoding
 from torrcast.usecases.playback._tract import _tract
 from torrcast.usecases.warm.run import _run
+from torrcast.usecases.warm.segment_start import _Clock
 
 
 class _Cutting:
@@ -159,7 +160,7 @@ def test_a_spot_marked_after_serving_started_is_named_as_a_warmed_recode(
             return None
 
     monkeypatch.setattr(hls_server, "_Server", _ServerWithoutSocket)
-    monkeypatch.setattr(feed_segment, "segment_start", lambda _path: 20.0)
+    monkeypatch.setattr(feed_segment, "segment_start", lambda _path: _Clock(20.0, movie=True))
     out = hls_dir(str(tmp_path / "hls"))
     _recoder, warmer, _feed, server, _receiver = _tract(
         _config(tmp_path), "http://ts", 0, "кино", out, grid(), None, 0.0, 8.0, False, _Cutting()
@@ -175,7 +176,7 @@ def test_a_spot_marked_after_serving_started_is_named_as_a_warmed_recode(
         parts, _commands = run_tract(packers)
         warm_world(lay_spot=lambda *_args: True, **parts)
         warmer.spot_encode = cast(Encoding, _Encode())
-        _run(warmer, 2, 2, spot=True, began_of=lambda _path: 20.0)
+        _run(warmer, 2, 2, spot=True, began_of=lambda _path: _Clock(20.0, movie=True))
         body = warmer.vault.path(2).read_bytes()
         assert serving._server is not None
         handler_type = cast(type[_Handler], serving._server.RequestHandlerClass)

@@ -137,8 +137,8 @@ class Warmer(_State):
         """Сверить с сеткой всё, что легло (:func:`_inspect`)."""
         return _inspect(self, done, edge)
 
-    def _verify(self, slot: int) -> bool:
-        """Кусок лёг на своё место сетки (:func:`_verify`)."""
+    def _verify(self, slot: int) -> str:
+        """Приговор уложенному куску (:func:`_verify`)."""
         return _verify(self, slot)
 
     def _throttle(self, packer: _Frozen) -> None:

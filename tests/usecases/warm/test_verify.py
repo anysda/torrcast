@@ -7,16 +7,17 @@ from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from tests.usecases.warm.world import grid, lay, warmer, world
+from torrcast.usecases.warm.segment_start import _Clock
 from torrcast.usecases.warm.settings import SKEW_MAX, SKEW_TRIES
-from torrcast.usecases.warm.verify import _inspect, _verify
+from torrcast.usecases.warm.verify import BLIND, FIT, SKEW, _inspect, _verify
 
 if TYPE_CHECKING:
     from pathlib import Path
 
 
-def _began(starts: dict[int, float]) -> Callable[[Path], float]:
+def _began(starts: dict[int, float], *, movie: bool = True) -> Callable[[Path], _Clock]:
     """Начало каждого куска под рукой зеркала: слот берётся из имени файла."""
-    return lambda path: starts.get(int(path.stem[1:]), float("nan"))
+    return lambda path: _Clock(starts.get(int(path.stem[1:]), float("nan")), movie=movie)
 
 
 def test_a_piece_on_its_border_passes(tmp_path: Path) -> None:
@@ -26,7 +27,7 @@ def test_a_piece_on_its_border_passes(tmp_path: Path) -> None:
     lay(warm.vault, 2)
     began = _began({2: 20.0})
 
-    assert _verify(warm, 2, began) is True
+    assert _verify(warm, 2, began) == FIT
     assert warm.vault.have(2) and warm.misgrid == -1
 
 
@@ -37,7 +38,7 @@ def test_a_piece_later_than_its_border_is_legal_too(tmp_path: Path) -> None:
     lay(warm.vault, 2)
     began = _began({2: 21.4})
 
-    assert _verify(warm, 2, began) is True and warm.vault.have(2)
+    assert _verify(warm, 2, began) == FIT and warm.vault.have(2)
 
 
 def test_a_piece_before_its_border_is_wiped_and_stops_the_run(tmp_path: Path) -> None:
@@ -48,7 +49,7 @@ def test_a_piece_before_its_border_is_wiped_and_stops_the_run(tmp_path: Path) ->
     warm.vault.served.mark(2)
     began = _began({2: 20.0 - SKEW_MAX - 1.0})
 
-    assert _verify(warm, 2, began) is False
+    assert _verify(warm, 2, began) == SKEW
     assert not warm.vault.have(2), "кусок мимо сетки остался в показе"
     assert not warm.vault.spot(2).exists(), "метка перекода пережила забракованный кусок"
     assert 2 not in warm.vault.served, "раздача запомнила уже забракованный перекод"
@@ -79,22 +80,68 @@ def test_the_origin_of_the_timeline_is_added_to_the_border(tmp_path: Path) -> No
     lay(warm.vault, 2)
     began = _began({2: 20.5})
 
-    assert _verify(warm, 2, began) is False, "начало ленты не прибавили - промах прошёл за здоровый"
+    assert _verify(warm, 2, began) == SKEW, "начало ленты не прибавили - промах прошёл за здоровый"
 
     warm.misgrid = -1
     lay(warm.vault, 2)
     began = _began({2: 21.0})
-    assert _verify(warm, 2, began) is True
+    assert _verify(warm, 2, began) == FIT
 
 
 def test_an_unreadable_piece_is_never_thrown_away(tmp_path: Path) -> None:
-    """Сторож, который бракует по незнанию, дороже дефекта: ``nan`` - пропускаем."""
+    """Сторож, который бракует по незнанию, дороже дефекта: кусок остаётся лежать."""
     world()
     warm = warmer(tmp_path)
     lay(warm.vault, 2)
     began = _began({})
 
-    assert _verify(warm, 2, began) is True and warm.vault.have(2)
+    assert _verify(warm, 2, began) == BLIND and warm.vault.have(2)
+
+
+def test_an_unreadable_piece_is_not_called_fit(tmp_path: Path) -> None:
+    """🔴 TC-879. Сторож, не сумевший прочесть, обязан сказать это вслух, а не зеленеть.
+
+    Раньше здесь стояла годность, и на приставке она держалась на КАЖДОМ куске: ложная
+    зелень ровно там, где мерить нечем.
+    """
+    fake = world()
+    said: list[str] = []
+    warm = warmer(tmp_path, log=said.append)
+    lay(warm.vault, 2)
+
+    assert _verify(warm, 2, _began({})) != FIT, "сторож зелен там, где мерить не может"
+    assert warm.unchecked == 1
+    assert fake.marks[0][0] == "укладку прогрева не с чем сверить"
+    assert "сверять нечем" in said[0] and "слеп" in said[0]
+
+
+def test_the_counter_of_the_run_is_never_compared_to_the_grid(tmp_path: Path) -> None:
+    """Число прочлось, но лента у него не фильма: сверять его с сеткой нечем (CMAF).
+
+    Промахом такой кусок звать нельзя: 23.982 с ленты прогона против границы 20 с - это
+    не сдвиг, а разные единицы, и стёрли бы тут здоровый кусок.
+    """
+    world()
+    warm = warmer(tmp_path, log=[].append)
+    lay(warm.vault, 2)
+    began = _began({2: 23.982}, movie=False)
+
+    assert _verify(warm, 2, began) == BLIND
+    assert warm.vault.have(2) and warm.misgrid == -1 and not warm.skews
+
+
+def test_the_blindness_is_said_once_per_warm_and_not_once_per_piece(tmp_path: Path) -> None:
+    """Слепота тут свойство контейнера: тысяча одинаковых строк не громче одной."""
+    world()
+    said: list[str] = []
+    warm = warmer(tmp_path, log=said.append)
+    for slot in range(4):
+        lay(warm.vault, slot)
+
+    _inspect(warm, -1, 3, _began({}, movie=False))
+
+    assert warm.unchecked == 4 and len(said) == 1
+    assert warm.vault.slots() == {0, 1, 2, 3}, "несверенное выброшено"
 
 
 def test_the_whole_batch_is_inspected_and_not_the_first_of_it(tmp_path: Path) -> None:

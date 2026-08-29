@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING
 import torrcast.usecases.warm._state as _state
 from torrcast.usecases.warm.forecast import _forecast
 from torrcast.usecases.warm.lay_heavy import _lay_heavy
-from torrcast.usecases.warm.segment_start import segment_start
+from torrcast.usecases.warm.segment_start import _Clock, segment_start
 from torrcast.usecases.warm.settings import RUN_DIR
 from torrcast.usecases.warm.stall import _stall
 from torrcast.usecases.warm.throttle import _resume, _throttle
@@ -31,7 +31,7 @@ def _run(
     first: int,
     last: int,
     spot: bool = False,
-    began_of: Callable[[Path], float] = segment_start,
+    began_of: Callable[[Path], _Clock] = segment_start,
 ) -> None:
     """Один прогон ffmpeg: от ``first`` до ``last`` включительно, на диск, в темпе.
 

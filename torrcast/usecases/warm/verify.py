@@ -8,22 +8,29 @@ from __future__ import annotations
 import math
 from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
 import torrcast.usecases.warm._state as _state
-from torrcast.usecases.warm.segment_start import segment_start
+from torrcast.usecases.warm.segment_start import _Clock, segment_start
 from torrcast.usecases.warm.settings import SKEW_MAX, SKEW_TRIES
 from torrcast.usecases.warm.stall import _stall
 
 if TYPE_CHECKING:
     from torrcast.usecases.warm.warmer_state import _State
 
+#: Кусок лёг на своё место сетки.
+FIT: Final = "годен"
+#: Кусок лёг раньше своей границы: он уже стёрт и в показ не пойдёт.
+SKEW: Final = "мимо сетки"
+#: Сверить было НЕЧЕМ. Не приговор куску, а признание сторожа: кусок остался лежать.
+BLIND: Final = "не сверен"
+
 
 def _inspect(
     state: _State,
     done: int,
     edge: int,
-    began_of: Callable[[Path], float] = segment_start,
+    began_of: Callable[[Path], _Clock] = segment_start,
 ) -> int:
     """Сверить с сеткой всё, что легло после ``done`` и не дальше ``edge``.
 
@@ -40,8 +47,8 @@ def _inspect(
     return max(done, edge)
 
 
-def _verify(state: _State, slot: int, began_of: Callable[[Path], float] = segment_start) -> bool:
-    """Кусок лёг на своё место сетки? Ложь - он уже убран и в показ не пойдёт.
+def _verify(state: _State, slot: int, began_of: Callable[[Path], _Clock] = segment_start) -> str:
+    """Приговор одному уложенному куску: :data:`FIT`, :data:`SKEW` или :data:`BLIND`.
 
     🔴 Ради этой сверки карточка и написана. Дефект, из-за которого прогрев резал куски
     мимо сетки, прожил незамеченным не потому, что был хитрым, а потому, что уложенное
@@ -62,8 +69,22 @@ def _verify(state: _State, slot: int, began_of: Callable[[Path], float] = segmen
     так отдаёт с диска; расхождение сетки с потоком - это про карту опорных кадров, и меряет его
     :meth:`torrcast.adapters.stream_pack.packer.Packer.drift`.
 
-    ``nan`` (не прочли) - пропускаем. Сторож, который бракует по незнанию, дороже того
-    дефекта, ради которого он поставлен.
+    🔴 Не сумев прочесть, сторож отвечает :data:`BLIND`, а НЕ годностью (TC-879). Раньше
+    он отвечал годностью, и на приставке (androidtv, CMAF) это была ложная зелень
+    сплошняком: у голого ``.m4s`` метки куска - счётчик прогона муксера, а не время фильма
+    (:func:`torrcast.usecases.warm.frag_stamp.frag_stamp`), сверять их с сеткой нечем, и
+    сторож молча отвечал «да» на КАЖДОМ куске - то есть держался зелёным ровно там, где
+    мерить не может. Молчание тут хуже любого приговора: пока сторож зелен, никто не
+    узнает, что сетка прогрева на этом приёмнике не проверяется вообще.
+
+    Кусок при этом остаётся лежать, и это не поблажка, а замер: бракуя по незнанию, сторож
+    выбросил бы на CMAF ВСЁ прогретое до последнего куска, а прогрев переложил бы то же
+    самое тем же способом с тем же исходом. Сторож, который бракует по незнанию, дороже
+    того дефекта, ради которого он поставлен.
+
+    Говорит он об этом один раз на прогрев, а не на каждом куске: слепота у него не
+    случайная, а свойство контейнера, и тысяча одинаковых записей в журнале - это не
+    громче одной. Сколько кусков осталось несверенными, считает :attr:`_State.unchecked`.
 
     Забракованный кусок именно СТИРАЕТСЯ, а не помечается: показ ищет прогретое глобом
     каталога (:meth:`Vault.slots`, :meth:`torrcast.usecases.feed_pack.feed.Feed.segment`), и никакой
@@ -75,13 +96,16 @@ def _verify(state: _State, slot: int, began_of: Callable[[Path], float] = segmen
     модуля: настоящий замер поднимает ffprobe на настоящем куске, а меряется тут само
     правило сверки - что считается промахом, что дырой и что при этом стирается.
     """
-    began = began_of(state.vault.path(slot))
+    clock = began_of(state.vault.path(slot))
+    began = clock.began
     # Метка куска - это время фильма ПЛЮС начало ленты, одно на все заходы
     # (:attr:`torrcast.adapters.stream_pack.grid.Grid.origin`): сверять надо с тем же числом, иначе
     # порог сдвига у релизов с B-кадрами съеден на треть ещё до всякого промаха.
     want = state.grid.start(slot) + state.grid.origin
-    if math.isnan(began) or began > want - SKEW_MAX:
-        return True
+    if not clock.movie or math.isnan(began):
+        return _blind(state, slot, clock)
+    if began > want - SKEW_MAX:
+        return FIT
     tries = state.skews.get(slot, 0) + 1
     state.skews[slot] = tries
     state.misgrid = slot if state.misgrid < 0 else state.misgrid
@@ -100,4 +124,14 @@ def _verify(state: _State, slot: int, began_of: Callable[[Path], float] = segmen
         _stall(state, f"{where} - это место осталось непрогретым")
     else:
         state._say(f"{where} - перекладываю его заново")
-    return False
+    return SKEW
+
+
+def _blind(state: _State, slot: int, clock: _Clock) -> str:
+    """Сверить было нечем: сказать об этом вслух и оставить кусок лежать."""
+    why = "таймкод не прочитан" if clock.movie else "лента прогона, а не фильма"
+    state.unchecked += 1
+    if state.unchecked == 1:
+        _state._environment.mark("укладку прогрева не с чем сверить", слот=slot, почему=why)
+        state._say(f"сетку прогрева сверять нечем ({why}) - сторож укладки тут слеп")
+    return BLIND

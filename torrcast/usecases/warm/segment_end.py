@@ -5,15 +5,15 @@ from __future__ import annotations
 import math
 from pathlib import Path
 
-from torrcast.usecases.warm.segment_start import _stamp
 from torrcast.usecases.warm.settings import TAIL_BYTES, TS_PACKET, TS_SYNC
+from torrcast.usecases.warm.ts_stamp import _stamp
 
 
 def segment_end(path: Path) -> float:
     """Метка последнего кадра ЛЮБОЙ дорожки куска; ``nan``, если хвост TS прочесть нельзя.
 
     Читается хвост уже лежащего файла, и только он — по той же причине, что и голова
-    (:func:`torrcast.usecases.warm.segment_start.segment_start`): сверка стоит на горячем
+    (:func:`torrcast.usecases.warm.ts_stamp.ts_stamp`): сверка стоит на горячем
     пути показа и не имеет права ни ждать сеть, ни поднимать процесс.
 
     🔴 TC-772. Считается последняя метка по ВСЕМ дорожкам — и звуковой, и видео, — а не

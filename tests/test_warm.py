@@ -49,6 +49,7 @@ from torrcast.usecases.rank._hms import _hms
 from torrcast.usecases.start_clock import _Clock
 from torrcast.usecases.stopped import _Stopped
 from torrcast.usecases.warm.configure import configure as configure_warm
+from torrcast.usecases.warm.segment_start import _Clock as _Started
 from torrcast.usecases.warm.segment_start import segment_start
 from torrcast.usecases.warm.settings import (
     FREE_FLOOR,
@@ -62,6 +63,7 @@ from torrcast.usecases.warm.settings import (
     STARVE_GRACE,
 )
 from torrcast.usecases.warm.vault import Vault
+from torrcast.usecases.warm.verify import FIT, SKEW
 from torrcast.usecases.warm.warm_key import warm_key
 from torrcast.usecases.warm.warm_root import warm_root
 from torrcast.usecases.warm.warmer import Warmer
@@ -178,7 +180,9 @@ def test_the_show_reads_the_warmed_piece_without_touching_the_packer(
     Это и есть обещание прогрева: перемотка в прогретую зону не ждёт ни упаковки, ни сети.
     """
     vault = _vault(tmp_path)
-    monkeypatch.setattr(feed_segment, "segment_start", lambda path: _grid().start(3))
+    monkeypatch.setattr(
+        feed_segment, "segment_start", lambda path: _Started(_grid().start(3), True)
+    )
     warmed = _lay(vault, 3)
     out = hls_dir(str(tmp_path / "hls"))
     feed = Feed(source="нет", audio=0, out=out, grid=_grid(), vault=vault)
@@ -196,7 +200,9 @@ def test_only_a_complete_warmed_tail_reaches_the_show(
     vault = _vault(tmp_path)
     tail = _lay(vault, grid.count - 1)
     feed = Feed(source="нет", audio=0, out=hls_dir(str(tmp_path / "hls")), grid=grid, vault=vault)
-    monkeypatch.setattr(feed_segment, "segment_start", lambda path: grid.start(grid.count - 1))
+    monkeypatch.setattr(
+        feed_segment, "segment_start", lambda path: _Started(grid.start(grid.count - 1), True)
+    )
     monkeypatch.setattr(feed_segment, "segment_end", lambda path: 20.8)
 
     assert feed._warm(grid.count - 1) == tail, "здоровый хвост забракован"
@@ -225,7 +231,7 @@ def test_a_warmed_copy_heavier_than_the_ceiling_is_not_a_warmed_piece(
     """
     vault = _vault(tmp_path)
     grid = _grid()
-    monkeypatch.setattr(feed_segment, "segment_start", lambda path: grid.start(0))
+    monkeypatch.setattr(feed_segment, "segment_start", lambda path: _Started(grid.start(0), True))
     out = hls_dir(str(tmp_path / "hls"))
     feed = Feed(source="нет", audio=0, out=out, grid=grid, vault=vault, cap=4096)
     light, heavy = _lay(vault, 0, size=4096), _lay(vault, 1, size=4097)
@@ -273,7 +279,11 @@ def test_the_warmed_tail_counts_as_the_show_reserve(
     впереди пусто, и дёргал бы нуджем работающий показ (:meth:`Feed.front`)."""
     vault = _vault(tmp_path)
     grid = _grid()
-    monkeypatch.setattr(feed_segment, "segment_start", lambda path: grid.start(int(path.stem[1:])))
+    monkeypatch.setattr(
+        feed_segment,
+        "segment_start",
+        lambda path: _Started(grid.start(int(path.stem[1:])), True),
+    )
     for slot in range(grid.count):
         _lay(vault, slot)
     out = hls_dir(str(tmp_path / "hls"))
@@ -1313,7 +1323,8 @@ def test_the_muxer_preroll_is_not_a_skew(warmed: tuple[Warmer, Vault], tmp_path:
     считающий это браком, выбрасывал бы куски, которые показ и так отдаёт с диска.
     """
     _, source = warmed
-    began = segment_start(source.path(_LAID))
+    began, movie = segment_start(source.path(_LAID))
+    assert movie, "кусок mpegts выдан не за ленту фильма"
     assert not math.isnan(began), "начало уложенного куска не прочиталось - мерить нечем"
 
     def _guard(edge: float) -> Warmer:
@@ -1326,11 +1337,11 @@ def test_the_muxer_preroll_is_not_a_skew(warmed: tuple[Warmer, Vault], tmp_path:
         return Warmer(source="нет", audio=0, grid=grid, vault=vault, rate=0.0)
 
     preroll = _guard(began + 0.04)
-    assert preroll._verify(_LAID), f"преролл {0.04:+.2f} с сторож посчитал расхождением"
+    assert preroll._verify(_LAID) == FIT, f"преролл {0.04:+.2f} с сторож посчитал расхождением"
     assert preroll.vault.path(_LAID).exists(), "здоровый кусок убран из хранилища"
 
     broken = _guard(began + 1.0)
-    assert not broken._verify(_LAID), "кусок на секунду раньше границы сторож пропустил"
+    assert broken._verify(_LAID) == SKEW, "кусок на секунду раньше границы сторож пропустил"
     assert not broken.vault.path(_LAID).exists(), "бракованный кусок остался в показе"
 
 
