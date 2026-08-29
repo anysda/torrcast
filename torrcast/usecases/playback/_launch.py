@@ -134,6 +134,12 @@ def _await_playing(
     """
     unit = unit if unit is not None else show_unit()
     clock = clock if clock is not None else _state.CLOCK
+    # 🔴 Строка берётся и ДО ожидания. Имя юнита переживает показы, и в журнале за ним
+    # лежит хвост ПРОШЛОГО сеанса: свежий юнит своих строк ещё не сказал, а послесловие
+    # systemd отсеивается (:func:`torrcast.adapters.systemd.unit_why.unit_why`). Не
+    # сдвинувшаяся за весь бюджет строка - это тот хвост и есть, и принять его за
+    # картинку значило бы оставить зрителя перед чёрным экраном с бодрым «показ идёт».
+    stale = unit.why()
     out = Path(config.hls_dir)
     flag = _state.playing_flag(out)
     deadline = clock.monotonic() + timeout
@@ -155,7 +161,7 @@ def _await_playing(
         clock.sleep(0.2)
     progress.phase("")
     said = unit.why()
-    if still_playing(said, start):
+    if said != stale and still_playing(said, start):
         journal().mark("картинка")
         print(f"картинку не доказал за {timeout:.0f} с, но показ идёт: {said}", flush=True)
         return

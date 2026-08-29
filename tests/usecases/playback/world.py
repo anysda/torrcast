@@ -34,12 +34,19 @@ def film_keys(duration: float = 300.0, gop: float = 2.0) -> FilmKeys:
 
 @dataclass
 class FakeShow:
-    """Юнит показа под наблюдением зеркала: жив ли он и что он о себе говорит."""
+    """Юнит показа под наблюдением зеркала: жив ли он и что он о себе говорит.
+
+    ``said`` - очередь ответов ``why()`` для тех зеркал, где важно, что журнал юнита за
+    время ожидания ПОМЕНЯЛСЯ: одной строкой на все вызовы не отличить идущий показ от
+    хвоста прошлого сеанса под тем же именем юнита (TC-884). Кончится очередь - держится
+    последний ответ, как и держится последняя строка в журнале молчащего юнита.
+    """
 
     alive: bool = True
     reason: str = "юнит ещё идёт к картинке"
     stopped: int = 0
     name: str = "кино"
+    said: list[str] = field(default_factory=list)
 
     @property
     def key(self) -> str:
@@ -49,7 +56,9 @@ class FakeShow:
         return self.alive
 
     def why(self) -> str:
-        return self.reason
+        if not self.said:
+            return self.reason
+        return self.said.pop(0) if len(self.said) > 1 else self.said[0]
 
     def stop(self) -> None:
         self.stopped += 1

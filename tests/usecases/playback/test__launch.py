@@ -119,7 +119,12 @@ def test_the_budget_does_not_kill_a_show_the_viewer_is_watching(tmp_path: Path) 
     out = tmp_path / "hls"
     out.mkdir()
     landed = 26 * 60 + 58.0  # куда завели показ: «Домохозяйки» s1e8, 0:26:58
-    unit = FakeShow(reason=screen_line("[сеанс 7]", landed + 324.0, 2640.0, "PLAYING"))
+    unit = FakeShow(
+        said=[
+            "[сеанс 7] упаковка пошла",
+            screen_line("[сеанс 7]", landed + 324.0, 2640.0, "PLAYING"),
+        ]
+    )
 
     _await_playing(
         Config(hls_dir=str(out)),
@@ -144,7 +149,9 @@ def test_a_receiver_stuck_at_the_landing_point_is_still_a_failed_start(tmp_path:
     out = tmp_path / "hls"
     out.mkdir()
     landed = 26 * 60 + 58.0
-    unit = FakeShow(reason=screen_line("[сеанс 7]", landed, 2640.0, "PLAYING"))
+    unit = FakeShow(
+        said=["[сеанс 7] упаковка пошла", screen_line("[сеанс 7]", landed, 2640.0, "PLAYING")]
+    )
 
     with pytest.raises(InfraError, match="показ не начался за 3 с"):
         _await_playing(
@@ -157,3 +164,30 @@ def test_a_receiver_stuck_at_the_landing_point_is_still_a_failed_start(tmp_path:
         )
 
     assert unit.stopped == 1, "старта не было - юнит обязан быть погашен, как и прежде"
+
+
+def test_a_line_left_by_a_previous_show_does_not_save_a_dead_one(tmp_path: Path) -> None:
+    """🔴 Строка из журнала прошлого сеанса живым показом не является - юнит гасится.
+
+    Имя юнита переживает показы: журнал за ним общий, а послесловие systemd из ответа
+    отсеивается. Свежий юнит, вставший колом до первой своей строки, отвечает хвостом
+    ПРЕДЫДУЩЕЙ серии - словом ``PLAYING`` и указателем далеко за местом захода. Прими
+    ограждение живого показа этот хвост за картинку - оно отвечало бы «показ идёт» там,
+    где меряет мертвеца, и чёрный экран висел бы до утра при бодром выводе CLI.
+    """
+    out = tmp_path / "hls"
+    out.mkdir()
+    landed = 26 * 60 + 58.0
+    unit = FakeShow(reason=screen_line("[сеанс 6]", landed + 900.0, 2640.0, "PLAYING"))
+
+    with pytest.raises(InfraError, match="показ не начался за 3 с"):
+        _await_playing(
+            Config(hls_dir=str(out)),
+            FakeProgress(),
+            3.0,
+            clock=FakeClock(now=100.0),
+            unit=cast(ShowUnit, unit),
+            start=landed,
+        )
+
+    assert unit.stopped == 1, "строка не сдвинулась за весь бюджет - показа за ней нет"
