@@ -382,10 +382,13 @@ def main() -> int:
         readrate=args.readrate,
         burst=args.burst,
         keep=args.keep,
-        # Как у показа (:mod:`torrcast.usecases.playback._tract`): удержание запроса и потолок
-        # веса куска - свойства приёмника, иначе щуп меряет осторожное умолчание Q70D.
+        # Как у показа (:mod:`torrcast.usecases.playback._tract`): удержание запроса, потолок
+        # веса куска, порог «ждать или перепаковать» и задел стыка - свойства приёмника,
+        # иначе щуп меряет осторожное умолчание Q70D.
         wait=choice.profile.hold_seconds,
         cap=choice.profile.max_segment_bytes,
+        jump=config.hls_jump,
+        seam_lead=config.hls_seam_lead,
         container=container,
         video_codec=codec,
         log=functools.partial(print, "  упаковка:"),

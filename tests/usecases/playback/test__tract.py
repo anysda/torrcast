@@ -81,6 +81,26 @@ def test_the_pack_and_the_warm_up_get_the_same_grid(tmp_path: Path) -> None:
         server.stop()
 
 
+def test_the_seek_thresholds_reach_the_feed_from_the_settings(tmp_path: Path) -> None:
+    """Порог ожидания и задел стыка доезжают до ленты настройкой, а не умолчанием класса.
+
+    До этой правки лента брала оба из своих же умолчаний, и профиль приёмника до них не
+    доставал вовсе: на приставке работали числа, снятые на Q70D и на mpegts.
+    """
+    out = hls_dir(str(tmp_path / "hls"))
+    config = _config(tmp_path)
+    config.hls_jump = 9.0
+    config.hls_seam_lead = 41.0
+
+    _recoder_of, _warmer, feed, server, _receiver = _tract(
+        config, "http://ts", 0, "кино", out, grid(), None, 0.0, 8.0, False, _Cutting()
+    )
+    try:
+        assert (feed.jump, feed.seam_lead) == (9.0, 41.0)
+    finally:
+        server.stop()
+
+
 def test_the_whole_recode_leaves_no_spot_recoder(tmp_path: Path) -> None:
     """Перекодировать поверх перекода нечего: точечный кодировщик не поднимается вовсе."""
     out = hls_dir(str(tmp_path / "hls"))

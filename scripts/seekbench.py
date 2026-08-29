@@ -201,6 +201,10 @@ def main() -> int:
         burst=choice.profile.burst,
         wait=choice.profile.hold_seconds,
         cap=choice.profile.max_segment_bytes,
+        # Порог «ждать или перепаковать» и задел стыка - тоже свойства приёмника, и щуп
+        # обязан мерить ими, а не осторожным умолчанием Q70D.
+        jump=config.hls_jump,
+        seam_lead=config.hls_seam_lead,
         container=container,
         video_codec=codec,
         log=functools.partial(print, "  упаковка:"),

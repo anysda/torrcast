@@ -12,6 +12,8 @@ _TUNED: Final = {
     "bitrate_warn_mbit": "warn_mbit",
     "recode_at_mbit": "recode_at_mbit",
     "recode_mbit": "recode_mbit",
+    "hls_jump": "jump",
+    "hls_seam_lead": "seam_lead",
 }
 _CONFIG_THRESHOLDS: Final = (
     "hls_segment",
@@ -25,6 +27,8 @@ _CONFIG_THRESHOLDS: Final = (
     "recode_mbit",
     "recode_head_wait",
     "recode_tonemap",
+    "hls_jump",
+    "hls_seam_lead",
 )
 _PROFILE_THRESHOLDS: Final = (
     "recode_codecs",

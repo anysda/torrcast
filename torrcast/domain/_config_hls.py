@@ -59,3 +59,10 @@ class _ConfigHls(_ConfigSources):
     #: декодируется сам по себе и перемотка в любую точку сразу даёт картинку. ``false`` -
     #: ровная сетка ровно по ``hls_segment``: это режим для замеров, а не для показа.
     hls_keyframes: bool = True
+    #: Сколько секунд имеет смысл ждать упаковку вместо перезапуска её с нужного места.
+    #: 🔴 Умолчание - осторожный профиль приёмника (:attr:`torrcast.domain.profile.Profile.jump`).
+    hls_jump: float = CAUTIOUS.jump
+    #: За сколько секунд плёнки до конца прогретого поднимается живая упаковка.
+    #: 🔴 Умолчание - осторожный профиль приёмника
+    #: (:attr:`torrcast.domain.profile.Profile.seam_lead`).
+    hls_seam_lead: float = CAUTIOUS.seam_lead

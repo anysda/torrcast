@@ -19,3 +19,11 @@ def test_the_hls_keys_ride_in_config_with_the_cautious_defaults() -> None:
         CAUTIOUS.burst,
         CAUTIOUS.segment_seconds,
     )
+
+
+def test_the_seek_thresholds_arrive_as_keys_with_cautious_defaults() -> None:
+    """Порог ожидания и задел стыка стали настройкой: без ключа их не перебить профилем."""
+    config = Config()
+
+    assert (config.hls_jump, config.hls_seam_lead) == (CAUTIOUS.jump, CAUTIOUS.seam_lead)
+    assert (config.hls_jump, config.hls_seam_lead) == (15.0, 60.0)

@@ -21,6 +21,8 @@ def test_the_defaults_of_the_receiver_come_from_its_cautious_profile(tmp_path: P
     assert show.wait == CAUTIOUS.hold_seconds
     assert show.cap == CAUTIOUS.max_segment_bytes
     assert show.pending_cap == PACK_PENDING_BYTES
+    assert show.jump == CAUTIOUS.jump
+    assert show.seam_lead == CAUTIOUS.seam_lead
 
 
 def test_the_thresholds_of_the_show_are_the_measured_ones(tmp_path: Path) -> None:

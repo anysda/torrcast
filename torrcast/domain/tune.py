@@ -24,6 +24,12 @@ class _Config(Protocol):
     @property
     def recode_mbit(self) -> float: ...
 
+    @property
+    def hls_jump(self) -> float: ...
+
+    @property
+    def hls_seam_lead(self) -> float: ...
+
 
 _C = TypeVar("_C", bound=_Config)
 
@@ -39,6 +45,8 @@ def tune(config: _C, profile: Profile) -> _C:
             config.recode_at_mbit, CAUTIOUS.recode_at_mbit, profile.recode_at_mbit
         ),
         recode_mbit=_said(config.recode_mbit, CAUTIOUS.recode_mbit, profile.recode_mbit),
+        hls_jump=_said(config.hls_jump, CAUTIOUS.jump, profile.jump),
+        hls_seam_lead=_said(config.hls_seam_lead, CAUTIOUS.seam_lead, profile.seam_lead),
     )
 
 

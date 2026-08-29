@@ -99,6 +99,11 @@ def _tract(
         # Потолок веса куска нужен раздаче отдельно от сетки: прогретое на диске уезжает
         # на ТВ мимо упаковки, и взвесить его больше негде (:meth:`Feed._warm`).
         cap=profile.max_segment_bytes,
+        # Порог «ждать или перепаковать» и задел подъёма на стыке прогретого - тоже
+        # свойства приёмника, и приходят они настройкой, а не умолчанием класса: руками
+        # написанное сильнее профиля (:func:`torrcast.domain.tune.tune`).
+        jump=config.hls_jump,
+        seam_lead=config.hls_seam_lead,
         log=lambda text: print(text, flush=True),
         recoder=recoder,
         encode=whole,
