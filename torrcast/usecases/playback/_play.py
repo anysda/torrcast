@@ -16,6 +16,7 @@ from torrcast.ports.stream_source import StreamSource
 from torrcast.usecases.playback._show_end import _close_show, _report_end, _say_whole
 from torrcast.usecases.playback._tract import _tract
 from torrcast.usecases.playback.following import Following
+from torrcast.usecases.playback.hls_root import hls_root
 from torrcast.usecases.playback.layout import layout
 from torrcast.usecases.revive_playback._hold import _hold
 from torrcast.usecases.start_clock import _Clock
@@ -58,7 +59,7 @@ def _play(
     ``profile`` - пороги ПРИЁМНИКА (:mod:`torrcast.domain.profile`): вес куска, терпение, сторож
     нуджей, удержание запроса вместо 404. Умолчание осторожное - тот же Q70D, что и был.
     """
-    out = _state.hls_dir(config.hls_dir)
+    out = _state.hls_dir(str(hls_root(config.hls_dir)))
     start = watch.entry.pos if watch else 0.0
     length = watch.entry.dur if watch else duration
     tls = config.transport == "https"

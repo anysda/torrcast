@@ -13,6 +13,7 @@ from torrcast.domain.exit_codes import EXIT_OK
 from torrcast.domain.position import Position
 from torrcast.domain.start_refused_error import StartRefusedError
 from torrcast.usecases.playback._play import _play
+from torrcast.usecases.playback.hls_root import HLS_ENV
 from torrcast.usecases.start_clock import _Clock
 
 
@@ -57,6 +58,48 @@ def _world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 
 def _config(tmp_path: Path) -> Config:
     return Config(recode=False, warm=False, hls_dir=str(tmp_path / "hls"), hls_port=0)
+
+
+def test_the_unchanged_hls_default_is_cleaned_only_inside_the_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Путь очистки ``_play`` подчиняется изоляции прогона и вправду до неё доходит.
+
+    Прежде все зеркала ``_play`` задавали свой ``hls_dir``. Поэтому опасная очистка с
+    неизменённым боевым умолчанием не исполнялась вовсе: зелень не отличала безопасный
+    путь от пути, который никто не проверил. Канарейка делает исполнение наблюдаемым:
+    убрать её обязан именно настоящий адаптер подготовки каталога.
+    """
+    live = tmp_path / "зеркало-боевого-умолчания"
+    run = tmp_path / "hls-прогона"
+    live.mkdir()
+    run.mkdir()
+    live_canary = live / "v-живой-показ.ts"
+    run_canary = run / "v-каталог-прогона.ts"
+    live_canary.write_text("этот каталог трогать нельзя")
+    run_canary.write_text("этот каталог обязан быть очищен")
+    monkeypatch.setattr("torrcast.usecases.playback.hls_root.DEFAULT_HLS_DIR", str(live))
+    monkeypatch.setenv(HLS_ENV, str(run))
+
+    def stop_after_cleanup(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("тракт остановлен после очистки")
+
+    monkeypatch.setattr("torrcast.usecases.playback._play._tract", stop_after_cleanup)
+
+    with pytest.raises(RuntimeError, match="тракт остановлен после очистки"):
+        config = Config(recode=False, warm=False, hls_port=0)
+        config.hls_dir = str(live)
+        _play(
+            config,
+            "file:///нет-такого",
+            0,
+            "«Кино»",
+            _Clock(),
+            receiver=_Screening(),
+        )
+
+    assert live_canary.exists(), "каталог неизменённого умолчания не задет"
+    assert not run_canary.exists(), "очищен каталог прогона: опасная строка достигнута"
 
 
 def test_the_show_loads_the_manifest_and_ends_by_itself(
