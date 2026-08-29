@@ -5,14 +5,23 @@ from __future__ import annotations
 import math
 from typing import TYPE_CHECKING
 
-from tests.usecases.warm.test_frag_stamp import frag, traf
-from tests.usecases.warm.test_head_clock import head, trak
 from tests.usecases.warm.test_ts_stamp import pcr_packet, video_packet
 from torrcast.usecases.warm.segment_start import segment_start
 from torrcast.usecases.warm.settings import TS_PACKET
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+
+def frag(payload: bytes = b"") -> bytes:
+    """Голова голого фрагмента CMAF: ``styp``, а следом ``moof`` со счётчиками.
+
+    Настоящий фрагмент тут ни к чему: разбирать его некому, и меряется ровно то, что кусок
+    ОПОЗНАН как фрагмент, а не принят за мусор.
+    """
+    styp = (16).to_bytes(4, "big") + b"styp" + b"msdh" + b"\x00" * 4
+    moof = (8 + len(payload)).to_bytes(4, "big") + b"moof" + payload
+    return styp + moof
 
 
 def test_a_transport_piece_is_named_by_the_tape_of_the_movie(tmp_path: Path) -> None:
@@ -23,25 +32,25 @@ def test_a_transport_piece_is_named_by_the_tape_of_the_movie(tmp_path: Path) -> 
     assert segment_start(piece) == (101.5, True)
 
 
-def test_a_cmaf_piece_is_named_by_the_tape_of_the_run(tmp_path: Path) -> None:
-    """🔴 TC-879. Во фрагменте стоит счётчик прогона муксера, и сверять его с сеткой нельзя.
+def test_a_cmaf_piece_is_not_named_by_the_tape_of_the_movie(tmp_path: Path) -> None:
+    """🔴 TC-879. Во фрагменте времени фильма нет ни в одном байте, и врать об этом нельзя.
 
-    Число тут читается честное, но лента у него другая, и вся правка ради того, чтобы эти
-    два случая перестали быть одним ``nan`` на двоих.
+    Вся правка ради того, чтобы «не прочитали» и «этой мерой тут не меряют» перестали быть
+    одним ``nan`` на двоих: сторож укладки читал его как «годен», а показ - как «мимо
+    сетки». Опознан кусок при этом обязан быть: ``movie`` тут ``False``, а не ``True``.
     """
-    (tmp_path / "init.mp4").write_bytes(head(trak(1, 24000, b"vide")))
     piece = tmp_path / "v12.m4s"
-    piece.write_bytes(frag(traf(1, 575575)))
+    piece.write_bytes(frag())
 
     began, movie = segment_start(piece)
-    assert began == 575575 / 24000
-    assert movie is False, "счётчик прогона выдан за время фильма"
+    assert math.isnan(began)
+    assert movie is False, "у фрагмента CMAF нашлось время фильма"
 
 
-def test_an_unreadable_cmaf_piece_is_not_the_tape_of_the_movie_either(tmp_path: Path) -> None:
-    """Заголовка рядом нет: и числа нет, и ленты фильма тут не появилось."""
+def test_a_bare_fragment_without_its_box_of_kind_is_recognised_too(tmp_path: Path) -> None:
+    """Муксер вправе не писать ``styp``: голова с одного ``moof`` - тот же самый случай."""
     piece = tmp_path / "v12.m4s"
-    piece.write_bytes(frag(traf(1, 575575)))
+    piece.write_bytes((16).to_bytes(4, "big") + b"moof" + b"\x00" * 8)
 
     began, movie = segment_start(piece)
     assert math.isnan(began) and movie is False
