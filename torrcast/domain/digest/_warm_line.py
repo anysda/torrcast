@@ -16,6 +16,8 @@ from torrcast.domain.json_value import JsonValue
 def _warm_line(rec: Mapping[str, JsonValue], stamp: str) -> str | None:
     """Событие прогрева одной строкой; не его событие - ``None``."""
     event = str(rec.get("event", ""))
+    if event == "disabled":
+        return f"{stamp}прогрев выключен настройкой, поэтому в этом прогоне его событий не будет"
     if event == "evict":
         who = rec.get("title") or rec.get("key", "?")
         return (
