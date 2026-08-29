@@ -152,6 +152,9 @@ def _choose(
                 # отношения не имеет, а к моменту ответа поток обычно давно закончил.
                 facts.finish()
             plan, prep = _played(bench, plans, plan, args, progress, facts, config, chosen.profile)
+            # Метаданные уже прочитаны отбором. Только теперь меняем ключ картины:
+            # раньше нельзя, стенд ещё держит прогревы под прежним ключом.
+            plan.recognize_series(prep.release, prep.files)
             journal().mark("отбор релиза", релиз=prep.number)  # TC-108: замер
         except BaseException:  # Ctrl-C, «картин много, а терминала нет», «годного нет»
             bench.drop_all()  # прогретое без показа - мусор в рое и кэш в чужой RAM

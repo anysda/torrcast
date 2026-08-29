@@ -18,7 +18,8 @@ from torrcast.usecases.select.plan import Plan
 
 def _default_file(plan: Plan, release: Release, files: list[TorrFile]) -> TorrFile:
     """Фильму — самый крупный видеофайл, сериалу — файл нужной серии."""
-    return plan.series.choose(release, files) if plan.series else _state.pick_video_file(files)
+    series = plan.series_in(release, files)
+    return series.choose(release, files) if series else _state.pick_video_file(files)
 
 
 def file_picker(args: _Numbered) -> Callable[[Plan, Release, list[TorrFile]], TorrFile]:

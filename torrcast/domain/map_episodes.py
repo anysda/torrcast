@@ -34,15 +34,47 @@ _SEASON_ONLY_RES: Final = (
 )
 
 
-def map_episodes(files: Sequence[FileLike], season_hint: int | None = None) -> list[EpisodeFile]:
+def map_episodes(
+    files: Sequence[FileLike],
+    season_hint: int | None = None,
+    *,
+    explicit_only: bool = False,
+) -> list[EpisodeFile]:
     """Распознать серии, проверяя связность номеров и отбрасывая мусор."""
+    if explicit_only:
+        return _map_explicit_episodes(files, season_hint)
+    found = _map_numbered_episodes(files, season_hint)
+    if found:
+        return found
+    videos = [f for f in files if f.name.lower().endswith(_VIDEO_EXT)]
+    videos = _drop_small([f for f in videos if not _JUNK_RE.search(f.name)])
+    return _collect(videos, _read_order, season_hint, strict=False)
+
+
+def _map_numbered_episodes(
+    files: Sequence[FileLike], season_hint: int | None = None
+) -> list[EpisodeFile]:
+    """Распознать только серии, номер которых назван файлом или его каталогом."""
     videos = [f for f in files if f.name.lower().endswith(_VIDEO_EXT)]
     videos = _drop_small([f for f in videos if not _JUNK_RE.search(f.name)])
     for read in (_read_sne, _read_episode_only, _read_bare):
         found = _collect(videos, read, season_hint)
         if found:
             return found
-    return _collect(videos, _read_order, season_hint, strict=False)
+    return []
+
+
+def _map_explicit_episodes(
+    files: Sequence[FileLike], season_hint: int | None = None
+) -> list[EpisodeFile]:
+    """Распознать серии, явно названные как серия, а не одним голым числом."""
+    videos = [f for f in files if f.name.lower().endswith(_VIDEO_EXT)]
+    videos = _drop_small([f for f in videos if not _JUNK_RE.search(f.name)])
+    for read in (_read_sne, _read_episode_only):
+        found = _collect(videos, read, season_hint)
+        if found:
+            return found
+    return []
 
 
 def _collect(

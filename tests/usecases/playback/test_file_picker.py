@@ -69,15 +69,15 @@ def test_without_the_flag_the_default_picker_is_returned() -> None:
     assert file_picker(Args(query=["кино"])) is _default_file
 
 
-def test_a_series_named_without_season_marks_plays_as_a_movie() -> None:
-    """Сериал без серийных меток в имени теряет очередь серий: играет крупнейший файл.
+def test_numbered_files_name_a_silent_release_as_a_series() -> None:
+    """Сериал без серийных меток в имени получает вид из таблицы файлов.
 
     🔴 Воспроизведение потери по построению: имя не назвало ни сезона, ни линейки -
     разбор ставит вид «фильм», план не заводит серии вовсе
     (:func:`~torrcast.usecases.reinforce.plan_for.plan_for` строит их только виду ``tv``),
-    и единственным правилом выбора остаётся «крупнейший видеофайл»
-    (:func:`_default_file`). Списка серий у записи показа тоже не будет: он пишется
-    только из плана сериала. Двенадцатая серия тяжелее первой - и играет она.
+    После метаданных роя нумерованные файлы дают независимый признак вида. Поэтому
+    очередь появляется до выбора файла, и более тяжёлая двенадцатая серия не подменяет
+    первую.
     """
     from tests.usecases.reinforce.stand import pictures, row
     from torrcast.domain.config import Config
@@ -92,10 +92,13 @@ def test_a_series_named_without_season_marks_plays_as_a_movie() -> None:
         TorrFile(index=2, name="Врата Штейна/Steins;Gate s01e12.mkv", size=20),
     ]
 
-    assert plan.picture.kind == "movie", "симптом не воспроизвёлся: вид уже не фильм"
-    assert plan.series is None, "очередь серий у фильма отсутствует по построению"
+    before = plan.picture.kind, plan.series
+    assert before == ("movie", None), "симптом не воспроизвёлся: вид уже не фильм"
     chosen = _default_file(plan, plan.ranked[0], files)
-    assert chosen.name.endswith("s01e12.mkv"), "фильму - крупнейший файл, а не первая серия"
+    plan.recognize_series(plan.ranked[0], files)
+    assert plan.picture.kind == "tv"
+    assert plan.series is not None
+    assert chosen.name.endswith("s01e01.mkv")
 
     marked = pictures(
         [row("Врата Штейна / Steins;Gate [1 сезон: 1-24 серии из 24] (2011) BDRip 1080p", "b")]
@@ -103,3 +106,20 @@ def test_a_series_named_without_season_marks_plays_as_a_movie() -> None:
     series_plan = plan_for(marked, Args(query=["врата штейна"]), Config())
     assert series_plan.series is not None
     assert _default_file(series_plan, series_plan.ranked[0], files).name.endswith("s01e01.mkv")
+
+
+def test_numbered_collection_stays_a_movie() -> None:
+    """Голые номера частей не превращают сборник фильмов в сериал."""
+    plan = _plan()
+    files = [
+        TorrFile(index=1, name="Fast and Furious 1.mkv", size=10),
+        TorrFile(index=2, name="Fast and Furious 2.mkv", size=20),
+        TorrFile(index=3, name="Fast and Furious 3.mkv", size=30),
+        TorrFile(index=4, name="Fast and Furious 4.mkv", size=40),
+    ]
+
+    chosen = _default_file(plan, plan.ranked[0], files)
+
+    assert plan.picture.kind == "movie"
+    assert plan.series is None
+    assert chosen.name.endswith("Fast and Furious 4.mkv")

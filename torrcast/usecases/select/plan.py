@@ -5,10 +5,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from torrcast.domain._series import _Series
 from torrcast.domain.episode import Episode
 from torrcast.domain.info_hash import info_hash
+from torrcast.domain.map_episodes import map_episodes
 from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.release import Release
+from torrcast.domain.torr_file import TorrFile
 from torrcast.usecases.rank.is_candidate import is_candidate
 from torrcast.usecases.rank.misses_episode import misses_episode
 from torrcast.usecases.select._plan_fields import _PlanFields
@@ -104,6 +107,22 @@ class Plan(_PlanFields):
             and not misses_episode(r, self.want)
         ]
         return queue + self._dubbed_tail(queue)
+
+    def series_in(self, release: Release, files: list[TorrFile]) -> _Series | None:
+        """Вернуть серии плана или признать их по нумерованным файлам раздачи."""
+        if self.series is not None or self.picture.kind != "movie":
+            return self.series
+        if not map_episodes(files, release.season, explicit_only=True):
+            return None
+        return _Series(want=Episode(1, 1))
+
+    def recognize_series(self, release: Release, files: list[TorrFile]) -> None:
+        """Записать вид, доказанный метаданными уже выбранной раздачи."""
+        found = self.series_in(release, files)
+        if found is None or self.series is not None:
+            return
+        self.picture.kind = "tv"
+        self.series = found
 
     def _dubbed_tail(self, queue: list[int]) -> list[int]:
         """Хвост очереди: русские раздачи, которых ворота отбора не пустили внутрь.
