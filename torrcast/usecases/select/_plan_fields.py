@@ -9,6 +9,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from torrcast.domain._series import _Series
+from torrcast.domain.kind import Kind
 from torrcast.domain.picture import Picture
 from torrcast.domain.raw_result import RawResult
 from torrcast.domain.release import Release
@@ -61,6 +62,9 @@ class _PlanFields:
     #: Запрос назвал СЕРИЮ (``s1e1``), а не просто имя. Тогда тип сказан вслух, и дефолт
     #: обязан считаться среди сериалов (:func:`asked_kind`), а не среди тёзок-полнометражек.
     asked_series: bool = False
+    #: Вид картины, который видел выбор. Метаданные выбранной раздачи могут позднее
+    #: уточнить :attr:`picture.kind`, но пересчитывать по ним сделанный выбор нельзя.
+    selection_kind: Kind | None = None
     #: Раздачи картины, не доехавшие даже до :attr:`ranked`: нужного сезона в них нет по
     #: их же именам. Нужны счёту отсева (:func:`queue_drops`), чтобы он сходился с пулом.
     off_season: int = 0
@@ -72,3 +76,8 @@ class _PlanFields:
     #: - иначе «раздачи её негодны» звучит приговором картине, а спрошен был не весь
     #: каталог. Спрашивается ПОСЛЕ долива: доехавший из этого счёта уже ушёл.
     waiting: Callable[[], tuple[str, ...]] = _nobody_waiting
+
+    def __post_init__(self) -> None:
+        """Запомнить вид картины до возможного распознавания выбранной раздачи."""
+        if self.selection_kind is None:
+            self.selection_kind = self.picture.kind

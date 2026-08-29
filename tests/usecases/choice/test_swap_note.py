@@ -28,6 +28,31 @@ def test_a_picture_the_person_picked_himself_gets_no_line_about_any_swap() -> No
     assert _is_default(mummy, mummy[1]) is False
 
 
+def test_a_menu_number_stays_a_persons_choice_after_its_picture_is_recognised_as_series() -> None:
+    """Распознанный вид не превращает ответ номером в назначенный программой дефолт."""
+    steins_gate = parts(("Врата Штейна", 2011, 100), ("Врата Штейна", 2009, 90))
+    for plan in steins_gate:
+        plan.asked_series = True
+
+    steins_gate[1].picture.kind = "tv"
+
+    assert swap_note(steins_gate, steins_gate[1], "врата штейна s1e1") == ""
+
+
+def test_a_default_keeps_its_namesake_line_after_its_picture_is_recognised_as_series() -> None:
+    """Уточнённый для показа вид не прячет тёзку, которая была видна выбору."""
+    steins_gate = parts(("Врата Штейна", 2011, 100), ("Врата Штейна", 2009, 90))
+    for plan in steins_gate:
+        plan.asked_series = True
+
+    steins_gate[0].picture.kind = "tv"
+
+    assert swap_note(steins_gate, steins_gate[0], "врата штейна s1e1") == (
+        "спросили «врата штейна s1e1» - беру «Врата Штейна (2011, сериал)»: "
+        "под этим именем есть ещё «Врата Штейна (2009)» - другая картина"
+    )
+
+
 def test_a_menu_of_one_picture_was_never_a_choice_and_never_a_swap() -> None:
     """Картина одна - меню не задавалось вовсе, выбора не было, и строки нет."""
     single = parts(("Мумия", 1999, 47))

@@ -78,6 +78,31 @@ def test_a_movie_carries_no_episode_at_all() -> None:
     assert entry.kind == "movie"
 
 
+def test_a_series_recognised_after_choice_is_remembered_as_series() -> None:
+    """Закладка получает уточнённый вид, хотя выбор хранит прежний вид отдельно."""
+    pack = release("Врата Штейна WEB-DL 1080p")
+    one = Plan(
+        picture=Picture(title="Врата Штейна", year=2011, kind="movie", releases=[pack]),
+        ranked=[pack],
+        runtime=1400.0,
+        warn_mbit=16.0,
+    )
+    files = [
+        TorrFile(index=1, name="Врата Штейна/s01e01.mkv", size=10),
+        TorrFile(index=2, name="Врата Штейна/s01e02.mkv", size=10),
+    ]
+    prep = _Prep(number=1, release=pack)
+    prep.video, prep.files, prep.media = files[0], files, _media()
+
+    one.recognize_series(pack, files)
+    entry = _entry_for(
+        one, prep, pack, files[0], _media(), 0, "Дубляж", "", Args(query=["врата штейна"])
+    )
+
+    assert one.selection_kind == "movie", "выбор по-прежнему видит исходный вид"
+    assert entry.kind == "tv", "закладка видит уточнённый вид"
+
+
 def test_the_query_is_remembered_by_its_slug() -> None:
     """Запись ищется по канону запроса, а не по тому, как его набрали в этот раз."""
     assert _entry().query == "кино"

@@ -29,5 +29,5 @@ def asked_kind(plans: list[Plan]) -> list[int]:
     """
     if not any(plan.asked_series for plan in plans):
         return list(range(1, len(plans) + 1))
-    series = [n for n, plan in enumerate(plans, start=1) if plan.picture.kind == "tv"]
+    series = [n for n, plan in enumerate(plans, start=1) if plan.selection_kind == "tv"]
     return series or list(range(1, len(plans) + 1))
