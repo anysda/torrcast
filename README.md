@@ -59,7 +59,8 @@ TorrServer и Prowlarr ставятся не «последние какие е�
 
 ## Требования
 
-- Linux с systemd, Debian 12 / Ubuntu 22.04 и новее (установка ходит в `apt`).
+- Linux с systemd, Debian 12 и новее либо Ubuntu с python3.11 и новее в системе
+  (установка ходит в `apt`).
 - Python 3.11+.
 - `ffmpeg` **≥ 6.1** - нужен `-readrate_initial_burst`; если в системе версия старше,
   `install.sh` сам положит статическую сборку в `/usr/local/bin`.

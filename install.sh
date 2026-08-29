@@ -1693,8 +1693,8 @@ verify_shims() {  # $@ - строки SHIMS тех, кого ведём чере
 seed_definitions() {
     local dir="$PREFIX/prowlarr-data/Definitions"
     install -d -m 0755 "$dir"
-    install -m 0644 "$REPO_DIR/definitions/anilibria.yml" "$dir/anilibria.yml"
-    install -m 0644 "$REPO_DIR/definitions/jacred.yml" "$dir/jacred.yml"
+    install -m 0644 "$REPO_DIR/scripts/anilibria.yml" "$dir/anilibria.yml"
+    install -m 0644 "$REPO_DIR/scripts/jacred.yml" "$dir/jacred.yml"
     if [ "$(find "$dir" -maxdepth 1 -name '*.yml' 2>/dev/null | wc -l)" -gt 100 ]; then
         skip "определения индексеров ($(find "$dir" -maxdepth 1 -name '*.yml' | wc -l) шт.)"
         return
@@ -1781,15 +1781,15 @@ install_prowlarr() {
     wait_http "http://127.0.0.1:9698/ping" 15 \
         || info "⚠ JacRed не поднялся - остальные индексеры продолжат работать"
     install -d -m 0755 "$PREFIX/prowlarr-data/Definitions"
-    if ! cmp -s "$REPO_DIR/definitions/anilibria.yml" \
+    if ! cmp -s "$REPO_DIR/scripts/anilibria.yml" \
             "$PREFIX/prowlarr-data/Definitions/anilibria.yml" \
-            || ! cmp -s "$REPO_DIR/definitions/jacred.yml" \
+            || ! cmp -s "$REPO_DIR/scripts/jacred.yml" \
             "$PREFIX/prowlarr-data/Definitions/jacred.yml"; then
         stop_service prowlarr "$PREFIX/prowlarr/Prowlarr"
     fi
-    install -m 0644 "$REPO_DIR/definitions/anilibria.yml" \
+    install -m 0644 "$REPO_DIR/scripts/anilibria.yml" \
         "$PREFIX/prowlarr-data/Definitions/anilibria.yml"
-    install -m 0644 "$REPO_DIR/definitions/jacred.yml" \
+    install -m 0644 "$REPO_DIR/scripts/jacred.yml" \
         "$PREFIX/prowlarr-data/Definitions/jacred.yml"
 
     # 🔴 Решаем про определения ДО первого старта Prowlarr, и потому здесь, а не в фазе

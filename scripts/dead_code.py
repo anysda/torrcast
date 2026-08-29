@@ -88,9 +88,10 @@ def roots(modules: set[str]) -> set[str]:
     for tool in sorted((REPO / "scripts").glob("*.py")):
         named.extend(_imported_by(tool))
     # Установщик зовёт питон строкой (`python -c 'from torrcast...'`), а описания
-    # индексеров - данные, которые читает продукт; в обоих случаях имя видно только текстом.
+    # индексеров - данные, которые читает Prowlarr, а не пакет; в обоих случаях имя
+    # видно только текстом.
     named.extend(_mentioned_in(REPO / "install.sh"))
-    for definition in sorted((REPO / "definitions").glob("*")):
+    for definition in sorted((REPO / "scripts").glob("*.yml")):
         named.extend(_mentioned_in(definition))
     found = _named(modules, named)
     # `__main__` не импортирует никто по построению: его исполняет `python -m пакет`.

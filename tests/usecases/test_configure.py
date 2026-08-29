@@ -112,7 +112,8 @@ def test_several_receivers_without_a_terminal_are_not_picked_blindly() -> None:
     """Спросить некого, а найдено несколько - молча записать первый попавшийся нельзя.
 
     Это ровно тот же отказ, что и в меню картин: любой дефолт тут означает чужое
-    устройство в конфиге, а не оттенок выбора.
+    устройство в конфиге, а не оттенок выбора. Отказ обязан назвать найденное (список) и
+    оставить человеку ручной путь (`cast --tv <ip>`), а не просто сказать «не выбираю».
     """
     store = FakeConfigurationStore()
     console = FakeConsole(tty=False)
@@ -123,5 +124,8 @@ def test_several_receivers_without_a_terminal_are_not_picked_blindly() -> None:
     with pytest.raises(NotFoundError) as caught:
         Configure(store, finder, console).run()
 
+    listed = "\n".join(console.messages)
+    assert "10.0.0.50" in listed and "Гостиная - 10.0.0.60" in listed
     assert "вслепую не выбираю" in str(caught.value)
+    assert "cast --tv <ip>" in str(caught.value)
     assert store.saved == [], "отказ конфиг не трогает"

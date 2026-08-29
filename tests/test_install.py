@@ -52,13 +52,15 @@ def test_an_add_failure_names_the_prowlarr_response_and_continues() -> None:
 def test_anilibria_is_a_regular_indexer_with_a_shim_route() -> None:
     assert '"anilibria|http://127.0.0.1:9697/"' in SCRIPT
     assert "'anilibria.top|/api/v1/app/search/releases?query=Kaiba||" in SCRIPT
-    assert '"$REPO_DIR/definitions/anilibria.yml"' in SCRIPT
+    assert '"$REPO_DIR/scripts/anilibria.yml"' in SCRIPT
+    assert (REPO / "scripts" / "anilibria.yml").is_file()
 
 
 def test_jacred_is_a_regular_indexer_with_a_shim_route() -> None:
     assert '"jacred|http://127.0.0.1:9698/"' in SCRIPT
     assert "'api.jacred.su|/api/search?query=matrix&sort=sid&limit=100||" in SCRIPT
-    assert '"$REPO_DIR/definitions/jacred.yml"' in SCRIPT
+    assert '"$REPO_DIR/scripts/jacred.yml"' in SCRIPT
+    assert (REPO / "scripts" / "jacred.yml").is_file()
 
 
 def test_install_removes_its_login_notice_without_a_motd_phase() -> None:
