@@ -81,12 +81,26 @@ def test_namesakes_need_no_terminal_either() -> None:
 
 
 def test_a_single_picture_is_no_choice_and_the_question_is_not_asked() -> None:
-    """Одна картина - спрашивать не о чем, а меню всё равно печатается."""
+    """Одна картина без просьбы о меню идёт дальше молча."""
     world = Outside()
     single = parts(("Мумия", 1999, 47))
 
     assert _pick_plan(single, environment=world) is single[0]
     assert world.asked == []
+    assert world.said == []
+
+
+def test_the_menu_flag_prints_and_asks_even_about_a_single_picture() -> None:
+    """TC-836. Явная просьба о списке сильнее тихого дефолта из одного пункта."""
+    world = Outside(answers=[1])
+    single = parts(("Мумия", 1999, 47))
+
+    assert _pick_plan(single, environment=world, menu=True) is single[0]
+    assert world.said == [
+        "  1. Мумия (1999)",
+        "Enter - «Мумия (1999)», пункт 1 из 1",
+    ]
+    assert world.asked == [("Что смотрим?", 1, 1)]
 
 
 def test_the_only_picture_found_being_another_part_of_the_franchise_is_refused() -> None:

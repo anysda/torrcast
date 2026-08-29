@@ -5,10 +5,8 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
-import torrcast.usecases.select._pick_state as _pick_state
 from torrcast.domain.config import Config
 from torrcast.domain.entry import Entry
-from torrcast.domain.exit_codes import EXIT_OK
 from torrcast.usecases.playback._launch import _launch, _resume
 from torrcast.usecases.select._about import _about
 from torrcast.usecases.select._voiced import _Voiced, _voiced
@@ -41,7 +39,7 @@ def _continue(
     хозяин у неё — этот вызов, пока показ её не принял. Принимает он её ровно в одном
     случае: юнит поднялся и играет ТОТ ЖЕ магнит (:attr:`_Voiced.handed`) — дальше её
     уберёт сам юнит. Все прочие исходы — сухой прогон, Ctrl-C на вопросе, «серии тут нет»,
-    «смотреть сначала? нет», не поднявшийся юнит — оставляли раздачу навсегда, и убирает
+    не поднявшийся юнит — оставляли раздачу навсегда, и убирает
     её теперь ``finally``, по её собственному хэшу.
 
     Запуск показа и продолжение с места названы аргументами с боевым умолчанием: работа
@@ -68,9 +66,9 @@ def _continue(
             own.handed = not args.dry
             return code
         if entry.done:  # конец раздачи: сама собой следующая серия не появится
-            print(f"«{entry.title}» - {entry.label} была последней в раздаче")
-            if _pick_state._select_ask_line("Смотреть сначала? [Да/нет]")[:1] in {"н", "n"}:
-                return EXIT_OK
+            print(
+                f"«{entry.title}» - {entry.label} была последней в раздаче, поэтому играю с начала"
+            )
             first = entry.episodes[0]
             entry = entry.jump(first[0], first[1]) or entry
         code = launch(config, key, entry, _about(entry), clock, args.dry)

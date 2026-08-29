@@ -137,7 +137,7 @@ def _pick_plan(
             if not menu:
                 raise env.not_found_error(note)
             env.write(note)
-        else:
+        elif not menu:
             return plans[0]
     default = first_alive(plans)
     if not menu:

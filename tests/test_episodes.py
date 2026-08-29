@@ -355,25 +355,19 @@ def test_an_episode_stopped_at_96_percent_starts_the_next_one(
     assert saved().episode == 3 and saved().file_idx == 2 and saved().pos == 0.0
 
 
-def test_the_last_episode_does_not_promise_an_automatic_restart(
+def test_the_last_episode_restarts_without_a_question_and_names_the_reason(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     remember(episode=3, file_idx=2, pos=1382.4, dur=MINUTES_24)
-    asked: list[str] = []
+    monkeypatch.setattr("builtins.input", lambda prompt="": pytest.fail(f"вопрос: {prompt}"))
+    _no_unit(monkeypatch)
 
-    def answer(prompt: str = "") -> str:
-        asked.append(prompt)
-        return "нет"
-
-    monkeypatch.setattr("builtins.input", answer)
-
-    assert main(["киберпанк", "--dry"]) == 0
+    assert main(["киберпанк"]) == 0
 
     said = capsys.readouterr().out
-    assert said.count("была последней в раздаче") == 1
-    assert "играю с начала" not in said
-    assert asked == ["Смотреть сначала? [Да/нет]: "]
-    assert saved().done and saved().episode == 3 and saved().pos == 0.0
+    line = "«Киберпанк: Бегущие по краю» - s1e3 была последней в раздаче, поэтому играю с начала"
+    assert said.count(line) == 1
+    assert (saved().episode, saved().file_idx, saved().done) == (1, 0, False)
 
 
 def test_a_named_episode_is_not_shadowed_by_the_watched_bookkeeping(
@@ -423,30 +417,16 @@ def test_an_episode_outside_the_release_goes_looking_for_it(
     assert saved().episode == 1, "запись не тронута: серию не нашли"
 
 
-def test_the_end_of_the_release_is_the_end(
+def test_an_already_finished_release_also_restarts_without_a_question(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Раздача досмотрена: следующая серия не выдумывается. Ответ «нет» — просто выходим."""
     remember(episode=3, file_idx=2, done=True, dur=MINUTES_24)
-    monkeypatch.setattr("builtins.input", lambda prompt="": "нет")
-    composition.use_start_unit(monkeypatch, lambda key: pytest.fail("играть нечего"))
-
-    assert main(["киберпанк"]) == 0
-
-    assert "s1e3 была последней в раздаче" in capsys.readouterr().out
-
-
-def test_the_finished_release_can_be_started_over(
-    show_unit: FakeShowUnit, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """…а Enter на том же вопросе начинает раздачу сначала: выбор релиза не повторяется."""
-    remember(episode=3, file_idx=2, done=True, dur=MINUTES_24)
-    monkeypatch.setattr("builtins.input", lambda prompt="": "")
+    monkeypatch.setattr("builtins.input", lambda prompt="": pytest.fail(f"вопрос: {prompt}"))
     _no_unit(monkeypatch)
 
     assert main(["киберпанк"]) == 0
 
-    assert "s1e1" in capsys.readouterr().out
+    assert "s1e3 была последней в раздаче, поэтому играю с начала" in capsys.readouterr().out
     assert (saved().episode, saved().file_idx, saved().done) == (1, 0, False)
 
 
