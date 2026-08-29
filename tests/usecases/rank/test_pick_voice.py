@@ -12,6 +12,7 @@ from tests.usecases.rank.releases import media, track
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.rank_settings import VOICE_MENU
+from torrcast.domain.release import Release
 from torrcast.usecases.rank.pick_voice import pick_voice
 
 
@@ -19,7 +20,7 @@ from torrcast.usecases.rank.pick_voice import pick_voice
 class _Args:
     """Ровно то, что правило у разобранной строки и спрашивает."""
 
-    voice: int | None = None
+    voice: int | str | None = None
 
 
 DUB = track(0, "rus", "Дубляж")
@@ -42,6 +43,44 @@ def test_the_happy_path_asks_nothing_and_remembers_nothing(console: FakeConsole)
 def test_a_hand_named_number_is_taken_and_remembered(console: FakeConsole) -> None:
     """Явный выбор - и только он - пишется в память картины."""
     assert pick_voice(media(tracks=(DUB, ORIG)), _Args(voice=2)) == (1, ORIG.label)
+
+
+def test_a_studio_named_by_the_track_is_taken_and_remembered(console: FakeConsole) -> None:
+    tracks = (DUB, track(1, "rus", "MVO (NewStation)"))
+
+    assert pick_voice(media(tracks=tracks), _Args(voice="new station")) == (1, "NewStation")
+
+
+def test_a_part_of_the_track_label_is_an_honest_refusal(console: FakeConsole) -> None:
+    tracks = (track(0, "rus", "MVO (LostFilm)"), ORIG)
+
+    with pytest.raises(NotFoundError, match="озвучки «MVO» в этом релизе нет"):
+        pick_voice(media(tracks=tracks), _Args(voice="MVO"))
+
+
+def test_a_studio_named_only_by_the_release_is_taken_and_remembered(console: FakeConsole) -> None:
+    pack = Release(raw_name="Сериал S05 WEB-DL, 2 x MVO (TVShows, NewStation)", title="Сериал")
+    tracks = (track(0, "rus", None), track(1, "rus", None))
+
+    assert pick_voice(media(tracks=tracks), _Args(voice="NEWSTATION"), studios=pack.studios) == (
+        1,
+        "NewStation",
+    )
+
+
+def test_a_remembered_studio_survives_a_release_with_plain_labels(console: FakeConsole) -> None:
+    pack = Release(raw_name="Сериал S05 WEB-DL, 2 x MVO (TVShows, NewStation)", title="Сериал")
+    tracks = (track(0, "rus", None), track(1, "rus", None))
+
+    assert pick_voice(media(tracks=tracks), _Args(), "NewStation", studios=pack.studios) == (
+        1,
+        "NewStation",
+    )
+
+
+def test_a_studio_word_that_is_absent_is_an_honest_refusal(console: FakeConsole) -> None:
+    with pytest.raises(NotFoundError, match="озвучки «NewStation» в этом релизе нет"):
+        pick_voice(media(tracks=(DUB, ORIG)), _Args(voice="NewStation"))
 
 
 def test_the_menu_shows_up_only_on_voice_without_a_number(console: FakeConsole) -> None:

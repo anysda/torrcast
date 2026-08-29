@@ -95,7 +95,9 @@ def _next_season(
             print(f"«{entry.title}» - сезон {season + 1} не поднялся: {err}", flush=True)
             return False
         bench.keep_only(prep)  # взятую раздачу с этой секунды держит показ, не стенд
-        audio, voice = pick_voice(prep.found, args, entry.voice, plan.picture.native)
+        audio, voice = pick_voice(
+            prep.found, args, entry.voice, plan.picture.native, prep.release.studios
+        )
         # Память студии переезжает через границу сезона вместе с памятью дорожки: у
         # новой раздачи запомненной студии может не быть вовсе, и тогда играется что
         # есть, а помнится прежнее (:attr:`torrcast.domain._playing._Playing.studio`).

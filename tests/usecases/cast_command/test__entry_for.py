@@ -126,7 +126,7 @@ def test_the_studio_that_played_reaches_the_record() -> None:
 def _forced(seen: str, voice: int | None = None) -> Any:
     """Запись показа сезона, у которого запомненной студии нет вовсе."""
     video = TorrFile(index=0, name="кино/s05e01.mkv", size=(8 * 1024**3))
-    pack = release("Кино / Movie (Сезон 5) WEB-DL 1080p, 2 x MVO (TVShows, NewStation)")
+    pack = release("Кино / Movie (Сезон 5) WEB-DL 1080p, 2 x MVO (TVShows, UnknownStation)")
     prep = _Prep(number=1, release=pack)
     prep.video, prep.files, prep.media = video, [video], _media()
     silent = Media(duration=7200.0, tracks=(AudioTrack(index=0, language="rus"),))

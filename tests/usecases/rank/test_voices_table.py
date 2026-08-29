@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from tests.usecases.rank.releases import media, track
+from torrcast.domain.release import Release
 from torrcast.usecases.rank.voices_table import voices_table
 
 DUB = track(0, "rus", "Дубляж")
@@ -25,3 +26,12 @@ def test_one_track_can_carry_both_marks() -> None:
     lines = voices_table(media(tracks=(DUB, ORIG)), default=0, remembered=DUB.label).splitlines()
 
     assert lines[1] == f"  1. {DUB.label}   [дефолт, запомнено]"
+
+
+def test_the_table_names_a_studio_known_only_from_the_release() -> None:
+    pack = Release(raw_name="Сериал S05 WEB-DL, 2 x MVO (TVShows, NewStation)", title="Сериал")
+    tracks = (track(0, "rus", None), track(1, "rus", None))
+
+    lines = voices_table(media(tracks=tracks), 0, studios=pack.studios).splitlines()
+
+    assert lines[1:3] == ["  1. rus (TVShows)   [дефолт]", "  2. rus (NewStation)"]

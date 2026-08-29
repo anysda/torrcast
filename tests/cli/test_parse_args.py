@@ -27,6 +27,10 @@ def test_voice_without_a_number_asks_for_the_menu() -> None:
     assert parse_args(["кино", "--voice", "3"]).voice == 3
 
 
+def test_a_voice_can_be_named_as_a_studio() -> None:
+    assert parse_args(["кино", "--voice", "New Station"]).voice == "New Station"
+
+
 def test_the_old_audio_flag_still_means_voice() -> None:
     """Прежнее имя флага: ломать чужие пальцы и историю оболочки незачем."""
     assert parse_args(["кино", "--audio", "2"]).voice == 2

@@ -18,6 +18,14 @@ FROM_START_FLAG, FROM_START_HELP = "--new", "та же раздача, файл 
 TV_MENU = "?"
 
 
+def _voice(value: str) -> int | str:
+    """Номер остаётся номером, всякое другое значение остаётся именем студии."""
+    try:
+        return int(value)
+    except ValueError:
+        return value
+
+
 def parse_args(argv: Sequence[str] | None = None) -> Args:
     """Разобрать argv по контракту CLI."""
     about = "torrcast - найти релиз и кастить его на ТВ без скачивания"
@@ -49,15 +57,20 @@ def parse_args(argv: Sequence[str] | None = None) -> Args:
     parser.add_argument("--file", type=int, metavar="N", help="отладка: взять файл N раздачи")
     parser.add_argument(
         "--voice",
-        type=int,
+        type=_voice,
         nargs="?",
         const=VOICE_MENU,
-        metavar="N",
-        help="озвучка: N - взять дорожку N и запомнить, без номера - меню",
+        metavar="N|СТУДИЯ",
+        help="озвучка: номер или студия - взять и запомнить, без значения - меню",
     )
     # Прежнее имя того же флага: ломать чужие пальцы и историю оболочки незачем.
     parser.add_argument(
-        "--audio", type=int, nargs="?", const=VOICE_MENU, dest="voice", help=argparse.SUPPRESS
+        "--audio",
+        type=_voice,
+        nargs="?",
+        const=VOICE_MENU,
+        dest="voice",
+        help=argparse.SUPPRESS,
     )
     parser.add_argument(
         FROM_START_FLAG, dest="from_start", action="store_true", help=FROM_START_HELP

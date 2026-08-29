@@ -75,6 +75,7 @@ STUDIOS: Final[dict[str, Studio]] = {
     "hdrezka": Studio("многоголосый", "HDRezka Studio"),
     "hdrezka studio": Studio("многоголосый", "HDRezka Studio"),
     "newstudio": Studio("многоголосый", "NewStudio"),
+    "newstation": Studio("многоголосый", "NewStation"),
     "alexfilm": Studio("многоголосый", "AlexFilm"),
     "baibako": Studio("многоголосый", "BaibaKo"),
     "байбако": Studio("многоголосый", "BaibaKo"),

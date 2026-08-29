@@ -123,7 +123,11 @@ def _cmd_play(
     # после этого считается ВНУТРИ выбранного файла, и туда же смотрит показ.
     sound = prep.voiced
     audio, voice = pick_voice(
-        sound, args, _remembered(state, plan.picture.key, found_entry), plan.picture.native
+        sound,
+        args,
+        _remembered(state, plan.picture.key, found_entry),
+        plan.picture.native,
+        release.studios,
     )
     journal().mark("ответы")  # ноль секундомера: Enter после последнего вопроса
     label = sound.tracks[audio].label if audio < len(sound.tracks) else "-"
