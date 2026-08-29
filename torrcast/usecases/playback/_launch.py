@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 import contextlib
-from pathlib import Path
 
 import torrcast.usecases.playback._show_state as _state
 from torrcast.domain.config import Config
@@ -21,6 +20,7 @@ from torrcast.ports.progress.slot import progress as progress_bar
 from torrcast.ports.show_unit.show_unit import ShowUnit
 from torrcast.ports.show_unit.slot import unit as show_unit
 from torrcast.ports.state_store.slot import store
+from torrcast.usecases.playback.hls_root import hls_root
 from torrcast.usecases.select._about import _about
 from torrcast.usecases.start_budget import START_BUDGET
 from torrcast.usecases.start_clock import _Clock
@@ -57,7 +57,7 @@ def _launch(
     entry.dark, entry.dark_why = 0.0, ""
     state.put(key, entry)
     store().save(state)
-    _state.forget_playing(Path(config.hls_dir))  # флажок прошлого показа нам не доказательство
+    _state.forget_playing(hls_root(config.hls_dir))  # флажок прошлого показа нам не доказательство
     _state.start_play_unit(key)
     journal().mark("юнит")
     with progress_bar() as progress:
@@ -140,7 +140,7 @@ def _await_playing(
     # сдвинувшаяся за весь бюджет строка - это тот хвост и есть, и принять его за
     # картинку значило бы оставить зрителя перед чёрным экраном с бодрым «показ идёт».
     stale = unit.why()
-    out = Path(config.hls_dir)
+    out = hls_root(config.hls_dir)
     flag = _state.playing_flag(out)
     deadline = clock.monotonic() + timeout
     packed = False

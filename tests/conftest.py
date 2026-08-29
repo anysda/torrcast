@@ -37,6 +37,7 @@ from torrcast.ports.progress import slot as progress_slot
 from torrcast.ports.show_unit import slot as unit_slot
 from torrcast.ports.state_store import slot as state_slot
 from torrcast.runtime.wire import wire
+from torrcast.usecases.playback.hls_root import HLS_ENV
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -234,10 +235,18 @@ def pytest_configure(config: pytest.Config) -> None:
     снимается, поэтому поздняя запись приходит туда же, куда пришла бы ранняя.
 
     Подмена на тест поверх этой остаётся и нужна прежней: она разводит тесты между собой.
+
+    Тем же доводом здесь же уводится и каталог сегментов показа (:data:`HLS_ENV`, TC-891):
+    тест уровня ``main([...])`` без своего файла настроек получает боевое умолчание
+    ``hls_dir`` и посреди чужого сеанса снимает флажок его картинки
+    (:func:`torrcast.usecases.playback.hls_root.hls_root` подменяет его ровно там, где
+    настройка осталась НЕИЗМЕНЁННОЙ, - явно заданный тестом каталог как был, так и
+    остаётся сильнее).
     """
     global _sandbox
     _sandbox = tempfile.mkdtemp(prefix="torrcast-run-")
     os.environ["TORRCAST_STATE"] = os.path.join(_sandbox, "state.json")
+    os.environ[HLS_ENV] = os.path.join(_sandbox, "hls")
 
 
 def pytest_unconfigure(config: pytest.Config) -> None:

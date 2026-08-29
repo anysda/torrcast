@@ -6,10 +6,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
+from typing import Final, Literal
 
 from torrcast.domain._config_sources import _ConfigSources
 from torrcast.domain.profile import CAUTIOUS
+
+#: Умолчание каталога сегментов - боевой tmpfs. Вынесено именем, а не только строкой
+#: поля: по нему :func:`torrcast.usecases.playback.hls_root.hls_root` узнаёт
+#: НЕИЗМЕНЁННОЕ умолчание и подменяет его в тестовом прогоне, не трогая явно заданный
+#: каталог (TC-891).
+DEFAULT_HLS_DIR: Final = "/dev/shm/torrcast"
 
 
 @dataclass(slots=True)
@@ -32,7 +38,7 @@ class _ConfigHls(_ConfigSources):
     hls_key: str = "/etc/torrcast/tls/torrcast.key"
     #: Сегменты живут в tmpfs - фильм на диск не пишем. Целиком он туда и не влезет: в
     #: каталоге всегда только окно вокруг того места, где смотрят.
-    hls_dir: str = "/dev/shm/torrcast"
+    hls_dir: str = DEFAULT_HLS_DIR
     #: Темп упаковки - ровно реальное время, а запас впереди приёмника даёт burst.
     #: Пара 1.0/60 держит упаковку на ~минуту впереди показа и не растёт: в
     #: tmpfs всегда ``burst`` + ``hls_keep`` секунд фильма, сколько бы он ни длился.
