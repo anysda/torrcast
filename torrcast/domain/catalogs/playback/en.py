@@ -65,4 +65,8 @@ def en() -> dict[str, str]:
             "shrinking the heavy piece as it comes up in the pack"
         ),
         "recoder.map_no_offsets": "the map has no offsets - cannot build piece weights from it",
+        "playback.tonemap_no_headroom": (
+            "⚠️ 4K tonemap is on: it eats the recode speed headroom - packing "
+            "keeps pace with the show, no room left against stalls"
+        ),
     }

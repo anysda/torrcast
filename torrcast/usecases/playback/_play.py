@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import torrcast.usecases.playback._show_state as _state
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.config import Config
 from torrcast.domain.profile import CAUTIOUS, Profile
 from torrcast.domain.start_refused_error import StartRefusedError
@@ -65,7 +66,7 @@ def _play(
     tls = config.transport == "https"
     video_mbit = max(0.0, watch.entry.vbps) if watch else 0.0
     video_mbit_estimated = watch.entry.vbps_estimated if watch else False
-    session_tag = session_tag or f"[сеанс {journal().session_id()}]"
+    session_tag = session_tag or phrase("playback.session_tag", id=journal().session_id())
     # Сетка сегментов снимается с самого файла и дальше не меняется: она же в манифесте,
     # она же в команде ffmpeg. Всё, что показ говорит о времени, считается по ней.
     #
@@ -136,7 +137,7 @@ def _play(
             # (:class:`torrcast.domain.start_refused_error.StartRefusedError`), и висеть с ней
             # перед пустым экраном весь бюджет старта незачем.
             raised = False
-            print(f"{session_tag} {why(exc)} - поднимаю показ сам", flush=True)
+            print(phrase("playback.raising_myself", tag=session_tag, why=why(exc)), flush=True)
         else:
             journal().mark("LOAD взят")
             # Свою строку «старт NN с» показ говорит не здесь, а по первому кадру
@@ -158,7 +159,13 @@ def _play(
             start=start,
             raised=raised,
             say_started=lambda: print(
-                f"{session_tag} играю {about} - на ТВ   (старт {clock.total:.0f} с)", flush=True
+                phrase(
+                    "playback.now_playing_tagged",
+                    tag=session_tag,
+                    about=about,
+                    secs=clock.total,
+                ),
+                flush=True,
             ),
         )
     finally:

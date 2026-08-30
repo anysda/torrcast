@@ -9,6 +9,7 @@ from collections.abc import Callable
 
 import torrcast.usecases.playback._show_state as _state
 from torrcast.domain._name_data.data_3 import VIDEO_EXT
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.release import Release
 from torrcast.domain.torr_file import TorrFile
@@ -31,7 +32,9 @@ def file_picker(args: _Numbered) -> Callable[[Plan, Release, list[TorrFile]], To
         ordered = sorted(files, key=lambda f: f.index)
         videos = [f for f in ordered if f.name.lower().endswith(VIDEO_EXT)]
         if not 1 <= (args.file or 0) <= len(videos):
-            raise NotFoundError(f"видеофайлов в раздаче {len(videos)}, номера {args.file} нет")
+            raise NotFoundError(
+                phrase("playback.file_number_missing", total=len(videos), number=args.file)
+            )
         return videos[(args.file or 1) - 1]
 
     return chosen

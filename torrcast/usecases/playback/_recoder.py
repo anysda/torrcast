@@ -8,6 +8,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import torrcast.usecases.playback._show_state as _state
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.config import Config
 from torrcast.domain.media import AUDIO_MBIT, TS_OVERHEAD
 from torrcast.domain.profile import CAUTIOUS, Profile
@@ -106,32 +107,27 @@ def _profile(grid: MediaGrid, delivered: float, video_mbit_estimated: bool) -> H
     же самое, из-за чего пропажу кусков расследовали живьём.
     """
     weights = _mapped(grid, delivered)
+    basis_key = "recoder.basis_estimate" if video_mbit_estimated else "recoder.basis_measurement"
+    basis = phrase(basis_key)
     if weights is not None:
         print(
-            f"профиль тяжести: контейнер {weights.container:.1f} Мбит/с, "
+            phrase("recoder.profile_container", mbit=weights.container)
             + (
-                f"на ТВ уедет {delivered:.1f} Мбит/с "
-                f"по {'оценке' if video_mbit_estimated else 'замеру'}"
+                phrase("recoder.tv_weight", mbit=delivered, basis=basis)
                 if delivered > 0
-                else "веса видеодорожки в паспорте нет - поправку наберу по факту"
+                else phrase("recoder.no_track_weight")
             )
-            + ("" if grid.on_keys else " (карта не сетка, но вес по ней честный)"),
+            + ("" if grid.on_keys else phrase("recoder.map_not_grid")),
             flush=True,
         )
         return weights
     if delivered > 0:
         print(
-            f"профиль тяжести ровный: {delivered:.1f} Мбит/с на каждый кусок "
-            f"по {'оценке' if video_mbit_estimated else 'замеру'} - "
-            "тяжёлое место в лицо не знаю, ужимаю по среднему",
+            phrase("recoder.flat_profile", mbit=delivered, basis=basis),
             flush=True,
         )
     else:
-        print(
-            "профиля тяжести нет: ни карты, ни веса дорожки в паспорте - "
-            "тяжёлый кусок ужимаю по факту, когда он окажется на выкладке",
-            flush=True,
-        )
+        print(phrase("recoder.no_profile"), flush=True)
     return _state.flat_weights(grid.count, delivered)
 
 
@@ -141,5 +137,5 @@ def _mapped(grid: MediaGrid, delivered: float) -> HeavyProfile | None:
         return None
     weights: HeavyProfile | None = _state.weights_of(grid.keys, grid, delivered=delivered)
     if weights is None:
-        print("карта без смещений - веса кусков по ней не построить", flush=True)
+        print(phrase("recoder.map_no_offsets"), flush=True)
     return weights

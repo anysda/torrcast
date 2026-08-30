@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import cast
 
@@ -10,6 +11,7 @@ import pytest
 from tests.fakes import composition
 from tests.fakes.clock import FakeClock
 from tests.usecases.playback.world import FakeProgress, FakeShow, touch_segment
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.choice import Choice
 from torrcast.domain.config import Config
 from torrcast.domain.entry import Entry
@@ -22,6 +24,12 @@ from torrcast.usecases.playback._launch import _await_playing, _refuse_hopeless
 from torrcast.usecases.screen_line import screen_line
 
 
+def _timeout_prefix(secs: float) -> str:
+    """Постоянная часть надписи о несостоявшемся старте - до ответа юнита."""
+    marker = "\x00"
+    return phrase("playback.did_not_start_timeout", secs=secs, said=marker).split(marker)[0]
+
+
 def test_a_frame_the_receiver_never_takes_is_refused_before_the_unit(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -30,7 +38,8 @@ def test_a_frame_the_receiver_never_takes_is_refused_before_the_unit(
     config = Config(recode=False)
     entry = Entry(title="Кино", magnet="magnet:?xt=1", frame=2160, quality="2160p")
 
-    with pytest.raises(NotFoundError, match="такой кадр приёмник берёт только ужатым"):
+    want = phrase("playback.frame_too_big", quality="2160p", limit=CAUTIOUS.recode_frame)
+    with pytest.raises(NotFoundError, match=re.escape(want)):
         _refuse_hopeless(config, entry)
 
 
@@ -77,7 +86,8 @@ def test_a_dead_unit_ends_the_waiting_with_its_own_reason(
     out = tmp_path / "hls"
     touch_segment(out)
 
-    with pytest.raises(InfraError, match="показ не запустился: юнит выпал"):
+    want = phrase("playback.did_not_start", why="юнит выпал")
+    with pytest.raises(InfraError, match=re.escape(want)):
         _await_playing(
             Config(hls_dir=str(out)),
             FakeProgress(),
@@ -95,7 +105,7 @@ def test_the_budget_of_the_start_is_not_endless(
     out.mkdir()
     unit = FakeShow()
 
-    with pytest.raises(InfraError, match="показ не начался за 3 с"):
+    with pytest.raises(InfraError, match=re.escape(_timeout_prefix(3.0))):
         _await_playing(
             Config(hls_dir=str(out)),
             FakeProgress(),
@@ -153,7 +163,7 @@ def test_a_receiver_stuck_at_the_landing_point_is_still_a_failed_start(tmp_path:
         said=["[сеанс 7] упаковка пошла", screen_line("[сеанс 7]", landed, 2640.0, "PLAYING")]
     )
 
-    with pytest.raises(InfraError, match="показ не начался за 3 с"):
+    with pytest.raises(InfraError, match=re.escape(_timeout_prefix(3.0))):
         _await_playing(
             Config(hls_dir=str(out)),
             FakeProgress(),
@@ -180,7 +190,7 @@ def test_a_line_left_by_a_previous_show_does_not_save_a_dead_one(tmp_path: Path)
     landed = 26 * 60 + 58.0
     unit = FakeShow(reason=screen_line("[сеанс 6]", landed + 900.0, 2640.0, "PLAYING"))
 
-    with pytest.raises(InfraError, match="показ не начался за 3 с"):
+    with pytest.raises(InfraError, match=re.escape(_timeout_prefix(3.0))):
         _await_playing(
             Config(hls_dir=str(out)),
             FakeProgress(),

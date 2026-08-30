@@ -8,6 +8,7 @@ from __future__ import annotations
 import contextlib
 
 import torrcast.usecases.playback._show_state as _state
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.config import Config
 from torrcast.domain.entry import Entry
 from torrcast.domain.exit_codes import EXIT_OK
@@ -43,7 +44,7 @@ def _launch(
 ) -> int:
     """Показ уезжает в transient-юнит: ``cast`` завершился — показ продолжается."""
     if dry:
-        print(f"(--dry) {about} - каста нет")
+        print(phrase("playback.dry_run_no_cast", about=about))
         return EXIT_OK
     _refuse_hopeless(config, entry)
     # Сначала гасим прошлый показ и только потом пишем свою запись: умирающий юнит по
@@ -62,7 +63,7 @@ def _launch(
     journal().mark("юнит")
     with progress_bar() as progress:
         _await_playing(config, progress, start=entry.pos)
-    print(f"играю {about} - на ТВ   (старт {clock.total:.0f} с)")
+    print(phrase("playback.now_playing", about=about, secs=clock.total))
     return EXIT_OK
 
 
@@ -94,8 +95,11 @@ def _refuse_hopeless(config: Config, entry: Entry) -> None:
     if config.recode:
         return
     raise NotFoundError(
-        f"{entry.quality or f'{entry.frame}p'} - такой кадр приёмник берёт только ужатым, "
-        f"а перекодирование выключено: нужен релиз {profile.recode_frame}p или ниже"
+        phrase(
+            "playback.frame_too_big",
+            quality=entry.quality or f"{entry.frame}p",
+            limit=profile.recode_frame,
+        )
     )
 
 
@@ -154,16 +158,19 @@ def _await_playing(
                 packed = any(out.glob("v*.ts")) or any(out.glob("v*.m4s"))
             if packed:
                 journal().mark("первый сегмент")
-        progress.phase("жду телевизор" if packed else "упаковка")
+        progress.phase(phrase("playback.waiting_tv") if packed else phrase("playback.packing"))
         if not unit.active():
             progress.phase("")
-            raise InfraError(f"показ не запустился: {unit.why()}")
+            raise InfraError(phrase("playback.did_not_start", why=unit.why()))
         clock.sleep(0.2)
     progress.phase("")
     said = unit.why()
     if said != stale and still_playing(said, start):
         journal().mark("картинка")
-        print(f"картинку не доказал за {timeout:.0f} с, но показ идёт: {said}", flush=True)
+        print(
+            phrase("playback.picture_undetected_but_playing", secs=timeout, said=said),
+            flush=True,
+        )
         return
     unit.stop()
-    raise InfraError(f"показ не начался за {timeout:.0f} с - {said}")
+    raise InfraError(phrase("playback.did_not_start_timeout", secs=timeout, said=said))

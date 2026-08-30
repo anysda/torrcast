@@ -9,6 +9,7 @@ import contextlib
 from typing import NoReturn
 
 import torrcast.usecases.playback._show_state as _state
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.codec_name import codec_name
 from torrcast.domain.exit_codes import EXIT_OK
 from torrcast.domain.infra_error import InfraError
@@ -82,7 +83,7 @@ def _close_show(
         # `cast` завтра продолжит с диска и без сети.
         if watch is not None and watch.done:
             warmer.vault.clear()
-            print("досмотрено - прогретое с диска убрал", flush=True)
+            print(phrase("playback.watched_cleared_warm"), flush=True)
     # ⚠️ suppress(Exception), а не TorrcastError: pychromecast на полуживом соединении
     # роняет что угодно, а ffmpeg и раздача обязаны погаснуть в любом случае - иначе
     # процесс уходит, а они остаются.
@@ -167,8 +168,8 @@ def _blame_the_end(
     if why_source:
         journal().offline(why=why_source, asked=True)
         if not shown:
-            raise InfraError(f"картинки не было ни разу: источник не читается ({why_source})")
-        raise InfraError(f"источник не читается ({why_source}) - показ оборван, цифры выше")
+            raise InfraError(phrase("playback.no_picture_source_unreadable", why=why_source))
+        raise InfraError(phrase("playback.source_unreadable_cut_short", why=why_source))
     if not shown:
-        raise InfraError("картинки не было ни разу: приёмник не взял показ - поднять не удалось")
-    raise InfraError("приёмник не досмотрел поток - цифры выше")
+        raise InfraError(phrase("playback.no_picture_receiver_refused"))
+    raise InfraError(phrase("playback.receiver_did_not_finish"))

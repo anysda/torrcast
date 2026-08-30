@@ -8,6 +8,7 @@ import pytest
 
 from tests.fakes import composition
 from tests.fakes.clock import FakeClock
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.config import Config
 from torrcast.domain.exit_codes import EXIT_OK
 from torrcast.domain.position import Position
@@ -113,7 +114,9 @@ def test_the_show_loads_the_manifest_and_ends_by_itself(
     assert code == EXIT_OK
     assert receiver.loaded and receiver.loaded[0][0].endswith("/index.m3u8")
     assert receiver.quit, "показ кончился - приложение приёмника закрывается"
-    assert "играю «Кино»" in capsys.readouterr().out
+    formatted = phrase("playback.now_playing_tagged", tag="", about="«Кино»", secs=0.0)
+    verb = formatted.partition("«Кино»")[0].strip()
+    assert f"{verb} «Кино»" in capsys.readouterr().out
 
 
 def test_a_refused_load_is_not_a_funeral(
@@ -125,7 +128,8 @@ def test_a_refused_load_is_not_a_funeral(
     code = _play(_config(tmp_path), "file:///нет-такого", 0, "«Кино»", _Clock(), receiver=receiver)
 
     assert code == EXIT_OK
-    assert "поднимаю показ сам" in capsys.readouterr().out
+    tail = phrase("playback.raising_myself", tag="", why="").split(" - ", 1)[-1]
+    assert tail in capsys.readouterr().out
 
 
 def test_the_start_is_named_by_the_first_frame_and_not_by_the_taken_load(

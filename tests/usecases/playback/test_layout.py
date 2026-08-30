@@ -6,6 +6,7 @@ import pytest
 
 from tests.fakes.composition import use_media_grid
 from torrcast.adapters.stream_pack.grid_for import grid_for
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.config import Config
 from torrcast.domain.profile import ANDROID_TV, CAUTIOUS
 from torrcast.usecases.playback.layout import layout
@@ -62,7 +63,7 @@ def test_four_k_tonemap_says_its_measured_cost() -> None:
         hdr=True,
     )
 
-    assert any("тонемап 4К включён" in line and "подгруз" in line for line in said)
+    assert phrase("playback.tonemap_no_headroom") in said
 
 
 def test_the_layout_hands_the_receiver_ceilings_to_the_grid(

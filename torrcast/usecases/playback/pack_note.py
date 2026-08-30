@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from torrcast.domain._name_data.data_3 import VIDEO_EXT
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.torr_file import TorrFile
 
 
@@ -27,7 +28,8 @@ def pack_note(files: list[TorrFile]) -> str:
     total = sum(f.size for f in videos)
     if len(videos) < 2 or not total:
         return ""
-    return (
-        f"видеофайлов в раздаче {len(videos)} - "
-        f"играю крупнейший, его доля {max(f.size for f in videos) / total:.2f}"
+    return phrase(
+        "playback.picking_largest_file",
+        total=len(videos),
+        share=max(f.size for f in videos) / total,
     )

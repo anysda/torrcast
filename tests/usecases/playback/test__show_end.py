@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import cast
 
@@ -15,6 +16,7 @@ from tests.usecases.revive_playback.world import (
     feed_with_segments,
 )
 from torrcast.adapters.recode.whole_encode import whole_encode
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.entry import Entry
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.profile import CAUTIOUS
@@ -164,19 +166,23 @@ def test_a_show_closed_by_the_viewer_quits_the_app_though_the_next_episode_waits
 
 def test_a_dead_source_takes_the_blame_of_the_broken_show() -> None:
     """Показ оборвался при мёртвом источнике - виноват он, и это сказано человеку."""
-    with pytest.raises(InfraError, match="источник не читается"):
-        _blame_the_end(cast_supply(FakeSupply(silence="TorrServer не отвечает")), clock=_NoWait())
+    why = "TorrServer не отвечает"
+    want = phrase("playback.source_unreadable_cut_short", why=why)
+    with pytest.raises(InfraError, match=re.escape(want)):
+        _blame_the_end(cast_supply(FakeSupply(silence=why)), clock=_NoWait())
 
 
 def test_a_live_source_leaves_the_receiver_to_blame() -> None:
     """Источник здоров - остаётся приёмник, и обвинение достаётся ему."""
-    with pytest.raises(InfraError, match="приёмник не досмотрел поток"):
+    want = phrase("playback.receiver_did_not_finish")
+    with pytest.raises(InfraError, match=re.escape(want)):
         _blame_the_end(cast_supply(FakeSupply()), clock=_NoWait())
 
 
 def test_a_show_without_a_single_frame_names_itself_apart() -> None:
     """«Не увидел ни кадра» и «не досмотрел» - две разные аварии для того, кто у экрана."""
-    with pytest.raises(InfraError, match="картинки не было ни разу"):
+    want = phrase("playback.no_picture_receiver_refused")
+    with pytest.raises(InfraError, match=re.escape(want)):
         _blame_the_end(cast_supply(FakeSupply()), shown=False, clock=_NoWait())
 
 

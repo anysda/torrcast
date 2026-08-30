@@ -9,6 +9,7 @@ from __future__ import annotations
 from collections.abc import Callable
 
 import torrcast.usecases.playback._show_state as _state
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.config import Config
 from torrcast.domain.media import AUDIO_MBIT, TS_OVERHEAD
 from torrcast.domain.profile import CAUTIOUS, Profile
@@ -57,10 +58,7 @@ def layout(
     """
     whole = _encode_all(config, codec, video_mbit, depth, profile, frame, hdr)
     if say is not None and whole is not None and whole.hdr and frame > whole.out_frame:
-        say(
-            "⚠️ тонемап 4К включён: он съедает запас скорости перекода - упаковка "
-            "идёт вровень с показом, запаса от подгрузов нет"
-        )
+        say(phrase("playback.tonemap_no_headroom"))
     grid = _state.grid_for(
         source,
         length,

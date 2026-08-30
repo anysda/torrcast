@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from torrcast.domain.args import Args
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.picture import Picture
 from torrcast.domain.release import Release
@@ -60,7 +63,8 @@ def test_a_number_outside_the_pool_is_a_polite_refusal() -> None:
     """Номера нет - отказ называет, сколько видеофайлов в раздаче на самом деле."""
     chosen = file_picker(Args(query=["кино"], file=9))
 
-    with pytest.raises(NotFoundError, match="видеофайлов в раздаче 2"):
+    want = phrase("playback.file_number_missing", total=2, number=9)
+    with pytest.raises(NotFoundError, match=re.escape(want)):
         chosen(_plan(), _plan().ranked[0], _files())
 
 

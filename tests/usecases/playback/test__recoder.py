@@ -9,10 +9,20 @@ import pytest
 
 from tests.usecases.playback.world import film_keys, grid
 from torrcast.adapters.stream_pack.grid import Grid
+from torrcast.domain.catalogs.phrase import phrase
+from torrcast.domain.catalogs.playback.en import en as _playback_en
+from torrcast.domain.catalogs.playback.ru import ru as _playback_ru
+from torrcast.domain.catalogs.tongue import RU, tongue
 from torrcast.domain.config import Config
 from torrcast.domain.film_keys import FilmKeys
 from torrcast.domain.profile import CAUTIOUS
 from torrcast.usecases.playback._recoder import _recoder
+
+
+def _prefix(key: str) -> str:
+    """Постоянная часть надписи каталога - текст до первой подстановки."""
+    catalog = _playback_ru() if tongue() == RU else _playback_en()
+    return catalog[key].split("{", 1)[0].strip()
 
 
 def test_recoding_switched_off_needs_no_recoder(tmp_path: Path) -> None:
@@ -86,7 +96,7 @@ def test_a_keymap_that_never_came_leaves_a_flat_profile_and_says_so(
     )
 
     assert made is not None
-    assert "профиль тяжести ровный" in capsys.readouterr().out
+    assert _prefix("recoder.flat_profile") in capsys.readouterr().out
 
 
 def test_a_silent_passport_still_raises_the_recoder_for_the_last_resort(
@@ -103,7 +113,7 @@ def test_a_silent_passport_still_raises_the_recoder_for_the_last_resort(
 
     assert made is not None
     assert not made.targets
-    assert "профиля тяжести нет" in capsys.readouterr().out
+    assert _prefix("recoder.no_profile") in capsys.readouterr().out
 
 
 def test_a_healthy_map_raises_the_recoder_and_says_its_profile(
@@ -116,7 +126,7 @@ def test_a_healthy_map_raises_the_recoder_and_says_its_profile(
 
     assert made is not None
     assert made.encode.mbit > 0.0
-    assert "профиль тяжести:" in capsys.readouterr().out
+    assert _prefix("recoder.profile_container") in capsys.readouterr().out
 
 
 def test_the_flat_profile_names_a_measurement_and_an_estimate(
@@ -136,8 +146,8 @@ def test_the_flat_profile_names_a_measurement_and_an_estimate(
     )
     estimated = capsys.readouterr().out
 
-    assert "по замеру" in measured
-    assert "по оценке" in estimated
+    assert phrase("recoder.basis_measurement") in measured
+    assert phrase("recoder.basis_estimate") in estimated
 
 
 def test_a_map_without_offsets_falls_back_to_the_flat_profile(
@@ -150,8 +160,8 @@ def test_a_map_without_offsets_falls_back_to_the_flat_profile(
 
     said = capsys.readouterr().out
     assert made is not None
-    assert "карта без смещений" in said
-    assert "профиль тяжести ровный" in said
+    assert _prefix("recoder.map_no_offsets") in said
+    assert _prefix("recoder.flat_profile") in said
 
 
 def test_a_uniform_grid_that_carries_a_map_knows_its_heavy_places_by_name(
@@ -192,7 +202,8 @@ def test_a_uniform_grid_that_carries_a_map_knows_its_heavy_places_by_name(
     said = capsys.readouterr().out
     assert made is not None
     assert made.targets == tuple(range(15, 30)), "тяжёлое место названо не по карте"
-    assert "профиль тяжести:" in said and "карта не сетка" in said
+    assert _prefix("recoder.profile_container") in said
+    assert _prefix("recoder.map_not_grid") in said
 
 
 def test_a_uniform_grid_without_a_map_stays_on_the_flat_profile(
@@ -207,4 +218,4 @@ def test_a_uniform_grid_without_a_map_stays_on_the_flat_profile(
 
     assert made is not None
     assert not made.targets
-    assert "профиля тяжести нет" in capsys.readouterr().out
+    assert _prefix("recoder.no_profile") in capsys.readouterr().out

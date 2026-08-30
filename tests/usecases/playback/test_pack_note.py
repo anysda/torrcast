@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.torr_file import TorrFile
 from torrcast.usecases.playback.pack_note import pack_note
 
@@ -17,7 +18,8 @@ def test_the_pack_line_names_count_largest_and_share() -> None:
         TorrFile(index=2, name="сборник/обложка.jpg", size=10),
         TorrFile(index=3, name="сборник/часть-02.mkv", size=900),
     ]
-    assert pack_note(files) == "видеофайлов в раздаче 2 - играю крупнейший, его доля 0.90"
+    want = phrase("playback.picking_largest_file", total=2, share=0.9)
+    assert pack_note(files) == want
 
 
 def test_the_pack_line_is_silent_where_there_is_nothing_to_choose() -> None:
