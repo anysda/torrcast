@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import torrcast.usecases.select._pick_state as _pick_state
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.config import Config
 from torrcast.domain.entry import Entry
 from torrcast.domain.pick_settings import META_BUDGET, PROBE_BUDGET
@@ -100,7 +101,7 @@ def _revoice(config: Config, entry: Entry, args: Args, own: _Voiced) -> Entry:
     """
     torrserver = _pick_state._select_engines(config.torrserver_url)
     with progress_bar() as progress:
-        progress.phase("дорожки")
+        progress.phase(phrase("select.phase_tracks"))
         own.torrent_hash = torrent_hash = torrserver.add(entry.magnet)
         torrserver.wait_files(torrent_hash, timeout=META_BUDGET)
         media = _pick_state._select_prober(

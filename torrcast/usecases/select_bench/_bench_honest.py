@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.pick_settings import MAX_TRIES
 from torrcast.ports.progress.progress import Progress
 from torrcast.usecases.rank.honest_shot import honest_shot
@@ -86,11 +87,20 @@ class _BenchHonest(_BenchTrouble):
             self.needed = {(plan.picture.key, chosen.number), (plan.picture.key, number)}
             alt = self.start(plan, number)
             self._ask(plan, alt, [number])
-            phase = f"релиз {chosen.number} {why_look} - смотрю {number}"
+            phase = phrase(
+                "select_bench.honest_phase", chosen=chosen.number, look=why_look, number=number
+            )
             if not self._peek(alt, progress, deadline, phase):
                 progress.phase("")
-                _turned_down(judged, number, "не успел ответить")
-                print(f"релиз {number} не успел ответить - играю {chosen.number} ({why_look})")
+                _turned_down(judged, number, phrase("select_bench.reason_no_answer"))
+                print(
+                    phrase(
+                        "select_bench.honest_no_answer_note",
+                        number=number,
+                        chosen=chosen.number,
+                        look=why_look,
+                    )
+                )
                 # Спросили и ждать перестали - значит, ответ больше не нужен, а раздача
                 # соседа осталась бы висеть до общей уборки, доедая полосу у того, кого мы
                 # сейчас играем. Отпускаем сразу и по своему хэшу; подъём, который ещё
@@ -107,7 +117,7 @@ class _BenchHonest(_BenchTrouble):
             )
             if why:
                 _turned_down(judged, number, why)
-                print(f"релиз {number} не годится ({why})")
+                print(phrase("select_bench.unfit_note", number=number, why=why))
                 self._forget(alt)  # спросили и получили ответ - держать его больше незачем
                 continue
             # 🔴 TC-178. Честный 1080p без русской дорожки - это не «лучше»: разрешение
@@ -116,17 +126,27 @@ class _BenchHonest(_BenchTrouble):
             # кадр релиза, чей паспорт про язык промолчал (TC-492): это тот же размен
             # знания на незнание, только в профиль.
             if voice_unproven(alt.found, native=plan.picture.native):
-                _turned_down(judged, number, "без русской озвучки")
-                print(f"релиз {number} не лучше (без русской озвучки)")
+                _turned_down(judged, number, phrase("select_bench.reason_no_russian_voice"))
+                print(phrase("select_bench.honest_no_voice_note", number=number))
                 self._forget(alt)
                 continue
             if not honest_shot(alt.release, alt.found) or alt.found.frame <= chosen.found.frame:
-                _turned_down(judged, number, f"не лучше ({quality_text(alt.release, alt.found)})")
-                print(f"релиз {number} не лучше ({quality_text(alt.release, alt.found)})")
+                quality = quality_text(alt.release, alt.found)
+                not_better = phrase("select_bench.reason_not_better", quality=quality)
+                _turned_down(judged, number, not_better)
+                print(phrase("select_bench.honest_not_better_note", number=number, quality=quality))
                 self._forget(alt)
                 continue
-            print(f"релиз {chosen.number} {short} - беру {number} (настоящий {alt.found.quality})")
+            print(
+                phrase(
+                    "select_bench.honest_taken_note",
+                    chosen=chosen.number,
+                    short=short,
+                    number=number,
+                    quality=alt.found.quality,
+                )
+            )
             self._forget(chosen)  # верх больше не нужен: полосу роя доедать ему незачем
             return alt
-        print(f"релиз {chosen.number} {short} - честнее рядом нет, играю его")
+        print(phrase("select_bench.honest_kept_note", chosen=chosen.number, short=short))
         return chosen

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.pick_settings import MAX_TRIES
 from torrcast.domain.server_down_error import ServerDownError
@@ -99,9 +100,8 @@ class Bench(_BenchPrewarm):
                 self.start(plan, ahead)
             # Секундомер стоит вокруг ОЖИДАНИЯ, а не вокруг работы фонового потока.
             entered = self.clock()
-            voice_search = (
-                "" if args.pinned else f"ищу русскую озвучку: релиз {attempt} из {len(queue)} - "
-            )
+            asking = phrase("select_bench.voice_search_phase", number=attempt, total=len(queue))
+            voice_search = "" if args.pinned else asking
             self._wait(prep, progress, prefix=voice_search, limit=deadline)
             # Ошибка самой службы раздачи относится ко всей очереди, а не к одному
             # рою. Перебирать остальные релизы бессмысленно: они пойдут через тот же
@@ -139,12 +139,14 @@ class Bench(_BenchPrewarm):
                     self._announce(plan, prep, queue, tally.judged, attempt)
                     return prep
                 ratio, got, need = supply
-                trouble = f"рой везёт {got:.2f} из нужных {need:.2f} Мбит/с ({ratio:.2f}x)"
+                g, n, r2 = f"{got:.2f}", f"{need:.2f}", f"{ratio:.2f}"
+                trouble = phrase("select_bench.reason_thin_swarm", got=g, need=n, ratio=r2)
                 if weak is None or ratio > weak[0]:
                     if weak is not None:
                         self._forget(weak[1])
                     weak = ratio, prep
-            why = _waiting_note(prep, trouble) if trouble else "без русской озвучки"
+            no_voice = phrase("select_bench.reason_no_russian_voice")
+            why = _waiting_note(prep, trouble) if trouble else no_voice
             tally.note(number, prep, why, entered, self.clock)
             if weak is None or prep is not weak[1]:
                 tally.hold(prep, voiceless, self._forget)
@@ -153,11 +155,11 @@ class Bench(_BenchPrewarm):
             # vp9) места следующей раздаче больше не занимают, дорогие занимают.
             affordable = tally.verdicts < MAX_TRIES or tally.priced < self.verdict_budget
             goes_on = following is not None and affordable and self.clock() < deadline
-            tail = f" - беру {following}" if goes_on else ""
+            tail = phrase("select_bench.tail_take", following=following) if goes_on else ""
             head = (
-                f"релиз {number} без русской озвучки ({heard(prep.voiced)})"
+                phrase("select_bench.voiceless_head", number=number, lang=heard(prep.voiced))
                 if voiceless
-                else f"релиз {number} не годится ({why})"
+                else phrase("select_bench.unfit_note", number=number, why=why)
             )
             print(head + tail)
             if not goes_on:
@@ -172,10 +174,8 @@ class Bench(_BenchPrewarm):
         if weak is not None:
             ratio, prep = weak
             tally.judged.pop(prep.number, None)
-            print(
-                f"ни один проверенный рой не тянет - беру лучший, "
-                f"релиз {prep.number} ({ratio:.2f}x)"
-            )
+            r = f"{ratio:.2f}"
+            print(phrase("select_bench.no_swarm_capacity", number=prep.number, ratio=r))
             self._announce(plan, prep, queue, tally.judged, reached)
             return prep
         if tally.mute is not None and exhausted:

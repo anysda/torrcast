@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.not_found_error import NotFoundError
 from torrcast.ports.journal.slot import journal
 from torrcast.usecases.discover.unfit_line import unfit_line
@@ -39,7 +40,11 @@ def _bench_queue(plan: Plan, args: Args) -> list[int]:
     if args.release is None and (skipped := plan.skipped):
         # Молчать тут нельзя: человек попросил серию, а половину выдачи мы не взяли.
         print(
-            f"серии {plan.want} нет в раздачах: {len(skipped)} "
-            f"(«{_cut(skipped[0].raw_name, 60)}»...) - беру ту, где она есть"
+            phrase(
+                "select_bench.skipped_note",
+                want=plan.want,
+                count=len(skipped),
+                name=_cut(skipped[0].raw_name, 60),
+            )
         )
     return queue

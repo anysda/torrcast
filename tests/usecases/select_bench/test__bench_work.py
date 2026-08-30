@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from itertools import count
 
+import pytest
+
 from tests.fakes.clock import FakeClock
 from tests.usecases.select_bench.world import RUNTIME, Said, Torrents, plan, probes, rel
 from torrcast.adapters.torrserver.contact_wait import ContactWait
@@ -11,6 +13,11 @@ from torrcast.domain.media import Media
 from torrcast.domain.swarm_error import SwarmError
 from torrcast.usecases.select._prep import _Prep
 from torrcast.usecases.select_bench.bench import Bench
+
+
+@pytest.fixture(autouse=True)
+def _russian_ladder(_russian_product: None) -> None:
+    """Предмет модуля - русские фазы фоновой подготовки релиза."""
 
 
 def test_a_healthy_release_is_prepared_whole_in_the_background() -> None:

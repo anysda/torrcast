@@ -11,6 +11,11 @@ from torrcast.domain.episode import Episode
 from torrcast.domain.info_hash import info_hash
 from torrcast.domain.not_found_error import NotFoundError
 
+
+@pytest.fixture(autouse=True)
+def _russian_ladder(_russian_product: None) -> None:
+    """Предмет модуля - русские отказы плана по номеру релиза вне очереди."""
+
 _ASKED = Args(query=["кино"])
 #: Названный 1080p H.264: именной кандидат, ворота его пускают.
 _NAMED = release(seeders=66)

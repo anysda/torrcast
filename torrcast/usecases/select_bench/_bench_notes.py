@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.recode_note import recode_note
 from torrcast.ports.journal.slot import journal
 from torrcast.usecases.choice.last_hope_note import last_hope_note
@@ -83,9 +84,6 @@ class _BenchNotes(_BenchHonest):
         """
         lang = heard(mute.found)
         journal().emit("select", "mute", release=mute.number, lang=lang, checked=tried)
-        print(
-            f"русской озвучки нет ни в одной из проверенных раздач ({tried}) - "
-            f"включаю релиз {mute.number}, звук {lang}"
-        )
+        print(phrase("select_bench.mute_fallback_note", tried=tried, number=mute.number, lang=lang))
         self._announce(plan, mute, queue, judged, reached)
         return mute

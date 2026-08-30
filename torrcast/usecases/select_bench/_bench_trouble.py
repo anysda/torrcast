@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.profile import COPY, REFUSE
 from torrcast.domain.recode_settings import RECODE_HEIGHT
 from torrcast.usecases.select._prep import _Prep
@@ -61,7 +62,7 @@ class _BenchTrouble(_BenchWork):
         if prep.error:
             return prep.error
         if prep.media is None or prep.video is None:
-            return "поток не прочитан"
+            return phrase("select.stream_not_read")
         if not pinned and warn_mbit > 0:
             peak = prep.media.weight_mbit(prep.video.size)
             ceiling = warn_mbit
@@ -69,12 +70,12 @@ class _BenchTrouble(_BenchWork):
             # приёмника. А потолок, опущенный по высоте кадра (RECODE_HEIGHT), -
             # это скорость перекода НАШЕЙ машины: кадр выше 1080p в реальное время
             # не укладывается, и винить тут приёмник - нечестно.
-            reason = "слишком тяжёлый для приёмника"
+            reason = phrase("select_bench.too_heavy_for_receiver")
             if hard_mbit > 0 and prep.media.height > RECODE_HEIGHT:
                 ceiling = min(warn_mbit, hard_mbit)
-                reason = "перекод такого кадра этой машине не по силам"
+                reason = phrase("select_bench.recode_beyond_machine")
             if peak > ceiling:
-                return f"{reason}, ~{peak:.0f} Мбит/с"
+                return phrase("select_bench.heavy_reason", reason=reason, peak=f"{peak:.0f}")
         # ⚠️ Имя кодека тут не последнее слово: Hi10P зовётся ``h264``, а приёмник его не
         # берёт (:meth:`torrcast.domain.profile.Profile.verdict`). При выключенном перекодировании
         # такой релиз - честный отказ отбора наравне с HEVC, и назван он своим именем:
@@ -102,5 +103,5 @@ class _BenchTrouble(_BenchWork):
         if prep.media.frame > self.profile.recode_frame and self.profile.plays_copy(
             prep.media.video or "", prep.media.depth
         ):
-            return f"{prep.media.quality} - такой кадр приёмнику только через перекод"
+            return phrase("select_bench.frame_needs_recode", quality=prep.media.quality)
         return codec

@@ -2,6 +2,8 @@
 
 from dataclasses import replace
 
+import pytest
+
 from tests.usecases.select_bench.world import RUNTIME, Said, Torrents, plan, probes, rel
 from torrcast.domain.args import Args
 from torrcast.domain.media import Media
@@ -11,6 +13,11 @@ from torrcast.ports.json_value import JsonValue
 from torrcast.usecases.select._prep import _Prep
 from torrcast.usecases.select_bench._bench_supply import _bench_supply
 from torrcast.usecases.select_bench.bench import Bench
+
+
+@pytest.fixture(autouse=True)
+def _russian_ladder(_russian_product: None) -> None:
+    """Предмет модуля - русская строка снабжения уже прогретого кандидата."""
 
 
 class _DifferentSupply(Torrents):

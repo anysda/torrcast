@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.server_down_error import ServerDownError
 from torrcast.ports.progress.progress import Progress
@@ -72,8 +73,12 @@ class _BenchRecheck(_BenchNotes):
         if self.clock() + self.meta_budget + self.probe_budget + 5.0 > deadline:
             return None  # честный второй спрос в остаток бюджета фазы уже не влезает
         print(
-            f"промолчала вся очередь ({len(queue)}) - спрашиваю релиз {number} "
-            f"ещё раз, одного и без отсрочек (жду до {self.meta_budget + self.probe_budget:g} с)"
+            phrase(
+                "select_bench.recheck_note",
+                total=len(queue),
+                number=number,
+                budget=f"{self.meta_budget + self.probe_budget:g}",
+            )
         )
         # Прогрев, оборванный отсрочкой, уже забыт вместе с раздачей: спрашиваем заново.
         self.preps.pop((key, number), None)
@@ -82,7 +87,9 @@ class _BenchRecheck(_BenchNotes):
         self._wait(
             prep,
             progress,
-            prefix=f"ищу русскую озвучку: релиз {queue.index(number) + 1} из {len(queue)} - ",
+            prefix=phrase(
+                "select_bench.voice_search_phase", number=queue.index(number) + 1, total=len(queue)
+            ),
         )
         progress.phase("")
         if isinstance(prep.failure, ServerDownError):
@@ -100,8 +107,19 @@ class _BenchRecheck(_BenchNotes):
                 _did_not_answer(number, trouble)
             else:
                 _turned_down(judged, number, trouble)
-            result = "молчит и в одиночку" if silent else "ответил в одиночку, но не годится"
-            print(f"релиз {number} {result} ({trouble})")
+            result = (
+                phrase("select_bench.recheck_result_alone_silent")
+                if silent
+                else phrase("select_bench.recheck_result_alone_unfit")
+            )
+            print(
+                phrase(
+                    "select_bench.recheck_result_note",
+                    number=number,
+                    result=result,
+                    trouble=trouble,
+                )
+            )
             self._forget(prep)
             return None
         if not args.pinned and voice_unproven(prep.found, native=plan.picture.native):
@@ -111,8 +129,8 @@ class _BenchRecheck(_BenchNotes):
             # что и в обходе очереди, - подставлять первую дорожку файла молча нельзя.
             if prep.found.foreign:
                 return self._mute_fallback(plan, prep, queue, judged, len(queue), len(queue))
-            _turned_down(judged, number, "без русской озвучки")
-            print(f"релиз {number} ответил в одиночку, но без русской озвучки")
+            _turned_down(judged, number, phrase("select_bench.reason_no_russian_voice"))
+            print(phrase("select_bench.recheck_no_voice_note", number=number))
             self._forget(prep)
             return None
         # Проверки честности (:meth:`_honest`) тут нет по той же причине, что и на запасном

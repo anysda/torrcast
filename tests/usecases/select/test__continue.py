@@ -15,6 +15,11 @@ from torrcast.domain.exit_codes import EXIT_OK
 from torrcast.usecases.select._continue import _continue
 from torrcast.usecases.start_clock import _Clock
 
+
+@pytest.fixture(autouse=True)
+def _russian_ladder(_russian_product: None) -> None:
+    """Предмет модуля - продолжение по состоянию с русскими строками уступки поиску."""
+
 _SERIES: dict[str, object] = {
     "kind": "tv",
     "season": 1,

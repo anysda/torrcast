@@ -2,9 +2,15 @@
 
 from __future__ import annotations
 
+import pytest
+
 from tests.usecases.select.world import entry
 from torrcast.usecases.select._about import _about
 
+
+@pytest.fixture(autouse=True)
+def _russian_ladder(_russian_product: None) -> None:
+    """Предмет модуля - строка показа по записи состояния, читаемая по-русски."""
 
 def test_the_line_names_the_picture_the_episode_the_quality_and_the_voice() -> None:
     """Строка собирается из записи и ровно из неё: ни одного лишнего похода наружу."""

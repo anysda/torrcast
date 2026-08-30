@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from torrcast.domain._series import _Series
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.episode import Episode
 from torrcast.domain.info_hash import info_hash
 from torrcast.domain.map_episodes import map_episodes
@@ -79,8 +80,11 @@ class Plan(_PlanFields):
                 )
                 if number is None:
                     raise NotFoundError(
-                        f"показанного релиза {args.release} у «{self.picture.title}» "
-                        "в новой выдаче нет"
+                        phrase(
+                            "select.release_missing_new_listing",
+                            release=args.release,
+                            title=self.picture.title,
+                        )
                     )
                 return [number]
             if not 1 <= args.release <= len(self.ranked):
@@ -88,8 +92,12 @@ class Plan(_PlanFields):
                 # меню или назвал флагом --pick, - и отказ её называет. Безымянный счёт
                 # читался как счёт всей выдачи, а считался по одной картине из неё.
                 raise NotFoundError(
-                    f"у «{self.picture.title}» релизов {len(self.ranked)}, "
-                    f"номера {args.release} нет"
+                    phrase(
+                        "select.release_number_missing",
+                        title=self.picture.title,
+                        total=len(self.ranked),
+                        release=args.release,
+                    )
                 )
             return [args.release]
         queue = [

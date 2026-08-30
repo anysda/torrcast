@@ -16,6 +16,12 @@ from torrcast.usecases.select._prep import _Prep
 from torrcast.usecases.select.plan import Plan
 from torrcast.usecases.select_bench.bench import Bench
 
+
+@pytest.fixture(autouse=True)
+def _russian_ladder(_russian_product: None) -> None:
+    """Предмет модуля - русские строки обхода очереди отбора целиком."""
+
+
 _ASKED = Args(query=["кино"])
 _RUS = (AudioTrack(index=0, language="rus"),)
 

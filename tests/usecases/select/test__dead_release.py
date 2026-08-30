@@ -15,6 +15,11 @@ from torrcast.domain.worker_settings import WORKER_META
 from torrcast.usecases.select._dead_release import _dead_release
 from torrcast.usecases.select._voiced import _Voiced
 
+
+@pytest.fixture(autouse=True)
+def _russian_ladder(_russian_product: None) -> None:
+    """Предмет модуля - русский приговор записанной раздаче."""
+
 MOVIE = [TorrFile(0, "Кино/Кино.1080p.mkv", 8 * 1024**3), TorrFile(1, "Кино/cover.jpg", 1024)]
 
 

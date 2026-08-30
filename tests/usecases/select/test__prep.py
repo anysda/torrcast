@@ -11,6 +11,10 @@ from torrcast.domain.torr_file import TorrFile
 from torrcast.usecases.select._prep import _Prep
 
 
+@pytest.fixture(autouse=True)
+def _russian_ladder(_russian_product: None) -> None:
+    """Предмет модуля - русские отказы подготовки релиза, не дошедшей до результата."""
+
 def _prep() -> _Prep:
     return _Prep(number=1, release=release())
 

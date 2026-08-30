@@ -7,6 +7,7 @@ from contextlib import suppress
 from typing import Any, cast
 
 import torrcast.usecases.select_bench._bench_state as _bench_state
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.pick_settings import SWARM_GRACE
 from torrcast.domain.rank_settings import PEER_GRACE
 from torrcast.domain.torrcast_error import TorrcastError
@@ -25,7 +26,7 @@ class _BenchWork(_BenchCore):
     def _work(self, plan: Plan, prep: _Prep) -> None:
         """Фоновая подготовка: раздача в TorrServer, метаданные по DHT, ffprobe."""
         try:
-            prep.phase = "метаданные (DHT)"
+            prep.phase = phrase("select_bench.phase_metadata_dht")
             prep.torrent_hash = self.torrserver.add(prep.release.magnet)
             files = self.torrserver.wait_files(
                 prep.torrent_hash,
@@ -37,7 +38,7 @@ class _BenchWork(_BenchCore):
             prep.meta = self.clock() - prep.started
             journal().mark("метаданные", релиз=prep.number, картина=plan.picture.key)
             prep.video = self.choose(plan, prep.release, files)
-            prep.phase = "дорожки"
+            prep.phase = phrase("select.phase_tracks")
             began = self.clock()
             source = self.torrserver.stream_url(prep.torrent_hash, prep.want.index)
             # Всё, что показ прочитает из роя первым, читается здесь и сейчас: карта
@@ -64,11 +65,11 @@ class _BenchWork(_BenchCore):
             self._voice_apart(prep, plan)
             self._sample_supply(prep)
             journal().mark("ffprobe", релиз=prep.number, картина=plan.picture.key)
-            prep.phase = "готово"
+            prep.phase = phrase("select_bench.phase_done")
         except TorrcastError as exc:
             prep.error = str(exc)
             prep.failure = exc
-            prep.phase = "сбой"
+            prep.phase = phrase("select_bench.phase_failed")
         finally:
             prep.ready.set()
             if prep.dropped:  # пока грелись, показ ушёл к другому релизу
@@ -137,7 +138,9 @@ class _BenchWork(_BenchCore):
         while not prep.ready.wait(0.2):
             progress.phase(f"{prefix}{prep.phase}")
             if self.clock() > deadline:  # поток сам не уложился - не ждём вечно
-                prep.error = prep.error or f"фаза «{prep.phase}» не уложилась в бюджет"
+                prep.error = prep.error or phrase(
+                    "select_bench.phase_missed_budget", phase=prep.phase
+                )
                 return
 
     def _peek(self, prep: _Prep, progress: Progress, deadline: float, phase: str) -> bool:

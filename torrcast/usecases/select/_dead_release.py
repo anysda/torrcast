@@ -5,6 +5,7 @@ from __future__ import annotations
 import time
 
 import torrcast.usecases.select._pick_state as _pick_state
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.config import Config
 from torrcast.domain.entry import Entry
 from torrcast.domain.swarm_error import SwarmError
@@ -62,7 +63,7 @@ def _dead_release(config: Config, entry: Entry, own: _Voiced) -> str:
     started = time.monotonic()
     try:
         with progress_bar() as progress:
-            progress.phase("раздача")
+            progress.phase(phrase("select.phase_release"))
             own.torrent_hash = torrent_hash = torrserver.add(entry.magnet)
             files = torrserver.wait_files(torrent_hash, timeout=WORKER_META)
     except SwarmError as refused:
@@ -74,7 +75,7 @@ def _dead_release(config: Config, entry: Entry, own: _Voiced) -> str:
         if any(found.index == entry.file_idx for found in files):
             verdict, how, why = "", "жива", ""
         else:
-            verdict = f"файла №{entry.file_idx} в ней больше нет"
+            verdict = phrase("select.file_gone", index=entry.file_idx)
             how, why = "похоронена", verdict
     journal().mark(
         "записанная раздача",

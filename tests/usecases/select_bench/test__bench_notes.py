@@ -11,6 +11,11 @@ from torrcast.domain.torr_file import TorrFile
 from torrcast.usecases.select._prep import _Prep
 from torrcast.usecases.select_bench.bench import Bench
 
+
+@pytest.fixture(autouse=True)
+def _russian_ladder(_russian_product: None) -> None:
+    """Предмет модуля - русские строки перед стартом и запасного хода."""
+
 GB = 1024**3
 
 

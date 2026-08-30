@@ -6,6 +6,7 @@ import threading
 import time
 from dataclasses import dataclass, field
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.media import Media
 from torrcast.domain.release import Release
@@ -55,7 +56,7 @@ class _Prep:
     #: Отсрочка первого контакта с роем (:class:`torrcast.ports.contact_wait.ContactWait`);
     #: заводит её стенд, а часы пускает вопрос к этому релизу.
     contact_wait: ContactWait | None = None
-    phase: str = "очередь"
+    phase: str = field(default_factory=lambda: phrase("select.phase_queue"))
     started: float = field(default_factory=time.monotonic)
     meta: float = 0.0
     read: float = 0.0
@@ -67,13 +68,13 @@ class _Prep:
     @property
     def want(self) -> TorrFile:
         if self.video is None:
-            raise InfraError("файл раздачи не выбран")
+            raise InfraError(phrase("select.no_file_chosen"))
         return self.video
 
     @property
     def found(self) -> Media:
         if self.media is None:
-            raise InfraError("поток не прочитан")
+            raise InfraError(phrase("select.stream_not_read"))
         return self.media
 
     @property
@@ -100,4 +101,4 @@ class _Prep:
 
     @property
     def timing(self) -> str:
-        return f"метаданные {self.meta:.1f} с, дорожки {self.read:.1f} с"
+        return phrase("select.timing", meta=f"{self.meta:.1f}", read=f"{self.read:.1f}")

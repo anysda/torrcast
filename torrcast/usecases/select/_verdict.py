@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.swarm_error import SwarmError
 from torrcast.ports.journal.slot import journal
 from torrcast.usecases.select._prep import _Prep
@@ -36,7 +37,9 @@ def _waiting_note(prep: _Prep, why: str) -> str:
     if not _silenced(prep):
         return why
     matched = re.search(r"за (\d+) с", why)
-    return f"не дождались за {matched.group(1)} с" if matched else "не дождались"
+    if matched:
+        return phrase("select.timed_out", secs=matched.group(1))
+    return phrase("select.gave_up")
 
 
 def _silenced(prep: _Prep | None) -> bool:

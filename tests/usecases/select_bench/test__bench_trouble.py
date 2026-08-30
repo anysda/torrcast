@@ -2,11 +2,19 @@
 
 from __future__ import annotations
 
+import pytest
+
 from tests.usecases.select_bench.world import RUNTIME, Torrents, probes, rel
 from torrcast.domain.media import Media
 from torrcast.domain.torr_file import TorrFile
 from torrcast.usecases.select._prep import _Prep
 from torrcast.usecases.select_bench.bench import Bench
+
+
+@pytest.fixture(autouse=True)
+def _russian_ladder(_russian_product: None) -> None:
+    """Предмет модуля - русские приговоры релизу по прочитанному паспорту."""
+
 
 GB = 1024**3
 

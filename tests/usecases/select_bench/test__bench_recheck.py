@@ -10,6 +10,11 @@ from torrcast.domain.audio_track import AudioTrack
 from torrcast.domain.media import Media
 from torrcast.usecases.select_bench.bench import Bench
 
+
+@pytest.fixture(autouse=True)
+def _russian_ladder(_russian_product: None) -> None:
+    """Предмет модуля - русские строки второго спроса промолчавшей очереди."""
+
 _ASKED = Args(query=["кино"])
 _RUS = (AudioTrack(index=0, language="rus"),)
 

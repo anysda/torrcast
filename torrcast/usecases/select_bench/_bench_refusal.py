@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import NoReturn
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.pick_settings import MAX_TRIES
 from torrcast.usecases.discover.kin_line import kin_line
@@ -43,23 +44,24 @@ def _bench_refusal(
     остаётся прежний: очередь кончилась - другой запрос, не кончилась - выбор руками.
     """
     shown = "; ".join(tried[:MAX_TRIES])
-    more = f" и ещё {len(tried) - MAX_TRIES}" if len(tried) > MAX_TRIES else ""
+    rest = len(tried) - MAX_TRIES
+    more = phrase("select_bench.more_tried", count=rest) if rest > 0 else ""
     offer = kin_line(plan.kin)
     tail = f"\n{offer}" if offer else ""
     if silents == len(tried) and tried:
         raise NotFoundError(
             silent_swarm(plan, queue, len(tried), f"{shown}{more}", picked=picked) + tail
         )
-    refused = f"годного релиза нет ({shown}{more})"
+    refused = phrase("select_bench.refusal_none_fit", shown=shown, more=more)
     if tried and voiceless == len(tried):
-        refused = f"русской озвучки нет ни в одной из проверенных раздач ({len(tried)})"
+        refused = phrase("select_bench.refusal_no_voice", count=len(tried))
     if exhausted and len(set(queue)) == len(plan.ranked):
         if offer:
             raise NotFoundError(refused + tail)
-        raise NotFoundError(
-            refused + ": назови картину иначе - другой запрос соберёт другую выдачу"
-        )
-    move = "выбери другой релиз" if picked is not None else "выбери руками"
-    raise NotFoundError(
-        f"{refused}: {move} - cast releases <запрос>, потом cast <запрос> --release N" + tail
+        raise NotFoundError(phrase("select_bench.refusal_rename_hint", refused=refused))
+    move = (
+        phrase("discover.swarm_pick_other")
+        if picked is not None
+        else phrase("discover.swarm_pick_manual")
     )
+    raise NotFoundError(phrase("select_bench.refusal_move_note", refused=refused, move=move) + tail)

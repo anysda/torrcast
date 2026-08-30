@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from tests.usecases.select.world import release
 from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.swarm_error import SwarmError
@@ -15,6 +17,11 @@ from torrcast.usecases.select._verdict import (
     _turned_down,
     _waiting_note,
 )
+
+
+@pytest.fixture(autouse=True)
+def _russian_ladder(_russian_product: None) -> None:
+    """Предмет модуля - русские приговоры отбора и русская осечка терпения."""
 
 
 class _Noted(Silent):

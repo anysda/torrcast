@@ -9,6 +9,11 @@ from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.picture import Picture
 from torrcast.usecases.select_bench._bench_refusal import _bench_refusal
 
+
+@pytest.fixture(autouse=True)
+def _russian_ladder(_russian_product: None) -> None:
+    """Предмет модуля - русские строки отказа обхода очереди отбора."""
+
 _RANKED = [rel(name=f"r{n}", seeders=100 - n) for n in range(3)]
 
 

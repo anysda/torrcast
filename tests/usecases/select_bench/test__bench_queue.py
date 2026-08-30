@@ -9,6 +9,11 @@ from torrcast.domain.args import Args
 from torrcast.domain.not_found_error import NotFoundError
 from torrcast.usecases.select_bench._bench_queue import _bench_queue
 
+
+@pytest.fixture(autouse=True)
+def _russian_ladder(_russian_product: None) -> None:
+    """Предмет модуля - русская строка описи очереди отбора."""
+
 _ASKED = Args(query=["кино"])
 
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.config import Config
 from torrcast.domain.entry import Entry
 from torrcast.usecases.playback._launch import _launch, _resume
@@ -77,9 +78,7 @@ def _continue(
                 return None  # серии в этой раздаче нет - честно идём искать релиз сезона
             entry = jumped
         elif entry.done:  # конец раздачи: сама собой следующая серия не появится
-            print(
-                f"«{entry.title}» - {entry.label} была последней в раздаче, поэтому играю с начала"
-            )
+            print(phrase("select.replay_from_start", title=entry.title, label=entry.label))
             first = entry.episodes[0]
             entry = entry.jump(first[0], first[1]) or entry
         if _buried(config, entry, args, own, dead):
@@ -114,6 +113,6 @@ def _buried(
         return False
     args.bury(entry.magnet)
     named = f" {entry.label}" if entry.label else ""
-    place = f" с {_hms(entry.pos)}" if entry.pos > 0 else ""
-    print(f"«{entry.title}»{named} - записанная раздача не играется: {why}; ищу другую{place}")
+    place = phrase("select.buried_place", pos=_hms(entry.pos)) if entry.pos > 0 else ""
+    print(phrase("select.buried_note", title=entry.title, named=named, why=why, place=place))
     return True
