@@ -12,6 +12,8 @@ from __future__ import annotations
 from dataclasses import replace
 
 from tests.usecases.choice.world import film, plan
+from torrcast.domain.compose import _compose
+from torrcast.domain.release import Release
 from torrcast.usecases.choice.asked_season import asked_season
 
 
@@ -91,3 +93,34 @@ def test_a_picture_that_named_no_season_at_all_does_not_pass_by_names() -> None:
     ]
 
     assert asked_season(psycho, [1, 2]) == [1, 2]
+
+
+def test_the_first_season_passes_the_narrow_gate_the_minority_number_used_to_shut() -> None:
+    """🔴 TC-859. Тот же случай, но корнем: у картины больше нет чужого номера части.
+
+    Ступень имён (TC-856) закрыла симптом - подмену сезона, а меню всё равно приезжало
+    целиком: по номерам не проходил НИКТО, и узкие ворота отступали к «считаем как
+    считали». Теперь семь имён из тридцати картину частью не подписывают
+    (:func:`~torrcast.domain.part_of_picture.part_of_picture`), и первый сезон проходит
+    ПЕРВОЙ ступенью - той, где сезон и решается, а не последней уступкой.
+    """
+    group = [Release(raw_name="Mob Psycho 100 III", title="Mob Psycho 100 III") for _ in range(7)]
+    group += [
+        Release(
+            raw_name="Моб Психо 100", title="Моб Психо 100", original="Mob Psycho 100", season=1
+        )
+        for _ in range(23)
+    ]
+    psycho = [
+        plan("Моб Психо 100", 2018, kind="tv", part=2, season=1, asked_series=True),
+        plan(
+            "Моб Психо 100",
+            2016,
+            kind="tv",
+            part=_compose("tv", 2016, group).part,
+            season=1,
+            asked_series=True,
+        ),
+    ]
+
+    assert asked_season(psycho, [1, 2]) == [2]

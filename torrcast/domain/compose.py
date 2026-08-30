@@ -9,6 +9,7 @@ from torrcast.domain.alias_slugs import _alias_slugs
 from torrcast.domain.by_majority import by_majority
 from torrcast.domain.kind import Kind
 from torrcast.domain.part_number import part_number
+from torrcast.domain.part_of_picture import part_of_picture
 from torrcast.domain.picture import Picture
 from torrcast.domain.release import Release
 
@@ -19,12 +20,15 @@ def _compose(kind: Kind, year: int | None, group: list[Release], also: str = "")
     originals = Counter(r.original for r in group if r.original)
     parts = Counter(n for r in group if (n := part_number(r.title)) is not None)
     original = by_majority(originals) if originals else None
+    # Счёт по номерным именам даёт лишь ПРЕТЕНДЕНТА: знаменатель тут не все раздачи
+    # картины, и меньшинство имён вправе назвать её чужой частью (TC-859).
+    counted = min(parts, key=lambda n: (-parts[n], n)) if parts else None
     return Picture(
         title=title,
         year=year,
         kind=kind,
         original=original,
-        part=min(parts, key=lambda n: (-parts[n], n)) if parts else None,
+        part=part_of_picture(counted, title, original, group),
         also=also,
         aliases=_alias_slugs(group, title, original),
         releases=group,
