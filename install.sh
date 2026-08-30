@@ -522,13 +522,15 @@ late_run() {  # $1/$2 - английское/русское имя, дальше
     install -d -m 0755 "$(dirname "$LATE_LOG")"
     (
         trap '' HUP
-        printf '%s | начал: %s\n' "$(date '+%F %T')" "$note"
+        if [ "$LANGUAGE" = ru ]; then w_start=начал; w_done=готово; w_fail="НЕ вышло"; w_tail="на показ не влияет"
+        else w_start=started; w_done=done; w_fail="FAILED"; w_tail="playback is not affected"; fi
+        printf '%s | %s: %s\n' "$(date '+%F %T')" "$w_start" "$note"
         # Итог пишем в обеих ветках: догрев не обязан удаться, но обязан сказать.
         # 🔴 TC-638. Тело идёт под голым `set -e`, а ветку «не вышло» пишет ловушка
         # EXIT по коду подоболочки: прежний `if "$@"` выключал errexit на всю глубину
         # вызова, и сбой посреди догрева проглатывался - тело ехало дальше по битым
         # данным, а журнал рапортовал «готово».
-        trap 'rc=$?; if [ "$rc" -eq 0 ]; then printf "%s | готово: %s\n" "$(date "+%F %T")" "$note"; else printf "%s | НЕ вышло (код %s): %s - на показ не влияет\n" "$(date "+%F %T")" "$rc" "$note"; fi' EXIT
+        trap 'rc=$?; if [ "$rc" -eq 0 ]; then printf "%s | %s: %s\n" "$(date "+%F %T")" "$w_done" "$note"; else printf "%s | %s (%s): %s - %s\n" "$(date "+%F %T")" "$w_fail" "$rc" "$note" "$w_tail"; fi' EXIT
         "$@"
     ) >>"$LATE_LOG" 2>&1 </dev/null &
     printf '%s\n' "$note" >>"$LATE_NOTES"
@@ -3127,7 +3129,8 @@ ui_build_status() { # $1 pct  $2 frame -> STATUS
   # процент. Имена фаз короткие и заданы тут же, длину никто не меряет: с
   # выключенным автозаворотом лишнее обрежет край окна, а не перенос строки.
   if (( TCOLS >= 70 )) && [ -n "$UI_PHASE" ]; then
-    left+="  ${DIMG}фаза ${UI_DONE}/${UI_TOTAL}: ${UI_PHASE}${NC}"
+    local word; if [ "$LANGUAGE" = ru ]; then word=фаза; else word=phase; fi
+    left+="  ${DIMG}${word} ${UI_DONE}/${UI_TOTAL}: ${UI_PHASE}${NC}"
   fi
 
   local tail
@@ -3425,12 +3428,18 @@ ui_collapse() {  # анимация разваливается: показать
     # Причина печатается ВСЕГДА и последней строкой, даже если она уже есть в
     # журнале выше: журнал может быть обрезан на полуслове, а спрятать причину
     # анимация не вправе.
-    printf '%sошибка:%s %s\n' "${CSI}31m" "$NC" "$UI_DIE_MSG" >&2
+    local word; if [ "$LANGUAGE" = ru ]; then word=ошибка; else word=error; fi
+    printf '%s%s:%s %s\n' "${CSI}31m" "$word" "$NC" "$UI_DIE_MSG" >&2
   else
     # Работник упал не через `die` (голый errexit, сигнал, недобранная фаза) -
     # молчать про это нельзя тем более.
-    printf '%sошибка:%s установка оборвалась (код %s, закрыто фаз %s из %s) - причина в строках выше\n' \
-      "${CSI}31m" "$NC" "$UI_RC" "$UI_DONE" "$UI_TOTAL" >&2
+    if [ "$LANGUAGE" = ru ]; then
+      printf '%sошибка:%s установка оборвалась (код %s, закрыто фаз %s из %s) - причина в строках выше\n' \
+        "${CSI}31m" "$NC" "$UI_RC" "$UI_DONE" "$UI_TOTAL" >&2
+    else
+      printf '%serror:%s installation broke off (code %s, %s of %s phases closed) - the reason is in the lines above\n' \
+        "${CSI}31m" "$NC" "$UI_RC" "$UI_DONE" "$UI_TOTAL" >&2
+    fi
   fi
   return 0
 }

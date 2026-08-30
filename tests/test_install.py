@@ -436,8 +436,15 @@ def _late_settled(box: Path, timeout: float = 30.0) -> str:
     while time.monotonic() < deadline:
         if log.exists():
             text = log.read_text(encoding="utf-8")
-            began = text.count(" | начал: ")
-            ended = text.count(" | готово: ") + text.count(" | НЕ вышло ")
+            # Слова догрева двуязычны, как и весь вывод установки: считаются оба
+            # набора, иначе замер зависел бы от языка стенда, а не от догрева.
+            began = text.count(" | начал: ") + text.count(" | started: ")
+            ended = (
+                text.count(" | готово: ")
+                + text.count(" | done: ")
+                + text.count(" | НЕ вышло ")
+                + text.count(" | FAILED ")
+            )
             if began and began == ended:
                 return text
         time.sleep(0.05)
