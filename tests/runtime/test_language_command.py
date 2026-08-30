@@ -15,6 +15,7 @@ from torrcast.domain.args import Args
 from torrcast.domain.catalogs.tongue import tongue
 from torrcast.domain.config import Config
 from torrcast.runtime.language_command import language_command
+from torrcast.runtime.wire import wire
 
 
 def test_the_choice_is_written_to_the_settings_and_named_aloud(
@@ -94,6 +95,7 @@ def test_the_named_work_in_the_same_run_already_speaks_the_new_language() -> Non
     человек прочитал бы «язык: русский» и следом английское меню, а до русского дожил бы
     только следующий запуск.
     """
+    wire()
     assert language_command("ru") == 0
     assert tongue() == "ru"
 

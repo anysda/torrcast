@@ -2,10 +2,15 @@
 
 from pytest import MonkeyPatch
 
-from tgbot.i18n import LANGUAGE_ENV, i18n
+from tgbot.i18n import i18n
 
 
-def test_english_is_default_and_environment_is_the_tc929_seam(monkeypatch: MonkeyPatch) -> None:
+def test_english_is_default_and_russian_is_explicit() -> None:
     assert i18n("invalid_choice") == "Unknown menu step."
-    monkeypatch.setenv(LANGUAGE_ENV, "ru")
-    assert i18n("invalid_choice") == "Нет такого шага меню."
+    assert i18n("invalid_choice", "ru") == "Нет такого шага меню."
+
+
+def test_the_environment_cannot_choose_the_default(monkeypatch: MonkeyPatch) -> None:
+    monkeypatch.setenv("TORRCAST_LANGUAGE", "ru")
+
+    assert i18n("invalid_choice") == "Unknown menu step."

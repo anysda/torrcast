@@ -37,8 +37,6 @@ case "$LANGUAGE" in
     en|ru) ;;
     *) printf 'error: TORRCAST_LANGUAGE must be en or ru\n' >&2; exit 2 ;;
 esac
-export TORRCAST_LANGUAGE="$LANGUAGE"
-
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PREFIX="${TORRCAST_PREFIX:-/opt/torrcast}"
 CONFIG_DIR="${TORRCAST_CONFIG_DIR:-/etc/torrcast}"

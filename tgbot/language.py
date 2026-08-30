@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from torrcast.adapters.filesystem.state.load_config import load_config
-from torrcast.domain.torrcast_error import TorrcastError
+from torrcast.adapters.filesystem.state.chosen_language import chosen_language
 
 
 def language() -> str:
@@ -17,7 +16,4 @@ def language() -> str:
     отказ читать настройку человек всё равно увидит словом, потому что на битом файле
     падает сама команда, и бот назовёт её отказ (``failed``).
     """
-    try:
-        return load_config().language
-    except TorrcastError:
-        return "en"
+    return chosen_language()

@@ -6,14 +6,14 @@
 """
 
 from torrcast.adapters.console.console.progress import Progress
+from torrcast.adapters.filesystem.state.chosen_language import chosen_language
 from torrcast.adapters.filesystem.state.file_state_store import FileStateStore
 from torrcast.adapters.filesystem.state.load_config import load_config
 from torrcast.adapters.filesystem.trace_journal.file_journal import FileJournal
 from torrcast.adapters.health.system_health_environment import SystemHealthEnvironment
 from torrcast.adapters.systemd.transient_show_unit import TransientShowUnit
 from torrcast.adapters.warm_environment import environment as warm_environment
-from torrcast.domain.catalogs.tongue import EN, _choose_tongue
-from torrcast.domain.torrcast_error import TorrcastError
+from torrcast.domain.catalogs.tongue import _follow_tongue
 from torrcast.ports.journal.slot import install as install_journal
 from torrcast.ports.progress.slot import install as install_progress
 from torrcast.ports.show_unit.slot import install as install_unit
@@ -36,16 +36,11 @@ def wire() -> None:
     # умеет упасть (битый JSON, неведомый язык), а отказу сборки есть куда записаться
     # только если писатель следа уже на месте (TC-929, заход 4).
     install_journal(FileJournal())
-    # Язык надписей приходит каталогу отсюда же: домен настройку не читает, а спросить
-    # её в месте показа значило бы завести файловый ввод-вывод в каждой строке.
-    # Битая настройка не даёт выбрать оформление, поэтому берём английский -
-    # ровно как :func:`tgbot.language.language`. Сам отказ не проглочен: команда,
-    # которой нужна настройка, прочтёт её сама и назовёт человеку тот же отказ.
-    try:
-        language = load_config().language
-    except TorrcastError:
-        language = EN
-    _choose_tongue(language)
+    # Домен не знает о файле, но спрашивает один общий держатель при каждой надписи:
+    # бот живёт долго, и внешний ``cast --ru`` обязан подействовать без рестарта.
+    # Ошибка чтения превращается в английское оформление внутри самого держателя;
+    # команда, которой нужна настройка, всё равно прочтёт её сама и назовёт отказ.
+    _follow_tongue(chosen_language)
     install_progress(Progress)
     install_state(FileStateStore())
     install_unit(TransientShowUnit())

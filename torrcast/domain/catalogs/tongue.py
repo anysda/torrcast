@@ -1,13 +1,13 @@
 """Язык, на котором продукт говорит прямо сейчас.
 
-Настройку читает композиционный корень (:func:`torrcast.runtime.wire.wire`) и кладёт
-выбранное сюда; каталог надписей (:func:`torrcast.domain.catalogs.phrase.phrase`)
-спрашивает язык отсюда. Читать конфиг в местах показа нельзя: слой домена не ходит в файлы, а
-надпись обязана собираться и там, где никакого файла настроек нет вовсе.
+Композиционный корень (:func:`torrcast.runtime.wire.wire`) кладёт сюда функцию выбора;
+каталог надписей (:func:`torrcast.domain.catalogs.phrase.phrase`) спрашивает её заново.
+Сам слой домена в файл не ходит, а без собранного внешнего мира говорит по-английски.
 """
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Final
 
 from torrcast.domain.torrcast_error import TorrcastError
@@ -19,25 +19,27 @@ from torrcast.domain.torrcast_error import TorrcastError
 RU: Final = "ru"
 EN: Final = "en"
 
+
 #: Умолчание совпадает с умолчанием настройки
 #: (:attr:`torrcast.domain.config.Config.language`): английский - и язык, и запасной
 #: каталог. Модуль, у которого корень не спросил ничего, говорит по-английски, а не
 #: падает: язык - настройка показа, а не условие работы.
-_TONGUE = EN
+def _english() -> str:
+    return EN
+
+
+_TONGUE: Callable[[], str] = _english
 
 
 def tongue() -> str:
     """Код языка, на котором собираются надписи."""
-    return _TONGUE
+    return _TONGUE()
 
 
 def _choose_tongue(language: str) -> None:
-    """Назначить язык надписей; зовёт корень и команда ``cast --ru`` / ``cast --en``.
+    """Назначить фиксированный язык надписей несобранному домену и его тестам.
 
-    Слот переназначаем в любой момент жизни процесса, а не только при старте: это
-    обычный сеттер, а не одноразовая раскладка при импорте. Долгоживущий вызывающий
-    (скажем, будущий общий держатель языка бота и консоли, TC-929) вправе звать эту же
-    функцию перед каждым ответом - ничего в устройстве слота такое не запрещает.
+    Живой процесс получает свежий держатель через :func:`_follow_tongue`.
 
     🔴 Опечатка в настройке (скажем, ``"de"``, вручную правленный файл) раньше тихо
     вырождалась бы в английский через запасной каталог (:func:`torrcast.domain.
@@ -52,4 +54,17 @@ def _choose_tongue(language: str) -> None:
         raise TorrcastError(
             f"неизвестный язык настройки {language!r}: набор говорит только {RU!r} и {EN!r}"
         )
-    _TONGUE = language
+
+    def fixed() -> str:
+        return language
+
+    _TONGUE = fixed
+
+
+def _follow_tongue(chosen: Callable[[], str]) -> None:
+    """Брать язык из одного свежего держателя при каждой надписи."""
+    global _TONGUE
+    # Проверить договор поставщика до установки, не превращая его первое значение в
+    # снимок: дальше ``tongue`` продолжит звать саму функцию.
+    _choose_tongue(chosen())
+    _TONGUE = chosen
