@@ -115,7 +115,12 @@ TRANSLATION_DEBT: Final = {
     "torrcast/adapters/stream_probe/pick_video_file.py": 1,
     "torrcast/adapters/stream_probe/run_ffprobe.py": 1,
     "torrcast/adapters/stream_probe/supply.py": 3,
+    # Оба OSError идут в нитку нижнего уровня похода в Википедию, а её глотает вызывающий
+    # (`torrcast.usecases.lookers.Lookers.looker`: `with contextlib.suppress(Exception)`,
+    # `torrcast.adapters.wiki.wiki_blurbs.WikiBlurbs.fetch`: `except OSError`) - до
+    # человека строка не доходит ни разу, переводить нечего.
     "torrcast/adapters/wiki/http_json_client.py": 2,
+    # Тот же путь: собирает её `wiki_blurbs.fetch`'s `except OSError`, экран не видит.
     "torrcast/adapters/wiki/wiki_extracts.py": 1,
     "torrcast/usecases/cache_reserve.py": 8,
     "torrcast/usecases/cast_command/_account_watched.py": 3,
