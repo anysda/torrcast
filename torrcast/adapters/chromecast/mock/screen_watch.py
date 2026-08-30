@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import contextlib
 from collections.abc import Callable
 
 from torrcast.adapters.chromecast.mock.hls_decoder import HlsDecoder
@@ -13,7 +12,9 @@ from torrcast.domain.patience import Patience
 from torrcast.domain.position import Position
 from torrcast.domain.profile import Profile
 from torrcast.domain.reception_report import ReceptionReport
+from torrcast.domain.why import why
 from torrcast.ports.clock import Clock
+from torrcast.ports.journal.slot import journal
 
 
 class ScreenWatch:
@@ -112,6 +113,28 @@ class ScreenWatch:
             return False
         if self.patience.retry_due(dark, self.loads):
             self.loads += 1
-            with contextlib.suppress(InfraError, OSError):
-                self.reopen(pos)  # источника всё ещё нет - терпим дальше
+            self.retry(pos)
         return True
+
+    def retry(self, pos: float) -> None:
+        """Перезабрать кусок самому - и сказать в ленту, что перезабор был и чем кончился.
+
+        🔴 Молчать тут нельзя. Перезабор не гасит показ и снаружи ничем себя не выдаёт,
+        поэтому лента - единственное место, где он вообще существует: без записи замер,
+        считающий по ней, видит один заход там, где их было четыре, а пустота «перезаборов
+        не было» неотличима от пустоты «все перезаборы легли».
+
+        Отказ называется теми же словами, что и у подъёма
+        (:func:`torrcast.adapters.chromecast.mock.mock_replay.mock_replay`): сухую ленту
+        затем и читают, чтобы судить о живой, и разводить в ней словари незачем.
+
+        ⚠️ ``ok`` тут - «перезабор ушёл», а НЕ «картинка вернулась». Вернулась она или нет,
+        решает следующий опрос экрана: назвать отправленный запрос картинкой значило бы
+        соврать ровно там, где живой тракт врать уже перестал.
+        """
+        said = ""
+        try:
+            self.reopen(pos)
+        except (InfraError, OSError) as exc:
+            said = f"упал: {why(exc)}"  # источника всё ещё нет - терпим дальше
+        journal().refetch(pos=pos, tries=self.loads, ok=not said, why=said)

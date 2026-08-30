@@ -14,6 +14,7 @@ from torrcast.adapters.filesystem.trace_journal.nudge import nudge
 from torrcast.adapters.filesystem.trace_journal.offline import offline
 from torrcast.adapters.filesystem.trace_journal.plan import plan
 from torrcast.adapters.filesystem.trace_journal.records import records
+from torrcast.adapters.filesystem.trace_journal.refetch import refetch
 from torrcast.adapters.filesystem.trace_journal.reload import reload
 from torrcast.adapters.filesystem.trace_journal.resupply import resupply
 from torrcast.adapters.filesystem.trace_journal.revive import revive
@@ -47,6 +48,7 @@ class FileJournal:
     segment = staticmethod(segment)
     plan = staticmethod(plan)
     reload = staticmethod(reload)
+    refetch = staticmethod(refetch)
     offline = staticmethod(offline)
     resupply = staticmethod(resupply)
     dark = staticmethod(dark)

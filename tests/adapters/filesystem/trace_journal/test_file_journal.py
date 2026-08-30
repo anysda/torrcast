@@ -44,6 +44,7 @@ def test_the_object_answers_the_whole_contract_the_layers_are_given() -> None:
         "segment",
         "plan",
         "reload",
+        "refetch",
         "offline",
         "resupply",
         "dark",

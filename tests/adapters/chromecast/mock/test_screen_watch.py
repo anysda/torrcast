@@ -70,7 +70,11 @@ def test_a_standing_picture_is_waited_out_and_then_the_show_is_dropped() -> None
 
 
 def test_the_receiver_retakes_the_piece_itself_before_it_gives_up() -> None:
-    """Внутри терпения приёмник перезабирает кусок сам - и показ этого не замечает."""
+    """Внутри терпения приёмник перезабирает кусок сам, не гася показ.
+
+    Что каждый такой перезабор уходит в ленту, держит отдельный сторож
+    (``test_refetch_is_on_the_tape``): тут меряется расписание попыток, а не рассказ о них.
+    """
     screen = _Screen(patience=30.0, retries=2)
     screen.at(300.0)
     screen.watch.read(front=400.0)

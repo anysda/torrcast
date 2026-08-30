@@ -32,6 +32,9 @@ class Tape(Silent):
     def reload(self, pos: float, tries: int, error: int | None = None) -> None:
         self.calls.append(("reload", {"pos": pos, "tries": tries, "error": error}))
 
+    def refetch(self, pos: float, tries: int, ok: bool, why: str = "") -> None:
+        self.calls.append(("refetch", {"pos": pos, "tries": tries, "ok": ok, "why": why}))
+
     def seek(self, frm: float, to: float, wait: float | None, why: str = "") -> None:
         self.calls.append(("seek", {"frm": frm, "to": to, "wait": wait, "why": why}))
 

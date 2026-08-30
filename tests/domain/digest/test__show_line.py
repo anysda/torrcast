@@ -91,6 +91,24 @@ def test_a_reload_tells_a_missing_code_apart_from_no_code_at_all() -> None:
     assert silent is not None and "код" not in silent
 
 
+def test_a_refetch_that_fell_says_so_and_one_that_went_out_stays_a_single_line() -> None:
+    """Перезабор куска - не погасший показ, и в выжимке он назван своим исходом.
+
+    Легший перезабор без причины в строке был бы неотличим от ушедшего, а именно этой
+    неразличимостью замер и считал один заход там, где их было четыре.
+    """
+    went = _show_line(rec("refetch", pos=300.0, tries=1, ok=True, why=""), STAMP, False)
+    fell = _show_line(
+        rec("refetch", pos=300.0, tries=2, ok=False, why="упал: приёмника нет в сети"),
+        STAMP,
+        False,
+    )
+
+    assert went is not None and "перезабор куска на 5:00 (попытка 1)" in went
+    assert "не вышло" not in went, "ушедший перезабор не смеет выглядеть отказом"
+    assert fell is not None and "не вышло: упал: приёмника нет в сети" in fell
+
+
 def test_a_show_that_never_gave_a_frame_is_not_called_extinguished_at_zero() -> None:
     """«Погас на 0:00:00» и «не дал ни кадра» - две разные аварии, и поле ``shown``
     их разделяет: первую человек успел посмотреть, вторая - «включил и не включилось»."""

@@ -86,6 +86,15 @@ def _show_line(rec: Mapping[str, JsonValue], stamp: str, seam: bool) -> str | No
             f"{stamp}приёмник отвалился на {_hms(json_number(rec.get('pos', 0.0)))}"
             f"{error} - повтор LOAD {rec.get('tries', 1)}"
         )
+    if event == "refetch":
+        # Показ тут не гас: приёмник переспросил источник внутри своего терпения. Исход
+        # берётся из ``ok``, а не из пустоты ``why``: пустая причина без него значила бы
+        # и «перезабор ушёл», и «исход не назвали».
+        end = "" if rec.get("ok") else f" - не вышло: {rec.get('why', 'причина не названа')}"
+        return (
+            f"{stamp}перезабор куска на {_hms(json_number(rec.get('pos', 0.0)))}"
+            f" (попытка {rec.get('tries', 1)}){end}"
+        )
     if event == "dark":
         # Поле shown разделяет две разные аварии: погасший показ человек успел
         # посмотреть, а показ без единого кадра - это «включил и не включилось»
