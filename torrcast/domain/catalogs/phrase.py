@@ -60,6 +60,8 @@ from torrcast.domain.catalogs.runtime.en import en as runtime_en
 from torrcast.domain.catalogs.runtime.ru import ru as runtime_ru
 from torrcast.domain.catalogs.screen.en import en as screen_en
 from torrcast.domain.catalogs.screen.ru import ru as screen_ru
+from torrcast.domain.catalogs.season.en import en as season_en
+from torrcast.domain.catalogs.season.ru import ru as season_ru
 from torrcast.domain.catalogs.select.en import en as select_en
 from torrcast.domain.catalogs.select.ru import ru as select_ru
 from torrcast.domain.catalogs.select_bench.en import en as select_bench_en
@@ -127,6 +129,7 @@ _CLUSTERS: Final = (
     (screen_en, screen_ru),
     (feed_en, feed_ru),
     (status_en, status_ru),
+    (season_en, season_ru),
 )
 
 

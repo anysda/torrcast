@@ -16,6 +16,7 @@ from tests.fakes.torrent_engine import FakeTorrentEngine
 from torrcast.domain._series import _Series
 from torrcast.domain.args import Args
 from torrcast.domain.audio_track import AudioTrack
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.config import Config
 from torrcast.domain.entry import Entry
 from torrcast.domain.episode import Episode
@@ -162,7 +163,9 @@ def test_a_missing_next_season_says_the_season_was_the_last(
     found = _next_season(Config(), KEY, FakeTorrentEngine(), CAUTIOUS, circle=circle)
 
     assert found is False
-    assert "«Сериал» - сезон 4 последний" in capsys.readouterr().out
+    marker = "@"
+    prefix = phrase("season.no_next_found", title="Сериал", season=4, err=marker).split(marker)[0]
+    assert prefix in capsys.readouterr().out
     entry = store().load().get(KEY)
     assert entry is not None and entry.done, "запись досмотренного сезона не тронута"
 
@@ -176,7 +179,9 @@ def test_a_picture_absent_from_the_answer_is_the_same_last_season(
     found = _next_season(Config(), KEY, FakeTorrentEngine(), CAUTIOUS, circle=lambda *_a, **_k: [])
 
     assert found is False
-    assert "сезон 4 последний" in capsys.readouterr().out
+    assert phrase(
+        "season.no_releases_found", title="Сериал", season=4, upcoming=5
+    ) in capsys.readouterr().out
 
 
 def test_a_season_that_cannot_be_played_names_the_refusal(
@@ -196,7 +201,9 @@ def test_a_season_that_cannot_be_played_names_the_refusal(
     )
 
     assert found is False
-    assert "сезон 5 не поднялся: рой мёртв" in capsys.readouterr().out
+    assert phrase(
+        "season.could_not_start", title="Сериал", upcoming=5, err="рой мёртв"
+    ) in capsys.readouterr().out
     assert bench.dropped == 1, "прогретое без показа убрано"
 
 

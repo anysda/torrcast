@@ -133,7 +133,6 @@ TRANSLATION_DEBT: Final = {
     "torrcast/usecases/configure.py": 5,
     "torrcast/usecases/doctor.py": 2,
     "torrcast/usecases/doctor_command.py": 2,
-    "torrcast/usecases/next_season.py": 5,
     "torrcast/usecases/reinforce/_as_is.py": 1,
     "torrcast/usecases/reinforce/_ceiling_reinforce.py": 4,
     "torrcast/usecases/reinforce/_foreign_note.py": 5,

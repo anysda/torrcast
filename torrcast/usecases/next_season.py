@@ -11,6 +11,7 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from torrcast.domain.args import Args
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.config import Config
 from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.profile import Profile
@@ -65,24 +66,37 @@ def _next_season(
     season = entry.season
     words = (entry.query or slugify(entry.title)).replace("-", " ").split()
     args = Args(query=[*words, f"s{season + 1}e1"])
-    print(f"«{entry.title}» - сезон {season} досмотрен, ищу сезон {season + 1}", flush=True)
+    print(
+        phrase("season.searching_next", title=entry.title, season=season, upcoming=season + 1),
+        flush=True,
+    )
     journal().mark("поиск следующего сезона", сезон=season + 1)
     with progress_bar() as progress:
         try:
             plans = circle(config, args, progress, profile)
         except NotFoundError as err:
             # Следующего сезона не нашлось - это ответ, а не молчаливый выход.
-            print(f"«{entry.title}» - сезон {season} последний: {err}", flush=True)
+            print(
+                phrase("season.no_next_found", title=entry.title, season=season, err=err),
+                flush=True,
+            )
             return False
         except TorrcastError as err:
             # Поиск не состоялся (индексеры, сеть): «последний» здесь было бы ложью.
-            print(f"«{entry.title}» - сезон {season + 1} не найти: {err}", flush=True)
+            print(
+                phrase("season.search_failed", title=entry.title, upcoming=season + 1, err=err),
+                flush=True,
+            )
             return False
         plan = next((p for p in plans if p.picture.key == key), None)
         if plan is None:
             print(
-                f"«{entry.title}» - сезон {season} последний: "
-                f"раздач сезона {season + 1} не нашлось",
+                phrase(
+                    "season.no_releases_found",
+                    title=entry.title,
+                    season=season,
+                    upcoming=season + 1,
+                ),
                 flush=True,
             )
             return False
@@ -92,7 +106,10 @@ def _next_season(
         except TorrcastError as err:
             bench.drop_all()  # прогретое без показа - мусор в рое
             # Сезон есть, но играть его нечем: отказ отбора называет причину сам.
-            print(f"«{entry.title}» - сезон {season + 1} не поднялся: {err}", flush=True)
+            print(
+                phrase("season.could_not_start", title=entry.title, upcoming=season + 1, err=err),
+                flush=True,
+            )
             return False
         bench.keep_only(prep)  # взятую раздачу с этой секунды держит показ, не стенд
         audio, voice = pick_voice(
