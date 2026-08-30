@@ -68,7 +68,7 @@ def test_a_lying_index_is_an_error_not_a_ghost_map() -> None:
     data, _base = Matroska(cues=cues, ghost=True).bytes()
     reader = Served(data)
 
-    with pytest.raises(InfraError, match="врёт"):
+    with pytest.raises(InfraError, match="lies"):
         keys(reader, reader.read(0, HEAD))
 
 
@@ -145,7 +145,7 @@ def test_a_ghost_does_not_buy_itself_off_with_an_honest_neighbour() -> None:
     data, _base = Matroska(cues=cues, before=2, relative=True, ghost=True).bytes()
     reader = Served(data)
 
-    with pytest.raises(InfraError, match="врёт"):
+    with pytest.raises(InfraError, match="lies"):
         keys(reader, reader.read(0, HEAD))
 
 
@@ -221,5 +221,5 @@ def test_a_liar_whose_real_frames_line_up_with_the_shares_is_caught_too() -> Non
     data, _base = Matroska(cues=cues, step=step).bytes()
     reader = Served(data)
 
-    with pytest.raises(InfraError, match="врёт"):
+    with pytest.raises(InfraError, match="lies"):
         keys(reader, reader.read(0, HEAD))

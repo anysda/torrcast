@@ -25,5 +25,5 @@ def test_a_single_byte_number_ends_right_after_itself() -> None:
 
 def test_a_zero_byte_is_not_a_number() -> None:
     """Нулевой байт ширины не задаёт: разбор обязан сказать это, а не зациклиться."""
-    with pytest.raises(ValueError, match="битое число EBML"):
+    with pytest.raises(ValueError, match="a broken EBML number"):
         vint(b"\x00\x00", 0, keep_marker=False)

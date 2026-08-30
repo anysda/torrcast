@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import struct
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.frames.mp4._window import _find, _full, _table, _Window
 from torrcast.domain.infra_error import InfraError
 
@@ -30,7 +31,7 @@ def _sample_times(window: _Window, stbl: tuple[int, int], wanted: list[int]) -> 
     """
     found = _find(window, *stbl, b"stts")
     if found is None:
-        raise InfraError("в mp4 нет таблицы stts - времена кадров взять неоткуда")
+        raise InfraError(phrase("frames.mp4_no_stts"))
     at, count = _table(window, *found, 8)
     runs = struct.iter_unpack(">II", window.take(at, count * 8))
     times: list[int] = []

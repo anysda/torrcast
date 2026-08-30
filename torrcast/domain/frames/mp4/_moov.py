@@ -8,6 +8,7 @@ from __future__ import annotations
 import struct
 from typing import Final
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.frames.mp4._window import _boxes, _find, _full, _Window
 from torrcast.domain.frames.range_reader import RangeReader as Reader
 from torrcast.domain.infra_error import InfraError
@@ -42,7 +43,7 @@ def _find_moov(reader: Reader, head: bytes) -> tuple[int, int, int]:
         if size < header:
             break
         at += size
-    raise InfraError("в mp4 нет бокса moov - карту опорных кадров взять неоткуда")
+    raise InfraError(phrase("frames.mp4_no_moov"))
 
 
 def _movie(window: _Window, moov: tuple[int, int]) -> tuple[int, float]:
@@ -72,7 +73,7 @@ def _video_trak(window: _Window, moov: tuple[int, int]) -> tuple[int, int]:
         handler = _find(window, *media, b"hdlr")
         if handler is not None and window.take(handler[0] + 8, 4) == b"vide":
             return data, end
-    raise InfraError("в mp4 нет дорожки видео")
+    raise InfraError(phrase("frames.mp4_no_video_trak"))
 
 
 def _track_id(window: _Window, trak: tuple[int, int]) -> int:

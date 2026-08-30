@@ -16,6 +16,8 @@ from torrcast.domain.catalogs.digest.en import en as digest_en
 from torrcast.domain.catalogs.digest.ru import ru as digest_ru
 from torrcast.domain.catalogs.discover.en import en as discover_en
 from torrcast.domain.catalogs.discover.ru import ru as discover_ru
+from torrcast.domain.catalogs.frames.en import en as frames_en
+from torrcast.domain.catalogs.frames.ru import ru as frames_ru
 from torrcast.domain.catalogs.health.en import en as health_en
 from torrcast.domain.catalogs.health.ru import ru as health_ru
 from torrcast.domain.catalogs.rank.en import en as rank_en
@@ -33,6 +35,7 @@ _CLUSTERS: Final = (
     (choice_en, choice_ru),
     (digest_en, digest_ru),
     (discover_en, discover_ru),
+    (frames_en, frames_ru),
     (health_en, health_ru),
     (rank_en, rank_ru),
     (select_bench_en, select_bench_ru),

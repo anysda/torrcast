@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import struct
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.frames.keymap.key_map import KeyMap
 from torrcast.domain.frames.keymap.point import Point
 from torrcast.domain.frames.mp4._moov import (
@@ -45,16 +46,16 @@ def keys(reader: Reader, head: bytes) -> KeyMap:
     stbl = _find(window, *media, b"minf") if media else None
     stbl = _find(window, *stbl, b"stbl") if stbl else None
     if media is None or stbl is None:
-        raise InfraError("в mp4 нет таблиц дорожки видео (stbl)")
+        raise InfraError(phrase("frames.mp4_no_stbl"))
     scale = _media_scale(window, media)
     if not scale:
-        raise InfraError("в mp4 не читается масштаб времени дорожки (mdhd)")
+        raise InfraError(phrase("frames.mp4_no_mdhd"))
 
     sizes = _find(window, *stbl, b"stsz")
     total = struct.unpack(">I", window.take(sizes[0] + 8, 4))[0] if sizes else 0
     sync = _sync_samples(window, stbl, total)
     if not sync:
-        raise InfraError("в mp4 нет ни одного опорного кадра")
+        raise InfraError(phrase("frames.mp4_no_keyframe"))
     times = _sample_times(window, stbl, sync)
     shift = _edit_shift(window, trak, movie, scale)
     ahead = _composition(window, stbl, sync)
@@ -81,7 +82,7 @@ def keys(reader: Reader, head: bytes) -> KeyMap:
     points = tuple(point for point, _decode in pairs)
     via = () if seekable else tuple(decode for _point, decode in pairs)
     if not points:
-        raise InfraError("таблицы mp4 есть, но карта из них не собралась")
+        raise InfraError(phrase("frames.mp4_map_empty"))
     if length <= 0:
         length = points[-1].at
     return KeyMap(length, points, reader.taken, reader.requests, "mp4", via=via)

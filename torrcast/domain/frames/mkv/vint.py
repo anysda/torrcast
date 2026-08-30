@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from torrcast.domain.catalogs.phrase import phrase
+
 
 def vint(buf: bytes, i: int, keep_marker: bool) -> tuple[int, int]:
     """EBML-число переменной длины: идентификатор читается с маркером, размер — без."""
     head = buf[i]
     if head == 0:
-        raise ValueError("битое число EBML")
+        raise ValueError(phrase("frames.ebml_broken"))
     width, mask = 1, 0x80
     while not head & mask:
         mask >>= 1

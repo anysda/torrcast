@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.frames.keymap.key_map import KeyMap
 from torrcast.domain.frames.keymap.point import Point
 from torrcast.domain.frames.mkv.cue import Cue
@@ -45,24 +46,24 @@ def keys(reader: Reader, head: bytes) -> KeyMap:
     if facts.cues_at is None or facts.duration <= 0:  # маленького куска не хватило
         facts = Head(reader.read(0, HEAD_BYTES))
     if facts.segment is None:
-        raise InfraError("это не mkv: элемента Segment в голове файла нет")
+        raise InfraError(phrase("frames.mkv_no_segment"))
     if facts.cues_at is None:
-        raise InfraError("в файле нет индекса Cues - карту опорных кадров взять неоткуда")
+        raise InfraError(phrase("frames.mkv_no_cues"))
 
     chunk = reader.read(facts.cues_at, CUES_CHUNK)
     found = walk(chunk, 0, min(32, len(chunk)))
     if not found:
-        raise InfraError("по позиции из SeekHead читается не элемент EBML")
+        raise InfraError(phrase("frames.mkv_seekhead_not_ebml"))
     ident, size, data = found[0]
     if ident != CUES:
-        raise InfraError(f"по позиции из SeekHead лежит не Cues, а {ident:#x}")
+        raise InfraError(phrase("frames.mkv_seekhead_not_cues", ident=ident))
     body = chunk[data : data + size]
     if len(body) < size:  # редкий толстый индекс - добираем остаток
         body += reader.read(facts.cues_at + len(chunk), size - len(body))
 
     cues = _cues(body, facts)
     if not cues:
-        raise InfraError("Cues в файле есть, но точек в нём нет")
+        raise InfraError(phrase("frames.mkv_cues_empty"))
     # Пробы честности читают файл, поэтому цена карты считается ПОСЛЕ них: иначе паспорт
     # прогона занизил бы и байты, и число заходов к рою на всю их стоимость.
     drawn = _ghost(cues, facts, reader)
@@ -97,10 +98,7 @@ def _ghost(cues: list[Cue], facts: Head, reader: Reader) -> str | None:
     for cue in probes(own):
         at, offset, _ = cue.point
         if key_frame(reader, offset, facts.video, facts.codec, cue.inside) is False:
-            return (
-                f"индекс Cues врёт: точка {at:.3f} ссылается не на опорный кадр - "
-                "карта из него была бы призрачной"
-            )
+            return phrase("frames.mkv_cues_lie", at=at)
     return None
 
 
