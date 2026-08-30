@@ -106,9 +106,7 @@ def ru() -> dict[str, str]:
         "discover.retry_other_picture": (
             "по «{alt}» приехала другая картина - остаюсь на выдаче по «{name}»"
         ),
-        "discover.retry_unconfirmed_name": (
-            "имя «{alt}» взято со справки, сверить было не с чем"
-        ),
+        "discover.retry_unconfirmed_name": ("имя «{alt}» взято со справки, сверить было не с чем"),
         "discover.retry_gain": "по-русски раздач {was} - добрал по «{alt}»: стало {now}",
         "discover.season_gap": (
             "«{title}» ({year}): раздач {count}, но сезона {season} среди них нет - "

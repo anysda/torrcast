@@ -24,9 +24,7 @@ def en() -> dict[str, str]:
             "took {took}, next in line was {rival} (release {at}, {seeders} seeders) - {why}"
         ),
         "rank.no_audio_tracks": "the file has no audio tracks",
-        "rank.voice_kept_usual": (
-            "no “{name}” voice track in this release - taking the usual one"
-        ),
+        "rank.voice_kept_usual": ("no “{name}” voice track in this release - taking the usual one"),
         "rank.voice_number_missing": (
             "tracks: {total}, no number {number} - check: cast voices <query>"
         ),

@@ -81,7 +81,7 @@ from torrcast.usecases.discover.season_reread import season_reread
 from torrcast.usecases.discover.unfit_pool import unfit_pool
 from torrcast.usecases.discover.worth_asking_original import worth_asking_original
 from torrcast.usecases.rank.drop_reason import drop_reason
-from torrcast.usecases.rank.drop_reasons import OFF_SEASON
+from torrcast.usecases.rank.off_season import off_season
 from torrcast.usecases.rank.queue_drops import queue_drops
 from torrcast.usecases.reinforce.ceiling_hides_name import ceiling_hides_name
 from torrcast.usecases.reinforce.lacks_season import lacks_season
@@ -420,7 +420,7 @@ def release_verdicts(plan: Plan, queue: list[int]) -> list[dict[str, Any]]:
         place = places.get(number) if number is not None else None
         reason = None
         if number is None:
-            reason = OFF_SEASON
+            reason = off_season()
         elif place is None:
             reason = drop_reason(release, plan)
         out.append(

@@ -14,6 +14,7 @@ from torrcast.usecases.select_bench._bench_queue import _bench_queue
 def _russian_ladder(_russian_product: None) -> None:
     """Предмет модуля - русская строка описи очереди отбора."""
 
+
 _ASKED = Args(query=["кино"])
 
 

@@ -24,12 +24,8 @@ def ru() -> dict[str, str]:
         "select_bench.honest_taken_note": (
             "релиз {chosen} {short} - беру {number} (настоящий {quality})"
         ),
-        "select_bench.honest_kept_note": (
-            "релиз {chosen} {short} - честнее рядом нет, играю его"
-        ),
-        "select_bench.reason_thin_swarm": (
-            "рой везёт {got} из нужных {need} Мбит/с ({ratio}x)"
-        ),
+        "select_bench.honest_kept_note": ("релиз {chosen} {short} - честнее рядом нет, играю его"),
+        "select_bench.reason_thin_swarm": ("рой везёт {got} из нужных {need} Мбит/с ({ratio}x)"),
         "select_bench.tail_take": " - беру {following}",
         "select_bench.voiceless_head": "релиз {number} без русской озвучки ({lang})",
         "select_bench.no_swarm_capacity": (

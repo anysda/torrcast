@@ -16,6 +16,7 @@ from torrcast.usecases.select_bench.bench import Bench
 def _russian_ladder(_russian_product: None) -> None:
     """Предмет модуля - русские строки перед стартом и запасного хода."""
 
+
 GB = 1024**3
 
 

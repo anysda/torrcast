@@ -15,6 +15,7 @@ from torrcast.usecases.select_bench.bench import Bench
 def _russian_ladder(_russian_product: None) -> None:
     """Предмет модуля - русские строки проверки честности верха отбора."""
 
+
 _ASKED = Args(query=["кино"])
 _RUS = (AudioTrack(index=0, language="rus"),)
 
