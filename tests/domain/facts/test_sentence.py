@@ -1,6 +1,6 @@
 """Проверяет границу первой фразы статьи: скобки, кавычки, сокращения, указатель."""
 
-from tests.articles import CARS, SEVEN_SAMURAI
+from tests.articles import CARS, CLONE_WARS, SEVEN_SAMURAI
 from torrcast.domain.facts.sentence import sentence
 
 
@@ -40,3 +40,27 @@ def test_the_pointer_line_at_the_top_is_not_the_pictures_own_sentence() -> None:
     ``Samurai 7`` оригиналом классики 1954 года.
     """
     assert sentence(SEVEN_SAMURAI).startswith("«Семь самура́ев»")
+
+
+def test_the_pointer_without_the_word_see_is_cut_by_its_line_break() -> None:
+    """«Не путать с ...» слова «см.» не содержит и точкой не кончается - и всё же шляпка.
+
+    Читая её первой фразой, меню отдавало половину отведённой длины служебному указателю,
+    а фраза о картине обрывалась многоточием (TC-908).
+    """
+    first = sentence(CLONE_WARS)
+    assert first.startswith("«Звёздные во́йны: Во́йны кло́нов» (англ. Star Wars: The Clone Wars)")
+    assert "Не путать" not in first
+    assert first.endswith("Lucasfilm Animation Singapore.")
+
+
+def test_a_description_that_legitimately_opens_with_a_quote_is_not_touched() -> None:
+    """Шляпка УЗНАЁТСЯ по формуле, а не угадывается по первой кавычке или первому абзацу.
+
+    Правило «выкинуть всё до кавычки» съело бы описание у каждой второй картины: русская
+    Википедия открывает статью о кино ровно кавычкой. Абзац без известной формулы остаётся
+    текстом статьи, даже если за ним идут другие абзацы.
+    """
+    assert sentence(CARS).startswith("«Та́чки» (англ. Cars) — американский")
+    own = "«О́ко» (англ. The Eye) — фильм ужасов 2008 года.\n\nСнят братьями Пан."
+    assert sentence(own).endswith("2008 года.")
