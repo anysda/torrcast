@@ -17,6 +17,7 @@ import sys
 import tempfile
 import threading
 import time
+from collections.abc import Callable
 from fractions import Fraction
 from types import ModuleType
 from typing import TYPE_CHECKING
@@ -28,6 +29,8 @@ from tests.fakes import composition
 from tests.fakes.journal import Tape
 from tests.fakes.pretend_tty import PretendTty
 from tests.fakes.show_unit import FakeShowUnit
+from torrcast.adapters.filesystem.state import load_config as load_config_module
+from torrcast.adapters.filesystem.state.config_path import DEFAULT_CONFIG_PATH
 from torrcast.adapters.filesystem.trace_journal.log_dir import LOG_ENV
 from torrcast.adapters.filesystem.trace_journal.session_id import SID_ENV
 from torrcast.domain.catalogs.tongue import _choose_tongue, tongue
@@ -423,13 +426,82 @@ def remote(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return path
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _own_config_source(tmp_path_factory: pytest.TempPathFactory) -> Iterator[None]:
+    """Набор владеет своим ``TORRCAST_CONFIG`` ещё до первой сборки, а не после неё.
+
+    ``_wired`` - сессионная и зовёт :func:`wire` ровно один раз за весь прогон, раньше
+    любой функциональной фикстуры (:func:`_own_files` подменяет ``TORRCAST_CONFIG`` уже
+    ПОСЛЕ этого разового вызова). Без назначения здесь единственный ``wire()`` читал бы
+    ``TORRCAST_CONFIG``, каким его унаследовал шелл, - а по умолчанию это машинный
+    ``/etc/torrcast/config.json`` (:data:`torrcast.adapters.filesystem.state.config_path.
+    DEFAULT_CONFIG_PATH`). Языковой ``language`` из этого файла тогда становился бы языком
+    ВСЕГО прогона (:func:`torrcast.runtime.wire.wire` читает его жадно), и результат
+    зависел бы от того, что лежит на диске конкретной машины в конкретный момент, а не от
+    кода (TC-929, заход 3).
+
+    Рядом ставится сторож (:func:`_config_reads_must_stay_off_the_machine_file`):
+    назначения пути тут одного мало, если что-то в будущем обойдёт обе фикстуры.
+    """
+    session_config = tmp_path_factory.mktemp("session-config") / "config.json"
+    patcher = pytest.MonkeyPatch()
+    patcher.setenv("TORRCAST_CONFIG", str(session_config))
+    try:
+        yield
+    finally:
+        patcher.undo()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _config_reads_must_stay_off_the_machine_file(
+    _own_config_source: None,
+) -> Iterator[None]:
+    """Сторож: `load_config()` обязан упасть, а не тихо подставить умолчание.
+
+    Мера - источник, а не итог: не «язык набора совпал с ожидаемым», а «путь пришёл из
+    :func:`config_path`, назначенного тестом». Если сессионная изоляция когда-нибудь
+    выпадет из цепочки (эта фикстура зависит от :func:`_own_config_source` явно - порядок
+    не остаётся на волю сборщика), либо какой-то тест сам снимет ``TORRCAST_CONFIG``,
+    :func:`config_path` вернётся к :data:`DEFAULT_CONFIG_PATH`, и обёртка ниже роняет
+    прогон немедленно вместо того, чтобы молча унести язык с диска машины
+    (см. набор без этой обёртки - TC-929, заход 3, где просевший прогон был зелёным).
+    """
+    # getattr, а не атрибут напрямую: `config_path` в load_config.py - обычный импорт
+    # для собственных нужд модуля, не объявленный им наружу переэкспорт, и mypy честно
+    # не даёт опираться на чужую внутреннюю проводку через точку.
+    real_config_path: Callable[[], Path] = getattr(  # noqa: B009 - getattr обходит именно проверку
+        load_config_module, "config_path"
+    )
+
+    def _config_path_or_die() -> Path:
+        path = real_config_path()
+        if path == DEFAULT_CONFIG_PATH:
+            raise AssertionError(
+                f"config_path() вернул машинный {DEFAULT_CONFIG_PATH} - "
+                "TORRCAST_CONFIG не назначен в этой точке прогона (TC-929, заход 3)"
+            )
+        return path
+
+    patcher = pytest.MonkeyPatch()
+    patcher.setattr(load_config_module, "config_path", _config_path_or_die)
+    try:
+        yield
+    finally:
+        patcher.undo()
+
+
 @pytest.fixture(autouse=True, scope="session")
-def _wired() -> None:
+def _wired(
+    _own_config_source: None,
+    _config_reads_must_stay_off_the_machine_file: None,
+) -> None:
     """Тесты собирают приложение так же, как боевой запуск: через композиционный корень.
 
     Без этого след молчал бы (:class:`torrcast.ports.journal.silent.Silent`), и проверки,
     которые читают ленту, доказывали бы не поведение показа, а собственную тишину.
-    Каталог ленты у каждого теста свой - его даёт фикстура ``journal``.
+    Каталог ленты у каждого теста свой - его даёт фикстура ``journal``. Параметры не
+    используются - они здесь ради ПОРЯДКА: `wire()` обязан звать `load_config()` уже
+    после того, как источник назначен и огорожен, а не до.
     """
     wire()
 
