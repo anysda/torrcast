@@ -82,6 +82,7 @@ def _tarball_bytes(install_body: str) -> bytes:
         data = install_body.encode()
         info = tarfile.TarInfo("install.sh")
         info.size = len(data)
+        info.mode = 0o755  # как реальный install.sh (100755) после cp/tar в release.sh
         tar.addfile(info, io.BytesIO(data))
     return buf.getvalue()
 
@@ -172,7 +173,7 @@ def test_a_good_release_downloads_verifies_and_hands_off_to_install_sh(
     tmp_path: Path,
 ) -> None:
     marker = tmp_path / "marker"
-    stub_install = f"#!/bin/sh\necho ran >> {marker}\nexit 0\n"
+    stub_install = f"#!/usr/bin/env bash\n[[ -n x ]] && echo ran >> {marker}\nexit 0\n"
     tarball = _tarball_bytes(stub_install)
     digest = hashlib.sha256(tarball).hexdigest()
     sha_file = f"{digest}  torrcast-v9.9.9.tar.gz\n".encode()
@@ -188,7 +189,7 @@ def test_a_good_release_downloads_verifies_and_hands_off_to_install_sh(
 @pytest.mark.machine
 def test_a_bad_checksum_dies_loud_and_never_runs_install_sh(tmp_path: Path) -> None:
     marker = tmp_path / "marker"
-    stub_install = f"#!/bin/sh\necho ran >> {marker}\nexit 0\n"
+    stub_install = f"#!/usr/bin/env bash\n[[ -n x ]] && echo ran >> {marker}\nexit 0\n"
     tarball = _tarball_bytes(stub_install)
     wrong_sha = f"{'0' * 64}  torrcast-v9.9.9.tar.gz\n".encode()
 
@@ -208,7 +209,7 @@ def test_install_sh_exit_code_passes_through_without_a_bootstrap_wrapper(
     """🔴 Код 2 (EXIT_INFRA/EXIT_CATALOG_CUT) - не отказ бутстрапа, а свой смысл
     install.sh. Бутстрап обязан вернуть его как есть, а не переодеть в «ошибка:»."""
     marker = tmp_path / "marker"
-    stub_install = f"#!/bin/sh\necho ran >> {marker}\nexit 2\n"
+    stub_install = f"#!/usr/bin/env bash\n[[ -n x ]] && echo ran >> {marker}\nexit 2\n"
     tarball = _tarball_bytes(stub_install)
     digest = hashlib.sha256(tarball).hexdigest()
     sha_file = f"{digest}  torrcast-v9.9.9.tar.gz\n".encode()

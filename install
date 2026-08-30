@@ -18,12 +18,21 @@ need() { command -v "$1" >/dev/null 2>&1 || die "нужен $1, его нет в
 # Не root - не падаем молча: под sudo перезапускаемся тем же одностроком, без него
 # просим человека сделать это самому. TORRCAST_NO_ROOT - лазейка для песочницы, как
 # в install.sh.
+# `sudo -E` тут не годится: на части машин sudo собран без сохранения окружения, и
+# `-E` тихо игнорируется (sudo молча предупреждает в stderr и правит по-своему), из-за
+# чего TORRCAST_GITLAB_API/TORRCAST_PROJECT_ID/TORRCAST_BOOTSTRAP_URL пропадали бы у
+# перезапущенного процесса без единого слова. Поэтому переопределения тащим не через
+# окружение, а явными аргументами позиционника, и экспортируем их уже внутри новой
+# оболочки за трубой - так их видит и curl, и запущенный им sh.
 become_root() {
     [ -n "${TORRCAST_NO_ROOT:-}" ] && return 0
     [ "$(id -u)" -eq 0 ] && return 0
     if command -v sudo >/dev/null 2>&1; then
         info "не root - перезапуск через sudo"
-        exec sudo -E sh -c 'curl -fsSL "$1" | sh' _ "$BOOTSTRAP_URL"
+        exec sudo sh -c '
+            export TORRCAST_BOOTSTRAP_URL="$1" TORRCAST_GITLAB_API="$2" TORRCAST_PROJECT_ID="$3"
+            curl -fsSL "$1" | sh
+        ' _ "$BOOTSTRAP_URL" "$GITLAB_API" "$PROJECT_ID"
     fi
     die "нужен root: sudo sh -c \"curl -fsSL $BOOTSTRAP_URL | sh\""
 }
@@ -49,6 +58,7 @@ main() {
     need curl
     need tar
     need sha256sum
+    need bash
     become_root
 
     ver="$(latest_version)"
@@ -69,7 +79,10 @@ main() {
     tar -xzf "$tmp/torrcast-$ver.tar.gz" -C "$tmp/src"
     [ -f "$tmp/src/install.sh" ] || die "в тарболе нет install.sh"
 
-    (cd "$tmp/src" && sh ./install.sh)
+    # install.sh - bash-скрипт со своим шебангом (#!/usr/bin/env bash), не sh: на
+    # Debian /bin/sh - dash, и на башизмах install.sh он падает сразу. </dev/null
+    # отцепляет stdin от недочитанного хвоста трубы curl | sh.
+    (cd "$tmp/src" && ./install.sh </dev/null)
     exit $?
 }
 

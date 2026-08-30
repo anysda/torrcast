@@ -36,6 +36,7 @@ def _write_repo(root: Path) -> None:
         '[project]\nname = "torrcast"\nversion = "0.1.0"\n', encoding="utf-8"
     )
     (root / "install.sh").write_text("#!/usr/bin/env bash\nVERSION='0.1.0'\n", encoding="utf-8")
+    os.chmod(root / "install.sh", 0o755)  # как реальный install.sh в репе (100755)
     (root / "install").write_text("#!/bin/sh\ntrue\n", encoding="utf-8")
     (root / "README.md").write_text("# torrcast\n", encoding="utf-8")
     (root / "LICENSE").write_text("MIT\n", encoding="utf-8")
@@ -186,6 +187,9 @@ def test_dry_run_does_steps_1_to_4_for_real_and_prints_5_and_6(repo: Path) -> No
         install_sh = tar.extractfile("install.sh")
         assert install_sh is not None
         assert "VERSION='9.9.9'" in install_sh.read().decode()
+        # +x должен доехать до тарбола: install (TC-886) зовёт install.sh его
+        # собственным шебангом, не через `sh`, и без исполняемого бита это упадёт.
+        assert tar.getmember("install.sh").mode & 0o111, "install.sh в тарболе не +x"
 
     import shutil
 
@@ -235,7 +239,7 @@ def _stub_gitlab_write() -> tuple[int, _Seen]:
     seen = _Seen()
 
     class Handler(BaseHTTPRequestHandler):
-        def log_message(self, *args: object) -> None:
+        def log_message(self, format: str, *args: object) -> None:
             return
 
         def _send(self, code: int, payload: object) -> None:
