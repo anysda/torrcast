@@ -10,6 +10,7 @@ from torrcast.adapters.recode.encode import Encode
 from torrcast.adapters.recode.whole_encode import FULL_PRESET
 from torrcast.domain.hls_settings import PACK_DIR
 from torrcast.usecases.feed_pack.feed_restart import _restart
+from torrcast.usecases.feed_pack.feed_survive import _survive
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -129,7 +130,7 @@ def test_the_previous_run_is_taken_down_but_its_pieces_stay(tmp_path: Path, jour
 
     _restart(show, 3, lambda slot, size: False)
 
-    assert old.stopped == "" and signals(old) == ["terminate"]
+    assert old.stopped == "перезапуск с сегмента 3" and signals(old) == ["terminate"]
     assert (show.out / "v0.ts").exists(), "перезапуск выбросил уже упакованное"
     assert show.packer is not old
 
@@ -163,3 +164,36 @@ def test_a_whole_film_recode_builds_an_encoding_command_from_the_grid(
     assert command[command.index("-c:v") + 1] == "libx264"
     assert command[command.index("-segment_start_number") + 1] == "5", "докатки нет"
     assert command[command.index("-ss") + 1] == f"{lines.start(5):.3f}"
+
+
+def test_our_own_restart_does_not_spend_the_crash_count(tmp_path: Path, journal: Path) -> None:
+    """Снятый нами прогон - не обрыв: счёт ``crashes`` на перезапуске не растёт.
+
+    🔴 TC-905. Окно тут настоящее: :attr:`packer` подменяется в конце захода, а до этого
+    внутри лежит пробный прогон (0.5-1.7 с), и часы показа всё это время видят наш же
+    труп текущим прогоном. Без довода он неотличим от обрыва, и на стенде это выходило
+    строкой «упаковка оборвалась (молча, код 255)» - 255 есть ответ ffmpeg на SIGTERM.
+
+    Мера тут не поле, а вред: поле ``stopped`` проверено выше
+    (:func:`test_the_previous_run_is_taken_down_but_its_pieces_stay`), здесь считается
+    то, на чём стоят решения о живости упаковки. Вторая половина держит сторожа с той же
+    стороны: чужая смерть обязана считаться по-прежнему, иначе счёт замолчал бы весь.
+    """
+    said: list[str] = []
+    _tract([])
+    show = feed(tmp_path, grid=grid(60.0, 10.0), log=said.append)
+    old = packer(tmp_path, first=0, out=show.out)
+    show.packer = old
+
+    _restart(show, 3, lambda slot, size: False)
+    said.clear()
+
+    assert _survive(show, old), "свой же перезапуск похоронил показ"
+    assert show.crashes == 0, f"наш SIGTERM засчитан обрывом: {said}"
+    assert said == [], "показ пожаловался зрителю на нами же снятый прогон"
+
+    alien = packer(tmp_path, first=0, out=show.out)
+    alien.proc.terminate()
+
+    assert _survive(show, alien)
+    assert show.crashes == 1, "чужой обрыв перестал считаться - счёт замолчал весь"
