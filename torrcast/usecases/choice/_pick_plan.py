@@ -1,4 +1,4 @@
-"""Вопрос «Что смотрим?» и выбор картины меню."""
+"""Вопрос «Что смотрим?» и показ решения ступени взятия."""
 
 from __future__ import annotations
 
@@ -7,20 +7,9 @@ from typing import TYPE_CHECKING
 from torrcast.ports.choice_environment.choice_environment import ChoiceEnvironment
 from torrcast.usecases.choice._named import _named
 from torrcast.usecases.choice._shown import _shown
-from torrcast.usecases.choice.absent_first_part import absent_first_part
-from torrcast.usecases.choice.absent_part_line import absent_part_line
-from torrcast.usecases.choice.certain_default import certain_default
 from torrcast.usecases.choice.configure import _environment_port
-from torrcast.usecases.choice.default_line import default_line
-from torrcast.usecases.choice.first_alive import first_alive
-from torrcast.usecases.choice.lone_other_part import lone_other_part
-from torrcast.usecases.choice.named_elsewhere import named_elsewhere
-from torrcast.usecases.choice.named_take import named_take
-from torrcast.usecases.choice.named_taken_line import named_taken_line
-from torrcast.usecases.choice.namesake_line import namesake_line
-from torrcast.usecases.choice.namesake_take import namesake_take
-from torrcast.usecases.choice.part_one_swap import part_one_swap
-from torrcast.usecases.choice.taken_line import taken_line
+from torrcast.usecases.choice.enter_take import enter_take
+from torrcast.usecases.choice.take import Take
 
 if TYPE_CHECKING:
     from torrcast.usecases.facts import Facts
@@ -34,65 +23,28 @@ def _pick_plan(
     asked: str = "",
     environment: ChoiceEnvironment | None = None,
     menu: bool = False,
+    take: Take | None = None,
 ) -> Plan:
-    """Вопрос «какой фильм франшизы?» - и только там, где спрашивать есть о чём.
+    """Показать решение ступени взятия и спросить, если спрашивать есть о чём.
 
-    🔴 Дефолт у прибора ОДИН - :func:`first_alive`, и это та же картина, о которой
-    говорят честные строки про смену (:func:`default_note`, :func:`swap_note`,
-    :func:`year_note`, :func:`part_one_swap`). Пока Enter брал верх меню, эти двое
-    расходились на 23 запросах из 71, и на всех 23 строка молчала - сверялась она с
-    одной картиной, а печаталась про другую.
+    🔴 TC-829. Кого возьмёт Enter, эта единица больше НЕ РЕШАЕТ - решает
+    :func:`enter_take`, и её же приговор читает прогрев под меню
+    (:func:`~torrcast.usecases.choice.warm_order.warm_order`). Здесь остаётся речь: что
+    сказать, показывать ли список, спрашивать ли номер и когда отказаться. Пока решали
+    оба, прогрев целился в :func:`first_alive`, а брались стражи поверх него, и на корпусе
+    ``pools-both.jsonl`` эти двое расходились на 10 запросах из 74: грелась «Мумия» 1932
+    года, а Enter включал 2026-ю, и зритель ждал подъёма роя с нуля.
 
-    🔴 Несколько подошедших картин - ещё не повод спрашивать. Вопрос остаётся там, где
-    о выборе есть что сказать честной строкой; где сказать нечего (:func:`certain_default`),
-    дефолт - первая живая картина - и есть спрошенная, и показ начинается сам. Молчаливым
-    это решение не бывает: :func:`taken_line` называет взятую картину, число подошедших и ход к
-    любой другой. Терминал такому пути не нужен вовсе - ни висеть, ни отказываться тут
-    не на чем.
-
-    🔴 TC-373. Перескочив через спрошенную часть франшизы (её нет в выдаче или играть
-    ей нечем), дефолт вставал на ДРУГУЮ часть - и Enter включал «Тачки 2» вместо
-    просимых «Тачек». Такому дефолту не бывать (:func:`part_one_swap`).
-
-    🔴 TC-814. Тот же страж на ветке «картина одна»: меню тут не задавалось вовсе, и
-    «лёд» молча включал «Лёд 3». Единственная найденная чужая часть спрошенной
-    франшизы - это отказ (:func:`lone_other_part`), а не показ.
-
-    🔴 TC-715. И дефолта нет там, где запрос назвал картину ЦЕЛИКОМ, а дефолт встаёт на
-    другую: «блич s1e1» уезжал с «Блича» 2004 года на «Тысячелетнюю кровавую войну»,
-    «чернобыль s1e5» - на «Зону отчуждения» мимо обоих «Чернобылей».
-
-    🔴 TC-812. Оба этих стража - и «имя названо целиком» (:func:`named_elsewhere`), и
-    тёзки по году - на обычном пути больше НЕ СПРАШИВАЮТ: решение владельца 26-08-2026 -
-    «включать самую живую это показатель того что картина популярна а варианты будут уже
-    за --menu». Стражи остались стражами: сработавший берёт живейшую не молча
-    (:func:`named_taken_line`, :func:`namesake_line`), строка называет взятую годом,
-    число остальных и ключ. Вопрос без дефолта у обоих остался только за явным
-    ``--menu`` - там человек просил список, и номер называет он сам. Дефолт франшизы это
-    не тронуло: первая живая часть и её страж (:func:`part_one_swap`) в силе.
-
-    🔴 TC-830. Разделены два случая, которые страж франшизы стерёг одинаково. «Спрошенная
-    часть в выдаче есть, но не играет» - вопрос: её видно номером, и подставлять вместо
-    неё другую по-прежнему запрещено. А «спрошенной части нет в выдаче вовсе» вопросом
-    быть перестало (:func:`absent_first_part`): выбора между «той» и «другой» там не
-    существует, и ``cast тачки`` просил номер из списка, в котором нужного пункта нет, -
-    показ без человека не начинался. Берётся дефолт прибора - первая живая из найденных -
-    и берётся не молча (:func:`absent_part_line`). За явным ``--menu`` спрашивают оба,
-    как и стражи TC-812.
+    ``take`` - готовый приговор от того, кто уже спросил его для прогрева
+    (:func:`~torrcast.usecases.cast_command._choose._choose`): один приговор на оба дела,
+    и расходиться тогда нечему физически. Без него приговор спрашивается тут же - той же
+    единицей и на тех же входах.
 
     К каждой картине печатается справка (:mod:`torrcast.runtime.facts_wiring`) — рейтинг,
     хронометраж и фраза о том, что это за кино. 🔴 Ждут из неё ровно ОПИСАНИЕ (TC-717): его
     уже не дописать в показанный список. Рейтинг и хронометраж приезжают в готовые строки
     курсором — зритель видит, как строка дополняется, и отвечает в любую секунду этого
-    дописывания.
-
-    Целиком справку ждём там, где дописывать её будет некому (:func:`_shown`).
-
-    🔴 TC-802. ``menu`` - флаг ``--menu``: список поднимается и там, где о выборе сказать
-    нечего. Без него подходящую картину прибор берёт сам («тачками» зовутся только
-    «Тачки»), и просьба «покажи, что ещё есть» звучит этим флагом, а не отсутствием
-    решения. Всё остальное у обоих путей общее: тот же список, тот же дефолт, тот же
-    номер в ответе.
+    дописывания. Целиком справку ждём там, где дописывать её будет некому (:func:`_shown`).
 
     ``pick`` - номер пункта, названный флагом ``--pick N``: вопрос тогда не задаётся
     вовсе, и терминал не нужен. Номер берётся из показанного списка - таблицы
@@ -111,8 +63,9 @@ def _pick_plan(
     env = environment or _environment_port()
     if pick is not None and not 1 <= pick <= len(plans):
         raise env.not_found_error(f"подходит картин: {len(plans)}, номера {pick} нет")
+    verdict = take if take is not None else enter_take(plans, asked, pick, menu)
+    plan = plans[verdict.number - 1]
     if pick is not None:  # номер назвал сам человек - ни вопроса, ни подмены
-        plan = plans[pick - 1]
         key, named = env.recalled_pick(asked, pick)
         if key and key != plan.picture.key:
             # Номер - адрес из показанной таблицы, а состав выдачи гуляет: под тем же
@@ -128,65 +81,32 @@ def _pick_plan(
         # человек узнал бы о подмене уже с экрана.
         env.write(f"играю «{_named(plan.picture)}» - пункт {pick}, названный флагом --pick")
         return plan
-    if len(plans) == 1:
-        if note := lone_other_part(plans, asked):
-            # Единственная найденная картина - другая часть спрошенной франшизы. Меню
-            # тут не задаётся, выбирать не из чего, а показать её молча - подмена.
-            # Ключ --menu пропускается ВПЕРЁД отказа (TC-812): список поднимается и из
-            # одного пункта, а строка печатается над ним, чтобы видно было, ЧТО нашлось.
-            if not menu:
-                raise env.not_found_error(note)
-            env.write(note)
-        elif not menu or not env.stdin_is_tty():
-            # 🔴 TC-900. --menu вне терминала - просьба «покажи, что есть», а не способ
-            # уронить скрипт: картина ровно одна, выбирать не из чего, и «вслепую» тут
-            # ничего не выбирается. За терминалом --menu по-прежнему поднимает список
-            # из одного пункта и вопрос (TC-578, TC-836) - этой ветки они не касаются.
-            if menu:
-                env.write(f"подходит картин: 1 - «{_named(plans[0].picture)}», меню не нужно")
-            return plans[0]
-    default = first_alive(plans)
-    if not menu:
-        if certain_default(plans, asked):
-            env.write(taken_line(plans, default, asked))
-            return plans[default - 1]
-        if absent_first_part(plans, asked):
-            # 🔴 TC-830, решение владельца 26-08-2026. Спрошенной части в выдаче нет
-            # вовсе: выбирать между «той» и «другой» не из чего, а вопрос сводился к
-            # «назови номер», когда нужного номера в списке нет, - и показ без человека
-            # не начинался. Берётся дефолт прибора, и берётся вслух.
-            env.write(absent_part_line(plans, default, asked))
-            return plans[default - 1]
-        if not part_one_swap(plans, asked):
-            # 🔴 TC-812. Тёзки и целиком названная картина больше не спрашивают: берётся
-            # самая живая, и берётся НЕ молча - строка называет взятую, число остальных
-            # и ключ --menu, за которым стоят варианты. Вопрос остаётся у стража
-            # франшизы (:func:`part_one_swap`) и у явного --menu.
-            if taken := named_take(plans, asked):
-                env.write(named_taken_line(plans, asked, taken))
-                return plans[taken - 1]
-            if taken := namesake_take(plans):
-                env.write(namesake_line(plans, taken, asked))
-                return plans[taken - 1]
+    if verdict.refusal:
+        raise env.not_found_error(verdict.refusal)
+    if not verdict.asks:
+        if verdict.note:
+            env.write(verdict.note)
+        return plan
+    if verdict.heading:
+        env.write(verdict.heading)  # строка НАД списком: ЧТО нашлось, прежде чем показать
+    elif len(plans) == 1 and not env.stdin_is_tty():
+        # 🔴 TC-900. --menu вне терминала - просьба «покажи, что есть», а не способ
+        # уронить скрипт: картина ровно одна, выбирать не из чего, и «вслепую» тут
+        # ничего не выбирается. За терминалом --menu по-прежнему поднимает список
+        # из одного пункта и вопрос (TC-578, TC-836) - этой ветки они не касаются.
+        env.write(f"подходит картин: 1 - «{_named(plan.picture)}», меню не нужно")
+        return plan
     painted = _shown(env, plans, facts, dress=env.stdin_is_tty(), asked=asked)
     try:
         if not env.stdin_is_tty():
             raise env.not_found_error(
                 f"подходит картин: {len(plans)}, а терминала нет - вслепую не выбираю; "
-                f"назови картину точно (например «{plans[default - 1].picture.title}») "
+                f"назови картину точно (например «{plan.picture.title}») "
                 f"или её номер (--pick N), либо запусти cast в терминале"
             )
-        if note := part_one_swap(plans, asked):
-            # Дефолт подменил бы спрошенную часть другой - тогда его нет вовсе: строка
-            # называет, что с первой частью, список на экране, номер зовёт человек.
-            env.write(note)
-            return plans[env.ask("Что смотрим?", len(plans), default=None) - 1]
-        if note := named_elsewhere(plans, asked):
-            # Дефолт ушёл бы с картины, чьё имя названо целиком (TC-715) - тогда его
-            # нет вовсе: строка называет обе картины и причину, номер зовёт человек.
-            env.write(note)
-            return plans[env.ask("Что смотрим?", len(plans), default=None) - 1]
-        env.write(default_line(plans, default))
+        if verdict.note:
+            env.write(verdict.note)
+        default = verdict.number if verdict.takes else None
         return plans[env.ask("Что смотрим?", len(plans), default=default) - 1]
     finally:
         # Меню отвечено: сперва отписываем его от справки, потом отпускаем экран - иначе

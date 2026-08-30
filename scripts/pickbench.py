@@ -47,6 +47,7 @@ from torrcast.domain.prewarm_settings import PREWARM
 from torrcast.domain.release import Release
 from torrcast.domain.torrcast_error import TorrcastError
 from torrcast.runtime.wire import wire
+from torrcast.usecases.choice.enter_take import enter_take
 from torrcast.usecases.choice.warm_order import warm_order
 from torrcast.usecases.select.plan import Plan
 from torrcast.usecases.select_bench.bench import Bench
@@ -97,7 +98,9 @@ def once(url: str, order: list[Plan], think: float, spare: bool) -> tuple[float,
     shutil.rmtree(state_path().parent / "keys", ignore_errors=True)  # старт холодный
     bench = Bench(TorrServer(url))
     args = Args(query=["кино"])
-    warmed = warm_order(order)
+    # Порядок прогрева спрашивается тем же приговором, что и на боевом пути: своего
+    # мнения о том, кого возьмёт Enter, у прогрева нет (TC-829).
+    warmed = warm_order(order, enter_take(order, args.title_query))
     for plan in warmed[:PREWARM]:
         if queue := plan.candidates(args):  # голова очереди, как на боевом пути (TC-432)
             bench.start(plan, queue[0])

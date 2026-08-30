@@ -17,6 +17,7 @@ from torrcast.usecases.cast_command._bookmark import _continue_picked, _plays_re
 from torrcast.usecases.choice._passport import _passport
 from torrcast.usecases.choice._pick_plan import _pick_plan
 from torrcast.usecases.choice._played import _played
+from torrcast.usecases.choice.enter_take import enter_take
 from torrcast.usecases.choice.warm_order import warm_order
 from torrcast.usecases.discover.search_circle import search_circle
 from torrcast.usecases.playback.file_picker import file_picker
@@ -81,10 +82,14 @@ def _choose(
         passport = passport_of(plans)
         torrserver = _state._play_engines(config.torrserver_url)
         bench = stand(torrserver, choose=file_picker(args), profile=chosen.profile)
+        # 🔴 TC-829. Кого возьмёт Enter, спрашивается ОДИН раз и ОДНОЙ ступенью - и этот
+        # же приговор уезжает в вопрос ниже. Прогрев и взятие тут не два мнения, которые
+        # надо сверять, а одно число на двоих: разойтись им нечем.
+        take = enter_take(plans, args.title_query, args.pick, args.menu)
         # Прогрев под меню: пока идёт вопрос, раздачи уже качают метаданные. Греется
         # голова ОЧЕРЕДИ, а не верх ранжира: верх мог не пройти ворота (TC-432), и
         # греть то, что отбор не возьмёт, - тянуть чужой вес из роя зря.
-        order = warm_order(plans)
+        order = warm_order(plans, take)
         # 🔴 Пока на экране идёт наш показ, прогрев под меню не поднимается вовсе: он
         # тянет из роя чужие раздачи, пишет их на тот же диск и читает ту же сеть, а
         # показ первичен. Человек ещё не выбрал картину, и платить за его раздумья
@@ -106,10 +111,19 @@ def _choose(
         # стоить человеку подъёма второй раздачи с нуля (:data:`PREWARM_SPARE`).
         if live is None and not _plays_recorded(state, order[0].picture.key, args):
             bench.spare(order[0], args)
-        journal().mark("прогрев пущен", придержан=live is not None)  # TC-108: замер
+        # TC-108: замер. Правило взятия названо тут же (:attr:`Take.why`): без него в
+        # разборе видно, что грелось, но не видно, почему грелось именно это.
+        journal().mark("прогрев пущен", придержан=live is not None, взятие=take.why)
         try:
             try:
-                plan = pick(plans, facts, pick=args.pick, asked=args.title_query, menu=args.menu)
+                plan = pick(
+                    plans,
+                    facts,
+                    pick=args.pick,
+                    asked=args.title_query,
+                    menu=args.menu,
+                    take=take,
+                )
                 journal().mark("картина выбрана")  # TC-108: замер
                 # Картина названа - вот теперь очередь закладки: она про место ВНУТРИ
                 # картины, и спрашивают о ней после того, как картина выбрана.

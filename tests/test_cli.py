@@ -47,6 +47,7 @@ from torrcast.usecases.choice.asked_kind import asked_kind
 from torrcast.usecases.choice.backed import backed
 from torrcast.usecases.choice.default_line import default_line
 from torrcast.usecases.choice.default_note import default_note
+from torrcast.usecases.choice.enter_take import enter_take
 from torrcast.usecases.choice.first_alive import first_alive
 from torrcast.usecases.choice.fitness import fitness
 from torrcast.usecases.choice.liveliest import liveliest
@@ -3015,7 +3016,9 @@ def test_prewarm_starts_with_the_default_not_with_the_earliest() -> None:
     :data:`~torrcast.domain.prewarm_settings.PREWARM`.
     """
     plans = _moana_franchise()
-    assert [p.picture.year for p in warm_order(plans)] == [2016, 1926, 2024]
+    take = enter_take(plans, "моана")
+
+    assert [p.picture.year for p in warm_order(plans, take)] == [2016, 1926, 2024]
 
 
 def test_enter_picks_the_picture_the_honest_line_is_about(

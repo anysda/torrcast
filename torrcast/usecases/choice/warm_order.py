@@ -4,23 +4,36 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from torrcast.usecases.choice.first_alive import first_alive
-
 if TYPE_CHECKING:
+    from torrcast.usecases.choice.take import Take
     from torrcast.usecases.select.plan import Plan
 
 
-def warm_order(plans: list[Plan]) -> list[Plan]:
-    """Кого греть под меню: сначала дефолт, дальше по хронологии списка.
+def warm_order(plans: list[Plan], take: Take) -> list[Plan]:
+    """Кого греть под меню: сначала та картина, что названа приговором, дальше по списку.
 
-    Греется голова этого списка (:data:`~torrcast.domain.prewarm_settings.PREWARM` картин), и
-    первой в ней обязана стоять та картина, в которую попадёт Enter (:func:`first_alive`).
-    Иначе прогрев достаётся соседям: дефолт стоит пятым у «ведьмак s2e4», шестым у
-    «медведь s2e7», седьмым у «евангелион s1e1» и девятым у «блич s1e1», то есть за
-    головой списка, и человек, нажавший Enter, ждал бы подъёма роя с нуля.
+    Греется голова этого списка (:data:`~torrcast.domain.prewarm_settings.PREWARM` картин),
+    и первой в ней обязана стоять та картина, в которую попадёт Enter. Иначе прогрев
+    достаётся соседям: дефолт стоит пятым у «ведьмак s2e4», шестым у «медведь s2e7»,
+    седьмым у «евангелион s1e1» и девятым у «блич s1e1», то есть за головой списка, и
+    человек, нажавший Enter, ждал бы подъёма роя с нуля.
+
+    🔴 TC-829. Своего мнения о том, кого возьмёт Enter, у прогрева НЕТ - и это главное
+    свойство этой единицы. Номер приезжает готовым приговором
+    (:class:`~torrcast.usecases.choice.enter_take.Take`)
+    от той же ступени, которая картину и возьмёт (:func:`enter_take`). Пока прогрев
+    целился сам - в :func:`first_alive`, - а брались стражи поверх него (:func:`named_take`,
+    :func:`absent_first_part`, тёзки), эти двое совпадали лишь ИНОГДА и расходились молча:
+    на корпусе ``pools-both.jsonl`` 10 запросов из 74, и на 6 из них взятая картина не
+    попадала в прогретую голову вовсе. Отнять у прогрева право решать самому - и есть
+    лечение: расходятся мнения, а тут мнение одно.
+
+    Вопрос без дефолта (:attr:`Take.takes` ложно) права греть не отменяет: номер назовёт
+    человек, но греть кого-то всё равно надо, и приговор называет дефолт франшизы -
+    единственное основание, которое тут есть.
 
     Остальные картины греются в порядке списка не от лени: список на экране
     хронологический, и человек, который с дефолтом не соглашается, тычет в соседний номер.
     """
-    default = first_alive(plans)
-    return [plans[default - 1], *(p for n, p in enumerate(plans, start=1) if n != default)]
+    first = take.number
+    return [plans[first - 1], *(p for n, p in enumerate(plans, start=1) if n != first)]
