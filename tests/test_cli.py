@@ -21,6 +21,7 @@ from torrcast.adapters.filesystem.state.load_config import load_config
 from torrcast.domain._series import _Series
 from torrcast.domain.args import Args
 from torrcast.domain.audio_track import AudioTrack
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.cluster import cluster
 from torrcast.domain.episode import Episode
 from torrcast.domain.facts.fact import Fact
@@ -123,7 +124,7 @@ def rel(
 
 
 def test_hevc_is_marked_and_h264_is_not() -> None:
-    assert warned(rel(codec="HEVC", size_gb=4), RUNTIME, 20.0) == "не берём"
+    assert warned(rel(codec="HEVC", size_gb=4), RUNTIME, 20.0) == phrase("choice.mark_not_taken")
     assert warned(rel(codec="H.264", size_gb=4), RUNTIME, 20.0) == ""
 
 
@@ -134,14 +135,18 @@ def test_the_table_promises_to_recode_hevc_instead_of_refusing_it() -> None:
     та же молчаливая подмена, только наоборот: человек выберет другой релиз зря.
     """
     hevc = rel(codec="HEVC", size_gb=4)
-    assert warned(hevc, RUNTIME, 20.0, recode_at=10.0) == "перекодирую целиком"
-    assert warned(hevc, RUNTIME, 20.0) == "не берём", "без перекодирования отказ честен"
+    assert warned(hevc, RUNTIME, 20.0, recode_at=10.0) == phrase("choice.mark_recode_all")
+    assert warned(hevc, RUNTIME, 20.0) == phrase("choice.mark_not_taken"), (
+        "без перекодирования отказ честен"
+    )
 
 
 def test_fat_bitrate_is_marked_even_for_h264() -> None:
     """~28 ГБ на два часа — это 33 Мбит/с, а потолок декодера Q70D около 20."""
-    assert warned(rel(size_gb=28), RUNTIME, 20.0) == "тяжёлый"
-    assert warned(rel(codec="HEVC", size_gb=28), RUNTIME, 20.0) == "не берём, тяжёлый"
+    assert warned(rel(size_gb=28), RUNTIME, 20.0) == phrase("choice.mark_heavy")
+    assert warned(rel(codec="HEVC", size_gb=28), RUNTIME, 20.0) == ", ".join(
+        [phrase("choice.mark_not_taken"), phrase("choice.mark_heavy")]
+    )
 
 
 def test_default_is_the_most_seeded_candidate() -> None:
@@ -188,7 +193,7 @@ def test_fat_release_stays_in_the_table_but_never_becomes_the_default() -> None:
     ranked = rank_releases([fat, thin], RUNTIME, 20.0)
     assert ranked[0].raw_name == "1080p"
     assert "remux" in [r.raw_name for r in ranked]
-    assert warned(fat, RUNTIME, 20.0) == "тяжёлый"
+    assert warned(fat, RUNTIME, 20.0) == phrase("choice.mark_heavy")
 
 
 def test_disc_images_never_become_the_default() -> None:
@@ -409,7 +414,9 @@ def test_table_has_all_the_columns() -> None:
 
 def test_table_marks_hevc_row() -> None:
     text = render_table([rel(codec="HEVC", size_gb=28, seeders=45)], RUNTIME, 20.0)
-    assert text.splitlines()[2].endswith("HEVC не берём, тяжёлый")
+    assert text.splitlines()[2].endswith(
+        "HEVC " + ", ".join([phrase("choice.mark_not_taken"), phrase("choice.mark_heavy")])
+    )
 
 
 def test_table_columns_line_up() -> None:
@@ -434,7 +441,7 @@ def test_missing_values_are_shown_as_dashes() -> None:
     assert "-" in row and "?" in row
 
 
-@pytest.mark.parametrize("size_gb,expected", [(4.0, ""), (28.0, "тяжёлый")])
+@pytest.mark.parametrize("size_gb,expected", [(4.0, ""), (28.0, phrase("choice.mark_heavy"))])
 def test_bitrate_threshold_is_configurable(size_gb: float, expected: str) -> None:
     assert warned(rel(size_gb=size_gb), RUNTIME, 20.0) == expected
 
@@ -452,7 +459,9 @@ def test_the_ceiling_is_sixteen_because_the_tv_rebuffers_at_eighteen() -> None:
     assert Config().bitrate_warn_mbit == 16.0
     fat = rel(size_gb=17.8 * RUNTIME / 8 / 1024**3 * 1e6)  # ровно 17.8 Мбит/с
     assert not is_candidate(fat, RUNTIME, Config().bitrate_warn_mbit), "Enter его не возьмёт"
-    assert warned(fat, RUNTIME, Config().bitrate_warn_mbit) == "тяжёлый", "но и не спрячет"
+    assert warned(fat, RUNTIME, Config().bitrate_warn_mbit) == phrase("choice.mark_heavy"), (
+        "но и не спрячет"
+    )
     assert is_candidate(rel(size_gb=13.0), RUNTIME, Config().bitrate_warn_mbit), "15.5 Мбит/с ок"
 
 
@@ -2273,7 +2282,7 @@ def test_default_steps_over_a_picture_backed_by_a_single_release() -> None:
     )
     assert alive_numbers([thin, deep], [1, 2]) == [1, 2], "по сидам живы обе"
     assert first_alive([thin, deep]) == 2
-    assert "всего одна раздача" in default_note([thin, deep])
+    assert phrase("choice.why_single_release", taken=2) in default_note([thin, deep])
 
 
 def _asked_parts(*parts: tuple[str, int, Kind, int]) -> list[Any]:
@@ -2331,12 +2340,19 @@ _SWAPS: list[tuple[str, list[Any], list[str]]] = [
     (
         "медведь s2e7",
         _asked_parts(("Медведь", 1938, "movie", 22), ("Медведь", 2022, "tv", 95)),
-        ["Медведь (2022, сериал)", "Медведь (1938)", "спросили серию"],
+        [
+            f"Медведь (2022{phrase('choice.series_mark')})",
+            "Медведь (1938)",
+            phrase("choice.why_other_kind"),
+        ],
     ),
     (
         "доктор кто s5e10",
         _asked_parts(("Доктор Кто", 1963, "tv", 14), ("Доктор Кто", 2005, "tv", 268)),
-        ["Доктор Кто (1963, сериал)", "Доктор Кто (2005, сериал)"],
+        [
+            f"Доктор Кто (1963{phrase('choice.series_mark')})",
+            f"Доктор Кто (2005{phrase('choice.series_mark')})",
+        ],
     ),
 ]
 
@@ -2354,7 +2370,10 @@ def test_a_swapped_picture_is_said_out_loud_in_one_line(
     note = default_note(plans, asked)
     assert note, f"«{asked}»: смена картины прошла молча"
     assert "\n" not in note, "строка одна"
-    assert note.startswith(f"спросили «{asked}» - беру "), note
+    # Голова про слова человека - та же строка плюс «спросили X»: снимаешь слова -
+    # остаётся ровно хвост, и проверять это можно на любом языке каталога.
+    assert note.endswith(default_note(plans)), note
+    assert asked in note, note
     for word in words:
         assert word in note, f"«{asked}»: строка не говорит про «{word}» - {note}"
 
@@ -2399,7 +2418,8 @@ def test_the_default_pictures_year_is_checked_against_the_reference() -> None:
     note = year_note(plan, Origin(title="It", year=2017), asked="оно")
     assert note, "год расходится со справкой - решение обязано прозвучать"
     assert "\n" not in note, "строка одна"
-    assert note.startswith("спросили «оно» - "), note
+    assert note.endswith(year_note(plan, Origin(title="It", year=2017))), note
+    assert "оно" in note, note
     assert "2014" in note and "2017" in note, note
 
 
@@ -2538,7 +2558,7 @@ def test_default_leaves_a_dead_end_picture_for_its_living_namesake() -> None:
     assert fitness(stub) == 0, "играть по-человечески тупику нечем"
     assert playable(plans, [1, 2]) == [2]
     assert first_alive(plans) == 2
-    assert "живого HD у неё нет" in default_note(plans, "призраки"), "смена картины - вслух"
+    assert phrase("choice.why_no_hd") in default_note(plans, "призраки"), "смена картины - вслух"
 
 
 def test_a_living_namesake_of_another_name_never_takes_the_default() -> None:
@@ -2623,8 +2643,11 @@ def test_the_default_never_switches_to_another_part_of_the_franchise() -> None:
     plans = _numbered_cars()
 
     note = part_one_swap(plans, "тачки")
-    assert "«Тачки (2006)» не играет" in note
-    assert "другую часть сам не включаю" in note
+    assert note == phrase(
+        "choice.part_one_dead_why",
+        picture="Тачки (2006)",
+        why=phrase("choice.why_nothing_playable"),
+    )
 
     assert part_one_swap(plans, "тачки 2") == "", "номер назван явно - дефолт честен"
     assert part_one_swap(plans, "форсаж") == "", "запрос не про эту франшизу"
@@ -2637,15 +2660,19 @@ def test_the_original_name_of_the_franchise_reads_the_same() -> None:
     """Франшизу назвали оригинальным именем («cars») - правило то же, что для «тачки»."""
     plans = _numbered_cars()
 
-    assert "не играет" in part_one_swap(plans, "cars")
-    assert "первой части в выдаче нет" in part_one_swap(plans[1:], "cars")
+    assert part_one_swap(plans, "cars") == phrase(
+        "choice.part_one_dead_why",
+        picture="Тачки (2006)",
+        why=phrase("choice.why_nothing_playable"),
+    )
+    assert part_one_swap(plans[1:], "cars") == phrase("choice.part_one_absent", name="cars")
 
 
 def test_the_default_is_no_default_when_the_first_part_is_absent() -> None:
     """Первой части нет в выдаче вовсе (добор за ней не состоялся) - об этом вслух."""
     plans = _numbered_cars()[1:]
 
-    assert "первой части в выдаче нет" in part_one_swap(plans, "тачки")
+    assert part_one_swap(plans, "тачки") == phrase("choice.part_one_absent", name="тачки")
 
 
 def test_the_namesake_relaxation_stays() -> None:
@@ -2669,7 +2696,11 @@ def test_the_namesake_relaxation_stays() -> None:
     second.picture.part = 2
 
     assert part_one_swap([first, twin, second], "оно") == "", "тёзка - та же вещь"
-    assert "не играет" in part_one_swap([first, second], "оно"), "а часть - нет"
+    assert part_one_swap([first, second], "оно") == phrase(
+        "choice.part_one_dead_why",
+        picture="Оно (1990)",
+        why=phrase("choice.why_nothing_playable"),
+    ), "а часть - нет"
 
 
 def test_a_chapter_of_one_picture_is_not_a_part_of_the_franchise() -> None:
@@ -2744,9 +2775,9 @@ def test_a_part_absent_from_the_results_plays_instead_of_asking(
     assert environment.questions == [], "вопроса нет: включаем сами"
 
     out = capsys.readouterr().out
-    assert "первой части в выдаче нет" in out
-    assert "беру первую живую из найденных - «Тачки 2 (2011)»" in out
-    assert "остальные: cast тачки --menu" in out, "ход к другим частям обязан быть"
+    assert out.strip() == phrase(
+        "choice.absent_part", name="тачки", picture="Тачки 2 (2011)", total=2, asked="тачки"
+    ), "ход к другим частям обязан быть"
     assert plan.picture.title == "Тачки 2"
 
 
@@ -2763,10 +2794,10 @@ def test_a_part_absent_from_the_results_still_asks_behind_the_menu_flag(
 
     plan = _pick_plan(plans, asked="тачки", environment=cast(Any, environment), menu=True)
 
-    assert environment.questions == [("Что смотрим?", 2, None)], "дефолта у вопроса нет"
+    assert environment.questions == [(phrase("choice.question"), 2, None)], "дефолта у вопроса нет"
 
     out = capsys.readouterr().out
-    assert "первой части в выдаче нет" in out
+    assert phrase("choice.part_one_absent", name="тачки") in out
     assert "Enter -" not in out, "дефолта нет: другую часть по Enter не включаем"
     assert plan.picture.title == "Тачки 2", "номер назвал сам человек"
 
@@ -2784,7 +2815,10 @@ def test_the_menu_default_stays_on_the_living_first_part(
 
     plan = _pick_plan(plans, asked="тачки", environment=cast(Any, environment))
 
-    assert "беру «Тачки (2006)» - подошло картин 3" in capsys.readouterr().out
+    assert (
+        phrase("choice.taken", picture="Тачки (2006)", total=3, asked="тачки")
+        in capsys.readouterr().out
+    )
     assert environment.questions == [], "спрашивать не о чем"
     assert plan.picture.title == "Тачки"
 
@@ -2977,7 +3011,7 @@ def test_asked_series_outweighs_a_namesake_film() -> None:
     )
     assert first_alive([film, show]) == 2
     note = default_note([film, show])
-    assert "спросили серию" in note and "2015" in note and "1987" in note
+    assert phrase("choice.why_other_kind") in note and "2015" in note and "1987" in note
 
 
 def test_a_film_only_catalogue_keeps_the_default_where_it_was() -> None:
@@ -3003,7 +3037,9 @@ def test_the_default_names_itself_for_a_menu_that_does_not_fit_the_screen() -> N
     default = first_alive(plans)
 
     assert default == 33, "живой в этой выдаче стала только тридцать третья картина"
-    assert default_line(plans, default) == "Enter - «Ван Пис (2023)», пункт 33 из 35"
+    assert default_line(plans, default) == phrase(
+        "choice.default", picture="Ван Пис (2023)", number=33, total=35
+    )
     assert menu_blocks(plans, width=80)[0][0].startswith("  1. Ван Пис (1991)"), (
         "список не переупорядочивается: хронология - осознанное решение"
     )
@@ -3045,11 +3081,17 @@ def test_enter_picks_the_picture_the_honest_line_is_about(
     picked = _pick_plan(plans, asked="naruto", environment=cast(Any, FakeChoiceEnvironment()))
 
     assert menu_blocks(plans)[0][0].startswith("  1. Наруто (2002)")
-    assert "Enter - «Наруто 8: Кровавая тюрьма (2011)», пункт 2 из 2" in capsys.readouterr().out
+    assert (
+        phrase("choice.default", picture="Наруто 8: Кровавая тюрьма (2011)", number=2, total=2)
+        in capsys.readouterr().out
+    )
     assert picked is movie
-    assert swap_note(plans, picked, "naruto") == (
-        "спросили «naruto» - беру «Наруто 8: Кровавая тюрьма (2011)», "
-        "а не «Наруто (2002)»: рой у неё мёртв - сидов 4"
+    assert swap_note(plans, picked, "naruto") == phrase(
+        "choice.note_instead_asked_why",
+        asked="naruto",
+        mine="Наруто 8: Кровавая тюрьма (2011)",
+        other="Наруто (2002)",
+        why=phrase("choice.why_dead_swarm", seeds=4),
     ), "картина сменилась - и об этом сказано"
 
 
@@ -4034,7 +4076,9 @@ def test_releases_table_says_by_which_profile_it_judges_without_a_receiver(
     printed = _releases_output(capsys)
 
     assert "профиль приёмника: осторожный" in printed
-    assert "перекодируем" in printed, "осторожный профиль такие куски перекодирует"
+    assert phrase("choice.mark_recode_parts") in printed, (
+        "осторожный профиль такие куски перекодирует"
+    )
 
 
 # --- 🔴 TC-194: экран и след говорят про одни и те же решения ------------------
@@ -4466,7 +4510,9 @@ def test_two_pictures_under_one_name_and_year_are_named_out_loud() -> None:
     note = namesake_note(plan, about)
 
     assert note and "\n" not in note, "строка одна"
-    assert "«9 (мультфильм, 2009)»" in note and "2009" in note, note
+    assert note == phrase(
+        "choice.namesake_two", title="Девять", year=2009, other="9 (мультфильм, 2009)"
+    ), note
 
 
 def test_the_namesake_line_stays_silent_where_it_should() -> None:

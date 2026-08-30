@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from tests.usecases.rank.releases import RUNTIME, rel
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.usecases.rank.render_table import render_table
 
 
@@ -34,7 +35,9 @@ def test_the_limit_cuts_the_tail_and_says_how_much_is_left() -> None:
 
 
 def test_a_fat_release_carries_its_warning_into_the_codec_column() -> None:
-    assert "тяжёлый" in render_table([rel(name="жирный", size_gb=28)], RUNTIME, 20.0)
+    assert phrase("choice.mark_heavy") in render_table(
+        [rel(name="жирный", size_gb=28)], RUNTIME, 20.0
+    )
 
 
 def test_the_studio_column_names_who_voiced_it() -> None:

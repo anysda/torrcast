@@ -28,6 +28,7 @@ from torrcast.adapters.filesystem.state.save_config import save_config
 from torrcast.adapters.filesystem.state.state import State
 from torrcast.cli.main import main
 from torrcast.domain.audio_track import AudioTrack
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.config import Config
 from torrcast.domain.entry import Entry
 from torrcast.domain.exit_codes import EXIT_INFRA, EXIT_OK
@@ -161,9 +162,7 @@ def test_the_happy_path_asks_nothing_at_all(
     printed = capsys.readouterr().out
     assert asked == [], "спрашивать было не о чем"
     assert "Озвучка:" not in printed, "меню озвучки на счастливом пути больше нет"
-    assert "беру «Moana (2016)» - подошло картин 2; другая: cast releases моана и --pick N" in (
-        printed
-    )
+    assert phrase("choice.taken", picture="Moana (2016)", total=2, asked="моана") in printed
     assert "играю «Moana» (2016) · 1080p · rus · Дубляж - на ТВ" in printed
     # Ни таблицы релизов, ни файлов, ни серий - именно этого пользователь видеть не хочет.
     for forbidden in ("Релизы:", "Качество", "Файл:", "Серии:", ".mkv", "Какой берём?"):
@@ -228,7 +227,7 @@ def test_the_question_says_out_loud_what_enter_will_start(
     assert main(["моана", "--menu"]) == 0
 
     printed = capsys.readouterr().out
-    enter = "Enter - «Moana (2016)», пункт 1 из 2"
+    enter = phrase("choice.default", picture="Moana (2016)", number=1, total=2)
     assert enter in printed
     assert (
         printed.index("  1. Moana (2016)")
@@ -275,8 +274,14 @@ def test_the_liveliest_namesake_is_taken_without_a_question(
     printed = capsys.readouterr().out
     assert asked == [], "тёзки по году больше не спрашивают - берётся самая живая"
     assert (
-        "беру «Мумия (2026)» - самая живая из одноимённых, у лучшей её раздачи сидов 604; "
-        "других картин под этим именем: 1, их список: cast мумия --menu" in printed
+        phrase(
+            "choice.namesake_taken",
+            picture="Мумия (2026)",
+            seeds=604,
+            others=1,
+            asked="мумия",
+        )
+        in printed
     ), printed
     assert "играю «Мумия» (2026)" in printed
 
@@ -352,7 +357,16 @@ def test_bot_drives_a_real_choice_through_inline_buttons(
         )
         bot.run_one()
         search_id, _search_text, search_buttons = next(
-            item for item in api.sent if "самая живая из одноимённых" in item[1]
+            item
+            for item in api.sent
+            if phrase(
+                "choice.namesake_taken",
+                picture="Мумия (2026)",
+                seeds=604,
+                others=1,
+                asked="мумия",
+            )
+            in item[1]
         )
         assert search_buttons is None
         assert api.replies[search_id] == 69
@@ -692,7 +706,10 @@ def test_the_console_question_keeps_its_enter_hint_and_its_ctrl_c(
     _answers(monkeypatch, "", "")
 
     assert main(["моана", "--menu"]) == EXIT_OK
-    assert "Enter - «Moana (2016)», пункт 1 из 2" in capsys.readouterr().out
+    assert (
+        phrase("choice.default", picture="Moana (2016)", number=1, total=2)
+        in capsys.readouterr().out
+    )
 
     def interrupted(_prompt: str = "") -> str:
         raise KeyboardInterrupt
@@ -830,7 +847,15 @@ def test_the_namesake_line_is_said_before_the_start(
     assert main(["мумия"]) == 0
 
     printed = capsys.readouterr().out
-    take = printed.index("беру «Мумия (2026)» - самая живая из одноимённых")
+    take = printed.index(
+        phrase(
+            "choice.namesake_taken",
+            picture="Мумия (2026)",
+            seeds=604,
+            others=1,
+            asked="мумия",
+        )
+    )
     start = printed.index("играю «Мумия» (2026)")
     assert take < start, "решение названо вслух до старта показа, а не после"
 
@@ -887,7 +912,7 @@ def test_a_pick_outside_the_menu_is_an_honest_error(
     _answers(monkeypatch)
 
     assert main(["моана", "--pick", "7"]) == 1
-    assert "номера 7 нет" in capsys.readouterr().err
+    assert phrase("choice.pick_out_of_range", total=2, pick=7) in capsys.readouterr().err
 
 
 def test_release_and_file_are_debug_handles_and_show_the_insides(
@@ -1092,7 +1117,7 @@ def test_a_bookmark_of_a_sequel_does_not_answer_which_picture_was_asked(
 
     printed = capsys.readouterr().out
     assert asked == [], "имя франшизы зовёт первую часть, и спрашивать не о чем"
-    assert "беру «Moana (2016)»" in printed
+    assert phrase("choice.taken", picture="Moana (2016)", total=2, asked="моана") in printed
     assert "играю «Moana» (2016)" in printed, printed
     assert State.load().entries["movie:моана-2:2024"].pos == 2467.0, "закладка цела"
 
@@ -1216,7 +1241,7 @@ def test_the_spare_release_warms_under_the_menu_not_after_the_first_one_fails(
     under_question: list[set[str]] = []
 
     def ask(prompt: str = "") -> str:
-        if "Что смотрим?" in prompt:  # вопрос на экране, ответа ещё нет
+        if phrase("choice.question") in prompt:  # вопрос на экране, ответа ещё нет
             deadline = time.monotonic() + 5.0
             while len(added) < 3 and time.monotonic() < deadline:
                 time.sleep(0.02)
@@ -1418,8 +1443,15 @@ def test_two_pictures_under_one_name_reach_the_last_line(
     assert main(["моана"]) == 0
 
     printed = capsys.readouterr().out
-    assert "под этим именем и годом картин две" in printed
-    assert "«Моана (фильм, 2026)»" in printed
+    assert (
+        phrase(
+            "choice.namesake_two",
+            title="Moana",
+            year=2016,
+            other="Моана (фильм, 2026)",
+        )
+        in printed
+    ), printed
 
 
 def _live_show(show_unit: FakeShowUnit) -> None:
@@ -1482,7 +1514,7 @@ def test_the_menu_prewarm_stands_aside_while_our_show_is_on_air(
     under_question: list[int] = []
 
     def ask(prompt: str = "") -> str:
-        if "Что смотрим?" in prompt:  # вопрос на экране, ответа ещё нет
+        if phrase("choice.question") in prompt:  # вопрос на экране, ответа ещё нет
             time.sleep(0.5)  # прогрев успел бы поднять три раздачи вдесятеро быстрее
             under_question.append(len(added))
         return ""

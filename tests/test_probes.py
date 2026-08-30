@@ -25,6 +25,7 @@ from torrcast.adapters.chromecast.profile_detector import ProfileDetector, detec
 from torrcast.adapters.chromecast.scan.device import Device
 from torrcast.adapters.filesystem.state.save_config import save_config
 from torrcast.domain.args import Args
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.config import Config
 from torrcast.domain.facts.origin import Origin
 from torrcast.domain.picture import Picture
@@ -1115,7 +1116,7 @@ def test_щуп_привязки_мерит_оба_круга_и_сходитс�
     assert widened.anchor == 2006 and widened.verdict == meter.SAME
     note = widened.guards["default_note"]
     assert "Code Geass: Lelouch of the Rebellion" in note and "Dakkan" not in note
-    assert "спросили серию" in note, "строка обязана называть верную причину"
+    assert phrase("choice.why_other_kind") in note, "строка обязана называть верную причину"
 
 
 def dead_swarm_pool() -> dict[str, Any]:

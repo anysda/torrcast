@@ -23,6 +23,7 @@ from torrcast.adapters.console.console.progress import Progress
 from torrcast.adapters.prowlarr.merge import merge
 from torrcast.domain.alt_query import alt_query
 from torrcast.domain.args import Args
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.config import Config
 from torrcast.domain.facts.origin import Origin
 from torrcast.domain.not_found_error import NotFoundError
@@ -896,7 +897,13 @@ def test_a_dead_namesake_no_longer_swallows_a_subtitle_query() -> None:
     assert first_alive(plans) == 2, "дефолт - живая, а не мёртвый огрызок"
     assert "«космическая одиссея» - в каталоге это «2001: Космическая одиссея»" in said
     note = default_note(plans, "космическая одиссея")
-    assert "«2001: Космическая одиссея (1968)»" in note and "«Космическая одиссея (1987)»" in note
+    assert note == phrase(
+        "choice.note_instead_asked_why",
+        asked="космическая одиссея",
+        mine="2001: Космическая одиссея (1968)",
+        other="Космическая одиссея (1987)",
+        why=phrase("choice.why_nothing_playable"),
+    )
 
 
 def test_a_thin_subtitle_pool_is_never_zeroed_by_the_gate() -> None:
