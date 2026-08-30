@@ -12,6 +12,7 @@ from torrcast.domain.facts.patterns import (
     _TITLED_RE,
 )
 from torrcast.domain.facts.sentence import sentence
+from torrcast.domain.facts.unhatted import unhatted
 
 
 def _about_cinema(heading: str, extract: str) -> bool:
@@ -42,8 +43,17 @@ def _about_cinema(heading: str, extract: str) -> bool:
       в скобке своё имя латиницей, и справка выдала бы его за название картины);
     * жанр - роман, опера и пьеса своих жанров сюда не отдают («Дюна» - «роман»);
     * год выхода - у произведения он есть, у понятия и термина его нет.
+
+    🔴 Судится выдача БЕЗ шляпки (:func:`~torrcast.domain.facts.unhatted.unhatted`), и это
+    не вежливость к тексту, а закрытая дыра в белом списке. Шляпка разводит одноимённое и
+    почти всегда сама называет вид соседней картины («Не путать с Звёздные войны: Войны
+    клонов (мультсериал, 2003)»), потому что затем она и написана. Читая её, гейт
+    пропускал статью, которая о кино не говорит ни слова, - на словах ЧУЖОЙ картины из её
+    собственной шляпки, - и дальше справка вычитывала «оригинал» из первой скобки этой
+    чужой статьи. Тихая подмена картины ровно того рода, против которого гейт и стоит
+    (TC-912).
     """
-    text = f"{heading} {extract}"
+    text = f"{heading} {unhatted(extract)}"
     if _CINEMA_RE.search(text):
         return True
     if _SCREEN_RE.search(text) and _GENRE_RE.search(text):

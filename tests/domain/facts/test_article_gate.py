@@ -1,6 +1,6 @@
 """Проверяет гейты статьи: про кино ли она и того ли типа, что спросили."""
 
-from tests.articles import BREAKING_BAD, HP_FRANCHISE, NOT_CINEMA
+from tests.articles import BREAKING_BAD, CLONE_WARS, HP_FRANCHISE, NOT_CINEMA
 from torrcast.domain.facts.article_gate import _about_cinema, _fits_type
 
 
@@ -22,6 +22,35 @@ def test_neither_a_person_nor_a_book_is_about_cinema() -> None:
     """Главное ограждение: человек, город, компания и книга гейт не проходят."""
     for heading, extract in NOT_CINEMA.items():
         assert not _about_cinema(heading, extract), heading
+
+
+def test_the_pointer_names_a_neighbours_type_and_the_cinema_gate_must_not_hear_it() -> None:
+    """Шляпка называет вид ЧУЖОЙ картины, и по её словам гейт принимал чужую статью.
+
+    «Дюна» - роман, и о кино он не говорит ни слова: гейт его не пропускает, и это то
+    самое ограждение, ради которого гейт заведён. Но указатель над статьёй разводит книгу
+    с экранизациями и потому обязан назвать их вид - «фильм». Читая выдачу сырой, гейт
+    видел это слово, пропускал книгу как картину, и справка вычитывала «оригинал» из
+    первой скобки статьи о РОМАНЕ (TC-912).
+
+    Указатель записан той же формулой, что снята живьём со статьи «Звёздные войны: Войны
+    клонов»: «Не путать с» + имена соседей со своими уточнениями, границей - перенос
+    строки.
+    """
+    novel = NOT_CINEMA["Дюна (роман)"]
+    assert not _about_cinema("Дюна (роман)", novel), "книга гейт не проходит и без указателя"
+    pointed = f"Не путать с Дюна (фильм, 1984) и Дюна (фильм, 2021)\n{novel}"
+    assert not _about_cinema("Дюна (роман)", pointed)
+
+
+def test_cutting_the_pointer_does_not_take_the_articles_own_words_with_it() -> None:
+    """Снятая шляпка не должна уносить первую фразу самой картины.
+
+    Заголовок тут нарочно пуст: с ним гейт прошёл бы на слове «мультсериал» из уточнения
+    и промолчал бы о том, что от выдачи вообще что-то осталось. Правило режет РОВНО
+    указатель, и «трёхмерный анимационный сериал 2008 года» обязано пережить его.
+    """
+    assert _about_cinema("", CLONE_WARS)
 
 
 def test_a_type_the_article_never_names_does_not_silence_it() -> None:

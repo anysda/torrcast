@@ -1,7 +1,43 @@
 """Проверяет границу первой фразы статьи: скобки, кавычки, сокращения, указатель."""
 
-from tests.articles import CARS, CLONE_WARS, SEVEN_SAMURAI
+from tests.articles import CARS, CLONE_WARS, CLONE_WARS_2003, SEVEN_SAMURAI
 from torrcast.domain.facts.sentence import sentence
+
+
+def test_a_dot_inside_the_pictures_own_name_does_not_end_the_phrase() -> None:
+    """«Звёздные войны. Войны клонов» - одно название, и точка внутри него не граница.
+
+    В статье название набрано полужирным целиком, но выдача приезжает плоским текстом, и
+    выделение до нас не доезжает. Границей служит тире паспорта: до него стоит имя
+    картины, после - рассказ о ней. Без этого зритель читал в меню два слова (TC-913).
+    """
+    first = sentence(CLONE_WARS_2003)
+    assert first.startswith("Звёздные войны. Войны клонов (англ. Star Wars: Clone Wars)")
+    assert first.endswith("второго и третьего киноэпизодов.")
+
+
+def test_the_name_reaches_only_to_the_first_dash_and_no_further() -> None:
+    """Правило кончается на ПЕРВОМ тире верхнего уровня, иначе оно съест всю статью.
+
+    Тире стоит и посреди рассказа о картине («Снят Гербертом Россом — постановщиком
+    „Степфордских жён“»), и потянись имя до последнего, описание поехало бы за пределы
+    первой фразы у каждой второй статьи.
+    """
+    later = (
+        "«Кошмар» (англ. The Nightmare) — фильм ужасов 1981 года. Снят Гербертом "
+        "Россом — постановщиком «Степфордских жён»."
+    )
+    assert sentence(later).endswith("1981 года.")
+
+
+def test_an_article_without_a_passport_dash_is_cut_exactly_as_before() -> None:
+    """Нет тире верхнего уровня - правило молчит, а не тянет имя до конца текста.
+
+    Выдумывать границу там, где паспорт написан иначе, опаснее, чем оставить всё как
+    было: статья без тире кончает первую фразу обычной точкой.
+    """
+    plain = "Восхождение обозначает подъём на вершину. Так же называется фильм 1976 года."
+    assert sentence(plain) == "Восхождение обозначает подъём на вершину."
 
 
 def test_a_dot_inside_a_bracket_or_a_quote_is_not_the_end_of_the_phrase() -> None:
