@@ -121,6 +121,8 @@ if [ "${1:-}" = --quick ] && [ "$#" -eq 1 ]; then
     echo "⚠️  --quick: это обратная связь, а не приёмка."
     echo "    mypy отвечает из кэша; машинные и ffmpeg-овые тесты не гоняются вовсе."
     echo "    Зелень здесь НИЧЕГО не доказывает - перед сдачей гони scripts/test-gate без аргументов."
+    stage "installer language contract"
+    scripts/installer-language-contract
     stage "структурный гейт"
     scripts/structure-gate --strict
     stage "ruff"
@@ -132,6 +134,9 @@ if [ "${1:-}" = --quick ] && [ "$#" -eq 1 ]; then
     .venv/bin/python -m pytest -m 'not ffmpeg and not machine' -n 4
     exit 0
 fi
+
+stage "installer language contract"
+scripts/installer-language-contract
 
 
 # Разрез на слои закончен, нарушений ноль по всем правилам: сторож переключён из

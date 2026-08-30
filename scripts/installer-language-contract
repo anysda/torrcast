@@ -1,0 +1,22 @@
+#!/bin/sh
+set -eu
+
+fail() { printf 'installer language contract: %s\n' "$1" >&2; exit 1; }
+
+grep -Fq 'TORRCAST_LANGUAGE' install || fail 'bootstrap does not carry the language'
+grep -Fq -- '-en) LANGUAGE=en' install.sh || fail 'install.sh has no -en option'
+grep -Fq -- '-ru) LANGUAGE=ru' install.sh || fail 'install.sh has no -ru option'
+grep -Fq "\"language\": \"\$LANGUAGE\"" install.sh || fail 'new config does not store language'
+grep -Fq ".language=\\\$l" install.sh || fail 'existing config does not update language'
+
+box=$(mktemp -d)
+trap 'rm -rf "$box"' EXIT HUP INT TERM
+for language in en ru; do
+    TORRCAST_LANGUAGE="$language" TORRCAST_NO_ROOT=1 TORRCAST_PHASES=none \
+        TORRCAST_PREFIX="$box/$language" TORRCAST_CONFIG_DIR="$box/$language/etc" \
+        TORRCAST_STATE_DIR="$box/$language/state" TORRCAST_BIN_DIR="$box/$language/bin" \
+        TORRCAST_MOTD="$box/$language/motd" TORRCAST_MOTD_D="$box/$language/motd.d" \
+        ./install.sh >"$box/$language.out" 2>&1
+done
+LC_ALL=C grep -q '[А-яЁё]' "$box/en.out" && fail 'English output contains Cyrillic'
+printf 'installer language contract: en and ru accepted, config writers are explicit\n'
