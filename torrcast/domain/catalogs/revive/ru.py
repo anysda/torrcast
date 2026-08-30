@@ -47,4 +47,6 @@ def ru() -> dict[str, str]:
             "конец картины: указатель стоит на {pos} уже {secs} с - считаю доигранным"
         ),
         "revive.closed_by_remote": "{tag} показ закрыт с пульта на {pos} - поднимать не буду",
+        "revive.source_restarted": "TorrServer перезапускался - раздачу вернул магнитом",
+        "revive.source_back_readded": "источник вернулся - раздачу добавил магнитом заново",
     }

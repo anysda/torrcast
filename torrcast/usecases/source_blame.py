@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.revive_settings import SOURCE_PAUSE, SOURCE_TRIES
 from torrcast.ports.clock import Clock
 from torrcast.ports.journal.slot import journal
@@ -40,7 +41,7 @@ def _blamed(supply: StreamSource | None, clock: Clock) -> str:
         if why_source:
             return why_source
         if supply is not None and supply.restored:
-            return "TorrServer перезапускался - раздачу вернул магнитом"
+            return phrase("revive.source_restarted")
         if left > 1 and supply is not None:
             clock.sleep(SOURCE_PAUSE)
     return ""
@@ -63,5 +64,5 @@ def _asked(supply: StreamSource | None) -> str:
     why_source = supply.check()
     if supply.restored:
         journal().resupply(torrent=supply.torrent_hash, ok=True)
-        print("источник вернулся - раздачу добавил магнитом заново", flush=True)
+        print(phrase("revive.source_back_readded"), flush=True)
     return why_source

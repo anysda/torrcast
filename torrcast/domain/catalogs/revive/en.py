@@ -54,4 +54,6 @@ def en() -> dict[str, str]:
             "calling it watched"
         ),
         "revive.closed_by_remote": "{tag} show closed from the remote at {pos} - not bringing it back",
+        "revive.source_restarted": "TorrServer restarted - returned the pack by magnet",
+        "revive.source_back_readded": "the source is back - added the pack by magnet again",
     }

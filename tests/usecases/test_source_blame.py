@@ -21,6 +21,7 @@ import pytest
 
 from tests.fakes.clock import FakeClock
 from tests.fakes.stream_source import FakeStreamSource
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.revive_settings import SOURCE_PAUSE, SOURCE_TRIES
 from torrcast.ports.journal.silent import Silent
 from torrcast.ports.journal.slot import install
@@ -80,7 +81,7 @@ def test_a_restarted_source_is_blamed_even_though_it_answers_that_it_is_fine() -
     supply = FakeStreamSource(torrent_hash="hash", restored=True)
     clock = FakeClock()
 
-    assert _blamed(supply, clock) == "TorrServer перезапускался - раздачу вернул магнитом"
+    assert _blamed(supply, clock) == phrase("revive.source_restarted")
     assert clock.sleeps == []
 
 
@@ -100,7 +101,8 @@ def test_the_return_of_the_swarm_is_said_once_to_the_viewer_and_once_to_the_trac
 
     assert _asked(supply) == ""
     assert trace.resupplies == [{"torrent": "hash", "ok": True}]
-    assert capsys.readouterr().out.count("раздачу добавил магнитом заново") == 1
+    said = phrase("revive.source_back_readded")
+    assert capsys.readouterr().out.count(said) == 1
 
 
 def test_a_healthy_source_says_nothing_to_anyone(

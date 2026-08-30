@@ -44,6 +44,7 @@ from torrcast.adapters.stream_pack.packer import Packer
 from torrcast.adapters.stream_pack.playing_flag import playing_flag
 from torrcast.adapters.stream_probe.segment_name import segment_name
 from torrcast.adapters.stream_probe.supply import Supply
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.config import Config
 from torrcast.domain.entry import Entry
 from torrcast.domain.hls_settings import HLS_SEGMENT_SECONDS, PACK_DIR
@@ -243,7 +244,7 @@ def test_mock_decodes_the_whole_stream_without_gaps(
     config.transport = transport  # type: ignore[assignment]
     assert _play(config, clip, 0, "тест", _Clock(), duration=float(CLIP_SECONDS)) == 0
     printed = capsys.readouterr().out
-    assert "- на ТВ" in printed
+    assert "- on TV" in printed
     assert "gaps 0" in printed and "no CORS 0" in printed
     decoded = float(printed.split("decoded ")[1].split(" ")[0])
     # Допуск ровно в один сегмент: если ENDLIST попадает в ту же перезагрузку плейлиста,
@@ -426,8 +427,8 @@ def test_packing_torn_off_again_and_again_is_an_honest_infra_error(
     finally:
         enough.set()  # показ сдался - сносить больше некого
         killer.join(timeout=30)
-    assert "упаковка оборвалась: killed by signal 9" in str(caught.value)
-    assert "начинаю заново" in capsys.readouterr().out, "обрыв показ переживает молча"
+    assert "the pack broke off: killed by signal 9" in str(caught.value)
+    assert "starting over" in capsys.readouterr().out, "обрыв показ переживает молча"
     assert not list(Path(config.hls_dir).glob("*.ts")), "сегменты убраны даже после аварии"
     assert not _alive(str(tmp_path)) and not _alive(hls_base(config)), "процессы не текут"
 
@@ -567,7 +568,7 @@ def test_a_pause_on_the_remote_stops_packing(
     assert feed.halted() and feed.packer is not None and feed.packer.poll() == -15, (
         "ffmpeg завершён, а не остановлен сигналом"
     )
-    assert "пауза на пульте" in capsys.readouterr().out
+    assert "paused from the remote" in capsys.readouterr().out
 
 
 def test_the_diagnostic_remote_reaches_the_receiver_once(tmp_path: Path, remote: Path) -> None:
@@ -745,8 +746,11 @@ def test_an_outage_longer_than_the_receivers_patience_does_not_end_the_show(
     assert receiver.replays == [1200.0], "показ подняли, и ровно с той секунды, где смотрели"
     assert clock.now - 1000.0 >= 300.0, "до возврата сети приёмник не трогали ни разу"
     printed = capsys.readouterr().out
-    assert "показ погас на 0:20:00" in printed, "уход в темноту - честная строка, не молчание"
-    assert "поднимаю показ с 0:20:00" in printed and "показ поднят с 0:20:00" in printed
+    assert "show went dark at 0:20:00" in printed, "уход в темноту - честная строка, не молчание"
+    assert (
+        "bringing the show back from 0:20:00" in printed
+        and "the show is back up from 0:20:00" in printed
+    )
 
 
 def test_a_restored_source_spends_a_try_only_after_the_first_piece_is_ready(
@@ -843,11 +847,11 @@ def test_a_show_that_never_gave_a_frame_is_raised_from_the_start_of_the_picture(
 
     assert receiver.replays == [0.0], "показ подняли ровно с того места, где он умер"
     printed = capsys.readouterr().out
-    assert "показа не было ни кадра (заводили с 0:00:00)" in printed, (
+    assert "not a single frame shown yet (started from 0:00:00)" in printed, (
         "«показ погас» тут враньё: гаснуть было нечему"
     )
-    assert "показ поднят с 0:00:00" in printed, "подъём с начала картины - это удача"
-    assert "приёмник показ не взял" not in printed, "нельзя звать отказом поднятый показ"
+    assert "the show is back up from 0:00:00" in printed, "подъём с начала картины - это удача"
+    assert "the receiver refused the show" not in printed, "нельзя звать отказом поднятый показ"
 
 
 def test_a_resumed_show_that_never_gave_a_frame_goes_back_to_its_own_middle(
@@ -887,7 +891,7 @@ def test_a_show_that_never_gave_a_frame_gives_up_out_loud(
 
     assert receiver.replays == [0.0] * REVIVE_TRIES, "попытки конечны и все - с нуля"
     printed = capsys.readouterr().out
-    assert "приёмник показ не взял" in printed and "показ поднять не удалось" in printed
+    assert "the receiver refused the show" in printed and "could not bring the show back" in printed
 
 
 def test_a_start_the_receiver_refused_is_handed_to_the_ladder_not_to_the_grave(
@@ -910,7 +914,7 @@ def test_a_start_the_receiver_refused_is_handed_to_the_ladder_not_to_the_grave(
     _hold(receiver, feed, None, None, clock=clock, raised=False)
 
     assert receiver.replays == [0.0], "показ подняли, а не похоронили"
-    assert "картинка пошла с" in capsys.readouterr().out
+    assert "picture started at" in capsys.readouterr().out
 
 
 def test_a_show_that_never_gave_a_frame_names_that_and_not_undershown() -> None:
@@ -920,9 +924,13 @@ def test_a_show_that_never_gave_a_frame_names_that_and_not_undershown() -> None:
     не включилось» стоит выше на лестнице цели, чем оборванный на середине показ.
     """
 
-    with pytest.raises(InfraError, match="картинки не было ни разу: приёмник не взял показ"):
+    with pytest.raises(
+        InfraError, match="not a single picture was shown: the receiver would not take the show"
+    ):
         _blame_the_end(_supply(_Service()), shown=False, clock=FakeClock())
-    with pytest.raises(InfraError, match="картинки не было ни разу: источник не читается"):
+    with pytest.raises(
+        InfraError, match="not a single picture was shown: the source is unreadable"
+    ):
         _blame_the_end(_supply(_Service(up=False)), shown=False, clock=FakeClock())
 
 
@@ -944,8 +952,8 @@ def test_a_dark_show_gives_up_after_a_limited_number_of_tries(
     assert receiver.replays == [1200.0] * REVIVE_TRIES, "попытки конечны и все - с места"
     assert clock.now - 1000.0 >= 300.0 + 2 * REVIVE_PAUSE, "между попытками выдержка"
     printed = capsys.readouterr().out
-    assert "приёмник показ не взял" in printed
-    assert "показ поднять не удалось" in printed and "cast продолжит с 0:20:00" in printed
+    assert "the receiver refused the show" in printed
+    assert "could not bring the show back" in printed and "cast will resume from 0:20:00" in printed
 
 
 def test_a_network_that_never_returns_ends_the_show_exactly_as_before(
@@ -966,7 +974,7 @@ def test_a_network_that_never_returns_ends_the_show_exactly_as_before(
     assert expected_end, "исчерпанные попытки - ожидаемый фолбэк, а не падение юнита"
     assert clock.now - 1000.0 > REVIVE_LIMIT, "ждали ровно столько, сколько обещали"
     printed = capsys.readouterr().out
-    assert "показ погас на 0:20:00" in printed and "cast продолжит с 0:20:00" in printed
+    assert "show went dark at 0:20:00" in printed and "cast will resume from 0:20:00" in printed
 
 
 def test_the_darkness_is_named_in_the_state_and_not_called_a_show(
@@ -999,14 +1007,14 @@ def test_the_darkness_is_named_in_the_state_and_not_called_a_show(
     assert len(marked) * 2 > REVIVE_LIMIT * 0.9, "отметка появилась не сразу, а под конец"
     assert seen[0] == (0.0, ""), "у живой картинки отметки темноты нет"
     printed = capsys.readouterr().out
-    assert "(TorrServer does not answer) - картинки нет; источник не вернулся" in printed, (
+    assert "(TorrServer does not answer) - no picture; the source has not returned" in printed, (
         "человеку про темноту сказано числом, а не строкой «экран: … · IDLE»"
     )
     # Граница сидит на такте опроса: с учащённым шагом окна старта последняя строка
     # ложится ровно на срок сдачи.
-    assert "погашу через 0:00:00" in printed, "не сказано, когда показ сдастся сам"
-    assert printed.count("экран:") == 1, "экраном названа только живая картинка, до темноты"
-    assert "показ обеспечен до" not in printed, "обеспечивать в темноте уже нечего"
+    assert "giving up in 0:00:00" in printed, "не сказано, когда показ сдастся сам"
+    assert printed.count("screen:") == 1, "экраном названа только живая картинка, до темноты"
+    assert "show is covered until" not in printed, "обеспечивать в темноте уже нечего"
 
 
 def test_the_darkness_mark_goes_away_with_the_picture(tmp_path: Path) -> None:
@@ -1041,7 +1049,7 @@ def test_the_darkness_reason_follows_a_returning_source(tmp_path: Path) -> None:
     service.up = True
 
     assert revival.resurrect(receiver, feed, warmer, 1200.0)  # type: ignore[arg-type]
-    assert revival.why == "источник вернулся - жду готовности потока"
+    assert revival.why == "the source is back - waiting for the stream to be ready"
 
 
 def _dark_mark(key: str) -> tuple[float, str]:
@@ -1273,7 +1281,7 @@ def test_two_short_outages_do_not_eat_the_whole_stock_of_tries(
     assert len(receiver.revived) == 2, "оба обрыва показ пережил, а не только первый"
     assert receiver.revived[1] > receiver.revived[0], "второй раз поднялись дальше по фильму"
     printed = capsys.readouterr().out
-    assert printed.count("показ поднят с ") == 2, "и человек увидел оба подъёма"
+    assert printed.count("the show is back up from ") == 2, "и человек увидел оба подъёма"
 
 
 def test_the_dark_show_is_revived_only_on_a_free_receiver() -> None:
@@ -1574,9 +1582,11 @@ def test_a_blinking_source_takes_the_mock_receiver_dark_and_the_show_comes_back(
     assert own == [1208.5, 1208.5], "приёмник потратил на пропавшую картинку свои два LOAD"
     assert revival == [1208.5], "воскрешение пришло снаружи - и ровно с места остановки"
     printed = capsys.readouterr().out
-    assert "показ погас на 0:20:08" in printed, "заглушка бросила показ, а не досидела до конца"
-    assert "сеть вернулась - поднимаю показ с 0:20:08" in printed
-    assert "показ поднят с 0:20:08" in printed, "картинка вернулась, и заглушка это подтвердила"
+    assert "show went dark at 0:20:08" in printed, "заглушка бросила показ, а не досидела до конца"
+    assert "the network is back - bringing the show back from 0:20:08" in printed
+    assert "the show is back up from 0:20:08" in printed, (
+        "картинка вернулась, и заглушка это подтвердила"
+    )
 
 
 def test_the_mock_receiver_burns_its_patience_before_it_drops_the_show(tmp_path: Path) -> None:
@@ -1626,8 +1636,8 @@ def test_a_source_that_never_returns_ends_the_show_on_the_mock_too(
     assert source.opens == [1200.0, 1208.5, 1208.5], "после своих двух повторов - ни одного LOAD"
     assert clock.now - 1000.0 > REVIVE_LIMIT, "ждали ровно столько, сколько обещали"
     printed = capsys.readouterr().out
-    assert "показ погас на 0:20:08" in printed
-    assert "показ поднять не удалось" in printed and "cast продолжит с 0:20:08" in printed
+    assert "show went dark at 0:20:08" in printed
+    assert "could not bring the show back" in printed and "cast will resume from 0:20:08" in printed
 
 
 def test_the_mock_receiver_takes_a_load_right_after_a_404() -> None:
@@ -1765,16 +1775,16 @@ def test_a_torn_input_tells_the_viewer_the_film_has_not_ended(tmp_path: Path) ->
     feed.packer = fake_packer(feed.out, first=0, code=0, kind=_Torn)
     feed.restarted = 0.0
     feed.segment(70)
-    assert said == ["вход оборвался на середине, фильм не кончился - начинаю заново, попытка 1"], (
-        f"зрителю сказали не о фильме, а о коде возврата: {said}"
-    )
+    assert said == [
+        "the input broke off midway, the movie is not over - starting over, attempt 1"
+    ], f"зрителю сказали не о фильме, а о коде возврата: {said}"
 
     # Прогон, убитый сигналом, - это не оборванный вход, и выдавать его за него нельзя.
     said.clear()
     feed.packer = fake_packer(feed.out, first=0, code=-9)
     feed.restarted = 0.0
     feed.segment(70)
-    assert said == ["упаковка оборвалась (killed by signal 9) - начинаю заново, попытка 2"], (
+    assert said == ["the pack broke off (killed by signal 9) - starting over, attempt 2"], (
         f"чужая беда названа обрывом входа: {said}"
     )
 
@@ -1823,11 +1833,11 @@ def test_resume_starts_from_the_offset_and_ends_as_watched(
     printed = capsys.readouterr().out
     decoded = float(printed.split("decoded ")[1].split(" ")[0])
     assert decoded >= CLIP_SECONDS - HLS_SEGMENT_SECONDS, "показ оборвался"
-    assert f"упаковка с {offset:.1f} с" in printed, "показ начался с позиции, а не сначала"
+    assert f"packing from {offset:.1f} s" in printed, "показ начался с позиции, а не сначала"
     # 🔴 Заход упаковки на голову фильма тут - брак ЗАГЛУШКИ, а не показа: живой Q70D
     # первого сегмента при старте с середины не просит вовсе (:meth:`MockReceiver._from`).
-    assert printed.count("упаковка с ") == 1, "упаковка сходила на голову плейлиста"
-    assert "досмотрено" in printed
+    assert printed.count("packing from ") == 1, "упаковка сходила на голову плейлиста"
+    assert "watched" in printed
     saved = State.load().get(key)
     assert saved is not None and saved.done and saved.pos == 0.0
 
@@ -2246,8 +2256,8 @@ def test_the_revival_names_the_place_the_show_actually_came_back_from(
 
     assert revival.resurrect(_Stepping(), _feed_with_segments(tmp_path), None, 103.6) is True
     said = capsys.readouterr().out
-    assert "показ поднят с 0:01:59" in said, f"названо не то место: {said!r}"
-    assert "показ поднят с 0:01:43" not in said, "строка называет место, где показа нет"
+    assert "the show is back up from 0:01:59" in said, f"названо не то место: {said!r}"
+    assert "the show is back up from 0:01:43" not in said, "строка называет место, где показа нет"
 
 
 def test_only_the_cosmetic_pychromecast_line_is_hushed(caplog: pytest.LogCaptureFixture) -> None:
@@ -2647,7 +2657,7 @@ def test_a_dead_source_is_named_instead_of_blaming_the_receiver(
     _hold(receiver, feed, None, warmer, _supply(service), clock=clock)  # type: ignore[arg-type]
 
     printed = capsys.readouterr().out
-    assert "показ погас на 0:20:00 (TorrServer does not answer)" in printed, (
+    assert "show went dark at 0:20:00 (TorrServer does not answer)" in printed, (
         "человеку сказано про источник, а не про приёмник"
     )
     rows = _events(journal)
@@ -2688,7 +2698,7 @@ def test_the_returning_source_gets_the_torrent_back_by_magnet(
     assert service.dropped == [], "чужих раздач и своей же не сносим - только добавляем"
     assert receiver.replays == [1200.0], "показ поднят с того места, где смотрели"
     printed = capsys.readouterr().out
-    assert "источник вернулся - раздачу добавил магнитом заново" in printed
+    assert phrase("revive.source_back_readded") in printed
     rows = _events(journal)
     back = next(r for r in rows if r["event"] == "resupply")
     assert back["torrent"] == MAGNET_HASH and back["ok"] is True
@@ -2737,8 +2747,11 @@ def test_a_dead_source_does_not_kill_the_show_when_packing_gives_up(
     _hold(receiver, feed, None, warmer, _supply(service), clock=clock)  # type: ignore[arg-type]
 
     printed = capsys.readouterr().out
-    assert "источник не читается (TorrServer does not answer) - жду его возврата" in printed
-    assert "упаковка оборвалась" not in printed, "показ не хоронит себя чужой виной"
+    assert (
+        "the source is unreadable (TorrServer does not answer) - waiting for it to return"
+        in printed
+    )
+    assert "the pack broke off" not in printed, "показ не хоронит себя чужой виной"
     assert feed.offline == "TorrServer does not answer", "приговор упаковке снят, показ ждёт"
     rows = _events(journal)
     assert [r["asked"] for r in rows if r["event"] == "offline"] == [True]
@@ -2751,7 +2764,7 @@ def test_a_packing_failure_on_a_healthy_source_still_ends_the_show(tmp_path: Pat
     feed.fatal = "ffmpeg сдался: Invalid data found"
     service = _Service()
 
-    with pytest.raises(InfraError, match="упаковка оборвалась"):
+    with pytest.raises(InfraError, match="the pack broke off"):
         _hold(receiver, feed, None, warmer, _supply(service), clock=clock)  # type: ignore[arg-type]
 
 
@@ -2794,14 +2807,16 @@ def test_a_show_that_never_started_still_names_the_dead_source() -> None:
     service = _Service(up=False)
     supply = _supply(service)
 
-    with pytest.raises(InfraError, match="источник не читается \\(TorrServer does not answer\\)"):
+    with pytest.raises(
+        InfraError, match="the source is unreadable \\(TorrServer does not answer\\)"
+    ):
         _blame_the_end(supply, clock=FakeClock())
 
 
 def test_a_show_that_never_started_blames_the_receiver_when_the_source_is_fine() -> None:
     """Источник в порядке - строка остаётся прежней, и это правильно."""
 
-    with pytest.raises(InfraError, match="приёмник не досмотрел поток"):
+    with pytest.raises(InfraError, match="the receiver did not finish the stream"):
         _blame_the_end(_supply(_Service()), clock=FakeClock())
 
 
@@ -2822,12 +2837,12 @@ def test_a_source_that_came_back_by_itself_is_still_the_one_to_blame(
     _hold(receiver, feed, None, warmer, _supply(service), clock=clock)  # type: ignore[arg-type]
 
     printed = capsys.readouterr().out
-    assert "показ погас на 0:20:00 (TorrServer перезапускался - раздачу вернул магнитом)" in printed
+    dark = phrase("revive.screen_dark", pos="0:20:00")
+    restarted = phrase("revive.source_restarted")
+    assert f"{dark} ({restarted})" in printed
     assert service.added == [MAGNET], "раздача вернулась магнитом, а не голым хэшем"
     rows = _events(journal)
-    assert next(r for r in rows if r["event"] == "dark")["why"] == (
-        "TorrServer перезапускался - раздачу вернул магнитом"
-    )
+    assert next(r for r in rows if r["event"] == "dark")["why"] == restarted
 
 
 def test_the_source_is_asked_more_than_once_before_it_is_believed() -> None:
@@ -2852,7 +2867,7 @@ def test_the_source_is_asked_more_than_once_before_it_is_believed() -> None:
 
     service = _SlowDeath()
 
-    with pytest.raises(InfraError, match="источник не читается"):
+    with pytest.raises(InfraError, match="the source is unreadable"):
         _blame_the_end(_supply(service), clock=FakeClock())
 
     assert service.asked >= 3, "источник спрошен несколько раз, а не единожды"
@@ -3131,7 +3146,7 @@ def test_a_receiver_frozen_on_the_last_chunk_still_hands_the_show_over(
     ended = _hold(receiver, feed, watch, None, clock=clock)
 
     assert ended, "неподвижный конец - это конец, а не авария: винить упаковку не в чем"
-    assert "считаю доигранным" in capsys.readouterr().out, "молча показ не кончают"
+    assert "calling it watched" in capsys.readouterr().out, "молча показ не кончают"
     watch.close()
     saved = State.load().get(key)
     assert saved is not None and (saved.season, saved.episode) == (1, 3), (
