@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from string import Formatter
 
 import pytest
 
@@ -11,6 +12,9 @@ from tests.fakes import composition
 from tests.fakes.clock import FakeClock
 from tests.usecases.revive_playback.world import feed_with_segments
 from torrcast.domain.catalogs.phrase import phrase
+from torrcast.domain.catalogs.screen.en import en as _screen_en
+from torrcast.domain.catalogs.screen.ru import ru as _screen_ru
+from torrcast.domain.catalogs.tongue import RU, tongue
 from torrcast.domain.entry import Entry
 from torrcast.domain.position import Position
 from torrcast.domain.revive_settings import REVIVE_LIMIT
@@ -30,6 +34,13 @@ from torrcast.usecases.watch import Watch
 
 def _at(pos: float, state: str) -> Position:
     return Position(pos, 7200.0, state in {"PLAYING", "BUFFERING"}, state)
+
+
+def _screen_word() -> str:
+    """Слово, которым строка ИДУЩЕГО показа отличается от строки темноты, на языке зачёта."""
+    template = (_screen_ru() if tongue() == RU else _screen_en())["screen.line"]
+    literal, _name, _spec, _conv = list(Formatter().parse(template))[1]
+    return literal.strip()
 
 
 def test_the_word_playing_alone_is_not_a_picture(
@@ -114,7 +125,7 @@ def test_the_darkness_is_reported_by_its_own_line_and_not_by_a_position(
         )
         in printed
     )
-    assert "экран:" not in printed
+    assert _screen_word() not in printed
 
 
 def test_a_live_screen_is_reported_by_what_the_receiver_sees(
@@ -125,7 +136,8 @@ def test_a_live_screen_is_reported_by_what_the_receiver_sees(
 
     _report("[сеанс]", revival, _at(72.0, "PLAYING"), feed_with_segments(tmp_path), None)
 
-    assert "[сеанс] экран: 0:01:12 из 2:00:00 · PLAYING" in capsys.readouterr().out
+    want = phrase("screen.line", tag="[сеанс]", pos="0:01:12", dur="2:00:00", state="PLAYING")
+    assert want in capsys.readouterr().out
 
 
 def test_the_line_the_show_prints_is_the_line_the_cli_reads(

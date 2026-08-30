@@ -142,7 +142,6 @@ TRANSLATION_DEBT: Final = {
     "torrcast/usecases/reinforce/_voice_reinforce.py": 2,
     "torrcast/usecases/releases_command.py": 5,
     "torrcast/usecases/say_showing.py": 2,
-    "torrcast/usecases/screen_line.py": 2,
     "torrcast/usecases/source_blame.py": 2,
     "torrcast/usecases/status.py": 13,
     "torrcast/usecases/stop.py": 2,

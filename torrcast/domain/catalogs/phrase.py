@@ -56,6 +56,8 @@ from torrcast.domain.catalogs.revive.en import en as revive_en
 from torrcast.domain.catalogs.revive.ru import ru as revive_ru
 from torrcast.domain.catalogs.runtime.en import en as runtime_en
 from torrcast.domain.catalogs.runtime.ru import ru as runtime_ru
+from torrcast.domain.catalogs.screen.en import en as screen_en
+from torrcast.domain.catalogs.screen.ru import ru as screen_ru
 from torrcast.domain.catalogs.select.en import en as select_en
 from torrcast.domain.catalogs.select.ru import ru as select_ru
 from torrcast.domain.catalogs.select_bench.en import en as select_bench_en
@@ -118,6 +120,7 @@ _CLUSTERS: Final = (
     (torrserver_en, torrserver_ru),
     (revive_en, revive_ru),
     (playback_en, playback_ru),
+    (screen_en, screen_ru),
 )
 
 

@@ -10,16 +10,33 @@ from __future__ import annotations
 
 import re
 
-from torrcast.usecases.screen_line import SCREEN
+from torrcast.domain.catalogs.phrase import phrase
 
 #: Слова приёмника, при которых на экране есть картинка. ``PAUSED`` тут не по ошибке:
 #: паузу поставил зритель, кадр на экране его же и остался, а гасить такой показ - та же
 #: потеря серии, что и гасить играющий. Движение указателя доказывается отдельно.
 LIVE = frozenset({"PLAYING", "PAUSED"})
 
-#: Разбор строки показа: место, длительность и слово приёмника. Строка темноты, послесловие
-#: systemd и любой обрывок сюда не подходят - и это правильный ответ «показа не вижу».
-_SAID = re.compile(rf"{re.escape(SCREEN)}: (\d+):(\d\d):(\d\d) из \d+:\d\d:\d\d · (\S+)")
+#: Метки в шаблоне строки, которыми ловятся её же переменные места (место, длительность,
+#: слово приёмника) - независимо от того, какими словами кластер :mod:`torrcast.domain.
+#: catalogs.screen` называет их на текущем языке.
+_POS, _DUR, _STATE = "\x00pos\x00", "\x00dur\x00", "\x00state\x00"
+
+
+def _said_pattern() -> re.Pattern[str]:
+    """Разбор строки показа, собранный НА ХОДУ по текущему языку, а не при импорте.
+
+    Строку сам собирает :func:`torrcast.usecases.screen_line.screen_line`, и слово,
+    которым она отличается от строки темноты, живёт в каталоге, а не тут: заморозь этот
+    разбор при импорте - и он остался бы русским под ``cast --en``, хотя сама строка,
+    которую печатает показ, уже говорит по-английски.
+    """
+    template = phrase("screen.line", tag="", pos=_POS, dur=_DUR, state=_STATE)
+    pattern = re.escape(template)
+    pattern = pattern.replace(re.escape(_POS), r"(\d+):(\d\d):(\d\d)")
+    pattern = pattern.replace(re.escape(_DUR), r"\d+:\d\d:\d\d")
+    pattern = pattern.replace(re.escape(_STATE), r"(\S+)")
+    return re.compile(pattern)
 
 
 def still_playing(said: str, start: float) -> bool:
@@ -38,7 +55,7 @@ def still_playing(said: str, start: float) -> bool:
     :attr:`torrcast.usecases.revive_playback._screen_state._Screen.still_at`). Секунды
     сравниваются целыми: в строку они и уходят целыми (:func:`torrcast.domain._hms._hms`).
     """
-    found = _SAID.search(said)
+    found = _said_pattern().search(said)
     if found is None:
         return False
     hours, minutes, seconds, state = found.groups()

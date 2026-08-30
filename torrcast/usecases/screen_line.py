@@ -15,11 +15,9 @@
 from __future__ import annotations
 
 from torrcast.domain._hms import _hms
-
-#: Слово, которым строка ИДУЩЕГО показа отличается от строки темноты.
-SCREEN = "экран"
+from torrcast.domain.catalogs.phrase import phrase
 
 
 def screen_line(session_tag: str, pos: float, dur: float, state: str) -> str:
     """Строка о состоянии показа - ровно та, что уходит в журнал юнита."""
-    return f"{session_tag} {SCREEN}: {_hms(pos)} из {_hms(dur)} · {state}"
+    return phrase("screen.line", tag=session_tag, pos=_hms(pos), dur=_hms(dur), state=state)
