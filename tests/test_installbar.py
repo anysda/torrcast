@@ -43,6 +43,10 @@ FRAME_MS = 61
 LAG_FRAMES = 3
 ROWS, COLS = 34, 110
 ENTRY = "# --- Точка входа ---"
+SYNC_ON = "\x1b[?2026h"
+SYNC_OFF = "\x1b[?2026l"
+CYRILLIC = re.compile(r"[\u0400-\u052f\u1c80-\u1c8f\u2de0-\u2dff\ua640-\ua69f\ufe2e-\ufe2f]+")
+ANSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 
 #: Стенд плато: одна долгая фаза. Две передние закрываются ДО запуска заданий,
 #: поэтому деление, на котором полоса обязана стоять, - середина шкалы.
@@ -114,6 +118,7 @@ class Run:
     total: int
     work: dict[str, tuple[int, int]]  # работник -> (начал, кончил)
     rc: int
+    screen_frames: tuple[str, ...]
 
     def took(self, mark: int) -> int | None:
         """Момент, когда полоса впервые показала `mark` закрытых фаз."""
@@ -146,7 +151,9 @@ def _fake(work: dict[str, float]) -> str:
     return "\n".join(out) + "\n\n"
 
 
-def _pty_run(script: Path, env: dict[str, str], limit: float = 120.0) -> int:
+def _pty_run(
+    script: Path, env: dict[str, str], args: tuple[str, ...] = (), limit: float = 120.0
+) -> tuple[int, str]:
     """Прогон в настоящем pty: без tty install.sh рисовать не станет.
 
     ⚠️ Не `pty.fork`: гейт гоняет машинный набор в четыре процесса xdist, а тот
@@ -157,7 +164,7 @@ def _pty_run(script: Path, env: dict[str, str], limit: float = 120.0) -> int:
     master, slave = pty.openpty()
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", ROWS, COLS, 0, 0))
     child = subprocess.Popen(
-        ["bash", str(script)],
+        ["bash", str(script), *args],
         stdin=slave,
         stdout=slave,
         stderr=slave,
@@ -166,24 +173,27 @@ def _pty_run(script: Path, env: dict[str, str], limit: float = 120.0) -> int:
     )
     os.close(slave)
     started = time.monotonic()
+    stream = bytearray()
     while True:
         try:
-            if not os.read(master, 65536):
+            chunk = os.read(master, 65536)
+            if not chunk:
                 break
+            stream.extend(chunk)
         except OSError:  # ребёнок ушёл и закрыл свой конец
             break
         if time.monotonic() - started > limit:
             child.kill()
             break
     os.close(master)
-    return child.wait()
+    return child.wait(), stream.decode("utf-8", errors="replace")
 
 
 def _ms(path: Path) -> int:
     return int(float(path.read_text(encoding="utf-8").strip().replace(",", ".")) * 1000)
 
 
-def _stand(text: str, box: Path, phases: str, work: dict[str, float]) -> Run:
+def _stand(text: str, box: Path, phases: str, work: dict[str, float], language: str = "en") -> Run:
     """Поднять стенд на данном тексте install.sh и снять обе линии."""
     assert ENTRY in text, "не найдена точка входа: подделку некуда вставить"
     script = box / "install.sh"
@@ -191,7 +201,7 @@ def _stand(text: str, box: Path, phases: str, work: dict[str, float]) -> Run:
     for name in ("bin", "cfg", "state", "hls", "motd.d"):
         (box / name).mkdir()
     trace, mark = box / "ui.trace", box / "work"
-    rc = _pty_run(
+    rc, stream = _pty_run(
         script,
         {
             "TERM": "xterm-256color",
@@ -211,6 +221,7 @@ def _stand(text: str, box: Path, phases: str, work: dict[str, float]) -> Run:
             "TORRCAST_UI_TRACE": str(trace),
             "TC909_MARK": str(mark),
         },
+        ("-ru",) if language == "ru" else (),
     )
     seen = re.findall(
         r"(\d+) FRAME pct=\d+ done=(\d+) total=(\d+)",
@@ -221,8 +232,18 @@ def _stand(text: str, box: Path, phases: str, work: dict[str, float]) -> Run:
         begin_at, done_at = box / f"work.{name}.begin", box / f"work.{name}.done"
         assert begin_at.exists() and done_at.exists(), f"{name} не отметил свою работу"
         done[name] = (_ms(begin_at), _ms(done_at))
+    screen_frames = tuple(
+        match.group(1)
+        for match in re.finditer(
+            re.escape(SYNC_ON) + "(.*?)" + re.escape(SYNC_OFF), stream, re.DOTALL
+        )
+    )
     return Run(
-        tuple((int(t), int(d)) for t, d, _ in seen), int(seen[0][2]) if seen else 0, done, rc
+        tuple((int(t), int(d)) for t, d, _ in seen),
+        int(seen[0][2]) if seen else 0,
+        done,
+        rc,
+        screen_frames,
     )
 
 
@@ -232,6 +253,29 @@ def _shape(run: Run, total: int) -> None:
     assert run.total == total, f"фаз всего {run.total}, ждали {total}"
     assert len(run.frames) >= 40, f"кадров {len(run.frames)}: мерить не на чем"
     assert run.frames[-1][1] == total, f"полоса не досчитала: {run.frames[-1]}"
+
+
+def _language_coverage(run: Run, language: str) -> tuple[int, int, int, list[str]]:
+    """Охват кадрового языкового прибора и найденные кириллические слова."""
+    frames = run.screen_frames
+    visible = tuple(ANSI.sub("", frame) for frame in frames)
+    nonempty = sum(bool(frame.strip()) for frame in visible)
+    phases = sum(bool(re.search(r"(?:phase|фаза) \d+/\d+:", frame)) for frame in visible)
+    characters = sum(len(frame) for frame in visible)
+    found = [
+        f"кадр {number}: {', '.join(dict.fromkeys(CYRILLIC.findall(frame)))}"
+        for number, frame in enumerate(visible, 1)
+        if CYRILLIC.search(frame)
+    ]
+    coverage = (
+        f"язык {language}: кадров {len(frames)}, непустых {nonempty}, "
+        f"фаз замечено {phases}, символов просмотрено {characters}"
+    )
+    assert frames, f"прибор ничего не увидел: {coverage}"
+    assert nonempty, f"прибор снял только пустые кадры: {coverage}"
+    assert phases, f"прибор не увидел ни одной фазы: {coverage}"
+    assert characters, f"прибор не просмотрел ни одного символа: {coverage}"
+    return nonempty, phases, characters, found
 
 
 def _moved(where: str) -> str:
@@ -246,6 +290,29 @@ def _plateau(run: Run) -> tuple[int, int]:
     """Плато на делении перед долгой фазой: (кадров, охват в мс)."""
     stay = run.held(BEFORE)
     return len(stay), (stay[-1] - stay[0]) if len(stay) > 1 else 0
+
+
+@pytest.mark.machine
+def test_english_frames_have_no_cyrillic_and_russian_frames_do(tmp_path: Path) -> None:
+    """Язык меряется по кадрам PTY, включая финальную заставку, в обе стороны."""
+    for language in ("en", "ru"):
+        box = tmp_path / language
+        box.mkdir()
+        run = _stand(SCRIPT, box, ALL_PHASES, ALL_WORK, language)
+        _shape(run, ALL_TOTAL)
+        nonempty, phases, characters, found = _language_coverage(run, language)
+        coverage = (
+            f"язык {language}: кадров {len(run.screen_frames)}, непустых {nonempty}, "
+            f"фаз замечено {phases}, символов просмотрено {characters}"
+        )
+        final = ANSI.sub("", run.screen_frames[-1])
+        if language == "en":
+            assert "find and play on TV" in final, f"финальный английский кадр не снят: {coverage}"
+            assert not found, f"кириллица в английских кадрах ({coverage}): {'; '.join(found)}"
+        else:
+            assert "найти и включить на ТВ" in final, f"финальный русский кадр не снят: {coverage}"
+            assert found, f"русские кадры не содержат кириллицы: {coverage}"
+        print(f"{coverage}, кириллических кадров {len(found)}")
 
 
 @pytest.mark.machine
