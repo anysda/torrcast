@@ -2432,13 +2432,13 @@ setup_config() {
     tuned="$tuned .bitrate_hard_mbit, .recode, .recode_mbit, .recode_at_mbit, .recode_preset,"
     tuned="$tuned .recode_ahead,"
     tuned="$tuned .recode_cache_mb)"
-    tuned="$tuned | .transport=\$t | .hls_port=(\$p|tonumber) | .hls_base_url=\$b"
+    tuned="$tuned | .transport=\$t | .hls_port=(\$p|tonumber) | .hls_base_url=\$b | .language=\$l"
 
     if [ -f "$CONFIG_DIR/config.json" ]; then
         # Адрес ТВ и прочий выбор пользователя не трогаем — обновляем только ключ.
         skip "$CONFIG_DIR/config.json (обновляю apikey, транспорт и темп беру из кода)"
         local tmp; tmp="$(mktemp "$CONFIG_DIR/.config.json.XXXX")"
-        jq --arg k "$key" --arg t "$HLS_TRANSPORT" --arg p "$HLS_PORT" --arg b "$HLS_BASE_URL" \
+        jq --arg k "$key" --arg t "$HLS_TRANSPORT" --arg p "$HLS_PORT" --arg b "$HLS_BASE_URL" --arg l "$LANGUAGE" \
             "$tuned | .prowlarr_apikey=\$k" "$CONFIG_DIR/config.json" >"$tmp"
         mv "$tmp" "$CONFIG_DIR/config.json"
         return
@@ -2449,6 +2449,7 @@ setup_config() {
 {
   "tv": null,
   "receiver": "chromecast",
+  "language": "$LANGUAGE",
   "torrserver_url": "$TS_URL",
   "prowlarr_url": "$PL_URL",
   "prowlarr_apikey": "$key",
