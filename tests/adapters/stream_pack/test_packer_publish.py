@@ -248,8 +248,7 @@ def test_without_anyone_to_shrink_the_heavy_piece_the_publish_stops_on_it(
 
 
 def test_the_picture_of_the_recode_lies_on_the_timeline_of_this_run(tmp_path: Path) -> None:
-    """Склейке передаётся сдвиг ленты прогона: прогон с нуля пишет метки на кадр вперёд
-    времени фильма, и картинка перекода обязана лечь на его ленту, а не на свою.
+    """Склейке передаётся измеренный сдвиг DTS между двумя заходами.
 
     Заодно тут проверяется порядок дорожек: картинка идёт из перекода, звук - из копии
     ЭТОГО прогона, потому что звук показа обязан остаться одним потоком одного
@@ -260,19 +259,30 @@ def test_the_picture_of_the_recode_lies_on_the_timeline_of_this_run(tmp_path: Pa
     spare.mkdir()
     run = packer(tmp_path, spare=spare, told=lambda slot, how: told.append((slot, how)))
     lay(run.run, 0)
+    lay(run.run, 1)
     lay(spare, 0, size=2048)
+    lay(spare, 1, size=2048)
     seen: list[tuple[str, str, float | None]] = []
+    shifts: list[tuple[Path, Path]] = []
 
     def merge(video: Path, audio: Path, dst: Path, **kwargs: Any) -> bool:
         seen.append((video.name, audio.name, kwargs.get("shift")))
         dst.write_bytes(b"mixed")
         return True
 
-    _lay_out(run, _always, merge=merge, shift_of=lambda *a: 0.0417, starts_of=_on_place)
+    def shift_of(copy: Path, recode: Path) -> float:
+        shifts.append((copy, recode))
+        return 0.0417
 
-    assert seen == [("v0.ts", "v0.ts", None)], "картинку перекода подвинули под голову копии"
+    _lay_out(run, _always, merge=merge, shift_of=shift_of, starts_of=_on_place)
+
+    assert seen == [
+        ("v0.ts", "v0.ts", 0.0417),
+        ("v1.ts", "v1.ts", 0.0417),
+    ], "склейка потеряла единый сдвиг DTS захода"
+    assert len(shifts) == 1, "сдвиг непрерывного захода заново подогнали на каждом куске"
     assert (run.out / "v0.ts").read_bytes() == b"mixed"
-    assert told == [(0, "склейка")], "журнал не отличает склейку от голого перекода"
+    assert told == [(0, "склейка"), (1, "склейка")], "журнал не отличает склейку от голого перекода"
 
 
 def test_a_copy_over_the_ceiling_loses_even_to_a_broken_seam(tmp_path: Path) -> None:

@@ -116,9 +116,11 @@ def _lay_out(
         # не измерена - тогда сверять не с чем, и места не проверяют.
         want = slot_place(state, slot)
         if better is not None and better.exists():
+            if state.recode_shift is None:
+                state.recode_shift = shift_of(path, better) or 0.0
             source, how = _merged_out(
                 state.run, slot, path, better, size, state.cap, want, state.container, heads,
-                merge=merge, starts_of=starts_of,
+                shift=state.recode_shift, merge=merge, starts_of=starts_of,
             )  # fmt: skip
         # Последний гейт стоит после склейки: только здесь известен вес ровно того
         # файла, который получит приёмник. Обе его части могут влезать по отдельности,

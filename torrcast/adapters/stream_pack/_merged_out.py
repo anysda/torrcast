@@ -30,6 +30,7 @@ def _merged_out(
     want: tuple[float, float],
     container: SegmentContainer = MPEGTS,
     heads: tuple[Path | None, Path | None] = (None, None),
+    shift: float = 0.0,
     *,
     merge: Callable[..., bool],
     starts_of: Callable[[Path], tuple[float, float]],
@@ -80,6 +81,9 @@ def _merged_out(
     ``merge`` и ``starts_of`` приезжают доводами: оба поднимают ffmpeg и ffprobe на настоящих
     кусках, а здесь меряется РЕШЕНИЕ - что именно уедет на приёмник и как это назовут.
 
+    ``shift`` - измеренная разница DTS копии и перекода этого места. Ею картинка нового
+    захода ложится на непрерывную ленту копии, включая очередь B-кадров на стыке.
+
     ``heads`` - заголовки прогонов, сделавших картинку (перекод) и звук (копия): на CMAF
     без них не открыть ни того, ни другого куска.
 
@@ -105,7 +109,7 @@ def _merged_out(
         return pair
 
     mixed = run_dir / mixed_name(slot, container)
-    if not merge(recode, copy, mixed, container=container, heads=heads):
+    if not merge(recode, copy, mixed, shift=shift, container=container, heads=heads):
         # Молчать об этом нельзя. Отказ склейки - это вернувшийся разрыв звука на стыке, и
         # виден он был только по полю «чем» у соседнего события: семь минут разбора вслепую
         # стоил один такой молчащий отказ (TC-800).
