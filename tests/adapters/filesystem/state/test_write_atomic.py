@@ -62,7 +62,7 @@ def test_a_failed_write_names_the_file_and_leaves_no_temporary_behind(
 
     monkeypatch.setattr(Path, "replace", refuse)
 
-    with pytest.raises(TorrcastError, match="не смог записать"):
+    with pytest.raises(TorrcastError, match="could not write"):
         _write_atomic(target, {"ключ": 1})
 
     assert list(tmp_path.iterdir()) == []

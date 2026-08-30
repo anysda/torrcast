@@ -43,7 +43,7 @@ def test_a_broken_file_is_named_out_loud_instead_of_quietly_becoming_defaults(
     path.write_text("{не json", encoding="utf-8")
     monkeypatch.setenv("TORRCAST_CONFIG", str(path))
 
-    with pytest.raises(TorrcastError, match="битый конфиг"):
+    with pytest.raises(TorrcastError, match="broken config"):
         load_config()
 
 
@@ -55,5 +55,5 @@ def test_a_json_that_is_not_an_object_is_broken_too(
     path.write_text("[1, 2]", encoding="utf-8")
     monkeypatch.setenv("TORRCAST_CONFIG", str(path))
 
-    with pytest.raises(TorrcastError, match="ожидался объект JSON"):
+    with pytest.raises(TorrcastError, match="expected a JSON object"):
         load_config()

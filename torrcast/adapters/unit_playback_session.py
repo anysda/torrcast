@@ -8,6 +8,7 @@ import contextlib
 from collections.abc import Callable, Sequence
 from typing import Any
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.playback_snapshot import PlaybackSnapshot
 from torrcast.domain.torrcast_error import TorrcastError
 from torrcast.domain.torrent_hash import _torrent_hash
@@ -82,7 +83,7 @@ class UnitPlaybackSession:
 
     def stream_address(self) -> str:
         """Откуда ТВ забирает поток; адреса нет - статус показа это не отменяет."""
-        where = "адрес раздачи не определён"
+        where = phrase("playback_session.stream_address_unknown")
         with contextlib.suppress(TorrcastError):
             where = str(self._stream_address(self._configuration()))
         return where

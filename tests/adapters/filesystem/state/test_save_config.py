@@ -62,7 +62,7 @@ def test_a_broken_file_stops_the_write_instead_of_wiping_the_neighbour(
     path.write_text('{"token": "1:проба", ', encoding="utf-8")
     monkeypatch.setenv("TORRCAST_CONFIG", str(path))
 
-    with pytest.raises(TorrcastError, match="битый конфиг"):
+    with pytest.raises(TorrcastError, match="broken config"):
         save_config(Config(tv="10.0.0.50"))
 
     assert path.read_text(encoding="utf-8") == '{"token": "1:проба", '

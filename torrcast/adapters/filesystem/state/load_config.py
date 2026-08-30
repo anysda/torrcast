@@ -8,6 +8,7 @@ import json
 from typing import Any
 
 from torrcast.adapters.filesystem.state.config_path import config_path
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.config import Config
 from torrcast.domain.torrcast_error import TorrcastError
 
@@ -20,7 +21,7 @@ def load_config() -> Config:
     try:
         raw: Any = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
-        raise TorrcastError(f"битый конфиг {path}: {exc}") from exc
+        raise TorrcastError(phrase("main_config.unreadable", path=path, reason=exc)) from exc
     if not isinstance(raw, dict):
-        raise TorrcastError(f"битый конфиг {path}: ожидался объект JSON")
+        raise TorrcastError(phrase("main_config.not_an_object", path=path))
     return Config.from_json(raw)

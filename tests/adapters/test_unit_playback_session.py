@@ -158,6 +158,6 @@ def test_cleanup_never_fails_the_stop() -> None:
 def test_a_missing_address_does_not_cancel_the_status() -> None:
     wiring = _Wiring(fails=True)
 
-    assert wiring.session().stream_address() == "адрес раздачи не определён"
+    assert wiring.session().stream_address() == "stream address is not known"
     assert _Wiring().session().stream_address() == "http://10.0.0.7:8080"
     assert _Wiring().session().receiver_name() == "chromecast"

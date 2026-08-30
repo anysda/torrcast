@@ -10,6 +10,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.torrcast_error import TorrcastError
 
 
@@ -26,4 +27,4 @@ def _write_atomic(path: Path, payload: dict[str, Any]) -> None:
         tmp.replace(path)
     except OSError as exc:
         tmp.unlink(missing_ok=True)
-        raise TorrcastError(f"не смог записать {path}: {exc}") from exc
+        raise TorrcastError(phrase("main_config.write_failed", path=path, reason=exc)) from exc
