@@ -12,6 +12,7 @@ from torrcast.adapters.filesystem.state.load_config import load_config
 from torrcast.adapters.filesystem.state.save_config import save_config
 from torrcast.cli.main import main
 from torrcast.domain.args import Args
+from torrcast.domain.catalogs.tongue import tongue
 from torrcast.domain.config import Config
 from torrcast.runtime.language_command import language_command
 
@@ -84,3 +85,17 @@ def test_a_language_flag_next_to_a_query_switches_the_language_too() -> None:
 
     assert load_config().language == "ru"
     assert played == ["мумия"]
+
+
+def test_the_named_work_in_the_same_run_already_speaks_the_new_language() -> None:
+    """🔴 ``cast --ru мумия`` делает названную работу ТУТ ЖЕ, тем же процессом.
+
+    Настройка ляжет на диск, а надписи собираются в памяти: не переключи каталог сразу -
+    человек прочитал бы «язык: русский» и следом английское меню, а до русского дожил бы
+    только следующий запуск.
+    """
+    assert language_command("ru") == 0
+    assert tongue() == "ru"
+
+    assert language_command("en") == 0
+    assert tongue() == "en"

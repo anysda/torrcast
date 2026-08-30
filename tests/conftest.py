@@ -30,6 +30,7 @@ from tests.fakes.pretend_tty import PretendTty
 from tests.fakes.show_unit import FakeShowUnit
 from torrcast.adapters.filesystem.trace_journal.log_dir import LOG_ENV
 from torrcast.adapters.filesystem.trace_journal.session_id import SID_ENV
+from torrcast.domain.catalogs.tongue import _choose_tongue, tongue
 from torrcast.domain.debug_handles import CTL_ENV
 from torrcast.domain.facts.origin import Origin
 from torrcast.ports.journal import slot as journal_slot
@@ -345,6 +346,19 @@ def free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind(("127.0.0.1", 0))
         return int(sock.getsockname()[1])
+
+
+@pytest.fixture(autouse=True)
+def _same_tongue() -> Iterator[None]:
+    """Язык надписей - состояние процесса, и после теста оно возвращается как было.
+
+    Ставят его `cast --ru` и композиционный корень, а тесты зовут обоих. Не верни язык
+    назад - соседний тест поехал бы на чужом языке, и вся расцепка от русских строк
+    прошла бы мимо: строки-то совпали, только не с тем каталогом.
+    """
+    was = tongue()
+    yield
+    _choose_tongue(was)
 
 
 @pytest.fixture(autouse=True)

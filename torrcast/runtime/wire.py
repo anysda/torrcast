@@ -12,6 +12,7 @@ from torrcast.adapters.filesystem.trace_journal.file_journal import FileJournal
 from torrcast.adapters.health.system_health_environment import SystemHealthEnvironment
 from torrcast.adapters.systemd.transient_show_unit import TransientShowUnit
 from torrcast.adapters.warm_environment import environment as warm_environment
+from torrcast.domain.catalogs.tongue import _choose_tongue
 from torrcast.ports.journal.slot import install as install_journal
 from torrcast.ports.progress.slot import install as install_progress
 from torrcast.ports.show_unit.slot import install as install_unit
@@ -30,6 +31,9 @@ def wire() -> None:
     # Слой команд не видит ни адаптеров, ни сборки сеансов: режим stdin и три собранные
     # команды приходят к нему отсюда (:mod:`torrcast.runtime.configure_cli`).
     configure_cli()
+    # Язык надписей приходит каталогу отсюда же: домен настройку не читает, а спросить
+    # её в месте показа значило бы завести файловый ввод-вывод в каждой строке.
+    _choose_tongue(load_config().language)
     install_journal(FileJournal())
     install_progress(Progress)
     install_state(FileStateStore())

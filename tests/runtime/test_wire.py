@@ -12,10 +12,12 @@ from tests.runtime.slot_contract import slots
 from torrcast.adapters.console.console.progress import Progress
 from torrcast.adapters.filesystem.state.file_state_store import FileStateStore
 from torrcast.adapters.filesystem.state.load_config import load_config
+from torrcast.adapters.filesystem.state.save_config import save_config
 from torrcast.adapters.filesystem.trace_journal.file_journal import FileJournal
 from torrcast.adapters.health.system_health_environment import SystemHealthEnvironment
 from torrcast.adapters.systemd.transient_show_unit import TransientShowUnit
 from torrcast.adapters.warm_environment import environment as warm_environment
+from torrcast.domain.catalogs.tongue import tongue
 from torrcast.ports.journal.silent import Silent
 from torrcast.ports.journal.slot import install, journal
 from torrcast.ports.progress.slot import factory as progress_factory
@@ -143,3 +145,19 @@ def test_no_scenario_is_left_without_its_environment() -> None:
         assert done.returncode == 0, f"{name}: {done.stderr}"
         broken += done.stdout.splitlines()
     assert broken == [], "корень собрал внешний мир не по договору:\n" + "\n".join(broken)
+
+
+def test_the_root_hands_the_catalog_the_language_from_the_settings() -> None:
+    """Язык надписей приходит каталогу из корня, а не читается в месте показа.
+
+    Домен в файлы не ходит, и спросить настройку в строке нечем. Не раздай корень язык -
+    каталог остался бы на умолчании, а запись `language: ru` в настройке тихо ничего не
+    значила бы: продукт говорил бы по-английски и был бы «прав».
+    """
+    config = load_config()
+    config.language = "ru"
+    save_config(config)
+
+    wire()
+
+    assert tongue() == "ru"
