@@ -4,10 +4,17 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+import pytest
+
 from tests.usecases.rank.releases import RUNTIME, media, rel
 from torrcast.domain.episode import Episode
 from torrcast.domain.release import Release
 from torrcast.usecases.rank.stepdown_note import STEP_RATIO, stepdown_note
+
+
+@pytest.fixture(autouse=True)
+def _russian_ladder(_russian_product: None) -> None:
+    """Предмет модуля - русская строка про снижение ступени, писанная до языкового яруса."""
 
 
 @dataclass

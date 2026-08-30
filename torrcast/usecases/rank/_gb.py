@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from torrcast.domain.catalogs.phrase import phrase
+
 
 def _gb(size: int) -> str:
-    return f"{size / 1024**3:.1f} ГБ" if size else "-"
+    return phrase("rank.size_gb", value=f"{size / 1024**3:.1f}") if size else "-"

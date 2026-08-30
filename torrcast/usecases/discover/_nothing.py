@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.pick_franchise import pick_franchise
 from torrcast.domain.picture import Picture
 
@@ -24,6 +25,13 @@ def _nothing(name: str, index: int | None, pictures: list[Picture]) -> str:
     whole = pick_franchise(name, pictures) if index is not None else []
     if whole:
         have = ", ".join(f"{p.title} ({p.year or '?'})" for p in whole[:5])
-        more = " и другие" if len(whole) > 5 else ""
-        return f"«{name}»: картин во франшизе {len(whole)}, номера {index} нет - есть: {have}{more}"
-    return f"по запросу «{name}» ничего не нашлось"
+        more = phrase("discover.franchise_more") if len(whole) > 5 else ""
+        return phrase(
+            "discover.franchise_no_number",
+            name=name,
+            total=len(whole),
+            index=index,
+            have=have,
+            more=more,
+        )
+    return phrase("discover.nothing_found", name=name)

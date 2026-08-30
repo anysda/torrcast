@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Final, Protocol
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.media import Media
 from torrcast.domain.release import Release
 from torrcast.usecases.rank.drop_reason import _Judged, drop_reason
@@ -70,12 +71,18 @@ def stepdown_note(
     best = max(alive or better, key=lambda pair: (pair[1].height, pair[1].seeders))
     at, rival = best
     if not alive:
-        why = "рой мёртв"
+        why = phrase("rank.stepdown_dead_swarm")
     elif at in judged:
-        why = f"отбраковали ({judged[at]})"
+        why = phrase("rank.stepdown_rejected", why=judged[at])
     elif at in queue:
-        why = "не дошли" if queue.index(at) >= reached else "не ответил"
+        why = (
+            phrase("rank.stepdown_not_reached")
+            if queue.index(at) >= reached
+            else phrase("rank.stepdown_no_answer")
+        )
     else:
-        why = f"в очередь не попал: {drop_reason(rival, plan)}"
+        why = phrase("rank.stepdown_dropped", reason=drop_reason(rival, plan))
     took = media.quality if media is not None and media.height else (taken.quality or "?")
-    return f"взял {took}, рядом был {rival.quality} (релиз {at}, сидов {rival.seeders}) - {why}"
+    return phrase(
+        "rank.stepdown_note", took=took, rival=rival.quality, at=at, seeders=rival.seeders, why=why
+    )

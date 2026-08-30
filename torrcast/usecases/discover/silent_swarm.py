@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.usecases.rank.misses_episode import misses_episode
 from torrcast.usecases.rank.over_ceiling import over_ceiling
 
@@ -68,21 +69,21 @@ def silent_swarm(
     total = len(plan.ranked)
     peers = max((plan.ranked[n - 1].seeders for n in queue), default=0)
     all_peers = max((release.seeders for release in plan.ranked), default=0)
-    counts = f"раздач в выдаче {total}, потрогали {touched}"
-    later = (
-        "назови картину иначе или зайди позже - другой запрос соберёт другую выдачу, "
-        "а рой может ожить"
-    )
+    counts = phrase("discover.swarm_counts", total=total, touched=touched)
+    later = phrase("discover.swarm_later")
     if all_peers <= 0:
-        return f"{counts} - пиров нет ни у одной, показывать нечего: {later} ({shown})"
+        return phrase("discover.swarm_no_peers", counts=counts, later=later, shown=shown)
     if touched < len(queue):
         # 🔴 TC-435. Обход кончился не очередью, а часами (:data:`PICK_BUDGET`): дальше
         # головы дело не дошло, и приписывать молчание хвосту нельзя - его не спрашивали.
         # Числа тут два, и оба свои: сколько раздач отбор взял и сколько успел потрогать.
-        return (
-            f"{counts} из очереди {len(queue)} - эти молчат, на остальных не хватило "
-            f"времени (у потроганных числилось до {peers} сид), показывать нечего: "
-            f"{later} ({shown})"
+        return phrase(
+            "discover.swarm_out_of_time",
+            counts=counts,
+            queue_len=len(queue),
+            peers=peers,
+            later=later,
+            shown=shown,
         )
     queued = set(queue)
     untouched = [r for n, r in enumerate(plan.ranked, start=1) if n not in queued]
@@ -97,23 +98,28 @@ def silent_swarm(
     ]
     if len(untouched) > len(no_episode) + len(heavy):
         seed = (
-            f" (у потроганных числилось до {peers} сид)"
+            phrase("discover.swarm_seed_some", peers=peers)
             if peers
-            else " (сидов у потроганных не числилось)"
+            else phrase("discover.swarm_seed_none")
         )
-        move = "выбери другой релиз" if picked is not None else "выбери руками"
-        return (
-            f"{counts} - эти молчат, до остальных отбор не дошёл{seed}: {move} - "
-            f"cast releases <запрос>, потом cast <запрос> --release N ({shown})"
+        move = (
+            phrase("discover.swarm_pick_other")
+            if picked is not None
+            else phrase("discover.swarm_pick_manual")
+        )
+        return phrase(
+            "discover.swarm_untouched_some", counts=counts, seed=seed, move=move, shown=shown
         )
     if not untouched:
-        return (
-            f"{counts} (все) - ни одна не отозвалась, хотя сиды у них числятся "
-            f"(до {peers}), показывать нечего: {later} ({shown})"
+        return phrase(
+            "discover.swarm_all_silent", counts=counts, peers=peers, later=later, shown=shown
         )
-    why = [f"нужной серии нет - {len(no_episode)}"] if no_episode else []
-    why += [f"тяжелее потолка - {len(heavy)}"] if heavy else []
-    return (
-        f"{counts} - эти молчат, а остальным играть нечего ({', '.join(why)}), "
-        f"показывать нечего: {later} ({shown})"
+    why = [phrase("discover.swarm_reason_no_episode", count=len(no_episode))] if no_episode else []
+    why += [phrase("discover.swarm_reason_heavy", count=len(heavy))] if heavy else []
+    return phrase(
+        "discover.swarm_untouched_unfit",
+        counts=counts,
+        reasons=", ".join(why),
+        later=later,
+        shown=shown,
     )

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.media import Media
 from torrcast.domain.rank_settings import HD_HEIGHT, HONEST_RATIO
 from torrcast.domain.release import Release
@@ -28,8 +29,10 @@ def understated(release: Release, media: Media) -> str:
         return ""
     if release.height:
         if media.frame < release.height * HONEST_RATIO:
-            return f"назван {release.quality}, на деле {media.quality}"
+            return phrase("rank.understated_named", named=release.quality, actual=media.quality)
         if media.interlaced and not release.interlaced:
-            return f"назван {release.quality}, на деле {media.quality}"
+            return phrase("rank.understated_named", named=release.quality, actual=media.quality)
         return ""
-    return f"на деле {media.quality}" if media.frame < HD_HEIGHT else ""
+    if media.frame < HD_HEIGHT:
+        return phrase("rank.understated_actual_only", actual=media.quality)
+    return ""

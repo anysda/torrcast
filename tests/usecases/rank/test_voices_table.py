@@ -2,9 +2,17 @@
 
 from __future__ import annotations
 
+import pytest
+
 from tests.usecases.rank.releases import media, track
 from torrcast.domain.release import Release
 from torrcast.usecases.rank.voices_table import voices_table
+
+
+@pytest.fixture(autouse=True)
+def _russian_ladder(_russian_product: None) -> None:
+    """Предмет модуля - русские пометки таблицы озвучек, писанные до языкового яруса."""
+
 
 DUB = track(0, "rus", "Дубляж")
 ORIG = track(1, "eng", "Original")

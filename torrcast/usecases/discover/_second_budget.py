@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.facts.settings import FACTS_BUDGET
 from torrcast.domain.goal_spare import CIRCLE_SHARE, GOAL, SECOND_LEAST
 from torrcast.domain.picture import Picture
@@ -40,8 +41,5 @@ def _second_budget(
     # (:attr:`~torrcast.adapters.prowlarr.prowlarr.Prowlarr.cap_floor`), и человек читает про это
     # строку.
     progress.phase("")
-    progress.note(
-        f"поиск уже съел цель в {GOAL:.0f} с - добор по «{name}» всё равно делаю: "
-        "картину ищут оба её имени"
-    )
+    progress.note(phrase("discover.second_budget_note", goal=f"{GOAL:.0f}", name=name))
     return FACTS_BUDGET

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import torrcast.usecases.discover._search_state as _search_state
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.facts.origin import Origin
 from torrcast.domain.goal_spare import CIRCLE_SHARE, GOAL
 from torrcast.domain.picture import Picture
@@ -44,7 +45,7 @@ def _second_circle(
         else None
     )
     asked = f"{name} {exact_year}" if exact_year is not None else alt
-    progress.phase(f"поиск «{asked}»")
+    progress.phase(phrase("discover.search_phase", query=asked))
     client.cap_floor = GOAL
     try:
         second = _ask(client, asked, progress)

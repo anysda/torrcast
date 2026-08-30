@@ -2,8 +2,15 @@
 
 from __future__ import annotations
 
+import pytest
+
 from tests.usecases.rank.releases import media, track
 from torrcast.usecases.rank.voice_note import voice_note
+
+
+@pytest.fixture(autouse=True)
+def _russian_ladder(_russian_product: None) -> None:
+    """Предмет модуля - русская строка про выбор озвучки, писанная до языкового яруса."""
 
 
 def test_a_single_russian_track_is_not_a_choice() -> None:

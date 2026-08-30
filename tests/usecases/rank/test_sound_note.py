@@ -2,9 +2,17 @@
 
 from __future__ import annotations
 
+import pytest
+
 from tests.usecases.rank.releases import media, rel, track
 from torrcast.domain.torr_file import TorrFile
 from torrcast.usecases.rank.sound_note import sound_note
+
+
+@pytest.fixture(autouse=True)
+def _russian_ladder(_russian_product: None) -> None:
+    """Предмет модуля - русская строка про звук, писанная до языкового яруса."""
+
 
 JAP = track(0, "jpn", "Original")
 UNNAMED = track(0, None, None)

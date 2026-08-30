@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 import torrcast.usecases.discover._search_state as _search_state
 from torrcast.domain.alt_query import alt_query
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.cluster import cluster
 from torrcast.domain.facts.origin import Origin
 from torrcast.domain.picture import Picture
@@ -117,9 +118,7 @@ def _second_language(
     if hearsay is None:
         # Справка нашла лишь похожее имя - это другая картина, и за ней не идут вовсе.
         progress.phase("")
-        progress.note(
-            f"по «{name}» справка нашла лишь похожее имя «{about.name}» - за чужой картиной не иду"
-        )
+        progress.note(phrase("discover.gate_other_picture", name=name, other=about.name))
         return _as_is(raw, found, about, progress)
     first_pictures = cluster(_search_state._search_catalogue.to_releases(raw))
     if (named := _passport_pick(first_pictures, about, found)) is not None:
@@ -138,7 +137,7 @@ def _second_language(
     # несвязанных сообщения как противоречие - отказ, а следом будто бы удавшийся поиск.
     progress.phase("")
     if len(merged) == len(raw):
-        outcome = f"добор по «{alt}» ничего не дал"
+        outcome = phrase("discover.retry_nothing", alt=alt)
         progress.note(f"{said}; {outcome}" if said else outcome)
         return _as_is(raw, found, about, progress)
     pictures = cluster(_search_state._search_catalogue.to_releases(merged))
@@ -146,9 +145,12 @@ def _second_language(
     # Всё сверх неё - оригинал расширил предмет поиска вместо уточнения. На ПУСТОЙ первой
     # выдаче расширять нечего, и мерка молчит (:func:`_widened_subject`, TC-866).
     if _widened_subject(len(pictures), len(first_pictures)):
-        outcome = (
-            f"добор по «{alt}» привёз больше картин: {len(pictures)} вместо "
-            f"{len(first_pictures)} - остаюсь на выдаче по «{name}»"
+        outcome = phrase(
+            "discover.retry_more_pictures",
+            alt=alt,
+            now=len(pictures),
+            before=len(first_pictures),
+            name=name,
         )
         progress.note(f"{said}; {outcome}" if said else outcome)
         return _as_is(raw, found, about, progress)
@@ -162,7 +164,7 @@ def _second_language(
         # Прибавка не в раздачах картины, а в чужих строках выдачи: широкий пул сдвинул бы
         # нумерацию франшизы («дилижанс 1» уехал бы с 1939 года на 1936) и ничего не дал
         # взамен. Тогда второго захода как будто и не было.
-        outcome = f"добор по «{alt}» новых раздач картины не дал"
+        outcome = phrase("discover.retry_no_new_releases", alt=alt)
         progress.note(f"{said}; {outcome}" if said else outcome)
         return _as_is(raw, found, about, progress)
     # Имя добора от справки - она отвечает про ТУ САМУЮ картину, и спор идёт лишь о том,
@@ -170,7 +172,7 @@ def _second_language(
     # и сверяет вожака: именно он станет ответом.
     after = _twin(wider, about, lead) if proven else _leading(wider)
     if not vouched and not same_picture(lead, after, about, proven):
-        outcome = f"по «{alt}» приехала другая картина - остаюсь на выдаче по «{name}»"
+        outcome = phrase("discover.retry_other_picture", alt=alt, name=name)
         progress.note(f"{said}; {outcome}" if said else outcome)
         return _as_is(raw, found, about, progress)
     details = []
@@ -178,7 +180,7 @@ def _second_language(
         # Своего русского имени у статьи нет вовсе (аниме русская Википедия подписывает
         # латиницей), и подтвердить догадку справки было нечем. Выдать её за проверенное
         # молча нельзя: человек вправе знать, на чьём слове стоит эта выдача.
-        details.append(f"имя «{alt}» взято со справки, сверить было не с чем")
-    details.append(f"по-русски раздач {was} - добрал по «{alt}»: стало {now}")
+        details.append(phrase("discover.retry_unconfirmed_name", alt=alt))
+    details.append(phrase("discover.retry_gain", was=was, alt=alt, now=now))
     progress.note("; ".join(([said] if said else []) + details))
     return merged, pictures, wider

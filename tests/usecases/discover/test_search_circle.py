@@ -18,6 +18,12 @@ from torrcast.ports.state_store.slot import install
 from torrcast.usecases.discover.search_circle import search_circle
 from torrcast.usecases.select.plan import Plan
 
+
+@pytest.fixture(autouse=True)
+def _russian_ladder(_russian_product: None) -> None:
+    """Предмет модуля - русские строки отказа круга поиска."""
+
+
 _CONFIG = Config(prowlarr_apikey="KEY")
 _CARS = [
     row("Тачки / Cars (2006) BDRip 1080p | D", "a", size_gb=5.0, seeders=66),

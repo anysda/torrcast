@@ -8,16 +8,16 @@ from tests.usecases.rank.releases import RUNTIME, rel
 from torrcast.domain.episode import Episode
 from torrcast.domain.release import Release
 from torrcast.usecases.rank.drop_reason import drop_reason
-from torrcast.usecases.rank.drop_reasons import (
-    _CODEC,
-    _DISC,
-    _EXTRAS,
-    _HEAVY,
-    _HEVC,
-    _NO_EPISODE,
-    _QUIET,
-    _SMALL,
-    _SOURCE,
+from torrcast.usecases.rank.off_season import (
+    _codec,
+    _disc,
+    _extras,
+    _heavy,
+    _hevc,
+    _no_episode,
+    _quiet,
+    _small,
+    _source,
 )
 
 
@@ -36,25 +36,25 @@ class Plan:
 
 def test_the_missing_episode_is_judged_before_everything_else() -> None:
     piece = rel(name="огрызок BDMV", kind="tv", seasons=(1,), episodes=(1,))
-    assert drop_reason(piece, Plan(want=Episode(1, 5))) == _NO_EPISODE
+    assert drop_reason(piece, Plan(want=Episode(1, 5))) == _no_episode()
 
 
 def test_the_gates_name_the_step_that_threw_the_release_out() -> None:
     plan = Plan()
-    assert drop_reason(rel(name="Кино BDMV"), plan) == _DISC
-    assert drop_reason(rel(name="Кино: трейлер", size_gb=0.4), plan) == _EXTRAS
-    assert drop_reason(rel(size_gb=28), plan) == _HEAVY
-    assert drop_reason(rel(codec="HEVC"), plan) == _HEVC
+    assert drop_reason(rel(name="Кино BDMV"), plan) == _disc()
+    assert drop_reason(rel(name="Кино: трейлер", size_gb=0.4), plan) == _extras()
+    assert drop_reason(rel(size_gb=28), plan) == _heavy()
+    assert drop_reason(rel(codec="HEVC"), plan) == _hevc()
 
 
 def test_the_name_itself_is_the_reason_when_the_gates_did_not_let_it_in() -> None:
     plan = Plan()
-    assert drop_reason(rel(codec="MPEG-4"), plan) == _CODEC
-    assert drop_reason(rel(quality="480p", codec=None), plan) == _SMALL
-    assert drop_reason(rel(quality=None, codec=None, source="WEB-DL"), plan) == _SOURCE
-    assert drop_reason(rel(quality=None, codec=None, source=None), plan) == _QUIET
+    assert drop_reason(rel(codec="MPEG-4"), plan) == _codec()
+    assert drop_reason(rel(quality="480p", codec=None), plan) == _small()
+    assert drop_reason(rel(quality=None, codec=None, source="WEB-DL"), plan) == _source()
+    assert drop_reason(rel(quality=None, codec=None, source=None), plan) == _quiet()
 
 
 def test_the_receivers_word_takes_hevc_through_without_a_reason() -> None:
     assert drop_reason(rel(codec="HEVC"), Plan(copy_hevc=True)) == ""
-    assert drop_reason(rel(codec="HEVC"), Plan(last_resort=True)) == _CODEC
+    assert drop_reason(rel(codec="HEVC"), Plan(last_resort=True)) == _codec()

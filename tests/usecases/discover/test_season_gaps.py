@@ -2,9 +2,17 @@
 
 from __future__ import annotations
 
+import pytest
+
 from tests.usecases.discover.world import franchise, row
 from torrcast.domain.episode import Episode
 from torrcast.usecases.discover.season_gaps import season_gaps
+
+
+@pytest.fixture(autouse=True)
+def _russian_ladder(_russian_product: None) -> None:
+    """Предмет модуля - русская строка о сериале без нужного сезона."""
+
 
 _KITCHEN = [
     row("Кухня 6 / Kuhnya 6 (2017) WEB-DL 1080p | 6 сезон, 1-20 из 20", "a"),

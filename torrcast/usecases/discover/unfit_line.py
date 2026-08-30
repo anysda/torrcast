@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.picture import Picture
 from torrcast.usecases.discover.kin_line import kin_line
 
@@ -50,17 +51,11 @@ def unfit_line(
     Полная выдача не платит за это ни словом: ``late`` пуст - строка ровно прежняя.
     """
     why = ", ".join(f"{reason} - {count}" for reason, count in drops.items())
-    line = (
-        f"годного релиза нет: раздач в выдаче {len(plan.picture.releases)}, "
-        f"и все до одной отсеял отбор ({why})"
-    )
+    line = phrase("discover.unfit_none_fit", total=len(plan.picture.releases), why=why)
     if late:
-        line += f", но выдача неполная - {', '.join(late)} ещё в пути"
+        line += phrase("discover.unfit_incomplete_tail", late=", ".join(late))
     if offer := kin_line(kin):
         return f"{line}\n{offer}"
     if late:
-        return f"{line}: зайди позже - с полной выдачей годный рип может и найтись"
-    return (
-        f"{line} - картина есть, а раздачи её негодны: назови её иначе или зайди позже - "
-        "другой запрос соберёт другую выдачу, а годный рип может появиться"
-    )
+        return phrase("discover.unfit_come_back", line=line)
+    return phrase("discover.unfit_final", line=line)

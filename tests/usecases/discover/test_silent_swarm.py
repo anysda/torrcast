@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from tests.usecases.discover.world import franchise, row
 from torrcast.domain.args import Args
 from torrcast.domain.config import Config
@@ -9,6 +11,12 @@ from torrcast.domain.raw_result import RawResult
 from torrcast.usecases.discover.silent_swarm import silent_swarm
 from torrcast.usecases.reinforce.plan_for import plan_for
 from torrcast.usecases.select.plan import Plan
+
+
+@pytest.fixture(autouse=True)
+def _russian_ladder(_russian_product: None) -> None:
+    """Предмет модуля - пять русских строк отказа молчащего роя."""
+
 
 _SHOWN = "показывали «кино»"
 

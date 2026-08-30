@@ -2,9 +2,16 @@
 
 from __future__ import annotations
 
+import pytest
+
 from tests.usecases.rank.releases import RUNTIME, rel
 from torrcast.domain.catalogs.phrase import phrase
 from torrcast.usecases.rank.render_table import render_table
+
+
+@pytest.fixture(autouse=True)
+def _russian_ladder(_russian_product: None) -> None:
+    """Предмет модуля - русские заголовки и сноски таблицы, писанные до языкового яруса."""
 
 
 def test_the_table_names_the_columns_and_the_row() -> None:

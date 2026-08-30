@@ -6,7 +6,7 @@ from typing import Protocol
 
 from torrcast.domain.release import Release
 from torrcast.usecases.rank.drop_reason import _Judged, drop_reason
-from torrcast.usecases.rank.drop_reasons import _PINNED, OFF_SEASON
+from torrcast.usecases.rank.off_season import _pinned, off_season
 
 
 class _Counted(_Judged, Protocol):
@@ -33,11 +33,11 @@ def queue_drops(plan: _Counted, queue: list[int], pinned: bool = False) -> dict[
     """
     counts: dict[str, int] = {}
     if plan.off_season:
-        counts[OFF_SEASON] = plan.off_season
+        counts[off_season()] = plan.off_season
     taken = set(queue)
     for number, release in enumerate(plan.ranked, start=1):
         if number in taken:
             continue
-        why = _PINNED if pinned else drop_reason(release, plan)
+        why = _pinned() if pinned else drop_reason(release, plan)
         counts[why] = counts.get(why, 0) + 1
     return counts

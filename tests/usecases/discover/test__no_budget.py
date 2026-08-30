@@ -2,10 +2,17 @@
 
 from __future__ import annotations
 
+import pytest
+
 from tests.usecases.discover.world import Indexer, Said
 from torrcast.domain.facts.settings import FACTS_BUDGET
 from torrcast.domain.goal_spare import CIRCLE_SHARE, SECOND_LEAST
 from torrcast.usecases.discover._no_budget import _no_budget
+
+
+@pytest.fixture(autouse=True)
+def _russian_ladder(_russian_product: None) -> None:
+    """Предмет модуля - русские строки об исчерпанном бюджете добора."""
 
 
 def test_a_healthy_goal_leaves_the_top_up_its_usual_ceiling() -> None:

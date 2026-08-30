@@ -7,8 +7,16 @@
 
 from __future__ import annotations
 
+import pytest
+
 from tests.usecases.discover.world import Indexer, Said, row
 from torrcast.usecases.discover._reread import _relayout
+
+
+@pytest.fixture(autouse=True)
+def _russian_ladder(_russian_product: None) -> None:
+    """Предмет модуля - русская строка о забытой раскладке и её номере."""
+
 
 CARS = "Тачки / Cars (2006) BDRip 1080p"
 

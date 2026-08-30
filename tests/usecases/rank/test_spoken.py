@@ -2,8 +2,15 @@
 
 from __future__ import annotations
 
+import pytest
+
 from tests.usecases.rank.releases import track
 from torrcast.usecases.rank.spoken import spoken
+
+
+@pytest.fixture(autouse=True)
+def _russian_ladder(_russian_product: None) -> None:
+    """Предмет модуля - русские названия языков, писанные до языкового яруса."""
 
 
 def test_a_known_language_is_named_aloud() -> None:

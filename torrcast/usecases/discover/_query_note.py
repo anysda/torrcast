@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from torrcast.domain.alt_query import alt_query
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.facts.origin import Origin
 from torrcast.domain.release import Release
 from torrcast.domain.slugify import slugify
@@ -24,7 +25,7 @@ def _query_note(name: str, alt: str, pool: list[Release], about: Origin) -> str:
         return ""
     blind = alt_query(name, pool)  # чем бы искали, не будь справки
     if not blind:
-        return f"оригинал «{alt}» - по справке; без неё второго запроса не было бы"
+        return phrase("discover.origin_would_be_blind", alt=alt)
     if slugify(blind) == slugify(alt):
         return ""
-    return f"оригинал «{alt}» - по справке; без неё искал бы «{blind}»"
+    return phrase("discover.origin_instead_of_blind", alt=alt, blind=blind)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.media import Media
 from torrcast.usecases.rank.spoken import spoken
 
@@ -19,7 +20,7 @@ def heard(media: Media) -> str:
     придумывать ей язык в той же строке было бы второй такой же ошибкой.
     """
     if not media.tracks:
-        return "не назван"
+        return phrase("rank.track_unnamed")
     index = media.default_track()
     track = media.tracks[index] if index < len(media.tracks) else media.tracks[0]
-    return spoken(track) if track.named else "не назван"
+    return spoken(track) if track.named else phrase("rank.track_unnamed")

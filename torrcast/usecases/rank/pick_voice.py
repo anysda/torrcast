@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Protocol
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.infra_error import InfraError
 from torrcast.domain.media import Media
 from torrcast.domain.not_found_error import NotFoundError
@@ -51,7 +52,7 @@ def pick_voice(
     Возвращает пару «номер дорожки в этом релизе, память картины».
     """
     if not media.tracks:
-        raise InfraError("в файле нет звуковых дорожек")
+        raise InfraError(phrase("rank.no_audio_tracks"))
     if args.voice is not None:
         if args.voice == VOICE_MENU:
             index = _ask_voice(media, native, studios)
@@ -69,7 +70,7 @@ def pick_voice(
             return found, remembered
         # Память живёт на картину, а релиз временный: озвучки в нём нет - говорим и
         # играем обычную, но выбор пользователя не забываем (:attr:`Entry.voice`).
-        _console_port().write(f"озвучки «{remembered}» в этом релизе нет - беру обычную")
+        _console_port().write(phrase("rank.voice_kept_usual", name=remembered))
     return media.default_track(native), remembered
 
 
@@ -77,7 +78,7 @@ def _voice_number(media: Media, number: int) -> int:
     """Номер дорожки от человека → индекс; чужого номера нет — честная строка."""
     if not 1 <= number <= len(media.tracks):
         raise NotFoundError(
-            f"дорожек {len(media.tracks)}, номера {number} нет - посмотри: cast voices <запрос>"
+            phrase("rank.voice_number_missing", total=len(media.tracks), number=number)
         )
     return number - 1
 
@@ -88,7 +89,7 @@ def _voice_name(media: Media, name: str, studios: Sequence[Studio]) -> tuple[int
     if found is not None:
         studio = track_studio(media, found, studios)
         return found, studio.name if studio is not None else media.tracks[found].label
-    raise NotFoundError(f"озвучки «{name}» в этом релизе нет - посмотри: cast voices <запрос>")
+    raise NotFoundError(phrase("rank.voice_name_missing", name=name))
 
 
 def _named_index(media: Media, name: str, studios: Sequence[Studio]) -> int | None:
@@ -109,4 +110,4 @@ def _ask_voice(media: Media, native: bool = False, studios: Sequence[Studio] = (
     if len(media.tracks) == 1:  # выбора нет - вопроса тоже
         return default
     _console_port().write(voices_table(media, default, studios=studios))
-    return _console_port().choose("Озвучка?", len(media.tracks), default + 1) - 1
+    return _console_port().choose(phrase("rank.voice_question"), len(media.tracks), default + 1) - 1

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.rank_settings import TABLE_LIMIT
 from torrcast.domain.release import Release
 from torrcast.usecases.choice.warned import warned
@@ -49,19 +50,25 @@ def render_table(
         )
         for number, r in enumerate(shown, start=1)
     ]
-    head = ("N", "Качество", "Размер", "Сиды", "Озвучка", "Студия", "Кодек")
+    head = (
+        "N",
+        phrase("rank.table_quality"),
+        phrase("rank.table_size"),
+        phrase("rank.table_seeders"),
+        phrase("rank.table_voice"),
+        phrase("rank.table_studio"),
+        phrase("rank.table_codec"),
+    )
     width = [max(len(c[i]) for c in (head, *rows)) for i in range(len(head))]
 
     def line(cells: tuple[str, ...]) -> str:
         return "  " + "  ".join(_pad(c, w) for c, w in zip(cells, width, strict=True))
 
-    out = ["Релизы:", line(head), *(line(row).rstrip() for row in rows)]
+    out = [phrase("rank.table_header"), line(head), *(line(row).rstrip() for row in rows)]
     if len(releases) > len(shown):
-        out.append(f"  ... и ещё {len(releases) - len(shown)} с меньшим числом сидов")
+        out.append(phrase("rank.table_more_hidden", count=len(releases) - len(shown)))
     if estimated:
-        out.append(
-            "  пометки веса - по оценке длительности: её не назвали ни паспорт файла, ни справка"
-        )
+        out.append(phrase("rank.table_estimated_note"))
     return "\n".join(out)
 
 

@@ -2,8 +2,16 @@
 
 from __future__ import annotations
 
+import pytest
+
 from tests.usecases.discover.world import pictures, row
 from torrcast.usecases.discover._nothing import _nothing
+
+
+@pytest.fixture(autouse=True)
+def _russian_ladder(_russian_product: None) -> None:
+    """Предмет модуля - русские строки отказа по франшизе и по пустому поиску."""
+
 
 _CARS = pictures(
     [

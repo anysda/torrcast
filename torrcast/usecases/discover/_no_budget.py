@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.facts.settings import FACTS_BUDGET
 from torrcast.domain.goal_spare import CIRCLE_SHARE, GOAL, SECOND_LEAST
 from torrcast.ports.progress.progress import Progress
@@ -54,10 +55,15 @@ def _no_budget(client: IndexerClient, what: str, progress: Progress) -> float | 
         return min(FACTS_BUDGET, spare - CIRCLE_SHARE)
     progress.phase("")
     if client.over_goal:
-        progress.note(f"{what} не делаю: поиск уже съел цель в {GOAL:.0f} с")
+        progress.note(phrase("discover.budget_gone", what=what, goal=f"{GOAL:.0f}"))
         return None
     client.over_goal = True
     progress.note(
-        f"{what} всё равно делаю в свои {SECOND_LEAST:g} с: поиск уже съел цель в {GOAL:.0f} с"
+        phrase(
+            "discover.budget_gone_anyway",
+            what=what,
+            seconds=f"{SECOND_LEAST:g}",
+            goal=f"{GOAL:.0f}",
+        )
     )
     return FACTS_BUDGET

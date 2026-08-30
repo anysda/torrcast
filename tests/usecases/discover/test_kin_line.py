@@ -2,8 +2,16 @@
 
 from __future__ import annotations
 
+import pytest
+
 from tests.usecases.discover.world import franchise, pictures, row
 from torrcast.usecases.discover.kin_line import KIN_SHOWN, _kin, kin_line
+
+
+@pytest.fixture(autouse=True)
+def _russian_ladder(_russian_product: None) -> None:
+    """Предмет модуля - русская строка-подсказка о живых соседях по франшизе."""
+
 
 _CARS = [
     row("Тачки / Cars (2006) BDRip 1080p", "a"),

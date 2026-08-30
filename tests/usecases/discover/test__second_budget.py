@@ -2,10 +2,18 @@
 
 from __future__ import annotations
 
+import pytest
+
 from tests.usecases.discover.world import Indexer, Said, franchise, row
 from torrcast.domain.facts.settings import FACTS_BUDGET
 from torrcast.domain.goal_spare import CIRCLE_SHARE
 from torrcast.usecases.discover._second_budget import _second_budget
+
+
+@pytest.fixture(autouse=True)
+def _russian_ladder(_russian_product: None) -> None:
+    """Предмет модуля - русская строка о боданном бюджете добора."""
+
 
 _FOUND = franchise("психо", [row("Психо / Psycho (1960) BDRip 1080p")])
 

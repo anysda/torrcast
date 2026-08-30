@@ -2,8 +2,15 @@
 
 from __future__ import annotations
 
+import pytest
+
 from tests.usecases.rank.releases import media, rel
 from torrcast.usecases.rank.understated import understated
+
+
+@pytest.fixture(autouse=True)
+def _russian_ladder(_russian_product: None) -> None:
+    """Предмет модуля - русская строка про подмену разрешения, писанная до языкового яруса."""
 
 
 def test_a_name_promising_more_names_both_numbers() -> None:

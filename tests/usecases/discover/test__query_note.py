@@ -2,9 +2,17 @@
 
 from __future__ import annotations
 
+import pytest
+
 from tests.usecases.discover.world import releases, row
 from torrcast.domain.facts.origin import Origin
 from torrcast.usecases.discover._query_note import _query_note
+
+
+@pytest.fixture(autouse=True)
+def _russian_ladder(_russian_product: None) -> None:
+    """Предмет модуля - русская строка о том, что запрос изменила справка."""
+
 
 #: Русская выдача, в которой оригинала нет вовсе: без справки второго запроса не было бы.
 _BLIND = releases([row("Крики и шёпоты (1972) BDRip 1080p", "a")])

@@ -6,6 +6,7 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 import torrcast.usecases.discover._search_state as _search_state
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.cluster import cluster
 from torrcast.domain.config import Config
 from torrcast.domain.episode import Episode
@@ -70,13 +71,13 @@ def search_circle(
     тесты и щупы.
     """
     if not config.prowlarr_apikey:  # без Prowlarr искать нечем - это инфра-ошибка
-        raise InfraError("не настроен Prowlarr: apikey пуст, перезапусти ./install.sh")
+        raise InfraError(phrase("discover.prowlarr_not_configured"))
     query = args.title_query
     name, index = split_franchise_index(query)
     client = (indexer or _search_state._search_indexers)(
         config.prowlarr_url, config.prowlarr_apikey
     )
-    progress.phase(f"поиск «{name}»")
+    progress.phase(phrase("discover.search_phase", query=name))
     raw = _ask(client, name, progress)
     if not raw:
         # Ни одной строки - повод заподозрить забытую раскладку (:func:`unswap_layout`).
@@ -93,7 +94,7 @@ def search_circle(
         # же путём, что и явное `sNeM`: своей сезонной машинерией, вплоть до честного «раздач с
         # сезоном N нет». Молчать о таком прочтении нельзя - номер человек написал сам, и он вправе
         # знать, чем мы его сочли.
-        progress.note(f"«{name}» - это сериал: номер {index} читаю сезоном, а не частью")
+        progress.note(phrase("discover.season_not_part", name=name, index=index))
         args = reread
         query, index = name, None
     if index is not None and not found:
@@ -130,18 +131,21 @@ def search_circle(
     journal().mark("поиск", найдено=len(raw))
     journal().emit("search", "query", query=query, raw=len(raw), pictures=len(pictures))
     if not raw:
-        raise NotFoundError(f"по запросу «{name}» ничего не нашлось")
+        raise NotFoundError(phrase("discover.nothing_found", name=name))
     if not pictures:
-        raise NotFoundError(f"по запросу «{name}» ничего не разобралось")
+        raise NotFoundError(phrase("discover.nothing_parsed", name=name))
     if not found:
         raise NotFoundError(_nothing(name, index, pictures))
     lead = _leading(found)
     if other := other_words(name, lead):
-        progress.note(f"«{name}» - в каталоге это «{other}»")
+        progress.note(phrase("discover.catalog_alias", name=name, other=other))
     if lead is not None and lead.also:
         # Склейка картин (:func:`~torrcast.domain.glue.glue`) - решение автоматическое, и молчать
         # о нём нельзя: человек спросил одно имя, а в меню и в отборе теперь оба.
-        progress.note(f"«{lead.also}» и «{lead.title}» - одна картина, раздач {len(lead.releases)}")
+        count = len(lead.releases)
+        progress.note(
+            phrase("discover.glued_pictures", also=lead.also, title=lead.title, count=count)
+        )
     progress.phase("")
     # Номер пункта меню человек читает как номер части и им же отвечает: «Тачки 2» обязаны
     # стоять вторыми, а безномерные - после линейки
@@ -188,5 +192,7 @@ def search_circle(
         plan.waiting = client.waiting
     if not plans:  # картина есть, а раздач нужного сезона в ней нет
         want = args.episode or Episode(1, 1)
-        raise NotFoundError(f"«{found[0].title}»: раздач с сезоном {want.season} нет")
+        raise NotFoundError(
+            phrase("discover.no_season_releases", title=found[0].title, season=want.season)
+        )
     return plans

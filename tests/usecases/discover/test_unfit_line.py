@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from tests.usecases.discover.world import franchise, pictures, row
 from torrcast.domain.args import Args
 from torrcast.domain.config import Config
@@ -11,6 +13,12 @@ from torrcast.usecases.discover.unfit_line import unfit_line
 from torrcast.usecases.rank.queue_drops import queue_drops
 from torrcast.usecases.reinforce.plan_for import plan_for
 from torrcast.usecases.select.plan import Plan
+
+
+@pytest.fixture(autouse=True)
+def _russian_ladder(_russian_product: None) -> None:
+    """Предмет модуля - русская строка отказа по пустой очереди отбора."""
+
 
 #: Образ диска: играть такой раздачей нечем, и ворота отбора её не пускают.
 _IMAGE = row("Тачки / Cars (2006) BDRemux 2160p ISO", "a", size_gb=41.0, seeders=90)

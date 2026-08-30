@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.raw_result import RawResult
 from torrcast.ports.progress.progress import Progress
@@ -37,24 +38,22 @@ def _ask(client: IndexerClient, query: str, progress: Progress) -> list[RawResul
     gone = [
         (name, why_gone)
         for names, why_gone in (
-            (client.silent, "не ответил"),
-            (client.banned, "недоступен"),
+            (client.silent, phrase("discover.indexer_silent")),
+            (client.banned, phrase("discover.indexer_banned")),
         )
         for name in names
         if name not in reported
     ]
     reported.update(name for name, _ in gone)
     if len(gone) == 1:
-        progress.note(f"индексер {gone[0][0]} {gone[0][1]} - выдача может быть хуже")
+        progress.note(phrase("discover.indexer_one_gone", name=gone[0][0], why=gone[0][1]))
     elif gone:
         listed = ", ".join(f"{name} {why_gone}" for name, why_gone in gone)
-        progress.note(f"индексеры выпали из каталога: {listed} - выдача может быть хуже")
+        progress.note(phrase("discover.indexer_many_gone", listed=listed))
     late = [name for name in client.waiting() if name not in reported]
     reported.update(late)
     if len(late) == 1:
-        progress.note(f"индексер {late[0]} ещё в пути - выдача пока без него, он может доехать")
+        progress.note(phrase("discover.indexer_one_late", name=late[0]))
     elif late:
-        progress.note(
-            f"индексеры ещё в пути: {', '.join(late)} - выдача пока без них, они могут доехать"
-        )
+        progress.note(phrase("discover.indexer_many_late", listed=", ".join(late)))
     return rows

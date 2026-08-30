@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.media import Media
 from torrcast.usecases.rank.spoken import spoken
 
@@ -38,12 +39,14 @@ def voice_note(media: Media, audio: int, native: bool = False) -> str:
     # Русских две, а играет нерусская - значит обе служебные; это тоже выбор, и назвать
     # его надо языком, а не видом перевода.
     what = (
-        ("оригинальную" if own else track.kind or "русскую") if track.is_russian else spoken(track)
+        (phrase("rank.voice_original") if own else track.kind or phrase("rank.voice_russian"))
+        if track.is_russian
+        else spoken(track)
     )
     tail = f" ({studio.name})" if studio and studio.name else ""
     why = ""
     if own:
-        why = " - картина снята по-русски, это её собственная дорожка"
+        why = phrase("rank.voice_own_reason")
     elif track.is_russian and studio and studio.ranks and track.rank_step < track.step:
-        why = f" - эта студия у нас на уровне «{studio.ranks}»"
-    return f"дорожек rus {russian}, беру {what}{tail}{why}"
+        why = phrase("rank.voice_studio_tier", tier=studio.ranks)
+    return phrase("rank.voice_note", russian=russian, what=what, tail=tail, why=why)

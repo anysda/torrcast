@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import torrcast.usecases.discover._search_state as _search_state
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.cluster import cluster
 from torrcast.domain.pick_franchise import pick_franchise
 from torrcast.domain.picture import Picture
@@ -48,11 +49,11 @@ def _relayout(
     if swapped == query.casefold():
         return query, name, index, []
     fixed, moved = split_franchise_index(swapped)
-    progress.phase(f"поиск «{fixed}»")
+    progress.phase(phrase("discover.search_phase", query=fixed))
     raw = _ask(client, fixed, progress)
     if not raw:
         return query, name, index, []
-    progress.note(f"«{query}» - это «{swapped}» в русской раскладке")
+    progress.note(phrase("discover.relayout_note", query=query, swapped=swapped))
     return swapped, fixed, moved, raw
 
 
@@ -84,9 +85,9 @@ def _titled_number(
     нумерацию франшизы (о том же :func:`_second_language`), и честное «номера N нет»
     стало бы неправдой про другую линейку.
     """
-    if _no_budget(client, f"поиск «{query}» целиком", progress) is None:
+    if _no_budget(client, phrase("discover.search_whole_label", query=query), progress) is None:
         return raw, cluster(_search_state._search_catalogue.to_releases(raw)), []
-    progress.phase(f"поиск «{query}»")
+    progress.phase(phrase("discover.search_phase", query=query))
     merged = _search_state._search_catalogue.merge(raw, _ask(client, query, progress))
     progress.phase("")
     if len(merged) == len(raw):
@@ -95,5 +96,5 @@ def _titled_number(
     found = pick_franchise(query, pictures)
     if not found:
         return raw, cluster(_search_state._search_catalogue.to_releases(raw)), []
-    progress.note(f"по «{name}» картины не нашлось - искал «{query}» целиком")
+    progress.note(phrase("discover.whole_number_note", name=name, query=query))
     return merged, pictures, found

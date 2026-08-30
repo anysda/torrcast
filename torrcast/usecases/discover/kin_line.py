@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Final
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.franchise_name import franchise_name
 from torrcast.domain.pick_franchise import pick_franchise
 from torrcast.domain.picture import Picture
@@ -37,4 +38,4 @@ def kin_line(kin: list[Picture]) -> str:
     if not kin:
         return ""
     names = ", ".join(f"{p.title} ({p.year or '?'})" for p in kin[:KIN_SHOWN])
-    return f"в каталоге есть {names} - cast {kin[0].title.casefold()}"
+    return phrase("discover.kin_line", names=names, command=kin[0].title.casefold())

@@ -2,12 +2,20 @@
 
 from __future__ import annotations
 
+import pytest
+
 from tests.usecases.discover.world import Indexer, Said, franchise, row, wire_catalogue
 from torrcast.domain.args import Args
 from torrcast.domain.facts.origin import Origin
 from torrcast.domain.picture import Picture
 from torrcast.domain.raw_result import RawResult
 from torrcast.usecases.discover._second_language import _second_language
+
+
+@pytest.fixture(autouse=True)
+def _russian_ladder(_russian_product: None) -> None:
+    """Предмет модуля - русские строки-вердикты второго захода латиницей."""
+
 
 #: Два русских DVDRip'а: пул тощий, и повод переспросить оригиналом есть.
 _RU = [row(f"Психо / Psycho (1960) DVDRip {n}", chr(97 + n), seeders=3) for n in range(2)]

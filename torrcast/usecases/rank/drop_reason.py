@@ -6,20 +6,20 @@ from typing import Protocol
 
 from torrcast.domain.episode import Episode
 from torrcast.domain.release import Release
-from torrcast.usecases.rank.drop_reasons import (
-    _CODEC,
-    _DISC,
-    _EXTRAS,
-    _HEAVY,
-    _HEVC,
-    _NO_EPISODE,
-    _QUIET,
-    _SMALL,
-    _SOURCE,
-)
 from torrcast.usecases.rank.is_disc import is_disc
 from torrcast.usecases.rank.is_extra import is_extra
 from torrcast.usecases.rank.misses_episode import misses_episode
+from torrcast.usecases.rank.off_season import (
+    _codec,
+    _disc,
+    _extras,
+    _heavy,
+    _hevc,
+    _no_episode,
+    _quiet,
+    _small,
+    _source,
+)
 from torrcast.usecases.rank.over_ceiling import over_ceiling
 
 
@@ -55,25 +55,25 @@ def drop_reason(release: Release, plan: _Judged) -> str:
     а объяснять человеку надо ту, на которой её и выкинули.
     """
     if misses_episode(release, plan.want):
-        return _NO_EPISODE
+        return _no_episode()
     if is_disc(release):
-        return _DISC
+        return _disc()
     if is_extra(release, plan.runtime):
-        return _EXTRAS
+        return _extras()
     if over_ceiling(release, plan.runtime, plan.warn_mbit, plan.hard_mbit):
-        return _HEAVY
+        return _heavy()
     if release.is_hevc and plan.copy_hevc:
         return ""
     if release.is_hevc and not (plan.last_resort or plan.copy_hevc):
-        return _HEVC
+        return _hevc()
     # Дальше раздача не прошла ворота (:attr:`~torrcast.domain.release.Release.prime`), и причина
     # у ворот ровно та, чем имя о себе сказало: назван чужой кодек, назван мелкий кадр,
     # назван не-HD-источник. Не сказало ничего - это молчание, и оно отдельная причина:
     # молчаливую раздачу судит ffprobe, когда ворота открыты (:attr:`Plan.loose`).
     if release.codec:
-        return _CODEC
+        return _codec()
     if release.height:
-        return _SMALL
+        return _small()
     if release.source:
-        return _SOURCE
-    return _QUIET
+        return _source()
+    return _quiet()

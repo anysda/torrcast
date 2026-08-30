@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.episode import Episode
 from torrcast.domain.picture import Picture
 from torrcast.domain.seasons_named import seasons_named
@@ -37,7 +38,13 @@ def season_gaps(found: list[Picture], shown: set[str], want: Episode | None) -> 
             continue
         have = ", ".join(str(s) for s in named)
         lines.append(
-            f"«{picture.title}» ({picture.year or '?'}): раздач {len(picture.releases)},"
-            f" но сезона {asked} среди них нет - названы {have}"
+            phrase(
+                "discover.season_gap",
+                title=picture.title,
+                year=picture.year or "?",
+                count=len(picture.releases),
+                season=asked,
+                seasons=have,
+            )
         )
     return lines

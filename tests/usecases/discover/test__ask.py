@@ -2,10 +2,17 @@
 
 from __future__ import annotations
 
+import pytest
+
 from tests.usecases.discover.world import Indexer, Said, row
 from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.raw_result import RawResult
 from torrcast.usecases.discover._ask import _ask
+
+
+@pytest.fixture(autouse=True)
+def _russian_ladder(_russian_product: None) -> None:
+    """Предмет модуля - русские строки о выпавших и опоздавших индексерах."""
 
 
 class _Empty(Indexer):

@@ -12,11 +12,19 @@ from typing import Final
 
 from torrcast.domain.catalogs.choice.en import en as choice_en
 from torrcast.domain.catalogs.choice.ru import ru as choice_ru
+from torrcast.domain.catalogs.discover.en import en as discover_en
+from torrcast.domain.catalogs.discover.ru import ru as discover_ru
+from torrcast.domain.catalogs.rank.en import en as rank_en
+from torrcast.domain.catalogs.rank.ru import ru as rank_ru
 from torrcast.domain.catalogs.tongue import RU, tongue
 
 #: Кластеры каталога: (английский, русский). Заход перевода добавляет сюда строку -
 #: пару файлов своего кластера, - а не правит эту функцию.
-_CLUSTERS: Final = ((choice_en, choice_ru),)
+_CLUSTERS: Final = (
+    (choice_en, choice_ru),
+    (discover_en, discover_ru),
+    (rank_en, rank_ru),
+)
 
 
 def phrase(key: str, **values: object) -> str:
