@@ -9,6 +9,7 @@ import sys
 from collections import Counter
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import Final, NamedTuple
 
@@ -46,6 +47,208 @@ TYPED_LAYERS: Final = frozenset({"domain", "ports", "usecases", "cli", "runtime"
 #: Дома, откуда `Any` и `TypeAlias` приезжают под любым именем: `from typing import Any as A`.
 TYPING_HOMES: Final = frozenset({"typing", "typing_extensions"})
 LAYERS: Final = frozenset({"domain", "ports", "usecases", "adapters", "cli", "runtime"})
+#: Кириллица в литерале: по ней и опознаётся невынесенная надпись.
+_CYRILLIC: Final = re.compile(r"[А-Яа-яЁё]")
+#: Куда строка уезжает человеку. Имена методов взяты не с потолка, а из портов показа:
+#: ``Console.write/ask/choose`` (:mod:`torrcast.ports.console`), ``MenuPaint.show/redraw``
+#: (:mod:`torrcast.ports.menu_paint`) и ``Progress.phase/note``
+#: (:mod:`torrcast.ports.progress.progress`). Порт заведён ровно затем, чтобы показать
+#: человеку, - значит всё, что в него уехало, он и прочтёт.
+SPOKEN_METHODS: Final = frozenset({"ask", "choose", "note", "phase", "redraw", "show", "write"})
+#: Те же ворота, но встроенные в язык.
+SPOKEN_BUILTINS: Final = frozenset({"input", "print"})
+#: Кириллица тут - ПРЕДМЕТ разбора, а не надпись: правила разбора имён, таблица
+#: гомоглифов IMDb, уточнение запроса к Википедии, ключ хранимой памяти об озвучке
+#: (``AudioTrack.label``) - и сами каталоги надписей, мерить которые значит мерить ответ.
+#: Список не долг: он не сокращается и сокращаться не должен. Растить его тоже нечем -
+#: каждая запись обязана держать хотя бы одно живое место, иначе она протухла
+#: (:func:`_translation_list_violations`), и спрятать за ней новую надпись не выйдет.
+TRANSLATION_SUBJECT: Final = (
+    "tgbot/catalogs/",
+    "torrcast/adapters/wiki/wiki_articles.py",
+    "torrcast/domain/audio_track.py",
+    "torrcast/domain/catalogs/",
+    "torrcast/domain/facts/imdb_rows.py",
+    "torrcast/domain/facts/titles_for.py",
+    "torrcast/domain/franchise_name.py",
+    "torrcast/domain/glue.py",
+    "torrcast/domain/map_episodes.py",
+    "torrcast/domain/normalize.py",
+    "torrcast/domain/slugify.py",
+)
+#: Долг перевода, названный числом: столько мест в файле сегодня уезжает человеку
+#: мимо каталога. Число обязано только уменьшаться - выросло значит новая надпись
+#: написана в обход каталога, а не «правило шумит». Сегодня это 580 мест в
+#: 162 файлах; перевод дерева идёт файлами, и каждый переведённый файл
+#: уходит отсюда целиком. Пустого списка тут не будет до последнего файла - и это
+#: единственное, что отделяет правило от красноты на всём дереве сразу.
+TRANSLATION_DEBT: Final = {
+    # Скрипт обхода DPI говорит в журнал службы, но говорит по-русски и мимо каталога;
+    # каталога он и не видит - слоёв у него нет. Долг такой же, как у пакета.
+    "scripts/sni-shim.py": 17,
+    "tgbot/config.py": 1,
+    "torrcast/adapters/chromecast/cast/nudge.py": 1,
+    "torrcast/adapters/chromecast/cast/past_deadly.py": 2,
+    "torrcast/adapters/chromecast/cast/play.py": 1,
+    "torrcast/adapters/chromecast/cast/receiver_link.py": 2,
+    "torrcast/adapters/chromecast/cast/receiver_state.py": 1,
+    "torrcast/adapters/chromecast/cast/receiver_talk.py": 2,
+    "torrcast/adapters/chromecast/cast/reload.py": 2,
+    "torrcast/adapters/chromecast/cast/say_skip.py": 2,
+    "torrcast/adapters/chromecast/cast/while_connecting.py": 3,
+    "torrcast/adapters/chromecast/mock/hls_decoder.py": 1,
+    "torrcast/adapters/chromecast/mock/hls_fetch.py": 2,
+    "torrcast/adapters/chromecast/mock/mock_replay.py": 4,
+    "torrcast/adapters/chromecast/network_receiver_finder.py": 1,
+    "torrcast/adapters/chromecast/scan/device.py": 1,
+    "torrcast/adapters/chromecast/scan/skipped.py": 1,
+    "torrcast/adapters/console/console/ask.py": 2,
+    "torrcast/adapters/console/console/ask_line.py": 1,
+    "torrcast/adapters/console/console/progress.py": 1,
+    "torrcast/adapters/ffprobe/parse_media.py": 2,
+    "torrcast/adapters/filesystem/state/load_config.py": 2,
+    "torrcast/adapters/filesystem/state/save_config.py": 2,
+    "torrcast/adapters/filesystem/state/write_atomic.py": 1,
+    "torrcast/adapters/frames/http_range_reader.py": 1,
+    "torrcast/adapters/frames/keyframes.py": 1,
+    "torrcast/adapters/http_server/_handler.py": 3,
+    "torrcast/adapters/http_server/hls_base.py": 1,
+    "torrcast/adapters/http_server/hls_server.py": 2,
+    "torrcast/adapters/prowlarr/collect_rows.py": 1,
+    "torrcast/adapters/prowlarr/from_json.py": 1,
+    "torrcast/adapters/prowlarr/indexer_roster.py": 2,
+    "torrcast/adapters/prowlarr/prowlarr_http_client.py": 3,
+    "torrcast/adapters/recode/heavy_line.py": 6,
+    "torrcast/adapters/recode/recoder.py": 1,
+    "torrcast/adapters/recode/run.py": 3,
+    "torrcast/adapters/stream_pack/_merged_out.py": 5,
+    "torrcast/adapters/stream_pack/mark_playing.py": 1,
+    "torrcast/adapters/stream_pack/packer.py": 1,
+    "torrcast/adapters/stream_pack/packer_stop.py": 3,
+    "torrcast/adapters/stream_probe/pick_video_file.py": 1,
+    "torrcast/adapters/stream_probe/probe.py": 3,
+    "torrcast/adapters/stream_probe/run_ffprobe.py": 1,
+    "torrcast/adapters/stream_probe/supply.py": 3,
+    "torrcast/adapters/systemd/start_play_unit.py": 1,
+    "torrcast/adapters/systemd/unit_why.py": 2,
+    "torrcast/adapters/torrserver/torr_server.py": 9,
+    "torrcast/adapters/torrserver/warmup.py": 1,
+    "torrcast/adapters/unit_playback_session.py": 1,
+    "torrcast/adapters/wiki/http_json_client.py": 2,
+    "torrcast/adapters/wiki/wiki_extracts.py": 1,
+    "torrcast/cli/answered.py": 2,
+    "torrcast/domain/_media_picture.py": 1,
+    "torrcast/domain/_series.py": 7,
+    "torrcast/domain/cache_health.py": 11,
+    "torrcast/domain/codec_name.py": 1,
+    "torrcast/domain/digest/_event_line.py": 2,
+    "torrcast/domain/digest/_search_line.py": 17,
+    "torrcast/domain/digest/_session_line.py": 5,
+    "torrcast/domain/digest/_show_line.py": 38,
+    "torrcast/domain/digest/_warm_line.py": 9,
+    "torrcast/domain/digest/_words.py": 1,
+    "torrcast/domain/digest/digest.py": 1,
+    "torrcast/domain/facts/hms.py": 2,
+    "torrcast/domain/frames/mkv/keys.py": 6,
+    "torrcast/domain/frames/mkv/vint.py": 1,
+    "torrcast/domain/frames/mp4/_moov.py": 2,
+    "torrcast/domain/frames/mp4/_tables.py": 1,
+    "torrcast/domain/frames/mp4/keys.py": 4,
+    "torrcast/domain/health_verdict.py": 3,
+    "torrcast/domain/host_health.py": 9,
+    "torrcast/domain/indexer_health.py": 11,
+    "torrcast/domain/json_number.py": 1,
+    "torrcast/domain/receiver_health.py": 13,
+    "torrcast/domain/receiver_info.py": 1,
+    "torrcast/domain/reception_report.py": 3,
+    "torrcast/domain/recode_note.py": 3,
+    "torrcast/domain/report.py": 2,
+    "torrcast/domain/serve_health.py": 14,
+    "torrcast/domain/uptime_words.py": 3,
+    "torrcast/domain/voice_swap.py": 1,
+    "torrcast/domain/why.py": 4,
+    "torrcast/ports/show_unit/slot.py": 1,
+    "torrcast/ports/state_store/slot.py": 1,
+    "torrcast/runtime/language_command.py": 2,
+    "torrcast/runtime/trace_thresholds.py": 2,
+    "torrcast/usecases/cache_reserve.py": 7,
+    "torrcast/usecases/cast_command/_account_watched.py": 2,
+    "torrcast/usecases/cast_command/_bookmark.py": 6,
+    "torrcast/usecases/cast_command/_cmd_play.py": 3,
+    "torrcast/usecases/cast_command/_notes.py": 3,
+    "torrcast/usecases/configure.py": 5,
+    "torrcast/usecases/discover/_ask.py": 6,
+    "torrcast/usecases/discover/_no_budget.py": 2,
+    "torrcast/usecases/discover/_nothing.py": 3,
+    "torrcast/usecases/discover/_query_note.py": 2,
+    "torrcast/usecases/discover/_reread.py": 4,
+    "torrcast/usecases/discover/_second_budget.py": 1,
+    "torrcast/usecases/discover/_second_circle.py": 1,
+    "torrcast/usecases/discover/_second_language.py": 6,
+    "torrcast/usecases/discover/kin_line.py": 1,
+    "torrcast/usecases/discover/search_circle.py": 8,
+    "torrcast/usecases/discover/silent_swarm.py": 14,
+    "torrcast/usecases/discover/unfit_line.py": 4,
+    "torrcast/usecases/doctor.py": 1,
+    "torrcast/usecases/doctor_command.py": 1,
+    "torrcast/usecases/next_season.py": 6,
+    "torrcast/usecases/playback/_launch.py": 8,
+    "torrcast/usecases/playback/_play.py": 3,
+    "torrcast/usecases/playback/_recoder.py": 9,
+    "torrcast/usecases/playback/_show_end.py": 5,
+    "torrcast/usecases/playback/file_picker.py": 1,
+    "torrcast/usecases/playback/pack_note.py": 1,
+    "torrcast/usecases/rank/_gb.py": 1,
+    "torrcast/usecases/rank/heard.py": 2,
+    "torrcast/usecases/rank/pick_voice.py": 5,
+    "torrcast/usecases/rank/render_table.py": 2,
+    "torrcast/usecases/rank/sound_note.py": 5,
+    "torrcast/usecases/rank/spoken.py": 15,
+    "torrcast/usecases/rank/stepdown_note.py": 5,
+    "torrcast/usecases/rank/understated.py": 3,
+    "torrcast/usecases/rank/voice_note.py": 4,
+    "torrcast/usecases/rank/voices_table.py": 1,
+    "torrcast/usecases/reinforce/_as_is.py": 2,
+    "torrcast/usecases/reinforce/_ceiling_reinforce.py": 4,
+    "torrcast/usecases/reinforce/_foreign_note.py": 5,
+    "torrcast/usecases/reinforce/_season_reinforce.py": 3,
+    "torrcast/usecases/reinforce/_topup.py": 3,
+    "torrcast/usecases/reinforce/_voice_reinforce.py": 3,
+    "torrcast/usecases/releases_command.py": 5,
+    "torrcast/usecases/revive_playback/_blame.py": 2,
+    "torrcast/usecases/revive_playback/_closed.py": 1,
+    "torrcast/usecases/revive_playback/_endure.py": 2,
+    "torrcast/usecases/revive_playback/_hold.py": 3,
+    "torrcast/usecases/revive_playback/_paused.py": 3,
+    "torrcast/usecases/revive_playback/_resurrect.py": 8,
+    "torrcast/usecases/revive_playback/_screen.py": 9,
+    "torrcast/usecases/say_showing.py": 2,
+    "torrcast/usecases/screen_line.py": 2,
+    "torrcast/usecases/select/_continue.py": 3,
+    "torrcast/usecases/select/_dead_release.py": 2,
+    "torrcast/usecases/select/_prep.py": 3,
+    "torrcast/usecases/select/_verdict.py": 2,
+    "torrcast/usecases/select/_voiced.py": 1,
+    "torrcast/usecases/select/plan.py": 3,
+    "torrcast/usecases/select_bench/_bench_honest.py": 6,
+    "torrcast/usecases/select_bench/_bench_notes.py": 2,
+    "torrcast/usecases/select_bench/_bench_queue.py": 2,
+    "torrcast/usecases/select_bench/_bench_recheck.py": 5,
+    "torrcast/usecases/select_bench/_bench_refusal.py": 6,
+    "torrcast/usecases/select_bench/_bench_supply.py": 1,
+    "torrcast/usecases/select_bench/_bench_trouble.py": 5,
+    "torrcast/usecases/select_bench/bench.py": 6,
+    "torrcast/usecases/source_blame.py": 2,
+    "torrcast/usecases/status.py": 12,
+    "torrcast/usecases/stop.py": 2,
+    "torrcast/usecases/voices_command.py": 3,
+    "torrcast/usecases/warm/line.py": 7,
+    "torrcast/usecases/warm/vault.py": 2,
+    "torrcast/usecases/warm/verify.py": 3,
+    "torrcast/usecases/watch.py": 1,
+    "torrcast/usecases/worker.py": 1,
+    "torrcast/usecases/worker_loop.py": 4,
+}
 
 
 class Boundary(NamedTuple):
@@ -730,26 +933,228 @@ def _empty_test_violations(root: Path) -> list[Violation]:
     return found
 
 
-def _translation_violations(module: Module) -> list[Violation]:
-    """Не даёт пользовательской строке обойти языковой каталог прямым выводом."""
-    if not module.relative.startswith("tgbot/"):
+class _Speech:
+    """Куда доезжают кириллические литералы внутри одного модуля.
+
+    Прямой строки в ``print`` мало: надпись собирают f-строкой, склейкой и через
+    промежуточное имя. Поэтому тут два разных вопроса. :meth:`literals` отвечает
+    «что вообще достижимо из выражения» и кормит разбор присваиваний, а :meth:`spoken`
+    идёт ТОЛЬКО сквозь узлы, которые строку собирают, - и потому не считает сказанным
+    то, что уехало аргументом в чужой конструктор (``Take(why="номер флагом")``:
+    внутренняя метка правила, человек её не читает).
+    """
+
+    def __init__(self, tree: ast.Module) -> None:
+        self._docstrings = _docstring_ids(tree)
+        self._names: dict[str, list[ast.Constant]] = {}
+        self._learn(tree)
+
+    def _learn(self, tree: ast.Module) -> None:
+        """Разносит литералы по именам до неподвижности: имя могло собраться из имени."""
+        pairs: list[tuple[ast.expr, ast.expr]] = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Assign):
+                pairs += [(target, node.value) for target in node.targets]
+            elif isinstance(node, ast.AnnAssign | ast.AugAssign) and node.value is not None:
+                pairs.append((node.target, node.value))
+            elif isinstance(node, ast.For | ast.AsyncFor):
+                pairs.append((node.target, node.iter))
+            elif isinstance(node, ast.NamedExpr):
+                pairs.append((node.target, node.value))
+        moved = True
+        while moved:
+            moved = False
+            for target, value in pairs:
+                if not isinstance(target, ast.Name):
+                    continue
+                known = self._names.setdefault(target.id, [])
+                fresh = [item for item in self.literals(value) if item not in known]
+                if fresh:
+                    known.extend(fresh)
+                    moved = True
+
+    def literals(self, node: ast.AST) -> list[ast.Constant]:
+        """Все кириллические литералы, до которых можно дотянуться из выражения."""
+        found: list[ast.Constant] = []
+        for sub in ast.walk(node):
+            if isinstance(sub, ast.Constant) and self._is_caption(sub):
+                found.append(sub)
+            elif isinstance(sub, ast.Name) and sub.id in self._names:
+                found.extend(self._names[sub.id])
+        return found
+
+    def spoken(self, node: ast.expr | None) -> list[ast.Constant]:
+        """Литералы, доезжающие ИМЕННО этим выражением: сквозь склейку, но не сквозь чужой вызов."""
+        if node is None:
+            return []
+        if isinstance(node, ast.Constant):
+            return [node] if self._is_caption(node) else []
+        if isinstance(node, ast.Name):
+            return list(self._names.get(node.id, []))
+        if isinstance(node, ast.Attribute | ast.Starred | ast.Await | ast.Subscript):
+            return self.spoken(node.value)
+        if isinstance(node, ast.JoinedStr):
+            parts = [
+                item.value if isinstance(item, ast.FormattedValue) else item for item in node.values
+            ]
+            return [found for part in parts for found in self.spoken(part)]
+        if isinstance(node, ast.BinOp):
+            return self.spoken(node.left) + self.spoken(node.right)
+        if isinstance(node, ast.IfExp):
+            return self.spoken(node.body) + self.spoken(node.orelse)
+        if isinstance(node, ast.BoolOp):
+            return [found for value in node.values for found in self.spoken(value)]
+        if isinstance(node, ast.List | ast.Tuple | ast.Set):
+            return [found for item in node.elts for found in self.spoken(item)]
+        if isinstance(node, ast.Dict):
+            return [
+                found for item in node.values if item is not None for found in self.spoken(item)
+            ]
+        if isinstance(node, ast.ListComp | ast.SetComp | ast.GeneratorExp):
+            return self.spoken(node.elt)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+            # Метод строки (``", ".join(...)``, ``.format(...)``) строку собирает и дальше
+            # несёт; вызов по голому имени - чужая единица, и что она скажет, решает она.
+            arguments = [*node.args, *(keyword.value for keyword in node.keywords)]
+            return self.spoken(node.func.value) + [
+                found for argument in arguments for found in self.spoken(argument)
+            ]
         return []
-    found: list[Violation] = []
+
+    def _is_caption(self, node: ast.Constant) -> bool:
+        return (
+            isinstance(node.value, str)
+            and id(node) not in self._docstrings
+            and bool(_CYRILLIC.search(node.value))
+        )
+
+
+def _docstring_ids(tree: ast.Module) -> set[int]:
+    """Докстроки - решение проекта: они остаются русскими и надписью не считаются."""
+    found: set[int] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Module | ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef):
+            continue
+        first = node.body[0] if node.body else None
+        if isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant):
+            found.add(id(first.value))
+    return found
+
+
+#: Разбор одного модуля спрашивают трижды за прогон - правилом, сторожем списков и
+#: замером охвата, - а ответ на одном и том же дереве один и тот же. Ключ кэша - сам
+#: :class:`Module`, то есть и разобранное дерево: у соседнего корня объекты свои, и
+#: чужой ответ на них не придёт.
+@lru_cache(maxsize=2048)
+def _spoken_places(module: Module) -> list[tuple[int, str]]:
+    """Строки модуля, где кириллическая надпись доезжает до человека мимо каталога."""
+    speech = _Speech(module.tree)
+    found: dict[int, str] = {}
     for node in ast.walk(module.tree):
-        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
-            continue
-        if node.func.id not in {"input", "print"}:
-            continue
-        for argument in node.args:
-            if isinstance(argument, ast.Constant) and isinstance(argument.value, str):
-                found.append(
-                    Violation(
-                        "перевод",
-                        module.relative,
-                        argument.lineno,
-                        f"строка для {node.func.id} миновала языковой каталог",
-                    )
-                )
+        said: list[ast.Constant] = []
+        if isinstance(node, ast.Return):
+            said = speech.spoken(node.value)
+        elif isinstance(node, ast.Raise) and isinstance(node.exc, ast.Call):
+            arguments = [*node.exc.args, *(keyword.value for keyword in node.exc.keywords)]
+            said = [item for argument in arguments for item in speech.spoken(argument)]
+        elif isinstance(node, ast.Call):
+            name = node.func.id if isinstance(node.func, ast.Name) else None
+            attribute = node.func.attr if isinstance(node.func, ast.Attribute) else None
+            if name in SPOKEN_BUILTINS or attribute in SPOKEN_METHODS:
+                arguments = [*node.args, *(keyword.value for keyword in node.keywords)]
+                said = [item for argument in arguments for item in speech.spoken(argument)]
+        for item in said:
+            found.setdefault(item.lineno, str(item.value))
+    return sorted(found.items())
+
+
+def _under_subject(relative: str) -> bool:
+    """Файл целиком стоит вне перевода: кириллица в нём - предмет, а не надпись."""
+    return any(relative == item or relative.startswith(item) for item in TRANSLATION_SUBJECT)
+
+
+def _translation_violations(module: Module) -> list[Violation]:
+    """Не даёт русской надписи уехать человеку мимо каталога (:mod:`torrcast.domain.catalogs`)."""
+    if _under_subject(module.relative):
+        return []
+    places = _spoken_places(module)
+    debt = TRANSLATION_DEBT.get(module.relative)
+    if debt is None:
+        return [
+            Violation("перевод", module.relative, line, f"надпись мимо каталога: {text[:60]!r}")
+            for line, text in places
+        ]
+    if len(places) > debt:
+        return [
+            Violation(
+                "перевод",
+                module.relative,
+                places[debt][0],
+                f"долг вырос: мест {len(places)}, записано {debt}",
+            )
+        ]
+    if len(places) < debt:
+        return [
+            Violation(
+                "перевод",
+                module.relative,
+                1,
+                f"долг записан {debt}, а мест {len(places)} - запись протухла, поправь число",
+            )
+        ]
+    return []
+
+
+def translation_volume(modules: list[Module]) -> tuple[int, int, int]:
+    """Объём, на котором правило перевода доказывает свой ответ.
+
+    Ноль на пустом множестве неотличим от нуля на чистом дереве, поэтому правило
+    называет не только вердикт, но и охват: сколько файлов оно прошло, у скольких
+    нашло кириллические места и сколько мест всего. Печатает это :func:`main`, и
+    просевший охват виден человеку сразу, без отдельного прибора.
+    """
+    measured = [module for module in modules if not _under_subject(module.relative)]
+    places = [len(_spoken_places(module)) for module in measured]
+    return len(measured), sum(1 for count in places if count), sum(places)
+
+
+def _owns_the_lists(root: Path) -> bool:
+    """Списки перевода описывают ТО дерево, в котором лежит сам гейт.
+
+    Мерить ими чужой корень нечем: в синтетическом дереве отрицательной пробы этих
+    файлов нет по замыслу, и каждая запись выглядела бы протухшей. Сверка идёт по
+    файлу гейта, а не по имени каталога: подделать её деревом пробы не выйдет.
+    """
+    own = root / "scripts" / "structure_gate.py"
+    return own.exists() and own.resolve() == Path(__file__).resolve()
+
+
+def _translation_list_violations(modules: list[Module]) -> list[Violation]:
+    """Сторожит сами списки: мёртвая запись прячет надпись не хуже сломанного правила."""
+    found: list[Violation] = []
+    seen = {module.relative for module in modules}
+    for relative in sorted(TRANSLATION_DEBT):
+        if relative not in seen:
+            found.append(Violation("перевод", relative, 1, "долг записан на файл, которого нет"))
+    alive = {
+        item
+        for item in TRANSLATION_SUBJECT
+        for module in modules
+        if (module.relative == item or module.relative.startswith(item)) and _spoken_places(module)
+    }
+    for item in sorted(set(TRANSLATION_SUBJECT) - alive):
+        found.append(Violation("перевод", item, 1, "исключение без единого живого места"))
+    measured, _seen, places = translation_volume(modules)
+    if not places:
+        found.append(
+            Violation(
+                "перевод",
+                "scripts/structure_gate.py",
+                1,
+                f"под мерой файлов {measured}, а мест не найдено ни одного - "
+                "ноль доказан на пустом множестве, правило ослепло",
+            )
+        )
     return found
 
 
@@ -780,9 +1185,13 @@ def _cycle_violations(modules: list[Module], edges: dict[str, set[str]]) -> list
     return failures
 
 
-def check(root: Path) -> list[Violation]:
-    """Возвращает все нарушения структуры внутри корня репозитория."""
-    modules = _load_modules(root)
+def check(root: Path, modules: list[Module] | None = None) -> list[Violation]:
+    """Возвращает все нарушения структуры внутри корня репозитория.
+
+    Разбор дерева можно передать готовым: тому же разбору задаёт свой вопрос
+    :func:`translation_volume`, и платить за него дважды незачем.
+    """
+    modules = _load_modules(root) if modules is None else modules
     known = {module.name for module in modules}
     edges: dict[str, set[str]] = {}
     failures: list[Violation] = []
@@ -850,6 +1259,8 @@ def check(root: Path) -> list[Violation]:
             for name, _line in imports
             if (target := _target_module(name, known)) is not None and target != module.name
         }
+    if _owns_the_lists(root):
+        failures.extend(_translation_list_violations(modules))
     failures.extend(_cycle_violations(modules, edges))
     failures.extend(_empty_test_violations(root))
     order = {rule: index for index, rule in enumerate(RULES)}
@@ -880,8 +1291,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("root", nargs="?", type=Path, default=Path.cwd())
     parser.add_argument("--strict", action="store_true")
     arguments = parser.parse_args(argv)
-    violations = check(arguments.root.resolve())
+    root = arguments.root.resolve()
+    modules = _load_modules(root)
+    violations = check(root, modules)
     report(violations)
+    measured, seen, places = translation_volume(modules)
+    print(
+        f"\nОхват правила «перевод»: под мерой файлов {measured}, "
+        f"из них с кириллическими местами {seen}, самих мест {places}."
+    )
     return int(arguments.strict and bool(violations))
 
 

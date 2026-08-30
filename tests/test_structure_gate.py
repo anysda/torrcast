@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import sys
 from pathlib import Path
 
@@ -497,3 +498,177 @@ def test_check_rule_leaves_a_test_without_a_single_assert_alone(tmp_path: Path) 
     """Предмет правила - утверждение про импорт; тест «не падает» держат другие меры."""
     root = _mirror(_tree(tmp_path), "    Good()\n")
     assert "проверка" not in _rules(root)
+
+
+def _said(tmp_path: Path, body: str) -> Path:
+    """Дерево с одной функцией, которая что-то говорит человеку."""
+    return _tree(tmp_path, '"""Модуль."""\n\n\ndef good() -> str:\n    """Единица."""\n' + body)
+
+
+def test_translation_rule_sees_a_caption_glued_by_an_f_string(tmp_path: Path) -> None:
+    """🔴 Ровно то, мимо чего старое правило проходило: надпись собрана f-строкой.
+
+    Живой образец со стенда - `cast --tv` печатал «ТВ: {имя} - {адрес}» и «ищу приёмники
+    в сети», и голого литерала в `print` там не было ни одного.
+    """
+    root = _said(tmp_path, '    name = "гостиная"\n    print(f"ТВ: {name}")\n    return name\n')
+    assert "перевод" in _rules(root)
+
+
+def test_translation_rule_sees_a_caption_that_came_through_a_name(tmp_path: Path) -> None:
+    """Надпись положили в переменную, а сказали переменную - это та же надпись."""
+    root = _said(tmp_path, '    said = "приёмников не нашёл"\n    return said\n')
+    assert "перевод" in _rules(root)
+
+
+def test_translation_rule_sees_a_caption_built_from_name_into_name(tmp_path: Path) -> None:
+    """Цепочка имён длиннее одного шага правило не обманывает."""
+    body = '    head = "беру"\n    whole = f"{head} картину"\n    print(whole)\n    return whole\n'
+    assert "перевод" in _rules(_said(tmp_path, body))
+
+
+def test_translation_rule_sees_a_caption_carried_by_an_error(tmp_path: Path) -> None:
+    """Отказ человек читает так же, как обычную строку."""
+    root = _said(tmp_path, '    raise ValueError("картины не нашлось")\n')
+    assert "перевод" in _rules(root)
+
+
+def test_translation_rule_sees_a_caption_handed_to_a_port_of_show(tmp_path: Path) -> None:
+    """Имена методов взяты из портов показа, а не из списка «где обычно печатают»."""
+    root = _said(tmp_path, '    self.console.write("готово")\n    return ""\n')
+    assert "перевод" in _rules(root)
+
+
+def test_translation_rule_leaves_a_docstring_alone(tmp_path: Path) -> None:
+    """Докстроки остаются русскими решением проекта - надписью они не считаются."""
+    root = _said(tmp_path, '    return "ok"\n')
+    assert "перевод" not in _rules(root)
+
+
+def test_translation_rule_leaves_an_inner_tag_of_another_unit_alone(tmp_path: Path) -> None:
+    """Метка правила, уехавшая в чужой конструктор, человеку не показывается.
+
+    ``Take(why="номер флагом")`` - внутренняя запись о том, каким правилом взята картина.
+    Считай правило и её надписью - оно требовало бы перевести то, чего никто не читает.
+    """
+    root = _said(tmp_path, '    return Take(1, why="номер флагом")\n')
+    assert "перевод" not in _rules(root)
+
+
+def test_translation_rule_leaves_a_latin_caption_alone(tmp_path: Path) -> None:
+    """Правило ловит кириллицу: английская надпись уже прошла каталог или им и рождена."""
+    root = _said(tmp_path, '    print("taking the liveliest")\n    return ""\n')
+    assert "перевод" not in _rules(root)
+
+
+def _one_module(tmp_path: Path, relative: str, source: str) -> structure_gate.Module:
+    path = tmp_path / relative
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(source, encoding="utf-8")
+    return structure_gate.Module(
+        path=path,
+        relative=relative,
+        name=relative[:-3].replace("/", "."),
+        layer=relative.split("/")[1] if relative.count("/") > 1 else "domain",
+        tree=ast.parse(source),
+        lines=len(source.splitlines()),
+    )
+
+
+def test_translation_debt_may_not_grow(tmp_path: Path) -> None:
+    """Мест стало больше записанного - надпись написали в обход каталога."""
+    source = '"""Модуль."""\n\n\ndef good() -> str:\n    """Единица."""\n    return "беру"\n'
+    module = _one_module(tmp_path, "torrcast/good.py", source)
+    structure_gate.TRANSLATION_DEBT["torrcast/good.py"] = 0
+    try:
+        messages = [item.message for item in structure_gate._translation_violations(module)]
+    finally:
+        del structure_gate.TRANSLATION_DEBT["torrcast/good.py"]
+    assert messages == ["долг вырос: мест 1, записано 0"]
+
+
+def test_translation_debt_may_not_go_stale(tmp_path: Path) -> None:
+    """Мест стало меньше записанного - запись протухла и прячет место под собой.
+
+    🔴 Долг, записанный с запасом, - это выключенное правило: в файл можно дописать
+    надпись, и число не шелохнётся. Поэтому число сверяется точно, а не «не больше».
+    """
+    source = '"""Модуль."""\n\n\ndef good() -> str:\n    """Единица."""\n    return "ok"\n'
+    module = _one_module(tmp_path, "torrcast/good.py", source)
+    structure_gate.TRANSLATION_DEBT["torrcast/good.py"] = 3
+    try:
+        messages = [item.message for item in structure_gate._translation_violations(module)]
+    finally:
+        del structure_gate.TRANSLATION_DEBT["torrcast/good.py"]
+    assert messages == ["долг записан 3, а мест 0 - запись протухла, поправь число"]
+
+
+def test_translation_debt_named_on_a_file_that_is_gone_turns_red(tmp_path: Path) -> None:
+    """Файл переименовали - запись о нём осталась висеть и мерить перестала."""
+    module = _one_module(tmp_path, "torrcast/good.py", '"""Модуль."""\n')
+    structure_gate.TRANSLATION_DEBT["torrcast/vanished.py"] = 1
+    try:
+        found = structure_gate._translation_list_violations([module])
+    finally:
+        del structure_gate.TRANSLATION_DEBT["torrcast/vanished.py"]
+    assert ("torrcast/vanished.py", "долг записан на файл, которого нет") in [
+        (item.path, item.message) for item in found
+    ]
+
+
+def test_a_permanent_exclusion_without_a_single_live_place_turns_red(tmp_path: Path) -> None:
+    """Вечное исключение без единого живого места - место, где можно спрятать надпись."""
+    module = _one_module(tmp_path, "torrcast/good.py", '"""Модуль."""\n')
+    found = structure_gate._translation_list_violations([module])
+    stale = {item.path for item in found if item.message == "исключение без единого живого места"}
+    assert stale == set(structure_gate.TRANSLATION_SUBJECT)
+
+
+def test_the_lists_are_not_measured_against_a_foreign_tree(tmp_path: Path) -> None:
+    """Списки описывают дерево гейта; синтетический корень они не описывают вовсе."""
+    assert structure_gate._owns_the_lists(Path(structure_gate.__file__).parents[1])
+    assert not structure_gate._owns_the_lists(_tree(tmp_path))
+
+
+def test_a_zero_proven_on_an_empty_set_turns_red(tmp_path: Path) -> None:
+    """Правило, не нашедшее ни одного места, объявляет себя ослепшим, а не чистым.
+
+    🔴 Ноль на пустом множестве неотличим от нуля на чистом дереве: сломай разбор -
+    и «нарушений нет» будет означать «мерить перестало». Поэтому охват сверяется сам.
+    """
+    module = _one_module(tmp_path, "torrcast/good.py", '"""Модуль."""\n')
+    messages = [item.message for item in structure_gate._translation_list_violations([module])]
+    assert any(item.startswith("под мерой файлов 1, а мест не найдено") for item in messages)
+
+
+def test_the_rule_proves_its_zero_on_the_whole_live_tree() -> None:
+    """Охват правила равен дереву на диске, а не тому, до чего оно случайно дошло.
+
+    Числа берутся с двух сторон: файлы считаются прямо на диске, места - разбором.
+    Совпали - значит зелень правила стоит на 975 файлах и 597 найденных местах, а не
+    на пустоте.
+    """
+    root = Path(structure_gate.__file__).parents[1]
+    modules = structure_gate._load_modules(root)
+    measured, seen, places = structure_gate.translation_volume(modules)
+    on_disk = [
+        path.relative_to(root).as_posix()
+        for folder in ("torrcast", "tgbot")
+        for path in (root / folder).rglob("*.py")
+    ]
+    on_disk += [name for name in structure_gate.SCRIPTS if (root / name).exists()]
+    assert measured == len([name for name in on_disk if not structure_gate._under_subject(name)])
+    # Долг - поимённая опись найденного, и сумма описи обязана сойтись с разбором:
+    # разойдётся - либо правило ослепло, либо число в описи написано от руки.
+    assert seen == len(structure_gate.TRANSLATION_DEBT)
+    assert places == sum(structure_gate.TRANSLATION_DEBT.values())
+
+
+def test_the_sample_cluster_is_clean_on_a_counted_number_of_files() -> None:
+    """Ноль образца назван числом файлов: пустой список тоже даёт ноль нарушений."""
+    root = Path(structure_gate.__file__).parents[1]
+    modules = structure_gate._load_modules(root)
+    sample = [item for item in modules if item.relative.startswith("torrcast/usecases/choice/")]
+    assert len(sample) == len(list((root / "torrcast" / "usecases" / "choice").rglob("*.py")))
+    assert len(sample) > 1
+    assert [item.relative for item in sample if structure_gate._spoken_places(item)] == []
