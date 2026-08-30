@@ -117,6 +117,8 @@ cast doctor             # check terminal, locale, ffmpeg, services, receiver, an
 cast log [--since WHEN] # sessions since 2d / 12h / 30m / YYYY-MM-DD
 cast --tv               # discover receivers; take one automatically or choose a number
 cast --tv <ip>          # save an address directly
+cast --en               # the whole product in English: text, bot replies and voice tracks
+cast --ru               # the whole product in Russian
 cast -tg                # open Telegram bot setup
 cast -h                 # short help
 cast --help             # help with every public option
