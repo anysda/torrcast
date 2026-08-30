@@ -10,7 +10,8 @@ import signal
 import sys
 from collections.abc import Callable
 
-from torrcast.domain.exit_codes import EXIT_INFRA, EXIT_NOT_FOUND, EXIT_OK
+from torrcast.domain.cancelled_error import CancelledError
+from torrcast.domain.exit_codes import EXIT_CANCELLED, EXIT_INFRA, EXIT_NOT_FOUND, EXIT_OK
 from torrcast.domain.not_found_error import NotFoundError
 from torrcast.domain.torrcast_error import TorrcastError
 from torrcast.ports.journal.slot import journal
@@ -46,6 +47,13 @@ def answered(run: Callable[[], int]) -> int:
         code = run()
         result = "успех" if code == EXIT_OK else "отказ"
         return code
+    except CancelledError:
+        # 🔴 TC-926. Человек снял свой вопрос сам: в stderr не уходит ничего и ошибкой в
+        # след это не пишется - писать не о чем. Ветка стоит ПЕРЕД `TorrcastError`, иначе
+        # отмена вышла бы отказом: род у неё наш, и общая ветка её проглотила бы.
+        code = EXIT_CANCELLED
+        result = "отменён"
+        return EXIT_CANCELLED
     except NotFoundError as exc:
         code = EXIT_NOT_FOUND
         result = "не найдено"

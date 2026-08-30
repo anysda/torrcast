@@ -21,8 +21,11 @@ class Args:
     tv: str | None = None
     #: ``-tg`` без значения поднимает нелинейное меню настройки Telegram.
     telegram: bool = False
-    #: Точка подключения будущих ``--en`` / ``--ru`` (TC-929); пока английский штатный.
-    language: str = "en"
+    #: ``--ru`` / ``--en`` - язык, названный в этом запуске. ``None`` значит «не назван»:
+    #: тогда язык берётся из настройки (:attr:`torrcast.domain.config.Config.language`), а
+    #: не подменяется английским. Флаг не режим одного запуска, он ЗАПОМИНАЕТСЯ
+    #: (:mod:`torrcast.cli.language`).
+    language: str | None = None
     release: int | None = None
     #: Инфохэш под номером из последнего ``cast releases``. Внутреннее поле: поздняя
     #: выдача меняет места, но не имеет права менять явно названную раздачу.
@@ -82,6 +85,12 @@ class Args:
             return "worker"
         if self.telegram:
             return "telegram"
+        # Голый `cast --ru` - это вся работа: переключить язык, сказать об этом и выйти
+        # нулём. Пустой запрос иначе означал бы «покажи состояние», и человек, назвавший
+        # язык, получил бы вместо ответа сводку показа. Названная рядом работа флагом не
+        # отменяется: `cast --ru мумия` играет мумию (:func:`torrcast.cli.main.main`).
+        if self.language is not None and not self.query and self.tv is None:
+            return "language"
         words = {"stop", "status", "doctor", "releases", "voices", "log"}
         if self.query and self.query[0] in words:
             return self.query[0]

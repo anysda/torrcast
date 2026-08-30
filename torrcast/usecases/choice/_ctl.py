@@ -47,6 +47,13 @@ class _Steerable(Protocol):
     def resume(self) -> None: ...
 
 
+@runtime_checkable
+class _Volumable(Protocol):
+    """Приёмник, у которого владеющий сендер может менять громкость."""
+
+    def volume(self, step: float) -> None: ...
+
+
 def _ctl(receiver: Receiver) -> None:
     """Исполнить команду диагностического пульта, если она положена (:data:`CTL_ENV`).
 
@@ -63,7 +70,16 @@ def _ctl(receiver: Receiver) -> None:
     with contextlib.suppress(Exception):
         if word == "seek":
             receiver.seek(float(rest))
+        elif word == "seekby":
+            receiver.seek(max(0.0, receiver.position().pos + float(rest)))
         elif word == "pause":
             receiver.pause()
         elif word == "play":
             receiver.resume()
+        elif word == "toggle":
+            if receiver.position().state == "PAUSED":
+                receiver.resume()
+            else:
+                receiver.pause()
+        elif word == "volume" and isinstance(receiver, _Volumable):
+            receiver.volume(float(rest))

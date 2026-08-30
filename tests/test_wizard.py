@@ -5,8 +5,11 @@ from pathlib import Path
 from pytest import MonkeyPatch
 
 from tgbot.config import CONFIG_ENV, Config
+from tgbot.i18n import i18n
 from tgbot.transport import _TelegramResult
 from tgbot.wizard import wizard
+from torrcast.adapters.filesystem.state.save_config import save_config
+from torrcast.domain.config import Config as ProductConfig
 
 
 def test_failure_stays_in_menu_accepts_proxy_and_rechecks(
@@ -37,3 +40,16 @@ def test_mtproto_is_named_and_does_not_end_setup(tmp_path: Path, monkeypatch: Mo
     output: list[str] = []
     assert wizard(read=lambda _prompt: next(answers), write=output.append) == 0
     assert "MTProto" in "\n".join(output)
+
+
+def test_without_a_flag_the_menu_speaks_the_language_of_the_product_setting(
+    tmp_path: Path, monkeypatch: MonkeyPatch
+) -> None:
+    """`cast -tg` после `cast --ru` обязан поднять меню по-русски, а не по-английски."""
+    monkeypatch.setenv(CONFIG_ENV, str(tmp_path / "config.json"))
+    save_config(ProductConfig(tv="10.0.0.50", language="ru"))
+    output: list[str] = []
+
+    assert wizard(read=lambda _prompt: "0", write=output.append) == 0
+
+    assert output == [i18n("menu", "ru")]

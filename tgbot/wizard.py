@@ -6,6 +6,7 @@ from collections.abc import Callable
 
 from tgbot.config import Config
 from tgbot.i18n import i18n
+from tgbot.language import language as chosen_language
 from tgbot.proxy import proxy as parse_proxy
 from tgbot.transport import _TelegramResult, transport
 
@@ -44,14 +45,18 @@ def _offer_proxy(config: Config, language: str, read: _Reader, write: _Writer) -
 
 
 def wizard(
-    language: str = "en",
+    language: str | None = None,
     *,
     read: _Reader = input,
     write: _Writer = print,
     checker: _Checker = transport,
     timeout: float = 20.0,
 ) -> int:
-    """Показывать меню до явного выхода; сохранять только после живой проверки."""
+    """Показывать меню до явного выхода; сохранять только после живой проверки.
+
+    Языком без флага мастер берёт настройку продукта - ту же, от которой пляшет и бот.
+    """
+    language = language or chosen_language()
     config = Config.load()
     while True:
         write(text("menu", language))

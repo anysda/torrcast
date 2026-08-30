@@ -122,6 +122,10 @@ class MockReceiver(_Settings):
         self.screen.jumped(pos)
         self._open(self._url, pos)
 
+    def volume(self, step: float) -> None:
+        """Сухому экрану громкость негде воспроизводить."""
+        del step
+
     def stop(self, quit_app: bool = False) -> None:
         """Снять каст. Приложения тут нет, поэтому ``quit_app`` нечего закрывать -
         аргумент есть затем, чтобы сухой приёмник оставался приёмником

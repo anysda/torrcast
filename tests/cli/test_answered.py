@@ -4,12 +4,16 @@ from __future__ import annotations
 
 import os
 import signal
+import subprocess
+import sys
 from collections.abc import Callable
 
 import pytest
 
 from torrcast.cli.answered import answered
-from torrcast.domain.exit_codes import EXIT_INFRA, EXIT_OK
+from torrcast.domain.cancelled_error import CancelledError
+from torrcast.domain.exit_codes import EXIT_CANCELLED, EXIT_INFRA, EXIT_NOT_FOUND, EXIT_OK
+from torrcast.domain.not_found_error import NotFoundError
 from torrcast.ports.journal.silent import Silent
 from torrcast.ports.journal.slot import install
 from torrcast.usecases.stopped import _on_term
@@ -61,6 +65,32 @@ def test_a_planned_stop_of_the_show_is_a_success_not_a_failure() -> None:
     assert answered(interrupted) == EXIT_INFRA, "Ctrl-C остаётся отказом"
 
 
+def test_a_cancelled_question_is_its_own_code_and_says_nothing_out_loud(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """🔴 TC-926. Человек снял вопрос сам: своё число, тишина в stderr, след без ошибки.
+
+    Рядом стоит настоящий отказ той же породы (`NotFoundError` - тоже `TorrcastError`):
+    он по-прежнему кричит в stderr и уходит кодом 1. Одно от другого разводит РОД
+    исключения, а не молчание на всё подряд.
+    """
+    tape = _ClosingTape()
+    install(tape)
+
+    def cancelled() -> int:
+        raise CancelledError("человек передумал")
+
+    assert answered(cancelled) == EXIT_CANCELLED
+    assert capsys.readouterr().err == "", "отмена ничего не ломала - и кричать ей не о чем"
+    assert tape.events == [("command", "finished", {"result": "отменён", "code": EXIT_CANCELLED})]
+
+    def missing() -> int:
+        raise NotFoundError("ничего не нашёл")
+
+    assert answered(missing) == EXIT_NOT_FOUND
+    assert capsys.readouterr().err == "ничего не нашёл\n"
+
+
 @pytest.mark.parametrize(
     ("run", "result", "code"),
     [
@@ -98,3 +128,24 @@ def test_sigterm_is_named_on_the_screen_and_in_the_trace(
     assert capsys.readouterr().err == "команда прервана сигналом SIGTERM\n"
     assert tape.events == [("command", "finished", {"result": "SIGTERM", "code": EXIT_INFRA})]
     assert tape.closed == 1
+
+
+@pytest.mark.machine
+def test_cast_process_still_catches_sigterm() -> None:
+    """Обычный процесс CLI ловит SIGTERM; бот не покупается ослаблением сторожа."""
+    script = """
+import os
+import signal
+from torrcast.cli.main import main
+from torrcast.runtime.wire import wire
+
+wire()
+commands = {"play": lambda _args: os.kill(os.getpid(), signal.SIGTERM)}
+raise SystemExit(main(["мумия"], commands=commands))
+"""
+    done = subprocess.run(
+        [sys.executable, "-c", script], capture_output=True, text=True, check=False, timeout=10
+    )
+
+    assert done.returncode == EXIT_INFRA
+    assert "команда прервана сигналом SIGTERM" in done.stderr

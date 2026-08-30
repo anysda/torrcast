@@ -106,4 +106,5 @@ class UnitPlaybackSession:
             audio_index=entry.audio,
             torrent_hash=_torrent_hash(entry.magnet),
             done=entry.done,
+            year=entry.year,
         )

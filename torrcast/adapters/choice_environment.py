@@ -89,20 +89,17 @@ class _SystemChoiceEnvironment:
     def remember_pick(query: str, shown: list[tuple[str, str]]) -> None:
         pins.remember_menu(query, shown)
 
-    @staticmethod
-    def write(line: str) -> None:
+    def write(self, line: str) -> None:
         print(line, flush=True)
 
     @staticmethod
     def stdin_is_tty() -> bool:
         return _tty.stdin_is_tty()
 
-    @staticmethod
-    def ask(question: str, count: int, default: int | None = 1) -> int:
+    def ask(self, question: str, count: int, default: int | None = 1) -> int:
         return ask(question, count, default)
 
-    @staticmethod
-    def menu() -> MenuPaint:
+    def menu(self) -> MenuPaint:
         """Показ меню на весь один вопрос: своё состояние экрана у каждого меню."""
         return LiveMenu()
 

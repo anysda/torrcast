@@ -28,6 +28,13 @@ class Config(_ConfigRecode):
     #: Во сколько раз быстрее реального времени идёт прогрев
     #: (:data:`torrcast.usecases.warm.settings.WARM_RATE`).
     warm_rate: float = 4.0
+    #: Язык человека. Пишут его флаги ``cast --ru`` / ``cast --en``
+    #: (:mod:`torrcast.cli.language`), читают и показ, и телеграм-бот: язык один на
+    #: продукт, а не свой у каждой поверхности (TC-929).
+    #:
+    #: 🔴 ``LANG`` окружения тут не спрашивается вовсе: настройка старше среды. Иначе
+    #: выбор, сделанный человеком однажды, отменяла бы чужая ssh-сессия или юнит.
+    language: str = "en"
 
     @classmethod
     def from_json(cls, data: dict[str, JsonValue]) -> Config:

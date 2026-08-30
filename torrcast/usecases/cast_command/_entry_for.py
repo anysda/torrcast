@@ -57,6 +57,7 @@ def _entry_for(
     return Entry(
         title=plan.picture.title,
         magnet=release.magnet,
+        year=plan.picture.year or 0,
         kind="tv" if plan.picture.kind == "tv" else "movie",
         file_idx=video.index,
         audio=audio,

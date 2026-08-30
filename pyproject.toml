@@ -23,6 +23,7 @@ dependencies = [
 
 [project.scripts]
 cast = "torrcast.runtime.main:main"
+torrcast-bot = "tgbot.bot:_bot"
 
 [dependency-groups]
 dev = [

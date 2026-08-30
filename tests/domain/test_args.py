@@ -20,6 +20,15 @@ def test_an_empty_query_is_status_and_with_an_address_it_is_configuration() -> N
     assert Args(query=[], tv="?").command == "configure"
 
 
+def test_a_bare_language_flag_is_its_own_command_but_yields_to_named_work() -> None:
+    """``cast --ru`` переключает и выходит; рядом с работой флаг работой не становится."""
+    assert Args(query=[], language="ru").command == "language"
+    assert Args(query=["мумия"], language="ru").command == "play"
+    assert Args(query=[], language="ru", tv="10.0.0.50").command == "configure"
+    assert Args(query=[], language="ru", telegram=True).command == "telegram"
+    assert Args(query=[]).command == "status"
+
+
 def test_a_play_key_outranks_everything_else() -> None:
     """Внутренний ключ показа зовётся юнитом, и спорить с ним словам запроса нечем."""
     assert Args(query=["stop"], play_key="movie:кино:1999").command == "worker"

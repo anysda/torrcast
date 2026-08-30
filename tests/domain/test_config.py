@@ -119,3 +119,9 @@ def test_an_unconfigured_install_already_recodes_and_already_warms() -> None:
 
     assert fresh.recode, "без перекода потолком отбора становится потолок приёмника"
     assert fresh.warm, "без прогрева показ живёт только окном в памяти и не переживает обрыв"
+
+
+def test_the_language_is_a_setting_of_the_product_and_english_out_of_the_box() -> None:
+    """Язык живёт в настройке, а не в окружении: `LANG` тут не спрашивается вовсе."""
+    assert Config().language == "en"
+    assert Config.from_json({"tv": "Гостиная", "language": "ru"}).language == "ru"

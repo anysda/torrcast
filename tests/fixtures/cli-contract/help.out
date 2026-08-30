@@ -1,6 +1,6 @@
-usage: cast [-h] [--tv [IP]] [-tg] [--release N] [--pick N] [--menu]
-            [--file N] [--voice [N|СТУДИЯ]] [--new] [--dry] [--since СРОК]
-            [--version]
+usage: cast [-h] [--tv [IP]] [-tg] [--ru | --en] [--release N] [--pick N]
+            [--menu] [--file N] [--voice [N|СТУДИЯ]] [--new] [--dry]
+            [--since СРОК] [--version]
             [query ...]
 
 torrcast - найти релиз и кастить его на ТВ без скачивания
@@ -13,6 +13,8 @@ options:
   --tv [IP]           настройка ТВ: без адреса - найти приёмники в сети и
                       выбрать из списка
   -tg                 открыть меню настройки Telegram-бота
+  --ru                перейти на русский и запомнить выбор
+  --en                перейти на английский и запомнить выбор
   --release N         отладка: релиз N выбранной картины; номера - из cast
                       releases с тем же запросом
   --pick N            картина N из меню, без вопроса

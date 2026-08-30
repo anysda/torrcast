@@ -21,6 +21,7 @@ class PlaybackSnapshot:
     #: Хэш раздачи из магнита записи: им ``cast stop`` сносит пережившую юнит раздачу.
     torrent_hash: str = ""
     done: bool = False
+    year: int = 0
 
     @property
     def shown_as(self) -> str:

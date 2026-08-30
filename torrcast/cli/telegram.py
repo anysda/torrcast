@@ -8,6 +8,6 @@ from tgbot.wizard import wizard
 from torrcast.domain.args import Args
 
 
-def telegram(args: Args, setup: Callable[[str], int] = wizard) -> int:
-    """Запустить меню на выбранном точкой расширения языке."""
+def telegram(args: Args, setup: Callable[[str | None], int] = wizard) -> int:
+    """Запустить меню на языке, названном флагом; без флага его берёт сам мастер."""
     return setup(args.language)

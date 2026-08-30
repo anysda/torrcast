@@ -10,6 +10,7 @@ from contextlib import AbstractContextManager
 from torrcast.cli.answered import answered
 from torrcast.cli.configure import configure
 from torrcast.cli.doctor import doctor
+from torrcast.cli.language import language
 from torrcast.cli.log import log
 from torrcast.cli.parse_args import parse_args
 from torrcast.cli.play import play
@@ -38,6 +39,7 @@ def _configure_main(terminal: Callable[[], AbstractContextManager[None]]) -> Non
 _COMMANDS: Mapping[str, Callable[[Args], int]] = {
     "configure": configure,
     "telegram": telegram,
+    "language": language,
     "stop": lambda _args: stop(),
     "status": lambda _args: status(),
     "doctor": lambda _args: doctor(),
@@ -60,6 +62,11 @@ def main(
         # IUTF8 на stdin включаем на всё время команды и возвращаем режим как было:
         # без него ssh-сессия ломает кириллицу в вопросах.
         with _TERMINAL():
+            # Флаг языка выбор ЗАПОМИНАЕТ, а названной рядом работы не отменяет:
+            # `cast --ru` переключает и выходит, `cast --ru мумия` переключает и играет.
+            # Место одно на оба случая: разложи это по командам - и вторая забыла бы.
+            if args.language is not None and args.command != "language":
+                commands["language"](args)
             return commands[args.command](args)
 
     # Коды возврата и хвост следа - на общем ответе командной строки, а не тут.

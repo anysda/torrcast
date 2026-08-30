@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import signal
+import threading
 from dataclasses import dataclass
 from types import FrameType
 
@@ -24,6 +25,7 @@ class _TelegramResult:
 
     status: int
     detail: str = ""
+    value: object | None = None
 
 
 class _TelegramClient:
@@ -34,11 +36,14 @@ class _TelegramClient:
         self._timeout = timeout
         self._proxies = {"http": proxy, "https": proxy} if proxy else None
 
-    def call(self, method: str, **params: str) -> _TelegramResult:
+    def call(self, method: str, **params: object) -> _TelegramResult:
         """Вызвать Bot API, не раскрывая токен в диагностике исключения."""
-        previous = signal.signal(signal.SIGALRM, _deadline)
+        alarm = threading.current_thread() is threading.main_thread()
+        previous = signal.getsignal(signal.SIGALRM)
         try:
-            signal.setitimer(signal.ITIMER_REAL, self._timeout)
+            if alarm:
+                signal.signal(signal.SIGALRM, _deadline)
+                signal.setitimer(signal.ITIMER_REAL, self._timeout)
             response = requests.post(
                 self._base + method,
                 data=params,
@@ -50,16 +55,19 @@ class _TelegramClient:
         except requests.RequestException as error:
             return _TelegramResult(0, type(error).__name__)
         finally:
-            signal.setitimer(signal.ITIMER_REAL, 0)
-            signal.signal(signal.SIGALRM, previous)
+            if alarm:
+                signal.setitimer(signal.ITIMER_REAL, 0)
+                signal.signal(signal.SIGALRM, previous)
         detail = ""
+        value: object | None = None
         try:
             payload = response.json()
             if isinstance(payload, dict):
                 detail = str(payload.get("description", ""))
+                value = payload.get("result")
         except requests.JSONDecodeError:
             detail = response.reason
-        return _TelegramResult(response.status_code, detail)
+        return _TelegramResult(response.status_code, detail, value)
 
 
 def transport(

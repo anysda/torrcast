@@ -86,6 +86,12 @@ class ChromecastReceiver(_Talk):
     def resume(self) -> None:
         self._device().media_controller.play()
 
+    def volume(self, step: float) -> None:
+        """Сдвинуть громкость малым шагом кинокастового пульта."""
+        device = self._device()
+        current = float(getattr(device.status, "volume_level", 0.0) or 0.0)
+        device.set_volume(max(0.0, min(1.0, current + step)))
+
     # ------------------------------------------------------------------ внутреннее
 
     def _say_skip(self, back: float) -> None:

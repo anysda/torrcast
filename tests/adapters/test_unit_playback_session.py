@@ -29,6 +29,7 @@ class _Entry:
     vbps: float = 10.0
     vbps_estimated: bool = False
     done: bool = False
+    year: int = 0
 
 
 @dataclass

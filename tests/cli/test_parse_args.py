@@ -28,6 +28,25 @@ def test_telegram_flag_opens_setup_menu() -> None:
     assert args.command == "telegram"
 
 
+def test_the_language_flags_name_a_language_and_their_absence_names_none() -> None:
+    """``None`` без флага - не мелочь: «не назван» и «назван английский» решаются разно."""
+    assert parse_args(["--ru"]).language == "ru"
+    assert parse_args(["--en"]).language == "en"
+    assert parse_args(["--ru", "мумия"]).language == "ru"
+    assert parse_args(["мумия"]).language is None
+
+
+def test_a_bare_language_flag_is_the_whole_command_and_a_query_next_to_it_is_not() -> None:
+    """Голый ``cast --ru`` не сводится ни к пустому поиску, ни к сводке показа."""
+    assert parse_args(["--ru"]).command == "language"
+    assert parse_args(["--ru", "мумия"]).command == "play"
+
+
+def test_two_languages_at_once_are_refused_by_the_parser() -> None:
+    with pytest.raises(SystemExit):
+        parse_args(["--ru", "--en"])
+
+
 def test_voice_without_a_number_asks_for_the_menu() -> None:
     assert parse_args(["кино", "--voice"]).voice == VOICE_MENU
     assert parse_args(["кино", "--voice", "3"]).voice == 3

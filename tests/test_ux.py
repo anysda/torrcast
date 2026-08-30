@@ -8,22 +8,34 @@
 
 from __future__ import annotations
 
+import threading
 import time
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
 
 from tests.fakes import composition, terminal
 from tests.fakes.show_unit import FakeShowUnit
+from tgbot.bot import Bot
+from tgbot.config import Config as BotConfig
+from tgbot.i18n import i18n
+from tgbot.language import language as chosen_language
+from tgbot.telegram_api import TelegramApi
+from tgbot.telegram_choice_environment import TelegramChoiceEnvironment
+from torrcast.adapters.filesystem.state.load_config import load_config
 from torrcast.adapters.filesystem.state.save_config import save_config
 from torrcast.adapters.filesystem.state.state import State
 from torrcast.cli.main import main
 from torrcast.domain.audio_track import AudioTrack
 from torrcast.domain.config import Config
 from torrcast.domain.entry import Entry
+from torrcast.domain.exit_codes import EXIT_INFRA, EXIT_OK
 from torrcast.domain.media import Media
 from torrcast.domain.raw_result import RawResult
 from torrcast.domain.torr_file import TorrFile
+from torrcast.usecases.choice.configure import _environment_port
+from torrcast.usecases.choice.configure import configure as configure_choice
 from torrcast.usecases.playback._launch import _await_playing
 
 #: Настоящее ожидание картинки: фикстура окружения подменяет его заглушкой, а один тест
@@ -274,6 +286,527 @@ TWINS = [
     RawResult("Мумия / The Mummy (1999) BDRip 1080p | D", "e" * 40, 5 * GB, 47),
     RawResult("Мумия / The Mummy (2026) WEB-DL 1080p | D", "f" * 40, 4 * GB, 604),
 ]
+
+
+@pytest.mark.machine
+def test_bot_drives_a_real_choice_through_inline_buttons(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Команда бота проходит настоящий поиск, вопрос и запуск, не подменяя CLI."""
+
+    class Api:
+        def __init__(self) -> None:
+            self.sent: list[tuple[int, str, Any]] = []
+            self.edited: list[str] = []
+            self.deleted: list[int] = []
+            self.replies: dict[int, int | None] = {}
+            self.pick_ready = threading.Event()
+
+        def send(
+            self,
+            _chat_id: str,
+            text: str,
+            buttons: Any = None,
+            reply_to_message_id: int | None = None,
+        ) -> int:
+            message_id = len(self.sent) + 1
+            self.sent.append((message_id, text, buttons))
+            self.replies[message_id] = reply_to_message_id
+            if buttons and str(buttons[0][0].get("callback_data", "")).startswith("pick:"):
+                self.pick_ready.set()
+            return message_id
+
+        def answer(self, _callback_id: str, _text: str = "") -> object:
+            return object()
+
+        def edit(self, _chat_id: str, _message_id: int, text: str, _buttons: Any = None) -> object:
+            self.edited.append(text)
+            return object()
+
+        def delete(self, _chat_id: str, message_id: int) -> object:
+            self.deleted.append(message_id)
+            return object()
+
+    class Twins(_FakeProwlarr):
+        def search(self, query: str) -> list[RawResult]:
+            return list(TWINS)
+
+    composition.use_indexers(monkeypatch, Twins)
+    api = Api()
+    previous = _environment_port()
+    bot = Bot(
+        BotConfig("token", "-100"),
+        api=cast(TelegramApi, api),
+        assemble=lambda: None,
+    )
+    try:
+        bot.dispatch(
+            {
+                "message": {
+                    "chat": {"id": -100},
+                    "from": {"language_code": "ru"},
+                    "message_id": 69,
+                    "text": "cast мумия",
+                }
+            }
+        )
+        bot.run_one()
+        search_id, _search_text, search_buttons = next(
+            item for item in api.sent if "самая живая из одноимённых" in item[1]
+        )
+        assert search_buttons is None
+        assert api.replies[search_id] == 69
+        assert search_id in api.deleted
+
+        bot.dispatch(
+            {
+                "message": {
+                    "chat": {"id": -100},
+                    "from": {"language_code": "ru"},
+                    "message_id": 70,
+                    "text": "cast мумия --menu",
+                }
+            }
+        )
+
+        def choose_first() -> None:
+            assert api.pick_ready.wait(timeout=2)
+            message_id, _text, buttons = next(
+                item
+                for item in api.sent
+                if item[2] and item[2][0][0]["callback_data"].startswith("pick:")
+            )
+            bot.dispatch(
+                {
+                    "callback_query": {
+                        "id": "pick",
+                        "data": buttons[0][0]["callback_data"],
+                        "from": {"language_code": "ru"},
+                        "message": {"message_id": message_id, "chat": {"id": -100}},
+                    }
+                }
+            )
+
+        callback = threading.Thread(target=choose_first)
+        callback.start()
+        bot.run_one()
+        callback.join(timeout=2)
+        assert not callback.is_alive()
+    finally:
+        configure_choice(previous)
+
+    assert any("1. Мумия (1999)" in text for _message_id, text, _buttons in api.sent)
+    assert any("1. Мумия (1999)" in text for text in api.edited)
+    controls = [
+        text
+        for _message_id, text, buttons in api.sent
+        if buttons and buttons[0][0]["callback_data"].startswith("control:")
+    ]
+    assert controls == ["Мумия (2026)", "Мумия (1999)"]
+    assert "играю «Мумия» (1999)" in capsys.readouterr().out
+
+
+@pytest.mark.machine
+def test_menu_card_is_removed_once_the_cast_actually_starts(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """TC-926: карточка меню пропадает вместе со строками поиска, а не только по stop."""
+
+    class Api:
+        def __init__(self) -> None:
+            self.sent: list[tuple[int, str, Any]] = []
+            self.edited: list[str] = []
+            self.deleted: list[int] = []
+            self.pick_ready = threading.Event()
+
+        def send(
+            self,
+            _chat_id: str,
+            text: str,
+            buttons: Any = None,
+            reply_to_message_id: int | None = None,
+        ) -> int:
+            message_id = len(self.sent) + 1
+            self.sent.append((message_id, text, buttons))
+            if buttons and str(buttons[0][0].get("callback_data", "")).startswith("pick:"):
+                self.pick_ready.set()
+            return message_id
+
+        def answer(self, _callback_id: str, _text: str = "") -> object:
+            return object()
+
+        def edit(self, _chat_id: str, _message_id: int, text: str, _buttons: Any = None) -> object:
+            self.edited.append(text)
+            return object()
+
+        def delete(self, _chat_id: str, message_id: int) -> object:
+            self.deleted.append(message_id)
+            return object()
+
+    class Twins(_FakeProwlarr):
+        def search(self, query: str) -> list[RawResult]:
+            return list(TWINS)
+
+    composition.use_indexers(monkeypatch, Twins)
+    api = Api()
+    previous = _environment_port()
+    bot = Bot(
+        BotConfig("token", "-100"),
+        api=cast(TelegramApi, api),
+        assemble=lambda: None,
+    )
+    try:
+        #: Прогреть импорт и заглушки настоящим прогоном без --menu (как в тесте образце) -
+        #: иначе первый в процессе поиск конкурирует с 2-секундным ожиданием карточки.
+        bot.dispatch(
+            {
+                "message": {
+                    "chat": {"id": -100},
+                    "from": {"language_code": "ru"},
+                    "message_id": 69,
+                    "text": "cast мумия",
+                }
+            }
+        )
+        bot.run_one()
+
+        bot.dispatch(
+            {
+                "message": {
+                    "chat": {"id": -100},
+                    "from": {"language_code": "ru"},
+                    "message_id": 70,
+                    "text": "cast мумия --menu",
+                }
+            }
+        )
+
+        def choose_first() -> None:
+            assert api.pick_ready.wait(timeout=2)
+            message_id, _text, buttons = next(
+                item
+                for item in api.sent
+                if item[2] and item[2][0][0]["callback_data"].startswith("pick:")
+            )
+            bot.dispatch(
+                {
+                    "callback_query": {
+                        "id": "pick",
+                        "data": buttons[0][0]["callback_data"],
+                        "from": {"language_code": "ru"},
+                        "message": {"message_id": message_id, "chat": {"id": -100}},
+                    }
+                }
+            )
+
+        callback = threading.Thread(target=choose_first)
+        callback.start()
+        bot.run_one()
+        callback.join(timeout=2)
+        assert not callback.is_alive()
+
+        card_id, _card_text, card_buttons = next(
+            item
+            for item in api.sent
+            if item[2] and item[2][0][0]["callback_data"].startswith("pick:")
+        )
+        card_callback = card_buttons[0][0]["callback_data"]
+
+        #: Карточка со списком одноимённых должна уйти вместе со строками поиска.
+        assert card_id in api.deleted
+
+        #: Кнопка удалённой карточки больше не работает - callback от неё не засчитывается.
+        environment = cast(TelegramChoiceEnvironment, _environment_port())
+        assert environment.accept(card_callback, card_id) is False
+
+        #: После уборки очередная строка стража уходит новым сообщением, а не правкой трупа.
+        edited_before = len(api.edited)
+        sent_before = len(api.sent)
+        environment.write("проверочная строка после уборки карточки")
+        assert len(api.sent) == sent_before + 1
+        assert api.sent[-1][2] is None
+        assert len(api.edited) == edited_before
+    finally:
+        configure_choice(previous)
+
+
+@pytest.mark.machine
+def test_the_cancel_button_takes_the_whole_dialog_away_without_a_failure(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """🔴 TC-926. Человек передумал: показ не пошёл, диалог убран, отказа в чате нет.
+
+    Планка та же, что у соседних зеркал: подделан один ``Api``, а команда - настоящая
+    ``cast мумия --menu`` через :func:`torrcast.cli.main.main`, карточка настоящая, и
+    нажимается настоящая кнопка отмены из этой карточки, а не выдуманный callback.
+
+    Проверяются три вещи разом, потому что каждая по отдельности покупается дёшево:
+    показ не начался, карточка и сама команда человека удалены, а строки «Каст не
+    начался» в чате НЕТ. Вместо неё - всплывающая подсказка, которая мусора не оставляет.
+    """
+
+    class Api:
+        def __init__(self) -> None:
+            self.sent: list[tuple[int, str, Any]] = []
+            self.edited: list[str] = []
+            self.deleted: list[int] = []
+            self.answers: list[str] = []
+            self.pick_ready = threading.Event()
+
+        def send(
+            self,
+            _chat_id: str,
+            text: str,
+            buttons: Any = None,
+            reply_to_message_id: int | None = None,
+        ) -> int:
+            message_id = len(self.sent) + 1
+            self.sent.append((message_id, text, buttons))
+            if buttons and str(buttons[0][0].get("callback_data", "")).startswith("pick:"):
+                self.pick_ready.set()
+            return message_id
+
+        def answer(self, _callback_id: str, text: str = "") -> object:
+            self.answers.append(text)
+            return object()
+
+        def edit(self, _chat_id: str, _message_id: int, text: str, _buttons: Any = None) -> object:
+            self.edited.append(text)
+            return object()
+
+        def delete(self, _chat_id: str, message_id: int) -> object:
+            self.deleted.append(message_id)
+            return object()
+
+    class Twins(_FakeProwlarr):
+        def search(self, query: str) -> list[RawResult]:
+            return list(TWINS)
+
+    composition.use_indexers(monkeypatch, Twins)
+    api = Api()
+    previous = _environment_port()
+    bot = Bot(
+        BotConfig("token", "-100"),
+        api=cast(TelegramApi, api),
+        assemble=lambda: None,
+    )
+    try:
+        #: Прогреть импорт и заглушки настоящим прогоном без --menu (как в тесте образце) -
+        #: иначе первый в процессе поиск конкурирует с 2-секундным ожиданием карточки.
+        bot.dispatch(
+            {
+                "message": {
+                    "chat": {"id": -100},
+                    "from": {"language_code": "ru"},
+                    "message_id": 69,
+                    "text": "cast мумия",
+                }
+            }
+        )
+        bot.run_one()
+        capsys.readouterr()  # прогрев показ ЗАПУСТИЛ - его строки в счёт не идут
+        started = len(api.deleted)
+
+        bot.dispatch(
+            {
+                "message": {
+                    "chat": {"id": -100},
+                    "from": {"language_code": "ru"},
+                    "message_id": 72,
+                    "text": "cast мумия --menu",
+                }
+            }
+        )
+
+        #: Что именно нажато - спрашивается СНАРУЖИ потока: провались утверждение здесь,
+        #: вопрос остался бы без ответа и повис на пять минут вместо честного красного.
+        pressed: list[str] = []
+
+        def press_cancel() -> None:
+            assert api.pick_ready.wait(timeout=2)
+            message_id, _text, buttons = next(
+                item
+                for item in api.sent
+                if item[2] and item[2][0][0]["callback_data"].startswith("pick:")
+            )
+            #: Нажимается последняя кнопка ТОЙ ЖЕ карточки, а не выдуманный callback.
+            pressed.append(buttons[-1][0]["callback_data"])
+            bot.dispatch(
+                {
+                    "callback_query": {
+                        "id": "drop",
+                        "data": pressed[-1],
+                        "from": {"language_code": "ru"},
+                        "message": {"message_id": message_id, "chat": {"id": -100}},
+                    }
+                }
+            )
+
+        callback = threading.Thread(target=press_cancel)
+        callback.start()
+        bot.run_one()
+        callback.join(timeout=2)
+        assert not callback.is_alive()
+    finally:
+        configure_choice(previous)
+
+    card_id, _card_text, _card_buttons = next(
+        item for item in api.sent if item[2] and item[2][0][0]["callback_data"].startswith("pick:")
+    )
+    printed = capsys.readouterr().out
+
+    #: Нажата была именно кнопка отмены - последняя строка карточки со списком.
+    assert [data.split(":")[0] for data in pressed] == ["drop"], pressed
+    #: Показ не пошёл: ни строки запуска, ни нового пульта под неё.
+    assert "играю «Мумия»" not in printed, printed
+    assert not any(
+        buttons and str(buttons[0][0].get("callback_data", "")).startswith("control:")
+        for _message_id, _text, buttons in api.sent[card_id:]
+    )
+    #: Диалог убран целиком: карточка меню и сама команда человека.
+    assert card_id in api.deleted[started:]
+    assert 72 in api.deleted[started:]
+    #: Отказа в чате нет - есть всплывающая подсказка, которая мусора не оставляет.
+    #: Строка отказа берётся у самого каталога и на языке настройки продукта: впиши её
+    #: сюда руками по-русски - и сторож промолчал бы на английский ответ бота.
+    failure = i18n("failed", chosen_language(), detail="").rstrip()
+    assert failure and not any(failure in text for _message_id, text, _buttons in api.sent), (
+        api.sent
+    )
+    assert api.answers == [i18n("cancelled", chosen_language())]
+    #: И подсказки про Enter в карточке тоже нет: клавиатуры в чате не существует.
+    assert not any("Enter" in text for _message_id, text, _buttons in api.sent)
+    assert not any("Enter" in text for text in api.edited)
+
+
+def test_the_console_question_keeps_its_enter_hint_and_its_ctrl_c(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """🔴 TC-926. Кнопка отмены - дело чата: консольный путь остался прежним.
+
+    Две вещи разом, потому что правка задела общий код: подсказка про Enter в терминале
+    печатается (там она единственный способ узнать, что даст пустой ввод), а отмена в
+    терминале - это по-прежнему Ctrl+C, и она по-прежнему отказ кодом 2 с той же строкой.
+    Новый код возврата отмены консоли не достаётся: поднять его тут нечем.
+    """
+    _answers(monkeypatch, "", "")
+
+    assert main(["моана", "--menu"]) == EXIT_OK
+    assert "Enter - «Moana (2016)», пункт 1 из 2" in capsys.readouterr().out
+
+    def interrupted(_prompt: str = "") -> str:
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr("builtins.input", interrupted)
+
+    assert main(["моана", "--menu"]) == EXIT_INFRA
+    assert "команда прервана с клавиатуры" in capsys.readouterr().err
+
+
+@pytest.mark.machine
+def test_bot_understands_the_menu_flag_after_telegram_autocorrects_the_dash(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """TC-926: телеграм подменяет `--menu` на `—menu` - карточка выбора обязана прийти."""
+
+    class Api:
+        def __init__(self) -> None:
+            self.sent: list[tuple[int, str, Any]] = []
+            self.edited: list[str] = []
+            self.deleted: list[int] = []
+            self.pick_ready = threading.Event()
+
+        def send(
+            self,
+            _chat_id: str,
+            text: str,
+            buttons: Any = None,
+            reply_to_message_id: int | None = None,
+        ) -> int:
+            message_id = len(self.sent) + 1
+            self.sent.append((message_id, text, buttons))
+            if buttons and str(buttons[0][0].get("callback_data", "")).startswith("pick:"):
+                self.pick_ready.set()
+            return message_id
+
+        def answer(self, _callback_id: str, _text: str = "") -> object:
+            return object()
+
+        def edit(self, _chat_id: str, _message_id: int, text: str, _buttons: Any = None) -> object:
+            self.edited.append(text)
+            return object()
+
+        def delete(self, _chat_id: str, message_id: int) -> object:
+            self.deleted.append(message_id)
+            return object()
+
+    class Twins(_FakeProwlarr):
+        def search(self, query: str) -> list[RawResult]:
+            return list(TWINS)
+
+    composition.use_indexers(monkeypatch, Twins)
+    api = Api()
+    previous = _environment_port()
+    bot = Bot(
+        BotConfig("token", "-100"),
+        api=cast(TelegramApi, api),
+        assemble=lambda: None,
+    )
+    try:
+        #: Прогреть импорт и заглушки настоящим прогоном без флага (как в тесте образце) -
+        #: иначе первый в процессе поиск конкурирует с 2-секундным ожиданием карточки.
+        bot.dispatch(
+            {
+                "message": {
+                    "chat": {"id": -100},
+                    "from": {"language_code": "ru"},
+                    "message_id": 69,
+                    "text": "cast мумия",
+                }
+            }
+        )
+        bot.run_one()
+
+        bot.dispatch(
+            {
+                "message": {
+                    "chat": {"id": -100},
+                    "from": {"language_code": "ru"},
+                    "message_id": 71,
+                    "text": "cast мумия —menu",
+                }
+            }
+        )
+
+        def choose_first() -> None:
+            assert api.pick_ready.wait(timeout=2)
+            message_id, _text, buttons = next(
+                item
+                for item in api.sent
+                if item[2] and item[2][0][0]["callback_data"].startswith("pick:")
+            )
+            bot.dispatch(
+                {
+                    "callback_query": {
+                        "id": "pick",
+                        "data": buttons[0][0]["callback_data"],
+                        "from": {"language_code": "ru"},
+                        "message": {"message_id": message_id, "chat": {"id": -100}},
+                    }
+                }
+            )
+
+        callback = threading.Thread(target=choose_first)
+        callback.start()
+        bot.run_one()
+        callback.join(timeout=2)
+        assert not callback.is_alive()
+    finally:
+        configure_choice(previous)
+
+    #: Карточка со списком пришла - значит флаг `--menu` доехал до argparse настоящим.
+    assert any("1. Мумия (1999)" in text for _message_id, text, _buttons in api.sent)
+    assert "играю «Мумия» (1999)" in capsys.readouterr().out
 
 
 def test_the_namesake_line_is_said_before_the_start(
@@ -1126,3 +1659,68 @@ def test_a_series_named_by_its_only_season_still_plays(
     # мы его сочли.
     assert "номер 6 читаю сезоном, а не частью" in printed, printed
     assert "сезона 1 среди них нет" not in printed, "отказа больше нет"
+
+
+def test_the_bot_answers_in_the_language_the_previous_cast_command_remembered() -> None:
+    """🔴 TC-929: `cast --ru` из чата меняет язык СЛЕДУЮЩЕГО ответа без рестарта юнита.
+
+    Планка тут та же, что у соседних проб бота: подделан только ``Api``, а команда идёт
+    настоящая - через :func:`torrcast.cli.main.main`. Прочитай бот язык один раз при
+    старте, флаг подействовал бы лишь после перезапуска, и владелец сказал бы «не
+    работает». Бот тут заводится ДО переключения нарочно.
+    """
+
+    class Api:
+        def __init__(self) -> None:
+            self.sent: list[str] = []
+
+        def send(
+            self,
+            _chat_id: str,
+            text: str,
+            _buttons: Any = None,
+            reply_to_message_id: int | None = None,
+        ) -> int:
+            del reply_to_message_id
+            self.sent.append(text)
+            return len(self.sent)
+
+        def answer(self, _callback_id: str, _text: str = "") -> object:
+            return object()
+
+        def edit(self, _chat_id: str, _message_id: int, _text: str, _buttons: Any = None) -> object:
+            return object()
+
+        def delete(self, _chat_id: str, _message_id: int) -> object:
+            return object()
+
+    def ask(text: str, message_id: int) -> None:
+        """Одно сообщение в чат от клиента, у которого язык интерфейса английский."""
+        bot.dispatch(
+            {
+                "message": {
+                    "chat": {"id": -100},
+                    "from": {"language_code": "en"},
+                    "message_id": message_id,
+                    "text": text,
+                }
+            }
+        )
+
+    api = Api()
+    previous = _environment_port()
+    bot = Bot(BotConfig("token", "-100"), api=cast(TelegramApi, api), assemble=lambda: None)
+    try:
+        ask("cast", 1)
+        assert api.sent == [i18n("help", "en")], "до переключения бот отвечает по-английски"
+
+        ask("cast --ru", 2)
+        bot.run_one()
+
+        ask("cast", 3)
+    finally:
+        configure_choice(previous)
+
+    assert load_config().language == "ru", "флаг из чата обязан лечь в настройку продукта"
+    assert api.sent[-1] == i18n("help", "ru")
+    assert api.sent[-1] != i18n("help", "en"), "русский и английский ответы обязаны различаться"

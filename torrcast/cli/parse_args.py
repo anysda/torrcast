@@ -44,6 +44,24 @@ def parse_args(argv: Sequence[str] | None = None) -> Args:
         action="store_true",
         help="открыть меню настройки Telegram-бота",
     )
+    # Язык - настройка, а не режим запуска: флаг ЗАПОМИНАЕТСЯ, и следующий `cast` уже
+    # говорит на нём же. Умолчание тут `None`, а не "en": «язык не назван» и «назван
+    # английский» - разные ответы, и первый обязан взять язык из настройки.
+    tongue = parser.add_mutually_exclusive_group()
+    tongue.add_argument(
+        "--ru",
+        dest="language",
+        action="store_const",
+        const="ru",
+        help="перейти на русский и запомнить выбор",
+    )
+    tongue.add_argument(
+        "--en",
+        dest="language",
+        action="store_const",
+        const="en",
+        help="перейти на английский и запомнить выбор",
+    )
     # Номер релиза имеет смысл только вместе с запросом и выбранной картиной: другой
     # запрос - другой список, а у каждой картины в нём - свои номера (TC-446).
     parser.add_argument(

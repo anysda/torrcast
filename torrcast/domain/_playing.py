@@ -182,3 +182,5 @@ class _Playing:
     #: и в недельный след (:func:`torrcast.usecases.revive_playback._blame._why`). Пусто -
     #: темноты нет.
     dark_why: str = ""
+    #: Год выбранной картины: структурированная часть имени для статуса и внешних пультов.
+    year: int = 0

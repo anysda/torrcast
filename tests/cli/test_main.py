@@ -14,7 +14,18 @@ from torrcast.domain.not_found_error import NotFoundError
 from torrcast.usecases.stopped import _Stopped
 
 #: Все имена контракта: :attr:`Args.command` других не отдаёт.
-_NAMES = ("configure", "stop", "status", "doctor", "log", "releases", "voices", "worker", "play")
+_NAMES = (
+    "configure",
+    "language",
+    "stop",
+    "status",
+    "doctor",
+    "log",
+    "releases",
+    "voices",
+    "worker",
+    "play",
+)
 
 
 def _table(command: Callable[[Args], int]) -> Mapping[str, Callable[[Args], int]]:
@@ -53,6 +64,7 @@ def _raises(error: BaseException) -> Callable[[Args], int]:
         (["voices", "кино"], "voices"),
         (["--play-key", "movie:кино:1999"], "worker"),
         (["моана", "2"], "play"),
+        (["--ru"], "language"),
     ],
 )
 def test_every_name_of_the_contract_reaches_its_own_command(argv: list[str], command: str) -> None:
@@ -61,6 +73,15 @@ def test_every_name_of_the_contract_reaches_its_own_command(argv: list[str], com
 
     assert main(argv, table) == EXIT_OK
     assert called == [command]
+
+
+def test_a_language_flag_next_to_work_remembers_the_choice_before_doing_the_work() -> None:
+    """Порядок тут договор: язык запоминается ДО работы, и работа при этом не пропадает."""
+    called: list[str] = []
+    table: Mapping[str, Callable[[Args], int]] = {name: _Named(name, called) for name in _NAMES}
+
+    assert main(["--ru", "моана"], table) == EXIT_OK
+    assert called == ["language", "play"]
 
 
 def test_the_code_of_the_command_is_the_code_of_the_run() -> None:
