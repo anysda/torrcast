@@ -128,7 +128,10 @@ def test_a_silent_stream_is_dropped_before_the_full_probe_budget(
 
     printed = capsys.readouterr().out
     assert prep.number == 2, "молчащий поток не останавливает показ"
-    assert "релиз 1 не годится (рой молчит" in printed and "беру 2" in printed
+    assert (
+        "release 1 does not fit (рой молчит - за отсрочку не пришло ни байта потока)"
+        " - taking 2"
+    ) in printed
     assert elapsed < PROBE_BUDGET, "не сожгли весь бюджет на молчащем релизе"
 
 
@@ -443,11 +446,21 @@ def test_a_picture_whose_swarm_never_answers_is_refused_in_seconds_with_a_move(
         f"отказ занял {spent:.1f} с: обход трёх раздач стоит отсрочек, а сверх него - "
         "один бюджет раздачи на терпеливый спрос, но не три бюджета"
     )
-    assert printed.count("не дождались") == 3, "каждая осечка называет предел ожидания"
-    assert "спрашиваю релиз 1 ещё раз" in printed, "последний спрос тоже громкий"
-    assert "потрогали 3 (все)" in said, "спросили не всю очередь"
-    assert "ни одна не отозвалась" in said and "числятся" in said
-    assert "назови картину иначе" in said, "отказ без хода - тупик"
+    assert printed.count("gave up after 0s") == 3, (
+        "каждая осечка называет предел ожидания"
+    )
+    assert (
+        "the whole queue stayed silent (3) - asking release 1 once more, alone and "
+        f"without grace periods (waiting up to {META_BUDGET + PROBE_BUDGET:g}s)"
+    ) in printed, (
+        "последний спрос тоже громкий"
+    )
+    assert said == (
+        "releases in the listing: 3, touched: 3 (all) - none answered, though they list "
+        "seeders (up to 4), nothing to show: name the picture differently or come back "
+        "later - a different query gathers a different listing, and the swarm may wake up "
+        "(1 - gave up after 0s; 2 - gave up after 0s; 3 - gave up after 0s)"
+    )
     assert torrserver.dropped, "пустые раздачи из TorrServer убираются"
 
 
@@ -679,7 +692,7 @@ def test_silence_is_named_as_our_expired_wait() -> None:
         failure=SwarmError("рой пуст - за 6 с ни одного пира"),
     )
 
-    assert _waiting_note(prep, str(prep.failure)) == "не дождались за 6 с"
+    assert _waiting_note(prep, str(prep.failure)) == "gave up after 6s"
 
 
 def test_a_full_hd_head_is_not_dropped_for_a_slow_minute_of_its_swarm(
@@ -722,4 +735,4 @@ def test_a_slow_head_still_yields_when_nothing_below_it_is_a_step_lower(
     prep = _resolve(bench, ranked)
 
     assert prep.number == 2, "ступени под верхом нет - ждать его дольше незачем"
-    assert "не дождались" in capsys.readouterr().out
+    assert "gave up after 0s" in capsys.readouterr().out

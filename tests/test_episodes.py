@@ -321,7 +321,7 @@ def test_a_series_continues_the_right_episode_from_the_right_place(
     assert main(["киберпанк"]) == 0
 
     printed = capsys.readouterr().out
-    assert "s1e2" in printed and "с 0:05:00" in printed
+    assert "s1e2" in printed and "from 0:05:00" in printed
     assert "ищу" not in printed, "продолжение не ходит в Prowlarr"
     assert started == [KEY]
     assert saved().pos == 300.0 and saved().file_idx == 1
@@ -365,7 +365,10 @@ def test_the_last_episode_restarts_without_a_question_and_names_the_reason(
     assert main(["киберпанк"]) == 0
 
     said = capsys.readouterr().out
-    line = "«Киберпанк: Бегущие по краю» - s1e3 была последней в раздаче, поэтому играю с начала"
+    line = (
+        "“Киберпанк: Бегущие по краю” - s1e3 was the last one in the release, "
+        "so playing from the start"
+    )
     assert said.count(line) == 1
     assert (saved().episode, saved().file_idx, saved().done) == (1, 0, False)
 
@@ -426,7 +429,9 @@ def test_an_already_finished_release_also_restarts_without_a_question(
 
     assert main(["киберпанк"]) == 0
 
-    assert "s1e3 была последней в раздаче, поэтому играю с начала" in capsys.readouterr().out
+    assert "s1e3 was the last one in the release, so playing from the start" in (
+        capsys.readouterr().out
+    )
     assert (saved().episode, saved().file_idx, saved().done) == (1, 0, False)
 
 

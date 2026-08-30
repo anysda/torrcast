@@ -43,6 +43,8 @@ from torrcast.usecases.reinforce.same_picture import same_picture
 
 GB = 1024**3
 
+pytestmark = pytest.mark.usefixtures("_russian_product")
+
 
 def _knows(passports: dict[str, Origin]) -> FakePassport:
     """Справка с готовыми паспортами: она же и записывает, о чём её спрашивали."""
