@@ -22,7 +22,7 @@ def test_a_named_base_is_taken_as_is_without_any_network() -> None:
 def test_a_base_without_a_tv_comes_back_as_a_reason() -> None:
     """Адрес не собрался - проба отвечает причиной, а вердикт выносит домен."""
     base, error = ServiceProbe.hls_base(Config(tv=""))
-    assert base == "" and "маршрут" in error, error
+    assert base == "" and "no route" in error, error
 
 
 @pytest.mark.machine
