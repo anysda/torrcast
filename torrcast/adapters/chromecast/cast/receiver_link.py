@@ -9,6 +9,7 @@ from typing import Any
 from torrcast.adapters.chromecast.cast.hush_cosmetic_noise import hush_cosmetic_noise
 from torrcast.adapters.chromecast.cast.receiver_state import _State
 from torrcast.domain.infra_error import InfraError
+from torrcast.domain.start_refused_error import StartRefusedError
 from torrcast.domain.why import why
 
 
@@ -87,6 +88,40 @@ class _Link(_State):
 
         controller._process_load_failed = failed
 
+    def _no_link(self, exc: BaseException) -> InfraError:
+        """Чем отвечать на несостоявшийся коннект: отсутствием ТВ или отказом загрузки.
+
+        🔴 Выбор тут не косметический, он решает судьбу показа. Оба класса - авария
+        инфраструктуры, но :class:`StartRefusedError` показ ПОДНИМАЕТ лестницей
+        воскрешения (:func:`torrcast.usecases.playback._play._play` ловит именно его), а
+        голый :class:`InfraError` проходит мимо этого разбора и хоронит юнит показа кодом
+        возврата 2 при живом ТВ.
+
+        ПЕРВЫЙ коннект за показ не удался - приёмника нет в сети: показывать некому и
+        нечем, и висеть перед пустым экраном весь бюджет старта незачем. Это
+        :class:`InfraError`, как и было.
+
+        ПЕРЕподключение (:attr:`_linked`) - другое событие: в этом показе приёмник уже
+        отвечал, значит он есть, а легшее соединение лечится следующей попыткой с чистым
+        сокетом. Замер на приставке 30-08-2026 (TC-916), 2 прогона из 2: сеть рвётся через
+        0.35 с ПОСЛЕ ушедшего LOAD. ``NotConnected`` при этом не приходит вовсе, и
+        :func:`torrcast.adapters.chromecast.cast.while_connecting._while_connecting` сюда
+        не достаёт - он стоит на самой команде, а легло соединение ПОД ней. Показ
+        досиживает :data:`_Settings.STUCK_SECONDS`, уходит в чистое приложение
+        (:meth:`torrcast.adapters.chromecast.cast.receiver_talk._Talk._restart_app`, он же
+        гасит :attr:`_cast`) - и умирал ровно здесь, на ``device.wait``: чёрный экран,
+        код 2, и ни одной записи ``play/revive`` в ленте.
+
+        ⚠️ Своих повторов тут нет и быть не должно. Считает их лестница воскрешения, и
+        потолок ей ставят :data:`torrcast.domain.revive_settings.REVIVE_TRIES` (три
+        попытки на обрыв) и :data:`torrcast.domain.revive_settings.REVIVE_LIMIT` (900 с
+        темноты). Ещё один счётчик рядом с ними означал бы произведение потолков, а не
+        потолок.
+        """
+        if not self._linked:
+            return InfraError(f"ТВ {self.address} не принял каст: {why(exc)}")
+        return StartRefusedError(f"ТВ {self.address} не отозвался на переподключение: {why(exc)}")
+
     def _device(self) -> Any:
         if self._cast is None:
             import uuid
@@ -100,7 +135,10 @@ class _Link(_State):
                 )
                 device.wait(timeout=20)
             except Exception as exc:
-                raise InfraError(f"ТВ {self.address} не принял каст: {why(exc)}") from exc
+                raise self._no_link(exc) from exc
+            # Приёмник ответил - дальше его отсутствием отказ коннекта уже не объясняется
+            # (:meth:`_no_link`). Ставится ДО разбора ответов: связь состоялась здесь.
+            self._linked = True
             self._catch_media_error(device.media_controller)
             self._cast = device
         return self._cast
