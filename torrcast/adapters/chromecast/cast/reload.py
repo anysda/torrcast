@@ -40,9 +40,7 @@ def _reload(rcv: _Talk) -> bool:
         else phrase("chromecast_talk.without_code")
     )
     print(
-        phrase(
-            "chromecast_talk.receiver_dropped", position=f"{rcv._peak:.0f}", reason=reason
-        ),
+        phrase("chromecast_talk.receiver_dropped", position=f"{rcv._peak:.0f}", reason=reason),
         flush=True,
     )
     try:

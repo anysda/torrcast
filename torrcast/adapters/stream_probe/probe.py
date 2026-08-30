@@ -73,9 +73,7 @@ def probe(
         raise InfraError(phrase("media_binaries.ffprobe_timed_out")) from exc
     except subprocess.CalledProcessError as exc:
         raise InfraError(
-            phrase(
-                "media_binaries.ffprobe_failed", reason=(exc.stderr or "").strip()[:120]
-            )
+            phrase("media_binaries.ffprobe_failed", reason=(exc.stderr or "").strip()[:120])
         ) from exc
     media = parse_media(stdout)
     _keep_media(cache, media)

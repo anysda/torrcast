@@ -126,9 +126,7 @@ class _Link(_State):
                 phrase("chromecast_talk.tv_rejected_cast", address=self.address, reason=why(exc))
             )
         return StartRefusedError(
-            phrase(
-                "chromecast_talk.tv_no_reconnect_answer", address=self.address, reason=why(exc)
-            )
+            phrase("chromecast_talk.tv_no_reconnect_answer", address=self.address, reason=why(exc))
         )
 
     def _device(self) -> Any:

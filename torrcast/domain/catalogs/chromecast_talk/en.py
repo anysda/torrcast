@@ -44,14 +44,11 @@ def en() -> dict[str, str]:
             "receiver's socket is reconnecting - waiting up to {timeout} s for {what}"
         ),
         "chromecast_talk.stalled_skip": (
-            "receiver was stalling - the show skipped {gap} s of film "
-            "({start} s -> {end} s)"
+            "receiver was stalling - the show skipped {gap} s of film ({start} s -> {end} s)"
         ),
         "chromecast_talk.refused_busy": "refused: receiver is busy with someone else's show",
         "chromecast_talk.refused_crashed": "crashed: {reason}",
-        "chromecast_talk.refused_not_taken": (
-            "not taken: LOAD went through but no picture came"
-        ),
+        "chromecast_talk.refused_not_taken": ("not taken: LOAD went through but no picture came"),
         "chromecast_talk.refused_decoder_died": (
             "not taken: decoder died before starting the show"
         ),

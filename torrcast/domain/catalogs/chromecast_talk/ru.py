@@ -19,9 +19,7 @@ def ru() -> dict[str, str]:
         "chromecast_talk.receiver_stuck": (
             "приёмник залип - закрываю приложение и соединение, гружу заново"
         ),
-        "chromecast_talk.load_not_taken": (
-            "LOAD не взяли ({reason}) - повтор {tries} из {limit}"
-        ),
+        "chromecast_talk.load_not_taken": ("LOAD не взяли ({reason}) - повтор {tries} из {limit}"),
         "chromecast_talk.receiver_dropped": (
             "приёмник отвалился на {position} с{reason} - повтор LOAD"
         ),
@@ -37,24 +35,20 @@ def ru() -> dict[str, str]:
         "chromecast_talk.session_broke": "сессия оборвалась",
         "chromecast_talk.another_seek_arrived": "следом пришла ещё одна перемотка",
         "chromecast_talk.reconnect_timeout": (
-            "ТВ {address} переподключается дольше {timeout} с - "
-            "{what} не ушёл: {reason}"
+            "ТВ {address} переподключается дольше {timeout} с - {what} не ушёл: {reason}"
         ),
         "chromecast_talk.reconnect_wait": (
             "сокет приёмника переподключается - {what} жду до {timeout} с"
         ),
         "chromecast_talk.stalled_skip": (
-            "приёмник зависал - показ перешагнул {gap} с фильма "
-            "({start} с -> {end} с)"
+            "приёмник зависал - показ перешагнул {gap} с фильма ({start} с -> {end} с)"
         ),
         "chromecast_talk.refused_busy": "нельзя: приёмник занят чужим показом",
         "chromecast_talk.refused_crashed": "упал: {reason}",
         "chromecast_talk.refused_not_taken": "не взял: LOAD ушёл, а картинки не было",
         "chromecast_talk.refused_decoder_died": "не взял: декодер лёг, не начав показ",
         "chromecast_talk.refused_no_show_set": "нельзя: показ сюда не заводили",
-        "chromecast_talk.refused_sulking": (
-            "нельзя: приёмник помнит 404 и LOAD не берёт"
-        ),
+        "chromecast_talk.refused_sulking": ("нельзя: приёмник помнит 404 и LOAD не берёт"),
         "chromecast_talk.manifest_not_fetched": "приёмник не забрал манифест: {reason}",
         "chromecast_talk.cors_header_missing": (
             "в ответе нет {header}: * - Chromecast такое молча не играет"

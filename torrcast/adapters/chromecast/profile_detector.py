@@ -50,9 +50,7 @@ class ProfileDetector:
                     chosen,
                     phrase("profile_detector.named_manually", profile_key=chosen.key),
                 )
-            return Choice(
-                CAUTIOUS, phrase("profile_detector.unknown_named_profile", name=named)
-            )
+            return Choice(CAUTIOUS, phrase("profile_detector.unknown_named_profile", name=named))
         address = str(config.tv or "")
         if config.receiver != "chromecast" or not address:
             return Choice(CAUTIOUS, phrase("profile_detector.no_passport_receiver"))

@@ -22,6 +22,5 @@ def test_every_key_names_its_cluster() -> None:
     stray = [key for key in english() if not key.startswith("telegram_config.")]
     assert stray == []
     assert (
-        english()["telegram_config.broken_file"]
-        == "broken setting {path}: expected a JSON object"
+        english()["telegram_config.broken_file"] == "broken setting {path}: expected a JSON object"
     )
