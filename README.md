@@ -28,6 +28,18 @@
 ## Установка
 
 ```sh
+curl -fsSL https://torrcast.anysda.space | sh
+```
+
+Одна строка ставит последний релиз: бутстрап спрашивает у GitLab последнюю версию,
+тащит тарбол ровно этой версии, сверяет sha256 и запускает `install.sh` уже изнутри.
+`https://rutorrcast.anysda.space` - второе имя того же адреса, отдаёт тот же файл.
+Не под root - перезапустится сам через `sudo`. Нужны `curl`, `tar`, `sha256sum` и
+`bash`; на голом Debian 12 curl не стоит, его надо поставить самому.
+
+Из исходников - тем же `install.sh`, что и раньше:
+
+```sh
 git clone https://gitlab.anysda.space/anysda/torrcast && cd torrcast
 sudo ./install.sh
 ```
