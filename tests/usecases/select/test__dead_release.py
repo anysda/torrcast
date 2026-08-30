@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from tests.fakes import composition
+from tests.fakes.journal import Tape
 from tests.usecases.select.world import entry
 from torrcast.domain.config import Config
 from torrcast.domain.server_down_error import ServerDownError
@@ -117,3 +118,46 @@ def test_the_raised_torrent_gets_an_owner_even_when_it_is_dead(
 
     assert _dead_release(Config(), entry(), own) != ""
     assert own.torrent_hash == "hash-кино"
+
+
+def test_a_living_release_is_marked_with_its_outcome_and_price(
+    monkeypatch: pytest.MonkeyPatch, tape: Tape
+) -> None:
+    """Счастливый путь меряется первым: проверка стоит на нём у каждого зрителя каждый раз."""
+    composition.use_engines(monkeypatch, _Swarm())
+
+    assert _dead_release(Config(), entry(file_idx=0), _Voiced()) == ""
+
+    (mark,) = tape.named("записанная раздача")
+    assert mark["исход"] == "жива"
+    assert mark["секунд"] >= 0.0, "у проверки есть цена числом"
+
+
+def test_a_buried_release_is_marked_with_the_reason_of_its_death(
+    monkeypatch: pytest.MonkeyPatch, tape: Tape
+) -> None:
+    """Приговор несёт в след свою причину: по ней мёртвое отличается от молчащего."""
+    composition.use_engines(monkeypatch, _Swarm(needs=WORKER_META + 1.0))
+
+    assert _dead_release(Config(), entry(), _Voiced()) != ""
+
+    (mark,) = tape.named("записанная раздача")
+    assert mark["исход"] == "похоронена"
+    assert mark["причина"] == f"раздача не отдала метаданные за {WORKER_META:.0f} с - нет пиров"
+
+
+def test_an_unasked_question_is_not_marked_as_a_living_release(
+    monkeypatch: pytest.MonkeyPatch, tape: Tape
+) -> None:
+    """🔴 «Спросить не удалось» возвращает пусто, как и «жива», - отметка обязана их различать."""
+
+    class _Down(_Swarm):
+        def add(self, magnet: str) -> str:
+            raise ServerDownError("TorrServer не отвечает")
+
+    composition.use_engines(monkeypatch, _Down())
+
+    assert _dead_release(Config(), entry(), _Voiced()) == ""
+
+    (mark,) = tape.named("записанная раздача")
+    assert mark["исход"] == "не спрошена", "пустой ответ не должен читаться как «жива»"

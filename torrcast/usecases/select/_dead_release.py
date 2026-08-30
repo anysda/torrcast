@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import time
+
 import torrcast.usecases.select._pick_state as _pick_state
 from torrcast.domain.config import Config
 from torrcast.domain.entry import Entry
 from torrcast.domain.swarm_error import SwarmError
 from torrcast.domain.torrcast_error import TorrcastError
 from torrcast.domain.worker_settings import WORKER_META
+from torrcast.ports.journal.slot import journal
 from torrcast.ports.progress.slot import progress as progress_bar
 from torrcast.usecases.select._voiced import _Voiced
 
@@ -50,17 +53,33 @@ def _dead_release(config: Config, entry: Entry, own: _Voiced) -> str:
     читает юнит, а после нашего ``add`` они у службы уже есть. Раздача при этом
     поднимается НАШИМ вызовом, поэтому хэш её сразу записывается хозяину (``own``): не
     сыграла - её уберёт он же (:meth:`_Voiced.drop`), сыграла - примет юнит.
+
+    Каждый из трёх исходов отмечается в следе с временем и причиной: «жива» и «спросить
+    не удалось» снаружи неотличимы (обе возвращают пусто), и без отметки цену проверки
+    на счастливом пути - а она стоит на пути каждого зрителя - не назвать числом.
     """
     torrserver = _pick_state._select_engines(config.torrserver_url)
+    started = time.monotonic()
     try:
         with progress_bar() as progress:
             progress.phase("раздача")
             own.torrent_hash = torrent_hash = torrserver.add(entry.magnet)
             files = torrserver.wait_files(torrent_hash, timeout=WORKER_META)
     except SwarmError as refused:
-        return str(refused)
-    except TorrcastError:
-        return ""  # спросить не удалось - это не ответ «мертво», и записанное играет как играло
-    if any(found.index == entry.file_idx for found in files):
-        return ""
-    return f"файла №{entry.file_idx} в ней больше нет"
+        verdict, how, why = str(refused), "похоронена", str(refused)
+    except TorrcastError as failed:
+        # спросить не удалось - это не ответ «мертво», и записанное играет как играло
+        verdict, how, why = "", "не спрошена", str(failed)
+    else:
+        if any(found.index == entry.file_idx for found in files):
+            verdict, how, why = "", "жива", ""
+        else:
+            verdict = f"файла №{entry.file_idx} в ней больше нет"
+            how, why = "похоронена", verdict
+    journal().mark(
+        "записанная раздача",
+        исход=how,
+        причина=why,
+        секунд=round(time.monotonic() - started, 1),
+    )
+    return verdict

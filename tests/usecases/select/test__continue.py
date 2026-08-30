@@ -6,6 +6,7 @@ from typing import Any
 
 import pytest
 
+from tests.fakes.journal import Tape
 from tests.usecases.select.world import entry
 from torrcast.domain.args import Args
 from torrcast.domain.config import Config
@@ -205,3 +206,15 @@ def test_a_dry_run_wakes_no_swarm_to_judge_the_recorded_release() -> None:
     code = _continue(Config(), "movie:кино:1999", entry(), args, _Clock(), **shown.calls)
 
     assert code == EXIT_OK and shown.asked == []
+
+
+def test_a_dry_run_leaves_no_mark_of_the_liveness_check(tape: Tape) -> None:
+    """Сухой прогон не спрашивает ничего - и отметки о проверке живости не ставит."""
+    shown = _Shown(verdict="раздача не отдала метаданные за 60 с - нет пиров")
+
+    args = Args(query=["кино"], dry=True)
+
+    code = _continue(Config(), "movie:кино:1999", entry(), args, _Clock(), **shown.calls)
+
+    assert code == EXIT_OK
+    assert tape.named("записанная раздача") == []
