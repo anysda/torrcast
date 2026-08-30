@@ -1,1 +1,3 @@
-"""Надписи разбора коробки файла (:mod:`torrcast.domain.frames`)."""
+"""Надписи разбора коробки файла и чтения её головы
+(:mod:`torrcast.domain.frames`, :mod:`torrcast.adapters.frames`).
+"""

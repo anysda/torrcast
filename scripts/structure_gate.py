@@ -106,8 +106,6 @@ TRANSLATION_DEBT: Final = {
     # каталога он и не видит - слоёв у него нет. Долг такой же, как у пакета.
     "scripts/sni-shim.py": 15,
     "torrcast/adapters/ffprobe/parse_media.py": 2,
-    "torrcast/adapters/frames/http_range_reader.py": 1,
-    "torrcast/adapters/frames/keyframes.py": 1,
     "torrcast/adapters/http_server/_handler.py": 2,
     "torrcast/adapters/http_server/hls_base.py": 2,
     "torrcast/adapters/http_server/hls_server.py": 2,

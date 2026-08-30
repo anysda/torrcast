@@ -6,6 +6,7 @@ from collections.abc import Callable
 from typing import Final
 
 from torrcast.adapters.frames.http_range_reader import HttpRangeReader
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.frames.keymap.key_map import KeyMap
 from torrcast.domain.frames.range_reader import RangeReader
 from torrcast.domain.infra_error import InfraError
@@ -37,4 +38,4 @@ def keyframes(url: str, *, source: Source = HttpRangeReader, head_peek: int = HE
         from torrcast.domain.frames.mp4.keys import keys
 
         return keys(reader, head)
-    raise InfraError("это не mkv и не mp4: карту опорных кадров взять неоткуда")
+    raise InfraError(phrase("frames.unknown_container"))

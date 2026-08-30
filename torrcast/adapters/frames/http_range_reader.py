@@ -6,6 +6,7 @@ import urllib.request
 from collections.abc import Callable
 from typing import Any
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.swarm_silent_error import SwarmSilentError
 from torrcast.domain.why import why
 
@@ -36,7 +37,7 @@ class HttpRangeReader:
         # служба закрывает поток на полуслове, когда куска у неё так и не оказалось,
         # и ``http.client`` роняет это отдельной ветвью, мимо ``OSError``.
         except (urllib.error.URLError, http.client.HTTPException, OSError, ValueError) as exc:
-            raise SwarmSilentError(f"не читается голова файла: {why(exc)}") from exc
+            raise SwarmSilentError(phrase("frames.head_unreadable", reason=why(exc))) from exc
         self.taken += len(data)
         self.requests += 1
         return data

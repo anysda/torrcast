@@ -50,6 +50,6 @@ def test_a_body_cut_short_is_named_a_silent_swarm() -> None:
         return _Torn()
 
     reader = HttpRangeReader("https://example.test/movie.mkv", 17.0, open_)
-    with pytest.raises(SwarmSilentError, match="не читается голова файла"):
+    with pytest.raises(SwarmSilentError, match="cannot read the head of the file"):
         reader.read(0, 4096)
     assert (reader.taken, reader.requests) == (0, 0), "оборванный кусок зачлись как взятый"

@@ -1,7 +1,8 @@
-"""Русский каталог кластера разбора коробки файла: он надстройка над английским.
+"""Парный сторож русского каталога: те же ключи и те же подстановки, что у английского.
 
-Мера тут одна - подстановки. Разошедшееся имя значения роняет ``cast play`` на
-``KeyError`` уже у человека, и увидеть это можно только сверкой двух каталогов.
+Ключ, заведённый в одном каталоге и забытый в другом, - это надпись, которая на одном
+языке молча уезжает в запасной. А подстановка, забытая в переводе, роняет показ уже у
+человека: ``.format`` не прощает лишнего имени в шаблоне.
 """
 
 from __future__ import annotations
@@ -13,28 +14,19 @@ from torrcast.domain.catalogs.frames.ru import ru as russian
 
 
 def _values(line: str) -> set[str]:
-    return {name for _, name, _, _ in Formatter().parse(line) if name}
+    return {name for _text, name, _spec, _conv in Formatter().parse(line) if name}
 
 
-def test_russian_names_no_key_the_english_does_not_know() -> None:
-    stray = sorted(set(russian()) - set(english()))
-    assert stray == []
+def test_russian_holds_every_english_key() -> None:
+    assert russian().keys() == english().keys()
 
 
-def test_both_tongues_ask_for_the_same_values() -> None:
-    apart = {
-        key: (_values(english()[key]), _values(line))
-        for key, line in russian().items()
-        if _values(english()[key]) != _values(line)
-    }
-    assert apart == {}
+def test_both_tongues_substitute_the_same_names() -> None:
+    russian_names = {key: _values(line) for key, line in russian().items()}
+    english_names = {key: _values(line) for key, line in english().items()}
+    assert russian_names == english_names
 
 
-def test_no_russian_line_repeats_the_english_one() -> None:
-    """Строка, совпавшая с английской, - забытый перевод, а не совпадение.
-
-    Голых рамок в этом кластере нет: каждая надпись объясняет человеку, чего файлу не
-    хватает, и своих слов в ней хватает на обоих языках.
-    """
-    same = sorted(key for key, line in russian().items() if line == english()[key])
-    assert same == []
+def test_russian_lines_are_russian() -> None:
+    dumb = [key for key, line in russian().items() if line == english()[key]]
+    assert dumb == []

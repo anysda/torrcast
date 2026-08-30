@@ -22,6 +22,9 @@ def test_every_key_names_its_cluster() -> None:
     stray = [key for key in english() if not key.startswith("frames.")]
     assert stray == []
     assert english()["frames.mp4_no_video_trak"] == "the mp4 has no video track"
+    assert english()["frames.unknown_container"] == (
+        "not an mkv and not an mp4: nowhere to get a keyframe map from"
+    )
 
 
 def test_the_names_of_the_boxes_are_never_translated() -> None:

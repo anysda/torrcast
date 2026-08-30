@@ -11,6 +11,11 @@ def en() -> dict[str, str]:
     громко, а не отвечает пустотой.
     """
     return {
+        # Голова файла: до разбора коробки её ещё надо прочитать и опознать.
+        "frames.head_unreadable": "cannot read the head of the file: {reason}",
+        "frames.unknown_container": (
+            "not an mkv and not an mp4: nowhere to get a keyframe map from"
+        ),
         # Матрёшка: голова файла и индекс Cues.
         "frames.ebml_broken": "a broken EBML number",
         "frames.mkv_no_segment": "this is not mkv: there is no Segment element in the file head",
