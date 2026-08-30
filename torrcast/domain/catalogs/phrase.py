@@ -48,6 +48,8 @@ from torrcast.domain.catalogs.main_config.en import en as main_config_en
 from torrcast.domain.catalogs.main_config.ru import ru as main_config_ru
 from torrcast.domain.catalogs.media_binaries.en import en as media_binaries_en
 from torrcast.domain.catalogs.media_binaries.ru import ru as media_binaries_ru
+from torrcast.domain.catalogs.notes.en import en as notes_en
+from torrcast.domain.catalogs.notes.ru import ru as notes_ru
 from torrcast.domain.catalogs.playback.en import en as playback_en
 from torrcast.domain.catalogs.playback.ru import ru as playback_ru
 from torrcast.domain.catalogs.playback_session.en import en as playback_session_en
@@ -163,6 +165,7 @@ _CLUSTERS: Final = (
     (configure_en, configure_ru),
     (releases_en, releases_ru),
     (voices_command_en, voices_command_ru),
+    (notes_en, notes_ru),
 )
 
 

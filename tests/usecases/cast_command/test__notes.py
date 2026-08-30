@@ -13,6 +13,7 @@ from torrcast.domain.audio_track import AudioTrack
 from torrcast.domain.config import Config
 from torrcast.domain.episode import Episode
 from torrcast.domain.facts.origin import Origin
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.media import Media
 from torrcast.domain.torr_file import TorrFile
 from torrcast.usecases.cast_command._notes import _notes
@@ -75,7 +76,8 @@ def test_a_heavy_release_warns_about_the_receiver(
     """Выше порога настроек показ говорит вслух, чем это кончится для приёмника."""
     _say(Config(bitrate_warn_mbit=4.0, recode=False), _media(), Args(query=["кино"]))
 
-    assert "ресивер на таком битрейте может встать" in capsys.readouterr().out
+    line = phrase("notes.bitrate_warn_no_recode", mbit="36")
+    assert line in capsys.readouterr().out
 
 
 def test_the_same_weight_with_recoding_promises_a_recode_instead(
@@ -84,7 +86,8 @@ def test_the_same_weight_with_recoding_promises_a_recode_instead(
     """С включённым перекодированием та же тяжесть обещает перекод, а не вставший экран."""
     _say(Config(bitrate_warn_mbit=4.0, recode=True), _media(), Args(query=["кино"]))
 
-    assert "тяжёлые куски перекодирую на ходу" in capsys.readouterr().out
+    line = phrase("notes.bitrate_warn_recode", mbit="36")
+    assert line in capsys.readouterr().out
 
 
 def test_a_light_release_says_nothing_about_the_weight(
@@ -93,14 +96,17 @@ def test_a_light_release_says_nothing_about_the_weight(
     """Под порогом сказать нечего: лишняя строка перед стартом - это шум."""
     _say(Config(bitrate_warn_mbit=40.0), _media(), Args(query=["кино"]))
 
-    assert "Мбит/с" not in capsys.readouterr().out
+    assert "Mbit/s" not in capsys.readouterr().out
 
 
 def test_the_debug_handle_shows_the_insides(capsys: pytest.CaptureFixture[str]) -> None:
     """``--release N`` - отладочный путь: тут внутренности показывать и надо."""
     _say(Config(bitrate_warn_mbit=40.0), _media(), Args(query=["кино"], release=1))
 
-    assert "файл: film.mkv" in capsys.readouterr().out
+    line = phrase(
+        "notes.file_debug", base="film.mkv", size="30.0 GB", duration="2:00:00", video="h264"
+    )
+    assert line in capsys.readouterr().out
 
 
 def _pack() -> list[TorrFile]:
@@ -116,21 +122,22 @@ def test_the_pack_choice_is_said_aloud(capsys: pytest.CaptureFixture[str]) -> No
     """
     _say(Config(bitrate_warn_mbit=40.0), _media(), Args(query=["кино"]), files=_pack())
 
-    assert "видеофайлов в раздаче 12 - играю крупнейший, его доля 0.08" in capsys.readouterr().out
+    line = phrase("playback.picking_largest_file", total=12, share=0.08)
+    assert line in capsys.readouterr().out
 
 
 def test_the_pack_line_is_silent_on_a_lone_video(capsys: pytest.CaptureFixture[str]) -> None:
     """Видеофайл один - выбирать не из чего, и здоровая раздача строкой не засоряется."""
     _say(Config(bitrate_warn_mbit=40.0), _media(), Args(query=["кино"]))
 
-    assert "видеофайлов в раздаче" not in capsys.readouterr().out
+    assert "video files in this release" not in capsys.readouterr().out
 
 
 def test_the_pack_line_does_not_speak_for_the_viewer(capsys: pytest.CaptureFixture[str]) -> None:
     """``--file N`` - выбор человека, а не авто-решение: «играю крупнейший» было бы ложью."""
     _say(Config(bitrate_warn_mbit=40.0), _media(), Args(query=["кино"], file=3), files=_pack())
 
-    assert "видеофайлов в раздаче" not in capsys.readouterr().out
+    assert "video files in this release" not in capsys.readouterr().out
 
 
 def test_the_pack_line_does_not_speak_for_the_series(capsys: pytest.CaptureFixture[str]) -> None:
@@ -145,4 +152,4 @@ def test_the_pack_line_does_not_speak_for_the_series(capsys: pytest.CaptureFixtu
         picked=one,
     )
 
-    assert "видеофайлов в раздаче" not in capsys.readouterr().out
+    assert "video files in this release" not in capsys.readouterr().out

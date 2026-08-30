@@ -37,6 +37,7 @@ from torrcast.adapters.stream_pack.hls_dir import hls_dir
 from torrcast.adapters.stream_pack.pack_start import pack_start
 from torrcast.adapters.stream_pack.packer import Packer
 from torrcast.adapters.stream_probe.segment_name import segment_name
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.config import Config
 from torrcast.domain.entry import Entry
 from torrcast.domain.hls_settings import SPLIT_SLACK
@@ -310,7 +311,8 @@ def test_a_dead_source_stops_being_death_when_the_film_is_on_disk(tmp_path: Path
     for _ in range(2 * (warmed.limit + 1)):
         assert warmed._survive(_corpse(tmp_path)) is True, "показ умер, имея фильм на диске"
     assert not warmed.fatal and warmed.offline, "обрыв не отмечен вовсе"
-    assert any("жду возврата сети" in line for line in said), "обрыв прошёл молча"
+    tail = phrase("feed.source_unreadable", why="WHY-MARK").split("WHY-MARK)")[1]
+    assert any(tail in line for line in said), "обрыв прошёл молча"
 
 
 def _corpse(tmp_path: Path) -> Packer:

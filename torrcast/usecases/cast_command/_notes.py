@@ -8,6 +8,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from torrcast.domain.bitrate_mbit import bitrate_mbit
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.config import Config
 from torrcast.domain.media import Media
 from torrcast.domain.release import Release
@@ -44,10 +45,11 @@ def _notes(
     картины и тёзки."""
     peak = bitrate_mbit(video.size, media.duration or plan.runtime)
     if peak > config.bitrate_warn_mbit:
+        mbit = f"{peak:.0f}"
         print(
-            f"внимание: ~{peak:.0f} Мбит/с - тяжёлые куски перекодирую на ходу"
+            phrase("notes.bitrate_warn_recode", mbit=mbit)
             if config.recode
-            else f"внимание: ~{peak:.0f} Мбит/с - ресивер на таком битрейте может встать"
+            else phrase("notes.bitrate_warn_no_recode", mbit=mbit)
         )
     # Молчаливого японского не бывает: перевода в файле нет - человек слышит об этом
     # строкой, а не на слух через минуту показа.
@@ -59,7 +61,15 @@ def _notes(
     if note := voice_note(media, audio, plan.picture.native):
         print(note)
     if args.pinned:  # отладочный путь: тут внутренности показывать и надо
-        print(f"файл: {video.base} · {_gb(video.size)} · {_hms(media.duration)} · {media.video}")
+        print(
+            phrase(
+                "notes.file_debug",
+                base=video.base,
+                size=_gb(video.size),
+                duration=_hms(media.duration),
+                video=media.video,
+            )
+        )
     # Авто-выбор крупнейшего файла из нескольких - такое же авто-решение, как смена
     # картины, и молчать о нём нельзя: в раздаче-сборнике зритель иначе не узнает, что
     # играет одна часть из многих. Сериалу и ручке ``--file N`` говорить нечего: там файл

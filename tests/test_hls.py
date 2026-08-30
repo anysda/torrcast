@@ -45,6 +45,7 @@ from torrcast.adapters.stream_pack.pack_start import pack_start
 from torrcast.adapters.stream_pack.packer import Packer
 from torrcast.adapters.stream_pack.parse_manifest import parse_manifest
 from torrcast.adapters.stream_probe.segment_name import segment_name
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.film_keys import FilmKeys
 from torrcast.domain.frames.keymap.key_map import KeyMap
 from torrcast.domain.frames.keymap.video_track import video_track
@@ -1053,7 +1054,9 @@ def test_the_spot_shrink_packs_the_piece_under_the_cap(clip: str, tmp_path: Path
     made = spare / segment_name(0)
     assert made.exists(), "ужатие обязано положить перекод туда, откуда его возьмёт выкладка"
     assert 0 < made.stat().st_size <= MAX_SEGMENT_BYTES
-    assert len(said) == 1 and "ужимаю" in said[0], "одно авто-решение - одна честная строка"
+    middle = phrase("feed.shrinking", slot="SLOT-MARK", weight="WEIGHT-MARK", mbit="MBIT-MARK")
+    middle = middle.split("WEIGHT-MARK")[1].split("MBIT-MARK")[0]
+    assert len(said) == 1 and middle in said[0], "одно авто-решение - одна честная строка"
 
 
 def test_the_spot_shrink_without_a_recoder_skips_the_place_once(tmp_path: Path) -> None:
@@ -1063,7 +1066,11 @@ def test_the_spot_shrink_without_a_recoder_skips_the_place_once(tmp_path: Path) 
     feed = Feed(source="u", audio=0, out=out, grid=Grid.uniform(600.0), log=said.append)
     assert feed._shrink(5, MAX_SEGMENT_BYTES + 1) is False
     assert 5 in feed.skipped
-    assert len(said) == 1 and "пропускаю" in said[0]
+    middle = phrase(
+        "feed.skip_heavy", slot="SLOT-MARK", weight="WEIGHT-MARK", reason="REASON-MARK"
+    )
+    middle = middle.split("SLOT-MARK")[1].split("WEIGHT-MARK")[0]
+    assert len(said) == 1 and middle in said[0]
     assert feed._shrink(5, MAX_SEGMENT_BYTES + 1) is False
     assert len(said) == 1, "решение принято один раз - строки не разводим"
 
@@ -1367,7 +1374,8 @@ def test_the_unhanded_pieces_have_a_ceiling_and_reaching_it_is_said_out_loud(
 
     assert packer.halted, "несданное растёт, а прогон пишет дальше"
     assert packer.pending() == 0, "память показу не вернулась"
-    assert any("несданных кусков 5 МБ" in line for line in said), "память съедена молча"
+    expected = phrase("feed.pending_too_big", mb="5")
+    assert any(expected in line for line in said), "память съедена молча"
 
 
 def test_a_piece_finished_by_this_very_poll_is_not_mistaken_for_a_seek_back(

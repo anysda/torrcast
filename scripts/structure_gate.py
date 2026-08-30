@@ -126,7 +126,6 @@ TRANSLATION_DEBT: Final = {
     # Тот же путь: собирает её `wiki_blurbs.fetch`'s `except OSError`, экран не видит.
     "torrcast/adapters/wiki/wiki_extracts.py": 1,
     "torrcast/usecases/cast_command/_cmd_play.py": 3,
-    "torrcast/usecases/cast_command/_notes.py": 3,
     "torrcast/usecases/reinforce/_as_is.py": 1,
     "torrcast/usecases/reinforce/_ceiling_reinforce.py": 4,
     "torrcast/usecases/reinforce/_foreign_note.py": 5,
