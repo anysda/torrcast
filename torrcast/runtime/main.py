@@ -5,9 +5,13 @@ Console-script указывает сюда, а не сразу в :mod:`torrcast
 его (:mod:`torrcast.runtime.wire`).
 """
 
+import sys
 from collections.abc import Callable, Sequence
 
 from torrcast.cli.main import main as run
+from torrcast.domain.exit_codes import EXIT_INFRA
+from torrcast.domain.torrcast_error import TorrcastError
+from torrcast.ports.journal.slot import journal
 from torrcast.runtime.wire import wire
 
 
@@ -23,6 +27,20 @@ def main(
     действий и есть весь смысл точки входа, и меряется он подставленной парой, а не
     подменой атрибутов. Боевой паре тут стоять умолчанием - зовёт точку входа
     console-script, которому передавать нечего.
+
+    🔴 TC-929, заход 4. Ограда тут своя, а не общая с :func:`torrcast.cli.answered.
+    answered`: та оборачивает только ``command`` и о сборке не знает вовсе, поэтому битый
+    конфиг или неведомый язык (:func:`torrcast.domain.catalogs.tongue._choose_tongue`)
+    раньше улетали трейсбеком мимо неё. Отказ сборки - всегда инфра: до всякой команды
+    нечем ещё сказать «не нашли» или «отменено», поэтому код тут один, а не тот же
+    разбор по роду исключения, что и внутри ``answered``.
     """
-    assemble()
+    try:
+        assemble()
+    except TorrcastError as exc:
+        journal().emit("error", "error", text=str(exc)[:200])
+        print(str(exc), file=sys.stderr)
+        journal().emit("command", "finished", result="отказ сборки", code=EXIT_INFRA)
+        journal().shutdown()
+        return EXIT_INFRA
     return command(argv)

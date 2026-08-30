@@ -31,10 +31,13 @@ def wire() -> None:
     # Слой команд не видит ни адаптеров, ни сборки сеансов: режим stdin и три собранные
     # команды приходят к нему отсюда (:mod:`torrcast.runtime.configure_cli`).
     configure_cli()
+    # Журнал встаёт ДО чтения конфига нарочно: следующая строка ходит в файл настроек и
+    # умеет упасть (битый JSON, неведомый язык), а отказу сборки есть куда записаться
+    # только если писатель следа уже на месте (TC-929, заход 4).
+    install_journal(FileJournal())
     # Язык надписей приходит каталогу отсюда же: домен настройку не читает, а спросить
     # её в месте показа значило бы завести файловый ввод-вывод в каждой строке.
     _choose_tongue(load_config().language)
-    install_journal(FileJournal())
     install_progress(Progress)
     install_state(FileStateStore())
     install_unit(TransientShowUnit())

@@ -7,8 +7,13 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Sequence
+from pathlib import Path
 
+import pytest
+
+from torrcast.domain.exit_codes import EXIT_INFRA
 from torrcast.runtime.main import main
 
 
@@ -58,3 +63,51 @@ def test_the_exit_code_of_the_command_is_the_exit_code_of_the_process() -> None:
     показ успешным и пошёл бы дальше по своему сценарию.
     """
     assert main(["status"], assemble=lambda: None, command=lambda argv: 3) == 3
+
+
+def _trace_records(directory: Path) -> list[dict[str, object]]:
+    """Записи ленты как их оставил настоящий писатель - по всем файлам каталога."""
+    rows: list[dict[str, object]] = []
+    for path in sorted(directory.glob("trace-*.jsonl")):
+        for raw in path.read_text("utf-8").splitlines():
+            rows.append(json.loads(raw))
+    return rows
+
+
+@pytest.mark.parametrize(
+    ("config_text", "stderr_substring"),
+    [
+        ("{не json", "битый конфиг"),
+        ('{"language": "de"}', "неизвестный язык"),
+    ],
+    ids=["битый-json", "неведомый-язык"],
+)
+def test_a_broken_assembly_reaches_the_human_the_same_way_a_broken_command_does(
+    config_text: str,
+    stderr_substring: str,
+    tmp_path: Path,
+    journal: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Отказ СБОРКИ обязан дойти до человека тем же путём, что и отказ внутри команды.
+
+    Настоящая :func:`~torrcast.runtime.wire.wire` читает конфиг раньше, чем
+    :func:`~torrcast.cli.answered.answered` вообще заводится - её ограда прежде
+    накрывала только ``command``, и битый JSON ли, неведомый язык ли улетали
+    трейсбеком мимо неё (TC-929, заход 4). Здесь - боевая пара ``assemble``/``command``
+    (умолчание точки входа), а не подставные фейки: мера обязана трогать ровно тот путь,
+    каким идёт консоль ``cast``.
+    """
+    config_path = tmp_path / "config.json"
+    config_path.write_text(config_text, encoding="utf-8")
+    monkeypatch.setenv("TORRCAST_CONFIG", str(config_path))
+
+    code = main(["status"])
+
+    assert code == EXIT_INFRA
+    assert stderr_substring in capsys.readouterr().err
+    records = _trace_records(journal)
+    assert any(row.get("phase") == "error" for row in records), (
+        "отказ сборки обязан попасть в след, а не пройти мимо журнала"
+    )

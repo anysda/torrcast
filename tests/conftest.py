@@ -29,7 +29,9 @@ from tests.fakes import composition
 from tests.fakes.journal import Tape
 from tests.fakes.pretend_tty import PretendTty
 from tests.fakes.show_unit import FakeShowUnit
+from torrcast.adapters.filesystem.state import config_keys as config_keys_module
 from torrcast.adapters.filesystem.state import load_config as load_config_module
+from torrcast.adapters.filesystem.state import save_config as save_config_module
 from torrcast.adapters.filesystem.state.config_path import DEFAULT_CONFIG_PATH
 from torrcast.adapters.filesystem.trace_journal.log_dir import LOG_ENV
 from torrcast.adapters.filesystem.trace_journal.session_id import SID_ENV
@@ -456,7 +458,7 @@ def _own_config_source(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Non
 def _config_reads_must_stay_off_the_machine_file(
     _own_config_source: None,
 ) -> Iterator[None]:
-    """Сторож: `load_config()` обязан упасть, а не тихо подставить умолчание.
+    """Сторож: чтение и запись конфига обязаны упасть, а не тихо подставить умолчание.
 
     Мера - источник, а не итог: не «язык набора совпал с ожидаемым», а «путь пришёл из
     :func:`config_path`, назначенного тестом». Если сессионная изоляция когда-нибудь
@@ -465,25 +467,40 @@ def _config_reads_must_stay_off_the_machine_file(
     :func:`config_path` вернётся к :data:`DEFAULT_CONFIG_PATH`, и обёртка ниже роняет
     прогон немедленно вместо того, чтобы молча унести язык с диска машины
     (см. набор без этой обёртки - TC-929, заход 3, где просевший прогон был зелёным).
+
+    🔴 TC-929, заход 4. Накрыт не только :mod:`~torrcast.adapters.filesystem.state.
+    load_config`: запись (:mod:`~torrcast.adapters.filesystem.state.save_config`) и
+    список написанных ключей (:mod:`~torrcast.adapters.filesystem.state.config_keys`)
+    тянут ``config_path`` собственным импортом, в свой модульный namespace, а не через
+    чтение - подмена одного namespace их не касалась вовсе, и обход изоляции тем же
+    путём, каким уже ловился один раз, эти два места пропускали молча.
     """
-    # getattr, а не атрибут напрямую: `config_path` в load_config.py - обычный импорт
-    # для собственных нужд модуля, не объявленный им наружу переэкспорт, и mypy честно
-    # не даёт опираться на чужую внутреннюю проводку через точку.
-    real_config_path: Callable[[], Path] = getattr(  # noqa: B009 - getattr обходит именно проверку
-        load_config_module, "config_path"
+    # getattr, а не атрибут напрямую: `config_path` в каждом из трёх модулей - обычный
+    # импорт для собственных нужд, не объявленный наружу переэкспорт, и mypy честно не
+    # даёт опираться на чужую внутреннюю проводку через точку.
+    modules: tuple[ModuleType, ...] = (
+        load_config_module,
+        save_config_module,
+        config_keys_module,
     )
-
-    def _config_path_or_die() -> Path:
-        path = real_config_path()
-        if path == DEFAULT_CONFIG_PATH:
-            raise AssertionError(
-                f"config_path() вернул машинный {DEFAULT_CONFIG_PATH} - "
-                "TORRCAST_CONFIG не назначен в этой точке прогона (TC-929, заход 3)"
-            )
-        return path
-
     patcher = pytest.MonkeyPatch()
-    patcher.setattr(load_config_module, "config_path", _config_path_or_die)
+    for module in modules:
+        real_config_path: Callable[[], Path] = getattr(  # noqa: B009 - getattr обходит саму проверку
+            module, "config_path"
+        )
+
+        def _config_path_or_die(
+            *, _real: Callable[[], Path] = real_config_path, _module: ModuleType = module
+        ) -> Path:
+            path = _real()
+            if path == DEFAULT_CONFIG_PATH:
+                raise AssertionError(
+                    f"{_module.__name__}.config_path() вернул машинный {DEFAULT_CONFIG_PATH} - "
+                    "TORRCAST_CONFIG не назначен в этой точке прогона (TC-929, заход 3)"
+                )
+            return path
+
+        patcher.setattr(module, "config_path", _config_path_or_die)
     try:
         yield
     finally:
