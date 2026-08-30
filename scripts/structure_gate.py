@@ -125,7 +125,6 @@ TRANSLATION_DEBT: Final = {
     "torrcast/adapters/wiki/http_json_client.py": 2,
     # Тот же путь: собирает её `wiki_blurbs.fetch`'s `except OSError`, экран не видит.
     "torrcast/adapters/wiki/wiki_extracts.py": 1,
-    "torrcast/usecases/cache_reserve.py": 8,
     "torrcast/usecases/cast_command/_account_watched.py": 3,
     "torrcast/usecases/cast_command/_bookmark.py": 5,
     "torrcast/usecases/cast_command/_cmd_play.py": 3,

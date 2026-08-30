@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from typing import Final
 
+from torrcast.domain.catalogs.cache.en import en as cache_en
+from torrcast.domain.catalogs.cache.ru import ru as cache_ru
 from torrcast.domain.catalogs.choice.en import en as choice_en
 from torrcast.domain.catalogs.choice.ru import ru as choice_ru
 from torrcast.domain.catalogs.chromecast_scan.en import en as chromecast_scan_en
@@ -92,6 +94,7 @@ from torrcast.domain.catalogs.trace.ru import ru as trace_ru
 #: пару файлов своего кластера, - а не правит эту функцию. Строка на кластер и запятая
 #: в конце: так соседний заход добавляет свой кластер, не трогая ничьей чужой строки.
 _CLUSTERS: Final = (
+    (cache_en, cache_ru),
     (choice_en, choice_ru),
     (cli_en, cli_ru),
     (digest_en, digest_ru),

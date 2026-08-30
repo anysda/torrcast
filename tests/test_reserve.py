@@ -16,6 +16,7 @@ from tests.fakes import composition
 from tests.fakes.show_unit import FakeShowUnit
 from torrcast.adapters.filesystem.state.state import State
 from torrcast.cli.main import main
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.config import Config
 from torrcast.domain.entry import Entry
 from torrcast.domain.server_down_error import ServerDownError
@@ -70,7 +71,8 @@ def test_reserve_is_minutes_of_this_release(monkeypatch: pytest.MonkeyPatch) -> 
 
     line = _cache_reserve(Config(), _entry())
 
-    assert line == "в кэше службы запас ещё на 7 мин показа (по замеру)"
+    measured = phrase("cache.by_measurement")
+    assert line == phrase("cache.reserve_minutes", minutes="7", source=measured)
 
 
 def test_reserve_depends_on_bitrate(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -79,7 +81,8 @@ def test_reserve_depends_on_bitrate(monkeypatch: pytest.MonkeyPatch) -> None:
 
     heavy = _cache_reserve(Config(), _entry(vbps=40.0))
 
-    assert heavy == "в кэше службы запас ещё на 2 мин показа (по замеру)"
+    measured = phrase("cache.by_measurement")
+    assert heavy == phrase("cache.reserve_minutes", minutes="2", source=measured)
 
 
 def test_reserve_names_an_estimated_bitrate(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -88,14 +91,15 @@ def test_reserve_names_an_estimated_bitrate(monkeypatch: pytest.MonkeyPatch) -> 
 
     line = _cache_reserve(Config(), _entry(vbps_estimated=True))
 
-    assert line == "в кэше службы запас ещё на 7 мин показа (по оценке)"
+    estimated = phrase("cache.by_estimate")
+    assert line == phrase("cache.reserve_minutes", minutes="7", source=estimated)
 
 
 def test_empty_cache_is_an_honest_line(monkeypatch: pytest.MonkeyPatch) -> None:
     """Запаса нет - об этом говорится вслух, а не молчанием."""
     _server(monkeypatch, {"Capacity": 8 * 1024**3, "Filled": 0})
 
-    assert _cache_reserve(Config(), _entry()) == "кэш службы пуст, запаса показа в нём нет"
+    assert _cache_reserve(Config(), _entry()) == phrase("cache.reserve_empty")
 
 
 def test_dead_service_degrades_to_unknown(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -104,7 +108,7 @@ def test_dead_service_degrades_to_unknown(monkeypatch: pytest.MonkeyPatch) -> No
 
     line = _cache_reserve(Config(), _entry())
 
-    assert line == "запас в кэше службы неизвестен - служба раздач не отвечает"
+    assert line == phrase("cache.reserve_unknown_no_answer")
 
 
 def test_silent_service_degrades_to_unknown(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -113,7 +117,7 @@ def test_silent_service_degrades_to_unknown(monkeypatch: pytest.MonkeyPatch) -> 
 
     line = _cache_reserve(Config(), _entry())
 
-    assert line == "запас в кэше службы неизвестен - служба про него молчит"
+    assert line == phrase("cache.reserve_unknown_silent")
 
 
 def test_unknown_bitrate_does_not_invent_minutes(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -122,7 +126,7 @@ def test_unknown_bitrate_does_not_invent_minutes(monkeypatch: pytest.MonkeyPatch
 
     line = _cache_reserve(Config(), _entry(vbps=-1.0))
 
-    assert line == "запас в кэше службы есть, в минуты не перевести - битрейт файла неизвестен"
+    assert line == phrase("cache.reserve_unconvertible")
 
 
 def test_no_hash_no_question(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -136,7 +140,7 @@ def test_tiny_reserve_is_honest(monkeypatch: pytest.MonkeyPatch) -> None:
     """Меньше минуты запаса не округляется до «1 мин»."""
     _server(monkeypatch, {"Capacity": 8 * 1024**3, "Filled": 30_000_000})
 
-    assert _cache_reserve(Config(), _entry()) == "в кэше службы запас меньше минуты показа"
+    assert _cache_reserve(Config(), _entry()) == phrase("cache.reserve_under_minute")
 
 
 def test_status_prints_the_reserve(
@@ -153,8 +157,9 @@ def test_status_prints_the_reserve(
     assert main(["status"]) == 0
 
     out = capsys.readouterr().out
-    assert "играю «Моана 2» - 0:10:00 / 2:00:00" in out
-    assert "в кэше службы запас ещё на 7 мин показа" in out
+    assert phrase("status.playing", what="«Моана 2»", pos="0:10:00", duration="2:00:00") in out
+    measured = phrase("cache.by_measurement")
+    assert phrase("cache.reserve_minutes", minutes="7", source=measured) in out
 
 
 def test_status_survives_dead_service(
@@ -171,5 +176,9 @@ def test_status_survives_dead_service(
     assert main(["status"]) == 0
 
     out = capsys.readouterr().out
-    assert "играю «Моана 2»" in out
-    assert "запас в кэше службы неизвестен - служба раздач не отвечает" in out
+    marker = "@"
+    prefix = phrase(
+        "status.playing", what="«Моана 2»", pos=marker, duration=marker
+    ).split(marker)[0]
+    assert prefix in out
+    assert phrase("cache.reserve_unknown_no_answer") in out

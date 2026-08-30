@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.config import Config
 from torrcast.domain.entry import Entry
 from torrcast.domain.infra_error import InfraError
@@ -47,16 +48,16 @@ def _cache_reserve(config: Config, entry: Entry) -> str:
             entry.torrent
         )
     except InfraError:
-        return "запас в кэше службы неизвестен - служба раздач не отвечает"
+        return phrase("cache.reserve_unknown_no_answer")
     filled = payload.get("Filled")
     if not isinstance(filled, int) or isinstance(filled, bool) or filled < 0:
-        return "запас в кэше службы неизвестен - служба про него молчит"
+        return phrase("cache.reserve_unknown_silent")
     if filled == 0:
-        return "кэш службы пуст, запаса показа в нём нет"
+        return phrase("cache.reserve_empty")
     if entry.vbps <= 0:
-        return "запас в кэше службы есть, в минуты не перевести - битрейт файла неизвестен"
+        return phrase("cache.reserve_unconvertible")
     minutes = filled * 8 / (entry.vbps * 1e6 * 60)
     if minutes < 1:
-        return "в кэше службы запас меньше минуты показа"
-    source = "по оценке" if entry.vbps_estimated else "по замеру"
-    return f"в кэше службы запас ещё на {minutes:.0f} мин показа ({source})"
+        return phrase("cache.reserve_under_minute")
+    source = phrase("cache.by_estimate") if entry.vbps_estimated else phrase("cache.by_measurement")
+    return phrase("cache.reserve_minutes", minutes=f"{minutes:.0f}", source=source)
