@@ -10,6 +10,7 @@ import time
 from typing import Any, Final, TextIO
 
 from torrcast.adapters.filesystem.trace_journal.emit import emit
+from torrcast.domain.catalogs.phrase import phrase
 
 #: Как часто перерисовывается строка прогресса на живом терминале, секунды.
 _TICK: Final = 0.5
@@ -101,7 +102,8 @@ class Progress:
                     self._draw()
 
     def _draw(self) -> None:
-        line = f"{self._text}... {time.monotonic() - self._since:.0f} с"
+        seconds = phrase("console.seconds")
+        line = f"{self._text}... {time.monotonic() - self._since:.0f} {seconds}"
         self.out.write("\r" + line + " " * max(0, self._width - len(line)))
         self.out.flush()
         self._width = len(line)
@@ -117,8 +119,9 @@ class Progress:
         if not self._text:
             return
         spent = time.monotonic() - self._since
+        seconds = phrase("console.seconds")
         self._erase()
-        self._say(f"{self._text}... {spent:.1f} с")
+        self._say(f"{self._text}... {spent:.1f} {seconds}")
 
     def _say(self, text: str) -> None:
         self.out.write(text + "\n")

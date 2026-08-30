@@ -40,7 +40,7 @@ def test_a_question_without_a_terminal_and_without_a_default_says_so_out_loud(
 ) -> None:
     """Молчаливый пустой ответ был бы неотличим от «человек нажал Enter»."""
     assert ask_line("Продолжить? [Y/n]", tty=lambda: False) == ""
-    assert "терминала нет" in capsys.readouterr().out
+    assert "no terminal" in capsys.readouterr().out
 
 
 def test_an_empty_enter_is_the_default_and_the_answer_is_cleaned() -> None:

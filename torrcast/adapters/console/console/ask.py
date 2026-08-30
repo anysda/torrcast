@@ -8,6 +8,7 @@ from collections.abc import Callable
 
 from torrcast.adapters.console.console import stdin_is_tty as _tty
 from torrcast.adapters.console.console.ask_line import ask_line
+from torrcast.domain.catalogs.phrase import phrase
 
 
 def ask(
@@ -34,8 +35,8 @@ def ask(
             return default
         if answer.isdigit() and 1 <= int(answer) <= count:
             return int(answer)
-        print(f"нужен номер от 1 до {count}")
+        print(phrase("console.need_number", count=count))
         if not has_tty():  # спросить некого - вторым кругом висеть не будем
             if default is None:
-                raise EOFError(f"нужен номер от 1 до {count}, а терминала нет")
+                raise EOFError(phrase("console.need_number_no_terminal", count=count))
             return default

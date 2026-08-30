@@ -8,6 +8,7 @@ from collections.abc import Callable
 
 from torrcast.adapters.console.console import stdin_is_tty as _tty
 from torrcast.adapters.console.console.clean import clean
+from torrcast.domain.catalogs.phrase import phrase
 
 
 def ask_line(
@@ -30,7 +31,7 @@ def ask_line(
     line = input if read is None else read
     prompt = f"{question}: "
     if not has_tty():
-        print(f"{prompt}{default or '(терминала нет - беру по умолчанию)'}", flush=True)
+        print(f"{prompt}{default or phrase('console.no_terminal_default')}", flush=True)
         return clean(default).casefold()
     try:
         raw = line(prompt)

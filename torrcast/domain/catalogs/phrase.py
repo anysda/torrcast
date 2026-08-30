@@ -42,6 +42,8 @@ from torrcast.domain.catalogs.spans.en import en as spans_en
 from torrcast.domain.catalogs.spans.ru import ru as spans_ru
 from torrcast.domain.catalogs.stream.en import en as stream_en
 from torrcast.domain.catalogs.stream.ru import ru as stream_ru
+from torrcast.domain.catalogs.console.en import en as console_en
+from torrcast.domain.catalogs.console.ru import ru as console_ru
 from torrcast.domain.catalogs.main_config.en import en as main_config_en
 from torrcast.domain.catalogs.main_config.ru import ru as main_config_ru
 from torrcast.domain.catalogs.media_binaries.en import en as media_binaries_en
@@ -91,6 +93,7 @@ _CLUSTERS: Final = (
     (main_config_en, main_config_ru),
     (playback_session_en, playback_session_ru),
     (chromecast_scan_en, chromecast_scan_ru),
+    (console_en, console_ru),
 )
 
 
