@@ -12,7 +12,8 @@ from torrcast.adapters.filesystem.trace_journal.file_journal import FileJournal
 from torrcast.adapters.health.system_health_environment import SystemHealthEnvironment
 from torrcast.adapters.systemd.transient_show_unit import TransientShowUnit
 from torrcast.adapters.warm_environment import environment as warm_environment
-from torrcast.domain.catalogs.tongue import _choose_tongue
+from torrcast.domain.catalogs.tongue import EN, _choose_tongue
+from torrcast.domain.torrcast_error import TorrcastError
 from torrcast.ports.journal.slot import install as install_journal
 from torrcast.ports.progress.slot import install as install_progress
 from torrcast.ports.show_unit.slot import install as install_unit
@@ -37,7 +38,14 @@ def wire() -> None:
     install_journal(FileJournal())
     # Язык надписей приходит каталогу отсюда же: домен настройку не читает, а спросить
     # её в месте показа значило бы завести файловый ввод-вывод в каждой строке.
-    _choose_tongue(load_config().language)
+    # Битая настройка не даёт выбрать оформление, поэтому берём английский -
+    # ровно как :func:`tgbot.language.language`. Сам отказ не проглочен: команда,
+    # которой нужна настройка, прочтёт её сама и назовёт человеку тот же отказ.
+    try:
+        language = load_config().language
+    except TorrcastError:
+        language = EN
+    _choose_tongue(language)
     install_progress(Progress)
     install_state(FileStateStore())
     install_unit(TransientShowUnit())

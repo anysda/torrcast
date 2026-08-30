@@ -74,6 +74,38 @@ def _trace_records(directory: Path) -> list[dict[str, object]]:
     return rows
 
 
+def test_log_works_when_the_configuration_is_broken(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """`cast log` читает след, а не настройку, которая могла его сломать."""
+    config_path = tmp_path / "config.json"
+    config_path.write_text("{", encoding="utf-8")
+    monkeypatch.setenv("TORRCAST_CONFIG", str(config_path))
+
+    code = main(["log"])
+
+    assert code == 0
+    assert capsys.readouterr().out == "следа нет - за неделю ни одного сеанса\n"
+
+
+def test_a_command_that_needs_configuration_still_names_the_broken_file(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Fallback языка не стирает признак: `status` обязан сам прочесть настройку."""
+    config_path = tmp_path / "config.json"
+    config_path.write_text("{", encoding="utf-8")
+    monkeypatch.setenv("TORRCAST_CONFIG", str(config_path))
+
+    code = main(["status"])
+
+    assert code != 0
+    assert str(config_path) in capsys.readouterr().err
+
+
 @pytest.mark.parametrize(
     ("config_text", "stderr_substring"),
     [
