@@ -40,6 +40,10 @@ from torrcast.domain.catalogs.stream.en import en as stream_en
 from torrcast.domain.catalogs.stream.ru import ru as stream_ru
 from torrcast.domain.catalogs.ports.en import en as ports_en
 from torrcast.domain.catalogs.ports.ru import ru as ports_ru
+from torrcast.domain.catalogs.profile_detector.en import en as profile_detector_en
+from torrcast.domain.catalogs.profile_detector.ru import ru as profile_detector_ru
+from torrcast.domain.catalogs.runtime.en import en as runtime_en
+from torrcast.domain.catalogs.runtime.ru import ru as runtime_ru
 from torrcast.domain.catalogs.telegram_config.en import en as telegram_config_en
 from torrcast.domain.catalogs.telegram_config.ru import ru as telegram_config_ru
 from torrcast.domain.catalogs.tongue import RU, tongue
@@ -67,6 +71,8 @@ _CLUSTERS: Final = (
     (trace_en, trace_ru),
     (telegram_config_en, telegram_config_ru),
     (ports_en, ports_ru),
+    (profile_detector_en, profile_detector_ru),
+    (runtime_en, runtime_ru),
 )
 
 

@@ -8,15 +8,14 @@ from __future__ import annotations
 from torrcast.adapters.console.print_console import PrintConsole
 from torrcast.adapters.filesystem.state.load_config import load_config
 from torrcast.adapters.filesystem.state.save_config import save_config
-from torrcast.domain.catalogs.tongue import EN, RU
+from torrcast.domain.catalogs.phrase import phrase
+from torrcast.domain.catalogs.tongue import EN, RU, _choose_tongue
 
-#: Подтверждение печатается на том языке, на который переключились: "cast --en" не
-#: вправе ответить по-русски. Строки продукта сегодня русские, и перевод их всех -
-#: работа отдельная (TC-929, второй заход); тут называется только сам выбор.
-#: Регистр названия языка не выравнивается между строками: у каждого языка свои
-#: правила письма, а не образец соседа - в английском имя языка пишется с заглавной
-#: буквы ("English"), в русском ("русский") строчной, и это не опечатка.
-_ANNOUNCED = {RU: "язык: русский", EN: "language: English"}
+#: Имя языка внутри подтверждения - не надпись продукта, а название САМОГО языка, и
+#: оно пишется его собственным письмом всегда, независимо от того, на какой каталог
+#: попадёт `phrase()`: в английском имя языка с заглавной буквы ("English"), в русском
+#: ("русский") строчной, и это не опечатка, а разное письмо для разных языков.
+_LANGUAGE_NAMES = {RU: "русский", EN: "English"}
 
 
 def language_command(language: str) -> int:
@@ -24,5 +23,9 @@ def language_command(language: str) -> int:
     config = load_config()
     config.language = language
     save_config(config)
-    PrintConsole().write(_ANNOUNCED.get(language, f"язык: {language}"))
+    # Названная рядом работа идёт в ТОМ ЖЕ процессе (`cast --ru мумия`), и надписи в ней
+    # обязаны быть уже новыми: следующего запуска, который перечитает настройку, тут нет.
+    _choose_tongue(language)
+    name = _LANGUAGE_NAMES.get(language, language)
+    PrintConsole().write(phrase("runtime.announced_language", name=name))
     return 0

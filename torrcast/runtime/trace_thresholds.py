@@ -5,6 +5,7 @@ from __future__ import annotations
 from torrcast.adapters.chromecast.profile_detector import detector
 from torrcast.adapters.filesystem.state.config_keys import config_keys
 from torrcast.adapters.filesystem.state.load_config import load_config
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.config import Config
 from torrcast.domain.profile import Profile
 from torrcast.domain.thresholds import thresholds
@@ -20,12 +21,14 @@ def trace_thresholds(config: Config, profile: Profile) -> dict[str, object]:
     try:
         raw = load_config()
     except TorrcastError:
-        return {"profile_source": "конфиг не прочитан"}
+        return {"profile_source": phrase("runtime.config_unread")}
     chosen = detector.detect(raw)
     values, sources = thresholds(raw, config, profile, config_keys())
     return {
         "profile_source": (
-            "паспорт приёмника" if chosen.how.startswith("по паспорту:") else chosen.how
+            phrase("runtime.receiver_passport")
+            if chosen.how.startswith(phrase("profile_detector.by_passport_prefix"))
+            else chosen.how
         ),
         "thresholds": values,
         "threshold_sources": sources,

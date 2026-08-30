@@ -11,7 +11,7 @@ from torrcast.domain.profile import ANDROID_TV, CAUTIOUS
 def test_a_named_key_is_the_last_word() -> None:
     """Ключ в настройках перебивает паспорт и устройство не спрашивает вовсе."""
     chosen = ProfileDetector().detect(Config(tv="10.0.0.50", receiver_profile="androidtv"))
-    assert chosen.profile is ANDROID_TV and "руками" in chosen.how
+    assert chosen.profile is ANDROID_TV and "manually" in chosen.how
 
 
 def test_an_unknown_name_in_the_config_is_not_a_crash() -> None:
@@ -66,4 +66,4 @@ def test_a_silent_receiver_gets_the_cautious_profile() -> None:
         raise OSError("сети нет")
 
     chosen = ProfileDetector(ask=dead).detect(Config(tv="10.0.0.50"))
-    assert chosen.profile is CAUTIOUS and "не ответил" in chosen.how
+    assert chosen.profile is CAUTIOUS and "did not respond" in chosen.how

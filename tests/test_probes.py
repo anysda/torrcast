@@ -103,7 +103,7 @@ def test_щуп_берёт_профиль_из_паспорта_приёмник
     said = capsys.readouterr().out
 
     assert choice.profile is ANDROID_TV
-    assert "профиль приёмника: androidtv" in said and "по паспорту:" in said
+    assert "профиль приёмника: androidtv" in said and "by passport:" in said
     assert tuned == tune(Config(tv="receiver.local"), ANDROID_TV)
 
 
@@ -125,7 +125,7 @@ def test_щуп_отдаёт_ручной_профиль_вперёд_паспо
     said = capsys.readouterr().out
     detector.forget()
 
-    assert "профиль приёмника: q70d" in said and "назван руками" in said
+    assert "профиль приёмника: q70d" in said and "manually named" in said
 
 
 def test_счёт_разносит_все_вердикты_прогона() -> None:

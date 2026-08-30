@@ -28,7 +28,7 @@ def test_the_snapshot_keeps_the_named_profile_and_the_explicit_config_key(
 
     snapshot = trace_thresholds(tune(raw, ANDROID_TV), ANDROID_TV)
 
-    assert snapshot["profile_source"] == "назван руками: receiver_profile=androidtv"
+    assert snapshot["profile_source"] == "manually named: receiver_profile=androidtv"
     assert snapshot["threshold_sources"]["recode_head_wait"] == "written in the config"  # type: ignore[index]
     assert snapshot["thresholds"]["recode_at_mbit"] == 28.0  # type: ignore[index]
 
@@ -45,7 +45,7 @@ def test_the_snapshot_does_not_name_a_profile_the_config_never_named(
 
     snapshot = trace_thresholds(tune(raw, chosen.profile), chosen.profile)
 
-    assert snapshot["profile_source"] == "профиля «bogus» нет - беру осторожный"
+    assert snapshot["profile_source"] == 'no profile named "bogus" - falling back to cautious'
 
 
 def test_a_config_broken_by_hand_mid_show_does_not_kill_the_session(
@@ -56,7 +56,7 @@ def test_a_config_broken_by_hand_mid_show_does_not_kill_the_session(
     path.write_text('{"receiver_profile": "androidtv",}', encoding="utf-8")
     monkeypatch.setenv("TORRCAST_CONFIG", str(path))
 
-    assert trace_thresholds(Config(), ANDROID_TV) == {"profile_source": "конфиг не прочитан"}
+    assert trace_thresholds(Config(), ANDROID_TV) == {"profile_source": "config not read"}
 
 
 def test_a_profile_from_the_receiver_passport_is_named_a_passport(
@@ -78,7 +78,7 @@ def test_a_profile_from_the_receiver_passport_is_named_a_passport(
     finally:
         detector.forget()
 
-    assert snapshot["profile_source"] == "паспорт приёмника"
+    assert snapshot["profile_source"] == "receiver passport"
 
 
 def test_a_handwritten_key_equal_to_the_cautious_default_is_named_ignored(

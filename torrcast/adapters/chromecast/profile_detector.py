@@ -15,6 +15,7 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Final
 
 from torrcast.domain.by_key import by_key
+from torrcast.domain.catalogs.phrase import phrase
 from torrcast.domain.choice import Choice
 from torrcast.domain.for_passport import for_passport
 from torrcast.domain.profile import CAUTIOUS
@@ -45,11 +46,16 @@ class ProfileDetector:
         if named:
             chosen = by_key(named)
             if chosen is not None:
-                return Choice(chosen, f"назван руками: receiver_profile={chosen.key}")
-            return Choice(CAUTIOUS, f"профиля «{named}» нет - беру осторожный")
+                return Choice(
+                    chosen,
+                    phrase("profile_detector.named_manually", profile_key=chosen.key),
+                )
+            return Choice(
+                CAUTIOUS, phrase("profile_detector.unknown_named_profile", name=named)
+            )
         address = str(config.tv or "")
         if config.receiver != "chromecast" or not address:
-            return Choice(CAUTIOUS, "приёмника с паспортом нет - беру осторожный")
+            return Choice(CAUTIOUS, phrase("profile_detector.no_passport_receiver"))
         if address not in self._seen:
             self._seen[address] = self._asked(address)
         return self._seen[address]
@@ -70,12 +76,13 @@ class ProfileDetector:
         try:
             device = ask(address, timeout=self._timeout)
         except Exception:
-            return Choice(CAUTIOUS, "приёмник не ответил - беру осторожный")
+            return Choice(CAUTIOUS, phrase("profile_detector.no_response"))
         passport = ", ".join(part for part in (device.maker, device.model, device.name) if part)
         if not passport:
-            return Choice(CAUTIOUS, "приёмник не представился - беру осторожный")
+            return Choice(CAUTIOUS, phrase("profile_detector.no_introduction"))
         return Choice(
-            for_passport(device.maker, device.model, device.name), f"по паспорту: {passport}"
+            for_passport(device.maker, device.model, device.name),
+            f"{phrase('profile_detector.by_passport_prefix')} {passport}",
         )
 
     @staticmethod
